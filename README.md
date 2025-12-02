@@ -2,6 +2,8 @@
 
 基于 AI CLI 的室内装修平面方案设计助手，实现 Revit 与 AI 之间的人机协作设计。
 
+> **当前版本**: v2.0 极简版 | **数据模型**: outline + zones + modules
+
 ## 解决的问题
 
 | 问题 | 现状 | BIMCanvas 方案 |
@@ -13,6 +15,13 @@
 ---
 
 ## 核心设计理念
+
+### v2.0 极简数据分层
+
+| 层面 | 内容 | 用途 |
+|------|------|------|
+| Layer 1 (AI 上下文) | outline + zones + modules | AI 布置计算、前端渲染 |
+| Layer 2 (Revit 详情) | revitElementId、厚度等 | Phase 1 暂缓 |
 
 ### JSON 为骨，SVG 为皮
 
@@ -109,10 +118,12 @@ Web 拖拽 → 修改本地 JSON → 点击 Commit → 生成 change_set → AI 
 
 ```
 BIMCanvas/
-├── BIMCanvas.Core/              核心类库 (.NET Standard 2.0)
-│   ├── Models/                  数据模型 (CanvasDocument, Element, Zone...)
-│   ├── Algorithms/              空间计算 (碰撞检测, 网格对齐, 关系计算)
-│   └── Converters/              Revit ↔ JSON 转换
+├── BIMCanvas.Core/              核心类库 (.NET Standard 2.0) ✅ 已实现
+│   ├── Models/                  数据模型
+│   │   └── CanvasDocument.cs    CanvasDocument, Zone, Module 等 9 个类
+│   └── Algorithms/              空间算法
+│       ├── CollisionDetector.cs AABB 碰撞检测、多边形内判断
+│       └── FacingHelper.cs      语义朝向 ↔ 角度转换
 │
 ├── BIMCanvas.Revit/             Revit 插件 (.NET FW 4.7.2)
 │   ├── Commands/                Ribbon 按钮命令
@@ -120,7 +131,7 @@ BIMCanvas/
 │   └── Adapters/                Revit 元素适配器
 │
 ├── BIMCanvas.MCP.Canvas/        画布 MCP Server (.NET 6+)
-│   └── Tools/                   画布管理、元素操作、版本控制
+│   └── Tools/                   画布管理、模块操作、版本控制
 │
 ├── BIMCanvas.MCP.Library/       族库 MCP Server (.NET 6+)
 │   └── Tools/                   族库查询、Visual Fallback
@@ -141,16 +152,65 @@ BIMCanvas/
 
 ---
 
+## v2.0 JSON 数据结构
+
+```json
+{
+  "id": "canvas_001",
+  "version": 1,
+  "coordinateSystem": "cartesian_mm_yUp",
+  "metadata": { "revitViewId": 12345, "levelId": 67890, "gridSize": 500 },
+
+  "outline": {
+    "walls": [{ "id": "w1", "polygon": [[0,0], [6000,0], ...] }],
+    "openings": [{ "id": "d1", "type": "door", "line": [[2000,0], [2900,0]] }]
+  },
+
+  "zones": [{
+    "id": "z1",
+    "name": "主卧",
+    "function": "master_bedroom",
+    "innerBoundary": [[50,50], [5950,50], ...],
+    "exclusionAreas": [{ "id": "ex1", "type": "door_swing", "rect": [2000,0,2900,900] }],
+    "openings": ["d1"]
+  }],
+
+  "modules": [{
+    "id": "m1",
+    "moduleId": "sleep_master_01",
+    "moduleName": "主卧睡眠模块",
+    "bounds": [1500, 2000, 4500, 4500],
+    "facing": "north",
+    "zoneId": "z1",
+    "items": [{ "familyId": "bed_double_01", "offset": [0,0], "role": "主体" }]
+  }]
+}
+```
+
+**核心设计决策**：
+| 决策点 | 选择 | 理由 |
+|--------|------|------|
+| 墙体表示 | 封闭轮廓多边形 | AI 不需要理解墙体结构 |
+| 门窗表示 | 简化为线段 | 厚度不影响家具布置 |
+| 门扇区域 | 预计算 AABB 禁区 | KISS - AI 只需知道"这里不能放" |
+| 房间结构 | 只有 zones | 单一数据源原则 |
+| 布置单元 | modules（模块） | 支持单一家具或组合 |
+| 模块位置 | AABB 包围盒 | 碰撞检测简单直观 |
+| 模块朝向 | 语义化 (north/south/...) | AI 友好，插件端转换角度 |
+
+---
+
 ## 开发阶段
 
 ### Phase 1: 核心基础（MVP）
 
 **目标**：AI 可以在画布上设计，Web 可以显示
 
-- 实现 Core 数据模型和空间算法
-- 实现 Canvas-MCP 基础工具
-- 实现 Web 后端 SignalR + REST API
-- 实现 Web 前端 JSON → SVG 渲染
+- ✅ 实现 Core 数据模型（CanvasDocument, Zone, Module 等）
+- ✅ 实现空间算法（CollisionDetector, FacingHelper）
+- ⬜ 实现 Canvas-MCP 基础工具（module_add, module_move, module_delete）
+- ⬜ 实现 Web 后端 SignalR + REST API
+- ⬜ 实现 Web 前端 JSON → SVG 渲染
 
 ### Phase 2: 协作编辑
 
