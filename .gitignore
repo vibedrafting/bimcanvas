@@ -1,0 +1,21 @@
+# IDE
+.vs/
+.idea/
+*.user
+*.suo
+
+# Build
+bin/
+obj/
+packages/
+
+# Node
+node_modules/
+dist/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
