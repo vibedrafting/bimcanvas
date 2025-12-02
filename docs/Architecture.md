@@ -1,8 +1,112 @@
 # BIMCanvas 系统架构文档
 
-> 版本：v2.0
+> 版本：v2.1
 > 更新日期：2025-12-02
 > 状态：已定稿（基于专家评审结论）
+
+---
+
+## 0. 程序执行流程
+
+> **核心原则**：KISS - Keep It Simple, Stupid
+
+### 0.1 流程总览
+
+```
+┌──────────────────────────────────────────────────────────────────────────────┐
+│                           BIMCanvas 完整执行流程                              │
+├──────────────────────────────────────────────────────────────────────────────┤
+│                                                                              │
+│  Phase 1: 数据准备                                                           │
+│  ┌─────────────────────────────────────────────────────────────────────────┐ │
+│  │ 1. 提取原建筑信息 → 2. 生成项目配置要求 → 3. 划分工作区                   │ │
+│  └─────────────────────────────────────────────────────────────────────────┘ │
+│                                    ↓                                         │
+│  Phase 2: 素材准备                                                           │
+│  ┌─────────────────────────────────────────────────────────────────────────┐ │
+│  │ 4. 准备设计素材（家具）                                                   │ │
+│  └─────────────────────────────────────────────────────────────────────────┘ │
+│                                    ↓                                         │
+│  Phase 3: 方案生成与交互                                                     │
+│  ┌─────────────────────────────────────────────────────────────────────────┐ │
+│  │ 5. 家具布置 → 6. 交互式修改 ←→ (循环迭代)                                 │ │
+│  └─────────────────────────────────────────────────────────────────────────┘ │
+│                                    ↓                                         │
+│  Phase 4: 应用与反馈                                                         │
+│  ┌─────────────────────────────────────────────────────────────────────────┐ │
+│  │ 7. 应用到Revit → 8. 用户反馈 → 9. 重新应用 → 10. 记录布置结果             │ │
+│  └─────────────────────────────────────────────────────────────────────────┘ │
+│                                                                              │
+└──────────────────────────────────────────────────────────────────────────────┘
+```
+
+### 0.2 MVP 执行流程（Phase 1 精简版）
+
+```
+Phase 1: 数据提取
+═══════════════════════════════════════════════════════════════════════════════
+1. 用户在 Revit 中激活目标平面视图
+2. 点击"开始设计"按钮
+3. 插件端提取并计算：
+   - outline.walls: 墙体轮廓多边形
+   - outline.openings: 门窗线段
+   - zones[].innerBoundary: 可用空间（已扣除完成面）
+   - zones[].exclusionAreas: 门扇禁区（简化矩形）
+4. 生成 CanvasDocument JSON
+5. Web 端显示户型底图
+
+
+Phase 2: 区域确认
+═══════════════════════════════════════════════════════════════════════════════
+6. AI 根据 Revit 房间名称初步填写 zones[].function
+7. Web 端显示功能标签
+8. 用户确认/修改各区域功能
+
+
+Phase 3: 方案生成
+═══════════════════════════════════════════════════════════════════════════════
+9. AI 直接生成布置方案（不做候选清单）
+   - 遵循约束：innerBoundary 内、避开 exclusionAreas
+10. Web 端显示完整平面布置图
+
+
+Phase 4: 交互修改
+═══════════════════════════════════════════════════════════════════════════════
+11. 用户可以：
+    a) 在 Web 端拖拽调整家具位置
+    b) 通过对话指导 AI 修改（如"把床转90度"）
+12. 循环迭代直到满意
+
+
+Phase 5: 回写 Revit
+═══════════════════════════════════════════════════════════════════════════════
+13. 用户确认最终方案
+14. 调用 Revit-MCP：
+    - load_family_from_library 加载族
+    - create_element 创建家具（基于 levelId + position）
+15. Revit 中显示布置结果
+```
+
+**MVP 流程简化点**：
+- 砍掉"候选清单"和"多方案对比"
+- 砍掉"设计知识库"和"户型记忆"
+- AI 直出方案，对话调整
+
+### 0.3 核心设计决策
+
+| 决策点 | 选择 | 理由 |
+|--------|------|------|
+| **坐标系** | Y-Up (笛卡尔) | 符合 CAD/BIM/数学直觉，只在前端渲染时转换 |
+| **数据分层** | Layer 1 (AI 上下文) + Layer 2 (详细数据，Phase 1 暂缓) | Token 效率，职责清晰 |
+| **墙体表示** | 封闭轮廓多边形 | AI 不需要理解墙体结构，只需知道空间边界 |
+| **门窗表示** | 简化为线段 | 厚度不影响家具布置 |
+| **门扇区域** | 预计算为矩形禁区（AABB） | KISS - AI 只需知道"这里不能放" |
+| **房间结构** | 只有 zones，无 rooms | 单一数据源原则，zones 是设计概念 |
+| **标高信息** | 全局 levelId | 一张平面图对应一个 Level |
+| **布置单元** | modules（模块） | 支持单一家具或组合（如睡眠模块=床+床头柜） |
+| **模块位置** | AABB 包围盒 | 直观显示占用空间，碰撞检测简单 |
+| **模块朝向** | 语义化方向（north/south/...） | AI 友好，插件端转换为角度 |
+| **多方案** | Phase 1 不做 | MVP 先让 AI 直出方案，对话调整 |
 
 ---
 
@@ -211,23 +315,29 @@ function toModel(screenX: number, screenY: number, scale: number, canvasHeight: 
 ```
 【从 Revit 到画布】
 Revit 模型
-    → [Revit-MCP: ai_element_filter] 提取墙/门/窗元素
+    → [Revit-MCP: ai_element_filter] 提取墙/门/窗/房间元素
     → [Revit-MCP: capture_view] 获取视图范围
     → [BIMCanvas.Core: RevitToJsonConverter] 转换为 CanvasDocument (JSON)
+        - 墙体 → outline.walls (轮廓多边形)
+        - 门窗 → outline.openings (线段)
+        - 房间 → zones (含 innerBoundary, exclusionAreas)
     → [Canvas-MCP: canvas_create] 创建画布
     → [WebSocket] 推送到 Web
     → [BIMCanvas.Web] JSON → SVG 渲染显示
 
-【AI 设计方案】
+【AI 布置方案】
 AI 理解用户需求
-    → [Library-MCP: family_search] 搜索合适的家具
-    → [Canvas-MCP: element_add] 修改 JSON 数据
+    → [Library-MCP: module_search] 搜索合适的模块/家具
+    → [Canvas-MCP: module_add] 修改 JSON 数据
+        - 约束检查：bounds 在 innerBoundary 内
+        - 避障检查：不与 exclusionAreas 重叠
+        - 碰撞检查：不与其他 modules 重叠
     → [WebSocket] 实时推送 JSON 变更
     → [BIMCanvas.Web] 重新渲染 SVG
 
 【用户交互修改】
 用户在 Web 画布操作（拖拽家具）
-    → [前端] 修改本地 JSON 状态
+    → [前端] 修改本地 JSON 状态（modules 数组）
     → [WebSocket] 发送变更到 Server
     → [用户点击 Commit 按钮] 生成 change_set
     → [Canvas-MCP: canvas_get_changes] AI 查询变更
@@ -236,9 +346,12 @@ AI 理解用户需求
 【同步回 Revit】
 设计方案确定
     → [Canvas-MCP: canvas_export] 导出 JSON
-    → [BIMCanvas.Core: JsonToRevitConverter] 解析家具元素
+    → [BIMCanvas.Core: JsonToRevitConverter] 解析 modules
+        - 遍历 modules[].items
+        - 计算各 item 的世界坐标 (bounds 中心 + offset)
+        - 转换 facing → 旋转角度
     → [Revit-MCP: load_family_from_library] 加载族
-    → [Revit-MCP: create_element] 创建 Revit 元素
+    → [Revit-MCP: create_element] 创建 Revit 元素（基于 levelId）
 ```
 
 ---
@@ -546,7 +659,7 @@ public class CanvasStateManager
 
 **职责**：提供核心数据模型和算法，被所有 .NET 项目共享引用
 
-#### 6.1.1 数据模型
+#### 6.1.1 数据模型（v2.0 极简版）
 
 详细定义见：[Schema-JSON.md](./Schema-JSON.md)
 
@@ -555,62 +668,115 @@ public class CanvasStateManager
 public class CanvasDocument
 {
     public string Id { get; set; }
-    public string Name { get; set; }
     public int Version { get; set; }
-    public CanvasBounds Bounds { get; set; }
-    public CanvasGrid Grid { get; set; }
-    public CanvasMetadata Metadata { get; set; }
-    public CanvasStructure Structure { get; set; }
+    public string CoordinateSystem { get; set; } = "cartesian_mm_yUp";
+    public Metadata Metadata { get; set; }
+    public Outline Outline { get; set; }
     public List<Zone> Zones { get; set; }
-    public List<FurnitureElement> Elements { get; set; }
-    public List<SpatialRelation> SpatialRelations { get; set; }
-    public List<PendingCommit> PendingCommits { get; set; }
+    public List<Module> Modules { get; set; }
 }
 
-// FurnitureElement - 家具元素
-public class FurnitureElement
+// Metadata - 元数据
+public class Metadata
+{
+    public int RevitViewId { get; set; }
+    public int LevelId { get; set; }
+    public int GridSize { get; set; } = 500;
+}
+
+// Outline - 可视化底图
+public class Outline
+{
+    public List<Wall> Walls { get; set; }
+    public List<Opening> Openings { get; set; }
+}
+
+// Wall - 墙体轮廓
+public class Wall
 {
     public string Id { get; set; }
-    public string FamilyId { get; set; }
-    public string FamilyName { get; set; }
-    public string Category { get; set; }
-    public Point2D Position { get; set; }
-    public GridPosition GridPosition { get; set; }
-    public double Rotation { get; set; }
-    public Bounds3D Bounds { get; set; }
+    public List<double[]> Polygon { get; set; }  // [[x,y], [x,y], ...]
+}
+
+// Opening - 门窗
+public class Opening
+{
+    public string Id { get; set; }
+    public string Type { get; set; }  // "door" | "window"
+    public double[][] Line { get; set; }  // [[x1,y1], [x2,y2]]
+}
+
+// Zone - 设计区域
+public class Zone
+{
+    public string Id { get; set; }
+    public string Name { get; set; }
+    public string Function { get; set; }
+    public List<double[]> InnerBoundary { get; set; }  // 可用空间（已扣除完成面）
+    public List<ExclusionArea> ExclusionAreas { get; set; }
+    public List<string> Openings { get; set; }
+}
+
+// ExclusionArea - 禁止布置区
+public class ExclusionArea
+{
+    public string Id { get; set; }
+    public string Type { get; set; }  // "door_swing" | "passage" | "other"
+    public double[] Rect { get; set; }  // [minX, minY, maxX, maxY]
+}
+
+// Module - 布置模块
+public class Module
+{
+    public string Id { get; set; }
+    public string ModuleId { get; set; }
+    public string ModuleName { get; set; }
+    public double[] Bounds { get; set; }  // [minX, minY, maxX, maxY]
+    public string Facing { get; set; }  // "north" | "south" | "east" | "west" | ...
     public string ZoneId { get; set; }
-    public VisualInfo Visual { get; set; }
-    public RevitMapping RevitMapping { get; set; }
-    public ElementMetadata Metadata { get; set; }
+    public List<ModuleItem> Items { get; set; }
+}
+
+// ModuleItem - 模块内部家具
+public class ModuleItem
+{
+    public string FamilyId { get; set; }
+    public double[] Offset { get; set; }  // [dx, dy]
+    public string Role { get; set; }
 }
 ```
 
 #### 6.1.2 空间计算
 
 ```csharp
-// 碰撞检测
+// 碰撞检测（基于 AABB）
 public class CollisionDetector
 {
-    public bool HasCollision(FurnitureElement element, CanvasDocument document);
-    public List<FurnitureElement> GetCollisions(FurnitureElement element, CanvasDocument document);
+    // 检查模块是否可放置
+    public bool CanPlace(Module module, Zone zone, List<Module> existingModules);
+
+    // 检查 AABB 是否相交
+    public bool AabbIntersects(double[] a, double[] b);
+
+    // 检查 AABB 是否在多边形内
+    public bool IsInsidePolygon(double[] bounds, List<double[]> polygon);
 }
 
-// 空间关系计算
-public class RelationCalculator
+// 朝向转换
+public class FacingHelper
 {
-    // 计算所有空间关系
-    public List<SpatialRelation> CalculateRelations(CanvasDocument document);
+    // 语义方向 → 旋转角度
+    public double ToRotation(string facing);
+    // north → 0°, east → 90°, south → 180°, west → 270°
 
-    // 计算单个元素的关系
-    public List<SpatialRelation> CalculateElementRelations(string elementId, CanvasDocument document);
+    // 旋转角度 → 语义方向
+    public string FromRotation(double angle);
 }
 
 // 网格对齐
 public class GridHelper
 {
-    public Point2D SnapToGrid(Point2D position, int gridSize);
-    public GridPosition ToGridPosition(Point2D position, int gridSize);
-    public Point2D FromGridPosition(GridPosition gridPos, int gridSize);
+    public double[] SnapToGrid(double[] bounds, int gridSize);
 }
 ```
 
@@ -623,24 +789,23 @@ public class GridHelper
 | 工具名 | 功能 | 参数 |
 |--------|------|------|
 | **画布管理** |
-| `canvas_create` | 创建画布 | `name`, `width`, `height`, `revitData?` |
+| `canvas_create` | 创建画布 | `revitViewId`, `levelId`, `outline`, `zones` |
 | `canvas_describe` | 获取画布描述（AI 友好） | `canvasId` |
 | `canvas_get_state` | 获取完整 JSON 状态 | `canvasId` |
 | `canvas_screenshot` | 获取画布截图 | `canvasId`, `format?` |
 | `canvas_export` | 导出 JSON 文件 | `canvasId`, `filePath` |
-| **元素操作** |
-| `element_add` | 添加元素 | `canvasId`, `expectedVersion`, `familyId`, `position`, `rotation?`, `intent` |
-| `element_move` | 移动元素 | `canvasId`, `expectedVersion`, `elementId`, `position`, `intent` |
-| `element_rotate` | 旋转元素 | `canvasId`, `expectedVersion`, `elementId`, `angle`, `intent` |
-| `element_delete` | 删除元素 | `canvasId`, `expectedVersion`, `elementId`, `intent` |
-| `element_list` | 列出元素 | `canvasId`, `zoneId?` |
+| **模块操作** |
+| `module_add` | 添加模块 | `canvasId`, `expectedVersion`, `moduleId`, `bounds`, `facing`, `zoneId`, `items?` |
+| `module_move` | 移动模块 | `canvasId`, `expectedVersion`, `id`, `bounds` |
+| `module_rotate` | 旋转模块 | `canvasId`, `expectedVersion`, `id`, `facing` |
+| `module_delete` | 删除模块 | `canvasId`, `expectedVersion`, `id` |
+| `module_list` | 列出模块 | `canvasId`, `zoneId?` |
 | **版本控制** |
 | `canvas_get_changes` | 获取待处理变更 | `canvasId` |
 | `canvas_ack_commits` | 确认已处理变更 | `canvasId`, `changeSetIds` |
 | **查询分析** |
-| `element_at` | 查询位置元素 | `canvasId`, `position` |
-| `space_analyze` | 空间分析 | `canvasId` |
-| `relation_get` | 获取元素关系 | `canvasId`, `elementId` |
+| `module_at` | 查询位置模块 | `canvasId`, `position` |
+| `space_analyze` | 空间分析（检查可用空间） | `canvasId`, `zoneId` |
 
 #### 6.2.2 canvas_describe 返回示例
 
@@ -797,3 +962,4 @@ export class SvgRenderer {
 |------|------|----------|
 | v1.0 | 2025-12-01 | 初始版本 |
 | v2.0 | 2025-12-02 | 重大更新：采纳专家评审结论，修正 .NET 兼容性，改用 JSON 核心数据格式 |
+| v2.1 | 2025-12-02 | 添加程序执行流程章节，更新数据模型为 v2.0 极简版（outline + zones + modules），element 改为 module |
