@@ -114,16 +114,13 @@ Web 拖拽 → 修改本地 JSON → 点击 Commit → 生成 change_set → AI 
 
 ---
 
-## 项目结构
+## 项目结构（规划）
 
 ```
 BIMCanvas/
-├── BIMCanvas.Core/              核心类库 (.NET Standard 2.0) ✅ 已实现
-│   ├── Models/                  数据模型
-│   │   └── CanvasDocument.cs    CanvasDocument, Zone, Module 等 9 个类
-│   └── Algorithms/              空间算法
-│       ├── CollisionDetector.cs AABB 碰撞检测、多边形内判断
-│       └── FacingHelper.cs      语义朝向 ↔ 角度转换
+├── BIMCanvas.Core/              核心类库 (.NET Standard 2.0)
+│   ├── Models/                  数据模型 (CanvasDocument, Zone, Module...)
+│   └── Algorithms/              空间算法 (碰撞检测, 朝向转换)
 │
 ├── BIMCanvas.Revit/             Revit 插件 (.NET FW 4.7.2)
 │   ├── Commands/                Ribbon 按钮命令
@@ -146,7 +143,7 @@ BIMCanvas/
 │       ├── stores/              Pinia 状态
 │       └── services/            SignalR 客户端、渲染器
 │
-├── docs/                        文档
+├── docs/                        文档 ✅
 └── external/Revit-MCP/          已有 Revit-MCP 项目
 ```
 
@@ -206,8 +203,10 @@ BIMCanvas/
 
 **目标**：AI 可以在画布上设计，Web 可以显示
 
-- ✅ 实现 Core 数据模型（CanvasDocument, Zone, Module 等）
-- ✅ 实现空间算法（CollisionDetector, FacingHelper）
+**当前阶段**：文档设计（数据模型定义见 Schema-JSON.md）
+
+- ⬜ 实现 Core 数据模型（CanvasDocument, Zone, Module 等）
+- ⬜ 实现空间算法（CollisionDetector, FacingHelper）
 - ⬜ 实现 Canvas-MCP 基础工具（module_add, module_move, module_delete）
 - ⬜ 实现 Web 后端 SignalR + REST API
 - ⬜ 实现 Web 前端 JSON → SVG 渲染

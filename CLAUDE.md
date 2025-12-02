@@ -21,12 +21,14 @@
 
 | 项目 | 运行时 | 职责 | 状态 |
 |------|--------|------|------|
-| BIMCanvas.Core | .NET Standard 2.0 | 数据模型 + 空间算法 | ✅ 已实现 |
+| BIMCanvas.Core | .NET Standard 2.0 | 数据模型 + 空间算法 | ⬜ 待开发 |
 | BIMCanvas.Revit | .NET FW 4.7.2 | Revit 插件 | ⬜ 待开发 |
 | BIMCanvas.MCP.Canvas | .NET 6+ | 画布 MCP Server | ⬜ 待开发 |
 | BIMCanvas.MCP.Library | .NET 6+ | 族库 MCP Server | ⬜ 待开发 |
 | BIMCanvas.Web.Server | .NET 6+ | Web 后端 | ⬜ 待开发 |
 | BIMCanvas.Web | Vue 3 + TS | Web 前端 | ⬜ 待开发 |
+
+> **当前阶段**：文档设计。数据模型定义见 `docs/Schema-JSON.md`
 
 ---
 
