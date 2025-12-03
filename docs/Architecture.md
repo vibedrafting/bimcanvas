@@ -780,6 +780,73 @@ public class GridHelper
 }
 ```
 
+#### 6.1.3 核心转换器 (UnitConverter)
+
+**核心原则**：Core 层是单位转换的**唯一真理来源**。
+
+```csharp
+// BIMCanvas.Core/Converters/UnitConverter.cs
+namespace BIMCanvas.Core.Converters
+{
+    /// <summary>
+    /// 单位转换器 - 保留原始 Double 精度，无舍入
+    /// </summary>
+    public static class UnitConverter
+    {
+        // 长度转换常量
+        public const double FeetToMm = 304.8;
+        public const double MmToFeet = 1.0 / 304.8;
+
+        // 角度转换常量
+        public const double RadToDeg = 180.0 / Math.PI;
+        public const double DegToRad = Math.PI / 180.0;
+
+        // 长度转换（无舍入）
+        public static double ToMillimeters(double feet) => feet * FeetToMm;
+        public static double ToFeet(double mm) => mm * MmToFeet;
+
+        // 角度转换（无舍入）
+        public static double ToDegrees(double radians) => radians * RadToDeg;
+        public static double ToRadians(double degrees) => degrees * DegToRad;
+
+        /// <summary>
+        /// 从 BasisX 向量计算旋转角度（度），范围 0-360
+        /// </summary>
+        public static double GetRotationFromBasisX(double basisX_X, double basisX_Y)
+        {
+            double radians = Math.Atan2(basisX_Y, basisX_X);
+            double degrees = ToDegrees(radians);
+            return degrees < 0 ? degrees + 360 : degrees;
+        }
+    }
+}
+```
+
+**数据流中的调用时机**：
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│  Revit API (feet, radians)                                  │
+└─────────────────────────────────────────────────────────────┘
+                              │
+                              ▼  [BIMCanvas.Revit 调用]
+┌─────────────────────────────────────────────────────────────┐
+│  BIMCanvas.Core.Converters.UnitConverter                    │
+│  ToMillimeters() / ToDegrees()                              │
+└─────────────────────────────────────────────────────────────┘
+                              │
+                              ▼  JSON (mm, degrees)
+┌─────────────────────────────────────────────────────────────┐
+│  CanvasDocument                                             │
+└─────────────────────────────────────────────────────────────┘
+                              │
+                              ▼  [回写 Revit 时调用]
+┌─────────────────────────────────────────────────────────────┐
+│  BIMCanvas.Core.Converters.UnitConverter                    │
+│  ToFeet() / ToRadians()                                     │
+└─────────────────────────────────────────────────────────────┘
+```
+
 ### 6.2 BIMCanvas.MCP.Canvas
 
 **职责**：提供画布操作的 MCP 工具集
@@ -963,3 +1030,4 @@ export class SvgRenderer {
 | v1.0 | 2025-12-01 | 初始版本 |
 | v2.0 | 2025-12-02 | 重大更新：采纳专家评审结论，修正 .NET 兼容性，改用 JSON 核心数据格式 |
 | v2.1 | 2025-12-02 | 添加程序执行流程章节，更新数据模型为 v2.0 极简版（outline + zones + modules），element 改为 module |
+| v2.2 | 2025-12-03 | 新增 §6.1.3 核心转换器 (UnitConverter)，明确单位换算职责和精度原则 |

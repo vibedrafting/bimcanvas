@@ -59,7 +59,63 @@
 > **重要**：这是 CAD 标准坐标系，与 Web 屏幕坐标系（Y 向下）相反。
 > 前端渲染时必须进行显式坐标转换：`y_screen = canvasHeight - y_model * scale`
 
-### 1.4 数据流
+### 1.4 单位规范
+
+| 类型 | 单位 | 精度 | 换算公式 |
+|------|------|------|----------|
+| 长度 | 毫米 (mm) | Double | `mm = feet × 304.8` |
+| 角度 | 度 (degrees) | Double | `deg = rad × (180/π)` |
+
+**核心原则**：
+- **保留原始精度**：不做四舍五入，避免多次转换的累积误差
+- **Core 层是唯一真理来源**：单位转换逻辑在 `BIMCanvas.Core.Converters.UnitConverter` 中实现
+
+**数据流中的单位**：
+```
+Revit API (feet, radians)
+    ↓ [插件层调用 Core.UnitConverter]
+JSON (mm, degrees)
+    ↓ [回写时调用 Core.UnitConverter]
+Revit API (feet, radians)
+```
+
+### 1.5 几何图元 (Geometry Primitives)
+
+定义全局通用的几何数据结构，采用**纯数组格式**以节省 Token（比对象格式节省约 50%）。
+
+| 类型 | 格式 | 示例 | 说明 |
+|------|------|------|------|
+| **Point2D** | `[x, y]` | `[3000.5, 2500.0]` | 双精度坐标点（**绝对位置**） |
+| **Vec2D** | `[dx, dy]` | `[-600.0, 0.0]` | 相对偏移向量（**结构同 Point2D**） |
+| **Line2D** | `[[x1,y1], [x2,y2]]` | `[[2000,0], [2900,0]]` | 线段（起终点） |
+| **Polygon2D** | `[[x,y], ...]` | `[[0,0], [6000,0], ...]` | 多边形（隐式闭合） |
+| **AABB** | `[minX, minY, maxX, maxY]` | `[2000, 0, 2900, 900]` | 轴对齐包围盒 |
+
+#### Point2D vs Vec2D
+
+> **关键区分**：结构完全相同，但语义不同。
+> - `Point2D` 是**绝对量**，表示"在哪里"（位置）
+> - `Vec2D` 是**相对量**，表示"移动多少"（偏移）
+
+**使用场景**：
+- `Point2D`：`polygon` / `innerBoundary` 的顶点
+- `Vec2D`：`items[].offset` 模块内部家具相对模块中心的偏移
+
+#### Polygon2D 规则
+
+- 最少 3 个顶点
+- **隐式闭合**：首尾自动连接，不重复首点
+- 顶点按**逆时针**排列（CAD 惯例）
+
+#### AABB 计算
+
+```
+宽度 = maxX - minX
+高度 = maxY - minY
+中心 = [(minX + maxX) / 2, (minY + maxY) / 2]
+```
+
+### 1.6 数据流
 
 ```
 【AI 操作画布】
@@ -562,6 +618,19 @@ AI 调用修改工具时携带 `expectedVersion`：
 ### 10.1 TypeScript 类型
 
 ```typescript
+// ============================================
+// 基础几何类型 (Geometry Primitives)
+// ============================================
+type Point2D = [number, number];              // [x, y] 绝对位置
+type Vec2D = [number, number];                // [dx, dy] 相对偏移（结构同 Point2D，语义不同）
+type Line2D = [Point2D, Point2D];             // [[x1,y1], [x2,y2]] 线段
+type Polygon2D = Point2D[];                   // [[x,y], ...] 多边形（隐式闭合）
+type AABB = [number, number, number, number]; // [minX, minY, maxX, maxY] 包围盒
+
+// ============================================
+// 数据模型
+// ============================================
+
 // 画布文档
 interface CanvasDocument {
   id: string;
@@ -589,14 +658,14 @@ interface Outline {
 // 墙体轮廓
 interface Wall {
   id: string;
-  polygon: [number, number][];
+  polygon: Polygon2D;
 }
 
 // 门窗
 interface Opening {
   id: string;
   type: "door" | "window";
-  line: [[number, number], [number, number]];
+  line: Line2D;
 }
 
 // 设计区域
@@ -604,7 +673,7 @@ interface Zone {
   id: string;
   name: string;
   function: ZoneFunction;
-  innerBoundary: [number, number][];
+  innerBoundary: Polygon2D;
   exclusionAreas?: ExclusionArea[];
   openings?: string[];
 }
@@ -613,7 +682,7 @@ interface Zone {
 interface ExclusionArea {
   id: string;
   type: "door_swing" | "passage" | "other";
-  rect: [number, number, number, number]; // [minX, minY, maxX, maxY]
+  rect: AABB;
 }
 
 // 布置模块
@@ -621,7 +690,7 @@ interface Module {
   id: string;
   moduleId: string;
   moduleName?: string;
-  bounds: [number, number, number, number]; // [minX, minY, maxX, maxY]
+  bounds: AABB;
   facing: Facing;
   zoneId: string;
   items?: ModuleItem[];
@@ -630,7 +699,7 @@ interface Module {
 // 模块内部家具
 interface ModuleItem {
   familyId: string;
-  offset: [number, number];
+  offset: Vec2D;  // 相对模块中心的偏移
   role?: string;
 }
 
@@ -666,6 +735,7 @@ type Facing =
 
 | 版本 | 日期 | 变更内容 |
 |------|------|----------|
+| v2.1 | 2025-12-03 | 新增 §1.4 单位规范、§1.5 几何图元；明确 Point2D/Vec2D/Line2D/Polygon2D/AABB 类型定义 |
 | v2.0 | 2025-12-02 | **重大重构**：采用极简设计，outline + zones + modules 三层结构，AABB 包围盒，语义化朝向 |
 | v1.1 | 2025-12-02 | 坐标系变更为 CAD 标准（Y-up） |
 | v1.0 | 2025-12-02 | 初始版本 |

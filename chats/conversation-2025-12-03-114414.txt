@@ -1,0 +1,1044 @@
+
+ ▐▛███▜▌   Claude Code v2.0.56
+▝▜█████▛▘  Opus 4.5 · API Usage Billing
+  ▘▘ ▝▝    E:\工作文档\开发类\MyCode\BIMCanvas
+
+  /model to try Opus 4.5
+
+> 你是否了解程序预期的执行流程？ 
+
+● 让我先阅读架构文档来了解程序的执行流程。
+
+● Read(docs\Architecture.md)
+  ⎿  Read 966 lines
+
+● 是的，我已经阅读了 Architecture.md
+  文档，对程序预期的执行流程有清晰的理解。
+
+  执行流程概览
+
+  MVP 版本（5 个阶段）
+
+  Phase 1: 数据提取
+      用户在 Revit 激活视图 → 点击"开始设计" → 插件提取墙/门/窗 → 生成
+  CanvasDocument JSON
+
+  Phase 2: 区域确认
+      AI 根据房间名称填写功能 → 用户确认/修改各区域功能
+
+  Phase 3: 方案生成
+      AI 直接生成布置方案（遵循 innerBoundary + 避开 exclusionAreas）
+
+  Phase 4: 交互修改
+      用户在 Web 拖拽调整 / 对话指导 AI 修改 → 循环迭代
+
+  Phase 5: 回写 Revit
+      调用 Revit-MCP 加载族并创建家具
+
+  核心数据流
+
+  Revit 模型 → [Revit-MCP] → CanvasDocument JSON → [Canvas-MCP/Web画布] →
+  JSON → [Revit-MCP] → Revit 模型
+
+  关键设计决策
+
+  | 项目   | 选择                                |
+  |------|-----------------------------------|
+  | 数据格式 | JSON（AI 友好，Token 效率高）             |
+  | 布置单元 | Module（含 AABB bounds + facing 朝向） |
+  | 门扇区域 | 预计算为矩形禁区                          |
+  | 多方案  | Phase 1 不做，AI 直出 + 对话调整           |
+
+  ---
+  你想让我就某个具体阶段或细节进行更深入的分析，还是准备开始规划实现工作？
+
+> 我希望补充一下技术细节：
+- 单位换算：Revit内部存储坐标的单位是英尺，我希望插件提取出来的原建筑Json文
+件中存储的坐标单位是mm
+- 需要固定的几个数据格式，分别来存储常见的点、线、面元素？并且这几个数据结构
+要满足：AI友好、节省Token等优点
+ultrathink
+
+● 让我先查看现有的 Schema 定义，然后设计统一的基础数据格式。
+
+● Read(docs\Schema-JSON.md)
+  ⎿  Read 672 lines
+
+● 现在我了解了现有的 Schema
+  设计。让我为你设计统一的基础数据格式，并写入计划文件。
+
+● Updated plan
+  ⎿  /plan to preview ·                                       
+     C:\Users\huhaonan\.claude\plans\ethereal-greeting-wave.md
+
+● 我已经写好了初步的技术细节补充计划。在最终确定之前，有几个问题需要确认：
+                                                                          
+● User answered Claude's questions:
+  ⎿  · 英尺转毫米后的精度如何处理？ → 保留原始精度
+     · Revit API 返回的角度是什么单位？ → 我通常是通过获取 FamilyInstance 
+     的变换矩阵，然后用BasisX
+     用来判断旋转的角度，需要计算旋转角度，然后将弧度转换为角度
+
+● 明白了。让我更新计划文件，加入这些确认的细节：
+
+● Updated plan
+  ⎿  /plan to preview ·                                       
+     C:\Users\huhaonan\.claude\plans\ethereal-greeting-wave.md
+
+● 计划已更新完成。总结如下：
+
+  计划摘要
+
+  1. 单位换算
+
+  - 长度：英尺 × 304.8 → 毫米（保留原始精度）
+  - 角度：BasisX 向量 → Atan2 计算弧度 → 转换为度数
+
+  2. 五种基础几何格式
+
+  | 格式        | 结构                       | 示例                     |
+  |-----------|--------------------------|------------------------|
+  | Point2D   | [x, y]                   | [3000, 2500]           |
+  | Vec2D     | [dx, dy]                 | [-600, 0]              |
+  | Line2D    | [[x1,y1], [x2,y2]]       | [[2000,0], [2900,0]]   |
+  | Polygon2D | [[x1,y1], ...]           | [[0,0], [6000,0], ...] |
+  | AABB      | [minX, minY, maxX, maxY] | [2000, 0, 2900, 900]   |
+
+  3. 待更新文档
+
+  - docs/Schema-JSON.md - 新增单位规范和基础几何格式
+  - docs/Architecture.md - 补充单位换算说明
+
+  如果方案没问题，我将退出计划模式开始实施。
+  ⎿  User rejected Claude's plan:
+     ╭─────────────────────────────────────────────────────────────────────────╮
+     │ BIMCanvas 技术细节补充计划                                              │
+     │                                                                         │
+     │ 1. 单位换算规范                                                         │
+     │                                                                         │
+     │ 1.1 问题背景                                                            │
+     │                                                                         │
+     │ | 数据源            | 内部单位      | 说明              |               │
+     │ |----------------|-----------|-----------------|                        │
+     │ | Revit API      | 英尺 (feet) | Revit 内部存储的标准单位 |             │
+     │ | BIMCanvas JSON | 毫米 (mm)   | 面向用户和 AI 的友好单位  |            │
+     │                                                                         │
+     │ 1.2 转换规则                                                            │
+     │                                                                         │
+     │ mm = feet × 304.8                                                       │
+     │ feet = mm ÷ 304.8                                                       │
+     │                                                                         │
+     │ 1.3 转换职责分配                                                        │
+     │                                                                         │
+     │ ┌─────────────────────────────────────────────────────────────┐         │
+     │ │  Revit API (feet)                                           │         │
+     │ └─────────────────────────────────────────────────────────────┘         │
+     │                               │                                         │
+     │                               ▼  BIMCanvas.Core.Converters              │
+     │ ┌─────────────────────────────────────────────────────────────┐         │
+     │ │  RevitToJsonConverter                                       │         │
+     │ │  • 输入：Revit 元素坐标 (feet)                               │        │
+     │ │  • 输出：JSON 坐标 (mm)                                      │        │
+     │ │  • 转换：value_mm = value_feet * 304.8                      │         │
+     │ └─────────────────────────────────────────────────────────────┘         │
+     │                               │                                         │
+     │                               ▼  JSON (mm)                              │
+     │ ┌─────────────────────────────────────────────────────────────┐         │
+     │ │  CanvasDocument                                             │         │
+     │ │  所有坐标值单位：毫米 (mm)                                    │       │
+     │ └─────────────────────────────────────────────────────────────┘         │
+     │                               │                                         │
+     │                               ▼  BIMCanvas.Core.Converters              │
+     │ ┌─────────────────────────────────────────────────────────────┐         │
+     │ │  JsonToRevitConverter                                       │         │
+     │ │  • 输入：JSON 坐标 (mm)                                      │        │
+     │ │  • 输出：Revit API 参数 (feet)                               │        │
+     │ │  • 转换：value_feet = value_mm / 304.8                      │         │
+     │ └─────────────────────────────────────────────────────────────┘         │
+     │                                                                         │
+     │ 1.4 C# 实现建议                                                         │
+     │                                                                         │
+     │ // BIMCanvas.Core/Converters/UnitConverter.cs                           │
+     │ public static class UnitConverter                                       │
+     │ {                                                                       │
+     │     public const double FeetToMm = 304.8;                               │
+     │     public const double MmToFeet = 1.0 / 304.8;                         │
+     │                                                                         │
+     │     public static double ToMillimeters(double feet) => feet * FeetToMm; │
+     │     public static double ToFeet(double mm) => mm * MmToFeet;            │
+     │ }                                                                       │
+     │                                                                         │
+     │ ---                                                                     │
+     │ 2. 基础几何数据格式                                                     │
+     │                                                                         │
+     │ 2.1 设计原则                                                            │
+     │                                                                         │
+     │ | 原则   | 说明              |                                          │
+     │ |------|-----------------|                                              │
+     │ | 紧凑性  | 使用数组格式，节省 Token |                                  │
+     │ | 一致性  | 所有模块统一使用相同格式    |                               │
+     │ | 语义明确 | 通过字段名和文档说明格式含义  |                            │
+     │ | 隐式闭合 | 多边形首尾自动闭合，不重复首点 |                           │
+     │                                                                         │
+     │ 2.2 五种基础格式定义                                                    │
+     │                                                                         │
+     │ (1) Point2D - 二维点                                                    │
+     │                                                                         │
+     │ 格式：[x, y]                                                            │
+     │ 单位：毫米 (mm)                                                         │
+     │ 示例：[3000, 2500]                                                      │
+     │                                                                         │
+     │ 使用场景：                                                              │
+     │ - innerBoundary 的顶点                                                  │
+     │ - polygon 的顶点                                                        │
+     │                                                                         │
+     │ Token 效率：约 6-10 tokens                                              │
+     │                                                                         │
+     │ ---                                                                     │
+     │ (2) Vec2D - 二维向量/偏移                                               │
+     │                                                                         │
+     │ 格式：[dx, dy]                                                          │
+     │ 单位：毫米 (mm)                                                         │
+     │ 示例：[-600, 0]                                                         │
+     │                                                                         │
+     │ 使用场景：                                                              │
+     │ - items[].offset 模块内部家具偏移                                       │
+     │                                                                         │
+     │ Token 效率：约 6-10 tokens                                              │
+     │                                                                         │
+     │ 注：格式与 Point2D 相同，语义不同。Point2D 表示绝对位置，Vec2D          │
+     │ 表示相对偏移。                                                          │
+     │                                                                         │
+     │ ---                                                                     │
+     │ (3) Line2D - 二维线段                                                   │
+     │                                                                         │
+     │ 格式：[[x1, y1], [x2, y2]]                                              │
+     │        └ 起点    └ 终点                                                 │
+     │ 单位：毫米 (mm)                                                         │
+     │ 示例：[[2000, 0], [2900, 0]]                                            │
+     │                                                                         │
+     │ 使用场景：                                                              │
+     │ - openings[].line 门窗线段                                              │
+     │                                                                         │
+     │ Token 效率：约 15-20 tokens                                             │
+     │                                                                         │
+     │ ---                                                                     │
+     │ (4) Polygon2D - 二维多边形                                              │
+     │                                                                         │
+     │ 格式：[[x1, y1], [x2, y2], [x3, y3], ...]                               │
+     │        └ 顶点按顺序排列，隐式闭合（首尾自动连接）                       │
+     │ 单位：毫米 (mm)                                                         │
+     │ 示例：[[0, 0], [6000, 0], [6000, 6000], [0, 6000]]                      │
+     │        表示一个 6m × 6m 的正方形                                        │
+     │                                                                         │
+     │ 使用场景：                                                              │
+     │ - walls[].polygon 墙体轮廓                                              │
+     │ - zones[].innerBoundary 可用空间轮廓                                    │
+     │                                                                         │
+     │ Token 效率：每个顶点约 5-8 tokens                                       │
+     │                                                                         │
+     │ 规则：                                                                  │
+     │ - 最少 3 个顶点                                                         │
+     │ - 不重复首点（隐式闭合）                                                │
+     │ - 顶点按逆时针排列（遵循 CAD 惯例）                                     │
+     │                                                                         │
+     │ ---                                                                     │
+     │ (5) AABB - 轴对齐包围盒                                                 │
+     │                                                                         │
+     │ 格式：[minX, minY, maxX, maxY]                                          │
+     │        └ 左下角    └ 右上角                                             │
+     │ 单位：毫米 (mm)                                                         │
+     │ 示例：[2000, 0, 2900, 900]                                              │
+     │        表示从 (2000, 0) 到 (2900, 900) 的矩形                           │
+     │                                                                         │
+     │ 使用场景：                                                              │
+     │ - modules[].bounds 模块包围盒                                           │
+     │ - exclusionAreas[].rect 禁区矩形                                        │
+     │                                                                         │
+     │ Token 效率：约 12-16 tokens                                             │
+     │                                                                         │
+     │ 计算公式：                                                              │
+     │ 宽度 = maxX - minX                                                      │
+     │ 高度 = maxY - minY                                                      │
+     │ 中心点 = [(minX + maxX) / 2, (minY + maxY) / 2]                         │
+     │ 面积 = 宽度 × 高度                                                      │
+     │                                                                         │
+     │ ---                                                                     │
+     │ 2.3 格式对比与选型理由                                                  │
+     │                                                                         │
+     │ | 方案     | 示例                      | Token 估计 | 优缺点         |  │
+     │ |--------|-------------------------|----------|-------------|           │
+     │ | 数组格式 ✅ | [3000, 2500]            | ~8       | 紧凑，AI 友好    | │
+     │ | 对象格式   | {"x": 3000, "y": 2500}  | ~16      | 冗余，浪费 Token |  │
+     │ | 命名元组   | {"point": [3000, 2500]} | ~12      | 语义清晰但仍冗余    │
+     │ |                                                                       │
+     │                                                                         │
+     │ 选型结论：采用纯数组格式，通过字段名暗示语义。                          │
+     │                                                                         │
+     │ ---                                                                     │
+     │ 2.4 TypeScript 类型定义更新                                             │
+     │                                                                         │
+     │ // 基础几何类型                                                         │
+     │ type Point2D = [number, number];           // [x, y]                    │
+     │ type Vec2D = [number, number];             // [dx, dy]                  │
+     │ type Line2D = [Point2D, Point2D];          // [[x1,y1], [x2,y2]]        │
+     │ type Polygon2D = Point2D[];                // [[x1,y1], [x2,y2], ...]   │
+     │ type AABB = [number, number, number, number]; // [minX, minY, maxX,     │
+     │ maxY]                                                                   │
+     │                                                                         │
+     │ // 使用示例                                                             │
+     │ interface Wall {                                                        │
+     │   id: string;                                                           │
+     │   polygon: Polygon2D;  // 墙体轮廓                                      │
+     │ }                                                                       │
+     │                                                                         │
+     │ interface Opening {                                                     │
+     │   id: string;                                                           │
+     │   type: "door" | "window";                                              │
+     │   line: Line2D;        // 门窗线段                                      │
+     │ }                                                                       │
+     │                                                                         │
+     │ interface Zone {                                                        │
+     │   id: string;                                                           │
+     │   name: string;                                                         │
+     │   function: ZoneFunction;                                               │
+     │   innerBoundary: Polygon2D;  // 可用空间轮廓                            │
+     │   exclusionAreas?: ExclusionArea[];                                     │
+     │   openings?: string[];                                                  │
+     │ }                                                                       │
+     │                                                                         │
+     │ interface ExclusionArea {                                               │
+     │   id: string;                                                           │
+     │   type: "door_swing" | "passage" | "other";                             │
+     │   rect: AABB;          // 禁区矩形                                      │
+     │ }                                                                       │
+     │                                                                         │
+     │ interface Module {                                                      │
+     │   id: string;                                                           │
+     │   moduleId: string;                                                     │
+     │   moduleName?: string;                                                  │
+     │   bounds: AABB;        // 模块包围盒                                    │
+     │   facing: Facing;                                                       │
+     │   zoneId: string;                                                       │
+     │   items?: ModuleItem[];                                                 │
+     │ }                                                                       │
+     │                                                                         │
+     │ interface ModuleItem {                                                  │
+     │   familyId: string;                                                     │
+     │   offset: Vec2D;       // 相对模块中心的偏移                            │
+     │   role?: string;                                                        │
+     │ }                                                                       │
+     │                                                                         │
+     │ ---                                                                     │
+     │ 2.5 C# 类型定义建议                                                     │
+     │                                                                         │
+     │ // BIMCanvas.Core/Models/Geometry/Primitives.cs                         │
+     │ namespace BIMCanvas.Core.Models.Geometry                                │
+     │ {                                                                       │
+     │     /// <summary>                                                       │
+     │     /// 二维点 [x, y]，单位：毫米                                       │
+     │     /// </summary>                                                      │
+     │     public struct Point2D                                               │
+     │     {                                                                   │
+     │         public double X { get; set; }                                   │
+     │         public double Y { get; set; }                                   │
+     │                                                                         │
+     │         public Point2D(double x, double y) { X = x; Y = y; }            │
+     │                                                                         │
+     │         // JSON 序列化为数组格式                                        │
+     │         public double[] ToArray() => new[] { X, Y };                    │
+     │         public static Point2D FromArray(double[] arr) => new            │
+     │ Point2D(arr[0], arr[1]);                                                │
+     │     }                                                                   │
+     │                                                                         │
+     │     /// <summary>                                                       │
+     │     /// 轴对齐包围盒 [minX, minY, maxX, maxY]，单位：毫米               │
+     │     /// </summary>                                                      │
+     │     public struct AABB                                                  │
+     │     {                                                                   │
+     │         public double MinX { get; set; }                                │
+     │         public double MinY { get; set; }                                │
+     │         public double MaxX { get; set; }                                │
+     │         public double MaxY { get; set; }                                │
+     │                                                                         │
+     │         public double Width => MaxX - MinX;                             │
+     │         public double Height => MaxY - MinY;                            │
+     │         public Point2D Center => new Point2D((MinX + MaxX) / 2, (MinY + │
+     │ MaxY) / 2);                                                             │
+     │                                                                         │
+     │         public double[] ToArray() => new[] { MinX, MinY, MaxX, MaxY };  │
+     │         public static AABB FromArray(double[] arr) => new AABB          │
+     │         {                                                               │
+     │             MinX = arr[0], MinY = arr[1], MaxX = arr[2], MaxY = arr[3]  │
+     │         };                                                              │
+     │                                                                         │
+     │         /// <summary>                                                   │
+     │         /// 检测两个 AABB 是否相交                                      │
+     │         /// </summary>                                                  │
+     │         public bool Intersects(AABB other) =>                           │
+     │             !(MaxX < other.MinX || MinX > other.MaxX ||                 │
+     │               MaxY < other.MinY || MinY > other.MaxY);                  │
+     │     }                                                                   │
+     │ }                                                                       │
+     │                                                                         │
+     │ ---                                                                     │
+     │ 3. 文档更新计划                                                         │
+     │                                                                         │
+     │ 需要在以下文档中补充上述内容：                                          │
+     │                                                                         │
+     │ | 文档                   | 更新内容                     |               │
+     │ |----------------------|--------------------------|                     │
+     │ | docs/Schema-JSON.md  | 新增 §1.4 单位规范，§1.5 基础几何格式 |        │
+     │ | docs/Architecture.md | 在 §1.5 坐标系统规范 中补充单位换算说明  |     │
+     │                                                                         │
+     │ ---                                                                     │
+     │ 4. 已确认的技术细节                                                     │
+     │                                                                         │
+     │ 4.1 精度处理                                                            │
+     │                                                                         │
+     │ ✅ 保留原始精度，不做舍入处理。                                         │
+     │                                                                         │
+     │ // 示例：英尺转毫米                                                     │
+     │ double feet = 9.84251968503937;  // Revit 返回值                        │
+     │ double mm = feet * 304.8;        // = 3000.0 (精确值)                   │
+     │ // 直接使用，不做舍入                                                   │
+     │                                                                         │
+     │ 4.2 角度单位与转换                                                      │
+     │                                                                         │
+     │ 获取方式：通过 FamilyInstance.GetTransform().BasisX 计算旋转角度        │
+     │                                                                         │
+     │ 转换流程：                                                              │
+     │ BasisX 向量 → 计算与 X 轴夹角（弧度）→ 转换为角度（度）                 │
+     │                                                                         │
+     │ C# 实现：                                                               │
+     │ // BIMCanvas.Core/Converters/UnitConverter.cs                           │
+     │ public static class UnitConverter                                       │
+     │ {                                                                       │
+     │     // 长度转换                                                         │
+     │     public const double FeetToMm = 304.8;                               │
+     │     public const double MmToFeet = 1.0 / 304.8;                         │
+     │                                                                         │
+     │     public static double ToMillimeters(double feet) => feet * FeetToMm; │
+     │     public static double ToFeet(double mm) => mm * MmToFeet;            │
+     │                                                                         │
+     │     // 角度转换                                                         │
+     │     public const double RadToDeg = 180.0 / Math.PI;                     │
+     │     public const double DegToRad = Math.PI / 180.0;                     │
+     │                                                                         │
+     │     public static double ToDegrees(double radians) => radians *         │
+     │ RadToDeg;                                                               │
+     │     public static double ToRadians(double degrees) => degrees *         │
+     │ DegToRad;                                                               │
+     │                                                                         │
+     │     /// <summary>                                                       │
+     │     /// 从 BasisX 向量计算旋转角度（度）                                │
+     │     /// </summary>                                                      │
+     │     public static double GetRotationFromBasisX(double basisX_X, double  │
+     │ basisX_Y)                                                               │
+     │     {                                                                   │
+     │         double radians = Math.Atan2(basisX_Y, basisX_X);                │
+     │         return ToDegrees(radians);                                      │
+     │     }                                                                   │
+     │ }                                                                       │
+     │                                                                         │
+     │ JSON 中存储：角度统一使用度数 (degrees)，范围 0-360°                    │
+     │                                                                         │
+     │ ---                                                                     │
+     │ 5. 文档更新任务                                                         │
+     │                                                                         │
+     │ | 文档                   | 更新内容                     | 优先级 |      │
+     │ |----------------------|--------------------------|-----|               │
+     │ | docs/Schema-JSON.md  | 新增 §1.4 单位规范，§1.5 基础几何格式 | 高   | │
+     │ | docs/Architecture.md | 在 §1.5 坐标系统规范 中补充单位换算说明  | 高  │
+     │  |                                                                      │
+     │                                                                         │
+     │ 具体修改点                                                              │
+     │                                                                         │
+     │ Schema-JSON.md 需要新增：                                               │
+     │ 1. 单位规范章节（英尺→毫米、弧度→角度）                                 │
+     │ 2. 基础几何格式定义（Point2D, Vec2D, Line2D, Polygon2D, AABB）          │
+     │ 3. 更新 TypeScript 类型定义，使用明确的类型别名                         │
+     │                                                                         │
+     │ Architecture.md 需要新增：                                              │
+     │ 1. 在 §1.5 坐标系统规范 中补充单位换算说明                              │
+     │ 2. 在 §6.1.2 空间计算 中补充 UnitConverter 类说明                       │
+     │                                                                         │
+     │                                                                         │
+     │                                                                         │
+     ╰─────────────────────────────────────────────────────────────────────────╯
+
+> /export 
+  ⎿  Conversation exported to: conversation-2025-12-03-113146.txt
+
+> 以下是业务专家对你改造方案的建议，请你仔细阅读并给出回复，要求：
+- 适当的坚持你认为正确的观点，并且主动在回复中要求深入讨论
+- 在业务专家的帮助下，不断的更新优化你的改造方案
+# 业务专家建议
+你好 Claude，我是业务专家。我仔细审阅了之前的讨论记录，针对代码改造方案，我
+有以下几点建议，希望能帮助你打好“地基”：
+
+1. 关于“精度”的定调 (Precision)
+之前你提到过“四舍五入取整”，但我建议坚决保留原始精度 (Double)。
+
+理由：虽然装修施工是毫米级，但我们做的是底层数据架构。Revit 
+内部是双精度的，Web
+前端计算也是双精度的。如果在中间层强行取整，多次往返转换（Revit ↔ JSON ↔
+Web）后会出现“坐标漂移”的累积误差。
+KISS 原则：不处理舍入其实比处理舍入更简单，代码更少，逻辑更纯粹。
+2. 几何图元的选择 (Primitives)
+你提出的“数组化”方案非常棒，请坚持下去。
+
+Point2D [x, y]
+AABB [minX, minY, maxX, maxY]
+Polygon [[x,y], ...]
+建议：在文档中明确区分 Point2D (绝对坐标) 和 Vec2D 
+(相对偏移)，虽然结构一样，但在 AI 理解语义时非常重要。
+3. 架构职责的明确 (Responsibility)
+建议在 BIMCanvas.Core 中显式建立一个 UnitConverter 静态类。
+
+不要让 Revit 插件层做太多业务逻辑，插件层只管“搬运”原始数据 (Raw Data)。
+不要让 Web 层去猜单位。
+Core 层是唯一的真理来源。
+
+# 业务专家整理的实施计划（仅供你参考）
+实施计划 - Schema 与架构优化
+目标
+优化 
+docs/Schema-JSON.md
+ 和 
+docs/Architecture.md
+ 文档，建立“干净、高效、精准”的数据基础。
+
+核心决策 (Expert Review)
+IMPORTANT
+
+1. 精度原则 (Precision)
+
+规则：保留原始精度 (Double)，不做四舍五入。
+理由：虽然施工图通常精确到 mm 整数，但在数据流转（Revit ↔ JSON ↔ 
+Web）过程中，保留浮点精度能有效避免累积误差，符合 "Clean Slate"
+的高质量要求。
+2. 极简原则 (KISS)
+
+规则：使用纯数组存储几何数据。
+理由：[x, y] 比 {"x": v, "y": v} 节省约 50% Token，且对 AI 同样易读。
+拟定变更
+1. 
+docs/Schema-JSON.md
+ 更新
+[新增] 章节：1.5 几何图元 (Geometry Primitives)
+定义全局通用的几何数据结构。
+
+类型    定义    JSON 示例    说明
+Point2D    [x, y]    [3000.5, 2500.0]    双精度坐标点
+Vec2D    [dx, dy]    [-600.0, 0.0]    相对偏移向量
+Line2D    [Point, Point]    [[0,0], [1000,0]]    线段（起终点）
+Polygon2D    Point[]    [[0,0], [100,0], [0,100]]    多边形（隐式闭合）
+AABB    [minX, minY, maxX, maxY]    [0, 0, 100, 100]    轴对齐包围盒
+[修改] 章节：1.3 坐标系统 (Coordinate System)
+单位：毫米 (mm)。
+换算公式：mm = feet * 304.8。
+精度：保留 Double 原始精度。
+2. 
+docs/Architecture.md
+ 更新
+[新增] 章节：6.1.3 核心转换器 (Core Converters)
+建议在 BIMCanvas.Core 中实现标准转换类。
+
+// 伪代码示例
+public static class UnitConverter
+{
+    public const double FeetToMm = 304.8;
+    public static double ToMillimeters(double feet) => feet * FeetToMm; // 
+无舍入
+    public static double ToFeet(double mm) => mm / FeetToMm;
+}
+验证计划
+文档审查
+确认 
+Schema-JSON.md
+ 中所有示例数据均符合新的数组格式。
+确认 
+Architecture.md
+ 明确了 Core 层负责转换的职责。
+
+ultrathink
+
+● 感谢业务专家的专业建议。我仔细分析了您的反馈，有几点想深入讨论：
+
+  我的回应
+
+  1. 关于精度 - 完全认同 ✅
+
+  我已在计划中采纳"保留原始精度"。专家的理由很有说服力：
+  - 多次往返转换的"坐标漂移"是真实风险
+  - "不处理比处理更简单"完美诠释了 KISS 原则
+
+  2. 关于 Point2D vs Vec2D - 已区分，可强化 ✅
+
+  我的计划中已经区分了这两种类型。但我想追加一个建议：在 TypeScript/C# 
+  类型系统中使用品牌类型（Branded Types），让编译器帮助区分：
+
+  // 虽然结构相同，但类型不兼容，防止误用
+  type Point2D = [number, number] & { readonly __brand: 'Point2D' };
+  type Vec2D = [number, number] & { readonly __brand: 'Vec2D' };
+
+  这样 Point2D 不能直接赋值给 Vec2D，增加类型安全。是否值得引入这种复杂度？
+
+  3. 关于架构职责 - 需要澄清边界 ⚠️
+
+  专家说："插件层只管搬运原始数据 (Raw Data)"
+
+  我理解的数据流是：
+  Revit API (feet)
+      → [BIMCanvas.Revit: 调用 Converter]
+      → [BIMCanvas.Core.UnitConverter: 转换为 mm]
+      → JSON (mm)
+
+  问题：转换逻辑在 Core 层没问题，但调用转换的时机应该在哪里？
+  - 选项 A：插件层提取数据后，立即调用 Core.Converter 转换
+  - 选项 B：插件层原样传出 feet，由 MCP Server 调用 Core.Converter 转换
+
+  我倾向于 选项 A，因为：
+  - Revit 插件和 Core 都是 .NET，可以直接引用
+  - 越早转换，后续链路越干净
+
+  ---
+  需要深入讨论的问题
+                                                                           
+● User answered Claude's questions:
+  ⎿  · 转换逻辑在 Core 层，但调用转换的时机应该在哪里？ → 选项 A：插件层调用
+
+     · 是否需要在类型系统中强制区分 Point2D 和 Vec2D？ → 
+     我其实认为Vec2D可能是没必要的
+     · 门窗数据是否只考虑直线段？ → 仅直线段
+
+● 明白了。让我根据这些确认更新计划：
+
+● Updated plan
+  ⎿  /plan to preview ·                                       
+     C:\Users\huhaonan\.claude\plans\ethereal-greeting-wave.md
+
+● Updated plan
+  ⎿  /plan to preview ·                                       
+     C:\Users\huhaonan\.claude\plans\ethereal-greeting-wave.md
+
+● Updated plan
+  ⎿  /plan to preview ·                                       
+     C:\Users\huhaonan\.claude\plans\ethereal-greeting-wave.md
+
+● 计划已更新完成。以下是我对业务专家建议的回复：
+
+  ---
+  回复业务专家
+
+  ✅ 完全采纳的建议
+
+  1. 精度原则：保留 Double 原始精度，不做四舍五入
+  2. 极简原则：纯数组格式存储几何数据
+  3. 架构职责：Core 层是唯一真理来源，UnitConverter 放在 Core 层
+
+  ⚙️ 根据用户确认调整的细节
+
+  | 项目       | 业务专家建议               | 最终决策
+                |
+  |----------|----------------------|---------------------------------------
+  --|
+  | Vec2D 类型 | 建议区分 Point2D 和 Vec2D | 统一用 Point2D，通过字段名
+  offset 暗示语义           |
+  | 转换时机     | 插件层只搬运原始数据           | 插件层调用
+  Core.Converter（转换逻辑在 Core，调用在插件层） |
+  | 曲线支持     | 未提及                  | 仅支持直线段，MVP 阶段简化
+                      |
+
+  📋 最终方案摘要
+
+  四种几何图元：
+  ├── Point2D    [x, y]                      // 顶点、偏移
+  ├── Line2D     [[x1,y1], [x2,y2]]          // 门窗线段
+  ├── Polygon2D  [[x,y], ...]                // 墙体轮廓、区域边界
+  └── AABB       [minX, minY, maxX, maxY]    // 包围盒、禁区
+
+  单位换算：
+  ├── 长度：feet × 304.8 → mm（无舍入）
+  └── 角度：BasisX → Atan2 → radians × (180/π) → degrees
+
+  ---
+  如果业务专家和用户对方案没有异议，我将退出计划模式并开始更新文档。
+  ⎿  User rejected Claude's plan:
+     ╭─────────────────────────────────────────────────────────────────────────╮
+     │ BIMCanvas 技术细节补充计划                                              │
+     │                                                                         │
+     │ 状态：已通过业务专家评审                                                │
+     │ 更新：2025-12-03                                                        │
+     │                                                                         │
+     │ ---                                                                     │
+     │ 1. 单位换算规范                                                         │
+     │                                                                         │
+     │ 1.1 核心原则                                                            │
+     │                                                                         │
+     │ | 原则            | 说明                 |                              │
+     │ |---------------|--------------------|                                  │
+     │ | 保留原始精度        | 不做四舍五入，避免多次转换的累积误差 |          │
+     │ | Core 层是唯一真理来源 | 转换逻辑在 Core 层，插件层调用 |              │
+     │                                                                         │
+     │ 1.2 转换规则                                                            │
+     │                                                                         │
+     │ mm = feet × 304.8     （无舍入）                                        │
+     │ feet = mm ÷ 304.8     （无舍入）                                        │
+     │ degrees = radians × (180 / π)                                           │
+     │                                                                         │
+     │ 1.3 数据流与职责分配                                                    │
+     │                                                                         │
+     │ ┌─────────────────────────────────────────────────────────────┐         │
+     │ │  Revit API                                                  │         │
+     │ │  坐标单位：feet    角度单位：radians                          │       │
+     │ └─────────────────────────────────────────────────────────────┘         │
+     │                               │                                         │
+     │                               ▼  [BIMCanvas.Revit 调用]                 │
+     │ ┌─────────────────────────────────────────────────────────────┐         │
+     │ │  BIMCanvas.Core.Converters.UnitConverter                    │         │
+     │ │  ─────────────────────────────────────────────────────────  │         │
+     │ │  • ToMillimeters(feet) → mm                                 │         │
+     │ │  • ToDegrees(radians) → degrees                             │         │
+     │ │  • 保留 Double 原始精度，无舍入                               │       │
+     │ └─────────────────────────────────────────────────────────────┘         │
+     │                               │                                         │
+     │                               ▼  JSON (mm, degrees)                     │
+     │ ┌─────────────────────────────────────────────────────────────┐         │
+     │ │  CanvasDocument                                             │         │
+     │ │  ─────────────────────────────────────────────────────────  │         │
+     │ │  • 坐标单位：毫米 (mm)                                       │        │
+     │ │  • 角度单位：度 (degrees)，范围 0-360                        │        │
+     │ │  • 精度：Double 原始精度                                     │        │
+     │ └─────────────────────────────────────────────────────────────┘         │
+     │                               │                                         │
+     │                               ▼  [回写 Revit 时调用]                    │
+     │ ┌─────────────────────────────────────────────────────────────┐         │
+     │ │  BIMCanvas.Core.Converters.UnitConverter                    │         │
+     │ │  ─────────────────────────────────────────────────────────  │         │
+     │ │  • ToFeet(mm) → feet                                        │         │
+     │ │  • ToRadians(degrees) → radians                             │         │
+     │ └─────────────────────────────────────────────────────────────┘         │
+     │                                                                         │
+     │ 1.4 C# 实现                                                             │
+     │                                                                         │
+     │ // BIMCanvas.Core/Converters/UnitConverter.cs                           │
+     │ namespace BIMCanvas.Core.Converters                                     │
+     │ {                                                                       │
+     │     /// <summary>                                                       │
+     │     /// 单位转换器 - Core 层是唯一真理来源                              │
+     │     /// </summary>                                                      │
+     │     public static class UnitConverter                                   │
+     │     {                                                                   │
+     │         // 长度转换常量                                                 │
+     │         public const double FeetToMm = 304.8;                           │
+     │         public const double MmToFeet = 1.0 / 304.8;                     │
+     │                                                                         │
+     │         // 角度转换常量                                                 │
+     │         public const double RadToDeg = 180.0 / Math.PI;                 │
+     │         public const double DegToRad = Math.PI / 180.0;                 │
+     │                                                                         │
+     │         // 长度转换（无舍入）                                           │
+     │         public static double ToMillimeters(double feet) => feet *       │
+     │ FeetToMm;                                                               │
+     │         public static double ToFeet(double mm) => mm * MmToFeet;        │
+     │                                                                         │
+     │         // 角度转换（无舍入）                                           │
+     │         public static double ToDegrees(double radians) => radians *     │
+     │ RadToDeg;                                                               │
+     │         public static double ToRadians(double degrees) => degrees *     │
+     │ DegToRad;                                                               │
+     │                                                                         │
+     │         /// <summary>                                                   │
+     │         /// 从 BasisX 向量计算旋转角度（度）                            │
+     │         /// </summary>                                                  │
+     │         public static double GetRotationFromBasisX(double basisX_X,     │
+     │ double basisX_Y)                                                        │
+     │         {                                                               │
+     │             double radians = Math.Atan2(basisX_Y, basisX_X);            │
+     │             double degrees = ToDegrees(radians);                        │
+     │             // 规范化到 0-360 范围                                      │
+     │             return degrees < 0 ? degrees + 360 : degrees;               │
+     │         }                                                               │
+     │     }                                                                   │
+     │ }                                                                       │
+     │                                                                         │
+     │ ---                                                                     │
+     │ 2. 基础几何数据格式                                                     │
+     │                                                                         │
+     │ 2.1 设计原则                                                            │
+     │                                                                         │
+     │ | 原则   | 说明                       |                                 │
+     │ |------|--------------------------|                                     │
+     │ | 紧凑性  | 纯数组格式，比对象格式节省约 50% Token |                    │
+     │ | 一致性  | 所有模块统一使用相同格式             |                      │
+     │ | 隐式闭合 | 多边形首尾自动闭合，不重复首点          |                  │
+     │ | 仅直线段 | 门窗仅支持直线段，不支持弧形           |                   │
+     │                                                                         │
+     │ 2.2 四种基础格式定义                                                    │
+     │                                                                         │
+     │ | 类型        | 格式                       | 示例                     | │
+     │ 使用场景      |                                                         │
+     │ |-----------|--------------------------|------------------------|-------│
+     │ ----|                                                                   │
+     │ | Point2D   | [x, y]                   | [3000.5, 2500.0]       |       │
+     │ 多边形顶点、偏移量 |                                                    │
+     │ | Line2D    | [[x1,y1], [x2,y2]]       | [[2000,0], [2900,0]]   |       │
+     │ 门窗线段      |                                                         │
+     │ | Polygon2D | [[x,y], ...]             | [[0,0], [6000,0], ...] |       │
+     │ 墙体轮廓、区域边界 |                                                    │
+     │ | AABB      | [minX, minY, maxX, maxY] | [2000, 0, 2900, 900]   |       │
+     │ 模块包围盒、禁区  |                                                     │
+     │                                                                         │
+     │ ---                                                                     │
+     │ Point2D - 二维点                                                        │
+     │                                                                         │
+     │ 格式：[x, y]                                                            │
+     │ 单位：毫米 (mm)                                                         │
+     │ 精度：Double 原始精度                                                   │
+     │ 示例：[3000.5, 2500.0]                                                  │
+     │                                                                         │
+     │ 使用场景：                                                              │
+     │ - polygon / innerBoundary 的顶点                                        │
+     │ - items[].offset 相对偏移（语义上是偏移，格式相同）                     │
+     │                                                                         │
+     │ ---                                                                     │
+     │ Line2D - 二维线段                                                       │
+     │                                                                         │
+     │ 格式：[[x1, y1], [x2, y2]]                                              │
+     │        └ 起点    └ 终点                                                 │
+     │ 示例：[[2000, 0], [2900, 0]]                                            │
+     │                                                                         │
+     │ 使用场景：                                                              │
+     │ - openings[].line 门窗线段（仅直线段）                                  │
+     │                                                                         │
+     │ ---                                                                     │
+     │ Polygon2D - 二维多边形                                                  │
+     │                                                                         │
+     │ 格式：[[x1, y1], [x2, y2], [x3, y3], ...]                               │
+     │ 示例：[[0, 0], [6000, 0], [6000, 6000], [0, 6000]]                      │
+     │                                                                         │
+     │ 规则：                                                                  │
+     │ - 最少 3 个顶点                                                         │
+     │ - 隐式闭合：首尾自动连接，不重复首点                                    │
+     │ - 顶点按逆时针排列（CAD 惯例）                                          │
+     │                                                                         │
+     │ 使用场景：                                                              │
+     │ - walls[].polygon 墙体轮廓                                              │
+     │ - zones[].innerBoundary 可用空间轮廓                                    │
+     │                                                                         │
+     │ ---                                                                     │
+     │ AABB - 轴对齐包围盒                                                     │
+     │                                                                         │
+     │ 格式：[minX, minY, maxX, maxY]                                          │
+     │        └ 左下角    └ 右上角                                             │
+     │ 示例：[2000, 0, 2900, 900]                                              │
+     │                                                                         │
+     │ 计算公式：                                                              │
+     │ 宽度 = maxX - minX                                                      │
+     │ 高度 = maxY - minY                                                      │
+     │ 中心 = [(minX + maxX) / 2, (minY + maxY) / 2]                           │
+     │                                                                         │
+     │ 使用场景：                                                              │
+     │ - modules[].bounds 模块包围盒                                           │
+     │ - exclusionAreas[].rect 禁区矩形                                        │
+     │                                                                         │
+     │ ---                                                                     │
+     │ 2.3 Token 效率对比                                                      │
+     │                                                                         │
+     │ | 方案     | 示例                     | Token 估计 |                    │
+     │ |--------|------------------------|----------|                          │
+     │ | 数组格式 ✅ | [3000, 2500]           | ~8       |                     │
+     │ | 对象格式   | {"x": 3000, "y": 2500} | ~16      |                      │
+     │                                                                         │
+     │ 结论：纯数组格式节省约 50% Token，且 AI 同样易读。                      │
+     │                                                                         │
+     │ ---                                                                     │
+     │ 2.4 类型定义                                                            │
+     │                                                                         │
+     │ TypeScript                                                              │
+     │                                                                         │
+     │ // 基础几何类型                                                         │
+     │ type Point2D = [number, number];              // [x, y]                 │
+     │ type Line2D = [Point2D, Point2D];             // [[x1,y1], [x2,y2]]     │
+     │ type Polygon2D = Point2D[];                   // [[x,y], ...]           │
+     │ type AABB = [number, number, number, number]; // [minX, minY, maxX,     │
+     │ maxY]                                                                   │
+     │                                                                         │
+     │ // 数据模型                                                             │
+     │ interface Wall {                                                        │
+     │   id: string;                                                           │
+     │   polygon: Polygon2D;                                                   │
+     │ }                                                                       │
+     │                                                                         │
+     │ interface Opening {                                                     │
+     │   id: string;                                                           │
+     │   type: "door" | "window";                                              │
+     │   line: Line2D;                                                         │
+     │ }                                                                       │
+     │                                                                         │
+     │ interface Zone {                                                        │
+     │   id: string;                                                           │
+     │   name: string;                                                         │
+     │   function: ZoneFunction;                                               │
+     │   innerBoundary: Polygon2D;                                             │
+     │   exclusionAreas?: ExclusionArea[];                                     │
+     │   openings?: string[];                                                  │
+     │ }                                                                       │
+     │                                                                         │
+     │ interface ExclusionArea {                                               │
+     │   id: string;                                                           │
+     │   type: "door_swing" | "passage" | "other";                             │
+     │   rect: AABB;                                                           │
+     │ }                                                                       │
+     │                                                                         │
+     │ interface Module {                                                      │
+     │   id: string;                                                           │
+     │   moduleId: string;                                                     │
+     │   moduleName?: string;                                                  │
+     │   bounds: AABB;                                                         │
+     │   facing: Facing;                                                       │
+     │   zoneId: string;                                                       │
+     │   items?: ModuleItem[];                                                 │
+     │ }                                                                       │
+     │                                                                         │
+     │ interface ModuleItem {                                                  │
+     │   familyId: string;                                                     │
+     │   offset: Point2D;  // 相对模块中心的偏移 [dx, dy]                      │
+     │   role?: string;                                                        │
+     │ }                                                                       │
+     │                                                                         │
+     │ C#                                                                      │
+     │                                                                         │
+     │ // BIMCanvas.Core/Models/Geometry/Primitives.cs                         │
+     │ namespace BIMCanvas.Core.Models.Geometry                                │
+     │ {                                                                       │
+     │     /// <summary>                                                       │
+     │     /// 二维点 [x, y]，单位：毫米，保留 Double 精度                     │
+     │     /// </summary>                                                      │
+     │     public readonly struct Point2D                                      │
+     │     {                                                                   │
+     │         public double X { get; }                                        │
+     │         public double Y { get; }                                        │
+     │                                                                         │
+     │         public Point2D(double x, double y) { X = x; Y = y; }            │
+     │                                                                         │
+     │         public double[] ToArray() => new[] { X, Y };                    │
+     │         public static Point2D FromArray(double[] arr) => new            │
+     │ Point2D(arr[0], arr[1]);                                                │
+     │                                                                         │
+     │         // 向量运算                                                     │
+     │         public static Point2D operator +(Point2D a, Point2D b) => new   │
+     │ Point2D(a.X + b.X, a.Y + b.Y);                                          │
+     │         public static Point2D operator -(Point2D a, Point2D b) => new   │
+     │ Point2D(a.X - b.X, a.Y - b.Y);                                          │
+     │     }                                                                   │
+     │                                                                         │
+     │     /// <summary>                                                       │
+     │     /// 轴对齐包围盒 [minX, minY, maxX, maxY]，单位：毫米               │
+     │     /// </summary>                                                      │
+     │     public readonly struct AABB                                         │
+     │     {                                                                   │
+     │         public double MinX { get; }                                     │
+     │         public double MinY { get; }                                     │
+     │         public double MaxX { get; }                                     │
+     │         public double MaxY { get; }                                     │
+     │                                                                         │
+     │         public AABB(double minX, double minY, double maxX, double maxY) │
+     │         {                                                               │
+     │             MinX = minX; MinY = minY; MaxX = maxX; MaxY = maxY;         │
+     │         }                                                               │
+     │                                                                         │
+     │         public double Width => MaxX - MinX;                             │
+     │         public double Height => MaxY - MinY;                            │
+     │         public Point2D Center => new Point2D((MinX + MaxX) / 2, (MinY + │
+     │ MaxY) / 2);                                                             │
+     │                                                                         │
+     │         public double[] ToArray() => new[] { MinX, MinY, MaxX, MaxY };  │
+     │         public static AABB FromArray(double[] arr) => new AABB(arr[0],  │
+     │ arr[1], arr[2], arr[3]);                                                │
+     │                                                                         │
+     │         /// <summary>                                                   │
+     │         /// 检测两个 AABB 是否相交                                      │
+     │         /// </summary>                                                  │
+     │         public bool Intersects(AABB other) =>                           │
+     │             !(MaxX < other.MinX || MinX > other.MaxX ||                 │
+     │               MaxY < other.MinY || MinY > other.MaxY);                  │
+     │                                                                         │
+     │         /// <summary>                                                   │
+     │         /// 检测点是否在 AABB 内                                        │
+     │         /// </summary>                                                  │
+     │         public bool Contains(Point2D point) =>                          │
+     │             point.X >= MinX && point.X <= MaxX &&                       │
+     │             point.Y >= MinY && point.Y <= MaxY;                         │
+     │     }                                                                   │
+     │ }                                                                       │
+     │                                                                         │
+     │ ---                                                                     │
+     │ 3. 文档更新任务                                                         │
+     │                                                                         │
+     │ 3.1 待修改文件                                                          │
+     │                                                                         │
+     │ | 文件                   | 变更类型 | 内容                           |  │
+     │ |----------------------|------|------------------------------|          │
+     │ | docs/Schema-JSON.md  | 新增章节 | §1.4 单位规范、§1.5 几何图元        │
+     │   |                                                                     │
+     │ | docs/Architecture.md | 新增章节 | §6.1.3 核心转换器 (UnitConverter) | │
+     │                                                                         │
+     │ 3.2 Schema-JSON.md 具体修改                                             │
+     │                                                                         │
+     │ 新增 §1.4 单位规范：                                                    │
+     │ ### 1.4 单位规范                                                        │
+     │                                                                         │
+     │ | 类型 | 单位 | 精度 | 换算公式 |                                       │
+     │ |------|------|------|----------|                                       │
+     │ | 长度 | 毫米 (mm) | Double | mm = feet × 304.8 |                       │
+     │ | 角度 | 度 (degrees) | Double | deg = rad × (180/π) |                  │
+     │                                                                         │
+     │ **重要**：保留原始 Double 精度，不做四舍五入。                          │
+     │                                                                         │
+     │ 新增 §1.5 几何图元：                                                    │
+     │ ### 1.5 几何图元 (Geometry Primitives)                                  │
+     │                                                                         │
+     │ | 类型 | 格式 | 示例 |                                                  │
+     │ |------|------|------|                                                  │
+     │ | Point2D | `[x, y]` | `[3000.5, 2500.0]` |                             │
+     │ | Line2D | `[[x1,y1], [x2,y2]]` | `[[2000,0], [2900,0]]` |              │
+     │ | Polygon2D | `[[x,y], ...]` | `[[0,0], [6000,0], ...]` |               │
+     │ | AABB | `[minX, minY, maxX, maxY]` | `[2000, 0, 2900, 900]` |          │
+     │                                                                         │
+     │ 3.3 Architecture.md 具体修改                                            │
+     │                                                                         │
+     │ 新增 §6.1.3 核心转换器：                                                │
+     │ - 添加 UnitConverter 静态类说明                                         │
+     │ - 明确 "Core 层是唯一真理来源" 的架构原则                               │
+     │ - 补充角度转换（BasisX → degrees）                                      │
+     │                                                                         │
+     │ ---                                                                     │
+     │ 4. 设计决策总结                                                         │
+     │                                                                         │
+     │ | 决策点  | 选择                   | 理由               |               │
+     │ |------|----------------------|------------------|                      │
+     │ | 精度处理 | 保留 Double 原始精度       | 避免多次转换的累积误差      | │
+     │ | 转换时机 | 插件层调用 Core.Converter | 越早转换，后续链路越干净     | │
+     │ | 几何格式 | 纯数组                  | 节省 50% Token     |             │
+     │ | 偏移类型 | 统一用 Point2D          | 简化类型定义，通过字段名区分语义 │
+     │ |                                                                       │
+     │ | 曲线支持 | 仅直线段                 | MVP 阶段简化         |          │
+     │                                                                         │
+     │ ---                                                                     │
+     │ 5. 验证清单                                                             │
+     │                                                                         │
+     │ - Schema-JSON.md 所有示例数据符合新的数组格式                           │
+     │ - Architecture.md 明确了 Core 层负责转换的职责                          │
+     │ - TypeScript 类型定义使用 Point2D / Line2D / Polygon2D / AABB           │
+     │ - C# 实现 UnitConverter 和基础几何类型                                  │
+     │                                                                         │
+     │                                                                         │
+     │                                                                         │
+     │                                                                         │
+     ╰─────────────────────────────────────────────────────────────────────────╯
+
+
+

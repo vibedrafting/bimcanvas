@@ -2,6 +2,8 @@
 
 > 在用户提供的建筑平面内，布置符合设计逻辑的家具组合。
 
+**数据模型版本**: v2.0 极简版 (outline + zones + modules)
+
 ---
 
 ## 快速导航
@@ -10,21 +12,23 @@
 
 | 文档 | 路径 | 内容 |
 |------|------|------|
-| 架构文档 | `docs/Architecture.md` | 系统架构、数据流、模块设计 |
-| JSON Schema | `docs/Schema-JSON.md` | 数据模型定义 |
+| 架构文档 | `docs/Architecture.md` | 系统架构、数据流、执行流程 |
+| JSON Schema | `docs/Schema-JSON.md` | v2.0 数据模型定义 |
 | PRD | `docs/PRD.md` | 产品需求、工作流程 |
 | 评审记录 | `docs/Architecture_Design_Review.md` | 设计决策讨论 |
 
 ### 模块速查
 
-| 项目 | 运行时 | 职责 | 入口 |
+| 项目 | 运行时 | 职责 | 状态 |
 |------|--------|------|------|
-| BIMCanvas.Core | .NET Standard 2.0 | 数据模型 + 空间算法 | `Models/`, `Algorithms/` |
-| BIMCanvas.Revit | .NET FW 4.7.2 | Revit 插件 | `Commands/` |
-| BIMCanvas.MCP.Canvas | .NET 6+ | 画布 MCP Server | `Program.cs` |
-| BIMCanvas.MCP.Library | .NET 6+ | 族库 MCP Server | `Program.cs` |
-| BIMCanvas.Web.Server | .NET 6+ | Web 后端 | `Program.cs` |
-| BIMCanvas.Web | Vue 3 + TS | Web 前端 | `src/main.ts` |
+| BIMCanvas.Core | .NET Standard 2.0 | 数据模型 + 空间算法 | ⬜ 待开发 |
+| BIMCanvas.Revit | .NET FW 4.7.2 | Revit 插件 | ⬜ 待开发 |
+| BIMCanvas.MCP.Canvas | .NET 6+ | 画布 MCP Server | ⬜ 待开发 |
+| BIMCanvas.MCP.Library | .NET 6+ | 族库 MCP Server | ⬜ 待开发 |
+| BIMCanvas.Web.Server | .NET 6+ | Web 后端 | ⬜ 待开发 |
+| BIMCanvas.Web | Vue 3 + TS | Web 前端 | ⬜ 待开发 |
+
+> **当前阶段**：文档设计。数据模型定义见 `docs/Schema-JSON.md`
 
 ---
 
@@ -50,6 +54,45 @@ BIMCanvas.Revit.*    → 仅 Revit 插件内部使用
 - Core 层引用 Revit API
 - 直接让 AI 操作 SVG 代码（应操作 JSON）
 - 使用 CSS `scaleY(-1)` 做坐标翻转
+
+---
+
+## v2.0 数据模型速查
+
+### JSON 顶级结构
+
+```
+CanvasDocument
+├── outline          墙体轮廓 + 门窗线段 (仅视觉)
+│   ├── walls[]      封闭多边形 polygon
+│   └── openings[]   线段 line + type (door/window)
+├── zones[]          设计区域 (AI 核心工作区)
+│   ├── innerBoundary    可用空间轮廓 (已扣除完成面)
+│   ├── exclusionAreas[] 禁区 AABB (门扇/通道)
+│   └── openings[]       关联门窗 ID
+└── modules[]        布置模块 (最小布置单元)
+    ├── bounds           AABB [minX, minY, maxX, maxY]
+    ├── facing           语义朝向 (north/south/east/west)
+    └── items[]          内部家具清单 (回写 Revit 用)
+```
+
+### AI 布置约束
+
+```
+对于每个要放置的模块：
+1. bounds 必须完全在 zone.innerBoundary 内
+2. bounds 不能与任何 zone.exclusionAreas 重叠
+3. bounds 不能与其他已放置模块重叠
+```
+
+### 语义朝向 → 角度转换
+
+| 朝向 | 角度 | 朝向 | 角度 |
+|------|------|------|------|
+| north | 0° | south | 180° |
+| east | 90° | west | 270° |
+| northeast | 45° | southwest | 225° |
+| southeast | 135° | northwest | 315° |
 
 ---
 
@@ -80,11 +123,12 @@ BIMCanvas.Revit.*    → 仅 Revit 插件内部使用
 ### 编译
 
 ```bash
-# MSBuild 路径
-"D:\JetBrains\JetBrains Rider 2025.1.4\tools\MSBuild\Current\Bin\MSBuild.exe"
+# .NET Standard / .NET 6+ 项目（推荐）
+dotnet restore BIMCanvas.Core
+dotnet build BIMCanvas.Core --no-restore
 
-# 编译项目
-"[MSBuild]" "BIMCanvas.Core/BIMCanvas.Core.csproj" -nologo -clp:ErrorsOnly
+# MSBuild 路径（备用）
+"D:\JetBrains\JetBrains Rider 2025.1.4\tools\MSBuild\Current\Bin\MSBuild.exe"
 ```
 
 ### 运行
