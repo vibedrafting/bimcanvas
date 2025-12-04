@@ -694,7 +694,7 @@ Codex 提到了 `PlacementNormalizer`，这是一个非常关键但容易做烂�
 **总结性优化**：
 在初始化 Core 时，除了目录结构，**必须**同步建立 `MathHelper` (精度控制) 和 `ValidationContext` (验证上下文) 的基础设施，否则后续的几何算法就是建立在沙堆之上。
 
-### [2025-12-04 16:00] Claude
+### [2025-12-04 15:40] Claude
 
 **回应各方观点并提炼技术方案**
 
@@ -889,6 +889,218 @@ BIMCanvas.Core/
 **四、建议进入共识总结阶段**
 
 讨论已覆盖所有关键议题，建议整理最终共识。如 User 确认，我可以填写"共识总结"章节。
+
+### [2025-12-04 15:45] User
+
+1. 我建议不要在Core层做复杂的"浮点数精度 (Epsilon) "问题的处理，至少不需要" Models/Primitives/MathHelper.cs"，Point2D内部带误差的判断是被允许的
+2. 同时建议不要在Core层实现类似"Algorithms/Geometry/PolygonOperations"的功能，所有复杂的几何判断、布尔运算应该由外部NTS库实现
+3. 需要包含AI输出中坐标的语义转Polygon2D的转换功能，方向的语义到Vector2D转换的功能
+
+### [2025-12-04 15:50] Claude
+
+**回应 User 的架构方向调整**
+
+完全理解并接受这三点修正。这是一个更清晰的职责划分：**Core 层做"薄"，复杂几何外包给 NTS**。
+
+---
+
+**一、接受：移除 MathHelper.cs 和复杂几何运算**
+
+`[Blocker]` 撤回之前关于 Epsilon 的建议。
+
+**调整后的策略**：
+- `Point2D` 使用默认的 `==` 比较（直接比较 double 值）
+- 如果未来确需容差比较，由调用方（如 NTS 适配层）处理
+- 移除 `PolygonOperations.cs`，以下功能交给 NTS：
+  - 点在多边形内判断
+  - 多边形相交检测
+  - 多边形布尔运算
+
+**保留在 Core 的简单几何**：
+- AABB 计算（纯数学，4 个极值）
+- 多边形旋转（矩阵变换，无容差问题）
+- 中心点计算（求平均）
+
+---
+
+**二、明确语义转换功能的位置**
+
+`[Blocker]` 这是 AI 交互的关键桥梁，必须在 Core 层实现。
+
+**需要实现的转换**：
+
+| 转换类型 | 输入（AI 语义） | 输出（几何数据） | 位置 |
+|----------|-----------------|------------------|------|
+| 坐标语义 → Polygon2D | `{ center, size, facing }` | `Polygon2D` (4顶点矩形) | `Algorithms/Spatial/` |
+| 方向语义 → Vec2D | `"north"`, `"southeast"` | `Vec2D` (单位向量) | `Algorithms/Spatial/FacingHelper.cs` |
+| 角度 → Vec2D | `45.0` (度) | `Vec2D` | `Algorithms/Spatial/FacingHelper.cs` |
+
+**具体实现示例**：
+
+```csharp
+// Algorithms/Spatial/FacingHelper.cs
+public static class FacingHelper
+{
+    /// <summary>
+    /// 语义方向 → 单位向量
+    /// </summary>
+    public static Vec2D SemanticToVector(string semantic) => semantic.ToLower() switch
+    {
+        "north"     => new Vec2D(0, 1),
+        "south"     => new Vec2D(0, -1),
+        "east"      => new Vec2D(1, 0),
+        "west"      => new Vec2D(-1, 0),
+        "northeast" => new Vec2D(1, 1).Normalize(),
+        "northwest" => new Vec2D(-1, 1).Normalize(),
+        "southeast" => new Vec2D(1, -1).Normalize(),
+        "southwest" => new Vec2D(-1, -1).Normalize(),
+        _ => throw new ArgumentException($"Unknown facing: {semantic}")
+    };
+
+    /// <summary>
+    /// 角度（度）→ 单位向量
+    /// </summary>
+    public static Vec2D AngleToVector(double degrees)
+    {
+        var radians = degrees * Math.PI / 180.0;
+        return new Vec2D(Math.Cos(radians), Math.Sin(radians));
+    }
+}
+
+// Algorithms/Spatial/GeometryNormalizer.cs
+public static class GeometryNormalizer
+{
+    /// <summary>
+    /// AI 布置意图 → Polygon2D（矩形）
+    /// </summary>
+    /// <param name="center">中心点</param>
+    /// <param name="size">尺寸 (width, height)</param>
+    /// <param name="facing">朝向（Facing 联合类型）</param>
+    public static Polygon2D CreateRectangle(Point2D center, Vec2D size, Facing facing)
+    {
+        var halfW = size.X / 2;
+        var halfH = size.Y / 2;
+
+        // 本地坐标（未旋转）
+        var localCorners = new[]
+        {
+            new Point2D(-halfW, -halfH),
+            new Point2D(halfW, -halfH),
+            new Point2D(halfW, halfH),
+            new Point2D(-halfW, halfH)
+        };
+
+        // 根据 facing 计算旋转角度
+        var angle = facing.ToAngleRadians();
+
+        // 旋转并平移到世界坐标
+        var cos = Math.Cos(angle);
+        var sin = Math.Sin(angle);
+
+        var worldCorners = localCorners.Select(p => new Point2D(
+            center.X + p.X * cos - p.Y * sin,
+            center.Y + p.X * sin + p.Y * cos
+        )).ToArray();
+
+        return new Polygon2D(worldCorners);
+    }
+}
+```
+
+---
+
+**三、NTS 的引入策略**
+
+`[Suggestion]` 明确 NTS 的引入方式。
+
+**方案对比**：
+
+| 方案 | 说明 | 优缺点 |
+|------|------|--------|
+| A. Core 直接引用 NTS | `BIMCanvas.Core.csproj` 添加 NuGet 依赖 | 简单，但增加 Core 体积 |
+| B. 独立 Geometry 项目 | 新建 `BIMCanvas.Geometry` 封装 NTS | 解耦，但增加项目数量 |
+| C. 接口抽象 | Core 定义 `IGeometryService` 接口，由上层注入 | 灵活，但增加复杂度 |
+
+**建议采用方案 A**：
+- MVP 阶段优先简单
+- NTS 是 .NET Standard 2.0 兼容的，可直接在 Core 中引用
+- 封装为内部 `GeometryService`，对外暴露简单 API
+
+```csharp
+// 内部使用 NTS，对外暴露简单接口
+public static class CollisionDetector
+{
+    public static bool Intersects(Polygon2D a, Polygon2D b)
+    {
+        var ntsA = a.ToNtsPolygon();  // 内部转换
+        var ntsB = b.ToNtsPolygon();
+        return ntsA.Intersects(ntsB); // 调用 NTS
+    }
+}
+```
+
+---
+
+**四、更新后的目录结构（精简版）**
+
+```
+BIMCanvas.Core/
+├── BIMCanvas.Core.csproj          # .NET Standard 2.0
+│                                  # 依赖: Newtonsoft.Json, NetTopologySuite
+│
+├── Models/
+│   ├── Primitives/
+│   │   ├── Point2D.cs             # readonly struct, 简单实现
+│   │   ├── Vec2D.cs               # 包含 Normalize()
+│   │   ├── Line2D.cs
+│   │   ├── Polygon2D.cs           # 封装 Point2D[], 提供 ToNtsPolygon()
+│   │   └── AABB.cs
+│   │
+│   └── Document/
+│       ├── CanvasDocument.cs
+│       ├── Metadata.cs
+│       ├── Outline.cs, Wall.cs, Opening.cs
+│       ├── Zone.cs, ExclusionArea.cs
+│       ├── Module.cs, ModuleItem.cs
+│       └── Facing.cs              # 联合类型
+│
+├── Algorithms/
+│   ├── Geometry/
+│   │   ├── GeometryHelper.cs      # AABB 计算、中心点、旋转（简单数学）
+│   │   └── NtsAdapter.cs          # ← 新增：Polygon2D ↔ NTS 转换
+│   │
+│   └── Spatial/
+│       ├── CollisionDetector.cs   # 调用 NTS 做碰撞检测
+│       ├── FacingHelper.cs        # 语义 ↔ Vec2D 转换 ✅
+│       ├── GeometryNormalizer.cs  # center+size+facing → Polygon2D ✅
+│       └── PlacementValidator.cs  # 布置验证
+│
+├── Converters/
+│   ├── UnitConverter.cs
+│   ├── Json/
+│   │   ├── Point2DConverter.cs
+│   │   └── FacingConverter.cs
+│   └── Revit/
+│       ├── RevitToJsonConverter.cs
+│       └── JsonToRevitConverter.cs
+│
+└── Validation/
+    └── Result.cs
+```
+
+**关键变更**：
+1. ❌ 移除 `MathHelper.cs`
+2. ❌ 移除 `PolygonOperations.cs`（交给 NTS）
+3. ✅ 新增 `NtsAdapter.cs`（Core 类型 ↔ NTS 类型转换）
+4. ✅ 保留 `FacingHelper.cs`（语义转换）
+5. ✅ 保留 `GeometryNormalizer.cs`（AI 意图转几何）
+
+---
+
+**五、待确认问题**
+
+1. `[Blocker]` NTS 是否在 MVP 阶段就引入？还是先用占位实现？
+2. `[Suggestion]` `Polygon2D.ToNtsPolygon()` 扩展方法放在 Core 还是单独项目？
 
 ## 4. 共识总结
 
