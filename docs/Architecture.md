@@ -1,8 +1,8 @@
 # BIMCanvas 系统架构文档
 
-> 版本：v2.1
-> 更新日期：2025-12-02
-> 状态：已定稿（基于专家评审结论）
+> 版本：v2.3
+> 更新日期：2025-12-03
+> 状态：已定稿（基于几何数据类型架构专家评审）
 
 ---
 
@@ -523,6 +523,88 @@ BIMCanvas/                                    【根目录】
 
 ---
 
+## 3.5 AI 交互层架构
+
+### 核心隐喻：AI 是 "OBB 规划师"
+
+> **AI 不计算几何，只决策位置。**
+
+AI 的职责被限定为**定向包围盒 (OBB) 规划**：
+- **输入**：空间状态 (Polygon2D + 计算属性)
+- **输出**：意图指令 (moduleId + params + center + facing)
+- **转换**：Core 层负责 Intent → Polygon2D
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                           AI 交互层架构                                      │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                             │
+│   【AI 视图】                                                                │
+│   世界由无数个 OBB (矩形盒子) 组成。无论家具是 L 型还是圆形，                  │
+│   AI 只操作其外接矩形。AI 仅保证 OBB 不重叠。                                 │
+│                                                                             │
+│   【职责边界】                                                               │
+│   • AI：选择模块 + 确定包围盒位置/朝向                                        │
+│   • Library-MCP：提供模块的精确轮廓定义                                       │
+│   • Core (Normalizer)：根据位置/朝向计算精确轮廓的 Polygon2D                  │
+│   • Web：渲染精确轮廓                                                        │
+│                                                                             │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+### 数据流架构
+
+```
+模块库 (Canonical Polygon + Parameters)
+                    ↓
+AI 输出 (Intent: moduleId + params + center + facing)
+                    ↓
+Core Normalizer (Intent → Polygon2D)
+                    ↓
+JSON 存储 (bounds: Polygon2D + facing + moduleId)
+                    ↓
+Web 渲染 (Polygon2D → SVG)
+```
+
+### 多样化输出策略 (Polymorphic Output)
+
+AI 输出采用混合策略，兼顾 Token 效率和场景覆盖率：
+
+| 场景 | 推荐输出格式 | 示例 | 占比 |
+|------|--------------|------|------|
+| **标准正交** | Semantic | `{ center: [x,y], facing: "north" }` | 90% |
+| **任意倾斜** | Vec2D | `{ center: [x,y], facing: [0.866, 0.5] }` | 10% |
+| **特殊微调** | Polygon2D | `{ bounds: [[x1,y1]...] }` | <1% |
+
+**Core 层作为归一化器 (Normalizer)**，将上述所有格式统一转换为 `Polygon2D` 进行存储和计算。
+
+### AI 输入格式
+
+AI 接收的空间状态数据包含：
+
+| 数据类别 | 格式 | 说明 |
+|----------|------|------|
+| **Zone (设计区)** | `innerBoundary: Polygon2D` | 可用空间边界 |
+| **ExclusionArea (禁区)** | `boundary: Polygon2D` | 禁止布置区域 |
+| **Walls (墙体)** | `polygon: Polygon2D` | 墙体轮廓多边形 |
+| **Openings (门窗)** | `line: Line2D` | 门窗线段 |
+| **Modules (已有家具)** | `bounds: Polygon2D` + `_computed` | 精确边界 + 计算属性 |
+
+**计算属性 `_computed`**（动态生成，不持久化）：
+
+```json
+{
+  "bounds": [[1500, 2000], [4500, 2000], [4500, 4500], [1500, 4500]],
+  "facing": "north",
+  "_computed": {
+    "center": [3000, 3250],
+    "size": [3000, 2500]
+  }
+}
+```
+
+---
+
 ## 4. Canvas-MCP 与 Web.Server 通信
 
 ### 4.1 架构选择：同进程运行
@@ -722,7 +804,7 @@ public class ExclusionArea
 {
     public string Id { get; set; }
     public string Type { get; set; }  // "door_swing" | "passage" | "other"
-    public double[] Rect { get; set; }  // [minX, minY, maxX, maxY]
+    public List<double[]> Boundary { get; set; }  // Polygon2D [[x,y], ...]
 }
 
 // Module - 布置模块
@@ -731,8 +813,8 @@ public class Module
     public string Id { get; set; }
     public string ModuleId { get; set; }
     public string ModuleName { get; set; }
-    public double[] Bounds { get; set; }  // [minX, minY, maxX, maxY]
-    public string Facing { get; set; }  // "north" | "south" | "east" | "west" | ...
+    public List<double[]> Bounds { get; set; }  // Polygon2D [[x,y], ...] 精确边界
+    public object Facing { get; set; }  // string ("north"...) 或 double[] (Vec2D)
     public string ZoneId { get; set; }
     public List<ModuleItem> Items { get; set; }
 }
@@ -780,7 +862,78 @@ public class GridHelper
 }
 ```
 
-#### 6.1.3 核心转换器 (UnitConverter)
+#### 6.1.3 意图归一化器 (PlacementNormalizer)
+
+**职责**：将 AI 的多样化输出统一转换为 `Polygon2D`。
+
+```csharp
+// BIMCanvas.Core/Algorithms/PlacementNormalizer.cs
+namespace BIMCanvas.Core.Algorithms
+{
+    /// <summary>
+    /// 将 AI 的布置意图转换为精确几何
+    /// </summary>
+    public class PlacementNormalizer
+    {
+        /// <summary>
+        /// 将语义化布置意图转换为 Polygon2D
+        /// </summary>
+        /// <param name="moduleId">模块库 ID</param>
+        /// <param name="parameters">参数化驱动（如 width, depth）</param>
+        /// <param name="center">中心点 [x, y]</param>
+        /// <param name="facing">朝向（string 或 Vec2D）</param>
+        /// <returns>精确边界 Polygon2D</returns>
+        public Polygon2D ToPolygon(
+            string moduleId,
+            Dictionary<string, double> parameters,
+            double[] center,
+            object facing)
+        {
+            // 1. 从模块库获取 canonical polygon（局部坐标系）
+            var canonical = _moduleLibrary.GetCanonicalPolygon(moduleId, parameters);
+
+            // 2. 计算旋转角度
+            double angle = FacingHelper.ToAngle(facing);
+
+            // 3. 应用变换：旋转 + 平移
+            return canonical.Rotate(angle).Translate(center);
+        }
+
+        /// <summary>
+        /// 验证布置意图是否有效
+        /// </summary>
+        public PlacementValidationResult Validate(
+            PlacementIntent intent,
+            Zone zone,
+            List<Module> existingModules)
+        {
+            var polygon = ToPolygon(intent);
+
+            // 检查是否在 zone 内
+            if (!zone.InnerBoundary.Contains(polygon))
+                return new PlacementValidationResult(false, "超出设计区域边界");
+
+            // 检查是否与禁区重叠
+            foreach (var exclusion in zone.ExclusionAreas)
+            {
+                if (polygon.Intersects(exclusion.Boundary))
+                    return new PlacementValidationResult(false, $"与禁区 {exclusion.Id} 重叠");
+            }
+
+            // 检查是否与已有模块重叠
+            foreach (var existing in existingModules)
+            {
+                if (polygon.Intersects(existing.Bounds))
+                    return new PlacementValidationResult(false, $"与模块 {existing.Id} 重叠");
+            }
+
+            return new PlacementValidationResult(true);
+        }
+    }
+}
+```
+
+#### 6.1.4 核心转换器 (UnitConverter)
 
 **核心原则**：Core 层是单位转换的**唯一真理来源**。
 
@@ -1030,4 +1183,5 @@ export class SvgRenderer {
 | v1.0 | 2025-12-01 | 初始版本 |
 | v2.0 | 2025-12-02 | 重大更新：采纳专家评审结论，修正 .NET 兼容性，改用 JSON 核心数据格式 |
 | v2.1 | 2025-12-02 | 添加程序执行流程章节，更新数据模型为 v2.0 极简版（outline + zones + modules），element 改为 module |
-| v2.2 | 2025-12-03 | 新增 §6.1.3 核心转换器 (UnitConverter)，明确单位换算职责和精度原则 |
+| v2.2 | 2025-12-03 | 新增 §6.1.4 核心转换器 (UnitConverter)，明确单位换算职责和精度原则 |
+| v2.3 | 2025-12-03 | **几何类型架构升级**：新增 §3.5 AI 交互层架构（"AI = OBB 规划师"隐喻、数据流、多样化输出策略）；新增 §6.1.3 PlacementNormalizer；Module.Bounds/ExclusionArea.Boundary 改为 Polygon2D；Facing 支持联合类型 |

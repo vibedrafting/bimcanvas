@@ -2,7 +2,7 @@
 
 基于 AI CLI 的室内装修平面方案设计助手，实现 Revit 与 AI 之间的人机协作设计。
 
-> **当前版本**: v2.0 极简版 | **数据模型**: outline + zones + modules
+> **当前版本**: v2.3 | **数据模型**: outline + zones + modules
 
 ## 解决的问题
 
@@ -168,7 +168,7 @@ BIMCanvas/
     "name": "主卧",
     "function": "master_bedroom",
     "innerBoundary": [[50,50], [5950,50], ...],
-    "exclusionAreas": [{ "id": "ex1", "type": "door_swing", "rect": [2000,0,2900,900] }],
+    "exclusionAreas": [{ "id": "ex1", "type": "door_swing", "boundary": [[2000,0], [2900,0], [2900,900], [2000,900]] }],
     "openings": ["d1"]
   }],
 
@@ -176,7 +176,7 @@ BIMCanvas/
     "id": "m1",
     "moduleId": "sleep_master_01",
     "moduleName": "主卧睡眠模块",
-    "bounds": [1500, 2000, 4500, 4500],
+    "bounds": [[1500, 2000], [4500, 2000], [4500, 4500], [1500, 4500]],
     "facing": "north",
     "zoneId": "z1",
     "items": [{ "familyId": "bed_double_01", "offset": [0,0], "role": "主体" }]
@@ -189,10 +189,10 @@ BIMCanvas/
 |--------|------|------|
 | 墙体表示 | 封闭轮廓多边形 | AI 不需要理解墙体结构 |
 | 门窗表示 | 简化为线段 | 厚度不影响家具布置 |
-| 门扇区域 | 预计算 AABB 禁区 | KISS - AI 只需知道"这里不能放" |
+| 门扇区域 | 预计算为禁区 Polygon2D | KISS - AI 只需知道"这里不能放" |
 | 房间结构 | 只有 zones | 单一数据源原则 |
 | 布置单元 | modules（模块） | 支持单一家具或组合 |
-| 模块位置 | AABB 包围盒 | 碰撞检测简单直观 |
+| 模块位置 | Polygon2D 边界 | 精确几何，支持倾斜场景 |
 | 模块朝向 | 语义化 (north/south/...) | AI 友好，插件端转换角度 |
 
 ---

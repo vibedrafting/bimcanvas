@@ -1,14 +1,24 @@
 # BIMCanvas JSON Schema 规范
 
-> 版本：v2.0 (极简版)
-> 更新日期：2025-12-02
-> 状态：已定稿（基于业务专家评审）
+> 版本：v2.2 (几何类型架构升级)
+> 更新日期：2025-12-03
+> 状态：已定稿（基于几何数据类型架构专家评审）
 
 ---
 
 ## 1. 设计原则
 
-### 1.1 核心原则：KISS (Keep It Simple, Stupid)
+### 1.1 核心设计约束
+
+> **AI = OBB 规划师**：AI 只操作矩形包围盒 (OBB)，不计算精确几何。
+
+| 原则 | 说明 |
+|------|------|
+| **AI 决策位置** | AI 输出 `center + size + facing`，Core 负责转换为精确几何 |
+| **Polygon2D 是真理** | JSON 存储精确几何，AABB 仅作运行时优化 |
+| **多样化交互** | AI 可用 Semantic / Vec2D / Polygon2D 任意格式输出 |
+
+### 1.2 KISS 原则 (Keep It Simple, Stupid)
 
 | 决策点 | 选择 | 理由 |
 |--------|------|------|
@@ -16,14 +26,14 @@
 | **数据分层** | Layer 1 (AI 上下文) | Token 效率，职责清晰 |
 | **墙体表示** | 封闭轮廓多边形 | AI 不需要理解墙体结构，只需知道空间边界 |
 | **门窗表示** | 简化为线段 | 厚度不影响家具布置 |
-| **门扇区域** | 预计算为矩形禁区（AABB） | AI 只需知道"这里不能放" |
+| **门扇区域** | 预计算为禁区（Polygon2D） | AI 只需知道"这里不能放"，支持异形禁区 |
 | **房间结构** | 只有 zones，无 rooms | 单一数据源原则，zones 是设计概念 |
 | **标高信息** | 全局 levelId | 一张平面图对应一个 Level |
 | **布置单元** | modules（模块） | 支持单一家具或组合（如睡眠模块=床+床头柜） |
-| **模块位置** | AABB 包围盒 | 直观显示占用空间，碰撞检测简单 |
+| **模块位置** | Polygon2D 边界 | 精确几何，支持倾斜场景，NTS 兼容 |
 | **模块朝向** | 语义化方向 | AI 友好，插件端转换为角度 |
 
-### 1.2 数据分层架构
+### 1.3 数据分层架构
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
@@ -48,7 +58,7 @@
 └─────────────────────────────────────────────────────────────────┘
 ```
 
-### 1.3 坐标系统
+### 1.4 坐标系统
 
 - **类型**：笛卡尔坐标系（Cartesian）
 - **原点**：视图裁剪框左下角
@@ -59,7 +69,7 @@
 > **重要**：这是 CAD 标准坐标系，与 Web 屏幕坐标系（Y 向下）相反。
 > 前端渲染时必须进行显式坐标转换：`y_screen = canvasHeight - y_model * scale`
 
-### 1.4 单位规范
+### 1.5 单位规范
 
 | 类型 | 单位 | 精度 | 换算公式 |
 |------|------|------|----------|
@@ -79,7 +89,7 @@ JSON (mm, degrees)
 Revit API (feet, radians)
 ```
 
-### 1.5 几何图元 (Geometry Primitives)
+### 1.6 几何图元 (Geometry Primitives)
 
 定义全局通用的几何数据结构，采用**纯数组格式**以节省 Token（比对象格式节省约 50%）。
 
@@ -115,7 +125,7 @@ Revit API (feet, radians)
 中心 = [(minX + maxX) / 2, (minY + maxY) / 2]
 ```
 
-### 1.6 数据流
+### 1.7 数据流
 
 ```
 【AI 操作画布】
@@ -164,7 +174,7 @@ JSON 数据 → 服务端渲染 → PNG 截图 → 发送给 AI（多模态）
         {
           "id": "ex1",
           "type": "door_swing",
-          "rect": [2000, 0, 2900, 900]
+          "boundary": [[2000, 0], [2900, 0], [2900, 900], [2000, 900]]
         }
       ],
       "openings": ["d1", "win1"]
@@ -176,7 +186,7 @@ JSON 数据 → 服务端渲染 → PNG 截图 → 发送给 AI（多模态）
       "id": "m1",
       "moduleId": "sleep_master_01",
       "moduleName": "主卧睡眠模块",
-      "bounds": [1500, 2000, 4500, 4500],
+      "bounds": [[1500, 2000], [4500, 2000], [4500, 4500], [1500, 4500]],
       "facing": "north",
       "zoneId": "z1",
       "items": [
@@ -276,7 +286,7 @@ AI 的核心工作区。每个 zone 定义一个可布置空间及其约束。
         {
           "id": "ex1",
           "type": "door_swing",
-          "rect": [2000, 0, 2900, 900]
+          "boundary": [[2000, 0], [2900, 0], [2900, 900], [2000, 900]]
         }
       ],
       "openings": ["d1", "win1"]
@@ -330,12 +340,12 @@ AI 直接使用 `innerBoundary`，无需理解完成面概念。
     {
       "id": "ex1",
       "type": "door_swing",
-      "rect": [2000, 0, 2900, 900]
+      "boundary": [[2000, 0], [2900, 0], [2900, 900], [2000, 900]]
     },
     {
       "id": "ex2",
       "type": "passage",
-      "rect": [0, 2500, 500, 3500]
+      "boundary": [[0, 2500], [500, 2500], [500, 3500], [0, 3500]]
     }
   ]
 }
@@ -345,7 +355,7 @@ AI 直接使用 `innerBoundary`，无需理解完成面概念。
 |------|------|------|
 | `id` | string | 禁区 ID |
 | `type` | string | 类型：`door_swing` / `passage` / `other` |
-| `rect` | number[] | **简化矩形（AABB）**：`[minX, minY, maxX, maxY]` |
+| `boundary` | number[][] | **禁区边界（Polygon2D）**：`[[x1,y1], [x2,y2], ...]` |
 
 **type 可选值：**
 - `door_swing`：门扇开启区域
@@ -367,7 +377,7 @@ AI 直接使用 `innerBoundary`，无需理解完成面概念。
       "id": "m1",
       "moduleId": "sleep_master_01",
       "moduleName": "主卧睡眠模块",
-      "bounds": [1500, 2000, 4500, 4500],
+      "bounds": [[1500, 2000], [4500, 2000], [4500, 4500], [1500, 4500]],
       "facing": "north",
       "zoneId": "z1",
       "items": [
@@ -387,15 +397,19 @@ AI 直接使用 `innerBoundary`，无需理解完成面概念。
 | `id` | string | 是 | 模块实例 ID，格式：`m{序号}` |
 | `moduleId` | string | 是 | 模块库中的模块类型 ID |
 | `moduleName` | string | 否 | 可读名称（如"主卧睡眠模块"） |
-| `bounds` | number[] | 是 | AABB 包围盒：`[minX, minY, maxX, maxY]` |
-| `facing` | string | 是 | 语义化朝向 |
+| `bounds` | number[][] | 是 | Polygon2D 边界：`[[x1,y1], [x2,y2], ...]`（矩形 4 顶点） |
+| `facing` | string \| number[] | 是 | 朝向：语义字符串或 Vec2D 向量（见 §6.3） |
 | `zoneId` | string | 是 | 所属区域 ID |
 | `items` | object[] | 否 | 模块内部家具清单（回写 Revit 用） |
 
-### 6.3 facing（语义化朝向）
+### 6.3 facing（朝向 - 联合类型）
 
-| 值 | 含义 | 插件转换角度 |
-|----|------|-------------|
+`facing` 支持两种格式：**语义字符串**（标准场景）和 **Vec2D 向量**（任意角度）。
+
+#### 6.3.1 语义字符串（推荐）
+
+| 值 | 含义 | 对应角度 |
+|----|------|----------|
 | `north` | 朝北 | 0° |
 | `east` | 朝东 | 90° |
 | `south` | 朝南 | 180° |
@@ -405,11 +419,39 @@ AI 直接使用 `innerBoundary`，无需理解完成面概念。
 | `southwest` | 朝西南 | 225° |
 | `northwest` | 朝西北 | 315° |
 
-**插件端转换规则：**
+#### 6.3.2 Vec2D 向量（任意角度）
+
+当需要非 45° 增量的角度时，使用 Vec2D 单位向量：
+
+```json
+{
+  "facing": [0.866, 0.5]   // 30° 方向向量 (cos30°, sin30°)
+}
+```
+
+**向量处理规则**：
+- 向量应为**单位向量**（长度 ≈ 1）
+- 若 `|v| < 0.5`，视为无效，回退到模块默认朝向
+- Core 层自动归一化并保留 6 位小数
+
+#### 6.3.3 为什么不用 Angle（数值角度）
+
+讨论中明确**反对**使用数值角度（如 `rotation: 30`）：
+
+- AI 对角度的理解容易出错（弧度 vs 角度，顺时针 vs 逆时针，0度起点的定义）
+- Vec2D 向量具有**唯一确定的几何意义**，对 AI 更友好
+- 如果 AI 输出了 `angle: 30`，Core 层应做兼容处理（`angle → Vec2D`），但 Schema 定义推荐使用语义字符串或 Vec2D
+
+#### 6.3.4 插件端转换
+
 ```csharp
 // 语义方向 → 旋转角度
 north → 0°     south → 180°
 east → 90°     west → 270°
+
+// Vec2D → 旋转角度
+facing = [dx, dy]
+angle = Math.Atan2(dy, dx) * (180 / Math.PI)
 ```
 
 ### 6.4 items（模块内部家具）
@@ -431,6 +473,36 @@ east → 90°     west → 270°
 | `familyId` | string | 族库中的 Family ID |
 | `offset` | number[] | 相对模块中心的偏移：`[dx, dy]` |
 | `role` | string | 在模块中的角色（如"主体"、"左床头柜"） |
+
+### 6.5 计算属性 (_computed)
+
+AI 输入时，Canvas-MCP 会为每个 Module 动态生成计算属性 `_computed`，方便 AI 理解空间状态。
+
+**重要**：`_computed` **不持久化到 JSON**，仅在 AI 交互时动态生成。
+
+```json
+{
+  "id": "m1",
+  "moduleId": "sleep_master_01",
+  "bounds": [[1500, 2000], [4500, 2000], [4500, 4500], [1500, 4500]],
+  "facing": "north",
+  "zoneId": "z1",
+  "_computed": {
+    "center": [3000, 3250],
+    "size": [3000, 2500]
+  }
+}
+```
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| `center` | number[] | 模块中心点 `[x, y]`，由 bounds 计算 |
+| `size` | number[] | 模块尺寸 `[width, height]`，由 bounds 计算 |
+
+**设计理由**：
+- **避免数据冗余**：`center/size` 与 `bounds` 存在计算关系，同时存储会导致不一致风险
+- **AI 友好**：提供语义化信息，AI 无需自行推算
+- **单一真理来源**：`bounds: Polygon2D` 是唯一存储格式
 
 ---
 
@@ -499,7 +571,7 @@ AI 调用修改工具时携带 `expectedVersion`：
     "canvasId": "canvas_001",
     "expectedVersion": 42,
     "moduleId": "sleep_master_01",
-    "bounds": [1500, 2000, 4500, 4500],
+    "bounds": [[1500, 2000], [4500, 2000], [4500, 4500], [1500, 4500]],
     "facing": "north",
     "zoneId": "z1"
   }
@@ -563,7 +635,7 @@ AI 调用修改工具时携带 `expectedVersion`：
         {
           "id": "ex1",
           "type": "door_swing",
-          "rect": [2000, 250, 2900, 1150]
+          "boundary": [[2000, 250], [2900, 250], [2900, 1150], [2000, 1150]]
         }
       ],
       "openings": ["d1", "win1"]
@@ -575,7 +647,7 @@ AI 调用修改工具时携带 `expectedVersion`：
       "id": "m1",
       "moduleId": "sleep_master_01",
       "moduleName": "主卧睡眠组合",
-      "bounds": [1500, 3500, 4500, 5500],
+      "bounds": [[1500, 3500], [4500, 3500], [4500, 5500], [1500, 5500]],
       "facing": "north",
       "zoneId": "z1",
       "items": [
@@ -588,7 +660,7 @@ AI 调用修改工具时携带 `expectedVersion`：
       "id": "m2",
       "moduleId": "wardrobe_01",
       "moduleName": "衣柜",
-      "bounds": [4500, 500, 5500, 3000],
+      "bounds": [[4500, 500], [5500, 500], [5500, 3000], [4500, 3000]],
       "facing": "west",
       "zoneId": "z1",
       "items": [
@@ -599,7 +671,7 @@ AI 调用修改工具时携带 `expectedVersion`：
       "id": "m3",
       "moduleId": "dresser_01",
       "moduleName": "梳妆台",
-      "bounds": [300, 3500, 1200, 4500],
+      "bounds": [[300, 3500], [1200, 3500], [1200, 4500], [300, 4500]],
       "facing": "east",
       "zoneId": "z1",
       "items": [
@@ -682,7 +754,7 @@ interface Zone {
 interface ExclusionArea {
   id: string;
   type: "door_swing" | "passage" | "other";
-  rect: AABB;
+  boundary: Polygon2D;        // 禁区边界（支持异形）
 }
 
 // 布置模块
@@ -690,8 +762,8 @@ interface Module {
   id: string;
   moduleId: string;
   moduleName?: string;
-  bounds: AABB;
-  facing: Facing;
+  bounds: Polygon2D;           // 精确边界（矩形 4 顶点）
+  facing: Facing;              // 语义朝向或向量
   zoneId: string;
   items?: ModuleItem[];
 }
@@ -717,8 +789,8 @@ type ZoneFunction =
   | "corridor"
   | "storage";
 
-// 朝向
-type Facing =
+// 朝向 - 联合类型（语义字符串 | Vec2D 向量）
+type FacingSemantic =
   | "north"
   | "south"
   | "east"
@@ -727,7 +799,59 @@ type Facing =
   | "southeast"
   | "southwest"
   | "northwest";
+
+type Facing = FacingSemantic | Vec2D;  // 语义字符串 或 单位向量 [dx, dy]
 ```
+
+---
+
+## 11. 模块库 Schema（待补充）
+
+> **状态**：待用户提供模块库数据结构后补充
+
+模块库 (Library-MCP) 为 AI 提供设计素材，每个模块定义包含：
+
+### 11.1 预期结构
+
+```typescript
+interface ModuleDefinition {
+  moduleId: string;              // 模块唯一标识
+  moduleName: string;            // 可读名称
+  category: string;              // 分类（bedroom/living/...）
+
+  // 几何定义
+  canonicalPolygon: Polygon2D;   // 局部坐标系下的精确轮廓
+  obbSize: [number, number];     // 矩形最大包围盒尺寸 [width, height]
+
+  // 参数化接口
+  parameters?: {
+    [key: string]: {
+      min: number;
+      max: number;
+      default: number;
+    };
+  };
+
+  // 内部家具清单
+  items: ModuleItemDefinition[];
+}
+```
+
+### 11.2 AI 使用流程
+
+```
+1. AI 调用 Library-MCP 搜索/获取模块定义
+2. AI 根据 obbSize 进行布置决策
+3. AI 输出 Intent: { moduleId, params?, center, facing }
+4. Core Normalizer 根据 canonicalPolygon + params 生成精确 Polygon2D
+```
+
+### 11.3 待定义内容
+
+- [ ] `ModuleDefinition` 完整字段
+- [ ] `ModuleItemDefinition` 结构
+- [ ] Library-MCP 工具接口（`module_search`, `module_get`）
+- [ ] 参数化驱动机制
 
 ---
 
@@ -735,7 +859,9 @@ type Facing =
 
 | 版本 | 日期 | 变更内容 |
 |------|------|----------|
-| v2.1 | 2025-12-03 | 新增 §1.4 单位规范、§1.5 几何图元；明确 Point2D/Vec2D/Line2D/Polygon2D/AABB 类型定义 |
+| v2.3 | 2025-12-03 | **落实讨论结论**：补充 §6.3.3 为什么不用 Angle；新增 §6.5 计算属性 (_computed)；新增 §11 模块库 Schema 占位章节 |
+| v2.2 | 2025-12-03 | **几何类型架构升级**：Module.bounds 改为 Polygon2D；ExclusionArea.rect 改为 boundary: Polygon2D；Facing 支持联合类型（string \| Vec2D）；新增 §1.1 核心设计约束（AI = OBB 规划师） |
+| v2.1 | 2025-12-03 | 新增 §1.5 单位规范、§1.6 几何图元；明确 Point2D/Vec2D/Line2D/Polygon2D/AABB 类型定义 |
 | v2.0 | 2025-12-02 | **重大重构**：采用极简设计，outline + zones + modules 三层结构，AABB 包围盒，语义化朝向 |
 | v1.1 | 2025-12-02 | 坐标系变更为 CAD 标准（Y-up） |
 | v1.0 | 2025-12-02 | 初始版本 |

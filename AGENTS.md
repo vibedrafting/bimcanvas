@@ -2,7 +2,7 @@
 
 > 在用户提供的建筑平面内，布置符合设计逻辑的家具组合。
 
-**数据模型版本**: v2.0 极简版 (outline + zones + modules)
+**数据模型版本**: v2.3 落实讨论结论 (outline + zones + modules)
 
 ---
 
@@ -13,9 +13,8 @@
 | 文档 | 路径 | 内容 |
 |------|------|------|
 | 架构文档 | `docs/Architecture.md` | 系统架构、数据流、执行流程 |
-| JSON Schema | `docs/Schema-JSON.md` | v2.0 数据模型定义 |
+| JSON Schema | `docs/Schema-JSON.md` | v2.3 数据模型定义 |
 | PRD | `docs/PRD.md` | 产品需求、工作流程 |
-| 评审记录 | `docs/Architecture_Design_Review.md` | 设计决策讨论 |
 
 ### 模块速查
 
@@ -57,22 +56,26 @@ BIMCanvas.Revit.*    → 仅 Revit 插件内部使用
 
 ---
 
-## v2.0 数据模型速查
+## v2.3 数据模型速查
+
+### 核心设计原则
+
+> **AI = OBB 规划师**：AI 只操作矩形包围盒，不计算精确几何。Core 层负责转换。
 
 ### JSON 顶级结构
 
 ```
 CanvasDocument
 ├── outline          墙体轮廓 + 门窗线段 (仅视觉)
-│   ├── walls[]      封闭多边形 polygon
-│   └── openings[]   线段 line + type (door/window)
+│   ├── walls[]      封闭多边形 Polygon2D
+│   └── openings[]   线段 Line2D + type (door/window)
 ├── zones[]          设计区域 (AI 核心工作区)
-│   ├── innerBoundary    可用空间轮廓 (已扣除完成面)
-│   ├── exclusionAreas[] 禁区 AABB (门扇/通道)
+│   ├── innerBoundary    可用空间轮廓 Polygon2D
+│   ├── exclusionAreas[] 禁区 boundary: Polygon2D (4顶点矩形)
 │   └── openings[]       关联门窗 ID
 └── modules[]        布置模块 (最小布置单元)
-    ├── bounds           AABB [minX, minY, maxX, maxY]
-    ├── facing           语义朝向 (north/south/east/west)
+    ├── bounds           Polygon2D [[x,y], ...] (4顶点矩形)
+    ├── facing           Facing (语义字符串 | Vec2D)
     └── items[]          内部家具清单 (回写 Revit 用)
 ```
 
@@ -85,7 +88,14 @@ CanvasDocument
 3. bounds 不能与其他已放置模块重叠
 ```
 
-### 语义朝向 → 角度转换
+### Facing 类型 (语义朝向)
+
+| 格式 | 示例 | 说明 |
+|------|------|------|
+| 语义字符串 | `"north"` | 标准 8 方向 |
+| Vec2D | `[0.707, 0.707]` | 任意角度单位向量 |
+
+**语义字符串 → 角度转换**：
 
 | 朝向 | 角度 | 朝向 | 角度 |
 |------|------|------|------|
