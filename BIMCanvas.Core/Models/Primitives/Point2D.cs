@@ -1,8 +1,12 @@
+using Newtonsoft.Json;
+using BIMCanvas.Core.Converters.Json;
+
 namespace BIMCanvas.Core.Models.Primitives
 {
     /// <summary>
     /// 二维坐标点（绝对位置），JSON 格式：[x, y]
     /// </summary>
+    [JsonConverter(typeof(Point2DConverter))]
     public readonly struct Point2D
     {
         public double X { get; }

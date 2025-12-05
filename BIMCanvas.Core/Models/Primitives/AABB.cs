@@ -1,8 +1,12 @@
+using Newtonsoft.Json;
+using BIMCanvas.Core.Converters.Json;
+
 namespace BIMCanvas.Core.Models.Primitives
 {
     /// <summary>
     /// 轴对齐包围盒 (Axis-Aligned Bounding Box)，JSON 格式：[minX, minY, maxX, maxY]
     /// </summary>
+    [JsonConverter(typeof(AABBConverter))]
     public readonly struct AABB
     {
         public double MinX { get; }

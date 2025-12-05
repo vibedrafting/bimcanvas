@@ -1,11 +1,14 @@
 using System;
 using System.Linq;
+using Newtonsoft.Json;
+using BIMCanvas.Core.Converters.Json;
 
 namespace BIMCanvas.Core.Models.Primitives
 {
     /// <summary>
     /// 二维多边形，JSON 格式：[[x,y], ...]（隐式闭合）
     /// </summary>
+    [JsonConverter(typeof(Polygon2DConverter))]
     public class Polygon2D
     {
         public Point2D[] Vertices { get; }

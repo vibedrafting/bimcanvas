@@ -1,4 +1,6 @@
 using System;
+using Newtonsoft.Json;
+using BIMCanvas.Core.Converters.Json;
 using BIMCanvas.Core.Models.Primitives;
 
 namespace BIMCanvas.Core.Models.Document
@@ -6,6 +8,7 @@ namespace BIMCanvas.Core.Models.Document
     /// <summary>
     /// 朝向 - 支持语义方向枚举或 Vec2D 向量
     /// </summary>
+    [JsonConverter(typeof(FacingConverter))]
     public readonly struct Facing
     {
         private readonly FacingDirection? _semantic;

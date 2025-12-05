@@ -1,10 +1,13 @@
 using System;
+using Newtonsoft.Json;
+using BIMCanvas.Core.Converters.Json;
 
 namespace BIMCanvas.Core.Models.Primitives
 {
     /// <summary>
     /// 二维向量（相对偏移），JSON 格式：[dx, dy]
     /// </summary>
+    [JsonConverter(typeof(Vec2DConverter))]
     public readonly struct Vec2D
     {
         public double X { get; }

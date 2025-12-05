@@ -238,7 +238,10 @@ Converters/
 ### 待处理问题
 
 ```
-（暂无 - 所有计划任务已完成）
+1. Module.Bounds 矩形验证 → 后续在 PlacementValidator 层处理
+   - Polygon2D 构造时不验证顶点数量
+   - Module.Bounds 设计上应为 4 顶点矩形
+   - 建议在 PlacementValidator.Validate() 中添加顶点数量检查
 ```
 
 ### 变更日志
@@ -250,6 +253,7 @@ Converters/
 | 2025-12-04 | 完成 Converters/Json（6个转换器） |
 | 2025-12-04 | 完成 Validation + Algorithms + Converters，全部代码生成完毕 |
 | 2025-12-04 | **v2.5 设计变更**：新增 Room/WallFinish 概念，ZoneTag 多标签，Facing 枚举化 |
+| 2025-12-05 | **JsonConverter 注册**：为 6 个模型类添加 [JsonConverter] 特性，确保 JSON 序列化格式正确 |
 
 ---
 

@@ -1,10 +1,13 @@
 using System;
+using Newtonsoft.Json;
+using BIMCanvas.Core.Converters.Json;
 
 namespace BIMCanvas.Core.Models.Primitives
 {
     /// <summary>
     /// 二维线段，JSON 格式：[[x1,y1], [x2,y2]]
     /// </summary>
+    [JsonConverter(typeof(Line2DConverter))]
     public class Line2D
     {
         public Point2D Start { get; set; }
