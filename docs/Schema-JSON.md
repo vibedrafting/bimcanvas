@@ -1,8 +1,8 @@
 # BIMCanvas JSON Schema 规范
 
-> 版本：v2.4
-> 更新日期：2025-12-04
-> 状态：已定稿（同步 BIMCanvas.Core 实现方案评审共识）
+> 版本：v2.5
+> 更新日期：2025-12-05
+> 状态：已定稿（新增 Room/WallFinish 概念，完善完成面设计）
 >
 > **相关文档**：
 > - [Architecture.md](./Architecture.md) - 系统架构（含 Core 层详细设计）
@@ -31,7 +31,8 @@
 | **墙体表示** | 封闭轮廓多边形 | AI 不需要理解墙体结构，只需知道空间边界 |
 | **门窗表示** | 简化为线段 | 厚度不影响家具布置 |
 | **门扇区域** | 预计算为禁区（Polygon2D） | AI 只需知道"这里不能放"，支持异形禁区 |
-| **房间结构** | 只有 zones，无 rooms | 单一数据源原则，zones 是设计概念 |
+| **房间结构** | rooms + zones 分层 | Room 是物理房间，Zone 是 Room 下的功能分区 |
+| **完成面机制** | 类似门扇禁区 | 完成面生成禁区，裁剪 Zone.innerBoundary |
 | **标高信息** | 全局 levelId | 一张平面图对应一个 Level |
 | **布置单元** | modules（模块） | 支持单一家具或组合（如睡眠模块=床+床头柜） |
 | **模块位置** | Polygon2D 边界 | 精确几何，支持倾斜场景，NTS 兼容 |
@@ -47,7 +48,9 @@
 │   【Layer 1: AI 上下文】- CanvasDocument.json                    │
 │   ┌─────────────────────────────────────────────────────────┐   │
 │   │  • outline: 墙轮廓多边形 + 门窗线段（仅几何，无属性）       │   │
+│   │  • rooms: 物理房间（对应 Revit Room）                      │   │
 │   │  • zones: 可用空间 + 禁区（innerBoundary + exclusionAreas） │   │
+│   │  • wallFinishes: 墙面完成面配置                            │   │
 │   │  • modules: 家具模块列表                                   │   │
 │   │  → 用途：AI 布置计算、前端渲染                              │   │
 │   └─────────────────────────────────────────────────────────┘   │
@@ -168,20 +171,44 @@ JSON 数据 → 服务端渲染 → PNG 截图 → 发送给 AI（多模态）
     ]
   },
 
+  "rooms": [
+    {
+      "id": "r1",
+      "name": "主卧",
+      "type": "master_bedroom",
+      "boundary": [[0,0], [6000,0], [6000,6000], [0,6000]]
+    }
+  ],
+
   "zones": [
     {
       "id": "z1",
-      "name": "主卧",
-      "function": "master_bedroom",
-      "innerBoundary": [ [50,50], [5950,50], [5950,5950], [50,5950] ],
+      "name": "睡眠区",
+      "roomId": "r1",
+      "tags": ["sleep"],
+      "rawBoundary": [[200,200], [5800,200], [5800,5800], [200,5800]],
+      "innerBoundary": [[220,220], [5780,220], [5780,5780], [220,5780]],
       "exclusionAreas": [
         {
           "id": "ex1",
           "type": "door_swing",
-          "boundary": [[2000, 0], [2900, 0], [2900, 900], [2000, 900]]
+          "boundary": [[2000, 200], [2900, 200], [2900, 1100], [2000, 1100]]
         }
       ],
       "openings": ["d1", "win1"]
+    }
+  ],
+
+  "wallFinishes": [
+    {
+      "id": "wf1",
+      "locationLine": [[200, 200], [200, 5800]],
+      "finishModuleId": "finish_paint_01",
+      "thickness": 20,
+      "exclusionBoundary": [[200, 200], [220, 200], [220, 5800], [200, 5800]],
+      "wallId": "w4",
+      "roomId": "r1",
+      "source": "room_default"
     }
   ],
 
@@ -216,7 +243,9 @@ JSON 数据 → 服务端渲染 → PNG 截图 → 发送给 AI（多模态）
 | `coordinateSystem` | string | 是 | 固定值：`cartesian_mm_yUp` |
 | `metadata` | object | 是 | 元数据 |
 | `outline` | object | 是 | 可视化底图（墙体轮廓 + 门窗线段） |
-| `zones` | array | 是 | 设计区域列表 |
+| `rooms` | array | 是 | 物理房间列表（对应 Revit Room） |
+| `zones` | array | 是 | 设计区域列表（属于 Room 的功能分区） |
+| `wallFinishes` | array | 是 | 墙面完成面配置列表 |
 | `modules` | array | 是 | 布置模块列表 |
 
 ### 3.2 metadata（元数据）
@@ -272,50 +301,40 @@ JSON 数据 → 服务端渲染 → PNG 截图 → 发送给 AI（多模态）
 
 ---
 
-## 5. zones（设计区域）
+## 5. rooms（物理房间）
 
-AI 的核心工作区。每个 zone 定义一个可布置空间及其约束。
+Room 表示物理房间，对应 Revit 中的 Room 元素。Zone 是 Room 下的功能分区。
 
-### 5.1 Zone 完整定义
+### 5.1 Room 完整定义
 
 ```json
 {
-  "zones": [
+  "rooms": [
     {
-      "id": "z1",
+      "id": "r1",
       "name": "主卧",
-      "function": "master_bedroom",
-      "innerBoundary": [ [50,50], [5950,50], [5950,5950], [50,5950] ],
-      "exclusionAreas": [
-        {
-          "id": "ex1",
-          "type": "door_swing",
-          "boundary": [[2000, 0], [2900, 0], [2900, 900], [2000, 900]]
-        }
-      ],
-      "openings": ["d1", "win1"]
+      "type": "master_bedroom",
+      "boundary": [[0,0], [6000,0], [6000,6000], [0,6000]]
     }
   ]
 }
 ```
 
-### 5.2 Zone 字段说明
+### 5.2 Room 字段说明
 
 | 字段 | 类型 | 必填 | 说明 |
 |------|------|------|------|
-| `id` | string | 是 | 区域 ID，格式：`z{序号}` |
-| `name` | string | 是 | 区域名称（用户可见） |
-| `function` | string | 是 | 功能类型 |
-| `innerBoundary` | number[][] | 是 | **可用空间轮廓**（已扣除完成面） |
-| `exclusionAreas` | object[] | 否 | **禁止布置区**（门扇、必要通道等） |
-| `openings` | string[] | 否 | 关联的门窗 ID |
+| `id` | string | 是 | 房间 ID，格式：`r{序号}` |
+| `name` | string | 是 | 房间名称（用户可见） |
+| `type` | string | 是 | 房间类型（RoomType 枚举） |
+| `boundary` | number[][] | 是 | 房间边界（Revit Room 边界） |
 
-### 5.3 function（功能类型）
+### 5.3 type（房间类型）
 
 | 值 | 说明 |
 |-----|------|
-| `living` | 客厅/起居室 |
-| `dining` | 餐厅 |
+| `living_room` | 客厅 |
+| `dining_room` | 餐厅 |
 | `master_bedroom` | 主卧 |
 | `bedroom` | 次卧 |
 | `study` | 书房 |
@@ -326,17 +345,115 @@ AI 的核心工作区。每个 zone 定义一个可布置空间及其约束。
 | `corridor` | 走廊 |
 | `storage` | 储物间 |
 
-### 5.4 innerBoundary 计算规则
+### 5.4 Room 与完成面厚度的关系
 
-**插件端在导出时自动计算：**
+Room.type 决定该房间墙面的**默认完成面类型**，进而决定默认完成面厚度。
+
+例如：
+- `bathroom` → 默认瓷砖完成面 → 厚度 50mm
+- `master_bedroom` → 默认乳胶漆完成面 → 厚度 20mm
+
+具体映射关系通过项目配置文件管理，支持自定义。
+
+---
+
+## 6. zones（设计区域）
+
+Zone 是 Room 下的功能分区，是 AI 的核心工作区。每个 Zone 定义一个可布置空间及其约束。
+
+### 6.1 Zone 完整定义
+
+```json
+{
+  "zones": [
+    {
+      "id": "z1",
+      "name": "睡眠区",
+      "roomId": "r1",
+      "tags": ["sleep", "bedhead_wall"],
+      "rawBoundary": [[200,200], [5800,200], [5800,5800], [200,5800]],
+      "innerBoundary": [[220,220], [5780,220], [5780,5780], [220,5780]],
+      "exclusionAreas": [
+        {
+          "id": "ex1",
+          "type": "door_swing",
+          "boundary": [[2000, 200], [2900, 200], [2900, 1100], [2000, 1100]]
+        }
+      ],
+      "openings": ["d1", "win1"]
+    }
+  ]
+}
+```
+
+### 6.2 Zone 字段说明
+
+| 字段 | 类型 | 必填 | 说明 |
+|------|------|------|------|
+| `id` | string | 是 | 区域 ID，格式：`z{序号}` |
+| `name` | string | 是 | 区域名称（用户可见） |
+| `roomId` | string | 是 | 所属房间 ID |
+| `tags` | string[] | 是 | 功能标签列表（ZoneTag 枚举） |
+| `rawBoundary` | number[][] | 是 | **原始边界**（未扣除完成面） |
+| `innerBoundary` | number[][] | 是 | **可用空间轮廓**（已扣除完成面禁区） |
+| `exclusionAreas` | object[] | 否 | **禁止布置区**（门扇、必要通道等） |
+| `openings` | string[] | 否 | 关联的门窗 ID |
+
+### 6.3 tags（功能标签）
+
+Zone 使用标签系统替代单一功能类型，支持多标签组合。
+
+| 标签 | 说明 |
+|------|------|
+| `tv_media` | 电视多媒体区 |
+| `audio_video` | 视听娱乐区 |
+| `sleep` | 睡眠区（床区） |
+| `bedhead_wall` | 床头背景墙区（触发特殊完成面） |
+| `rest` | 休憩区（沙发等） |
+| `reading` | 阅读区 |
+| `work` | 工作区 |
+| `study` | 学习区 |
+| `wardrobe_storage` | 衣物收纳区 |
+| `shoe_storage` | 鞋柜收纳区 |
+| `general_storage` | 通用收纳区 |
+| `dining` | 用餐区 |
+| `cooking` | 烹饪区 |
+| `food_prep` | 备餐区 |
+| `bar` | 吧台区 |
+| `shower` | 淋浴区 |
+| `bathtub` | 浴缸区 |
+| `toilet` | 如厕区 |
+| `washing` | 洗漱区 |
+| `laundry` | 洗衣区 |
+| `vanity` | 梳妆区 |
+| `entry` | 入口区 |
+| `passage` | 通道区 |
+| `display` | 展示区 |
+| `plants` | 绿植区 |
+
+### 6.4 tags 与完成面的关系
+
+部分 Zone 标签会触发相邻墙面的完成面类型覆盖：
+
+| 标签 | 完成面类型 | 典型厚度 |
+|------|-----------|----------|
+| `tv_media` | 护墙板 + 灯带槽 | 80mm |
+| `bedhead_wall` | 软包/硬包 | 60mm |
+| `bar` | 吧台背景 | 40mm |
+
+**流程**：划分 Zone 后 → 检测标签 → 查找相邻墙面 → 更新 WallFinish（source = zone_override）
+
+### 6.5 innerBoundary 计算规则
 
 ```
-innerBoundary = Revit房间边界 - 各边墙体完成面厚度
+innerBoundary = rawBoundary - 所有相关完成面禁区（wallFinishes[].exclusionBoundary）
 ```
 
-AI 直接使用 `innerBoundary`，无需理解完成面概念。
+- `rawBoundary`：Zone 的原始边界（划分工作区时确定）
+- 完成面禁区：由 WallFinish 根据 locationLine + thickness 动态计算
+- AI 直接使用 `innerBoundary`，无需理解完成面计算逻辑
 
-### 5.5 exclusionAreas（禁止布置区）
+### 6.6 exclusionAreas（禁止布置区）
 
 ```json
 {
@@ -368,11 +485,121 @@ AI 直接使用 `innerBoundary`，无需理解完成面概念。
 
 ---
 
-## 6. modules（布置模块）
+## 7. wallFinishes（墙面完成面）
+
+墙面完成面是一种禁区机制，与门扇禁区类似。完成面类型决定厚度，厚度决定禁区范围。
+
+### 7.1 核心设计
+
+> **三层来源机制 → 完成面类型 → 完成面厚度**
+
+完成面的类型和厚度由三层来源机制决定，优先级从高到低：
+
+| 优先级 | Source | 说明 |
+|--------|--------|------|
+| 1（最高）| `user_override` | 用户手动修改 |
+| 2 | `zone_override` | Zone 标签触发（如 tv_media → 护墙板） |
+| 3（最低）| `room_default` | Room.type 默认值（如 bathroom → 瓷砖） |
+
+### 7.2 WallFinish 完整定义
+
+```json
+{
+  "wallFinishes": [
+    {
+      "id": "wf1",
+      "locationLine": [[200, 200], [200, 5800]],
+      "finishModuleId": "finish_paint_01",
+      "thickness": 20,
+      "exclusionBoundary": [[200, 200], [220, 200], [220, 5800], [200, 5800]],
+      "wallId": "w4",
+      "roomId": "r1",
+      "source": "room_default"
+    },
+    {
+      "id": "wf2",
+      "locationLine": [[200, 4000], [200, 5800]],
+      "finishModuleId": "finish_tv_wall_01",
+      "thickness": 80,
+      "exclusionBoundary": [[200, 4000], [280, 4000], [280, 5800], [200, 5800]],
+      "wallId": "w4",
+      "roomId": "r1",
+      "source": "zone_override"
+    }
+  ]
+}
+```
+
+### 7.3 WallFinish 字段说明
+
+| 字段 | 类型 | 必填 | 说明 |
+|------|------|------|------|
+| `id` | string | 是 | 完成面 ID，格式：`wf{序号}` |
+| `locationLine` | number[][] | 是 | 定位线（靠墙侧，方向顺房间） |
+| `finishModuleId` | string | 否 | 完成面类型（模块库 ID），决定做法和厚度 |
+| `thickness` | number | 是 | 厚度（mm），由 finishModuleId 查模块库获得 |
+| `exclusionBoundary` | number[][] | 是 | 禁区轮廓（由 locationLine + thickness 计算） |
+| `wallId` | string | 是 | 关联墙体 ID |
+| `roomId` | string | 是 | 关联房间 ID（决定是墙的哪一侧） |
+| `source` | string | 是 | 来源：`room_default` / `zone_override` / `user_override` |
+
+### 7.4 计算流程
+
+```
+┌────────────────────────────────────────────────────────────────┐
+│ Phase 1: 初始化（Revit 导出时）                                  │
+├────────────────────────────────────────────────────────────────┤
+│ 1. 根据 Room.type 查项目配置，获取默认 finishModuleId            │
+│ 2. 根据 finishModuleId 查模块库，获取 thickness                  │
+│ 3. 为 Room 边界相邻的每面墙创建 WallFinish                       │
+│    { locationLine, finishModuleId, thickness, source: "room_default" }
+└────────────────────────────────────────────────────────────────┘
+                               ↓
+┌────────────────────────────────────────────────────────────────┐
+│ Phase 2: Zone 标签覆盖（划分工作区后）                            │
+├────────────────────────────────────────────────────────────────┤
+│ 1. 检测 Zone.tags 是否匹配特殊完成面规则（如 tv_media）           │
+│ 2. 查找 Zone.rawBoundary 与哪些墙共享边                          │
+│ 3. 更新对应 WallFinish（如果 source != user_override）          │
+│    { finishModuleId: 新类型, thickness: 新厚度, source: "zone_override" }
+└────────────────────────────────────────────────────────────────┘
+                               ↓
+┌────────────────────────────────────────────────────────────────┐
+│ Phase 3: 生成禁区 & 裁剪边界                                     │
+├────────────────────────────────────────────────────────────────┤
+│ 1. 根据 locationLine + thickness 计算 exclusionBoundary          │
+│ 2. Zone.innerBoundary = Zone.rawBoundary - 所有相关完成面禁区     │
+└────────────────────────────────────────────────────────────────┘
+```
+
+### 7.5 与门扇禁区的对比
+
+| 维度 | 门扇禁区 | 完成面禁区 |
+|------|----------|------------|
+| 存储位置 | Zone.exclusionAreas | wallFinishes[] |
+| 类型字段 | type: "door_swing" | finishModuleId |
+| 来源 | 固定（门扇几何） | 三层来源机制 |
+| 可编辑性 | 不可修改 | 用户可动态调整 |
+
+两者都是"禁止布置区"的概念，但完成面禁区支持动态调整（用户可修改 finishModuleId/thickness）。
+
+### 7.6 finishModuleId 示例
+
+| finishModuleId | 做法 | 典型厚度 |
+|----------------|------|----------|
+| `finish_paint_01` | 乳胶漆 | 20mm |
+| `finish_tile_01` | 瓷砖 | 50mm |
+| `finish_tv_wall_01` | 护墙板 + 灯带槽 | 80mm |
+| `finish_soft_01` | 软包 | 60mm |
+| `finish_hard_01` | 硬包 | 50mm |
+
+---
+
+## 8. modules（布置模块）
 
 模块是最小布置单元，可以是单一家具或家具组合。
 
-### 6.1 Module 完整定义
+### 8.1 Module 完整定义
 
 ```json
 {
@@ -394,7 +621,7 @@ AI 直接使用 `innerBoundary`，无需理解完成面概念。
 }
 ```
 
-### 6.2 Module 字段说明
+### 8.2 Module 字段说明
 
 | 字段 | 类型 | 必填 | 说明 |
 |------|------|------|------|
@@ -402,17 +629,17 @@ AI 直接使用 `innerBoundary`，无需理解完成面概念。
 | `moduleId` | string | 是 | 模块库中的模块类型 ID |
 | `moduleName` | string | 否 | 可读名称（如"主卧睡眠模块"） |
 | `bounds` | number[][] | 是 | Polygon2D 边界：`[[x1,y1], [x2,y2], ...]`（矩形 4 顶点） |
-| `facing` | string \| number[] | 是 | 朝向：语义字符串或 Vec2D 向量（见 §6.3） |
+| `facing` | string \| number[] | 是 | 朝向：语义字符串或 Vec2D 向量（见 §8.3） |
 | `zoneId` | string | 是 | 所属区域 ID |
 | `items` | object[] | 否 | 模块内部家具清单（回写 Revit 用） |
 
-### 6.3 facing（朝向 - 联合类型）
+### 8.3 facing（朝向 - 联合类型）
 
 `facing` 支持两种格式：**语义字符串**（标准场景）和 **Vec2D 向量**（任意角度）。
 
 > **核心原则**：**向量 (Vec2D) 是唯一真理**。语义字符串仅为常用向量的别名。
 
-#### 6.3.1 语义字符串 (Semantic Alias)
+#### 8.3.1 语义字符串 (Semantic Alias)
 
 语义字符串是常用方向的快捷方式，Core 层会自动将其转换为对应的单位向量。
 
@@ -427,7 +654,7 @@ AI 直接使用 `innerBoundary`，无需理解完成面概念。
 | `southeast` | `[0.707, -0.707]` | 东南 (-45°) |
 | `southwest` | `[-0.707, -0.707]` | 西南 (-135°) |
 
-#### 6.3.2 Vec2D 向量（任意角度）
+#### 8.3.2 Vec2D 向量（任意角度）
 
 当需要非 45° 增量的角度时，直接使用 Vec2D 单位向量：
 
@@ -442,14 +669,14 @@ AI 直接使用 `innerBoundary`，无需理解完成面概念。
 - 若 `|v| < 0.5`，视为无效，回退到模块默认朝向
 - Core 层自动归一化并保留 6 位小数
 
-#### 6.3.3 为什么不用 Angle（数值角度）
+#### 8.3.3 为什么不用 Angle（数值角度）
 
 讨论中明确**反对**使用数值角度（如 `rotation: 30`）：
 
 - **歧义性**：角度依赖于 0° 定义（是北还是东？）和旋转方向（顺时针还是逆时针？）。
 - **唯一性**：Vec2D 向量具有**唯一确定的几何意义**，对 AI 更友好。
 
-#### 6.3.4 插件端转换 (Revit 兼容)
+#### 8.3.4 插件端转换 (Revit 兼容)
 
 Revit API 使用 X 轴 (East) 为 0°，逆时针旋转，与本定义的向量数学逻辑完全一致。
 
@@ -463,7 +690,7 @@ angle = Math.Atan2(dy, dx) * (180 / Math.PI)
 // East  [1, 0] -> Atan2(0, 1) = 0°
 ```
 
-### 6.4 items（模块内部家具）
+### 8.4 items（模块内部家具）
 
 用于回写 Revit 时创建具体家具实例。
 
@@ -483,7 +710,7 @@ angle = Math.Atan2(dy, dx) * (180 / Math.PI)
 | `offset` | number[] | 相对模块中心的偏移：`[dx, dy]` |
 | `role` | string | 在模块中的角色（如"主体"、"左床头柜"） |
 
-### 6.5 计算属性 (_computed)
+### 8.5 计算属性 (_computed)
 
 AI 输入时，Canvas-MCP 会为每个 Module 动态生成计算属性 `_computed`，方便 AI 理解空间状态。
 
@@ -515,9 +742,9 @@ AI 输入时，Canvas-MCP 会为每个 Module 动态生成计算属性 `_compute
 
 ---
 
-## 7. AI 布置逻辑
+## 9. AI 布置逻辑
 
-### 7.1 核心约束规则
+### 9.1 核心约束规则
 
 ```
 对于每个要放置的模块：
@@ -526,7 +753,7 @@ AI 输入时，Canvas-MCP 会为每个 Module 动态生成计算属性 `_compute
 3. 模块 bounds 不能与其他已放置模块重叠
 ```
 
-### 7.2 碰撞检测伪代码
+### 9.2 碰撞检测伪代码
 
 ```javascript
 function canPlaceModule(module, zone, existingModules) {
@@ -562,14 +789,14 @@ function aabbIntersects(a, b) {
 
 ---
 
-## 8. 版本控制
+## 10. 版本控制
 
-### 8.1 版本号机制
+### 10.1 版本号机制
 
 - 每次画布修改，`version` 递增 1
 - 用于乐观锁，防止并发冲突
 
-### 8.2 乐观锁使用
+### 10.2 乐观锁使用
 
 AI 调用修改工具时携带 `expectedVersion`：
 
@@ -600,9 +827,9 @@ AI 调用修改工具时携带 `expectedVersion`：
 
 ---
 
-## 9. 完整示例
+## 11. 完整示例
 
-### 9.1 典型卧室布置
+### 11.1 典型卧室布置
 
 ```json
 {
@@ -694,9 +921,9 @@ AI 调用修改工具时携带 `expectedVersion`：
 
 ---
 
-## 10. 附录：类型定义
+## 12. 附录：类型定义
 
-### 10.1 TypeScript 类型
+### 12.1 TypeScript 类型
 
 ```typescript
 // ============================================
@@ -719,7 +946,9 @@ interface CanvasDocument {
   coordinateSystem: "cartesian_mm_yUp";
   metadata: Metadata;
   outline: Outline;
+  rooms: Room[];
   zones: Zone[];
+  wallFinishes: WallFinish[];
   modules: Module[];
 }
 
@@ -749,15 +978,82 @@ interface Opening {
   line: Line2D;
 }
 
+// 物理房间
+interface Room {
+  id: string;
+  name: string;
+  type: RoomType;
+  boundary: Polygon2D;
+}
+
+// 房间类型
+type RoomType =
+  | "living_room"
+  | "dining_room"
+  | "master_bedroom"
+  | "bedroom"
+  | "study"
+  | "kitchen"
+  | "bathroom"
+  | "entrance"
+  | "balcony"
+  | "corridor"
+  | "storage";
+
 // 设计区域
 interface Zone {
   id: string;
   name: string;
-  function: ZoneFunction;
+  roomId: string;
+  tags: ZoneTag[];
+  rawBoundary: Polygon2D;
   innerBoundary: Polygon2D;
   exclusionAreas?: ExclusionArea[];
   openings?: string[];
 }
+
+// 功能标签
+type ZoneTag =
+  | "tv_media"
+  | "audio_video"
+  | "sleep"
+  | "bedhead_wall"
+  | "rest"
+  | "reading"
+  | "work"
+  | "study"
+  | "wardrobe_storage"
+  | "shoe_storage"
+  | "general_storage"
+  | "dining"
+  | "cooking"
+  | "food_prep"
+  | "bar"
+  | "shower"
+  | "bathtub"
+  | "toilet"
+  | "washing"
+  | "laundry"
+  | "vanity"
+  | "entry"
+  | "passage"
+  | "display"
+  | "plants";
+
+// 墙面完成面
+interface WallFinish {
+  id: string;
+  locationLine: Line2D;
+  finishModuleId?: string;
+  thickness: number;
+  exclusionBoundary: Polygon2D;
+  wallId: string;
+  roomId: string;
+  source: FinishSource;
+}
+
+// 完成面来源
+type FinishSource = "room_default" | "zone_override" | "user_override";
 
 // 禁止布置区
 interface ExclusionArea {
@@ -784,20 +1080,6 @@ interface ModuleItem {
   role?: string;
 }
 
-// 功能类型
-type ZoneFunction =
-  | "living"
-  | "dining"
-  | "master_bedroom"
-  | "bedroom"
-  | "study"
-  | "kitchen"
-  | "bathroom"
-  | "entrance"
-  | "balcony"
-  | "corridor"
-  | "storage";
-
 // 朝向 - 联合类型（语义字符串 | Vec2D 向量）
 type FacingSemantic =
   | "north"
@@ -814,13 +1096,13 @@ type Facing = FacingSemantic | Vec2D;  // 语义字符串 或 单位向量 [dx, 
 
 ---
 
-## 11. 模块库 Schema（待补充）
+## 13. 模块库 Schema（待补充）
 
 > **状态**：待用户提供模块库数据结构后补充
 
 模块库 (Library-MCP) 为 AI 提供设计素材，每个模块定义包含：
 
-### 11.1 预期结构
+### 13.1 预期结构
 
 ```typescript
 interface ModuleDefinition {
@@ -846,7 +1128,7 @@ interface ModuleDefinition {
 }
 ```
 
-### 11.2 AI 使用流程
+### 13.2 AI 使用流程
 
 ```
 1. AI 调用 Library-MCP 搜索/获取模块定义
@@ -855,7 +1137,7 @@ interface ModuleDefinition {
 4. Core Normalizer 根据 canonicalPolygon + params 生成精确 Polygon2D
 ```
 
-### 11.3 待定义内容
+### 13.3 待定义内容
 
 - [ ] `ModuleDefinition` 完整字段
 - [ ] `ModuleItemDefinition` 结构
@@ -868,6 +1150,7 @@ interface ModuleDefinition {
 
 | 版本 | 日期 | 变更内容 |
 |------|------|----------|
+| v2.5 | 2025-12-05 | **数据模型增强**：新增 Room（物理房间）；Zone 添加 roomId/tags/rawBoundary；新增 WallFinish（墙面完成面禁区机制）；完善完成面三层来源机制设计 |
 | v2.4 | 2025-12-04 | **同步评审共识**：添加评审文档引用；JSON 数据结构保持不变，C# 实现细节见 Architecture.md §6.1 |
 | v2.3 | 2025-12-03 | **落实讨论结论**：补充 §6.3.3 为什么不用 Angle；新增 §6.5 计算属性 (_computed)；新增 §11 模块库 Schema 占位章节 |
 | v2.2 | 2025-12-03 | **几何类型架构升级**：Module.bounds 改为 Polygon2D；ExclusionArea.rect 改为 boundary: Polygon2D；Facing 支持联合类型（string \| Vec2D）；新增 §1.1 核心设计约束（AI = OBB 规划师） |

@@ -1,8 +1,8 @@
 # BIMCanvas 系统架构文档
 
 > 版本：v2.5
-> 更新日期：2025-12-04
-> 状态：已定稿（新增 Room/WallFinish 概念，Facing 枚举化）
+> 更新日期：2025-12-05
+> 状态：已定稿（新增 Room/WallFinish 概念，完善完成面三层来源机制设计）
 
 ---
 
@@ -890,16 +890,21 @@ public enum FinishSource
 }
 
 // WallFinish - 墙面完成面
+// 设计意图：完成面是一种禁区机制，与门扇禁区类似
+// 核心逻辑链：三层来源机制(Source) → 完成面类型(FinishModuleId) → 厚度(Thickness)
+//   - RoomDefault: Room.Type 查配置 → 默认完成面类型 → 厚度
+//   - ZoneOverride: Zone.Tags 匹配规则 → 特殊完成面类型 → 厚度（如 tv_media → 护墙板 → 80mm）
+//   - UserOverride: 用户手动选择完成面类型 → 厚度
 public class WallFinish
 {
     public string Id { get; set; }
-    public Line2D? LocationLine { get; set; }      // 定位线（靠墙侧，方向顺房间）
-    public double Thickness { get; set; }          // 厚度（mm）
-    public string? FinishModuleId { get; set; }    // 模块库 ID
-    public Polygon2D? ExclusionBoundary { get; set; }  // 禁区轮廓（动态生成）
-    public string WallId { get; set; }
-    public string RoomId { get; set; }
-    public FinishSource Source { get; set; }
+    public Line2D? LocationLine { get; set; }      // 位置：定位线（靠墙侧，方向顺房间）
+    public string? FinishModuleId { get; set; }    // 类型：完成面模块库 ID，决定做法和厚度
+    public double Thickness { get; set; }          // 厚度（mm），由 FinishModuleId 查模块库获得
+    public Polygon2D? ExclusionBoundary { get; set; }  // 禁区轮廓（由 LocationLine + Thickness 计算）
+    public string WallId { get; set; }             // 关联墙体 ID
+    public string RoomId { get; set; }             // 关联房间 ID（决定是墙的哪一侧）
+    public FinishSource Source { get; set; }       // 来源（决定 FinishModuleId 的优先级）
 }
 
 // CanvasDocument - 画布文档根对象
