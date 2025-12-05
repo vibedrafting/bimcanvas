@@ -173,6 +173,7 @@ internal static NTS.Polygon ToNtsPolygon(Polygon2D polygon)
 | 六. Algorithms/Geometry | ✅ 已完成 | 2025-12-04 |
 | 七. Algorithms/Spatial | ✅ 已完成 | 2025-12-04 |
 | 八. Converters (单位+Revit) | ✅ 已完成 | 2025-12-04 |
+| **九. v2.5 设计变更** | ✅ 已完成 | 2025-12-04 |
 
 ### 已完成文件
 
@@ -188,16 +189,22 @@ Models/Primitives/
 └── Polygon2D.cs
 
 Models/Document/
-├── Facing.cs
+├── Facing.cs                 (v2.5 更新：_semantic 改为 FacingDirection 枚举)
+├── FacingDirection.cs        (v2.5 新增：朝向方向枚举)
 ├── Metadata.cs
 ├── Wall.cs
 ├── Opening.cs
 ├── Outline.cs
+├── Room.cs                   (v2.5 新增：物理房间)
+├── RoomType.cs               (v2.5 新增：房间类型枚举)
 ├── ExclusionArea.cs
-├── Zone.cs
+├── Zone.cs                   (v2.5 更新：移除 Function，新增 RoomId/Tags/RawBoundary)
+├── ZoneTag.cs                (v2.5 新增：区域功能标签枚举)
+├── WallFinish.cs             (v2.5 新增：墙面完成面)
+├── FinishSource.cs           (v2.5 新增：完成面来源枚举)
 ├── ModuleItem.cs
 ├── Module.cs
-└── CanvasDocument.cs
+└── CanvasDocument.cs         (v2.5 更新：新增 Rooms/WallFinishes)
 
 Converters/Json/
 ├── Point2DConverter.cs
@@ -218,7 +225,8 @@ Algorithms/Spatial/
 ├── FacingHelper.cs
 ├── GeometryNormalizer.cs
 ├── CollisionDetector.cs
-└── PlacementValidator.cs
+├── PlacementValidator.cs
+└── FinishRules.cs            (v2.5 新增：特殊完成面规则表)
 
 Converters/
 ├── UnitConverter.cs
@@ -241,3 +249,150 @@ Converters/
 | 2025-12-04 | 完成项目初始化 + Models/Primitives + Models/Document |
 | 2025-12-04 | 完成 Converters/Json（6个转换器） |
 | 2025-12-04 | 完成 Validation + Algorithms + Converters，全部代码生成完毕 |
+| 2025-12-04 | **v2.5 设计变更**：新增 Room/WallFinish 概念，ZoneTag 多标签，Facing 枚举化 |
+
+---
+
+## 六、v2.5 设计变更
+
+> 基于讨论共识，更新数据模型和代码
+
+### 6.1 变更总结
+
+| 变更项 | 内容 |
+|--------|------|
+| **Facing 枚举化** | `_semantic` 从 `string?` 改为 `FacingDirection?`，JSON 保持 `"north"` 格式 |
+| **新增 Room 概念** | 物理房间（对应 Revit Room），Zone 属于 Room |
+| **Zone 功能标签** | 移除 `Function` 枚举，新增 `Tags` 列表（支持多标签） |
+| **WallFinish 墙面完成面** | 新增数据结构，作为禁区轮廓参与布置验证 |
+
+### 6.2 新增枚举
+
+```csharp
+// FacingDirection.cs - 8 个朝向方向
+public enum FacingDirection
+{
+    [EnumMember(Value = "north")] North,
+    [EnumMember(Value = "south")] South,
+    [EnumMember(Value = "east")] East,
+    [EnumMember(Value = "west")] West,
+    [EnumMember(Value = "northeast")] Northeast,
+    [EnumMember(Value = "northwest")] Northwest,
+    [EnumMember(Value = "southeast")] Southeast,
+    [EnumMember(Value = "southwest")] Southwest
+}
+
+// RoomType.cs - 房间类型
+public enum RoomType
+{
+    LivingRoom, DiningRoom, MasterBedroom, Bedroom, Study,
+    Kitchen, Bathroom, Entrance, Balcony, Corridor, Storage
+}
+
+// ZoneTag.cs - 区域功能标签（细粒度）
+public enum ZoneTag
+{
+    TvMedia, AudioVideo,                    // 多媒体
+    Sleep, Rest, Reading,                   // 休息
+    Work, Study,                            // 工作
+    WardrobeStorage, ShoeStorage, GeneralStorage,  // 收纳
+    Dining, Cooking, FoodPrep, Bar,         // 餐饮
+    Shower, Bathtub, Toilet, Washing, Laundry,     // 卫浴
+    Vanity, Entry, Passage, Display, Plants        // 其他
+}
+
+// FinishSource.cs - 完成面来源追踪
+public enum FinishSource
+{
+    RoomDefault,    // 房间类型默认值
+    ZoneOverride,   // 工作区标签覆盖
+    UserOverride    // 用户手动设置
+}
+```
+
+### 6.3 新增类
+
+```csharp
+// Room.cs - 物理房间
+public class Room
+{
+    public string Id { get; set; } = string.Empty;
+    public string Name { get; set; } = string.Empty;
+    public RoomType Type { get; set; }
+    public Polygon2D? Boundary { get; set; }
+}
+
+// WallFinish.cs - 墙面完成面
+public class WallFinish
+{
+    public string Id { get; set; } = string.Empty;
+    public Line2D? LocationLine { get; set; }      // 定位线
+    public double Thickness { get; set; }          // 厚度（mm）
+    public string? FinishModuleId { get; set; }    // 模块库 ID
+    public Polygon2D? ExclusionBoundary { get; set; }  // 禁区轮廓
+    public string WallId { get; set; } = string.Empty;
+    public string RoomId { get; set; } = string.Empty;
+    public FinishSource Source { get; set; }
+}
+```
+
+### 6.4 修改类
+
+```csharp
+// Facing.cs - _semantic 改为枚举类型
+public readonly struct Facing
+{
+    private readonly FacingDirection? _semantic;  // 从 string? 改为枚举
+    private readonly Vec2D? _vector;
+    // ...
+}
+
+// Zone.cs - 移除 Function，新增 RoomId + Tags
+public class Zone
+{
+    public string RoomId { get; set; } = string.Empty;    // 新增
+    public List<ZoneTag> Tags { get; set; } = new();      // 替代 Function
+    public Polygon2D? RawBoundary { get; set; }           // 新增
+    // ...
+}
+
+// CanvasDocument.cs - 新增 Rooms + WallFinishes
+public class CanvasDocument
+{
+    public List<Room> Rooms { get; set; } = new();             // 新增
+    public List<WallFinish> WallFinishes { get; set; } = new();  // 新增
+    // ...
+}
+```
+
+### 6.5 新增算法
+
+```csharp
+// FinishRules.cs - 特殊完成面规则表
+public static class FinishRules
+{
+    public static readonly Dictionary<ZoneTag, double> SpecialFinishThickness = new()
+    {
+        { ZoneTag.TvMedia, 80.0 },  // 电视区 → 80mm
+        { ZoneTag.Sleep, 60.0 },    // 睡眠区 → 60mm
+        { ZoneTag.Bar, 40.0 },      // 吧台区 → 40mm
+    };
+
+    public static bool TriggersSpecialFinish(ZoneTag tag)
+        => SpecialFinishThickness.ContainsKey(tag);
+}
+
+// GeometryHelper.cs - 新增 ComputeExclusionBoundary
+public static Polygon2D ComputeExclusionBoundary(Line2D locationLine, double thickness)
+{
+    var direction = (locationLine.End - locationLine.Start).Normalize();
+    var normal = new Vec2D(-direction.Y, direction.X);
+
+    var p1 = locationLine.Start;
+    var p2 = locationLine.End;
+    var p3 = p2 + normal * thickness;
+    var p4 = p1 + normal * thickness;
+
+    return new Polygon2D(new[] { p1, p2, p3, p4 });
+}
+```

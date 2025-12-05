@@ -33,9 +33,19 @@ namespace BIMCanvas.Core.Models.Document
         public Outline? Outline { get; set; }
 
         /// <summary>
+        /// 物理房间列表
+        /// </summary>
+        public List<Room> Rooms { get; set; } = new List<Room>();
+
+        /// <summary>
         /// 设计区域列表
         /// </summary>
         public List<Zone> Zones { get; set; } = new List<Zone>();
+
+        /// <summary>
+        /// 墙面完成面列表
+        /// </summary>
+        public List<WallFinish> WallFinishes { get; set; } = new List<WallFinish>();
 
         /// <summary>
         /// 布置模块列表

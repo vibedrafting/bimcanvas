@@ -109,5 +109,27 @@ namespace BIMCanvas.Core.Algorithms.Geometry
 
             return (point - closest).Length;
         }
+
+        /// <summary>
+        /// 根据定位线和厚度计算禁区轮廓
+        /// </summary>
+        /// <param name="locationLine">定位线（靠墙侧，方向顺房间）</param>
+        /// <param name="thickness">完成面厚度（mm）</param>
+        /// <returns>禁区轮廓（4顶点矩形）</returns>
+        public static Polygon2D ComputeExclusionBoundary(Line2D locationLine, double thickness)
+        {
+            // 计算线段方向向量
+            var direction = (locationLine.End - locationLine.Start).Normalize();
+            // 计算法向量（向内偏移方向，逆时针旋转90度）
+            var normal = new Vec2D(-direction.Y, direction.X);
+
+            // 计算4个顶点
+            var p1 = locationLine.Start;
+            var p2 = locationLine.End;
+            var p3 = new Point2D(p2.X + normal.X * thickness, p2.Y + normal.Y * thickness);
+            var p4 = new Point2D(p1.X + normal.X * thickness, p1.Y + normal.Y * thickness);
+
+            return new Polygon2D(new[] { p1, p2, p3, p4 });
+        }
     }
 }

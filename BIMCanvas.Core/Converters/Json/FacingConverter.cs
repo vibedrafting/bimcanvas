@@ -18,7 +18,9 @@ namespace BIMCanvas.Core.Converters.Json
             // 语义字符串格式："north"
             if (token.Type == JTokenType.String)
             {
-                return new Facing(token.Value<string>()!);
+                var semanticStr = token.Value<string>()!;
+                var direction = Facing.ParseSemantic(semanticStr);
+                return new Facing(direction);
             }
 
             // 向量格式：[dx, dy]
@@ -39,7 +41,8 @@ namespace BIMCanvas.Core.Converters.Json
         {
             if (value.IsSemantic)
             {
-                writer.WriteValue(value.Semantic);
+                // 使用小写字符串格式
+                writer.WriteValue(value.GetSemanticString());
             }
             else
             {

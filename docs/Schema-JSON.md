@@ -1,8 +1,12 @@
 # BIMCanvas JSON Schema 规范
 
-> 版本：v2.2 (几何类型架构升级)
-> 更新日期：2025-12-03
-> 状态：已定稿（基于几何数据类型架构专家评审）
+> 版本：v2.4
+> 更新日期：2025-12-04
+> 状态：已定稿（同步 BIMCanvas.Core 实现方案评审共识）
+>
+> **相关文档**：
+> - [Architecture.md](./Architecture.md) - 系统架构（含 Core 层详细设计）
+> - [reviews/BIMCanvas_Core_Implementation_Review.md](../reviews/BIMCanvas_Core_Implementation_Review.md) - Core 实现方案评审记录
 
 ---
 
@@ -406,22 +410,26 @@ AI 直接使用 `innerBoundary`，无需理解完成面概念。
 
 `facing` 支持两种格式：**语义字符串**（标准场景）和 **Vec2D 向量**（任意角度）。
 
-#### 6.3.1 语义字符串（推荐）
+> **核心原则**：**向量 (Vec2D) 是唯一真理**。语义字符串仅为常用向量的别名。
 
-| 值 | 含义 | 对应角度 |
-|----|------|----------|
-| `north` | 朝北 | 0° |
-| `east` | 朝东 | 90° |
-| `south` | 朝南 | 180° |
-| `west` | 朝西 | 270° |
-| `northeast` | 朝东北 | 45° |
-| `southeast` | 朝东南 | 135° |
-| `southwest` | 朝西南 | 225° |
-| `northwest` | 朝西北 | 315° |
+#### 6.3.1 语义字符串 (Semantic Alias)
+
+语义字符串是常用方向的快捷方式，Core 层会自动将其转换为对应的单位向量。
+
+| 语义 | 对应向量 (Vec2D) | 说明 |
+|------|------------------|------|
+| `east` | `[1, 0]` | **X 轴正向 (基准)** |
+| `north` | `[0, 1]` | **Y 轴正向** |
+| `west` | `[-1, 0]` | X 轴负向 |
+| `south` | `[0, -1]` | Y 轴负向 |
+| `northeast` | `[0.707, 0.707]` | 东北 (45°) |
+| `northwest` | `[-0.707, 0.707]` | 西北 (135°) |
+| `southeast` | `[0.707, -0.707]` | 东南 (-45°) |
+| `southwest` | `[-0.707, -0.707]` | 西南 (-135°) |
 
 #### 6.3.2 Vec2D 向量（任意角度）
 
-当需要非 45° 增量的角度时，使用 Vec2D 单位向量：
+当需要非 45° 增量的角度时，直接使用 Vec2D 单位向量：
 
 ```json
 {
@@ -438,20 +446,21 @@ AI 直接使用 `innerBoundary`，无需理解完成面概念。
 
 讨论中明确**反对**使用数值角度（如 `rotation: 30`）：
 
-- AI 对角度的理解容易出错（弧度 vs 角度，顺时针 vs 逆时针，0度起点的定义）
-- Vec2D 向量具有**唯一确定的几何意义**，对 AI 更友好
-- 如果 AI 输出了 `angle: 30`，Core 层应做兼容处理（`angle → Vec2D`），但 Schema 定义推荐使用语义字符串或 Vec2D
+- **歧义性**：角度依赖于 0° 定义（是北还是东？）和旋转方向（顺时针还是逆时针？）。
+- **唯一性**：Vec2D 向量具有**唯一确定的几何意义**，对 AI 更友好。
 
-#### 6.3.4 插件端转换
+#### 6.3.4 插件端转换 (Revit 兼容)
+
+Revit API 使用 X 轴 (East) 为 0°，逆时针旋转，与本定义的向量数学逻辑完全一致。
 
 ```csharp
-// 语义方向 → 旋转角度
-north → 0°     south → 180°
-east → 90°     west → 270°
-
-// Vec2D → 旋转角度
-facing = [dx, dy]
+// Vec2D → Revit 旋转角度
+// facing = [dx, dy]
 angle = Math.Atan2(dy, dx) * (180 / Math.PI)
+
+// 示例：
+// North [0, 1] -> Atan2(1, 0) = 90°
+// East  [1, 0] -> Atan2(0, 1) = 0°
 ```
 
 ### 6.4 items（模块内部家具）
@@ -859,6 +868,7 @@ interface ModuleDefinition {
 
 | 版本 | 日期 | 变更内容 |
 |------|------|----------|
+| v2.4 | 2025-12-04 | **同步评审共识**：添加评审文档引用；JSON 数据结构保持不变，C# 实现细节见 Architecture.md §6.1 |
 | v2.3 | 2025-12-03 | **落实讨论结论**：补充 §6.3.3 为什么不用 Angle；新增 §6.5 计算属性 (_computed)；新增 §11 模块库 Schema 占位章节 |
 | v2.2 | 2025-12-03 | **几何类型架构升级**：Module.bounds 改为 Polygon2D；ExclusionArea.rect 改为 boundary: Polygon2D；Facing 支持联合类型（string \| Vec2D）；新增 §1.1 核心设计约束（AI = OBB 规划师） |
 | v2.1 | 2025-12-03 | 新增 §1.5 单位规范、§1.6 几何图元；明确 Point2D/Vec2D/Line2D/Polygon2D/AABB 类型定义 |

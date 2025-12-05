@@ -4,24 +4,6 @@ using BIMCanvas.Core.Models.Primitives;
 namespace BIMCanvas.Core.Models.Document
 {
     /// <summary>
-    /// 区域功能类型
-    /// </summary>
-    public enum ZoneFunction
-    {
-        Living,
-        Dining,
-        MasterBedroom,
-        Bedroom,
-        Study,
-        Kitchen,
-        Bathroom,
-        Entrance,
-        Balcony,
-        Corridor,
-        Storage
-    }
-
-    /// <summary>
     /// 设计区域
     /// </summary>
     public class Zone
@@ -37,9 +19,19 @@ namespace BIMCanvas.Core.Models.Document
         public string Name { get; set; } = string.Empty;
 
         /// <summary>
-        /// 功能类型
+        /// 所属房间 ID
         /// </summary>
-        public ZoneFunction Function { get; set; }
+        public string RoomId { get; set; } = string.Empty;
+
+        /// <summary>
+        /// 功能标签列表（支持多标签）
+        /// </summary>
+        public List<ZoneTag> Tags { get; set; } = new List<ZoneTag>();
+
+        /// <summary>
+        /// 原始边界轮廓（未扣除完成面）
+        /// </summary>
+        public Polygon2D? RawBoundary { get; set; }
 
         /// <summary>
         /// 可用空间轮廓（已扣除完成面）

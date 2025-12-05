@@ -1,8 +1,8 @@
 # BIMCanvas 系统架构文档
 
-> 版本：v2.3
-> 更新日期：2025-12-03
-> 状态：已定稿（基于几何数据类型架构专家评审）
+> 版本：v2.5
+> 更新日期：2025-12-04
+> 状态：已定稿（新增 Room/WallFinish 概念，Facing 枚举化）
 
 ---
 
@@ -366,31 +366,58 @@ BIMCanvas/                                    【根目录】
 ├── BIMCanvas.slnx                            【解决方案文件】
 │
 ├── BIMCanvas.Core/                           【项目】核心类库 (.NET Standard 2.0)
-│   ├── BIMCanvas.Core.csproj
+│   ├── BIMCanvas.Core.csproj                       依赖: Newtonsoft.Json, NetTopologySuite
+│   │
 │   ├── Models/                                  【目录】数据模型
-│   │   ├── CanvasDocument.cs                       画布文档（根对象）
-│   │   ├── Elements/                               【目录】元素类型
-│   │   │   ├── CanvasElement.cs                       元素基类
-│   │   │   ├── FurnitureElement.cs                    家具
-│   │   │   ├── WallElement.cs                         墙
-│   │   │   ├── DoorElement.cs                         门
-│   │   │   └── WindowElement.cs                       窗
-│   │   ├── Zones/                                  【目录】区域
-│   │   │   └── Zone.cs                                功能区域
-│   │   ├── Relations/                              【目录】空间关系
-│   │   │   └── SpatialRelation.cs                     空间关系
-│   │   └── Shared/                                 【目录】通用类型
-│   │       ├── Point2D.cs
-│   │       ├── Bounds3D.cs
-│   │       └── Result.cs
+│   │   ├── Primitives/                             【目录】几何基元
+│   │   │   ├── Point2D.cs                             readonly struct, 坐标点
+│   │   │   ├── Vec2D.cs                               readonly struct, 向量
+│   │   │   ├── Line2D.cs                              线段
+│   │   │   ├── Polygon2D.cs                           多边形, 封装 Point2D[]
+│   │   │   └── AABB.cs                                轴对齐包围盒
+│   │   │
+│   │   └── Document/                               【目录】业务模型（扁平化）
+│   │       ├── CanvasDocument.cs                      画布文档（根对象）
+│   │       ├── Metadata.cs                            元数据
+│   │       ├── Outline.cs                             可视化底图
+│   │       ├── Wall.cs                                墙体轮廓
+│   │       ├── Opening.cs                             门窗
+│   │       ├── Room.cs                                物理房间（对应 Revit Room）
+│   │       ├── RoomType.cs                            房间类型枚举
+│   │       ├── Zone.cs                                设计区域
+│   │       ├── ZoneTag.cs                             区域功能标签枚举
+│   │       ├── ExclusionArea.cs                       禁止布置区
+│   │       ├── WallFinish.cs                          墙面完成面
+│   │       ├── FinishSource.cs                        完成面来源枚举
+│   │       ├── Module.cs                              布置模块
+│   │       ├── ModuleItem.cs                          模块内部家具
+│   │       ├── Facing.cs                              朝向（联合类型封装）
+│   │       └── FacingDirection.cs                     朝向方向枚举
+│   │
 │   ├── Algorithms/                              【目录】空间计算
-│   │   ├── CollisionDetector.cs                    碰撞检测
-│   │   ├── GridHelper.cs                           网格对齐
-│   │   ├── RelationCalculator.cs                   空间关系计算
-│   │   └── SpaceAnalyzer.cs                        空间分析
-│   └── Converters/                              【目录】转换器
-│       ├── RevitToJsonConverter.cs                 Revit数据 → JSON
-│       └── JsonToRevitConverter.cs                 JSON → Revit数据
+│   │   ├── Geometry/                               【目录】简单数学运算
+│   │   │   ├── GeometryHelper.cs                      AABB 计算、中心点、旋转
+│   │   │   └── NtsAdapter.cs                          internal: Polygon2D ↔ NTS 转换
+│   │   │
+│   │   └── Spatial/                                【目录】空间业务逻辑
+│   │       ├── CollisionDetector.cs                   碰撞检测（调用 NTS）
+│   │       ├── FacingHelper.cs                        方向语义 ↔ Vec2D
+│   │       ├── GeometryNormalizer.cs                  AI 意图 → Polygon2D
+│   │       ├── PlacementValidator.cs                  布置验证（只验证，不修正）
+│   │       └── FinishRules.cs                         特殊完成面规则表
+│   │
+│   ├── Converters/                              【目录】转换器
+│   │   ├── UnitConverter.cs                        单位转换（feet↔mm, rad↔deg）
+│   │   ├── Json/                                   【目录】自定义序列化器
+│   │   │   ├── Point2DConverter.cs                    [x, y] 格式
+│   │   │   └── FacingConverter.cs                     "north" | [dx, dy] 格式
+│   │   │
+│   │   └── Revit/                                  【目录】Revit 数据转换
+│   │       ├── RevitToJsonConverter.cs                Revit数据 → JSON
+│   │       └── JsonToRevitConverter.cs                JSON → Revit数据
+│   │
+│   └── Validation/                              【目录】验证基础设施
+│       └── Result.cs                               Result<T, TError> 类型
 │
 ├── BIMCanvas.Revit/                          【项目】Revit 相关 (.NET FW 4.7.2)
 │   ├── BIMCanvas.Revit.csproj                     ⚠️ 仅此项目可引用 Revit API
@@ -486,10 +513,12 @@ BIMCanvas/                                    【根目录】
                     ┌─────────────────────────┐
                     │    BIMCanvas.Core       │
                     │  (.NET Standard 2.0)    │
+                    │  Newtonsoft.Json + NTS  │
                     │                         │
                     │  Models/                │
                     │  Algorithms/            │
                     │  Converters/            │
+                    │  Validation/            │
                     └─────────────────────────┘
                               ▲
                               │ 引用
@@ -741,11 +770,138 @@ public class CanvasStateManager
 
 **职责**：提供核心数据模型和算法，被所有 .NET 项目共享引用
 
-#### 6.1.1 数据模型（v2.0 极简版）
+> **核心定位**：「薄」数据契约 + 语义桥梁
+> - ✅ 定义通用数据模型（CanvasDocument 及其子结构）
+> - ✅ 实现 AI 语义 → 几何数据的转换
+> - ✅ 提供单位转换（feet↔mm, rad↔deg）
+> - ❌ 不做复杂几何运算（委托给 NetTopologySuite）
+> - ❌ 不做浮点精度处理（由调用方负责）
+
+**NuGet 依赖**：
+- `Newtonsoft.Json` (13.0.3) - JSON 序列化
+- `NetTopologySuite` (2.x) - 几何运算
+
+#### 6.1.1 数据模型
 
 详细定义见：[Schema-JSON.md](./Schema-JSON.md)
 
+**几何基元 (Models/Primitives/)**：
+
 ```csharp
+// Point2D - 坐标点（readonly struct，类型安全）
+public readonly struct Point2D
+{
+    public double X { get; }
+    public double Y { get; }
+
+    public Point2D(double x, double y) => (X, Y) = (x, y);
+}
+
+// Vec2D - 向量（结构同 Point2D，语义不同）
+public readonly struct Vec2D
+{
+    public double X { get; }
+    public double Y { get; }
+
+    public Vec2D(double x, double y) => (X, Y) = (x, y);
+    public Vec2D Normalize() => ...;
+}
+
+// Polygon2D - 多边形（封装 Point2D[]）
+public class Polygon2D
+{
+    public Point2D[] Vertices { get; }
+
+    public Polygon2D(Point2D[] vertices) => Vertices = vertices;
+    public AABB ComputeAABB() => ...;
+    public Point2D ComputeCenter() => ...;
+}
+
+// FacingDirection - 朝向方向枚举
+public enum FacingDirection
+{
+    [EnumMember(Value = "north")] North,
+    [EnumMember(Value = "south")] South,
+    [EnumMember(Value = "east")] East,
+    [EnumMember(Value = "west")] West,
+    [EnumMember(Value = "northeast")] Northeast,
+    [EnumMember(Value = "northwest")] Northwest,
+    [EnumMember(Value = "southeast")] Southeast,
+    [EnumMember(Value = "southwest")] Southwest
+}
+
+// Facing - 朝向（联合类型封装）
+public readonly struct Facing
+{
+    public bool IsSemantic { get; }
+    public FacingDirection? Semantic { get; }  // 枚举类型
+    public Vec2D? Vector { get; }              // 单位向量
+
+    public static implicit operator Facing(FacingDirection d) => ...;
+    public static implicit operator Facing(Vec2D v) => ...;
+    public double ToAngleRadians() => ...;
+}
+```
+
+**业务模型 (Models/Document/)**：
+
+```csharp
+// RoomType - 房间类型枚举
+public enum RoomType
+{
+    LivingRoom, DiningRoom, MasterBedroom, Bedroom, Study,
+    Kitchen, Bathroom, Entrance, Balcony, Corridor, Storage
+}
+
+// Room - 物理房间（对应 Revit Room）
+public class Room
+{
+    public string Id { get; set; }
+    public string Name { get; set; }
+    public RoomType Type { get; set; }
+    public Polygon2D? Boundary { get; set; }
+}
+
+// ZoneTag - 区域功能标签枚举（细粒度）
+public enum ZoneTag
+{
+    // 多媒体/视听
+    TvMedia, AudioVideo,
+    // 休息/睡眠
+    Sleep, Rest, Reading,
+    // 工作/学习
+    Work, Study,
+    // 收纳
+    WardrobeStorage, ShoeStorage, GeneralStorage,
+    // 餐饮
+    Dining, Cooking, FoodPrep, Bar,
+    // 卫浴
+    Shower, Bathtub, Toilet, Washing, Laundry,
+    // 其他
+    Vanity, Entry, Passage, Display, Plants
+}
+
+// FinishSource - 完成面来源
+public enum FinishSource
+{
+    RoomDefault,   // 房间类型默认值
+    ZoneOverride,  // 工作区标签覆盖
+    UserOverride   // 用户手动设置
+}
+
+// WallFinish - 墙面完成面
+public class WallFinish
+{
+    public string Id { get; set; }
+    public Line2D? LocationLine { get; set; }      // 定位线（靠墙侧，方向顺房间）
+    public double Thickness { get; set; }          // 厚度（mm）
+    public string? FinishModuleId { get; set; }    // 模块库 ID
+    public Polygon2D? ExclusionBoundary { get; set; }  // 禁区轮廓（动态生成）
+    public string WallId { get; set; }
+    public string RoomId { get; set; }
+    public FinishSource Source { get; set; }
+}
+
 // CanvasDocument - 画布文档根对象
 public class CanvasDocument
 {
@@ -754,38 +910,10 @@ public class CanvasDocument
     public string CoordinateSystem { get; set; } = "cartesian_mm_yUp";
     public Metadata Metadata { get; set; }
     public Outline Outline { get; set; }
+    public List<Room> Rooms { get; set; }           // 新增：物理房间列表
     public List<Zone> Zones { get; set; }
+    public List<WallFinish> WallFinishes { get; set; }  // 新增：墙面完成面列表
     public List<Module> Modules { get; set; }
-}
-
-// Metadata - 元数据
-public class Metadata
-{
-    public int RevitViewId { get; set; }
-    public int LevelId { get; set; }
-    public int GridSize { get; set; } = 500;
-}
-
-// Outline - 可视化底图
-public class Outline
-{
-    public List<Wall> Walls { get; set; }
-    public List<Opening> Openings { get; set; }
-}
-
-// Wall - 墙体轮廓
-public class Wall
-{
-    public string Id { get; set; }
-    public List<double[]> Polygon { get; set; }  // [[x,y], [x,y], ...]
-}
-
-// Opening - 门窗
-public class Opening
-{
-    public string Id { get; set; }
-    public string Type { get; set; }  // "door" | "window"
-    public double[][] Line { get; set; }  // [[x1,y1], [x2,y2]]
 }
 
 // Zone - 设计区域
@@ -793,18 +921,12 @@ public class Zone
 {
     public string Id { get; set; }
     public string Name { get; set; }
-    public string Function { get; set; }
-    public List<double[]> InnerBoundary { get; set; }  // 可用空间（已扣除完成面）
+    public string RoomId { get; set; }              // 新增：所属房间 ID
+    public List<ZoneTag> Tags { get; set; }         // 替代 Function，支持多标签
+    public Polygon2D? RawBoundary { get; set; }     // 新增：原始边界（未扣除完成面）
+    public Polygon2D InnerBoundary { get; set; }    // 可用空间（已扣除完成面）
     public List<ExclusionArea> ExclusionAreas { get; set; }
     public List<string> Openings { get; set; }
-}
-
-// ExclusionArea - 禁止布置区
-public class ExclusionArea
-{
-    public string Id { get; set; }
-    public string Type { get; set; }  // "door_swing" | "passage" | "other"
-    public List<double[]> Boundary { get; set; }  // Polygon2D [[x,y], ...]
 }
 
 // Module - 布置模块
@@ -813,125 +935,163 @@ public class Module
     public string Id { get; set; }
     public string ModuleId { get; set; }
     public string ModuleName { get; set; }
-    public List<double[]> Bounds { get; set; }  // Polygon2D [[x,y], ...] 精确边界
-    public object Facing { get; set; }  // string ("north"...) 或 double[] (Vec2D)
+    public Polygon2D Bounds { get; set; }  // 精确边界（矩形 4 顶点）
+    public Facing Facing { get; set; }     // 类型安全的朝向
     public string ZoneId { get; set; }
     public List<ModuleItem> Items { get; set; }
-}
-
-// ModuleItem - 模块内部家具
-public class ModuleItem
-{
-    public string FamilyId { get; set; }
-    public double[] Offset { get; set; }  // [dx, dy]
-    public string Role { get; set; }
 }
 ```
 
 #### 6.1.2 空间计算
 
+**Geometry/ - 简单数学运算**：
+
 ```csharp
-// 碰撞检测（基于 AABB）
-public class CollisionDetector
+// GeometryHelper - 基础几何运算（不依赖 NTS）
+public static class GeometryHelper
 {
-    // 检查模块是否可放置
-    public bool CanPlace(Module module, Zone zone, List<Module> existingModules);
-
-    // 检查 AABB 是否相交
-    public bool AabbIntersects(double[] a, double[] b);
-
-    // 检查 AABB 是否在多边形内
-    public bool IsInsidePolygon(double[] bounds, List<double[]> polygon);
+    public static AABB ComputeAABB(Polygon2D polygon) => ...;
+    public static Point2D ComputeCenter(Polygon2D polygon) => ...;
+    public static Polygon2D RotatePolygon(Polygon2D polygon, double angleRadians, Point2D center) => ...;
 }
 
-// 朝向转换
-public class FacingHelper
+// NtsAdapter - 内部适配器（Polygon2D ↔ NTS 转换）
+internal static class NtsAdapter
 {
-    // 语义方向 → 旋转角度
-    public double ToRotation(string facing);
-    // north → 0°, east → 90°, south → 180°, west → 270°
-
-    // 旋转角度 → 语义方向
-    public string FromRotation(double angle);
-}
-
-// 网格对齐
-public class GridHelper
-{
-    public double[] SnapToGrid(double[] bounds, int gridSize);
+    internal static NetTopologySuite.Geometries.Polygon ToNtsPolygon(Polygon2D polygon) => ...;
+    internal static Polygon2D FromNtsPolygon(NetTopologySuite.Geometries.Polygon nts) => ...;
 }
 ```
 
-#### 6.1.3 意图归一化器 (PlacementNormalizer)
-
-**职责**：将 AI 的多样化输出统一转换为 `Polygon2D`。
+**Spatial/ - 空间业务逻辑**：
 
 ```csharp
-// BIMCanvas.Core/Algorithms/PlacementNormalizer.cs
-namespace BIMCanvas.Core.Algorithms
+// CollisionDetector - 碰撞检测（委托给 NTS）
+public static class CollisionDetector
+{
+    /// <summary>检查两个多边形是否相交</summary>
+    public static bool Intersects(Polygon2D a, Polygon2D b)
+    {
+        var ntsA = NtsAdapter.ToNtsPolygon(a);
+        var ntsB = NtsAdapter.ToNtsPolygon(b);
+        return ntsA.Intersects(ntsB);
+    }
+
+    /// <summary>检查多边形 a 是否完全在 b 内部</summary>
+    public static bool IsWithin(Polygon2D inner, Polygon2D outer)
+    {
+        var ntsInner = NtsAdapter.ToNtsPolygon(inner);
+        var ntsOuter = NtsAdapter.ToNtsPolygon(outer);
+        return ntsOuter.Contains(ntsInner);
+    }
+}
+
+// FacingHelper - 方向语义 ↔ Vec2D 转换
+public static class FacingHelper
+{
+    /// <summary>语义方向 → 单位向量</summary>
+    public static Vec2D SemanticToVector(string semantic) => semantic.ToLower() switch
+    {
+        "north"     => new Vec2D(0, 1),
+        "south"     => new Vec2D(0, -1),
+        "east"      => new Vec2D(1, 0),
+        "west"      => new Vec2D(-1, 0),
+        "northeast" => new Vec2D(1, 1).Normalize(),
+        // ... 其他方向
+        _ => throw new ArgumentException($"Unknown facing: {semantic}")
+    };
+
+    /// <summary>角度（度）→ 单位向量</summary>
+    public static Vec2D AngleToVector(double degrees) => ...;
+}
+```
+
+#### 6.1.3 几何归一化与布置验证
+
+**职责分层**：
+- `GeometryNormalizer`：纯几何转换（AI 意图 → Polygon2D）
+- `PlacementValidator`：布置验证（只验证，不修正）
+
+```csharp
+// GeometryNormalizer - AI 布置意图 → Polygon2D
+public static class GeometryNormalizer
 {
     /// <summary>
-    /// 将 AI 的布置意图转换为精确几何
+    /// 根据 center + size + facing 创建矩形 Polygon2D
     /// </summary>
-    public class PlacementNormalizer
+    public static Polygon2D CreateRectangle(Point2D center, Vec2D size, Facing facing)
     {
-        /// <summary>
-        /// 将语义化布置意图转换为 Polygon2D
-        /// </summary>
-        /// <param name="moduleId">模块库 ID</param>
-        /// <param name="parameters">参数化驱动（如 width, depth）</param>
-        /// <param name="center">中心点 [x, y]</param>
-        /// <param name="facing">朝向（string 或 Vec2D）</param>
-        /// <returns>精确边界 Polygon2D</returns>
-        public Polygon2D ToPolygon(
-            string moduleId,
-            Dictionary<string, double> parameters,
-            double[] center,
-            object facing)
+        var halfW = size.X / 2;
+        var halfH = size.Y / 2;
+
+        // 本地坐标（未旋转）
+        var localCorners = new[]
         {
-            // 1. 从模块库获取 canonical polygon（局部坐标系）
-            var canonical = _moduleLibrary.GetCanonicalPolygon(moduleId, parameters);
+            new Point2D(-halfW, -halfH),
+            new Point2D(halfW, -halfH),
+            new Point2D(halfW, halfH),
+            new Point2D(-halfW, halfH)
+        };
 
-            // 2. 计算旋转角度
-            double angle = FacingHelper.ToAngle(facing);
+        // 根据 facing 计算旋转角度
+        var angle = facing.ToAngleRadians();
 
-            // 3. 应用变换：旋转 + 平移
-            return canonical.Rotate(angle).Translate(center);
+        // 旋转并平移到世界坐标
+        var cos = Math.Cos(angle);
+        var sin = Math.Sin(angle);
+
+        var worldCorners = localCorners.Select(p => new Point2D(
+            center.X + p.X * cos - p.Y * sin,
+            center.Y + p.X * sin + p.Y * cos
+        )).ToArray();
+
+        return new Polygon2D(worldCorners);
+    }
+}
+
+// PlacementValidator - 布置验证（只验证，不修正）
+public static class PlacementValidator
+{
+    /// <summary>
+    /// 验证模块布置是否合法
+    /// </summary>
+    /// <returns>Result&lt;bool, List&lt;Violation&gt;&gt;</returns>
+    public static ValidationResult Validate(
+        Polygon2D moduleBounds,
+        Zone zone,
+        IEnumerable<Module> existingModules)
+    {
+        var violations = new List<Violation>();
+
+        // 约束1: 必须在 innerBoundary 内
+        if (!CollisionDetector.IsWithin(moduleBounds, zone.InnerBoundary))
+            violations.Add(new Violation("超出设计区域边界"));
+
+        // 约束2: 不能与禁区重叠
+        foreach (var exclusion in zone.ExclusionAreas ?? Enumerable.Empty<ExclusionArea>())
+        {
+            if (CollisionDetector.Intersects(moduleBounds, exclusion.Boundary))
+                violations.Add(new Violation($"与禁区 {exclusion.Id} 重叠"));
         }
 
-        /// <summary>
-        /// 验证布置意图是否有效
-        /// </summary>
-        public PlacementValidationResult Validate(
-            PlacementIntent intent,
-            Zone zone,
-            List<Module> existingModules)
+        // 约束3: 不能与其他模块重叠
+        foreach (var existing in existingModules)
         {
-            var polygon = ToPolygon(intent);
-
-            // 检查是否在 zone 内
-            if (!zone.InnerBoundary.Contains(polygon))
-                return new PlacementValidationResult(false, "超出设计区域边界");
-
-            // 检查是否与禁区重叠
-            foreach (var exclusion in zone.ExclusionAreas)
-            {
-                if (polygon.Intersects(exclusion.Boundary))
-                    return new PlacementValidationResult(false, $"与禁区 {exclusion.Id} 重叠");
-            }
-
-            // 检查是否与已有模块重叠
-            foreach (var existing in existingModules)
-            {
-                if (polygon.Intersects(existing.Bounds))
-                    return new PlacementValidationResult(false, $"与模块 {existing.Id} 重叠");
-            }
-
-            return new PlacementValidationResult(true);
+            if (CollisionDetector.Intersects(moduleBounds, existing.Bounds))
+                violations.Add(new Violation($"与模块 {existing.Id} 重叠"));
         }
+
+        return violations.Count == 0
+            ? ValidationResult.Success()
+            : ValidationResult.Failure(violations);
     }
 }
 ```
+
+**关键设计原则**：
+- `PlacementValidator` **只做 Validation**，返回验证结果
+- **不做 Correction**：「床头靠墙」是 AI 的规划职责，不是 Core 的修正职责
+- 未来如需吸附功能，单独创建 `SnapHelper` 或 `ConstraintSolver`
 
 #### 6.1.4 核心转换器 (UnitConverter)
 
@@ -1152,17 +1312,32 @@ export class SvgRenderer {
 
 ## 8. 技术选型总结
 
-| 组件 | 技术选择 | 版本 |
-|------|----------|------|
-| **Core 类库** | .NET Standard | 2.0 |
-| **MCP Server** | .NET | 6.0+ |
-| **Web 后端** | ASP.NET Core | 6.0+ |
-| **实时通信** | SignalR | - |
-| **Web 前端** | Vue 3 + TypeScript | 3.x |
-| **前端构建** | Vite | 5.x |
-| **状态管理** | Pinia | 2.x |
-| **数据格式** | JSON | - |
-| **渲染格式** | SVG | - |
+| 组件 | 技术选择 | 版本 | 备注 |
+|------|----------|------|------|
+| **Core 类库** | .NET Standard | 2.0 | 兼容 .NET FW 4.7.2 和 .NET 6+ |
+| **JSON 序列化** | Newtonsoft.Json | 13.0.3 | Revit 内置，生态成熟 |
+| **几何运算** | NetTopologySuite | 2.x | MVP 立即引入，处理碰撞检测 |
+| **测试框架** | xUnit + FluentAssertions | - | 断言可读性好 |
+| **MCP Server** | .NET | 6.0+ | - |
+| **Web 后端** | ASP.NET Core | 6.0+ | - |
+| **实时通信** | SignalR | - | - |
+| **Web 前端** | Vue 3 + TypeScript | 3.x | - |
+| **前端构建** | Vite | 5.x | - |
+| **状态管理** | Pinia | 2.x | - |
+| **数据格式** | JSON | - | - |
+| **渲染格式** | SVG | - | - |
+
+### 8.1 Core 层关键设计决策
+
+| 决策点 | 结论 | 理由 |
+|--------|------|------|
+| **Polygon2D 表示** | `Point2D[]` + JsonConverter | 类型安全，JSON 输出保持数组格式 |
+| **Facing 实现** | 封装 `readonly struct`，支持隐式转换 | 统一处理语义字符串和向量 |
+| **ICanvasDocument 接口** | 不需要 | YAGNI，CanvasDocument 是数据契约非可替换服务 |
+| **MathHelper/Epsilon** | 不需要 | Core 层保持简单，精度问题由 NTS 处理 |
+| **PolygonOperations** | 不实现 | 复杂几何运算委托给 NTS |
+| **NtsAdapter 可见性** | `internal` | 不污染公共 API |
+| **PlacementValidator** | 只验证，不修正 | 「修正」是 AI 的规划职责 |
 
 ---
 
@@ -1184,4 +1359,6 @@ export class SvgRenderer {
 | v2.0 | 2025-12-02 | 重大更新：采纳专家评审结论，修正 .NET 兼容性，改用 JSON 核心数据格式 |
 | v2.1 | 2025-12-02 | 添加程序执行流程章节，更新数据模型为 v2.0 极简版（outline + zones + modules），element 改为 module |
 | v2.2 | 2025-12-03 | 新增 §6.1.4 核心转换器 (UnitConverter)，明确单位换算职责和精度原则 |
+| v2.4 | 2025-12-04 | **同步 Core 评审共识**：更新 §3.1 目录结构（Primitives/Document 扁平化、Geometry/Spatial 分层）；更新 §6.1 Core 详细设计（添加 NTS 依赖、分拆 PlacementValidator）；更新 §8 技术选型（Newtonsoft.Json、NTS、xUnit） |
 | v2.3 | 2025-12-03 | **几何类型架构升级**：新增 §3.5 AI 交互层架构（"AI = OBB 规划师"隐喻、数据流、多样化输出策略）；新增 §6.1.3 PlacementNormalizer；Module.Bounds/ExclusionArea.Boundary 改为 Polygon2D；Facing 支持联合类型 |
+| v2.5 | 2025-12-04 | **数据模型增强**：新增 Room/RoomType（物理房间概念）；新增 ZoneTag 替代 Zone.Function（多标签系统）；新增 WallFinish/FinishSource（墙面完成面禁区）；Facing.Semantic 改为枚举类型 |

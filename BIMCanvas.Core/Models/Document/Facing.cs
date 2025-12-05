@@ -4,22 +4,22 @@ using BIMCanvas.Core.Models.Primitives;
 namespace BIMCanvas.Core.Models.Document
 {
     /// <summary>
-    /// 朝向 - 支持语义字符串("north")或 Vec2D 向量([0.866, 0.5])
+    /// 朝向 - 支持语义方向枚举或 Vec2D 向量
     /// </summary>
     public readonly struct Facing
     {
-        private readonly string? _semantic;
+        private readonly FacingDirection? _semantic;
         private readonly Vec2D? _vector;
 
         /// <summary>
         /// 是否为语义类型
         /// </summary>
-        public bool IsSemantic => _semantic != null;
+        public bool IsSemantic => _semantic.HasValue;
 
         /// <summary>
-        /// 语义值（如 "north", "east" 等）
+        /// 语义值（枚举类型）
         /// </summary>
-        public string? Semantic => _semantic;
+        public FacingDirection? Semantic => _semantic;
 
         /// <summary>
         /// 向量值（单位向量）
@@ -29,9 +29,9 @@ namespace BIMCanvas.Core.Models.Document
         /// <summary>
         /// 语义构造
         /// </summary>
-        public Facing(string semantic)
+        public Facing(FacingDirection semantic)
         {
-            _semantic = ValidateSemantic(semantic);
+            _semantic = semantic;
             _vector = null;
         }
 
@@ -46,9 +46,9 @@ namespace BIMCanvas.Core.Models.Document
         }
 
         /// <summary>
-        /// 隐式转换：string → Facing
+        /// 隐式转换：FacingDirection → Facing
         /// </summary>
-        public static implicit operator Facing(string s) => new Facing(s);
+        public static implicit operator Facing(FacingDirection d) => new Facing(d);
 
         /// <summary>
         /// 隐式转换：Vec2D → Facing
@@ -73,51 +73,72 @@ namespace BIMCanvas.Core.Models.Document
             if (_vector.HasValue)
                 return _vector.Value;
 
-            return SemanticToVector(_semantic!);
+            return SemanticToVector(_semantic!.Value);
         }
 
         /// <summary>
         /// 语义 → 向量映射
         /// </summary>
-        private static Vec2D SemanticToVector(string semantic)
+        private static Vec2D SemanticToVector(FacingDirection semantic)
         {
-            return semantic.ToLowerInvariant() switch
+            return semantic switch
             {
-                "north" => new Vec2D(0, 1),
-                "south" => new Vec2D(0, -1),
-                "east" => new Vec2D(1, 0),
-                "west" => new Vec2D(-1, 0),
-                "northeast" => new Vec2D(1, 1).Normalize(),
-                "northwest" => new Vec2D(-1, 1).Normalize(),
-                "southeast" => new Vec2D(1, -1).Normalize(),
-                "southwest" => new Vec2D(-1, -1).Normalize(),
+                FacingDirection.North => new Vec2D(0, 1),
+                FacingDirection.South => new Vec2D(0, -1),
+                FacingDirection.East => new Vec2D(1, 0),
+                FacingDirection.West => new Vec2D(-1, 0),
+                FacingDirection.Northeast => new Vec2D(1, 1).Normalize(),
+                FacingDirection.Northwest => new Vec2D(-1, 1).Normalize(),
+                FacingDirection.Southeast => new Vec2D(1, -1).Normalize(),
+                FacingDirection.Southwest => new Vec2D(-1, -1).Normalize(),
                 _ => throw new ArgumentException($"Unknown facing: {semantic}")
             };
         }
 
         /// <summary>
-        /// 验证语义字符串
+        /// 获取语义字符串表示（用于 JSON 序列化）
         /// </summary>
-        private static string ValidateSemantic(string semantic)
+        public string? GetSemanticString()
         {
-            var lower = semantic.ToLowerInvariant();
-            return lower switch
+            if (!_semantic.HasValue)
+                return null;
+
+            return _semantic.Value switch
             {
-                "north" => lower,
-                "south" => lower,
-                "east" => lower,
-                "west" => lower,
-                "northeast" => lower,
-                "northwest" => lower,
-                "southeast" => lower,
-                "southwest" => lower,
+                FacingDirection.North => "north",
+                FacingDirection.South => "south",
+                FacingDirection.East => "east",
+                FacingDirection.West => "west",
+                FacingDirection.Northeast => "northeast",
+                FacingDirection.Northwest => "northwest",
+                FacingDirection.Southeast => "southeast",
+                FacingDirection.Southwest => "southwest",
+                _ => null
+            };
+        }
+
+        /// <summary>
+        /// 从字符串解析为 FacingDirection
+        /// </summary>
+        public static FacingDirection ParseSemantic(string semantic)
+        {
+            return semantic.ToLowerInvariant() switch
+            {
+                "north" => FacingDirection.North,
+                "south" => FacingDirection.South,
+                "east" => FacingDirection.East,
+                "west" => FacingDirection.West,
+                "northeast" => FacingDirection.Northeast,
+                "northwest" => FacingDirection.Northwest,
+                "southeast" => FacingDirection.Southeast,
+                "southwest" => FacingDirection.Southwest,
                 _ => throw new ArgumentException($"Invalid semantic facing: {semantic}")
             };
         }
 
         public override string ToString()
         {
-            return IsSemantic ? $"\"{_semantic}\"" : _vector.ToString()!;
+            return IsSemantic ? $"\"{GetSemanticString()}\"" : _vector.ToString()!;
         }
     }
 }
