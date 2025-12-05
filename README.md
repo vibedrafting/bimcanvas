@@ -2,7 +2,7 @@
 
 基于 AI CLI 的室内装修平面方案设计助手，实现 Revit 与 AI 之间的人机协作设计。
 
-> **当前版本**: v2.3 | **数据模型**: outline + zones + modules
+> **当前版本**: v2.5 | **数据模型**: outline + rooms + zones + wallFinishes + modules
 
 ## 解决的问题
 
@@ -149,7 +149,7 @@ BIMCanvas/
 
 ---
 
-## v2.0 JSON 数据结构
+## v2.5 JSON 数据结构
 
 ```json
 {
@@ -163,13 +163,29 @@ BIMCanvas/
     "openings": [{ "id": "d1", "type": "door", "line": [[2000,0], [2900,0]] }]
   },
 
+  "rooms": [{
+    "id": "r1",
+    "name": "主卧",
+    "type": "master_bedroom",
+    "boundary": [[0,0], [6000,0], [6000,5000], [0,5000]]
+  }],
+
   "zones": [{
     "id": "z1",
-    "name": "主卧",
-    "function": "master_bedroom",
+    "name": "主卧睡眠区",
+    "tags": ["sleep", "master_bedroom"],
+    "roomId": "r1",
     "innerBoundary": [[50,50], [5950,50], ...],
     "exclusionAreas": [{ "id": "ex1", "type": "door_swing", "boundary": [[2000,0], [2900,0], [2900,900], [2000,900]] }],
     "openings": ["d1"]
+  }],
+
+  "wallFinishes": [{
+    "id": "wf1",
+    "roomId": "r1",
+    "wallSegment": [[0,0], [6000,0]],
+    "source": "revit",
+    "material": "乳胶漆"
   }],
 
   "modules": [{
@@ -190,10 +206,12 @@ BIMCanvas/
 | 墙体表示 | 封闭轮廓多边形 | AI 不需要理解墙体结构 |
 | 门窗表示 | 简化为线段 | 厚度不影响家具布置 |
 | 门扇区域 | 预计算为禁区 Polygon2D | KISS - AI 只需知道"这里不能放" |
-| 房间结构 | 只有 zones | 单一数据源原则 |
+| 房间结构 | rooms + zones 分离 | rooms 对应 Revit 房间，zones 为设计区域 |
+| 区域分类 | tags 数组 | 灵活标签替代单一枚举 |
 | 布置单元 | modules（模块） | 支持单一家具或组合 |
 | 模块位置 | Polygon2D 边界 | 精确几何，支持倾斜场景 |
-| 模块朝向 | 语义化 (north/south/...) | AI 友好，插件端转换角度 |
+| 模块朝向 | Facing 联合类型 | 语义字符串 or Vec2D 单位向量 |
+| 墙面材质 | wallFinishes | 支持 Revit 导入或 AI 指定 |
 
 ---
 
@@ -203,10 +221,10 @@ BIMCanvas/
 
 **目标**：AI 可以在画布上设计，Web 可以显示
 
-**当前阶段**：文档设计（数据模型定义见 Schema-JSON.md）
+**当前阶段**：Core 层开发完成，数据模型与算法就绪
 
-- ⬜ 实现 Core 数据模型（CanvasDocument, Zone, Module 等）
-- ⬜ 实现空间算法（CollisionDetector, FacingHelper）
+- ✅ 实现 Core 数据模型（CanvasDocument, Zone, Module 等）
+- ✅ 实现空间算法（CollisionDetector, PlacementValidator）
 - ⬜ 实现 Canvas-MCP 基础工具（module_add, module_move, module_delete）
 - ⬜ 实现 Web 后端 SignalR + REST API
 - ⬜ 实现 Web 前端 JSON → SVG 渲染

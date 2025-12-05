@@ -2,7 +2,7 @@
 
 > 在用户提供的建筑平面内，布置符合设计逻辑的家具组合。
 
-**数据模型版本**: v2.3 落实讨论结论 (outline + zones + modules)
+**数据模型版本**: v2.5 (新增 Room/WallFinish 概念，ZoneTag 多标签，Facing 枚举化)
 
 ---
 
@@ -13,21 +13,22 @@
 | 文档 | 路径 | 内容 |
 |------|------|------|
 | 架构文档 | `docs/Architecture.md` | 系统架构、数据流、执行流程 |
-| JSON Schema | `docs/Schema-JSON.md` | v2.3 数据模型定义 |
+| JSON Schema | `docs/Schema-JSON.md` | v2.5 数据模型定义 |
 | PRD | `docs/PRD.md` | 产品需求、工作流程 |
+| Core 实现计划 | `plans/Core_Implementation_Plan.md` | Core 层代码生成计划 |
 
 ### 模块速查
 
 | 项目 | 运行时 | 职责 | 状态 |
 |------|--------|------|------|
-| BIMCanvas.Core | .NET Standard 2.0 | 数据模型 + 空间算法 | ⬜ 待开发 |
+| BIMCanvas.Core | .NET Standard 2.0 | 数据模型 + 空间算法 | ✅ 已完成 |
 | BIMCanvas.Revit | .NET FW 4.7.2 | Revit 插件 | ⬜ 待开发 |
 | BIMCanvas.MCP.Canvas | .NET 6+ | 画布 MCP Server | ⬜ 待开发 |
 | BIMCanvas.MCP.Library | .NET 6+ | 族库 MCP Server | ⬜ 待开发 |
 | BIMCanvas.Web.Server | .NET 6+ | Web 后端 | ⬜ 待开发 |
 | BIMCanvas.Web | Vue 3 + TS | Web 前端 | ⬜ 待开发 |
 
-> **当前阶段**：文档设计。数据模型定义见 `docs/Schema-JSON.md`
+> **当前阶段**：Core 层已完成，准备开发 MCP Server 和 Web 层
 
 ---
 
@@ -56,7 +57,7 @@ BIMCanvas.Revit.*    → 仅 Revit 插件内部使用
 
 ---
 
-## v2.3 数据模型速查
+## v2.5 数据模型速查
 
 ### 核心设计原则
 
@@ -66,16 +67,26 @@ BIMCanvas.Revit.*    → 仅 Revit 插件内部使用
 
 ```
 CanvasDocument
-├── outline          墙体轮廓 + 门窗线段 (仅视觉)
-│   ├── walls[]      封闭多边形 Polygon2D
-│   └── openings[]   线段 Line2D + type (door/window)
-├── zones[]          设计区域 (AI 核心工作区)
+├── outline              墙体轮廓 + 门窗线段 (仅视觉)
+│   ├── walls[]          封闭多边形 Polygon2D
+│   └── openings[]       线段 Line2D + type (door/window)
+├── rooms[]              物理房间 (v2.5 新增)
+│   ├── id, name, type   RoomType 枚举
+│   └── boundary         Polygon2D
+├── zones[]              设计区域 (AI 核心工作区)
+│   ├── roomId           所属房间 ID (v2.5 新增)
+│   ├── tags[]           ZoneTag 枚举列表 (v2.5 替代 function)
+│   ├── rawBoundary      原始边界 (v2.5 新增)
 │   ├── innerBoundary    可用空间轮廓 Polygon2D
 │   ├── exclusionAreas[] 禁区 boundary: Polygon2D (4顶点矩形)
 │   └── openings[]       关联门窗 ID
-└── modules[]        布置模块 (最小布置单元)
+├── wallFinishes[]       墙面完成面 (v2.5 新增)
+│   ├── locationLine     定位线 Line2D
+│   ├── thickness        厚度 (mm)
+│   └── exclusionBoundary 禁区轮廓 Polygon2D
+└── modules[]            布置模块 (最小布置单元)
     ├── bounds           Polygon2D [[x,y], ...] (4顶点矩形)
-    ├── facing           Facing (语义字符串 | Vec2D)
+    ├── facing           Facing (FacingDirection 枚举 | Vec2D)
     └── items[]          内部家具清单 (回写 Revit 用)
 ```
 
