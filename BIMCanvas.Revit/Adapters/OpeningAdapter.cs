@@ -49,7 +49,7 @@ namespace BIMCanvas.Revit.Adapters
         ///
         /// 5. 设置正确的 OpeningType (Door/Window)
         /// </remarks>
-        public List<Opening> ExtractOpenings(View view)
+        public List<Core.Models.Document.Opening> ExtractOpenings(View view)
         {
             // TODO: 用户填充实现
             throw new NotImplementedException("请实现 OpeningAdapter.ExtractOpenings 方法");

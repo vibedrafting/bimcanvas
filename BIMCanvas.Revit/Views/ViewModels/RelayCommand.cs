@@ -18,7 +18,7 @@ namespace BIMCanvas.Revit.Views.ViewModels
         }
 
         public RelayCommand(Action execute, Func<bool>? canExecute = null)
-            : this(_ => execute(), canExecute != null ? _ => canExecute() : null)
+            : this(_ => execute(), canExecute != null ? (Predicate<object?>)(_ => canExecute()) : null)
         {
         }
 

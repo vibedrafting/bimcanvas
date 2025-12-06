@@ -41,7 +41,7 @@ namespace BIMCanvas.Revit.Adapters
         ///
         /// 4. 创建 Polygon2D 并封装为 Wall 对象
         /// </remarks>
-        public List<Wall> ExtractWalls(View view)
+        public List<Core.Models.Document.Wall> ExtractWalls(View view)
         {
             // TODO: 用户填充实现
             throw new NotImplementedException("请实现 WallAdapter.ExtractWalls 方法");

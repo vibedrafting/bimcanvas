@@ -41,7 +41,7 @@ namespace BIMCanvas.Revit.Services
             metadata.GridSize = options.GridSize;
 
             // 3. 提取墙体
-            var walls = new List<Wall>();
+            var walls = new List<Core.Models.Document.Wall>();
             if (options.ExportWalls)
             {
                 var wallAdapter = new WallAdapter(coordAdapter);
@@ -49,7 +49,7 @@ namespace BIMCanvas.Revit.Services
             }
 
             // 4. 提取门窗
-            var openings = new List<Opening>();
+            var openings = new List<Core.Models.Document.Opening>();
             if (options.ExportOpenings)
             {
                 var openingAdapter = new OpeningAdapter(coordAdapter);
@@ -104,7 +104,7 @@ namespace BIMCanvas.Revit.Services
                 Version = 1,
                 CoordinateSystem = "cartesian_mm_yUp",
                 Metadata = metadata,
-                Outline = new Outline
+                Outline = new Core.Models.Document.Outline
                 {
                     Walls = walls,
                     Openings = openings

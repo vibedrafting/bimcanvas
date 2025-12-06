@@ -1,8 +1,8 @@
-# BIMCanvas 项目指令
+﻿# BIMCanvas 项目指令
 
 > 在用户提供的建筑平面内，布置符合设计逻辑的家具组合。
 
-**数据模型版本**: v2.3 落实讨论结论 (outline + zones + modules)
+**数据模型版本**: v2.7 (新增 BIMCanvas.Agent + Agent SDK 架构)
 
 ---
 
@@ -12,22 +12,24 @@
 
 | 文档 | 路径 | 内容 |
 |------|------|------|
-| 架构文档 | `docs/Architecture.md` | 系统架构、数据流、执行流程 |
-| JSON Schema | `docs/Schema-JSON.md` | v2.3 数据模型定义 |
+| 架构文档 | `docs/Architecture.md` | 系统架构、数据流 |
+| 执行流程 | `docs/Workflows.md` | 端到端执行流程、触发机制 |
+| JSON Schema | `docs/Schema-JSON.md` | v2.5 数据模型定义 |
 | PRD | `docs/PRD.md` | 产品需求、工作流程 |
+| Core 实现计划 | `plans/Core_Implementation_Plan.md` | Core 层代码生成计划 |
+| PlacementAgent 评审 | `reviews/PlacementAgent_Review.md` | Agent SDK 架构决策讨论 |
 
 ### 模块速查
 
 | 项目 | 运行时 | 职责 | 状态 |
 |------|--------|------|------|
-| BIMCanvas.Core | .NET Standard 2.0 | 数据模型 + 空间算法 | ⬜ 待开发 |
+| BIMCanvas.Core | .NET Standard 2.0 | 数据模型 + 空间算法 | ✅ 已完成 |
+| BIMCanvas.Agent | Python 3.10+ | PlacementAgent（Agent SDK） | ⬜ 待开发 |
+| BIMCanvas.Server | .NET 6+ | 统一后端（MCP + REST + SignalR + SSE） | ⬜ 待开发 |
 | BIMCanvas.Revit | .NET FW 4.7.2 | Revit 插件 | ⬜ 待开发 |
-| BIMCanvas.MCP.Canvas | .NET 6+ | 画布 MCP Server | ⬜ 待开发 |
-| BIMCanvas.MCP.Library | .NET 6+ | 族库 MCP Server | ⬜ 待开发 |
-| BIMCanvas.Web.Server | .NET 6+ | Web 后端 | ⬜ 待开发 |
 | BIMCanvas.Web | Vue 3 + TS | Web 前端 | ⬜ 待开发 |
 
-> **当前阶段**：文档设计。数据模型定义见 `docs/Schema-JSON.md`
+> **当前阶段**：Core 层已完成，准备开发 Server 和 Agent 层
 
 ---
 
@@ -56,7 +58,43 @@ BIMCanvas.Revit.*    → 仅 Revit 插件内部使用
 
 ---
 
-## v2.3 数据模型速查
+## PlacementAgent 架构速查
+
+> **架构决策**：PlacementAgent 基于 Anthropic Agent SDK 实现，作为独立 Python 进程运行，通过 SSE 接收事件触发。
+
+### 架构概览
+
+```
+BIMCanvas.Agent (Python 3.10+)
+├── PlacementAgent (Agent SDK)
+├── EventListener (SSE 客户端)
+└── MCP 工具集成
+         ↑ SSE 事件           ↓ MCP/HTTP 调用
+         │                    │
+BIMCanvas.Server (.NET 6+)
+├── EventBus (事件总线)
+├── EventsController (SSE 端点)
+└── McpTools/ (Canvas-MCP)
+```
+
+### 三种触发方式
+
+| 触发方式 | 触发源 | 数据流 |
+|----------|--------|--------|
+| AI 对话 | 用户输入 | 用户 → Agent Chat → PlacementAgent.run() |
+| Web 按钮 | 前端 UI | Web → Server EventBus → SSE → Agent |
+| 自动修正 | Server 检测 | Server 验证 → EventBus → SSE → Agent |
+
+### Agent SDK 要点
+
+- 安装：`pip install anthropic`（Agent SDK 包含在 anthropic 包中）
+- 长期运行：Agent 持续监听 SSE 事件流
+- 工具调用：通过 MCP 协议调用 Canvas-MCP 工具
+- 详细设计见 `docs/Architecture.md` §6.4
+
+---
+
+## v2.5 数据模型速查
 
 ### 核心设计原则
 
@@ -66,16 +104,26 @@ BIMCanvas.Revit.*    → 仅 Revit 插件内部使用
 
 ```
 CanvasDocument
-├── outline          墙体轮廓 + 门窗线段 (仅视觉)
-│   ├── walls[]      封闭多边形 Polygon2D
-│   └── openings[]   线段 Line2D + type (door/window)
-├── zones[]          设计区域 (AI 核心工作区)
+├── outline              墙体轮廓 + 门窗线段 (仅视觉)
+│   ├── walls[]          封闭多边形 Polygon2D
+│   └── openings[]       线段 Line2D + type (door/window)
+├── rooms[]              物理房间 (v2.5 新增)
+│   ├── id, name, type   RoomType 枚举
+│   └── boundary         Polygon2D
+├── zones[]              设计区域 (AI 核心工作区)
+│   ├── roomId           所属房间 ID (v2.5 新增)
+│   ├── tags[]           ZoneTag 枚举列表 (v2.5 替代 function)
+│   ├── rawBoundary      原始边界 (v2.5 新增)
 │   ├── innerBoundary    可用空间轮廓 Polygon2D
 │   ├── exclusionAreas[] 禁区 boundary: Polygon2D (4顶点矩形)
 │   └── openings[]       关联门窗 ID
-└── modules[]        布置模块 (最小布置单元)
+├── wallFinishes[]       墙面完成面 (v2.5 新增)
+│   ├── locationLine     定位线 Line2D
+│   ├── thickness        厚度 (mm)
+│   └── exclusionBoundary 禁区轮廓 Polygon2D
+└── modules[]            布置模块 (最小布置单元)
     ├── bounds           Polygon2D [[x,y], ...] (4顶点矩形)
-    ├── facing           Facing (语义字符串 | Vec2D)
+    ├── facing           Facing (FacingDirection 枚举 | Vec2D)
     └── items[]          内部家具清单 (回写 Revit 用)
 ```
 

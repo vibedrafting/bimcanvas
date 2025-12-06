@@ -2,6 +2,7 @@ using System;
 using Autodesk.Revit.Attributes;
 using Autodesk.Revit.DB;
 using Autodesk.Revit.UI;
+using BIMCanvas.Core.Models.Document;
 using BIMCanvas.Revit.Services;
 using Microsoft.Win32;
 
