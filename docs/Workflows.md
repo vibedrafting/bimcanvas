@@ -1,4 +1,4 @@
-# BIMCanvas 执行流程文档
+﻿# BIMCanvas 执行流程文档
 
 > 版本：v1.0
 > 更新日期：2025-12-06
@@ -201,15 +201,25 @@ Server 接收 POST
 │  ZoneCalculator.Process(document)                            │
 ├──────────────────────────────────────────────────────────────┤
 │                                                              │
+│  // 1. 生成 zones（复制 rawBoundary）                         │
 │  for each room in rooms:                                     │
 │      zone = CreateZoneFromRoom(room)                         │
-│      zone.rawBoundary = room.boundary                        │
+│      zone.rawBoundary = room.boundary  // 结构墙内表面        │
 │      zone.tags = InferTagsFromRoomType(room.type)            │
 │                                                              │
-│  for each zone in zones:                                     │
-│      finishes = GetApplicableFinishes(zone)                  │
-│      zone.innerBoundary = ShrinkByFinishes(zone.rawBoundary) │
+│  // 2. 生成 wallFinishes（RoomDefault 规则）                  │
+│  for each wall adjacent to rooms:                            │
+│      finish.locationLine = wall.innerSurface                 │
+│      finish.thickness = LookupRoomDefault(room.type)         │
+│      finish.exclusionBoundary = Expand(locationLine, thickness)
+│      wallFinishes.Add(finish)                                │
 │                                                              │
+│  // 3. 计算 innerBoundary                                    │
+│  for each zone in zones:                                     │
+│      finishes = GetFinishesOnZoneBoundary(zone)              │
+│      zone.innerBoundary = Shrink(rawBoundary, finishes)      │
+│                                                              │
+│  // 4. 计算门扇禁区                                           │
 │  for each opening in outline.openings where type == "door":  │
 │      zone = FindContainingZone(opening)                      │
 │      exclusion = ComputeDoorSwingRect(opening)               │
@@ -272,6 +282,10 @@ Web 前端渲染户型底图
 | 3.3 | 用户 | 查看/修改功能分配 | 当前 tags | 确认或修改 |
 | 3.4 | Web 前端 | 发送 tags 更新 | 修改后的 tags | WebSocket 消息 |
 | 3.5 | Server | 更新 zones[].tags | 新 tags | 状态更新 |
+| 3.6 | Server | 检查 ZoneOverride 规则 | 新 tags + 规则表 | 受影响的墙面 |
+| 3.7 | ZoneCalculator | 更新 wallFinishes | ZoneOverride 规则 | 新 thickness |
+| 3.8 | ZoneCalculator | 重算 innerBoundary | 更新的 wallFinishes | 新 innerBoundary |
+| 3.9 | CanvasHub | 广播变更 | zones + wallFinishes | WebSocket 推送 |
 
 ### 流程图
 
@@ -290,7 +304,19 @@ Web 前端                              用户                              Serv
    │  发送 tags 更新                    │                                  │
    ├──────────────────────────────────────────────────────────────────────>│
    │                                   │                                  │
-   │                                   │                                  │  更新状态
+   │                                   │               ┌──────────────────┴───────────────────┐
+   │                                   │               │  CheckZoneOverride(newTags)          │
+   │                                   │               ├──────────────────────────────────────┤
+   │                                   │               │  if (tags 匹配 ZoneOverride 规则):    │
+   │                                   │               │      更新 wallFinishes.thickness     │
+   │                                   │               │      重算 exclusionBoundary          │
+   │                                   │               │      重算 zone.innerBoundary         │
+   │                                   │               └──────────────────┬───────────────────┘
+   │                                   │                                  │
+   │  WebSocket: 推送更新的 zones + wallFinishes                          │
+   │<─────────────────────────────────────────────────────────────────────┤
+   │                                   │                                  │
+   │  重新渲染 innerBoundary           │                                  │
    │                                   │                                  │
    │                                   │  点击"确认区域"                   │
    │<──────────────────────────────────┤                                  │
@@ -307,7 +333,55 @@ Web 前端                              用户                              Serv
 
 ### 输出
 
-用户确认的 zones[].tags，进入 Phase 4
+用户确认的 zones[].tags + 更新的 wallFinishes[] + innerBoundary，进入 Phase 4
+
+### 墙面完成面处理流程
+
+**设计意图**
+
+墙面完成面（WallFinish）是一种禁区机制，用于预留墙面装饰所需的空间（如护墙板、石材）。家具不应贴着结构墙放置，而是要留出完成面的厚度。
+
+**空间关系**
+
+```
+结构墙内表面
+      |
+      |<-- WallFinish.locationLine (与 Zone.rawBoundary 共线)
+      |
+      |    thickness (向房间内部扩展)
+      |    |
+      |    v
+      |    +------------------------------------------+
+      |    |  WallFinish.exclusionBoundary (禁区)     |
+      |    +------------------------------------------+
+      |
+      |    +==========================================+
+      |    ||  Zone.innerBoundary (可用布置空间)      ||
+      |    +==========================================+
+      |
+```
+
+**三层来源机制**
+
+| 来源 | 计算时机 | 触发条件 | 示例 |
+|------|----------|----------|------|
+| RoomDefault | Phase 2 | Room.type | bedroom → 乳胶漆 → 0mm |
+| ZoneOverride | Phase 3 | Zone.tags 变化 | tv_media → 护墙板 → 80mm |
+| UserOverride | 任意时刻 | 用户手动设置 | 选择石材 → 30mm |
+
+**处理流程**
+
+1. **Phase 2 初始计算**：使用 RoomDefault 规则，根据 Room.type 查询默认完成面厚度
+2. **Phase 3 tags 变化**：检查 ZoneOverride 规则，若匹配则更新 thickness
+3. **重算链路**：thickness 变化 → exclusionBoundary 变化 → innerBoundary 变化
+4. **广播变更**：推送更新的 zones[] 和 wallFinishes[] 到 Web 端
+
+**ZoneOverride 常见规则**
+
+| Tag | 完成面类型 | Thickness | 说明 |
+|-----|-----------|-----------|------|
+| tv_media | 护墙板 | 80mm | 电视背景墙 |
+| storage | 柜体 | 600mm | 嵌入式收纳 |
 
 ---
 
