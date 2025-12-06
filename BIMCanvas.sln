@@ -1,9 +1,11 @@
-﻿
+
 Microsoft Visual Studio Solution File, Format Version 12.00
 # Visual Studio Version 17
 VisualStudioVersion = 17.0.31903.59
 MinimumVisualStudioVersion = 10.0.40219.1
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "BIMCanvas.Core", "BIMCanvas.Core\BIMCanvas.Core.csproj", "{5CE8A06E-F73F-4F9F-8DE0-0FE705B652AF}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "BIMCanvas.Revit", "BIMCanvas.Revit\BIMCanvas.Revit.csproj", "{7A2E8F3D-4B5C-4D6E-9F1A-8C3B9E5D4F2B}"
 EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
@@ -27,6 +29,18 @@ Global
 		{5CE8A06E-F73F-4F9F-8DE0-0FE705B652AF}.Release|x64.Build.0 = Release|Any CPU
 		{5CE8A06E-F73F-4F9F-8DE0-0FE705B652AF}.Release|x86.ActiveCfg = Release|Any CPU
 		{5CE8A06E-F73F-4F9F-8DE0-0FE705B652AF}.Release|x86.Build.0 = Release|Any CPU
+		{7A2E8F3D-4B5C-4D6E-9F1A-8C3B9E5D4F2B}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{7A2E8F3D-4B5C-4D6E-9F1A-8C3B9E5D4F2B}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{7A2E8F3D-4B5C-4D6E-9F1A-8C3B9E5D4F2B}.Debug|x64.ActiveCfg = Debug|Any CPU
+		{7A2E8F3D-4B5C-4D6E-9F1A-8C3B9E5D4F2B}.Debug|x64.Build.0 = Debug|Any CPU
+		{7A2E8F3D-4B5C-4D6E-9F1A-8C3B9E5D4F2B}.Debug|x86.ActiveCfg = Debug|Any CPU
+		{7A2E8F3D-4B5C-4D6E-9F1A-8C3B9E5D4F2B}.Debug|x86.Build.0 = Debug|Any CPU
+		{7A2E8F3D-4B5C-4D6E-9F1A-8C3B9E5D4F2B}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{7A2E8F3D-4B5C-4D6E-9F1A-8C3B9E5D4F2B}.Release|Any CPU.Build.0 = Release|Any CPU
+		{7A2E8F3D-4B5C-4D6E-9F1A-8C3B9E5D4F2B}.Release|x64.ActiveCfg = Release|Any CPU
+		{7A2E8F3D-4B5C-4D6E-9F1A-8C3B9E5D4F2B}.Release|x64.Build.0 = Release|Any CPU
+		{7A2E8F3D-4B5C-4D6E-9F1A-8C3B9E5D4F2B}.Release|x86.ActiveCfg = Release|Any CPU
+		{7A2E8F3D-4B5C-4D6E-9F1A-8C3B9E5D4F2B}.Release|x86.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE

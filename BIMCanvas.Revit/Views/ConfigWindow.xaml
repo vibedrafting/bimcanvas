@@ -1,0 +1,102 @@
+<Window x:Class="BIMCanvas.Revit.Views.ConfigWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+        xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+        mc:Ignorable="d"
+        Title="BIMCanvas - 确认房间类型"
+        Height="450" Width="600"
+        WindowStartupLocation="CenterScreen"
+        ResizeMode="CanResizeWithGrip"
+        MinHeight="300" MinWidth="400">
+    <Grid Margin="15">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+            <RowDefinition Height="Auto"/>
+        </Grid.RowDefinitions>
+
+        <!-- 标题区域 -->
+        <StackPanel Grid.Row="0" Margin="0,0,0,10">
+            <TextBlock Text="请确认房间类型" FontSize="16" FontWeight="Bold"/>
+            <TextBlock Text="系统已自动推断房间类型，您可以根据需要修改"
+                       Foreground="Gray" Margin="0,5,0,0"/>
+        </StackPanel>
+
+        <!-- 房间列表 -->
+        <DataGrid Grid.Row="1"
+                  ItemsSource="{Binding Rooms}"
+                  AutoGenerateColumns="False"
+                  CanUserAddRows="False"
+                  CanUserDeleteRows="False"
+                  CanUserReorderColumns="False"
+                  SelectionMode="Single"
+                  GridLinesVisibility="Horizontal"
+                  HeadersVisibility="Column"
+                  RowHeight="30"
+                  ColumnHeaderHeight="35"
+                  AlternatingRowBackground="#F9F9F9"
+                  BorderBrush="#DDDDDD"
+                  BorderThickness="1">
+            <DataGrid.Columns>
+                <DataGridTextColumn Header="房间名称"
+                                    Binding="{Binding RoomName}"
+                                    IsReadOnly="True"
+                                    Width="*">
+                    <DataGridTextColumn.ElementStyle>
+                        <Style TargetType="TextBlock">
+                            <Setter Property="VerticalAlignment" Value="Center"/>
+                            <Setter Property="Padding" Value="5,0"/>
+                        </Style>
+                    </DataGridTextColumn.ElementStyle>
+                </DataGridTextColumn>
+
+                <DataGridTextColumn Header="推断类型"
+                                    Binding="{Binding InferredTypeDisplay}"
+                                    IsReadOnly="True"
+                                    Width="100">
+                    <DataGridTextColumn.ElementStyle>
+                        <Style TargetType="TextBlock">
+                            <Setter Property="VerticalAlignment" Value="Center"/>
+                            <Setter Property="Foreground" Value="Gray"/>
+                            <Setter Property="Padding" Value="5,0"/>
+                        </Style>
+                    </DataGridTextColumn.ElementStyle>
+                </DataGridTextColumn>
+
+                <DataGridTemplateColumn Header="确认类型" Width="120">
+                    <DataGridTemplateColumn.CellTemplate>
+                        <DataTemplate>
+                            <ComboBox ItemsSource="{Binding DataContext.AvailableTypes,
+                                                   RelativeSource={RelativeSource AncestorType=Window}}"
+                                      SelectedValue="{Binding SelectedType, UpdateSourceTrigger=PropertyChanged}"
+                                      SelectedValuePath="Type"
+                                      DisplayMemberPath="DisplayName"
+                                      VerticalContentAlignment="Center"
+                                      Margin="2"/>
+                        </DataTemplate>
+                    </DataGridTemplateColumn.CellTemplate>
+                </DataGridTemplateColumn>
+            </DataGrid.Columns>
+        </DataGrid>
+
+        <!-- 按钮区域 -->
+        <StackPanel Grid.Row="2"
+                    Orientation="Horizontal"
+                    HorizontalAlignment="Right"
+                    Margin="0,15,0,0">
+            <Button Content="确认导出"
+                    Command="{Binding ConfirmCommand}"
+                    Width="100" Height="30"
+                    Margin="0,0,10,0"
+                    Background="#0078D4"
+                    Foreground="White"
+                    BorderThickness="0"
+                    Cursor="Hand"/>
+            <Button Content="取消"
+                    Command="{Binding CancelCommand}"
+                    Width="80" Height="30"
+                    BorderThickness="1"/>
+        </StackPanel>
+    </Grid>
+</Window>

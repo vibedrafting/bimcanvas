@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<RevitAddIns>
+  <AddIn Type="Application">
+    <Name>BIMCanvas</Name>
+    <Assembly>BIMCanvas.Revit.dll</Assembly>
+    <FullClassName>BIMCanvas.Revit.Commands.App</FullClassName>
+    <ClientId>3A8E5F2D-1B4C-4D6E-9F0A-7C2B8E4D3F1A</ClientId>
+    <VendorId>com.bimcanvas</VendorId>
+    <VendorDescription>BIMCanvas Team</VendorDescription>
+  </AddIn>
+</RevitAddIns>
