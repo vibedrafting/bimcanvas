@@ -2,7 +2,7 @@
 
 基于 AI CLI 的室内装修平面方案设计助手，实现 Revit 与 AI 之间的人机协作设计。
 
-> **当前版本**: v2.5 | **数据模型**: outline + rooms + zones + wallFinishes + modules
+> **当前版本**: v2.7 | **数据模型**: outline + rooms + zones + wallFinishes + modules | **架构**: Agent SDK 集成
 
 ## 解决的问题
 
@@ -66,20 +66,25 @@
                                │ MCP Protocol
 ┌──────────────────────────────┼──────────────────────────────────┐
 │                         MCP Server 集群                          │
-├──────────────────┬───────────┴───────────┬──────────────────────┤
-│   Revit-MCP      │     Canvas-MCP        │    Library-MCP       │
-│   提取建筑结构    │     操作 JSON 数据     │    搜索族资源         │
-│   创建 Revit 元素 │     版本控制          │    获取族信息         │
-│   .NET FW 4.7.2  │     .NET 6+           │    .NET 6+           │
-└──────────────────┴───────────────────────┴──────────────────────┘
+├──────────────────────────────┴──────────────────────────────────┤
+│   Revit-MCP (.NET FW 4.7.2)   提取建筑结构、创建 Revit 元素       │
+└─────────────────────────────────────────────────────────────────┘
                                │ 引用
-              ┌────────────────┼────────────────┐
-              ▼                ▼                ▼
-┌──────────────────┐  ┌────────────────┐  ┌────────────────────┐
-│  BIMCanvas.Core  │  │ Web.Server     │  │  BIMCanvas.Web     │
-│  (.NET Std 2.0)  │  │ (.NET 6+)      │  │  (Vue 3 + TS)      │
-│  数据模型+算法    │  │ SignalR + API  │  │  JSON → SVG 渲染   │
-└──────────────────┘  └────────────────┘  └────────────────────┘
+              ┌────────────────┼─────────────────────────┐
+              ▼                ▼                         ▼
+┌──────────────────┐  ┌───────────────────────┐  ┌────────────────────┐
+│  BIMCanvas.Core  │  │  BIMCanvas.Server     │  │  BIMCanvas.Web     │
+│  (.NET Std 2.0)  │  │  (.NET 6+)            │  │  (Vue 3 + TS)      │
+│  数据模型+算法    │  │  MCP + REST + SignalR │  │  JSON → SVG 渲染   │
+└──────────────────┘  └───────────┬───────────┘  └────────────────────┘
+                                  │ SSE 事件流
+                                  ▼
+                      ┌───────────────────────┐
+                      │  BIMCanvas.Agent      │
+                      │  (Python 3.10+)       │
+                      │  PlacementAgent       │
+                      │  基于 Agent SDK       │
+                      └───────────────────────┘
 ```
 
 ### 数据流向
@@ -106,8 +111,8 @@ Web 拖拽 → 修改本地 JSON → 点击 Commit → 生成 change_set → AI 
 |------|------|------|----------|
 | Core 类库 | .NET Standard | 2.0 | 同时兼容 .NET FW 4.7.2 和 .NET 6+ |
 | Revit 插件 | .NET Framework | 4.7.2 | Revit API 限制 |
-| MCP Server | .NET | 6+ | 现代运行时 |
-| Web 后端 | ASP.NET Core | 6+ | SignalR 支持 |
+| Server 后端 | ASP.NET Core | 6+ | MCP + REST + SignalR + SSE |
+| Agent 服务 | Python + Agent SDK | 3.10+ | 基于 Anthropic Agent SDK 的 PlacementAgent |
 | Web 前端 | Vue 3 + TypeScript | 3.x | 响应式 + 类型安全 |
 | 构建工具 | Vite | 5.x | 快速开发体验 |
 | 状态管理 | Pinia | 2.x | Vue 3 官方推荐 |
@@ -122,20 +127,21 @@ BIMCanvas/
 │   ├── Models/                  数据模型 (CanvasDocument, Zone, Module...)
 │   └── Algorithms/              空间算法 (碰撞检测, 朝向转换)
 │
+├── BIMCanvas.Server/            统一后端服务 (.NET 6+)
+│   ├── McpTools/                Canvas-MCP + Library-MCP 工具
+│   ├── Controllers/             REST API + SSE 事件端点
+│   ├── Hubs/                    SignalR Hub
+│   └── Services/                EventBus、状态管理、业务服务
+│
+├── BIMCanvas.Agent/             PlacementAgent 服务 (Python 3.10+)
+│   ├── src/agent/               Agent SDK 实现
+│   ├── src/events/              SSE 事件监听器
+│   └── src/mcp/                 MCP 工具客户端
+│
 ├── BIMCanvas.Revit/             Revit 插件 (.NET FW 4.7.2)
 │   ├── Commands/                Ribbon 按钮命令
 │   ├── Views/                   WPF 配置窗口
 │   └── Adapters/                Revit 元素适配器
-│
-├── BIMCanvas.MCP.Canvas/        画布 MCP Server (.NET 6+)
-│   └── Tools/                   画布管理、模块操作、版本控制
-│
-├── BIMCanvas.MCP.Library/       族库 MCP Server (.NET 6+)
-│   └── Tools/                   族库查询、Visual Fallback
-│
-├── BIMCanvas.Web.Server/        Web 后端 (.NET 6+)
-│   ├── Hubs/                    SignalR Hub
-│   └── Services/                状态管理、变更集服务
 │
 ├── BIMCanvas.Web/               Web 前端 (Vue 3)
 │   └── src/
@@ -225,26 +231,34 @@ BIMCanvas/
 
 - ✅ 实现 Core 数据模型（CanvasDocument, Zone, Module 等）
 - ✅ 实现空间算法（CollisionDetector, PlacementValidator）
-- ⬜ 实现 Canvas-MCP 基础工具（module_add, module_move, module_delete）
-- ⬜ 实现 Web 后端 SignalR + REST API
+- ⬜ 实现 BIMCanvas.Server 统一后端（MCP + REST + SignalR + SSE）
 - ⬜ 实现 Web 前端 JSON → SVG 渲染
 
-### Phase 2: 协作编辑
+### Phase 2: PlacementAgent 集成
+
+**目标**：智能布置助手自动化
+
+- ⬜ 实现 BIMCanvas.Agent 项目结构（Python 3.10+）
+- ⬜ 实现 PlacementAgent（基于 Anthropic Agent SDK）
+- ⬜ 实现 EventBus + SSE 事件机制
+- ⬜ 实现三种触发方式（AI 对话、Web 按钮、自动修正）
+
+### Phase 3: 协作编辑
 
 **目标**：AI 和用户可以实时协作
 
-- 实现 Commit 同步机制
-- 实现元素拖拽/旋转交互
-- 实现 Library-MCP 族库查询
-- 实现 Visual Fallback 占位符
+- ⬜ 实现 Commit 同步机制
+- ⬜ 实现元素拖拽/旋转交互
+- ⬜ 实现 Library-MCP 族库查询
+- ⬜ 实现 Visual Fallback 占位符
 
-### Phase 3: Revit 集成
+### Phase 4: Revit 集成
 
 **目标**：完整的 Revit 双向同步
 
-- 实现 Revit → JSON 导出
-- 实现 Ribbon 面板和配置窗口
-- 实现 JSON → Revit 同步
+- ⬜ 实现 Revit → JSON 导出
+- ⬜ 实现 Ribbon 面板和配置窗口
+- ⬜ 实现 JSON → Revit 同步
 
 ---
 
@@ -256,3 +270,4 @@ BIMCanvas/
 | [Schema-JSON.md](./docs/Schema-JSON.md) | JSON 数据模型规范 |
 | [PRD.md](./docs/PRD.md) | 产品需求文档 |
 | [Architecture_Design_Review.md](./docs/Architecture_Design_Review.md) | 专家评审记录 |
+| [PlacementAgent_Review.md](./reviews/PlacementAgent_Review.md) | PlacementAgent 架构决策记录 |
