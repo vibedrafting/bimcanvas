@@ -372,16 +372,26 @@ BIMCanvas/                                    【根目录】
 │
 ├── BIMCanvas.Revit/                          【项目】Revit 相关 (.NET FW 4.7.2)
 │   ├── BIMCanvas.Revit.csproj                     ⚠️ 仅此项目可引用 Revit API
+│   ├── BIMCanvas.addin                            Revit 插件注册文件
 │   ├── Adapters/                                【目录】Revit 适配器
-│   │   ├── ElementAdapter.cs                       元素转换适配器
-│   │   └── ViewAdapter.cs                          视图适配器
+│   │   ├── CoordinateAdapter.cs                    坐标系转换
+│   │   ├── ViewAdapter.cs                          视图元数据提取
+│   │   ├── WallAdapter.cs                          墙体轮廓提取
+│   │   ├── OpeningAdapter.cs                       门窗线段提取
+│   │   └── RoomAdapter.cs                          房间边界提取
+│   ├── Services/                                【目录】服务层
+│   │   ├── CanvasExportService.cs                  画布导出服务
+│   │   ├── RoomTypeInferrer.cs                     房间类型推断
+│   │   └── ExportOptions.cs                        导出配置
 │   ├── Commands/                                【目录】Ribbon 命令
-│   │   ├── QuickLayoutCommand.cs                   快速布置按钮
-│   │   └── StartDialogCommand.cs                   开启对话按钮
-│   ├── Views/                                   【目录】WPF 窗口
-│   │   └── ConfigWindow.xaml                       配置窗口
-│   └── Services/                                【目录】服务
-│       └── AiLauncherService.cs                    AI 启动服务
+│   │   ├── App.cs                                  IExternalApplication 入口
+│   │   └── ExportCanvasCommand.cs                  导出命令
+│   └── Views/                                   【目录】UI 层
+│       ├── ConfigWindow.xaml                       配置窗口
+│       ├── ConfigWindow.xaml.cs
+│       └── ViewModels/
+│           ├── ConfigViewModel.cs                  MVVM ViewModel
+│           └── RelayCommand.cs                     命令基类
 │
 ├── BIMCanvas.Server/                         【项目】统一后端服务 (.NET 6+)
 │   ├── BIMCanvas.Server.csproj

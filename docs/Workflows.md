@@ -147,9 +147,11 @@
 
 ### 关键代码路径
 
-- `BIMCanvas.Revit/Commands/StartDialogCommand.cs` - 命令入口
-- `BIMCanvas.Revit/Adapters/ElementAdapter.cs` - 元素转换
-- `BIMCanvas.Core/Converters/Revit/RevitToJsonConverter.cs` - JSON 生成
+- `BIMCanvas.Revit/Commands/ExportCanvasCommand.cs` - 导出命令入口
+- `BIMCanvas.Revit/Services/CanvasExportService.cs` - 导出服务
+- `BIMCanvas.Revit/Adapters/WallAdapter.cs` - 墙体轮廓提取
+- `BIMCanvas.Revit/Adapters/OpeningAdapter.cs` - 门窗线段提取
+- `BIMCanvas.Revit/Adapters/RoomAdapter.cs` - 房间边界提取
 
 ### 输出
 
