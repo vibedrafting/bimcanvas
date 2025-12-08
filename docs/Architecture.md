@@ -1293,6 +1293,29 @@ export class SvgRenderer {
 }
 ```
 
+#### 6.3.3 交互层实现建议
+
+> **待评估**：画布交互功能（拖拽/旋转/缩放）可考虑使用成熟的 Canvas 交互库简化开发。
+
+| 库 | 渲染技术 | 内置交互 | Vue 封装 | 适用场景 |
+|---|---|---|---|---|
+| **Konva.js** | Canvas | 拖拽、旋转、缩放、框选 | vue-konva | 推荐：学习曲线低，约束逻辑易实现 |
+| **Fabric.js** | Canvas | 拖拽、旋转、缩放、分组 | vue-fabric-wrapper | 备选：功能丰富，API 略复杂 |
+
+**优势**：
+- 节省交互功能开发时间（拖拽/旋转/缩放等复杂交互由库处理）
+- 成熟的拖拽约束机制（如 Konva 的 `dragBoundFunc`）可用于实现 zone 边界约束
+- 保持 JSON 数据格式不变，与现有架构兼容
+
+**数据流**（如采用）：
+```
+JSON (CanvasDocument) → Konva/Fabric 对象 → Canvas 渲染
+         ↑                    ↓
+         └─────── 双向同步 ────┘
+```
+
+> **注意**：此为备选方案建议，最终技术选型需在 Web 开发阶段评估确定。
+
 ---
 
 ### 6.4 PlacementAgent 与 Agent SDK 集成
@@ -1774,4 +1797,5 @@ if __name__ == "__main__":
 | v2.6 | 2025-12-05 | **后端项目合并**：将 BIMCanvas.MCP.Canvas 和 BIMCanvas.Web.Server 合并为单一项目 BIMCanvas.Server；更新 §2.1 整体架构图、§3.1-3.3 项目结构、§4 统一后端架构、§6.2 Server 详细设计；新增 PlacementService/ZoneCalculator 等业务服务说明 |
 | v2.6.1 | 2025-12-05 | **数据流修正**：修正 §0.2 MVP 执行流程和 §2.2 数据流向，明确 Revit 层只提取原始数据（rooms），Zone/WallFinish 计算由 Server 层 ZoneCalculator 负责 |
 | v2.7 | 2025-12-05 | **PlacementAgent 架构升级**：PlacementAgent 从 Server 内部服务迁移至独立 Python Agent（基于 Anthropic Agent SDK）；新增 BIMCanvas.Agent 项目（§2.1/§3.1/§3.2）；新增 §6.4 PlacementAgent 与 Agent SDK 集成（事件驱动机制、三种触发方式、MCP 工具定义） |
+| v2.7.1 | 2025-12-08 | **Web 技术建议**：新增 §6.3.3 交互层实现建议，记录 Konva.js/Fabric.js 作为画布交互功能的备选方案 |
 
