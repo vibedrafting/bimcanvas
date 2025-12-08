@@ -12,7 +12,7 @@ namespace BIMCanvas.Revit.Commands
     /// 导出画布命令
     /// 从当前平面视图导出 BIMCanvas JSON 文件
     /// </summary>
-    [Transaction(TransactionMode.ReadOnly)]
+    [Transaction(TransactionMode.Manual)]
     public class ExportCanvasCommand : IExternalCommand
     {
         /// <summary>
