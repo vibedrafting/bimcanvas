@@ -10,9 +10,9 @@ using System.Text;
 namespace BIMCanvas.Revit.Test
 {
     /// <summary>
-    /// 门窗信息数据类
+    /// 门信息数据类
     /// </summary>
-    public class OpeningInfo
+    public class DoorInfo
     {
         /// <summary>
         /// JSON 数据唯一标识
@@ -23,11 +23,6 @@ namespace BIMCanvas.Revit.Test
         /// Revit 构件 ElementId
         /// </summary>
         public int ElementId { get; set; }
-
-        /// <summary>
-        /// 门窗类型：Door 或 Window
-        /// </summary>
-        public string OpeningType { get; set; }
 
         /// <summary>
         /// 定位点（毫米）
@@ -50,14 +45,60 @@ namespace BIMCanvas.Revit.Test
         public XYZ FacingDirection { get; set; }
 
         /// <summary>
-        /// 左右开启方向列表（仅门有效）
+        /// 左右开启方向列表
         /// </summary>
         public List<XYZ> HandDirections { get; set; }
 
         /// <summary>
-        /// 窗台高度（毫米，仅窗有效）
+        /// 宽度（毫米）
         /// </summary>
-        public double? SillHeight { get; set; }
+        public double Width { get; set; }
+
+        /// <summary>
+        /// 高度（毫米）
+        /// </summary>
+        public double Height { get; set; }
+    }
+
+    /// <summary>
+    /// 窗信息数据类
+    /// </summary>
+    public class WindowInfo
+    {
+        /// <summary>
+        /// JSON 数据唯一标识
+        /// </summary>
+        public Guid Id { get; set; }
+
+        /// <summary>
+        /// Revit 构件 ElementId
+        /// </summary>
+        public int ElementId { get; set; }
+
+        /// <summary>
+        /// 定位点（毫米）
+        /// </summary>
+        public XYZ LocationPoint { get; set; }
+
+        /// <summary>
+        /// 定位线起点（毫米）
+        /// </summary>
+        public XYZ LocationLineStart { get; set; }
+
+        /// <summary>
+        /// 定位线终点（毫米）
+        /// </summary>
+        public XYZ LocationLineEnd { get; set; }
+
+        /// <summary>
+        /// 内外开启方向（面向方向）
+        /// </summary>
+        public XYZ FacingDirection { get; set; }
+
+        /// <summary>
+        /// 窗台高度（毫米）
+        /// </summary>
+        public double SillHeight { get; set; }
 
         /// <summary>
         /// 宽度（毫米）
@@ -89,8 +130,11 @@ namespace BIMCanvas.Revit.Test
 
             try
             {
-                // 获取所有门窗信息
-                List<OpeningInfo> openingInfos = new List<OpeningInfo>();
+                // 获取所有门信息
+                List<DoorInfo> doorInfos = new List<DoorInfo>();
+
+                // 获取所有窗信息
+                List<WindowInfo> windowInfos = new List<WindowInfo>();
 
                 // 获取所有门
                 var doors = new FilteredElementCollector(doc)
@@ -112,7 +156,7 @@ namespace BIMCanvas.Revit.Test
                     var info = GetDoorInfo(door);
                     if (info != null)
                     {
-                        openingInfos.Add(info);
+                        doorInfos.Add(info);
                     }
                 }
 
@@ -122,12 +166,12 @@ namespace BIMCanvas.Revit.Test
                     var info = GetWindowInfo(window);
                     if (info != null)
                     {
-                        openingInfos.Add(info);
+                        windowInfos.Add(info);
                     }
                 }
 
                 // 输出结果
-                ShowResults(openingInfos);
+                ShowResults(doorInfos, windowInfos);
 
                 return Result.Succeeded;
             }
@@ -141,15 +185,14 @@ namespace BIMCanvas.Revit.Test
         /// <summary>
         /// 获取门信息
         /// </summary>
-        private OpeningInfo GetDoorInfo(FamilyInstance door)
+        private DoorInfo GetDoorInfo(FamilyInstance door)
         {
             try
             {
-                var info = new OpeningInfo
+                var info = new DoorInfo
                 {
                     Id = Guid.NewGuid(),
-                    ElementId = door.Id.IntegerValue,
-                    OpeningType = "Door"
+                    ElementId = door.Id.IntegerValue
                 };
 
                 // 获取定位点
@@ -176,7 +219,7 @@ namespace BIMCanvas.Revit.Test
                 info.HandDirections = directions.OpeningDirections;
 
                 // 计算定位线
-                CalculateLocationLine(info);
+                CalculateDoorLocationLine(info);
 
                 return info;
             }
@@ -189,15 +232,14 @@ namespace BIMCanvas.Revit.Test
         /// <summary>
         /// 获取窗信息
         /// </summary>
-        private OpeningInfo GetWindowInfo(FamilyInstance window)
+        private WindowInfo GetWindowInfo(FamilyInstance window)
         {
             try
             {
-                var info = new OpeningInfo
+                var info = new WindowInfo
                 {
                     Id = Guid.NewGuid(),
-                    ElementId = window.Id.IntegerValue,
-                    OpeningType = "Window"
+                    ElementId = window.Id.IntegerValue
                 };
 
                 // 获取定位点
@@ -219,14 +261,13 @@ namespace BIMCanvas.Revit.Test
                               ?? 0;
 
                 // 获取窗台高度
-                info.SillHeight = GetParameterValueInMm(window, BuiltInParameter.INSTANCE_SILL_HEIGHT_PARAM);
+                info.SillHeight = GetParameterValueInMm(window, BuiltInParameter.INSTANCE_SILL_HEIGHT_PARAM) ?? 0;
 
                 // 获取开启方向
                 info.FacingDirection = OpeningDirectionAnalyzer.GetWindowFacingDirection(window);
-                info.HandDirections = new List<XYZ>(); // 窗没有左右开启方向
 
                 // 计算定位线
-                CalculateLocationLine(info);
+                CalculateWindowLocationLine(info);
 
                 return info;
             }
@@ -237,9 +278,39 @@ namespace BIMCanvas.Revit.Test
         }
 
         /// <summary>
-        /// 计算定位线
+        /// 计算门定位线
         /// </summary>
-        private void CalculateLocationLine(OpeningInfo info)
+        private void CalculateDoorLocationLine(DoorInfo info)
+        {
+            if (info.LocationPoint == null || info.FacingDirection == null || info.Width <= 0)
+            {
+                return;
+            }
+
+            // 定位线方向 = 面向方向垂直方向（叉乘 Z 轴）
+            XYZ lineDirection = info.FacingDirection.CrossProduct(XYZ.BasisZ).Normalize();
+
+            // 半宽（已经是毫米单位）
+            double halfWidth = info.Width / 2.0;
+
+            // 定位线起点和终点（注意：LocationPoint 已经是毫米单位，lineDirection 是无量纲单位向量）
+            info.LocationLineStart = new XYZ(
+                info.LocationPoint.X - halfWidth * lineDirection.X,
+                info.LocationPoint.Y - halfWidth * lineDirection.Y,
+                info.LocationPoint.Z
+            );
+
+            info.LocationLineEnd = new XYZ(
+                info.LocationPoint.X + halfWidth * lineDirection.X,
+                info.LocationPoint.Y + halfWidth * lineDirection.Y,
+                info.LocationPoint.Z
+            );
+        }
+
+        /// <summary>
+        /// 计算窗定位线
+        /// </summary>
+        private void CalculateWindowLocationLine(WindowInfo info)
         {
             if (info.LocationPoint == null || info.FacingDirection == null || info.Width <= 0)
             {
@@ -304,40 +375,57 @@ namespace BIMCanvas.Revit.Test
         /// <summary>
         /// 显示结果
         /// </summary>
-        private void ShowResults(List<OpeningInfo> infos)
+        private void ShowResults(List<DoorInfo> doorInfos, List<WindowInfo> windowInfos)
         {
             var sb = new StringBuilder();
-            sb.AppendLine($"共获取 {infos.Count} 个门窗信息");
-            sb.AppendLine($"门: {infos.Count(i => i.OpeningType == "Door")} 个");
-            sb.AppendLine($"窗: {infos.Count(i => i.OpeningType == "Window")} 个");
+            sb.AppendLine($"共获取 {doorInfos.Count + windowInfos.Count} 个门窗信息");
+            sb.AppendLine($"门: {doorInfos.Count} 个");
+            sb.AppendLine($"窗: {windowInfos.Count} 个");
             sb.AppendLine();
 
-            foreach (var info in infos.Take(10)) // 只显示前10个
+            // 显示门信息
+            sb.AppendLine("===== 门信息 =====");
+            foreach (var info in doorInfos.Take(5))
             {
-                sb.AppendLine($"--- {info.OpeningType} (ElementId: {info.ElementId}) ---");
+                sb.AppendLine($"--- Door (ElementId: {info.ElementId}) ---");
                 sb.AppendLine($"  GUID: {info.Id}");
                 sb.AppendLine($"  定位点: ({info.LocationPoint?.X:F0}, {info.LocationPoint?.Y:F0}, {info.LocationPoint?.Z:F0}) mm");
                 sb.AppendLine($"  定位线: ({info.LocationLineStart?.X:F0}, {info.LocationLineStart?.Y:F0}) -> ({info.LocationLineEnd?.X:F0}, {info.LocationLineEnd?.Y:F0}) mm");
                 sb.AppendLine($"  面向方向: ({info.FacingDirection?.X:F2}, {info.FacingDirection?.Y:F2})");
 
-                if (info.OpeningType == "Door" && info.HandDirections?.Count > 0)
+                if (info.HandDirections?.Count > 0)
                 {
                     var handStr = string.Join("; ", info.HandDirections.Select(h => $"({h.X:F2}, {h.Y:F2})"));
                     sb.AppendLine($"  开启方向: {handStr}");
-                }
-
-                if (info.SillHeight.HasValue)
-                {
-                    sb.AppendLine($"  窗台高度: {info.SillHeight.Value:F0} mm");
                 }
 
                 sb.AppendLine($"  尺寸: {info.Width:F0} x {info.Height:F0} mm");
                 sb.AppendLine();
             }
 
-            if (infos.Count > 10)
+            if (doorInfos.Count > 5)
             {
-                sb.AppendLine($"... 还有 {infos.Count - 10} 个门窗未显示");
+                sb.AppendLine($"... 还有 {doorInfos.Count - 5} 个门未显示");
+                sb.AppendLine();
+            }
+
+            // 显示窗信息
+            sb.AppendLine("===== 窗信息 =====");
+            foreach (var info in windowInfos.Take(5))
+            {
+                sb.AppendLine($"--- Window (ElementId: {info.ElementId}) ---");
+                sb.AppendLine($"  GUID: {info.Id}");
+                sb.AppendLine($"  定位点: ({info.LocationPoint?.X:F0}, {info.LocationPoint?.Y:F0}, {info.LocationPoint?.Z:F0}) mm");
+                sb.AppendLine($"  定位线: ({info.LocationLineStart?.X:F0}, {info.LocationLineStart?.Y:F0}) -> ({info.LocationLineEnd?.X:F0}, {info.LocationLineEnd?.Y:F0}) mm");
+                sb.AppendLine($"  面向方向: ({info.FacingDirection?.X:F2}, {info.FacingDirection?.Y:F2})");
+                sb.AppendLine($"  窗台高度: {info.SillHeight:F0} mm");
+                sb.AppendLine($"  尺寸: {info.Width:F0} x {info.Height:F0} mm");
+                sb.AppendLine();
+            }
+
+            if (windowInfos.Count > 5)
+            {
+                sb.AppendLine($"... 还有 {windowInfos.Count - 5} 个窗未显示");
             }
 
             TaskDialog.Show("门窗信息", sb.ToString());
