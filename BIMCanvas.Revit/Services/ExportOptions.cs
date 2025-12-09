@@ -21,6 +21,12 @@ namespace BIMCanvas.Revit.Services
         public double PlacementElevation { get; set; } = 0;
 
         /// <summary>
+        /// 边界切割高度（毫米），默认 1200mm（略高于常见窗台高度）
+        /// 后期可能根据所有窗户的窗台高度属性动态确定
+        /// </summary>
+        public double BoundaryCutHeightMm { get; set; } = 1200;
+
+        /// <summary>
         /// 是否导出边界轮廓
         /// </summary>
         public bool ExportBoundarys { get; set; } = true;

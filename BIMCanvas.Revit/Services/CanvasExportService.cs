@@ -5,6 +5,7 @@ using System.Text;
 using Autodesk.Revit.DB;
 using BIMCanvas.Core.Models.Document;
 using BIMCanvas.Revit.Adapters;
+using BIMCanvas.Revit.Models;
 using BIMCanvas.Revit.Views;
 using BIMCanvas.Revit.Views.ViewModels;
 using Newtonsoft.Json;
@@ -42,20 +43,24 @@ namespace BIMCanvas.Revit.Services
             };
 
             // 3. 提取边界
-            var boundarys = new List<Core.Models.Document.Boundary>();
+            var revitBoundarys = new List<RevitBoundary>();
             if (options.ExportBoundarys)
             {
                 var wallAdapter = new BoundaryAdapter(coordAdapter);
-                boundarys = wallAdapter.ExtractBoundarys(view);
+                revitBoundarys = wallAdapter.ExtractBoundarys(view, options.BoundaryCutHeightMm);
             }
 
+            // TODO: 后期实现坐标转换逻辑，将 revitBoundarys 转换为 Core 层的 Boundary
+
             // 4. 提取门窗
-            var openings = new List<Core.Models.Document.Opening>();
+            var revitOpenings = new List<RevitOpening>();
             if (options.ExportOpenings)
             {
                 var openingAdapter = new OpeningAdapter(coordAdapter);
-                openings = openingAdapter.ExtractOpenings(view);
+                revitOpenings = openingAdapter.ExtractOpenings(view);
             }
+
+            // TODO: 后期实现坐标转换逻辑，将 revitOpenings 转换为 Core 层的 Opening
 
             // 5. 提取房间
             var rooms = new List<Room>();
@@ -107,8 +112,8 @@ namespace BIMCanvas.Revit.Services
                 Metadata = metadata,
                 Outline = new Core.Models.Document.Outline
                 {
-                    Boundarys = boundarys,
-                    Openings = openings
+                    Boundarys = new List<Core.Models.Document.Boundary>(),  // TODO: 转换 revitBoundarys
+                    Openings = new List<Core.Models.Document.Opening>()      // TODO: 转换 revitOpenings
                 },
                 Rooms = rooms,
                 Zones = new List<Zone>(),              // 精简版：空
