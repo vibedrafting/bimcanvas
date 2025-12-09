@@ -151,6 +151,26 @@ namespace BIMCanvas.Revit.Services
         }
 
         /// <summary>
+        /// 将 NTS LineSegment (feet) 转换为 BIMCanvas Line2D (mm)
+        /// </summary>
+        /// <param name="segment">NTS LineSegment（英尺单位）</param>
+        /// <returns>Line2D（毫米单位）</returns>
+        public Line2D ToLine2D(NetTopologySuite.Geometries.LineSegment segment)
+        {
+            if (segment == null)
+                throw new ArgumentNullException(nameof(segment));
+
+            var startXYZ = new XYZ(segment.P0.X, segment.P0.Y, 0);
+            var endXYZ = new XYZ(segment.P1.X, segment.P1.Y, 0);
+
+            return new Line2D
+            {
+                Start = ToPoint2D(startXYZ),
+                End = ToPoint2D(endXYZ)
+            };
+        }
+
+        /// <summary>
         /// 将 NTS Polygon (feet, Revit 项目坐标系) 转换为 BIMCanvas Polygon2D (mm, 归一化坐标系)
         /// </summary>
         public Polygon2D ToPolygon2D(NetTopologySuite.Geometries.Polygon ntsPolygon)

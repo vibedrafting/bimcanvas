@@ -60,38 +60,24 @@ namespace BIMCanvas.Revit.Services
             }
 
             // ===== Phase 2: 计算包围盒原点 =====
-            var allLoops = new List<CurveLoop>();
-            //allLoops.AddRange(rawBoundaries.Select(b => b.Boundary));
+            var boundaryPolygons = rawBoundaries
+                .Where(b => b.Boundary != null)
+                .Select(b => b.Boundary)
+                .ToList();
 
-            var allPolygons = revitRooms.Where(r => r.Boundary != null).Select(r => r.Boundary).ToList();
+            var roomPolygons = revitRooms
+                .Where(r => r.Boundary != null)
+                .Select(r => r.Boundary)
+                .ToList();
+
+            var allPolygons = boundaryPolygons.Concat(roomPolygons).ToList();
 
             XYZ origin;
             string originMethod;
 
-            if (allLoops.Count > 0 || allPolygons.Count > 0)
+            if (allPolygons.Count > 0)
             {
-                // 计算边界和房间的综合包围盒
-                var origin1 = allLoops.Count > 0 ? BoundingBoxCalculator.CalculateOrigin(allLoops) : XYZ.Zero;
-                var origin2 = allPolygons.Count > 0 ? BoundingBoxCalculator.CalculateOriginFromPolygons(allPolygons) : XYZ.Zero;
-
-                // 取两者的最小值
-                if (allLoops.Count > 0 && allPolygons.Count > 0)
-                {
-                    origin = new XYZ(
-                        Math.Min(origin1.X, origin2.X),
-                        Math.Min(origin1.Y, origin2.Y),
-                        0
-                    );
-                }
-                else if (allLoops.Count > 0)
-                {
-                    origin = origin1;
-                }
-                else
-                {
-                    origin = origin2;
-                }
-
+                origin = BoundingBoxCalculator.CalculateOriginFromPolygons(allPolygons);
                 originMethod = "boundingBox";
             }
             else
@@ -116,7 +102,7 @@ namespace BIMCanvas.Revit.Services
             {
                 Id = ro.Id,
                 Type = ro.Type,
-                //Line = transformer.ToLine2D(ro.Line)
+                Line = transformer.ToLine2D(ro.LocationLine)
             }).ToList();
 
             var rooms = revitRooms.Select(rr => new Core.Models.Document.Room
