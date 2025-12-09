@@ -3,7 +3,7 @@ using BIMCanvas.Core.Models.Primitives;
 namespace BIMCanvas.Core.Models.Document
 {
     /// <summary>
-    /// 边界轮廓
+    /// 边界轮廓，格式：b{序号}
     /// </summary>
     public class Boundary
     {
