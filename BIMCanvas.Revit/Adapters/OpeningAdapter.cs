@@ -43,7 +43,7 @@ namespace BIMCanvas.Revit.Adapters
             {
                 var opening = ExtractDoorOpening(door);
                 if (opening != null)
-                    result.Add(opening.Value);
+                    result.Add(opening);
             }
 
             // 3. 处理窗
@@ -52,7 +52,7 @@ namespace BIMCanvas.Revit.Adapters
             {
                 var opening = ExtractWindowOpening(window);
                 if (opening != null)
-                    result.Add(opening.Value);
+                    result.Add(opening);
             }
 
             return result;
@@ -88,10 +88,10 @@ namespace BIMCanvas.Revit.Adapters
                 {
                     Id = DataId.NewId("d"),
                     Type = OpeningType.Door,
-                    LocationPoint = ToCoordinate(locationPoint),
+                    LocationPoint = locationPoint.ToCoordinate(),
                     LocationLine = CreateLineSegment(start, end),
-                    FacingDirection = ToVec2D(facingDirection),
-                    HandDirections = ToVec2DArray(handDirections)
+                    FacingDirection = facingDirection.ToVector2D(),
+                    HandDirections = handDirections.Select(d=>d.ToVector2D()).ToList()
                 };
             }
             catch
@@ -128,10 +128,9 @@ namespace BIMCanvas.Revit.Adapters
                 {
                     Id = DataId.NewId("win"),
                     Type = OpeningType.Window,
-                    LocationPoint = ToCoordinate(locationPoint),
+                    LocationPoint = locationPoint.ToCoordinate(),
                     LocationLine = CreateLineSegment(start, end),
-                    FacingDirection = ToVec2D(facingDirection),
-                    HandDirections = new Vec2D[0]  // 窗没有手柄方向
+                    FacingDirection = facingDirection.ToVector2D()
                 };
             }
             catch
@@ -186,34 +185,6 @@ namespace BIMCanvas.Revit.Adapters
             if (p != null && p.HasValue && p.StorageType == StorageType.Double)
                 return p.AsDouble();
             return null;
-        }
-
-        /// <summary>
-        /// Revit XYZ → NTS Coordinate（仅 X, Y，忽略 Z）
-        /// </summary>
-        private Coordinate ToCoordinate(XYZ xyz)
-        {
-            return new Coordinate(xyz.X, xyz.Y);
-        }
-
-        /// <summary>
-        /// Revit XYZ → Core Vec2D（归一化为单位向量）
-        /// </summary>
-        private Vec2D ToVec2D(XYZ xyz)
-        {
-            var vec = new Vec2D(xyz.X, xyz.Y);
-            return vec.Normalize();
-        }
-
-        /// <summary>
-        /// Revit XYZ 列表 → Core Vec2D 数组
-        /// </summary>
-        private Vec2D[] ToVec2DArray(List<XYZ> xyzList)
-        {
-            if (xyzList == null || xyzList.Count == 0)
-                return new Vec2D[0];
-
-            return xyzList.Select(ToVec2D).ToArray();
         }
 
         /// <summary>

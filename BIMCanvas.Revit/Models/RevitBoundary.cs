@@ -1,4 +1,6 @@
 using NetTopologySuite.Geometries;
+using System.Collections.Generic;
+using System.Windows.Documents;
 
 namespace BIMCanvas.Revit.Models
 {
@@ -13,6 +15,11 @@ namespace BIMCanvas.Revit.Models
         /// 边界 ID（格式：boundary_001, boundary_002, ...）
         /// </summary>
         public string Id { get; set; } = string.Empty;
+
+        /// <summary>
+        /// Revit 原始元素组的 ID 列表（用于追溯）
+        /// </summary>
+        public List<int> ElementIds { get; set; }
 
         /// <summary>
         /// 边界多边形（NTS Polygon，feet 单位，Revit 项目坐标系）

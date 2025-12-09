@@ -1,4 +1,4 @@
-using BIMCanvas.Core.Algorithms.Geometry;
+using BIMCanvas.Core.Algorithms.Geometries;
 using BIMCanvas.Core.Models.Primitives;
 
 namespace BIMCanvas.Core.Algorithms.Spatial

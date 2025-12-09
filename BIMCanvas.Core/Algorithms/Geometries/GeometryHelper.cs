@@ -1,7 +1,7 @@
 using System;
 using BIMCanvas.Core.Models.Primitives;
 
-namespace BIMCanvas.Core.Algorithms.Geometry
+namespace BIMCanvas.Core.Algorithms.Geometries
 {
     /// <summary>
     /// 几何运算辅助类

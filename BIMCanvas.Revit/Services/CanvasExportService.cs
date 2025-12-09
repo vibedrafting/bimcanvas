@@ -36,9 +36,9 @@ namespace BIMCanvas.Revit.Services
             if (options == null)
                 throw new ArgumentNullException(nameof(options));
 
-            // ===== Phase 1: 提取原始数据（Revit 坐标系）=====
-            var rawBoundaries = new List<RawBoundary>();
-            var rawOpenings = new List<RawOpening>();
+            // ===== Phase 1: 提取原始数据 =====
+            var rawBoundaries = new List<RevitBoundary>();
+            var rawOpenings = new List<RevitOpening>();
             var revitRooms = new List<RevitRoom>();
 
             if (options.ExportBoundarys)
@@ -61,7 +61,7 @@ namespace BIMCanvas.Revit.Services
 
             // ===== Phase 2: 计算包围盒原点 =====
             var allLoops = new List<CurveLoop>();
-            allLoops.AddRange(rawBoundaries.Select(b => b.Loop));
+            //allLoops.AddRange(rawBoundaries.Select(b => b.Boundary));
 
             var allPolygons = revitRooms.Where(r => r.Boundary != null).Select(r => r.Boundary).ToList();
 
@@ -109,14 +109,14 @@ namespace BIMCanvas.Revit.Services
             var boundaries = rawBoundaries.Select(rb => new Boundary
             {
                 Id = rb.Id,
-                Polygon = transformer.ToPolygon2D(rb.Loop)
+                Polygon = transformer.ToPolygon2D(rb.Boundary)
             }).ToList();
 
             var openings = rawOpenings.Select(ro => new Core.Models.Document.Opening
             {
                 Id = ro.Id,
                 Type = ro.Type,
-                Line = transformer.ToLine2D(ro.Line)
+                //Line = transformer.ToLine2D(ro.Line)
             }).ToList();
 
             var rooms = revitRooms.Select(rr => new Core.Models.Document.Room

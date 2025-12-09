@@ -1,5 +1,5 @@
 using System;
-using BIMCanvas.Core.Algorithms.Geometry;
+using BIMCanvas.Core.Algorithms.Geometries;
 using BIMCanvas.Core.Models.Document;
 using BIMCanvas.Core.Models.Primitives;
 

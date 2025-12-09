@@ -2,7 +2,7 @@ using System.Linq;
 using BIMCanvas.Core.Models.Primitives;
 using NetTopologySuite.Geometries;
 
-namespace BIMCanvas.Core.Algorithms.Geometry
+namespace BIMCanvas.Core.Algorithms.Geometries
 {
     /// <summary>
     /// Polygon2D ↔ NTS Polygon 转换（内部使用）

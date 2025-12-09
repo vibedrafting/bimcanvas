@@ -5,7 +5,7 @@ using Autodesk.Revit.DB.Architecture;
 using BIMCanvas.Revit.Models;
 using BIMCanvas.Revit.Utilities;
 using System.Linq;
-using SharedLibrary.Tools;
+using BIMCanvas.Core.Algorithms.Geometries;
 
 namespace BIMCanvas.Revit.Adapters
 {
@@ -74,16 +74,12 @@ namespace BIMCanvas.Revit.Adapters
                 var name = room.get_Parameter(BuiltInParameter.ROOM_NAME)?.AsString()
                            ?? "未命名房间";
 
-                // 8. 提取标高名称
-                var levelName = room.Level?.Name ?? "";
-
-                // 9. 创建 RevitRoom 对象
+                // 8. 创建 RevitRoom 对象
                 var revitRoom = new RevitRoom
                 {
                     Id = BIMCanvas.Revit.Utilities.DataId.NewId("room_", 3),       // 生成 room_001
-                    RevitId = room.Id.IntegerValue,
+                    ElementId = room.Id.IntegerValue,
                     Name = name,
-                    Level = levelName,
                     Boundary = boundary
                 };
 

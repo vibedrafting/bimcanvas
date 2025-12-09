@@ -15,17 +15,12 @@ namespace BIMCanvas.Revit.Models
         /// <summary>
         /// Revit 原始元素 ID（用于追溯）
         /// </summary>
-        public int RevitId { get; set; }
+        public int ElementId { get; set; }
 
         /// <summary>
         /// 房间名称（从 ROOM_NAME 参数提取）
         /// </summary>
         public string Name { get; set; }
-
-        /// <summary>
-        /// 标高名称（从 Room.Level 提取）
-        /// </summary>
-        public string Level { get; set; }
 
         /// <summary>
         /// 房间边界（NTS Polygon，feet 单位，Revit 项目坐标系）

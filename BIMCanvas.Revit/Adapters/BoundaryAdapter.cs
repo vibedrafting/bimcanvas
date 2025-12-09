@@ -17,13 +17,13 @@ namespace BIMCanvas.Revit.Adapters
         /// </summary>
         /// <param name="view">Revit 平面视图</param>
         /// <returns>RawBoundary 列表（未转换坐标）</returns>
-        public List<RawBoundary> ExtractBoundaries(View view)
+        public List<RevitBoundary> ExtractBoundaries(View view)
         {
             if (view == null)
                 throw new ArgumentNullException(nameof(view));
 
             var doc = view.Document;
-            var result = new List<RawBoundary>();
+            var result = new List<RevitBoundary>();
 
             // 默认切割高度：1200mm（约 4 feet）
             double cutHeightFeet = UnitConverter.ToFeet(1200);
@@ -65,11 +65,14 @@ namespace BIMCanvas.Revit.Adapters
             {
                 try
                 {
-                    result.Add(new RawBoundary
+                    if (curveLoop != null)
                     {
-                        Id = DataId.NewId("boundary", 1),
-                        Loop = curveLoop
-                    });
+                        result.Add(new RevitBoundary
+                        {
+                            Id = DataId.NewId("boundary", 1),
+                            Boundary = curveLoop.ToPolygon()
+                        });
+                    }
                 }
                 catch
                 {

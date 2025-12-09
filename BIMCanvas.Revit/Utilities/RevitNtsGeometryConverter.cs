@@ -7,6 +7,7 @@ using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
 using LineSegment = NetTopologySuite.Geometries.LineSegment;
+using BIMCanvas.Core.Algorithms.Geometries;
 
 namespace BIMCanvas.Revit.Utilities
 {
@@ -87,7 +88,7 @@ namespace BIMCanvas.Revit.Utilities
         /// <returns>所有环的Polygon集合（外环在前，依次为洞口）</returns>
         /// <exception cref="System.ArgumentNullException"/>
         /// <exception cref="System.InvalidOperationException"/>
-        public static List<Polygon> ToPolygon(this PlanarFace planarFace, bool autoIntersection = false)
+        public static List<Polygon> ToPolygons(this PlanarFace planarFace, bool autoIntersection = false)
         {
             if (planarFace == null)
                 return null;
@@ -111,5 +112,32 @@ namespace BIMCanvas.Revit.Utilities
 
             return polygons;
         }
+
+        /// <summary>
+        /// 将PlanarFace的所有边界CurveLoop转换为NTS Polygon（外环+所有洞口）。
+        /// 外环为第一个，后续为内环（洞口）。<br/>
+        /// 【假设CurveLoop全部由Line组成，否则抛出异常】
+        /// </summary>
+        /// <param name="curveLoop">Revit的CurveLoop</param>
+        /// <param name="autoIntersection">是否自动补全交点</param>
+        /// <returns>所有环的Polygon集合（外环在前，依次为洞口）</returns>
+        /// <exception cref="System.ArgumentNullException"/>
+        /// <exception cref="System.InvalidOperationException"/>
+        public static Polygon ToPolygon(this CurveLoop curveLoop, bool autoIntersection = false)
+        {
+            if (curveLoop == null)
+                return null;
+            var segments = new List<NetTopologySuite.Geometries.LineSegment>();
+            foreach (Curve curve in curveLoop)
+            {
+                if (curve is Line line)
+                    segments.Add(line.ToLineSegment());
+                else
+                    return null;
+            }
+
+            return segments.GeneratePolygon(autoIntersection);
+        }
+
     }
 }

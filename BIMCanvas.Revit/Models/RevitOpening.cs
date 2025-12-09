@@ -1,6 +1,10 @@
-using NetTopologySuite.Geometries;
 using BIMCanvas.Core.Models.Document;
 using BIMCanvas.Core.Models.Primitives;
+using NetTopologySuite.Geometries;
+using NetTopologySuite.Mathematics;
+using System.Collections.Generic;
+using System.Numerics;
+using System.Windows.Documents;
 
 namespace BIMCanvas.Revit.Models
 {
@@ -13,6 +17,11 @@ namespace BIMCanvas.Revit.Models
         /// 门窗唯一标识（如 d001, win001）
         /// </summary>
         public string Id { get; set; }
+
+        /// <summary>
+        /// Revit 原始元素 ID（用于追溯）
+        /// </summary>
+        public int ElementId { get; set; }
 
         /// <summary>
         /// 类型：门或窗
@@ -30,13 +39,13 @@ namespace BIMCanvas.Revit.Models
         public LineSegment LocationLine { get; set; }
 
         /// <summary>
-        /// 面向方向（Core Vec2D，单位向量）
+        /// 面向方向/内外开启方向（NTS Vector2D，单位向量）
         /// </summary>
-        public Vec2D FacingDirection { get; set; }
+        public Vector2D FacingDirection { get; set; }
 
         /// <summary>
-        /// 左右开启方向列表（Core Vec2D，仅门有值）
+        /// 左右开启方向（NTS Vector2D列表，单位向量）
         /// </summary>
-        public Vec2D[] HandDirections { get; set; }
+        public List<Vector2D> HandDirections { get; set; }
     }
 }
