@@ -4,7 +4,6 @@ using Autodesk.Revit.DB.Architecture;
 using Autodesk.Revit.UI;
 using BIMCanvas.Core.Models.Document;
 using NetTopologySuite.Geometries;
-using SharedLibrary.Tools;
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -31,16 +30,16 @@ namespace BIMCanvas.Revit.Test
                                                             .OfClass(typeof(SpatialElement))
                                                             .ToElements()
                                                             .Cast<Autodesk.Revit.DB.Architecture.Room>();
-            foreach (var room in rooms)
-            {
-                // 批量设置柱子作为房间边界
-                SetColumnRoomBounding(doc, true);
-                var profile = GetRoomBoundary(doc, room);
-                if (profile!=null)
-                {
-                    doc.DisplayLine(profile.Centroid.Coordinate, SharedLibrary.Class.Enum.ColorType.Red);
-                }
-            }
+            //foreach (var room in rooms)
+            //{
+            //    // 批量设置柱子作为房间边界
+            //    SetColumnRoomBounding(doc, true);
+            //    var profile = GetRoomBoundary(doc, room);
+            //    if (profile!=null)
+            //    {
+            //        doc.DisplayLine(profile.Centroid.Coordinate, SharedLibrary.Class.Enum.ColorType.Red);
+            //    }
+            //}
 
             System.Windows.MessageBox.Show("测试房间功能结束");
 

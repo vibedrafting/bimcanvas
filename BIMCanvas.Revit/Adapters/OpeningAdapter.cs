@@ -3,8 +3,10 @@ using System.Collections.Generic;
 using System.Linq;
 using Autodesk.Revit.DB;
 using BIMCanvas.Core.Models.Document;
+using BIMCanvas.Core.Models.Primitives;
 using BIMCanvas.Revit.Models;
 using BIMCanvas.Revit.Utilities;
+using NetTopologySuite.Geometries;
 
 namespace BIMCanvas.Revit.Adapters
 {
@@ -14,13 +16,13 @@ namespace BIMCanvas.Revit.Adapters
     public class OpeningAdapter
     {
         /// <summary>
-        /// 提取视图中所有门窗的定位线段（返回 Revit 原生数据）
+        /// 提取视图中所有门窗的定位线段（返回 NTS/Core 格式数据）
         /// </summary>
         /// <param name="view">Revit 平面视图</param>
-        /// <returns>RawOpening 列表（未转换坐标）</returns>
-        public List<RawOpening> ExtractOpenings(View view)
+        /// <returns>RevitOpening 列表（使用 NTS/Core 几何类型）</returns>
+        public List<RevitOpening> ExtractOpenings(View view)
         {
-            var result = new List<RawOpening>();
+            var result = new List<RevitOpening>();
 
             // 1. 收集门窗元素
             var doors = new FilteredElementCollector(view.Document, view.Id)
@@ -59,7 +61,7 @@ namespace BIMCanvas.Revit.Adapters
         /// <summary>
         /// 提取单个门的信息
         /// </summary>
-        private RawOpening? ExtractDoorOpening(FamilyInstance door)
+        private RevitOpening? ExtractDoorOpening(FamilyInstance door)
         {
             try
             {
@@ -73,22 +75,23 @@ namespace BIMCanvas.Revit.Adapters
                          ?? GetSymbolParameterValue(door, "Width");
                 if (width == null) return null;
 
-                // 3. 获取面向方向
+                // 3. 获取方向信息
                 var directions = OpeningDirectionAnalyzer.CalculateOpeningDirections(door);
                 var facingDirection = directions.FacingDirection;
+                var handDirections = directions.OpeningDirections; // List<XYZ>
 
-                // 4. 计算定位线（英尺）
+                // 4. 计算定位线起终点（英尺）
                 var (start, end) = CalculateLocationLine(locationPoint, width.Value, facingDirection);
 
-                // 5. 创建 Revit Line 对象
-                var line = Line.CreateBound(start, end);
-
-                // 6. 创建 RawOpening
-                return new RawOpening
+                // 5. 转换为 NTS/Core 类型
+                return new RevitOpening
                 {
                     Id = DataId.NewId("d"),
                     Type = OpeningType.Door,
-                    Line = line
+                    LocationPoint = ToCoordinate(locationPoint),
+                    LocationLine = CreateLineSegment(start, end),
+                    FacingDirection = ToVec2D(facingDirection),
+                    HandDirections = ToVec2DArray(handDirections)
                 };
             }
             catch
@@ -100,7 +103,7 @@ namespace BIMCanvas.Revit.Adapters
         /// <summary>
         /// 提取单个窗的信息
         /// </summary>
-        private RawOpening? ExtractWindowOpening(FamilyInstance window)
+        private RevitOpening? ExtractWindowOpening(FamilyInstance window)
         {
             try
             {
@@ -117,18 +120,18 @@ namespace BIMCanvas.Revit.Adapters
                 // 3. 获取面向方向
                 var facingDirection = OpeningDirectionAnalyzer.GetWindowFacingDirection(window);
 
-                // 4. 计算定位线（英尺）
+                // 4. 计算定位线起终点（英尺）
                 var (start, end) = CalculateLocationLine(locationPoint, width.Value, facingDirection);
 
-                // 5. 创建 Revit Line 对象
-                var line = Line.CreateBound(start, end);
-
-                // 6. 创建 RawOpening
-                return new RawOpening
+                // 5. 转换为 NTS/Core 类型
+                return new RevitOpening
                 {
                     Id = DataId.NewId("win"),
                     Type = OpeningType.Window,
-                    Line = line
+                    LocationPoint = ToCoordinate(locationPoint),
+                    LocationLine = CreateLineSegment(start, end),
+                    FacingDirection = ToVec2D(facingDirection),
+                    HandDirections = new Vec2D[0]  // 窗没有手柄方向
                 };
             }
             catch
@@ -183,6 +186,45 @@ namespace BIMCanvas.Revit.Adapters
             if (p != null && p.HasValue && p.StorageType == StorageType.Double)
                 return p.AsDouble();
             return null;
+        }
+
+        /// <summary>
+        /// Revit XYZ → NTS Coordinate（仅 X, Y，忽略 Z）
+        /// </summary>
+        private Coordinate ToCoordinate(XYZ xyz)
+        {
+            return new Coordinate(xyz.X, xyz.Y);
+        }
+
+        /// <summary>
+        /// Revit XYZ → Core Vec2D（归一化为单位向量）
+        /// </summary>
+        private Vec2D ToVec2D(XYZ xyz)
+        {
+            var vec = new Vec2D(xyz.X, xyz.Y);
+            return vec.Normalize();
+        }
+
+        /// <summary>
+        /// Revit XYZ 列表 → Core Vec2D 数组
+        /// </summary>
+        private Vec2D[] ToVec2DArray(List<XYZ> xyzList)
+        {
+            if (xyzList == null || xyzList.Count == 0)
+                return new Vec2D[0];
+
+            return xyzList.Select(ToVec2D).ToArray();
+        }
+
+        /// <summary>
+        /// 创建 NTS LineSegment
+        /// </summary>
+        private NetTopologySuite.Geometries.LineSegment CreateLineSegment(XYZ start, XYZ end)
+        {
+            return new NetTopologySuite.Geometries.LineSegment(
+                new Coordinate(start.X, start.Y),
+                new Coordinate(end.X, end.Y)
+            );
         }
     }
 }

@@ -1,10 +1,11 @@
-using Autodesk.Revit.DB;
+using NetTopologySuite.Geometries;
 using BIMCanvas.Core.Models.Document;
+using BIMCanvas.Core.Models.Primitives;
 
 namespace BIMCanvas.Revit.Models
 {
     /// <summary>
-    /// Revit 层门窗数据（保持原生坐标）
+    /// Revit 层门窗数据（使用 NTS + Core 几何类型）
     /// </summary>
     public class RevitOpening
     {
@@ -19,13 +20,23 @@ namespace BIMCanvas.Revit.Models
         public OpeningType Type { get; set; }
 
         /// <summary>
-        /// 定位线起点（Revit 坐标系，英尺）
+        /// 定位点（NTS Coordinate，英尺单位）
         /// </summary>
-        public XYZ LocationLineStart { get; set; }
+        public Coordinate LocationPoint { get; set; }
 
         /// <summary>
-        /// 定位线终点（Revit 坐标系，英尺）
+        /// 定位线（NTS LineSegment，英尺单位）
         /// </summary>
-        public XYZ LocationLineEnd { get; set; }
+        public LineSegment LocationLine { get; set; }
+
+        /// <summary>
+        /// 面向方向（Core Vec2D，单位向量）
+        /// </summary>
+        public Vec2D FacingDirection { get; set; }
+
+        /// <summary>
+        /// 左右开启方向列表（Core Vec2D，仅门有值）
+        /// </summary>
+        public Vec2D[] HandDirections { get; set; }
     }
 }
