@@ -1,11 +1,14 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using System.Text;
 using Autodesk.Revit.DB;
+using BIMCanvas.Core.Converters;
 using BIMCanvas.Core.Models.Document;
 using BIMCanvas.Revit.Adapters;
 using BIMCanvas.Revit.Models;
+using BIMCanvas.Revit.Utilities;
 using BIMCanvas.Revit.Views;
 using BIMCanvas.Revit.Views.ViewModels;
 using Newtonsoft.Json;
@@ -20,7 +23,7 @@ namespace BIMCanvas.Revit.Services
     public class CanvasExportService
     {
         /// <summary>
-        /// 从视图导出 CanvasDocument
+        /// 从视图导出 CanvasDocument（6 阶段流程）
         /// </summary>
         /// <param name="view">Revit 平面视图</param>
         /// <param name="options">导出选项</param>
@@ -33,50 +36,76 @@ namespace BIMCanvas.Revit.Services
             if (options == null)
                 throw new ArgumentNullException(nameof(options));
 
-            // 1. 创建坐标转换器
-            var coordAdapter = new CoordinateAdapter(view);
+            // ===== Phase 1: 提取原始数据（Revit 坐标系）=====
+            var rawBoundaries = new List<RawBoundary>();
+            var rawOpenings = new List<RawOpening>();
+            var rawRooms = new List<RawRoom>();
 
-            // 2. 构建元数据（只包含布置高度）
-            var metadata = new Metadata
-            {
-                PlacementElevation = options.PlacementElevation
-            };
-
-            // 3. 提取边界
-            var revitBoundarys = new List<RevitBoundary>();
             if (options.ExportBoundarys)
             {
-                var wallAdapter = new BoundaryAdapter(coordAdapter);
-                revitBoundarys = wallAdapter.ExtractBoundarys(view, options.BoundaryCutHeightMm);
+                var boundaryAdapter = new BoundaryAdapter();
+                rawBoundaries = boundaryAdapter.ExtractBoundaries(view);
             }
 
-            // TODO: 后期实现坐标转换逻辑，将 revitBoundarys 转换为 Core 层的 Boundary
-
-            // 4. 提取门窗
-            var revitOpenings = new List<RevitOpening>();
             if (options.ExportOpenings)
             {
-                var openingAdapter = new OpeningAdapter(coordAdapter);
-                revitOpenings = openingAdapter.ExtractOpenings(view);
+                var openingAdapter = new OpeningAdapter();
+                rawOpenings = openingAdapter.ExtractOpenings(view);
             }
 
-            // TODO: 后期实现坐标转换逻辑，将 revitOpenings 转换为 Core 层的 Opening
-
-            // 5. 提取房间
-            var rooms = new List<Room>();
             if (options.ExportRooms)
             {
-                var roomAdapter = new RoomAdapter(coordAdapter);
-                rooms = roomAdapter.ExtractRooms(view);
+                var roomAdapter = new RoomAdapter();
+                rawRooms = roomAdapter.ExtractRooms(view);
             }
 
-            // 6. 推断房间类型
-            foreach (var room in rooms)
+            // ===== Phase 2: 计算包围盒原点 =====
+            var allLoops = new List<CurveLoop>();
+            allLoops.AddRange(rawBoundaries.Select(b => b.Loop));
+            allLoops.AddRange(rawRooms.SelectMany(r => r.Loops));
+
+            XYZ origin;
+            string originMethod;
+
+            if (allLoops.Count > 0)
             {
-                room.Type = RoomTypeInferrer.InferFromName(room.Name);
+                origin = BoundingBoxCalculator.CalculateOrigin(allLoops);
+                originMethod = "boundingBox";
+            }
+            else
+            {
+                // 降级策略：使用视图裁剪框
+                origin = view.CropBoxActive ? view.CropBox.Min : XYZ.Zero;
+                originMethod = "cropBox";
             }
 
-            // 7. 显示配置窗口（如果需要）
+            // ===== Phase 3: 创建坐标转换器 =====
+            double rotation = GetViewRotation(view);
+            var transformer = new CoordinateTransformer(origin, rotation);
+
+            // ===== Phase 4: 统一坐标转换 =====
+            var boundaries = rawBoundaries.Select(rb => new Boundary
+            {
+                Id = rb.Id,
+                Polygon = transformer.ToPolygon2D(rb.Loop)
+            }).ToList();
+
+            var openings = rawOpenings.Select(ro => new Opening
+            {
+                Id = ro.Id,
+                Type = ro.Type,
+                Line = transformer.ToLine2D(ro.Line)
+            }).ToList();
+
+            var rooms = rawRooms.Select(rr => new Room
+            {
+                Id = rr.Id,
+                Name = rr.Name,
+                Type = RoomTypeInferrer.InferFromName(rr.Name),
+                Boundary = transformer.ToPolygon2D(rr.Loops[0])
+            }).ToList();
+
+            // ===== Phase 5: 用户确认房间类型 =====
             if (options.ShowConfigWindow && rooms.Count > 0)
             {
                 var viewModel = new ConfigViewModel(rooms);
@@ -103,23 +132,48 @@ namespace BIMCanvas.Revit.Services
                 }
             }
 
-            // 8. 组装 CanvasDocument
+            // ===== Phase 6: 保存转换配置到 Metadata + 组装 CanvasDocument =====
+            var metadata = new Metadata
+            {
+                PlacementElevation = options.PlacementElevation,
+                CoordinateTransform = new CoordinateTransform
+                {
+                    Origin = new[]
+                    {
+                        UnitConverter.ToMillimeters(origin.X),
+                        UnitConverter.ToMillimeters(origin.Y),
+                        UnitConverter.ToMillimeters(origin.Z)
+                    },
+                    Rotation = rotation,
+                    Method = originMethod
+                }
+            };
+
             return new CanvasDocument
             {
                 Id = $"canvas_{Guid.NewGuid():N}",
                 Version = 1,
                 CoordinateSystem = "cartesian_mm_yUp",
                 Metadata = metadata,
-                Outline = new Core.Models.Document.Outline
+                Outline = new Outline
                 {
-                    Boundarys = new List<Core.Models.Document.Boundary>(),  // TODO: 转换 revitBoundarys
-                    Openings = new List<Core.Models.Document.Opening>()      // TODO: 转换 revitOpenings
+                    Boundarys = boundaries,
+                    Openings = openings
                 },
                 Rooms = rooms,
                 Zones = new List<Zone>(),              // 精简版：空
                 WallFinishes = new List<WallFinish>(), // 精简版：空
                 Modules = new List<Module>()           // 精简版：空
             };
+        }
+
+        /// <summary>
+        /// 获取视图旋转角度（弧度）
+        /// </summary>
+        private double GetViewRotation(View view)
+        {
+            var rightDir = view.RightDirection;
+            return Math.Atan2(rightDir.Y, rightDir.X);
         }
 
         /// <summary>

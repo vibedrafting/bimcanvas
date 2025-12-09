@@ -13,25 +13,14 @@ namespace BIMCanvas.Revit.Adapters
     /// </summary>
     public class OpeningAdapter
     {
-        private readonly CoordinateAdapter _coordAdapter;
-
         /// <summary>
-        /// 创建门窗适配器
-        /// </summary>
-        /// <param name="coordAdapter">坐标转换器（保留接口兼容，实际不使用）</param>
-        public OpeningAdapter(CoordinateAdapter coordAdapter)
-        {
-            _coordAdapter = coordAdapter ?? throw new ArgumentNullException(nameof(coordAdapter));
-        }
-
-        /// <summary>
-        /// 提取视图中所有门窗的定位线段
+        /// 提取视图中所有门窗的定位线段（返回 Revit 原生数据）
         /// </summary>
         /// <param name="view">Revit 平面视图</param>
-        /// <returns>RevitOpening 列表（保持 Revit 原生坐标）</returns>
-        public List<RevitOpening> ExtractOpenings(View view)
+        /// <returns>RawOpening 列表（未转换坐标）</returns>
+        public List<RawOpening> ExtractOpenings(View view)
         {
-            var result = new List<RevitOpening>();
+            var result = new List<RawOpening>();
 
             // 1. 收集门窗元素
             var doors = new FilteredElementCollector(view.Document, view.Id)
@@ -47,19 +36,21 @@ namespace BIMCanvas.Revit.Adapters
                 .ToList();
 
             // 2. 处理门
+            DataId.Reset("d");
             foreach (var door in doors)
             {
                 var opening = ExtractDoorOpening(door);
                 if (opening != null)
-                    result.Add(opening);
+                    result.Add(opening.Value);
             }
 
             // 3. 处理窗
+            DataId.Reset("win");
             foreach (var window in windows)
             {
                 var opening = ExtractWindowOpening(window);
                 if (opening != null)
-                    result.Add(opening);
+                    result.Add(opening.Value);
             }
 
             return result;
@@ -68,7 +59,7 @@ namespace BIMCanvas.Revit.Adapters
         /// <summary>
         /// 提取单个门的信息
         /// </summary>
-        private RevitOpening? ExtractDoorOpening(FamilyInstance door)
+        private RawOpening? ExtractDoorOpening(FamilyInstance door)
         {
             try
             {
@@ -89,13 +80,15 @@ namespace BIMCanvas.Revit.Adapters
                 // 4. 计算定位线（英尺）
                 var (start, end) = CalculateLocationLine(locationPoint, width.Value, facingDirection);
 
-                // 5. 创建 RevitOpening
-                return new RevitOpening
+                // 5. 创建 Revit Line 对象
+                var line = Line.CreateBound(start, end);
+
+                // 6. 创建 RawOpening
+                return new RawOpening
                 {
                     Id = DataId.NewId("d"),
                     Type = OpeningType.Door,
-                    LocationLineStart = start,
-                    LocationLineEnd = end
+                    Line = line
                 };
             }
             catch
@@ -107,7 +100,7 @@ namespace BIMCanvas.Revit.Adapters
         /// <summary>
         /// 提取单个窗的信息
         /// </summary>
-        private RevitOpening? ExtractWindowOpening(FamilyInstance window)
+        private RawOpening? ExtractWindowOpening(FamilyInstance window)
         {
             try
             {
@@ -127,13 +120,15 @@ namespace BIMCanvas.Revit.Adapters
                 // 4. 计算定位线（英尺）
                 var (start, end) = CalculateLocationLine(locationPoint, width.Value, facingDirection);
 
-                // 5. 创建 RevitOpening
-                return new RevitOpening
+                // 5. 创建 Revit Line 对象
+                var line = Line.CreateBound(start, end);
+
+                // 6. 创建 RawOpening
+                return new RawOpening
                 {
                     Id = DataId.NewId("win"),
                     Type = OpeningType.Window,
-                    LocationLineStart = start,
-                    LocationLineEnd = end
+                    Line = line
                 };
             }
             catch
@@ -189,10 +184,5 @@ namespace BIMCanvas.Revit.Adapters
                 return p.AsDouble();
             return null;
         }
-
-        /// <summary>
-        /// 坐标转换器（保留接口兼容，实际未使用）
-        /// </summary>
-        protected CoordinateAdapter CoordAdapter => _coordAdapter;
     }
 }

@@ -1,7 +1,9 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using Autodesk.Revit.DB;
-using BIMCanvas.Core.Models.Document;
+using Autodesk.Revit.DB.Architecture;
+using BIMCanvas.Revit.Models;
 
 namespace BIMCanvas.Revit.Adapters
 {
@@ -10,57 +12,92 @@ namespace BIMCanvas.Revit.Adapters
     /// </summary>
     public class RoomAdapter
     {
-        private readonly CoordinateAdapter _coordAdapter;
-
         /// <summary>
-        /// 创建房间适配器
-        /// </summary>
-        /// <param name="coordAdapter">坐标转换器</param>
-        public RoomAdapter(CoordinateAdapter coordAdapter)
-        {
-            _coordAdapter = coordAdapter ?? throw new ArgumentNullException(nameof(coordAdapter));
-        }
-
-        /// <summary>
-        /// 提取视图中所有房间
+        /// 提取视图中所有房间（返回 Revit 原生数据）
         /// </summary>
         /// <param name="view">Revit 平面视图</param>
-        /// <returns>Room 列表，每个包含 Id、Name、Boundary</returns>
-        /// <remarks>
-        /// TODO: 用户填充实现
-        ///
-        /// 实现提示：
-        /// 1. 收集当前标高的房间
-        ///    var collector = new FilteredElementCollector(doc)
-        ///        .OfCategory(BuiltInCategory.OST_Rooms)
-        ///        .OfClass(typeof(SpatialElement));
-        ///
-        /// 2. 检查房间是否在当前标高
-        ///    if (room.Level?.Id != levelId) continue;
-        ///
-        /// 3. 获取房间边界
-        ///    var options = new SpatialElementBoundaryOptions
-        ///    {
-        ///        SpatialElementBoundaryLocation = SpatialElementBoundaryLocation.Finish
-        ///    };
-        ///    var boundaries = room.GetBoundarySegments(options);
-        ///
-        /// 4. 使用 _coordAdapter.ToPoint2D() 转换坐标
-        ///
-        /// 5. 提取房间名称
-        ///    var name = room.get_Parameter(BuiltInParameter.ROOM_NAME)?.AsString();
-        ///
-        /// 注意：Room.Type 留空或设为默认值，后续由 RoomTypeInferrer 自动推断
-        /// </remarks>
-        public List<Room> ExtractRooms(View view)
+        /// <returns>RawRoom 列表（未转换坐标）</returns>
+        public List<RawRoom> ExtractRooms(View view)
         {
-            // TODO: 用户填充实现
-            throw new NotImplementedException("请实现 RoomAdapter.ExtractRooms 方法");
-        }
+            if (view == null)
+                throw new ArgumentNullException(nameof(view));
 
-        /// <summary>
-        /// 坐标转换器（供子类使用）
-        /// </summary>
-        protected CoordinateAdapter CoordAdapter => _coordAdapter;
+            var doc = view.Document;
+            var result = new List<RawRoom>();
+
+            // 1. 收集所有房间
+            var rooms = new FilteredElementCollector(doc, view.Id)
+                .OfCategory(BuiltInCategory.OST_Rooms)
+                .WhereElementIsNotElementType()
+                .Cast<Room>()
+                .ToList();
+
+            // 2. 提取每个房间的数据
+            foreach (var room in rooms)
+            {
+                try
+                {
+                    // 2.1 跳过未放置的房间
+                    if (room.Area <= 0 || room.Location == null)
+                        continue;
+
+                    // 2.2 获取房间名称
+                    var name = room.get_Parameter(BuiltInParameter.ROOM_NAME)?.AsString() ?? "未命名房间";
+
+                    // 2.3 获取房间边界
+                    var options = new SpatialElementBoundaryOptions
+                    {
+                        SpatialElementBoundaryLocation = SpatialElementBoundaryLocation.Finish
+                    };
+
+                    var boundarySegments = room.GetBoundarySegments(options);
+                    if (boundarySegments == null || boundarySegments.Count == 0)
+                        continue;
+
+                    // 2.4 转换边界为 CurveLoop
+                    var loops = new List<CurveLoop>();
+                    foreach (var segments in boundarySegments)
+                    {
+                        var curves = new List<Curve>();
+                        foreach (BoundarySegment segment in segments)
+                        {
+                            curves.Add(segment.GetCurve());
+                        }
+
+                        if (curves.Count > 0)
+                        {
+                            try
+                            {
+                                var loop = CurveLoop.Create(curves);
+                                loops.Add(loop);
+                            }
+                            catch
+                            {
+                                // 创建 CurveLoop 失败，跳过
+                                continue;
+                            }
+                        }
+                    }
+
+                    if (loops.Count == 0)
+                        continue;
+
+                    // 2.5 创建 RawRoom
+                    result.Add(new RawRoom
+                    {
+                        Id = $"room_{Guid.NewGuid():N}",
+                        Name = name,
+                        Loops = loops.ToArray()
+                    });
+                }
+                catch
+                {
+                    // 提取失败，跳过该房间
+                    continue;
+                }
+            }
+
+            return result;
+        }
     }
 }
