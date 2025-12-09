@@ -3,41 +3,46 @@ using System.Collections.Generic;
 using System.Linq;
 using Autodesk.Revit.DB;
 using BIMCanvas.Core.Models.Document;
-using BIMCanvas.Core.Models.Primitives;
 using BIMCanvas.Revit.Models;
 using BIMCanvas.Revit.Utilities;
 using NetTopologySuite.Geometries;
+using NetTopologySuite.Mathematics;
 
 namespace BIMCanvas.Revit.Adapters
 {
     /// <summary>
-    /// 门窗线段提取适配器
+    /// 门窗数据提取适配器
     /// </summary>
     public class OpeningAdapter
     {
         /// <summary>
-        /// 提取视图中所有门窗的定位线段（返回 NTS/Core 格式数据）
+        /// 提取视图中所有门窗
         /// </summary>
         /// <param name="view">Revit 平面视图</param>
-        /// <returns>RevitOpening 列表（使用 NTS/Core 几何类型）</returns>
+        /// <returns>RevitOpening 列表（保留 Revit 原生坐标，feet 单位）</returns>
         public List<RevitOpening> ExtractOpenings(View view)
         {
+            if (view == null)
+                throw new ArgumentNullException(nameof(view));
+
+            var doc = view.Document;
             var result = new List<RevitOpening>();
 
-            // 1. 收集门窗元素
-            var doors = new FilteredElementCollector(view.Document, view.Id)
+            // 1. 收集门元素
+            var doors = new FilteredElementCollector(doc, view.Id)
                 .OfCategory(BuiltInCategory.OST_Doors)
                 .WhereElementIsNotElementType()
                 .Cast<FamilyInstance>()
                 .ToList();
 
-            var windows = new FilteredElementCollector(view.Document, view.Id)
+            // 2. 收集窗元素
+            var windows = new FilteredElementCollector(doc, view.Id)
                 .OfCategory(BuiltInCategory.OST_Windows)
                 .WhereElementIsNotElementType()
                 .Cast<FamilyInstance>()
                 .ToList();
 
-            // 2. 处理门
+            // 3. 处理门
             DataId.Reset("d");
             foreach (var door in doors)
             {
@@ -46,7 +51,7 @@ namespace BIMCanvas.Revit.Adapters
                     result.Add(opening);
             }
 
-            // 3. 处理窗
+            // 4. 处理窗
             DataId.Reset("win");
             foreach (var window in windows)
             {
@@ -61,61 +66,70 @@ namespace BIMCanvas.Revit.Adapters
         /// <summary>
         /// 提取单个门的信息
         /// </summary>
-        private RevitOpening? ExtractDoorOpening(FamilyInstance door)
+        /// <param name="door">门族实例</param>
+        /// <returns>RevitOpening 或 null（提取失败时）</returns>
+        private RevitOpening ExtractDoorOpening(FamilyInstance door)
         {
             try
             {
                 // 1. 获取定位点（英尺）
                 var locationPoint = (door.Location as LocationPoint)?.Point;
-                if (locationPoint == null) return null;
+                if (locationPoint == null)
+                    return null;
 
                 // 2. 获取宽度（英尺）
                 var width = GetParameterValue(door, BuiltInParameter.DOOR_WIDTH)
                          ?? GetParameterValue(door, BuiltInParameter.FAMILY_WIDTH_PARAM)
                          ?? GetSymbolParameterValue(door, "Width");
-                if (width == null) return null;
+                if (width == null)
+                    return null;
 
                 // 3. 获取方向信息
                 var directions = OpeningDirectionAnalyzer.CalculateOpeningDirections(door);
                 var facingDirection = directions.FacingDirection;
-                var handDirections = directions.OpeningDirections; // List<XYZ>
+                var handDirections = directions.OpeningDirections ?? new List<XYZ>();
 
                 // 4. 计算定位线起终点（英尺）
                 var (start, end) = CalculateLocationLine(locationPoint, width.Value, facingDirection);
 
-                // 5. 转换为 NTS/Core 类型
+                // 5. 创建 RevitOpening 对象
                 return new RevitOpening
                 {
                     Id = DataId.NewId("d"),
+                    ElementId = door.Id.IntegerValue,
                     Type = OpeningType.Door,
                     LocationPoint = locationPoint.ToCoordinate(),
                     LocationLine = CreateLineSegment(start, end),
                     FacingDirection = facingDirection.ToVector2D(),
-                    HandDirections = handDirections.Select(d=>d.ToVector2D()).ToList()
+                    HandDirections = handDirections.Select(d => d.ToVector2D()).ToList()
                 };
             }
             catch
             {
-                return null;  // 提取失败，跳过
+                return null;
             }
         }
 
         /// <summary>
         /// 提取单个窗的信息
         /// </summary>
-        private RevitOpening? ExtractWindowOpening(FamilyInstance window)
+        /// <param name="window">窗族实例</param>
+        /// <returns>RevitOpening 或 null（提取失败时）</returns>
+        private RevitOpening ExtractWindowOpening(FamilyInstance window)
         {
             try
             {
                 // 1. 获取定位点（英尺）
                 var locationPoint = (window.Location as LocationPoint)?.Point;
-                if (locationPoint == null) return null;
+                if (locationPoint == null)
+                    return null;
 
                 // 2. 获取宽度（英尺）
                 var width = GetParameterValue(window, BuiltInParameter.WINDOW_WIDTH)
                          ?? GetParameterValue(window, BuiltInParameter.FAMILY_WIDTH_PARAM)
                          ?? GetSymbolParameterValue(window, "Width");
-                if (width == null) return null;
+                if (width == null)
+                    return null;
 
                 // 3. 获取面向方向
                 var facingDirection = OpeningDirectionAnalyzer.GetWindowFacingDirection(window);
@@ -123,25 +137,31 @@ namespace BIMCanvas.Revit.Adapters
                 // 4. 计算定位线起终点（英尺）
                 var (start, end) = CalculateLocationLine(locationPoint, width.Value, facingDirection);
 
-                // 5. 转换为 NTS/Core 类型
+                // 5. 创建 RevitOpening 对象
                 return new RevitOpening
                 {
                     Id = DataId.NewId("win"),
+                    ElementId = window.Id.IntegerValue,
                     Type = OpeningType.Window,
                     LocationPoint = locationPoint.ToCoordinate(),
                     LocationLine = CreateLineSegment(start, end),
-                    FacingDirection = facingDirection.ToVector2D()
+                    FacingDirection = facingDirection.ToVector2D(),
+                    HandDirections = new List<Vector2D>()  // 窗户无左右开启方向
                 };
             }
             catch
             {
-                return null;  // 提取失败，跳过
+                return null;
             }
         }
 
         /// <summary>
         /// 计算定位线（保持 Revit 原生单位：英尺）
         /// </summary>
+        /// <param name="locationPoint">定位点</param>
+        /// <param name="width">门窗宽度（英尺）</param>
+        /// <param name="facingDirection">面向方向</param>
+        /// <returns>定位线起终点元组</returns>
         private (XYZ start, XYZ end) CalculateLocationLine(XYZ locationPoint, double width, XYZ facingDirection)
         {
             // 定位线方向 = 面向方向垂直方向（叉乘 Z 轴）
@@ -165,8 +185,11 @@ namespace BIMCanvas.Revit.Adapters
         }
 
         /// <summary>
-        /// 获取参数值（英尺）
+        /// 获取实例参数值
         /// </summary>
+        /// <param name="fi">族实例</param>
+        /// <param name="param">内置参数</param>
+        /// <returns>参数值（英尺）或 null</returns>
         private double? GetParameterValue(FamilyInstance fi, BuiltInParameter param)
         {
             var p = fi.get_Parameter(param);
@@ -176,8 +199,11 @@ namespace BIMCanvas.Revit.Adapters
         }
 
         /// <summary>
-        /// 获取族类型参数值（英尺）
+        /// 获取族类型参数值
         /// </summary>
+        /// <param name="fi">族实例</param>
+        /// <param name="paramName">参数名称</param>
+        /// <returns>参数值（英尺）或 null</returns>
         private double? GetSymbolParameterValue(FamilyInstance fi, string paramName)
         {
             var symbol = fi.Symbol;
@@ -190,6 +216,9 @@ namespace BIMCanvas.Revit.Adapters
         /// <summary>
         /// 创建 NTS LineSegment
         /// </summary>
+        /// <param name="start">起点（Revit XYZ）</param>
+        /// <param name="end">终点（Revit XYZ）</param>
+        /// <returns>NTS LineSegment</returns>
         private NetTopologySuite.Geometries.LineSegment CreateLineSegment(XYZ start, XYZ end)
         {
             return new NetTopologySuite.Geometries.LineSegment(

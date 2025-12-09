@@ -1,11 +1,13 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using Autodesk.Revit.DB;
 using Autodesk.Revit.DB.Architecture;
+using BIMCanvas.Core.Algorithms.Geometries;
 using BIMCanvas.Revit.Models;
 using BIMCanvas.Revit.Utilities;
-using System.Linq;
-using BIMCanvas.Core.Algorithms.Geometries;
+using NetTopologySuite.Geometries;
+using NtsLineSegment = NetTopologySuite.Geometries.LineSegment;
 
 namespace BIMCanvas.Revit.Adapters
 {
@@ -15,17 +17,10 @@ namespace BIMCanvas.Revit.Adapters
     public class RoomAdapter
     {
         /// <summary>
-        /// 创建房间适配器
-        /// </summary>
-        public RoomAdapter()
-        {
-        }
-
-        /// <summary>
         /// 提取视图中所有房间
         /// </summary>
         /// <param name="view">Revit 平面视图</param>
-        /// <returns>RevitRoom 列表（保留原生坐标）</returns>
+        /// <returns>RevitRoom 列表（保留 Revit 原生坐标，feet 单位）</returns>
         public List<RevitRoom> ExtractRooms(View view)
         {
             if (view == null)
@@ -38,7 +33,7 @@ namespace BIMCanvas.Revit.Adapters
             SetColumnRoomBounding(doc, true);
 
             // 2. 重置 DataId 计数器
-            BIMCanvas.Revit.Utilities.DataId.Reset("room_");
+            DataId.Reset("room_");
 
             // 3. 获取视图标高
             var levelId = view.GenLevel?.Id;
@@ -65,8 +60,8 @@ namespace BIMCanvas.Revit.Adapters
                 if (room.Area <= 0)
                     continue;
 
-                // 6. 提取边界（复用测试代码逻辑）
-                var boundary = GetRoomBoundary(doc, room);
+                // 6. 提取边界
+                var boundary = GetRoomBoundary(room);
                 if (boundary == null)
                     continue; // 跳过边界为空的房间
 
@@ -77,7 +72,7 @@ namespace BIMCanvas.Revit.Adapters
                 // 8. 创建 RevitRoom 对象
                 var revitRoom = new RevitRoom
                 {
-                    Id = BIMCanvas.Revit.Utilities.DataId.NewId("room_", 3),       // 生成 room_001
+                    Id = DataId.NewId("room_", 3),
                     ElementId = room.Id.IntegerValue,
                     Name = name,
                     Boundary = boundary
@@ -90,53 +85,60 @@ namespace BIMCanvas.Revit.Adapters
         }
 
         /// <summary>
-        /// 获取Room房间的边界（复用测试代码逻辑）
+        /// 获取房间的边界多边形
         /// </summary>
-        /// <param name="doc">文档</param>
-        /// <param name="room">Room房间元素</param>
+        /// <param name="room">房间元素</param>
         /// <returns>NTS Polygon（保留 Revit 原生坐标，feet 单位）</returns>
-        private static NetTopologySuite.Geometries.Polygon GetRoomBoundary(
-            Document doc,
-            Room room)
+        private static Polygon GetRoomBoundary(Room room)
         {
-            var curves = new List<Curve>();
-
             // 获取房间的边界段
             var options = new SpatialElementBoundaryOptions();
             var boundarySegments = room.GetBoundarySegments(options);
 
-            if (boundarySegments != null)
+            if (boundarySegments == null || boundarySegments.Count == 0)
+                return null;
+
+            // 只处理外环（第一个边界环路）
+            var outerLoop = boundarySegments[0];
+            if (outerLoop == null || outerLoop.Count < 3)
+                return null;
+
+            var lineSegments = new List<NtsLineSegment>();
+
+            foreach (var segment in outerLoop)
             {
-                // 遍历每个边界环路
-                foreach (var segmentList in boundarySegments)
+                var curve = segment.GetCurve();
+                if (curve == null)
+                    continue;
+
+                // 只处理直线类型，跳过弧线等
+                if (curve is Line line)
                 {
-                    // 遍历环路中的每个边界段
-                    foreach (var segment in segmentList)
-                    {
-                        var curve = segment.GetCurve();
-                        if (curve != null)
-                        {
-                            curves.Add(curve);
-                        }
-                    }
+                    lineSegments.Add(line.ToLineSegment());
+                }
+                else
+                {
+                    // 对于非直线曲线，用首尾点连线近似
+                    var startPoint = curve.GetEndPoint(0);
+                    var endPoint = curve.GetEndPoint(1);
+                    lineSegments.Add(new NtsLineSegment(
+                        new Coordinate(startPoint.X, startPoint.Y),
+                        new Coordinate(endPoint.X, endPoint.Y)));
                 }
             }
 
-            if (!curves.Any() || curves.Count < 3)
+            if (lineSegments.Count < 3)
                 return null;
 
-            // 转换为 NTS Polygon（使用 SharedLibrary 扩展方法）
-            var polygon = curves
-                .Select(c => (c as Line).ToLineSegment())
-                .ToList()
-                .GeneratePolygon();
-
-            return polygon;
+            // 生成多边形
+            return lineSegments.GeneratePolygon();
         }
 
         /// <summary>
-        /// 设置柱子的房间边界属性（复用测试代码逻辑）
+        /// 设置柱子的房间边界属性
         /// </summary>
+        /// <param name="doc">Revit 文档</param>
+        /// <param name="enable">是否启用房间边界</param>
         private static void SetColumnRoomBounding(Document doc, bool enable)
         {
             if (doc == null)
