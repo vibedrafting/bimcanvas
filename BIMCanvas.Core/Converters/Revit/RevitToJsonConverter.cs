@@ -13,7 +13,7 @@ namespace BIMCanvas.Core.Converters.Revit
         /// </summary>
         /// <remarks>
         /// 占位方法。实际实现需要：
-        /// 1. 解析 Revit 视图中的墙体轮廓
+        /// 1. 解析 Revit 视图中的边界轮廓
         /// 2. 提取门窗位置和类型
         /// 3. 识别并创建区域边界
         /// 4. 计算禁区（门窗开启区域、通道等）

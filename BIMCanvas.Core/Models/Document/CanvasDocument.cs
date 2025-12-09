@@ -28,7 +28,7 @@ namespace BIMCanvas.Core.Models.Document
         public Metadata? Metadata { get; set; }
 
         /// <summary>
-        /// 可视化底图（墙体轮廓 + 门窗线段）
+        /// 可视化底图（边界轮廓 + 门窗线段）
         /// </summary>
         public Outline? Outline { get; set; }
 

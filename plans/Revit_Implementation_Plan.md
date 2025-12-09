@@ -25,7 +25,7 @@ BIMCanvas.Revit 本身是一个完整的、可独立运行的 Revit 插件，通
 
 | 功能类别 | 具体内容 | 输入 | 输出 |
 |----------|----------|------|------|
-| **墙体提取** | 提取平面视图中的墙体轮廓 | Revit Wall 元素 | `Polygon2D[]` |
+| **边界提取** | 提取平面视图中的边界轮廓（墙体 + 柱子） | Revit Wall/Column 元素 | `Boundary[]` |
 | **门窗提取** | 提取门窗的定位线段 | Revit Door/Window | `Line2D[]` + type |
 | **房间提取** | 提取房间边界和名称 | Revit Room 元素 | `Room[]` |
 | **类型推断** | 基于名称关键词推断 RoomType | 房间名称 | RoomType 枚举 |
@@ -94,7 +94,7 @@ Revit 层输出**精简版 CanvasDocument**（zones/wallFinishes/modules 为空�
   "coordinateSystem": "cartesian_mm_yUp",
   "metadata": { "placementElevation": 0 },
   "outline": {
-    "walls": [[x1,y1], [x2,y2], ...],
+    "boundaries": [[x1,y1], [x2,y2], ...],
     "openings": [{ "line": [[x1,y1], [x2,y2]], "type": "door" }, ...]
   },
   "rooms": [
@@ -154,21 +154,25 @@ var metadata = new Metadata
 - 布置高度暂时固定为 0mm（地面高度）
 - 回写时用于确定家具实例的 Z 坐标
 
-#### 2.1.3 WallAdapter - 墙体轮廓提取
+#### 2.1.3 BoundaryAdapter - 边界轮廓提取
 
-**职责**：从平面视图提取墙体轮廓多边形
+**职责**：从平面视图提取边界轮廓多边形（包括墙体和柱子）
 
 ```csharp
-public class WallAdapter
+public class BoundaryAdapter
 {
-    public WallAdapter(CoordinateAdapter coordAdapter);
+    public BoundaryAdapter(CoordinateAdapter coordAdapter);
 
-    // 提取视图中所有墙体的轮廓
-    public List<Polygon2D> ExtractWalls(View view);
+    // 提取视图中所有边界的轮廓（墙体 + 柱子）
+    public List<Boundary> ExtractBoundaries(View view);
 }
 ```
 
-**输出**：封闭多边形列表，用于 `outline.walls`
+**提取内容**：
+- 墙体（Wall）
+- 结构柱（StructuralColumns）
+
+**输出**：封闭多边形列表，用于 `outline.boundaries`
 
 #### 2.1.4 OpeningAdapter - 门窗线段提取
 
@@ -266,7 +270,7 @@ public class CanvasExportService
 ```
 1. 创建 CoordinateAdapter
 2. 构建 Metadata（PlacementElevation = 0）
-3. 调用 WallAdapter.ExtractWalls()
+3. 调用 BoundaryAdapter.ExtractBoundaries()
 4. 调用 OpeningAdapter.ExtractOpenings()
 5. 调用 RoomAdapter.ExtractRooms()
 6. 调用 RoomTypeInferrer 推断房间类型
@@ -397,7 +401,7 @@ BIMCanvas.Revit/
 │   └── AssemblyInfo.cs
 ├── Adapters/                         【适配器层】
 │   ├── CoordinateAdapter.cs             坐标系转换
-│   ├── WallAdapter.cs                   墙体轮廓提取
+│   ├── BoundaryAdapter.cs               边界轮廓提取（墙体 + 柱子）
 │   ├── OpeningAdapter.cs                门窗线段提取
 │   └── RoomAdapter.cs                   房间边界提取
 ├── Services/                         【服务层】
@@ -439,7 +443,7 @@ BIMCanvas.Revit/
 |------|------|------|
 | 1.1 | 项目初始化 + Revit API 引用 | csproj + AssemblyInfo |
 | 1.2 | CoordinateAdapter 实现 | 坐标转换功能 |
-| 1.3 | WallAdapter 实现 | 墙体轮廓提取 |
+| 1.3 | BoundaryAdapter 实现 | 边界轮廓提取（墙体 + 柱子） |
 | 1.4 | OpeningAdapter 实现 | 门窗线段提取 |
 | 1.5 | RoomAdapter 实现 | 房间边界提取 |
 | 1.6 | RoomTypeInferrer 实现 | 类型推断逻辑 |
@@ -475,7 +479,7 @@ BIMCanvas.Revit/
 | 编译 | `dotnet build` 通过，无错误无警告 |
 | 插件加载 | Revit 启动后显示 BIMCanvas Ribbon 面板 |
 | 坐标转换 | 手动验证：Revit 坐标 → JSON 坐标正确 |
-| 墙体提取 | JSON 中 `outline.walls` 轮廓封闭 |
+| 边界提取 | JSON 中 `outline.boundaries` 轮廓封闭，包含墙体和柱子 |
 | 门窗提取 | JSON 中 `outline.openings` 线段位置正确 |
 | 房间提取 | JSON 中 `rooms` 边界完整 |
 | 类型推断 | 关键词匹配正确率 > 80% |

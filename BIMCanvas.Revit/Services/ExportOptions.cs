@@ -21,9 +21,9 @@ namespace BIMCanvas.Revit.Services
         public double PlacementElevation { get; set; } = 0;
 
         /// <summary>
-        /// 是否导出墙体轮廓
+        /// 是否导出边界轮廓
         /// </summary>
-        public bool ExportWalls { get; set; } = true;
+        public bool ExportBoundarys { get; set; } = true;
 
         /// <summary>
         /// 是否导出门窗

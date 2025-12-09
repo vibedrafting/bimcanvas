@@ -35,7 +35,7 @@ namespace BIMCanvas.Core.Models.Document
         public Polygon2D? ExclusionBoundary { get; set; }
 
         /// <summary>
-        /// 关联的墙体 ID
+        /// 关联的边界 ID
         /// </summary>
         public string WallId { get; set; } = string.Empty;
 

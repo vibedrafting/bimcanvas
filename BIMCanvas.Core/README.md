@@ -102,7 +102,7 @@ BIMCanvas.Revit.*    → 仅 Revit 插件内部使用
 
 ```
 CanvasDocument
-├── outline              墙体轮廓 + 门窗（仅视觉）
+├── outline              边界轮廓 + 门窗（仅视觉）
 ├── rooms[]              物理房间
 ├── zones[]              设计区域（AI 核心工作区）
 │   ├── innerBoundary    可用空间轮廓

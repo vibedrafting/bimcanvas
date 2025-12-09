@@ -3,17 +3,17 @@ using BIMCanvas.Core.Models.Primitives;
 namespace BIMCanvas.Core.Models.Document
 {
     /// <summary>
-    /// 墙体轮廓
+    /// 边界轮廓
     /// </summary>
-    public class Wall
+    public class Boundary
     {
         /// <summary>
-        /// 墙体 ID，格式：w{序号}
+        /// 边界 ID
         /// </summary>
         public string Id { get; set; } = string.Empty;
 
         /// <summary>
-        /// 墙体轮廓多边形
+        /// 边界轮廓多边形
         /// </summary>
         public Polygon2D? Polygon { get; set; }
     }

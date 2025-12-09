@@ -43,8 +43,7 @@ namespace BIMCanvas.Revit.Commands
                 var options = new ExportOptions
                 {
                     ShowConfigWindow = true,
-                    GridSize = 500,
-                    ExportWalls = true,
+                    ExportBoundarys = true,
                     ExportOpenings = true,
                     ExportRooms = true
                 };
@@ -86,7 +85,7 @@ namespace BIMCanvas.Revit.Commands
                         $"导出成功！\n\n" +
                         $"文件位置：\n{saveDialog.FileName}\n\n" +
                         $"导出统计：\n" +
-                        $"- 墙体：{document.Outline?.Walls?.Count ?? 0} 个\n" +
+                        $"- 边界：{document.Outline?.Boundarys?.Count ?? 0} 个\n" +
                         $"- 门窗：{document.Outline?.Openings?.Count ?? 0} 个\n" +
                         $"- 房间：{document.Rooms?.Count ?? 0} 个");
                 }

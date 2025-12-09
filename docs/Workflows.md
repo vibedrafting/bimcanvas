@@ -105,7 +105,7 @@
 |------|--------|------|------|------|
 | 1.1 | 用户 | 激活 Revit 平面视图 | - | 当前视图 |
 | 1.2 | 用户 | 点击"开始设计"按钮 | - | 触发命令 |
-| 1.3 | Revit 插件 | 提取墙体轮廓 | 视图中的 Wall 元素 | outline.walls[] |
+| 1.3 | Revit 插件 | 提取边界轮廓 | 视图中的 Wall/Column 元素 | outline.boundaries[] |
 | 1.4 | Revit 插件 | 提取门窗线段 | Door/Window 元素 | outline.openings[] |
 | 1.5 | Revit 插件 | 识别物理房间 | Room 元素 | rooms[] |
 | 1.6 | Revit 插件 | 组装 JSON | 上述数据 | CanvasDocument (精简版) |
@@ -122,11 +122,11 @@
    │  点击"开始设计"                   │                                  │
    ├─────────────────────────────────>│                                  │
    │                                  │                                  │
-   │                                  │  提取 Wall 元素                   │
+   │                                  │  提取边界元素（墙体/柱子）         │
    │                                  ├─────────────┐                    │
    │                                  │             │                    │
    │                                  │<────────────┘                    │
-   │                                  │  outline.walls[]                 │
+   │                                  │  outline.boundaries[]            │
    │                                  │                                  │
    │                                  │  提取 Door/Window                 │
    │                                  ├─────────────┐                    │
@@ -149,7 +149,7 @@
 
 - `BIMCanvas.Revit/Commands/ExportCanvasCommand.cs` - 导出命令入口
 - `BIMCanvas.Revit/Services/CanvasExportService.cs` - 导出服务
-- `BIMCanvas.Revit/Adapters/WallAdapter.cs` - 墙体轮廓提取
+- `BIMCanvas.Revit/Adapters/BoundaryAdapter.cs` - 边界轮廓提取（墙体 + 柱子）
 - `BIMCanvas.Revit/Adapters/OpeningAdapter.cs` - 门窗线段提取
 - `BIMCanvas.Revit/Adapters/RoomAdapter.cs` - 房间边界提取
 

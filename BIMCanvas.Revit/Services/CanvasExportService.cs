@@ -41,12 +41,12 @@ namespace BIMCanvas.Revit.Services
                 PlacementElevation = options.PlacementElevation
             };
 
-            // 3. 提取墙体
-            var walls = new List<Core.Models.Document.Wall>();
-            if (options.ExportWalls)
+            // 3. 提取边界
+            var boundarys = new List<Core.Models.Document.Boundary>();
+            if (options.ExportBoundarys)
             {
-                var wallAdapter = new WallAdapter(coordAdapter);
-                walls = wallAdapter.ExtractWalls(view);
+                var wallAdapter = new BoundaryAdapter(coordAdapter);
+                boundarys = wallAdapter.ExtractBoundarys(view);
             }
 
             // 4. 提取门窗
@@ -107,7 +107,7 @@ namespace BIMCanvas.Revit.Services
                 Metadata = metadata,
                 Outline = new Core.Models.Document.Outline
                 {
-                    Walls = walls,
+                    Boundarys = boundarys,
                     Openings = openings
                 },
                 Rooms = rooms,

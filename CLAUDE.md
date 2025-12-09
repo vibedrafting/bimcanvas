@@ -104,8 +104,8 @@ BIMCanvas.Server (.NET 6+)
 
 ```
 CanvasDocument
-├── outline              墙体轮廓 + 门窗线段 (仅视觉)
-│   ├── walls[]          封闭多边形 Polygon2D
+├── outline              边界轮廓 + 门窗线段 (仅视觉)
+│   ├── boundaries[]     封闭多边形 Polygon2D (墙体 + 柱子)
 │   └── openings[]       线段 Line2D + type (door/window)
 ├── rooms[]              物理房间 (v2.5 新增)
 │   ├── id, name, type   RoomType 枚举

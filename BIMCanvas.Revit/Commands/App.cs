@@ -33,7 +33,7 @@ namespace BIMCanvas.Revit.Commands
 
                 exportButtonData.ToolTip = "将当前平面视图导出为 BIMCanvas JSON 文件";
                 exportButtonData.LongDescription =
-                    "从当前活动的平面视图中提取墙体、门窗、房间信息，\n" +
+                    "从当前活动的平面视图中提取边界、门窗、房间信息，\n" +
                     "导出为 BIMCanvas 格式的 JSON 文件。\n\n" +
                     "导出前会弹出窗口让您确认房间类型。";
 

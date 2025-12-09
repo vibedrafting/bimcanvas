@@ -331,7 +331,7 @@ BIMCanvas/                                    【根目录】
 │   │       ├── CanvasDocument.cs                      画布文档（根对象）
 │   │       ├── Metadata.cs                            元数据
 │   │       ├── Outline.cs                             可视化底图
-│   │       ├── Wall.cs                                墙体轮廓
+│   │       ├── Boundary.cs                            边界轮廓（墙体 + 柱子）
 │   │       ├── Opening.cs                             门窗
 │   │       ├── Room.cs                                物理房间（对应 Revit Room）
 │   │       ├── RoomType.cs                            房间类型枚举
@@ -375,8 +375,7 @@ BIMCanvas/                                    【根目录】
 │   ├── BIMCanvas.addin                            Revit 插件注册文件
 │   ├── Adapters/                                【目录】Revit 适配器
 │   │   ├── CoordinateAdapter.cs                    坐标系转换
-│   │   ├── ViewAdapter.cs                          视图元数据提取
-│   │   ├── WallAdapter.cs                          墙体轮廓提取
+│   │   ├── BoundaryAdapter.cs                      边界轮廓提取（墙体 + 柱子）
 │   │   ├── OpeningAdapter.cs                       门窗线段提取
 │   │   └── RoomAdapter.cs                          房间边界提取
 │   ├── Services/                                【目录】服务层
@@ -607,7 +606,7 @@ AI 接收的空间状态数据包含：
 |----------|------|------|
 | **Zone (设计区)** | `innerBoundary: Polygon2D` | 可用空间边界 |
 | **ExclusionArea (禁区)** | `boundary: Polygon2D` | 禁止布置区域 |
-| **Walls (墙体)** | `polygon: Polygon2D` | 墙体轮廓多边形 |
+| **Boundaries (边界)** | `polygon: Polygon2D` | 边界轮廓多边形（墙体 + 柱子） |
 | **Openings (门窗)** | `line: Line2D` | 门窗线段 |
 | **Modules (已有家具)** | `bounds: Polygon2D` + `_computed` | 精确边界 + 计算属性 |
 
