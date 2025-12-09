@@ -39,7 +39,7 @@ namespace BIMCanvas.Revit.Services
             // ===== Phase 1: 提取原始数据（Revit 坐标系）=====
             var rawBoundaries = new List<RawBoundary>();
             var rawOpenings = new List<RawOpening>();
-            var rawRooms = new List<RawRoom>();
+            var revitRooms = new List<RevitRoom>();
 
             if (options.ExportBoundarys)
             {
@@ -56,20 +56,42 @@ namespace BIMCanvas.Revit.Services
             if (options.ExportRooms)
             {
                 var roomAdapter = new RoomAdapter();
-                rawRooms = roomAdapter.ExtractRooms(view);
+                revitRooms = roomAdapter.ExtractRooms(view);
             }
 
             // ===== Phase 2: 计算包围盒原点 =====
             var allLoops = new List<CurveLoop>();
             allLoops.AddRange(rawBoundaries.Select(b => b.Loop));
-            allLoops.AddRange(rawRooms.SelectMany(r => r.Loops));
+
+            var allPolygons = revitRooms.Where(r => r.Boundary != null).Select(r => r.Boundary).ToList();
 
             XYZ origin;
             string originMethod;
 
-            if (allLoops.Count > 0)
+            if (allLoops.Count > 0 || allPolygons.Count > 0)
             {
-                origin = BoundingBoxCalculator.CalculateOrigin(allLoops);
+                // 计算边界和房间的综合包围盒
+                var origin1 = allLoops.Count > 0 ? BoundingBoxCalculator.CalculateOrigin(allLoops) : XYZ.Zero;
+                var origin2 = allPolygons.Count > 0 ? BoundingBoxCalculator.CalculateOriginFromPolygons(allPolygons) : XYZ.Zero;
+
+                // 取两者的最小值
+                if (allLoops.Count > 0 && allPolygons.Count > 0)
+                {
+                    origin = new XYZ(
+                        Math.Min(origin1.X, origin2.X),
+                        Math.Min(origin1.Y, origin2.Y),
+                        0
+                    );
+                }
+                else if (allLoops.Count > 0)
+                {
+                    origin = origin1;
+                }
+                else
+                {
+                    origin = origin2;
+                }
+
                 originMethod = "boundingBox";
             }
             else
@@ -90,19 +112,19 @@ namespace BIMCanvas.Revit.Services
                 Polygon = transformer.ToPolygon2D(rb.Loop)
             }).ToList();
 
-            var openings = rawOpenings.Select(ro => new Opening
+            var openings = rawOpenings.Select(ro => new Core.Models.Document.Opening
             {
                 Id = ro.Id,
                 Type = ro.Type,
                 Line = transformer.ToLine2D(ro.Line)
             }).ToList();
 
-            var rooms = rawRooms.Select(rr => new Room
+            var rooms = revitRooms.Select(rr => new Core.Models.Document.Room
             {
                 Id = rr.Id,
                 Name = rr.Name,
                 Type = RoomTypeInferrer.InferFromName(rr.Name),
-                Boundary = transformer.ToPolygon2D(rr.Loops[0])
+                Boundary = transformer.ToPolygon2D(rr.Boundary)
             }).ToList();
 
             // ===== Phase 5: 用户确认房间类型 =====
@@ -155,7 +177,7 @@ namespace BIMCanvas.Revit.Services
                 Version = 1,
                 CoordinateSystem = "cartesian_mm_yUp",
                 Metadata = metadata,
-                Outline = new Outline
+                Outline = new Core.Models.Document.Outline
                 {
                     Boundarys = boundaries,
                     Openings = openings

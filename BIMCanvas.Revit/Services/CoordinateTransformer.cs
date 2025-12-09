@@ -151,6 +151,36 @@ namespace BIMCanvas.Revit.Services
         }
 
         /// <summary>
+        /// 将 NTS Polygon (feet, Revit 项目坐标系) 转换为 BIMCanvas Polygon2D (mm, 归一化坐标系)
+        /// </summary>
+        public Polygon2D ToPolygon2D(NetTopologySuite.Geometries.Polygon ntsPolygon)
+        {
+            if (ntsPolygon == null)
+                throw new ArgumentNullException(nameof(ntsPolygon));
+
+            var points = new List<Point2D>();
+
+            // 转换外环顶点
+            var shell = ntsPolygon.Shell;
+            for (int i = 0; i < shell.NumPoints - 1; i++) // -1 跳过闭合点
+            {
+                var coord = shell.Coordinates[i];
+                var revitPoint = new XYZ(coord.X, coord.Y, 0); // NTS 坐标已经是 feet 单位
+                var pt = ToPoint2D(revitPoint);
+
+                // 去重相邻点（阈值 0.01mm）
+                if (points.Count == 0 ||
+                    Math.Abs(pt.X - points.Last().X) > 0.01 ||
+                    Math.Abs(pt.Y - points.Last().Y) > 0.01)
+                {
+                    points.Add(pt);
+                }
+            }
+
+            return new Polygon2D(points.ToArray());
+        }
+
+        /// <summary>
         /// 获取原点位置（Revit 项目坐标系，feet）
         /// </summary>
         public XYZ Origin => _origin;
