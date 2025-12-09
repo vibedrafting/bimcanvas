@@ -92,7 +92,7 @@ Revit 层输出**精简版 CanvasDocument**（zones/wallFinishes/modules 为空�
   "id": "canvas_xxx",
   "version": 1,
   "coordinateSystem": "cartesian_mm_yUp",
-  "metadata": { "revitViewId": 123, "levelId": 456 },
+  "metadata": { "placementElevation": 0 },
   "outline": {
     "walls": [[x1,y1], [x2,y2], ...],
     "openings": [{ "line": [[x1,y1], [x2,y2]], "type": "door" }, ...]
@@ -137,7 +137,24 @@ public class CoordinateAdapter
 2. 应用视图旋转（如果有）
 3. 单位转换：feet ↔ mm（调用 Core.UnitConverter）
 
-#### 2.1.2 WallAdapter - 墙体轮廓提取
+#### 2.1.2 Metadata 构建
+
+**职责**：构建画布元数据（只包含布置高度）
+
+```csharp
+// 在 CanvasExportService 中直接构建
+var metadata = new Metadata
+{
+    PlacementElevation = 0  // 暂时使用固定值 0mm（地面高度）
+};
+```
+
+**说明**：
+- 当前阶段只考虑单层精装平面布置
+- 布置高度暂时固定为 0mm（地面高度）
+- 回写时用于确定家具实例的 Z 坐标
+
+#### 2.1.3 WallAdapter - 墙体轮廓提取
 
 **职责**：从平面视图提取墙体轮廓多边形
 
@@ -153,7 +170,7 @@ public class WallAdapter
 
 **输出**：封闭多边形列表，用于 `outline.walls`
 
-#### 2.1.3 OpeningAdapter - 门窗线段提取
+#### 2.1.4 OpeningAdapter - 门窗线段提取
 
 **职责**：从视图提取门窗的定位线段
 
@@ -175,7 +192,7 @@ public class Opening
 
 **输出**：线段列表，用于 `outline.openings`
 
-#### 2.1.4 RoomAdapter - 房间边界提取
+#### 2.1.5 RoomAdapter - 房间边界提取
 
 **职责**：从视图提取房间边界和名称
 
@@ -191,7 +208,7 @@ public class RoomAdapter
 
 **输出**：房间列表，包含边界和名称
 
-#### 2.1.5 RoomTypeInferrer - 房间类型推断
+#### 2.1.6 RoomTypeInferrer - 房间类型推断
 
 **职责**：基于房间名称关键词自动推断 RoomType
 
@@ -219,7 +236,7 @@ public static class RoomTypeInferrer
 | 走廊/corridor/过道 | Corridor |
 | 储藏/storage | Storage |
 
-#### 2.1.6 ConfigWindow - 房间类型确认界面
+#### 2.1.7 ConfigWindow - 房间类型确认界面
 
 **职责**：导出前让用户确认/修改房间类型
 
@@ -234,7 +251,7 @@ public static class RoomTypeInferrer
 3. 用户可修改任意房间的类型
 4. 用户点击确认后继续导出
 
-#### 2.1.7 CanvasExportService - 导出服务
+#### 2.1.8 CanvasExportService - 导出服务
 
 **职责**：组装 CanvasDocument 并保存文件
 
@@ -248,18 +265,19 @@ public class CanvasExportService
 **导出流程**：
 ```
 1. 创建 CoordinateAdapter
-2. 调用 WallAdapter.ExtractWalls()
-3. 调用 OpeningAdapter.ExtractOpenings()
-4. 调用 RoomAdapter.ExtractRooms()
-5. 调用 RoomTypeInferrer 推断房间类型
-6. 弹出 ConfigWindow 用户确认
-7. 应用用户确认的房间类型
-8. 组装精简版 CanvasDocument
-9. 弹出保存对话框
-10. JsonConvert.SerializeObject() 保存文件
+2. 构建 Metadata（PlacementElevation = 0）
+3. 调用 WallAdapter.ExtractWalls()
+4. 调用 OpeningAdapter.ExtractOpenings()
+5. 调用 RoomAdapter.ExtractRooms()
+6. 调用 RoomTypeInferrer 推断房间类型
+7. 弹出 ConfigWindow 用户确认
+8. 应用用户确认的房间类型
+9. 组装精简版 CanvasDocument
+10. 弹出保存对话框
+11. JsonConvert.SerializeObject() 保存文件
 ```
 
-#### 2.1.8 ExportCanvasCommand - 导出命令
+#### 2.1.9 ExportCanvasCommand - 导出命令
 
 **职责**：Revit Ribbon 按钮入口
 
@@ -379,7 +397,6 @@ BIMCanvas.Revit/
 │   └── AssemblyInfo.cs
 ├── Adapters/                         【适配器层】
 │   ├── CoordinateAdapter.cs             坐标系转换
-│   ├── ViewAdapter.cs                   视图元数据提取
 │   ├── WallAdapter.cs                   墙体轮廓提取
 │   ├── OpeningAdapter.cs                门窗线段提取
 │   └── RoomAdapter.cs                   房间边界提取
@@ -422,15 +439,14 @@ BIMCanvas.Revit/
 |------|------|------|
 | 1.1 | 项目初始化 + Revit API 引用 | csproj + AssemblyInfo |
 | 1.2 | CoordinateAdapter 实现 | 坐标转换功能 |
-| 1.3 | ViewAdapter 实现 | 视图元数据提取 |
-| 1.4 | WallAdapter 实现 | 墙体轮廓提取 |
-| 1.5 | OpeningAdapter 实现 | 门窗线段提取 |
-| 1.6 | RoomAdapter 实现 | 房间边界提取 |
-| 1.7 | RoomTypeInferrer 实现 | 类型推断逻辑 |
-| 1.8 | ConfigWindow + ViewModel | 用户确认界面 |
-| 1.9 | CanvasExportService 实现 | 导出服务 |
-| 1.10 | App + ExportCanvasCommand | Ribbon 集成 |
-| 1.11 | 集成测试 | 完整导出流程验证 |
+| 1.3 | WallAdapter 实现 | 墙体轮廓提取 |
+| 1.4 | OpeningAdapter 实现 | 门窗线段提取 |
+| 1.5 | RoomAdapter 实现 | 房间边界提取 |
+| 1.6 | RoomTypeInferrer 实现 | 类型推断逻辑 |
+| 1.7 | ConfigWindow + ViewModel | 用户确认界面 |
+| 1.8 | CanvasExportService 实现 | 导出服务（含 Metadata 构建） |
+| 1.9 | App + ExportCanvasCommand | Ribbon 集成 |
+| 1.10 | 集成测试 | 完整导出流程验证 |
 
 #### Phase 2：回写功能
 

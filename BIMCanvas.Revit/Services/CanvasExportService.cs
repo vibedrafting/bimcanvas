@@ -35,10 +35,11 @@ namespace BIMCanvas.Revit.Services
             // 1. 创建坐标转换器
             var coordAdapter = new CoordinateAdapter(view);
 
-            // 2. 提取元数据
-            var viewAdapter = new ViewAdapter(coordAdapter);
-            var metadata = viewAdapter.ExtractMetadata(view);
-            metadata.GridSize = options.GridSize;
+            // 2. 构建元数据（只包含布置高度）
+            var metadata = new Metadata
+            {
+                PlacementElevation = options.PlacementElevation
+            };
 
             // 3. 提取墙体
             var walls = new List<Core.Models.Document.Wall>();

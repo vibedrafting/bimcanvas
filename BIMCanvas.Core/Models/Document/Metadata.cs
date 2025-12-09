@@ -6,18 +6,12 @@ namespace BIMCanvas.Core.Models.Document
     public class Metadata
     {
         /// <summary>
-        /// 来源 Revit 视图 ID
+        /// 布置高度（毫米），家具回写时使用
         /// </summary>
-        public long RevitViewId { get; set; }
-
-        /// <summary>
-        /// 标高 ID，家具回写依赖
-        /// </summary>
-        public long LevelId { get; set; }
-
-        /// <summary>
-        /// 网格大小（毫米），默认 500
-        /// </summary>
-        public double? GridSize { get; set; }
+        /// <remarks>
+        /// 默认值：0mm（地面高度）
+        /// 由 Revit 插件导出时设置，回写时用于确定家具实例的 Z 坐标
+        /// </remarks>
+        public double PlacementElevation { get; set; } = 0;
     }
 }

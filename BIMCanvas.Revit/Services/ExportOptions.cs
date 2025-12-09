@@ -16,9 +16,9 @@ namespace BIMCanvas.Revit.Services
         public string? DefaultSavePath { get; set; }
 
         /// <summary>
-        /// 网格大小（毫米）
+        /// 布置高度（毫米），默认 0（地面高度）
         /// </summary>
-        public double GridSize { get; set; } = 500;
+        public double PlacementElevation { get; set; } = 0;
 
         /// <summary>
         /// 是否导出墙体轮廓
