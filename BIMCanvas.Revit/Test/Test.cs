@@ -2,6 +2,7 @@
 using Autodesk.Revit.DB;
 using Autodesk.Revit.DB.Architecture;
 using Autodesk.Revit.UI;
+using BIMCanvas.Revit.Adapters;
 using NetTopologySuite.Geometries;
 using System;
 using System.Collections.Generic;
@@ -23,6 +24,8 @@ namespace BIMCanvas.Revit.Test
         {
             uiApp = commandData.Application;
 
+            ElementOutlineAdapter elementOutlineAdapter =new ElementOutlineAdapter();
+            elementOutlineAdapter.ExtractOutlines(uiDoc.ActiveView);
 
             return Result.Succeeded;
         }

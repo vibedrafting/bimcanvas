@@ -2,9 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using Autodesk.Revit.DB;
-using BIMCanvas.Core.Converters;
 using BIMCanvas.Revit.Models;
-using BIMCanvas.Revit.Converters;
 using BIMCanvas.Revit.Utilities;
 using NetTopologySuite.Geometries;
 
@@ -12,7 +10,7 @@ namespace BIMCanvas.Revit.Adapters
 {
     /// <summary>
     /// 单构件轮廓提取适配器（备用）
-    /// 按单个构件独立提取轮廓，不做布尔运算合并
+    /// 按单个构件独立提取轮廓，使用 BoundingBox 生成矩形
     /// </summary>
     public class ElementOutlineAdapter
     {
@@ -29,15 +27,12 @@ namespace BIMCanvas.Revit.Adapters
             var doc = view.Document;
             var result = new List<ElementOutline>();
 
-            // 默认切割高度：1200mm（约 4 feet）
-            double cutHeightFeet = UnitConverter.ToFeet(1200);
-
             // 收集并处理墙体
             PrefixId.Reset("wall_");
             var walls = CollectElements(doc, view, BuiltInCategory.OST_Walls);
             foreach (var wall in walls)
             {
-                var outline = ExtractSingleOutline(wall, cutHeightFeet, OutlineElementType.Wall, "wall_");
+                var outline = ExtractSingleOutline(wall, OutlineElementType.Wall, "wall_");
                 if (outline != null)
                     result.Add(outline);
             }
@@ -47,7 +42,7 @@ namespace BIMCanvas.Revit.Adapters
             var columns = CollectElements(doc, view, BuiltInCategory.OST_Columns);
             foreach (var column in columns)
             {
-                var outline = ExtractSingleOutline(column, cutHeightFeet, OutlineElementType.Column, "col_");
+                var outline = ExtractSingleOutline(column, OutlineElementType.Column, "col_");
                 if (outline != null)
                     result.Add(outline);
             }
@@ -57,7 +52,7 @@ namespace BIMCanvas.Revit.Adapters
             var structuralColumns = CollectElements(doc, view, BuiltInCategory.OST_StructuralColumns);
             foreach (var column in structuralColumns)
             {
-                var outline = ExtractSingleOutline(column, cutHeightFeet, OutlineElementType.StructuralColumn, "scol_");
+                var outline = ExtractSingleOutline(column, OutlineElementType.StructuralColumn, "scol_");
                 if (outline != null)
                     result.Add(outline);
             }
@@ -78,25 +73,13 @@ namespace BIMCanvas.Revit.Adapters
         }
 
         /// <summary>
-        /// 提取单个构件的轮廓
+        /// 提取单个构件的轮廓（使用 BoundingBox）
         /// </summary>
-        private ElementOutline ExtractSingleOutline(Element element, double cutHeight, OutlineElementType elementType, string idPrefix)
+        private ElementOutline ExtractSingleOutline(Element element, OutlineElementType elementType, string idPrefix)
         {
             try
             {
-                // 获取元素的 Solid
-                var solid = GetElementSolid(element);
-                if (solid == null || solid.Volume <= 0)
-                    return null;
-
-                // 在指定高度切割并提取轮廓
-                var loops = CutAtHeight(solid, cutHeight);
-                if (loops == null || loops.Count == 0)
-                    return null;
-
-                // 取第一个轮廓（大多数情况单构件只有一个外环）
-                var firstLoop = loops[0];
-                var polygon = firstLoop.ToPolygon();
+                var polygon = ExtractBoundingBoxOutline(element);
                 if (polygon == null)
                     return null;
 
@@ -114,280 +97,34 @@ namespace BIMCanvas.Revit.Adapters
             }
         }
 
-        #region Solid 操作
-
         /// <summary>
-        /// 获取元素的第一个有效 Solid
+        /// 从 BoundingBox 生成矩形轮廓
         /// </summary>
-        private Solid GetElementSolid(Element element)
+        /// <param name="element">Revit 元素</param>
+        /// <returns>NTS Polygon（矩形，feet 单位）</returns>
+        private Polygon ExtractBoundingBoxOutline(Element element)
         {
-            var options = new Options
+            var bbox = element.get_BoundingBox(null);
+            if (bbox == null)
+                return null;
+
+            // 从 BoundingBox 构建矩形（XY 平面投影）
+            double minX = bbox.Min.X;
+            double minY = bbox.Min.Y;
+            double maxX = bbox.Max.X;
+            double maxY = bbox.Max.Y;
+
+            // 构建闭合矩形坐标（逆时针）
+            var coordinates = new[]
             {
-                ComputeReferences = false,
-                DetailLevel = ViewDetailLevel.Fine
+                new Coordinate(minX, minY),
+                new Coordinate(maxX, minY),
+                new Coordinate(maxX, maxY),
+                new Coordinate(minX, maxY),
+                new Coordinate(minX, minY)  // 闭合
             };
 
-            var geometry = element.get_Geometry(options);
-            if (geometry == null) return null;
-
-            return GetSolidFromGeometry(geometry);
+            return new Polygon(new LinearRing(coordinates));
         }
-
-        /// <summary>
-        /// 递归从 GeometryElement 中提取 Solid
-        /// </summary>
-        private Solid GetSolidFromGeometry(GeometryElement geometry)
-        {
-            foreach (GeometryObject geoObj in geometry)
-            {
-                if (geoObj is Solid solid && solid.Volume > 0)
-                {
-                    return solid;
-                }
-
-                if (geoObj is GeometryInstance instance)
-                {
-                    var instSolid = GetSolidFromGeometry(instance.GetInstanceGeometry());
-                    if (instSolid != null)
-                    {
-                        return instSolid;
-                    }
-                }
-            }
-            return null;
-        }
-
-        #endregion
-
-        #region 切割与轮廓提取
-
-        /// <summary>
-        /// 在指定高度切割 Solid 并提取切割面轮廓（支持外环 + 内环）
-        /// </summary>
-        private List<(CurveLoop Shell, List<CurveLoop> Holes)> CutAtHeight(Solid solid, double height)
-        {
-            var result = new List<(CurveLoop Shell, List<CurveLoop> Holes)>();
-
-            try
-            {
-                // 创建切割平面：法向量朝下，保留下方部分
-                Plane cutPlane = Plane.CreateByNormalAndOrigin(
-                    new XYZ(0, 0, -1),
-                    new XYZ(0, 0, height)
-                );
-
-                // 执行切割
-                Solid cutSolid = BooleanOperationsUtils.CutWithHalfSpace(solid, cutPlane);
-
-                if (cutSolid == null || cutSolid.Volume <= 0)
-                {
-                    return result;
-                }
-
-                // 提取顶面轮廓
-                result = ExtractTopFaceLoops(cutSolid, height);
-            }
-            catch
-            {
-                // 切割失败，返回空列表
-            }
-
-            return result;
-        }
-
-        /// <summary>
-        /// 从 Solid 提取指定高度的顶面轮廓（支持外环 + 内环）
-        /// </summary>
-        private List<(CurveLoop Shell, List<CurveLoop> Holes)> ExtractTopFaceLoops(Solid solid, double targetHeight)
-        {
-            var result = new List<(CurveLoop Shell, List<CurveLoop> Holes)>();
-            double tolerance = 0.01; // 高度容差（英尺）
-
-            foreach (Face face in solid.Faces)
-            {
-                if (!(face is PlanarFace planarFace)) continue;
-
-                XYZ normal = planarFace.FaceNormal;
-
-                // 检查是否是朝上的水平面（法向量 Z > 0.9）
-                if (normal.Z > 0.9)
-                {
-                    XYZ origin = planarFace.Origin;
-                    if (Math.Abs(origin.Z - targetHeight) < tolerance)
-                    {
-                        // 收集所有 CurveLoop 并计算有符号面积
-                        var loopsWithArea = new List<(CurveLoop Loop, double SignedArea)>();
-
-                        foreach (EdgeArray edgeArray in face.EdgeLoops)
-                        {
-                            var curves = new List<Curve>();
-                            foreach (Edge edge in edgeArray)
-                            {
-                                curves.Add(edge.AsCurve());
-                            }
-
-                            try
-                            {
-                                var sortedCurves = SortCurvesContiguous(curves);
-                                if (sortedCurves != null && sortedCurves.Count > 0)
-                                {
-                                    var curveLoop = CurveLoop.Create(sortedCurves);
-                                    double signedArea = CalculateSignedArea(curveLoop);
-                                    loopsWithArea.Add((curveLoop, signedArea));
-                                }
-                            }
-                            catch
-                            {
-                                // CurveLoop 创建失败，跳过
-                            }
-                        }
-
-                        // 分离外环（正面积/CCW）和内环（负面积/CW）
-                        var shells = loopsWithArea.Where(x => x.SignedArea > 0).Select(x => x.Loop).ToList();
-                        var holes = loopsWithArea.Where(x => x.SignedArea < 0).Select(x => x.Loop).ToList();
-
-                        // 每个外环配对内环
-                        if (shells.Count == 1)
-                        {
-                            result.Add((shells[0], holes));
-                        }
-                        else if (shells.Count > 1)
-                        {
-                            foreach (var shell in shells)
-                            {
-                                var containedHoles = new List<CurveLoop>();
-                                foreach (var hole in holes)
-                                {
-                                    if (IsLoopInsideLoop(hole, shell))
-                                    {
-                                        containedHoles.Add(hole);
-                                    }
-                                }
-                                result.Add((shell, containedHoles));
-                            }
-                        }
-                    }
-                }
-            }
-
-            return result;
-        }
-
-        /// <summary>
-        /// 计算 CurveLoop 的有符号面积（Shoelace 公式）
-        /// </summary>
-        private double CalculateSignedArea(CurveLoop curveLoop)
-        {
-            double area = 0;
-            foreach (Curve curve in curveLoop)
-            {
-                XYZ p0 = curve.GetEndPoint(0);
-                XYZ p1 = curve.GetEndPoint(1);
-                area += (p0.X * p1.Y - p1.X * p0.Y);
-            }
-            return area / 2.0;
-        }
-
-        /// <summary>
-        /// 判断内环是否在外环内部
-        /// </summary>
-        private bool IsLoopInsideLoop(CurveLoop inner, CurveLoop outer)
-        {
-            double cx = 0, cy = 0;
-            int count = 0;
-            foreach (Curve curve in inner)
-            {
-                var p = curve.GetEndPoint(0);
-                cx += p.X;
-                cy += p.Y;
-                count++;
-            }
-            cx /= count;
-            cy /= count;
-
-            return IsPointInsideLoop(cx, cy, outer);
-        }
-
-        /// <summary>
-        /// 射线法判断点是否在多边形内
-        /// </summary>
-        private bool IsPointInsideLoop(double px, double py, CurveLoop loop)
-        {
-            int crossings = 0;
-            foreach (Curve curve in loop)
-            {
-                var p0 = curve.GetEndPoint(0);
-                var p1 = curve.GetEndPoint(1);
-
-                double y0 = p0.Y, y1 = p1.Y;
-                double x0 = p0.X, x1 = p1.X;
-
-                if ((y0 <= py && y1 > py) || (y1 <= py && y0 > py))
-                {
-                    double t = (py - y0) / (y1 - y0);
-                    double xIntersect = x0 + t * (x1 - x0);
-                    if (px < xIntersect)
-                    {
-                        crossings++;
-                    }
-                }
-            }
-            return (crossings % 2) == 1;
-        }
-
-        /// <summary>
-        /// 将曲线列表排序为连续顺序
-        /// </summary>
-        private List<Curve> SortCurvesContiguous(List<Curve> curves)
-        {
-            if (curves == null || curves.Count == 0) return null;
-            if (curves.Count == 1) return curves;
-
-            var sorted = new List<Curve>();
-            var remaining = new List<Curve>(curves);
-
-            sorted.Add(remaining[0]);
-            remaining.RemoveAt(0);
-
-            double tolerance = 0.001;
-
-            while (remaining.Count > 0)
-            {
-                var lastCurve = sorted[sorted.Count - 1];
-                var endPoint = lastCurve.GetEndPoint(1);
-
-                bool found = false;
-                for (int i = 0; i < remaining.Count; i++)
-                {
-                    var curve = remaining[i];
-                    var start = curve.GetEndPoint(0);
-                    var end = curve.GetEndPoint(1);
-
-                    if (start.DistanceTo(endPoint) < tolerance)
-                    {
-                        sorted.Add(curve);
-                        remaining.RemoveAt(i);
-                        found = true;
-                        break;
-                    }
-                    else if (end.DistanceTo(endPoint) < tolerance)
-                    {
-                        sorted.Add(curve.CreateReversed());
-                        remaining.RemoveAt(i);
-                        found = true;
-                        break;
-                    }
-                }
-
-                if (!found)
-                {
-                    break;
-                }
-            }
-
-            return sorted;
-        }
-
-        #endregion
     }
 }
