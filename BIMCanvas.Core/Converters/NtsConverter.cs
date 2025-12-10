@@ -3,19 +3,22 @@ using System.Linq;
 using BIMCanvas.Core.Models.Primitives;
 using NetTopologySuite.Geometries;
 
-namespace BIMCanvas.Core.Algorithms.Geometries
+namespace BIMCanvas.Core.Converters
 {
     /// <summary>
-    /// Polygon2D ↔ NTS Polygon 转换（内部使用），支持内环
+    /// NTS 几何对象 ↔ BIMCanvas.Core.Models 几何对象 转换器
+    /// 支持内环（孔洞）
     /// </summary>
-    internal static class NtsAdapter
+    public static class NtsConverter
     {
         private static readonly GeometryFactory Factory = new GeometryFactory();
+
+        #region Polygon2D ↔ NTS Polygon
 
         /// <summary>
         /// Polygon2D → NTS Polygon（支持内环）
         /// </summary>
-        internal static Polygon ToNtsPolygon(Polygon2D polygon)
+        public static Polygon ToNtsPolygon(Polygon2D polygon)
         {
             // 创建外环
             var shellCoords = polygon.Vertices
@@ -45,7 +48,7 @@ namespace BIMCanvas.Core.Algorithms.Geometries
         /// <summary>
         /// NTS Polygon → Polygon2D（支持内环）
         /// </summary>
-        internal static Polygon2D FromNtsPolygon(Polygon nts)
+        public static Polygon2D FromNtsPolygon(Polygon nts)
         {
             // 提取外环（移除最后一个重复的闭合点）
             var shellCoords = nts.ExteriorRing.Coordinates;
@@ -74,10 +77,14 @@ namespace BIMCanvas.Core.Algorithms.Geometries
             return new Polygon2D(vertices, holes);
         }
 
+        #endregion
+
+        #region Point2D ↔ NTS Point
+
         /// <summary>
         /// Point2D → NTS Point
         /// </summary>
-        internal static Point ToNtsPoint(Point2D point)
+        public static Point ToNtsPoint(Point2D point)
         {
             return Factory.CreatePoint(new Coordinate(point.X, point.Y));
         }
@@ -85,9 +92,35 @@ namespace BIMCanvas.Core.Algorithms.Geometries
         /// <summary>
         /// NTS Point → Point2D
         /// </summary>
-        internal static Point2D FromNtsPoint(Point nts)
+        public static Point2D FromNtsPoint(Point nts)
         {
             return new Point2D(nts.X, nts.Y);
         }
+
+        #endregion
+
+        #region Line2D ↔ NTS LineSegment
+
+        /// <summary>
+        /// Line2D → NTS LineSegment
+        /// </summary>
+        public static LineSegment ToNtsLineSegment(Line2D line)
+        {
+            return new LineSegment(
+                new Coordinate(line.Start.X, line.Start.Y),
+                new Coordinate(line.End.X, line.End.Y));
+        }
+
+        /// <summary>
+        /// NTS LineSegment → Line2D
+        /// </summary>
+        public static Line2D FromNtsLineSegment(LineSegment nts)
+        {
+            return new Line2D(
+                new Point2D(nts.P0.X, nts.P0.Y),
+                new Point2D(nts.P1.X, nts.P1.Y));
+        }
+
+        #endregion
     }
 }

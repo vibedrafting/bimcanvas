@@ -5,6 +5,7 @@ using Autodesk.Revit.DB;
 using Autodesk.Revit.DB.Architecture;
 using BIMCanvas.Core.Algorithms.Geometries;
 using BIMCanvas.Revit.Models;
+using BIMCanvas.Revit.Converters;
 using BIMCanvas.Revit.Utilities;
 using NetTopologySuite.Geometries;
 using NtsLineSegment = NetTopologySuite.Geometries.LineSegment;

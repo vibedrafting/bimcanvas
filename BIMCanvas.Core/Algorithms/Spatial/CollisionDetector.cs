@@ -1,4 +1,4 @@
-using BIMCanvas.Core.Algorithms.Geometries;
+using BIMCanvas.Core.Converters;
 using BIMCanvas.Core.Models.Primitives;
 
 namespace BIMCanvas.Core.Algorithms.Spatial
@@ -13,8 +13,8 @@ namespace BIMCanvas.Core.Algorithms.Spatial
         /// </summary>
         public static bool Intersects(Polygon2D a, Polygon2D b)
         {
-            var ntsA = NtsAdapter.ToNtsPolygon(a);
-            var ntsB = NtsAdapter.ToNtsPolygon(b);
+            var ntsA = NtsConverter.ToNtsPolygon(a);
+            var ntsB = NtsConverter.ToNtsPolygon(b);
             return ntsA.Intersects(ntsB);
         }
 
@@ -23,8 +23,8 @@ namespace BIMCanvas.Core.Algorithms.Spatial
         /// </summary>
         public static bool Overlaps(Polygon2D a, Polygon2D b)
         {
-            var ntsA = NtsAdapter.ToNtsPolygon(a);
-            var ntsB = NtsAdapter.ToNtsPolygon(b);
+            var ntsA = NtsConverter.ToNtsPolygon(a);
+            var ntsB = NtsConverter.ToNtsPolygon(b);
             // Overlaps 返回 true 当两个几何体有共同的内部点
             return ntsA.Overlaps(ntsB) || ntsA.Contains(ntsB) || ntsB.Contains(ntsA);
         }
@@ -34,8 +34,8 @@ namespace BIMCanvas.Core.Algorithms.Spatial
         /// </summary>
         public static bool IsWithin(Polygon2D inner, Polygon2D outer)
         {
-            var ntsInner = NtsAdapter.ToNtsPolygon(inner);
-            var ntsOuter = NtsAdapter.ToNtsPolygon(outer);
+            var ntsInner = NtsConverter.ToNtsPolygon(inner);
+            var ntsOuter = NtsConverter.ToNtsPolygon(outer);
             return ntsOuter.Contains(ntsInner);
         }
 
@@ -44,8 +44,8 @@ namespace BIMCanvas.Core.Algorithms.Spatial
         /// </summary>
         public static bool Contains(Polygon2D polygon, Point2D point)
         {
-            var ntsPolygon = NtsAdapter.ToNtsPolygon(polygon);
-            var ntsPoint = NtsAdapter.ToNtsPoint(point);
+            var ntsPolygon = NtsConverter.ToNtsPolygon(polygon);
+            var ntsPoint = NtsConverter.ToNtsPoint(point);
             return ntsPolygon.Contains(ntsPoint);
         }
 

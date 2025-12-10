@@ -1,8 +1,8 @@
 # BIMCanvas.Revit 实施计划
 
-> **版本**：v1.2
-> **更新日期**：2025-12-06
-> **状态**：Phase 1 待开发
+> **版本**：v1.3
+> **更新日期**：2025-12-10
+> **状态**：Phase 1 已完成
 
 ---
 
@@ -112,30 +112,55 @@ Revit 层输出**精简版 CanvasDocument**（zones/wallFinishes/modules 为空�
 
 ### 2.1 Phase 1：导出功能（核心）
 
-#### 2.1.1 CoordinateAdapter - 坐标系转换
+#### 2.1.1 CoordinateTransformer - 坐标系转换
 
-**职责**：Revit XYZ (feet, 项目坐标系) ↔ BIMCanvas Point2D (mm, 视图坐标系)
+**职责**：Revit XYZ (feet, 项目坐标系) ↔ BIMCanvas Point2D (mm, 归一化坐标系)
+
+**位置**：`Services/CoordinateTransformer.cs`
 
 ```csharp
-public class CoordinateAdapter
+public class CoordinateTransformer
 {
-    private readonly XYZ _viewOrigin;       // 视图裁剪框左下角（世界坐标）
-    private readonly double _viewRotation;  // 视图旋转角度（弧度）
+    private readonly Coordinate _origin;    // NTS Coordinate，原点 (feet)
+    private readonly double _rotation;      // 视图旋转角度（弧度）
 
-    public CoordinateAdapter(View view);
+    public CoordinateTransformer(Coordinate origin, double rotation);
 
     // Revit XYZ → BIMCanvas Point2D
     public Point2D ToPoint2D(XYZ revitPoint);
 
     // BIMCanvas Point2D → Revit XYZ
     public XYZ ToXYZ(Point2D point, double elevation = 0);
+
+    // NTS Polygon → BIMCanvas Polygon2D
+    public Polygon2D ToPolygon2D(Polygon ntsPolygon);
+
+    // NTS LineSegment → BIMCanvas Line2D
+    public Line2D ToLine2D(LineSegment segment);
 }
 ```
 
 **转换流程**：
-1. 计算相对于视图原点的偏移
-2. 应用视图旋转（如果有）
-3. 单位转换：feet ↔ mm（调用 Core.UnitConverter）
+1. 计算相对于原点的偏移：`dx = revitX - origin.X`
+2. 应用视图旋转归一化（反向旋转）
+3. 单位转换：feet → mm（调用 Core.UnitConverter）
+
+**坐标转换公式**：
+```csharp
+// 1. 计算偏移
+var dx = revitX - _origin.X;
+var dy = revitY - _origin.Y;
+
+// 2. 反向旋转（归一化到标准坐标系）
+var localX = dx * Math.Cos(-_rotation) - dy * Math.Sin(-_rotation);
+var localY = dx * Math.Sin(-_rotation) + dy * Math.Cos(-_rotation);
+
+// 3. 单位转换
+return new Point2D(
+    UnitConverter.ToMillimeters(localX),
+    UnitConverter.ToMillimeters(localY)
+);
+```
 
 #### 2.1.2 Metadata 构建
 
@@ -158,21 +183,27 @@ var metadata = new Metadata
 
 **职责**：从平面视图提取边界轮廓多边形（包括墙体和柱子）
 
+**位置**：`Adapters/BoundaryAdapter.cs`
+
 ```csharp
 public class BoundaryAdapter
 {
-    public BoundaryAdapter(CoordinateAdapter coordAdapter);
-
     // 提取视图中所有边界的轮廓（墙体 + 柱子）
-    public List<Boundary> ExtractBoundaries(View view);
+    // 返回中间模型，保留 Revit 原生数据
+    public List<RevitBoundary> ExtractBoundaries(View view);
 }
 ```
 
 **提取内容**：
-- 墙体（Wall）
-- 结构柱（StructuralColumns）
+- 墙体（`OST_Walls`）
+- 结构柱（`OST_Columns`, `OST_StructuralColumns`）
 
-**输出**：封闭多边形列表，用于 `outline.boundaries`
+**关键实现**：
+- 调用 `OutlineExtractor.GetOutlines()` 在指定高度切割几何体
+- 默认切割高度：1200mm
+- 返回 NTS Polygon 格式（feet 单位，项目坐标系）
+
+**输出**：`List<RevitBoundary>`，后续由 Service 层转换为 `Boundary`
 
 #### 2.1.4 OpeningAdapter - 门窗线段提取
 

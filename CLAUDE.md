@@ -16,6 +16,8 @@
 | 执行流程 | `docs/Workflows.md` | 端到端执行流程、触发机制 |
 | JSON Schema | `docs/Schema-JSON.md` | v2.5 数据模型定义 |
 | PRD | `docs/PRD.md` | 产品需求、工作流程 |
+| Core 层 | `BIMCanvas.Core/README.md` | 数据模型 + 空间算法实现 |
+| Revit 插件 | `BIMCanvas.Revit/README.md` | Revit 导出/回写实现细节 |
 | Core 实现计划 | `plans/Core_Implementation_Plan.md` | Core 层代码生成计划 |
 | PlacementAgent 评审 | `reviews/PlacementAgent_Review.md` | Agent SDK 架构决策讨论 |
 
@@ -24,12 +26,12 @@
 | 项目 | 运行时 | 职责 | 状态 |
 |------|--------|------|------|
 | BIMCanvas.Core | .NET Standard 2.0 | 数据模型 + 空间算法 | ✅ 已完成 |
+| BIMCanvas.Revit | .NET FW 4.7.2 | Revit 插件（导出 + 回写） | 🔶 导出完成，回写待开发 |
 | BIMCanvas.Agent | Python 3.10+ | PlacementAgent（Agent SDK） | ⬜ 待开发 |
 | BIMCanvas.Server | .NET 6+ | 统一后端（MCP + REST + SignalR + SSE） | ⬜ 待开发 |
-| BIMCanvas.Revit | .NET FW 4.7.2 | Revit 插件 | ⬜ 待开发 |
 | BIMCanvas.Web | Vue 3 + TS | Web 前端 | ⬜ 待开发 |
 
-> **当前阶段**：Core 层已完成，准备开发 Server 和 Agent 层
+> **当前阶段**：Core 层已完成，Revit 导出功能已完成，下一步开发 Revit 回写或 Server/Agent 层
 
 ---
 
@@ -91,6 +93,45 @@ BIMCanvas.Server (.NET 6+)
 - 长期运行：Agent 持续监听 SSE 事件流
 - 工具调用：通过 MCP 协议调用 Canvas-MCP 工具
 - 详细设计见 `docs/Architecture.md` §6.4
+
+---
+
+## BIMCanvas.Revit 速查
+
+> **项目状态**：Phase 1（导出）✅ 完成，Phase 2（回写）⬜ 待开发
+
+### 已实现功能（Phase 1）
+
+| 模块 | 关键文件 | 功能 |
+|------|----------|------|
+| 命令层 | `Commands/ExportCanvasCommand.cs` | Ribbon 面板 + 导出命令 |
+| 适配器层 | `Adapters/BoundaryAdapter.cs` | 边界轮廓提取（墙体+柱子几何切割） |
+| | `Adapters/OpeningAdapter.cs` | 门窗数据提取（定位线、方向、开启方式） |
+| | `Adapters/RoomAdapter.cs` | 房间边界提取（自动设置柱子为边界） |
+| 服务层 | `Services/CanvasExportService.cs` | 6 阶段导出流程 |
+| | `Services/CoordinateTransformer.cs` | 坐标系转换（Revit ↔ BIMCanvas） |
+| | `Services/RoomTypeInferrer.cs` | 房间类型智能推断（中英文关键词） |
+| 工具层 | `Utilities/OutlineExtractor.cs` | Boolean 运算合并 Solid + 平面切割 |
+| | `Utilities/OpeningDirectionAnalyzer.cs` | IFC 工具提取门弧线 + 方向计算 |
+| 视图层 | `Views/ConfigWindow.xaml` | 房间类型确认界面（WPF MVVM） |
+
+### 待开发功能（Phase 2）
+
+| 功能 | 计划文件 | 描述 |
+|------|----------|------|
+| 布置应用服务 | `Services/LayoutApplyService.cs` | 读取 JSON → 创建 FamilyInstance |
+| 应用命令 | `Commands/ApplyLayoutCommand.cs` | 导入布置结果命令 |
+| 族加载逻辑 | `Services/FamilyLoader.cs` | 自动加载/匹配家具族文件 |
+
+### 坐标转换
+
+```
+Revit (feet, 项目坐标)  ←→  BIMCanvas (mm, 归一化坐标)
+         ↓                        ↓
+  CoordinateTransformer.ToPoint2D()  /  ToXYZ()
+```
+
+- 详细设计见 `BIMCanvas.Revit/README.md`
 
 ---
 

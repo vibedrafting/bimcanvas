@@ -4,6 +4,7 @@ using System.Linq;
 using Autodesk.Revit.DB;
 using BIMCanvas.Core.Converters;
 using BIMCanvas.Revit.Models;
+using BIMCanvas.Revit.Converters;
 using BIMCanvas.Revit.Utilities;
 using NetTopologySuite.Geometries;
 
