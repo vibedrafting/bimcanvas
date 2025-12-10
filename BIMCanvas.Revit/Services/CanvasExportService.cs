@@ -40,6 +40,7 @@ namespace BIMCanvas.Revit.Services
             var rawBoundaries = new List<RevitBoundary>();
             var rawOpenings = new List<RevitOpening>();
             var revitRooms = new List<RevitRoom>();
+            var elementOutlines = new List<ElementOutline>();
 
             if (options.ExportBoundarys)
             {
@@ -59,6 +60,13 @@ namespace BIMCanvas.Revit.Services
                 revitRooms = roomAdapter.ExtractRooms(view);
             }
 
+            // 新增：提取单构件轮廓（复用 ElementOutlineAdapter）
+            if (options.ExportElementOutlines)
+            {
+                var elementOutlineAdapter = new ElementOutlineAdapter(options);
+                elementOutlines = elementOutlineAdapter.ExtractOutlines(view);
+            }
+
             // ===== Phase 2: 计算包围盒原点 =====
             var boundaryPolygons = rawBoundaries
                 .Where(b => b.Boundary != null)
@@ -70,7 +78,15 @@ namespace BIMCanvas.Revit.Services
                 .Select(r => r.Boundary)
                 .ToList();
 
-            var allPolygons = boundaryPolygons.Concat(roomPolygons).ToList();
+            var elementOutlinePolygons = elementOutlines
+                .Where(e => e.Boundary != null)
+                .Select(e => e.Boundary)
+                .ToList();
+
+            var allPolygons = boundaryPolygons
+                .Concat(roomPolygons)
+                .Concat(elementOutlinePolygons)
+                .ToList();
 
             Coordinate origin;
             string originMethod;
@@ -99,12 +115,29 @@ namespace BIMCanvas.Revit.Services
             var transformer = new CoordinateTransformer(origin, rotation);
 
             // ===== Phase 4: 统一坐标转换 =====
-            var boundaries = rawBoundaries.Select(rb => new Boundary
-            {
-                Id = rb.Id,
-                Polygon = NtsConverter.FromNtsPolygon(transformer.TransformPolygon(rb.Boundary))
-            }).ToList();
 
+            // 新增：转换单独墙体轮廓
+            var walls = elementOutlines
+                .Where(e => e.Type == OutlineElementType.Wall)
+                .Select(e => new Core.Models.Document.Wall
+                {
+                    Id = e.Id,
+                    ElementId = e.ElementId,
+                    Polygon = NtsConverter.FromNtsPolygon(transformer.TransformPolygon(e.Boundary))
+                }).ToList();
+
+            // 新增：转换单独柱子轮廓
+            var columns = elementOutlines
+                .Where(e => e.Type == OutlineElementType.Column || e.Type == OutlineElementType.StructuralColumn)
+                .Select(e => new Column
+                {
+                    Id = e.Id,
+                    ElementId = e.ElementId,
+                    IsStructural = e.Type == OutlineElementType.StructuralColumn,
+                    Polygon = NtsConverter.FromNtsPolygon(transformer.TransformPolygon(e.Boundary))
+                }).ToList();
+
+            // 门窗转换
             var openings = rawOpenings.Select(ro => new Core.Models.Document.Opening
             {
                 Id = ro.Id,
@@ -116,6 +149,18 @@ namespace BIMCanvas.Revit.Services
                     : null
             }).ToList();
 
+            // 新增：过滤外墙边，只保留内墙边
+            var filteredBoundaries = FilterExteriorEdges(rawBoundaries, revitRooms);
+
+            // 新增：转换完成面定位边界
+            var finishLocationBoundaries = filteredBoundaries.Select(rb => new FinishLocationBoundary
+            {
+                Id = rb.Id,
+                ElementIds = rb.ElementIds,
+                Polygon = NtsConverter.FromNtsPolygon(transformer.TransformPolygon(rb.Boundary))
+            }).ToList();
+
+            // 房间转换
             var rooms = revitRooms.Select(rr => new Core.Models.Document.Room
             {
                 Id = rr.Id,
@@ -174,11 +219,14 @@ namespace BIMCanvas.Revit.Services
                 Version = 1,
                 CoordinateSystem = "cartesian_mm_yUp",
                 Metadata = metadata,
-                Outline = new Core.Models.Document.Outline
-                {
-                    Boundarys = boundaries,
-                    Openings = openings
-                },
+
+                // 建筑构件（直接在顶层）
+                Walls = walls,
+                Columns = columns,
+                Openings = openings,
+                FinishLocationBoundaries = finishLocationBoundaries,
+
+                // 空间数据
                 Rooms = rooms,
                 Zones = new List<Zone>(),              // 精简版：空
                 WallFinishes = new List<WallFinish>(), // 精简版：空
@@ -237,5 +285,113 @@ namespace BIMCanvas.Revit.Services
 
             return JsonConvert.SerializeObject(document, settings);
         }
+
+        #region 外墙过滤逻辑
+
+        /// <summary>
+        /// 过滤外墙边，只保留内墙边构成的定位线
+        /// </summary>
+        /// <param name="boundaries">BoundaryAdapter 提取的原始轮廓</param>
+        /// <param name="rooms">RoomAdapter 提取的房间列表</param>
+        /// <returns>过滤后的轮廓（仅包含内墙边）</returns>
+        private List<RevitBoundary> FilterExteriorEdges(
+            List<RevitBoundary> boundaries,
+            List<RevitRoom> rooms)
+        {
+            var result = new List<RevitBoundary>();
+
+            foreach (var boundary in boundaries)
+            {
+                if (boundary.Boundary == null) continue;
+
+                var shell = boundary.Boundary.Shell;
+                var interiorCoordinates = new List<Coordinate>();
+                bool hasInteriorEdge = false;
+
+                // 遍历轮廓的每条边
+                for (int i = 0; i < shell.NumPoints - 1; i++)
+                {
+                    var p0 = shell.GetCoordinateN(i);
+                    var p1 = shell.GetCoordinateN(i + 1);
+
+                    // 判断是否为内墙边
+                    if (IsInteriorEdge(p0, p1, rooms))
+                    {
+                        if (!hasInteriorEdge)
+                        {
+                            interiorCoordinates.Add(p0);
+                        }
+                        interiorCoordinates.Add(p1);
+                        hasInteriorEdge = true;
+                    }
+                }
+
+                // 如果有内墙边，创建过滤后的结果
+                if (hasInteriorEdge && interiorCoordinates.Count >= 3)
+                {
+                    // 确保闭合
+                    if (!interiorCoordinates[0].Equals2D(interiorCoordinates[interiorCoordinates.Count - 1]))
+                    {
+                        interiorCoordinates.Add(interiorCoordinates[0]);
+                    }
+
+                    try
+                    {
+                        var filteredPolygon = new Polygon(new LinearRing(interiorCoordinates.ToArray()));
+                        result.Add(new RevitBoundary
+                        {
+                            Id = boundary.Id,
+                            ElementIds = boundary.ElementIds,
+                            Boundary = filteredPolygon
+                        });
+                    }
+                    catch
+                    {
+                        // 如果无法创建有效多边形，跳过
+                    }
+                }
+            }
+
+            return result;
+        }
+
+        /// <summary>
+        /// 判断边是否为内墙边（内侧在任何 Room 内）
+        /// </summary>
+        private bool IsInteriorEdge(Coordinate p0, Coordinate p1, List<RevitRoom> rooms)
+        {
+            // 1. 计算边的中点
+            var midX = (p0.X + p1.X) / 2;
+            var midY = (p0.Y + p1.Y) / 2;
+
+            // 2. 计算边的内侧法向（逆时针轮廓的右侧）
+            var dx = p1.X - p0.X;
+            var dy = p1.Y - p0.Y;
+            var len = Math.Sqrt(dx * dx + dy * dy);
+            if (len < 1e-6) return false;  // 忽略零长度边
+
+            // 垂直于边的方向（右侧）
+            var normalX = dy / len;
+            var normalY = -dx / len;
+
+            // 3. 在中点内侧方向偏移一小段距离（0.1 feet ≈ 30mm）
+            var testPoint = new NetTopologySuite.Geometries.Point(new Coordinate(
+                midX + normalX * 0.1,
+                midY + normalY * 0.1
+            ));
+
+            // 4. 检查测试点是否在任何 Room 内
+            foreach (var room in rooms)
+            {
+                if (room.Boundary != null && room.Boundary.Contains(testPoint))
+                {
+                    return true;  // 在房间内，是内墙边
+                }
+            }
+
+            return false;  // 不在任何房间内，是外墙边
+        }
+
+        #endregion
     }
 }

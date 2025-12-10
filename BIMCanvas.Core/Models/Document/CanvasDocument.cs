@@ -7,6 +7,8 @@ namespace BIMCanvas.Core.Models.Document
     /// </summary>
     public class CanvasDocument
     {
+        // ===== 元数据 =====
+
         /// <summary>
         /// 画布唯一标识，格式：canvas_{uuid}
         /// </summary>
@@ -27,10 +29,29 @@ namespace BIMCanvas.Core.Models.Document
         /// </summary>
         public Metadata? Metadata { get; set; }
 
+        // ===== 建筑构件（原 Outline 内容，提升到顶层）=====
+
         /// <summary>
-        /// 可视化底图（边界轮廓 + 门窗线段）
+        /// 单独墙体轮廓列表
         /// </summary>
-        public Outline? Outline { get; set; }
+        public List<Wall> Walls { get; set; } = new List<Wall>();
+
+        /// <summary>
+        /// 单独柱子轮廓列表
+        /// </summary>
+        public List<Column> Columns { get; set; } = new List<Column>();
+
+        /// <summary>
+        /// 门窗开口列表
+        /// </summary>
+        public List<Opening> Openings { get; set; } = new List<Opening>();
+
+        /// <summary>
+        /// 完成面定位边界列表（墙柱连续组合轮廓，已过滤外墙）
+        /// </summary>
+        public List<FinishLocationBoundary> FinishLocationBoundaries { get; set; } = new List<FinishLocationBoundary>();
+
+        // ===== 空间数据 =====
 
         /// <summary>
         /// 物理房间列表

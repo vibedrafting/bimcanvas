@@ -86,8 +86,10 @@ namespace BIMCanvas.Revit.Commands
                         $"导出成功！\n\n" +
                         $"文件位置：\n{saveDialog.FileName}\n\n" +
                         $"导出统计：\n" +
-                        $"- 边界：{document.Outline?.Boundarys?.Count ?? 0} 个\n" +
-                        $"- 门窗：{document.Outline?.Openings?.Count ?? 0} 个\n" +
+                        $"- 墙体：{document.Walls?.Count ?? 0} 个\n" +
+                        $"- 柱子：{document.Columns?.Count ?? 0} 个\n" +
+                        $"- 门窗：{document.Openings?.Count ?? 0} 个\n" +
+                        $"- 完成面定位边界：{document.FinishLocationBoundaries?.Count ?? 0} 个\n" +
                         $"- 房间：{document.Rooms?.Count ?? 0} 个");
                 }
 

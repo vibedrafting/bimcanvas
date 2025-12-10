@@ -59,6 +59,12 @@ namespace BIMCanvas.Revit.Services
         public bool ExportRooms { get; set; } = true;
 
         /// <summary>
+        /// 是否导出单构件轮廓（墙体、柱子）
+        /// </summary>
+        [DataMember(Name = "exportElementOutlines")]
+        public bool ExportElementOutlines { get; set; } = true;
+
+        /// <summary>
         /// 从程序集所在目录加载配置文件
         /// </summary>
         /// <returns>加载的配置，如果文件不存在或解析失败则返回默认配置</returns>

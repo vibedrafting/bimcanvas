@@ -78,27 +78,6 @@ namespace BIMCanvas.Revit.Adapters
                     result.Add(outline);
             }
 
-            foreach (var item in result)
-            {
-                switch (item.Type)
-                {
-                    case OutlineElementType.Wall:
-                        doc.DisplayLine(item.Boundary,
-                       ColorType.Blue);
-                        break;
-                    case OutlineElementType.Column:
-                        doc.DisplayLine(item.Boundary, ColorType.Red);
-                        break;
-                    case OutlineElementType.StructuralColumn:
-                        doc.DisplayLine(item.Boundary, ColorType.Red);
-                        break;
-                    default:
-                        break;
-                }
-            }
-            System.Windows.MessageBox.Show($"{result.Count}");
-
-
             return result;
         }
 
