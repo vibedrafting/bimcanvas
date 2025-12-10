@@ -1,7 +1,7 @@
 # BIMCanvas.Web 实施计划
 
-> **版本**：v1.0
-> **更新日期**：2025-12-10
+> **版本**：v1.1
+> **更新日期**：2025-12-11
 > **状态**：Phase 1 待开发
 
 ---
@@ -134,13 +134,19 @@ BIMCanvas 系统架构
 <template>
   <svg :viewBox="viewBox" @pointerdown="handlePointerDown">
     <!-- 网格背景 -->
-    <GridPattern :size="gridSize" />
+    <GridPattern :size="600" />
 
-    <!-- 边界轮廓 -->
-    <BoundaryLayer :boundaries="document.outline.boundaries" />
+    <!-- 墙体轮廓 -->
+    <WallLayer :walls="document.walls" />
+
+    <!-- 柱子轮廓 -->
+    <ColumnLayer :columns="document.columns" />
 
     <!-- 门窗 -->
-    <OpeningLayer :openings="document.outline.openings" />
+    <OpeningLayer :openings="document.openings" />
+
+    <!-- 完成面定位边界（可选显示） -->
+    <FinishLocationBoundaryLayer :boundaries="document.finishLocationBoundaries" />
 
     <!-- 设计区 -->
     <ZoneLayer :zones="document.zones" :selected="selectedElementId" />
@@ -370,15 +376,17 @@ BIMCanvas.Web/
 ├── src/
 │   ├── components/
 │   │   ├── Canvas/
-│   │   │   ├── CanvasContainer.vue    容器组件
-│   │   │   ├── SvgCanvas.vue          SVG 渲染
-│   │   │   ├── KonvaCanvas.vue        交互层占位
-│   │   │   ├── GridPattern.vue        网格背景
-│   │   │   ├── BoundaryLayer.vue      边界轮廓
-│   │   │   ├── OpeningLayer.vue       门窗
-│   │   │   ├── ZoneLayer.vue          设计区
-│   │   │   ├── WallFinishLayer.vue    墙面完成面
-│   │   │   └── ExclusionLayer.vue     禁区
+│   │   │   ├── CanvasContainer.vue              容器组件
+│   │   │   ├── SvgCanvas.vue                    SVG 渲染
+│   │   │   ├── KonvaCanvas.vue                  交互层占位
+│   │   │   ├── GridPattern.vue                  网格背景
+│   │   │   ├── WallLayer.vue                    墙体轮廓（新增）
+│   │   │   ├── ColumnLayer.vue                  柱子轮廓（新增）
+│   │   │   ├── OpeningLayer.vue                 门窗
+│   │   │   ├── FinishLocationBoundaryLayer.vue  完成面定位边界（新增）
+│   │   │   ├── ZoneLayer.vue                    设计区
+│   │   │   ├── WallFinishLayer.vue              墙面完成面
+│   │   │   └── ExclusionLayer.vue               禁区
 │   │   ├── Toolbar.vue
 │   │   ├── PropertyPanel.vue
 │   │   └── StatusBar.vue
@@ -412,45 +420,82 @@ BIMCanvas.Web/
 ### 5.1 canvas.d.ts
 
 ```typescript
-// 几何基元
+// ============================================
+// 基础几何类型
+// ============================================
 export type Point2D = [number, number];
+export type Vec2D = [number, number];
 export type Line2D = [Point2D, Point2D];
 export type Polygon2D = Point2D[];
+export type AABB = [number, number, number, number];
 
-// 主文档结构
+// ============================================
+// 主文档结构（v2.6 扁平化）
+// ============================================
 export interface CanvasDocument {
   id: string;
   version: number;
-  coordinateSystem: 'y-up';
+  coordinateSystem: 'cartesian_mm_yUp';
   metadata: Metadata;
-  outline: Outline;
+
+  // 建筑构件（顶层）
+  walls: Wall[];
+  columns: Column[];
+  openings: Opening[];
+  finishLocationBoundaries: FinishLocationBoundary[];
+
+  // 空间数据
   rooms: Room[];
   zones: Zone[];
   wallFinishes: WallFinish[];
   modules: Module[];
-  guides: GuideLine[];
 }
 
+// ============================================
+// 元数据
+// ============================================
 export interface Metadata {
-  gridSize: number;
-  viewSettings?: {
-    layers: { structure: boolean; guides: boolean; modules: boolean };
-  };
+  placementElevation: number;  // 布置高度（mm）
+  origin: [number, number, number];  // 坐标原点 [x, y, z]（mm）
+  rotation: number;  // 视图旋转角度（弧度）
+  method: 'boundingBox' | 'cropBox';  // 原点计算方法
 }
 
-export interface Outline {
-  boundaries: Polygon2D[];
-  openings: Opening[];
+// ============================================
+// 建筑构件
+// ============================================
+export interface Wall {
+  id: string;
+  elementId: number;
+  polygon: Polygon2D;
+}
+
+export interface Column {
+  id: string;
+  elementId: number;
+  isStructural: boolean;
+  polygon: Polygon2D;
 }
 
 export interface Opening {
   id: string;
-  type: 'door' | 'window';
+  type: OpeningType;
   line: Line2D;
-  facingDirection?: Point2D;
-  handDirections?: Point2D[];
+  facingDirection?: Vec2D;
+  handDirections?: Vec2D[];
 }
 
+export type OpeningType = 'door' | 'window';
+
+export interface FinishLocationBoundary {
+  id: string;
+  elementIds: number[];
+  polygon: Polygon2D;
+}
+
+// ============================================
+// 空间数据
+// ============================================
 export interface Room {
   id: string;
   name: string;
@@ -460,6 +505,7 @@ export interface Room {
 
 export interface Zone {
   id: string;
+  name: string;
   roomId: string;
   tags: ZoneTag[];
   rawBoundary: Polygon2D;
@@ -472,32 +518,96 @@ export interface WallFinish {
   id: string;
   locationLine: Line2D;
   thickness: number;
+  finishModuleId?: string;
   exclusionBoundary: Polygon2D;
-  source: 'room_default' | 'zone_override' | 'user_override';
+  wallId: string;
+  roomId: string;
+  source: FinishSource;
 }
 
 export interface ExclusionArea {
   id: string;
-  type: 'door_swing' | 'column' | 'custom';
+  type: ExclusionType;
   boundary: Polygon2D;
 }
 
 export interface Module {
   id: string;
   moduleId: string;
+  moduleName?: string;
   bounds: Polygon2D;
-  facing: string | Point2D;
+  facing: Facing;
   zoneId: string;
+  items?: ModuleItem[];
 }
 
-export interface GuideLine {
-  id: string;
-  type: 'door_edge' | 'corner_extend' | 'column_divide' | 'custom';
-  line: Line2D;
-  sourceElementId?: string;
+export interface ModuleItem {
+  familyId: string;
+  offset: Vec2D;
+  role?: string;
 }
 
-// 变更记录
+// ============================================
+// 枚举类型（JSON 格式：snake_case）
+// ============================================
+export type RoomType =
+  | 'living_room'
+  | 'dining_room'
+  | 'master_bedroom'
+  | 'bedroom'
+  | 'study'
+  | 'kitchen'
+  | 'bathroom'
+  | 'entrance'
+  | 'balcony'
+  | 'corridor'
+  | 'storage';
+
+export type ZoneTag =
+  | 'tv_media'
+  | 'audio_video'
+  | 'sleep'
+  | 'rest'
+  | 'reading'
+  | 'work'
+  | 'study'
+  | 'wardrobe_storage'
+  | 'shoe_storage'
+  | 'general_storage'
+  | 'dining'
+  | 'cooking'
+  | 'food_prep'
+  | 'bar'
+  | 'shower'
+  | 'bathtub'
+  | 'toilet'
+  | 'washing'
+  | 'laundry'
+  | 'vanity'
+  | 'entry'
+  | 'passage'
+  | 'display'
+  | 'plants';
+
+export type ExclusionType = 'door_swing' | 'passage' | 'other';
+
+export type FinishSource = 'room_default' | 'zone_override' | 'user_override';
+
+export type FacingDirection =
+  | 'north'
+  | 'south'
+  | 'east'
+  | 'west'
+  | 'northeast'
+  | 'northwest'
+  | 'southeast'
+  | 'southwest';
+
+export type Facing = FacingDirection | Vec2D;
+
+// ============================================
+// 变更记录（Phase 2+）
+// ============================================
 export interface ElementChange {
   id: string;
   elementType: 'zone' | 'wallFinish' | 'module';
@@ -507,18 +617,6 @@ export interface ElementChange {
   after?: Record<string, unknown>;
   timestamp: number;
 }
-
-// 枚举
-export type RoomType =
-  | 'livingRoom' | 'diningRoom' | 'masterBedroom' | 'bedroom'
-  | 'study' | 'kitchen' | 'bathroom' | 'entrance'
-  | 'balcony' | 'corridor' | 'storage';
-
-export type ZoneTag =
-  | 'tv_media' | 'audio_video' | 'sleep' | 'rest' | 'reading'
-  | 'work' | 'study' | 'wardrobe_storage' | 'shoe_storage'
-  | 'dining' | 'cooking' | 'bar' | 'shower' | 'bathtub'
-  | 'toilet' | 'vanity' | 'entry' | 'passage' | 'display';
 ```
 
 ---
@@ -612,4 +710,5 @@ export type ZoneTag =
 
 | 日期 | 版本 | 变更内容 |
 |------|------|----------|
+| 2025-12-11 | v1.1 | **数据结构同步 v2.6**：更新 SvgCanvas.vue 模板（WallLayer/ColumnLayer 替代 BoundaryLayer）；重写 canvas.d.ts 类型定义（扁平化结构、新增 Wall/Column/FinishLocationBoundary）；更新项目结构 |
 | 2025-12-10 | v1.0 | 计划创建，基于共识文档 |

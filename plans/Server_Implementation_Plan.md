@@ -1,7 +1,7 @@
 # BIMCanvas.Server 实施计划
 
-> **版本**：v1.0
-> **更新日期**：2025-12-10
+> **版本**：v1.1
+> **更新日期**：2025-12-11
 > **状态**：Phase 1 待开发
 
 ---
@@ -102,10 +102,11 @@ public class CanvasController : ControllerBase
 ```
 
 **输入校验**：
-- `coordinateSystem` 必须为 `"y-up"`
-- `outline.boundaries` 每个多边形至少 3 个顶点
-- `outline.boundaries` 多边形不能自交
-- `rooms` 每个房间必须有有效边界
+- `coordinateSystem` 必须为 `"cartesian_mm_yUp"`
+- `walls` 每个墙体 polygon 至少 3 个顶点，不能自交
+- `columns` 每个柱子 polygon 至少 3 个顶点，不能自交
+- `finishLocationBoundaries` 每个边界 polygon 至少 3 个顶点
+- `rooms` 每个房间 boundary 必须有效
 
 #### 2.1.2 EventsController - SSE 端点
 
@@ -175,9 +176,9 @@ public class ZoneCalculator
 **计算流程**：
 1. 遍历 rooms，为每个 room 创建 zone（RoomId, RawBoundary = room.Boundary）
 2. 根据 room.Type 推断 zone.Tags
-3. 根据 room.Type + zone.Tags 生成 wallFinishes
+3. 根据 finishLocationBoundaries + room.Type + zone.Tags 生成 wallFinishes
 4. 计算 zone.InnerBoundary = RawBoundary - wallFinishes.ExclusionBoundary
-5. 计算门扇 exclusionAreas
+5. 根据 openings（从顶层获取）计算门扇 exclusionAreas
 
 **约束**：只调用 Core.Algorithms，禁止 Math.自定义逻辑
 
@@ -419,4 +420,5 @@ app.Run();
 
 | 日期 | 版本 | 变更内容 |
 |------|------|----------|
+| 2025-12-11 | v1.1 | **数据结构同步 v2.6**：更新输入校验规则（coordinateSystem、walls/columns/finishLocationBoundaries）；更新 ZoneCalculator 计算流程 |
 | 2025-12-10 | v1.0 | 计划创建，基于共识文档 |
