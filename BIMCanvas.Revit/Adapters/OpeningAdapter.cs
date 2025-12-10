@@ -80,12 +80,10 @@ namespace BIMCanvas.Revit.Adapters
                 if (locationPoint == null)
                     return null;
 
-                // 2. 获取宽度（英尺）
-                var width = GetParameterValue(door, BuiltInParameter.DOOR_WIDTH)
-                         ?? GetParameterValue(door, BuiltInParameter.FAMILY_WIDTH_PARAM)
-                         ?? GetSymbolParameterValue(door, "Width");
-                if (width == null)
-                    return null;
+                // 2. 获取宽度（英尺）- 从族类型获取
+                var widthParam = door.Symbol.get_Parameter(BuiltInParameter.DOOR_WIDTH);
+                var width = widthParam?.AsDouble() ?? 0.0;
+                if (width <= 0) width = 1000 / 304.8; // 默认1000mm转换为英尺
 
                 // 3. 获取方向信息
                 var directions = OpeningDirectionAnalyzer.CalculateOpeningDirections(door);
@@ -127,12 +125,10 @@ namespace BIMCanvas.Revit.Adapters
                 if (locationPoint == null)
                     return null;
 
-                // 2. 获取宽度（英尺）
-                var width = GetParameterValue(window, BuiltInParameter.WINDOW_WIDTH)
-                         ?? GetParameterValue(window, BuiltInParameter.FAMILY_WIDTH_PARAM)
-                         ?? GetSymbolParameterValue(window, "Width");
-                if (width == null)
-                    return null;
+                // 2. 获取宽度（英尺）- 从族类型获取
+                var widthParam = window.Symbol.get_Parameter(BuiltInParameter.WINDOW_WIDTH);
+                var width = widthParam?.AsDouble() ?? 0.0;
+                if (width <= 0) width = 1000 / 304.8; // 默认1000mm转换为英尺
 
                 // 3. 获取面向方向
                 var facingDirection = OpeningDirectionAnalyzer.GetWindowFacingDirection(window);
@@ -185,35 +181,6 @@ namespace BIMCanvas.Revit.Adapters
             );
 
             return (start, end);
-        }
-
-        /// <summary>
-        /// 获取实例参数值
-        /// </summary>
-        /// <param name="fi">族实例</param>
-        /// <param name="param">内置参数</param>
-        /// <returns>参数值（英尺）或 null</returns>
-        private double? GetParameterValue(FamilyInstance fi, BuiltInParameter param)
-        {
-            var p = fi.get_Parameter(param);
-            if (p != null && p.HasValue && p.StorageType == StorageType.Double)
-                return p.AsDouble();
-            return null;
-        }
-
-        /// <summary>
-        /// 获取族类型参数值
-        /// </summary>
-        /// <param name="fi">族实例</param>
-        /// <param name="paramName">参数名称</param>
-        /// <returns>参数值（英尺）或 null</returns>
-        private double? GetSymbolParameterValue(FamilyInstance fi, string paramName)
-        {
-            var symbol = fi.Symbol;
-            var p = symbol.LookupParameter(paramName);
-            if (p != null && p.HasValue && p.StorageType == StorageType.Double)
-                return p.AsDouble();
-            return null;
         }
 
         /// <summary>
