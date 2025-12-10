@@ -83,7 +83,7 @@ BIMCanvas.Revit                    BIMCanvas.Server                    BIMCanvas
 
 ## 2. 初始观点
 
-### 专家：Claude（系统架构师）
+### 专家：Claude
 
 - **核心观点**：采用 MVP 渐进式开发，Phase 1 聚焦"静态画布渲染"，暂缓实时协作和 AI 布置功能。
 
@@ -188,6 +188,19 @@ BIMCanvas.Revit                    BIMCanvas.Server                    BIMCanvas
     | ZoneCalculator 算法复杂度 | 可能出现边界计算 bug | 单元测试覆盖核心算法 |
     | 坐标系转换混乱 | 渲染位置错误 | 统一在 Web 层做 Y-flip |
     | JSON 序列化不一致 | 数据解析失败 | 复用 Core 层 Converter |
+
+
+
+### 专家：Codex
+
+- **[Blocker] 数据契约与版本治理缺位**：Phase 1→Phase 2 的交接完全依赖 Revit 输出的精简版 CanvasDocument，而后端要在 <1s 内补齐 zones / wallFinishes 并推送给 Web（docs/Workflows.md:60,96,178）。如果 Server 仅做“内存存储 + 轻量计算”，但没有针对 metadata.version、房间 ID 稳定性、坐标系合法性的校验，就无法保证 ZoneCalculator 的缩放/布尔运算在 Core 对象层面是安全的，后续 PlacementAgent 也会因为脏数据反复回退。建议在 CanvasController 中加入 Schema 版本白名单、面域合法性检查以及 ConcurrentDictionary 写入前的版本号递增逻辑，契合 Architecture 文档要求的 CanvasStateManager 行为（docs/Architecture.md:645,1285）。
+- **[Blocker] Phase 2 必须保留实时推送能力**：当前议题打算用“REST 轮询”替代 WebSocket（reviews/ServerWeb_Implementation_Review.md:44-57），但 Workflows 明确 Phase 2 结束后由 Server 主动推送完整版 CanvasDocument，紧接着 Phase 3 要求前端与 PlacementAgent 协同确认 zones[].tags（docs/Workflows.md:60-65）。如果只靠轮询，PlacementAgent 无法及时拿到新的 innerBoundary / pendingCommits，事件链也无法按 Architecture §5 的设计走 EventBus → SSE → Agent（docs/Architecture.md:645）。我的建议是在 MVP 就实现一个最小的 SignalR Hub（单向 broadcast），即便没有全量事件系统，也要保证 Web 一次性收到 Server 计算完的结果。
+- **[Suggestion] ZoneCalculator 应完全复用 Core 几何能力**：Phase 2 里 shrink rawBoundary、计算门禁区、生成 wallFinishes 都依赖 Core 层对 Polygon2D 的布尔计算与坐标转换（docs/Workflows.md:178-249；docs/Architecture.md:1285-1299）。如果在 Server 里图省事用手写几何，会与 Core 的 NetTopologySuite 实现产生误差，导致 Web 渲染与后续 Revit 回写的坐标无法对齐。建议 Server 引用 BIMCanvas.Core 并通过统一的 Polygon2D / Point2D API 组装 innerBoundary，同时把门扇禁区（ComputeDoorSwingRect）封装成可单元测试的服务，避免推送脏几何。
+- **[Suggestion] Web 层需要提前设计“纯显示模式”的状态管理**：Architecture §6.3 已定义 canvasStore + SvgRenderer 的职责（docs/Architecture.md:1347-1395），而当前讨论只提“静态渲染”但没说明如何管理 canvasId、多画布之间的切换、以及 Y-flip/缩放策略。在 Phase 2/3 中，前端至少要：1）持久存储 Server 返回的最新 version；2）在渲染层区分 outline / zones / exclusionAreas；3）预留 pendingChanges（即使 Phase 5 暂不启用）。否则后续接入 PlacementAgent 或用户交互时还要推倒重来。
+- **[Suggestion] 部署方式需兼顾未来拆分与当前效率**：综上，我更倾向于“Server 托管 SPA”的组合部署（reviews/ServerWeb_Implementation_Review.md:91-100），但前提是项目结构上仍把 Web 视作独立 Vite 工程，通过 npm run build 产物复制到 Server 的 wwwroot。这样可以在 MVP 确保一键部署，同时也方便将来把 BIMCanvas.Web 独立到 CDN 而不影响 Server 的 MCP/事件总线职责。
+
+
+
 
 ---
 

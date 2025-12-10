@@ -1,7 +1,6 @@
 using System;
 using System.Linq;
 using System.Collections.Generic;
-using Autodesk.Revit.DB;
 using BIMCanvas.Core.Converters;
 using NetTopologySuite.Geometries;
 
@@ -9,7 +8,7 @@ namespace BIMCanvas.Revit.Services
 {
     /// <summary>
     /// 坐标系转换器
-    /// 负责 Revit/NTS (feet, 项目坐标系) 与 NTS (mm, 归一化坐标系) 之间的坐标变换
+    /// 负责 NTS 几何对象的坐标变换：(feet, 项目坐标系) → (mm, 归一化坐标系)
     ///
     /// 职责：
     /// - 坐标变换（原点偏移 + 旋转）
@@ -17,12 +16,14 @@ namespace BIMCanvas.Revit.Services
     /// - 输出变换后的 NTS 几何对象
     ///
     /// 不负责：
-    /// - NTS → Core.Models 类型转换（由 BIMCanvas.Core.Converters.NtsConverter 负责）
+    /// - Revit API ↔ NTS 类型转换（由 RevitNtsConverter 负责）
+    /// - NTS ↔ Core.Models 类型转换（由 NtsConverter 负责）
     /// </summary>
     public class CoordinateTransformer
     {
         private readonly Coordinate _origin;
         private readonly double _rotation;
+        private static readonly GeometryFactory Factory = new GeometryFactory();
 
         /// <summary>
         /// 创建坐标转换器
@@ -35,18 +36,7 @@ namespace BIMCanvas.Revit.Services
             _rotation = rotation;
         }
 
-        #region 坐标变换方法
-
-        /// <summary>
-        /// 将 Revit XYZ (feet) 变换为 NTS Coordinate (mm)
-        /// </summary>
-        public Coordinate TransformXYZ(XYZ revitPoint)
-        {
-            if (revitPoint == null)
-                throw new ArgumentNullException(nameof(revitPoint));
-
-            return TransformToCoordinate(revitPoint.X, revitPoint.Y);
-        }
+        #region 公开变换方法
 
         /// <summary>
         /// 将 NTS Coordinate (feet) 变换为 NTS Coordinate (mm)
@@ -56,80 +46,8 @@ namespace BIMCanvas.Revit.Services
             if (coord == null)
                 throw new ArgumentNullException(nameof(coord));
 
-            return TransformToCoordinate(coord.X, coord.Y);
+            return Transform(coord.X, coord.Y);
         }
-
-        /// <summary>
-        /// 将 NTS Coordinate (mm) 逆变换为 Revit XYZ (feet)
-        /// </summary>
-        public XYZ ToXYZ(Coordinate coord, double elevation = 0)
-        {
-            if (coord == null)
-                throw new ArgumentNullException(nameof(coord));
-
-            // 1. 单位转换：mm → feet
-            var localX = UnitConverter.ToFeet(coord.X);
-            var localY = UnitConverter.ToFeet(coord.Y);
-
-            // 2. 正向旋转
-            double dx, dy;
-            if (Math.Abs(_rotation) > 1e-6)
-            {
-                var cosR = Math.Cos(_rotation);
-                var sinR = Math.Sin(_rotation);
-                dx = localX * cosR - localY * sinR;
-                dy = localX * sinR + localY * cosR;
-            }
-            else
-            {
-                dx = localX;
-                dy = localY;
-            }
-
-            // 3. 加上原点偏移
-            return new XYZ(
-                _origin.X + dx,
-                _origin.Y + dy,
-                elevation
-            );
-        }
-
-        /// <summary>
-        /// 核心坐标变换方法：将 (x, y) feet 坐标变换为 Coordinate (mm)
-        /// </summary>
-        private Coordinate TransformToCoordinate(double x, double y)
-        {
-            // 1. 计算相对于原点的偏移
-            var dx = x - _origin.X;
-            var dy = y - _origin.Y;
-
-            // 2. 应用视图旋转归一化（反向旋转）
-            double localX, localY;
-            if (Math.Abs(_rotation) > 1e-6)
-            {
-                var cosR = Math.Cos(-_rotation);
-                var sinR = Math.Sin(-_rotation);
-                localX = dx * cosR - dy * sinR;
-                localY = dx * sinR + dy * cosR;
-            }
-            else
-            {
-                localX = dx;
-                localY = dy;
-            }
-
-            // 3. 单位转换：feet → mm
-            return new Coordinate(
-                UnitConverter.ToMillimeters(localX),
-                UnitConverter.ToMillimeters(localY)
-            );
-        }
-
-        #endregion
-
-        #region NTS 几何变换
-
-        private static readonly GeometryFactory Factory = new GeometryFactory();
 
         /// <summary>
         /// 将 NTS Polygon (feet) 变换为 NTS Polygon (mm)
@@ -163,14 +81,49 @@ namespace BIMCanvas.Revit.Services
         /// <summary>
         /// 将 NTS LineSegment (feet) 变换为 NTS LineSegment (mm)
         /// </summary>
-        public NetTopologySuite.Geometries.LineSegment TransformLineSegment(NetTopologySuite.Geometries.LineSegment segment)
+        public LineSegment TransformLineSegment(LineSegment segment)
         {
             if (segment == null)
                 throw new ArgumentNullException(nameof(segment));
 
-            return new NetTopologySuite.Geometries.LineSegment(
+            return new LineSegment(
                 TransformCoordinate(segment.P0),
                 TransformCoordinate(segment.P1)
+            );
+        }
+
+        #endregion
+
+        #region 私有变换方法
+
+        /// <summary>
+        /// 核心坐标变换：将 (x, y) feet 坐标变换为 Coordinate (mm)
+        /// </summary>
+        private Coordinate Transform(double x, double y)
+        {
+            // 1. 计算相对于原点的偏移
+            var dx = x - _origin.X;
+            var dy = y - _origin.Y;
+
+            // 2. 应用视图旋转归一化（反向旋转）
+            double localX, localY;
+            if (Math.Abs(_rotation) > 1e-6)
+            {
+                var cosR = Math.Cos(-_rotation);
+                var sinR = Math.Sin(-_rotation);
+                localX = dx * cosR - dy * sinR;
+                localY = dx * sinR + dy * cosR;
+            }
+            else
+            {
+                localX = dx;
+                localY = dy;
+            }
+
+            // 3. 单位转换：feet → mm
+            return new Coordinate(
+                UnitConverter.ToMillimeters(localX),
+                UnitConverter.ToMillimeters(localY)
             );
         }
 
