@@ -1,8 +1,8 @@
 # BIMCanvas JSON Schema 规范
 
-> 版本：v2.5
-> 更新日期：2025-12-05
-> 状态：已定稿（新增 Room/WallFinish 概念，完善完成面设计）
+> 版本：v2.6
+> 更新日期：2025-12-11
+> 状态：已定稿（扁平化结构：建筑构件提升至顶层，新增 walls/columns/finishLocationBoundaries）
 >
 > **相关文档**：
 > - [Architecture.md](./Architecture.md) - 系统架构（含 Core 层详细设计）
@@ -149,6 +149,8 @@ JSON 数据 → 服务端渲染 → PNG 截图 → 发送给 AI（多模态）
 
 ## 2. 完整 JSON 结构
 
+v2.6 采用扁平化结构，建筑构件直接放在顶层：
+
 ```json
 {
   "id": "canvas_001",
@@ -156,20 +158,25 @@ JSON 数据 → 服务端渲染 → PNG 截图 → 发送给 AI（多模态）
   "coordinateSystem": "cartesian_mm_yUp",
 
   "metadata": {
-    "revitViewId": 12345,
-    "levelId": 67890,
-    "gridSize": 500
+    "placementElevation": 0,
+    "origin": [0, 0, 0],
+    "rotation": 0,
+    "method": "boundingBox"
   },
 
-  "outline": {
-    "boundaries": [
-      { "id": "w1", "polygon": [[0,0], [6000,0], [6000,200], [0,200]] }
-    ],
-    "openings": [
-      { "id": "d1", "type": "door", "line": [[2000,0], [2900,0]] },
-      { "id": "win1", "type": "window", "line": [[3500,6000], [5300,6000]] }
-    ]
-  },
+  "walls": [
+    { "id": "wall_001", "elementId": 12345, "polygon": [[0,0], [6000,0], [6000,200], [0,200]] }
+  ],
+  "columns": [
+    { "id": "col_001", "elementId": 23456, "isStructural": true, "polygon": [[3000,0], [3500,0], [3500,500], [3000,500]] }
+  ],
+  "openings": [
+    { "id": "d1", "type": "door", "line": [[2000,0], [2900,0]] },
+    { "id": "win1", "type": "window", "line": [[3500,6000], [5300,6000]] }
+  ],
+  "finishLocationBoundaries": [
+    { "id": "flb_001", "elementIds": [12345, 23456], "polygon": [[200,200], [5800,200], [5800,5800], [200,5800]] }
+  ],
 
   "rooms": [
     {
@@ -206,7 +213,7 @@ JSON 数据 → 服务端渲染 → PNG 截图 → 发送给 AI（多模态）
       "finishModuleId": "finish_paint_01",
       "thickness": 20,
       "exclusionBoundary": [[200, 200], [220, 200], [220, 5800], [200, 5800]],
-      "wallId": "w4",
+      "wallId": "wall_001",
       "roomId": "r1",
       "source": "room_default"
     }
@@ -241,8 +248,11 @@ JSON 数据 → 服务端渲染 → PNG 截图 → 发送给 AI（多模态）
 | `id` | string | 是 | 画布唯一标识，格式：`canvas_{uuid}` |
 | `version` | number | 是 | 版本号，每次修改递增，用于乐观锁 |
 | `coordinateSystem` | string | 是 | 固定值：`cartesian_mm_yUp` |
-| `metadata` | object | 是 | 元数据 |
-| `outline` | object | 是 | 可视化底图（边界轮廓 + 门窗线段） |
+| `metadata` | object | 是 | 元数据（含坐标变换参数） |
+| `walls` | array | 是 | 墙体轮廓列表（单独墙体） |
+| `columns` | array | 是 | 柱子轮廓列表（含 isStructural） |
+| `openings` | array | 是 | 门窗数据列表 |
+| `finishLocationBoundaries` | array | 是 | 完成面定位边界列表（墙柱组合轮廓） |
 | `rooms` | array | 是 | 物理房间列表（对应 Revit Room） |
 | `zones` | array | 是 | 设计区域列表（属于 Room 的功能分区） |
 | `wallFinishes` | array | 是 | 墙面完成面配置列表 |
@@ -252,37 +262,59 @@ JSON 数据 → 服务端渲染 → PNG 截图 → 发送给 AI（多模态）
 
 | 字段 | 类型 | 必填 | 说明 |
 |------|------|------|------|
-| `revitViewId` | number | 是 | 来源 Revit 视图 ID |
-| `levelId` | number | 是 | 标高 ID，家具回写依赖 |
-| `gridSize` | number | 否 | 网格大小，默认 500mm |
+| `placementElevation` | number | 是 | 布置高度（mm），家具回写依赖 |
+| `origin` | number[] | 是 | 坐标原点在 Revit 项目坐标系中的位置 [x, y, z]（mm） |
+| `rotation` | number | 是 | 视图旋转角度（弧度） |
+| `method` | string | 是 | 原点计算方法：`boundingBox` 或 `cropBox` |
 
 ---
 
-## 4. outline（可视化底图）
+## 4. 建筑构件（顶层字段）
 
-用于前端绘制"户型图"给用户看，以及 AI 辅助参考。
+v2.6 采用扁平化结构，建筑构件直接放在顶层（不再嵌套在 outline 内）。
 
-### 4.1 outline.boundaries（边界轮廓）
+### 4.1 walls（墙体轮廓）
 
-边界仅记录轮廓多边形（包括墙体和柱子），不记录厚度/材质等详细属性。
+单独墙体的轮廓多边形，供 AI 理解空间结构和 Web 渲染。
 
 ```json
 {
-  "boundaries": [
-    { "id": "w1", "polygon": [[0,0], [6000,0], [6000,200], [0,200]] },
-    { "id": "w2", "polygon": [[6000,0], [6200,0], [6200,4000], [6000,4000]] }
+  "walls": [
+    { "id": "wall_001", "elementId": 12345, "polygon": [[0,0], [6000,0], [6000,200], [0,200]] },
+    { "id": "wall_002", "elementId": 23456, "polygon": [[6000,0], [6200,0], [6200,4000], [6000,4000]] }
   ]
 }
 ```
 
 | 字段 | 类型 | 说明 |
 |------|------|------|
-| `id` | string | 边界 ID，格式：`w{序号}` |
-| `polygon` | number[][] | 边界轮廓多边形顶点，格式：`[[x1,y1], [x2,y2], ...]` |
+| `id` | string | 墙体 ID，格式：`wall_{序号}` |
+| `elementId` | number | Revit 墙体元素 ID |
+| `polygon` | number[][] | 墙体轮廓多边形顶点，格式：`[[x1,y1], [x2,y2], ...]` |
 
-### 4.2 outline.openings（门窗）
+### 4.2 columns（柱子轮廓）
 
-门窗仅记录线段，用于视觉定位。
+单独柱子的轮廓多边形，包含是否为结构柱的信息。
+
+```json
+{
+  "columns": [
+    { "id": "col_001", "elementId": 34567, "isStructural": true, "polygon": [[3000,0], [3500,0], [3500,500], [3000,500]] },
+    { "id": "col_002", "elementId": 45678, "isStructural": false, "polygon": [[4000,0], [4300,0], [4300,300], [4000,300]] }
+  ]
+}
+```
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| `id` | string | 柱子 ID，格式：`col_{序号}` 或 `scol_{序号}`（结构柱） |
+| `elementId` | number | Revit 柱子元素 ID |
+| `isStructural` | boolean | `true` = 结构柱，`false` = 建筑柱 |
+| `polygon` | number[][] | 柱子轮廓多边形顶点 |
+
+### 4.3 openings（门窗）
+
+门窗定位线段，用于 AI 理解开口位置和 Web 渲染。
 
 ```json
 {
@@ -297,7 +329,30 @@ JSON 数据 → 服务端渲染 → PNG 截图 → 发送给 AI（多模态）
 |------|------|------|
 | `id` | string | 门窗 ID，格式：`d{序号}` 或 `win{序号}` |
 | `type` | string | 类型：`door` / `window` |
-| `line` | number[][] | 线段，格式：`[[x1,y1], [x2,y2]]` |
+| `line` | number[][] | 定位线段，格式：`[[x1,y1], [x2,y2]]` |
+
+### 4.4 finishLocationBoundaries（完成面定位边界）
+
+墙柱组合的连续轮廓，已过滤外墙边，供 Server 计算墙面完成面禁区。
+
+```json
+{
+  "finishLocationBoundaries": [
+    { "id": "flb_001", "elementIds": [12345, 23456, 34567], "polygon": [[200,200], [5800,200], [5800,5800], [200,5800]] }
+  ]
+}
+```
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| `id` | string | 边界 ID，格式：`flb_{序号}` |
+| `elementIds` | number[] | 构成此边界的 Revit 元素 ID 列表 |
+| `polygon` | number[][] | 轮廓多边形顶点（支持内环/holes） |
+
+**设计说明**：
+- 此数据由 Revit 导出时通过墙柱布尔运算生成
+- 已在 Revit 层过滤外墙边（外墙不需要完成面）
+- Server 根据此数据 + 厚度计算完成面禁区
 
 ---
 
@@ -939,35 +994,46 @@ type AABB = [number, number, number, number]; // [minX, minY, maxX, maxY] 包围
 // 数据模型
 // ============================================
 
-// 画布文档
+// 画布文档（v2.6 扁平化结构）
 interface CanvasDocument {
   id: string;
   version: number;
   coordinateSystem: "cartesian_mm_yUp";
   metadata: Metadata;
-  outline: Outline;
+
+  // 建筑构件（直接顶层）
+  walls: Wall[];
+  columns: Column[];
+  openings: Opening[];
+  finishLocationBoundaries: FinishLocationBoundary[];
+
+  // 空间数据
   rooms: Room[];
   zones: Zone[];
   wallFinishes: WallFinish[];
   modules: Module[];
 }
 
-// 元数据
+// 元数据（含坐标变换参数）
 interface Metadata {
-  revitViewId: number;
-  levelId: number;
-  gridSize?: number;
-}
-
-// 可视化底图
-interface Outline {
-  walls: Wall[];
-  openings: Opening[];
+  placementElevation: number;
+  origin: [number, number, number];  // [x, y, z] in mm
+  rotation: number;                   // radians
+  method: "boundingBox" | "cropBox";
 }
 
 // 墙体轮廓
 interface Wall {
   id: string;
+  elementId: number;
+  polygon: Polygon2D;
+}
+
+// 柱子轮廓
+interface Column {
+  id: string;
+  elementId: number;
+  isStructural: boolean;
   polygon: Polygon2D;
 }
 
@@ -976,6 +1042,13 @@ interface Opening {
   id: string;
   type: "door" | "window";
   line: Line2D;
+}
+
+// 完成面定位边界
+interface FinishLocationBoundary {
+  id: string;
+  elementIds: number[];
+  polygon: Polygon2D;
 }
 
 // 物理房间
@@ -1150,6 +1223,7 @@ interface ModuleDefinition {
 
 | 版本 | 日期 | 变更内容 |
 |------|------|----------|
+| v2.6 | 2025-12-11 | **结构扁平化**：建筑构件提升至顶层（walls/columns/openings/finishLocationBoundaries）；移除 Outline 包装类；Metadata 合并坐标变换参数（origin/rotation/method）；新增 Wall、Column、FinishLocationBoundary 类型定义；Column 新增 isStructural 字段区分结构柱/建筑柱 |
 | v2.5 | 2025-12-05 | **数据模型增强**：新增 Room（物理房间）；Zone 添加 roomId/tags/rawBoundary；新增 WallFinish（墙面完成面禁区机制）；完善完成面三层来源机制设计 |
 | v2.4 | 2025-12-04 | **同步评审共识**：添加评审文档引用；JSON 数据结构保持不变，C# 实现细节见 Architecture.md §6.1 |
 | v2.3 | 2025-12-03 | **落实讨论结论**：补充 §6.3.3 为什么不用 Angle；新增 §6.5 计算属性 (_computed)；新增 §11 模块库 Schema 占位章节 |

@@ -2,7 +2,7 @@
 
 基于 AI CLI 的室内装修平面方案设计助手，实现 Revit 与 AI 之间的人机协作设计。
 
-> **当前版本**: v2.7 | **数据模型**: outline + rooms + zones + wallFinishes + modules | **架构**: Agent SDK 集成
+> **当前版本**: v2.8 | **数据模型**: walls + columns + openings + rooms + zones + modules | **架构**: Agent SDK 集成
 
 ## 解决的问题
 
@@ -155,19 +155,21 @@ BIMCanvas/
 
 ---
 
-## v2.5 JSON 数据结构
+## v2.6 JSON 数据结构
+
+v2.6 采用扁平化结构，建筑构件直接放在顶层：
 
 ```json
 {
   "id": "canvas_001",
   "version": 1,
   "coordinateSystem": "cartesian_mm_yUp",
-  "metadata": { "revitViewId": 12345, "levelId": 67890, "gridSize": 500 },
+  "metadata": { "placementElevation": 0, "origin": [0, 0, 0], "rotation": 0 },
 
-  "outline": {
-    "walls": [{ "id": "w1", "polygon": [[0,0], [6000,0], ...] }],
-    "openings": [{ "id": "d1", "type": "door", "line": [[2000,0], [2900,0]] }]
-  },
+  "walls": [{ "id": "wall_001", "elementId": 12345, "polygon": [[0,0], [6000,0], [6000,200], [0,200]] }],
+  "columns": [{ "id": "col_001", "elementId": 23456, "isStructural": true, "polygon": [[3000,0], [3500,0], [3500,500], [3000,500]] }],
+  "openings": [{ "id": "d1", "type": "door", "line": [[2000,0], [2900,0]] }],
+  "finishLocationBoundaries": [{ "id": "flb_001", "elementIds": [12345, 23456], "polygon": [[...]] }],
 
   "rooms": [{
     "id": "r1",
@@ -188,10 +190,9 @@ BIMCanvas/
 
   "wallFinishes": [{
     "id": "wf1",
-    "roomId": "r1",
-    "wallSegment": [[0,0], [6000,0]],
-    "source": "revit",
-    "material": "乳胶漆"
+    "locationLine": [[200, 200], [200, 5800]],
+    "thickness": 20,
+    "exclusionBoundary": [[200, 200], [220, 200], [220, 5800], [200, 5800]]
   }],
 
   "modules": [{
@@ -209,15 +210,15 @@ BIMCanvas/
 **核心设计决策**：
 | 决策点 | 选择 | 理由 |
 |--------|------|------|
-| 墙体表示 | 封闭轮廓多边形 | AI 不需要理解墙体结构 |
+| 数据结构 | 扁平化（无 Outline 包装） | 简化 JSON 访问路径 |
+| 墙体/柱子 | 分离存储（walls + columns） | AI 需要区分构件类型做空间理解 |
+| 柱子类型 | isStructural 布尔 | 区分结构柱/建筑柱 |
+| 完成面定位 | finishLocationBoundaries | 墙柱组合轮廓，供 Server 计算完成面禁区 |
 | 门窗表示 | 简化为线段 | 厚度不影响家具布置 |
 | 门扇区域 | 预计算为禁区 Polygon2D | KISS - AI 只需知道"这里不能放" |
 | 房间结构 | rooms + zones 分离 | rooms 对应 Revit 房间，zones 为设计区域 |
-| 区域分类 | tags 数组 | 灵活标签替代单一枚举 |
 | 布置单元 | modules（模块） | 支持单一家具或组合 |
-| 模块位置 | Polygon2D 边界 | 精确几何，支持倾斜场景 |
 | 模块朝向 | Facing 联合类型 | 语义字符串 or Vec2D 单位向量 |
-| 墙面材质 | wallFinishes | 支持 Revit 导入或 AI 指定 |
 
 ---
 
@@ -256,9 +257,9 @@ BIMCanvas/
 
 **目标**：完整的 Revit 双向同步
 
-- ⬜ 实现 Revit → JSON 导出
-- ⬜ 实现 Ribbon 面板和配置窗口
-- ⬜ 实现 JSON → Revit 同步
+- ✅ 实现 Revit → JSON 导出（墙体/柱子/门窗/房间）
+- ✅ 实现 Ribbon 面板和配置窗口
+- ⬜ 实现 JSON → Revit 同步（回写家具）
 
 ---
 

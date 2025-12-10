@@ -1,7 +1,7 @@
 # BIMCanvas.Revit
 
-> **版本**：v1.0
-> **更新日期**：2025-12-10
+> **版本**：v1.1
+> **更新日期**：2025-12-11
 > **状态**：Phase 1 核心导出功能已完成
 
 ---
@@ -42,12 +42,15 @@ BIMCanvas.Revit/
 │   └── ExportCanvasCommand.cs       导出命令
 │
 ├── Adapters/                     【适配器层】数据提取
-│   ├── BoundaryAdapter.cs           边界轮廓提取（墙体 + 柱子）
+│   ├── BoundaryAdapter.cs           墙/柱单独轮廓提取（返回墙和柱分离的元组）
+│   ├── WallFinishAdapter.cs         完成面定位边界提取（墙柱组合轮廓）
 │   ├── OpeningAdapter.cs            门窗数据提取
 │   └── RoomAdapter.cs               房间数据提取
 │
 ├── Models/                       【模型层】中间数据结构
-│   ├── RevitBoundary.cs             边界中间模型
+│   ├── RevitWall.cs                 墙体轮廓中间模型
+│   ├── RevitColumn.cs               柱子轮廓中间模型（含 IsStructural）
+│   ├── RevitWallFinish.cs           完成面定位边界中间模型
 │   ├── RevitOpening.cs              门窗中间模型
 │   └── RevitRoom.cs                 房间中间模型
 │
@@ -94,9 +97,12 @@ Phase 1: 提取原始数据
 ┌─────────────────────────────────────────────────────────────┐
 │  Revit API (Wall, Column, Door, Window, Room)               │
 │      ↓                                                      │
-│  BoundaryAdapter.ExtractBoundaries() → List<RevitBoundary>  │
-│  OpeningAdapter.ExtractOpenings()    → List<RevitOpening>   │
-│  RoomAdapter.ExtractRooms()          → List<RevitRoom>      │
+│  BoundaryAdapter.ExtractBoundaries()                        │
+│      → (List<RevitWall>, List<RevitColumn>) 墙柱分离        │
+│  WallFinishAdapter.ExtractWallFinishes()                    │
+│      → List<RevitWallFinish> 完成面定位边界                  │
+│  OpeningAdapter.ExtractOpenings()  → List<RevitOpening>     │
+│  RoomAdapter.ExtractRooms()        → List<RevitRoom>        │
 │      ↓                                                      │
 │  NTS 格式 (Polygon, LineSegment) | feet | Revit项目坐标     │
 └─────────────────────────────────────────────────────────────┘
@@ -115,11 +121,13 @@ Phase 3: 创建坐标转换器
 │      - rotation: 视图旋转角度（弧度）                         │
 └─────────────────────────────────────────────────────────────┘
 
-Phase 4: 统一坐标转换
+Phase 4: 统一坐标转换 + 外墙过滤
 ┌─────────────────────────────────────────────────────────────┐
-│  RevitBoundary (NTS Polygon)  → Boundary (Polygon2D, mm)    │
+│  RevitWall (NTS Polygon)   → Wall (Polygon2D, mm)           │
+│  RevitColumn (NTS Polygon) → Column (Polygon2D, mm)         │
+│  RevitWallFinish → FilterExteriorEdges() → FinishLocation   │
 │  RevitOpening (NTS LineSegment) → Opening (Line2D, mm)      │
-│  RevitRoom (NTS Polygon)      → Room (Polygon2D, mm)        │
+│  RevitRoom (NTS Polygon)   → Room (Polygon2D, mm)           │
 │      ↓                                                      │
 │  transformer.TransformPolygon() / TransformLineSegment()    │
 │  NtsConverter.FromNtsPolygon() / FromNtsLineSegment()       │
@@ -135,13 +143,18 @@ Phase 5: 用户确认房间类型
 │  用户确认/修改房间类型                                        │
 └─────────────────────────────────────────────────────────────┘
 
-Phase 6: 组装 CanvasDocument
+Phase 6: 组装 CanvasDocument（扁平化结构）
 ┌─────────────────────────────────────────────────────────────┐
 │  new CanvasDocument {                                       │
 │      Id, Version, CoordinateSystem,                         │
-│      Metadata: { PlacementElevation, CoordinateTransform }, │
-│      Outline: { Boundaries, Openings },                     │
-│      Rooms,                                                 │
+│      Metadata: { PlacementElevation, Origin, Rotation },    │
+│      // 建筑构件（直接顶层）                                  │
+│      Walls: [...],                                          │
+│      Columns: [...],                                        │
+│      Openings: [...],                                       │
+│      FinishLocationBoundaries: [...],                       │
+│      // 空间数据                                             │
+│      Rooms: [...],                                          │
 │      Zones: [],        // 精简版为空                         │
 │      WallFinishes: [], // 精简版为空                         │
 │      Modules: []       // 精简版为空                         │
@@ -175,14 +188,37 @@ ExportCanvasCommand.Execute()
 
 保留 Revit 原生数据，延迟坐标转换，便于追溯和调试。
 
-#### RevitBoundary
+#### RevitWall
 
 ```csharp
-public class RevitBoundary
+public class RevitWall
 {
-    public string Id { get; set; }                // "boundary_001", "boundary_002"
-    public List<int> ElementIds { get; set; }     // 构成边界的 Revit 元素 ID
-    public Polygon Boundary { get; set; }         // NTS Polygon (feet, 项目坐标)
+    public string Id { get; set; }         // "wall_001", "wall_002"
+    public int ElementId { get; set; }     // Revit 墙体元素 ID
+    public Polygon Boundary { get; set; }  // NTS Polygon (feet, 项目坐标)
+}
+```
+
+#### RevitColumn
+
+```csharp
+public class RevitColumn
+{
+    public string Id { get; set; }         // "col_001", "scol_001"
+    public int ElementId { get; set; }     // Revit 柱子元素 ID
+    public bool IsStructural { get; set; } // true=结构柱, false=建筑柱
+    public Polygon Boundary { get; set; }  // NTS Polygon (feet, 项目坐标)
+}
+```
+
+#### RevitWallFinish
+
+```csharp
+public class RevitWallFinish
+{
+    public string Id { get; set; }              // "wf_001", "wf_002"
+    public List<int> ElementIds { get; set; }   // 构成边界的 Revit 元素 ID
+    public Polygon Boundary { get; set; }       // NTS Polygon (feet, 项目坐标)
 }
 ```
 
@@ -542,7 +578,8 @@ BIMCanvas.Revit (.NET Framework 4.7.2)
 |------|------|------|
 | Ribbon 面板注册 | Commands/App.cs | ✅ |
 | 导出命令入口 | Commands/ExportCanvasCommand.cs | ✅ |
-| 边界轮廓提取 | Adapters/BoundaryAdapter.cs | ✅ |
+| 墙/柱单独轮廓提取 | Adapters/BoundaryAdapter.cs | ✅ |
+| 完成面定位边界提取 | Adapters/WallFinishAdapter.cs | ✅ |
 | 门窗数据提取 | Adapters/OpeningAdapter.cs | ✅ |
 | 房间数据提取 | Adapters/RoomAdapter.cs | ✅ |
 | 坐标转换器 | Services/CoordinateTransformer.cs | ✅ |
@@ -589,20 +626,22 @@ BIMCanvas.Revit (.NET Framework 4.7.2)
   "coordinateSystem": "cartesian_mm_yUp",
   "metadata": {
     "placementElevation": 0,
-    "coordinateTransform": {
-      "origin": [1000.5, 2000.3, 0],
-      "rotation": 0,
-      "method": "boundingBox"
-    }
+    "origin": [1000.5, 2000.3, 0],
+    "rotation": 0,
+    "method": "boundingBox"
   },
-  "outline": {
-    "boundarys": [
-      { "id": "boundary_001", "polygon": [[0,0], [5000,0], [5000,4000], [0,4000]] }
-    ],
-    "openings": [
-      { "id": "d001", "type": "door", "line": { "start": {"x":2000,"y":0}, "end": {"x":2900,"y":0} } }
-    ]
-  },
+  "walls": [
+    { "id": "wall_001", "elementId": 12345, "polygon": [[0,0], [5000,0], [5000,200], [0,200]] }
+  ],
+  "columns": [
+    { "id": "col_001", "elementId": 23456, "isStructural": true, "polygon": [[2500,0], [2700,0], [2700,400], [2500,400]] }
+  ],
+  "openings": [
+    { "id": "d001", "type": "door", "line": [[2000,0], [2900,0]] }
+  ],
+  "finishLocationBoundaries": [
+    { "id": "flb_001", "elementIds": [12345, 23456], "polygon": [[...]] }
+  ],
   "rooms": [
     { "id": "room_001", "name": "客厅", "type": "livingRoom", "boundary": [[...]] }
   ],

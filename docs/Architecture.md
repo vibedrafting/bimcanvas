@@ -1,8 +1,8 @@
 ﻿# BIMCanvas 系统架构文档
 
-> 版本：v2.7
-> 更新日期：2025-12-06
-> 状态：已定稿（后端项目合并：BIMCanvas.MCP.Canvas + BIMCanvas.Web.Server → BIMCanvas.Server）
+> 版本：v2.8
+> 更新日期：2025-12-11
+> 状态：已定稿（Core 层 Models 目录重组 + Revit 层命名重构）
 
 ---
 
@@ -319,31 +319,41 @@ BIMCanvas/                                    【根目录】
 ├── BIMCanvas.Core/                           【项目】核心类库 (.NET Standard 2.0)
 │   ├── BIMCanvas.Core.csproj                       依赖: Newtonsoft.Json, NetTopologySuite
 │   │
-│   ├── Models/                                  【目录】数据模型
-│   │   ├── Primitives/                             【目录】几何基元
+│   ├── Models/                                  【目录】数据模型（7 分组）
+│   │   ├── Primitives/                             【几何基元】
 │   │   │   ├── Point2D.cs                             readonly struct, 坐标点
 │   │   │   ├── Vec2D.cs                               readonly struct, 向量
 │   │   │   ├── Line2D.cs                              线段
 │   │   │   ├── Polygon2D.cs                           多边形, 封装 Point2D[]
 │   │   │   └── AABB.cs                                轴对齐包围盒
 │   │   │
-│   │   └── Document/                               【目录】业务模型（扁平化）
-│   │       ├── CanvasDocument.cs                      画布文档（根对象）
-│   │       ├── Metadata.cs                            元数据
-│   │       ├── Outline.cs                             可视化底图
-│   │       ├── Boundary.cs                            边界轮廓（墙体 + 柱子）
-│   │       ├── Opening.cs                             门窗
-│   │       ├── Room.cs                                物理房间（对应 Revit Room）
+│   │   ├── RevitSource/                            【Revit 导出的原始数据】
+│   │   │   ├── CanvasDocument.cs                      画布文档（根对象，扁平化结构）
+│   │   │   ├── Metadata.cs                            元数据（含坐标变换参数）
+│   │   │   ├── Wall.cs                                墙体轮廓
+│   │   │   ├── Column.cs                              柱子轮廓（含 IsStructural）
+│   │   │   ├── Opening.cs                             门窗数据
+│   │   │   ├── Room.cs                                房间边界
+│   │   │   └── FinishLocationBoundary.cs              完成面定位边界
+│   │   │
+│   │   ├── CanvasData/                             【画布独有数据（Server 计算）】
+│   │   │   ├── Zone.cs                                设计区域
+│   │   │   ├── WallFinish.cs                          墙面完成面
+│   │   │   └── ExclusionArea.cs                       禁区
+│   │   │
+│   │   ├── AIInput/                                【AI 输入数据（预留）】
+│   │   ├── AIOutput/                               【AI 输出数据（预留）】
+│   │   │
+│   │   ├── RevitWriteback/                         【Revit 回写数据】
+│   │   │   ├── Module.cs                              布置模块
+│   │   │   ├── ModuleItem.cs                          模块内部家具
+│   │   │   ├── Facing.cs                              朝向（联合类型封装）
+│   │   │   └── FacingDirection.cs                     朝向方向枚举
+│   │   │
+│   │   └── Shared/                                 【共享枚举】
 │   │       ├── RoomType.cs                            房间类型枚举
-│   │       ├── Zone.cs                                设计区域
 │   │       ├── ZoneTag.cs                             区域功能标签枚举
-│   │       ├── ExclusionArea.cs                       禁止布置区
-│   │       ├── WallFinish.cs                          墙面完成面
-│   │       ├── FinishSource.cs                        完成面来源枚举
-│   │       ├── Module.cs                              布置模块
-│   │       ├── ModuleItem.cs                          模块内部家具
-│   │       ├── Facing.cs                              朝向（联合类型封装）
-│   │       └── FacingDirection.cs                     朝向方向枚举
+│   │       └── FinishSource.cs                        完成面来源枚举
 │   │
 │   ├── Algorithms/                              【目录】空间计算
 │   │   ├── Geometry/                               【目录】简单数学运算
@@ -378,11 +388,14 @@ BIMCanvas/                                    【根目录】
 │   │   ├── App.cs                                  IExternalApplication 入口
 │   │   └── ExportCanvasCommand.cs                  导出命令
 │   ├── Adapters/                                【目录】数据提取适配器
-│   │   ├── BoundaryAdapter.cs                      边界轮廓提取（墙体 + 柱子）
+│   │   ├── BoundaryAdapter.cs                      墙/柱单独轮廓提取（返回分离的元组）
+│   │   ├── WallFinishAdapter.cs                    完成面定位边界提取（墙柱组合轮廓）
 │   │   ├── OpeningAdapter.cs                       门窗数据提取
 │   │   └── RoomAdapter.cs                          房间数据提取
 │   ├── Models/                                  【目录】中间数据模型
-│   │   ├── RevitBoundary.cs                        边界中间模型
+│   │   ├── RevitWall.cs                            墙体轮廓中间模型
+│   │   ├── RevitColumn.cs                          柱子轮廓中间模型（含 IsStructural）
+│   │   ├── RevitWallFinish.cs                      完成面定位边界中间模型
 │   │   ├── RevitOpening.cs                         门窗中间模型
 │   │   └── RevitRoom.cs                            房间中间模型
 │   ├── Services/                                【目录】服务层

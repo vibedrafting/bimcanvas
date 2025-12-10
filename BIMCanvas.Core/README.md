@@ -3,7 +3,7 @@
 > BIMCanvas 系统的核心层，提供数据模型、空间算法和 JSON 序列化能力。
 
 **运行时**：.NET Standard 2.0（跨框架兼容）
-**数据模型版本**：v2.5
+**数据模型版本**：v2.6
 
 ---
 
@@ -25,40 +25,60 @@
 ```
 BIMCanvas.Core/
 ├── Models/
-│   ├── Primitives/           基础几何类型
-│   │   ├── Point2D.cs        坐标点
-│   │   ├── Vec2D.cs          向量
-│   │   ├── Polygon2D.cs      多边形
-│   │   ├── AABB.cs           轴对齐包围盒
-│   │   └── Line2D.cs         线段
+│   ├── Primitives/              基础几何类型
+│   │   ├── Point2D.cs              坐标点
+│   │   ├── Vec2D.cs                向量
+│   │   ├── Polygon2D.cs            多边形
+│   │   ├── AABB.cs                 轴对齐包围盒
+│   │   └── Line2D.cs               线段
 │   │
-│   └── Document/             业务数据模型
-│       ├── CanvasDocument.cs 文档根对象
-│       ├── Room.cs           物理房间
-│       ├── Zone.cs           设计区域
-│       ├── Module.cs         布置模块
-│       ├── WallFinish.cs     墙面完成面
-│       └── ...               其他模型
+│   ├── RevitSource/             Revit 提取的原始数据
+│   │   ├── CanvasDocument.cs       文档根对象
+│   │   ├── Metadata.cs             元数据（含坐标变换参数）
+│   │   ├── Wall.cs                 墙体轮廓
+│   │   ├── Column.cs               柱子轮廓
+│   │   ├── Opening.cs              门窗数据
+│   │   ├── Room.cs                 房间边界
+│   │   └── FinishLocationBoundary.cs  完成面定位边界
+│   │
+│   ├── CanvasData/              画布独有数据（Server 计算）
+│   │   ├── Zone.cs                 设计区域
+│   │   ├── WallFinish.cs           墙面完成面
+│   │   └── ExclusionArea.cs        禁区
+│   │
+│   ├── AIInput/                 AI 输入数据（预留）
+│   ├── AIOutput/                AI 输出数据（预留）
+│   │
+│   ├── RevitWriteback/          Revit 回写数据
+│   │   ├── Module.cs               布置模块
+│   │   ├── ModuleItem.cs           模块内家具
+│   │   ├── Facing.cs               朝向（联合类型）
+│   │   └── FacingDirection.cs      朝向枚举
+│   │
+│   └── Shared/                  共享枚举
+│       ├── RoomType.cs             房间类型
+│       ├── ZoneTag.cs              区域标签
+│       └── FinishSource.cs         完成面来源
 │
 ├── Algorithms/
-│   ├── Geometry/             几何算法
-│   │   ├── GeometryHelper.cs 几何运算工具
-│   │   └── NtsAdapter.cs     NTS 适配器
+│   ├── Geometry/                几何算法
+│   │   ├── GeometryHelper.cs       几何运算工具
+│   │   └── NtsAdapter.cs           NTS 适配器
 │   │
-│   └── Spatial/              空间算法
-│       ├── PlacementValidator.cs  布置验证
-│       ├── CollisionDetector.cs   碰撞检测
-│       ├── FacingHelper.cs        朝向转换
-│       ├── GeometryNormalizer.cs  几何规范化
-│       └── FinishRules.cs         完成面规则
+│   └── Spatial/                 空间算法
+│       ├── PlacementValidator.cs   布置验证
+│       ├── CollisionDetector.cs    碰撞检测
+│       ├── FacingHelper.cs         朝向转换
+│       ├── GeometryNormalizer.cs   几何规范化
+│       └── FinishRules.cs          完成面规则
 │
 ├── Converters/
-│   ├── Json/                 JSON 转换器
-│   ├── Revit/                Revit 集成（占位）
-│   └── UnitConverter.cs      单位转换
+│   ├── Json/                    JSON 转换器
+│   ├── Revit/                   Revit 集成（占位）
+│   └── UnitConverter.cs         单位转换
 │
 └── Validation/
-    └── Result.cs             验证结果类型
+    └── Result.cs                验证结果类型
 ```
 
 ---
@@ -100,20 +120,41 @@ BIMCanvas.Revit.*    → 仅 Revit 插件内部使用
 
 ### 文档结构 (CanvasDocument)
 
+v2.6 采用扁平化结构，建筑构件直接放在顶层：
+
 ```
 CanvasDocument
-├── outline              边界轮廓 + 门窗（仅视觉）
-├── rooms[]              物理房间
-├── zones[]              设计区域（AI 核心工作区）
-│   ├── innerBoundary    可用空间轮廓
-│   ├── exclusionAreas[] 禁区列表
-│   └── openings[]       关联门窗 ID
-├── wallFinishes[]       墙面完成面
-└── modules[]            布置模块
-    ├── bounds           精确边界 (4顶点矩形)
-    ├── facing           朝向 (语义|向量)
-    └── items[]          内部家具清单
+├── id                          画布唯一标识
+├── version                     版本号
+├── coordinateSystem            坐标系标识
+├── metadata                    元数据（含坐标变换参数）
+│
+├── walls[]                     墙体轮廓（单独墙体）
+├── columns[]                   柱子轮廓（含 isStructural）
+├── openings[]                  门窗数据
+├── finishLocationBoundaries[]  完成面定位边界（墙柱组合轮廓，已过滤外墙）
+│
+├── rooms[]                     物理房间
+├── zones[]                     设计区域（AI 核心工作区）
+│   ├── innerBoundary           可用空间轮廓
+│   ├── exclusionAreas[]        禁区列表
+│   └── openings[]              关联门窗 ID
+├── wallFinishes[]              墙面完成面
+└── modules[]                   布置模块
+    ├── bounds                  精确边界 (4顶点矩形)
+    ├── facing                  朝向 (语义|向量)
+    └── items[]                 内部家具清单
 ```
+
+**命名空间分组**：
+
+| 分组 | 命名空间 | 说明 |
+|------|----------|------|
+| Primitives | `.Models.Primitives` | 几何基元 |
+| RevitSource | `.Models.RevitSource` | Revit 导出的原始数据 |
+| CanvasData | `.Models.CanvasData` | Server 计算生成的数据 |
+| RevitWriteback | `.Models.RevitWriteback` | 回写 Revit 的数据 |
+| Shared | `.Models.Shared` | 跨模块共享的枚举 |
 
 ### 朝向系统 (Facing)
 
@@ -410,7 +451,8 @@ public class Violation
 ### 加载并验证文档
 
 ```csharp
-using BIMCanvas.Core.Models.Document;
+using BIMCanvas.Core.Models.RevitSource;
+using BIMCanvas.Core.Models.RevitWriteback;
 using BIMCanvas.Core.Algorithms.Spatial;
 using Newtonsoft.Json;
 
@@ -441,7 +483,7 @@ foreach (var module in document.Modules)
 
 ```csharp
 using BIMCanvas.Core.Models.Primitives;
-using BIMCanvas.Core.Models.Document;
+using BIMCanvas.Core.Models.RevitWriteback;
 using BIMCanvas.Core.Algorithms.Spatial;
 
 // 创建模块边界
