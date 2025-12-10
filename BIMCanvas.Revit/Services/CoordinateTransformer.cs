@@ -7,17 +7,20 @@ using NetTopologySuite.Geometries;
 namespace BIMCanvas.Revit.Services
 {
     /// <summary>
-    /// 坐标系转换器
-    /// 负责 NTS 几何对象的坐标变换：(feet, 项目坐标系) → (mm, 归一化坐标系)
+    /// NTS 几何对象坐标变换器
     ///
-    /// 职责：
-    /// - 坐标变换（原点偏移 + 旋转）
-    /// - 单位转换（feet → mm）
-    /// - 输出变换后的 NTS 几何对象
+    /// 输入：NTS 几何对象（Revit 项目坐标系，feet）
+    /// 输出：NTS 几何对象（归一化坐标系，mm）
     ///
-    /// 不负责：
-    /// - Revit API ↔ NTS 类型转换（由 RevitNtsConverter 负责）
-    /// - NTS ↔ Core.Models 类型转换（由 NtsConverter 负责）
+    /// 变换流程（所有公开方法统一执行）：
+    /// 1. 原点偏移：相对于指定原点计算偏移量
+    /// 2. 旋转归一化：反向旋转消除视图旋转
+    /// 3. 单位转换：feet → mm
+    ///
+    /// 职责边界：
+    /// - 本类只做坐标变换，不做类型转换
+    /// - Revit API ↔ NTS 类型转换由 RevitNtsConverter 负责
+    /// - NTS ↔ Core.Models 类型转换由 NtsConverter 负责
     /// </summary>
     public class CoordinateTransformer
     {
@@ -26,10 +29,10 @@ namespace BIMCanvas.Revit.Services
         private static readonly GeometryFactory Factory = new GeometryFactory();
 
         /// <summary>
-        /// 创建坐标转换器
+        /// 创建坐标变换器
         /// </summary>
         /// <param name="origin">原点位置（NTS Coordinate，Revit 项目坐标系，feet）</param>
-        /// <param name="rotation">视图旋转角度（弧度）</param>
+        /// <param name="rotation">视图旋转角度（弧度，正值表示逆时针）</param>
         public CoordinateTransformer(Coordinate origin, double rotation)
         {
             _origin = origin ?? throw new ArgumentNullException(nameof(origin));
@@ -39,8 +42,10 @@ namespace BIMCanvas.Revit.Services
         #region 公开变换方法
 
         /// <summary>
-        /// 将 NTS Coordinate (feet) 变换为 NTS Coordinate (mm)
+        /// 变换单个坐标点
         /// </summary>
+        /// <param name="coord">输入坐标（feet，项目坐标系）</param>
+        /// <returns>输出坐标（mm，归一化坐标系）</returns>
         public Coordinate TransformCoordinate(Coordinate coord)
         {
             if (coord == null)
@@ -50,9 +55,10 @@ namespace BIMCanvas.Revit.Services
         }
 
         /// <summary>
-        /// 将 NTS Polygon (feet) 变换为 NTS Polygon (mm)
-        /// 支持内环（孔洞）
+        /// 变换多边形（支持内环/孔洞）
         /// </summary>
+        /// <param name="ntsPolygon">输入多边形（feet，项目坐标系）</param>
+        /// <returns>输出多边形（mm，归一化坐标系）</returns>
         public Polygon TransformPolygon(Polygon ntsPolygon)
         {
             if (ntsPolygon == null)
@@ -79,8 +85,10 @@ namespace BIMCanvas.Revit.Services
         }
 
         /// <summary>
-        /// 将 NTS LineSegment (feet) 变换为 NTS LineSegment (mm)
+        /// 变换线段
         /// </summary>
+        /// <param name="segment">输入线段（feet，项目坐标系）</param>
+        /// <returns>输出线段（mm，归一化坐标系）</returns>
         public LineSegment TransformLineSegment(LineSegment segment)
         {
             if (segment == null)
@@ -97,15 +105,15 @@ namespace BIMCanvas.Revit.Services
         #region 私有变换方法
 
         /// <summary>
-        /// 核心坐标变换：将 (x, y) feet 坐标变换为 Coordinate (mm)
+        /// 核心变换逻辑：原点偏移 → 旋转归一化 → 单位转换
         /// </summary>
         private Coordinate Transform(double x, double y)
         {
-            // 1. 计算相对于原点的偏移
+            // 1. 原点偏移：计算相对于原点的位置
             var dx = x - _origin.X;
             var dy = y - _origin.Y;
 
-            // 2. 应用视图旋转归一化（反向旋转）
+            // 2. 旋转归一化：反向旋转消除视图旋转
             double localX, localY;
             if (Math.Abs(_rotation) > 1e-6)
             {
@@ -128,7 +136,7 @@ namespace BIMCanvas.Revit.Services
         }
 
         /// <summary>
-        /// 将 NTS LinearRing 变换为新的 LinearRing（去除闭合点，去重后重新闭合）
+        /// 变换环（去除闭合点、去重相邻点、重新闭合）
         /// </summary>
         private LinearRing TransformRing(LineString ring)
         {
@@ -162,12 +170,12 @@ namespace BIMCanvas.Revit.Services
         #region 属性
 
         /// <summary>
-        /// 获取原点位置（NTS Coordinate，Revit 项目坐标系，feet）
+        /// 原点位置（Revit 项目坐标系，feet）
         /// </summary>
         public Coordinate Origin => _origin;
 
         /// <summary>
-        /// 获取旋转角度（弧度）
+        /// 视图旋转角度（弧度）
         /// </summary>
         public double Rotation => _rotation;
 

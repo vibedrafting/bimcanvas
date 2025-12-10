@@ -82,10 +82,11 @@ namespace BIMCanvas.Revit.Adapters
                 result.Add(revitRoom);
             }
 
-            foreach (var item in result)
-            {
-                doc.DisplayLine(item.Boundary, ColorType.Red);
-            }
+
+            //foreach (var item in result)
+            //{
+            //    doc.DisplayDirectShape(item.Boundary, ColorType.Red);
+            //}
 
             return result;
         }

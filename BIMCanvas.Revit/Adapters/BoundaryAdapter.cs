@@ -108,8 +108,8 @@ namespace BIMCanvas.Revit.Adapters
             foreach (var item in result)
             {
                 doc.DisplayDirectShape(item.Boundary, ColorType.Red);
+                System.Windows.MessageBox.Show($"{item.Boundary.InteriorRings.Count()}");
             }
-
 
             return result;
         }
