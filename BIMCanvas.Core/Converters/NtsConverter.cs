@@ -2,6 +2,7 @@ using System.Collections.Generic;
 using System.Linq;
 using BIMCanvas.Core.Models.Primitives;
 using NetTopologySuite.Geometries;
+using NetTopologySuite.Mathematics;
 
 namespace BIMCanvas.Core.Converters
 {
@@ -119,6 +120,26 @@ namespace BIMCanvas.Core.Converters
             return new Line2D(
                 new Point2D(nts.P0.X, nts.P0.Y),
                 new Point2D(nts.P1.X, nts.P1.Y));
+        }
+
+        #endregion
+
+        #region Vec2D ↔ NTS Vector2D
+
+        /// <summary>
+        /// Vec2D → NTS Vector2D
+        /// </summary>
+        public static Vector2D ToNtsVector2D(Vec2D vec)
+        {
+            return new Vector2D(vec.X, vec.Y);
+        }
+
+        /// <summary>
+        /// NTS Vector2D → Vec2D
+        /// </summary>
+        public static Vec2D FromNtsVector2D(Vector2D nts)
+        {
+            return new Vec2D(nts.X, nts.Y);
         }
 
         #endregion

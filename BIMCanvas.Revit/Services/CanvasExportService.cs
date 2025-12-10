@@ -109,7 +109,11 @@ namespace BIMCanvas.Revit.Services
             {
                 Id = ro.Id,
                 Type = ro.Type,
-                Line = NtsConverter.FromNtsLineSegment(transformer.TransformLineSegment(ro.LocationLine))
+                Line = NtsConverter.FromNtsLineSegment(transformer.TransformLineSegment(ro.LocationLine)),
+                FacingDirection = NtsConverter.FromNtsVector2D(transformer.TransformVector2D(ro.FacingDirection)),
+                HandDirections = ro.HandDirections?.Count > 0
+                    ? ro.HandDirections.Select(hd => NtsConverter.FromNtsVector2D(transformer.TransformVector2D(hd))).ToList()
+                    : null
             }).ToList();
 
             var rooms = revitRooms.Select(rr => new Core.Models.Document.Room

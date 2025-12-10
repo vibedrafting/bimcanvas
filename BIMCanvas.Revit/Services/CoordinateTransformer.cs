@@ -3,6 +3,7 @@ using System.Linq;
 using System.Collections.Generic;
 using BIMCanvas.Core.Converters;
 using NetTopologySuite.Geometries;
+using NetTopologySuite.Mathematics;
 
 namespace BIMCanvas.Revit.Services
 {
@@ -68,6 +69,25 @@ namespace BIMCanvas.Revit.Services
                 TransformCoordinate(segment.P0),
                 TransformCoordinate(segment.P1)
             );
+        }
+
+        /// <summary>
+        /// 变换方向向量（仅旋转，不平移和缩放）
+        /// </summary>
+        /// <param name="vector">输入向量（项目坐标系方向）</param>
+        /// <returns>输出向量（归一化坐标系方向）</returns>
+        public Vector2D TransformVector2D(Vector2D vector)
+        {
+            if (Math.Abs(_rotation) > 1e-6)
+            {
+                var cosR = Math.Cos(-_rotation);
+                var sinR = Math.Sin(-_rotation);
+                return new Vector2D(
+                    vector.X * cosR - vector.Y * sinR,
+                    vector.X * sinR + vector.Y * cosR
+                );
+            }
+            return vector;
         }
 
         /// <summary>
