@@ -9,9 +9,14 @@ namespace BIMCanvas.Core.Converters.Json
     /// <summary>
     /// Facing ↔ "north" | [dx, dy] 格式转换
     /// </summary>
-    public class FacingConverter : JsonConverter<Facing>
+    public class FacingConverter : JsonConverter
     {
-        public override Facing ReadJson(JsonReader reader, Type objectType, Facing existingValue, bool hasExistingValue, JsonSerializer serializer)
+        public override bool CanConvert(Type objectType)
+        {
+            return objectType == typeof(Facing);
+        }
+
+        public override object ReadJson(JsonReader reader, Type objectType, object? existingValue, JsonSerializer serializer)
         {
             var token = JToken.Load(reader);
 
@@ -37,16 +42,17 @@ namespace BIMCanvas.Core.Converters.Json
             throw new JsonException($"Facing must be a string or array, got {token.Type}");
         }
 
-        public override void WriteJson(JsonWriter writer, Facing value, JsonSerializer serializer)
+        public override void WriteJson(JsonWriter writer, object? value, JsonSerializer serializer)
         {
-            if (value.IsSemantic)
+            var facing = (Facing)value!;
+            if (facing.IsSemantic)
             {
                 // 使用小写字符串格式
-                writer.WriteValue(value.GetSemanticString());
+                writer.WriteValue(facing.GetSemanticString());
             }
             else
             {
-                var vector = value.Vector!.Value;
+                var vector = facing.Vector!.Value;
                 writer.WriteStartArray();
                 writer.WriteValue(vector.X);
                 writer.WriteValue(vector.Y);

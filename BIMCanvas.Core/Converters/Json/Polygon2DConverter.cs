@@ -9,9 +9,14 @@ namespace BIMCanvas.Core.Converters.Json
     /// <summary>
     /// Polygon2D ↔ [[x,y], ...] 格式转换（隐式闭合）
     /// </summary>
-    public class Polygon2DConverter : JsonConverter<Polygon2D>
+    public class Polygon2DConverter : JsonConverter
     {
-        public override Polygon2D? ReadJson(JsonReader reader, Type objectType, Polygon2D? existingValue, bool hasExistingValue, JsonSerializer serializer)
+        public override bool CanConvert(Type objectType)
+        {
+            return objectType == typeof(Polygon2D);
+        }
+
+        public override object? ReadJson(JsonReader reader, Type objectType, object? existingValue, JsonSerializer serializer)
         {
             if (reader.TokenType == JsonToken.Null)
                 return null;
@@ -31,7 +36,7 @@ namespace BIMCanvas.Core.Converters.Json
             return new Polygon2D(vertices.ToArray());
         }
 
-        public override void WriteJson(JsonWriter writer, Polygon2D? value, JsonSerializer serializer)
+        public override void WriteJson(JsonWriter writer, object? value, JsonSerializer serializer)
         {
             if (value == null)
             {
@@ -39,8 +44,9 @@ namespace BIMCanvas.Core.Converters.Json
                 return;
             }
 
+            var polygon = (Polygon2D)value;
             writer.WriteStartArray();
-            foreach (var vertex in value.Vertices)
+            foreach (var vertex in polygon.Vertices)
             {
                 writer.WriteStartArray();
                 writer.WriteValue(vertex.X);

@@ -8,9 +8,14 @@ namespace BIMCanvas.Core.Converters.Json
     /// <summary>
     /// AABB ↔ [minX, minY, maxX, maxY] 格式转换
     /// </summary>
-    public class AABBConverter : JsonConverter<AABB>
+    public class AABBConverter : JsonConverter
     {
-        public override AABB ReadJson(JsonReader reader, Type objectType, AABB existingValue, bool hasExistingValue, JsonSerializer serializer)
+        public override bool CanConvert(Type objectType)
+        {
+            return objectType == typeof(AABB);
+        }
+
+        public override object ReadJson(JsonReader reader, Type objectType, object? existingValue, JsonSerializer serializer)
         {
             var array = JArray.Load(reader);
             if (array.Count != 4)
@@ -24,13 +29,14 @@ namespace BIMCanvas.Core.Converters.Json
             );
         }
 
-        public override void WriteJson(JsonWriter writer, AABB value, JsonSerializer serializer)
+        public override void WriteJson(JsonWriter writer, object? value, JsonSerializer serializer)
         {
+            var aabb = (AABB)value!;
             writer.WriteStartArray();
-            writer.WriteValue(value.MinX);
-            writer.WriteValue(value.MinY);
-            writer.WriteValue(value.MaxX);
-            writer.WriteValue(value.MaxY);
+            writer.WriteValue(aabb.MinX);
+            writer.WriteValue(aabb.MinY);
+            writer.WriteValue(aabb.MaxX);
+            writer.WriteValue(aabb.MaxY);
             writer.WriteEndArray();
         }
     }

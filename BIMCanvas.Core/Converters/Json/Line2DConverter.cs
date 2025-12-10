@@ -8,9 +8,14 @@ namespace BIMCanvas.Core.Converters.Json
     /// <summary>
     /// Line2D ↔ [[x1,y1], [x2,y2]] 格式转换
     /// </summary>
-    public class Line2DConverter : JsonConverter<Line2D>
+    public class Line2DConverter : JsonConverter
     {
-        public override Line2D? ReadJson(JsonReader reader, Type objectType, Line2D? existingValue, bool hasExistingValue, JsonSerializer serializer)
+        public override bool CanConvert(Type objectType)
+        {
+            return objectType == typeof(Line2D);
+        }
+
+        public override object? ReadJson(JsonReader reader, Type objectType, object? existingValue, JsonSerializer serializer)
         {
             if (reader.TokenType == JsonToken.Null)
                 return null;
@@ -31,7 +36,7 @@ namespace BIMCanvas.Core.Converters.Json
             );
         }
 
-        public override void WriteJson(JsonWriter writer, Line2D? value, JsonSerializer serializer)
+        public override void WriteJson(JsonWriter writer, object? value, JsonSerializer serializer)
         {
             if (value == null)
             {
@@ -39,16 +44,17 @@ namespace BIMCanvas.Core.Converters.Json
                 return;
             }
 
+            var line = (Line2D)value;
             writer.WriteStartArray();
             // Start point
             writer.WriteStartArray();
-            writer.WriteValue(value.Start.X);
-            writer.WriteValue(value.Start.Y);
+            writer.WriteValue(line.Start.X);
+            writer.WriteValue(line.Start.Y);
             writer.WriteEndArray();
             // End point
             writer.WriteStartArray();
-            writer.WriteValue(value.End.X);
-            writer.WriteValue(value.End.Y);
+            writer.WriteValue(line.End.X);
+            writer.WriteValue(line.End.Y);
             writer.WriteEndArray();
             writer.WriteEndArray();
         }
