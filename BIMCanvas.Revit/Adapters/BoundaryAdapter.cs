@@ -98,21 +98,6 @@ namespace BIMCanvas.Revit.Adapters
                 }
             }
 
-
-            foreach (var item in result)
-            {
-                doc.DisplayDirectShape(new Polygon(new LinearRing(item.Boundary.ExteriorRing.Coordinates)), ColorType.Red);
-                foreach (var ring in item.Boundary.InteriorRings)
-                {
-                    doc.DisplayLine(new Polygon(new LinearRing(ring.Coordinates)), ColorType.Blue);
-                    doc.DisplayLine(new Polygon(new LinearRing(ring.Coordinates)).Centroid.Coordinate, ColorType.Blue);
-                }
-
-                System.Windows.MessageBox.Show($"InteriorRings:{item.Boundary.InteriorRings.Count()}");
-            }
-            System.Windows.MessageBox.Show($"result:{result.Count}");
-
-
             return result;
         }
 
