@@ -8,9 +8,9 @@ using BIMCanvas.Core.Converters;
 using BIMCanvas.Core.Models.Document;
 using BIMCanvas.Revit.Adapters;
 using BIMCanvas.Revit.Models;
-using BIMCanvas.Revit.Utilities;
 using BIMCanvas.Revit.Views;
 using BIMCanvas.Revit.Views.ViewModels;
+using NetTopologySuite.Geometries;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Serialization;
 
@@ -72,18 +72,25 @@ namespace BIMCanvas.Revit.Services
 
             var allPolygons = boundaryPolygons.Concat(roomPolygons).ToList();
 
-            XYZ origin;
+            Coordinate origin;
             string originMethod;
 
             if (allPolygons.Count > 0)
             {
-                origin = BoundingBoxCalculator.CalculateOriginFromPolygons(allPolygons);
+                // 使用 NTS Envelope 计算所有多边形的包围盒
+                var envelope = new Envelope();
+                foreach (var polygon in allPolygons)
+                {
+                    envelope.ExpandToInclude(polygon.EnvelopeInternal);
+                }
+                origin = new Coordinate(envelope.MinX, envelope.MinY);
                 originMethod = "boundingBox";
             }
             else
             {
                 // 降级策略：使用视图裁剪框
-                origin = view.CropBoxActive ? view.CropBox.Min : XYZ.Zero;
+                var cropMin = view.CropBoxActive ? view.CropBox.Min : XYZ.Zero;
+                origin = new Coordinate(cropMin.X, cropMin.Y);
                 originMethod = "cropBox";
             }
 
@@ -150,7 +157,7 @@ namespace BIMCanvas.Revit.Services
                     {
                         UnitConverter.ToMillimeters(origin.X),
                         UnitConverter.ToMillimeters(origin.Y),
-                        UnitConverter.ToMillimeters(origin.Z)
+                        0.0
                     },
                     Rotation = rotation,
                     Method = originMethod

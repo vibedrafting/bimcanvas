@@ -4,6 +4,7 @@ using System.Collections.Generic;
 using Autodesk.Revit.DB;
 using BIMCanvas.Core.Converters;
 using BIMCanvas.Core.Models.Primitives;
+using NetTopologySuite.Geometries;
 
 namespace BIMCanvas.Revit.Services
 {
@@ -13,15 +14,15 @@ namespace BIMCanvas.Revit.Services
     /// </summary>
     public class CoordinateTransformer
     {
-        private readonly XYZ _origin;
+        private readonly Coordinate _origin;
         private readonly double _rotation;
 
         /// <summary>
         /// 创建坐标转换器
         /// </summary>
-        /// <param name="origin">原点位置（Revit 项目坐标系，feet）</param>
+        /// <param name="origin">原点位置（NTS Coordinate，Revit 项目坐标系，feet）</param>
         /// <param name="rotation">视图旋转角度（弧度）</param>
-        public CoordinateTransformer(XYZ origin, double rotation)
+        public CoordinateTransformer(Coordinate origin, double rotation)
         {
             _origin = origin ?? throw new ArgumentNullException(nameof(origin));
             _rotation = rotation;
@@ -201,9 +202,9 @@ namespace BIMCanvas.Revit.Services
         }
 
         /// <summary>
-        /// 获取原点位置（Revit 项目坐标系，feet）
+        /// 获取原点位置（NTS Coordinate，Revit 项目坐标系，feet）
         /// </summary>
-        public XYZ Origin => _origin;
+        public Coordinate Origin => _origin;
 
         /// <summary>
         /// 获取旋转角度（弧度）
