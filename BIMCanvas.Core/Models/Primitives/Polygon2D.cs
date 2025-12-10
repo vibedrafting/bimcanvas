@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Linq;
 using Newtonsoft.Json;
 using BIMCanvas.Core.Converters.Json;
@@ -6,16 +7,44 @@ using BIMCanvas.Core.Converters.Json;
 namespace BIMCanvas.Core.Models.Primitives
 {
     /// <summary>
-    /// 二维多边形，JSON 格式：[[x,y], ...]（隐式闭合）
+    /// 二维多边形，支持一个外环和多个内环（孔洞）
+    /// JSON 格式：
+    /// - 简单格式（无内环）：[[x,y], ...]
+    /// - 完整格式（有内环）：{ "shell": [[x,y], ...], "holes": [[[x,y], ...], ...] }
     /// </summary>
     [JsonConverter(typeof(Polygon2DConverter))]
     public class Polygon2D
     {
+        /// <summary>
+        /// 外环顶点（隐式闭合）
+        /// </summary>
         public Point2D[] Vertices { get; }
 
+        /// <summary>
+        /// 内环（孔洞）列表，每个内环是隐式闭合的顶点数组
+        /// </summary>
+        public Point2D[][] Holes { get; }
+
+        /// <summary>
+        /// 是否有内环
+        /// </summary>
+        public bool HasHoles => Holes != null && Holes.Length > 0;
+
+        /// <summary>
+        /// 创建简单多边形（无内环）
+        /// </summary>
         public Polygon2D(Point2D[] vertices)
+            : this(vertices, null)
+        {
+        }
+
+        /// <summary>
+        /// 创建带内环的多边形
+        /// </summary>
+        public Polygon2D(Point2D[] vertices, Point2D[][] holes)
         {
             Vertices = vertices ?? throw new ArgumentNullException(nameof(vertices));
+            Holes = holes ?? Array.Empty<Point2D[]>();
         }
 
         /// <summary>
