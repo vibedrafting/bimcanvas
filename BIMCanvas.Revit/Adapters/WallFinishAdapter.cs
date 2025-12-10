@@ -28,7 +28,7 @@ namespace BIMCanvas.Revit.Adapters
         /// <param name="options">画布导出配置选项</param>
         public WallFinishAdapter(ExportOptions options)
         {
-            _cutHeightMm = options.BoundaryCutHeightMm;
+            _cutHeightMm = options.WallFinishCutHeightMm;
         }
 
         /// <summary>

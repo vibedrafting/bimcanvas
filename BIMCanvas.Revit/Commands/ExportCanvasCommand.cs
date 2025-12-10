@@ -40,13 +40,7 @@ namespace BIMCanvas.Revit.Commands
 
                 // 创建导出服务和选项
                 var exportService = new CanvasExportService();
-                var options = new ExportOptions
-                {
-                    ShowConfigWindow = true,
-                    ExportBoundarys = true,
-                    ExportOpenings = true,
-                    ExportRooms = true
-                };
+                var options = ExportOptions.Load();
 
                 // 执行导出
                 CanvasDocument document;

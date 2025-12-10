@@ -34,11 +34,18 @@ namespace BIMCanvas.Revit.Services
         public double PlacementElevation { get; set; } = 0;
 
         /// <summary>
-        /// 边界切割高度（毫米），默认 1200mm
+        /// 边界切割高度（毫米）
         /// 后期可能根据所有窗户的窗台高度属性动态确定
         /// </summary>
         [DataMember(Name = "boundaryCutHeightMm")]
-        public double BoundaryCutHeightMm { get; set; } = 1200;
+        public double BoundaryCutHeightMm { get; set; } = 0;
+
+        /// <summary>
+        /// 完成面定位线切割高度（毫米）
+        /// 后期可能根据所有窗户的窗台高度属性动态确定
+        /// </summary>
+        [DataMember(Name = "wallFinishCutHeightMm")]
+        public double WallFinishCutHeightMm { get; set; } = 0;
 
         /// <summary>
         /// 是否导出边界轮廓
@@ -72,23 +79,44 @@ namespace BIMCanvas.Revit.Services
         {
             try
             {
-                var assemblyDir = Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location);
+                var assemblyLocation = Assembly.GetExecutingAssembly().Location;
+                var assemblyDir = Path.GetDirectoryName(assemblyLocation);
+                System.Diagnostics.Trace.WriteLine($"[ExportOptions.Load] Assembly.Location: {assemblyLocation}");
+                System.Diagnostics.Trace.WriteLine($"[ExportOptions.Load] assemblyDir: {assemblyDir}");
+
                 if (string.IsNullOrEmpty(assemblyDir))
                 {
+                    System.Diagnostics.Trace.WriteLine("[ExportOptions.Load] assemblyDir 为空，返回默认配置");
                     return new ExportOptions();
                 }
 
                 var configPath = Path.Combine(assemblyDir, ConfigFileName);
+                System.Diagnostics.Trace.WriteLine($"[ExportOptions.Load] configPath: {configPath}");
+                System.Diagnostics.Trace.WriteLine($"[ExportOptions.Load] File.Exists: {File.Exists(configPath)}");
+
                 if (!File.Exists(configPath))
                 {
+                    System.Diagnostics.Trace.WriteLine("[ExportOptions.Load] 配置文件不存在，返回默认配置");
                     return new ExportOptions();
                 }
 
                 var json = File.ReadAllText(configPath, Encoding.UTF8);
-                return Deserialize(json) ?? new ExportOptions();
+                System.Diagnostics.Trace.WriteLine($"[ExportOptions.Load] 读取到 JSON: {json}");
+
+                var options = Deserialize(json);
+                System.Diagnostics.Trace.WriteLine($"[ExportOptions.Load] 反序列化结果: {(options != null ? "成功" : "失败")}");
+
+                if (options != null)
+                {
+                    System.Diagnostics.Trace.WriteLine($"[ExportOptions.Load] BoundaryCutHeightMm: {options.BoundaryCutHeightMm}");
+                    System.Diagnostics.Trace.WriteLine($"[ExportOptions.Load] WallFinishCutHeightMm: {options.WallFinishCutHeightMm}");
+                }
+
+                return options ?? new ExportOptions();
             }
-            catch (Exception)
+            catch (Exception ex)
             {
+                System.Diagnostics.Trace.WriteLine($"[ExportOptions.Load] 异常: {ex.Message}");
                 return new ExportOptions();
             }
         }

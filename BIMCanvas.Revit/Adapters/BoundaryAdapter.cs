@@ -87,6 +87,8 @@ namespace BIMCanvas.Revit.Adapters
                 doc.DisplayDirectShape(item.Boundary, ColorType.Red);
             }
 
+            System.Windows.MessageBox.Show($"walls：{walls.Count}，columns：{columns.Count}");
+
 
             return (walls, columns);
         }

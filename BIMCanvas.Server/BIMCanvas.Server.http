@@ -1,0 +1,6 @@
+@BIMCanvas.Server_HostAddress = http://localhost:5258
+
+GET {{BIMCanvas.Server_HostAddress}}/weatherforecast/
+Accept: application/json
+
+###
