@@ -15,7 +15,6 @@
   </PropertyGroup>
   <ItemGroup>
     <PackageReference Include="NetTopologySuite" Version="2.6.0" />
-    <PackageReference Include="SharedLibrary" Version="3.0.7" />
   </ItemGroup>
 
   <!-- BIMCanvas.Core 引用 -->

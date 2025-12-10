@@ -33,7 +33,7 @@ namespace BIMCanvas.Revit.Adapters
             SetColumnRoomBounding(doc, true);
 
             // 2. 重置 DataId 计数器
-            DataId.Reset("room_");
+            PrefixId.Reset("room_");
 
             // 3. 获取视图标高
             var levelId = view.GenLevel?.Id;
@@ -72,7 +72,7 @@ namespace BIMCanvas.Revit.Adapters
                 // 8. 创建 RevitRoom 对象
                 var revitRoom = new RevitRoom
                 {
-                    Id = DataId.NewId("room_", 3),
+                    Id = PrefixId.NewId("room_", 3),
                     ElementId = room.Id.IntegerValue,
                     Name = name,
                     Boundary = boundary

@@ -32,18 +32,6 @@ namespace BIMCanvas.Revit.Test
                                                             .OfClass(typeof(SpatialElement))
                                                             .ToElements()
                                                             .Cast<Autodesk.Revit.DB.Architecture.Room>();
-            //foreach (var room in rooms)
-            //{
-            //    // 批量设置柱子作为房间边界
-            //    SetColumnRoomBounding(doc, true);
-            //    var profile = GetRoomBoundary(doc, room);
-            //    if (profile!=null)
-            //    {
-            //        doc.DisplayLine(profile.Centroid.Coordinate, SharedLibrary.Class.Enum.ColorType.Red);
-            //    }
-            //}
-
-            System.Windows.MessageBox.Show("测试房间功能结束");
 
             return Result.Succeeded;
         }

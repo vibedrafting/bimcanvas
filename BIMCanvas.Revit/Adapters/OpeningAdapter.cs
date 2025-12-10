@@ -43,7 +43,7 @@ namespace BIMCanvas.Revit.Adapters
                 .ToList();
 
             // 3. 处理门
-            DataId.Reset("d");
+            PrefixId.Reset("d");
             foreach (var door in doors)
             {
                 var opening = ExtractDoorOpening(door);
@@ -52,16 +52,13 @@ namespace BIMCanvas.Revit.Adapters
             }
 
             // 4. 处理窗
-            DataId.Reset("win");
+            PrefixId.Reset("win");
             foreach (var window in windows)
             {
                 var opening = ExtractWindowOpening(window);
                 if (opening != null)
                     result.Add(opening);
             }
-
-            System.Windows.MessageBox.Show($"{result.Count}");
-
 
             return result;
         }
@@ -91,12 +88,12 @@ namespace BIMCanvas.Revit.Adapters
                 var handDirections = directions.OpeningDirections ?? new List<XYZ>();
 
                 // 4. 计算定位线起终点（英尺）
-                var (start, end) = CalculateLocationLine(locationPoint, width.Value, facingDirection);
+                var (start, end) = CalculateLocationLine(locationPoint, width, facingDirection);
 
                 // 5. 创建 RevitOpening 对象
                 return new RevitOpening
                 {
-                    Id = DataId.NewId("d"),
+                    Id = PrefixId.NewId("d"),
                     ElementId = door.Id.IntegerValue,
                     Type = OpeningType.Door,
                     LocationPoint = locationPoint.ToCoordinate(),
@@ -134,12 +131,12 @@ namespace BIMCanvas.Revit.Adapters
                 var facingDirection = OpeningDirectionAnalyzer.GetWindowFacingDirection(window);
 
                 // 4. 计算定位线起终点（英尺）
-                var (start, end) = CalculateLocationLine(locationPoint, width.Value, facingDirection);
+                var (start, end) = CalculateLocationLine(locationPoint, width, facingDirection);
 
                 // 5. 创建 RevitOpening 对象
                 return new RevitOpening
                 {
-                    Id = DataId.NewId("win"),
+                    Id = PrefixId.NewId("win"),
                     ElementId = window.Id.IntegerValue,
                     Type = OpeningType.Window,
                     LocationPoint = locationPoint.ToCoordinate(),

@@ -10,7 +10,7 @@ namespace BIMCanvas.Revit.Utilities
     /// 数据ID生成器
     /// 每个前缀维护独立的计数器
     /// </summary>
-    public static class DataId
+    public static class PrefixId
     {
         private static readonly object _lockObject = new object();
         private static readonly Dictionary<string, int> _prefixCounters = new Dictionary<string, int>();

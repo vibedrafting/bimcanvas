@@ -63,7 +63,7 @@ namespace BIMCanvas.Revit.Adapters
             var wallAndColumnElements = CollectWallAndColumnElements(doc, view, categories);
 
             // 重置 ID 计数器
-            DataId.Reset("boundary_");
+            PrefixId.Reset("boundary_");
 
             // 转换每个 CurveLoop 为 RevitBoundary
             foreach (var curveLoop in outlines)
@@ -85,7 +85,7 @@ namespace BIMCanvas.Revit.Adapters
 
                     result.Add(new RevitBoundary
                     {
-                        Id = DataId.NewId("boundary_", 3),
+                        Id = PrefixId.NewId("boundary_", 3),
                         ElementIds = elementIds,
                         Boundary = polygon
                     });
