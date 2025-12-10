@@ -174,7 +174,7 @@ namespace BIMCanvas.Revit.Services
         /// <summary>
         /// 将 NTS Polygon (feet, Revit 项目坐标系) 转换为 BIMCanvas Polygon2D (mm, 归一化坐标系)
         /// </summary>
-        public Polygon2D ToPolygon2D(NetTopologySuite.Geometries.Polygon ntsPolygon)
+        public Polygon2D ToPolygon2D(Polygon ntsPolygon)
         {
             if (ntsPolygon == null)
                 throw new ArgumentNullException(nameof(ntsPolygon));

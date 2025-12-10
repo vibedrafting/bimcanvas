@@ -741,6 +741,89 @@ namespace BIMCanvas.Revit.Utilities
 
         #endregion
 
+        #region 创建 DirectShape 方法
+
+        /// <summary>
+        /// 使用 DirectShape 显示 NTS Polygon 轮廓（包括外环和内环）
+        /// </summary>
+        /// <param name="doc">Revit 文档</param>
+        /// <param name="polygon">NTS Polygon 对象</param>
+        /// <param name="colorType">颜色类型（可选）</param>
+        /// <param name="enableTransaction">是否启用事务</param>
+        /// <param name="failureLevel">失败处理级别</param>
+        /// <returns>创建的 DirectShape 的 ElementId 集合</returns>
+        public static IList<ElementId> DisplayDirectShape(this Document doc, Polygon polygon, ColorType? colorType = null, bool enableTransaction = true, FailureLevel failureLevel = FailureLevel.IgnoreWarningsAndErrors)
+        {
+            if (polygon == null || polygon.IsEmpty) return new List<ElementId>();
+
+            Func<IList<ElementId>> createAction = () =>
+            {
+                var elementIds = new List<ElementId>();
+                var categoryId = new ElementId(BuiltInCategory.OST_GenericModel);
+                double height = doc.ActiveView.SketchPlane?.GetSketchPlaneHeight() ?? 0;
+
+                // 收集所有环（外环 + 内环）
+                var rings = new List<NetTopologySuite.Geometries.LineString> { polygon.ExteriorRing };
+                if (polygon.Holes != null)
+                {
+                    rings.AddRange(polygon.Holes);
+                }
+
+                // 遍历每个环创建 DirectShape
+                foreach (var ring in rings)
+                {
+                    if (ring == null || ring.NumPoints < 2) continue;
+
+                    try
+                    {
+                        var curves = new List<GeometryObject>();
+                        var coords = ring.Coordinates;
+
+                        for (int i = 0; i < coords.Length - 1; i++)
+                        {
+                            var start = new XYZ(coords[i].X, coords[i].Y, height);
+                            var end = new XYZ(coords[i + 1].X, coords[i + 1].Y, height);
+
+                            if (start.DistanceTo(end) > 0.01 / 304.8)
+                            {
+                                curves.Add(Line.CreateBound(start, end));
+                            }
+                        }
+
+                        if (curves.Count > 0)
+                        {
+                            var ds = DirectShape.CreateElement(doc, categoryId);
+                            ds.SetShape(curves);
+                            ds.SetName("Polygon轮廓");
+
+                            if (colorType.HasValue)
+                            {
+                                SetElementLineColor(doc, ds, doc.ActiveView, colorType.Value);
+                            }
+                            elementIds.Add(ds.Id);
+                        }
+                    }
+                    catch
+                    {
+                        // 创建失败，跳过
+                    }
+                }
+
+                return elementIds;
+            };
+
+            if (enableTransaction)
+            {
+                return ExecuteInTransaction(doc, "显示 Polygon 轮廓", createAction, failureLevel);
+            }
+            else
+            {
+                return createAction();
+            }
+        }
+
+        #endregion
+
         #endregion
 
     }

@@ -97,6 +97,12 @@ namespace BIMCanvas.Revit.Adapters
                 }
             }
 
+            foreach (var item in result)
+            {
+                doc.DisplayDirectShape(item.Boundary, ColorType.Red);
+            }
+
+
             return result;
         }
 

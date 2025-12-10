@@ -373,24 +373,41 @@ BIMCanvas/                                    【根目录】
 ├── BIMCanvas.Revit/                          【项目】Revit 相关 (.NET FW 4.7.2)
 │   ├── BIMCanvas.Revit.csproj                     ⚠️ 仅此项目可引用 Revit API
 │   ├── BIMCanvas.addin                            Revit 插件注册文件
-│   ├── Adapters/                                【目录】Revit 适配器
-│   │   ├── CoordinateAdapter.cs                    坐标系转换
-│   │   ├── BoundaryAdapter.cs                      边界轮廓提取（墙体 + 柱子）
-│   │   ├── OpeningAdapter.cs                       门窗线段提取
-│   │   └── RoomAdapter.cs                          房间边界提取
-│   ├── Services/                                【目录】服务层
-│   │   ├── CanvasExportService.cs                  画布导出服务
-│   │   ├── RoomTypeInferrer.cs                     房间类型推断
-│   │   └── ExportOptions.cs                        导出配置
+│   ├── README.md                                  项目说明文档
 │   ├── Commands/                                【目录】Ribbon 命令
 │   │   ├── App.cs                                  IExternalApplication 入口
 │   │   └── ExportCanvasCommand.cs                  导出命令
-│   └── Views/                                   【目录】UI 层
-│       ├── ConfigWindow.xaml                       配置窗口
-│       ├── ConfigWindow.xaml.cs
-│       └── ViewModels/
-│           ├── ConfigViewModel.cs                  MVVM ViewModel
-│           └── RelayCommand.cs                     命令基类
+│   ├── Adapters/                                【目录】数据提取适配器
+│   │   ├── BoundaryAdapter.cs                      边界轮廓提取（墙体 + 柱子）
+│   │   ├── OpeningAdapter.cs                       门窗数据提取
+│   │   └── RoomAdapter.cs                          房间数据提取
+│   ├── Models/                                  【目录】中间数据模型
+│   │   ├── RevitBoundary.cs                        边界中间模型
+│   │   ├── RevitOpening.cs                         门窗中间模型
+│   │   └── RevitRoom.cs                            房间中间模型
+│   ├── Services/                                【目录】服务层
+│   │   ├── CanvasExportService.cs                  画布导出服务（6阶段流程）
+│   │   ├── CoordinateTransformer.cs                坐标转换器
+│   │   ├── RoomTypeInferrer.cs                     房间类型推断
+│   │   └── ExportOptions.cs                        导出配置
+│   ├── Utilities/                               【目录】工具类
+│   │   ├── OutlineExtractor.cs                     轮廓提取（几何切割）
+│   │   ├── OpeningDirectionAnalyzer.cs             门窗方向分析
+│   │   ├── RevitNtsGeometryConverter.cs            类型转换扩展
+│   │   ├── PrefixId.cs                             ID 生成器
+│   │   ├── TransactionHelper.cs                    事务处理
+│   │   └── DebugViewer.cs                          调试可视化
+│   ├── Views/                                   【目录】UI 层
+│   │   ├── ConfigWindow.xaml                       配置窗口
+│   │   ├── ConfigWindow.xaml.cs
+│   │   └── ViewModels/
+│   │       ├── ConfigViewModel.cs                  MVVM ViewModel
+│   │       └── RelayCommand.cs                     命令基类
+│   └── Test/                                    【目录】测试
+│       ├── Test.cs                                 通用测试框架
+│       ├── GetRoomBoundaryTest.cs                  房间边界测试
+│       ├── OpeningInfoTest.cs                      门窗信息测试
+│       └── WallSolidUnionTest.cs                   墙体合并测试
 │
 ├── BIMCanvas.Server/                         【项目】统一后端服务 (.NET 6+)
 │   ├── BIMCanvas.Server.csproj
@@ -1163,6 +1180,107 @@ namespace BIMCanvas.Core.Converters
 │  ToFeet() / ToRadians()                                     │
 └─────────────────────────────────────────────────────────────┘
 ```
+
+### 6.1.5 BIMCanvas.Revit 详细设计
+
+**职责**：独立运行的 Revit 插件，从 Revit 模型提取建筑数据，导出为 JSON 文件
+
+> 详细文档见：[BIMCanvas.Revit/README.md](../BIMCanvas.Revit/README.md)
+
+#### 6.1.5.1 执行流程（6 阶段）
+
+```
+【Phase 1: 提取原始数据】
+Revit API (Wall, Column, Door, Window, Room)
+    ↓
+BoundaryAdapter.ExtractBoundaries() → List<RevitBoundary>
+OpeningAdapter.ExtractOpenings()    → List<RevitOpening>
+RoomAdapter.ExtractRooms()          → List<RevitRoom>
+    ↓
+NTS 格式 (Polygon, LineSegment) | feet | Revit项目坐标
+
+【Phase 2: 计算包围盒原点】
+所有 NTS Polygon → Envelope.Union() → origin = (MinX, MinY)
+
+【Phase 3: 创建坐标转换器】
+new CoordinateTransformer(origin, viewRotation)
+
+【Phase 4: 统一坐标转换】
+RevitBoundary (NTS Polygon)   → Boundary (Polygon2D, mm)
+RevitOpening (NTS LineSegment) → Opening (Line2D, mm)
+RevitRoom (NTS Polygon)        → Room (Polygon2D, mm)
+
+【Phase 5: 用户确认房间类型】
+RoomTypeInferrer.InferFromName() → ConfigWindow 确认
+
+【Phase 6: 组装 CanvasDocument】
+精简版 CanvasDocument (zones/wallFinishes/modules 为空) → JSON 文件
+```
+
+#### 6.1.5.2 几何数据类型转换链
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│  阶段           数据类型                    单位    坐标系      │
+├─────────────────────────────────────────────────────────────────┤
+│  Revit API      XYZ, Solid, CurveLoop       feet   项目坐标     │
+│       ↓                                                         │
+│  NTS 中间层     Polygon, LineSegment,       feet   项目坐标     │
+│                 Coordinate, Vector2D                            │
+│       ↓                                                         │
+│  Core 层        Polygon2D, Line2D,          mm     归一化坐标   │
+│                 Point2D, Facing                                 │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+**为什么使用 NTS 作为中间层**：
+- NTS 提供强大的几何运算（布尔运算、包围盒、空间关系判断）
+- Revit API 的几何操作能力有限
+- NTS 与 BIMCanvas.Core 解耦，便于独立测试
+
+#### 6.1.5.3 自定义中间模型
+
+| 模型 | 文件 | 核心字段 | 用途 |
+|------|------|----------|------|
+| `RevitBoundary` | Models/ | `Id`, `ElementIds`, `Boundary: Polygon` | 保留元素追溯信息 |
+| `RevitOpening` | Models/ | `Id`, `ElementId`, `Type`, `LocationLine`, `FacingDirection`, `HandDirections` | 门窗几何 + 方向信息 |
+| `RevitRoom` | Models/ | `Id`, `ElementId`, `Name`, `Boundary: Polygon` | 房间边界 + 名称 |
+
+**设计原则**：保留 Revit 原生数据到最后一刻，便于追溯和调试
+
+#### 6.1.5.4 坐标转换公式（CoordinateTransformer）
+
+```csharp
+// Revit 坐标 → BIMCanvas 坐标
+dx = revitX - origin.X;
+dy = revitY - origin.Y;
+
+// 反向旋转归一化（处理视图旋转）
+localX = dx * cos(-rotation) - dy * sin(-rotation);
+localY = dx * sin(-rotation) + dy * cos(-rotation);
+
+// 单位转换：feet → mm
+x_mm = localX × 304.8;
+y_mm = localY × 304.8;
+```
+
+#### 6.1.5.5 关键工具类
+
+| 工具类 | 文件 | 职责 |
+|--------|------|------|
+| `OutlineExtractor` | Utilities/ | 在指定高度切割几何体，提取轮廓 |
+| `OpeningDirectionAnalyzer` | Utilities/ | 分析门窗开启方向（通过 IFC 导出工具） |
+| `RevitNtsGeometryConverter` | Utilities/ | Revit API ↔ NTS 类型转换扩展 |
+| `PrefixId` | Utilities/ | 生成带前缀的顺序 ID |
+| `TransactionHelper` | Utilities/ | 统一事务失败处理 |
+
+#### 6.1.5.6 开发状态
+
+| 功能 | 状态 |
+|------|------|
+| Phase 1: 核心导出功能 | ✅ 已完成 |
+| Phase 2: 回写功能 | ⬜ 待开发 |
+| Phase 3: MCP 集成 | ⬜ 待开发 |
 
 ### 6.2 BIMCanvas.Server
 
