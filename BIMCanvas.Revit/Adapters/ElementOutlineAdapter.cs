@@ -2,6 +2,7 @@ using Autodesk.Revit.DB;
 using BIMCanvas.Core.Converters;
 using BIMCanvas.Revit.Converters;
 using BIMCanvas.Revit.Models;
+using BIMCanvas.Revit.Services;
 using BIMCanvas.Revit.Utilities;
 using NetTopologySuite.Geometries;
 using NetTopologySuite.Index.HPRtree;
@@ -19,6 +20,20 @@ namespace BIMCanvas.Revit.Adapters
     public class ElementOutlineAdapter
     {
         /// <summary>
+        /// 切割高度（毫米）
+        /// </summary>
+        private readonly double _cutHeightMm;
+
+        /// <summary>
+        /// 创建边界适配器
+        /// </summary>
+        /// <param name="options">画布导出配置选项</param>
+        public ElementOutlineAdapter(ExportOptions options)
+        {
+            _cutHeightMm = options.BoundaryCutHeightMm;
+        }
+
+        /// <summary>
         /// 提取单构件轮廓列表
         /// </summary>
         /// <param name="view">Revit 平面视图</param>
@@ -31,8 +46,8 @@ namespace BIMCanvas.Revit.Adapters
             var doc = view.Document;
             var result = new List<ElementOutline>();
 
-            // 默认切割高度：1200mm（约 4 feet）
-            double cutHeightFeet = UnitConverter.ToFeet(200);
+            // 切割高度
+            double cutHeightFeet = UnitConverter.ToFeet(_cutHeightMm);
 
             // 收集并处理墙体（使用 Solid 切割，支持门洞分割）
             PrefixId.Reset("wall_");

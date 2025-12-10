@@ -1,0 +1,9 @@
+{
+  "showConfigWindow": true,
+  "defaultSavePath": null,
+  "placementElevation": 0,
+  "boundaryCutHeightMm": 200,
+  "exportBoundarys": true,
+  "exportOpenings": true,
+  "exportRooms": true
+}

@@ -21,6 +21,13 @@
   <ItemGroup>
     <ProjectReference Include="..\BIMCanvas.Core\BIMCanvas.Core.csproj" />
   </ItemGroup>
+
+  <!-- 配置文件 -->
+  <ItemGroup>
+    <None Update="ExportOptions.json">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+  </ItemGroup>
   <ItemGroup>
     <Reference Include="Revit.IFC.Export">
       <HintPath>D:\Autodesk\Revit 2019\Revit.IFC.Export.dll</HintPath>

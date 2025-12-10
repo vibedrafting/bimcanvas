@@ -43,7 +43,7 @@ namespace BIMCanvas.Revit.Services
 
             if (options.ExportBoundarys)
             {
-                var boundaryAdapter = new BoundaryAdapter();
+                var boundaryAdapter = new BoundaryAdapter(options);
                 rawBoundaries = boundaryAdapter.ExtractBoundaries(view);
             }
 

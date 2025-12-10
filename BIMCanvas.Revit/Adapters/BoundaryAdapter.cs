@@ -7,6 +7,7 @@ using BIMCanvas.Revit.Models;
 using BIMCanvas.Revit.Converters;
 using BIMCanvas.Revit.Utilities;
 using NetTopologySuite.Geometries;
+using BIMCanvas.Revit.Services;
 
 namespace BIMCanvas.Revit.Adapters
 {
@@ -15,6 +16,20 @@ namespace BIMCanvas.Revit.Adapters
     /// </summary>
     public class BoundaryAdapter
     {
+        /// <summary>
+        /// 切割高度（毫米）
+        /// </summary>
+        private readonly double _cutHeightMm;
+
+        /// <summary>
+        /// 创建边界适配器
+        /// </summary>
+        /// <param name="options">画布导出配置选项</param>
+        public BoundaryAdapter(ExportOptions options)
+        {
+            _cutHeightMm = options.BoundaryCutHeightMm;
+        }
+
         /// <summary>
         /// 提取边界轮廓（返回 Revit 原生数据）
         /// </summary>
@@ -28,8 +43,8 @@ namespace BIMCanvas.Revit.Adapters
             var doc = view.Document;
             var result = new List<RevitBoundary>();
 
-            // 默认切割高度：1200mm（约 4 feet）
-            double cutHeightFeet = UnitConverter.ToFeet(1200);
+            // 使用配置的切割高度
+            double cutHeightFeet = UnitConverter.ToFeet(_cutHeightMm);
             
             // 定义目标构件类别
             var categories = new[]

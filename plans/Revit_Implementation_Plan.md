@@ -488,7 +488,9 @@ BIMCanvas.Revit/
 │   ├── CanvasExportService.cs                 画布导出服务（6阶段流程）
 │   ├── CoordinateTransformer.cs               坐标转换器
 │   ├── RoomTypeInferrer.cs                    房间类型推断
-│   └── ExportOptions.cs                       导出配置
+│   └── ExportOptions.cs                       导出配置（支持 JSON 配置文件）
+│
+├── ExportOptions.json                      【配置文件】导出配置（随项目输出）
 │
 ├── Utilities/                              【工具层】
 │   ├── OutlineExtractor.cs                    轮廓提取（几何切割）

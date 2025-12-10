@@ -55,7 +55,9 @@ BIMCanvas.Revit/
 │   ├── CanvasExportService.cs       导出服务（6阶段流程）
 │   ├── CoordinateTransformer.cs     坐标转换器
 │   ├── RoomTypeInferrer.cs          房间类型推断
-│   └── ExportOptions.cs             导出配置
+│   └── ExportOptions.cs             导出配置（支持 JSON 配置文件）
+│
+├── ExportOptions.json            【配置文件】导出配置（随项目输出）
 │
 ├── Utilities/                    【工具层】通用功能
 │   ├── OutlineExtractor.cs          轮廓提取（几何切割）
@@ -264,17 +266,42 @@ public static class RevitNtsConverter
 
 #### ExportOptions
 
-```csharp
-public class ExportOptions
+导出配置支持从 JSON 文件加载，配置文件 `ExportOptions.json` 随 DLL 一起输出。
+
+**配置文件格式** (`ExportOptions.json`)：
+```json
 {
-    public bool ShowConfigWindow { get; set; } = true;      // 显示房间类型确认窗口
-    public string? DefaultSavePath { get; set; }            // 默认保存路径
-    public double PlacementElevation { get; set; } = 0;     // 布置高度 (mm)
-    public double BoundaryCutHeightMm { get; set; } = 1200; // 边界切割高度 (mm)
-    public bool ExportBoundarys { get; set; } = true;       // 导出边界
-    public bool ExportOpenings { get; set; } = true;        // 导出门窗
-    public bool ExportRooms { get; set; } = true;           // 导出房间
+  "showConfigWindow": true,
+  "defaultSavePath": null,
+  "placementElevation": 0,
+  "boundaryCutHeightMm": 100,
+  "exportBoundarys": true,
+  "exportOpenings": true,
+  "exportRooms": true
 }
+```
+
+**配置项说明**：
+| 配置项 | 类型 | 默认值 | 说明 |
+|--------|------|--------|------|
+| showConfigWindow | bool | true | 显示房间类型确认窗口 |
+| defaultSavePath | string? | null | 默认保存路径 |
+| placementElevation | double | 0 | 布置高度 (mm) |
+| boundaryCutHeightMm | double | 100 | 边界切割高度 (mm) |
+| exportBoundarys | bool | true | 导出边界 |
+| exportOpenings | bool | true | 导出门窗 |
+| exportRooms | bool | true | 导出房间 |
+
+**使用方式**：
+```csharp
+// 从程序集目录加载配置
+var options = ExportOptions.Load();
+
+// 从指定路径加载
+var options = ExportOptions.LoadFrom("path/to/config.json");
+
+// 保存配置
+options.Save();
 ```
 
 #### RoomTypeInferrer
