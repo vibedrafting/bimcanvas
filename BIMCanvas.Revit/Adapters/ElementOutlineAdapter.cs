@@ -1,12 +1,13 @@
+using Autodesk.Revit.DB;
+using BIMCanvas.Core.Converters;
+using BIMCanvas.Revit.Converters;
+using BIMCanvas.Revit.Models;
+using BIMCanvas.Revit.Utilities;
+using NetTopologySuite.Geometries;
+using NetTopologySuite.Index.HPRtree;
 using System;
 using System.Collections.Generic;
 using System.Linq;
-using Autodesk.Revit.DB;
-using BIMCanvas.Core.Converters;
-using BIMCanvas.Revit.Models;
-using BIMCanvas.Revit.Converters;
-using BIMCanvas.Revit.Utilities;
-using NetTopologySuite.Geometries;
 
 namespace BIMCanvas.Revit.Adapters
 {
@@ -31,7 +32,7 @@ namespace BIMCanvas.Revit.Adapters
             var result = new List<ElementOutline>();
 
             // 默认切割高度：1200mm（约 4 feet）
-            double cutHeightFeet = UnitConverter.ToFeet(1200);
+            double cutHeightFeet = UnitConverter.ToFeet(200);
 
             // 收集并处理墙体（使用 Solid 切割，支持门洞分割）
             PrefixId.Reset("wall_");
@@ -61,6 +62,27 @@ namespace BIMCanvas.Revit.Adapters
                 if (outline != null)
                     result.Add(outline);
             }
+
+            foreach (var item in result)
+            {
+                switch (item.Type)
+                {
+                    case OutlineElementType.Wall:
+                        doc.DisplayLine(item.Boundary,
+                       ColorType.Blue);
+                        break;
+                    case OutlineElementType.Column:
+                        doc.DisplayLine(item.Boundary, ColorType.Red);
+                        break;
+                    case OutlineElementType.StructuralColumn:
+                        doc.DisplayLine(item.Boundary, ColorType.Red);
+                        break;
+                    default:
+                        break;
+                }
+            }
+            System.Windows.MessageBox.Show($"{result.Count}");
+
 
             return result;
         }
