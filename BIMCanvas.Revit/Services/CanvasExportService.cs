@@ -102,14 +102,14 @@ namespace BIMCanvas.Revit.Services
             var boundaries = rawBoundaries.Select(rb => new Boundary
             {
                 Id = rb.Id,
-                Polygon = transformer.ToPolygon2D(rb.Boundary)
+                Polygon = NtsConverter.FromNtsPolygon(transformer.TransformPolygon(rb.Boundary))
             }).ToList();
 
             var openings = rawOpenings.Select(ro => new Core.Models.Document.Opening
             {
                 Id = ro.Id,
                 Type = ro.Type,
-                Line = transformer.ToLine2D(ro.LocationLine)
+                Line = NtsConverter.FromNtsLineSegment(transformer.TransformLineSegment(ro.LocationLine))
             }).ToList();
 
             var rooms = revitRooms.Select(rr => new Core.Models.Document.Room
@@ -117,7 +117,7 @@ namespace BIMCanvas.Revit.Services
                 Id = rr.Id,
                 Name = rr.Name,
                 Type = RoomTypeInferrer.InferFromName(rr.Name),
-                Boundary = transformer.ToPolygon2D(rr.Boundary)
+                Boundary = NtsConverter.FromNtsPolygon(transformer.TransformPolygon(rr.Boundary))
             }).ToList();
 
             // ===== Phase 5: 用户确认房间类型 =====

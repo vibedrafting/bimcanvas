@@ -3,20 +3,21 @@ using System.Linq;
 using System.Collections.Generic;
 using Autodesk.Revit.DB;
 using BIMCanvas.Core.Converters;
-using BIMCanvas.Core.Models.Primitives;
 using NetTopologySuite.Geometries;
 
 namespace BIMCanvas.Revit.Services
 {
     /// <summary>
     /// 坐标系转换器
-    /// 负责 Revit/NTS (feet, 项目坐标系) 与 BIMCanvas Point2D (mm, 归一化坐标系) 之间的转换
+    /// 负责 Revit/NTS (feet, 项目坐标系) 与 NTS (mm, 归一化坐标系) 之间的坐标变换
     ///
-    /// 转换链路：
-    /// - Revit XYZ (feet) → Point2D (mm)
-    /// - NTS Coordinate (feet) → Point2D (mm)
-    /// - NTS Polygon (feet) → Polygon2D (mm)
-    /// - NTS LineSegment (feet) → Line2D (mm)
+    /// 职责：
+    /// - 坐标变换（原点偏移 + 旋转）
+    /// - 单位转换（feet → mm）
+    /// - 输出变换后的 NTS 几何对象
+    ///
+    /// 不负责：
+    /// - NTS → Core.Models 类型转换（由 BIMCanvas.Core.Converters.NtsConverter 负责）
     /// </summary>
     public class CoordinateTransformer
     {
@@ -34,38 +35,41 @@ namespace BIMCanvas.Revit.Services
             _rotation = rotation;
         }
 
-        #region 基础点转换
+        #region 坐标变换方法
 
         /// <summary>
-        /// 将 Revit XYZ 转换为 BIMCanvas Point2D
+        /// 将 Revit XYZ (feet) 变换为 NTS Coordinate (mm)
         /// </summary>
-        public Point2D ToPoint2D(XYZ revitPoint)
+        public Coordinate TransformXYZ(XYZ revitPoint)
         {
             if (revitPoint == null)
                 throw new ArgumentNullException(nameof(revitPoint));
 
-            return TransformToPoint2D(revitPoint.X, revitPoint.Y);
+            return TransformToCoordinate(revitPoint.X, revitPoint.Y);
         }
 
         /// <summary>
-        /// 将 NTS Coordinate (feet) 转换为 BIMCanvas Point2D (mm)
+        /// 将 NTS Coordinate (feet) 变换为 NTS Coordinate (mm)
         /// </summary>
-        public Point2D ToPoint2D(Coordinate coord)
+        public Coordinate TransformCoordinate(Coordinate coord)
         {
             if (coord == null)
                 throw new ArgumentNullException(nameof(coord));
 
-            return TransformToPoint2D(coord.X, coord.Y);
+            return TransformToCoordinate(coord.X, coord.Y);
         }
 
         /// <summary>
-        /// 将 BIMCanvas Point2D 转换为 Revit XYZ
+        /// 将 NTS Coordinate (mm) 逆变换为 Revit XYZ (feet)
         /// </summary>
-        public XYZ ToXYZ(Point2D point, double elevation = 0)
+        public XYZ ToXYZ(Coordinate coord, double elevation = 0)
         {
+            if (coord == null)
+                throw new ArgumentNullException(nameof(coord));
+
             // 1. 单位转换：mm → feet
-            var localX = UnitConverter.ToFeet(point.X);
-            var localY = UnitConverter.ToFeet(point.Y);
+            var localX = UnitConverter.ToFeet(coord.X);
+            var localY = UnitConverter.ToFeet(coord.Y);
 
             // 2. 正向旋转
             double dx, dy;
@@ -91,9 +95,9 @@ namespace BIMCanvas.Revit.Services
         }
 
         /// <summary>
-        /// 核心坐标变换方法：将 (x, y) feet 坐标转换为 Point2D (mm)
+        /// 核心坐标变换方法：将 (x, y) feet 坐标变换为 Coordinate (mm)
         /// </summary>
-        private Point2D TransformToPoint2D(double x, double y)
+        private Coordinate TransformToCoordinate(double x, double y)
         {
             // 1. 计算相对于原点的偏移
             var dx = x - _origin.X;
@@ -115,7 +119,7 @@ namespace BIMCanvas.Revit.Services
             }
 
             // 3. 单位转换：feet → mm
-            return new Point2D(
+            return new Coordinate(
                 UnitConverter.ToMillimeters(localX),
                 UnitConverter.ToMillimeters(localY)
             );
@@ -123,77 +127,81 @@ namespace BIMCanvas.Revit.Services
 
         #endregion
 
-        #region NTS 几何转换
+        #region NTS 几何变换
+
+        private static readonly GeometryFactory Factory = new GeometryFactory();
 
         /// <summary>
-        /// 将 NTS Polygon (feet) 转换为 BIMCanvas Polygon2D (mm)
+        /// 将 NTS Polygon (feet) 变换为 NTS Polygon (mm)
         /// 支持内环（孔洞）
         /// </summary>
-        public Polygon2D ToPolygon2D(Polygon ntsPolygon)
+        public Polygon TransformPolygon(Polygon ntsPolygon)
         {
             if (ntsPolygon == null)
                 throw new ArgumentNullException(nameof(ntsPolygon));
 
-            // 转换外环
-            var shell = ConvertRingToPoints(ntsPolygon.Shell);
+            // 变换外环
+            var shell = TransformRing(ntsPolygon.Shell);
 
-            // 转换内环
-            Point2D[][] holes = null;
+            // 变换内环
+            LinearRing[] holes = null;
             if (ntsPolygon.NumInteriorRings > 0)
             {
-                var holesList = new List<Point2D[]>();
+                var holesList = new List<LinearRing>();
                 for (int i = 0; i < ntsPolygon.NumInteriorRings; i++)
                 {
-                    var holePoints = ConvertRingToPoints(ntsPolygon.GetInteriorRingN(i));
-                    if (holePoints.Length >= 3)
-                        holesList.Add(holePoints);
+                    var holeRing = TransformRing(ntsPolygon.GetInteriorRingN(i));
+                    if (holeRing != null)
+                        holesList.Add(holeRing);
                 }
                 holes = holesList.ToArray();
             }
 
-            return new Polygon2D(shell, holes);
+            return Factory.CreatePolygon(shell, holes);
         }
 
         /// <summary>
-        /// 将 NTS LineSegment (feet) 转换为 BIMCanvas Line2D (mm)
+        /// 将 NTS LineSegment (feet) 变换为 NTS LineSegment (mm)
         /// </summary>
-        /// <param name="segment"></param>
-        /// <returns></returns>
-        /// <exception cref="ArgumentNullException"></exception>
-        public Line2D ToLine2D(NetTopologySuite.Geometries.LineSegment segment)
+        public NetTopologySuite.Geometries.LineSegment TransformLineSegment(NetTopologySuite.Geometries.LineSegment segment)
         {
             if (segment == null)
                 throw new ArgumentNullException(nameof(segment));
 
-            return new Line2D(
-                ToPoint2D(segment.P0),
-                ToPoint2D(segment.P1)
+            return new NetTopologySuite.Geometries.LineSegment(
+                TransformCoordinate(segment.P0),
+                TransformCoordinate(segment.P1)
             );
         }
 
         /// <summary>
-        /// 将 NTS LinearRing 转换为 Point2D 数组（去除闭合点，去重）
+        /// 将 NTS LinearRing 变换为新的 LinearRing（去除闭合点，去重后重新闭合）
         /// </summary>
-        private Point2D[] ConvertRingToPoints(LineString ring)
+        private LinearRing TransformRing(LineString ring)
         {
-            var points = new List<Point2D>();
-            var coords = ring.Coordinates;
+            var coords = new List<Coordinate>();
+            var sourceCoords = ring.Coordinates;
 
             // 跳过最后一个闭合点
-            for (int i = 0; i < coords.Length - 1; i++)
+            for (int i = 0; i < sourceCoords.Length - 1; i++)
             {
-                var pt = ToPoint2D(coords[i]);
+                var transformed = TransformCoordinate(sourceCoords[i]);
 
                 // 去重相邻点（阈值 0.01mm）
-                if (points.Count == 0 ||
-                    Math.Abs(pt.X - points.Last().X) > 0.01 ||
-                    Math.Abs(pt.Y - points.Last().Y) > 0.01)
+                if (coords.Count == 0 ||
+                    Math.Abs(transformed.X - coords.Last().X) > 0.01 ||
+                    Math.Abs(transformed.Y - coords.Last().Y) > 0.01)
                 {
-                    points.Add(pt);
+                    coords.Add(transformed);
                 }
             }
 
-            return points.ToArray();
+            if (coords.Count < 3)
+                return null;
+
+            // NTS LinearRing 需要闭合
+            coords.Add(coords[0]);
+            return Factory.CreateLinearRing(coords.ToArray());
         }
 
         #endregion

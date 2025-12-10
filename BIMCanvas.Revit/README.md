@@ -119,7 +119,8 @@ Phase 4: 统一坐标转换
 │  RevitOpening (NTS LineSegment) → Opening (Line2D, mm)      │
 │  RevitRoom (NTS Polygon)      → Room (Polygon2D, mm)        │
 │      ↓                                                      │
-│  transformer.ToPolygon2D() / ToLine2D()                     │
+│  transformer.TransformPolygon() / TransformLineSegment()    │
+│  NtsConverter.FromNtsPolygon() / FromNtsLineSegment()       │
 │  归一化坐标系 | mm | 原点左下角                               │
 └─────────────────────────────────────────────────────────────┘
 
@@ -377,8 +378,10 @@ using (var trans = new Transaction(doc, "操作名"))
 |--------|----------|----------|
 | `XYZ` | `Coordinate` | `point.ToCoordinate()` |
 | `CurveLoop` | `Polygon` | `curveLoop.ToPolygon()` |
-| `Polygon` | `Polygon2D` | `transformer.ToPolygon2D()` |
-| `LineSegment` | `Line2D` | `transformer.ToLine2D()` |
+| `Polygon` (feet) | `Polygon` (mm) | `transformer.TransformPolygon()` |
+| `LineSegment` (feet) | `LineSegment` (mm) | `transformer.TransformLineSegment()` |
+| `Polygon` (NTS) | `Polygon2D` | `NtsConverter.FromNtsPolygon()` |
+| `LineSegment` (NTS) | `Line2D` | `NtsConverter.FromNtsLineSegment()` |
 | `XYZ` (向量) | `Vector2D` | `xyz.ToVector2D()` |
 
 ---
