@@ -1,6 +1,6 @@
 using System.Runtime.Serialization;
 
-namespace BIMCanvas.Core.Models.Document
+namespace BIMCanvas.Core.Models.RevitWriteback
 {
     /// <summary>
     /// 朝向方向枚举（8 个标准方向）

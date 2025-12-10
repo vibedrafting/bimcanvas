@@ -5,7 +5,10 @@ using System.Linq;
 using System.Text;
 using Autodesk.Revit.DB;
 using BIMCanvas.Core.Converters;
-using BIMCanvas.Core.Models.Document;
+using BIMCanvas.Core.Models.RevitSource;
+using BIMCanvas.Core.Models.CanvasData;
+using BIMCanvas.Core.Models.RevitWriteback;
+using BIMCanvas.Core.Models.Shared;
 using BIMCanvas.Revit.Adapters;
 using BIMCanvas.Revit.Models;
 using BIMCanvas.Revit.Views;
@@ -119,7 +122,7 @@ namespace BIMCanvas.Revit.Services
             // 新增：转换单独墙体轮廓
             var walls = elementOutlines
                 .Where(e => e.Type == OutlineElementType.Wall)
-                .Select(e => new Core.Models.Document.Wall
+                .Select(e => new Core.Models.RevitSource.Wall
                 {
                     Id = e.Id,
                     ElementId = e.ElementId,
@@ -138,7 +141,7 @@ namespace BIMCanvas.Revit.Services
                 }).ToList();
 
             // 门窗转换
-            var openings = rawOpenings.Select(ro => new Core.Models.Document.Opening
+            var openings = rawOpenings.Select(ro => new Core.Models.RevitSource.Opening
             {
                 Id = ro.Id,
                 Type = ro.Type,
@@ -161,7 +164,7 @@ namespace BIMCanvas.Revit.Services
             }).ToList();
 
             // 房间转换
-            var rooms = revitRooms.Select(rr => new Core.Models.Document.Room
+            var rooms = revitRooms.Select(rr => new Core.Models.RevitSource.Room
             {
                 Id = rr.Id,
                 Name = rr.Name,
@@ -200,17 +203,15 @@ namespace BIMCanvas.Revit.Services
             var metadata = new Metadata
             {
                 PlacementElevation = options.PlacementElevation,
-                CoordinateTransform = new CoordinateTransform
+                // 坐标变换参数（已合并到 Metadata）
+                Origin = new[]
                 {
-                    Origin = new[]
-                    {
-                        UnitConverter.ToMillimeters(origin.X),
-                        UnitConverter.ToMillimeters(origin.Y),
-                        0.0
-                    },
-                    Rotation = rotation,
-                    Method = originMethod
-                }
+                    UnitConverter.ToMillimeters(origin.X),
+                    UnitConverter.ToMillimeters(origin.Y),
+                    0.0
+                },
+                Rotation = rotation,
+                Method = originMethod
             };
 
             return new CanvasDocument

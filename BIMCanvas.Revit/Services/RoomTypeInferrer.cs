@@ -1,6 +1,6 @@
 using System;
 using System.Collections.Generic;
-using BIMCanvas.Core.Models.Document;
+using BIMCanvas.Core.Models.Shared;
 
 namespace BIMCanvas.Revit.Services
 {

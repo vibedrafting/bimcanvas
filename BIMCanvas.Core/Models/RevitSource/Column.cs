@@ -1,6 +1,6 @@
 using BIMCanvas.Core.Models.Primitives;
 
-namespace BIMCanvas.Core.Models.Document
+namespace BIMCanvas.Core.Models.RevitSource
 {
     /// <summary>
     /// 单独柱子轮廓

@@ -1,5 +1,6 @@
 using System.Collections.Generic;
-using BIMCanvas.Core.Models.Document;
+using BIMCanvas.Core.Models.CanvasData;
+using BIMCanvas.Core.Models.RevitWriteback;
 using BIMCanvas.Core.Models.Primitives;
 using BIMCanvas.Core.Validation;
 

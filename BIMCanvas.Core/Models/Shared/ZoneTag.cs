@@ -1,4 +1,4 @@
-namespace BIMCanvas.Core.Models.Document
+namespace BIMCanvas.Core.Models.Shared
 {
     /// <summary>
     /// 区域功能标签枚举（细粒度分类）

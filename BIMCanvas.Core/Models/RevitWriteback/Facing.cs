@@ -3,7 +3,7 @@ using Newtonsoft.Json;
 using BIMCanvas.Core.Converters.Json;
 using BIMCanvas.Core.Models.Primitives;
 
-namespace BIMCanvas.Core.Models.Document
+namespace BIMCanvas.Core.Models.RevitWriteback
 {
     /// <summary>
     /// 朝向 - 支持语义方向枚举或 Vec2D 向量

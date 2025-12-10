@@ -1,6 +1,6 @@
 using System;
 using BIMCanvas.Core.Algorithms.Geometries;
-using BIMCanvas.Core.Models.Document;
+using BIMCanvas.Core.Models.RevitWriteback;
 using BIMCanvas.Core.Models.Primitives;
 
 namespace BIMCanvas.Core.Algorithms.Spatial

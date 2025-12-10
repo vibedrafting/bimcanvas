@@ -1,7 +1,7 @@
 using System.Collections.Generic;
 using BIMCanvas.Core.Models.Primitives;
 
-namespace BIMCanvas.Core.Models.Document
+namespace BIMCanvas.Core.Models.RevitWriteback
 {
     /// <summary>
     /// 布置模块（最小布置单元）

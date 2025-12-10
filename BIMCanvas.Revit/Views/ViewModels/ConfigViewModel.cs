@@ -5,7 +5,8 @@ using System.ComponentModel;
 using System.Linq;
 using System.Runtime.CompilerServices;
 using System.Windows.Input;
-using BIMCanvas.Core.Models.Document;
+using BIMCanvas.Core.Models.RevitSource;
+using BIMCanvas.Core.Models.Shared;
 using BIMCanvas.Revit.Services;
 
 namespace BIMCanvas.Revit.Views.ViewModels

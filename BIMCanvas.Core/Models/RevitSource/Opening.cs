@@ -1,7 +1,7 @@
 using BIMCanvas.Core.Models.Primitives;
 using System.Collections.Generic;
 
-namespace BIMCanvas.Core.Models.Document
+namespace BIMCanvas.Core.Models.RevitSource
 {
     /// <summary>
     /// 门窗类型

@@ -1,4 +1,4 @@
-namespace BIMCanvas.Core.Models.Document
+namespace BIMCanvas.Core.Models.Shared
 {
     /// <summary>
     /// 完成面来源枚举

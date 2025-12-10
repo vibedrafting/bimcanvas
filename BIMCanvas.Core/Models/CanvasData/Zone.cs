@@ -1,7 +1,8 @@
 using System.Collections.Generic;
 using BIMCanvas.Core.Models.Primitives;
+using BIMCanvas.Core.Models.Shared;
 
-namespace BIMCanvas.Core.Models.Document
+namespace BIMCanvas.Core.Models.CanvasData
 {
     /// <summary>
     /// 设计区域

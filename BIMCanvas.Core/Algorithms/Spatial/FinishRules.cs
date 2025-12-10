@@ -1,5 +1,5 @@
 using System.Collections.Generic;
-using BIMCanvas.Core.Models.Document;
+using BIMCanvas.Core.Models.Shared;
 
 namespace BIMCanvas.Core.Algorithms.Spatial
 {
