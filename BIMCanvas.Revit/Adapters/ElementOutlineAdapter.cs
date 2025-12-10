@@ -33,37 +33,33 @@ namespace BIMCanvas.Revit.Adapters
             double cutHeightFeet = UnitConverter.ToFeet(1200);
 
             // 收集并处理墙体
+            PrefixId.Reset("wall_");
             var walls = CollectElements(doc, view, BuiltInCategory.OST_Walls);
             foreach (var wall in walls)
             {
-                var outline = ExtractSingleOutline(wall, cutHeightFeet, OutlineElementType.Wall);
+                var outline = ExtractSingleOutline(wall, cutHeightFeet, OutlineElementType.Wall, "wall_");
                 if (outline != null)
                     result.Add(outline);
             }
 
             // 收集并处理建筑柱
+            PrefixId.Reset("col_");
             var columns = CollectElements(doc, view, BuiltInCategory.OST_Columns);
             foreach (var column in columns)
             {
-                var outline = ExtractSingleOutline(column, cutHeightFeet, OutlineElementType.Column);
+                var outline = ExtractSingleOutline(column, cutHeightFeet, OutlineElementType.Column, "col_");
                 if (outline != null)
                     result.Add(outline);
             }
 
             // 收集并处理结构柱
+            PrefixId.Reset("scol_");
             var structuralColumns = CollectElements(doc, view, BuiltInCategory.OST_StructuralColumns);
             foreach (var column in structuralColumns)
             {
-                var outline = ExtractSingleOutline(column, cutHeightFeet, OutlineElementType.StructuralColumn);
+                var outline = ExtractSingleOutline(column, cutHeightFeet, OutlineElementType.StructuralColumn, "scol_");
                 if (outline != null)
                     result.Add(outline);
-            }
-
-            // 重新分配 ID
-            PrefixId.Reset("outline_");
-            foreach (var outline in result)
-            {
-                outline.Id = PrefixId.NewId("outline_", 3);
             }
 
             return result;
@@ -84,7 +80,7 @@ namespace BIMCanvas.Revit.Adapters
         /// <summary>
         /// 提取单个构件的轮廓
         /// </summary>
-        private ElementOutline ExtractSingleOutline(Element element, double cutHeight, OutlineElementType elementType)
+        private ElementOutline ExtractSingleOutline(Element element, double cutHeight, OutlineElementType elementType, string idPrefix)
         {
             try
             {
@@ -106,6 +102,7 @@ namespace BIMCanvas.Revit.Adapters
 
                 return new ElementOutline
                 {
+                    Id = PrefixId.NewId(idPrefix, 3),
                     ElementId = element.Id.IntegerValue,
                     Type = elementType,
                     Boundary = polygon
