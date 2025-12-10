@@ -157,6 +157,9 @@ namespace BIMCanvas.Revit.Services
         /// <summary>
         /// 将 NTS LineSegment (feet) 转换为 BIMCanvas Line2D (mm)
         /// </summary>
+        /// <param name="segment"></param>
+        /// <returns></returns>
+        /// <exception cref="ArgumentNullException"></exception>
         public Line2D ToLine2D(NetTopologySuite.Geometries.LineSegment segment)
         {
             if (segment == null)
