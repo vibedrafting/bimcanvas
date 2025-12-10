@@ -30,7 +30,7 @@ namespace BIMCanvas.Revit.Adapters
 
             // 默认切割高度：1200mm（约 4 feet）
             double cutHeightFeet = UnitConverter.ToFeet(1200);
-
+            
             // 定义目标构件类别
             var categories = new[]
             {
@@ -97,6 +97,21 @@ namespace BIMCanvas.Revit.Adapters
                     continue;
                 }
             }
+
+
+            foreach (var item in result)
+            {
+                doc.DisplayDirectShape(new Polygon(new LinearRing(item.Boundary.ExteriorRing.Coordinates)), ColorType.Red);
+                foreach (var ring in item.Boundary.InteriorRings)
+                {
+                    doc.DisplayLine(new Polygon(new LinearRing(ring.Coordinates)), ColorType.Blue);
+                    doc.DisplayLine(new Polygon(new LinearRing(ring.Coordinates)).Centroid.Coordinate, ColorType.Blue);
+                }
+
+                System.Windows.MessageBox.Show($"InteriorRings:{item.Boundary.InteriorRings.Count()}");
+            }
+            System.Windows.MessageBox.Show($"result:{result.Count}");
+
 
             return result;
         }

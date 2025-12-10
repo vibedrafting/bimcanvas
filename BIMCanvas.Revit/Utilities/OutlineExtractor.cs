@@ -256,6 +256,7 @@ namespace BIMCanvas.Revit.Utilities
 
         /// <summary>
         /// 从 Solid 提取指定高度的顶面轮廓（支持外环 + 内环）
+        /// 使用绕向（有符号面积）判断：CCW = 外环，CW = 内环
         /// </summary>
         /// <param name="solid">切割后的 Solid</param>
         /// <param name="targetHeight">目标高度（英尺）</param>
@@ -277,9 +278,8 @@ namespace BIMCanvas.Revit.Utilities
                     XYZ origin = planarFace.Origin;
                     if (Math.Abs(origin.Z - targetHeight) < tolerance)
                     {
-                        CurveLoop shell = null;
-                        var holes = new List<CurveLoop>();
-                        bool isFirst = true;
+                        // 1. 收集所有 CurveLoop 并计算有符号面积
+                        var loopsWithArea = new List<(CurveLoop Loop, double SignedArea)>();
 
                         foreach (EdgeArray edgeArray in face.EdgeLoops)
                         {
@@ -295,16 +295,8 @@ namespace BIMCanvas.Revit.Utilities
                                 if (sortedCurves != null && sortedCurves.Count > 0)
                                 {
                                     var curveLoop = CurveLoop.Create(sortedCurves);
-
-                                    if (isFirst)
-                                    {
-                                        shell = curveLoop;  // 第一个是外环
-                                        isFirst = false;
-                                    }
-                                    else
-                                    {
-                                        holes.Add(curveLoop);  // 后续是内环
-                                    }
+                                    double signedArea = CalculateSignedArea(curveLoop);
+                                    loopsWithArea.Add((curveLoop, signedArea));
                                 }
                             }
                             catch
@@ -313,13 +305,106 @@ namespace BIMCanvas.Revit.Utilities
                             }
                         }
 
-                        if (shell != null)
-                            result.Add((shell, holes));
+                        // 2. 分离外环（正面积/CCW）和内环（负面积/CW）
+                        var shells = loopsWithArea.Where(x => x.SignedArea > 0).Select(x => x.Loop).ToList();
+                        var holes = loopsWithArea.Where(x => x.SignedArea < 0).Select(x => x.Loop).ToList();
+
+                        // 3. 每个外环配对内环
+                        if (shells.Count == 1)
+                        {
+                            // 单外环：所有内环归属该外环
+                            result.Add((shells[0], holes));
+                        }
+                        else if (shells.Count > 1)
+                        {
+                            // 多外环：根据包含关系分配内环
+                            foreach (var shell in shells)
+                            {
+                                var containedHoles = new List<CurveLoop>();
+                                foreach (var hole in holes)
+                                {
+                                    if (IsLoopInsideLoop(hole, shell))
+                                    {
+                                        containedHoles.Add(hole);
+                                    }
+                                }
+                                result.Add((shell, containedHoles));
+                            }
+                        }
+                        // shells.Count == 0 时不添加结果
                     }
                 }
             }
 
             return result;
+        }
+
+        /// <summary>
+        /// 计算 CurveLoop 的有符号面积（Shoelace 公式）
+        /// 正值 = CCW（逆时针）= 外环
+        /// 负值 = CW（顺时针）= 内环
+        /// </summary>
+        private static double CalculateSignedArea(CurveLoop curveLoop)
+        {
+            double area = 0;
+            foreach (Curve curve in curveLoop)
+            {
+                XYZ p0 = curve.GetEndPoint(0);
+                XYZ p1 = curve.GetEndPoint(1);
+                // Shoelace formula: 0.5 * Σ(x_i * y_{i+1} - x_{i+1} * y_i)
+                area += (p0.X * p1.Y - p1.X * p0.Y);
+            }
+            return area / 2.0;
+        }
+
+        /// <summary>
+        /// 判断内环是否在外环内部（使用质心点测试）
+        /// </summary>
+        private static bool IsLoopInsideLoop(CurveLoop inner, CurveLoop outer)
+        {
+            // 计算内环的质心
+            double cx = 0, cy = 0;
+            int count = 0;
+            foreach (Curve curve in inner)
+            {
+                var p = curve.GetEndPoint(0);
+                cx += p.X;
+                cy += p.Y;
+                count++;
+            }
+            cx /= count;
+            cy /= count;
+
+            // 使用射线法判断点是否在外环内
+            return IsPointInsideLoop(cx, cy, outer);
+        }
+
+        /// <summary>
+        /// 射线法判断点是否在多边形内
+        /// </summary>
+        private static bool IsPointInsideLoop(double px, double py, CurveLoop loop)
+        {
+            int crossings = 0;
+            foreach (Curve curve in loop)
+            {
+                var p0 = curve.GetEndPoint(0);
+                var p1 = curve.GetEndPoint(1);
+
+                double y0 = p0.Y, y1 = p1.Y;
+                double x0 = p0.X, x1 = p1.X;
+
+                // 检查射线（向右）与边的交点
+                if ((y0 <= py && y1 > py) || (y1 <= py && y0 > py))
+                {
+                    double t = (py - y0) / (y1 - y0);
+                    double xIntersect = x0 + t * (x1 - x0);
+                    if (px < xIntersect)
+                    {
+                        crossings++;
+                    }
+                }
+            }
+            return (crossings % 2) == 1;
         }
 
         /// <summary>

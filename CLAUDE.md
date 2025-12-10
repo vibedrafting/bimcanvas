@@ -215,6 +215,19 @@ CanvasDocument
 - Edit 工具可能导致中文乱码，批量替换前先存档
 - 优先编辑现有文件，不创建新文件
 
+### 调试代码规范
+
+调试输出统一使用 `System.Diagnostics.Trace.WriteLine()`：
+
+```csharp
+System.Diagnostics.Trace.WriteLine($"[方法名] 调试信息: {变量}");
+```
+
+**规范要求**：
+- 前缀格式：`[类名/方法名]`，便于过滤
+- 调试完成后必须删除调试代码
+- 不要使用 `Console.WriteLine` 或 `MessageBox`（会阻塞 UI）
+
 ---
 
 ## 常用命令
