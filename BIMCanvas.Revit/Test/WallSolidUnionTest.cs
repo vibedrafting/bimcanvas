@@ -44,10 +44,19 @@ namespace BIMCanvas.Revit.Test
                     view: uiDoc.ActiveView
                 );
 
-                // Step 3: 可视化轮廓
+                // Step 3: 可视化轮廓（外环 + 内环）
                 if (outlines.Count > 0)
                 {
-                    VisualizeLoops(outlines);
+                    // 收集所有环（外环 + 内环）用于可视化
+                    var allLoops = new List<CurveLoop>();
+                    foreach (var outline in outlines)
+                    {
+                        if (outline.Shell != null)
+                            allLoops.Add(outline.Shell);
+                        if (outline.Holes != null)
+                            allLoops.AddRange(outline.Holes);
+                    }
+                    VisualizeLoops(allLoops);
                 }
 
                 // Step 4: 显示结果

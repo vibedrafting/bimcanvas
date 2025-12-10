@@ -55,6 +55,22 @@ namespace BIMCanvas.Revit.Services
         }
 
         /// <summary>
+        /// 变换线段
+        /// </summary>
+        /// <param name="segment">输入线段（feet，项目坐标系）</param>
+        /// <returns>输出线段（mm，归一化坐标系）</returns>
+        public LineSegment TransformLineSegment(LineSegment segment)
+        {
+            if (segment == null)
+                throw new ArgumentNullException(nameof(segment));
+
+            return new LineSegment(
+                TransformCoordinate(segment.P0),
+                TransformCoordinate(segment.P1)
+            );
+        }
+
+        /// <summary>
         /// 变换多边形（支持内环/孔洞）
         /// </summary>
         /// <param name="ntsPolygon">输入多边形（feet，项目坐标系）</param>
@@ -82,22 +98,6 @@ namespace BIMCanvas.Revit.Services
             }
 
             return Factory.CreatePolygon(shell, holes);
-        }
-
-        /// <summary>
-        /// 变换线段
-        /// </summary>
-        /// <param name="segment">输入线段（feet，项目坐标系）</param>
-        /// <returns>输出线段（mm，归一化坐标系）</returns>
-        public LineSegment TransformLineSegment(LineSegment segment)
-        {
-            if (segment == null)
-                throw new ArgumentNullException(nameof(segment));
-
-            return new LineSegment(
-                TransformCoordinate(segment.P0),
-                TransformCoordinate(segment.P1)
-            );
         }
 
         #endregion

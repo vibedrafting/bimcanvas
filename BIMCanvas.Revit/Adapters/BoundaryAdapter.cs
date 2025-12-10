@@ -39,8 +39,8 @@ namespace BIMCanvas.Revit.Adapters
                 BuiltInCategory.OST_StructuralColumns
             };
 
-            // 使用 OutlineExtractor 提取轮廓
-            List<CurveLoop> outlines;
+            // 使用 OutlineExtractor 提取轮廓（支持外环 + 内环）
+            List<(CurveLoop Shell, List<CurveLoop> Holes)> outlines;
             try
             {
                 outlines = OutlineExtractor.GetOutlines(
@@ -66,22 +66,15 @@ namespace BIMCanvas.Revit.Adapters
             // 重置 ID 计数器
             PrefixId.Reset("boundary_");
 
-            // TODO: 内环支持说明
-            // 当前实现将每个 CurveLoop 作为独立的边界处理。
-            // OutlineExtractor.ExtractTopFaceLoops 返回的是切割面所有 EdgeLoops 的展平列表，
-            // 包含外环和内环（如柱子形成的孔洞），但已丢失了外环-内环的包含关系。
-            // 如需支持带内环的边界，需要：
-            // 1. 修改 OutlineExtractor 返回 PlanarFace 而非 List<CurveLoop>
-            // 2. 或使用几何包含判断重建外环-内环关系
-            // 转换每个 CurveLoop 为 RevitBoundary
-            foreach (var curveLoop in outlines)
+            // 转换每个轮廓为 RevitBoundary（支持内环）
+            foreach (var outline in outlines)
             {
                 try
                 {
-                    if (curveLoop == null)
+                    if (outline.Shell == null)
                         continue;
 
-                    var polygon = curveLoop.ToPolygon();
+                    var polygon = outline.ToPolygon();
                     if (polygon == null)
                         continue;
 
@@ -103,12 +96,6 @@ namespace BIMCanvas.Revit.Adapters
                     // 转换失败，跳过该轮廓
                     continue;
                 }
-            }
-
-            foreach (var item in result)
-            {
-                doc.DisplayDirectShape(item.Boundary, ColorType.Red);
-                System.Windows.MessageBox.Show($"{item.Boundary.InteriorRings.Count()}");
             }
 
             return result;

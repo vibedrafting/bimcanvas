@@ -76,7 +76,62 @@ namespace BIMCanvas.Revit.Converters
         #region CurveLoop / PlanarFace → NTS Polygon
 
         /// <summary>
-        /// Revit CurveLoop → NTS Polygon
+        /// Revit CurveLoop → NTS LinearRing
+        /// </summary>
+        public static LinearRing ToLinearRing(this CurveLoop curveLoop)
+        {
+            if (curveLoop == null)
+                return null;
+
+            var coordinates = new List<Coordinate>();
+            foreach (Curve curve in curveLoop)
+            {
+                var startPoint = curve.GetEndPoint(0);
+                coordinates.Add(new Coordinate(startPoint.X, startPoint.Y));
+            }
+
+            if (coordinates.Count < 3)
+                return null;
+
+            // NTS LinearRing 需要首尾闭合
+            coordinates.Add(coordinates[0]);
+
+            return new LinearRing(coordinates.ToArray());
+        }
+
+        /// <summary>
+        /// 带内环的轮廓 → NTS Polygon
+        /// </summary>
+        /// <param name="outline">外环 + 内环列表的元组</param>
+        /// <returns>NTS Polygon（支持内环）</returns>
+        public static Polygon ToPolygon(this (CurveLoop Shell, List<CurveLoop> Holes) outline)
+        {
+            if (outline.Shell == null)
+                return null;
+
+            var shell = outline.Shell.ToLinearRing();
+            if (shell == null)
+                return null;
+
+            LinearRing[] holes = null;
+            if (outline.Holes != null && outline.Holes.Count > 0)
+            {
+                var holeList = new List<LinearRing>();
+                foreach (var hole in outline.Holes)
+                {
+                    var holeRing = hole.ToLinearRing();
+                    if (holeRing != null)
+                        holeList.Add(holeRing);
+                }
+                if (holeList.Count > 0)
+                    holes = holeList.ToArray();
+            }
+
+            return new Polygon(shell, holes);
+        }
+
+        /// <summary>
+        /// Revit CurveLoop → NTS Polygon（无内环，保留兼容性）
         /// 假设 CurveLoop 全部由 Line 组成，否则返回 null
         /// </summary>
         public static Polygon ToPolygon(this CurveLoop curveLoop, bool autoIntersection = false)

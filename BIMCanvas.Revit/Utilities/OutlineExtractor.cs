@@ -14,7 +14,7 @@ namespace BIMCanvas.Revit.Utilities
         #region 公开 API
 
         /// <summary>
-        /// 获取指定类型构件在指定高度的平面轮廓
+        /// 获取指定类型构件在指定高度的平面轮廓（支持外环 + 内环）
         /// </summary>
         /// <param name="doc">Revit 文档</param>
         /// <param name="categories">构件类别列表</param>
@@ -22,10 +22,10 @@ namespace BIMCanvas.Revit.Utilities
         /// <param name="level">标高，与 height 二选一</param>
         /// <param name="heightOffset">相对于标高或 Solid 底部的偏移（英尺），默认 1 英尺</param>
         /// <param name="view">可选的视图过滤（仅收集视图中可见的构件）</param>
-        /// <returns>轮廓列表，每个不相连的区域一个 CurveLoop</returns>
+        /// <returns>轮廓列表，每个元组包含外环 Shell 和内环列表 Holes</returns>
         /// <exception cref="ArgumentNullException">doc 或 categories 为空</exception>
         /// <exception cref="ArgumentException">height 和 level 都未指定</exception>
-        public static List<CurveLoop> GetOutlines(
+        public static List<(CurveLoop Shell, List<CurveLoop> Holes)> GetOutlines(
             Document doc,
             IEnumerable<BuiltInCategory> categories,
             double? height = null,
@@ -41,7 +41,7 @@ namespace BIMCanvas.Revit.Utilities
             // Step 1: 收集构件
             var elements = CollectElements(doc, categories, view);
             if (elements.Count == 0)
-                return new List<CurveLoop>();
+                return new List<(CurveLoop Shell, List<CurveLoop> Holes)>();
 
             // Step 2: 获取所有 Solid
             var solids = new List<Solid>();
@@ -55,12 +55,12 @@ namespace BIMCanvas.Revit.Utilities
             }
 
             if (solids.Count == 0)
-                return new List<CurveLoop>();
+                return new List<(CurveLoop Shell, List<CurveLoop> Holes)>();
 
             // Step 3: 合并所有 Solid
             Solid mergedSolid = UnionSolids(solids);
             if (mergedSolid == null)
-                return new List<CurveLoop>();
+                return new List<(CurveLoop Shell, List<CurveLoop> Holes)>();
 
             // Step 4: 确定切割高度
             double cutHeight;
@@ -221,11 +221,11 @@ namespace BIMCanvas.Revit.Utilities
         #region 切割与轮廓提取
 
         /// <summary>
-        /// 在指定高度切割 Solid 并提取切割面轮廓
+        /// 在指定高度切割 Solid 并提取切割面轮廓（支持外环 + 内环）
         /// </summary>
-        private static List<CurveLoop> CutAtHeight(Solid solid, double height)
+        private static List<(CurveLoop Shell, List<CurveLoop> Holes)> CutAtHeight(Solid solid, double height)
         {
-            var loops = new List<CurveLoop>();
+            var result = new List<(CurveLoop Shell, List<CurveLoop> Holes)>();
 
             try
             {
@@ -240,26 +240,29 @@ namespace BIMCanvas.Revit.Utilities
 
                 if (cutSolid == null || cutSolid.Volume <= 0)
                 {
-                    return loops;
+                    return result;
                 }
 
                 // 提取顶面轮廓
-                loops = ExtractTopFaceLoops(cutSolid, height);
+                result = ExtractTopFaceLoops(cutSolid, height);
             }
             catch
             {
                 // 切割失败，返回空列表
             }
 
-            return loops;
+            return result;
         }
 
         /// <summary>
-        /// 从 Solid 提取指定高度的顶面轮廓
+        /// 从 Solid 提取指定高度的顶面轮廓（支持外环 + 内环）
         /// </summary>
-        private static List<CurveLoop> ExtractTopFaceLoops(Solid solid, double targetHeight)
+        /// <param name="solid">切割后的 Solid</param>
+        /// <param name="targetHeight">目标高度（英尺）</param>
+        /// <returns>轮廓列表，每个元组包含外环 Shell 和内环列表 Holes</returns>
+        private static List<(CurveLoop Shell, List<CurveLoop> Holes)> ExtractTopFaceLoops(Solid solid, double targetHeight)
         {
-            var loops = new List<CurveLoop>();
+            var result = new List<(CurveLoop Shell, List<CurveLoop> Holes)>();
             double tolerance = 0.01; // 高度容差（英尺）
 
             foreach (Face face in solid.Faces)
@@ -274,6 +277,10 @@ namespace BIMCanvas.Revit.Utilities
                     XYZ origin = planarFace.Origin;
                     if (Math.Abs(origin.Z - targetHeight) < tolerance)
                     {
+                        CurveLoop shell = null;
+                        var holes = new List<CurveLoop>();
+                        bool isFirst = true;
+
                         foreach (EdgeArray edgeArray in face.EdgeLoops)
                         {
                             var curves = new List<Curve>();
@@ -288,7 +295,16 @@ namespace BIMCanvas.Revit.Utilities
                                 if (sortedCurves != null && sortedCurves.Count > 0)
                                 {
                                     var curveLoop = CurveLoop.Create(sortedCurves);
-                                    loops.Add(curveLoop);
+
+                                    if (isFirst)
+                                    {
+                                        shell = curveLoop;  // 第一个是外环
+                                        isFirst = false;
+                                    }
+                                    else
+                                    {
+                                        holes.Add(curveLoop);  // 后续是内环
+                                    }
                                 }
                             }
                             catch
@@ -296,11 +312,14 @@ namespace BIMCanvas.Revit.Utilities
                                 // CurveLoop 创建失败，跳过
                             }
                         }
+
+                        if (shell != null)
+                            result.Add((shell, holes));
                     }
                 }
             }
 
-            return loops;
+            return result;
         }
 
         /// <summary>

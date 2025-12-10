@@ -215,32 +215,51 @@ public class RevitRoom
 
 #### CoordinateTransformer
 
+NTS 几何对象坐标变换器，负责 NTS (feet, 项目坐标系) → NTS (mm, 归一化坐标系) 的变换。
+
 ```csharp
 public class CoordinateTransformer
 {
     private readonly Coordinate _origin;  // 原点 (feet)
     private readonly double _rotation;    // 旋转角度 (弧度)
 
-    // 核心转换方法
-    public Point2D ToPoint2D(XYZ revitPoint);
-    public XYZ ToXYZ(Point2D point, double elevation = 0);
-    public Polygon2D ToPolygon2D(Polygon ntsPolygon);
-    public Line2D ToLine2D(LineSegment segment);
+    // 坐标变换方法（输入 NTS feet，输出 NTS mm）
+    public Coordinate TransformCoordinate(Coordinate coord);
+    public Polygon TransformPolygon(Polygon ntsPolygon);      // 支持内环
+    public LineSegment TransformLineSegment(LineSegment segment);
 }
 ```
 
-**转换公式**：
+**变换流程**（所有方法统一执行）：
 ```
-dx = revitX - origin.X
-dy = revitY - origin.Y
+1. 原点偏移：dx = x - origin.X, dy = y - origin.Y
+2. 旋转归一化：localX = dx * cos(-rotation) - dy * sin(-rotation)
+                localY = dx * sin(-rotation) + dy * cos(-rotation)
+3. 单位转换：x_mm = localX × 304.8, y_mm = localY × 304.8
+```
 
-// 反向旋转归一化
-localX = dx * cos(-rotation) - dy * sin(-rotation)
-localY = dx * sin(-rotation) + dy * cos(-rotation)
+**职责边界**：只做坐标变换，不做类型转换。类型转换由 RevitNtsConverter 和 NtsConverter 负责。
 
-// 单位转换
-x_mm = localX × 304.8
-y_mm = localY × 304.8
+### 4.3 转换器层（Converters/）
+
+#### RevitNtsConverter
+
+Revit API ↔ NTS 类型转换扩展方法（静态，无状态）。
+
+```csharp
+public static class RevitNtsConverter
+{
+    // XYZ ↔ Coordinate
+    public static XYZ ToXYZ(this Coordinate coord, double z = 0);
+    public static Coordinate ToCoordinate(this XYZ point);
+
+    // Line ↔ LineSegment
+    public static Line ToLine(this LineSegment segment, double z = 0);
+    public static LineSegment ToLineSegment(this Line line);
+
+    // CurveLoop → Polygon
+    public static Polygon ToPolygon(this CurveLoop curveLoop);
+}
 ```
 
 #### ExportOptions
@@ -383,6 +402,25 @@ using (var trans = new Transaction(doc, "操作名"))
 | `Polygon` (NTS) | `Polygon2D` | `NtsConverter.FromNtsPolygon()` |
 | `LineSegment` (NTS) | `Line2D` | `NtsConverter.FromNtsLineSegment()` |
 | `XYZ` (向量) | `Vector2D` | `xyz.ToVector2D()` |
+
+### 5.4 转换器分层架构（必须严格遵守）
+
+```
+转换链路：
+Revit API ↔ NTS              (BIMCanvas.Revit/Converters/RevitNtsConverter)
+     ↓
+NTS (feet) → NTS (mm)        (BIMCanvas.Revit/Services/CoordinateTransformer)
+     ↓
+NTS ↔ Core.Models            (BIMCanvas.Core/Converters/NtsConverter)
+
+⛔ 禁止：Revit 层直接输出 Core.Models 几何类型
+```
+
+| 转换器 | 位置 | 职责 | 特点 |
+|--------|------|------|------|
+| `RevitNtsConverter` | Revit/Converters | Revit API ↔ NTS 类型转换 | 静态扩展方法，无状态 |
+| `CoordinateTransformer` | Revit/Services | 坐标变换（原点偏移+旋转+单位） | 实例类，有状态 |
+| `NtsConverter` | Core/Converters | NTS ↔ Core.Models 类型转换 | 静态类，无状态 |
 
 ---
 

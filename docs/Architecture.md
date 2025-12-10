@@ -390,10 +390,11 @@ BIMCanvas/                                    【根目录】
 │   │   ├── CoordinateTransformer.cs                坐标转换器
 │   │   ├── RoomTypeInferrer.cs                     房间类型推断
 │   │   └── ExportOptions.cs                        导出配置
+│   ├── Converters/                              【目录】类型转换器
+│   │   └── RevitNtsConverter.cs                    Revit API ↔ NTS 类型转换
 │   ├── Utilities/                               【目录】工具类
 │   │   ├── OutlineExtractor.cs                     轮廓提取（几何切割）
 │   │   ├── OpeningDirectionAnalyzer.cs             门窗方向分析
-│   │   ├── RevitNtsGeometryConverter.cs            类型转换扩展
 │   │   ├── PrefixId.cs                             ID 生成器
 │   │   ├── TransactionHelper.cs                    事务处理
 │   │   └── DebugViewer.cs                          调试可视化
@@ -1238,7 +1239,26 @@ RoomTypeInferrer.InferFromName() → ConfigWindow 确认
 - Revit API 的几何操作能力有限
 - NTS 与 BIMCanvas.Core 解耦，便于独立测试
 
-#### 6.1.5.3 自定义中间模型
+#### 6.1.5.3 转换器分层架构（必须严格遵守）
+
+```
+转换链路：
+Revit API ↔ NTS              (BIMCanvas.Revit/Converters/RevitNtsConverter)
+     ↓
+NTS (feet) → NTS (mm)        (BIMCanvas.Revit/Services/CoordinateTransformer)
+     ↓
+NTS ↔ Core.Models            (BIMCanvas.Core/Converters/NtsConverter)
+
+⛔ 禁止：Revit 层直接输出 Core.Models 几何类型
+```
+
+| 转换器 | 位置 | 职责 | 特点 |
+|--------|------|------|------|
+| `RevitNtsConverter` | Revit/Converters | Revit API ↔ NTS 类型转换 | 静态扩展方法，无状态 |
+| `CoordinateTransformer` | Revit/Services | 坐标变换（原点偏移+旋转+单位） | 实例类，有状态 |
+| `NtsConverter` | Core/Converters | NTS ↔ Core.Models 类型转换 | 静态类，无状态 |
+
+#### 6.1.5.4 自定义中间模型
 
 | 模型 | 文件 | 核心字段 | 用途 |
 |------|------|----------|------|
@@ -1264,17 +1284,18 @@ x_mm = localX × 304.8;
 y_mm = localY × 304.8;
 ```
 
-#### 6.1.5.5 关键工具类
+#### 6.1.5.6 关键工具类
 
 | 工具类 | 文件 | 职责 |
 |--------|------|------|
+| `RevitNtsConverter` | Converters/ | Revit API ↔ NTS 类型转换扩展 |
+| `NtsConverter` | Core/Converters/ | NTS ↔ Core.Models 类型转换 |
 | `OutlineExtractor` | Utilities/ | 在指定高度切割几何体，提取轮廓 |
 | `OpeningDirectionAnalyzer` | Utilities/ | 分析门窗开启方向（通过 IFC 导出工具） |
-| `RevitNtsGeometryConverter` | Utilities/ | Revit API ↔ NTS 类型转换扩展 |
 | `PrefixId` | Utilities/ | 生成带前缀的顺序 ID |
 | `TransactionHelper` | Utilities/ | 统一事务失败处理 |
 
-#### 6.1.5.6 开发状态
+#### 6.1.5.7 开发状态
 
 | 功能 | 状态 |
 |------|------|

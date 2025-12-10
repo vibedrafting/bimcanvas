@@ -112,9 +112,9 @@ Revit 层输出**精简版 CanvasDocument**（zones/wallFinishes/modules 为空�
 
 ### 2.1 Phase 1：导出功能（核心）
 
-#### 2.1.1 CoordinateTransformer - 坐标系转换
+#### 2.1.1 CoordinateTransformer - 坐标变换器
 
-**职责**：Revit XYZ (feet, 项目坐标系) ↔ BIMCanvas Point2D (mm, 归一化坐标系)
+**职责**：NTS 几何对象坐标变换 (feet, 项目坐标系) → (mm, 归一化坐标系)
 
 **位置**：`Services/CoordinateTransformer.cs`
 
@@ -126,37 +126,36 @@ public class CoordinateTransformer
 
     public CoordinateTransformer(Coordinate origin, double rotation);
 
-    // Revit XYZ → BIMCanvas Point2D
-    public Point2D ToPoint2D(XYZ revitPoint);
-
-    // BIMCanvas Point2D → Revit XYZ
-    public XYZ ToXYZ(Point2D point, double elevation = 0);
-
-    // NTS Polygon → BIMCanvas Polygon2D
-    public Polygon2D ToPolygon2D(Polygon ntsPolygon);
-
-    // NTS LineSegment → BIMCanvas Line2D
-    public Line2D ToLine2D(LineSegment segment);
+    // 坐标变换方法（输入 NTS feet，输出 NTS mm）
+    public Coordinate TransformCoordinate(Coordinate coord);
+    public Polygon TransformPolygon(Polygon ntsPolygon);      // 支持内环
+    public LineSegment TransformLineSegment(LineSegment segment);
 }
 ```
 
-**转换流程**：
-1. 计算相对于原点的偏移：`dx = revitX - origin.X`
-2. 应用视图旋转归一化（反向旋转）
-3. 单位转换：feet → mm（调用 Core.UnitConverter）
+**转换器分层架构**（必须严格遵守）：
+```
+Revit API ↔ NTS              (RevitNtsConverter)
+     ↓
+NTS (feet) → NTS (mm)        (CoordinateTransformer)
+     ↓
+NTS ↔ Core.Models            (NtsConverter)
 
-**坐标转换公式**：
+⛔ 禁止：Revit 层直接输出 Core.Models 几何类型
+```
+
+**变换流程**（所有方法统一执行）：
 ```csharp
-// 1. 计算偏移
-var dx = revitX - _origin.X;
-var dy = revitY - _origin.Y;
+// 1. 原点偏移
+var dx = x - _origin.X;
+var dy = y - _origin.Y;
 
-// 2. 反向旋转（归一化到标准坐标系）
+// 2. 旋转归一化（反向旋转）
 var localX = dx * Math.Cos(-_rotation) - dy * Math.Sin(-_rotation);
 var localY = dx * Math.Sin(-_rotation) + dy * Math.Cos(-_rotation);
 
-// 3. 单位转换
-return new Point2D(
+// 3. 单位转换：feet → mm
+return new Coordinate(
     UnitConverter.ToMillimeters(localX),
     UnitConverter.ToMillimeters(localY)
 );
