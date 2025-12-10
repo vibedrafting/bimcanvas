@@ -86,10 +86,10 @@ namespace BIMCanvas.Revit.Adapters
         }
 
         /// <summary>
-        /// 获取房间的边界多边形
+        /// 获取房间的边界多边形（支持外环 + 内环）
         /// </summary>
         /// <param name="room">房间元素</param>
-        /// <returns>NTS Polygon（保留 Revit 原生坐标，feet 单位）</returns>
+        /// <returns>NTS Polygon（保留 Revit 原生坐标，feet 单位，支持内环）</returns>
         private static Polygon GetRoomBoundary(Room room)
         {
             // 获取房间的边界段
@@ -99,40 +99,59 @@ namespace BIMCanvas.Revit.Adapters
             if (boundarySegments == null || boundarySegments.Count == 0)
                 return null;
 
-            // 只处理外环（第一个边界环路）
+            // 1. 处理外环（第一个边界环路）
             var outerLoop = boundarySegments[0];
             if (outerLoop == null || outerLoop.Count < 3)
                 return null;
 
-            var lineSegments = new List<NtsLineSegment>();
+            var shellRing = ConvertBoundaryLoopToLinearRing(outerLoop);
+            if (shellRing == null)
+                return null;
 
-            foreach (var segment in outerLoop)
+            // 2. 处理内环（第二个及之后的环路）
+            var holes = new List<LinearRing>();
+            for (int i = 1; i < boundarySegments.Count; i++)
+            {
+                var innerLoop = boundarySegments[i];
+                if (innerLoop == null || innerLoop.Count < 3)
+                    continue;
+
+                var holeRing = ConvertBoundaryLoopToLinearRing(innerLoop);
+                if (holeRing != null)
+                    holes.Add(holeRing);
+            }
+
+            // 3. 创建带孔多边形
+            return new Polygon(shellRing, holes.Count > 0 ? holes.ToArray() : null);
+        }
+
+        /// <summary>
+        /// 将 Revit 边界环路转换为 NTS LinearRing
+        /// </summary>
+        /// <param name="loop">Revit 边界环路</param>
+        /// <returns>NTS LinearRing（保留 Revit 原生坐标，feet 单位）</returns>
+        private static LinearRing ConvertBoundaryLoopToLinearRing(IList<BoundarySegment> loop)
+        {
+            var coordinates = new List<Coordinate>();
+
+            foreach (var segment in loop)
             {
                 var curve = segment.GetCurve();
                 if (curve == null)
                     continue;
 
-                // 只处理直线类型，跳过弧线等
-                if (curve is Line line)
-                {
-                    lineSegments.Add(line.ToLineSegment());
-                }
-                else
-                {
-                    // 对于非直线曲线，用首尾点连线近似
-                    var startPoint = curve.GetEndPoint(0);
-                    var endPoint = curve.GetEndPoint(1);
-                    lineSegments.Add(new NtsLineSegment(
-                        new Coordinate(startPoint.X, startPoint.Y),
-                        new Coordinate(endPoint.X, endPoint.Y)));
-                }
+                // 获取起点坐标（环路中每段曲线的起点构成完整环）
+                var startPoint = curve.GetEndPoint(0);
+                coordinates.Add(new Coordinate(startPoint.X, startPoint.Y));
             }
 
-            if (lineSegments.Count < 3)
+            if (coordinates.Count < 3)
                 return null;
 
-            // 生成多边形
-            return lineSegments.GeneratePolygon();
+            // NTS LinearRing 需要首尾闭合
+            coordinates.Add(coordinates[0]);
+
+            return new LinearRing(coordinates.ToArray());
         }
 
         /// <summary>

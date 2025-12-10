@@ -205,43 +205,56 @@ public class BoundaryAdapter
 
 **输出**：`List<RevitBoundary>`，后续由 Service 层转换为 `Boundary`
 
-#### 2.1.4 OpeningAdapter - 门窗线段提取
+#### 2.1.4 OpeningAdapter - 门窗数据提取
 
-**职责**：从视图提取门窗的定位线段
+**职责**：从视图提取门窗的定位线段和方向信息
+
+**位置**：`Adapters/OpeningAdapter.cs`
 
 ```csharp
 public class OpeningAdapter
 {
-    public OpeningAdapter(CoordinateAdapter coordAdapter);
-
-    // 提取视图中所有门窗的定位线段
-    public List<Opening> ExtractOpenings(View view);
-}
-
-public class Opening
-{
-    public Line2D Line { get; set; }
-    public string Type { get; set; }  // "door" | "window"
+    // 提取视图中所有门窗
+    // 返回中间模型，包含方向信息
+    public List<RevitOpening> ExtractOpenings(View view);
 }
 ```
 
-**输出**：线段列表，用于 `outline.openings`
+**关键实现**：
+- 门窗宽度从族类型获取：`door.Symbol.get_Parameter(BuiltInParameter.DOOR_WIDTH)`
+- 门的开启方向通过 `OpeningDirectionAnalyzer` 分析
+- 支持单开门、双开门、子母门
+
+**输出**：`List<RevitOpening>`，包含：
+- `LocationLine`: NTS LineSegment (feet)
+- `FacingDirection`: 面向方向（单位向量）
+- `HandDirections`: 开启方向列表（单开门 1 个，双开门 2 个）
 
 #### 2.1.5 RoomAdapter - 房间边界提取
 
 **职责**：从视图提取房间边界和名称
 
+**位置**：`Adapters/RoomAdapter.cs`
+
 ```csharp
 public class RoomAdapter
 {
-    public RoomAdapter(CoordinateAdapter coordAdapter);
-
     // 提取视图中所有房间
-    public List<Room> ExtractRooms(View view);
+    // 返回中间模型，保留 Revit Room ID
+    public List<RevitRoom> ExtractRooms(View view);
 }
 ```
 
-**输出**：房间列表，包含边界和名称
+**关键实现**：
+- 自动启用柱子作为房间边界：`SetColumnRoomBounding(doc, true)`
+- 按视图标高过滤房间
+- 过滤未放置的房间（面积 ≤ 0）
+- 只处理外环边界（第一个边界环路）
+
+**输出**：`List<RevitRoom>`，包含：
+- `ElementId`: Revit Room 元素 ID
+- `Name`: 房间名称（从 ROOM_NAME 参数）
+- `Boundary`: NTS Polygon (feet)
 
 #### 2.1.6 RoomTypeInferrer - 房间类型推断
 
@@ -323,6 +336,23 @@ public class ExportCanvasCommand : IExternalCommand
     public Result Execute(ExternalCommandData commandData, ref string message, ElementSet elements);
 }
 ```
+
+#### 2.1.10 中间数据模型（Models/）
+
+**设计目的**：作为 Adapter 和 Service 之间的中间层，保留 Revit 原生数据（NTS 格式，feet 单位），延迟坐标转换到 Service 层统一处理。
+
+**位置**：`Models/`
+
+| 模型 | 文件 | 核心字段 | 说明 |
+|------|------|----------|------|
+| `RevitBoundary` | RevitBoundary.cs | `Id`, `ElementIds: List<int>`, `Boundary: Polygon` | 保留构成边界的 Revit 元素 ID |
+| `RevitOpening` | RevitOpening.cs | `Id`, `ElementId`, `Type`, `LocationLine`, `FacingDirection`, `HandDirections` | 保留方向信息 |
+| `RevitRoom` | RevitRoom.cs | `Id`, `ElementId`, `Name`, `Boundary: Polygon` | 保留 Revit Room ID |
+
+**设计优势**：
+1. **分层清晰**：Adapter 只负责提取，不做坐标转换
+2. **便于调试**：保留原始数据可追溯到 Revit 元素
+3. **统一转换**：CoordinateTransformer 在 Service 层统一处理坐标
 
 ### 2.2 Phase 2：回写功能
 
@@ -414,6 +444,16 @@ public class ApplyLayoutCommand : IExternalCommand
       <HintPath>$(RevitApiPath)\RevitAPIUI.dll</HintPath>
       <Private>False</Private>
     </Reference>
+    <!-- IFC 导出工具（门窗方向分析） -->
+    <Reference Include="Revit.IFC.Export">
+      <HintPath>$(RevitApiPath)\Revit.IFC.Export.dll</HintPath>
+      <Private>False</Private>
+    </Reference>
+  </ItemGroup>
+
+  <!-- NuGet 依赖 -->
+  <ItemGroup>
+    <PackageReference Include="NetTopologySuite" Version="2.6.0" />
   </ItemGroup>
 
   <!-- BIMCanvas.Core 引用 -->
@@ -428,27 +468,49 @@ public class ApplyLayoutCommand : IExternalCommand
 ```
 BIMCanvas.Revit/
 ├── BIMCanvas.Revit.csproj
-├── Properties/
-│   └── AssemblyInfo.cs
-├── Adapters/                         【适配器层】
-│   ├── CoordinateAdapter.cs             坐标系转换
-│   ├── BoundaryAdapter.cs               边界轮廓提取（墙体 + 柱子）
-│   ├── OpeningAdapter.cs                门窗线段提取
-│   └── RoomAdapter.cs                   房间边界提取
-├── Services/                         【服务层】
-│   ├── CanvasExportService.cs           画布导出
-│   ├── LayoutApplyService.cs            布置应用
-│   ├── RoomTypeInferrer.cs              房间类型推断
-│   └── ExportOptions.cs                 导出配置
-├── Commands/                         【命令层】
-│   ├── App.cs                           IExternalApplication
-│   ├── ExportCanvasCommand.cs           导出命令
-│   └── ApplyLayoutCommand.cs            应用命令
-└── Views/                            【UI 层】
-    ├── ConfigWindow.xaml                配置窗口
-    ├── ConfigWindow.xaml.cs
-    └── ViewModels/
-        └── ConfigViewModel.cs           MVVM ViewModel
+├── BIMCanvas.addin                            Revit 插件注册文件
+├── README.md                                  项目说明文档
+│
+├── Commands/                               【命令层】
+│   ├── App.cs                                 IExternalApplication 入口
+│   └── ExportCanvasCommand.cs                 导出命令
+│
+├── Adapters/                               【适配器层】
+│   ├── BoundaryAdapter.cs                     边界轮廓提取（墙体 + 柱子）
+│   ├── OpeningAdapter.cs                      门窗数据提取
+│   └── RoomAdapter.cs                         房间数据提取
+│
+├── Models/                                 【中间模型层】
+│   ├── RevitBoundary.cs                       边界中间模型
+│   ├── RevitOpening.cs                        门窗中间模型
+│   └── RevitRoom.cs                           房间中间模型
+│
+├── Services/                               【服务层】
+│   ├── CanvasExportService.cs                 画布导出服务（6阶段流程）
+│   ├── CoordinateTransformer.cs               坐标转换器
+│   ├── RoomTypeInferrer.cs                    房间类型推断
+│   └── ExportOptions.cs                       导出配置
+│
+├── Utilities/                              【工具层】
+│   ├── OutlineExtractor.cs                    轮廓提取（几何切割）
+│   ├── OpeningDirectionAnalyzer.cs            门窗方向分析
+│   ├── RevitNtsGeometryConverter.cs           类型转换扩展方法
+│   ├── PrefixId.cs                            ID 生成器
+│   ├── TransactionHelper.cs                   事务处理
+│   └── DebugViewer.cs                         调试可视化
+│
+├── Views/                                  【UI 层】
+│   ├── ConfigWindow.xaml                      配置窗口
+│   ├── ConfigWindow.xaml.cs
+│   └── ViewModels/
+│       ├── ConfigViewModel.cs                 MVVM ViewModel
+│       └── RelayCommand.cs                    命令基类
+│
+└── Test/                                   【测试】
+    ├── Test.cs                                通用测试框架
+    ├── GetRoomBoundaryTest.cs                 房间边界测试
+    ├── OpeningInfoTest.cs                     门窗信息测试
+    └── WallSolidUnionTest.cs                  墙体合并测试
 ```
 
 ### 3.4 依赖的 Core 组件
@@ -461,6 +523,36 @@ BIMCanvas.Revit/
 | `GeometryHelper.ComputeCenter()` | 计算 bounds 中心点 |
 | `CanvasDocument` 模型 | 数据结构定义 |
 | `Room`, `Polygon2D`, `Line2D` | 几何类型 |
+
+**NTS 几何库（NetTopologySuite 2.6.0）**：
+
+| 类型 | 用途 |
+|------|------|
+| `Polygon` | 多边形（外环 + 内环） |
+| `LineSegment` | 线段 |
+| `Coordinate` | 2D/3D 点 |
+| `Vector2D` | 2D 向量（方向计算） |
+| `Envelope` | 包围盒计算 |
+
+### 3.5 Utilities 工具类
+
+| 工具类 | 文件 | 职责 |
+|--------|------|------|
+| `OutlineExtractor` | OutlineExtractor.cs | 在指定高度切割几何体，提取轮廓 |
+| `OpeningDirectionAnalyzer` | OpeningDirectionAnalyzer.cs | 通过 IFC 导出工具分析门窗开启方向 |
+| `RevitNtsGeometryConverter` | RevitNtsGeometryConverter.cs | Revit API ↔ NTS 类型转换扩展方法 |
+| `PrefixId` | PrefixId.cs | 线程安全的带前缀 ID 生成器 |
+| `TransactionHelper` | TransactionHelper.cs | 4 层事务失败处理策略 |
+| `DebugViewer` | DebugViewer.cs | 调试可视化（DirectShape 显示）|
+
+**TransactionHelper 失败处理级别**：
+
+| 级别 | 说明 |
+|------|------|
+| `IgnoreWarningsAndErrors` | 完全忽略所有警告和错误 |
+| `LogWarningsAndRollback` | 记录警告后回滚 |
+| `LogWarningsAndContinueWithRollback` | 记录警告继续，遇错回滚 |
+| `LogWarningsAndThrowException` | 记录警告后抛出异常 |
 
 ---
 
@@ -535,19 +627,22 @@ BIMCanvas.Revit/
 
 | 文档 | 路径 | 内容 |
 |------|------|------|
-| 架构文档 | `docs/Architecture.md` | 系统架构（§6.2 BIMCanvas.Revit 设计） |
+| 架构文档 | `docs/Architecture.md` | 系统架构（§6.1.5 BIMCanvas.Revit 设计） |
 | JSON Schema | `docs/Schema-JSON.md` | v2.5 数据模型定义 |
 | Core 实现计划 | `plans/Core_Implementation_Plan.md` | Core 层实现参考 |
+| Revit README | `BIMCanvas.Revit/README.md` | 项目详细说明 |
 
 ### 5.2 进度追踪
 
 | 阶段 | 状态 | 更新时间 |
 |------|------|----------|
-| Phase 1: 项目初始化 | ⬜ 待开始 | - |
-| Phase 1: Adapters 层 | ⬜ 待开始 | - |
-| Phase 1: Services 层 | ⬜ 待开始 | - |
-| Phase 1: Commands 层 | ⬜ 待开始 | - |
-| Phase 1: Views 层 | ⬜ 待开始 | - |
+| Phase 1: 项目初始化 | ✅ 已完成 | 2025-12-10 |
+| Phase 1: Adapters 层 | ✅ 已完成 | 2025-12-10 |
+| Phase 1: Models 层 | ✅ 已完成 | 2025-12-10 |
+| Phase 1: Services 层 | ✅ 已完成 | 2025-12-10 |
+| Phase 1: Utilities 层 | ✅ 已完成 | 2025-12-10 |
+| Phase 1: Commands 层 | ✅ 已完成 | 2025-12-10 |
+| Phase 1: Views 层 | ✅ 已完成 | 2025-12-10 |
 | Phase 2: 回写功能 | ⬜ 待开始 | - |
 | Phase 3: MCP 集成 | ⬜ 待开始 | - |
 
@@ -558,3 +653,4 @@ BIMCanvas.Revit/
 | 2025-12-05 | v1.0 | 计划创建，确定 Revit 2019 + 先导出流程 |
 | 2025-12-05 | v1.1 | 架构共识：Revit 层只输出精简版 CanvasDocument；后端合并为 Server |
 | 2025-12-06 | v1.2 | 职责定位优化：明确独立运行插件；导出为本地 JSON；房间类型用户确认；MCP 移至后期 |
+| 2025-12-10 | v1.3 | Phase 1 完成：更新模块结构（新增 Models/Utilities/Test）；CoordinateAdapter 更名为 CoordinateTransformer；Adapter 返回中间模型；添加 NTS 依赖 |
