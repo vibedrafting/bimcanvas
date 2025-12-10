@@ -8,7 +8,7 @@ using System.Linq;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
-using BIMCanvas.Revit.Utilities;
+using BIMCanvas.Revit.Converters;
 using BIMCanvas.Core.Algorithms.Geometries;
 using LineSegment = NetTopologySuite.Geometries.LineSegment;
 
