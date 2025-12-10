@@ -60,6 +60,9 @@ namespace BIMCanvas.Revit.Adapters
                     result.Add(opening);
             }
 
+            System.Windows.MessageBox.Show($"{result.Count}");
+
+
             return result;
         }
 

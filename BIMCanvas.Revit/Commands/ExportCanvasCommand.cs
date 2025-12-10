@@ -5,6 +5,7 @@ using Autodesk.Revit.UI;
 using BIMCanvas.Core.Models.Document;
 using BIMCanvas.Revit.Services;
 using Microsoft.Win32;
+using SharedLibrary.Tools;
 
 namespace BIMCanvas.Revit.Commands
 {
@@ -53,6 +54,7 @@ namespace BIMCanvas.Revit.Commands
                 try
                 {
                     document = exportService.ExportFromView(view, options);
+                    return Result.Succeeded;
                 }
                 catch (OperationCanceledException)
                 {
