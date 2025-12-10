@@ -33,8 +33,8 @@ namespace BIMCanvas.Revit.Test
                 ExportRooms = true
             };
 
-            ElementOutlineAdapter elementOutlineAdapter =new ElementOutlineAdapter(options);
-            elementOutlineAdapter.ExtractOutlines(uiDoc.ActiveView);
+            var boundaryAdapter = new BoundaryAdapter(options);
+            var (walls, columns) = boundaryAdapter.ExtractBoundaries(uiDoc.ActiveView);
 
             return Result.Succeeded;
         }

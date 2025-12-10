@@ -1,18 +1,17 @@
 using NetTopologySuite.Geometries;
 using System.Collections.Generic;
-using System.Windows.Documents;
 
 namespace BIMCanvas.Revit.Models
 {
     /// <summary>
-    /// Revit 边界轮廓中间模型
+    /// Revit 墙面完成面定位边界中间模型
     /// 使用 NTS Polygon 存储几何数据（英尺，Revit 项目坐标系）
-    /// 后期统一转换为 Core 层的 Boundary
+    /// 后期统一转换为 Core 层的 FinishLocationBoundary
     /// </summary>
-    public class RevitBoundary
+    public class RevitWallFinish
     {
         /// <summary>
-        /// 边界 ID（格式：boundary_001, boundary_002, ...）
+        /// 边界 ID（格式：wf_001, wf_002, ...）
         /// </summary>
         public string Id { get; set; } = string.Empty;
 

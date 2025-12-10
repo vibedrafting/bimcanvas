@@ -40,15 +40,17 @@ namespace BIMCanvas.Revit.Services
                 throw new ArgumentNullException(nameof(options));
 
             // ===== Phase 1: 提取原始数据 =====
-            var rawBoundaries = new List<RevitBoundary>();
+            var rawWallFinishes = new List<RevitWallFinish>();
             var rawOpenings = new List<RevitOpening>();
             var revitRooms = new List<RevitRoom>();
-            var elementOutlines = new List<ElementOutline>();
+            var revitWalls = new List<RevitWall>();
+            var revitColumns = new List<RevitColumn>();
 
+            // 提取墙面完成面定位边界（墙柱组合轮廓）
             if (options.ExportBoundarys)
             {
-                var boundaryAdapter = new BoundaryAdapter(options);
-                rawBoundaries = boundaryAdapter.ExtractBoundaries(view);
+                var wallFinishAdapter = new WallFinishAdapter(options);
+                rawWallFinishes = wallFinishAdapter.ExtractWallFinishes(view);
             }
 
             if (options.ExportOpenings)
@@ -63,17 +65,17 @@ namespace BIMCanvas.Revit.Services
                 revitRooms = roomAdapter.ExtractRooms(view);
             }
 
-            // 新增：提取单构件轮廓（复用 ElementOutlineAdapter）
+            // 提取单独墙体和柱子轮廓
             if (options.ExportElementOutlines)
             {
-                var elementOutlineAdapter = new ElementOutlineAdapter(options);
-                elementOutlines = elementOutlineAdapter.ExtractOutlines(view);
+                var boundaryAdapter = new BoundaryAdapter(options);
+                (revitWalls, revitColumns) = boundaryAdapter.ExtractBoundaries(view);
             }
 
             // ===== Phase 2: 计算包围盒原点 =====
-            var boundaryPolygons = rawBoundaries
-                .Where(b => b.Boundary != null)
-                .Select(b => b.Boundary)
+            var wallFinishPolygons = rawWallFinishes
+                .Where(wf => wf.Boundary != null)
+                .Select(wf => wf.Boundary)
                 .ToList();
 
             var roomPolygons = revitRooms
@@ -81,14 +83,20 @@ namespace BIMCanvas.Revit.Services
                 .Select(r => r.Boundary)
                 .ToList();
 
-            var elementOutlinePolygons = elementOutlines
-                .Where(e => e.Boundary != null)
-                .Select(e => e.Boundary)
+            var wallPolygons = revitWalls
+                .Where(w => w.Boundary != null)
+                .Select(w => w.Boundary)
                 .ToList();
 
-            var allPolygons = boundaryPolygons
+            var columnPolygons = revitColumns
+                .Where(c => c.Boundary != null)
+                .Select(c => c.Boundary)
+                .ToList();
+
+            var allPolygons = wallFinishPolygons
                 .Concat(roomPolygons)
-                .Concat(elementOutlinePolygons)
+                .Concat(wallPolygons)
+                .Concat(columnPolygons)
                 .ToList();
 
             Coordinate origin;
@@ -119,26 +127,22 @@ namespace BIMCanvas.Revit.Services
 
             // ===== Phase 4: 统一坐标转换 =====
 
-            // 新增：转换单独墙体轮廓
-            var walls = elementOutlines
-                .Where(e => e.Type == OutlineElementType.Wall)
-                .Select(e => new Core.Models.RevitSource.Wall
-                {
-                    Id = e.Id,
-                    ElementId = e.ElementId,
-                    Polygon = NtsConverter.FromNtsPolygon(transformer.TransformPolygon(e.Boundary))
-                }).ToList();
+            // 转换单独墙体轮廓
+            var walls = revitWalls.Select(w => new Core.Models.RevitSource.Wall
+            {
+                Id = w.Id,
+                ElementId = w.ElementId,
+                Polygon = NtsConverter.FromNtsPolygon(transformer.TransformPolygon(w.Boundary))
+            }).ToList();
 
-            // 新增：转换单独柱子轮廓
-            var columns = elementOutlines
-                .Where(e => e.Type == OutlineElementType.Column || e.Type == OutlineElementType.StructuralColumn)
-                .Select(e => new Column
-                {
-                    Id = e.Id,
-                    ElementId = e.ElementId,
-                    IsStructural = e.Type == OutlineElementType.StructuralColumn,
-                    Polygon = NtsConverter.FromNtsPolygon(transformer.TransformPolygon(e.Boundary))
-                }).ToList();
+            // 转换单独柱子轮廓
+            var columns = revitColumns.Select(c => new Column
+            {
+                Id = c.Id,
+                ElementId = c.ElementId,
+                IsStructural = c.IsStructural,
+                Polygon = NtsConverter.FromNtsPolygon(transformer.TransformPolygon(c.Boundary))
+            }).ToList();
 
             // 门窗转换
             var openings = rawOpenings.Select(ro => new Core.Models.RevitSource.Opening
@@ -152,15 +156,15 @@ namespace BIMCanvas.Revit.Services
                     : null
             }).ToList();
 
-            // 新增：过滤外墙边，只保留内墙边
-            var filteredBoundaries = FilterExteriorEdges(rawBoundaries, revitRooms);
+            // 过滤外墙边，只保留内墙边
+            var filteredWallFinishes = FilterExteriorEdges(rawWallFinishes, revitRooms);
 
-            // 新增：转换完成面定位边界
-            var finishLocationBoundaries = filteredBoundaries.Select(rb => new FinishLocationBoundary
+            // 转换完成面定位边界
+            var finishLocationBoundaries = filteredWallFinishes.Select(wf => new FinishLocationBoundary
             {
-                Id = rb.Id,
-                ElementIds = rb.ElementIds,
-                Polygon = NtsConverter.FromNtsPolygon(transformer.TransformPolygon(rb.Boundary))
+                Id = wf.Id,
+                ElementIds = wf.ElementIds,
+                Polygon = NtsConverter.FromNtsPolygon(transformer.TransformPolygon(wf.Boundary))
             }).ToList();
 
             // 房间转换
@@ -292,20 +296,20 @@ namespace BIMCanvas.Revit.Services
         /// <summary>
         /// 过滤外墙边，只保留内墙边构成的定位线
         /// </summary>
-        /// <param name="boundaries">BoundaryAdapter 提取的原始轮廓</param>
+        /// <param name="wallFinishes">WallFinishAdapter 提取的原始轮廓</param>
         /// <param name="rooms">RoomAdapter 提取的房间列表</param>
         /// <returns>过滤后的轮廓（仅包含内墙边）</returns>
-        private List<RevitBoundary> FilterExteriorEdges(
-            List<RevitBoundary> boundaries,
+        private List<RevitWallFinish> FilterExteriorEdges(
+            List<RevitWallFinish> wallFinishes,
             List<RevitRoom> rooms)
         {
-            var result = new List<RevitBoundary>();
+            var result = new List<RevitWallFinish>();
 
-            foreach (var boundary in boundaries)
+            foreach (var wallFinish in wallFinishes)
             {
-                if (boundary.Boundary == null) continue;
+                if (wallFinish.Boundary == null) continue;
 
-                var shell = boundary.Boundary.Shell;
+                var shell = wallFinish.Boundary.Shell;
                 var interiorCoordinates = new List<Coordinate>();
                 bool hasInteriorEdge = false;
 
@@ -339,10 +343,10 @@ namespace BIMCanvas.Revit.Services
                     try
                     {
                         var filteredPolygon = new Polygon(new LinearRing(interiorCoordinates.ToArray()));
-                        result.Add(new RevitBoundary
+                        result.Add(new RevitWallFinish
                         {
-                            Id = boundary.Id,
-                            ElementIds = boundary.ElementIds,
+                            Id = wallFinish.Id,
+                            ElementIds = wallFinish.ElementIds,
                             Boundary = filteredPolygon
                         });
                     }
