@@ -15,7 +15,7 @@ const handleDiscard = () => {
 
 const handleLoadDemo = async () => {
   try {
-    const response = await fetch('/TestData.json');
+    const response = await fetch('/demo/layout_proposal.json');
     const data = await response.json();
     store.setDocument(data);
     console.log('Loaded TestData.json', data);
