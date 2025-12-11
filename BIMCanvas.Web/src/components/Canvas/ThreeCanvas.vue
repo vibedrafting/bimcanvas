@@ -31,6 +31,31 @@ onMounted(() => {
       sceneService.getScene(),
       canvasContainer.value,
       gridSystem
+    );
+
+    // 5. Start Loop
+    sceneService.start();
+    // 6. Watch for document changes
+    watch(() => store.document, (newDoc) => {
+      if (newDoc && sceneService && sceneBuilder) {
+        sceneBuilder.build(newDoc);
+        // Auto-zoom to fit content
+        const scene = sceneService.getScene();
+        const objects: THREE.Object3D[] = [];
+        scene.traverse((child) => {
+          if (child.userData && child.userData.id) {
+            objects.push(child);
+          }
+        });
+        sceneService.zoomExtents(objects);
+      }
+    }, { deep: true });
+  }
+});
+
+onUnmounted(() => {
+  if (interactionService) interactionService.dispose();
+  if (sceneService) sceneService.dispose();
 });
 </script>
 
