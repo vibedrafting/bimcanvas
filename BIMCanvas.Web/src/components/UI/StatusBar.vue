@@ -23,20 +23,19 @@ const store = useCanvasStore();
 
 <style scoped lang="scss">
 .status-bar {
-  position: absolute;
+  position: fixed;
   bottom: 0;
   left: 0;
   width: 100%;
   height: 30px;
+  background: rgba(5, 5, 16, 0.9);
+  border-top: 1px solid var(--neon-cyan);
   display: flex;
   align-items: center;
-  gap: 20px;
+  justify-content: space-between;
   padding: 0 20px;
   font-size: 0.8rem;
-  border-radius: 0;
-  border-left: none;
-  border-right: none;
-  border-bottom: none;
+  color: var(--text-secondary);
   z-index: 100;
 
   .status-item {

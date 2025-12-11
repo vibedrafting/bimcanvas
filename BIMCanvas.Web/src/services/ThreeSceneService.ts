@@ -42,19 +42,24 @@ export class ThreeSceneService {
 
         // 4. Controls Setup (MapControls for CAD-like feel)
         this.controls = new MapControls(this.camera, this.renderer.domElement);
-        this.controls.enableDamping = true; // Smooth motion
+        this.controls.enableDamping = false; // Disable inertia for 1:1 feel
         this.controls.dampingFactor = 0.05;
-        this.controls.screenSpacePanning = true; // Pan parallel to screen
+        this.controls.screenSpacePanning = true; // Pan parallel to screen (Standard CAD behavior)
         this.controls.minZoom = 0.1;
         this.controls.maxZoom = 20;
         this.controls.enableRotate = false; // Disable rotation for 2D view
+        this.controls.enableZoom = false; // Disable built-in zoom to handle "Zoom to Cursor" manually
+        this.controls.zoomToCursor = true; // Hint (though we handle manually)
 
-        // Mouse buttons: Left (Selection - handled by InteractionService), Middle (Pan), Right (Pan)
+        // Mouse buttons: Left (Selection), Middle (Pan), Right (Pan)
         this.controls.mouseButtons = {
-            LEFT: THREE.MOUSE.ROTATE, // We disable rotate, so this effectively does nothing for controls, allowing InteractionService to pick
+            LEFT: THREE.MOUSE.ROTATE, // Disabled
             MIDDLE: THREE.MOUSE.PAN,
             RIGHT: THREE.MOUSE.PAN
         };
+
+        // Custom Zoom to Cursor Logic
+        this.container.addEventListener('wheel', this.onWheel.bind(this), { passive: false });
 
         // 5. Post-processing (Neon Bloom)
         const renderScene = new RenderPass(this.scene, this.camera);
@@ -72,6 +77,44 @@ export class ThreeSceneService {
 
         // 6. Handle Resize
         window.addEventListener('resize', this.onWindowResize.bind(this));
+    }
+
+    private onWheel(event: WheelEvent) {
+        event.preventDefault();
+
+        const zoomSensitivity = 0.001;
+        const zoomScale = Math.exp(-event.deltaY * zoomSensitivity);
+
+        const oldZoom = this.camera.zoom;
+        const newZoom = THREE.MathUtils.clamp(oldZoom * zoomScale, this.controls.minZoom, this.controls.maxZoom);
+
+        if (oldZoom === newZoom) return;
+
+        // Calculate mouse position in NDC
+        const rect = this.container.getBoundingClientRect();
+        const mouseX = ((event.clientX - rect.left) / rect.width) * 2 - 1;
+        const mouseY = -((event.clientY - rect.top) / rect.height) * 2 + 1;
+
+        // Calculate World Point under mouse
+        const frustumWidth = (this.camera.right - this.camera.left) / oldZoom;
+        const frustumHeight = (this.camera.top - this.camera.bottom) / oldZoom;
+
+        // Offset from camera center to mouse point in world units
+        const offsetX = (mouseX * frustumWidth) / 2;
+        const offsetY = (mouseY * frustumHeight) / 2;
+
+        const deltaX = offsetX * (1 - oldZoom / newZoom);
+        const deltaY = offsetY * (1 - oldZoom / newZoom);
+
+        this.camera.position.x += deltaX;
+        this.camera.position.y += deltaY;
+        this.camera.zoom = newZoom;
+        this.camera.updateProjectionMatrix();
+
+        // Update controls target to match camera position (since we are in 2D top-down)
+        this.controls.target.x += deltaX;
+        this.controls.target.y += deltaY;
+        this.controls.update();
     }
 
     private onWindowResize() {
@@ -146,6 +189,7 @@ export class ThreeSceneService {
     public dispose() {
         this.stop();
         window.removeEventListener('resize', this.onWindowResize.bind(this));
+        this.container.removeEventListener('wheel', this.onWheel.bind(this));
         this.renderer.dispose();
         this.container.removeChild(this.renderer.domElement);
     }

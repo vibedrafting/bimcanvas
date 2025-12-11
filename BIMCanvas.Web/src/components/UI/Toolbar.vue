@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { onMounted } from 'vue';
 import { useCanvasStore } from '@/stores/canvasStore';
 
 const store = useCanvasStore();
@@ -22,6 +23,11 @@ const handleLoadDemo = async () => {
     console.error('Failed to load TestData.json', e);
   }
 };
+
+onMounted(() => {
+  // Auto-load demo data for verification
+  handleLoadDemo();
+});
 </script>
 
 <template>
@@ -44,15 +50,21 @@ const handleLoadDemo = async () => {
 
 <style scoped lang="scss">
 .toolbar {
-  position: absolute;
-  top: 20px;
-  left: 50%;
-  transform: translateX(-50%);
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 60px;
+  box-sizing: border-box; /* Prevent padding from adding to width */
+  background: rgba(5, 5, 16, 0.9);
+  border-bottom: 1px solid var(--neon-cyan);
   display: flex;
   align-items: center;
-  gap: 40px;
-  padding: 15px 30px;
+  justify-content: space-between;
+  padding: 0 30px;
   z-index: 100;
+  border-radius: 0;
+  transform: none;
 
   .logo {
     font-size: 1.2rem;

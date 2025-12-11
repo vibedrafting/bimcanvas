@@ -62,14 +62,14 @@ const formatValue = (key: string, value: any) => {
 
 <style scoped lang="scss">
 .property-panel {
-  position: absolute;
-  top: 80px;
+  position: fixed;
+  top: 60px; /* Height of Toolbar */
   right: 20px;
   width: 300px;
-  max-height: calc(100vh - 140px);
+  max-height: calc(100vh - 60px - 30px); /* Subtract Toolbar and StatusBar */
   overflow-y: auto;
   padding: 20px;
-  z-index: 100;
+  z-index: 90; /* Lower than Toolbar (100) */
   
   .header {
     display: flex;

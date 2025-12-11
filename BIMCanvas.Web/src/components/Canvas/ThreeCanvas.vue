@@ -18,6 +18,7 @@ onMounted(() => {
   if (canvasContainer.value) {
     // 1. Initialize Scene
     sceneService = new ThreeSceneService(canvasContainer.value);
+    (window as any).sceneService = sceneService;
     
     // 2. Initialize Grid
     gridSystem = new GridSystem(sceneService.getScene());
