@@ -35,11 +35,21 @@ export class GridSystem {
         console.log('Grid visibility set to:', visible);
     }
 
-    public snapToGrid(position: THREE.Vector3): THREE.Vector3 {
+    public snapToGrid(position: THREE.Vector3, threshold: number = 10): THREE.Vector3 {
         const step = this.gridSize / this.divisions;
-        const snappedX = Math.round(position.x / step) * step;
-        const snappedY = Math.round(position.y / step) * step;
+
+        const snapAxis = (val: number, step: number, threshold: number): number => {
+            const snapped = Math.round(val / step) * step;
+            if (Math.abs(val - snapped) <= threshold) {
+                return snapped;
+            }
+            return val;
+        };
+
+        const x = snapAxis(position.x, step, threshold);
+        const y = snapAxis(position.y, step, threshold);
+
         // Keep Z as is
-        return new THREE.Vector3(snappedX, snappedY, position.z);
+        return new THREE.Vector3(x, y, position.z);
     }
 }
