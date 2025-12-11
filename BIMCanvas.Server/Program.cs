@@ -1,42 +1,54 @@
+using BIMCanvas.Server.Services;
+
 var builder = WebApplication.CreateBuilder(args);
 
-// Add services to the container.
-// Learn more about configuring Swagger/OpenAPI at https://aka.ms/aspnetcore/swashbuckle
+// 配置 JSON 序列化选项
+builder.Services.AddControllers()
+    .AddJsonOptions(options =>
+    {
+        options.JsonSerializerOptions.PropertyNamingPolicy = System.Text.Json.JsonNamingPolicy.CamelCase;
+        options.JsonSerializerOptions.WriteIndented = true;
+    });
+
+// 注册服务
+builder.Services.AddSingleton<CanvasStateManager>();
+
+// 配置 Swagger
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
 
+// 配置 CORS - 允许 Web 前端跨域访问
+builder.Services.AddCors(options =>
+{
+    options.AddPolicy("AllowWebClient", policy =>
+    {
+        policy.WithOrigins("http://localhost:5173", "http://localhost:3000") // Vite 默认端口
+              .AllowAnyHeader()
+              .AllowAnyMethod()
+              .AllowCredentials();
+    });
+});
+
 var app = builder.Build();
 
-// Configure the HTTP request pipeline.
+// 配置中间件
 if (app.Environment.IsDevelopment())
 {
     app.UseSwagger();
     app.UseSwaggerUI();
 }
 
-var summaries = new[]
-{
-    "Freezing", "Bracing", "Chilly", "Cool", "Mild", "Warm", "Balmy", "Hot", "Sweltering", "Scorching"
-};
+// 启用 CORS
+app.UseCors("AllowWebClient");
 
-app.MapGet("/weatherforecast", () =>
-{
-    var forecast =  Enumerable.Range(1, 5).Select(index =>
-        new WeatherForecast
-        (
-            DateOnly.FromDateTime(DateTime.Now.AddDays(index)),
-            Random.Shared.Next(-20, 55),
-            summaries[Random.Shared.Next(summaries.Length)]
-        ))
-        .ToArray();
-    return forecast;
-})
-.WithName("GetWeatherForecast")
-.WithOpenApi();
+// 启用控制器路由
+app.MapControllers();
+
+// 健康检查端点
+app.MapGet("/health", () => new { status = "healthy", timestamp = DateTime.UtcNow });
+
+Console.WriteLine("BIMCanvas.Server 启动中...");
+Console.WriteLine("API: http://localhost:5000/api/canvas");
+Console.WriteLine("Swagger: http://localhost:5000/swagger");
 
 app.Run();
-
-record WeatherForecast(DateOnly Date, int TemperatureC, string? Summary)
-{
-    public int TemperatureF => 32 + (int)(TemperatureC / 0.5556);
-}

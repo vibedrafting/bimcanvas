@@ -81,42 +81,27 @@ namespace BIMCanvas.Revit.Services
             {
                 var assemblyLocation = Assembly.GetExecutingAssembly().Location;
                 var assemblyDir = Path.GetDirectoryName(assemblyLocation);
-                System.Diagnostics.Trace.WriteLine($"[ExportOptions.Load] Assembly.Location: {assemblyLocation}");
-                System.Diagnostics.Trace.WriteLine($"[ExportOptions.Load] assemblyDir: {assemblyDir}");
 
                 if (string.IsNullOrEmpty(assemblyDir))
                 {
-                    System.Diagnostics.Trace.WriteLine("[ExportOptions.Load] assemblyDir 为空，返回默认配置");
                     return new ExportOptions();
                 }
 
                 var configPath = Path.Combine(assemblyDir, ConfigFileName);
-                System.Diagnostics.Trace.WriteLine($"[ExportOptions.Load] configPath: {configPath}");
-                System.Diagnostics.Trace.WriteLine($"[ExportOptions.Load] File.Exists: {File.Exists(configPath)}");
 
                 if (!File.Exists(configPath))
                 {
-                    System.Diagnostics.Trace.WriteLine("[ExportOptions.Load] 配置文件不存在，返回默认配置");
                     return new ExportOptions();
                 }
 
                 var json = File.ReadAllText(configPath, Encoding.UTF8);
-                System.Diagnostics.Trace.WriteLine($"[ExportOptions.Load] 读取到 JSON: {json}");
 
                 var options = Deserialize(json);
-                System.Diagnostics.Trace.WriteLine($"[ExportOptions.Load] 反序列化结果: {(options != null ? "成功" : "失败")}");
-
-                if (options != null)
-                {
-                    System.Diagnostics.Trace.WriteLine($"[ExportOptions.Load] BoundaryCutHeightMm: {options.BoundaryCutHeightMm}");
-                    System.Diagnostics.Trace.WriteLine($"[ExportOptions.Load] WallFinishCutHeightMm: {options.WallFinishCutHeightMm}");
-                }
 
                 return options ?? new ExportOptions();
             }
             catch (Exception ex)
             {
-                System.Diagnostics.Trace.WriteLine($"[ExportOptions.Load] 异常: {ex.Message}");
                 return new ExportOptions();
             }
         }
