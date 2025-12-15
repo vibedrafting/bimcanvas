@@ -24,7 +24,8 @@ export class ThreeSceneService {
         // 1. Scene
         this.scene = new THREE.Scene();
         this.scene.background = new THREE.Color(this.BG_COLOR);
-        this.scene.fog = new THREE.FogExp2(this.BG_COLOR, 0.002);
+        // Adjusted fog density for mm scale (visibility ~20m)
+        this.scene.fog = new THREE.FogExp2(this.BG_COLOR, 0.00005);
 
         // 2. Camera (Orthographic)
         const aspect = container.clientWidth / container.clientHeight;

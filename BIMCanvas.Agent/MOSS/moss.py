@@ -18,7 +18,8 @@ AVAILABLE_MODELS = {
 # 当前模型
 current_model = "sonnet"
 
-# 思考过程 token 预算
+# 思考过程配置
+thinking_enabled = True
 thinking_budget = 10000
 
 # Anthropic 客户端
@@ -29,27 +30,29 @@ def chat_stream(user_input: str):
     """流式对话，支持思考过程"""
     model_id, _ = AVAILABLE_MODELS[current_model]
 
-    with client.messages.stream(
-        model=model_id,
-        max_tokens=16000,
-        thinking={"type": "enabled", "budget_tokens": thinking_budget},
-        system="你是 MOSS，一个友好的 AI 助手。请用简洁的中文回答。",
-        messages=[{"role": "user", "content": user_input}],
-    ) as stream:
-        in_thinking = False
-        in_response = False
+    # 构建请求参数
+    params = {
+        "model": model_id,
+        "max_tokens": 16000,
+        "system": "你是 MOSS，一个友好的 AI 助手。请用简洁的中文回答。",
+        "messages": [{"role": "user", "content": user_input}],
+    }
 
+    # 根据开关决定是否启用思考
+    if thinking_enabled:
+        params["thinking"] = {"type": "enabled", "budget_tokens": thinking_budget}
+
+    with client.messages.stream(**params) as stream:
         for event in stream:
             if event.type == "content_block_start":
                 block_type = getattr(event.content_block, "type", None)
                 if block_type == "thinking":
-                    in_thinking = True
-                    in_response = False
                     print("\n\033[90m[思考中]\033[0m ", end="", flush=True)
                 elif block_type == "text":
-                    in_thinking = False
-                    in_response = True
-                    print("\n\n\033[1mMOSS:\033[0m ", end="", flush=True)
+                    if thinking_enabled:
+                        print("\n\n\033[1mMOSS:\033[0m ", end="", flush=True)
+                    else:
+                        print("\n\033[1mMOSS:\033[0m ", end="", flush=True)
 
             elif event.type == "content_block_delta":
                 delta = event.delta
@@ -60,9 +63,6 @@ def chat_stream(user_input: str):
                     # 正常回复
                     print(delta.text, end="", flush=True)
 
-            elif event.type == "content_block_stop":
-                pass
-
         print()  # 最后换行
 
 
@@ -72,6 +72,7 @@ def show_help():
     print("  /model          - 查看当前模型")
     print("  /model <名称>   - 切换模型 (sonnet/opus/haiku)")
     print("  /models         - 列出所有可用模型")
+    print("  /think          - 切换思考模式 (开/关)")
     print("  /budget         - 查看思考预算")
     print("  /budget <数值>  - 设置思考 token 预算")
     print("  /help           - 显示此帮助")
@@ -118,10 +119,19 @@ def set_budget(value: str) -> bool:
         return False
 
 
+def toggle_thinking():
+    """切换思考模式"""
+    global thinking_enabled
+    thinking_enabled = not thinking_enabled
+    status = "开启" if thinking_enabled else "关闭"
+    print(f"\n思考模式已{status}")
+
+
 def main():
+    think_status = "开" if thinking_enabled else "关"
     print("=" * 55)
     print("  MOSS - AI 对话助手 (Extended Thinking)")
-    print(f"  模型: {current_model} | 思考预算: {thinking_budget} tokens")
+    print(f"  模型: {current_model} | 思考: {think_status} | 预算: {thinking_budget}")
     print("  输入 /help 查看命令, exit 退出")
     print("=" * 55)
 
@@ -152,6 +162,8 @@ def main():
                     else:
                         _, desc = AVAILABLE_MODELS[current_model]
                         print(f"\n当前模型: {current_model} - {desc}")
+                elif cmd == 'think':
+                    toggle_thinking()
                 elif cmd == 'budget':
                     if len(parts) > 1:
                         set_budget(parts[1])
