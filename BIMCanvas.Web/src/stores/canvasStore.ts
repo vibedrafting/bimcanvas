@@ -1,34 +1,33 @@
 import { defineStore } from 'pinia';
-import type { CanvasDocument, ElementChange } from '@/types/canvas';
+import { ref } from 'vue';
+import type { CanvasDocument } from '../types/canvas';
+import axios from 'axios';
 
-export const useCanvasStore = defineStore('canvas', {
-    state: () => ({
-        document: null as CanvasDocument | null,
-        pendingChanges: [] as ElementChange[],
-        selectedElementId: null as string | null,
-        connectionStatus: 'disconnected' as 'connected' | 'disconnected' | 'error',
-    }),
+export const useCanvasStore = defineStore('canvas', () => {
+    const document = ref<CanvasDocument | null>(null);
+    const isLoading = ref(false);
 
-    getters: {
-        hasChanges: (state) => state.pendingChanges.length > 0,
-        currentVersion: (state) => state.document?.version ?? 0,
-    },
+    const loadDocument = (doc: CanvasDocument) => {
+        document.value = doc;
+    };
 
-    actions: {
-        setDocument(doc: CanvasDocument) {
-            this.document = doc;
-        },
+    const loadDemoData = async (url: string) => {
+        try {
+            isLoading.value = true;
+            const response = await axios.get<CanvasDocument>(url);
+            document.value = response.data;
+            console.log('Demo data loaded:', document.value);
+        } catch (error) {
+            console.error('Failed to load demo data:', error);
+        } finally {
+            isLoading.value = false;
+        }
+    };
 
-        select(elementId: string | null) {
-            this.selectedElementId = elementId;
-        },
-
-        setConnectionStatus(status: 'connected' | 'disconnected' | 'error') {
-            this.connectionStatus = status;
-        },
-
-        discardChanges() {
-            this.pendingChanges = [];
-        },
-    },
+    return {
+        document,
+        isLoading,
+        loadDocument,
+        loadDemoData
+    };
 });
