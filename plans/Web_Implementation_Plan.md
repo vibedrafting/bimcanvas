@@ -1,9 +1,10 @@
-# BIMCanvas.Web 实施计划 (Cyberpunk Edition)
+# BIMCanvas.Web 实施计划 (Calm Tech Edition)
 
-> **版本**：v2.0
-> **更新日期**：2025-12-11
-> **状态**：Phase 1 开发中
-> **架构变更**：从 SVG/Konva 转向 Three.js (WebGL) 以实现赛博朋克全息风格
+> **版本**：v3.0
+> **更新日期**：2025-12-15
+> **状态**：Phase 1 重构规划
+> **设计哲学**：Calm Tech (克制科技) + Professional Trust (专业可信)
+> **变更摘要**：废弃 v2.0 的“赛博朋克”风格，转向“静谧生命感”的专业工作台；确立双渲染模式与 AI 协作闭环。
 
 ---
 
@@ -11,171 +12,146 @@
 
 ### 1.1 核心定位
 
-**BIMCanvas.Web 是基于 Three.js 的 3D 可视化前端**
+**BIMCanvas.Web 是 AI 驱动的专业空间方案探索器 (AI-Driven Space Proposal Explorer)**
 
-不再使用 SVG 渲染，而是构建一个高性能的 WebGL 场景，提供“赛博朋克/科幻全息”风格的视觉体验，同时保留 CAD 软件的精准操作手感。
+它不仅仅是一个绘图工具，而是设计师与 AI 协作的指挥中心。它通过“意图导向”的交互模式，帮助设计师快速探索、验证和决策空间布局方案。
 
-**核心职责**：
-- **3D 渲染**：将 CanvasDocument 数据转换为 3D 场景 (Three.js)
-- **视觉特效**：实现霓虹发光 (Bloom)、全息材质、深空背景
-- **交互编辑**：射线拾取 (Raycaster)、拖拽移动、旋转、属性编辑
-- **状态同步**：与 Server 进行 SignalR 实时通信
+**核心价值**：
+- **Calm Tech**：视觉克制，信息分层，避免过度干扰。
+- **Professional Trust**：AI 操作可解释、可预览、可回滚。
+- **Data Truth**：JSON 是唯一真理，视觉服务于数据。
 
-### 1.2 系统架构
+### 1.2 核心体验 (The "North Star")
+
+MVP 阶段打造 **"智能且克制的专业工作台"**，核心循环为：
+`Select (Gallery/Chat) -> Preview (Ghost + Lint) -> Commit (Timeline)`
+
+1.  **Canvas First**：以画布为中心，方案画廊作为侧边辅助。
+2.  **Dual Render Mode (双渲染模式)**：
+    -   **Human View (默认)**：精美、克制、高级感。微弱 AO 光影，隐藏复杂辅助线。
+    -   **AI Vision View (后台/调试)**：高对比度，强制显示网格、语义参考线 (Semantic Guidelines)、对象 ID。
+3.  **Semantic Snapping**：吸附墙中线、窗边线、对齐线，提供专业手感。
+4.  **Constraint Lint**：实时显示微弱光点提示冲突（如通道过窄）。
+
+---
+
+## 二、技术架构
+
+### 2.1 系统架构
 
 ```
 BIMCanvas.Web (Vue 3 + TS)
 ├── ThreeSceneService (渲染核心)
-│   ├── Scene (Deep Space Black)
-│   ├── OrthographicCamera (Top-down View)
-│   ├── WebGLRenderer
-│   └── EffectComposer (UnrealBloomPass)
+│   ├── Scene (Calm Life Style)
+│   ├── OrthographicCamera (Top-down)
+│   ├── WebGLRenderer (ShadowMap Enabled)
+│   ├── PostProcessing (Subtle AO, No Bloom)
+│   └── LayerManager (Human/AI View Switch)
 │
 ├── SceneBuilder (构建器)
-│   ├── WallBuilder (Neon Lines)
-│   ├── ZoneBuilder (Holographic Planes)
-│   └── ModuleBuilder (3D Models/Placeholders)
+│   ├── WallBuilder (Solid with Subtle Shadow)
+│   ├── ZoneBuilder (Minimalist Plane)
+│   ├── ModuleBuilder (3D Models + Ghost Material)
+│   └── GuideLineBuilder (Semantic Lines for AI View)
 │
 ├── InteractionService (交互)
-│   ├── Raycaster (拾取)
-│   ├── DragControls (拖拽)
-│   └── Selection (高亮)
+│   ├── Raycaster (Smart Picking)
+│   ├── DragControls (Inertia & Magnetic Snapping)
+│   └── GhostManager (Patch Preview)
 │
-└── GridSystem (辅助)
-    └── Dynamic Grid (Snap-to-Grid, Auto-hide)
+└── StateManager (Pinia)
+    ├── CanvasStore (Current JSON)
+    ├── TimelineStore (History/Undo)
+    └── ProposalStore (Gallery Candidates)
 ```
 
----
+### 2.2 关键技术点
 
-## 二、技术选型
-
-### 2.1 核心框架
-
-| 组件 | 选型 | 说明 |
-|------|------|------|
-| **前端框架** | Vue 3 | Composition API, Script Setup |
-| **构建工具** | Vite | 极速构建 |
-| **语言** | TypeScript | 类型安全 |
-| **3D 引擎** | Three.js | WebGL 渲染库 |
-| **后期处理** | UnrealBloomPass | 霓虹发光特效 |
-| **状态管理** | Pinia | 响应式状态 |
-| **通信** | SignalR | 实时同步 |
-
-### 2.2 依赖清单
-
-```json
-{
-  "dependencies": {
-    "three": "^0.160.0",
-    "@types/three": "^0.160.0",
-    "vue": "^3.4.0",
-    "pinia": "^2.1.0",
-    "@microsoft/signalr": "^8.0.0",
-    "axios": "^1.6.0",
-    "sass": "^1.69.0"
-  }
-}
-```
+-   **渲染风格**：
+    -   **背景**：接近纯黑但带微蓝 (`#0a0a0f`)，非深空黑。
+    -   **材质**：哑光 (Matte) 质感，拒绝高光反射。
+    -   **光影**：启用 `AmbientOcclusion` (SAO/SSAO)，强度 10%，仅增强体积感。
+    -   **动效**：流体插值 (Lerp)，家具移动带有物理惯性。
+-   **双视图实现**：
+    -   利用 Three.js 的 `Layers` 机制。
+    -   Layer 0: 通用物体。
+    -   Layer 1: Human View 专属 (美化装饰)。
+    -   Layer 2: AI View 专属 (辅助线、ID 标签)。
+    -   截图时切换 Camera 的 Layer Mask 进行分别渲染。
 
 ---
 
-## 三、功能规格
+## 三、功能规格 (MVP)
 
-### 3.1 视觉风格 (Cyberpunk Holographic)
+### 3.1 界面与视觉
 
-- **环境 (Atmosphere)**：
-    - 背景：深邃太空黑 (Deep Space Black, `0x050510`)。
-    - 粒子：悬浮的环境粒子 (Ambient Particles)，随相机微动。
-- **光效 (Neon & Bloom)**：
-    - 全局泛光：使用 `UnrealBloomPass` (Strength: 1.5, Radius: 0.4, Threshold: 0.85)。
-    - 墙体：青色/蓝色霓虹线条 (`LineSegments`)。
-    - 选中：高亮发光，甚至带有呼吸效果。
-- **材质 (Material)**：
-    - 区域 (Zone)：半透明全息材质，边缘发光。
-    - 家具 (Module)：线框或半透明实体。
+-   **布局**：
+    -   **Main Canvas**：全屏，无边框。
+    -   **Side Panel (Left)**：方案画廊 (Gallery)，默认收起或窄条显示。
+    -   **Property Panel (Right)**：选中物体属性，支持精确数值微调。
+    -   **Command Palette (Center/Top)**：自然语言输入入口 (Cmd+K)。
+    -   **Timeline (Bottom)**：版本节点与回滚。
+-   **色彩**：
+    -   主色：沉稳蓝 (`#3b82f6`)，仅用于选中/关键操作。
+    -   警告色：柔和橙/红，仅在 Lint 触发时出现微弱光点。
+    -   中性色：90% 界面为深灰/浅灰。
 
-### 3.2 交互系统
+### 3.2 交互逻辑
 
-- **导航 (Navigation)**：
-    - **平移**：中键/右键拖拽 (1:1 无惯性，CAD 手感)。
-    - **缩放**：滚轮缩放 (以光标为中心)。
-    - **适配**：Zoom Extents (自动适配视图范围)。
-- **编辑 (Editing)**：
-    - **拾取**：Raycaster 射线检测 (支持 Wall, Column, Zone, Module, Opening)。
-    - **拖拽**：左键拖拽 Module，支持吸附。
-    - **旋转**：(待开发) 选中后按 R 键或使用 Gizmo 旋转。
-- **辅助 (Aids)**：
-    - **网格系统**：
-        - 仅在**拖拽物体**时显示。
-        - 支持 **Snap-to-Grid** (吸附)，步长可配 (如 100mm)。
-        - 样式：深灰色细线，位于物体下方。
+-   **Ghost Patch Preview**：
+    -   当 AI 生成方案或用户从画廊选择时，不直接覆盖当前方案。
+    -   以 **Ghost (半透明 + 虚线框)** 形式叠加在当前画布上。
+    -   提供 "Apply" (√) 和 "Discard" (×) 浮动按钮。
+-   **Semantic Snapping**：
+    -   拖拽家具时，自动检测并吸附：
+        -   Grid (基础网格)
+        -   Wall Center/Face (墙体)
+        -   Window/Door Edges (门窗)
+        -   Alignment Lines (相邻家具对齐)
+    -   吸附时提供轻微视觉反馈 (高亮参考线)。
 
-### 3.3 UI 组件
+### 3.3 AI 协作特性
 
-- **Toolbar (顶部工具栏)**：
-    - 全宽固定 (Fixed Top)。
-    - 功能：加载演示、同步、撤销/重做 (预留)。
-- **PropertyPanel (属性面板)**：
-    - 右侧固定，位于 Toolbar 下方。
-    - 动态显示选中对象的属性 (ID, Type, Dimensions, Custom Data)。
-- **StatusBar (状态栏)**：
-    - 底部固定。
-    - 显示：连接状态、版本号、当前选中项 ID。
+-   **Semantic Guidelines (语义参考线)**：
+    -   数据结构化：在 `CanvasDocument` 中不持久化，但在运行时计算并缓存。
+    -   类型：`WallExtension`, `SymmetryAxis`, `DivisionLine`.
+    -   渲染：仅在 AI View 或用户按住特定热键 (如 Alt) 时显示。
+-   **Constraint Lint**：
+    -   前端实时计算简单约束 (如重叠、出界)。
+    -   视觉表现：在问题区域显示微弱的脉冲红点，鼠标悬停显示原因。
 
 ---
 
-## 四、数据结构 (v2.8)
+## 四、实施路线图
 
-严格遵循 `BIMCanvas.Core` 定义的数据模型。
+### 4.1 Phase 1: 基础重构 (Calm Foundation)
+*目标：建立新的视觉基调与双视图架构*
 
-```typescript
-export interface CanvasDocument {
-  id: string;
-  version: number;
-  coordinateSystem: 'cartesian_mm_yUp'; // Y-up 坐标系
-  walls: Wall[];
-  columns: Column[];
-  zones: Zone[];
-  modules: Module[];
-  openings: Opening[];
-  // ...
-}
-```
+- [ ] **样式重置**：移除 Cyberpunk 特效 (Bloom, Neon)，调整背景色与材质。
+- [ ] **双视图架构**：实现 `LayerManager`，区分 Human/AI 视图渲染逻辑。
+- [ ] **语义参考线**：实现基础的 `GuideLineBuilder`，在 AI 视图中绘制墙体延长线与中线。
+- [ ] **光影优化**：配置 SAO/SSAO，调整至"隐约可见"的 10% 强度。
 
-> **注意**：Three.js 是 Y-up 坐标系，与 Core 的定义一致。但在 Top-down 视图中，相机看向 -Z，屏幕平面为 X-Y 平面。
+### 4.2 Phase 2: 核心交互 (Professional Feel)
+*目标：实现专业级的手感与 AI 协作闭环*
 
----
+- [ ] **Ghost 系统**：实现 `GhostManager`，支持加载 Patch 并以半透明材质渲染。
+- [ ] **语义吸附**：重构 `DragControls`，集成语义参考线的吸附逻辑。
+- [ ] **时间线**：实现 `TimelineStore`，支持 JSON 状态的快照与回滚。
+- [ ] **Lint 基础**：实现简单的重叠检测与视觉提示。
 
-## 五、实施计划
+### 4.3 Phase 3: 完整体验 (Full Loop)
+*目标：接入 AI 与画廊*
 
-### 5.1 Phase 1: 核心重构 (已完成)
-
-- [x] **基础设施**：Vue 3 + Vite + TS + Pinia。
-- [x] **渲染引擎**：ThreeSceneService, UnrealBloomPass。
-- [x] **场景构建**：WallBuilder, ZoneBuilder (Holographic)。
-- [x] **交互基础**：Raycaster, Selection, Drag & Drop。
-- [x] **导航优化**：CAD-style Pan/Zoom, Zoom Extents。
-- [x] **UI 重构**：Fixed Toolbar/StatusBar/PropertyPanel。
-
-### 5.2 Phase 2: 功能完善 (进行中)
-
-- [ ] **网格系统优化**：实现“仅拖拽时显示”逻辑。
-- [ ] **旋转功能**：实现 Module 的旋转操作。
-- [ ] **粒子效果**：添加 Ambient Particles。
-- [ ] **墙面完成面**：(暂缓) 暂时忽略 WallFinish 显示。
-- [ ] **实时同步**：联调 SignalRService。
-
-### 5.3 Phase 3: 高级特性 (待定)
-
-- [ ] **多选支持**：框选、Shift 加选。
-- [ ] **性能优化**：InstancedMesh 渲染大量重复构件。
-- [ ] **Gizmo 工具**：可视化移动/旋转轴。
+- [ ] **Side Gallery**：开发侧边栏组件，展示方案缩略图。
+- [ ] **Command Palette**：集成自然语言输入 UI (Mock 阶段)。
+- [ ] **截图服务**：实现基于 AI View 的无头渲染截图功能 (供 Agent 使用)。
 
 ---
 
-## 六、变更记录
+## 五、变更记录
 
 | 日期 | 版本 | 变更内容 |
 |------|------|----------|
-| 2025-12-11 | v2.0 | **架构重构**：SVG -> Three.js；**风格变更**：Cyberpunk Holographic；**交互升级**：CAD 导航、Raycaster 拾取 |
-| 2025-12-11 | v1.1 | (已废弃) SVG/Konva 混合方案 |
+| 2025-12-15 | v3.0 | **完全重构**：确立 Calm Tech 风格，引入双视图、Ghost Patch、语义吸附；废弃 Cyberpunk 风格。 |
+| 2025-12-11 | v2.0 | (已废弃) Cyberpunk Holographic 风格 |
