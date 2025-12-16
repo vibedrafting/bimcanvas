@@ -1,0 +1,172 @@
+import * as THREE from 'three';
+import { SelectionManager } from './SelectionManager';
+import { SnappingEngine } from './SnappingEngine';
+import { GhostManager } from './GhostManager';
+import { ConstraintService } from '../validation/ConstraintService';
+import { useCanvasStore } from '../../stores/canvasStore';
+
+export class DragManager {
+    private camera: THREE.Camera;
+    private domElement: HTMLElement;
+    private scene: THREE.Scene;
+    private selectionManager: SelectionManager;
+    private snappingEngine: SnappingEngine;
+    private ghostManager: GhostManager;
+    private constraintService: ConstraintService;
+    private raycaster: THREE.Raycaster;
+    private plane: THREE.Plane;
+    private isDragging: boolean = false;
+    private dragObject: THREE.Object3D | null = null;
+    private offset: THREE.Vector3 = new THREE.Vector3();
+    private intersection: THREE.Vector3 = new THREE.Vector3();
+
+    constructor(camera: THREE.Camera, domElement: HTMLElement, scene: THREE.Scene, selectionManager: SelectionManager) {
+        this.camera = camera;
+        this.domElement = domElement;
+        this.scene = scene;
+        this.selectionManager = selectionManager;
+        this.snappingEngine = new SnappingEngine();
+        this.ghostManager = new GhostManager(scene);
+        this.constraintService = new ConstraintService(scene);
+        this.raycaster = new THREE.Raycaster();
+        this.plane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0); // XZ plane (Y-Up)
+
+        this.setupEvents();
+    }
+
+    private onMouseDownBound = this.onMouseDown.bind(this);
+    private onMouseMoveBound = this.onMouseMove.bind(this);
+    private onMouseUpBound = this.onMouseUp.bind(this);
+
+    private setupEvents() {
+        this.domElement.addEventListener('mousedown', this.onMouseDownBound);
+        this.domElement.addEventListener('mousemove', this.onMouseMoveBound);
+        this.domElement.addEventListener('mouseup', this.onMouseUpBound);
+    }
+
+    private onMouseDown(event: MouseEvent) {
+        if (event.button !== 0) return; // Only left click
+
+        const mouse = this.getMousePosition(event);
+        this.raycaster.setFromCamera(mouse, this.camera);
+        const intersects = this.raycaster.intersectObjects(this.scene.children, true);
+
+        if (intersects.length > 0) {
+            const hit = intersects.find(i => i.object instanceof THREE.Mesh);
+            if (hit) {
+                // Check if selectable/draggable
+                let target = hit.object;
+                if (target.parent instanceof THREE.Group) {
+                    target = target.parent;
+                }
+
+                // Draggability Check
+                if (!target.userData.draggable) {
+                    return; // Ignore non-draggable objects
+                }
+
+                this.isDragging = true;
+                this.dragObject = target;
+
+                this.selectionManager.select(this.dragObject);
+
+                if (this.raycaster.ray.intersectPlane(this.plane, this.intersection)) {
+                    this.offset.copy(this.intersection).sub(this.dragObject.position);
+                }
+
+                // Create Ghost at original position (Static Ghost)
+                this.ghostManager.createGhost(this.dragObject);
+            }
+        }
+    }
+
+    private onMouseMove(event: MouseEvent) {
+        if (!this.isDragging || !this.dragObject) return;
+
+        try {
+            const mouse = this.getMousePosition(event);
+            this.raycaster.setFromCamera(mouse, this.camera);
+
+            if (this.raycaster.ray.intersectPlane(this.plane, this.intersection)) {
+                // Calculate new position
+                let newPos = this.intersection.sub(this.offset);
+
+                // Apply Snapping
+                // Filter out drag object and ghosts
+                const snapObjects = this.scene.children.filter(c =>
+                    c !== this.dragObject &&
+                    !c.userData.isGhost
+                );
+
+                const snapResult = this.snappingEngine.snap(newPos, snapObjects);
+                if (snapResult.snapped) {
+                    newPos = snapResult.position;
+                }
+
+                // Move Real Object
+                this.dragObject.position.copy(newPos);
+
+                // Ghost stays static (managed by GhostManager)
+            }
+        } catch (error) {
+            console.error('Error in DragManager.onMouseMove:', error);
+        }
+    }
+
+    private onMouseUp(event: MouseEvent) {
+        if (this.isDragging && this.dragObject) {
+            try {
+                // Finalize position
+                const mouse = this.getMousePosition(event);
+                this.raycaster.setFromCamera(mouse, this.camera);
+                if (this.raycaster.ray.intersectPlane(this.plane, this.intersection)) {
+                    let newPos = this.intersection.sub(this.offset);
+
+                    const snapObjects = this.scene.children.filter(c =>
+                        c !== this.dragObject &&
+                        !c.userData.isGhost
+                    );
+
+                    const snapResult = this.snappingEngine.snap(newPos, snapObjects);
+                    if (snapResult.snapped) {
+                        newPos = snapResult.position;
+                    }
+                    this.dragObject.position.copy(newPos);
+                }
+
+                // Validate
+                const validation = this.constraintService.validate(this.dragObject);
+                if (!validation.isValid) {
+                    console.warn('Constraint Violation:', validation.errors);
+                }
+
+                // Save state to timeline
+                const store = useCanvasStore();
+                store.saveState();
+
+            } catch (error) {
+                console.error('Error in DragManager.onMouseUp:', error);
+            } finally {
+                // Always clean up
+                this.isDragging = false;
+                this.ghostManager.removeGhost();
+                this.dragObject = null;
+            }
+        }
+    }
+
+    private getMousePosition(event: MouseEvent): THREE.Vector2 {
+        const rect = this.domElement.getBoundingClientRect();
+        return new THREE.Vector2(
+            ((event.clientX - rect.left) / rect.width) * 2 - 1,
+            -((event.clientY - rect.top) / rect.height) * 2 + 1
+        );
+    }
+
+    public dispose() {
+        this.domElement.removeEventListener('mousedown', this.onMouseDownBound);
+        this.domElement.removeEventListener('mousemove', this.onMouseMoveBound);
+        this.domElement.removeEventListener('mouseup', this.onMouseUpBound);
+        this.ghostManager.removeGhost();
+    }
+}
