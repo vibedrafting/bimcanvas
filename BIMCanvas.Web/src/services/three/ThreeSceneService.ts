@@ -109,7 +109,16 @@ export class ThreeSceneService {
         window.addEventListener('bimcanvas:view-mode-change', ((e: CustomEvent) => {
             this.toggleViewMode(e.detail);
         }) as EventListener);
+
+        window.addEventListener('bimcanvas:action-rotate', () => {
+            this.interactionService.rotateSelection();
+        });
+
+        window.addEventListener('bimcanvas:action-delete', () => {
+            this.interactionService.deleteSelection();
+        });
     }
+
 
     public toggleViewMode(mode: 'human' | 'ai') {
         this.layerManager.setMode(mode);

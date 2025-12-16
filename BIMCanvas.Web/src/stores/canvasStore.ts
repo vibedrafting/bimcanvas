@@ -57,6 +57,27 @@ export const useCanvasStore = defineStore('canvas', () => {
         }
     };
 
+    const updateModule = (moduleId: string, updates: Partial<any>) => {
+        if (!document.value) return;
+        const moduleIndex = document.value.modules.findIndex(m => m.id === moduleId);
+        if (moduleIndex !== -1) {
+            const updatedModule = { ...document.value.modules[moduleIndex], ...updates };
+            document.value.modules[moduleIndex] = updatedModule;
+            saveState();
+        }
+    };
+
+    const removeModule = (moduleId: string) => {
+        if (!document.value) return;
+        const moduleIndex = document.value.modules.findIndex(m => m.id === moduleId);
+        if (moduleIndex !== -1) {
+            document.value.modules.splice(moduleIndex, 1);
+            selectedObject.value = null; // Deselect
+            saveState();
+        }
+    };
+
+
     const canUndo = computed(() => timeline.canUndo);
     const canRedo = computed(() => timeline.canRedo);
 
@@ -71,6 +92,10 @@ export const useCanvasStore = defineStore('canvas', () => {
         redo,
         canUndo,
         canRedo,
-        saveState
+        canRedo,
+        saveState,
+        updateModule,
+        removeModule
     };
+
 });

@@ -10,6 +10,11 @@ const toggleView = (mode: 'human' | 'ai') => {
   window.dispatchEvent(new CustomEvent('bimcanvas:view-mode-change', { detail: mode }));
 };
 
+const dispatchAction = (action: 'rotate' | 'delete') => {
+  window.dispatchEvent(new CustomEvent(`bimcanvas:action-${action}`));
+};
+
+
 const handleLoadDemo = async (type: 'basic' | 'proposal') => {
   const url = type === 'basic' 
     ? '/demo/basic_structure.json' 
@@ -56,7 +61,17 @@ const handleLoadDemo = async (type: 'basic' | 'proposal') => {
       <button class="tool-btn" @click="store.redo()" :disabled="!store.canRedo" title="Redo">
         Redo
       </button>
+
+      <div class="divider"></div>
+
+      <button class="tool-btn" @click="dispatchAction('rotate')" :disabled="!store.selectedObject" title="Rotate (R)">
+        Rotate
+      </button>
+      <button class="tool-btn danger" @click="dispatchAction('delete')" :disabled="!store.selectedObject" title="Delete (Del)">
+        Delete
+      </button>
     </div>
+
   </header>
 </template>
 
@@ -124,7 +139,18 @@ const handleLoadDemo = async (type: 'basic' | 'proposal') => {
         opacity: 0.5;
         cursor: not-allowed;
       }
+
+      &.danger {
+        color: #ff6b6b;
+        border-color: rgba(255, 107, 107, 0.3);
+
+        &:hover:not(:disabled) {
+          background: rgba(255, 107, 107, 0.1);
+          border-color: rgba(255, 107, 107, 0.5);
+        }
+      }
     }
+
 
     .view-toggle {
       display: flex;
