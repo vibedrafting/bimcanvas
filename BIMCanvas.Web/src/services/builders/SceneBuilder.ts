@@ -11,10 +11,10 @@ export class SceneBuilder {
     private readonly WALL_COLOR = 0xD0D0D0;
     private readonly COLUMN_COLOR = 0x808080;
     private readonly MODULE_COLOR = 0x3b82f6;
-    private readonly DOOR_FRAME_COLOR = 0x404040;
-    private readonly DOOR_PANEL_COLOR = 0x505050;
-    private readonly WINDOW_FRAME_COLOR = 0x303030;
-    private readonly GLASS_COLOR = 0x88ccff;
+    private readonly DOOR_FRAME_COLOR = 0xA0A0A0;
+    private readonly DOOR_PANEL_COLOR = 0xC0C0C0;
+    private readonly WINDOW_FRAME_COLOR = 0x909090;
+    private readonly GLASS_COLOR = 0xAADDFF;
 
     constructor(scene: THREE.Scene) {
         this.scene = scene;

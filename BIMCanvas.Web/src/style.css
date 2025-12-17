@@ -1,8 +1,11 @@
+@import './styles/variables.css';
+
 :root {
-  font-family: 'Inter', system-ui, Avenir, Helvetica, Arial, sans-serif;
+  font-family: var(--font-sans);
   line-height: 1.5;
   font-weight: 400;
   color-scheme: dark;
+  color: var(--text-primary);
 }
 
 body {
@@ -11,7 +14,7 @@ body {
   width: 100vw;
   height: 100vh;
   overflow: hidden;
-  background-color: #0a0a0f;
+  background-color: var(--bg-canvas);
 }
 
 #app {

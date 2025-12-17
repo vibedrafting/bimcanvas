@@ -15,7 +15,7 @@ body {
   margin: 0;
   padding: 0;
   overflow: hidden;
-  background-color: #0a0a0f;
-  font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, 'Open Sans', 'Helvetica Neue', sans-serif;
+  background-color: var(--bg-canvas);
+  font-family: var(--font-sans);
 }
 </style>

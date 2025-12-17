@@ -24,7 +24,7 @@ import PropertyPanel from '../components/UI/PropertyPanel.vue';
   width: 100vw;
   height: 100vh;
   overflow: hidden;
-  background-color: #0a0a0f; // Calm Tech background
+  background-color: var(--bg-canvas); // Calm Tech background
 }
 
 .canvas-area {
