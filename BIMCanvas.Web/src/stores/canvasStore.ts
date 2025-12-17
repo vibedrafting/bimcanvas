@@ -5,12 +5,15 @@ import axios from 'axios';
 import { TimelineManager } from '../services/state/TimelineManager';
 import { SignalRService } from '../services/SignalRService';
 
+import { useDebugStore } from './debugStore';
+
 export const useCanvasStore = defineStore('canvas', () => {
     const document = ref<CanvasDocument | null>(null);
     const isLoading = ref(false);
     const selectedObject = ref<any | null>(null);
     const timeline = new TimelineManager();
     const signalR = SignalRService.getInstance();
+    const debugStore = useDebugStore();
 
     // Initialize SignalR
     signalR.start();
@@ -36,13 +39,16 @@ export const useCanvasStore = defineStore('canvas', () => {
     const loadDemoData = async (url: string) => {
         try {
             isLoading.value = true;
+            debugStore.log(`Loading demo data from: ${url}`);
             const response = await axios.get<CanvasDocument>(url);
             document.value = response.data;
             timeline.clear();
             saveState(); // Initial state
             console.log('Demo data loaded:', document.value);
+            debugStore.success(`Successfully loaded demo data. Modules: ${document.value.modules.length}`);
         } catch (error) {
             console.error('Failed to load demo data:', error);
+            debugStore.error(`Failed to load demo data: ${error}`);
         } finally {
             isLoading.value = false;
         }

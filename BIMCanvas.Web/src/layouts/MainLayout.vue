@@ -2,6 +2,27 @@
 import CanvasToolbar from '../components/UI/CanvasToolbar.vue';
 import SideGallery from '../components/UI/SideGallery.vue';
 import PropertyPanel from '../components/UI/PropertyPanel.vue';
+import DebugConsole from '../components/UI/DebugConsole.vue';
+import { useDebugStore } from '../stores/debugStore';
+import { onMounted, onUnmounted } from 'vue';
+
+const debugStore = useDebugStore();
+
+const handleKeydown = (e: KeyboardEvent) => {
+  // Toggle debug console with Ctrl + ` (Backtick)
+  if (e.ctrlKey && e.key === '`') {
+    debugStore.toggle();
+  }
+};
+
+onMounted(() => {
+  window.addEventListener('keydown', handleKeydown);
+  debugStore.log('Debug Mode Initialized. Press Ctrl + ` to toggle.');
+});
+
+onUnmounted(() => {
+  window.removeEventListener('keydown', handleKeydown);
+});
 </script>
 
 <template>
@@ -21,6 +42,8 @@ import PropertyPanel from '../components/UI/PropertyPanel.vue';
     <aside class="properties-area">
       <PropertyPanel />
     </aside>
+    
+    <DebugConsole />
   </div>
 </template>
 
