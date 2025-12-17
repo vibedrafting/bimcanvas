@@ -24,27 +24,27 @@ export class SceneBuilder {
 
     private initMaterials() {
         this.materials.set('wall', new THREE.MeshStandardMaterial({
-            color: this.WALL_COLOR,
-            roughness: 0.9,
+            color: 0x333333, // Dark Gray
+            roughness: 0.8,
             metalness: 0.1
         }));
 
         this.materials.set('column', new THREE.MeshStandardMaterial({
-            color: this.COLUMN_COLOR,
-            roughness: 0.9,
+            color: 0x444444, // Slightly lighter than wall
+            roughness: 0.8,
             metalness: 0.1
         }));
 
         this.materials.set('module', new THREE.MeshStandardMaterial({
             color: this.MODULE_COLOR,
-            roughness: 0.5,
-            metalness: 0.1
+            roughness: 0.6,
+            metalness: 0.2
         }));
 
         this.materials.set('floor', new THREE.MeshStandardMaterial({
-            color: 0x1a1a20,
-            roughness: 0.8,
-            metalness: 0.2
+            color: 0x0a0a0f, // Very dark, matches BG
+            roughness: 0.9,
+            metalness: 0.1
         }));
 
         this.materials.set('doorFrame', new THREE.MeshStandardMaterial({
@@ -76,9 +76,9 @@ export class SceneBuilder {
 
         this.materials.set('swingArc', new THREE.LineBasicMaterial({
             color: 0xffffff,
-            opacity: 0.8,
+            opacity: 0.3, // More subtle
             transparent: true,
-            linewidth: 2
+            linewidth: 1
         }));
     }
 

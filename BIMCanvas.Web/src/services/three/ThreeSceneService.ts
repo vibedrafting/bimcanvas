@@ -131,19 +131,20 @@ export class ThreeSceneService {
     }
 
     private setupLighting() {
-        const ambientLight = new THREE.AmbientLight(this.AMBIENT_LIGHT_COLOR, 0.6);
+        const ambientLight = new THREE.AmbientLight(this.AMBIENT_LIGHT_COLOR, 0.4); // Reduced intensity
         this.scene.add(ambientLight);
 
-        const dirLight = new THREE.DirectionalLight(this.DIR_LIGHT_COLOR, 0.5);
-        dirLight.position.set(5000, 10000, 5000); // High Y for top-down shadows
+        const dirLight = new THREE.DirectionalLight(this.DIR_LIGHT_COLOR, 0.8); // Increased intensity slightly
+        dirLight.position.set(-5000, 10000, 5000); // Angled for better shadows
         dirLight.castShadow = true;
         dirLight.shadow.mapSize.width = 2048;
         dirLight.shadow.mapSize.height = 2048;
         dirLight.shadow.camera.near = 0.5;
         dirLight.shadow.camera.far = 50000;
+        dirLight.shadow.bias = -0.0001; // Reduce shadow acne
         this.scene.add(dirLight);
 
-        const hemiLight = new THREE.HemisphereLight(0xeeeeff, 0x777788, 0.3);
+        const hemiLight = new THREE.HemisphereLight(0xeeeeff, 0x777788, 0.2); // Reduced intensity
         this.scene.add(hemiLight);
     }
 
@@ -216,6 +217,7 @@ export class ThreeSceneService {
         // Update services
         this.viewportService.update();
         this.interactionService.update();
+        this.dragManager.update();
 
         this.renderer.render(this.scene, this.camera);
     }

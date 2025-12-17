@@ -82,6 +82,16 @@ export class DragManager {
         }
     }
 
+    private targetPosition: THREE.Vector3 = new THREE.Vector3();
+
+    public update() {
+        if (this.isDragging && this.dragObject) {
+            // Smoothly interpolate current position to target position
+            // Lerp factor 0.2 gives a nice weight/inertia feel
+            this.dragObject.position.lerp(this.targetPosition, 0.2);
+        }
+    }
+
     private onMouseMove(event: MouseEvent) {
         if (!this.isDragging || !this.dragObject) return;
 
@@ -105,8 +115,8 @@ export class DragManager {
                     newPos = snapResult.position;
                 }
 
-                // Move Real Object
-                this.dragObject.position.copy(newPos);
+                // Update Target Position (instead of direct assignment)
+                this.targetPosition.copy(newPos);
 
                 // Ghost stays static (managed by GhostManager)
             }
