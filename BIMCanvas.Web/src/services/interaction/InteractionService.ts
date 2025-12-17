@@ -18,13 +18,13 @@ export class InteractionService {
     private activeTool: Tool | null = null;
     private ghostManager: GhostManager;
 
-    constructor(camera: THREE.Camera, domElement: HTMLElement, scene: THREE.Scene) {
+    constructor(camera: THREE.Camera, domElement: HTMLElement, scene: THREE.Scene, selectionManager: SelectionManager) {
         this.camera = camera;
         this.domElement = domElement;
         this.scene = scene;
         this.raycaster = new THREE.Raycaster();
         this.mouse = new THREE.Vector2();
-        this.selectionManager = new SelectionManager(scene);
+        this.selectionManager = selectionManager;
         this.store = useCanvasStore();
         this.shortcutManager = new ShortcutManager();
         this.ghostManager = new GhostManager(scene);
@@ -170,6 +170,11 @@ export class InteractionService {
 
         // Only handle left click
         if (event.button !== 0) return;
+
+        // Update mouse position from click event to ensure accuracy
+        const rect = this.domElement.getBoundingClientRect();
+        this.mouse.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
+        this.mouse.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
 
         this.raycaster.setFromCamera(this.mouse, this.camera);
         const intersects = this.raycaster.intersectObjects(this.scene.children, true);

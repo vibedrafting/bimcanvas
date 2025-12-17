@@ -52,6 +52,9 @@ export class DragManager {
         this.raycaster.setFromCamera(mouse, this.camera);
         const intersects = this.raycaster.intersectObjects(this.scene.children, true);
 
+        const store = useCanvasStore();
+        store.debugMsg += `\nDragStart: ${mouse.x.toFixed(2)},${mouse.y.toFixed(2)} Hits: ${intersects.length}`;
+
         if (intersects.length > 0) {
             const hit = intersects.find(i => i.object instanceof THREE.Mesh);
             if (hit) {

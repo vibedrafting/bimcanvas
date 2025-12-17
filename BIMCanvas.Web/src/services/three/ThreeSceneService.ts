@@ -91,7 +91,7 @@ export class ThreeSceneService {
 
         // Selection & Interaction
         this.selectionManager = new SelectionManager(this.scene);
-        this.interactionService = new InteractionService(this.camera, this.renderer.domElement, this.scene);
+        this.interactionService = new InteractionService(this.camera, this.renderer.domElement, this.scene, this.selectionManager);
         this.dragManager = new DragManager(this.camera, this.renderer.domElement, this.scene, this.selectionManager);
         this.ghostManager = new GhostManager(this.scene);
 
@@ -181,16 +181,23 @@ export class ThreeSceneService {
 
         let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
 
-        doc.walls.forEach((wall: any) => {
-            if (wall.polygon) {
-                wall.polygon.forEach((p: any) => {
-                    minX = Math.min(minX, p[0]);
-                    minY = Math.min(minY, p[1]);
-                    maxX = Math.max(maxX, p[0]);
-                    maxY = Math.max(maxY, p[1]);
-                });
-            }
-        });
+        const processPolygon = (polygon: any[]) => {
+            if (!polygon) return;
+            polygon.forEach((p: any) => {
+                minX = Math.min(minX, p[0]);
+                minY = Math.min(minY, p[1]);
+                maxX = Math.max(maxX, p[0]);
+                maxY = Math.max(maxY, p[1]);
+            });
+        };
+
+        if (doc.walls) {
+            doc.walls.forEach((wall: any) => processPolygon(wall.polygon));
+        }
+
+        if (doc.modules) {
+            doc.modules.forEach((mod: any) => processPolygon(mod.bounds));
+        }
 
         if (minX === Infinity) return;
 

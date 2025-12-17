@@ -11,6 +11,9 @@ export const useCanvasStore = defineStore('canvas', () => {
     const document = ref<CanvasDocument | null>(null);
     const isLoading = ref(false);
     const selectedObject = ref<any | null>(null);
+    const debugMsg = ref<string>('');
+    const instanceId = Math.random().toString(36).substring(7);
+    console.log('CanvasStore Created:', instanceId);
     const timeline = new TimelineManager();
     const signalR = SignalRService.getInstance();
     const debugStore = useDebugStore();
@@ -34,6 +37,8 @@ export const useCanvasStore = defineStore('canvas', () => {
 
     const setSelectedObject = (obj: any | null) => {
         selectedObject.value = obj;
+        debugMsg.value += `\nSet: ${obj ? (obj.userData?.type || 'Obj') : 'NULL'} at ${Date.now()}`;
+        console.log('Store setSelectedObject:', obj);
     };
 
     const loadDemoData = async (url: string) => {
@@ -109,6 +114,8 @@ export const useCanvasStore = defineStore('canvas', () => {
         document,
         isLoading,
         selectedObject,
+        debugMsg,
+        instanceId,
         loadDocument,
         setSelectedObject,
         loadDemoData,

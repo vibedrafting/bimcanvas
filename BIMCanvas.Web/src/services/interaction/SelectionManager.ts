@@ -9,11 +9,16 @@ export class SelectionManager {
 
     constructor(scene: THREE.Scene) {
         this.scene = scene;
+        this.store.debugMsg += `\nSelectionManager Created ${Date.now()}`;
     }
 
     public select(object: THREE.Object3D | null) {
-        if (this.selectedObject === object) return;
+        if (this.selectedObject === object) {
+            this.store.debugMsg += ` | Skip Select ${object?.id}`;
+            return;
+        }
 
+        this.store.debugMsg += ` | Select ${object?.id}`;
         this.clearSelection();
 
         if (object) {
@@ -23,11 +28,12 @@ export class SelectionManager {
             this.scene.add(this.selectionBox);
 
             // Update Store
-            this.store.setSelectedObject(object.userData);
+            this.store.setSelectedObject(object);
         }
     }
 
     public clearSelection() {
+        this.store.debugMsg += ` | Clear`;
         if (this.selectionBox) {
             this.scene.remove(this.selectionBox);
             this.selectionBox = null;
