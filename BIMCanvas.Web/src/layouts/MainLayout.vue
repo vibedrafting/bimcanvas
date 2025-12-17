@@ -6,47 +6,61 @@ import PropertyPanel from '../components/UI/PropertyPanel.vue';
 
 <template>
   <div class="main-layout">
-    <div class="canvas-area">
-      <slot></slot>
-    </div>
-    
-    <div class="ui-layer">
+    <header class="header-area">
       <CanvasToolbar />
+    </header>
+    
+    <aside class="gallery-area">
       <SideGallery />
+    </aside>
+
+    <main class="canvas-area">
+      <slot></slot>
+    </main>
+    
+    <aside class="properties-area">
       <PropertyPanel />
-    </div>
+    </aside>
   </div>
 </template>
 
 <style scoped lang="scss">
 .main-layout {
-  position: relative;
+  display: grid;
+  grid-template-areas:
+    "header header header"
+    "gallery canvas properties";
+  grid-template-columns: auto 1fr auto;
+  grid-template-rows: auto 1fr;
   width: 100vw;
   height: 100vh;
   overflow: hidden;
-  background-color: var(--bg-canvas); // Calm Tech background
+  background-color: var(--bg-canvas);
+}
+
+.header-area {
+  grid-area: header;
+  z-index: 100;
+}
+
+.gallery-area {
+  grid-area: gallery;
+  z-index: 90;
+  /* Ensure it doesn't take up space when empty/collapsed if needed, 
+     but SideGallery handles its own width */
 }
 
 .canvas-area {
-  position: absolute;
-  top: 0;
-  left: 0;
+  grid-area: canvas;
+  position: relative;
   width: 100%;
   height: 100%;
   z-index: 0;
+  overflow: hidden;
 }
 
-.ui-layer {
-  position: absolute;
-  top: 0;
-  left: 0;
-  width: 100%;
-  height: 100%;
-  pointer-events: none; // Let clicks pass through to canvas
-  z-index: 10;
-  
-  > * {
-    pointer-events: auto; // Re-enable clicks for UI components
-  }
+.properties-area {
+  grid-area: properties;
+  z-index: 90;
 }
 </style>

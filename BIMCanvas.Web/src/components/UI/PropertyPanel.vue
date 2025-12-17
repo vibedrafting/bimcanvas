@@ -62,17 +62,18 @@ const updateProperty = (key: string, newValue: any) => {
 
 <style scoped lang="scss">
 .property-panel {
-  position: absolute;
-  right: 20px;
-  top: 80px;
+  /* position: absolute; removed */
+  /* right: 20px; removed */
+  /* top: 80px; removed */
   width: 300px;
+  height: 100%; /* Fill grid area */
   background: rgba(10, 10, 15, 0.9);
   backdrop-filter: blur(10px);
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  border-radius: 8px;
+  border-left: 1px solid rgba(255, 255, 255, 0.1); /* Changed to border-left */
+  /* border-radius: 8px; removed */
   color: #e0e0e0;
-  overflow: hidden;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+  overflow-y: auto; /* Allow scrolling */
+  box-shadow: -4px 0 12px rgba(0, 0, 0, 0.3); /* Shadow to left */
 
   header {
     padding: 1rem;

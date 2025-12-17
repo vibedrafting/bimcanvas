@@ -31,15 +31,15 @@ const toggleExpand = () => {
 
 <style scoped lang="scss">
 .side-gallery {
-  position: absolute;
-  top: 80px; /* Below toolbar */
-  left: var(--spacing-lg);
+  /* position: absolute; removed */
+  /* top: 80px; removed */
+  /* left: var(--spacing-lg); removed */
   width: 48px; /* Collapsed state */
-  height: calc(100% - 100px);
+  height: 100%; /* Fill grid area */
   background: var(--surface-glass);
   backdrop-filter: blur(10px);
-  border: 1px solid var(--border-subtle);
-  border-radius: var(--radius-md);
+  border-right: 1px solid var(--border-subtle); /* Changed to border-right */
+  /* border-radius: var(--radius-md); removed or adjusted */
   display: flex;
   flex-direction: column;
   transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
