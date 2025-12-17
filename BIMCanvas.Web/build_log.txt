@@ -1,0 +1,30 @@
+
+> bimcanvas-web@0.0.0 build
+> vue-tsc -b && vite build
+
+src/services/builders/SemanticLineBuilder.ts(9,14): error TS2339: Property 'scene' does not exist on type 'SemanticLineBuilder'.
+src/services/builders/SemanticLineBuilder.ts(10,14): error TS2339: Property 'material' does not exist on type 'SemanticLineBuilder'.
+src/services/builders/SemanticLineBuilder.ts(19,18): error TS2339: Property 'scene' does not exist on type 'SemanticLineBuilder'.
+src/services/builders/SemanticLineBuilder.ts(32,33): error TS2345: Argument of type 'Vector3 | undefined' is not assignable to parameter of type 'Vector3'.
+  Type 'undefined' is not assignable to type 'Vector3'.
+src/services/builders/SemanticLineBuilder.ts(36,60): error TS2339: Property 'material' does not exist on type 'SemanticLineBuilder'.
+src/services/builders/SemanticLineBuilder.ts(53,52): error TS2345: Argument of type 'Vector3 | undefined' is not assignable to parameter of type 'Vector3'.
+  Type 'undefined' is not assignable to type 'Vector3'.
+src/services/builders/SemanticLineBuilder.ts(55,60): error TS2339: Property 'material' does not exist on type 'SemanticLineBuilder'.
+src/services/builders/SemanticLineBuilder.ts(61,14): error TS2339: Property 'scene' does not exist on type 'SemanticLineBuilder'.
+src/services/interaction/DragManager.ts(156,31): error TS6133: 'newBounds' is declared but its value is never read.
+src/services/interaction/GhostManager.ts(42,26): error TS2532: Object is possibly 'undefined'.
+src/services/interaction/GhostManager.ts(42,40): error TS2532: Object is possibly 'undefined'.
+src/services/interaction/GhostManager.ts(44,30): error TS2532: Object is possibly 'undefined'.
+src/services/interaction/GhostManager.ts(44,44): error TS2532: Object is possibly 'undefined'.
+src/services/interaction/GhostManager.ts(54,36): error TS2345: Argument of type 'Object3D<Object3DEventMap> | undefined' is not assignable to parameter of type 'Object3D<Object3DEventMap>'.
+  Type 'undefined' is not assignable to type 'Object3D<Object3DEventMap>'.
+src/services/interaction/tools/MoveTool.ts(2,10): error TS1484: 'Tool' is a type and must be imported using a type-only import when 'verbatimModuleSyntax' is enabled.
+src/services/interaction/tools/MoveTool.ts(122,15): error TS6133: 'event' is declared but its value is never read.
+src/services/interaction/tools/MoveTool.ts(192,31): error TS2532: Object is possibly 'undefined'.
+src/services/interaction/tools/MoveTool.ts(196,13): error TS2532: Object is possibly 'undefined'.
+src/stores/canvasStore.ts(70,13): error TS2322: Type '{ id?: string | undefined; bounds?: [number, number][] | undefined; facing?: string | [number, number] | undefined; items?: any[] | undefined; }' is not assignable to type '{ id: string; bounds: [number, number][]; facing: string | [number, number]; items: any[]; }'.
+  Types of property 'id' are incompatible.
+    Type 'string | undefined' is not assignable to type 'string'.
+      Type 'undefined' is not assignable to type 'string'.
+src/types/canvas.ts(6,13): error TS1294: This syntax is not allowed when 'erasableSyntaxOnly' is enabled.

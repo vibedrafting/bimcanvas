@@ -10,7 +10,7 @@ const toggleView = (mode: 'human' | 'ai') => {
   window.dispatchEvent(new CustomEvent('bimcanvas:view-mode-change', { detail: mode }));
 };
 
-const dispatchAction = (action: 'rotate' | 'delete') => {
+const dispatchAction = (action: 'rotate' | 'delete' | 'move') => {
   window.dispatchEvent(new CustomEvent(`bimcanvas:action-${action}`));
 };
 
@@ -66,6 +66,9 @@ const handleLoadDemo = async (type: 'basic' | 'proposal') => {
 
       <button class="tool-btn" @click="dispatchAction('rotate')" :disabled="!store.selectedObject" title="Rotate (R)">
         Rotate
+      </button>
+      <button class="tool-btn" @click="dispatchAction('move')" :disabled="!store.selectedObject" title="Nudge (Arrows)">
+        Move
       </button>
       <button class="tool-btn danger" @click="dispatchAction('delete')" :disabled="!store.selectedObject" title="Delete (Del)">
         Delete

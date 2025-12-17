@@ -3,6 +3,8 @@ import { LayerManager } from '../three/LayerManager';
 import type { CanvasDocument } from '../../types/canvas';
 
 export class SemanticLineBuilder {
+    private scene: THREE.Scene;
+    private material: THREE.LineBasicMaterial;
     private lineGroup: THREE.Group | null = null;
 
     constructor(scene: THREE.Scene) {
@@ -36,10 +38,6 @@ export class SemanticLineBuilder {
                 const line = new THREE.Line(geometry, this.material);
 
                 // Rotate to match coordinate system (X, Y) -> (X, 0, -Y)
-                // Actually, SceneBuilder likely handles the rotation of the parent or we need to match it.
-                // SceneBuilder usually builds meshes in X, -Z plane.
-                // Let's assume we need to map (x, y) to (x, 0, -y) manually here or rotate the group.
-                // Let's rotate the individual lines to be safe and explicit.
                 line.rotation.x = -Math.PI / 2;
 
                 this.lineGroup!.add(line);
@@ -60,5 +58,4 @@ export class SemanticLineBuilder {
 
         this.scene.add(this.lineGroup);
     }
-
 }

@@ -9,6 +9,7 @@ import { InteractionService } from '../interaction/InteractionService';
 import { ViewportService } from '../interaction/ViewportService';
 import { SelectionManager } from '../interaction/SelectionManager';
 import { DragManager } from '../interaction/DragManager';
+import { GhostManager } from '../interaction/GhostManager';
 
 export class ThreeSceneService {
     private container: HTMLElement;
@@ -30,6 +31,7 @@ export class ThreeSceneService {
     private viewportService: ViewportService;
     private selectionManager: SelectionManager;
     private dragManager: DragManager;
+    private ghostManager: GhostManager;
 
     // Calm Tech Colors
     private readonly BG_COLOR = 0x0a0a0f;
@@ -78,6 +80,7 @@ export class ThreeSceneService {
         this.selectionManager = new SelectionManager(this.scene);
         this.interactionService = new InteractionService(this.camera, this.renderer.domElement, this.scene);
         this.dragManager = new DragManager(this.camera, this.renderer.domElement, this.scene, this.selectionManager);
+        this.ghostManager = new GhostManager(this.scene);
 
         // 5. Lighting
         this.setupLighting();
@@ -114,11 +117,14 @@ export class ThreeSceneService {
             this.interactionService.rotateSelection();
         });
 
-        window.addEventListener('bimcanvas:action-delete', () => {
-            this.interactionService.deleteSelection();
+        window.addEventListener('bimcanvas:action-move', () => {
+            this.interactionService.activateMoveTool();
         });
-    }
 
+        window.addEventListener('bimcanvas:ghost-patch', ((e: CustomEvent) => {
+            this.ghostManager.updateGhosts(e.detail);
+        }) as EventListener);
+    }
 
     public toggleViewMode(mode: 'human' | 'ai') {
         this.layerManager.setMode(mode);
@@ -226,3 +232,4 @@ export class ThreeSceneService {
         this.dragManager.dispose();
     }
 }
+

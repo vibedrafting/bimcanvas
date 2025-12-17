@@ -3,12 +3,17 @@ import { ref, computed } from 'vue';
 import type { CanvasDocument } from '../types/canvas';
 import axios from 'axios';
 import { TimelineManager } from '../services/state/TimelineManager';
+import { SignalRService } from '../services/SignalRService';
 
 export const useCanvasStore = defineStore('canvas', () => {
     const document = ref<CanvasDocument | null>(null);
     const isLoading = ref(false);
     const selectedObject = ref<any | null>(null);
     const timeline = new TimelineManager();
+    const signalR = SignalRService.getInstance();
+
+    // Initialize SignalR
+    signalR.start();
 
     // Helper to push state to timeline without triggering watch loops if we were watching
     // For now, we call this manually when a significant change happens (e.g. drag end)
@@ -64,6 +69,13 @@ export const useCanvasStore = defineStore('canvas', () => {
             const updatedModule = { ...document.value.modules[moduleIndex], ...updates };
             document.value.modules[moduleIndex] = updatedModule;
             saveState();
+
+            // Sync with server
+            signalR.sendUpdate({
+                type: 'module_update',
+                moduleId,
+                updates
+            });
         }
     };
 
@@ -74,6 +86,12 @@ export const useCanvasStore = defineStore('canvas', () => {
             document.value.modules.splice(moduleIndex, 1);
             selectedObject.value = null; // Deselect
             saveState();
+
+            // Sync with server
+            signalR.sendUpdate({
+                type: 'module_remove',
+                moduleId
+            });
         }
     };
 
@@ -91,7 +109,6 @@ export const useCanvasStore = defineStore('canvas', () => {
         undo,
         redo,
         canUndo,
-        canRedo,
         canRedo,
         saveState,
         updateModule,

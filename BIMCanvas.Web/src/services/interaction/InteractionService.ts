@@ -2,7 +2,9 @@ import * as THREE from 'three';
 import { SelectionManager } from './SelectionManager';
 import { useCanvasStore } from '../../stores/canvasStore';
 import { ShortcutManager } from './ShortcutManager';
-
+import type { Tool } from './tools/Tool';
+import { MoveTool } from './tools/MoveTool';
+import { GhostManager } from './GhostManager';
 
 export class InteractionService {
     private raycaster: THREE.Raycaster;
@@ -13,6 +15,8 @@ export class InteractionService {
     private selectionManager: SelectionManager;
     private shortcutManager: ShortcutManager;
     private store: ReturnType<typeof useCanvasStore>;
+    private activeTool: Tool | null = null;
+    private ghostManager: GhostManager;
 
     constructor(camera: THREE.Camera, domElement: HTMLElement, scene: THREE.Scene) {
         this.camera = camera;
@@ -23,9 +27,35 @@ export class InteractionService {
         this.selectionManager = new SelectionManager(scene);
         this.store = useCanvasStore();
         this.shortcutManager = new ShortcutManager();
+        this.ghostManager = new GhostManager(scene);
 
         this.setupEvents();
         this.setupShortcuts();
+        this.setupToolEvents();
+    }
+
+    private setupToolEvents() {
+        window.addEventListener('bimcanvas:tool-cancelled', () => this.cancelTool());
+        window.addEventListener('bimcanvas:tool-completed', () => this.cancelTool());
+    }
+
+    public activateMoveTool() {
+        if (this.activeTool) this.activeTool.deactivate();
+
+        this.activeTool = new MoveTool(
+            this.scene,
+            this.camera,
+            this.domElement,
+            this.ghostManager
+        );
+        this.activeTool.activate();
+    }
+
+    public cancelTool() {
+        if (this.activeTool) {
+            this.activeTool.deactivate();
+            this.activeTool = null;
+        }
     }
 
     private setupShortcuts() {
@@ -35,6 +65,30 @@ export class InteractionService {
         // Delete: Delete or Backspace
         this.shortcutManager.register('Delete', () => this.deleteSelection());
         this.shortcutManager.register('Backspace', () => this.deleteSelection());
+
+        // Nudge: Arrow Keys
+        const NUDGE_AMOUNT = 100; // 100mm
+        this.shortcutManager.register('ArrowUp', () => this.moveSelection(0, NUDGE_AMOUNT));
+        this.shortcutManager.register('ArrowDown', () => this.moveSelection(0, -NUDGE_AMOUNT));
+        this.shortcutManager.register('ArrowLeft', () => this.moveSelection(-NUDGE_AMOUNT, 0));
+        this.shortcutManager.register('ArrowRight', () => this.moveSelection(NUDGE_AMOUNT, 0));
+    }
+
+    public moveSelection(dx: number, dy: number) {
+        const selected = this.store.selectedObject;
+        if (!selected || !selected.id || !selected.bounds) return;
+
+        const newBounds = selected.bounds.map((p: [number, number]) => [p[0] + dx, p[1] + dy] as [number, number]);
+
+        this.store.updateModule(selected.id, {
+            bounds: newBounds
+        });
+
+        // Update selection reference
+        const updated = this.store.document?.modules.find(m => m.id === selected.id);
+        if (updated) {
+            this.store.setSelectedObject(updated);
+        }
     }
 
     public rotateSelection() {
@@ -98,12 +152,22 @@ export class InteractionService {
     }
 
     private onMouseMove(event: MouseEvent) {
+        if (this.activeTool) {
+            this.activeTool.onMouseMove(event);
+            return;
+        }
+
         const rect = this.domElement.getBoundingClientRect();
         this.mouse.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
         this.mouse.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
     }
 
     private onClick(event: MouseEvent) {
+        if (this.activeTool) {
+            this.activeTool.onMouseDown(event); // Tool handles click/mousedown
+            return;
+        }
+
         // Only handle left click
         if (event.button !== 0) return;
 
@@ -135,5 +199,4 @@ export class InteractionService {
         this.domElement.removeEventListener('click', this.onClick.bind(this));
         this.shortcutManager.dispose();
     }
-
 }

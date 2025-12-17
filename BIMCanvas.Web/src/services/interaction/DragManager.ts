@@ -19,6 +19,7 @@ export class DragManager {
     private dragObject: THREE.Object3D | null = null;
     private offset: THREE.Vector3 = new THREE.Vector3();
     private intersection: THREE.Vector3 = new THREE.Vector3();
+    private startPosition: THREE.Vector3 = new THREE.Vector3();
 
     constructor(camera: THREE.Camera, domElement: HTMLElement, scene: THREE.Scene, selectionManager: SelectionManager) {
         this.camera = camera;
@@ -72,6 +73,7 @@ export class DragManager {
 
                 if (this.raycaster.ray.intersectPlane(this.plane, this.intersection)) {
                     this.offset.copy(this.intersection).sub(this.dragObject.position);
+                    this.startPosition.copy(this.dragObject.position);
                 }
 
                 // Create Ghost at original position (Static Ghost)
@@ -140,9 +142,33 @@ export class DragManager {
                     console.warn('Constraint Violation:', validation.errors);
                 }
 
-                // Save state to timeline
-                const store = useCanvasStore();
-                store.saveState();
+                // Calculate Delta
+                const delta = this.dragObject.position.clone().sub(this.startPosition);
+
+                // Update Store if moved
+                if (delta.lengthSq() > 0.001) {
+                    const store = useCanvasStore();
+                    const moduleId = this.dragObject.userData.id;
+                    const module = store.document?.modules.find(m => m.id === moduleId);
+
+                    if (moduleId && module) {
+                        // Apply delta to all points in bounds
+                        // const newBounds = module.bounds.map(p => [p[0] + delta.x, p[1] - delta.z] as [number, number]); // Z is -Y in our 3D mapping?
+                        // Wait, in ThreeSceneService: center3D = new THREE.Vector3(centerX, 0, -centerY);
+                        // So 3D X = 2D X
+                        // 3D Z = -2D Y
+                        // So 2D Y = -3D Z
+                        // Delta 2D X = Delta 3D X
+                        // Delta 2D Y = -Delta 3D Z
+
+                        const delta2D_X = delta.x;
+                        const delta2D_Y = -delta.z;
+
+                        const updatedBounds = module.bounds.map(p => [p[0] + delta2D_X, p[1] + delta2D_Y] as [number, number]);
+
+                        store.updateModule(moduleId, { bounds: updatedBounds });
+                    }
+                }
 
             } catch (error) {
                 console.error('Error in DragManager.onMouseUp:', error);

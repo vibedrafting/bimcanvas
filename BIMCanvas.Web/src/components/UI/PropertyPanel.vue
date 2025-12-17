@@ -9,12 +9,30 @@ const selectedData = computed(() => store.selectedObject);
 const properties = computed(() => {
   if (!selectedData.value) return [];
   
-  // Flatten object for display
+  // Flatten object for display, but keep it editable
+  // For MVP, we only support editing top-level properties or specific known ones
+  // Let's focus on 'facing' and 'bounds' (center?)
+  // Actually, let's just show raw JSON for complex types, and inputs for simple ones
   return Object.entries(selectedData.value).map(([key, value]) => ({
     key,
-    value: typeof value === 'object' ? JSON.stringify(value) : value
+    value,
+    type: typeof value
   }));
 });
+
+const updateProperty = (key: string, newValue: any) => {
+  if (!selectedData.value) return;
+  
+  // Parse numbers if needed
+  let parsedValue = newValue;
+  const originalValue = selectedData.value[key];
+  if (typeof originalValue === 'number') {
+      parsedValue = Number(newValue);
+  }
+
+  store.updateModule(selectedData.value.id, { [key]: parsedValue });
+};
+
 </script>
 
 <template>
@@ -25,8 +43,19 @@ const properties = computed(() => {
     <div class="content">
       <div v-for="prop in properties" :key="prop.key" class="prop-row">
         <span class="label">{{ prop.key }}</span>
-        <span class="value">{{ prop.value }}</span>
+        
+        <!-- Editable Input for Strings/Numbers -->
+        <input 
+            v-if="prop.type === 'string' || prop.type === 'number'"
+            :value="prop.value"
+            @change="(e) => updateProperty(prop.key, (e.target as HTMLInputElement).value)"
+            class="value-input"
+        />
+        
+        <!-- Read-only for Objects/Arrays -->
+        <span v-else class="value readonly">{{ JSON.stringify(prop.value) }}</span>
       </div>
+
     </div>
   </aside>
 </template>
@@ -78,14 +107,34 @@ const properties = computed(() => {
         color: #888;
       }
 
-      .value {
-        color: #ccc;
+      .value-input {
+        background: rgba(255, 255, 255, 0.1);
+        border: 1px solid rgba(255, 255, 255, 0.2);
+        color: #e0e0e0;
+        text-align: right;
+        max-width: 60%;
+        padding: 2px 4px;
+        border-radius: 4px;
+        font-family: inherit;
+        font-size: inherit;
+
+        &:focus {
+            outline: none;
+            border-color: #3b82f6;
+            background: rgba(255, 255, 255, 0.15);
+        }
+      }
+
+      .value.readonly {
+        color: #888;
+        font-style: italic;
         text-align: right;
         max-width: 60%;
         overflow: hidden;
         text-overflow: ellipsis;
         white-space: nowrap;
       }
+
     }
   }
 }

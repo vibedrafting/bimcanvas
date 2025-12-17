@@ -3,15 +3,18 @@ export type Line2D = [Point2D, Point2D];
 export type Polygon2D = Point2D[];
 
 // Enums
-export enum RoomType {
-  Unknown = 0,
-  LivingRoom = 1,
-  Bedroom = 2,
-  Kitchen = 3,
-  Bathroom = 4,
-  Balcony = 5,
-  Corridor = 6
-}
+// Enums
+export const RoomType = {
+  Unknown: 0,
+  LivingRoom: 1,
+  Bedroom: 2,
+  Kitchen: 3,
+  Bathroom: 4,
+  Balcony: 5,
+  Corridor: 6
+} as const;
+
+export type RoomType = typeof RoomType[keyof typeof RoomType];
 
 // BIM Elements
 export interface Wall {
