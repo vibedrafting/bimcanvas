@@ -1,8 +1,9 @@
 <script setup lang="ts">
-import CanvasToolbar from '../components/UI/CanvasToolbar.vue';
+import RibbonToolbar from '../components/UI/RibbonToolbar.vue';
 import SideGallery from '../components/UI/SideGallery.vue';
 import PropertyPanel from '../components/UI/PropertyPanel.vue';
 import DebugConsole from '../components/UI/DebugConsole.vue';
+import FloatingLayerManager from '../components/UI/FloatingLayerManager.vue';
 import { useDebugStore } from '../stores/debugStore';
 import { onMounted, onUnmounted } from 'vue';
 
@@ -28,7 +29,7 @@ onUnmounted(() => {
 <template>
   <div class="main-layout">
     <header class="header-area">
-      <CanvasToolbar />
+      <RibbonToolbar />
     </header>
     
     <aside class="gallery-area">
@@ -43,6 +44,7 @@ onUnmounted(() => {
       <PropertyPanel />
     </aside>
     
+    <FloatingLayerManager />
     <DebugConsole />
   </div>
 </template>
