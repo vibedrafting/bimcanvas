@@ -1,3 +1,13 @@
+# UI Layout and Style Backup (2025-12-17)
+
+This document preserves the layout and styles of the "Layer Manager", "Human/AI Vision", and "Undo/Redo" buttons.
+**Note**: As of this backup, `LayerControl.vue` has been merged into `CanvasToolbar.vue`.
+
+## 1. Toolbar & Layer Manager (CanvasToolbar.vue)
+
+This component now handles the main toolbar, including the "Human/AI Vision" toggle, "Undo/Redo" buttons, and the "Layer Manager" dropdown.
+
+```vue
 <script setup lang="ts">
 import { ref, watch } from 'vue';
 import { useCanvasStore } from '../../stores/canvasStore';
@@ -247,3 +257,178 @@ const handleLoadDemo = async (type: 'basic' | 'proposal') => {
   }
 }
 </style>
+```
+
+## 2. Base Button Component (GlassButton.vue)
+
+```vue
+<script setup lang="ts">
+import { computed } from 'vue';
+
+interface Props {
+  variant?: 'primary' | 'ghost' | 'danger';
+  active?: boolean;
+  disabled?: boolean;
+  title?: string;
+}
+
+const props = withDefaults(defineProps<Props>(), {
+  variant: 'ghost',
+  active: false,
+  disabled: false,
+});
+
+const emit = defineEmits<{
+  (e: 'click', event: MouseEvent): void;
+}>();
+
+const classes = computed(() => {
+  return [
+    'glass-btn',
+    `variant-${props.variant}`,
+    { active: props.active }
+  ];
+});
+</script>
+
+<template>
+  <button 
+    :class="classes" 
+    :disabled="disabled" 
+    :title="title"
+    @click="emit('click', $event)"
+  >
+    <slot></slot>
+  </button>
+</template>
+
+<style scoped>
+.glass-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--spacing-sm) var(--spacing-md);
+  border-radius: var(--radius-md);
+  font-family: var(--font-sans);
+  font-size: 0.9rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+  border: 1px solid transparent;
+  outline: none;
+  color: var(--text-primary);
+  background: transparent;
+  
+  /* Glass Effect Base */
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+}
+
+.glass-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+  pointer-events: none;
+}
+
+/* Variants */
+
+/* Ghost (Default) */
+.glass-btn.variant-ghost {
+  background: var(--surface-glass);
+  border-color: var(--border-subtle);
+}
+
+.glass-btn.variant-ghost:hover:not(:disabled) {
+  background: var(--surface-glass-hover);
+  border-color: rgba(255, 255, 255, 0.2);
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+}
+
+.glass-btn.variant-ghost:active:not(:disabled) {
+  transform: translateY(0);
+}
+
+.glass-btn.variant-ghost.active {
+  background: rgba(59, 130, 246, 0.15);
+  border-color: var(--accent-blue);
+  color: var(--accent-blue);
+  box-shadow: 0 0 10px var(--accent-glow);
+}
+
+/* Primary */
+.glass-btn.variant-primary {
+  background: rgba(59, 130, 246, 0.2);
+  border-color: rgba(59, 130, 246, 0.4);
+  color: #fff;
+}
+
+.glass-btn.variant-primary:hover:not(:disabled) {
+  background: rgba(59, 130, 246, 0.3);
+  border-color: var(--accent-blue);
+  box-shadow: 0 0 15px var(--accent-glow);
+  transform: translateY(-1px);
+}
+
+/* Danger */
+.glass-btn.variant-danger {
+  background: rgba(255, 107, 107, 0.1);
+  border-color: rgba(255, 107, 107, 0.3);
+  color: var(--accent-danger);
+}
+
+.glass-btn.variant-danger:hover:not(:disabled) {
+  background: rgba(255, 107, 107, 0.2);
+  border-color: var(--accent-danger);
+  box-shadow: 0 0 10px var(--accent-danger-glow);
+}
+</style>
+```
+
+## 3. Icon Badge Component (IconBadge.vue)
+
+Used in the toolbar brand section.
+
+```vue
+<script setup lang="ts">
+interface Props {
+  label: string;
+  icon?: string; // Optional icon class or name
+}
+
+defineProps<Props>();
+</script>
+
+<template>
+  <div class="icon-badge">
+    <span v-if="icon" class="icon">{{ icon }}</span>
+    <span class="label">{{ label }}</span>
+  </div>
+</template>
+
+<style scoped>
+.icon-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--spacing-xs);
+  padding: 2px var(--spacing-sm);
+  border-radius: var(--radius-sm);
+  font-family: var(--font-sans);
+  font-size: 0.75rem;
+  font-weight: 500;
+  letter-spacing: 0.5px;
+  
+  /* Style */
+  background: rgba(59, 130, 246, 0.1);
+  border: 1px solid rgba(59, 130, 246, 0.2);
+  color: var(--accent-blue);
+  
+  /* Glow */
+  box-shadow: 0 0 5px rgba(59, 130, 246, 0.05);
+}
+
+.icon {
+  font-size: 1.1em;
+}
+</style>
+```
