@@ -2,6 +2,8 @@ import * as THREE from 'three';
 import { SceneBuilder } from '../builders/SceneBuilder';
 import { GridBuilder } from '../builders/GridBuilder';
 import { SemanticLineBuilder } from '../builders/SemanticLineBuilder';
+import { LabelBuilder } from '../builders/LabelBuilder';
+import { CSS2DRenderer } from 'three-stdlib';
 import { useCanvasStore } from '../../stores/canvasStore';
 import { watch } from 'vue';
 import { LayerManager } from './LayerManager';
@@ -16,12 +18,14 @@ export class ThreeSceneService {
     private scene: THREE.Scene;
     private camera: THREE.OrthographicCamera;
     private renderer: THREE.WebGLRenderer;
+    private labelRenderer: CSS2DRenderer;
     private animationId: number | null = null;
 
     // Builders
     private sceneBuilder: SceneBuilder;
     private gridBuilder: GridBuilder;
     private semanticLineBuilder: SemanticLineBuilder;
+    private labelBuilder: LabelBuilder;
 
     private store: ReturnType<typeof useCanvasStore>;
 
@@ -70,7 +74,16 @@ export class ThreeSceneService {
         this.renderer.setPixelRatio(window.devicePixelRatio);
         this.renderer.shadowMap.enabled = true;
         this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+        this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
         container.appendChild(this.renderer.domElement);
+
+        // 3.1 Label Renderer (CSS2D)
+        this.labelRenderer = new CSS2DRenderer();
+        this.labelRenderer.setSize(container.clientWidth, container.clientHeight);
+        this.labelRenderer.domElement.style.position = 'absolute';
+        this.labelRenderer.domElement.style.top = '0px';
+        this.labelRenderer.domElement.style.pointerEvents = 'none'; // Allow clicks to pass through
+        container.appendChild(this.labelRenderer.domElement);
 
         // 4. Initialize Services
         this.layerManager = new LayerManager(this.camera);
@@ -89,6 +102,7 @@ export class ThreeSceneService {
         this.sceneBuilder = new SceneBuilder(this.scene);
         this.gridBuilder = new GridBuilder(this.scene);
         this.semanticLineBuilder = new SemanticLineBuilder(this.scene);
+        this.labelBuilder = new LabelBuilder(this.scene);
 
         // Initial Demo Scene
         if (!this.store.document) {
@@ -101,7 +115,9 @@ export class ThreeSceneService {
             if (newDoc) {
                 console.log('Document changed, rebuilding scene...');
                 this.sceneBuilder.buildFromDocument(newDoc);
+                this.sceneBuilder.buildFromDocument(newDoc);
                 this.semanticLineBuilder.buildLines(newDoc);
+                this.labelBuilder.buildLabels(newDoc);
                 this.gridBuilder.buildGrid();
                 this.fitToScreen(newDoc);
             }
@@ -208,7 +224,9 @@ export class ThreeSceneService {
         this.camera.bottom = -frustumSize / 2;
 
         this.camera.updateProjectionMatrix();
+        this.camera.updateProjectionMatrix();
         this.renderer.setSize(this.container.clientWidth, this.container.clientHeight);
+        this.labelRenderer.setSize(this.container.clientWidth, this.container.clientHeight);
     }
 
     public animate() {
@@ -220,6 +238,7 @@ export class ThreeSceneService {
         this.dragManager.update();
 
         this.renderer.render(this.scene, this.camera);
+        this.labelRenderer.render(this.scene, this.camera);
     }
 
     public dispose() {
@@ -228,6 +247,7 @@ export class ThreeSceneService {
         }
         window.removeEventListener('resize', this.onWindowResize.bind(this));
         this.container.removeChild(this.renderer.domElement);
+        this.container.removeChild(this.labelRenderer.domElement);
         this.renderer.dispose();
         this.interactionService.dispose();
         this.viewportService.dispose();

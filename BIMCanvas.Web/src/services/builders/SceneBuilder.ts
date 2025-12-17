@@ -139,7 +139,11 @@ export class SceneBuilder {
         // Enable Default and Human layers
         object.layers.enable(LayerManager.LAYER_DEFAULT);
         object.layers.enable(LayerManager.LAYER_HUMAN);
-        // AI layer logic will be handled by SemanticLineBuilder
+
+        // Add BoxHelper for AI View
+        const boxHelper = new THREE.BoxHelper(object, 0xffff00); // Yellow box
+        boxHelper.layers.set(LayerManager.LAYER_AI);
+        this.scene.add(boxHelper);
     }
 
     // private buildFloor() { ... } // Removed

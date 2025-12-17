@@ -11,7 +11,8 @@ export class SemanticLineBuilder {
         this.scene = scene;
         this.material = new THREE.LineBasicMaterial({
             color: 0x00ff00, // Bright Green for AI visibility
-            linewidth: 2
+            linewidth: 2,
+            depthTest: false // Ensure lines are always visible on top
         });
     }
 
