@@ -114,12 +114,7 @@ watch(selectedObject, (newVal) => {
 
     </div>
     
-    <!-- DEBUG OVERLAY -->
-    <div style="position:fixed; top:10px; left:10px; color:lime; z-index:9999; background:rgba(0,0,0,0.8); padding:5px;">
-      DEBUG: {{ store.selectedObject ? 'OBJ' : 'NULL' }} | {{ store.selectedObject?.userData?.type }} <br>
-      MSG: {{ store.debugMsg }} <br>
-      STORE ID: {{ store.instanceId }}
-    </div>
+
   </div>
 </template>
 

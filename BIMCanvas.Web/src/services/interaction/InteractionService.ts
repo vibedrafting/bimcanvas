@@ -5,6 +5,7 @@ import { ShortcutManager } from './ShortcutManager';
 import type { Tool } from './tools/Tool';
 import { MoveTool } from './tools/MoveTool';
 import { GhostManager } from './GhostManager';
+import { useDebugStore } from '../../stores/debugStore';
 
 export class InteractionService {
     private raycaster: THREE.Raycaster;
@@ -179,18 +180,25 @@ export class InteractionService {
         this.raycaster.setFromCamera(this.mouse, this.camera);
         const intersects = this.raycaster.intersectObjects(this.scene.children, true);
 
+        const debugStore = useDebugStore();
+        debugStore.log(`Click: ${this.mouse.x.toFixed(2)},${this.mouse.y.toFixed(2)} Hits: ${intersects.length}`);
+        debugStore.log(`Ray: O=${this.raycaster.ray.origin.x.toFixed(0)},${this.raycaster.ray.origin.y.toFixed(0)},${this.raycaster.ray.origin.z.toFixed(0)} D=${this.raycaster.ray.direction.x.toFixed(2)},${this.raycaster.ray.direction.y.toFixed(2)},${this.raycaster.ray.direction.z.toFixed(2)}`);
+
         if (intersects.length > 0) {
             // Filter for selectable objects (e.g., modules)
             // For now, select the first hit that is a Mesh
             const hit = intersects.find(i => i.object instanceof THREE.Mesh);
             if (hit) {
+                debugStore.success(`Hit: ${hit.object.id} (${hit.object.type})`);
                 // Traverse up to find the root object (e.g. module group) if needed
                 // For now, just select the object
                 this.selectionManager.select(hit.object);
             } else {
+                debugStore.warn('No Mesh Hit');
                 this.selectionManager.clearSelection();
             }
         } else {
+            debugStore.warn('No Intersects');
             this.selectionManager.clearSelection();
         }
     }

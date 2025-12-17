@@ -1,3 +1,4 @@
+
 import { defineStore } from 'pinia';
 import { ref, computed } from 'vue';
 import type { CanvasDocument } from '../types/canvas';
@@ -13,6 +14,7 @@ export const useCanvasStore = defineStore('canvas', () => {
     const selectedObject = ref<any | null>(null);
     const debugMsg = ref<string>('');
     const instanceId = Math.random().toString(36).substring(7);
+    const error = ref<string | null>(null); // Added error state
     console.log('CanvasStore Created:', instanceId);
     const timeline = new TimelineManager();
     const signalR = SignalRService.getInstance();
@@ -51,9 +53,11 @@ export const useCanvasStore = defineStore('canvas', () => {
             saveState(); // Initial state
             console.log('Demo data loaded:', document.value);
             debugStore.success(`Successfully loaded demo data. Modules: ${document.value.modules.length}`);
-        } catch (error) {
-            console.error('Failed to load demo data:', error);
-            debugStore.error(`Failed to load demo data: ${error}`);
+            error.value = null; // Clear any previous error
+        } catch (err: any) {
+            console.error('Failed to load demo data:', err);
+            debugStore.error(`Failed to load demo data: ${err.message || err}`);
+            error.value = `Failed to load demo data: ${err.message || err}`;
         } finally {
             isLoading.value = false;
         }
@@ -111,21 +115,22 @@ export const useCanvasStore = defineStore('canvas', () => {
     const canRedo = computed(() => timeline.canRedo);
 
     return {
+        // State
         document,
-        isLoading,
         selectedObject,
-        debugMsg,
-        instanceId,
-        loadDocument,
-        setSelectedObject,
-        loadDemoData,
-        undo,
-        redo,
+        isLoading,
+        error,
+
+        // Getters
         canUndo,
         canRedo,
-        saveState,
-        updateModule,
-        removeModule
-    };
 
+        // Actions
+        loadDemoData,
+        setSelectedObject,
+        updateModule,
+        removeModule,
+        undo,
+        redo
+    };
 });

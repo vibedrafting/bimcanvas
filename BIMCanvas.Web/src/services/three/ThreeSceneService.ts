@@ -12,6 +12,7 @@ import { ViewportService } from '../interaction/ViewportService';
 import { SelectionManager } from '../interaction/SelectionManager';
 import { DragManager } from '../interaction/DragManager';
 import { GhostManager } from '../interaction/GhostManager';
+import { useDebugStore } from '../../stores/debugStore';
 
 export class ThreeSceneService {
     private container: HTMLElement;
@@ -206,12 +207,18 @@ export class ThreeSceneService {
         const width = maxX - minX;
         const height = maxY - minY;
 
+        const debugStore = useDebugStore();
+        debugStore.log(`FitToScreen: Bounds [${minX.toFixed(0)},${minY.toFixed(0)}] to [${maxX.toFixed(0)},${maxY.toFixed(0)}] W:${width.toFixed(0)} H:${height.toFixed(0)}`);
+        debugStore.log(`FitToScreen: Center [${centerX.toFixed(0)},${centerY.toFixed(0)}]`);
+
         // Map 2D center (x, y) to 3D center (x, 0, -y) because of -90 X rotation
         const center3D = new THREE.Vector3(centerX, 0, -centerY);
+        debugStore.log(`FitToScreen: Center3D [${center3D.x.toFixed(0)},${center3D.y.toFixed(0)},${center3D.z.toFixed(0)}]`);
 
         // Update Camera Position (Keep Y high, move X and Z)
         this.camera.position.set(center3D.x, 10000, center3D.z);
         this.camera.lookAt(center3D.x, 0, center3D.z);
+        debugStore.log(`FitToScreen: Camera Pos [${this.camera.position.x.toFixed(0)},${this.camera.position.y.toFixed(0)},${this.camera.position.z.toFixed(0)}]`);
 
         // Update Controls Target via ViewportService
         this.viewportService.setTarget(center3D.x, 0, center3D.z);
@@ -231,6 +238,8 @@ export class ThreeSceneService {
 
         this.camera.zoom = 1;
         this.camera.updateProjectionMatrix();
+
+
     }
 
     private onWindowResize() {
