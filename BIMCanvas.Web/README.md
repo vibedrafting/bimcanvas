@@ -6,13 +6,31 @@
 
 本项目是一个基于 **Vue 3** 和 **Three.js** 的单页应用 (SPA)，主要职责是加载、解析并渲染 BIMCanvas 的标准 JSON 数据格式 (`CanvasDocument`)。它不仅是一个查看器，更是未来 AI 辅助设计 (Copilot) 的交互界面。
 
-### 核心能力
-- **高性能 3D 渲染**：基于 Three.js 的 WebGL 渲染引擎，支持复杂多边形几何体的实时生成。
-- **参数化构件**：
-  - **墙体/柱子**：基于 2D 多边形轮廓 (`Polygon2D`) 自动挤压生成 3D 实体。
-  - **门窗系统**：参数化生成的门窗模型，包含门框、门扇、开启弧线（2D/3D 混合显示）和玻璃材质。
-- **智能相机控制**：内置 `fitToScreen` 算法，根据加载的户型数据自动计算包围盒，调整正交相机 (Orthographic Camera) 的位置和缩放，确保户型完美居中。
-- **演示数据集成**：内置标准测试数据 (`basic_structure.json`, `layout_proposal.json`)，方便开发与调试。
+## ✨ 核心功能与开发状态 (Feature Status)
+
+> 状态图例: ✅ 已完成 | 🔶 进行中 | ⬜ 待开发
+
+### 1. 视图与渲染 (View & Rendering)
+- ✅ **3D 渲染引擎**: 基于 Three.js 实现高性能建筑模型渲染。
+- ✅ **双渲染模式 (Dual Render Mode)**:
+    - **Human View (默认)**: 拟真材质、柔和光影 (AO)、极简信息，面向人类设计师。
+    - **AI Vision View (调试)**: 高对比度、显示包围盒 (OBB)、对象 ID，面向 Agent 视觉调试。
+- 🔶 **CAD 图层管理器 (Layer Manager)**: 
+    - 正在实现类似 CAD 的图层控制系统。
+    - 支持 Base (底图), Layout (布置), Intent (意图), Analysis (分析) 图层的独立开关。
+
+### 2. 交互与编辑 (Interaction & Editing)
+- ✅ **基础导航**: 平移 (Pan)、缩放 (Zoom)、旋转视图 (Orbit)。
+- ✅ **对象选择**: 支持点击选择场景中的构件，显示高亮包围盒。
+- 🔶 **移动 (Move)**: 基础拖拽已实现，正在优化精确移动与手感。
+- ⬜ **旋转 (Rotate)**: 待实现，支持快捷键与旋钮操作。
+- ⬜ **鬼影系统 (Ghost System)**: 待实现，移动/放置时显示半透明预览与位置指示。
+- ⬜ **语义吸附 (Semantic Snapping)**: 待实现，吸附墙中线、门窗边缘、对齐线。
+
+### 3. 数据与协作 (Data & Sync)
+- ⬜ **AI 实时同步**: 基于 SignalR 的双向状态同步，AI 操作实时可见。
+- ⬜ **撤销/重做 (Undo/Redo)**: 基于时间轴 (Timeline) 的历史记录管理。
+- ⬜ **补丁审查 (Patch Review)**: 可视化审查 AI 提出的修改建议 (Diff)。
 
 ## 🛠️ 技术栈 (Tech Stack)
 
@@ -102,4 +120,4 @@ interface CanvasDocument {
 ```
 
 ---
-*文档最后更新时间: 2025-12-15*
+*文档最后更新时间: 2025-12-17*

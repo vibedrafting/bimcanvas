@@ -5,6 +5,7 @@ import { LayerManager } from '../three/LayerManager';
 export class SceneBuilder {
     private scene: THREE.Scene;
     private materials: Map<string, THREE.Material>;
+    private boxHelpers: THREE.BoxHelper[] = [];
 
     // Constants
     private readonly WALL_HEIGHT = 2800;
@@ -86,6 +87,24 @@ export class SceneBuilder {
         console.log('--- clearScene START ---');
         console.log('Total children before clear:', this.scene.children.length);
 
+        // 1. Remove tracked BoxHelpers
+        this.boxHelpers.forEach(helper => {
+            if (helper.parent) {
+                helper.parent.remove(helper);
+            }
+            if (helper.geometry) helper.geometry.dispose();
+            if (helper.material) {
+                const mat = helper.material;
+                if (Array.isArray(mat)) {
+                    mat.forEach(m => m.dispose());
+                } else {
+                    mat.dispose();
+                }
+            }
+        });
+        this.boxHelpers = [];
+
+        // 2. Remove other objects
         const toRemove: THREE.Object3D[] = [];
         this.scene.traverse((child) => {
             // Keep Lights and Camera (if in scene)
@@ -108,7 +127,11 @@ export class SceneBuilder {
         });
 
         toRemove.forEach(child => {
-            this.scene.remove(child);
+            // Correctly remove from parent (handles nested objects)
+            if (child.parent) {
+                child.parent.remove(child);
+            }
+
             // Dispose geometry and material if possible
             if ((child as any).geometry) (child as any).geometry.dispose();
             if ((child as any).material) {
@@ -155,6 +178,9 @@ export class SceneBuilder {
         if (doc.modules && doc.modules.length > 0) {
             doc.modules.forEach(mod => this.createModuleMesh(mod));
         }
+
+        // 5. Update all helpers to ensure they match final world positions
+        this.updateAllHelpers();
     }
 
     public buildDemoScene() {
@@ -163,30 +189,45 @@ export class SceneBuilder {
         const wallMat = this.materials.get('wall');
         const wall = new THREE.Mesh(wallGeo, wallMat);
         wall.position.set(0, 1000, 1400);
-        this.setLayers(wall);
+        this.enableLayers(wall);
+        this.createBoundsHelper(wall);
         this.scene.add(wall);
 
         const moduleGeo = new THREE.BoxGeometry(800, 800, 750);
         const moduleMat = this.materials.get('module');
         const module = new THREE.Mesh(moduleGeo, moduleMat);
         module.position.set(0, -500, 375);
-        this.setLayers(module);
+        this.enableLayers(module);
+        this.createBoundsHelper(module);
         this.scene.add(module);
 
         // Add Axes Helper
         const axesHelper = new THREE.AxesHelper(1000); // 1m length
         axesHelper.layers.set(LayerManager.LAYER_AXES);
         this.scene.add(axesHelper);
+
+        this.updateAllHelpers();
     }
 
-    private setLayers(object: THREE.Object3D) {
+    private enableLayers(object: THREE.Object3D) {
         // Enable Default and Model layers
         object.layers.enable(LayerManager.LAYER_MODEL);
+    }
 
+    private createBoundsHelper(object: THREE.Object3D) {
         // Add BoxHelper for Bounds Layer
         const boxHelper = new THREE.BoxHelper(object, 0xffff00); // Yellow box
         boxHelper.layers.set(LayerManager.LAYER_BOUNDS);
         this.scene.add(boxHelper);
+
+        // Track the helper
+        this.boxHelpers.push(boxHelper);
+    }
+
+    private updateAllHelpers() {
+        this.boxHelpers.forEach(helper => {
+            helper.update();
+        });
     }
 
     // private buildFloor() { ... } // Removed
@@ -221,7 +262,8 @@ export class SceneBuilder {
         mesh.castShadow = true;
         mesh.receiveShadow = true;
         mesh.rotation.x = -Math.PI / 2; // Y-Up Rotation
-        this.setLayers(mesh);
+        this.enableLayers(mesh);
+        this.createBoundsHelper(mesh);
         this.scene.add(mesh);
     }
 
@@ -238,7 +280,8 @@ export class SceneBuilder {
         mesh.castShadow = true;
         mesh.receiveShadow = true;
         mesh.rotation.x = -Math.PI / 2; // Y-Up Rotation
-        this.setLayers(mesh);
+        this.enableLayers(mesh);
+        this.createBoundsHelper(mesh);
         this.scene.add(mesh);
     }
 
@@ -276,18 +319,18 @@ export class SceneBuilder {
         const frameMat = this.materials.get('doorFrame');
         const topFrame = new THREE.Mesh(topGeo, frameMat);
         topFrame.position.set(0, 0, height);
-        this.setLayers(topFrame);
+        this.enableLayers(topFrame);
         frameGroup.add(topFrame);
 
         const sideGeo = new THREE.BoxGeometry(frameThickness, frameDepth, height);
         const leftFrame = new THREE.Mesh(sideGeo, frameMat);
         leftFrame.position.set(-width / 2 - frameThickness / 2, 0, height / 2);
-        this.setLayers(leftFrame);
+        this.enableLayers(leftFrame);
         frameGroup.add(leftFrame);
 
         const rightFrame = new THREE.Mesh(sideGeo, frameMat);
         rightFrame.position.set(width / 2 + frameThickness / 2, 0, height / 2);
-        this.setLayers(rightFrame);
+        this.enableLayers(rightFrame);
         frameGroup.add(rightFrame);
 
         root.add(frameGroup);
@@ -306,7 +349,7 @@ export class SceneBuilder {
         const panelMat = this.materials.get('doorPanel');
         const panel = new THREE.Mesh(panelGeo, panelMat);
         panel.position.set(panelWidth / 2, 0, height / 2);
-        this.setLayers(panel);
+        this.enableLayers(panel);
 
         pivotGroup.add(panel);
 
@@ -327,11 +370,14 @@ export class SceneBuilder {
         const geometry = new THREE.BufferGeometry().setFromPoints(points);
         const arc = new THREE.Line(geometry, this.materials.get('swingArc'));
         arc.position.set(0, 0, 20);
-        this.setLayers(arc);
+        this.enableLayers(arc);
 
         panelGroup.add(arc);
 
         root.add(panelGroup);
+
+        // Create ONE BoxHelper for the entire door group
+        this.createBoundsHelper(root);
     }
 
     private createWindow(center: THREE.Vector2, width: number, height: number, angle: number) {
@@ -351,32 +397,35 @@ export class SceneBuilder {
 
         const bottom = new THREE.Mesh(new THREE.BoxGeometry(width, frameDepth, frameThickness), frameMat);
         bottom.position.set(0, 0, sillHeight);
-        this.setLayers(bottom);
+        this.enableLayers(bottom);
         group.add(bottom);
 
         const top = new THREE.Mesh(new THREE.BoxGeometry(width, frameDepth, frameThickness), frameMat);
         top.position.set(0, 0, sillHeight + height);
-        this.setLayers(top);
+        this.enableLayers(top);
         group.add(top);
 
         const sideGeo = new THREE.BoxGeometry(frameThickness, frameDepth, height);
         const left = new THREE.Mesh(sideGeo, frameMat);
         left.position.set(-width / 2 + frameThickness / 2, 0, sillHeight + height / 2);
-        this.setLayers(left);
+        this.enableLayers(left);
         group.add(left);
 
         const right = new THREE.Mesh(sideGeo, frameMat);
         right.position.set(width / 2 - frameThickness / 2, 0, sillHeight + height / 2);
-        this.setLayers(right);
+        this.enableLayers(right);
         group.add(right);
 
         const glassGeo = new THREE.BoxGeometry(width - frameThickness * 2, 20, height - frameThickness * 2);
         const glass = new THREE.Mesh(glassGeo, this.materials.get('glass'));
         glass.position.set(0, 0, sillHeight + height / 2);
-        this.setLayers(glass);
+        this.enableLayers(glass);
         group.add(glass);
 
         root.add(group);
+
+        // Create ONE BoxHelper for the entire window group
+        this.createBoundsHelper(root);
     }
 
     private createModuleMesh(mod: Module) {
@@ -392,7 +441,8 @@ export class SceneBuilder {
         mesh.castShadow = true;
         mesh.receiveShadow = true;
         mesh.rotation.x = -Math.PI / 2; // Y-Up Rotation
-        this.setLayers(mesh);
+        this.enableLayers(mesh);
+        this.createBoundsHelper(mesh);
         this.scene.add(mesh);
     }
 }
