@@ -1,15 +1,44 @@
 <script setup lang="ts">
-import { ref } from 'vue';
+import { ref, watch } from 'vue';
 import { useCanvasStore } from '../../stores/canvasStore';
 import GlassButton from './base/GlassButton.vue';
 import IconBadge from './base/IconBadge.vue';
+import { LayerManager } from '../../services/three/LayerManager';
 
 const store = useCanvasStore();
 const currentView = ref<'human' | 'ai'>('human');
+const showLayerMenu = ref(false);
+
+// Layer States
+const layers = ref({
+  [LayerManager.LAYER_GRID]: false,
+  [LayerManager.LAYER_LABELS]: false,
+  [LayerManager.LAYER_BOUNDS]: false,
+  [LayerManager.LAYER_SEMANTIC]: false,
+  [LayerManager.LAYER_AXES]: false,
+});
 
 const toggleView = (mode: 'human' | 'ai') => {
   currentView.value = mode;
   window.dispatchEvent(new CustomEvent('bimcanvas:view-mode-change', { detail: mode }));
+  
+  // Update local layer state based on preset
+  if (mode === 'human') {
+    Object.keys(layers.value).forEach(key => layers.value[key as any] = false);
+  } else {
+    Object.keys(layers.value).forEach(key => layers.value[key as any] = true);
+  }
+};
+
+const toggleLayer = (layerId: number) => {
+  const isVisible = !layers.value[layerId];
+  layers.value[layerId] = isVisible;
+  window.dispatchEvent(new CustomEvent('bimcanvas:layer-toggle', { 
+    detail: { layerId, visible: isVisible } 
+  }));
+  
+  // If manual toggle, we might drift from preset, but that's fine.
+  // We could reset currentView to null if it doesn't match preset, but keeping it simple.
 };
 
 const dispatchAction = (action: 'rotate' | 'delete' | 'move') => {
@@ -39,21 +68,57 @@ const handleLoadDemo = async (type: 'basic' | 'proposal') => {
         Load Proposal
       </GlassButton>
       
-      <div class="view-toggle">
-        <GlassButton 
-          :active="currentView === 'human'" 
-          @click="toggleView('human')"
-          variant="ghost"
-        >
-          Human
-        </GlassButton>
-        <GlassButton 
-          :active="currentView === 'ai'" 
-          @click="toggleView('ai')"
-          variant="ghost"
-        >
-          AI Vision
-        </GlassButton>
+      <div class="view-controls">
+        <div class="view-toggle">
+          <GlassButton 
+            :active="currentView === 'human'" 
+            @click="toggleView('human')"
+            variant="ghost"
+          >
+            Human
+          </GlassButton>
+          <GlassButton 
+            :active="currentView === 'ai'" 
+            @click="toggleView('ai')"
+            variant="ghost"
+          >
+            AI Vision
+          </GlassButton>
+        </div>
+
+        <div class="layer-manager">
+          <GlassButton 
+            @click="showLayerMenu = !showLayerMenu" 
+            variant="ghost" 
+            :active="showLayerMenu"
+            title="View Options"
+          >
+            <span class="icon">⚙️</span>
+          </GlassButton>
+          
+          <div v-if="showLayerMenu" class="layer-dropdown">
+            <div class="layer-item" @click="toggleLayer(LayerManager.LAYER_GRID)">
+              <input type="checkbox" :checked="layers[LayerManager.LAYER_GRID]" />
+              <span>Grid (1m)</span>
+            </div>
+            <div class="layer-item" @click="toggleLayer(LayerManager.LAYER_LABELS)">
+              <input type="checkbox" :checked="layers[LayerManager.LAYER_LABELS]" />
+              <span>Labels</span>
+            </div>
+            <div class="layer-item" @click="toggleLayer(LayerManager.LAYER_BOUNDS)">
+              <input type="checkbox" :checked="layers[LayerManager.LAYER_BOUNDS]" />
+              <span>Bounds</span>
+            </div>
+            <div class="layer-item" @click="toggleLayer(LayerManager.LAYER_SEMANTIC)">
+              <input type="checkbox" :checked="layers[LayerManager.LAYER_SEMANTIC]" />
+              <span>Semantic</span>
+            </div>
+            <div class="layer-item" @click="toggleLayer(LayerManager.LAYER_AXES)">
+              <input type="checkbox" :checked="layers[LayerManager.LAYER_AXES]" />
+              <span>Axes</span>
+            </div>
+          </div>
+        </div>
       </div>
 
       <div class="divider"></div>
@@ -124,14 +189,60 @@ const handleLoadDemo = async (type: 'basic' | 'proposal') => {
       margin: 0 var(--spacing-xs);
     }
 
-    .view-toggle {
+    .view-controls {
       display: flex;
-      background: var(--surface-glass);
-      border-radius: var(--radius-md);
-      padding: 2px;
-      margin-left: var(--spacing-md);
-      border: 1px solid var(--border-subtle);
-      gap: 2px;
+      align-items: center;
+      gap: var(--spacing-sm);
+      
+      .view-toggle {
+        display: flex;
+        background: var(--surface-glass);
+        border-radius: var(--radius-md);
+        padding: 2px;
+        border: 1px solid var(--border-subtle);
+        gap: 2px;
+      }
+
+      .layer-manager {
+        position: relative;
+        
+        .layer-dropdown {
+          position: absolute;
+          top: 100%;
+          right: 0;
+          margin-top: var(--spacing-xs);
+          background: rgba(20, 20, 25, 0.95);
+          border: 1px solid var(--border-subtle);
+          border-radius: var(--radius-md);
+          padding: var(--spacing-sm);
+          min-width: 150px;
+          backdrop-filter: blur(10px);
+          box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+          display: flex;
+          flex-direction: column;
+          gap: var(--spacing-xs);
+
+          .layer-item {
+            display: flex;
+            align-items: center;
+            gap: var(--spacing-sm);
+            padding: 4px 8px;
+            cursor: pointer;
+            border-radius: var(--radius-sm);
+            color: var(--text-secondary);
+            font-size: 0.9rem;
+
+            &:hover {
+              background: rgba(255, 255, 255, 0.1);
+              color: var(--text-primary);
+            }
+
+            input {
+              cursor: pointer;
+            }
+          }
+        }
+      }
     }
   }
 }

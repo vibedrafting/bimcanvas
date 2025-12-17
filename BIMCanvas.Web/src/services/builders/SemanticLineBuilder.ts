@@ -24,7 +24,7 @@ export class SemanticLineBuilder {
         }
 
         this.lineGroup = new THREE.Group();
-        this.lineGroup.layers.set(LayerManager.LAYER_AI);
+        this.lineGroup.layers.set(LayerManager.LAYER_SEMANTIC);
 
         // 1. Wall Boundaries
         if (doc.walls) {
@@ -42,7 +42,7 @@ export class SemanticLineBuilder {
                 line.rotation.x = -Math.PI / 2;
 
                 // Fix: Layers are not inherited by children in Three.js, must set explicitly
-                line.layers.set(LayerManager.LAYER_AI);
+                line.layers.set(LayerManager.LAYER_SEMANTIC);
 
                 this.lineGroup!.add(line);
             });
@@ -58,7 +58,7 @@ export class SemanticLineBuilder {
                 line.rotation.x = -Math.PI / 2;
 
                 // Fix: Set layer explicitly
-                line.layers.set(LayerManager.LAYER_AI);
+                line.layers.set(LayerManager.LAYER_SEMANTIC);
 
                 this.lineGroup!.add(line);
             });
@@ -74,7 +74,7 @@ export class SemanticLineBuilder {
                 line.rotation.x = -Math.PI / 2;
 
                 // Fix: Set layer explicitly
-                line.layers.set(LayerManager.LAYER_AI);
+                line.layers.set(LayerManager.LAYER_SEMANTIC);
 
                 this.lineGroup!.add(line);
             });

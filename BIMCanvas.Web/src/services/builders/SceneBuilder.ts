@@ -83,19 +83,58 @@ export class SceneBuilder {
     }
 
     public clearScene() {
+        console.log('--- clearScene START ---');
+        console.log('Total children before clear:', this.scene.children.length);
+
         const toRemove: THREE.Object3D[] = [];
         this.scene.traverse((child) => {
-            if (child instanceof THREE.Mesh || child instanceof THREE.Line) {
-                toRemove.push(child);
+            // Keep Lights and Camera (if in scene)
+            if (child instanceof THREE.Light || child instanceof THREE.Camera) return;
+
+            // Remove Meshes, Lines, LineSegments (BoxHelper), AxesHelper, Group (if not root)
+            if (child !== this.scene) {
+                if (child instanceof THREE.Mesh ||
+                    child instanceof THREE.Line ||
+                    child instanceof THREE.LineSegments ||
+                    child instanceof THREE.AxesHelper ||
+                    child.type === 'BoxHelper') {
+
+                    console.log('Marking for removal:', child.type, child.uuid, (child as any).geometry?.type);
+                    toRemove.push(child);
+                } else {
+                    console.log('Skipping removal of:', child.type, child.uuid);
+                }
             }
         });
-        toRemove.forEach(child => this.scene.remove(child));
+
+        toRemove.forEach(child => {
+            this.scene.remove(child);
+            // Dispose geometry and material if possible
+            if ((child as any).geometry) (child as any).geometry.dispose();
+            if ((child as any).material) {
+                const mat = (child as any).material;
+                if (Array.isArray(mat)) {
+                    mat.forEach(m => m.dispose());
+                } else {
+                    mat.dispose();
+                }
+            }
+        });
+
+        console.log('Total children after clear:', this.scene.children.length);
+        this.scene.children.forEach(c => console.log('Remaining child:', c.type, c.uuid));
+        console.log('--- clearScene END ---');
     }
 
     public buildFromDocument(doc: CanvasDocument) {
         console.log('SceneBuilder: Building from document', doc);
         this.clearScene();
         // this.buildFloor(); // Removed as per user request
+
+        // Add Axes Helper
+        const axesHelper = new THREE.AxesHelper(1000); // 1m length
+        axesHelper.layers.set(LayerManager.LAYER_AXES);
+        this.scene.add(axesHelper);
 
         // 1. Walls
         if (doc.walls && doc.walls.length > 0) {
@@ -133,16 +172,20 @@ export class SceneBuilder {
         module.position.set(0, -500, 375);
         this.setLayers(module);
         this.scene.add(module);
+
+        // Add Axes Helper
+        const axesHelper = new THREE.AxesHelper(1000); // 1m length
+        axesHelper.layers.set(LayerManager.LAYER_AXES);
+        this.scene.add(axesHelper);
     }
 
     private setLayers(object: THREE.Object3D) {
-        // Enable Default and Human layers
-        object.layers.enable(LayerManager.LAYER_DEFAULT);
-        object.layers.enable(LayerManager.LAYER_HUMAN);
+        // Enable Default and Model layers
+        object.layers.enable(LayerManager.LAYER_MODEL);
 
-        // Add BoxHelper for AI View
+        // Add BoxHelper for Bounds Layer
         const boxHelper = new THREE.BoxHelper(object, 0xffff00); // Yellow box
-        boxHelper.layers.set(LayerManager.LAYER_AI);
+        boxHelper.layers.set(LayerManager.LAYER_BOUNDS);
         this.scene.add(boxHelper);
     }
 

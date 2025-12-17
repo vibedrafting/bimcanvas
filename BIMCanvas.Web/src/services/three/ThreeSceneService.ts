@@ -115,7 +115,6 @@ export class ThreeSceneService {
             if (newDoc) {
                 console.log('Document changed, rebuilding scene...');
                 this.sceneBuilder.buildFromDocument(newDoc);
-                this.sceneBuilder.buildFromDocument(newDoc);
                 this.semanticLineBuilder.buildLines(newDoc);
                 this.labelBuilder.buildLabels(newDoc);
                 this.gridBuilder.buildGrid();
@@ -125,8 +124,13 @@ export class ThreeSceneService {
 
         // 8. Events
         window.addEventListener('resize', this.onWindowResize.bind(this));
+
         window.addEventListener('bimcanvas:view-mode-change', ((e: CustomEvent) => {
             this.toggleViewMode(e.detail);
+        }) as EventListener);
+
+        window.addEventListener('bimcanvas:layer-toggle', ((e: CustomEvent) => {
+            this.toggleLayer(e.detail.layerId, e.detail.visible);
         }) as EventListener);
 
         window.addEventListener('bimcanvas:action-rotate', () => {
@@ -143,7 +147,15 @@ export class ThreeSceneService {
     }
 
     public toggleViewMode(mode: 'human' | 'ai') {
-        this.layerManager.setMode(mode);
+        this.layerManager.applyPreset(mode);
+    }
+
+    public toggleLayer(layerId: number, visible: boolean) {
+        this.layerManager.toggleLayer(layerId, visible);
+    }
+
+    public applyPreset(preset: string) {
+        this.layerManager.applyPreset(preset);
     }
 
     private setupLighting() {

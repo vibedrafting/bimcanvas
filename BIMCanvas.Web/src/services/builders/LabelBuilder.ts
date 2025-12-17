@@ -18,12 +18,8 @@ export class LabelBuilder {
         }
 
         this.labelGroup = new THREE.Group();
-        // Important: Set the group to AI layer so it's only visible in AI mode
-        // Note: CSS2DObjects don't strictly respect layers in the same way as meshes in some versions,
-        // but we can manage their visibility or the renderer's DOM element visibility.
-        // However, standard practice is to toggle the CSS2DObject's layers or visibility.
-        // Let's try setting layers on the group first.
-        this.labelGroup.layers.set(LayerManager.LAYER_AI);
+        // Important: Set the group to LABELS layer
+        this.labelGroup.layers.set(LayerManager.LAYER_LABELS);
 
         // 1. Walls
         if (doc.walls) {
@@ -75,13 +71,8 @@ export class LabelBuilder {
         const label = new CSS2DObject(div);
         label.position.copy(position);
 
-        // CSS2DObject doesn't inherit layers from parent group automatically in all cases,
-        // but we will manage visibility via the group or renderer.
-        // Actually, CSS2DRenderer renders everything in the scene that is a CSS2DObject.
-        // We need to manually hide them if not in AI mode.
-        // We'll handle this by putting them in a group and toggling the group's visibility or layers.
-        // CSS2DObject.layers DOES work if the renderer camera checks layers.
-        label.layers.set(LayerManager.LAYER_AI);
+        // Assign to LABELS Layer
+        label.layers.set(LayerManager.LAYER_LABELS);
 
         this.labelGroup!.add(label);
     }
@@ -96,9 +87,6 @@ export class LabelBuilder {
         const centerY = y / polygon.length;
 
         // Convert to 3D coordinates (X, 0, -Y)
-        return new THREE.Vector3(centerX, 0, -centerY); // Height 0? Or maybe higher?
-        // Let's put it slightly above the floor/objects.
-        // Walls are 2800 high. Let's put it at 3000.
-        // return new THREE.Vector3(centerX, 3000, -centerY);
+        return new THREE.Vector3(centerX, 0, -centerY);
     }
 }
