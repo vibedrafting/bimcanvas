@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { CSS2DObject } from 'three-stdlib';
 import { LayerManager } from '../three/LayerManager';
 import type { CanvasDocument } from '../../types/canvas';
+import { themeService } from '../theme/ThemeService';
 
 export class LabelBuilder {
     private scene: THREE.Scene;
@@ -63,17 +64,20 @@ export class LabelBuilder {
     }
 
     private createLabel(id: string, position: THREE.Vector3, prefix: string) {
+        // 从 ThemeService 获取标签配色
+        const colors = themeService.currentTheme.value.label;
+
         const div = document.createElement('div');
         div.className = 'ai-label';
         div.textContent = `${prefix}:${id.substring(0, 4)}`;
-        div.style.backgroundColor = 'rgba(0, 0, 0, 0.8)';
-        div.style.color = '#00ff00';
+        div.style.backgroundColor = colors.background;
+        div.style.color = colors.text;
         div.style.padding = '2px 4px';
         div.style.borderRadius = '4px';
         div.style.fontSize = '10px';
         div.style.fontFamily = 'monospace';
         div.style.pointerEvents = 'none'; // Crucial for clicking through
-        div.style.border = '1px solid #00ff00';
+        div.style.border = colors.border;
 
         const label = new CSS2DObject(div);
         label.position.copy(position);
@@ -97,3 +101,4 @@ export class LabelBuilder {
         return new THREE.Vector3(centerX, 0, -centerY);
     }
 }
+

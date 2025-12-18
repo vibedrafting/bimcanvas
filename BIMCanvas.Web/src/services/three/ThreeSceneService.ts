@@ -162,6 +162,12 @@ export class ThreeSceneService {
         window.addEventListener('bimcanvas:ghost-patch', ((e: CustomEvent) => {
             this.ghostManager.updateGhosts(e.detail);
         }) as EventListener);
+
+        // 主题切换事件监听 - 重建 Builders 和场景
+        window.addEventListener('bimcanvas:theme-change', (() => {
+            console.log('Theme changed, rebuilding scene with new colors...');
+            this.rebuildWithNewTheme();
+        }) as EventListener);
     }
 
     public toggleViewMode(mode: 'human' | 'ai') {
@@ -174,6 +180,30 @@ export class ThreeSceneService {
 
     public applyPreset(preset: string) {
         this.layerManager.applyPreset(preset);
+    }
+
+    /**
+     * 主题切换时重建场景
+     * 重新创建 Builders 以应用新的配色，然后重建当前文档
+     */
+    private rebuildWithNewTheme() {
+        // 重新创建所有 Builders（它们在构造时读取 ThemeService 配色）
+        this.sceneBuilder = new SceneBuilder(this.scene);
+        this.gridBuilder = new GridBuilder(this.scene);
+        this.semanticLineBuilder = new SemanticLineBuilder(this.scene);
+        this.labelBuilder = new LabelBuilder(this.scene);
+
+        // 如果有当前文档，重建场景
+        const doc = this.store.document;
+        if (doc) {
+            this.sceneBuilder.buildFromDocument(doc);
+            this.semanticLineBuilder.buildLines(doc);
+            this.labelBuilder.buildLabels(doc);
+            this.gridBuilder.buildGrid();
+        } else {
+            this.sceneBuilder.buildDemoScene();
+            this.gridBuilder.buildGrid();
+        }
     }
 
     private setupLighting() {

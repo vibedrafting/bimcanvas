@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import type { CanvasDocument, Wall, Column, Module, Point2D, Opening } from '../../types/canvas';
 import { LayerManager } from '../three/LayerManager';
+import { themeService } from '../theme/ThemeService';
 
 export class SceneBuilder {
     private scene: THREE.Scene;
@@ -9,8 +10,6 @@ export class SceneBuilder {
 
     // Constants
     private readonly WALL_HEIGHT = 2800;
-    private readonly MODULE_COLOR = 0x3b82f6;
-    private readonly GLASS_COLOR = 0xAADDFF;
 
     constructor(scene: THREE.Scene) {
         this.scene = scene;
@@ -19,51 +18,54 @@ export class SceneBuilder {
     }
 
     private initMaterials() {
+        // 从 ThemeService 获取当前主题配色
+        const colors = themeService.currentTheme.value.scene;
+
         this.materials.set('wall', new THREE.MeshStandardMaterial({
-            color: 0x5c5c5c, // Medium Gray (Lighter than background)
+            color: colors.wall,
             roughness: 0.8,
             metalness: 0.1
         }));
 
         this.materials.set('column', new THREE.MeshStandardMaterial({
-            color: 0x707070, // Lighter Gray (Distinct from wall)
+            color: colors.column,
             roughness: 0.8,
             metalness: 0.1
         }));
 
         this.materials.set('module', new THREE.MeshStandardMaterial({
-            color: this.MODULE_COLOR,
+            color: colors.module,
             roughness: 0.6,
             metalness: 0.2,
-            side: THREE.DoubleSide // Ensure visibility
+            side: THREE.DoubleSide
         }));
 
         this.materials.set('floor', new THREE.MeshStandardMaterial({
-            color: 0x0a0a0f, // Very dark, matches BG
+            color: colors.floor,
             roughness: 0.9,
             metalness: 0.1
         }));
 
         this.materials.set('doorFrame', new THREE.MeshStandardMaterial({
-            color: 0x4a5568, // Cool Slate Gray
+            color: colors.doorFrame,
             roughness: 0.8,
             metalness: 0.3
         }));
 
         this.materials.set('doorPanel', new THREE.MeshStandardMaterial({
-            color: 0x718096, // Lighter Slate Gray
+            color: colors.doorPanel,
             roughness: 0.7,
             metalness: 0.1
         }));
 
         this.materials.set('windowFrame', new THREE.MeshStandardMaterial({
-            color: 0x4a5568, // Cool Slate Gray (Matches door frame)
+            color: colors.windowFrame,
             roughness: 0.8,
             metalness: 0.3
         }));
 
         this.materials.set('glass', new THREE.MeshPhysicalMaterial({
-            color: this.GLASS_COLOR,
+            color: colors.glass,
             metalness: 0.1,
             roughness: 0.1,
             transmission: 0.6,
@@ -72,8 +74,8 @@ export class SceneBuilder {
         }));
 
         this.materials.set('swingArc', new THREE.LineBasicMaterial({
-            color: 0xffffff,
-            opacity: 0.3, // More subtle
+            color: colors.swingArc,
+            opacity: 0.3,
             transparent: true,
             linewidth: 1
         }));
@@ -211,8 +213,9 @@ export class SceneBuilder {
     }
 
     private createBoundsHelper(object: THREE.Object3D) {
-        // Add BoxHelper for Bounds Layer
-        const boxHelper = new THREE.BoxHelper(object, 0xffff00); // Yellow box
+        // 使用 ThemeService 的包围盒颜色
+        const boundsColor = themeService.currentTheme.value.scene.bounds;
+        const boxHelper = new THREE.BoxHelper(object, boundsColor);
         boxHelper.layers.set(LayerManager.LAYER_BOUNDS);
         this.scene.add(boxHelper);
 

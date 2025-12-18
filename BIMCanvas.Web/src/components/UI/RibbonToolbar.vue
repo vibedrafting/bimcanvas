@@ -2,12 +2,26 @@
 import { ref, computed, watch } from 'vue';
 import { useCanvasStore } from '../../stores/canvasStore';
 import GlassButton from './base/GlassButton.vue';
+import { themeService } from '../../services/theme/ThemeService';
 
 import { storeToRefs } from 'pinia';
 
 const store = useCanvasStore();
 const { selectedObject } = storeToRefs(store);
 const isExpanded = ref(false);
+
+// 调试开关：设为 true 可保持灵动岛展开状态，方便截图调试
+const DEBUG_KEEP_EXPANDED = false;
+
+// 计算属性：结合调试开关和鼠标状态
+const shouldExpand = computed(() => DEBUG_KEEP_EXPANDED || isExpanded.value);
+
+// Theme Toggle
+const isDarkTheme = computed(() => themeService.currentTheme.value.name === 'dark');
+
+const toggleTheme = () => {
+  themeService.toggleTheme();
+};
 
 // Load Demo
 const handleLoadDemo = async () => {
@@ -58,13 +72,13 @@ watch(selectedObject, (newVal) => {
     <!-- Dynamic Command Island -->
     <div 
       class="command-island" 
-      :class="{ expanded: isExpanded }"
+      :class="{ expanded: shouldExpand }"
       @mouseenter="isExpanded = true"
       @mouseleave="isExpanded = false"
     >
       
       <!-- Collapsed View -->
-      <div class="island-collapsed" v-show="!isExpanded">
+      <div class="island-collapsed" v-show="!shouldExpand">
         <div class="status-indicator" :class="{ active: !!store.selectedObject }"></div>
         <span class="status-text">
           {{ store.selectedObject ? `Selected: ${store.selectedObject.userData?.type || 'Object'}` : 'BIMCanvas Ready' }}
@@ -72,7 +86,7 @@ watch(selectedObject, (newVal) => {
       </div>
 
       <!-- Expanded View -->
-      <div class="island-expanded" v-show="isExpanded">
+      <div class="island-expanded" v-show="shouldExpand">
         <!-- BASIC Group -->
         <div class="group stagger-1">
           <GlassButton variant="ghost" title="Select" active class="compact-btn">
@@ -95,6 +109,15 @@ watch(selectedObject, (newVal) => {
           </GlassButton>
         </div>
 
+        <!-- Divider before Theme Toggle -->
+        <div class="divider-vertical stagger-4"></div>
+
+        <!-- THEME Group -->
+        <div class="group stagger-5">
+          <GlassButton @click="toggleTheme" variant="ghost" class="compact-btn theme-btn" :title="isDarkTheme ? '切换到亮色模式' : '切换到暗色模式'">
+            <span class="icon">{{ isDarkTheme ? '☀️' : '🌙' }}</span>
+          </GlassButton>
+        </div>
 
       </div>
 
@@ -145,8 +168,8 @@ watch(selectedObject, (newVal) => {
   left: 50%;
   transform: translateX(-50%);
   
-  /* Dynamic Sizing */
-  min-width: 160px;
+  /* 折叠状态固定尺寸 */
+  width: 180px;
   height: 36px;
   
   display: flex;
@@ -168,7 +191,7 @@ watch(selectedObject, (newVal) => {
   pointer-events: auto;
   /* Apple Dynamic Island Spring Physics */
   transition: 
-    min-width 0.5s cubic-bezier(0.34, 1.56, 0.64, 1),
+    width 0.5s cubic-bezier(0.34, 1.56, 0.64, 1),
     height 0.5s cubic-bezier(0.34, 1.56, 0.64, 1),
     padding 0.5s cubic-bezier(0.34, 1.56, 0.64, 1),
     background 0.3s ease,
@@ -177,14 +200,15 @@ watch(selectedObject, (newVal) => {
     backdrop-filter 0.3s ease;
   overflow: hidden;
 
-  /* Expanded State Override */
+  /* 展开状态 - 高度固定，宽度动态 */
   &.expanded {
-    height: 52px;
-    min-width: 480px; /* Approximate width for full toolbar */
+    width: auto;           /* 宽度动态 */
+    min-width: 420px;      /* 最小宽度保证内容不压缩 */
+    height: 52px;          /* 高度固定 */
     padding: 0 20px;
-    border-radius: 26px; /* Less rounded when expanded */
+    border-radius: 26px;
     background: rgba(25, 25, 30, 0.95);
-    backdrop-filter: blur(30px) saturate(200%); /* Enhanced blur when expanded */
+    backdrop-filter: blur(30px) saturate(200%);
     -webkit-backdrop-filter: blur(30px) saturate(200%);
     box-shadow: 
       0 12px 40px rgba(0, 0, 0, 0.6),

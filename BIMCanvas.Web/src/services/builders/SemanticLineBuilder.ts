@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { LayerManager } from '../three/LayerManager';
 import type { CanvasDocument } from '../../types/canvas';
+import { themeService } from '../theme/ThemeService';
 
 export class SemanticLineBuilder {
     private scene: THREE.Scene;
@@ -9,8 +10,10 @@ export class SemanticLineBuilder {
 
     constructor(scene: THREE.Scene) {
         this.scene = scene;
+        // 从 ThemeService 获取语义线配色
+        const colors = themeService.currentTheme.value.semantic;
         this.material = new THREE.LineBasicMaterial({
-            color: 0x00ff00, // Bright Green for AI visibility
+            color: colors.line,
             linewidth: 2,
             depthTest: false // Ensure lines are always visible on top
         });
@@ -83,3 +86,4 @@ export class SemanticLineBuilder {
         this.scene.add(this.lineGroup);
     }
 }
+
