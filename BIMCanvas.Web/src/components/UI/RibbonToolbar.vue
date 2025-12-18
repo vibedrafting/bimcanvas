@@ -43,7 +43,7 @@ watch(selectedObject, (newVal) => {
   <div class="toolbar-container">
     <!-- Top Bar: Branding & Quick Access (Transparent, Top-aligned) -->
     <div class="top-bar">
-      <div class="brand-area">
+    <div class="brand-area">
         <span class="brand-text">BIMCanvas</span>
         <div class="divider"></div>
         <GlassButton @click="store.undo()" :disabled="!store.canUndo" variant="ghost" title="Undo" class="icon-btn">
@@ -51,10 +51,6 @@ watch(selectedObject, (newVal) => {
         </GlassButton>
         <GlassButton @click="store.redo()" :disabled="!store.canRedo" variant="ghost" title="Redo" class="icon-btn">
           ↪
-        </GlassButton>
-        <div class="divider"></div>
-        <GlassButton @click="handleLoadDemo" :disabled="store.isLoading" variant="ghost">
-          Load Example
         </GlassButton>
       </div>
     </div>
@@ -103,11 +99,11 @@ watch(selectedObject, (newVal) => {
 
         <!-- VISION Group -->
         <div class="group">
-          <GlassButton :active="currentView === 'human'" @click="toggleView('human')" variant="ghost" class="compact-btn">
-             Human
+          <GlassButton :active="currentView === 'human'" @click="toggleView('human')" variant="ghost" class="compact-btn vision-btn">
+             <span class="icon">⦿</span> User
           </GlassButton>
-          <GlassButton :active="currentView === 'ai'" @click="toggleView('ai')" variant="ghost" class="compact-btn">
-             AI Vision
+          <GlassButton :active="currentView === 'ai'" @click="toggleView('ai')" variant="ghost" class="compact-btn vision-btn">
+             <span class="icon">⚙</span> Agent
           </GlassButton>
         </div>
       </div>
@@ -266,13 +262,23 @@ watch(selectedObject, (newVal) => {
 }
 
 .compact-btn {
-  padding: 6px 12px;
+  height: 32px; /* Enforce consistent height */
+  padding: 0 12px; /* Adjust padding for fixed height */
+  display: inline-flex;
+  align-items: center;
   font-size: 0.9rem;
   border-radius: 20px !important;
+  box-sizing: border-box;
   
   .icon {
     margin-right: 6px;
     font-size: 1.1em;
+    line-height: 1; /* Prevent icon from affecting line height */
   }
+}
+
+.vision-btn {
+  min-width: 80px; /* Equal width for vision toggle buttons */
+  justify-content: center;
 }
 </style>

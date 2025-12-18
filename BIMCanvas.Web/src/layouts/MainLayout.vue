@@ -53,12 +53,7 @@ onUnmounted(() => {
 
 <style scoped lang="scss">
 .main-layout {
-  display: grid;
-  grid-template-areas:
-    "header header header"
-    "gallery canvas properties";
-  grid-template-columns: auto 1fr auto;
-  grid-template-rows: auto 1fr;
+  position: relative;
   width: 100vw;
   height: 100vh;
   overflow: hidden;
@@ -66,28 +61,41 @@ onUnmounted(() => {
 }
 
 .header-area {
-  grid-area: header;
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
   z-index: 100;
 }
 
-.gallery-area {
-  grid-area: gallery;
-  z-index: 90;
-  /* Ensure it doesn't take up space when empty/collapsed if needed, 
-     but SideGallery handles its own width */
-}
-
 .canvas-area {
-  grid-area: canvas;
-  position: relative;
+  position: absolute;
+  top: 0;
+  left: 0;
   width: 100%;
   height: 100%;
   z-index: 0;
-  overflow: hidden;
+}
+
+/* Gallery and Properties handle their own positioning now */
+.gallery-area, .properties-area {
+  position: absolute;
+  top: 0;
+  height: 100%;
+  z-index: 90;
+  pointer-events: none; /* Let clicks pass through empty areas */
+}
+
+.gallery-area {
+  right: 0;
 }
 
 .properties-area {
-  grid-area: properties;
-  z-index: 90;
+  left: 0;
+}
+
+/* Enable pointer events for the actual content */
+.gallery-area > *, .properties-area > * {
+  pointer-events: auto;
 }
 </style>

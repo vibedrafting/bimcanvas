@@ -31,29 +31,31 @@ const toggleExpand = () => {
 
 <style scoped lang="scss">
 .side-gallery {
-  /* position: absolute; removed */
-  /* top: 80px; removed */
-  /* left: var(--spacing-lg); removed */
+  /* Positioned by parent container, but we handle the visual expansion */
   width: 48px; /* Collapsed state */
-  height: 100%; /* Fill grid area */
+  height: calc(100% - 80px); /* Fill grid area minus top and bottom margin */
+  margin-top: 40px; /* Avoid overlap with top bar */
+  margin-bottom: 40px; /* Symmetric bottom margin */
   background: var(--surface-glass);
   backdrop-filter: blur(10px);
-  border-right: 1px solid var(--border-subtle); /* Changed to border-right */
-  /* border-radius: var(--radius-md); removed or adjusted */
+  border-left: 1px solid var(--border-subtle); /* Changed to border-left */
   display: flex;
   flex-direction: column;
   transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
   overflow: hidden;
   z-index: 90;
   
+  /* Right aligned behavior */
+  margin-left: auto; 
+  
   &.expanded {
     width: 280px;
     background: rgba(10, 10, 15, 0.9);
     border-color: rgba(255, 255, 255, 0.1);
-    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.3);
+    box-shadow: -10px 0 30px rgba(0, 0, 0, 0.3); /* Shadow to left */
 
     .header .indicator {
-      transform: rotate(180deg);
+      transform: rotate(0deg); /* Reset rotation or adjust for right side */
     }
   }
 
@@ -66,6 +68,11 @@ const toggleExpand = () => {
     padding-top: var(--spacing-lg);
     cursor: pointer;
     flex-shrink: 0;
+    
+    /* Keep header on the right side when expanded */
+    position: absolute;
+    right: 0;
+    top: 0;
     
     .label {
       writing-mode: vertical-rl;
@@ -84,6 +91,7 @@ const toggleExpand = () => {
       color: var(--text-secondary);
       font-size: 1.2rem;
       transition: transform 0.3s;
+      transform: rotate(180deg); /* Point left by default */
     }
 
     &:hover .label {
@@ -93,7 +101,7 @@ const toggleExpand = () => {
 
   .content {
     position: absolute;
-    left: 48px;
+    right: 48px; /* Content to the left of header */
     top: 0;
     width: calc(100% - 48px);
     height: 100%;
@@ -112,7 +120,7 @@ const toggleExpand = () => {
 }
 
 @keyframes fadeIn {
-  from { opacity: 0; transform: translateX(-10px); }
+  from { opacity: 0; transform: translateX(10px); }
   to { opacity: 1; transform: translateX(0); }
 }
 </style>
