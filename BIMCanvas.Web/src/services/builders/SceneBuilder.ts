@@ -39,7 +39,8 @@ export class SceneBuilder {
         this.materials.set('module', new THREE.MeshStandardMaterial({
             color: this.MODULE_COLOR,
             roughness: 0.6,
-            metalness: 0.2
+            metalness: 0.2,
+            side: THREE.DoubleSide // Ensure visibility
         }));
 
         this.materials.set('floor', new THREE.MeshStandardMaterial({
@@ -441,6 +442,14 @@ export class SceneBuilder {
         mesh.castShadow = true;
         mesh.receiveShadow = true;
         mesh.rotation.x = -Math.PI / 2; // Y-Up Rotation
+
+        // Set User Data
+        mesh.userData = {
+            id: mod.id,
+            type: 'module',
+            data: mod
+        };
+
         this.enableLayers(mesh);
         this.createBoundsHelper(mesh);
         this.scene.add(mesh);

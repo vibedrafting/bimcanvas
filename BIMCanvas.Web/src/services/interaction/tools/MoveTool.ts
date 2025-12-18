@@ -14,7 +14,7 @@ export class MoveTool implements Tool {
     private raycaster: THREE.Raycaster;
     private plane: THREE.Plane;
 
-    private state: 'waiting_base' | 'waiting_dest' = 'waiting_base';
+    private state: 'waiting_selection' | 'waiting_base' | 'waiting_dest' = 'waiting_selection';
     private basePoint: THREE.Vector3 | null = null;
     private rubberBand: THREE.Line | null = null;
     private selectedObject: any = null; // Store module data
@@ -39,34 +39,38 @@ export class MoveTool implements Tool {
         const store = useCanvasStore();
         this.selectedObject = store.selectedObject;
 
-        if (!this.selectedObject) {
-            console.warn("MoveTool activated without selection");
-            this.deactivate();
-            return;
+        // Check if we have a valid selection (must be a module)
+        if (this.selectedObject && this.selectedObject.type === 'module') {
+            this.startMoveOperation();
+        } else {
+            this.state = 'waiting_selection';
+            store.setPrompt('Select object to move');
+            this.domElement.style.cursor = 'default';
         }
+    }
 
-        // Find the 3D object in the scene
-        // We need a way to find the object by ID. 
-        // For now, let's search the scene. Ideally InteractionService passes it.
+    private startMoveOperation() {
+        const store = useCanvasStore();
         this.originalObject = this.findObjectById(this.selectedObject.id);
 
         if (this.originalObject) {
             this.ghostManager.createGhost(this.originalObject);
-            // Hide original? No, usually we keep it or dim it. Ghost is enough indication.
         }
 
         this.state = 'waiting_base';
         this.basePoint = null;
         this.domElement.style.cursor = 'crosshair';
-        console.log("MoveTool Activated: Click base point");
+        store.setPrompt('Click to set base point');
     }
 
     deactivate() {
+        const store = useCanvasStore();
         this.ghostManager.removeGhost();
         this.removeRubberBand();
         this.domElement.style.cursor = 'default';
         this.basePoint = null;
-        this.state = 'waiting_base';
+        this.state = 'waiting_selection';
+        store.setPrompt(null);
     }
 
     private findObjectById(id: string): THREE.Object3D | null {
@@ -85,8 +89,25 @@ export class MoveTool implements Tool {
         const point = this.getRayIntersection(event);
         if (!point) return;
 
-        // Apply Snapping
-        // We should snap to everything EXCEPT the ghost
+        const store = useCanvasStore();
+
+        if (this.state === 'waiting_selection') {
+            // Try to select an object
+            const hit = this.raycastObject(event);
+            if (hit && hit.userData && hit.userData.type === 'module') {
+                // Valid selection
+                store.setSelectedObject(hit.userData.data);
+                this.selectedObject = hit.userData.data;
+                this.startMoveOperation();
+            } else {
+                // Invalid selection (e.g. wall)
+                // Optional: Flash warning or just ignore
+                console.log("Invalid selection for Move Tool");
+            }
+            return;
+        }
+
+        // Apply Snapping for Base/Dest points
         const snapObjects = this.scene.children.filter(c => !c.userData.isGhost);
         const snapResult = this.snappingEngine.snap(point, snapObjects);
         const finalPoint = snapResult.snapped ? snapResult.position : point;
@@ -95,7 +116,12 @@ export class MoveTool implements Tool {
             this.basePoint = finalPoint;
             this.state = 'waiting_dest';
             this.createRubberBand(this.basePoint);
-            console.log("Base point set:", this.basePoint);
+
+            // Ghost should now start following mouse relative to base point
+            this.ghostManager.setPositionOffset(new THREE.Vector3(0, 0, 0));
+
+            store.setPrompt('Click to set destination point');
+
         } else if (this.state === 'waiting_dest') {
             this.executeMove(finalPoint);
         }
@@ -104,6 +130,17 @@ export class MoveTool implements Tool {
     onMouseMove(event: MouseEvent) {
         const point = this.getRayIntersection(event);
         if (!point) return;
+
+        if (this.state === 'waiting_selection') {
+            // Hover effect?
+            const hit = this.raycastObject(event);
+            if (hit && hit.userData && hit.userData.type === 'module') {
+                this.domElement.style.cursor = 'pointer';
+            } else {
+                this.domElement.style.cursor = 'default';
+            }
+            return;
+        }
 
         const snapObjects = this.scene.children.filter(c => !c.userData.isGhost);
         const snapResult = this.snappingEngine.snap(point, snapObjects);
@@ -119,17 +156,28 @@ export class MoveTool implements Tool {
         }
     }
 
-    onMouseUp(_event: MouseEvent) {
-        // No-op for click-click workflow
-    }
+    onMouseUp(_event: MouseEvent) { }
 
     onKeyDown(event: KeyboardEvent) {
         if (event.key === 'Escape') {
             this.deactivate();
-            // Notify InteractionService to clear tool? 
-            // We'll handle that via event or callback if needed.
             window.dispatchEvent(new CustomEvent('bimcanvas:tool-cancelled'));
         }
+    }
+
+    private raycastObject(event: MouseEvent): THREE.Object3D | null {
+        const rect = this.domElement.getBoundingClientRect();
+        const mouse = new THREE.Vector2(
+            ((event.clientX - rect.left) / rect.width) * 2 - 1,
+            -((event.clientY - rect.top) / rect.height) * 2 + 1
+        );
+
+        this.raycaster.setFromCamera(mouse, this.camera);
+        const intersects = this.raycaster.intersectObjects(this.scene.children, true);
+
+        // Find first mesh that is not a ghost
+        const hit = intersects.find(i => i.object instanceof THREE.Mesh && !i.object.userData.isGhost);
+        return hit ? hit.object : null;
     }
 
     private executeMove(destPoint: THREE.Vector3) {
@@ -140,9 +188,7 @@ export class MoveTool implements Tool {
         // Update Store
         const store = useCanvasStore();
 
-        // Calculate new bounds
-        // 3D X = 2D X
-        // 3D Z = -2D Y
+        // Conversion: 2D X = 3D X, 2D Y = -3D Z
         const delta2D_X = delta.x;
         const delta2D_Y = -delta.z;
 
@@ -189,12 +235,13 @@ export class MoveTool implements Tool {
 
     private updateRubberBand(end: THREE.Vector3) {
         if (this.rubberBand && this.basePoint) {
-            const positions = this.rubberBand.geometry.attributes.position.array as Float32Array;
-            if (positions) {
+            const positionAttribute = this.rubberBand.geometry.attributes.position;
+            if (positionAttribute) {
+                const positions = positionAttribute.array as Float32Array;
                 positions[3] = end.x;
                 positions[4] = end.y;
                 positions[5] = end.z;
-                this.rubberBand.geometry.attributes.position.needsUpdate = true;
+                positionAttribute.needsUpdate = true;
             }
         }
     }

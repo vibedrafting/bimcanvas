@@ -6,6 +6,7 @@ import type { Tool } from './tools/Tool';
 import { MoveTool } from './tools/MoveTool';
 import { GhostManager } from './GhostManager';
 import { useDebugStore } from '../../stores/debugStore';
+import { RotateTool } from './tools/RotateTool';
 
 export class InteractionService {
     private raycaster: THREE.Raycaster;
@@ -97,54 +98,22 @@ export class InteractionService {
         }
     }
 
+
+
+    // ... (inside class)
+
     public rotateSelection() {
         const debugStore = useDebugStore();
         debugStore.log('Command: Rotate Triggered');
-        const selected = this.store.selectedObject;
-        if (!selected || !selected.id || !selected.bounds) return;
+        if (this.activeTool) this.activeTool.deactivate();
 
-        // 1. Calculate center
-        const bounds = selected.bounds as [number, number][];
-        let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
-        bounds.forEach(p => {
-            minX = Math.min(minX, p[0]);
-            minY = Math.min(minY, p[1]);
-            maxX = Math.max(maxX, p[0]);
-            maxY = Math.max(maxY, p[1]);
-        });
-        const centerX = (minX + maxX) / 2;
-        const centerY = (minY + maxY) / 2;
-
-        // 2. Rotate bounds 90 degrees clockwise around center
-        const newBounds = bounds.map(p => {
-            const relX = p[0] - centerX;
-            const relY = p[1] - centerY;
-            return [centerX + relY, centerY - relX] as [number, number];
-        });
-
-        // 3. Update facing
-        let newFacing = selected.facing;
-        if (typeof selected.facing === 'string') {
-            const dirs = ['north', 'east', 'south', 'west'];
-            const idx = dirs.indexOf(selected.facing);
-            if (idx !== -1) {
-                newFacing = dirs[(idx + 1) % 4];
-            }
-        } else if (Array.isArray(selected.facing)) {
-            const [vx, vy] = selected.facing;
-            newFacing = [vy, -vx];
-        }
-
-        // 4. Update store
-        this.store.updateModule(selected.id, {
-            bounds: newBounds,
-            facing: newFacing
-        });
-
-        const updated = this.store.document?.modules.find(m => m.id === selected.id);
-        if (updated) {
-            this.store.setSelectedObject(updated);
-        }
+        this.activeTool = new RotateTool(
+            this.scene,
+            this.camera,
+            this.domElement,
+            this.ghostManager
+        );
+        this.activeTool.activate();
     }
 
     public deleteSelection() {
@@ -159,6 +128,13 @@ export class InteractionService {
     private setupEvents() {
         this.domElement.addEventListener('mousemove', this.onMouseMove.bind(this));
         this.domElement.addEventListener('click', this.onClick.bind(this));
+        window.addEventListener('keydown', this.onKeyDown.bind(this));
+    }
+
+    private onKeyDown(event: KeyboardEvent) {
+        if (this.activeTool) {
+            this.activeTool.onKeyDown(event);
+        }
     }
 
     private onMouseMove(event: MouseEvent) {
@@ -219,6 +195,7 @@ export class InteractionService {
     public dispose() {
         this.domElement.removeEventListener('mousemove', this.onMouseMove.bind(this));
         this.domElement.removeEventListener('click', this.onClick.bind(this));
+        window.removeEventListener('keydown', this.onKeyDown.bind(this));
         this.shortcutManager.dispose();
     }
 }

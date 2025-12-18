@@ -49,3 +49,43 @@
 3.  **Move Mouse** -> Ghost follows.
 4.  **Click** -> Ghost disappears, Module jumps to new spot.
 5.  **Undo** -> Module jumps back.
+
+## 4. Revit-like Interaction Specs (New Requirement)
+
+### 4.1 Move Tool (Revit Style)
+**Workflow**:
+1.  **Select**: User selects object (if not already selected).
+2.  **Activate**: Press `M` or click Move button.
+3.  **Base Point**: Click anywhere to define start point ($P_{base}$).
+    *   *Visual*: Cursor changes, snapping active.
+4.  **Destination**: Move mouse to define vector ($v = P_{current} - P_{base}$).
+    *   *Visual*: Ghost object moves with mouse. Rubber band line from $P_{base}$ to $P_{current}$.
+    *   *Constraint*: Shift key for Ortho mode (optional).
+5.  **Confirm**: Click to define destination ($P_{dest}$).
+    *   *Action*: Object moves by $v = P_{dest} - P_{base}$. Tool finishes.
+6.  **Cancel**: Press `ESC` at any time to abort. Object returns to original.
+
+**Fixes Needed**:
+- Ensure Ghost is visible and follows mouse relative to Base Point.
+- Ensure Original Object remains visible (as "Ghost at original position").
+- Implement `ESC` handling in `MoveTool`.
+
+### 4.2 Rotate Tool (Revit Style)
+**Workflow**:
+1.  **Select**: User selects object.
+2.  **Activate**: Press `R` or click Rotate button.
+3.  **Center of Rotation**:
+    *   *Default*: Center of object bounding box.
+    *   *Action*: User can click to pick a new center ($P_{center}$).
+    *   *Visual*: A "rotation center" icon (blue dot/circle) appears.
+4.  **Start Ray**: Click to define start angle reference ($P_{start}$).
+    *   *Visual*: Dashed line from $P_{center}$ to cursor.
+5.  **End Ray**: Move mouse to define rotation angle ($\theta$).
+    *   *Visual*: Dashed line from $P_{center}$ to cursor. Ghost object rotates dynamically.
+6.  **Confirm**: Click to define end angle ($P_{end}$).
+    *   *Action*: Object rotates by $\Delta\theta = \text{angle}(P_{end}) - \text{angle}(P_{start})$.
+
+**Implementation**:
+- Create `RotateTool.ts` implementing `Tool` interface.
+- States: `waiting_center` -> `waiting_start` -> `waiting_end`.
+- Visuals: `RotationGizmo` (lines + arc).

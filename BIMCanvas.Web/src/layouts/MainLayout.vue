@@ -4,6 +4,7 @@ import SideGallery from '../components/UI/SideGallery.vue';
 import PropertyPanel from '../components/UI/PropertyPanel.vue';
 import DebugConsole from '../components/UI/DebugConsole.vue';
 import FloatingLayerManager from '../components/UI/FloatingLayerManager.vue';
+import PromptBar from '../components/UI/PromptBar.vue';
 import { useDebugStore } from '../stores/debugStore';
 import { onMounted, onUnmounted } from 'vue';
 
@@ -45,6 +46,7 @@ onUnmounted(() => {
     </aside>
     
     <FloatingLayerManager />
+    <PromptBar />
     <DebugConsole />
   </div>
 </template>

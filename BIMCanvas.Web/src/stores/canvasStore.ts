@@ -15,6 +15,7 @@ export const useCanvasStore = defineStore('canvas', () => {
     const debugMsg = ref<string>('');
     const instanceId = Math.random().toString(36).substring(7);
     const error = ref<string | null>(null); // Added error state
+    const promptMessage = ref<string | null>(null); // Instructional prompt
     console.log('CanvasStore Created:', instanceId);
     const timeline = new TimelineManager();
     const signalR = SignalRService.getInstance();
@@ -110,6 +111,10 @@ export const useCanvasStore = defineStore('canvas', () => {
         }
     };
 
+    const setPrompt = (msg: string | null) => {
+        promptMessage.value = msg;
+    };
+
 
     const canUndo = computed(() => timeline.canUndo);
     const canRedo = computed(() => timeline.canRedo);
@@ -131,6 +136,10 @@ export const useCanvasStore = defineStore('canvas', () => {
         updateModule,
         removeModule,
         undo,
-        redo
+        redo,
+
+        // UI State
+        promptMessage,
+        setPrompt
     };
 });

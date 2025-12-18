@@ -80,5 +80,10 @@ export class GhostManager {
     public setPositionOffset(offset: THREE.Vector3) {
         this.ghostGroup.position.copy(offset);
     }
+
+    public setRotation(rotation: number) {
+        // Rotate around Y axis (up)
+        this.ghostGroup.rotation.y = -rotation; // Invert for coordinate system match if needed
+    }
 }
 
