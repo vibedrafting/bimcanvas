@@ -16,10 +16,7 @@ watch(selectedObject, (newVal) => {
     if (newVal) {
         isExpanded.value = true;
     } else {
-        // Optional: Auto-collapse when deselected? 
-        // Let's keep it open if user opened it, or maybe collapse to show it's "done"
-        // For now, let's just keep the current state or maybe default to collapsed if user didn't manually interact?
-        // Let's stick to: if selected, expand. If deselected, stay as is (user might want to see project info).
+        isExpanded.value = false;
     }
 });
 
@@ -94,6 +91,8 @@ const updateProperty = (key: string, newValue: any) => {
   <aside 
     class="property-panel" 
     :class="{ expanded: isExpanded }"
+    @mouseenter="isExpanded = true"
+    @mouseleave="isExpanded = false"
   >
     <div class="header" @click="toggleExpand">
       <span class="label">Properties</span>
@@ -121,9 +120,7 @@ const updateProperty = (key: string, newValue: any) => {
                 <span v-else class="value readonly" :title="String(prop.value)">{{ prop.value }}</span>
             </div>
             
-            <div v-if="!selectedObject" class="hint">
-                Select an object to view details.
-            </div>
+
         </div>
     </div>
   </aside>
