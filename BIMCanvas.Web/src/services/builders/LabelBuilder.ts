@@ -13,6 +13,13 @@ export class LabelBuilder {
 
     public buildLabels(doc: CanvasDocument) {
         if (this.labelGroup) {
+            // Explicitly cleanup CSS2DObject DOM elements to prevent ghosts
+            this.labelGroup.children.forEach(child => {
+                // Check if it's a CSS2DObject (has element property)
+                if ((child as any).element && (child as any).element.parentNode) {
+                    (child as any).element.parentNode.removeChild((child as any).element);
+                }
+            });
             this.scene.remove(this.labelGroup);
             this.labelGroup = null;
         }
