@@ -3,10 +3,14 @@ import { onMounted } from 'vue';
 import MainLayout from './layouts/MainLayout.vue';
 import ThreeCanvas from './components/Canvas/ThreeCanvas.vue';
 import { useCanvasStore } from './stores/canvasStore';
+import { themeService } from './services/theme/ThemeService';
 
 const store = useCanvasStore();
 
 onMounted(async () => {
+  // 初始化主题服务 (设置 CSS 变量)
+  themeService.init();
+
   // Auto-load demo data on startup
   await store.loadDemoData('/demos/demo1.json');
 

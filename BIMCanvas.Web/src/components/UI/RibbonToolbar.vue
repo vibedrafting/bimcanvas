@@ -178,14 +178,14 @@ watch(selectedObject, (newVal) => {
   padding: 0 16px;
   
   /* Glassmorphism */
-  background: rgba(20, 20, 25, 0.85);
+  background: var(--surface-glass);
   backdrop-filter: blur(20px) saturate(180%);
   -webkit-backdrop-filter: blur(20px) saturate(180%);
-  border: 1px solid rgba(255, 255, 255, 0.1);
+  border: 1px solid var(--border-subtle);
   border-radius: 100px;
   box-shadow: 
-    0 8px 32px rgba(0, 0, 0, 0.4),
-    0 2px 8px rgba(0, 0, 0, 0.2),
+    0 8px 32px rgba(0, 0, 0, 0.15),
+    0 2px 8px rgba(0, 0, 0, 0.05),
     inset 0 1px 0 rgba(255, 255, 255, 0.1);
     
   pointer-events: auto;
@@ -207,12 +207,12 @@ watch(selectedObject, (newVal) => {
     height: 52px;          /* 高度固定 */
     padding: 0 20px;
     border-radius: 26px;
-    background: rgba(25, 25, 30, 0.95);
+    background: var(--surface-elevated);
     backdrop-filter: blur(30px) saturate(200%);
     -webkit-backdrop-filter: blur(30px) saturate(200%);
     box-shadow: 
-      0 12px 40px rgba(0, 0, 0, 0.6),
-      0 4px 12px rgba(0, 0, 0, 0.3),
+      0 12px 40px rgba(0, 0, 0, 0.2),
+      0 4px 12px rgba(0, 0, 0, 0.1),
       inset 0 1px 0 rgba(255, 255, 255, 0.15);
   }
 
@@ -227,19 +227,19 @@ watch(selectedObject, (newVal) => {
       width: 6px;
       height: 6px;
       border-radius: 50%;
-      background: rgba(255, 255, 255, 0.3);
-      box-shadow: 0 0 4px rgba(255, 255, 255, 0.2);
+      background: var(--text-tertiary);
+      box-shadow: 0 0 4px rgba(0, 0, 0, 0.1);
       transition: all 0.3s;
       
       &.active {
-        background: #4a9eff;
-        box-shadow: 0 0 8px #4a9eff;
+        background: var(--accent-blue);
+        box-shadow: 0 0 8px var(--accent-glow);
       }
     }
     
     .status-text {
       font-size: 0.85rem;
-      color: rgba(255, 255, 255, 0.8);
+      color: var(--text-primary);
       font-weight: 500;
       letter-spacing: 0.3px;
     }
@@ -270,14 +270,14 @@ watch(selectedObject, (newVal) => {
 .divider {
   width: 1px;
   height: 14px;
-  background: rgba(255, 255, 255, 0.2);
+  background: var(--border-strong);
   margin: 0 var(--spacing-xs);
 }
 
 .divider-vertical {
   width: 1px;
   height: 20px;
-  background: rgba(255, 255, 255, 0.1);
+  background: var(--border-strong);
   margin: 0 var(--spacing-xs);
 }
 

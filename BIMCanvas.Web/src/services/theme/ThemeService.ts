@@ -1,7 +1,8 @@
 /**
  * ThemeService - 配色管理核心服务
  * 
- * 提供暗色和亮色两套主题配色，集中管理所有 Builder 的配色定义。
+ * 提供暗色和亮色两套主题配色，集中管理所有 Builder 和 UI 组件的配色定义。
+ * 借鉴 Apple 设计风格：简洁、优雅、高对比度。
  */
 import { ref, readonly } from 'vue';
 
@@ -15,6 +16,9 @@ import { ref, readonly } from 'vue';
 export interface ColorTheme {
     name: 'dark' | 'light';
 
+    /** 场景背景色 */
+    background: number;
+
     /** 3D 场景材质配色 */
     scene: {
         wall: number;
@@ -26,7 +30,7 @@ export interface ColorTheme {
         windowFrame: number;
         glass: number;
         swingArc: number;
-        bounds: number; // BoxHelper 包围盒
+        bounds: number;
     };
 
     /** 网格配色 */
@@ -46,6 +50,31 @@ export interface ColorTheme {
         text: string;
         border: string;
     };
+
+    /** UI 配色 (CSS 变量) - Apple 风格 */
+    css: {
+        // 背景色
+        bgCanvas: string;
+        surfaceGlass: string;
+        surfaceGlassHover: string;
+        surfaceSolid: string;        // 纯色表面 (非透明)
+        surfaceElevated: string;     // 悬浮表面
+
+        // 边框
+        borderSubtle: string;
+        borderStrong: string;
+
+        // 文字
+        textPrimary: string;
+        textSecondary: string;
+        textTertiary: string;
+
+        // 强调色
+        accentBlue: string;
+        accentGlow: string;
+        accentDanger: string;
+        accentDangerGlow: string;
+    };
 }
 
 // ============================================================================
@@ -53,64 +82,107 @@ export interface ColorTheme {
 // ============================================================================
 
 /**
- * 暗色主题 - 提取自当前代码中的配色
+ * 暗色主题 - 深色背景，亮色 UI (默认)
  */
 export const darkTheme: ColorTheme = {
     name: 'dark',
+    background: 0x0a0a0f,
     scene: {
-        wall: 0x5c5c5c,       // 中灰色墙体
-        column: 0x707070,     // 浅灰色柱子
-        module: 0x3b82f6,     // 蓝色模块
-        floor: 0x0a0a0f,      // 深色地板
-        doorFrame: 0x4a5568,  // 冷灰色门框
-        doorPanel: 0x718096,  // 浅灰色门板
-        windowFrame: 0x4a5568,// 冷灰色窗框
-        glass: 0xAADDFF,      // 浅蓝色玻璃
-        swingArc: 0xffffff,   // 白色门弧线
-        bounds: 0xffff00,     // 黄色包围盒
+        wall: 0x6b7280,
+        column: 0x9ca3af,
+        module: 0x3b82f6,
+        floor: 0x0a0a0f,
+        doorFrame: 0x4a5568,
+        doorPanel: 0x718096,
+        windowFrame: 0x4a5568,
+        glass: 0xAADDFF,
+        swingArc: 0xffffff,
+        bounds: 0xfbbf24,
     },
     grid: {
-        centerLine: 0x888888, // 中心线 (亮灰)
-        gridLine: 0x333333,   // 网格线 (暗灰)
+        centerLine: 0x6b7280,
+        gridLine: 0x27272a,
     },
     semantic: {
-        line: 0x00ff00,       // 亮绿色语义线
+        line: 0x22c55e,
     },
     label: {
-        background: 'rgba(0, 0, 0, 0.8)',
-        text: '#00ff00',
-        border: '1px solid #00ff00',
+        background: 'rgba(0, 0, 0, 0.85)',
+        text: '#22c55e',
+        border: '1px solid #22c55e',
+    },
+    css: {
+        // 暗色主题 - 深黑背景
+        bgCanvas: '#0a0a0f',
+        surfaceGlass: 'rgba(20, 20, 30, 0.75)',
+        surfaceGlassHover: 'rgba(40, 40, 55, 0.85)',
+        surfaceSolid: '#1c1c1e',
+        surfaceElevated: '#2c2c2e',
+
+        borderSubtle: 'rgba(255, 255, 255, 0.1)',
+        borderStrong: 'rgba(255, 255, 255, 0.25)',
+
+        textPrimary: 'rgba(255, 255, 255, 0.95)',
+        textSecondary: 'rgba(255, 255, 255, 0.65)',
+        textTertiary: 'rgba(255, 255, 255, 0.4)',
+
+        accentBlue: '#0a84ff',
+        accentGlow: 'rgba(10, 132, 255, 0.25)',
+        accentDanger: '#ff453a',
+        accentDangerGlow: 'rgba(255, 69, 58, 0.3)',
     },
 };
 
 /**
- * 亮色主题 - 适合明亮背景的配色方案
+ * 亮色主题 - V2 极致清爽版 (Apple Freeform 风格)
+ * 纯白背景，深灰墙体，高对比度，极致通透
  */
 export const lightTheme: ColorTheme = {
     name: 'light',
+    background: 0xffffff,     // 纯白背景 (极致通透)
     scene: {
-        wall: 0xd4d4d8,       // 浅灰色墙体
-        column: 0xa1a1aa,     // 中灰色柱子
-        module: 0x2563eb,     // 深蓝色模块 (更饱和)
-        floor: 0xf4f4f5,      // 浅色地板
-        doorFrame: 0x71717a,  // 中灰色门框
-        doorPanel: 0x52525b,  // 深灰色门板
-        windowFrame: 0x71717a,// 中灰色窗框
-        glass: 0x93c5fd,      // 柔和蓝色玻璃
-        swingArc: 0x374151,   // 深灰色门弧线
-        bounds: 0xf59e0b,     // 橙色包围盒 (更醒目)
+        wall: 0x48484a,       // 深灰墙体 (强调结构，类似墨线稿)
+        column: 0x3a3a3c,     // 更深的柱子
+        module: 0x007aff,     // 标准蓝 (在白色背景上更经典)
+        floor: 0xf2f2f7,      // 极浅灰色地板 (微妙暗示)
+        doorFrame: 0x2c2c2e,  // 近黑
+        doorPanel: 0x3a3a3c,  // 深灰
+        windowFrame: 0x2c2c2e,
+        glass: 0xa2d2ff,      // 柔和蓝
+        swingArc: 0x000000,   // 纯黑弧线
+        bounds: 0xff9500,     // Apple 橙色
     },
     grid: {
-        centerLine: 0x52525b, // 中心线 (深灰)
-        gridLine: 0xd4d4d8,   // 网格线 (浅灰)
+        centerLine: 0xc7c7cc, // 稍深的中心线
+        gridLine: 0xe5e5ea,   // 极淡网格 (几乎不可见)
     },
     semantic: {
-        line: 0x059669,       // 深绿色语义线 (更柔和)
+        line: 0x34c759,       // Apple 绿色
     },
     label: {
-        background: 'rgba(255, 255, 255, 0.9)',
-        text: '#059669',
-        border: '1px solid #059669',
+        background: 'rgba(255, 255, 255, 0.95)',
+        text: '#34c759',
+        border: '1px solid #34c759',
+    },
+    css: {
+        // 亮色主题 - Apple Freeform 风格
+        bgCanvas: '#ffffff',                    // 纯白背景
+        surfaceGlass: 'rgba(255, 255, 255, 0.9)', // 高不透明度毛玻璃
+        surfaceGlassHover: 'rgba(255, 255, 255, 1)',
+        surfaceSolid: '#ffffff',                // 纯白表面
+        surfaceElevated: '#ffffff',             // 白色悬浮
+
+        borderSubtle: 'rgba(0, 0, 0, 0.08)',    // 稍微加强边框
+        borderStrong: 'rgba(0, 0, 0, 0.15)',    // 明显边框
+
+        textPrimary: 'rgba(0, 0, 0, 0.9)',      // 纯黑文字
+        textSecondary: 'rgba(0, 0, 0, 0.6)',    // 次要文字
+        textTertiary: 'rgba(0, 0, 0, 0.4)',     // 辅助文字
+
+        accentBlue: '#007aff',                  // 标准蓝
+        accentGlow: 'rgba(0, 122, 255, 0.15)',
+        accentDanger: '#ff3b30',                // Apple 红
+        accentDangerGlow: 'rgba(255, 59, 48, 0.2)',
     },
 };
 
@@ -119,15 +191,43 @@ export const lightTheme: ColorTheme = {
 // ============================================================================
 
 class ThemeServiceClass {
-    /** 当前主题 (响应式) */
     private _currentTheme = ref<ColorTheme>(darkTheme);
-
-    /** 只读的当前主题引用 */
     public readonly currentTheme = readonly(this._currentTheme);
 
-    /** 是否为暗色主题 */
     public get isDark(): boolean {
         return this._currentTheme.value.name === 'dark';
+    }
+
+    /**
+     * 更新 CSS 变量到 :root
+     */
+    private updateCSSVariables(theme: ColorTheme) {
+        const root = document.documentElement;
+        const css = theme.css;
+
+        // 背景和表面
+        root.style.setProperty('--bg-canvas', css.bgCanvas);
+        root.style.setProperty('--surface-glass', css.surfaceGlass);
+        root.style.setProperty('--surface-glass-hover', css.surfaceGlassHover);
+        root.style.setProperty('--surface-solid', css.surfaceSolid);
+        root.style.setProperty('--surface-elevated', css.surfaceElevated);
+
+        // 边框
+        root.style.setProperty('--border-subtle', css.borderSubtle);
+        root.style.setProperty('--border-strong', css.borderStrong);
+
+        // 文字
+        root.style.setProperty('--text-primary', css.textPrimary);
+        root.style.setProperty('--text-secondary', css.textSecondary);
+        root.style.setProperty('--text-tertiary', css.textTertiary);
+
+        // 强调色
+        root.style.setProperty('--accent-blue', css.accentBlue);
+        root.style.setProperty('--accent-glow', css.accentGlow);
+        root.style.setProperty('--accent-danger', css.accentDanger);
+        root.style.setProperty('--accent-danger-glow', css.accentDangerGlow);
+
+        console.log(`[ThemeService] CSS 变量已更新为 ${theme.name} 主题`);
     }
 
     /**
@@ -136,7 +236,10 @@ class ThemeServiceClass {
     public toggleTheme(): void {
         this._currentTheme.value = this.isDark ? lightTheme : darkTheme;
 
-        // 分发主题变化事件，供 Builders 监听
+        // 更新 CSS 变量
+        this.updateCSSVariables(this._currentTheme.value);
+
+        // 分发主题变化事件
         window.dispatchEvent(new CustomEvent('bimcanvas:theme-change', {
             detail: this._currentTheme.value
         }));
@@ -151,6 +254,7 @@ class ThemeServiceClass {
         const targetTheme = theme === 'dark' ? darkTheme : lightTheme;
         if (this._currentTheme.value.name !== targetTheme.name) {
             this._currentTheme.value = targetTheme;
+            this.updateCSSVariables(targetTheme);
 
             window.dispatchEvent(new CustomEvent('bimcanvas:theme-change', {
                 detail: this._currentTheme.value
@@ -159,7 +263,13 @@ class ThemeServiceClass {
             console.log(`[ThemeService] 主题已设置为: ${targetTheme.name}`);
         }
     }
+
+    /**
+     * 初始化 - 应用默认主题的 CSS 变量
+     */
+    public init(): void {
+        this.updateCSSVariables(this._currentTheme.value);
+    }
 }
 
-/** 导出服务单例 */
 export const themeService = new ThemeServiceClass();

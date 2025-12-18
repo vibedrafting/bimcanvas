@@ -13,6 +13,7 @@ import { SelectionManager } from '../interaction/SelectionManager';
 import { DragManager } from '../interaction/DragManager';
 import { GhostManager } from '../interaction/GhostManager';
 import { useDebugStore } from '../../stores/debugStore';
+import { themeService } from '../theme/ThemeService';
 
 export class ThreeSceneService {
     private container: HTMLElement;
@@ -187,6 +188,13 @@ export class ThreeSceneService {
      * 重新创建 Builders 以应用新的配色，然后重建当前文档
      */
     private rebuildWithNewTheme() {
+        // 更新场景背景色
+        const bgColor = themeService.currentTheme.value.background;
+        this.scene.background = new THREE.Color(bgColor);
+        if (this.scene.fog instanceof THREE.FogExp2) {
+            this.scene.fog.color.setHex(bgColor);
+        }
+
         // 重新创建所有 Builders（它们在构造时读取 ThemeService 配色）
         this.sceneBuilder = new SceneBuilder(this.scene);
         this.gridBuilder = new GridBuilder(this.scene);

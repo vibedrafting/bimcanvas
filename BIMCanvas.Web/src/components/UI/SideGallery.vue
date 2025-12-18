@@ -50,9 +50,9 @@ const toggleExpand = () => {
   
   &.expanded {
     width: 280px;
-    background: rgba(10, 10, 15, 0.9);
-    border-color: rgba(255, 255, 255, 0.1);
-    box-shadow: -10px 0 30px rgba(0, 0, 0, 0.3); /* Shadow to left */
+    background: var(--surface-elevated);
+    border-color: var(--border-subtle);
+    box-shadow: -10px 0 30px rgba(0, 0, 0, 0.1); /* Shadow to left */
 
     .header .indicator {
       transform: rotate(0deg); /* Reset rotation or adjust for right side */

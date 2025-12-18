@@ -148,45 +148,45 @@ onUnmounted(() => {
   width: 48px;
   height: 48px;
   border-radius: 12px;
-  background: rgba(30, 30, 35, 0.8);
+  background: var(--surface-glass);
   backdrop-filter: blur(10px);
-  border: 1px solid rgba(255, 255, 255, 0.1);
+  border: 1px solid var(--border-subtle);
   color: var(--text-secondary);
   display: flex;
   align-items: center;
   justify-content: center;
   cursor: pointer;
   transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
 
   &:hover {
-    background: rgba(40, 40, 45, 0.9);
+    background: var(--surface-glass-hover);
     color: var(--text-primary);
     transform: translateY(-2px);
-    box-shadow: 0 6px 16px rgba(0, 0, 0, 0.3);
+    box-shadow: 0 6px 16px rgba(0, 0, 0, 0.15);
   }
 
   &.active {
-    background: var(--primary-color, #4a9eff);
+    background: var(--accent-blue);
     color: #fff;
     border-color: transparent;
   }
 }
 
 .layer-menu {
-  background: rgba(20, 20, 25, 0.95);
+  background: var(--surface-elevated);
   backdrop-filter: blur(12px);
-  border: 1px solid rgba(255, 255, 255, 0.1);
+  border: 1px solid var(--border-subtle);
   border-radius: 12px;
   padding: 0;
   min-width: 180px;
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.15);
   overflow: hidden;
   transform-origin: bottom right;
 
   .menu-header {
     padding: 12px 16px;
-    border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+    border-bottom: 1px solid var(--border-subtle);
     font-size: 0.85rem;
     font-weight: 600;
     color: var(--text-secondary);
@@ -206,7 +206,7 @@ onUnmounted(() => {
       .vision-toggle {
         display: flex;
         gap: 4px;
-        background: rgba(255, 255, 255, 0.05);
+        background: var(--surface-solid);
         padding: 4px;
         border-radius: 8px;
 
@@ -224,13 +224,13 @@ onUnmounted(() => {
 
           &:hover {
             color: var(--text-primary);
-            background: rgba(255, 255, 255, 0.05);
+            background: var(--surface-glass-hover);
           }
 
           &.active {
-            background: var(--primary-color, #4a9eff);
+            background: var(--accent-blue);
             color: white;
-            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
           }
         }
       }
@@ -238,7 +238,7 @@ onUnmounted(() => {
 
     .divider {
       height: 1px;
-      background: rgba(255, 255, 255, 0.1);
+      background: var(--border-subtle);
       margin: 4px 0;
     }
   }
@@ -255,15 +255,43 @@ onUnmounted(() => {
     font-size: 0.9rem;
 
     &:hover {
-      background: rgba(255, 255, 255, 0.05);
+      background: var(--surface-glass-hover);
       color: var(--text-primary);
     }
 
     input[type="checkbox"] {
-      accent-color: var(--primary-color, #4a9eff);
-      width: 16px;
-      height: 16px;
+      appearance: none;
+      -webkit-appearance: none;
+      width: 18px;
+      height: 18px;
+      border: 1.5px solid var(--text-tertiary);
+      border-radius: 5px;
+      background: var(--surface-solid);
       cursor: pointer;
+      position: relative;
+      transition: all 0.2s ease;
+      flex-shrink: 0; /* Prevent shrinking */
+      
+      &:checked {
+        background: var(--accent-blue);
+        border-color: var(--accent-blue);
+        
+        &::after {
+          content: '';
+          position: absolute;
+          left: 5px;
+          top: 2px;
+          width: 5px;
+          height: 9px;
+          border: solid white;
+          border-width: 0 2px 2px 0;
+          transform: rotate(45deg);
+        }
+      }
+      
+      &:hover {
+        border-color: var(--text-secondary);
+      }
     }
   }
 }

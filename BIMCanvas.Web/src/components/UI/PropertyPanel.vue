@@ -146,9 +146,9 @@ const updateProperty = (key: string, newValue: any) => {
   
   &.expanded {
     width: 300px;
-    background: rgba(10, 10, 15, 0.9);
-    border-color: rgba(255, 255, 255, 0.1);
-    box-shadow: 10px 0 30px rgba(0, 0, 0, 0.3); /* Shadow to right */
+    background: var(--surface-elevated);
+    border-color: var(--border-subtle);
+    box-shadow: 10px 0 30px rgba(0, 0, 0, 0.1); /* Shadow to right */
 
     .header .indicator {
       transform: rotate(180deg);
@@ -207,14 +207,14 @@ const updateProperty = (key: string, newValue: any) => {
     
     .panel-header {
         padding: 1rem;
-        background: rgba(255, 255, 255, 0.05);
-        border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+        background: var(--surface-solid);
+        border-bottom: 1px solid var(--border-subtle);
 
         h2 {
             margin: 0;
             font-size: 1rem;
             font-weight: 500;
-            color: #e0e0e0;
+            color: var(--text-primary);
         }
     }
 
@@ -230,20 +230,20 @@ const updateProperty = (key: string, newValue: any) => {
             justify-content: space-between;
             font-size: 0.9rem;
             padding: 0.25rem 0;
-            border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+            border-bottom: 1px solid var(--border-subtle);
 
             &:last-child {
                 border-bottom: none;
             }
 
             .label {
-                color: #888;
+                color: var(--text-secondary);
             }
 
             .value-input {
-                background: rgba(255, 255, 255, 0.1);
-                border: 1px solid rgba(255, 255, 255, 0.2);
-                color: #e0e0e0;
+                background: var(--surface-solid);
+                border: 1px solid var(--border-strong);
+                color: var(--text-primary);
                 text-align: right;
                 max-width: 60%;
                 padding: 2px 4px;
@@ -253,13 +253,13 @@ const updateProperty = (key: string, newValue: any) => {
 
                 &:focus {
                     outline: none;
-                    border-color: #3b82f6;
-                    background: rgba(255, 255, 255, 0.15);
+                    border-color: var(--accent-blue);
+                    background: var(--surface-glass-hover);
                 }
             }
 
             .value.readonly {
-                color: #888;
+                color: var(--text-secondary);
                 font-style: italic;
                 text-align: right;
                 max-width: 60%;
