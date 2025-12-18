@@ -179,7 +179,10 @@ export class RotateTool implements Tool {
         if (this.state === 'waiting_center') {
             // Preview center? Maybe just cursor
         } else if (this.state === 'waiting_start') {
-            // Preview start line?
+            // Preview start line (Dynamic)
+            if (this.centerPoint) {
+                this.updateStartLine(this.centerPoint, finalPoint);
+            }
         } else if (this.state === 'waiting_end' && this.centerPoint && this.startAngle !== null) {
             // Update End Line
             this.updateEndLine(this.centerPoint, finalPoint);
@@ -383,13 +386,30 @@ export class RotateTool implements Tool {
         }
     }
 
+    private updateStartLine(start: THREE.Vector3, end: THREE.Vector3) {
+        if (!this.startLine) {
+            const geometry = new THREE.BufferGeometry().setFromPoints([start, end]);
+            const material = new THREE.LineDashedMaterial({ color: 0x0000ff, dashSize: 100, gapSize: 50, depthTest: false });
+            this.startLine = new THREE.Line(geometry, material);
+            this.startLine.computeLineDistances();
+            this.startLine.renderOrder = 999;
+            this.scene.add(this.startLine);
+        } else {
+            const positionAttribute = this.startLine.geometry.attributes.position;
+            if (positionAttribute) {
+                const positions = positionAttribute.array as Float32Array;
+                positions[0] = start.x; positions[1] = start.y; positions[2] = start.z;
+                positions[3] = end.x; positions[4] = end.y; positions[5] = end.z;
+                positionAttribute.needsUpdate = true;
+                this.startLine.computeLineDistances();
+            }
+        }
+    }
+
     private createStartLine(start: THREE.Vector3, end: THREE.Vector3) {
-        const geometry = new THREE.BufferGeometry().setFromPoints([start, end]);
-        const material = new THREE.LineDashedMaterial({ color: 0x0000ff, dashSize: 100, gapSize: 50, depthTest: false });
-        this.startLine = new THREE.Line(geometry, material);
-        this.startLine.computeLineDistances();
-        this.startLine.renderOrder = 999;
-        this.scene.add(this.startLine);
+        // This method is now redundant if we use updateStartLine, but we keep it for the "freeze" moment
+        // Actually, we can just ensure updateStartLine was called with the final point.
+        this.updateStartLine(start, end);
     }
 
     private updateEndLine(start: THREE.Vector3, end: THREE.Vector3) {

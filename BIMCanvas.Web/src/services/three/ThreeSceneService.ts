@@ -121,8 +121,10 @@ export class ThreeSceneService {
                 this.semanticLineBuilder.buildLines(newDoc);
                 this.labelBuilder.buildLabels(newDoc);
                 this.gridBuilder.buildGrid();
-                // Only fit to screen on initial load or major changes, not every small update?
-                // For now, keep it, but maybe check if it's a small update.
+                // Only fit to screen on initial load or major changes
+                setTimeout(() => {
+                    this.fitToScreen(newDoc);
+                }, 100);
             }
         }, { deep: true });
 
