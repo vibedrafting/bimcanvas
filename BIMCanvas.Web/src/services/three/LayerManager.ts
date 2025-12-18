@@ -8,6 +8,7 @@ export class LayerManager {
     public static readonly LAYER_BOUNDS = 4;
     public static readonly LAYER_SEMANTIC = 5;
     public static readonly LAYER_AXES = 6;
+    public static readonly LAYER_ZONES = 7;
 
     // Presets
     public static readonly PRESET_HUMAN = 'human';
@@ -38,12 +39,14 @@ export class LayerManager {
             this.camera.layers.disable(LayerManager.LAYER_BOUNDS);
             this.camera.layers.disable(LayerManager.LAYER_SEMANTIC);
             this.camera.layers.disable(LayerManager.LAYER_AXES);
+            this.camera.layers.disable(LayerManager.LAYER_ZONES);
         } else if (preset === LayerManager.PRESET_AI) {
             this.camera.layers.enable(LayerManager.LAYER_GRID);
             this.camera.layers.enable(LayerManager.LAYER_LABELS);
             this.camera.layers.enable(LayerManager.LAYER_BOUNDS);
             this.camera.layers.enable(LayerManager.LAYER_SEMANTIC);
             this.camera.layers.enable(LayerManager.LAYER_AXES);
+            this.camera.layers.enable(LayerManager.LAYER_ZONES);
         }
     }
 

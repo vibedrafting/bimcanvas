@@ -44,6 +44,13 @@ export interface ColorTheme {
         line: number;
     };
 
+    /** 区域配色 (Zone & Exclusion) */
+    zones: {
+        innerBoundary: number;
+        exclusion: number;
+        opacity: number;
+    };
+
     /** 标签配色 (CSS 字符串) */
     label: {
         background: string;
@@ -106,6 +113,11 @@ export const darkTheme: ColorTheme = {
     semantic: {
         line: 0x22c55e,
     },
+    zones: {
+        innerBoundary: 0x22c55e, // Green
+        exclusion: 0xef4444,     // Red
+        opacity: 0.2,
+    },
     label: {
         background: 'rgba(0, 0, 0, 0.85)',
         text: '#22c55e',
@@ -158,6 +170,11 @@ export const lightTheme: ColorTheme = {
     },
     semantic: {
         line: 0x34c759,       // Apple 绿色
+    },
+    zones: {
+        innerBoundary: 0x34c759, // Apple Green
+        exclusion: 0xff3b30,     // Apple Red
+        opacity: 0.15,           // Slightly more transparent in light mode
     },
     label: {
         background: 'rgba(255, 255, 255, 0.95)',

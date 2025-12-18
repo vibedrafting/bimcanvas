@@ -69,15 +69,23 @@ export class LabelBuilder {
 
         const div = document.createElement('div');
         div.className = 'ai-label';
-        div.textContent = `${prefix}:${id.substring(0, 4)}`;
+        // Simplify: Just show ID, maybe with a small prefix if needed, but user asked for ID emphasis.
+        // Let's use "#" + last 4 chars for brevity, or full ID if short.
+        // User example: "#m_12".
+        // Let's assume ID is meaningful. If it's a UUID, take last 4.
+        const shortId = id.length > 8 ? id.substring(0, 4) : id;
+        div.textContent = `#${shortId}`;
+
         div.style.backgroundColor = colors.background;
         div.style.color = colors.text;
-        div.style.padding = '2px 4px';
-        div.style.borderRadius = '4px';
-        div.style.fontSize = '10px';
+        div.style.padding = '1px 3px';
+        div.style.borderRadius = '2px';
+        div.style.fontSize = '10px'; // Slightly smaller
+        div.style.fontWeight = 'bold';
         div.style.fontFamily = 'monospace';
         div.style.pointerEvents = 'none'; // Crucial for clicking through
         div.style.border = colors.border;
+        div.style.boxShadow = '0 1px 2px rgba(0,0,0,0.2)'; // Add depth
 
         const label = new CSS2DObject(div);
         label.position.copy(position);

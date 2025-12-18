@@ -3,6 +3,7 @@ import { SceneBuilder } from '../builders/SceneBuilder';
 import { GridBuilder } from '../builders/GridBuilder';
 import { SemanticLineBuilder } from '../builders/SemanticLineBuilder';
 import { LabelBuilder } from '../builders/LabelBuilder';
+import { ZoneBuilder } from '../builders/ZoneBuilder';
 import { CSS2DRenderer } from 'three-stdlib';
 import { useCanvasStore } from '../../stores/canvasStore';
 import { watch } from 'vue';
@@ -28,6 +29,7 @@ export class ThreeSceneService {
     private gridBuilder: GridBuilder;
     private semanticLineBuilder: SemanticLineBuilder;
     private labelBuilder: LabelBuilder;
+    private zoneBuilder: ZoneBuilder;
 
     private store: ReturnType<typeof useCanvasStore>;
 
@@ -105,6 +107,7 @@ export class ThreeSceneService {
         this.gridBuilder = new GridBuilder(this.scene);
         this.semanticLineBuilder = new SemanticLineBuilder(this.scene);
         this.labelBuilder = new LabelBuilder(this.scene);
+        this.zoneBuilder = new ZoneBuilder(this.scene);
 
         // Initial Demo Scene
         if (!this.store.document) {
@@ -121,6 +124,7 @@ export class ThreeSceneService {
                 this.sceneBuilder.buildFromDocument(newDoc);
                 this.semanticLineBuilder.buildLines(newDoc);
                 this.labelBuilder.buildLabels(newDoc);
+                this.zoneBuilder.buildZones(newDoc);
                 this.gridBuilder.buildGrid();
             }
         }, { deep: true });
@@ -200,6 +204,7 @@ export class ThreeSceneService {
         this.gridBuilder = new GridBuilder(this.scene);
         this.semanticLineBuilder = new SemanticLineBuilder(this.scene);
         this.labelBuilder = new LabelBuilder(this.scene);
+        this.zoneBuilder = new ZoneBuilder(this.scene);
 
         // 如果有当前文档，重建场景
         const doc = this.store.document;
@@ -207,6 +212,7 @@ export class ThreeSceneService {
             this.sceneBuilder.buildFromDocument(doc);
             this.semanticLineBuilder.buildLines(doc);
             this.labelBuilder.buildLabels(doc);
+            this.zoneBuilder.buildZones(doc);
             this.gridBuilder.buildGrid();
         } else {
             this.sceneBuilder.buildDemoScene();
