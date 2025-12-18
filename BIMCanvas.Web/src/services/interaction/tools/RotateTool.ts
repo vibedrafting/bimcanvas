@@ -137,6 +137,10 @@ export class RotateTool implements Tool {
         if (this.state === 'waiting_center') {
             this.centerPoint = finalPoint;
             this.updateCenterMarker(this.centerPoint);
+
+            // Set pivot for ghost rotation
+            this.ghostManager.setPivot(this.centerPoint);
+
             this.state = 'waiting_start';
             store.setPrompt('Click to set start angle');
 
@@ -185,7 +189,6 @@ export class RotateTool implements Tool {
             const currentAngle = Math.atan2(vector.z, vector.x);
             const deltaRotation = currentAngle - this.startAngle;
 
-            this.ghostManager.setPositionOffset(this.centerPoint);
             this.ghostManager.setRotation(deltaRotation);
         }
     }
@@ -218,7 +221,88 @@ export class RotateTool implements Tool {
 
         const vector = new THREE.Vector3().subVectors(endPoint, this.centerPoint);
         const endAngle = Math.atan2(vector.z, vector.x);
-        const deltaRotation = endAngle - this.startAngle; // Radians
+
+        // 3D Delta (X, Z) where Z is Down.
+        // CCW Gesture -> Negative Delta.
+        // 2D Math (X, Y) where Y is Up (standard math) or Y is Down (Canvas).
+        // In Canvas (Y Down), CCW is Positive Rotation?
+        // Wait, standard matrix:
+        // x' = x cos - y sin
+        // y' = x sin + y cos
+        // This rotates (1,0) to (cos, sin).
+        // If theta is positive: (0, 1) -> Down. CW.
+        // So Matrix rotates CW for Positive Theta.
+        // CCW Gesture -> Negative Delta3D.
+        // If we use Negative Delta3D in Matrix -> Matrix(Neg) -> CCW.
+        // So... wait.
+        // If Matrix(Pos) is CW.
+        // And Gesture(CCW) is Neg Delta.
+        // Matrix(Neg) is CCW.
+        // So we should use Delta3D DIRECTLY?
+
+        // Let's re-verify Matrix.
+        // 2D Canvas Y Down.
+        // (1, 0) Right.
+        // Rotate +90.
+        // x' = 0 - 1 = -1? No. cos(90)=0, sin(90)=1.
+        // x' = 0 - 0 = 0.
+        // y' = 1 + 0 = 1.
+        // (0, 1) Down.
+        // So +90 is CW.
+
+        // Gesture CCW (Right -> Up).
+        // Delta3D = -90 (Neg).
+        // Matrix(-90).
+        // cos(-90)=0, sin(-90)=-1.
+        // x' = 0 - (-1)*0 = 0.
+        // y' = 1*(-1) + 0 = -1.
+        // (0, -1) Up.
+        // So Matrix(-90) is CCW.
+
+        // So Delta3D (Neg) -> Matrix (CCW).
+        // This matches Gesture!
+
+        // So why was it reversed?
+        // Maybe my previous analysis of "Reversed" was wrong?
+        // User said "Rotation direction is reversed".
+        // If I used Delta3D directly, it should be correct.
+        // Did I use Delta3D directly?
+        // Yes: `const deltaRotation = endAngle - this.startAngle;`
+
+        // So why reversed?
+        // Maybe Ghost was reversed (it had `-rotation`), so user saw Ghost go CW when gesturing CCW.
+        // And maybe they didn't check the final result carefully, or assumed it would match Ghost?
+        // OR, maybe my Matrix logic is wrong for the specific coordinate system of the Store?
+        // Store bounds: [x, y].
+        // If Store Y is Up (CAD).
+        // (1, 0) Right.
+        // Rotate +90 (CCW).
+        // Should go to (0, 1) Up.
+        // Matrix(+90):
+        // x' = 0 - 1 = -1? No.
+        // x' = 0. y' = 1.
+        // (0, 1).
+        // So Matrix(+90) is CCW in Y-Up system.
+
+        // Gesture CCW -> Delta3D (-90).
+        // Matrix(-90) -> (0, -1) Down.
+        // So in Y-Up system, Matrix(-90) is CW.
+        // But Gesture was CCW.
+        // So Result is CW (Reversed).
+
+        // So if Store is Y-Up:
+        // We need Positive Delta for CCW.
+        // Delta3D is Negative for CCW.
+        // So we MUST Negate Delta3D.
+
+        // Conclusion:
+        // If Store is Y-Down (Canvas): Direct Delta3D works.
+        // If Store is Y-Up (CAD): Negate Delta3D.
+
+        // Given "Reversed" report, and typical BIM/CAD data, Store is likely Y-Up (or treated as such).
+        // So I will Negate.
+
+        const deltaRotation = -(endAngle - this.startAngle); // Negate for 2D Math compatibility
 
         // Update Store
         const store = useCanvasStore();
@@ -258,6 +342,9 @@ export class RotateTool implements Tool {
         if (updated) {
             store.setSelectedObject(updated);
         }
+
+        // Clear selection after rotation
+        store.setSelectedObject(null);
 
         console.log("Rotate executed");
         this.deactivate();

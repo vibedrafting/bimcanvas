@@ -19,11 +19,10 @@ export class GhostManager {
 
         this.originalObject = original;
 
-        // 1. Create a "Solid Clone" that will move with the mouse
-        // This clone should look exactly like the original (solid)
+        // 1. Create a "Solid Clone"
         const solidClone = original.clone();
 
-        // Ensure the clone is marked as ghost to avoid raycasting
+        // Ensure the clone is marked as ghost
         solidClone.userData.isGhost = true;
         solidClone.traverse((child) => {
             child.userData.isGhost = true;
@@ -31,30 +30,53 @@ export class GhostManager {
 
         this.ghostGroup.add(solidClone);
 
-        // Reset position to 0,0,0 relative to group
-        // The group will be moved by the tool
-        solidClone.position.set(0, 0, 0);
+        // Initially, we want the clone to be at the same world position as the original.
+        // If the group is at (0,0,0), the clone should be at original.position.
+        // However, for pivoting, we will move the group to the pivot point.
+        // So we need to set the clone's local position relative to the group.
+        // For now, just copy position.
+        solidClone.position.copy(original.position);
+        solidClone.rotation.copy(original.rotation);
+        solidClone.scale.copy(original.scale);
+
         this.ghostGroup.position.set(0, 0, 0);
+        this.ghostGroup.rotation.set(0, 0, 0);
 
 
-        // 2. Turn the "Original Object" into a Ghost (Dashed/Transparent)
-        // Store original materials first
+        // 2. Turn the "Original Object" into a Ghost
         this.originalMaterials.clear();
         original.traverse((child) => {
             if (child instanceof THREE.Mesh) {
                 this.originalMaterials.set(child.uuid, child.material);
-
-                // Apply ghost material to original
-                // Dashed lines are hard on meshes, so we use transparent material
                 const ghostMaterial = new THREE.MeshBasicMaterial({
                     color: 0xaaaaaa,
                     transparent: true,
                     opacity: 0.3,
                     depthTest: true,
                     side: THREE.DoubleSide,
-                    wireframe: true // Wireframe gives a "dashed-like" technical look
+                    wireframe: true
                 });
                 child.material = ghostMaterial;
+            }
+        });
+    }
+
+    public setPivot(pivot: THREE.Vector3) {
+        // To rotate around a pivot:
+        // 1. Move the Group to the Pivot Point.
+        // 2. Adjust the Children's positions so they stay visually in the same place.
+        //    ChildLocal = ChildWorld - PivotWorld
+
+        this.ghostGroup.position.copy(pivot);
+
+        this.ghostGroup.children.forEach(child => {
+            if (this.originalObject) {
+                // Calculate original world position
+                // We assume originalObject hasn't moved since createGhost
+                const originalWorldPos = this.originalObject.position.clone();
+
+                // New local position = OriginalWorld - Pivot
+                child.position.subVectors(originalWorldPos, pivot);
             }
         });
     }
@@ -68,7 +90,6 @@ export class GhostManager {
         this.ghostGroup.position.set(0, 0, 0);
         this.ghostGroup.rotation.set(0, 0, 0);
 
-        // Restore original object materials
         if (this.originalObject) {
             this.originalObject.traverse((child) => {
                 if (child instanceof THREE.Mesh && this.originalMaterials.has(child.uuid)) {
@@ -80,15 +101,27 @@ export class GhostManager {
         }
     }
 
-    public updateGhosts(ghosts: any[]) {
-        // Placeholder
-    }
+    public updateGhosts(ghosts: any[]) { }
 
     public setPositionOffset(offset: THREE.Vector3) {
+        // For Move Tool: offset is delta
+        // If we use setPivot logic, this might need adjustment.
+        // But MoveTool uses setPositionOffset(delta) where delta = dest - base.
+        // If we want to move the group:
+        // GroupPos = OriginalPos + Delta?
+        // Let's keep it simple for MoveTool:
+        // MoveTool sets Group to (0,0,0) initially (in createGhost logic above, we set Group to 0,0,0 and Child to OriginalPos).
+        // So moving Group by Delta moves Child by Delta.
         this.ghostGroup.position.copy(offset);
     }
 
     public setRotation(rotation: number) {
+        // Rotate around Y axis (up)
+        // Since Group is at Pivot, rotating Group rotates Child around Pivot.
+        // Positive Y rotation is CCW from Top View.
+        // CCW Gesture -> Negative Delta.
+        // We want CCW Preview -> Positive Y-Rot.
+        // So we must Negate the Negative Delta.
         this.ghostGroup.rotation.y = -rotation;
     }
 }
