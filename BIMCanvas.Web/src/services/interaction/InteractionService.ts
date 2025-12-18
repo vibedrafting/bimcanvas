@@ -53,12 +53,14 @@ export class InteractionService {
             this.ghostManager
         );
         this.activeTool.activate();
+        this.store.currentOperation = 'moving';
     }
 
     public cancelTool() {
         if (this.activeTool) {
             this.activeTool.deactivate();
             this.activeTool = null;
+            this.store.currentOperation = null;
         }
     }
 
@@ -114,6 +116,7 @@ export class InteractionService {
             this.ghostManager
         );
         this.activeTool.activate();
+        this.store.currentOperation = 'rotating';
     }
 
     public deleteSelection() {
@@ -123,6 +126,14 @@ export class InteractionService {
         if (!selected || !selected.id) return;
 
         this.store.removeModule(selected.id);
+
+        // Transient status for delete (since it's instant)
+        this.store.currentOperation = 'deleted';
+        setTimeout(() => {
+            if (this.store.currentOperation === 'deleted') {
+                this.store.currentOperation = null;
+            }
+        }, 2000);
     }
 
     private setupEvents() {

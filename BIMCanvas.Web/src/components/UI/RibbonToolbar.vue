@@ -7,7 +7,7 @@ import { themeService } from '../../services/theme/ThemeService';
 import { storeToRefs } from 'pinia';
 
 const store = useCanvasStore();
-const { selectedObject } = storeToRefs(store);
+const { selectedObject, agentConnectionState, currentOperation } = storeToRefs(store);
 const isExpanded = ref(false);
 
 // 调试开关：设为 true 可保持灵动岛展开状态，方便截图调试
@@ -23,15 +23,34 @@ const toggleTheme = () => {
   themeService.toggleTheme();
 };
 
-// Load Demo
-const handleLoadDemo = async () => {
-  await store.loadDemoData('/demo/layout_proposal.json');
-};
+
 
 // Actions
 const dispatchAction = (action: 'rotate' | 'delete' | 'move' | 'mirror') => {
   window.dispatchEvent(new CustomEvent(`bimcanvas:action-${action}`));
 };
+
+// Dynamic Status Text
+const dynamicStatusText = computed(() => {
+  // Priority 1: Current Operation (Persistent)
+  if (currentOperation.value) {
+    const opMap: Record<string, string> = {
+      'moving': 'Moving...',
+      'rotating': 'Rotating...',
+      'deleted': 'Deleted',
+      'mirroring': 'Mirroring...'
+    };
+    return opMap[currentOperation.value] || currentOperation.value;
+  }
+  
+  // Priority 2: Selection
+  if (selectedObject.value) {
+    return 'Selecting...';
+  }
+  
+  // Priority 3: Default
+  return 'BIMCanvas Ready';
+});
 
 // View Logic
 const currentView = ref<'human' | 'ai'>('human');
@@ -79,9 +98,17 @@ watch(selectedObject, (newVal) => {
       
       <!-- Collapsed View -->
       <div class="island-collapsed" v-show="!shouldExpand">
-        <div class="status-indicator" :class="{ active: !!store.selectedObject }"></div>
+        <div 
+          class="status-indicator" 
+          :class="{ 
+            'connected': agentConnectionState === 'Connected',
+            'disconnected': agentConnectionState === 'Disconnected',
+            'reconnecting': agentConnectionState === 'Reconnecting'
+          }"
+          :title="`Agent Status: ${agentConnectionState}`"
+        ></div>
         <span class="status-text">
-          {{ store.selectedObject ? `Selected: ${store.selectedObject.userData?.type || 'Object'}` : 'BIMCanvas Ready' }}
+          {{ dynamicStatusText }}
         </span>
       </div>
 
@@ -233,9 +260,20 @@ watch(selectedObject, (newVal) => {
       box-shadow: 0 0 4px rgba(0, 0, 0, 0.1);
       transition: all 0.3s;
       
-      &.active {
-        background: var(--accent-blue);
-        box-shadow: 0 0 8px var(--accent-glow);
+      &.connected {
+        background: #4CAF50; /* Green */
+        box-shadow: 0 0 8px rgba(76, 175, 80, 0.6);
+      }
+      
+      &.disconnected {
+        background: #F44336; /* Red */
+        box-shadow: 0 0 8px rgba(244, 67, 54, 0.6);
+      }
+      
+      &.reconnecting {
+        background: #FFC107; /* Amber */
+        box-shadow: 0 0 8px rgba(255, 193, 7, 0.6);
+        animation: pulse 1.5s infinite;
       }
     }
     
@@ -332,5 +370,11 @@ watch(selectedObject, (newVal) => {
     opacity: 1; 
     transform: scale(1) translateY(0); 
   }
+}
+
+@keyframes pulse {
+  0% { opacity: 1; }
+  50% { opacity: 0.5; }
+  100% { opacity: 1; }
 }
 </style>

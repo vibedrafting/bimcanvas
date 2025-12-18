@@ -11,6 +11,7 @@ export class SignalRService {
             .build();
 
         this.setupListeners();
+        this.setupLifecycleHooks();
     }
 
     public static getInstance(): SignalRService {
@@ -33,12 +34,35 @@ export class SignalRService {
         });
     }
 
+    private setupLifecycleHooks() {
+        this.connection.onreconnecting((error) => {
+            console.warn('SignalR Reconnecting...', error);
+            this.dispatchConnectionState('Reconnecting');
+        });
+
+        this.connection.onreconnected((connectionId) => {
+            console.log('SignalR Reconnected.', connectionId);
+            this.dispatchConnectionState('Connected');
+        });
+
+        this.connection.onclose((error) => {
+            console.error('SignalR Connection Closed.', error);
+            this.dispatchConnectionState('Disconnected');
+        });
+    }
+
+    private dispatchConnectionState(state: 'Connected' | 'Disconnected' | 'Reconnecting') {
+        window.dispatchEvent(new CustomEvent('bimcanvas:connection-state', { detail: state }));
+    }
+
     public async start() {
         try {
             await this.connection.start();
             console.log("SignalR Connected.");
+            this.dispatchConnectionState('Connected');
         } catch (err) {
             console.error("SignalR Connection Error: ", err);
+            this.dispatchConnectionState('Disconnected');
             // Retry logic could go here
         }
     }

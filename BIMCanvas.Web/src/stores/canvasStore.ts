@@ -24,6 +24,14 @@ export const useCanvasStore = defineStore('canvas', () => {
     // Initialize SignalR
     signalR.start();
 
+    const agentConnectionState = ref<'Connected' | 'Disconnected' | 'Reconnecting'>('Disconnected');
+    const currentOperation = ref<string | null>(null);
+
+    window.addEventListener('bimcanvas:connection-state', (e: any) => {
+        agentConnectionState.value = e.detail;
+        console.log('Store: Connection State Updated ->', agentConnectionState.value);
+    });
+
     const canUndo = ref(false);
     const canRedo = ref(false);
 
@@ -138,6 +146,8 @@ export const useCanvasStore = defineStore('canvas', () => {
         selectedObject,
         isLoading,
         error,
+        agentConnectionState,
+        currentOperation,
 
         // Getters
         canUndo,
