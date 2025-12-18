@@ -140,6 +140,7 @@ export const useCanvasStore = defineStore('canvas', () => {
 
         // UI State
         promptMessage,
-        setPrompt
+        setPrompt,
+        debugMsg
     };
 });

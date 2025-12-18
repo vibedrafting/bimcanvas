@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { useCanvasStore } from '../../stores/canvasStore';
+import { watch } from 'vue';
 
 export class SelectionManager {
     private selectedObject: THREE.Object3D | null = null;
@@ -10,6 +11,35 @@ export class SelectionManager {
     constructor(scene: THREE.Scene) {
         this.scene = scene;
         this.store.debugMsg += `\nSelectionManager Created ${Date.now()}`;
+
+        // Sync with store
+        watch(() => this.store.selectedObject, (newVal) => {
+            if (newVal === null) {
+                if (this.selectedObject !== null) {
+                    this.clearSelection();
+                }
+            } else {
+                // If store has an object, but we don't (or different one), we should select it visually.
+                // However, store.selectedObject is data (JSON), not Mesh.
+                // We need to find the Mesh by ID.
+                if (!this.selectedObject || this.selectedObject.userData.id !== newVal.id) {
+                    const object = this.findObjectById(newVal.id);
+                    if (object) {
+                        this.select(object);
+                    }
+                }
+            }
+        });
+    }
+
+    private findObjectById(id: string): THREE.Object3D | null {
+        let found: THREE.Object3D | null = null;
+        this.scene.traverse((child) => {
+            if (child.userData && child.userData.id === id) {
+                found = child;
+            }
+        });
+        return found;
     }
 
     public select(object: THREE.Object3D | null) {
@@ -19,7 +49,7 @@ export class SelectionManager {
         }
 
         this.store.debugMsg += ` | Select ${object?.id}`;
-        this.clearSelection();
+        this.clearSelection(); // Clear previous visual
 
         if (object) {
             this.selectedObject = object;
@@ -27,8 +57,13 @@ export class SelectionManager {
             this.selectionBox = new THREE.BoxHelper(object, 0x3b82f6); // Blue selection
             this.scene.add(this.selectionBox);
 
-            // Update Store
-            this.store.setSelectedObject(object);
+            // Update Store (only if different)
+            // Note: This might trigger watcher, but watcher has check.
+            // However, store object is data, we have mesh.
+            // We should check if store already has this ID.
+            if (this.store.selectedObject?.id !== object.userData.id) {
+                this.store.setSelectedObject(object.userData.data || { id: object.userData.id, type: object.userData.type });
+            }
         }
     }
 
@@ -39,7 +74,11 @@ export class SelectionManager {
             this.selectionBox = null;
         }
         this.selectedObject = null;
-        this.store.setSelectedObject(null);
+
+        // Update Store
+        if (this.store.selectedObject !== null) {
+            this.store.setSelectedObject(null);
+        }
     }
 
     public getSelected(): THREE.Object3D | null {

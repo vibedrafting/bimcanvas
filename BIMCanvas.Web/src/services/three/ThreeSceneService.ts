@@ -112,21 +112,29 @@ export class ThreeSceneService {
         }
 
         // 7. Watch for Store Changes
-        // Deep watch for module updates to avoid full rebuilds if possible, 
-        // but for now, full rebuild ensures consistency.
+
+        // A. Deep watch for content updates (Rebuild Scene)
         watch(() => this.store.document, (newDoc) => {
             if (newDoc) {
-                console.log('Document changed, rebuilding scene...');
+                // console.log('Document updated, rebuilding scene...');
                 this.sceneBuilder.buildFromDocument(newDoc);
                 this.semanticLineBuilder.buildLines(newDoc);
                 this.labelBuilder.buildLabels(newDoc);
                 this.gridBuilder.buildGrid();
-                // Only fit to screen on initial load or major changes
+            }
+        }, { deep: true });
+
+        // B. Shallow watch for document replacement (Fit to Screen)
+        // This only triggers when a NEW document is loaded (reference change),
+        // not when modules are moved/rotated (mutation).
+        watch(() => this.store.document, (newDoc) => {
+            if (newDoc) {
+                console.log('New document loaded, fitting to screen...');
                 setTimeout(() => {
                     this.fitToScreen(newDoc);
                 }, 100);
             }
-        }, { deep: true });
+        });
 
         // 8. Events
         window.addEventListener('resize', this.onWindowResize.bind(this));

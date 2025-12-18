@@ -43,7 +43,16 @@ export class MoveTool implements Tool {
         console.log("MoveTool Activate. Selected:", this.selectedObject);
 
         // Check if we have a valid selection (must be a module)
-        if (this.selectedObject && (this.selectedObject.type === 'module' || this.selectedObject.userData?.type === 'module')) {
+        // Note: Store usually holds JSON data, but might hold Mesh if set incorrectly.
+        // We handle both.
+        const isModule = this.selectedObject && (
+            this.selectedObject.type === 'module' ||
+            (this.selectedObject.userData && this.selectedObject.userData.type === 'module')
+        );
+
+        console.log("MoveTool Activate. isModule:", isModule);
+
+        if (isModule) {
             // Handle case where selectedObject might be the ThreeJS object or the data object
             // If it's the ThreeJS object, get data from userData
             if (this.selectedObject.userData && this.selectedObject.userData.data) {
@@ -212,6 +221,9 @@ export class MoveTool implements Tool {
         if (updated) {
             store.setSelectedObject(updated);
         }
+
+        // Clear selection after move
+        store.setSelectedObject(null);
 
         console.log("Move executed");
         this.deactivate();

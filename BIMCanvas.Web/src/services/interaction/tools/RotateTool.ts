@@ -45,7 +45,13 @@ export class RotateTool implements Tool {
         this.selectedObject = store.selectedObject;
         console.log("RotateTool Activate. Selected:", this.selectedObject);
 
-        if (this.selectedObject && (this.selectedObject.type === 'module' || this.selectedObject.userData?.type === 'module')) {
+        const isModule = this.selectedObject && (
+            this.selectedObject.type === 'module' ||
+            (this.selectedObject.userData && this.selectedObject.userData.type === 'module')
+        );
+        console.log("RotateTool Activate. isModule:", isModule);
+
+        if (isModule) {
             if (this.selectedObject.userData && this.selectedObject.userData.data) {
                 this.selectedObject = this.selectedObject.userData.data;
             }
