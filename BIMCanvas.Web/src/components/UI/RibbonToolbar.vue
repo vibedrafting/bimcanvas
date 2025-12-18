@@ -74,16 +74,16 @@ watch(selectedObject, (newVal) => {
       <!-- Expanded View -->
       <div class="island-expanded" v-show="isExpanded">
         <!-- BASIC Group -->
-        <div class="group">
+        <div class="group stagger-1">
           <GlassButton variant="ghost" title="Select" active class="compact-btn">
             <span class="icon">↖</span>
           </GlassButton>
         </div>
 
-        <div class="divider-vertical"></div>
+        <div class="divider-vertical stagger-2"></div>
 
         <!-- TRANSFORM Group -->
-        <div class="group">
+        <div class="group stagger-3">
           <GlassButton @click="dispatchAction('move')" variant="ghost" class="compact-btn">
             <span class="icon">✥</span> Move
           </GlassButton>
@@ -95,10 +95,10 @@ watch(selectedObject, (newVal) => {
           </GlassButton>
         </div>
 
-        <div class="divider-vertical"></div>
+        <div class="divider-vertical stagger-4"></div>
 
         <!-- VISION Group -->
-        <div class="group">
+        <div class="group stagger-5">
           <GlassButton :active="currentView === 'human'" @click="toggleView('human')" variant="ghost" class="compact-btn vision-btn">
              <span class="icon">⦿</span> User
           </GlassButton>
@@ -176,7 +176,15 @@ watch(selectedObject, (newVal) => {
     inset 0 1px 0 rgba(255, 255, 255, 0.1);
     
   pointer-events: auto;
-  transition: all 0.4s cubic-bezier(0.25, 0.8, 0.25, 1);
+  /* Apple Dynamic Island Spring Physics */
+  transition: 
+    min-width 0.5s cubic-bezier(0.34, 1.56, 0.64, 1),
+    height 0.5s cubic-bezier(0.34, 1.56, 0.64, 1),
+    padding 0.5s cubic-bezier(0.34, 1.56, 0.64, 1),
+    background 0.3s ease,
+    box-shadow 0.3s ease,
+    border-radius 0.5s cubic-bezier(0.34, 1.56, 0.64, 1),
+    backdrop-filter 0.3s ease;
   overflow: hidden;
 
   /* Expanded State Override */
@@ -184,7 +192,10 @@ watch(selectedObject, (newVal) => {
     height: 52px;
     min-width: 480px; /* Approximate width for full toolbar */
     padding: 0 20px;
+    border-radius: 26px; /* Less rounded when expanded */
     background: rgba(25, 25, 30, 0.95);
+    backdrop-filter: blur(30px) saturate(200%); /* Enhanced blur when expanded */
+    -webkit-backdrop-filter: blur(30px) saturate(200%);
     box-shadow: 
       0 12px 40px rgba(0, 0, 0, 0.6),
       0 4px 12px rgba(0, 0, 0, 0.3),
@@ -280,5 +291,30 @@ watch(selectedObject, (newVal) => {
 .vision-btn {
   min-width: 80px; /* Equal width for vision toggle buttons */
   justify-content: center;
+}
+
+/* Stagger Animation for Dynamic Island content */
+.island-expanded {
+  .stagger-1, .stagger-2, .stagger-3, .stagger-4, .stagger-5 {
+    opacity: 0;
+    animation: staggerFadeIn 0.4s cubic-bezier(0.34, 1.56, 0.64, 1) forwards;
+  }
+  
+  .stagger-1 { animation-delay: 0.05s; }
+  .stagger-2 { animation-delay: 0.1s; }
+  .stagger-3 { animation-delay: 0.15s; }
+  .stagger-4 { animation-delay: 0.2s; }
+  .stagger-5 { animation-delay: 0.25s; }
+}
+
+@keyframes staggerFadeIn {
+  from { 
+    opacity: 0; 
+    transform: scale(0.8) translateY(4px); 
+  }
+  to { 
+    opacity: 1; 
+    transform: scale(1) translateY(0); 
+  }
 }
 </style>
