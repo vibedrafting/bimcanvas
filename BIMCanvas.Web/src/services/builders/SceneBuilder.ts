@@ -153,9 +153,8 @@ export class SceneBuilder {
         // this.buildFloor(); // Removed as per user request
 
         // Add Axes Helper
-        const axesHelper = new THREE.AxesHelper(1000); // 1m length
-        axesHelper.layers.set(LayerManager.LAYER_AXES);
-        this.scene.add(axesHelper);
+        // Add Compass (Architectural Style)
+        this.createCompass();
 
         // 1. Walls
         if (doc.walls && doc.walls.length > 0) {
@@ -200,9 +199,8 @@ export class SceneBuilder {
         this.scene.add(module);
 
         // Add Axes Helper
-        const axesHelper = new THREE.AxesHelper(1000); // 1m length
-        axesHelper.layers.set(LayerManager.LAYER_AXES);
-        this.scene.add(axesHelper);
+        // Add Compass (Architectural Style)
+        this.createCompass();
 
         this.updateAllHelpers();
     }
@@ -485,5 +483,77 @@ export class SceneBuilder {
         this.enableLayers(mesh);
         this.createBoundsHelper(mesh);
         this.scene.add(mesh);
+    }
+    private createCompass() {
+        const compassGroup = new THREE.Group();
+        compassGroup.layers.set(LayerManager.LAYER_AXES);
+
+        // 1. Ring (Circle)
+        const radius = 800;
+        const ringCurve = new THREE.EllipseCurve(
+            0, 0,            // ax, aY
+            radius, radius,  // xRadius, yRadius
+            0, 2 * Math.PI,  // aStartAngle, aEndAngle
+            false,           // aClockwise
+            0                // aRotation
+        );
+        const ringPoints = ringCurve.getPoints(64);
+        const ringGeo = new THREE.BufferGeometry().setFromPoints(ringPoints);
+        const lineMat = new THREE.LineBasicMaterial({
+            color: 0x888888, // Neutral Grey
+            transparent: true,
+            opacity: 0.5
+        });
+        const ring = new THREE.LineLoop(ringGeo, lineMat);
+        ring.rotation.x = -Math.PI / 2; // Lay flat on ground
+        ring.layers.set(LayerManager.LAYER_AXES);
+        compassGroup.add(ring);
+
+        // 2. Cross Lines (N-S, E-W)
+        const crossSize = radius + 200; // Slightly larger than ring
+        const crossPoints = [];
+        // N-S Line (Plan Y / World -Z)
+        crossPoints.push(new THREE.Vector3(0, 0, -crossSize));
+        crossPoints.push(new THREE.Vector3(0, 0, crossSize));
+        // E-W Line (Plan X / World X)
+        crossPoints.push(new THREE.Vector3(-crossSize, 0, 0));
+        crossPoints.push(new THREE.Vector3(crossSize, 0, 0));
+
+        const crossGeo = new THREE.BufferGeometry().setFromPoints(crossPoints);
+        const cross = new THREE.LineSegments(crossGeo, lineMat);
+        cross.layers.set(LayerManager.LAYER_AXES);
+        compassGroup.add(cross);
+
+        // 3. North Arrow (Triangle pointing to Plan Y / World -Z)
+        // In our coordinate system: Plan Y is World -Z.
+        // So we want the arrow pointing towards -Z.
+        const arrowShape = new THREE.Shape();
+        const arrowSize = 300; // Increased from 150
+        // Tip at (0, -radius) in 2D shape coords (which we'll rotate to point -Z)
+        // Wait, let's build it in X-Z plane directly or rotate it.
+        // Let's build shape in X-Y and rotate X -90.
+        // Tip pointing UP in shape = +Y.
+        // We want tip pointing -Z in world.
+        // If we rotate X -90, Shape Y becomes World -Z. Correct.
+
+        arrowShape.moveTo(0, radius + arrowSize); // Tip
+        arrowShape.lineTo(-arrowSize / 3, radius - arrowSize / 3); // Bottom Left
+        arrowShape.lineTo(arrowSize / 3, radius - arrowSize / 3); // Bottom Right
+        arrowShape.closePath();
+
+        const arrowGeo = new THREE.ShapeGeometry(arrowShape);
+        const arrowMat = new THREE.MeshBasicMaterial({
+            color: 0xFF4444, // Red for North
+            side: THREE.DoubleSide
+        });
+        const arrow = new THREE.Mesh(arrowGeo, arrowMat);
+        arrow.rotation.x = -Math.PI / 2; // Lay flat, Shape Y becomes World -Z
+        arrow.layers.set(LayerManager.LAYER_AXES);
+        compassGroup.add(arrow);
+
+        // 4. "N" Label (Optional, maybe just the red arrow is enough for "Simple")
+        // Let's stick to simple geometry for now as per "Simple & Conspicuous"
+
+        this.scene.add(compassGroup);
     }
 }
