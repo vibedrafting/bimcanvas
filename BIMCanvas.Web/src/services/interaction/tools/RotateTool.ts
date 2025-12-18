@@ -47,7 +47,8 @@ export class RotateTool implements Tool {
 
         const isModule = this.selectedObject && (
             this.selectedObject.type === 'module' ||
-            (this.selectedObject.userData && this.selectedObject.userData.type === 'module')
+            (this.selectedObject.userData && this.selectedObject.userData.type === 'module') ||
+            (this.selectedObject.id && this.selectedObject.bounds)
         );
         console.log("RotateTool Activate. isModule:", isModule);
 

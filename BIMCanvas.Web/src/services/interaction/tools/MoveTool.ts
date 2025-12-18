@@ -43,11 +43,11 @@ export class MoveTool implements Tool {
         console.log("MoveTool Activate. Selected:", this.selectedObject);
 
         // Check if we have a valid selection (must be a module)
-        // Note: Store usually holds JSON data, but might hold Mesh if set incorrectly.
-        // We handle both.
+        // Relaxed check: if it has ID and bounds, we treat it as a module
         const isModule = this.selectedObject && (
             this.selectedObject.type === 'module' ||
-            (this.selectedObject.userData && this.selectedObject.userData.type === 'module')
+            (this.selectedObject.userData && this.selectedObject.userData.type === 'module') ||
+            (this.selectedObject.id && this.selectedObject.bounds)
         );
 
         console.log("MoveTool Activate. isModule:", isModule);

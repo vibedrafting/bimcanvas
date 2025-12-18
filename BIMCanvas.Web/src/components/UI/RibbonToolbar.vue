@@ -88,10 +88,10 @@ watch(selectedObject, (newVal) => {
 
         <!-- TRANSFORM Group -->
         <div class="group">
-          <GlassButton @click="dispatchAction('move')" :disabled="!store.selectedObject" variant="ghost" class="compact-btn">
+          <GlassButton @click="dispatchAction('move')" variant="ghost" class="compact-btn">
             <span class="icon">✥</span> Move
           </GlassButton>
-          <GlassButton @click="dispatchAction('rotate')" :disabled="!store.selectedObject" variant="ghost" class="compact-btn">
+          <GlassButton @click="dispatchAction('rotate')" variant="ghost" class="compact-btn">
             <span class="icon">↻</span> Rotate
           </GlassButton>
           <GlassButton @click="dispatchAction('delete')" :disabled="!store.selectedObject" variant="danger" class="compact-btn">
