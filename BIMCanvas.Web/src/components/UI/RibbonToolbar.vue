@@ -90,7 +90,9 @@ watch(selectedObject, (newVal) => {
         <!-- BASIC Group -->
         <div class="group stagger-1">
           <GlassButton variant="ghost" title="Select" active class="compact-btn">
-            <span class="icon">↖</span>
+            <svg class="icon" viewBox="0 0 24 24" width="1.1em" height="1.1em" fill="currentColor">
+              <path d="M7 2l12 11.2-5.8.5 3.3 7.3-2.2.9-3.2-7.4-4.4 4V2z"/>
+            </svg>
           </GlassButton>
         </div>
 
