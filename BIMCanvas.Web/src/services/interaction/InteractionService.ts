@@ -170,14 +170,34 @@ export class InteractionService {
         debugStore.log(`Ray: O=${this.raycaster.ray.origin.x.toFixed(0)},${this.raycaster.ray.origin.y.toFixed(0)},${this.raycaster.ray.origin.z.toFixed(0)} D=${this.raycaster.ray.direction.x.toFixed(2)},${this.raycaster.ray.direction.y.toFixed(2)},${this.raycaster.ray.direction.z.toFixed(2)}`);
 
         if (intersects.length > 0) {
-            // Filter for selectable objects (e.g., modules)
-            // For now, select the first hit that is a Mesh
+            // Filter for selectable objects
+            // We need to find the first hit that is part of a selectable object
+            // For Doors/Windows, the hit is a child Mesh, but the userData is on the parent Group.
+
             const hit = intersects.find(i => i.object instanceof THREE.Mesh);
+
             if (hit) {
-                debugStore.success(`Hit: ${hit.object.id} (${hit.object.type})`);
-                // Traverse up to find the root object (e.g. module group) if needed
-                // For now, just select the object
-                this.selectionManager.select(hit.object);
+                let target: THREE.Object3D | null = hit.object;
+
+                // Traverse up to find object with ID
+                while (target && !target.userData?.id && target.parent && target.parent !== this.scene) {
+                    target = target.parent;
+                }
+
+                // If we found a target with ID, select it. 
+                // If not, we might have hit a helper or something else, but let's try to select the mesh itself if it has no ID?
+                // Actually, for now, only select if it has an ID.
+                if (target && target.userData?.id) {
+                    debugStore.success(`Hit: ${target.userData.type} ${target.userData.id}`);
+                    this.selectionManager.select(target);
+                } else {
+                    // Hit something without ID (e.g. grid, helper without ID)
+                    // Treat as background click? Or just ignore?
+                    // If it's a Mesh but has no ID, it might be a floor or something.
+                    // Let's clear selection if we hit something "background-like" or nothing selectable.
+                    debugStore.warn('Hit object with no ID');
+                    this.selectionManager.clearSelection();
+                }
             } else {
                 debugStore.warn('No Mesh Hit');
                 this.selectionManager.clearSelection();

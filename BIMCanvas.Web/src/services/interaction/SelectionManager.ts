@@ -62,7 +62,11 @@ export class SelectionManager {
             // However, store object is data, we have mesh.
             // We should check if store already has this ID.
             if (this.store.selectedObject?.id !== object.userData.id) {
-                this.store.setSelectedObject(object.userData.data || { id: object.userData.id, type: object.userData.type });
+                // Ensure type is preserved from userData if not in data
+                const data = object.userData.data || {};
+                const type = object.userData.type || 'unknown';
+                // Merge data with id and type, ensuring type from userData takes precedence if missing in data
+                this.store.setSelectedObject({ ...data, id: object.userData.id, type });
             }
         }
     }

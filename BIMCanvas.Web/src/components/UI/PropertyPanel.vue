@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { useCanvasStore } from '../../stores/canvasStore';
-import { computed, ref } from 'vue';
+import { computed, ref, watch } from 'vue';
 
 const store = useCanvasStore();
 const isExpanded = ref(false); // Default collapsed
@@ -9,38 +9,83 @@ const toggleExpand = () => {
   isExpanded.value = !isExpanded.value;
 };
 
-const selectedData = computed(() => store.selectedObject);
+const selectedObject = computed(() => store.selectedObject);
 
-// Project Properties (Placeholder)
-const projectProperties = [
-    { key: 'Project', value: 'BIMCanvas Demo', type: 'string' },
-    { key: 'Version', value: 'v2.7', type: 'string' },
-    { key: 'Renderer', value: 'Three.js', type: 'string' },
-    { key: 'Mode', value: 'Web Client', type: 'string' }
-];
+// Auto-expand/collapse based on selection
+watch(selectedObject, (newVal) => {
+    if (newVal) {
+        isExpanded.value = true;
+    } else {
+        // Optional: Auto-collapse when deselected? 
+        // Let's keep it open if user opened it, or maybe collapse to show it's "done"
+        // For now, let's just keep the current state or maybe default to collapsed if user didn't manually interact?
+        // Let's stick to: if selected, expand. If deselected, stay as is (user might want to see project info).
+    }
+});
+
+// Project Properties
+const projectProperties = computed(() => {
+    const doc = store.document;
+    if (!doc) return [];
+    return [
+        { key: 'Project ID', value: doc.id, readonly: true },
+        { key: 'Version', value: `v${doc.version}`, readonly: true },
+        { key: 'Coordinate System', value: doc.coordinateSystem, readonly: true },
+        { key: 'Walls', value: doc.walls?.length || 0, readonly: true },
+        { key: 'Modules', value: doc.modules?.length || 0, readonly: true },
+    ];
+});
 
 const properties = computed(() => {
-  if (!selectedData.value) return projectProperties;
+  if (!selectedObject.value) return projectProperties.value;
   
-  // Flatten object for display, but keep it editable
-  return Object.entries(selectedData.value).map(([key, value]) => ({
-    key,
-    value,
-    type: typeof value
-  }));
+  const obj = selectedObject.value;
+  const type = obj.type || 'Unknown';
+  const data = obj.data || obj; // Some objects might have data nested, others might be direct
+
+  const props = [
+      { key: 'ID', value: obj.id, readonly: true },
+      { key: 'Type', value: type, readonly: true },
+  ];
+
+  if (type === 'wall') {
+      props.push({ key: 'Thickness', value: `${data.thickness || 200} mm`, readonly: true });
+      props.push({ key: 'Points', value: data.polygon?.length || 0, readonly: true });
+  } else if (type === 'column') {
+      props.push({ key: 'Structural', value: data.isStructural ? 'Yes' : 'No', readonly: true });
+  } else if (type === 'door' || type === 'window') {
+       // Calculate width/height from line if possible, or just show ID
+       // Opening data has 'line' [p1, p2]
+       if (data.line) {
+           const p1 = data.line[0];
+           const p2 = data.line[1];
+           const dx = p2[0] - p1[0];
+           const dy = p2[1] - p1[1];
+           const width = Math.sqrt(dx*dx + dy*dy);
+           props.push({ key: 'Width', value: `${Math.round(width)} mm`, readonly: true });
+       }
+  } else if (type === 'module') {
+      props.push({ key: 'Facing', value: JSON.stringify(data.facing), readonly: false }); // Editable?
+      // Add more module props here
+  }
+
+  return props;
 });
 
 const updateProperty = (key: string, newValue: any) => {
-  if (!selectedData.value) return;
+  if (!selectedObject.value) return;
   
+  // Only allow updating modules for now
+  if (selectedObject.value.type !== 'module') return;
+
   // Parse numbers if needed
   let parsedValue = newValue;
-  const originalValue = selectedData.value[key];
-  if (typeof originalValue === 'number') {
+  // Simple heuristic for now
+  if (!isNaN(Number(newValue)) && newValue.trim() !== '') {
       parsedValue = Number(newValue);
   }
 
-  store.updateModule(selectedData.value.id, { [key]: parsedValue });
+  store.updateModule(selectedObject.value.id, { [key.toLowerCase()]: parsedValue });
 };
 
 </script>
@@ -49,8 +94,6 @@ const updateProperty = (key: string, newValue: any) => {
   <aside 
     class="property-panel" 
     :class="{ expanded: isExpanded }"
-    @mouseenter="isExpanded = true"
-    @mouseleave="isExpanded = false"
   >
     <div class="header" @click="toggleExpand">
       <span class="label">Properties</span>
@@ -59,23 +102,27 @@ const updateProperty = (key: string, newValue: any) => {
 
     <div class="content" v-if="isExpanded">
         <header class="panel-header">
-            <h2>{{ selectedData ? 'Selection' : 'Project' }}</h2>
+            <h2>{{ selectedObject ? (selectedObject.type || 'Selection').toUpperCase() : 'PROJECT INFO' }}</h2>
         </header>
         
         <div class="prop-list">
             <div v-for="prop in properties" :key="prop.key" class="prop-row">
                 <span class="label">{{ prop.key }}</span>
                 
-                <!-- Editable Input for Strings/Numbers (Only if selected) -->
+                <!-- Editable Input for Modules (specific keys) -->
                 <input 
-                    v-if="selectedData && (prop.type === 'string' || prop.type === 'number')"
+                    v-if="!prop.readonly"
                     :value="prop.value"
                     @change="(e) => updateProperty(prop.key, (e.target as HTMLInputElement).value)"
                     class="value-input"
                 />
                 
-                <!-- Read-only for Objects/Arrays or Project Props -->
-                <span v-else class="value readonly">{{ typeof prop.value === 'object' ? JSON.stringify(prop.value) : prop.value }}</span>
+                <!-- Read-only -->
+                <span v-else class="value readonly" :title="String(prop.value)">{{ prop.value }}</span>
+            </div>
+            
+            <div v-if="!selectedObject" class="hint">
+                Select an object to view details.
             </div>
         </div>
     </div>

@@ -263,6 +263,14 @@ export class SceneBuilder {
         mesh.castShadow = true;
         mesh.receiveShadow = true;
         mesh.rotation.x = -Math.PI / 2; // Y-Up Rotation
+
+        // Set User Data
+        mesh.userData = {
+            id: wall.id,
+            type: 'wall',
+            data: wall
+        };
+
         this.enableLayers(mesh);
         this.createBoundsHelper(mesh);
         this.scene.add(mesh);
@@ -281,6 +289,14 @@ export class SceneBuilder {
         mesh.castShadow = true;
         mesh.receiveShadow = true;
         mesh.rotation.x = -Math.PI / 2; // Y-Up Rotation
+
+        // Set User Data
+        mesh.userData = {
+            id: col.id,
+            type: 'column',
+            data: col
+        };
+
         this.enableLayers(mesh);
         this.createBoundsHelper(mesh);
         this.scene.add(mesh);
@@ -297,16 +313,25 @@ export class SceneBuilder {
         const angle = Math.atan2(end.y - start.y, end.x - start.x);
 
         if (op.type === 0) {
-            this.createDoor(center, width, height, angle);
+            this.createDoor(center, width, height, angle, op);
         } else {
-            this.createWindow(center, width, height, angle);
+            this.createWindow(center, width, height, angle, op);
         }
     }
 
 
-    private createDoor(center: THREE.Vector2, width: number, height: number, angle: number) {
+    private createDoor(center: THREE.Vector2, width: number, height: number, angle: number, originalOp?: Opening) {
         const root = new THREE.Group();
         root.rotation.x = -Math.PI / 2;
+
+        if (originalOp) {
+            root.userData = {
+                id: originalOp.id,
+                type: 'door',
+                data: originalOp
+            };
+        }
+
         this.scene.add(root);
 
         const frameThickness = 50;
@@ -381,9 +406,18 @@ export class SceneBuilder {
         this.createBoundsHelper(root);
     }
 
-    private createWindow(center: THREE.Vector2, width: number, height: number, angle: number) {
+    private createWindow(center: THREE.Vector2, width: number, height: number, angle: number, originalOp?: Opening) {
         const root = new THREE.Group();
         root.rotation.x = -Math.PI / 2;
+
+        if (originalOp) {
+            root.userData = {
+                id: originalOp.id,
+                type: 'window',
+                data: originalOp
+            };
+        }
+
         this.scene.add(root);
 
         const frameThickness = 50;
