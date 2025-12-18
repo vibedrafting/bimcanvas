@@ -43,8 +43,12 @@ export class RotateTool implements Tool {
     activate() {
         const store = useCanvasStore();
         this.selectedObject = store.selectedObject;
+        console.log("RotateTool Activate. Selected:", this.selectedObject);
 
-        if (this.selectedObject && this.selectedObject.type === 'module') {
+        if (this.selectedObject && (this.selectedObject.type === 'module' || this.selectedObject.userData?.type === 'module')) {
+            if (this.selectedObject.userData && this.selectedObject.userData.data) {
+                this.selectedObject = this.selectedObject.userData.data;
+            }
             this.startRotateOperation();
         } else {
             this.state = 'waiting_selection';

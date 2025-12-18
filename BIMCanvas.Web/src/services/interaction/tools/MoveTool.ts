@@ -37,10 +37,18 @@ export class MoveTool implements Tool {
 
     activate() {
         const store = useCanvasStore();
+        // Ensure we get the latest selection from the store
         this.selectedObject = store.selectedObject;
 
+        console.log("MoveTool Activate. Selected:", this.selectedObject);
+
         // Check if we have a valid selection (must be a module)
-        if (this.selectedObject && this.selectedObject.type === 'module') {
+        if (this.selectedObject && (this.selectedObject.type === 'module' || this.selectedObject.userData?.type === 'module')) {
+            // Handle case where selectedObject might be the ThreeJS object or the data object
+            // If it's the ThreeJS object, get data from userData
+            if (this.selectedObject.userData && this.selectedObject.userData.data) {
+                this.selectedObject = this.selectedObject.userData.data;
+            }
             this.startMoveOperation();
         } else {
             this.state = 'waiting_selection';
