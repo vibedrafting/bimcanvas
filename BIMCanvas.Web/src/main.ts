@@ -4,5 +4,11 @@ import './style.css';
 import App from './App.vue';
 
 const app = createApp(App);
-app.use(createPinia());
+const pinia = createPinia();
+
+app.use(pinia);
 app.mount('#app');
+
+// Expose store for debugging/testing
+import { useCanvasStore } from './stores/canvasStore';
+(window as any).canvasStore = useCanvasStore();

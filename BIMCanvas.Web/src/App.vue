@@ -9,7 +9,36 @@ const store = useCanvasStore();
 onMounted(async () => {
   // Auto-load demo data on startup
   await store.loadDemoData('/demos/demo1.json');
+
+  // Keyboard Shortcuts
+  window.addEventListener('keydown', handleKeydown);
 });
+
+import { onUnmounted } from 'vue';
+
+onUnmounted(() => {
+  window.removeEventListener('keydown', handleKeydown);
+});
+
+const handleKeydown = (e: KeyboardEvent) => {
+  // Ignore if typing in an input
+  if (['INPUT', 'TEXTAREA'].includes((e.target as HTMLElement).tagName)) return;
+
+  if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'z') {
+    e.preventDefault();
+    if (e.shiftKey) {
+      // Ctrl + Shift + Z -> Redo
+      if (store.canRedo) store.redo();
+    } else {
+      // Ctrl + Z -> Undo
+      if (store.canUndo) store.undo();
+    }
+  } else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'y') {
+    // Ctrl + Y -> Redo
+    e.preventDefault();
+    if (store.canRedo) store.redo();
+  }
+};
 </script>
 
 <template>

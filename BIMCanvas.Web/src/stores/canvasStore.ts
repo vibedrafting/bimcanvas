@@ -1,6 +1,6 @@
 
 import { defineStore } from 'pinia';
-import { ref, computed } from 'vue';
+import { ref, computed, nextTick } from 'vue';
 import type { CanvasDocument } from '../types/canvas';
 import axios from 'axios';
 import { TimelineManager } from '../services/state/TimelineManager';
@@ -24,11 +24,20 @@ export const useCanvasStore = defineStore('canvas', () => {
     // Initialize SignalR
     signalR.start();
 
+    const canUndo = ref(false);
+    const canRedo = ref(false);
+
+    const updateHistoryState = () => {
+        canUndo.value = timeline.canUndo;
+        canRedo.value = timeline.canRedo;
+    };
+
     // Helper to push state to timeline without triggering watch loops if we were watching
     // For now, we call this manually when a significant change happens (e.g. drag end)
     const saveState = () => {
         if (document.value) {
             timeline.push(document.value);
+            updateHistoryState();
         }
     };
 
@@ -36,6 +45,7 @@ export const useCanvasStore = defineStore('canvas', () => {
         document.value = doc;
         timeline.clear();
         saveState(); // Initial state
+        // saveState calls updateHistoryState
     };
 
     const setSelectedObject = (obj: any | null) => {
@@ -68,6 +78,7 @@ export const useCanvasStore = defineStore('canvas', () => {
         const prevState = timeline.undo();
         if (prevState) {
             document.value = prevState;
+            updateHistoryState();
         }
     };
 
@@ -75,6 +86,7 @@ export const useCanvasStore = defineStore('canvas', () => {
         const nextState = timeline.redo();
         if (nextState) {
             document.value = nextState;
+            updateHistoryState();
         }
     };
 
@@ -82,9 +94,11 @@ export const useCanvasStore = defineStore('canvas', () => {
         if (!document.value) return;
         const moduleIndex = document.value.modules.findIndex(m => m.id === moduleId);
         if (moduleIndex !== -1) {
-            const updatedModule = { ...document.value.modules[moduleIndex], ...updates };
+            const updatedModule = { ...document.value.modules[moduleIndex], ...updates } as any;
             document.value.modules[moduleIndex] = updatedModule;
-            saveState();
+
+            // Use nextTick to ensure state is settled before saving
+            nextTick(() => saveState());
 
             // Sync with server
             signalR.sendUpdate({
@@ -101,7 +115,9 @@ export const useCanvasStore = defineStore('canvas', () => {
         if (moduleIndex !== -1) {
             document.value.modules.splice(moduleIndex, 1);
             selectedObject.value = null; // Deselect
-            saveState();
+
+            // Use nextTick to ensure state is settled before saving
+            nextTick(() => saveState());
 
             // Sync with server
             signalR.sendUpdate({
@@ -115,9 +131,6 @@ export const useCanvasStore = defineStore('canvas', () => {
         promptMessage.value = msg;
     };
 
-
-    const canUndo = computed(() => timeline.canUndo);
-    const canRedo = computed(() => timeline.canRedo);
 
     return {
         // State
