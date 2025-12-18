@@ -95,17 +95,7 @@ watch(selectedObject, (newVal) => {
           </GlassButton>
         </div>
 
-        <div class="divider-vertical stagger-4"></div>
 
-        <!-- VISION Group -->
-        <div class="group stagger-5">
-          <GlassButton :active="currentView === 'human'" @click="toggleView('human')" variant="ghost" class="compact-btn vision-btn">
-             <span class="icon">⦿</span> User
-          </GlassButton>
-          <GlassButton :active="currentView === 'ai'" @click="toggleView('ai')" variant="ghost" class="compact-btn vision-btn">
-             <span class="icon">⚙</span> Agent
-          </GlassButton>
-        </div>
       </div>
 
     </div>

@@ -9,12 +9,7 @@ export class SceneBuilder {
 
     // Constants
     private readonly WALL_HEIGHT = 2800;
-    private readonly WALL_COLOR = 0xD0D0D0;
-    private readonly COLUMN_COLOR = 0x808080;
     private readonly MODULE_COLOR = 0x3b82f6;
-    private readonly DOOR_FRAME_COLOR = 0xA0A0A0;
-    private readonly DOOR_PANEL_COLOR = 0xC0C0C0;
-    private readonly WINDOW_FRAME_COLOR = 0x909090;
     private readonly GLASS_COLOR = 0xAADDFF;
 
     constructor(scene: THREE.Scene) {
@@ -25,13 +20,13 @@ export class SceneBuilder {
 
     private initMaterials() {
         this.materials.set('wall', new THREE.MeshStandardMaterial({
-            color: 0x333333, // Dark Gray
+            color: 0x5c5c5c, // Medium Gray (Lighter than background)
             roughness: 0.8,
             metalness: 0.1
         }));
 
         this.materials.set('column', new THREE.MeshStandardMaterial({
-            color: 0x444444, // Slightly lighter than wall
+            color: 0x707070, // Lighter Gray (Distinct from wall)
             roughness: 0.8,
             metalness: 0.1
         }));
@@ -50,19 +45,19 @@ export class SceneBuilder {
         }));
 
         this.materials.set('doorFrame', new THREE.MeshStandardMaterial({
-            color: this.DOOR_FRAME_COLOR,
+            color: 0x4a5568, // Cool Slate Gray
             roughness: 0.8,
             metalness: 0.3
         }));
 
         this.materials.set('doorPanel', new THREE.MeshStandardMaterial({
-            color: this.DOOR_PANEL_COLOR,
+            color: 0x718096, // Lighter Slate Gray
             roughness: 0.7,
             metalness: 0.1
         }));
 
         this.materials.set('windowFrame', new THREE.MeshStandardMaterial({
-            color: this.WINDOW_FRAME_COLOR,
+            color: 0x4a5568, // Cool Slate Gray (Matches door frame)
             roughness: 0.8,
             metalness: 0.3
         }));

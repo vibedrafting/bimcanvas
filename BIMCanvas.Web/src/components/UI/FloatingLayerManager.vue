@@ -23,6 +23,13 @@ const toggleLayer = (layerId: number) => {
   }));
 };
 
+const currentView = ref<'human' | 'ai'>('human');
+
+const toggleView = (mode: 'human' | 'ai') => {
+  currentView.value = mode;
+  window.dispatchEvent(new CustomEvent('bimcanvas:view-mode-change', { detail: mode }));
+};
+
 // Close on click outside
 const handleClickOutside = (event: MouseEvent) => {
   if (managerRef.value && !managerRef.value.contains(event.target as Node)) {
@@ -40,6 +47,7 @@ onMounted(() => {
   // We should listen to 'bimcanvas:view-mode-change' to update UI state.
   window.addEventListener('bimcanvas:view-mode-change', ((e: CustomEvent) => {
     const mode = e.detail;
+    currentView.value = mode; // Sync local state
     if (mode === 'human') {
       Object.keys(layers.value).forEach(key => layers.value[key as any] = false);
     } else {
@@ -67,6 +75,28 @@ onUnmounted(() => {
           <span>View Layers</span>
         </div>
         <div class="menu-content">
+          <!-- Vision Mode -->
+          <div class="vision-section">
+            <div class="vision-toggle">
+              <button 
+                class="vision-btn" 
+                :class="{ active: currentView === 'human' }" 
+                @click="toggleView('human')"
+              >
+                User
+              </button>
+              <button 
+                class="vision-btn" 
+                :class="{ active: currentView === 'ai' }" 
+                @click="toggleView('ai')"
+              >
+                Agent
+              </button>
+            </div>
+          </div>
+          
+          <div class="divider"></div>
+
           <label class="layer-item">
             <input type="checkbox" :checked="layers[LayerManager.LAYER_GRID]" @change="toggleLayer(LayerManager.LAYER_GRID)">
             <span>Grid (1m)</span>
@@ -169,6 +199,48 @@ onUnmounted(() => {
     display: flex;
     flex-direction: column;
     gap: 4px;
+
+    .vision-section {
+      padding: 0 4px 4px 4px;
+      
+      .vision-toggle {
+        display: flex;
+        gap: 4px;
+        background: rgba(255, 255, 255, 0.05);
+        padding: 4px;
+        border-radius: 8px;
+
+        .vision-btn {
+          flex: 1;
+          border: none;
+          background: transparent;
+          color: var(--text-secondary);
+          padding: 6px 12px;
+          border-radius: 6px;
+          font-size: 0.85rem;
+          cursor: pointer;
+          transition: all 0.2s;
+          font-family: inherit;
+
+          &:hover {
+            color: var(--text-primary);
+            background: rgba(255, 255, 255, 0.05);
+          }
+
+          &.active {
+            background: var(--primary-color, #4a9eff);
+            color: white;
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+          }
+        }
+      }
+    }
+
+    .divider {
+      height: 1px;
+      background: rgba(255, 255, 255, 0.1);
+      margin: 4px 0;
+    }
   }
 
   .layer-item {
