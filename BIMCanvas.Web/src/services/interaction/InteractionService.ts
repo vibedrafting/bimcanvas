@@ -41,6 +41,8 @@ export class InteractionService {
     }
 
     public activateMoveTool() {
+        const debugStore = useDebugStore();
+        debugStore.log('Command: Move Triggered');
         if (this.activeTool) this.activeTool.deactivate();
 
         this.activeTool = new MoveTool(
@@ -62,6 +64,9 @@ export class InteractionService {
     private setupShortcuts() {
         // Rotate: R
         this.shortcutManager.register('R', () => this.rotateSelection());
+
+        // Move Tool: M
+        this.shortcutManager.register('M', () => this.activateMoveTool());
 
         // Delete: Delete or Backspace
         this.shortcutManager.register('Delete', () => this.deleteSelection());
@@ -93,6 +98,8 @@ export class InteractionService {
     }
 
     public rotateSelection() {
+        const debugStore = useDebugStore();
+        debugStore.log('Command: Rotate Triggered');
         const selected = this.store.selectedObject;
         if (!selected || !selected.id || !selected.bounds) return;
 
@@ -141,6 +148,8 @@ export class InteractionService {
     }
 
     public deleteSelection() {
+        const debugStore = useDebugStore();
+        debugStore.log('Command: Delete Triggered');
         const selected = this.store.selectedObject;
         if (!selected || !selected.id) return;
 

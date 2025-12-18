@@ -142,6 +142,10 @@ export class ThreeSceneService {
             this.interactionService.activateMoveTool();
         });
 
+        window.addEventListener('bimcanvas:action-delete', () => {
+            this.interactionService.deleteSelection();
+        });
+
         window.addEventListener('bimcanvas:ghost-patch', ((e: CustomEvent) => {
             this.ghostManager.updateGhosts(e.detail);
         }) as EventListener);
