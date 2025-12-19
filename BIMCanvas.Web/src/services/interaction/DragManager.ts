@@ -4,6 +4,7 @@ import { SnappingEngine } from './SnappingEngine';
 import { GhostManager } from './GhostManager';
 import { ConstraintService } from '../validation/ConstraintService';
 import { useCanvasStore } from '../../stores/canvasStore';
+import { deltaToModel } from '../../utils/coordinates';
 
 export class DragManager {
     private camera: THREE.Camera;
@@ -165,19 +166,10 @@ export class DragManager {
                     const module = store.document?.modules.find(m => m.id === moduleId);
 
                     if (moduleId && module) {
-                        // Apply delta to all points in bounds
-                        // const newBounds = module.bounds.map(p => [p[0] + delta.x, p[1] - delta.z] as [number, number]); // Z is -Y in our 3D mapping?
-                        // Wait, in ThreeSceneService: center3D = new THREE.Vector3(centerX, 0, -centerY);
-                        // So 3D X = 2D X
-                        // 3D Z = -2D Y
-                        // So 2D Y = -3D Z
-                        // Delta 2D X = Delta 3D X
-                        // Delta 2D Y = -Delta 3D Z
+                        // 使用统一坐标转换工具：3D delta -> 2D delta
+                        const delta2D = deltaToModel(delta);
 
-                        const delta2D_X = delta.x;
-                        const delta2D_Y = -delta.z;
-
-                        const updatedBounds = module.bounds.map(p => [p[0] + delta2D_X, p[1] + delta2D_Y] as [number, number]);
+                        const updatedBounds = module.bounds.map(p => [p[0] + delta2D[0], p[1] + delta2D[1]] as [number, number]);
 
                         store.updateModule(moduleId, { bounds: updatedBounds });
                     }

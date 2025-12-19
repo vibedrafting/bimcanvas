@@ -3,6 +3,7 @@ import { CSS2DObject } from 'three-stdlib';
 import { LayerManager } from '../three/LayerManager';
 import type { CanvasDocument, Point2D, Line2D, Polygon2D } from '../../types/canvas';
 import { themeService } from '../theme/ThemeService';
+import { polygonCenterToWorld, lineCenterToWorld } from '../../utils/coordinates';
 
 export class LabelBuilder {
     private scene: THREE.Scene;
@@ -146,24 +147,11 @@ export class LabelBuilder {
     }
 
     private getPolygonCenter(polygon: Polygon2D): THREE.Vector3 {
-        let x = 0, y = 0;
-        polygon.forEach(p => {
-            x += p[0];
-            y += p[1];
-        });
-        const centerX = x / polygon.length;
-        const centerY = y / polygon.length;
-
-        // Convert to 3D coordinates (X, 0, -Y)
-        return new THREE.Vector3(centerX, 0, -centerY);
+        return polygonCenterToWorld(polygon);
     }
 
     private getLineCenter(line: Line2D): THREE.Vector3 {
-        const p1 = line[0];
-        const p2 = line[1];
-        const centerX = (p1[0] + p2[0]) / 2;
-        const centerY = (p1[1] + p2[1]) / 2;
-        return new THREE.Vector3(centerX, 0, -centerY);
+        return lineCenterToWorld(line);
     }
 
     private getOrientation(points: Point2D[] | Line2D): 'horizontal' | 'vertical' {

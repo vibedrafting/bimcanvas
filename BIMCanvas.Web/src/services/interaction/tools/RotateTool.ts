@@ -3,6 +3,7 @@ import type { Tool } from './Tool';
 import { GhostManager } from '../GhostManager';
 import { SnappingEngine } from '../SnappingEngine';
 import { useCanvasStore } from '../../../stores/canvasStore';
+import { boundsCenterToWorld, toModel, rotatePoint2D, rotateFacing2D } from '../../../utils/coordinates';
 
 export class RotateTool implements Tool {
     name = 'Rotate';
@@ -103,17 +104,7 @@ export class RotateTool implements Tool {
     }
 
     private calculateCenter(bounds: [number, number][]): THREE.Vector3 {
-        let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
-        bounds.forEach(p => {
-            minX = Math.min(minX, p[0]);
-            minY = Math.min(minY, p[1]);
-            maxX = Math.max(maxX, p[0]);
-            maxY = Math.max(maxY, p[1]);
-        });
-        const centerX = (minX + maxX) / 2;
-        const centerY = (minY + maxY) / 2;
-        // Map to 3D: X=X, Z=-Y
-        return new THREE.Vector3(centerX, 0, -centerY);
+        return boundsCenterToWorld(bounds);
     }
 
     onMouseDown(event: MouseEvent) {
@@ -317,30 +308,18 @@ export class RotateTool implements Tool {
         // Update Store
         const store = useCanvasStore();
 
-        // Rotate bounds around centerPoint (2D)
-        // 3D Center (X, 0, Z) -> 2D Center (X, -Z)
-        const cx = this.centerPoint.x;
-        const cy = -this.centerPoint.z;
+        // 使用统一坐标转换工具：3D center -> 2D center
+        const center2D = toModel(this.centerPoint);
 
-        const newBounds = this.selectedObject.bounds.map((p: [number, number]) => {
-            const x = p[0];
-            const y = p[1];
-            const dx = x - cx;
-            const dy = y - cy;
-            return [
-                cx + dx * Math.cos(deltaRotation) - dy * Math.sin(deltaRotation),
-                cy + dx * Math.sin(deltaRotation) + dy * Math.cos(deltaRotation)
-            ];
-        });
+        // 旋转所有顶点
+        const newBounds = this.selectedObject.bounds.map((p: [number, number]) =>
+            rotatePoint2D(p, center2D, deltaRotation)
+        );
 
-        // Update Facing
+        // 旋转朝向向量
         let newFacing = this.selectedObject.facing;
         if (Array.isArray(newFacing)) {
-            const [vx, vy] = newFacing;
-            // Rotate vector
-            const nvx = vx * Math.cos(deltaRotation) - vy * Math.sin(deltaRotation);
-            const nvy = vx * Math.sin(deltaRotation) + vy * Math.cos(deltaRotation);
-            newFacing = [nvx, nvy];
+            newFacing = rotateFacing2D(newFacing as [number, number], deltaRotation);
         }
 
         store.updateModule(this.selectedObject.id, {

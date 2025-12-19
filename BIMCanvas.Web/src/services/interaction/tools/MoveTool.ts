@@ -3,6 +3,7 @@ import type { Tool } from './Tool';
 import { GhostManager } from '../GhostManager';
 import { SnappingEngine } from '../SnappingEngine';
 import { useCanvasStore } from '../../../stores/canvasStore';
+import { deltaToModel } from '../../../utils/coordinates';
 
 export class MoveTool implements Tool {
     name = 'Move';
@@ -205,13 +206,12 @@ export class MoveTool implements Tool {
         // Update Store
         const store = useCanvasStore();
 
-        // Conversion: 2D X = 3D X, 2D Y = -3D Z
-        const delta2D_X = delta.x;
-        const delta2D_Y = -delta.z;
+        // 使用统一坐标转换工具：3D delta -> 2D delta
+        const delta2D = deltaToModel(delta);
 
         const newBounds = this.selectedObject.bounds.map((p: [number, number]) => [
-            p[0] + delta2D_X,
-            p[1] + delta2D_Y
+            p[0] + delta2D[0],
+            p[1] + delta2D[1]
         ]);
 
         store.updateModule(this.selectedObject.id, { bounds: newBounds });
