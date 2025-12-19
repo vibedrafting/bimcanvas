@@ -36,7 +36,7 @@ export class InteractionService {
         this.selectionManager = selectionManager;
         this.store = useCanvasStore();
         this.shortcutManager = new ShortcutManager();
-        this.ghostManager = new GhostManager(scene);
+        this.ghostManager = GhostManager.getInstance(scene);
 
         // 绑定事件处理器
         this.boundOnMouseMove = this.onMouseMove.bind(this);

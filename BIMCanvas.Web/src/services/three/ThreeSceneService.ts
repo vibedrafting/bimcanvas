@@ -102,7 +102,7 @@ export class ThreeSceneService {
         this.selectionManager = new SelectionManager(this.scene);
         this.interactionService = new InteractionService(this.camera, this.renderer.domElement, this.scene, this.selectionManager);
         this.dragManager = new DragManager(this.camera, this.renderer.domElement, this.scene, this.selectionManager);
-        this.ghostManager = new GhostManager(this.scene);
+        this.ghostManager = GhostManager.getInstance(this.scene);
 
         // 5. Lighting
         this.setupLighting();
@@ -380,13 +380,13 @@ export class ThreeSceneService {
         }
         // 移除 resize 监听器
         window.removeEventListener('resize', this.boundOnResize);
-        
+
         // 移除所有全局业务事件监听器
         this.boundEventHandlers.forEach((handler, eventName) => {
             window.removeEventListener(eventName, handler);
         });
         this.boundEventHandlers.clear();
-        
+
         this.container.removeChild(this.renderer.domElement);
         this.container.removeChild(this.labelRenderer.domElement);
         this.renderer.dispose();

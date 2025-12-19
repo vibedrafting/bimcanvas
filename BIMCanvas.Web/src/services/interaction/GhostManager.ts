@@ -1,17 +1,47 @@
 import * as THREE from 'three';
 import { LayerManager } from '../three/LayerManager';
 
+/**
+ * GhostManager - 管理拖拽/旋转时的预览幽灵对象
+ * 采用单例模式确保同一 Scene 只有一个 Ghost 管理者
+ */
 export class GhostManager {
+    private static instance: GhostManager | null = null;
+
     private scene: THREE.Scene;
     private ghostGroup: THREE.Group;
     private originalMaterials: Map<string, THREE.Material | THREE.Material[]> = new Map();
     private originalObject: THREE.Object3D | null = null;
 
-    constructor(scene: THREE.Scene) {
+    private constructor(scene: THREE.Scene) {
         this.scene = scene;
         this.ghostGroup = new THREE.Group();
         this.scene.add(this.ghostGroup);
         this.ghostGroup.layers.enable(LayerManager.LAYER_MODEL);
+    }
+
+    /**
+     * 获取 GhostManager 单例实例
+     * @param scene 首次调用时必须传入 Scene
+     */
+    public static getInstance(scene?: THREE.Scene): GhostManager {
+        if (!GhostManager.instance) {
+            if (!scene) {
+                throw new Error('GhostManager: 首次调用 getInstance 必须传入 Scene');
+            }
+            GhostManager.instance = new GhostManager(scene);
+        }
+        return GhostManager.instance;
+    }
+
+    /**
+     * 重置单例（仅用于测试或场景销毁时）
+     */
+    public static resetInstance(): void {
+        if (GhostManager.instance) {
+            GhostManager.instance.clear();
+            GhostManager.instance = null;
+        }
     }
 
     public createGhost(original: THREE.Object3D) {

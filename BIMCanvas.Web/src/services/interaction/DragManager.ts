@@ -27,7 +27,7 @@ export class DragManager {
         this.scene = scene;
         this.selectionManager = selectionManager;
         this.snappingEngine = new SnappingEngine();
-        this.ghostManager = new GhostManager(scene);
+        this.ghostManager = GhostManager.getInstance(scene);
         this.constraintService = new ConstraintService(scene);
         this.raycaster = new THREE.Raycaster();
         this.plane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0); // XZ plane (Y-Up)
