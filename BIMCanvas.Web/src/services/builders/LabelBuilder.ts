@@ -103,8 +103,10 @@ export class LabelBuilder {
 
         // Apply orientation
         if (orientation === 'vertical') {
-            div.style.transform = 'rotate(-90deg)';
-            div.style.transformOrigin = 'center center';
+            // Use writing-mode for vertical text (bottom-to-top)
+            div.style.writingMode = 'vertical-rl';
+            div.style.textOrientation = 'mixed';
+            div.style.transform = 'rotate(180deg)'; // Flip to read bottom-to-top
         }
 
         const label = new CSS2DObject(div);
@@ -151,7 +153,11 @@ export class LabelBuilder {
         const width = maxX - minX;
         const height = maxY - minY;
 
-        // If width >= height, it's horizontal. Otherwise vertical.
-        return width >= height ? 'horizontal' : 'vertical';
+        const orientation = width >= height ? 'horizontal' : 'vertical';
+
+        // Debug log to verify orientation calculation
+        console.log(`[LabelBuilder] AABB: w=${width.toFixed(0)}, h=${height.toFixed(0)} => ${orientation}`);
+
+        return orientation;
     }
 }
