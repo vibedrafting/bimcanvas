@@ -143,9 +143,29 @@ watch(selectedObject, (newVal) => {
 
         <!-- THEME Group -->
         <div class="group stagger-5">
-          <GlassButton @click="toggleTheme" variant="ghost" class="compact-btn theme-btn" :title="isDarkTheme ? '切换到亮色模式' : '切换到暗色模式'">
-            <span class="icon">{{ isDarkTheme ? '☀️' : '🌙' }}</span>
-          </GlassButton>
+          <button 
+            @click="toggleTheme" 
+            class="theme-toggle-btn"
+            :class="{ 'light-mode': !isDarkTheme }"
+            :title="isDarkTheme ? '切换到亮色模式' : '切换到暗色模式'"
+          >
+            <!-- 太阳图标 (暗色模式下显示，提示切换到亮色) -->
+            <svg v-if="isDarkTheme" class="theme-icon sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <circle cx="12" cy="12" r="5"></circle>
+              <line x1="12" y1="1" x2="12" y2="3"></line>
+              <line x1="12" y1="21" x2="12" y2="23"></line>
+              <line x1="4.22" y1="4.22" x2="5.64" y2="5.64"></line>
+              <line x1="18.36" y1="18.36" x2="19.78" y2="19.78"></line>
+              <line x1="1" y1="12" x2="3" y2="12"></line>
+              <line x1="21" y1="12" x2="23" y2="12"></line>
+              <line x1="4.22" y1="19.78" x2="5.64" y2="18.36"></line>
+              <line x1="18.36" y1="5.64" x2="19.78" y2="4.22"></line>
+            </svg>
+            <!-- 月亮图标 (亮色模式下显示，提示切换到暗色) -->
+            <svg v-else class="theme-icon moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"></path>
+            </svg>
+          </button>
         </div>
 
       </div>
@@ -359,6 +379,93 @@ watch(selectedObject, (newVal) => {
   .stagger-3 { animation-delay: 0.15s; }
   .stagger-4 { animation-delay: 0.2s; }
   .stagger-5 { animation-delay: 0.25s; }
+}
+
+/* Theme Toggle Button - 精美的明暗切换按钮 */
+.theme-toggle-btn {
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  border: none;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.4s cubic-bezier(0.34, 1.56, 0.64, 1);
+  position: relative;
+  overflow: hidden;
+  
+  /* 暗色模式下的默认样式：亮色外观，金黄色调 */
+  background: linear-gradient(135deg, #fef3c7 0%, #fcd34d 50%, #f59e0b 100%);
+  color: #78350f;
+  box-shadow: 
+    0 2px 8px rgba(251, 191, 36, 0.4),
+    0 4px 16px rgba(245, 158, 11, 0.2),
+    inset 0 1px 0 rgba(255, 255, 255, 0.5);
+  
+  &:hover {
+    transform: scale(1.1) rotate(15deg);
+    box-shadow: 
+      0 4px 12px rgba(251, 191, 36, 0.5),
+      0 6px 24px rgba(245, 158, 11, 0.3),
+      inset 0 1px 0 rgba(255, 255, 255, 0.6);
+  }
+  
+  &:active {
+    transform: scale(0.95);
+  }
+  
+  /* 明亮模式下的样式：暗色外观，深蓝色调 */
+  &.light-mode {
+    background: linear-gradient(135deg, #1e3a5f 0%, #1e40af 50%, #3730a3 100%);
+    color: #e0e7ff;
+    box-shadow: 
+      0 2px 8px rgba(30, 64, 175, 0.4),
+      0 4px 16px rgba(55, 48, 163, 0.2),
+      inset 0 1px 0 rgba(255, 255, 255, 0.15);
+    
+    &:hover {
+      transform: scale(1.1) rotate(-15deg);
+      box-shadow: 
+        0 4px 12px rgba(30, 64, 175, 0.5),
+        0 6px 24px rgba(55, 48, 163, 0.3),
+        inset 0 1px 0 rgba(255, 255, 255, 0.2);
+    }
+  }
+  
+  .theme-icon {
+    width: 20px;
+    height: 20px;
+    transition: transform 0.4s cubic-bezier(0.34, 1.56, 0.64, 1);
+    
+    &.sun {
+      animation: sunPulse 2s ease-in-out infinite;
+    }
+    
+    &.moon {
+      animation: moonFloat 3s ease-in-out infinite;
+    }
+  }
+}
+
+@keyframes sunPulse {
+  0%, 100% { 
+    transform: scale(1) rotate(0deg); 
+    filter: drop-shadow(0 0 2px rgba(251, 191, 36, 0.6));
+  }
+  50% { 
+    transform: scale(1.05) rotate(10deg); 
+    filter: drop-shadow(0 0 6px rgba(251, 191, 36, 0.8));
+  }
+}
+
+@keyframes moonFloat {
+  0%, 100% { 
+    transform: translateY(0) rotate(0deg); 
+  }
+  50% { 
+    transform: translateY(-2px) rotate(-5deg); 
+  }
 }
 
 @keyframes staggerFadeIn {
