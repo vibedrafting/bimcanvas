@@ -3,7 +3,7 @@ import type { Tool } from './Tool';
 import { GhostManager } from '../GhostManager';
 import { SnappingEngine } from '../SnappingEngine';
 import { useCanvasStore } from '../../../stores/canvasStore';
-import { boundsCenterToWorld, toModel, rotatePoint2D, rotateFacing2D } from '../../../utils/coordinates';
+import { boundsCenterToWorld, toModel, rotatePoint2D, rotateFacing2D, semanticToVector } from '../../../utils/coordinates';
 
 export class RotateTool implements Tool {
     name = 'Rotate';
@@ -317,10 +317,20 @@ export class RotateTool implements Tool {
         );
 
         // 旋转朝向向量
-        let newFacing = this.selectedObject.facing;
-        if (Array.isArray(newFacing)) {
-            newFacing = rotateFacing2D(newFacing as [number, number], deltaRotation);
+        // 1. 先将 facing 转换为向量（无论是语义字符串还是数组）
+        // 2. 旋转向量
+        // 3. 保存为向量格式（旋转后通常不再是标准8方向，用向量更精确）
+        let facingVector: [number, number];
+        if (typeof this.selectedObject.facing === 'string') {
+            // 语义字符串 -> 向量
+            facingVector = semanticToVector(this.selectedObject.facing);
+        } else if (Array.isArray(this.selectedObject.facing)) {
+            facingVector = this.selectedObject.facing as [number, number];
+        } else {
+            // 默认朝北
+            facingVector = [0, 1];
         }
+        const newFacing = rotateFacing2D(facingVector, deltaRotation);
 
         store.updateModule(this.selectedObject.id, {
             bounds: newBounds,

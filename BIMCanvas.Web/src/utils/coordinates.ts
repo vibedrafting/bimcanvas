@@ -215,6 +215,26 @@ export const FACING_DIRECTIONS: Record<string, number> = {
 };
 
 /**
+ * 语义朝向转换为单位向量
+ * @param semantic 语义字符串，如 "north", "east" 等
+ * @returns 单位向量 [vx, vy]
+ */
+export function semanticToVector(semantic: string): Point2D {
+    const lower = semantic.toLowerCase();
+    switch (lower) {
+        case 'north': return [0, 1];
+        case 'south': return [0, -1];
+        case 'east': return [1, 0];
+        case 'west': return [-1, 0];
+        case 'northeast': return [Math.SQRT1_2, Math.SQRT1_2];
+        case 'northwest': return [-Math.SQRT1_2, Math.SQRT1_2];
+        case 'southeast': return [Math.SQRT1_2, -Math.SQRT1_2];
+        case 'southwest': return [-Math.SQRT1_2, -Math.SQRT1_2];
+        default: return [0, 1]; // 默认朝北
+    }
+}
+
+/**
  * 将 Facing（语义字符串或向量）转换为弧度角度
  * @param facing 朝向，可以是 "north"/"south"/... 或 [vx, vy]
  * @returns 弧度角度（以 north=0 为基准，逆时针为正）
