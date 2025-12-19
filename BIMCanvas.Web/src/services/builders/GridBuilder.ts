@@ -8,27 +8,47 @@ export class GridBuilder {
     private scene: THREE.Scene;
     private gridHelper: THREE.GridHelper | null = null;
     private labelGroup: THREE.Group | null = null;
+    private gridSpacing: number = 1000; // 默认 1000mm (1m)
 
     constructor(scene: THREE.Scene) {
         this.scene = scene;
     }
 
-    public buildGrid(size: number = 100000, divisions: number = 100) {
+    /**
+     * 设置网格规格 (600mm 或 1000mm)
+     */
+    public setGridSpacing(spacing: 600 | 1000): void {
+        this.gridSpacing = spacing;
+    }
+
+    public getGridSpacing(): number {
+        return this.gridSpacing;
+    }
+
+    /**
+     * 构建网格和语义标签
+     * - 网格铺满整个屏幕（以原点为中心）
+     * - 标签只显示在第一象限（屏幕右上区域）
+     */
+    public buildGrid() {
         this.cleanup();
 
-        // 从 ThemeService 获取网格配色
         const colors = themeService.currentTheme.value.grid;
         const color1 = colors.centerLine; // 中心线
         const color2 = colors.gridLine;   // 网格线
 
-        this.gridHelper = new THREE.GridHelper(size, divisions, color1, color2);
+        // 网格铺满整个场景（以原点为中心，100m x 100m）
+        const gridSize = 100000; // 100m
+        const divisions = Math.round(gridSize / this.gridSpacing);
 
-        // Assign to GRID Layer
+        // GridHelper 默认以原点为中心
+        this.gridHelper = new THREE.GridHelper(gridSize, divisions, color1, color2);
+
         this.gridHelper.layers.set(LayerManager.LAYER_GRID);
         this.scene.add(this.gridHelper);
 
-        // Build Coordinate Labels
-        this.buildCoordinateLabels(size, divisions);
+        // 构建语义标签 (Excel 风格) - 仅在第一象限
+        this.buildSemanticLabels();
     }
 
     private cleanup() {
@@ -50,45 +70,87 @@ export class GridBuilder {
         }
     }
 
-    private buildCoordinateLabels(size: number, divisions: number) {
+    /**
+     * 生成 Excel 风格的语义标签
+     * 
+     * Three.js 坐标系（俯视图）：
+     * - X 轴向右（屏幕右方）
+     * - Z 轴向下（屏幕下方，因为相机 up = -Z）
+     * 
+     * 用户期望的"数学第一象限"（屏幕右上区域）：
+     * - X 正方向 = 屏幕右侧 ✓
+     * - Y 正方向 = 屏幕上方 = Three.js Z 负方向
+     * 
+     * 因此：
+     * - 列标签 (A, B, C...) 沿 X 正方向排列，边缘标注在 Z 正值位置（屏幕下方）
+     * - 行标签 (1, 2, 3...) 沿 Z 负方向排列，边缘标注在 X 负值位置（屏幕左侧）
+     */
+    private buildSemanticLabels() {
         this.labelGroup = new THREE.Group();
         this.labelGroup.layers.set(LayerManager.LAYER_GRID);
 
-        const step = size / divisions; // e.g. 1000mm
-
-        // We want labels to be readable near the origin/axes.
-        // Let's label the axes lines directly.
-
-        const range = 30; // 30 lines each side
         const labelColor = themeService.currentTheme.value.label.text;
 
-        for (let i = -range; i <= range; i++) {
-            if (i === 0) continue; // Skip origin
+        // 固定生成 50 个标签
+        const maxLabels = 50;
 
-            // X Axis Labels (along Z=0)
-            // Place them slightly offset from the axis line to not overlap exactly
-            // i * 1000 is the X position. Z is 0 (or slightly offset).
-            this.createLabel(`${i}m`, new THREE.Vector3(i * 1000, 0, 200), labelColor);
+        // 列标签 (A, B, C, ..., Z, AA, AB, ...) 
+        // - 沿 X 正方向排列（屏幕右方）
+        // - 边缘标注在 Z 正值位置（屏幕下方，作为列头）
+        const zOffsetForColumnLabels = this.gridSpacing * 0.6;
+        for (let col = 0; col < maxLabels; col++) {
+            const label = this.getColumnLabel(col);
+            const x = (col + 0.5) * this.gridSpacing;
+            this.createSemanticLabel(label, new THREE.Vector3(x, 0, zOffsetForColumnLabels), labelColor);
+        }
 
-            // Z Axis Labels (along X=0)
-            // i * 1000 is the Z position. X is 0 (or slightly offset).
-            this.createLabel(`${i}m`, new THREE.Vector3(200, 0, i * 1000), labelColor);
+        // 行标签 (1, 2, 3, ...) 
+        // - 沿 Z 负方向排列（屏幕上方）
+        // - 边缘标注在 X 负值位置（屏幕左侧，作为行头）
+        const xOffsetForRowLabels = -this.gridSpacing * 0.6;
+        for (let row = 0; row < maxLabels; row++) {
+            const label = String(row + 1);
+            const z = -(row + 0.5) * this.gridSpacing; // Z 负方向 = 屏幕向上
+            this.createSemanticLabel(label, new THREE.Vector3(xOffsetForRowLabels, 0, z), labelColor);
         }
 
         this.scene.add(this.labelGroup);
     }
 
-    private createLabel(text: string, position: THREE.Vector3, color: string) {
+    /**
+     * 将列索引转换为 Excel 风格的列名
+     * 0 -> A, 1 -> B, ..., 25 -> Z, 26 -> AA, 27 -> AB, ...
+     */
+    private getColumnLabel(index: number): string {
+        let label = '';
+        let num = index;
+
+        while (num >= 0) {
+            label = String.fromCharCode(65 + (num % 26)) + label;
+            num = Math.floor(num / 26) - 1;
+        }
+
+        return label;
+    }
+
+    private createSemanticLabel(
+        text: string,
+        position: THREE.Vector3,
+        color: string
+    ) {
         const div = document.createElement('div');
-        div.className = 'grid-label';
+        div.className = 'semantic-grid-label';
         div.textContent = text;
         div.style.color = color;
-        div.style.fontSize = '12px'; // Increased from 10px
+        div.style.fontSize = '14px';
         div.style.fontWeight = 'bold';
-        div.style.fontFamily = 'monospace';
-        div.style.opacity = '0.8'; // Increased from 0.6
+        div.style.fontFamily = 'SF Pro, system-ui, sans-serif';
+        div.style.opacity = '0.9';
         div.style.pointerEvents = 'none';
-        div.style.textShadow = '0 0 3px rgba(0,0,0,0.5)'; // Add shadow for contrast against floor
+        div.style.textShadow = '0 0 4px rgba(0,0,0,0.6)';
+        div.style.padding = '2px 6px';
+        div.style.borderRadius = '4px';
+        div.style.backgroundColor = 'rgba(0,0,0,0.3)';
 
         const label = new CSS2DObject(div);
         label.position.copy(position);

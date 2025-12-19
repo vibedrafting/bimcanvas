@@ -15,11 +15,20 @@ const layers = ref({
   [LayerManager.LAYER_AXES]: false,
 });
 
+// Grid Spacing (600mm or 1000mm)
+const gridSpacing = ref<600 | 1000>(1000);
+
 const toggleLayer = (layerId: number) => {
   const isVisible = !layers.value[layerId];
   layers.value[layerId] = isVisible;
   window.dispatchEvent(new CustomEvent('bimcanvas:layer-toggle', { 
     detail: { layerId, visible: isVisible } 
+  }));
+};
+
+const onGridSpacingChange = () => {
+  window.dispatchEvent(new CustomEvent('bimcanvas:grid-spacing-change', {
+    detail: { spacing: gridSpacing.value }
   }));
 };
 
@@ -99,7 +108,16 @@ onUnmounted(() => {
 
           <label class="layer-item">
             <input type="checkbox" :checked="layers[LayerManager.LAYER_GRID]" @change="toggleLayer(LayerManager.LAYER_GRID)">
-            <span>Grid (1m)</span>
+            <span>Grid</span>
+            <select 
+              class="grid-spacing-select" 
+              v-model="gridSpacing" 
+              @change="onGridSpacingChange"
+              @click.stop
+            >
+              <option :value="1000">1m</option>
+              <option :value="600">600mm</option>
+            </select>
           </label>
           <label class="layer-item">
             <input type="checkbox" :checked="layers[LayerManager.LAYER_LABELS]" @change="toggleLayer(LayerManager.LAYER_LABELS)">
@@ -291,6 +309,28 @@ onUnmounted(() => {
       
       &:hover {
         border-color: var(--text-secondary);
+      }
+    }
+
+    .grid-spacing-select {
+      margin-left: auto;
+      padding: 4px 8px;
+      background: var(--surface-solid);
+      border: 1px solid var(--border-subtle);
+      border-radius: 4px;
+      color: var(--text-secondary);
+      font-size: 0.8rem;
+      cursor: pointer;
+      transition: all 0.2s;
+
+      &:hover {
+        border-color: var(--accent-blue);
+        color: var(--text-primary);
+      }
+
+      &:focus {
+        outline: none;
+        border-color: var(--accent-blue);
       }
     }
   }

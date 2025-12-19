@@ -173,6 +173,14 @@ export class ThreeSceneService {
             console.log('Theme changed, rebuilding scene with new colors...');
             this.rebuildWithNewTheme();
         }) as EventListener);
+
+        // 网格规格切换事件监听
+        window.addEventListener('bimcanvas:grid-spacing-change', ((e: CustomEvent) => {
+            const spacing = e.detail.spacing as 600 | 1000;
+            console.log(`Grid spacing changed to ${spacing}mm`);
+            this.gridBuilder.setGridSpacing(spacing);
+            this.gridBuilder.buildGrid();
+        }) as EventListener);
     }
 
     public toggleViewMode(mode: 'human' | 'ai') {
@@ -185,6 +193,20 @@ export class ThreeSceneService {
 
     public applyPreset(preset: string) {
         this.layerManager.applyPreset(preset);
+    }
+
+    /**
+     * 获取 GridBuilder 实例（供外部配置网格规格）
+     */
+    public getGridBuilder(): GridBuilder {
+        return this.gridBuilder;
+    }
+
+    /**
+     * 重建网格（规格变更后调用）
+     */
+    public rebuildGrid(): void {
+        this.gridBuilder.buildGrid();
     }
 
     /**
