@@ -20,16 +20,25 @@ export class InteractionService {
     private activeTool: Tool | null = null;
     private ghostManager: GhostManager;
 
-    // Bound event handlers (用于正确移除监听器)
-    private boundOnMouseMove: (e: MouseEvent) => void;
-    private boundOnClick: (e: MouseEvent) => void;
-    private boundOnKeyDown: (e: KeyboardEvent) => void;
+    // Box Selection State
+    private isMouseDown = false;
+    private isBoxSelecting = false;
+    private mouseDownStart = new THREE.Vector2(); // Screen coords (pixels)
+    private selectionBoxElement: HTMLDivElement;
+
+    // Bound Event Handlers
+    private boundOnMouseMove: (event: MouseEvent) => void;
+    private boundOnMouseDown: (event: MouseEvent) => void;
+    private boundOnMouseUp: (event: MouseEvent) => void;
+    private boundOnClick: (event: MouseEvent) => void;
+    private boundOnKeyDown: (event: KeyboardEvent) => void;
+    private boundOnKeyUp: (event: KeyboardEvent) => void;
     private boundToolCancelled: () => void;
     private boundToolCompleted: () => void;
 
     constructor(camera: THREE.Camera, domElement: HTMLElement, scene: THREE.Scene, selectionManager: SelectionManager) {
-        this.camera = camera;
         this.domElement = domElement;
+        this.camera = camera;
         this.scene = scene;
         this.raycaster = new THREE.Raycaster();
         this.mouse = new THREE.Vector2();
@@ -38,10 +47,21 @@ export class InteractionService {
         this.shortcutManager = new ShortcutManager();
         this.ghostManager = GhostManager.getInstance(scene);
 
-        // 绑定事件处理器
+        // Create Selection Box Element
+        this.selectionBoxElement = document.createElement('div');
+        this.selectionBoxElement.style.position = 'fixed';
+        this.selectionBoxElement.style.pointerEvents = 'none';
+        this.selectionBoxElement.style.display = 'none';
+        this.selectionBoxElement.style.zIndex = '9999';
+        document.body.appendChild(this.selectionBoxElement);
+
+        // Bind handlers
         this.boundOnMouseMove = this.onMouseMove.bind(this);
+        this.boundOnMouseDown = this.onMouseDown.bind(this);
+        this.boundOnMouseUp = this.onMouseUp.bind(this);
         this.boundOnClick = this.onClick.bind(this);
         this.boundOnKeyDown = this.onKeyDown.bind(this);
+        this.boundOnKeyUp = this.onKeyUp.bind(this);
         this.boundToolCancelled = () => this.cancelTool();
         this.boundToolCompleted = () => this.cancelTool();
 
@@ -79,18 +99,12 @@ export class InteractionService {
     }
 
     private setupShortcuts() {
-        // Rotate: R
         this.shortcutManager.register('R', () => this.rotateSelection());
-
-        // Move Tool: M
         this.shortcutManager.register('M', () => this.activateMoveTool());
-
-        // Delete: Delete or Backspace
         this.shortcutManager.register('Delete', () => this.deleteSelection());
         this.shortcutManager.register('Backspace', () => this.deleteSelection());
 
-        // Nudge: Arrow Keys
-        const NUDGE_AMOUNT = 100; // 100mm
+        const NUDGE_AMOUNT = 100;
         this.shortcutManager.register('ArrowUp', () => this.moveSelection(0, NUDGE_AMOUNT));
         this.shortcutManager.register('ArrowDown', () => this.moveSelection(0, -NUDGE_AMOUNT));
         this.shortcutManager.register('ArrowLeft', () => this.moveSelection(-NUDGE_AMOUNT, 0));
@@ -107,16 +121,11 @@ export class InteractionService {
             bounds: newBounds
         });
 
-        // Update selection reference
         const updated = this.store.document?.modules.find(m => m.id === selected.id);
         if (updated) {
             this.store.setSelectedObject(updated);
         }
     }
-
-
-
-    // ... (inside class)
 
     public rotateSelection() {
         const debugStore = useDebugStore();
@@ -136,12 +145,16 @@ export class InteractionService {
     public deleteSelection() {
         const debugStore = useDebugStore();
         debugStore.log('Command: Delete Triggered');
-        const selected = this.store.selectedObject;
-        if (!selected || !selected.id) return;
+        const selectedIds = this.store.selectedIds;
+        if (selectedIds.length === 0) return;
 
-        this.store.removeModule(selected.id);
+        // 批量删除
+        selectedIds.forEach(id => {
+            this.store.removeModule(id);
+        });
 
-        // Transient status for delete (since it's instant)
+        this.store.clearSelection();
+
         this.store.currentOperation = 'deleted';
         setTimeout(() => {
             if (this.store.currentOperation === 'deleted') {
@@ -152,14 +165,41 @@ export class InteractionService {
 
     private setupEvents() {
         this.domElement.addEventListener('mousemove', this.boundOnMouseMove);
+        this.domElement.addEventListener('mousedown', this.boundOnMouseDown);
+        this.domElement.addEventListener('mouseup', this.boundOnMouseUp);
         this.domElement.addEventListener('click', this.boundOnClick);
         window.addEventListener('keydown', this.boundOnKeyDown);
+        window.addEventListener('keyup', this.boundOnKeyUp);
     }
 
     private onKeyDown(event: KeyboardEvent) {
         if (this.activeTool) {
             this.activeTool.onKeyDown(event);
+            return;
         }
+
+        // Cursor hints
+        if (event.key === 'Control') {
+            this.domElement.style.cursor = 'copy'; // Shows a '+' sign
+        }
+    }
+
+    private onKeyUp(event: KeyboardEvent) {
+        if (event.key === 'Control') {
+            this.domElement.style.cursor = 'default';
+        }
+    }
+
+    private onMouseDown(event: MouseEvent) {
+        if (this.activeTool) {
+            this.activeTool.onMouseDown(event);
+            return;
+        }
+        if (event.button !== 0) return; // Only Left Click
+
+        this.isMouseDown = true;
+        this.mouseDownStart.set(event.clientX, event.clientY);
+        this.isBoxSelecting = false;
     }
 
     private onMouseMove(event: MouseEvent) {
@@ -171,18 +211,189 @@ export class InteractionService {
         const rect = this.domElement.getBoundingClientRect();
         this.mouse.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
         this.mouse.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
+
+        // Handle Box Selection Drag
+        if (this.isMouseDown) {
+            const deltaX = event.clientX - this.mouseDownStart.x;
+            const deltaY = event.clientY - this.mouseDownStart.y;
+            const distance = Math.sqrt(deltaX * deltaX + deltaY * deltaY);
+
+            if (distance > 5) { // Threshold to start box selection
+                this.isBoxSelecting = true;
+                this.updateSelectionBoxVisual(event.clientX, event.clientY);
+            }
+        }
+    }
+
+    private onMouseUp(event: MouseEvent) {
+        if (this.activeTool) {
+            this.activeTool.onMouseUp(event);
+            return;
+        }
+
+        if (this.isBoxSelecting) {
+            this.performBoxSelection(event.clientX, event.clientY, event.ctrlKey || event.metaKey, event.shiftKey);
+            this.selectionBoxElement.style.display = 'none';
+        }
+
+        this.isMouseDown = false;
+        // Note: isBoxSelecting will be reset in onClick or next interaction, 
+        // but we need it in onClick to prevent single selection.
+        // So we reset it LATER, inside onClick.
+        // Actually, onClick fires AFTER onMouseUp.
+    }
+
+    private updateSelectionBoxVisual(currentX: number, currentY: number) {
+        const startX = this.mouseDownStart.x;
+        const startY = this.mouseDownStart.y;
+
+        const minX = Math.min(startX, currentX);
+        const maxX = Math.max(startX, currentX);
+        const minY = Math.min(startY, currentY);
+        const maxY = Math.max(startY, currentY);
+
+        const width = maxX - minX;
+        const height = maxY - minY;
+
+        this.selectionBoxElement.style.display = 'block';
+        this.selectionBoxElement.style.left = `${minX}px`;
+        this.selectionBoxElement.style.top = `${minY}px`;
+        this.selectionBoxElement.style.width = `${width}px`;
+        this.selectionBoxElement.style.height = `${height}px`;
+
+        // CAD Style:
+        // Left-to-Right (startX < currentX): Blue (Inclusive)
+        // Right-to-Left (startX > currentX): Green (Crossing)
+        if (currentX > startX) {
+            // Blue - Inclusive
+            this.selectionBoxElement.style.backgroundColor = 'rgba(0, 0, 255, 0.1)';
+            this.selectionBoxElement.style.border = '1px solid rgba(0, 0, 255, 0.5)';
+        } else {
+            // Green - Crossing
+            this.selectionBoxElement.style.backgroundColor = 'rgba(0, 255, 0, 0.1)';
+            this.selectionBoxElement.style.border = '1px solid rgba(0, 255, 0, 0.5)';
+        }
+    }
+
+    private performBoxSelection(endX: number, endY: number, isCtrl: boolean, isShift: boolean) {
+        const startX = this.mouseDownStart.x;
+        const startY = this.mouseDownStart.y;
+
+        // Determine mode
+        const isCrossing = endX < startX; // Right-to-Left
+
+        // Calculate Box in Screen Space
+        const minX = Math.min(startX, endX);
+        const maxX = Math.max(startX, endX);
+        const minY = Math.min(startY, endY);
+        const maxY = Math.max(startY, endY);
+
+        // Find all selectable objects
+        const candidates: THREE.Mesh[] = [];
+        this.scene.traverse((child) => {
+            if (child instanceof THREE.Mesh && child.userData && child.userData.id) {
+                // Ignore ghosts and helpers
+                if (!child.userData.isGhost && child.visible) {
+                    candidates.push(child);
+                }
+            }
+        });
+
+        const selectedIds: string[] = [];
+
+        for (const mesh of candidates) {
+            if (this.isObjectInBox(mesh, minX, maxX, minY, maxY, isCrossing)) {
+                selectedIds.push(mesh.userData.id);
+            }
+        }
+
+        // Update Store
+        if (isShift) {
+            // Remove from selection
+            selectedIds.forEach(id => {
+                const obj = this.findObjectById(id); // Helper needed
+                if (obj) this.store.removeFromSelection(obj);
+            });
+        } else if (isCtrl) {
+            // Add to selection
+            selectedIds.forEach(id => {
+                const obj = this.findObjectById(id);
+                if (obj) this.store.addToSelection(obj);
+            });
+        } else {
+            // Replace selection
+            this.store.setSelection(selectedIds);
+        }
+    }
+
+    private isObjectInBox(mesh: THREE.Mesh, minX: number, maxX: number, minY: number, maxY: number, isCrossing: boolean): boolean {
+        // Project object bounding box to screen
+        if (!mesh.geometry.boundingBox) mesh.geometry.computeBoundingBox();
+        const bbox = mesh.geometry.boundingBox!.clone();
+        bbox.applyMatrix4(mesh.matrixWorld);
+
+        const corners = [
+            new THREE.Vector3(bbox.min.x, bbox.min.y, bbox.min.z),
+            new THREE.Vector3(bbox.min.x, bbox.min.y, bbox.max.z),
+            new THREE.Vector3(bbox.min.x, bbox.max.y, bbox.min.z),
+            new THREE.Vector3(bbox.min.x, bbox.max.y, bbox.max.z),
+            new THREE.Vector3(bbox.max.x, bbox.min.y, bbox.min.z),
+            new THREE.Vector3(bbox.max.x, bbox.min.y, bbox.max.z),
+            new THREE.Vector3(bbox.max.x, bbox.max.y, bbox.min.z),
+            new THREE.Vector3(bbox.max.x, bbox.max.y, bbox.max.z),
+        ];
+
+        let allInside = true;
+        let anyInside = false;
+
+        for (const corner of corners) {
+            const screenPos = corner.project(this.camera);
+            // screenPos is in NDC [-1, 1]
+            // Convert to pixels
+            const x = (screenPos.x * .5 + .5) * this.domElement.clientWidth;
+            const y = (-(screenPos.y * .5) + .5) * this.domElement.clientHeight; // Y is inverted in CSS
+
+            const inside = x >= minX && x <= maxX && y >= minY && y <= maxY;
+            if (inside) anyInside = true;
+            else allInside = false;
+        }
+
+        if (isCrossing) {
+            return anyInside; // Any point inside (Simplified crossing check)
+            // Note: True crossing check requires checking edge intersections, but point check is usually "good enough" for simple boxes.
+            // For better crossing, we should check if the screen-projected bbox intersects the selection rect.
+        } else {
+            return allInside; // All points inside
+        }
+    }
+
+    // Helper to find object data for Store (since store expects data object, not just ID, for some methods)
+    // Actually store.setSelection takes IDs. addToSelection takes object.
+    // We can construct a minimal object with ID.
+    private findObjectById(id: string): any {
+        // We just need { id: string } for store methods usually, 
+        // but store.addToSelection might need more?
+        // store.addToSelection(obj) -> selectedIds.push(obj.id || obj)
+        // So { id } is enough.
+        return { id };
     }
 
     private onClick(event: MouseEvent) {
         if (this.activeTool) {
-            this.activeTool.onMouseDown(event); // Tool handles click/mousedown
+            this.activeTool.onMouseDown(event);
+            return;
+        }
+
+        // If we were box selecting, consume the click
+        if (this.isBoxSelecting) {
+            this.isBoxSelecting = false;
             return;
         }
 
         // Only handle left click
         if (event.button !== 0) return;
 
-        // Update mouse position from click event to ensure accuracy
+        // ... Existing Click Logic ...
         const rect = this.domElement.getBoundingClientRect();
         this.mouse.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
         this.mouse.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
@@ -192,44 +403,48 @@ export class InteractionService {
 
         const debugStore = useDebugStore();
         debugStore.log(`Click: ${this.mouse.x.toFixed(2)},${this.mouse.y.toFixed(2)} Hits: ${intersects.length}`);
-        debugStore.log(`Ray: O=${this.raycaster.ray.origin.x.toFixed(0)},${this.raycaster.ray.origin.y.toFixed(0)},${this.raycaster.ray.origin.z.toFixed(0)} D=${this.raycaster.ray.direction.x.toFixed(2)},${this.raycaster.ray.direction.y.toFixed(2)},${this.raycaster.ray.direction.z.toFixed(2)}`);
+
+        const isCtrlMode = event.ctrlKey || event.metaKey;
+        const isShiftMode = event.shiftKey;
+        const isModifierMode = isCtrlMode || isShiftMode;
 
         if (intersects.length > 0) {
-            // Filter for selectable objects
-            // We need to find the first hit that is part of a selectable object
-            // For Doors/Windows, the hit is a child Mesh, but the userData is on the parent Group.
-
             const hit = intersects.find(i => i.object instanceof THREE.Mesh);
 
             if (hit) {
                 let target: THREE.Object3D | null = hit.object;
 
-                // Traverse up to find object with ID
                 while (target && !target.userData?.id && target.parent && target.parent !== this.scene) {
                     target = target.parent;
                 }
 
-                // If we found a target with ID, select it. 
-                // If not, we might have hit a helper or something else, but let's try to select the mesh itself if it has no ID?
-                // Actually, for now, only select if it has an ID.
                 if (target && target.userData?.id) {
                     debugStore.success(`Hit: ${target.userData.type} ${target.userData.id}`);
-                    this.selectionManager.select(target);
+
+                    if (isShiftMode) {
+                        this.store.removeFromSelection(target.userData);
+                    } else if (isCtrlMode) {
+                        this.store.toggleSelection(target.userData);
+                    } else {
+                        this.store.setSelectedObject(target.userData);
+                    }
                 } else {
-                    // Hit something without ID (e.g. grid, helper without ID)
-                    // Treat as background click? Or just ignore?
-                    // If it's a Mesh but has no ID, it might be a floor or something.
-                    // Let's clear selection if we hit something "background-like" or nothing selectable.
                     debugStore.warn('Hit object with no ID');
-                    this.selectionManager.clearSelection();
+                    if (!isModifierMode) {
+                        this.store.clearSelection();
+                    }
                 }
             } else {
                 debugStore.warn('No Mesh Hit');
-                this.selectionManager.clearSelection();
+                if (!isModifierMode) {
+                    this.store.clearSelection();
+                }
             }
         } else {
             debugStore.warn('No Intersects');
-            this.selectionManager.clearSelection();
+            if (!isModifierMode) {
+                this.store.clearSelection();
+            }
         }
     }
 
@@ -239,10 +454,18 @@ export class InteractionService {
 
     public dispose() {
         this.domElement.removeEventListener('mousemove', this.boundOnMouseMove);
+        this.domElement.removeEventListener('mousedown', this.boundOnMouseDown);
+        this.domElement.removeEventListener('mouseup', this.boundOnMouseUp);
         this.domElement.removeEventListener('click', this.boundOnClick);
         window.removeEventListener('keydown', this.boundOnKeyDown);
+        window.removeEventListener('keyup', this.boundOnKeyUp);
         window.removeEventListener('bimcanvas:tool-cancelled', this.boundToolCancelled);
         window.removeEventListener('bimcanvas:tool-completed', this.boundToolCompleted);
         this.shortcutManager.dispose();
+
+        if (this.selectionBoxElement && this.selectionBoxElement.parentNode) {
+            this.selectionBoxElement.parentNode.removeChild(this.selectionBoxElement);
+        }
     }
 }
+

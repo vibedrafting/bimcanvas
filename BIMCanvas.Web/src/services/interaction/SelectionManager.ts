@@ -1,35 +1,56 @@
 import * as THREE from 'three';
 import { useCanvasStore } from '../../stores/canvasStore';
+import { useDebugStore } from '../../stores/debugStore';
 import { watch } from 'vue';
+import { storeToRefs } from 'pinia';
 
 export class SelectionManager {
-    private selectedObject: THREE.Object3D | null = null;
-    private selectionBox: THREE.BoxHelper | null = null;
+    // 多选支持：使用 Map 存储选中对象和选择框
+    private selectedObjects: Map<string, THREE.Object3D> = new Map();
+    private selectionBoxes: Map<string, THREE.BoxHelper> = new Map();
     private scene: THREE.Scene;
     private store = useCanvasStore();
+    private debug = useDebugStore();
 
     constructor(scene: THREE.Scene) {
         this.scene = scene;
-        this.store.debugMsg += `\nSelectionManager Created ${Date.now()}`;
+        this.debug.log('[SelectionMgr] Created');
 
-        // Sync with store
-        watch(() => this.store.selectedObject, (newVal) => {
-            if (newVal === null) {
-                if (this.selectedObject !== null) {
-                    this.clearSelection();
-                }
-            } else {
-                // If store has an object, but we don't (or different one), we should select it visually.
-                // However, store.selectedObject is data (JSON), not Mesh.
-                // We need to find the Mesh by ID.
-                if (!this.selectedObject || this.selectedObject.userData.id !== newVal.id) {
-                    const object = this.findObjectById(newVal.id);
-                    if (object) {
-                        this.select(object);
-                    }
+        // 使用 storeToRefs 获取响应式引用
+        const { selectedIds } = storeToRefs(this.store);
+
+        // 监听 Store 的 selectedIds 变化，同步视觉
+        watch(selectedIds, (newIds, oldIds) => {
+            this.debug.log(`[SelectionMgr] IDs changed: [${oldIds?.join(',') || ''}] -> [${newIds.join(',')}]`);
+            this.syncWithStore(newIds);
+        }, { deep: true, immediate: true });
+    }
+
+    /**
+     * 同步 Store 的选择状态到视觉
+     */
+    private syncWithStore(ids: string[]) {
+        this.debug.log(`[SelectionMgr] syncWithStore: ${ids.length} items`);
+        const currentIds = new Set(ids);
+
+        // 移除不再选中的对象
+        for (const [id, _box] of this.selectionBoxes) {
+            if (!currentIds.has(id)) {
+                this.debug.log(`[SelectionMgr] Remove visual: ${id}`);
+                this.removeSelectionVisual(id);
+            }
+        }
+
+        // 添加新选中的对象
+        for (const id of ids) {
+            if (!this.selectionBoxes.has(id)) {
+                const object = this.findObjectById(id);
+                this.debug.log(`[SelectionMgr] Find scene obj: ${id} -> ${object ? 'FOUND' : 'NOT FOUND'}`);
+                if (object) {
+                    this.addSelectionVisual(object);
                 }
             }
-        });
+        }
     }
 
     private findObjectById(id: string): THREE.Object3D | null {
@@ -42,50 +63,120 @@ export class SelectionManager {
         return found;
     }
 
+    /**
+     * 为对象添加选择视觉（蓝色框）
+     */
+    private addSelectionVisual(object: THREE.Object3D) {
+        const id = object.userData?.id;
+        if (!id) return;
+
+        // 避免重复添加
+        if (this.selectionBoxes.has(id)) return;
+
+        const box = new THREE.BoxHelper(object, 0x3b82f6); // Blue selection
+        this.scene.add(box);
+        this.selectionBoxes.set(id, box);
+        this.selectedObjects.set(id, object);
+    }
+
+    /**
+     * 移除对象的选择视觉
+     */
+    private removeSelectionVisual(id: string) {
+        const box = this.selectionBoxes.get(id);
+        if (box) {
+            this.scene.remove(box);
+            box.geometry?.dispose();
+            this.selectionBoxes.delete(id);
+        }
+        this.selectedObjects.delete(id);
+    }
+
+    /**
+     * 选择单个对象（兼容旧代码）
+     */
     public select(object: THREE.Object3D | null) {
-        if (this.selectedObject === object) {
-            this.store.debugMsg += ` | Skip Select ${object?.id}`;
+        if (!object) {
+            this.clearSelection();
             return;
         }
 
-        this.store.debugMsg += ` | Select ${object?.id}`;
-        this.clearSelection(); // Clear previous visual
+        const id = object.userData?.id;
+        if (!id) return;
 
-        if (object) {
-            this.selectedObject = object;
-            // Create selection visual
-            this.selectionBox = new THREE.BoxHelper(object, 0x3b82f6); // Blue selection
-            this.scene.add(this.selectionBox);
-
-            // Update Store (only if different)
-            // Note: This might trigger watcher, but watcher has check.
-            // However, store object is data, we have mesh.
-            // We should check if store already has this ID.
-            if (this.store.selectedObject?.id !== object.userData.id) {
-                // Ensure type is preserved from userData if not in data
-                const data = object.userData.data || {};
-                const type = object.userData.type || 'unknown';
-                // Merge data with id and type, ensuring type from userData takes precedence if missing in data
-                this.store.setSelectedObject({ ...data, id: object.userData.id, type });
-            }
-        }
+        // 通过 Store 设置选择，视觉会通过 watch 自动同步
+        this.store.setSelectedObject(object);
     }
 
+    /**
+     * 添加对象到选择集（多选）
+     */
+    public addToSelection(object: THREE.Object3D) {
+        const id = object.userData?.id;
+        if (!id) return;
+
+        this.store.addToSelection(object);
+    }
+
+    /**
+     * 切换对象选择状态（多选）
+     */
+    public toggleSelection(object: THREE.Object3D) {
+        const id = object.userData?.id;
+        if (!id) return;
+
+        this.store.toggleSelection(object);
+    }
+
+    /**
+     * 清除所有选择
+     */
     public clearSelection() {
-        this.store.debugMsg += ` | Clear`;
-        if (this.selectionBox) {
-            this.scene.remove(this.selectionBox);
-            this.selectionBox = null;
-        }
-        this.selectedObject = null;
-
-        // Update Store
-        if (this.store.selectedObject !== null) {
-            this.store.setSelectedObject(null);
-        }
+        // 通过 Store 清除，视觉会通过 watch 自动同步
+        this.store.clearSelection();
     }
 
+    /**
+     * 清除本地视觉（内部使用，不影响 Store）
+     */
+    private clearAllVisuals() {
+        for (const [id, box] of this.selectionBoxes) {
+            this.scene.remove(box);
+            box.geometry?.dispose();
+        }
+        this.selectionBoxes.clear();
+        this.selectedObjects.clear();
+    }
+
+    /**
+     * 获取当前选中的第一个对象（兼容旧代码）
+     */
     public getSelected(): THREE.Object3D | null {
-        return this.selectedObject;
+        const firstId = this.store.selectedIds[0];
+        return firstId ? (this.selectedObjects.get(firstId) ?? null) : null;
+    }
+
+    /**
+     * 获取所有选中的对象
+     */
+    public getAllSelected(): THREE.Object3D[] {
+        return Array.from(this.selectedObjects.values());
+    }
+
+    /**
+     * 检查对象是否被选中
+     */
+    public isSelected(object: THREE.Object3D): boolean {
+        const id = object.userData?.id;
+        return id ? this.selectedObjects.has(id) : false;
+    }
+
+    /**
+     * 更新所有选择框（在场景变化后调用）
+     */
+    public update() {
+        for (const [_id, box] of this.selectionBoxes) {
+            box.update();
+        }
     }
 }

@@ -15,11 +15,15 @@ export class MoveTool implements Tool {
     private raycaster: THREE.Raycaster;
     private plane: THREE.Plane;
 
-    private state: 'waiting_selection' | 'waiting_base' | 'waiting_dest' = 'waiting_selection';
+    // 多选支持：新增 multi_selection 状态
+    private state: 'multi_selection' | 'waiting_base' | 'waiting_dest' = 'multi_selection';
     private basePoint: THREE.Vector3 | null = null;
     private rubberBand: THREE.Line | null = null;
-    private selectedObject: any = null; // Store module data
-    private originalObject: THREE.Object3D | null = null; // The actual 3D object
+
+    // 存储多个选中对象数据
+    private selectedObjects: any[] = [];
+    // 存储多个 3D 对象引用
+    private originalObjects: THREE.Object3D[] = [];
 
     constructor(
         scene: THREE.Scene,
@@ -38,47 +42,42 @@ export class MoveTool implements Tool {
 
     activate() {
         const store = useCanvasStore();
-        // Ensure we get the latest selection from the store
-        this.selectedObject = store.selectedObject;
 
-        console.log("MoveTool Activate. Selected:", this.selectedObject);
-
-        // Check if we have a valid selection (must be a module)
-        // Relaxed check: if it has ID and bounds, we treat it as a module
-        const isModule = this.selectedObject && (
-            this.selectedObject.type === 'module' ||
-            (this.selectedObject.userData && this.selectedObject.userData.type === 'module') ||
-            (this.selectedObject.id && this.selectedObject.bounds)
-        );
-
-        console.log("MoveTool Activate. isModule:", isModule);
-
-        if (isModule) {
-            // Handle case where selectedObject might be the ThreeJS object or the data object
-            // If it's the ThreeJS object, get data from userData
-            if (this.selectedObject.userData && this.selectedObject.userData.data) {
-                this.selectedObject = this.selectedObject.userData.data;
-            }
+        // 检查是否已有选中对象
+        if (store.selectedIds.length > 0) {
+            // 已有选择，直接进入移动操作
+            this.selectedObjects = [...store.selectedObjects];
+            this.findAllOriginalObjects();
             this.startMoveOperation();
         } else {
-            this.state = 'waiting_selection';
-            store.setPrompt('Select object to move');
+            // 无选择，进入多选阶段
+            this.state = 'multi_selection';
+            store.setPrompt('Click to select objects, press Space/Enter to confirm');
             this.domElement.style.cursor = 'default';
+        }
+    }
+
+    private findAllOriginalObjects() {
+        this.originalObjects = [];
+        for (const obj of this.selectedObjects) {
+            const threeObj = this.findObjectById(obj.id);
+            if (threeObj) {
+                this.originalObjects.push(threeObj);
+            }
         }
     }
 
     private startMoveOperation() {
         const store = useCanvasStore();
-        this.originalObject = this.findObjectById(this.selectedObject.id);
 
-        if (this.originalObject) {
-            this.ghostManager.createGhost(this.originalObject);
+        if (this.originalObjects.length > 0) {
+            this.ghostManager.createGhosts(this.originalObjects);
         }
 
         this.state = 'waiting_base';
         this.basePoint = null;
         this.domElement.style.cursor = 'crosshair';
-        store.setPrompt('Click to set base point');
+        store.setPrompt(`Click to set base point (${this.selectedObjects.length} objects)`);
     }
 
     deactivate() {
@@ -87,7 +86,9 @@ export class MoveTool implements Tool {
         this.removeRubberBand();
         this.domElement.style.cursor = 'default';
         this.basePoint = null;
-        this.state = 'waiting_selection';
+        this.state = 'multi_selection';
+        this.selectedObjects = [];
+        this.originalObjects = [];
         store.setPrompt(null);
     }
 
@@ -109,18 +110,13 @@ export class MoveTool implements Tool {
 
         const store = useCanvasStore();
 
-        if (this.state === 'waiting_selection') {
-            // Try to select an object
+        if (this.state === 'multi_selection') {
+            // 多选阶段：点击切换选择状态
             const hit = this.raycastObject(event);
             if (hit && hit.userData && hit.userData.type === 'module') {
-                // Valid selection
-                store.setSelectedObject(hit.userData.data);
-                this.selectedObject = hit.userData.data;
-                this.startMoveOperation();
-            } else {
-                // Invalid selection (e.g. wall)
-                // Optional: Flash warning or just ignore
-                console.log("Invalid selection for Move Tool");
+                // 切换选择状态
+                store.toggleSelection(hit.userData.data);
+                console.log(`Toggle selection: ${hit.userData.id}, now ${store.selectedIds.length} selected`);
             }
             return;
         }
@@ -134,10 +130,7 @@ export class MoveTool implements Tool {
             this.basePoint = finalPoint;
             this.state = 'waiting_dest';
             this.createRubberBand(this.basePoint);
-
-            // Ghost should now start following mouse relative to base point
             this.ghostManager.setPositionOffset(new THREE.Vector3(0, 0, 0));
-
             store.setPrompt('Click to set destination point');
 
         } else if (this.state === 'waiting_dest') {
@@ -149,8 +142,8 @@ export class MoveTool implements Tool {
         const point = this.getRayIntersection(event);
         if (!point) return;
 
-        if (this.state === 'waiting_selection') {
-            // Hover effect?
+        if (this.state === 'multi_selection') {
+            // 悬停效果
             const hit = this.raycastObject(event);
             if (hit && hit.userData && hit.userData.type === 'module') {
                 this.domElement.style.cursor = 'pointer';
@@ -165,10 +158,9 @@ export class MoveTool implements Tool {
         const finalPoint = snapResult.snapped ? snapResult.position : point;
 
         if (this.state === 'waiting_dest' && this.basePoint) {
-            // Update Rubber Band
+            // 更新橡皮筋
             this.updateRubberBand(finalPoint);
-
-            // Update Ghost Position
+            // 更新 Ghost 位置
             const delta = new THREE.Vector3().subVectors(finalPoint, this.basePoint);
             this.ghostManager.setPositionOffset(delta);
         }
@@ -180,6 +172,23 @@ export class MoveTool implements Tool {
         if (event.key === 'Escape') {
             this.deactivate();
             window.dispatchEvent(new CustomEvent('bimcanvas:tool-cancelled'));
+            return;
+        }
+
+        // 空格或回车确认选择
+        if ((event.key === ' ' || event.key === 'Enter') && this.state === 'multi_selection') {
+            event.preventDefault();
+            const store = useCanvasStore();
+
+            if (store.selectedIds.length === 0) {
+                console.log('No objects selected');
+                return;
+            }
+
+            // 从 Store 获取选中对象
+            this.selectedObjects = [...store.selectedObjects];
+            this.findAllOriginalObjects();
+            this.startMoveOperation();
         }
     }
 
@@ -193,39 +202,32 @@ export class MoveTool implements Tool {
         this.raycaster.setFromCamera(mouse, this.camera);
         const intersects = this.raycaster.intersectObjects(this.scene.children, true);
 
-        // Find first mesh that is not a ghost
         const hit = intersects.find(i => i.object instanceof THREE.Mesh && !i.object.userData.isGhost);
         return hit ? hit.object : null;
     }
 
     private executeMove(destPoint: THREE.Vector3) {
-        if (!this.basePoint || !this.selectedObject) return;
+        if (!this.basePoint || this.selectedObjects.length === 0) return;
 
         const delta = new THREE.Vector3().subVectors(destPoint, this.basePoint);
-
-        // Update Store
         const store = useCanvasStore();
 
-        // 使用统一坐标转换工具：3D delta -> 2D delta
+        // 转换 3D 位移到 2D
         const delta2D = deltaToModel(delta);
 
-        const newBounds = this.selectedObject.bounds.map((p: [number, number]) => [
-            p[0] + delta2D[0],
-            p[1] + delta2D[1]
-        ]);
-
-        store.updateModule(this.selectedObject.id, { bounds: newBounds });
-
-        // Update selection to new state
-        const updated = store.document?.modules.find(m => m.id === this.selectedObject.id);
-        if (updated) {
-            store.setSelectedObject(updated);
+        // 批量更新所有选中对象
+        for (const obj of this.selectedObjects) {
+            const newBounds = obj.bounds.map((p: [number, number]) => [
+                p[0] + delta2D[0],
+                p[1] + delta2D[1]
+            ]);
+            store.updateModule(obj.id, { bounds: newBounds });
         }
 
-        // Clear selection after move
-        store.setSelectedObject(null);
+        // 清除选择
+        store.clearSelection();
 
-        console.log("Move executed");
+        console.log(`Move executed: ${this.selectedObjects.length} objects moved`);
         this.deactivate();
         window.dispatchEvent(new CustomEvent('bimcanvas:tool-completed'));
     }
@@ -247,9 +249,9 @@ export class MoveTool implements Tool {
 
     private createRubberBand(start: THREE.Vector3) {
         const geometry = new THREE.BufferGeometry().setFromPoints([start, start]);
-        const material = new THREE.LineBasicMaterial({ color: 0xffff00, depthTest: false }); // Yellow line
+        const material = new THREE.LineBasicMaterial({ color: 0xffff00, depthTest: false });
         this.rubberBand = new THREE.Line(geometry, material);
-        this.rubberBand.renderOrder = 999; // On top
+        this.rubberBand.renderOrder = 999;
         this.scene.add(this.rubberBand);
     }
 

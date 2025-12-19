@@ -3,26 +3,26 @@ import { LayerManager } from '../three/LayerManager';
 
 /**
  * GhostManager - 管理拖拽/旋转时的预览幽灵对象
- * 采用单例模式确保同一 Scene 只有一个 Ghost 管理者
+ * 支持多选模式：可以同时创建多个 Ghost
  */
 export class GhostManager {
     private static instance: GhostManager | null = null;
 
     private scene: THREE.Scene;
-    private ghostGroup: THREE.Group;
+    // 多选支持：使用 Map 存储多个 Ghost Group
+    private ghostGroups: Map<string, THREE.Group> = new Map();
     private originalMaterials: Map<string, THREE.Material | THREE.Material[]> = new Map();
-    private originalObject: THREE.Object3D | null = null;
+    private originalObjects: Map<string, THREE.Object3D> = new Map();
+
+    // 共享的旋转中心（多选旋转时使用）
+    private sharedPivot: THREE.Vector3 | null = null;
 
     private constructor(scene: THREE.Scene) {
         this.scene = scene;
-        this.ghostGroup = new THREE.Group();
-        this.scene.add(this.ghostGroup);
-        this.ghostGroup.layers.enable(LayerManager.LAYER_MODEL);
     }
 
     /**
      * 获取 GhostManager 单例实例
-     * @param scene 首次调用时必须传入 Scene
      */
     public static getInstance(scene?: THREE.Scene): GhostManager {
         if (!GhostManager.instance) {
@@ -39,124 +39,156 @@ export class GhostManager {
      */
     public static resetInstance(): void {
         if (GhostManager.instance) {
-            GhostManager.instance.clear();
+            GhostManager.instance.removeAllGhosts();
             GhostManager.instance = null;
         }
     }
 
+    /**
+     * 创建单个 Ghost（兼容旧代码）
+     */
     public createGhost(original: THREE.Object3D) {
-        this.clear();
-
-        this.originalObject = original;
-
-        // 1. Create a "Solid Clone"
-        const solidClone = original.clone();
-
-        // Ensure the clone is marked as ghost
-        solidClone.userData.isGhost = true;
-        solidClone.traverse((child) => {
-            child.userData.isGhost = true;
-        });
-
-        this.ghostGroup.add(solidClone);
-
-        // Initially, we want the clone to be at the same world position as the original.
-        // If the group is at (0,0,0), the clone should be at original.position.
-        // However, for pivoting, we will move the group to the pivot point.
-        // So we need to set the clone's local position relative to the group.
-        // For now, just copy position.
-        solidClone.position.copy(original.position);
-        solidClone.rotation.copy(original.rotation);
-        solidClone.scale.copy(original.scale);
-
-        this.ghostGroup.position.set(0, 0, 0);
-        this.ghostGroup.rotation.set(0, 0, 0);
-
-
-        // 2. Turn the "Original Object" into a Ghost
-        this.originalMaterials.clear();
-        original.traverse((child) => {
-            if (child instanceof THREE.Mesh) {
-                this.originalMaterials.set(child.uuid, child.material);
-                const ghostMaterial = new THREE.MeshBasicMaterial({
-                    color: 0xaaaaaa,
-                    transparent: true,
-                    opacity: 0.3,
-                    depthTest: true,
-                    side: THREE.DoubleSide,
-                    wireframe: true
-                });
-                child.material = ghostMaterial;
-            }
-        });
+        this.createGhosts([original]);
     }
 
-    public setPivot(pivot: THREE.Vector3) {
-        // To rotate around a pivot:
-        // 1. Move the Group to the Pivot Point.
-        // 2. Adjust the Children's positions so they stay visually in the same place.
-        //    ChildLocal = ChildWorld - PivotWorld
+    /**
+     * 批量创建多个 Ghost（多选模式）
+     */
+    public createGhosts(originals: THREE.Object3D[]) {
+        this.removeAllGhosts();
 
-        this.ghostGroup.position.copy(pivot);
+        for (const original of originals) {
+            const id = original.userData?.id;
+            if (!id) continue;
 
-        this.ghostGroup.children.forEach(child => {
-            if (this.originalObject) {
-                // Calculate original world position
-                // We assume originalObject hasn't moved since createGhost
-                const originalWorldPos = this.originalObject.position.clone();
+            // 创建 Ghost Group
+            const ghostGroup = new THREE.Group();
+            ghostGroup.layers.enable(LayerManager.LAYER_MODEL);
+            this.scene.add(ghostGroup);
 
-                // New local position = OriginalWorld - Pivot
-                child.position.subVectors(originalWorldPos, pivot);
-            }
-        });
-    }
+            // 克隆对象
+            const solidClone = original.clone();
+            solidClone.userData.isGhost = true;
+            solidClone.traverse((child) => {
+                child.userData.isGhost = true;
+            });
 
-    public removeGhost() {
-        this.clear();
-    }
+            ghostGroup.add(solidClone);
+            solidClone.position.copy(original.position);
+            solidClone.rotation.copy(original.rotation);
+            solidClone.scale.copy(original.scale);
 
-    private clear() {
-        this.ghostGroup.clear();
-        this.ghostGroup.position.set(0, 0, 0);
-        this.ghostGroup.rotation.set(0, 0, 0);
+            // 存储
+            this.ghostGroups.set(id, ghostGroup);
+            this.originalObjects.set(id, original);
 
-        if (this.originalObject) {
-            this.originalObject.traverse((child) => {
-                if (child instanceof THREE.Mesh && this.originalMaterials.has(child.uuid)) {
-                    child.material = this.originalMaterials.get(child.uuid)!;
+            // 将原对象变为半透明 wireframe
+            original.traverse((child) => {
+                if (child instanceof THREE.Mesh) {
+                    this.originalMaterials.set(child.uuid, child.material);
+                    const ghostMaterial = new THREE.MeshBasicMaterial({
+                        color: 0xaaaaaa,
+                        transparent: true,
+                        opacity: 0.3,
+                        depthTest: true,
+                        side: THREE.DoubleSide,
+                        wireframe: true
+                    });
+                    child.material = ghostMaterial;
                 }
             });
-            this.originalObject = null;
-            this.originalMaterials.clear();
         }
     }
 
     /**
-     * 预留接口：批量更新 Ghost（暂未实现）
+     * 设置旋转中心（多选旋转时所有对象围绕同一中心）
      */
-    public updateGhosts(_ghosts: unknown[]) {
-        // TODO: 实现批量 Ghost 更新
+    public setPivot(pivot: THREE.Vector3) {
+        this.sharedPivot = pivot.clone();
+
+        for (const [id, ghostGroup] of this.ghostGroups) {
+            const original = this.originalObjects.get(id);
+            if (!original) continue;
+
+            ghostGroup.position.copy(pivot);
+
+            ghostGroup.children.forEach(child => {
+                const originalWorldPos = original.position.clone();
+                child.position.subVectors(originalWorldPos, pivot);
+            });
+        }
     }
 
+    /**
+     * 移除单个 Ghost（兼容旧代码，实际清除所有）
+     */
+    public removeGhost() {
+        this.removeAllGhosts();
+    }
+
+    /**
+     * 移除所有 Ghost
+     */
+    public removeAllGhosts() {
+        // 恢复原对象材质
+        for (const [_id, original] of this.originalObjects) {
+            original.traverse((child) => {
+                if (child instanceof THREE.Mesh && this.originalMaterials.has(child.uuid)) {
+                    child.material = this.originalMaterials.get(child.uuid)!;
+                }
+            });
+        }
+
+        // 清理 Ghost Groups
+        for (const [_id, ghostGroup] of this.ghostGroups) {
+            this.scene.remove(ghostGroup);
+            ghostGroup.traverse((child) => {
+                if (child instanceof THREE.Mesh) {
+                    child.geometry?.dispose();
+                    if (Array.isArray(child.material)) {
+                        child.material.forEach(m => m.dispose());
+                    } else {
+                        child.material?.dispose();
+                    }
+                }
+            });
+        }
+
+        this.ghostGroups.clear();
+        this.originalObjects.clear();
+        this.originalMaterials.clear();
+        this.sharedPivot = null;
+    }
+
+    /**
+     * 设置位置偏移（移动预览）- 作用于所有 Ghost
+     */
     public setPositionOffset(offset: THREE.Vector3) {
-        // For Move Tool: offset is delta
-        // If we use setPivot logic, this might need adjustment.
-        // But MoveTool uses setPositionOffset(delta) where delta = dest - base.
-        // If we want to move the group:
-        // GroupPos = OriginalPos + Delta?
-        // Let's keep it simple for MoveTool:
-        // MoveTool sets Group to (0,0,0) initially (in createGhost logic above, we set Group to 0,0,0 and Child to OriginalPos).
-        // So moving Group by Delta moves Child by Delta.
-        this.ghostGroup.position.copy(offset);
+        for (const [_id, ghostGroup] of this.ghostGroups) {
+            ghostGroup.position.copy(offset);
+        }
     }
 
+    /**
+     * 设置旋转角度（旋转预览）- 作用于所有 Ghost
+     */
     public setRotation(rotation: number) {
-        // Rotate around Y axis (up)
-        // Since Group is at Pivot, rotating Group rotates Child around Pivot.
-        // Positive Y rotation is CCW from Top View.
-        // CCW Gesture -> Negative Delta.
-        // We want CCW Preview -> Positive Y-Rot.
-        // So we must Negate the Negative Delta.
-        this.ghostGroup.rotation.y = -rotation;
+        for (const [_id, ghostGroup] of this.ghostGroups) {
+            ghostGroup.rotation.y = -rotation;
+        }
+    }
+
+    /**
+     * 获取是否有 Ghost
+     */
+    public hasGhosts(): boolean {
+        return this.ghostGroups.size > 0;
+    }
+
+    /**
+     * 获取 Ghost 数量
+     */
+    public getGhostCount(): number {
+        return this.ghostGroups.size;
     }
 }

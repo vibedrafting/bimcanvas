@@ -15,11 +15,15 @@ export class RotateTool implements Tool {
     private raycaster: THREE.Raycaster;
     private plane: THREE.Plane;
 
-    private state: 'waiting_selection' | 'waiting_center' | 'waiting_start' | 'waiting_end' = 'waiting_selection';
+    // 多选支持：新增 multi_selection 状态
+    private state: 'multi_selection' | 'waiting_center' | 'waiting_start' | 'waiting_end' = 'multi_selection';
     private centerPoint: THREE.Vector3 | null = null;
     private startAngle: number | null = null;
-    private selectedObject: any = null;
-    private originalObject: THREE.Object3D | null = null;
+
+    // 存储多个选中对象数据
+    private selectedObjects: any[] = [];
+    // 存储多个 3D 对象引用
+    private originalObjects: THREE.Object3D[] = [];
 
     // Visuals
     private centerMarker: THREE.Mesh | null = null;
@@ -43,43 +47,67 @@ export class RotateTool implements Tool {
 
     activate() {
         const store = useCanvasStore();
-        this.selectedObject = store.selectedObject;
-        console.log("RotateTool Activate. Selected:", this.selectedObject);
 
-        const isModule = this.selectedObject && (
-            this.selectedObject.type === 'module' ||
-            (this.selectedObject.userData && this.selectedObject.userData.type === 'module') ||
-            (this.selectedObject.id && this.selectedObject.bounds)
-        );
-        console.log("RotateTool Activate. isModule:", isModule);
-
-        if (isModule) {
-            if (this.selectedObject.userData && this.selectedObject.userData.data) {
-                this.selectedObject = this.selectedObject.userData.data;
-            }
+        // 检查是否已有选中对象
+        if (store.selectedIds.length > 0) {
+            // 已有选择，直接进入旋转操作
+            this.selectedObjects = [...store.selectedObjects];
+            this.findAllOriginalObjects();
             this.startRotateOperation();
         } else {
-            this.state = 'waiting_selection';
-            store.setPrompt('Select object to rotate');
+            // 无选择，进入多选阶段
+            this.state = 'multi_selection';
+            store.setPrompt('Click to select objects, press Space/Enter to confirm');
             this.domElement.style.cursor = 'default';
+        }
+    }
+
+    private findAllOriginalObjects() {
+        this.originalObjects = [];
+        for (const obj of this.selectedObjects) {
+            const threeObj = this.findObjectById(obj.id);
+            if (threeObj) {
+                this.originalObjects.push(threeObj);
+            }
         }
     }
 
     private startRotateOperation() {
         const store = useCanvasStore();
-        this.originalObject = this.findObjectById(this.selectedObject.id);
 
-        if (this.originalObject) {
-            this.ghostManager.createGhost(this.originalObject);
+        if (this.originalObjects.length > 0) {
+            this.ghostManager.createGhosts(this.originalObjects);
         }
 
-        // Default center is object center
-        this.centerPoint = this.calculateCenter(this.selectedObject.bounds);
+        // 计算默认旋转中心：所有选中对象的几何中心
+        this.centerPoint = this.calculateGroupCenter();
         this.createCenterMarker(this.centerPoint);
+
+        // 设置 Ghost 旋转中心
+        this.ghostManager.setPivot(this.centerPoint);
 
         this.state = 'waiting_center';
         this.domElement.style.cursor = 'crosshair';
-        store.setPrompt('Click to set rotation center');
+        store.setPrompt(`Click to set rotation center (${this.selectedObjects.length} objects)`);
+    }
+
+    private calculateGroupCenter(): THREE.Vector3 {
+        if (this.selectedObjects.length === 0) {
+            return new THREE.Vector3(0, 0, 0);
+        }
+
+        // 计算所有对象 bounds 的几何中心
+        let sumX = 0, sumZ = 0;
+        for (const obj of this.selectedObjects) {
+            const center = boundsCenterToWorld(obj.bounds);
+            sumX += center.x;
+            sumZ += center.z;
+        }
+        return new THREE.Vector3(
+            sumX / this.selectedObjects.length,
+            0,
+            sumZ / this.selectedObjects.length
+        );
     }
 
     deactivate() {
@@ -87,9 +115,11 @@ export class RotateTool implements Tool {
         this.ghostManager.removeGhost();
         this.removeVisuals();
         this.domElement.style.cursor = 'default';
-        this.state = 'waiting_selection';
+        this.state = 'multi_selection';
         this.centerPoint = null;
         this.startAngle = null;
+        this.selectedObjects = [];
+        this.originalObjects = [];
         store.setPrompt(null);
     }
 
@@ -103,10 +133,6 @@ export class RotateTool implements Tool {
         return found;
     }
 
-    private calculateCenter(bounds: [number, number][]): THREE.Vector3 {
-        return boundsCenterToWorld(bounds);
-    }
-
     onMouseDown(event: MouseEvent) {
         if (event.button !== 0) return;
 
@@ -115,14 +141,12 @@ export class RotateTool implements Tool {
 
         const store = useCanvasStore();
 
-        if (this.state === 'waiting_selection') {
+        if (this.state === 'multi_selection') {
+            // 多选阶段：点击切换选择状态
             const hit = this.raycastObject(event);
             if (hit && hit.userData && hit.userData.type === 'module') {
-                store.setSelectedObject(hit.userData.data);
-                this.selectedObject = hit.userData.data;
-                this.startRotateOperation();
-            } else {
-                console.log("Invalid selection for Rotate Tool");
+                store.toggleSelection(hit.userData.data);
+                console.log(`Toggle selection: ${hit.userData.id}, now ${store.selectedIds.length} selected`);
             }
             return;
         }
@@ -135,8 +159,6 @@ export class RotateTool implements Tool {
         if (this.state === 'waiting_center') {
             this.centerPoint = finalPoint;
             this.updateCenterMarker(this.centerPoint);
-
-            // Set pivot for ghost rotation
             this.ghostManager.setPivot(this.centerPoint);
 
             this.state = 'waiting_start';
@@ -145,7 +167,7 @@ export class RotateTool implements Tool {
         } else if (this.state === 'waiting_start') {
             if (!this.centerPoint) return;
             const vector = new THREE.Vector3().subVectors(finalPoint, this.centerPoint);
-            this.startAngle = Math.atan2(vector.z, vector.x); // Radians
+            this.startAngle = Math.atan2(vector.z, vector.x);
 
             this.createStartLine(this.centerPoint, finalPoint);
             this.state = 'waiting_end';
@@ -160,7 +182,7 @@ export class RotateTool implements Tool {
         const point = this.getRayIntersection(event);
         if (!point) return;
 
-        if (this.state === 'waiting_selection') {
+        if (this.state === 'multi_selection') {
             const hit = this.raycastObject(event);
             if (hit && hit.userData && hit.userData.type === 'module') {
                 this.domElement.style.cursor = 'pointer';
@@ -175,17 +197,14 @@ export class RotateTool implements Tool {
         const finalPoint = snapResult.snapped ? snapResult.position : point;
 
         if (this.state === 'waiting_center') {
-            // Preview center? Maybe just cursor
+            // Preview center
         } else if (this.state === 'waiting_start') {
-            // Preview start line (Dynamic)
             if (this.centerPoint) {
                 this.updateStartLine(this.centerPoint, finalPoint);
             }
         } else if (this.state === 'waiting_end' && this.centerPoint && this.startAngle !== null) {
-            // Update End Line
             this.updateEndLine(this.centerPoint, finalPoint);
 
-            // Update Ghost Rotation
             const vector = new THREE.Vector3().subVectors(finalPoint, this.centerPoint);
             const currentAngle = Math.atan2(vector.z, vector.x);
             const deltaRotation = currentAngle - this.startAngle;
@@ -200,6 +219,22 @@ export class RotateTool implements Tool {
         if (event.key === 'Escape') {
             this.deactivate();
             window.dispatchEvent(new CustomEvent('bimcanvas:tool-cancelled'));
+            return;
+        }
+
+        // 空格或回车确认选择
+        if ((event.key === ' ' || event.key === 'Enter') && this.state === 'multi_selection') {
+            event.preventDefault();
+            const store = useCanvasStore();
+
+            if (store.selectedIds.length === 0) {
+                console.log('No objects selected');
+                return;
+            }
+
+            this.selectedObjects = [...store.selectedObjects];
+            this.findAllOriginalObjects();
+            this.startRotateOperation();
         }
     }
 
@@ -218,134 +253,43 @@ export class RotateTool implements Tool {
     }
 
     private executeRotate(endPoint: THREE.Vector3) {
-        if (!this.centerPoint || this.startAngle === null || !this.selectedObject) return;
+        if (!this.centerPoint || this.startAngle === null || this.selectedObjects.length === 0) return;
 
         const vector = new THREE.Vector3().subVectors(endPoint, this.centerPoint);
         const endAngle = Math.atan2(vector.z, vector.x);
-
-        // 3D Delta (X, Z) where Z is Down.
-        // CCW Gesture -> Negative Delta.
-        // 2D Math (X, Y) where Y is Up (standard math) or Y is Down (Canvas).
-        // In Canvas (Y Down), CCW is Positive Rotation?
-        // Wait, standard matrix:
-        // x' = x cos - y sin
-        // y' = x sin + y cos
-        // This rotates (1,0) to (cos, sin).
-        // If theta is positive: (0, 1) -> Down. CW.
-        // So Matrix rotates CW for Positive Theta.
-        // CCW Gesture -> Negative Delta3D.
-        // If we use Negative Delta3D in Matrix -> Matrix(Neg) -> CCW.
-        // So... wait.
-        // If Matrix(Pos) is CW.
-        // And Gesture(CCW) is Neg Delta.
-        // Matrix(Neg) is CCW.
-        // So we should use Delta3D DIRECTLY?
-
-        // Let's re-verify Matrix.
-        // 2D Canvas Y Down.
-        // (1, 0) Right.
-        // Rotate +90.
-        // x' = 0 - 1 = -1? No. cos(90)=0, sin(90)=1.
-        // x' = 0 - 0 = 0.
-        // y' = 1 + 0 = 1.
-        // (0, 1) Down.
-        // So +90 is CW.
-
-        // Gesture CCW (Right -> Up).
-        // Delta3D = -90 (Neg).
-        // Matrix(-90).
-        // cos(-90)=0, sin(-90)=-1.
-        // x' = 0 - (-1)*0 = 0.
-        // y' = 1*(-1) + 0 = -1.
-        // (0, -1) Up.
-        // So Matrix(-90) is CCW.
-
-        // So Delta3D (Neg) -> Matrix (CCW).
-        // This matches Gesture!
-
-        // So why was it reversed?
-        // Maybe my previous analysis of "Reversed" was wrong?
-        // User said "Rotation direction is reversed".
-        // If I used Delta3D directly, it should be correct.
-        // Did I use Delta3D directly?
-        // Yes: `const deltaRotation = endAngle - this.startAngle;`
-
-        // So why reversed?
-        // Maybe Ghost was reversed (it had `-rotation`), so user saw Ghost go CW when gesturing CCW.
-        // And maybe they didn't check the final result carefully, or assumed it would match Ghost?
-        // OR, maybe my Matrix logic is wrong for the specific coordinate system of the Store?
-        // Store bounds: [x, y].
-        // If Store Y is Up (CAD).
-        // (1, 0) Right.
-        // Rotate +90 (CCW).
-        // Should go to (0, 1) Up.
-        // Matrix(+90):
-        // x' = 0 - 1 = -1? No.
-        // x' = 0. y' = 1.
-        // (0, 1).
-        // So Matrix(+90) is CCW in Y-Up system.
-
-        // Gesture CCW -> Delta3D (-90).
-        // Matrix(-90) -> (0, -1) Down.
-        // So in Y-Up system, Matrix(-90) is CW.
-        // But Gesture was CCW.
-        // So Result is CW (Reversed).
-
-        // So if Store is Y-Up:
-        // We need Positive Delta for CCW.
-        // Delta3D is Negative for CCW.
-        // So we MUST Negate Delta3D.
-
-        // Conclusion:
-        // If Store is Y-Down (Canvas): Direct Delta3D works.
-        // If Store is Y-Up (CAD): Negate Delta3D.
-
-        // Given "Reversed" report, and typical BIM/CAD data, Store is likely Y-Up (or treated as such).
-        // So I will Negate.
-
         const deltaRotation = -(endAngle - this.startAngle); // Negate for 2D Math compatibility
 
-        // Update Store
         const store = useCanvasStore();
-
-        // 使用统一坐标转换工具：3D center -> 2D center
         const center2D = toModel(this.centerPoint);
 
-        // 旋转所有顶点
-        const newBounds = this.selectedObject.bounds.map((p: [number, number]) =>
-            rotatePoint2D(p, center2D, deltaRotation)
-        );
+        // 批量更新所有选中对象
+        for (const obj of this.selectedObjects) {
+            // 旋转所有顶点
+            const newBounds = obj.bounds.map((p: [number, number]) =>
+                rotatePoint2D(p, center2D, deltaRotation)
+            );
 
-        // 旋转朝向向量
-        // 1. 先将 facing 转换为向量（无论是语义字符串还是数组）
-        // 2. 旋转向量
-        // 3. 保存为向量格式（旋转后通常不再是标准8方向，用向量更精确）
-        let facingVector: [number, number];
-        if (typeof this.selectedObject.facing === 'string') {
-            // 语义字符串 -> 向量
-            facingVector = semanticToVector(this.selectedObject.facing);
-        } else if (Array.isArray(this.selectedObject.facing)) {
-            facingVector = this.selectedObject.facing as [number, number];
-        } else {
-            // 默认朝北
-            facingVector = [0, 1];
-        }
-        const newFacing = rotateFacing2D(facingVector, deltaRotation);
+            // 旋转朝向向量
+            let facingVector: [number, number];
+            if (typeof obj.facing === 'string') {
+                facingVector = semanticToVector(obj.facing);
+            } else if (Array.isArray(obj.facing)) {
+                facingVector = obj.facing as [number, number];
+            } else {
+                facingVector = [0, 1]; // 默认朝北
+            }
+            const newFacing = rotateFacing2D(facingVector, deltaRotation);
 
-        store.updateModule(this.selectedObject.id, {
-            bounds: newBounds,
-            facing: newFacing
-        });
-
-        const updated = store.document?.modules.find(m => m.id === this.selectedObject.id);
-        if (updated) {
-            store.setSelectedObject(updated);
+            store.updateModule(obj.id, {
+                bounds: newBounds,
+                facing: newFacing
+            });
         }
 
-        // Clear selection after rotation
-        store.setSelectedObject(null);
+        // 清除选择
+        store.clearSelection();
 
-        console.log("Rotate executed");
+        console.log(`Rotate executed: ${this.selectedObjects.length} objects rotated`);
         this.deactivate();
         window.dispatchEvent(new CustomEvent('bimcanvas:tool-completed'));
     }
@@ -367,7 +311,7 @@ export class RotateTool implements Tool {
 
     // Visual Helpers
     private createCenterMarker(point: THREE.Vector3) {
-        const geometry = new THREE.CircleGeometry(100, 32); // 100mm radius
+        const geometry = new THREE.CircleGeometry(100, 32);
         const material = new THREE.MeshBasicMaterial({ color: 0x0000ff, depthTest: false });
         this.centerMarker = new THREE.Mesh(geometry, material);
         this.centerMarker.rotation.x = -Math.PI / 2;
@@ -403,8 +347,6 @@ export class RotateTool implements Tool {
     }
 
     private createStartLine(start: THREE.Vector3, end: THREE.Vector3) {
-        // This method is now redundant if we use updateStartLine, but we keep it for the "freeze" moment
-        // Actually, we can just ensure updateStartLine was called with the final point.
         this.updateStartLine(start, end);
     }
 
@@ -433,3 +375,4 @@ export class RotateTool implements Tool {
         if (this.endLine) { this.scene.remove(this.endLine); this.endLine = null; }
     }
 }
+

@@ -4,7 +4,7 @@ import { computed, ref, watch } from 'vue';
 import { storeToRefs } from 'pinia';
 
 const store = useCanvasStore();
-const { currentOperation } = storeToRefs(store);
+const { currentOperation, selectedIds } = storeToRefs(store);
 const isExpanded = ref(false); // Default collapsed
 
 const toggleExpand = () => {
@@ -12,6 +12,7 @@ const toggleExpand = () => {
 };
 
 const selectedObject = computed(() => store.selectedObject);
+const selectionCount = computed(() => store.selectedIds.length);
 
 // 是否处于编辑模式（移动/旋转）
 const isInEditMode = computed(() => {
@@ -25,20 +26,25 @@ watch(currentOperation, (newVal) => {
     }
 });
 
-// 需求2：选中对象时，只有在非编辑模式下才自动展开面板
-// 编辑模式下点击选取对象不应展开面板
-watch(selectedObject, (newVal) => {
+// 需求2：根据选择集大小控制面板展开/收起
+// - 单选（selectedIds.length === 1）：展开
+// - 多选（selectedIds.length > 1）：折叠
+// - 无选择（selectedIds.length === 0）：折叠
+// - 编辑模式：不自动展开
+watch(selectedIds, (newIds) => {
     // 如果处于编辑模式，不自动展开
     if (isInEditMode.value) {
         return;
     }
-    // 非编辑模式下，正常的展开/收起逻辑
-    if (newVal) {
+    
+    // 只有单选时展开面板
+    if (newIds.length === 1) {
         isExpanded.value = true;
     } else {
+        // 多选或无选择时折叠
         isExpanded.value = false;
     }
-});
+}, { deep: true });
 
 // Project Properties
 const projectProperties = computed(() => {
@@ -54,6 +60,14 @@ const projectProperties = computed(() => {
 });
 
 const properties = computed(() => {
+  // 多选模式：显示简化信息
+  if (selectionCount.value > 1) {
+    return [
+      { key: 'Selection', value: `${selectionCount.value} objects selected`, readonly: true },
+      { key: 'Tip', value: 'Use Move/Rotate to edit', readonly: true },
+    ];
+  }
+
   if (!selectedObject.value) return projectProperties.value;
   
   const obj = selectedObject.value;
@@ -121,7 +135,7 @@ const updateProperty = (key: string, newValue: any) => {
 
     <div class="content" v-if="isExpanded">
         <header class="panel-header">
-            <h2>{{ selectedObject ? (selectedObject.type || 'Selection').toUpperCase() : 'PROJECT INFO' }}</h2>
+            <h2>{{ selectionCount > 1 ? 'MULTI-SELECT' : (selectedObject ? (selectedObject.type || 'Selection').toUpperCase() : 'PROJECT INFO') }}</h2>
         </header>
         
         <div class="prop-list">

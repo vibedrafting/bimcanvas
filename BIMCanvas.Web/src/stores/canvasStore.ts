@@ -12,14 +12,81 @@ export const useCanvasStore = defineStore('canvas', () => {
     const document = ref<CanvasDocument | null>(null);
     const isLoading = ref(false);
 
-    // P1 类型安全增强：使用 selectedId 作为真正的状态源
-    const selectedId = ref<string | null>(null);
+    // === 多选支持 ===
+    // selectedIds 取代原来的 selectedId，支持多选
+    const selectedIds = ref<string[]>([]);
 
-    // 兼容层：保留 selectedObject 作为只读计算属性，供现有代码使用
+    // 兼容层：selectedObject 返回第一个选中对象（给旧代码用）
     const selectedObject = computed(() => {
-        if (!selectedId.value || !document.value) return null;
-        return document.value.modules?.find(m => m.id === selectedId.value) ?? null;
+        if (selectedIds.value.length === 0 || !document.value) return null;
+        const firstId = selectedIds.value[0];
+        if (!firstId) return null;
+        return findObjectById(firstId);
     });
+
+    // 新增：返回所有选中对象
+    const selectedObjects = computed(() => {
+        if (selectedIds.value.length === 0 || !document.value) return [];
+        return selectedIds.value
+            .map(id => findObjectById(id))
+            .filter((obj): obj is NonNullable<typeof obj> => obj !== null);
+    });
+
+    // 辅助函数：在所有对象类型中查找
+    const findObjectById = (id: string): any | null => {
+        // 延迟获取 debugStore（避免初始化顺序问题）
+        const debug = useDebugStore();
+
+        if (!document.value) {
+            debug.warn('[Store] findObjectById: document is null');
+            return null;
+        }
+
+        debug.log(`[Store] findObjectById: ${id}`);
+
+        // 显示 walls 列表便于对比
+        const wallIds = document.value.walls?.map(w => w.id).slice(0, 3) || [];
+        debug.log(`[Store] Available wall IDs: [${wallIds.join(', ')}...]`);
+
+        // 在 modules 中查找
+        const module = document.value.modules?.find(m => m.id === id);
+        if (module) {
+            debug.success(`[Store] findObjectById: found in modules`);
+            return { ...module, type: 'module' };
+        }
+
+        // 在 walls 中查找
+        const wall = document.value.walls?.find(w => w.id === id);
+        if (wall) {
+            debug.success(`[Store] findObjectById: found in walls`);
+            return { ...wall, type: 'wall' };
+        }
+
+        // 在 columns 中查找
+        const column = document.value.columns?.find(c => c.id === id);
+        if (column) {
+            debug.success(`[Store] findObjectById: found in columns`);
+            return { ...column, type: 'column' };
+        }
+
+        // 在 openings 中查找（门窗）- 使用类型断言
+        const doc = document.value as any;
+        if (doc.outline?.openings) {
+            const opening = doc.outline.openings.find((o: any) => o.id === id);
+            if (opening) {
+                debug.success(`[Store] findObjectById: found in openings`);
+                return { ...opening, type: opening.type || 'opening' };
+            }
+        }
+
+        // 列出所有可用 ID 帮助调试
+        const allIds: string[] = [];
+        document.value.modules?.forEach(m => allIds.push(`mod:${m.id}`));
+        document.value.walls?.forEach(w => allIds.push(`wall:${w.id}`));
+        debug.warn(`[Store] findObjectById: NOT FOUND (${id}). Available: ${allIds.slice(0, 5).join(', ')}...`);
+
+        return null;
+    };
 
     const debugMsg = ref<string>('');
     const instanceId = Math.random().toString(36).substring(7);
@@ -65,26 +132,99 @@ export const useCanvasStore = defineStore('canvas', () => {
         // saveState calls updateHistoryState
     };
 
+    // === 多选操作方法 ===
+
+    // 兼容旧代码：设置单选（清空现有选择，设置为新单选）
     const setSelectedObject = (obj: any | null) => {
-        // 从对象中提取 id，兼容多种输入格式
         if (obj === null) {
-            selectedId.value = null;
-        } else if (typeof obj === 'string') {
-            selectedId.value = obj;
-        } else if (obj.id) {
-            selectedId.value = obj.id;
-        } else if (obj.userData?.id) {
-            // 兼容 THREE.Object3D 的 userData
-            selectedId.value = obj.userData.id;
+            selectedIds.value = [];
         } else {
-            selectedId.value = null;
+            let id: string | null = null;
+            if (typeof obj === 'string') {
+                id = obj;
+            } else if (obj.id) {
+                id = obj.id;
+            } else if (obj.userData?.id) {
+                id = obj.userData.id;
+            }
+            selectedIds.value = id ? [id] : [];
         }
-        debugMsg.value += `\nSet: ${selectedId.value || 'NULL'} at ${Date.now()}`;
-        console.log('Store setSelectedObject:', selectedId.value, '->', selectedObject.value);
+        debugMsg.value += `\nSet: ${selectedIds.value.join(',')} at ${Date.now()}`;
+        console.log('Store setSelectedObject:', selectedIds.value, '->', selectedObject.value);
+    };
+
+    // 新增：批量设置选择（替换整个选择集）
+    const setSelection = (ids: string[]) => {
+        selectedIds.value = [...ids];
+        debugMsg.value += `\nSetSelection: [${ids.join(',')}] at ${Date.now()}`;
+    };
+
+    // 新增：添加到选择集
+    const addToSelection = (obj: any) => {
+        let id: string | null = null;
+        if (typeof obj === 'string') {
+            id = obj;
+        } else if (obj?.id) {
+            id = obj.id;
+        } else if (obj?.userData?.id) {
+            id = obj.userData.id;
+        }
+        if (id && !selectedIds.value.includes(id)) {
+            selectedIds.value = [...selectedIds.value, id];
+            debugMsg.value += `\nAdd: ${id} at ${Date.now()}`;
+        }
+    };
+
+    // 新增：从选择集移除
+    const removeFromSelection = (obj: any) => {
+        let id: string | null = null;
+        if (typeof obj === 'string') {
+            id = obj;
+        } else if (obj?.id) {
+            id = obj.id;
+        } else if (obj?.userData?.id) {
+            id = obj.userData.id;
+        }
+        if (id) {
+            selectedIds.value = selectedIds.value.filter(i => i !== id);
+            debugMsg.value += `\nRemove: ${id} at ${Date.now()}`;
+        }
+    };
+
+    // 新增：切换选择状态（已选则取消，未选则添加）
+    const toggleSelection = (obj: any) => {
+        let id: string | null = null;
+        if (typeof obj === 'string') {
+            id = obj;
+        } else if (obj?.id) {
+            id = obj.id;
+        } else if (obj?.userData?.id) {
+            id = obj.userData.id;
+        }
+        if (id) {
+            if (selectedIds.value.includes(id)) {
+                removeFromSelection(id);
+            } else {
+                addToSelection(id);
+            }
+        }
+    };
+
+    // 新增：检查对象是否被选中
+    const isSelected = (obj: any): boolean => {
+        let id: string | null = null;
+        if (typeof obj === 'string') {
+            id = obj;
+        } else if (obj?.id) {
+            id = obj.id;
+        } else if (obj?.userData?.id) {
+            id = obj.userData.id;
+        }
+        return id ? selectedIds.value.includes(id) : false;
     };
 
     const clearSelection = () => {
-        selectedId.value = null;
+        selectedIds.value = [];
     };
 
     const loadDemoData = async (url: string) => {
@@ -147,7 +287,7 @@ export const useCanvasStore = defineStore('canvas', () => {
         const moduleIndex = document.value.modules.findIndex(m => m.id === moduleId);
         if (moduleIndex !== -1) {
             document.value.modules.splice(moduleIndex, 1);
-            selectedId.value = null; // Deselect
+            selectedIds.value = []; // Deselect
 
             // Use nextTick to ensure state is settled before saving
             nextTick(() => saveState());
@@ -168,8 +308,9 @@ export const useCanvasStore = defineStore('canvas', () => {
     return {
         // State
         document,
-        selectedId,       // 新增：真正的选择状态
-        selectedObject,   // 兼容层：计算属性
+        selectedIds,      // 多选：选中对象 ID 数组
+        selectedObject,   // 兼容层：第一个选中对象
+        selectedObjects,  // 新增：所有选中对象数组
         isLoading,
         error,
         agentConnectionState,
@@ -181,8 +322,13 @@ export const useCanvasStore = defineStore('canvas', () => {
 
         // Actions
         loadDemoData,
-        setSelectedObject,
-        clearSelection,   // 新增：显式清除选择
+        setSelectedObject,  // 兼容层：单选
+        setSelection,       // 新增：批量设置
+        addToSelection,     // 新增：添加到选择集
+        removeFromSelection,// 新增：从选择集移除
+        toggleSelection,    // 新增：切换选择
+        isSelected,         // 新增：检查是否选中
+        clearSelection,
         updateModule,
         removeModule,
         undo,
