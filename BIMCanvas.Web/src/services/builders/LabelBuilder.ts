@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { CSS2DObject } from 'three-stdlib';
 import { LayerManager } from '../three/LayerManager';
-import type { CanvasDocument } from '../../types/canvas';
+import type { CanvasDocument, Point2D, Line2D, Polygon2D } from '../../types/canvas';
 import { themeService } from '../theme/ThemeService';
 
 export class LabelBuilder {
@@ -35,7 +35,8 @@ export class LabelBuilder {
                 if (wall.id && wall.polygon && wall.polygon.length > 0) {
                     // Calculate center
                     const center = this.getPolygonCenter(wall.polygon);
-                    this.createLabel(wall.id, center, 'Wall');
+                    const orientation = this.getOrientation(wall.polygon);
+                    this.createLabel(wall.id, center, orientation);
                 }
             });
         }
@@ -45,7 +46,8 @@ export class LabelBuilder {
             doc.columns.forEach(col => {
                 if (col.id && col.polygon && col.polygon.length > 0) {
                     const center = this.getPolygonCenter(col.polygon);
-                    this.createLabel(col.id, center, 'Col');
+                    const orientation = this.getOrientation(col.polygon);
+                    this.createLabel(col.id, center, orientation);
                 }
             });
         }
@@ -55,7 +57,19 @@ export class LabelBuilder {
             doc.modules.forEach(mod => {
                 if (mod.id && mod.bounds && mod.bounds.length > 0) {
                     const center = this.getPolygonCenter(mod.bounds);
-                    this.createLabel(mod.id, center, 'Mod');
+                    const orientation = this.getOrientation(mod.bounds);
+                    this.createLabel(mod.id, center, orientation);
+                }
+            });
+        }
+
+        // 4. Openings (Doors/Windows)
+        if (doc.openings) {
+            doc.openings.forEach(opening => {
+                if (opening.id && opening.line) {
+                    const center = this.getLineCenter(opening.line);
+                    const orientation = this.getOrientation(opening.line);
+                    this.createLabel(opening.id, center, orientation);
                 }
             });
         }
@@ -63,7 +77,7 @@ export class LabelBuilder {
         this.scene.add(this.labelGroup);
     }
 
-    private createLabel(id: string, position: THREE.Vector3, prefix: string) {
+    private createLabel(id: string, position: THREE.Vector3, orientation: 'horizontal' | 'vertical') {
         // 从 ThemeService 获取标签配色
         const colors = themeService.currentTheme.value.label;
 
@@ -87,6 +101,12 @@ export class LabelBuilder {
         div.style.border = colors.border;
         div.style.boxShadow = '0 1px 2px rgba(0,0,0,0.2)'; // Add depth
 
+        // Apply orientation
+        if (orientation === 'vertical') {
+            div.style.transform = 'rotate(-90deg)';
+            div.style.transformOrigin = 'center center';
+        }
+
         const label = new CSS2DObject(div);
         label.position.copy(position);
 
@@ -96,7 +116,7 @@ export class LabelBuilder {
         this.labelGroup!.add(label);
     }
 
-    private getPolygonCenter(polygon: number[][]): THREE.Vector3 {
+    private getPolygonCenter(polygon: Polygon2D): THREE.Vector3 {
         let x = 0, y = 0;
         polygon.forEach(p => {
             x += p[0];
@@ -108,5 +128,30 @@ export class LabelBuilder {
         // Convert to 3D coordinates (X, 0, -Y)
         return new THREE.Vector3(centerX, 0, -centerY);
     }
-}
 
+    private getLineCenter(line: Line2D): THREE.Vector3 {
+        const p1 = line[0];
+        const p2 = line[1];
+        const centerX = (p1[0] + p2[0]) / 2;
+        const centerY = (p1[1] + p2[1]) / 2;
+        return new THREE.Vector3(centerX, 0, -centerY);
+    }
+
+    private getOrientation(points: Point2D[] | Line2D): 'horizontal' | 'vertical' {
+        let minX = Infinity, maxX = -Infinity;
+        let minY = Infinity, maxY = -Infinity;
+
+        points.forEach(p => {
+            if (p[0] < minX) minX = p[0];
+            if (p[0] > maxX) maxX = p[0];
+            if (p[1] < minY) minY = p[1];
+            if (p[1] > maxY) maxY = p[1];
+        });
+
+        const width = maxX - minX;
+        const height = maxY - minY;
+
+        // If width >= height, it's horizontal. Otherwise vertical.
+        return width >= height ? 'horizontal' : 'vertical';
+    }
+}
