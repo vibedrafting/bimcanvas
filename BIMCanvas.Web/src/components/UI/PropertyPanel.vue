@@ -207,7 +207,7 @@ const updateProperty = (key: string, newValue: any) => {
     
     .panel-header {
         padding: 1rem;
-        background: var(--surface-solid);
+        background: transparent; /* Unified with panel background */
         border-bottom: 1px solid var(--border-subtle);
 
         h2 {
