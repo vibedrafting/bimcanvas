@@ -1,8 +1,10 @@
 <script setup lang="ts">
 import { useCanvasStore } from '../../stores/canvasStore';
 import { computed, ref, watch } from 'vue';
+import { storeToRefs } from 'pinia';
 
 const store = useCanvasStore();
+const { currentOperation } = storeToRefs(store);
 const isExpanded = ref(false); // Default collapsed
 
 const toggleExpand = () => {
@@ -11,8 +13,26 @@ const toggleExpand = () => {
 
 const selectedObject = computed(() => store.selectedObject);
 
-// Auto-expand/collapse based on selection
+// 是否处于编辑模式（移动/旋转）
+const isInEditMode = computed(() => {
+    return currentOperation.value === 'moving' || currentOperation.value === 'rotating';
+});
+
+// 需求1：进入编辑模式时自动收起面板
+watch(currentOperation, (newVal) => {
+    if (newVal === 'moving' || newVal === 'rotating') {
+        isExpanded.value = false;
+    }
+});
+
+// 需求2：选中对象时，只有在非编辑模式下才自动展开面板
+// 编辑模式下点击选取对象不应展开面板
 watch(selectedObject, (newVal) => {
+    // 如果处于编辑模式，不自动展开
+    if (isInEditMode.value) {
+        return;
+    }
+    // 非编辑模式下，正常的展开/收起逻辑
     if (newVal) {
         isExpanded.value = true;
     } else {
