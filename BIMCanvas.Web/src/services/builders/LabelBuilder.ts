@@ -12,6 +12,23 @@ export class LabelBuilder {
         this.scene = scene;
     }
 
+    /**
+     * 清理标签资源（主题切换时调用）
+     */
+    public cleanup() {
+        if (this.labelGroup) {
+            // 清理 CSS2DObject DOM 元素
+            this.labelGroup.children.forEach(child => {
+                if ((child as any).element && (child as any).element.parentNode) {
+                    (child as any).element.parentNode.removeChild((child as any).element);
+                }
+            });
+            this.labelGroup.clear();
+            this.scene.remove(this.labelGroup);
+            this.labelGroup = null;
+        }
+    }
+
     public buildLabels(doc: CanvasDocument) {
         if (this.labelGroup) {
             // Explicitly cleanup CSS2DObject DOM elements to prevent ghosts
@@ -78,8 +95,8 @@ export class LabelBuilder {
     }
 
     private createLabel(id: string, position: THREE.Vector3, orientation: 'horizontal' | 'vertical') {
-        // 从 ThemeService 获取标签配色
-        const colors = themeService.currentTheme.value.label;
+        // 从 ThemeService 获取构件标签配色
+        const config = themeService.currentTheme.value.componentLabel;
 
         const div = document.createElement('div');
         div.className = 'ai-label';
@@ -90,14 +107,26 @@ export class LabelBuilder {
         const shortId = id.length > 8 ? id.substring(0, 4) : id;
         div.textContent = `#${shortId}`;
 
-        // 不使用背景填充和边框，只用纯文字+阴影（明亮/暗黑模式通用）
-        div.style.color = colors.text;
+        // 样式设置
+        div.style.color = config.text;
+        div.style.textShadow = config.shadow;
+
+        // 只有当背景色有效且不为 transparent 时才应用背景和滤镜
+        if (config.background && config.background !== 'transparent') {
+            div.style.background = config.background;
+            div.style.backdropFilter = 'blur(4px)'; // 仅在有背景色时应用毛玻璃
+        } else {
+            div.style.background = 'transparent';
+            div.style.backdropFilter = 'none';
+        }
+
+        if (config.padding) div.style.padding = config.padding;
+        if (config.borderRadius) div.style.borderRadius = config.borderRadius;
+
         div.style.fontSize = '10px';
-        div.style.fontWeight = 'bold';
-        div.style.fontFamily = 'monospace';
+        div.style.fontWeight = 'normal'; // 变细，减少视觉干扰
+        div.style.fontFamily = 'monospace'; // 等宽字体利于 AI 识别
         div.style.pointerEvents = 'none'; // Crucial for clicking through
-        // 使用文字阴影增强可读性
-        div.style.textShadow = '0 1px 2px rgba(0,0,0,0.3), 0 0 4px rgba(255,255,255,0.2)';
 
         // Apply orientation
         if (orientation === 'vertical') {

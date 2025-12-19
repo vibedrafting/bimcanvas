@@ -51,11 +51,22 @@ export interface ColorTheme {
         opacity: number;
     };
 
-    /** 标签配色 (CSS 字符串) */
-    label: {
-        background: string;
+    /** Grid 图层标签配色 (行列头) */
+    gridLabel: {
         text: string;
-        border: string;
+        shadow: string;
+        background?: string; // 可选背景色
+        padding?: string;    // 可选内边距
+        borderRadius?: string; // 可选圆角
+    };
+
+    /** 构件标签配色 (墙、柱、模块、门窗) */
+    componentLabel: {
+        text: string;
+        shadow: string;
+        background?: string; // 可选背景色
+        padding?: string;    // 可选内边距
+        borderRadius?: string; // 可选圆角
     };
 
     /** UI 配色 (CSS 变量) - Apple 风格 */
@@ -118,10 +129,16 @@ export const darkTheme: ColorTheme = {
         exclusion: 0xef4444,     // Red
         opacity: 0.2,
     },
-    label: {
-        background: 'rgba(0, 0, 0, 0.85)',
-        text: '#22c55e',
-        border: '1px solid #22c55e',
+    gridLabel: {
+        text: '#6b7280',   // 灰色
+        shadow: '0 1px 2px rgba(0,0,0,0.5)',
+        background: 'transparent',
+    },
+    componentLabel: {
+        text: '#ffffff',   // 纯白 - 与绿色构件区分，高对比度
+        // 极细黑色描边 - 增强轮廓感
+        shadow: '-1px -1px 0 #000, 1px -1px 0 #000, -1px 1px 0 #000, 1px 1px 0 #000',
+        background: 'transparent',
     },
     css: {
         // 暗色主题 - 深黑背景
@@ -176,10 +193,18 @@ export const lightTheme: ColorTheme = {
         exclusion: 0xff3b30,     // Apple Red
         opacity: 0.15,           // Slightly more transparent in light mode
     },
-    label: {
-        background: 'rgba(255, 255, 255, 0.95)',
-        text: '#34c759',
-        border: '1px solid #34c759',
+    gridLabel: {
+        text: '#6b7280',   // 灰色 - 保持低调
+        shadow: 'none',
+        background: 'transparent',
+    },
+    componentLabel: {
+        text: '#000000',   // 纯黑 - 与绿色构件区分，极致对比度
+        // 极细锐利描边 (1px hard stroke)
+        shadow: '-1px -1px 0 #fff, 1px -1px 0 #fff, -1px 1px 0 #fff, 1px 1px 0 #fff',
+        background: 'transparent',
+        padding: '0',
+        borderRadius: '0',
     },
     css: {
         // 亮色主题 - Apple Freeform 风格

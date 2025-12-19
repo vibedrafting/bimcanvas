@@ -101,7 +101,7 @@ export class GridBuilder {
         this.labelGroup = new THREE.Group();
         this.labelGroup.layers.set(LayerManager.LAYER_GRID);
 
-        const labelColor = themeService.currentTheme.value.label.text;
+        const labelConfig = themeService.currentTheme.value.gridLabel;
 
         // 固定生成 50 个标签
         const maxLabels = 50;
@@ -113,7 +113,7 @@ export class GridBuilder {
         for (let col = 0; col < maxLabels; col++) {
             const label = this.getColumnLabel(col);
             const x = (col + 0.5) * this.gridSpacing;
-            this.createSemanticLabel(label, new THREE.Vector3(x, 0, zOffsetForColumnLabels), labelColor);
+            this.createSemanticLabel(label, new THREE.Vector3(x, 0, zOffsetForColumnLabels), labelConfig);
         }
 
         // 行标签 (1, 2, 3, ...) 
@@ -123,7 +123,7 @@ export class GridBuilder {
         for (let row = 0; row < maxLabels; row++) {
             const label = String(row + 1);
             const z = -(row + 0.5) * this.gridSpacing; // Z 负方向 = 屏幕向上
-            this.createSemanticLabel(label, new THREE.Vector3(xOffsetForRowLabels, 0, z), labelColor);
+            this.createSemanticLabel(label, new THREE.Vector3(xOffsetForRowLabels, 0, z), labelConfig);
         }
 
         this.scene.add(this.labelGroup);
@@ -148,19 +148,21 @@ export class GridBuilder {
     private createSemanticLabel(
         text: string,
         position: THREE.Vector3,
-        color: string
+        config: { text: string; shadow: string; background?: string; padding?: string; borderRadius?: string }
     ) {
         const div = document.createElement('div');
         div.className = 'semantic-grid-label';
         div.textContent = text;
-        div.style.color = color;
+        div.style.color = config.text;
+        // 使用简洁的阴影（无发光效果）
+        div.style.textShadow = config.shadow;
+
+        if (config.background) div.style.background = config.background;
+        if (config.padding) div.style.padding = config.padding;
+        if (config.borderRadius) div.style.borderRadius = config.borderRadius;
+
         div.style.fontSize = '14px';
         div.style.fontWeight = 'bold';
-        div.style.fontFamily = 'SF Pro, system-ui, sans-serif';
-        div.style.opacity = '0.9';
-        div.style.pointerEvents = 'none';
-        // 使用更明显的文字阴影替代背景填充，确保在明亮模式下可读
-        div.style.textShadow = '0 1px 3px rgba(0,0,0,0.4), 0 0 6px rgba(255,255,255,0.3)';
 
         const label = new CSS2DObject(div);
         label.position.copy(position);
