@@ -178,14 +178,23 @@ export class InteractionService {
             return;
         }
 
+        // Base Arrow Path (Revit-like)
+        const arrowPath = '<path d="M0 0L0 16L4.5 12L8.5 12L0 0Z" fill="black" stroke="white" stroke-width="1"/>';
+
         // Cursor hints
         if (event.key === 'Control') {
-            this.domElement.style.cursor = 'copy'; // Shows a '+' sign
+            // Custom Add Cursor (+)
+            const plusCursor = `url('data:image/svg+xml;utf8,<svg width="32" height="32" viewBox="0 0 32 32" xmlns="http://www.w3.org/2000/svg">${arrowPath}<path d="M12 4v8M8 8h8" stroke="black" stroke-width="2" fill="none"/><path d="M12 4v8M8 8h8" stroke="white" stroke-width="0.5" fill="none"/></svg>') 0 0, auto`;
+            this.domElement.style.cursor = plusCursor;
+        } else if (event.key === 'Shift') {
+            // Custom Remove Cursor (-)
+            const minusCursor = `url('data:image/svg+xml;utf8,<svg width="32" height="32" viewBox="0 0 32 32" xmlns="http://www.w3.org/2000/svg">${arrowPath}<path d="M8 8h8" stroke="black" stroke-width="2" fill="none"/><path d="M8 8h8" stroke="white" stroke-width="0.5" fill="none"/></svg>') 0 0, auto`;
+            this.domElement.style.cursor = minusCursor;
         }
     }
 
     private onKeyUp(event: KeyboardEvent) {
-        if (event.key === 'Control') {
+        if (event.key === 'Control' || event.key === 'Shift') {
             this.domElement.style.cursor = 'default';
         }
     }
