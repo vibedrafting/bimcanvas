@@ -374,6 +374,7 @@ export class ThreeSceneService {
         this.labelRenderer.render(this.scene, this.camera);
     }
 
+
     public dispose() {
         if (this.animationId) {
             cancelAnimationFrame(this.animationId);
@@ -393,6 +394,8 @@ export class ThreeSceneService {
         this.interactionService.dispose();
         this.viewportService.dispose();
         this.dragManager.dispose();
+
+        // 重置 GhostManager 单例
+        GhostManager.resetInstance();
     }
 }
-

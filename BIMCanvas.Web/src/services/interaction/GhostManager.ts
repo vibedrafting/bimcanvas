@@ -131,7 +131,12 @@ export class GhostManager {
         }
     }
 
-    public updateGhosts(ghosts: any[]) { }
+    /**
+     * 预留接口：批量更新 Ghost（暂未实现）
+     */
+    public updateGhosts(_ghosts: unknown[]) {
+        // TODO: 实现批量 Ghost 更新
+    }
 
     public setPositionOffset(offset: THREE.Vector3) {
         // For Move Tool: offset is delta
