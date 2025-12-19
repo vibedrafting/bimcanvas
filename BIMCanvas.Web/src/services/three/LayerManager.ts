@@ -2,13 +2,13 @@ import * as THREE from 'three';
 
 export class LayerManager {
     // Layer Definitions
-    public static readonly LAYER_MODEL = 0; // Default layer
-    public static readonly LAYER_GRID = 2;
-    public static readonly LAYER_LABELS = 3;
-    public static readonly LAYER_BOUNDS = 4;
-    public static readonly LAYER_SEMANTIC = 5;
-    public static readonly LAYER_AXES = 6;
-    public static readonly LAYER_ZONES = 7;
+    public static readonly LAYER_MODEL = 0; // 默认模型层
+    public static readonly LAYER_GRID = 2;  // 语义网格
+    public static readonly LAYER_LABELS = 3; // ID 标签
+    public static readonly LAYER_BOUNDS = 4; // 家具模块 OBB + 朝向箭头
+    public static readonly LAYER_OUTLINE = 5; // 边界描边（原 SEMANTIC）
+    public static readonly LAYER_ZONES = 7;  // 设计区 / 禁区（预留）
+    public static readonly LAYER_SEMANTIC = 8; // 设计场线（预留）
 
     // Presets
     public static readonly PRESET_HUMAN = 'human';
@@ -37,16 +37,16 @@ export class LayerManager {
             this.camera.layers.disable(LayerManager.LAYER_GRID);
             this.camera.layers.disable(LayerManager.LAYER_LABELS);
             this.camera.layers.disable(LayerManager.LAYER_BOUNDS);
-            this.camera.layers.disable(LayerManager.LAYER_SEMANTIC);
-            this.camera.layers.disable(LayerManager.LAYER_AXES);
+            this.camera.layers.disable(LayerManager.LAYER_OUTLINE);
             this.camera.layers.disable(LayerManager.LAYER_ZONES);
+            this.camera.layers.disable(LayerManager.LAYER_SEMANTIC);
         } else if (preset === LayerManager.PRESET_AI) {
             this.camera.layers.enable(LayerManager.LAYER_GRID);
             this.camera.layers.enable(LayerManager.LAYER_LABELS);
             this.camera.layers.enable(LayerManager.LAYER_BOUNDS);
-            this.camera.layers.enable(LayerManager.LAYER_SEMANTIC);
-            this.camera.layers.enable(LayerManager.LAYER_AXES);
+            this.camera.layers.enable(LayerManager.LAYER_OUTLINE);
             this.camera.layers.enable(LayerManager.LAYER_ZONES);
+            this.camera.layers.enable(LayerManager.LAYER_SEMANTIC);
         }
     }
 

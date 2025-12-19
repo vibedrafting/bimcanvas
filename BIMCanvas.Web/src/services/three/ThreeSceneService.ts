@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { SceneBuilder } from '../builders/SceneBuilder';
 import { GridBuilder } from '../builders/GridBuilder';
-import { SemanticLineBuilder } from '../builders/SemanticLineBuilder';
+import { OutlineBuilder } from '../builders/OutlineBuilder';
 import { LabelBuilder } from '../builders/LabelBuilder';
 import { ZoneBuilder } from '../builders/ZoneBuilder';
 import { CSS2DRenderer } from 'three-stdlib';
@@ -27,7 +27,7 @@ export class ThreeSceneService {
     // Builders
     private sceneBuilder: SceneBuilder;
     private gridBuilder: GridBuilder;
-    private semanticLineBuilder: SemanticLineBuilder;
+    private outlineBuilder: OutlineBuilder;
     private labelBuilder: LabelBuilder;
     private zoneBuilder: ZoneBuilder;
 
@@ -105,7 +105,7 @@ export class ThreeSceneService {
         // 6. Initialize Builders
         this.sceneBuilder = new SceneBuilder(this.scene);
         this.gridBuilder = new GridBuilder(this.scene);
-        this.semanticLineBuilder = new SemanticLineBuilder(this.scene);
+        this.outlineBuilder = new OutlineBuilder(this.scene);
         this.labelBuilder = new LabelBuilder(this.scene);
         this.zoneBuilder = new ZoneBuilder(this.scene);
 
@@ -122,7 +122,7 @@ export class ThreeSceneService {
             if (newDoc) {
                 // console.log('Document updated, rebuilding scene...');
                 this.sceneBuilder.buildFromDocument(newDoc);
-                this.semanticLineBuilder.buildLines(newDoc);
+                this.outlineBuilder.buildLines(newDoc);
                 this.labelBuilder.buildLabels(newDoc);
                 this.zoneBuilder.buildZones(newDoc);
                 this.gridBuilder.buildGrid();
@@ -224,7 +224,7 @@ export class ThreeSceneService {
         // 重新创建所有 Builders（它们在构造时读取 ThemeService 配色）
         this.sceneBuilder = new SceneBuilder(this.scene);
         this.gridBuilder = new GridBuilder(this.scene);
-        this.semanticLineBuilder = new SemanticLineBuilder(this.scene);
+        this.outlineBuilder = new OutlineBuilder(this.scene);
         this.labelBuilder = new LabelBuilder(this.scene);
         this.zoneBuilder = new ZoneBuilder(this.scene);
 
@@ -232,7 +232,7 @@ export class ThreeSceneService {
         const doc = this.store.document;
         if (doc) {
             this.sceneBuilder.buildFromDocument(doc);
-            this.semanticLineBuilder.buildLines(doc);
+            this.outlineBuilder.buildLines(doc);
             this.labelBuilder.buildLabels(doc);
             this.zoneBuilder.buildZones(doc);
             this.gridBuilder.buildGrid();

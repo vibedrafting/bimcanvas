@@ -11,6 +11,8 @@ const layers = ref({
   [LayerManager.LAYER_GRID]: false,
   [LayerManager.LAYER_LABELS]: false,
   [LayerManager.LAYER_BOUNDS]: false,
+  [LayerManager.LAYER_OUTLINE]: false,
+  [LayerManager.LAYER_ZONES]: false,
   [LayerManager.LAYER_SEMANTIC]: false,
 });
 
@@ -125,6 +127,14 @@ onUnmounted(() => {
           <label class="layer-item">
             <input type="checkbox" :checked="layers[LayerManager.LAYER_BOUNDS]" @change="toggleLayer(LayerManager.LAYER_BOUNDS)">
             <span>Bounds</span>
+          </label>
+          <label class="layer-item">
+            <input type="checkbox" :checked="layers[LayerManager.LAYER_OUTLINE]" @change="toggleLayer(LayerManager.LAYER_OUTLINE)">
+            <span>Outline</span>
+          </label>
+          <label class="layer-item">
+            <input type="checkbox" :checked="layers[LayerManager.LAYER_ZONES]" @change="toggleLayer(LayerManager.LAYER_ZONES)">
+            <span>Zones</span>
           </label>
           <label class="layer-item">
             <input type="checkbox" :checked="layers[LayerManager.LAYER_SEMANTIC]" @change="toggleLayer(LayerManager.LAYER_SEMANTIC)">

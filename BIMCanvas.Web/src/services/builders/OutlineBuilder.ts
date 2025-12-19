@@ -3,14 +3,18 @@ import { LayerManager } from '../three/LayerManager';
 import type { CanvasDocument } from '../../types/canvas';
 import { themeService } from '../theme/ThemeService';
 
-export class SemanticLineBuilder {
+/**
+ * OutlineBuilder - 边界描边构建器
+ * 为墙体、柱子、家具模块绘制 2D 轮廓线
+ */
+export class OutlineBuilder {
     private scene: THREE.Scene;
     private material: THREE.LineBasicMaterial;
     private lineGroup: THREE.Group | null = null;
 
     constructor(scene: THREE.Scene) {
         this.scene = scene;
-        // 从 ThemeService 获取语义线配色
+        // 从 ThemeService 获取描边配色
         const colors = themeService.currentTheme.value.semantic;
         this.material = new THREE.LineBasicMaterial({
             color: colors.line,
@@ -27,7 +31,7 @@ export class SemanticLineBuilder {
         }
 
         this.lineGroup = new THREE.Group();
-        this.lineGroup.layers.set(LayerManager.LAYER_SEMANTIC);
+        this.lineGroup.layers.set(LayerManager.LAYER_OUTLINE);
 
         // 1. Wall Boundaries
         if (doc.walls) {
@@ -45,7 +49,7 @@ export class SemanticLineBuilder {
                 line.rotation.x = -Math.PI / 2;
 
                 // Fix: Layers are not inherited by children in Three.js, must set explicitly
-                line.layers.set(LayerManager.LAYER_SEMANTIC);
+                line.layers.set(LayerManager.LAYER_OUTLINE);
 
                 this.lineGroup!.add(line);
             });
@@ -61,7 +65,7 @@ export class SemanticLineBuilder {
                 line.rotation.x = -Math.PI / 2;
 
                 // Fix: Set layer explicitly
-                line.layers.set(LayerManager.LAYER_SEMANTIC);
+                line.layers.set(LayerManager.LAYER_OUTLINE);
 
                 this.lineGroup!.add(line);
             });
@@ -77,7 +81,7 @@ export class SemanticLineBuilder {
                 line.rotation.x = -Math.PI / 2;
 
                 // Fix: Set layer explicitly
-                line.layers.set(LayerManager.LAYER_SEMANTIC);
+                line.layers.set(LayerManager.LAYER_OUTLINE);
 
                 this.lineGroup!.add(line);
             });
@@ -86,4 +90,3 @@ export class SemanticLineBuilder {
         this.scene.add(this.lineGroup);
     }
 }
-

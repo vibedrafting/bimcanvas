@@ -152,9 +152,7 @@ export class SceneBuilder {
         this.clearScene();
         // this.buildFloor(); // Removed as per user request
 
-        // Add Axes Helper
-        // Add Compass (Architectural Style)
-        this.createCompass();
+        // (Compass removed)
 
         // 1. Walls
         if (doc.walls && doc.walls.length > 0) {
@@ -198,9 +196,7 @@ export class SceneBuilder {
         this.createBoundsHelper(module);
         this.scene.add(module);
 
-        // Add Axes Helper
-        // Add Compass (Architectural Style)
-        this.createCompass();
+        // (Compass removed)
 
         this.updateAllHelpers();
     }
@@ -268,7 +264,7 @@ export class SceneBuilder {
         };
 
         this.enableLayers(mesh);
-        this.createBoundsHelper(mesh);
+        // Bounds 仅用于家具模块，建筑构件使用 Outline 描边
         this.scene.add(mesh);
     }
 
@@ -294,7 +290,7 @@ export class SceneBuilder {
         };
 
         this.enableLayers(mesh);
-        this.createBoundsHelper(mesh);
+        // Bounds 仅用于家具模块，建筑构件使用 Outline 描边
         this.scene.add(mesh);
     }
 
@@ -398,8 +394,7 @@ export class SceneBuilder {
 
         root.add(panelGroup);
 
-        // Create ONE BoxHelper for the entire door group
-        this.createBoundsHelper(root);
+        // Bounds 仅用于家具模块，门窗使用 Outline 描边
     }
 
     private createWindow(center: THREE.Vector2, width: number, height: number, angle: number, originalOp?: Opening) {
@@ -455,8 +450,7 @@ export class SceneBuilder {
 
         root.add(group);
 
-        // Create ONE BoxHelper for the entire window group
-        this.createBoundsHelper(root);
+        // Bounds 仅用于家具模块，门窗使用 Outline 描边
     }
 
     private createModuleMesh(mod: Module) {
@@ -482,78 +476,101 @@ export class SceneBuilder {
 
         this.enableLayers(mesh);
         this.createBoundsHelper(mesh);
+
+        // 添加朝向箭头
+        this.createFacingArrow(mod);
+
         this.scene.add(mesh);
     }
-    private createCompass() {
-        const compassGroup = new THREE.Group();
-        compassGroup.layers.set(LayerManager.LAYER_AXES);
 
-        // 1. Ring (Circle)
-        const radius = 800;
-        const ringCurve = new THREE.EllipseCurve(
-            0, 0,            // ax, aY
-            radius, radius,  // xRadius, yRadius
-            0, 2 * Math.PI,  // aStartAngle, aEndAngle
-            false,           // aClockwise
-            0                // aRotation
-        );
-        const ringPoints = ringCurve.getPoints(64);
-        const ringGeo = new THREE.BufferGeometry().setFromPoints(ringPoints);
-        const lineMat = new THREE.LineBasicMaterial({
-            color: 0x888888, // Neutral Grey
-            transparent: true,
-            opacity: 0.5
+    /**
+     * 为家具模块创建朝向箭头（简约风格）
+     */
+    private createFacingArrow(mod: Module) {
+        // 计算模块中心
+        let cx = 0, cy = 0;
+        mod.bounds.forEach(p => {
+            cx += p[0];
+            cy += p[1];
         });
-        const ring = new THREE.LineLoop(ringGeo, lineMat);
-        ring.rotation.x = -Math.PI / 2; // Lay flat on ground
-        ring.layers.set(LayerManager.LAYER_AXES);
-        compassGroup.add(ring);
+        cx /= mod.bounds.length;
+        cy /= mod.bounds.length;
 
-        // 2. Cross Lines (N-S, E-W)
-        const crossSize = radius + 200; // Slightly larger than ring
-        const crossPoints = [];
-        // N-S Line (Plan Y / World -Z)
-        crossPoints.push(new THREE.Vector3(0, 0, -crossSize));
-        crossPoints.push(new THREE.Vector3(0, 0, crossSize));
-        // E-W Line (Plan X / World X)
-        crossPoints.push(new THREE.Vector3(-crossSize, 0, 0));
-        crossPoints.push(new THREE.Vector3(crossSize, 0, 0));
+        // 解析朝向角度
+        let angle = 0; // 默认朝北 (Y 正方向)
+        if (typeof mod.facing === 'string') {
+            // 语义方向转角度 (平面坐标系，Y 正方向为 0°)
+            const directionMap: { [key: string]: number } = {
+                'north': 0,
+                'northeast': 45,
+                'east': 90,
+                'southeast': 135,
+                'south': 180,
+                'southwest': 225,
+                'west': 270,
+                'northwest': 315
+            };
+            angle = (directionMap[mod.facing.toLowerCase()] || 0) * Math.PI / 180;
+        } else if (Array.isArray(mod.facing) && mod.facing.length >= 2) {
+            // 向量转角度
+            angle = Math.atan2(mod.facing[0], mod.facing[1]);
+        }
 
-        const crossGeo = new THREE.BufferGeometry().setFromPoints(crossPoints);
-        const cross = new THREE.LineSegments(crossGeo, lineMat);
-        cross.layers.set(LayerManager.LAYER_AXES);
-        compassGroup.add(cross);
+        // 创建箭头组
+        const arrowGroup = new THREE.Group();
 
-        // 3. North Arrow (Triangle pointing to Plan Y / World -Z)
-        // In our coordinate system: Plan Y is World -Z.
-        // So we want the arrow pointing towards -Z.
-        const arrowShape = new THREE.Shape();
-        const arrowSize = 300; // Increased from 150
-        // Tip at (0, -radius) in 2D shape coords (which we'll rotate to point -Z)
-        // Wait, let's build it in X-Z plane directly or rotate it.
-        // Let's build shape in X-Y and rotate X -90.
-        // Tip pointing UP in shape = +Y.
-        // We want tip pointing -Z in world.
-        // If we rotate X -90, Shape Y becomes World -Z. Correct.
+        // 样式参数
+        const shaftLength = 250;
+        const shaftWidth = 40;
+        const headLength = 120;
+        const headWidth = 100;
 
-        arrowShape.moveTo(0, radius + arrowSize); // Tip
-        arrowShape.lineTo(-arrowSize / 3, radius - arrowSize / 3); // Bottom Left
-        arrowShape.lineTo(arrowSize / 3, radius - arrowSize / 3); // Bottom Right
-        arrowShape.closePath();
+        // 1. 箭杆 (矩形)
+        const shaftShape = new THREE.Shape();
+        shaftShape.moveTo(-shaftWidth / 2, 0);
+        shaftShape.lineTo(shaftWidth / 2, 0);
+        shaftShape.lineTo(shaftWidth / 2, shaftLength);
+        shaftShape.lineTo(-shaftWidth / 2, shaftLength);
+        shaftShape.closePath();
 
-        const arrowGeo = new THREE.ShapeGeometry(arrowShape);
+        const shaftGeo = new THREE.ShapeGeometry(shaftShape);
+        // 使用 ThemeService 的 bounds 颜色（与 Bounds 框线一致）
+        const boundsColor = themeService.currentTheme.value.scene.bounds;
         const arrowMat = new THREE.MeshBasicMaterial({
-            color: 0xFF4444, // Red for North
-            side: THREE.DoubleSide
+            color: boundsColor,
+            side: THREE.DoubleSide,
+            depthTest: false,
+            transparent: true,
+            opacity: 0.9
         });
-        const arrow = new THREE.Mesh(arrowGeo, arrowMat);
-        arrow.rotation.x = -Math.PI / 2; // Lay flat, Shape Y becomes World -Z
-        arrow.layers.set(LayerManager.LAYER_AXES);
-        compassGroup.add(arrow);
+        const shaft = new THREE.Mesh(shaftGeo, arrowMat);
+        shaft.layers.set(LayerManager.LAYER_BOUNDS);  // 关键：设置图层
+        arrowGroup.add(shaft);
 
-        // 4. "N" Label (Optional, maybe just the red arrow is enough for "Simple")
-        // Let's stick to simple geometry for now as per "Simple & Conspicuous"
+        // 2. 箭头 (三角形)
+        const headShape = new THREE.Shape();
+        headShape.moveTo(0, shaftLength + headLength);           // 尖端
+        headShape.lineTo(-headWidth / 2, shaftLength);           // 左下
+        headShape.lineTo(headWidth / 2, shaftLength);            // 右下
+        headShape.closePath();
 
-        this.scene.add(compassGroup);
+        const headGeo = new THREE.ShapeGeometry(headShape);
+        const head = new THREE.Mesh(headGeo, arrowMat);
+        head.layers.set(LayerManager.LAYER_BOUNDS);  // 关键：设置图层
+        arrowGroup.add(head);
+
+        // 3. 定位和旋转
+        arrowGroup.position.set(cx, cy, 0);
+        arrowGroup.rotation.z = -angle; // 旋转到正确朝向
+
+        // 整体容器
+        const container = new THREE.Group();
+        container.add(arrowGroup);
+        container.rotation.x = -Math.PI / 2;
+        container.position.y = 800; // 略高于模块顶部
+
+        container.layers.set(LayerManager.LAYER_BOUNDS);
+
+        this.scene.add(container);
     }
 }
