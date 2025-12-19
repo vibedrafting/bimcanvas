@@ -12,7 +12,6 @@ const layers = ref({
   [LayerManager.LAYER_LABELS]: false,
   [LayerManager.LAYER_BOUNDS]: false,
   [LayerManager.LAYER_SEMANTIC]: false,
-  [LayerManager.LAYER_AXES]: false,
 });
 
 // Grid Spacing (600mm or 1000mm)
@@ -130,10 +129,6 @@ onUnmounted(() => {
           <label class="layer-item">
             <input type="checkbox" :checked="layers[LayerManager.LAYER_SEMANTIC]" @change="toggleLayer(LayerManager.LAYER_SEMANTIC)">
             <span>Semantic</span>
-          </label>
-          <label class="layer-item">
-            <input type="checkbox" :checked="layers[LayerManager.LAYER_AXES]" @change="toggleLayer(LayerManager.LAYER_AXES)">
-            <span>Axes</span>
           </label>
         </div>
       </div>

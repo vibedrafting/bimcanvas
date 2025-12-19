@@ -39,7 +39,11 @@ export class GridBuilder {
 
         // 网格铺满整个场景（以原点为中心，100m x 100m）
         const gridSize = 100000; // 100m
-        const divisions = Math.round(gridSize / this.gridSpacing);
+        // divisions 必须为偶数才能正确显示通过原点的中心线
+        let divisions = Math.round(gridSize / this.gridSpacing);
+        if (divisions % 2 !== 0) {
+            divisions += 1; // 确保为偶数
+        }
 
         // GridHelper 默认以原点为中心
         this.gridHelper = new THREE.GridHelper(gridSize, divisions, color1, color2);
