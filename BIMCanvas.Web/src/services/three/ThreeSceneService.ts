@@ -24,6 +24,11 @@ export class ThreeSceneService {
     private labelRenderer: CSS2DRenderer;
     private animationId: number | null = null;
 
+    // Bound event handlers (用于正确移除监听器)
+    private boundOnResize: () => void;
+    private boundAnimate: () => void;
+    private boundEventHandlers: Map<string, EventListener> = new Map();
+
     // Builders
     private sceneBuilder: SceneBuilder;
     private gridBuilder: GridBuilder;
@@ -141,46 +146,59 @@ export class ThreeSceneService {
             }
         });
 
-        // 8. Events
-        window.addEventListener('resize', this.onWindowResize.bind(this));
+        // 8. Events - 使用保存的引用以便正确移除
+        this.boundOnResize = this.onWindowResize.bind(this);
+        this.boundAnimate = this.animate.bind(this);
+        window.addEventListener('resize', this.boundOnResize);
 
-        window.addEventListener('bimcanvas:view-mode-change', ((e: CustomEvent) => {
+        // 全局业务事件 - 保存引用到 Map
+        const viewModeHandler = ((e: CustomEvent) => {
             this.toggleViewMode(e.detail);
-        }) as EventListener);
+        }) as EventListener;
+        this.boundEventHandlers.set('bimcanvas:view-mode-change', viewModeHandler);
+        window.addEventListener('bimcanvas:view-mode-change', viewModeHandler);
 
-        window.addEventListener('bimcanvas:layer-toggle', ((e: CustomEvent) => {
+        const layerToggleHandler = ((e: CustomEvent) => {
             this.toggleLayer(e.detail.layerId, e.detail.visible);
-        }) as EventListener);
+        }) as EventListener;
+        this.boundEventHandlers.set('bimcanvas:layer-toggle', layerToggleHandler);
+        window.addEventListener('bimcanvas:layer-toggle', layerToggleHandler);
 
-        window.addEventListener('bimcanvas:action-rotate', () => {
-            this.interactionService.rotateSelection();
-        });
+        const rotateHandler = () => this.interactionService.rotateSelection();
+        this.boundEventHandlers.set('bimcanvas:action-rotate', rotateHandler);
+        window.addEventListener('bimcanvas:action-rotate', rotateHandler);
 
-        window.addEventListener('bimcanvas:action-move', () => {
-            this.interactionService.activateMoveTool();
-        });
+        const moveHandler = () => this.interactionService.activateMoveTool();
+        this.boundEventHandlers.set('bimcanvas:action-move', moveHandler);
+        window.addEventListener('bimcanvas:action-move', moveHandler);
 
-        window.addEventListener('bimcanvas:action-delete', () => {
-            this.interactionService.deleteSelection();
-        });
+        const deleteHandler = () => this.interactionService.deleteSelection();
+        this.boundEventHandlers.set('bimcanvas:action-delete', deleteHandler);
+        window.addEventListener('bimcanvas:action-delete', deleteHandler);
 
-        window.addEventListener('bimcanvas:ghost-patch', ((e: CustomEvent) => {
+        const ghostPatchHandler = ((e: CustomEvent) => {
             this.ghostManager.updateGhosts(e.detail);
-        }) as EventListener);
+        }) as EventListener;
+        this.boundEventHandlers.set('bimcanvas:ghost-patch', ghostPatchHandler);
+        window.addEventListener('bimcanvas:ghost-patch', ghostPatchHandler);
 
         // 主题切换事件监听 - 重建 Builders 和场景
-        window.addEventListener('bimcanvas:theme-change', (() => {
+        const themeChangeHandler = (() => {
             console.log('Theme changed, rebuilding scene with new colors...');
             this.rebuildWithNewTheme();
-        }) as EventListener);
+        }) as EventListener;
+        this.boundEventHandlers.set('bimcanvas:theme-change', themeChangeHandler);
+        window.addEventListener('bimcanvas:theme-change', themeChangeHandler);
 
         // 网格规格切换事件监听
-        window.addEventListener('bimcanvas:grid-spacing-change', ((e: CustomEvent) => {
+        const gridSpacingHandler = ((e: CustomEvent) => {
             const spacing = e.detail.spacing as 600 | 1000;
             console.log(`Grid spacing changed to ${spacing}mm`);
             this.gridBuilder.setGridSpacing(spacing);
             this.gridBuilder.buildGrid();
-        }) as EventListener);
+        }) as EventListener;
+        this.boundEventHandlers.set('bimcanvas:grid-spacing-change', gridSpacingHandler);
+        window.addEventListener('bimcanvas:grid-spacing-change', gridSpacingHandler);
     }
 
     public toggleViewMode(mode: 'human' | 'ai') {
@@ -340,13 +358,12 @@ export class ThreeSceneService {
         this.camera.bottom = -frustumSize / 2;
 
         this.camera.updateProjectionMatrix();
-        this.camera.updateProjectionMatrix();
         this.renderer.setSize(this.container.clientWidth, this.container.clientHeight);
         this.labelRenderer.setSize(this.container.clientWidth, this.container.clientHeight);
     }
 
     public animate() {
-        this.animationId = requestAnimationFrame(this.animate.bind(this));
+        this.animationId = requestAnimationFrame(this.boundAnimate);
 
         // Update services
         this.viewportService.update();
@@ -361,7 +378,15 @@ export class ThreeSceneService {
         if (this.animationId) {
             cancelAnimationFrame(this.animationId);
         }
-        window.removeEventListener('resize', this.onWindowResize.bind(this));
+        // 移除 resize 监听器
+        window.removeEventListener('resize', this.boundOnResize);
+        
+        // 移除所有全局业务事件监听器
+        this.boundEventHandlers.forEach((handler, eventName) => {
+            window.removeEventListener(eventName, handler);
+        });
+        this.boundEventHandlers.clear();
+        
         this.container.removeChild(this.renderer.domElement);
         this.container.removeChild(this.labelRenderer.domElement);
         this.renderer.dispose();

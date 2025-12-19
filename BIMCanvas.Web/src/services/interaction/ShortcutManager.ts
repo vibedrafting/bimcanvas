@@ -3,14 +3,16 @@ export type ShortcutHandler = () => void;
 export class ShortcutManager {
     private shortcuts: Map<string, ShortcutHandler>;
     private enabled: boolean = true;
+    private boundOnKeyDown: (e: KeyboardEvent) => void;
 
     constructor() {
         this.shortcuts = new Map();
+        this.boundOnKeyDown = this.onKeyDown.bind(this);
         this.setupListeners();
     }
 
     private setupListeners() {
-        window.addEventListener('keydown', this.onKeyDown.bind(this));
+        window.addEventListener('keydown', this.boundOnKeyDown);
     }
 
     private onKeyDown(event: KeyboardEvent) {
@@ -33,12 +35,12 @@ export class ShortcutManager {
         if (event.ctrlKey || event.metaKey) parts.push('Cmd'); // Normalize Ctrl/Cmd
         if (event.shiftKey) parts.push('Shift');
         if (event.altKey) parts.push('Alt');
-        
+
         // Handle special keys or regular keys
         let key = event.key;
         if (key === ' ') key = 'Space';
         if (key.length === 1) key = key.toUpperCase();
-        
+
         parts.push(key);
         return parts.join('+');
     }
@@ -56,7 +58,7 @@ export class ShortcutManager {
     }
 
     public dispose() {
-        window.removeEventListener('keydown', this.onKeyDown.bind(this));
+        window.removeEventListener('keydown', this.boundOnKeyDown);
         this.shortcuts.clear();
     }
 }

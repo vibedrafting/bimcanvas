@@ -6,9 +6,23 @@ export class ViewportService {
     private isDragging: boolean = false;
     private lastMousePosition: { x: number, y: number } = { x: 0, y: 0 };
 
+    // Bound event handlers (用于正确移除监听器)
+    private boundOnMouseDown: (e: MouseEvent) => void;
+    private boundOnMouseMove: (e: MouseEvent) => void;
+    private boundOnMouseUp: (e: MouseEvent) => void;
+    private boundOnWheel: (e: WheelEvent) => void;
+    private boundOnContextMenu: (e: Event) => void;
+
     constructor(camera: THREE.OrthographicCamera, renderer: THREE.WebGLRenderer) {
         this.camera = camera;
         this.renderer = renderer;
+
+        // 绑定事件处理器
+        this.boundOnMouseDown = this.onMouseDown.bind(this);
+        this.boundOnMouseMove = this.onMouseMove.bind(this);
+        this.boundOnMouseUp = this.onMouseUp.bind(this);
+        this.boundOnWheel = this.onWheel.bind(this);
+        this.boundOnContextMenu = (e) => e.preventDefault();
 
         this.setupEvents();
     }
@@ -16,11 +30,11 @@ export class ViewportService {
     private setupEvents() {
         const element = this.renderer.domElement;
 
-        element.addEventListener('mousedown', this.onMouseDown.bind(this));
-        element.addEventListener('mousemove', this.onMouseMove.bind(this));
-        element.addEventListener('mouseup', this.onMouseUp.bind(this));
-        element.addEventListener('wheel', this.onWheel.bind(this), { passive: false });
-        element.addEventListener('contextmenu', (e) => e.preventDefault());
+        element.addEventListener('mousedown', this.boundOnMouseDown);
+        element.addEventListener('mousemove', this.boundOnMouseMove);
+        element.addEventListener('mouseup', this.boundOnMouseUp);
+        element.addEventListener('wheel', this.boundOnWheel, { passive: false });
+        element.addEventListener('contextmenu', this.boundOnContextMenu);
     }
 
     private onMouseDown(event: MouseEvent) {
@@ -93,10 +107,10 @@ export class ViewportService {
 
     public dispose() {
         const element = this.renderer.domElement;
-        element.removeEventListener('mousedown', this.onMouseDown);
-        element.removeEventListener('mousemove', this.onMouseMove);
-        element.removeEventListener('mouseup', this.onMouseUp);
-        element.removeEventListener('wheel', this.onWheel);
-        element.removeEventListener('contextmenu', (e) => e.preventDefault());
+        element.removeEventListener('mousedown', this.boundOnMouseDown);
+        element.removeEventListener('mousemove', this.boundOnMouseMove);
+        element.removeEventListener('mouseup', this.boundOnMouseUp);
+        element.removeEventListener('wheel', this.boundOnWheel);
+        element.removeEventListener('contextmenu', this.boundOnContextMenu);
     }
 }

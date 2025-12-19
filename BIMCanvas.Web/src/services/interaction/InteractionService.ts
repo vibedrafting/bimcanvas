@@ -20,6 +20,13 @@ export class InteractionService {
     private activeTool: Tool | null = null;
     private ghostManager: GhostManager;
 
+    // Bound event handlers (用于正确移除监听器)
+    private boundOnMouseMove: (e: MouseEvent) => void;
+    private boundOnClick: (e: MouseEvent) => void;
+    private boundOnKeyDown: (e: KeyboardEvent) => void;
+    private boundToolCancelled: () => void;
+    private boundToolCompleted: () => void;
+
     constructor(camera: THREE.Camera, domElement: HTMLElement, scene: THREE.Scene, selectionManager: SelectionManager) {
         this.camera = camera;
         this.domElement = domElement;
@@ -31,14 +38,21 @@ export class InteractionService {
         this.shortcutManager = new ShortcutManager();
         this.ghostManager = new GhostManager(scene);
 
+        // 绑定事件处理器
+        this.boundOnMouseMove = this.onMouseMove.bind(this);
+        this.boundOnClick = this.onClick.bind(this);
+        this.boundOnKeyDown = this.onKeyDown.bind(this);
+        this.boundToolCancelled = () => this.cancelTool();
+        this.boundToolCompleted = () => this.cancelTool();
+
         this.setupEvents();
         this.setupShortcuts();
         this.setupToolEvents();
     }
 
     private setupToolEvents() {
-        window.addEventListener('bimcanvas:tool-cancelled', () => this.cancelTool());
-        window.addEventListener('bimcanvas:tool-completed', () => this.cancelTool());
+        window.addEventListener('bimcanvas:tool-cancelled', this.boundToolCancelled);
+        window.addEventListener('bimcanvas:tool-completed', this.boundToolCompleted);
     }
 
     public activateMoveTool() {
@@ -137,9 +151,9 @@ export class InteractionService {
     }
 
     private setupEvents() {
-        this.domElement.addEventListener('mousemove', this.onMouseMove.bind(this));
-        this.domElement.addEventListener('click', this.onClick.bind(this));
-        window.addEventListener('keydown', this.onKeyDown.bind(this));
+        this.domElement.addEventListener('mousemove', this.boundOnMouseMove);
+        this.domElement.addEventListener('click', this.boundOnClick);
+        window.addEventListener('keydown', this.boundOnKeyDown);
     }
 
     private onKeyDown(event: KeyboardEvent) {
@@ -224,9 +238,11 @@ export class InteractionService {
     }
 
     public dispose() {
-        this.domElement.removeEventListener('mousemove', this.onMouseMove.bind(this));
-        this.domElement.removeEventListener('click', this.onClick.bind(this));
-        window.removeEventListener('keydown', this.onKeyDown.bind(this));
+        this.domElement.removeEventListener('mousemove', this.boundOnMouseMove);
+        this.domElement.removeEventListener('click', this.boundOnClick);
+        window.removeEventListener('keydown', this.boundOnKeyDown);
+        window.removeEventListener('bimcanvas:tool-cancelled', this.boundToolCancelled);
+        window.removeEventListener('bimcanvas:tool-completed', this.boundToolCompleted);
         this.shortcutManager.dispose();
     }
 }
