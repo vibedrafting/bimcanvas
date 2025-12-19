@@ -221,6 +221,9 @@ export class ThreeSceneService {
             this.scene.fog.color.setHex(bgColor);
         }
 
+        // 清理旧的 GridBuilder 资源（防止标签残留）
+        this.gridBuilder.cleanup();
+
         // 重新创建所有 Builders（它们在构造时读取 ThemeService 配色）
         this.sceneBuilder = new SceneBuilder(this.scene);
         this.gridBuilder = new GridBuilder(this.scene);

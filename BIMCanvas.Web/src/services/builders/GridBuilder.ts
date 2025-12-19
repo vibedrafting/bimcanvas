@@ -55,7 +55,11 @@ export class GridBuilder {
         this.buildSemanticLabels();
     }
 
-    private cleanup() {
+    /**
+     * 清理网格和标签资源
+     * 在销毁实例或重建前调用
+     */
+    public cleanup() {
         if (this.gridHelper) {
             this.scene.remove(this.gridHelper);
             this.gridHelper.dispose();
@@ -63,12 +67,16 @@ export class GridBuilder {
         }
 
         if (this.labelGroup) {
-            // Explicitly cleanup CSS2DObject DOM elements
-            this.labelGroup.children.forEach(child => {
-                if ((child as any).element && (child as any).element.parentNode) {
-                    (child as any).element.parentNode.removeChild((child as any).element);
+            // Explicitly cleanup CSS2DObject DOM elements - 清理所有子元素 DOM
+            this.labelGroup.traverse(child => {
+                if ((child as any).element) {
+                    const el = (child as any).element as HTMLElement;
+                    if (el.parentNode) {
+                        el.parentNode.removeChild(el);
+                    }
                 }
             });
+            this.labelGroup.clear(); // 移除所有子对象
             this.scene.remove(this.labelGroup);
             this.labelGroup = null;
         }
@@ -151,10 +159,8 @@ export class GridBuilder {
         div.style.fontFamily = 'SF Pro, system-ui, sans-serif';
         div.style.opacity = '0.9';
         div.style.pointerEvents = 'none';
-        div.style.textShadow = '0 0 4px rgba(0,0,0,0.6)';
-        div.style.padding = '2px 6px';
-        div.style.borderRadius = '4px';
-        div.style.backgroundColor = 'rgba(0,0,0,0.3)';
+        // 使用更明显的文字阴影替代背景填充，确保在明亮模式下可读
+        div.style.textShadow = '0 1px 3px rgba(0,0,0,0.4), 0 0 6px rgba(255,255,255,0.3)';
 
         const label = new CSS2DObject(div);
         label.position.copy(position);

@@ -90,16 +90,14 @@ export class LabelBuilder {
         const shortId = id.length > 8 ? id.substring(0, 4) : id;
         div.textContent = `#${shortId}`;
 
-        div.style.backgroundColor = colors.background;
+        // 不使用背景填充和边框，只用纯文字+阴影（明亮/暗黑模式通用）
         div.style.color = colors.text;
-        div.style.padding = '1px 3px';
-        div.style.borderRadius = '2px';
-        div.style.fontSize = '10px'; // Slightly smaller
+        div.style.fontSize = '10px';
         div.style.fontWeight = 'bold';
         div.style.fontFamily = 'monospace';
         div.style.pointerEvents = 'none'; // Crucial for clicking through
-        div.style.border = colors.border;
-        div.style.boxShadow = '0 1px 2px rgba(0,0,0,0.2)'; // Add depth
+        // 使用文字阴影增强可读性
+        div.style.textShadow = '0 1px 2px rgba(0,0,0,0.3), 0 0 4px rgba(255,255,255,0.2)';
 
         // Apply orientation
         if (orientation === 'vertical') {
