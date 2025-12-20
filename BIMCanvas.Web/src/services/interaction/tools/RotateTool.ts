@@ -33,6 +33,13 @@ export class RotateTool implements Tool {
     private startLine: THREE.Line | null = null;
     private endLine: THREE.Line | null = null;
 
+    // Phase 3: Shift 角度锁定
+    private shiftHeld: boolean = false;
+    private boundHandleKeyUp: (e: KeyboardEvent) => void;
+    private snapAngleLine: THREE.Line | null = null;  // 锁定角度辅助线
+    private axisLines: THREE.Group | null = null;     // XY 轴参考线
+    private scaleLines: THREE.Group | null = null;    // 15° 刻度圈
+
     constructor(
         scene: THREE.Scene,
         camera: THREE.Camera,
@@ -47,10 +54,16 @@ export class RotateTool implements Tool {
         this.snapIndicator = new SnapIndicator(scene);  // Phase 2
         this.raycaster = new THREE.Raycaster();
         this.plane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
+
+        // Phase 3: 绑定 keyup 处理器
+        this.boundHandleKeyUp = this.handleKeyUp.bind(this);
     }
 
     activate() {
         const store = useCanvasStore();
+
+        // Phase 3: 绑定 keyup 事件
+        window.addEventListener('keyup', this.boundHandleKeyUp);
 
         // 检查是否已有选中对象
         if (store.selectedIds.length > 0) {
@@ -103,11 +116,11 @@ export class RotateTool implements Tool {
         this.domElement.style.cursor = 'crosshair';
         store.setPrompt(`请点击设置旋转中心 (已选${this.selectedObjects.length}个对象)`);
 
-        // Revit-Lite: 构建吸附点索引（包含墙柱门窗）
-        const excludeIds = this.selectedObjects.map((o: any) => o.id);
+        // Revit-Lite: 构建吸附点索引（包含墙柱门窗 + 包括自己的模块，不排除）
         const debug = useDebugStore();
-        debug.log(`[Rotate] Building snap points, excluding: ${excludeIds.length} modules`);
-        this.snappingEngine.buildSnapPoints(store.document, excludeIds);
+        debug.log(`[Rotate] Building snap points, including selected modules for self-snapping`);
+        this.snappingEngine.buildSnapPoints(store.document, []); // 不排除任何模块的吸附点
+        // Phase 3: XY 轴和刻度圈只在按住 Shift 时显示，不在这里创建
     }
 
     private calculateGroupCenter(): THREE.Vector3 {
@@ -150,6 +163,10 @@ export class RotateTool implements Tool {
         // Phase 2: 清理吸附指示器
         this.snapIndicator.dispose();
         this.snapIndicator = new SnapIndicator(this.scene);
+
+        // Phase 3: 解绑 keyup 事件
+        window.removeEventListener('keyup', this.boundHandleKeyUp);
+        this.shiftHeld = false;
     }
 
     // 实现 Tool 接口的可选方法
@@ -195,9 +212,24 @@ export class RotateTool implements Tool {
         } else if (this.state === 'waiting_start') {
             if (!this.centerPoint) return;
             const vector = new THREE.Vector3().subVectors(finalPoint, this.centerPoint);
-            this.startAngle = Math.atan2(vector.z, vector.x);
+            let angle = Math.atan2(vector.z, vector.x);
 
-            this.createStartLine(this.centerPoint, finalPoint);
+            // Phase 3: Shift 角度锁定
+            if (this.shiftHeld) {
+                const angleStep = Math.PI / 12; // 15°
+                angle = Math.round(angle / angleStep) * angleStep;
+            }
+            this.startAngle = angle;
+
+            // 使用锁定后的角度画起始线
+            const distance = vector.length();
+            const lockedPoint = new THREE.Vector3(
+                this.centerPoint.x + Math.cos(angle) * distance,
+                finalPoint.y,
+                this.centerPoint.z + Math.sin(angle) * distance
+            );
+            this.createStartLine(this.centerPoint, lockedPoint);
+            this.removeSnapAngleLine(); // 清理辅助线
             this.state = 'waiting_end';
             store.setPrompt('请点击设置旋转终止角度');
 
@@ -230,13 +262,59 @@ export class RotateTool implements Tool {
             // Preview center
         } else if (this.state === 'waiting_start') {
             if (this.centerPoint) {
-                this.updateStartLine(this.centerPoint, finalPoint);
+                // Phase 3: Shift 角度锁定（起始角度也支持）
+                let targetPoint = finalPoint.clone();
+                if (this.shiftHeld) {
+                    // 显示刻度圈和 XY 轴
+                    if (!this.scaleLines) {
+                        this.createAxisLines(this.centerPoint);
+                        this.createScaleLines(this.centerPoint);
+                    }
+                    const vector = new THREE.Vector3().subVectors(finalPoint, this.centerPoint);
+                    let angle = Math.atan2(vector.z, vector.x);
+                    const angleStep = Math.PI / 12; // 15°
+                    angle = Math.round(angle / angleStep) * angleStep;
+                    const distance = vector.length();
+                    targetPoint = new THREE.Vector3(
+                        this.centerPoint.x + Math.cos(angle) * distance,
+                        finalPoint.y,
+                        this.centerPoint.z + Math.sin(angle) * distance
+                    );
+                } else {
+                    // 隐藏刻度圈和 XY 轴
+                    this.removeAxisLines();
+                    this.removeScaleLines();
+                }
+                this.updateStartLine(this.centerPoint, targetPoint);
             }
         } else if (this.state === 'waiting_end' && this.centerPoint && this.startAngle !== null) {
-            this.updateEndLine(this.centerPoint, finalPoint);
-
             const vector = new THREE.Vector3().subVectors(finalPoint, this.centerPoint);
-            const currentAngle = Math.atan2(vector.z, vector.x);
+            let currentAngle = Math.atan2(vector.z, vector.x);
+            const distance = vector.length();
+
+            // Phase 3: Shift 角度锁定（15° 增量）
+            if (this.shiftHeld) {
+                // 显示刻度圈和 XY 轴
+                if (!this.scaleLines) {
+                    this.createAxisLines(this.centerPoint);
+                    this.createScaleLines(this.centerPoint);
+                }
+                const angleStep = Math.PI / 12; // 15° = π/12 弧度
+                currentAngle = Math.round(currentAngle / angleStep) * angleStep;
+            } else {
+                // 隐藏刻度圈和 XY 轴
+                this.removeAxisLines();
+                this.removeScaleLines();
+            }
+
+            // 计算锁定后的终点位置（让线条也跳跃到锁定角度）
+            const lockedEndPoint = new THREE.Vector3(
+                this.centerPoint.x + Math.cos(currentAngle) * distance,
+                finalPoint.y,
+                this.centerPoint.z + Math.sin(currentAngle) * distance
+            );
+            this.updateEndLine(this.centerPoint, lockedEndPoint);
+
             const deltaRotation = currentAngle - this.startAngle;
 
             this.ghostManager.setRotation(deltaRotation);
@@ -245,7 +323,22 @@ export class RotateTool implements Tool {
 
     onMouseUp(_event: MouseEvent) { }
 
+    // Phase 3: 处理 Shift 释放
+    private handleKeyUp(event: KeyboardEvent): void {
+        if (event.key === 'Shift') {
+            this.shiftHeld = false;
+            // 隐藏刻度圈和 XY 轴
+            this.removeAxisLines();
+            this.removeScaleLines();
+        }
+    }
+
     onKeyDown(event: KeyboardEvent) {
+        // Phase 3: 跟踪 Shift 键
+        if (event.key === 'Shift') {
+            this.shiftHeld = true;
+        }
+
         if (event.key === 'Escape') {
             this.deactivate();
             window.dispatchEvent(new CustomEvent('bimcanvas:tool-cancelled'));
@@ -429,6 +522,167 @@ export class RotateTool implements Tool {
         if (this.centerMarker) { this.scene.remove(this.centerMarker); this.centerMarker = null; }
         if (this.startLine) { this.scene.remove(this.startLine); this.startLine = null; }
         if (this.endLine) { this.scene.remove(this.endLine); this.endLine = null; }
+        this.removeSnapAngleLine();
+        this.removeAxisLines();
+        this.removeScaleLines();
+    }
+
+    // Phase 3: 创建 XY 轴参考线（红色 X 轴，蓝色 Z 轴）
+    private createAxisLines(center: THREE.Vector3): void {
+        this.removeAxisLines();
+
+        const lineLength = 5000; // 5m
+        this.axisLines = new THREE.Group();
+
+        // X 轴（红色）
+        const xStart = new THREE.Vector3(center.x - lineLength, center.y + 1, center.z);
+        const xEnd = new THREE.Vector3(center.x + lineLength, center.y + 1, center.z);
+        const xGeometry = new THREE.BufferGeometry().setFromPoints([xStart, xEnd]);
+        const xMaterial = new THREE.LineDashedMaterial({
+            color: 0xff4444, // 红色
+            dashSize: 200,
+            gapSize: 100,
+            depthTest: false,
+            transparent: true,
+            opacity: 0.5
+        });
+        const xLine = new THREE.Line(xGeometry, xMaterial);
+        xLine.computeLineDistances();
+        xLine.renderOrder = 997;
+        this.axisLines.add(xLine);
+
+        // Z 轴（蓝色）
+        const zStart = new THREE.Vector3(center.x, center.y + 1, center.z - lineLength);
+        const zEnd = new THREE.Vector3(center.x, center.y + 1, center.z + lineLength);
+        const zGeometry = new THREE.BufferGeometry().setFromPoints([zStart, zEnd]);
+        const zMaterial = new THREE.LineDashedMaterial({
+            color: 0x4444ff, // 蓝色
+            dashSize: 200,
+            gapSize: 100,
+            depthTest: false,
+            transparent: true,
+            opacity: 0.5
+        });
+        const zLine = new THREE.Line(zGeometry, zMaterial);
+        zLine.computeLineDistances();
+        zLine.renderOrder = 997;
+        this.axisLines.add(zLine);
+
+        this.scene.add(this.axisLines);
+    }
+
+    // Phase 3: 移除 XY 轴参考线
+    private removeAxisLines(): void {
+        if (this.axisLines) {
+            this.axisLines.children.forEach(child => {
+                if (child instanceof THREE.Line) {
+                    child.geometry.dispose();
+                    (child.material as THREE.Material).dispose();
+                }
+            });
+            this.scene.remove(this.axisLines);
+            this.axisLines = null;
+        }
+    }
+
+    // Phase 3: 创建 15° 刻度圈（24 条辐射线）
+    private createScaleLines(center: THREE.Vector3): void {
+        this.removeScaleLines();
+
+        const innerRadius = 800;  // 0.8m 内圈
+        const outerRadius = 1200; // 1.2m 外圈
+        const angleStep = Math.PI / 12; // 15° = π/12
+
+        this.scaleLines = new THREE.Group();
+
+        for (let i = 0; i < 24; i++) {
+            const angle = i * angleStep;
+            const isMainAxis = i % 6 === 0; // 0°, 90°, 180°, 270° 为主轴
+
+            const start = new THREE.Vector3(
+                center.x + Math.cos(angle) * innerRadius,
+                center.y + 1,
+                center.z + Math.sin(angle) * innerRadius
+            );
+            const end = new THREE.Vector3(
+                center.x + Math.cos(angle) * outerRadius,
+                center.y + 1,
+                center.z + Math.sin(angle) * outerRadius
+            );
+
+            const geometry = new THREE.BufferGeometry().setFromPoints([start, end]);
+            const material = new THREE.LineBasicMaterial({
+                color: isMainAxis ? 0xffffff : 0x888888, // 主轴白色，次轴灰色
+                depthTest: false,
+                transparent: true,
+                opacity: isMainAxis ? 0.8 : 0.4
+            });
+
+            const line = new THREE.Line(geometry, material);
+            line.renderOrder = 996;
+            this.scaleLines.add(line);
+        }
+
+        this.scene.add(this.scaleLines);
+    }
+
+    // Phase 3: 移除刻度圈
+    private removeScaleLines(): void {
+        if (this.scaleLines) {
+            this.scaleLines.children.forEach(child => {
+                if (child instanceof THREE.Line) {
+                    child.geometry.dispose();
+                    (child.material as THREE.Material).dispose();
+                }
+            });
+            this.scene.remove(this.scaleLines);
+            this.scaleLines = null;
+        }
+    }
+
+    // Phase 3: 更新锁定角度辅助线
+    private updateSnapAngleLine(center: THREE.Vector3, angle: number): void {
+        const lineLength = 3000; // 3m 辅助线长度
+        const end = new THREE.Vector3(
+            center.x + Math.cos(angle) * lineLength,
+            center.y + 1, // 略高于地面
+            center.z + Math.sin(angle) * lineLength
+        );
+        const start = center.clone();
+        start.y += 1;
+
+        if (!this.snapAngleLine) {
+            const geometry = new THREE.BufferGeometry().setFromPoints([start, end]);
+            const material = new THREE.LineDashedMaterial({
+                color: 0x00ff00,  // 绿色表示锁定
+                dashSize: 100,
+                gapSize: 50,
+                depthTest: false
+            });
+            this.snapAngleLine = new THREE.Line(geometry, material);
+            this.snapAngleLine.computeLineDistances();
+            this.snapAngleLine.renderOrder = 998;
+            this.scene.add(this.snapAngleLine);
+        } else {
+            const positionAttribute = this.snapAngleLine.geometry.attributes.position;
+            if (positionAttribute) {
+                const positions = positionAttribute.array as Float32Array;
+                positions[0] = start.x; positions[1] = start.y; positions[2] = start.z;
+                positions[3] = end.x; positions[4] = end.y; positions[5] = end.z;
+                positionAttribute.needsUpdate = true;
+                this.snapAngleLine.computeLineDistances();
+            }
+        }
+    }
+
+    // Phase 3: 移除锁定角度辅助线
+    private removeSnapAngleLine(): void {
+        if (this.snapAngleLine) {
+            this.scene.remove(this.snapAngleLine);
+            this.snapAngleLine.geometry.dispose();
+            (this.snapAngleLine.material as THREE.Material).dispose();
+            this.snapAngleLine = null;
+        }
     }
 }
 

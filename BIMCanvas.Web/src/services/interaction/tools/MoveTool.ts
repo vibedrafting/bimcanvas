@@ -108,11 +108,10 @@ export class MoveTool implements Tool {
         this.domElement.style.cursor = 'crosshair';
         store.setPrompt(`请点击选择移动基点 (已选${this.selectedObjects.length}个对象)`);
 
-        // Revit-Lite: 构建吸附点索引（包含墙柱门窗）
-        const excludeIds = this.selectedObjects.map((o: any) => o.id);
+        // Revit-Lite: 构建吸附点索引（包含墙柱门窗 + 包括自己的模块，不排除）
         const debug = useDebugStore();
-        debug.log(`[Move] Building snap points, excluding: ${excludeIds.length} modules`);
-        this.snappingEngine.buildSnapPoints(store.document, excludeIds);
+        debug.log(`[Move] Building snap points, including selected modules for self-snapping`);
+        this.snappingEngine.buildSnapPoints(store.document, []); // 不排除任何模块的吸附点
     }
 
     private calculateGroupCenter(): THREE.Vector3 {
