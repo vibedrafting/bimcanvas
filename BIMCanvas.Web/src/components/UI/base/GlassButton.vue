@@ -77,7 +77,7 @@ const classes = computed(() => {
 .glass-btn.variant-ghost:hover:not(:disabled) {
   background: var(--surface-glass-hover);
   border-color: rgba(255, 255, 255, 0.2);
-  transform: translateY(-1px);
+  transform: translateY(-1px) scale(1.05);
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
 }
 
@@ -103,7 +103,7 @@ const classes = computed(() => {
   background: rgba(59, 130, 246, 0.3);
   border-color: var(--accent-blue);
   box-shadow: 0 0 15px var(--accent-glow);
-  transform: translateY(-1px);
+  transform: translateY(-1px) scale(1.05);
 }
 
 /* Danger */

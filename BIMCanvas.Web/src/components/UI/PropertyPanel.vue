@@ -166,9 +166,14 @@ const updateProperty = (key: string, newValue: any) => {
   height: calc(100% - 80px); /* Fill grid area minus top and bottom margin */
   margin-top: 40px; /* Avoid overlap with top bar */
   margin-bottom: 40px; /* Symmetric bottom margin */
-  background: var(--surface-glass);
-  backdrop-filter: blur(10px);
-  border-right: 1px solid var(--border-subtle); /* Border right for left panel */
+  /* Aurora Glass - Matching Dynamic Island */
+  background: var(--glass-bg);
+  backdrop-filter: var(--glass-blur);
+  -webkit-backdrop-filter: var(--glass-blur);
+  border-right: var(--glass-border);
+  
+  /* Glare Overlay */
+  background-image: var(--glass-glare), linear-gradient(to bottom, var(--glass-bg), var(--glass-bg));
   display: flex;
   flex-direction: column;
   transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
@@ -180,9 +185,9 @@ const updateProperty = (key: string, newValue: any) => {
   
   &.expanded {
     width: 300px;
-    background: var(--surface-elevated);
-    border-color: var(--border-subtle);
-    box-shadow: 10px 0 30px rgba(0, 0, 0, 0.1); /* Shadow to right */
+    width: 300px;
+    /* Maintain same glass effect, just add shadow */
+    box-shadow: var(--shadow-panel), var(--glass-inner-highlight);
 
     .header .indicator {
       transform: rotate(180deg);

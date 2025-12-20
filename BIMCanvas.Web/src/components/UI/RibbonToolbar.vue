@@ -228,43 +228,40 @@ watch(selectedObject, (newVal) => {
   justify-content: center;
   padding: 0 16px;
   
-  /* Glassmorphism */
-  background: var(--surface-glass);
-  backdrop-filter: blur(20px) saturate(180%);
-  -webkit-backdrop-filter: blur(20px) saturate(180%);
-  border: 1px solid var(--border-subtle);
+  /* Aurora Glass */
+  background: var(--glass-bg); /* Base layer */
+  backdrop-filter: var(--glass-blur);
+  -webkit-backdrop-filter: var(--glass-blur);
+  border: var(--glass-border);
   border-radius: 100px;
-  box-shadow: 
-    0 8px 32px rgba(0, 0, 0, 0.15),
-    0 2px 8px rgba(0, 0, 0, 0.05),
-    inset 0 1px 0 rgba(255, 255, 255, 0.1);
+  box-shadow: var(--shadow-island), var(--glass-inner-highlight);
+  
+  /* Glare Overlay */
+  background-image: var(--glass-glare), linear-gradient(to bottom, var(--glass-bg), var(--glass-bg));
+  background-origin: border-box;
+  background-clip: padding-box, border-box;
     
   pointer-events: auto;
   /* Apple Dynamic Island Spring Physics */
   transition: 
-    width 0.5s cubic-bezier(0.34, 1.56, 0.64, 1),
-    height 0.5s cubic-bezier(0.34, 1.56, 0.64, 1),
-    padding 0.5s cubic-bezier(0.34, 1.56, 0.64, 1),
+    width 0.5s var(--ease-spring),
+    height 0.5s var(--ease-spring),
+    padding 0.5s var(--ease-spring),
     background 0.3s ease,
     box-shadow 0.3s ease,
-    border-radius 0.5s cubic-bezier(0.34, 1.56, 0.64, 1),
+    border-radius 0.5s var(--ease-spring),
     backdrop-filter 0.3s ease;
   overflow: hidden;
 
   /* 展开状态 - 高度固定，宽度动态 */
   &.expanded {
+    /* Expanded state inherits the same glass texture, just changes shape */
     width: auto;           /* 宽度动态 */
     min-width: 420px;      /* 最小宽度保证内容不压缩 */
     height: 52px;          /* 高度固定 */
     padding: 0 20px;
     border-radius: 26px;
-    background: var(--surface-elevated);
-    backdrop-filter: blur(30px) saturate(200%);
-    -webkit-backdrop-filter: blur(30px) saturate(200%);
-    box-shadow: 
-      0 12px 40px rgba(0, 0, 0, 0.2),
-      0 4px 12px rgba(0, 0, 0, 0.1),
-      inset 0 1px 0 rgba(255, 255, 255, 0.15);
+    /* No change to background/shadow to ensure perfect consistency */
   }
 
   /* Collapsed Content */
@@ -373,7 +370,7 @@ watch(selectedObject, (newVal) => {
 .island-expanded {
   .stagger-1, .stagger-2, .stagger-3, .stagger-4, .stagger-5 {
     opacity: 0;
-    animation: staggerFadeIn 0.4s cubic-bezier(0.34, 1.56, 0.64, 1) forwards;
+    animation: staggerFadeIn 0.5s var(--ease-spring) forwards;
   }
   
   .stagger-1 { animation-delay: 0.05s; }
@@ -393,7 +390,9 @@ watch(selectedObject, (newVal) => {
   display: flex;
   align-items: center;
   justify-content: center;
-  transition: all 0.4s cubic-bezier(0.34, 1.56, 0.64, 1);
+  justify-content: center;
+  transition: all 0.4s var(--ease-spring);
+  position: relative;
   position: relative;
   overflow: hidden;
   
@@ -438,7 +437,7 @@ watch(selectedObject, (newVal) => {
   .theme-icon {
     width: 20px;
     height: 20px;
-    transition: transform 0.4s cubic-bezier(0.34, 1.56, 0.64, 1);
+    transition: transform 0.4s var(--ease-spring);
     
     &.sun {
       animation: sunPulse 2s ease-in-out infinite;
