@@ -57,20 +57,43 @@ export class GhostManager {
     public createGhosts(originals: THREE.Object3D[]) {
         this.removeAllGhosts();
 
+        console.log('[GhostManager] Creating ghosts for', originals.length, 'objects');
+
         for (const original of originals) {
             const id = original.userData?.id;
-            if (!id) continue;
+            if (!id) {
+                console.warn('[GhostManager] Object has no ID, skipping');
+                continue;
+            }
+
+            console.log('[GhostManager] Processing object:', id, 'type:', original.type);
 
             // 创建 Ghost Group
             const ghostGroup = new THREE.Group();
-            ghostGroup.layers.enable(LayerManager.LAYER_MODEL);
+            ghostGroup.userData.isGhost = true;
+            // 确保 Ghost Group 在默认层可见
+            ghostGroup.layers.set(LayerManager.LAYER_MODEL);
             this.scene.add(ghostGroup);
 
             // 克隆对象
             const solidClone = original.clone();
             solidClone.userData.isGhost = true;
+
+            // 强制设置所有子对象的层为 LAYER_MODEL，确保可见
             solidClone.traverse((child) => {
                 child.userData.isGhost = true;
+                child.layers.set(LayerManager.LAYER_MODEL);
+
+                // 为 Ghost 设置半透明的蓝色材质，作为目标位置预览
+                if (child instanceof THREE.Mesh) {
+                    child.material = new THREE.MeshBasicMaterial({
+                        color: 0x4488ff, // 蓝色
+                        transparent: true,
+                        opacity: 0.6,
+                        depthTest: true,
+                        side: THREE.DoubleSide
+                    });
+                }
             });
 
             ghostGroup.add(solidClone);
@@ -82,7 +105,9 @@ export class GhostManager {
             this.ghostGroups.set(id, ghostGroup);
             this.originalObjects.set(id, original);
 
-            // 将原对象变为半透明 wireframe
+            console.log('[GhostManager] Ghost created at position:', original.position.toArray());
+
+            // 将原对象变为半透明 wireframe（显示原始位置）
             original.traverse((child) => {
                 if (child instanceof THREE.Mesh) {
                     this.originalMaterials.set(child.uuid, child.material);
@@ -98,6 +123,8 @@ export class GhostManager {
                 }
             });
         }
+
+        console.log('[GhostManager] Total ghosts created:', this.ghostGroups.size);
     }
 
     /**
@@ -162,9 +189,15 @@ export class GhostManager {
 
     /**
      * 设置位置偏移（移动预览）- 作用于所有 Ghost
+     * 偏移是相对于原始对象位置的增量
      */
     public setPositionOffset(offset: THREE.Vector3) {
-        for (const [_id, ghostGroup] of this.ghostGroups) {
+        for (const [id, ghostGroup] of this.ghostGroups) {
+            const original = this.originalObjects.get(id);
+            if (!original) continue;
+
+            // Ghost Group 的子对象已经有了原始位置，直接设置 Group 的位置为偏移量即可
+            // 因为在 createGhosts 中，solidClone.position.copy(original.position)
             ghostGroup.position.copy(offset);
         }
     }
