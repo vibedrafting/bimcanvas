@@ -269,16 +269,51 @@ export const useCanvasStore = defineStore('canvas', () => {
         if (moduleIndex !== -1) {
             const updatedModule = { ...document.value.modules[moduleIndex], ...updates } as any;
             document.value.modules[moduleIndex] = updatedModule;
-
-            // Use nextTick to ensure state is settled before saving
             nextTick(() => saveState());
+            signalR.sendUpdate({ type: 'module_update', moduleId, updates });
+        }
+    };
 
-            // Sync with server
-            signalR.sendUpdate({
-                type: 'module_update',
-                moduleId,
-                updates
-            });
+    const updateWall = (wallId: string, updates: Partial<any>) => {
+        if (!document.value) return;
+        const index = document.value.walls.findIndex(w => w.id === wallId);
+        if (index !== -1) {
+            const updated = { ...document.value.walls[index], ...updates } as any;
+            document.value.walls[index] = updated;
+            nextTick(() => saveState());
+            // signalR.sendUpdate({ type: 'wall_update', wallId, updates }); // TODO: Server support
+        }
+    };
+
+    const updateColumn = (colId: string, updates: Partial<any>) => {
+        if (!document.value || !document.value.columns) return;
+        const index = document.value.columns.findIndex(c => c.id === colId);
+        if (index !== -1) {
+            const updated = { ...document.value.columns[index], ...updates } as any;
+            document.value.columns[index] = updated;
+            nextTick(() => saveState());
+        }
+    };
+
+    const updateOpening = (opId: string, updates: Partial<any>) => {
+        if (!document.value || !document.value.openings) return;
+        const index = document.value.openings.findIndex(o => o.id === opId);
+        if (index !== -1) {
+            const updated = { ...document.value.openings[index], ...updates } as any;
+            document.value.openings[index] = updated;
+            nextTick(() => saveState());
+        }
+    };
+
+    const updateElement = (id: string, type: string, updates: Partial<any>) => {
+        switch (type) {
+            case 'module': updateModule(id, updates); break;
+            case 'wall': updateWall(id, updates); break;
+            case 'column': updateColumn(id, updates); break;
+            case 'door':
+            case 'window':
+            case 'opening': updateOpening(id, updates); break;
+            default: console.warn(`Unknown element type for update: ${type}`);
         }
     };
 
@@ -330,6 +365,7 @@ export const useCanvasStore = defineStore('canvas', () => {
         isSelected,         // 新增：检查是否选中
         clearSelection,
         updateModule,
+        updateElement, // Export generic update
         removeModule,
         undo,
         redo,

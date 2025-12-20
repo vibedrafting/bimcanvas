@@ -50,14 +50,22 @@ export class RotateTool implements Tool {
 
         // 检查是否已有选中对象
         if (store.selectedIds.length > 0) {
-            // 已有选择，直接进入旋转操作
-            this.selectedObjects = [...store.selectedObjects];
+            // 过滤只保留 module 类型
+            this.selectedObjects = store.selectedObjects.filter((obj: any) => obj.type === 'module');
+
+            if (this.selectedObjects.length === 0) {
+                store.setPrompt('只有家具模块可以旋转，请重新选择');
+                this.state = 'multi_selection';
+                this.domElement.style.cursor = 'default';
+                return;
+            }
+
             this.findAllOriginalObjects();
             this.startRotateOperation();
         } else {
             // 无选择，进入多选阶段
             this.state = 'multi_selection';
-            store.setPrompt('Click to select objects, press Space/Enter to confirm');
+            store.setPrompt('请选择要旋转的对象，按空格/回车确认');
             this.domElement.style.cursor = 'default';
         }
     }
@@ -88,7 +96,7 @@ export class RotateTool implements Tool {
 
         this.state = 'waiting_center';
         this.domElement.style.cursor = 'crosshair';
-        store.setPrompt(`Click to set rotation center (${this.selectedObjects.length} objects)`);
+        store.setPrompt(`请点击设置旋转中心 (已选${this.selectedObjects.length}个对象)`);
     }
 
     private calculateGroupCenter(): THREE.Vector3 {
@@ -96,12 +104,14 @@ export class RotateTool implements Tool {
             return new THREE.Vector3(0, 0, 0);
         }
 
-        // 计算所有对象 bounds 的几何中心
+        // 计算所有模块的几何中心
         let sumX = 0, sumZ = 0;
         for (const obj of this.selectedObjects) {
-            const center = boundsCenterToWorld(obj.bounds);
-            sumX += center.x;
-            sumZ += center.z;
+            if (obj.bounds) {
+                const center = boundsCenterToWorld(obj.bounds);
+                sumX += center.x;
+                sumZ += center.z;
+            }
         }
         return new THREE.Vector3(
             sumX / this.selectedObjects.length,
@@ -123,6 +133,11 @@ export class RotateTool implements Tool {
         store.setPrompt(null);
     }
 
+    // 实现 Tool 接口的可选方法
+    isInSelectionPhase(): boolean {
+        return this.state === 'multi_selection';
+    }
+
     private findObjectById(id: string): THREE.Object3D | null {
         let found: THREE.Object3D | null = null;
         this.scene.traverse((child) => {
@@ -136,20 +151,15 @@ export class RotateTool implements Tool {
     onMouseDown(event: MouseEvent) {
         if (event.button !== 0) return;
 
+        // multi_selection 状态下不拦截鼠标事件，让 InteractionService 处理选择
+        if (this.state === 'multi_selection') {
+            return; // 不处理，交给 InteractionService
+        }
+
         const point = this.getRayIntersection(event);
         if (!point) return;
 
         const store = useCanvasStore();
-
-        if (this.state === 'multi_selection') {
-            // 多选阶段：点击切换选择状态
-            const hit = this.raycastObject(event);
-            if (hit && hit.userData && hit.userData.type === 'module') {
-                store.toggleSelection(hit.userData.data);
-                console.log(`Toggle selection: ${hit.userData.id}, now ${store.selectedIds.length} selected`);
-            }
-            return;
-        }
 
         // Snap
         const snapObjects = this.scene.children.filter(c => !c.userData.isGhost);
@@ -162,7 +172,7 @@ export class RotateTool implements Tool {
             this.ghostManager.setPivot(this.centerPoint);
 
             this.state = 'waiting_start';
-            store.setPrompt('Click to set start angle');
+            store.setPrompt('请点击设置旋转起始角度');
 
         } else if (this.state === 'waiting_start') {
             if (!this.centerPoint) return;
@@ -171,7 +181,7 @@ export class RotateTool implements Tool {
 
             this.createStartLine(this.centerPoint, finalPoint);
             this.state = 'waiting_end';
-            store.setPrompt('Click to set end angle');
+            store.setPrompt('请点击设置旋转终止角度');
 
         } else if (this.state === 'waiting_end') {
             this.executeRotate(finalPoint);
@@ -179,18 +189,13 @@ export class RotateTool implements Tool {
     }
 
     onMouseMove(event: MouseEvent) {
+        // multi_selection 状态下不拦截鼠标事件
+        if (this.state === 'multi_selection') {
+            return; // 不处理，交给 InteractionService
+        }
+
         const point = this.getRayIntersection(event);
         if (!point) return;
-
-        if (this.state === 'multi_selection') {
-            const hit = this.raycastObject(event);
-            if (hit && hit.userData && hit.userData.type === 'module') {
-                this.domElement.style.cursor = 'pointer';
-            } else {
-                this.domElement.style.cursor = 'default';
-            }
-            return;
-        }
 
         const snapObjects = this.scene.children.filter(c => !c.userData.isGhost);
         const snapResult = this.snappingEngine.snap(point, snapObjects);
@@ -229,10 +234,19 @@ export class RotateTool implements Tool {
 
             if (store.selectedIds.length === 0) {
                 console.log('No objects selected');
+                store.setPrompt('请先选择要旋转的对象');
                 return;
             }
 
-            this.selectedObjects = [...store.selectedObjects];
+            // 过滤只保留 module 类型
+            this.selectedObjects = store.selectedObjects.filter((obj: any) => obj.type === 'module');
+
+            if (this.selectedObjects.length === 0) {
+                console.log('No rotatable modules selected');
+                store.setPrompt('只有家具模块可以旋转，请重新选择');
+                return;
+            }
+
             this.findAllOriginalObjects();
             this.startRotateOperation();
         }
@@ -248,7 +262,8 @@ export class RotateTool implements Tool {
         this.raycaster.setFromCamera(mouse, this.camera);
         const intersects = this.raycaster.intersectObjects(this.scene.children, true);
 
-        const hit = intersects.find(i => i.object instanceof THREE.Mesh && !i.object.userData.isGhost);
+        // Allow selecting any object with ID (except ghosts)
+        const hit = intersects.find(i => i.object instanceof THREE.Mesh && i.object.userData.id && !i.object.userData.isGhost);
         return hit ? hit.object : null;
     }
 
@@ -262,21 +277,23 @@ export class RotateTool implements Tool {
         const store = useCanvasStore();
         const center2D = toModel(this.centerPoint);
 
-        // 批量更新所有选中对象
+        // 批量更新所有选中的模块
         for (const obj of this.selectedObjects) {
-            // 旋转所有顶点
+            if (!obj.bounds) continue;
+
+            // 旋转几何
             const newBounds = obj.bounds.map((p: [number, number]) =>
                 rotatePoint2D(p, center2D, deltaRotation)
             );
 
-            // 旋转朝向向量
+            // 旋转朝向
             let facingVector: [number, number];
             if (typeof obj.facing === 'string') {
                 facingVector = semanticToVector(obj.facing);
             } else if (Array.isArray(obj.facing)) {
                 facingVector = obj.facing as [number, number];
             } else {
-                facingVector = [0, 1]; // 默认朝北
+                facingVector = [0, 1]; // Default North
             }
             const newFacing = rotateFacing2D(facingVector, deltaRotation);
 

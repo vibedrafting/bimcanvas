@@ -201,8 +201,13 @@ export class InteractionService {
 
     private onMouseDown(event: MouseEvent) {
         if (this.activeTool) {
-            this.activeTool.onMouseDown(event);
-            return;
+            // 如果工具处于选择阶段，不拦截事件，让选择逻辑继续
+            if (this.activeTool.isInSelectionPhase?.()) {
+                // 不调用工具的 onMouseDown，继续执行选择逻辑
+            } else {
+                this.activeTool.onMouseDown(event);
+                return;
+            }
         }
         if (event.button !== 0) return; // Only Left Click
 
@@ -213,8 +218,13 @@ export class InteractionService {
 
     private onMouseMove(event: MouseEvent) {
         if (this.activeTool) {
-            this.activeTool.onMouseMove(event);
-            return;
+            // 如果工具处于选择阶段，不拦截事件
+            if (this.activeTool.isInSelectionPhase?.()) {
+                // 不调用工具的 onMouseMove，继续执行框选逻辑
+            } else {
+                this.activeTool.onMouseMove(event);
+                return;
+            }
         }
 
         const rect = this.domElement.getBoundingClientRect();
@@ -236,8 +246,13 @@ export class InteractionService {
 
     private onMouseUp(event: MouseEvent) {
         if (this.activeTool) {
-            this.activeTool.onMouseUp(event);
-            return;
+            // 如果工具处于选择阶段，不拦截事件
+            if (this.activeTool.isInSelectionPhase?.()) {
+                // 不调用工具的 onMouseUp，继续执行框选逻辑
+            } else {
+                this.activeTool.onMouseUp(event);
+                return;
+            }
         }
 
         if (this.isBoxSelecting) {
@@ -246,10 +261,6 @@ export class InteractionService {
         }
 
         this.isMouseDown = false;
-        // Note: isBoxSelecting will be reset in onClick or next interaction, 
-        // but we need it in onClick to prevent single selection.
-        // So we reset it LATER, inside onClick.
-        // Actually, onClick fires AFTER onMouseUp.
     }
 
     private updateSelectionBoxVisual(currentX: number, currentY: number) {
@@ -389,8 +400,14 @@ export class InteractionService {
 
     private onClick(event: MouseEvent) {
         if (this.activeTool) {
-            this.activeTool.onMouseDown(event);
-            return;
+            // 如果工具处于选择阶段，不拦截点击事件，继续执行选择逻辑
+            if (this.activeTool.isInSelectionPhase?.()) {
+                // 不 return，继续执行下方的选择逻辑
+            } else {
+                // 工具不在选择阶段，onMouseDown 已经处理过了，这里直接 return
+                // 不要再调用 onMouseDown，否则会导致状态机跳两步
+                return;
+            }
         }
 
         // If we were box selecting, consume the click
