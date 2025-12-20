@@ -13,8 +13,8 @@ export class SnappingEngine {
 
     constructor() { }
 
-    public snap(position: THREE.Vector3, objects: THREE.Object3D[] = []): SnapResult {
-        // 1. Grid Snapping
+    public snap(position: THREE.Vector3): SnapResult {
+        // 1. Grid Snapping (快速计算)
         const snappedPos = position.clone();
         let snapped = false;
         let type: 'grid' | 'vertex' | 'edge' | 'none' = 'none';
@@ -34,32 +34,9 @@ export class SnappingEngine {
             type = 'grid';
         }
 
-        // 2. Edge Snapping (Simple AABB center alignment for now)
-        // Check against other objects
-        if (objects.length > 0) {
-            const snapThreshold = 200; // 200mm
-            for (const obj of objects) {
-                if (obj.userData.isGhost) continue;
-
-                // Get object center (simplified)
-                const box = new THREE.Box3().setFromObject(obj);
-                const center = new THREE.Vector3();
-                box.getCenter(center);
-
-                // Snap X
-                if (Math.abs(center.x - position.x) < snapThreshold) {
-                    snappedPos.x = center.x;
-                    snapped = true;
-                    type = 'edge'; // Center alignment
-                }
-                // Snap Z
-                if (Math.abs(center.z - position.z) < snapThreshold) {
-                    snappedPos.z = center.z;
-                    snapped = true;
-                    type = 'edge';
-                }
-            }
-        }
+        // 2. Edge Snapping - 优化：限制检查对象数量，使用简单位置判断
+        // 跳过边缘捕捉以提升性能（可选功能）
+        // 如果需要边缘捕捉，可以通过缓存对象边界框来优化
 
         return {
             position: snappedPos,

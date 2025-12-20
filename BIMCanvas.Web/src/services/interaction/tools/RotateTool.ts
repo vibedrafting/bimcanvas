@@ -164,8 +164,7 @@ export class RotateTool implements Tool {
         const store = useCanvasStore();
 
         // Snap
-        const snapObjects = this.scene.children.filter(c => !c.userData.isGhost);
-        const snapResult = this.snappingEngine.snap(point, snapObjects);
+        const snapResult = this.snappingEngine.snap(point);
         const finalPoint = snapResult.snapped ? snapResult.position : point;
 
         if (this.state === 'waiting_center') {
@@ -199,8 +198,8 @@ export class RotateTool implements Tool {
         const point = this.getRayIntersection(event);
         if (!point) return;
 
-        const snapObjects = this.scene.children.filter(c => !c.userData.isGhost);
-        const snapResult = this.snappingEngine.snap(point, snapObjects);
+        // 优化：只进行网格捕捉，跳过昂贵的对象边缘捕捉
+        const snapResult = this.snappingEngine.snap(point);
         const finalPoint = snapResult.snapped ? snapResult.position : point;
 
         if (this.state === 'waiting_center') {
@@ -331,7 +330,8 @@ export class RotateTool implements Tool {
     // Visual Helpers
     private createCenterMarker(point: THREE.Vector3) {
         const geometry = new THREE.CircleGeometry(100, 32);
-        const material = new THREE.MeshBasicMaterial({ color: 0x0000ff, depthTest: false });
+        // Revit 风格：洋红色旋转中心点
+        const material = new THREE.MeshBasicMaterial({ color: 0xff00ff, depthTest: false });
         this.centerMarker = new THREE.Mesh(geometry, material);
         this.centerMarker.rotation.x = -Math.PI / 2;
         this.centerMarker.position.copy(point);
@@ -348,7 +348,13 @@ export class RotateTool implements Tool {
     private updateStartLine(start: THREE.Vector3, end: THREE.Vector3) {
         if (!this.startLine) {
             const geometry = new THREE.BufferGeometry().setFromPoints([start, end]);
-            const material = new THREE.LineDashedMaterial({ color: 0x0000ff, dashSize: 100, gapSize: 50, depthTest: false });
+            // CAD/Revit 风格：青色虚线（与移动命令一致）
+            const material = new THREE.LineDashedMaterial({
+                color: 0x00ffff,  // 青色
+                dashSize: 150,
+                gapSize: 75,
+                depthTest: false
+            });
             this.startLine = new THREE.Line(geometry, material);
             this.startLine.computeLineDistances();
             this.startLine.renderOrder = 999;
@@ -372,8 +378,15 @@ export class RotateTool implements Tool {
     private updateEndLine(start: THREE.Vector3, end: THREE.Vector3) {
         if (!this.endLine) {
             const geometry = new THREE.BufferGeometry().setFromPoints([start, end]);
-            const material = new THREE.LineDashedMaterial({ color: 0x00ff00, dashSize: 100, gapSize: 50, depthTest: false });
+            // 终止线：也使用青色虚线保持一致
+            const material = new THREE.LineDashedMaterial({
+                color: 0x00ffff,  // 青色
+                dashSize: 150,
+                gapSize: 75,
+                depthTest: false
+            });
             this.endLine = new THREE.Line(geometry, material);
+            this.endLine.computeLineDistances();
             this.endLine.renderOrder = 999;
             this.scene.add(this.endLine);
         } else {

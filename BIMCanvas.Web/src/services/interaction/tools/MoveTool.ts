@@ -198,8 +198,7 @@ export class MoveTool implements Tool {
         const store = useCanvasStore();
 
         // Apply Snapping for Base/Dest points
-        const snapObjects = this.scene.children.filter(c => !c.userData.isGhost);
-        const snapResult = this.snappingEngine.snap(point, snapObjects);
+        const snapResult = this.snappingEngine.snap(point);
         const finalPoint = snapResult.snapped ? snapResult.position : point;
 
         if (this.state === 'waiting_base') {
@@ -223,8 +222,8 @@ export class MoveTool implements Tool {
         const point = this.getRayIntersection(event);
         if (!point) return;
 
-        const snapObjects = this.scene.children.filter(c => !c.userData.isGhost);
-        const snapResult = this.snappingEngine.snap(point, snapObjects);
+        // 优化：只进行网格捕捉，跳过昂贵的对象边缘捕捉
+        const snapResult = this.snappingEngine.snap(point);
         const finalPoint = snapResult.snapped ? snapResult.position : point;
 
         if (this.state === 'waiting_dest' && this.basePoint) {
@@ -332,8 +331,15 @@ export class MoveTool implements Tool {
 
     private createRubberBand(start: THREE.Vector3) {
         const geometry = new THREE.BufferGeometry().setFromPoints([start, start]);
-        const material = new THREE.LineBasicMaterial({ color: 0xffff00, depthTest: false });
+        // CAD/Revit 风格：青色虚线
+        const material = new THREE.LineDashedMaterial({
+            color: 0x00ffff,  // 青色 (Cyan)
+            dashSize: 150,    // 虚线段长度 150mm
+            gapSize: 75,      // 间隙长度 75mm
+            depthTest: false
+        });
         this.rubberBand = new THREE.Line(geometry, material);
+        this.rubberBand.computeLineDistances(); // 虚线需要计算线段距离
         this.rubberBand.renderOrder = 999;
         this.scene.add(this.rubberBand);
     }
@@ -347,6 +353,7 @@ export class MoveTool implements Tool {
                 positions[4] = end.y;
                 positions[5] = end.z;
                 positionAttribute.needsUpdate = true;
+                this.rubberBand.computeLineDistances(); // 更新虚线显示
             }
         }
     }

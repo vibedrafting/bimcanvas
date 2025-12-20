@@ -123,8 +123,7 @@ export class MirrorTool implements Tool {
         const point = this.getRayIntersection(event);
         if (!point) return;
 
-        const snapObjects = this.scene.children.filter(c => !c.userData.isGhost);
-        const snapResult = this.snappingEngine.snap(point, snapObjects);
+        const snapResult = this.snappingEngine.snap(point);
         const finalPoint = snapResult.snapped ? snapResult.position : point;
 
         const store = useCanvasStore();
@@ -148,8 +147,8 @@ export class MirrorTool implements Tool {
         const point = this.getRayIntersection(event);
         if (!point) return;
 
-        const snapObjects = this.scene.children.filter(c => !c.userData.isGhost);
-        const snapResult = this.snappingEngine.snap(point, snapObjects);
+        // 优化：只进行网格捕捉，跳过昂贵的对象边缘捕捉
+        const snapResult = this.snappingEngine.snap(point);
         const finalPoint = snapResult.snapped ? snapResult.position : point;
 
         if (this.state === 'waiting_end' && this.startPoint) {
