@@ -260,20 +260,7 @@ export class RotateTool implements Tool {
         }
     }
 
-    private raycastObject(event: MouseEvent): THREE.Object3D | null {
-        const rect = this.domElement.getBoundingClientRect();
-        const mouse = new THREE.Vector2(
-            ((event.clientX - rect.left) / rect.width) * 2 - 1,
-            -((event.clientY - rect.top) / rect.height) * 2 + 1
-        );
 
-        this.raycaster.setFromCamera(mouse, this.camera);
-        const intersects = this.raycaster.intersectObjects(this.scene.children, true);
-
-        // Allow selecting any object with ID (except ghosts)
-        const hit = intersects.find(i => i.object instanceof THREE.Mesh && i.object.userData.id && !i.object.userData.isGhost);
-        return hit ? hit.object : null;
-    }
 
     private executeRotate(endPoint: THREE.Vector3) {
         if (!this.centerPoint || this.startAngle === null || this.selectedObjects.length === 0) return;

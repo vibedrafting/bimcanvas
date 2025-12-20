@@ -151,6 +151,15 @@ export class ThreeSceneService {
         this.boundAnimate = this.animate.bind(this);
         window.addEventListener('resize', this.boundOnResize);
 
+        // Listen for reset view
+        const onResetView = () => {
+            if (this.store.document) {
+                this.fitToScreen(this.store.document);
+            }
+        };
+        window.addEventListener('bimcanvas:reset-view', onResetView);
+        this.boundEventHandlers.set('bimcanvas:reset-view', onResetView);
+
         // 全局业务事件 - 保存引用到 Map
         const viewModeHandler = ((e: CustomEvent) => {
             this.toggleViewMode(e.detail);
@@ -176,11 +185,11 @@ export class ThreeSceneService {
         this.boundEventHandlers.set('bimcanvas:action-delete', deleteHandler);
         window.addEventListener('bimcanvas:action-delete', deleteHandler);
 
-        const ghostPatchHandler = ((e: CustomEvent) => {
-            this.ghostManager.updateGhosts(e.detail);
-        }) as EventListener;
-        this.boundEventHandlers.set('bimcanvas:ghost-patch', ghostPatchHandler);
-        window.addEventListener('bimcanvas:ghost-patch', ghostPatchHandler);
+        // const ghostPatchHandler = ((e: CustomEvent) => {
+        //     this.ghostManager.updateGhosts(e.detail);
+        // }) as EventListener;
+        // this.boundEventHandlers.set('bimcanvas:ghost-patch', ghostPatchHandler);
+        // window.addEventListener('bimcanvas:ghost-patch', ghostPatchHandler);
 
         // 主题切换事件监听 - 重建 Builders 和场景
         const themeChangeHandler = (() => {
@@ -199,6 +208,9 @@ export class ThreeSceneService {
         }) as EventListener;
         this.boundEventHandlers.set('bimcanvas:grid-spacing-change', gridSpacingHandler);
         window.addEventListener('bimcanvas:grid-spacing-change', gridSpacingHandler);
+
+        // 6. Start Animation Loop
+        this.animate();
     }
 
     public toggleViewMode(mode: 'human' | 'ai') {
@@ -208,18 +220,6 @@ export class ThreeSceneService {
     public toggleLayer(layerId: number, visible: boolean) {
         this.layerManager.toggleLayer(layerId, visible);
     }
-
-    public applyPreset(preset: string) {
-        this.layerManager.applyPreset(preset);
-    }
-
-    /**
-     * 获取 GridBuilder 实例（供外部配置网格规格）
-     */
-    public getGridBuilder(): GridBuilder {
-        return this.gridBuilder;
-    }
-
     /**
      * 重建网格（规格变更后调用）
      */

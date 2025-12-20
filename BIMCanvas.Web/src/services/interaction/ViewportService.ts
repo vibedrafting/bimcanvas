@@ -5,6 +5,7 @@ export class ViewportService {
     private renderer: THREE.WebGLRenderer;
     private isDragging: boolean = false;
     private lastMousePosition: { x: number, y: number } = { x: 0, y: 0 };
+    private lastMiddleClickTime: number = 0;
 
     // Bound event handlers (用于正确移除监听器)
     private boundOnMouseDown: (e: MouseEvent) => void;
@@ -38,6 +39,16 @@ export class ViewportService {
     }
 
     private onMouseDown(event: MouseEvent) {
+        // Middle mouse double click to reset view
+        if (event.button === 1) {
+            const now = Date.now();
+            if (now - this.lastMiddleClickTime < 300) {
+                this.resetView();
+                return;
+            }
+            this.lastMiddleClickTime = now;
+        }
+
         // Middle mouse or Right mouse for panning
         if (event.button === 1 || event.button === 2) {
             this.isDragging = true;
@@ -99,10 +110,7 @@ export class ViewportService {
     }
 
     public resetView() {
-        this.camera.position.set(0, 10000, 0);
-        this.camera.lookAt(0, 0, 0);
-        this.camera.zoom = 1;
-        this.camera.updateProjectionMatrix();
+        window.dispatchEvent(new CustomEvent('bimcanvas:reset-view'));
     }
 
     public dispose() {
