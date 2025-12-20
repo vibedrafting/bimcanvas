@@ -185,6 +185,10 @@ export class ThreeSceneService {
         this.boundEventHandlers.set('bimcanvas:action-delete', deleteHandler);
         window.addEventListener('bimcanvas:action-delete', deleteHandler);
 
+        const mirrorHandler = () => this.interactionService.activateMirrorTool();
+        this.boundEventHandlers.set('bimcanvas:action-mirror', mirrorHandler);
+        window.addEventListener('bimcanvas:action-mirror', mirrorHandler);
+
         // const ghostPatchHandler = ((e: CustomEvent) => {
         //     this.ghostManager.updateGhosts(e.detail);
         // }) as EventListener;

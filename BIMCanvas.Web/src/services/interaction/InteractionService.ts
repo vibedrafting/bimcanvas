@@ -7,6 +7,7 @@ import { MoveTool } from './tools/MoveTool';
 import { GhostManager } from './GhostManager';
 import { useDebugStore } from '../../stores/debugStore';
 import { RotateTool } from './tools/RotateTool';
+import { MirrorTool } from './tools/MirrorTool';
 
 export class InteractionService {
     private raycaster: THREE.Raycaster;
@@ -90,11 +91,19 @@ export class InteractionService {
         // State is now managed by the Tool itself after validation
     }
 
+    private preventNextClick = false;
+
     public cancelTool() {
         if (this.activeTool) {
             this.activeTool.deactivate();
             this.activeTool = null;
             this.store.currentOperation = null;
+
+            // Prevent immediate re-selection if tool finished via mouse click
+            this.preventNextClick = true;
+            setTimeout(() => {
+                this.preventNextClick = false;
+            }, 100);
         }
     }
 
@@ -140,6 +149,20 @@ export class InteractionService {
         );
         this.activeTool.activate();
         // State is now managed by the Tool itself after validation
+    }
+
+    public activateMirrorTool() {
+        const debugStore = useDebugStore();
+        debugStore.log('Command: Mirror Triggered');
+        if (this.activeTool) this.activeTool.deactivate();
+
+        this.activeTool = new MirrorTool(
+            this.scene,
+            this.camera,
+            this.domElement,
+            this.ghostManager
+        );
+        this.activeTool.activate();
     }
 
     public deleteSelection() {
@@ -414,6 +437,11 @@ export class InteractionService {
     }
 
     private onClick(event: MouseEvent) {
+        if (this.preventNextClick) {
+            this.preventNextClick = false;
+            return;
+        }
+
         if (this.activeTool) {
             // 如果工具处于选择阶段，不拦截点击事件，继续执行选择逻辑
             if (this.activeTool.isInSelectionPhase?.()) {
