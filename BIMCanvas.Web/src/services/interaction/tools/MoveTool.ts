@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import type { Tool } from './Tool';
 import { GhostManager } from '../GhostManager';
 import { SnappingEngine } from '../SnappingEngine';
+import { SnapIndicator } from '../SnapIndicator';
 import { useCanvasStore } from '../../../stores/canvasStore';
 import { useDebugStore } from '../../../stores/debugStore';
 import { deltaToModel } from '../../../utils/coordinates';
@@ -13,6 +14,7 @@ export class MoveTool implements Tool {
     private domElement: HTMLElement;
     private ghostManager: GhostManager;
     private snappingEngine: SnappingEngine;
+    private snapIndicator: SnapIndicator;  // Phase 2: 吸附指示器
     private raycaster: THREE.Raycaster;
     private plane: THREE.Plane;
 
@@ -38,6 +40,7 @@ export class MoveTool implements Tool {
         this.domElement = domElement;
         this.ghostManager = ghostManager;
         this.snappingEngine = new SnappingEngine();
+        this.snapIndicator = new SnapIndicator(scene);  // Phase 2: 初始化吸附指示器
         this.raycaster = new THREE.Raycaster();
         this.plane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
     }
@@ -178,6 +181,10 @@ export class MoveTool implements Tool {
 
         // Revit-Lite: 清理吸附点缓存
         this.snappingEngine.clear();
+
+        // Phase 2: 清理吸附指示器
+        this.snapIndicator.dispose();
+        this.snapIndicator = new SnapIndicator(this.scene);  // 重新创建以备下次使用
     }
 
     // 实现 Tool 接口的可选方法
@@ -236,6 +243,13 @@ export class MoveTool implements Tool {
         // 优化：只进行网格捕捉，跳过昂贵的对象边缘捕捉
         const snapResult = this.snappingEngine.snap(point);
         const finalPoint = snapResult.snapped ? snapResult.position : point;
+
+        // Phase 2: 更新吸附指示器
+        if (snapResult.snapped && (snapResult.type === 'vertex' || snapResult.type === 'midpoint')) {
+            this.snapIndicator.show(snapResult.position);
+        } else {
+            this.snapIndicator.hide();
+        }
 
         if (this.state === 'waiting_dest' && this.basePoint) {
             // 更新橡皮筋
