@@ -239,7 +239,7 @@ export class MoveTool implements Tool {
             this.basePoint = finalPoint;
             this.state = 'waiting_dest';
             this.createRubberBand(this.basePoint);
-            this.ghostManager.setPositionOffset(new THREE.Vector3(0, 0, 0));
+            // 移动不需要 setPivot，直接用 offset
             store.setPrompt('请点击选择移动终点');
 
         } else if (this.state === 'waiting_dest') {

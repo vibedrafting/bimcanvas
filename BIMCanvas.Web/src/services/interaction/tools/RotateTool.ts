@@ -109,7 +109,7 @@ export class RotateTool implements Tool {
         this.centerPoint = this.calculateGroupCenter();
         this.createCenterMarker(this.centerPoint);
 
-        // 设置 Ghost 旋转中心
+        // Phase 4: 设置 Ghost Pivot 为旋转中心
         this.ghostManager.setPivot(this.centerPoint);
 
         this.state = 'waiting_center';
@@ -204,6 +204,8 @@ export class RotateTool implements Tool {
         if (this.state === 'waiting_center') {
             this.centerPoint = finalPoint;
             this.updateCenterMarker(this.centerPoint);
+
+            // Phase 4: 更新 Ghost Pivot 为新的旋转中心
             this.ghostManager.setPivot(this.centerPoint);
 
             this.state = 'waiting_start';
@@ -317,6 +319,7 @@ export class RotateTool implements Tool {
 
             const deltaRotation = currentAngle - this.startAngle;
 
+            // 使用 setRotation（Pivot 已在用户点击确认旋转中心时设置）
             this.ghostManager.setRotation(deltaRotation);
         }
     }

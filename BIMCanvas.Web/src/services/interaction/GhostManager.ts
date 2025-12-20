@@ -3,22 +3,24 @@ import { LayerManager } from '../three/LayerManager';
 
 /**
  * GhostManager - 管理拖拽/旋转时的预览幽灵对象
- * 支持多选模式：可以同时创建多个 Ghost
  * 
- * 位置逻辑（简化版）：
- * - ghostGroup 包含 clone（用于变换计算）
- * - BoxHelper 直接添加到 scene（避免双重变换）
- * - 每次变换后调用 boxHelper.update() 刷新位置
+ * 简化架构（回退到工作版本）：
+ * - ghostGroup 初始在原点 (0,0,0)
+ * - clone 保留 original 的完整变换
+ * - 移动：ghostGroup.position = offset
+ * - 旋转：分开处理位置和角度
  */
 export class GhostManager {
     private static instance: GhostManager | null = null;
 
     private scene: THREE.Scene;
     private ghostGroups: Map<string, THREE.Group> = new Map();
-    private boxHelpers: Map<string, THREE.BoxHelper> = new Map(); // BoxHelper 单独存储
     private originalMaterials: Map<string, THREE.Material | THREE.Material[]> = new Map();
     private originalObjects: Map<string, THREE.Object3D> = new Map();
-    private sharedPivot: THREE.Vector3 | null = null;
+
+    // 旋转专用：存储每个对象相对于 pivot 的初始偏移
+    private rotationOffsets: Map<string, THREE.Vector3> = new Map();
+    private currentPivot: THREE.Vector3 | null = null;
 
     private constructor(scene: THREE.Scene) {
         this.scene = scene;
@@ -74,7 +76,7 @@ export class GhostManager {
                 }
             });
 
-            // **关键修复**：BoxHelper 直接添加到 scene，不作为 ghostGroup 的子对象
+            // BoxHelper 添加到 ghostGroup（跟随变换）
             const boxHelper = new THREE.BoxHelper(clone, ghostColor);
             boxHelper.layers.set(LayerManager.LAYER_MODEL);
             if (boxHelper.material instanceof THREE.LineBasicMaterial) {
@@ -82,8 +84,7 @@ export class GhostManager {
                 boxHelper.material.transparent = true;
                 boxHelper.material.opacity = 0.9;
             }
-            this.scene.add(boxHelper); // 直接添加到 scene
-            this.boxHelpers.set(id, boxHelper); // 单独存储
+            ghostGroup.add(boxHelper);
 
             // 存储
             this.ghostGroups.set(id, ghostGroup);
@@ -105,23 +106,75 @@ export class GhostManager {
         }
     }
 
+    /**
+     * 设置位置偏移（用于移动预览）
+     * offset = targetPoint - basePoint
+     */
+    public setPositionOffset(offset: THREE.Vector3) {
+        for (const [_id, ghostGroup] of this.ghostGroups) {
+            ghostGroup.position.copy(offset);
+        }
+    }
+
+    /**
+     * 设置旋转中心（用于旋转预览准备）
+     * 计算并存储每个对象相对于 pivot 的偏移
+     */
     public setPivot(pivot: THREE.Vector3) {
-        this.sharedPivot = pivot.clone();
+        this.currentPivot = pivot.clone();
+        this.rotationOffsets.clear();
+
+        for (const [id, original] of this.originalObjects) {
+            const worldPos = new THREE.Vector3();
+            original.getWorldPosition(worldPos);
+            const offset = new THREE.Vector3().subVectors(worldPos, pivot);
+            this.rotationOffsets.set(id, offset);
+        }
+    }
+
+    /**
+     * 设置旋转角度（用于旋转预览）
+     * 必须先调用 setPivot
+     */
+    public setRotation(rotation: number) {
+        if (!this.currentPivot) return;
+
+        const cos = Math.cos(rotation);
+        const sin = Math.sin(rotation);
 
         for (const [id, ghostGroup] of this.ghostGroups) {
-            const original = this.originalObjects.get(id);
-            if (!original) continue;
+            const initialOffset = this.rotationOffsets.get(id);
+            if (!initialOffset) continue;
 
-            ghostGroup.position.copy(pivot);
+            // 旋转偏移向量（绕 Y 轴，使用标准 Y-up 旋转矩阵）
+            const rotatedOffset = new THREE.Vector3(
+                initialOffset.x * cos - initialOffset.z * sin,
+                initialOffset.y,
+                initialOffset.x * sin + initialOffset.z * cos
+            );
 
-            ghostGroup.children.forEach(child => {
-                const originalWorldPos = original.position.clone();
-                child.position.subVectors(originalWorldPos, pivot);
-            });
+            // ghostGroup.position = 位移偏移 = 旋转后偏移 - 初始偏移
+            // 这样 clone 世界位置 = original世界位置 + (rotatedOffset - initialOffset)
+            //                    = pivot + initialOffset + (rotatedOffset - initialOffset)
+            //                    = pivot + rotatedOffset ✓
+            ghostGroup.position.subVectors(rotatedOffset, initialOffset);
+
+            // 设置 ghostGroup 的旋转（让模块本身也旋转）
+            ghostGroup.rotation.y = rotation;
         }
+    }
 
-        // 更新所有 BoxHelper
-        this.updateAllBoxHelpers();
+    /**
+     * 兼容旧 API
+     */
+    public setTransform(position: THREE.Vector3, rotationY: number = 0) {
+        if (rotationY === 0) {
+            // 纯移动
+            this.setPositionOffset(position);
+        } else if (this.currentPivot) {
+            // 纯旋转（position 应该是 pivot）
+            this.setRotation(rotationY);
+        }
     }
 
     public removeGhost() {
@@ -129,6 +182,7 @@ export class GhostManager {
     }
 
     public removeAllGhosts() {
+        // 恢复原对象材质
         for (const [_id, original] of this.originalObjects) {
             original.traverse((child) => {
                 if (child instanceof THREE.Mesh && this.originalMaterials.has(child.uuid)) {
@@ -137,11 +191,11 @@ export class GhostManager {
             });
         }
 
-        // 清理 Ghost Groups
+        // 清理资源
         for (const [_id, ghostGroup] of this.ghostGroups) {
             this.scene.remove(ghostGroup);
             ghostGroup.traverse((child) => {
-                if (child instanceof THREE.Mesh || child instanceof THREE.Line) {
+                if (child instanceof THREE.Mesh || child instanceof THREE.Line || child instanceof THREE.LineSegments) {
                     child.geometry?.dispose();
                     if (Array.isArray(child.material)) {
                         child.material.forEach(m => m.dispose());
@@ -152,49 +206,11 @@ export class GhostManager {
             });
         }
 
-        // 清理 BoxHelper（单独存储）
-        for (const [_id, boxHelper] of this.boxHelpers) {
-            this.scene.remove(boxHelper);
-            boxHelper.geometry.dispose();
-            (boxHelper.material as THREE.Material).dispose();
-        }
-
         this.ghostGroups.clear();
-        this.boxHelpers.clear();
         this.originalObjects.clear();
         this.originalMaterials.clear();
-        this.sharedPivot = null;
-    }
-
-    /**
-     * 设置位置偏移（移动预览）
-     */
-    public setPositionOffset(offset: THREE.Vector3) {
-        for (const [_id, ghostGroup] of this.ghostGroups) {
-            ghostGroup.position.copy(offset);
-        }
-        // 更新所有 BoxHelper
-        this.updateAllBoxHelpers();
-    }
-
-    /**
-     * 设置旋转角度（旋转预览）
-     */
-    public setRotation(rotation: number) {
-        for (const [_id, ghostGroup] of this.ghostGroups) {
-            ghostGroup.rotation.y = -rotation;
-        }
-        // 更新所有 BoxHelper
-        this.updateAllBoxHelpers();
-    }
-
-    /**
-     * 更新所有 BoxHelper（重新计算包围盒）
-     */
-    private updateAllBoxHelpers() {
-        for (const [_id, boxHelper] of this.boxHelpers) {
-            boxHelper.update();
-        }
+        this.rotationOffsets.clear();
+        this.currentPivot = null;
     }
 
     public hasGhosts(): boolean {
