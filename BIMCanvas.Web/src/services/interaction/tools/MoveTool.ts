@@ -46,8 +46,20 @@ export class MoveTool implements Tool {
 
         // 检查是否已有选中对象
         if (store.selectedIds.length > 0) {
-            // 已有选择，直接进入移动操作
-            this.selectedObjects = [...store.selectedObjects];
+            // 1. 过滤只保留 module 类型
+            this.selectedObjects = store.selectedObjects.filter((obj: any) => obj.type === 'module');
+
+            if (this.selectedObjects.length === 0) {
+                // 有选择但没有有效的家具模块
+                console.log('No movable modules selected');
+                store.setPrompt('只有家具模块可以移动，请重新选择');
+                this.state = 'multi_selection';
+                this.domElement.style.cursor = 'default';
+                return;
+            }
+
+            // 2. 有效选择，设置状态并开始
+            store.currentOperation = 'moving';
             this.findAllOriginalObjects();
             this.startMoveOperation();
         } else {
@@ -154,6 +166,7 @@ export class MoveTool implements Tool {
         this.selectedObjects = [];
         this.originalObjects = [];
         store.setPrompt(null);
+        store.currentOperation = null;
     }
 
     // 实现 Tool 接口的可选方法
@@ -255,6 +268,7 @@ export class MoveTool implements Tool {
                     return;
                 }
 
+                store.currentOperation = 'moving';
                 this.findAllOriginalObjects();
                 this.startMoveOperation();
             } else if (this.state === 'waiting_base' && this.basePoint) {

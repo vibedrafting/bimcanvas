@@ -87,7 +87,7 @@ export class InteractionService {
             this.ghostManager
         );
         this.activeTool.activate();
-        this.store.currentOperation = 'moving';
+        // State is now managed by the Tool itself after validation
     }
 
     public cancelTool() {
@@ -139,7 +139,7 @@ export class InteractionService {
             this.ghostManager
         );
         this.activeTool.activate();
-        this.store.currentOperation = 'rotating';
+        // State is now managed by the Tool itself after validation
     }
 
     public deleteSelection() {
@@ -148,13 +148,28 @@ export class InteractionService {
         const selectedIds = this.store.selectedIds;
         if (selectedIds.length === 0) return;
 
-        // 批量删除
-        selectedIds.forEach(id => {
-            this.store.removeModule(id);
+        // 1. Filter for valid modules (Furniture)
+        // We need to check the type of each selected object.
+        // The store.selectedObjects array contains the data objects.
+        const modulesToDelete = this.store.selectedObjects.filter((obj: any) => obj.type === 'module');
+
+        if (modulesToDelete.length === 0) {
+            debugStore.warn('Delete ignored: No deletable modules selected');
+            // Optional: Show feedback that nothing can be deleted?
+            // For now, just do nothing and definitely DO NOT show "Deleted"
+            return;
+        }
+
+        // 2. Delete valid modules
+        modulesToDelete.forEach((obj: any) => {
+            if (obj.id) {
+                this.store.removeModule(obj.id);
+            }
         });
 
         this.store.clearSelection();
 
+        // 3. Only show feedback if something was actually deleted
         this.store.currentOperation = 'deleted';
         setTimeout(() => {
             if (this.store.currentOperation === 'deleted') {

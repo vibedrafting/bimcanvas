@@ -60,6 +60,7 @@ export class RotateTool implements Tool {
                 return;
             }
 
+            store.currentOperation = 'rotating';
             this.findAllOriginalObjects();
             this.startRotateOperation();
         } else {
@@ -131,6 +132,7 @@ export class RotateTool implements Tool {
         this.selectedObjects = [];
         this.originalObjects = [];
         store.setPrompt(null);
+        store.currentOperation = null;
     }
 
     // 实现 Tool 接口的可选方法
@@ -250,6 +252,7 @@ export class RotateTool implements Tool {
                     return;
                 }
 
+                store.currentOperation = 'rotating';
                 this.findAllOriginalObjects();
                 this.startRotateOperation();
             } else if (this.state === 'waiting_center' && this.centerPoint) {
