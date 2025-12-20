@@ -273,10 +273,10 @@ export const lightTheme: ColorTheme = {
         // Curved Glass (Light Mode) - 3D 曲面玻璃
         glassBg: 'linear-gradient(160deg, rgba(255, 255, 255, 0.8) 0%, rgba(240, 245, 255, 0.7) 100%)', // 稍微调回一点不透明度，配合强边框
         glassBlur: 'blur(24px) saturate(180%)',
-        glassBorder: '1px solid rgba(0, 10, 30, 0.08)', // 显性深色边框
+        glassBorder: '1px solid rgba(0, 10, 30, 0.12)', // 加深边框，更锐利
         glassInnerHighlight: 'inset 0 1px 2px rgba(255, 255, 255, 0.9), inset 0 -2px 4px rgba(200, 210, 230, 0.15)', // 上亮下暗模拟厚度
         glassGlare: 'linear-gradient(180deg, rgba(255, 255, 255, 0.6) 0%, rgba(255, 255, 255, 0) 30%)', // 顶部强反光
-        shadowIsland: '0 16px 40px rgba(0, 20, 50, 0.1), 0 2px 6px rgba(0, 0, 0, 0.05)', // 悬浮阴影
+        shadowIsland: '0 24px 48px rgba(0, 20, 50, 0.18), 0 4px 12px rgba(0, 0, 0, 0.1)', // 显著加深悬浮阴影
         shadowPanel: '0 8px 24px rgba(0, 20, 50, 0.08), 0 1px 2px rgba(0, 0, 0, 0.05)',
     },
 };

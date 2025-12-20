@@ -202,13 +202,21 @@ onUnmounted(() => {
 }
 
 .layer-menu {
-  background: var(--surface-elevated);
-  backdrop-filter: blur(12px);
-  border: 1px solid var(--border-subtle);
-  border-radius: 12px;
+  /* Premium Glass Tokens */
+  background: var(--glass-bg);
+  backdrop-filter: var(--glass-blur);
+  -webkit-backdrop-filter: var(--glass-blur);
+  border: var(--glass-border);
+  box-shadow: var(--shadow-panel), var(--glass-inner-highlight);
+  
+  /* Glare Overlay */
+  background-image: var(--glass-glare), linear-gradient(to bottom, var(--glass-bg), var(--glass-bg));
+  background-origin: border-box;
+  background-clip: padding-box, border-box;
+
+  border-radius: 16px;
   padding: 0;
   min-width: 180px;
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.15);
   overflow: hidden;
   transform-origin: bottom right;
 
