@@ -3,6 +3,7 @@ import type { Tool } from './Tool';
 import { GhostManager } from '../GhostManager';
 import { SnappingEngine } from '../SnappingEngine';
 import { SnapIndicator } from '../SnapIndicator';
+import { AxisLockHelper } from '../AxisLockHelper';
 import { useCanvasStore } from '../../../stores/canvasStore';
 import { useDebugStore } from '../../../stores/debugStore';
 import { deltaToModel } from '../../../utils/coordinates';
@@ -15,8 +16,11 @@ export class MoveTool implements Tool {
     private ghostManager: GhostManager;
     private snappingEngine: SnappingEngine;
     private snapIndicator: SnapIndicator;  // Phase 2: 吸附指示器
+    private axisLockHelper: AxisLockHelper;  // Phase 3: 轴锁定辅助器
     private raycaster: THREE.Raycaster;
     private plane: THREE.Plane;
+    private shiftHeld: boolean = false;  // Phase 3: Shift 键状态
+    private boundHandleKeyUp: (event: KeyboardEvent) => void;  // Phase 3: 绑定的事件处理器
 
     // 多选支持：新增 multi_selection 状态
     private state: 'multi_selection' | 'waiting_base' | 'waiting_dest' = 'multi_selection';
@@ -41,12 +45,17 @@ export class MoveTool implements Tool {
         this.ghostManager = ghostManager;
         this.snappingEngine = new SnappingEngine();
         this.snapIndicator = new SnapIndicator(scene);  // Phase 2: 初始化吸附指示器
+        this.axisLockHelper = new AxisLockHelper(scene);  // Phase 3
         this.raycaster = new THREE.Raycaster();
         this.plane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
+        this.boundHandleKeyUp = this.handleKeyUp.bind(this);  // Phase 3
     }
 
     activate() {
         const store = useCanvasStore();
+
+        // Phase 3: 绑定 keyup 事件
+        window.addEventListener('keyup', this.boundHandleKeyUp);
 
         // 检查是否已有选中对象
         if (store.selectedIds.length > 0) {
@@ -168,6 +177,10 @@ export class MoveTool implements Tool {
 
     deactivate() {
         const store = useCanvasStore();
+
+        // Phase 3: 解绑 keyup 事件
+        window.removeEventListener('keyup', this.boundHandleKeyUp);
+
         this.ghostManager.removeGhost();
         this.removeRubberBand();
         this.removeVisuals();
@@ -185,6 +198,11 @@ export class MoveTool implements Tool {
         // Phase 2: 清理吸附指示器
         this.snapIndicator.dispose();
         this.snapIndicator = new SnapIndicator(this.scene);  // 重新创建以备下次使用
+
+        // Phase 3: 清理轴锁定辅助器
+        this.axisLockHelper.dispose();
+        this.axisLockHelper = new AxisLockHelper(this.scene);
+        this.shiftHeld = false;
     }
 
     // 实现 Tool 接口的可选方法
@@ -252,17 +270,35 @@ export class MoveTool implements Tool {
         }
 
         if (this.state === 'waiting_dest' && this.basePoint) {
+            // Phase 3: 应用轴锁定
+            const lockedPoint = this.axisLockHelper.lock(this.basePoint, finalPoint, this.shiftHeld);
+            const actualPoint = this.shiftHeld ? lockedPoint : finalPoint;
+
             // 更新橡皮筋
-            this.updateRubberBand(finalPoint);
+            this.updateRubberBand(actualPoint);
             // 更新 Ghost 位置
-            const delta = new THREE.Vector3().subVectors(finalPoint, this.basePoint);
+            const delta = new THREE.Vector3().subVectors(actualPoint, this.basePoint);
             this.ghostManager.setPositionOffset(delta);
         }
     }
 
     onMouseUp(_event: MouseEvent) { }
 
+    // Phase 3: 处理 Shift 释放
+    private handleKeyUp(event: KeyboardEvent): void {
+        if (event.key === 'Shift') {
+            this.shiftHeld = false;
+            this.axisLockHelper.resetLock();
+            this.axisLockHelper.hide();
+        }
+    }
+
     onKeyDown(event: KeyboardEvent) {
+        // Phase 3: 跟踪 Shift 键
+        if (event.key === 'Shift') {
+            this.shiftHeld = true;
+        }
+
         if (event.key === 'Escape') {
             this.deactivate();
             window.dispatchEvent(new CustomEvent('bimcanvas:tool-cancelled'));
