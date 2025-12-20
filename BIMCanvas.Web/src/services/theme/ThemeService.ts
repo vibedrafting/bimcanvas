@@ -51,6 +51,16 @@ export interface ColorTheme {
         opacity: number;
     };
 
+    /** AI 视觉层配色 (高对比度) */
+    aiVision: {
+        wall: number;
+        column: number;
+        module: number;
+        door: number;
+        window: number;
+        slab: number;
+    };
+
     /** Grid 图层标签配色 (行列头) */
     gridLabel: {
         text: string;
@@ -129,6 +139,14 @@ export const darkTheme: ColorTheme = {
         exclusion: 0xef4444,     // Red
         opacity: 0.2,
     },
+    aiVision: {
+        wall: 0x37474F,      // Blue Grey 800
+        column: 0x90A4AE,    // Blue Grey 300
+        module: 0xFFB74D,    // Orange 300
+        door: 0x00E676,      // Spring Green (Bright, safe, distinct from walls/windows)
+        window: 0x64B5F6,    // Blue 300
+        slab: 0xCFD8DC,      // Blue Grey 100
+    },
     gridLabel: {
         text: '#6b7280',   // 灰色
         shadow: '0 1px 2px rgba(0,0,0,0.5)',
@@ -192,6 +210,14 @@ export const lightTheme: ColorTheme = {
         innerBoundary: 0x34c759, // Apple Green
         exclusion: 0xff3b30,     // Apple Red
         opacity: 0.15,           // Slightly more transparent in light mode
+    },
+    aiVision: {
+        wall: 0x37474F,      // Blue Grey 800
+        column: 0x90A4AE,    // Blue Grey 300
+        module: 0xFFB74D,    // Orange 300
+        door: 0x00E676,      // Spring Green
+        window: 0x64B5F6,    // Blue 300
+        slab: 0xCFD8DC,      // Blue Grey 100
     },
     gridLabel: {
         text: '#6b7280',   // 灰色 - 保持低调

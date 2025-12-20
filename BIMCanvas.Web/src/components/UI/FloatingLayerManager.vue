@@ -14,6 +14,7 @@ const layers = ref({
   [LayerManager.LAYER_OUTLINE]: false,
   [LayerManager.LAYER_ZONES]: false,
   [LayerManager.LAYER_SEMANTIC]: false,
+  [LayerManager.LAYER_AI_VISION]: false,
 });
 
 // Grid Spacing (600mm or 1000mm)
@@ -139,6 +140,10 @@ onUnmounted(() => {
           <label class="layer-item">
             <input type="checkbox" :checked="layers[LayerManager.LAYER_SEMANTIC]" @change="toggleLayer(LayerManager.LAYER_SEMANTIC)">
             <span>Semantic</span>
+          </label>
+          <label class="layer-item">
+            <input type="checkbox" :checked="layers[LayerManager.LAYER_AI_VISION]" @change="toggleLayer(LayerManager.LAYER_AI_VISION)">
+            <span>AI Vision</span>
           </label>
         </div>
       </div>

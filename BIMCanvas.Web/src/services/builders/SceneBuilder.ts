@@ -79,6 +79,16 @@ export class SceneBuilder {
             transparent: true,
             linewidth: 1
         }));
+
+        // --- AI Vision Materials (Basic Material for flat shading) ---
+        const aiColors = themeService.currentTheme.value.aiVision;
+
+        this.materials.set('ai_wall', new THREE.MeshBasicMaterial({ color: aiColors.wall }));
+        this.materials.set('ai_column', new THREE.MeshBasicMaterial({ color: aiColors.column }));
+        this.materials.set('ai_module', new THREE.MeshBasicMaterial({ color: aiColors.module }));
+        this.materials.set('ai_door', new THREE.MeshBasicMaterial({ color: aiColors.door }));
+        this.materials.set('ai_window', new THREE.MeshBasicMaterial({ color: aiColors.window }));
+        this.materials.set('ai_slab', new THREE.MeshBasicMaterial({ color: aiColors.slab }));
     }
 
     public clearScene() {
@@ -206,6 +216,10 @@ export class SceneBuilder {
         object.layers.enable(LayerManager.LAYER_MODEL);
     }
 
+    private enableAiLayer(object: THREE.Object3D) {
+        object.layers.set(LayerManager.LAYER_AI_VISION);
+    }
+
     private createBoundsHelper(object: THREE.Object3D) {
         // 使用 ThemeService 的包围盒颜色
         const boundsColor = themeService.currentTheme.value.scene.bounds;
@@ -266,6 +280,13 @@ export class SceneBuilder {
         this.enableLayers(mesh);
         // Bounds 仅用于家具模块，建筑构件使用 Outline 描边
         this.scene.add(mesh);
+
+        // --- AI Vision Mesh ---
+        const aiMesh = new THREE.Mesh(geometry, this.materials.get('ai_wall'));
+        aiMesh.rotation.x = -Math.PI / 2;
+        aiMesh.userData = mesh.userData;
+        this.enableAiLayer(aiMesh);
+        this.scene.add(aiMesh);
     }
 
     private createColumnMesh(col: Column) {
@@ -292,6 +313,13 @@ export class SceneBuilder {
         this.enableLayers(mesh);
         // Bounds 仅用于家具模块，建筑构件使用 Outline 描边
         this.scene.add(mesh);
+
+        // --- AI Vision Mesh ---
+        const aiMesh = new THREE.Mesh(geometry, this.materials.get('ai_column'));
+        aiMesh.rotation.x = -Math.PI / 2;
+        aiMesh.userData = mesh.userData;
+        this.enableAiLayer(aiMesh);
+        this.scene.add(aiMesh);
     }
 
     private createOpeningMesh(op: Opening) {
@@ -326,6 +354,16 @@ export class SceneBuilder {
 
         this.scene.add(root);
 
+        // --- AI Vision Group ---
+        const aiRoot = new THREE.Group();
+        aiRoot.rotation.x = -Math.PI / 2;
+        if (originalOp) {
+            aiRoot.userData = { id: originalOp.id, type: 'door', data: originalOp };
+        }
+        this.enableAiLayer(aiRoot); // Set layer for group (might need recursive set for children if not inherited, but layers are not inherited by default in Three.js, need to set on meshes)
+        // Actually, layers are not inherited. We need to set layers on meshes.
+        this.scene.add(aiRoot);
+
         const frameThickness = 50;
         const frameDepth = 120;
 
@@ -352,6 +390,30 @@ export class SceneBuilder {
         frameGroup.add(rightFrame);
 
         root.add(frameGroup);
+
+        // AI Vision Frame
+        const aiFrameGroup = new THREE.Group();
+        aiFrameGroup.position.set(center.x, center.y, 0);
+        aiFrameGroup.rotation.z = angle;
+
+        const aiFrameMat = this.materials.get('ai_door');
+
+        const aiTopFrame = new THREE.Mesh(topGeo, aiFrameMat);
+        aiTopFrame.position.set(0, 0, height);
+        this.enableAiLayer(aiTopFrame);
+        aiFrameGroup.add(aiTopFrame);
+
+        const aiLeftFrame = new THREE.Mesh(sideGeo, aiFrameMat);
+        aiLeftFrame.position.set(-width / 2 - frameThickness / 2, 0, height / 2);
+        this.enableAiLayer(aiLeftFrame);
+        aiFrameGroup.add(aiLeftFrame);
+
+        const aiRightFrame = new THREE.Mesh(sideGeo, aiFrameMat);
+        aiRightFrame.position.set(width / 2 + frameThickness / 2, 0, height / 2);
+        this.enableAiLayer(aiRightFrame);
+        aiFrameGroup.add(aiRightFrame);
+
+        aiRoot.add(aiFrameGroup);
 
         const panelThickness = 40;
         const panelWidth = width;
@@ -394,6 +456,33 @@ export class SceneBuilder {
 
         root.add(panelGroup);
 
+        // AI Vision Panel
+        const aiPanelGroup = new THREE.Group();
+        aiPanelGroup.position.set(center.x, center.y, 0);
+        aiPanelGroup.rotation.z = angle;
+
+        const aiPivotGroup = new THREE.Group();
+        aiPivotGroup.position.set(-width / 2, 0, 0);
+
+        const aiPanel = new THREE.Mesh(panelGeo, aiFrameMat); // Use same material for simplicity or distinct if needed
+        aiPanel.position.set(panelWidth / 2, 0, height / 2);
+        this.enableAiLayer(aiPanel);
+
+        aiPivotGroup.add(aiPanel);
+        aiPivotGroup.rotation.z = swingAngle;
+        aiPanelGroup.add(aiPivotGroup);
+
+        // AI Vision Arc (Optional, maybe skip for AI?)
+        // Let's add it for completeness but maybe same color
+        const aiArc = new THREE.Line(geometry, this.materials.get('swingArc')); // Reuse swing arc material or new one?
+        // Let's use swingArc but ensure it's on AI layer
+        const aiArcClone = aiArc.clone();
+        aiArcClone.position.set(0, 0, 20);
+        this.enableAiLayer(aiArcClone);
+        aiPanelGroup.add(aiArcClone);
+
+        aiRoot.add(aiPanelGroup);
+
         // Bounds 仅用于家具模块，门窗使用 Outline 描边
     }
 
@@ -410,6 +499,14 @@ export class SceneBuilder {
         }
 
         this.scene.add(root);
+
+        // --- AI Vision Group ---
+        const aiRoot = new THREE.Group();
+        aiRoot.rotation.x = -Math.PI / 2;
+        if (originalOp) {
+            aiRoot.userData = { id: originalOp.id, type: 'window', data: originalOp };
+        }
+        this.scene.add(aiRoot);
 
         const frameThickness = 50;
         const frameDepth = 100;
@@ -450,6 +547,43 @@ export class SceneBuilder {
 
         root.add(group);
 
+        // AI Vision Window
+        const aiGroup = new THREE.Group();
+        aiGroup.position.set(center.x, center.y, 0);
+        aiGroup.rotation.z = angle;
+
+        const aiFrameMat = this.materials.get('ai_window');
+
+        const aiBottom = new THREE.Mesh(new THREE.BoxGeometry(width, frameDepth, frameThickness), aiFrameMat);
+        aiBottom.position.set(0, 0, sillHeight);
+        this.enableAiLayer(aiBottom);
+        aiGroup.add(aiBottom);
+
+        const aiTop = new THREE.Mesh(new THREE.BoxGeometry(width, frameDepth, frameThickness), aiFrameMat);
+        aiTop.position.set(0, 0, sillHeight + height);
+        this.enableAiLayer(aiTop);
+        aiGroup.add(aiTop);
+
+        const aiLeft = new THREE.Mesh(sideGeo, aiFrameMat);
+        aiLeft.position.set(-width / 2 + frameThickness / 2, 0, sillHeight + height / 2);
+        this.enableAiLayer(aiLeft);
+        aiGroup.add(aiLeft);
+
+        const aiRight = new THREE.Mesh(sideGeo, aiFrameMat);
+        aiRight.position.set(width / 2 - frameThickness / 2, 0, sillHeight + height / 2);
+        this.enableAiLayer(aiRight);
+        aiGroup.add(aiRight);
+
+        // const aiGlass = new THREE.Mesh(glassGeo, this.materials.get('glass')); // Reuse glass or opaque?
+        // AI usually prefers opaque segmentation. Let's use ai_window color but maybe darker?
+        // Or just same ai_window material.
+        const aiGlassMesh = new THREE.Mesh(glassGeo, aiFrameMat);
+        aiGlassMesh.position.set(0, 0, sillHeight + height / 2);
+        this.enableAiLayer(aiGlassMesh);
+        aiGroup.add(aiGlassMesh);
+
+        aiRoot.add(aiGroup);
+
         // Bounds 仅用于家具模块，门窗使用 Outline 描边
     }
 
@@ -481,6 +615,13 @@ export class SceneBuilder {
         this.createFacingArrow(mod);
 
         this.scene.add(mesh);
+
+        // --- AI Vision Mesh ---
+        const aiMesh = new THREE.Mesh(geometry, this.materials.get('ai_module'));
+        aiMesh.rotation.x = -Math.PI / 2;
+        aiMesh.userData = mesh.userData;
+        this.enableAiLayer(aiMesh);
+        this.scene.add(aiMesh);
     }
 
     /**

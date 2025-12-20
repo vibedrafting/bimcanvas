@@ -9,6 +9,7 @@ export class LayerManager {
     public static readonly LAYER_OUTLINE = 5; // 边界描边（原 SEMANTIC）
     public static readonly LAYER_ZONES = 7;  // 设计区 / 禁区（预留）
     public static readonly LAYER_SEMANTIC = 8; // 设计场线（预留）
+    public static readonly LAYER_AI_VISION = 9; // AI 视觉层 (高对比度)
 
     // Presets
     public static readonly PRESET_HUMAN = 'human';
@@ -40,13 +41,26 @@ export class LayerManager {
             this.camera.layers.disable(LayerManager.LAYER_OUTLINE);
             this.camera.layers.disable(LayerManager.LAYER_ZONES);
             this.camera.layers.disable(LayerManager.LAYER_SEMANTIC);
+            this.camera.layers.disable(LayerManager.LAYER_AI_VISION);
         } else if (preset === LayerManager.PRESET_AI) {
+            // AI Mode: Enable all auxiliary layers
             this.camera.layers.enable(LayerManager.LAYER_GRID);
             this.camera.layers.enable(LayerManager.LAYER_LABELS);
             this.camera.layers.enable(LayerManager.LAYER_BOUNDS);
             this.camera.layers.enable(LayerManager.LAYER_OUTLINE);
             this.camera.layers.enable(LayerManager.LAYER_ZONES);
             this.camera.layers.enable(LayerManager.LAYER_SEMANTIC);
+            this.camera.layers.enable(LayerManager.LAYER_AI_VISION);
+
+            // Optional: Disable realistic model in AI mode to reduce noise?
+            // User requested "overlay", so we keep MODEL enabled for now, 
+            // or we can disable it if the AI layer is opaque enough.
+            // For now, let's keep MODEL enabled as per "overlay" description, 
+            // but usually AI vision wants clean segmentation.
+            // Let's follow the plan: "Update applyPreset to enable LAYER_AI_VISION".
+            // If the user wants to see ONLY the AI layer, we might want to disable MODEL.
+            // The plan said: "Update applyPreset to enable LAYER_AI_VISION and disable LAYER_MODEL when in PRESET_AI mode."
+            this.camera.layers.disable(LayerManager.LAYER_MODEL);
         }
     }
 
