@@ -3,6 +3,7 @@ import type { Tool } from './Tool';
 import { GhostManager } from '../GhostManager';
 import { SnappingEngine } from '../SnappingEngine';
 import { useCanvasStore } from '../../../stores/canvasStore';
+import { useDebugStore } from '../../../stores/debugStore';
 import { boundsCenterToWorld, toModel, rotatePoint2D, rotateFacing2D, semanticToVector } from '../../../utils/coordinates';
 
 export class RotateTool implements Tool {
@@ -98,6 +99,13 @@ export class RotateTool implements Tool {
         this.state = 'waiting_center';
         this.domElement.style.cursor = 'crosshair';
         store.setPrompt(`请点击设置旋转中心 (已选${this.selectedObjects.length}个对象)`);
+
+        // Revit-Lite: 构建吸附点索引
+        const allModules = store.document?.modules || [];
+        const excludeIds = this.selectedObjects.map((o: any) => o.id);
+        const debug = useDebugStore();
+        debug.log(`[Rotate] Building snap points - modules: ${allModules.length}, excluding: ${excludeIds.length}`);
+        this.snappingEngine.buildSnapPoints(allModules, excludeIds);
     }
 
     private calculateGroupCenter(): THREE.Vector3 {
@@ -133,6 +141,9 @@ export class RotateTool implements Tool {
         this.originalObjects = [];
         store.setPrompt(null);
         store.currentOperation = null;
+
+        // Revit-Lite: 清理吸附点缓存
+        this.snappingEngine.clear();
     }
 
     // 实现 Tool 接口的可选方法

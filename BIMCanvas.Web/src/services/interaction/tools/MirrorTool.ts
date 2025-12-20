@@ -3,6 +3,7 @@ import type { Tool } from './Tool';
 import { GhostManager } from '../GhostManager';
 import { SnappingEngine } from '../SnappingEngine';
 import { useCanvasStore } from '../../../stores/canvasStore';
+import { useDebugStore } from '../../../stores/debugStore';
 import { semanticToVector } from '../../../utils/coordinates';
 
 export class MirrorTool implements Tool {
@@ -97,6 +98,13 @@ export class MirrorTool implements Tool {
         this.state = 'waiting_start';
         this.domElement.style.cursor = 'crosshair';
         store.setPrompt(`请点击镜像线起点 (已选${this.selectedObjects.length}个对象)`);
+
+        // Revit-Lite: 构建吸附点索引
+        const allModules = store.document?.modules || [];
+        const excludeIds = this.selectedObjects.map((o: any) => o.id);
+        const debug = useDebugStore();
+        debug.log(`[Mirror] Building snap points - modules: ${allModules.length}, excluding: ${excludeIds.length}`);
+        this.snappingEngine.buildSnapPoints(allModules, excludeIds);
     }
 
     deactivate() {
@@ -110,6 +118,9 @@ export class MirrorTool implements Tool {
         this.originalObjects = [];
         store.setPrompt(null);
         store.currentOperation = null;
+
+        // Revit-Lite: 清理吸附点缓存
+        this.snappingEngine.clear();
     }
 
     isInSelectionPhase(): boolean {
