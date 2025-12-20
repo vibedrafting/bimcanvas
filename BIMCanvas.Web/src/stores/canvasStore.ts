@@ -111,6 +111,11 @@ export const useCanvasStore = defineStore('canvas', () => {
     const canUndo = ref(false);
     const canRedo = ref(false);
 
+    // === 批量更新支持 ===
+    // 当进行批量更新时（如移动多个模块），跳过每次更新后的 saveState
+    // 只在批量操作结束后保存一次状态
+    const batchUpdateMode = ref(false);
+
     const updateHistoryState = () => {
         canUndo.value = timeline.canUndo;
         canRedo.value = timeline.canRedo;
@@ -269,7 +274,10 @@ export const useCanvasStore = defineStore('canvas', () => {
         if (moduleIndex !== -1) {
             const updatedModule = { ...document.value.modules[moduleIndex], ...updates } as any;
             document.value.modules[moduleIndex] = updatedModule;
-            nextTick(() => saveState());
+            // 批量模式下跳过自动保存，由 endBatchUpdate 统一保存
+            if (!batchUpdateMode.value) {
+                nextTick(() => saveState());
+            }
             signalR.sendUpdate({ type: 'module_update', moduleId, updates });
         }
     };
@@ -339,6 +347,18 @@ export const useCanvasStore = defineStore('canvas', () => {
         promptMessage.value = msg;
     };
 
+    // === 批量更新 API ===
+    // 开始批量更新（暂停自动保存）
+    const beginBatchUpdate = () => {
+        batchUpdateMode.value = true;
+    };
+
+    // 结束批量更新（保存一次状态）
+    const endBatchUpdate = () => {
+        batchUpdateMode.value = false;
+        nextTick(() => saveState());
+    };
+
 
     return {
         // State
@@ -369,6 +389,10 @@ export const useCanvasStore = defineStore('canvas', () => {
         removeModule,
         undo,
         redo,
+
+        // Batch Update API
+        beginBatchUpdate,
+        endBatchUpdate,
 
         // UI State
         promptMessage,

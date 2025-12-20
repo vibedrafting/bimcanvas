@@ -212,6 +212,9 @@ export class MirrorTool implements Tool {
 
         console.log(`Mirror Line: ${a.toFixed(2)}x + ${b.toFixed(2)}y + ${c.toFixed(2)} = 0`);
 
+        // 使用批量更新，确保多个模块的镜像只产生一个历史快照
+        store.beginBatchUpdate();
+
         for (const obj of this.selectedObjects) {
             if (!obj.bounds) continue;
 
@@ -250,6 +253,8 @@ export class MirrorTool implements Tool {
                 facing: newFacing
             });
         }
+
+        store.endBatchUpdate();
 
         // Clear Selection
         store.clearSelection();

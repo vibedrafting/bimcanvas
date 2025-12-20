@@ -292,7 +292,9 @@ export class MoveTool implements Tool {
         // 转换 3D 位移到 2D
         const delta2D = deltaToModel(delta);
 
-        // 批量更新所有选中的模块
+        // 使用批量更新，确保多个模块的移动只产生一个历史快照
+        store.beginBatchUpdate();
+
         for (const obj of this.selectedObjects) {
             if (obj.bounds) {
                 const newBounds = obj.bounds.map((p: [number, number]) => [
@@ -302,6 +304,8 @@ export class MoveTool implements Tool {
                 store.updateModule(obj.id, { bounds: newBounds });
             }
         }
+
+        store.endBatchUpdate();
 
         // 清除选择
         store.clearSelection();

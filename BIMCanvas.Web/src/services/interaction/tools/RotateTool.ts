@@ -275,7 +275,9 @@ export class RotateTool implements Tool {
         const store = useCanvasStore();
         const center2D = toModel(this.centerPoint);
 
-        // 批量更新所有选中的模块
+        // 使用批量更新，确保多个模块的旋转只产生一个历史快照
+        store.beginBatchUpdate();
+
         for (const obj of this.selectedObjects) {
             if (!obj.bounds) continue;
 
@@ -300,6 +302,8 @@ export class RotateTool implements Tool {
                 facing: newFacing
             });
         }
+
+        store.endBatchUpdate();
 
         // 清除选择
         store.clearSelection();

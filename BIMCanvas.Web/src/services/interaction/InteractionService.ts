@@ -357,13 +357,16 @@ export class InteractionService {
             }
         });
 
-        const selectedIds: string[] = [];
+        // 使用 Set 去重，因为每个模块有两个 Mesh（普通渲染 + AI Vision）共享相同 ID
+        const selectedIdSet = new Set<string>();
 
         for (const mesh of candidates) {
             if (this.isObjectInBox(mesh, minX, maxX, minY, maxY, isCrossing)) {
-                selectedIds.push(mesh.userData.id);
+                selectedIdSet.add(mesh.userData.id);
             }
         }
+
+        const selectedIds = Array.from(selectedIdSet);
 
         // Update Store
         if (isShift) {
