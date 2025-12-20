@@ -125,7 +125,7 @@ export const darkTheme: ColorTheme = {
         windowFrame: 0x4a5568,
         glass: 0xAADDFF,
         swingArc: 0xffffff,
-        bounds: 0xfbbf24,
+        bounds: 0xFF6B6B,     // Coral Red (Lighter, visible on dark bg)
     },
     grid: {
         centerLine: 0x6b7280,
@@ -197,7 +197,7 @@ export const lightTheme: ColorTheme = {
         windowFrame: 0x2c2c2e,
         glass: 0xa2d2ff,      // 柔和蓝
         swingArc: 0x000000,   // 纯黑弧线
-        bounds: 0xff9500,     // Apple 橙色
+        bounds: 0xFF6B6B,     // Coral Red
     },
     grid: {
         centerLine: 0xc7c7cc, // 稍深的中心线
