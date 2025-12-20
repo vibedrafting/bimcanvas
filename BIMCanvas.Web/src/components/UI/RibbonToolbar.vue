@@ -31,6 +31,8 @@ const dispatchAction = (action: 'rotate' | 'delete' | 'move' | 'mirror') => {
 };
 
 // Dynamic Status Text
+const selectionCount = computed(() => store.selectedIds.length);
+
 const dynamicStatusText = computed(() => {
   // Priority 1: Current Operation (Persistent)
   if (currentOperation.value) {
@@ -43,9 +45,9 @@ const dynamicStatusText = computed(() => {
     return opMap[currentOperation.value] || currentOperation.value;
   }
   
-  // Priority 2: Selection
-  if (selectedObject.value) {
-    return 'Selecting...';
+  // Priority 2: Selection with count
+  if (selectionCount.value > 0) {
+    return `Selecting (${selectionCount.value})...`;
   }
   
   // Priority 3: Default

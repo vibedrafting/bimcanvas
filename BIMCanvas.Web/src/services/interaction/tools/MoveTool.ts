@@ -23,6 +23,7 @@ export class MoveTool implements Tool {
     // 存储多个选中对象数据
     private selectedObjects: any[] = [];
     // 存储多个 3D 对象引用
+    private visuals: THREE.Object3D[] = [];
     private originalObjects: THREE.Object3D[] = [];
 
     constructor(
@@ -74,16 +75,79 @@ export class MoveTool implements Tool {
             this.ghostManager.createGhosts(this.originalObjects);
         }
 
+        // 计算默认起点：所有选中对象的几何中心
+        this.basePoint = this.calculateGroupCenter();
+        this.createBasePointMarker(this.basePoint);
+
         this.state = 'waiting_base';
-        this.basePoint = null;
         this.domElement.style.cursor = 'crosshair';
         store.setPrompt(`请点击选择移动基点 (已选${this.selectedObjects.length}个对象)`);
+    }
+
+    private calculateGroupCenter(): THREE.Vector3 {
+        if (this.selectedObjects.length === 0) {
+            return new THREE.Vector3(0, 0, 0);
+        }
+
+        // 计算所有模块的几何中心
+        let sumX = 0, sumZ = 0;
+        for (const obj of this.selectedObjects) {
+            if (obj.bounds) {
+                // bounds 是 [[x,y], ...] 格式，计算中心
+                const xs = obj.bounds.map((p: [number, number]) => p[0]);
+                const ys = obj.bounds.map((p: [number, number]) => p[1]);
+                const cx = (Math.min(...xs) + Math.max(...xs)) / 2;
+                const cy = (Math.min(...ys) + Math.max(...ys)) / 2;
+                sumX += cx;
+                sumZ += cy;
+            }
+        }
+        // 返回世界坐标（y 轴为 0，x/z 对应模型的 x/y）
+        return new THREE.Vector3(
+            sumX / this.selectedObjects.length,
+            0,
+            -sumZ / this.selectedObjects.length  // y 轴需要取反（模型坐标系 y 向上，世界坐标系 z 向下）
+        );
+    }
+
+    private createBasePointMarker(point: THREE.Vector3) {
+        this.removeVisuals(); // Clear existing
+
+        const geometry = new THREE.SphereGeometry(100, 16, 16); // 100mm radius
+        const material = new THREE.MeshBasicMaterial({
+            color: 0x0000ff, // Blue
+            transparent: true,
+            opacity: 0.5,
+            depthTest: false,
+            depthWrite: false
+        });
+        const marker = new THREE.Mesh(geometry, material);
+        marker.position.copy(point);
+        marker.renderOrder = 999;
+        this.scene.add(marker);
+        this.visuals.push(marker);
+    }
+
+    private removeVisuals() {
+        this.visuals.forEach(v => {
+            if (v.parent) v.parent.remove(v);
+            if (v instanceof THREE.Mesh) {
+                v.geometry.dispose();
+                if (Array.isArray(v.material)) {
+                    v.material.forEach(m => m.dispose());
+                } else {
+                    v.material.dispose();
+                }
+            }
+        });
+        this.visuals = [];
     }
 
     deactivate() {
         const store = useCanvasStore();
         this.ghostManager.removeGhost();
         this.removeRubberBand();
+        this.removeVisuals();
         this.domElement.style.cursor = 'default';
         this.basePoint = null;
         this.state = 'multi_selection';
@@ -168,28 +232,38 @@ export class MoveTool implements Tool {
             return;
         }
 
-        // 空格或回车确认选择
-        if ((event.key === ' ' || event.key === 'Enter') && this.state === 'multi_selection') {
+        // 空格或回车
+        if (event.key === ' ' || event.key === 'Enter') {
             event.preventDefault();
             const store = useCanvasStore();
 
-            if (store.selectedIds.length === 0) {
-                console.log('No objects selected');
-                store.setPrompt('请先选择要移动的对象');
-                return;
+            // 根据当前状态处理
+            if (this.state === 'multi_selection') {
+                // 确认选择
+                if (store.selectedIds.length === 0) {
+                    console.log('No objects selected');
+                    store.setPrompt('请先选择要移动的对象');
+                    return;
+                }
+
+                // 过滤只保留 module 类型
+                this.selectedObjects = store.selectedObjects.filter((obj: any) => obj.type === 'module');
+
+                if (this.selectedObjects.length === 0) {
+                    console.log('No movable modules selected');
+                    store.setPrompt('只有家具模块可以移动，请重新选择');
+                    return;
+                }
+
+                this.findAllOriginalObjects();
+                this.startMoveOperation();
+            } else if (this.state === 'waiting_base' && this.basePoint) {
+                // 确认默认基点，进入选择终点阶段
+                this.createRubberBand(this.basePoint);
+                this.ghostManager.setPositionOffset(new THREE.Vector3(0, 0, 0));
+                this.state = 'waiting_dest';
+                store.setPrompt('请点击选择移动终点');
             }
-
-            // 过滤只保留 module 类型
-            this.selectedObjects = store.selectedObjects.filter((obj: any) => obj.type === 'module');
-
-            if (this.selectedObjects.length === 0) {
-                console.log('No movable modules selected');
-                store.setPrompt('只有家具模块可以移动，请重新选择');
-                return;
-            }
-
-            this.findAllOriginalObjects();
-            this.startMoveOperation();
         }
     }
 

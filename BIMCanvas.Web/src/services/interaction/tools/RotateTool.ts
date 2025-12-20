@@ -227,28 +227,36 @@ export class RotateTool implements Tool {
             return;
         }
 
-        // 空格或回车确认选择
-        if ((event.key === ' ' || event.key === 'Enter') && this.state === 'multi_selection') {
+        // 空格或回车
+        if (event.key === ' ' || event.key === 'Enter') {
             event.preventDefault();
             const store = useCanvasStore();
 
-            if (store.selectedIds.length === 0) {
-                console.log('No objects selected');
-                store.setPrompt('请先选择要旋转的对象');
-                return;
+            // 根据当前状态处理
+            if (this.state === 'multi_selection') {
+                // 确认选择
+                if (store.selectedIds.length === 0) {
+                    console.log('No objects selected');
+                    store.setPrompt('请先选择要旋转的对象');
+                    return;
+                }
+
+                // 过滤只保留 module 类型
+                this.selectedObjects = store.selectedObjects.filter((obj: any) => obj.type === 'module');
+
+                if (this.selectedObjects.length === 0) {
+                    console.log('No rotatable modules selected');
+                    store.setPrompt('只有家具模块可以旋转，请重新选择');
+                    return;
+                }
+
+                this.findAllOriginalObjects();
+                this.startRotateOperation();
+            } else if (this.state === 'waiting_center' && this.centerPoint) {
+                // 确认默认旋转中心，进入选择起始角度阶段
+                this.state = 'waiting_start';
+                store.setPrompt('请点击设置旋转起始角度');
             }
-
-            // 过滤只保留 module 类型
-            this.selectedObjects = store.selectedObjects.filter((obj: any) => obj.type === 'module');
-
-            if (this.selectedObjects.length === 0) {
-                console.log('No rotatable modules selected');
-                store.setPrompt('只有家具模块可以旋转，请重新选择');
-                return;
-            }
-
-            this.findAllOriginalObjects();
-            this.startRotateOperation();
         }
     }
 
