@@ -102,6 +102,15 @@ export interface ColorTheme {
         accentGlow: string;
         accentDanger: string;
         accentDangerGlow: string;
+
+        // Premium Glass Tokens (Aurora/Frosty)
+        glassBg: string;
+        glassBlur: string;
+        glassBorder: string;
+        glassInnerHighlight: string;
+        glassGlare: string;
+        shadowIsland: string;
+        shadowPanel: string;
     };
 }
 
@@ -177,6 +186,15 @@ export const darkTheme: ColorTheme = {
         accentGlow: 'rgba(10, 132, 255, 0.25)',
         accentDanger: '#ff453a',
         accentDangerGlow: 'rgba(255, 69, 58, 0.3)',
+
+        // Aurora Glass (Dark Mode)
+        glassBg: 'rgba(20, 20, 30, 0.65)',
+        glassBlur: 'blur(24px) saturate(180%)',
+        glassBorder: '1px solid rgba(255, 255, 255, 0.12)',
+        glassInnerHighlight: 'inset 0 1px 0 rgba(255, 255, 255, 0.2)',
+        glassGlare: 'radial-gradient(circle at 50% 0%, rgba(255, 255, 255, 0.12) 0%, rgba(255, 255, 255, 0) 60%)',
+        shadowIsland: '0 16px 40px rgba(0, 0, 0, 0.3), 0 0 0 1px rgba(0, 0, 0, 0.1)',
+        shadowPanel: '0 4px 30px rgba(0, 0, 0, 0.2), 0 0 0 1px rgba(0, 0, 0, 0.1)',
     },
 };
 
@@ -234,7 +252,7 @@ export const lightTheme: ColorTheme = {
     },
     css: {
         // 亮色主题 - Apple Freeform 风格
-        bgCanvas: '#ffffff',                    // 纯白背景
+        bgCanvas: '#f2f6fa',                    // 极淡冷灰，衬托白色玻璃
         surfaceGlass: 'rgba(255, 255, 255, 0.9)', // 高不透明度毛玻璃
         surfaceGlassHover: 'rgba(255, 255, 255, 1)',
         surfaceSolid: '#ffffff',                // 纯白表面
@@ -251,6 +269,15 @@ export const lightTheme: ColorTheme = {
         accentGlow: 'rgba(0, 122, 255, 0.15)',
         accentDanger: '#ff3b30',                // Apple 红
         accentDangerGlow: 'rgba(255, 59, 48, 0.2)',
+
+        // Curved Glass (Light Mode) - 3D 曲面玻璃
+        glassBg: 'linear-gradient(160deg, rgba(255, 255, 255, 0.8) 0%, rgba(240, 245, 255, 0.7) 100%)', // 稍微调回一点不透明度，配合强边框
+        glassBlur: 'blur(24px) saturate(180%)',
+        glassBorder: '1px solid rgba(0, 10, 30, 0.08)', // 显性深色边框
+        glassInnerHighlight: 'inset 0 1px 2px rgba(255, 255, 255, 0.9), inset 0 -2px 4px rgba(200, 210, 230, 0.15)', // 上亮下暗模拟厚度
+        glassGlare: 'linear-gradient(180deg, rgba(255, 255, 255, 0.6) 0%, rgba(255, 255, 255, 0) 30%)', // 顶部强反光
+        shadowIsland: '0 16px 40px rgba(0, 20, 50, 0.1), 0 2px 6px rgba(0, 0, 0, 0.05)', // 悬浮阴影
+        shadowPanel: '0 8px 24px rgba(0, 20, 50, 0.08), 0 1px 2px rgba(0, 0, 0, 0.05)',
     },
 };
 
@@ -293,7 +320,17 @@ class ThemeServiceClass {
         root.style.setProperty('--accent-blue', css.accentBlue);
         root.style.setProperty('--accent-glow', css.accentGlow);
         root.style.setProperty('--accent-danger', css.accentDanger);
+        root.style.setProperty('--accent-danger', css.accentDanger);
         root.style.setProperty('--accent-danger-glow', css.accentDangerGlow);
+
+        // Glass Tokens
+        root.style.setProperty('--glass-bg', css.glassBg);
+        root.style.setProperty('--glass-blur', css.glassBlur);
+        root.style.setProperty('--glass-border', css.glassBorder);
+        root.style.setProperty('--glass-inner-highlight', css.glassInnerHighlight);
+        root.style.setProperty('--glass-glare', css.glassGlare);
+        root.style.setProperty('--shadow-island', css.shadowIsland);
+        root.style.setProperty('--shadow-panel', css.shadowPanel);
 
         console.log(`[ThemeService] CSS 变量已更新为 ${theme.name} 主题`);
     }
