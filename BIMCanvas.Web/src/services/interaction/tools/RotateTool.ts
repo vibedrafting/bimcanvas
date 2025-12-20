@@ -103,12 +103,11 @@ export class RotateTool implements Tool {
         this.domElement.style.cursor = 'crosshair';
         store.setPrompt(`请点击设置旋转中心 (已选${this.selectedObjects.length}个对象)`);
 
-        // Revit-Lite: 构建吸附点索引
-        const allModules = store.document?.modules || [];
+        // Revit-Lite: 构建吸附点索引（包含墙柱门窗）
         const excludeIds = this.selectedObjects.map((o: any) => o.id);
         const debug = useDebugStore();
-        debug.log(`[Rotate] Building snap points - modules: ${allModules.length}, excluding: ${excludeIds.length}`);
-        this.snappingEngine.buildSnapPoints(allModules, excludeIds);
+        debug.log(`[Rotate] Building snap points, excluding: ${excludeIds.length} modules`);
+        this.snappingEngine.buildSnapPoints(store.document, excludeIds);
     }
 
     private calculateGroupCenter(): THREE.Vector3 {

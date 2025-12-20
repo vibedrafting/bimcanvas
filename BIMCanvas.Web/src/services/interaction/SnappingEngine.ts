@@ -29,33 +29,31 @@ export class SnappingEngine {
 
     /**
      * 构建吸附点索引（在工具 activate 时调用一次）
-     * @param modules 场景中的所有模块
-     * @param excludeIds 要排除的模块 ID（通常是当前选中的模块）
+     * @param document 场景文档对象
+     * @param excludeIds 要排除的 ID（通常是当前选中的模块）
      */
-    public buildSnapPoints(modules: any[], excludeIds: string[] = []): void {
+    public buildSnapPoints(document: any, excludeIds: string[] = []): void {
         this.snapPoints = [];
         this.currentlySnappedTo = null;
 
-        for (const m of modules) {
-            // 排除自身
-            if (excludeIds.includes(m.id)) continue;
-            if (!m.bounds || m.bounds.length < 2) continue;
+        // 提取多边形的顶点和边中点
+        const extractFromPolygon = (polygon: [number, number][], sourceId: string) => {
+            if (!polygon || polygon.length < 2) return;
 
-            const bounds = m.bounds as [number, number][];
-
-            // 提取顶点
-            for (let i = 0; i < bounds.length; i++) {
-                const point = bounds[i];
+            for (let i = 0; i < polygon.length; i++) {
+                const point = polygon[i];
                 if (!point) continue;
                 const [x, y] = point;
+
+                // 顶点
                 this.snapPoints.push({
                     position: new THREE.Vector3(x, 0, -y),  // 模型坐标 → 世界坐标
                     type: 'vertex',
-                    sourceId: m.id
+                    sourceId
                 });
 
-                // 提取边的中点
-                const next = bounds[(i + 1) % bounds.length];
+                // 边的中点
+                const next = polygon[(i + 1) % polygon.length];
                 if (!next) continue;
                 this.snapPoints.push({
                     position: new THREE.Vector3(
@@ -64,13 +62,85 @@ export class SnappingEngine {
                         -(y + next[1]) / 2
                     ),
                     type: 'midpoint',
-                    sourceId: m.id
+                    sourceId
                 });
+            }
+        };
+
+        // 提取线段的端点和中点
+        const extractFromLine = (line: [number, number][], sourceId: string) => {
+            if (!line || line.length < 2) return;
+            const [p1, p2] = line;
+            if (!p1 || !p2) return;
+
+            // 两个端点
+            this.snapPoints.push({
+                position: new THREE.Vector3(p1[0], 0, -p1[1]),
+                type: 'vertex',
+                sourceId
+            });
+            this.snapPoints.push({
+                position: new THREE.Vector3(p2[0], 0, -p2[1]),
+                type: 'vertex',
+                sourceId
+            });
+
+            // 中点
+            this.snapPoints.push({
+                position: new THREE.Vector3(
+                    (p1[0] + p2[0]) / 2,
+                    0,
+                    -(p1[1] + p2[1]) / 2
+                ),
+                type: 'midpoint',
+                sourceId
+            });
+        };
+
+        let moduleCount = 0;
+        let wallCount = 0;
+        let columnCount = 0;
+        let openingCount = 0;
+
+        // 1. 家具模块 Modules（排除自身）
+        if (document?.modules) {
+            for (const m of document.modules) {
+                if (excludeIds.includes(m.id)) continue;
+                if (!m.bounds) continue;
+                extractFromPolygon(m.bounds, m.id);
+                moduleCount++;
+            }
+        }
+
+        // 2. 墙体 Walls
+        if (document?.walls) {
+            for (const wall of document.walls) {
+                if (!wall.polygon) continue;
+                extractFromPolygon(wall.polygon, wall.id);
+                wallCount++;
+            }
+        }
+
+        // 3. 柱子 Columns
+        if (document?.columns) {
+            for (const col of document.columns) {
+                if (!col.polygon) continue;
+                extractFromPolygon(col.polygon, col.id);
+                columnCount++;
+            }
+        }
+
+        // 4. 门窗 Openings
+        if (document?.openings) {
+            for (const opening of document.openings) {
+                if (!opening.line) continue;
+                extractFromLine(opening.line, opening.id);
+                openingCount++;
             }
         }
 
         const debug = useDebugStore();
-        debug.success(`[Snap] Built ${this.snapPoints.length} snap points from ${modules.length - excludeIds.length} modules`);
+        debug.success(`[Snap] Built ${this.snapPoints.length} snap points from: ${moduleCount} modules, ${wallCount} walls, ${columnCount} columns, ${openingCount} openings`);
     }
 
     /**
