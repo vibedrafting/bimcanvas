@@ -43,7 +43,7 @@ export class LayerManager {
             this.camera.layers.disable(LayerManager.LAYER_SEMANTIC);
             this.camera.layers.disable(LayerManager.LAYER_AI_VISION);
         } else if (preset === LayerManager.PRESET_AI) {
-            // AI Mode: Enable all auxiliary layers
+            // AI Mode: Enable all auxiliary layers (LAYER_MODEL always stays enabled)
             this.camera.layers.enable(LayerManager.LAYER_GRID);
             this.camera.layers.enable(LayerManager.LAYER_LABELS);
             this.camera.layers.enable(LayerManager.LAYER_BOUNDS);
@@ -51,16 +51,7 @@ export class LayerManager {
             this.camera.layers.enable(LayerManager.LAYER_ZONES);
             this.camera.layers.enable(LayerManager.LAYER_SEMANTIC);
             this.camera.layers.enable(LayerManager.LAYER_AI_VISION);
-
-            // Optional: Disable realistic model in AI mode to reduce noise?
-            // User requested "overlay", so we keep MODEL enabled for now, 
-            // or we can disable it if the AI layer is opaque enough.
-            // For now, let's keep MODEL enabled as per "overlay" description, 
-            // but usually AI vision wants clean segmentation.
-            // Let's follow the plan: "Update applyPreset to enable LAYER_AI_VISION".
-            // If the user wants to see ONLY the AI layer, we might want to disable MODEL.
-            // The plan said: "Update applyPreset to enable LAYER_AI_VISION and disable LAYER_MODEL when in PRESET_AI mode."
-            this.camera.layers.disable(LayerManager.LAYER_MODEL);
+            // Note: LAYER_MODEL is NOT disabled here. AI Vision is an OVERLAY, not a replacement.
         }
     }
 
