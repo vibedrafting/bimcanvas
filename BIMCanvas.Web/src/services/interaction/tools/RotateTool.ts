@@ -109,8 +109,8 @@ export class RotateTool implements Tool {
         this.centerPoint = this.calculateGroupCenter();
         this.createCenterMarker(this.centerPoint);
 
-        // Phase 4: 设置 Ghost Pivot 为旋转中心
-        this.ghostManager.setPivot(this.centerPoint);
+        // 注意：不在这里调用 setPivot()！
+        // Ghost 初始应与原模块重合，只有在进入旋转阶段（waiting_end）时才设置 pivot
 
         this.state = 'waiting_center';
         this.domElement.style.cursor = 'crosshair';
@@ -205,8 +205,8 @@ export class RotateTool implements Tool {
             this.centerPoint = finalPoint;
             this.updateCenterMarker(this.centerPoint);
 
-            // Phase 4: 更新 Ghost Pivot 为新的旋转中心
-            this.ghostManager.setPivot(this.centerPoint);
+            // 注意：不在这里调用 setPivot()！
+            // Ghost 应保持与原模块重合，直到进入旋转阶段（waiting_end）
 
             this.state = 'waiting_start';
             store.setPrompt('请点击设置旋转起始角度');
@@ -232,6 +232,11 @@ export class RotateTool implements Tool {
             );
             this.createStartLine(this.centerPoint, lockedPoint);
             this.removeSnapAngleLine(); // 清理辅助线
+
+            // 关键：在进入旋转阶段前设置 pivot
+            // 这确保 Ghost 在 waiting_center/waiting_start 阶段保持原位
+            this.ghostManager.setPivot(this.centerPoint);
+
             this.state = 'waiting_end';
             store.setPrompt('请点击设置旋转终止角度');
 

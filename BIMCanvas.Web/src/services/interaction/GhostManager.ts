@@ -46,10 +46,40 @@ export class GhostManager {
         this.createGhosts([original]);
     }
 
+    /**
+     * 从 bounds 创建 OBB 轮廓线
+     * 使用本地坐标，与模块相同的变换链路
+     *
+     * 关键：不使用 BoxHelper！
+     * BoxHelper 使用世界坐标且 matrixAutoUpdate=false，
+     * 在 setPivot 时无法正确跟随位置变换
+     */
+    private createOutlineFromBounds(bounds: [number, number][]): THREE.LineLoop {
+        // bounds 是 2D 坐标 [[x,y], ...]
+        // 转换为 3D 本地坐标（XY 平面）
+        const points: THREE.Vector3[] = bounds.map(([x, y]) =>
+            new THREE.Vector3(x, y, 0)
+        );
+
+        const geometry = new THREE.BufferGeometry().setFromPoints(points);
+        const material = new THREE.LineBasicMaterial({
+            color: 0x00aaff,  // Ghost 颜色
+            depthTest: false,
+            transparent: true,
+            opacity: 0.9
+        });
+
+        const outline = new THREE.LineLoop(geometry, material);
+        outline.rotation.x = -Math.PI / 2;  // 与模块相同：XY → XZ 翻转
+        outline.renderOrder = 999;
+        outline.userData.isOutline = true;
+        outline.layers.set(LayerManager.LAYER_MODEL);
+
+        return outline;
+    }
+
     public createGhosts(originals: THREE.Object3D[]) {
         this.removeAllGhosts();
-
-        const ghostColor = 0x00aaff;
 
         for (const original of originals) {
             const id = original.userData?.id;
@@ -61,21 +91,22 @@ export class GhostManager {
             const geometryCenter = new THREE.Vector3();
             bbox.getCenter(geometryCenter);
 
-            // Ghost Group 位于几何中心
+            // Ghost Group 保持在原点（关键！）
+            // setPositionOffset(delta) 会设置 ghostGroup.position = delta
+            // 如果初始位置不在原点，会导致位置计算错误
             const ghostGroup = new THREE.Group();
             ghostGroup.userData.isGhost = true;
             ghostGroup.userData.geometryCenter = geometryCenter.clone();  // 存储供 setPivot 使用
             ghostGroup.layers.set(LayerManager.LAYER_MODEL);
-            ghostGroup.position.copy(geometryCenter);
+            // 不设置 position，保持 (0,0,0)
             this.scene.add(ghostGroup);
 
-            // 克隆对象
+            // 克隆对象，保持原始变换（关键！）
+            // 模块的 mesh.position = (0,0,0)，几何体顶点包含世界坐标
+            // clone 继承这些属性，无需调整 position
             const clone = original.clone();
             clone.userData.isGhost = true;
-
-            // 关键：调整 clone 位置，使其相对于 ghostGroup（几何中心）
-            // clone 的几何顶点在世界坐标中，需要减去 center 使其居中于 ghostGroup
-            clone.position.set(-geometryCenter.x, -geometryCenter.y, -geometryCenter.z);
+            // 不修改 clone.position，保持原样
             ghostGroup.add(clone);
 
             // 隐藏 Mesh（只显示轮廓）
@@ -87,15 +118,15 @@ export class GhostManager {
                 }
             });
 
-            // BoxHelper - 在 clone 位置调整后创建
-            const boxHelper = new THREE.BoxHelper(clone, ghostColor);
-            boxHelper.layers.set(LayerManager.LAYER_MODEL);
-            if (boxHelper.material instanceof THREE.LineBasicMaterial) {
-                boxHelper.material.depthTest = false;
-                boxHelper.material.transparent = true;
-                boxHelper.material.opacity = 0.9;
+            // ★ 用 LineLoop 替代 BoxHelper
+            // BoxHelper 使用世界坐标且 matrixAutoUpdate=false，无法正确跟随 setPivot 变换
+            // LineLoop 从 bounds 生成本地坐标轮廓，与 clone 变换链路一致
+            const moduleData = original.userData?.data;
+            const bounds = moduleData?.bounds as [number, number][] | undefined;
+            if (bounds && bounds.length >= 3) {
+                const outline = this.createOutlineFromBounds(bounds);
+                ghostGroup.add(outline);
             }
-            ghostGroup.add(boxHelper);
 
             // 存储
             this.ghostGroups.set(id, ghostGroup);
@@ -140,23 +171,14 @@ export class GhostManager {
             // ghostGroup 位置设为 pivot
             ghostGroup.position.copy(pivot);
 
-            // 调整 clone 位置为相对于 pivot 的偏移
-            // 因为几何体顶点在世界坐标中，clone.position = -pivot 使几何体保持原位
+            // ★ 关键修改：所有子对象（包括 outline）都设置 -pivot 偏移
+            // LineLoop 使用本地坐标，会正确跟随父级变换
             ghostGroup.children.forEach(child => {
-                if (!(child instanceof THREE.BoxHelper)) {
-                    child.position.set(-pivot.x, -pivot.y, -pivot.z);
-                }
+                child.position.set(-pivot.x, -pivot.y, -pivot.z);
             });
 
             // 强制更新矩阵
             ghostGroup.updateMatrixWorld(true);
-
-            // 更新 BoxHelper（仅在 setPivot 时更新，setRotation 时不更新）
-            ghostGroup.children.forEach(child => {
-                if (child instanceof THREE.BoxHelper) {
-                    child.update();
-                }
-            });
         }
     }
 
@@ -213,11 +235,6 @@ export class GhostManager {
      * - 用户顺时针拖动：角度增加（从 X+ 向 Z+）
      * - rotation.y 正值：逆时针旋转（从 +Y 向下看）
      * - 需要取反以匹配用户拖动方向
-     *
-     * BoxHelper 说明：
-     * - 不在此方法中调用 BoxHelper.update()
-     * - BoxHelper 作为 ghostGroup 的子对象会自动跟随旋转
-     * - 如果调用 update()，AABB 会重新计算导致形状变化（矩形变菱形）
      */
     public setRotation(rotation: number) {
         for (const [_id, ghostGroup] of this.ghostGroups) {
@@ -225,9 +242,6 @@ export class GhostManager {
 
             // 强制更新矩阵（让 Three.js 渲染时使用新的变换）
             ghostGroup.updateMatrixWorld(true);
-
-            // 不调用 BoxHelper.update()！
-            // BoxHelper 会跟随 ghostGroup 旋转，保持原始形状
         }
     }
 
