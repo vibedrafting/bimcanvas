@@ -182,19 +182,19 @@ watch(selectedObject, (newVal) => {
         </GlassButton>
         <div class="divider"></div>
         <GlassButton @click="handleLoad" variant="ghost" title="Load Data" class="icon-btn">
-          <!-- Upload/Import Icon -->
-          <svg viewBox="0 0 24 24" width="1.1em" height="1.1em" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
-            <polyline points="17 8 12 3 7 8"></polyline>
-            <line x1="12" y1="3" x2="12" y2="15"></line>
-          </svg>
-        </GlassButton>
-        <GlassButton @click="handleExport" :disabled="!store.document" variant="ghost" title="Export Data" class="icon-btn">
-          <!-- Download/Export Icon -->
+          <!-- Load/Import Icon (Arrow Down) -->
           <svg viewBox="0 0 24 24" width="1.1em" height="1.1em" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
             <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
             <polyline points="7 10 12 15 17 10"></polyline>
             <line x1="12" y1="15" x2="12" y2="3"></line>
+          </svg>
+        </GlassButton>
+        <GlassButton @click="handleExport" :disabled="!store.document" variant="ghost" title="Export Data" class="icon-btn">
+          <!-- Export Icon (Arrow Up) -->
+          <svg viewBox="0 0 24 24" width="1.1em" height="1.1em" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+            <polyline points="17 8 12 3 7 8"></polyline>
+            <line x1="12" y1="3" x2="12" y2="15"></line>
           </svg>
         </GlassButton>
         <!-- 隐藏的文件输入 -->
