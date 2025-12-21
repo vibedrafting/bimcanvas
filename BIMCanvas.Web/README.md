@@ -28,6 +28,7 @@
 - ✅ **移动 (Move)**: 支持对象拖拽移动，集成幽灵显示 (Ghosting) 预览。
 - ✅ **旋转 (Rotate)**: 支持对象旋转，集成角度吸附与幽灵预览。
 - ✅ **幽灵系统 (Ghost System)**: 移动/旋转操作时显示半透明预览，操作结束后自动清除。
+    - **技术要点**: 使用 `LineLoop` 从 bounds 生成本地坐标轮廓，而非 `BoxHelper`。详见下方"开发经验"章节。
 - ⬜ **语义吸附 (Semantic Snapping)**: 待实现，吸附墙中线、门窗边缘、对齐线。
 
 ### 3. 数据与协作 (Data & Sync)
@@ -164,5 +165,55 @@ interface CanvasDocument {
 }
 ```
 
+## 🧠 开发经验 (Lessons Learned)
+
+### Ghost 预览系统：为何不用 BoxHelper
+
+**问题现象**：旋转预览时，Ghost 轮廓位置偏移，不与原模块重合。移动预览正常。
+
+**根因分析**：
+
+```
+Three.js BoxHelper 特性：
+├── 顶点使用世界坐标存储
+├── matrixAutoUpdate = false（源码设计）
+└── 只有调用 update() 才会重新计算包围盒
+
+setPivot(pivot) 的变换逻辑：
+├── ghostGroup.position = pivot
+├── clone.position = -pivot  → 世界位置 = pivot + (-pivot) + 顶点 = 原位 ✓
+└── BoxHelper.position = 0   → 世界位置 = pivot + 0 + 顶点 = 偏移！ ✗
+```
+
+**为什么移动正确、旋转错误**：
+- **移动**: `W → W + delta`，BoxHelper 跟随父级平移即可实现
+- **旋转**: `W → pivot + R*(W - pivot)`，需要先做 `W - pivot` 抵消，BoxHelper 缺少这一步
+
+**解决方案**：用 `LineLoop` 替代 `BoxHelper`
+
+```typescript
+// ✗ 错误：BoxHelper 使用世界坐标
+const boxHelper = new THREE.BoxHelper(clone, color);
+
+// ✓ 正确：LineLoop 使用本地坐标，跟随父级变换链
+private createOutlineFromBounds(bounds: [number, number][]): THREE.LineLoop {
+    const points = bounds.map(([x, y]) => new THREE.Vector3(x, y, 0));
+    const geometry = new THREE.BufferGeometry().setFromPoints(points);
+    const outline = new THREE.LineLoop(geometry, material);
+    outline.rotation.x = -Math.PI / 2;  // XY → XZ 翻转
+    return outline;
+}
+```
+
+**经验总结**：
+
+| 场景 | 推荐方案 | 原因 |
+|------|----------|------|
+| 静态包围盒显示 | `BoxHelper` | 简单快速，自动计算 AABB |
+| 需要跟随变换的轮廓 | `LineLoop` + 本地坐标 | 正确响应父级 position/rotation |
+| 旋转时保持形状 | 避免 `BoxHelper.update()` | update() 会重算 AABB 导致变形 |
+
+> 相关文件: `src/services/interaction/GhostManager.ts`
+
 ---
-*文档最后更新时间: 2025-12-17*
+*文档最后更新时间: 2025-12-21*
