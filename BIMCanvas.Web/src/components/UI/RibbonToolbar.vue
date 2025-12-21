@@ -9,6 +9,7 @@ import { storeToRefs } from 'pinia';
 const store = useCanvasStore();
 const { selectedObject, agentConnectionState, currentOperation } = storeToRefs(store);
 const isExpanded = ref(false);
+const fileInputRef = ref<HTMLInputElement | null>(null);
 
 // 调试开关：设为 true 可保持灵动岛展开状态，方便截图调试
 const DEBUG_KEEP_EXPANDED = false;
@@ -28,6 +29,50 @@ const toggleTheme = () => {
 // Actions
 const dispatchAction = (action: 'rotate' | 'delete' | 'move' | 'mirror') => {
   window.dispatchEvent(new CustomEvent(`bimcanvas:action-${action}`));
+};
+
+// 加载数据
+const handleLoad = () => {
+  fileInputRef.value?.click();
+};
+
+const onFileSelected = (event: Event) => {
+  const input = event.target as HTMLInputElement;
+  const file = input.files?.[0];
+  if (!file) return;
+
+  const reader = new FileReader();
+  reader.onload = (e) => {
+    try {
+      const json = JSON.parse(e.target?.result as string);
+      store.loadFromJson(json);
+    } catch (err) {
+      console.error('Invalid JSON file:', err);
+    }
+  };
+  reader.readAsText(file);
+  input.value = ''; // 重置以允许重复选择同一文件
+};
+
+// 导出数据
+const handleExport = () => {
+  if (!store.document) return;
+
+  const timestamp = new Date().toISOString()
+    .replace(/[-:]/g, '')
+    .replace('T', '_')
+    .slice(0, 15);
+  const filename = `BIMCanvas_${timestamp}.json`;
+
+  const blob = new Blob([JSON.stringify(store.document, null, 2)], { type: 'application/json' });
+  const url = URL.createObjectURL(blob);
+
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  a.click();
+
+  URL.revokeObjectURL(url);
 };
 
 // Dynamic Status Text
@@ -87,6 +132,21 @@ watch(selectedObject, (newVal) => {
         <GlassButton @click="store.redo()" :disabled="!store.canRedo" variant="ghost" title="Redo" class="icon-btn">
           ↪
         </GlassButton>
+        <div class="divider"></div>
+        <GlassButton @click="handleLoad" variant="ghost" title="Load Data" class="icon-btn">
+          ↧
+        </GlassButton>
+        <GlassButton @click="handleExport" :disabled="!store.document" variant="ghost" title="Export Data" class="icon-btn">
+          ↥
+        </GlassButton>
+        <!-- 隐藏的文件输入 -->
+        <input
+          ref="fileInputRef"
+          type="file"
+          accept=".json"
+          style="display: none"
+          @change="onFileSelected"
+        />
       </div>
     </div>
 

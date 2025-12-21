@@ -252,6 +252,15 @@ export const useCanvasStore = defineStore('canvas', () => {
         }
     };
 
+    // 从 JSON 对象加载文档（供本地文件加载使用）
+    const loadFromJson = (jsonContent: CanvasDocument) => {
+        document.value = jsonContent;
+        timeline.clear();
+        saveState();
+        error.value = null;
+        debugStore.success('Document loaded from local file');
+    };
+
     const undo = () => {
         const prevState = timeline.undo();
         if (prevState) {
@@ -377,6 +386,7 @@ export const useCanvasStore = defineStore('canvas', () => {
 
         // Actions
         loadDemoData,
+        loadFromJson,
         setSelectedObject,  // 兼容层：单选
         setSelection,       // 新增：批量设置
         addToSelection,     // 新增：添加到选择集
