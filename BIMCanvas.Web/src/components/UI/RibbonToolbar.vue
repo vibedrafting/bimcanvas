@@ -32,8 +32,32 @@ const dispatchAction = (action: 'rotate' | 'delete' | 'move' | 'mirror') => {
 };
 
 // 加载数据
-const handleLoad = () => {
-  fileInputRef.value?.click();
+const handleLoad = async () => {
+  try {
+    // 尝试使用 File System Access API
+    if ('showOpenFilePicker' in window) {
+      const [fileHandle] = await (window as any).showOpenFilePicker({
+        types: [{
+          description: 'BIMCanvas JSON',
+          accept: { 'application/json': ['.json'] }
+        }],
+        multiple: false,
+        startIn: 'desktop' // 默认打开桌面
+      });
+      
+      const file = await fileHandle.getFile();
+      const text = await file.text();
+      const json = JSON.parse(text);
+      store.loadFromJson(json);
+    } else {
+      // Fallback
+      fileInputRef.value?.click();
+    }
+  } catch (err: any) {
+    if (err.name !== 'AbortError') {
+      console.error('Failed to open file:', err);
+    }
+  }
 };
 
 const onFileSelected = (event: Event) => {
@@ -55,7 +79,7 @@ const onFileSelected = (event: Event) => {
 };
 
 // 导出数据
-const handleExport = () => {
+const handleExport = async () => {
   if (!store.document) return;
 
   const timestamp = new Date().toISOString()
@@ -63,16 +87,40 @@ const handleExport = () => {
     .replace('T', '_')
     .slice(0, 15);
   const filename = `BIMCanvas_${timestamp}.json`;
+  const jsonString = JSON.stringify(store.document, null, 2);
 
-  const blob = new Blob([JSON.stringify(store.document, null, 2)], { type: 'application/json' });
-  const url = URL.createObjectURL(blob);
+  try {
+    // 尝试使用 File System Access API
+    if ('showSaveFilePicker' in window) {
+      const handle = await (window as any).showSaveFilePicker({
+        suggestedName: filename,
+        types: [{
+          description: 'BIMCanvas JSON',
+          accept: { 'application/json': ['.json'] }
+        }],
+        startIn: 'desktop' // 默认打开桌面
+      });
+      
+      const writable = await handle.createWritable();
+      await writable.write(jsonString);
+      await writable.close();
+    } else {
+      // Fallback
+      const blob = new Blob([jsonString], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
 
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = filename;
-  a.click();
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = filename;
+      a.click();
 
-  URL.revokeObjectURL(url);
+      URL.revokeObjectURL(url);
+    }
+  } catch (err: any) {
+    if (err.name !== 'AbortError') {
+      console.error('Failed to save file:', err);
+    }
+  }
 };
 
 // Dynamic Status Text
@@ -134,10 +182,20 @@ watch(selectedObject, (newVal) => {
         </GlassButton>
         <div class="divider"></div>
         <GlassButton @click="handleLoad" variant="ghost" title="Load Data" class="icon-btn">
-          ↧
+          <!-- Upload/Import Icon -->
+          <svg viewBox="0 0 24 24" width="1.1em" height="1.1em" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+            <polyline points="17 8 12 3 7 8"></polyline>
+            <line x1="12" y1="3" x2="12" y2="15"></line>
+          </svg>
         </GlassButton>
         <GlassButton @click="handleExport" :disabled="!store.document" variant="ghost" title="Export Data" class="icon-btn">
-          ↥
+          <!-- Download/Export Icon -->
+          <svg viewBox="0 0 24 24" width="1.1em" height="1.1em" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+            <polyline points="7 10 12 15 17 10"></polyline>
+            <line x1="12" y1="15" x2="12" y2="3"></line>
+          </svg>
         </GlassButton>
         <!-- 隐藏的文件输入 -->
         <input
