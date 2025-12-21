@@ -5,6 +5,7 @@ import PropertyPanel from '../components/UI/PropertyPanel.vue';
 import DebugConsole from '../components/UI/DebugConsole.vue';
 import FloatingLayerManager from '../components/UI/FloatingLayerManager.vue';
 import PromptBar from '../components/UI/PromptBar.vue';
+import FloatingInput from '../components/UI/FloatingInput.vue';
 import { useDebugStore } from '../stores/debugStore';
 import { onMounted, onUnmounted } from 'vue';
 
@@ -47,6 +48,7 @@ onUnmounted(() => {
     
     <FloatingLayerManager />
     <PromptBar />
+    <FloatingInput />
     <DebugConsole />
   </div>
 </template>

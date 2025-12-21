@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { CSS2DObject } from 'three-stdlib';
 import type { Tool } from './Tool';
 import { GhostManager } from '../GhostManager';
 import { SnappingEngine } from '../SnappingEngine';
@@ -6,6 +7,8 @@ import { SnapIndicator } from '../SnapIndicator';
 import { useCanvasStore } from '../../../stores/canvasStore';
 import { useDebugStore } from '../../../stores/debugStore';
 import { boundsCenterToWorld, toModel, rotatePoint2D, rotateFacing2D, semanticToVector } from '../../../utils/coordinates';
+import { LayerManager } from '../../three/LayerManager';
+import { NumericInputManager } from '../NumericInputManager';
 
 export class RotateTool implements Tool {
     name = 'Rotate';
@@ -39,6 +42,12 @@ export class RotateTool implements Tool {
     private snapAngleLine: THREE.Line | null = null;  // 锁定角度辅助线
     private axisLines: THREE.Group | null = null;     // XY 轴参考线
     private scaleLines: THREE.Group | null = null;    // 15° 刻度圈
+
+    // 角度标注
+    private angleLabel: CSS2DObject | null = null;
+
+    // 记录最后鼠标屏幕位置（用于浮动输入框定位）
+    private lastMouseScreenPos: { x: number; y: number } = { x: 0, y: 0 };
 
     constructor(
         scene: THREE.Scene,
@@ -246,6 +255,9 @@ export class RotateTool implements Tool {
     }
 
     onMouseMove(event: MouseEvent) {
+        // 记录屏幕坐标（用于浮动输入框定位）
+        this.lastMouseScreenPos = { x: event.clientX, y: event.clientY };
+
         // multi_selection 状态下不拦截鼠标事件
         if (this.state === 'multi_selection') {
             return; // 不处理，交给 InteractionService
@@ -324,6 +336,9 @@ export class RotateTool implements Tool {
 
             const deltaRotation = currentAngle - this.startAngle;
 
+            // 更新角度标注
+            this.updateAngleLabel(this.centerPoint, currentAngle, deltaRotation);
+
             // 使用 setRotation（Pivot 已在用户点击确认旋转中心时设置）
             this.ghostManager.setRotation(deltaRotation);
         }
@@ -342,6 +357,28 @@ export class RotateTool implements Tool {
     }
 
     onKeyDown(event: KeyboardEvent) {
+        const numericManager = NumericInputManager.getInstance();
+
+        // 数值输入激活时，交给它处理
+        if (numericManager.isActive.value) {
+            numericManager.handleKeyDown(event);
+            return;
+        }
+
+        // 在 waiting_end 状态检测数字键，启动数值输入
+        if (this.state === 'waiting_end' && /^[0-9]$/.test(event.key)) {
+            numericManager.startInput({
+                unit: 'deg',
+                placeholder: '角度',
+                onConfirm: (degrees) => this.applyNumericRotate(degrees),
+                onCancel: () => { /* 继续鼠标模式 */ }
+            }, this.lastMouseScreenPos);
+
+            // 首个字符传入
+            numericManager.inputValue.value = event.key;
+            return;
+        }
+
         // Phase 3: 跟踪 Shift 键
         if (event.key === 'Shift') {
             this.shiftHeld = true;
@@ -389,12 +426,35 @@ export class RotateTool implements Tool {
 
 
 
+    /**
+     * 根据输入的精确角度执行旋转
+     * @param degrees 旋转角度（度数，正值逆时针）
+     */
+    private applyNumericRotate(degrees: number): void {
+        if (!this.centerPoint || this.startAngle === null) return;
+
+        // 度数转弧度
+        const radians = degrees * Math.PI / 180;
+
+        // 计算终止角度（从起始角度加上用户输入的旋转量）
+        const endAngle = this.startAngle + radians;
+
+        // 构造虚拟终点来调用 executeRotate
+        const virtualEndPoint = new THREE.Vector3(
+            this.centerPoint.x + Math.cos(endAngle) * 1000,
+            0,
+            this.centerPoint.z + Math.sin(endAngle) * 1000
+        );
+
+        this.executeRotate(virtualEndPoint);
+    }
+
     private executeRotate(endPoint: THREE.Vector3) {
         if (!this.centerPoint || this.startAngle === null || this.selectedObjects.length === 0) return;
 
         const vector = new THREE.Vector3().subVectors(endPoint, this.centerPoint);
         const endAngle = Math.atan2(vector.z, vector.x);
-        const deltaRotation = -(endAngle - this.startAngle); // Negate for 2D Math compatibility
+        const deltaRotation = endAngle - this.startAngle; // 与 Ghost 预览保持一致
 
         const store = useCanvasStore();
         const center2D = toModel(this.centerPoint);
@@ -533,6 +593,7 @@ export class RotateTool implements Tool {
         this.removeSnapAngleLine();
         this.removeAxisLines();
         this.removeScaleLines();
+        this.removeAngleLabel();  // 清理角度标注
     }
 
     // Phase 3: 创建 XY 轴参考线（红色 X 轴，蓝色 Z 轴）
@@ -690,6 +751,60 @@ export class RotateTool implements Tool {
             this.snapAngleLine.geometry.dispose();
             (this.snapAngleLine.material as THREE.Material).dispose();
             this.snapAngleLine = null;
+        }
+    }
+
+    // === 角度标注方法 ===
+
+    private createAngleLabel(): void {
+        const div = document.createElement('div');
+        div.className = 'measurement-label';
+        div.style.cssText = `
+            background: var(--glass-bg, rgba(20, 20, 30, 0.8));
+            backdrop-filter: blur(8px);
+            -webkit-backdrop-filter: blur(8px);
+            padding: 4px 8px;
+            border-radius: 4px;
+            font-family: var(--font-mono, 'JetBrains Mono', monospace);
+            font-size: 12px;
+            color: var(--text-primary, #fff);
+            pointer-events: none;
+            white-space: nowrap;
+            border: 1px solid var(--border-subtle, rgba(255,255,255,0.1));
+        `;
+        this.angleLabel = new CSS2DObject(div);
+        this.angleLabel.layers.set(LayerManager.LAYER_LABELS);
+        this.scene.add(this.angleLabel);
+    }
+
+    private updateAngleLabel(center: THREE.Vector3, currentAngle: number, deltaAngle: number): void {
+        if (!this.angleLabel) {
+            this.createAngleLabel();
+        }
+
+        // 定位在旋转弧线外侧
+        const radius = 1400; // 标注半径，比刻度圈稍大
+        const labelAngle = currentAngle - Math.PI / 6; // 偏移 30° 避免遮挡终止线
+        const pos = new THREE.Vector3(
+            center.x + Math.cos(labelAngle) * radius,
+            50, // 稍微抬高
+            center.z + Math.sin(labelAngle) * radius
+        );
+        this.angleLabel!.position.copy(pos);
+
+        // 弧度转度数显示
+        const degrees = deltaAngle * 180 / Math.PI;
+        const div = this.angleLabel!.element as HTMLDivElement;
+        div.textContent = `${degrees.toFixed(1)}°`;
+    }
+
+    private removeAngleLabel(): void {
+        if (this.angleLabel) {
+            if (this.angleLabel.element.parentNode) {
+                this.angleLabel.element.parentNode.removeChild(this.angleLabel.element);
+            }
+            this.scene.remove(this.angleLabel);
+            this.angleLabel = null;
         }
     }
 }

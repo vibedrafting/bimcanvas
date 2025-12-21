@@ -1,3 +1,5 @@
+import { NumericInputManager } from './NumericInputManager';
+
 export type ShortcutHandler = () => void;
 
 export class ShortcutManager {
@@ -17,6 +19,11 @@ export class ShortcutManager {
 
     private onKeyDown(event: KeyboardEvent) {
         if (!this.enabled) return;
+
+        // 数值输入激活时，不处理快捷键
+        if (NumericInputManager.getInstance().isActive.value) {
+            return;
+        }
 
         // Ignore if typing in an input
         if (event.target instanceof HTMLInputElement || event.target instanceof HTMLTextAreaElement) {

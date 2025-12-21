@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { CSS2DObject } from 'three-stdlib';
 import type { Tool } from './Tool';
 import { GhostManager } from '../GhostManager';
 import { SnappingEngine } from '../SnappingEngine';
@@ -7,6 +8,8 @@ import { AxisLockHelper } from '../AxisLockHelper';
 import { useCanvasStore } from '../../../stores/canvasStore';
 import { useDebugStore } from '../../../stores/debugStore';
 import { deltaToModel } from '../../../utils/coordinates';
+import { LayerManager } from '../../three/LayerManager';
+import { NumericInputManager } from '../NumericInputManager';
 
 export class MoveTool implements Tool {
     name = 'Move';
@@ -26,6 +29,13 @@ export class MoveTool implements Tool {
     private state: 'multi_selection' | 'waiting_base' | 'waiting_dest' = 'multi_selection';
     private basePoint: THREE.Vector3 | null = null;
     private rubberBand: THREE.Line | null = null;
+
+    // 距离标注
+    private distanceLabel: CSS2DObject | null = null;
+    // 记录最后鼠标位置（用于方向计算）
+    private lastMousePoint: THREE.Vector3 | null = null;
+    // 记录最后鼠标屏幕位置（用于浮动输入框定位）
+    private lastMouseScreenPos: { x: number; y: number } = { x: 0, y: 0 };
 
     // 存储多个选中对象数据
     private selectedObjects: any[] = [];
@@ -181,9 +191,11 @@ export class MoveTool implements Tool {
 
         this.ghostManager.removeGhost();
         this.removeRubberBand();
+        this.removeDistanceLabel();  // 清理距离标注
         this.removeVisuals();
         this.domElement.style.cursor = 'default';
         this.basePoint = null;
+        this.lastMousePoint = null;
         this.state = 'multi_selection';
         this.selectedObjects = [];
         this.originalObjects = [];
@@ -248,6 +260,9 @@ export class MoveTool implements Tool {
     }
 
     onMouseMove(event: MouseEvent) {
+        // 记录屏幕坐标（用于浮动输入框定位）
+        this.lastMouseScreenPos = { x: event.clientX, y: event.clientY };
+
         // multi_selection 状态下不拦截鼠标事件
         if (this.state === 'multi_selection') {
             return; // 不处理，交给 InteractionService
@@ -272,8 +287,13 @@ export class MoveTool implements Tool {
             const lockedPoint = this.axisLockHelper.lock(this.basePoint, finalPoint, this.shiftHeld);
             const actualPoint = this.shiftHeld ? lockedPoint : finalPoint;
 
+            // 记录最后鼠标位置（用于数值输入时的方向计算）
+            this.lastMousePoint = actualPoint.clone();
+
             // 更新橡皮筋
             this.updateRubberBand(actualPoint);
+            // 更新距离标注
+            this.updateDistanceLabel(this.basePoint, actualPoint);
             // 更新 Ghost 位置
             const delta = new THREE.Vector3().subVectors(actualPoint, this.basePoint);
             this.ghostManager.setPositionOffset(delta);
@@ -292,6 +312,28 @@ export class MoveTool implements Tool {
     }
 
     onKeyDown(event: KeyboardEvent) {
+        const numericManager = NumericInputManager.getInstance();
+
+        // 数值输入激活时，交给它处理
+        if (numericManager.isActive.value) {
+            numericManager.handleKeyDown(event);
+            return;
+        }
+
+        // 在 waiting_dest 状态检测数字键，启动数值输入
+        if (this.state === 'waiting_dest' && /^[0-9]$/.test(event.key)) {
+            numericManager.startInput({
+                unit: 'mm',
+                placeholder: '距离',
+                onConfirm: (distance) => this.applyNumericMove(distance),
+                onCancel: () => { /* 继续鼠标模式 */ }
+            }, this.lastMouseScreenPos);
+
+            // 首个字符传入
+            numericManager.inputValue.value = event.key;
+            return;
+        }
+
         // Phase 3: 跟踪 Shift 键
         if (event.key === 'Shift') {
             this.shiftHeld = true;
@@ -340,6 +382,30 @@ export class MoveTool implements Tool {
     }
 
 
+
+    /**
+     * 根据输入的精确距离执行移动
+     * 方向为基点到当前鼠标位置的方向
+     */
+    private applyNumericMove(distance: number): void {
+        if (!this.basePoint || !this.lastMousePoint) return;
+
+        // 计算方向向量（基点到当前鼠标位置）
+        const dx = this.lastMousePoint.x - this.basePoint.x;
+        const dz = this.lastMousePoint.z - this.basePoint.z;
+        const len = Math.sqrt(dx * dx + dz * dz);
+
+        if (len < 1) return; // 方向不明确
+
+        // 归一化并乘以距离
+        const destPoint = new THREE.Vector3(
+            this.basePoint.x + (dx / len) * distance,
+            0,
+            this.basePoint.z + (dz / len) * distance
+        );
+
+        this.executeMove(destPoint);
+    }
 
     private executeMove(destPoint: THREE.Vector3) {
         if (!this.basePoint || this.selectedObjects.length === 0) return;
@@ -422,6 +488,60 @@ export class MoveTool implements Tool {
             this.scene.remove(this.rubberBand);
             this.rubberBand.geometry.dispose();
             this.rubberBand = null;
+        }
+    }
+
+    // === 距离标注方法 ===
+
+    private createDistanceLabel(): void {
+        const div = document.createElement('div');
+        div.className = 'measurement-label';
+        div.style.cssText = `
+            background: var(--glass-bg, rgba(20, 20, 30, 0.8));
+            backdrop-filter: blur(8px);
+            -webkit-backdrop-filter: blur(8px);
+            padding: 4px 8px;
+            border-radius: 4px;
+            font-family: var(--font-mono, 'JetBrains Mono', monospace);
+            font-size: 12px;
+            color: var(--text-primary, #fff);
+            pointer-events: none;
+            white-space: nowrap;
+            border: 1px solid var(--border-subtle, rgba(255,255,255,0.1));
+        `;
+        this.distanceLabel = new CSS2DObject(div);
+        this.distanceLabel.layers.set(LayerManager.LAYER_LABELS);
+        this.scene.add(this.distanceLabel);
+    }
+
+    private updateDistanceLabel(start: THREE.Vector3, end: THREE.Vector3): void {
+        if (!this.distanceLabel) {
+            this.createDistanceLabel();
+        }
+
+        // 计算中点，稍微抬高避免遮挡虚线
+        const mid = new THREE.Vector3().lerpVectors(start, end, 0.5);
+        mid.y += 50;
+        this.distanceLabel!.position.copy(mid);
+
+        // 计算 XZ 平面距离
+        const dx = end.x - start.x;
+        const dz = end.z - start.z;
+        const distance = Math.sqrt(dx * dx + dz * dz);
+
+        // 格式化显示（不显示单位）
+        const div = this.distanceLabel!.element as HTMLDivElement;
+        div.textContent = `${Math.round(distance)}`;
+    }
+
+    private removeDistanceLabel(): void {
+        if (this.distanceLabel) {
+            // 移除 DOM 元素
+            if (this.distanceLabel.element.parentNode) {
+                this.distanceLabel.element.parentNode.removeChild(this.distanceLabel.element);
+            }
+            this.scene.remove(this.distanceLabel);
+            this.distanceLabel = null;
         }
     }
 }
