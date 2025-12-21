@@ -39,11 +39,8 @@ export class AxisLockHelper {
         // 计算位移向量
         const delta = new THREE.Vector3().subVectors(currentPoint, basePoint);
 
-        // 根据主方向决定锁定轴
-        if (this.lockedAxis === null) {
-            // 首次按下 Shift，根据当前方向判断
-            this.lockedAxis = Math.abs(delta.x) >= Math.abs(delta.z) ? 'x' : 'z';
-        }
+        // 每次都根据当前位移判断主方向（支持动态切换）
+        this.lockedAxis = Math.abs(delta.x) >= Math.abs(delta.z) ? 'x' : 'z';
 
         // 创建锁定后的点
         const lockedPoint = basePoint.clone();
