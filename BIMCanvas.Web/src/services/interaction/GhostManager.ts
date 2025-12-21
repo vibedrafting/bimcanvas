@@ -55,16 +55,27 @@ export class GhostManager {
             const id = original.userData?.id;
             if (!id) continue;
 
-            // Ghost Group 在原点
+            // 计算 original 几何体的世界包围盒中心
+            // 注意：模块的 mesh.position 始终是 (0,0,0)，真实位置在几何体顶点中
+            const bbox = new THREE.Box3().setFromObject(original);
+            const geometryCenter = new THREE.Vector3();
+            bbox.getCenter(geometryCenter);
+
+            // Ghost Group 位于几何中心
             const ghostGroup = new THREE.Group();
             ghostGroup.userData.isGhost = true;
+            ghostGroup.userData.geometryCenter = geometryCenter.clone();  // 存储供 setPivot 使用
             ghostGroup.layers.set(LayerManager.LAYER_MODEL);
-            // 不设置 position/rotation/scale，保持默认值 (0,0,0)
+            ghostGroup.position.copy(geometryCenter);
             this.scene.add(ghostGroup);
 
-            // 克隆对象，保留完整的变换（position/rotation/scale）
+            // 克隆对象
             const clone = original.clone();
             clone.userData.isGhost = true;
+
+            // 关键：调整 clone 位置，使其相对于 ghostGroup（几何中心）
+            // clone 的几何顶点在世界坐标中，需要减去 center 使其居中于 ghostGroup
+            clone.position.set(-geometryCenter.x, -geometryCenter.y, -geometryCenter.z);
             ghostGroup.add(clone);
 
             // 隐藏 Mesh（只显示轮廓）
@@ -76,7 +87,7 @@ export class GhostManager {
                 }
             });
 
-            // BoxHelper
+            // BoxHelper - 在 clone 位置调整后创建
             const boxHelper = new THREE.BoxHelper(clone, ghostColor);
             boxHelper.layers.set(LayerManager.LAYER_MODEL);
             if (boxHelper.material instanceof THREE.LineBasicMaterial) {
@@ -110,17 +121,18 @@ export class GhostManager {
      * 设置旋转中心
      * 将 ghostGroup.position 设为 pivot，clone.position 调整为相对于 pivot 的偏移
      *
-     * 调用后 clone 的世界位置：
-     * worldPos = ghostGroup.position + clone.position
-     *          = pivot + (original.position - pivot)
-     *          = original.position ✓
+     * 坐标系说明：
+     * - 模块的 mesh.position = (0,0,0)，几何体顶点直接使用世界坐标
+     * - geometryCenter = 几何体包围盒中心（createGhosts 时计算并存储）
+     * - clone.position = -pivot 时，几何体世界位置 = pivot + (-pivot) + 顶点 = 顶点 ✓
      */
     public setPivot(pivot: THREE.Vector3) {
         this.sharedPivot = pivot.clone();
 
-        for (const [id, ghostGroup] of this.ghostGroups) {
-            const original = this.originalObjects.get(id);
-            if (!original) continue;
+        for (const [_id, ghostGroup] of this.ghostGroups) {
+            // 使用存储的几何中心（而非 original.position，后者始终是 0,0,0）
+            const geometryCenter = ghostGroup.userData.geometryCenter as THREE.Vector3;
+            if (!geometryCenter) continue;
 
             // 重置 ghostGroup 的旋转（防止之前的旋转影响新的 pivot 设置）
             ghostGroup.rotation.set(0, 0, 0);
@@ -128,18 +140,18 @@ export class GhostManager {
             // ghostGroup 位置设为 pivot
             ghostGroup.position.copy(pivot);
 
-            // 调整 clone 的位置为相对于 pivot 的偏移
+            // 调整 clone 位置为相对于 pivot 的偏移
+            // 因为几何体顶点在世界坐标中，clone.position = -pivot 使几何体保持原位
             ghostGroup.children.forEach(child => {
                 if (!(child instanceof THREE.BoxHelper)) {
-                    const originalWorldPos = original.position.clone();
-                    child.position.subVectors(originalWorldPos, pivot);
+                    child.position.set(-pivot.x, -pivot.y, -pivot.z);
                 }
             });
 
             // 强制更新矩阵
             ghostGroup.updateMatrixWorld(true);
 
-            // 更新 BoxHelper
+            // 更新 BoxHelper（仅在 setPivot 时更新，setRotation 时不更新）
             ghostGroup.children.forEach(child => {
                 if (child instanceof THREE.BoxHelper) {
                     child.update();
@@ -201,20 +213,21 @@ export class GhostManager {
      * - 用户顺时针拖动：角度增加（从 X+ 向 Z+）
      * - rotation.y 正值：逆时针旋转（从 +Y 向下看）
      * - 需要取反以匹配用户拖动方向
+     *
+     * BoxHelper 说明：
+     * - 不在此方法中调用 BoxHelper.update()
+     * - BoxHelper 作为 ghostGroup 的子对象会自动跟随旋转
+     * - 如果调用 update()，AABB 会重新计算导致形状变化（矩形变菱形）
      */
     public setRotation(rotation: number) {
         for (const [_id, ghostGroup] of this.ghostGroups) {
             ghostGroup.rotation.y = -rotation;
 
-            // 强制更新矩阵，确保 BoxHelper 能读取正确的世界变换
+            // 强制更新矩阵（让 Three.js 渲染时使用新的变换）
             ghostGroup.updateMatrixWorld(true);
 
-            // 更新 BoxHelper
-            ghostGroup.children.forEach(child => {
-                if (child instanceof THREE.BoxHelper) {
-                    child.update();
-                }
-            });
+            // 不调用 BoxHelper.update()！
+            // BoxHelper 会跟随 ghostGroup 旋转，保持原始形状
         }
     }
 
