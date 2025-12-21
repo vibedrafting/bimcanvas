@@ -312,7 +312,11 @@ watch(selectedObject, (newVal) => {
   align-items: center;
   height: 40px;
   padding: 0 var(--spacing-md);
-  background: linear-gradient(to bottom, rgba(0,0,0,0.4) 0%, rgba(0,0,0,0) 100%);
+  /* Glass Header - Standardized */
+  background: var(--glass-bg-header);
+  backdrop-filter: var(--glass-blur);
+  -webkit-backdrop-filter: var(--glass-blur);
+  border-bottom: var(--glass-border);
   pointer-events: auto;
 
   .brand-area {
@@ -325,15 +329,15 @@ watch(selectedObject, (newVal) => {
       font-size: 0.9rem;
       letter-spacing: 0.5px;
       margin-right: var(--spacing-sm);
-      color: rgba(255, 255, 255, 0.9);
-      text-shadow: 0 1px 2px rgba(0,0,0,0.5);
+      color: var(--text-primary);
+      /* text-shadow removed for cleaner look in light mode */
     }
   }
 }
 
 .command-island {
   position: absolute;
-  top: 60px;
+  top: 80px;
   left: 50%;
   transform: translateX(-50%);
   
@@ -362,12 +366,12 @@ watch(selectedObject, (newVal) => {
   pointer-events: auto;
   /* Apple Dynamic Island Spring Physics */
   transition: 
-    width 0.5s var(--ease-spring),
-    height 0.5s var(--ease-spring),
-    padding 0.5s var(--ease-spring),
+    width 0.6s cubic-bezier(0.19, 1, 0.22, 1),
+    height 0.6s cubic-bezier(0.19, 1, 0.22, 1),
+    padding 0.6s cubic-bezier(0.19, 1, 0.22, 1),
     background 0.3s ease,
     box-shadow 0.3s ease,
-    border-radius 0.5s var(--ease-spring),
+    border-radius 0.6s cubic-bezier(0.19, 1, 0.22, 1),
     backdrop-filter 0.3s ease;
   overflow: hidden;
 

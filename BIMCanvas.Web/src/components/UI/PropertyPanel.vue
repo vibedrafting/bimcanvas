@@ -163,28 +163,33 @@ const updateProperty = (key: string, newValue: any) => {
 <style scoped lang="scss">
 .property-panel {
   width: 48px; /* Collapsed state */
-  height: calc(100% - 80px); /* Fill grid area minus top and bottom margin */
-  margin-top: 40px; /* Avoid overlap with top bar */
-  margin-bottom: 40px; /* Symmetric bottom margin */
+  height: 100%; /* Full height */
+  margin: 0; /* Anchored to edges */
+  padding-top: 0; /* Let internal elements handle spacing */
+  
   /* Aurora Glass - Matching Dynamic Island */
   background: var(--glass-bg);
   backdrop-filter: var(--glass-blur);
   -webkit-backdrop-filter: var(--glass-blur);
+  
+  /* Anchored Borders */
+  border: none;
   border-right: var(--glass-border);
+  border-radius: 0 24px 24px 0; /* Round inner corners only */
   
   /* Glare Overlay */
   background-image: var(--glass-glare), linear-gradient(to bottom, var(--glass-bg), var(--glass-bg));
   display: flex;
   flex-direction: column;
-  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  transition: all 0.6s cubic-bezier(0.19, 1, 0.22, 1); /* Premium Spring Curve */
   overflow: hidden;
   z-index: 90;
   
   /* Left aligned behavior */
   margin-right: auto;
+  margin-left: 0; /* Anchored */
   
   &.expanded {
-    width: 300px;
     width: 300px;
     /* Maintain same glass effect, just add shadow */
     box-shadow: var(--shadow-panel), var(--glass-inner-highlight);
@@ -200,7 +205,7 @@ const updateProperty = (key: string, newValue: any) => {
     display: flex;
     flex-direction: column;
     align-items: center;
-    padding-top: var(--spacing-lg);
+    padding-top: 140px; /* Aggressive clearance for App Title */
     cursor: pointer;
     flex-shrink: 0;
     
@@ -236,9 +241,9 @@ const updateProperty = (key: string, newValue: any) => {
   .content {
     position: absolute;
     left: 48px; /* Content to the right of header */
-    top: 0;
+    top: 100px; /* Clear the top toolbar buttons */
     width: calc(100% - 48px);
-    height: 100%;
+    height: calc(100% - 100px);
     display: flex;
     flex-direction: column;
     opacity: 0;

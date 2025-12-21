@@ -105,6 +105,7 @@ export interface ColorTheme {
 
         // Premium Glass Tokens (Aurora/Frosty)
         glassBg: string;
+        glassBgHeader: string; // New variable for extra transparent header
         glassBlur: string;
         glassBorder: string;
         glassInnerHighlight: string;
@@ -168,8 +169,8 @@ export const darkTheme: ColorTheme = {
         background: 'transparent',
     },
     css: {
-        // 暗色主题 - 深黑背景
-        bgCanvas: '#0a0a0f',
+        // 暗色主题 - 深黑背景 (Radial Gradient for Atmosphere)
+        bgCanvas: 'radial-gradient(circle at 50% -20%, #1e1e2e 0%, #0a0a0f 100%)',
         surfaceGlass: 'rgba(20, 20, 30, 0.75)',
         surfaceGlassHover: 'rgba(40, 40, 55, 0.85)',
         surfaceSolid: '#1c1c1e',
@@ -187,8 +188,9 @@ export const darkTheme: ColorTheme = {
         accentDanger: '#ff453a',
         accentDangerGlow: 'rgba(255, 69, 58, 0.3)',
 
-        // Aurora Glass (Dark Mode)
-        glassBg: 'rgba(20, 20, 30, 0.65)',
+        // Aurora Glass (Dark Mode) - High Transparency
+        glassBg: 'linear-gradient(180deg, rgba(30, 30, 40, 0.3) 0%, rgba(20, 20, 30, 0.2) 100%)',
+        glassBgHeader: 'rgba(20, 20, 30, 0.15)', // Ultra transparent header
         glassBlur: 'blur(24px) saturate(180%)',
         glassBorder: '1px solid rgba(255, 255, 255, 0.12)',
         glassInnerHighlight: 'inset 0 1px 0 rgba(255, 255, 255, 0.2)',
@@ -251,8 +253,8 @@ export const lightTheme: ColorTheme = {
         borderRadius: '0',
     },
     css: {
-        // 亮色主题 - Apple Freeform 风格
-        bgCanvas: '#f2f6fa',                    // 极淡冷灰，衬托白色玻璃
+        // 亮色主题 - Apple Freeform 风格 (Radial Gradient for Atmosphere)
+        bgCanvas: 'radial-gradient(circle at 50% -20%, #ffffff 0%, #f2f6fa 100%)',
         surfaceGlass: 'rgba(255, 255, 255, 0.9)', // 高不透明度毛玻璃
         surfaceGlassHover: 'rgba(255, 255, 255, 1)',
         surfaceSolid: '#ffffff',                // 纯白表面
@@ -270,8 +272,9 @@ export const lightTheme: ColorTheme = {
         accentDanger: '#ff3b30',                // Apple 红
         accentDangerGlow: 'rgba(255, 59, 48, 0.2)',
 
-        // Curved Glass (Light Mode) - 3D 曲面玻璃
-        glassBg: 'linear-gradient(160deg, rgba(255, 255, 255, 0.8) 0%, rgba(240, 245, 255, 0.7) 100%)', // 稍微调回一点不透明度，配合强边框
+        // Curved Glass (Light Mode) - High Transparency
+        glassBg: 'linear-gradient(160deg, rgba(255, 255, 255, 0.4) 0%, rgba(240, 245, 255, 0.3) 100%)',
+        glassBgHeader: 'rgba(255, 255, 255, 0.2)', // Ultra transparent header
         glassBlur: 'blur(24px) saturate(180%)',
         glassBorder: '1px solid rgba(0, 10, 30, 0.12)', // 加深边框，更锐利
         glassInnerHighlight: 'inset 0 1px 2px rgba(255, 255, 255, 0.9), inset 0 -2px 4px rgba(200, 210, 230, 0.15)', // 上亮下暗模拟厚度
@@ -325,6 +328,7 @@ class ThemeServiceClass {
 
         // Glass Tokens
         root.style.setProperty('--glass-bg', css.glassBg);
+        root.style.setProperty('--glass-bg-header', css.glassBgHeader);
         root.style.setProperty('--glass-blur', css.glassBlur);
         root.style.setProperty('--glass-border', css.glassBorder);
         root.style.setProperty('--glass-inner-highlight', css.glassInnerHighlight);
