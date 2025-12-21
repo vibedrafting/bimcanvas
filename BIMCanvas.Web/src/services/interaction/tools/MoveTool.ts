@@ -283,9 +283,8 @@ export class MoveTool implements Tool {
         }
 
         if (this.state === 'waiting_dest' && this.basePoint) {
-            // Phase 3: 应用轴锁定
-            const lockedPoint = this.axisLockHelper.lock(this.basePoint, finalPoint, this.shiftHeld);
-            const actualPoint = this.shiftHeld ? lockedPoint : finalPoint;
+            // 应用轴吸附（软吸附 + Shift 强制锁定）
+            const actualPoint = this.axisLockHelper.lock(this.basePoint, finalPoint, this.shiftHeld);
 
             // 记录最后鼠标位置（用于数值输入时的方向计算）
             this.lastMousePoint = actualPoint.clone();

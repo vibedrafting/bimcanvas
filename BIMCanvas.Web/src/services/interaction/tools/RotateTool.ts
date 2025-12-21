@@ -311,19 +311,27 @@ export class RotateTool implements Tool {
             let currentAngle = Math.atan2(vector.z, vector.x);
             const distance = vector.length();
 
-            // Phase 3: Shift 角度锁定（15° 增量）
             if (this.shiftHeld) {
-                // 显示刻度圈和 XY 轴
+                // Shift 强制锁定到 15° 倍数，显示刻度圈
                 if (!this.scaleLines) {
                     this.createAxisLines(this.centerPoint);
                     this.createScaleLines(this.centerPoint);
                 }
-                const angleStep = Math.PI / 12; // 15° = π/12 弧度
+                const angleStep = Math.PI / 12; // 15°
                 currentAngle = Math.round(currentAngle / angleStep) * angleStep;
             } else {
-                // 隐藏刻度圈和 XY 轴
+                // 软吸附：只吸附 XY 轴（0°、90°、180°、270°），不显示刻度圈
                 this.removeAxisLines();
                 this.removeScaleLines();
+
+                const axisStep = Math.PI / 2; // 90°
+                const softSnapThreshold = Math.PI / 22.5; // 8° 阈值
+                const nearestAxis = Math.round(currentAngle / axisStep) * axisStep;
+                const deviation = Math.abs(currentAngle - nearestAxis);
+
+                if (deviation <= softSnapThreshold) {
+                    currentAngle = nearestAxis;
+                }
             }
 
             // 计算锁定后的终点位置（让线条也跳跃到锁定角度）
