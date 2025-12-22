@@ -12,11 +12,16 @@ namespace BIMCanvas.Server.Controllers
     public class CanvasController : ControllerBase
     {
         private readonly CanvasStateManager _stateManager;
+        private readonly ZoneCalculator _zoneCalculator;
         private readonly ILogger<CanvasController> _logger;
 
-        public CanvasController(CanvasStateManager stateManager, ILogger<CanvasController> logger)
+        public CanvasController(
+            CanvasStateManager stateManager,
+            ZoneCalculator zoneCalculator,
+            ILogger<CanvasController> logger)
         {
             _stateManager = stateManager;
+            _zoneCalculator = zoneCalculator;
             _logger = logger;
         }
 
@@ -57,6 +62,42 @@ namespace BIMCanvas.Server.Controllers
             _logger.LogInformation("Canvas stored: {Id}, version: {Version}", stored.Id, stored.Version);
 
             return CreatedAtAction(nameof(GetCanvas), new { id = stored.Id }, stored);
+        }
+
+        /// <summary>
+        /// 加载并处理画布文档（计算禁区等）
+        /// POST /api/canvas/load
+        /// </summary>
+        [HttpPost("load")]
+        public ActionResult<CanvasDocument> Load([FromBody] CanvasDocument document)
+        {
+            if (document == null)
+            {
+                return BadRequest(new { error = "Invalid document" });
+            }
+
+            // 验证坐标系统
+            if (!string.IsNullOrEmpty(document.CoordinateSystem) &&
+                document.CoordinateSystem != "cartesian_mm_yUp")
+            {
+                return BadRequest(new { error = "Invalid coordinate system", expected = "cartesian_mm_yUp" });
+            }
+
+            // 确保坐标系统设置正确
+            if (string.IsNullOrEmpty(document.CoordinateSystem))
+            {
+                document.CoordinateSystem = "cartesian_mm_yUp";
+            }
+
+            // 调用 ZoneCalculator 处理数据（计算禁区等）
+            var processed = _zoneCalculator.Process(document);
+
+            // 存储到状态管理器
+            var stored = _stateManager.Store(processed);
+
+            _logger.LogInformation("画布已加载并处理: {Id}, 版本: {Version}", stored.Id, stored.Version);
+
+            return Ok(stored);
         }
 
         /// <summary>

@@ -253,12 +253,39 @@ export const useCanvasStore = defineStore('canvas', () => {
     };
 
     // 从 JSON 对象加载文档（供本地文件加载使用）
-    const loadFromJson = (jsonContent: CanvasDocument) => {
-        document.value = jsonContent;
-        timeline.clear();
-        saveState();
+    // 发送到 Server 处理（计算禁区等），然后使用处理后的数据
+    const loadFromJson = async (jsonContent: CanvasDocument) => {
+        isLoading.value = true;
         error.value = null;
-        debugStore.success('Document loaded from local file');
+
+        try {
+            debugStore.log('Sending document to Server for processing...');
+
+            // 发送到 Server 处理（计算禁区等）
+            const response = await axios.post<CanvasDocument>(
+                'http://localhost:5000/api/canvas/load',
+                jsonContent
+            );
+
+            // 使用 Server 返回的处理后数据
+            document.value = response.data;
+            timeline.clear();
+            saveState();
+
+            debugStore.success(`Document loaded and processed. Zones: ${response.data.zones?.length || 0}`);
+        } catch (err: any) {
+            console.error('Failed to load document:', err);
+            debugStore.error(`Failed to load document: ${err.message || err}`);
+            error.value = `Failed to load document: ${err.message || err}`;
+
+            // 降级处理：如果 Server 不可用，直接加载原始数据
+            debugStore.warn('Falling back to local loading...');
+            document.value = jsonContent;
+            timeline.clear();
+            saveState();
+        } finally {
+            isLoading.value = false;
+        }
     };
 
     const undo = () => {
