@@ -2,7 +2,7 @@
 
 > 在用户提供的建筑平面内，布置符合设计逻辑的家具组合。
 
-**数据模型版本**: v2.7 (新增 BIMCanvas.Agent + Agent SDK 架构)
+**数据模型版本**: v2.8 (DesignDocument 重构：属性分组为 revit/computed/modules)
 
 ---
 
@@ -14,7 +14,7 @@
 |------|------|------|
 | 架构文档 | `docs/Architecture.md` | 系统架构、数据流 |
 | 执行流程 | `docs/Workflows.md` | 端到端执行流程、触发机制 |
-| JSON Schema | `docs/Schema-JSON.md` | v2.5 数据模型定义 |
+| JSON Schema | `docs/Schema-JSON.md` | v2.8 数据模型定义 |
 | PRD | `docs/PRD.md` | 产品需求、工作流程 |
 | Core 层 | `BIMCanvas.Core/README.md` | 数据模型 + 空间算法实现 |
 | Revit 插件 | `BIMCanvas.Revit/README.md` | Revit 导出/回写实现细节 |
@@ -150,7 +150,7 @@ Revit (feet, 项目坐标)  ←→  BIMCanvas (mm, 归一化坐标)
 
 ---
 
-## v2.5 数据模型速查
+## v2.8 数据模型速查
 
 ### 核心设计原则
 
@@ -159,24 +159,29 @@ Revit (feet, 项目坐标)  ←→  BIMCanvas (mm, 归一化坐标)
 ### JSON 顶级结构
 
 ```
-CanvasDocument
-├── outline              边界轮廓 + 门窗线段 (仅视觉)
-│   ├── boundaries[]     封闭多边形 Polygon2D (墙体 + 柱子)
-│   └── openings[]       线段 Line2D + type (door/window)
-├── rooms[]              物理房间 (v2.5 新增)
-│   ├── id, name, type   RoomType 枚举
-│   └── boundary         Polygon2D
-├── zones[]              设计区域 (AI 核心工作区)
-│   ├── roomId           所属房间 ID (v2.5 新增)
-│   ├── tags[]           ZoneTag 枚举列表 (v2.5 替代 function)
-│   ├── rawBoundary      原始边界 (v2.5 新增)
-│   ├── innerBoundary    可用空间轮廓 Polygon2D
-│   ├── exclusionAreas[] 禁区 boundary: Polygon2D (4顶点矩形)
-│   └── openings[]       关联门窗 ID
-├── wallFinishes[]       墙面完成面 (v2.5 新增)
-│   ├── locationLine     定位线 Line2D
-│   ├── thickness        厚度 (mm)
-│   └── exclusionBoundary 禁区轮廓 Polygon2D
+DesignDocument
+├── id, projectName, exportDate, version, coordinateSystem
+├── revit                Revit 原始数据
+│   ├── metadata         坐标变换参数
+│   ├── walls[]          墙体轮廓 Polygon2D
+│   ├── columns[]        柱子轮廓 Polygon2D
+│   ├── openings[]       门窗 Line2D + type + direction
+│   ├── finishLocationBoundaries[]  完成面定位边界
+│   └── rooms[]          物理房间
+│       ├── id, name, type   RoomType 枚举
+│       └── boundary     Polygon2D
+├── computed             计算派生数据
+│   ├── zones[]          设计区域 (AI 核心工作区)
+│   │   ├── roomId       所属房间 ID
+│   │   ├── tags[]       ZoneTag 枚举列表
+│   │   ├── rawBoundary  原始边界
+│   │   ├── innerBoundary 可用空间轮廓 Polygon2D
+│   │   ├── exclusionAreas[] 禁区 Polygon2D (4顶点矩形)
+│   │   └── openings[]   关联门窗 ID
+│   └── wallFinishes[]   墙面完成面
+│       ├── locationLine 定位线 Line2D
+│       ├── thickness    厚度 (mm)
+│       └── exclusionBoundary 禁区轮廓 Polygon2D
 └── modules[]            布置模块 (最小布置单元)
     ├── bounds           Polygon2D [[x,y], ...] (4顶点矩形)
     ├── facing           Facing (FacingDirection 枚举 | Vec2D)
@@ -187,9 +192,9 @@ CanvasDocument
 
 ```
 对于每个要放置的模块：
-1. bounds 必须完全在 zone.innerBoundary 内
-2. bounds 不能与任何 zone.exclusionAreas 重叠
-3. bounds 不能与其他已放置模块重叠
+1. bounds 必须完全在 computed.zones[].innerBoundary 内
+2. bounds 不能与任何 computed.zones[].exclusionAreas 重叠
+3. bounds 不能与其他已放置 modules[] 重叠
 ```
 
 ### Facing 类型 (语义朝向)
@@ -214,7 +219,7 @@ CanvasDocument
 
 ### 数据格式
 
-- **存储/传输**：JSON（CanvasDocument）
+- **存储/传输**：JSON（DesignDocument）
 - **AI 交互**：纯 JSON
 - **渲染**：前端根据 JSON 生成 SVG
 

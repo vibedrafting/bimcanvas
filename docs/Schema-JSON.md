@@ -1,12 +1,17 @@
 # BIMCanvas JSON Schema 规范
 
-> 版本：v2.6
-> 更新日期：2025-12-11
-> 状态：已定稿（扁平化结构：建筑构件提升至顶层，新增 walls/columns/finishLocationBoundaries）
+> 版本：v2.8
+> 更新日期：2025-12-22
+> 状态：已定稿（DesignDocument 重构：属性分组为 revit/computed/modules）
 >
 > **相关文档**：
 > - [Architecture.md](./Architecture.md) - 系统架构（含 Core 层详细设计）
 > - [reviews/BIMCanvas_Core_Implementation_Review.md](../reviews/BIMCanvas_Core_Implementation_Review.md) - Core 实现方案评审记录
+>
+> **v2.8 变更要点**：
+> - `CanvasDocument` 重命名为 `DesignDocument`
+> - 属性分组：`revit`（原始数据）、`computed`（计算派生）、`modules`（布置模块）
+> - 新增 `projectName`、`exportDate` 常规属性
 
 ---
 
@@ -42,24 +47,32 @@
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
-│                     数据分层架构                                 │
+│                     DesignDocument 数据结构                      │
 ├─────────────────────────────────────────────────────────────────┤
 │                                                                 │
-│   【Layer 1: AI 上下文】- CanvasDocument.json                    │
+│   【常规属性】                                                   │
 │   ┌─────────────────────────────────────────────────────────┐   │
-│   │  • outline: 边界轮廓多边形（墙+柱）+ 门窗线段（仅几何） │   │
-│   │  • rooms: 物理房间（对应 Revit Room）                      │   │
-│   │  • zones: 可用空间 + 禁区（innerBoundary + exclusionAreas） │   │
-│   │  • wallFinishes: 墙面完成面配置                            │   │
-│   │  • modules: 家具模块列表                                   │   │
-│   │  → 用途：AI 布置计算、前端渲染                              │   │
+│   │  • id, projectName, exportDate, version, coordinateSystem │   │
 │   └─────────────────────────────────────────────────────────┘   │
 │                                                                 │
-│   【Layer 2: Revit 详细数据】- Phase 1 暂缓                      │
+│   【revit: Revit 原始数据】                                      │
 │   ┌─────────────────────────────────────────────────────────┐   │
-│   │  • revitElementId、边界厚度、门窗开启方向等                   │   │
-│   │  → 用途：高级功能（吸附到墙等）、Web端展示                  │   │
-│   │  → Phase 1 不实现，按需扩展                                │   │
+│   │  • metadata: 坐标变换参数                                 │   │
+│   │  • walls, columns: 建筑构件轮廓                           │   │
+│   │  • openings: 门窗开口                                     │   │
+│   │  • finishLocationBoundaries: 完成面定位边界               │   │
+│   │  • rooms: 物理房间（对应 Revit Room）                     │   │
+│   └─────────────────────────────────────────────────────────┘   │
+│                                                                 │
+│   【computed: 计算派生数据】                                     │
+│   ┌─────────────────────────────────────────────────────────┐   │
+│   │  • zones: 设计区域（禁区/房间/设计区）                    │   │
+│   │  • wallFinishes: 墙面完成面                               │   │
+│   └─────────────────────────────────────────────────────────┘   │
+│                                                                 │
+│   【modules: 布置模块】                                          │
+│   ┌─────────────────────────────────────────────────────────┐   │
+│   │  • 家具模块列表（AI 生成）                                │   │
 │   └─────────────────────────────────────────────────────────┘   │
 │                                                                 │
 └─────────────────────────────────────────────────────────────────┘
@@ -149,75 +162,95 @@ JSON 数据 → 服务端渲染 → PNG 截图 → 发送给 AI（多模态）
 
 ## 2. 完整 JSON 结构
 
-v2.6 采用扁平化结构，建筑构件直接放在顶层：
+v2.8 采用分组结构，属性归类为 `revit`（原始数据）、`computed`（计算派生）、`modules`（布置模块）：
 
 ```json
 {
   "id": "canvas_001",
+  "projectName": "样板间项目",
+  "exportDate": "2025-12-22T10:30:00",
   "version": 1,
   "coordinateSystem": "cartesian_mm_yUp",
 
-  "metadata": {
-    "placementElevation": 0,
-    "origin": [0, 0, 0],
-    "rotation": 0,
-    "method": "boundingBox"
+  "revit": {
+    "metadata": {
+      "placementElevation": 0,
+      "origin": [0, 0, 0],
+      "rotation": 0,
+      "method": "boundingBox"
+    },
+    "walls": [
+      { "id": "wall_001", "elementId": 12345, "polygon": [[0,0], [6000,0], [6000,200], [0,200]] }
+    ],
+    "columns": [
+      { "id": "col_001", "elementId": 23456, "isStructural": true, "polygon": [[3000,0], [3500,0], [3500,500], [3000,500]] }
+    ],
+    "openings": [
+      { "id": "d1", "type": "door", "line": [[2000,0], [2900,0]] },
+      { "id": "win1", "type": "window", "line": [[3500,6000], [5300,6000]] }
+    ],
+    "finishLocationBoundaries": [
+      { "id": "flb_001", "elementIds": [12345, 23456], "polygon": [[200,200], [5800,200], [5800,5800], [200,5800]] }
+    ],
+    "rooms": [
+      {
+        "id": "r1",
+        "name": "主卧",
+        "type": "master_bedroom",
+        "boundary": [[0,0], [6000,0], [6000,6000], [0,6000]]
+      }
+    ]
   },
 
-  "walls": [
-    { "id": "wall_001", "elementId": 12345, "polygon": [[0,0], [6000,0], [6000,200], [0,200]] }
-  ],
-  "columns": [
-    { "id": "col_001", "elementId": 23456, "isStructural": true, "polygon": [[3000,0], [3500,0], [3500,500], [3000,500]] }
-  ],
-  "openings": [
-    { "id": "d1", "type": "door", "line": [[2000,0], [2900,0]] },
-    { "id": "win1", "type": "window", "line": [[3500,6000], [5300,6000]] }
-  ],
-  "finishLocationBoundaries": [
-    { "id": "flb_001", "elementIds": [12345, 23456], "polygon": [[200,200], [5800,200], [5800,5800], [200,5800]] }
-  ],
-
-  "rooms": [
-    {
-      "id": "r1",
-      "name": "主卧",
-      "type": "master_bedroom",
-      "boundary": [[0,0], [6000,0], [6000,6000], [0,6000]]
-    }
-  ],
-
-  "zones": [
-    {
-      "id": "z1",
-      "name": "睡眠区",
-      "roomId": "r1",
-      "tags": ["sleep"],
-      "rawBoundary": [[200,200], [5800,200], [5800,5800], [200,5800]],
-      "innerBoundary": [[220,220], [5780,220], [5780,5780], [220,5780]],
-      "exclusionAreas": [
-        {
-          "id": "ex1",
-          "type": "door_swing",
-          "boundary": [[2000, 200], [2900, 200], [2900, 1100], [2000, 1100]]
-        }
-      ],
-      "openings": ["d1", "win1"]
-    }
-  ],
-
-  "wallFinishes": [
-    {
-      "id": "wf1",
-      "locationLine": [[200, 200], [200, 5800]],
-      "finishModuleId": "finish_paint_01",
-      "thickness": 20,
-      "exclusionBoundary": [[200, 200], [220, 200], [220, 5800], [200, 5800]],
-      "wallId": "wall_001",
-      "roomId": "r1",
-      "source": "room_default"
-    }
-  ],
+  "computed": {
+    "zones": [
+      {
+        "id": "z1",
+        "name": "主卧",
+        "type": "room",
+        "reason": "从 Revit Room 自动转换",
+        "rawBoundary": [[200,200], [5800,200], [5800,5800], [200,5800]],
+        "computedBoundary": [[220,220], [5780,220], [5780,5780], [220,5780]],
+        "tags": [],
+        "finishRequirements": [],
+        "schemeId": null
+      },
+      {
+        "id": "z2",
+        "name": "睡眠区",
+        "type": "designable",
+        "reason": "AI 划分的功能区",
+        "rawBoundary": [[220,220], [5780,220], [5780,5780], [220,5780]],
+        "computedBoundary": [[220,220], [5780,220], [5780,5780], [220,5780]],
+        "tags": ["sleep"],
+        "finishRequirements": [],
+        "schemeId": null
+      },
+      {
+        "id": "z3",
+        "name": "门扇禁区",
+        "type": "exclusion",
+        "reason": "门 d1 的开启扫过区域，禁止布置家具",
+        "rawBoundary": [[2000, 200], [2900, 200], [2900, 1100], [2000, 1100]],
+        "computedBoundary": null,
+        "tags": [],
+        "finishRequirements": [],
+        "schemeId": null
+      }
+    ],
+    "wallFinishes": [
+      {
+        "id": "wf1",
+        "locationLine": [[200, 200], [200, 5800]],
+        "finishModuleId": "finish_paint_01",
+        "thickness": 20,
+        "exclusionBoundary": [[200, 200], [220, 200], [220, 5800], [200, 5800]],
+        "wallId": "wall_001",
+        "roomId": "r1",
+        "source": "room_default"
+      }
+    ]
+  },
 
   "modules": [
     {
@@ -412,9 +445,11 @@ Room.type 决定该房间墙面的**默认完成面类型**，进而决定默认
 
 ---
 
-## 6. zones（设计区域）
+## 6. zones（统一区域）
 
-Zone 是 Room 下的功能分区，是 AI 的核心工作区。每个 Zone 定义一个可布置空间及其约束。
+> **v2.7 重大变更**：Zone 采用统一设计，禁区、房间、设计区都是 Zone，通过 `type` 字段区分。
+
+Zone 是 AI 的核心工作区。每个 Zone 定义一个空间区域及其约束。
 
 ### 6.1 Zone 完整定义
 
@@ -423,19 +458,39 @@ Zone 是 Room 下的功能分区，是 AI 的核心工作区。每个 Zone 定�
   "zones": [
     {
       "id": "z1",
-      "name": "睡眠区",
-      "roomId": "r1",
+      "name": "主卧",
+      "type": "room",
+      "reason": "从 Revit Room 自动转换",
+      "rawBoundary": [[200, 200], [5800, 200], [5800, 5800], [200, 5800]],
+      "computedBoundary": [[220, 220], [5780, 220], [5780, 5780], [220, 5780]],
+      "tags": [],
+      "finishRequirements": [],
+      "schemeId": null
+    },
+    {
+      "id": "z2",
+      "name": "主卧睡眠区",
+      "type": "designable",
+      "reason": "AI 划分：靠北墙区域适合布置床头，采光好",
+      "rawBoundary": [[220, 3000], [5780, 3000], [5780, 5780], [220, 5780]],
+      "computedBoundary": [[220, 3000], [5780, 3000], [5780, 5780], [220, 5780]],
       "tags": ["sleep", "bedhead_wall"],
-      "rawBoundary": [[200,200], [5800,200], [5800,5800], [200,5800]],
-      "innerBoundary": [[220,220], [5780,220], [5780,5780], [220,5780]],
-      "exclusionAreas": [
-        {
-          "id": "ex1",
-          "type": "door_swing",
-          "boundary": [[2000, 200], [2900, 200], [2900, 1100], [2000, 1100]]
-        }
+      "finishRequirements": [
+        { "wallFinishId": "wf1", "type": "normal" },
+        { "wallFinishId": "wf2", "type": "special" }
       ],
-      "openings": ["d1", "win1"]
+      "schemeId": "scheme_a"
+    },
+    {
+      "id": "z3",
+      "name": "门扇禁区",
+      "type": "exclusion",
+      "reason": "门 d1 的开启扫过区域，禁止布置家具",
+      "rawBoundary": [[2000, 200], [2900, 200], [2900, 1100], [2000, 1100]],
+      "computedBoundary": null,
+      "tags": [],
+      "finishRequirements": [],
+      "schemeId": null
     }
   ]
 }
@@ -447,14 +502,54 @@ Zone 是 Room 下的功能分区，是 AI 的核心工作区。每个 Zone 定�
 |------|------|------|------|
 | `id` | string | 是 | 区域 ID，格式：`z{序号}` |
 | `name` | string | 是 | 区域名称（用户可见） |
-| `roomId` | string | 是 | 所属房间 ID |
-| `tags` | string[] | 是 | 功能标签列表（ZoneTag 枚举） |
+| `type` | string | 是 | 区域类型：`exclusion` / `room` / `designable` |
+| `reason` | string | 是 | 产生原因（给 AI 看的文本说明） |
 | `rawBoundary` | number[][] | 是 | **原始边界**（未扣除完成面） |
-| `innerBoundary` | number[][] | 是 | **可用空间轮廓**（已扣除完成面禁区） |
-| `exclusionAreas` | object[] | 否 | **禁止布置区**（门扇、必要通道等） |
-| `openings` | string[] | 否 | 关联的门窗 ID |
+| `computedBoundary` | number[][] | 否 | **计算轮廓**（扣除完成面后，禁区通常为 null） |
+| `tags` | string[] | 是 | 功能标签列表（ZoneTag 枚举） |
+| `finishRequirements` | object[] | 是 | 完成面需求列表 |
+| `schemeId` | string | 否 | 方案 ID（仅 `designable` 类型有效，用于多方案系统） |
 
-### 6.3 tags（功能标签）
+### 6.3 type（区域类型）
+
+| 值 | 说明 | 典型来源 |
+|----|------|----------|
+| `exclusion` | 禁区，禁止布置家具 | 门扇开启区域、必要通道等 |
+| `room` | 房间，直接由 Revit Room 轮廓转换 | Revit 导出时自动创建 |
+| `designable` | 设计区，AI/用户划分后的功能区 | AI 划分或用户手动创建 |
+
+### 6.4 reason（原因说明）
+
+`reason` 是给 AI 看的文本说明，解释为什么产生这个 Zone。
+
+**典型示例**：
+- 禁区：`"门 d1 的开启扫过区域，禁止布置家具"`
+- 房间：`"从 Revit Room 自动转换"`
+- 设计区：`"AI 划分：靠北墙区域适合布置床头，采光好"`
+
+### 6.5 finishRequirements（完成面需求）
+
+记录 Zone 关联的 WallFinish 及其所需类型。
+
+```json
+{
+  "finishRequirements": [
+    { "wallFinishId": "wf1", "type": "normal" },
+    { "wallFinishId": "wf2", "type": "special" }
+  ]
+}
+```
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| `wallFinishId` | string | 关联的 WallFinish ID |
+| `type` | string | 完成面类型：`normal` / `special` |
+
+**FinishType 可选值**：
+- `normal`：普通完成面（乳胶漆、瓷砖等）
+- `special`：特殊完成面（电视墙、背景墙等，通常触发更厚的完成面）
+
+### 6.6 tags（功能标签）
 
 Zone 使用标签系统替代单一功能类型，支持多标签组合。
 
@@ -486,7 +581,7 @@ Zone 使用标签系统替代单一功能类型，支持多标签组合。
 | `display` | 展示区 |
 | `plants` | 绿植区 |
 
-### 6.4 tags 与完成面的关系
+### 6.7 tags 与完成面的关系
 
 部分 Zone 标签会触发相邻墙面的完成面类型覆盖：
 
@@ -496,47 +591,18 @@ Zone 使用标签系统替代单一功能类型，支持多标签组合。
 | `bedhead_wall` | 软包/硬包 | 60mm |
 | `bar` | 吧台背景 | 40mm |
 
-**流程**：划分 Zone 后 → 检测标签 → 查找相邻墙面 → 更新 WallFinish（source = zone_override）
+**流程**：划分 Zone 后 → 检测标签 → 查找相邻墙面 → 更新 WallFinish → 更新 finishRequirements
 
-### 6.5 innerBoundary 计算规则
+### 6.8 computedBoundary 计算规则
 
 ```
-innerBoundary = rawBoundary - 所有相关完成面禁区（wallFinishes[].exclusionBoundary）
+computedBoundary = rawBoundary - 所有相关完成面禁区（wallFinishes[].exclusionBoundary）
 ```
 
-- `rawBoundary`：Zone 的原始边界（划分工作区时确定）
+- `rawBoundary`：Zone 的原始边界
 - 完成面禁区：由 WallFinish 根据 locationLine + thickness 动态计算
-- AI 直接使用 `innerBoundary`，无需理解完成面计算逻辑
-
-### 6.6 exclusionAreas（禁止布置区）
-
-```json
-{
-  "exclusionAreas": [
-    {
-      "id": "ex1",
-      "type": "door_swing",
-      "boundary": [[2000, 0], [2900, 0], [2900, 900], [2000, 900]]
-    },
-    {
-      "id": "ex2",
-      "type": "passage",
-      "boundary": [[0, 2500], [500, 2500], [500, 3500], [0, 3500]]
-    }
-  ]
-}
-```
-
-| 字段 | 类型 | 说明 |
-|------|------|------|
-| `id` | string | 禁区 ID |
-| `type` | string | 类型：`door_swing` / `passage` / `other` |
-| `boundary` | number[][] | **禁区边界（Polygon2D）**：`[[x1,y1], [x2,y2], ...]` |
-
-**type 可选值：**
-- `door_swing`：门扇开启区域
-- `passage`：必要通道
-- `other`：其他禁区
+- AI 直接使用 `computedBoundary`（如果存在），无需理解完成面计算逻辑
+- 禁区类型的 Zone 通常 `computedBoundary` 为 null
 
 ---
 
@@ -1073,16 +1139,29 @@ type RoomType =
   | "corridor"
   | "storage";
 
-// 设计区域
+// 区域类型
+type ZoneType = "exclusion" | "room" | "designable";
+
+// 完成面类型
+type FinishType = "normal" | "special";
+
+// 完成面需求
+interface FinishRequirement {
+  wallFinishId: string;
+  type: FinishType;
+}
+
+// 统一区域（v2.7 重构）
 interface Zone {
   id: string;
   name: string;
-  roomId: string;
+  type: ZoneType;
+  reason: string;
+  rawBoundary?: Polygon2D;
+  computedBoundary?: Polygon2D;
   tags: ZoneTag[];
-  rawBoundary: Polygon2D;
-  innerBoundary: Polygon2D;
-  exclusionAreas?: ExclusionArea[];
-  openings?: string[];
+  finishRequirements: FinishRequirement[];
+  schemeId?: string;
 }
 
 // 功能标签
@@ -1127,13 +1206,6 @@ interface WallFinish {
 
 // 完成面来源
 type FinishSource = "room_default" | "zone_override" | "user_override";
-
-// 禁止布置区
-interface ExclusionArea {
-  id: string;
-  type: "door_swing" | "passage" | "other";
-  boundary: Polygon2D;        // 禁区边界（支持异形）
-}
 
 // 布置模块
 interface Module {
@@ -1223,6 +1295,7 @@ interface ModuleDefinition {
 
 | 版本 | 日期 | 变更内容 |
 |------|------|----------|
+| v2.7 | 2025-12-22 | **Zone 数据结构统一化**：禁区、房间、设计区合并为统一 Zone 类型，通过 `type` 字段区分（exclusion/room/designable）；新增 `reason` 字段（给 AI 看的文本说明）；`innerBoundary` 改名为 `computedBoundary`；移除 `roomId`/`exclusionAreas`/`openings` 字段；新增 `finishRequirements` 字段（关联 WallFinish + FinishType）；新增 `schemeId` 字段（用于多方案系统）；删除独立的 ExclusionArea 类型 |
 | v2.6 | 2025-12-11 | **结构扁平化**：建筑构件提升至顶层（walls/columns/openings/finishLocationBoundaries）；移除 Outline 包装类；Metadata 合并坐标变换参数（origin/rotation/method）；新增 Wall、Column、FinishLocationBoundary 类型定义；Column 新增 isStructural 字段区分结构柱/建筑柱 |
 | v2.5 | 2025-12-05 | **数据模型增强**：新增 Room（物理房间）；Zone 添加 roomId/tags/rawBoundary；新增 WallFinish（墙面完成面禁区机制）；完善完成面三层来源机制设计 |
 | v2.4 | 2025-12-04 | **同步评审共识**：添加评审文档引用；JSON 数据结构保持不变，C# 实现细节见 Architecture.md §6.1 |

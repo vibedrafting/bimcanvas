@@ -112,27 +112,27 @@ export class SnappingEngine {
             }
         }
 
-        // 2. 墙体 Walls
-        if (document?.walls) {
-            for (const wall of document.walls) {
+        // 2. 墙体 Walls（从 revit 子结构获取）
+        if (document?.revit?.walls) {
+            for (const wall of document.revit.walls) {
                 if (!wall.polygon) continue;
                 extractFromPolygon(wall.polygon, wall.id);
                 wallCount++;
             }
         }
 
-        // 3. 柱子 Columns
-        if (document?.columns) {
-            for (const col of document.columns) {
+        // 3. 柱子 Columns（从 revit 子结构获取）
+        if (document?.revit?.columns) {
+            for (const col of document.revit.columns) {
                 if (!col.polygon) continue;
                 extractFromPolygon(col.polygon, col.id);
                 columnCount++;
             }
         }
 
-        // 4. 门窗 Openings
-        if (document?.openings) {
-            for (const opening of document.openings) {
+        // 4. 门窗 Openings（从 revit 子结构获取）
+        if (document?.revit?.openings) {
+            for (const opening of document.revit.openings) {
                 if (!opening.line) continue;
                 extractFromLine(opening.line, opening.id);
                 openingCount++;

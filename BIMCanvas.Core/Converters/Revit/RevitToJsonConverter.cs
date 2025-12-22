@@ -1,4 +1,4 @@
-using BIMCanvas.Core.Models.RevitSource;
+using BIMCanvas.Core.Models.Document;
 using BIMCanvas.Core.Models.CanvasData;
 
 namespace BIMCanvas.Core.Converters.Revit
@@ -10,7 +10,7 @@ namespace BIMCanvas.Core.Converters.Revit
     public static class RevitToJsonConverter
     {
         /// <summary>
-        /// 从 Revit 视图数据创建画布文档
+        /// 从 Revit 视图数据创建设计文档
         /// </summary>
         /// <remarks>
         /// 占位方法。实际实现需要：
@@ -19,7 +19,7 @@ namespace BIMCanvas.Core.Converters.Revit
         /// 3. 识别并创建区域边界
         /// 4. 计算禁区（门窗开启区域、通道等）
         /// </remarks>
-        public static CanvasDocument? FromRevitView(object revitView)
+        public static DesignDocument? FromRevitView(object revitView)
         {
             // TODO: 待 Revit 集成时实现
             // 此方法将在 BIMCanvas.Revit 项目中调用

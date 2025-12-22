@@ -2,7 +2,7 @@ using System;
 using Autodesk.Revit.Attributes;
 using Autodesk.Revit.DB;
 using Autodesk.Revit.UI;
-using BIMCanvas.Core.Models.RevitSource;
+using BIMCanvas.Core.Models.Document;
 using BIMCanvas.Revit.Services;
 using Microsoft.Win32;
 
@@ -43,7 +43,7 @@ namespace BIMCanvas.Revit.Commands
                 var options = ExportOptions.Load();
 
                 // 执行导出
-                CanvasDocument document;
+                DesignDocument document;
                 try
                 {
                     document = exportService.ExportFromView(view, options);
@@ -79,11 +79,11 @@ namespace BIMCanvas.Revit.Commands
                         $"导出成功！\n\n" +
                         $"文件位置：\n{saveDialog.FileName}\n\n" +
                         $"导出统计：\n" +
-                        $"- 墙体：{document.Walls?.Count ?? 0} 个\n" +
-                        $"- 柱子：{document.Columns?.Count ?? 0} 个\n" +
-                        $"- 门窗：{document.Openings?.Count ?? 0} 个\n" +
-                        $"- 完成面定位边界：{document.FinishLocationBoundaries?.Count ?? 0} 个\n" +
-                        $"- 房间：{document.Rooms?.Count ?? 0} 个");
+                        $"- 墙体：{document.Revit?.Walls?.Count ?? 0} 个\n" +
+                        $"- 柱子：{document.Revit?.Columns?.Count ?? 0} 个\n" +
+                        $"- 门窗：{document.Revit?.Openings?.Count ?? 0} 个\n" +
+                        $"- 完成面定位边界：{document.Revit?.FinishLocationBoundaries?.Count ?? 0} 个\n" +
+                        $"- 房间：{document.Revit?.Rooms?.Count ?? 0} 个");
                 }
 
                 return Result.Succeeded;

@@ -3,7 +3,6 @@ export type Line2D = [Point2D, Point2D];
 export type Polygon2D = Point2D[];
 
 // Enums
-// Enums
 export const RoomType = {
   Unknown: 0,
   LivingRoom: 1,
@@ -15,6 +14,21 @@ export const RoomType = {
 } as const;
 
 export type RoomType = typeof RoomType[keyof typeof RoomType];
+
+export const ZoneType = {
+  Exclusion: 0,   // 禁区
+  Room: 1,        // 房间（直接由 Revit Room 轮廓转换）
+  Designable: 2   // 设计区（AI/用户划分后的功能区）
+} as const;
+
+export type ZoneType = typeof ZoneType[keyof typeof ZoneType];
+
+export const FinishType = {
+  Normal: 0,   // 普通完成面
+  Special: 1   // 特殊完成面（如电视墙）
+} as const;
+
+export type FinishType = typeof FinishType[keyof typeof FinishType];
 
 // BIM Elements
 export interface Wall {
@@ -55,16 +69,21 @@ export interface Room {
   };
 }
 
-export interface ExclusionArea {
-  id: string;
-  type: number;  // 0: DoorSwing, 1: Passage, 2: Other
-  boundary: Polygon2D;
+export interface FinishRequirement {
+  wallFinishId: string;
+  type: FinishType;
 }
 
 export interface Zone {
-  roomId: string;
-  innerBoundary: Polygon2D;
-  exclusionAreas: ExclusionArea[];
+  id: string;
+  name: string;
+  type: ZoneType;
+  reason: string;
+  rawBoundary?: Polygon2D;
+  computedBoundary?: Polygon2D;
+  tags: string[];
+  finishRequirements: FinishRequirement[];
+  schemeId?: string;
 }
 
 export interface Module {
@@ -74,17 +93,49 @@ export interface Module {
   items: any[]; // Placeholder for furniture items
 }
 
-// Document Root
-export interface CanvasDocument {
+// Metadata
+export interface Metadata {
+  placementElevation?: number;
+  origin?: [number, number, number];
+  rotation?: number;
+  method?: string;
+}
+
+// WallFinish (计算派生数据)
+export interface WallFinish {
   id: string;
-  version: number;
-  coordinateSystem: string;
-  metadata?: any;
+  locationLine: Line2D;
+  thickness: number;
+  exclusionBoundary?: Polygon2D;
+}
+
+// Revit 原始数据子结构
+export interface RevitData {
+  metadata?: Metadata;
   walls: Wall[];
   columns?: Column[];
   openings?: Opening[];
   finishLocationBoundaries?: FinishLocationBoundary[];
   rooms?: Room[];
+}
+
+// 计算派生数据子结构
+export interface ComputedData {
   zones: Zone[];
+  wallFinishes?: WallFinish[];
+}
+
+// Document Root
+export interface DesignDocument {
+  id: string;
+  projectName?: string;
+  exportDate?: string;
+  version: number;
+  coordinateSystem: string;
+  revit?: RevitData;
+  computed?: ComputedData;
   modules: Module[];
 }
+
+// 向后兼容别名
+export type CanvasDocument = DesignDocument;

@@ -1,5 +1,5 @@
 using Microsoft.AspNetCore.Mvc;
-using BIMCanvas.Core.Models.RevitSource;
+using BIMCanvas.Core.Models.Document;
 using BIMCanvas.Server.Services;
 
 namespace BIMCanvas.Server.Controllers
@@ -30,7 +30,7 @@ namespace BIMCanvas.Server.Controllers
         /// GET /api/canvas/{id}
         /// </summary>
         [HttpGet("{id}")]
-        public ActionResult<CanvasDocument> GetCanvas(string id)
+        public ActionResult<DesignDocument> GetCanvas(string id)
         {
             var document = _stateManager.Get(id);
             if (document == null)
@@ -45,7 +45,7 @@ namespace BIMCanvas.Server.Controllers
         /// POST /api/canvas
         /// </summary>
         [HttpPost]
-        public ActionResult<CanvasDocument> CreateCanvas([FromBody] CanvasDocument document)
+        public ActionResult<DesignDocument> CreateCanvas([FromBody] DesignDocument document)
         {
             if (document == null)
             {
@@ -69,7 +69,7 @@ namespace BIMCanvas.Server.Controllers
         /// POST /api/canvas/load
         /// </summary>
         [HttpPost("load")]
-        public ActionResult<CanvasDocument> Load([FromBody] CanvasDocument document)
+        public ActionResult<DesignDocument> Load([FromBody] DesignDocument document)
         {
             if (document == null)
             {

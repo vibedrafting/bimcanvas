@@ -1,4 +1,4 @@
-using BIMCanvas.Core.Models.RevitSource;
+using BIMCanvas.Core.Models.Document;
 using BIMCanvas.Core.Models.RevitWriteback;
 
 namespace BIMCanvas.Core.Converters.Revit
@@ -14,13 +14,13 @@ namespace BIMCanvas.Core.Converters.Revit
         /// </summary>
         /// <remarks>
         /// 占位方法。实际实现需要：
-        /// 1. 遍历 CanvasDocument.Modules
+        /// 1. 遍历 DesignDocument.Modules
         /// 2. 根据 ModuleId 查找对应的 Revit Family
         /// 3. 根据 Bounds 计算放置位置
         /// 4. 根据 Facing 计算旋转角度
         /// 5. 创建 Revit FamilyInstance
         /// </remarks>
-        public static bool WriteToRevit(CanvasDocument document, object revitDocument)
+        public static bool WriteToRevit(DesignDocument document, object revitDocument)
         {
             // TODO: 待 Revit 集成时实现
             // 此方法将在 BIMCanvas.Revit 项目中调用

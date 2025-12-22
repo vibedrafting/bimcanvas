@@ -288,7 +288,9 @@ export class ThreeSceneService {
     }
 
     private fitToScreen(doc: any) {
-        if (!doc.walls || doc.walls.length === 0) return;
+        // 从 revit 子结构获取墙体数据
+        const walls = doc.revit?.walls;
+        if (!walls || walls.length === 0) return;
 
         let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
 
@@ -302,8 +304,8 @@ export class ThreeSceneService {
             });
         };
 
-        if (doc.walls) {
-            doc.walls.forEach((wall: any) => processPolygon(wall.polygon));
+        if (walls) {
+            walls.forEach((wall: any) => processPolygon(wall.polygon));
         }
 
         if (doc.modules) {

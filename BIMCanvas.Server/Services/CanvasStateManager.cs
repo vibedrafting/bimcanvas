@@ -1,5 +1,5 @@
 using System.Collections.Concurrent;
-using BIMCanvas.Core.Models.RevitSource;
+using BIMCanvas.Core.Models.Document;
 
 namespace BIMCanvas.Server.Services
 {
@@ -8,12 +8,12 @@ namespace BIMCanvas.Server.Services
     /// </summary>
     public class CanvasStateManager
     {
-        private readonly ConcurrentDictionary<string, CanvasDocument> _documents = new();
+        private readonly ConcurrentDictionary<string, DesignDocument> _documents = new();
 
         /// <summary>
         /// 存储文档（自动递增版本号）
         /// </summary>
-        public CanvasDocument Store(CanvasDocument document)
+        public DesignDocument Store(DesignDocument document)
         {
             if (string.IsNullOrEmpty(document.Id))
             {
@@ -41,7 +41,7 @@ namespace BIMCanvas.Server.Services
         /// <summary>
         /// 获取文档
         /// </summary>
-        public CanvasDocument? Get(string id)
+        public DesignDocument? Get(string id)
         {
             _documents.TryGetValue(id, out var document);
             return document;

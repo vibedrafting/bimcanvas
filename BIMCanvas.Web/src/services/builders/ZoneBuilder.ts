@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { LayerManager } from '../three/LayerManager';
 import type { CanvasDocument, Zone, Point2D } from '../../types/canvas';
+import { ZoneType } from '../../types/canvas';
 import { themeService } from '../theme/ThemeService';
 
 export class ZoneBuilder {
@@ -17,24 +18,32 @@ export class ZoneBuilder {
     private initMaterials() {
         const colors = themeService.currentTheme.value.zones;
 
-        this.materials.set('innerBoundary', new THREE.MeshBasicMaterial({
+        // Room zones: light fill
+        this.materials.set('room', new THREE.MeshBasicMaterial({
             color: colors.innerBoundary,
             transparent: true,
-            opacity: colors.opacity,
-            side: THREE.DoubleSide,
-            depthWrite: false // Prevent z-fighting with floor
-        }));
-
-        this.materials.set('exclusion', new THREE.MeshBasicMaterial({
-            color: colors.exclusion,
-            transparent: true,
-            opacity: colors.opacity * 2, // Make exclusion slightly more visible
+            opacity: colors.opacity * 0.5,
             side: THREE.DoubleSide,
             depthWrite: false
         }));
 
-        // Optional: Hatch pattern for exclusion?
-        // For now, keep it simple with solid color as per KISS.
+        // Designable zones: green fill
+        this.materials.set('designable', new THREE.MeshBasicMaterial({
+            color: colors.innerBoundary,
+            transparent: true,
+            opacity: colors.opacity,
+            side: THREE.DoubleSide,
+            depthWrite: false
+        }));
+
+        // Exclusion zones: red fill
+        this.materials.set('exclusion', new THREE.MeshBasicMaterial({
+            color: colors.exclusion,
+            transparent: true,
+            opacity: colors.opacity * 2,
+            side: THREE.DoubleSide,
+            depthWrite: false
+        }));
     }
 
     public buildZones(doc: CanvasDocument) {
@@ -47,8 +56,10 @@ export class ZoneBuilder {
         this.zoneGroup = new THREE.Group();
         this.zoneGroup.layers.set(LayerManager.LAYER_ZONES);
 
-        if (doc.zones) {
-            doc.zones.forEach(zone => {
+        // 从 computed 子结构获取 zones
+        const zones = doc.computed?.zones;
+        if (zones) {
+            zones.forEach(zone => {
                 this.createZoneMesh(zone);
             });
         }
@@ -57,47 +68,38 @@ export class ZoneBuilder {
     }
 
     private createZoneMesh(zone: Zone) {
-        // 1. Inner Boundary (Safe Area)
-        if (zone.innerBoundary && zone.innerBoundary.length > 0) {
-            const shape = this.createShapeFromPolygon(zone.innerBoundary);
-            const geometry = new THREE.ShapeGeometry(shape);
-            const mesh = new THREE.Mesh(geometry, this.materials.get('innerBoundary'));
+        // Use computedBoundary if available, otherwise rawBoundary
+        const boundary = zone.computedBoundary ?? zone.rawBoundary;
+        if (!boundary || boundary.length === 0) return;
 
-            // Slightly above floor (floor is usually at 0 or -thickness)
-            // Let's put it at z=5 to be above floor but below furniture
-            mesh.position.z = 5;
+        const shape = this.createShapeFromPolygon(boundary);
+        const geometry = new THREE.ShapeGeometry(shape);
 
-            // Rotate to match coordinate system (if needed, but ShapeGeometry is XY)
-            // Scene is Y-Up, but we view from Top (-Z).
-            // Wait, SceneBuilder rotates walls -90 X.
-            // "mesh.rotation.x = -Math.PI / 2;"
-            // Let's check SceneBuilder.
-            // SceneBuilder: mesh.rotation.x = -Math.PI / 2; // Y-Up Rotation
-            // So floor is on X-Z plane.
+        // Select material based on zone type
+        let materialKey: string;
+        let yPosition: number;
 
-            mesh.rotation.x = -Math.PI / 2;
-            mesh.position.y = 5; // Lift slightly above Y=0 (Ground)
-
-            mesh.layers.set(LayerManager.LAYER_ZONES);
-            this.zoneGroup!.add(mesh);
+        switch (zone.type) {
+            case ZoneType.Exclusion:
+                materialKey = 'exclusion';
+                yPosition = 10; // Above other zones
+                break;
+            case ZoneType.Room:
+                materialKey = 'room';
+                yPosition = 3; // Lowest
+                break;
+            case ZoneType.Designable:
+            default:
+                materialKey = 'designable';
+                yPosition = 5; // Between room and exclusion
+                break;
         }
 
-        // 2. Exclusion Areas
-        if (zone.exclusionAreas) {
-            zone.exclusionAreas.forEach(area => {
-                if (area?.boundary && area.boundary.length > 0) {
-                    const shape = this.createShapeFromPolygon(area.boundary);
-                    const geometry = new THREE.ShapeGeometry(shape);
-                    const mesh = new THREE.Mesh(geometry, this.materials.get('exclusion'));
-
-                    mesh.rotation.x = -Math.PI / 2;
-                    mesh.position.y = 10; // Slightly above inner boundary
-
-                    mesh.layers.set(LayerManager.LAYER_ZONES);
-                    this.zoneGroup!.add(mesh);
-                }
-            });
-        }
+        const mesh = new THREE.Mesh(geometry, this.materials.get(materialKey));
+        mesh.rotation.x = -Math.PI / 2;
+        mesh.position.y = yPosition;
+        mesh.layers.set(LayerManager.LAYER_ZONES);
+        this.zoneGroup!.add(mesh);
     }
 
     private createShapeFromPolygon(polygon: Point2D[]): THREE.Shape {

@@ -164,19 +164,22 @@ export class SceneBuilder {
 
         // (Compass removed)
 
+        // 从 revit 子结构获取建筑构件数据
+        const revit = doc.revit;
+
         // 1. Walls
-        if (doc.walls && doc.walls.length > 0) {
-            doc.walls.forEach(wall => this.createWallMesh(wall));
+        if (revit?.walls && revit.walls.length > 0) {
+            revit.walls.forEach(wall => this.createWallMesh(wall));
         }
 
         // 2. Columns
-        if (doc.columns && doc.columns.length > 0) {
-            doc.columns.forEach(col => this.createColumnMesh(col));
+        if (revit?.columns && revit.columns.length > 0) {
+            revit.columns.forEach(col => this.createColumnMesh(col));
         }
 
         // 3. Openings (Doors/Windows)
-        if (doc.openings && doc.openings.length > 0) {
-            doc.openings.forEach(op => this.createOpeningMesh(op));
+        if (revit?.openings && revit.openings.length > 0) {
+            revit.openings.forEach(op => this.createOpeningMesh(op));
         }
 
         // 4. Modules

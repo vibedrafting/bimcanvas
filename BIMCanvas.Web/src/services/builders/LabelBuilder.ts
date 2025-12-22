@@ -47,9 +47,12 @@ export class LabelBuilder {
         // Important: Set the group to LABELS layer
         this.labelGroup.layers.set(LayerManager.LAYER_LABELS);
 
+        // 从 revit 子结构获取建筑构件数据
+        const revit = doc.revit;
+
         // 1. Walls
-        if (doc.walls) {
-            doc.walls.forEach(wall => {
+        if (revit?.walls) {
+            revit.walls.forEach(wall => {
                 if (wall.id && wall.polygon && wall.polygon.length > 0) {
                     // Calculate center
                     const center = this.getPolygonCenter(wall.polygon);
@@ -60,8 +63,8 @@ export class LabelBuilder {
         }
 
         // 2. Columns
-        if (doc.columns) {
-            doc.columns.forEach(col => {
+        if (revit?.columns) {
+            revit.columns.forEach(col => {
                 if (col.id && col.polygon && col.polygon.length > 0) {
                     const center = this.getPolygonCenter(col.polygon);
                     const orientation = this.getOrientation(col.polygon);
@@ -82,8 +85,8 @@ export class LabelBuilder {
         }
 
         // 4. Openings (Doors/Windows)
-        if (doc.openings) {
-            doc.openings.forEach(opening => {
+        if (revit?.openings) {
+            revit.openings.forEach(opening => {
                 if (opening.id && opening.line) {
                     const center = this.getLineCenter(opening.line);
                     const orientation = this.getOrientation(opening.line);

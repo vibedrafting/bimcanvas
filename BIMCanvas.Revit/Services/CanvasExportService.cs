@@ -5,6 +5,7 @@ using System.Linq;
 using System.Text;
 using Autodesk.Revit.DB;
 using BIMCanvas.Core.Converters;
+using BIMCanvas.Core.Models.Document;
 using BIMCanvas.Core.Models.RevitSource;
 using BIMCanvas.Core.Models.CanvasData;
 using BIMCanvas.Core.Models.RevitWriteback;
@@ -21,18 +22,18 @@ namespace BIMCanvas.Revit.Services
 {
     /// <summary>
     /// 画布导出服务
-    /// 负责组装 CanvasDocument 并保存文件
+    /// 负责组装 DesignDocument 并保存文件
     /// </summary>
     public class CanvasExportService
     {
         /// <summary>
-        /// 从视图导出 CanvasDocument（6 阶段流程）
+        /// 从视图导出 DesignDocument（6 阶段流程）
         /// </summary>
         /// <param name="view">Revit 平面视图</param>
         /// <param name="options">导出选项</param>
-        /// <returns>精简版 CanvasDocument</returns>
+        /// <returns>精简版 DesignDocument</returns>
         /// <exception cref="OperationCanceledException">用户取消导出时抛出</exception>
-        public CanvasDocument ExportFromView(View view, ExportOptions options)
+        public DesignDocument ExportFromView(View view, ExportOptions options)
         {
             if (view == null)
                 throw new ArgumentNullException(nameof(view));
@@ -203,7 +204,7 @@ namespace BIMCanvas.Revit.Services
                 }
             }
 
-            // ===== Phase 6: 保存转换配置到 Metadata + 组装 CanvasDocument =====
+            // ===== Phase 6: 保存转换配置到 Metadata + 组装 DesignDocument =====
             var metadata = new Metadata
             {
                 PlacementElevation = options.PlacementElevation,
@@ -218,24 +219,35 @@ namespace BIMCanvas.Revit.Services
                 Method = originMethod
             };
 
-            return new CanvasDocument
+            return new DesignDocument
             {
+                // 常规属性
                 Id = $"canvas_{Guid.NewGuid():N}",
+                ProjectName = view.Document.Title ?? "",
+                ExportDate = DateTime.Now,
                 Version = 1,
                 CoordinateSystem = "cartesian_mm_yUp",
-                Metadata = metadata,
 
-                // 建筑构件（直接在顶层）
-                Walls = walls,
-                Columns = columns,
-                Openings = openings,
-                FinishLocationBoundaries = finishLocationBoundaries,
+                // Revit 原始数据
+                Revit = new RevitData
+                {
+                    Metadata = metadata,
+                    Walls = walls,
+                    Columns = columns,
+                    Openings = openings,
+                    FinishLocationBoundaries = finishLocationBoundaries,
+                    Rooms = rooms
+                },
 
-                // 空间数据
-                Rooms = rooms,
-                Zones = new List<Zone>(),              // 精简版：空
-                WallFinishes = new List<WallFinish>(), // 精简版：空
-                Modules = new List<Module>()           // 精简版：空
+                // 计算派生数据（精简版：空）
+                Computed = new ComputedData
+                {
+                    Zones = new List<Zone>(),
+                    WallFinishes = new List<WallFinish>()
+                },
+
+                // 布置模块（精简版：空）
+                Modules = new List<Module>()
             };
         }
 
@@ -249,11 +261,11 @@ namespace BIMCanvas.Revit.Services
         }
 
         /// <summary>
-        /// 保存 CanvasDocument 到文件
+        /// 保存 DesignDocument 到文件
         /// </summary>
-        /// <param name="document">画布文档</param>
+        /// <param name="document">设计文档</param>
         /// <param name="filePath">保存路径</param>
-        public void SaveToFile(CanvasDocument document, string filePath)
+        public void SaveToFile(DesignDocument document, string filePath)
         {
             if (document == null)
                 throw new ArgumentNullException(nameof(document));
@@ -272,11 +284,11 @@ namespace BIMCanvas.Revit.Services
         }
 
         /// <summary>
-        /// 将 CanvasDocument 序列化为 JSON 字符串
+        /// 将 DesignDocument 序列化为 JSON 字符串
         /// </summary>
-        /// <param name="document">画布文档</param>
+        /// <param name="document">设计文档</param>
         /// <returns>JSON 字符串</returns>
-        public string ToJson(CanvasDocument document)
+        public string ToJson(DesignDocument document)
         {
             if (document == null)
                 throw new ArgumentNullException(nameof(document));

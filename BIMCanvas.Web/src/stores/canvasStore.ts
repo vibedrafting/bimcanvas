@@ -44,8 +44,11 @@ export const useCanvasStore = defineStore('canvas', () => {
 
         debug.log(`[Store] findObjectById: ${id}`);
 
+        // 从 revit 子结构获取建筑构件数据
+        const revit = document.value.revit;
+
         // 显示 walls 列表便于对比
-        const wallIds = document.value.walls?.map(w => w.id).slice(0, 3) || [];
+        const wallIds = revit?.walls?.map(w => w.id).slice(0, 3) || [];
         debug.log(`[Store] Available wall IDs: [${wallIds.join(', ')}...]`);
 
         // 在 modules 中查找
@@ -56,33 +59,30 @@ export const useCanvasStore = defineStore('canvas', () => {
         }
 
         // 在 walls 中查找
-        const wall = document.value.walls?.find(w => w.id === id);
+        const wall = revit?.walls?.find(w => w.id === id);
         if (wall) {
             debug.success(`[Store] findObjectById: found in walls`);
             return { ...wall, type: 'wall' };
         }
 
         // 在 columns 中查找
-        const column = document.value.columns?.find(c => c.id === id);
+        const column = revit?.columns?.find(c => c.id === id);
         if (column) {
             debug.success(`[Store] findObjectById: found in columns`);
             return { ...column, type: 'column' };
         }
 
-        // 在 openings 中查找（门窗）- 使用类型断言
-        const doc = document.value as any;
-        if (doc.outline?.openings) {
-            const opening = doc.outline.openings.find((o: any) => o.id === id);
-            if (opening) {
-                debug.success(`[Store] findObjectById: found in openings`);
-                return { ...opening, type: opening.type || 'opening' };
-            }
+        // 在 openings 中查找（门窗）
+        const opening = revit?.openings?.find((o: any) => o.id === id);
+        if (opening) {
+            debug.success(`[Store] findObjectById: found in openings`);
+            return { ...opening, type: opening.type || 'opening' };
         }
 
         // 列出所有可用 ID 帮助调试
         const allIds: string[] = [];
         document.value.modules?.forEach(m => allIds.push(`mod:${m.id}`));
-        document.value.walls?.forEach(w => allIds.push(`wall:${w.id}`));
+        revit?.walls?.forEach(w => allIds.push(`wall:${w.id}`));
         debug.warn(`[Store] findObjectById: NOT FOUND (${id}). Available: ${allIds.slice(0, 5).join(', ')}...`);
 
         return null;
@@ -319,32 +319,32 @@ export const useCanvasStore = defineStore('canvas', () => {
     };
 
     const updateWall = (wallId: string, updates: Partial<any>) => {
-        if (!document.value) return;
-        const index = document.value.walls.findIndex(w => w.id === wallId);
+        if (!document.value?.revit?.walls) return;
+        const index = document.value.revit.walls.findIndex(w => w.id === wallId);
         if (index !== -1) {
-            const updated = { ...document.value.walls[index], ...updates } as any;
-            document.value.walls[index] = updated;
+            const updated = { ...document.value.revit.walls[index], ...updates } as any;
+            document.value.revit.walls[index] = updated;
             nextTick(() => saveState());
             // signalR.sendUpdate({ type: 'wall_update', wallId, updates }); // TODO: Server support
         }
     };
 
     const updateColumn = (colId: string, updates: Partial<any>) => {
-        if (!document.value || !document.value.columns) return;
-        const index = document.value.columns.findIndex(c => c.id === colId);
+        if (!document.value?.revit?.columns) return;
+        const index = document.value.revit.columns.findIndex(c => c.id === colId);
         if (index !== -1) {
-            const updated = { ...document.value.columns[index], ...updates } as any;
-            document.value.columns[index] = updated;
+            const updated = { ...document.value.revit.columns[index], ...updates } as any;
+            document.value.revit.columns[index] = updated;
             nextTick(() => saveState());
         }
     };
 
     const updateOpening = (opId: string, updates: Partial<any>) => {
-        if (!document.value || !document.value.openings) return;
-        const index = document.value.openings.findIndex(o => o.id === opId);
+        if (!document.value?.revit?.openings) return;
+        const index = document.value.revit.openings.findIndex(o => o.id === opId);
         if (index !== -1) {
-            const updated = { ...document.value.openings[index], ...updates } as any;
-            document.value.openings[index] = updated;
+            const updated = { ...document.value.revit.openings[index], ...updates } as any;
+            document.value.revit.openings[index] = updated;
             nextTick(() => saveState());
         }
     };

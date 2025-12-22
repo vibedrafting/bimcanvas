@@ -1,7 +1,9 @@
 using System.Collections.Generic;
+using System.Linq;
 using BIMCanvas.Core.Models.CanvasData;
 using BIMCanvas.Core.Models.RevitWriteback;
 using BIMCanvas.Core.Models.Primitives;
+using BIMCanvas.Core.Models.Shared;
 using BIMCanvas.Core.Validation;
 
 namespace BIMCanvas.Core.Algorithms.Spatial
@@ -15,36 +17,40 @@ namespace BIMCanvas.Core.Algorithms.Spatial
         /// 验证模块布置是否合法
         /// </summary>
         /// <param name="moduleBounds">模块边界</param>
-        /// <param name="zone">所属区域</param>
+        /// <param name="designZone">设计区（Type = Designable）</param>
+        /// <param name="exclusionZones">禁区列表（Type = Exclusion）</param>
         /// <param name="existingModules">已放置的模块列表</param>
         /// <returns>验证结果</returns>
         public static ValidationResult Validate(
             Polygon2D moduleBounds,
-            Zone zone,
+            Zone designZone,
+            IEnumerable<Zone> exclusionZones,
             IEnumerable<Module> existingModules)
         {
             var violations = new List<Violation>();
 
-            // 1. 检查是否在区域边界内
-            if (zone.InnerBoundary != null)
+            // 1. 检查是否在设计区边界内（优先使用 ComputedBoundary）
+            var boundary = designZone.ComputedBoundary ?? designZone.RawBoundary;
+            if (boundary != null)
             {
-                if (!CollisionDetector.IsWithin(moduleBounds, zone.InnerBoundary))
+                if (!CollisionDetector.IsWithin(moduleBounds, boundary))
                 {
                     violations.Add(new Violation(
                         "模块超出区域边界",
                         "OUT_OF_BOUNDS",
-                        zone.Id));
+                        designZone.Id));
                 }
             }
 
             // 2. 检查是否与禁区重叠
-            foreach (var exclusion in zone.ExclusionAreas)
+            foreach (var exclusion in exclusionZones.Where(z => z.Type == ZoneType.Exclusion))
             {
-                if (exclusion.Boundary != null &&
-                    CollisionDetector.Overlaps(moduleBounds, exclusion.Boundary))
+                var exclusionBoundary = exclusion.RawBoundary ?? exclusion.ComputedBoundary;
+                if (exclusionBoundary != null &&
+                    CollisionDetector.Overlaps(moduleBounds, exclusionBoundary))
                 {
                     violations.Add(new Violation(
-                        $"模块与禁区 {exclusion.Type} 重叠",
+                        $"模块与禁区重叠：{exclusion.Reason}",
                         "EXCLUSION_OVERLAP",
                         exclusion.Id));
                 }
@@ -69,11 +75,23 @@ namespace BIMCanvas.Core.Algorithms.Spatial
         }
 
         /// <summary>
+        /// 验证模块布置（简化版，不检查禁区）
+        /// </summary>
+        public static ValidationResult Validate(
+            Polygon2D moduleBounds,
+            Zone designZone,
+            IEnumerable<Module> existingModules)
+        {
+            return Validate(moduleBounds, designZone, Enumerable.Empty<Zone>(), existingModules);
+        }
+
+        /// <summary>
         /// 验证单个模块实例
         /// </summary>
         public static ValidationResult ValidateModule(
             Module module,
             Zone zone,
+            IEnumerable<Zone> exclusionZones,
             IEnumerable<Module> otherModules)
         {
             if (module.Bounds == null)
@@ -84,7 +102,7 @@ namespace BIMCanvas.Core.Algorithms.Spatial
                     module.Id));
             }
 
-            return Validate(module.Bounds, zone, otherModules);
+            return Validate(module.Bounds, zone, exclusionZones, otherModules);
         }
 
         /// <summary>
