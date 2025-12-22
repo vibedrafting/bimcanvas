@@ -53,18 +53,15 @@ Console.WriteLine("BIMCanvas.Server 启动中...");
 Console.WriteLine("API: http://localhost:5000/api/canvas");
 Console.WriteLine("Swagger: http://localhost:5000/swagger");
 
-// 开发环境：自动启动 Web 开发服务器 + 打开浏览器
-if (app.Environment.IsDevelopment())
+// 自动启动 Web 开发服务器（如果 Web 项目存在）
 {
-    // 1. 启动 Web 开发服务器
-    // 优先使用 exe 所在目录，兼容 dotnet run 和直接运行 exe
     var baseDir = AppContext.BaseDirectory;
-    // 从 bin/Release/net8.0 或 publish 向上查找 BIMCanvas.Web
     var webProjectPath = FindWebProjectPath(baseDir);
     Process? webProcess = null;
 
     if (Directory.Exists(webProjectPath))
     {
+        // 仅在开发环境启用 Swagger（但 Web 启动不受环境限制）
         Console.WriteLine($"启动 Web 开发服务器: {webProjectPath}");
         webProcess = new Process
         {
@@ -91,51 +88,50 @@ if (app.Environment.IsDevelopment())
                     Console.WriteLine($"[Web] {line}");
             }
         });
+        // 2. 等待 Web 服务就绪（最多 10 秒，每 200ms 检测一次）
+        Console.WriteLine("等待 Web 服务启动...");
+        var webUrl = "http://localhost:5173";
+        using var httpClient = new HttpClient { Timeout = TimeSpan.FromMilliseconds(500) };
+        for (int i = 0; i < 50; i++)
+        {
+            try
+            {
+                var response = await httpClient.GetAsync(webUrl);
+                if (response.IsSuccessStatusCode)
+                {
+                    Console.WriteLine("Web 服务已就绪");
+                    break;
+                }
+            }
+            catch { /* 服务未就绪，继续等待 */ }
+            await Task.Delay(200);
+        }
+
+        // 3. 打开浏览器
+        Console.WriteLine($"打开浏览器: {webUrl}");
+        try
+        {
+            Process.Start(new ProcessStartInfo(webUrl) { UseShellExecute = true });
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"无法自动打开浏览器: {ex.Message}");
+        }
+
+        // 注册退出时清理 Web 进程
+        AppDomain.CurrentDomain.ProcessExit += (s, e) =>
+        {
+            if (webProcess != null && !webProcess.HasExited)
+            {
+                Console.WriteLine("正在关闭 Web 开发服务器...");
+                webProcess.Kill(true);
+            }
+        };
     }
     else
     {
         Console.WriteLine($"Web 项目目录不存在: {webProjectPath}");
     }
-
-    // 2. 等待 Web 服务就绪（最多 10 秒，每 200ms 检测一次）
-    Console.WriteLine("等待 Web 服务启动...");
-    var webUrl = "http://localhost:5173";
-    using var httpClient = new HttpClient { Timeout = TimeSpan.FromMilliseconds(500) };
-    for (int i = 0; i < 50; i++)
-    {
-        try
-        {
-            var response = await httpClient.GetAsync(webUrl);
-            if (response.IsSuccessStatusCode)
-            {
-                Console.WriteLine("Web 服务已就绪");
-                break;
-            }
-        }
-        catch { /* 服务未就绪，继续等待 */ }
-        await Task.Delay(200);
-    }
-
-    // 3. 打开浏览器
-    Console.WriteLine($"打开浏览器: {webUrl}");
-    try
-    {
-        Process.Start(new ProcessStartInfo(webUrl) { UseShellExecute = true });
-    }
-    catch (Exception ex)
-    {
-        Console.WriteLine($"无法自动打开浏览器: {ex.Message}");
-    }
-
-    // 注册退出时清理 Web 进程
-    AppDomain.CurrentDomain.ProcessExit += (s, e) =>
-    {
-        if (webProcess != null && !webProcess.HasExited)
-        {
-            Console.WriteLine("正在关闭 Web 开发服务器...");
-            webProcess.Kill(true);
-        }
-    };
 }
 
 app.Run();
