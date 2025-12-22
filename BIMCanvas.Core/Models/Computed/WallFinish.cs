@@ -1,7 +1,7 @@
-using BIMCanvas.Core.Models.Primitives;
+using BIMCanvas.Core.Models.Geometry;
 using BIMCanvas.Core.Models.Shared;
 
-namespace BIMCanvas.Core.Models.CanvasData
+namespace BIMCanvas.Core.Models.Computed
 {
     /// <summary>
     /// 墙面完成面

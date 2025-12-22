@@ -74,8 +74,8 @@ export class LabelBuilder {
         }
 
         // 3. Modules
-        if (doc.modules) {
-            doc.modules.forEach(mod => {
+        if (doc.layout?.modules) {
+            doc.layout.modules.forEach(mod => {
                 if (mod.id && mod.bounds && mod.bounds.length > 0) {
                     const center = this.getPolygonCenter(mod.bounds);
                     const orientation = this.getOrientation(mod.bounds);

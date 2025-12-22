@@ -2,7 +2,7 @@ using System;
 using Newtonsoft.Json;
 using BIMCanvas.Core.Converters.Json;
 
-namespace BIMCanvas.Core.Models.Primitives
+namespace BIMCanvas.Core.Models.Geometry
 {
     /// <summary>
     /// 二维线段，JSON 格式：[[x1,y1], [x2,y2]]

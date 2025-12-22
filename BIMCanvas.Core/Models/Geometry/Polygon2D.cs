@@ -4,7 +4,7 @@ using System.Linq;
 using Newtonsoft.Json;
 using BIMCanvas.Core.Converters.Json;
 
-namespace BIMCanvas.Core.Models.Primitives
+namespace BIMCanvas.Core.Models.Geometry
 {
     /// <summary>
     /// 二维多边形，支持一个外环和多个内环（孔洞）

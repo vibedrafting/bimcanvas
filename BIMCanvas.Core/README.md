@@ -3,7 +3,7 @@
 > BIMCanvas 系统的核心层，提供数据模型、空间算法和 JSON 序列化能力。
 
 **运行时**：.NET Standard 2.0（跨框架兼容）
-**数据模型版本**：v2.6
+**数据模型版本**：v2.9
 
 ---
 
@@ -25,15 +25,18 @@
 ```
 BIMCanvas.Core/
 ├── Models/
-│   ├── Primitives/              基础几何类型
+│   ├── Document/                文档根对象
+│   │   └── DesignDocument.cs       设计文档（顶层容器）
+│   │
+│   ├── Geometry/                基础几何类型
 │   │   ├── Point2D.cs              坐标点
 │   │   ├── Vec2D.cs                向量
 │   │   ├── Polygon2D.cs            多边形
 │   │   ├── AABB.cs                 轴对齐包围盒
 │   │   └── Line2D.cs               线段
 │   │
-│   ├── RevitSource/             Revit 提取的原始数据
-│   │   ├── CanvasDocument.cs       文档根对象
+│   ├── Revit/                   Revit 原始数据
+│   │   ├── RevitData.cs            Revit 数据容器
 │   │   ├── Metadata.cs             元数据（含坐标变换参数）
 │   │   ├── Wall.cs                 墙体轮廓
 │   │   ├── Column.cs               柱子轮廓
@@ -41,27 +44,31 @@ BIMCanvas.Core/
 │   │   ├── Room.cs                 房间边界
 │   │   └── FinishLocationBoundary.cs  完成面定位边界
 │   │
-│   ├── CanvasData/              画布独有数据（Server 计算）
+│   ├── Computed/                计算派生数据（Server 生成）
+│   │   ├── ComputedData.cs         计算数据容器
 │   │   ├── Zone.cs                 设计区域
 │   │   ├── WallFinish.cs           墙面完成面
-│   │   └── ExclusionArea.cs        禁区
+│   │   └── FinishRequirement.cs    完成面需求
 │   │
-│   ├── AIInput/                 AI 输入数据（预留）
-│   ├── AIOutput/                AI 输出数据（预留）
-│   │
-│   ├── RevitWriteback/          Revit 回写数据
+│   ├── Layout/                  方案数据（AI 生成）
+│   │   ├── LayoutData.cs           方案数据容器
+│   │   ├── Scheme.cs               方案元数据
 │   │   ├── Module.cs               布置模块
-│   │   ├── ModuleItem.cs           模块内家具
+│   │   └── ModuleItem.cs           模块内家具
+│   │
+│   ├── Semantic/                语义类型
 │   │   ├── Facing.cs               朝向（联合类型）
 │   │   └── FacingDirection.cs      朝向枚举
 │   │
 │   └── Shared/                  共享枚举
 │       ├── RoomType.cs             房间类型
 │       ├── ZoneTag.cs              区域标签
+│       ├── ZoneType.cs             区域类型
+│       ├── FinishType.cs           完成面类型
 │       └── FinishSource.cs         完成面来源
 │
 ├── Algorithms/
-│   ├── Geometry/                几何算法
+│   ├── Geometries/              几何算法
 │   │   ├── GeometryHelper.cs       几何运算工具
 │   │   └── NtsAdapter.cs           NTS 适配器
 │   │
@@ -118,42 +125,48 @@ BIMCanvas.Revit.*    → 仅 Revit 插件内部使用
 | `Polygon2D` | 多边形 | `[[x,y], ...]` | ComputeAABB/ComputeCenter |
 | `AABB` | 包围盒 | `[minX, minY, maxX, maxY]` | struct，Contains/Intersects |
 
-### 文档结构 (CanvasDocument)
+### 文档结构 (DesignDocument)
 
-v2.6 采用扁平化结构，建筑构件直接放在顶层：
+v2.9 采用分组结构，数据归类为 `revit`（原始数据）、`computed`（计算派生）、`layout`（方案数据）：
 
 ```
-CanvasDocument
-├── id                          画布唯一标识
+DesignDocument
+├── id                          文档唯一标识
+├── projectName                 项目名称
+├── exportDate                  导出日期
 ├── version                     版本号
 ├── coordinateSystem            坐标系标识
-├── metadata                    元数据（含坐标变换参数）
 │
-├── walls[]                     墙体轮廓（单独墙体）
-├── columns[]                   柱子轮廓（含 isStructural）
-├── openings[]                  门窗数据
-├── finishLocationBoundaries[]  完成面定位边界（墙柱组合轮廓，已过滤外墙）
+├── revit                       Revit 原始数据
+│   ├── metadata                元数据（含坐标变换参数）
+│   ├── walls[]                 墙体轮廓
+│   ├── columns[]               柱子轮廓
+│   ├── openings[]              门窗数据
+│   ├── finishLocationBoundaries[]  完成面定位边界
+│   └── rooms[]                 物理房间
 │
-├── rooms[]                     物理房间
-├── zones[]                     设计区域（AI 核心工作区）
-│   ├── innerBoundary           可用空间轮廓
-│   ├── exclusionAreas[]        禁区列表
-│   └── openings[]              关联门窗 ID
-├── wallFinishes[]              墙面完成面
-└── modules[]                   布置模块
-    ├── bounds                  精确边界 (4顶点矩形)
-    ├── facing                  朝向 (语义|向量)
-    └── items[]                 内部家具清单
+├── computed                    计算派生数据
+│   ├── zones[]                 设计区域（AI 核心工作区）
+│   └── wallFinishes[]          墙面完成面
+│
+└── layout                      方案数据
+    ├── modules[]               布置模块
+    │   ├── bounds              精确边界 (4顶点矩形)
+    │   ├── facing              朝向 (语义|向量)
+    │   └── items[]             内部家具清单
+    └── schemes[]               方案元数据（多方案支持）
 ```
 
 **命名空间分组**：
 
 | 分组 | 命名空间 | 说明 |
 |------|----------|------|
-| Primitives | `.Models.Primitives` | 几何基元 |
-| RevitSource | `.Models.RevitSource` | Revit 导出的原始数据 |
-| CanvasData | `.Models.CanvasData` | Server 计算生成的数据 |
-| RevitWriteback | `.Models.RevitWriteback` | 回写 Revit 的数据 |
+| Document | `.Models.Document` | 文档根对象 |
+| Geometry | `.Models.Geometry` | 几何基元 |
+| Revit | `.Models.Revit` | Revit 导出的原始数据 |
+| Computed | `.Models.Computed` | Server 计算生成的数据 |
+| Layout | `.Models.Layout` | 方案数据（模块 + 方案） |
+| Semantic | `.Models.Semantic` | 语义类型（朝向等） |
 | Shared | `.Models.Shared` | 跨模块共享的枚举 |
 
 ### 朝向系统 (Facing)
@@ -320,7 +333,7 @@ bool triggers = FinishRules.TriggersSpecialFinish(ZoneTag.Sleep);  // true
 string json = JsonConvert.SerializeObject(document);
 
 // 反序列化
-CanvasDocument doc = JsonConvert.DeserializeObject<CanvasDocument>(json);
+DesignDocument doc = JsonConvert.DeserializeObject<DesignDocument>(json);
 ```
 
 ### JSON 格式对照
@@ -451,20 +464,20 @@ public class Violation
 ### 加载并验证文档
 
 ```csharp
-using BIMCanvas.Core.Models.RevitSource;
-using BIMCanvas.Core.Models.RevitWriteback;
+using BIMCanvas.Core.Models.Document;
+using BIMCanvas.Core.Models.Layout;
 using BIMCanvas.Core.Algorithms.Spatial;
 using Newtonsoft.Json;
 
 // 加载文档
 string json = File.ReadAllText("canvas.json");
-var document = JsonConvert.DeserializeObject<CanvasDocument>(json);
+var document = JsonConvert.DeserializeObject<DesignDocument>(json);
 
 // 验证所有模块布置
-foreach (var module in document.Modules)
+foreach (var module in document.Layout?.Modules ?? new List<Module>())
 {
-    var zone = document.Zones.First(z => z.Id == module.ZoneId);
-    var otherModules = document.Modules
+    var zone = document.Computed?.Zones?.First(z => z.Id == module.ZoneId);
+    var otherModules = (document.Layout?.Modules ?? new List<Module>())
         .Where(m => m.Id != module.Id && m.ZoneId == module.ZoneId)
         .ToList();
 
@@ -482,8 +495,8 @@ foreach (var module in document.Modules)
 ### 创建新模块
 
 ```csharp
-using BIMCanvas.Core.Models.Primitives;
-using BIMCanvas.Core.Models.RevitWriteback;
+using BIMCanvas.Core.Models.Geometry;
+using BIMCanvas.Core.Models.Layout;
 using BIMCanvas.Core.Algorithms.Spatial;
 
 // 创建模块边界
@@ -507,12 +520,13 @@ var module = new Module
 };
 
 // 验证后添加到文档
-var zone = document.Zones.First(z => z.Id == "z1");
-var result = PlacementValidator.Validate(bounds, zone, document.Modules);
+var zone = document.Computed?.Zones?.First(z => z.Id == "z1");
+var modules = document.Layout?.Modules ?? new List<Module>();
+var result = PlacementValidator.Validate(bounds, zone, modules);
 
 if (result.IsValid)
 {
-    document.Modules.Add(module);
+    document.Layout?.Modules?.Add(module);
 }
 ```
 
@@ -585,5 +599,5 @@ if (!CollisionDetector.IsWithin(newBounds, zone.InnerBoundary))
 ## 相关文档
 
 - [架构文档](../docs/Architecture.md) - 系统整体架构
-- [JSON Schema](../docs/Schema-JSON.md) - v2.5 数据模型定义
+- [JSON Schema](../docs/Schema-JSON.md) - v2.9 数据模型定义
 - [PRD](../docs/PRD.md) - 产品需求文档

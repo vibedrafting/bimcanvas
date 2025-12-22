@@ -1,8 +1,8 @@
 using System.Collections.Generic;
-using BIMCanvas.Core.Models.Primitives;
+using BIMCanvas.Core.Models.Geometry;
 using BIMCanvas.Core.Models.Shared;
 
-namespace BIMCanvas.Core.Models.CanvasData
+namespace BIMCanvas.Core.Models.Computed
 {
     /// <summary>
     /// 统一的区域类型

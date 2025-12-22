@@ -217,7 +217,68 @@ zone.exclusionAreas[] = [
 ]
 ```
 
-### 5.3 Zone 拆分场景
+### 5.3 Zone 生成流程
+
+#### Zone 类型定义
+
+| 类型 | 描述 | ID 格式 | RawBoundary | ComputedBoundary |
+|------|------|---------|-------------|------------------|
+| **Exclusion** | 门扇禁区（禁止布置家具） | `excl_door_{doorId}` | 禁区矩形 | null |
+| **Room** | 房间边界（由 Revit Room 转换） | **使用源 Room ID** | 房间轮廓 | null |
+| **Designable** | 设计区（Agent 划分，当前未实现） | 待定 | 原始轮廓 | 扣除完成面后 |
+
+#### RawBoundary vs ComputedBoundary
+
+| 字段 | 用途 | 计算时机 |
+|------|------|----------|
+| **RawBoundary** | 原始几何轮廓，不考虑完成面扣减 | Zone 创建时 |
+| **ComputedBoundary** | 扣除完成面后的可用空间轮廓 | 完成面确定后（Phase 3+） |
+
+**渲染规则**：Web 端使用 `computedBoundary ?? rawBoundary`
+
+- Exclusion/Room Zone：仅有 RawBoundary，使用 RawBoundary 渲染
+- Designable Zone：两者都有，优先使用 ComputedBoundary 渲染
+
+#### Server 端生成流程 (ZoneCalculator)
+
+```
+ZoneCalculator.Process(document)
+    │
+    ├─ 1. 检查是否已有 Room Zone
+    │      └─ 没有则从 revit.rooms[] 创建
+    │           • Id = room.Id（使用源 Room ID）
+    │           • RawBoundary = room.Boundary
+    │           • ComputedBoundary = null
+    │
+    ├─ 2. 移除自动生成的禁区（ID 以 excl_ 开头）
+    │      └─ 保留用户自定义禁区
+    │
+    └─ 3. 重新计算门扇禁区
+             └─ 遍历 revit.openings[]（仅 Door 类型）
+                  • Id = excl_door_{door.Id}
+                  • RawBoundary = 门宽 × 门宽 矩形
+                  • ComputedBoundary = null
+```
+
+#### Web 端渲染流程 (ZoneBuilder)
+
+```
+ZoneBuilder.buildZones(doc)
+    │
+    ├─ 读取 doc.computed.zones[]
+    │
+    └─ 对每个 Zone 调用 createZoneMesh()
+         ├─ boundary = zone.computedBoundary ?? zone.rawBoundary
+         ├─ 创建 THREE.ShapeGeometry
+         └─ 根据 zone.type 设置材质和 Y 层级：
+              • Exclusion: 红色填充, y=10
+              • Room: 浅色填充, y=3
+              • Designable: 绿色填充, y=5
+```
+
+---
+
+### 5.4 Zone 拆分场景
 
 用户可能需要将一个大房间划分为多个功能区：
 

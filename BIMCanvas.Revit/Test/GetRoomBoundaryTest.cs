@@ -2,7 +2,7 @@
 using Autodesk.Revit.DB;
 using Autodesk.Revit.DB.Architecture;
 using Autodesk.Revit.UI;
-using BIMCanvas.Core.Models.RevitSource;
+using BIMCanvas.Core.Models.Revit;
 using BIMCanvas.Revit.Converters;
 using BIMCanvas.Revit.Utilities;
 using NetTopologySuite.Geometries;

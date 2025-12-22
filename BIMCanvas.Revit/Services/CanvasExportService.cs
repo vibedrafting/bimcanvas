@@ -6,9 +6,9 @@ using System.Text;
 using Autodesk.Revit.DB;
 using BIMCanvas.Core.Converters;
 using BIMCanvas.Core.Models.Document;
-using BIMCanvas.Core.Models.RevitSource;
-using BIMCanvas.Core.Models.CanvasData;
-using BIMCanvas.Core.Models.RevitWriteback;
+using BIMCanvas.Core.Models.Revit;
+using BIMCanvas.Core.Models.Computed;
+using BIMCanvas.Core.Models.Layout;
 using BIMCanvas.Core.Models.Shared;
 using BIMCanvas.Revit.Adapters;
 using BIMCanvas.Revit.Models;
@@ -129,7 +129,7 @@ namespace BIMCanvas.Revit.Services
             // ===== Phase 4: 统一坐标转换 =====
 
             // 转换单独墙体轮廓
-            var walls = revitWalls.Select(w => new Core.Models.RevitSource.Wall
+            var walls = revitWalls.Select(w => new Core.Models.Revit.Wall
             {
                 Id = w.Id,
                 ElementId = w.ElementId,
@@ -146,7 +146,7 @@ namespace BIMCanvas.Revit.Services
             }).ToList();
 
             // 门窗转换
-            var openings = rawOpenings.Select(ro => new Core.Models.RevitSource.Opening
+            var openings = rawOpenings.Select(ro => new Core.Models.Revit.Opening
             {
                 Id = ro.Id,
                 Type = ro.Type,
@@ -169,7 +169,7 @@ namespace BIMCanvas.Revit.Services
             }).ToList();
 
             // 房间转换
-            var rooms = revitRooms.Select(rr => new Core.Models.RevitSource.Room
+            var rooms = revitRooms.Select(rr => new Core.Models.Revit.Room
             {
                 Id = rr.Id,
                 Name = rr.Name,
@@ -246,8 +246,8 @@ namespace BIMCanvas.Revit.Services
                     WallFinishes = new List<WallFinish>()
                 },
 
-                // 布置模块（精简版：空）
-                Modules = new List<Module>()
+                // 方案布置（精简版：空）
+                Layout = new LayoutData()
             };
         }
 

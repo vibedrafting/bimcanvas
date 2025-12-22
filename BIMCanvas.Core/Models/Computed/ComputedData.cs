@@ -1,7 +1,6 @@
 using System.Collections.Generic;
-using BIMCanvas.Core.Models.CanvasData;
 
-namespace BIMCanvas.Core.Models.Document
+namespace BIMCanvas.Core.Models.Computed
 {
     /// <summary>
     /// 从 Revit 数据派生的计算结果

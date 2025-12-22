@@ -1,7 +1,6 @@
 using System.Collections.Generic;
-using BIMCanvas.Core.Models.RevitSource;
 
-namespace BIMCanvas.Core.Models.Document
+namespace BIMCanvas.Core.Models.Revit
 {
     /// <summary>
     /// Revit 导出的原始建筑数据

@@ -2,7 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using Autodesk.Revit.DB;
-using BIMCanvas.Core.Models.RevitSource;
+using BIMCanvas.Core.Models.Revit;
 using BIMCanvas.Revit.Models;
 using BIMCanvas.Revit.Converters;
 using BIMCanvas.Revit.Utilities;

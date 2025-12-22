@@ -1,5 +1,5 @@
 using BIMCanvas.Core.Models.Document;
-using BIMCanvas.Core.Models.CanvasData;
+using BIMCanvas.Core.Models.Computed;
 
 namespace BIMCanvas.Core.Converters.Revit
 {

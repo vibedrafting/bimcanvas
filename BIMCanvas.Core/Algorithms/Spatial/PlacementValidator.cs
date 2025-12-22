@@ -1,8 +1,8 @@
 using System.Collections.Generic;
 using System.Linq;
-using BIMCanvas.Core.Models.CanvasData;
-using BIMCanvas.Core.Models.RevitWriteback;
-using BIMCanvas.Core.Models.Primitives;
+using BIMCanvas.Core.Models.Computed;
+using BIMCanvas.Core.Models.Layout;
+using BIMCanvas.Core.Models.Geometry;
 using BIMCanvas.Core.Models.Shared;
 using BIMCanvas.Core.Validation;
 

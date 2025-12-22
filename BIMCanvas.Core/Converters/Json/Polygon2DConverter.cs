@@ -2,7 +2,7 @@ using System;
 using System.Collections.Generic;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
-using BIMCanvas.Core.Models.Primitives;
+using BIMCanvas.Core.Models.Geometry;
 
 namespace BIMCanvas.Core.Converters.Json
 {

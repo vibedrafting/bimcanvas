@@ -1,6 +1,6 @@
-using BIMCanvas.Core.Models.Primitives;
+using BIMCanvas.Core.Models.Geometry;
 
-namespace BIMCanvas.Core.Models.RevitWriteback
+namespace BIMCanvas.Core.Models.Layout
 {
     /// <summary>
     /// 模块内部家具

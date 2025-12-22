@@ -1,7 +1,7 @@
 using System;
 using BIMCanvas.Core.Algorithms.Geometries;
-using BIMCanvas.Core.Models.RevitWriteback;
-using BIMCanvas.Core.Models.Primitives;
+using BIMCanvas.Core.Models.Semantic;
+using BIMCanvas.Core.Models.Geometry;
 
 namespace BIMCanvas.Core.Algorithms.Spatial
 {

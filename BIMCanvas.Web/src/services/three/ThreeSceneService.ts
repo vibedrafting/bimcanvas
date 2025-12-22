@@ -243,10 +243,10 @@ export class ThreeSceneService {
             this.scene.fog.color.setHex(bgColor);
         }
 
-        // 清理旧的 GridBuilder 资源（防止标签残留）
+        // 清理旧的 Builder 资源（防止残留）
         this.gridBuilder.cleanup();
-        // 清理旧的 LabelBuilder 资源（防止构件标签残留）
         this.labelBuilder.cleanup();
+        this.zoneBuilder.cleanup();
 
         // 重新创建所有 Builders（它们在构造时读取 ThemeService 配色）
         this.sceneBuilder = new SceneBuilder(this.scene);
@@ -308,8 +308,8 @@ export class ThreeSceneService {
             walls.forEach((wall: any) => processPolygon(wall.polygon));
         }
 
-        if (doc.modules) {
-            doc.modules.forEach((mod: any) => processPolygon(mod.bounds));
+        if (doc.layout?.modules) {
+            doc.layout.modules.forEach((mod: any) => processPolygon(mod.bounds));
         }
 
         if (minX === Infinity) return;

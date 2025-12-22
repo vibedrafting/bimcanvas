@@ -1,7 +1,7 @@
 using Newtonsoft.Json;
 using BIMCanvas.Core.Converters.Json;
 
-namespace BIMCanvas.Core.Models.Primitives
+namespace BIMCanvas.Core.Models.Geometry
 {
     /// <summary>
     /// 二维坐标点（绝对位置），JSON 格式：[x, y]

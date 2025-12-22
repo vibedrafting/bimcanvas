@@ -54,8 +54,8 @@ const projectProperties = computed(() => {
         { key: 'Project ID', value: doc.id, readonly: true },
         { key: 'Version', value: `v${doc.version}`, readonly: true },
         { key: 'Coordinate System', value: doc.coordinateSystem, readonly: true },
-        { key: 'Walls', value: doc.walls?.length || 0, readonly: true },
-        { key: 'Modules', value: doc.modules?.length || 0, readonly: true },
+        { key: 'Walls', value: doc.revit?.walls?.length || 0, readonly: true },
+        { key: 'Modules', value: doc.layout?.modules?.length || 0, readonly: true },
     ];
 });
 

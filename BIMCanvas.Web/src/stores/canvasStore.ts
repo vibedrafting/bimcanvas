@@ -52,7 +52,7 @@ export const useCanvasStore = defineStore('canvas', () => {
         debug.log(`[Store] Available wall IDs: [${wallIds.join(', ')}...]`);
 
         // 在 modules 中查找
-        const module = document.value.modules?.find(m => m.id === id);
+        const module = document.value.layout?.modules?.find(m => m.id === id);
         if (module) {
             debug.success(`[Store] findObjectById: found in modules`);
             return { ...module, type: 'module' };
@@ -81,7 +81,7 @@ export const useCanvasStore = defineStore('canvas', () => {
 
         // 列出所有可用 ID 帮助调试
         const allIds: string[] = [];
-        document.value.modules?.forEach(m => allIds.push(`mod:${m.id}`));
+        document.value.layout?.modules?.forEach(m => allIds.push(`mod:${m.id}`));
         revit?.walls?.forEach(w => allIds.push(`wall:${w.id}`));
         debug.warn(`[Store] findObjectById: NOT FOUND (${id}). Available: ${allIds.slice(0, 5).join(', ')}...`);
 
@@ -241,7 +241,7 @@ export const useCanvasStore = defineStore('canvas', () => {
             timeline.clear();
             saveState(); // Initial state
             console.log('Demo data loaded:', document.value);
-            debugStore.success(`Successfully loaded demo data. Modules: ${document.value.modules.length}`);
+            debugStore.success(`Successfully loaded demo data. Modules: ${document.value.layout?.modules?.length || 0}`);
             error.value = null; // Clear any previous error
         } catch (err: any) {
             console.error('Failed to load demo data:', err);
@@ -305,11 +305,11 @@ export const useCanvasStore = defineStore('canvas', () => {
     };
 
     const updateModule = (moduleId: string, updates: Partial<any>) => {
-        if (!document.value) return;
-        const moduleIndex = document.value.modules.findIndex(m => m.id === moduleId);
+        if (!document.value?.layout?.modules) return;
+        const moduleIndex = document.value.layout.modules.findIndex(m => m.id === moduleId);
         if (moduleIndex !== -1) {
-            const updatedModule = { ...document.value.modules[moduleIndex], ...updates } as any;
-            document.value.modules[moduleIndex] = updatedModule;
+            const updatedModule = { ...document.value.layout.modules[moduleIndex], ...updates } as any;
+            document.value.layout.modules[moduleIndex] = updatedModule;
             // 批量模式下跳过自动保存，由 endBatchUpdate 统一保存
             if (!batchUpdateMode.value) {
                 nextTick(() => saveState());
@@ -362,10 +362,10 @@ export const useCanvasStore = defineStore('canvas', () => {
     };
 
     const removeModule = (moduleId: string) => {
-        if (!document.value) return;
-        const moduleIndex = document.value.modules.findIndex(m => m.id === moduleId);
+        if (!document.value?.layout?.modules) return;
+        const moduleIndex = document.value.layout.modules.findIndex(m => m.id === moduleId);
         if (moduleIndex !== -1) {
-            document.value.modules.splice(moduleIndex, 1);
+            document.value.layout.modules.splice(moduleIndex, 1);
             selectedIds.value = []; // Deselect
 
             // Use nextTick to ensure state is settled before saving

@@ -1,9 +1,9 @@
 using System;
 using Newtonsoft.Json;
 using BIMCanvas.Core.Converters.Json;
-using BIMCanvas.Core.Models.Primitives;
+using BIMCanvas.Core.Models.Geometry;
 
-namespace BIMCanvas.Core.Models.RevitWriteback
+namespace BIMCanvas.Core.Models.Semantic
 {
     /// <summary>
     /// 朝向 - 支持语义方向枚举或 Vec2D 向量

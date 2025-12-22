@@ -2,7 +2,7 @@
 
 > 在用户提供的建筑平面内，布置符合设计逻辑的家具组合。
 
-**数据模型版本**: v2.8 (DesignDocument 重构：属性分组为 revit/computed/modules)
+**数据模型版本**: v2.9 (Core 层命名空间重构 + layout.modules 结构)
 
 ---
 
@@ -14,7 +14,7 @@
 |------|------|------|
 | 架构文档 | `docs/Architecture.md` | 系统架构、数据流 |
 | 执行流程 | `docs/Workflows.md` | 端到端执行流程、触发机制 |
-| JSON Schema | `docs/Schema-JSON.md` | v2.8 数据模型定义 |
+| JSON Schema | `docs/Schema-JSON.md` | v2.9 数据模型定义 |
 | PRD | `docs/PRD.md` | 产品需求、工作流程 |
 | Core 层 | `BIMCanvas.Core/README.md` | 数据模型 + 空间算法实现 |
 | Revit 插件 | `BIMCanvas.Revit/README.md` | Revit 导出/回写实现细节 |

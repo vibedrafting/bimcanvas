@@ -1,8 +1,8 @@
 using System;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
-using BIMCanvas.Core.Models.RevitWriteback;
-using BIMCanvas.Core.Models.Primitives;
+using BIMCanvas.Core.Models.Semantic;
+using BIMCanvas.Core.Models.Geometry;
 
 namespace BIMCanvas.Core.Converters.Json
 {

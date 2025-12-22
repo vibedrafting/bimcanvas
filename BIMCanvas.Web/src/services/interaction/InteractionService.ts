@@ -130,7 +130,7 @@ export class InteractionService {
             bounds: newBounds
         });
 
-        const updated = this.store.document?.modules.find(m => m.id === selected.id);
+        const updated = this.store.document?.layout?.modules?.find(m => m.id === selected.id);
         if (updated) {
             this.store.setSelectedObject(updated);
         }

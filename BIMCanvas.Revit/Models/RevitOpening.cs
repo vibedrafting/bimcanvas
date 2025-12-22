@@ -1,5 +1,5 @@
-using BIMCanvas.Core.Models.RevitSource;
-using BIMCanvas.Core.Models.Primitives;
+using BIMCanvas.Core.Models.Revit;
+using BIMCanvas.Core.Models.Geometry;
 using NetTopologySuite.Geometries;
 using NetTopologySuite.Mathematics;
 using System.Collections.Generic;

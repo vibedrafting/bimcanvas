@@ -46,10 +46,37 @@ export class ZoneBuilder {
         }));
     }
 
+    /**
+     * 清理 Zone 资源（主题切换时调用）
+     */
+    public cleanup() {
+        if (this.zoneGroup) {
+            // 释放所有子对象的几何体
+            this.zoneGroup.traverse(child => {
+                if ((child as THREE.Mesh).geometry) {
+                    (child as THREE.Mesh).geometry.dispose();
+                }
+            });
+            this.zoneGroup.clear();
+            this.scene.remove(this.zoneGroup);
+            this.zoneGroup = null;
+        }
+
+        // 释放材质
+        this.materials.forEach(material => material.dispose());
+        this.materials.clear();
+    }
+
     public buildZones(doc: CanvasDocument) {
         if (this.zoneGroup) {
+            // 释放旧的几何体资源
+            this.zoneGroup.traverse(child => {
+                if ((child as THREE.Mesh).geometry) {
+                    (child as THREE.Mesh).geometry.dispose();
+                }
+            });
+            this.zoneGroup.clear();
             this.scene.remove(this.zoneGroup);
-            // Dispose logic if needed, but Group disposal is simple
             this.zoneGroup = null;
         }
 

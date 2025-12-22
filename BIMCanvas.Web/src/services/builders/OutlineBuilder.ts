@@ -75,8 +75,8 @@ export class OutlineBuilder {
         }
 
         // 3. Module Boundaries
-        if (doc.modules) {
-            doc.modules.forEach(mod => {
+        if (doc.layout?.modules) {
+            doc.layout.modules.forEach(mod => {
                 const points = mod.bounds.map(p => new THREE.Vector3(p[0], p[1], 0));
                 if (points.length > 0) points.push(points[0]!);
                 const geometry = new THREE.BufferGeometry().setFromPoints(points);

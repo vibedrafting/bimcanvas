@@ -1,12 +1,13 @@
 using System;
-using System.Collections.Generic;
-using BIMCanvas.Core.Models.RevitWriteback;
+using BIMCanvas.Core.Models.Revit;
+using BIMCanvas.Core.Models.Computed;
+using BIMCanvas.Core.Models.Layout;
 
 namespace BIMCanvas.Core.Models.Document
 {
     /// <summary>
     /// 设计文档（根对象）
-    /// 包含 Revit 原始数据、计算派生数据和布置模块
+    /// 包含 Revit 原始数据、计算派生数据和方案数据
     /// </summary>
     public class DesignDocument
     {
@@ -50,8 +51,8 @@ namespace BIMCanvas.Core.Models.Document
         public ComputedData? Computed { get; set; }
 
         /// <summary>
-        /// 布置模块列表
+        /// 方案数据（AI 生成的布置结果）
         /// </summary>
-        public List<Module> Modules { get; set; } = new List<Module>();
+        public LayoutData? Layout { get; set; }
     }
 }

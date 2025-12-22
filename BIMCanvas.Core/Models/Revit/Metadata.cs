@@ -1,4 +1,4 @@
-namespace BIMCanvas.Core.Models.RevitSource
+namespace BIMCanvas.Core.Models.Revit
 {
     /// <summary>
     /// 画布元数据

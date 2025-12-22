@@ -1,7 +1,7 @@
-using BIMCanvas.Core.Models.CanvasData;
+using BIMCanvas.Core.Models.Computed;
 using BIMCanvas.Core.Models.Document;
-using BIMCanvas.Core.Models.Primitives;
-using BIMCanvas.Core.Models.RevitSource;
+using BIMCanvas.Core.Models.Geometry;
+using BIMCanvas.Core.Models.Revit;
 using BIMCanvas.Core.Models.Shared;
 
 namespace BIMCanvas.Server.Services
@@ -13,7 +13,6 @@ namespace BIMCanvas.Server.Services
     public class ZoneCalculator
     {
         private readonly ILogger<ZoneCalculator> _logger;
-        private int _zoneIdCounter = 0;
 
         public ZoneCalculator(ILogger<ZoneCalculator> logger)
         {
@@ -25,7 +24,6 @@ namespace BIMCanvas.Server.Services
         /// </summary>
         public DesignDocument Process(DesignDocument document)
         {
-            _zoneIdCounter = 0;
 
             // 确保 Computed 子结构存在
             document.Computed ??= new ComputedData();
@@ -44,8 +42,10 @@ namespace BIMCanvas.Server.Services
                 _logger.LogInformation("从 Rooms 创建 Room Zone: {Count} 个", roomZones.Count);
             }
 
-            // 2. 移除现有禁区（重新计算）
-            zones.RemoveAll(z => z.Type == ZoneType.Exclusion);
+            // 2. 移除自动生成的禁区（ID 以 excl_ 开头），保留用户自定义
+            zones.RemoveAll(z =>
+                z.Type == ZoneType.Exclusion &&
+                z.Id?.StartsWith("excl_") == true);
 
             // 3. 计算门扇禁区
             if (openings != null)
@@ -69,12 +69,12 @@ namespace BIMCanvas.Server.Services
             {
                 var zone = new Zone
                 {
-                    Id = $"z{++_zoneIdCounter}",
-                    Name = room.Name ?? $"房间 {_zoneIdCounter}",
+                    Id = room.Id,  // 使用源 Room ID，便于追溯
+                    Name = room.Name ?? "房间",
                     Type = ZoneType.Room,
                     Reason = "从 Revit Room 自动转换",
                     RawBoundary = room.Boundary,
-                    ComputedBoundary = room.Boundary // 暂时相同，后续可扣除完成面
+                    ComputedBoundary = null  // Room Zone 的 ComputedBoundary 为 null
                 };
 
                 zones.Add(zone);
@@ -131,12 +131,12 @@ namespace BIMCanvas.Server.Services
 
             return new Zone
             {
-                Id = $"z{++_zoneIdCounter}",
+                Id = $"excl_door_{door.Id}",  // 使用 excl_door_{doorId} 格式，便于识别自动生成的禁区
                 Name = $"门扇禁区 ({door.Id})",
                 Type = ZoneType.Exclusion,
-                Reason = $"门 {door.Id} 的开启扫过区域，禁止布置家具",
+                Reason = $"门 {door.Id} 的开启扫过区域",
                 RawBoundary = boundary,
-                ComputedBoundary = null // 禁区不需要计算轮廓
+                ComputedBoundary = null  // 禁区不需要计算轮廓
             };
         }
 

@@ -88,9 +88,25 @@ export interface Zone {
 
 export interface Module {
   id: string;
+  moduleId: string;
+  moduleName?: string;
   bounds: Polygon2D; // 4 points
   facing: string | Point2D; // "north" or vector
+  zoneId: string;
   items: any[]; // Placeholder for furniture items
+}
+
+// 方案数据（预留，对应 Zone.schemeId）
+export interface Scheme {
+  id: string;
+  name: string;
+  description?: string;
+}
+
+// 方案布置数据
+export interface LayoutData {
+  modules: Module[];
+  schemes: Scheme[];
 }
 
 // Metadata
@@ -134,7 +150,7 @@ export interface DesignDocument {
   coordinateSystem: string;
   revit?: RevitData;
   computed?: ComputedData;
-  modules: Module[];
+  layout?: LayoutData;
 }
 
 // 向后兼容别名

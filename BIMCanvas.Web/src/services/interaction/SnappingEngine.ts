@@ -103,8 +103,8 @@ export class SnappingEngine {
         let openingCount = 0;
 
         // 1. 家具模块 Modules（排除自身）
-        if (document?.modules) {
-            for (const m of document.modules) {
+        if (document?.layout?.modules) {
+            for (const m of document.layout.modules) {
                 if (excludeIds.includes(m.id)) continue;
                 if (!m.bounds) continue;
                 extractFromPolygon(m.bounds, m.id);

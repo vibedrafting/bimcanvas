@@ -1,6 +1,6 @@
 using BIMCanvas.Core.Models.Shared;
 
-namespace BIMCanvas.Core.Models.CanvasData
+namespace BIMCanvas.Core.Models.Computed
 {
     /// <summary>
     /// 完成面需求

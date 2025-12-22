@@ -1,6 +1,6 @@
 using System.Collections.Generic;
 using System.Linq;
-using BIMCanvas.Core.Models.Primitives;
+using BIMCanvas.Core.Models.Geometry;
 using NetTopologySuite.Geometries;
 using NetTopologySuite.Mathematics;
 

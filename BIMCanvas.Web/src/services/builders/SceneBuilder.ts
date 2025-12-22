@@ -183,8 +183,8 @@ export class SceneBuilder {
         }
 
         // 4. Modules
-        if (doc.modules && doc.modules.length > 0) {
-            doc.modules.forEach(mod => this.createModuleMesh(mod));
+        if (doc.layout?.modules && doc.layout.modules.length > 0) {
+            doc.layout.modules.forEach(mod => this.createModuleMesh(mod));
         }
 
         // 5. Update all helpers to ensure they match final world positions

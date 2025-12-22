@@ -1,17 +1,17 @@
 # BIMCanvas JSON Schema 规范
 
-> 版本：v2.8
+> 版本：v2.9
 > 更新日期：2025-12-22
-> 状态：已定稿（DesignDocument 重构：属性分组为 revit/computed/modules）
+> 状态：已定稿（Core 层目录重组 + layout 结构封装）
 >
 > **相关文档**：
 > - [Architecture.md](./Architecture.md) - 系统架构（含 Core 层详细设计）
 > - [reviews/BIMCanvas_Core_Implementation_Review.md](../reviews/BIMCanvas_Core_Implementation_Review.md) - Core 实现方案评审记录
 >
-> **v2.8 变更要点**：
-> - `CanvasDocument` 重命名为 `DesignDocument`
-> - 属性分组：`revit`（原始数据）、`computed`（计算派生）、`modules`（布置模块）
-> - 新增 `projectName`、`exportDate` 常规属性
+> **v2.9 变更要点**：
+> - `modules` 属性改为 `layout` 封装：`layout: { modules: [...], schemes: [] }`
+> - 新增 `Scheme` 类型：支持多方案系统（与 Zone.schemeId 对应）
+> - Core 层目录重组：Geometry/Revit/Computed/Layout/Semantic/Shared
 
 ---
 
@@ -70,9 +70,10 @@
 │   │  • wallFinishes: 墙面完成面                               │   │
 │   └─────────────────────────────────────────────────────────┘   │
 │                                                                 │
-│   【modules: 布置模块】                                          │
+│   【layout: 方案数据】                                           │
 │   ┌─────────────────────────────────────────────────────────┐   │
-│   │  • 家具模块列表（AI 生成）                                │   │
+│   │  • modules: 家具模块列表（AI 生成）                       │   │
+│   │  • schemes: 方案元数据列表（多方案支持）                   │   │
 │   └─────────────────────────────────────────────────────────┘   │
 │                                                                 │
 └─────────────────────────────────────────────────────────────────┘
@@ -162,7 +163,7 @@ JSON 数据 → 服务端渲染 → PNG 截图 → 发送给 AI（多模态）
 
 ## 2. 完整 JSON 结构
 
-v2.8 采用分组结构，属性归类为 `revit`（原始数据）、`computed`（计算派生）、`modules`（布置模块）：
+v2.9 采用分组结构，属性归类为 `revit`（原始数据）、`computed`（计算派生）、`layout`（方案数据）：
 
 ```json
 {
@@ -252,21 +253,24 @@ v2.8 采用分组结构，属性归类为 `revit`（原始数据）、`computed`
     ]
   },
 
-  "modules": [
-    {
-      "id": "m1",
-      "moduleId": "sleep_master_01",
-      "moduleName": "主卧睡眠模块",
-      "bounds": [[1500, 2000], [4500, 2000], [4500, 4500], [1500, 4500]],
-      "facing": "north",
-      "zoneId": "z1",
-      "items": [
-        { "familyId": "bed_double_01", "offset": [0, 0], "role": "主体" },
-        { "familyId": "nightstand_01", "offset": [-600, 0], "role": "左床头柜" },
-        { "familyId": "nightstand_01", "offset": [600, 0], "role": "右床头柜" }
-      ]
-    }
-  ]
+  "layout": {
+    "modules": [
+      {
+        "id": "m1",
+        "moduleId": "sleep_master_01",
+        "moduleName": "主卧睡眠模块",
+        "bounds": [[1500, 2000], [4500, 2000], [4500, 4500], [1500, 4500]],
+        "facing": "north",
+        "zoneId": "z1",
+        "items": [
+          { "familyId": "bed_double_01", "offset": [0, 0], "role": "主体" },
+          { "familyId": "nightstand_01", "offset": [-600, 0], "role": "左床头柜" },
+          { "familyId": "nightstand_01", "offset": [600, 0], "role": "右床头柜" }
+        ]
+      }
+    ],
+    "schemes": []
+  }
 }
 ```
 
@@ -289,7 +293,7 @@ v2.8 采用分组结构，属性归类为 `revit`（原始数据）、`computed`
 | `rooms` | array | 是 | 物理房间列表（对应 Revit Room） |
 | `zones` | array | 是 | 设计区域列表（属于 Room 的功能分区） |
 | `wallFinishes` | array | 是 | 墙面完成面配置列表 |
-| `modules` | array | 是 | 布置模块列表 |
+| `layout` | object | 是 | 方案数据（含 modules 和 schemes） |
 
 ### 3.2 metadata（元数据）
 
@@ -716,33 +720,53 @@ computedBoundary = rawBoundary - 所有相关完成面禁区（wallFinishes[].ex
 
 ---
 
-## 8. modules（布置模块）
+## 8. layout（方案数据）
 
-模块是最小布置单元，可以是单一家具或家具组合。
+方案数据包含布置模块和方案元数据，支持多方案系统。
 
-### 8.1 Module 完整定义
+### 8.1 LayoutData 结构
 
 ```json
 {
-  "modules": [
-    {
-      "id": "m1",
-      "moduleId": "sleep_master_01",
-      "moduleName": "主卧睡眠模块",
-      "bounds": [[1500, 2000], [4500, 2000], [4500, 4500], [1500, 4500]],
-      "facing": "north",
-      "zoneId": "z1",
-      "items": [
-        { "familyId": "bed_double_01", "offset": [0, 0], "role": "主体" },
-        { "familyId": "nightstand_01", "offset": [-600, 0], "role": "左床头柜" },
-        { "familyId": "nightstand_01", "offset": [600, 0], "role": "右床头柜" }
-      ]
-    }
-  ]
+  "layout": {
+    "modules": [
+      {
+        "id": "m1",
+        "moduleId": "sleep_master_01",
+        "moduleName": "主卧睡眠模块",
+        "bounds": [[1500, 2000], [4500, 2000], [4500, 4500], [1500, 4500]],
+        "facing": "north",
+        "zoneId": "z1",
+        "items": [
+          { "familyId": "bed_double_01", "offset": [0, 0], "role": "主体" },
+          { "familyId": "nightstand_01", "offset": [-600, 0], "role": "左床头柜" },
+          { "familyId": "nightstand_01", "offset": [600, 0], "role": "右床头柜" }
+        ]
+      }
+    ],
+    "schemes": [
+      {
+        "id": "scheme_a",
+        "name": "方案 A",
+        "description": "现代简约风格"
+      }
+    ]
+  }
 }
 ```
 
-### 8.2 Module 字段说明
+### 8.2 LayoutData 字段说明
+
+| 字段 | 类型 | 必填 | 说明 |
+|------|------|------|------|
+| `modules` | array | 是 | 布置模块列表（见 §8.3） |
+| `schemes` | array | 是 | 方案元数据列表（见 §8.4） |
+
+### 8.3 Module（布置模块）
+
+模块是最小布置单元，可以是单一家具或家具组合。
+
+#### 8.3.1 Module 字段说明
 
 | 字段 | 类型 | 必填 | 说明 |
 |------|------|------|------|
@@ -750,17 +774,34 @@ computedBoundary = rawBoundary - 所有相关完成面禁区（wallFinishes[].ex
 | `moduleId` | string | 是 | 模块库中的模块类型 ID |
 | `moduleName` | string | 否 | 可读名称（如"主卧睡眠模块"） |
 | `bounds` | number[][] | 是 | Polygon2D 边界：`[[x1,y1], [x2,y2], ...]`（矩形 4 顶点） |
-| `facing` | string \| number[] | 是 | 朝向：语义字符串或 Vec2D 向量（见 §8.3） |
+| `facing` | string \| number[] | 是 | 朝向：语义字符串或 Vec2D 向量（见 §8.5） |
 | `zoneId` | string | 是 | 所属区域 ID |
 | `items` | object[] | 否 | 模块内部家具清单（回写 Revit 用） |
 
-### 8.3 facing（朝向 - 联合类型）
+### 8.4 Scheme（方案元数据）
+
+方案用于支持多方案系统，与 Zone.schemeId 对应。
+
+#### 8.4.1 Scheme 字段说明
+
+| 字段 | 类型 | 必填 | 说明 |
+|------|------|------|------|
+| `id` | string | 是 | 方案 ID，格式：`scheme_{名称}` |
+| `name` | string | 是 | 方案名称（用户可见） |
+| `description` | string | 否 | 方案描述（设计风格、特点等） |
+
+**使用场景**：
+- AI 可以创建多个 Scheme，每个 designable Zone 通过 `schemeId` 关联到特定方案
+- 用户可以比较不同方案的布置效果
+- 当前阶段 `schemes` 为空数组即可，多方案功能待后续开发
+
+### 8.5 facing（朝向 - 联合类型）
 
 `facing` 支持两种格式：**语义字符串**（标准场景）和 **Vec2D 向量**（任意角度）。
 
 > **核心原则**：**向量 (Vec2D) 是唯一真理**。语义字符串仅为常用向量的别名。
 
-#### 8.3.1 语义字符串 (Semantic Alias)
+#### 8.5.1 语义字符串 (Semantic Alias)
 
 语义字符串是常用方向的快捷方式，Core 层会自动将其转换为对应的单位向量。
 
@@ -775,7 +816,7 @@ computedBoundary = rawBoundary - 所有相关完成面禁区（wallFinishes[].ex
 | `southeast` | `[0.707, -0.707]` | 东南 (-45°) |
 | `southwest` | `[-0.707, -0.707]` | 西南 (-135°) |
 
-#### 8.3.2 Vec2D 向量（任意角度）
+#### 8.5.2 Vec2D 向量（任意角度）
 
 当需要非 45° 增量的角度时，直接使用 Vec2D 单位向量：
 
@@ -790,14 +831,14 @@ computedBoundary = rawBoundary - 所有相关完成面禁区（wallFinishes[].ex
 - 若 `|v| < 0.5`，视为无效，回退到模块默认朝向
 - Core 层自动归一化并保留 6 位小数
 
-#### 8.3.3 为什么不用 Angle（数值角度）
+#### 8.5.3 为什么不用 Angle（数值角度）
 
 讨论中明确**反对**使用数值角度（如 `rotation: 30`）：
 
 - **歧义性**：角度依赖于 0° 定义（是北还是东？）和旋转方向（顺时针还是逆时针？）。
 - **唯一性**：Vec2D 向量具有**唯一确定的几何意义**，对 AI 更友好。
 
-#### 8.3.4 插件端转换 (Revit 兼容)
+#### 8.5.4 插件端转换 (Revit 兼容)
 
 Revit API 使用 X 轴 (East) 为 0°，逆时针旋转，与本定义的向量数学逻辑完全一致。
 
@@ -811,7 +852,7 @@ angle = Math.Atan2(dy, dx) * (180 / Math.PI)
 // East  [1, 0] -> Atan2(0, 1) = 0°
 ```
 
-### 8.4 items（模块内部家具）
+### 8.6 items（模块内部家具）
 
 用于回写 Revit 时创建具体家具实例。
 
@@ -831,7 +872,7 @@ angle = Math.Atan2(dy, dx) * (180 / Math.PI)
 | `offset` | number[] | 相对模块中心的偏移：`[dx, dy]` |
 | `role` | string | 在模块中的角色（如"主体"、"左床头柜"） |
 
-### 8.5 计算属性 (_computed)
+### 8.7 计算属性 (_computed)
 
 AI 输入时，Canvas-MCP 会为每个 Module 动态生成计算属性 `_computed`，方便 AI 理解空间状态。
 
@@ -1060,24 +1101,51 @@ type AABB = [number, number, number, number]; // [minX, minY, maxX, maxY] 包围
 // 数据模型
 // ============================================
 
-// 画布文档（v2.6 扁平化结构）
-interface CanvasDocument {
+// 设计文档（v2.9 layout 结构）
+interface DesignDocument {
   id: string;
+  projectName?: string;
+  exportDate?: string;
   version: number;
   coordinateSystem: "cartesian_mm_yUp";
-  metadata: Metadata;
 
-  // 建筑构件（直接顶层）
+  // Revit 原始数据（可选，按需包含）
+  revit?: RevitData;
+
+  // 计算派生数据（可选，按需包含）
+  computed?: ComputedData;
+
+  // 方案数据
+  layout?: LayoutData;
+}
+
+// Revit 原始数据
+interface RevitData {
+  metadata?: Metadata;
   walls: Wall[];
   columns: Column[];
   openings: Opening[];
   finishLocationBoundaries: FinishLocationBoundary[];
-
-  // 空间数据
   rooms: Room[];
+}
+
+// 计算派生数据
+interface ComputedData {
   zones: Zone[];
   wallFinishes: WallFinish[];
+}
+
+// 方案数据
+interface LayoutData {
   modules: Module[];
+  schemes: Scheme[];
+}
+
+// 方案元数据
+interface Scheme {
+  id: string;
+  name: string;
+  description?: string;
 }
 
 // 元数据（含坐标变换参数）
@@ -1295,7 +1363,9 @@ interface ModuleDefinition {
 
 | 版本 | 日期 | 变更内容 |
 |------|------|----------|
-| v2.7 | 2025-12-22 | **Zone 数据结构统一化**：禁区、房间、设计区合并为统一 Zone 类型，通过 `type` 字段区分（exclusion/room/designable）；新增 `reason` 字段（给 AI 看的文本说明）；`innerBoundary` 改名为 `computedBoundary`；移除 `roomId`/`exclusionAreas`/`openings` 字段；新增 `finishRequirements` 字段（关联 WallFinish + FinishType）；新增 `schemeId` 字段（用于多方案系统）；删除独立的 ExclusionArea 类型 |
+| v2.9 | 2025-12-22 | **方案数据封装**：`modules` 属性改为 `layout` 封装结构（含 modules + schemes）；新增 `Scheme` 类型（支持多方案系统，与 Zone.schemeId 对应）；Core 层目录重组（Geometry/Revit/Computed/Layout/Semantic/Shared）；更新 TypeScript 类型定义（DesignDocument、LayoutData、Scheme） |
+| v2.8 | 2025-12-22 | **DesignDocument 重构**：`CanvasDocument` 重命名为 `DesignDocument`；属性分组为 `revit`（原始数据）、`computed`（计算派生）、`modules`（布置模块）；新增 `projectName`、`exportDate` 常规属性 |
+| v2.7 | 2025-12-21 | **Zone 数据结构统一化**：禁区、房间、设计区合并为统一 Zone 类型，通过 `type` 字段区分（exclusion/room/designable）；新增 `reason` 字段（给 AI 看的文本说明）；`innerBoundary` 改名为 `computedBoundary`；移除 `roomId`/`exclusionAreas`/`openings` 字段；新增 `finishRequirements` 字段（关联 WallFinish + FinishType）；新增 `schemeId` 字段（用于多方案系统）；删除独立的 ExclusionArea 类型 |
 | v2.6 | 2025-12-11 | **结构扁平化**：建筑构件提升至顶层（walls/columns/openings/finishLocationBoundaries）；移除 Outline 包装类；Metadata 合并坐标变换参数（origin/rotation/method）；新增 Wall、Column、FinishLocationBoundary 类型定义；Column 新增 isStructural 字段区分结构柱/建筑柱 |
 | v2.5 | 2025-12-05 | **数据模型增强**：新增 Room（物理房间）；Zone 添加 roomId/tags/rawBoundary；新增 WallFinish（墙面完成面禁区机制）；完善完成面三层来源机制设计 |
 | v2.4 | 2025-12-04 | **同步评审共识**：添加评审文档引用；JSON 数据结构保持不变，C# 实现细节见 Architecture.md §6.1 |

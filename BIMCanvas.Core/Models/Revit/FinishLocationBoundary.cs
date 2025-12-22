@@ -1,7 +1,7 @@
 using System.Collections.Generic;
-using BIMCanvas.Core.Models.Primitives;
+using BIMCanvas.Core.Models.Geometry;
 
-namespace BIMCanvas.Core.Models.RevitSource
+namespace BIMCanvas.Core.Models.Revit
 {
     /// <summary>
     /// 完成面定位边界（墙柱连续组合轮廓，已过滤外墙）
