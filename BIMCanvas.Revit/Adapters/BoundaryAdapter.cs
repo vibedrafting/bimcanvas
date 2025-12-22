@@ -50,30 +50,29 @@ namespace BIMCanvas.Revit.Adapters
             double cutHeightFeet = UnitConverter.ToFeet(_cutHeightMm);
 
             // 收集并处理墙体（使用 Solid 切割，支持门洞分割）
-            PrefixId.Reset("wall_");
+            PrefixId.Reset("w_");
             var wallElements = CollectElements(doc, view, BuiltInCategory.OST_Walls);
             foreach (var wall in wallElements)
             {
-                var wallOutlines = ExtractWallOutlines(wall, cutHeightFeet, "wall_");
+                var wallOutlines = ExtractWallOutlines(wall, cutHeightFeet, "w_");
                 walls.AddRange(wallOutlines);
             }
 
-            // 收集并处理建筑柱（使用 BoundingBox）
-            PrefixId.Reset("col_");
+            // 收集并处理建筑柱和结构柱（统一使用 c_ 前缀）
+            PrefixId.Reset("c_");
             var columnElements = CollectElements(doc, view, BuiltInCategory.OST_Columns);
             foreach (var column in columnElements)
             {
-                var col = ExtractColumnOutline(column, "col_", isStructural: false);
+                var col = ExtractColumnOutline(column, "c_", isStructural: false);
                 if (col != null)
                     columns.Add(col);
             }
 
-            // 收集并处理结构柱（使用 BoundingBox）
-            PrefixId.Reset("scol_");
+            // 收集并处理结构柱（使用 BoundingBox，与建筑柱共享 c_ 前缀）
             var structuralColumns = CollectElements(doc, view, BuiltInCategory.OST_StructuralColumns);
             foreach (var column in structuralColumns)
             {
-                var col = ExtractColumnOutline(column, "scol_", isStructural: true);
+                var col = ExtractColumnOutline(column, "c_", isStructural: true);
                 if (col != null)
                     columns.Add(col);
             }
@@ -121,7 +120,7 @@ namespace BIMCanvas.Revit.Adapters
 
                     result.Add(new RevitWall
                     {
-                        Id = PrefixId.NewId(idPrefix, 3),
+                        Id = PrefixId.NewId(idPrefix),
                         ElementId = wall.Id.IntegerValue,  // 同一面墙的多段共享 ElementId
                         Boundary = polygon
                     });
@@ -397,7 +396,7 @@ namespace BIMCanvas.Revit.Adapters
 
                 return new RevitColumn
                 {
-                    Id = PrefixId.NewId(idPrefix, 3),
+                    Id = PrefixId.NewId(idPrefix),
                     ElementId = column.Id.IntegerValue,
                     IsStructural = isStructural,
                     Boundary = polygon

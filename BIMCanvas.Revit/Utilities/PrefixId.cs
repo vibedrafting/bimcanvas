@@ -20,29 +20,18 @@ namespace BIMCanvas.Revit.Utilities
         /// <summary>
         /// 生成新的数据ID
         /// </summary>
-        /// <returns>格式为 D001, D002... 的ID</returns>
+        /// <returns>格式为 D1, D2... 的ID</returns>
         public static string NewId()
         {
-            return NewId(_defaultPrefix, _defaultDigits);
+            return NewId(_defaultPrefix);
         }
 
         /// <summary>
         /// 生成新的数据ID，使用指定前缀
         /// </summary>
         /// <param name="prefix">ID前缀</param>
-        /// <returns>格式为 [prefix]001, [prefix]002... 的ID</returns>
+        /// <returns>格式为 [prefix]1, [prefix]2... 的ID</returns>
         public static string NewId(string prefix)
-        {
-            return NewId(prefix, _defaultDigits);
-        }
-
-        /// <summary>
-        /// 生成新的数据ID，使用指定前缀和数字位数
-        /// </summary>
-        /// <param name="prefix">ID前缀</param>
-        /// <param name="digits">数字部分位数</param>
-        /// <returns>格式为 [prefix][数字] 的ID</returns>
-        public static string NewId(string prefix, int digits)
         {
             lock (_lockObject)
             {
@@ -52,7 +41,7 @@ namespace BIMCanvas.Revit.Utilities
                 }
 
                 _prefixCounters[prefix]++;
-                return $"{prefix}{_prefixCounters[prefix].ToString($"D{digits}")}";
+                return $"{prefix}{_prefixCounters[prefix]}";
             }
         }
 

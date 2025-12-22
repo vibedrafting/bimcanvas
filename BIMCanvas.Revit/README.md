@@ -372,10 +372,18 @@ public static class RoomTypeInferrer
 #### PrefixId - ID 生成器
 
 ```csharp
-// 生成带前缀的顺序 ID
-PrefixId.Reset("boundary_");
-var id1 = PrefixId.NewId("boundary_", 3); // "boundary_001"
-var id2 = PrefixId.NewId("boundary_", 3); // "boundary_002"
+// 生成带前缀的顺序 ID（无补零）
+PrefixId.Reset("w_");
+var id1 = PrefixId.NewId("w_"); // "w_1"
+var id2 = PrefixId.NewId("w_"); // "w_2"
+
+// ID 命名规范
+// 墙体: w_1, w_2, ...
+// 柱子: c_1, c_2, ... (建筑柱和结构柱统一)
+// 门: d_1, d_2, ...
+// 窗: wi_1, wi_2, ...
+// 房间: r_1, r_2, ...
+// 墙面完成面: wf_1, wf_2, ...
 ```
 
 #### TransactionHelper - 事务处理

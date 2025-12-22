@@ -102,7 +102,7 @@ namespace BIMCanvas.Revit.Adapters
 
                     result.Add(new RevitWallFinish
                     {
-                        Id = PrefixId.NewId("wf_", 3),
+                        Id = PrefixId.NewId("wf_"),
                         ElementIds = elementIds,
                         Boundary = polygon
                     });

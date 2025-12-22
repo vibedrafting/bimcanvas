@@ -44,7 +44,7 @@ namespace BIMCanvas.Revit.Adapters
                 .ToList();
 
             // 3. 处理门
-            PrefixId.Reset("d");
+            PrefixId.Reset("d_");
             foreach (var door in doors)
             {
                 var opening = ExtractDoorOpening(door);
@@ -53,7 +53,7 @@ namespace BIMCanvas.Revit.Adapters
             }
 
             // 4. 处理窗
-            PrefixId.Reset("win");
+            PrefixId.Reset("wi_");
             foreach (var window in windows)
             {
                 var opening = ExtractWindowOpening(window);
@@ -94,7 +94,7 @@ namespace BIMCanvas.Revit.Adapters
                 // 5. 创建 RevitOpening 对象
                 return new RevitOpening
                 {
-                    Id = PrefixId.NewId("d"),
+                    Id = PrefixId.NewId("d_"),
                     ElementId = door.Id.IntegerValue,
                     Type = OpeningType.Door,
                     LocationPoint = locationPoint.ToCoordinate(),
@@ -137,7 +137,7 @@ namespace BIMCanvas.Revit.Adapters
                 // 5. 创建 RevitOpening 对象
                 return new RevitOpening
                 {
-                    Id = PrefixId.NewId("win"),
+                    Id = PrefixId.NewId("wi_"),
                     ElementId = window.Id.IntegerValue,
                     Type = OpeningType.Window,
                     LocationPoint = locationPoint.ToCoordinate(),
