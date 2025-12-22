@@ -47,7 +47,6 @@ namespace BIMCanvas.Revit.Commands
                 try
                 {
                     document = exportService.ExportFromView(view, options);
-                    //return Result.Succeeded;
                 }
                 catch (OperationCanceledException)
                 {

@@ -18,6 +18,7 @@
 | PRD | `docs/PRD.md` | 产品需求、工作流程 |
 | Core 层 | `BIMCanvas.Core/README.md` | 数据模型 + 空间算法实现 |
 | Revit 插件 | `BIMCanvas.Revit/README.md` | Revit 导出/回写实现细节 |
+| Server 层 | `BIMCanvas.Server/README.md` | 统一后端服务、状态管理、通信中枢 |
 | Core 实现计划 | `plans/Core_Implementation_Plan.md` | Core 层代码生成计划 |
 | PlacementAgent 评审 | `reviews/PlacementAgent_Review.md` | Agent SDK 架构决策讨论 |
 
@@ -32,6 +33,20 @@
 | BIMCanvas.Web | Vue 3 + TS | Web 前端 | ⬜ 待开发 |
 
 > **当前阶段**：Core 层已完成，Revit 导出功能已完成，下一步开发 Revit 回写或 Server/Agent 层
+
+### 组件角色定位
+
+| 组件 | 比喻 | 核心职责 |
+|------|------|----------|
+| **Server** | 心脏 + 神经系统 | 状态管理、几何计算、通信中枢、事件分发 |
+| **Agent** | 大脑 | 智能决策、理解意图、规划方案 |
+| **Core** | 骨骼 | 数据结构、基础算法、类型定义 |
+| **Web** | 皮肤 + 眼睛 | 渲染展示、用户交互 |
+| **Revit** | 手臂 | 从 Revit 抓取数据、回写 Revit |
+
+**关键区分**：
+- **Server 是「指挥中心」**：协调各方、管理状态、执行验证，但**不做布置决策**
+- **Agent 是「设计师」**：理解需求、做出决策、发出指令，但**不持有状态**
 
 ---
 

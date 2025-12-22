@@ -78,18 +78,6 @@ namespace BIMCanvas.Revit.Adapters
                     columns.Add(col);
             }
 
-            foreach (var item in walls)
-            {
-                doc.DisplayDirectShape(item.Boundary, ColorType.Blue);
-            }
-            foreach (var item in columns)
-            {
-                doc.DisplayDirectShape(item.Boundary, ColorType.Red);
-            }
-
-            System.Windows.MessageBox.Show($"walls：{walls.Count}，columns：{columns.Count}");
-
-
             return (walls, columns);
         }
 

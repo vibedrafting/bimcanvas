@@ -2,8 +2,9 @@
   "showConfigWindow": true,
   "defaultSavePath": null,
   "placementElevation": 0,
-  "boundaryCutHeightMm": 1200,
+  "boundaryCutHeightMm": 2000,
   "wallFinishCutHeightMm": 200,
+  "exportElementOutlines": true,
   "exportBoundarys": true,
   "exportOpenings": true,
   "exportRooms": true

@@ -257,6 +257,33 @@ function toModel(screenX: number, screenY: number, scale: number, canvasHeight: 
 > - `BIMCanvas.Server`：合并了原 Canvas-MCP 和 Web.Server，新增 EventBus + SSE 端点支持事件驱动
 > - `BIMCanvas.Agent`：v2.6 新增，基于 Agent SDK 的独立 Python 服务，负责 AI 布置规划
 
+### 2.1.1 组件角色定位
+
+**系统各组件的角色与职责边界**：
+
+| 组件 | 比喻 | 核心职责 |
+|------|------|----------|
+| **BIMCanvas.Server** | 心脏 + 神经系统 | 状态管理、几何计算、通信中枢、事件分发 |
+| **BIMCanvas.Agent** | 大脑 | 智能决策、理解意图、规划布置方案 |
+| **BIMCanvas.Core** | 骨骼 | 数据结构、基础算法、类型定义 |
+| **BIMCanvas.Web** | 皮肤 + 眼睛 | 渲染展示、用户交互 |
+| **BIMCanvas.Revit** | 手臂 | 从 Revit 抓取数据、回写 Revit |
+
+**Server vs Agent 职责边界**：
+
+| 维度 | Server（指挥中心） | Agent（设计师） |
+|------|-------------------|-----------------|
+| 状态 | ✅ 持有 CanvasDocument | ❌ 无状态 |
+| 几何计算 | ✅ Zone/禁区/完成面 | ❌ 不做几何 |
+| 智能决策 | ❌ 不决定"放哪里" | ✅ 规划布置方案 |
+| 通信 | ✅ 连接所有组件 | ❌ 只通过 MCP/SSE |
+| 验证 | ✅ 约束检查 | ❌ 依赖 Server |
+
+**关键设计原则**：
+- **Server 不做决策**：它不决定"沙发放哪里"，只执行验证和计算
+- **Agent 不持有状态**：它只发指令，状态由 Server 管理
+- **Server 是通信中枢**：所有组件通过它交换数据（REST/WebSocket/SSE/MCP）
+
 ### 2.2 数据流向
 
 ```
