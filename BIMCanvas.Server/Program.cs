@@ -53,11 +53,54 @@ Console.WriteLine("BIMCanvas.Server 启动中...");
 Console.WriteLine("API: http://localhost:5000/api/canvas");
 Console.WriteLine("Swagger: http://localhost:5000/swagger");
 
-// 开发环境自动打开 Web 前端
+// 开发环境：自动启动 Web 开发服务器 + 打开浏览器
 if (app.Environment.IsDevelopment())
 {
+    // 1. 启动 Web 开发服务器
+    var webProjectPath = Path.GetFullPath(Path.Combine(Directory.GetCurrentDirectory(), "..", "BIMCanvas.Web"));
+    Process? webProcess = null;
+
+    if (Directory.Exists(webProjectPath))
+    {
+        Console.WriteLine($"启动 Web 开发服务器: {webProjectPath}");
+        webProcess = new Process
+        {
+            StartInfo = new ProcessStartInfo
+            {
+                FileName = "cmd.exe",
+                Arguments = "/c npm run dev",
+                WorkingDirectory = webProjectPath,
+                UseShellExecute = false,
+                CreateNoWindow = true,
+                RedirectStandardOutput = true,
+                RedirectStandardError = true
+            }
+        };
+        webProcess.Start();
+
+        // 后台读取输出（避免缓冲区阻塞）
+        _ = Task.Run(async () =>
+        {
+            while (!webProcess.HasExited)
+            {
+                var line = await webProcess.StandardOutput.ReadLineAsync();
+                if (!string.IsNullOrEmpty(line))
+                    Console.WriteLine($"[Web] {line}");
+            }
+        });
+    }
+    else
+    {
+        Console.WriteLine($"Web 项目目录不存在: {webProjectPath}");
+    }
+
+    // 2. 等待 Web 服务就绪
+    Console.WriteLine("等待 Web 服务启动...");
+    await Task.Delay(3000);
+
+    // 3. 打开浏览器
     var webUrl = "http://localhost:5173";
-    Console.WriteLine($"正在打开 Web 前端: {webUrl}");
+    Console.WriteLine($"打开浏览器: {webUrl}");
     try
     {
         Process.Start(new ProcessStartInfo(webUrl) { UseShellExecute = true });
@@ -66,6 +109,16 @@ if (app.Environment.IsDevelopment())
     {
         Console.WriteLine($"无法自动打开浏览器: {ex.Message}");
     }
+
+    // 注册退出时清理 Web 进程
+    AppDomain.CurrentDomain.ProcessExit += (s, e) =>
+    {
+        if (webProcess != null && !webProcess.HasExited)
+        {
+            Console.WriteLine("正在关闭 Web 开发服务器...");
+            webProcess.Kill(true);
+        }
+    };
 }
 
 app.Run();
