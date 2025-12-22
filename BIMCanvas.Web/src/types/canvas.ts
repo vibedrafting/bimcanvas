@@ -55,10 +55,16 @@ export interface Room {
   };
 }
 
+export interface ExclusionArea {
+  id: string;
+  type: number;  // 0: DoorSwing, 1: Passage, 2: Other
+  boundary: Polygon2D;
+}
+
 export interface Zone {
   roomId: string;
   innerBoundary: Polygon2D;
-  exclusionAreas: Polygon2D[];
+  exclusionAreas: ExclusionArea[];
 }
 
 export interface Module {

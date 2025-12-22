@@ -85,8 +85,8 @@ export class ZoneBuilder {
         // 2. Exclusion Areas
         if (zone.exclusionAreas) {
             zone.exclusionAreas.forEach(area => {
-                if (area && area.length > 0) {
-                    const shape = this.createShapeFromPolygon(area);
+                if (area?.boundary && area.boundary.length > 0) {
+                    const shape = this.createShapeFromPolygon(area.boundary);
                     const geometry = new THREE.ShapeGeometry(shape);
                     const mesh = new THREE.Mesh(geometry, this.materials.get('exclusion'));
 

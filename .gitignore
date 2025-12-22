@@ -8,6 +8,7 @@
 bin/
 obj/
 packages/
+publish/
 
 # Node
 node_modules/
