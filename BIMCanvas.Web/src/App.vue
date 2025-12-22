@@ -60,4 +60,12 @@ body {
   background-color: var(--bg-canvas);
   font-family: var(--font-sans);
 }
+
+/* Disable UI interactions while dragging canvas */
+body.is-dragging .command-island,
+body.is-dragging .floating-layer-manager,
+body.is-dragging .property-panel,
+body.is-dragging .side-gallery {
+  pointer-events: none !important;
+}
 </style>

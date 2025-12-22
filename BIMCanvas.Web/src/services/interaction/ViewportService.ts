@@ -54,6 +54,7 @@ export class ViewportService {
             this.isDragging = true;
             this.lastMousePosition = { x: event.clientX, y: event.clientY };
             this.renderer.domElement.style.cursor = 'grabbing';
+            document.body.classList.add('is-dragging');
         }
     }
 
@@ -72,6 +73,7 @@ export class ViewportService {
         if (event.button === 1 || event.button === 2) {
             this.isDragging = false;
             this.renderer.domElement.style.cursor = 'default';
+            document.body.classList.remove('is-dragging');
         }
     }
 

@@ -176,16 +176,25 @@ onUnmounted(() => {
   width: 48px;
   height: 48px;
   border-radius: 12px;
-  background: var(--surface-glass);
-  backdrop-filter: blur(10px);
-  border: 1px solid var(--border-subtle);
+  
+  /* Premium Glass Tokens */
+  background: var(--glass-bg);
+  backdrop-filter: var(--glass-blur);
+  -webkit-backdrop-filter: var(--glass-blur);
+  border: var(--glass-border);
+  box-shadow: var(--shadow-panel), var(--glass-inner-highlight);
+  
+  /* Glare Overlay */
+  background-image: var(--glass-glare), linear-gradient(to bottom, var(--glass-bg), var(--glass-bg));
+  background-origin: border-box;
+  background-clip: padding-box, border-box;
+
   color: var(--text-secondary);
   display: flex;
   align-items: center;
   justify-content: center;
   cursor: pointer;
   transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
 
   &:hover {
     background: var(--surface-glass-hover);

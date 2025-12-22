@@ -129,8 +129,9 @@ const updateProperty = (key: string, newValue: any) => {
     @mouseleave="isExpanded = false"
   >
     <div class="header" @click="toggleExpand">
-      <span class="label">Properties</span>
-      <span class="indicator">›</span>
+      <svg class="indicator" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <polyline points="15 18 9 12 15 6"></polyline>
+      </svg>
     </div>
 
     <div class="content" v-if="isExpanded">
@@ -195,7 +196,7 @@ const updateProperty = (key: string, newValue: any) => {
     box-shadow: var(--shadow-panel), var(--glass-inner-highlight);
 
     .header .indicator {
-      transform: rotate(180deg);
+      transform: rotate(0deg);
     }
   }
 
@@ -205,7 +206,7 @@ const updateProperty = (key: string, newValue: any) => {
     display: flex;
     flex-direction: column;
     align-items: center;
-    padding-top: 140px; /* Aggressive clearance for App Title */
+    padding-top: 40vh; /* Position slightly up from center */
     cursor: pointer;
     flex-shrink: 0;
     
@@ -214,27 +215,19 @@ const updateProperty = (key: string, newValue: any) => {
     left: 0;
     top: 0;
 
-    .label {
-      writing-mode: vertical-rl;
-      text-orientation: mixed;
-      color: var(--text-secondary);
-      font-size: 0.8rem;
-      letter-spacing: 2px;
-      font-family: var(--font-sans);
-      text-transform: uppercase;
-      white-space: nowrap;
-      transition: color 0.2s;
-    }
-
     .indicator {
-      margin-top: var(--spacing-sm);
+      width: 24px;
+      height: 24px;
       color: var(--text-secondary);
-      font-size: 1.2rem;
-      transition: transform 0.3s;
+      transition: transform 0.4s var(--ease-spring), color 0.2s;
+      transform: rotate(180deg); /* Default points Right (flipped left arrow) */
+      opacity: 0.8;
     }
-
-    &:hover .label {
+    
+    &:hover .indicator {
       color: var(--text-primary);
+      opacity: 1;
+      transform: scale(1.1);
     }
   }
 

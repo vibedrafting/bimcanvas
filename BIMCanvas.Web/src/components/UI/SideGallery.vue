@@ -16,8 +16,9 @@ const toggleExpand = () => {
     @mouseleave="isExpanded = false"
   >
     <div class="header" @click="toggleExpand">
-      <span class="label">Gallery</span>
-      <span class="indicator">›</span>
+      <svg class="indicator" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <polyline points="9 18 15 12 9 6"></polyline>
+      </svg>
     </div>
     
     <div class="content" v-if="isExpanded">
@@ -75,7 +76,7 @@ const toggleExpand = () => {
     display: flex;
     flex-direction: column;
     align-items: center;
-    padding-top: 140px; /* Aggressive clearance for App Title */
+    padding-top: 40vh; /* Position slightly up from center */
     cursor: pointer;
     flex-shrink: 0;
     
@@ -84,28 +85,19 @@ const toggleExpand = () => {
     right: 0;
     top: 0;
     
-    .label {
-      writing-mode: vertical-rl;
-      text-orientation: mixed;
-      color: var(--text-secondary);
-      font-size: 0.8rem;
-      letter-spacing: 2px;
-      font-family: var(--font-sans);
-      text-transform: uppercase;
-      white-space: nowrap;
-      transition: color 0.2s;
-    }
-
     .indicator {
-      margin-top: var(--spacing-sm);
+      width: 24px;
+      height: 24px;
       color: var(--text-secondary);
-      font-size: 1.2rem;
-      transition: transform 0.3s;
+      transition: transform 0.4s var(--ease-spring), color 0.2s;
       transform: rotate(180deg); /* Point left by default */
+      opacity: 0.8;
     }
-
-    &:hover .label {
+    
+    &:hover .indicator {
       color: var(--text-primary);
+      opacity: 1;
+      /* Maintain rotation but add scale if needed, or just color change */
     }
   }
 

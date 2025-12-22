@@ -27,6 +27,7 @@
 - ✅ **对象选择**: 支持点击选择场景中的构件，显示高亮包围盒。
 - ✅ **移动 (Move)**: 支持对象拖拽移动，集成幽灵显示 (Ghosting) 预览。
 - ✅ **旋转 (Rotate)**: 支持对象旋转，集成角度吸附与幽灵预览。
+- 🔶 **镜像 (Mirror)**: 逻辑已实现 (`MirrorTool`)，UI 按钮待集成。
 - ✅ **幽灵系统 (Ghost System)**: 移动/旋转操作时显示半透明预览，操作结束后自动清除。
     - **技术要点**: 使用 `LineLoop` 从 bounds 生成本地坐标轮廓，而非 `BoxHelper`。详见下方"开发经验"章节。
 - ⬜ **语义吸附 (Semantic Snapping)**: 待实现，吸附墙中线、门窗边缘、对齐线。
@@ -45,9 +46,12 @@
 - ✅ **灵动岛 (Dynamic Island)**:
     - 顶部居中悬浮工具栏，支持折叠/展开交互。
     - **状态反馈**: 实时显示 Agent 连接状态 (红/绿/黄点) 和当前操作 (Moving/Rotating/Selecting)。
-    - **调试技巧**: 修改 `RibbonToolbar.vue` 中的 `DEBUG_KEEP_EXPANDED = true` 可强制展开灵动岛，方便截图或调试 UI。
+    - **物理动效**: 采用 Apple 风格的 Spring 弹簧物理动画，交互流畅自然。
 - ✅ **主题系统 (Theme System)**:
     - 支持 **明亮 (Light)** / **暗色 (Dark)** 模式一键切换。
+    - **Premium Glass Aesthetic**: 
+        - **Dark Mode**: "Aurora" 极光风格，深邃背景 + 高通透毛玻璃。
+        - **Light Mode**: "Curved Glass" 曲面玻璃风格，纯净白底 + 锐利边框 + 强反光。
     - 基于 CSS Variables 实现，自动适配 3D 场景背景、网格及 UI 控件颜色。
 
 ## 🛠️ 技术栈 (Tech Stack)
@@ -216,4 +220,4 @@ private createOutlineFromBounds(bounds: [number, number][]): THREE.LineLoop {
 > 相关文件: `src/services/interaction/GhostManager.ts`
 
 ---
-*文档最后更新时间: 2025-12-21*
+*文档最后更新时间: 2025-12-22*
