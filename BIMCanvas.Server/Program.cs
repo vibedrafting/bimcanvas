@@ -91,13 +91,13 @@ Console.WriteLine("Swagger: http://localhost:5000/swagger");
         });
         // 2. 等待 Web 服务就绪（最多 10 秒，每 200ms 检测一次）
         Console.WriteLine("等待 Web 服务启动...");
-        var webUrl = "http://localhost:5173";
+        var webBaseUrl = "http://localhost:5173";
         using var httpClient = new HttpClient { Timeout = TimeSpan.FromMilliseconds(500) };
         for (int i = 0; i < 50; i++)
         {
             try
             {
-                var response = await httpClient.GetAsync(webUrl);
+                var response = await httpClient.GetAsync(webBaseUrl);
                 if (response.IsSuccessStatusCode)
                 {
                     Console.WriteLine("Web 服务已就绪");
@@ -108,7 +108,9 @@ Console.WriteLine("Swagger: http://localhost:5000/swagger");
             await Task.Delay(200);
         }
 
-        // 3. 打开浏览器
+        // 3. 打开浏览器（带默认数据文件参数）
+        var defaultFile = "demo_1";  // 默认加载的数据文件（不含 .json 后缀）
+        var webUrl = $"{webBaseUrl}?file={defaultFile}";
         Console.WriteLine($"打开浏览器: {webUrl}");
         try
         {

@@ -2,8 +2,47 @@
 
 > 统一后端服务 - 系统的状态中心与通信中枢
 
-**运行时**: .NET 6+
-**状态**: 待开发
+**运行时**: .NET 8.0
+**状态**: 🔶 基础功能已完成（REST API + Zone 计算）
+
+---
+
+## 0. 快速启动
+
+### 启动命令
+
+```bash
+cd BIMCanvas
+dotnet run --project BIMCanvas.Server
+```
+
+### 启动行为
+
+1. 启动 HTTP 服务器（http://localhost:5000）
+2. 自动查找并启动 Web 开发服务器（BIMCanvas.Web）
+3. 等待 Web 服务就绪后打开浏览器
+4. **默认加载文件**：通过 URL 参数 `?file=demo_1` 控制
+
+### 配置项
+
+| 配置 | 位置 | 默认值 | 说明 |
+|------|------|--------|------|
+| 默认数据文件 | `Program.cs:112` | `demo_1` | 启动时加载的 demo 文件（不含 .json 后缀） |
+| API 端口 | `launchSettings.json` | `5000` | REST API 服务端口 |
+| Web 端口 | 自动检测 | `5173` | Vite 开发服务器端口 |
+
+### JSON 序列化
+
+Server 使用 **Newtonsoft.Json**（与 BIMCanvas.Core 保持一致）：
+
+```csharp
+builder.Services.AddControllers()
+    .AddNewtonsoftJson(options => {
+        options.SerializerSettings.ContractResolver = new CamelCasePropertyNamesContractResolver();
+    });
+```
+
+> ⚠️ **重要**：不要改用 System.Text.Json，否则 Core 层的 `[JsonConverter]` 属性不会被识别，导致 Polygon2D 等类型序列化失败。
 
 ---
 
@@ -101,28 +140,41 @@ UserCommitEvent          // 用户提交修改
 
 ```
 BIMCanvas.Server/
-├── Program.cs                    入口（MCP + Web Host）
-├── Mcp/                          【MCP 协议相关】
+├── Program.cs                    ✅ 入口（REST Host + 自动启动 Web）
+├── Properties/
+│   └── launchSettings.json       ✅ 启动配置（端口 5000）
+├── Mcp/                          【MCP 协议相关】⬜ 待开发
 │   └── McpHost.cs                  MCP Server 宿主
-├── McpTools/                     【MCP 工具实现】
+├── McpTools/                     【MCP 工具实现】⬜ 待开发
 │   ├── CanvasTools.cs              画布管理工具
 │   ├── ModuleTools.cs              模块操作工具
 │   ├── PlacementTools.cs           布置工具
 │   └── QueryTools.cs               查询工具
 ├── Controllers/                  【REST API】
-│   ├── CanvasController.cs         画布 API
-│   ├── EventsController.cs         SSE 端点
-│   └── PlacementController.cs      布置 API
-├── Hubs/                         【SignalR Hub】
+│   ├── CanvasController.cs       ✅ 画布 API（CRUD + load）
+│   ├── EventsController.cs         SSE 端点 ⬜ 待开发
+│   └── PlacementController.cs      布置 API ⬜ 待开发
+├── Hubs/                         【SignalR Hub】⬜ 待开发
 │   └── CanvasHub.cs                画布实时通信
 └── Services/                     【业务服务】
-    ├── CanvasStateManager.cs       画布状态管理
-    ├── ZoneCalculator.cs           Zone 计算
-    ├── PlacementService.cs         布置逻辑核心
-    ├── EventBus.cs                 事件总线
-    ├── ScreenshotService.cs        截图服务
-    └── ChangeSetService.cs         变更集服务
+    ├── CanvasStateManager.cs     ✅ 画布状态管理（内存存储）
+    ├── ZoneCalculator.cs         ✅ Zone 计算（Room + Exclusion）
+    ├── PlacementService.cs         布置逻辑核心 ⬜ 待开发
+    ├── EventBus.cs                 事件总线 ⬜ 待开发
+    ├── ScreenshotService.cs        截图服务 ⬜ 待开发
+    └── ChangeSetService.cs         变更集服务 ⬜ 待开发
 ```
+
+### 已实现的 REST API
+
+| 端点 | 方法 | 功能 |
+|------|------|------|
+| `/health` | GET | 健康检查 |
+| `/api/canvas` | GET | 获取所有画布 ID |
+| `/api/canvas/{id}` | GET | 获取指定画布 |
+| `/api/canvas` | POST | 创建/更新画布 |
+| `/api/canvas/load` | POST | **加载并处理画布**（计算 Zone） |
+| `/api/canvas/{id}` | DELETE | 删除画布 |
 
 ---
 

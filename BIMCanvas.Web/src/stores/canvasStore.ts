@@ -234,21 +234,15 @@ export const useCanvasStore = defineStore('canvas', () => {
 
     const loadDemoData = async (url: string) => {
         try {
-            isLoading.value = true;
             debugStore.log(`Loading demo data from: ${url}`);
             const response = await axios.get<CanvasDocument>(url);
-            document.value = response.data;
-            timeline.clear();
-            saveState(); // Initial state
-            console.log('Demo data loaded:', document.value);
-            debugStore.success(`Successfully loaded demo data. Modules: ${document.value.layout?.modules?.length || 0}`);
-            error.value = null; // Clear any previous error
+            // 通过 loadFromJson 发送到 Server 处理（计算 Zone 等）
+            await loadFromJson(response.data);
+            debugStore.success(`Demo data loaded and processed. Zones: ${document.value?.computed?.zones?.length || 0}`);
         } catch (err: any) {
             console.error('Failed to load demo data:', err);
             debugStore.error(`Failed to load demo data: ${err.message || err}`);
             error.value = `Failed to load demo data: ${err.message || err}`;
-        } finally {
-            isLoading.value = false;
         }
     };
 

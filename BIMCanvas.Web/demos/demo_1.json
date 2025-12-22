@@ -1,7 +1,7 @@
 ﻿{
-  "id": "canvas_84db41d20d0d40c9be2ad16182bc9f57",
+  "id": "canvas_60b494e5ad1249a68da3f08039f2e0d8",
   "projectName": "金凤127",
-  "exportDate": "2025-12-22T19:27:45.7496282+08:00",
+  "exportDate": "2025-12-22T20:35:26.670101+08:00",
   "version": 1,
   "coordinateSystem": "cartesian_mm_yUp",
   "revit": {
@@ -1840,7 +1840,7 @@
       {
         "id": "room_004",
         "name": "主卫",
-        "type": 0,
+        "type": 6,
         "boundary": [
           [
             12499.997901158282,
@@ -1875,7 +1875,7 @@
       {
         "id": "room_005",
         "name": "公卫",
-        "type": 0,
+        "type": 6,
         "boundary": [
           [
             11099.997897093279,
