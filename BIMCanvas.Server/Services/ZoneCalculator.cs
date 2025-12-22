@@ -25,17 +25,50 @@ namespace BIMCanvas.Server.Services
         {
             _exclusionIdCounter = 0;
 
-            // 1. 清空现有禁区（始终重新计算）
+            // 1. 如果 zones 为空但 rooms 存在，自动从 rooms 创建 zones
+            if ((document.Zones == null || document.Zones.Count == 0) &&
+                document.Rooms != null && document.Rooms.Count > 0)
+            {
+                document.Zones = CreateZonesFromRooms(document.Rooms);
+                _logger.LogInformation("从 Rooms 创建 Zones: {Count} 个", document.Zones.Count);
+            }
+
+            // 2. 清空现有禁区（始终重新计算）
             ClearExclusionAreas(document);
 
-            // 2. 计算门扇禁区
+            // 3. 计算门扇禁区
             var doorSwingAreas = CalculateDoorSwingAreas(document.Openings);
             _logger.LogInformation("计算门扇禁区: {Count} 个", doorSwingAreas.Count);
 
-            // 3. 将禁区分配到对应的 Zone
+            // 4. 将禁区分配到对应的 Zone
             AssignExclusionAreasToZones(document.Zones, doorSwingAreas);
 
             return document;
+        }
+
+        /// <summary>
+        /// 从 Rooms 创建 Zones（1:1 映射）
+        /// </summary>
+        private List<Zone> CreateZonesFromRooms(List<Room> rooms)
+        {
+            var zones = new List<Zone>();
+            int index = 1;
+
+            foreach (var room in rooms)
+            {
+                var zone = new Zone
+                {
+                    Id = $"z{index++}",
+                    Name = room.Name ?? $"Zone {index}",
+                    RoomId = room.Id,
+                    RawBoundary = room.Boundary,
+                    InnerBoundary = room.Boundary // 暂时直接使用边界，后续可扣除完成面
+                };
+
+                zones.Add(zone);
+            }
+
+            return zones;
         }
 
         /// <summary>
