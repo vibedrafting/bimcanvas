@@ -76,6 +76,8 @@ Console.WriteLine("Swagger: http://localhost:5000/swagger");
                 RedirectStandardError = true
             }
         };
+        // 禁用 ANSI 颜色输出，避免乱码
+        webProcess.StartInfo.Environment["NO_COLOR"] = "1";
         webProcess.Start();
 
         // 后台读取输出（避免缓冲区阻塞）
