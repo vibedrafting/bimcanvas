@@ -1,14 +1,15 @@
 using System.Diagnostics;
 using BIMCanvas.Server.Services;
+using Newtonsoft.Json.Serialization;
 
 var builder = WebApplication.CreateBuilder(args);
 
-// 配置 JSON 序列化选项
+// 配置 JSON 序列化选项（使用 Newtonsoft.Json，与 BIMCanvas.Core 保持一致）
 builder.Services.AddControllers()
-    .AddJsonOptions(options =>
+    .AddNewtonsoftJson(options =>
     {
-        options.JsonSerializerOptions.PropertyNamingPolicy = System.Text.Json.JsonNamingPolicy.CamelCase;
-        options.JsonSerializerOptions.WriteIndented = true;
+        options.SerializerSettings.ContractResolver = new CamelCasePropertyNamesContractResolver();
+        options.SerializerSettings.Formatting = Newtonsoft.Json.Formatting.Indented;
     });
 
 // 注册服务
