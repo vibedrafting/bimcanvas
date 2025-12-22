@@ -57,7 +57,10 @@ Console.WriteLine("Swagger: http://localhost:5000/swagger");
 if (app.Environment.IsDevelopment())
 {
     // 1. 启动 Web 开发服务器
-    var webProjectPath = Path.GetFullPath(Path.Combine(Directory.GetCurrentDirectory(), "..", "BIMCanvas.Web"));
+    // 优先使用 exe 所在目录，兼容 dotnet run 和直接运行 exe
+    var baseDir = AppContext.BaseDirectory;
+    // 从 bin/Release/net8.0 或 publish 向上查找 BIMCanvas.Web
+    var webProjectPath = FindWebProjectPath(baseDir);
     Process? webProcess = null;
 
     if (Directory.Exists(webProjectPath))
@@ -136,3 +139,23 @@ if (app.Environment.IsDevelopment())
 }
 
 app.Run();
+
+// 辅助函数：向上查找 BIMCanvas.Web 目录
+static string FindWebProjectPath(string startDir)
+{
+    var dir = new DirectoryInfo(startDir);
+
+    // 向上最多查找 5 层
+    for (int i = 0; i < 5 && dir != null; i++)
+    {
+        var webPath = Path.Combine(dir.FullName, "BIMCanvas.Web");
+        if (Directory.Exists(webPath))
+        {
+            return webPath;
+        }
+        dir = dir.Parent;
+    }
+
+    // 兜底：返回相对路径（兼容 dotnet run）
+    return Path.GetFullPath(Path.Combine(Directory.GetCurrentDirectory(), "..", "BIMCanvas.Web"));
+}
