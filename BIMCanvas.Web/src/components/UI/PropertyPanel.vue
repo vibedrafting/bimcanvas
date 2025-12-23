@@ -14,6 +14,13 @@ const toggleExpand = () => {
 const selectedObject = computed(() => store.selectedObject);
 const selectionCount = computed(() => store.selectedIds.length);
 
+// 判断值是否为基础类型（应该显示）
+const isPrimitiveValue = (value: any): boolean => {
+  if (value === null || value === undefined) return false;
+  const type = typeof value;
+  return type === 'string' || type === 'number' || type === 'boolean';
+};
+
 // 是否处于编辑模式（移动/旋转）
 const isInEditMode = computed(() => {
     return currentOperation.value === 'moving' || currentOperation.value === 'rotating';
@@ -60,64 +67,29 @@ const projectProperties = computed(() => {
 });
 
 const properties = computed(() => {
-  // 多选模式：显示简化信息
+  // 多选模式
   if (selectionCount.value > 1) {
     return [
       { key: 'Selection', value: `${selectionCount.value} objects selected`, readonly: true },
-      { key: 'Tip', value: 'Use Move/Rotate to edit', readonly: true },
     ];
   }
 
+  // 无选择 → 项目属性
   if (!selectedObject.value) return projectProperties.value;
-  
+
   const obj = selectedObject.value;
-  const type = obj.type || 'Unknown';
-  const data = obj.data || obj; // Some objects might have data nested, others might be direct
+  const data = obj.data || obj;
+  const props: Array<{ key: string; value: any; readonly: boolean }> = [];
 
-  const props = [
-      { key: 'ID', value: obj.id, readonly: true },
-      { key: 'Type', value: type, readonly: true },
-  ];
-
-  if (type === 'wall') {
-      props.push({ key: 'Thickness', value: `${data.thickness || 200} mm`, readonly: true });
-      props.push({ key: 'Points', value: data.polygon?.length || 0, readonly: true });
-  } else if (type === 'column') {
-      props.push({ key: 'Structural', value: data.isStructural ? 'Yes' : 'No', readonly: true });
-  } else if (type === 'door' || type === 'window') {
-       // Calculate width/height from line if possible, or just show ID
-       // Opening data has 'line' [p1, p2]
-       if (data.line) {
-           const p1 = data.line[0];
-           const p2 = data.line[1];
-           const dx = p2[0] - p1[0];
-           const dy = p2[1] - p1[1];
-           const width = Math.sqrt(dx*dx + dy*dy);
-           props.push({ key: 'Width', value: `${Math.round(width)} mm`, readonly: true });
-       }
-  } else if (type === 'module') {
-      props.push({ key: 'Facing', value: JSON.stringify(data.facing), readonly: false }); // Editable?
-      // Add more module props here
+  // 遍历对象属性，只显示基础类型
+  for (const [key, value] of Object.entries(data)) {
+    if (isPrimitiveValue(value)) {
+      props.push({ key, value, readonly: true });
+    }
   }
 
   return props;
 });
-
-const updateProperty = (key: string, newValue: any) => {
-  if (!selectedObject.value) return;
-  
-  // Only allow updating modules for now
-  if (selectedObject.value.type !== 'module') return;
-
-  // Parse numbers if needed
-  let parsedValue = newValue;
-  // Simple heuristic for now
-  if (!isNaN(Number(newValue)) && newValue.trim() !== '') {
-      parsedValue = Number(newValue);
-  }
-
-  store.updateModule(selectedObject.value.id, { [key.toLowerCase()]: parsedValue });
-};
 
 </script>
 
@@ -142,17 +114,7 @@ const updateProperty = (key: string, newValue: any) => {
         <div class="prop-list">
             <div v-for="prop in properties" :key="prop.key" class="prop-row">
                 <span class="label">{{ prop.key }}</span>
-                
-                <!-- Editable Input for Modules (specific keys) -->
-                <input 
-                    v-if="!prop.readonly"
-                    :value="prop.value"
-                    @change="(e) => updateProperty(prop.key, (e.target as HTMLInputElement).value)"
-                    class="value-input"
-                />
-                
-                <!-- Read-only -->
-                <span v-else class="value readonly" :title="String(prop.value)">{{ prop.value }}</span>
+                <span class="value readonly" :title="String(prop.value)">{{ prop.value }}</span>
             </div>
             
 
