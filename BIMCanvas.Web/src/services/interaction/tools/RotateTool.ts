@@ -462,7 +462,9 @@ export class RotateTool implements Tool {
 
         const vector = new THREE.Vector3().subVectors(endPoint, this.centerPoint);
         const endAngle = Math.atan2(vector.z, vector.x);
-        const deltaRotation = endAngle - this.startAngle; // 与 Ghost 预览保持一致
+        // 交互角(CW+) 需要取反转换为 模型角(CCW+)
+        // GhostManager.setRotation() 内部也做了取反，所以预览和结果方向一致
+        const deltaRotation = -(endAngle - this.startAngle);
 
         const store = useCanvasStore();
         const center2D = toModel(this.centerPoint);
