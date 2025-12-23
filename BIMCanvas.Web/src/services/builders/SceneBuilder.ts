@@ -425,27 +425,124 @@ export class SceneBuilder {
         panelGroup.position.set(center.x, center.y, 0);
         panelGroup.rotation.z = angle;
 
+        // Dynamic Door Logic
+        // 1. Determine Hinge Side
+        // Assumption: handDirections points to the HANDLE. So Hinge is on the opposite side.
+        // Line Vector (Start -> End)
+        // If handDirections aligns with Line, Handle is at End -> Hinge at Start (Left).
+        // If handDirections opposes Line, Handle is at Start -> Hinge at End (Right).
+
+        let isHingeAtStart = true; // Default Left Pivot
+        if (originalOp && originalOp.handDirections && originalOp.handDirections.length > 0) {
+            const handVec = new THREE.Vector2(originalOp.handDirections[0][0], originalOp.handDirections[0][1]);
+            // Line vector in local coords is (1, 0) relative to rotation? 
+            // No, we need to check alignment in world coords or pre-rotation.
+            // But here we are inside createDoor which is already rotated.
+            // Actually, simpler: createDoor is called with 'angle'.
+            // The 'line' passed to createDoor is not available directly, but we have 'width'.
+            // We can infer the line vector from the rotation 'angle'.
+            // Line Vector = (cos(angle), sin(angle)).
+
+            const lineVec = new THREE.Vector2(Math.cos(angle), Math.sin(angle));
+            if (handVec.dot(lineVec) > 0) {
+                // User Feedback: Previous logic was reversed.
+                // If Hand aligns with Line, Hinge should be at End (Right).
+                isHingeAtStart = false;
+            } else {
+                // If Hand opposes Line, Hinge should be at Start (Left).
+                isHingeAtStart = true;
+            }
+        }
+
         const pivotGroup = new THREE.Group();
-        pivotGroup.position.set(-width / 2, 0, 0);
+        if (isHingeAtStart) {
+            pivotGroup.position.set(-width / 2, 0, 0); // Left Pivot
+        } else {
+            pivotGroup.position.set(width / 2, 0, 0); // Right Pivot
+        }
 
         const panelGeo = new THREE.BoxGeometry(panelWidth, panelThickness, height - frameThickness);
         const panelMat = this.materials.get('doorPanel');
         const panel = new THREE.Mesh(panelGeo, panelMat);
-        panel.position.set(panelWidth / 2, 0, height / 2);
-        this.enableLayers(panel);
 
+        // Panel position relative to pivot
+        if (isHingeAtStart) {
+            // Pivot Left. Panel extends Right. Center at +panelWidth/2
+            panel.position.set(panelWidth / 2, 0, height / 2);
+        } else {
+            // Pivot Right. Panel extends Left. Center at -panelWidth/2
+            panel.position.set(-panelWidth / 2, 0, height / 2);
+        }
+
+        this.enableLayers(panel);
         pivotGroup.add(panel);
 
-        let swingAngle = Math.PI / 2;
-        pivotGroup.rotation.z = swingAngle;
+        // 2. Determine Swing Direction
+        // Assumption: Open TOWARDS facingDirection.
+        // We need to check if facingDirection is "Up" (Local +Y) or "Down" (Local -Y) relative to the door line.
 
+        let openTowardsUp = true; // Default Open Up (Local +Y)
+        if (originalOp && originalOp.facingDirection) {
+            const faceVec = new THREE.Vector2(originalOp.facingDirection[0], originalOp.facingDirection[1]);
+            // Normal Vector (Local +Y) in World Coords
+            // Normal = (-sin(angle), cos(angle))
+            const normalVec = new THREE.Vector2(-Math.sin(angle), Math.cos(angle));
+
+            if (faceVec.dot(normalVec) < 0) {
+                openTowardsUp = false; // Facing Down
+            }
+        }
+
+        // Calculate Swing Angle
+        // If Hinge Left:
+        //   Open Up -> CCW (+90)
+        //   Open Down -> CW (-90)
+        // If Hinge Right:
+        //   Open Up -> CW (-90)
+        //   Open Down -> CCW (+90)
+
+        let swingAngle = 0;
+        let isCCW = true;
+
+        if (isHingeAtStart) { // Left Pivot
+            if (openTowardsUp) {
+                swingAngle = Math.PI / 2;
+                isCCW = true;
+            } else {
+                swingAngle = -Math.PI / 2;
+                isCCW = false;
+            }
+        } else { // Right Pivot
+            if (openTowardsUp) {
+                swingAngle = -Math.PI / 2;
+                isCCW = false;
+            } else {
+                swingAngle = Math.PI / 2;
+                isCCW = true;
+            }
+        }
+
+        pivotGroup.rotation.z = swingAngle;
         panelGroup.add(pivotGroup);
 
+        // Draw Arc
+        // Center: Pivot X
+        // Start Angle: 
+        //   Left Pivot (Start): 0
+        //   Right Pivot (End): PI
+        // End Angle: Start + Swing
+
+        const centerX = isHingeAtStart ? -width / 2 : width / 2;
+        const startAngle = isHingeAtStart ? 0 : Math.PI;
+
         const curve = new THREE.EllipseCurve(
-            -width / 2, 0,
+            centerX, 0,
             width, width,
-            0, swingAngle,
-            false,
+            startAngle, startAngle + swingAngle,
+            !isCCW, // EllipseCurve takes aClockwise (true=CW? No, usually false=CCW in Three.js? Wait.)
+            // Three.js EllipseCurve(..., aClockwise)
+            // aClockwise – Whether the ellipse is clockwise. Default is false (CCW).
+            // So if isCCW is true, aClockwise should be false.
             0
         );
 
@@ -465,20 +562,26 @@ export class SceneBuilder {
         aiPanelGroup.rotation.z = angle;
 
         const aiPivotGroup = new THREE.Group();
-        aiPivotGroup.position.set(-width / 2, 0, 0);
+        if (isHingeAtStart) {
+            aiPivotGroup.position.set(-width / 2, 0, 0);
+        } else {
+            aiPivotGroup.position.set(width / 2, 0, 0);
+        }
 
-        const aiPanel = new THREE.Mesh(panelGeo, aiFrameMat); // Use same material for simplicity or distinct if needed
-        aiPanel.position.set(panelWidth / 2, 0, height / 2);
+        const aiPanel = new THREE.Mesh(panelGeo, aiFrameMat);
+        if (isHingeAtStart) {
+            aiPanel.position.set(panelWidth / 2, 0, height / 2);
+        } else {
+            aiPanel.position.set(-panelWidth / 2, 0, height / 2);
+        }
         this.enableAiLayer(aiPanel);
 
         aiPivotGroup.add(aiPanel);
         aiPivotGroup.rotation.z = swingAngle;
         aiPanelGroup.add(aiPivotGroup);
 
-        // AI Vision Arc (Optional, maybe skip for AI?)
-        // Let's add it for completeness but maybe same color
-        const aiArc = new THREE.Line(geometry, this.materials.get('swingArc')); // Reuse swing arc material or new one?
-        // Let's use swingArc but ensure it's on AI layer
+        // AI Vision Arc
+        const aiArc = new THREE.Line(geometry, this.materials.get('swingArc'));
         const aiArcClone = aiArc.clone();
         aiArcClone.position.set(0, 0, 20);
         this.enableAiLayer(aiArcClone);
