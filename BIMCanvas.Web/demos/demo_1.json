@@ -1,7 +1,7 @@
 ﻿{
-  "id": "canvas_60b494e5ad1249a68da3f08039f2e0d8",
+  "id": "canvas_b0c25e46fc5d464aa843e1941e2b1f60",
   "projectName": "金凤127",
-  "exportDate": "2025-12-22T20:35:26.670101+08:00",
+  "exportDate": "2025-12-23T10:51:12.7050251+08:00",
   "version": 1,
   "coordinateSystem": "cartesian_mm_yUp",
   "revit": {
@@ -17,7 +17,7 @@
     },
     "walls": [
       {
-        "id": "wall_001",
+        "id": "w_1",
         "elementId": 431228,
         "polygon": [
           [
@@ -39,7 +39,7 @@
         ]
       },
       {
-        "id": "wall_002",
+        "id": "w_2",
         "elementId": 431286,
         "polygon": [
           [
@@ -61,7 +61,7 @@
         ]
       },
       {
-        "id": "wall_003",
+        "id": "w_3",
         "elementId": 431382,
         "polygon": [
           [
@@ -83,7 +83,7 @@
         ]
       },
       {
-        "id": "wall_004",
+        "id": "w_4",
         "elementId": 431434,
         "polygon": [
           [
@@ -105,7 +105,7 @@
         ]
       },
       {
-        "id": "wall_005",
+        "id": "w_5",
         "elementId": 431536,
         "polygon": [
           [
@@ -127,7 +127,7 @@
         ]
       },
       {
-        "id": "wall_006",
+        "id": "w_6",
         "elementId": 431591,
         "polygon": [
           [
@@ -149,7 +149,7 @@
         ]
       },
       {
-        "id": "wall_007",
+        "id": "w_7",
         "elementId": 431591,
         "polygon": [
           [
@@ -171,7 +171,7 @@
         ]
       },
       {
-        "id": "wall_008",
+        "id": "w_8",
         "elementId": 431763,
         "polygon": [
           [
@@ -193,7 +193,7 @@
         ]
       },
       {
-        "id": "wall_009",
+        "id": "w_9",
         "elementId": 431896,
         "polygon": [
           [
@@ -215,7 +215,7 @@
         ]
       },
       {
-        "id": "wall_010",
+        "id": "w_10",
         "elementId": 431896,
         "polygon": [
           [
@@ -237,7 +237,7 @@
         ]
       },
       {
-        "id": "wall_011",
+        "id": "w_11",
         "elementId": 431896,
         "polygon": [
           [
@@ -259,7 +259,7 @@
         ]
       },
       {
-        "id": "wall_012",
+        "id": "w_12",
         "elementId": 431932,
         "polygon": [
           [
@@ -281,7 +281,7 @@
         ]
       },
       {
-        "id": "wall_013",
+        "id": "w_13",
         "elementId": 432192,
         "polygon": [
           [
@@ -303,7 +303,7 @@
         ]
       },
       {
-        "id": "wall_014",
+        "id": "w_14",
         "elementId": 432192,
         "polygon": [
           [
@@ -325,7 +325,7 @@
         ]
       },
       {
-        "id": "wall_015",
+        "id": "w_15",
         "elementId": 432331,
         "polygon": [
           [
@@ -347,7 +347,7 @@
         ]
       },
       {
-        "id": "wall_016",
+        "id": "w_16",
         "elementId": 432331,
         "polygon": [
           [
@@ -369,7 +369,7 @@
         ]
       },
       {
-        "id": "wall_017",
+        "id": "w_17",
         "elementId": 432601,
         "polygon": [
           [
@@ -391,7 +391,7 @@
         ]
       },
       {
-        "id": "wall_018",
+        "id": "w_18",
         "elementId": 432601,
         "polygon": [
           [
@@ -413,7 +413,7 @@
         ]
       },
       {
-        "id": "wall_019",
+        "id": "w_19",
         "elementId": 432692,
         "polygon": [
           [
@@ -435,7 +435,7 @@
         ]
       },
       {
-        "id": "wall_020",
+        "id": "w_20",
         "elementId": 432802,
         "polygon": [
           [
@@ -457,7 +457,7 @@
         ]
       },
       {
-        "id": "wall_021",
+        "id": "w_21",
         "elementId": 432802,
         "polygon": [
           [
@@ -479,7 +479,7 @@
         ]
       },
       {
-        "id": "wall_022",
+        "id": "w_22",
         "elementId": 433019,
         "polygon": [
           [
@@ -501,7 +501,7 @@
         ]
       },
       {
-        "id": "wall_023",
+        "id": "w_23",
         "elementId": 433169,
         "polygon": [
           [
@@ -523,7 +523,7 @@
         ]
       },
       {
-        "id": "wall_024",
+        "id": "w_24",
         "elementId": 433169,
         "polygon": [
           [
@@ -545,7 +545,7 @@
         ]
       },
       {
-        "id": "wall_025",
+        "id": "w_25",
         "elementId": 433169,
         "polygon": [
           [
@@ -567,7 +567,7 @@
         ]
       },
       {
-        "id": "wall_026",
+        "id": "w_26",
         "elementId": 433169,
         "polygon": [
           [
@@ -589,7 +589,7 @@
         ]
       },
       {
-        "id": "wall_027",
+        "id": "w_27",
         "elementId": 433373,
         "polygon": [
           [
@@ -611,7 +611,7 @@
         ]
       },
       {
-        "id": "wall_028",
+        "id": "w_28",
         "elementId": 433581,
         "polygon": [
           [
@@ -633,7 +633,7 @@
         ]
       },
       {
-        "id": "wall_029",
+        "id": "w_29",
         "elementId": 433581,
         "polygon": [
           [
@@ -655,7 +655,7 @@
         ]
       },
       {
-        "id": "wall_030",
+        "id": "w_30",
         "elementId": 433581,
         "polygon": [
           [
@@ -677,7 +677,7 @@
         ]
       },
       {
-        "id": "wall_031",
+        "id": "w_31",
         "elementId": 433707,
         "polygon": [
           [
@@ -699,7 +699,7 @@
         ]
       },
       {
-        "id": "wall_032",
+        "id": "w_32",
         "elementId": 433795,
         "polygon": [
           [
@@ -721,7 +721,7 @@
         ]
       },
       {
-        "id": "wall_033",
+        "id": "w_33",
         "elementId": 433874,
         "polygon": [
           [
@@ -743,7 +743,7 @@
         ]
       },
       {
-        "id": "wall_034",
+        "id": "w_34",
         "elementId": 433933,
         "polygon": [
           [
@@ -765,7 +765,7 @@
         ]
       },
       {
-        "id": "wall_035",
+        "id": "w_35",
         "elementId": 434041,
         "polygon": [
           [
@@ -787,7 +787,7 @@
         ]
       },
       {
-        "id": "wall_036",
+        "id": "w_36",
         "elementId": 434333,
         "polygon": [
           [
@@ -809,7 +809,7 @@
         ]
       },
       {
-        "id": "wall_037",
+        "id": "w_37",
         "elementId": 434388,
         "polygon": [
           [
@@ -831,7 +831,7 @@
         ]
       },
       {
-        "id": "wall_038",
+        "id": "w_38",
         "elementId": 434613,
         "polygon": [
           [
@@ -853,7 +853,7 @@
         ]
       },
       {
-        "id": "wall_039",
+        "id": "w_39",
         "elementId": 434613,
         "polygon": [
           [
@@ -875,7 +875,7 @@
         ]
       },
       {
-        "id": "wall_040",
+        "id": "w_40",
         "elementId": 434698,
         "polygon": [
           [
@@ -897,7 +897,7 @@
         ]
       },
       {
-        "id": "wall_041",
+        "id": "w_41",
         "elementId": 434803,
         "polygon": [
           [
@@ -919,7 +919,7 @@
         ]
       },
       {
-        "id": "wall_042",
+        "id": "w_42",
         "elementId": 434803,
         "polygon": [
           [
@@ -941,7 +941,7 @@
         ]
       },
       {
-        "id": "wall_043",
+        "id": "w_43",
         "elementId": 435405,
         "polygon": [
           [
@@ -963,7 +963,7 @@
         ]
       },
       {
-        "id": "wall_044",
+        "id": "w_44",
         "elementId": 435483,
         "polygon": [
           [
@@ -985,7 +985,7 @@
         ]
       },
       {
-        "id": "wall_045",
+        "id": "w_45",
         "elementId": 435483,
         "polygon": [
           [
@@ -1007,7 +1007,7 @@
         ]
       },
       {
-        "id": "wall_046",
+        "id": "w_46",
         "elementId": 435703,
         "polygon": [
           [
@@ -1029,7 +1029,7 @@
         ]
       },
       {
-        "id": "wall_047",
+        "id": "w_47",
         "elementId": 435958,
         "polygon": [
           [
@@ -1051,7 +1051,7 @@
         ]
       },
       {
-        "id": "wall_048",
+        "id": "w_48",
         "elementId": 436005,
         "polygon": [
           [
@@ -1073,7 +1073,7 @@
         ]
       },
       {
-        "id": "wall_049",
+        "id": "w_49",
         "elementId": 436065,
         "polygon": [
           [
@@ -1095,7 +1095,7 @@
         ]
       },
       {
-        "id": "wall_050",
+        "id": "w_50",
         "elementId": 436221,
         "polygon": [
           [
@@ -1120,7 +1120,7 @@
     "columns": [],
     "openings": [
       {
-        "id": "d001",
+        "id": "d_1",
         "type": 0,
         "line": [
           [
@@ -1144,7 +1144,7 @@
         ]
       },
       {
-        "id": "d002",
+        "id": "d_2",
         "type": 0,
         "line": [
           [
@@ -1168,7 +1168,7 @@
         ]
       },
       {
-        "id": "d003",
+        "id": "d_3",
         "type": 0,
         "line": [
           [
@@ -1192,7 +1192,7 @@
         ]
       },
       {
-        "id": "d004",
+        "id": "d_4",
         "type": 0,
         "line": [
           [
@@ -1216,7 +1216,7 @@
         ]
       },
       {
-        "id": "d005",
+        "id": "d_5",
         "type": 0,
         "line": [
           [
@@ -1240,7 +1240,7 @@
         ]
       },
       {
-        "id": "d006",
+        "id": "d_6",
         "type": 0,
         "line": [
           [
@@ -1264,7 +1264,7 @@
         ]
       },
       {
-        "id": "d007",
+        "id": "d_7",
         "type": 0,
         "line": [
           [
@@ -1288,7 +1288,7 @@
         ]
       },
       {
-        "id": "win001",
+        "id": "wi_1",
         "type": 1,
         "line": [
           [
@@ -1306,7 +1306,7 @@
         ]
       },
       {
-        "id": "win002",
+        "id": "wi_2",
         "type": 1,
         "line": [
           [
@@ -1324,7 +1324,7 @@
         ]
       },
       {
-        "id": "win003",
+        "id": "wi_3",
         "type": 1,
         "line": [
           [
@@ -1342,7 +1342,7 @@
         ]
       },
       {
-        "id": "win004",
+        "id": "wi_4",
         "type": 1,
         "line": [
           [
@@ -1360,7 +1360,7 @@
         ]
       },
       {
-        "id": "win005",
+        "id": "wi_5",
         "type": 1,
         "line": [
           [
@@ -1378,7 +1378,7 @@
         ]
       },
       {
-        "id": "win006",
+        "id": "wi_6",
         "type": 1,
         "line": [
           [
@@ -1396,7 +1396,7 @@
         ]
       },
       {
-        "id": "win007",
+        "id": "wi_7",
         "type": 1,
         "line": [
           [
@@ -1414,7 +1414,7 @@
         ]
       },
       {
-        "id": "win008",
+        "id": "wi_8",
         "type": 1,
         "line": [
           [
@@ -1434,7 +1434,7 @@
     ],
     "finishLocationBoundaries": [
       {
-        "id": "wf_001",
+        "id": "wf_1",
         "elementIds": [
           431228,
           431286,
@@ -1510,7 +1510,7 @@
         ]
       },
       {
-        "id": "wf_002",
+        "id": "wf_2",
         "elementIds": [
           431763,
           431896,
@@ -1745,7 +1745,7 @@
     ],
     "rooms": [
       {
-        "id": "room_001",
+        "id": "r_1",
         "name": "次卧一",
         "type": 3,
         "boundary": [
@@ -1776,7 +1776,7 @@
         ]
       },
       {
-        "id": "room_002",
+        "id": "r_2",
         "name": "次卧二",
         "type": 3,
         "boundary": [
@@ -1803,7 +1803,7 @@
         ]
       },
       {
-        "id": "room_003",
+        "id": "r_3",
         "name": "主卧",
         "type": 2,
         "boundary": [
@@ -1838,7 +1838,7 @@
         ]
       },
       {
-        "id": "room_004",
+        "id": "r_4",
         "name": "主卫",
         "type": 6,
         "boundary": [
@@ -1873,9 +1873,9 @@
         ]
       },
       {
-        "id": "room_005",
+        "id": "r_5",
         "name": "公卫",
-        "type": 6,
+        "type": 5,
         "boundary": [
           [
             11099.997897093279,
@@ -1908,7 +1908,7 @@
         ]
       },
       {
-        "id": "room_006",
+        "id": "r_6",
         "name": "公共空间",
         "type": 0,
         "boundary": [

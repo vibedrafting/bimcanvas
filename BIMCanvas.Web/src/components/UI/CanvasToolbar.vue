@@ -44,13 +44,6 @@ const toggleLayer = (layerId: number) => {
 const dispatchAction = (action: 'rotate' | 'delete' | 'move') => {
   window.dispatchEvent(new CustomEvent(`bimcanvas:action-${action}`));
 };
-
-const handleLoadDemo = async (type: 'basic' | 'proposal') => {
-  const url = type === 'basic' 
-    ? '/demo/basic_structure.json' 
-    : '/demo/layout_proposal.json';
-  await store.loadDemoData(url);
-};
 </script>
 
 <template>
@@ -61,13 +54,6 @@ const handleLoadDemo = async (type: 'basic' | 'proposal') => {
     </div>
     
     <div class="actions">
-      <GlassButton @click="handleLoadDemo('basic')" :disabled="store.isLoading">
-        Load Room
-      </GlassButton>
-      <GlassButton @click="handleLoadDemo('proposal')" :disabled="store.isLoading">
-        Load Proposal
-      </GlassButton>
-      
       <div class="view-controls">
         <div class="layer-manager">
           <GlassButton 
@@ -240,13 +226,6 @@ const toggleLayer = (layerId: number) => {
 const dispatchAction = (action: 'rotate' | 'delete' | 'move') => {
   window.dispatchEvent(new CustomEvent(`bimcanvas:action-${action}`));
 };
-
-const handleLoadDemo = async (type: 'basic' | 'proposal') => {
-  const url = type === 'basic' 
-    ? '/demo/basic_structure.json' 
-    : '/demo/layout_proposal.json';
-  await store.loadDemoData(url);
-};
 </script>
 
 <template>
@@ -257,13 +236,6 @@ const handleLoadDemo = async (type: 'basic' | 'proposal') => {
     </div>
     
     <div class="actions">
-      <GlassButton @click="handleLoadDemo('basic')" :disabled="store.isLoading">
-        Load Room
-      </GlassButton>
-      <GlassButton @click="handleLoadDemo('proposal')" :disabled="store.isLoading">
-        Load Proposal
-      </GlassButton>
-      
       <div class="view-controls">
         <div class="layer-manager">
           <GlassButton 
