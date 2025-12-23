@@ -114,11 +114,13 @@ export class ThreeSceneService {
         this.labelBuilder = new LabelBuilder(this.scene);
         this.zoneBuilder = new ZoneBuilder(this.scene);
 
-        // Initial Demo Scene
-        if (!this.store.document) {
-            this.sceneBuilder.buildDemoScene();
-            this.gridBuilder.buildGrid();
-        }
+        // Initial Demo Scene - REMOVED to prevent flash
+        // if (!this.store.document) {
+        //     this.sceneBuilder.buildDemoScene();
+        //     this.gridBuilder.buildGrid();
+        // }
+        // Always build grid initially
+        this.gridBuilder.buildGrid();
 
         // 7. Watch for Store Changes
 
@@ -264,7 +266,7 @@ export class ThreeSceneService {
             this.zoneBuilder.buildZones(doc);
             this.gridBuilder.buildGrid();
         } else {
-            this.sceneBuilder.buildDemoScene();
+            // this.sceneBuilder.buildDemoScene(); // REMOVED
             this.gridBuilder.buildGrid();
         }
     }
