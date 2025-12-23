@@ -230,14 +230,21 @@ export class GhostManager {
      * 设置旋转角度（用于旋转预览）
      * 必须先调用 setPivot
      *
-     * 坐标系说明：
-     * - Three.js 俯视图：Z+ 向下（屏幕下方）
-     * - 用户顺时针拖动：角度增加（从 X+ 向 Z+）
-     * - rotation.y 正值：逆时针旋转（从 +Y 向下看）
-     * - 需要取反以匹配用户拖动方向
+     * ⚠️ 角度语义：交互角（CW+）
+     *
+     * @param rotation 交互角（弧度），来自 atan2(z, x)，顺时针为正
+     *
+     * 内部转换：
+     * - 输入：CW+ 交互角（用户顺时针拖动 → 正值）
+     * - Three.js rotation.y：CCW+（从 +Y 向下看，正值逆时针）
+     * - 转换：rotation.y = -rotation（CW+ → CCW-，即顺时针显示）
+     *
+     * 与 executeRotate() 的一致性：
+     * - 两者都对交互角取反，确保预览和结果方向一致
      */
     public setRotation(rotation: number) {
         for (const [_id, ghostGroup] of this.ghostGroups) {
+            // CW+ 交互角 → CCW- Three.js 角度（顺时针显示）
             ghostGroup.rotation.y = -rotation;
 
             // 强制更新矩阵（让 Three.js 渲染时使用新的变换）

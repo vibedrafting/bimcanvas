@@ -143,12 +143,34 @@ export function boundsCenterToWorld(bounds: Polygon2D, height: number = 0): THRE
 // ============================================================
 // 旋转计算
 // ============================================================
+//
+// ⚠️ 角度语义系统说明（重要）
+//
+// 本文件中的旋转函数使用【数据模型角】语义：
+// - 正方向：CCW（逆时针）为正
+// - 零度方向：+Y 轴（北方）
+// - 坐标系：2D 平面，Y 轴向上
+//
+// 与其他角度系统的关系：
+// | 系统 | 正方向 | 转换方式 |
+// |------|--------|----------|
+// | 交互角（atan2(z,x)）| CW+ | 取反后传入 |
+// | Three.js rotation.y | CCW+ | 取反后传入 |
+// | 用户输入（度数） | CCW+ | 直接使用 |
+//
+// 详见 BIMCanvas.Web/README.md "角度语义系统" 章节
+// ============================================================
 
 /**
  * 在 2D 数据坐标系中绕中心点旋转一个点
+ *
+ * ⚠️ 角度语义：数据模型角（CCW+）
+ * - 正值 = 逆时针旋转
+ * - 负值 = 顺时针旋转
+ *
  * @param point 要旋转的点 [x, y]
  * @param center 旋转中心 [cx, cy]
- * @param angleRad 旋转角度（弧度，逆时针为正）
+ * @param angleRad 旋转角度（弧度，逆时针/CCW 为正）
  * @returns 旋转后的点 [x', y']
  */
 export function rotatePoint2D(
@@ -183,8 +205,11 @@ export function rotatePolygon2D(
 
 /**
  * 旋转 2D 方向向量
+ *
+ * ⚠️ 角度语义：数据模型角（CCW+）
+ *
  * @param facing 方向向量 [vx, vy]（单位向量）
- * @param angleRad 旋转角度（弧度，逆时针为正）
+ * @param angleRad 旋转角度（弧度，逆时针/CCW 为正）
  * @returns 旋转后的方向向量 [vx', vy']
  */
 export function rotateFacing2D(facing: Point2D, angleRad: number): Point2D {

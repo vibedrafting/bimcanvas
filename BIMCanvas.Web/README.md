@@ -219,5 +219,95 @@ private createOutlineFromBounds(bounds: [number, number][]): THREE.LineLoop {
 
 > 相关文件: `src/services/interaction/GhostManager.ts`
 
+### 角度语义系统：三套坐标系的统一规范 ⚠️ 重要
+
+**问题背景**：2025-12-23 修复旋转命令方向 bug 时，发现项目中存在三套不同的角度语义系统，混用会导致"预览正确、结果相反"等难以排查的问题。
+
+#### 三套角度语义定义
+
+| 角度类型 | 正方向 | 定义来源 | 代码位置 |
+|----------|--------|----------|----------|
+| **数据模型角** | CCW（逆时针）+ | 2D 坐标系 Y 向上 | `coordinates.ts` 第 4, 147 行 |
+| **交互角** | CW（顺时针）+ | `atan2(vector.z, vector.x)` | `RotateTool.ts` 第 311, 345 行 |
+| **Three.js 旋转** | CCW（逆时针）+ | `rotation.y`（从 +Y 向下看） | Three.js 约定 |
+
+#### 语义分裂的根源
+
+**关键映射**：`Data(x, y) → World(x, 0, -y)`（`coordinates.ts` 第 33 行）
+
+```
+这个 y → -z 本质是镜像操作，会翻转 CCW/CW！
+
+用户在 3D 俯视图中：
+- "向下"对应 World +Z
+- 顺时针拖动时 atan2(z, x) 角度差为正（CW+）
+
+但数据模型期望：
+- rotatePoint2D() 期望 CCW+ 的输入
+- 正角度应该是逆时针旋转
+```
+
+#### 各链路的角度处理规范
+
+```
+用户顺时针拖动（假设起始在 +X，拖到 +Z）
+    ↓
+startAngle = 0, endAngle ≈ +π/2
+deltaRotation = +(π/2)  ← 这是 CW+ 交互角
+    ↓
+┌─────────────────────────────────────────────────────────────┐
+│ Ghost 预览链路                                               │
+│ GhostManager.setRotation(delta)                             │
+│ → rotation.y = -delta = -π/2                                │
+│ → Three.js 中 -π/2 从上往下看是顺时针 ✓                       │
+└─────────────────────────────────────────────────────────────┘
+┌─────────────────────────────────────────────────────────────┐
+│ 数据更新链路                                                 │
+│ executeRotate() 中 deltaRotation = -delta = -π/2            │
+│ → rotatePoint2D(..., -π/2)                                  │
+│ → 2D 数学中 -π/2 是 CW（顺时针）✓                            │
+└─────────────────────────────────────────────────────────────┘
+```
+
+#### 开发指导原则
+
+| 场景 | 正确做法 | 错误做法 |
+|------|----------|----------|
+| 从 `atan2(z, x)` 获取角度 | 视为交互角（CW+），传给数据层前取反 | 直接当模型角使用 |
+| 用户输入角度（度数） | 视为模型角（CCW+），需要补偿其他取反 | 直接与交互角相加 |
+| 调用 `GhostManager.setRotation()` | 传入交互角，内部已取反 | 传入已取反的角度 |
+| 调用 `rotatePoint2D()` | 传入模型角（CCW+） | 传入未转换的交互角 |
+
+#### 代码示例
+
+```typescript
+// ✗ 错误：直接使用交互角作为模型角
+const deltaRotation = endAngle - this.startAngle;  // CW+
+rotatePoint2D(point, center, deltaRotation);       // 期望 CCW+，实际 CW+
+
+// ✓ 正确：交互角转换为模型角
+const deltaRotation = -(endAngle - this.startAngle);  // CW+ → CCW-（即顺时针）
+rotatePoint2D(point, center, deltaRotation);          // CCW- 实现顺时针旋转
+
+// ✓ 正确：用户输入处理
+const radians = degrees * Math.PI / 180;  // 用户输入是模型角语义
+const endAngle = this.startAngle - radians;  // 补偿 executeRotate 的取反
+```
+
+#### 历史教训
+
+| 提交 | 问题 | 后果 |
+|------|------|------|
+| `88faf08` | 移除 `executeRotate()` 取反，注释写"与 Ghost 保持一致" | 预览对、结果反 |
+| `d5f80d7` | 恢复取反，补充完整注释 | ✓ 修复 |
+
+> **核心原则**：任何涉及角度的代码修改，必须明确标注该角度属于哪套语义系统，以及是否需要转换。
+>
+> 相关文件:
+> - `src/services/interaction/tools/RotateTool.ts` - 旋转命令
+> - `src/services/interaction/GhostManager.ts` - Ghost 预览
+> - `src/utils/coordinates.ts` - 坐标转换与旋转函数
+> - `reports/BUG_RotateDirection/BUG_RotateDirection_20251223.md` - 完整问题报告
+
 ---
-*文档最后更新时间: 2025-12-22*
+*文档最后更新时间: 2025-12-23*
