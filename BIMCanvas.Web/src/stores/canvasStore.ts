@@ -76,7 +76,9 @@ export const useCanvasStore = defineStore('canvas', () => {
         const opening = revit?.openings?.find((o: any) => o.id === id);
         if (opening) {
             debug.success(`[Store] findObjectById: found in openings`);
-            return { ...opening, type: opening.type || 'opening' };
+            // opening.type 是数字：0=door, 1=window
+            const typeName = opening.type === 0 ? 'door' : 'window';
+            return { ...opening, type: typeName };
         }
 
         // 列出所有可用 ID 帮助调试
