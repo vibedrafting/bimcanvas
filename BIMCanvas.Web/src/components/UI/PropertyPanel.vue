@@ -227,9 +227,11 @@ const properties = computed(() => {
         .prop-row {
             display: flex;
             justify-content: space-between;
+            align-items: flex-start; /* Align to top for multi-line text */
             font-size: 0.9rem;
-            padding: 0.25rem 0;
+            padding: 0.5rem 0; /* Increase padding for better readability */
             border-bottom: 1px solid var(--border-subtle);
+            gap: 12px; /* Consistent gap */
 
             &:last-child {
                 border-bottom: none;
@@ -237,18 +239,25 @@ const properties = computed(() => {
 
             .label {
                 color: var(--text-secondary);
+                flex-shrink: 0; /* Prevent label from shrinking */
+                max-width: 40%; /* Limit label width */
+                word-break: break-word; /* Allow label to wrap if really long */
+                line-height: 1.4;
+                padding-top: 2px; /* Align with value text */
             }
 
             .value-input {
                 background: var(--surface-solid);
                 border: 1px solid var(--border-strong);
                 color: var(--text-primary);
-                text-align: right;
-                max-width: 60%;
-                padding: 2px 4px;
+                text-align: left; /* Align left for better readability of long text */
+                flex: 1; /* Take remaining space */
+                min-width: 0; /* Allow flex item to shrink below content size */
+                padding: 4px 6px;
                 border-radius: 4px;
                 font-family: inherit;
                 font-size: inherit;
+                line-height: 1.4;
 
                 &:focus {
                     outline: none;
@@ -260,11 +269,12 @@ const properties = computed(() => {
             .value.readonly {
                 color: var(--text-secondary);
                 font-style: italic;
-                text-align: right;
-                max-width: 60%;
-                overflow: hidden;
-                text-overflow: ellipsis;
-                white-space: nowrap;
+                text-align: right; /* Keep right alignment for short values, looks better */
+                flex: 1; /* Take remaining space */
+                min-width: 0; /* Allow flex item to shrink below content size */
+                white-space: pre-wrap; /* Allow wrapping */
+                word-break: break-word; /* Break long words */
+                line-height: 1.4;
             }
         }
     }
