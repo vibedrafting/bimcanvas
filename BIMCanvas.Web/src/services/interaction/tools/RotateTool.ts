@@ -436,7 +436,12 @@ export class RotateTool implements Tool {
 
     /**
      * 根据输入的精确角度执行旋转
-     * @param degrees 旋转角度（度数，正值逆时针）
+     * @param degrees 旋转角度（度数，正值逆时针/CCW）
+     *
+     * 坐标系说明：
+     * - 用户输入的角度是模型坐标系语义（CCW+）
+     * - startAngle 是交互坐标系语义（CW+，来自 atan2(z, x)）
+     * - 需要对 radians 取反来匹配 executeRotate 的取反逻辑
      */
     private applyNumericRotate(degrees: number): void {
         if (!this.centerPoint || this.startAngle === null) return;
@@ -444,8 +449,10 @@ export class RotateTool implements Tool {
         // 度数转弧度
         const radians = degrees * Math.PI / 180;
 
-        // 计算终止角度（从起始角度加上用户输入的旋转量）
-        const endAngle = this.startAngle + radians;
+        // 计算终止角度
+        // 注意：startAngle 是交互角(CW+)，用户输入是模型角(CCW+)
+        // 取反 radians 以补偿 executeRotate 中的取反
+        const endAngle = this.startAngle - radians;
 
         // 构造虚拟终点来调用 executeRotate
         const virtualEndPoint = new THREE.Vector3(

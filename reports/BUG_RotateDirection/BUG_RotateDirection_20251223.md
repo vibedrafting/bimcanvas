@@ -165,5 +165,50 @@ feat: Revit风格交互增强 - 键盘数值输入 + 临时标注
 
 ---
 
+## 修复记录
+
+**修复日期**: 2025-12-23
+**修复策略**: 恢复交互角到模型角的转换逻辑
+
+### 修改 1: `executeRotate()` 恢复取反
+
+**文件**: `BIMCanvas.Web/src/services/interaction/tools/RotateTool.ts`
+**位置**: 第 465-467 行
+
+```typescript
+// 修复前
+const deltaRotation = endAngle - this.startAngle;
+
+// 修复后
+// 交互角(CW+) 需要取反转换为 模型角(CCW+)
+// GhostManager.setRotation() 内部也做了取反，所以预览和结果方向一致
+const deltaRotation = -(endAngle - this.startAngle);
+```
+
+### 修改 2: `applyNumericRotate()` 适配取反逻辑
+
+**文件**: `BIMCanvas.Web/src/services/interaction/tools/RotateTool.ts`
+**位置**: 第 446-465 行
+
+```typescript
+// 修复前
+const endAngle = this.startAngle + radians;
+
+// 修复后
+// 注意：startAngle 是交互角(CW+)，用户输入是模型角(CCW+)
+// 取反 radians 以补偿 executeRotate 中的取反
+const endAngle = this.startAngle - radians;
+```
+
+### 修复原理
+
+1. `executeRotate()` 中的 `deltaRotation` 来自 `atan2(z, x)`，是交互角（CW+）
+2. `GhostManager.setRotation()` 对输入取反：`rotation.y = -rotation`
+3. `rotatePoint2D()` 期望模型角（CCW+）
+4. 为保持预览和结果一致，`executeRotate()` 也需要取反
+5. `applyNumericRotate()` 用户输入的是模型角（CCW+），需要补偿 `executeRotate()` 的取反
+
+---
+
 **报告人**: Claude Code
-**调查方法**: Git 历史追溯 + 代码静态分析
+**调查方法**: Git 历史追溯 + 代码静态分析 + Codex 深入分析
