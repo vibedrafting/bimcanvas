@@ -1,20 +1,14 @@
 # BIMCanvas
 
-## 插件端
+### Server
 
-### SVG转换器
+- 新增 semanticToVector 函数（coordinates.ts）将语义朝向字符串转换为单位向量，这部分不应该是web的职责
 
 
 
 ### 模块库
 
 - [ ] 上传器新增生成SVG缩略图的功能
-
-
-
-## AI端
-
-### CLI
 
 
 
