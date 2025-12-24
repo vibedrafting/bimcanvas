@@ -1,0 +1,18 @@
+{
+  "id": "s2_Derived",
+  "name": "北欧风格衍生策略",
+  "approach": "style_variation",
+  "description": "基于动线优先策略衍生，更换为北欧风格家具和完成面",
+  "createdAt": "2025-12-24T14:00:00Z",
+  "updatedAt": "2025-12-24T21:30:00Z",
+  "origin": {
+    "sourceStrategyId": "s1_Flow",
+    "sourceRepo": "./schemes/s1_Flow",
+    "sourceBranch": "main",
+    "sourceCommit": "abc123def456",
+    "derivedAt": "2025-12-24T14:00:00Z",
+    "derivationReason": "用户喜欢动线分区，但想换成北欧风格"
+  },
+  "lastValidatedBaselineHash": "sha256:a1b2c3d4e5f6789012345678901234567890abcd",
+  "status": "valid"
+}

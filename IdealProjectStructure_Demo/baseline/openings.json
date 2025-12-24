@@ -1,0 +1,27 @@
+{
+  "openings": [
+    {
+      "id": "o1",
+      "elementId": 200001,
+      "type": "door",
+      "wallId": "w1",
+      "line": [[1000, 0], [1900, 0]],
+      "width": 900,
+      "height": 2100,
+      "facingDirection": [0, 1],
+      "handDirection": [1, 0],
+      "openingType": "single_swing"
+    },
+    {
+      "id": "o2",
+      "elementId": 200002,
+      "type": "window",
+      "wallId": "w3",
+      "line": [[1000, 3800], [3000, 3800]],
+      "width": 2000,
+      "height": 1500,
+      "sillHeight": 900,
+      "facingDirection": [0, -1]
+    }
+  ]
+}

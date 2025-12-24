@@ -1,0 +1,79 @@
+{
+  "modules": [
+    {
+      "id": "m1",
+      "moduleId": "bed_modern_1800",
+      "moduleName": "现代双人床 1.8m",
+      "zoneId": "z1",
+      "bounds": [[600, 400], [2400, 400], [2400, 2400], [600, 2400]],
+      "facing": "north",
+      "items": [
+        {
+          "familyId": "fam_bed_001",
+          "familyName": "现代双人床",
+          "offset": [0, 0],
+          "rotation": 0,
+          "role": "主体"
+        },
+        {
+          "familyId": "fam_nightstand_001",
+          "familyName": "床头柜",
+          "offset": [-550, 200],
+          "rotation": 0,
+          "role": "左床头柜"
+        },
+        {
+          "familyId": "fam_nightstand_001",
+          "familyName": "床头柜",
+          "offset": [550, 200],
+          "rotation": 0,
+          "role": "右床头柜"
+        }
+      ],
+      "placementReason": "床头靠北墙居中，与背景墙对齐"
+    },
+    {
+      "id": "m2",
+      "moduleId": "wardrobe_custom_2400",
+      "moduleName": "定制衣柜 2.4m",
+      "zoneId": "z2",
+      "bounds": [[3100, 300], [4700, 300], [4700, 900], [3100, 900]],
+      "facing": "west",
+      "items": [
+        {
+          "familyId": "fam_wardrobe_001",
+          "familyName": "推拉门衣柜",
+          "offset": [0, 0],
+          "rotation": 0,
+          "role": "主体"
+        }
+      ],
+      "placementReason": "贴东墙放置，最大化收纳空间"
+    },
+    {
+      "id": "m3",
+      "moduleId": "dresser_modern_001",
+      "moduleName": "现代梳妆台",
+      "zoneId": "z2",
+      "bounds": [[3100, 2800], [4000, 2800], [4000, 3400], [3100, 3400]],
+      "facing": "west",
+      "items": [
+        {
+          "familyId": "fam_dresser_001",
+          "familyName": "梳妆台",
+          "offset": [0, 0],
+          "rotation": 0,
+          "role": "主体"
+        },
+        {
+          "familyId": "fam_stool_001",
+          "familyName": "梳妆凳",
+          "offset": [0, -400],
+          "rotation": 0,
+          "role": "配套凳"
+        }
+      ],
+      "placementReason": "靠窗采光好，方便化妆"
+    }
+  ]
+}

@@ -1,0 +1,9 @@
+# BIMCanvas Project .gitignore
+
+# Assets (screenshots, renders)
+Assets/
+
+# Derived cache (can be regenerated)
+derived/
+
+# Scheme-level ignores are in each scheme folder

@@ -1,0 +1,97 @@
+{
+  "modules": [
+    {
+      "id": "m1",
+      "moduleId": "bed_nordic_1800",
+      "moduleName": "北欧实木双人床 1.8m",
+      "zoneId": "z1",
+      "bounds": [[600, 400], [2400, 400], [2400, 2400], [600, 2400]],
+      "facing": "north",
+      "items": [
+        {
+          "familyId": "fam_bed_nordic_001",
+          "familyName": "北欧实木床",
+          "offset": [0, 0],
+          "rotation": 0,
+          "role": "主体"
+        },
+        {
+          "familyId": "fam_nightstand_nordic_001",
+          "familyName": "北欧床头柜",
+          "offset": [-550, 200],
+          "rotation": 0,
+          "role": "左床头柜"
+        },
+        {
+          "familyId": "fam_nightstand_nordic_001",
+          "familyName": "北欧床头柜",
+          "offset": [550, 200],
+          "rotation": 0,
+          "role": "右床头柜"
+        }
+      ],
+      "placementReason": "位置继承自 s1_Flow，更换北欧风格家具"
+    },
+    {
+      "id": "m2",
+      "moduleId": "wardrobe_nordic_2400",
+      "moduleName": "北欧白色衣柜 2.4m",
+      "zoneId": "z2",
+      "bounds": [[3100, 300], [4700, 300], [4700, 900], [3100, 900]],
+      "facing": "west",
+      "items": [
+        {
+          "familyId": "fam_wardrobe_nordic_001",
+          "familyName": "北欧对开门衣柜",
+          "offset": [0, 0],
+          "rotation": 0,
+          "role": "主体"
+        }
+      ],
+      "placementReason": "位置继承自 s1_Flow，更换北欧风格衣柜"
+    },
+    {
+      "id": "m3",
+      "moduleId": "dresser_nordic_001",
+      "moduleName": "北欧梳妆台",
+      "zoneId": "z2",
+      "bounds": [[3100, 2800], [4000, 2800], [4000, 3400], [3100, 3400]],
+      "facing": "west",
+      "items": [
+        {
+          "familyId": "fam_dresser_nordic_001",
+          "familyName": "北欧梳妆台",
+          "offset": [0, 0],
+          "rotation": 0,
+          "role": "主体"
+        },
+        {
+          "familyId": "fam_stool_nordic_001",
+          "familyName": "北欧圆凳",
+          "offset": [0, -400],
+          "rotation": 0,
+          "role": "配套凳"
+        }
+      ],
+      "placementReason": "位置继承自 s1_Flow，更换北欧风格梳妆台"
+    },
+    {
+      "id": "m4",
+      "moduleId": "plant_nordic_001",
+      "moduleName": "北欧绿植角",
+      "zoneId": "z3",
+      "bounds": [[300, 2600], [600, 2600], [600, 2900], [300, 2900]],
+      "facing": "south",
+      "items": [
+        {
+          "familyId": "fam_plant_001",
+          "familyName": "龟背竹盆栽",
+          "offset": [0, 0],
+          "rotation": 0,
+          "role": "装饰"
+        }
+      ],
+      "placementReason": "北欧风格特色：通道区增加绿植点缀"
+    }
+  ]
+}

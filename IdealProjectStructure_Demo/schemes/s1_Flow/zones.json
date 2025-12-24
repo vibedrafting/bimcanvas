@@ -1,0 +1,47 @@
+{
+  "zones": [
+    {
+      "id": "z1",
+      "name": "睡眠区",
+      "type": "designable",
+      "roomId": "room1",
+      "tags": ["sleep", "bedhead_wall"],
+      "rawBoundary": [[200, 200], [3000, 200], [3000, 2500], [200, 2500]],
+      "computedBoundary": [[250, 250], [2950, 250], [2950, 2450], [250, 2450]],
+      "exclusionAreas": [],
+      "openings": [],
+      "reason": "根据床头靠北墙原则划分，避开南向窗户晨光直射"
+    },
+    {
+      "id": "z2",
+      "name": "衣帽间区",
+      "type": "designable",
+      "roomId": "room1",
+      "tags": ["wardrobe", "storage"],
+      "rawBoundary": [[3000, 200], [4800, 200], [4800, 3800], [3000, 3800]],
+      "computedBoundary": [[3050, 250], [4750, 250], [4750, 3750], [3050, 3750]],
+      "exclusionAreas": [
+        {
+          "id": "ex1",
+          "type": "column",
+          "polygon": [[2400, 1900], [2600, 1900], [2600, 2100], [2400, 2100]],
+          "reason": "结构柱禁区"
+        }
+      ],
+      "openings": [],
+      "reason": "利用东墙整面做衣柜，满足用户独立衣帽间需求"
+    },
+    {
+      "id": "z3",
+      "name": "通道区",
+      "type": "circulation",
+      "roomId": "room1",
+      "tags": ["passage", "main_circulation"],
+      "rawBoundary": [[200, 2500], [3000, 2500], [3000, 3800], [200, 3800]],
+      "computedBoundary": [[250, 2550], [2950, 2550], [2950, 3750], [250, 3750]],
+      "exclusionAreas": [],
+      "openings": ["o1", "o2"],
+      "reason": "连接门窗的主要通道，保证老人通行宽敞"
+    }
+  ]
+}

@@ -1,0 +1,40 @@
+{
+  "walls": [
+    {
+      "id": "w1",
+      "elementId": 100001,
+      "thickness": 200,
+      "isStructural": false,
+      "polygon": [[0, 0], [5000, 0], [5000, 200], [0, 200]]
+    },
+    {
+      "id": "w2",
+      "elementId": 100002,
+      "thickness": 200,
+      "isStructural": false,
+      "polygon": [[4800, 0], [5000, 0], [5000, 4000], [4800, 4000]]
+    },
+    {
+      "id": "w3",
+      "elementId": 100003,
+      "thickness": 200,
+      "isStructural": false,
+      "polygon": [[0, 3800], [5000, 3800], [5000, 4000], [0, 4000]]
+    },
+    {
+      "id": "w4",
+      "elementId": 100004,
+      "thickness": 200,
+      "isStructural": false,
+      "polygon": [[0, 0], [200, 0], [200, 4000], [0, 4000]]
+    }
+  ],
+  "columns": [
+    {
+      "id": "c1",
+      "elementId": 100010,
+      "isStructural": true,
+      "polygon": [[2400, 1900], [2600, 1900], [2600, 2100], [2400, 2100]]
+    }
+  ]
+}

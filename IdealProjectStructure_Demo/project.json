@@ -1,0 +1,21 @@
+{
+  "id": "proj_demo_001",
+  "name": "理想户型A - 三室两厅",
+  "version": "3.0",
+  "createdAt": "2025-12-24T10:00:00Z",
+  "updatedAt": "2025-12-24T21:00:00Z",
+  "coordinateSystem": "cartesian_mm_yUp",
+  "activeSchemeId": "s1_Flow",
+  "schemes": [
+    {
+      "id": "s1_Flow",
+      "path": "./schemes/s1_Flow",
+      "name": "动线优先"
+    },
+    {
+      "id": "s2_Derived",
+      "path": "./schemes/s2_Derived",
+      "name": "衍生策略示例"
+    }
+  ]
+}
