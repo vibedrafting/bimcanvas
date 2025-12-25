@@ -20,14 +20,7 @@
       "tags": ["wardrobe", "storage"],
       "rawBoundary": [[3000, 200], [4800, 200], [4800, 3800], [3000, 3800]],
       "computedBoundary": [[3050, 250], [4750, 250], [4750, 3750], [3050, 3750]],
-      "exclusionAreas": [
-        {
-          "id": "ex1",
-          "type": "column",
-          "polygon": [[2400, 1900], [2600, 1900], [2600, 2100], [2400, 2100]],
-          "reason": "结构柱禁区"
-        }
-      ],
+      "exclusionAreas": [],
       "openings": [],
       "reason": "继承自 s1_Flow，保持相同分区逻辑"
     },

@@ -6,6 +6,24 @@
 
 本示例展示 BIMCanvas v3.0 的多仓库集合（Multi-Repo Collection）存储架构。
 
+### 文件驱动架构："三层汉堡"模型
+
+> 核心理念：**文件系统是连接 AI、Web、Server 和用户的通用总线**
+
+| 层级 | 文件夹路径 | 内容 | 读写属性 | 说明 |
+|:-----|:-----------|:-----|:---------|:-----|
+| **底层 (基准)** | `baseline/` | 墙、柱、门窗、房间 | **只读** | Revit 导出，Server 启动加载 |
+| **中层 (计算)** | `schemes/{s}/zones.json` | 功能分区、完成面 | **混合** | AI/Server 计算 computedBoundary |
+| **顶层 (布局)** | `schemes/{s}/modules.json` | 家具模块、位置 | **读写** | **双向同步**：文件变动 ↔ Web 渲染 |
+
+**双向同步场景**：
+- **场景 A（代码式设计）**：VS Code 编辑 JSON → FileWatcher 检测 → Server 解析 → SignalR 推送 → Web 渲染
+- **场景 B（可视化设计）**：Web 拖拽 → Server 验证 → 覆写 JSON 文件 → 广播确认
+
+详见 `docs/FileDrivenArchitecture.md`
+
+---
+
 ### 核心设计原则
 
 | 概念 | 物理载体 | 开发模式 | Git 角色 |
@@ -86,6 +104,34 @@ IdealProjectStructure_Demo/
   }
 }
 ```
+
+### zones.json - Zone 类型
+
+```json
+{
+  "zones": [
+    {
+      "id": "z1",
+      "type": "designable",      // ZoneType 枚举
+      "rawBoundary": [...],      // 原始边界
+      "computedBoundary": [...]  // 计算后的可用边界
+    }
+  ]
+}
+```
+
+**ZoneType 枚举值**：
+
+| 类型 | 说明 | 用途 |
+|------|------|------|
+| `exclusion` | 禁区 | 门扇开启范围等，不可布置家具 |
+| `room` | 房间 | 物理房间边界 |
+| `designable` | 可设计区 | AI 可布置家具的区域 |
+| `circulation` | 动线区 | 通道、走廊，保持通行 |
+
+**注意**：柱子作为建筑原始结构，与墙体同等处理（在 `baseline/architecture.json` 中定义），不作为 Zone 禁区。
+
+---
 
 ### finishes.json - range 表示
 

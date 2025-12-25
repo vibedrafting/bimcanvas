@@ -8,45 +8,63 @@
 
 ---
 
-## 功能驱动的任务拆解（优先）
+## 架构核心："文件播放器"模式
 
-> **原则**：先确保现有功能在 v3.0 结构下正常工作，再考虑架构变更。
+> **参考文档**：`docs/FileDrivenArchitecture.md`
+> **核心理念**：文件系统是连接 AI、Web、Server 和用户的通用总线。Server 从"内存数据库"模式转型为"文件播放器"模式。
 
-### 核心需求变化：数据源从内存转为文件系统
+### 三层汉堡模型
 
-**当前**：Web 加载 JSON → 发送 Server 处理 → 返回存到内存 → 渲染
-**期望**：Server 监听工程文件夹 → 文件变化时解析 → SignalR 推送 → Web 实时更新
+| 层级 | 文件夹路径 | 内容 | 读写属性 | 流转逻辑 |
+|------|-----------|------|----------|----------|
+| **底层 (基准)** | `baseline/` | 墙、柱、门窗、房间 | **只读** (Revit 导出) | Server 启动加载 → 推送 Web 作为静态背景 |
+| **中层 (计算)** | `schemes/{s}/zones.json` | 功能分区、完成面 | **混合** (AI/Server) | Server 读取 → 计算 `computedBoundary` → 推送 Web |
+| **顶层 (布局)** | `schemes/{s}/modules.json` | 家具模块、位置 | **读写** (高频交互) | **双向同步**：文件变动 ↔ Web 渲染 |
 
-**效果**：手动编辑工程文件夹中的 JSON（如修改 modules.json），Web 端实时更新显示。
+### 双向同步场景
 
-### 现有功能 → 数据需求映射
+**场景 A：代码式设计** (Code-Based Design)
+```
+VS Code 编辑 modules.json 并保存
+    ↓
+FileSystemWatcher 检测到文件变化
+    ↓
+Server 重新解析 JSON
+    ↓
+SignalR 广播 LayoutUpdated 事件
+    ↓
+Web 端收到事件，平滑动画更新位置
+```
 
-| 功能 | 数据来源 (v2.9) | v3.0 文件位置 | 状态 |
-|------|----------------|---------------|------|
-| Web 渲染 - 墙柱 | `revit.walls[]`, `columns[]` | `baseline/architecture.json` | ✅ 直接对应 |
-| Web 渲染 - 门窗 | `revit.openings[]` | `baseline/openings.json` | ✅ 直接对应 |
-| Web 渲染 - 房间 | `revit.rooms[]` | `baseline/rooms.json` | ✅ 直接对应 |
-| Web 渲染 - 家具 | `layout.modules[]` | `schemes/{s}/modules.json` | ✅ 路径变化但结构兼容 |
-| 门扇禁区计算 | `openings[].line + facingDirection` | `baseline/openings.json` → zones | ✅ 输入不变 |
-| 交互验证 | Zone 类型区分 | `schemes/{s}/zones.json` | ✅ 已有设计 |
+**场景 B：可视化设计** (Visual Design)
+```
+用户在 Web 端拖拽沙发到新位置
+    ↓
+Web 发送移动指令给 Server
+    ↓
+Server 验证通过后，直接覆写 modules.json
+    ↓
+文件系统发生物理变更
+    ↓
+Server 再次广播更新（确认状态）
+```
 
-**Zone 结构说明**（已确认正确）：
-- `ZoneType Type`：区分 Exclusion（禁区）/ Room（房间）/ Designable（设计区）
-- `RawBoundary`：原始轮廓
-- `ComputedBoundary`：仅 Designable 类型需要计算（扣除完成面后的可用区域）
+---
 
-### 优先级 1：实现文件驱动的实时渲染
+## 功能驱动的任务拆解
+
+### 优先级 1：实现双向同步核心
 
 #### T1.1 Server 层：工程文件夹加载与聚合
-**目标**：Server 能读取解压后的工程文件夹，聚合为 DesignDocument
+**目标**：Server 能读取工程文件夹，聚合为 DesignDocument
 
 ```
-输入：工程文件夹路径（解压后的 .bcp 或手动创建的文件夹）
-输出：聚合后的 DesignDocument（兼容现有 Web 渲染）
+输入：工程文件夹路径
+输出：聚合后的 DesignDocument
 
 聚合逻辑：
 ├── project.json           → Project 元数据
-├── baseline/              → revit 子结构
+├── baseline/              → revit 子结构（只读）
 │   ├── architecture.json  → walls[], columns[]
 │   ├── openings.json      → openings[]
 │   └── rooms.json         → rooms[]
@@ -59,52 +77,92 @@
 **关键文件**：
 - `BIMCanvas.Server/Services/ProjectLoaderService.cs`（新建）
 
-#### T1.2 Server 层：文件监听 + SignalR 推送
-**目标**：监听工程文件夹变化，实时推送更新到 Web 端
-
-```
-工作流程：
-1. FileSystemWatcher 监听工程文件夹
-2. 检测到变化 → 重新解析受影响的 JSON 文件
-3. 通过 SignalR Hub 推送更新到所有连接的 Web 客户端
-4. Web 端接收更新，触发重新渲染
-```
+#### T1.2 Server 层：文件监听 + SignalR 推送（场景 A）
+**目标**：FileWatcher 检测变化 → 解析 → SignalR 广播
 
 **关键文件**：
 - `BIMCanvas.Server/Services/ProjectWatcherService.cs`（新建）
-- `BIMCanvas.Server/Hubs/CanvasHub.cs`（扩展推送方法）
-- `BIMCanvas.Web/src/services/SignalRService.ts`（现有，需扩展接收逻辑）
-- `BIMCanvas.Web/src/stores/canvasStore.ts`（扩展接收更新逻辑）
+- `BIMCanvas.Server/Hubs/CanvasHub.cs`（扩展 `LayoutUpdated` 事件）
 
-#### T1.3 Web 端：接收实时更新
-**目标**：Web 端接收 SignalR 推送，更新 document 并重新渲染
+**注意**：
+- 仅监听 `schemes/{s}/` 下的文件（modules.json, zones.json 等）
+- baseline/ 为只读，不需要监听
 
-**变更点**：
-- SignalRService 添加文件变化事件监听
-- canvasStore 添加 `applyUpdate(partialDoc)` 方法
-- 场景自动重建（或增量更新）
+#### T1.3 Server 层：Web 操作 → 文件写入（场景 B）
+**目标**：Web 端操作 → Server 验证 → 覆写 JSON 文件 → 广播确认
 
-### 优先级 2：Revit 导出适配
+**关键文件**：
+- `BIMCanvas.Server/Services/ProjectWriterService.cs`（新建）
+- `BIMCanvas.Server/Controllers/CanvasController.cs`（扩展写入端点）
 
-#### T2.1 新增 BcpExporter
+**持久化策略**：
+- 磁盘即时同步：`MouseUp` 时立即写入文件
+- 禁用去抖动：阻塞式立即写入，确保文件系统与内存状态毫秒级一致
+
+#### T1.4 Web 端：接收实时更新 + 发送操作
+**目标**：双向通信
+
+**接收更新**（场景 A）：
+- SignalRService 监听 `LayoutUpdated` 事件
+- canvasStore 的 `applyUpdate(partialDoc)` 方法
+- 场景增量更新（或全量重建）
+
+**发送操作**（场景 B）：
+- MoveTool/RotateTool 在 `MouseUp` 时发送操作到 Server
+- 等待 Server 确认后更新本地状态
+
+**关键文件**：
+- `BIMCanvas.Web/src/services/SignalRService.ts`（扩展）
+- `BIMCanvas.Web/src/stores/canvasStore.ts`（扩展）
+
+### 优先级 2：持久化与版本控制
+
+#### T2.1 Undo/Redo 重构
+**目标**：Undo 本质是逆向写入文件
+
+**机制**：
+- 用户移动 A → B，Server 记录逆向操作 `{ cmd: "Move", from: B, to: A }` 入栈
+- 用户点击 Undo，Server 执行逆向操作，写入文件
+- **外部干扰规则**：检测到非 Web 端发起的文件变更时，清空 Undo 栈
+
+**关键文件**：
+- `BIMCanvas.Server/Services/UndoStackService.cs`（新建）
+
+#### T2.2 Git 周期存档
+**目标**：生成版本历史节点
+
+**触发条件**：
+- 显式保存：用户点击"保存"按钮 → `git add . && git commit -m "Manual Save"`
+- 自动保存：每隔 1 分钟（有操作时）→ `git add . && git commit -m "Auto Save"`
+
+**关键文件**：
+- `BIMCanvas.Server/Services/GitArchiveService.cs`（新建）
+
+### 优先级 3：AI 协作工作流
+
+#### T3.1 Git 分支策略
+**目标**：Web 在 main，AI 在临时分支
+
+**工作流**：
+1. 用户请求 AI 帮助 → Server 基于 `main` 创建 `ai-feat-{timestamp}` 分支
+2. AI 在临时分支上修改 `modules.json`，提交代码
+3. AI 完成后，Web 进入"评审模式"
+
+#### T3.2 Visual Merge UI
+**目标**：可视化冲突解决 / 方案融合
+
+**界面**：分屏显示，左侧"我的方案"，右侧"AI 提案"
+**颗粒度**：按 Zone（可设计区）进行差异对比
+**交互**：用户选择性合并 → Server 执行精确 JSON 合并 → 新 Commit 到 main
+
+### 优先级 4：Revit 导出适配
+
+#### T4.1 新增 BcpExporter
 **目标**：Revit 导出 .bcp 格式（多文件夹 + ZIP 打包）
 
 **关键文件**：
 - `BIMCanvas.Revit/Services/BcpExporter.cs`（新建）
 - `BIMCanvas.Revit/Services/CanvasExportService.cs`（修改输出流程）
-
-**说明**：LocationLine 已有 `WallFinish.LocationLine`，无需单独导出文件。
-
-### 优先级 3：架构增强
-
-#### T3.1 Project/Strategy 模型
-**目标**：支持多策略管理
-
-#### T3.2 dirty 机制
-**目标**：检测 baseline 变化
-
-#### T3.3 Git 分支（变体）管理
-**目标**：支持策略内的版本回溯
 
 ---
 
