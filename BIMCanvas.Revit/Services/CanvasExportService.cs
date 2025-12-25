@@ -170,7 +170,6 @@ namespace BIMCanvas.Revit.Services
                 Id = w.Id,
                 ElementId = w.ElementId,
                 Polygon = NtsConverter.FromNtsPolygon(transformer.TransformPolygon(w.Boundary)),
-                Thickness = 0,  // TODO: 从 Revit 墙体类型中提取
                 IsStructural = false  // TODO: 检查墙体类型
             }).ToList();
 

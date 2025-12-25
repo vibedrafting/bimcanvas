@@ -3,13 +3,8 @@ using System.Collections.Generic;
 using System.IO;
 using System.IO.Compression;
 using System.Text;
-using BIMCanvas.Core.Converters.Json;
-using BIMCanvas.Core.Models.Computed;
-using BIMCanvas.Core.Models.Layout;
 using BIMCanvas.Core.Models.Project;
 using BIMCanvas.Core.Models.Revit;
-using BIMCanvas.Core.Models.Shared;
-using BIMCanvas.Core.Services;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Serialization;
 
@@ -123,6 +118,8 @@ namespace BIMCanvas.Revit.Services
 
         /// <summary>
         /// 创建文件夹结构并写入 JSON 文件
+        /// Revit 只负责导出 baseline 数据和 project.json（不含 schemes）
+        /// schemes 和 context 由 Server 层创建
         /// </summary>
         private void CreateFolderStructure(
             string rootDir,
@@ -135,15 +132,9 @@ namespace BIMCanvas.Revit.Services
         {
             var now = DateTime.Now;
 
-            // 创建子目录
+            // 只创建 baseline 目录
             var baselineDir = Path.Combine(rootDir, "baseline");
-            var contextDir = Path.Combine(rootDir, "context");
-            var schemesDir = Path.Combine(rootDir, "schemes");
-            var defaultSchemeDir = Path.Combine(schemesDir, "s1_Default");
-
             Directory.CreateDirectory(baselineDir);
-            Directory.CreateDirectory(contextDir);
-            Directory.CreateDirectory(defaultSchemeDir);
 
             // 计算 baseline hash
             string baselineHash;
@@ -156,7 +147,7 @@ namespace BIMCanvas.Revit.Services
                 baselineHash = $"sha256:{Guid.NewGuid():N}";
             }
 
-            // 1. 写入 project.json
+            // 1. 写入 project.json（不含 schemes 引用，由 Server 层补充）
             var project = new Project
             {
                 Id = $"proj_{SanitizeName(projectName)}_{now:yyyyMMddHHmmss}",
@@ -165,20 +156,13 @@ namespace BIMCanvas.Revit.Services
                 CreatedAt = now,
                 UpdatedAt = now,
                 CoordinateSystem = "cartesian_mm_yUp",
-                ActiveSchemeId = "s1_Default",
-                Schemes = new List<SchemeRef>
-                {
-                    new SchemeRef
-                    {
-                        Id = "s1_Default",
-                        Path = "schemes/s1_Default",
-                        Name = "Default"
-                    }
-                }
+                ActiveSchemeId = null,  // 由 Server 层设置
+                Schemes = new List<SchemeRef>()  // 空列表，由 Server 层填充
             };
             WriteJson(Path.Combine(rootDir, "project.json"), project);
 
-            // 2. 写入 baseline/metadata.json
+            // 2. 写入 baseline/metadata.json（含 baselineHash 供 Server 验证）
+            manifest.BaselineHash = baselineHash;
             WriteJson(Path.Combine(baselineDir, "metadata.json"), manifest);
 
             // 3. 写入 baseline/architecture.json
@@ -192,36 +176,6 @@ namespace BIMCanvas.Revit.Services
 
             // 6. 写入 baseline/location_lines.json
             WriteJson(Path.Combine(baselineDir, "location_lines.json"), locationLines);
-
-            // 7. 写入 context/requirements.md（空模板）
-            File.WriteAllText(
-                Path.Combine(contextDir, "requirements.md"),
-                "# 设计需求\n\n> 在此填写项目设计需求和约束条件\n\n",
-                Encoding.UTF8);
-
-            // 8. 写入 schemes/s1_Default/strategy.json
-            var strategy = new Strategy
-            {
-                Id = "s1_Default",
-                Name = "Default",
-                Approach = StrategyApproach.CirculationFirst,
-                Description = "从 Revit 导出的默认策略",
-                CreatedAt = now,
-                UpdatedAt = now,
-                Origin = null,
-                LastValidatedBaselineHash = baselineHash,
-                Status = StrategyStatus.Valid
-            };
-            WriteJson(Path.Combine(defaultSchemeDir, "strategy.json"), strategy);
-
-            // 9. 写入 schemes/s1_Default/zones.json（空数组）
-            WriteJson(Path.Combine(defaultSchemeDir, "zones.json"), new List<Zone>());
-
-            // 10. 写入 schemes/s1_Default/finishes.json（空数组）
-            WriteJson(Path.Combine(defaultSchemeDir, "finishes.json"), new List<FinishSegment>());
-
-            // 11. 写入 schemes/s1_Default/modules.json（空数组）
-            WriteJson(Path.Combine(defaultSchemeDir, "modules.json"), new List<Module>());
         }
 
         /// <summary>
@@ -281,11 +235,6 @@ namespace BIMCanvas.Revit.Services
                 NullValueHandling = NullValueHandling.Ignore,
                 ContractResolver = new CamelCasePropertyNamesContractResolver()
             };
-
-            // 添加自定义转换器
-            settings.Converters.Add(new StrategyStatusConverter());
-            settings.Converters.Add(new StrategyApproachConverter());
-            settings.Converters.Add(new FinishSourceConverter());
 
             return settings;
         }

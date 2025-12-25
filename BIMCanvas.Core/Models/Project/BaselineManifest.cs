@@ -42,5 +42,11 @@ namespace BIMCanvas.Core.Models.Project
         /// 单位系统："metric_mm"
         /// </summary>
         public string UnitSystem { get; set; } = "metric_mm";
+
+        /// <summary>
+        /// Baseline 数据哈希值
+        /// 用于 Server 层验证策略与 baseline 的一致性
+        /// </summary>
+        public string? BaselineHash { get; set; }
     }
 }
