@@ -125,13 +125,13 @@ export class ThreeSceneService {
         // 7. Watch for Store Changes
 
         // A. Deep watch for content updates (Rebuild Scene)
-        watch(() => this.store.document, (newDoc) => {
-            if (newDoc) {
-                // console.log('Document updated, rebuilding scene...');
-                this.sceneBuilder.buildFromDocument(newDoc);
-                this.outlineBuilder.buildLines(newDoc);
-                this.labelBuilder.buildLabels(newDoc);
-                this.zoneBuilder.buildZones(newDoc);
+        watch(() => this.store.projectData, (newData) => {
+            if (newData) {
+                // console.log('Project data updated, rebuilding scene...');
+                this.sceneBuilder.buildFromDocument(newData);
+                this.outlineBuilder.buildLines(newData);
+                this.labelBuilder.buildLabels(newData);
+                this.zoneBuilder.buildZones(newData);
                 this.gridBuilder.buildGrid();
             }
         }, { deep: true });
@@ -139,11 +139,11 @@ export class ThreeSceneService {
         // B. Shallow watch for document replacement (Fit to Screen)
         // This only triggers when a NEW document is loaded (reference change),
         // not when modules are moved/rotated (mutation).
-        watch(() => this.store.document, (newDoc) => {
-            if (newDoc) {
-                console.log('New document loaded, fitting to screen...');
+        watch(() => this.store.projectData, (newData) => {
+            if (newData) {
+                console.log('New project loaded, fitting to screen...');
                 setTimeout(() => {
-                    this.fitToScreen(newDoc);
+                    this.fitToScreen(newData);
                 }, 100);
             }
         });
@@ -155,8 +155,8 @@ export class ThreeSceneService {
 
         // Listen for reset view
         const onResetView = () => {
-            if (this.store.document) {
-                this.fitToScreen(this.store.document);
+            if (this.store.projectData) {
+                this.fitToScreen(this.store.projectData);
             }
         };
         window.addEventListener('bimcanvas:reset-view', onResetView);
@@ -257,16 +257,15 @@ export class ThreeSceneService {
         this.labelBuilder = new LabelBuilder(this.scene);
         this.zoneBuilder = new ZoneBuilder(this.scene);
 
-        // 如果有当前文档，重建场景
-        const doc = this.store.document;
-        if (doc) {
-            this.sceneBuilder.buildFromDocument(doc);
-            this.outlineBuilder.buildLines(doc);
-            this.labelBuilder.buildLabels(doc);
-            this.zoneBuilder.buildZones(doc);
+        // 如果有当前项目数据，重建场景
+        const data = this.store.projectData;
+        if (data) {
+            this.sceneBuilder.buildFromDocument(data);
+            this.outlineBuilder.buildLines(data);
+            this.labelBuilder.buildLabels(data);
+            this.zoneBuilder.buildZones(data);
             this.gridBuilder.buildGrid();
         } else {
-            // this.sceneBuilder.buildDemoScene(); // REMOVED
             this.gridBuilder.buildGrid();
         }
     }
@@ -289,9 +288,9 @@ export class ThreeSceneService {
         this.scene.add(hemiLight);
     }
 
-    private fitToScreen(doc: any) {
-        // 从 revit 子结构获取墙体数据
-        const walls = doc.revit?.walls;
+    private fitToScreen(data: any) {
+        // 从 baseline 获取墙体数据
+        const walls = data.baseline?.walls;
         if (!walls || walls.length === 0) return;
 
         let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
@@ -310,8 +309,8 @@ export class ThreeSceneService {
             walls.forEach((wall: any) => processPolygon(wall.polygon));
         }
 
-        if (doc.layout?.modules) {
-            doc.layout.modules.forEach((mod: any) => processPolygon(mod.bounds));
+        if (data.activeScheme?.modules) {
+            data.activeScheme.modules.forEach((mod: any) => processPolygon(mod.bounds));
         }
 
         if (minX === Infinity) return;

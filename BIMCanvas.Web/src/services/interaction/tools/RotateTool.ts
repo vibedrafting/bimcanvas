@@ -128,7 +128,7 @@ export class RotateTool implements Tool {
         // Revit-Lite: 构建吸附点索引（包含墙柱门窗 + 包括自己的模块，不排除）
         const debug = useDebugStore();
         debug.log(`[Rotate] Building snap points, including selected modules for self-snapping`);
-        this.snappingEngine.buildSnapPoints(store.document, []); // 不排除任何模块的吸附点
+        this.snappingEngine.buildSnapPoints(store.projectData, []); // 不排除任何模块的吸附点
         // Phase 3: XY 轴和刻度圈只在按住 Shift 时显示，不在这里创建
     }
 

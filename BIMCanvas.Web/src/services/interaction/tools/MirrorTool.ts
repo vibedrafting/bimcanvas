@@ -106,7 +106,7 @@ export class MirrorTool implements Tool {
         const excludeIds = this.selectedObjects.map((o: any) => o.id);
         const debug = useDebugStore();
         debug.log(`[Mirror] Building snap points, excluding: ${excludeIds.length} modules`);
-        this.snappingEngine.buildSnapPoints(store.document, excludeIds);
+        this.snappingEngine.buildSnapPoints(store.projectData, excludeIds);
     }
 
     deactivate() {

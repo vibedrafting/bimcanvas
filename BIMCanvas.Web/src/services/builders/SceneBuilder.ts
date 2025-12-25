@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import type { CanvasDocument, Wall, Column, Module, Point2D, Opening } from '../../types/canvas';
+import type { ProjectData, Wall, Column, Module, Point2D, Opening } from '../../types/canvas';
 import { LayerManager } from '../three/LayerManager';
 import { themeService } from '../theme/ThemeService';
 
@@ -157,34 +157,31 @@ export class SceneBuilder {
         console.log('--- clearScene END ---');
     }
 
-    public buildFromDocument(doc: CanvasDocument) {
-        console.log('SceneBuilder: Building from document', doc);
+    public buildFromDocument(data: ProjectData) {
+        console.log('SceneBuilder: Building from project data', data);
         this.clearScene();
-        // this.buildFloor(); // Removed as per user request
 
-        // (Compass removed)
-
-        // 从 revit 子结构获取建筑构件数据
-        const revit = doc.revit;
+        const baseline = data.baseline;
+        const activeScheme = data.activeScheme;
 
         // 1. Walls
-        if (revit?.walls && revit.walls.length > 0) {
-            revit.walls.forEach(wall => this.createWallMesh(wall));
+        if (baseline?.walls && baseline.walls.length > 0) {
+            baseline.walls.forEach(wall => this.createWallMesh(wall));
         }
 
         // 2. Columns
-        if (revit?.columns && revit.columns.length > 0) {
-            revit.columns.forEach(col => this.createColumnMesh(col));
+        if (baseline?.columns && baseline.columns.length > 0) {
+            baseline.columns.forEach(col => this.createColumnMesh(col));
         }
 
         // 3. Openings (Doors/Windows)
-        if (revit?.openings && revit.openings.length > 0) {
-            revit.openings.forEach(op => this.createOpeningMesh(op));
+        if (baseline?.openings && baseline.openings.length > 0) {
+            baseline.openings.forEach(op => this.createOpeningMesh(op));
         }
 
         // 4. Modules
-        if (doc.layout?.modules && doc.layout.modules.length > 0) {
-            doc.layout.modules.forEach(mod => this.createModuleMesh(mod));
+        if (activeScheme?.modules && activeScheme.modules.length > 0) {
+            activeScheme.modules.forEach(mod => this.createModuleMesh(mod));
         }
 
         // 5. Update all helpers to ensure they match final world positions

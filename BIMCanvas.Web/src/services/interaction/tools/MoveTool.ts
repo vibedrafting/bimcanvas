@@ -121,7 +121,7 @@ export class MoveTool implements Tool {
         // Revit-Lite: 构建吸附点索引（包含墙柱门窗 + 包括自己的模块，不排除）
         const debug = useDebugStore();
         debug.log(`[Move] Building snap points, including selected modules for self-snapping`);
-        this.snappingEngine.buildSnapPoints(store.document, []); // 不排除任何模块的吸附点
+        this.snappingEngine.buildSnapPoints(store.projectData, []); // 不排除任何模块的吸附点
     }
 
     private calculateGroupCenter(): THREE.Vector3 {

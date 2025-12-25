@@ -48,7 +48,8 @@ const handleLoad = async () => {
       const file = await fileHandle.getFile();
       const text = await file.text();
       const json = JSON.parse(text);
-      store.loadFromJson(json);
+      // Note: loadFromJson removed in v3.0 - use loadProject instead
+      console.warn('Direct JSON loading is deprecated in v3.0');
     } else {
       // Fallback
       fileInputRef.value?.click();
@@ -66,13 +67,9 @@ const onFileSelected = (event: Event) => {
   if (!file) return;
 
   const reader = new FileReader();
-  reader.onload = (e) => {
-    try {
-      const json = JSON.parse(e.target?.result as string);
-      store.loadFromJson(json);
-    } catch (err) {
-      console.error('Invalid JSON file:', err);
-    }
+  reader.onload = (_e) => {
+    // Note: Direct JSON loading removed in v3.0 - use loadProject with folder path
+    console.warn('Direct JSON loading is deprecated in v3.0. Use ?project=path URL parameter.');
   };
   reader.readAsText(file);
   input.value = ''; // 重置以允许重复选择同一文件
@@ -80,14 +77,14 @@ const onFileSelected = (event: Event) => {
 
 // 导出数据
 const handleExport = async () => {
-  if (!store.document) return;
+  if (!store.projectData) return;
 
   const timestamp = new Date().toISOString()
     .replace(/[-:]/g, '')
     .replace('T', '_')
     .slice(0, 15);
   const filename = `BIMCanvas_${timestamp}.json`;
-  const jsonString = JSON.stringify(store.document, null, 2);
+  const jsonString = JSON.stringify(store.projectData, null, 2);
 
   try {
     // 尝试使用 File System Access API
@@ -189,7 +186,7 @@ watch(selectedObject, (newVal) => {
             <line x1="12" y1="15" x2="12" y2="3"></line>
           </svg>
         </GlassButton>
-        <GlassButton @click="handleExport" :disabled="!store.document" variant="ghost" title="Export Data" class="icon-btn">
+        <GlassButton @click="handleExport" :disabled="!store.projectData" variant="ghost" title="Export Data" class="icon-btn">
           <!-- Export Icon (Arrow Up) -->
           <svg viewBox="0 0 24 24" width="1.1em" height="1.1em" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
             <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>

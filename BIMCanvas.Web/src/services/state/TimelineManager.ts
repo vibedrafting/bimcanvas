@@ -1,4 +1,4 @@
-import type { CanvasDocument } from '../../types/canvas';
+import type { ProjectData } from '../../types/canvas';
 
 export class TimelineManager {
     private history: string[] = [];
@@ -7,7 +7,7 @@ export class TimelineManager {
 
     constructor() { }
 
-    public push(state: CanvasDocument) {
+    public push(state: ProjectData) {
         // If we are not at the end of history, discard future states
         if (this.currentIndex < this.history.length - 1) {
             this.history = this.history.slice(0, this.currentIndex + 1);
@@ -24,7 +24,7 @@ export class TimelineManager {
         }
     }
 
-    public undo(): CanvasDocument | null {
+    public undo(): ProjectData | null {
         if (this.canUndo) {
             this.currentIndex--;
             const state = this.history[this.currentIndex];
@@ -33,7 +33,7 @@ export class TimelineManager {
         return null;
     }
 
-    public redo(): CanvasDocument | null {
+    public redo(): ProjectData | null {
         if (this.canRedo) {
             this.currentIndex++;
             const state = this.history[this.currentIndex];

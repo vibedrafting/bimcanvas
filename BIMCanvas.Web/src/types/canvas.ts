@@ -1,8 +1,15 @@
+// ==========================================
+// BIMCanvas v3.0 Web Type Definitions
+// ==========================================
+
+// ========== 基础类型 ==========
+
 export type Point2D = [number, number];
 export type Line2D = [Point2D, Point2D];
 export type Polygon2D = Point2D[];
 
-// Enums
+// ========== 枚举类型 ==========
+
 export const RoomType = {
   Unknown: 0,
   LivingRoom: 1,
@@ -12,30 +19,102 @@ export const RoomType = {
   Balcony: 5,
   Corridor: 6
 } as const;
-
 export type RoomType = typeof RoomType[keyof typeof RoomType];
 
 export const ZoneType = {
-  Exclusion: 0,   // 禁区
-  Room: 1,        // 房间（直接由 Revit Room 轮廓转换）
-  Designable: 2   // 设计区（AI/用户划分后的功能区）
+  Exclusion: 0,
+  Room: 1,
+  Designable: 2
 } as const;
-
 export type ZoneType = typeof ZoneType[keyof typeof ZoneType];
 
 export const FinishType = {
-  Normal: 0,   // 普通完成面
-  Special: 1   // 特殊完成面（如电视墙）
+  Normal: 0,
+  Special: 1
 } as const;
-
 export type FinishType = typeof FinishType[keyof typeof FinishType];
 
-// BIM Elements
+export const FinishSource = {
+  RoomDefault: 0,
+  ZoneOverride: 1,
+  UserOverride: 2
+} as const;
+export type FinishSource = typeof FinishSource[keyof typeof FinishSource];
+
+export const StrategyApproach = {
+  Standard: 0,
+  Custom: 1
+} as const;
+export type StrategyApproach = typeof StrategyApproach[keyof typeof StrategyApproach];
+
+export const StrategyStatus = {
+  Valid: 0,
+  Dirty: 1,
+  Invalid: 2
+} as const;
+export type StrategyStatus = typeof StrategyStatus[keyof typeof StrategyStatus];
+
+export const ZoneTag = {
+  TvMedia: 'TvMedia',
+  AudioVideo: 'AudioVideo',
+  Sleep: 'Sleep',
+  Rest: 'Rest',
+  Reading: 'Reading',
+  Work: 'Work',
+  Study: 'Study',
+  WardrobeStorage: 'WardrobeStorage',
+  ShoeStorage: 'ShoeStorage',
+  GeneralStorage: 'GeneralStorage',
+  Dining: 'Dining',
+  Cooking: 'Cooking',
+  FoodPrep: 'FoodPrep',
+  Bar: 'Bar',
+  Shower: 'Shower',
+  Bathtub: 'Bathtub',
+  Toilet: 'Toilet',
+  Washing: 'Washing',
+  Laundry: 'Laundry',
+  Vanity: 'Vanity',
+  Entry: 'Entry',
+  Passage: 'Passage',
+  Display: 'Display',
+  Plants: 'Plants'
+} as const;
+export type ZoneTag = typeof ZoneTag[keyof typeof ZoneTag];
+
+// ========== Project 层 (project.json) ==========
+
+export interface Project {
+  id: string;
+  name: string;
+  version: string;
+  createdAt?: string;
+  updatedAt?: string;
+  coordinateSystem: string;
+  activeSchemeId: string;
+  schemes: SchemeRef[];
+}
+
+export interface SchemeRef {
+  id: string;
+  path: string;
+  name: string;
+}
+
+// ========== Baseline 层 (baseline/*.json) ==========
+
+export interface BaselineMetadata {
+  placementElevation?: number;
+  origin?: [number, number, number];
+  rotation?: number;
+  baselineHash?: string;
+}
+
 export interface Wall {
   id: string;
   elementId?: number;
-  polygon: Polygon2D; // Changed from Line2D to Polygon2D for precision
-  thickness?: number; // Optional, derived from polygon
+  polygon: Polygon2D;
+  thickness?: number;
 }
 
 export interface Column {
@@ -47,26 +126,51 @@ export interface Column {
 
 export interface Opening {
   id: string;
-  type: number; // 0: Door, 1: Window
+  type: number;  // 0: Door, 1: Window
   line: Line2D;
   facingDirection?: Point2D;
   handDirections?: Point2D[];
 }
 
-export interface FinishLocationBoundary {
-  id: string;
-  elementIds: number[];
-  polygon: Polygon2D;
-}
-
 export interface Room {
   id: string;
   name?: string;
-  type: number;
+  type: RoomType;
   boundary: {
     shell: Polygon2D;
     holes?: Polygon2D[];
   };
+}
+
+export interface LocationLine {
+  id: string;
+  wallId: string;
+  roomId: string;
+  side: 'interior' | 'exterior';
+  line: Line2D;
+  length: number;
+}
+
+export interface BaselineData {
+  metadata: BaselineMetadata;
+  walls: Wall[];
+  columns: Column[];
+  openings: Opening[];
+  rooms: Room[];
+  locationLines: LocationLine[];
+}
+
+// ========== Scheme 层 (schemes/{s}/*.json) ==========
+
+export interface Strategy {
+  id: string;
+  name: string;
+  approach: StrategyApproach;
+  description?: string;
+  createdAt?: string;
+  updatedAt?: string;
+  lastValidatedBaselineHash: string;
+  status: StrategyStatus;
 }
 
 export interface FinishRequirement {
@@ -74,84 +178,75 @@ export interface FinishRequirement {
   type: FinishType;
 }
 
+export interface ExclusionArea {
+  id: string;
+  type: string;
+  polygon: Polygon2D;
+  reason: string;
+}
+
 export interface Zone {
   id: string;
   name: string;
+  roomId: string;
   type: ZoneType;
   reason: string;
   rawBoundary?: Polygon2D;
   computedBoundary?: Polygon2D;
-  tags: string[];
+  tags: ZoneTag[];
   finishRequirements: FinishRequirement[];
   schemeId?: string;
+  exclusionAreas: ExclusionArea[];
+  openings: string[];
+}
+
+export interface FinishSegment {
+  id: string;
+  sourceLineId: string;
+  range: [number, number];
+  finishModuleId: string;
+  thickness: number;
+  source: FinishSource;
+  zoneId?: string;
+  reason?: string;
+}
+
+export interface ModuleItem {
+  familyName: string;
+  typeName: string;
+  offset: Point2D;
+  rotation: number;
 }
 
 export interface Module {
   id: string;
   moduleId: string;
   moduleName?: string;
-  bounds: Polygon2D; // 4 points
-  facing: string | Point2D; // "north" or vector
+  bounds: Polygon2D;
+  facing: string | Point2D;
   zoneId: string;
-  items: any[]; // Placeholder for furniture items
+  items: ModuleItem[];
+  placementReason?: string;
 }
 
-// 方案数据（预留，对应 Zone.schemeId）
-export interface Scheme {
-  id: string;
-  name: string;
-  description?: string;
-}
-
-// 方案布置数据
-export interface LayoutData {
-  modules: Module[];
-  schemes: Scheme[];
-}
-
-// Metadata
-export interface Metadata {
-  placementElevation?: number;
-  origin?: [number, number, number];
-  rotation?: number;
-  method?: string;
-}
-
-// WallFinish (计算派生数据)
-export interface WallFinish {
-  id: string;
-  locationLine: Line2D;
-  thickness: number;
-  exclusionBoundary?: Polygon2D;
-}
-
-// Revit 原始数据子结构
-export interface RevitData {
-  metadata?: Metadata;
-  walls: Wall[];
-  columns?: Column[];
-  openings?: Opening[];
-  finishLocationBoundaries?: FinishLocationBoundary[];
-  rooms?: Room[];
-}
-
-// 计算派生数据子结构
-export interface ComputedData {
+export interface SchemeData {
+  strategy: Strategy;
   zones: Zone[];
-  wallFinishes?: WallFinish[];
+  finishes: FinishSegment[];
+  modules: Module[];
 }
 
-// Document Root
-export interface DesignDocument {
-  id: string;
-  projectName?: string;
-  exportDate?: string;
-  version: number;
-  coordinateSystem: string;
-  revit?: RevitData;
-  computed?: ComputedData;
-  layout?: LayoutData;
+// ========== Computed 层 (computed/*.json) ==========
+
+export interface ComputedData {
+  exclusions: ExclusionArea[];
 }
 
-// 向后兼容别名
-export type CanvasDocument = DesignDocument;
+// ========== 聚合根：ProjectData ==========
+
+export interface ProjectData {
+  project: Project;
+  baseline: BaselineData;
+  activeScheme: SchemeData;
+  computed: ComputedData;
+}

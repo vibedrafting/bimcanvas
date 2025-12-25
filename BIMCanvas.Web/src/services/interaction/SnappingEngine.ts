@@ -103,8 +103,8 @@ export class SnappingEngine {
         let openingCount = 0;
 
         // 1. 家具模块 Modules（排除自身）
-        if (document?.layout?.modules) {
-            for (const m of document.layout.modules) {
+        if (document?.activeScheme?.modules) {
+            for (const m of document.activeScheme.modules) {
                 if (excludeIds.includes(m.id)) continue;
                 if (!m.bounds) continue;
                 extractFromPolygon(m.bounds, m.id);
@@ -112,27 +112,27 @@ export class SnappingEngine {
             }
         }
 
-        // 2. 墙体 Walls（从 revit 子结构获取）
-        if (document?.revit?.walls) {
-            for (const wall of document.revit.walls) {
+        // 2. 墙体 Walls（从 baseline 子结构获取）
+        if (document?.baseline?.walls) {
+            for (const wall of document.baseline.walls) {
                 if (!wall.polygon) continue;
                 extractFromPolygon(wall.polygon, wall.id);
                 wallCount++;
             }
         }
 
-        // 3. 柱子 Columns（从 revit 子结构获取）
-        if (document?.revit?.columns) {
-            for (const col of document.revit.columns) {
+        // 3. 柱子 Columns（从 baseline 子结构获取）
+        if (document?.baseline?.columns) {
+            for (const col of document.baseline.columns) {
                 if (!col.polygon) continue;
                 extractFromPolygon(col.polygon, col.id);
                 columnCount++;
             }
         }
 
-        // 4. 门窗 Openings（从 revit 子结构获取）
-        if (document?.revit?.openings) {
-            for (const opening of document.revit.openings) {
+        // 4. 门窗 Openings（从 baseline 子结构获取）
+        if (document?.baseline?.openings) {
+            for (const opening of document.baseline.openings) {
                 if (!opening.line) continue;
                 extractFromLine(opening.line, opening.id);
                 openingCount++;

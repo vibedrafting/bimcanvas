@@ -55,14 +55,14 @@ watch(selectedIds, (newIds) => {
 
 // Project Properties
 const projectProperties = computed(() => {
-    const doc = store.document;
-    if (!doc) return [];
+    const data = store.projectData;
+    if (!data) return [];
     return [
-        { key: 'Project ID', value: doc.id, readonly: true },
-        { key: 'Version', value: `v${doc.version}`, readonly: true },
-        { key: 'Coordinate System', value: doc.coordinateSystem, readonly: true },
-        { key: 'Walls', value: doc.revit?.walls?.length || 0, readonly: true },
-        { key: 'Modules', value: doc.layout?.modules?.length || 0, readonly: true },
+        { key: 'Project ID', value: data.project?.id || 'N/A', readonly: true },
+        { key: 'Name', value: data.project?.name || 'Unknown', readonly: true },
+        { key: 'Version', value: `v${data.project?.version || '?'}`, readonly: true },
+        { key: 'Walls', value: data.baseline?.walls?.length || 0, readonly: true },
+        { key: 'Modules', value: data.activeScheme?.modules?.length || 0, readonly: true },
     ];
 });
 

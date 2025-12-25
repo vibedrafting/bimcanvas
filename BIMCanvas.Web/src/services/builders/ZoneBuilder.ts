@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { LayerManager } from '../three/LayerManager';
-import type { CanvasDocument, Zone, Point2D } from '../../types/canvas';
+import type { ProjectData, Zone, Point2D } from '../../types/canvas';
 import { ZoneType } from '../../types/canvas';
 import { themeService } from '../theme/ThemeService';
 
@@ -67,7 +67,7 @@ export class ZoneBuilder {
         this.materials.clear();
     }
 
-    public buildZones(doc: CanvasDocument) {
+    public buildZones(data: ProjectData) {
         if (this.zoneGroup) {
             // 释放旧的几何体资源
             this.zoneGroup.traverse(child => {
@@ -83,8 +83,8 @@ export class ZoneBuilder {
         this.zoneGroup = new THREE.Group();
         this.zoneGroup.layers.set(LayerManager.LAYER_ZONES);
 
-        // 从 computed 子结构获取 zones
-        const zones = doc.computed?.zones;
+        // 从 activeScheme 子结构获取 zones
+        const zones = data.activeScheme?.zones;
         if (zones) {
             zones.forEach(zone => {
                 this.createZoneMesh(zone);

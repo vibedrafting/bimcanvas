@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { LayerManager } from '../three/LayerManager';
-import type { CanvasDocument } from '../../types/canvas';
+import type { ProjectData } from '../../types/canvas';
 import { themeService } from '../theme/ThemeService';
 
 /**
@@ -23,7 +23,7 @@ export class OutlineBuilder {
         });
     }
 
-    public buildLines(doc: CanvasDocument) {
+    public buildLines(data: ProjectData) {
         // Clear existing lines
         if (this.lineGroup) {
             this.scene.remove(this.lineGroup);
@@ -33,12 +33,12 @@ export class OutlineBuilder {
         this.lineGroup = new THREE.Group();
         this.lineGroup.layers.set(LayerManager.LAYER_OUTLINE);
 
-        // 从 revit 子结构获取建筑构件数据
-        const revit = doc.revit;
+        // 从 baseline 子结构获取建筑构件数据
+        const baseline = data.baseline;
 
         // 1. Wall Boundaries
-        if (revit?.walls) {
-            revit.walls.forEach(wall => {
+        if (baseline?.walls) {
+            baseline.walls.forEach(wall => {
                 const points = wall.polygon.map(p => new THREE.Vector3(p[0], p[1], 0));
                 // Close the loop
                 if (points.length > 0) {
@@ -59,8 +59,8 @@ export class OutlineBuilder {
         }
 
         // 2. Column Boundaries
-        if (revit?.columns) {
-            revit.columns.forEach(col => {
+        if (baseline?.columns) {
+            baseline.columns.forEach(col => {
                 const points = col.polygon.map(p => new THREE.Vector3(p[0], p[1], 0));
                 if (points.length > 0) points.push(points[0]!);
                 const geometry = new THREE.BufferGeometry().setFromPoints(points);
@@ -75,8 +75,8 @@ export class OutlineBuilder {
         }
 
         // 3. Module Boundaries
-        if (doc.layout?.modules) {
-            doc.layout.modules.forEach(mod => {
+        if (data.activeScheme?.modules) {
+            data.activeScheme.modules.forEach(mod => {
                 const points = mod.bounds.map(p => new THREE.Vector3(p[0], p[1], 0));
                 if (points.length > 0) points.push(points[0]!);
                 const geometry = new THREE.BufferGeometry().setFromPoints(points);

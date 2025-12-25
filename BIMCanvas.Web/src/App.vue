@@ -11,11 +11,11 @@ onMounted(async () => {
   // 初始化主题服务 (设置 CSS 变量)
   themeService.init();
 
-  // 从 URL 参数读取默认数据文件（由 Server 控制）
+  // 从 URL 参数读取项目路径（由 Server 传递）
   const urlParams = new URLSearchParams(window.location.search);
-  const file = urlParams.get('file');
-  if (file) {
-    await store.loadDemoData(`/demos/${file}.json`);
+  const projectPath = urlParams.get('project');
+  if (projectPath) {
+    await store.loadProject(decodeURIComponent(projectPath));
   }
 
   // Keyboard Shortcuts

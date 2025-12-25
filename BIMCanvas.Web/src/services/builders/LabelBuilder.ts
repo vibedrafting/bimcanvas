@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { CSS2DObject } from 'three-stdlib';
 import { LayerManager } from '../three/LayerManager';
-import type { CanvasDocument, Point2D, Line2D, Polygon2D } from '../../types/canvas';
+import type { ProjectData, Point2D, Line2D, Polygon2D } from '../../types/canvas';
 import { themeService } from '../theme/ThemeService';
 import { polygonCenterToWorld, lineCenterToWorld } from '../../utils/coordinates';
 
@@ -30,7 +30,7 @@ export class LabelBuilder {
         }
     }
 
-    public buildLabels(doc: CanvasDocument) {
+    public buildLabels(data: ProjectData) {
         if (this.labelGroup) {
             // Explicitly cleanup CSS2DObject DOM elements to prevent ghosts
             this.labelGroup.children.forEach(child => {
@@ -47,12 +47,12 @@ export class LabelBuilder {
         // Important: Set the group to LABELS layer
         this.labelGroup.layers.set(LayerManager.LAYER_LABELS);
 
-        // 从 revit 子结构获取建筑构件数据
-        const revit = doc.revit;
+        // 从 baseline 子结构获取建筑构件数据
+        const baseline = data.baseline;
 
         // 1. Walls
-        if (revit?.walls) {
-            revit.walls.forEach(wall => {
+        if (baseline?.walls) {
+            baseline.walls.forEach(wall => {
                 if (wall.id && wall.polygon && wall.polygon.length > 0) {
                     // Calculate center
                     const center = this.getPolygonCenter(wall.polygon);
@@ -63,8 +63,8 @@ export class LabelBuilder {
         }
 
         // 2. Columns
-        if (revit?.columns) {
-            revit.columns.forEach(col => {
+        if (baseline?.columns) {
+            baseline.columns.forEach(col => {
                 if (col.id && col.polygon && col.polygon.length > 0) {
                     const center = this.getPolygonCenter(col.polygon);
                     const orientation = this.getOrientation(col.polygon);
@@ -74,8 +74,8 @@ export class LabelBuilder {
         }
 
         // 3. Modules
-        if (doc.layout?.modules) {
-            doc.layout.modules.forEach(mod => {
+        if (data.activeScheme?.modules) {
+            data.activeScheme.modules.forEach(mod => {
                 if (mod.id && mod.bounds && mod.bounds.length > 0) {
                     const center = this.getPolygonCenter(mod.bounds);
                     const orientation = this.getOrientation(mod.bounds);
@@ -85,8 +85,8 @@ export class LabelBuilder {
         }
 
         // 4. Openings (Doors/Windows)
-        if (revit?.openings) {
-            revit.openings.forEach(opening => {
+        if (baseline?.openings) {
+            baseline.openings.forEach(opening => {
                 if (opening.id && opening.line) {
                     const center = this.getLineCenter(opening.line);
                     const orientation = this.getOrientation(opening.line);
