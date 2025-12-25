@@ -4,7 +4,7 @@
 > **范围**：全栈升级（Core / Revit / Server / Web / Agent）
 > **向后兼容**：否，直接切换到新格式
 > **创建日期**：2025-12-25
-> **状态**：待实施
+> **状态**：Phase 1-2 已完成，Phase 3-4 待实施
 
 ---
 
@@ -297,15 +297,18 @@ public class LocationLineAdapter
 
 **文件**：`BIMCanvas.Revit/Services/BcpExporter.cs`
 
+> **职责分离**：Revit 只导出 `baseline/` + `project.json`，`schemes/` 和 `context/` 由 Server 层在打开项目时创建。
+
 ```csharp
 public class BcpExporter
 {
-    // 创建临时文件夹结构
+    // 创建临时文件夹结构（仅 baseline/）
     // 序列化各层数据到对应 JSON 文件
     // 打包为 .bcp (ZIP 格式)
     public void ExportToBcp(
         string outputPath,
-        BaselineManifest manifest,
+        string projectName,
+        BaselineManifest manifest,      // 包含 BaselineHash
         Architecture architecture,
         List<Opening> openings,
         List<Room> rooms,
@@ -313,22 +316,31 @@ public class BcpExporter
 }
 ```
 
-### 2.4 导出文件夹结构
+### 2.4 Revit 导出文件夹结构
 
 ```
-{项目名}.bcp (ZIP 压缩包)
-├── project.json                    # 项目入口
-├── baseline/
-│   ├── metadata.json
-│   ├── architecture.json
-│   ├── openings.json
-│   ├── rooms.json
-│   └── location_lines.json
-├── context/
+{项目名}.bcp (ZIP 压缩包，Revit 导出)
+├── project.json                    # 项目入口（Schemes 为空，由 Server 填充）
+└── baseline/
+    ├── metadata.json               # 包含 BaselineHash
+    ├── architecture.json           # walls[] + columns[]
+    ├── openings.json
+    ├── rooms.json
+    └── location_lines.json
+```
+
+### 2.5 Server 打开项目后的完整结构
+
+```
+{工作目录}/（Server 解压 .bcp 后补充创建）
+├── project.json                    # 更新 Schemes 引用
+├── baseline/                       # 只读，来自 Revit
+│   └── ...
+├── context/                        # Server 创建
 │   └── requirements.md             # 空模板
-└── schemes/
+└── schemes/                        # Server 创建
     └── s1_Default/                 # 默认策略
-        ├── strategy.json
+        ├── strategy.json           # 包含 lastValidatedBaselineHash
         ├── zones.json              # 空
         ├── finishes.json           # 空
         └── modules.json            # 空
@@ -338,6 +350,8 @@ public class BcpExporter
 
 ## Phase 3: Server 层适配
 
+> **重要职责**：Server 在打开 `.bcp` 时需要创建 `schemes/` 和 `context/` 目录，补充 Revit 导出时未包含的部分。
+
 ### 3.1 新增 ProjectService
 
 **文件**：`BIMCanvas.Server/Services/ProjectService.cs`
@@ -346,12 +360,17 @@ public class BcpExporter
 public class ProjectService
 {
     // 解压 .bcp 到工作目录
+    // 1. 解压 baseline/ 和 project.json
+    // 2. 创建 context/ 目录和 requirements.md 模板
+    // 3. 创建 schemes/s1_Default/ 默认策略
+    // 4. 更新 project.json 的 Schemes 引用
+    // 5. 计算 BaselineHash 并写入 strategy.json
     public Project OpenProject(string bcpPath);
 
     // 保存项目到 .bcp
     public void SaveProject(Project project, string bcpPath);
 
-    // 创建新策略
+    // 创建新策略（在 schemes/ 下创建子目录）
     public Strategy CreateStrategy(Project project, string name, StrategyApproach approach);
 
     // 从变体升级为策略（复制文件夹）
@@ -454,8 +473,10 @@ public class StrategyService
 
 ## 验收标准
 
-- [ ] Revit 可导出 `.bcp` 格式
-- [ ] Server 可解压并读取 `.bcp`
+- [x] Revit 可导出 `.bcp` 格式（仅 baseline + project.json）
+- [x] 导出数据经评估符合 v3.0 规范
+- [ ] Server 可解压 `.bcp` 并创建 schemes/ 和 context/
+- [ ] Server 正确计算 BaselineHash 并写入 strategy.json
 - [ ] 策略创建/切换正常工作
 - [ ] Git 分支（变体）创建/切换正常
 - [ ] dirty 机制正确检测 baseline 变化

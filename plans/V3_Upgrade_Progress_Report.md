@@ -181,7 +181,12 @@ using CoreLocationLine = BIMCanvas.Core.Models.Revit.LocationLine;
 ```csharp
 public class ProjectService
 {
-    // 解压 .bcp 到工作目录，创建 schemes/ 和 context/ 目录
+    // 解压 .bcp 到工作目录
+    // 1. 解压 baseline/ 和 project.json
+    // 2. 创建 context/ 目录和 requirements.md 模板
+    // 3. 创建 schemes/s1_Default/ 默认策略
+    // 4. 更新 project.json 的 Schemes 引用
+    // 5. 计算 BaselineHash 并写入 strategy.json
     public Project OpenProject(string bcpPath);
 
     // 保存项目到 .bcp
@@ -244,10 +249,10 @@ public class StrategyService
 ## 五、验收标准
 
 - [x] Core 层数据模型升级到 v3.0
-- [x] Revit 可导出 `.bcp` 格式
+- [x] Revit 可导出 `.bcp` 格式（仅 baseline + project.json）
 - [x] 导出数据经评估符合 v3.0 规范
-- [ ] Server 可解压并读取 `.bcp`
-- [ ] Server 在打开项目时创建 schemes/ 和 context/
+- [ ] Server 可解压 `.bcp` 并创建 schemes/ 和 context/
+- [ ] Server 正确计算 BaselineHash 并写入 strategy.json
 - [ ] 策略创建/切换正常工作
 - [ ] Git 分支（变体）创建/切换正常
 - [ ] dirty 机制正确检测 baseline 变化
