@@ -3,7 +3,6 @@
     {
       "id": "w_1",
       "elementId": 431228,
-      "thickness": 0.0,
       "isStructural": false,
       "polygon": [
         [
@@ -27,7 +26,6 @@
     {
       "id": "w_2",
       "elementId": 431286,
-      "thickness": 0.0,
       "isStructural": false,
       "polygon": [
         [
@@ -51,7 +49,6 @@
     {
       "id": "w_3",
       "elementId": 431382,
-      "thickness": 0.0,
       "isStructural": false,
       "polygon": [
         [
@@ -75,7 +72,6 @@
     {
       "id": "w_4",
       "elementId": 431434,
-      "thickness": 0.0,
       "isStructural": false,
       "polygon": [
         [
@@ -99,7 +95,6 @@
     {
       "id": "w_5",
       "elementId": 431536,
-      "thickness": 0.0,
       "isStructural": false,
       "polygon": [
         [
@@ -123,7 +118,6 @@
     {
       "id": "w_6",
       "elementId": 431591,
-      "thickness": 0.0,
       "isStructural": false,
       "polygon": [
         [
@@ -147,7 +141,6 @@
     {
       "id": "w_7",
       "elementId": 431591,
-      "thickness": 0.0,
       "isStructural": false,
       "polygon": [
         [
@@ -171,7 +164,6 @@
     {
       "id": "w_8",
       "elementId": 431763,
-      "thickness": 0.0,
       "isStructural": false,
       "polygon": [
         [
@@ -195,7 +187,6 @@
     {
       "id": "w_9",
       "elementId": 431896,
-      "thickness": 0.0,
       "isStructural": false,
       "polygon": [
         [
@@ -219,7 +210,6 @@
     {
       "id": "w_10",
       "elementId": 431896,
-      "thickness": 0.0,
       "isStructural": false,
       "polygon": [
         [
@@ -243,7 +233,6 @@
     {
       "id": "w_11",
       "elementId": 431896,
-      "thickness": 0.0,
       "isStructural": false,
       "polygon": [
         [
@@ -267,7 +256,6 @@
     {
       "id": "w_12",
       "elementId": 431932,
-      "thickness": 0.0,
       "isStructural": false,
       "polygon": [
         [
@@ -291,7 +279,6 @@
     {
       "id": "w_13",
       "elementId": 432192,
-      "thickness": 0.0,
       "isStructural": false,
       "polygon": [
         [
@@ -315,7 +302,6 @@
     {
       "id": "w_14",
       "elementId": 432192,
-      "thickness": 0.0,
       "isStructural": false,
       "polygon": [
         [
@@ -339,7 +325,6 @@
     {
       "id": "w_15",
       "elementId": 432331,
-      "thickness": 0.0,
       "isStructural": false,
       "polygon": [
         [
@@ -363,7 +348,6 @@
     {
       "id": "w_16",
       "elementId": 432331,
-      "thickness": 0.0,
       "isStructural": false,
       "polygon": [
         [
@@ -387,7 +371,6 @@
     {
       "id": "w_17",
       "elementId": 432601,
-      "thickness": 0.0,
       "isStructural": false,
       "polygon": [
         [
@@ -411,7 +394,6 @@
     {
       "id": "w_18",
       "elementId": 432601,
-      "thickness": 0.0,
       "isStructural": false,
       "polygon": [
         [
@@ -435,7 +417,6 @@
     {
       "id": "w_19",
       "elementId": 432692,
-      "thickness": 0.0,
       "isStructural": false,
       "polygon": [
         [
@@ -459,7 +440,6 @@
     {
       "id": "w_20",
       "elementId": 432802,
-      "thickness": 0.0,
       "isStructural": false,
       "polygon": [
         [
@@ -483,7 +463,6 @@
     {
       "id": "w_21",
       "elementId": 432802,
-      "thickness": 0.0,
       "isStructural": false,
       "polygon": [
         [
@@ -507,7 +486,6 @@
     {
       "id": "w_22",
       "elementId": 433019,
-      "thickness": 0.0,
       "isStructural": false,
       "polygon": [
         [
@@ -531,7 +509,6 @@
     {
       "id": "w_23",
       "elementId": 433169,
-      "thickness": 0.0,
       "isStructural": false,
       "polygon": [
         [
@@ -555,7 +532,6 @@
     {
       "id": "w_24",
       "elementId": 433169,
-      "thickness": 0.0,
       "isStructural": false,
       "polygon": [
         [
@@ -579,7 +555,6 @@
     {
       "id": "w_25",
       "elementId": 433169,
-      "thickness": 0.0,
       "isStructural": false,
       "polygon": [
         [
@@ -603,7 +578,6 @@
     {
       "id": "w_26",
       "elementId": 433169,
-      "thickness": 0.0,
       "isStructural": false,
       "polygon": [
         [
@@ -627,7 +601,6 @@
     {
       "id": "w_27",
       "elementId": 433373,
-      "thickness": 0.0,
       "isStructural": false,
       "polygon": [
         [
@@ -651,7 +624,6 @@
     {
       "id": "w_28",
       "elementId": 433581,
-      "thickness": 0.0,
       "isStructural": false,
       "polygon": [
         [
@@ -675,7 +647,6 @@
     {
       "id": "w_29",
       "elementId": 433581,
-      "thickness": 0.0,
       "isStructural": false,
       "polygon": [
         [
@@ -699,7 +670,6 @@
     {
       "id": "w_30",
       "elementId": 433581,
-      "thickness": 0.0,
       "isStructural": false,
       "polygon": [
         [
@@ -723,7 +693,6 @@
     {
       "id": "w_31",
       "elementId": 433707,
-      "thickness": 0.0,
       "isStructural": false,
       "polygon": [
         [
@@ -747,7 +716,6 @@
     {
       "id": "w_32",
       "elementId": 433795,
-      "thickness": 0.0,
       "isStructural": false,
       "polygon": [
         [
@@ -771,7 +739,6 @@
     {
       "id": "w_33",
       "elementId": 433874,
-      "thickness": 0.0,
       "isStructural": false,
       "polygon": [
         [
@@ -795,7 +762,6 @@
     {
       "id": "w_34",
       "elementId": 433933,
-      "thickness": 0.0,
       "isStructural": false,
       "polygon": [
         [
@@ -819,7 +785,6 @@
     {
       "id": "w_35",
       "elementId": 434041,
-      "thickness": 0.0,
       "isStructural": false,
       "polygon": [
         [
@@ -843,7 +808,6 @@
     {
       "id": "w_36",
       "elementId": 434333,
-      "thickness": 0.0,
       "isStructural": false,
       "polygon": [
         [
@@ -867,7 +831,6 @@
     {
       "id": "w_37",
       "elementId": 434388,
-      "thickness": 0.0,
       "isStructural": false,
       "polygon": [
         [
@@ -891,7 +854,6 @@
     {
       "id": "w_38",
       "elementId": 434613,
-      "thickness": 0.0,
       "isStructural": false,
       "polygon": [
         [
@@ -915,7 +877,6 @@
     {
       "id": "w_39",
       "elementId": 434613,
-      "thickness": 0.0,
       "isStructural": false,
       "polygon": [
         [
@@ -939,7 +900,6 @@
     {
       "id": "w_40",
       "elementId": 434698,
-      "thickness": 0.0,
       "isStructural": false,
       "polygon": [
         [
@@ -963,7 +923,6 @@
     {
       "id": "w_41",
       "elementId": 434803,
-      "thickness": 0.0,
       "isStructural": false,
       "polygon": [
         [
@@ -987,7 +946,6 @@
     {
       "id": "w_42",
       "elementId": 434803,
-      "thickness": 0.0,
       "isStructural": false,
       "polygon": [
         [
@@ -1011,7 +969,6 @@
     {
       "id": "w_43",
       "elementId": 435405,
-      "thickness": 0.0,
       "isStructural": false,
       "polygon": [
         [
@@ -1035,7 +992,6 @@
     {
       "id": "w_44",
       "elementId": 435483,
-      "thickness": 0.0,
       "isStructural": false,
       "polygon": [
         [
@@ -1059,7 +1015,6 @@
     {
       "id": "w_45",
       "elementId": 435483,
-      "thickness": 0.0,
       "isStructural": false,
       "polygon": [
         [
@@ -1083,7 +1038,6 @@
     {
       "id": "w_46",
       "elementId": 435703,
-      "thickness": 0.0,
       "isStructural": false,
       "polygon": [
         [
@@ -1107,7 +1061,6 @@
     {
       "id": "w_47",
       "elementId": 435958,
-      "thickness": 0.0,
       "isStructural": false,
       "polygon": [
         [
@@ -1131,7 +1084,6 @@
     {
       "id": "w_48",
       "elementId": 436005,
-      "thickness": 0.0,
       "isStructural": false,
       "polygon": [
         [
@@ -1155,7 +1107,6 @@
     {
       "id": "w_49",
       "elementId": 436065,
-      "thickness": 0.0,
       "isStructural": false,
       "polygon": [
         [
@@ -1179,7 +1130,6 @@
     {
       "id": "w_50",
       "elementId": 436221,
-      "thickness": 0.0,
       "isStructural": false,
       "polygon": [
         [

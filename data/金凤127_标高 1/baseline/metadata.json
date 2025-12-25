@@ -1,5 +1,5 @@
 ﻿{
-  "exportDate": "2025-12-25T20:33:34.0975295+08:00",
+  "exportDate": "2025-12-25T21:28:00.5819187+08:00",
   "revitVersion": "2019",
   "placementElevation": 0.0,
   "origin": [
@@ -9,5 +9,6 @@
   ],
   "rotation": 0.0,
   "transformMethod": "boundingBox",
-  "unitSystem": "metric_mm"
+  "unitSystem": "metric_mm",
+  "baselineHash": "sha256:91d4aa581bd4ec7e82ade5509f048026f4ed0a02db938a41d39524b6547b81f0"
 }

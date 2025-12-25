@@ -106,7 +106,19 @@
 ### Phase 2.1: Revit 导出职责分离 ✅
 
 **完成时间**：2025-12-25
-**Git Commit**：`6fef66f`
+**Git Commits**：`6fef66f`, `f192166`
+
+#### 数据评估结果
+
+使用 `data/金凤127_标高 1.bcp` 进行验证：
+
+| 数据项 | 数量 | 状态 |
+|--------|------|------|
+| 墙体 (walls) | 50 | ✅ polygon 完整 |
+| 柱子 (columns) | 0 | ✅ 项目无柱子 |
+| 门窗 (openings) | 15 | ✅ 门7扇 + 窗8扇 |
+| 房间 (rooms) | 6 | ✅ 类型推断正确 |
+| 定位线 (location_lines) | 66 | ✅ 约10条 roomId 为空（边界情况） |
 
 #### 修改说明
 
@@ -233,7 +245,9 @@ public class StrategyService
 
 - [x] Core 层数据模型升级到 v3.0
 - [x] Revit 可导出 `.bcp` 格式
+- [x] 导出数据经评估符合 v3.0 规范
 - [ ] Server 可解压并读取 `.bcp`
+- [ ] Server 在打开项目时创建 schemes/ 和 context/
 - [ ] 策略创建/切换正常工作
 - [ ] Git 分支（变体）创建/切换正常
 - [ ] dirty 机制正确检测 baseline 变化
