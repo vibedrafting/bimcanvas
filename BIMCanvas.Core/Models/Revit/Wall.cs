@@ -18,6 +18,16 @@ namespace BIMCanvas.Core.Models.Revit
         public int ElementId { get; set; }
 
         /// <summary>
+        /// 墙厚（mm）
+        /// </summary>
+        public double Thickness { get; set; }
+
+        /// <summary>
+        /// 是否结构墙
+        /// </summary>
+        public bool IsStructural { get; set; }
+
+        /// <summary>
         /// 墙体轮廓多边形
         /// </summary>
         public Polygon2D? Polygon { get; set; }

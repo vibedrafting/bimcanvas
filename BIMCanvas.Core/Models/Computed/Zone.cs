@@ -22,6 +22,11 @@ namespace BIMCanvas.Core.Models.Computed
         /// </summary>
         public string Name { get; set; } = string.Empty;
 
+        /// <summary>
+        /// 所属房间 ID
+        /// </summary>
+        public string RoomId { get; set; } = string.Empty;
+
         // ========== 6 项核心字段 ==========
 
         /// <summary>
@@ -58,5 +63,15 @@ namespace BIMCanvas.Core.Models.Computed
         /// 6. 方案 ID：仅 Designable 类型有效，用于多方案系统（当前可为空）
         /// </summary>
         public string? SchemeId { get; set; }
+
+        /// <summary>
+        /// 禁区列表
+        /// </summary>
+        public List<ExclusionArea> ExclusionAreas { get; set; } = new List<ExclusionArea>();
+
+        /// <summary>
+        /// 关联开口 ID 列表
+        /// </summary>
+        public List<string> Openings { get; set; } = new List<string>();
     }
 }

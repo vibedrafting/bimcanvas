@@ -43,5 +43,10 @@ namespace BIMCanvas.Core.Models.Layout
         /// 模块内部家具清单（回写 Revit 用）
         /// </summary>
         public List<ModuleItem> Items { get; set; } = new List<ModuleItem>();
+
+        /// <summary>
+        /// 布置原因（给 AI 看）
+        /// </summary>
+        public string? PlacementReason { get; set; }
     }
 }
