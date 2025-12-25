@@ -1,0 +1,10 @@
+﻿{
+  "id": "s1_Default",
+  "name": "Default",
+  "approach": "circulation_first",
+  "description": "从 Revit 导出的默认策略",
+  "createdAt": "2025-12-25T20:33:34.1030521+08:00",
+  "updatedAt": "2025-12-25T20:33:34.1030521+08:00",
+  "lastValidatedBaselineHash": "sha256:5930a33883e1eedd9944ec3af4998c2197b7b50acc9c7e9354e2c2fdb38a56d1",
+  "status": "valid"
+}
