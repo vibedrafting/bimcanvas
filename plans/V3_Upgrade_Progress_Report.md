@@ -2,7 +2,7 @@
 
 > **文档目的**：记录 v3.0 Multi-Repo Collection 架构升级的当前进度，供后续对话继续执行剩余阶段任务
 > **创建日期**：2025-12-25
-> **最后更新**：2025-12-25
+> **最后更新**：2025-12-25 (Phase 2.1 职责分离)
 
 ---
 
@@ -48,7 +48,7 @@
 
 | 文件 | 修改内容 |
 |------|----------|
-| `Models/Revit/Wall.cs` | +Thickness, +IsStructural |
+| `Models/Revit/Wall.cs` | +IsStructural（Thickness 已移除，轮廓已含几何信息） |
 | `Models/Computed/Zone.cs` | +RoomId, +ExclusionAreas, +Openings |
 | `Models/Layout/Module.cs` | +PlacementReason |
 
@@ -86,26 +86,37 @@
 | `Services/CanvasExportService.cs` | 完全重构：输出从 `DesignDocument` → 多文件夹结构，新增 `ExportResult` 类 |
 | `Commands/ExportCanvasCommand.cs` | 适配 v3.0，保存 `.bcp` 文件而非 `.json` |
 
-#### 导出文件结构
+#### 导出文件结构（Phase 2.1 更新后）
 
 ```
 {项目名}.bcp (ZIP 压缩包)
-├── project.json                    # 项目入口
-├── baseline/
-│   ├── metadata.json               # 坐标变换参数
-│   ├── architecture.json           # 墙体 + 柱子
-│   ├── openings.json               # 门窗
-│   ├── rooms.json                  # 房间
-│   └── location_lines.json         # 完成面定位线
-├── context/
-│   └── requirements.md             # 设计需求模板
-└── schemes/
-    └── s1_Default/                 # 默认策略
-        ├── strategy.json
-        ├── zones.json              # 空
-        ├── finishes.json           # 空
-        └── modules.json            # 空
+├── project.json                    # 项目入口（Schemes 为空，由 Server 填充）
+└── baseline/
+    ├── metadata.json               # 坐标变换参数 + BaselineHash
+    ├── architecture.json           # 墙体 + 柱子
+    ├── openings.json               # 门窗
+    ├── rooms.json                  # 房间
+    └── location_lines.json         # 完成面定位线
 ```
+
+> **职责分离**：`schemes/` 和 `context/` 由 Server 层在项目打开时创建，Revit 只负责导出原始建筑数据。
+
+---
+
+### Phase 2.1: Revit 导出职责分离 ✅
+
+**完成时间**：2025-12-25
+**Git Commit**：`6fef66f`
+
+#### 修改说明
+
+| 变更 | 说明 |
+|------|------|
+| 移除 schemes/ 创建 | 策略由 Server 层创建，Revit 不参与 |
+| 移除 context/ 创建 | 设计需求由 Server 层管理 |
+| project.json 调整 | Schemes 为空列表，ActiveSchemeId 为 null |
+| BaselineHash 移入 metadata.json | 供 Server 层验证 baseline 一致性 |
+| 移除 Wall.Thickness | 冗余字段，Polygon 已含完整几何信息 |
 
 ---
 
@@ -149,6 +160,8 @@ using CoreLocationLine = BIMCanvas.Core.Models.Revit.LocationLine;
 
 **参考文档**：`plans/V3_Architecture_Upgrade_Plan.md` §Phase 3
 
+> **重要**：由于 Phase 2.1 职责分离，Server 层现在需要在项目打开时创建 `schemes/` 和 `context/` 目录。
+
 #### 3.1 新增 ProjectService
 
 **文件**：`BIMCanvas.Server/Services/ProjectService.cs`
@@ -156,13 +169,13 @@ using CoreLocationLine = BIMCanvas.Core.Models.Revit.LocationLine;
 ```csharp
 public class ProjectService
 {
-    // 解压 .bcp 到工作目录
+    // 解压 .bcp 到工作目录，创建 schemes/ 和 context/ 目录
     public Project OpenProject(string bcpPath);
 
     // 保存项目到 .bcp
     public void SaveProject(Project project, string bcpPath);
 
-    // 创建新策略
+    // 创建新策略（在 schemes/ 下创建子目录）
     public Strategy CreateStrategy(Project project, string name, StrategyApproach approach);
 
     // 从变体升级为策略（复制文件夹）
