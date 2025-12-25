@@ -4,7 +4,7 @@
 > **范围**：全栈升级（Core / Revit / Server / Web / Agent）
 > **向后兼容**：否，直接切换到新格式
 > **创建日期**：2025-12-25
-> **状态**：Phase 1-2 已完成，Phase 3-4 待实施
+> **状态**：Phase 1-3 已完成，Phase 4 待实施
 
 ---
 
@@ -322,63 +322,133 @@ public class BcpExporter
 {项目名}.bcp (ZIP 压缩包，Revit 导出)
 ├── project.json                    # 项目入口（Schemes 为空，由 Server 填充）
 └── baseline/
-    ├── metadata.json               # 包含 BaselineHash
+    ├── metadata.json               # 包含坐标变换参数
     ├── architecture.json           # walls[] + columns[]
     ├── openings.json
     ├── rooms.json
     └── location_lines.json
 ```
 
+> **注意**：`baseline.manifest`（哈希文件）由 Server 在打开项目时生成，不由 Revit 导出。
+
 ### 2.5 Server 打开项目后的完整结构
 
 ```
-{工作目录}/（Server 解压 .bcp 后补充创建）
+{用户文档}/BIMCanvas/Projects/{项目名}_{时间戳}/
 ├── project.json                    # 更新 Schemes 引用
 ├── baseline/                       # 只读，来自 Revit
-│   └── ...
+│   ├── metadata.json
+│   ├── architecture.json
+│   ├── openings.json
+│   ├── rooms.json
+│   ├── location_lines.json
+│   └── baseline.manifest           # Server 生成的哈希文件
 ├── context/                        # Server 创建
-│   └── requirements.md             # 空模板
-└── schemes/                        # Server 创建
-    └── s1_Default/                 # 默认策略
-        ├── strategy.json           # 包含 lastValidatedBaselineHash
-        ├── zones.json              # 空
-        ├── finishes.json           # 空
-        └── modules.json            # 空
+│   └── requirements.md             # 设计需求模板
+├── schemes/                        # Server 创建
+│   └── s1_Default/                 # 默认策略
+│       ├── strategy.json           # 包含 lastValidatedBaselineHash
+│       ├── zones.json              # 空
+│       ├── finishes.json           # 空
+│       └── modules.json            # 空
+└── computed/                       # Server 生成的计算缓存
+    ├── exclusions.json             # 门扇禁区 ExclusionArea[]
+    └── computed.manifest           # 哈希验证文件
 ```
+
+> **固定工作目录**：所有项目解压到 `用户文档/BIMCanvas/Projects/`，项目文件夹命名为 `{bcp文件名}_{时间戳}`（如 `demo_1_20251225_143025`）。
 
 ---
 
 ## Phase 3: Server 层适配
 
-> **重要职责**：Server 在打开 `.bcp` 时需要创建 `schemes/` 和 `context/` 目录，补充 Revit 导出时未包含的部分。
+> **重要职责**：Server 在打开 `.bcp` 时需要创建 `schemes/`、`context/` 和 `computed/` 目录，补充 Revit 导出时未包含的部分。
 
-### 3.1 新增 ProjectService
+### 3.1 新增 ManifestService
+
+**文件**：`BIMCanvas.Server/Services/ManifestService.cs`
+
+```csharp
+public class ManifestService
+{
+    // 读取 .manifest 文件
+    public Dictionary<string, string> ReadManifest(string manifestPath);
+
+    // 写入 .manifest 文件
+    public void WriteManifest(string manifestPath, Dictionary<string, string> values);
+
+    // 从 baseline/ 读取 baselineHash
+    public string? GetBaselineHash(string baselinePath);
+
+    // 写入 baseline.manifest
+    public void WriteBaselineManifest(string baselinePath, string baselineHash);
+}
+```
+
+**`.manifest` 文件格式**（键值对，非 JSON）：
+
+```
+# Generated at 2025-12-25T14:30:25
+version=1
+generatedAt=2025-12-25T14:30:25+08:00
+baselineHash=sha256:abc123def456...
+```
+
+### 3.2 新增 ComputedDataService
+
+**文件**：`BIMCanvas.Server/Services/ComputedDataService.cs`
+
+```csharp
+public class ComputedDataService
+{
+    // 验证 computed 数据是否有效
+    // 比较 computed.manifest 中的 baselineHash 与 baseline.manifest
+    public bool ValidateComputedData(string projectPath);
+
+    // 生成 computed 数据（门扇禁区等）
+    public void GenerateComputedData(string projectPath);
+}
+```
+
+**门扇禁区计算逻辑**（ExclusionArea）：
+
+对每扇门，根据 `Line` + `FacingDirection` 计算矩形禁区：
+- 禁区尺寸：`doorWidth × doorWidth`
+- 偏移向量：`FacingDirection × doorWidth`
+- 4 个顶点：门线起点、门线终点、终点+偏移、起点+偏移
+
+```csharp
+var offset = facingDirection * doorWidth;
+var polygon = new Polygon2D(new[] {
+    lineStart,
+    lineEnd,
+    lineEnd + offset,
+    lineStart + offset
+});
+```
+
+### 3.3 新增 ProjectService
 
 **文件**：`BIMCanvas.Server/Services/ProjectService.cs`
 
 ```csharp
 public class ProjectService
 {
-    // 解压 .bcp 到工作目录
-    // 1. 解压 baseline/ 和 project.json
-    // 2. 创建 context/ 目录和 requirements.md 模板
-    // 3. 创建 schemes/s1_Default/ 默认策略
-    // 4. 更新 project.json 的 Schemes 引用
-    // 5. 计算 BaselineHash 并写入 strategy.json
-    public Project OpenProject(string bcpPath);
+    // 加载项目（完整流程）
+    // 1. 解压 .bcp 到 用户文档/BIMCanvas/Projects/{名称}_{时间戳}/
+    // 2. 计算 baseline 哈希 → 写入 baseline/baseline.manifest
+    // 3. 创建 context/ 目录和 requirements.md 模板
+    // 4. 创建 schemes/s1_Default/ 默认策略
+    // 5. 更新 project.json 的 Schemes 引用
+    // 6. 验证 computed 数据有效性，无效时生成 exclusions.json + computed.manifest
+    public string LoadProject(string bcpPath);
 
     // 保存项目到 .bcp
-    public void SaveProject(Project project, string bcpPath);
-
-    // 创建新策略（在 schemes/ 下创建子目录）
-    public Strategy CreateStrategy(Project project, string name, StrategyApproach approach);
-
-    // 从变体升级为策略（复制文件夹）
-    public Strategy PromoteVariantToStrategy(Project project, string sourceStrategyId, string branch);
+    public void SaveProject(string projectPath, string bcpPath);
 }
 ```
 
-### 3.2 新增 StrategyService
+### 3.4 新增 StrategyService
 
 **文件**：`BIMCanvas.Server/Services/StrategyService.cs`
 
@@ -399,7 +469,7 @@ public class StrategyService
 }
 ```
 
-### 3.3 修改 MCP 工具
+### 3.5 修改 MCP 工具
 
 更新 Canvas-MCP 工具以适配新的数据结构：
 - 读取/写入从单一 JSON → 多文件
@@ -448,13 +518,17 @@ public class StrategyService
 - `BIMCanvas.Revit/Services/CanvasExportService.cs` (修改)
 
 ### Stage C: Server 层实现
-1. 实现 `ProjectService`
-2. 实现 `StrategyService`（Git 操作）
-3. 更新 MCP 工具
+1. 实现 `ManifestService`（.manifest 文件读写）
+2. 实现 `ComputedDataService`（门扇禁区生成）
+3. 实现 `StrategyService`（策略目录管理）
+4. 实现 `ProjectService`（项目加载完整流程）
+5. 更新 MCP 工具
 
 **关键文件**：
-- `BIMCanvas.Server/Services/ProjectService.cs` (新建)
+- `BIMCanvas.Server/Services/ManifestService.cs` (新建)
+- `BIMCanvas.Server/Services/ComputedDataService.cs` (新建)
 - `BIMCanvas.Server/Services/StrategyService.cs` (新建)
+- `BIMCanvas.Server/Services/ProjectService.cs` (新建)
 
 ### Stage D: 前端/Agent 适配
 1. 更新 Web 数据模型
@@ -473,14 +547,25 @@ public class StrategyService
 
 ## 验收标准
 
+### Phase 1-2: Core + Revit 层 ✅
+- [x] Core 层数据模型升级到 v3.0
 - [x] Revit 可导出 `.bcp` 格式（仅 baseline + project.json）
 - [x] 导出数据经评估符合 v3.0 规范
-- [ ] Server 可解压 `.bcp` 并创建 schemes/ 和 context/
-- [ ] Server 正确计算 BaselineHash 并写入 strategy.json
-- [ ] 策略创建/切换正常工作
+
+### Phase 3: Server 层 ✅
+- [x] Server 可解压 `.bcp` 到固定工作目录
+- [x] Server 创建 schemes/ 和 context/ 目录
+- [x] Server 正确计算 BaselineHash 并写入 baseline.manifest
+- [x] baseline.manifest 正确生成
+- [x] 默认策略创建正常工作
+- [x] computed 数据验证和生成正常工作
+- [x] 门扇禁区计算正确
+
+### Phase 3.1+4: 遗留服务迁移 + Web/Agent 适配 ⬜
+- [ ] 策略切换正常工作
 - [ ] Git 分支（变体）创建/切换正常
 - [ ] dirty 机制正确检测 baseline 变化
-- [ ] 原有的 zones/modules/finishes 功能正常
+- [ ] 原有的 zones/modules/finishes 功能正常（需迁移遗留服务）
 
 ---
 
