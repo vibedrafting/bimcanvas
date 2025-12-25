@@ -2,7 +2,7 @@
 
 > 在用户提供的建筑平面内，布置符合设计逻辑的家具组合。
 
-**数据模型版本**: v2.9 (Core 层命名空间重构 + layout.modules 结构)
+**数据模型版本**: v3.0 (File-Driven Architecture + .bcp 项目格式)
 
 ---
 
@@ -14,7 +14,7 @@
 |------|------|------|
 | 架构文档 | `docs/Architecture.md` | 系统架构、数据流 |
 | 执行流程 | `docs/Workflows.md` | 端到端执行流程、触发机制 |
-| JSON Schema | `docs/Schema-JSON.md` | v2.9 数据模型定义 |
+| JSON Schema | `docs/Schema-JSON.md` | v3.0 数据模型定义 |
 | PRD | `docs/PRD.md` | 产品需求、工作流程 |
 | Core 层 | `BIMCanvas.Core/README.md` | 数据模型 + 空间算法实现 |
 | Revit 插件 | `BIMCanvas.Revit/README.md` | Revit 导出/回写实现细节 |
@@ -150,43 +150,41 @@ Revit (feet, 项目坐标)  ←→  BIMCanvas (mm, 归一化坐标)
 
 ---
 
-## v2.8 数据模型速查
+## v3.0 数据模型速查
 
 ### 核心设计原则
 
+> **File-Driven Architecture**：文件是唯一真理源，Server 是"文件播放器"而非"内存数据库"
 > **AI = OBB 规划师**：AI 只操作矩形包围盒，不计算精确几何。Core 层负责转换。
 
-### JSON 顶级结构
+### 三层汉堡模型 (.bcp 项目结构)
 
 ```
-DesignDocument
-├── id, projectName, exportDate, version, coordinateSystem
-├── revit                Revit 原始数据
-│   ├── metadata         坐标变换参数
-│   ├── walls[]          墙体轮廓 Polygon2D
-│   ├── columns[]        柱子轮廓 Polygon2D
-│   ├── openings[]       门窗 Line2D + type + direction
-│   ├── finishLocationBoundaries[]  完成面定位边界
-│   └── rooms[]          物理房间
-│       ├── id, name, type   RoomType 枚举
-│       └── boundary     Polygon2D
-├── computed             计算派生数据
-│   ├── zones[]          设计区域 (AI 核心工作区)
-│   │   ├── roomId       所属房间 ID
-│   │   ├── tags[]       ZoneTag 枚举列表
-│   │   ├── rawBoundary  原始边界
-│   │   ├── innerBoundary 可用空间轮廓 Polygon2D
-│   │   ├── exclusionAreas[] 禁区 Polygon2D (4顶点矩形)
-│   │   └── openings[]   关联门窗 ID
-│   └── wallFinishes[]   墙面完成面
-│       ├── locationLine 定位线 Line2D
-│       ├── thickness    厚度 (mm)
-│       └── exclusionBoundary 禁区轮廓 Polygon2D
-└── modules[]            布置模块 (最小布置单元)
-    ├── bounds           Polygon2D [[x,y], ...] (4顶点矩形)
-    ├── facing           Facing (FacingDirection 枚举 | Vec2D)
-    └── items[]          内部家具清单 (回写 Revit 用)
+project.bcp (ZIP)
+├── manifest.json           项目元数据 + 方案列表
+├── baseline/               【底层】建筑基础数据（只读，Revit 导出）
+│   ├── walls.json          墙体轮廓 Polygon2D
+│   ├── columns.json        柱子轮廓 Polygon2D
+│   ├── openings.json       门窗 Line2D + type + direction
+│   ├── rooms.json          物理房间 { id, name, type, boundary }
+│   └── locationLines.json  完成面定位线 { wallId, roomId, line, normal }
+├── schemes/{strategyId}/   【中层】方案设计数据（AI/Server 可写）
+│   ├── zones.json          设计区域 { roomId, tags[], innerBoundary, openings[] }
+│   ├── finishes.json       完成面分段 { locationLineId, startT, endT, thickness }
+│   └── modules.json        布置模块 { bounds, facing, items[] }
+└── computed/               【顶层】计算派生数据（自动生成）
+    └── exclusions.json     禁区 { sourceType, sourceId, boundary }
 ```
+
+### 关键模型变化 (v2.x → v3.0)
+
+| v2.x | v3.0 | 说明 |
+|------|------|------|
+| DesignDocument | Project | 根对象重构 |
+| WallFinish | FinishSegment | 完成面分段化 |
+| - | LocationLine | 新增定位线模型 |
+| - | ExclusionArea | 禁区独立类 |
+| - | Strategy | 多方案支持 |
 
 ### AI 布置约束
 

@@ -1,8 +1,8 @@
 # BIMCanvas.Revit
 
-> **版本**：v1.1
-> **更新日期**：2025-12-11
-> **状态**：Phase 1 核心导出功能已完成
+> **版本**：v3.0
+> **更新日期**：2025-12-26
+> **状态**：Phase 1 核心导出功能已完成（支持 v3.0 .bcp 格式）
 
 ---
 
@@ -10,14 +10,23 @@
 
 ### 1.1 核心定位
 
-**BIMCanvas.Revit 是一个独立运行的 Revit 插件**，通过本地 JSON 文件与 BIMCanvas 系统交换数据。
+**BIMCanvas.Revit 是一个独立运行的 Revit 插件**，通过 `.bcp` 压缩包与 BIMCanvas 系统交换数据。
 
 **核心职责**：
-- **数据提取（导出）**：从 Revit 模型提取建筑数据 → 保存为 JSON 文件
-- **数据回写（导入）**：读取布置结果 JSON → 创建 Revit 家具实例（Phase 2）
+- **数据提取（导出）**：从 Revit 模型提取建筑数据 → 保存为 `.bcp` 压缩包（v3.0 格式）
+- **数据回写（导入）**：读取布置结果 JSON → 创建 Revit 家具实例（Phase 2，待开发）
 - **UI 交互**：提供 Ribbon 面板、配置窗口、文件对话框
 
-### 1.2 技术栈
+### 1.2 v3.0 变更说明
+
+| 变更项 | v2.9 (旧) | v3.0 (新) |
+|--------|-----------|-----------|
+| 输出格式 | 单一 `.json` 文件 | `.bcp` 压缩包（多文件夹结构） |
+| 数据结构 | `DesignDocument` 单一对象 | `baseline/` 多文件 + `project.json` |
+| 策略创建 | Revit 创建 | **Server 层负责** |
+| 新增数据 | - | `LocationLine` 定位线 |
+
+### 1.3 技术栈
 
 | 配置项 | 值 | 说明 |
 |--------|-----|------|
@@ -39,28 +48,30 @@ BIMCanvas.Revit/
 │
 ├── Commands/                     【命令层】Ribbon 入口
 │   ├── App.cs                       IExternalApplication 入口
-│   └── ExportCanvasCommand.cs       导出命令
+│   └── ExportCanvasCommand.cs       导出命令（v3.0 .bcp 格式）
 │
 ├── Adapters/                     【适配器层】数据提取
-│   ├── BoundaryAdapter.cs           墙/柱单独轮廓提取（返回墙和柱分离的元组）
-│   ├── WallFinishAdapter.cs         完成面定位边界提取（墙柱组合轮廓）
+│   ├── BoundaryAdapter.cs           墙/柱单独轮廓提取
+│   ├── WallFinishAdapter.cs         完成面定位边界提取
 │   ├── OpeningAdapter.cs            门窗数据提取
-│   └── RoomAdapter.cs               房间数据提取
+│   ├── RoomAdapter.cs               房间数据提取
+│   └── LocationLineAdapter.cs       【v3.0 新增】定位线提取
 │
 ├── Models/                       【模型层】中间数据结构
 │   ├── RevitWall.cs                 墙体轮廓中间模型
-│   ├── RevitColumn.cs               柱子轮廓中间模型（含 IsStructural）
+│   ├── RevitColumn.cs               柱子轮廓中间模型
 │   ├── RevitWallFinish.cs           完成面定位边界中间模型
 │   ├── RevitOpening.cs              门窗中间模型
 │   └── RevitRoom.cs                 房间中间模型
 │
 ├── Services/                     【服务层】业务逻辑
-│   ├── CanvasExportService.cs       导出服务（6阶段流程）
+│   ├── CanvasExportService.cs       导出服务（v3.0 多文件结构）
+│   ├── BcpExporter.cs               【v3.0 新增】.bcp 压缩包导出
 │   ├── CoordinateTransformer.cs     坐标转换器
 │   ├── RoomTypeInferrer.cs          房间类型推断
-│   └── ExportOptions.cs             导出配置（支持 JSON 配置文件）
+│   └── ExportOptions.cs             导出配置
 │
-├── ExportOptions.json            【配置文件】导出配置（随项目输出）
+├── ExportOptions.json            【配置文件】导出配置
 │
 ├── Utilities/                    【工具层】通用功能
 │   ├── OutlineExtractor.cs          轮廓提取（几何切割）
@@ -79,28 +90,43 @@ BIMCanvas.Revit/
 │
 └── Test/                         【测试】
     ├── Test.cs                      通用测试框架
-    ├── GetRoomBoundaryTest.cs       房间边界测试
-    ├── OpeningInfoTest.cs           门窗信息测试
-    └── WallSolidUnionTest.cs        墙体合并测试
+    └── ...
 ```
 
 ---
 
-## 三、执行流程
+## 三、v3.0 导出流程
 
-### 3.1 完整数据流
+### 3.1 导出文件结构
+
+Revit 导出生成的 `.bcp` 压缩包结构：
 
 ```
-【6阶段导出流程】
+{项目名}.bcp (ZIP 压缩包)
+├── project.json                    # 项目入口（Schemes 为空，由 Server 填充）
+└── baseline/
+    ├── metadata.json               # 坐标变换参数 + BaselineHash
+    ├── architecture.json           # 墙体 + 柱子
+    ├── openings.json               # 门窗
+    ├── rooms.json                  # 房间
+    └── location_lines.json         # 【v3.0 新增】完成面定位线
+```
+
+> **职责分离**：`schemes/` 和 `context/` 由 Server 层在项目打开时创建，Revit 只负责导出原始建筑数据。
+
+### 3.2 完整数据流
+
+```
+【6阶段导出流程 - v3.0】
 
 Phase 1: 提取原始数据
 ┌─────────────────────────────────────────────────────────────┐
 │  Revit API (Wall, Column, Door, Window, Room)               │
 │      ↓                                                      │
 │  BoundaryAdapter.ExtractBoundaries()                        │
-│      → (List<RevitWall>, List<RevitColumn>) 墙柱分离        │
+│      → (List<RevitWall>, List<RevitColumn>)                 │
 │  WallFinishAdapter.ExtractWallFinishes()                    │
-│      → List<RevitWallFinish> 完成面定位边界                  │
+│      → List<RevitWallFinish>                                │
 │  OpeningAdapter.ExtractOpenings()  → List<RevitOpening>     │
 │  RoomAdapter.ExtractRooms()        → List<RevitRoom>        │
 │      ↓                                                      │
@@ -121,16 +147,16 @@ Phase 3: 创建坐标转换器
 │      - rotation: 视图旋转角度（弧度）                         │
 └─────────────────────────────────────────────────────────────┘
 
-Phase 4: 统一坐标转换 + 外墙过滤
+Phase 4: 统一坐标转换 + 定位线提取
 ┌─────────────────────────────────────────────────────────────┐
-│  RevitWall (NTS Polygon)   → Wall (Polygon2D, mm)           │
-│  RevitColumn (NTS Polygon) → Column (Polygon2D, mm)         │
-│  RevitWallFinish → FilterExteriorEdges() → FinishLocation   │
-│  RevitOpening (NTS LineSegment) → Opening (Line2D, mm)      │
-│  RevitRoom (NTS Polygon)   → Room (Polygon2D, mm)           │
+│  RevitWall → Wall (Polygon2D, mm)                           │
+│  RevitColumn → Column (Polygon2D, mm)                       │
+│  RevitWallFinish → LocationLine【v3.0 新增】                │
+│  RevitOpening → Opening (Line2D, mm)                        │
+│  RevitRoom → Room (Polygon2D, mm)                           │
+│      ↓ LocationLineAdapter.ExtractLocationLines()           │
+│  完成面定位边界 → LocationLine[]                             │
 │      ↓                                                      │
-│  transformer.TransformPolygon() / TransformLineSegment()    │
-│  NtsConverter.FromNtsPolygon() / FromNtsLineSegment()       │
 │  归一化坐标系 | mm | 原点左下角                               │
 └─────────────────────────────────────────────────────────────┘
 
@@ -143,273 +169,131 @@ Phase 5: 用户确认房间类型
 │  用户确认/修改房间类型                                        │
 └─────────────────────────────────────────────────────────────┘
 
-Phase 6: 组装 CanvasDocument（扁平化结构）
+Phase 6: 组装并导出 .bcp【v3.0 变更】
 ┌─────────────────────────────────────────────────────────────┐
-│  new CanvasDocument {                                       │
-│      Id, Version, CoordinateSystem,                         │
-│      Metadata: { PlacementElevation, Origin, Rotation },    │
-│      // 建筑构件（直接顶层）                                  │
-│      Walls: [...],                                          │
-│      Columns: [...],                                        │
-│      Openings: [...],                                       │
-│      FinishLocationBoundaries: [...],                       │
-│      // 空间数据                                             │
-│      Rooms: [...],                                          │
-│      Zones: [],        // 精简版为空                         │
-│      WallFinishes: [], // 精简版为空                         │
-│      Modules: []       // 精简版为空                         │
-│  }                                                          │
-│      ↓ JsonConvert.SerializeObject()                        │
-│  保存 .json 文件                                             │
+│  BcpExporter.ExportToBcp(outputPath, ...)                   │
+│      ↓ 创建临时目录                                          │
+│  写入 project.json (Schemes 为空)                            │
+│  写入 baseline/metadata.json (含 BaselineHash)              │
+│  写入 baseline/architecture.json (walls + columns)          │
+│  写入 baseline/openings.json                                │
+│  写入 baseline/rooms.json                                   │
+│  写入 baseline/location_lines.json                          │
+│      ↓ ZipFile.CreateFromDirectory()                        │
+│  输出 .bcp 压缩包                                            │
 └─────────────────────────────────────────────────────────────┘
 ```
 
-### 3.2 入口和触发
+### 3.3 BcpExporter（v3.0 新增）
 
+负责将数据导出为 `.bcp` 压缩包：
+
+```csharp
+public class BcpExporter
+{
+    /// <summary>
+    /// 导出 .bcp 格式（多文件夹 + ZIP 打包）
+    /// </summary>
+    public void ExportToBcp(
+        string outputPath,           // 输出路径（不含扩展名）
+        string projectName,          // 项目名称
+        BaselineManifest manifest,   // 元数据（含 BaselineHash）
+        Architecture architecture,   // 墙体 + 柱子
+        List<Opening> openings,      // 门窗
+        List<Room> rooms,            // 房间
+        List<LocationLine> locationLines  // 定位线
+    );
+}
 ```
-Revit 启动
-    ↓ App.OnStartup()
-创建 Ribbon 面板 "BIMCanvas"
-    ↓ 用户点击 "导出画布" 按钮
-ExportCanvasCommand.Execute()
-    ↓ 检查当前视图是否为 ViewPlan
-    ↓ 创建 CanvasExportService
-    ↓ 调用 exportService.ExportFromView(view, options)
-    ↓ 弹出保存文件对话框
-    ↓ 保存 JSON 文件
-完成
+
+### 3.4 LocationLineAdapter（v3.0 新增）
+
+从墙面完成面边界提取定位线：
+
+```csharp
+public class LocationLineAdapter
+{
+    /// <summary>
+    /// 从完成面边界提取定位线，关联墙体和房间
+    /// </summary>
+    public List<LocationLine> ExtractLocationLines(
+        List<RevitWallFinish> wallFinishes,
+        List<RevitRoom> rooms
+    );
+}
 ```
 
 ---
 
-## 四、自定义数据结构
+## 四、导出数据结构
 
-### 4.1 Revit 中间模型（Models/）
+### 4.1 project.json
 
-保留 Revit 原生数据，延迟坐标转换，便于追溯和调试。
-
-#### RevitWall
-
-```csharp
-public class RevitWall
-{
-    public string Id { get; set; }         // "wall_001", "wall_002"
-    public int ElementId { get; set; }     // Revit 墙体元素 ID
-    public Polygon Boundary { get; set; }  // NTS Polygon (feet, 项目坐标)
-}
-```
-
-#### RevitColumn
-
-```csharp
-public class RevitColumn
-{
-    public string Id { get; set; }         // "col_001", "scol_001"
-    public int ElementId { get; set; }     // Revit 柱子元素 ID
-    public bool IsStructural { get; set; } // true=结构柱, false=建筑柱
-    public Polygon Boundary { get; set; }  // NTS Polygon (feet, 项目坐标)
-}
-```
-
-#### RevitWallFinish
-
-```csharp
-public class RevitWallFinish
-{
-    public string Id { get; set; }              // "wf_001", "wf_002"
-    public List<int> ElementIds { get; set; }   // 构成边界的 Revit 元素 ID
-    public Polygon Boundary { get; set; }       // NTS Polygon (feet, 项目坐标)
-}
-```
-
-#### RevitOpening
-
-```csharp
-public class RevitOpening
-{
-    public string Id { get; set; }                     // "d001", "win001"
-    public int ElementId { get; set; }                 // Revit 元素 ID
-    public OpeningType Type { get; set; }              // Door | Window
-    public Coordinate LocationPoint { get; set; }      // NTS Coordinate (feet)
-    public LineSegment LocationLine { get; set; }      // NTS LineSegment (feet)
-    public Vector2D FacingDirection { get; set; }      // 面向方向 (单位向量)
-    public List<Vector2D> HandDirections { get; set; } // 开启方向 (单位向量列表)
-}
-```
-
-#### RevitRoom
-
-```csharp
-public class RevitRoom
-{
-    public string Id { get; set; }        // "room_001", "room_002"
-    public int ElementId { get; set; }    // Revit Room 元素 ID
-    public string Name { get; set; }      // 房间名称
-    public Polygon Boundary { get; set; } // NTS Polygon (feet, 项目坐标)
-}
-```
-
-### 4.2 服务类（Services/）
-
-#### CoordinateTransformer
-
-NTS 几何对象坐标变换器，负责 NTS (feet, 项目坐标系) → NTS (mm, 归一化坐标系) 的变换。
-
-```csharp
-public class CoordinateTransformer
-{
-    private readonly Coordinate _origin;  // 原点 (feet)
-    private readonly double _rotation;    // 旋转角度 (弧度)
-
-    // 坐标变换方法（输入 NTS feet，输出 NTS mm）
-    public Coordinate TransformCoordinate(Coordinate coord);
-    public Polygon TransformPolygon(Polygon ntsPolygon);      // 支持内环
-    public LineSegment TransformLineSegment(LineSegment segment);
-}
-```
-
-**变换流程**（所有方法统一执行）：
-```
-1. 原点偏移：dx = x - origin.X, dy = y - origin.Y
-2. 旋转归一化：localX = dx * cos(-rotation) - dy * sin(-rotation)
-                localY = dx * sin(-rotation) + dy * cos(-rotation)
-3. 单位转换：x_mm = localX × 304.8, y_mm = localY × 304.8
-```
-
-**职责边界**：只做坐标变换，不做类型转换。类型转换由 RevitNtsConverter 和 NtsConverter 负责。
-
-### 4.3 转换器层（Converters/）
-
-#### RevitNtsConverter
-
-Revit API ↔ NTS 类型转换扩展方法（静态，无状态）。
-
-```csharp
-public static class RevitNtsConverter
-{
-    // XYZ ↔ Coordinate
-    public static XYZ ToXYZ(this Coordinate coord, double z = 0);
-    public static Coordinate ToCoordinate(this XYZ point);
-
-    // Line ↔ LineSegment
-    public static Line ToLine(this LineSegment segment, double z = 0);
-    public static LineSegment ToLineSegment(this Line line);
-
-    // CurveLoop → Polygon
-    public static Polygon ToPolygon(this CurveLoop curveLoop);
-}
-```
-
-#### ExportOptions
-
-导出配置支持从 JSON 文件加载，配置文件 `ExportOptions.json` 随 DLL 一起输出。
-
-**配置文件格式** (`ExportOptions.json`)：
 ```json
 {
-  "showConfigWindow": true,
-  "defaultSavePath": null,
+  "id": "proj_abc123",
+  "name": "金凤127",
+  "version": "3.0",
+  "createdAt": "2025-12-25T10:30:00+08:00",
+  "modifiedAt": "2025-12-25T10:30:00+08:00",
+  "schemes": [],
+  "activeSchemeId": null
+}
+```
+
+### 4.2 baseline/metadata.json
+
+```json
+{
   "placementElevation": 0,
-  "boundaryCutHeightMm": 100,
-  "exportBoundarys": true,
-  "exportOpenings": true,
-  "exportRooms": true
+  "origin": [1000.5, 2000.3, 0],
+  "rotation": 0,
+  "method": "boundingBox",
+  "baselineHash": "sha256:abc123..."
 }
 ```
 
-**配置项说明**：
-| 配置项 | 类型 | 默认值 | 说明 |
-|--------|------|--------|------|
-| showConfigWindow | bool | true | 显示房间类型确认窗口 |
-| defaultSavePath | string? | null | 默认保存路径 |
-| placementElevation | double | 0 | 布置高度 (mm) |
-| boundaryCutHeightMm | double | 100 | 边界切割高度 (mm) |
-| exportBoundarys | bool | true | 导出边界 |
-| exportOpenings | bool | true | 导出门窗 |
-| exportRooms | bool | true | 导出房间 |
+### 4.3 baseline/architecture.json
 
-**使用方式**：
-```csharp
-// 从程序集目录加载配置
-var options = ExportOptions.Load();
-
-// 从指定路径加载
-var options = ExportOptions.LoadFrom("path/to/config.json");
-
-// 保存配置
-options.Save();
-```
-
-#### RoomTypeInferrer
-
-```csharp
-public static class RoomTypeInferrer
+```json
 {
-    public static RoomType InferFromName(string? roomName);
-    public static string GetDisplayName(RoomType type);
-    public static IEnumerable<RoomType> GetAllTypes();
+  "walls": [
+    {
+      "id": "w_1",
+      "elementId": 12345,
+      "isStructural": false,
+      "polygon": [[0, 0], [5000, 0], [5000, 200], [0, 200]]
+    }
+  ],
+  "columns": [
+    {
+      "id": "c_1",
+      "elementId": 23456,
+      "isStructural": true,
+      "polygon": [[2500, 0], [2700, 0], [2700, 400], [2500, 400]]
+    }
+  ]
 }
 ```
 
-**关键词映射表**：
+### 4.4 baseline/location_lines.json（v3.0 新增）
 
-| 关键词 | RoomType |
-|--------|----------|
-| 客厅/living/起居 | LivingRoom |
-| 餐厅/dining | DiningRoom |
-| 主卧/master | MasterBedroom |
-| 卧室/bedroom/次卧 | Bedroom |
-| 书房/study/办公 | Study |
-| 厨房/kitchen | Kitchen |
-| 卫生间/bathroom/洗手间 | Bathroom |
-| 门厅/entrance/玄关 | Entrance |
-| 阳台/balcony | Balcony |
-| 走廊/corridor/过道 | Corridor |
-| 储藏/storage | Storage |
-
-### 4.3 工具类（Utilities/）
-
-#### PrefixId - ID 生成器
-
-```csharp
-// 生成带前缀的顺序 ID（无补零）
-PrefixId.Reset("w_");
-var id1 = PrefixId.NewId("w_"); // "w_1"
-var id2 = PrefixId.NewId("w_"); // "w_2"
-
-// ID 命名规范
-// 墙体: w_1, w_2, ...
-// 柱子: c_1, c_2, ... (建筑柱和结构柱统一)
-// 门: d_1, d_2, ...
-// 窗: wi_1, wi_2, ...
-// 房间: r_1, r_2, ...
-// 墙面完成面: wf_1, wf_2, ...
-```
-
-#### TransactionHelper - 事务处理
-
-```csharp
-public enum FailureLevel
-{
-    IgnoreWarningsAndErrors,              // 忽略所有
-    LogWarningsAndRollback,               // 记录后回滚
-    LogWarningsAndContinueWithRollback,   // 记录继续，错误回滚
-    LogWarningsAndThrowException          // 记录后抛异常
-}
-
-// 使用方式
-using (var trans = new Transaction(doc, "操作名"))
-{
-    trans.Start();
-    trans.IgnoreFailure(FailureLevel.IgnoreWarningsAndErrors);
-    // ... 操作代码 ...
-    trans.Commit();
-}
+```json
+[
+  {
+    "id": "ll_1",
+    "wallId": "w_1",
+    "roomId": "r_1",
+    "side": "interior",
+    "line": [[0, 200], [5000, 200]],
+    "length": 5000
+  }
+]
 ```
 
 ---
 
-## 五、几何数据类型转换链
+## 五、坐标转换
 
 ### 5.1 数据类型演进
 
@@ -432,172 +316,51 @@ using (var trans = new Transaction(doc, "操作名"))
 └─────────────────────────────────────────────────────────────────┘
 ```
 
-### 5.2 各类型详解
+### 5.2 CoordinateTransformer
 
-#### Revit API 原生类型
+```csharp
+public class CoordinateTransformer
+{
+    private readonly Coordinate _origin;  // 原点 (feet)
+    private readonly double _rotation;    // 旋转角度 (弧度)
 
-| 类型 | 用途 | 说明 |
-|------|------|------|
-| `XYZ` | 3D 点/向量 | Revit 基础几何类型 |
-| `Solid` | 几何实体 | 墙/柱的实体几何 |
-| `CurveLoop` | 封闭曲线环 | 轮廓提取结果 |
-| `BoundarySegment` | 房间边界段 | 房间边界组成部分 |
-| `FamilyInstance` | 族实例 | 门窗实例 |
-
-#### NTS 中间类型（NetTopologySuite）
-
-| 类型 | 用途 | 说明 |
-|------|------|------|
-| `Polygon` | 多边形 | 支持外环和内环（孔洞） |
-| `LineSegment` | 线段 | 门窗定位线 |
-| `Coordinate` | 2D/3D 点 | NTS 基础点类型 |
-| `Vector2D` | 2D 向量 | 方向计算用 |
-
-#### BIMCanvas.Core 最终类型
-
-| 类型 | 用途 | JSON 表示 |
-|------|------|-----------|
-| `Polygon2D` | 多边形 | `[[x1,y1], [x2,y2], ...]` |
-| `Line2D` | 线段 | `{ "start": {...}, "end": {...} }` |
-| `Point2D` | 点 | `{ "x": 100, "y": 200 }` |
-| `Facing` | 朝向 | `"north"` 或 `[0.707, 0.707]` |
-
-### 5.3 转换函数映射
-
-| 源类型 | 目标类型 | 转换方法 |
-|--------|----------|----------|
-| `XYZ` | `Coordinate` | `point.ToCoordinate()` |
-| `CurveLoop` | `Polygon` | `curveLoop.ToPolygon()` |
-| `Polygon` (feet) | `Polygon` (mm) | `transformer.TransformPolygon()` |
-| `LineSegment` (feet) | `LineSegment` (mm) | `transformer.TransformLineSegment()` |
-| `Polygon` (NTS) | `Polygon2D` | `NtsConverter.FromNtsPolygon()` |
-| `LineSegment` (NTS) | `Line2D` | `NtsConverter.FromNtsLineSegment()` |
-| `XYZ` (向量) | `Vector2D` | `xyz.ToVector2D()` |
-
-### 5.4 转换器分层架构（必须严格遵守）
-
-```
-转换链路：
-Revit API ↔ NTS              (BIMCanvas.Revit/Converters/RevitNtsConverter)
-     ↓
-NTS (feet) → NTS (mm)        (BIMCanvas.Revit/Services/CoordinateTransformer)
-     ↓
-NTS ↔ Core.Models            (BIMCanvas.Core/Converters/NtsConverter)
-
-⛔ 禁止：Revit 层直接输出 Core.Models 几何类型
+    // 坐标变换方法（输入 NTS feet，输出 NTS mm）
+    public Coordinate TransformCoordinate(Coordinate coord);
+    public Polygon TransformPolygon(Polygon ntsPolygon);
+    public LineSegment TransformLineSegment(LineSegment segment);
+}
 ```
 
-| 转换器 | 位置 | 职责 | 特点 |
-|--------|------|------|------|
-| `RevitNtsConverter` | Revit/Converters | Revit API ↔ NTS 类型转换 | 静态扩展方法，无状态 |
-| `CoordinateTransformer` | Revit/Services | 坐标变换（原点偏移+旋转+单位） | 实例类，有状态 |
-| `NtsConverter` | Core/Converters | NTS ↔ Core.Models 类型转换 | 静态类，无状态 |
-
----
-
-## 六、关键算法
-
-### 6.1 边界轮廓提取（OutlineExtractor）
-
-在指定高度切割建筑构件几何体，提取轮廓：
-
+**变换流程**：
 ```
-选中构件类别 (墙、柱)
-    ↓
-合并所有 Solid (BooleanOperationsUtils.Union)
-    ↓
-在 Z=1200mm 高度创建切割平面 (法向量朝下)
-    ↓
-执行 CutWithHalfSpace (保留下方部分)
-    ↓
-遍历切割后 Solid 的所有 Face
-    ├─ 检查是否为 PlanarFace 且法向量朝上 (Z > 0.9)
-    ├─ 检查 Face 高度是否 ≈ 1200mm
-    └─ 提取 Face 的所有 EdgeLoop
-    ↓
-输出：List<CurveLoop>，每个代表一个封闭轮廓
-```
-
-### 6.2 门窗开启方向分析（OpeningDirectionAnalyzer）
-
-通过 IFC 导出工具获取门的开启弧线，计算开启方向：
-
-```
-FamilyInstance (门)
-    ↓ ExporterIFCUtils.GetDoor2DArcsFromFamily()
-获取开启弧线列表
-    ↓ 应用坐标变换 (GetDoorInstanceTransformWithFlipping)
-世界坐标系中的弧线
-    ↓
-对每条弧线：
-    ├─ 计算垂直于面向方向的左右向量
-    ├─ 获取弧线端点和圆心
-    ├─ 通过点积判断关闭位置
-    └─ 计算开启方向向量
-    ↓
-判断单开/双开：
-    ├─ 半径相等 → 双开门
-    └─ 半径不等 → 子母门（取大半径弧线）
-    ↓
-输出：(FacingDirection, List<HandDirections>)
+1. 原点偏移：dx = x - origin.X, dy = y - origin.Y
+2. 旋转归一化：localX = dx * cos(-rotation) - dy * sin(-rotation)
+                localY = dx * sin(-rotation) + dy * cos(-rotation)
+3. 单位转换：x_mm = localX × 304.8, y_mm = localY × 304.8
 ```
 
 ---
 
-## 七、依赖关系
+## 六、开发状态
 
-### 7.1 项目依赖
-
-```
-BIMCanvas.Revit (.NET Framework 4.7.2)
-│
-├─ BIMCanvas.Core (.NET Standard 2.0)
-│  └─ 数据模型：CanvasDocument, Boundary, Opening, Room 等
-│
-├─ Revit API (Revit 2019)
-│  ├─ RevitAPI.dll
-│  ├─ RevitAPIUI.dll
-│  └─ Revit.IFC.Export.dll (用于门的弧线提取)
-│
-└─ NetTopologySuite (2.6.0)
-   └─ 几何库：Polygon, LineSegment, Coordinate, Vector2D
-```
-
-### 7.2 BIMCanvas.addin 配置
-
-```xml
-<RevitAddIns>
-  <AddIn Type="Application">
-    <Name>BIMCanvas</Name>
-    <Assembly>BIMCanvas.Revit.dll</Assembly>
-    <FullClassName>BIMCanvas.Revit.Commands.App</FullClassName>
-    <ClientId>3A8E5F2D-1B4C-4D6E-9F0A-7C2B8E4D3F1A</ClientId>
-  </AddIn>
-</RevitAddIns>
-```
-
----
-
-## 八、开发状态
-
-### 8.1 已完成 (Phase 1)
+### 6.1 已完成 (Phase 1)
 
 | 功能 | 文件 | 状态 |
 |------|------|------|
 | Ribbon 面板注册 | Commands/App.cs | ✅ |
-| 导出命令入口 | Commands/ExportCanvasCommand.cs | ✅ |
-| 墙/柱单独轮廓提取 | Adapters/BoundaryAdapter.cs | ✅ |
+| 导出命令入口 | Commands/ExportCanvasCommand.cs | ✅ v3.0 |
+| 墙/柱轮廓提取 | Adapters/BoundaryAdapter.cs | ✅ |
 | 完成面定位边界提取 | Adapters/WallFinishAdapter.cs | ✅ |
+| 定位线提取 | Adapters/LocationLineAdapter.cs | ✅ v3.0 新增 |
 | 门窗数据提取 | Adapters/OpeningAdapter.cs | ✅ |
 | 房间数据提取 | Adapters/RoomAdapter.cs | ✅ |
 | 坐标转换器 | Services/CoordinateTransformer.cs | ✅ |
 | 房间类型推断 | Services/RoomTypeInferrer.cs | ✅ |
-| 导出服务 | Services/CanvasExportService.cs | ✅ |
+| 导出服务 | Services/CanvasExportService.cs | ✅ v3.0 重构 |
+| .bcp 导出器 | Services/BcpExporter.cs | ✅ v3.0 新增 |
 | 配置窗口 | Views/ConfigWindow.xaml | ✅ |
-| 轮廓提取工具 | Utilities/OutlineExtractor.cs | ✅ |
-| 门窗方向分析 | Utilities/OpeningDirectionAnalyzer.cs | ✅ |
 
-### 8.2 待开发 (Phase 2)
+### 6.2 待开发 (Phase 2)
 
 | 功能 | 文件 | 状态 |
 |------|------|------|
@@ -607,9 +370,24 @@ BIMCanvas.Revit (.NET Framework 4.7.2)
 
 ---
 
-## 九、使用指南
+## 七、命名空间冲突处理
 
-### 9.1 安装
+在 Revit 层使用别名解决与 Revit API 的类型冲突：
+
+```csharp
+using CoreWall = BIMCanvas.Core.Models.Revit.Wall;
+using CoreColumn = BIMCanvas.Core.Models.Revit.Column;
+using CoreOpening = BIMCanvas.Core.Models.Revit.Opening;
+using CoreRoom = BIMCanvas.Core.Models.Revit.Room;
+using CoreArchitecture = BIMCanvas.Core.Models.Revit.Architecture;
+using CoreLocationLine = BIMCanvas.Core.Models.Revit.LocationLine;
+```
+
+---
+
+## 八、使用指南
+
+### 8.1 安装
 
 1. 编译项目生成 `BIMCanvas.Revit.dll`
 2. 将 `BIMCanvas.addin` 复制到 Revit 插件目录：
@@ -617,55 +395,37 @@ BIMCanvas.Revit (.NET Framework 4.7.2)
 3. 修改 `BIMCanvas.addin` 中的 Assembly 路径指向 dll 位置
 4. 启动 Revit 2019
 
-### 9.2 使用
+### 8.2 使用
 
 1. 打开包含房间的 Revit 项目
 2. 切换到平面视图
 3. 点击 Ribbon 面板中的 "导出画布" 按钮
 4. 在弹出的配置窗口中确认房间类型
-5. 选择保存路径，导出 JSON 文件
+5. 选择保存路径，导出 `.bcp` 文件
 
-### 9.3 输出示例
+### 8.3 输出示例
 
-```json
-{
-  "id": "canvas_abc123...",
-  "version": 1,
-  "coordinateSystem": "cartesian_mm_yUp",
-  "metadata": {
-    "placementElevation": 0,
-    "origin": [1000.5, 2000.3, 0],
-    "rotation": 0,
-    "method": "boundingBox"
-  },
-  "walls": [
-    { "id": "wall_001", "elementId": 12345, "polygon": [[0,0], [5000,0], [5000,200], [0,200]] }
-  ],
-  "columns": [
-    { "id": "col_001", "elementId": 23456, "isStructural": true, "polygon": [[2500,0], [2700,0], [2700,400], [2500,400]] }
-  ],
-  "openings": [
-    { "id": "d001", "type": "door", "line": [[2000,0], [2900,0]] }
-  ],
-  "finishLocationBoundaries": [
-    { "id": "flb_001", "elementIds": [12345, 23456], "polygon": [[...]] }
-  ],
-  "rooms": [
-    { "id": "room_001", "name": "客厅", "type": "livingRoom", "boundary": [[...]] }
-  ],
-  "zones": [],
-  "wallFinishes": [],
-  "modules": []
-}
+v3.0 导出 `.bcp` 压缩包，解压后结构：
+
+```
+金凤127.bcp/
+├── project.json
+└── baseline/
+    ├── metadata.json
+    ├── architecture.json
+    ├── openings.json
+    ├── rooms.json
+    └── location_lines.json
 ```
 
 ---
 
-## 十、相关文档
+## 九、相关文档
 
 | 文档 | 路径 | 内容 |
 |------|------|------|
 | 系统架构 | `docs/Architecture.md` | 完整系统架构 |
-| JSON Schema | `docs/Schema-JSON.md` | 数据模型定义 |
-| 实施计划 | `plans/Revit_Implementation_Plan.md` | 开发计划和验收标准 |
-| 执行流程 | `docs/Workflows.md` | 端到端工作流程 |
+| JSON Schema v3 | `docs/Schema-JSON-v3.md` | v3.0 数据模型定义 |
+| 文件驱动架构 | `docs/FileDrivenArchitecture.md` | "文件播放器"模式 |
+| 升级进度 | `plans/V3_Upgrade_Progress_Report.md` | v3.0 升级进度 |
+| 升级计划 | `plans/V3_Architecture_Upgrade_Plan.md` | 完整升级计划 |

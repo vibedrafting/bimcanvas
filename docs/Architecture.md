@@ -1,8 +1,8 @@
 ﻿# BIMCanvas 系统架构文档
 
-> 版本：v2.8
-> 更新日期：2025-12-11
-> 状态：已定稿（Core 层 Models 目录重组 + Revit 层命名重构）
+> 版本：v3.0
+> 更新日期：2025-12-26
+> 状态：已定稿（File-Driven Architecture + .bcp 项目格式）
 
 ---
 
@@ -33,17 +33,19 @@ Revit 提取 → Server 计算 → 区域确认 → AI 布置 → 交互修改 �
 
 | 决策点 | 选择 | 理由 |
 |--------|------|------|
+| **数据架构** | File-Driven Architecture | 文件为真理源，Server 作为"文件播放器" |
+| **数据分层** | 三层汉堡模型 (baseline/schemes/computed) | 职责清晰，读写权限分明 |
+| **项目格式** | `.bcp` ZIP 包 | 多文件夹结构，便于版本控制和传输 |
 | **坐标系** | Y-Up (笛卡尔) | 符合 CAD/BIM/数学直觉，只在前端渲染时转换 |
-| **数据分层** | Layer 1 (AI 上下文) + Layer 2 (详细数据，Phase 1 暂缓) | Token 效率，职责清晰 |
 | **墙体表示** | 封闭轮廓多边形 | AI 不需要理解墙体结构，只需知道空间边界 |
 | **门窗表示** | 简化为线段 | 厚度不影响家具布置 |
 | **门扇区域** | 预计算为矩形禁区（AABB） | KISS - AI 只需知道"这里不能放" |
-| **房间结构** | 只有 zones，无 rooms | 单一数据源原则，zones 是设计概念 |
+| **完成面定位** | LocationLine + 法向扩展 | 用线段定义位置，按厚度生成禁区 |
 | **标高信息** | 全局 levelId | 一张平面图对应一个 Level |
 | **布置单元** | modules（模块） | 支持单一家具或组合（如睡眠模块=床+床头柜） |
 | **模块位置** | AABB 包围盒 | 直观显示占用空间，碰撞检测简单 |
 | **模块朝向** | 语义化方向（north/south/...） | AI 友好，插件端转换为角度 |
-| **多方案** | Phase 1 不做 | MVP 先让 AI 直出方案，对话调整 |
+| **多方案管理** | Strategy 对象 | 每个方案独立文件夹，支持版本对比 |
 
 ---
 
@@ -94,7 +96,8 @@ Revit 提取 → Server 计算 → 区域确认 → AI 布置 → 交互修改 �
 
 | 决策点 | 选择 | 理由 |
 |--------|------|------|
-| **数据核心** | **JSON** | Token 效率高，AI 理解好，易于版本控制 |
+| **数据核心** | **JSON 文件 + .bcp 包** | Token 效率高，AI 理解好，易于版本控制 |
+| **数据架构** | **File-Driven Architecture** | 文件为单一真理源，Server 作为"播放器" |
 | **视图渲染** | **SVG** | 矢量图形，浏览器原生支持 |
 | AI 入口 | Claude Code | 已有成熟工具，直接复用 |
 | 画布载体 | Web 页面 | 跨平台、交互库丰富 |
@@ -102,7 +105,80 @@ Revit 提取 → Server 计算 → 区域确认 → AI 布置 → 交互修改 �
 | MCP 部署 | 独立 Server | 职责清晰、独立维护 |
 | **Core 运行时** | **.NET Standard 2.0** | 同时兼容 .NET FW 4.7.2 和 .NET 6+ |
 
-### 1.4 "JSON 为骨，SVG 为皮"
+### 1.4 File-Driven Architecture（v3.0 核心变化）
+
+> **核心理念**：文件是唯一真理源，Server 是"文件播放器"而非"内存数据库"
+
+#### 三层汉堡模型
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│  顶层 (Computed) - 自动生成层                                │
+│  computed/                                                   │
+│  ├── exclusions.json      门扇禁区（根据 openings 计算）      │
+│  └── cache/               几何缓存                           │
+│  特点：完全派生，可随时重建                                   │
+├─────────────────────────────────────────────────────────────┤
+│  中层 (Schemes) - 方案设计层                                  │
+│  schemes/{strategyId}/                                       │
+│  ├── zones.json           设计区域划分（AI/Server 写入）      │
+│  ├── finishes.json        完成面定义（AI/Server 写入）        │
+│  └── modules.json         家具模块布置（AI 写入）             │
+│  特点：可编辑，每个方案独立                                   │
+├─────────────────────────────────────────────────────────────┤
+│  底层 (Baseline) - 建筑基础层                                 │
+│  baseline/                                                   │
+│  ├── walls.json           墙体轮廓                           │
+│  ├── columns.json         柱子轮廓                           │
+│  ├── openings.json        门窗数据                           │
+│  ├── rooms.json           房间边界                           │
+│  └── locationLines.json   完成面定位线                        │
+│  特点：只读，来自 Revit 导出                                  │
+└─────────────────────────────────────────────────────────────┘
+```
+
+#### .bcp 项目格式
+
+`.bcp` 是项目的标准交换格式，本质是包含以下结构的 ZIP 文件：
+
+```
+project.bcp (ZIP)
+├── manifest.json           项目元数据 + 方案列表
+├── baseline/               建筑基础数据（只读）
+│   ├── walls.json
+│   ├── columns.json
+│   ├── openings.json
+│   ├── rooms.json
+│   └── locationLines.json
+├── schemes/                方案设计数据
+│   ├── default/            默认方案
+│   │   ├── zones.json
+│   │   ├── finishes.json
+│   │   └── modules.json
+│   └── option-a/           备选方案 A
+│       └── ...
+└── computed/               计算派生数据
+    └── exclusions.json
+```
+
+#### Server 角色转变
+
+| v2.x (内存数据库) | v3.0 (文件播放器) |
+|-------------------|-------------------|
+| 状态持有者 | 文件读取器 |
+| 数据修改者 | 派生数据计算器 |
+| 真理来源 | 文件是真理来源 |
+
+**关键服务**：
+
+| 服务 | 职责 |
+|------|------|
+| `ManifestService` | 读写 manifest.json，管理项目元数据 |
+| `ProjectService` | 加载/保存 .bcp 文件，返回完整项目数据 |
+| `StrategyService` | 管理多方案切换 |
+| `ComputedDataService` | 计算 exclusions 等派生数据 |
+
+### 1.5 "JSON 为骨，SVG 为皮"
 
 | 层面 | 格式 | 职责 |
 |------|------|------|
@@ -116,7 +192,7 @@ AI 操作 → 修改 JSON 数据 → WebSocket 推送 → 前端根据 JSON 生�
 
 详细 JSON Schema 定义见：[Schema-JSON.md](./Schema-JSON.md)
 
-### 1.5 坐标系统规范
+### 1.6 坐标系统规范
 
 BIMCanvas 采用 **CAD 标准坐标系**（笛卡尔坐标系），而非 Web 屏幕坐标系：
 
@@ -934,7 +1010,71 @@ public readonly struct Facing
 }
 ```
 
-**业务模型 (Models/Document/)**：
+**项目模型 (Models/Project/)**（v3.0 新增）：
+
+```csharp
+// Project - 项目根对象（v3.0 替代 DesignDocument）
+public class Project
+{
+    public Manifest Manifest { get; set; }           // 项目元数据
+    public Baseline Baseline { get; set; }           // 建筑基础数据（只读层）
+    public List<Strategy> Strategies { get; set; }   // 方案列表
+    public ComputedData Computed { get; set; }       // 计算派生数据
+}
+
+// Manifest - 项目元数据
+public class Manifest
+{
+    public string Id { get; set; }
+    public string Name { get; set; }
+    public int Version { get; set; }
+    public DateTime ExportDate { get; set; }
+    public string BaselineHash { get; set; }         // 基线数据 SHA256 哈希
+    public List<StrategyInfo> Strategies { get; set; }
+}
+
+// Strategy - 设计方案
+public class Strategy
+{
+    public string Id { get; set; }
+    public string Name { get; set; }
+    public List<Zone> Zones { get; set; }
+    public List<FinishSegment> Finishes { get; set; }
+    public List<Module> Modules { get; set; }
+}
+
+// LocationLine - 完成面定位线（v3.0 新增）
+public class LocationLine
+{
+    public string Id { get; set; }
+    public string WallId { get; set; }               // 关联墙体
+    public string RoomId { get; set; }               // 关联房间（决定墙的哪一侧）
+    public Line2D Line { get; set; }                 // 定位线段
+    public Vec2D Normal { get; set; }                // 法向量（指向房间内侧）
+}
+
+// FinishSegment - 完成面分段（v3.0 替代 WallFinish）
+public class FinishSegment
+{
+    public string Id { get; set; }
+    public string LocationLineId { get; set; }       // 关联定位线
+    public double StartT { get; set; }               // 起始参数 [0,1]
+    public double EndT { get; set; }                 // 结束参数 [0,1]
+    public string FinishType { get; set; }           // 完成面类型
+    public double Thickness { get; set; }            // 厚度 (mm)
+}
+
+// ExclusionArea - 禁区（v3.0 独立类）
+public class ExclusionArea
+{
+    public string Id { get; set; }
+    public string SourceType { get; set; }           // "door_swing" | "finish" | "custom"
+    public string SourceId { get; set; }             // 来源元素 ID
+    public Polygon2D Boundary { get; set; }          // 禁区轮廓
+}
+```
+
+**业务模型 (Models/)**：
 
 ```csharp
 // RoomType - 房间类型枚举
@@ -1262,7 +1402,7 @@ namespace BIMCanvas.Core.Converters
 
 > 详细文档见：[BIMCanvas.Revit/README.md](../BIMCanvas.Revit/README.md)
 
-#### 6.1.5.1 执行流程（6 阶段）
+#### 6.1.5.1 执行流程（v3.0 更新：7 阶段 + .bcp 输出）
 
 ```
 【Phase 1: 提取原始数据】
@@ -1288,8 +1428,8 @@ RevitRoom (NTS Polygon)        → Room (Polygon2D, mm)
 【Phase 5: 用户确认房间类型】
 RoomTypeInferrer.InferFromName() → ConfigWindow 确认
 
-【Phase 6: 组装 CanvasDocument】
-精简版 CanvasDocument (zones/wallFinishes/modules 为空) → JSON 文件
+【Phase 6: 组装并导出 .bcp】（v3.0 重构）
+Baseline { walls, columns, openings, rooms, locationLines } → .bcp (ZIP)
 ```
 
 #### 6.1.5.2 几何数据类型转换链
@@ -1374,6 +1514,8 @@ y_mm = localY × 304.8;
 | 功能 | 状态 |
 |------|------|
 | Phase 1: 核心导出功能 | ✅ 已完成 |
+| v3.0: LocationLine 提取 | ✅ 已完成 |
+| v3.0: .bcp 格式导出 | ✅ 已完成 |
 | Phase 2: 回写功能 | ⬜ 待开发 |
 | Phase 3: MCP 集成 | ⬜ 待开发 |
 
@@ -1422,14 +1564,31 @@ y_mm = localY × 304.8;
 
 #### 6.2.3 业务服务层（Services/）
 
+**v3.0 新增服务**（File-Driven Architecture 核心）：
+
 | 服务 | 职责 | 说明 |
 |------|------|------|
-| **CanvasStateManager** | 画布状态管理 | 内存中的 CanvasDocument 状态，支持版本控制 |
-| **ZoneCalculator** | Zone 计算 | 从 Room 生成 Zone，计算 innerBoundary、exclusionAreas |
+| **ManifestService** | 项目元数据管理 | 读写 manifest.json，管理方案列表 |
+| **ProjectService** | 项目加载/保存 | 解析 .bcp 文件，返回完整 ProjectData |
+| **StrategyService** | 方案切换 | 管理多方案，切换当前活动方案 |
+| **ComputedDataService** | 派生数据计算 | 计算门扇禁区、完成面禁区等 |
+| **BaselineHashService** | 基线验证 | 计算/验证 baseline 的 SHA256 哈希 |
+
+**保留服务**（功能不变）：
+
+| 服务 | 职责 | 说明 |
+|------|------|------|
+| **ZoneCalculator** | Zone 计算 | 从 Room 生成 Zone，计算 innerBoundary |
 | **PlacementService** | 布置逻辑核心 | GenerateLayout、AdjustModule、ValidateLayout、AutoFix |
 | **PlacementAgentBridge** | AI Agent 桥接 | 复杂决策时调用 Claude API（可选） |
 | **ScreenshotService** | 截图服务 | JSON → SVG → PNG 渲染 |
 | **ChangeSetService** | 变更集服务 | 用户修改的版本追踪与同步 |
+
+**已移除服务**：
+
+| 服务 | 原因 |
+|------|------|
+| **CanvasStateManager** | 被 ProjectService 替代，不再持有内存状态 |
 
 #### 6.2.4 PlacementService 触发方式
 
@@ -2010,4 +2169,6 @@ if __name__ == "__main__":
 | v2.6.1 | 2025-12-05 | **数据流修正**：修正 §0.2 MVP 执行流程和 §2.2 数据流向，明确 Revit 层只提取原始数据（rooms），Zone/WallFinish 计算由 Server 层 ZoneCalculator 负责 |
 | v2.7 | 2025-12-05 | **PlacementAgent 架构升级**：PlacementAgent 从 Server 内部服务迁移至独立 Python Agent（基于 Anthropic Agent SDK）；新增 BIMCanvas.Agent 项目（§2.1/§3.1/§3.2）；新增 §6.4 PlacementAgent 与 Agent SDK 集成（事件驱动机制、三种触发方式、MCP 工具定义） |
 | v2.7.1 | 2025-12-08 | **Web 技术建议**：新增 §6.3.3 交互层实现建议，记录 Konva.js/Fabric.js 作为画布交互功能的备选方案 |
+| v2.8 | 2025-12-11 | **Core 层重组**：Models 目录重组 + Revit 层命名重构 |
+| v3.0 | 2025-12-26 | **File-Driven Architecture 升级**：从单一 DesignDocument.json 迁移到多文件夹结构 + .bcp ZIP 格式；新增三层汉堡模型（baseline/schemes/computed）；新增 §1.4 File-Driven Architecture 章节；Core 层新增 Project、Strategy、LocationLine、FinishSegment、ExclusionArea 等类；Server 层新增 ManifestService、ComputedDataService、StrategyService、ProjectService；Revit 层新增 LocationLineAdapter、BcpExporter，支持 .bcp 导出 |
 

@@ -2,7 +2,7 @@
 
 基于 AI CLI 的室内装修平面方案设计助手，实现 Revit 与 AI 之间的人机协作设计。
 
-> **当前版本**: v2.8 | **数据模型**: walls + columns + openings + rooms + zones + modules | **架构**: Agent SDK 集成
+> **当前版本**: v3.0 | **数据模型**: File-Driven Architecture + .bcp 项目格式 | **架构**: 三层汉堡模型 (baseline/schemes/computed)
 
 ## 解决的问题
 
@@ -16,12 +16,13 @@
 
 ## 核心设计理念
 
-### v2.0 极简数据分层
+### v3.0 三层汉堡模型
 
-| 层面 | 内容 | 用途 |
-|------|------|------|
-| Layer 1 (AI 上下文) | outline + zones + modules | AI 布置计算、前端渲染 |
-| Layer 2 (Revit 详情) | revitElementId、厚度等 | Phase 1 暂缓 |
+| 层 | 目录 | 内容 | 权限 |
+|---|---|---|---|
+| 顶层 | `computed/` | exclusions (禁区) | 自动生成 |
+| 中层 | `schemes/{id}/` | zones, finishes, modules | AI/Server 可写 |
+| 底层 | `baseline/` | walls, columns, openings, rooms | 只读 |
 
 ### JSON 为骨，SVG 为皮
 
@@ -155,14 +156,14 @@ BIMCanvas/
 
 ---
 
-## v2.6 JSON 数据结构
+## v3.0 项目数据结构
 
-v2.6 采用扁平化结构，建筑构件直接放在顶层：
+v3.0 采用 `.bcp` ZIP 格式，包含多个 JSON 文件：
 
 ```json
 {
-  "id": "canvas_001",
-  "version": 1,
+  "id": "project_001",
+  "name": "Sample Project",
   "coordinateSystem": "cartesian_mm_yUp",
   "metadata": { "placementElevation": 0, "origin": [0, 0, 0], "rotation": 0 },
 
@@ -210,10 +211,10 @@ v2.6 采用扁平化结构，建筑构件直接放在顶层：
 **核心设计决策**：
 | 决策点 | 选择 | 理由 |
 |--------|------|------|
-| 数据结构 | 扁平化（无 Outline 包装） | 简化 JSON 访问路径 |
+| 数据架构 | File-Driven + .bcp ZIP | 文件为真理源，多文件夹结构 |
 | 墙体/柱子 | 分离存储（walls + columns） | AI 需要区分构件类型做空间理解 |
 | 柱子类型 | isStructural 布尔 | 区分结构柱/建筑柱 |
-| 完成面定位 | finishLocationBoundaries | 墙柱组合轮廓，供 Server 计算完成面禁区 |
+| 完成面定位 | LocationLine + FinishSegment | 定位线 + 分段化完成面 (v3.0) |
 | 门窗表示 | 简化为线段 | 厚度不影响家具布置 |
 | 门扇区域 | 预计算为禁区 Polygon2D | KISS - AI 只需知道"这里不能放" |
 | 房间结构 | rooms + zones 分离 | rooms 对应 Revit 房间，zones 为设计区域 |
@@ -228,11 +229,13 @@ v2.6 采用扁平化结构，建筑构件直接放在顶层：
 
 **目标**：AI 可以在画布上设计，Web 可以显示
 
-**当前阶段**：Core 层开发完成，数据模型与算法就绪
+**当前阶段**：v3.0 架构升级完成（Core + Revit + Server + Web 项目加载）
 
 - ✅ 实现 Core 数据模型（CanvasDocument, Zone, Module 等）
 - ✅ 实现空间算法（CollisionDetector, PlacementValidator）
-- ⬜ 实现 BIMCanvas.Server 统一后端（MCP + REST + SignalR + SSE）
+- ✅ 实现 v3.0 数据模型（Project, Strategy, LocationLine, ExclusionArea 等）
+- ✅ 实现 Server 层 v3.0 项目加载（ProjectService, ManifestService）
+- ✅ 实现 Web 层 v3.0 项目数据加载
 - ⬜ 实现 Web 前端 JSON → SVG 渲染
 
 ### Phase 2: PlacementAgent 集成
@@ -259,6 +262,8 @@ v2.6 采用扁平化结构，建筑构件直接放在顶层：
 
 - ✅ 实现 Revit → JSON 导出（墙体/柱子/门窗/房间）
 - ✅ 实现 Ribbon 面板和配置窗口
+- ✅ 实现 LocationLine 提取（v3.0）
+- ✅ 实现 .bcp 格式导出（v3.0）
 - ⬜ 实现 JSON → Revit 同步（回写家具）
 
 ---
