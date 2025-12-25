@@ -850,3 +850,61 @@ Web 前端                                                        Server
 | 版本 | 日期 | 变更 |
 |------|------|------|
 | v1.0 | 2025-12-06 | 初始版本，从 Architecture.md 提取并扩展 |
+
+---
+
+## 9. Project Structure Workflows (v3.0)
+
+> Context: [Schema-v3.0.md](./Schema-v3.0.md)
+
+### 9.1 Strategy Management
+
+#### 9.1.1 Create New Strategy (Parallel Development)
+
+**Goal**: Start a new design direction (e.g., "Space First") independent of others.
+
+1.  **Create Folder**: `mkdir schemes/s2_Space`
+2.  **Initialize Git**: `cd schemes/s2_Space && git init`
+3.  **Link Baseline**: Create `strategy.json` with `baselineRef` pointing to `../../baseline`.
+4.  **Initial Commit**: `git add . && git commit -m "Initial commit"`
+
+#### 9.1.2 Promote Variant to Strategy (Derivation)
+
+**Goal**: Upgrade a successful variant (e.g., `v1_backup`) to a full independent strategy.
+
+1.  **Copy Folder**: `cp -r schemes/s1_Flow schemes/s3_FromV1`
+2.  **Checkout Branch**: `cd schemes/s3_FromV1 && git checkout v1_backup`
+3.  **Reset Branch**: `git branch -m v1_backup main` (Optional: make it the new main)
+4.  **Update Metadata**: Edit `strategy.json` to add `origin` info (Source Repo/Commit).
+5.  **Register**: Add `s3_FromV1` to `project.json`.
+
+### 9.2 Variant Management
+
+#### 9.2.1 Create Variant (Linear History)
+
+**Goal**: Save a snapshot or try a sub-idea without affecting the main strategy.
+
+1.  **Branch**: `git checkout -b v1_experiment`
+2.  **Modify**: Edit `modules.json` or `zones.json`.
+3.  **Commit**: `git commit -am "Try open kitchen layout"`
+
+#### 9.2.2 Switch Variant (Backtracking)
+
+**Goal**: Revert to a previous state.
+
+1.  **Checkout**: `git checkout main` or `git checkout <commit_hash>`
+2.  **Reload**: App reloads data from the file system.
+
+### 9.3 Baseline Management
+
+#### 9.3.1 Update Baseline
+
+**Goal**: Sync with latest Revit model changes.
+
+1.  **Export**: Revit plugin exports to `baseline/` folder.
+2.  **Validation**:
+    *   App calculates new Hash of `baseline/`.
+    *   App compares with `strategy.json`'s `lastValidatedBaselineHash`.
+    *   If mismatch, mark strategy as `dirty`.
+3.  **Resolution**: User manually verifies strategies and updates `lastValidatedBaselineHash`.
+
