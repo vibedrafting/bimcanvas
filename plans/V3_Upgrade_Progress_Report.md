@@ -2,7 +2,7 @@
 
 > **文档目的**：记录 v3.0 Multi-Repo Collection 架构升级的当前进度，供后续对话继续执行剩余阶段任务
 > **创建日期**：2025-12-25
-> **最后更新**：2025-12-25 (Phase 3 Server 层项目加载)
+> **最后更新**：2025-12-26 (Phase 4 Web 层加载 v3.0 项目数据)
 
 ---
 
@@ -211,6 +211,73 @@ C:\Users\{username}\Documents\BIMCanvas\Projects\
 
 ---
 
+### Phase 4: Web 层加载 v3.0 项目数据 ✅
+
+**完成时间**：2025-12-26
+**Git Commit**：`0367373`
+
+#### 新建文件 (2个)
+
+| 文件 | 说明 |
+|------|------|
+| `Controllers/ProjectController.cs` | `/api/project?path=` 端点，聚合项目文件夹数据返回 `ProjectData` |
+| `Dtos/ProjectData.cs` | v3.0 数据传输对象（ProjectData, BaselineData, SchemeData 等） |
+
+#### 重写文件 (2个)
+
+| 文件 | 说明 |
+|------|------|
+| `types/canvas.ts` | v3.0 类型定义，`ProjectData` 取代 `CanvasDocument` |
+| `stores/canvasStore.ts` | 状态管理重构，`loadProject()` 取代 `loadFromJson()` |
+
+#### 修改文件 (15个)
+
+| 文件 | 修改内容 |
+|------|----------|
+| `App.vue` | 支持 `?project=` URL 参数加载项目 |
+| `SceneBuilder.ts` | 数据路径：`doc.revit.*` → `data.baseline.*` |
+| `OutlineBuilder.ts` | 数据路径：`doc.layout.modules` → `data.activeScheme.modules` |
+| `LabelBuilder.ts` | 数据路径适配 |
+| `ZoneBuilder.ts` | `doc.computed.zones` → `data.activeScheme.zones` |
+| `ThreeSceneService.ts` | `store.document` → `store.projectData` |
+| `TimelineManager.ts` | `CanvasDocument` → `ProjectData` 类型 |
+| `DragManager.ts` | `store.document` → `store.projectData` |
+| `InteractionService.ts` | `store.document` → `store.projectData` |
+| `SnappingEngine.ts` | 所有数据路径适配 |
+| `MoveTool.ts` | `store.document` → `store.projectData` |
+| `RotateTool.ts` | `store.document` → `store.projectData` |
+| `MirrorTool.ts` | `store.document` → `store.projectData` |
+| `PropertyPanel.vue` | 项目属性显示适配 |
+| `RibbonToolbar.vue` | 移除 `loadFromJson`，改用 v3.0 警告 |
+
+#### 数据路径迁移规则
+
+| 旧路径 (v2.9) | 新路径 (v3.0) |
+|---------------|---------------|
+| `document.revit.walls` | `projectData.baseline.walls` |
+| `document.revit.columns` | `projectData.baseline.columns` |
+| `document.revit.openings` | `projectData.baseline.openings` |
+| `document.revit.rooms` | `projectData.baseline.rooms` |
+| `document.layout.modules` | `projectData.activeScheme.modules` |
+| `document.computed.zones` | `projectData.activeScheme.zones` |
+| `store.document` | `store.projectData` |
+| `CanvasDocument` 类型 | `ProjectData` 类型 |
+
+#### 加载流程
+
+```
+1. Web 通过 URL 参数获取项目路径：?project=C:\Users\...\Projects\demo_1
+2. canvasStore.loadProject(projectPath) 调用 Server API
+3. Server /api/project 端点聚合以下文件：
+   - project.json → project
+   - baseline/*.json → baseline
+   - schemes/{activeSchemeId}/*.json → activeScheme
+   - computed/*.json → computed
+4. 返回 ProjectData 对象，前端渲染场景
+```
+
+---
+
 ## 三、当前状态
 
 ### 构建状态
@@ -220,6 +287,7 @@ C:\Users\{username}\Documents\BIMCanvas\Projects\
 | BIMCanvas.Core | ✅ 编译成功 | 81 nullable 警告（预存在），0 错误 |
 | BIMCanvas.Revit | ✅ 编译成功 | 4 架构警告（预存在），0 错误 |
 | BIMCanvas.Server | ✅ 编译成功 | 0 警告，0 错误（遗留服务已标记为 .legacy） |
+| BIMCanvas.Web | ✅ 类型检查通过 | v3.0 类型定义已完成，数据路径已迁移 |
 
 ### 关键类型变化
 
@@ -267,21 +335,24 @@ using CoreLocationLine = BIMCanvas.Core.Models.Revit.LocationLine;
 
 ---
 
-### Phase 4: Web/Agent 适配 ⬜
+### Phase 4.1: Web 前端数据加载 ✅ (已完成)
 
-**参考文档**：`plans/V3_Architecture_Upgrade_Plan.md` §Phase 4
+见上方 Phase 4 详细记录。
 
-#### 4.1 Web 前端适配
+---
 
-- 更新数据模型以匹配新的 JSON 结构
-- 新增策略切换 UI
-- 新增变体管理 UI（Git 分支可视化）
-- 新增 dirty 状态提示
+### Phase 4.2: Web 前端 UI 增强 ⬜
 
-#### 4.2 Agent 适配
+- [ ] 新增策略切换 UI
+- [ ] 新增变体管理 UI（Git 分支可视化）
+- [ ] 新增 dirty 状态提示
 
-- 更新 MCP 工具调用以适配新结构
-- 调整 zones/modules/finishes 的读写路径
+---
+
+### Phase 4.3: Agent 适配 ⬜
+
+- [ ] 更新 MCP 工具调用以适配新结构
+- [ ] 调整 zones/modules/finishes 的读写路径
 
 ---
 
@@ -294,6 +365,8 @@ using CoreLocationLine = BIMCanvas.Core.Models.Revit.LocationLine;
 - [x] Server 正确计算 BaselineHash 并写入 baseline.manifest 和 strategy.json
 - [x] 默认策略创建正常工作
 - [x] computed 数据验证和生成正常工作
+- [x] Web 可通过 URL 参数加载 v3.0 项目文件夹
+- [x] Web 类型定义和数据路径迁移到 v3.0
 - [ ] 策略切换正常工作
 - [ ] Git 分支（变体）创建/切换正常
 - [ ] dirty 机制正确检测 baseline 变化
@@ -326,7 +399,9 @@ using CoreLocationLine = BIMCanvas.Core.Models.Revit.LocationLine;
 
 继续执行 Phase 3.1: Server 层遗留服务迁移
 或
-继续执行 Phase 4: Web/Agent 适配
+继续执行 Phase 4.2: Web 前端 UI 增强（策略切换、变体管理）
+或
+继续执行 Phase 4.3: Agent 适配
 ```
 
 ---
