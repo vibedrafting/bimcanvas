@@ -4,6 +4,7 @@ import { GridBuilder } from '../builders/GridBuilder';
 import { OutlineBuilder } from '../builders/OutlineBuilder';
 import { LabelBuilder } from '../builders/LabelBuilder';
 import { ZoneBuilder } from '../builders/ZoneBuilder';
+import { ExclusionBuilder } from '../builders/ExclusionBuilder';
 import { CSS2DRenderer } from 'three-stdlib';
 import { useCanvasStore } from '../../stores/canvasStore';
 import { watch } from 'vue';
@@ -35,6 +36,7 @@ export class ThreeSceneService {
     private outlineBuilder: OutlineBuilder;
     private labelBuilder: LabelBuilder;
     private zoneBuilder: ZoneBuilder;
+    private exclusionBuilder: ExclusionBuilder;
 
     private store: ReturnType<typeof useCanvasStore>;
 
@@ -113,6 +115,7 @@ export class ThreeSceneService {
         this.outlineBuilder = new OutlineBuilder(this.scene);
         this.labelBuilder = new LabelBuilder(this.scene);
         this.zoneBuilder = new ZoneBuilder(this.scene);
+        this.exclusionBuilder = new ExclusionBuilder(this.scene);
 
         // Initial Demo Scene - REMOVED to prevent flash
         // if (!this.store.document) {
@@ -132,6 +135,7 @@ export class ThreeSceneService {
                 this.outlineBuilder.buildLines(newData);
                 this.labelBuilder.buildLabels(newData);
                 this.zoneBuilder.buildZones(newData);
+                this.exclusionBuilder.buildExclusions(newData);
                 this.gridBuilder.buildGrid();
             }
         }, { deep: true });
@@ -249,6 +253,7 @@ export class ThreeSceneService {
         this.gridBuilder.cleanup();
         this.labelBuilder.cleanup();
         this.zoneBuilder.cleanup();
+        this.exclusionBuilder.cleanup();
 
         // 重新创建所有 Builders（它们在构造时读取 ThemeService 配色）
         this.sceneBuilder = new SceneBuilder(this.scene);
@@ -256,6 +261,7 @@ export class ThreeSceneService {
         this.outlineBuilder = new OutlineBuilder(this.scene);
         this.labelBuilder = new LabelBuilder(this.scene);
         this.zoneBuilder = new ZoneBuilder(this.scene);
+        this.exclusionBuilder = new ExclusionBuilder(this.scene);
 
         // 如果有当前项目数据，重建场景
         const data = this.store.projectData;
@@ -264,6 +270,7 @@ export class ThreeSceneService {
             this.outlineBuilder.buildLines(data);
             this.labelBuilder.buildLabels(data);
             this.zoneBuilder.buildZones(data);
+            this.exclusionBuilder.buildExclusions(data);
             this.gridBuilder.buildGrid();
         } else {
             this.gridBuilder.buildGrid();

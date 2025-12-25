@@ -1,0 +1,125 @@
+import * as THREE from 'three';
+import { LayerManager } from '../three/LayerManager';
+import type { ProjectData, ExclusionArea, Point2D } from '../../types/canvas';
+import { themeService } from '../theme/ThemeService';
+
+export class ExclusionBuilder {
+    private scene: THREE.Scene;
+    private exclusionGroup: THREE.Group | null = null;
+    private materials: Map<string, THREE.Material>;
+
+    constructor(scene: THREE.Scene) {
+        this.scene = scene;
+        this.materials = new Map();
+        this.initMaterials();
+    }
+
+    private initMaterials() {
+        const colors = themeService.currentTheme.value.zones;
+
+        // 门扇禁区材质 - 红色半透明
+        this.materials.set('door_swing', new THREE.MeshBasicMaterial({
+            color: colors.exclusion,
+            transparent: true,
+            opacity: colors.opacity * 1.5,
+            side: THREE.DoubleSide,
+            depthWrite: false
+        }));
+
+        // 通用禁区材质
+        this.materials.set('default', new THREE.MeshBasicMaterial({
+            color: colors.exclusion,
+            transparent: true,
+            opacity: colors.opacity,
+            side: THREE.DoubleSide,
+            depthWrite: false
+        }));
+    }
+
+    /**
+     * 清理禁区资源（主题切换时调用）
+     */
+    public cleanup() {
+        if (this.exclusionGroup) {
+            this.exclusionGroup.traverse(child => {
+                if ((child as THREE.Mesh).geometry) {
+                    (child as THREE.Mesh).geometry.dispose();
+                }
+            });
+            this.exclusionGroup.clear();
+            this.scene.remove(this.exclusionGroup);
+            this.exclusionGroup = null;
+        }
+        this.materials.forEach(material => material.dispose());
+        this.materials.clear();
+    }
+
+    public buildExclusions(data: ProjectData) {
+        // 清理旧禁区
+        if (this.exclusionGroup) {
+            this.exclusionGroup.traverse(child => {
+                if ((child as THREE.Mesh).geometry) {
+                    (child as THREE.Mesh).geometry.dispose();
+                }
+            });
+            this.exclusionGroup.clear();
+            this.scene.remove(this.exclusionGroup);
+            this.exclusionGroup = null;
+        }
+
+        this.exclusionGroup = new THREE.Group();
+        this.exclusionGroup.layers.set(LayerManager.LAYER_ZONES);
+
+        // 从 computed.exclusions 获取禁区数据
+        const exclusions = data.computed?.exclusions;
+        if (exclusions && exclusions.length > 0) {
+            exclusions.forEach(exclusion => {
+                this.createExclusionMesh(exclusion);
+            });
+        }
+
+        this.scene.add(this.exclusionGroup);
+    }
+
+    private createExclusionMesh(exclusion: ExclusionArea) {
+        if (!exclusion.polygon || exclusion.polygon.length < 3) return;
+
+        const shape = this.createShapeFromPolygon(exclusion.polygon);
+        const geometry = new THREE.ShapeGeometry(shape);
+
+        const materialKey = this.materials.has(exclusion.type) ? exclusion.type : 'default';
+        const material = this.materials.get(materialKey);
+
+        const mesh = new THREE.Mesh(geometry, material);
+        mesh.rotation.x = -Math.PI / 2;
+        mesh.position.y = 12;  // 高于 Zone (10)
+        mesh.layers.set(LayerManager.LAYER_ZONES);
+
+        mesh.userData = {
+            id: exclusion.id,
+            type: 'exclusion',
+            subType: exclusion.type,
+            reason: exclusion.reason
+        };
+
+        this.exclusionGroup!.add(mesh);
+    }
+
+    private createShapeFromPolygon(polygon: Point2D[]): THREE.Shape {
+        const shape = new THREE.Shape();
+        if (!polygon || polygon.length === 0) return shape;
+
+        const firstPoint = polygon[0];
+        if (firstPoint) {
+            shape.moveTo(firstPoint[0], firstPoint[1]);
+            for (let i = 1; i < polygon.length; i++) {
+                const point = polygon[i];
+                if (point) {
+                    shape.lineTo(point[0], point[1]);
+                }
+            }
+        }
+        shape.closePath();
+        return shape;
+    }
+}
