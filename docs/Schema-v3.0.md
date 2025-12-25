@@ -1,96 +1,96 @@
-# BIMCanvas Data Schema v3.0
+# BIMCanvas 数据架构 v3.0
 
-> **Status**: Draft
-> **Date**: 2025-12-25
-> **Context**: [DataStructureRefactoring_Review](../reviews/DataStructureRefactoring_Review.md)
+> **状态**: 草稿
+> **日期**: 2025-12-25
+> **上下文**: [DataStructureRefactoring_Review](../reviews/DataStructureRefactoring_Review.md)
 
-## 1. Overview
+## 1. 概述
 
-v3.0 introduces a **Multi-Repo + Git Branching** architecture.
-- **Project**: A collection of strategies.
-- **Strategy**: A distinct design direction (independent Git repository).
-- **Variant**: A linear evolution of a strategy (Git branch).
-- **Baseline**: Read-only Revit export data.
+v3.0 引入了 **多仓库 + Git 分支 (Multi-Repo + Git Branching)** 架构。
+- **项目 (Project)**: 策略的集合。
+- **策略 (Strategy)**: 一个独立的设计方向（独立的 Git 仓库）。
+- **变体 (Variant)**: 策略的线性演化版本（Git 分支）。
+- **基准 (Baseline)**: 只读的 Revit 导出数据。
 
-## 2. File Structure
+## 2. 文件结构
 
 ```text
 MyDesignProject/
-├── project.json                  # [Entry] Project Manifest
-├── baseline/                     # [L0] Read-only Revit Data
+├── project.json                  # [入口] 项目清单
+├── baseline/                     # [L0] 只读 Revit 数据
 │   ├── architecture.json
 │   ├── location_lines.json
 │   └── ...
-├── schemes/                      # [L1] Strategies Collection
-│   ├── s1_Flow/                  # Strategy Repository
-│   │   ├── strategy.json         # Strategy Metadata
-│   │   ├── zones.json            # Zoning Data
-│   │   ├── finishes.json         # Finish Overrides
-│   │   └── modules.json          # Layout Data
+├── schemes/                      # [L1] 策略集合
+│   ├── s1_Flow/                  # 策略仓库
+│   │   ├── strategy.json         # 策略元数据
+│   │   ├── zones.json            # 分区数据
+│   │   ├── finishes.json         # 完成面覆盖
+│   │   └── modules.json          # 布置数据
 │   └── s2_Space/
-└── Assets/                       # Global Assets
+└── Assets/                       # 全局资产
 ```
 
-## 3. JSON Schemas
+## 3. JSON Schema 定义
 
-### 3.1 Project Manifest (`project.json`)
+### 3.1 项目清单 (`project.json`)
 
-Located at project root. Defines the active context.
+位于项目根目录。定义当前的活动上下文。
 
 ```json
 {
-  "id": "string",               // Project ID
-  "name": "string",             // Human readable name
-  "version": "3.0",             // Schema version
-  "activeSchemeId": "string",   // ID of the currently active strategy
-  "schemes": [                  // Registered strategies
+  "id": "string",               // 项目 ID
+  "name": "string",             // 人类可读名称
+  "version": "3.0",             // Schema 版本
+  "activeSchemeId": "string",   // 当前激活的策略 ID
+  "schemes": [                  // 已注册的策略
     {
-      "id": "string",           // Strategy ID (must match folder name)
-      "path": "string",         // Relative path, e.g., "./schemes/s1_Flow"
-      "name": "string"          // Display name
+      "id": "string",           // 策略 ID (必须匹配文件夹名)
+      "path": "string",         // 相对路径, 例如 "./schemes/s1_Flow"
+      "name": "string"          // 显示名称
     }
   ]
 }
 ```
 
-### 3.2 Strategy Metadata (`strategy.json`)
+### 3.2 策略元数据 (`strategy.json`)
 
-Located at strategy root (e.g., `schemes/s1_Flow/strategy.json`).
+位于策略根目录 (例如 `schemes/s1_Flow/strategy.json`)。
 
 ```json
 {
-  "id": "string",               // Strategy ID
-  "name": "string",             // Strategy Name
-  "type": "strategy",           // Fixed value
-  "description": "string",      // Design intent description
+  "id": "string",               // 策略 ID
+  "name": "string",             // 策略名称
+  "type": "strategy",           // 固定值
+  "description": "string",      // 设计意图描述
   
-  // Derivation Tracking
+  // 衍生追踪
   "origin": {
-    "sourceRepo": "string",     // Path to parent repo, e.g., "../s1_Flow"
-    "sourceBranch": "string",   // Source branch name, e.g., "v1_backup"
-    "sourceCommit": "string",   // Source commit hash
-    "derivedAt": "ISO8601"      // Timestamp
-  }, // Nullable if created from scratch
+    "sourceRepo": "string",     // 父仓库路径, 例如 "../s1_Flow"
+    "sourceBranch": "string",   // 源分支名称, 例如 "v1_backup"
+    "sourceCommit": "string",   // 源提交哈希
+    "derivedAt": "ISO8601"      // 时间戳
+  }, // 如果是从零创建则为 null
 
-  // Baseline Validation
-  "baselineRef": "../../baseline", // Path to baseline folder
-  "lastValidatedBaselineHash": "string", // Hash of baseline folder content
+  // 基准验证
+  "baselineRef": "../../baseline", // 基准文件夹路径
+  "lastValidatedBaselineHash": "string", // 基准文件夹内容的哈希
   "status": "valid|dirty|invalid"
 }
 ```
 
-### 3.3 Zoning Data (`zones.json`)
+### 3.3 分区数据 (`zones.json`)
 
-Defines functional zones within rooms.
+定义房间内的功能分区。
 
 ```json
 {
   "zones": [
     {
-      "id": "string",           // Zone ID
-      "name": "string",         // Zone Name
-      "roomId": "string",       // Reference to Revit Room ID
-      "tags": ["string"],       // e.g., ["sleep", "storage"]
+      "id": "string",           // 分区 ID
+      "name": "string",         // 分区名称
+      "roomId": "string",       // 引用 Revit 房间 ID
+      "tags": ["string"],       // 例如 ["sleep", "storage"]
       "boundary": [             // Polygon2D
         [x, y], [x, y], ...
       ]
@@ -99,40 +99,40 @@ Defines functional zones within rooms.
 }
 ```
 
-### 3.4 Layout Data (`modules.json`)
+### 3.4 布置数据 (`modules.json`)
 
-Defines furniture placement.
+定义家具布置。
 
 ```json
 {
   "modules": [
     {
-      "id": "string",           // Module ID
-      "zoneId": "string",       // Reference to Zone ID
-      "moduleTypeId": "string", // SKU or Family Type
-      "bounds": [               // OBB (Oriented Bounding Box)
+      "id": "string",           // 模块 ID
+      "zoneId": "string",       // 引用分区 ID
+      "moduleTypeId": "string", // SKU 或族类型
+      "bounds": [               // OBB (定向包围盒)
         [x, y], [x, y], [x, y], [x, y]
       ],
-      "facing": "string"        // "north", "south", etc.
+      "facing": "string"        // "north", "south", 等
     }
   ]
 }
 ```
 
-### 3.5 Finish Overrides (`finishes.json`)
+### 3.5 完成面覆盖 (`finishes.json`)
 
-Defines wall finish configurations, overriding the baseline location lines.
+定义墙面完成面配置，覆盖基准定位线。
 
 ```json
 {
   "overrides": [
     {
-      "locationLineId": "string", // Reference to Baseline Line ID
+      "locationLineId": "string", // 引用基准线 ID
       "segments": [
         {
-          "range": [0, 2500],     // [StartMm, EndMm] along the line
-          "finishType": "string", // Material/Finish ID
-          "thickness": 15         // Thickness in mm
+          "range": [0, 2500],     // [StartMm, EndMm] 沿线段
+          "finishType": "string", // 材质/完成面 ID
+          "thickness": 15         // 厚度 (mm)
         }
       ]
     }
