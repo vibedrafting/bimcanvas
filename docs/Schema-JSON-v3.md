@@ -7,7 +7,7 @@
 > **相关文档**：
 > - [Schema-JSON.md](./Schema-JSON.md) - v2.9 单一 JSON 结构（兼容期保留）
 > - [Architecture.md](./Architecture.md) - 系统架构
-> - [IdealProjectStructure_Demo/](../IdealProjectStructure_Demo/) - 完整示例项目
+> - [ProjectStructure_Demo/](../ProjectStructure_Demo/) - 完整示例项目
 >
 > **v3.0 变更要点**：
 > - 从单一 JSON 文件升级为多文件夹结构（Multi-Repo Collection）
