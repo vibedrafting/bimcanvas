@@ -2,15 +2,14 @@ using System;
 using Autodesk.Revit.Attributes;
 using Autodesk.Revit.DB;
 using Autodesk.Revit.UI;
-using BIMCanvas.Core.Models.Document;
 using BIMCanvas.Revit.Services;
 using Microsoft.Win32;
 
 namespace BIMCanvas.Revit.Commands
 {
     /// <summary>
-    /// 导出画布命令
-    /// 从当前平面视图导出 BIMCanvas JSON 文件
+    /// 导出画布命令 (v3.0)
+    /// 从当前平面视图导出 .bcp 项目包
     /// </summary>
     [Transaction(TransactionMode.Manual)]
     public class ExportCanvasCommand : IExternalCommand
@@ -42,11 +41,46 @@ namespace BIMCanvas.Revit.Commands
                 var exportService = new CanvasExportService();
                 var options = ExportOptions.Load();
 
+                // 弹出保存对话框
+                var saveDialog = new SaveFileDialog
+                {
+                    Filter = "BIMCanvas 项目 (*.bcp)|*.bcp|所有文件 (*.*)|*.*",
+                    Title = "保存 BIMCanvas 项目",
+                    FileName = $"{doc.Title}_{view.Name}",
+                    DefaultExt = ".bcp",
+                    AddExtension = true
+                };
+
+                if (saveDialog.ShowDialog() != true)
+                {
+                    return Result.Cancelled;
+                }
+
+                // 移除扩展名（BcpExporter 会自动添加）
+                var outputPath = saveDialog.FileName;
+                if (outputPath.EndsWith(".bcp", StringComparison.OrdinalIgnoreCase))
+                {
+                    outputPath = outputPath.Substring(0, outputPath.Length - 4);
+                }
+
                 // 执行导出
-                DesignDocument document;
+                string bcpPath;
+                CanvasExportService.ExportResult exportResult;
                 try
                 {
-                    document = exportService.ExportFromView(view, options);
+                    // 先获取导出数据用于统计
+                    exportResult = exportService.ExportFromView(view, options);
+
+                    // 导出到 .bcp 文件
+                    var exporter = new BcpExporter();
+                    bcpPath = exporter.ExportToBcp(
+                        outputPath,
+                        exportResult.ProjectName,
+                        exportResult.Manifest,
+                        exportResult.Architecture,
+                        exportResult.Openings,
+                        exportResult.Rooms,
+                        exportResult.LocationLines);
                 }
                 catch (OperationCanceledException)
                 {
@@ -61,30 +95,17 @@ namespace BIMCanvas.Revit.Commands
                     return Result.Failed;
                 }
 
-                // 弹出保存对话框
-                var saveDialog = new SaveFileDialog
-                {
-                    Filter = "JSON 文件 (*.json)|*.json|所有文件 (*.*)|*.*",
-                    Title = "保存 BIMCanvas 文件",
-                    FileName = $"{doc.Title}_{view.Name}.json",
-                    DefaultExt = ".json",
-                    AddExtension = true
-                };
-
-                if (saveDialog.ShowDialog() == true)
-                {
-                    exportService.SaveToFile(document, saveDialog.FileName);
-
-                    TaskDialog.Show("BIMCanvas",
-                        $"导出成功！\n\n" +
-                        $"文件位置：\n{saveDialog.FileName}\n\n" +
-                        $"导出统计：\n" +
-                        $"- 墙体：{document.Revit?.Walls?.Count ?? 0} 个\n" +
-                        $"- 柱子：{document.Revit?.Columns?.Count ?? 0} 个\n" +
-                        $"- 门窗：{document.Revit?.Openings?.Count ?? 0} 个\n" +
-                        $"- 完成面定位边界：{document.Revit?.FinishLocationBoundaries?.Count ?? 0} 个\n" +
-                        $"- 房间：{document.Revit?.Rooms?.Count ?? 0} 个");
-                }
+                // 显示导出成功信息
+                TaskDialog.Show("BIMCanvas",
+                    $"导出成功！\n\n" +
+                    $"文件位置：\n{bcpPath}\n\n" +
+                    $"导出统计：\n" +
+                    $"- 墙体：{exportResult.Architecture?.Walls?.Count ?? 0} 个\n" +
+                    $"- 柱子：{exportResult.Architecture?.Columns?.Count ?? 0} 个\n" +
+                    $"- 门窗：{exportResult.Openings?.Count ?? 0} 个\n" +
+                    $"- 定位线：{exportResult.LocationLines?.Count ?? 0} 条\n" +
+                    $"- 房间：{exportResult.Rooms?.Count ?? 0} 个\n\n" +
+                    $"项目格式：v3.0 Multi-Repo Collection");
 
                 return Result.Succeeded;
             }

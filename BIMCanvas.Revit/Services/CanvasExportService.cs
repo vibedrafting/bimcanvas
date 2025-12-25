@@ -1,39 +1,75 @@
 using System;
 using System.Collections.Generic;
-using System.IO;
 using System.Linq;
-using System.Text;
 using Autodesk.Revit.DB;
 using BIMCanvas.Core.Converters;
-using BIMCanvas.Core.Models.Document;
-using BIMCanvas.Core.Models.Revit;
-using BIMCanvas.Core.Models.Computed;
-using BIMCanvas.Core.Models.Layout;
+using BIMCanvas.Core.Models.Project;
 using BIMCanvas.Core.Models.Shared;
 using BIMCanvas.Revit.Adapters;
 using BIMCanvas.Revit.Models;
 using BIMCanvas.Revit.Views;
 using BIMCanvas.Revit.Views.ViewModels;
 using NetTopologySuite.Geometries;
-using Newtonsoft.Json;
-using Newtonsoft.Json.Serialization;
+// 使用别名解决命名空间冲突
+using CoreWall = BIMCanvas.Core.Models.Revit.Wall;
+using CoreColumn = BIMCanvas.Core.Models.Revit.Column;
+using CoreOpening = BIMCanvas.Core.Models.Revit.Opening;
+using CoreRoom = BIMCanvas.Core.Models.Revit.Room;
+using CoreArchitecture = BIMCanvas.Core.Models.Revit.Architecture;
+using CoreLocationLine = BIMCanvas.Core.Models.Revit.LocationLine;
 
 namespace BIMCanvas.Revit.Services
 {
     /// <summary>
-    /// 画布导出服务
-    /// 负责组装 DesignDocument 并保存文件
+    /// 画布导出服务 (v3.0)
+    /// 导出为 .bcp 多文件夹结构
     /// </summary>
     public class CanvasExportService
     {
         /// <summary>
-        /// 从视图导出 DesignDocument（6 阶段流程）
+        /// 导出结果
+        /// </summary>
+        public class ExportResult
+        {
+            /// <summary>
+            /// Baseline 元数据
+            /// </summary>
+            public BaselineManifest Manifest { get; set; }
+
+            /// <summary>
+            /// 建筑构造（墙体 + 柱子）
+            /// </summary>
+            public CoreArchitecture Architecture { get; set; }
+
+            /// <summary>
+            /// 门窗列表
+            /// </summary>
+            public List<CoreOpening> Openings { get; set; }
+
+            /// <summary>
+            /// 房间列表
+            /// </summary>
+            public List<CoreRoom> Rooms { get; set; }
+
+            /// <summary>
+            /// 定位线列表
+            /// </summary>
+            public List<CoreLocationLine> LocationLines { get; set; }
+
+            /// <summary>
+            /// 项目名称
+            /// </summary>
+            public string ProjectName { get; set; }
+        }
+
+        /// <summary>
+        /// 从视图导出数据（6 阶段流程）
         /// </summary>
         /// <param name="view">Revit 平面视图</param>
         /// <param name="options">导出选项</param>
-        /// <returns>精简版 DesignDocument</returns>
+        /// <returns>导出结果</returns>
         /// <exception cref="OperationCanceledException">用户取消导出时抛出</exception>
-        public DesignDocument ExportFromView(View view, ExportOptions options)
+        public ExportResult ExportFromView(View view, ExportOptions options)
         {
             if (view == null)
                 throw new ArgumentNullException(nameof(view));
@@ -129,15 +165,17 @@ namespace BIMCanvas.Revit.Services
             // ===== Phase 4: 统一坐标转换 =====
 
             // 转换单独墙体轮廓
-            var walls = revitWalls.Select(w => new Core.Models.Revit.Wall
+            var walls = revitWalls.Select(w => new CoreWall
             {
                 Id = w.Id,
                 ElementId = w.ElementId,
-                Polygon = NtsConverter.FromNtsPolygon(transformer.TransformPolygon(w.Boundary))
+                Polygon = NtsConverter.FromNtsPolygon(transformer.TransformPolygon(w.Boundary)),
+                Thickness = 0,  // TODO: 从 Revit 墙体类型中提取
+                IsStructural = false  // TODO: 检查墙体类型
             }).ToList();
 
             // 转换单独柱子轮廓
-            var columns = revitColumns.Select(c => new Column
+            var columns = revitColumns.Select(c => new CoreColumn
             {
                 Id = c.Id,
                 ElementId = c.ElementId,
@@ -146,7 +184,7 @@ namespace BIMCanvas.Revit.Services
             }).ToList();
 
             // 门窗转换
-            var openings = rawOpenings.Select(ro => new Core.Models.Revit.Opening
+            var openings = rawOpenings.Select(ro => new CoreOpening
             {
                 Id = ro.Id,
                 Type = ro.Type,
@@ -160,16 +198,8 @@ namespace BIMCanvas.Revit.Services
             // 过滤外墙边，只保留内墙边
             var filteredWallFinishes = FilterExteriorEdges(rawWallFinishes, revitRooms);
 
-            // 转换完成面定位边界
-            var finishLocationBoundaries = filteredWallFinishes.Select(wf => new FinishLocationBoundary
-            {
-                Id = wf.Id,
-                ElementIds = wf.ElementIds,
-                Polygon = NtsConverter.FromNtsPolygon(transformer.TransformPolygon(wf.Boundary))
-            }).ToList();
-
             // 房间转换
-            var rooms = revitRooms.Select(rr => new Core.Models.Revit.Room
+            var rooms = revitRooms.Select(rr => new CoreRoom
             {
                 Id = rr.Id,
                 Name = rr.Name,
@@ -204,11 +234,19 @@ namespace BIMCanvas.Revit.Services
                 }
             }
 
-            // ===== Phase 6: 保存转换配置到 Metadata + 组装 DesignDocument =====
-            var metadata = new Metadata
+            // ===== Phase 6: 提取定位线 + 组装导出结果 =====
+            var locationLineAdapter = new LocationLineAdapter(transformer);
+            var locationLines = locationLineAdapter.ExtractLocationLines(
+                filteredWallFinishes, revitRooms, revitWalls);
+
+            // 获取 Revit 版本
+            var revitVersion = view.Document.Application.VersionNumber ?? "Unknown";
+
+            var manifest = new BaselineManifest
             {
+                ExportDate = DateTime.Now,
+                RevitVersion = revitVersion,
                 PlacementElevation = options.PlacementElevation,
-                // 坐标变换参数（已合并到 Metadata）
                 Origin = new[]
                 {
                     UnitConverter.ToMillimeters(origin.X),
@@ -216,39 +254,69 @@ namespace BIMCanvas.Revit.Services
                     0.0
                 },
                 Rotation = rotation,
-                Method = originMethod
+                TransformMethod = originMethod,
+                UnitSystem = "metric_mm"
             };
 
-            return new DesignDocument
+            var architecture = new CoreArchitecture
             {
-                // 常规属性
-                Id = $"canvas_{Guid.NewGuid():N}",
-                ProjectName = view.Document.Title ?? "",
-                ExportDate = DateTime.Now,
-                Version = 1,
-                CoordinateSystem = "cartesian_mm_yUp",
-
-                // Revit 原始数据
-                Revit = new RevitData
-                {
-                    Metadata = metadata,
-                    Walls = walls,
-                    Columns = columns,
-                    Openings = openings,
-                    FinishLocationBoundaries = finishLocationBoundaries,
-                    Rooms = rooms
-                },
-
-                // 计算派生数据（精简版：空）
-                Computed = new ComputedData
-                {
-                    Zones = new List<Zone>(),
-                    WallFinishes = new List<WallFinish>()
-                },
-
-                // 方案布置（精简版：空）
-                Layout = new LayoutData()
+                Walls = walls,
+                Columns = columns
             };
+
+            return new ExportResult
+            {
+                Manifest = manifest,
+                Architecture = architecture,
+                Openings = openings,
+                Rooms = rooms,
+                LocationLines = locationLines,
+                ProjectName = view.Document.Title ?? "Untitled"
+            };
+        }
+
+        /// <summary>
+        /// 导出到 .bcp 文件
+        /// </summary>
+        /// <param name="view">Revit 平面视图</param>
+        /// <param name="options">导出选项</param>
+        /// <param name="outputPath">输出路径（不含扩展名）</param>
+        /// <returns>.bcp 文件完整路径</returns>
+        public string ExportToBcp(View view, ExportOptions options, string outputPath)
+        {
+            var result = ExportFromView(view, options);
+            var exporter = new BcpExporter();
+
+            return exporter.ExportToBcp(
+                outputPath,
+                result.ProjectName,
+                result.Manifest,
+                result.Architecture,
+                result.Openings,
+                result.Rooms,
+                result.LocationLines);
+        }
+
+        /// <summary>
+        /// 导出到文件夹（不打包，用于调试）
+        /// </summary>
+        /// <param name="view">Revit 平面视图</param>
+        /// <param name="options">导出选项</param>
+        /// <param name="outputDir">输出目录</param>
+        /// <returns>输出目录路径</returns>
+        public string ExportToFolder(View view, ExportOptions options, string outputDir)
+        {
+            var result = ExportFromView(view, options);
+            var exporter = new BcpExporter();
+
+            return exporter.ExportToFolder(
+                outputDir,
+                result.ProjectName,
+                result.Manifest,
+                result.Architecture,
+                result.Openings,
+                result.Rooms,
+                result.LocationLines);
         }
 
         /// <summary>
@@ -258,49 +326,6 @@ namespace BIMCanvas.Revit.Services
         {
             var rightDir = view.RightDirection;
             return Math.Atan2(rightDir.Y, rightDir.X);
-        }
-
-        /// <summary>
-        /// 保存 DesignDocument 到文件
-        /// </summary>
-        /// <param name="document">设计文档</param>
-        /// <param name="filePath">保存路径</param>
-        public void SaveToFile(DesignDocument document, string filePath)
-        {
-            if (document == null)
-                throw new ArgumentNullException(nameof(document));
-            if (string.IsNullOrWhiteSpace(filePath))
-                throw new ArgumentException("文件路径不能为空", nameof(filePath));
-
-            var settings = new JsonSerializerSettings
-            {
-                Formatting = Formatting.Indented,
-                NullValueHandling = NullValueHandling.Ignore,
-                ContractResolver = new CamelCasePropertyNamesContractResolver()
-            };
-
-            var json = JsonConvert.SerializeObject(document, settings);
-            File.WriteAllText(filePath, json, Encoding.UTF8);
-        }
-
-        /// <summary>
-        /// 将 DesignDocument 序列化为 JSON 字符串
-        /// </summary>
-        /// <param name="document">设计文档</param>
-        /// <returns>JSON 字符串</returns>
-        public string ToJson(DesignDocument document)
-        {
-            if (document == null)
-                throw new ArgumentNullException(nameof(document));
-
-            var settings = new JsonSerializerSettings
-            {
-                Formatting = Formatting.Indented,
-                NullValueHandling = NullValueHandling.Ignore,
-                ContractResolver = new CamelCasePropertyNamesContractResolver()
-            };
-
-            return JsonConvert.SerializeObject(document, settings);
         }
 
         #region 外墙过滤逻辑
