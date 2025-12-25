@@ -2,7 +2,7 @@
 
 > **文档目的**：记录 v3.0 Multi-Repo Collection 架构升级的当前进度，供后续对话继续执行剩余阶段任务
 > **创建日期**：2025-12-25
-> **最后更新**：2025-12-25 (Phase 2.1 职责分离)
+> **最后更新**：2025-12-25 (Phase 3 Server 层项目加载)
 
 ---
 
@@ -132,6 +132,85 @@
 
 ---
 
+### Phase 3: Server 层项目加载 ✅
+
+**完成时间**：2025-12-25
+
+#### 新建文件 (4个)
+
+| 文件 | 说明 |
+|------|------|
+| `Services/ManifestService.cs` | `.manifest` 键值对文件读写服务 |
+| `Services/ComputedDataService.cs` | 计算数据管理（门扇禁区生成 + 验证） |
+| `Services/StrategyService.cs` | 策略目录管理（创建 + 查询） |
+| `Services/ProjectService.cs` | 项目加载完整流程（解压 + 初始化） |
+
+#### 修改文件 (1个)
+
+| 文件 | 修改内容 |
+|------|----------|
+| `Program.cs` | 集成项目加载流程，注册新服务，更新 Web URL 参数 |
+
+#### 遗留文件处理 (3个)
+
+| 文件 | 处理方式 |
+|------|----------|
+| `Services/CanvasStateManager.cs` | 重命名为 `.legacy`，待迁移 |
+| `Services/ZoneCalculator.cs` | 重命名为 `.legacy`，待迁移 |
+| `Controllers/CanvasController.cs` | 重命名为 `.legacy`，待迁移 |
+
+#### 新增功能
+
+**项目加载流程**：
+1. 解压 `.bcp` 到 `用户文档/BIMCanvas/Projects/{名称}_{时间戳}/`
+2. 计算 baseline 哈希 → 写入 `baseline/baseline.manifest`
+3. 创建 `context/` 目录和 `requirements.md` 模板
+4. 创建 `schemes/s1_Default/` 默认策略（含 strategy.json, zones.json, finishes.json, modules.json）
+5. 更新 `project.json` 的 Schemes 引用
+6. 验证 computed 数据有效性，无效时生成 `exclusions.json` + `computed.manifest`
+
+**`.manifest` 文件格式**：
+```
+# Generated at 2025-12-25T14:30:25
+version=1
+generatedAt=2025-12-25T14:30:25+08:00
+baselineHash=sha256:abc123def456...
+```
+
+**门扇禁区计算**：
+- 读取 `openings.json` 中的门数据
+- 对每扇门，根据 `Line` + `FacingDirection` 计算矩形禁区
+- 禁区尺寸：`doorWidth × doorWidth`
+- 写入 `computed/exclusions.json`
+
+#### 目录结构（完整）
+
+```
+C:\Users\{username}\Documents\BIMCanvas\Projects\
+└── demo_1_20251225_143025/
+    ├── project.json                    # Revit 导出，Server 更新 Schemes 引用
+    ├── baseline/
+    │   ├── metadata.json
+    │   ├── architecture.json
+    │   ├── openings.json
+    │   ├── rooms.json
+    │   ├── location_lines.json
+    │   └── baseline.manifest           # Server 生成的哈希文件
+    ├── context/                        # Server 创建
+    │   └── requirements.md             # 设计需求模板
+    ├── schemes/                        # Server 创建
+    │   └── s1_Default/                 # 默认策略
+    │       ├── strategy.json           # 策略元数据
+    │       ├── zones.json              # 功能分区（空）
+    │       ├── finishes.json           # 完成面（空）
+    │       └── modules.json            # 家具模块（空）
+    └── computed/                       # 计算缓存
+        ├── exclusions.json             # 门扇禁区数据
+        └── computed.manifest           # 哈希验证文件
+```
+
+---
+
 ## 三、当前状态
 
 ### 构建状态
@@ -140,6 +219,7 @@
 |------|------|------|
 | BIMCanvas.Core | ✅ 编译成功 | 81 nullable 警告（预存在），0 错误 |
 | BIMCanvas.Revit | ✅ 编译成功 | 4 架构警告（预存在），0 错误 |
+| BIMCanvas.Server | ✅ 编译成功 | 0 警告，0 错误（遗留服务已标记为 .legacy） |
 
 ### 关键类型变化
 
@@ -168,60 +248,19 @@ using CoreLocationLine = BIMCanvas.Core.Models.Revit.LocationLine;
 
 ## 四、待完成阶段
 
-### Phase 3: Server 层适配 ⬜
+### Phase 3.1: Server 层遗留服务迁移 ⬜
 
-**参考文档**：`plans/V3_Architecture_Upgrade_Plan.md` §Phase 3
+**说明**：Phase 3 项目加载已完成，但以下遗留服务需要迁移到 v3.0 文件结构
 
-> **重要**：由于 Phase 2.1 职责分离，Server 层现在需要在项目打开时创建 `schemes/` 和 `context/` 目录。
+#### 待迁移文件
 
-#### 3.1 新增 ProjectService
+| 文件 | 当前状态 | 迁移方向 |
+|------|----------|----------|
+| `CanvasStateManager.cs.legacy` | 使用 `DesignDocument` | 改为读取项目文件夹 |
+| `ZoneCalculator.cs.legacy` | 使用 `DesignDocument` | 改为读取 baseline/ 和 schemes/ |
+| `CanvasController.cs.legacy` | 使用 `DesignDocument` | 改为使用 ProjectService |
 
-**文件**：`BIMCanvas.Server/Services/ProjectService.cs`
-
-```csharp
-public class ProjectService
-{
-    // 解压 .bcp 到工作目录
-    // 1. 解压 baseline/ 和 project.json
-    // 2. 创建 context/ 目录和 requirements.md 模板
-    // 3. 创建 schemes/s1_Default/ 默认策略
-    // 4. 更新 project.json 的 Schemes 引用
-    // 5. 计算 BaselineHash 并写入 strategy.json
-    public Project OpenProject(string bcpPath);
-
-    // 保存项目到 .bcp
-    public void SaveProject(Project project, string bcpPath);
-
-    // 创建新策略（在 schemes/ 下创建子目录）
-    public Strategy CreateStrategy(Project project, string name, StrategyApproach approach);
-
-    // 从变体升级为策略（复制文件夹）
-    public Strategy PromoteVariantToStrategy(Project project, string sourceStrategyId, string branch);
-}
-```
-
-#### 3.2 新增 StrategyService
-
-**文件**：`BIMCanvas.Server/Services/StrategyService.cs`
-
-```csharp
-public class StrategyService
-{
-    // 初始化策略 Git 仓库
-    public void InitializeGit(string strategyPath);
-
-    // 创建变体（Git 分支）
-    public void CreateVariant(string strategyPath, string branchName);
-
-    // 切换变体
-    public void SwitchVariant(string strategyPath, string branchName);
-
-    // 获取提交历史
-    public List<CommitInfo> GetCommitHistory(string strategyPath);
-}
-```
-
-#### 3.3 修改 MCP 工具
+#### 新增 MCP 工具
 
 - 更新 Canvas-MCP 工具以适配多文件结构
 - 新增策略/变体管理工具
@@ -251,12 +290,14 @@ public class StrategyService
 - [x] Core 层数据模型升级到 v3.0
 - [x] Revit 可导出 `.bcp` 格式（仅 baseline + project.json）
 - [x] 导出数据经评估符合 v3.0 规范
-- [ ] Server 可解压 `.bcp` 并创建 schemes/ 和 context/
-- [ ] Server 正确计算 BaselineHash 并写入 strategy.json
-- [ ] 策略创建/切换正常工作
+- [x] Server 可解压 `.bcp` 并创建 schemes/ 和 context/
+- [x] Server 正确计算 BaselineHash 并写入 baseline.manifest 和 strategy.json
+- [x] 默认策略创建正常工作
+- [x] computed 数据验证和生成正常工作
+- [ ] 策略切换正常工作
 - [ ] Git 分支（变体）创建/切换正常
 - [ ] dirty 机制正确检测 baseline 变化
-- [ ] 原有的 zones/modules/finishes 功能正常
+- [ ] 原有的 zones/modules/finishes 功能正常（需迁移遗留服务）
 
 ---
 
@@ -270,6 +311,7 @@ public class StrategyService
 | 项目说明 | `CLAUDE.md` | 项目指令和约束 |
 | Core 层说明 | `BIMCanvas.Core/README.md` | Core 层实现细节 |
 | Revit 层说明 | `BIMCanvas.Revit/README.md` | Revit 层实现细节 |
+| Server 层说明 | `BIMCanvas.Server/README.md` | Server 层实现细节 |
 
 ---
 
@@ -282,7 +324,9 @@ public class StrategyService
 - plans/V3_Upgrade_Progress_Report.md（本报告）
 - plans/V3_Architecture_Upgrade_Plan.md（完整计划）
 
-继续执行 Phase 3: Server 层适配
+继续执行 Phase 3.1: Server 层遗留服务迁移
+或
+继续执行 Phase 4: Web/Agent 适配
 ```
 
 ---

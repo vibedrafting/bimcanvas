@@ -13,8 +13,15 @@ builder.Services.AddControllers()
     });
 
 // 注册服务
-builder.Services.AddSingleton<CanvasStateManager>();
-builder.Services.AddSingleton<ZoneCalculator>();
+// TODO: 以下服务需要迁移到 v3.0 文件结构
+// builder.Services.AddSingleton<CanvasStateManager>();
+// builder.Services.AddSingleton<ZoneCalculator>();
+
+// v3.0 项目管理服务
+builder.Services.AddSingleton<ManifestService>();
+builder.Services.AddSingleton<ComputedDataService>();
+builder.Services.AddSingleton<StrategyService>();
+builder.Services.AddSingleton<ProjectService>();
 
 // 配置 Swagger
 builder.Services.AddEndpointsApiExplorer();
@@ -53,6 +60,47 @@ app.MapGet("/health", () => new { status = "healthy", timestamp = DateTime.UtcNo
 Console.WriteLine("BIMCanvas.Server 启动中...");
 Console.WriteLine("API: http://localhost:5000/api/canvas");
 Console.WriteLine("Swagger: http://localhost:5000/swagger");
+
+// v3.0 项目加载流程
+string? currentProjectPath = null;
+{
+    var projectService = app.Services.GetRequiredService<ProjectService>();
+    var baseDir = AppContext.BaseDirectory;
+
+    // Case1: 通过命令行参数指定 .bcp 文件
+    // Case2: 默认加载 demo_1.bcp
+    string? bcpFilePath = args.Length > 0 ? args[0] : null;
+
+    if (string.IsNullOrEmpty(bcpFilePath))
+    {
+        bcpFilePath = projectService.FindDemoBcpFile(baseDir, "demo_1");
+        if (bcpFilePath != null)
+        {
+            Console.WriteLine($"使用默认 BCP 文件: {bcpFilePath}");
+        }
+    }
+    else
+    {
+        Console.WriteLine($"使用指定 BCP 文件: {bcpFilePath}");
+    }
+
+    if (!string.IsNullOrEmpty(bcpFilePath))
+    {
+        try
+        {
+            currentProjectPath = projectService.LoadProject(bcpFilePath);
+            Console.WriteLine($"项目已加载: {currentProjectPath}");
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"项目加载失败: {ex.Message}");
+        }
+    }
+    else
+    {
+        Console.WriteLine("未找到可加载的 BCP 文件");
+    }
+}
 
 // 自动启动 Web 开发服务器（如果 Web 项目存在）
 {
@@ -108,9 +156,13 @@ Console.WriteLine("Swagger: http://localhost:5000/swagger");
             await Task.Delay(200);
         }
 
-        // 3. 打开浏览器（带默认数据文件参数）
-        var defaultFile = "demo_1";  // 默认加载的数据文件（不含 .json 后缀）
-        var webUrl = $"{webBaseUrl}?file={defaultFile}";
+        // 3. 打开浏览器（带项目路径参数）
+        var webUrl = webBaseUrl;
+        if (!string.IsNullOrEmpty(currentProjectPath))
+        {
+            var encodedPath = Uri.EscapeDataString(currentProjectPath);
+            webUrl = $"{webBaseUrl}?project={encodedPath}";
+        }
         Console.WriteLine($"打开浏览器: {webUrl}");
         try
         {
