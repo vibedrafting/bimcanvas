@@ -74,7 +74,7 @@ Console.WriteLine("Swagger: http://localhost:5000/swagger");
 
     if (string.IsNullOrEmpty(bcpFilePath))
     {
-        bcpFilePath = projectService.FindDemoBcpFile(baseDir, "demo_1");
+        bcpFilePath = projectService.FindDemoBcpFile(baseDir, "demo_2");
         if (bcpFilePath != null)
         {
             Console.WriteLine($"使用默认 BCP 文件: {bcpFilePath}");
