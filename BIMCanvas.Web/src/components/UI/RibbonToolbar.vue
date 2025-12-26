@@ -1,13 +1,15 @@
 <script setup lang="ts">
-import { ref, computed, watch } from 'vue';
+import { ref, computed } from 'vue';
 import { useCanvasStore } from '../../stores/canvasStore';
 import GlassButton from './base/GlassButton.vue';
 import { themeService } from '../../services/theme/ThemeService';
+import ConflictDialog from './ConflictDialog.vue';
+import { ProjectService } from '../../services/ProjectService';
 
 import { storeToRefs } from 'pinia';
 
 const store = useCanvasStore();
-const { selectedObject, agentConnectionState, currentOperation } = storeToRefs(store);
+const { agentConnectionState, currentOperation } = storeToRefs(store);
 const isExpanded = ref(false);
 const fileInputRef = ref<HTMLInputElement | null>(null);
 
@@ -24,32 +26,72 @@ const toggleTheme = () => {
   themeService.toggleTheme();
 };
 
-
+// === 冲突对话框状态 ===
+const showConflictDialog = ref(false);
+const conflictProjectName = ref('');
+const conflictExistingPath = ref('');
+const pendingBcpPath = ref('');
 
 // Actions
 const dispatchAction = (action: 'rotate' | 'delete' | 'move' | 'mirror' | 'copy') => {
   window.dispatchEvent(new CustomEvent(`bimcanvas:action-${action}`));
 };
 
-// 加载数据
+// 加载数据（支持 .bcp 和 .json）
 const handleLoad = async () => {
   try {
     // 尝试使用 File System Access API
     if ('showOpenFilePicker' in window) {
       const [fileHandle] = await (window as any).showOpenFilePicker({
-        types: [{
-          description: 'BIMCanvas JSON',
-          accept: { 'application/json': ['.json'] }
-        }],
+        types: [
+          {
+            description: 'BIMCanvas Project',
+            accept: { 'application/octet-stream': ['.bcp'] }
+          },
+          {
+            description: 'BIMCanvas JSON (Legacy)',
+            accept: { 'application/json': ['.json'] }
+          }
+        ],
         multiple: false,
-        startIn: 'desktop' // 默认打开桌面
+        startIn: 'desktop'
       });
-      
+
       const file = await fileHandle.getFile();
-      const text = await file.text();
-      const json = JSON.parse(text);
-      // Note: loadFromJson removed in v3.0 - use loadProject instead
-      console.warn('Direct JSON loading is deprecated in v3.0');
+      const fileName = file.name.toLowerCase();
+
+      if (fileName.endsWith('.bcp')) {
+        // 获取文件完整路径（需要通过 File System Access API）
+        // 注意：浏览器安全限制，无法直接获取完整路径
+        // 需要用户手动输入或使用 Electron 等桌面框架
+        // 这里我们使用 prompt 作为临时方案
+        const bcpPath = prompt(
+          '请输入 BCP 文件的完整路径：\n（由于浏览器安全限制，无法自动获取路径）',
+          ''
+        );
+
+        if (!bcpPath) return;
+
+        // 调用 Server API 打开项目
+        const result = await ProjectService.openProject(bcpPath);
+
+        if (result.status === 'Conflict') {
+          // 显示冲突对话框
+          pendingBcpPath.value = bcpPath;
+          conflictProjectName.value = result.projectName || '';
+          conflictExistingPath.value = result.existingPath || '';
+          showConflictDialog.value = true;
+        } else if (result.status === 'Success') {
+          // 重新加载项目数据
+          await store.loadProject();
+        } else {
+          // 错误
+          alert(`打开项目失败：${result.message}`);
+        }
+      } else {
+        // JSON 文件（已废弃）
+        console.warn('Direct JSON loading is deprecated in v3.0');
+      }
     } else {
       // Fallback
       fileInputRef.value?.click();
@@ -58,6 +100,33 @@ const handleLoad = async () => {
     if (err.name !== 'AbortError') {
       console.error('Failed to open file:', err);
     }
+  }
+};
+
+// 处理冲突解决
+const handleConflictResolve = async (resolution: 'Overwrite' | 'UseExisting' | 'Cancel') => {
+  showConflictDialog.value = false;
+
+  if (resolution === 'Cancel') {
+    // 用户取消，不做任何操作
+    pendingBcpPath.value = '';
+    return;
+  }
+
+  try {
+    const result = await ProjectService.resolveConflict(pendingBcpPath.value, resolution);
+
+    if (result.status === 'Success') {
+      // 重新加载项目数据
+      await store.loadProject();
+    } else {
+      alert(`解决冲突失败：${result.message}`);
+    }
+  } catch (err: any) {
+    console.error('Failed to resolve conflict:', err);
+    alert(`解决冲突失败：${err.message}`);
+  } finally {
+    pendingBcpPath.value = '';
   }
 };
 
@@ -97,7 +166,7 @@ const handleExport = async () => {
         }],
         startIn: 'desktop' // 默认打开桌面
       });
-      
+
       const writable = await handle.createWritable();
       await writable.write(jsonString);
       await writable.close();
@@ -135,34 +204,15 @@ const dynamicStatusText = computed(() => {
     };
     return opMap[currentOperation.value] || currentOperation.value;
   }
-  
+
   // Priority 2: Selection with count
   if (selectionCount.value > 0) {
     return `Selecting (${selectionCount.value})...`;
   }
-  
+
   // Priority 3: Default
   return 'BIMCanvas Ready';
 });
-
-// View Logic
-const currentView = ref<'human' | 'ai'>('human');
-
-const toggleView = (mode: 'human' | 'ai') => {
-  currentView.value = mode;
-  window.dispatchEvent(new CustomEvent('bimcanvas:view-mode-change', { detail: mode }));
-};
-
-// Auto-expand on selection for a brief moment (optional, but nice)
-/*
-watch(selectedObject, (newVal) => {
-  if (newVal) {
-    // Flash expand could be annoying, let's just update text for now
-    // isExpanded.value = true; 
-    // setTimeout(() => isExpanded.value = false, 2000);
-  }
-});
-*/
 </script>
 
 <template>
@@ -207,18 +257,18 @@ watch(selectedObject, (newVal) => {
     </div>
 
     <!-- Dynamic Command Island -->
-    <div 
-      class="command-island" 
+    <div
+      class="command-island"
       :class="{ expanded: shouldExpand }"
       @mouseenter="isExpanded = true"
       @mouseleave="isExpanded = false"
     >
-      
+
       <!-- Collapsed View -->
       <div class="island-collapsed" v-show="!shouldExpand">
-        <div 
-          class="status-indicator" 
-          :class="{ 
+        <div
+          class="status-indicator"
+          :class="{
             'connected': agentConnectionState === 'Connected',
             'disconnected': agentConnectionState === 'Disconnected',
             'reconnecting': agentConnectionState === 'Reconnecting'
@@ -264,8 +314,8 @@ watch(selectedObject, (newVal) => {
 
         <!-- THEME Group -->
         <div class="group stagger-5">
-          <button 
-            @click="toggleTheme" 
+          <button
+            @click="toggleTheme"
             class="theme-toggle-btn"
             :class="{ 'light-mode': !isDarkTheme }"
             :title="isDarkTheme ? '切换到亮色模式' : '切换到暗色模式'"
@@ -292,7 +342,14 @@ watch(selectedObject, (newVal) => {
       </div>
 
     </div>
-    
+
+    <!-- 冲突对话框 -->
+    <ConflictDialog
+      :visible="showConflictDialog"
+      :project-name="conflictProjectName"
+      :existing-path="conflictExistingPath"
+      @resolve="handleConflictResolve"
+    />
 
   </div>
 </template>
@@ -341,16 +398,16 @@ watch(selectedObject, (newVal) => {
   top: 80px;
   left: 50%;
   transform: translateX(-50%);
-  
+
   /* 折叠状态固定尺寸 */
   width: 180px;
   height: 36px;
-  
+
   display: flex;
   align-items: center;
   justify-content: center;
   padding: 0 16px;
-  
+
   /* Aurora Glass */
   background: var(--glass-bg); /* Base layer */
   backdrop-filter: var(--glass-blur);
@@ -358,15 +415,15 @@ watch(selectedObject, (newVal) => {
   border: var(--glass-border);
   border-radius: 100px;
   box-shadow: var(--shadow-island), var(--glass-inner-highlight);
-  
+
   /* Glare Overlay */
   background-image: var(--glass-glare), linear-gradient(to bottom, var(--glass-bg), var(--glass-bg));
   background-origin: border-box;
   background-clip: padding-box, border-box;
-    
+
   pointer-events: auto;
   /* Apple Dynamic Island Spring Physics */
-  transition: 
+  transition:
     width 0.6s cubic-bezier(0.19, 1, 0.22, 1),
     height 0.6s cubic-bezier(0.19, 1, 0.22, 1),
     padding 0.6s cubic-bezier(0.19, 1, 0.22, 1),
@@ -393,7 +450,7 @@ watch(selectedObject, (newVal) => {
     align-items: center;
     gap: 10px;
     white-space: nowrap;
-    
+
     .status-indicator {
       width: 6px;
       height: 6px;
@@ -401,24 +458,24 @@ watch(selectedObject, (newVal) => {
       background: var(--text-tertiary);
       box-shadow: 0 0 4px rgba(0, 0, 0, 0.1);
       transition: all 0.3s;
-      
+
       &.connected {
         background: #4CAF50; /* Green */
         box-shadow: 0 0 8px rgba(76, 175, 80, 0.6);
       }
-      
+
       &.disconnected {
         background: #F44336; /* Red */
         box-shadow: 0 0 8px rgba(244, 67, 54, 0.6);
       }
-      
+
       &.reconnecting {
         background: #FFC107; /* Amber */
         box-shadow: 0 0 8px rgba(255, 193, 7, 0.6);
         animation: pulse 1.5s infinite;
       }
     }
-    
+
     .status-text {
       font-size: 0.85rem;
       color: var(--text-primary);
@@ -476,7 +533,7 @@ watch(selectedObject, (newVal) => {
   font-size: 0.9rem;
   border-radius: 20px !important;
   box-sizing: border-box;
-  
+
   .icon {
     margin-right: 6px;
     font-size: 1.1em;
@@ -495,7 +552,7 @@ watch(selectedObject, (newVal) => {
     opacity: 0;
     animation: staggerFadeIn 0.5s var(--ease-spring) forwards;
   }
-  
+
   .stagger-1 { animation-delay: 0.05s; }
   .stagger-2 { animation-delay: 0.1s; }
   .stagger-3 { animation-delay: 0.15s; }
@@ -513,59 +570,57 @@ watch(selectedObject, (newVal) => {
   display: flex;
   align-items: center;
   justify-content: center;
-  justify-content: center;
   transition: all 0.4s var(--ease-spring);
   position: relative;
-  position: relative;
   overflow: hidden;
-  
+
   /* 暗色模式下的默认样式：亮色外观，金黄色调 */
   background: linear-gradient(135deg, #fef3c7 0%, #fcd34d 50%, #f59e0b 100%);
   color: #78350f;
-  box-shadow: 
+  box-shadow:
     0 2px 8px rgba(251, 191, 36, 0.4),
     0 4px 16px rgba(245, 158, 11, 0.2),
     inset 0 1px 0 rgba(255, 255, 255, 0.5);
-  
+
   &:hover {
     transform: scale(1.1) rotate(15deg);
-    box-shadow: 
+    box-shadow:
       0 4px 12px rgba(251, 191, 36, 0.5),
       0 6px 24px rgba(245, 158, 11, 0.3),
       inset 0 1px 0 rgba(255, 255, 255, 0.6);
   }
-  
+
   &:active {
     transform: scale(0.95);
   }
-  
+
   /* 明亮模式下的样式：暗色外观，深蓝色调 */
   &.light-mode {
     background: linear-gradient(135deg, #1e3a5f 0%, #1e40af 50%, #3730a3 100%);
     color: #e0e7ff;
-    box-shadow: 
+    box-shadow:
       0 2px 8px rgba(30, 64, 175, 0.4),
       0 4px 16px rgba(55, 48, 163, 0.2),
       inset 0 1px 0 rgba(255, 255, 255, 0.15);
-    
+
     &:hover {
       transform: scale(1.1) rotate(-15deg);
-      box-shadow: 
+      box-shadow:
         0 4px 12px rgba(30, 64, 175, 0.5),
         0 6px 24px rgba(55, 48, 163, 0.3),
         inset 0 1px 0 rgba(255, 255, 255, 0.2);
     }
   }
-  
+
   .theme-icon {
     width: 20px;
     height: 20px;
     transition: transform 0.4s var(--ease-spring);
-    
+
     &.sun {
       animation: sunPulse 2s ease-in-out infinite;
     }
-    
+
     &.moon {
       animation: moonFloat 3s ease-in-out infinite;
     }
@@ -573,33 +628,33 @@ watch(selectedObject, (newVal) => {
 }
 
 @keyframes sunPulse {
-  0%, 100% { 
-    transform: scale(1) rotate(0deg); 
+  0%, 100% {
+    transform: scale(1) rotate(0deg);
     filter: drop-shadow(0 0 2px rgba(251, 191, 36, 0.6));
   }
-  50% { 
-    transform: scale(1.05) rotate(10deg); 
+  50% {
+    transform: scale(1.05) rotate(10deg);
     filter: drop-shadow(0 0 6px rgba(251, 191, 36, 0.8));
   }
 }
 
 @keyframes moonFloat {
-  0%, 100% { 
-    transform: translateY(0) rotate(0deg); 
+  0%, 100% {
+    transform: translateY(0) rotate(0deg);
   }
-  50% { 
-    transform: translateY(-2px) rotate(-5deg); 
+  50% {
+    transform: translateY(-2px) rotate(-5deg);
   }
 }
 
 @keyframes staggerFadeIn {
-  from { 
-    opacity: 0; 
-    transform: scale(0.8) translateY(4px); 
+  from {
+    opacity: 0;
+    transform: scale(0.8) translateY(4px);
   }
-  to { 
-    opacity: 1; 
-    transform: scale(1) translateY(0); 
+  to {
+    opacity: 1;
+    transform: scale(1) translateY(0);
   }
 }
 
