@@ -95,17 +95,29 @@ export class LabelBuilder {
             });
         }
 
-        // 5. Zones (Room Type) - from computed data
+        // 5. Room Zones - from computed/zones.json
         if (data.computed?.zones) {
             data.computed.zones.forEach(zone => {
-                // ZoneType.Room is 1
                 if (zone.type === 1 && zone.id) {
-                    // 优先 computedBoundary，回退 rawBoundary
                     const boundary = zone.computedBoundary ?? zone.rawBoundary;
                     if (boundary && boundary.length > 0) {
                         const center = this.getPolygonCenter(boundary);
                         const orientation = this.getOrientation(boundary);
                         this.createLabel(zone.id, center, orientation, true);
+                    }
+                }
+            });
+        }
+
+        // 6. Exclusion Zones - from computed/exclusions.json
+        if (data.computed?.exclusions) {
+            data.computed.exclusions.forEach(exclusion => {
+                if (exclusion.id) {
+                    const boundary = exclusion.computedBoundary ?? exclusion.rawBoundary;
+                    if (boundary && boundary.length > 0) {
+                        const center = this.getPolygonCenter(boundary);
+                        const orientation = this.getOrientation(boundary);
+                        this.createLabel(exclusion.id, center, orientation, true);
                     }
                 }
             });
