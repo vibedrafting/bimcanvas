@@ -123,17 +123,15 @@ export const useCanvasStore = defineStore('canvas', () => {
         }
     };
 
-    // === 核心加载方法：从项目路径加载 ===
-    const loadProject = async (projectPath: string) => {
+    // === 核心加载方法：从 Server 获取当前项目（单项目模式：无需路径参数）===
+    const loadProject = async () => {
         isLoading.value = true;
         error.value = null;
 
         try {
-            debugStore.log(`Loading project from: ${projectPath}`);
+            debugStore.log('Loading current project from server...');
 
-            const response = await axios.get<ProjectData>('http://localhost:5000/api/project', {
-                params: { path: projectPath }
-            });
+            const response = await axios.get<ProjectData>('http://localhost:5000/api/project');
 
             projectData.value = response.data;
             timeline.clear();

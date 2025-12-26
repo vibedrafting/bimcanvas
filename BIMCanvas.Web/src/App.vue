@@ -11,12 +11,8 @@ onMounted(async () => {
   // 初始化主题服务 (设置 CSS 变量)
   themeService.init();
 
-  // 从 URL 参数读取项目路径（由 Server 传递）
-  const urlParams = new URLSearchParams(window.location.search);
-  const projectPath = urlParams.get('project');
-  if (projectPath) {
-    await store.loadProject(decodeURIComponent(projectPath));
-  }
+  // 单项目模式：直接从 Server 加载当前项目（无需 URL 参数）
+  await store.loadProject();
 
   // Keyboard Shortcuts
   window.addEventListener('keydown', handleKeydown);

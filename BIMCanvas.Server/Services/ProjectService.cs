@@ -48,21 +48,39 @@ namespace BIMCanvas.Server.Services
         }
 
         /// <summary>
+        /// 检测项目文件夹是否存在冲突
+        /// </summary>
+        /// <param name="bcpFilePath">BCP 文件路径</param>
+        /// <returns>冲突检测结果 (hasConflict, existingPath)</returns>
+        public (bool HasConflict, string? ExistingPath) CheckProjectConflict(string bcpFilePath)
+        {
+            var bcpFileName = Path.GetFileNameWithoutExtension(bcpFilePath);
+            var projectPath = Path.Combine(DefaultProjectsRoot, bcpFileName);
+
+            if (Directory.Exists(projectPath))
+            {
+                return (true, projectPath);
+            }
+            return (false, null);
+        }
+
+        /// <summary>
         /// 加载项目（完整流程）
         /// </summary>
         /// <param name="bcpFilePath">.bcp 文件路径</param>
+        /// <param name="overwrite">是否覆盖已存在的目录</param>
         /// <returns>解压后的项目文件夹路径</returns>
-        public string LoadProject(string bcpFilePath)
+        public string LoadProject(string bcpFilePath, bool overwrite = false)
         {
             if (!File.Exists(bcpFilePath))
             {
                 throw new FileNotFoundException($"BCP 文件不存在: {bcpFilePath}");
             }
 
-            _logger.LogInformation("开始加载项目: {Path}", bcpFilePath);
+            _logger.LogInformation("开始加载项目: {Path}, Overwrite: {Overwrite}", bcpFilePath, overwrite);
 
             // 1. 解压 .bcp 到工作目录
-            var projectPath = ExtractBcpFile(bcpFilePath);
+            var projectPath = ExtractBcpFile(bcpFilePath, overwrite);
 
             // 2. 计算 baseline 哈希并写入 baseline.manifest
             var baselineHash = EnsureBaselineManifest(projectPath);
@@ -84,9 +102,11 @@ namespace BIMCanvas.Server.Services
         }
 
         /// <summary>
-        /// 解压 .bcp 文件到工作目录
+        /// 解压 .bcp 文件到工作目录（不带时间戳）
         /// </summary>
-        private string ExtractBcpFile(string bcpFilePath)
+        /// <param name="bcpFilePath">BCP 文件路径</param>
+        /// <param name="overwrite">是否覆盖已存在的目录</param>
+        private string ExtractBcpFile(string bcpFilePath, bool overwrite = false)
         {
             // 确保根目录存在
             if (!Directory.Exists(DefaultProjectsRoot))
@@ -95,11 +115,23 @@ namespace BIMCanvas.Server.Services
                 _logger.LogInformation("创建项目根目录: {Path}", DefaultProjectsRoot);
             }
 
-            // 生成项目文件夹名：{bcp文件名}_{时间戳}
+            // 生成项目文件夹名：直接使用 bcp 文件名（不带时间戳）
             var bcpFileName = Path.GetFileNameWithoutExtension(bcpFilePath);
-            var timestamp = DateTime.Now.ToString("yyyyMMdd_HHmmss");
-            var projectFolderName = $"{bcpFileName}_{timestamp}";
-            var projectPath = Path.Combine(DefaultProjectsRoot, projectFolderName);
+            var projectPath = Path.Combine(DefaultProjectsRoot, bcpFileName);
+
+            // 检查是否已存在
+            if (Directory.Exists(projectPath))
+            {
+                if (overwrite)
+                {
+                    _logger.LogInformation("覆盖已存在的项目目录: {Path}", projectPath);
+                    Directory.Delete(projectPath, recursive: true);
+                }
+                else
+                {
+                    throw new InvalidOperationException($"项目目录已存在: {projectPath}");
+                }
+            }
 
             // 解压
             _logger.LogInformation("解压 BCP 到: {Path}", projectPath);

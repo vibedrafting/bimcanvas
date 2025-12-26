@@ -7,6 +7,7 @@ using BIMCanvas.Core.Models.Layout;
 using BIMCanvas.Core.Models.Project;
 using BIMCanvas.Core.Models.Revit;
 using BIMCanvas.Server.Dtos;
+using BIMCanvas.Server.Services;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Logging;
 using Newtonsoft.Json;
@@ -19,11 +20,18 @@ namespace BIMCanvas.Server.Controllers
     public class ProjectController : ControllerBase
     {
         private readonly ILogger<ProjectController> _logger;
+        private readonly ProjectContext _projectContext;
+        private readonly ProjectService _projectService;
         private readonly JsonSerializerSettings _jsonSettings;
 
-        public ProjectController(ILogger<ProjectController> logger)
+        public ProjectController(
+            ILogger<ProjectController> logger,
+            ProjectContext projectContext,
+            ProjectService projectService)
         {
             _logger = logger;
+            _projectContext = projectContext;
+            _projectService = projectService;
             _jsonSettings = new JsonSerializerSettings
             {
                 ContractResolver = new CamelCasePropertyNamesContractResolver()
@@ -31,17 +39,18 @@ namespace BIMCanvas.Server.Controllers
         }
 
         /// <summary>
-        /// 获取项目聚合数据
+        /// 获取当前项目数据（单项目模式：无需 path 参数）
         /// </summary>
-        /// <param name="path">项目文件夹路径</param>
         /// <returns>聚合后的 ProjectData</returns>
         [HttpGet]
-        public ActionResult<ProjectData> GetProjectData([FromQuery] string path)
+        public ActionResult<ProjectData> GetProjectData()
         {
-            if (string.IsNullOrEmpty(path))
+            if (!_projectContext.IsLoaded)
             {
-                return BadRequest("项目路径不能为空");
+                return BadRequest(new { message = "没有加载的项目" });
             }
+
+            var path = _projectContext.CurrentProjectPath!;
 
             if (!Directory.Exists(path))
             {
@@ -57,7 +66,140 @@ namespace BIMCanvas.Server.Controllers
             catch (Exception ex)
             {
                 _logger.LogError(ex, "加载项目数据失败: {Path}", path);
-                return StatusCode(500, $"加载项目数据失败: {ex.Message}");
+                return StatusCode(500, new { message = $"加载项目数据失败: {ex.Message}" });
+            }
+        }
+
+        /// <summary>
+        /// 获取当前项目状态
+        /// </summary>
+        [HttpGet("status")]
+        public ActionResult GetProjectStatus()
+        {
+            return Ok(new
+            {
+                isLoaded = _projectContext.IsLoaded,
+                projectPath = _projectContext.CurrentProjectPath,
+                sourceBcpPath = _projectContext.SourceBcpPath
+            });
+        }
+
+        /// <summary>
+        /// 打开 BCP 文件（带冲突检测）
+        /// </summary>
+        [HttpPost("open")]
+        public ActionResult<ProjectLoadResult> OpenProject([FromBody] OpenProjectRequest request)
+        {
+            if (string.IsNullOrEmpty(request.BcpFilePath))
+            {
+                return BadRequest(new ProjectLoadResult
+                {
+                    Status = "Error",
+                    Message = "BCP 文件路径不能为空"
+                });
+            }
+
+            if (!System.IO.File.Exists(request.BcpFilePath))
+            {
+                return NotFound(new ProjectLoadResult
+                {
+                    Status = "Error",
+                    Message = $"BCP 文件不存在: {request.BcpFilePath}"
+                });
+            }
+
+            // 检测冲突
+            var (hasConflict, existingPath) = _projectService.CheckProjectConflict(request.BcpFilePath);
+            if (hasConflict)
+            {
+                return Conflict(new ProjectLoadResult
+                {
+                    Status = "Conflict",
+                    ExistingPath = existingPath,
+                    ProjectName = Path.GetFileNameWithoutExtension(request.BcpFilePath),
+                    Message = $"项目 '{Path.GetFileNameWithoutExtension(request.BcpFilePath)}' 已存在"
+                });
+            }
+
+            // 无冲突，直接加载
+            try
+            {
+                var projectPath = _projectService.LoadProject(request.BcpFilePath);
+                _projectContext.SetProject(projectPath, request.BcpFilePath);
+
+                return Ok(new ProjectLoadResult
+                {
+                    Status = "Success",
+                    ProjectPath = projectPath
+                });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "加载项目失败");
+                return StatusCode(500, new ProjectLoadResult
+                {
+                    Status = "Error",
+                    Message = ex.Message
+                });
+            }
+        }
+
+        /// <summary>
+        /// 解决冲突（覆盖或使用已存在）
+        /// </summary>
+        [HttpPost("resolve-conflict")]
+        public ActionResult<ProjectLoadResult> ResolveConflict([FromBody] ConflictResolutionRequest request)
+        {
+            if (string.IsNullOrEmpty(request.BcpFilePath))
+            {
+                return BadRequest(new ProjectLoadResult
+                {
+                    Status = "Error",
+                    Message = "BCP 文件路径不能为空"
+                });
+            }
+
+            try
+            {
+                string projectPath;
+
+                if (request.Resolution == "UseExisting")
+                {
+                    // 使用已存在的项目
+                    var bcpFileName = Path.GetFileNameWithoutExtension(request.BcpFilePath);
+                    projectPath = Path.Combine(ProjectService.DefaultProjectsRoot, bcpFileName);
+
+                    if (!Directory.Exists(projectPath))
+                    {
+                        return NotFound(new ProjectLoadResult
+                        {
+                            Status = "Error",
+                            Message = $"项目目录不存在: {projectPath}"
+                        });
+                    }
+                }
+                else // Overwrite
+                {
+                    // 覆盖：删除旧目录并重新解压
+                    projectPath = _projectService.LoadProject(request.BcpFilePath, overwrite: true);
+                }
+
+                _projectContext.SetProject(projectPath, request.BcpFilePath);
+
+                return Ok(new ProjectLoadResult
+                {
+                    Status = "Success",
+                    ProjectPath = projectPath
+                });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "解决冲突失败");
+                return StatusCode(500, new ProjectLoadResult
+                {
+                    Status = "Error",
+                    Message = ex.Message
+                });
             }
         }
 

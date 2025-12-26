@@ -22,6 +22,7 @@ builder.Services.AddSingleton<ManifestService>();
 builder.Services.AddSingleton<ComputedDataService>();
 builder.Services.AddSingleton<StrategyService>();
 builder.Services.AddSingleton<ProjectService>();
+builder.Services.AddSingleton<ProjectContext>();  // 单项目模式上下文
 
 // 配置 Swagger
 builder.Services.AddEndpointsApiExplorer();
@@ -61,10 +62,10 @@ Console.WriteLine("BIMCanvas.Server 启动中...");
 Console.WriteLine("API: http://localhost:5000/api/canvas");
 Console.WriteLine("Swagger: http://localhost:5000/swagger");
 
-// v3.0 项目加载流程
-string? currentProjectPath = null;
+// v3.0 项目加载流程（单项目模式）
 {
     var projectService = app.Services.GetRequiredService<ProjectService>();
+    var projectContext = app.Services.GetRequiredService<ProjectContext>();
     var baseDir = AppContext.BaseDirectory;
 
     // Case1: 通过命令行参数指定 .bcp 文件
@@ -88,8 +89,24 @@ string? currentProjectPath = null;
     {
         try
         {
-            currentProjectPath = projectService.LoadProject(bcpFilePath);
-            Console.WriteLine($"项目已加载: {currentProjectPath}");
+            // 检测冲突
+            var (hasConflict, existingPath) = projectService.CheckProjectConflict(bcpFilePath);
+            string projectPath;
+
+            if (hasConflict)
+            {
+                // 启动时默认使用已存在的项目（不覆盖）
+                Console.WriteLine($"使用已存在的项目目录: {existingPath}");
+                projectPath = existingPath!;
+            }
+            else
+            {
+                projectPath = projectService.LoadProject(bcpFilePath);
+            }
+
+            // 设置 ProjectContext
+            projectContext.SetProject(projectPath, bcpFilePath);
+            Console.WriteLine($"项目已加载: {projectPath}");
         }
         catch (Exception ex)
         {
@@ -156,13 +173,8 @@ string? currentProjectPath = null;
             await Task.Delay(200);
         }
 
-        // 3. 打开浏览器（带项目路径参数）
+        // 3. 打开浏览器（单项目模式：无需传递项目路径参数）
         var webUrl = webBaseUrl;
-        if (!string.IsNullOrEmpty(currentProjectPath))
-        {
-            var encodedPath = Uri.EscapeDataString(currentProjectPath);
-            webUrl = $"{webBaseUrl}?project={encodedPath}";
-        }
         Console.WriteLine($"打开浏览器: {webUrl}");
         try
         {
