@@ -370,8 +370,8 @@ export class ThreeSceneService {
         const offsetWorld = offsetPixels * (frustumSize / this.container.clientHeight);
 
         // Map 2D center (x, y) to 3D center (x, 0, -y) because of -90 X rotation
-        // Z 轴增加偏移量，让内容在屏幕上向下显示
-        const center3D = new THREE.Vector3(centerX, 0, -centerY + offsetWorld);
+        // Z 轴减小偏移量（相机目标向北），让内容在屏幕上向下显示
+        const center3D = new THREE.Vector3(centerX, 0, -centerY - offsetWorld);
         debugStore.log(`FitToScreen: Center3D [${center3D.x.toFixed(0)},${center3D.y.toFixed(0)},${center3D.z.toFixed(0)}] (offset: ${offsetWorld.toFixed(0)})`);
 
         // Update Camera Position (Keep Y high, move X and Z)
