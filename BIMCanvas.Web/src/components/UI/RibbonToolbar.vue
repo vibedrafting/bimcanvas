@@ -16,7 +16,7 @@ const fileInputRef = ref<HTMLInputElement | null>(null);
 // 调试开关：设为 true 可保持灵动岛展开状态，方便截图调试
 const DEBUG_KEEP_EXPANDED = false;
 
-// 计算属性：结合调试开关和鼠标状�?
+// 计算属性：结合调试开关和鼠标状态
 const shouldExpand = computed(() => DEBUG_KEEP_EXPANDED || isExpanded.value);
 
 // Theme Toggle
@@ -26,7 +26,7 @@ const toggleTheme = () => {
   themeService.toggleTheme();
 };
 
-// === 冲突对话框状�?===
+// === 冲突对话框状态 ===
 const showConflictDialog = ref(false);
 const conflictProjectName = ref('');
 const conflictExistingPath = ref('');
@@ -37,7 +37,7 @@ const dispatchAction = (action: 'rotate' | 'delete' | 'move' | 'mirror' | 'copy'
   window.dispatchEvent(new CustomEvent(`bimcanvas:action-${action}`));
 };
 
-// 加载数据（支�?.bcp �?.json�?
+// 加载数据（支持 .bcp 和 .json）
 const handleLoad = async () => {
   try {
     // 尝试使用 File System Access API
@@ -61,23 +61,12 @@ const handleLoad = async () => {
       const fileName = file.name.toLowerCase();
 
       if (fileName.endsWith('.bcp')) {
-        // 获取文件完整路径（需要通过 File System Access API�?
-        // 注意：浏览器安全限制，无法直接获取完整路�?
-        // 需要用户手动输入或使用 Electron 等桌面框�?
-        // 这里我们使用 prompt 作为临时方案
-        const bcpPath = prompt(
-          '请输�?BCP 文件的完整路径：\n（由于浏览器安全限制，无法自动获取路径）',
-          ''
-        );
-
-        if (!bcpPath) return;
-
-        // 调用 Server API 打开项目
-        const result = await ProjectService.openProject(bcpPath);
+        // 通过文件上传 API 打开项目
+        const result = await ProjectService.uploadProject(file);
 
         if (result.status === 'Conflict') {
-          // 显示冲突对话�?
-          pendingBcpPath.value = bcpPath;
+          // 显示冲突对话框，保存文件以便后续解决冲突
+          pendingFile.value = file;
           conflictProjectName.value = result.projectName || '';
           conflictExistingPath.value = result.existingPath || '';
           showConflictDialog.value = true;
@@ -86,10 +75,10 @@ const handleLoad = async () => {
           await store.loadProject();
         } else {
           // 错误
-          alert(`打开项目失败�?{result.message}`);
+          alert(`打开项目失败：${result.message}`);
         }
       } else {
-        // JSON 文件（已废弃�?
+        // JSON 文件（已废弃）
         console.warn('Direct JSON loading is deprecated in v3.0');
       }
     } else {
@@ -108,25 +97,30 @@ const handleConflictResolve = async (resolution: 'Overwrite' | 'UseExisting' | '
   showConflictDialog.value = false;
 
   if (resolution === 'Cancel') {
-    // 用户取消，不做任何操�?
-    pendingBcpPath.value = '';
+    // 用户取消，不做任何操作
+    pendingFile.value = null;
+    return;
+  }
+
+  if (!pendingFile.value) {
+    console.error('No pending file for conflict resolution');
     return;
   }
 
   try {
-    const result = await ProjectService.resolveConflict(pendingBcpPath.value, resolution);
+    const result = await ProjectService.uploadResolveConflict(pendingFile.value, resolution);
 
     if (result.status === 'Success') {
       // 重新加载项目数据
       await store.loadProject();
     } else {
-      alert(`解决冲突失败�?{result.message}`);
+      alert(`解决冲突失败：${result.message}`);
     }
   } catch (err: any) {
     console.error('Failed to resolve conflict:', err);
-    alert(`解决冲突失败�?{err.message}`);
+    alert(`解决冲突失败：${err.message}`);
   } finally {
-    pendingBcpPath.value = '';
+    pendingFile.value = null;
   }
 };
 
@@ -223,10 +217,10 @@ const dynamicStatusText = computed(() => {
         <span class="brand-text">BIMCanvas</span>
         <div class="divider"></div>
         <GlassButton @click="store.undo()" :disabled="!store.canUndo" variant="ghost" title="Undo" class="icon-btn">
-          �?
+          ↩
         </GlassButton>
         <GlassButton @click="store.redo()" :disabled="!store.canRedo" variant="ghost" title="Redo" class="icon-btn">
-          �?
+          ↪
         </GlassButton>
         <div class="divider"></div>
         <GlassButton @click="handleLoad" variant="ghost" title="Load Data" class="icon-btn">
@@ -245,7 +239,7 @@ const dynamicStatusText = computed(() => {
             <line x1="12" y1="3" x2="12" y2="15"></line>
           </svg>
         </GlassButton>
-        <!-- 隐藏的文件输�?-->
+        <!-- 隐藏的文件输入 -->
         <input
           ref="fileInputRef"
           type="file"
@@ -296,13 +290,13 @@ const dynamicStatusText = computed(() => {
         <!-- TRANSFORM Group -->
         <div class="group stagger-3">
           <GlassButton @click="dispatchAction('move')" variant="ghost" class="compact-btn">
-            <span class="icon">�?/span> Move
+            <span class="icon">✥</span> Move
           </GlassButton>
           <GlassButton @click="dispatchAction('copy')" variant="ghost" class="compact-btn">
-            <span class="icon">�?/span> Copy
+            <span class="icon">⧉</span> Copy
           </GlassButton>
           <GlassButton @click="dispatchAction('rotate')" variant="ghost" class="compact-btn">
-            <span class="icon">�?/span> Rotate
+            <span class="icon">↻</span> Rotate
           </GlassButton>
           <GlassButton @click="dispatchAction('delete')" :disabled="!store.selectedObject" variant="danger" class="compact-btn">
             <span class="icon">🗑</span> Delete
@@ -318,9 +312,9 @@ const dynamicStatusText = computed(() => {
             @click="toggleTheme"
             class="theme-toggle-btn"
             :class="{ 'light-mode': !isDarkTheme }"
-            :title="isDarkTheme ? '切换到亮色模�? : '切换到暗色模�?"
+            :title="isDarkTheme ? '切换到亮色模式' : '切换到暗色模式'"
           >
-            <!-- 太阳图标 (暗色模式下显示，提示切换到亮�? -->
+            <!-- 太阳图标 (暗色模式下显示，提示切换到亮色) -->
             <svg v-if="isDarkTheme" class="theme-icon sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
               <circle cx="12" cy="12" r="5"></circle>
               <line x1="12" y1="1" x2="12" y2="3"></line>
@@ -332,7 +326,7 @@ const dynamicStatusText = computed(() => {
               <line x1="4.22" y1="19.78" x2="5.64" y2="18.36"></line>
               <line x1="18.36" y1="5.64" x2="19.78" y2="4.22"></line>
             </svg>
-            <!-- 月亮图标 (亮色模式下显示，提示切换到暗�? -->
+            <!-- 月亮图标 (亮色模式下显示，提示切换到暗色) -->
             <svg v-else class="theme-icon moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
               <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"></path>
             </svg>
@@ -343,7 +337,7 @@ const dynamicStatusText = computed(() => {
 
     </div>
 
-    <!-- 冲突对话�?-->
+    <!-- 冲突对话框 -->
     <ConflictDialog
       :visible="showConflictDialog"
       :project-name="conflictProjectName"
@@ -399,7 +393,7 @@ const dynamicStatusText = computed(() => {
   left: 50%;
   transform: translateX(-50%);
 
-  /* 折叠状态固定尺�?*/
+  /* 折叠状态固定尺寸 */
   width: 180px;
   height: 36px;
 
@@ -433,10 +427,10 @@ const dynamicStatusText = computed(() => {
     backdrop-filter 0.3s ease;
   overflow: hidden;
 
-  /* 展开状�?- 高度固定，宽度动�?*/
+  /* 展开状态 - 高度固定，宽度动态 */
   &.expanded {
     /* Expanded state inherits the same glass texture, just changes shape */
-    width: auto;           /* 宽度动�?*/
+    width: auto;           /* 宽度动态 */
     min-width: 420px;      /* 最小宽度保证内容不压缩 */
     height: 52px;          /* 高度固定 */
     padding: 0 20px;
@@ -560,7 +554,7 @@ const dynamicStatusText = computed(() => {
   .stagger-5 { animation-delay: 0.25s; }
 }
 
-/* Theme Toggle Button - 精美的明暗切换按�?*/
+/* Theme Toggle Button - 精美的明暗切换按钮 */
 .theme-toggle-btn {
   width: 36px;
   height: 36px;
