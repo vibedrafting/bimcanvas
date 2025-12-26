@@ -178,13 +178,6 @@ export interface FinishRequirement {
   type: FinishType;
 }
 
-export interface ExclusionArea {
-  id: string;
-  type: string;
-  polygon: Polygon2D;
-  reason: string;
-}
-
 export interface Zone {
   id: string;
   name: string;
