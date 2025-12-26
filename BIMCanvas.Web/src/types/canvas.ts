@@ -237,7 +237,7 @@ export interface SchemeData {
 // ========== Computed 层 (computed/*.json) ==========
 
 export interface ComputedData {
-  exclusions: ExclusionArea[];
+  exclusions: Zone[];
 }
 
 // ========== 聚合根：ProjectData ==========

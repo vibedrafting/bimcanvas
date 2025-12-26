@@ -5,7 +5,9 @@ using System.Linq;
 using System.Text;
 using BIMCanvas.Core.Models.Computed;
 using BIMCanvas.Core.Models.Geometry;
+using BIMCanvas.Core.Models.Layout;
 using BIMCanvas.Core.Models.Revit;
+using BIMCanvas.Core.Models.Shared;
 using Microsoft.Extensions.Logging;
 using Newtonsoft.Json;
 
@@ -154,10 +156,12 @@ namespace BIMCanvas.Server.Services
 
         /// <summary>
         /// 计算门扇禁区
+        /// 返回 Zone 类型，Type = ZoneType.Exclusion
+        /// reason 字段格式: {subType}:{description}
         /// </summary>
-        private List<ExclusionArea> CalculateDoorSwingExclusions(List<Opening> openings)
+        private List<Zone> CalculateDoorSwingExclusions(List<Opening> openings)
         {
-            var result = new List<ExclusionArea>();
+            var result = new List<Zone>();
 
             foreach (var opening in openings)
             {
@@ -193,12 +197,18 @@ namespace BIMCanvas.Server.Services
                     line.Start + offset
                 };
 
-                var exclusion = new ExclusionArea
+                var exclusion = new Zone
                 {
                     Id = $"excl_door_{opening.Id}",
-                    Type = "door_swing",
-                    Polygon = new Polygon2D(vertices),
-                    Reason = $"门 {opening.Id} 的开启扫过区域"
+                    Name = "门扇禁区",
+                    RoomId = string.Empty,
+                    Type = ZoneType.Exclusion,
+                    Reason = $"door_swing:门 {opening.Id} 的开启扫过区域",
+                    RawBoundary = new Polygon2D(vertices),
+                    ComputedBoundary = null,
+                    Tags = new List<ZoneTag>(),
+                    FinishRequirements = new List<FinishRequirement>(),
+                    SchemeId = null
                 };
 
                 result.Add(exclusion);

@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { LayerManager } from '../three/LayerManager';
-import type { ProjectData, ExclusionArea, Point2D } from '../../types/canvas';
+import type { ProjectData, Zone, Point2D } from '../../types/canvas';
 import { themeService } from '../theme/ThemeService';
 
 export class ExclusionBuilder {
@@ -81,13 +81,15 @@ export class ExclusionBuilder {
         this.scene.add(this.exclusionGroup);
     }
 
-    private createExclusionMesh(exclusion: ExclusionArea) {
-        if (!exclusion.polygon || exclusion.polygon.length < 3) return;
+    private createExclusionMesh(exclusion: Zone) {
+        const boundary = exclusion.rawBoundary;
+        if (!boundary || boundary.length < 3) return;
 
-        const shape = this.createShapeFromPolygon(exclusion.polygon);
+        const shape = this.createShapeFromPolygon(boundary);
         const geometry = new THREE.ShapeGeometry(shape);
 
-        const materialKey = this.materials.has(exclusion.type) ? exclusion.type : 'default';
+        const subType = this.parseSubType(exclusion.reason);
+        const materialKey = this.materials.has(subType) ? subType : 'default';
         const material = this.materials.get(materialKey);
 
         const mesh = new THREE.Mesh(geometry, material);
@@ -95,14 +97,35 @@ export class ExclusionBuilder {
         mesh.position.y = 12;  // 高于 Zone (10)
         mesh.layers.set(LayerManager.LAYER_ZONES);
 
+        const { subType: parsedSubType, description } = this.parseReason(exclusion.reason);
         mesh.userData = {
             id: exclusion.id,
             type: 'exclusion',
-            subType: exclusion.type,
-            reason: exclusion.reason
+            subType: parsedSubType,
+            reason: description
         };
 
         this.exclusionGroup!.add(mesh);
+    }
+
+    /**
+     * 解析 reason 字段，提取子类型和描述
+     * 格式: {subType}:{description}
+     */
+    private parseReason(reason: string): { subType: string; description: string } {
+        const colonIndex = reason.indexOf(':');
+        if (colonIndex === -1) {
+            return { subType: 'unknown', description: reason };
+        }
+        return {
+            subType: reason.substring(0, colonIndex),
+            description: reason.substring(colonIndex + 1)
+        };
+    }
+
+    private parseSubType(reason: string): string {
+        const colonIndex = reason.indexOf(':');
+        return colonIndex === -1 ? 'unknown' : reason.substring(0, colonIndex);
     }
 
     private createShapeFromPolygon(polygon: Point2D[]): THREE.Shape {

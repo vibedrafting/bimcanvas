@@ -213,7 +213,7 @@ namespace BIMCanvas.Server.Controllers
             var exclusionsPath = Path.Combine(computedPath, "exclusions.json");
             if (System.IO.File.Exists(exclusionsPath))
             {
-                data.Exclusions = ReadJson<List<ExclusionArea>>(exclusionsPath) ?? new List<ExclusionArea>();
+                data.Exclusions = ReadJson<List<Zone>>(exclusionsPath) ?? new List<Zone>();
             }
 
             _logger.LogDebug("Computed 数据加载完成: Exclusions={Count}", data.Exclusions.Count);

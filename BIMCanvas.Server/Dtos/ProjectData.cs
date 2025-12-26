@@ -102,7 +102,8 @@ namespace BIMCanvas.Server.Dtos
     {
         /// <summary>
         /// 禁区列表（来自 computed/exclusions.json）
+        /// 使用 Zone 类型，Type = ZoneType.Exclusion
         /// </summary>
-        public List<ExclusionArea> Exclusions { get; set; } = new List<ExclusionArea>();
+        public List<Zone> Exclusions { get; set; } = new List<Zone>();
     }
 }

@@ -1,10 +1,14 @@
+using System;
 using BIMCanvas.Core.Models.Geometry;
 
 namespace BIMCanvas.Core.Models.Computed
 {
     /// <summary>
-    /// 禁区
+    /// 禁区（已废弃）
+    /// 请使用 Zone 类型替代，设置 Type = ZoneType.Exclusion
+    /// reason 字段格式: {subType}:{description}
     /// </summary>
+    [Obsolete("请使用 Zone 类型替代，设置 Type = ZoneType.Exclusion")]
     public class ExclusionArea
     {
         /// <summary>
