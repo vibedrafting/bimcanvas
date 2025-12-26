@@ -95,10 +95,27 @@ export class LabelBuilder {
             });
         }
 
+        // 5. Zones (Room Type) - from computed data
+        if (data.computed?.zones) {
+            data.computed.zones.forEach(zone => {
+                // ZoneType.Room is 1
+                if (zone.type === 1 && zone.id) {
+                    // 优先 computedBoundary，回退 rawBoundary
+                    const boundary = zone.computedBoundary ?? zone.rawBoundary;
+                    if (boundary && boundary.length > 0) {
+                        const center = this.getPolygonCenter(boundary);
+                        const orientation = this.getOrientation(boundary);
+                        this.createLabel(zone.id, center, orientation, true);
+                    }
+                }
+            });
+        }
+
         this.scene.add(this.labelGroup);
     }
 
-    private createLabel(id: string, position: THREE.Vector3, orientation: 'horizontal' | 'vertical') {
+    private createLabel(id: string, position: THREE.Vector3, orientation: 'horizontal' | 'vertical', isZoneLabel: boolean = false) {
+
         // 从 ThemeService 获取构件标签配色
         const config = themeService.currentTheme.value.componentLabel;
 
@@ -146,6 +163,10 @@ export class LabelBuilder {
         // Assign to LABELS Layer
         label.layers.set(LayerManager.LAYER_LABELS);
 
+        if (isZoneLabel) {
+            label.userData.isZoneLabel = true;
+        }
+
         this.labelGroup!.add(label);
     }
 
@@ -177,5 +198,28 @@ export class LabelBuilder {
         console.log(`[LabelBuilder] AABB: w=${width.toFixed(0)}, h=${height.toFixed(0)} => ${orientation}`);
 
         return orientation;
+    }
+
+    public updateZoneLabelVisibility(labelsVisible: boolean, zonesVisible: boolean) {
+        if (!this.labelGroup) return;
+
+        const shouldShowZoneLabels = labelsVisible && zonesVisible;
+
+        this.labelGroup.children.forEach(child => {
+            if (child.userData.isZoneLabel) {
+                child.visible = shouldShowZoneLabels;
+                // Also need to handle the DOM element visibility if CSS2DObject doesn't handle it automatically when parent is visible/hidden
+                // CSS2DObject.visible does control the element display.
+                // However, the parent labelGroup might be hidden if labelsVisible is false.
+                // If labelsVisible is false, the whole group is hidden, so child.visible doesn't matter (it won't render).
+                // If labelsVisible is true, group is visible.
+                // Then we check zonesVisible. If zonesVisible is false, we hide zone labels.
+                // So:
+                // If labelsVisible=true, zonesVisible=true -> Group Visible, ZoneLabel Visible -> OK
+                // If labelsVisible=true, zonesVisible=false -> Group Visible, ZoneLabel Hidden -> OK
+                // If labelsVisible=false, zonesVisible=true -> Group Hidden -> OK
+                // If labelsVisible=false, zonesVisible=false -> Group Hidden -> OK
+            }
+        });
     }
 }

@@ -329,6 +329,15 @@ export const useCanvasStore = defineStore('canvas', () => {
         }
     };
 
+    const addModule = (module: Module) => {
+        if (!projectData.value?.activeScheme?.modules) return;
+        projectData.value.activeScheme.modules.push(module);
+        if (!batchUpdateMode.value) {
+            nextTick(() => saveState());
+        }
+        signalR.sendUpdate({ type: 'module_add', module });
+    };
+
     const setPrompt = (msg: string | null) => {
         promptMessage.value = msg;
     };
@@ -369,6 +378,7 @@ export const useCanvasStore = defineStore('canvas', () => {
         clearSelection,
         updateModule,
         updateElement,
+        addModule,
         removeModule,
         undo,
         redo,

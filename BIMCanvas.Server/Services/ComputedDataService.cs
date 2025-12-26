@@ -10,6 +10,7 @@ using BIMCanvas.Core.Models.Revit;
 using BIMCanvas.Core.Models.Shared;
 using Microsoft.Extensions.Logging;
 using Newtonsoft.Json;
+using Newtonsoft.Json.Serialization;
 
 namespace BIMCanvas.Server.Services
 {
@@ -21,6 +22,15 @@ namespace BIMCanvas.Server.Services
     {
         private readonly ILogger<ComputedDataService> _logger;
         private readonly ManifestService _manifestService;
+
+        /// <summary>
+        /// 统一的 JSON 序列化配置：camelCase 命名
+        /// </summary>
+        private static readonly JsonSerializerSettings CamelCaseSettings = new JsonSerializerSettings
+        {
+            ContractResolver = new CamelCasePropertyNamesContractResolver(),
+            Formatting = Formatting.Indented
+        };
 
         public ComputedDataService(
             ILogger<ComputedDataService> logger,
@@ -118,9 +128,9 @@ namespace BIMCanvas.Server.Services
             var exclusions = CalculateDoorSwingExclusions(openings);
             _logger.LogInformation("计算出 {Count} 个门扇禁区", exclusions.Count);
 
-            // 3. 写入 exclusions.json
+            // 3. 写入 exclusions.json（使用 camelCase）
             var exclusionsPath = Path.Combine(computedPath, "exclusions.json");
-            var exclusionsJson = JsonConvert.SerializeObject(exclusions, Formatting.Indented);
+            var exclusionsJson = JsonConvert.SerializeObject(exclusions, CamelCaseSettings);
             File.WriteAllText(exclusionsPath, exclusionsJson, Encoding.UTF8);
             _logger.LogInformation("写入 exclusions.json");
 
@@ -132,9 +142,9 @@ namespace BIMCanvas.Server.Services
             var roomZones = CalculateRoomZones(rooms);
             _logger.LogInformation("计算出 {Count} 个房间区域", roomZones.Count);
 
-            // 5. 写入 zones.json
+            // 5. 写入 zones.json（使用 camelCase）
             var zonesPath = Path.Combine(computedPath, "zones.json");
-            var zonesJson = JsonConvert.SerializeObject(roomZones, Formatting.Indented);
+            var zonesJson = JsonConvert.SerializeObject(roomZones, CamelCaseSettings);
             File.WriteAllText(zonesPath, zonesJson, Encoding.UTF8);
             _logger.LogInformation("写入 zones.json");
 
@@ -179,10 +189,12 @@ namespace BIMCanvas.Server.Services
         /// 计算门扇禁区
         /// 返回 Zone 类型，Type = ZoneType.Exclusion
         /// reason 字段格式: {subType}:{description}
+        /// ID 格式: ez_{序号}
         /// </summary>
         private List<Zone> CalculateDoorSwingExclusions(List<Opening> openings)
         {
             var result = new List<Zone>();
+            var exclusionIndex = 0;
 
             foreach (var opening in openings)
             {
@@ -218,9 +230,10 @@ namespace BIMCanvas.Server.Services
                     line.Start + offset
                 };
 
+                exclusionIndex++;
                 var exclusion = new Zone
                 {
-                    Id = $"excl_door_{opening.Id}",
+                    Id = $"ez_{exclusionIndex}",
                     Name = "门扇禁区",
                     RoomId = string.Empty,
                     Type = ZoneType.Exclusion,
@@ -233,7 +246,7 @@ namespace BIMCanvas.Server.Services
                 };
 
                 result.Add(exclusion);
-                _logger.LogDebug("生成门扇禁区: {Id}, 宽度={Width}mm", exclusion.Id, doorWidth);
+                _logger.LogDebug("生成门扇禁区: {Id} (源门: {DoorId}), 宽度={Width}mm", exclusion.Id, opening.Id, doorWidth);
             }
 
             return result;
@@ -266,10 +279,12 @@ namespace BIMCanvas.Server.Services
         /// 将物理房间转换为 Zone
         /// 返回 Zone 类型，Type = ZoneType.Room
         /// reason 字段格式: {subType}:{description}
+        /// ID 格式: rz_{序号}
         /// </summary>
         private List<Zone> CalculateRoomZones(List<Room> rooms)
         {
             var result = new List<Zone>();
+            var roomZoneIndex = 0;
 
             foreach (var room in rooms)
             {
@@ -280,9 +295,10 @@ namespace BIMCanvas.Server.Services
                     continue;
                 }
 
+                roomZoneIndex++;
                 var zone = new Zone
                 {
-                    Id = $"zone_room_{room.Id}",
+                    Id = $"rz_{roomZoneIndex}",
                     Name = room.Name,
                     RoomId = room.Id,
                     Type = ZoneType.Room,
@@ -295,8 +311,8 @@ namespace BIMCanvas.Server.Services
                 };
 
                 result.Add(zone);
-                _logger.LogDebug("生成房间区域: {Id}, 名称={Name}, 类型={Type}",
-                    zone.Id, room.Name, room.Type);
+                _logger.LogDebug("生成房间区域: {Id} (源房间: {RoomId}), 名称={Name}, 类型={Type}",
+                    zone.Id, room.Id, room.Name, room.Type);
             }
 
             return result;

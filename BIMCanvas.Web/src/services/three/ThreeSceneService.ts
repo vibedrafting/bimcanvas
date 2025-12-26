@@ -134,6 +134,12 @@ export class ThreeSceneService {
                 this.sceneBuilder.buildFromDocument(newData);
                 this.outlineBuilder.buildLines(newData);
                 this.labelBuilder.buildLabels(newData);
+
+                // Update Zone Label Visibility based on current layer state
+                const labelsOn = this.camera.layers.isEnabled(LayerManager.LAYER_LABELS);
+                const zonesOn = this.camera.layers.isEnabled(LayerManager.LAYER_ZONES);
+                this.labelBuilder.updateZoneLabelVisibility(labelsOn, zonesOn);
+
                 this.zoneBuilder.buildZones(newData);
                 this.exclusionBuilder.buildExclusions(newData);
                 this.gridBuilder.buildGrid();
@@ -169,12 +175,22 @@ export class ThreeSceneService {
         // 全局业务事件 - 保存引用到 Map
         const viewModeHandler = ((e: CustomEvent) => {
             this.toggleViewMode(e.detail);
+
+            // Update Zone Label Visibility after preset application
+            const labelsOn = this.camera.layers.isEnabled(LayerManager.LAYER_LABELS);
+            const zonesOn = this.camera.layers.isEnabled(LayerManager.LAYER_ZONES);
+            this.labelBuilder.updateZoneLabelVisibility(labelsOn, zonesOn);
         }) as EventListener;
         this.boundEventHandlers.set('bimcanvas:view-mode-change', viewModeHandler);
         window.addEventListener('bimcanvas:view-mode-change', viewModeHandler);
 
         const layerToggleHandler = ((e: CustomEvent) => {
             this.toggleLayer(e.detail.layerId, e.detail.visible);
+
+            // Update Zone Label Visibility (Requires both LABELS and ZONES layers)
+            const labelsOn = this.camera.layers.isEnabled(LayerManager.LAYER_LABELS);
+            const zonesOn = this.camera.layers.isEnabled(LayerManager.LAYER_ZONES);
+            this.labelBuilder.updateZoneLabelVisibility(labelsOn, zonesOn);
         }) as EventListener;
         this.boundEventHandlers.set('bimcanvas:layer-toggle', layerToggleHandler);
         window.addEventListener('bimcanvas:layer-toggle', layerToggleHandler);
@@ -194,6 +210,10 @@ export class ThreeSceneService {
         const mirrorHandler = () => this.interactionService.activateMirrorTool();
         this.boundEventHandlers.set('bimcanvas:action-mirror', mirrorHandler);
         window.addEventListener('bimcanvas:action-mirror', mirrorHandler);
+
+        const copyHandler = () => this.interactionService.activateCopyTool();
+        this.boundEventHandlers.set('bimcanvas:action-copy', copyHandler);
+        window.addEventListener('bimcanvas:action-copy', copyHandler);
 
         // const ghostPatchHandler = ((e: CustomEvent) => {
         //     this.ghostManager.updateGhosts(e.detail);
@@ -269,6 +289,12 @@ export class ThreeSceneService {
             this.sceneBuilder.buildFromDocument(data);
             this.outlineBuilder.buildLines(data);
             this.labelBuilder.buildLabels(data);
+
+            // Update Zone Label Visibility based on current layer state
+            const labelsOn = this.camera.layers.isEnabled(LayerManager.LAYER_LABELS);
+            const zonesOn = this.camera.layers.isEnabled(LayerManager.LAYER_ZONES);
+            this.labelBuilder.updateZoneLabelVisibility(labelsOn, zonesOn);
+
             this.zoneBuilder.buildZones(data);
             this.exclusionBuilder.buildExclusions(data);
             this.gridBuilder.buildGrid();

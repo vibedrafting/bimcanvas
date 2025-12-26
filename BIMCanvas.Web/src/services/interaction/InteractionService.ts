@@ -8,6 +8,7 @@ import { GhostManager } from './GhostManager';
 import { useDebugStore } from '../../stores/debugStore';
 import { RotateTool } from './tools/RotateTool';
 import { MirrorTool } from './tools/MirrorTool';
+import { CopyTool } from './tools/CopyTool';
 
 export class InteractionService {
     private raycaster: THREE.Raycaster;
@@ -110,6 +111,7 @@ export class InteractionService {
     private setupShortcuts() {
         this.shortcutManager.register('R', () => this.rotateSelection());
         this.shortcutManager.register('M', () => this.activateMoveTool());
+        this.shortcutManager.register('C', () => this.activateCopyTool());
         this.shortcutManager.register('Delete', () => this.deleteSelection());
         this.shortcutManager.register('Backspace', () => this.deleteSelection());
 
@@ -157,6 +159,20 @@ export class InteractionService {
         if (this.activeTool) this.activeTool.deactivate();
 
         this.activeTool = new MirrorTool(
+            this.scene,
+            this.camera,
+            this.domElement,
+            this.ghostManager
+        );
+        this.activeTool.activate();
+    }
+
+    public activateCopyTool() {
+        const debugStore = useDebugStore();
+        debugStore.log('Command: Copy Triggered');
+        if (this.activeTool) this.activeTool.deactivate();
+
+        this.activeTool = new CopyTool(
             this.scene,
             this.camera,
             this.domElement,

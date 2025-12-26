@@ -223,7 +223,7 @@ const toggleLayer = (layerId: number) => {
   // We could reset currentView to null if it doesn't match preset, but keeping it simple.
 };
 
-const dispatchAction = (action: 'rotate' | 'delete' | 'move') => {
+const dispatchAction = (action: 'rotate' | 'delete' | 'move' | 'copy') => {
   window.dispatchEvent(new CustomEvent(`bimcanvas:action-${action}`));
 };
 </script>
@@ -314,6 +314,9 @@ const dispatchAction = (action: 'rotate' | 'delete' | 'move') => {
       </GlassButton>
       <GlassButton @click="dispatchAction('move')" :disabled="!store.selectedObject" title="Nudge (Arrows)">
         Move
+      </GlassButton>
+      <GlassButton @click="dispatchAction('copy')" :disabled="!store.selectedObject" title="Copy (C)">
+        Copy
       </GlassButton>
       <GlassButton 
         variant="danger"
