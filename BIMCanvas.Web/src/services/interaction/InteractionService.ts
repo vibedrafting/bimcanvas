@@ -43,6 +43,8 @@ export class InteractionService {
         this.camera = camera;
         this.scene = scene;
         this.raycaster = new THREE.Raycaster();
+        // 启用所有层以支持 LAYER_ZONES 中的禁区和分区点击
+        this.raycaster.layers.enableAll();
         this.mouse = new THREE.Vector2();
         this.selectionManager = selectionManager;
         this.store = useCanvasStore();

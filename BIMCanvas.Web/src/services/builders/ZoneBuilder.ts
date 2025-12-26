@@ -134,6 +134,16 @@ export class ZoneBuilder {
         mesh.rotation.x = -Math.PI / 2;
         mesh.position.y = yPosition;
         mesh.layers.set(LayerManager.LAYER_ZONES);
+
+        // 设置 userData 支持点击识别
+        mesh.userData = {
+            id: zone.id,
+            type: 'zone',
+            zoneType: zone.type,
+            roomId: zone.roomId,
+            data: zone
+        };
+
         this.zoneGroup!.add(mesh);
     }
 

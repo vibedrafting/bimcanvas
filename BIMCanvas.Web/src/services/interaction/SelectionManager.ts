@@ -8,9 +8,17 @@ export class SelectionManager {
     // 多选支持：使用 Map 存储选中对象和选择框
     private selectedObjects: Map<string, THREE.Object3D> = new Map();
     private selectionBoxes: Map<string, THREE.BoxHelper> = new Map();
+    private selectionOutlines: Map<string, THREE.Line> = new Map();
     private scene: THREE.Scene;
     private store = useCanvasStore();
     private debug = useDebugStore();
+
+    // 精确轮廓线材质
+    private selectionMaterial = new THREE.LineBasicMaterial({
+        color: 0x3b82f6,
+        linewidth: 2,
+        depthTest: false
+    });
 
     constructor(scene: THREE.Scene) {
         this.scene = scene;
@@ -33,17 +41,24 @@ export class SelectionManager {
         this.debug.log(`[SelectionMgr] syncWithStore: ${ids.length} items`);
         const currentIds = new Set(ids);
 
-        // 移除不再选中的对象
+        // 移除不再选中的对象（检查 BoxHelper）
         for (const [id, _box] of this.selectionBoxes) {
             if (!currentIds.has(id)) {
                 this.debug.log(`[SelectionMgr] Remove visual: ${id}`);
                 this.removeSelectionVisual(id);
             }
         }
+        // 移除不再选中的对象（检查轮廓线）
+        for (const [id, _line] of this.selectionOutlines) {
+            if (!currentIds.has(id)) {
+                this.debug.log(`[SelectionMgr] Remove outline: ${id}`);
+                this.removeSelectionVisual(id);
+            }
+        }
 
         // 添加新选中的对象
         for (const id of ids) {
-            if (!this.selectionBoxes.has(id)) {
+            if (!this.selectionBoxes.has(id) && !this.selectionOutlines.has(id)) {
                 const object = this.findObjectById(id);
                 this.debug.log(`[SelectionMgr] Find scene obj: ${id} -> ${object ? 'FOUND' : 'NOT FOUND'}`);
                 if (object) {
@@ -64,18 +79,40 @@ export class SelectionManager {
     }
 
     /**
-     * 为对象添加选择视觉（蓝色框）
+     * 为对象添加选择视觉（精确轮廓线，无轮廓时降级到蓝色框）
      */
     private addSelectionVisual(object: THREE.Object3D) {
         const id = object.userData?.id;
         if (!id) return;
 
         // 避免重复添加
-        if (this.selectionBoxes.has(id)) return;
+        if (this.selectionBoxes.has(id) || this.selectionOutlines.has(id)) return;
 
-        const box = new THREE.BoxHelper(object, 0x3b82f6); // Blue selection
-        this.scene.add(box);
-        this.selectionBoxes.set(id, box);
+        const data = object.userData?.data;
+        // 尝试获取多边形轮廓数据
+        const polygon = data?.bounds || data?.polygon || data?.boundary ||
+                        data?.computedBoundary || data?.rawBoundary;
+
+        if (polygon && polygon.length >= 3) {
+            // 使用精确轮廓线
+            const points = polygon.map((p: [number, number]) => new THREE.Vector3(p[0], p[1], 0));
+            points.push(points[0]!); // 闭合轮廓
+
+            const geometry = new THREE.BufferGeometry().setFromPoints(points);
+            const line = new THREE.Line(geometry, this.selectionMaterial);
+            line.rotation.x = -Math.PI / 2;
+            line.position.y = 50; // 抬高避免 Z-fighting
+
+            this.scene.add(line);
+            this.selectionOutlines.set(id, line);
+            this.debug.log(`[SelectionMgr] Added outline for: ${id}`);
+        } else {
+            // 降级到 BoxHelper
+            const box = new THREE.BoxHelper(object, 0x3b82f6);
+            this.scene.add(box);
+            this.selectionBoxes.set(id, box);
+            this.debug.log(`[SelectionMgr] Added boxHelper for: ${id}`);
+        }
         this.selectedObjects.set(id, object);
     }
 
@@ -83,6 +120,14 @@ export class SelectionManager {
      * 移除对象的选择视觉
      */
     private removeSelectionVisual(id: string) {
+        // 清理轮廓线
+        const line = this.selectionOutlines.get(id);
+        if (line) {
+            this.scene.remove(line);
+            line.geometry?.dispose();
+            this.selectionOutlines.delete(id);
+        }
+        // 清理 BoxHelper
         const box = this.selectionBoxes.get(id);
         if (box) {
             this.scene.remove(box);
@@ -140,7 +185,14 @@ export class SelectionManager {
      * 清除本地视觉（内部使用，不影响 Store）
      */
     private clearAllVisuals() {
-        for (const [id, box] of this.selectionBoxes) {
+        // 清理轮廓线
+        for (const [_id, line] of this.selectionOutlines) {
+            this.scene.remove(line);
+            line.geometry?.dispose();
+        }
+        this.selectionOutlines.clear();
+        // 清理 BoxHelper
+        for (const [_id, box] of this.selectionBoxes) {
             this.scene.remove(box);
             box.geometry?.dispose();
         }
