@@ -83,10 +83,18 @@ export class ZoneBuilder {
         this.zoneGroup = new THREE.Group();
         this.zoneGroup.layers.set(LayerManager.LAYER_ZONES);
 
-        // 从 activeScheme 子结构获取 zones
-        const zones = data.activeScheme?.zones;
-        if (zones) {
-            zones.forEach(zone => {
+        // 1. 渲染 computed.zones（房间区域，ZoneType.Room）
+        const computedZones = data.computed?.zones;
+        if (computedZones) {
+            computedZones.forEach(zone => {
+                this.createZoneMesh(zone);
+            });
+        }
+
+        // 2. 渲染 activeScheme.zones（设计区域，ZoneType.Designable）
+        const schemeZones = data.activeScheme?.zones;
+        if (schemeZones) {
+            schemeZones.forEach(zone => {
                 this.createZoneMesh(zone);
             });
         }

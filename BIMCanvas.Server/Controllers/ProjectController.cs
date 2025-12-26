@@ -209,14 +209,22 @@ namespace BIMCanvas.Server.Controllers
                 return data;
             }
 
-            // exclusions.json
+            // zones.json (房间区域)
+            var zonesPath = Path.Combine(computedPath, "zones.json");
+            if (System.IO.File.Exists(zonesPath))
+            {
+                data.Zones = ReadJson<List<Zone>>(zonesPath) ?? new List<Zone>();
+            }
+
+            // exclusions.json (禁区)
             var exclusionsPath = Path.Combine(computedPath, "exclusions.json");
             if (System.IO.File.Exists(exclusionsPath))
             {
                 data.Exclusions = ReadJson<List<Zone>>(exclusionsPath) ?? new List<Zone>();
             }
 
-            _logger.LogDebug("Computed 数据加载完成: Exclusions={Count}", data.Exclusions.Count);
+            _logger.LogDebug("Computed 数据加载完成: Zones={ZoneCount}, Exclusions={ExclusionCount}",
+                data.Zones.Count, data.Exclusions.Count);
 
             return data;
         }

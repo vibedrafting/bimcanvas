@@ -101,6 +101,13 @@ namespace BIMCanvas.Server.Dtos
     public class ComputedDataDto
     {
         /// <summary>
+        /// 房间区域列表（来自 computed/zones.json）
+        /// 使用 Zone 类型，Type = ZoneType.Room
+        /// 由 baseline/rooms.json 转换生成
+        /// </summary>
+        public List<Zone> Zones { get; set; } = new List<Zone>();
+
+        /// <summary>
         /// 禁区列表（来自 computed/exclusions.json）
         /// 使用 Zone 类型，Type = ZoneType.Exclusion
         /// </summary>

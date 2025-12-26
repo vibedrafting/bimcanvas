@@ -55,6 +55,14 @@ namespace BIMCanvas.Server.Services
                 return false;
             }
 
+            // 3. 检查 zones.json 是否存在
+            var zonesPath = Path.Combine(computedPath, "zones.json");
+            if (!File.Exists(zonesPath))
+            {
+                _logger.LogInformation("zones.json 不存在，需要生成");
+                return false;
+            }
+
             // 3. 获取 baseline 和 computed 的哈希值
             var baselineHash = _manifestService.GetBaselineHash(baselinePath);
             var computedBaselineHash = _manifestService.GetComputedBaselineHash(computedPath);
@@ -102,22 +110,35 @@ namespace BIMCanvas.Server.Services
                 _logger.LogInformation("创建 computed/ 目录");
             }
 
-            // 2. 读取 openings.json
+            // 2. 读取 openings.json 并计算门扇禁区
             var openingsPath = Path.Combine(baselinePath, "openings.json");
             var openings = LoadOpenings(openingsPath);
             _logger.LogInformation("读取到 {Count} 个门窗", openings.Count);
 
-            // 3. 计算门扇禁区
             var exclusions = CalculateDoorSwingExclusions(openings);
             _logger.LogInformation("计算出 {Count} 个门扇禁区", exclusions.Count);
 
-            // 4. 写入 exclusions.json
+            // 3. 写入 exclusions.json
             var exclusionsPath = Path.Combine(computedPath, "exclusions.json");
-            var json = JsonConvert.SerializeObject(exclusions, Formatting.Indented);
-            File.WriteAllText(exclusionsPath, json, Encoding.UTF8);
+            var exclusionsJson = JsonConvert.SerializeObject(exclusions, Formatting.Indented);
+            File.WriteAllText(exclusionsPath, exclusionsJson, Encoding.UTF8);
             _logger.LogInformation("写入 exclusions.json");
 
-            // 5. 读取当前 baseline hash 并写入 computed.manifest
+            // 4. 读取 rooms.json 并转换为 Zone
+            var roomsPath = Path.Combine(baselinePath, "rooms.json");
+            var rooms = LoadRooms(roomsPath);
+            _logger.LogInformation("读取到 {Count} 个房间", rooms.Count);
+
+            var roomZones = CalculateRoomZones(rooms);
+            _logger.LogInformation("计算出 {Count} 个房间区域", roomZones.Count);
+
+            // 5. 写入 zones.json
+            var zonesPath = Path.Combine(computedPath, "zones.json");
+            var zonesJson = JsonConvert.SerializeObject(roomZones, Formatting.Indented);
+            File.WriteAllText(zonesPath, zonesJson, Encoding.UTF8);
+            _logger.LogInformation("写入 zones.json");
+
+            // 6. 读取当前 baseline hash 并写入 computed.manifest
             var baselineHash = _manifestService.GetBaselineHash(baselinePath);
             if (!string.IsNullOrEmpty(baselineHash))
             {
@@ -213,6 +234,69 @@ namespace BIMCanvas.Server.Services
 
                 result.Add(exclusion);
                 _logger.LogDebug("生成门扇禁区: {Id}, 宽度={Width}mm", exclusion.Id, doorWidth);
+            }
+
+            return result;
+        }
+
+        /// <summary>
+        /// 加载 rooms.json
+        /// </summary>
+        private List<Room> LoadRooms(string roomsPath)
+        {
+            if (!File.Exists(roomsPath))
+            {
+                _logger.LogWarning("rooms.json 不存在: {Path}", roomsPath);
+                return new List<Room>();
+            }
+
+            try
+            {
+                var json = File.ReadAllText(roomsPath, Encoding.UTF8);
+                return JsonConvert.DeserializeObject<List<Room>>(json) ?? new List<Room>();
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "解析 rooms.json 失败");
+                return new List<Room>();
+            }
+        }
+
+        /// <summary>
+        /// 将物理房间转换为 Zone
+        /// 返回 Zone 类型，Type = ZoneType.Room
+        /// reason 字段格式: {subType}:{description}
+        /// </summary>
+        private List<Zone> CalculateRoomZones(List<Room> rooms)
+        {
+            var result = new List<Zone>();
+
+            foreach (var room in rooms)
+            {
+                // 必须有边界
+                if (room.Boundary == null || room.Boundary.Vertices.Length < 3)
+                {
+                    _logger.LogWarning("房间 {Id} 缺少有效边界数据，跳过", room.Id);
+                    continue;
+                }
+
+                var zone = new Zone
+                {
+                    Id = $"zone_room_{room.Id}",
+                    Name = room.Name,
+                    RoomId = room.Id,
+                    Type = ZoneType.Room,
+                    Reason = $"room:{room.Type}",
+                    RawBoundary = room.Boundary,
+                    ComputedBoundary = null, // Room 类型暂不计算内缩边界
+                    Tags = new List<ZoneTag>(),
+                    FinishRequirements = new List<FinishRequirement>(),
+                    SchemeId = null
+                };
+
+                result.Add(zone);
+                _logger.LogDebug("生成房间区域: {Id}, 名称={Name}, 类型={Type}",
+                    zone.Id, room.Name, room.Type);
             }
 
             return result;

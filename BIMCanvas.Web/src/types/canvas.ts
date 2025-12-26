@@ -230,6 +230,9 @@ export interface SchemeData {
 // ========== Computed 层 (computed/*.json) ==========
 
 export interface ComputedData {
+  /** 房间区域（来自 computed/zones.json，由 baseline/rooms.json 转换） */
+  zones: Zone[];
+  /** 禁区（来自 computed/exclusions.json） */
   exclusions: Zone[];
 }
 
