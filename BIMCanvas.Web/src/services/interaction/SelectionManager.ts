@@ -13,11 +13,12 @@ export class SelectionManager {
     private store = useCanvasStore();
     private debug = useDebugStore();
 
-    // 精确轮廓线材质
+    // 精确轮廓线材质（depthTest: false 确保不被遮挡）
     private selectionMaterial = new THREE.LineBasicMaterial({
         color: 0x3b82f6,
-        linewidth: 2,
-        depthTest: false
+        linewidth: 3,
+        depthTest: false,
+        depthWrite: false
     });
 
     constructor(scene: THREE.Scene) {
@@ -101,7 +102,8 @@ export class SelectionManager {
             const geometry = new THREE.BufferGeometry().setFromPoints(points);
             const line = new THREE.Line(geometry, this.selectionMaterial);
             line.rotation.x = -Math.PI / 2;
-            line.position.y = 50; // 抬高避免 Z-fighting
+            line.position.y = 1000; // 抬高到最上层
+            line.renderOrder = 999; // 确保最后渲染
 
             this.scene.add(line);
             this.selectionOutlines.set(id, line);
@@ -109,6 +111,7 @@ export class SelectionManager {
         } else {
             // 降级到 BoxHelper
             const box = new THREE.BoxHelper(object, 0x3b82f6);
+            box.renderOrder = 999; // 确保最后渲染
             this.scene.add(box);
             this.selectionBoxes.set(id, box);
             this.debug.log(`[SelectionMgr] Added boxHelper for: ${id}`);
