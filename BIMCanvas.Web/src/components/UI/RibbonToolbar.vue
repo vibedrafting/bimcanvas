@@ -27,7 +27,7 @@ const toggleTheme = () => {
 
 
 // Actions
-const dispatchAction = (action: 'rotate' | 'delete' | 'move' | 'mirror') => {
+const dispatchAction = (action: 'rotate' | 'delete' | 'move' | 'mirror' | 'copy') => {
   window.dispatchEvent(new CustomEvent(`bimcanvas:action-${action}`));
 };
 
@@ -130,7 +130,8 @@ const dynamicStatusText = computed(() => {
       'moving': 'Moving...',
       'rotating': 'Rotating...',
       'deleted': 'Deleted',
-      'mirroring': 'Mirroring...'
+      'mirroring': 'Mirroring...',
+      'copying': 'Copying...'
     };
     return opMap[currentOperation.value] || currentOperation.value;
   }
@@ -246,6 +247,9 @@ watch(selectedObject, (newVal) => {
         <div class="group stagger-3">
           <GlassButton @click="dispatchAction('move')" variant="ghost" class="compact-btn">
             <span class="icon">✥</span> Move
+          </GlassButton>
+          <GlassButton @click="dispatchAction('copy')" variant="ghost" class="compact-btn">
+            <span class="icon">⧉</span> Copy
           </GlassButton>
           <GlassButton @click="dispatchAction('rotate')" variant="ghost" class="compact-btn">
             <span class="icon">↻</span> Rotate
