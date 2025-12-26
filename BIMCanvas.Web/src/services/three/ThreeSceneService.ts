@@ -357,9 +357,22 @@ export class ThreeSceneService {
         debugStore.log(`FitToScreen: Bounds [${minX.toFixed(0)},${minY.toFixed(0)}] to [${maxX.toFixed(0)},${maxY.toFixed(0)}] W:${width.toFixed(0)} H:${height.toFixed(0)}`);
         debugStore.log(`FitToScreen: Center [${centerX.toFixed(0)},${centerY.toFixed(0)}]`);
 
+        // 计算视锥体尺寸
+        const aspect = this.container.clientWidth / this.container.clientHeight;
+        const padding = 1.5;
+        const sizeForHeight = height * padding;
+        const sizeForWidth = (width * padding) / aspect;
+        const frustumSize = Math.max(sizeForHeight, sizeForWidth);
+
+        // 灵动岛遮挡补偿：顶部 UI 占用约 120px，偏移一半让内容在可视区域居中
+        const topUIHeight = 120; // 灵动岛底部位置 (px)
+        const offsetPixels = topUIHeight / 2;
+        const offsetWorld = offsetPixels * (frustumSize / this.container.clientHeight);
+
         // Map 2D center (x, y) to 3D center (x, 0, -y) because of -90 X rotation
-        const center3D = new THREE.Vector3(centerX, 0, -centerY);
-        debugStore.log(`FitToScreen: Center3D [${center3D.x.toFixed(0)},${center3D.y.toFixed(0)},${center3D.z.toFixed(0)}]`);
+        // Z 轴增加偏移量，让内容在屏幕上向下显示
+        const center3D = new THREE.Vector3(centerX, 0, -centerY + offsetWorld);
+        debugStore.log(`FitToScreen: Center3D [${center3D.x.toFixed(0)},${center3D.y.toFixed(0)},${center3D.z.toFixed(0)}] (offset: ${offsetWorld.toFixed(0)})`);
 
         // Update Camera Position (Keep Y high, move X and Z)
         this.camera.position.set(center3D.x, 10000, center3D.z);
@@ -368,14 +381,6 @@ export class ThreeSceneService {
 
         // Update Controls Target via ViewportService
         this.viewportService.setTarget(center3D.x, 0, center3D.z);
-
-        const aspect = this.container.clientWidth / this.container.clientHeight;
-        const padding = 1.5;
-
-        const sizeForHeight = height * padding;
-        const sizeForWidth = (width * padding) / aspect;
-
-        const frustumSize = Math.max(sizeForHeight, sizeForWidth);
 
         this.camera.left = -frustumSize * aspect / 2;
         this.camera.right = frustumSize * aspect / 2;
