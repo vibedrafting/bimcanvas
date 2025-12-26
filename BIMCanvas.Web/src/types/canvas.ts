@@ -196,8 +196,6 @@ export interface Zone {
   tags: ZoneTag[];
   finishRequirements: FinishRequirement[];
   schemeId?: string;
-  exclusionAreas: ExclusionArea[];
-  openings: string[];
 }
 
 export interface FinishSegment {

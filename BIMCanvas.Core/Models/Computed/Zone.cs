@@ -64,14 +64,5 @@ namespace BIMCanvas.Core.Models.Computed
         /// </summary>
         public string? SchemeId { get; set; }
 
-        /// <summary>
-        /// 禁区列表
-        /// </summary>
-        public List<ExclusionArea> ExclusionAreas { get; set; } = new List<ExclusionArea>();
-
-        /// <summary>
-        /// 关联开口 ID 列表
-        /// </summary>
-        public List<string> Openings { get; set; } = new List<string>();
     }
 }
