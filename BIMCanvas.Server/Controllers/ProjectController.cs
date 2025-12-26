@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Text;
+using BIMCanvas.Core.Converters.Json;
 using BIMCanvas.Core.Models.Computed;
 using BIMCanvas.Core.Models.Layout;
 using BIMCanvas.Core.Models.Project;
@@ -35,7 +36,8 @@ namespace BIMCanvas.Server.Controllers
             _projectService = projectService;
             _jsonSettings = new JsonSerializerSettings
             {
-                ContractResolver = new CamelCasePropertyNamesContractResolver()
+                ContractResolver = new CamelCasePropertyNamesContractResolver(),
+                Converters = { new Polygon2DConverter(), new FacingConverter() }
             };
         }
 
