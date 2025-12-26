@@ -41,7 +41,26 @@ namespace BIMCanvas.Revit.Commands
                 var exportService = new CanvasExportService();
                 var options = ExportOptions.Load();
 
-                // 弹出保存对话框
+                // 1. 先执行导出（包含房间类型确认）
+                CanvasExportService.ExportResult exportResult;
+                try
+                {
+                    exportResult = exportService.ExportFromView(view, options);
+                }
+                catch (OperationCanceledException)
+                {
+                    // 用户在房间类型确认时取消
+                    return Result.Cancelled;
+                }
+                catch (NotImplementedException ex)
+                {
+                    // Adapter 未实现
+                    TaskDialog.Show("BIMCanvas",
+                        "部分功能尚未实现，请完成 Adapter 代码：\n\n" + ex.Message);
+                    return Result.Failed;
+                }
+
+                // 2. 再弹出保存对话框选择路径
                 var saveDialog = new SaveFileDialog
                 {
                     Filter = "BIMCanvas 项目 (*.bcp)|*.bcp|所有文件 (*.*)|*.*",
@@ -63,37 +82,17 @@ namespace BIMCanvas.Revit.Commands
                     outputPath = outputPath.Substring(0, outputPath.Length - 4);
                 }
 
-                // 执行导出
+                // 3. 保存到 .bcp 文件
                 string bcpPath;
-                CanvasExportService.ExportResult exportResult;
-                try
-                {
-                    // 先获取导出数据用于统计
-                    exportResult = exportService.ExportFromView(view, options);
-
-                    // 导出到 .bcp 文件
-                    var exporter = new BcpExporter();
-                    bcpPath = exporter.ExportToBcp(
-                        outputPath,
-                        exportResult.ProjectName,
-                        exportResult.Manifest,
-                        exportResult.Architecture,
-                        exportResult.Openings,
-                        exportResult.Rooms,
-                        exportResult.LocationLines);
-                }
-                catch (OperationCanceledException)
-                {
-                    // 用户取消
-                    return Result.Cancelled;
-                }
-                catch (NotImplementedException ex)
-                {
-                    // Adapter 未实现
-                    TaskDialog.Show("BIMCanvas",
-                        "部分功能尚未实现，请完成 Adapter 代码：\n\n" + ex.Message);
-                    return Result.Failed;
-                }
+                var exporter = new BcpExporter();
+                bcpPath = exporter.ExportToBcp(
+                    outputPath,
+                    exportResult.ProjectName,
+                    exportResult.Manifest,
+                    exportResult.Architecture,
+                    exportResult.Openings,
+                    exportResult.Rooms,
+                    exportResult.LocationLines);
 
                 // 显示导出成功信息
                 TaskDialog.Show("BIMCanvas",
