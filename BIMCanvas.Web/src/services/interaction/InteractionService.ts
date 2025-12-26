@@ -9,6 +9,7 @@ import { useDebugStore } from '../../stores/debugStore';
 import { RotateTool } from './tools/RotateTool';
 import { MirrorTool } from './tools/MirrorTool';
 import { CopyTool } from './tools/CopyTool';
+import { LayerManager } from '../three/LayerManager';
 
 export class InteractionService {
     private raycaster: THREE.Raycaster;
@@ -499,33 +500,42 @@ export class InteractionService {
         const isModifierMode = isCtrlMode || isShiftMode;
 
         if (intersects.length > 0) {
-            const hit = intersects.find(i => i.object instanceof THREE.Mesh);
+            // 查找有效的点击目标（跳过图层被禁用的对象）
+            let target: THREE.Object3D | null = null;
+            for (const hit of intersects) {
+                if (!(hit.object instanceof THREE.Mesh)) continue;
 
-            if (hit) {
-                let target: THREE.Object3D | null = hit.object;
-
-                while (target && !target.userData?.id && target.parent && target.parent !== this.scene) {
-                    target = target.parent;
+                let candidate: THREE.Object3D | null = hit.object;
+                while (candidate && !candidate.userData?.id && candidate.parent && candidate.parent !== this.scene) {
+                    candidate = candidate.parent;
                 }
 
-                if (target && target.userData?.id) {
-                    debugStore.success(`Hit: ${target.userData.type} ${target.userData.id}`);
+                if (candidate && candidate.userData?.id) {
+                    const objType = candidate.userData.type;
+                    // Zone 和 Exclusion 只有在 LAYER_ZONES 启用时才能被选中
+                    if (objType === 'zone' || objType === 'exclusion') {
+                        if (!this.camera.layers.isEnabled(LayerManager.LAYER_ZONES)) {
+                            debugStore.log(`Skip ${objType}: LAYER_ZONES disabled`);
+                            continue; // 图层未启用，跳过此对象
+                        }
+                    }
+                    target = candidate;
+                    break; // 找到有效目标
+                }
+            }
 
-                    if (isShiftMode) {
-                        this.store.removeFromSelection(target.userData);
-                    } else if (isCtrlMode) {
-                        this.store.toggleSelection(target.userData);
-                    } else {
-                        this.store.setSelectedObject(target.userData);
-                    }
+            if (target && target.userData?.id) {
+                debugStore.success(`Hit: ${target.userData.type} ${target.userData.id}`);
+
+                if (isShiftMode) {
+                    this.store.removeFromSelection(target.userData);
+                } else if (isCtrlMode) {
+                    this.store.toggleSelection(target.userData);
                 } else {
-                    debugStore.warn('Hit object with no ID');
-                    if (!isModifierMode) {
-                        this.store.clearSelection();
-                    }
+                    this.store.setSelectedObject(target.userData);
                 }
             } else {
-                debugStore.warn('No Mesh Hit');
+                debugStore.warn('No valid target found');
                 if (!isModifierMode) {
                     this.store.clearSelection();
                 }

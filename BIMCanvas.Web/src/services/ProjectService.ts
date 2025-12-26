@@ -35,7 +35,71 @@ export class ProjectService {
     }
 
     /**
-     * 打开 BCP 文件（带冲突检测）
+     * 上传 BCP 文件（带冲突检测）
+     * @param file BCP 文件
+     * @returns 加载结果（可能是 Success、Conflict 或 Error）
+     */
+    static async uploadProject(file: File): Promise<ProjectLoadResult> {
+        try {
+            const formData = new FormData();
+            formData.append('file', file);
+
+            const response = await axios.post<ProjectLoadResult>(
+                `${API_BASE}/upload`,
+                formData,
+                {
+                    headers: {
+                        'Content-Type': 'multipart/form-data'
+                    }
+                }
+            );
+            return response.data;
+        } catch (error: any) {
+            // 409 Conflict 也会抛出异常，需要从 response 中提取数据
+            if (error.response?.status === 409) {
+                return error.response.data as ProjectLoadResult;
+            }
+            // 其他错误
+            return {
+                status: 'Error',
+                message: error.response?.data?.message || error.message || '上传项目失败'
+            };
+        }
+    }
+
+    /**
+     * 解决上传文件的冲突
+     * @param file BCP 文件
+     * @param resolution 解决策略：Overwrite（覆盖）或 UseExisting（使用已存在）
+     */
+    static async uploadResolveConflict(
+        file: File,
+        resolution: 'Overwrite' | 'UseExisting'
+    ): Promise<ProjectLoadResult> {
+        try {
+            const formData = new FormData();
+            formData.append('file', file);
+
+            const response = await axios.post<ProjectLoadResult>(
+                `${API_BASE}/upload-resolve?resolution=${resolution}`,
+                formData,
+                {
+                    headers: {
+                        'Content-Type': 'multipart/form-data'
+                    }
+                }
+            );
+            return response.data;
+        } catch (error: any) {
+            return {
+                status: 'Error',
+                message: error.response?.data?.message || error.message || '解决冲突失败'
+            };
+        }
+    }
+
+    /**
+     * 打开 BCP 文件（带冲突检测）- 基于路径（仅供服务端场景使用）
      * @param bcpFilePath BCP 文件路径
      * @returns 加载结果（可能是 Success、Conflict 或 Error）
      */
@@ -59,7 +123,7 @@ export class ProjectService {
     }
 
     /**
-     * 解决冲突
+     * 解决冲突 - 基于路径（仅供服务端场景使用）
      * @param bcpFilePath BCP 文件路径
      * @param resolution 解决策略：Overwrite（覆盖）或 UseExisting（使用已存在）
      */

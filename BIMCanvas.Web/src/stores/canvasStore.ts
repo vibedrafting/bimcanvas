@@ -75,11 +75,26 @@ export const useCanvasStore = defineStore('canvas', () => {
             return { ...opening, type: typeName };
         }
 
-        // 在 zones 中查找
-        const zone = activeScheme?.zones?.find(z => z.id === id);
-        if (zone) {
-            debug.success(`[Store] findObjectById: found in zones`);
-            return { ...zone, type: 'zone' };
+        // 在 activeScheme.zones 中查找（设计区域）
+        const schemeZone = activeScheme?.zones?.find(z => z.id === id);
+        if (schemeZone) {
+            debug.success(`[Store] findObjectById: found in activeScheme.zones`);
+            return { ...schemeZone, type: 'zone' };
+        }
+
+        // 在 computed.zones 中查找（房间区域）
+        const computed = projectData.value.computed;
+        const computedZone = computed?.zones?.find(z => z.id === id);
+        if (computedZone) {
+            debug.success(`[Store] findObjectById: found in computed.zones`);
+            return { ...computedZone, type: 'zone' };
+        }
+
+        // 在 computed.exclusions 中查找（禁区）
+        const exclusion = computed?.exclusions?.find(e => e.id === id);
+        if (exclusion) {
+            debug.success(`[Store] findObjectById: found in computed.exclusions`);
+            return { ...exclusion, type: 'exclusion' };
         }
 
         debug.warn(`[Store] findObjectById: NOT FOUND (${id})`);

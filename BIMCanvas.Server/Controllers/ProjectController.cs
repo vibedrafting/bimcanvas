@@ -8,6 +8,7 @@ using BIMCanvas.Core.Models.Project;
 using BIMCanvas.Core.Models.Revit;
 using BIMCanvas.Server.Dtos;
 using BIMCanvas.Server.Services;
+using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Logging;
 using Newtonsoft.Json;
@@ -85,7 +86,169 @@ namespace BIMCanvas.Server.Controllers
         }
 
         /// <summary>
-        /// 打开 BCP 文件（带冲突检测）
+        /// 上传并打开 BCP 文件（带冲突检测）
+        /// </summary>
+        [HttpPost("upload")]
+        [RequestSizeLimit(100 * 1024 * 1024)] // 100MB 限制
+        public async Task<ActionResult<ProjectLoadResult>> UploadProject(IFormFile file)
+        {
+            if (file == null || file.Length == 0)
+            {
+                return BadRequest(new ProjectLoadResult
+                {
+                    Status = "Error",
+                    Message = "请选择要上传的 BCP 文件"
+                });
+            }
+
+            if (!file.FileName.EndsWith(".bcp", StringComparison.OrdinalIgnoreCase))
+            {
+                return BadRequest(new ProjectLoadResult
+                {
+                    Status = "Error",
+                    Message = "只支持 .bcp 格式的文件"
+                });
+            }
+
+            try
+            {
+                // 保存到临时目录
+                var tempDir = Path.Combine(Path.GetTempPath(), "BIMCanvas", "uploads");
+                Directory.CreateDirectory(tempDir);
+                var tempFilePath = Path.Combine(tempDir, file.FileName);
+
+                // 写入临时文件
+                using (var stream = new FileStream(tempFilePath, FileMode.Create))
+                {
+                    await file.CopyToAsync(stream);
+                }
+
+                _logger.LogInformation("BCP 文件已上传到临时目录: {Path}", tempFilePath);
+
+                // 检测冲突
+                var (hasConflict, existingPath) = _projectService.CheckProjectConflict(tempFilePath);
+                if (hasConflict)
+                {
+                    return Conflict(new ProjectLoadResult
+                    {
+                        Status = "Conflict",
+                        ExistingPath = existingPath,
+                        ProjectName = Path.GetFileNameWithoutExtension(file.FileName),
+                        Message = $"项目 '{Path.GetFileNameWithoutExtension(file.FileName)}' 已存在"
+                    });
+                }
+
+                // 无冲突，直接加载
+                var projectPath = _projectService.LoadProject(tempFilePath);
+                _projectContext.SetProject(projectPath, tempFilePath);
+
+                // 清理临时文件
+                try { System.IO.File.Delete(tempFilePath); } catch { }
+
+                return Ok(new ProjectLoadResult
+                {
+                    Status = "Success",
+                    ProjectPath = projectPath
+                });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "上传并加载项目失败");
+                return StatusCode(500, new ProjectLoadResult
+                {
+                    Status = "Error",
+                    Message = ex.Message
+                });
+            }
+        }
+
+        /// <summary>
+        /// 解决上传文件的冲突（覆盖或使用已存在）
+        /// </summary>
+        [HttpPost("upload-resolve")]
+        [RequestSizeLimit(100 * 1024 * 1024)] // 100MB 限制
+        public async Task<ActionResult<ProjectLoadResult>> UploadResolveConflict(
+            IFormFile file,
+            [FromQuery] string resolution)
+        {
+            if (file == null || file.Length == 0)
+            {
+                return BadRequest(new ProjectLoadResult
+                {
+                    Status = "Error",
+                    Message = "请选择要上传的 BCP 文件"
+                });
+            }
+
+            if (resolution != "Overwrite" && resolution != "UseExisting")
+            {
+                return BadRequest(new ProjectLoadResult
+                {
+                    Status = "Error",
+                    Message = "无效的解决策略，必须是 Overwrite 或 UseExisting"
+                });
+            }
+
+            try
+            {
+                string projectPath;
+
+                if (resolution == "UseExisting")
+                {
+                    // 使用已存在的项目，不需要上传文件内容
+                    var bcpFileName = Path.GetFileNameWithoutExtension(file.FileName);
+                    projectPath = Path.Combine(ProjectService.DefaultProjectsRoot, bcpFileName);
+
+                    if (!Directory.Exists(projectPath))
+                    {
+                        return NotFound(new ProjectLoadResult
+                        {
+                            Status = "Error",
+                            Message = $"项目目录不存在: {projectPath}"
+                        });
+                    }
+
+                    _projectContext.SetProject(projectPath, null);
+                }
+                else // Overwrite
+                {
+                    // 保存到临时目录
+                    var tempDir = Path.Combine(Path.GetTempPath(), "BIMCanvas", "uploads");
+                    Directory.CreateDirectory(tempDir);
+                    var tempFilePath = Path.Combine(tempDir, file.FileName);
+
+                    using (var stream = new FileStream(tempFilePath, FileMode.Create))
+                    {
+                        await file.CopyToAsync(stream);
+                    }
+
+                    // 覆盖加载
+                    projectPath = _projectService.LoadProject(tempFilePath, overwrite: true);
+                    _projectContext.SetProject(projectPath, tempFilePath);
+
+                    // 清理临时文件
+                    try { System.IO.File.Delete(tempFilePath); } catch { }
+                }
+
+                return Ok(new ProjectLoadResult
+                {
+                    Status = "Success",
+                    ProjectPath = projectPath
+                });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "解决冲突失败");
+                return StatusCode(500, new ProjectLoadResult
+                {
+                    Status = "Error",
+                    Message = ex.Message
+                });
+            }
+        }
+
+        /// <summary>
+        /// 打开 BCP 文件（带冲突检测）- 基于路径（仅供服务端使用）
         /// </summary>
         [HttpPost("open")]
         public ActionResult<ProjectLoadResult> OpenProject([FromBody] OpenProjectRequest request)
@@ -145,7 +308,7 @@ namespace BIMCanvas.Server.Controllers
         }
 
         /// <summary>
-        /// 解决冲突（覆盖或使用已存在）
+        /// 解决冲突（覆盖或使用已存在）- 基于路径（仅供服务端使用）
         /// </summary>
         [HttpPost("resolve-conflict")]
         public ActionResult<ProjectLoadResult> ResolveConflict([FromBody] ConflictResolutionRequest request)
