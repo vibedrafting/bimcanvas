@@ -1,5 +1,7 @@
 <script setup lang="ts">
 import RibbonToolbar from '../components/UI/RibbonToolbar.vue';
+import AppHeader from '../components/UI/AppHeader.vue';
+import DynamicIsland from '../components/UI/DynamicIsland.vue';
 import SideGallery from '../components/UI/SideGallery.vue';
 import PropertyPanel from '../components/UI/PropertyPanel.vue';
 import DebugConsole from '../components/UI/DebugConsole.vue';
@@ -31,7 +33,9 @@ onUnmounted(() => {
 <template>
   <div class="main-layout">
     <header class="header-area">
+      <AppHeader />
       <RibbonToolbar />
+      <DynamicIsland />
     </header>
     
     <aside class="gallery-area">
@@ -67,7 +71,7 @@ onUnmounted(() => {
   top: 0;
   left: 0;
   width: 100%;
-  z-index: 100;
+  z-index: 200; /* Increased to ensure it's above everything */
 }
 
 .canvas-area {

@@ -18,20 +18,18 @@
   /* Spacing & Radius */
   --radius-md: 8px;
   --radius-sm: 4px;
-  --spacing-xs: 4px;
-  --spacing-sm: 8px;
   --spacing-md: 16px;
   --spacing-lg: 24px;
   --spacing-xl: 32px;
 
   /* Premium UI Tokens (Aurora Glass System) */
   --glass-bg: rgba(20, 20, 30, 0.65);
+  --glass-bg-solid: #14141e;
   --glass-blur: blur(24px) saturate(180%);
 
   --glass-border: 1px solid rgba(255, 255, 255, 0.12);
   --glass-inner-highlight: inset 0 1px 0 rgba(255, 255, 255, 0.2);
 
-  /* Iridescent Glare (Subtle top-down light) */
   --glass-glare: radial-gradient(circle at 50% 0%,
       rgba(255, 255, 255, 0.12) 0%,
       rgba(255, 255, 255, 0) 60%);
