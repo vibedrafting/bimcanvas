@@ -1,5 +1,15 @@
 <script setup lang="ts">
-import GlassButton from '../base/GlassButton.vue';
+import { ref } from 'vue';
+import GlassSelect from '../base/GlassSelect.vue';
+
+const currentVariant = ref('main');
+
+const variants = [
+  { label: 'Main Branch', value: 'main', icon: '🌳' },
+  { label: 'Option A', value: 'opt_a', icon: '🅰️' },
+  { label: 'Option B', value: 'opt_b', icon: '🅱️' },
+  { label: 'Manage...', value: 'manage', icon: '⚙️' },
+];
 </script>
 
 <template>
@@ -7,12 +17,12 @@ import GlassButton from '../base/GlassButton.vue';
     <div class="group-title">Variant</div>
     <div class="group-content">
       <div class="combo-box">
-        <span class="label">Current Variant</span>
-        <select class="glass-select">
-          <option>Main Branch</option>
-          <option>Variant A</option>
-          <option>New Variant...</option>
-        </select>
+        <span class="label">Active Variant</span>
+        <GlassSelect 
+          v-model="currentVariant" 
+          :options="variants" 
+          width="180px"
+        />
       </div>
     </div>
   </div>
@@ -44,23 +54,12 @@ import GlassButton from '../base/GlassButton.vue';
   display: flex;
   flex-direction: column;
   gap: 4px;
+  justify-content: center;
 }
 
 .label {
-  font-size: 0.75rem;
+  font-size: 0.7rem;
   color: var(--text-secondary);
-}
-
-.glass-select {
-  background: rgba(255, 255, 255, 0.1);
-  border: 1px solid rgba(255, 255, 255, 0.2);
-  color: var(--text-primary);
-  padding: 4px 8px;
-  border-radius: 4px;
-  outline: none;
-  
-  &:focus {
-    border-color: var(--accent-primary);
-  }
+  margin-left: 2px;
 }
 </style>

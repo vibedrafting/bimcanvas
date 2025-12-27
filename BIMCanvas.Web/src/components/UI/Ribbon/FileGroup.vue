@@ -1,8 +1,8 @@
 <script setup lang="ts">
 import { ref } from 'vue';
 import GlassButton from '../base/GlassButton.vue';
-import { useProjectFile } from '../../composables/useProjectFile';
-import { useCanvasStore } from '../../stores/canvasStore';
+import { useProjectFile } from '../../../composables/useProjectFile';
+import { useCanvasStore } from '../../../stores/canvasStore';
 
 const store = useCanvasStore();
 const fileInputRef = ref<HTMLInputElement | null>(null);

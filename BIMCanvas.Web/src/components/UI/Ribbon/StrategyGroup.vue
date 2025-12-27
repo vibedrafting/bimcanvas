@@ -1,5 +1,14 @@
 <script setup lang="ts">
-import GlassButton from '../base/GlassButton.vue';
+import { ref } from 'vue';
+import GlassSelect from '../base/GlassSelect.vue';
+
+const currentStrategy = ref('default');
+
+const strategies = [
+  { label: 'Default Strategy', value: 'default', icon: '📝' },
+  { label: 'Minimalist', value: 'minimal', icon: '⚪' },
+  { label: 'Create New...', value: 'new', icon: '➕' },
+];
 </script>
 
 <template>
@@ -8,10 +17,11 @@ import GlassButton from '../base/GlassButton.vue';
     <div class="group-content">
       <div class="combo-box">
         <span class="label">Current Strategy</span>
-        <select class="glass-select">
-          <option>Default Strategy</option>
-          <option>New Strategy...</option>
-        </select>
+        <GlassSelect 
+          v-model="currentStrategy" 
+          :options="strategies" 
+          width="180px"
+        />
       </div>
     </div>
   </div>
@@ -43,23 +53,12 @@ import GlassButton from '../base/GlassButton.vue';
   display: flex;
   flex-direction: column;
   gap: 4px;
+  justify-content: center;
 }
 
 .label {
-  font-size: 0.75rem;
+  font-size: 0.7rem;
   color: var(--text-secondary);
-}
-
-.glass-select {
-  background: rgba(255, 255, 255, 0.1);
-  border: 1px solid rgba(255, 255, 255, 0.2);
-  color: var(--text-primary);
-  padding: 4px 8px;
-  border-radius: 4px;
-  outline: none;
-  
-  &:focus {
-    border-color: var(--accent-primary);
-  }
+  margin-left: 2px;
 }
 </style>
