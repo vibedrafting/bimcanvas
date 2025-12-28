@@ -35,7 +35,7 @@ export class LayerManager {
         this.camera.layers.enable(LayerManager.LAYER_MODEL);
 
         if (preset === LayerManager.PRESET_HUMAN) {
-            this.camera.layers.disable(LayerManager.LAYER_GRID);
+            this.camera.layers.enable(LayerManager.LAYER_GRID); // Enable Grid by default for Human
             this.camera.layers.disable(LayerManager.LAYER_LABELS);
             this.camera.layers.disable(LayerManager.LAYER_BOUNDS);
             this.camera.layers.disable(LayerManager.LAYER_OUTLINE);

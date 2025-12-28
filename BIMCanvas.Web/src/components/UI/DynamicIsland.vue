@@ -145,7 +145,7 @@ const dynamicStatusText = computed(() => {
 <style scoped lang="scss">
 .command-island {
   position: absolute;
-  top: 80px;
+  top: 120px; /* Adjusted to 120px to avoid Ribbon overlap */
   left: 50%;
   transform: translateX(-50%);
   z-index: 200; /* Ensure it's above ribbon */

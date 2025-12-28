@@ -70,12 +70,12 @@ const classes = computed(() => {
 
 /* Ghost (Default) */
 .glass-btn.variant-ghost {
-  background: rgba(255, 255, 255, 0.03);
+  background: var(--btn-ghost-bg);
   border-color: transparent;
 }
 
 .glass-btn.variant-ghost:hover:not(:disabled) {
-  background: rgba(255, 255, 255, 0.08);
+  background: var(--btn-ghost-bg-hover);
   border-color: var(--border-subtle);
   transform: translateY(-1px);
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
@@ -86,9 +86,9 @@ const classes = computed(() => {
 }
 
 .glass-btn.variant-ghost.active {
-  background: rgba(255, 255, 255, 0.1);
+  background: var(--btn-ghost-bg-active);
   border-color: var(--border-subtle);
-  color: #fff;
+  color: var(--btn-ghost-text-active);
   box-shadow: var(--glass-inner-highlight);
 }
 

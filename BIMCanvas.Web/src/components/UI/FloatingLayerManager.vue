@@ -8,7 +8,7 @@ const managerRef = ref<HTMLElement | null>(null);
 
 // Layer States
 const layers = ref({
-  [LayerManager.LAYER_GRID]: false,
+  [LayerManager.LAYER_GRID]: true, // Default to true for User mode
   [LayerManager.LAYER_LABELS]: false,
   [LayerManager.LAYER_BOUNDS]: false,
   [LayerManager.LAYER_OUTLINE]: false,
@@ -61,6 +61,7 @@ onMounted(() => {
     currentView.value = mode; // Sync local state
     if (mode === 'human') {
       Object.keys(layers.value).forEach(key => layers.value[key as any] = false);
+      layers.value[LayerManager.LAYER_GRID] = true; // Enable Grid by default
     } else {
       Object.keys(layers.value).forEach(key => layers.value[key as any] = true);
     }

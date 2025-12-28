@@ -144,8 +144,8 @@ const keepOpen = () => {
   }
 
   &.active {
-    color: white;
-    background: rgba(255, 255, 255, 0.1);
+    color: var(--tab-text-active);
+    background: var(--tab-bg-active);
   }
 }
 

@@ -106,12 +106,23 @@ export interface ColorTheme {
         // Premium Glass Tokens (Aurora/Frosty)
         glassBg: string;
         glassBgHeader: string; // New variable for extra transparent header
+        glassBgSolid: string;  // New: Solid background for dropdowns
         glassBlur: string;
         glassBorder: string;
         glassInnerHighlight: string;
         glassGlare: string;
         shadowIsland: string;
         shadowPanel: string;
+
+        // Button States (Ghost)
+        btnGhostBg: string;
+        btnGhostBgHover: string;
+        btnGhostBgActive: string;
+        btnGhostTextActive: string;
+
+        // Tab States (Ribbon)
+        tabTextActive: string;
+        tabBgActive: string;
     };
 }
 
@@ -191,12 +202,23 @@ export const darkTheme: ColorTheme = {
         // Aurora Glass (Dark Mode) - High Transparency
         glassBg: 'linear-gradient(180deg, rgba(30, 30, 40, 0.3) 0%, rgba(20, 20, 30, 0.2) 100%)',
         glassBgHeader: 'rgba(20, 20, 30, 0.15)', // Ultra transparent header
+        glassBgSolid: 'rgba(30, 30, 40, 0.95)', // Solid dark for dropdowns
         glassBlur: 'blur(24px) saturate(180%)',
         glassBorder: '1px solid rgba(255, 255, 255, 0.12)',
         glassInnerHighlight: 'inset 0 1px 0 rgba(255, 255, 255, 0.2)',
         glassGlare: 'radial-gradient(circle at 50% 0%, rgba(255, 255, 255, 0.12) 0%, rgba(255, 255, 255, 0) 60%)',
         shadowIsland: '0 16px 40px rgba(0, 0, 0, 0.3), 0 0 0 1px rgba(0, 0, 0, 0.1)',
         shadowPanel: '0 4px 30px rgba(0, 0, 0, 0.2), 0 0 0 1px rgba(0, 0, 0, 0.1)',
+
+        // Button States (Ghost)
+        btnGhostBg: 'rgba(255, 255, 255, 0.03)',
+        btnGhostBgHover: 'rgba(255, 255, 255, 0.08)',
+        btnGhostBgActive: 'rgba(255, 255, 255, 0.1)',
+        btnGhostTextActive: '#ffffff',
+
+        // Tab States
+        tabTextActive: '#ffffff',
+        tabBgActive: 'rgba(255, 255, 255, 0.1)',
     },
 };
 
@@ -275,12 +297,23 @@ export const lightTheme: ColorTheme = {
         // Curved Glass (Light Mode) - High Transparency
         glassBg: 'linear-gradient(160deg, rgba(255, 255, 255, 0.4) 0%, rgba(240, 245, 255, 0.3) 100%)',
         glassBgHeader: 'rgba(255, 255, 255, 0.2)', // Ultra transparent header
+        glassBgSolid: 'rgba(255, 255, 255, 0.95)', // Solid white for dropdowns
         glassBlur: 'blur(24px) saturate(180%)',
         glassBorder: '1px solid rgba(0, 10, 30, 0.12)', // 加深边框，更锐利
         glassInnerHighlight: 'inset 0 1px 2px rgba(255, 255, 255, 0.9), inset 0 -2px 4px rgba(200, 210, 230, 0.15)', // 上亮下暗模拟厚度
         glassGlare: 'linear-gradient(180deg, rgba(255, 255, 255, 0.6) 0%, rgba(255, 255, 255, 0) 30%)', // 顶部强反光
         shadowIsland: '0 24px 48px rgba(0, 20, 50, 0.18), 0 4px 12px rgba(0, 0, 0, 0.1)', // 显著加深悬浮阴影
         shadowPanel: '0 8px 24px rgba(0, 20, 50, 0.08), 0 1px 2px rgba(0, 0, 0, 0.05)',
+
+        // Button States (Ghost)
+        btnGhostBg: 'rgba(0, 0, 0, 0.03)',
+        btnGhostBgHover: 'rgba(0, 0, 0, 0.06)',
+        btnGhostBgActive: 'rgba(0, 122, 255, 0.1)', // Light Blue Tint for active state
+        btnGhostTextActive: '#007aff', // Active text is Blue in light mode
+
+        // Tab States
+        tabTextActive: '#000000', // Black text for active tab in light mode
+        tabBgActive: 'rgba(0, 0, 0, 0.05)', // Subtle dark tint
     },
 };
 
@@ -329,12 +362,23 @@ class ThemeServiceClass {
         // Glass Tokens
         root.style.setProperty('--glass-bg', css.glassBg);
         root.style.setProperty('--glass-bg-header', css.glassBgHeader);
+        root.style.setProperty('--glass-bg-solid', css.glassBgSolid);
         root.style.setProperty('--glass-blur', css.glassBlur);
         root.style.setProperty('--glass-border', css.glassBorder);
         root.style.setProperty('--glass-inner-highlight', css.glassInnerHighlight);
         root.style.setProperty('--glass-glare', css.glassGlare);
         root.style.setProperty('--shadow-island', css.shadowIsland);
         root.style.setProperty('--shadow-panel', css.shadowPanel);
+
+        // Button Tokens
+        root.style.setProperty('--btn-ghost-bg', css.btnGhostBg);
+        root.style.setProperty('--btn-ghost-bg-hover', css.btnGhostBgHover);
+        root.style.setProperty('--btn-ghost-bg-active', css.btnGhostBgActive);
+        root.style.setProperty('--btn-ghost-text-active', css.btnGhostTextActive);
+
+        // Tab Tokens
+        root.style.setProperty('--tab-text-active', css.tabTextActive);
+        root.style.setProperty('--tab-bg-active', css.tabBgActive);
 
         console.log(`[ThemeService] CSS 变量已更新为 ${theme.name} 主题`);
     }
