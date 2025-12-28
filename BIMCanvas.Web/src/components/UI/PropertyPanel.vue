@@ -5,84 +5,70 @@ import { storeToRefs } from 'pinia';
 
 const store = useCanvasStore();
 const { currentOperation, selectedIds } = storeToRefs(store);
-const isExpanded = ref(false); // Default collapsed
 
-const toggleExpand = () => {
-  isExpanded.value = !isExpanded.value;
+// State
+const isFullHeight = ref(false);
+
+// Computed
+const isVisible = computed(() => selectedIds.value.length > 0);
+const selectionCount = computed(() => selectedIds.value.length);
+const selectedObject = computed(() => store.selectedObject);
+
+const panelTitle = computed(() => {
+    if (selectionCount.value > 1) return 'MULTI-SELECT';
+    if (selectedObject.value) return (selectedObject.value.type || 'OBJECT').toUpperCase();
+    return 'SELECTION';
+});
+
+// Actions
+const closePanel = () => {
+    store.clearSelection();
 };
 
-const selectedObject = computed(() => store.selectedObject);
-const selectionCount = computed(() => store.selectedIds.length);
+const toggleFullHeight = () => {
+    isFullHeight.value = !isFullHeight.value;
+};
 
-// 判断值是否为基础类型（应该显示）
+// Logic: Auto-hide on edit
+const isInEditMode = computed(() => {
+    return currentOperation.value === 'moving' || currentOperation.value === 'rotating';
+});
+
+// Watchers
+watch(selectedIds, (newIds) => {
+    // Reset to card mode on new selection
+    if (newIds.length > 0) {
+        isFullHeight.value = false;
+    }
+});
+
+// Helper: Primitive check
 const isPrimitiveValue = (value: any): boolean => {
   if (value === null || value === undefined) return false;
   const type = typeof value;
   return type === 'string' || type === 'number' || type === 'boolean';
 };
 
-// 是否处于编辑模式（移动/旋转）
-const isInEditMode = computed(() => {
-    return currentOperation.value === 'moving' || currentOperation.value === 'rotating';
-});
-
-// 需求1：进入编辑模式时自动收起面板
-watch(currentOperation, (newVal) => {
-    if (newVal === 'moving' || newVal === 'rotating') {
-        isExpanded.value = false;
-    }
-});
-
-// 需求2：根据选择集大小控制面板展开/收起
-// - 单选（selectedIds.length === 1）：展开
-// - 多选（selectedIds.length > 1）：折叠
-// - 无选择（selectedIds.length === 0）：折叠
-// - 编辑模式：不自动展开
-watch(selectedIds, (newIds) => {
-    // 如果处于编辑模式，不自动展开
-    if (isInEditMode.value) {
-        return;
-    }
-    
-    // 只有单选时展开面板
-    if (newIds.length === 1) {
-        isExpanded.value = true;
-    } else {
-        // 多选或无选择时折叠
-        isExpanded.value = false;
-    }
-}, { deep: true });
-
-// Project Properties
-const projectProperties = computed(() => {
-    const data = store.projectData;
-    if (!data) return [];
-    return [
-        { key: 'Project ID', value: data.project?.id || 'N/A', readonly: true },
-        { key: 'Name', value: data.project?.name || 'Unknown', readonly: true },
-        { key: 'Version', value: `v${data.project?.version || '?'}`, readonly: true },
-        { key: 'Walls', value: data.baseline?.walls?.length || 0, readonly: true },
-        { key: 'Modules', value: data.activeScheme?.modules?.length || 0, readonly: true },
-    ];
-});
-
+// Properties Generation
 const properties = computed(() => {
-  // 多选模式
   if (selectionCount.value > 1) {
     return [
-      { key: 'Selection', value: `${selectionCount.value} objects selected`, readonly: true },
+      { key: 'Count', value: `${selectionCount.value} items`, readonly: true },
+      { key: 'IDs', value: selectedIds.value.join(', '), readonly: true }
     ];
   }
 
-  // 无选择 → 项目属性
-  if (!selectedObject.value) return projectProperties.value;
+  if (!selectedObject.value) return [];
 
   const obj = selectedObject.value;
   const data = obj.data || obj;
   const props: Array<{ key: string; value: any; readonly: boolean }> = [];
 
-  // 遍历对象属性，只显示基础类型
+  // Add ID first
+  if (obj.id) props.push({ key: 'ID', value: obj.id, readonly: true });
+
   for (const [key, value] of Object.entries(data)) {
+    if (key === 'id') continue; // Skip ID as it's added manually
     if (isPrimitiveValue(value)) {
       props.push({ key, value, readonly: true });
     }
@@ -90,34 +76,53 @@ const properties = computed(() => {
 
   return props;
 });
-
 </script>
 
 <template>
   <aside 
     class="property-panel" 
-    :class="{ expanded: isExpanded }"
-    @mouseenter="isExpanded = true"
-    @mouseleave="isExpanded = false"
+    :class="{ 
+        'full-height': isFullHeight, 
+        'hidden': !isVisible || isInEditMode 
+    }"
   >
-    <div class="header" @click="toggleExpand">
-      <svg class="indicator" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-        <polyline points="15 18 9 12 15 6"></polyline>
-      </svg>
+    <!-- Header -->
+    <div class="panel-header">
+        <button class="icon-btn back-btn" @click="closePanel" title="Close / Deselect">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <line x1="19" y1="12" x2="5" y2="12"></line>
+                <polyline points="12 19 5 12 12 5"></polyline>
+            </svg>
+        </button>
+        
+        <div class="title">{{ panelTitle }}</div>
+        
+        <button class="icon-btn expand-btn" @click="toggleFullHeight" :title="isFullHeight ? 'Collapse' : 'Expand'">
+            <svg v-if="!isFullHeight" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <polyline points="15 3 21 3 21 9"></polyline>
+                <polyline points="9 21 3 21 3 15"></polyline>
+                <line x1="21" y1="3" x2="14" y2="10"></line>
+                <line x1="3" y1="21" x2="10" y2="14"></line>
+            </svg>
+            <svg v-else viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <polyline points="4 14 10 14 10 20"></polyline>
+                <polyline points="20 10 14 10 14 4"></polyline>
+                <line x1="14" y1="10" x2="21" y2="3"></line>
+                <line x1="3" y1="21" x2="10" y2="14"></line>
+            </svg>
+        </button>
     </div>
 
-    <div class="content" v-if="isExpanded">
-        <header class="panel-header">
-            <h2>{{ selectionCount > 1 ? 'MULTI-SELECT' : (selectedObject ? (selectedObject.type || 'Selection').toUpperCase() : 'PROJECT INFO') }}</h2>
-        </header>
-        
-        <div class="prop-list">
+    <!-- Content -->
+    <div class="panel-content">
+        <div v-if="properties.length === 0" class="empty-state">
+            No properties
+        </div>
+        <div v-else class="prop-list">
             <div v-for="prop in properties" :key="prop.key" class="prop-row">
                 <span class="label">{{ prop.key }}</span>
-                <span class="value readonly" :title="String(prop.value)">{{ prop.value }}</span>
+                <span class="value" :title="String(prop.value)">{{ prop.value }}</span>
             </div>
-            
-
         </div>
     </div>
   </aside>
@@ -125,164 +130,167 @@ const properties = computed(() => {
 
 <style scoped lang="scss">
 .property-panel {
-  width: 48px; /* Collapsed state */
-  height: 100%; /* Full height */
-  margin: 0; /* Anchored to edges */
-  padding-top: 0; /* Let internal elements handle spacing */
+  /* Card Mode (Default) */
+  position: absolute;
+  left: 24px;
+  bottom: 24px;
+  width: 280px;
+  max-height: 50vh; /* Limit height in card mode */
   
-  /* Aurora Glass - Matching Dynamic Island */
+  /* Aurora Glass */
   background: var(--glass-bg);
   backdrop-filter: var(--glass-blur);
   -webkit-backdrop-filter: var(--glass-blur);
   
-  /* Anchored Borders */
-  border: none;
-  border-right: var(--glass-border);
-  border-radius: 0 24px 24px 0; /* Round inner corners only */
+  /* Enhanced Border & Glow */
+  border: 1px solid rgba(255, 255, 255, 0.2); /* Stronger border */
+  border-radius: 20px;
   
-  /* Glare Overlay */
+  /* Glare & Deep Shadow */
   background-image: var(--glass-glare), linear-gradient(to bottom, var(--glass-bg), var(--glass-bg));
+  box-shadow: 
+    0 12px 40px rgba(0, 0, 0, 0.4), /* Deep drop shadow */
+    0 0 0 1px rgba(255, 255, 255, 0.1) inset, /* Inner rim */
+    0 0 20px rgba(255, 255, 255, 0.15); /* Outer glow */
+  
   display: flex;
   flex-direction: column;
-  transition: all 0.6s cubic-bezier(0.19, 1, 0.22, 1); /* Premium Spring Curve */
   overflow: hidden;
-  z-index: 90;
+  z-index: 100;
   
-  /* Left aligned behavior */
-  margin-right: auto;
-  margin-left: 0; /* Anchored */
-  
-  &.expanded {
-    width: 300px;
-    /* Maintain same glass effect, just add shadow */
-    box-shadow: var(--shadow-panel), var(--glass-inner-highlight);
+  /* Transitions */
+  transition: 
+    width 0.5s cubic-bezier(0.19, 1, 0.22, 1),
+    height 0.5s cubic-bezier(0.19, 1, 0.22, 1),
+    top 0.5s cubic-bezier(0.19, 1, 0.22, 1),
+    bottom 0.5s cubic-bezier(0.19, 1, 0.22, 1),
+    left 0.5s cubic-bezier(0.19, 1, 0.22, 1),
+    border-radius 0.5s cubic-bezier(0.19, 1, 0.22, 1),
+    opacity 0.3s ease,
+    transform 0.3s ease;
 
-    .header .indicator {
-      transform: rotate(0deg);
-    }
-  }
-
-  .header {
-    height: 100%;
-    width: 48px;
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    padding-top: 40vh; /* Position slightly up from center */
-    cursor: pointer;
-    flex-shrink: 0;
-    
-    /* Keep header on the left side */
-    position: absolute;
-    left: 0;
-    top: 0;
-
-    .indicator {
-      width: 24px;
-      height: 24px;
-      color: var(--text-secondary);
-      transition: transform 0.4s var(--ease-spring), color 0.2s;
-      transform: rotate(180deg); /* Default points Right (flipped left arrow) */
-      opacity: 0.8;
-    }
-    
-    &:hover .indicator {
-      color: var(--text-primary);
-      opacity: 1;
-      transform: scale(1.1);
-    }
-  }
-
-  .content {
-    position: absolute;
-    left: 48px; /* Content to the right of header */
-    top: 100px; /* Clear the top toolbar buttons */
-    width: calc(100% - 48px);
-    height: calc(100% - 100px);
-    display: flex;
-    flex-direction: column;
+  /* Hidden State */
+  &.hidden {
     opacity: 0;
-    animation: fadeIn 0.3s forwards 0.1s;
-    
-    .panel-header {
-        padding: 1rem;
-        background: transparent; /* Unified with panel background */
-        border-bottom: 1px solid var(--border-subtle);
+    transform: translateY(20px) scale(0.95);
+    pointer-events: none;
+  }
 
-        h2 {
-            margin: 0;
-            font-size: 1rem;
-            font-weight: 500;
+  /* Full Height Mode (Now just "Tall Card" mode) */
+  &.full-height {
+    /* Keep horizontal position */
+    left: 24px;
+    bottom: 24px;
+    
+    /* Expand vertically */
+    /* Top Bar (32px) + Ribbon (40px) + Gap (24px) = 96px */
+    top: 96px; 
+    height: auto; /* Let top/bottom define height */
+    
+    max-height: none; /* Remove limit */
+    
+    /* Maintain Card Style */
+    border-radius: 20px; /* Keep rounded corners */
+    border: 1px solid rgba(255, 255, 255, 0.2); /* Keep border */
+    border-left: 1px solid rgba(255, 255, 255, 0.2); /* Ensure left border exists */
+  }
+
+  .panel-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 12px 16px;
+    border-bottom: 1px solid var(--border-subtle);
+    flex-shrink: 0;
+
+    .title {
+        font-weight: 600;
+        font-size: 0.9rem;
+        color: var(--text-primary);
+        letter-spacing: 0.5px;
+    }
+
+    .icon-btn {
+        background: transparent;
+        border: none;
+        color: var(--text-secondary);
+        cursor: pointer;
+        padding: 4px;
+        border-radius: 50%;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        transition: all 0.2s ease;
+
+        svg {
+            width: 18px;
+            height: 18px;
+        }
+
+        &:hover {
+            background: var(--surface-hover);
             color: var(--text-primary);
         }
     }
+  }
+
+  .panel-content {
+    flex: 1;
+    overflow-y: auto;
+    padding: 12px 16px;
+
+    /* Custom Scrollbar */
+    &::-webkit-scrollbar {
+        width: 4px;
+    }
+    &::-webkit-scrollbar-track {
+        background: transparent;
+    }
+    &::-webkit-scrollbar-thumb {
+        background: var(--border-strong);
+        border-radius: 2px;
+    }
 
     .prop-list {
-        padding: 1rem;
         display: flex;
         flex-direction: column;
-        gap: 0.5rem;
-        overflow-y: auto;
+        gap: 8px;
+    }
 
-        .prop-row {
-            display: flex;
-            justify-content: space-between;
-            align-items: flex-start; /* Align to top for multi-line text */
-            font-size: 0.9rem;
-            padding: 0.5rem 0; /* Increase padding for better readability */
-            border-bottom: 1px solid var(--border-subtle);
-            gap: 12px; /* Consistent gap */
+    .prop-row {
+        display: flex;
+        justify-content: space-between;
+        align-items: baseline;
+        gap: 12px;
+        font-size: 0.85rem; /* Smaller font as requested */
+        line-height: 1.4;
 
-            &:last-child {
-                border-bottom: none;
-            }
+        .label {
+            color: var(--text-secondary);
+            flex-shrink: 0;
+            max-width: 40%;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
 
-            .label {
-                color: var(--text-secondary);
-                flex-shrink: 0; /* Prevent label from shrinking */
-                max-width: 40%; /* Limit label width */
-                word-break: break-word; /* Allow label to wrap if really long */
-                line-height: 1.4;
-                padding-top: 2px; /* Align with value text */
-            }
-
-            .value-input {
-                background: var(--surface-solid);
-                border: 1px solid var(--border-strong);
-                color: var(--text-primary);
-                text-align: left; /* Align left for better readability of long text */
-                flex: 1; /* Take remaining space */
-                min-width: 0; /* Allow flex item to shrink below content size */
-                padding: 4px 6px;
-                border-radius: 4px;
-                font-family: inherit;
-                font-size: inherit;
-                line-height: 1.4;
-
-                &:focus {
-                    outline: none;
-                    border-color: var(--accent-blue);
-                    background: var(--surface-glass-hover);
-                }
-            }
-
-            .value.readonly {
-                color: var(--text-secondary);
-                font-style: italic;
-                text-align: right; /* Keep right alignment for short values, looks better */
-                flex: 1; /* Take remaining space */
-                min-width: 0; /* Allow flex item to shrink below content size */
-                white-space: pre-wrap; /* Allow wrapping */
-                word-break: break-word; /* Break long words */
-                line-height: 1.4;
-            }
+        .value {
+            color: var(--text-primary);
+            text-align: right;
+            flex: 1;
+            overflow: hidden;
+            text-overflow: ellipsis; /* Ellipsis for long text */
+            white-space: nowrap; /* Keep on one line */
+            font-family: var(--font-mono); /* Monospace for values looks techy */
         }
     }
+    
+    .empty-state {
+        text-align: center;
+        color: var(--text-tertiary);
+        font-size: 0.85rem;
+        padding: 20px 0;
+    }
   }
-}
-
-@keyframes fadeIn {
-  from { opacity: 0; transform: translateX(-10px); }
-  to { opacity: 1; transform: translateX(0); }
 }
 </style>
