@@ -1,0 +1,24 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 2000 650">
+  <defs>
+    <style>
+      .main-lines { fill: none; stroke: #000000; stroke-width: 25; stroke-linecap: round; stroke-linejoin: round; }
+      .detail-lines { fill: none; stroke: #000000; stroke-width: 15; stroke-linecap: round; stroke-linejoin: round; }
+    </style>
+  </defs>
+  <!-- Main Frame -->
+  <rect x="12.5" y="12.5" width="1975" height="625" rx="5" class="main-lines" />
+  
+  <!-- Hanging Rod -->
+  <line x1="50" y1="325" x2="1950" y2="325" class="detail-lines" />
+  
+  <!-- Hangers (Simple angled lines) -->
+  <path d="M 200 150 L 200 500" class="detail-lines" opacity="0.5"/>
+  <path d="M 400 150 L 400 500" class="detail-lines" opacity="0.5"/>
+  <path d="M 600 150 L 600 500" class="detail-lines" opacity="0.5"/>
+  <path d="M 800 150 L 800 500" class="detail-lines" opacity="0.5"/>
+  <path d="M 1000 150 L 1000 500" class="detail-lines" opacity="0.5"/>
+  <path d="M 1200 150 L 1200 500" class="detail-lines" opacity="0.5"/>
+  <path d="M 1400 150 L 1400 500" class="detail-lines" opacity="0.5"/>
+  <path d="M 1600 150 L 1600 500" class="detail-lines" opacity="0.5"/>
+  <path d="M 1800 150 L 1800 500" class="detail-lines" opacity="0.5"/>
+</svg>

@@ -1,0 +1,22 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1600 840">
+  <defs>
+    <style>
+      .main-lines { fill: none; stroke: #000000; stroke-width: 25; stroke-linecap: round; stroke-linejoin: round; }
+      .detail-lines { fill: none; stroke: #000000; stroke-width: 15; stroke-linecap: round; stroke-linejoin: round; }
+    </style>
+  </defs>
+  <!-- Main Seat Area -->
+  <rect x="12.5" y="12.5" width="1575" height="815" rx="20" class="main-lines" />
+  
+  <!-- Asymmetric Backrest/Armrest (Classic Chaise Shape) -->
+  <!-- Backrest along the short side and curving to half of the long side -->
+  <path d="M 12.5 827.5 L 12.5 200 Q 12.5 12.5, 200 12.5 L 900 12.5 Q 1000 12.5, 1000 112.5" class="main-lines" fill="none"/>
+  
+  <!-- Bolster Pillow (Cylindrical) -->
+  <rect x="1050" y="100" width="80" height="600" rx="40" class="detail-lines" />
+  
+  <!-- Tufting / Seam lines -->
+  <line x1="400" y1="100" x2="400" y2="740" class="detail-lines" opacity="0.3"/>
+  <line x1="800" y1="100" x2="800" y2="740" class="detail-lines" opacity="0.3"/>
+  <line x1="1200" y1="100" x2="1200" y2="740" class="detail-lines" opacity="0.3"/>
+</svg>

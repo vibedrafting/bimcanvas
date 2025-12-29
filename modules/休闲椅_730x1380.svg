@@ -1,0 +1,23 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 730 1380">
+  <defs>
+    <style>
+      .main-lines { fill: none; stroke: #000000; stroke-width: 25; stroke-linecap: round; stroke-linejoin: round; }
+      .detail-lines { fill: none; stroke: #000000; stroke-width: 20; stroke-linecap: round; stroke-linejoin: round; }
+    </style>
+  </defs>
+  <!-- Main Body (Recliner) -->
+  <rect x="12.5" y="12.5" width="705" height="1355" rx="30" class="main-lines" />
+  
+  <!-- Headrest -->
+  <rect x="100" y="50" width="530" height="200" rx="10" class="detail-lines" />
+  
+  <!-- Armrests -->
+  <rect x="12.5" y="300" width="120" height="600" rx="20" class="detail-lines" />
+  <rect x="597.5" y="300" width="120" height="600" rx="20" class="detail-lines" />
+  
+  <!-- Footrest Division -->
+  <line x1="12.5" y1="1000" x2="717.5" y2="1000" class="detail-lines" />
+  
+  <!-- Tufting on footrest -->
+  <line x1="100" y1="1180" x2="630" y2="1180" class="detail-lines" opacity="0.5"/>
+</svg>

@@ -1,0 +1,24 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 3200 1300">
+  <defs>
+    <style>
+      .main-lines { fill: none; stroke: #000000; stroke-width: 25; stroke-linecap: round; stroke-linejoin: round; }
+      .detail-lines { fill: none; stroke: #000000; stroke-width: 20; stroke-linecap: round; stroke-linejoin: round; }
+    </style>
+  </defs>
+  <!-- Main Outline (Curved) -->
+  <path d="M 12.5 400 
+           Q 1600 -200, 3187.5 400 
+           L 3187.5 1000 
+           Q 1600 1400, 12.5 1000 Z" class="main-lines" />
+  
+  <!-- Backrest (Curved) -->
+  <path d="M 12.5 400 
+           Q 1600 -200, 3187.5 400 
+           L 3187.5 600 
+           Q 1600 0, 12.5 600 Z" class="main-lines" />
+           
+  <!-- Seat Cushions (Curved divisions) -->
+  <path d="M 1000 350 Q 1050 800, 900 1150" class="detail-lines" />
+  <path d="M 2200 350 Q 2150 800, 2300 1150" class="detail-lines" />
+
+</svg>

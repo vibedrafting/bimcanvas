@@ -1,0 +1,21 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1800 810">
+  <defs>
+    <style>
+      .main-lines { fill: none; stroke: #000000; stroke-width: 25; stroke-linecap: round; stroke-linejoin: round; }
+      .detail-lines { fill: none; stroke: #000000; stroke-width: 20; stroke-linecap: round; stroke-linejoin: round; }
+    </style>
+  </defs>
+  <!-- Main Outline -->
+  <rect x="12.5" y="12.5" width="1775" height="785" rx="20" class="main-lines" />
+  
+  <!-- Backrest -->
+  <rect x="12.5" y="12.5" width="1775" height="180" rx="15" class="main-lines" />
+  
+  <!-- Armrests -->
+  <rect x="12.5" y="192.5" width="150" height="605" rx="15" class="detail-lines" />
+  <rect x="1637.5" y="192.5" width="150" height="605" rx="15" class="detail-lines" />
+  
+  <!-- Seat Cushions (2) -->
+  <rect x="180" y="210" width="710" height="570" rx="20" class="detail-lines" />
+  <rect x="910" y="210" width="710" height="570" rx="20" class="detail-lines" />
+</svg>

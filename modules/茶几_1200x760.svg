@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 760">
+  <defs>
+    <style>
+      .main-lines { fill: none; stroke: #000000; stroke-width: 25; stroke-linecap: round; stroke-linejoin: round; }
+      .detail-lines { fill: none; stroke: #000000; stroke-width: 15; stroke-linecap: round; stroke-linejoin: round; }
+    </style>
+  </defs>
+  <!-- Table Top Outer -->
+  <rect x="12.5" y="12.5" width="1175" height="735" rx="15" class="main-lines" />
+  
+  <!-- Table Top Inner Edge -->
+  <rect x="50" y="50" width="1100" height="660" rx="10" class="detail-lines" opacity="0.6"/>
+  
+  <!-- Decorative Item: Tray or Book -->
+  <rect x="100" y="100" width="300" height="200" rx="5" class="detail-lines" />
+</svg>

@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 470 470">
+  <defs>
+    <style>
+      .main-lines { fill: none; stroke: #000000; stroke-width: 25; stroke-linecap: round; stroke-linejoin: round; }
+      .detail-lines { fill: none; stroke: #000000; stroke-width: 20; stroke-linecap: round; stroke-linejoin: round; }
+    </style>
+  </defs>
+  <!-- Backrest (Distinct from seat) -->
+  <path d="M 12.5 100 Q 235 0, 457.5 100" class="main-lines" />
+  
+  <!-- Seat (Square with rounded front) -->
+  <path d="M 30 120 L 440 120 L 440 350 Q 440 457.5, 235 457.5 Q 30 457.5, 30 350 Z" class="main-lines" />
+  
+  <!-- Armrests (Optional, simple lines) -->
+  <line x1="30" y1="120" x2="30" y2="300" class="detail-lines" />
+  <line x1="440" y1="120" x2="440" y2="300" class="detail-lines" />
+</svg>

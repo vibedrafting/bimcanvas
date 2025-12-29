@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1600 480">
+  <defs>
+    <style>
+      .main-lines { fill: none; stroke: #000000; stroke-width: 25; stroke-linecap: round; stroke-linejoin: round; }
+      .detail-lines { fill: none; stroke: #000000; stroke-width: 20; stroke-linecap: round; stroke-linejoin: round; }
+    </style>
+  </defs>
+  <!-- Main Bench -->
+  <rect x="12.5" y="12.5" width="1575" height="455" rx="20" class="main-lines" />
+  
+  <!-- Cushion Detail (Tufting buttons) -->
+  <circle cx="400" cy="240" r="10" class="detail-lines" fill="#000000"/>
+  <circle cx="800" cy="240" r="10" class="detail-lines" fill="#000000"/>
+  <circle cx="1200" cy="240" r="10" class="detail-lines" fill="#000000"/>
+</svg>
