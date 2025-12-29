@@ -25,6 +25,10 @@ export class ThreeSceneService {
     private labelRenderer: CSS2DRenderer;
     private animationId: number | null = null;
 
+    private isInitialLoad: boolean = true;
+
+
+
     // Bound event handlers (用于正确移除监听器)
     private boundOnResize: () => void;
     private boundAnimate: () => void;
@@ -127,22 +131,41 @@ export class ThreeSceneService {
 
         // 7. Watch for Store Changes
 
+
+
+        // ...
+
+        // 7. Watch for Store Changes
+
         // A. Deep watch for content updates (Rebuild Scene)
         watch(() => this.store.projectData, (newData) => {
             if (newData) {
-                // console.log('Project data updated, rebuilding scene...');
-                this.sceneBuilder.buildFromDocument(newData);
-                this.outlineBuilder.buildLines(newData);
-                this.labelBuilder.buildLabels(newData);
+                if (this.isInitialLoad) {
+                    console.log('Initial load detected. Building Grid ONLY and fitting screen.');
+                    // Only build Grid (already built in init, but ensure it's there)
+                    this.gridBuilder.buildGrid();
 
-                // Update Zone Label Visibility based on current layer state
-                const labelsOn = this.camera.layers.isEnabled(LayerManager.LAYER_LABELS);
-                const zonesOn = this.camera.layers.isEnabled(LayerManager.LAYER_ZONES);
-                this.labelBuilder.updateZoneLabelVisibility(labelsOn, zonesOn);
+                    // Fit to screen immediately so camera is ready for the show
+                    this.fitToScreen(newData);
 
-                this.zoneBuilder.buildZones(newData);
-                this.exclusionBuilder.buildExclusions(newData);
-                this.gridBuilder.buildGrid();
+                    // Do NOT build scene yet. Wait for event.
+                    this.isInitialLoad = false;
+                } else {
+                    // Normal update (e.g. undo/redo, manual load) -> Build immediately
+                    // console.log('Project data updated, rebuilding scene...');
+                    this.sceneBuilder.buildFromDocument(newData);
+                    this.outlineBuilder.buildLines(newData);
+                    this.labelBuilder.buildLabels(newData);
+
+                    // Update Zone Label Visibility based on current layer state
+                    const labelsOn = this.camera.layers.isEnabled(LayerManager.LAYER_LABELS);
+                    const zonesOn = this.camera.layers.isEnabled(LayerManager.LAYER_ZONES);
+                    this.labelBuilder.updateZoneLabelVisibility(labelsOn, zonesOn);
+
+                    this.zoneBuilder.buildZones(newData);
+                    this.exclusionBuilder.buildExclusions(newData);
+                    this.gridBuilder.buildGrid();
+                }
             }
         }, { deep: true });
 
@@ -150,13 +173,30 @@ export class ThreeSceneService {
         // This only triggers when a NEW document is loaded (reference change),
         // not when modules are moved/rotated (mutation).
         watch(() => this.store.projectData, (newData) => {
-            if (newData) {
-                console.log('New project loaded, fitting to screen...');
+            if (newData && !this.isInitialLoad) {
+                // Only fit to screen on subsequent loads, initial load handled above
+                console.log('New project loaded (subsequent), fitting to screen...');
                 setTimeout(() => {
                     this.fitToScreen(newData);
                 }, 100);
             }
         });
+
+        // ...
+
+        // Listen for Cinematic Build
+        const playBuildSequenceHandler = (() => {
+            if (this.store.projectData) {
+                this.sceneBuilder.buildProgressively(this.store.projectData);
+                // Also build other helpers that might be needed
+                this.outlineBuilder.buildLines(this.store.projectData);
+                this.labelBuilder.buildLabels(this.store.projectData);
+                this.zoneBuilder.buildZones(this.store.projectData);
+                this.exclusionBuilder.buildExclusions(this.store.projectData);
+            }
+        }) as EventListener;
+        this.boundEventHandlers.set('bimcanvas:play-build-sequence', playBuildSequenceHandler);
+        window.addEventListener('bimcanvas:play-build-sequence', playBuildSequenceHandler);
 
         // 8. Events - 使用保存的引用以便正确移除
         this.boundOnResize = this.onWindowResize.bind(this);

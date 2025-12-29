@@ -188,6 +188,47 @@ export class SceneBuilder {
         this.updateAllHelpers();
     }
 
+    public async buildProgressively(data: ProjectData) {
+        console.log('SceneBuilder: Starting Progressive Build...');
+        // Note: Scene should already be cleared or contain only Grid.
+        // We assume clearScene() was called before or we are building on top of empty scene.
+        // Actually, ThreeSceneService will handle the clear.
+
+        const baseline = data.baseline;
+        const activeScheme = data.activeScheme;
+
+        const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
+
+        // 1. Columns (Structure first) - Batch
+        if (baseline?.columns && baseline.columns.length > 0) {
+            baseline.columns.forEach(col => this.createColumnMesh(col));
+            await delay(100); // Wait after batch
+        }
+
+        // 2. Walls - Batch
+        if (baseline?.walls && baseline.walls.length > 0) {
+            baseline.walls.forEach(wall => this.createWallMesh(wall));
+            await delay(100); // Wait after batch
+        }
+
+        // 3. Openings - Batch
+        if (baseline?.openings && baseline.openings.length > 0) {
+            baseline.openings.forEach(op => this.createOpeningMesh(op));
+            await delay(100); // Wait after batch
+        }
+
+        // 4. Modules (Furniture last) - One by one for effect
+        if (activeScheme?.modules && activeScheme.modules.length > 0) {
+            for (const mod of activeScheme.modules) {
+                this.createModuleMesh(mod);
+                await delay(30); // Fast individual pop
+            }
+        }
+
+        this.updateAllHelpers();
+        console.log('SceneBuilder: Progressive Build Completed.');
+    }
+
     public buildDemoScene() {
         // this.buildFloor(); // Removed as per user request
         const wallGeo = new THREE.BoxGeometry(5000, 200, 2800);

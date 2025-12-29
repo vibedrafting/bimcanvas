@@ -15,6 +15,8 @@ const debugStore = useDebugStore();
 const isSplashShowing = ref(true);
 const loaderProps = ref<{ spacing?: number, offsetX?: number, offsetY?: number, active: boolean }>({ active: true });
 
+const loadingStage = ref(0); // 0: Loader, 1: Grid, 2: Island, 3: Tools, 4: Chrome, 5: Scene
+
 onMounted(async () => {
   // Initialize Theme
   themeService.init();
@@ -74,9 +76,28 @@ onMounted(async () => {
     console.error('Failed to load project:', error);
     debugStore.error(`Loading sequence failed or timed out: ${error}`);
   } finally {
-    debugStore.log('Hiding splash screen.');
+    debugStore.log('Starting Cinematic Sequence...');
+    
+    // Stage 1: Grid Ready (Loader Fades Out)
     isSplashShowing.value = false;
     loaderProps.value.active = false;
+    loadingStage.value = 1;
+    
+    // Wait for loader fade out (approx 200ms) - Reduced from 800ms for snappier feel
+    await new Promise(resolve => setTimeout(resolve, 200));
+
+    // Stage 2 & 3: Dynamic Island & Layer Manager (Together)
+    loadingStage.value = 3;
+    await new Promise(resolve => setTimeout(resolve, 300));
+
+    // Stage 4: Chrome (Header, Ribbon, Panels)
+    loadingStage.value = 4;
+    await new Promise(resolve => setTimeout(resolve, 500));
+
+    // Stage 5: Scene Build
+    loadingStage.value = 5;
+    debugStore.log('Triggering Progressive Scene Build...');
+    window.dispatchEvent(new CustomEvent('bimcanvas:play-build-sequence'));
   }
 });
 
@@ -119,7 +140,7 @@ const handleKeydown = (e: KeyboardEvent) => {
     :target-offset-x="loaderProps.offsetX"
     :target-offset-y="loaderProps.offsetY"
   />
-  <MainLayout>
+  <MainLayout :loading-stage="loadingStage">
     <ThreeCanvas />
   </MainLayout>
   <DebugConsole />
