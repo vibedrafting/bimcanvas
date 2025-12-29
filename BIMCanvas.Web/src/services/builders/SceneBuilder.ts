@@ -227,6 +227,7 @@ export class SceneBuilder {
 
         this.updateAllHelpers();
         console.log('SceneBuilder: Progressive Build Completed.');
+        window.dispatchEvent(new CustomEvent('bimcanvas:build-complete'));
     }
 
     public buildDemoScene() {

@@ -101,6 +101,15 @@ onMounted(async () => {
   }
 });
 
+const isBuildComplete = ref(false);
+
+onMounted(() => {
+  window.addEventListener('bimcanvas:build-complete', () => {
+    debugStore.log('Build Complete Event Received.');
+    isBuildComplete.value = true;
+  });
+});
+
 import { onUnmounted } from 'vue';
 
 onUnmounted(() => {
@@ -140,7 +149,7 @@ const handleKeydown = (e: KeyboardEvent) => {
     :target-offset-x="loaderProps.offsetX"
     :target-offset-y="loaderProps.offsetY"
   />
-  <MainLayout :loading-stage="loadingStage">
+  <MainLayout :loading-stage="loadingStage" :build-complete="isBuildComplete">
     <ThreeCanvas />
   </MainLayout>
   <DebugConsole />

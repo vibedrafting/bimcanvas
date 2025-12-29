@@ -4,14 +4,14 @@ import AppHeader from '../components/UI/AppHeader.vue';
 import DynamicIsland from '../components/UI/DynamicIsland.vue';
 import SideGallery from '../components/UI/SideGallery.vue';
 import PropertyPanel from '../components/UI/PropertyPanel.vue';
-import FloatingLayerManager from '../components/UI/FloatingLayerManager.vue';
-import PromptBar from '../components/UI/PromptBar.vue';
 import FloatingInput from '../components/UI/FloatingInput.vue';
+import PromptBar from '../components/UI/PromptBar.vue';
 import { useDebugStore } from '../stores/debugStore';
 import { onMounted } from 'vue';
 
 const props = defineProps<{
-  loadingStage?: number
+  loadingStage?: number;
+  buildComplete?: boolean;
 }>();
 
 const debugStore = useDebugStore();
@@ -28,7 +28,7 @@ onMounted(() => {
         <AppHeader />
         <RibbonToolbar />
       </div>
-      <div class="island-container" :class="{ 'visible': (props.loadingStage ?? 5) >= 2 }">
+      <div class="island-container" :class="{ 'visible': (props.loadingStage ?? 5) >= 3, 'hint-pulse': props.buildComplete }">
         <DynamicIsland />
       </div>
     </header>
@@ -142,12 +142,15 @@ onMounted(() => {
   transform: scale(1) translateY(0);
 }
 
+/* Post-Load Pulse: Subtle expansion hint */
+.island-container.hint-pulse :deep(.command-island) {
+  animation: island-pulse 1.5s cubic-bezier(0.2, 0.8, 0.2, 1);
+}
 
-
-.gallery-area, .properties-area {
-  /* Transition */
-  opacity: 0;
-  transition: opacity 0.6s ease-out, transform 0.6s ease-out;
+@keyframes island-pulse {
+  0% { width: 180px; height: 36px; transform: translateX(-50%); }
+  40% { width: 260px; height: 42px; transform: translateX(-50%); } /* Hint at expansion (Width + Height) */
+  100% { width: 180px; height: 36px; transform: translateX(-50%); }
 }
 
 .gallery-area {
