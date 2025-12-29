@@ -1,21 +1,21 @@
 # BIMCanvas JSON Schema 规范 v3.0
 
 > 版本：v3.0
-> 更新日期：2025-12-25
-> 状态：设计定稿（Multi-Repo Collection 架构）
+> 更新日期：2025-12-29
+> 状态：已实现（基于 demo_1 项目验证）
 >
 > **相关文档**：
-> - [Schema-JSON.md](./Schema-JSON.md) - v2.9 单一 JSON 结构（兼容期保留）
+> - [Schema-JSON.md](./Schema-JSON.md) - v2.9 单一 JSON 结构（**已废弃**）
 > - [Architecture.md](./Architecture.md) - 系统架构
-> - [ProjectStructure_Demo/](../ProjectStructure_Demo/) - 完整示例项目
+> - 实际示例项目：`C:\Users\huhaonan\Documents\BIMCanvas\Projects\demo_1`
 >
 > **v3.0 变更要点**：
-> - 从单一 JSON 文件升级为多文件夹结构（Multi-Repo Collection）
-> - 策略（Strategy）作为独立 Git 仓库，支持并行开发
+> - 从单一 JSON 文件升级为多文件夹结构（File-Driven Architecture）
+> - 策略（Scheme）作为独立 Git 仓库，支持并行开发
 > - 变体（Variant）通过 Git 分支管理，支持线性回溯
-> - 新增 dirty 机制：`lastValidatedBaselineHash` + `status`
-> - 新增 origin 字段追踪衍生策略
-> - finishes 使用绝对 mm 值的 range 表示
+> - **类型字段使用数字枚举**（如 `type: 0` 而非 `"door"`）
+> - **zones 和 exclusions 分离**到 computed/ 文件夹
+> - 新增 context/ 文件夹存放设计知识
 
 ---
 
@@ -65,19 +65,24 @@
 │   │  • location_lines.json: 完成面定位线                     │   │
 │   └─────────────────────────────────────────────────────────┘   │
 │                                                                 │
+│   【computed/: 计算层】Server 自动生成                           │
+│   ┌─────────────────────────────────────────────────────────┐   │
+│   │  • zones.json: 房间区域（从 rooms 派生）                  │   │
+│   │  • exclusions.json: 禁区（门扇扫过区域等）                │   │
+│   └─────────────────────────────────────────────────────────┘   │
+│                                                                 │
 │   【context/: 上下文层】设计知识                                 │
 │   ┌─────────────────────────────────────────────────────────┐   │
 │   │  • requirements.md: 用户需求                             │   │
-│   │  • standards.md: 设计规范（可选）                         │   │
-│   │  • analysis.md: AI 项目分析（可选）                       │   │
 │   └─────────────────────────────────────────────────────────┘   │
 │                                                                 │
 │   【schemes/: 策略集合】每个策略是独立 Git 仓库                   │
 │   ┌─────────────────────────────────────────────────────────┐   │
 │   │  schemes/{s}/                                            │   │
-│   │  ├── strategy.json: 策略元数据（含 origin, status）      │   │
-│   │  ├── zones.json: 分区数据                                │   │
-│   │  ├── finishes.json: 完成面配置                           │   │
+│   │  ├── .git/: 独立 Git 仓库                                │   │
+│   │  ├── strategy.json: 策略元数据（含 baselineHash）        │   │
+│   │  ├── zones.json: 策略级分区（可空）                       │   │
+│   │  ├── finishes.json: 完成面配置（可空）                    │   │
 │   │  └── modules.json: 家具布置                              │   │
 │   └─────────────────────────────────────────────────────────┘   │
 │                                                                 │
@@ -109,34 +114,31 @@
 {项目名称}/                              # 项目根目录（非 Git 仓库）
 │
 ├── project.json                         # 项目入口
-├── .gitignore                           # 忽略 Assets/, derived/
 │
-├── baseline/                            # 【基准层】只读
+├── baseline/                            # 【基准层】只读，Revit 导出
+│   ├── baseline.manifest                # 基准层清单（版本信息）
 │   ├── metadata.json                    # 坐标转换参数
 │   ├── architecture.json                # 墙、柱
 │   ├── openings.json                    # 门窗
 │   ├── rooms.json                       # 房间边界
 │   └── location_lines.json              # 完成面定位线
 │
+├── computed/                            # 【计算层】Server 自动生成
+│   ├── zones.json                       # 房间区域（rz_* ID）
+│   └── exclusions.json                  # 禁区（ez_* ID）
+│
 ├── context/                             # 【上下文层】设计知识
 │   └── requirements.md                  # 用户需求
 │
 ├── schemes/                             # 【策略集合】
-│   ├── s1_Flow/                         # 策略1（独立 Git 仓库）
-│   │   ├── .git/                        # Git 仓库
-│   │   ├── .gitignore
-│   │   ├── strategy.json                # 策略元数据
-│   │   ├── zones.json                   # 分区数据
-│   │   ├── finishes.json                # 完成面配置
-│   │   └── modules.json                 # 家具布置
-│   │
-│   └── s2_Derived/                      # 策略2（衍生策略）
-│       └── ...
+│   └── default/                         # 默认策略（独立 Git 仓库）
+│       ├── .git/                        # Git 仓库
+│       ├── strategy.json                # 策略元数据
+│       ├── zones.json                   # 策略级分区（通常为空数组）
+│       ├── finishes.json                # 完成面配置（通常为空数组）
+│       └── modules.json                 # 家具布置
 │
-├── Assets/                              # 【资产层】截图等（不进 Git）
-│   └── .gitkeep
-│
-└── derived/                             # 【缓存层】可重算（不进 Git）
+└── Assets/                              # 【资产层】截图等（可选）
 ```
 
 ---
@@ -243,91 +245,89 @@
 
 ### 4.3 openings.json（门窗）
 
+门窗数据为数组格式：
+
 ```json
-{
-  "openings": [
-    {
-      "id": "o1",
-      "elementId": 200001,
-      "type": "door",
-      "wallId": "w1",
-      "line": [[1000, 0], [1900, 0]],
-      "width": 900,
-      "height": 2100,
-      "facingDirection": [0, 1],
-      "handDirection": [1, 0],
-      "openingType": "single_swing"
-    },
-    {
-      "id": "o2",
-      "elementId": 200002,
-      "type": "window",
-      "wallId": "w3",
-      "line": [[1000, 3800], [3000, 3800]],
-      "width": 2000,
-      "height": 1500,
-      "sillHeight": 900,
-      "facingDirection": [0, -1]
-    }
-  ]
-}
+[
+  {
+    "id": "d_1",
+    "type": 0,
+    "line": [[2259.99, 8949.99], [3259.99, 8949.99]],
+    "facingDirection": [0, 1],
+    "handDirections": [[1, 0]]
+  },
+  {
+    "id": "wi_1",
+    "type": 1,
+    "line": [[2999.99, 800.0], [7999.99, 800.0]],
+    "facingDirection": [0, 1]
+  }
+]
 ```
 
-| 字段 | 类型 | 说明 |
-|------|------|------|
-| `id` | string | 开口 ID |
-| `elementId` | number | Revit 元素 ID |
-| `type` | string | 类型：`door` / `window` |
-| `wallId` | string | 所属墙体 ID |
-| `line` | Line2D | 定位线段 |
-| `width` | number | 宽度（mm） |
-| `height` | number | 高度（mm） |
-| `facingDirection` | Vec2D | 朝向（室内方向） |
-| `handDirection` | Vec2D | 把手方向（仅门） |
-| `openingType` | string | 开启方式（仅门） |
-| `sillHeight` | number | 窗台高度（仅窗） |
+| 字段 | 类型 | 必填 | 说明 |
+|------|------|------|------|
+| `id` | string | 是 | 开口 ID，门用 `d_*`，窗用 `wi_*` |
+| `type` | number | 是 | 类型：`0` = 门，`1` = 窗 |
+| `line` | Line2D | 是 | 定位线段 |
+| `facingDirection` | Vec2D | 是 | 朝向（室内方向） |
+| `handDirections` | Vec2D[] | 仅门 | 把手方向数组（支持多扇门） |
+
+#### OpeningType 枚举
+
+| 值 | 说明 |
+|----|------|
+| `0` | 门 (Door) |
+| `1` | 窗 (Window) |
 
 ### 4.4 rooms.json（房间）
 
+房间数据为数组格式：
+
 ```json
-{
-  "rooms": [
-    {
-      "id": "room1",
-      "elementId": 300001,
-      "name": "主卧",
-      "type": "master_bedroom",
-      "area": 20000000,
-      "boundary": [[200, 200], [4800, 200], [4800, 3800], [200, 3800]]
-    }
-  ]
-}
+[
+  {
+    "id": "r_1",
+    "name": "次卧一",
+    "type": 3,
+    "boundary": [[9399.99, 10499.99], [6599.99, 10499.99], [6599.99, 7099.99], [9399.99, 7099.99]]
+  },
+  {
+    "id": "r_3",
+    "name": "主卧",
+    "type": 2,
+    "boundary": [[14099.99, 5749.99], [11199.99, 5749.99], [9099.99, 5749.99], [9099.99, 900.0], [12399.99, 900.0], [12399.99, 4199.99], [14099.99, 4199.99]]
+  },
+  {
+    "id": "r_6",
+    "name": "公共空间",
+    "type": 0,
+    "boundary": [[200.0, 5149.99], [200.0, 2095.41], ...]
+  }
+]
 ```
 
-| 字段 | 类型 | 说明 |
-|------|------|------|
-| `id` | string | 房间 ID |
-| `elementId` | number | Revit 元素 ID |
-| `name` | string | 房间名称 |
-| `type` | RoomType | 房间类型枚举 |
-| `area` | number | 面积（mm²） |
-| `boundary` | Polygon2D | 房间边界 |
+| 字段 | 类型 | 必填 | 说明 |
+|------|------|------|------|
+| `id` | string | 是 | 房间 ID，格式 `r_*` |
+| `name` | string | 是 | 房间名称（中文） |
+| `type` | number | 是 | 房间类型枚举（数字） |
+| `boundary` | Polygon2D | 是 | 房间边界 |
 
 #### RoomType 枚举
 
-| 值 | 说明 |
-|-----|------|
-| `living_room` | 客厅 |
-| `dining_room` | 餐厅 |
-| `master_bedroom` | 主卧 |
-| `bedroom` | 次卧 |
-| `study` | 书房 |
-| `kitchen` | 厨房 |
-| `bathroom` | 卫生间 |
-| `entrance` | 玄关 |
-| `balcony` | 阳台 |
-| `corridor` | 走廊 |
-| `storage` | 储物间 |
+| 值 | 说明 | 英文 |
+|----|------|------|
+| `0` | 客厅 | LivingRoom |
+| `1` | 餐厅 | DiningRoom |
+| `2` | 主卧 | MasterBedroom |
+| `3` | 次卧 | Bedroom |
+| `4` | 书房 | Study |
+| `5` | 厨房 | Kitchen |
+| `6` | 卫生间 | Bathroom |
+| `7` | 玄关 | Entrance |
+| `8` | 阳台 | Balcony |
+| `9` | 走廊 | Corridor |
 
 ### 4.5 location_lines.json（完成面定位线）
 
@@ -357,9 +357,86 @@
 
 ---
 
-## 5. 策略层 (schemes/{s}/)
+## 5. 计算层 (computed/)
 
-### 5.1 strategy.json（策略元数据）
+计算层由 Server 根据 baseline 数据自动生成，用户/AI 不应直接修改。
+
+### 5.1 zones.json（房间区域）
+
+从 rooms.json 派生的可设计区域，数组格式：
+
+```json
+[
+  {
+    "id": "rz_1",
+    "name": "次卧一",
+    "roomId": "r_1",
+    "type": 1,
+    "reason": "room:Bedroom",
+    "rawBoundary": [[9399.99, 10499.99], [6599.99, 10499.99], [6599.99, 7099.99], [9399.99, 7099.99]],
+    "computedBoundary": null,
+    "tags": [],
+    "finishRequirements": [],
+    "schemeId": null
+  }
+]
+```
+
+| 字段 | 类型 | 必填 | 说明 |
+|------|------|------|------|
+| `id` | string | 是 | 区域 ID，格式 `rz_*`（room zone） |
+| `name` | string | 是 | 区域名称 |
+| `roomId` | string | 是 | 来源房间 ID |
+| `type` | number | 是 | 区域类型：`0` = 禁区，`1` = 可设计区 |
+| `reason` | string | 是 | 生成原因（如 `room:Bedroom`） |
+| `rawBoundary` | Polygon2D | 是 | 原始边界 |
+| `computedBoundary` | Polygon2D | 否 | 计算后边界（扣除完成面等） |
+| `tags` | string[] | 是 | 功能标签 |
+| `finishRequirements` | array | 是 | 完成面需求 |
+| `schemeId` | string | 否 | 关联策略 ID |
+
+#### ZoneType 枚举
+
+| 值 | 说明 |
+|----|------|
+| `0` | 禁区 (Exclusion) |
+| `1` | 可设计区 (Room/Designable) |
+
+### 5.2 exclusions.json（禁区）
+
+门扇扫过区域等禁止布置家具的区域，数组格式：
+
+```json
+[
+  {
+    "id": "ez_1",
+    "name": "门扇禁区",
+    "roomId": "",
+    "type": 0,
+    "reason": "door_swing:门 d_1 的开启扫过区域",
+    "rawBoundary": [[2259.99, 8949.99], [3259.99, 8949.99], [3259.99, 9949.99], [2259.99, 9949.99]],
+    "computedBoundary": null,
+    "tags": [],
+    "finishRequirements": [],
+    "schemeId": null
+  }
+]
+```
+
+| 字段 | 类型 | 必填 | 说明 |
+|------|------|------|------|
+| `id` | string | 是 | 禁区 ID，格式 `ez_*`（exclusion zone） |
+| `name` | string | 是 | 禁区名称（如"门扇禁区"） |
+| `roomId` | string | 是 | 关联房间 ID（可为空字符串） |
+| `type` | number | 是 | 固定为 `0`（禁区） |
+| `reason` | string | 是 | 生成原因（如 `door_swing:门 d_1 的开启扫过区域`） |
+| `rawBoundary` | Polygon2D | 是 | 禁区边界 |
+
+---
+
+## 6. 策略层 (schemes/{s}/)
+
+### 6.1 strategy.json（策略元数据）
 
 ```json
 {
@@ -429,7 +506,7 @@
 | `dirty` | 编辑、保存 | 导出到 Revit | 提示"底图已变更" |
 | `invalid` | 查看 | 编辑、导出 | 强制进入修复模式 |
 
-### 5.2 zones.json（分区数据）
+### 6.2 zones.json（策略级分区）
 
 ```json
 {
@@ -476,7 +553,7 @@
 | `passage` | 通道区 |
 | `main_circulation` | 主动线 |
 
-### 5.3 finishes.json（完成面配置）
+### 6.3 finishes.json（完成面配置）
 
 ```json
 {
@@ -524,7 +601,7 @@
 - AI 计算更直观（"从墙角偏移 500mm 开始"）
 - 调试时一眼能和图纸对照
 
-### 5.4 modules.json（家具布置）
+### 6.4 modules.json（家具布置）
 
 ```json
 {
@@ -604,9 +681,9 @@
 
 ---
 
-## 6. 典型工作流
+## 7. 典型工作流
 
-### 6.1 新建策略
+### 7.1 新建策略
 
 ```bash
 mkdir schemes/s3_Space
@@ -616,21 +693,21 @@ git init
 git add . && git commit -m "初始化策略"
 ```
 
-### 6.2 创建变体（存档）
+### 7.2 创建变体（存档）
 
 ```bash
 cd schemes/s1_Flow
 git branch v1_backup    # 在重大修改前存档
 ```
 
-### 6.3 切换变体（回溯）
+### 7.3 切换变体（回溯）
 
 ```bash
 cd schemes/s1_Flow
 git checkout v1_backup  # 回到之前的版本
 ```
 
-### 6.4 变体升级为策略
+### 7.4 变体升级为策略
 
 ```bash
 cp -r schemes/s1_Flow schemes/s3_FromVariant
@@ -641,7 +718,7 @@ rm -rf .git && git init
 
 ---
 
-## 7. 与 v2.9 的映射关系
+## 8. 与 v2.9 的映射关系
 
 | v2.9 DesignDocument 路径 | v3.0 文件位置 | 说明 |
 |-------------------------|--------------|------|
@@ -662,7 +739,7 @@ rm -rf .git && git init
 
 ---
 
-## 8. TypeScript 类型定义
+## 9. TypeScript 类型定义
 
 ```typescript
 // ============================================

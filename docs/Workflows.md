@@ -839,7 +839,7 @@ Web 前端                                                        Server
 | 文档 | 路径 | 内容 |
 |------|------|------|
 | 系统架构 | `docs/Architecture.md` | 模块设计、技术决策 |
-| 数据模型 | `docs/Schema-JSON.md` | JSON 字段定义 |
+| 数据模型 | `docs/Schema-JSON-v3.md` | JSON 字段定义 (v3.0) |
 | MCP 工具 | `docs/MCP-Tools-Spec.md` | 工具 API 规范 |
 | 产品需求 | `docs/PRD.md` | 业务需求 |
 

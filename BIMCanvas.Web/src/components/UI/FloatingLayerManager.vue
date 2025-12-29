@@ -164,8 +164,8 @@ onUnmounted(() => {
 <style scoped lang="scss">
 .floating-layer-manager {
   position: fixed;
-  bottom: 60px;  /* Moved up from 20px */
-  right: 60px;   /* Moved left from 20px */
+  bottom: 60px;
+  right: 100px;   /* Moved left from 60px */
   z-index: 1000;
   display: flex;
   flex-direction: column;

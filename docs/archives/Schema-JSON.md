@@ -1,14 +1,27 @@
 # BIMCanvas JSON Schema 规范
 
-> 版本：v2.9
+> ⚠️ **此文档已废弃** ⚠️
+>
+> 本文档为 v2.9 版本，已被 [Schema-JSON-v3.md](../Schema-JSON-v3.md) 取代。
+>
+> **v3.0 主要变更**：
+> - 从单一 JSON 文件改为 File-Driven 多文件夹架构
+> - 项目数据分层：baseline/（只读）、computed/（自动生成）、schemes/（可编辑）
+> - 类型字段改用数值枚举（如 `type: 0` 而非 `"door"`）
+>
+> 请参阅最新文档：[Schema-JSON-v3.md](../Schema-JSON-v3.md)
+
+---
+
+> 版本：v2.9（已废弃）
 > 更新日期：2025-12-22
-> 状态：已定稿（Core 层目录重组 + layout 结构封装）
+> 状态：已归档
 >
 > **相关文档**：
 > - [Architecture.md](./Architecture.md) - 系统架构（含 Core 层详细设计）
 > - [reviews/BIMCanvas_Core_Implementation_Review.md](../reviews/BIMCanvas_Core_Implementation_Review.md) - Core 实现方案评审记录
 >
-> **v2.9 变更要点**：
+> **v2.9 变更要点**（历史记录）：
 > - `modules` 属性改为 `layout` 封装：`layout: { modules: [...], schemes: [] }`
 > - 新增 `Scheme` 类型：支持多方案系统（与 Zone.schemeId 对应）
 > - Core 层目录重组：Geometry/Revit/Computed/Layout/Semantic/Shared

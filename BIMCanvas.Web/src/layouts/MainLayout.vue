@@ -4,6 +4,7 @@ import AppHeader from '../components/UI/AppHeader.vue';
 import DynamicIsland from '../components/UI/DynamicIsland.vue';
 import SideGallery from '../components/UI/SideGallery.vue';
 import PropertyPanel from '../components/UI/PropertyPanel.vue';
+import FloatingLayerManager from '../components/UI/FloatingLayerManager.vue';
 import FloatingInput from '../components/UI/FloatingInput.vue';
 import PromptBar from '../components/UI/PromptBar.vue';
 import { useDebugStore } from '../stores/debugStore';
@@ -144,7 +145,7 @@ onMounted(() => {
 
 /* Post-Load Pulse: Subtle expansion hint */
 .island-container.hint-pulse :deep(.command-island) {
-  animation: island-pulse 1.5s cubic-bezier(0.2, 0.8, 0.2, 1);
+  animation: island-pulse 1.0s cubic-bezier(0.2, 0.8, 0.2, 1);
 }
 
 @keyframes island-pulse {
@@ -169,7 +170,7 @@ onMounted(() => {
   position: fixed;
   inset: 0;
   pointer-events: none;
-  z-index: 1000;
+  z-index: 80; /* Lower than properties-area (90) so it gets covered */
 
   opacity: 0;
   transform: translateY(20px);

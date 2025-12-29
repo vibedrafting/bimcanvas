@@ -273,7 +273,7 @@ v3.0 采用 `.bcp` ZIP 格式，包含多个 JSON 文件：
 | 文档 | 说明 |
 |------|------|
 | [Architecture.md](./docs/Architecture.md) | 详细架构设计 |
-| [Schema-JSON.md](./docs/Schema-JSON.md) | JSON 数据模型规范 |
+| [Schema-JSON-v3.md](./docs/Schema-JSON-v3.md) | JSON 数据模型规范 (v3.0) |
 | [PRD.md](./docs/PRD.md) | 产品需求文档 |
 | [Architecture_Design_Review.md](./docs/Architecture_Design_Review.md) | 专家评审记录 |
 | [PlacementAgent_Review.md](./reviews/PlacementAgent_Review.md) | PlacementAgent 架构决策记录 |

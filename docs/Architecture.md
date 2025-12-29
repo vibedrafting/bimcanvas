@@ -190,7 +190,7 @@ project.bcp (ZIP)
 AI 操作 → 修改 JSON 数据 → WebSocket 推送 → 前端根据 JSON 生成 SVG → 用户看到画布
 ```
 
-详细 JSON Schema 定义见：[Schema-JSON.md](./Schema-JSON.md)
+详细 JSON Schema 定义见：[Schema-JSON-v3.md](./Schema-JSON-v3.md)
 
 ### 1.6 坐标系统规范
 
@@ -258,7 +258,7 @@ function toModel(screenX: number, screenY: number, scale: number, canvasHeight: 
 > ⚠️ **重要**：禁止使用 CSS `scaleY(-1)` 进行坐标翻转，会导致文字倒置等副作用。
 > 必须使用上述显式转换函数。
 
-详细坐标系定义见：[Schema-JSON.md - §1.3 坐标系统](./Schema-JSON.md#13-坐标系统)
+详细坐标系定义见：[Schema-JSON-v3.md - §1.3 坐标系统](./Schema-JSON-v3.md#13-坐标系统)
 
 #### 角度语义规范
 
@@ -644,7 +644,7 @@ BIMCanvas/                                    【根目录】
 ├── docs/                                     【目录】文档
 │   ├── PRD.md                                   产品需求文档
 │   ├── Architecture.md                          架构文档（本文件）
-│   ├── Schema-JSON.md                           JSON Schema 规范
+│   ├── Schema-JSON-v3.md                        JSON Schema 规范 (v3.0)
 │   └── ExpertReviews.md                         专家评审记录
 │
 └── external/                                 【目录】外部依赖
@@ -902,7 +902,7 @@ public class CanvasStateManager
 3. **AI 感知**：下次 MCP 工具调用时，返回结果附带 `pendingCommits`
 4. **AI 确认**：调用 `canvas_ack_commits` 确认已处理
 
-详细机制见：[Schema-JSON.md - 版本控制与变更追踪](./Schema-JSON.md#7-版本控制与变更追踪)
+详细机制见：[Schema-JSON-v3.md - 典型工作流](./Schema-JSON-v3.md#7-典型工作流)
 
 ### 5.3 乐观锁机制
 
@@ -950,7 +950,7 @@ public class CanvasStateManager
 
 #### 6.1.1 数据模型
 
-详细定义见：[Schema-JSON.md](./Schema-JSON.md)
+详细定义见：[Schema-JSON-v3.md](./Schema-JSON-v3.md)
 
 **几何基元 (Models/Primitives/)**：
 
@@ -2148,7 +2148,7 @@ if __name__ == "__main__":
 
 ### A. 参考文档
 
-- [Schema-JSON.md](./Schema-JSON.md) - JSON Schema 完整规范
+- [Schema-JSON-v3.md](./Schema-JSON-v3.md) - JSON Schema 完整规范 (v3.0)
 - [PRD.md](./PRD.md) - 产品需求文档
 - [ExpertReviews.md](./ExpertReviews.md) - 专家评审记录
 - [MCP 协议规范](https://modelcontextprotocol.io/)
