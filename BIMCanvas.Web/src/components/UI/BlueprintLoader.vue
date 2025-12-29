@@ -4,6 +4,9 @@ import { themeService } from '../../services/theme/ThemeService';
 
 const props = defineProps<{
   active: boolean;
+  targetSpacing?: number;
+  targetOffsetX?: number;
+  targetOffsetY?: number;
 }>();
 
 const canvasRef = ref<HTMLCanvasElement | null>(null);
@@ -15,7 +18,7 @@ let height = 0;
 let time = 0;
 
 // Configuration
-const GRID_SPACING = 100; 
+let GRID_SPACING = 100; 
 let GRID_ROWS = 0;
 let GRID_COLS = 0;
 
@@ -48,62 +51,119 @@ class Particle {
     this.row = row;
     this.col = col;
     
-    // 1. Calculate Target (P2)
-    const totalWidth = (GRID_COLS - 1) * GRID_SPACING;
-    const totalHeight = (GRID_ROWS - 1) * GRID_SPACING;
-    const centerX = width / 2;
-    const centerY = height / 2;
-    const startGridX = centerX - totalWidth / 2;
-    const startGridY = centerY - totalHeight / 2;
-    
-    this.p2x = startGridX + this.col * GRID_SPACING;
-    this.p2y = startGridY + this.row * GRID_SPACING;
+    // Initialize P2 (Target) - Default centered grid
+    this.calculateTarget(width, height);
 
     // 2. Start Position (P0) - Large spread
     const chaosRadius = 400; 
     this.p0x = this.p2x + (Math.random() - 0.5) * chaosRadius;
     this.p0y = this.p2y + (Math.random() - 0.5) * chaosRadius;
     
-    // 3. Control Point (P1) - Defines the Arc
-    // Calculate midpoint
-    const midX = (this.p0x + this.p2x) / 2;
-    const midY = (this.p0y + this.p2y) / 2;
-    
-    // Add a perpendicular offset to create the arc
-    // Randomize direction and magnitude for variety
-    const dx = this.p2x - this.p0x;
-    const dy = this.p2y - this.p0y;
-    const dist = Math.sqrt(dx*dx + dy*dy);
-    
-    // Offset magnitude proportional to distance
-    const offset = dist * 0.3 * (Math.random() > 0.5 ? 1 : -1); 
-    
-    // Perpendicular vector (-dy, dx)
-    this.p1x = midX - dy * 0.2 + (Math.random() - 0.5) * 100;
-    this.p1y = midY + dx * 0.2 + (Math.random() - 0.5) * 100;
+    // 3. Control Point (P1)
+    this.calculateControlPoint();
 
     // Initialize current pos
     this.x = this.p0x;
     this.y = this.p0y;
   }
 
-  updateTarget(centerX: number, centerY: number) {
-    const totalWidth = (GRID_COLS - 1) * GRID_SPACING;
-    const totalHeight = (GRID_ROWS - 1) * GRID_SPACING;
-    const startX = centerX - totalWidth / 2;
-    const startY = centerY - totalHeight / 2;
-    
-    this.p2x = startX + this.col * GRID_SPACING;
-    this.p2y = startY + this.row * GRID_SPACING;
+  calculateTarget(width: number, height: number) {
+    // If target props are present, use them
+    if (props.targetSpacing && props.targetOffsetX !== undefined && props.targetOffsetY !== undefined) {
+        // Align with World Grid (0,0) at (offsetX, offsetY)
+        // We want grid lines at: targetOffset + k * spacing
+        
+        // 1. Calculate the starting line position (just outside or at the left/top edge)
+        // We want the first column (col=0) to be at a specific position relative to the screen origin (0,0).
+        // Let's say we want to cover from x=0.
+        // Find k such that targetOffsetX + k * spacing <= 0 is maximized (closest to 0 from left)
+        // k <= -targetOffsetX / spacing
+        // k_start = Math.floor(-targetOffsetX / GRID_SPACING);
+        
+        // Actually, we just need to map 'col' to a valid 'k'.
+        // We can start 'col=0' at the first visible line or slightly before.
+        
+        // Let's anchor the grid such that one line is EXACTLY at targetOffsetX.
+        // The grid phase is (targetOffsetX % GRID_SPACING).
+        
+        const phaseX = props.targetOffsetX % GRID_SPACING;
+        const phaseY = props.targetOffsetY % GRID_SPACING;
+        
+        // Start from the first grid line that is visible (or slightly off-screen)
+        // We want startX to be roughly -spacing (to ensure coverage).
+        // startX = phaseX + k * spacing.
+        // We want startX approx -spacing.
+        // k * spacing approx -spacing - phaseX.
+        // k approx (-spacing - phaseX) / spacing.
+        
+        // Simpler: Just center the grid of particles around the screen, but snapped to phase.
+        const totalWidth = (GRID_COLS - 1) * GRID_SPACING;
+        const totalHeight = (GRID_ROWS - 1) * GRID_SPACING;
+        
+        const centerX = width / 2;
+        const centerY = height / 2;
+        
+        // Find the grid line closest to center
+        // lineX = targetOffsetX + k * spacing
+        // We want lineX approx centerX
+        // k approx (centerX - targetOffsetX) / spacing
+        const kX = Math.round((centerX - props.targetOffsetX) / GRID_SPACING);
+        const centerGridX = props.targetOffsetX + kX * GRID_SPACING;
+        
+        const kY = Math.round((centerY - props.targetOffsetY) / GRID_SPACING);
+        const centerGridY = props.targetOffsetY + kY * GRID_SPACING;
+        
+        // Now distribute particles around this center grid line
+        // col range: 0 to GRID_COLS-1
+        // center col index: (GRID_COLS-1)/2
+        
+        // FIX: Use Math.floor to ensure we shift by an INTEGER number of spacings.
+        // If we use (GRID_COLS - 1) / 2 and GRID_COLS is even, we get a 0.5 spacing shift.
+        const colOffset = Math.floor(GRID_COLS / 2);
+        const rowOffset = Math.floor(GRID_ROWS / 2);
+
+        const startGridX = centerGridX - colOffset * GRID_SPACING;
+        const startGridY = centerGridY - rowOffset * GRID_SPACING;
+        
+        this.p2x = startGridX + this.col * GRID_SPACING;
+        this.p2y = startGridY + this.row * GRID_SPACING;
+        
+    } else {
+        // Default Centered
+        const totalWidth = (GRID_COLS - 1) * GRID_SPACING;
+        const totalHeight = (GRID_ROWS - 1) * GRID_SPACING;
+        const centerX = width / 2;
+        const centerY = height / 2;
+        const startGridX = centerX - totalWidth / 2;
+        const startGridY = centerY - totalHeight / 2;
+        
+        this.p2x = startGridX + this.col * GRID_SPACING;
+        this.p2y = startGridY + this.row * GRID_SPACING;
+    }
   }
 
+  calculateControlPoint() {
+    const midX = (this.p0x + this.p2x) / 2;
+    const midY = (this.p0y + this.p2y) / 2;
+    const dx = this.p2x - this.p0x;
+    const dy = this.p2y - this.p0y;
+    const dist = Math.sqrt(dx*dx + dy*dy);
+    const offset = dist * 0.3 * (Math.random() > 0.5 ? 1 : -1); 
+    this.p1x = midX - dy * 0.2 + (Math.random() - 0.5) * 100;
+    this.p1y = midY + dx * 0.2 + (Math.random() - 0.5) * 100;
+  }
+
+  updateTarget(width: number, height: number) {
+      this.calculateTarget(width, height);
+      // Re-calc control point to ensure smooth path if target changed significantly
+      // this.calculateControlPoint(); 
+  }
+
+  // ... update and draw methods remain same
   update(progress: number) {
-    // Quadratic Bezier Formula
-    // B(t) = (1-t)^2 * P0 + 2(1-t)t * P1 + t^2 * P2
-    
+    // ...
     const t = progress;
     const u = 1 - t;
-    
     this.x = (u * u * this.p0x) + (2 * u * t * this.p1x) + (t * t * this.p2x);
     this.y = (u * u * this.p0y) + (2 * u * t * this.p1y) + (t * t * this.p2y);
   }
@@ -115,12 +175,19 @@ class Particle {
     context.beginPath();
     context.arc(this.x, this.y, size, 0, Math.PI * 2);
     context.fill();
-    context.globalAlpha = 1.0; // Reset
+    context.globalAlpha = 1.0; 
   }
 }
 
 const initParticles = () => {
   particles = [];
+  // Use target spacing if available, otherwise default
+  if (props.targetSpacing) {
+      GRID_SPACING = props.targetSpacing;
+  } else {
+      GRID_SPACING = 100;
+  }
+
   GRID_COLS = Math.ceil(width / GRID_SPACING) + 2;
   GRID_ROWS = Math.ceil(height / GRID_SPACING) + 2;
   
@@ -184,35 +251,27 @@ const animate = () => {
   time += 16;
   ctx.clearRect(0, 0, width, height);
 
-  const centerX = width / 2;
-  const centerY = height / 2;
-  particles.forEach(p => p.updateTarget(centerX, centerY));
-
-  // Calculate Progress (0 to 1)
+  // Update Targets if window resized or props changed (handled by watchers/init)
+  // But here we just update positions
+  
+  // Calculate Progress
   let progress = 0;
   let opacityProgress = 0;
+  
   if (isOrdered) {
       const rawProgress = (time - transitionStartTime) / TRANSITION_DURATION;
       opacityProgress = rawProgress > 1 ? 1 : (rawProgress < 0 ? 0 : rawProgress);
       progress = rawProgress > 1 ? 1 : easeInOutCubic(rawProgress);
+  } else {
+      // Chaos Phase: Add subtle movement?
+      // For now keep static or simple jitter
   }
 
-  // Update Position (Quadratic Bezier)
+  // ... update particles and draw ...
   particles.forEach(p => p.update(progress));
-  
-  // Draw Connections
   drawConnections(ctx, progress);
   
-  // Calculate Particle Opacity
-  // Fade out linearly from start (0.0) to 0.8 progress (fully invisible)
-  let particleOpacity = 0;
-  if (opacityProgress < 0.8) {
-      particleOpacity = 1.0 - (opacityProgress / 0.8);
-  } else {
-      particleOpacity = 0;
-  }
-
-  // Draw Particles
+  const particleOpacity = 1.0 - opacityProgress;
   if (particleOpacity > 0) {
       particles.forEach(p => p.draw(ctx!, particleOpacity));
   }
@@ -223,12 +282,29 @@ const animate = () => {
 const startAnimation = () => {
   if (!animationFrameId) {
     updateColors();
-    isOrdered = true;
+    // Don't set isOrdered = true yet. Wait for props.
+    isOrdered = false;
     time = 0;
     transitionStartTime = 0;
     animate();
   }
 };
+
+// Watch for target props to trigger transition
+watch(() => props.targetSpacing, (newVal) => {
+    if (newVal && !isOrdered) {
+        // Received target spacing!
+        // Re-init particles with new spacing
+        initParticles();
+        
+        // Start Transition
+        isOrdered = true;
+        transitionStartTime = time; // Start transition NOW
+    }
+});
+
+// ... handleResize, watch active ...
+
 
 const stopAnimation = () => {
   if (animationFrameId) {

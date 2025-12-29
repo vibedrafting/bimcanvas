@@ -23,6 +23,22 @@ export const useDebugStore = defineStore('debug', () => {
         const now = new Date();
         const timeString = now.toLocaleTimeString('en-US', { hour12: false }) + '.' + now.getMilliseconds().toString().padStart(3, '0');
 
+        // Mirror to browser console
+        const consoleMsg = `[${type.toUpperCase()}] ${message}`;
+        switch (type) {
+            case 'error':
+                console.error(consoleMsg);
+                break;
+            case 'warn':
+                console.warn(consoleMsg);
+                break;
+            case 'success':
+                console.log(`%c${consoleMsg}`, 'color: #4ade80');
+                break;
+            default:
+                console.log(consoleMsg);
+        }
+
         logs.value.unshift({
             id: nextId++,
             timestamp: timeString,

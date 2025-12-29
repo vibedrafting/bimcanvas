@@ -51,7 +51,7 @@ const logClass = (type: string) => {
   border-radius: 8px;
   display: flex;
   flex-direction: column;
-  z-index: 9999;
+  z-index: 10000;
   box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
   font-family: 'Consolas', 'Monaco', monospace;
   font-size: 12px;

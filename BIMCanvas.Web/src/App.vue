@@ -6,26 +6,78 @@ import BlueprintLoader from './components/UI/BlueprintLoader.vue';
 import { useCanvasStore } from './stores/canvasStore';
 import { themeService } from './services/theme/ThemeService';
 
+import { ViewCalculator } from './services/interaction/ViewCalculator';
+import DebugConsole from './components/UI/DebugConsole.vue';
+import { useDebugStore } from './stores/debugStore';
+
 const store = useCanvasStore();
+const debugStore = useDebugStore();
 const isSplashShowing = ref(true);
+const loaderProps = ref<{ spacing?: number, offsetX?: number, offsetY?: number, active: boolean }>({ active: true });
 
 onMounted(async () => {
-  // 初始化主题服务 (设置 CSS 变量)
+  // Initialize Theme
   themeService.init();
+  debugStore.log('App Mounted. Initializing...');
 
-  // 强制显示加载动画至少 2.5 秒，提升仪式感
+  // Attach Keyboard Shortcuts IMMEDIATELY so debug console works during loading
+  window.addEventListener('keydown', handleKeydown);
+  debugStore.log('Debug Mode Initialized. Press Ctrl + ` to toggle.');
+
+  // Force splash screen for at least 2.5s
   const minTimePromise = new Promise(resolve => setTimeout(resolve, 2500));
   
   // 单项目模式：直接从 Server 加载当前项目（无需 URL 参数）
-  const loadPromise = store.loadProject();
+  debugStore.log('Starting project load...');
+  const loadPromise = store.loadProject().then(() => {
+    debugStore.log('Project data loaded.');
+    // Data loaded, calculate target view
+    if (store.projectData) {
+      debugStore.log('Calculating target view...');
+      const target = ViewCalculator.calculateTargetView(
+        store.projectData, 
+        window.innerWidth, 
+        window.innerHeight
+      );
+      if (target) {
+        debugStore.log(`Target view calculated: spacing=${target.spacing.toFixed(2)}`);
+        loaderProps.value = {
+          ...loaderProps.value,
+          spacing: target.spacing,
+          offsetX: target.offsetX,
+          offsetY: target.offsetY
+        };
+      } else {
+        debugStore.warn('Failed to calculate target view (no valid bounds).');
+      }
+    } else {
+      debugStore.warn('No project data found after load.');
+    }
+  }).catch(err => {
+    debugStore.error(`Project load failed: ${err}`);
+    throw err;
+  });
 
-  // 等待两者都完成
-  await Promise.all([minTimePromise, loadPromise]);
-  
-  isSplashShowing.value = false;
+  // Timeout Promise (10 seconds max)
+  const timeoutPromise = new Promise((_, reject) => 
+    setTimeout(() => reject(new Error('Loading timed out')), 10000)
+  );
 
-  // Keyboard Shortcuts
-  window.addEventListener('keydown', handleKeydown);
+  // 等待两者都完成 (Race against timeout)
+  try {
+    await Promise.race([
+      Promise.all([minTimePromise, loadPromise]),
+      timeoutPromise
+    ]);
+    debugStore.log('Loading sequence completed successfully.');
+  } catch (error) {
+    console.error('Failed to load project:', error);
+    debugStore.error(`Loading sequence failed or timed out: ${error}`);
+  } finally {
+    debugStore.log('Hiding splash screen.');
+    isSplashShowing.value = false;
+    loaderProps.value.active = false;
+  }
 });
 
 import { onUnmounted } from 'vue';
@@ -35,6 +87,11 @@ onUnmounted(() => {
 });
 
 const handleKeydown = (e: KeyboardEvent) => {
+  // Toggle debug console with Ctrl + ` (Backtick)
+  if (e.ctrlKey && e.key === '`') {
+    debugStore.toggle();
+  }
+
   // Ignore if typing in an input
   if (['INPUT', 'TEXTAREA'].includes((e.target as HTMLElement).tagName)) return;
 
@@ -56,10 +113,16 @@ const handleKeydown = (e: KeyboardEvent) => {
 </script>
 
 <template>
-  <BlueprintLoader :active="isSplashShowing" />
+  <BlueprintLoader 
+    :active="loaderProps.active" 
+    :target-spacing="loaderProps.spacing"
+    :target-offset-x="loaderProps.offsetX"
+    :target-offset-y="loaderProps.offsetY"
+  />
   <MainLayout>
     <ThreeCanvas />
   </MainLayout>
+  <DebugConsole />
 </template>
 
 <style>

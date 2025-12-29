@@ -4,29 +4,16 @@ import AppHeader from '../components/UI/AppHeader.vue';
 import DynamicIsland from '../components/UI/DynamicIsland.vue';
 import SideGallery from '../components/UI/SideGallery.vue';
 import PropertyPanel from '../components/UI/PropertyPanel.vue';
-import DebugConsole from '../components/UI/DebugConsole.vue';
 import FloatingLayerManager from '../components/UI/FloatingLayerManager.vue';
 import PromptBar from '../components/UI/PromptBar.vue';
 import FloatingInput from '../components/UI/FloatingInput.vue';
 import { useDebugStore } from '../stores/debugStore';
-import { onMounted, onUnmounted } from 'vue';
+import { onMounted } from 'vue';
 
 const debugStore = useDebugStore();
 
-const handleKeydown = (e: KeyboardEvent) => {
-  // Toggle debug console with Ctrl + ` (Backtick)
-  if (e.ctrlKey && e.key === '`') {
-    debugStore.toggle();
-  }
-};
-
 onMounted(() => {
-  window.addEventListener('keydown', handleKeydown);
-  debugStore.log('Debug Mode Initialized. Press Ctrl + ` to toggle.');
-});
-
-onUnmounted(() => {
-  window.removeEventListener('keydown', handleKeydown);
+  debugStore.log('MainLayout Mounted.');
 });
 </script>
 
@@ -55,7 +42,6 @@ onUnmounted(() => {
     <FloatingLayerManager />
     <PromptBar />
     <FloatingInput />
-    <DebugConsole />
   </div>
 </template>
 
