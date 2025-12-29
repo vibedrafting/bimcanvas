@@ -108,12 +108,14 @@ class Particle {
     this.y = (u * u * this.p0y) + (2 * u * t * this.p1y) + (t * t * this.p2y);
   }
 
-  draw(context: CanvasRenderingContext2D) {
+  draw(context: CanvasRenderingContext2D, opacity: number) {
     const size = isOrdered ? 1.5 : 2;
     context.fillStyle = COLOR_PARTICLE;
+    context.globalAlpha = opacity;
     context.beginPath();
     context.arc(this.x, this.y, size, 0, Math.PI * 2);
     context.fill();
+    context.globalAlpha = 1.0; // Reset
   }
 }
 
@@ -133,9 +135,12 @@ const drawConnections = (context: CanvasRenderingContext2D, progress: number) =>
     context.lineWidth = 1;
     
     // Fade in grid lines
-    const opacity = progress < 0.2 ? 0 : (progress - 0.2) / 0.8 * 0.3;
+    // Start fading in at 0.2, reach max opacity by 1.0
+    // Increased max opacity from 0.3 to 0.8 for better visibility
+    const maxOpacity = 0.8;
+    const opacity = progress < 0.2 ? 0 : (progress - 0.2) / 0.8 * maxOpacity;
     
-    context.globalAlpha = Math.min(opacity, 0.3);
+    context.globalAlpha = Math.min(opacity, maxOpacity);
     context.strokeStyle = COLOR_GRID;
     context.beginPath();
 
@@ -185,8 +190,10 @@ const animate = () => {
 
   // Calculate Progress (0 to 1)
   let progress = 0;
+  let opacityProgress = 0;
   if (isOrdered) {
       const rawProgress = (time - transitionStartTime) / TRANSITION_DURATION;
+      opacityProgress = rawProgress > 1 ? 1 : (rawProgress < 0 ? 0 : rawProgress);
       progress = rawProgress > 1 ? 1 : easeInOutCubic(rawProgress);
   }
 
@@ -196,8 +203,19 @@ const animate = () => {
   // Draw Connections
   drawConnections(ctx, progress);
   
+  // Calculate Particle Opacity
+  // Fade out linearly from start (0.0) to 0.8 progress (fully invisible)
+  let particleOpacity = 0;
+  if (opacityProgress < 0.8) {
+      particleOpacity = 1.0 - (opacityProgress / 0.8);
+  } else {
+      particleOpacity = 0;
+  }
+
   // Draw Particles
-  particles.forEach(p => p.draw(ctx!));
+  if (particleOpacity > 0) {
+      particles.forEach(p => p.draw(ctx!, particleOpacity));
+  }
 
   animationFrameId = requestAnimationFrame(animate);
 };
@@ -276,7 +294,7 @@ onUnmounted(() => {
   left: 0;
   width: 100vw;
   height: 100vh;
-  background: var(--bg-canvas);
+  background: var(--bg-scene);
   z-index: 9999;
   transition: opacity 0.8s ease, visibility 0.8s ease;
   display: flex;

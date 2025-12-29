@@ -9,7 +9,6 @@ const projectInfo = computed(() => store.projectData?.project);
 
 <template>
   <div class="ribbon-group">
-    <div class="group-title">Project</div>
     <div class="group-content">
       <div class="info-block" v-if="projectInfo">
         <div class="project-name">{{ projectInfo.name || 'Untitled' }}</div>
@@ -22,7 +21,11 @@ const projectInfo = computed(() => store.projectData?.project);
       <div class="divider-vertical"></div>
       
       <GlassButton variant="ghost" class="ribbon-btn">
-        <span class="icon">⚙️</span> Config
+        <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+          <circle cx="12" cy="12" r="3"></circle>
+          <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path>
+        </svg>
+        Config
       </GlassButton>
     </div>
   </div>
@@ -35,19 +38,11 @@ const projectInfo = computed(() => store.projectData?.project);
   gap: 8px;
 }
 
-.group-title {
-  font-size: 0.75rem;
-  color: var(--text-tertiary);
-  text-transform: uppercase;
-  letter-spacing: 0.5px;
-  text-align: center;
-}
-
 .group-content {
   display: flex;
   gap: 8px;
   align-items: center;
-  height: 48px;
+  height: 42px;
 }
 
 .info-block {
@@ -76,20 +71,22 @@ const projectInfo = computed(() => store.projectData?.project);
 
 .divider-vertical {
   width: 1px;
-  height: 32px;
+  height: 28px;
   background: var(--border-subtle);
   margin: 0 4px;
 }
 
 .ribbon-btn {
   flex-direction: column;
-  height: 48px;
-  min-width: 48px;
-  gap: 4px;
-  font-size: 0.8rem;
+  height: 42px;
+  min-width: 42px;
+  gap: 2px;
+  font-size: 0.7rem;
+  padding: 4px;
   
   .icon {
-    font-size: 1.2rem;
+    width: 18px;
+    height: 18px;
   }
 }
 </style>

@@ -4,13 +4,19 @@ import GlassButton from '../base/GlassButton.vue';
 
 <template>
   <div class="ribbon-group">
-    <div class="group-title">Library</div>
     <div class="group-content">
       <GlassButton variant="ghost" class="ribbon-btn">
-        <span class="icon">📚</span> Local
+        <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"></path>
+          <path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"></path>
+        </svg>
+        Local
       </GlassButton>
       <GlassButton variant="ghost" class="ribbon-btn">
-        <span class="icon">☁️</span> Cloud
+        <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M18 10h-1.26A8 8 0 1 0 9 20h9a5 5 0 0 0 0-10z"></path>
+        </svg>
+        Cloud
       </GlassButton>
     </div>
   </div>
@@ -23,14 +29,6 @@ import GlassButton from '../base/GlassButton.vue';
   gap: 8px;
 }
 
-.group-title {
-  font-size: 0.75rem;
-  color: var(--text-tertiary);
-  text-transform: uppercase;
-  letter-spacing: 0.5px;
-  text-align: center;
-}
-
 .group-content {
   display: flex;
   gap: 4px;
@@ -38,13 +36,15 @@ import GlassButton from '../base/GlassButton.vue';
 
 .ribbon-btn {
   flex-direction: column;
-  height: 48px;
-  min-width: 48px;
-  gap: 4px;
-  font-size: 0.8rem;
+  height: 42px;
+  min-width: 42px;
+  gap: 2px;
+  font-size: 0.7rem;
+  padding: 4px;
   
   .icon {
-    font-size: 1.2rem;
+    width: 18px;
+    height: 18px;
   }
 }
 </style>

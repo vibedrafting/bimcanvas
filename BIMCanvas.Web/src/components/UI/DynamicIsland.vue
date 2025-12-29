@@ -163,12 +163,17 @@ const dynamicStatusText = computed(() => {
   background: var(--glass-bg); /* Base layer */
   backdrop-filter: var(--glass-blur);
   -webkit-backdrop-filter: var(--glass-blur);
-  border: var(--glass-border);
+  /* Enhanced Border & Glow */
+  border: 1px solid rgba(255, 255, 255, 0.2); /* Stronger border */
   border-radius: 100px;
-  box-shadow: var(--shadow-island), var(--glass-inner-highlight);
-
-  /* Glare Overlay */
+  
+  /* Glare & Deep Shadow */
   background-image: var(--glass-glare), linear-gradient(to bottom, var(--glass-bg), var(--glass-bg));
+  box-shadow: 
+    0 12px 40px rgba(0, 0, 0, 0.4), /* Deep drop shadow */
+    0 0 0 1px rgba(255, 255, 255, 0.1) inset, /* Inner rim */
+    0 0 20px rgba(255, 255, 255, 0.15); /* Outer glow */
+
   background-origin: border-box;
   background-clip: padding-box, border-box;
 

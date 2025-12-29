@@ -38,19 +38,36 @@ const onImport = () => {
 
 <template>
   <div class="ribbon-group">
-    <div class="group-title">File</div>
     <div class="group-content">
       <GlassButton @click="onOpen" variant="ghost" class="ribbon-btn">
-        <span class="icon">📂</span> Open
+        <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path>
+        </svg>
+        Open
       </GlassButton>
       <GlassButton @click="onSave" variant="ghost" class="ribbon-btn">
-        <span class="icon">💾</span> Save
+        <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"></path>
+          <polyline points="17 21 17 13 7 13 7 21"></polyline>
+          <polyline points="7 3 7 8 15 8"></polyline>
+        </svg>
+        Save
       </GlassButton>
       <GlassButton @click="onImport" variant="ghost" class="ribbon-btn">
-        <span class="icon">⬇️</span> Import
+        <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+          <polyline points="7 10 12 15 17 10"></polyline>
+          <line x1="12" y1="15" x2="12" y2="3"></line>
+        </svg>
+        Import
       </GlassButton>
       <GlassButton @click="handleExport" :disabled="!store.projectData" variant="ghost" class="ribbon-btn">
-        <span class="icon">⬆️</span> Export
+        <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+          <polyline points="17 8 12 3 7 8"></polyline>
+          <line x1="12" y1="3" x2="12" y2="15"></line>
+        </svg>
+        Export
       </GlassButton>
       
       <!-- Hidden Input for Fallback -->
@@ -72,14 +89,6 @@ const onImport = () => {
   gap: 8px;
 }
 
-.group-title {
-  font-size: 0.75rem;
-  color: var(--text-tertiary);
-  text-transform: uppercase;
-  letter-spacing: 0.5px;
-  text-align: center;
-}
-
 .group-content {
   display: flex;
   gap: 4px;
@@ -87,13 +96,15 @@ const onImport = () => {
 
 .ribbon-btn {
   flex-direction: column;
-  height: 48px;
-  min-width: 48px;
-  gap: 4px;
-  font-size: 0.8rem;
+  height: 42px;
+  min-width: 42px;
+  gap: 2px;
+  font-size: 0.7rem;
+  padding: 4px;
   
   .icon {
-    font-size: 1.2rem;
+    width: 18px;
+    height: 18px;
   }
 }
 </style>

@@ -63,7 +63,7 @@ onUnmounted(() => {
       @click="toggleDropdown"
     >
       <span class="selected-text" :class="{ placeholder: !selectedOption }">
-        <span v-if="selectedOption?.icon" class="option-icon">{{ selectedOption.icon }}</span>
+        <span v-if="selectedOption?.icon" class="option-icon" v-html="selectedOption.icon"></span>
         {{ selectedOption ? selectedOption.label : placeholder }}
       </span>
       <svg class="chevron" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -81,7 +81,7 @@ onUnmounted(() => {
           :class="{ selected: modelValue === option.value }"
           @click="selectOption(option)"
         >
-          <span v-if="option.icon" class="option-icon">{{ option.icon }}</span>
+          <span v-if="option.icon" class="option-icon" v-html="option.icon"></span>
           {{ option.label }}
           <svg v-if="modelValue === option.value" class="check-icon" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
             <polyline points="20 6 9 17 4 12"></polyline>

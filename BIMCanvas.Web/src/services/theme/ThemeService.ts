@@ -83,6 +83,7 @@ export interface ColorTheme {
     css: {
         // 背景色
         bgCanvas: string;
+        bgScene: string; // New: Solid scene background color
         surfaceGlass: string;
         surfaceGlassHover: string;
         surfaceSolid: string;        // 纯色表面 (非透明)
@@ -182,6 +183,7 @@ export const darkTheme: ColorTheme = {
     css: {
         // 暗色主题 - 深黑背景 (Radial Gradient for Atmosphere)
         bgCanvas: 'radial-gradient(circle at 50% -20%, #1e1e2e 0%, #0a0a0f 100%)',
+        bgScene: '#0a0a0f', // Matches theme.background
         surfaceGlass: 'rgba(20, 20, 30, 0.75)',
         surfaceGlassHover: 'rgba(40, 40, 55, 0.85)',
         surfaceSolid: '#1c1c1e',
@@ -277,6 +279,7 @@ export const lightTheme: ColorTheme = {
     css: {
         // 亮色主题 - Apple Freeform 风格 (Radial Gradient for Atmosphere)
         bgCanvas: 'radial-gradient(circle at 50% -20%, #ffffff 0%, #f2f6fa 100%)',
+        bgScene: '#ffffff', // Matches theme.background
         surfaceGlass: 'rgba(255, 255, 255, 0.9)', // 高不透明度毛玻璃
         surfaceGlassHover: 'rgba(255, 255, 255, 1)',
         surfaceSolid: '#ffffff',                // 纯白表面
@@ -379,6 +382,9 @@ class ThemeServiceClass {
         // Tab Tokens
         root.style.setProperty('--tab-text-active', css.tabTextActive);
         root.style.setProperty('--tab-bg-active', css.tabBgActive);
+
+        // Scene Background (Solid)
+        root.style.setProperty('--bg-scene', css.bgScene);
 
         console.log(`[ThemeService] CSS 变量已更新为 ${theme.name} 主题`);
     }
