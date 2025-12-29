@@ -78,19 +78,22 @@
 
 引入 Git 作为核心版本控制引擎，解决“Web vs AI”的并发冲突，并提供强大的方案管理能力。
 
-### 3.1 分支策略
+### 3.1 分支与工作树策略 (Branch & Worktree Strategy)
 
-*   **Web 端**：始终工作在 `main` 分支。这是用户的“主战场”。
-*   **AI 介入**：始终在 **临时特性分支** (`ai-feat-{timestamp}`) 上工作。
+为了实现真正的**物理隔离**和**并发读写**，我们采用 **“混合架构 (Hybrid Approach)”**：
+
+*   **存储层 (Storage)**：使用 **单仓库 + 多分支**。所有数据都在一个 `.git` 历史中。
+*   **执行层 (Execution)**：使用 **Git Worktree** 处理临时任务。
 
 ### 3.2 工作流：AI 辅助设计
 
 1.  **用户请求**：用户在 Web 端请求“帮我重新布置主卧”。
-2.  **分支创建**：Server 基于当前 `main` 创建 `ai-feat-001` 分支。
-3.  **AI 生成**：AI 在 `ai-feat-001` 分支上修改 `modules.json`，提交代码。
+2.  **工作树创建**：Server 执行 `git worktree add .temp/ai-job-1 feat/ai-feat-001`。
+3.  **AI 生成**：AI 在 `.temp/ai-job-1` 目录下修改 `modules.json`，提交代码。
 4.  **方案评审 (Design Review)**：
-    *   AI 完成后，Web 端自动进入 **“评审模式”**（不直接合并）。
-    *   界面加载两个分支的数据：`main` (当前) vs `ai-feat-001` (AI 提案)。
+    *   AI 完成后，Web 端自动进入 **“评审模式”**。
+    *   Server 同时读取主目录（`main`）和工作树目录（`.temp/ai-job-1`）的数据。
+    *   前端渲染“左右分屏”对比。
 
 ### 3.3 可视化冲突解决 / 方案融合
 

@@ -81,7 +81,92 @@
 
 ---
 
-## 3. 架构启示 (Implications)
+## 3. Git 翻译层 (The Git Translation Layer)
+
+> **核心挑战**：如何将用户模糊的自然语言指令（如“把客厅设计得温馨一点”）转化为精确的 Git 操作序列？
+
+这需要一个专门的 **“Git 翻译层”**，它包含三个步骤：
+
+### 3.1 意图解析 (Intent Parsing)
+将自然语言转化为结构化的 **“设计意图对象” (Design Intent Object)**。
+
+*   **输入**：“给我的客厅出三个方案：一个是‘极致收纳’，一个是‘动线优先’，还有一个‘极简留白’。”
+*   **输出**：
+    ```json
+    {
+      "action": "parallel_generate",
+      "target_zone": "living_room",
+      "branches": [
+        { "name": "storage", "strategy": { "storage_weight": 0.9 } },
+        { "name": "flow", "strategy": { "path_width_weight": 0.9 } },
+        { "name": "minimal", "strategy": { "furniture_count": "min" } }
+      ]
+    }
+    ```
+
+### 3.2 操作编排 (Operation Orchestration)
+将意图对象转化为具体的 **Git 命令序列**。
+
+*   **转换逻辑**：
+    1.  `git checkout main` (确保基准正确)
+    2.  `git pull` (同步最新状态)
+    3.  **Loop for each branch**:
+        *   `git checkout -b feat/ai-living-{name}`
+        *   `Agent.run(strategy)` -> 生成 JSON 文件
+        *   `git add .`
+        *   `git commit -m "Design: Living Room with {name} strategy"`
+
+### 3.3 语义化提交 (Semantic Commits)
+AI 必须学会写“人话”Commit Message，而不是机器码。
+
+*   **差评**：`Update modules.json`
+*   **好评**：`feat(living-room): Maximize storage by adding full-wall cabinets, sacrificing 200mm aisle width`
+
+---
+
+## 4. Git 架构选型 (Git Architecture Selection)
+
+> **核心问题**：不同的 Git 分支就能实现并行开发吗？
+
+在传统的 Git 使用场景中，同一时间只能 Checkout 一个分支。如果强行在同一个文件夹里切来切去，确实无法实现“并行”。
+为了实现真正的**物理隔离**和**并发读写**，我们采用 **“混合架构 (Hybrid Approach)”**：
+
+### 4.1 核心解密：Git Worktree (多工作树)
+
+通常我们认为：`1 个 Git 仓库 = 1 个文件夹 = 1 个当前分支`。
+但实际上，Git 支持：`1 个 Git 仓库 = N 个文件夹 = N 个并行分支`。
+
+**`git worktree`** 允许你从同一个 `.git` 仓库中，“映射”出多个独立的文件夹，每个文件夹对应不同的分支。
+
+### 4.2 架构方案对比
+
+| 架构方案 | 概念 | 物理结构 | 适用场景 | 结论 |
+| :--- | :--- | :--- | :--- | :--- |
+| **多分支 (Multi-Branch)** | 标准 Git | 1 个文件夹，内容切换 | 单人串行工作 | ❌ 无法并行 |
+| **多仓库 (Multi-Repo)** | 分布式 | N 个文件夹，独立历史 | 完全独立的项目 | ❌ 合并困难，空间浪费 |
+| **多工作树 (Multi-Worktree)** | **链接克隆** | **N 个文件夹，共享历史** | **单机并行工作** | **✅ 最佳选择** |
+
+### 4.3 混合架构落地 (The Hybrid Approach)
+
+1.  **存储层 (Storage Layer)**：
+    *   使用 **单仓库 + 多分支**。
+    *   所有数据都在一个 `.git` 历史中，高效且标准。
+    *   `main` 分支是用户的当前状态。
+    *   `feat/ai-xxx` 分支存储 AI 的提案。
+
+2.  **执行层 (Execution Layer)**：
+    *   使用 **Git Worktree** 处理 *临时 (Ephemeral)* 任务。
+    *   当 AI 启动时：`git worktree add .temp/ai-job-1 feat/ai-proposal`。
+    *   当 AI 完成时：`git worktree remove .temp/ai-job-1`。
+
+### 4.4 为什么这能解决问题？
+
+*   **对于并行生成**：AI-1 和 AI-2 分别在 `.temp/ai-job-1` 和 `.temp/ai-job-2` 两个物理隔离的文件夹中工作，互不干扰，可以同时写入。
+*   **对于 Web 对比**：Web Server 可以同时读取 `D:\Project\.temp\ai-job-1\modules.json` 和 `D:\Project\.temp\ai-job-2\modules.json`，从而在前端渲染出“左右分屏”的对比效果。
+
+---
+
+## 5. 架构启示 (Implications)
 
 在这种模式下，AI 的核心竞争力不再是“画得有多快”，而是：
 
