@@ -24,10 +24,21 @@ const tabs = [
 ];
 
 const activeTab = ref<string | null>(null);
+const dropdownPos = ref({ top: 0, left: 0 });
 let closeTimer: any = null;
 
-const openTab = (id: string) => {
+const openTab = (id: string, event: MouseEvent) => {
   if (closeTimer) clearTimeout(closeTimer);
+  
+  // Calculate position based on the tab element
+  const target = event.currentTarget as HTMLElement;
+  const rect = target.getBoundingClientRect();
+  
+  dropdownPos.value = {
+    top: rect.bottom + 4, // Add slight gap
+    left: rect.left
+  };
+  
   activeTab.value = id;
 };
 
@@ -50,7 +61,7 @@ const keepOpen = () => {
         v-for="tab in tabs" 
         :key="tab.id" 
         class="tab-wrapper"
-        @mouseenter="openTab(tab.id)"
+        @mouseenter="openTab(tab.id, $event)"
         @mouseleave="closeTab"
       >
         <button
@@ -60,25 +71,28 @@ const keepOpen = () => {
           {{ tab.label }}
         </button>
 
-        <!-- Dropdown Panel -->
-        <div 
-          class="ribbon-dropdown" 
-          v-if="activeTab === tab.id"
-          @mouseenter="keepOpen"
-          @mouseleave="closeTab"
-        >
-          <div class="panel-content">
-            <FileGroup v-if="tab.id === 'file'" />
-            <ProjectGroup v-else-if="tab.id === 'project'" />
-            <StrategyGroup v-else-if="tab.id === 'strategy'" />
-            <VariantGroup v-else-if="tab.id === 'variant'" />
-            <AIGroup v-else-if="tab.id === 'ai'" />
-            <ZoneGroup v-else-if="tab.id === 'zone'" />
-            <LibraryGroup v-else-if="tab.id === 'library'" />
-            <EditGroup v-else-if="tab.id === 'edit'" />
-            <ViewGroup v-else-if="tab.id === 'view'" />
+        <!-- Dropdown Panel - Teleported to body to avoid stacking context issues -->
+        <Teleport to="body">
+          <div 
+            class="ribbon-dropdown" 
+            v-if="activeTab === tab.id"
+            :style="{ top: dropdownPos.top + 'px', left: dropdownPos.left + 'px' }"
+            @mouseenter="keepOpen"
+            @mouseleave="closeTab"
+          >
+            <div class="panel-content">
+              <FileGroup v-if="tab.id === 'file'" />
+              <ProjectGroup v-else-if="tab.id === 'project'" />
+              <StrategyGroup v-else-if="tab.id === 'strategy'" />
+              <VariantGroup v-else-if="tab.id === 'variant'" />
+              <AIGroup v-else-if="tab.id === 'ai'" />
+              <ZoneGroup v-else-if="tab.id === 'zone'" />
+              <LibraryGroup v-else-if="tab.id === 'library'" />
+              <EditGroup v-else-if="tab.id === 'edit'" />
+              <ViewGroup v-else-if="tab.id === 'view'" />
+            </div>
           </div>
-        </div>
+        </Teleport>
       </div>
     </div>
   </div>
@@ -86,8 +100,8 @@ const keepOpen = () => {
 
 <style scoped lang="scss">
 .ribbon-container {
-  position: absolute;
-  top: 32px; /* Immediately below Top Bar */
+  position: relative; /* Changed from absolute to flow naturally */
+  /* top: 32px; Removed */
   left: 0;
   width: 100%;
   height: 40px; /* Fixed height for the tab bar */
@@ -104,11 +118,9 @@ const keepOpen = () => {
   */
   padding: 0 4px; 
   
-  /* Merged Bar Style */
-  background: var(--glass-bg);
-  backdrop-filter: var(--glass-blur);
-  -webkit-backdrop-filter: var(--glass-blur);
-  border-bottom: var(--glass-border);
+  /* Merged Bar Style - Removed (Moved to MainLayout wrapper) */
+  background: transparent;
+  /* border-bottom: var(--glass-border); Removed */
 }
 
 .ribbon-tabs {
@@ -150,29 +162,27 @@ const keepOpen = () => {
 }
 
 .ribbon-dropdown {
-  position: absolute;
-  top: 100%; /* Directly below the button */
-  left: 0;
-  margin-top: 4px; /* Slight gap */
+  position: fixed; /* Changed to fixed for Teleport */
+  /* top/left set via inline style */
   
   /* Floating Glass Panel */
-  background-color: var(--glass-bg-solid); /* Explicit color */
-  backdrop-filter: none !important; /* Force disable blur */
-  -webkit-backdrop-filter: none !important;
+  background: var(--glass-bg); /* Standard Glass Token */
+  backdrop-filter: var(--glass-blur);
+  -webkit-backdrop-filter: var(--glass-blur);
   border: var(--glass-border);
   border-radius: 8px;
   padding: 12px;
-  box-shadow: var(--shadow-island);
+  box-shadow: var(--shadow-island), var(--glass-inner-highlight);
   pointer-events: auto;
   min-width: 200px;
-  z-index: 100;
+  z-index: 1000; /* High z-index for fixed element */
   
   /* Animation */
   animation: dropdownSlideDown 0.2s var(--ease-spring);
   transform-origin: top left;
   
-  /* Glare effect - ensure gradient uses solid colors */
-  background-image: var(--glass-glare), linear-gradient(to bottom, var(--glass-bg-solid), var(--glass-bg-solid));
+  /* Glare Overlay - Standard Token */
+  background-image: var(--glass-glare), linear-gradient(to bottom, var(--glass-bg), var(--glass-bg));
   background-origin: border-box;
   background-clip: padding-box, border-box;
 }

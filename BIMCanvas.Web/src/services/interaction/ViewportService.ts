@@ -32,8 +32,7 @@ export class ViewportService {
         const element = this.renderer.domElement;
 
         element.addEventListener('mousedown', this.boundOnMouseDown);
-        element.addEventListener('mousemove', this.boundOnMouseMove);
-        element.addEventListener('mouseup', this.boundOnMouseUp);
+        // mousemove and mouseup are now handled globally during drag
         element.addEventListener('wheel', this.boundOnWheel, { passive: false });
         element.addEventListener('contextmenu', this.boundOnContextMenu);
     }
@@ -55,6 +54,10 @@ export class ViewportService {
             this.lastMousePosition = { x: event.clientX, y: event.clientY };
             this.renderer.domElement.style.cursor = 'grabbing';
             document.body.classList.add('is-dragging');
+
+            // Attach global listeners for smooth dragging outside canvas
+            window.addEventListener('mousemove', this.boundOnMouseMove);
+            window.addEventListener('mouseup', this.boundOnMouseUp);
         }
     }
 
@@ -74,6 +77,10 @@ export class ViewportService {
             this.isDragging = false;
             this.renderer.domElement.style.cursor = 'default';
             document.body.classList.remove('is-dragging');
+
+            // Remove global listeners
+            window.removeEventListener('mousemove', this.boundOnMouseMove);
+            window.removeEventListener('mouseup', this.boundOnMouseUp);
         }
     }
 
@@ -118,9 +125,11 @@ export class ViewportService {
     public dispose() {
         const element = this.renderer.domElement;
         element.removeEventListener('mousedown', this.boundOnMouseDown);
-        element.removeEventListener('mousemove', this.boundOnMouseMove);
-        element.removeEventListener('mouseup', this.boundOnMouseUp);
         element.removeEventListener('wheel', this.boundOnWheel);
         element.removeEventListener('contextmenu', this.boundOnContextMenu);
+
+        // Ensure global listeners are cleaned up
+        window.removeEventListener('mousemove', this.boundOnMouseMove);
+        window.removeEventListener('mouseup', this.boundOnMouseUp);
     }
 }

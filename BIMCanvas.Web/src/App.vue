@@ -76,7 +76,9 @@ body {
 body.is-dragging .command-island,
 body.is-dragging .floating-layer-manager,
 body.is-dragging .property-panel,
-body.is-dragging .side-gallery {
+body.is-dragging .side-gallery,
+body.is-dragging .toolbar-container,
+body.is-dragging .toolbar-container * {
   pointer-events: none !important;
 }
 </style>

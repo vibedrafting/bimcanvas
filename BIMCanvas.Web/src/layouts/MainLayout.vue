@@ -33,8 +33,10 @@ onUnmounted(() => {
 <template>
   <div class="main-layout">
     <header class="header-area">
-      <AppHeader />
-      <RibbonToolbar />
+      <div class="toolbar-container">
+        <AppHeader />
+        <RibbonToolbar />
+      </div>
       <DynamicIsland />
     </header>
     
@@ -103,5 +105,18 @@ onUnmounted(() => {
 /* Enable pointer events for the actual content */
 .gallery-area > *, .properties-area > * {
   pointer-events: auto;
+}
+
+.toolbar-container {
+  position: relative;
+  width: 100%;
+  z-index: 100;
+  pointer-events: auto;
+  
+  /* Unified Glass Effect */
+  background: var(--glass-bg);
+  backdrop-filter: var(--glass-blur);
+  -webkit-backdrop-filter: var(--glass-blur);
+  border-bottom: var(--glass-border);
 }
 </style>

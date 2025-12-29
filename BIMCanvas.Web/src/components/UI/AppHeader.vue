@@ -90,13 +90,11 @@ const onFileSelected = (event: Event) => {
   align-items: center;
   height: 32px; /* Updated to 32px per plan */
   padding: 0 var(--spacing-md);
-  /* Glass Header - Standardized */
-  background: var(--glass-bg);
-  backdrop-filter: var(--glass-blur);
-  -webkit-backdrop-filter: var(--glass-blur);
+  /* Glass Header - Removed (Moved to MainLayout wrapper) */
+  background: transparent;
   /* border-bottom removed to merge with Ribbon */
   pointer-events: auto;
-  z-index: 101; /* Ensure it's above other elements */
+  /* z-index removed, handled by wrapper */
 
   .brand-area {
     display: flex;
@@ -107,7 +105,7 @@ const onFileSelected = (event: Event) => {
       font-weight: 600;
       font-size: 0.9rem;
       letter-spacing: 0.5px;
-      margin-right: var(--spacing-sm);
+      margin-right: var(--spacing-xl); /* Increased spacing */
       color: var(--text-primary);
     }
   }
