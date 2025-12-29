@@ -1,18 +1,28 @@
 <script setup lang="ts">
-import { onMounted } from 'vue';
+import { onMounted, ref } from 'vue';
 import MainLayout from './layouts/MainLayout.vue';
 import ThreeCanvas from './components/Canvas/ThreeCanvas.vue';
+import BlueprintLoader from './components/UI/BlueprintLoader.vue';
 import { useCanvasStore } from './stores/canvasStore';
 import { themeService } from './services/theme/ThemeService';
 
 const store = useCanvasStore();
+const isSplashShowing = ref(true);
 
 onMounted(async () => {
   // 初始化主题服务 (设置 CSS 变量)
   themeService.init();
 
+  // 强制显示加载动画至少 2.5 秒，提升仪式感
+  const minTimePromise = new Promise(resolve => setTimeout(resolve, 2500));
+  
   // 单项目模式：直接从 Server 加载当前项目（无需 URL 参数）
-  await store.loadProject();
+  const loadPromise = store.loadProject();
+
+  // 等待两者都完成
+  await Promise.all([minTimePromise, loadPromise]);
+  
+  isSplashShowing.value = false;
 
   // Keyboard Shortcuts
   window.addEventListener('keydown', handleKeydown);
@@ -46,6 +56,7 @@ const handleKeydown = (e: KeyboardEvent) => {
 </script>
 
 <template>
+  <BlueprintLoader :active="isSplashShowing" />
   <MainLayout>
     <ThreeCanvas />
   </MainLayout>
