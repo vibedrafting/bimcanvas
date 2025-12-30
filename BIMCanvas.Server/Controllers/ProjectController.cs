@@ -456,15 +456,17 @@ namespace BIMCanvas.Server.Controllers
 
         /// <summary>
         /// 加载策略层数据
+        /// v3.2: schemes/ 目录直接存放策略文件（无子目录）
         /// </summary>
         private SchemeData LoadSchemeData(string projectPath, string schemeId)
         {
-            var schemePath = Path.Combine(projectPath, "schemes", schemeId);
+            // v3.2: 策略文件直接存放在 schemes/ 目录下
+            var schemePath = Path.Combine(projectPath, "schemes");
             var data = new SchemeData();
 
             if (!Directory.Exists(schemePath))
             {
-                _logger.LogWarning("策略目录不存在: {Path}", schemePath);
+                _logger.LogWarning("schemes 目录不存在: {Path}", schemePath);
                 return data;
             }
 

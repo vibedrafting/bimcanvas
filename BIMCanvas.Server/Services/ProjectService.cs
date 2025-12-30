@@ -14,10 +14,11 @@ namespace BIMCanvas.Server.Services
     /// <summary>
     /// 项目服务 - 负责项目加载、解压、初始化
     ///
-    /// v3.1 架构升级：
-    /// - 项目根目录初始化为单一 Git 仓库
-    /// - 策略通过 Git 分支管理（替代独立目录）
-    /// - 支持 Git Worktree 并行任务
+    /// v3.2 架构简化：
+    /// - 单仓库 + 多分支架构
+    /// - schemes/ 目录直接存放策略文件（无子目录）
+    /// - 策略切换通过 Git 分支实现
+    /// - 并行任务通过 Git Worktree 实现
     /// </summary>
     public class ProjectService
     {
@@ -271,6 +272,7 @@ Thumbs.db
 
         /// <summary>
         /// 确保 schemes/ 目录和默认策略存在
+        /// v3.2: 策略文件直接存放在 schemes/ 目录下（无子目录）
         /// </summary>
         /// <returns>默认策略 ID</returns>
         private string EnsureSchemesDirectory(string projectPath, string baselineHash)
@@ -327,13 +329,14 @@ Thumbs.db
             var schemesPath = Path.Combine(projectPath, "schemes");
             var strategyIds = _strategyService.GetAllStrategyIds(schemesPath);
 
+            // v3.2: 策略文件直接存放在 schemes/ 目录下，所有策略共用同一路径
             project.Schemes = new List<SchemeRef>();
             foreach (var id in strategyIds)
             {
                 project.Schemes.Add(new SchemeRef
                 {
                     Id = id,
-                    Path = $"./schemes/{id}",
+                    Path = "./schemes",  // v3.2: 统一路径
                     Name = id.Contains("_") ? id.Substring(id.IndexOf('_') + 1) : id
                 });
             }

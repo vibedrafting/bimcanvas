@@ -160,7 +160,7 @@ export interface BaselineData {
   locationLines: LocationLine[];
 }
 
-// ========== Scheme 层 (schemes/{s}/*.json) ==========
+// ========== Scheme 层 (schemes/*.json) v3.2 ==========
 
 export interface Strategy {
   id: string;

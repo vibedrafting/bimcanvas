@@ -14,16 +14,20 @@ namespace BIMCanvas.Server.Services
     /// <summary>
     /// 策略管理服务
     ///
-    /// v3.1 架构升级：
-    /// - 从"每个策略独立 Git 仓库"改为"单仓库 + 多分支"
-    /// - 策略通过 Git 分支管理（scheme/{id}）
+    /// v3.2 架构简化：
+    /// - 单仓库 + 多分支架构
+    /// - schemes/ 目录直接存放策略文件（无子目录）
+    /// - 策略切换通过 Git 分支实现
     /// - 并行任务通过 Git Worktree 实现
     ///
     /// 目录结构：
     /// project/
     /// ├── .git/                # 单一 Git 仓库
-    /// ├── schemes/
-    /// │   └── active/          # 当前激活策略的工作目录
+    /// ├── schemes/             # 策略文件（直接存放）
+    /// │   ├── strategy.json
+    /// │   ├── zones.json
+    /// │   ├── finishes.json
+    /// │   └── modules.json
     /// └── .worktrees/          # 并行任务的 Worktree
     ///
     /// 分支命名：
@@ -36,11 +40,6 @@ namespace BIMCanvas.Server.Services
         private readonly ILogger<StrategyService> _logger;
         private readonly GitWorktreeService _gitService;
         private readonly JsonSerializerSettings _jsonSettings;
-
-        /// <summary>
-        /// 活跃策略目录名（替代原来的 s1_Default 等）
-        /// </summary>
-        public const string ActiveSchemeDirName = "active";
 
         public StrategyService(
             ILogger<StrategyService> logger,
@@ -55,10 +54,11 @@ namespace BIMCanvas.Server.Services
             };
         }
 
-        #region 策略目录管理（兼容层）
+        #region 策略目录管理
 
         /// <summary>
         /// 创建默认策略
+        /// v3.2: 文件直接存放在 schemes/ 目录下
         /// </summary>
         /// <param name="schemesPath">schemes 目录路径</param>
         /// <param name="baselineHash">baseline 哈希值</param>
@@ -66,14 +66,13 @@ namespace BIMCanvas.Server.Services
         public string CreateDefaultStrategy(string schemesPath, string baselineHash)
         {
             var strategyId = "default";
-            var strategyPath = Path.Combine(schemesPath, ActiveSchemeDirName);
 
-            _logger.LogInformation("创建默认策略: {Path}", strategyPath);
+            _logger.LogInformation("创建默认策略: {Path}", schemesPath);
 
-            // 创建策略目录
-            if (!Directory.Exists(strategyPath))
+            // 确保目录存在
+            if (!Directory.Exists(schemesPath))
             {
-                Directory.CreateDirectory(strategyPath);
+                Directory.CreateDirectory(schemesPath);
             }
 
             // 创建 strategy.json
@@ -89,32 +88,27 @@ namespace BIMCanvas.Server.Services
                 LastValidatedBaselineHash = baselineHash,
                 Status = StrategyStatus.Valid
             };
-            WriteJsonFile(Path.Combine(strategyPath, "strategy.json"), strategy);
+            WriteJsonFile(Path.Combine(schemesPath, "strategy.json"), strategy);
 
             // 创建空的 zones.json
-            WriteJsonFile(Path.Combine(strategyPath, "zones.json"), new List<object>());
+            WriteJsonFile(Path.Combine(schemesPath, "zones.json"), new List<object>());
 
             // 创建空的 finishes.json
-            WriteJsonFile(Path.Combine(strategyPath, "finishes.json"), new List<object>());
+            WriteJsonFile(Path.Combine(schemesPath, "finishes.json"), new List<object>());
 
             // 创建空的 modules.json
-            WriteJsonFile(Path.Combine(strategyPath, "modules.json"), new List<object>());
+            WriteJsonFile(Path.Combine(schemesPath, "modules.json"), new List<object>());
 
             _logger.LogInformation("默认策略创建完成: {Id}", strategyId);
             return strategyId;
         }
 
         /// <summary>
-        /// 检查策略是否存在（检查活跃目录）
+        /// 检查策略是否存在
         /// </summary>
         public bool StrategyExists(string schemesPath, string strategyId)
         {
-            // 新架构：只检查 active 目录
-            var activePath = Path.Combine(schemesPath, ActiveSchemeDirName);
-            if (!Directory.Exists(activePath))
-                return false;
-
-            var strategyJsonPath = Path.Combine(activePath, "strategy.json");
+            var strategyJsonPath = Path.Combine(schemesPath, "strategy.json");
             if (!File.Exists(strategyJsonPath))
                 return false;
 
@@ -132,8 +126,8 @@ namespace BIMCanvas.Server.Services
             var projectPath = Directory.GetParent(schemesPath)?.FullName;
             if (projectPath == null || !_gitService.IsGitRepository(projectPath))
             {
-                // 回退到目录扫描（兼容旧项目）
-                return GetAllStrategyIdsFromDirectories(schemesPath);
+                // 回退到直接读取 strategy.json
+                return GetCurrentStrategyId(schemesPath);
             }
 
             // 从分支获取
@@ -143,10 +137,10 @@ namespace BIMCanvas.Server.Services
                 .ToList();
 
             // 添加当前活跃策略
-            var activePath = Path.Combine(schemesPath, ActiveSchemeDirName, "strategy.json");
-            if (File.Exists(activePath))
+            var strategyJsonPath = Path.Combine(schemesPath, "strategy.json");
+            if (File.Exists(strategyJsonPath))
             {
-                var json = File.ReadAllText(activePath, Encoding.UTF8);
+                var json = File.ReadAllText(strategyJsonPath, Encoding.UTF8);
                 var strategy = JsonConvert.DeserializeObject<Strategy>(json);
                 if (strategy != null && !strategyIds.Contains(strategy.Id))
                 {
@@ -158,22 +152,23 @@ namespace BIMCanvas.Server.Services
         }
 
         /// <summary>
-        /// 从目录获取策略 ID（兼容旧项目）
+        /// 获取当前策略 ID
         /// </summary>
-        private List<string> GetAllStrategyIdsFromDirectories(string schemesPath)
+        private List<string> GetCurrentStrategyId(string schemesPath)
         {
-            if (!Directory.Exists(schemesPath))
-                return new List<string>();
-
             var result = new List<string>();
-            foreach (var dir in Directory.GetDirectories(schemesPath))
+            var strategyJsonPath = Path.Combine(schemesPath, "strategy.json");
+
+            if (File.Exists(strategyJsonPath))
             {
-                var strategyJsonPath = Path.Combine(dir, "strategy.json");
-                if (File.Exists(strategyJsonPath))
+                var json = File.ReadAllText(strategyJsonPath, Encoding.UTF8);
+                var strategy = JsonConvert.DeserializeObject<Strategy>(json);
+                if (strategy != null)
                 {
-                    result.Add(Path.GetFileName(dir));
+                    result.Add(strategy.Id);
                 }
             }
+
             return result;
         }
 
@@ -184,9 +179,6 @@ namespace BIMCanvas.Server.Services
         /// <summary>
         /// 保存当前策略到分支
         /// </summary>
-        /// <param name="projectPath">项目路径</param>
-        /// <param name="strategyId">策略 ID</param>
-        /// <param name="commitMessage">提交信息</param>
         public void SaveStrategyToBranch(string projectPath, string strategyId, string? commitMessage = null)
         {
             if (!_gitService.IsGitRepository(projectPath))
@@ -208,7 +200,6 @@ namespace BIMCanvas.Server.Services
             var branches = _gitService.GetAllBranches(projectPath);
             if (branches.Contains(branchName))
             {
-                // 分支已存在，强制更新（通过删除重建）
                 _gitService.DeleteBranch(projectPath, branchName, force: true);
             }
             _gitService.CreateBranch(projectPath, branchName);
@@ -219,8 +210,6 @@ namespace BIMCanvas.Server.Services
         /// <summary>
         /// 从分支加载策略
         /// </summary>
-        /// <param name="projectPath">项目路径</param>
-        /// <param name="strategyId">策略 ID</param>
         public void LoadStrategyFromBranch(string projectPath, string strategyId)
         {
             if (!_gitService.IsGitRepository(projectPath))
@@ -236,30 +225,21 @@ namespace BIMCanvas.Server.Services
                 throw new InvalidOperationException($"策略分支不存在: {branchName}");
             }
 
-            // 检查是否有未提交更改
             if (_gitService.HasUncommittedChanges(projectPath))
             {
                 throw new InvalidOperationException("存在未提交的更改，请先保存当前策略");
             }
 
-            // 切换到目标分支
             _gitService.CheckoutBranch(projectPath, branchName);
-
             _logger.LogInformation("已加载策略: {Id} (分支: {Branch})", strategyId, branchName);
         }
 
         /// <summary>
         /// 创建新策略（基于当前状态创建分支）
         /// </summary>
-        /// <param name="projectPath">项目路径</param>
-        /// <param name="name">策略名称</param>
-        /// <param name="approach">设计方法</param>
-        /// <param name="baselineHash">baseline 哈希值</param>
-        /// <returns>策略 ID</returns>
         public string CreateStrategy(string projectPath, string name, StrategyApproach approach, string baselineHash)
         {
             var schemesPath = Path.Combine(projectPath, "schemes");
-            var activePath = Path.Combine(schemesPath, ActiveSchemeDirName);
 
             // 生成策略 ID
             var existingIds = GetAllStrategyIds(schemesPath);
@@ -276,7 +256,7 @@ namespace BIMCanvas.Server.Services
 
             _logger.LogInformation("创建策略: {Id} ({Name})", strategyId, name);
 
-            // 更新 active 目录中的 strategy.json
+            // 更新 schemes/ 目录中的 strategy.json
             var strategy = new Strategy
             {
                 Id = strategyId,
@@ -289,7 +269,7 @@ namespace BIMCanvas.Server.Services
                 LastValidatedBaselineHash = baselineHash,
                 Status = StrategyStatus.Valid
             };
-            WriteJsonFile(Path.Combine(activePath, "strategy.json"), strategy);
+            WriteJsonFile(Path.Combine(schemesPath, "strategy.json"), strategy);
 
             // 如果有 Git，保存到分支
             if (_gitService.IsGitRepository(projectPath))
@@ -330,9 +310,6 @@ namespace BIMCanvas.Server.Services
         /// <summary>
         /// 创建并行策略分叉（场景 A：策略分叉）
         /// </summary>
-        /// <param name="projectPath">项目路径</param>
-        /// <param name="strategies">策略配置列表</param>
-        /// <returns>各策略的 Worktree 路径</returns>
         public Dictionary<string, string> CreateParallelStrategies(
             string projectPath,
             List<ParallelStrategyRequest> strategies)
@@ -357,22 +334,20 @@ namespace BIMCanvas.Server.Services
                     projectPath, jobId, SanitizeName(strategyReq.Name));
 
                 // 在 worktree 中更新策略配置
-                var activePath = Path.Combine(worktreePath, "schemes", ActiveSchemeDirName);
-                if (Directory.Exists(activePath))
+                var schemesPath = Path.Combine(worktreePath, "schemes");
+                var strategyJsonPath = Path.Combine(schemesPath, "strategy.json");
+
+                if (File.Exists(strategyJsonPath))
                 {
-                    var strategyJsonPath = Path.Combine(activePath, "strategy.json");
-                    if (File.Exists(strategyJsonPath))
+                    var json = File.ReadAllText(strategyJsonPath, Encoding.UTF8);
+                    var strategy = JsonConvert.DeserializeObject<Strategy>(json);
+                    if (strategy != null)
                     {
-                        var json = File.ReadAllText(strategyJsonPath, Encoding.UTF8);
-                        var strategy = JsonConvert.DeserializeObject<Strategy>(json);
-                        if (strategy != null)
-                        {
-                            strategy.Name = strategyReq.Name;
-                            strategy.Approach = strategyReq.Approach;
-                            strategy.Description = strategyReq.Description;
-                            strategy.UpdatedAt = DateTime.Now;
-                            WriteJsonFile(strategyJsonPath, strategy);
-                        }
+                        strategy.Name = strategyReq.Name;
+                        strategy.Approach = strategyReq.Approach;
+                        strategy.Description = strategyReq.Description;
+                        strategy.UpdatedAt = DateTime.Now;
+                        WriteJsonFile(strategyJsonPath, strategy);
                     }
                 }
 
@@ -433,29 +408,10 @@ namespace BIMCanvas.Server.Services
     /// </summary>
     public class ParallelStrategyRequest
     {
-        /// <summary>
-        /// 任务 ID（可选，默认使用 Name 生成）
-        /// </summary>
         public string? JobId { get; set; }
-
-        /// <summary>
-        /// 策略名称
-        /// </summary>
         public string Name { get; set; } = string.Empty;
-
-        /// <summary>
-        /// 设计方法
-        /// </summary>
         public StrategyApproach Approach { get; set; }
-
-        /// <summary>
-        /// 描述
-        /// </summary>
         public string? Description { get; set; }
-
-        /// <summary>
-        /// 策略参数（如 storage_weight, flow_weight 等）
-        /// </summary>
         public Dictionary<string, object>? Parameters { get; set; }
     }
 
