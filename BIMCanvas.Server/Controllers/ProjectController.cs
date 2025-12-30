@@ -518,11 +518,11 @@ namespace BIMCanvas.Server.Controllers
                 return data;
             }
 
-            // zones.json (房间区域)
-            var zonesPath = Path.Combine(computedPath, "zones.json");
+            // room_zones.json (房间区域)
+            var zonesPath = Path.Combine(computedPath, "room_zones.json");
             if (System.IO.File.Exists(zonesPath))
             {
-                data.Zones = ReadJson<List<Zone>>(zonesPath) ?? new List<Zone>();
+                data.RoomZones = ReadJson<List<Zone>>(zonesPath) ?? new List<Zone>();
             }
 
             // exclusions.json (禁区)
@@ -532,8 +532,8 @@ namespace BIMCanvas.Server.Controllers
                 data.Exclusions = ReadJson<List<Zone>>(exclusionsPath) ?? new List<Zone>();
             }
 
-            _logger.LogDebug("Computed 数据加载完成: Zones={ZoneCount}, Exclusions={ExclusionCount}",
-                data.Zones.Count, data.Exclusions.Count);
+            _logger.LogDebug("Computed 数据加载完成: RoomZones={RoomZoneCount}, Exclusions={ExclusionCount}",
+                data.RoomZones.Count, data.Exclusions.Count);
 
             return data;
         }

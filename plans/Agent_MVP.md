@@ -79,7 +79,7 @@ BIMCanvas.Agent/
 
 | 工具 | 数据路径 | 说明 |
 |------|----------|------|
-| `read_room_zones` | `computed/zones.json` | 读取 Room Zone |
+| `read_room_zones` | `computed/room_zones.json` | 读取 Room Zone |
 | `read_openings` | `baseline/openings.json` | 读取门窗数据 |
 | `list_modules` | `modules/*.svg` | 列出素材库 |
 
@@ -239,7 +239,7 @@ demo_1/
 │   ├── rooms.json            # 6 个房间
 │   └── openings.json         # 门窗数据
 ├── computed/
-│   └── zones.json            # Room Zone（Agent 输入）
+│   └── room_zones.json       # Room Zone（Agent 输入）
 ├── schemes/default/
 │   ├── zones.json            # Designable Zone（Agent 输出）
 │   └── modules.json          # 布置结果（Agent 输出）
@@ -297,7 +297,7 @@ python -m src.main \
 
 ### 检查项
 
-- [ ] `computed/zones.json` 正确读取
+- [ ] `computed/room_zones.json` 正确读取
 - [ ] 各房间 tags 推断合理
 - [ ] `schemes/default/zones.json` 格式正确
 - [ ] `modules/*.svg` 正确读取
@@ -315,7 +315,7 @@ python -m src.main \
 
 | 数据 | 路径 | 状态 |
 |------|------|------|
-| Room Zone | `computed/zones.json` | ✅ demo_1 已有 |
+| Room Zone | `computed/room_zones.json` | ✅ demo_1 已有 |
 | 门窗数据 | `baseline/openings.json` | ✅ demo_1 已有 |
 
 ### 简化处理
@@ -373,7 +373,7 @@ python -m src.main \
 
 | 文件 | 生成者 |
 |------|--------|
-| `computed/zones.json` | Server |
+| `computed/room_zones.json` | Server |
 | `baseline/openings.json` | Revit |
 | `modules/*.svg` | 手动准备 |
 

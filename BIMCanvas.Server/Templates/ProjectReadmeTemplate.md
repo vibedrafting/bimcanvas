@@ -16,7 +16,7 @@
 | 门窗开口 | `baseline/openings.json` | 只读 | 门窗定位线、朝向、开启方向 |
 | 物理房间 | `baseline/rooms.json` | 只读 | Revit Room 边界和类型 |
 | 定位线 | `baseline/location_lines.json` | 只读 | 完成面定位基准线 |
-| 区域 | `computed/zones.json` | 自动生成 | 从房间派生的设计区域 |
+| 区域 | `computed/room_zones.json` | 自动生成 | 从房间派生的设计区域 |
 | 禁区 | `computed/exclusions.json` | 自动生成 | 门扇开启区域等禁止布置区 |
 | 设计需求 | `context/requirements.md` | 读写 | 用户设计需求文档 |
 | 方案配置 | `schemes/strategy.json` | 读写 | 方案元数据 + 策略参数 |
@@ -40,7 +40,7 @@
 │
 ├── computed/                  # 【中层】计算派生数据（自动生成）
 │   ├── computed.manifest      # 计算版本清单
-│   ├── zones.json             # 设计区域（从房间派生）
+│   ├── room_zones.json        # 设计区域（从房间派生）
 │   └── exclusions.json        # 禁区数据
 │
 ├── context/                   # 【设计上下文】
@@ -271,7 +271,7 @@
 
 ## 6. computed/ - 计算派生数据
 
-### 6.1 zones.json - 设计区域
+### 6.1 room_zones.json - 房间区域
 
 从房间自动派生的设计区域。
 

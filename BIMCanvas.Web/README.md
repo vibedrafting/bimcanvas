@@ -52,7 +52,45 @@
     - **Premium Glass Aesthetic**: 
         - **Dark Mode**: "Aurora" 极光风格，深邃背景 + 高通透毛玻璃。
         - **Light Mode**: "Curved Glass" 曲面玻璃风格，纯净白底 + 锐利边框 + 强反光。
-    - 基于 CSS Variables 实现，自动适配 3D 场景背景、网格及 UI 控件颜色。
+    - 基于 CSS Variables 实现，自动适配 3D 渲染背景、网格及 UI 控件颜色。
+
+### 6. AI 指挥中心 (AI Command Center)
+
+> **核心定义**：这是一个**“并行设计团队的指挥塔”**，而非简单的聊天窗口。它负责将 AI 的隐形工作（分支、策略、验证）可视化，并赋予用户精细的决策权。
+
+#### 6.1 界面架构 (UI Architecture)
+
+界面采用 **“三层汉堡”** 结构：
+
+1.  **上下文顶栏 (Context Header)**:
+    *   显示当前工作区域 (Scope) 和数据分支 (Branch)。
+    *   支持对话/评审模式切换。
+2.  **智能流 (Intelligence Stream)**:
+    *   **任务卡 (Task Card)**: 可视化后台并行任务进度。
+    *   **提案卡 (Proposal Card)**: **轮播图**形式展示多个平行方案，支持悬停预览 (Ghost Overlay)。
+    *   **警报卡 (Alert Card)**: 冲突检测与自动修复建议。
+3.  **指令底栏 (Command Footer)**:
+    *   **上下文状态栏**: 显示 AI 当前关注的对象 (Selection) 和范围。
+    *   **策略开关**: 切换 创意 (Creative) / 严格 (Strict) 模式。
+
+#### 6.2 接入指南 (Integration Guide)
+
+要接通真实 AI (Anthropic Agent)，需要完成以下对接：
+
+1.  **后端架构**:
+    *   **BIMCanvas.Agent (Python)**: 运行 Agent SDK，负责推理与工具调用。
+    *   **BIMCanvas.Server (.NET)**: 提供 SSE (Server-Sent Events) 推送流和 REST API 指令接口。
+
+2.  **前端改造**:
+    *   **移除 Mock 数据**: 替换 `AICommandCenter.vue` 中的静态数据。
+    *   **SSE 监听**: 连接 `/api/events/stream` 接收 `task_progress`, `new_proposal`, `alert` 事件。
+    *   **状态同步**: 
+        *   **指令发送**: 必须携带当前 `Context` (Zone ID, Selection IDs)。
+        *   **预览同步**: 悬停提案卡时，需调用 `CanvasStore` 加载临时 JSON 数据以实现预览。
+    
+3.  **注意事项**:
+    *   **异步体验**: AI 生成耗时较长 (10-30s)，必须利用任务卡进度条安抚用户，支持后台运行。
+    *   **流式渲染**: 推荐让 AI 分阶段推送数据（如先推墙体再推家具），提升感知速度。
 
 ## 🛠️ 技术栈 (Tech Stack)
 

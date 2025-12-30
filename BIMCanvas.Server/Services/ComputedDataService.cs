@@ -65,11 +65,11 @@ namespace BIMCanvas.Server.Services
                 return false;
             }
 
-            // 3. 检查 zones.json 是否存在
-            var zonesPath = Path.Combine(computedPath, "zones.json");
+            // 3. 检查 room_zones.json 是否存在
+            var zonesPath = Path.Combine(computedPath, "room_zones.json");
             if (!File.Exists(zonesPath))
             {
-                _logger.LogInformation("zones.json 不存在，需要生成");
+                _logger.LogInformation("room_zones.json 不存在，需要生成");
                 return false;
             }
 
@@ -142,11 +142,11 @@ namespace BIMCanvas.Server.Services
             var roomZones = CalculateRoomZones(rooms);
             _logger.LogInformation("计算出 {Count} 个房间区域", roomZones.Count);
 
-            // 5. 写入 zones.json（使用 camelCase）
-            var zonesPath = Path.Combine(computedPath, "zones.json");
+            // 5. 写入 room_zones.json（使用 camelCase）
+            var zonesPath = Path.Combine(computedPath, "room_zones.json");
             var zonesJson = JsonConvert.SerializeObject(roomZones, CamelCaseSettings);
             File.WriteAllText(zonesPath, zonesJson, Encoding.UTF8);
-            _logger.LogInformation("写入 zones.json");
+            _logger.LogInformation("写入 room_zones.json");
 
             // 6. 读取当前 baseline hash 并写入 computed.manifest
             var baselineHash = _manifestService.GetBaselineHash(baselinePath);

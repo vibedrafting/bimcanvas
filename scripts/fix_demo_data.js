@@ -2,7 +2,7 @@ const fs = require('fs');
 const path = require('path');
 
 const demoPath = String.raw`C:\Users\huhaonan\Documents\BIMCanvas\Projects\demo_1_20251226_151319\computed`;
-const filesToFix = ['zones.json', 'exclusions.json'];
+const filesToFix = ['room_zones.json', 'exclusions.json'];
 
 function toCamelCase(str) {
     return str.charAt(0).toLowerCase() + str.slice(1);

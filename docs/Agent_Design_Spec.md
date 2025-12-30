@@ -46,7 +46,7 @@ Agent 是「设计师」：理解需求、做出决策、发出指令，但不�
 - 语义化 Commit（提交时说明设计意图）
 
 **Agent 绝不做的事：**
-- ❌ Zone 生成（读取 Server 预计算的 `computed/zones.json`）
+- ❌ Zone 生成（读取 Server 预计算的 `computed/room_zones.json`）
 - ❌ 禁区计算（读取 `computed/exclusions.json`）
 - ❌ InnerBoundary 计算（读取 Server 预计算结果）
 - ❌ 约束验证（Server 负责，验证失败会通知 Agent 修正）
@@ -358,7 +358,7 @@ Agent 解析用户意图后，输出结构化对象：
 │  【Phase A: 分区设计】                                           │
 │  ┌─────────────────────────────────────────────────────────┐   │
 │  │ 输入：                                                    │   │
-│  │   • computed/zones.json (Room Zone)                      │   │
+│  │   • computed/room_zones.json (Room Zone)                 │   │
 │  │   • baseline/rooms.json (房间名称、类型)                  │   │
 │  │   • 用户需求 + 策略参数                                   │   │
 │  │                                                          │   │
@@ -532,7 +532,7 @@ class PlacementAgent:
 
 | 工具 | 功能 | 说明 |
 |------|------|------|
-| `read_room_zones` | 读取 Room Zone | 读取 `computed/zones.json`（Server 预计算） |
+| `read_room_zones` | 读取 Room Zone | 读取 `computed/room_zones.json`（Server 预计算） |
 | `read_openings` | 读取门窗数据 | 读取 `baseline/openings.json` |
 | `read_exclusions` | 读取禁区数据 | 读取 `computed/exclusions.json`（Server 预计算） |
 | `list_modules` | 列出素材库 | 读取 `modules/*.svg` 文件名，解析尺寸信息 |
@@ -581,7 +581,7 @@ git_commit(project_path, f"feat(layout): {strategy.name} for {zone.name}")
 
 ### 7.1 输入数据
 
-#### computed/zones.json (Room Zone)
+#### computed/room_zones.json (Room Zone)
 
 ```json
 {

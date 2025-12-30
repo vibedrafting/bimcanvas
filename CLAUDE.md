@@ -173,6 +173,7 @@ project.bcp (ZIP)
 │   ├── finishes.json       完成面分段 { locationLineId, startT, endT, thickness }
 │   └── modules.json        布置模块 { bounds, facing, items[] }
 └── computed/               【顶层】计算派生数据（自动生成）
+    ├── room_zones.json     房间区域 { id, roomId, type, rawBoundary }
     └── exclusions.json     禁区 { sourceType, sourceId, boundary }
 ```
 
@@ -190,8 +191,8 @@ project.bcp (ZIP)
 
 ```
 对于每个要放置的模块：
-1. bounds 必须完全在 computed.zones[].innerBoundary 内
-2. bounds 不能与任何 computed.zones[].exclusionAreas 重叠
+1. bounds 必须完全在 computed.roomZones[].innerBoundary 内
+2. bounds 不能与任何 computed.roomZones[].exclusionAreas 重叠
 3. bounds 不能与其他已放置 modules[] 重叠
 ```
 

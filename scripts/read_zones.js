@@ -1,5 +1,5 @@
 const fs = require('fs');
-const path = String.raw`C:\Users\huhaonan\Documents\BIMCanvas\Projects\demo_1_20251226_151319\computed\zones.json`;
+const path = String.raw`C:\Users\huhaonan\Documents\BIMCanvas\Projects\demo_1_20251226_151319\computed\room_zones.json`;
 
 try {
     if (fs.existsSync(path)) {

@@ -283,26 +283,37 @@ const removeContext = (type: 'scope' | 'selection', item?: string) => {
 
     .mode-switch {
         display: flex;
-        background: var(--surface-dim);
-        border-radius: 8px;
-        padding: 2px;
+        background: var(--btn-ghost-bg-hover); /* Adaptive background */
+        border-radius: 10px;
+        padding: 4px;
+        border: 1px solid var(--border-subtle); /* Standardized border */
         
         button {
             flex: 1;
-            border: none;
+            border: 1px solid transparent;
             background: none;
             color: var(--text-secondary);
-            font-size: 0.8rem;
-            padding: 4px;
-            border-radius: 6px;
+            font-size: 0.85rem;
+            font-weight: 500;
+            padding: 6px 12px;
+            border-radius: 8px;
             cursor: pointer;
-            transition: all 0.2s;
+            transition: all 0.2s ease;
             white-space: nowrap;
+            
+            &:hover:not(.active) {
+                color: var(--text-primary);
+                background: var(--btn-ghost-bg-active);
+            }
 
             &.active {
-                background: var(--glass-bg-solid);
+                background: var(--surface-elevated); /* White in light, Dark Grey in dark */
                 color: var(--text-primary);
-                box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+                border-color: var(--border-subtle);
+                box-shadow: 
+                    0 2px 8px rgba(0, 0, 0, 0.12), /* Softer shadow */
+                    0 0 0 1px var(--border-subtle) inset;
+                /* Removed text-shadow for cleaner look in light mode */
             }
         }
     }

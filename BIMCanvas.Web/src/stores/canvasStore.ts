@@ -82,11 +82,11 @@ export const useCanvasStore = defineStore('canvas', () => {
             return { ...schemeZone, type: 'zone' };
         }
 
-        // 在 computed.zones 中查找（房间区域）
+        // 在 computed.roomZones 中查找（房间区域）
         const computed = projectData.value.computed;
-        const computedZone = computed?.zones?.find(z => z.id === id);
+        const computedZone = computed?.roomZones?.find(z => z.id === id);
         if (computedZone) {
-            debug.success(`[Store] findObjectById: found in computed.zones`);
+            debug.success(`[Store] findObjectById: found in computed.roomZones`);
             return { ...computedZone, type: 'zone' };
         }
 

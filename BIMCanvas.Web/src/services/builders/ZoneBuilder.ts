@@ -83,8 +83,8 @@ export class ZoneBuilder {
         this.zoneGroup = new THREE.Group();
         this.zoneGroup.layers.set(LayerManager.LAYER_ZONES);
 
-        // 1. 渲染 computed.zones（房间区域，ZoneType.Room）
-        const computedZones = data.computed?.zones;
+        // 1. 渲染 computed.roomZones（房间区域，ZoneType.Room）
+        const computedZones = data.computed?.roomZones;
         if (computedZones) {
             computedZones.forEach(zone => {
                 this.createZoneMesh(zone);

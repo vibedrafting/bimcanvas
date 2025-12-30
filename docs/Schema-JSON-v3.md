@@ -67,7 +67,7 @@
 │                                                                 │
 │   【computed/: 计算层】Server 自动生成                           │
 │   ┌─────────────────────────────────────────────────────────┐   │
-│   │  • zones.json: 房间区域（从 rooms 派生）                  │   │
+│   │  • room_zones.json: 房间区域（从 rooms 派生）             │   │
 │   │  • exclusions.json: 禁区（门扇扫过区域等）                │   │
 │   └─────────────────────────────────────────────────────────┘   │
 │                                                                 │
@@ -124,7 +124,7 @@
 │   └── location_lines.json              # 完成面定位线
 │
 ├── computed/                            # 【计算层】Server 自动生成
-│   ├── zones.json                       # 房间区域（rz_* ID）
+│   ├── room_zones.json                  # 房间区域（rz_* ID）
 │   └── exclusions.json                  # 禁区（ez_* ID）
 │
 ├── context/                             # 【上下文层】设计知识
@@ -361,7 +361,7 @@
 
 计算层由 Server 根据 baseline 数据自动生成，用户/AI 不应直接修改。
 
-### 5.1 zones.json（房间区域）
+### 5.1 room_zones.json（房间区域）
 
 从 rooms.json 派生的可设计区域，数组格式：
 

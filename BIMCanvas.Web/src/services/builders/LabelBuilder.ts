@@ -95,9 +95,9 @@ export class LabelBuilder {
             });
         }
 
-        // 5. Room Zones - from computed/zones.json
-        if (data.computed?.zones) {
-            data.computed.zones.forEach(zone => {
+        // 5. Room Zones - from computed/room_zones.json
+        if (data.computed?.roomZones) {
+            data.computed.roomZones.forEach(zone => {
                 if (zone.type === 1 && zone.id) {
                     const boundary = zone.computedBoundary ?? zone.rawBoundary;
                     if (boundary && boundary.length > 0) {
