@@ -1,0 +1,29 @@
+[project]
+name = "bimcanvas-agent"
+version = "0.1.0"
+description = "BIMCanvas PlacementAgent - AI-powered interior layout assistant"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "anthropic>=0.40.0",        # Agent SDK (included in anthropic package)
+    "aiohttp>=3.9.0",           # HTTP server
+    "aiohttp-cors>=0.7.0",      # CORS support for Web access
+    "python-dotenv>=1.0.0",     # Environment variables
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0.0",
+    "pytest-asyncio>=0.24.0",
+]
+
+[project.scripts]
+bimcanvas-agent = "src.main:main"
+
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["src*"]

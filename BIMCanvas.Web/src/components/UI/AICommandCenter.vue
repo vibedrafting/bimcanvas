@@ -1,5 +1,8 @@
 <script setup lang="ts">
-import { ref } from 'vue';
+import { ref, onMounted, nextTick } from 'vue';
+
+// Agent API Configuration
+const AGENT_API_BASE = 'http://127.0.0.1:8765';
 
 const panelWidth = ref(360);
 const isResizing = ref(false);
@@ -8,7 +11,17 @@ const currentBranch = ref('feat/ai-proposal-A');
 const mode = ref('chat'); // 'chat' | 'tasks'
 const isTaskSummaryExpanded = ref(false);
 
-// Mock Data
+// Agent connection state
+const agentStatus = ref<'connecting' | 'connected' | 'disconnected'>('disconnected');
+const currentProjectPath = ref('');
+
+// Chat state
+const chatMessages = ref<Array<{ role: 'user' | 'ai'; content: string }>>([]);
+const inputMessage = ref('');
+const isLoading = ref(false);
+const chatScrollRef = ref<HTMLElement | null>(null);
+
+// Mock Data for Tasks (unchanged)
 const tasks = ref([
   { id: 1, name: "Living Room 'Ultimate Storage' Design", progress: 45, status: 'Generating geometry...' },
   { id: 2, name: "Living Room 'Flow Priority' Design", progress: 30, status: 'Calculating paths...' },
@@ -16,27 +29,27 @@ const tasks = ref([
 ]);
 
 const proposals = ref([
-  { 
-    id: 'A', 
-    name: 'Ultimate Storage', 
+  {
+    id: 'A',
+    name: 'Ultimate Storage',
     tags: ['Storage++', 'Flow-'],
     metrics: { storage: '12.5m³', flow: 'Compact' },
     insight: 'Sacrificed 10% open space for max storage.',
     color: '#4facfe',
     thumbnailPattern: 'radial-gradient(circle at 30% 30%, rgba(255,255,255,0.1) 0%, transparent 60%), linear-gradient(135deg, #4facfe 0%, #00f2fe 100%)'
   },
-  { 
-    id: 'B', 
-    name: 'Flow Priority', 
+  {
+    id: 'B',
+    name: 'Flow Priority',
     tags: ['Flow++', 'Open'],
     metrics: { storage: '8.0m³', flow: 'Excellent' },
     insight: 'Optimized for 1200mm main walkways.',
     color: '#00f2fe',
     thumbnailPattern: 'radial-gradient(circle at 70% 70%, rgba(255,255,255,0.1) 0%, transparent 60%), linear-gradient(135deg, #43e97b 0%, #38f9d7 100%)'
   },
-  { 
-    id: 'C', 
-    name: 'Minimalist', 
+  {
+    id: 'C',
+    name: 'Minimalist',
     tags: ['Light++', 'Cost-'],
     metrics: { storage: '6.5m³', flow: 'Good' },
     insight: 'Removed non-essential partitions.',
@@ -47,6 +60,99 @@ const proposals = ref([
 
 const contextScope = ref('Living Room');
 const contextSelection = ref(['Sofa', 'Coffee Table']);
+
+// Check Agent health on mount
+onMounted(async () => {
+  await checkAgentHealth();
+});
+
+// Agent API functions
+const checkAgentHealth = async () => {
+  agentStatus.value = 'connecting';
+  try {
+    const response = await fetch(`${AGENT_API_BASE}/health`);
+    if (response.ok) {
+      agentStatus.value = 'connected';
+    } else {
+      agentStatus.value = 'disconnected';
+    }
+  } catch {
+    agentStatus.value = 'disconnected';
+  }
+};
+
+const sendMessage = async () => {
+  const message = inputMessage.value.trim();
+  if (!message || isLoading.value) return;
+
+  // Add user message to chat
+  chatMessages.value.push({ role: 'user', content: message });
+  inputMessage.value = '';
+  isLoading.value = true;
+
+  // Scroll to bottom
+  await nextTick();
+  scrollToBottom();
+
+  try {
+    const response = await fetch(`${AGENT_API_BASE}/api/chat`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        projectPath: currentProjectPath.value,
+        message: message
+      })
+    });
+
+    if (!response.ok) {
+      throw new Error(`HTTP error: ${response.status}`);
+    }
+
+    const data = await response.json();
+
+    // Add AI response to chat
+    chatMessages.value.push({ role: 'ai', content: data.reply });
+    agentStatus.value = 'connected';
+
+  } catch (error) {
+    console.error('Chat error:', error);
+    chatMessages.value.push({
+      role: 'ai',
+      content: 'Sorry, I encountered an error. Please check if the Agent server is running.'
+    });
+    agentStatus.value = 'disconnected';
+  } finally {
+    isLoading.value = false;
+    await nextTick();
+    scrollToBottom();
+  }
+};
+
+const clearHistory = async () => {
+  try {
+    await fetch(`${AGENT_API_BASE}/api/clear-history`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ projectPath: currentProjectPath.value })
+    });
+    chatMessages.value = [];
+  } catch (error) {
+    console.error('Clear history error:', error);
+  }
+};
+
+const scrollToBottom = () => {
+  if (chatScrollRef.value) {
+    chatScrollRef.value.scrollTop = chatScrollRef.value.scrollHeight;
+  }
+};
+
+const handleKeydown = (event: KeyboardEvent) => {
+  if (event.key === 'Enter' && !event.shiftKey) {
+    event.preventDefault();
+    sendMessage();
+  }
+};
 
 const startResize = () => {
   isResizing.value = true;
@@ -112,6 +218,10 @@ const removeContext = (type: 'scope' | 'selection', item?: string) => {
             <span class="icon">🌿</span>
             <span class="text">{{ currentBranch }}</span>
           </div>
+          <div class="badge agent-status-badge" :class="agentStatus">
+            <span class="status-dot"></span>
+            <span class="text">{{ agentStatus === 'connected' ? 'Agent' : agentStatus === 'connecting' ? 'Connecting...' : 'Offline' }}</span>
+          </div>
         </div>
         <div class="mode-switch">
           <button :class="{ active: mode === 'chat' }" @click="mode = 'chat'">Chat</button>
@@ -123,8 +233,8 @@ const removeContext = (type: 'scope' | 'selection', item?: string) => {
       <div class="layer-stream">
         
         <!-- View: Chat -->
-        <div v-if="mode === 'chat'" class="view-chat">
-            
+        <div v-if="mode === 'chat'" class="view-chat" ref="chatScrollRef">
+
             <!-- Task Summary Widget -->
             <div class="task-summary-widget" v-if="tasks.length > 0" :class="{ expanded: isTaskSummaryExpanded }">
                 <div class="widget-header" @click="isTaskSummaryExpanded = !isTaskSummaryExpanded">
@@ -138,7 +248,7 @@ const removeContext = (type: 'scope' | 'selection', item?: string) => {
                         </svg>
                     </div>
                 </div>
-                
+
                 <!-- Expanded Details -->
                 <div class="widget-details" v-if="isTaskSummaryExpanded">
                     <div class="mini-task-item" v-for="task in tasks" :key="task.id">
@@ -156,22 +266,29 @@ const removeContext = (type: 'scope' | 'selection', item?: string) => {
                 </div>
             </div>
 
-            <!-- Mock Chat History -->
-            <div class="chat-message ai">
+            <!-- Welcome message when no chat history -->
+            <div v-if="chatMessages.length === 0" class="chat-message ai">
                 <div class="avatar">AI</div>
                 <div class="bubble">
-                    Hello! I'm ready to help you design the Living Room.
+                    你好！我是 BIMCanvas 的布置助手。我可以帮助你分析房间功能、提供布置建议。有什么我能帮你的吗？
                 </div>
             </div>
-            <div class="chat-message user">
-                <div class="bubble">
-                    Show me some layout options for a family of four.
+
+            <!-- Actual Chat History -->
+            <template v-for="(msg, index) in chatMessages" :key="index">
+                <div class="chat-message" :class="msg.role === 'user' ? 'user' : 'ai'">
+                    <div v-if="msg.role === 'ai'" class="avatar">AI</div>
+                    <div class="bubble">{{ msg.content }}</div>
                 </div>
-            </div>
-            <div class="chat-message ai">
+            </template>
+
+            <!-- Loading indicator -->
+            <div v-if="isLoading" class="chat-message ai">
                 <div class="avatar">AI</div>
-                <div class="bubble">
-                    I've generated 3 proposals focusing on storage and flow. Check the <b>Tasks</b> panel to see the results!
+                <div class="bubble loading">
+                    <span class="typing-dot"></span>
+                    <span class="typing-dot"></span>
+                    <span class="typing-dot"></span>
                 </div>
             </div>
         </div>
@@ -279,9 +396,22 @@ const removeContext = (type: 'scope' | 'selection', item?: string) => {
 
         <!-- Input Area -->
         <div class="input-area">
-            <input type="text" placeholder="Type /gen or /fix..." />
-            <button class="send-btn">
+            <input
+              type="text"
+              v-model="inputMessage"
+              placeholder="输入消息..."
+              @keydown="handleKeydown"
+              :disabled="isLoading || agentStatus !== 'connected'"
+            />
+            <button
+              class="send-btn"
+              @click="sendMessage"
+              :disabled="isLoading || !inputMessage.trim() || agentStatus !== 'connected'"
+            >
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="19" x2="12" y2="5"></line><polyline points="5 12 12 5 19 12"></polyline></svg>
+            </button>
+            <button class="clear-btn" @click="clearHistory" title="清空对话">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h18M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>
             </button>
         </div>
         
@@ -390,6 +520,41 @@ const removeContext = (type: 'scope' | 'selection', item?: string) => {
         white-space: nowrap;
 
         .icon { font-size: 0.8rem; }
+
+        &.agent-status-badge {
+            gap: 6px;
+
+            .status-dot {
+                width: 6px;
+                height: 6px;
+                border-radius: 50%;
+                background: var(--text-tertiary);
+            }
+
+            &.connected {
+                background: rgba(67, 233, 123, 0.15);
+                border-color: rgba(67, 233, 123, 0.3);
+                color: #43e97b;
+                .status-dot { background: #43e97b; }
+            }
+
+            &.connecting {
+                background: rgba(255, 183, 77, 0.15);
+                border-color: rgba(255, 183, 77, 0.3);
+                color: #ffb74d;
+                .status-dot {
+                    background: #ffb74d;
+                    animation: pulse 1s ease-in-out infinite;
+                }
+            }
+
+            &.disconnected {
+                background: rgba(239, 83, 80, 0.15);
+                border-color: rgba(239, 83, 80, 0.3);
+                color: #ef5350;
+                .status-dot { background: #ef5350; }
+            }
+        }
     }
 
     .mode-switch {
@@ -995,5 +1160,76 @@ const removeContext = (type: 'scope' | 'selection', item?: string) => {
 
 @keyframes spin {
     to { transform: rotate(360deg); }
+}
+
+@keyframes pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.4; }
+}
+
+/* Typing animation for loading indicator */
+.bubble.loading {
+    display: flex;
+    gap: 4px;
+    padding: 12px 16px;
+
+    .typing-dot {
+        width: 6px;
+        height: 6px;
+        background: var(--text-tertiary);
+        border-radius: 50%;
+        animation: typing 1.4s ease-in-out infinite;
+
+        &:nth-child(1) { animation-delay: 0s; }
+        &:nth-child(2) { animation-delay: 0.2s; }
+        &:nth-child(3) { animation-delay: 0.4s; }
+    }
+}
+
+@keyframes typing {
+    0%, 60%, 100% {
+        transform: translateY(0);
+        opacity: 0.4;
+    }
+    30% {
+        transform: translateY(-4px);
+        opacity: 1;
+    }
+}
+
+/* Clear button */
+.clear-btn {
+    width: 36px;
+    height: 36px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: var(--surface-highlight);
+    border: 1px solid var(--border-dim);
+    border-radius: 8px;
+    color: var(--text-secondary);
+    cursor: pointer;
+    transition: all 0.2s;
+
+    svg { width: 16px; height: 16px; }
+
+    &:hover {
+        background: var(--surface-elevated);
+        color: var(--text-primary);
+        border-color: var(--border-subtle);
+    }
+}
+
+/* Disabled state for input/button */
+.input-area {
+    input:disabled {
+        opacity: 0.6;
+        cursor: not-allowed;
+    }
+
+    .send-btn:disabled {
+        opacity: 0.5;
+        cursor: not-allowed;
+    }
 }
 </style>
