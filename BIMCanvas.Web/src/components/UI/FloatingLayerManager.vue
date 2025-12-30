@@ -165,11 +165,11 @@ onUnmounted(() => {
 .floating-layer-manager {
   position: fixed;
   bottom: 60px;
-  right: 100px;   /* Moved left from 60px */
+  left: 24px;   /* Moved to left side */
   z-index: 1000;
   display: flex;
   flex-direction: column;
-  align-items: flex-end;
+  align-items: flex-start; /* Align to start (left) */
   gap: 12px;
 }
 
@@ -236,7 +236,7 @@ onUnmounted(() => {
   padding: 0;
   min-width: 180px;
   overflow: hidden;
-  transform-origin: bottom right;
+  transform-origin: bottom left; /* Animate from bottom left */
 
   .menu-header {
     padding: 12px 16px;

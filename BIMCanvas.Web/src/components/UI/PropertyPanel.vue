@@ -7,7 +7,9 @@ const store = useCanvasStore();
 const { currentOperation, selectedIds } = storeToRefs(store);
 
 // State
-const isFullHeight = ref(false);
+// State
+const STORAGE_KEY = 'bimcanvas.property-panel.full-height';
+const isFullHeight = ref(localStorage.getItem(STORAGE_KEY) === 'true');
 
 // Computed
 const isVisible = computed(() => selectedIds.value.length > 0);
@@ -35,11 +37,22 @@ const isInEditMode = computed(() => {
 });
 
 // Watchers
+// Watchers
+watch(isFullHeight, (newValue) => {
+    localStorage.setItem(STORAGE_KEY, String(newValue));
+});
+
 watch(selectedIds, (newIds) => {
-    // Reset to card mode on new selection
-    if (newIds.length > 0) {
-        isFullHeight.value = false;
-    }
+    // Only reset to card mode if it was NOT user-expanded preference? 
+    // Actually user requirement says "remember state before closing". 
+    // If we reset here, we lose the persistence across selections if that's what "closing" means.
+    // "Should record whether it was expanded or collapsed before closing (default collapsed)"
+    // If I close the panel (deselect), and then select again, it should restore the state.
+    // So I should REMOVE the auto-reset logic here.
+    
+    // if (newIds.length > 0) {
+    //     isFullHeight.value = false;
+    // }
 });
 
 // Helper: Primitive check
@@ -133,7 +146,7 @@ const properties = computed(() => {
   /* Card Mode (Default) */
   position: absolute;
   left: 24px;
-  bottom: 24px;
+  top: 24px;
   width: 280px;
   max-height: 50vh; /* Limit height in card mode */
   
@@ -172,7 +185,7 @@ const properties = computed(() => {
   /* Hidden State */
   &.hidden {
     opacity: 0;
-    transform: translateY(20px) scale(0.95);
+    transform: translateY(-20px) scale(0.95);
     pointer-events: none;
   }
 
@@ -183,8 +196,9 @@ const properties = computed(() => {
     bottom: 24px;
     
     /* Expand vertically */
-    /* Top Bar (32px) + Ribbon (40px) + Gap (24px) = 96px */
-    top: 96px; 
+    /* Top Bar (32px) + Ribbon (40px) + Gap (24px) = 96px total from screen top */
+    /* Container (.properties-area) is already at top: 72px, so we need 24px here to match collapsed state */
+    top: 24px; 
     height: auto; /* Let top/bottom define height */
     
     max-height: none; /* Remove limit */
@@ -279,8 +293,10 @@ const properties = computed(() => {
             text-align: right;
             flex: 1;
             overflow: hidden;
-            text-overflow: ellipsis; /* Ellipsis for long text */
-            white-space: nowrap; /* Keep on one line */
+            /* text-overflow: ellipsis;  <-- Removed to allow wrapping */
+            /* white-space: nowrap;      <-- Removed to allow wrapping */
+            word-break: break-word;      /* Break long words if needed */
+            white-space: pre-wrap;       /* Preserve formatting but wrap */
             font-family: var(--font-mono); /* Monospace for values looks techy */
         }
     }

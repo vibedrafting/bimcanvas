@@ -19,8 +19,8 @@
 | 区域 | `computed/zones.json` | 自动生成 | 从房间派生的设计区域 |
 | 禁区 | `computed/exclusions.json` | 自动生成 | 门扇开启区域等禁止布置区 |
 | 设计需求 | `context/requirements.md` | 读写 | 用户设计需求文档 |
-| 方案配置 | `schemes/{id}/strategy.json` | 读写 | 方案元数据 |
-| **布置模块** | `schemes/{id}/modules.json` | **读写** | **家具布置信息** |
+| 方案配置 | `schemes/strategy.json` | 读写 | 方案元数据 + 策略参数 |
+| **布置模块** | `schemes/modules.json` | **读写** | **家具布置信息** |
 
 ---
 
@@ -46,14 +46,14 @@
 ├── context/                   # 【设计上下文】
 │   └── requirements.md        # 用户设计需求文档
 │
-└── schemes/                   # 【顶层】方案数据（读写）
-    └── {schemeId}/            # 每个方案一个文件夹
-        ├── .git/              # 方案独立版本控制
-        ├── strategy.json      # 方案元数据
-        ├── zones.json         # 方案特定区域划分
-        ├── finishes.json      # 完成面配置
-        └── modules.json       # 家具布置模块
+└── schemes/                   # 【顶层】策略数据（读写，v3.2 扁平结构）
+    ├── strategy.json          # 方案配置（元数据 + 策略参数）
+    ├── zones.json             # 方案特定区域划分
+    ├── finishes.json          # 完成面配置
+    └── modules.json           # 家具布置模块 ⭐ AI主要操作对象
 ```
+
+> **v3.2 架构说明**：`schemes/` 目录直接存放策略文件（无子目录），多策略通过 Git 分支切换实现。
 
 ### 2.1 三层数据模型
 
@@ -61,7 +61,23 @@
 |:---:|--------|----------|------|
 | **底层** | `baseline/` | 只读 | Revit 导出的原始建筑数据，作为静态背景 |
 | **中层** | `computed/` | 自动生成 | Server 计算的派生数据（区域、禁区） |
-| **顶层** | `schemes/{id}/` | 读写 | AI/用户可编辑的设计方案数据 |
+| **顶层** | `schemes/` | 读写 | AI/用户可编辑的策略数据（v3.2 扁平结构） |
+
+### 2.2 多策略架构 (v3.2)
+
+```
+单策略模式：直接操作 schemes/ 目录下的文件
+
+多策略模式：通过 Git 分支实现
+├── main 分支          → schemes/ 包含当前激活策略
+├── scheme/收纳优先    → schemes/ 包含"收纳优先"策略
+└── scheme/动线优先    → schemes/ 包含"动线优先"策略
+```
+
+**AI 操作说明**：
+- AI 只需操作当前 `schemes/` 目录下的文件
+- 多策略切换、并行生成等由 Server 通过 Git 分支/Worktree 自动管理
+- AI 无需执行 Git 命令
 
 ---
 
@@ -89,7 +105,7 @@
 {
   "id": "proj_金凤127_20251225212800",
   "name": "金凤127",
-  "version": "3.0",
+  "version": "3.2",
   "createdAt": "2025-12-25T21:28:00+08:00",
   "updatedAt": "2025-12-27T01:16:47+08:00",
   "coordinateSystem": "cartesian_mm_yUp",
@@ -97,12 +113,14 @@
   "schemes": [
     {
       "id": "default",
-      "path": "./schemes/default",
-      "name": "default"
+      "path": "./schemes",
+      "name": "Default"
     }
   ]
 }
 ```
+
+> **注意**：v3.2 架构中所有策略共用 `./schemes` 路径，多策略通过 Git 分支区分。
 
 | 字段 | 类型 | 说明 |
 |------|------|------|
@@ -315,11 +333,13 @@
 
 ---
 
-## 7. schemes/{schemeId}/ - 方案数据
+## 7. schemes/ - 策略数据
 
-每个设计方案拥有独立的文件夹和 Git 版本控制。
+v3.2 架构：策略文件直接存放在 `schemes/` 目录下，AI 在此进行布置操作。多策略通过 Git 分支切换。
 
-### 7.1 strategy.json - 方案元数据
+### 7.1 strategy.json - 方案配置
+
+包含方案元数据和 AI 布置时的策略参数。
 
 ```json
 {
@@ -327,9 +347,17 @@
   "name": "默认方案",
   "description": "从 demo_1.json 迁移的家具布置方案",
   "createdAt": "2025-12-25T21:28:00+08:00",
-  "baselineHash": ""
+  "baselineHash": "",
+  "strategy": {
+    "approach": "balanced",
+    "storageWeight": 0.5,
+    "circulationWeight": 0.5,
+    "furnitureCount": "normal"
+  }
 }
 ```
+
+#### 元数据字段
 
 | 字段 | 类型 | 说明 |
 |------|------|------|
@@ -338,6 +366,26 @@
 | `description` | string | 方案描述 |
 | `createdAt` | string | 创建时间 |
 | `baselineHash` | string | 关联的基线版本哈希 |
+
+#### 策略参数 (strategy)
+
+**AI 在布置时应读取这些参数，指导布置决策。**
+
+| 字段 | 类型 | 取值范围 | 说明 |
+|------|------|----------|------|
+| `approach` | string | `storage` / `circulation` / `minimal` / `balanced` | 总体策略倾向 |
+| `storageWeight` | number | 0.0 ~ 1.0 | 收纳优先权重（越高越倾向增加储物家具） |
+| `circulationWeight` | number | 0.0 ~ 1.0 | 动线优先权重（越高越倾向保留通道宽度） |
+| `furnitureCount` | string | `min` / `normal` / `max` | 家具数量偏好 |
+
+**策略参数影响布置决策**：
+
+| 场景 | storageWeight | circulationWeight | 布置倾向 |
+|------|---------------|-------------------|----------|
+| 极致收纳 | 0.9 | 0.2 | 增加柜体，牺牲部分通道宽度 |
+| 动线优先 | 0.2 | 0.9 | 保留宽敞通道，减少非必要家具 |
+| 极简留白 | 0.2 | 0.5 | `furnitureCount=min`，仅保留核心家具 |
+| 均衡方案 | 0.5 | 0.5 | 平衡收纳与动线 |
 
 ### 7.2 modules.json - 布置模块 ⭐
 
@@ -594,10 +642,14 @@ bounds = [[x0,y0], [x1,y1], [x2,y2], [x3,y3]]
 
 ### Q5: 如何创建新方案?
 
-1. 复制一个现有方案文件夹（如 `schemes/default/`）
-2. 修改 `strategy.json` 中的 `id` 和 `name`
-3. 在 `project.json` 的 `schemes` 数组中添加新方案引用
-4. 修改 `activeSchemeId` 切换到新方案
+v3.2 架构中，多策略通过 Git 分支实现：
+
+1. 使用 `git checkout -b scheme/新方案名` 创建新分支
+2. 修改 `schemes/strategy.json` 中的 `id` 和 `name`
+3. 在该分支上修改 `schemes/modules.json` 进行布置
+4. 切换分支即可切换方案
+
+> **注意**：AI 并行生成多方案时，Server 会自动使用 Git Worktree 创建隔离的工作副本。
 
 ---
 

@@ -196,12 +196,16 @@ const removeContext = (type: 'scope' | 'selection', item?: string) => {
   background: var(--glass-bg);
   backdrop-filter: var(--glass-blur);
   -webkit-backdrop-filter: var(--glass-blur);
-  border-left: var(--glass-border);
+  border: 1px solid rgba(255, 255, 255, 0.2); /* Stronger border */
+  border-right: none;
   border-radius: 24px 0 0 24px;
   
   /* Glare & Shadow */
   background-image: var(--glass-glare), linear-gradient(to bottom, var(--glass-bg), var(--glass-bg));
-  box-shadow: var(--shadow-panel), var(--glass-inner-highlight);
+  box-shadow: 
+    -12px 0 40px rgba(0, 0, 0, 0.4), /* Deep drop shadow to the left */
+    0 0 0 1px rgba(255, 255, 255, 0.1) inset, /* Inner rim */
+    0 0 20px rgba(255, 255, 255, 0.15); /* Outer glow */
   
   /* Animation */
   /* transition: width 0.1s;  Removed for smoother dragging */
