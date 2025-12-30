@@ -1,385 +1,567 @@
 # BIMCanvas Agent MVP 实施计划
 
-> **版本**：v2.0 | **日期**：2025-12-30
-> **定位**：快速验证实施指南，聚焦"做什么"和"怎么做"
-> **理论参考**：完整架构理论见 [`docs/Agent_Design_Spec.md`](../docs/Agent_Design_Spec.md)
+> **版本**：v3.0 | **日期**：2025-12-30
+> **目标**：验证 AI Agent 能理解房间功能，并完成符合设计常识的家具布置
+> **技术栈**：Python 3.10+ / Anthropic Agent SDK / Claude Sonnet 4
+> **核心原则**：使用 Agent SDK 为后期开发打下坚实基础
 
 ---
 
-## 一、MVP 目标与范围
+## 一、阶段概览
 
-### 验证假设
+| 阶段 | 名称 | 核心产出 | 验收标准 |
+|------|------|----------|----------|
+| **P1** | Agent SDK 基础对话 | 对话功能 + Web 接入 | Web 端能与 Agent 正常对话 |
+| **P2** | 基础布置功能 | 布置决策 + modules.json | AI 能在房间中布置家具 |
 
-> AI Agent 能够理解房间功能，并在设计区内完成符合设计常识的家具布置。
+### MVP 简化策略
 
-### MVP 简化清单
+| 完整版功能 | MVP 处理方式 | 执行者 |
+|------------|--------------|--------|
+| 创建任务 | 只创建默认策略，接入 Web 任务面板 | Server |
+| 功能标签分配 | 固定预设（房间类型→标签组） | Server |
+| 分区设计 | 不考虑，直接用 room_zones.json | - |
+| 素材过滤 | 不考虑，使用 modules/ 全量素材 | - |
+| 模块布置 | AI 按固定规则布置 | Agent |
+| Git Worktree 并行 | 不考虑，单任务串行 | - |
+| 策略参数化 | 不考虑，使用默认策略 | - |
 
-| 完整版功能 | MVP 简化 | 理由 |
-|------------|----------|------|
-| **Phase A 三步骤** | 仅 Step1（tags推断） | Room Zone = Designable Zone |
-| **模块库过滤** | 使用全部 modules/*.svg | 跳过 tags 匹配 |
-| **设计区划分** | 不划分子区域 | 房间即设计区 |
-| **Git Worktree 并行** | 单任务串行 | 无需并行能力 |
-| **策略参数化** | 使用默认策略 | 无策略配置 |
-| **自动 Commit** | 人工检查后手动提交 | 简化 Git 流程 |
-| **设计说明 README** | 不生成 | 跳过自我辩护 |
-| **Server 实时验证** | 人工检查 | Server 未完善 |
-| **SSE 事件触发** | 命令行直接调用 | 无需事件机制 |
+### 关于分区设计的说明
 
-### 路径兼容原则
-
-MVP 阶段 Agent 的 `--project-path` 参数支持：
-- 普通项目目录：`C:/Users/.../Projects/demo_1`
-- Worktree 目录：`C:/Users/.../Projects/demo_1/.worktrees/ai-job-1`
-
-Agent 代码不区分两者，为后续并行扩展预留接口。
-
----
-
-## 二、技术栈
-
-| 组件 | 选型 |
-|------|------|
-| 语言 | Python 3.10+ |
-| AI 框架 | Anthropic Agent SDK |
-| 模型 | Claude Sonnet 4 |
-| 依赖 | `anthropic>=0.40.0` |
+> **分区设计是 AI 的一个能力**，即在面对大空间设计时（如客餐厅、主卧），为了更好应用设计策略（如动线优先），AI 需要先考虑合理的将房间分区（Room 类型的 Zone）划分为更加细致的设计区。
+>
+> 而面对小空间（如卫生间）通常不需要考虑分区设计。
+>
+> **MVP 阶段**：不考虑分区设计，直接把 `computed/room_zones.json` 中的房间分区作为最终设计区使用。
 
 ---
 
-## 三、项目结构
+## 二、阶段详细计划
 
+### 阶段 P1：Agent SDK 基础对话 + Web 接入
+
+**目标**：实现基于 Agent SDK 的对话功能，并接入 Web 端 AI 对话面板
+
+#### P1.1 基础设施搭建
+
+**任务清单**：
+- [ ] 创建 Agent 项目结构
+- [ ] 配置 pyproject.toml（Agent SDK 依赖）
+- [ ] 实现基础工具类（file_tools.py、svg_parser.py）
+- [ ] 创建配置管理（settings.py）
+
+**目标结构**：
 ```
 BIMCanvas.Agent/
-├── pyproject.toml              # Python 项目配置
+├── pyproject.toml
+├── README.md
 ├── src/
 │   ├── __init__.py
-│   ├── main.py                 # 入口：解析参数，启动 Agent
+│   ├── main.py                 # Agent 入口（支持 HTTP 服务）
 │   ├── agent/
 │   │   ├── __init__.py
-│   │   ├── placement_agent.py  # 主 Agent：协调两个阶段
-│   │   ├── zone_designer.py    # Phase A：tags 推断
-│   │   └── layout_planner.py   # Phase B：布置决策
+│   │   └── placement_agent.py  # 主 Agent（Agent SDK）
 │   ├── tools/
 │   │   ├── __init__.py
-│   │   ├── file_tools.py       # 读写 JSON 工具
-│   │   └── svg_parser.py       # SVG 文件名解析
+│   │   ├── file_tools.py       # JSON 读写
+│   │   └── svg_parser.py       # SVG 解析
+│   ├── server/
+│   │   ├── __init__.py
+│   │   └── http_server.py      # HTTP 服务（供 Web 调用）
 │   └── config/
 │       ├── __init__.py
 │       └── settings.py         # 配置项
+├── MOSS/                       # 保留现有代码（参考）
+└── AgentSDK-Quickstart.md      # Agent SDK 参考文档
 ```
 
----
-
-## 四、MVP 工具集（精简版）
-
-> 完整工具定义见理论文档第六节
-
-### 读取工具
-
-| 工具 | 数据路径 | 说明 |
-|------|----------|------|
-| `read_room_zones` | `computed/room_zones.json` | 读取 Room Zone |
-| `read_openings` | `baseline/openings.json` | 读取门窗数据 |
-| `list_modules` | `modules/*.svg` | 列出素材库 |
-
-### 写入工具
-
-| 工具 | 数据路径 | 说明 |
-|------|----------|------|
-| `write_design_zones` | `schemes/{s}/zones.json` | 写入 Designable Zone |
-| `write_modules` | `schemes/{s}/modules.json` | 写入布置结果 |
-
-**MVP 不需要的工具**：
-- ❌ Git 工具（`git_add`, `git_commit`, `git_status`）
-- ❌ README 工具（`write_readme`）
-- ❌ 策略工具（`read_strategy`）
-
----
-
-## 五、实施步骤
-
-### Phase 1：基础设施（预计 2h）
-
-**目标**：搭建项目框架，准备测试数据
-
-- [ ] 创建 `BIMCanvas.Agent/` 目录结构
-- [ ] 创建 `pyproject.toml`
-- [ ] 安装依赖 `pip install anthropic`
-- [ ] 实现 `file_tools.py`（JSON 读写）
-- [ ] 实现 `svg_parser.py`（文件名解析）
-- [ ] 在 demo_1 创建 `modules/` 并准备 10+ SVG 文件
-
-**关键代码片段**：
-
-```python
-# pyproject.toml
+**pyproject.toml**：
+```toml
 [project]
 name = "bimcanvas-agent"
 version = "0.1.0"
 requires-python = ">=3.10"
-dependencies = ["anthropic>=0.40.0"]
+dependencies = [
+    "anthropic>=0.40.0",
+    "aiohttp>=3.9.0",           # HTTP 服务
+    "python-dotenv>=1.0.0",     # 环境变量
+]
 
-[build-system]
-requires = ["hatchling"]
-build-backend = "hatchling.build"
+[project.scripts]
+bimcanvas-agent = "src.main:main"
 ```
 
+#### P1.2 Agent SDK 对话实现
+
+**核心代码 - placement_agent.py**：
 ```python
-# src/tools/svg_parser.py
-def parse_svg_filename(filename: str) -> dict:
-    """解析文件名：床_双人_2000x1800.svg → {name, size, templateId}"""
-    name = filename.replace(".svg", "")
-    parts = name.rsplit("_", 1)
-    width, height = map(int, parts[-1].split("x"))
-    return {
-        "templateId": name,
-        "name": parts[0],
-        "size": [width, height],
-        "svgPath": f"modules/{filename}"
+import asyncio
+from anthropic import Anthropic
+
+client = Anthropic()
+
+# Agent 系统提示词
+SYSTEM_PROMPT = """
+你是 BIMCanvas 的 PlacementAgent，一个专业的室内布置助手。
+
+你的职责：
+1. 理解用户的布置需求
+2. 分析房间功能和空间特点
+3. 为用户提供专业的布置建议
+4. 执行家具布置任务
+
+当前阶段（MVP）你可以：
+- 与用户对话，理解需求
+- 解答室内设计相关问题
+- 执行基础的家具布置任务
+
+请用简洁专业的中文回答。
+"""
+
+class PlacementAgent:
+    """基于 Agent SDK 的布置助手"""
+
+    def __init__(self, project_path: str = None):
+        self.project_path = project_path
+        self.conversation_history = []
+
+    async def chat(self, user_message: str) -> str:
+        """处理用户消息并返回回复"""
+
+        # 添加用户消息到历史
+        self.conversation_history.append({
+            "role": "user",
+            "content": user_message
+        })
+
+        # 调用 Claude API
+        response = client.messages.create(
+            model="claude-sonnet-4-20250514",
+            max_tokens=4096,
+            system=SYSTEM_PROMPT,
+            messages=self.conversation_history
+        )
+
+        # 提取回复内容
+        assistant_message = response.content[0].text
+
+        # 添加到历史
+        self.conversation_history.append({
+            "role": "assistant",
+            "content": assistant_message
+        })
+
+        return assistant_message
+
+    def clear_history(self):
+        """清空对话历史"""
+        self.conversation_history = []
+```
+
+#### P1.3 HTTP 服务（供 Web 调用）
+
+**http_server.py**：
+```python
+from aiohttp import web
+from src.agent.placement_agent import PlacementAgent
+
+# 全局 Agent 实例（按项目路径缓存）
+agents: dict[str, PlacementAgent] = {}
+
+def get_agent(project_path: str) -> PlacementAgent:
+    """获取或创建 Agent 实例"""
+    if project_path not in agents:
+        agents[project_path] = PlacementAgent(project_path)
+    return agents[project_path]
+
+async def chat_handler(request: web.Request) -> web.Response:
+    """处理对话请求"""
+    data = await request.json()
+
+    project_path = data.get("projectPath", "")
+    message = data.get("message", "")
+
+    if not message:
+        return web.json_response({"error": "消息不能为空"}, status=400)
+
+    agent = get_agent(project_path)
+    reply = await agent.chat(message)
+
+    return web.json_response({
+        "reply": reply,
+        "projectPath": project_path
+    })
+
+async def clear_history_handler(request: web.Request) -> web.Response:
+    """清空对话历史"""
+    data = await request.json()
+    project_path = data.get("projectPath", "")
+
+    if project_path in agents:
+        agents[project_path].clear_history()
+
+    return web.json_response({"success": True})
+
+def create_app() -> web.Application:
+    """创建 HTTP 应用"""
+    app = web.Application()
+    app.router.add_post("/api/chat", chat_handler)
+    app.router.add_post("/api/clear-history", clear_history_handler)
+    return app
+
+def run_server(host: str = "127.0.0.1", port: int = 8765):
+    """启动 HTTP 服务"""
+    app = create_app()
+    web.run_app(app, host=host, port=port)
+```
+
+#### P1.4 Web 端接入
+
+**Web 端需要修改的文件**：`BIMCanvas.Web/src/components/UI/AICommandCenter.vue`
+
+**接口调用示例**：
+```typescript
+// 发送消息
+const sendMessage = async (message: string) => {
+  const response = await fetch('http://127.0.0.1:8765/api/chat', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      projectPath: currentProjectPath,
+      message: message
+    })
+  });
+  const data = await response.json();
+  return data.reply;
+};
+
+// 清空历史
+const clearHistory = async () => {
+  await fetch('http://127.0.0.1:8765/api/clear-history', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ projectPath: currentProjectPath })
+  });
+};
+```
+
+#### P1 验收标准
+
+- [ ] Agent HTTP 服务可正常启动（`python -m src.main --serve`）
+- [ ] Web 端 AI 对话面板可调用 Agent API
+- [ ] 对话历史正确维护
+- [ ] 多轮对话正常工作
+
+---
+
+### 阶段 P2：基础布置功能
+
+**目标**：实现 AI 家具布置决策，输出 modules.json
+
+**前提**：P1 阶段验收通过
+
+#### P2.1 Server 端预处理（非 Agent 职责）
+
+> 以下功能由 Server 端实现，Agent 直接使用结果
+
+**功能标签分配**（Server 端固定预设）：
+
+| 房间类型 (reason) | 功能标签 (tags) |
+|-------------------|-----------------|
+| room:LivingRoom | sitting, entertainment, tv_media |
+| room:MasterBedroom | sleeping, rest, storage, dressing |
+| room:Bedroom | sleeping, rest |
+| room:Bathroom | bathing, toilet |
+| room:Kitchen | cooking, storage |
+| room:DiningRoom | dining |
+
+**Server 端实现要点**：
+- 读取 `computed/room_zones.json`
+- 根据 `reason` 字段匹配功能标签
+- 直接输出 `schemes/{s}/zones.json`（MVP 不做分区设计）
+
+#### P2.2 Agent 布置决策
+
+**输入数据**：
+- `computed/room_zones.json` - 房间分区（直接作为设计区）
+- `baseline/openings.json` - 门窗数据
+- `modules/*.svg` - 全量素材库（MVP 不过滤）
+
+**输出数据**：
+- `schemes/{s}/modules.json` - 布置结果
+
+**布置决策规则**（来自 Agent_Design_Spec.md §4.3）：
+
+| 规则 | 说明 | 适用家具 |
+|------|------|----------|
+| 靠墙规则 | 大型家具尽量靠墙 | 床、衣柜、沙发 |
+| 居中规则 | 某些家具居中于墙面 | 电视柜 |
+| 顶角规则 | 某些家具顶墙角 | 衣柜、书柜 |
+| 朝向规则 | 模块背对墙 | 沙发背墙，面向中心 |
+| 对位规则 | 家具对位关系 | 沙发正对电视 |
+| 避窗规则 | 除淋浴外避免靠窗 | 床头不靠窗 |
+| 避门规则 | 不阻挡门开启范围 | 利用 openings 数据 |
+
+**布置优先级**：
+```
+1. 【锚点家具】确定设计区的"锚点"
+   • 客厅: 电视墙位置 → 电视柜
+   • 卧室: 床头墙位置 → 床
+   • 餐厅: 主位置 → 餐桌
+
+2. 【主要家具】围绕锚点布置
+   • 客厅: 沙发（正对电视柜）
+   • 卧室: 衣柜、床头柜
+
+3. 【辅助家具】填充剩余空间
+   • 茶几、边几、装饰柜等
+```
+
+#### P2.3 Agent 工具定义
+
+**placement_agent.py 扩展**：
+```python
+import json
+from anthropic import Anthropic
+from src.tools.file_tools import read_json, write_json
+from src.tools.svg_parser import list_modules
+
+# Agent SDK 工具定义
+TOOLS = [
+    {
+        "name": "read_room_zones",
+        "description": "读取项目的房间分区数据（Room Zone）",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "project_path": {"type": "string", "description": "项目路径"}
+            },
+            "required": ["project_path"]
+        }
+    },
+    {
+        "name": "read_openings",
+        "description": "读取门窗数据",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "project_path": {"type": "string", "description": "项目路径"}
+            },
+            "required": ["project_path"]
+        }
+    },
+    {
+        "name": "list_modules",
+        "description": "列出可用的家具模块",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "project_path": {"type": "string", "description": "项目路径"}
+            },
+            "required": ["project_path"]
+        }
+    },
+    {
+        "name": "write_modules",
+        "description": "写入家具布置结果",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "project_path": {"type": "string", "description": "项目路径"},
+                "scheme_id": {"type": "string", "description": "方案ID"},
+                "modules": {"type": "array", "description": "布置的模块列表"}
+            },
+            "required": ["project_path", "scheme_id", "modules"]
+        }
     }
+]
+
+def execute_tool(tool_name: str, tool_input: dict) -> str:
+    """执行工具调用"""
+    if tool_name == "read_room_zones":
+        data = read_json(tool_input["project_path"], "computed/room_zones.json")
+        return json.dumps(data, ensure_ascii=False)
+
+    elif tool_name == "read_openings":
+        data = read_json(tool_input["project_path"], "baseline/openings.json")
+        return json.dumps(data, ensure_ascii=False)
+
+    elif tool_name == "list_modules":
+        data = list_modules(tool_input["project_path"])
+        return json.dumps(data, ensure_ascii=False)
+
+    elif tool_name == "write_modules":
+        write_json(
+            tool_input["project_path"],
+            f"schemes/{tool_input['scheme_id']}/modules.json",
+            tool_input["modules"]
+        )
+        return "布置结果已保存"
+
+    return f"未知工具: {tool_name}"
 ```
 
-### Phase 2：Phase A 实现（预计 3h）
+#### P2.4 布置任务接入 Web
 
-**目标**：实现 tags 推断功能
+**任务触发流程**：
+```
+Web 端点击"开始布置"
+    ↓
+调用 Agent API: POST /api/task/layout
+    ↓
+Agent 读取数据 → 执行布置决策 → 写入 modules.json
+    ↓
+返回布置结果摘要 → Web 端渲染
+```
 
-- [ ] 实现 `zone_designer.py` 框架
-- [ ] 实现 `read_room_zones` 工具
-- [ ] 编写 tags 推断 Prompt
-- [ ] 实现 `write_design_zones` 工具
-- [ ] 测试 demo_1 的 6 个房间
+**新增 API 端点**：
+```python
+async def layout_task_handler(request: web.Request) -> web.Response:
+    """执行布置任务"""
+    data = await request.json()
 
-**tags 推断规则（简表）**：
+    project_path = data.get("projectPath")
+    scheme_id = data.get("schemeId", "default")
+    user_prompt = data.get("prompt", "请为这个户型布置家具")
 
-| 房间类型 | 推荐 tags |
-|----------|-----------|
-| 客厅 | sitting, entertainment, tv_media |
-| 主卧 | sleeping, rest, storage, dressing |
-| 次卧 | sleeping, rest |
-| 卫生间 | bathing, toilet |
-| 厨房 | cooking, storage |
-| 餐厅 | dining |
+    agent = get_agent(project_path)
 
-### Phase 3：Phase B 实现（预计 4h）
+    # 构造布置任务指令
+    task_prompt = f"""
+    用户请求：{user_prompt}
 
-**目标**：实现布置决策功能
+    请执行以下步骤：
+    1. 使用 read_room_zones 读取房间分区
+    2. 使用 read_openings 读取门窗数据
+    3. 使用 list_modules 获取可用家具
+    4. 根据设计原则为每个房间布置家具
+    5. 使用 write_modules 保存布置结果
 
-- [ ] 实现 `layout_planner.py` 框架
-- [ ] 实现 `read_openings` 工具
-- [ ] 实现 `list_modules` 工具
-- [ ] 编写布置决策 Prompt（含设计原则）
-- [ ] 实现 `write_modules` 工具
-- [ ] 逐房间测试布置结果
+    方案ID: {scheme_id}
+    """
 
-**设计原则简表**（详见理论文档第四节）：
+    # 执行 Agent 任务（带工具调用循环）
+    result = await agent.run_task(task_prompt)
 
-| 规则 | 说明 |
+    return web.json_response({
+        "success": True,
+        "summary": result
+    })
+```
+
+#### P2 验收标准
+
+- [ ] Agent 可正确读取 room_zones.json
+- [ ] Agent 可正确读取 openings.json
+- [ ] Agent 可正确列出 modules/*.svg
+- [ ] Agent 能为每个房间布置合理的家具
+- [ ] 家具不阻挡门开启范围
+- [ ] modules.json 格式符合规范
+- [ ] Web 端能触发布置任务
+- [ ] Web 端能正确渲染布置结果
+
+---
+
+## 三、关键文件清单
+
+### P1 阶段需要创建/修改的文件
+
+| 文件 | 类型 | 说明 |
+|------|------|------|
+| `BIMCanvas.Agent/pyproject.toml` | 新建 | 项目配置 |
+| `BIMCanvas.Agent/src/__init__.py` | 新建 | 包初始化 |
+| `BIMCanvas.Agent/src/main.py` | 新建 | 入口（支持 HTTP 服务） |
+| `BIMCanvas.Agent/src/agent/placement_agent.py` | 新建 | 主 Agent |
+| `BIMCanvas.Agent/src/server/http_server.py` | 新建 | HTTP 服务 |
+| `BIMCanvas.Agent/src/tools/file_tools.py` | 新建 | JSON 读写 |
+| `BIMCanvas.Agent/src/tools/svg_parser.py` | 新建 | SVG 解析 |
+| `BIMCanvas.Agent/src/config/settings.py` | 新建 | 配置管理 |
+| `BIMCanvas.Web/src/components/UI/AICommandCenter.vue` | 修改 | 接入 Agent API |
+
+### P2 阶段需要创建/修改的文件
+
+| 文件 | 类型 | 说明 |
+|------|------|------|
+| `BIMCanvas.Agent/src/agent/placement_agent.py` | 修改 | 添加工具定义和布置逻辑 |
+| `BIMCanvas.Agent/src/server/http_server.py` | 修改 | 添加布置任务 API |
+| `BIMCanvas.Server/Services/ZoneTagService.cs` | 新建 | Server 端功能标签分配 |
+
+### Agent 读取的文件
+
+| 文件 | 生成者 | 用途 |
+|------|--------|------|
+| `computed/room_zones.json` | Server | 房间分区数据 |
+| `baseline/openings.json` | Revit | 门窗数据 |
+| `modules/*.svg` | 手动准备 | 家具素材库 |
+
+### Agent 写入的文件
+
+| 文件 | 内容 |
 |------|------|
-| 靠墙 | 大型家具（床、衣柜、沙发）尽量靠墙 |
-| 居中 | 电视柜居中于电视墙 |
-| 对位 | 沙发正对电视 |
-| 避门窗 | 不阻挡门开启范围 |
-
-### Phase 4：集成测试（预计 2h）
-
-**目标**：端到端验证
-
-- [ ] Phase A → Phase B 完整流程
-- [ ] 检查输出 JSON 格式
-- [ ] Web 端渲染验证
-- [ ] 修复问题
+| `schemes/{s}/modules.json` | 家具布置结果 |
 
 ---
 
-## 六、模块素材库
+## 四、测试数据
 
-### 文件命名规范
-
-```
-{名称}_{规格}_{宽}x{高}.svg
-
-示例：
-- 床_双人_2000x1800.svg
-- 沙发_三人_2400x900.svg
-- 衣柜_三门_2400x600.svg
-```
-
-### MVP 必需素材（最少 10 个）
+### demo_1 项目路径
 
 ```
-modules/
-├── 床_双人_2000x1800.svg
-├── 床_单人_1200x1900.svg
-├── 衣柜_三门_2400x600.svg
-├── 床头柜_500x500.svg
-├── 沙发_三人_2400x900.svg
-├── 茶几_方形_1200x600.svg
-├── 电视柜_1800x400.svg
-├── 餐桌_六人_1800x900.svg
-├── 餐椅_450x450.svg
-└── 马桶_400x700.svg
-```
-
----
-
-## 七、测试数据
-
-### 测试项目
-
-```
-路径：C:\Users\huhaonan\Documents\BIMCanvas\Projects\demo_1
-```
-
-### 项目结构
-
-```
-demo_1/
-├── baseline/
-│   ├── rooms.json            # 6 个房间
-│   └── openings.json         # 门窗数据
-├── computed/
-│   └── room_zones.json       # Room Zone（Agent 输入）
-├── schemes/default/
-│   ├── zones.json            # Designable Zone（Agent 输出）
-│   └── modules.json          # 布置结果（Agent 输出）
-└── modules/                  # SVG 素材库（待创建）
+C:\Users\huhaonan\Documents\BIMCanvas\Projects\demo_1
 ```
 
 ### demo_1 房间数据
 
-| Zone ID | 房间名 | 类型 |
-|---------|--------|------|
-| rz_1 | 次卧一 | Bedroom |
-| rz_2 | 次卧二 | Bedroom |
-| rz_3 | 主卧 | MasterBedroom |
-| rz_4 | 主卫 | Bathroom |
-| rz_5 | 公卫 | Bathroom |
-| rz_6 | 公共空间 | LivingRoom |
+| Zone ID | 房间名 | 类型 | 功能标签（Server 预设） |
+|---------|--------|------|-------------------------|
+| rz_1 | 次卧一 | Bedroom | sleeping, rest |
+| rz_2 | 次卧二 | Bedroom | sleeping, rest |
+| rz_3 | 主卧 | MasterBedroom | sleeping, rest, storage, dressing |
+| rz_4 | 主卫 | Bathroom | bathing, toilet |
+| rz_5 | 公卫 | Bathroom | bathing, toilet |
+| rz_6 | 公共空间 | LivingRoom | sitting, entertainment, dining |
+
+### 素材库（modules/）
+
+已准备就绪。
 
 ---
 
-## 八、验收标准
+## 五、后续扩展（MVP 后）
 
-### 运行命令
-
-```bash
-cd BIMCanvas.Agent
-python -m src.main \
-    --project-path "C:\Users\huhaonan\Documents\BIMCanvas\Projects\demo_1" \
-    --scheme "default" \
-    --prompt "帮我设计这个户型"
-```
-
-### 预期输出
-
-```
-[Phase A] 读取 6 个 Room Zone
-[Phase A] 推断功能标签...
-  - 主卧 → tags: [sleeping, rest, storage, dressing]
-  - 公共空间 → tags: [sitting, entertainment, dining]
-  ...
-[Phase A] 写入 schemes/default/zones.json ✓
-
-[Phase B] 读取 6 个 Designable Zone
-[Phase B] 加载 10 个模块素材
-[Phase B] 布置主卧...
-  - 床_双人 @ (10100, 2750), facing=east
-  - 衣柜_三门 @ (12650, 5450), facing=south
-[Phase B] 布置公共空间...
-  - 沙发_三人 @ (5400, 3700), facing=east
-  - 电视柜 @ (8550, 3325), facing=west
-  ...
-[Phase B] 写入 schemes/default/modules.json ✓
-
-完成！共布置 19 个模块
-```
-
-### 检查项
-
-- [ ] `computed/room_zones.json` 正确读取
-- [ ] 各房间 tags 推断合理
-- [ ] `schemes/default/zones.json` 格式正确
-- [ ] `modules/*.svg` 正确读取
-- [ ] `baseline/openings.json` 正确读取
-- [ ] 每个房间有合理的家具布置
-- [ ] 家具不阻挡门开启
-- [ ] `schemes/default/modules.json` 格式正确
-- [ ] Web 端能正确渲染
+| 优先级 | 功能 | 参考文档 |
+|--------|------|----------|
+| P1 | 分区设计（大空间细分） | Agent_Design_Spec.md §4.2 |
+| P1 | 素材过滤（按功能标签） | Agent_Design_Spec.md §4.2 |
+| P2 | 策略参数化（storage_weight 等） | Agent_Design_Spec.md §5 |
+| P2 | Git Worktree 并行架构 | AI_Parallel_Design_Patterns.md |
+| P3 | SSE 事件触发 | Architecture.md §6.4 |
+| P3 | 自动 Commit + 设计说明 | Agent_Design_Spec.md §6.3 |
 
 ---
 
-## 九、MVP 前置条件
+## 六、总体验收标准
 
-### 必需数据（已就绪）
+### P1 阶段验收
 
-| 数据 | 路径 | 状态 |
-|------|------|------|
-| Room Zone | `computed/room_zones.json` | ✅ demo_1 已有 |
-| 门窗数据 | `baseline/openings.json` | ✅ demo_1 已有 |
+- [ ] Agent HTTP 服务可正常启动
+- [ ] Web 端 AI 对话面板可调用 Agent API
+- [ ] 对话历史正确维护
+- [ ] 多轮对话正常工作
 
-### 简化处理
+### P2 阶段验收
 
-| 场景 | MVP 处理方式 |
-|------|--------------|
-| `exclusions.json` 不存在 | 使用 `openings.json` 简单避让 |
-| Zone 无 `innerBoundary` | 使用 `rawBoundary` 作为边界 |
-| 无 Server 验证 | 人工检查布置结果 |
-
----
-
-## 十、后续扩展（MVP 后）
-
-> 完整扩展路线见理论文档第十一节
-
-| 优先级 | 功能 | 参考 |
-|--------|------|------|
-| P1 | Phase A 完整实现（模块过滤、区域划分） | 理论文档 §3 |
-| P1 | Git Worktree 并行架构 | `AI_Parallel_Design_Patterns.md` |
-| P2 | 策略参数化（storage_weight 等） | 理论文档 §5 |
-| P2 | 自动 Commit + 设计说明 | 理论文档 §6.3 |
-| P3 | SSE 事件触发 | 理论文档 §8 |
+- [ ] Agent 可正确读取项目数据
+- [ ] Agent 能为每个房间布置合理的家具
+- [ ] 家具不阻挡门开启范围
+- [ ] modules.json 格式符合规范
+- [ ] Web 端能触发布置任务并渲染结果
 
 ---
 
-## 十一、风险与缓解
+## 附录：相关文档
 
-| 风险 | 缓解措施 |
-|------|----------|
-| Claude API 限流 | 批量处理房间，减少调用次数 |
-| SVG 素材缺失 | 提前准备完整模块库 |
-| 布置不合理 | 完善 Prompt 中的设计原则 |
-| 边界计算错误 | MVP 依赖人工检查，后续由 Server 兜底 |
-
----
-
-## 附录：关键文件清单
-
-### 需要创建
-
-| 文件 | 优先级 |
-|------|--------|
-| `BIMCanvas.Agent/pyproject.toml` | P1 |
-| `BIMCanvas.Agent/src/main.py` | P1 |
-| `BIMCanvas.Agent/src/tools/file_tools.py` | P1 |
-| `BIMCanvas.Agent/src/tools/svg_parser.py` | P1 |
-| `BIMCanvas.Agent/src/agent/placement_agent.py` | P2 |
-| `BIMCanvas.Agent/src/agent/zone_designer.py` | P2 |
-| `BIMCanvas.Agent/src/agent/layout_planner.py` | P3 |
-| `BIMCanvas.Agent/src/config/settings.py` | P1 |
-| `demo_1/modules/*.svg` | P1 |
-
-### Agent 读取
-
-| 文件 | 生成者 |
-|------|--------|
-| `computed/room_zones.json` | Server |
-| `baseline/openings.json` | Revit |
-| `modules/*.svg` | 手动准备 |
-
-### Agent 写入
-
-| 文件 | 内容 |
-|------|------|
-| `schemes/{s}/zones.json` | Designable Zone + tags |
-| `schemes/{s}/modules.json` | 布置结果 |
+- `docs/Agent_Design_Spec.md` - PlacementAgent 完整理论文档
+- `docs/AI_Parallel_Design_Patterns.md` - 并行设计模式详细说明
+- `docs/Schema-JSON-v3.md` - v3.0 数据模型定义
+- `BIMCanvas.Agent/AgentSDK-Quickstart.md` - Agent SDK 快速入门指南

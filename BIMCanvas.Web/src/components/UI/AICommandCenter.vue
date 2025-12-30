@@ -5,17 +5,44 @@ const panelWidth = ref(360);
 const isResizing = ref(false);
 const currentZone = ref('Living Room');
 const currentBranch = ref('feat/ai-proposal-A');
-const mode = ref('chat'); // 'chat' | 'review'
+const mode = ref('chat'); // 'chat' | 'tasks'
+const isTaskSummaryExpanded = ref(false);
 
 // Mock Data
 const tasks = ref([
-  { id: 1, name: 'Generating 3 parallel schemes...', progress: 45 }
+  { id: 1, name: "Living Room 'Ultimate Storage' Design", progress: 45, status: 'Generating geometry...' },
+  { id: 2, name: "Living Room 'Flow Priority' Design", progress: 30, status: 'Calculating paths...' },
+  { id: 3, name: "Living Room 'Minimalist White' Design", progress: 10, status: 'Initializing...' }
 ]);
 
 const proposals = ref([
-  { id: 'A', name: 'Max Storage', score: { storage: 9.0, flow: 6.0 }, color: '#4facfe' },
-  { id: 'B', name: 'Flow Priority', score: { storage: 6.0, flow: 9.0 }, color: '#00f2fe' },
-  { id: 'C', name: 'Minimalist', score: { storage: 5.0, flow: 8.0 }, color: '#a18cd1' },
+  { 
+    id: 'A', 
+    name: 'Ultimate Storage', 
+    tags: ['Storage++', 'Flow-'],
+    metrics: { storage: '12.5m³', flow: 'Compact' },
+    insight: 'Sacrificed 10% open space for max storage.',
+    color: '#4facfe',
+    thumbnailPattern: 'radial-gradient(circle at 30% 30%, rgba(255,255,255,0.1) 0%, transparent 60%), linear-gradient(135deg, #4facfe 0%, #00f2fe 100%)'
+  },
+  { 
+    id: 'B', 
+    name: 'Flow Priority', 
+    tags: ['Flow++', 'Open'],
+    metrics: { storage: '8.0m³', flow: 'Excellent' },
+    insight: 'Optimized for 1200mm main walkways.',
+    color: '#00f2fe',
+    thumbnailPattern: 'radial-gradient(circle at 70% 70%, rgba(255,255,255,0.1) 0%, transparent 60%), linear-gradient(135deg, #43e97b 0%, #38f9d7 100%)'
+  },
+  { 
+    id: 'C', 
+    name: 'Minimalist', 
+    tags: ['Light++', 'Cost-'],
+    metrics: { storage: '6.5m³', flow: 'Good' },
+    insight: 'Removed non-essential partitions.',
+    color: '#a18cd1',
+    thumbnailPattern: 'radial-gradient(circle at 50% 50%, rgba(255,255,255,0.1) 0%, transparent 60%), linear-gradient(135deg, #fbc2eb 0%, #a6c1ee 100%)'
+  },
 ]);
 
 const contextScope = ref('Living Room');
@@ -88,62 +115,146 @@ const removeContext = (type: 'scope' | 'selection', item?: string) => {
         </div>
         <div class="mode-switch">
           <button :class="{ active: mode === 'chat' }" @click="mode = 'chat'">Chat</button>
-          <button :class="{ active: mode === 'review' }" @click="mode = 'review'">Review</button>
+          <button :class="{ active: mode === 'tasks' }" @click="mode = 'tasks'">Tasks</button>
         </div>
       </div>
 
       <!-- Layer 2: Intelligence Stream -->
       <div class="layer-stream">
         
-        <!-- Task Card -->
-        <div class="card task-card" v-for="task in tasks" :key="task.id">
-          <div class="card-header">
-            <div class="spinner"></div>
-            <span class="task-name">{{ task.name }}</span>
-          </div>
-          <div class="progress-track">
-            <div class="progress-fill" :style="{ width: task.progress + '%' }"></div>
-          </div>
-          <div class="card-actions">
-            <button class="text-btn">Cancel</button>
-            <button class="text-btn">Background</button>
-          </div>
-        </div>
-
-        <!-- Proposal Carousel -->
-        <div class="carousel-section">
-            <div class="section-title">Proposals</div>
-            <div class="carousel-track" ref="carouselTrackRef" @wheel="handleWheel">
-                <div class="proposal-card" v-for="p in proposals" :key="p.id">
-                    <div class="preview-box" :style="{ background: `linear-gradient(135deg, ${p.color}20, ${p.color}40)` }">
-                        <span class="preview-text">Preview {{ p.id }}</span>
+        <!-- View: Chat -->
+        <div v-if="mode === 'chat'" class="view-chat">
+            
+            <!-- Task Summary Widget -->
+            <div class="task-summary-widget" v-if="tasks.length > 0" :class="{ expanded: isTaskSummaryExpanded }">
+                <div class="widget-header" @click="isTaskSummaryExpanded = !isTaskSummaryExpanded">
+                    <div class="widget-content">
+                        <div class="spinner-mini"></div>
+                        <span class="info">{{ tasks.length }} active task{{ tasks.length > 1 ? 's' : '' }} running...</span>
                     </div>
-                    <div class="meta">
-                        <div class="title">{{ p.name }}</div>
-                        <div class="radar-mini">
-                            <span class="stat">Storage: {{ p.score.storage }}</span>
+                    <div class="widget-action">
+                        <svg class="chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            <polyline points="6 9 12 15 18 9"></polyline>
+                        </svg>
+                    </div>
+                </div>
+                
+                <!-- Expanded Details -->
+                <div class="widget-details" v-if="isTaskSummaryExpanded">
+                    <div class="mini-task-item" v-for="task in tasks" :key="task.id">
+                        <div class="task-row">
+                            <span class="task-name">{{ task.name }}</span>
+                            <span class="task-status">{{ task.progress }}%</span>
+                        </div>
+                        <div class="mini-progress-track">
+                            <div class="mini-progress-fill" :style="{ width: task.progress + '%' }"></div>
+                        </div>
+                        <div class="task-meta-row">
+                            <span class="status-text">{{ task.status }}</span>
                         </div>
                     </div>
-                    <div class="hover-actions">
-                        <button class="action-btn">Refine</button>
-                        <button class="action-btn primary">Compare</button>
-                    </div>
+                </div>
+            </div>
+
+            <!-- Mock Chat History -->
+            <div class="chat-message ai">
+                <div class="avatar">AI</div>
+                <div class="bubble">
+                    Hello! I'm ready to help you design the Living Room.
+                </div>
+            </div>
+            <div class="chat-message user">
+                <div class="bubble">
+                    Show me some layout options for a family of four.
+                </div>
+            </div>
+            <div class="chat-message ai">
+                <div class="avatar">AI</div>
+                <div class="bubble">
+                    I've generated 3 proposals focusing on storage and flow. Check the <b>Tasks</b> panel to see the results!
                 </div>
             </div>
         </div>
 
-        <!-- Alert Card (Mock) -->
-        <div class="card alert-card">
-            <div class="alert-header">
-                <span class="icon">⚠️</span>
-                <span>Conflict Detected</span>
+        <!-- View: Tasks (formerly Review) -->
+        <div v-else-if="mode === 'tasks'" class="view-tasks">
+            <!-- Task Card -->
+            <div class="card task-card" v-for="task in tasks" :key="task.id">
+            <div class="card-header">
+                <div class="spinner"></div>
+                <span class="task-name">{{ task.name }}</span>
             </div>
-            <div class="alert-body">
-                Wall move caused collision in Master Bedroom.
+            <div class="progress-track">
+                <div class="progress-fill" :style="{ width: task.progress + '%' }"></div>
             </div>
-            <div class="alert-actions">
-                <button class="action-btn small">Auto-Fix</button>
-                <button class="action-btn small outline">Undo</button>
+            <div class="card-actions">
+                <button class="text-btn">Cancel</button>
+                <button class="text-btn">Background</button>
+            </div>
+            </div>
+
+            <!-- Proposal Carousel -->
+            <div class="carousel-section">
+                <div class="section-title">Proposals</div>
+                <div class="carousel-track" ref="carouselTrackRef" @wheel="handleWheel">
+                    <div class="proposal-card" v-for="p in proposals" :key="p.id">
+                        <!-- 1. Visual Thumbnail -->
+                        <div class="card-thumbnail" :style="{ background: p.thumbnailPattern }">
+                            <div class="thumbnail-overlay">
+                                <span class="preview-badge">Preview {{ p.id }}</span>
+                            </div>
+                        </div>
+                        
+                        <!-- 2. Identity & Strategy -->
+                        <div class="card-content">
+                            <div class="card-header-row">
+                                <div class="title">{{ p.name }}</div>
+                                <div class="tags">
+                                    <span v-for="tag in p.tags" :key="tag" class="tag">{{ tag }}</span>
+                                </div>
+                            </div>
+                            
+                            <!-- 3. Key Metrics -->
+                            <div class="metrics-row">
+                                <div class="metric">
+                                    <span class="label">Storage</span>
+                                    <span class="value">{{ p.metrics.storage }}</span>
+                                </div>
+                                <div class="metric">
+                                    <span class="label">Flow</span>
+                                    <span class="value">{{ p.metrics.flow }}</span>
+                                </div>
+                            </div>
+                            
+                            <!-- 4. AI Insight -->
+                            <div class="insight-row">
+                                <span class="icon">✨</span>
+                                <span class="text">{{ p.insight }}</span>
+                            </div>
+                        </div>
+
+                        <!-- Hover Actions -->
+                        <div class="hover-actions">
+                            <button class="action-btn">Refine</button>
+                            <button class="action-btn primary">Apply</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Alert Card (Mock) -->
+            <div class="card alert-card">
+                <div class="alert-header">
+                    <span class="icon">⚠️</span>
+                    <span>Conflict Detected</span>
+                </div>
+                <div class="alert-body">
+                    Wall move caused collision in Master Bedroom.
+                </div>
+                <div class="alert-actions">
+                    <button class="action-btn small">Auto-Fix</button>
+                    <button class="action-btn small outline">Undo</button>
+                </div>
             </div>
         </div>
 
@@ -333,6 +444,190 @@ const removeContext = (type: 'scope' | 'selection', item?: string) => {
     &::-webkit-scrollbar-thumb { background: var(--border-dim); border-radius: 2px; }
 }
 
+.view-tasks {
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+}
+
+.view-chat {
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+    
+    .chat-message {
+        display: flex;
+        gap: 8px;
+        align-items: flex-start;
+        
+        &.user {
+            flex-direction: row-reverse;
+            .bubble {
+                background: var(--accent-primary);
+                color: white;
+                border: none;
+            }
+        }
+        
+        &.ai {
+            .bubble {
+                background: var(--surface-card);
+                border: 1px solid var(--border-dim);
+                color: var(--text-primary);
+            }
+        }
+
+        .avatar {
+            width: 24px;
+            height: 24px;
+            border-radius: 50%;
+            background: var(--surface-dim);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 0.6rem;
+            color: var(--text-secondary);
+            border: 1px solid var(--border-dim);
+            flex-shrink: 0;
+        }
+
+        .bubble {
+            padding: 8px 12px;
+            border-radius: 12px;
+            font-size: 0.85rem;
+            line-height: 1.4;
+            max-width: 85%;
+        }
+    }
+
+    .task-summary-widget {
+        background: var(--surface-elevated);
+        border: 1px solid var(--border-subtle);
+        border-radius: 10px;
+        overflow: hidden;
+        transition: all 0.2s;
+        margin-bottom: 4px;
+
+        &.expanded {
+            border-color: var(--accent-primary);
+            box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+            
+            .widget-action .chevron {
+                transform: rotate(180deg);
+            }
+        }
+
+        .widget-header {
+            padding: 10px 12px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            cursor: pointer;
+            
+            &:hover {
+                background: var(--surface-highlight);
+            }
+        }
+
+        .widget-content {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            
+            .spinner-mini {
+                width: 14px;
+                height: 14px;
+                border: 2px solid var(--accent-primary);
+                border-top-color: transparent;
+                border-radius: 50%;
+                animation: spin 1s linear infinite;
+            }
+            
+            .info {
+                font-size: 0.8rem;
+                color: var(--text-primary);
+                font-weight: 500;
+            }
+        }
+
+        .widget-action {
+            display: flex;
+            align-items: center;
+            color: var(--text-secondary);
+            
+            .chevron { 
+                width: 16px; 
+                height: 16px; 
+                transition: transform 0.2s;
+            }
+        }
+        
+        .widget-details {
+            padding: 0 12px 12px 12px;
+            border-top: 1px solid var(--border-subtle);
+            background: var(--surface-dim);
+            
+            .mini-task-item {
+                margin-top: 12px;
+                padding-bottom: 8px;
+                border-bottom: 1px solid var(--border-subtle);
+                
+                &:last-child {
+                    border-bottom: none;
+                    padding-bottom: 0;
+                }
+                
+                .task-row {
+                    display: flex;
+                    justify-content: space-between;
+                    align-items: center;
+                    font-size: 0.75rem;
+                    margin-bottom: 6px;
+                    color: var(--text-primary);
+                    
+                    .task-name {
+                        font-weight: 500;
+                        white-space: nowrap;
+                        overflow: hidden;
+                        text-overflow: ellipsis;
+                        max-width: 75%;
+                    }
+                    
+                    .task-status {
+                        color: var(--accent-primary);
+                        font-weight: 600;
+                        font-size: 0.7rem;
+                    }
+                }
+                
+                .mini-progress-track {
+                    height: 4px;
+                    background: var(--border-dim);
+                    border-radius: 2px;
+                    overflow: hidden;
+                    margin-bottom: 4px;
+                    
+                    .mini-progress-fill {
+                        height: 100%;
+                        background: var(--accent-primary);
+                        transition: width 0.3s;
+                    }
+                }
+
+                .task-meta-row {
+                    display: flex;
+                    justify-content: flex-end;
+                    
+                    .status-text {
+                        font-size: 0.65rem;
+                        color: var(--text-tertiary);
+                    }
+                }
+            }
+        }
+    }
+}
+
 .card {
     background: var(--surface-card);
     border: 1px solid var(--border-dim);
@@ -434,60 +729,147 @@ const removeContext = (type: 'scope' | 'selection', item?: string) => {
 }
 
 .proposal-card {
-    min-width: 140px;
+    min-width: 200px; /* Wider card */
+    width: 200px;
     background: var(--surface-card);
-    border-radius: 10px;
+    border-radius: 12px;
     overflow: hidden;
     border: 1px solid var(--border-dim);
     cursor: pointer;
     transition: all 0.2s;
     position: relative;
+    display: flex;
+    flex-direction: column;
 
     &:hover {
-        transform: translateY(-2px);
+        transform: translateY(-4px);
         border-color: var(--accent-primary);
-        box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+        box-shadow: 0 8px 20px rgba(0,0,0,0.15);
         .hover-actions { opacity: 1; }
     }
 
-    .preview-box {
-        height: 80px;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        .preview-text { font-size: 0.7rem; color: var(--text-tertiary); }
+    /* 1. Visual Thumbnail */
+    .card-thumbnail {
+        height: 110px; /* Dominant visual area */
+        position: relative;
+        
+        .thumbnail-overlay {
+            position: absolute;
+            top: 8px;
+            left: 8px;
+            
+            .preview-badge {
+                background: rgba(0,0,0,0.4);
+                backdrop-filter: blur(4px);
+                color: white;
+                font-size: 0.6rem;
+                padding: 2px 6px;
+                border-radius: 4px;
+                font-weight: 500;
+            }
+        }
     }
 
-    .meta {
-        padding: 8px;
-        .title { font-size: 0.8rem; font-weight: 500; margin-bottom: 4px; }
-        .radar-mini { font-size: 0.7rem; color: var(--text-secondary); }
+    /* 2. Content Area */
+    .card-content {
+        padding: 10px;
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+        background: var(--surface-elevated);
+
+        .card-header-row {
+            .title {
+                font-size: 0.85rem;
+                font-weight: 600;
+                color: var(--text-primary);
+                margin-bottom: 4px;
+            }
+            .tags {
+                display: flex;
+                gap: 4px;
+                flex-wrap: wrap;
+                
+                .tag {
+                    font-size: 0.65rem;
+                    padding: 1px 5px;
+                    border-radius: 3px;
+                    background: var(--surface-highlight);
+                    color: var(--text-secondary);
+                    border: 1px solid var(--border-subtle);
+                }
+            }
+        }
+
+        /* 3. Metrics */
+        .metrics-row {
+            display: flex;
+            justify-content: space-between;
+            padding: 6px 0;
+            border-top: 1px solid var(--border-subtle);
+            border-bottom: 1px solid var(--border-subtle);
+            
+            .metric {
+                display: flex;
+                flex-direction: column;
+                gap: 1px;
+                
+                .label { font-size: 0.6rem; color: var(--text-tertiary); text-transform: uppercase; }
+                .value { font-size: 0.75rem; font-weight: 500; color: var(--text-primary); }
+            }
+        }
+
+        /* 4. AI Insight */
+        .insight-row {
+            display: flex;
+            gap: 4px;
+            align-items: flex-start;
+            
+            .icon { font-size: 0.7rem; margin-top: 1px; }
+            .text {
+                font-size: 0.65rem;
+                color: var(--text-secondary);
+                line-height: 1.3;
+                display: -webkit-box;
+                -webkit-line-clamp: 2;
+                -webkit-box-orient: vertical;
+                overflow: hidden;
+            }
+        }
     }
 
     .hover-actions {
         position: absolute;
         inset: 0;
-        background: rgba(0,0,0,0.6);
+        background: rgba(0,0,0,0.3); /* Lighter overlay to see content */
+        backdrop-filter: blur(2px);
         display: flex;
         flex-direction: column;
         align-items: center;
         justify-content: center;
-        gap: 6px;
+        gap: 8px;
         opacity: 0;
         transition: opacity 0.2s;
         
         .action-btn {
-            font-size: 0.7rem;
-            padding: 4px 12px;
-            border-radius: 12px;
-            border: 1px solid rgba(255,255,255,0.2);
-            background: rgba(0,0,0,0.5);
+            font-size: 0.75rem;
+            padding: 6px 16px;
+            border-radius: 16px;
+            border: 1px solid rgba(255,255,255,0.3);
+            background: rgba(0,0,0,0.6);
             color: white;
             cursor: pointer;
+            font-weight: 500;
+            width: 80%;
             
             &.primary {
                 background: var(--accent-primary);
                 border-color: var(--accent-primary);
+                box-shadow: 0 4px 12px rgba(0,0,0,0.2);
+            }
+            
+            &:hover {
+                transform: scale(1.05);
             }
         }
     }
