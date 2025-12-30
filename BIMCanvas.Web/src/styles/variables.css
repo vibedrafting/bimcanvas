@@ -6,7 +6,10 @@
   --border-subtle: rgba(255, 255, 255, 0.08);
   --text-primary: #e0e0e0;
   --text-secondary: rgba(255, 255, 255, 0.5);
+
   --accent-blue: #3b82f6;
+  --accent-primary: var(--accent-blue);
+  /* Added missing variable */
   --accent-glow: rgba(59, 130, 246, 0.2);
   --accent-danger: #ff6b6b;
   --accent-danger-glow: rgba(255, 107, 107, 0.3);
@@ -47,9 +50,7 @@
   /* Semantic Surfaces (Default Dark) */
   --surface-dim: rgba(0, 0, 0, 0.2);
   --surface-panel: rgba(0, 0, 0, 0.2);
-  /* For footers, headers */
   --surface-card: rgba(255, 255, 255, 0.03);
-  /* For cards */
   --surface-highlight: rgba(255, 255, 255, 0.05);
   --surface-highlight-hover: rgba(255, 255, 255, 0.1);
   --border-dim: rgba(255, 255, 255, 0.1);
@@ -58,34 +59,34 @@
 
 [data-theme="light"] {
   --bg-canvas: #f5f5f7;
-  --text-primary: #1d1d1f;
-  --text-secondary: rgba(0, 0, 0, 0.65);
-  --text-tertiary: rgba(0, 0, 0, 0.45);
+  --text-primary: #000000;
+  --text-secondary: rgba(0, 0, 0, 0.85);
+  /* Darker */
+  --text-tertiary: rgba(0, 0, 0, 0.65);
+  /* Darker */
 
-  --glass-bg: rgba(255, 255, 255, 0.85);
+  --glass-bg: rgba(255, 255, 255, 0.95);
   --glass-bg-solid: #ffffff;
-  --glass-border: 1px solid rgba(0, 0, 0, 0.12);
-  /* Slightly darker border */
-  --glass-inner-highlight: inset 0 1px 0 rgba(255, 255, 255, 0.9);
+  --glass-border: 1px solid #8e8e93;
+  /* Much darker gray (iOS Mid Gray) */
+  --glass-inner-highlight: inset 0 1px 0 rgba(255, 255, 255, 1.0);
 
   --glass-glare: linear-gradient(to bottom,
-      rgba(255, 255, 255, 0.8) 0%,
+      rgba(255, 255, 255, 0.9) 0%,
       rgba(255, 255, 255, 0) 100%);
 
-  --border-subtle: rgba(0, 0, 0, 0.08);
-  --border-dim: rgba(0, 0, 0, 0.12);
-  /* Stronger border for inputs/cards */
+  --border-subtle: #c7c7cc;
+  --border-dim: #8e8e93;
+  /* Match glass border for consistency and visibility */
 
-  --surface-dim: rgba(0, 0, 0, 0.04);
+  --surface-dim: rgba(0, 0, 0, 0.08);
   --surface-panel: transparent;
-  /* Remove heavy gray footer background */
   --surface-card: #ffffff;
   --surface-highlight: #ffffff;
-  /* Ensure input is white */
-  --surface-highlight-hover: #f5f5f7;
+  --surface-highlight-hover: #f2f2f7;
 
   --shadow-panel:
-    0 4px 20px rgba(0, 0, 0, 0.08),
-    0 0 0 1px rgba(0, 0, 0, 0.06);
-  /* Add 1px shadow ring for definition */
+    0 12px 40px rgba(0, 0, 0, 0.15),
+    0 1px 3px rgba(0, 0, 0, 0.1),
+    0 0 0 1px rgba(0, 0, 0, 0.05);
 }

@@ -3,8 +3,8 @@
 > 统一后端服务 - 系统的状态中心与通信中枢
 
 **运行时**: .NET 8.0
-**数据模型版本**: v3.0
-**状态**: 🔶 v3.0 项目加载已完成，遗留服务待迁移
+**数据模型版本**: v3.1
+**状态**: 🔶 v3.1 Git Worktree 架构已完成，遗留服务待迁移
 
 ---
 
@@ -53,12 +53,13 @@ builder.Services.AddControllers()
 
 v3.0 采用"文件驱动架构"，Server 从"内存数据库"模式转型为"文件播放器"模式：
 
-| 模式 | v2.9 (旧) | v3.0 (新) |
-|------|-----------|-----------|
-| 数据存储 | 内存中的 `DesignDocument` | 磁盘上的项目文件夹 |
-| 状态来源 | Server 内存 | 文件系统 |
-| 变更同步 | 内存更新 → WebSocket 推送 | 文件写入 → FileWatcher → 推送 |
-| 版本控制 | 外部 Git | 每个策略是独立 Git 仓库 |
+| 模式 | v2.9 (旧) | v3.0 | v3.1 (新) |
+|------|-----------|------|-----------|
+| 数据存储 | 内存中的 `DesignDocument` | 磁盘上的项目文件夹 | 同 v3.0 |
+| 状态来源 | Server 内存 | 文件系统 | 同 v3.0 |
+| 变更同步 | 内存更新 → WebSocket | 文件写入 → FileWatcher | 同 v3.0 |
+| 版本控制 | 外部 Git | ❌ 每个策略独立 Git | ✅ **单仓库 + 多分支 + Worktree** |
+| 并行任务 | 不支持 | 不支持 | ✅ Git Worktree 物理隔离 |
 
 ### 1.2 新增服务
 
@@ -66,8 +67,9 @@ v3.0 采用"文件驱动架构"，Server 从"内存数据库"模式转型为"文
 |------|------|------|
 | `ManifestService` | `Services/ManifestService.cs` | `.manifest` 键值对文件读写 |
 | `ComputedDataService` | `Services/ComputedDataService.cs` | 计算数据管理（禁区生成 + 验证） |
-| `StrategyService` | `Services/StrategyService.cs` | 策略目录管理（创建 + 查询） |
-| `ProjectService` | `Services/ProjectService.cs` | 项目加载完整流程 |
+| `GitWorktreeService` | `Services/GitWorktreeService.cs` | **v3.1 新增** Git 仓库 + 分支 + Worktree 管理 |
+| `StrategyService` | `Services/StrategyService.cs` | 策略管理（v3.1: 分支模式） |
+| `ProjectService` | `Services/ProjectService.cs` | 项目加载（v3.1: 含 Git 初始化） |
 | `ProjectController` | `Controllers/ProjectController.cs` | `/api/project` 端点 |
 
 ### 1.3 遗留服务（待迁移）
@@ -100,10 +102,12 @@ BIMCanvas.Server/
 │   └── ProjectData.cs            ✅ v3.0 项目数据 DTO
 │
 ├── Services/                     【业务服务】
-│   ├── ManifestService.cs        ✅【v3.0 新增】.manifest 文件读写
-│   ├── ComputedDataService.cs    ✅【v3.0 新增】计算数据管理
-│   ├── StrategyService.cs        ✅【v3.0 新增】策略目录管理
-│   ├── ProjectService.cs         ✅【v3.0 新增】项目加载流程
+│   ├── ManifestService.cs        ✅【v3.0】.manifest 文件读写
+│   ├── ComputedDataService.cs    ✅【v3.0】计算数据管理
+│   ├── GitWorktreeService.cs     ✅【v3.1 新增】Git 仓库 + Worktree 管理
+│   ├── StrategyService.cs        ✅【v3.1 重构】策略分支管理
+│   ├── ProjectService.cs         ✅【v3.1 重构】项目加载 + Git 初始化
+│   ├── ProjectContext.cs         ✅ 单项目模式上下文
 │   ├── CanvasStateManager.cs.legacy  ⚠️ 遗留，待迁移
 │   ├── ZoneCalculator.cs.legacy      ⚠️ 遗留，待迁移
 │   ├── PlacementService.cs         布置逻辑 ⬜ 待开发
@@ -126,9 +130,93 @@ BIMCanvas.Server/
 
 ---
 
-## 3. v3.0 项目加载流程
+## 3. v3.1 Git Worktree 架构
 
-### 3.1 ProjectService.LoadProject()
+### 3.1 架构概述
+
+v3.1 采用"单仓库 + 多分支 + Worktree"架构，实现：
+- **版本控制**：项目根目录是单一 Git 仓库
+- **策略管理**：不同策略通过 Git 分支表示（替代独立目录）
+- **并行任务**：通过 Git Worktree 实现物理隔离的并发工作
+
+```
+项目目录/
+├── .git/                    # 单一 Git 仓库
+├── .gitignore               # 忽略 .worktrees/ 等
+├── project.json
+├── baseline/                # 建筑基础（只读）
+├── computed/                # 计算缓存
+├── context/                 # 设计需求
+├── schemes/
+│   └── active/              # 当前激活策略的工作目录
+└── .worktrees/              # Git Worktree 临时目录（并行任务）
+    ├── ai-storage/          # → feat/ai-storage-xxx 分支
+    └── ai-flow/             # → feat/ai-flow-xxx 分支
+```
+
+### 3.2 分支命名约定
+
+| 分支模式 | 示例 | 说明 |
+|----------|------|------|
+| `main` | `main` | 用户当前接受的状态 |
+| `scheme/{id}` | `scheme/s1_Default` | 保存的设计方案 |
+| `feat/ai-{jobId}-{name}` | `feat/ai-storage-MaxStorage` | AI 临时工作分支 |
+
+### 3.3 GitWorktreeService API
+
+```csharp
+// 仓库管理
+bool IsGitRepository(string projectPath);
+bool InitializeRepository(string projectPath);
+
+// 分支管理
+string GetCurrentBranch(string projectPath);
+List<string> GetAllBranches(string projectPath);
+void CreateBranch(string projectPath, string branchName);
+void CheckoutBranch(string projectPath, string branchName);
+MergeResult MergeBranch(string projectPath, string branchName);
+
+// Worktree 管理（并行任务核心）
+string CreateWorktree(string projectPath, string worktreeName, string branchName);
+void RemoveWorktree(string projectPath, string worktreeName);
+List<WorktreeInfo> GetWorktrees(string projectPath);
+
+// AI 任务支持
+string CreateAiJobWorktree(string projectPath, string jobId, string strategyName);
+void CompleteAiJob(string projectPath, string jobId, string commitMessage);
+MergeResult AcceptAiJob(string projectPath, string jobId);
+```
+
+### 3.4 并行策略生成示例
+
+```csharp
+// 场景 A：策略分叉 - 同时生成三个方案
+var strategies = new List<ParallelStrategyRequest>
+{
+    new() { Name = "极致收纳", Approach = StrategyApproach.StorageFirst },
+    new() { Name = "动线优先", Approach = StrategyApproach.CirculationFirst },
+    new() { Name = "极简留白", Approach = StrategyApproach.MinimalistFirst }
+};
+
+// 创建三个并行 Worktree
+var worktrees = strategyService.CreateParallelStrategies(projectPath, strategies);
+// worktrees = {
+//   "极致收纳": "C:/.../project/.worktrees/ai-极致收纳",
+//   "动线优先": "C:/.../project/.worktrees/ai-动线优先",
+//   "极简留白": "C:/.../project/.worktrees/ai-极简留白"
+// }
+
+// 三个 AI 实例可以同时在各自 worktree 中工作...
+
+// 用户选择后，合并到 main
+var result = strategyService.AcceptParallelStrategy(projectPath, "动线优先");
+```
+
+---
+
+## 4. v3.0 项目加载流程
+
+### 4.1 ProjectService.LoadProject()
 
 完整的项目加载流程：
 
@@ -164,7 +252,7 @@ BIMCanvas.Server/
 输出：项目文件夹路径
 ```
 
-### 3.2 门扇禁区计算
+### 4.2 门扇禁区计算
 
 ```
 对每扇门：
@@ -178,7 +266,7 @@ BIMCanvas.Server/
 5. 写入 computed/exclusions.json
 ```
 
-### 3.3 目录结构（完整）
+### 4.3 目录结构（完整）
 
 ```
 C:\Users\{username}\Documents\BIMCanvas\Projects\
@@ -206,9 +294,9 @@ C:\Users\{username}\Documents\BIMCanvas\Projects\
 
 ---
 
-## 4. REST API
+## 5. REST API
 
-### 4.1 v3.0 新增端点
+### 5.1 v3.0 新增端点
 
 | 端点 | 方法 | 功能 | 状态 |
 |------|------|------|------|
@@ -225,7 +313,7 @@ schemes/{activeId}/*.json → activeScheme
 computed/*.json        → computed
 ```
 
-### 4.2 遗留端点（待迁移）
+### 5.2 遗留端点（待迁移）
 
 | 端点 | 方法 | 功能 | 状态 |
 |------|------|------|------|
@@ -237,7 +325,7 @@ computed/*.json        → computed
 
 ---
 
-## 5. v3.0 数据传输对象
+## 6. v3.0 数据传输对象
 
 ### ProjectData
 
@@ -276,7 +364,7 @@ public class ComputedData
 
 ---
 
-## 6. .manifest 文件格式
+## 7. .manifest 文件格式
 
 `.manifest` 文件使用简单的键值对格式（非 JSON）：
 
@@ -308,9 +396,9 @@ public class ManifestService
 
 ---
 
-## 7. 角色定位
+## 8. 角色定位
 
-### 7.1 组件角色对比
+### 8.1 组件角色对比
 
 | 组件 | 比喻 | 核心职责 |
 |------|------|----------|
@@ -320,7 +408,7 @@ public class ManifestService
 | **BIMCanvas.Web** | **皮肤 + 眼睛** | 渲染展示、用户交互 |
 | **BIMCanvas.Revit** | **手臂** | 从 Revit 抓取数据、回写 Revit |
 
-### 7.2 Server vs Agent 职责边界
+### 8.2 Server vs Agent 职责边界
 
 | 职责 | Server | Agent |
 |------|--------|-------|
@@ -337,7 +425,7 @@ public class ManifestService
 
 ---
 
-## 8. 通信架构
+## 9. 通信架构
 
 ```
                     ┌─────────────────────────────────┐
@@ -363,9 +451,9 @@ public class ManifestService
 
 ---
 
-## 9. 开发状态
+## 10. 开发状态
 
-### 9.1 已完成
+### 10.1 已完成
 
 | 功能 | 文件 | 状态 |
 |------|------|------|
@@ -378,7 +466,7 @@ public class ManifestService
 | 项目数据 API | ProjectController.cs | ✅ v3.0 |
 | 项目数据 DTO | Dtos/ProjectData.cs | ✅ v3.0 |
 
-### 9.2 待开发
+### 10.2 待开发
 
 | 功能 | 文件 | 状态 |
 |------|------|------|
@@ -393,7 +481,7 @@ public class ManifestService
 
 ---
 
-## 10. 相关文档
+## 11. 相关文档
 
 | 文档 | 路径 | 内容 |
 |------|------|------|

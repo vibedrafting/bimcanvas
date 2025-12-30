@@ -20,6 +20,9 @@ builder.Services.AddControllers()
 // v3.0 项目管理服务
 builder.Services.AddSingleton<ManifestService>();
 builder.Services.AddSingleton<ComputedDataService>();
+
+// v3.1 Git Worktree 架构服务（单仓库 + 多分支 + Worktree 并行）
+builder.Services.AddSingleton<GitWorktreeService>();
 builder.Services.AddSingleton<StrategyService>();
 builder.Services.AddSingleton<ProjectService>();
 builder.Services.AddSingleton<ProjectContext>();  // 单项目模式上下文

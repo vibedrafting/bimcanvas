@@ -13,6 +13,11 @@ namespace BIMCanvas.Server.Services
 {
     /// <summary>
     /// 项目服务 - 负责项目加载、解压、初始化
+    ///
+    /// v3.1 架构升级：
+    /// - 项目根目录初始化为单一 Git 仓库
+    /// - 策略通过 Git 分支管理（替代独立目录）
+    /// - 支持 Git Worktree 并行任务
     /// </summary>
     public class ProjectService
     {
@@ -20,6 +25,7 @@ namespace BIMCanvas.Server.Services
         private readonly ManifestService _manifestService;
         private readonly StrategyService _strategyService;
         private readonly ComputedDataService _computedDataService;
+        private readonly GitWorktreeService _gitService;
         private readonly JsonSerializerSettings _jsonSettings;
 
         /// <summary>
@@ -34,12 +40,14 @@ namespace BIMCanvas.Server.Services
             ILogger<ProjectService> logger,
             ManifestService manifestService,
             StrategyService strategyService,
-            ComputedDataService computedDataService)
+            ComputedDataService computedDataService,
+            GitWorktreeService gitService)
         {
             _logger = logger;
             _manifestService = manifestService;
             _strategyService = strategyService;
             _computedDataService = computedDataService;
+            _gitService = gitService;
             _jsonSettings = new JsonSerializerSettings
             {
                 ContractResolver = new CamelCasePropertyNamesContractResolver(),
@@ -97,8 +105,56 @@ namespace BIMCanvas.Server.Services
             // 6. 验证并生成 computed 数据
             EnsureComputedData(projectPath);
 
+            // 7. 初始化 Git 仓库（v3.1 新增：单仓库 + 多分支架构）
+            InitializeGitRepository(projectPath);
+
             _logger.LogInformation("项目加载完成: {Path}", projectPath);
             return projectPath;
+        }
+
+        /// <summary>
+        /// 初始化项目 Git 仓库
+        /// v3.1 架构：单仓库 + 多分支，支持 Worktree 并行任务
+        /// </summary>
+        private void InitializeGitRepository(string projectPath)
+        {
+            try
+            {
+                // 创建 .gitignore
+                var gitignorePath = Path.Combine(projectPath, ".gitignore");
+                if (!File.Exists(gitignorePath))
+                {
+                    var gitignoreContent = @"# BIMCanvas Project .gitignore
+
+# Worktree 临时目录
+.worktrees/
+
+# 系统文件
+.DS_Store
+Thumbs.db
+
+# IDE
+.idea/
+.vscode/
+*.suo
+*.user
+";
+                    File.WriteAllText(gitignorePath, gitignoreContent, Encoding.UTF8);
+                    _logger.LogDebug("创建 .gitignore");
+                }
+
+                // 初始化 Git 仓库
+                var initialized = _gitService.InitializeRepository(projectPath);
+                if (initialized)
+                {
+                    _logger.LogInformation("Git 仓库初始化完成（单仓库 + 多分支架构）");
+                }
+            }
+            catch (Exception ex)
+            {
+                // Git 初始化失败不阻塞项目加载
+                _logger.LogWarning(ex, "Git 仓库初始化失败（非致命错误）");
+            }
         }
 
         /// <summary>

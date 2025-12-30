@@ -339,6 +339,9 @@ class ThemeServiceClass {
         const root = document.documentElement;
         const css = theme.css;
 
+        // 设置 data-theme 属性，使 variables.css 中的 [data-theme="light"] 选择器生效
+        root.setAttribute('data-theme', theme.name);
+
         // 背景和表面
         root.style.setProperty('--bg-canvas', css.bgCanvas);
         root.style.setProperty('--surface-glass', css.surfaceGlass);

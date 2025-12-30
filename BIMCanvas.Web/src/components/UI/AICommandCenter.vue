@@ -253,7 +253,7 @@ const removeContext = (type: 'scope' | 'selection', item?: string) => {
 /* --- Layer 1: Context Header --- */
 .layer-context {
     padding: 20px;
-    border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+    border-bottom: 1px solid var(--border-dim);
 
     .context-row {
         display: flex;
@@ -315,7 +315,7 @@ const removeContext = (type: 'scope' | 'selection', item?: string) => {
 
     /* Scrollbar styling */
     &::-webkit-scrollbar { width: 4px; }
-    &::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.1); border-radius: 2px; }
+    &::-webkit-scrollbar-thumb { background: var(--border-dim); border-radius: 2px; }
 }
 
 .card {
@@ -413,8 +413,8 @@ const removeContext = (type: 'scope' | 'selection', item?: string) => {
         padding-bottom: 4px;
         
         &::-webkit-scrollbar { height: 6px; }
-        &::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.2); border-radius: 3px; }
-        &:hover::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.3); }
+        &::-webkit-scrollbar-thumb { background: var(--border-dim); border-radius: 3px; }
+        &:hover::-webkit-scrollbar-thumb { background: var(--text-tertiary); }
     }
 }
 
@@ -425,12 +425,13 @@ const removeContext = (type: 'scope' | 'selection', item?: string) => {
     overflow: hidden;
     border: 1px solid var(--border-dim);
     cursor: pointer;
-    transition: transform 0.2s, border-color 0.2s;
+    transition: all 0.2s;
     position: relative;
 
     &:hover {
         transform: translateY(-2px);
         border-color: var(--accent-primary);
+        box-shadow: 0 4px 12px rgba(0,0,0,0.1);
         .hover-actions { opacity: 1; }
     }
 
@@ -480,7 +481,7 @@ const removeContext = (type: 'scope' | 'selection', item?: string) => {
 /* --- Layer 3: Command Footer --- */
 .layer-footer {
     padding: 16px 20px;
-    background: var(--surface-panel);
+    background: transparent; /* Force transparent to let glass bg show through */
     border-top: 1px solid var(--border-dim);
 }
 
@@ -530,18 +531,19 @@ const removeContext = (type: 'scope' | 'selection', item?: string) => {
     
     input {
         flex: 1;
-        background: var(--surface-highlight);
-        border: 1px solid var(--border-dim);
+        background: var(--surface-highlight); /* White in light mode */
+        border: 1px solid var(--border-dim); /* Visible border */
         border-radius: 8px;
         padding: 8px 12px;
         color: var(--text-primary);
         font-size: 0.9rem;
         outline: none;
-        transition: border-color 0.2s;
+        transition: all 0.2s;
+        box-shadow: 0 2px 6px rgba(0,0,0,0.05); /* Subtle shadow */
         
         &:focus {
             border-color: var(--accent-primary);
-            background: var(--surface-highlight-hover);
+            box-shadow: 0 2px 8px rgba(0,0,0,0.1); /* Stronger shadow on focus */
         }
         &::placeholder { color: var(--text-tertiary); }
     }

@@ -1,6 +1,9 @@
 # AI 并行设计模式与架构哲学 (AI Parallel Design Patterns)
 
-> **核心理念**：将“文件驱动”、“异步协作”与“并行生成”相结合，把 AI 从单一的对话者升级为**“拥有无限分身的并发设计团队”**。
+> **核心理念**：将"文件驱动"、"异步协作"与"并行生成"相结合，把 AI 从单一的对话者升级为**"拥有无限分身的并发设计团队"**。
+
+**实现状态**: ✅ v3.1 已完成核心架构实现
+**相关代码**: `BIMCanvas.Server/Services/GitWorktreeService.cs`, `StrategyService.cs`
 
 ---
 
@@ -148,21 +151,45 @@ AI 必须学会写“人话”Commit Message，而不是机器码。
 
 ### 4.3 混合架构落地 (The Hybrid Approach)
 
+> ✅ **已在 v3.1 中实现** - 见 `GitWorktreeService.cs` 和 `StrategyService.cs`
+
 1.  **存储层 (Storage Layer)**：
     *   使用 **单仓库 + 多分支**。
     *   所有数据都在一个 `.git` 历史中，高效且标准。
     *   `main` 分支是用户的当前状态。
-    *   `feat/ai-xxx` 分支存储 AI 的提案。
+    *   `scheme/{id}` 分支存储保存的设计方案。
+    *   `feat/ai-{jobId}-{name}` 分支存储 AI 的临时提案。
 
 2.  **执行层 (Execution Layer)**：
     *   使用 **Git Worktree** 处理 *临时 (Ephemeral)* 任务。
-    *   当 AI 启动时：`git worktree add .temp/ai-job-1 feat/ai-proposal`。
-    *   当 AI 完成时：`git worktree remove .temp/ai-job-1`。
+    *   当 AI 启动时：`git worktree add .worktrees/ai-job-1 feat/ai-proposal`。
+    *   当 AI 完成时：`git worktree remove .worktrees/ai-job-1`。
+
+**实现代码示例**：
+
+```csharp
+// 场景 A：策略分叉 - 创建三个并行方案
+var strategies = new List<ParallelStrategyRequest>
+{
+    new() { Name = "极致收纳", Approach = StrategyApproach.StorageFirst },
+    new() { Name = "动线优先", Approach = StrategyApproach.CirculationFirst },
+    new() { Name = "极简留白", Approach = StrategyApproach.MinimalistFirst }
+};
+
+// StrategyService 调用 GitWorktreeService 创建并行 Worktree
+var worktrees = strategyService.CreateParallelStrategies(projectPath, strategies);
+
+// 三个 AI 实例可以同时在各自 worktree 中工作...
+// worktrees["极致收纳"] = "C:/.../project/.worktrees/ai-极致收纳"
+
+// 用户选择后，合并到 main
+var result = strategyService.AcceptParallelStrategy(projectPath, "动线优先");
+```
 
 ### 4.4 为什么这能解决问题？
 
-*   **对于并行生成**：AI-1 和 AI-2 分别在 `.temp/ai-job-1` 和 `.temp/ai-job-2` 两个物理隔离的文件夹中工作，互不干扰，可以同时写入。
-*   **对于 Web 对比**：Web Server 可以同时读取 `D:\Project\.temp\ai-job-1\modules.json` 和 `D:\Project\.temp\ai-job-2\modules.json`，从而在前端渲染出“左右分屏”的对比效果。
+*   **对于并行生成**：AI-1 和 AI-2 分别在 `.worktrees/ai-job-1` 和 `.worktrees/ai-job-2` 两个物理隔离的文件夹中工作，互不干扰，可以同时写入。
+*   **对于 Web 对比**：Web Server 可以同时读取各个 worktree 中的 `schemes/active/modules.json`，从而在前端渲染出"左右分屏"的对比效果。
 
 ---
 

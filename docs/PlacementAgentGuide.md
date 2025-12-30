@@ -493,9 +493,15 @@ MVP 完成后的扩展方向：
    - 并行生成多个布置策略
    - 策略对比和评分
 
-3. **Git 集成**
-   - 策略作为 Git 分支
-   - 版本管理和回滚
+3. **Git Worktree 并行架构**
+   - 采用**单仓库 + 多分支**的存储模式
+   - 使用 **Git Worktree** 实现物理隔离的并行执行：
+     * `main` 分支：用户当前状态
+     * `feat/ai-xxx` 分支：AI 提案
+     * `.temp/ai-job-{n}` 目录：临时工作树
+   - AI Agent 在独立的 Worktree 中工作，互不干扰
+   - 支持策略分叉（同时生成多个设计方案）
+   - 详见 `docs/AI_Parallel_Design_Patterns.md`
 
 4. **知识库集成**
    - 设计规范检索
