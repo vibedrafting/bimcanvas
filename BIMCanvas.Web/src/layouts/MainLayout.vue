@@ -2,7 +2,7 @@
 import RibbonToolbar from '../components/UI/RibbonToolbar.vue';
 import AppHeader from '../components/UI/AppHeader.vue';
 import DynamicIsland from '../components/UI/DynamicIsland.vue';
-import SideGallery from '../components/UI/SideGallery.vue';
+import AICommandCenter from '../components/UI/AICommandCenter.vue';
 import PropertyPanel from '../components/UI/PropertyPanel.vue';
 import FloatingLayerManager from '../components/UI/FloatingLayerManager.vue';
 import FloatingInput from '../components/UI/FloatingInput.vue';
@@ -35,7 +35,7 @@ onMounted(() => {
     </header>
     
     <aside class="gallery-area" :class="{ 'visible': (props.loadingStage ?? 5) >= 4 }">
-      <SideGallery />
+      <AICommandCenter />
     </aside>
 
     <main class="canvas-area">
@@ -84,8 +84,8 @@ onMounted(() => {
 /* Gallery and Properties handle their own positioning now */
 .gallery-area, .properties-area {
   position: absolute;
-  top: 0;
-  height: 100%;
+  top: 72px; /* Adjusted to avoid header overlap (32px Header + 40px Ribbon) */
+  height: calc(100% - 72px);
   z-index: 90;
   pointer-events: none; /* Let clicks pass through empty areas */
 }
