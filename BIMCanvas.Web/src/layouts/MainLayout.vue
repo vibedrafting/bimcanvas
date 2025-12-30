@@ -8,7 +8,7 @@ import FloatingLayerManager from '../components/UI/FloatingLayerManager.vue';
 import FloatingInput from '../components/UI/FloatingInput.vue';
 import PromptBar from '../components/UI/PromptBar.vue';
 import { useDebugStore } from '../stores/debugStore';
-import { onMounted } from 'vue';
+import { onMounted, ref, watch } from 'vue';
 
 const props = defineProps<{
   loadingStage?: number;
@@ -18,7 +18,19 @@ const props = defineProps<{
 const debugStore = useDebugStore();
 
 onMounted(() => {
+  // Log mount
   debugStore.log('MainLayout Mounted.');
+});
+
+const showPulse = ref(false);
+
+watch(() => props.buildComplete, (newVal) => {
+  if (newVal) {
+    // Wait for AI Panel slide-in (approx 600ms) before pulsing
+    setTimeout(() => {
+      showPulse.value = true;
+    }, 800); 
+  }
 });
 </script>
 
@@ -29,12 +41,12 @@ onMounted(() => {
         <AppHeader />
         <RibbonToolbar />
       </div>
-      <div class="island-container" :class="{ 'visible': (props.loadingStage ?? 5) >= 3, 'hint-pulse': props.buildComplete }">
+      <div class="island-container" :class="{ 'visible': (props.loadingStage ?? 5) >= 3, 'hint-pulse': showPulse }">
         <DynamicIsland />
       </div>
     </header>
     
-    <aside class="gallery-area" :class="{ 'visible': (props.loadingStage ?? 5) >= 4 }">
+    <aside class="gallery-area" :class="{ 'visible': props.buildComplete }">
       <AICommandCenter />
     </aside>
 
@@ -155,7 +167,7 @@ onMounted(() => {
 }
 
 .gallery-area {
-  transform: translateX(20px);
+  transform: translateX(100%);
 }
 .properties-area {
   transform: translateX(-20px);

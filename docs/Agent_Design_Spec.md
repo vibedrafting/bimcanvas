@@ -80,20 +80,38 @@ bounds + facing → 精确几何位置 + 旋转角度
 
 **用户指令**："给我的客厅出三个方案：一个是'极致收纳'，一个是'动线优先'，还有一个'极简留白'。"
 
-**系统行为**：
-1. **分支裂变**：Server 基于 `main` 创建三个 Worktree：
-   - `.worktrees/ai-living-storage`
-   - `.worktrees/ai-living-flow`
-   - `.worktrees/ai-living-minimal`
-2. **并发执行**：三个 AI Agent 实例同时启动，加载同一份 `baseline/` 数据，但注入不同的**策略参数**。
-3. **独立产出**：
+**执行流程**：
+
+1. **意图解析**（Agent）：
+   - 识别 action = `parallel_generate`（关键词："出三个方案"）
+   - 提取 target_zone = `living_room`（关键词："客厅"）
+   - 提取三个策略名称和权重参数
+   - 输出设计意图对象（见 §二-A）
+
+2. **操作编排**（Server）：
+   - 根据意图对象创建三个 Worktree：
+     - `.worktrees/ai-living-storage`
+     - `.worktrees/ai-living-flow`
+     - `.worktrees/ai-living-minimal`
+   - 将策略配置写入各 Worktree 的 `strategy.json`
+
+3. **并发执行**（Agent × 3）：
+   - 三个 Agent 实例同时启动，加载同一份 `baseline/` 数据
+   - 各自根据不同的策略参数执行布置决策
+
+4. **独立产出**：
    - AI-1 (收纳)：生成满墙柜体，牺牲部分通道宽度
    - AI-2 (动线)：保留宽敞回游动线，减少非必要家具
    - AI-3 (极简)：只保留核心家具，大量留白
 
+5. **提交与验证**（Agent + Server）：
+   - 各 Agent 执行 `git commit` 提交方案
+   - Server 验证结果，通知前端展示供用户选择
+
 **对 Agent 的能力要求**：
-- **策略参数化**：支持配置权重（如 `storage_weight=0.9`, `flow_weight=0.2`）
-- **自我辩护**：提交方案时附带 Markdown 设计说明，解释设计权衡
+- **意图解析**：理解用户自然语言，输出结构化意图对象
+- **策略参数化**：支持配置权重（如 `storage_weight=0.9`）
+- **自我辩护**：提交方案时附带 Markdown 设计说明
 
 ### 场景 B：布局求解器 (Layout Solver)
 
@@ -101,16 +119,31 @@ bounds + facing → 精确几何位置 + 旋转角度
 
 **用户指令**："这个卫生间太小了，帮我看看能不能塞进一个浴缸和淋浴房。"
 
-**系统行为**：
-1. **沙盒模式**：Server 创建临时 Worktree `.worktrees/ai-bathroom-solver`
-2. **迭代搜索**：Agent 在沙盒中进行高频迭代
-   - 尝试 1：失败（浴缸挡门）
-   - 尝试 2：失败（淋浴房与马桶重叠）
+**执行流程**：
+
+1. **意图解析**（Agent）：
+   - 识别 action = `layout_solve`（关键词："能不能"、"试试看"）
+   - 提取 target_zone = `bathroom`（关键词："卫生间"）
+   - 提取约束条件：必须包含浴缸和淋浴房
+   - 输出设计意图对象
+
+2. **操作编排**（Server）：
+   - 创建临时 Worktree `.worktrees/ai-bathroom-solver`
+   - 写入约束配置
+
+3. **迭代搜索**（Agent）：
+   - 在沙盒中进行高频迭代尝试
+   - 尝试 1：失败（浴缸挡门）→ Server 验证返回错误
+   - 尝试 2：失败（淋浴房与马桶重叠）→ Server 验证返回错误
    - ...
    - 尝试 100：**成功**（找到唯一可行的极限布局）
-3. **结果交付**：只有验证成功的方案会被提交
+
+4. **结果交付**（Agent + Server）：
+   - 只有验证成功的方案会被 Commit
+   - 之前的失败尝试对用户透明
 
 **对 Agent 的能力要求**：
+- **意图解析**：识别"求解"类任务，提取硬约束条件
 - **沙盒模拟**：在不污染主分支的情况下进行"试错-回滚"
 - **失败感知**：读懂 Server 的验证错误，转化为下一次尝试的约束条件
 
@@ -118,16 +151,112 @@ bounds + facing → 精确几何位置 + 旋转角度
 
 **目标**：用户作为总设计师的方案融合
 
-**用户指令**：用户看着三个平行方案，觉得"方案 A 的沙发摆得好，但方案 B 的电视柜设计更合理"。
+**触发方式**：用户 UI 操作（非自然语言指令）
 
-**系统行为**：
-1. **可视化对比**：前端通过"三联屏"展示不同 Worktree 的渲染结果
-2. **区域级选择**：用户勾选方案 A 的 `Zone: SofaArea` 和方案 B 的 `Zone: TVArea`
-3. **Cherry-pick**：Server 执行精确的 JSON 合并
+**用户操作**：用户看着三个平行方案，觉得"方案 A 的沙发摆得好，但方案 B 的电视柜设计更合理"。
 
-**对 Agent 的能力要求**：
+**执行流程**：
+
+1. **可视化对比**（Server + Web）：
+   - 前端通过"三联屏"展示不同 Worktree 的渲染结果
+   - 用户可以切换、对比各方案
+
+2. **区域级选择**（用户 + Web）：
+   - 用户勾选方案 A 的 `Zone: SofaArea`
+   - 用户勾选方案 B 的 `Zone: TVArea`
+   - 前端生成合并请求
+
+3. **Cherry-pick 合并**（Server）：
+   - 执行精确的 JSON 合并
+   - 检查依赖冲突（如有 `DependencyGroup` 被拆分则警告）
+   - 合并到 `main` 分支
+
+4. **清理**（Server）：
+   - 删除未被采纳的 Worktree
+   - 保留合并后的最终方案
+
+**对 Agent 的前置要求**（在生成阶段）：
 - **解耦设计**：生成的方案应高度模块化，避免强耦合
 - **依赖标记**：强关联的家具需标记 `DependencyGroup`，提示用户成套采纳
+
+> 注：此场景中 Agent 不直接参与执行，但其在场景 A/B 中的设计质量决定了合并的可行性。
+
+---
+
+## 二-A、Git 翻译层：从用户意图到系统操作
+
+> 核心挑战：如何将用户模糊的自然语言指令转化为精确的 Git 操作序列？
+
+### 完整执行链路
+
+```
+┌──────────────────────────────────────────────────────────────────────────┐
+│                     从用户指令到并行执行的完整链路                          │
+├──────────────────────────────────────────────────────────────────────────┤
+│                                                                          │
+│  【1. 用户输入】                                                          │
+│  "给我的客厅出三个方案：极致收纳、动线优先、极简留白"                      │
+│                              ↓                                           │
+│  【2. 意图解析】(Agent 负责)                                              │
+│  Agent 理解自然语言，输出结构化的"设计意图对象"：                         │
+│  {                                                                       │
+│    "action": "parallel_generate",                                        │
+│    "target_zone": "living_room",                                         │
+│    "branches": [                                                         │
+│      { "name": "storage", "strategy": { "storage_weight": 0.9 } },       │
+│      { "name": "flow", "strategy": { "circulation_weight": 0.9 } },      │
+│      { "name": "minimal", "strategy": { "furniture_count": "min" } }     │
+│    ]                                                                     │
+│  }                                                                       │
+│                              ↓                                           │
+│  【3. 操作编排】(Server 负责)                                             │
+│  Server 根据意图对象，执行 Git 操作：                                     │
+│  • git worktree add .worktrees/ai-living-storage feat/ai-storage         │
+│  • git worktree add .worktrees/ai-living-flow feat/ai-flow               │
+│  • git worktree add .worktrees/ai-living-minimal feat/ai-minimal         │
+│  • 将策略配置写入各 Worktree 的 strategy.json                             │
+│                              ↓                                           │
+│  【4. 并发执行】(Agent 负责)                                              │
+│  三个 Agent 实例在各自 Worktree 中执行布置决策                            │
+│                              ↓                                           │
+│  【5. 提交交付】(Agent 负责)                                              │
+│  各 Agent 执行 git add && git commit                                     │
+│                              ↓                                           │
+│  【6. 验证展示】(Server 负责)                                             │
+│  Server 验证结果，通知前端展示三个方案供用户选择                          │
+│                                                                          │
+└──────────────────────────────────────────────────────────────────────────┘
+```
+
+### 设计意图对象 (Design Intent Object)
+
+Agent 解析用户意图后，输出结构化对象：
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| `action` | string | 操作类型：`parallel_generate` / `single_generate` / `layout_solve` |
+| `target_zone` | string | 目标区域：房间名或 Zone ID |
+| `branches` | array | 并行分支配置（仅 parallel_generate） |
+| `branches[].name` | string | 分支名称/策略名称 |
+| `branches[].strategy` | object | 策略参数 |
+
+### 意图识别规则
+
+| 用户表达 | 识别为 | action |
+|----------|--------|--------|
+| "出三个方案" / "给我几个选择" | 并行生成 | `parallel_generate` |
+| "设计一下" / "帮我布置" | 单次生成 | `single_generate` |
+| "能不能塞进去" / "试试看" | 布局求解 | `layout_solve` |
+
+### Agent 与 Server 的协作边界
+
+| 环节 | Agent 职责 | Server 职责 |
+|------|------------|-------------|
+| 意图解析 | ✅ 理解自然语言，输出意图对象 | ❌ |
+| 操作编排 | ❌ | ✅ 创建 Worktree，写入策略配置 |
+| 布置决策 | ✅ 在 Worktree 中执行设计 | ❌ |
+| Git 提交 | ✅ 执行 git add/commit | ❌ |
+| 验证合并 | ❌ | ✅ 验证结果，执行合并 |
 
 ---
 

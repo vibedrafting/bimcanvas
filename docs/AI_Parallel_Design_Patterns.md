@@ -120,10 +120,33 @@
         *   `git commit -m "Design: Living Room with {name} strategy"`
 
 ### 3.3 语义化提交 (Semantic Commits)
-AI 必须学会写“人话”Commit Message，而不是机器码。
+AI 必须学会写"人话"Commit Message，而不是机器码。
 
 *   **差评**：`Update modules.json`
 *   **好评**：`feat(living-room): Maximize storage by adding full-wall cabinets, sacrificing 200mm aisle width`
+
+### 3.4 Agent 与 Server 分工
+
+> **核心原则**：意图解析是 Agent 职责，Git 操作是 Server 职责。
+
+| 步骤 | 性质 | 执行者 |
+|------|------|--------|
+| **意图解析** | 智能理解（需要 LLM） | PlacementAgent |
+| **操作编排** | 系统编排（Git 操作） | Server |
+| **并行执行** | 智能决策 | PlacementAgent (× N) |
+| **语义化提交** | 智能表达 | PlacementAgent |
+| **验证/合并** | 系统操作 | Server |
+
+**协作流程**：
+1. 用户与 PlacementAgent 对话
+2. Agent 解析意图，输出"设计意图对象"（JSON）
+3. Agent 将意图对象发送给 Server（通过 MCP 工具调用）
+4. Server 根据意图对象创建 Worktree、写入策略配置
+5. Server 启动 N 个 Agent 实例，传入各自的 Worktree 路径
+6. Agent 在 Worktree 中执行布置决策并 Commit
+7. Server 验证结果，通知前端展示
+
+> 详细的执行链路图见 `docs/Agent_Design_Spec.md` §二-A
 
 ---
 
