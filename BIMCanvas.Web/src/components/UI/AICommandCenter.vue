@@ -1,15 +1,52 @@
 <script setup lang="ts">
-import { ref, onMounted, nextTick } from 'vue';
+import { ref, onMounted, nextTick, computed } from 'vue';
+import { useCanvasStore } from '../../stores/canvasStore';
+import { storeToRefs } from 'pinia';
 
 // Agent API Configuration
 const AGENT_API_BASE = 'http://127.0.0.1:8765';
 
 const panelWidth = ref(360);
 const isResizing = ref(false);
-const currentZone = ref('Living Room');
-const currentBranch = ref('feat/ai-proposal-A');
+const currentBranch = ref('loading...');
+const isBranchDropdownOpen = ref(false);
 const mode = ref('chat'); // 'chat' | 'tasks'
 const isTaskSummaryExpanded = ref(false);
+
+// Git Data Interface
+interface GitBranch {
+  id: string;
+  name: string;
+  isCurrent: boolean;
+  commit: {
+    message: string;
+    time: string;
+    hash: string;
+    author: string;
+  };
+}
+
+// Real Git Data (will be fetched)
+const branches = ref<GitBranch[]>([]);
+
+// Store Integration
+const store = useCanvasStore();
+const { selectedObjects } = storeToRefs(store);
+
+// Computed Selection State
+const selectedModuleCount = computed(() => {
+  return selectedObjects.value.filter(obj => obj.type === 'module').length;
+});
+
+const selectedRoom = computed(() => {
+  // Try to find the room of the first selected module
+  // For now, fallback to currentZone or a placeholder
+  if (selectedModuleCount.value > 0) {
+    // TODO: Implement actual room lookup based on module coordinates
+    return 'Living Room'; 
+  }
+  return '';
+});
 
 // Agent connection state
 const agentStatus = ref<'connecting' | 'connected' | 'disconnected'>('disconnected');
@@ -58,12 +95,58 @@ const proposals = ref([
   },
 ]);
 
-const contextScope = ref('Living Room');
-const contextSelection = ref(['Sofa', 'Coffee Table']);
+// Select branch
+const selectBranch = async (branchId: string) => {
+  // In a real app, this would trigger a git checkout via API
+  currentBranch.value = branchId;
+  branches.value.forEach(b => b.isCurrent = b.id === branchId);
+  isBranchDropdownOpen.value = false;
+};
+
+// Fetch Git Info
+const fetchGitInfo = async () => {
+  try {
+    // Try to fetch from Agent API
+    const response = await fetch(`${AGENT_API_BASE}/api/git/branches`);
+    if (response.ok) {
+        const data = await response.json();
+        branches.value = data;
+        const current = branches.value.find(b => b.isCurrent);
+        if (current) currentBranch.value = current.name;
+    } else {
+        throw new Error('API not available');
+    }
+  } catch (e) {
+    // Fallback to realistic mock data if API fails (for demo purposes)
+    console.warn('Failed to fetch git info, using mock data');
+    branches.value = [
+      { 
+        id: 'main', 
+        name: 'main', 
+        isCurrent: false,
+        commit: { message: 'Merge pull request #42 from feat/login', time: '2h ago', hash: 'a1b2c3d', author: 'Dev' }
+      },
+      { 
+        id: 'feat/ai-proposal-A', 
+        name: 'feat/ai-proposal-A', 
+        isCurrent: true,
+        commit: { message: 'Optimize living room layout for flow', time: '5m ago', hash: 'e5f6g7h', author: 'AI Agent' }
+      },
+      { 
+        id: 'feat/storage-opt', 
+        name: 'feat/storage-opt', 
+        isCurrent: false,
+        commit: { message: 'Add custom cabinet modules', time: '1d ago', hash: 'i8j9k0l', author: 'User' }
+      }
+    ];
+    currentBranch.value = 'feat/ai-proposal-A';
+  }
+};
 
 // Check Agent health on mount
 onMounted(async () => {
   await checkAgentHealth();
+  await fetchGitInfo();
 });
 
 // Agent API functions
@@ -212,17 +295,40 @@ import TaskSummaryWidget from './TaskSummaryWidget.vue';
       <!-- Layer 1: Context Header -->
       <div class="layer-context">
         <div class="context-row">
-          <div class="badge zone-badge">
-            <span class="icon">📂</span>
-            <span class="text">{{ currentZone }}</span>
-          </div>
-          <div class="badge branch-badge">
-            <span class="icon">🌿</span>
-            <span class="text">{{ currentBranch }}</span>
-          </div>
-          <div class="badge agent-status-badge" :class="agentStatus">
-            <span class="status-dot"></span>
-            <span class="text">{{ agentStatus === 'connected' ? 'Agent' : agentStatus === 'connecting' ? 'Connecting...' : 'Offline' }}</span>
+          <!-- Branch Dropdown -->
+          <div class="branch-dropdown" :class="{ open: isBranchDropdownOpen }">
+            <button class="dropdown-trigger" @click="isBranchDropdownOpen = !isBranchDropdownOpen">
+              <span class="icon">🌿</span>
+              <span class="text">{{ currentBranch }}</span>
+              <svg class="chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <polyline points="6 9 12 15 18 9"></polyline>
+              </svg>
+            </button>
+            <div class="dropdown-menu" v-if="isBranchDropdownOpen">
+              <div class="branch-tree">
+                <div 
+                  v-for="branch in branches" 
+                  :key="branch.id" 
+                  class="branch-item"
+                  :class="{ current: branch.isCurrent }"
+                  @click="selectBranch(branch.id)"
+                >
+                  <div class="branch-main">
+                    <span class="branch-icon">🌿</span>
+                    <span class="branch-name">{{ branch.name }}</span>
+                    <span v-if="branch.isCurrent" class="current-indicator">
+                      <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="3">
+                        <polyline points="20 6 9 17 4 12"></polyline>
+                      </svg>
+                    </span>
+                  </div>
+                  <div class="branch-meta" v-if="branch.commit">
+                    <span class="commit-msg">{{ branch.commit.message }}</span>
+                    <span class="commit-time">{{ branch.commit.time }}</span>
+                  </div>
+                </div>
+              </div>
+            </div>
           </div>
         </div>
         <div class="mode-switch">
@@ -340,20 +446,21 @@ import TaskSummaryWidget from './TaskSummaryWidget.vue';
       </div>
 
       <!-- Layer 3: Command Footer -->
-      <div class="layer-footer">
+      <div class="layer-footer" v-if="mode === 'chat'">
         
-        <!-- Context Status Bar -->
-        <div class="context-status-bar">
-            <div class="status-item scope" v-if="contextScope">
-                <span class="icon">📂</span>
-                <span class="text">{{ contextScope }}</span>
-                <button class="close-btn" @click="removeContext('scope')">×</button>
-            </div>
-            <div class="status-item selection" v-for="item in contextSelection" :key="item">
-                <span class="icon">🎯</span>
-                <span class="text">{{ item }}</span>
-                <button class="close-btn" @click="removeContext('selection', item)">×</button>
-            </div>
+        <!-- Selection Status Bar -->
+        <div class="selection-status-bar">
+          <template v-if="selectedModuleCount > 0">
+            <span class="icon">🎯</span>
+            <span class="text">已选中 {{ selectedModuleCount }} 个模块</span>
+            <span class="separator">·</span>
+            <span class="icon">📂</span>
+            <span class="text">{{ selectedRoom }}</span>
+          </template>
+          <template v-else>
+            <span class="icon">🎯</span>
+            <span class="text muted">未选中</span>
+          </template>
         </div>
 
         <!-- Input Area -->
@@ -458,65 +565,160 @@ import TaskSummaryWidget from './TaskSummaryWidget.vue';
 }
 
 /* --- Layer 1: Context Header --- */
+/* --- Layer 1: Context Header --- */
 .layer-context {
     padding: 20px;
     border-bottom: 1px solid var(--border-dim);
 
     .context-row {
         display: flex;
-        gap: 8px;
+        align-items: center;
+        width: 100%;
         margin-bottom: 12px;
-        flex-wrap: wrap;
     }
 
-    .badge {
-        display: flex;
-        align-items: center;
-        gap: 4px;
-        padding: 4px 8px;
-        border-radius: 6px;
-        background: var(--surface-highlight);
-        font-size: 0.75rem;
-        color: var(--text-secondary);
-        border: 1px solid var(--border-dim);
-        white-space: nowrap;
+    /* Branch Dropdown Redesign */
+    .branch-dropdown {
+        position: relative;
+        width: 100%;
+        z-index: 10;
 
-        .icon { font-size: 0.8rem; }
+        .dropdown-trigger {
+            width: 100%;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            padding: 8px 12px;
+            background: var(--surface-dim);
+            border: 1px solid var(--border-dim);
+            border-radius: 8px;
+            color: var(--text-primary);
+            font-size: 0.85rem;
+            cursor: pointer;
+            transition: all 0.2s ease;
 
-        &.agent-status-badge {
-            gap: 6px;
-
-            .status-dot {
-                width: 6px;
-                height: 6px;
-                border-radius: 50%;
-                background: var(--text-tertiary);
+            &:hover {
+                background: var(--surface-highlight);
+                border-color: var(--border-subtle);
             }
 
-            &.connected {
-                background: rgba(67, 233, 123, 0.15);
-                border-color: rgba(67, 233, 123, 0.3);
-                color: #43e97b;
-                .status-dot { background: #43e97b; }
+            .icon { font-size: 1rem; }
+            .text { 
+                flex: 1; 
+                text-align: left; 
+                font-weight: 500;
+                white-space: nowrap;
+                overflow: hidden;
+                text-overflow: ellipsis;
             }
-
-            &.connecting {
-                background: rgba(255, 183, 77, 0.15);
-                border-color: rgba(255, 183, 77, 0.3);
-                color: #ffb74d;
-                .status-dot {
-                    background: #ffb74d;
-                    animation: pulse 1s ease-in-out infinite;
-                }
-            }
-
-            &.disconnected {
-                background: rgba(239, 83, 80, 0.15);
-                border-color: rgba(239, 83, 80, 0.3);
-                color: #ef5350;
-                .status-dot { background: #ef5350; }
+            .chevron {
+                width: 16px;
+                height: 16px;
+                color: var(--text-tertiary);
+                transition: transform 0.2s;
             }
         }
+
+        &.open .dropdown-trigger {
+            background: var(--surface-highlight);
+            border-color: var(--accent-primary);
+            .chevron { transform: rotate(180deg); }
+        }
+
+        .dropdown-menu {
+            position: absolute;
+            top: calc(100% + 8px);
+            left: 0;
+            width: 320px; /* Wider dropdown for details */
+            background: var(--surface-elevated);
+            border: 1px solid var(--border-subtle);
+            border-radius: 12px;
+            box-shadow: 0 8px 32px rgba(0,0,0,0.2);
+            padding: 8px;
+            backdrop-filter: blur(16px);
+            animation: slideDown 0.2s cubic-bezier(0.2, 0.8, 0.2, 1);
+
+            .branch-tree {
+                display: flex;
+                flex-direction: column;
+                gap: 4px;
+            }
+
+            .branch-item {
+                display: flex;
+                flex-direction: column;
+                gap: 4px;
+                padding: 10px 12px;
+                border-radius: 8px;
+                cursor: pointer;
+                border: 1px solid transparent;
+                transition: all 0.2s;
+
+                &:hover {
+                    background: var(--surface-highlight);
+                    border-color: var(--border-subtle);
+                }
+
+                &.current {
+                    background: rgba(var(--accent-primary-rgb), 0.08);
+                    border-color: rgba(var(--accent-primary-rgb), 0.2);
+                    
+                    .branch-main .branch-name {
+                        color: var(--accent-primary);
+                        font-weight: 600;
+                    }
+                }
+
+                .branch-main {
+                    display: flex;
+                    align-items: center;
+                    gap: 8px;
+                    
+                    .branch-icon { font-size: 0.9rem; opacity: 0.7; }
+                    
+                    .branch-name {
+                        flex: 1;
+                        font-size: 0.9rem;
+                        color: var(--text-primary);
+                        font-weight: 500;
+                    }
+
+                    .current-indicator {
+                        color: var(--accent-primary);
+                        display: flex;
+                        align-items: center;
+                    }
+                }
+
+                .branch-meta {
+                    display: flex;
+                    justify-content: space-between;
+                    align-items: center;
+                    font-size: 0.75rem;
+                    color: var(--text-tertiary);
+                    padding-left: 22px; /* Align with text */
+
+                    .commit-msg {
+                        flex: 1;
+                        white-space: nowrap;
+                        overflow: hidden;
+                        text-overflow: ellipsis;
+                        margin-right: 12px;
+                        max-width: 180px;
+                    }
+
+                    .commit-time {
+                        white-space: nowrap;
+                        font-feature-settings: "tnum";
+                    }
+                }
+            }
+        }
+    }
+
+    @keyframes slideDown {
+        from { opacity: 0; transform: translateY(-8px); }
+        to { opacity: 1; transform: translateY(0); }
     }
 
     .mode-switch {
@@ -884,43 +1086,22 @@ import TaskSummaryWidget from './TaskSummaryWidget.vue';
     border-top: 1px solid var(--border-dim);
 }
 
-.context-status-bar {
+.selection-status-bar {
     display: flex;
-    flex-wrap: wrap;
-    gap: 6px;
-    margin-bottom: 10px;
-    min-height: 24px;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 12px;
+    padding: 8px 12px;
+    background: var(--surface-dim);
+    border: 1px solid var(--border-dim);
+    border-radius: 8px;
+    font-size: 0.8rem;
+    color: var(--text-secondary);
 
-    .status-item {
-        display: flex;
-        align-items: center;
-        gap: 4px;
-        padding: 2px 6px;
-        border-radius: 4px;
-        font-size: 0.7rem;
-        
-        &.scope {
-            background: rgba(79, 172, 254, 0.15);
-            color: #4facfe;
-            border: 1px solid rgba(79, 172, 254, 0.3);
-        }
-        &.selection {
-            background: rgba(255, 165, 0, 0.15);
-            color: #ffb74d;
-            border: 1px solid rgba(255, 165, 0, 0.3);
-        }
-
-        .close-btn {
-            background: none;
-            border: none;
-            color: inherit;
-            opacity: 0.6;
-            cursor: pointer;
-            font-size: 0.8rem;
-            padding: 0 2px;
-            &:hover { opacity: 1; }
-        }
-    }
+    .icon { font-size: 0.9rem; }
+    .text { font-weight: 500; }
+    .text.muted { color: var(--text-tertiary); font-weight: 400; }
+    .separator { color: var(--text-tertiary); font-weight: bold; }
 }
 
 .input-area {

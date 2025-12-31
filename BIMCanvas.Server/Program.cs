@@ -122,15 +122,69 @@ Console.WriteLine("Swagger: http://localhost:5000/swagger");
     }
 }
 
-// 自动启动 Web 开发服务器（如果 Web 项目存在）
+// 自动启动 Agent 和 Web 服务（并行启动）
 {
     var baseDir = AppContext.BaseDirectory;
+    var agentProjectPath = FindAgentProjectPath(baseDir);
     var webProjectPath = FindWebProjectPath(baseDir);
+    Process? agentProcess = null;
     Process? webProcess = null;
 
+    // 1. 启动 Agent 服务（不等待，后台运行）
+    if (Directory.Exists(agentProjectPath))
+    {
+        Console.WriteLine($"启动 Agent 服务: {agentProjectPath}");
+        try
+        {
+            agentProcess = new Process
+            {
+                StartInfo = new ProcessStartInfo
+                {
+                    FileName = "python",
+                    Arguments = "-m src.main --serve",
+                    WorkingDirectory = agentProjectPath,
+                    UseShellExecute = false,
+                    CreateNoWindow = true,
+                    RedirectStandardOutput = true,
+                    RedirectStandardError = true
+                }
+            };
+            agentProcess.Start();
+
+            // 后台读取 Agent 输出（避免缓冲区阻塞）
+            _ = Task.Run(async () =>
+            {
+                while (!agentProcess.HasExited)
+                {
+                    var line = await agentProcess.StandardOutput.ReadLineAsync();
+                    if (!string.IsNullOrEmpty(line))
+                        Console.WriteLine($"[Agent] {line}");
+                }
+            });
+            _ = Task.Run(async () =>
+            {
+                while (!agentProcess.HasExited)
+                {
+                    var line = await agentProcess.StandardError.ReadLineAsync();
+                    if (!string.IsNullOrEmpty(line))
+                        Console.WriteLine($"[Agent:ERR] {line}");
+                }
+            });
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Agent 服务启动失败: {ex.Message}");
+            Console.WriteLine("提示: 请确保已安装 Python 并配置到 PATH，且已运行 pip install -e . 安装依赖");
+        }
+    }
+    else
+    {
+        Console.WriteLine($"Agent 项目目录不存在: {agentProjectPath}");
+    }
+
+    // 2. 启动 Web 服务（不等待，后台运行）
     if (Directory.Exists(webProjectPath))
     {
-        // 仅在开发环境启用 Swagger（但 Web 启动不受环境限制）
         Console.WriteLine($"启动 Web 开发服务器: {webProjectPath}");
         webProcess = new Process
         {
@@ -147,7 +201,7 @@ Console.WriteLine("Swagger: http://localhost:5000/swagger");
         };
         webProcess.Start();
 
-        // 后台读取输出（避免缓冲区阻塞）
+        // 后台读取 Web 输出（避免缓冲区阻塞）
         _ = Task.Run(async () =>
         {
             while (!webProcess.HasExited)
@@ -157,7 +211,15 @@ Console.WriteLine("Swagger: http://localhost:5000/swagger");
                     Console.WriteLine($"[Web] {line}");
             }
         });
-        // 2. 等待 Web 服务就绪（最多 10 秒，每 200ms 检测一次）
+    }
+    else
+    {
+        Console.WriteLine($"Web 项目目录不存在: {webProjectPath}");
+    }
+
+    // 3. 等待 Web 服务就绪后打开浏览器（Agent 在后台继续启动，Web 端通过 health 检查感知状态）
+    if (webProcess != null)
+    {
         Console.WriteLine("等待 Web 服务启动...");
         var webBaseUrl = "http://localhost:5173";
         using var httpClient = new HttpClient { Timeout = TimeSpan.FromMilliseconds(500) };
@@ -176,32 +238,32 @@ Console.WriteLine("Swagger: http://localhost:5000/swagger");
             await Task.Delay(200);
         }
 
-        // 3. 打开浏览器（单项目模式：无需传递项目路径参数）
-        var webUrl = webBaseUrl;
-        Console.WriteLine($"打开浏览器: {webUrl}");
+        // 打开浏览器
+        Console.WriteLine($"打开浏览器: {webBaseUrl}");
         try
         {
-            Process.Start(new ProcessStartInfo(webUrl) { UseShellExecute = true });
+            Process.Start(new ProcessStartInfo(webBaseUrl) { UseShellExecute = true });
         }
         catch (Exception ex)
         {
             Console.WriteLine($"无法自动打开浏览器: {ex.Message}");
         }
+    }
 
-        // 注册退出时清理 Web 进程
-        AppDomain.CurrentDomain.ProcessExit += (s, e) =>
-        {
-            if (webProcess != null && !webProcess.HasExited)
-            {
-                Console.WriteLine("正在关闭 Web 开发服务器...");
-                webProcess.Kill(true);
-            }
-        };
-    }
-    else
+    // 4. 注册退出时清理进程
+    AppDomain.CurrentDomain.ProcessExit += (s, e) =>
     {
-        Console.WriteLine($"Web 项目目录不存在: {webProjectPath}");
-    }
+        if (agentProcess != null && !agentProcess.HasExited)
+        {
+            Console.WriteLine("正在关闭 Agent 服务...");
+            agentProcess.Kill(true);
+        }
+        if (webProcess != null && !webProcess.HasExited)
+        {
+            Console.WriteLine("正在关闭 Web 开发服务器...");
+            webProcess.Kill(true);
+        }
+    };
 }
 
 app.Run();
@@ -224,4 +286,24 @@ static string FindWebProjectPath(string startDir)
 
     // 兜底：返回相对路径（兼容 dotnet run）
     return Path.GetFullPath(Path.Combine(Directory.GetCurrentDirectory(), "..", "BIMCanvas.Web"));
+}
+
+// 辅助函数：向上查找 BIMCanvas.Agent 目录
+static string FindAgentProjectPath(string startDir)
+{
+    var dir = new DirectoryInfo(startDir);
+
+    // 向上最多查找 5 层
+    for (int i = 0; i < 5 && dir != null; i++)
+    {
+        var agentPath = Path.Combine(dir.FullName, "BIMCanvas.Agent");
+        if (Directory.Exists(agentPath))
+        {
+            return agentPath;
+        }
+        dir = dir.Parent;
+    }
+
+    // 兜底：返回相对路径（兼容 dotnet run）
+    return Path.GetFullPath(Path.Combine(Directory.GetCurrentDirectory(), "..", "BIMCanvas.Agent"));
 }
