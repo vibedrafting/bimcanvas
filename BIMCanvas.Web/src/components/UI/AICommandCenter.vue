@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, onMounted, nextTick, computed } from 'vue';
+import { ref, onMounted, nextTick, computed, watch } from 'vue';
 import { useCanvasStore } from '../../stores/canvasStore';
 import { storeToRefs } from 'pinia';
 
@@ -31,21 +31,27 @@ const branches = ref<GitBranch[]>([]);
 
 // Store Integration
 const store = useCanvasStore();
-const { selectedObjects } = storeToRefs(store);
+const { selectedIds } = storeToRefs(store);
 
-// Computed Selection State
+// Computed Selection State - 使用 selectedIds 作为选中数量的数据源
 const selectedModuleCount = computed(() => {
-  return selectedObjects.value.filter(obj => obj.type === 'module').length;
+  return selectedIds.value.length;
 });
 
-const selectedRoom = computed(() => {
-  // Try to find the room of the first selected module
-  // For now, fallback to currentZone or a placeholder
-  if (selectedModuleCount.value > 0) {
-    // TODO: Implement actual room lookup based on module coordinates
-    return 'Living Room'; 
+// Debug watcher
+
+
+// Sticky Scope State
+const activeScope = ref('Global');
+
+// Watch selection to update scope (Sticky Logic)
+watch(selectedModuleCount, (count) => {
+  if (count > 0) {
+    // In a real app, we would find the room of the selected item here.
+    // For now, we simulate it being 'Living Room'.
+    activeScope.value = 'Living Room';
   }
-  return '';
+  // If count === 0, we DO NOT reset activeScope, keeping it "sticky".
 });
 
 // Agent connection state
@@ -141,6 +147,11 @@ const fetchGitInfo = async () => {
     ];
     currentBranch.value = 'feat/ai-proposal-A';
   }
+};
+
+// Clear selection
+const clearSelection = () => {
+  store.clearSelection();
 };
 
 // Check Agent health on mount
@@ -448,19 +459,46 @@ import TaskSummaryWidget from './TaskSummaryWidget.vue';
       <!-- Layer 3: Command Footer -->
       <div class="layer-footer" v-if="mode === 'chat'">
         
-        <!-- Selection Status Bar -->
-        <div class="selection-status-bar">
-          <template v-if="selectedModuleCount > 0">
-            <span class="icon">🎯</span>
-            <span class="text">已选中 {{ selectedModuleCount }} 个模块</span>
-            <span class="separator">·</span>
-            <span class="icon">📂</span>
-            <span class="text">{{ selectedRoom }}</span>
-          </template>
-          <template v-else>
-            <span class="icon">🎯</span>
-            <span class="text muted">未选中</span>
-          </template>
+        <!-- Context Bar (Replaces Selection Status Bar) -->
+        <div class="context-bar">
+            <!-- 1. Scope Chip (Always visible, defaults to Global/Room) -->
+            <div class="context-chip scope">
+                <span class="chip-icon">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"></path>
+                        <polyline points="9 22 9 12 15 12 15 22"></polyline>
+                    </svg>
+                </span>
+                <span class="chip-text">{{ activeScope }}</span>
+            </div>
+
+            <!-- 2. Selection Chip (Visible only when items selected) -->
+            <transition name="chip-fade">
+                <div class="context-chip selection" v-if="selectedModuleCount > 0">
+                    <span class="chip-icon">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"></path>
+                            <polyline points="3.27 6.96 12 12.01 20.73 6.96"></polyline>
+                            <line x1="12" y1="22.08" x2="12" y2="12"></line>
+                        </svg>
+                    </span>
+                    <span class="chip-text">Selected ({{ selectedModuleCount }})</span>
+                    <button class="chip-close" @click.stop="clearSelection">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <line x1="18" y1="6" x2="6" y2="18"></line>
+                            <line x1="6" y1="6" x2="18" y2="18"></line>
+                        </svg>
+                    </button>
+                </div>
+            </transition>
+
+            <!-- 3. Add Context Button -->
+            <button class="add-context-btn" title="Add Context">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <line x1="12" y1="5" x2="12" y2="19"></line>
+                    <line x1="5" y1="12" x2="19" y2="12"></line>
+                </svg>
+            </button>
         </div>
 
         <!-- Input Area -->
@@ -1086,22 +1124,125 @@ import TaskSummaryWidget from './TaskSummaryWidget.vue';
     border-top: 1px solid var(--border-dim);
 }
 
-.selection-status-bar {
+.context-bar {
     display: flex;
     align-items: center;
     gap: 8px;
     margin-bottom: 12px;
-    padding: 8px 12px;
-    background: var(--surface-dim);
-    border: 1px solid var(--border-dim);
-    border-radius: 8px;
-    font-size: 0.8rem;
-    color: var(--text-secondary);
+    flex-wrap: wrap;
 
-    .icon { font-size: 0.9rem; }
-    .text { font-weight: 500; }
-    .text.muted { color: var(--text-tertiary); font-weight: 400; }
-    .separator { color: var(--text-tertiary); font-weight: bold; }
+    .context-chip {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        padding: 4px 8px;
+        background: var(--surface-dim);
+        border: 1px solid var(--border-dim);
+        border-radius: 6px;
+        font-size: 0.75rem;
+        color: var(--text-secondary);
+        transition: all 0.2s;
+        cursor: default;
+        user-select: none;
+
+        .chip-icon {
+            display: flex;
+            align-items: center;
+            color: var(--text-tertiary);
+            svg { width: 14px; height: 14px; }
+        }
+
+        .chip-text {
+            font-weight: 500;
+        }
+
+        &.scope {
+            background: rgba(10, 132, 255, 0.1); /* Fallback blue tint */
+            border-color: transparent;
+            .chip-icon { color: var(--accent-blue); }
+            .chip-text { color: var(--accent-blue); }
+
+            &:hover {
+                border-color: var(--accent-blue);
+                background: rgba(10, 132, 255, 0.15);
+            }
+        }
+
+        &.selection {
+            background: var(--surface-highlight);
+            border-color: var(--border-subtle);
+            .chip-text { color: var(--text-primary); }
+            
+            .chip-close {
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                background: none;
+                border: none;
+                padding: 2px;
+                margin-left: 2px;
+                cursor: pointer;
+                color: var(--text-tertiary);
+                border-radius: 4px;
+                
+                svg { width: 12px; height: 12px; }
+
+                &:hover {
+                    background: var(--surface-dim);
+                    color: var(--text-primary);
+                }
+            }
+        }
+
+        &:hover {
+            border-color: var(--border-subtle);
+            box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+        }
+    }
+
+    .add-context-btn {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        width: 24px;
+        height: 24px;
+        border-radius: 6px;
+        border: 1px dashed var(--border-dim);
+        background: transparent;
+        color: var(--text-tertiary);
+        cursor: pointer;
+        transition: all 0.2s;
+
+        svg { width: 14px; height: 14px; }
+
+        &:hover {
+            border-color: var(--text-secondary);
+            color: var(--text-secondary);
+            background: var(--surface-dim);
+        }
+    }
+}
+
+/* Chip Animation */
+.chip-fade-enter-active,
+.chip-fade-leave-active {
+    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    max-width: 200px;
+    opacity: 1;
+    overflow: hidden;
+    white-space: nowrap;
+}
+
+.chip-fade-enter-from,
+.chip-fade-leave-to {
+    opacity: 0;
+    max-width: 0;
+    padding-left: 0;
+    padding-right: 0;
+    margin-left: 0;
+    margin-right: 0;
+    border-width: 0;
+    transform: scale(0.95);
 }
 
 .input-area {
