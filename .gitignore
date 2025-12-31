@@ -24,3 +24,10 @@ nul
 
 # Chats
 /chats/
+
+# Python
+__pycache__/
+*.egg-info/
+*.pyc
+.venv/
+venv/
