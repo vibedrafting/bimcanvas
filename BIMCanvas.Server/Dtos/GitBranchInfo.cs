@@ -61,5 +61,10 @@ namespace BIMCanvas.Server.Dtos
         /// 要切换到的分支名
         /// </summary>
         public string BranchName { get; set; } = string.Empty;
+
+        /// <summary>
+        /// 分支不存在时是否自动创建（默认 false）
+        /// </summary>
+        public bool CreateIfNotExist { get; set; } = false;
     }
 }

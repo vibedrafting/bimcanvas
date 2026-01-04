@@ -100,13 +100,34 @@ namespace BIMCanvas.Server.Controllers
                     });
                 }
 
+                // 检查分支是否存在
+                var allBranches = _gitService.GetAllBranches(projectPath);
+                var branchExists = allBranches.Contains(request.BranchName);
+                var created = false;
+
+                if (!branchExists)
+                {
+                    if (request.CreateIfNotExist)
+                    {
+                        // 基于当前分支创建新分支
+                        _gitService.CreateBranch(projectPath, request.BranchName);
+                        _logger.LogInformation("创建新分支: {Branch}", request.BranchName);
+                        created = true;
+                    }
+                    else
+                    {
+                        return NotFound(new { message = $"分支 '{request.BranchName}' 不存在" });
+                    }
+                }
+
                 _gitService.CheckoutBranch(projectPath, request.BranchName);
                 _logger.LogInformation("切换到分支: {Branch}", request.BranchName);
 
                 return Ok(new
                 {
                     success = true,
-                    currentBranch = request.BranchName
+                    currentBranch = request.BranchName,
+                    created
                 });
             }
             catch (Exception ex)

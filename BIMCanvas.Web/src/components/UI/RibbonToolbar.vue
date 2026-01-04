@@ -2,9 +2,7 @@
 import { ref } from 'vue';
 import FileGroup from './Ribbon/FileGroup.vue';
 import ProjectGroup from './Ribbon/ProjectGroup.vue';
-import StrategyGroup from './Ribbon/StrategyGroup.vue';
-import VariantGroup from './Ribbon/VariantGroup.vue';
-import AIGroup from './Ribbon/AIGroup.vue';
+import DesignGroup from './Ribbon/DesignGroup.vue';
 import ZoneGroup from './Ribbon/ZoneGroup.vue';
 import LibraryGroup from './Ribbon/LibraryGroup.vue';
 import EditGroup from './Ribbon/EditGroup.vue';
@@ -14,9 +12,7 @@ import ViewGroup from './Ribbon/ViewGroup.vue';
 const tabs = [
   { id: 'file', label: 'File' },
   { id: 'project', label: 'Project' },
-  { id: 'strategy', label: 'Strategy' },
-  { id: 'variant', label: 'Variant' },
-  { id: 'ai', label: 'AI' },
+  { id: 'design', label: 'Design' },
   { id: 'zone', label: 'Zone' },
   { id: 'library', label: 'Library' },
   { id: 'edit', label: 'Edit' },
@@ -83,9 +79,7 @@ const keepOpen = () => {
             <div class="panel-content">
               <FileGroup v-if="tab.id === 'file'" />
               <ProjectGroup v-else-if="tab.id === 'project'" />
-              <StrategyGroup v-else-if="tab.id === 'strategy'" />
-              <VariantGroup v-else-if="tab.id === 'variant'" />
-              <AIGroup v-else-if="tab.id === 'ai'" />
+              <DesignGroup v-else-if="tab.id === 'design'" />
               <ZoneGroup v-else-if="tab.id === 'zone'" />
               <LibraryGroup v-else-if="tab.id === 'library'" />
               <EditGroup v-else-if="tab.id === 'edit'" />

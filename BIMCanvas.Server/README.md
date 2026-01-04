@@ -94,12 +94,14 @@ BIMCanvas.Server/
 │
 ├── Controllers/                  【REST API】
 │   ├── ProjectController.cs      ✅【v3.0 新增】项目数据聚合 API
+│   ├── GitController.cs          ✅【v3.1 新增】Git 分支管理 API
 │   ├── CanvasController.cs.legacy   ⚠️ 遗留 v2.9 API，待迁移
 │   ├── EventsController.cs         SSE 端点 ⬜ 待开发
 │   └── PlacementController.cs      布置 API ⬜ 待开发
 │
 ├── Dtos/                         【v3.0 新增】数据传输对象
-│   └── ProjectData.cs            ✅ v3.0 项目数据 DTO
+│   ├── ProjectData.cs            ✅ v3.0 项目数据 DTO
+│   └── GitBranchInfo.cs          ✅【v3.1 新增】Git 分支信息 DTO
 │
 ├── Services/                     【业务服务】
 │   ├── ManifestService.cs        ✅【v3.0】.manifest 文件读写
@@ -313,7 +315,76 @@ schemes/{activeId}/*.json → activeScheme
 computed/*.json        → computed
 ```
 
-### 5.2 遗留端点（待迁移）
+### 5.2 Git 分支管理 API
+
+| 端点 | 方法 | 功能 | 状态 |
+|------|------|------|------|
+| `/api/git/branches` | GET | 获取分支列表 | ✅ |
+| `/api/git/checkout` | POST | 切换/新建分支 | ✅ |
+| `/api/git/current` | GET | 获取当前分支 | ✅ |
+
+#### `GET /api/git/branches`
+
+返回项目的所有 Git 分支列表，包含最新提交信息：
+
+```json
+[
+  {
+    "id": "main",
+    "name": "main",
+    "isCurrent": true,
+    "commit": {
+      "hash": "a62ff49",
+      "message": "功能：重构AICommandCenter",
+      "time": "2 hours ago",
+      "author": "张三"
+    }
+  },
+  {
+    "id": "feature/new-layout",
+    "name": "feature/new-layout",
+    "isCurrent": false,
+    "commit": { ... }
+  }
+]
+```
+
+#### `POST /api/git/checkout`
+
+切换分支或新建分支。支持 `createIfNotExist` 参数在分支不存在时自动创建。
+
+**请求体**：
+```json
+{
+  "branchName": "feature/new-layout",
+  "createIfNotExist": true   // 可选，默认 false
+}
+```
+
+**响应**（成功 200）：
+```json
+{
+  "success": true,
+  "currentBranch": "feature/new-layout",
+  "created": true   // 是否新建了分支
+}
+```
+
+**错误响应**：
+- `404` - 分支不存在且 `createIfNotExist=false`
+- `409` - 存在未提交的更改，需先提交或暂存
+
+#### `GET /api/git/current`
+
+返回当前分支名：
+
+```json
+{
+  "branch": "main"
+}
+```
+
+### 5.3 遗留端点（待迁移）
 
 | 端点 | 方法 | 功能 | 状态 |
 |------|------|------|------|
@@ -465,6 +536,8 @@ public class ManifestService
 | 项目加载流程 | ProjectService.cs | ✅ v3.0 |
 | 项目数据 API | ProjectController.cs | ✅ v3.0 |
 | 项目数据 DTO | Dtos/ProjectData.cs | ✅ v3.0 |
+| Git 分支管理 API | GitController.cs | ✅ v3.1 |
+| Git 分支信息 DTO | Dtos/GitBranchInfo.cs | ✅ v3.1 |
 
 ### 10.2 待开发
 
