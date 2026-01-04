@@ -5,6 +5,7 @@ using System.IO;
 using System.Linq;
 using System.Text;
 using System.Text.RegularExpressions;
+using BIMCanvas.Server.Dtos;
 using Microsoft.Extensions.Logging;
 
 namespace BIMCanvas.Server.Services
@@ -404,6 +405,70 @@ namespace BIMCanvas.Server.Services
         {
             var result = RunGit(workingDir, "status --porcelain");
             return !string.IsNullOrWhiteSpace(result.Output);
+        }
+
+        #endregion
+
+        #region 分支详细信息
+
+        /// <summary>
+        /// 获取分支的最新提交信息
+        /// </summary>
+        /// <param name="projectPath">项目路径</param>
+        /// <param name="branchName">分支名</param>
+        /// <returns>提交信息</returns>
+        public Dtos.CommitInfo? GetBranchCommit(string projectPath, string branchName)
+        {
+            // git log -1 --format="%h|%s|%ar|%an" branchName
+            var result = RunGit(projectPath, $"log -1 --format=\"%h|%s|%ar|%an\" \"{branchName}\"");
+            if (!result.Success || string.IsNullOrWhiteSpace(result.Output))
+            {
+                return null;
+            }
+
+            var parts = result.Output.Trim().Split('|');
+            if (parts.Length < 4)
+            {
+                return null;
+            }
+
+            return new Dtos.CommitInfo
+            {
+                Hash = parts[0],
+                Message = parts[1],
+                Time = parts[2],
+                Author = parts[3]
+            };
+        }
+
+        /// <summary>
+        /// 获取带详细信息的分支列表
+        /// </summary>
+        /// <param name="projectPath">项目路径</param>
+        /// <returns>分支信息列表</returns>
+        public List<GitBranchInfo> GetBranchesWithDetails(string projectPath)
+        {
+            var branches = new List<GitBranchInfo>();
+            var currentBranch = GetCurrentBranch(projectPath);
+            var allBranches = GetAllBranches(projectPath);
+
+            foreach (var branchName in allBranches)
+            {
+                var commit = GetBranchCommit(projectPath, branchName);
+                branches.Add(new GitBranchInfo
+                {
+                    Id = branchName,
+                    Name = branchName,
+                    IsCurrent = branchName == currentBranch,
+                    Commit = commit
+                });
+            }
+
+            // 当前分支排在最前面
+            return branches
+                .OrderByDescending(b => b.IsCurrent)
+                .ThenBy(b => b.Name)
+                .ToList();
         }
 
         #endregion

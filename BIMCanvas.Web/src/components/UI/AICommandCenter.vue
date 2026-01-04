@@ -3,8 +3,9 @@ import { ref, onMounted, nextTick, computed, watch } from 'vue';
 import { useCanvasStore } from '../../stores/canvasStore';
 import { storeToRefs } from 'pinia';
 
-// Agent API Configuration
+// API Configuration
 const AGENT_API_BASE = 'http://127.0.0.1:8765';
+const SERVER_API_BASE = 'http://localhost:5000';
 
 const panelWidth = ref(360);
 const isResizing = ref(false);
@@ -103,49 +104,46 @@ const proposals = ref([
 
 // Select branch
 const selectBranch = async (branchId: string) => {
-  // In a real app, this would trigger a git checkout via API
-  currentBranch.value = branchId;
-  branches.value.forEach(b => b.isCurrent = b.id === branchId);
+  try {
+    const response = await fetch(`${SERVER_API_BASE}/api/git/checkout`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ branchName: branchId })
+    });
+
+    if (response.ok) {
+      currentBranch.value = branchId;
+      branches.value.forEach(b => b.isCurrent = b.id === branchId);
+    } else {
+      const error = await response.json();
+      console.error('切换分支失败:', error.message);
+    }
+  } catch (e) {
+    console.error('切换分支请求失败:', e);
+  }
   isBranchDropdownOpen.value = false;
 };
 
-// Fetch Git Info
+// Fetch Git Info from Server
 const fetchGitInfo = async () => {
   try {
-    // Try to fetch from Agent API
-    const response = await fetch(`${AGENT_API_BASE}/api/git/branches`);
+    const response = await fetch(`${SERVER_API_BASE}/api/git/branches`);
     if (response.ok) {
         const data = await response.json();
         branches.value = data;
         const current = branches.value.find(b => b.isCurrent);
-        if (current) currentBranch.value = current.name;
+        if (current) {
+          currentBranch.value = current.name;
+        } else if (data.length === 0) {
+          currentBranch.value = '(no branches)';
+        }
     } else {
-        throw new Error('API not available');
+        throw new Error('Server API not available');
     }
   } catch (e) {
-    // Fallback to realistic mock data if API fails (for demo purposes)
-    console.warn('Failed to fetch git info, using mock data');
-    branches.value = [
-      { 
-        id: 'main', 
-        name: 'main', 
-        isCurrent: false,
-        commit: { message: 'Merge pull request #42 from feat/login', time: '2h ago', hash: 'a1b2c3d', author: 'Dev' }
-      },
-      { 
-        id: 'feat/ai-proposal-A', 
-        name: 'feat/ai-proposal-A', 
-        isCurrent: true,
-        commit: { message: 'Optimize living room layout for flow', time: '5m ago', hash: 'e5f6g7h', author: 'AI Agent' }
-      },
-      { 
-        id: 'feat/storage-opt', 
-        name: 'feat/storage-opt', 
-        isCurrent: false,
-        commit: { message: 'Add custom cabinet modules', time: '1d ago', hash: 'i8j9k0l', author: 'User' }
-      }
-    ];
-    currentBranch.value = 'feat/ai-proposal-A';
+    console.warn('Failed to fetch git info from Server:', e);
+    currentBranch.value = '(offline)';
+    branches.value = [];
   }
 };
 
@@ -287,6 +285,81 @@ const removeContext = (type: 'scope' | 'selection', item?: string) => {
         contextSelection.value = contextSelection.value.filter(i => i !== item);
     }
 }
+
+// Context Menu State
+const isContextMenuOpen = ref(false);
+const activeSubmenu = ref<string | null>(null);
+const submenuDirection = ref<'left' | 'right'>('left');
+
+const contextOptions = {
+  zones: [
+    { id: 'living-room', label: 'Living Room' },
+    { id: 'kitchen', label: 'Kitchen' },
+    { id: 'master-bedroom', label: 'Master Bedroom' },
+    { id: 'bathroom', label: 'Bathroom' },
+    { id: 'balcony', label: 'Balcony' }
+  ],
+  regulations: [
+    { id: 'wheelchair', label: 'Wheelchair Access (ADA)' },
+    { id: 'feng-shui', label: 'Feng Shui Principles' },
+    { id: 'fire-code', label: 'Fire Safety Code' }
+  ],
+  attachments: [
+    { id: 'upload', label: 'Upload Image...' },
+    { id: 'docs', label: 'Project Requirements.pdf' }
+  ]
+};
+
+const toggleContextMenu = () => {
+  isContextMenuOpen.value = !isContextMenuOpen.value;
+  if (!isContextMenuOpen.value) activeSubmenu.value = null;
+};
+
+const openSubmenu = (id: string, event: MouseEvent) => {
+    activeSubmenu.value = id;
+    
+    // Smart positioning logic
+    const target = event.currentTarget as HTMLElement;
+    const rect = target.getBoundingClientRect();
+    const submenuWidth = 220; // Matches CSS width
+    const windowWidth = window.innerWidth;
+    
+    // Check if there is space on the right
+    if (rect.right + submenuWidth + 20 < windowWidth) {
+        submenuDirection.value = 'right';
+    } else {
+        submenuDirection.value = 'left';
+    }
+};
+
+const handleContextSelect = (type: string, item: any) => {
+  console.log('Selected context:', type, item);
+  
+  // Logic to add context
+  if (type === 'zones') {
+    activeScope.value = item.label; // Update scope for demo
+  } else {
+    // For other types, maybe add a chip to the input or a temporary toast
+    // For now, let's just simulate adding it to the input for visibility
+    inputMessage.value += ` [Context: ${item.label}] `;
+  }
+  
+  isContextMenuOpen.value = false;
+  activeSubmenu.value = null;
+};
+
+// Close menu when clicking outside
+const closeContextMenu = (e: MouseEvent) => {
+  const target = e.target as HTMLElement;
+  if (!target.closest('.add-context-wrapper')) {
+    isContextMenuOpen.value = false;
+    activeSubmenu.value = null;
+  }
+};
+
+onMounted(() => {
+  window.addEventListener('click', closeContextMenu);
+});
 
 import TaskSummaryWidget from './TaskSummaryWidget.vue';
 </script>
@@ -493,12 +566,115 @@ import TaskSummaryWidget from './TaskSummaryWidget.vue';
             </transition>
 
             <!-- 3. Add Context Button -->
-            <button class="add-context-btn" title="Add Context">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                    <line x1="12" y1="5" x2="12" y2="19"></line>
-                    <line x1="5" y1="12" x2="19" y2="12"></line>
-                </svg>
-            </button>
+            <div class="add-context-wrapper">
+                <button 
+                    class="add-context-btn" 
+                    title="Add Context"
+                    @click.stop="toggleContextMenu"
+                    :class="{ active: isContextMenuOpen }"
+                >
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <line x1="12" y1="5" x2="12" y2="19"></line>
+                        <line x1="5" y1="12" x2="19" y2="12"></line>
+                    </svg>
+                </button>
+
+                <!-- Context Menu -->
+                <transition name="scale-up">
+                    <div class="context-menu" v-if="isContextMenuOpen">
+                        
+                        <!-- Main Menu -->
+                        <div class="menu-section">
+                            <div class="menu-label">Add Context</div>
+                            
+                            <!-- Zones Item (Expandable) -->
+                            <div 
+                                class="menu-item has-submenu"
+                                @mouseenter="openSubmenu('zones', $event)"
+                                :class="{ active: activeSubmenu === 'zones' }"
+                            >
+                                <span class="item-text">Reference Zone</span>
+                                <svg class="chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                    <polyline points="9 18 15 12 9 6"></polyline>
+                                </svg>
+                            </div>
+
+                            <!-- Regulations Item (Expandable) -->
+                            <div 
+                                class="menu-item has-submenu"
+                                @mouseenter="openSubmenu('regulations', $event)"
+                                :class="{ active: activeSubmenu === 'regulations' }"
+                            >
+                                <span class="item-text">Regulations</span>
+                                <svg class="chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                    <polyline points="9 18 15 12 9 6"></polyline>
+                                </svg>
+                            </div>
+
+                            <!-- Attachments Item (Expandable) -->
+                            <div 
+                                class="menu-item has-submenu"
+                                @mouseenter="openSubmenu('attachments', $event)"
+                                :class="{ active: activeSubmenu === 'attachments' }"
+                            >
+                                <span class="item-text">Attachments</span>
+                                <svg class="chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                    <polyline points="9 18 15 12 9 6"></polyline>
+                                </svg>
+                            </div>
+                        </div>
+
+                        <!-- Submenus (Flyout) -->
+                        <div 
+                            class="submenu-container" 
+                            v-if="activeSubmenu"
+                            :class="submenuDirection"
+                        >
+                            
+                            <!-- Zones Submenu -->
+                            <div class="submenu" v-if="activeSubmenu === 'zones'">
+                                <div class="menu-label">Select Zone</div>
+                                <div 
+                                    class="menu-item" 
+                                    v-for="zone in contextOptions.zones" 
+                                    :key="zone.id"
+                                    @click="handleContextSelect('zones', zone)"
+                                >
+                                    <span class="item-text">{{ zone.label }}</span>
+                                </div>
+                            </div>
+
+                            <!-- Regulations Submenu -->
+                            <div class="submenu" v-if="activeSubmenu === 'regulations'">
+                                <div class="menu-label">Apply Regulation</div>
+                                <div 
+                                    class="menu-item" 
+                                    v-for="reg in contextOptions.regulations" 
+                                    :key="reg.id"
+                                    @click="handleContextSelect('regulations', reg)"
+                                >
+                                    <span class="item-text">{{ reg.label }}</span>
+                                </div>
+                            </div>
+
+                             <!-- Attachments Submenu -->
+                             <div class="submenu" v-if="activeSubmenu === 'attachments'">
+                                <div class="menu-label">Attach File</div>
+                                <div 
+                                    class="menu-item" 
+                                    v-for="att in contextOptions.attachments" 
+                                    :key="att.id"
+                                    @click="handleContextSelect('attachments', att)"
+                                >
+                                    <span class="item-text">{{ att.label }}</span>
+                                </div>
+                            </div>
+
+                        </div>
+
+                    </div>
+                </transition>
+            </div>
         </div>
 
         <!-- Input Area -->
@@ -557,7 +733,7 @@ import TaskSummaryWidget from './TaskSummaryWidget.vue';
   
   /* Animation */
   /* transition: width 0.1s;  Removed for smoother dragging */
-  overflow: hidden;
+  /* overflow: hidden;  Removed to allow context menu flyout */
   z-index: 90;
   display: flex;
   flex-direction: row; /* Changed to row to include resize handle */
@@ -798,6 +974,159 @@ import TaskSummaryWidget from './TaskSummaryWidget.vue';
 }
 
 /* --- Layer 2: Intelligence Stream --- */
+.layer-stream {
+    flex: 1;
+    overflow-y: auto;
+    overflow-x: hidden;
+    position: relative;
+    
+    /* Scrollbar styling */
+    &::-webkit-scrollbar {
+        width: 6px;
+    }
+    &::-webkit-scrollbar-track {
+        background: transparent;
+    }
+    &::-webkit-scrollbar-thumb {
+        background: rgba(255, 255, 255, 0.1);
+        border-radius: 3px;
+    }
+    &:hover::-webkit-scrollbar-thumb {
+        background: rgba(255, 255, 255, 0.2);
+    }
+}
+
+/* --- Context Menu Styles --- */
+.add-context-wrapper {
+    position: relative;
+}
+
+.context-menu {
+    position: absolute;
+    bottom: 100%; /* Open upwards */
+    right: 0;
+    margin-bottom: 12px;
+    width: 160px; /* Reduced from 200px */
+    background: var(--surface-elevated);
+    border: 1px solid var(--border-subtle);
+    border-radius: 10px; /* Reduced radius */
+    box-shadow: 
+        0 4px 24px rgba(0, 0, 0, 0.2),
+        0 0 0 1px rgba(255, 255, 255, 0.05) inset;
+    backdrop-filter: blur(20px);
+    padding: 4px; /* Reduced padding */
+    z-index: 1000;
+    display: flex; /* To hold submenu container */
+    
+    /* Ensure it doesn't get clipped */
+    /* Note: If the parent has overflow:hidden, this might be an issue. 
+       The .ai-command-center has overflow:hidden, but .layer-footer is inside it.
+       We might need to adjust .ai-command-center overflow or use a portal if this gets clipped.
+       For now, let's try to keep it inside or assume the footer has enough space or z-index context.
+       Actually, .ai-command-center has overflow:hidden. This menu WILL be clipped if it goes out of bounds.
+       However, since it opens upwards from the bottom footer, it should be fine as long as it's not taller than the panel.
+    */
+}
+
+.menu-section {
+    width: 100%;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+
+.menu-label {
+    font-size: 0.65rem; /* Reduced from 0.75rem */
+    color: var(--text-tertiary);
+    padding: 6px 10px 2px; /* Reduced padding */
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+.menu-item {
+    display: flex;
+    align-items: center;
+    gap: 8px; /* Reduced gap */
+    padding: 6px 10px; /* Reduced padding */
+    border-radius: 6px; /* Reduced radius */
+    cursor: pointer;
+    transition: all 0.2s;
+    color: var(--text-primary);
+    font-size: 0.8rem; /* Reduced from 0.9rem */
+    position: relative;
+
+    &:hover, &.active {
+        background: var(--surface-highlight);
+    }
+
+    .item-text {
+        flex: 1;
+    }
+
+    .chevron {
+        width: 14px;
+        height: 14px;
+        color: var(--text-tertiary);
+        opacity: 0.7;
+    }
+}
+
+/* Submenu Container (Flyout) */
+.submenu-container {
+    position: absolute;
+    bottom: 0; /* Align bottom */
+    width: 180px; /* Reduced from 220px */
+    background: var(--surface-elevated);
+    border: 1px solid var(--border-subtle);
+    border-radius: 10px; /* Reduced radius */
+    box-shadow: 0 4px 24px rgba(0, 0, 0, 0.2);
+    backdrop-filter: blur(20px);
+    padding: 4px; /* Reduced padding */
+    /* Animation is handled by specific direction classes */
+}
+
+.submenu-container.left {
+    right: 100%; /* Fly out to the left */
+    left: auto;
+    margin-right: 8px;
+    animation: slideLeft 0.2s cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+.submenu-container.right {
+    left: 100%; /* Fly out to the right */
+    right: auto;
+    margin-left: 8px;
+    animation: slideRight 0.2s cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+.submenu {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+
+@keyframes slideLeft {
+    from { opacity: 0; transform: translateX(10px); }
+    to { opacity: 1; transform: translateX(0); }
+}
+
+@keyframes slideRight {
+    from { opacity: 0; transform: translateX(-10px); }
+    to { opacity: 1; transform: translateX(0); }
+}
+
+/* Transition for main menu */
+.scale-up-enter-active,
+.scale-up-leave-active {
+    transition: all 0.2s cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+.scale-up-enter-from,
+.scale-up-leave-to {
+    opacity: 0;
+    transform: scale(0.95) translateY(10px);
+}
 .layer-stream {
     flex: 1;
     overflow-y: auto;
