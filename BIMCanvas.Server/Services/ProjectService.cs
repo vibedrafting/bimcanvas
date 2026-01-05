@@ -134,11 +134,14 @@ namespace BIMCanvas.Server.Services
 .DS_Store
 Thumbs.db
 
-# IDE
+# IDE / 开发工具
 .idea/
 .vscode/
+.vs/
 *.suo
 *.user
+*.sln
+*.csproj
 ";
                     File.WriteAllText(gitignorePath, gitignoreContent, Encoding.UTF8);
                     _logger.LogDebug("创建 .gitignore");

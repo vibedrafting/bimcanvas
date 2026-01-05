@@ -3,6 +3,7 @@ import { ref, onMounted, nextTick, computed, watch, defineProps } from 'vue';
 import { useCanvasStore } from '../../stores/canvasStore';
 import { useGitStore } from '../../stores/gitStore';
 import { storeToRefs } from 'pinia';
+import BranchCheckoutConfirmDialog from './Ribbon/BranchCheckoutConfirmDialog.vue';
 
 // Props from parent (MainLayout)
 const props = defineProps<{
@@ -15,6 +16,8 @@ const AGENT_API_BASE = 'http://127.0.0.1:8765';
 const panelWidth = ref(360);
 const isResizing = ref(false);
 const isBranchDropdownOpen = ref(false);
+const showCheckoutConfirmDialog = ref(false);
+const pendingCheckoutBranch = ref('');
 const mode = ref('chat'); // 'chat' | 'tasks'
 const isTaskSummaryExpanded = ref(false);
 
@@ -113,11 +116,41 @@ const proposals = ref([
 
 // Select branch - 使用Store方法
 const selectBranch = async (branchId: string) => {
-  const result = await gitStore.checkout(branchId);
-  if (!result.success) {
-    console.error('切换分支失败:', result.message);
-  }
   isBranchDropdownOpen.value = false;
+  const result = await gitStore.checkout(branchId);
+
+  if (result.success) {
+    return;
+  }
+
+  // 如果有未提交的更改，显示确认弹窗
+  if (result.hasUncommittedChanges) {
+    pendingCheckoutBranch.value = branchId;
+    showCheckoutConfirmDialog.value = true;
+    return;
+  }
+
+  console.error('切换分支失败:', result.message);
+};
+
+// 确认弹窗回调
+const handleCheckoutConfirm = async (saveBeforeSwitch: boolean, commitMessage?: string) => {
+  showCheckoutConfirmDialog.value = false;
+  const branchName = pendingCheckoutBranch.value;
+  if (!branchName) return;
+
+  if (saveBeforeSwitch) {
+    await gitStore.checkout(branchName, {
+      commitBeforeCheckout: true,
+      commitMessage
+    });
+  }
+  pendingCheckoutBranch.value = '';
+};
+
+const handleCheckoutCancel = () => {
+  showCheckoutConfirmDialog.value = false;
+  pendingCheckoutBranch.value = '';
 };
 
 // Clear selection
@@ -890,6 +923,15 @@ import MarkdownText from './base/MarkdownText.vue';
       </div>
 
     </div>
+
+    <!-- Branch Checkout Confirm Dialog -->
+    <BranchCheckoutConfirmDialog
+      :visible="showCheckoutConfirmDialog"
+      :target-branch="pendingCheckoutBranch"
+      :current-branch="currentBranch"
+      @confirm="handleCheckoutConfirm"
+      @cancel="handleCheckoutCancel"
+    />
   </aside>
 </template>
 

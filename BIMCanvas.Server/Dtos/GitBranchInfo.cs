@@ -66,5 +66,26 @@ namespace BIMCanvas.Server.Dtos
         /// 分支不存在时是否自动创建（默认 false）
         /// </summary>
         public bool CreateIfNotExist { get; set; } = false;
+
+        /// <summary>
+        /// 切换前是否自动提交未保存的更改（默认 false）
+        /// </summary>
+        public bool CommitBeforeCheckout { get; set; } = false;
+
+        /// <summary>
+        /// 自动提交时的提交信息（可选）
+        /// </summary>
+        public string? CommitMessage { get; set; }
+    }
+
+    /// <summary>
+    /// 提交请求
+    /// </summary>
+    public class CommitRequest
+    {
+        /// <summary>
+        /// 提交信息（可选，为空则自动生成）
+        /// </summary>
+        public string? Message { get; set; }
     }
 }

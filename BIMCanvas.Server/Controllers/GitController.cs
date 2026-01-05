@@ -91,13 +91,29 @@ namespace BIMCanvas.Server.Controllers
             try
             {
                 // 检查是否有未提交的更改
-                if (_gitService.HasUncommittedChanges(projectPath))
+                var hasChanges = _gitService.HasUncommittedChanges(projectPath);
+
+                if (hasChanges)
                 {
-                    return Conflict(new
+                    // 如果设置了自动存档，先提交更改
+                    if (request.CommitBeforeCheckout)
                     {
-                        message = "存在未提交的更改，请先提交或暂存更改",
-                        hasUncommittedChanges = true
-                    });
+                        var commitMessage = string.IsNullOrEmpty(request.CommitMessage)
+                            ? $"自动存档：切换到分支 {request.BranchName} 前保存"
+                            : request.CommitMessage;
+
+                        _gitService.Commit(projectPath, commitMessage);
+                        _logger.LogInformation("切换分支前自动存档: {Message}", commitMessage);
+                    }
+                    else
+                    {
+                        // 返回冲突，让前端决定是否存档
+                        return Conflict(new
+                        {
+                            message = "存在未提交的更改，请先提交或暂存更改",
+                            hasUncommittedChanges = true
+                        });
+                    }
                 }
 
                 // 检查分支是否存在
@@ -134,6 +150,118 @@ namespace BIMCanvas.Server.Controllers
             {
                 _logger.LogError(ex, "切换分支失败: {Branch}", request.BranchName);
                 return StatusCode(500, new { message = $"切换分支失败: {ex.Message}" });
+            }
+        }
+
+        /// <summary>
+        /// 提交当前更改（存档）
+        /// </summary>
+        /// <param name="request">提交请求</param>
+        /// <returns>操作结果</returns>
+        [HttpPost("commit")]
+        public ActionResult Commit([FromBody] CommitRequest request)
+        {
+            // 检查项目是否已加载
+            if (!_projectContext.IsLoaded)
+            {
+                return BadRequest(new { message = "没有加载的项目" });
+            }
+
+            var projectPath = _projectContext.CurrentProjectPath!;
+
+            // 检查是否是 Git 仓库
+            if (!_gitService.IsGitRepository(projectPath))
+            {
+                return BadRequest(new { message = "项目目录不是 Git 仓库" });
+            }
+
+            try
+            {
+                // 检查是否有未提交的更改
+                if (!_gitService.HasUncommittedChanges(projectPath))
+                {
+                    return Ok(new
+                    {
+                        success = true,
+                        message = "没有需要提交的更改",
+                        committed = false
+                    });
+                }
+
+                // 生成提交信息
+                var message = string.IsNullOrEmpty(request?.Message)
+                    ? $"自动存档_{DateTime.Now:yyyyMMdd_HHmmss}"
+                    : request.Message;
+
+                _gitService.Commit(projectPath, message);
+                _logger.LogInformation("提交更改: {Message}", message);
+
+                // 获取当前分支信息
+                var currentBranch = _gitService.GetCurrentBranch(projectPath);
+                var commitInfo = _gitService.GetBranchCommit(projectPath, currentBranch);
+
+                return Ok(new
+                {
+                    success = true,
+                    message = "提交成功",
+                    committed = true,
+                    commit = commitInfo
+                });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "提交更改失败");
+                return StatusCode(500, new { message = $"提交更改失败: {ex.Message}" });
+            }
+        }
+
+        /// <summary>
+        /// 获取工作区状态（是否有未提交的更改）
+        /// </summary>
+        /// <returns>工作区状态</returns>
+        [HttpGet("status")]
+        public ActionResult GetStatus()
+        {
+            // 检查项目是否已加载
+            if (!_projectContext.IsLoaded)
+            {
+                return Ok(new
+                {
+                    isLoaded = false,
+                    hasUncommittedChanges = false
+                });
+            }
+
+            var projectPath = _projectContext.CurrentProjectPath!;
+
+            // 检查是否是 Git 仓库
+            if (!_gitService.IsGitRepository(projectPath))
+            {
+                return Ok(new
+                {
+                    isLoaded = true,
+                    isGitRepo = false,
+                    hasUncommittedChanges = false
+                });
+            }
+
+            try
+            {
+                var hasChanges = _gitService.HasUncommittedChanges(projectPath);
+                var currentBranch = _gitService.GetCurrentBranch(projectPath);
+
+                return Ok(new
+                {
+                    isLoaded = true,
+                    isGitRepo = true,
+                    hasUncommittedChanges = hasChanges,
+                    currentBranch
+                });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "获取工作区状态失败");
+                return StatusCode(500, new { message = $"获取工作区状态失败: {ex.Message}" });
             }
         }
 

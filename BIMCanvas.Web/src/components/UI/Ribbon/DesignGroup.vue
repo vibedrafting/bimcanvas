@@ -4,6 +4,7 @@ import { storeToRefs } from 'pinia';
 import GlassSelect from '../base/GlassSelect.vue';
 import GlassButton from '../base/GlassButton.vue';
 import BranchCreationDialog from './BranchCreationDialog.vue';
+import BranchCheckoutConfirmDialog from './BranchCheckoutConfirmDialog.vue';
 import { useGitStore } from '../../../stores/gitStore';
 
 // --- Git Store ---
@@ -37,6 +38,8 @@ const strategies = [
 
 // --- Variant/Branch Section ---
 const showBranchDialog = ref(false);
+const showCheckoutConfirmDialog = ref(false);
+const pendingCheckoutBranch = ref('');
 
 // 分支图标
 const branchIcon = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><line x1="6" y1="3" x2="6" y2="15"></line><circle cx="18" cy="6" r="3"></circle><circle cx="6" cy="18" r="3"></circle><path d="M18 9a9 9 0 0 1-9 9"></path></svg>';
@@ -64,12 +67,41 @@ const handleBranchChange = async (val: string | number) => {
     return;
   }
 
-  // 调用Store的checkout方法
-  const result = await gitStore.checkout(val as string);
-  if (!result.success) {
-    console.error('切换分支失败:', result.message);
-    // TODO: 可以添加UI提示
+  const branchName = val as string;
+  const result = await gitStore.checkout(branchName);
+
+  if (result.success) {
+    return;
   }
+
+  // 如果有未提交的更改，显示确认弹窗
+  if (result.hasUncommittedChanges) {
+    pendingCheckoutBranch.value = branchName;
+    showCheckoutConfirmDialog.value = true;
+    return;
+  }
+
+  console.error('切换分支失败:', result.message);
+};
+
+// 确认弹窗回调
+const handleCheckoutConfirm = async (saveBeforeSwitch: boolean, commitMessage?: string) => {
+  showCheckoutConfirmDialog.value = false;
+  const branchName = pendingCheckoutBranch.value;
+  if (!branchName) return;
+
+  if (saveBeforeSwitch) {
+    await gitStore.checkout(branchName, {
+      commitBeforeCheckout: true,
+      commitMessage
+    });
+  }
+  pendingCheckoutBranch.value = '';
+};
+
+const handleCheckoutCancel = () => {
+  showCheckoutConfirmDialog.value = false;
+  pendingCheckoutBranch.value = '';
 };
 
 // 创建分支处理
@@ -173,6 +205,15 @@ const simpleBranchList = computed(() =>
         :all-branches="simpleBranchList"
         @create="handleCreateBranch"
         @cancel="showBranchDialog = false"
+      />
+
+      <!-- Branch Checkout Confirm Dialog -->
+      <BranchCheckoutConfirmDialog
+        :visible="showCheckoutConfirmDialog"
+        :target-branch="pendingCheckoutBranch"
+        :current-branch="currentBranch"
+        @confirm="handleCheckoutConfirm"
+        @cancel="handleCheckoutCancel"
       />
 
     </div>
