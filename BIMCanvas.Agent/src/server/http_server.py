@@ -139,8 +139,11 @@ async def chat_stream_handler(request: web.Request) -> web.StreamResponse:
         agent = get_agent(project_path)
 
         async for chunk in agent.chat_stream(message):
-            # Send each chunk as SSE event
-            event_data = json.dumps({"chunk": chunk}, ensure_ascii=False)
+            # Send each chunk as SSE event with type info
+            event_data = json.dumps({
+                "type": chunk.type,
+                "content": chunk.content
+            }, ensure_ascii=False)
             await response.write(f"data: {event_data}\n\n".encode("utf-8"))
 
         # Send done event

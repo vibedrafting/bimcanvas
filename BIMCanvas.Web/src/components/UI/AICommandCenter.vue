@@ -60,10 +60,22 @@ const agentStatus = ref<'connecting' | 'connected' | 'disconnected'>('disconnect
 const currentProjectPath = ref('');
 
 // Chat state
-const chatMessages = ref<Array<{ role: 'user' | 'ai'; content: string }>>([]);
+interface ChatMessage {
+  role: 'user' | 'ai';
+  content: string;
+  thinking?: string;
+  isStreaming?: boolean;
+}
+const chatMessages = ref<ChatMessage[]>([]);
 const inputMessage = ref('');
 const isLoading = ref(false);
 const chatScrollRef = ref<HTMLElement | null>(null);
+const expandedThinking = ref<Record<number, boolean>>({});
+
+// Toggle thinking section visibility
+const toggleThinking = (index: number) => {
+  expandedThinking.value[index] = !expandedThinking.value[index];
+};
 
 // Mock Data for Tasks (unchanged)
 const tasks = ref([
@@ -186,8 +198,12 @@ const sendMessage = async () => {
   await nextTick();
   scrollToBottom();
 
+  // Add placeholder AI message for streaming
+  const aiMessageIndex = chatMessages.value.length;
+  chatMessages.value.push({ role: 'ai', content: '', thinking: '', isStreaming: true });
+
   try {
-    const response = await fetch(`${AGENT_API_BASE}/api/chat`, {
+    const response = await fetch(`${AGENT_API_BASE}/api/chat/stream`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -200,18 +216,65 @@ const sendMessage = async () => {
       throw new Error(`HTTP error: ${response.status}`);
     }
 
-    const data = await response.json();
+    // Read SSE stream
+    const reader = response.body?.getReader();
+    const decoder = new TextDecoder();
 
-    // Add AI response to chat
-    chatMessages.value.push({ role: 'ai', content: data.reply });
+    if (!reader) {
+      throw new Error('No response body');
+    }
+
+    let buffer = '';
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+
+      buffer += decoder.decode(value, { stream: true });
+      const lines = buffer.split('\n');
+      buffer = lines.pop() || '';
+
+      for (const line of lines) {
+        if (line.startsWith('data: ')) {
+          const data = line.slice(6);
+          if (data === '[DONE]') {
+            break;
+          }
+          try {
+            const parsed = JSON.parse(data);
+            const currentMsg = chatMessages.value[aiMessageIndex];
+
+            if (parsed.type === 'text' || parsed.type === 'text_complete') {
+              currentMsg.content += parsed.content;
+            } else if (parsed.type === 'thinking' || parsed.type === 'thinking_complete') {
+              currentMsg.thinking = (currentMsg.thinking || '') + parsed.content;
+              // Auto-expand thinking on first chunk
+              if (!expandedThinking.value[aiMessageIndex]) {
+                expandedThinking.value[aiMessageIndex] = true;
+              }
+            } else if (parsed.error) {
+              currentMsg.content = `Error: ${parsed.error}`;
+            }
+
+            await nextTick();
+            scrollToBottom();
+          } catch (e) {
+            console.error('Parse error:', e, data);
+          }
+        }
+      }
+    }
+
+    // Mark streaming as complete
+    chatMessages.value[aiMessageIndex].isStreaming = false;
     agentStatus.value = 'connected';
 
   } catch (error) {
     console.error('Chat error:', error);
-    chatMessages.value.push({
-      role: 'ai',
-      content: 'Sorry, I encountered an error. Please check if the Agent server is running.'
-    });
+    const currentMsg = chatMessages.value[aiMessageIndex];
+    if (currentMsg && !currentMsg.content) {
+      currentMsg.content = 'Sorry, I encountered an error. Please check if the Agent server is running.';
+    }
+    currentMsg.isStreaming = false;
     agentStatus.value = 'disconnected';
   } finally {
     isLoading.value = false;
@@ -348,17 +411,29 @@ const handleContextSelect = (type: string, item: any) => {
   activeSubmenu.value = null;
 };
 
-// Close menu when clicking outside
-const closeContextMenu = (e: MouseEvent) => {
+// Close menus when clicking outside
+const handleGlobalClick = (e: MouseEvent) => {
   const target = e.target as HTMLElement;
+  
+  // Close Context Menu
   if (!target.closest('.add-context-wrapper')) {
     isContextMenuOpen.value = false;
     activeSubmenu.value = null;
   }
+
+  // Close Branch Dropdown
+  if (!target.closest('.branch-dropdown')) {
+    isBranchDropdownOpen.value = false;
+  }
 };
 
 onMounted(() => {
-  window.addEventListener('click', closeContextMenu);
+  window.addEventListener('click', handleGlobalClick);
+});
+
+import { onUnmounted } from 'vue';
+onUnmounted(() => {
+  window.removeEventListener('click', handleGlobalClick);
 });
 
 import TaskSummaryWidget from './TaskSummaryWidget.vue';
@@ -440,21 +515,46 @@ import TaskSummaryWidget from './TaskSummaryWidget.vue';
 
             <!-- Actual Chat History -->
             <template v-for="(msg, index) in chatMessages" :key="index">
-                <div class="chat-message" :class="msg.role === 'user' ? 'user' : 'ai'">
+                <div class="chat-message" :class="[msg.role === 'user' ? 'user' : 'ai', { streaming: msg.isStreaming }]">
                     <div v-if="msg.role === 'ai'" class="avatar">AI</div>
-                    <div class="bubble">{{ msg.content }}</div>
+                    <div class="message-wrapper">
+                        <!-- Thinking Section (for AI messages only) -->
+                        <div v-if="msg.role === 'ai' && msg.thinking" class="thinking-section">
+                            <div class="thinking-header" @click="toggleThinking(index)">
+                                <span class="thinking-icon">💭</span>
+                                <span class="thinking-label">思考过程</span>
+                                <svg
+                                    class="thinking-chevron"
+                                    :class="{ expanded: expandedThinking[index] }"
+                                    viewBox="0 0 24 24"
+                                    fill="none"
+                                    stroke="currentColor"
+                                    stroke-width="2"
+                                >
+                                    <polyline points="6 9 12 15 18 9"></polyline>
+                                </svg>
+                                <span v-if="msg.isStreaming" class="streaming-indicator"></span>
+                            </div>
+                            <transition name="thinking-expand">
+                                <div v-show="expandedThinking[index]" class="thinking-content">
+                                    {{ msg.thinking }}
+                                </div>
+                            </transition>
+                        </div>
+                        <!-- Main Content Bubble -->
+                        <div class="bubble" :class="{ empty: !msg.content && msg.isStreaming }">
+                            <template v-if="msg.content">{{ msg.content }}</template>
+                            <span v-else-if="msg.isStreaming && !msg.thinking" class="typing-indicator">
+                                <span class="typing-dot"></span>
+                                <span class="typing-dot"></span>
+                                <span class="typing-dot"></span>
+                            </span>
+                        </div>
+                    </div>
                 </div>
             </template>
 
-            <!-- Loading indicator -->
-            <div v-if="isLoading" class="chat-message ai">
-                <div class="avatar">AI</div>
-                <div class="bubble loading">
-                    <span class="typing-dot"></span>
-                    <span class="typing-dot"></span>
-                    <span class="typing-dot"></span>
-                </div>
-            </div>
+            <!-- Note: Loading state now handled within streaming messages -->
         </div>
 
         <!-- View: Tasks (formerly Review) -->
@@ -798,6 +898,7 @@ import TaskSummaryWidget from './TaskSummaryWidget.vue';
         z-index: 10;
 
         .dropdown-trigger {
+            box-sizing: border-box; /* Ensure padding doesn't affect width */
             width: 100%;
             display: flex;
             align-items: center;
@@ -842,6 +943,7 @@ import TaskSummaryWidget from './TaskSummaryWidget.vue';
         }
 
         .dropdown-menu {
+            box-sizing: border-box; /* Ensure padding doesn't affect width */
             position: absolute;
             top: 100%; /* Connect directly */
             left: 0;
@@ -864,8 +966,8 @@ import TaskSummaryWidget from './TaskSummaryWidget.vue';
             .branch-item {
                 display: flex;
                 flex-direction: column;
-                gap: 2px; /* Tighter gap */
-                padding: 8px 10px; /* Compact padding */
+                gap: 0; /* No gap for compactness */
+                padding: 6px 8px; /* Even more compact padding */
                 border-radius: 8px;
                 cursor: pointer;
                 border: 1px solid transparent;
@@ -877,8 +979,20 @@ import TaskSummaryWidget from './TaskSummaryWidget.vue';
                 }
 
                 &.current {
-                    background: rgba(var(--accent-primary-rgb), 0.08);
-                    border-color: rgba(var(--accent-primary-rgb), 0.2);
+                    background: rgba(var(--accent-primary-rgb), 0.05); /* Very subtle tint */
+                    border-color: transparent; /* Remove border to avoid boxy look */
+                    position: relative;
+                    
+                    &::before {
+                        content: '';
+                        position: absolute;
+                        left: 0;
+                        top: 6px;
+                        bottom: 6px;
+                        width: 3px;
+                        background: var(--accent-primary);
+                        border-radius: 0 2px 2px 0;
+                    }
                     
                     .branch-main .branch-name {
                         color: var(--accent-primary);
@@ -895,7 +1009,7 @@ import TaskSummaryWidget from './TaskSummaryWidget.vue';
                     
                     .branch-name {
                         flex: 1;
-                        font-size: 0.9rem;
+                        font-size: 0.85rem; /* Slightly smaller */
                         color: var(--text-primary);
                         font-weight: 500;
                     }
@@ -911,7 +1025,7 @@ import TaskSummaryWidget from './TaskSummaryWidget.vue';
                     display: flex;
                     justify-content: space-between;
                     align-items: center;
-                    font-size: 0.75rem;
+                    font-size: 0.7rem; /* Smaller meta text */
                     color: var(--text-tertiary);
                     padding-left: 22px; /* Align with text */
 
@@ -1154,12 +1268,12 @@ import TaskSummaryWidget from './TaskSummaryWidget.vue';
     display: flex;
     flex-direction: column;
     gap: 16px;
-    
+
     .chat-message {
         display: flex;
         gap: 8px;
         align-items: flex-start;
-        
+
         &.user {
             flex-direction: row-reverse;
             .bubble {
@@ -1168,12 +1282,18 @@ import TaskSummaryWidget from './TaskSummaryWidget.vue';
                 border: none;
             }
         }
-        
+
         &.ai {
             .bubble {
                 background: var(--surface-card);
                 border: 1px solid var(--border-dim);
                 color: var(--text-primary);
+            }
+        }
+
+        &.streaming {
+            .bubble {
+                border-color: var(--accent-primary);
             }
         }
 
@@ -1191,14 +1311,119 @@ import TaskSummaryWidget from './TaskSummaryWidget.vue';
             flex-shrink: 0;
         }
 
+        .message-wrapper {
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+            max-width: 85%;
+        }
+
         .bubble {
             padding: 8px 12px;
             border-radius: 12px;
             font-size: 0.85rem;
             line-height: 1.4;
-            max-width: 85%;
+
+            &.empty {
+                min-height: 20px;
+            }
+
+            .typing-indicator {
+                display: flex;
+                gap: 4px;
+
+                .typing-dot {
+                    width: 6px;
+                    height: 6px;
+                    background: var(--text-tertiary);
+                    border-radius: 50%;
+                    animation: typing 1.4s ease-in-out infinite;
+
+                    &:nth-child(1) { animation-delay: 0s; }
+                    &:nth-child(2) { animation-delay: 0.2s; }
+                    &:nth-child(3) { animation-delay: 0.4s; }
+                }
+            }
+        }
+
+        /* Thinking Section Styles */
+        .thinking-section {
+            background: var(--surface-dim);
+            border: 1px solid var(--border-dim);
+            border-radius: 10px;
+            overflow: hidden;
+            font-size: 0.8rem;
+
+            .thinking-header {
+                display: flex;
+                align-items: center;
+                gap: 6px;
+                padding: 6px 10px;
+                cursor: pointer;
+                user-select: none;
+                transition: background 0.2s;
+
+                &:hover {
+                    background: var(--surface-highlight);
+                }
+
+                .thinking-icon {
+                    font-size: 0.9rem;
+                }
+
+                .thinking-label {
+                    color: var(--text-secondary);
+                    font-weight: 500;
+                    flex: 1;
+                }
+
+                .thinking-chevron {
+                    width: 14px;
+                    height: 14px;
+                    color: var(--text-tertiary);
+                    transition: transform 0.2s;
+
+                    &.expanded {
+                        transform: rotate(180deg);
+                    }
+                }
+
+                .streaming-indicator {
+                    width: 8px;
+                    height: 8px;
+                    background: var(--accent-primary);
+                    border-radius: 50%;
+                    animation: pulse 1s ease-in-out infinite;
+                }
+            }
+
+            .thinking-content {
+                padding: 8px 10px;
+                color: var(--text-secondary);
+                line-height: 1.5;
+                border-top: 1px solid var(--border-dim);
+                white-space: pre-wrap;
+                max-height: 200px;
+                overflow-y: auto;
+                font-family: monospace;
+                font-size: 0.75rem;
+            }
         }
     }
+}
+
+/* Thinking expand transition */
+.thinking-expand-enter-active,
+.thinking-expand-leave-active {
+    transition: all 0.2s ease;
+    max-height: 200px;
+    overflow: hidden;
+}
+
+.thinking-expand-enter-from,
+.thinking-expand-leave-to {
+    opacity: 0;
+    max-height: 0;
 }
 
 

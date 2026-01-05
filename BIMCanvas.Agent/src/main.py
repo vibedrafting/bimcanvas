@@ -1,9 +1,23 @@
 """BIMCanvas Agent entry point"""
 
+import os
+import sys
+
+# Set git-bash path for Claude Agent SDK on Windows (must be before SDK imports)
+if sys.platform == "win32":
+    git_bash_paths = [
+        r"D:\Git\bin\bash.exe",
+        r"C:\Program Files\Git\bin\bash.exe",
+        r"C:\Git\bin\bash.exe",
+    ]
+    for path in git_bash_paths:
+        if os.path.exists(path):
+            os.environ["CLAUDE_CODE_GIT_BASH_PATH"] = path
+            break
+
 import argparse
 import asyncio
 import logging
-import sys
 
 from .agent.placement_agent import PlacementAgent
 from .server.http_server import run_server
