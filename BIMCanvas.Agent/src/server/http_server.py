@@ -202,6 +202,136 @@ async def get_history_handler(request: web.Request) -> web.Response:
     })
 
 
+async def layout_task_handler(request: web.Request) -> web.Response:
+    """
+    Execute a layout task (P2 feature).
+
+    This endpoint triggers the AI to read project data, analyze rooms,
+    and generate furniture placement in modules.json.
+
+    Request body:
+        {
+            "projectPath": "path/to/project",  // required
+            "schemeId": "default",              // optional, defaults to "default"
+            "prompt": "user request"            // optional, defaults to generic prompt
+        }
+
+    Response:
+        {
+            "success": true,
+            "summary": "AI execution summary",
+            "schemeId": "default"
+        }
+    """
+    try:
+        data = await request.json()
+    except json.JSONDecodeError:
+        return web.json_response(
+            {"error": "Invalid JSON"},
+            status=400
+        )
+
+    project_path = data.get("projectPath", "")
+    scheme_id = data.get("schemeId", "default")
+    user_prompt = data.get("prompt", "请为这个户型布置家具")
+
+    if not project_path:
+        return web.json_response(
+            {"error": "projectPath is required"},
+            status=400
+        )
+
+    try:
+        agent = get_agent(project_path)
+        logger.info(f"Starting layout task for project: {project_path}, scheme: {scheme_id}")
+
+        # Execute layout task with tools enabled
+        result = await agent.run_layout(user_prompt, scheme_id)
+
+        logger.info(f"Layout task completed for scheme: {scheme_id}")
+
+        return web.json_response({
+            "success": True,
+            "summary": result,
+            "schemeId": scheme_id
+        })
+
+    except Exception as e:
+        logger.exception(f"Layout task error: {e}")
+        return web.json_response(
+            {"error": str(e)},
+            status=500
+        )
+
+
+async def layout_task_stream_handler(request: web.Request) -> web.StreamResponse:
+    """
+    Execute a layout task with streaming output (P2 feature).
+
+    Request body:
+        {
+            "projectPath": "path/to/project",
+            "schemeId": "default",
+            "prompt": "user request"
+        }
+
+    Response: SSE stream with thinking and text chunks
+    """
+    try:
+        data = await request.json()
+    except json.JSONDecodeError:
+        return web.json_response(
+            {"error": "Invalid JSON"},
+            status=400
+        )
+
+    project_path = data.get("projectPath", "")
+    scheme_id = data.get("schemeId", "default")
+    user_prompt = data.get("prompt", "请为这个户型布置家具")
+
+    if not project_path:
+        return web.json_response(
+            {"error": "projectPath is required"},
+            status=400
+        )
+
+    # Set up SSE response
+    response = web.StreamResponse(
+        status=200,
+        headers={
+            "Content-Type": "text/event-stream",
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+        }
+    )
+    await response.prepare(request)
+
+    try:
+        agent = get_agent(project_path)
+        logger.info(f"Starting streaming layout task for project: {project_path}")
+
+        async for chunk in agent.run_layout_stream(user_prompt, scheme_id):
+            event_data = json.dumps({
+                "type": chunk.type,
+                "content": chunk.content
+            }, ensure_ascii=False)
+            await response.write(f"data: {event_data}\n\n".encode("utf-8"))
+
+        # Send done event with scheme info
+        done_data = json.dumps({
+            "type": "done",
+            "schemeId": scheme_id
+        }, ensure_ascii=False)
+        await response.write(f"data: {done_data}\n\n".encode("utf-8"))
+
+    except Exception as e:
+        logger.exception(f"Layout stream error: {e}")
+        error_data = json.dumps({"error": str(e)}, ensure_ascii=False)
+        await response.write(f"data: {error_data}\n\n".encode("utf-8"))
+
+    return response
+
+
 def create_app() -> web.Application:
     """
     Create and configure the aiohttp application.
@@ -228,13 +358,16 @@ def create_app() -> web.Application:
         web.post("/api/chat/stream", chat_stream_handler),
         web.post("/api/clear-history", clear_history_handler),
         web.get("/api/history", get_history_handler),
+        # P2: Layout task endpoints
+        web.post("/api/task/layout", layout_task_handler),
+        web.post("/api/task/layout/stream", layout_task_stream_handler),
     ]
 
     for route in routes:
         resource = cors.add(app.router.add_resource(route.path))
         cors.add(resource.add_route(route.method, route.handler))
 
-    logger.info("HTTP application created with routes: /health, /api/chat, /api/chat/stream, /api/clear-history, /api/history")
+    logger.info("HTTP application created with routes: /health, /api/chat, /api/chat/stream, /api/clear-history, /api/history, /api/task/layout, /api/task/layout/stream")
 
     return app
 

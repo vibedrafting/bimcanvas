@@ -76,6 +76,8 @@ python -m src.main
 | `/api/chat/stream` | POST | 发送聊天消息（SSE 流式响应） |
 | `/api/clear-history` | POST | 清空对话历史 |
 | `/api/history` | GET | 获取对话历史 |
+| `/api/task/layout` | POST | 执行布置任务（P2 功能） |
+| `/api/task/layout/stream` | POST | 执行布置任务（SSE 流式响应） |
 
 ### 请求示例
 
@@ -112,12 +114,40 @@ Content-Type: application/json
 
 响应格式（Server-Sent Events）：
 ```
-data: {"chunk": "好的"}
-data: {"chunk": "，我来"}
-data: {"chunk": "帮您"}
+data: {"type": "thinking", "content": "让我分析一下..."}
+data: {"type": "text", "content": "好的"}
+data: {"type": "text", "content": "，我来帮您"}
 ...
 data: [DONE]
 ```
+
+### 布置任务 API（P2 功能）
+
+```http
+POST /api/task/layout
+Content-Type: application/json
+
+{
+  "projectPath": "C:/Users/.../Projects/demo_1",
+  "schemeId": "default",
+  "prompt": "请为客厅布置现代简约风格的家具"
+}
+```
+
+响应：
+```json
+{
+  "success": true,
+  "summary": "布置任务完成。已为客厅布置沙发、茶几、电视柜...",
+  "schemeId": "default"
+}
+```
+
+Agent 会自动：
+1. 读取 `computed/room_zones.json` 获取房间数据
+2. 读取 `baseline/openings.json` 获取门窗信息
+3. 查看 `modules/` 目录获取可用家具
+4. 将布置结果写入 `schemes/{schemeId}/modules.json`
 
 ## 项目结构
 
@@ -158,12 +188,20 @@ BIMCanvas.Agent/
 
 基于 Claude Agent SDK 的智能助手（会话式管理）：
 
+**对话模式**（无工具调用）：
 - **chat(message)** - 同步对话，返回完整响应
-- **chat_stream(message)** - 流式对话，逐 token 返回
+- **chat_stream(message)** - 流式对话，支持思考过程展示
+
+**布置任务模式**（启用 Read/Write/Glob/Edit 工具）：
+- **run_layout(prompt, scheme_id)** - 执行布置任务，自动读写项目文件
+- **run_layout_stream(prompt, scheme_id)** - 流式执行布置任务
+
+**会话管理**：
 - **clear_history()** - 清空会话（重置 session_id）
 - **get_history()** - 获取对话历史（Agent SDK 内部管理，返回空列表）
+- **set_project_path(path)** - 设置项目路径（工具调用的工作目录）
 
-> 注：Agent SDK 使用 `session_id` 管理对话上下文，支持会话恢复。
+> 注：Agent SDK 使用 `session_id` 管理对话上下文，支持会话恢复。布置任务每次独立执行，不使用会话恢复。
 
 ### HTTP Server (`server/http_server.py`)
 
@@ -194,18 +232,21 @@ BIMCanvas.Agent/
 - [x] Web 前端集成
 - [x] Server 自动启动 Agent
 
-### P1.5 阶段（Agent SDK 迁移）- 当前
+### P1.5 阶段（Agent SDK 迁移）- 已完成
 
 - [x] 迁移到 Claude Agent SDK
 - [x] 会话式对话管理（session_id）
-- [ ] 流式响应适配测试
-- [ ] 多轮对话上下文验证
+- [x] 流式响应 + 思考过程展示
+- [x] 多轮对话上下文验证
 
-### P2 阶段（工具调用）- 待开发
+### P2 阶段（工具调用）- 当前
 
-- [ ] 定义 MCP 工具（读取项目数据）
-- [ ] 实现布置决策逻辑
-- [ ] 添加布置任务 API
+- [x] 启用 Agent SDK 内置工具（Read, Write, Glob, Edit）
+- [x] 更新 System Prompt（布置任务指导）
+- [x] 添加布置任务 API（/api/task/layout）
+- [x] 添加流式布置任务 API（/api/task/layout/stream）
+- [ ] 端到端测试（完整布置流程）
+- [ ] Web 端布置任务集成
 
 ### P3 阶段（完整功能）- 待开发
 

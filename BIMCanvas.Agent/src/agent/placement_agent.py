@@ -20,7 +20,7 @@ class StreamChunk:
     content: str
 
 
-# Agent system prompt
+# Agent system prompt (对话模式)
 SYSTEM_PROMPT = """你是 BIMCanvas 的 PlacementAgent，一个专业的室内布置助手。
 
 你的职责：
@@ -41,6 +41,61 @@ SYSTEM_PROMPT = """你是 BIMCanvas 的 PlacementAgent，一个专业的室内�
 - 床头不靠窗，避免对流
 - 家具不阻挡门的开启范围
 - 保持主要动线畅通（至少800mm通道宽度）
+
+请用简洁专业的中文回答，不要使用Emoji。"""
+
+
+# Layout task system prompt (布置任务模式)
+LAYOUT_SYSTEM_PROMPT = """你是 BIMCanvas 的 PlacementAgent，一个专业的室内布置助手。
+
+## 职责
+1. 理解用户的布置需求
+2. 分析房间功能和空间特点
+3. 执行家具布置任务，输出布置结果
+
+## 当前项目文件结构
+工作目录已设置为项目根目录，你可以直接访问以下文件：
+
+**输入数据**（只读）：
+- computed/room_zones.json - 房间分区数据，包含每个房间的边界、类型、禁区
+- baseline/openings.json - 门窗数据，包含位置、方向、开启方式
+- modules/ - 家具素材目录，包含可用的家具模块
+
+**输出数据**（可写）：
+- schemes/{schemeId}/modules.json - 布置结果
+
+## 布置规则
+- 大型家具尽量靠墙放置（床、衣柜、沙发）
+- 电视柜居中于电视墙
+- 沙发正对电视，保持合理观看距离
+- 床头不靠窗，避免对流
+- 家具不阻挡门的开启范围（检查 openings.json 中的 swingArc）
+- 保持主要动线畅通（至少800mm通道宽度）
+- 家具不能与 exclusionAreas 重叠
+
+## 布置优先级
+1. 锚点家具：确定设计区的核心家具（客厅-电视柜，卧室-床，餐厅-餐桌）
+2. 主要家具：围绕锚点布置（沙发正对电视柜，床头柜在床两侧）
+3. 辅助家具：填充剩余空间（茶几、边几、装饰柜）
+
+## modules.json 输出格式
+```json
+{
+  "modules": [
+    {
+      "id": "mod_1",
+      "templateId": "sofa_3seat",
+      "bounds": {
+        "center": [x, y],
+        "size": [width, height],
+        "rotation": 0
+      },
+      "facing": "north",
+      "zoneId": "rz_1"
+    }
+  ]
+}
+```
 
 请用简洁专业的中文回答，不要使用Emoji。"""
 
@@ -174,3 +229,115 @@ class PlacementAgent:
             project_path: Path to the project
         """
         self.project_path = project_path
+
+    async def run_layout(self, task_prompt: str, scheme_id: str = "default") -> str:
+        """
+        Execute a layout task with file tools enabled.
+
+        This method enables Agent SDK built-in tools (Read, Write, Glob)
+        for reading project data and writing layout results.
+
+        Args:
+            task_prompt: The layout task description from user
+            scheme_id: The scheme ID for output path (default: "default")
+
+        Returns:
+            Task execution summary
+        """
+        # Build the full task prompt with scheme context
+        full_prompt = f"""
+用户请求：{task_prompt}
+
+请执行家具布置任务：
+1. 读取 computed/room_zones.json 获取房间分区数据
+2. 读取 baseline/openings.json 获取门窗数据
+3. 查看 modules/ 目录了解可用家具
+4. 根据布置规则为每个房间布置家具
+5. 将布置结果写入 schemes/{scheme_id}/modules.json
+
+注意：输出的 modules.json 必须符合规定的格式。
+"""
+
+        options = ClaudeAgentOptions(
+            system_prompt=LAYOUT_SYSTEM_PROMPT,
+            cwd=self.project_path,
+            max_turns=10,  # 允许多轮工具调用
+            max_thinking_tokens=16000,  # 布置任务需要更多思考
+            # P2 阶段启用内置工具
+            allowed_tools=["Read", "Write", "Glob", "Edit"],
+            permission_mode="acceptEdits",  # 自动接受文件编辑
+        )
+
+        # 布置任务不使用会话恢复，每次独立执行
+        full_response = ""
+        async for message in query(prompt=full_prompt, options=options):
+            if isinstance(message, AssistantMessage):
+                for block in message.content:
+                    if isinstance(block, TextBlock):
+                        full_response += block.text
+
+        return full_response
+
+    async def run_layout_stream(
+        self, task_prompt: str, scheme_id: str = "default"
+    ) -> AsyncIterator[StreamChunk]:
+        """
+        Execute a layout task with streaming output.
+
+        Args:
+            task_prompt: The layout task description
+            scheme_id: The scheme ID for output path
+
+        Yields:
+            StreamChunk objects containing thinking and text content
+        """
+        full_prompt = f"""
+用户请求：{task_prompt}
+
+请执行家具布置任务：
+1. 读取 computed/room_zones.json 获取房间分区数据
+2. 读取 baseline/openings.json 获取门窗数据
+3. 查看 modules/ 目录了解可用家具
+4. 根据布置规则为每个房间布置家具
+5. 将布置结果写入 schemes/{scheme_id}/modules.json
+
+注意：输出的 modules.json 必须符合规定的格式。
+"""
+
+        options = ClaudeAgentOptions(
+            system_prompt=LAYOUT_SYSTEM_PROMPT,
+            cwd=self.project_path,
+            max_turns=10,
+            max_thinking_tokens=16000,
+            allowed_tools=["Read", "Write", "Glob", "Edit"],
+            permission_mode="acceptEdits",
+            include_partial_messages=True,
+        )
+
+        async for message in query(prompt=full_prompt, options=options):
+            # 处理流式增量事件
+            if isinstance(message, StreamEvent):
+                event = message.event
+                event_type = event.get("type", "")
+
+                if event_type == "content_block_delta":
+                    delta = event.get("delta", {})
+                    delta_type = delta.get("type", "")
+
+                    if delta_type == "text_delta":
+                        text = delta.get("text", "")
+                        if text:
+                            yield StreamChunk(type="text", content=text)
+
+                    elif delta_type == "thinking_delta":
+                        thinking = delta.get("thinking", "")
+                        if thinking:
+                            yield StreamChunk(type="thinking", content=thinking)
+
+            # 处理完整消息
+            elif isinstance(message, AssistantMessage):
+                for block in message.content:
+                    if isinstance(block, ThinkingBlock):
+                        yield StreamChunk(type="thinking_complete", content=block.thinking)
+                    elif isinstance(block, TextBlock):
+                        yield StreamChunk(type="text_complete", content=block.text)
