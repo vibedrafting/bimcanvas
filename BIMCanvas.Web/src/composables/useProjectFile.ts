@@ -11,7 +11,7 @@ const pendingFile = ref<File | null>(null);
 export function useProjectFile() {
   const store = useCanvasStore();
 
-  // Load Data (supports .bcp and .json)
+  // Load Data (only .bcp format)
   const handleLoad = async () => {
     try {
       // Try using File System Access API
@@ -21,10 +21,6 @@ export function useProjectFile() {
             {
               description: 'BIMCanvas Project',
               accept: { 'application/octet-stream': ['.bcp'] }
-            },
-            {
-              description: 'BIMCanvas JSON (Legacy)',
-              accept: { 'application/json': ['.json'] }
             }
           ],
           multiple: false,
@@ -44,28 +40,29 @@ export function useProjectFile() {
     }
   };
 
-  // Process the selected file
+  // Process the selected file (only .bcp)
   const processFile = async (file: File) => {
     const fileName = file.name.toLowerCase();
 
-    if (fileName.endsWith('.bcp')) {
-      // Upload via API
-      const result = await ProjectService.uploadProject(file);
+    if (!fileName.endsWith('.bcp')) {
+      alert('只支持 .bcp 格式的文件');
+      return;
+    }
 
-      if (result.status === 'Conflict') {
-        // Show conflict dialog
-        pendingFile.value = file;
-        conflictProjectName.value = result.projectName || '';
-        conflictExistingPath.value = result.existingPath || '';
-        showConflictDialog.value = true;
-      } else if (result.status === 'Success') {
-        // Reload project data
-        await store.loadProject();
-      } else {
-        alert(`Failed to open project: ${result.message}`);
-      }
+    // Upload via API
+    const result = await ProjectService.uploadProject(file);
+
+    if (result.status === 'Conflict') {
+      // Show conflict dialog
+      pendingFile.value = file;
+      conflictProjectName.value = result.projectName || '';
+      conflictExistingPath.value = result.existingPath || '';
+      showConflictDialog.value = true;
+    } else if (result.status === 'Success') {
+      // Reload project data
+      await store.loadProject();
     } else {
-      console.warn('Direct JSON loading is deprecated in v3.0');
+      alert(`Failed to open project: ${result.message}`);
     }
   };
 
@@ -99,47 +96,46 @@ export function useProjectFile() {
     }
   };
 
-  // Export Data
+  // Export Data - 导出为 BCP 文件
   const handleExport = async () => {
     if (!store.projectData) return;
 
-    const timestamp = new Date().toISOString()
-      .replace(/[-:]/g, '')
-      .replace('T', '_')
-      .slice(0, 15);
-    const filename = `BIMCanvas_${timestamp}.json`;
-    const jsonString = JSON.stringify(store.projectData, null, 2);
-
     try {
+      // 调用 Server API 获取 BCP 文件
+      const { blob, filename } = await ProjectService.exportProject();
+
+      // 使用 File System Access API（如果支持）
       if ('showSaveFilePicker' in window) {
-        const handle = await (window as any).showSaveFilePicker({
-          suggestedName: filename,
-          types: [{
-            description: 'BIMCanvas JSON',
-            accept: { 'application/json': ['.json'] }
-          }],
-          startIn: 'desktop'
-        });
+        try {
+          const handle = await (window as any).showSaveFilePicker({
+            suggestedName: filename,
+            types: [{
+              description: 'BIMCanvas Project',
+              accept: { 'application/octet-stream': ['.bcp'] }
+            }],
+            startIn: 'desktop'
+          });
 
-        const writable = await handle.createWritable();
-        await writable.write(jsonString);
-        await writable.close();
-      } else {
-        // Fallback
-        const blob = new Blob([jsonString], { type: 'application/json' });
-        const url = URL.createObjectURL(blob);
-
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = filename;
-        a.click();
-
-        URL.revokeObjectURL(url);
+          const writable = await handle.createWritable();
+          await writable.write(blob);
+          await writable.close();
+          return;
+        } catch (err: any) {
+          if (err.name === 'AbortError') return; // 用户取消
+          // 回退到传统下载方式
+        }
       }
+
+      // Fallback: 传统下载方式
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = filename;
+      a.click();
+      URL.revokeObjectURL(url);
     } catch (err: any) {
-      if (err.name !== 'AbortError') {
-        console.error('Failed to save file:', err);
-      }
+      console.error('Failed to export project:', err);
+      alert(`导出项目失败: ${err.message}`);
     }
   };
 

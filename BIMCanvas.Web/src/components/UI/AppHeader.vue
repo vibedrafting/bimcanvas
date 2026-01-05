@@ -68,7 +68,7 @@ const onFileSelected = (event: Event) => {
       <input
         ref="fileInputRef"
         type="file"
-        accept=".json"
+        accept=".bcp"
         style="display: none"
         @change="onFileSelected"
       />

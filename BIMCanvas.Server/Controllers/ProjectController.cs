@@ -369,6 +369,48 @@ namespace BIMCanvas.Server.Controllers
         }
 
         /// <summary>
+        /// 导出当前项目为 BCP 文件
+        /// </summary>
+        [HttpGet("export")]
+        public IActionResult ExportProject()
+        {
+            if (!_projectContext.IsLoaded)
+            {
+                return BadRequest(new { message = "没有加载的项目" });
+            }
+
+            var projectPath = _projectContext.CurrentProjectPath!;
+            var projectName = Path.GetFileName(projectPath);
+
+            // 生成临时文件路径
+            var timestamp = DateTime.Now.ToString("yyyyMMdd_HHmmss");
+            var tempFileName = $"{projectName}_{timestamp}.bcp";
+            var tempFilePath = Path.Combine(Path.GetTempPath(), "BIMCanvas", "exports", tempFileName);
+
+            try
+            {
+                // 确保目录存在
+                Directory.CreateDirectory(Path.GetDirectoryName(tempFilePath)!);
+
+                // 调用 ProjectService 保存
+                _projectService.SaveProject(projectPath, tempFilePath);
+
+                // 读取文件并返回
+                var fileBytes = System.IO.File.ReadAllBytes(tempFilePath);
+
+                // 清理临时文件
+                try { System.IO.File.Delete(tempFilePath); } catch { }
+
+                return File(fileBytes, "application/octet-stream", tempFileName);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "导出项目失败");
+                return StatusCode(500, new { message = $"导出项目失败: {ex.Message}" });
+            }
+        }
+
+        /// <summary>
         /// 加载并聚合项目数据
         /// </summary>
         private ProjectData LoadProjectData(string projectPath)

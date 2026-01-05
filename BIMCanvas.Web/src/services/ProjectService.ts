@@ -144,4 +144,26 @@ export class ProjectService {
             };
         }
     }
+
+    /**
+     * 导出当前项目为 BCP 文件
+     * @returns Blob 对象和建议的文件名
+     */
+    static async exportProject(): Promise<{ blob: Blob; filename: string }> {
+        const response = await axios.get(`${API_BASE}/export`, {
+            responseType: 'blob'
+        });
+
+        // 从 Content-Disposition 头获取文件名
+        const contentDisposition = response.headers['content-disposition'];
+        let filename = 'BIMCanvas_export.bcp';
+        if (contentDisposition) {
+            const match = contentDisposition.match(/filename[^;=\n]*=((['"]).*?\2|[^;\n]*)/);
+            if (match && match[1]) {
+                filename = match[1].replace(/['"]/g, '');
+            }
+        }
+
+        return { blob: response.data, filename };
+    }
 }
