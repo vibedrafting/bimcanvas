@@ -1,7 +1,8 @@
 # Agent SDK 技术指南
 
-> **版本**：v1.1 | **更新日期**：2026-01-05
+> **版本**：v1.2 | **更新日期**：2026-01-05
 > **目的**：记录 BIMCanvas Agent 项目的技术细节、架构决策和最佳实践
+> **重要更新**：经官方文档深度研究，Agent SDK **完全支持**"Claude Code 底座"愿景
 
 ---
 
@@ -455,38 +456,205 @@ async def layout_handler():
 
 ## 六、Agent SDK 能力评估
 
-### 6.1 Claude Code CLI vs Agent SDK
+> **结论**：经过官方文档深度研究，Agent SDK **完全支持**我们的"Claude Code 底座"愿景！
+
+### 6.1 Claude Code CLI vs Agent SDK 能力对照
 
 | 能力 | Claude Code CLI | Agent SDK | 状态 |
 |------|----------------|-----------|------|
 | 内置工具 (Read/Write/Task...) | ✅ | ✅ `allowed_tools` | ✅ 已确认 |
-| MCP Server | ✅ settings.json | ⚠️ `mcp_servers` 参数 | ⚠️ 待验证 |
-| Hooks (pre/post-tool-use) | ✅ | ❓ 未知 | ❓ 待验证 |
-| 自定义命令 (/command) | ✅ .claude/commands/ | ❓ 未知 | ❓ 待验证 |
+| MCP Server | ✅ settings.json | ✅ `mcp_servers` 参数 | ✅ **已确认** |
+| SDK MCP Server (进程内) | - | ✅ `create_sdk_mcp_server()` | ✅ **新发现** |
+| Hooks (6 种类型) | ✅ | ✅ `hooks` 参数 | ✅ **已确认** |
+| 自定义命令 (/command) | ✅ .claude/commands/ | ✅ `setting_sources` | ✅ **已确认** |
 | 会话恢复 | ✅ --resume | ✅ `resume` 参数 | ✅ 已确认 |
+| 会话分叉 | ✅ | ✅ `fork_session` 参数 | ✅ **新发现** |
 | 扩展思考 | ✅ | ✅ `max_thinking_tokens` | ✅ 已确认 |
 | 权限模式 | ✅ | ✅ `permission_mode` | ✅ 已确认 |
-| 读取 .claude/ 配置 | ✅ 自动读取 | ❓ 未知 | ❓ 待验证 |
-| Task 工具 SubAgent 配置 | ✅ subagent_type | ❓ 行为待验证 | ❓ 待验证 |
+| 读取 .claude/ 配置 | ✅ 自动读取 | ✅ `setting_sources` | ✅ **已确认** |
+| SubAgent 定义 | ✅ agents.md | ✅ `agents` + `AgentDefinition` | ✅ **已确认** |
+| 持久会话客户端 | - | ✅ `ClaudeSDKClient` | ✅ **新发现** |
 
-### 6.2 验证计划
+### 6.2 SubAgent 支持详解
 
-| 验证项 | 验证方法 | 预期结果 |
-|--------|----------|----------|
-| Hooks 支持 | 配置 settings.json，通过 SDK 调用，观察 hook 是否触发 | hook 正常执行 |
-| MCP Server 配置 | 尝试 `mcp_servers` 参数，验证工具是否可用 | MCP 工具可调用 |
-| Task 工具行为 | 启用 Task 工具，观察 SubAgent 的配置继承情况 | SubAgent 正常执行 |
-| .claude/ 配置读取 | 在项目目录放置配置，验证 SDK 是否读取 | 配置生效 |
+Agent SDK 通过 `agents` 参数 + `AgentDefinition` 完全支持 SubAgent：
 
-### 6.3 能力差距应对策略
+```python
+from claude_agent_sdk import query, ClaudeAgentOptions, AgentDefinition
 
-**如果某些能力不支持**：
+# 定义 SubAgent
+subagents = {
+    "layout-agent": AgentDefinition(
+        description="家具布置专家，专注空间规划和家具摆放",
+        prompt="""你是布置家具专家。
+- 精通家具布置规则
+- 熟悉空间动线设计
+- 输出符合 modules.json 格式""",
+        tools=["Read", "Write", "Glob"],  # 限制工具权限
+        model="sonnet"  # 可指定模型
+    ),
+    "zone-agent": AgentDefinition(
+        description="空间分区专家，专注功能区划分",
+        prompt="你是空间分区专家，负责大空间功能划分...",
+        tools=["Read", "Glob"],
+    ),
+}
 
-| 差距 | Plan A（SDK 扩展） | Plan B（绕过方案） |
-|------|-------------------|-------------------|
-| Hooks 不支持 | 等待 SDK 更新 | 在 Python 层实现前后置逻辑 |
-| MCP 配置受限 | 等待 SDK 更新 | 使用 subprocess 调用 CLI |
-| Task 控制不足 | 等待 SDK 更新 | 用 MCP 工具封装 SubAgent |
+# 主 Agent 配置
+async for message in query(
+    prompt="帮我布置整个户型",
+    options=ClaudeAgentOptions(
+        system_prompt="你是 BIMCanvas 主控 Agent，负责协调子任务...",
+        allowed_tools=["Read", "Task"],  # 必须启用 Task 工具！
+        agents=subagents,  # 注册 SubAgent
+        max_turns=20,
+    )
+):
+    print(message)
+```
+
+**关键点**：
+- `AgentDefinition.prompt` 相当于 SubAgent 的 System Prompt
+- `AgentDefinition.tools` 可限制 SubAgent 的工具权限（最小权限原则）
+- `AgentDefinition.model` 可为不同 SubAgent 指定不同模型
+- 主 Agent 的 `allowed_tools` **必须包含 `"Task"`** 才能派发 SubAgent
+
+### 6.3 Hooks 支持详解
+
+Python SDK 支持 6 种 Hook 类型：
+
+| Hook 类型 | 触发时机 | 典型用途 |
+|-----------|----------|----------|
+| `PreToolUse` | 工具执行前 | 验证/拦截危险命令 |
+| `PostToolUse` | 工具执行后 | 记录/修改结果 |
+| `UserPromptSubmit` | 用户提交前 | 预处理/注入上下文 |
+| `Stop` | Agent 停止时 | 清理/保存状态 |
+| `SubagentStop` | SubAgent 停止时 | 收集子任务结果 |
+| `PreCompact` | 上下文压缩前 | 保留关键信息 |
+
+```python
+from claude_agent_sdk import ClaudeAgentOptions, HookMatcher
+
+async def validate_bash(input_data, tool_use_id, context):
+    """拦截危险的 Bash 命令"""
+    if input_data['tool_name'] == 'Bash':
+        command = input_data['tool_input'].get('command', '')
+        if 'rm -rf' in command:
+            return {
+                'hookSpecificOutput': {
+                    'hookEventName': 'PreToolUse',
+                    'permissionDecision': 'deny',
+                    'permissionDecisionReason': '危险命令已拦截'
+                }
+            }
+    return {}
+
+options = ClaudeAgentOptions(
+    hooks={
+        'PreToolUse': [HookMatcher(matcher='Bash', hooks=[validate_bash])]
+    }
+)
+```
+
+### 6.4 SDK MCP Server（推荐）
+
+Agent SDK 支持**进程内** MCP Server，无需外部进程：
+
+```python
+from claude_agent_sdk import tool, create_sdk_mcp_server, ClaudeAgentOptions
+
+# 使用 @tool 装饰器定义工具
+@tool("get_room_data", "获取房间分区数据", {"room_id": str})
+async def get_room_data(args):
+    room_id = args['room_id']
+    # 读取 room_zones.json...
+    return {"content": [{"type": "text", "text": json.dumps(room_data)}]}
+
+@tool("validate_placement", "验证布置是否有冲突", {"module_bounds": dict})
+async def validate_placement(args):
+    # 碰撞检测逻辑...
+    return {"content": [{"type": "text", "text": "无冲突"}]}
+
+# 创建 SDK MCP Server
+server = create_sdk_mcp_server(
+    name="canvas-tools",
+    version="1.0.0",
+    tools=[get_room_data, validate_placement]
+)
+
+# 使用
+options = ClaudeAgentOptions(
+    mcp_servers={"canvas": server},
+    allowed_tools=[
+        "Read", "Write",
+        "mcp__canvas__get_room_data",
+        "mcp__canvas__validate_placement"
+    ]
+)
+```
+
+**三种 MCP Server 类型对比**：
+
+| 类型 | 实现方式 | 适用场景 |
+|------|----------|----------|
+| stdio | 外部进程 | 复用现有 MCP Server |
+| HTTP/SSE | 远程服务 | 跨网络调用 |
+| **SDK MCP Server** | 进程内 | **推荐**，最简单 |
+
+### 6.5 ClaudeSDKClient（持久会话）
+
+对于需要维持长期会话的主 Agent，`ClaudeSDKClient` 比 `query()` 更合适：
+
+```python
+from claude_agent_sdk import ClaudeSDKClient, ClaudeAgentOptions
+
+async with ClaudeSDKClient(options=options) as client:
+    # 第一次对话
+    await client.query("帮我分析这个户型")
+    async for msg in client.receive_response():
+        print(msg)
+
+    # 后续对话自动保持上下文！
+    await client.query("客厅应该怎么布置？")
+    async for msg in client.receive_response():
+        print(msg)
+```
+
+**`query()` vs `ClaudeSDKClient`**：
+
+| 方面 | `query()` | `ClaudeSDKClient` |
+|------|-----------|-------------------|
+| 会话生命周期 | 每次调用新会话 | 持久会话 |
+| 上下文管理 | 需手动 resume | 自动维护 |
+| 适用场景 | 独立任务、SubAgent | **主 Agent** |
+
+### 6.6 推荐架构方案
+
+基于研究结论，BIMCanvas Agent 推荐实现方案：
+
+| 组件 | SDK 能力 | 实现方式 |
+|------|----------|----------|
+| 主 Agent | `ClaudeSDKClient` | 持久会话，全量工具 + Task |
+| SubAgent | `AgentDefinition` | 通过 agents 参数定义，Task 工具派发 |
+| MCP 工具 | SDK MCP Server | 进程内 Python 实现 |
+| 安全控制 | Hooks | PreToolUse 验证危险命令 |
+
+**代码架构建议**：
+
+```
+BIMCanvas.Agent/
+├── src/
+│   ├── main.py
+│   ├── agent/
+│   │   ├── main_agent.py      # 主 Agent（ClaudeSDKClient）
+│   │   └── subagents.py       # SubAgent 定义（AgentDefinition）
+│   ├── mcp/
+│   │   └── canvas_tools.py    # SDK MCP Server
+│   ├── hooks/
+│   │   └── safety_hooks.py    # PreToolUse 安全验证
+│   └── server/
+│       └── http_server.py
+```
 
 ---
 
@@ -624,21 +792,51 @@ if isinstance(msg, ToolUseMessage):
 |------|------|----------|
 | v1.0 | 2026-01-05 | 初始版本：核心概念、SubAgent 方案、最佳实践 |
 | v1.1 | 2026-01-05 | 新增：核心设计理念、Agent 架构模型、MCP 工具分层、SDK 能力评估 |
+| v1.2 | 2026-01-05 | **重大更新**：完成官方文档深度研究，确认所有能力均已支持 |
+
+### v1.2 更新详情
+
+经过官方文档深度研究，确认以下能力：
+
+| 能力 | 之前状态 | 现状态 | SDK 实现方式 |
+|------|----------|--------|-------------|
+| SubAgent | 待验证 | ✅ 已确认 | `agents` + `AgentDefinition` |
+| Hooks | 待验证 | ✅ 已确认 | `hooks` 参数，6 种类型 |
+| MCP Server | 待验证 | ✅ 已确认 | `mcp_servers` + SDK MCP Server |
+| .claude/ 配置 | 待验证 | ✅ 已确认 | `setting_sources` |
+| 持久会话 | 未知 | ✅ 新发现 | `ClaudeSDKClient` |
+| 会话分叉 | 未知 | ✅ 新发现 | `fork_session` |
 
 ---
 
 ## 十、待研究问题
 
-- [ ] Task 工具的详细参数和行为
-- [ ] MCP Server 与 Agent SDK 的集成方式
-- [ ] 多 Agent 并行执行的实现
-- [ ] Agent 间通信机制
-- [ ] 长时间任务的状态管理
+- [x] ~~Task 工具的详细参数和行为~~ → 已确认：通过 `AgentDefinition` 定义
+- [x] ~~MCP Server 与 Agent SDK 的集成方式~~ → 已确认：支持 SDK MCP Server
+- [x] ~~Hooks 支持情况~~ → 已确认：6 种 Hook 类型
+- [ ] 多 Agent **并行**执行的实现（Task 是顺序的，如何并行？）
+- [ ] 长时间任务的超时处理和恢复机制
+- [ ] `ClaudeSDKClient` 与现有 `query()` 代码的迁移路径
+- [ ] 生产环境下的错误处理和重试策略
 
 ---
 
 ## 参考资料
 
-- [Claude Agent SDK 官方文档](https://docs.anthropic.com/claude-code/agent-sdk)
+### 官方文档（已研读）
+
+- [Agent SDK Overview](https://docs.anthropic.com/en/docs/claude-code/agent-sdk/overview) - SDK 概览
+- [Agent SDK SubAgents](https://docs.anthropic.com/en/docs/claude-code/agent-sdk/subagents) - SubAgent 详解
+- [Agent SDK MCP](https://docs.anthropic.com/en/docs/claude-code/agent-sdk/mcp) - MCP 集成
+- [Agent SDK Hooks](https://docs.anthropic.com/en/docs/claude-code/agent-sdk/hooks) - Hooks 详解
+- [Agent SDK Sessions](https://docs.anthropic.com/en/docs/claude-code/agent-sdk/sessions) - 会话管理
+- [Python SDK Reference](https://docs.anthropic.com/en/docs/claude-code/agent-sdk/python-sdk-reference) - Python API 参考
+
+### 示例代码
+
+- [Research Agent Demo](https://github.com/anthropics/claude-code/tree/main/agent-sdk-demos/research-agent) - 多 Agent 协作示例
+
+### 项目文档
+
 - [MCP 协议规范](https://modelcontextprotocol.io)
 - [BIMCanvas Agent MVP 计划](../plans/Agent_MVP.md)
