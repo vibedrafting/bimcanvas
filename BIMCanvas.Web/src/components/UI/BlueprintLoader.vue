@@ -33,6 +33,97 @@ let isOrdered = false;
 // Easing: Cubic for smooth start/stop
 const easeInOutCubic = (t: number): number => {
   return t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2;
+};
+
+class Particle {
+  x: number;
+  y: number;
+  
+  // Linear Points
+  p0x: number; p0y: number; // Start
+  p2x: number; p2y: number; // End (Target)
+  
+  row: number;
+  col: number;
+  
+  constructor(row: number, col: number, width: number, height: number) {
+    this.row = row;
+    this.col = col;
+    
+    // 1. Initialize P2 (Target) - Default centered grid
+    this.calculateTarget(width, height);
+
+    // 2. Start Position (P0) - Orthogonal Constraint
+    // Randomly decide if this particle slides Horizontally or Vertically
+    const isHorizontal = Math.random() > 0.5;
+    const distance = 400 + Math.random() * 400; // Slide distance
+    const direction = Math.random() > 0.5 ? 1 : -1;
+
+    if (isHorizontal) {
+        this.p0x = this.p2x + distance * direction;
+        this.p0y = this.p2y; // Keep Y aligned
+    } else {
+        this.p0x = this.p2x; // Keep X aligned
+        this.p0y = this.p2y + distance * direction;
+    }
+    
+    // Initialize current pos
+    this.x = this.p0x;
+    this.y = this.p0y;
+  }
+
+  calculateTarget(width: number, height: number) {
+    // If target props are present, use them
+    if (props.targetSpacing && props.targetOffsetX !== undefined && props.targetOffsetY !== undefined) {
+        const phaseX = props.targetOffsetX % GRID_SPACING;
+        const phaseY = props.targetOffsetY % GRID_SPACING;
+        
+        const centerX = width / 2;
+        const centerY = height / 2;
+        
+        const kX = Math.round((centerX - props.targetOffsetX) / GRID_SPACING);
+        const centerGridX = props.targetOffsetX + kX * GRID_SPACING;
+        
+        const kY = Math.round((centerY - props.targetOffsetY) / GRID_SPACING);
+        const centerGridY = props.targetOffsetY + kY * GRID_SPACING;
+        
+        const colOffset = Math.floor(GRID_COLS / 2);
+        const rowOffset = Math.floor(GRID_ROWS / 2);
+
+        const startGridX = centerGridX - colOffset * GRID_SPACING;
+        const startGridY = centerGridY - rowOffset * GRID_SPACING;
+        
+        this.p2x = startGridX + this.col * GRID_SPACING;
+        this.p2y = startGridY + this.row * GRID_SPACING;
+        
+    } else {
+        // Default Centered
+        const totalWidth = (GRID_COLS - 1) * GRID_SPACING;
+        const totalHeight = (GRID_ROWS - 1) * GRID_SPACING;
+        const centerX = width / 2;
+        const centerY = height / 2;
+        const startGridX = centerX - totalWidth / 2;
+        const startGridY = centerY - totalHeight / 2;
+        
+        this.p2x = startGridX + this.col * GRID_SPACING;
+        this.p2y = startGridY + this.row * GRID_SPACING;
+    }
+  }
+
+  updateTarget(width: number, height: number) {
+      this.calculateTarget(width, height);
+  }
+
+  update(progress: number) {
+    const t = progress;
+    // Linear Interpolation (Lerp)
+    this.x = this.p0x + (this.p2x - this.p0x) * t;
+    this.y = this.p0y + (this.p2y - this.p0y) * t;
+  }
+
+  draw(context: CanvasRenderingContext2D, opacity: number) {
+    const size = isOrdered ? 1.5 : 2;
+    context.fillStyle = COLOR_PARTICLE;
     context.globalAlpha = opacity;
     context.beginPath();
     context.arc(this.x, this.y, size, 0, Math.PI * 2);
