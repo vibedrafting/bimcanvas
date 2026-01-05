@@ -16,6 +16,9 @@ export const useCanvasStore = defineStore('canvas', () => {
     // === 脏数据标记：追踪内存中是否有未保存的修改 ===
     const isDirty = ref(false);
 
+    // === 视图保持标记：加载项目时是否保持当前视图（用于分支切换） ===
+    const preserveViewOnLoad = ref(false);
+
     // === 多选支持 ===
     const selectedIds = ref<string[]>([]);
 
@@ -142,12 +145,19 @@ export const useCanvasStore = defineStore('canvas', () => {
     };
 
     // === 核心加载方法：从 Server 获取当前项目（单项目模式：无需路径参数）===
-    const loadProject = async () => {
+    /**
+     * 加载项目数据
+     * @param preserveView 是否保持当前视图（用于分支切换时不重置缩放/位置）
+     */
+    const loadProject = async (preserveView: boolean = false) => {
         isLoading.value = true;
         error.value = null;
 
+        // 设置视图保持标记，供 ThreeSceneService 的 watch 检查
+        preserveViewOnLoad.value = preserveView;
+
         try {
-            debugStore.log('Loading current project from server...');
+            debugStore.log(`Loading current project from server... (preserveView=${preserveView})`);
 
             const response = await axios.get<ProjectData>('http://localhost:5000/api/project');
 
@@ -168,6 +178,12 @@ export const useCanvasStore = defineStore('canvas', () => {
             error.value = `Failed to load project: ${err.message || err}`;
         } finally {
             isLoading.value = false;
+            // 重置标记，确保下次默认加载仍会适配屏幕
+            if (preserveView) {
+                setTimeout(() => {
+                    preserveViewOnLoad.value = false;
+                }, 200);
+            }
         }
     };
 
@@ -265,16 +281,22 @@ export const useCanvasStore = defineStore('canvas', () => {
     const undo = () => {
         const prevState = timeline.undo();
         if (prevState) {
+            // 撤销时保持当前视图
+            preserveViewOnLoad.value = true;
             projectData.value = prevState as ProjectData;
             updateHistoryState();
+            setTimeout(() => { preserveViewOnLoad.value = false; }, 200);
         }
     };
 
     const redo = () => {
         const nextState = timeline.redo();
         if (nextState) {
+            // 重做时保持当前视图
+            preserveViewOnLoad.value = true;
             projectData.value = nextState as ProjectData;
             updateHistoryState();
+            setTimeout(() => { preserveViewOnLoad.value = false; }, 200);
         }
     };
 
@@ -428,6 +450,7 @@ export const useCanvasStore = defineStore('canvas', () => {
         agentConnectionState,
         currentOperation,
         isDirty,  // 脏数据标记
+        preserveViewOnLoad,  // 视图保持标记（分支切换时使用）
 
         // Getters
         canUndo,

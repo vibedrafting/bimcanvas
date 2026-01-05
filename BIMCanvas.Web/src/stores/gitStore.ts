@@ -193,7 +193,8 @@ export const useGitStore = defineStore('git', () => {
         await fetchBranches();
 
         // ✅ 重新加载项目数据，确保 Canvas 显示新分支的数据
-        await canvasStore.loadProject();
+        // preserveView=true: 分支切换时保持当前视图位置和缩放
+        await canvasStore.loadProject(true);
 
         console.log('[GitStore] 分支切换成功:', branchName);
         return { success: true };

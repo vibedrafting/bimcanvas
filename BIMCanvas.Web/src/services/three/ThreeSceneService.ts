@@ -173,8 +173,10 @@ export class ThreeSceneService {
         // This only triggers when a NEW document is loaded (reference change),
         // not when modules are moved/rotated (mutation).
         watch(() => this.store.projectData, (newData) => {
-            if (newData && !this.isInitialLoad) {
+            if (newData && !this.isInitialLoad && !this.store.preserveViewOnLoad) {
                 // Only fit to screen on subsequent loads, initial load handled above
+                // Skip fitToScreen when:
+                // - preserveViewOnLoad=true (branch switch, undo/redo)
                 console.log('New project loaded (subsequent), fitting to screen...');
                 setTimeout(() => {
                     this.fitToScreen(newData);
