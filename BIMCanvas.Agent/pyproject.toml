@@ -5,7 +5,7 @@ description = "BIMCanvas PlacementAgent - AI-powered interior layout assistant"
 readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
-    "anthropic>=0.40.0",        # Agent SDK (included in anthropic package)
+    "claude-agent-sdk>=0.1.0",  # Agent SDK
     "aiohttp>=3.9.0",           # HTTP server
     "aiohttp-cors>=0.7.0",      # CORS support for Web access
     "python-dotenv>=1.0.0",     # Environment variables

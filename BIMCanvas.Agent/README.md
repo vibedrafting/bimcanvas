@@ -17,14 +17,27 @@
 
 ## 快速开始
 
-### 1. 安装依赖
+### 1. 前置条件
+
+**Windows 环境**：
+```bash
+# Agent SDK 需要 git-bash，如果 Git 不在 PATH 中，需设置环境变量
+set CLAUDE_CODE_GIT_BASH_PATH=D:\Git\bin\bash.exe
+```
+
+**可选**：安装 Claude Code CLI
+```bash
+npm install -g @anthropic-ai/claude-code
+```
+
+### 2. 安装依赖
 
 ```bash
 cd BIMCanvas.Agent
 pip install -e .
 ```
 
-### 2. 配置环境变量
+### 3. 配置环境变量
 
 ```bash
 # 复制配置模板
@@ -34,7 +47,7 @@ cp .env.example .env
 # ANTHROPIC_API_KEY=your-api-key-here
 ```
 
-### 3. 启动服务
+### 4. 启动服务
 
 **方式一：随 Server 自动启动（推荐）**
 
@@ -143,12 +156,14 @@ BIMCanvas.Agent/
 
 ### PlacementAgent (`agent/placement_agent.py`)
 
-基于 Anthropic Agent SDK 的智能助手：
+基于 Claude Agent SDK 的智能助手（会话式管理）：
 
 - **chat(message)** - 同步对话，返回完整响应
 - **chat_stream(message)** - 流式对话，逐 token 返回
-- **clear_history()** - 清空对话历史
-- **get_history()** - 获取对话历史
+- **clear_history()** - 清空会话（重置 session_id）
+- **get_history()** - 获取对话历史（Agent SDK 内部管理，返回空列表）
+
+> 注：Agent SDK 使用 `session_id` 管理对话上下文，支持会话恢复。
 
 ### HTTP Server (`server/http_server.py`)
 
@@ -171,13 +186,20 @@ BIMCanvas.Agent/
 
 ## 开发状态
 
-### P1 阶段（MVP）- 已完成
+### P1 阶段（Client SDK）- 已完成
 
-- [x] Agent SDK 集成
+- [x] Anthropic Client SDK 集成
 - [x] HTTP 服务 + CORS
 - [x] 基础对话功能
 - [x] Web 前端集成
 - [x] Server 自动启动 Agent
+
+### P1.5 阶段（Agent SDK 迁移）- 当前
+
+- [x] 迁移到 Claude Agent SDK
+- [x] 会话式对话管理（session_id）
+- [ ] 流式响应适配测试
+- [ ] 多轮对话上下文验证
 
 ### P2 阶段（工具调用）- 待开发
 

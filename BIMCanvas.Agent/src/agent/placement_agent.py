@@ -1,11 +1,9 @@
 """PlacementAgent - AI-powered interior layout assistant using Agent SDK"""
 
-import asyncio
 from typing import AsyncIterator
 
-from anthropic import Anthropic
+from claude_agent_sdk import query, ClaudeAgentOptions, AssistantMessage, TextBlock
 
-from ..config.settings import get_settings
 
 # Agent system prompt
 SYSTEM_PROMPT = """你是 BIMCanvas 的 PlacementAgent，一个专业的室内布置助手。
@@ -43,16 +41,7 @@ class PlacementAgent:
             project_path: Path to the current project (optional)
         """
         self.project_path = project_path
-        self.conversation_history: list[dict] = []
-        self._client: Anthropic | None = None
-
-    @property
-    def client(self) -> Anthropic:
-        """Lazy initialization of Anthropic client"""
-        if self._client is None:
-            settings = get_settings()
-            self._client = Anthropic(api_key=settings.anthropic_api_key)
-        return self._client
+        self.session_id: str | None = None  # Agent SDK 会话管理
 
     async def chat(self, user_message: str) -> str:
         """
@@ -64,35 +53,32 @@ class PlacementAgent:
         Returns:
             AI assistant's response text
         """
-        settings = get_settings()
-
-        # Add user message to history
-        self.conversation_history.append({
-            "role": "user",
-            "content": user_message
-        })
-
-        # Call Claude API using Agent SDK pattern
-        response = await asyncio.get_event_loop().run_in_executor(
-            None,
-            lambda: self.client.messages.create(
-                model=settings.model_name,
-                max_tokens=settings.max_tokens,
-                system=SYSTEM_PROMPT,
-                messages=self.conversation_history
-            )
+        options = ClaudeAgentOptions(
+            system_prompt=SYSTEM_PROMPT,
+            cwd=self.project_path,  # 设置工作目录
+            max_turns=1,  # P1.5: 单轮对话
+            # P2 阶段将启用工具：
+            # allowed_tools=["Read", "Write", "Glob"],
+            # permission_mode="acceptEdits"
         )
 
-        # Extract response content
-        assistant_message = response.content[0].text
+        # 如果有会话，恢复上下文
+        if self.session_id:
+            options.resume = self.session_id
 
-        # Add assistant response to history
-        self.conversation_history.append({
-            "role": "assistant",
-            "content": assistant_message
-        })
+        full_response = ""
+        async for message in query(prompt=user_message, options=options):
+            # 捕获会话 ID
+            if hasattr(message, 'subtype') and message.subtype == 'init':
+                self.session_id = message.data.get('session_id')
 
-        return assistant_message
+            # 提取文本响应
+            if isinstance(message, AssistantMessage):
+                for block in message.content:
+                    if isinstance(block, TextBlock):
+                        full_response += block.text
+
+        return full_response
 
     async def chat_stream(self, user_message: str) -> AsyncIterator[str]:
         """
@@ -104,53 +90,41 @@ class PlacementAgent:
         Yields:
             Chunks of the AI response as they arrive
         """
-        settings = get_settings()
-
-        # Add user message to history
-        self.conversation_history.append({
-            "role": "user",
-            "content": user_message
-        })
-
-        # Use streaming for real-time response
-        full_response = ""
-
-        def create_stream():
-            return self.client.messages.stream(
-                model=settings.model_name,
-                max_tokens=settings.max_tokens,
-                system=SYSTEM_PROMPT,
-                messages=self.conversation_history
-            )
-
-        # Run the stream in executor to make it async
-        stream = await asyncio.get_event_loop().run_in_executor(
-            None, create_stream
+        options = ClaudeAgentOptions(
+            system_prompt=SYSTEM_PROMPT,
+            cwd=self.project_path,
+            max_turns=1
         )
 
-        with stream as s:
-            for text in s.text_stream:
-                full_response += text
-                yield text
+        if self.session_id:
+            options.resume = self.session_id
 
-        # Add complete response to history
-        self.conversation_history.append({
-            "role": "assistant",
-            "content": full_response
-        })
+        async for message in query(prompt=user_message, options=options):
+            # 捕获会话 ID
+            if hasattr(message, 'subtype') and message.subtype == 'init':
+                self.session_id = message.data.get('session_id')
+
+            # 提取并流式返回文本
+            if isinstance(message, AssistantMessage):
+                for block in message.content:
+                    if isinstance(block, TextBlock):
+                        yield block.text
 
     def clear_history(self) -> None:
-        """Clear conversation history"""
-        self.conversation_history = []
+        """Clear conversation history (reset session)"""
+        self.session_id = None
 
     def get_history(self) -> list[dict]:
         """
         Get the current conversation history.
 
+        Note: Agent SDK manages history internally via session_id.
+        This method returns an empty list as history is not directly accessible.
+
         Returns:
-            List of message dictionaries
+            Empty list (history managed by Agent SDK)
         """
-        return self.conversation_history.copy()
+        return []
 
     def set_project_path(self, project_path: str) -> None:
         """
