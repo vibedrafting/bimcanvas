@@ -1,3 +1,5 @@
+using System.Collections.Generic;
+
 namespace BIMCanvas.Server.Dtos
 {
     /// <summary>
@@ -56,5 +58,16 @@ namespace BIMCanvas.Server.Dtos
         /// 解决策略：Overwrite（覆盖）, UseExisting（使用已存在）
         /// </summary>
         public string Resolution { get; set; } = "Overwrite";
+    }
+
+    /// <summary>
+    /// 保存模块数据请求
+    /// </summary>
+    public class SaveModulesRequest
+    {
+        /// <summary>
+        /// 模块数据列表
+        /// </summary>
+        public List<BIMCanvas.Core.Models.Layout.Module>? Modules { get; set; }
     }
 }

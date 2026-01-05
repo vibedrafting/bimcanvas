@@ -1,6 +1,6 @@
 # Agent SDK 技术指南
 
-> **版本**：v1.2 | **更新日期**：2026-01-05
+> **版本**：v1.3 | **更新日期**：2026-01-05
 > **目的**：记录 BIMCanvas Agent 项目的技术细节、架构决策和最佳实践
 > **重要更新**：经官方文档深度研究，Agent SDK **完全支持**"Claude Code 底座"愿景
 
@@ -59,7 +59,7 @@
 |------|-----------|-------------------------------|
 | 工具实现 | 自己写 Read/Write/Bash | 直接用 Claude Code 内置工具 |
 | 会话管理 | 自己实现上下文维护 | 用 session_id + resume |
-| SubAgent | 自己实现任务派发 | 用 Task 工具或 MCP |
+| SubAgent | 自己实现任务派发 | 用 `agents` + `AgentDefinition` 定义，Task 工具派发 |
 | Hooks | 自己实现事件系统 | 用 Claude Code Hooks |
 | 升级成本 | 每次都要跟进 | 自动继承新功能 |
 
@@ -180,7 +180,7 @@ options = ClaudeAgentOptions(
 | **生命周期** | 后台常驻 | 临时存在，任务完成即销毁 |
 | **状态管理** | 维护会话上下文 | 无状态，每次独立执行 |
 | **决策权** | 自主决定何时派发任务 | 专注执行单一任务 |
-| **工具权限** | 全量工具 + Task/MCP | 最小必要权限 |
+| **工具权限** | 全量工具 + Task + MCP 领域工具 | 最小必要权限（不含 Task） |
 | **System Prompt** | 通用协调者 | 领域专家 |
 
 ### 3.3 核心要求
@@ -191,229 +191,138 @@ options = ClaudeAgentOptions(
 
 ---
 
-## 四、SubAgent 实现方案
+## 四、SubAgent 实现（官方推荐）
 
-### 4.1 方案对比
+> **官方明确**："This guide focuses on the **programmatic approach**, which is **recommended for SDK applications**."
 
-| 方案 | 实现方式 | 优点 | 缺点 |
-|------|----------|------|------|
-| **Task 工具** | 启用内置 Task 工具 | 简单、原生支持 | SubAgent 继承父配置，无法自定义 |
-| **MCP 工具** | 把 SubAgent 注册为 MCP 工具 | 完全可控、专业化 | 需要额外开发 MCP Server |
-| **程序路由** | Python 代码判断后调用不同方法 | 最简单 | AI 无法自主决策 |
+### 4.1 SubAgent 创建方式（官方列出）
 
-### 4.2 方案一：Task 工具（推荐入门）
+| 方式 | 实现 | 官方态度 |
+|------|------|----------|
+| **Programmatic** | `agents` 参数 + `AgentDefinition` | ✅ **SDK 应用推荐** |
+| Filesystem-based | `.claude/agents/*.md` 文件 | 替代方案 |
+| Built-in | `general-purpose` 内置 agent | 自动可用，无需定义 |
 
-**原理**：Claude Code 内置 Task 工具，可启动子 Agent 会话。
+**核心机制**：
+- SubAgent 通过 **Task 工具调用**（Task 是调用机制，不是实现方式）
+- SubAgent 通过 **AgentDefinition 定义**（完全可自定义 prompt、tools、model）
+- SubAgent **不能再派发 SubAgent**（不要在 subagent 的 tools 里包含 Task）
 
-**配置**：
+### 4.2 AgentDefinition 完整配置
+
+| 字段 | 类型 | 必需 | 说明 |
+|------|------|------|------|
+| `description` | `str` | ✅ | 告诉 Claude 何时使用这个 agent |
+| `prompt` | `str` | ✅ | agent 的 system prompt，定义角色和行为 |
+| `tools` | `list[str]` | ❌ | 允许的工具，省略则继承父 agent 所有工具 |
+| `model` | `str` | ❌ | 模型覆盖：`"sonnet"` / `"opus"` / `"haiku"` / `"inherit"` |
+
+### 4.3 完整示例（官方推荐方式）
 
 ```python
-options = ClaudeAgentOptions(
-    system_prompt="""你是 BIMCanvas 主控 Agent。
+from claude_agent_sdk import query, ClaudeAgentOptions, AgentDefinition
+
+# 定义 SubAgent（通过 AgentDefinition）
+subagents = {
+    "layout-agent": AgentDefinition(
+        # description: 告诉 Claude 何时调用这个 SubAgent
+        description="家具布置专家。用于空间规划和家具摆放任务。",
+        # prompt: SubAgent 的 System Prompt（完全自定义！）
+        prompt="""你是布置家具专家。
+
+## 专业能力
+- 精通家具布置规则
+- 熟悉空间动线设计
+- 了解人体工程学
+
+## 输出要求
+- 输出符合 modules.json 格式
+- 确保家具不与禁区重叠
+- 保持主要通道畅通（≥800mm）""",
+        # tools: 限制 SubAgent 的工具权限（最小权限原则）
+        tools=["Read", "Write", "Glob"],
+        # model: 可为不同 SubAgent 指定不同模型
+        model="sonnet"
+    ),
+    "zone-agent": AgentDefinition(
+        description="空间分区专家。用于大空间功能区划分。",
+        prompt="你是空间分区专家，负责大空间功能划分...",
+        tools=["Read", "Glob"],  # 只读权限
+    ),
+}
+
+# 主 Agent 配置
+async for message in query(
+    prompt="帮我布置整个户型",
+    options=ClaudeAgentOptions(
+        system_prompt="""你是 BIMCanvas 主控 Agent。
 
 ## 职责
 1. 分析用户需求，制定任务计划
-2. 使用 Task 工具派发子任务
+2. 根据任务类型，调用合适的 SubAgent
 3. 整合子任务结果，向用户汇报
 
-## 子任务派发
-当任务复杂或需要专业处理时，使用 Task 工具：
+## 可用 SubAgent
+- layout-agent: 家具布置专家
+- zone-agent: 空间分区专家
 
-- 布置任务：Task(prompt="为[房间]布置[风格]家具，读取 room_zones.json 和 openings.json，输出到 modules.json")
-- 分区任务：Task(prompt="分析[房间]空间，设计功能分区")
-- Git 任务：Task(prompt="创建分支 feature/xxx 并切换")
-
-## 注意事项
-- 每个子任务应该是独立、完整的
-- 子任务完成后整合结果
-- 复杂任务可以并行派发多个子任务
-""",
-    allowed_tools=["Read", "Write", "Glob", "Bash", "Task"],
-    max_turns=20,
-)
+## 注意
+- 复杂任务拆分后派发给 SubAgent
+- SubAgent 完成后整合结果""",
+        # 必须启用 Task 工具！
+        allowed_tools=["Read", "Write", "Glob", "Bash", "Task"],
+        # 注册 SubAgent
+        agents=subagents,
+        max_turns=20,
+    )
+):
+    print(message)
 ```
 
-**工作流程**：
+### 4.4 工作流程
 
 ```
 用户: "帮我布置整个户型"
     ↓
-主 Agent 分析:
+主 Agent 分析（AI 自主决策）:
     "这个户型有客厅、主卧、次卧，需要分别布置"
+    "应该使用 layout-agent 来处理"
     ↓
-主 Agent 调用 Task 工具:
-    Task(prompt="为客厅布置家具...")
-    Task(prompt="为主卧布置家具...")
-    Task(prompt="为次卧布置家具...")
+主 Agent 调用 Task 工具（自动匹配 description）:
+    Task(subagent_type="layout-agent", prompt="为客厅布置家具...")
+    Task(subagent_type="layout-agent", prompt="为主卧布置家具...")
     ↓
-各子 Agent 执行，返回结果
+SubAgent 执行（使用自己的 prompt 和 tools）
     ↓
-主 Agent 整合:
+主 Agent 整合结果:
     "已完成所有房间布置，客厅放置了沙发、茶几..."
 ```
 
-### 4.3 方案二：MCP 工具（推荐生产）
+### 4.5 显式调用 vs 自动匹配
 
-**原理**：把每个 SubAgent 封装为 MCP 工具，主 Agent 可调用。
+| 方式 | 示例 | 说明 |
+|------|------|------|
+| **显式调用** | `"Use the layout-agent to..."` | 在 prompt 中指定 agent 名称 |
+| **自动匹配** | `"帮我布置客厅"` | Claude 根据 description 自动选择 |
 
-**优势**：
-- 每个 SubAgent 有专门的 System Prompt
-- 可以限制每个 SubAgent 的工具权限
-- 更好的职责隔离和错误处理
+### 4.6 常见工具权限组合
 
-**实现步骤**：
+| 用途 | tools 配置 | 说明 |
+|------|------------|------|
+| 只读分析 | `["Read", "Grep", "Glob"]` | 可查看但不可修改 |
+| 测试执行 | `["Bash", "Read", "Grep"]` | 可运行命令和分析输出 |
+| 代码修改 | `["Read", "Edit", "Write", "Glob"]` | 读写但不执行命令 |
+| 完全访问 | 省略 `tools` | 继承父 agent 所有工具 |
 
-#### 步骤 1：创建 MCP Server
+### 4.7 ⚠️ 不推荐的做法
 
-```python
-# mcp_agents_server.py
-from mcp import Server
-from claude_agent_sdk import query, ClaudeAgentOptions
+以下做法**不是官方推荐的 SubAgent 实现**：
 
-server = Server("bimcanvas-agents")
-
-# 布置家具 SubAgent
-PLACEMENT_PROMPT = """你是布置家具专家。
-- 精通家具布置规则
-- 熟悉空间动线设计
-- 输出符合 modules.json 格式
-"""
-
-@server.tool()
-async def placement_agent(room_id: str, style: str, project_path: str) -> str:
-    """
-    布置家具 SubAgent。
-    为指定房间布置符合风格的家具。
-
-    Args:
-        room_id: 房间 ID
-        style: 设计风格
-        project_path: 项目路径
-    """
-    options = ClaudeAgentOptions(
-        system_prompt=PLACEMENT_PROMPT,
-        cwd=project_path,
-        allowed_tools=["Read", "Write", "Glob"],
-        permission_mode="acceptEdits",
-        max_turns=10,
-    )
-
-    prompt = f"为房间 {room_id} 布置 {style} 风格家具"
-
-    result = ""
-    async for msg in query(prompt=prompt, options=options):
-        if isinstance(msg, AssistantMessage):
-            for block in msg.content:
-                if isinstance(block, TextBlock):
-                    result += block.text
-    return result
-
-
-# 分区设计 SubAgent
-ZONE_DESIGN_PROMPT = """你是空间分区专家。
-- 精通大空间功能划分
-- 熟悉人体工程学
-- 输出合理的功能分区方案
-"""
-
-@server.tool()
-async def zone_design_agent(room_id: str, project_path: str) -> str:
-    """分区设计 SubAgent。分析大空间，设计功能分区。"""
-    options = ClaudeAgentOptions(
-        system_prompt=ZONE_DESIGN_PROMPT,
-        cwd=project_path,
-        allowed_tools=["Read", "Write"],
-        max_turns=5,
-    )
-    # ... 实现
-
-
-# Git 管理 SubAgent
-@server.tool()
-async def git_manager(action: str, branch_name: str = "") -> str:
-    """Git 分支管理工具。创建、切换、合并分支。"""
-    # 直接执行 git 命令，不需要启动 Agent
-    import subprocess
-    if action == "create":
-        result = subprocess.run(["git", "checkout", "-b", branch_name], capture_output=True)
-    elif action == "switch":
-        result = subprocess.run(["git", "checkout", branch_name], capture_output=True)
-    # ...
-    return result.stdout.decode()
-```
-
-#### 步骤 2：主 Agent 配置
-
-```python
-# main_agent.py
-
-MAIN_AGENT_PROMPT = """你是 BIMCanvas 主控 Agent。
-
-## 可用工具
-
-### 内置工具
-- Read/Write/Glob: 文件操作
-- Bash: 执行命令
-
-### SubAgent 工具（通过 MCP）
-- placement_agent(room_id, style, project_path): 布置家具专家
-- zone_design_agent(room_id, project_path): 分区设计专家
-- git_manager(action, branch_name): Git 分支管理
-
-## 工作流程
-1. 分析用户需求
-2. 制定任务计划
-3. 调用合适的 SubAgent 工具
-4. 整合结果并汇报
-"""
-
-async def run_main_agent(user_request: str, project_path: str):
-    options = ClaudeAgentOptions(
-        system_prompt=MAIN_AGENT_PROMPT,
-        cwd=project_path,
-        allowed_tools=[
-            "Read", "Write", "Glob", "Bash",
-            "mcp__bimcanvas-agents__placement_agent",
-            "mcp__bimcanvas-agents__zone_design_agent",
-            "mcp__bimcanvas-agents__git_manager",
-        ],
-        mcp_servers=["bimcanvas-agents"],
-        max_turns=30,
-    )
-
-    async for msg in query(prompt=user_request, options=options):
-        yield msg
-```
-
-### 4.4 方案三：程序路由（最简单，但 AI 无法自主）
-
-**原理**：Python 代码根据条件调用不同方法。
-
-```python
-class PlacementAgent:
-    async def chat(self, message: str) -> str:
-        """普通对话"""
-        # ... 配置 A
-
-    async def run_layout(self, prompt: str) -> str:
-        """布置任务"""
-        # ... 配置 B
-
-    async def run_zone_design(self, prompt: str) -> str:
-        """分区任务"""
-        # ... 配置 C
-
-# HTTP 路由
-@app.post("/api/chat")
-async def chat_handler():
-    return await agent.chat(message)
-
-@app.post("/api/task/layout")
-async def layout_handler():
-    return await agent.run_layout(prompt)
-```
-
-**限制**：AI 无法自主选择调用哪个方法，必须由程序或用户决定。
+| 做法 | 问题 |
+|------|------|
+| 用 MCP 工具封装 SubAgent | 自创方案，绕过官方机制，增加复杂度 |
+| 程序路由（硬编码调用不同方法） | 不是 SubAgent，AI 无法自主决策 |
+| 在 SubAgent 的 tools 里加 Task | 官方禁止，SubAgent 不能再派发 SubAgent |
 
 ---
 
@@ -475,49 +384,14 @@ async def layout_handler():
 | SubAgent 定义 | ✅ agents.md | ✅ `agents` + `AgentDefinition` | ✅ **已确认** |
 | 持久会话客户端 | - | ✅ `ClaudeSDKClient` | ✅ **新发现** |
 
-### 6.2 SubAgent 支持详解
+### 6.2 SubAgent 支持
 
-Agent SDK 通过 `agents` 参数 + `AgentDefinition` 完全支持 SubAgent：
+> **详见第四章**：SubAgent 的完整实现方案和代码示例。
 
-```python
-from claude_agent_sdk import query, ClaudeAgentOptions, AgentDefinition
-
-# 定义 SubAgent
-subagents = {
-    "layout-agent": AgentDefinition(
-        description="家具布置专家，专注空间规划和家具摆放",
-        prompt="""你是布置家具专家。
-- 精通家具布置规则
-- 熟悉空间动线设计
-- 输出符合 modules.json 格式""",
-        tools=["Read", "Write", "Glob"],  # 限制工具权限
-        model="sonnet"  # 可指定模型
-    ),
-    "zone-agent": AgentDefinition(
-        description="空间分区专家，专注功能区划分",
-        prompt="你是空间分区专家，负责大空间功能划分...",
-        tools=["Read", "Glob"],
-    ),
-}
-
-# 主 Agent 配置
-async for message in query(
-    prompt="帮我布置整个户型",
-    options=ClaudeAgentOptions(
-        system_prompt="你是 BIMCanvas 主控 Agent，负责协调子任务...",
-        allowed_tools=["Read", "Task"],  # 必须启用 Task 工具！
-        agents=subagents,  # 注册 SubAgent
-        max_turns=20,
-    )
-):
-    print(message)
-```
-
-**关键点**：
-- `AgentDefinition.prompt` 相当于 SubAgent 的 System Prompt
-- `AgentDefinition.tools` 可限制 SubAgent 的工具权限（最小权限原则）
-- `AgentDefinition.model` 可为不同 SubAgent 指定不同模型
-- 主 Agent 的 `allowed_tools` **必须包含 `"Task"`** 才能派发 SubAgent
+**要点回顾**：
+- 官方推荐：`agents` 参数 + `AgentDefinition`
+- 调用机制：Task 工具
+- 关键限制：SubAgent 不能再派发 SubAgent
 
 ### 6.3 Hooks 支持详解
 
@@ -737,12 +611,16 @@ class AgentSession:
 
 ### Q1: Task 工具和 MCP 工具有什么区别？
 
+**核心区别**：Task 是**调用机制**，MCP 是**能力扩展**。
+
 | 方面 | Task 工具 | MCP 工具 |
 |------|-----------|----------|
-| 定义位置 | Claude Code 内置 | 开发者自定义 |
-| System Prompt | 继承父 Agent | 完全自定义 |
-| 工具权限 | 继承父 Agent | 可以限制 |
-| 适用场景 | 通用子任务 | 专业化子任务 |
+| **本质** | 派发 SubAgent 的调用机制 | 领域能力的封装 |
+| **定义方式** | SubAgent 通过 `AgentDefinition` 定义 | 通过 `@tool` 装饰器或外部进程 |
+| **用途** | AI 自主决策，派发复杂子任务 | 提供特定领域功能（如截图、验证） |
+| **例子** | `Task(subagent_type="layout-agent")` | `mcp__canvas__get_room_data` |
+
+**澄清**：MCP 工具**不是** SubAgent 实现方式。用 MCP 封装 SubAgent 是自创方案，不是官方推荐。
 
 ### Q2: Windows 环境需要注意什么？
 
@@ -793,6 +671,20 @@ if isinstance(msg, ToolUseMessage):
 | v1.0 | 2026-01-05 | 初始版本：核心概念、SubAgent 方案、最佳实践 |
 | v1.1 | 2026-01-05 | 新增：核心设计理念、Agent 架构模型、MCP 工具分层、SDK 能力评估 |
 | v1.2 | 2026-01-05 | **重大更新**：完成官方文档深度研究，确认所有能力均已支持 |
+| v1.3 | 2026-01-05 | **概念修正**：基于官方文档纠正 SubAgent 实现方式的错误理解 |
+
+### v1.3 更新详情
+
+基于官方 SubAgent 文档，纠正以下概念性错误：
+
+| 位置 | 原错误 | 修正后 |
+|------|--------|--------|
+| 第四章 | 将 Task/MCP/程序路由作为三种 SubAgent 实现方案对比 | Task 是调用机制，SubAgent 通过 `AgentDefinition` 定义 |
+| 第 0.3 节 | "用 Task 工具或 MCP" 暗示 MCP 是替代方案 | 明确 `agents` + `AgentDefinition` + Task 派发 |
+| 第 3.2 节 | "全量工具 + Task/MCP" 表述模糊 | "全量工具 + Task + MCP 领域工具" |
+| 第八章 Q1 | 对比 Task 和 MCP 作为 SubAgent 实现 | 澄清 Task 是调用机制，MCP 是领域工具 |
+
+**核心纠正**：MCP 工具封装 SubAgent **不是**官方推荐方式，是自创方案。
 
 ### v1.2 更新详情
 

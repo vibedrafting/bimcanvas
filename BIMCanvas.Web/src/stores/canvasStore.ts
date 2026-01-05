@@ -13,6 +13,9 @@ export const useCanvasStore = defineStore('canvas', () => {
     const error = ref<string | null>(null);
     const promptMessage = ref<string | null>(null);
 
+    // === 脏数据标记：追踪内存中是否有未保存的修改 ===
+    const isDirty = ref(false);
+
     // === 多选支持 ===
     const selectedIds = ref<string[]>([]);
 
@@ -149,6 +152,7 @@ export const useCanvasStore = defineStore('canvas', () => {
             const response = await axios.get<ProjectData>('http://localhost:5000/api/project');
 
             projectData.value = response.data;
+            isDirty.value = false;  // 重置脏标记
             timeline.clear();
             saveState();
 
@@ -282,6 +286,7 @@ export const useCanvasStore = defineStore('canvas', () => {
         if (moduleIndex !== -1) {
             const updatedModule = { ...projectData.value.activeScheme.modules[moduleIndex], ...updates };
             projectData.value.activeScheme.modules[moduleIndex] = updatedModule;
+            isDirty.value = true;  // 标记数据已修改
             if (!batchUpdateMode.value) {
                 nextTick(() => saveState());
             }
@@ -295,6 +300,7 @@ export const useCanvasStore = defineStore('canvas', () => {
         if (index !== -1) {
             const updated = { ...projectData.value.baseline.walls[index], ...updates };
             projectData.value.baseline.walls[index] = updated;
+            isDirty.value = true;  // 标记数据已修改
             nextTick(() => saveState());
         }
     };
@@ -305,6 +311,7 @@ export const useCanvasStore = defineStore('canvas', () => {
         if (index !== -1) {
             const updated = { ...projectData.value.baseline.columns[index], ...updates };
             projectData.value.baseline.columns[index] = updated;
+            isDirty.value = true;  // 标记数据已修改
             nextTick(() => saveState());
         }
     };
@@ -315,6 +322,7 @@ export const useCanvasStore = defineStore('canvas', () => {
         if (index !== -1) {
             const updated = { ...projectData.value.baseline.openings[index], ...updates };
             projectData.value.baseline.openings[index] = updated;
+            isDirty.value = true;  // 标记数据已修改
             nextTick(() => saveState());
         }
     };
@@ -337,6 +345,7 @@ export const useCanvasStore = defineStore('canvas', () => {
         if (moduleIndex !== -1) {
             projectData.value.activeScheme.modules.splice(moduleIndex, 1);
             selectedIds.value = [];
+            isDirty.value = true;  // 标记数据已修改
             nextTick(() => saveState());
             signalR.sendUpdate({ type: 'module_remove', moduleId });
         }
@@ -345,6 +354,7 @@ export const useCanvasStore = defineStore('canvas', () => {
     const addModule = (module: Module) => {
         if (!projectData.value?.activeScheme?.modules) return;
         projectData.value.activeScheme.modules.push(module);
+        isDirty.value = true;  // 标记数据已修改
         if (!batchUpdateMode.value) {
             nextTick(() => saveState());
         }
@@ -365,6 +375,48 @@ export const useCanvasStore = defineStore('canvas', () => {
         nextTick(() => saveState());
     };
 
+    // === 脏数据管理 API ===
+
+    /**
+     * 清除脏数据标记
+     * 用于放弃更改后重置状态
+     */
+    const clearDirty = () => {
+        isDirty.value = false;
+    };
+
+    /**
+     * 保存当前数据到 Server 文件系统
+     * @returns 保存是否成功
+     */
+    const saveToServer = async (): Promise<boolean> => {
+        if (!projectData.value?.activeScheme?.modules) {
+            console.warn('[CanvasStore] saveToServer: 无模块数据可保存');
+            return false;
+        }
+
+        try {
+            debugStore.log('[CanvasStore] 正在保存模块数据到 Server...');
+
+            const response = await axios.post('http://localhost:5000/api/project/save', {
+                modules: projectData.value.activeScheme.modules
+            });
+
+            if (response.status === 200) {
+                isDirty.value = false;
+                debugStore.success(`[CanvasStore] 保存成功: ${projectData.value.activeScheme.modules.length} 个模块`);
+                return true;
+            }
+
+            debugStore.error('[CanvasStore] 保存失败: 非200响应');
+            return false;
+        } catch (err: any) {
+            console.error('[CanvasStore] 保存失败:', err);
+            debugStore.error(`[CanvasStore] 保存失败: ${err.message || err}`);
+            return false;
+        }
+    };
+
     return {
         // State
         projectData,
@@ -375,6 +427,7 @@ export const useCanvasStore = defineStore('canvas', () => {
         error,
         agentConnectionState,
         currentOperation,
+        isDirty,  // 脏数据标记
 
         // Getters
         canUndo,
@@ -399,6 +452,10 @@ export const useCanvasStore = defineStore('canvas', () => {
         // Batch Update API
         beginBatchUpdate,
         endBatchUpdate,
+
+        // Dirty Data Management
+        clearDirty,
+        saveToServer,
 
         // UI State
         promptMessage,

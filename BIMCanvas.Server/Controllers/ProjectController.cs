@@ -411,6 +411,46 @@ namespace BIMCanvas.Server.Controllers
         }
 
         /// <summary>
+        /// 保存模块数据到文件系统
+        /// 用于 Web 端将内存数据持久化到文件，以便 Git 能检测到更改
+        /// </summary>
+        [HttpPost("save")]
+        public ActionResult SaveModules([FromBody] SaveModulesRequest request)
+        {
+            if (!_projectContext.IsLoaded)
+            {
+                return BadRequest(new { message = "没有加载的项目" });
+            }
+
+            var projectPath = _projectContext.CurrentProjectPath!;
+            var modulesPath = Path.Combine(projectPath, "schemes", "modules.json");
+
+            try
+            {
+                // 确保 schemes 目录存在
+                var schemesDir = Path.GetDirectoryName(modulesPath);
+                if (!Directory.Exists(schemesDir))
+                {
+                    Directory.CreateDirectory(schemesDir!);
+                }
+
+                // 序列化并写入文件
+                var json = JsonConvert.SerializeObject(request.Modules ?? new List<Module>(), Formatting.Indented, _jsonSettings);
+                System.IO.File.WriteAllText(modulesPath, json, Encoding.UTF8);
+
+                _logger.LogInformation("模块数据已保存: {Count} 个模块 -> {Path}",
+                    request.Modules?.Count ?? 0, modulesPath);
+
+                return Ok(new { success = true, modulesCount = request.Modules?.Count ?? 0 });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "保存模块数据失败");
+                return StatusCode(500, new { message = $"保存模块数据失败: {ex.Message}" });
+            }
+        }
+
+        /// <summary>
         /// 加载并聚合项目数据
         /// </summary>
         private ProjectData LoadProjectData(string projectPath)

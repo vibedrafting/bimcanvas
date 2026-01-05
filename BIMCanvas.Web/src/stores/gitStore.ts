@@ -1,5 +1,6 @@
 import { defineStore } from 'pinia';
 import { ref, computed } from 'vue';
+import { useCanvasStore } from './canvasStore';
 
 const SERVER_API_BASE = 'http://localhost:5000';
 
@@ -156,6 +157,21 @@ export const useGitStore = defineStore('git', () => {
       ? { createIfNotExist: options }
       : options;
 
+    const canvasStore = useCanvasStore();
+
+    // 检查内存中是否有未保存的修改（脏数据检测）
+    // 只有在不是 commitBeforeCheckout 模式时才检查
+    // 因为 commitBeforeCheckout 模式表示用户已确认要保存
+    if (!opts.commitBeforeCheckout && canvasStore.isDirty) {
+      console.warn('[GitStore] 检测到内存中有未保存的修改');
+      hasUncommittedChanges.value = true;
+      return {
+        success: false,
+        message: '存在未保存的更改',
+        hasUncommittedChanges: true
+      };
+    }
+
     try {
       isLoading.value = true;
       error.value = null;
@@ -175,6 +191,10 @@ export const useGitStore = defineStore('git', () => {
         // 切换成功后重新获取分支列表，确保状态与Server同步
         hasUncommittedChanges.value = false;
         await fetchBranches();
+
+        // ✅ 重新加载项目数据，确保 Canvas 显示新分支的数据
+        await canvasStore.loadProject();
+
         console.log('[GitStore] 分支切换成功:', branchName);
         return { success: true };
       } else {

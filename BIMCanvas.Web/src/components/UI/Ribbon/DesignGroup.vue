@@ -6,9 +6,11 @@ import GlassButton from '../base/GlassButton.vue';
 import BranchCreationDialog from './BranchCreationDialog.vue';
 import BranchCheckoutConfirmDialog from './BranchCheckoutConfirmDialog.vue';
 import { useGitStore } from '../../../stores/gitStore';
+import { useCanvasStore } from '../../../stores/canvasStore';
 
 // --- Git Store ---
 const gitStore = useGitStore();
+const canvasStore = useCanvasStore();
 const { branches, currentBranch, currentBranchId, isLoading, isOffline } = storeToRefs(gitStore);
 
 // 组件挂载时获取分支列表
@@ -91,11 +93,25 @@ const handleCheckoutConfirm = async (saveBeforeSwitch: boolean, commitMessage?: 
   if (!branchName) return;
 
   if (saveBeforeSwitch) {
+    // 1. 先保存内存数据到文件系统
+    const saved = await canvasStore.saveToServer();
+    if (!saved) {
+      console.error('保存数据失败，无法切换分支');
+      pendingCheckoutBranch.value = '';
+      return;
+    }
+
+    // 2. 再用 commitBeforeCheckout 提交并切换
     await gitStore.checkout(branchName, {
       commitBeforeCheckout: true,
       commitMessage
     });
+  } else {
+    // 放弃更改：清除脏标记，直接切换
+    canvasStore.clearDirty();
+    await gitStore.checkout(branchName);
   }
+
   pendingCheckoutBranch.value = '';
 };
 
