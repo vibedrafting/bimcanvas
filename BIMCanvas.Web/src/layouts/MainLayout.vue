@@ -23,10 +23,16 @@ onMounted(() => {
 });
 
 const showPulse = ref(false);
+const aiPanelReady = ref(false);
 
 watch(() => props.buildComplete, (newVal) => {
   if (newVal) {
-    // Wait for AI Panel slide-in (approx 600ms) before pulsing
+    // Wait for AI Panel slide-in animation (800ms) before triggering welcome message
+    setTimeout(() => {
+      aiPanelReady.value = true;
+    }, 900); // 800ms animation + 100ms buffer
+    
+    // Wait for pulse animation
     setTimeout(() => {
       showPulse.value = true;
     }, 800); 
@@ -47,7 +53,7 @@ watch(() => props.buildComplete, (newVal) => {
     </header>
     
     <aside class="gallery-area" :class="{ 'visible': props.buildComplete }">
-      <AICommandCenter />
+      <AICommandCenter :panel-ready="aiPanelReady" />
     </aside>
 
     <main class="canvas-area">

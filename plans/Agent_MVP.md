@@ -461,89 +461,96 @@ class PlacementAgent:
    • 茶几、边几、装饰柜等
 ```
 
-#### P2.3 Agent 工具定义
+#### P2.3 启用 Agent SDK 内置工具
 
-**placement_agent.py 扩展**：
+> **关键变更**：Agent SDK 内置 Read/Write/Glob/Edit 等工具，无需手动定义。Claude 会自动执行文件操作。
+
+**placement_agent.py 配置更新**：
 ```python
-import json
-from anthropic import Anthropic
-from src.tools.file_tools import read_json, write_json
-from src.tools.svg_parser import list_modules
+from claude_agent_sdk import query, ClaudeAgentOptions, AssistantMessage, TextBlock
 
-# Agent SDK 工具定义
-TOOLS = [
-    {
-        "name": "read_room_zones",
-        "description": "读取项目的房间分区数据（Room Zone）",
-        "input_schema": {
-            "type": "object",
-            "properties": {
-                "project_path": {"type": "string", "description": "项目路径"}
-            },
-            "required": ["project_path"]
-        }
-    },
-    {
-        "name": "read_openings",
-        "description": "读取门窗数据",
-        "input_schema": {
-            "type": "object",
-            "properties": {
-                "project_path": {"type": "string", "description": "项目路径"}
-            },
-            "required": ["project_path"]
-        }
-    },
-    {
-        "name": "list_modules",
-        "description": "列出可用的家具模块",
-        "input_schema": {
-            "type": "object",
-            "properties": {
-                "project_path": {"type": "string", "description": "项目路径"}
-            },
-            "required": ["project_path"]
-        }
-    },
-    {
-        "name": "write_modules",
-        "description": "写入家具布置结果",
-        "input_schema": {
-            "type": "object",
-            "properties": {
-                "project_path": {"type": "string", "description": "项目路径"},
-                "scheme_id": {"type": "string", "description": "方案ID"},
-                "modules": {"type": "array", "description": "布置的模块列表"}
-            },
-            "required": ["project_path", "scheme_id", "modules"]
-        }
-    }
-]
+# P2 阶段 System Prompt（增加文件操作指导）
+SYSTEM_PROMPT = """你是 BIMCanvas 的 PlacementAgent，一个专业的室内布置助手。
 
-def execute_tool(tool_name: str, tool_input: dict) -> str:
-    """执行工具调用"""
-    if tool_name == "read_room_zones":
-        data = read_json(tool_input["project_path"], "computed/room_zones.json")
-        return json.dumps(data, ensure_ascii=False)
+## 职责
+1. 理解用户的布置需求
+2. 分析房间功能和空间特点
+3. 执行家具布置任务
 
-    elif tool_name == "read_openings":
-        data = read_json(tool_input["project_path"], "baseline/openings.json")
-        return json.dumps(data, ensure_ascii=False)
+## 当前项目文件结构
+工作目录已设置为项目根目录，你可以直接访问以下文件：
 
-    elif tool_name == "list_modules":
-        data = list_modules(tool_input["project_path"])
-        return json.dumps(data, ensure_ascii=False)
+**输入数据**（只读）：
+- computed/room_zones.json - 房间分区数据
+- baseline/openings.json - 门窗数据
+- modules/*.svg - 家具素材库
 
-    elif tool_name == "write_modules":
-        write_json(
-            tool_input["project_path"],
-            f"schemes/{tool_input['scheme_id']}/modules.json",
-            tool_input["modules"]
+**输出数据**（可写）：
+- schemes/{schemeId}/modules.json - 布置结果
+
+## 布置规则
+- 大型家具尽量靠墙放置（床、衣柜、沙发）
+- 电视柜居中于电视墙
+- 沙发正对电视，保持合理观看距离
+- 床头不靠窗，避免对流
+- 家具不阻挡门的开启范围
+- 保持主要动线畅通（至少800mm通道宽度）
+
+请用简洁专业的中文回答，不要使用Emoji。
+"""
+
+class PlacementAgent:
+    """基于 Agent SDK 的布置助手"""
+
+    def __init__(self, project_path: str = None):
+        self.project_path = project_path
+        self.session_id = None
+
+    async def chat(self, user_message: str) -> str:
+        """处理用户消息（支持文件操作）"""
+        options = ClaudeAgentOptions(
+            system_prompt=SYSTEM_PROMPT,
+            cwd=self.project_path,  # 设置工作目录
+            max_turns=10,  # 允许多轮工具调用
+            max_thinking_tokens=8000,
+            # P2 阶段启用内置工具：
+            allowed_tools=["Read", "Write", "Glob"],
+            permission_mode="acceptEdits",  # 自动接受文件编辑
         )
-        return "布置结果已保存"
 
-    return f"未知工具: {tool_name}"
+        if self.session_id:
+            options.resume = self.session_id
+
+        full_response = ""
+        async for message in query(prompt=user_message, options=options):
+            if hasattr(message, 'subtype') and message.subtype == 'init':
+                self.session_id = message.data.get('session_id')
+
+            if isinstance(message, AssistantMessage):
+                for block in message.content:
+                    if isinstance(block, TextBlock):
+                        full_response += block.text
+
+        return full_response
 ```
+
+**关键配置说明**：
+
+| 参数 | 值 | 说明 |
+|------|-----|------|
+| `cwd` | project_path | 工作目录，Agent 读写文件的根路径 |
+| `max_turns` | 10 | 允许多轮工具调用（读取→分析→写入） |
+| `allowed_tools` | ["Read", "Write", "Glob"] | 启用文件读写和搜索 |
+| `permission_mode` | "acceptEdits" | 自动接受文件编辑权限 |
+
+**Agent SDK 内置工具**：
+
+| 工具 | 用途 | 对应 MVP 操作 |
+|------|------|---------------|
+| Read | 读取文件内容 | 读取 room_zones.json, openings.json |
+| Write | 写入文件 | 写入 modules.json |
+| Glob | 搜索文件 | 列出 modules/*.svg |
+| Edit | 编辑文件 | 修改现有配置 |
 
 #### P2.4 布置任务接入 Web
 
@@ -553,12 +560,12 @@ Web 端点击"开始布置"
     ↓
 调用 Agent API: POST /api/task/layout
     ↓
-Agent 读取数据 → 执行布置决策 → 写入 modules.json
+Agent 自动读取数据 → 执行布置决策 → 写入 modules.json
     ↓
 返回布置结果摘要 → Web 端渲染
 ```
 
-**新增 API 端点**：
+**新增 API 端点**（http_server.py）：
 ```python
 async def layout_task_handler(request: web.Request) -> web.Response:
     """执行布置任务"""
@@ -570,38 +577,46 @@ async def layout_task_handler(request: web.Request) -> web.Response:
 
     agent = get_agent(project_path)
 
-    # 构造布置任务指令
+    # 构造布置任务指令（Agent SDK 会自动调用内置工具）
     task_prompt = f"""
-    用户请求：{user_prompt}
+用户请求：{user_prompt}
 
-    请执行以下步骤：
-    1. 使用 read_room_zones 读取房间分区
-    2. 使用 read_openings 读取门窗数据
-    3. 使用 list_modules 获取可用家具
-    4. 根据设计原则为每个房间布置家具
-    5. 使用 write_modules 保存布置结果
+请执行家具布置任务：
+1. 读取 computed/room_zones.json 获取房间分区
+2. 读取 baseline/openings.json 获取门窗数据
+3. 使用 Glob 查找 modules/*.svg 获取可用家具
+4. 根据布置规则为每个房间布置家具
+5. 将布置结果写入 schemes/{scheme_id}/modules.json
 
-    方案ID: {scheme_id}
-    """
+注意：输出的 modules.json 必须符合 v3.0 数据模型规范。
+"""
 
-    # 执行 Agent 任务（带工具调用循环）
-    result = await agent.run_task(task_prompt)
+    # 使用 chat() 方法执行任务（Agent SDK 自动处理工具调用）
+    result = await agent.chat(task_prompt)
 
     return web.json_response({
         "success": True,
-        "summary": result
+        "summary": result,
+        "schemeId": scheme_id
     })
 ```
 
+**说明**：
+- 使用 `agent.chat()` 而非 `agent.run_task()`（后者不存在）
+- Agent SDK 自动执行工具调用循环，无需手动管理
+- Claude 会根据 System Prompt 中的文件路径指导自动读写文件
+
 #### P2 验收标准
 
-- [ ] Agent 可正确读取 room_zones.json
-- [ ] Agent 可正确读取 openings.json
-- [ ] Agent 可正确列出 modules/*.svg
+- [ ] Agent SDK 内置工具正常启用（allowed_tools 配置）
+- [ ] Agent 可使用 Read 工具读取 room_zones.json
+- [ ] Agent 可使用 Read 工具读取 openings.json
+- [ ] Agent 可使用 Glob 工具列出 modules/*.svg
+- [ ] Agent 可使用 Write 工具输出 modules.json
 - [ ] Agent 能为每个房间布置合理的家具
 - [ ] 家具不阻挡门开启范围
-- [ ] modules.json 格式符合规范
-- [ ] Web 端能触发布置任务
+- [ ] modules.json 格式符合 v3.0 规范
+- [ ] Web 端能触发布置任务（POST /api/task/layout）
 - [ ] Web 端能正确渲染布置结果
 
 ---
@@ -635,23 +650,24 @@ async def layout_task_handler(request: web.Request) -> web.Response:
 
 | 文件 | 类型 | 说明 |
 |------|------|------|
-| `BIMCanvas.Agent/src/agent/placement_agent.py` | 修改 | 启用工具调用（allowed_tools） |
-| `BIMCanvas.Agent/src/server/http_server.py` | 修改 | 添加布置任务 API |
+| `BIMCanvas.Agent/src/agent/placement_agent.py` | 修改 | 启用 Agent SDK 内置工具（allowed_tools, permission_mode） |
+| `BIMCanvas.Agent/src/agent/placement_agent.py` | 修改 | 更新 System Prompt（增加文件路径指导） |
+| `BIMCanvas.Agent/src/server/http_server.py` | 修改 | 添加布置任务 API（/api/task/layout） |
 | `BIMCanvas.Server/Services/ZoneTagService.cs` | 新建 | Server 端功能标签分配 |
 
-### Agent 读取的文件
+### Agent 读取的文件（通过 Agent SDK 内置 Read/Glob 工具）
 
-| 文件 | 生成者 | 用途 |
-|------|--------|------|
-| `computed/room_zones.json` | Server | 房间分区数据 |
-| `baseline/openings.json` | Revit | 门窗数据 |
-| `modules/*.svg` | 手动准备 | 家具素材库 |
+| 文件 | 生成者 | 用途 | 读取方式 |
+|------|--------|------|----------|
+| `computed/room_zones.json` | Server | 房间分区数据 | Read |
+| `baseline/openings.json` | Revit | 门窗数据 | Read |
+| `modules/*.svg` | 手动准备 | 家具素材库 | Glob |
 
-### Agent 写入的文件
+### Agent 写入的文件（通过 Agent SDK 内置 Write 工具）
 
-| 文件 | 内容 |
-|------|------|
-| `schemes/{s}/modules.json` | 家具布置结果 |
+| 文件 | 内容 | 写入方式 |
+|------|------|----------|
+| `schemes/{s}/modules.json` | 家具布置结果 | Write |
 
 ---
 
@@ -715,10 +731,11 @@ C:\Users\huhaonan\Documents\BIMCanvas\Projects\demo_1
 
 ### P2 阶段验收
 
-- [ ] Agent 可正确读取项目数据
+- [ ] Agent SDK 内置工具正常启用（Read, Write, Glob）
+- [ ] Agent 可自动读取项目数据（room_zones.json, openings.json）
 - [ ] Agent 能为每个房间布置合理的家具
 - [ ] 家具不阻挡门开启范围
-- [ ] modules.json 格式符合规范
+- [ ] modules.json 格式符合 v3.0 规范
 - [ ] Web 端能触发布置任务并渲染结果
 
 ---

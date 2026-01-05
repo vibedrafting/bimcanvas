@@ -1,7 +1,12 @@
 <script setup lang="ts">
-import { ref, onMounted, nextTick, computed, watch } from 'vue';
+import { ref, onMounted, nextTick, computed, watch, defineProps } from 'vue';
 import { useCanvasStore } from '../../stores/canvasStore';
 import { storeToRefs } from 'pinia';
+
+// Props from parent (MainLayout)
+const props = defineProps<{
+  panelReady?: boolean;
+}>();
 
 // API Configuration
 const AGENT_API_BASE = 'http://127.0.0.1:8765';
@@ -65,12 +70,16 @@ interface ChatMessage {
   content: string;
   thinking?: string;
   isStreaming?: boolean;
+  startTime?: number;
+  endTime?: number;
+  thinkingDuration?: string;
 }
 const chatMessages = ref<ChatMessage[]>([]);
 const inputMessage = ref('');
 const isLoading = ref(false);
 const chatScrollRef = ref<HTMLElement | null>(null);
 const expandedThinking = ref<Record<number, boolean>>({});
+const shouldAutoScroll = ref(true); // Track if we should auto-scroll to bottom
 
 // Toggle thinking section visibility
 const toggleThinking = (index: number) => {
@@ -168,7 +177,66 @@ const clearSelection = () => {
 onMounted(async () => {
   await checkAgentHealth();
   await fetchGitInfo();
+  // Note: Welcome message is now triggered by panelReady prop
 });
+
+// Watch for panelReady to trigger welcome message streaming
+watch(() => props.panelReady, (newVal) => {
+  if (newVal) {
+    streamWelcomeMessage();
+  }
+});
+
+const streamWelcomeMessage = async () => {
+    // Prevent duplicate welcome messages if one already exists
+    if (chatMessages.value.length > 0) return;
+
+    const welcomeText = '你好！我是 BIMCanvas 的布置助手。我可以帮助你分析房间功能、提供布置建议。有什么我能帮你的吗？';
+    
+    chatMessages.value.push({
+        role: 'ai',
+        content: '',
+        isStreaming: true
+    });
+    
+    const msgIndex = chatMessages.value.length - 1;
+
+    // Simulate typing effect
+    let i = 0;
+    const interval = setInterval(() => {
+        if (i < welcomeText.length) {
+            chatMessages.value[msgIndex].content += welcomeText[i];
+            i++;
+            scrollToBottom();
+        } else {
+            clearInterval(interval);
+            chatMessages.value[msgIndex].isStreaming = false;
+        }
+    }, 30);
+};
+
+// Watch for chat messages to auto-scroll (watch already imported at top)
+watch(() => chatMessages.value, () => {
+    // Only auto-scroll if user is already near bottom
+    if (shouldAutoScroll.value) {
+        nextTick(() => {
+            scrollToBottom();
+        });
+    }
+}, { deep: true });
+
+// Check if user is near bottom (within 100px threshold)
+const isNearBottom = () => {
+    const el = chatScrollRef.value;
+    if (!el) return true;
+    const threshold = 100;
+    return el.scrollHeight - el.scrollTop - el.clientHeight < threshold;
+};
+
+// Handle scroll event to track if user scrolled up
+const handleChatScroll = () => {
+    shouldAutoScroll.value = isNearBottom();
+};
 
 // Agent API functions
 const checkAgentHealth = async () => {
@@ -194,13 +262,38 @@ const sendMessage = async () => {
   inputMessage.value = '';
   isLoading.value = true;
 
-  // Scroll to bottom
+  // Force scroll to bottom when user sends message
+  shouldAutoScroll.value = true;
   await nextTick();
   scrollToBottom();
+  // Additional scroll attempts to handle DOM rendering delays
+  requestAnimationFrame(() => scrollToBottom());
+  setTimeout(() => scrollToBottom(), 50);
+  setTimeout(() => scrollToBottom(), 150);
 
   // Add placeholder AI message for streaming
   const aiMessageIndex = chatMessages.value.length;
-  chatMessages.value.push({ role: 'ai', content: '', thinking: '', isStreaming: true });
+  chatMessages.value.push({ 
+    role: 'ai', 
+    content: '', 
+    thinking: '', 
+    isStreaming: true,
+    startTime: Date.now(),
+    thinkingDuration: undefined // Start as undefined, will be set when text starts
+  });
+
+  // Start thinking timer - updates every second while streaming
+  const timerInterval = setInterval(() => {
+    const msg = chatMessages.value[aiMessageIndex];
+    // Only update if still streaming and no content yet (still in thinking phase)
+    if (msg && msg.isStreaming && !msg.content && msg.thinking) {
+        const duration = Math.round((Date.now() - (msg.startTime || Date.now())) / 1000);
+        // Update the timer display for live thinking phase
+        msg.thinkingDuration = duration + 's';
+    } else {
+        clearInterval(timerInterval);
+    }
+  }, 1000);
 
   try {
     const response = await fetch(`${AGENT_API_BASE}/api/chat/stream`, {
@@ -243,14 +336,39 @@ const sendMessage = async () => {
             const parsed = JSON.parse(data);
             const currentMsg = chatMessages.value[aiMessageIndex];
 
-            if (parsed.type === 'text' || parsed.type === 'text_complete') {
-              currentMsg.content += parsed.content;
-            } else if (parsed.type === 'thinking' || parsed.type === 'thinking_complete') {
-              currentMsg.thinking = (currentMsg.thinking || '') + parsed.content;
+            if (parsed.type === 'thinking' || parsed.type === 'thinking_complete') {
+              if (parsed.type === 'thinking_complete') {
+                currentMsg.thinking = parsed.content;
+              } else {
+                currentMsg.thinking = (currentMsg.thinking || '') + parsed.content;
+              }
+              
               // Auto-expand thinking on first chunk
               if (!expandedThinking.value[aiMessageIndex]) {
                 expandedThinking.value[aiMessageIndex] = true;
               }
+            } else if (parsed.type === 'text' || parsed.type === 'text_complete') {
+                 const msg = chatMessages.value[aiMessageIndex];
+                 
+                 // Auto-collapse thinking when text starts (only do this once)
+                 if (msg.thinking && expandedThinking.value[aiMessageIndex] === true) {
+                     // Calculate final thinking duration
+                     msg.endTime = Date.now();
+                     const duration = Math.round((msg.endTime - (msg.startTime || msg.endTime)) / 1000);
+                     msg.thinkingDuration = duration + 's';
+                     
+                     // Collapse the thinking section
+                     expandedThinking.value = { ...expandedThinking.value, [aiMessageIndex]: false };
+                     
+                     // Force scroll after collapse
+                     nextTick(() => scrollToBottom());
+                 }
+                 
+                 if (parsed.type === 'text_complete') {
+                    msg.content = parsed.content;
+                 } else {
+                    msg.content += parsed.content;
+                 }
             } else if (parsed.error) {
               currentMsg.content = `Error: ${parsed.error}`;
             }
@@ -297,8 +415,9 @@ const clearHistory = async () => {
 };
 
 const scrollToBottom = () => {
-  if (chatScrollRef.value) {
-    chatScrollRef.value.scrollTop = chatScrollRef.value.scrollHeight;
+  const el = chatScrollRef.value;
+  if (el) {
+    el.scrollTop = el.scrollHeight;
   }
 };
 
@@ -437,6 +556,7 @@ onUnmounted(() => {
 });
 
 import TaskSummaryWidget from './TaskSummaryWidget.vue';
+import MarkdownText from './base/MarkdownText.vue';
 </script>
 
 <template>
@@ -500,18 +620,10 @@ import TaskSummaryWidget from './TaskSummaryWidget.vue';
       <div class="layer-stream">
         
         <!-- View: Chat -->
-        <div v-if="mode === 'chat'" class="view-chat" ref="chatScrollRef">
+        <div v-if="mode === 'chat'" class="view-chat" ref="chatScrollRef" @scroll="handleChatScroll">
 
             <!-- Task Summary Widget -->
             <TaskSummaryWidget :tasks="tasks" />
-
-            <!-- Welcome message when no chat history -->
-            <div v-if="chatMessages.length === 0" class="chat-message ai">
-                <div class="avatar">AI</div>
-                <div class="bubble">
-                    你好！我是 BIMCanvas 的布置助手。我可以帮助你分析房间功能、提供布置建议。有什么我能帮你的吗？
-                </div>
-            </div>
 
             <!-- Actual Chat History -->
             <template v-for="(msg, index) in chatMessages" :key="index">
@@ -521,8 +633,6 @@ import TaskSummaryWidget from './TaskSummaryWidget.vue';
                         <!-- Thinking Section (for AI messages only) -->
                         <div v-if="msg.role === 'ai' && msg.thinking" class="thinking-section">
                             <div class="thinking-header" @click="toggleThinking(index)">
-                                <span class="thinking-icon">💭</span>
-                                <span class="thinking-label">思考过程</span>
                                 <svg
                                     class="thinking-chevron"
                                     :class="{ expanded: expandedThinking[index] }"
@@ -531,23 +641,35 @@ import TaskSummaryWidget from './TaskSummaryWidget.vue';
                                     stroke="currentColor"
                                     stroke-width="2"
                                 >
-                                    <polyline points="6 9 12 15 18 9"></polyline>
+                                    <polyline points="9 18 15 12 9 6"></polyline>
                                 </svg>
-                                <span v-if="msg.isStreaming" class="streaming-indicator"></span>
+                                <span class="thinking-label">
+                                    <template v-if="msg.isStreaming && !msg.content">
+                                        Thinking for {{ msg.thinkingDuration || '0s' }}<span class="dot">.</span><span class="dot">.</span><span class="dot">.</span>
+                                    </template>
+                                    <template v-else>
+                                        Thought for {{ msg.thinkingDuration || '0s' }}
+                                    </template>
+                                </span>
                             </div>
                             <transition name="thinking-expand">
                                 <div v-show="expandedThinking[index]" class="thinking-content">
-                                    {{ msg.thinking }}
+                                    <MarkdownText :content="msg.thinking" />
                                 </div>
                             </transition>
                         </div>
                         <!-- Main Content Bubble -->
-                        <div class="bubble" :class="{ empty: !msg.content && msg.isStreaming }">
-                            <template v-if="msg.content">{{ msg.content }}</template>
-                            <span v-else-if="msg.isStreaming && !msg.thinking" class="typing-indicator">
-                                <span class="typing-dot"></span>
-                                <span class="typing-dot"></span>
-                                <span class="typing-dot"></span>
+                        <div 
+                            class="bubble" 
+                            :class="{ 
+                                empty: !msg.content && msg.isStreaming,
+                                generating: msg.isStreaming && !msg.thinking && !msg.content
+                            }"
+                            v-if="msg.content || (!msg.thinking && msg.isStreaming)"
+                        >
+                            <MarkdownText v-if="msg.content" :content="msg.content" />
+                            <span v-else-if="msg.isStreaming && !msg.thinking" class="generating-indicator">
+                                Generating<span class="dot">.</span><span class="dot">.</span><span class="dot">.</span>
                             </span>
                         </div>
                     </div>
@@ -779,13 +901,13 @@ import TaskSummaryWidget from './TaskSummaryWidget.vue';
 
         <!-- Input Area -->
         <div class="input-area">
-            <input
-              type="text"
+            <textarea
               v-model="inputMessage"
               placeholder="输入消息..."
               @keydown="handleKeydown"
               :disabled="isLoading || agentStatus !== 'connected'"
-            />
+              rows="1"
+            ></textarea>
             <button
               class="send-btn"
               @click="sendMessage"
@@ -1291,11 +1413,7 @@ import TaskSummaryWidget from './TaskSummaryWidget.vue';
             }
         }
 
-        &.streaming {
-            .bubble {
-                border-color: var(--accent-primary);
-            }
-        }
+        /* Removed streaming border style */
 
         .avatar {
             width: 24px;
@@ -1319,62 +1437,80 @@ import TaskSummaryWidget from './TaskSummaryWidget.vue';
         }
 
         .bubble {
-            padding: 8px 12px;
+            padding: 6px 10px; /* Reduced padding */
             border-radius: 12px;
-            font-size: 0.85rem;
-            line-height: 1.4;
+            font-size: 0.8rem; /* Reduced from 0.85rem */
+            line-height: 1.35; /* Tighter line height */
+            word-wrap: break-word; /* Enable word wrapping */
+            word-break: break-word; /* Break long words */
+            overflow-wrap: break-word; /* Fallback for older browsers */
+            /* Note: white-space: pre-wrap removed - causes bottom padding from trailing newlines */
 
             &.empty {
                 min-height: 20px;
             }
 
-            .typing-indicator {
+            &.generating {
+                background: transparent;
+                border-color: transparent;
+                padding: 0;
                 display: flex;
-                gap: 4px;
-
-                .typing-dot {
-                    width: 6px;
-                    height: 6px;
-                    background: var(--text-tertiary);
-                    border-radius: 50%;
-                    animation: typing 1.4s ease-in-out infinite;
-
-                    &:nth-child(1) { animation-delay: 0s; }
-                    &:nth-child(2) { animation-delay: 0.2s; }
-                    &:nth-child(3) { animation-delay: 0.4s; }
-                }
+                align-items: center;
+                height: 24px; /* Match avatar height */
             }
+
+            .generating-indicator {
+                font-size: 0.8rem;
+                color: var(--text-tertiary);
+                font-style: italic;
+                
+                .dot {
+                    animation: dot-fade 1.5s infinite;
+                    opacity: 0;
+                }
+                .dot:nth-child(1) { animation-delay: 0.0s; }
+                .dot:nth-child(2) { animation-delay: 0.5s; }
+                .dot:nth-child(3) { animation-delay: 1.0s; }
+            }
+        }
+
+        @keyframes dot-fade {
+            0% { opacity: 0; }
+            50% { opacity: 1; }
+            100% { opacity: 0; }
         }
 
         /* Thinking Section Styles */
         .thinking-section {
-            background: var(--surface-dim);
-            border: 1px solid var(--border-dim);
-            border-radius: 10px;
-            overflow: hidden;
-            font-size: 0.8rem;
+            margin-bottom: 4px;
 
             .thinking-header {
                 display: flex;
                 align-items: center;
                 gap: 6px;
-                padding: 6px 10px;
+                padding: 4px 0;
                 cursor: pointer;
                 user-select: none;
-                transition: background 0.2s;
+                opacity: 0.7;
+                transition: opacity 0.2s;
 
                 &:hover {
-                    background: var(--surface-highlight);
-                }
-
-                .thinking-icon {
-                    font-size: 0.9rem;
+                    opacity: 1;
                 }
 
                 .thinking-label {
-                    color: var(--text-secondary);
-                    font-weight: 500;
-                    flex: 1;
+                    font-size: 0.8rem;
+                    color: var(--text-tertiary);
+                    font-style: italic;
+                    /* font-family: 'SF Mono', 'Roboto Mono', monospace; Removed to match Generating... */
+                    
+                    .dot {
+                        animation: dot-fade 1.5s infinite;
+                        opacity: 0;
+                    }
+                    .dot:nth-child(1) { animation-delay: 0.0s; }
+                    .dot:nth-child(2) { animation-delay: 0.5s; }
+                    .dot:nth-child(3) { animation-delay: 1.0s; }
                 }
 
                 .thinking-chevron {
@@ -1384,29 +1520,23 @@ import TaskSummaryWidget from './TaskSummaryWidget.vue';
                     transition: transform 0.2s;
 
                     &.expanded {
-                        transform: rotate(180deg);
+                        transform: rotate(90deg);
                     }
-                }
-
-                .streaming-indicator {
-                    width: 8px;
-                    height: 8px;
-                    background: var(--accent-primary);
-                    border-radius: 50%;
-                    animation: pulse 1s ease-in-out infinite;
                 }
             }
 
             .thinking-content {
-                padding: 8px 10px;
+                padding: 6px 10px; /* Reduced padding */
                 color: var(--text-secondary);
-                line-height: 1.5;
-                border-top: 1px solid var(--border-dim);
-                white-space: pre-wrap;
-                max-height: 200px;
-                overflow-y: auto;
-                font-family: monospace;
-                font-size: 0.75rem;
+                line-height: 1.4; /* Tighter line height */
+                font-size: 0.8rem;
+                border-left: 2px solid var(--border-dim);
+                margin-left: 6px; /* Align with chevron center approx */
+                margin-top: 2px;
+                margin-bottom: 6px;
+                /* white-space: pre-wrap;  Removed because MarkdownText handles it */
+                background: rgba(0, 0, 0, 0.2); /* Very subtle background */
+                border-radius: 0 8px 8px 0;
             }
         }
     }
@@ -1806,24 +1936,38 @@ import TaskSummaryWidget from './TaskSummaryWidget.vue';
     display: flex;
     gap: 8px;
     margin-bottom: 12px;
+    align-items: flex-end; /* Align items to bottom for multiline textarea */
     
-    input {
+    textarea {
         flex: 1;
         background: var(--surface-highlight); /* White in light mode */
         border: 1px solid var(--border-dim); /* Visible border */
         border-radius: 8px;
-        padding: 8px 12px;
+        padding: 6px 10px;
         color: var(--text-primary);
-        font-size: 0.9rem;
+        font-size: 0.75rem; /* Reduced from 0.9rem */
         outline: none;
         transition: all 0.2s;
         box-shadow: 0 2px 6px rgba(0,0,0,0.05); /* Subtle shadow */
+        resize: none; /* Prevent manual resize */
+        min-height: 32px;
+        max-height: 120px; /* Limit max height */
+        overflow-y: auto;
+        font-family: inherit;
+        line-height: 1.4;
         
         &:focus {
             border-color: var(--accent-primary);
             box-shadow: 0 2px 8px rgba(0,0,0,0.1); /* Stronger shadow on focus */
         }
         &::placeholder { color: var(--text-tertiary); }
+        
+        /* Disabled state styling */
+        &:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+            background: var(--surface-dim);
+        }
     }
 
     .send-btn {
