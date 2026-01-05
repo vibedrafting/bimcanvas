@@ -107,9 +107,17 @@ const handleCheckoutConfirm = async (saveBeforeSwitch: boolean, commitMessage?: 
       commitMessage
     });
   } else {
-    // 放弃更改：清除脏标记，直接切换
+    // 放弃更改：调用后端接口清除更改
+    const result = await gitStore.discardChanges();
+    if (!result.success) {
+      console.error('放弃更改失败:', result.message);
+      // TODO: 可以添加UI提示
+      return;
+    }
+
     canvasStore.clearDirty();
-    await gitStore.checkout(branchName);
+    // 使用 forceCheckout 跳过脏检查，因为已经放弃了更改
+    await gitStore.checkout(branchName, { forceCheckout: true });
   }
 
   pendingCheckoutBranch.value = '';

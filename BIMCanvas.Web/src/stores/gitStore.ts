@@ -37,6 +37,7 @@ interface CheckoutOptions {
   createIfNotExist?: boolean;
   commitBeforeCheckout?: boolean;
   commitMessage?: string;
+  forceCheckout?: boolean;  // 跳过脏检查（用于"放弃更改后切换"场景）
 }
 
 export const useGitStore = defineStore('git', () => {
@@ -147,6 +148,35 @@ export const useGitStore = defineStore('git', () => {
   };
 
   /**
+   * 放弃所有更改
+   */
+  const discardChanges = async (): Promise<{ success: boolean; message?: string }> => {
+    try {
+      isLoading.value = true;
+      const response = await fetch(`${SERVER_API_BASE}/api/git/discard`, {
+        method: 'POST'
+      });
+
+      if (response.ok) {
+        hasUncommittedChanges.value = false;
+        // 重新加载项目以反映更改被丢弃后的状态
+        const canvasStore = useCanvasStore();
+        await canvasStore.loadProject(true);
+        console.log('[GitStore] 已放弃所有更改');
+        return { success: true };
+      } else {
+        const err = await response.json();
+        return { success: false, message: err.message };
+      }
+    } catch (e) {
+      console.error('[GitStore] 放弃更改请求失败:', e);
+      return { success: false, message: '请求失败' };
+    } finally {
+      isLoading.value = false;
+    }
+  };
+
+  /**
    * 切换到指定分支
    * @param branchName 分支名称
    * @param options 切换选项
@@ -160,9 +190,10 @@ export const useGitStore = defineStore('git', () => {
     const canvasStore = useCanvasStore();
 
     // 检查内存中是否有未保存的修改（脏数据检测）
-    // 只有在不是 commitBeforeCheckout 模式时才检查
-    // 因为 commitBeforeCheckout 模式表示用户已确认要保存
-    if (!opts.commitBeforeCheckout && canvasStore.isDirty) {
+    // 跳过检查的情况：
+    // - commitBeforeCheckout 模式：用户已确认要保存
+    // - forceCheckout 模式：用于"放弃更改后切换"场景
+    if (!opts.commitBeforeCheckout && !opts.forceCheckout && canvasStore.isDirty) {
       console.warn('[GitStore] 检测到内存中有未保存的修改');
       hasUncommittedChanges.value = true;
       return {
@@ -251,6 +282,7 @@ export const useGitStore = defineStore('git', () => {
     fetchBranches,
     checkStatus,
     commit,
+    discardChanges,
     checkout,
     clearError
   };

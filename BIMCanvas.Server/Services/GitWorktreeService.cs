@@ -409,6 +409,32 @@ namespace BIMCanvas.Server.Services
 
         #endregion
 
+        #region 还原操作
+
+        /// <summary>
+        /// 放弃所有未提交的更改（危险操作）
+        /// </summary>
+        public void DiscardChanges(string workingDir)
+        {
+            // 1. 还原已跟踪文件的修改
+            var checkoutResult = RunGit(workingDir, "checkout .");
+            if (!checkoutResult.Success)
+            {
+                throw new InvalidOperationException($"还原文件失败: {checkoutResult.Error}");
+            }
+
+            // 2. 删除未跟踪的文件和目录
+            var cleanResult = RunGit(workingDir, "clean -fd");
+            if (!cleanResult.Success)
+            {
+                throw new InvalidOperationException($"清理未跟踪文件失败: {cleanResult.Error}");
+            }
+
+            _logger.LogInformation("已放弃所有未提交的更改: {Path}", workingDir);
+        }
+
+        #endregion
+
         #region 分支详细信息
 
         /// <summary>

@@ -154,9 +154,17 @@ const handleCheckoutConfirm = async (saveBeforeSwitch: boolean, commitMessage?: 
       commitMessage
     });
   } else {
-    // 放弃更改：清除脏标记，直接切换
+    // 放弃更改：调用后端接口清除 Git 更改
+    const result = await gitStore.discardChanges();
+    if (!result.success) {
+      console.error('放弃更改失败:', result.message);
+      pendingCheckoutBranch.value = '';
+      return;
+    }
+
     store.clearDirty();
-    await gitStore.checkout(branchName);
+    // 使用 forceCheckout 跳过脏检查，因为已经放弃了更改
+    await gitStore.checkout(branchName, { forceCheckout: true });
   }
 
   pendingCheckoutBranch.value = '';
@@ -401,18 +409,7 @@ const sendMessage = async () => {
    }
 };
 
-const clearHistory = async () => {
-  try {
-    await fetch(`${AGENT_API_BASE}/api/clear-history`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ projectPath: currentProjectPath.value })
-    });
-    chatMessages.value = [];
-  } catch (error) {
-    console.error('Clear history error:', error);
-  }
-};
+
 
 const scrollToBottom = (options?: { force?: boolean }) => {
   if (!options?.force && mode.value !== 'chat') return;
@@ -924,9 +921,7 @@ import MarkdownText from './base/MarkdownText.vue';
             >
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="19" x2="12" y2="5"></line><polyline points="5 12 12 5 19 12"></polyline></svg>
             </button>
-            <button class="clear-btn" @click="clearHistory" title="清空对话">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h18M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>
-            </button>
+
         </div>
         
         <div class="strategy-toggle">
@@ -1979,6 +1974,25 @@ import MarkdownText from './base/MarkdownText.vue';
         overflow-y: auto;
         font-family: inherit;
         line-height: 1.4;
+
+        /* Custom Scrollbar */
+        scrollbar-width: thin;
+        scrollbar-color: var(--border-dim) transparent;
+
+        &::-webkit-scrollbar { 
+            width: 4px;
+            height: 4px; /* For horizontal scrollbar if any */
+        }
+        &::-webkit-scrollbar-track { 
+            background: transparent; 
+        }
+        &::-webkit-scrollbar-thumb { 
+            background: var(--border-dim); 
+            border-radius: 4px; 
+        }
+        &:hover::-webkit-scrollbar-thumb { 
+            background: var(--text-tertiary); 
+        }
         
         &:focus {
             border-color: var(--accent-primary);
@@ -2081,28 +2095,7 @@ import MarkdownText from './base/MarkdownText.vue';
     }
 }
 
-/* Clear button */
-.clear-btn {
-    width: 36px;
-    height: 36px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    background: var(--surface-highlight);
-    border: 1px solid var(--border-dim);
-    border-radius: 8px;
-    color: var(--text-secondary);
-    cursor: pointer;
-    transition: all 0.2s;
 
-    svg { width: 16px; height: 16px; }
-
-    &:hover {
-        background: var(--surface-elevated);
-        color: var(--text-primary);
-        border-color: var(--border-subtle);
-    }
-}
 
 /* Disabled state for input/button */
 .input-area {

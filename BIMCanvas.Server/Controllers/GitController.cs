@@ -216,6 +216,43 @@ namespace BIMCanvas.Server.Controllers
         }
 
         /// <summary>
+        /// 放弃所有未提交的更改
+        /// </summary>
+        /// <returns>操作结果</returns>
+        [HttpPost("discard")]
+        public ActionResult DiscardChanges()
+        {
+            // 检查项目是否已加载
+            if (!_projectContext.IsLoaded)
+            {
+                return BadRequest(new { message = "没有加载的项目" });
+            }
+
+            var projectPath = _projectContext.CurrentProjectPath!;
+
+            // 检查是否是 Git 仓库
+            if (!_gitService.IsGitRepository(projectPath))
+            {
+                return BadRequest(new { message = "项目目录不是 Git 仓库" });
+            }
+
+            try
+            {
+                _gitService.DiscardChanges(projectPath);
+                return Ok(new
+                {
+                    success = true,
+                    message = "已放弃所有更改"
+                });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "放弃更改失败");
+                return StatusCode(500, new { message = $"放弃更改失败: {ex.Message}" });
+            }
+        }
+
+        /// <summary>
         /// 获取工作区状态（是否有未提交的更改）
         /// </summary>
         /// <returns>工作区状态</returns>
