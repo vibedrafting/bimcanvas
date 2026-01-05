@@ -1,3 +1,4 @@
+
 <script setup lang="ts">
 import { ref, watch, computed } from 'vue';
 import GlassButton from '../base/GlassButton.vue';
@@ -15,9 +16,7 @@ const emit = defineEmits<{
   (e: 'cancel'): void;
 }>();
 
-const saveBeforeSwitch = ref(true);
 const customMessage = ref('');
-const useCustomMessage = ref(false);
 
 // 默认提交信息
 const defaultMessage = computed(() =>
@@ -26,22 +25,22 @@ const defaultMessage = computed(() =>
 
 // 最终提交信息
 const finalMessage = computed(() =>
-  useCustomMessage.value && customMessage.value
-    ? customMessage.value
-    : defaultMessage.value
+  customMessage.value.trim() || defaultMessage.value
 );
 
 // 重置状态
 watch(() => props.visible, (newVal) => {
   if (newVal) {
-    saveBeforeSwitch.value = true;
     customMessage.value = '';
-    useCustomMessage.value = false;
   }
 });
 
-const handleConfirm = () => {
-  emit('confirm', saveBeforeSwitch.value, saveBeforeSwitch.value ? finalMessage.value : undefined);
+const handleCommitAndSwitch = () => {
+  emit('confirm', true, finalMessage.value);
+};
+
+const handleDiscardAndSwitch = () => {
+  emit('confirm', false);
 };
 
 const handleCancel = () => {
@@ -62,7 +61,7 @@ const handleCancel = () => {
                 <line x1="12" y1="17" x2="12.01" y2="17"></line>
               </svg>
             </div>
-            <h3>存在未保存的更改</h3>
+            <h3>存在未提交的更改</h3>
             <button class="close-btn" @click="handleCancel">
               <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2">
                 <line x1="18" y1="6" x2="6" y2="18"></line>
@@ -77,68 +76,31 @@ const handleCancel = () => {
               切换到 <span class="branch-name">{{ targetBranch }}</span> 前需要处理这些更改。
             </p>
 
-            <div class="options">
-              <label class="option-item" :class="{ selected: saveBeforeSwitch }">
-                <input
-                  type="radio"
-                  :value="true"
-                  v-model="saveBeforeSwitch"
-                  name="save-option"
-                />
-                <div class="option-content">
-                  <span class="option-title">保存后切换</span>
-                  <span class="option-desc">自动提交当前更改，然后切换分支</span>
-                </div>
-              </label>
-
-              <label class="option-item" :class="{ selected: !saveBeforeSwitch }">
-                <input
-                  type="radio"
-                  :value="false"
-                  v-model="saveBeforeSwitch"
-                  name="save-option"
-                />
-                <div class="option-content">
-                  <span class="option-title">放弃更改并切换</span>
-                  <span class="option-desc warning-text">丢弃所有未保存的更改（不可恢复）</span>
-                </div>
-              </label>
-            </div>
-
-            <!-- 自定义提交信息 -->
-            <div v-if="saveBeforeSwitch" class="commit-message-section">
-              <label class="checkbox-label">
-                <input
-                  type="checkbox"
-                  v-model="useCustomMessage"
-                />
-                <span>自定义提交信息</span>
-              </label>
-
-              <div v-if="useCustomMessage" class="message-input-wrapper">
-                <input
-                  v-model="customMessage"
-                  type="text"
-                  class="glass-input"
-                  :placeholder="defaultMessage"
-                />
-              </div>
-
-              <div v-else class="default-message">
-                <span class="label">提交信息：</span>
-                <span class="value">{{ defaultMessage }}</span>
-              </div>
+            <div class="input-section">
+              <label class="input-label">提交信息 (可选)</label>
+              <input
+                v-model="customMessage"
+                type="text"
+                class="glass-input"
+                :placeholder="defaultMessage"
+                @keydown.enter="handleCommitAndSwitch"
+              />
             </div>
           </div>
 
           <div class="dialog-footer">
-            <GlassButton variant="ghost" @click="handleCancel">取消</GlassButton>
-            <GlassButton
-              :variant="saveBeforeSwitch ? 'primary' : 'ghost'"
-              :class="{ 'danger-btn': !saveBeforeSwitch }"
-              @click="handleConfirm"
+            <GlassButton 
+              variant="ghost" 
+              class="danger-btn"
+              @click="handleDiscardAndSwitch"
             >
-              {{ saveBeforeSwitch ? '保存并切换' : '放弃更改' }}
+              放弃更改并切换
+            </GlassButton>
+            <GlassButton
+              variant="primary"
+              @click="handleCommitAndSwitch"
+            >
+              提交并切换
             </GlassButton>
           </div>
         </div>
@@ -151,8 +113,7 @@ const handleCancel = () => {
 .dialog-overlay {
   position: fixed;
   inset: 0;
-  background: rgba(0, 0, 0, 0.6);
-  backdrop-filter: blur(4px);
+  background: rgba(0, 0, 0, 0.4); /* 仅变暗，无模糊 */
   display: flex;
   align-items: center;
   justify-content: center;
@@ -160,22 +121,29 @@ const handleCancel = () => {
 }
 
 .dialog-card {
-  background: var(--glass-bg-solid);
-  border: var(--glass-border);
-  border-radius: 12px;
-  width: 420px;
-  box-shadow: var(--shadow-modal);
-  display: flex;
-  flex-direction: column;
+  /* Deep Glass Style (More Opaque) */
+  background: rgba(30, 32, 36, 0.75);
+  backdrop-filter: blur(24px);
+  -webkit-backdrop-filter: blur(24px);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  border-radius: 24px;
+  width: 440px;
+  
+  /* Glare & Deep Shadow */
+  background-image: linear-gradient(to bottom, rgba(255, 255, 255, 0.08), rgba(255, 255, 255, 0.02) 20%, transparent);
+  box-shadow: 
+    0 24px 60px rgba(0, 0, 0, 0.6), /* Deeper shadow */
+    0 0 0 1px rgba(255, 255, 255, 0.05) inset; /* Subtle inner rim */
 
-  background-image: var(--glass-glare), linear-gradient(to bottom, var(--glass-bg-solid), var(--glass-bg-solid));
   background-origin: border-box;
   background-clip: padding-box, border-box;
+
+  display: flex;
+  flex-direction: column;
 }
 
 .dialog-header {
-  padding: 16px 20px;
-  border-bottom: 1px solid var(--border-subtle);
+  padding: 24px 24px 16px;
   display: flex;
   align-items: center;
   gap: 12px;
@@ -186,7 +154,8 @@ const handleCancel = () => {
     justify-content: center;
     width: 32px;
     height: 32px;
-    border-radius: 8px;
+    border-radius: 10px;
+    flex-shrink: 0;
 
     &.warning {
       background: rgba(245, 158, 11, 0.15);
@@ -196,7 +165,7 @@ const handleCancel = () => {
 
   h3 {
     margin: 0;
-    font-size: 1rem;
+    font-size: 1.1rem;
     font-weight: 600;
     color: var(--text-primary);
     flex: 1;
@@ -207,8 +176,12 @@ const handleCancel = () => {
     border: none;
     color: var(--text-secondary);
     cursor: pointer;
-    padding: 4px;
-    border-radius: 4px;
+    padding: 6px;
+    border-radius: 50%;
+    transition: all 0.2s;
+    display: flex;
+    align-items: center;
+    justify-content: center;
 
     &:hover {
       background: rgba(255, 255, 255, 0.1);
@@ -218,161 +191,96 @@ const handleCancel = () => {
 }
 
 .dialog-body {
-  padding: 20px;
+  padding: 0 24px 24px;
   display: flex;
   flex-direction: column;
-  gap: 16px;
+  gap: 20px;
 }
 
 .message {
   margin: 0;
-  font-size: 0.9rem;
+  font-size: 0.95rem;
   color: var(--text-secondary);
-  line-height: 1.5;
+  line-height: 1.6;
 }
 
 .branch-name {
   font-family: 'JetBrains Mono', monospace;
-  font-size: 0.85rem;
+  font-size: 0.9rem;
   padding: 2px 6px;
   background: rgba(59, 130, 246, 0.15);
   color: var(--accent-blue);
   border-radius: 4px;
-}
-
-.options {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-
-.option-item {
-  display: flex;
-  align-items: flex-start;
-  gap: 12px;
-  padding: 12px;
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  border-radius: 8px;
-  cursor: pointer;
-  transition: all 0.2s;
-
-  &:hover {
-    background: rgba(255, 255, 255, 0.03);
-  }
-
-  &.selected {
-    border-color: var(--accent-blue);
-    background: rgba(59, 130, 246, 0.08);
-  }
-
-  input[type="radio"] {
-    margin-top: 2px;
-    accent-color: var(--accent-blue);
-  }
-}
-
-.option-content {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-}
-
-.option-title {
-  font-size: 0.9rem;
   font-weight: 500;
-  color: var(--text-primary);
 }
 
-.option-desc {
-  font-size: 0.8rem;
-  color: var(--text-secondary);
-
-  &.warning-text {
-    color: #ef4444;
-  }
-}
-
-.commit-message-section {
+.input-section {
   display: flex;
   flex-direction: column;
   gap: 8px;
-  padding: 12px;
-  background: rgba(255, 255, 255, 0.03);
-  border-radius: 8px;
 }
 
-.checkbox-label {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  font-size: 0.85rem;
-  color: var(--text-secondary);
-  cursor: pointer;
-
-  input[type="checkbox"] {
-    accent-color: var(--accent-blue);
-  }
-}
-
-.message-input-wrapper {
-  margin-top: 4px;
+.input-label {
+  font-size: 0.8rem;
+  color: var(--text-muted);
+  font-weight: 500;
+  margin-left: 2px;
 }
 
 .glass-input {
   width: 100%;
-  background: rgba(255, 255, 255, 0.03);
+  background: rgba(0, 0, 0, 0.2);
   border: 1px solid rgba(255, 255, 255, 0.1);
-  border-radius: 6px;
-  padding: 8px 12px;
+  border-radius: 12px;
+  padding: 12px 16px;
   color: var(--text-primary);
   font-family: inherit;
-  font-size: 0.85rem;
+  font-size: 0.9rem;
   outline: none;
   transition: all 0.2s;
   box-sizing: border-box;
 
-  &:focus {
-    background: rgba(255, 255, 255, 0.08);
-    border-color: var(--accent-blue);
-  }
-}
-
-.default-message {
-  font-size: 0.8rem;
-  color: var(--text-muted);
-
-  .label {
-    color: var(--text-secondary);
-  }
-
-  .value {
+  &::placeholder {
+    color: var(--text-muted);
     font-style: italic;
+    opacity: 0.6;
+  }
+
+  &:focus {
+    background: rgba(0, 0, 0, 0.3);
+    border-color: var(--accent-blue);
+    box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.15);
   }
 }
 
 .dialog-footer {
-  padding: 16px 20px;
-  border-top: 1px solid var(--border-subtle);
+  padding: 20px 24px;
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
   display: flex;
-  justify-content: flex-end;
+  justify-content: flex-end; /* Right align buttons */
   gap: 12px;
+  background: rgba(0, 0, 0, 0.1);
+  border-radius: 0 0 24px 24px;
 }
 
 .danger-btn {
-  color: #ef4444 !important;
-
+  --btn-text: #f97316;
+  color: #f97316 !important;
+  opacity: 0.8;
+  
   &:hover {
-    background: rgba(239, 68, 68, 0.1) !important;
+    opacity: 1;
+    background: rgba(249, 115, 22, 0.1) !important;
   }
 }
 
-/* Animation */
+/* 弹窗动画 */
 .dialog-enter-active,
 .dialog-leave-active {
-  transition: opacity 0.2s ease;
+  transition: opacity 0.3s ease;
 
   .dialog-card {
-    transition: transform 0.2s var(--ease-spring);
+    transition: transform 0.4s cubic-bezier(0.34, 1.56, 0.64, 1);
   }
 }
 
@@ -381,7 +289,7 @@ const handleCancel = () => {
   opacity: 0;
 
   .dialog-card {
-    transform: scale(0.95) translateY(10px);
+    transform: scale(0.9) translateY(20px);
   }
 }
 </style>
