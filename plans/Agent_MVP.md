@@ -11,7 +11,8 @@
 
 | 阶段 | 名称 | 核心产出 | 验收标准 |
 |------|------|----------|----------|
-| **P1** | Agent SDK 基础对话 | 对话功能 + Web 接入 | Web 端能与 Agent 正常对话 |
+| **P1** | 基础对话（Client SDK） | 对话功能 + Web 接入 | Web 端能与 Agent 正常对话 |
+| **P1.5** | 迁移到 Agent SDK | Agent SDK 对话 | 使用 Agent SDK 实现对话，为 P2 打基础 |
 | **P2** | 基础布置功能 | 布置决策 + modules.json | AI 能在房间中布置家具 |
 
 ### MVP 简化策略
@@ -38,9 +39,11 @@
 
 ## 二、阶段详细计划
 
-### 阶段 P1：Agent SDK 基础对话 + Web 接入
+### 阶段 P1：基础对话（Client SDK）+ Web 接入
 
-**目标**：实现基于 Agent SDK 的对话功能，并接入 Web 端 AI 对话面板
+**目标**：实现基于 Anthropic Client SDK 的对话功能，并接入 Web 端 AI 对话面板
+
+> **说明**：P1 阶段使用 Anthropic Client SDK（`anthropic` 包）快速实现对话功能。P1.5 阶段将迁移到 Agent SDK。
 
 #### P1.1 基础设施搭建
 
@@ -247,10 +250,151 @@ const clearHistory = async () => {
 
 #### P1 验收标准
 
-- [ ] Agent HTTP 服务可正常启动（`python -m src.main --serve`）
-- [ ] Web 端 AI 对话面板可调用 Agent API
-- [ ] 对话历史正确维护
-- [ ] 多轮对话正常工作
+- [x] Agent HTTP 服务可正常启动（`python -m src.main --serve`）
+- [x] Web 端 AI 对话面板可调用 Agent API
+- [x] 对话历史正确维护
+- [x] 多轮对话正常工作
+
+> ✅ **P1 阶段已完成**（2025-01-05）
+
+---
+
+### 阶段 P1.5：迁移到 Agent SDK
+
+**目标**：将对话功能从 Anthropic Client SDK 迁移到 Agent SDK，保持现有 API 不变，为 P2 工具调用打下基础。
+
+**前提**：P1 阶段验收通过
+
+#### P1.5.1 为什么要迁移？
+
+| 方面 | Client SDK (当前) | Agent SDK (目标) |
+|------|------------------|------------------|
+| 包名 | `anthropic` | `claude-agent-sdk` |
+| 工具执行 | 手动实现工具循环 | Claude 自主执行 |
+| 内置工具 | 无 | Read, Write, Edit, Bash, Glob, Grep 等 |
+| 对话管理 | 手动维护 history | 框架自动管理（会话恢复） |
+
+**迁移价值**：
+1. **文件驱动架构**：BIMCanvas 是文件驱动架构，Agent SDK 内置 Read/Write/Edit 工具正好用于操作项目文件
+2. **为 P2 打基础**：P2 阶段需要工具调用，Agent SDK 原生支持
+3. **简化代码**：Agent SDK 自动管理工具循环，无需手动实现
+
+#### P1.5.2 依赖变更
+
+**pyproject.toml 修改**：
+```toml
+# 移除
+dependencies = [
+    "anthropic>=0.40.0",
+    ...
+]
+
+# 新增
+dependencies = [
+    "claude-agent-sdk>=0.1.0",  # Agent SDK
+    "aiohttp>=3.9.0",
+    "aiohttp-cors>=0.7.0",
+    "python-dotenv>=1.0.0",
+]
+```
+
+**前置条件**：
+- 安装 Claude Code CLI：`npm install -g @anthropic-ai/claude-code`
+- 设置 API Key：`ANTHROPIC_API_KEY`
+
+#### P1.5.3 PlacementAgent 重写
+
+**目标实现**（Agent SDK）：
+```python
+from claude_agent_sdk import query, ClaudeAgentOptions, AssistantMessage, TextBlock
+
+# Agent 系统提示词
+SYSTEM_PROMPT = """你是 BIMCanvas 的 PlacementAgent，一个专业的室内布置助手。
+...（保持不变）
+"""
+
+class PlacementAgent:
+    """基于 Agent SDK 的布置助手"""
+
+    def __init__(self, project_path: str = None):
+        self.project_path = project_path
+        self.session_id = None  # Agent SDK 会话管理
+
+    async def chat(self, user_message: str) -> str:
+        """处理用户消息并返回回复"""
+        options = ClaudeAgentOptions(
+            system_prompt=SYSTEM_PROMPT,
+            cwd=self.project_path,  # 设置工作目录
+            max_turns=1,  # P1.5: 单轮对话
+            # P2 阶段将启用工具：
+            # allowed_tools=["Read", "Write", "Glob"],
+            # permission_mode="acceptEdits"
+        )
+
+        # 如果有会话，恢复上下文
+        if self.session_id:
+            options.resume = self.session_id
+
+        full_response = ""
+        async for message in query(prompt=user_message, options=options):
+            # 捕获会话 ID
+            if hasattr(message, 'subtype') and message.subtype == 'init':
+                self.session_id = message.data.get('session_id')
+
+            # 提取文本响应
+            if isinstance(message, AssistantMessage):
+                for block in message.content:
+                    if isinstance(block, TextBlock):
+                        full_response += block.text
+
+        return full_response
+
+    async def chat_stream(self, user_message: str) -> AsyncIterator[str]:
+        """流式处理用户消息"""
+        options = ClaudeAgentOptions(
+            system_prompt=SYSTEM_PROMPT,
+            cwd=self.project_path,
+            max_turns=1
+        )
+
+        if self.session_id:
+            options.resume = self.session_id
+
+        async for message in query(prompt=user_message, options=options):
+            if hasattr(message, 'subtype') and message.subtype == 'init':
+                self.session_id = message.data.get('session_id')
+
+            if isinstance(message, AssistantMessage):
+                for block in message.content:
+                    if isinstance(block, TextBlock):
+                        yield block.text
+
+    def clear_history(self) -> None:
+        """清空对话历史（重置会话）"""
+        self.session_id = None
+
+    def get_history(self) -> list[dict]:
+        """获取对话历史（Agent SDK 通过 session 管理，返回空列表）"""
+        return []  # Agent SDK 内部管理，外部无法直接获取
+```
+
+#### P1.5.4 需要修改的文件
+
+| 文件 | 操作 | 说明 |
+|------|------|------|
+| `pyproject.toml` | 修改 | 依赖从 `anthropic` 改为 `claude-agent-sdk` |
+| `src/agent/placement_agent.py` | 重写 | 使用 Agent SDK 的 `query()` 函数 |
+| `src/server/http_server.py` | 微调 | 适配新的 Agent 接口（如有需要） |
+| `README.md` | 更新 | 更新依赖说明和架构描述 |
+
+#### P1.5 验收标准
+
+- [ ] `pip install -e .` 成功安装 `claude-agent-sdk`
+- [ ] Agent HTTP 服务可正常启动
+- [ ] Web 端 AI 对话面板可正常对话
+- [ ] 流式响应正常工作
+- [ ] 清空历史功能正常
+- [ ] 多轮对话上下文保持（通过 session_id）
 
 ---
 
@@ -258,7 +402,7 @@ const clearHistory = async () => {
 
 **目标**：实现 AI 家具布置决策，输出 modules.json
 
-**前提**：P1 阶段验收通过
+**前提**：P1.5 阶段验收通过（已迁移到 Agent SDK）
 
 #### P2.1 Server 端预处理（非 Agent 职责）
 
@@ -478,11 +622,20 @@ async def layout_task_handler(request: web.Request) -> web.Response:
 | `BIMCanvas.Agent/src/config/settings.py` | 新建 | 配置管理 |
 | `BIMCanvas.Web/src/components/UI/AICommandCenter.vue` | 修改 | 接入 Agent API |
 
+### P1.5 阶段需要修改的文件
+
+| 文件 | 类型 | 说明 |
+|------|------|------|
+| `BIMCanvas.Agent/pyproject.toml` | 修改 | 依赖从 `anthropic` 改为 `claude-agent-sdk` |
+| `BIMCanvas.Agent/src/agent/placement_agent.py` | 重写 | 使用 Agent SDK 的 `query()` 函数 |
+| `BIMCanvas.Agent/src/server/http_server.py` | 微调 | 适配新的 Agent 接口（如有需要） |
+| `BIMCanvas.Agent/README.md` | 更新 | 更新依赖说明和架构描述 |
+
 ### P2 阶段需要创建/修改的文件
 
 | 文件 | 类型 | 说明 |
 |------|------|------|
-| `BIMCanvas.Agent/src/agent/placement_agent.py` | 修改 | 添加工具定义和布置逻辑 |
+| `BIMCanvas.Agent/src/agent/placement_agent.py` | 修改 | 启用工具调用（allowed_tools） |
 | `BIMCanvas.Agent/src/server/http_server.py` | 修改 | 添加布置任务 API |
 | `BIMCanvas.Server/Services/ZoneTagService.cs` | 新建 | Server 端功能标签分配 |
 
@@ -544,10 +697,21 @@ C:\Users\huhaonan\Documents\BIMCanvas\Projects\demo_1
 
 ### P1 阶段验收
 
+- [x] Agent HTTP 服务可正常启动
+- [x] Web 端 AI 对话面板可调用 Agent API
+- [x] 对话历史正确维护
+- [x] 多轮对话正常工作
+
+> ✅ **P1 阶段已完成**
+
+### P1.5 阶段验收
+
+- [ ] `pip install -e .` 成功安装 `claude-agent-sdk`
 - [ ] Agent HTTP 服务可正常启动
-- [ ] Web 端 AI 对话面板可调用 Agent API
-- [ ] 对话历史正确维护
-- [ ] 多轮对话正常工作
+- [ ] Web 端 AI 对话面板可正常对话
+- [ ] 流式响应正常工作
+- [ ] 清空历史功能正常
+- [ ] 多轮对话上下文保持
 
 ### P2 阶段验收
 

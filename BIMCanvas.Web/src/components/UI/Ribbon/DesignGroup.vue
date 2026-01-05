@@ -1,7 +1,8 @@
 <script setup lang="ts">
-import { ref } from 'vue';
+import { ref, computed } from 'vue';
 import GlassSelect from '../base/GlassSelect.vue';
 import GlassButton from '../base/GlassButton.vue';
+import BranchCreationDialog from './BranchCreationDialog.vue';
 
 // --- Strategy Section ---
 const currentStrategy = ref('default');
@@ -23,30 +24,79 @@ const strategies = [
   },
 ];
 
-// --- Variant Section ---
-const currentVariant = ref('main');
-const variants = [
+// --- Variant/Branch Section ---
+const currentBranch = ref('main');
+const showBranchDialog = ref(false);
+
+// Mock Data for Branches
+const branches = ref([
   { 
     label: 'Main Branch', 
     value: 'main', 
+    tags: ['Base'],
     icon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><line x1="6" y1="3" x2="6" y2="15"></line><circle cx="18" cy="6" r="3"></circle><circle cx="6" cy="18" r="3"></circle><path d="M18 9a9 9 0 0 1-9 9"></path></svg>' 
   },
   { 
     label: 'Option A', 
     value: 'opt_a', 
+    tags: ['Storage First'],
     icon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><path d="M12 16v-4"></path><path d="M12 8h.01"></path></svg>' 
   },
   { 
     label: 'Option B', 
     value: 'opt_b', 
+    tags: ['Flow First'],
     icon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><path d="M12 8v8"></path><path d="M8 12h8"></path></svg>' 
   },
+]);
+
+// Computed options including "Create New..."
+const branchOptions = computed(() => [
+  ...branches.value,
   { 
-    label: 'Manage...', 
-    value: 'manage', 
-    icon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path></svg>' 
+    label: 'Create New Branch...', 
+    value: '__create_new__', 
+    icon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>' 
   },
-];
+]);
+
+const handleBranchChange = (val: string | number) => {
+  if (val === '__create_new__') {
+    // Revert selection to previous (or keep current) until created
+    // For now, we just open dialog. Ideally we'd track previous value.
+    showBranchDialog.value = true;
+    // Reset selection to current valid branch to avoid showing "Create New..." as selected
+    // In a real app, we might want to wait for dialog close.
+  } else {
+    currentBranch.value = val as string;
+  }
+};
+
+const handleCreateBranch = (data: { name: string; baseBranch: string; tags: string[]; reason: string }) => {
+  // Mock creation logic
+  const newId = `feat/${data.name.toLowerCase().replace(/\s+/g, '-')}`;
+  branches.value.push({
+    label: data.name,
+    value: newId,
+    tags: data.tags,
+    icon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle></svg>'
+  });
+  
+  currentBranch.value = newId;
+  showBranchDialog.value = false;
+  console.log('Created Branch:', data);
+};
+
+// Get current branch tags for dialog defaults
+const currentBranchTags = computed(() => {
+  const branch = branches.value.find(b => b.value === currentBranch.value);
+  return branch?.tags || [];
+});
+
+// Simple branch list for dialog base selection
+const simpleBranchList = computed(() => 
+  branches.value.map(b => ({ label: b.label, value: b.value }))
+);
 </script>
 
 <template>
@@ -91,9 +141,10 @@ const variants = [
         <div class="combo-box">
           <span class="label">Current Branch</span>
           <GlassSelect 
-            v-model="currentVariant" 
-            :options="variants" 
-            width="160px"
+            :model-value="currentBranch"
+            @update:model-value="handleBranchChange"
+            :options="branchOptions" 
+            width="200px"
           />
         </div>
         
@@ -112,6 +163,16 @@ const variants = [
           Merge
         </GlassButton>
       </div>
+
+      <!-- Branch Creation Dialog -->
+      <BranchCreationDialog
+        :visible="showBranchDialog"
+        :base-branch="currentBranch"
+        :base-tags="currentBranchTags"
+        :all-branches="simpleBranchList"
+        @create="handleCreateBranch"
+        @cancel="showBranchDialog = false"
+      />
 
     </div>
   </div>

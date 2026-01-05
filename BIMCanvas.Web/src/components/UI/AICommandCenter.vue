@@ -781,14 +781,14 @@ import TaskSummaryWidget from './TaskSummaryWidget.vue';
 /* --- Layer 1: Context Header --- */
 /* --- Layer 1: Context Header --- */
 .layer-context {
-    padding: 20px;
+    padding: 12px 16px; /* Compact padding */
     border-bottom: 1px solid var(--border-dim);
 
     .context-row {
         display: flex;
         align-items: center;
         width: 100%;
-        margin-bottom: 12px;
+        margin-bottom: 8px; /* Reduced margin */
     }
 
     /* Branch Dropdown Redesign */
@@ -801,13 +801,13 @@ import TaskSummaryWidget from './TaskSummaryWidget.vue';
             width: 100%;
             display: flex;
             align-items: center;
-            gap: 8px;
-            padding: 8px 12px;
+            gap: 6px; /* Reduced gap */
+            padding: 6px 10px; /* Compact padding */
             background: var(--surface-dim);
             border: 1px solid var(--border-dim);
             border-radius: 8px;
             color: var(--text-primary);
-            font-size: 0.85rem;
+            font-size: 0.8rem; /* Smaller font */
             cursor: pointer;
             transition: all 0.2s ease;
 
@@ -834,21 +834,24 @@ import TaskSummaryWidget from './TaskSummaryWidget.vue';
         }
 
         &.open .dropdown-trigger {
-            background: var(--surface-highlight);
-            border-color: var(--accent-primary);
+            background: var(--surface-elevated); /* Match dropdown menu bg */
+            border-color: var(--border-subtle); /* Match dropdown menu border */
+            border-bottom-left-radius: 0; /* Connect to menu */
+            border-bottom-right-radius: 0;
             .chevron { transform: rotate(180deg); }
         }
 
         .dropdown-menu {
             position: absolute;
-            top: calc(100% + 8px);
+            top: 100%; /* Connect directly */
             left: 0;
-            width: 320px; /* Wider dropdown for details */
+            width: 100%; /* Consistent width */
             background: var(--surface-elevated);
             border: 1px solid var(--border-subtle);
-            border-radius: 12px;
+            border-top: none; /* Remove top border to merge */
+            border-radius: 0 0 12px 12px; /* Only round bottom */
             box-shadow: 0 8px 32px rgba(0,0,0,0.2);
-            padding: 8px;
+            padding: 6px; /* Compact padding */
             backdrop-filter: blur(16px);
             animation: slideDown 0.2s cubic-bezier(0.2, 0.8, 0.2, 1);
 
@@ -861,8 +864,8 @@ import TaskSummaryWidget from './TaskSummaryWidget.vue';
             .branch-item {
                 display: flex;
                 flex-direction: column;
-                gap: 4px;
-                padding: 10px 12px;
+                gap: 2px; /* Tighter gap */
+                padding: 8px 10px; /* Compact padding */
                 border-radius: 8px;
                 cursor: pointer;
                 border: 1px solid transparent;
@@ -938,8 +941,8 @@ import TaskSummaryWidget from './TaskSummaryWidget.vue';
     .mode-switch {
         display: flex;
         background: var(--btn-ghost-bg-hover); /* Adaptive background */
-        border-radius: 10px;
-        padding: 4px;
+        border-radius: 8px; /* Smaller radius */
+        padding: 3px; /* Compact padding */
         border: 1px solid var(--border-subtle); /* Standardized border */
         
         button {
@@ -947,10 +950,10 @@ import TaskSummaryWidget from './TaskSummaryWidget.vue';
             border: 1px solid transparent;
             background: none;
             color: var(--text-secondary);
-            font-size: 0.85rem;
+            font-size: 0.8rem; /* Smaller font */
             font-weight: 500;
-            padding: 6px 12px;
-            border-radius: 8px;
+            padding: 4px 10px; /* Compact padding */
+            border-radius: 6px; /* Smaller radius */
             cursor: pointer;
             transition: all 0.2s ease;
             white-space: nowrap;
