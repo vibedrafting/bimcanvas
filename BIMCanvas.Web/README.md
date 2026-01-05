@@ -285,5 +285,61 @@ Three.js 顺时针 ✓              rotatePoint2D 顺时针 ✓
 > 相关文件: `RotateTool.ts`, `GhostManager.ts`, `coordinates.ts`
 > 完整分析: `reports/BUG_RotateDirection/`
 
+### 文件驱动持久化 ⚠️ 核心架构
+
+**问题现象**：移动家具模块后刷新页面，家具回到原位。
+
+**根因分析**：
+
+项目采用"文件驱动架构"（File-Driven Architecture），要求 Web 端的修改**必须立即写入文件系统**。但编辑操作完成后，`endBatchUpdate()` 只保存到内存中的 Timeline（支持 Undo/Redo），**没有调用 `saveToServer()` 持久化到磁盘**。
+
+```
+修复前（断裂）:
+用户移动 → updateModule() → 内存更新 ✓ → saveState() → [停止]
+                                                         ↑
+                                              缺少 saveToServer()
+刷新页面 → Server 读取磁盘上的旧数据 → 家具回到原位
+
+修复后（完整）:
+用户移动 → updateModule() → 内存更新 ✓ → saveState() → saveToServer()
+                                                            ↓
+                                         Server 写入 modules.json ✓
+刷新页面 → Server 读取磁盘上的新数据 → 家具位置正确
+```
+
+**修复方案**：
+
+```typescript
+// src/stores/canvasStore.ts - endBatchUpdate()
+const endBatchUpdate = async () => {
+    batchUpdateMode.value = false;
+
+    // 1. 保存到本地Timeline历史（Undo/Redo）
+    await nextTick();
+    saveState();
+
+    // 2. 持久化到文件系统（File-Driven Architecture）
+    if (isDirty.value) {
+        await saveToServer();  // ← 关键：必须调用！
+    }
+};
+```
+
+**架构原则**（摘自 `docs/FileDrivenArchitecture.md`）：
+
+> **场景B：可视化设计** - 用户在 Web 端拖拽 → Server 验证通过后**直接覆写**硬盘上的 JSON → 文件系统发生物理变更
+
+**开发检查清单**：
+
+| 新增编辑操作时 | 检查项 |
+|---------------|--------|
+| ✅ 内存更新 | 调用 `store.updateModule()` |
+| ✅ 脏标记 | `isDirty.value = true`（updateModule 自动设置）|
+| ✅ 批量更新 | 使用 `beginBatchUpdate()` / `endBatchUpdate()` 包裹 |
+| ✅ 持久化 | `endBatchUpdate()` 中自动调用 `saveToServer()` |
+
+> 相关文件: `src/stores/canvasStore.ts`, `src/services/interaction/tools/*.ts`
+> 架构文档: `docs/FileDrivenArchitecture.md`
+
 ---
-*文档最后更新时间: 2025-12-23*
+*文档最后更新时间: 2026-01-06*
