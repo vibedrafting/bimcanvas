@@ -78,6 +78,7 @@ const chatMessages = ref<ChatMessage[]>([]);
 const inputMessage = ref('');
 const isLoading = ref(false);
 const chatScrollRef = ref<HTMLElement | null>(null);
+const chatBottomRef = ref<HTMLElement | null>(null);
 const expandedThinking = ref<Record<number, boolean>>({});
 const shouldAutoScroll = ref(true); // Track if we should auto-scroll to bottom
 
@@ -203,16 +204,16 @@ const streamWelcomeMessage = async () => {
 
     // Simulate typing effect
     let i = 0;
-    const interval = setInterval(() => {
-        if (i < welcomeText.length) {
-            chatMessages.value[msgIndex].content += welcomeText[i];
-            i++;
-            scrollToBottom();
-        } else {
-            clearInterval(interval);
-            chatMessages.value[msgIndex].isStreaming = false;
-        }
-    }, 30);
+     const interval = setInterval(() => {
+         if (i < welcomeText.length) {
+             chatMessages.value[msgIndex].content += welcomeText[i];
+             i++;
+             scrollToBottom();
+         } else {
+             clearInterval(interval);
+             chatMessages.value[msgIndex].isStreaming = false;
+         }
+     }, 30);
 };
 
 // Watch for chat messages to auto-scroll (watch already imported at top)
@@ -235,6 +236,7 @@ const isNearBottom = () => {
 
 // Handle scroll event to track if user scrolled up
 const handleChatScroll = () => {
+    if (mode.value !== 'chat') return;
     shouldAutoScroll.value = isNearBottom();
 };
 
@@ -265,11 +267,11 @@ const sendMessage = async () => {
   // Force scroll to bottom when user sends message
   shouldAutoScroll.value = true;
   await nextTick();
-  scrollToBottom();
+  scrollToBottom({ force: true });
   // Additional scroll attempts to handle DOM rendering delays
-  requestAnimationFrame(() => scrollToBottom());
-  setTimeout(() => scrollToBottom(), 50);
-  setTimeout(() => scrollToBottom(), 150);
+  requestAnimationFrame(() => scrollToBottom({ force: true }));
+  setTimeout(() => scrollToBottom({ force: true }), 50);
+  setTimeout(() => scrollToBottom({ force: true }), 150);
 
   // Add placeholder AI message for streaming
   const aiMessageIndex = chatMessages.value.length;
@@ -360,9 +362,9 @@ const sendMessage = async () => {
                      // Collapse the thinking section
                      expandedThinking.value = { ...expandedThinking.value, [aiMessageIndex]: false };
                      
-                     // Force scroll after collapse
-                     nextTick(() => scrollToBottom());
-                 }
+                      // Force scroll after collapse
+                      nextTick(() => scrollToBottom());
+                  }
                  
                  if (parsed.type === 'text_complete') {
                     msg.content = parsed.content;
@@ -373,11 +375,11 @@ const sendMessage = async () => {
               currentMsg.content = `Error: ${parsed.error}`;
             }
 
-            await nextTick();
-            scrollToBottom();
-          } catch (e) {
-            console.error('Parse error:', e, data);
-          }
+             await nextTick();
+             scrollToBottom();
+           } catch (e) {
+             console.error('Parse error:', e, data);
+           }
         }
       }
     }
@@ -395,10 +397,10 @@ const sendMessage = async () => {
     currentMsg.isStreaming = false;
     agentStatus.value = 'disconnected';
   } finally {
-    isLoading.value = false;
-    await nextTick();
-    scrollToBottom();
-  }
+     isLoading.value = false;
+     await nextTick();
+     scrollToBottom();
+   }
 };
 
 const clearHistory = async () => {
@@ -414,7 +416,15 @@ const clearHistory = async () => {
   }
 };
 
-const scrollToBottom = () => {
+const scrollToBottom = (options?: { force?: boolean }) => {
+  if (!options?.force && mode.value !== 'chat') return;
+  if (!options?.force && !shouldAutoScroll.value) return;
+
+  if (chatBottomRef.value) {
+    chatBottomRef.value.scrollIntoView({ block: 'end' });
+    return;
+  }
+
   const el = chatScrollRef.value;
   if (el) {
     el.scrollTop = el.scrollHeight;
@@ -617,10 +627,10 @@ import MarkdownText from './base/MarkdownText.vue';
       </div>
 
       <!-- Layer 2: Intelligence Stream -->
-      <div class="layer-stream">
-        
-        <!-- View: Chat -->
-        <div v-if="mode === 'chat'" class="view-chat" ref="chatScrollRef" @scroll="handleChatScroll">
+      <div class="layer-stream" ref="chatScrollRef" @scroll="handleChatScroll">
+         
+         <!-- View: Chat -->
+        <div v-if="mode === 'chat'" class="view-chat">
 
             <!-- Task Summary Widget -->
             <TaskSummaryWidget :tasks="tasks" />
@@ -676,8 +686,9 @@ import MarkdownText from './base/MarkdownText.vue';
                 </div>
             </template>
 
-            <!-- Note: Loading state now handled within streaming messages -->
-        </div>
+             <!-- Note: Loading state now handled within streaming messages -->
+            <div ref="chatBottomRef" class="chat-bottom-anchor"></div>
+         </div>
 
         <!-- View: Tasks (formerly Review) -->
         <div v-else-if="mode === 'tasks'" class="view-tasks">
@@ -1390,6 +1401,12 @@ import MarkdownText from './base/MarkdownText.vue';
     display: flex;
     flex-direction: column;
     gap: 16px;
+
+    .chat-bottom-anchor {
+        height: 1px;
+        width: 100%;
+        flex-shrink: 0;
+    }
 
     .chat-message {
         display: flex;

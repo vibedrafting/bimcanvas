@@ -1,7 +1,7 @@
 # AI 面板自动置底功能问题分析报告
 
 **生成时间**: 2026-01-05 16:45
-**问题状态**: 未解决
+**问题状态**: ✅ 已修复（待验证）
 
 ---
 
@@ -28,8 +28,11 @@
 ```typescript
 // 文件: AICommandCenter.vue
 
-// 滚动容器的引用
+// 滚动容器（layer-stream）的引用
 const chatScrollRef = ref<HTMLElement | null>(null);
+
+// 底部哨兵（用于 scrollIntoView 的锚点）
+const chatBottomRef = ref<HTMLElement | null>(null);
 
 // 是否应该自动滚动的状态标记
 const shouldAutoScroll = ref(true);
@@ -38,12 +41,20 @@ const shouldAutoScroll = ref(true);
 ### 2.2 滚动函数
 
 ```typescript
-// 位置: 约第 397-402 行
-const scrollToBottom = () => {
-  const el = chatScrollRef.value;
-  if (el) {
-    el.scrollTop = el.scrollHeight;
+// 位置: 约第 419 行
+// - force: 用户发送消息时强制置底
+// - 非 force：仅在 shouldAutoScroll=true 且处于 chat 模式时自动滚动
+const scrollToBottom = (options?: { force?: boolean }) => {
+  if (!options?.force && mode.value !== 'chat') return;
+  if (!options?.force && !shouldAutoScroll.value) return;
+
+  if (chatBottomRef.value) {
+    chatBottomRef.value.scrollIntoView({ block: 'end' });
+    return;
   }
+
+  const el = chatScrollRef.value;
+  if (el) el.scrollTop = el.scrollHeight;
 };
 ```
 
@@ -64,75 +75,27 @@ setTimeout(() => scrollToBottom(), 150);
 ### 2.4 滚动容器绑定
 
 ```html
-<!-- 位置: 约第 619 行 -->
-<div v-if="mode === 'chat'" class="view-chat" ref="chatScrollRef" @scroll="handleChatScroll">
+<!-- 位置: 约第 630 行 -->
+<!-- 真实滚动发生在 layer-stream，因此 ref/scroll 事件绑定到 layer-stream -->
+<div class="layer-stream" ref="chatScrollRef" @scroll="handleChatScroll">
+  <div v-if="mode === 'chat'" class="view-chat">
+    ...
+    <div ref="chatBottomRef" class="chat-bottom-anchor"></div>
+  </div>
+</div>
 ```
 
 ---
 
 ## 三、可能的问题根因
 
-### 假设 1: `chatScrollRef` 为 null
+### 根因（已确认）: 滚动容器绑定错误 + 事件绑定错误
 
-**可能性**: 低
+- 实际产生滚动的是父容器 `.layer-stream`（有 `overflow-y: auto`）
+- 旧实现把 `ref` / `@scroll` 绑定在 `.view-chat`
+- `scroll` 事件不冒泡，导致 `shouldAutoScroll` 永远无法被用户滚动行为正确更新
 
-`ref` 绑定语法正确，且在 `onMounted` 后应该已经指向正确的 DOM 元素。
-
-**验证方法**: 在 `scrollToBottom` 中添加 `console.log(chatScrollRef.value)` 检查是否为 null。
-
----
-
-### 假设 2: CSS 样式导致滚动不生效
-
-**可能性**: 中
-
-如果 `.view-chat` 的 CSS 设置导致 `scrollHeight` 计算异常，或者 `overflow` 设置有问题，可能导致滚动失效。
-
-**当前 CSS (约第 1368 行)**:
-
-```scss
-.view-chat {
-    display: flex;
-    flex-direction: column;
-    gap: 16px;
-    // 注意：没有看到 overflow-y: auto 等滚动相关样式
-}
-```
-
-**关键问题**: `.view-chat` 可能没有设置 `overflow-y: auto` 或 `overflow-y: scroll`，这是滚动的前提条件！
-
-需要检查父容器 `.layer-stream` 的样式：
-
-```scss
-.layer-stream {
-    flex: 1;
-    overflow-y: auto;  // 滚动可能在父容器
-    // ...
-}
-```
-
-**如果滚动是在 `.layer-stream` 而不是 `.view-chat`**，那么 `chatScrollRef` 绑定在错误的元素上！
-
----
-
-### 假设 3: Vue 响应式更新时机问题
-
-**可能性**: 低
-
-即使多次调用 `scrollToBottom` 仍然无效，说明问题不在于时机。
-
----
-
-### 假设 4: 滚动容器嵌套问题
-
-**可能性**: 高
-
-如果 `.view-chat` 本身不产生滚动（没有 overflow 设置），而是由其父容器 `.layer-stream` 产生滚动，那么：
-- `chatScrollRef.value.scrollHeight` 返回的是 `.view-chat` 的高度
-- `chatScrollRef.value.scrollTop` 设置的是 `.view-chat` 的滚动位置
-- 但实际滚动发生在 `.layer-stream` 上
-
-**结果**: 滚动操作完全无效！
+**结果**：用户发送消息/AI 输出时的滚动逻辑都在“错误的元素”上操作，表现为“怎么调都不滚”。
 
 ---
 
@@ -182,10 +145,10 @@ const scrollToBottom = () => {
 
 ## 五、下一步行动
 
-1. **浏览器调试**: 打开开发者工具，在 Elements 面板中找到聊天滚动区域，确认哪个元素有 `overflow: auto/scroll`
-2. **确认 ref 绑定**: 确保 `chatScrollRef` 绑定在正确的滚动容器上
-3. **添加调试日志**: 在 `scrollToBottom` 中添加日志，验证滚动操作是否成功
-4. **CSS 检查**: 确认 `.view-chat` 或其父容器的滚动 CSS 设置正确
+1. **验证用户置底**：发送消息后应立即跳到最新消息
+2. **验证粘性吸附**：在底部附近时 AI 输出应跟随滚动
+3. **验证停止跟随**：向上滚动查看历史时 AI 输出不应把视图拉回底部
+4. **验证恢复跟随**：手动滚回底部附近后，应重新自动跟随
 
 ---
 
