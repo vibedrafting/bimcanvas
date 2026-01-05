@@ -19,9 +19,16 @@ const emit = defineEmits<{
 const customMessage = ref('');
 
 // 默认提交信息
-const defaultMessage = computed(() =>
-  `自动存档：切换到分支 ${props.targetBranch} 前保存`
-);
+const defaultMessage = computed(() => {
+  const now = new Date();
+  const timestamp = now.getFullYear().toString() +
+    (now.getMonth() + 1).toString().padStart(2, '0') +
+    now.getDate().toString().padStart(2, '0') + '_' +
+    now.getHours().toString().padStart(2, '0') +
+    now.getMinutes().toString().padStart(2, '0') +
+    now.getSeconds().toString().padStart(2, '0');
+  return `切换分支存档_${timestamp}`;
+});
 
 // 最终提交信息
 const finalMessage = computed(() =>
@@ -31,7 +38,7 @@ const finalMessage = computed(() =>
 // 重置状态
 watch(() => props.visible, (newVal) => {
   if (newVal) {
-    customMessage.value = '';
+    customMessage.value = defaultMessage.value;
   }
 });
 
@@ -91,16 +98,22 @@ const handleCancel = () => {
           <div class="dialog-footer">
             <GlassButton 
               variant="ghost" 
+              @click="handleCancel"
+            >
+              取消切换
+            </GlassButton>
+            <GlassButton 
+              variant="ghost" 
               class="danger-btn"
               @click="handleDiscardAndSwitch"
             >
-              放弃更改并切换
+              放弃更改
             </GlassButton>
             <GlassButton
               variant="primary"
               @click="handleCommitAndSwitch"
             >
-              提交并切换
+              提交更改
             </GlassButton>
           </div>
         </div>
@@ -121,40 +134,35 @@ const handleCancel = () => {
 }
 
 .dialog-card {
-  /* Deep Glass Style (More Opaque) */
-  background: rgba(30, 32, 36, 0.75);
-  backdrop-filter: blur(24px);
-  -webkit-backdrop-filter: blur(24px);
-  border: 1px solid rgba(255, 255, 255, 0.15);
-  border-radius: 24px;
-  width: 440px;
+  /* Professional Engineering Style (Tech/CAD) */
+  background: #18181b; /* Matte Dark */
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 12px; /* Sharper corners */
+  width: 420px; /* More compact width */
   
-  /* Glare & Deep Shadow */
-  background-image: linear-gradient(to bottom, rgba(255, 255, 255, 0.08), rgba(255, 255, 255, 0.02) 20%, transparent);
+  /* Subtle Shadow & Inner Highlight */
   box-shadow: 
-    0 24px 60px rgba(0, 0, 0, 0.6), /* Deeper shadow */
-    0 0 0 1px rgba(255, 255, 255, 0.05) inset; /* Subtle inner rim */
-
-  background-origin: border-box;
-  background-clip: padding-box, border-box;
+    0 8px 32px rgba(0, 0, 0, 0.4),
+    0 0 0 1px rgba(0, 0, 0, 0.2),
+    0 0 0 1px rgba(255, 255, 255, 0.05) inset; /* Inner highlight for depth */
 
   display: flex;
   flex-direction: column;
 }
 
 .dialog-header {
-  padding: 24px 24px 16px;
+  padding: 16px 20px 12px; /* Compact padding */
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: 10px;
 
   .header-icon {
     display: flex;
     align-items: center;
     justify-content: center;
-    width: 32px;
-    height: 32px;
-    border-radius: 10px;
+    width: 28px; /* Smaller icon container */
+    height: 28px;
+    border-radius: 8px;
     flex-shrink: 0;
 
     &.warning {
@@ -165,7 +173,7 @@ const handleCancel = () => {
 
   h3 {
     margin: 0;
-    font-size: 1.1rem;
+    font-size: 1rem; /* Smaller title */
     font-weight: 600;
     color: var(--text-primary);
     flex: 1;
@@ -191,17 +199,17 @@ const handleCancel = () => {
 }
 
 .dialog-body {
-  padding: 0 24px 24px;
+  padding: 0 20px 20px; /* Compact padding */
   display: flex;
   flex-direction: column;
-  gap: 20px;
+  gap: 16px; /* Smaller gap */
 }
 
 .message {
   margin: 0;
-  font-size: 0.95rem;
+  font-size: 0.9rem; /* Smaller text */
   color: var(--text-secondary);
-  line-height: 1.6;
+  line-height: 1.5;
 }
 
 .branch-name {
@@ -217,11 +225,11 @@ const handleCancel = () => {
 .input-section {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 6px;
 }
 
 .input-label {
-  font-size: 0.8rem;
+  font-size: 0.75rem; /* Smaller label */
   color: var(--text-muted);
   font-weight: 500;
   margin-left: 2px;
@@ -229,20 +237,19 @@ const handleCancel = () => {
 
 .glass-input {
   width: 100%;
-  background: rgba(0, 0, 0, 0.2);
+  background: rgba(0, 0, 0, 0.3);
   border: 1px solid rgba(255, 255, 255, 0.1);
-  border-radius: 12px;
-  padding: 12px 16px;
+  border-radius: 6px;
+  padding: 8px 12px; /* Compact padding */
   color: var(--text-primary);
-  font-family: inherit;
-  font-size: 0.9rem;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 0.85rem;
   outline: none;
   transition: all 0.2s;
   box-sizing: border-box;
 
   &::placeholder {
     color: var(--text-muted);
-    font-style: italic;
     opacity: 0.6;
   }
 
@@ -254,13 +261,25 @@ const handleCancel = () => {
 }
 
 .dialog-footer {
-  padding: 20px 24px;
+  padding: 16px 20px; /* Compact padding */
   border-top: 1px solid rgba(255, 255, 255, 0.08);
   display: flex;
   justify-content: flex-end; /* Right align buttons */
-  gap: 12px;
+  gap: 10px;
   background: rgba(0, 0, 0, 0.1);
-  border-radius: 0 0 24px 24px;
+  border-radius: 0 0 12px 12px; /* Match card radius */
+
+  /* Ensure buttons are wide enough and match tech style */
+  :deep(button) {
+    min-width: 88px; /* Slightly smaller min-width */
+    height: 32px; /* Compact height */
+    border-radius: 6px; /* Tech style radius */
+    justify-content: center;
+    font-size: 0.85rem; /* Smaller font */
+    padding: 0 12px;
+    /* Subtle inner highlight for buttons */
+    box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.05) inset;
+  }
 }
 
 .danger-btn {
@@ -280,7 +299,7 @@ const handleCancel = () => {
   transition: opacity 0.3s ease;
 
   .dialog-card {
-    transition: transform 0.4s cubic-bezier(0.34, 1.56, 0.64, 1);
+    transition: transform 0.3s cubic-bezier(0.16, 1, 0.3, 1); /* Precise Expo Ease */
   }
 }
 

@@ -392,9 +392,18 @@ export const useCanvasStore = defineStore('canvas', () => {
         batchUpdateMode.value = true;
     };
 
-    const endBatchUpdate = () => {
+    const endBatchUpdate = async () => {
         batchUpdateMode.value = false;
-        nextTick(() => saveState());
+
+        // 1. 保存到本地Timeline历史（Undo/Redo）
+        await nextTick();
+        saveState();
+
+        // 2. 持久化到文件系统（File-Driven Architecture）
+        // 符合架构文档"即时写入"设计：用户交互结束时立即写入硬盘
+        if (isDirty.value) {
+            await saveToServer();
+        }
     };
 
     // === 脏数据管理 API ===
