@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { ref, onMounted, nextTick, computed, watch, defineProps } from 'vue';
 import { useCanvasStore } from '../../stores/canvasStore';
+import { useGitStore } from '../../stores/gitStore';
 import { storeToRefs } from 'pinia';
 
 // Props from parent (MainLayout)
@@ -10,30 +11,16 @@ const props = defineProps<{
 
 // API Configuration
 const AGENT_API_BASE = 'http://127.0.0.1:8765';
-const SERVER_API_BASE = 'http://localhost:5000';
 
 const panelWidth = ref(360);
 const isResizing = ref(false);
-const currentBranch = ref('loading...');
 const isBranchDropdownOpen = ref(false);
 const mode = ref('chat'); // 'chat' | 'tasks'
 const isTaskSummaryExpanded = ref(false);
 
-// Git Data Interface
-interface GitBranch {
-  id: string;
-  name: string;
-  isCurrent: boolean;
-  commit: {
-    message: string;
-    time: string;
-    hash: string;
-    author: string;
-  };
-}
-
-// Real Git Data (will be fetched)
-const branches = ref<GitBranch[]>([]);
+// Git Store - 使用共享Store管理分支状态
+const gitStore = useGitStore();
+const { branches, currentBranch, isLoading: isBranchLoading } = storeToRefs(gitStore);
 
 // Store Integration
 const store = useCanvasStore();
@@ -124,49 +111,13 @@ const proposals = ref([
   },
 ]);
 
-// Select branch
+// Select branch - 使用Store方法
 const selectBranch = async (branchId: string) => {
-  try {
-    const response = await fetch(`${SERVER_API_BASE}/api/git/checkout`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ branchName: branchId })
-    });
-
-    if (response.ok) {
-      currentBranch.value = branchId;
-      branches.value.forEach(b => b.isCurrent = b.id === branchId);
-    } else {
-      const error = await response.json();
-      console.error('切换分支失败:', error.message);
-    }
-  } catch (e) {
-    console.error('切换分支请求失败:', e);
+  const result = await gitStore.checkout(branchId);
+  if (!result.success) {
+    console.error('切换分支失败:', result.message);
   }
   isBranchDropdownOpen.value = false;
-};
-
-// Fetch Git Info from Server
-const fetchGitInfo = async () => {
-  try {
-    const response = await fetch(`${SERVER_API_BASE}/api/git/branches`);
-    if (response.ok) {
-        const data = await response.json();
-        branches.value = data;
-        const current = branches.value.find(b => b.isCurrent);
-        if (current) {
-          currentBranch.value = current.name;
-        } else if (data.length === 0) {
-          currentBranch.value = '(no branches)';
-        }
-    } else {
-        throw new Error('Server API not available');
-    }
-  } catch (e) {
-    console.warn('Failed to fetch git info from Server:', e);
-    currentBranch.value = '(offline)';
-    branches.value = [];
-  }
 };
 
 // Clear selection
@@ -177,7 +128,7 @@ const clearSelection = () => {
 // Check Agent health on mount
 onMounted(async () => {
   await checkAgentHealth();
-  await fetchGitInfo();
+  await gitStore.fetchBranches();  // 使用Store获取分支列表
   // Note: Welcome message is now triggered by panelReady prop
 });
 

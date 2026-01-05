@@ -1,101 +1,101 @@
 <script setup lang="ts">
-import { ref, computed } from 'vue';
+import { ref, computed, onMounted } from 'vue';
+import { storeToRefs } from 'pinia';
 import GlassSelect from '../base/GlassSelect.vue';
 import GlassButton from '../base/GlassButton.vue';
 import BranchCreationDialog from './BranchCreationDialog.vue';
+import { useGitStore } from '../../../stores/gitStore';
+
+// --- Git Store ---
+const gitStore = useGitStore();
+const { branches, currentBranch, currentBranchId, isLoading, isOffline } = storeToRefs(gitStore);
+
+// 组件挂载时获取分支列表
+onMounted(() => {
+  gitStore.fetchBranches();
+});
 
 // --- Strategy Section ---
 const currentStrategy = ref('default');
 const strategies = [
-  { 
-    label: 'Default Strategy', 
-    value: 'default', 
-    icon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="16" y1="13" x2="8" y2="13"></line><line x1="16" y1="17" x2="8" y2="17"></line><polyline points="10 9 9 9 8 9"></polyline></svg>' 
+  {
+    label: 'Default Strategy',
+    value: 'default',
+    icon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="16" y1="13" x2="8" y2="13"></line><line x1="16" y1="17" x2="8" y2="17"></line><polyline points="10 9 9 9 8 9"></polyline></svg>'
   },
-  { 
-    label: 'Minimalist', 
-    value: 'minimal', 
-    icon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle></svg>' 
+  {
+    label: 'Minimalist',
+    value: 'minimal',
+    icon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle></svg>'
   },
-  { 
-    label: 'Create New...', 
-    value: 'new', 
-    icon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>' 
+  {
+    label: 'Create New...',
+    value: 'new',
+    icon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>'
   },
 ];
 
 // --- Variant/Branch Section ---
-const currentBranch = ref('main');
 const showBranchDialog = ref(false);
 
-// Mock Data for Branches
-const branches = ref([
-  { 
-    label: 'Main Branch', 
-    value: 'main', 
-    tags: ['Base'],
-    icon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><line x1="6" y1="3" x2="6" y2="15"></line><circle cx="18" cy="6" r="3"></circle><circle cx="6" cy="18" r="3"></circle><path d="M18 9a9 9 0 0 1-9 9"></path></svg>' 
-  },
-  { 
-    label: 'Option A', 
-    value: 'opt_a', 
-    tags: ['Storage First'],
-    icon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><path d="M12 16v-4"></path><path d="M12 8h.01"></path></svg>' 
-  },
-  { 
-    label: 'Option B', 
-    value: 'opt_b', 
-    tags: ['Flow First'],
-    icon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><path d="M12 8v8"></path><path d="M8 12h8"></path></svg>' 
-  },
-]);
+// 分支图标
+const branchIcon = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><line x1="6" y1="3" x2="6" y2="15"></line><circle cx="18" cy="6" r="3"></circle><circle cx="6" cy="18" r="3"></circle><path d="M18 9a9 9 0 0 1-9 9"></path></svg>';
+const createIcon = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>';
 
 // Computed options including "Create New..."
 const branchOptions = computed(() => [
-  ...branches.value,
-  { 
-    label: 'Create New Branch...', 
-    value: '__create_new__', 
-    icon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>' 
+  ...branches.value.map(b => ({
+    label: b.name,
+    value: b.id,
+    tags: b.commit ? [b.commit.message.substring(0, 25) + (b.commit.message.length > 25 ? '...' : '')] : [],
+    icon: branchIcon
+  })),
+  {
+    label: 'Create New Branch...',
+    value: '__create_new__',
+    icon: createIcon
   },
 ]);
 
-const handleBranchChange = (val: string | number) => {
+// 分支切换处理
+const handleBranchChange = async (val: string | number) => {
   if (val === '__create_new__') {
-    // Revert selection to previous (or keep current) until created
-    // For now, we just open dialog. Ideally we'd track previous value.
     showBranchDialog.value = true;
-    // Reset selection to current valid branch to avoid showing "Create New..." as selected
-    // In a real app, we might want to wait for dialog close.
-  } else {
-    currentBranch.value = val as string;
+    return;
+  }
+
+  // 调用Store的checkout方法
+  const result = await gitStore.checkout(val as string);
+  if (!result.success) {
+    console.error('切换分支失败:', result.message);
+    // TODO: 可以添加UI提示
   }
 };
 
-const handleCreateBranch = (data: { name: string; baseBranch: string; tags: string[]; reason: string }) => {
-  // Mock creation logic
-  const newId = `feat/${data.name.toLowerCase().replace(/\s+/g, '-')}`;
-  branches.value.push({
-    label: data.name,
-    value: newId,
-    tags: data.tags,
-    icon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle></svg>'
-  });
-  
-  currentBranch.value = newId;
-  showBranchDialog.value = false;
-  console.log('Created Branch:', data);
+// 创建分支处理
+const handleCreateBranch = async (data: { name: string; baseBranch: string; tags: string[]; reason: string }) => {
+  const branchName = `scheme/${data.name.toLowerCase().replace(/\s+/g, '-')}`;
+
+  // 使用checkout的createIfNotExist功能创建并切换到新分支
+  const result = await gitStore.checkout(branchName, true);
+  if (result.success) {
+    showBranchDialog.value = false;
+    console.log('Created Branch:', branchName);
+  } else {
+    console.error('创建分支失败:', result.message);
+    // TODO: 可以添加UI提示
+  }
 };
 
 // Get current branch tags for dialog defaults
 const currentBranchTags = computed(() => {
-  const branch = branches.value.find(b => b.value === currentBranch.value);
-  return branch?.tags || [];
+  const branch = branches.value.find(b => b.id === currentBranchId.value);
+  return branch?.commit ? [branch.commit.message.substring(0, 20)] : [];
 });
 
 // Simple branch list for dialog base selection
-const simpleBranchList = computed(() => 
-  branches.value.map(b => ({ label: b.label, value: b.value }))
+const simpleBranchList = computed(() =>
+  branches.value.map(b => ({ label: b.name, value: b.id }))
 );
 </script>
 
@@ -140,11 +140,12 @@ const simpleBranchList = computed(() =>
       <div class="section">
         <div class="combo-box">
           <span class="label">Current Branch</span>
-          <GlassSelect 
-            :model-value="currentBranch"
+          <GlassSelect
+            :model-value="currentBranchId"
             @update:model-value="handleBranchChange"
-            :options="branchOptions" 
+            :options="branchOptions"
             width="200px"
+            :disabled="isLoading"
           />
         </div>
         
@@ -167,7 +168,7 @@ const simpleBranchList = computed(() =>
       <!-- Branch Creation Dialog -->
       <BranchCreationDialog
         :visible="showBranchDialog"
-        :base-branch="currentBranch"
+        :base-branch="currentBranchId"
         :base-tags="currentBranchTags"
         :all-branches="simpleBranchList"
         @create="handleCreateBranch"
