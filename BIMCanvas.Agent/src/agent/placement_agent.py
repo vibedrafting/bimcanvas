@@ -10,7 +10,8 @@ from claude_agent_sdk import (
     TextBlock,
     ThinkingBlock,
 )
-from claude_agent_sdk.types import StreamEvent
+
+from ..config.settings import get_settings
 
 
 @dataclass
@@ -123,19 +124,17 @@ class PlacementAgent:
         Returns:
             AI assistant's response text
         """
+        settings = get_settings()
         options = ClaudeAgentOptions(
             system_prompt=SYSTEM_PROMPT,
             cwd=self.project_path,  # 设置工作目录
             max_turns=1,  # P1.5: 单轮对话
-            max_thinking_tokens=8000,  # 启用扩展思考
+            model=settings.model_name,  # 使用配置的模型
+            resume=self.session_id,  # 会话恢复(None时为新会话)
             # P2 阶段将启用工具：
             # allowed_tools=["Read", "Write", "Glob"],
             # permission_mode="acceptEdits"
         )
-
-        # 如果有会话，恢复上下文
-        if self.session_id:
-            options.resume = self.session_id
 
         full_response = ""
         async for message in query(prompt=user_message, options=options):
@@ -161,24 +160,23 @@ class PlacementAgent:
         Yields:
             StreamChunk objects containing type and content
         """
+        settings = get_settings()
         options = ClaudeAgentOptions(
             system_prompt=SYSTEM_PROMPT,
             cwd=self.project_path,
             max_turns=1,
-            max_thinking_tokens=8000,  # 启用扩展思考
+            model=settings.model_name,
+            resume=self.session_id,
             include_partial_messages=True,  # 启用增量消息流
         )
-
-        if self.session_id:
-            options.resume = self.session_id
 
         async for message in query(prompt=user_message, options=options):
             # 捕获会话 ID
             if hasattr(message, 'subtype') and message.subtype == 'init':
                 self.session_id = message.data.get('session_id')
 
-            # 处理流式增量事件
-            if isinstance(message, StreamEvent):
+            # 处理流式增量事件 (使用 duck typing 检查)
+            if hasattr(message, 'event'):
                 event = message.event
                 event_type = event.get("type", "")
 
@@ -258,11 +256,12 @@ class PlacementAgent:
 注意：输出的 modules.json 必须符合规定的格式。
 """
 
+        settings = get_settings()
         options = ClaudeAgentOptions(
             system_prompt=LAYOUT_SYSTEM_PROMPT,
             cwd=self.project_path,
             max_turns=10,  # 允许多轮工具调用
-            max_thinking_tokens=16000,  # 布置任务需要更多思考
+            model=settings.model_name,
             # P2 阶段启用内置工具
             allowed_tools=["Read", "Write", "Glob", "Edit"],
             permission_mode="acceptEdits",  # 自动接受文件编辑
@@ -304,19 +303,20 @@ class PlacementAgent:
 注意：输出的 modules.json 必须符合规定的格式。
 """
 
+        settings = get_settings()
         options = ClaudeAgentOptions(
             system_prompt=LAYOUT_SYSTEM_PROMPT,
             cwd=self.project_path,
             max_turns=10,
-            max_thinking_tokens=16000,
+            model=settings.model_name,
             allowed_tools=["Read", "Write", "Glob", "Edit"],
             permission_mode="acceptEdits",
             include_partial_messages=True,
         )
 
         async for message in query(prompt=full_prompt, options=options):
-            # 处理流式增量事件
-            if isinstance(message, StreamEvent):
+            # 处理流式增量事件 (使用 duck typing 检查)
+            if hasattr(message, 'event'):
                 event = message.event
                 event_type = event.get("type", "")
 

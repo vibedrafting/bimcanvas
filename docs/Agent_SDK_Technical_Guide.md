@@ -1,6 +1,6 @@
 # Agent SDK 技术指南
 
-> **版本**：v1.3 | **更新日期**：2026-01-05
+> **版本**：v1.4 | **更新日期**：2026-01-05
 > **目的**：记录 BIMCanvas Agent 项目的技术细节、架构决策和最佳实践
 > **重要更新**：经官方文档深度研究，Agent SDK **完全支持**"Claude Code 底座"愿景
 
@@ -114,9 +114,8 @@ async for message in query(
 | `allowed_tools` | list | 允许使用的内置工具列表 |
 | `permission_mode` | str | 权限模式：`"default"` / `"acceptEdits"` |
 | `max_turns` | int | 最大对话轮次（工具调用次数） |
-| `max_thinking_tokens` | int | 思考 token 上限（启用扩展思考） |
 | `resume` | str | 会话 ID，用于恢复之前的对话 |
-| `mcp_servers` | list | 启用的 MCP Server 列表 |
+| `mcp_servers` | dict | MCP Server 配置（如 `{"canvas": server}`） |
 
 ---
 
@@ -596,7 +595,9 @@ class AgentSession:
             options.resume = self.session_id
 
         async for msg in query(prompt=message, options=options):
-            # 捕获新会话 ID
+            # ⚠️ 注意：以下 session_id 捕获方式是推测代码
+            # 官方文档仅展示 resume 参数用法，未明确文档化如何从响应获取 session_id
+            # 实际使用时需验证消息结构
             if hasattr(msg, 'subtype') and msg.subtype == 'init':
                 self.session_id = msg.data.get('session_id')
             # ...
@@ -672,6 +673,17 @@ if isinstance(msg, ToolUseMessage):
 | v1.1 | 2026-01-05 | 新增：核心设计理念、Agent 架构模型、MCP 工具分层、SDK 能力评估 |
 | v1.2 | 2026-01-05 | **重大更新**：完成官方文档深度研究，确认所有能力均已支持 |
 | v1.3 | 2026-01-05 | **概念修正**：基于官方文档纠正 SubAgent 实现方式的错误理解 |
+| v1.4 | 2026-01-05 | **准确性验证**：基于官方文档逐项核对，修正 2 处错误 |
+
+### v1.4 更新详情
+
+基于官方文档逐项核对：
+
+| 修正项 | 原错误 | 修正后 |
+|--------|--------|--------|
+| 配置项表 | `max_thinking_tokens` 列为配置项 | 已删除（官方无此参数） |
+| 配置项表 | `mcp_servers` 类型为 `list` | 改为 `dict` |
+| 会话管理代码 | session_id 捕获方式无说明 | 添加警告注释 |
 
 ### v1.3 更新详情
 
