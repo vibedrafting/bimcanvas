@@ -1416,88 +1416,90 @@ import MarkdownText from './base/MarkdownText.vue';
     position: relative;
 }
 
-.context-menu {
+/* --- Unified Menu Styles (Antigravity) --- */
+.context-menu, .pill-menu, .submenu-container {
     position: absolute;
-    bottom: 100%; /* Open upwards */
-    left: 0; /* Open to the right */
+    bottom: 100%;
+    left: 0;
     right: auto;
-    margin-bottom: 12px;
-    width: 160px; /* Reduced from 200px */
-    background: var(--surface-elevated);
-    border: 1px solid var(--border-subtle);
-    border-radius: 10px; /* Reduced radius */
-    box-shadow: 
-        0 4px 24px rgba(0, 0, 0, 0.2),
-        0 0 0 1px rgba(255, 255, 255, 0.05) inset;
-    backdrop-filter: blur(20px);
-    padding: 4px; /* Reduced padding */
+    margin-bottom: 6px;
+    background: rgba(20, 20, 20, 0.95); /* Deep dark background */
+    backdrop-filter: blur(0); /* No blur needed for opaque dark */
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 8px; /* Sharper radius */
+    padding: 4px;
+    box-shadow: 0 12px 40px rgba(0,0,0,0.6);
     z-index: 1000;
-    display: flex; /* To hold submenu container */
-    
-    /* Ensure it doesn't get clipped */
-    /* Note: If the parent has overflow:hidden, this might be an issue. 
-       The .ai-command-center has overflow:hidden, but .layer-footer is inside it.
-       We might need to adjust .ai-command-center overflow or use a portal if this gets clipped.
-       For now, let's try to keep it inside or assume the footer has enough space or z-index context.
-       Actually, .ai-command-center has overflow:hidden. This menu WILL be clipped if it goes out of bounds.
-       However, since it opens upwards from the bottom footer, it should be fine as long as it's not taller than the panel.
-    */
-}
-
-.menu-section {
-    width: 100%;
+    min-width: 160px;
     display: flex;
     flex-direction: column;
-    gap: 2px;
+    gap: 1px;
+    transform-origin: bottom left;
+    animation: scale-up 0.1s cubic-bezier(0.2, 0, 0.13, 1.5);
 }
 
-.menu-label {
-    font-size: 0.65rem; /* Reduced from 0.75rem */
-    color: var(--text-tertiary);
-    padding: 6px 10px 2px; /* Reduced padding */
+.submenu-container {
+    bottom: 0;
+    left: 100%; /* Flyout to the right */
+    margin-bottom: 0;
+    margin-left: 8px;
+}
+
+.submenu-container.left {
+    left: auto;
+    right: 100%;
+    margin-left: 0;
+    margin-right: 8px;
+}
+
+.menu-header {
+    padding: 6px 8px 4px;
+    font-size: 10px; /* Micro label */
+    color: rgba(255, 255, 255, 0.3);
     font-weight: 600;
-    text-transform: uppercase;
     letter-spacing: 0.5px;
+    text-transform: uppercase;
 }
 
 .menu-item {
     display: flex;
     align-items: center;
-    gap: 8px; /* Reduced gap */
-    padding: 6px 10px; /* Reduced padding */
-    border-radius: 6px; /* Reduced radius */
+    gap: 8px;
+    padding: 4px 8px;
+    border-radius: 4px;
+    font-size: 11px; /* Micro font */
+    color: rgba(255, 255, 255, 0.7);
     cursor: pointer;
-    transition: all 0.2s;
-    color: var(--text-primary);
-    font-size: 0.8rem; /* Reduced from 0.9rem */
+    transition: all 0.1s;
+    min-height: 24px;
     position: relative;
 
     &:hover, &.active {
-        background: var(--surface-highlight);
+        background: rgba(255, 255, 255, 0.08);
+        color: white;
+    }
+    
+    .icon, .chevron {
+        color: rgba(255, 255, 255, 0.4);
+        width: 14px;
+        height: 14px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        svg { width: 100%; height: 100%; }
+    }
+
+    .check-icon {
+        margin-left: auto;
+        width: 12px;
+        height: 12px;
+        color: #007AFF;
     }
 
     .item-text {
         flex: 1;
     }
-
-    .chevron {
-        width: 14px;
-        height: 14px;
-        color: var(--text-tertiary);
-        opacity: 0.7;
-    }
 }
-
-/* Submenu Container (Flyout) */
-.submenu-container {
-    position: absolute;
-    bottom: 0; /* Align bottom */
-    width: 180px; /* Reduced from 220px */
-    background: var(--surface-elevated);
-    border: 1px solid var(--border-subtle);
-    border-radius: 10px; /* Reduced radius */
-    box-shadow: 0 4px 24px rgba(0, 0, 0, 0.2);
-    backdrop-filter: blur(20px);
     padding: 4px; /* Reduced padding */
     /* Animation is handled by specific direction classes */
 }
@@ -2294,71 +2296,6 @@ import MarkdownText from './base/MarkdownText.vue';
     }
 
     /* Menus */
-    .context-menu, .pill-menu {
-        position: absolute;
-        bottom: 100%;
-        left: 0; /* Default to opening to the right */
-        right: auto; /* Ensure no right alignment overrides */
-        margin-bottom: 6px;
-        background: rgba(20, 20, 20, 0.95); /* Deep dark background */
-        backdrop-filter: blur(0); /* No blur needed for opaque dark */
-        border: 1px solid rgba(255, 255, 255, 0.08);
-        border-radius: 8px; /* Sharper radius */
-        padding: 4px;
-        box-shadow: 0 12px 40px rgba(0,0,0,0.6);
-        z-index: 100;
-        min-width: 160px;
-        display: flex;
-        flex-direction: column;
-        gap: 1px;
-        transform-origin: bottom left;
-        animation: scale-up 0.1s cubic-bezier(0.2, 0, 0.13, 1.5); /* Even snappier */
 
-        .menu-header {
-            padding: 6px 8px 4px;
-            font-size: 10px; /* Micro label */
-            color: rgba(255, 255, 255, 0.3);
-            font-weight: 600;
-            letter-spacing: 0.5px;
-            text-transform: uppercase;
-        }
-        
-
-
-        .menu-item {
-            display: flex;
-            align-items: center;
-            gap: 8px;
-            padding: 4px 8px;
-            border-radius: 4px;
-            font-size: 11px; /* Micro font */
-            color: rgba(255, 255, 255, 0.7);
-            cursor: pointer;
-            transition: all 0.1s;
-            min-height: 24px;
-
-            &:hover, &.active {
-                background: rgba(255, 255, 255, 0.08);
-                color: white;
-            }
-            
-            .icon {
-                color: rgba(255, 255, 255, 0.4);
-                width: 14px;
-                height: 14px;
-                display: flex;
-                align-items: center;
-                justify-content: center;
-                svg { width: 100%; height: 100%; }
-            }
-
-            .check-icon {
-                margin-left: auto;
-                width: 12px;
-                height: 12px;
-                color: #007AFF;
-            }
-        }
-    }
 }
 </style>
