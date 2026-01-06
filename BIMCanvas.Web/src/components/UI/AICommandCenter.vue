@@ -2,6 +2,7 @@
 import { ref, onMounted, nextTick, computed, watch, defineProps } from 'vue';
 import { useCanvasStore } from '../../stores/canvasStore';
 import { useGitStore } from '../../stores/gitStore';
+import { ProjectService } from '../../services/ProjectService';
 import { storeToRefs } from 'pinia';
 import BranchCheckoutConfirmDialog from './Ribbon/BranchCheckoutConfirmDialog.vue';
 
@@ -195,6 +196,7 @@ const clearSelection = () => {
 onMounted(async () => {
   await checkAgentHealth();
   await gitStore.fetchBranches();  // 使用Store获取分支列表
+  await fetchProjectPath();  // 获取当前项目路径
   // Note: Welcome message is now triggered by panelReady prop
 });
 
@@ -269,6 +271,21 @@ const checkAgentHealth = async () => {
     }
   } catch {
     agentStatus.value = 'disconnected';
+  }
+};
+
+// 获取当前项目路径
+const fetchProjectPath = async () => {
+  try {
+    const status = await ProjectService.getStatus();
+    if (status.isLoaded && status.projectPath) {
+      currentProjectPath.value = status.projectPath;
+      console.log('项目路径已设置:', status.projectPath);
+    } else {
+      console.warn('项目未加载或路径为空');
+    }
+  } catch (error) {
+    console.error('获取项目路径失败:', error);
   }
 };
 
