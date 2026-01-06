@@ -25,9 +25,29 @@ logger = logging.getLogger(__name__)
 
 @dataclass
 class StreamChunk:
-    """流式响应块"""
-    type: str  # "thinking" | "text" | "delta" | "thinking_complete" | "text_complete"
-    content: str
+    """
+    流式响应块 - 支持 SubAgent/ToolCall 事件
+
+    事件类型：
+    - thinking / thinking_complete: 思考内容
+    - text / text_complete: 文本内容
+    - subagent_start / subagent_complete: SubAgent 生命周期
+    - tool_call_start / tool_call_output / tool_call_complete: 工具调用生命周期
+    """
+    type: str
+    content: str = ""
+    # SubAgent 事件字段
+    subagent_id: str = None
+    subagent_name: str = None
+    subagent_type: str = None
+    # ToolCall 事件字段
+    tool_call_id: str = None
+    tool_name: str = None
+    tool_description: str = None
+    tool_params: dict = None
+    tool_output: str = None
+    success: bool = None
+    error: str = None
 
 
 class MainAgent:
@@ -73,6 +93,10 @@ class MainAgent:
         self._in_thinking = False
         self._in_response = False
         self._current_tool_name = None
+
+        # SubAgent/ToolCall 状态跟踪（用于 SSE 事件）
+        self._current_subagent_id: str | None = None
+        self._tool_call_counter = 0
 
     # ─────────────────────────────────────────────────────
     # Configuration
@@ -296,6 +320,9 @@ class MainAgent:
         self._in_thinking = False
         self._in_response = False
         self._current_tool_name = None
+        # 重置 SubAgent/ToolCall 状态
+        self._current_subagent_id = None
+        self._tool_call_counter = 0
 
         await self._client.query(user_message)
 
@@ -332,18 +359,71 @@ class MainAgent:
                             self._agent_logger.log_response_end()
                         yield StreamChunk(type="text_complete", content=block.text)
                     elif isinstance(block, ToolUseBlock):
+                        self._current_tool_name = block.name
                         if self.verbose:
                             self._agent_logger.log_tool_use(block.name, block.input)
-                            if block.name == "Task":
-                                subagent_type = block.input.get("subagent_type", "unknown")
+
+                        if block.name == "Task":
+                            # SubAgent 开始
+                            subagent_type = block.input.get("subagent_type", "general-purpose")
+                            subagent_name = block.input.get("description", "SubAgent")
+                            self._current_subagent_id = f"sa-{block.id}"
+                            if self.verbose:
                                 self._agent_logger.enter_subagent(subagent_type)
+                            yield StreamChunk(
+                                type="subagent_start",
+                                subagent_id=self._current_subagent_id,
+                                subagent_name=subagent_name,
+                                subagent_type=subagent_type
+                            )
+                        else:
+                            # 普通工具调用（可能在 SubAgent 上下文中）
+                            self._tool_call_counter += 1
+                            tool_call_id = f"tc-{self._tool_call_counter}"
+                            yield StreamChunk(
+                                type="tool_call_start",
+                                subagent_id=self._current_subagent_id,
+                                tool_call_id=tool_call_id,
+                                tool_name=block.name,
+                                tool_description=block.input.get("description", ""),
+                                tool_params=block.input
+                            )
+                            # 保存 tool_call_id 以便后续匹配 ToolResultBlock
+                            block._sse_tool_call_id = tool_call_id
+
                     elif isinstance(block, ToolResultBlock):
+                        tool_name = self._current_tool_name or "unknown"
+                        is_error = getattr(block, 'is_error', False)
                         if self.verbose:
-                            tool_name = self._current_tool_name or "unknown"
-                            is_error = getattr(block, 'is_error', False)
                             self._agent_logger.log_tool_result(tool_name, block.content, is_error)
-                            if tool_name == "Task":
+
+                        if tool_name == "Task":
+                            # SubAgent 完成
+                            if self.verbose:
                                 self._agent_logger.exit_subagent("SubAgent")
+                            result_str = str(block.content)[:500] if block.content else ""
+                            yield StreamChunk(
+                                type="subagent_complete",
+                                subagent_id=self._current_subagent_id,
+                                content=result_str,
+                                success=not is_error,
+                                error=str(block.content) if is_error else None
+                            )
+                            self._current_subagent_id = None
+                        else:
+                            # 普通工具调用完成
+                            # 使用计数器生成 tool_call_id（与 start 保持一致）
+                            tool_call_id = f"tc-{self._tool_call_counter}"
+                            output_str = str(block.content)[:1000] if block.content else ""
+                            yield StreamChunk(
+                                type="tool_call_complete",
+                                tool_call_id=tool_call_id,
+                                tool_output=output_str,
+                                success=not is_error,
+                                error=str(block.content) if is_error else None
+                            )
+
+                        self._current_tool_name = None
 
         if self.verbose:
             self._agent_logger.log_complete()

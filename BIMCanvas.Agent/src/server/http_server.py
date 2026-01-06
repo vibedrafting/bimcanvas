@@ -156,12 +156,40 @@ async def chat_stream_handler(request: web.Request) -> web.StreamResponse:
         agent = await get_agent(project_path)  # 异步获取
 
         async for chunk in agent.chat_stream(message):
-            # Send each chunk as SSE event with type info
-            event_data = json.dumps({
-                "type": chunk.type,
-                "content": chunk.content
-            }, ensure_ascii=False)
-            await response.write(f"data: {event_data}\n\n".encode("utf-8"))
+            # 构建 SSE 事件数据
+            event_data = {"type": chunk.type}
+
+            # 添加基础内容字段
+            if chunk.content:
+                event_data["content"] = chunk.content
+
+            # SubAgent 事件字段
+            if chunk.subagent_id:
+                event_data["subAgentId"] = chunk.subagent_id
+            if chunk.subagent_name:
+                event_data["subAgentName"] = chunk.subagent_name
+            if chunk.subagent_type:
+                event_data["subAgentType"] = chunk.subagent_type
+
+            # ToolCall 事件字段
+            if chunk.tool_call_id:
+                event_data["toolCallId"] = chunk.tool_call_id
+            if chunk.tool_name:
+                event_data["toolName"] = chunk.tool_name
+            if chunk.tool_description:
+                event_data["toolDescription"] = chunk.tool_description
+            if chunk.tool_params:
+                event_data["toolParams"] = chunk.tool_params
+            if chunk.tool_output:
+                event_data["toolOutput"] = chunk.tool_output
+
+            # 状态字段
+            if chunk.success is not None:
+                event_data["success"] = chunk.success
+            if chunk.error:
+                event_data["error"] = chunk.error
+
+            await response.write(f"data: {json.dumps(event_data, ensure_ascii=False)}\n\n".encode("utf-8"))
 
         # Send done event
         await response.write(b"data: [DONE]\n\n")
