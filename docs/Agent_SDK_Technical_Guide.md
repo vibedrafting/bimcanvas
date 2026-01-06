@@ -265,10 +265,17 @@ options = ClaudeAgentOptions(
 
 ### 4.3 完整示例（官方推荐方式）
 
+> **说明**：此示例中主 Agent 使用 `query()` 是合理的，因为：
+> 1. SubAgent 是临时任务，不需要持久会话
+> 2. SubAgent 通过 `AgentDefinition` 定义，由 Task 工具派发
+> 3. 如果主 Agent 需要持续对话和程序触发，应改用 `ClaudeSDKClient`（见 §6.5）
+
 ```python
 from claude_agent_sdk import query, ClaudeAgentOptions, AgentDefinition
 
 # 定义 SubAgent（通过 AgentDefinition）
+# 注意：SubAgent 本身不直接使用 query() 或 ClaudeSDKClient，
+# 而是通过 AgentDefinition 定义，由 Task 工具自动管理
 subagents = {
     "layout-agent": AgentDefinition(
         # description: 告诉 Claude 何时调用这个 SubAgent
@@ -573,7 +580,9 @@ async with ClaudeSDKClient(options=options) as client:
 
 ### 6.5 ClaudeSDKClient（持久会话）
 
-对于需要维持长期会话的主 Agent，`ClaudeSDKClient` 比 `query()` 更合适：
+对于需要维持长期会话的主 Agent，`ClaudeSDKClient` 比 `query()` 更合适。
+
+#### 6.5.1 基础用法
 
 ```python
 from claude_agent_sdk import ClaudeSDKClient, ClaudeAgentOptions
@@ -590,12 +599,105 @@ async with ClaudeSDKClient(options=options) as client:
         print(msg)
 ```
 
+#### 6.5.2 完整封装示例（推荐）
+
+以下是 BIMCanvas PlacementAgent 的完整实现，支持持续对话和程序触发：
+
+```python
+from claude_agent_sdk import ClaudeSDKClient, ClaudeAgentOptions, AssistantMessage, TextBlock
+
+class PlacementAgent:
+    """基于 ClaudeSDKClient 的布置助手 - 支持持续对话和程序触发"""
+
+    def __init__(self, project_path: str = None):
+        self.project_path = project_path
+        self._client: ClaudeSDKClient | None = None
+        self._connected = False
+
+    async def connect(self) -> None:
+        """建立持久连接"""
+        if self._connected:
+            return
+        options = ClaudeAgentOptions(
+            system_prompt=SYSTEM_PROMPT,
+            cwd=self.project_path,
+            max_turns=10,
+            allowed_tools=["Read", "Write", "Glob", "Edit"],
+            permission_mode="acceptEdits",
+        )
+        self._client = ClaudeSDKClient(options)
+        await self._client.connect()
+        self._connected = True
+
+    async def disconnect(self) -> None:
+        """断开连接"""
+        if self._client and self._connected:
+            await self._client.disconnect()
+            self._connected = False
+            self._client = None
+
+    async def chat(self, user_message: str) -> str:
+        """对话（自动保持上下文）"""
+        if not self._connected:
+            await self.connect()
+
+        await self._client.query(user_message)
+
+        full_response = ""
+        async for message in self._client.receive_response():
+            if isinstance(message, AssistantMessage):
+                for block in message.content:
+                    if isinstance(block, TextBlock):
+                        full_response += block.text
+        return full_response
+
+    async def execute_task(self, task_prompt: str) -> str:
+        """执行任务（程序触发入口）- 在同一会话中执行"""
+        return await self.chat(task_prompt)
+
+    async def interrupt(self) -> None:
+        """中断当前任务"""
+        if self._client and self._connected:
+            await self._client.interrupt()
+
+    def clear_history(self) -> None:
+        """清空对话历史（重建连接）"""
+        import asyncio
+        asyncio.create_task(self._reset_session())
+
+    async def _reset_session(self) -> None:
+        await self.disconnect()
+        # 下次 chat() 会自动重新连接
+```
+
+**使用方式**：
+
+```python
+# 创建 Agent
+agent = PlacementAgent(project_path="/path/to/project")
+
+# 用户对话（多轮保持上下文）
+reply1 = await agent.chat("帮我分析这个户型")
+reply2 = await agent.chat("客厅怎么布置？")  # 自动保持上下文
+
+# 程序触发任务（SSE 事件触发）
+result = await agent.execute_task("检测到模块重叠，请重新布置区域 rz_1")
+
+# 中断长时间任务
+await agent.interrupt()
+
+# 清理
+await agent.disconnect()
+```
+
 **`query()` vs `ClaudeSDKClient`**：
 
 | 方面 | `query()` | `ClaudeSDKClient` |
 |------|-----------|-------------------|
 | 会话生命周期 | 每次调用新会话 | 持久会话 |
 | 上下文管理 | 需手动 resume | 自动维护 |
+| 程序触发 | 每次新会话 | 同一会话中触发 |
+| 中断支持 | 不支持 | `interrupt()` |
 | 适用场景 | 独立任务、SubAgent | **主 Agent** |
 
 ### 6.6 推荐架构方案
@@ -753,6 +855,32 @@ async def safe_query(prompt: str, options: ClaudeAgentOptions) -> str:
 
 ### 7.4 会话管理
 
+#### 7.4.1 推荐方式：ClaudeSDKClient（自动管理）
+
+使用 `ClaudeSDKClient` 时，会话上下文自动维护，无需手动管理 `session_id`：
+
+```python
+from claude_agent_sdk import ClaudeSDKClient, ClaudeAgentOptions
+
+# ClaudeSDKClient 自动管理会话
+async with ClaudeSDKClient(options) as client:
+    await client.query("第一个问题")
+    async for msg in client.receive_response():
+        print(msg)
+
+    # 后续对话自动保持上下文，无需手动管理 session_id
+    await client.query("继续问")
+    async for msg in client.receive_response():
+        print(msg)
+
+# 清空历史：断开并重新连接即可
+await client.disconnect()
+```
+
+#### 7.4.2 备选方式：query() + session_id（手动管理）
+
+如果使用 `query()` 函数（适用于 SubAgent 等临时任务），需要手动管理会话：
+
 ```python
 class AgentSession:
     def __init__(self):
@@ -766,7 +894,7 @@ class AgentSession:
             options.resume = self.session_id
 
         async for msg in query(prompt=message, options=options):
-            # 从 init 消息中获取 session_id（官方确认的方式）
+            # 从 init 消息中获取 session_id
             if hasattr(msg, 'subtype') and msg.subtype == 'init':
                 self.session_id = msg.data.get('session_id')
             # ...
@@ -774,6 +902,9 @@ class AgentSession:
     def clear(self):
         self.session_id = None
 ```
+
+> **注意**：对于主 Agent（需要持续对话和程序触发），推荐使用 `ClaudeSDKClient`（见 §6.5）。
+> `query()` + `session_id` 方式适用于简单场景或 SubAgent。
 
 ---
 

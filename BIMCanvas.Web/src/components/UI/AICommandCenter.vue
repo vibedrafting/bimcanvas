@@ -1673,6 +1673,12 @@ import MarkdownText from './base/MarkdownText.vue';
                 animation: spin 1s linear infinite;
             }
         }
+        .progress-track {
+            height: 4px;
+            background: var(--border-dim);
+            border-radius: 2px;
+            overflow: hidden;
+            margin-bottom: 8px;
             .progress-fill {
                 height: 100%;
                 background: var(--accent-primary);

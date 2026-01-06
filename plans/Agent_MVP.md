@@ -279,6 +279,25 @@ const clearHistory = async () => {
 2. **为 P2 打基础**：P2 阶段需要工具调用，Agent SDK 原生支持
 3. **简化代码**：Agent SDK 自动管理工具循环，无需手动实现
 
+#### P1.5.1.1 为什么使用 ClaudeSDKClient 而非 query()？
+
+> **BIMCanvas Agent 选择 `ClaudeSDKClient`**，因为需要持续对话和程序触发能力。
+
+| 特性 | `query()` | `ClaudeSDKClient` |
+|------|-----------|-------------------|
+| 会话管理 | 手动 session_id + resume | 自动维护 |
+| 持续对话 | 需手动恢复上下文 | 自动保持上下文 |
+| 程序触发 | 每次新会话 | 同一会话中触发 |
+| 中断支持 | 不支持 | `interrupt()` |
+| Hooks | 不支持 | 支持 |
+
+**选择 ClaudeSDKClient 的原因**：
+1. **持续对话**：用户多轮交互需要保持上下文
+2. **程序触发**：Server 检测问题后自动触发 Agent 修正
+3. **中断能力**：长时间任务可随时中断
+
+> **详见**：`docs/Agent_SDK_Technical_Guide.md` §1.2.1 和 §6.5
+
 #### P1.5.2 依赖变更
 
 **pyproject.toml 修改**：
