@@ -469,6 +469,34 @@ const isContextMenuOpen = ref(false);
 const activeSubmenu = ref<string | null>(null);
 const submenuDirection = ref<'left' | 'right'>('left');
 
+// Model & Thinking State
+const currentModel = ref('Claude 3.5 Sonnet');
+const currentThinking = ref('Off');
+const isModelMenuOpen = ref(false);
+const isThinkingMenuOpen = ref(false);
+
+const models = [
+  { id: 'claude-3-5-sonnet', label: 'Claude 3.5 Sonnet' },
+  { id: 'gemini-1-5-pro', label: 'Gemini 1.5 Pro' },
+  { id: 'gpt-4o', label: 'GPT-4o' }
+];
+
+const thinkingLevels = [
+  { id: 'off', label: 'Off' },
+  { id: 'low', label: 'Low' },
+  { id: 'high', label: 'High' }
+];
+
+const selectModel = (model: any) => {
+  currentModel.value = model.label;
+  isModelMenuOpen.value = false;
+};
+
+const selectThinking = (level: any) => {
+  currentThinking.value = level.label;
+  isThinkingMenuOpen.value = false;
+};
+
 const contextOptions = {
   zones: [
     { id: 'living-room', label: 'Living Room' },
@@ -539,6 +567,16 @@ const handleGlobalClick = (e: MouseEvent) => {
   // Close Branch Dropdown
   if (!target.closest('.branch-dropdown')) {
     isBranchDropdownOpen.value = false;
+  }
+
+  // Close Model Menu
+  if (!target.closest('.control-dropdown.model')) {
+    isModelMenuOpen.value = false;
+  }
+
+  // Close Thinking Menu
+  if (!target.closest('.control-dropdown.thinking')) {
+    isThinkingMenuOpen.value = false;
   }
 };
 
@@ -915,10 +953,54 @@ import MarkdownText from './base/MarkdownText.vue';
 
         </div>
         
-        <div class="strategy-toggle">
-            <span class="label">Creative</span>
-            <div class="toggle-switch"></div>
-            <span class="label">Strict</span>
+        <div class="control-footer">
+            <!-- Model Switch -->
+            <div class="control-dropdown model" :class="{ open: isModelMenuOpen }">
+                <button class="control-trigger" @click="isModelMenuOpen = !isModelMenuOpen">
+                    <span class="icon">🤖</span>
+                    <span class="text">{{ currentModel }}</span>
+                    <svg class="chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <polyline points="6 9 12 15 18 9"></polyline>
+                    </svg>
+                </button>
+                <transition name="scale-up">
+                    <div class="dropdown-menu" v-if="isModelMenuOpen">
+                        <div 
+                            v-for="m in models" 
+                            :key="m.id" 
+                            class="menu-item"
+                            :class="{ active: currentModel === m.label }"
+                            @click="selectModel(m)"
+                        >
+                            {{ m.label }}
+                        </div>
+                    </div>
+                </transition>
+            </div>
+
+            <!-- Thinking Intensity -->
+            <div class="control-dropdown thinking" :class="{ open: isThinkingMenuOpen }">
+                <button class="control-trigger" @click="isThinkingMenuOpen = !isThinkingMenuOpen">
+                    <span class="icon">🧠</span>
+                    <span class="text">Thinking: {{ currentThinking }}</span>
+                    <svg class="chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <polyline points="6 9 12 15 18 9"></polyline>
+                    </svg>
+                </button>
+                <transition name="scale-up">
+                    <div class="dropdown-menu" v-if="isThinkingMenuOpen">
+                        <div 
+                            v-for="t in thinkingLevels" 
+                            :key="t.id" 
+                            class="menu-item"
+                            :class="{ active: currentThinking === t.label }"
+                            @click="selectThinking(t)"
+                        >
+                            {{ t.label }}
+                        </div>
+                    </div>
+                </transition>
+            </div>
         </div>
       </div>
 
@@ -1591,18 +1673,102 @@ import MarkdownText from './base/MarkdownText.vue';
                 animation: spin 1s linear infinite;
             }
         }
-        .progress-track {
-            height: 4px;
-            background: var(--border-dim);
-            border-radius: 2px;
-            overflow: hidden;
-            margin-bottom: 8px;
             .progress-fill {
                 height: 100%;
                 background: var(--accent-primary);
-                transition: width 0.3s;
+                border-radius: 2px;
+                transition: width 0.3s ease;
             }
         }
+        .status {
+            font-size: 0.75rem;
+            color: var(--text-tertiary);
+        }
+    }
+}
+
+/* --- Control Footer (Model & Thinking) --- */
+.control-footer {
+    display: flex;
+    gap: 8px;
+    padding: 8px 16px 12px; /* Bottom padding for spacing */
+    border-top: 1px solid var(--border-dim);
+    margin-top: 0;
+}
+
+.control-dropdown {
+    position: relative;
+    flex: 1;
+
+    .control-trigger {
+        width: 100%;
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        padding: 6px 10px;
+        background: var(--surface-dim);
+        border: 1px solid var(--border-dim);
+        border-radius: 8px;
+        color: var(--text-secondary);
+        font-size: 0.75rem;
+        cursor: pointer;
+        transition: all 0.2s;
+
+        &:hover {
+            background: var(--surface-highlight);
+            color: var(--text-primary);
+        }
+
+        .icon { font-size: 0.9rem; opacity: 0.8; }
+        .text { flex: 1; text-align: left; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        .chevron { width: 14px; height: 14px; opacity: 0.5; transition: transform 0.2s; }
+    }
+
+    &.open .control-trigger {
+        background: var(--surface-elevated);
+        border-color: var(--border-subtle);
+        color: var(--text-primary);
+        .chevron { transform: rotate(180deg); }
+    }
+
+    .dropdown-menu {
+        position: absolute;
+        bottom: 100%;
+        left: 0;
+        width: 100%;
+        margin-bottom: 4px;
+        background: var(--surface-elevated);
+        border: 1px solid var(--border-subtle);
+        border-radius: 8px;
+        padding: 4px;
+        box-shadow: 0 4px 12px rgba(0,0,0,0.2);
+        z-index: 100;
+        display: flex;
+        flex-direction: column;
+        gap: 2px;
+
+        .menu-item {
+            padding: 6px 8px;
+            border-radius: 6px;
+            font-size: 0.75rem;
+            color: var(--text-secondary);
+            cursor: pointer;
+            transition: all 0.1s;
+
+            &:hover {
+                background: var(--surface-highlight);
+                color: var(--text-primary);
+            }
+
+            &.active {
+                background: rgba(var(--accent-primary-rgb), 0.1);
+                color: var(--accent-primary);
+                font-weight: 500;
+            }
+        }
+    }
+}
+
         .card-actions {
             display: flex;
             justify-content: flex-end;
@@ -2017,35 +2183,7 @@ import MarkdownText from './base/MarkdownText.vue';
     }
 }
 
-.strategy-toggle {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    gap: 8px;
-    font-size: 0.7rem;
-    color: var(--text-secondary);
-    
-    .toggle-switch {
-        width: 32px;
-        height: 16px;
-        background: var(--surface-dim);
-        border-radius: 8px;
-        position: relative;
-        cursor: pointer;
-        
-        &::after {
-            content: '';
-            position: absolute;
-            left: 2px;
-            top: 2px;
-            width: 12px;
-            height: 12px;
-            background: var(--text-secondary);
-            border-radius: 50%;
-            transition: transform 0.2s;
-        }
-    }
-}
+
 
 @keyframes spin {
     to { transform: rotate(360deg); }

@@ -57,7 +57,6 @@ const isExpanded = ref(false);
     margin-bottom: 4px;
 
     &.expanded {
-        border-color: var(--accent-primary);
         box-shadow: 0 4px 12px rgba(0,0,0,0.1);
         
         .widget-action .chevron {

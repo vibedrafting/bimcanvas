@@ -108,6 +108,8 @@ async for message in query(
 ### 1.2.1 query() vs ClaudeSDKClient 选择指南
 
 > **关键区别**：`query()` **不支持** Hooks 和 Custom Tools，这些功能仅 `ClaudeSDKClient` 支持。
+>
+> **BIMCanvas 项目决策**：主 Agent 使用 `ClaudeSDKClient`，因为需要持续对话和程序触发能力。
 
 | 特性 | `query()` | `ClaudeSDKClient` |
 |------|-----------|-------------------|
@@ -118,9 +120,20 @@ async for message in query(
 | **中断 (Interrupts)** | ❌ 不支持 | ✅ 支持 |
 | **流式输入** | ✅ 支持 | ✅ 支持 |
 
+**场景选择**：
+
+| 场景 | 推荐 | 原因 |
+|------|------|------|
+| **主 Agent（长期运行）** | `ClaudeSDKClient` | 持续对话、程序触发、中断支持 |
+| **SubAgent（临时任务）** | `query()` | 一次性任务，无需持久会话 |
+| **简单脚本/测试** | `query()` | API 简单，适合快速验证 |
+| **需要 Hooks** | `ClaudeSDKClient` | query() 不支持 Hooks |
+| **需要 Custom Tools** | `ClaudeSDKClient` | query() 不支持 Custom Tools |
+| **需要程序触发** | `ClaudeSDKClient` | 同一会话中可随时发送新任务 |
+
 **选择原则**：
 - 需要 Hooks 或 Custom Tools → **必须用 `ClaudeSDKClient`**
-- 需要多轮对话 → 推荐 `ClaudeSDKClient`
+- 需要多轮对话或程序触发 → **推荐 `ClaudeSDKClient`**
 - 简单一次性任务（无 Hooks/Custom Tools） → 可用 `query()`
 
 ### 1.3 关键配置项
