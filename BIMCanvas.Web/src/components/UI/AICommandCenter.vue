@@ -469,32 +469,33 @@ const isContextMenuOpen = ref(false);
 const activeSubmenu = ref<string | null>(null);
 const submenuDirection = ref<'left' | 'right'>('left');
 
-// Model & Thinking State
-const currentModel = ref('Claude 3.5 Sonnet');
-const currentThinking = ref('Off');
+// Model Presets State
+const currentPreset = ref<ModelPreset | null>(null);
 const isModelMenuOpen = ref(false);
-const isThinkingMenuOpen = ref(false);
 
-const models = [
-  { id: 'claude-3-5-sonnet', label: 'Claude 3.5 Sonnet' },
-  { id: 'gemini-1-5-pro', label: 'Gemini 1.5 Pro' },
-  { id: 'gpt-4o', label: 'GPT-4o' }
+interface ModelPreset {
+  id: string;
+  label: string;
+  model: string;
+  thinking: 'off' | 'low' | 'high';
+  icon: string;
+  isNew?: boolean;
+}
+
+const modelPresets: ModelPreset[] = [
+  { id: 'claude-3-5-sonnet', label: 'Claude 3.5 Sonnet', model: 'Claude 3.5 Sonnet', thinking: 'off', icon: '🤖' },
+  { id: 'claude-3-5-sonnet-thinking', label: 'Claude 3.5 Sonnet (Thinking)', model: 'Claude 3.5 Sonnet', thinking: 'high', icon: '🧠' },
+  { id: 'gemini-1-5-pro', label: 'Gemini 1.5 Pro', model: 'Gemini 1.5 Pro', thinking: 'off', icon: '✨' },
+  { id: 'gemini-1-5-pro-high', label: 'Gemini 1.5 Pro (High Reasoning)', model: 'Gemini 1.5 Pro', thinking: 'high', icon: '⚡' },
+  { id: 'gpt-4o', label: 'GPT-4o', model: 'GPT-4o', thinking: 'off', icon: '🔮' }
 ];
 
-const thinkingLevels = [
-  { id: 'off', label: 'Off' },
-  { id: 'low', label: 'Low' },
-  { id: 'high', label: 'High' }
-];
+// Initialize default
+currentPreset.value = modelPresets[0];
 
-const selectModel = (model: any) => {
-  currentModel.value = model.label;
+const selectPreset = (preset: ModelPreset) => {
+  currentPreset.value = preset;
   isModelMenuOpen.value = false;
-};
-
-const selectThinking = (level: any) => {
-  currentThinking.value = level.label;
-  isThinkingMenuOpen.value = false;
 };
 
 const contextOptions = {
@@ -570,13 +571,8 @@ const handleGlobalClick = (e: MouseEvent) => {
   }
 
   // Close Model Menu
-  if (!target.closest('.control-dropdown.model')) {
+  if (!target.closest('.model-selector')) {
     isModelMenuOpen.value = false;
-  }
-
-  // Close Thinking Menu
-  if (!target.closest('.control-dropdown.thinking')) {
-    isThinkingMenuOpen.value = false;
   }
 };
 
@@ -954,49 +950,30 @@ import MarkdownText from './base/MarkdownText.vue';
         </div>
         
         <div class="control-footer">
-            <!-- Model Switch -->
-            <div class="control-dropdown model" :class="{ open: isModelMenuOpen }">
-                <button class="control-trigger" @click="isModelMenuOpen = !isModelMenuOpen">
-                    <span class="icon">🤖</span>
-                    <span class="text">{{ currentModel }}</span>
+            <!-- Unified Model Selector -->
+            <div class="model-selector" :class="{ open: isModelMenuOpen }">
+                <button class="selector-trigger" @click="isModelMenuOpen = !isModelMenuOpen">
+                    <span class="icon">{{ currentPreset?.icon }}</span>
+                    <span class="text">{{ currentPreset?.label }}</span>
                     <svg class="chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                         <polyline points="6 9 12 15 18 9"></polyline>
                     </svg>
                 </button>
                 <transition name="scale-up">
-                    <div class="dropdown-menu" v-if="isModelMenuOpen">
+                    <div class="selector-menu" v-if="isModelMenuOpen">
+                        <div class="menu-header">Model</div>
                         <div 
-                            v-for="m in models" 
-                            :key="m.id" 
+                            v-for="preset in modelPresets" 
+                            :key="preset.id" 
                             class="menu-item"
-                            :class="{ active: currentModel === m.label }"
-                            @click="selectModel(m)"
+                            :class="{ active: currentPreset?.id === preset.id }"
+                            @click="selectPreset(preset)"
                         >
-                            {{ m.label }}
-                        </div>
-                    </div>
-                </transition>
-            </div>
-
-            <!-- Thinking Intensity -->
-            <div class="control-dropdown thinking" :class="{ open: isThinkingMenuOpen }">
-                <button class="control-trigger" @click="isThinkingMenuOpen = !isThinkingMenuOpen">
-                    <span class="icon">🧠</span>
-                    <span class="text">Thinking: {{ currentThinking }}</span>
-                    <svg class="chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                        <polyline points="6 9 12 15 18 9"></polyline>
-                    </svg>
-                </button>
-                <transition name="scale-up">
-                    <div class="dropdown-menu" v-if="isThinkingMenuOpen">
-                        <div 
-                            v-for="t in thinkingLevels" 
-                            :key="t.id" 
-                            class="menu-item"
-                            :class="{ active: currentThinking === t.label }"
-                            @click="selectThinking(t)"
-                        >
-                            {{ t.label }}
+                            <span class="item-text">{{ preset.label }}</span>
+                            <span v-if="preset.isNew" class="badge-new">New</span>
+                            <svg v-if="currentPreset?.id === preset.id" class="check-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <polyline points="20 6 9 17 4 12"></polyline>
+                            </svg>
                         </div>
                     </div>
                 </transition>
@@ -1690,91 +1667,6 @@ import MarkdownText from './base/MarkdownText.vue';
             font-size: 0.75rem;
             color: var(--text-tertiary);
         }
-    }
-}
-
-/* --- Control Footer (Model & Thinking) --- */
-.control-footer {
-    display: flex;
-    gap: 8px;
-    padding: 8px 16px 12px; /* Bottom padding for spacing */
-    border-top: 1px solid var(--border-dim);
-    margin-top: 0;
-}
-
-.control-dropdown {
-    position: relative;
-    flex: 1;
-
-    .control-trigger {
-        width: 100%;
-        display: flex;
-        align-items: center;
-        gap: 6px;
-        padding: 6px 10px;
-        background: var(--surface-dim);
-        border: 1px solid var(--border-dim);
-        border-radius: 8px;
-        color: var(--text-secondary);
-        font-size: 0.75rem;
-        cursor: pointer;
-        transition: all 0.2s;
-
-        &:hover {
-            background: var(--surface-highlight);
-            color: var(--text-primary);
-        }
-
-        .icon { font-size: 0.9rem; opacity: 0.8; }
-        .text { flex: 1; text-align: left; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-        .chevron { width: 14px; height: 14px; opacity: 0.5; transition: transform 0.2s; }
-    }
-
-    &.open .control-trigger {
-        background: var(--surface-elevated);
-        border-color: var(--border-subtle);
-        color: var(--text-primary);
-        .chevron { transform: rotate(180deg); }
-    }
-
-    .dropdown-menu {
-        position: absolute;
-        bottom: 100%;
-        left: 0;
-        width: 100%;
-        margin-bottom: 4px;
-        background: var(--surface-elevated);
-        border: 1px solid var(--border-subtle);
-        border-radius: 8px;
-        padding: 4px;
-        box-shadow: 0 4px 12px rgba(0,0,0,0.2);
-        z-index: 100;
-        display: flex;
-        flex-direction: column;
-        gap: 2px;
-
-        .menu-item {
-            padding: 6px 8px;
-            border-radius: 6px;
-            font-size: 0.75rem;
-            color: var(--text-secondary);
-            cursor: pointer;
-            transition: all 0.1s;
-
-            &:hover {
-                background: var(--surface-highlight);
-                color: var(--text-primary);
-            }
-
-            &.active {
-                background: rgba(var(--accent-primary-rgb), 0.1);
-                color: var(--accent-primary);
-                font-weight: 500;
-            }
-        }
-    }
-}
-
         .card-actions {
             display: flex;
             justify-content: flex-end;
@@ -2242,6 +2134,117 @@ import MarkdownText from './base/MarkdownText.vue';
     .send-btn:disabled {
         opacity: 0.5;
         cursor: not-allowed;
+    }
+}
+
+/* --- Control Footer (Unified) --- */
+.control-footer {
+    display: flex;
+    padding: 8px 16px 12px;
+    border-top: 1px solid var(--border-dim);
+    margin-top: 0;
+}
+
+.model-selector {
+    position: relative;
+    width: 100%; /* Full width */
+
+    .selector-trigger {
+        width: 100%;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        padding: 8px 12px;
+        background: rgba(0, 0, 0, 0.2); /* Darker background */
+        border: 1px solid var(--border-dim);
+        border-radius: 8px;
+        color: var(--text-secondary);
+        font-size: 0.8rem;
+        cursor: pointer;
+        transition: all 0.2s;
+
+        &:hover {
+            background: rgba(255, 255, 255, 0.05);
+            color: var(--text-primary);
+            border-color: var(--border-subtle);
+        }
+
+        .icon { font-size: 1rem; opacity: 0.9; }
+        .text { flex: 1; text-align: left; font-weight: 500; }
+        .chevron { width: 16px; height: 16px; opacity: 0.5; transition: transform 0.2s; }
+    }
+
+    &.open .selector-trigger {
+        background: var(--surface-elevated);
+        border-color: var(--border-subtle);
+        color: var(--text-primary);
+        .chevron { transform: rotate(180deg); }
+    }
+
+    .selector-menu {
+        position: absolute;
+        bottom: 100%;
+        left: 0;
+        width: 100%;
+        margin-bottom: 6px;
+        background: #1e1e1e; /* Dark solid background for menu */
+        border: 1px solid var(--border-subtle);
+        border-radius: 10px;
+        padding: 6px;
+        box-shadow: 0 8px 32px rgba(0,0,0,0.4);
+        z-index: 100;
+        display: flex;
+        flex-direction: column;
+        gap: 2px;
+
+        .menu-header {
+            padding: 8px 10px 4px;
+            font-size: 0.7rem;
+            color: var(--text-tertiary);
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            font-weight: 600;
+        }
+
+        .menu-item {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 8px 10px;
+            border-radius: 6px;
+            font-size: 0.85rem;
+            color: var(--text-secondary);
+            cursor: pointer;
+            transition: all 0.1s;
+
+            &:hover {
+                background: rgba(255, 255, 255, 0.08);
+                color: var(--text-primary);
+            }
+
+            &.active {
+                background: rgba(var(--accent-primary-rgb), 0.15);
+                color: var(--accent-primary);
+                font-weight: 500;
+            }
+            
+            .item-text { flex: 1; }
+            
+            .badge-new {
+                font-size: 0.65rem;
+                background: var(--surface-highlight);
+                padding: 2px 6px;
+                border-radius: 4px;
+                margin-right: 8px;
+                color: var(--text-primary);
+            }
+
+            .check-icon {
+                width: 16px;
+                height: 16px;
+                color: var(--accent-primary);
+            }
+        }
     }
 }
 </style>

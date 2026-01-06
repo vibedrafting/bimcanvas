@@ -52,42 +52,48 @@ async def interactive_mode(project_path: str = None) -> None:
 
     agent = PlacementAgent(project_path)
 
-    while True:
-        try:
-            user_input = input("\nYou: ").strip()
+    try:
+        while True:
+            try:
+                user_input = input("\nYou: ").strip()
 
-            if not user_input:
-                continue
+                if not user_input:
+                    continue
 
-            # Handle commands
-            if user_input.lower() == "/exit":
-                print("Goodbye!")
+                # Handle commands
+                if user_input.lower() == "/exit":
+                    print("Goodbye!")
+                    break
+
+                if user_input.lower() == "/clear":
+                    agent.clear_history()
+                    print("Conversation history cleared.")
+                    continue
+
+                if user_input.lower() == "/help":
+                    print("Commands:")
+                    print("  /clear  - Clear conversation history")
+                    print("  /exit   - Exit the program")
+                    print("  /help   - Show this help")
+                    continue
+
+                # Regular chat (流式输出)
+                print("\nAgent: ", end="", flush=True)
+                async for chunk in agent.chat_stream(user_input):
+                    # 修复：输出 chunk.content 而非 chunk 对象
+                    if chunk.type in ("text", "text_complete"):
+                        print(chunk.content, end="", flush=True)
+                print()
+
+            except KeyboardInterrupt:
+                print("\n\nInterrupted. Goodbye!")
                 break
-
-            if user_input.lower() == "/clear":
-                agent.clear_history()
-                print("Conversation history cleared.")
-                continue
-
-            if user_input.lower() == "/help":
-                print("Commands:")
-                print("  /clear  - Clear conversation history")
-                print("  /exit   - Exit the program")
-                print("  /help   - Show this help")
-                continue
-
-            # Regular chat
-            print("\nAgent: ", end="", flush=True)
-            async for chunk in agent.chat_stream(user_input):
-                print(chunk, end="", flush=True)
-            print()
-
-        except KeyboardInterrupt:
-            print("\n\nInterrupted. Goodbye!")
-            break
-        except Exception as e:
-            logger.exception(f"Error: {e}")
-            print(f"\nError: {e}")
+            except Exception as e:
+                logger.exception(f"Error: {e}")
+                print(f"\nError: {e}")
+    finally:
+        # 确保连接清理
+        await agent.disconnect()
 
 
 def main() -> None:

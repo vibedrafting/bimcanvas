@@ -1,5 +1,6 @@
 """HTTP Server for Web integration using aiohttp"""
 
+import asyncio
 import json
 import logging
 from typing import Any
@@ -15,11 +16,12 @@ logger = logging.getLogger(__name__)
 
 # Global agent instances (cached by project path)
 agents: dict[str, PlacementAgent] = {}
+_agents_lock = asyncio.Lock()
 
 
-def get_agent(project_path: str) -> PlacementAgent:
+async def get_agent(project_path: str) -> PlacementAgent:
     """
-    Get or create an Agent instance for a project.
+    异步获取或创建 Agent 实例（带预连接）
 
     Args:
         project_path: Path to the project
@@ -29,11 +31,26 @@ def get_agent(project_path: str) -> PlacementAgent:
     """
     cache_key = project_path or "__default__"
 
-    if cache_key not in agents:
-        agents[cache_key] = PlacementAgent(project_path)
-        logger.info(f"Created new agent for project: {project_path or 'default'}")
+    async with _agents_lock:
+        if cache_key not in agents:
+            agent = PlacementAgent(project_path)
+            await agent.connect()  # 预连接
+            agents[cache_key] = agent
+            logger.info(f"Created and connected agent for project: {project_path or 'default'}")
 
-    return agents[cache_key]
+        return agents[cache_key]
+
+
+async def cleanup_agents() -> None:
+    """清理所有 Agent 连接（shutdown 时调用）"""
+    async with _agents_lock:
+        for cache_key, agent in agents.items():
+            try:
+                await agent.disconnect()
+                logger.info(f"Disconnected agent: {cache_key}")
+            except Exception as e:
+                logger.error(f"Error disconnecting agent {cache_key}: {e}")
+        agents.clear()
 
 
 async def health_handler(request: web.Request) -> web.Response:
@@ -79,7 +96,7 @@ async def chat_handler(request: web.Request) -> web.Response:
         )
 
     try:
-        agent = get_agent(project_path)
+        agent = await get_agent(project_path)  # 异步获取
         reply = await agent.chat(message)
 
         return web.json_response({
@@ -136,7 +153,7 @@ async def chat_stream_handler(request: web.Request) -> web.StreamResponse:
     await response.prepare(request)
 
     try:
-        agent = get_agent(project_path)
+        agent = await get_agent(project_path)  # 异步获取
 
         async for chunk in agent.chat_stream(message):
             # Send each chunk as SSE event with type info
@@ -193,7 +210,7 @@ async def get_history_handler(request: web.Request) -> web.Response:
     """
     project_path = request.query.get("projectPath", "")
 
-    agent = get_agent(project_path)
+    agent = await get_agent(project_path)  # 异步获取
     history = agent.get_history()
 
     return web.json_response({
@@ -242,7 +259,7 @@ async def layout_task_handler(request: web.Request) -> web.Response:
         )
 
     try:
-        agent = get_agent(project_path)
+        agent = await get_agent(project_path)  # 异步获取
         logger.info(f"Starting layout task for project: {project_path}, scheme: {scheme_id}")
 
         # Execute layout task with tools enabled
@@ -307,7 +324,7 @@ async def layout_task_stream_handler(request: web.Request) -> web.StreamResponse
     await response.prepare(request)
 
     try:
-        agent = get_agent(project_path)
+        agent = await get_agent(project_path)  # 异步获取
         logger.info(f"Starting streaming layout task for project: {project_path}")
 
         async for chunk in agent.run_layout_stream(user_prompt, scheme_id):
@@ -332,6 +349,41 @@ async def layout_task_stream_handler(request: web.Request) -> web.StreamResponse
     return response
 
 
+async def interrupt_handler(request: web.Request) -> web.Response:
+    """
+    中断当前任务
+
+    Request body:
+        {
+            "projectPath": "path/to/project"
+        }
+    """
+    try:
+        data = await request.json()
+    except json.JSONDecodeError:
+        return web.json_response(
+            {"error": "Invalid JSON"},
+            status=400
+        )
+
+    project_path = data.get("projectPath", "")
+    cache_key = project_path or "__default__"
+
+    async with _agents_lock:
+        if cache_key in agents:
+            await agents[cache_key].interrupt()
+            logger.info(f"Interrupted task for project: {project_path or 'default'}")
+            return web.json_response({"success": True})
+
+    return web.json_response({"error": "Agent not found"}, status=404)
+
+
+async def on_shutdown(app: web.Application) -> None:
+    """应用关闭时清理资源"""
+    logger.info("Shutting down, cleaning up agents...")
+    await cleanup_agents()
+
+
 def create_app() -> web.Application:
     """
     Create and configure the aiohttp application.
@@ -340,6 +392,9 @@ def create_app() -> web.Application:
         Configured web.Application
     """
     app = web.Application()
+
+    # 注册清理回调
+    app.on_shutdown.append(on_shutdown)
 
     # Configure CORS for Web access
     cors = aiohttp_cors.setup(app, defaults={
@@ -358,7 +413,8 @@ def create_app() -> web.Application:
         web.post("/api/chat/stream", chat_stream_handler),
         web.post("/api/clear-history", clear_history_handler),
         web.get("/api/history", get_history_handler),
-        # P2: Layout task endpoints
+        web.post("/api/interrupt", interrupt_handler),  # 新增：中断端点
+        # Layout task endpoints
         web.post("/api/task/layout", layout_task_handler),
         web.post("/api/task/layout/stream", layout_task_stream_handler),
     ]
@@ -367,7 +423,7 @@ def create_app() -> web.Application:
         resource = cors.add(app.router.add_resource(route.path))
         cors.add(resource.add_route(route.method, route.handler))
 
-    logger.info("HTTP application created with routes: /health, /api/chat, /api/chat/stream, /api/clear-history, /api/history, /api/task/layout, /api/task/layout/stream")
+    logger.info("HTTP application created with routes: /health, /api/chat, /api/chat/stream, /api/clear-history, /api/history, /api/interrupt, /api/task/layout, /api/task/layout/stream")
 
     return app
 

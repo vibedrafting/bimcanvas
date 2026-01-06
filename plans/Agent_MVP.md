@@ -323,9 +323,9 @@ dependencies = [
 
 #### P1.5.3 PlacementAgent 重写
 
-**目标实现**（Agent SDK）：
+**目标实现**（使用 ClaudeSDKClient）：
 ```python
-from claude_agent_sdk import query, ClaudeAgentOptions, AssistantMessage, TextBlock
+from claude_agent_sdk import ClaudeSDKClient, ClaudeAgentOptions, AssistantMessage, TextBlock
 
 # Agent 系统提示词
 SYSTEM_PROMPT = """你是 BIMCanvas 的 PlacementAgent，一个专业的室内布置助手。
@@ -333,14 +333,17 @@ SYSTEM_PROMPT = """你是 BIMCanvas 的 PlacementAgent，一个专业的室内�
 """
 
 class PlacementAgent:
-    """基于 Agent SDK 的布置助手"""
+    """基于 ClaudeSDKClient 的布置助手 - 支持持续对话和程序触发"""
 
     def __init__(self, project_path: str = None):
         self.project_path = project_path
-        self.session_id = None  # Agent SDK 会话管理
+        self._client: ClaudeSDKClient | None = None
+        self._connected = False
 
-    async def chat(self, user_message: str) -> str:
-        """处理用户消息并返回回复"""
+    async def connect(self) -> None:
+        """建立持久连接"""
+        if self._connected:
+            return
         options = ClaudeAgentOptions(
             system_prompt=SYSTEM_PROMPT,
             cwd=self.project_path,  # 设置工作目录
@@ -349,18 +352,26 @@ class PlacementAgent:
             # allowed_tools=["Read", "Write", "Glob"],
             # permission_mode="acceptEdits"
         )
+        self._client = ClaudeSDKClient(options)
+        await self._client.connect()
+        self._connected = True
 
-        # 如果有会话，恢复上下文
-        if self.session_id:
-            options.resume = self.session_id
+    async def disconnect(self) -> None:
+        """断开连接"""
+        if self._client and self._connected:
+            await self._client.disconnect()
+            self._connected = False
+            self._client = None
+
+    async def chat(self, user_message: str) -> str:
+        """处理用户消息（持续对话，自动保持上下文）"""
+        if not self._connected:
+            await self.connect()
+
+        await self._client.query(user_message)
 
         full_response = ""
-        async for message in query(prompt=user_message, options=options):
-            # 捕获会话 ID
-            if hasattr(message, 'subtype') and message.subtype == 'init':
-                self.session_id = message.data.get('session_id')
-
-            # 提取文本响应
+        async for message in self._client.receive_response():
             if isinstance(message, AssistantMessage):
                 for block in message.content:
                     if isinstance(block, TextBlock):
@@ -370,31 +381,29 @@ class PlacementAgent:
 
     async def chat_stream(self, user_message: str) -> AsyncIterator[str]:
         """流式处理用户消息"""
-        options = ClaudeAgentOptions(
-            system_prompt=SYSTEM_PROMPT,
-            cwd=self.project_path,
-            max_turns=1
-        )
+        if not self._connected:
+            await self.connect()
 
-        if self.session_id:
-            options.resume = self.session_id
+        await self._client.query(user_message)
 
-        async for message in query(prompt=user_message, options=options):
-            if hasattr(message, 'subtype') and message.subtype == 'init':
-                self.session_id = message.data.get('session_id')
-
+        async for message in self._client.receive_response():
             if isinstance(message, AssistantMessage):
                 for block in message.content:
                     if isinstance(block, TextBlock):
                         yield block.text
 
     def clear_history(self) -> None:
-        """清空对话历史（重置会话）"""
-        self.session_id = None
+        """清空对话历史（重建连接）"""
+        import asyncio
+        asyncio.create_task(self._reset_session())
+
+    async def _reset_session(self) -> None:
+        await self.disconnect()
+        # 下次 chat() 会自动重新连接
 
     def get_history(self) -> list[dict]:
-        """获取对话历史（Agent SDK 通过 session 管理，返回空列表）"""
-        return []  # Agent SDK 内部管理，外部无法直接获取
+        """获取对话历史（ClaudeSDKClient 内部管理）"""
+        return []  # SDK 内部管理，外部无法直接获取
 ```
 
 #### P1.5.4 需要修改的文件
@@ -484,9 +493,9 @@ class PlacementAgent:
 
 > **关键变更**：Agent SDK 内置 Read/Write/Glob/Edit 等工具，无需手动定义。Claude 会自动执行文件操作。
 
-**placement_agent.py 配置更新**：
+**placement_agent.py 配置更新**（使用 ClaudeSDKClient）：
 ```python
-from claude_agent_sdk import query, ClaudeAgentOptions, AssistantMessage, TextBlock
+from claude_agent_sdk import ClaudeSDKClient, ClaudeAgentOptions, AssistantMessage, TextBlock
 
 # P2 阶段 System Prompt（增加文件操作指导）
 SYSTEM_PROMPT = """你是 BIMCanvas 的 PlacementAgent，一个专业的室内布置助手。
@@ -519,14 +528,17 @@ SYSTEM_PROMPT = """你是 BIMCanvas 的 PlacementAgent，一个专业的室内�
 """
 
 class PlacementAgent:
-    """基于 Agent SDK 的布置助手"""
+    """基于 ClaudeSDKClient 的布置助手 - P2 阶段启用工具"""
 
     def __init__(self, project_path: str = None):
         self.project_path = project_path
-        self.session_id = None
+        self._client: ClaudeSDKClient | None = None
+        self._connected = False
 
-    async def chat(self, user_message: str) -> str:
-        """处理用户消息（支持文件操作）"""
+    async def connect(self) -> None:
+        """建立持久连接（启用工具）"""
+        if self._connected:
+            return
         options = ClaudeAgentOptions(
             system_prompt=SYSTEM_PROMPT,
             cwd=self.project_path,  # 设置工作目录
@@ -535,21 +547,41 @@ class PlacementAgent:
             allowed_tools=["Read", "Write", "Glob"],
             permission_mode="acceptEdits",  # 自动接受文件编辑
         )
+        self._client = ClaudeSDKClient(options)
+        await self._client.connect()
+        self._connected = True
 
-        if self.session_id:
-            options.resume = self.session_id
+    async def disconnect(self) -> None:
+        """断开连接"""
+        if self._client and self._connected:
+            await self._client.disconnect()
+            self._connected = False
+            self._client = None
+
+    async def chat(self, user_message: str) -> str:
+        """处理用户消息（支持文件操作）"""
+        if not self._connected:
+            await self.connect()
+
+        await self._client.query(user_message)
 
         full_response = ""
-        async for message in query(prompt=user_message, options=options):
-            if hasattr(message, 'subtype') and message.subtype == 'init':
-                self.session_id = message.data.get('session_id')
-
+        async for message in self._client.receive_response():
             if isinstance(message, AssistantMessage):
                 for block in message.content:
                     if isinstance(block, TextBlock):
                         full_response += block.text
 
         return full_response
+
+    async def execute_task(self, task_prompt: str) -> str:
+        """执行任务（程序触发入口）- 在同一会话中执行"""
+        return await self.chat(task_prompt)
+
+    async def interrupt(self) -> None:
+        """中断当前任务"""
+        if self._client and self._connected:
+            await self._client.interrupt()
 ```
 
 **关键配置说明**：

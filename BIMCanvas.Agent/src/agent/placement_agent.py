@@ -1,10 +1,12 @@
 """PlacementAgent - AI-powered interior layout assistant using Agent SDK"""
 
+import asyncio
+import logging
 from typing import AsyncIterator
 from dataclasses import dataclass
 
 from claude_agent_sdk import (
-    query,
+    ClaudeSDKClient,
     ClaudeAgentOptions,
     AssistantMessage,
     TextBlock,
@@ -12,6 +14,8 @@ from claude_agent_sdk import (
 )
 
 from ..config.settings import get_settings
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -102,7 +106,7 @@ LAYOUT_SYSTEM_PROMPT = """你是 BIMCanvas 的 PlacementAgent，一个专业的�
 
 
 class PlacementAgent:
-    """基于 Agent SDK 的布置助手"""
+    """基于 ClaudeSDKClient 的布置助手（支持持续对话）"""
 
     def __init__(self, project_path: str = None):
         """
@@ -112,11 +116,69 @@ class PlacementAgent:
             project_path: Path to the current project (optional)
         """
         self.project_path = project_path
-        self.session_id: str | None = None  # Agent SDK 会话管理
+
+        # ClaudeSDKClient 实例管理
+        self._chat_client: ClaudeSDKClient | None = None
+        self._chat_connected = False
+        self._chat_lock = asyncio.Lock()
+
+    # ─────────────────────────────────────────────────────
+    # 配置创建
+    # ─────────────────────────────────────────────────────
+
+    def _create_chat_options(self) -> ClaudeAgentOptions:
+        """创建对话模式配置"""
+        settings = get_settings()
+        return ClaudeAgentOptions(
+            system_prompt=SYSTEM_PROMPT,
+            cwd=self.project_path,
+            max_turns=1,
+            model=settings.model_name,
+        )
+
+    def _create_layout_options(self) -> ClaudeAgentOptions:
+        """创建布置任务模式配置"""
+        settings = get_settings()
+        return ClaudeAgentOptions(
+            system_prompt=LAYOUT_SYSTEM_PROMPT,
+            cwd=self.project_path,
+            max_turns=10,
+            model=settings.model_name,
+            allowed_tools=["Read", "Write", "Glob", "Edit"],
+            permission_mode="acceptEdits",
+        )
+
+    # ─────────────────────────────────────────────────────
+    # 连接管理
+    # ─────────────────────────────────────────────────────
+
+    async def connect(self) -> None:
+        """建立持久连接"""
+        async with self._chat_lock:
+            if self._chat_connected:
+                return
+            options = self._create_chat_options()
+            self._chat_client = ClaudeSDKClient(options)
+            await self._chat_client.connect()
+            self._chat_connected = True
+            logger.info(f"Chat client connected for project: {self.project_path}")
+
+    async def disconnect(self) -> None:
+        """断开连接"""
+        async with self._chat_lock:
+            if self._chat_client and self._chat_connected:
+                await self._chat_client.disconnect()
+                self._chat_connected = False
+                self._chat_client = None
+                logger.info(f"Chat client disconnected for project: {self.project_path}")
+
+    # ─────────────────────────────────────────────────────
+    # 对话方法
+    # ─────────────────────────────────────────────────────
 
     async def chat(self, user_message: str) -> str:
         """
-        Process user message and return AI response.
+        对话（自动保持上下文）
 
         Args:
             user_message: The user's input message
@@ -124,25 +186,13 @@ class PlacementAgent:
         Returns:
             AI assistant's response text
         """
-        settings = get_settings()
-        options = ClaudeAgentOptions(
-            system_prompt=SYSTEM_PROMPT,
-            cwd=self.project_path,  # 设置工作目录
-            max_turns=1,  # P1.5: 单轮对话
-            model=settings.model_name,  # 使用配置的模型
-            resume=self.session_id,  # 会话恢复(None时为新会话)
-            # P2 阶段将启用工具：
-            # allowed_tools=["Read", "Write", "Glob"],
-            # permission_mode="acceptEdits"
-        )
+        if not self._chat_connected:
+            await self.connect()
+
+        await self._chat_client.query(user_message)
 
         full_response = ""
-        async for message in query(prompt=user_message, options=options):
-            # 捕获会话 ID
-            if hasattr(message, 'subtype') and message.subtype == 'init':
-                self.session_id = message.data.get('session_id')
-
-            # 提取文本响应
+        async for message in self._chat_client.receive_response():
             if isinstance(message, AssistantMessage):
                 for block in message.content:
                     if isinstance(block, TextBlock):
@@ -152,7 +202,7 @@ class PlacementAgent:
 
     async def chat_stream(self, user_message: str) -> AsyncIterator[StreamChunk]:
         """
-        Process user message and stream AI response with thinking process.
+        流式对话（支持思考过程）
 
         Args:
             user_message: The user's input message
@@ -160,21 +210,12 @@ class PlacementAgent:
         Yields:
             StreamChunk objects containing type and content
         """
-        settings = get_settings()
-        options = ClaudeAgentOptions(
-            system_prompt=SYSTEM_PROMPT,
-            cwd=self.project_path,
-            max_turns=1,
-            model=settings.model_name,
-            resume=self.session_id,
-            include_partial_messages=True,  # 启用增量消息流
-        )
+        if not self._chat_connected:
+            await self.connect()
 
-        async for message in query(prompt=user_message, options=options):
-            # 捕获会话 ID
-            if hasattr(message, 'subtype') and message.subtype == 'init':
-                self.session_id = message.data.get('session_id')
+        await self._chat_client.query(user_message)
 
+        async for message in self._chat_client.receive_response():
             # 处理流式增量事件 (使用 duck typing 检查)
             if hasattr(message, 'event'):
                 event = message.event
@@ -203,37 +244,73 @@ class PlacementAgent:
                     elif isinstance(block, TextBlock):
                         yield StreamChunk(type="text_complete", content=block.text)
 
+    # ─────────────────────────────────────────────────────
+    # 控制方法
+    # ─────────────────────────────────────────────────────
+
+    async def interrupt(self) -> None:
+        """中断当前正在执行的任务"""
+        if self._chat_client and self._chat_connected:
+            await self._chat_client.interrupt()
+            logger.info("Chat interrupted")
+
     def clear_history(self) -> None:
-        """Clear conversation history (reset session)"""
-        self.session_id = None
+        """清除对话历史（重建连接）"""
+        asyncio.create_task(self._reset_session())
+
+    async def _reset_session(self) -> None:
+        """重置对话会话"""
+        await self.disconnect()
+        # 下次 chat() 调用时会自动重连
 
     def get_history(self) -> list[dict]:
         """
-        Get the current conversation history.
+        获取对话历史
 
-        Note: Agent SDK manages history internally via session_id.
-        This method returns an empty list as history is not directly accessible.
+        Note: ClaudeSDKClient 内部管理历史，无法直接访问
 
         Returns:
-            Empty list (history managed by Agent SDK)
+            Empty list (history managed by SDK internally)
         """
         return []
 
     def set_project_path(self, project_path: str) -> None:
         """
-        Set the current project path.
+        设置项目路径（会触发重连）
 
         Args:
             project_path: Path to the project
         """
-        self.project_path = project_path
+        if self.project_path != project_path:
+            self.project_path = project_path
+            # 路径变化需要重建连接
+            asyncio.create_task(self.disconnect())
+
+    # ─────────────────────────────────────────────────────
+    # 布置任务方法
+    # ─────────────────────────────────────────────────────
+
+    def _build_layout_prompt(self, task_prompt: str, scheme_id: str) -> str:
+        """构建完整布置提示词"""
+        return f"""
+用户请求：{task_prompt}
+
+请执行家具布置任务：
+1. 读取 computed/room_zones.json 获取房间分区数据
+2. 读取 baseline/openings.json 获取门窗数据
+3. 查看 modules/ 目录了解可用家具
+4. 根据布置规则为每个房间布置家具
+5. 将布置结果写入 schemes/{scheme_id}/modules.json
+
+注意：输出的 modules.json 必须符合规定的格式。
+"""
 
     async def run_layout(self, task_prompt: str, scheme_id: str = "default") -> str:
         """
-        Execute a layout task with file tools enabled.
+        执行布置任务（独立执行，不复用会话）
 
-        This method enables Agent SDK built-in tools (Read, Write, Glob)
-        for reading project data and writing layout results.
+        布置任务使用 context manager，每次独立执行，
+        不受之前对话的影响。
 
         Args:
             task_prompt: The layout task description from user
@@ -242,46 +319,27 @@ class PlacementAgent:
         Returns:
             Task execution summary
         """
-        # Build the full task prompt with scheme context
-        full_prompt = f"""
-用户请求：{task_prompt}
+        full_prompt = self._build_layout_prompt(task_prompt, scheme_id)
+        options = self._create_layout_options()
 
-请执行家具布置任务：
-1. 读取 computed/room_zones.json 获取房间分区数据
-2. 读取 baseline/openings.json 获取门窗数据
-3. 查看 modules/ 目录了解可用家具
-4. 根据布置规则为每个房间布置家具
-5. 将布置结果写入 schemes/{scheme_id}/modules.json
+        # 使用 context manager 自动管理连接
+        async with ClaudeSDKClient(options) as client:
+            await client.query(full_prompt)
 
-注意：输出的 modules.json 必须符合规定的格式。
-"""
+            full_response = ""
+            async for message in client.receive_response():
+                if isinstance(message, AssistantMessage):
+                    for block in message.content:
+                        if isinstance(block, TextBlock):
+                            full_response += block.text
 
-        settings = get_settings()
-        options = ClaudeAgentOptions(
-            system_prompt=LAYOUT_SYSTEM_PROMPT,
-            cwd=self.project_path,
-            max_turns=10,  # 允许多轮工具调用
-            model=settings.model_name,
-            # P2 阶段启用内置工具
-            allowed_tools=["Read", "Write", "Glob", "Edit"],
-            permission_mode="acceptEdits",  # 自动接受文件编辑
-        )
-
-        # 布置任务不使用会话恢复，每次独立执行
-        full_response = ""
-        async for message in query(prompt=full_prompt, options=options):
-            if isinstance(message, AssistantMessage):
-                for block in message.content:
-                    if isinstance(block, TextBlock):
-                        full_response += block.text
-
-        return full_response
+            return full_response
 
     async def run_layout_stream(
         self, task_prompt: str, scheme_id: str = "default"
     ) -> AsyncIterator[StreamChunk]:
         """
-        Execute a layout task with streaming output.
+        流式执行布置任务
 
         Args:
             task_prompt: The layout task description
@@ -290,54 +348,37 @@ class PlacementAgent:
         Yields:
             StreamChunk objects containing thinking and text content
         """
-        full_prompt = f"""
-用户请求：{task_prompt}
+        full_prompt = self._build_layout_prompt(task_prompt, scheme_id)
+        options = self._create_layout_options()
 
-请执行家具布置任务：
-1. 读取 computed/room_zones.json 获取房间分区数据
-2. 读取 baseline/openings.json 获取门窗数据
-3. 查看 modules/ 目录了解可用家具
-4. 根据布置规则为每个房间布置家具
-5. 将布置结果写入 schemes/{scheme_id}/modules.json
+        # 使用 context manager 自动管理连接
+        async with ClaudeSDKClient(options) as client:
+            await client.query(full_prompt)
 
-注意：输出的 modules.json 必须符合规定的格式。
-"""
+            async for message in client.receive_response():
+                # 处理流式增量事件 (使用 duck typing 检查)
+                if hasattr(message, 'event'):
+                    event = message.event
+                    event_type = event.get("type", "")
 
-        settings = get_settings()
-        options = ClaudeAgentOptions(
-            system_prompt=LAYOUT_SYSTEM_PROMPT,
-            cwd=self.project_path,
-            max_turns=10,
-            model=settings.model_name,
-            allowed_tools=["Read", "Write", "Glob", "Edit"],
-            permission_mode="acceptEdits",
-            include_partial_messages=True,
-        )
+                    if event_type == "content_block_delta":
+                        delta = event.get("delta", {})
+                        delta_type = delta.get("type", "")
 
-        async for message in query(prompt=full_prompt, options=options):
-            # 处理流式增量事件 (使用 duck typing 检查)
-            if hasattr(message, 'event'):
-                event = message.event
-                event_type = event.get("type", "")
+                        if delta_type == "text_delta":
+                            text = delta.get("text", "")
+                            if text:
+                                yield StreamChunk(type="text", content=text)
 
-                if event_type == "content_block_delta":
-                    delta = event.get("delta", {})
-                    delta_type = delta.get("type", "")
+                        elif delta_type == "thinking_delta":
+                            thinking = delta.get("thinking", "")
+                            if thinking:
+                                yield StreamChunk(type="thinking", content=thinking)
 
-                    if delta_type == "text_delta":
-                        text = delta.get("text", "")
-                        if text:
-                            yield StreamChunk(type="text", content=text)
-
-                    elif delta_type == "thinking_delta":
-                        thinking = delta.get("thinking", "")
-                        if thinking:
-                            yield StreamChunk(type="thinking", content=thinking)
-
-            # 处理完整消息
-            elif isinstance(message, AssistantMessage):
-                for block in message.content:
-                    if isinstance(block, ThinkingBlock):
-                        yield StreamChunk(type="thinking_complete", content=block.thinking)
-                    elif isinstance(block, TextBlock):
-                        yield StreamChunk(type="text_complete", content=block.text)
+                # 处理完整消息
+                elif isinstance(message, AssistantMessage):
+                    for block in message.content:
+                        if isinstance(block, ThinkingBlock):
+                            yield StreamChunk(type="thinking_complete", content=block.thinking)
+                        elif isinstance(block, TextBlock):
+                            yield StreamChunk(type="text_complete", content=block.text)
