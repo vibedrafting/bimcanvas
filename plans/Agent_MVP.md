@@ -512,7 +512,6 @@ class PlacementAgent:
             system_prompt=SYSTEM_PROMPT,
             cwd=self.project_path,  # 设置工作目录
             max_turns=10,  # 允许多轮工具调用
-            max_thinking_tokens=8000,
             # P2 阶段启用内置工具：
             allowed_tools=["Read", "Write", "Glob"],
             permission_mode="acceptEdits",  # 自动接受文件编辑

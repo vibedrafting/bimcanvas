@@ -1,6 +1,6 @@
 # Agent SDK 技术指南
 
-> **版本**：v1.4 | **更新日期**：2026-01-05
+> **版本**：v1.5 | **更新日期**：2026-01-06
 > **目的**：记录 BIMCanvas Agent 项目的技术细节、架构决策和最佳实践
 > **重要更新**：经官方文档深度研究，Agent SDK **完全支持**"Claude Code 底座"愿景
 
@@ -493,7 +493,15 @@ async with ClaudeSDKClient(options=options) as client:
 
 ### 6.4 SDK MCP Server（推荐）
 
-Agent SDK 支持**进程内** MCP Server，无需外部进程：
+Agent SDK 支持**进程内** MCP Server（Custom Tools），无需外部进程。
+
+#### 6.4.1 SDK MCP Server 使用限制
+
+> ⚠️ **重要限制**：
+> 1. **Custom Tools 仅在 `ClaudeSDKClient` 中支持**，`query()` 函数不支持 Custom Tools
+> 2. Custom MCP tools 需要**流式输入模式**，必须使用 async generator/iterable 作为 `prompt` 参数，**简单字符串无法与 MCP servers 配合使用**
+
+#### 6.4.2 定义 Custom Tools
 
 ```python
 from claude_agent_sdk import tool, create_sdk_mcp_server, ClaudeAgentOptions
@@ -516,8 +524,13 @@ server = create_sdk_mcp_server(
     version="1.0.0",
     tools=[get_room_data, validate_placement]
 )
+```
 
-# 使用
+#### 6.4.3 正确的使用方式
+
+```python
+from claude_agent_sdk import ClaudeSDKClient, ClaudeAgentOptions
+
 options = ClaudeAgentOptions(
     mcp_servers={"canvas": server},
     allowed_tools=[
@@ -526,6 +539,15 @@ options = ClaudeAgentOptions(
         "mcp__canvas__validate_placement"
     ]
 )
+
+# ✅ 正确：使用 ClaudeSDKClient（Custom Tools 仅在此支持）
+async with ClaudeSDKClient(options=options) as client:
+    await client.query("获取客厅的房间数据")
+    async for msg in client.receive_response():
+        print(msg)
+
+# ❌ 错误：query() 不支持 Custom Tools
+# async for msg in query(prompt="...", options=options):  # Custom Tools 不会生效！
 ```
 
 **三种 MCP Server 类型对比**：
@@ -590,6 +612,80 @@ BIMCanvas.Agent/
 │   └── server/
 │       └── http_server.py
 ```
+
+### 6.7 沙箱配置 (SandboxSettings)
+
+沙箱配置用于控制命令执行的隔离级别，提高安全性：
+
+```python
+from claude_agent_sdk import ClaudeAgentOptions, SandboxSettings
+
+options = ClaudeAgentOptions(
+    sandbox=SandboxSettings(
+        enabled=True,                    # 启用沙箱
+        network_enabled=False,           # 禁用网络访问
+        filesystem_enabled=True,         # 允许文件系统访问
+        allowed_commands=["git", "npm"], # 允许的命令白名单
+    )
+)
+```
+
+**沙箱配置项**：
+
+| 配置项 | 类型 | 说明 |
+|--------|------|------|
+| `enabled` | bool | 是否启用沙箱隔离 |
+| `network_enabled` | bool | 是否允许网络访问 |
+| `filesystem_enabled` | bool | 是否允许文件系统访问 |
+| `allowed_commands` | list | 允许执行的命令白名单 |
+
+### 6.8 can_use_tool 权限回调
+
+`can_use_tool` 提供细粒度的工具权限控制，在工具调用前动态决定是否允许：
+
+```python
+from claude_agent_sdk import ClaudeAgentOptions
+
+async def tool_permission_callback(tool_name: str, tool_input: dict) -> bool:
+    """
+    动态判断是否允许使用特定工具
+
+    Args:
+        tool_name: 工具名称
+        tool_input: 工具输入参数
+
+    Returns:
+        True 允许，False 拒绝
+    """
+    # 示例：禁止删除操作
+    if tool_name == "Bash":
+        command = tool_input.get("command", "")
+        if "rm " in command or "del " in command:
+            return False
+
+    # 示例：限制文件写入范围
+    if tool_name == "Write":
+        file_path = tool_input.get("file_path", "")
+        if not file_path.startswith("/allowed/path/"):
+            return False
+
+    return True
+
+options = ClaudeAgentOptions(
+    can_use_tool=tool_permission_callback
+)
+```
+
+**与 Hooks 的区别**：
+
+| 机制 | 用途 | 返回值 |
+|------|------|--------|
+| `can_use_tool` | 简单的允许/拒绝决策 | `bool` |
+| `PreToolUse` Hook | 复杂的验证逻辑，可修改输入 | Hook 结果对象 |
+
+**选择建议**：
+- 简单的权限检查 → 用 `can_use_tool`
+- 需要修改输入或返回自定义消息 → 用 `PreToolUse` Hook
 
 ---
 
@@ -657,9 +753,7 @@ class AgentSession:
             options.resume = self.session_id
 
         async for msg in query(prompt=message, options=options):
-            # ⚠️ 注意：以下 session_id 捕获方式是推测代码
-            # 官方文档仅展示 resume 参数用法，未明确文档化如何从响应获取 session_id
-            # 实际使用时需验证消息结构
+            # 从 init 消息中获取 session_id（官方确认的方式）
             if hasattr(msg, 'subtype') and msg.subtype == 'init':
                 self.session_id = msg.data.get('session_id')
             # ...
@@ -736,6 +830,26 @@ if isinstance(msg, ToolUseMessage):
 | v1.2 | 2026-01-05 | **重大更新**：完成官方文档深度研究，确认所有能力均已支持 |
 | v1.3 | 2026-01-05 | **概念修正**：基于官方文档纠正 SubAgent 实现方式的错误理解 |
 | v1.4 | 2026-01-05 | **准确性验证**：基于官方文档逐项核对，修正 2 处错误 |
+| v1.5 | 2026-01-06 | **官方文档对齐**：基于最新官方文档全面审查，修正关键 API 用法 |
+
+### v1.5 更新详情
+
+基于最新官方文档全面审查，修正以下关键问题：
+
+| 修正项 | 原内容 | 修正后 |
+|--------|--------|--------|
+| Hooks 示例 | 使用 `query()` | 改为 `ClaudeSDKClient`（Hooks 仅在此支持） |
+| SDK MCP Server 示例 | 使用 `query()` | 改为 `ClaudeSDKClient`（Custom Tools 仅在此支持） |
+| 权限模式 | 只有 2 种 | 完整 4 种（default, acceptEdits, plan, bypassPermissions） |
+| Python Hooks 限制 | 未说明 | 添加 6 种不支持的事件说明 |
+| 配置项表 | 不完整 | 添加 `can_use_tool`、`sandbox`、`fork_session` 等 |
+| 会话管理代码 | 带警告注释 | 移除警告（官方确认正确） |
+| query vs Client 对比 | 缺失 | 新增 §1.2.1 对比表 |
+| SDK MCP 流式输入限制 | 缺失 | 新增说明 |
+| 沙箱配置 | 缺失 | 新增 §6.7 |
+| can_use_tool 回调 | 缺失 | 新增 §6.8 |
+
+**关键发现**：官方文档明确指出 `query()` 函数**不支持** Hooks 和 Custom Tools，这些高级功能仅在 `ClaudeSDKClient` 中可用。
 
 ### v1.4 更新详情
 
