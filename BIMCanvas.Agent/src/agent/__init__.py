@@ -1,5 +1,5 @@
-"""Agent module"""
+"""Agent module - Main Agent + SubAgent architecture."""
 
-from .placement_agent import PlacementAgent
+from .main_agent import MainAgent
 
-__all__ = ["PlacementAgent"]
+__all__ = ["MainAgent"]

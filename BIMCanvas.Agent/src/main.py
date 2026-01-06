@@ -19,7 +19,7 @@ import argparse
 import asyncio
 import logging
 
-from .agent.placement_agent import PlacementAgent
+from .agent.main_agent import MainAgent
 from .server.http_server import run_server
 from .config.settings import get_settings
 
@@ -41,16 +41,17 @@ async def interactive_mode(project_path: str = None) -> None:
         project_path: Optional path to the project
     """
     print("=" * 50)
-    print("BIMCanvas PlacementAgent - Interactive Mode")
+    print("BIMCanvas MainAgent - Interactive Mode")
     print("=" * 50)
     print("Type your message and press Enter to chat.")
+    print("The agent will automatically dispatch tasks to SubAgents as needed.")
     print("Commands:")
     print("  /clear  - Clear conversation history")
     print("  /exit   - Exit the program")
     print("  /help   - Show this help")
     print("=" * 50)
 
-    agent = PlacementAgent(project_path)
+    agent = MainAgent(project_path)
 
     try:
         while True:
@@ -99,7 +100,7 @@ async def interactive_mode(project_path: str = None) -> None:
 def main() -> None:
     """Main entry point"""
     parser = argparse.ArgumentParser(
-        description="BIMCanvas PlacementAgent - AI-powered interior layout assistant"
+        description="BIMCanvas MainAgent - AI coordinator with SubAgent support"
     )
 
     parser.add_argument(

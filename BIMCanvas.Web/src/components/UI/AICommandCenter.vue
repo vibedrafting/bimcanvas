@@ -875,7 +875,7 @@ import MarkdownText from './base/MarkdownText.vue';
                         
                         <!-- Main Menu -->
                         <div class="menu-section">
-                            <div class="menu-label">Add Context</div>
+                            <div class="menu-header">Add Context</div>
                             
                             <!-- Zones Item (Expandable) -->
                             <div 
@@ -923,7 +923,7 @@ import MarkdownText from './base/MarkdownText.vue';
                             
                             <!-- Zones Submenu -->
                             <div class="submenu" v-if="activeSubmenu === 'zones'">
-                                <div class="menu-label">Select Zone</div>
+                                <div class="menu-header">Select Zone</div>
                                 <div 
                                     class="menu-item" 
                                     v-for="zone in contextOptions.zones" 
@@ -936,7 +936,7 @@ import MarkdownText from './base/MarkdownText.vue';
 
                             <!-- Regulations Submenu -->
                             <div class="submenu" v-if="activeSubmenu === 'regulations'">
-                                <div class="menu-label">Apply Regulation</div>
+                                <div class="menu-header">Apply Regulation</div>
                                 <div 
                                     class="menu-item" 
                                     v-for="reg in contextOptions.regulations" 
@@ -949,7 +949,7 @@ import MarkdownText from './base/MarkdownText.vue';
 
                              <!-- Attachments Submenu -->
                              <div class="submenu" v-if="activeSubmenu === 'attachments'">
-                                <div class="menu-label">Attach File</div>
+                                <div class="menu-header">Attach File</div>
                                 <div 
                                     class="menu-item" 
                                     v-for="att in contextOptions.attachments" 
@@ -1419,7 +1419,8 @@ import MarkdownText from './base/MarkdownText.vue';
 .context-menu {
     position: absolute;
     bottom: 100%; /* Open upwards */
-    right: 0;
+    left: 0; /* Open to the right */
+    right: auto;
     margin-bottom: 12px;
     width: 160px; /* Reduced from 200px */
     background: var(--surface-elevated);
@@ -2137,15 +2138,17 @@ import MarkdownText from './base/MarkdownText.vue';
     transition: all 0.2s ease;
 
     &:focus-within {
-        background: rgba(0, 0, 0, 0.6);
+        background: rgba(255, 255, 255, 0.05); /* Keep it bright/glassy, slightly more opaque */
         box-shadow: 
-            inset 0 0 0 0.5px rgba(255, 255, 255, 0.15),
-            inset 0 1px 0 rgba(255, 255, 255, 0.08),
+            inset 0 0 0 0.5px rgba(255, 255, 255, 0.2), /* Brighter border */
+            inset 0 1px 0 rgba(255, 255, 255, 0.1),
             0 8px 32px rgba(0, 0, 0, 0.4);
     }
 
     textarea {
+        display: block; /* Ensure block layout */
         width: 100%;
+        box-sizing: border-box; /* Critical for correct width with padding */
         background: transparent;
         border: none;
         color: #E0E0E0;
@@ -2156,17 +2159,24 @@ import MarkdownText from './base/MarkdownText.vue';
         outline: none;
         font-family: inherit;
         max-height: 200px;
-        overflow-y: auto;
+        overflow-y: auto !important; /* Force scroll capability */
         
         /* Custom Scrollbar */
-        &::-webkit-scrollbar { width: 6px; }
-        &::-webkit-scrollbar-track { background: transparent; }
+        &::-webkit-scrollbar { 
+            width: 6px; 
+            background: transparent;
+        }
+        &::-webkit-scrollbar-track { 
+            background: rgba(255, 255, 255, 0.02); /* Faint track */
+            border-radius: 3px;
+            margin: 8px 0;
+        }
         &::-webkit-scrollbar-thumb { 
-            background: rgba(255, 255, 255, 0.2); 
+            background: rgba(255, 255, 255, 0.2); /* Subtle visibility */
             border-radius: 3px; 
         }
         &:hover::-webkit-scrollbar-thumb { 
-            background: rgba(255, 255, 255, 0.3); 
+            background: rgba(255, 255, 255, 0.4); /* Visible on hover */
         }
 
         &::placeholder {
@@ -2287,7 +2297,8 @@ import MarkdownText from './base/MarkdownText.vue';
     .context-menu, .pill-menu {
         position: absolute;
         bottom: 100%;
-        left: 0;
+        left: 0; /* Default to opening to the right */
+        right: auto; /* Ensure no right alignment overrides */
         margin-bottom: 6px;
         background: rgba(20, 20, 20, 0.95); /* Deep dark background */
         backdrop-filter: blur(0); /* No blur needed for opaque dark */
@@ -2312,12 +2323,7 @@ import MarkdownText from './base/MarkdownText.vue';
             text-transform: uppercase;
         }
         
-        .menu-label {
-             padding: 6px 8px 4px;
-            font-size: 11px;
-            color: rgba(255, 255, 255, 0.4);
-            font-weight: 500;
-        }
+
 
         .menu-item {
             display: flex;

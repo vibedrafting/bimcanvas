@@ -8,18 +8,18 @@ from typing import Any
 from aiohttp import web
 import aiohttp_cors
 
-from ..agent.placement_agent import PlacementAgent
+from ..agent.main_agent import MainAgent
 from ..config.settings import get_settings
 
 # Configure logging
 logger = logging.getLogger(__name__)
 
 # Global agent instances (cached by project path)
-agents: dict[str, PlacementAgent] = {}
+agents: dict[str, MainAgent] = {}
 _agents_lock = asyncio.Lock()
 
 
-async def get_agent(project_path: str) -> PlacementAgent:
+async def get_agent(project_path: str) -> MainAgent:
     """
     异步获取或创建 Agent 实例（带预连接）
 
@@ -27,16 +27,16 @@ async def get_agent(project_path: str) -> PlacementAgent:
         project_path: Path to the project
 
     Returns:
-        PlacementAgent instance
+        MainAgent instance
     """
     cache_key = project_path or "__default__"
 
     async with _agents_lock:
         if cache_key not in agents:
-            agent = PlacementAgent(project_path)
+            agent = MainAgent(project_path)
             await agent.connect()  # 预连接
             agents[cache_key] = agent
-            logger.info(f"Created and connected agent for project: {project_path or 'default'}")
+            logger.info(f"Created and connected MainAgent for project: {project_path or 'default'}")
 
         return agents[cache_key]
 
@@ -219,136 +219,6 @@ async def get_history_handler(request: web.Request) -> web.Response:
     })
 
 
-async def layout_task_handler(request: web.Request) -> web.Response:
-    """
-    Execute a layout task (P2 feature).
-
-    This endpoint triggers the AI to read project data, analyze rooms,
-    and generate furniture placement in modules.json.
-
-    Request body:
-        {
-            "projectPath": "path/to/project",  // required
-            "schemeId": "default",              // optional, defaults to "default"
-            "prompt": "user request"            // optional, defaults to generic prompt
-        }
-
-    Response:
-        {
-            "success": true,
-            "summary": "AI execution summary",
-            "schemeId": "default"
-        }
-    """
-    try:
-        data = await request.json()
-    except json.JSONDecodeError:
-        return web.json_response(
-            {"error": "Invalid JSON"},
-            status=400
-        )
-
-    project_path = data.get("projectPath", "")
-    scheme_id = data.get("schemeId", "default")
-    user_prompt = data.get("prompt", "请为这个户型布置家具")
-
-    if not project_path:
-        return web.json_response(
-            {"error": "projectPath is required"},
-            status=400
-        )
-
-    try:
-        agent = await get_agent(project_path)  # 异步获取
-        logger.info(f"Starting layout task for project: {project_path}, scheme: {scheme_id}")
-
-        # Execute layout task with tools enabled
-        result = await agent.run_layout(user_prompt, scheme_id)
-
-        logger.info(f"Layout task completed for scheme: {scheme_id}")
-
-        return web.json_response({
-            "success": True,
-            "summary": result,
-            "schemeId": scheme_id
-        })
-
-    except Exception as e:
-        logger.exception(f"Layout task error: {e}")
-        return web.json_response(
-            {"error": str(e)},
-            status=500
-        )
-
-
-async def layout_task_stream_handler(request: web.Request) -> web.StreamResponse:
-    """
-    Execute a layout task with streaming output (P2 feature).
-
-    Request body:
-        {
-            "projectPath": "path/to/project",
-            "schemeId": "default",
-            "prompt": "user request"
-        }
-
-    Response: SSE stream with thinking and text chunks
-    """
-    try:
-        data = await request.json()
-    except json.JSONDecodeError:
-        return web.json_response(
-            {"error": "Invalid JSON"},
-            status=400
-        )
-
-    project_path = data.get("projectPath", "")
-    scheme_id = data.get("schemeId", "default")
-    user_prompt = data.get("prompt", "请为这个户型布置家具")
-
-    if not project_path:
-        return web.json_response(
-            {"error": "projectPath is required"},
-            status=400
-        )
-
-    # Set up SSE response
-    response = web.StreamResponse(
-        status=200,
-        headers={
-            "Content-Type": "text/event-stream",
-            "Cache-Control": "no-cache",
-            "Connection": "keep-alive",
-        }
-    )
-    await response.prepare(request)
-
-    try:
-        agent = await get_agent(project_path)  # 异步获取
-        logger.info(f"Starting streaming layout task for project: {project_path}")
-
-        async for chunk in agent.run_layout_stream(user_prompt, scheme_id):
-            event_data = json.dumps({
-                "type": chunk.type,
-                "content": chunk.content
-            }, ensure_ascii=False)
-            await response.write(f"data: {event_data}\n\n".encode("utf-8"))
-
-        # Send done event with scheme info
-        done_data = json.dumps({
-            "type": "done",
-            "schemeId": scheme_id
-        }, ensure_ascii=False)
-        await response.write(f"data: {done_data}\n\n".encode("utf-8"))
-
-    except Exception as e:
-        logger.exception(f"Layout stream error: {e}")
-        error_data = json.dumps({"error": str(e)}, ensure_ascii=False)
-        await response.write(f"data: {error_data}\n\n".encode("utf-8"))
-
-    return response
-
-
 async def interrupt_handler(request: web.Request) -> web.Response:
     """
     中断当前任务
@@ -407,23 +277,22 @@ def create_app() -> web.Application:
     })
 
     # Add routes
+    # Note: Layout tasks are now handled through /api/chat - MainAgent
+    # autonomously decides when to dispatch layout-agent SubAgent
     routes = [
         web.get("/health", health_handler),
         web.post("/api/chat", chat_handler),
         web.post("/api/chat/stream", chat_stream_handler),
         web.post("/api/clear-history", clear_history_handler),
         web.get("/api/history", get_history_handler),
-        web.post("/api/interrupt", interrupt_handler),  # 新增：中断端点
-        # Layout task endpoints
-        web.post("/api/task/layout", layout_task_handler),
-        web.post("/api/task/layout/stream", layout_task_stream_handler),
+        web.post("/api/interrupt", interrupt_handler),
     ]
 
     for route in routes:
         resource = cors.add(app.router.add_resource(route.path))
         cors.add(resource.add_route(route.method, route.handler))
 
-    logger.info("HTTP application created with routes: /health, /api/chat, /api/chat/stream, /api/clear-history, /api/history, /api/interrupt, /api/task/layout, /api/task/layout/stream")
+    logger.info("HTTP application created with routes: /health, /api/chat, /api/chat/stream, /api/clear-history, /api/history, /api/interrupt")
 
     return app
 
