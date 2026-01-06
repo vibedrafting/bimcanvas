@@ -37,7 +37,7 @@ interface CheckoutOptions {
   createIfNotExist?: boolean;
   commitBeforeCheckout?: boolean;
   commitMessage?: string;
-  forceCheckout?: boolean;  // 跳过脏检查（用于"放弃更改后切换"场景）
+  discardBeforeCheckout?: boolean;  // 切换前放弃更改（Server端原子操作）
 }
 
 export const useGitStore = defineStore('git', () => {
@@ -192,8 +192,8 @@ export const useGitStore = defineStore('git', () => {
     // 检查内存中是否有未保存的修改（脏数据检测）
     // 跳过检查的情况：
     // - commitBeforeCheckout 模式：用户已确认要保存
-    // - forceCheckout 模式：用于"放弃更改后切换"场景
-    if (!opts.commitBeforeCheckout && !opts.forceCheckout && canvasStore.isDirty) {
+    // - discardBeforeCheckout 模式：Server端会放弃更改后再切换
+    if (!opts.commitBeforeCheckout && !opts.discardBeforeCheckout && canvasStore.isDirty) {
       console.warn('[GitStore] 检测到内存中有未保存的修改');
       hasUncommittedChanges.value = true;
       return {
@@ -214,6 +214,7 @@ export const useGitStore = defineStore('git', () => {
           branchName,
           createIfNotExist: opts.createIfNotExist ?? false,
           commitBeforeCheckout: opts.commitBeforeCheckout ?? false,
+          discardBeforeCheckout: opts.discardBeforeCheckout ?? false,
           commitMessage: opts.commitMessage
         })
       });

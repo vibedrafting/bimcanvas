@@ -95,9 +95,16 @@ namespace BIMCanvas.Server.Controllers
 
                 if (hasChanges)
                 {
-                    // 如果设置了自动存档，先提交更改
-                    if (request.CommitBeforeCheckout)
+                    // 优先级：Discard > Commit > 返回冲突
+                    if (request.DiscardBeforeCheckout)
                     {
+                        // 放弃所有未提交的更改
+                        _gitService.DiscardChanges(projectPath);
+                        _logger.LogInformation("切换分支前放弃更改");
+                    }
+                    else if (request.CommitBeforeCheckout)
+                    {
+                        // 自动提交更改
                         var commitMessage = string.IsNullOrEmpty(request.CommitMessage)
                             ? $"自动存档：切换到分支 {request.BranchName} 前保存"
                             : request.CommitMessage;

@@ -45,25 +45,29 @@ class Particle {
   
   row: number;
   col: number;
+  type: 'row' | 'col';
   
-  constructor(row: number, col: number, width: number, height: number) {
+  constructor(row: number, col: number, width: number, height: number, type: 'row' | 'col') {
     this.row = row;
     this.col = col;
+    this.type = type;
     
     // 1. Initialize P2 (Target) - Default centered grid
     this.calculateTarget(width, height);
 
-    // 2. Start Position (P0) - Orthogonal Constraint
-    // Randomly decide if this particle slides Horizontally or Vertically
-    const isHorizontal = Math.random() > 0.5;
-    const distance = 400 + Math.random() * 400; // Slide distance
+    // 2. Start Position (P0) - Orthogonal Constraint based on Type
+    const distance = 400 + Math.random() * 600; // Slide distance
     const direction = Math.random() > 0.5 ? 1 : -1;
 
-    if (isHorizontal) {
+    if (this.type === 'row') {
+        // Row Particle: Moves Horizontally (Fixed Y)
+        // Used to draw Horizontal lines
         this.p0x = this.p2x + distance * direction;
-        this.p0y = this.p2y; // Keep Y aligned
+        this.p0y = this.p2y; 
     } else {
-        this.p0x = this.p2x; // Keep X aligned
+        // Col Particle: Moves Vertically (Fixed X)
+        // Used to draw Vertical lines
+        this.p0x = this.p2x; 
         this.p0y = this.p2y + distance * direction;
     }
     
@@ -146,7 +150,11 @@ const initParticles = () => {
   
   for (let r = 0; r < GRID_ROWS; r++) {
     for (let c = 0; c < GRID_COLS; c++) {
-      particles.push(new Particle(r, c, width, height));
+      // Create TWO particles for each intersection
+      // One for the Row (Horizontal motion)
+      particles.push(new Particle(r, c, width, height, 'row'));
+      // One for the Col (Vertical motion)
+      particles.push(new Particle(r, c, width, height, 'col'));
     }
   }
 };
@@ -155,8 +163,6 @@ const drawConnections = (context: CanvasRenderingContext2D, progress: number) =>
     context.lineWidth = 1;
     
     // Fade in grid lines
-    // Start fading in at 0.2, reach max opacity by 1.0
-    // Increased max opacity from 0.3 to 0.8 for better visibility
     const maxOpacity = 0.8;
     const opacity = progress < 0.2 ? 0 : (progress - 0.2) / 0.8 * maxOpacity;
     
@@ -164,9 +170,13 @@ const drawConnections = (context: CanvasRenderingContext2D, progress: number) =>
     context.strokeStyle = COLOR_GRID;
     context.beginPath();
 
-    // Horizontal lines
+    // Horizontal lines (Use 'row' particles)
     for (let r = 0; r < GRID_ROWS; r++) {
-        const rowParticles = particles.filter(p => p.row === r).sort((a,b) => a.col - b.col);
+        // Filter only 'row' particles for this row
+        const rowParticles = particles
+            .filter(p => p.type === 'row' && p.row === r)
+            .sort((a,b) => a.col - b.col);
+            
         if (rowParticles.length > 1) {
             context.moveTo(rowParticles[0].x, rowParticles[0].y);
             for(let i=1; i<rowParticles.length; i++) {
@@ -174,9 +184,13 @@ const drawConnections = (context: CanvasRenderingContext2D, progress: number) =>
             }
         }
     }
-    // Vertical lines
+    // Vertical lines (Use 'col' particles)
     for (let c = 0; c < GRID_COLS; c++) {
-        const colParticles = particles.filter(p => p.col === c).sort((a,b) => a.row - b.row);
+        // Filter only 'col' particles for this column
+        const colParticles = particles
+            .filter(p => p.type === 'col' && p.col === c)
+            .sort((a,b) => a.row - b.row);
+            
         if (colParticles.length > 1) {
             context.moveTo(colParticles[0].x, colParticles[0].y);
             for(let i=1; i<colParticles.length; i++) {

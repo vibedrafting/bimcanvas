@@ -320,7 +320,10 @@ computed/*.json        → computed
 | 端点 | 方法 | 功能 | 状态 |
 |------|------|------|------|
 | `/api/git/branches` | GET | 获取分支列表 | ✅ |
-| `/api/git/checkout` | POST | 切换/新建分支 | ✅ |
+| `/api/git/checkout` | POST | 切换/新建分支（支持原子操作） | ✅ |
+| `/api/git/commit` | POST | 提交当前更改 | ✅ |
+| `/api/git/discard` | POST | 放弃所有未提交更改 | ✅ |
+| `/api/git/status` | GET | 获取工作区状态 | ✅ |
 | `/api/git/current` | GET | 获取当前分支 | ✅ |
 
 #### `GET /api/git/branches`
@@ -351,15 +354,20 @@ computed/*.json        → computed
 
 #### `POST /api/git/checkout`
 
-切换分支或新建分支。支持 `createIfNotExist` 参数在分支不存在时自动创建。
+切换分支或新建分支。支持三种模式处理未提交更改：
 
 **请求体**：
 ```json
 {
   "branchName": "feature/new-layout",
-  "createIfNotExist": true   // 可选，默认 false
+  "createIfNotExist": false,      // 分支不存在时自动创建
+  "commitBeforeCheckout": false,  // 切换前自动提交更改
+  "discardBeforeCheckout": false, // 切换前放弃更改（原子操作）
+  "commitMessage": "..."          // commitBeforeCheckout 时的提交信息
 }
 ```
+
+**更改处理优先级**：`discardBeforeCheckout` > `commitBeforeCheckout` > 返回 409 冲突
 
 **响应**（成功 200）：
 ```json
@@ -372,7 +380,35 @@ computed/*.json        → computed
 
 **错误响应**：
 - `404` - 分支不存在且 `createIfNotExist=false`
-- `409` - 存在未提交的更改，需先提交或暂存
+- `409` - 存在未提交的更改，需指定处理方式
+
+#### `POST /api/git/commit`
+
+提交当前所有更改：
+
+**请求体**：
+```json
+{
+  "message": "功能描述"  // 可选，为空则自动生成时间戳
+}
+```
+
+#### `POST /api/git/discard`
+
+放弃所有未提交的更改（执行 `git checkout .` + `git clean -fd`）。
+
+#### `GET /api/git/status`
+
+返回工作区状态：
+
+```json
+{
+  "isLoaded": true,
+  "isGitRepo": true,
+  "hasUncommittedChanges": false,
+  "currentBranch": "main"
+}
+```
 
 #### `GET /api/git/current`
 

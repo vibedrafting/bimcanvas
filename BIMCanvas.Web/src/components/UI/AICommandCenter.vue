@@ -154,17 +154,8 @@ const handleCheckoutConfirm = async (saveBeforeSwitch: boolean, commitMessage?: 
       commitMessage
     });
   } else {
-    // 放弃更改：调用后端接口清除 Git 更改
-    const result = await gitStore.discardChanges();
-    if (!result.success) {
-      console.error('放弃更改失败:', result.message);
-      pendingCheckoutBranch.value = '';
-      return;
-    }
-
-    store.clearDirty();
-    // 使用 forceCheckout 跳过脏检查，因为已经放弃了更改
-    await gitStore.checkout(branchName, { forceCheckout: true });
+    // 放弃更改并切换：Server端原子操作
+    await gitStore.checkout(branchName, { discardBeforeCheckout: true });
   }
 
   pendingCheckoutBranch.value = '';

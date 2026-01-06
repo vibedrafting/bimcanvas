@@ -73,6 +73,12 @@ namespace BIMCanvas.Server.Dtos
         public bool CommitBeforeCheckout { get; set; } = false;
 
         /// <summary>
+        /// 切换前是否放弃未保存的更改（默认 false）
+        /// 与 CommitBeforeCheckout 互斥，优先级：Discard > Commit
+        /// </summary>
+        public bool DiscardBeforeCheckout { get; set; } = false;
+
+        /// <summary>
         /// 自动提交时的提交信息（可选）
         /// </summary>
         public string? CommitMessage { get; set; }
