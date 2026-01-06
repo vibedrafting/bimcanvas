@@ -189,9 +189,23 @@ async def chat_stream_handler(request: web.Request) -> web.StreamResponse:
             if chunk.error:
                 event_data["error"] = chunk.error
 
+            # 调试日志：打印 SSE 事件
+            event_type = chunk.type
+            if event_type in ("subagent_start", "subagent_complete", "tool_call_start", "tool_call_complete"):
+                # 详细打印 SubAgent/ToolCall 事件
+                print(f"[SSE] {event_type}: {json.dumps(event_data, ensure_ascii=False, indent=2)}")
+            elif event_type in ("thinking", "text"):
+                # 简化打印流式内容（只显示前50字符）
+                content_preview = (chunk.content or "")[:50].replace("\n", "\\n")
+                print(f"[SSE] {event_type}: \"{content_preview}...\"")
+            else:
+                # 其他事件完整打印
+                print(f"[SSE] {event_type}: {json.dumps(event_data, ensure_ascii=False)}")
+
             await response.write(f"data: {json.dumps(event_data, ensure_ascii=False)}\n\n".encode("utf-8"))
 
         # Send done event
+        print("[SSE] [DONE]")
         await response.write(b"data: [DONE]\n\n")
 
     except Exception as e:

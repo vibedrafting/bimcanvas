@@ -346,6 +346,37 @@ class MainAgent:
                         if thinking:
                             yield StreamChunk(type="thinking", content=thinking)
 
+                # 处理 tool_result 事件 - 工具执行完成
+                elif event_type == "tool_result":
+                    tool_name = event.get("tool_name") or self._current_tool_name or "unknown"
+                    result = event.get("result", "")
+                    is_error = event.get("is_error", False)
+
+                    # 判断是否是 Task（SubAgent）的结果
+                    if tool_name == "Task" or self._task_tool_use_id:
+                        # SubAgent 完成
+                        print(f"[DEBUG] tool_result event for Task: subagent_id={self._current_subagent_id}")
+                        yield StreamChunk(
+                            type="subagent_complete",
+                            subagent_id=self._current_subagent_id,
+                            content=str(result)[:500] if result else "",
+                            success=not is_error,
+                            error=str(result) if is_error else None
+                        )
+                        self._current_subagent_id = None
+                        self._task_tool_use_id = None
+                    else:
+                        # 普通工具调用完成
+                        print(f"[DEBUG] tool_result event for {tool_name}: tc-{self._tool_call_counter}")
+                        yield StreamChunk(
+                            type="tool_call_complete",
+                            tool_call_id=f"tc-{self._tool_call_counter}",
+                            tool_output=str(result)[:1000] if result else "",
+                            success=not is_error,
+                            error=str(result) if is_error else None
+                        )
+                    self._current_tool_name = None
+
             elif isinstance(message, AssistantMessage):
                 for block in message.content:
                     if isinstance(block, ThinkingBlock):
@@ -371,6 +402,7 @@ class MainAgent:
                             subagent_name = block.input.get("description", "SubAgent")
                             self._current_subagent_id = f"sa-{block.id}"
                             self._task_tool_use_id = block.id  # 保存 tool_use_id 用于后续匹配
+                            print(f"[DEBUG] Task ToolUseBlock: block.id = {block.id}, saved _task_tool_use_id = {self._task_tool_use_id}")
                             if self.verbose:
                                 self._agent_logger.enter_subagent(subagent_type)
                             yield StreamChunk(
@@ -400,12 +432,18 @@ class MainAgent:
                         if self.verbose:
                             self._agent_logger.log_tool_result(tool_name, block.content, is_error)
 
+                        # 调试：打印 ToolResultBlock 的所有属性
+                        print(f"[DEBUG] ToolResultBlock attrs: {[attr for attr in dir(block) if not attr.startswith('_')]}")
+                        print(f"[DEBUG] _task_tool_use_id = {self._task_tool_use_id}")
+
                         # 使用 tool_use_id 匹配来判断是否是 Task 的结果
                         block_tool_use_id = getattr(block, 'tool_use_id', None)
+                        print(f"[DEBUG] block.tool_use_id = {block_tool_use_id}")
                         is_task_result = (
                             self._task_tool_use_id is not None and
                             block_tool_use_id == self._task_tool_use_id
                         )
+                        print(f"[DEBUG] is_task_result = {is_task_result}")
 
                         if is_task_result:
                             # SubAgent 完成
