@@ -58,7 +58,7 @@ const handleCancel = () => {
 <template>
   <Teleport to="body">
     <Transition name="dialog">
-      <div v-if="visible" class="dialog-overlay" @click.self="handleCancel">
+      <div v-if="visible" class="dialog-overlay">
         <div class="dialog-card">
           <div class="dialog-header">
             <div class="header-icon warning">

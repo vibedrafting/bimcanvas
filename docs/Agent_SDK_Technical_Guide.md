@@ -105,6 +105,24 @@ async for message in query(
     pass
 ```
 
+### 1.2.1 query() vs ClaudeSDKClient 选择指南
+
+> **关键区别**：`query()` **不支持** Hooks 和 Custom Tools，这些功能仅 `ClaudeSDKClient` 支持。
+
+| 特性 | `query()` | `ClaudeSDKClient` |
+|------|-----------|-------------------|
+| **会话** | 每次创建新会话 | 复用同一会话 |
+| **上下文** | 单次交互 | 多轮对话，保持上下文 |
+| **Hooks** | ❌ **不支持** | ✅ 支持 |
+| **Custom Tools (SDK MCP)** | ❌ **不支持** | ✅ 支持 |
+| **中断 (Interrupts)** | ❌ 不支持 | ✅ 支持 |
+| **流式输入** | ✅ 支持 | ✅ 支持 |
+
+**选择原则**：
+- 需要 Hooks 或 Custom Tools → **必须用 `ClaudeSDKClient`**
+- 需要多轮对话 → 推荐 `ClaudeSDKClient`
+- 简单一次性任务（无 Hooks/Custom Tools） → 可用 `query()`
+
 ### 1.3 关键配置项
 
 | 配置项 | 类型 | 说明 |
@@ -112,10 +130,26 @@ async for message in query(
 | `system_prompt` | str | 系统提示词，定义 Agent 角色和行为 |
 | `cwd` | str | 工作目录，文件工具的根路径 |
 | `allowed_tools` | list | 允许使用的内置工具列表 |
-| `permission_mode` | str | 权限模式：`"default"` / `"acceptEdits"` |
+| `permission_mode` | str | 权限模式（见下表） |
 | `max_turns` | int | 最大对话轮次（工具调用次数） |
 | `resume` | str | 会话 ID，用于恢复之前的对话 |
+| `fork_session` | bool | 恢复会话时是否分叉为新会话 |
 | `mcp_servers` | dict | MCP Server 配置（如 `{"canvas": server}`） |
+| `can_use_tool` | Callable | 工具权限回调函数，用于细粒度权限控制 |
+| `enable_file_checkpointing` | bool | 启用文件检查点，支持 `rewind_files()` 回滚 |
+| `sandbox` | SandboxSettings | 沙箱配置，控制命令执行隔离 |
+| `output_format` | OutputFormat | 结构化输出格式（JSON Schema） |
+| `setting_sources` | list | 设置源：`["user", "project", "local"]`，默认不加载文件系统配置 |
+| `add_dirs` | list | 额外允许访问的目录列表 |
+
+**权限模式 (permission_mode)**：
+
+| 模式 | 说明 |
+|------|------|
+| `"default"` | 标准权限行为（默认） |
+| `"acceptEdits"` | 自动接受文件编辑 |
+| `"plan"` | 规划模式 - 仅规划不执行 |
+| `"bypassPermissions"` | 绕过所有权限检查（谨慎使用） |
 
 ---
 
@@ -394,6 +428,10 @@ SubAgent 执行（使用自己的 prompt 和 tools）
 
 ### 6.3 Hooks 支持详解
 
+> ⚠️ **重要**：Hooks **仅在 `ClaudeSDKClient` 中支持**，`query()` 函数不支持 Hooks。
+
+#### 6.3.1 Python SDK 支持的 Hook 类型
+
 Python SDK 支持 6 种 Hook 类型：
 
 | Hook 类型 | 触发时机 | 典型用途 |
@@ -405,8 +443,23 @@ Python SDK 支持 6 种 Hook 类型：
 | `SubagentStop` | SubAgent 停止时 | 收集子任务结果 |
 | `PreCompact` | 上下文压缩前 | 保留关键信息 |
 
+#### 6.3.2 Python SDK 不支持的 Hook 事件
+
+> ⚠️ **重要**：由于设置限制，Python SDK **不支持**以下 Hook 事件（仅 TypeScript SDK 可用）：
+
+| Hook 事件 | 说明 |
+|-----------|------|
+| `SessionStart` | 会话开始时 |
+| `SessionEnd` | 会话结束时 |
+| `Notification` | 通知事件 |
+| `SubagentStart` | SubAgent 启动时 |
+| `PostToolUseFailure` | 工具执行失败后 |
+| `PermissionRequest` | 权限请求时 |
+
+#### 6.3.3 正确的 Hooks 使用示例
+
 ```python
-from claude_agent_sdk import ClaudeAgentOptions, HookMatcher
+from claude_agent_sdk import ClaudeSDKClient, ClaudeAgentOptions, HookMatcher
 
 async def validate_bash(input_data, tool_use_id, context):
     """拦截危险的 Bash 命令"""
@@ -427,6 +480,15 @@ options = ClaudeAgentOptions(
         'PreToolUse': [HookMatcher(matcher='Bash', hooks=[validate_bash])]
     }
 )
+
+# ✅ 正确：使用 ClaudeSDKClient（Hooks 仅在此支持）
+async with ClaudeSDKClient(options=options) as client:
+    await client.query("执行一些文件操作")
+    async for msg in client.receive_response():
+        print(msg)
+
+# ❌ 错误：query() 不支持 Hooks
+# async for msg in query(prompt="...", options=options):  # Hooks 不会生效！
 ```
 
 ### 6.4 SDK MCP Server（推荐）
