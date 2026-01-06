@@ -22,6 +22,12 @@ namespace BIMCanvas.Server.Services
         public bool IsLoaded => !string.IsNullOrEmpty(CurrentProjectPath);
 
         /// <summary>
+        /// Git 操作是否正在进行中
+        /// 当此标记为 true 时，FileWatcher 会暂停触发更新
+        /// </summary>
+        public bool IsGitOperationInProgress { get; set; }
+
+        /// <summary>
         /// 设置当前项目
         /// </summary>
         /// <param name="projectPath">项目文件夹路径</param>

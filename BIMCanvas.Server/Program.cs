@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using BIMCanvas.Server.Hubs;
 using BIMCanvas.Server.Services;
 using Newtonsoft.Json.Serialization;
 
@@ -26,6 +27,10 @@ builder.Services.AddSingleton<GitWorktreeService>();
 builder.Services.AddSingleton<StrategyService>();
 builder.Services.AddSingleton<ProjectService>();
 builder.Services.AddSingleton<ProjectContext>();  // 单项目模式上下文
+
+// v3.2 实时通信服务
+builder.Services.AddSignalR();
+builder.Services.AddHostedService<ProjectWatcherService>();
 
 // 配置 Swagger
 builder.Services.AddEndpointsApiExplorer();
@@ -57,6 +62,9 @@ app.UseCors("AllowWebClient");
 
 // 启用控制器路由
 app.MapControllers();
+
+// SignalR Hub 路由
+app.MapHub<CanvasHub>("/hubs/canvas");
 
 // 健康检查端点
 app.MapGet("/health", () => new { status = "healthy", timestamp = DateTime.UtcNow });

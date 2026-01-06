@@ -118,6 +118,18 @@ export const useCanvasStore = defineStore('canvas', () => {
     // Initialize SignalR
     signalR.start();
 
+    // 监听 Server 推送的文件变化事件（文件驱动架构的核心链路）
+    window.addEventListener('bimcanvas:server-update', async (e: any) => {
+        const data = e.detail;
+        debugStore.log(`[Store] 收到服务端更新: ${JSON.stringify(data)}`);
+
+        if (data.action === 'reload') {
+            // 保持当前视图，重新加载数据
+            debugStore.log('[Store] 触发数据重载 (preserveView=true)');
+            await loadProject(true);
+        }
+    });
+
     const agentConnectionState = ref<'Connected' | 'Disconnected' | 'Reconnecting'>('Disconnected');
     const currentOperation = ref<string | null>(null);
 
