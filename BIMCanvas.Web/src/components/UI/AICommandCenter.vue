@@ -469,33 +469,32 @@ const isContextMenuOpen = ref(false);
 const activeSubmenu = ref<string | null>(null);
 const submenuDirection = ref<'left' | 'right'>('left');
 
-// Model Presets State
-const currentPreset = ref<ModelPreset | null>(null);
+// Model & Thinking State
+const currentModel = ref('Claude 3.5 Sonnet');
+const currentThinking = ref('Off');
 const isModelMenuOpen = ref(false);
+const isThinkingMenuOpen = ref(false);
 
-interface ModelPreset {
-  id: string;
-  label: string;
-  model: string;
-  thinking: 'off' | 'low' | 'high';
-  icon: string;
-  isNew?: boolean;
-}
-
-const modelPresets: ModelPreset[] = [
-  { id: 'claude-3-5-sonnet', label: 'Claude 3.5 Sonnet', model: 'Claude 3.5 Sonnet', thinking: 'off', icon: '🤖' },
-  { id: 'claude-3-5-sonnet-thinking', label: 'Claude 3.5 Sonnet (Thinking)', model: 'Claude 3.5 Sonnet', thinking: 'high', icon: '🧠' },
-  { id: 'gemini-1-5-pro', label: 'Gemini 1.5 Pro', model: 'Gemini 1.5 Pro', thinking: 'off', icon: '✨' },
-  { id: 'gemini-1-5-pro-high', label: 'Gemini 1.5 Pro (High Reasoning)', model: 'Gemini 1.5 Pro', thinking: 'high', icon: '⚡' },
-  { id: 'gpt-4o', label: 'GPT-4o', model: 'GPT-4o', thinking: 'off', icon: '🔮' }
+const models = [
+  { id: 'claude-3-5-sonnet', label: 'Claude 3.5 Sonnet' },
+  { id: 'gemini-1-5-pro', label: 'Gemini 1.5 Pro' },
+  { id: 'gpt-4o', label: 'GPT-4o' }
 ];
 
-// Initialize default
-currentPreset.value = modelPresets[0];
+const thinkingLevels = [
+  { id: 'off', label: 'Off' },
+  { id: 'low', label: 'Low' },
+  { id: 'high', label: 'High' }
+];
 
-const selectPreset = (preset: ModelPreset) => {
-  currentPreset.value = preset;
+const selectModel = (model: any) => {
+  currentModel.value = model.label;
   isModelMenuOpen.value = false;
+};
+
+const selectThinking = (level: any) => {
+  currentThinking.value = level.label;
+  isThinkingMenuOpen.value = false;
 };
 
 const contextOptions = {
@@ -571,8 +570,13 @@ const handleGlobalClick = (e: MouseEvent) => {
   }
 
   // Close Model Menu
-  if (!target.closest('.model-selector')) {
+  if (!target.closest('.control-pill-wrapper.model')) {
     isModelMenuOpen.value = false;
+  }
+
+  // Close Thinking Menu
+  if (!target.closest('.control-pill-wrapper.thinking')) {
+    isThinkingMenuOpen.value = false;
   }
 };
 
@@ -944,34 +948,66 @@ import MarkdownText from './base/MarkdownText.vue';
               @click="sendMessage"
               :disabled="isLoading || !inputMessage.trim() || agentStatus !== 'connected'"
             >
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="19" x2="12" y2="5"></line><polyline points="5 12 12 5 19 12"></polyline></svg>
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                    <line x1="12" y1="19" x2="12" y2="5"></line>
+                    <polyline points="5 12 12 5 19 12"></polyline>
+                </svg>
             </button>
 
         </div>
         
         <div class="control-footer">
-            <!-- Unified Model Selector -->
-            <div class="model-selector" :class="{ open: isModelMenuOpen }">
-                <button class="selector-trigger" @click="isModelMenuOpen = !isModelMenuOpen">
-                    <span class="icon">{{ currentPreset?.icon }}</span>
-                    <span class="text">{{ currentPreset?.label }}</span>
-                    <svg class="chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                        <polyline points="6 9 12 15 18 9"></polyline>
-                    </svg>
+            <!-- Model Pill -->
+            <div class="control-pill-wrapper model" :class="{ open: isModelMenuOpen }">
+                <button class="control-pill" @click="isModelMenuOpen = !isModelMenuOpen">
+                    <span class="prefix-icon">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                            <polyline points="18 15 12 9 6 15"></polyline>
+                        </svg>
+                    </span>
+                    <span class="text">{{ currentModel }}</span>
                 </button>
                 <transition name="scale-up">
-                    <div class="selector-menu" v-if="isModelMenuOpen">
+                    <div class="pill-menu" v-if="isModelMenuOpen">
                         <div class="menu-header">Model</div>
                         <div 
-                            v-for="preset in modelPresets" 
-                            :key="preset.id" 
+                            v-for="m in models" 
+                            :key="m.id" 
                             class="menu-item"
-                            :class="{ active: currentPreset?.id === preset.id }"
-                            @click="selectPreset(preset)"
+                            :class="{ active: currentModel === m.label }"
+                            @click="selectModel(m)"
                         >
-                            <span class="item-text">{{ preset.label }}</span>
-                            <span v-if="preset.isNew" class="badge-new">New</span>
-                            <svg v-if="currentPreset?.id === preset.id" class="check-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <span class="item-text">{{ m.label }}</span>
+                            <svg v-if="currentModel === m.label" class="check-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <polyline points="20 6 9 17 4 12"></polyline>
+                            </svg>
+                        </div>
+                    </div>
+                </transition>
+            </div>
+
+            <!-- Thinking Pill -->
+            <div class="control-pill-wrapper thinking" :class="{ open: isThinkingMenuOpen }">
+                <button class="control-pill" @click="isThinkingMenuOpen = !isThinkingMenuOpen">
+                    <span class="prefix-icon">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                            <polyline points="18 15 12 9 6 15"></polyline>
+                        </svg>
+                    </span>
+                    <span class="text">{{ currentThinking }}</span>
+                </button>
+                <transition name="scale-up">
+                    <div class="pill-menu" v-if="isThinkingMenuOpen">
+                        <div class="menu-header">Thinking Intensity</div>
+                        <div 
+                            v-for="t in thinkingLevels" 
+                            :key="t.id" 
+                            class="menu-item"
+                            :class="{ active: currentThinking === t.label }"
+                            @click="selectThinking(t)"
+                        >
+                            <span class="item-text">{{ t.label }}</span>
+                            <svg v-if="currentThinking === t.label" class="check-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                                 <polyline points="20 6 9 17 4 12"></polyline>
                             </svg>
                         </div>
@@ -1481,8 +1517,6 @@ import MarkdownText from './base/MarkdownText.vue';
                 color: var(--text-primary);
             }
         }
-
-        /* Removed streaming border style */
 
         .avatar {
             width: 24px;
@@ -2137,60 +2171,62 @@ import MarkdownText from './base/MarkdownText.vue';
     }
 }
 
-/* --- Control Footer (Unified) --- */
+/* --- Control Footer (Antigravity Style) --- */
 .control-footer {
     display: flex;
+    gap: 8px;
     padding: 8px 16px 12px;
     border-top: 1px solid var(--border-dim);
     margin-top: 0;
 }
 
-.model-selector {
+.control-pill-wrapper {
     position: relative;
-    width: 100%; /* Full width */
 
-    .selector-trigger {
-        width: 100%;
+    .control-pill {
         display: flex;
         align-items: center;
-        gap: 8px;
-        padding: 8px 12px;
-        background: rgba(0, 0, 0, 0.2); /* Darker background */
-        border: 1px solid var(--border-dim);
-        border-radius: 8px;
+        gap: 6px;
+        padding: 4px 8px;
+        background: transparent; /* Minimalist */
+        border: 1px solid transparent;
+        border-radius: 4px;
         color: var(--text-secondary);
-        font-size: 0.8rem;
+        font-size: 0.75rem;
         cursor: pointer;
         transition: all 0.2s;
+        height: 24px; /* Compact */
 
         &:hover {
-            background: rgba(255, 255, 255, 0.05);
+            background: rgba(255, 255, 255, 0.08);
             color: var(--text-primary);
-            border-color: var(--border-subtle);
         }
 
-        .icon { font-size: 1rem; opacity: 0.9; }
-        .text { flex: 1; text-align: left; font-weight: 500; }
-        .chevron { width: 16px; height: 16px; opacity: 0.5; transition: transform 0.2s; }
+        .prefix-icon {
+            display: flex;
+            align-items: center;
+            opacity: 0.7;
+            svg { width: 12px; height: 12px; }
+        }
+        
+        .text { font-weight: 500; white-space: nowrap; }
     }
 
-    &.open .selector-trigger {
-        background: var(--surface-elevated);
-        border-color: var(--border-subtle);
+    &.open .control-pill {
+        background: rgba(255, 255, 255, 0.15);
         color: var(--text-primary);
-        .chevron { transform: rotate(180deg); }
     }
 
-    .selector-menu {
+    .pill-menu {
         position: absolute;
         bottom: 100%;
         left: 0;
-        width: 100%;
+        min-width: 200px;
         margin-bottom: 6px;
-        background: #1e1e1e; /* Dark solid background for menu */
+        background: #1e1e1e;
         border: 1px solid var(--border-subtle);
-        border-radius: 10px;
-        padding: 6px;
+        border-radius: 8px;
+        padding: 4px;
         box-shadow: 0 8px 32px rgba(0,0,0,0.4);
         z-index: 100;
         display: flex;
@@ -2210,39 +2246,33 @@ import MarkdownText from './base/MarkdownText.vue';
             display: flex;
             align-items: center;
             justify-content: space-between;
-            padding: 8px 10px;
-            border-radius: 6px;
-            font-size: 0.85rem;
+            padding: 6px 10px;
+            border-radius: 4px;
+            font-size: 0.8rem;
             color: var(--text-secondary);
             cursor: pointer;
             transition: all 0.1s;
 
             &:hover {
-                background: rgba(255, 255, 255, 0.08);
-                color: var(--text-primary);
+                background: var(--accent-primary); /* Antigravity uses accent color for hover */
+                color: #fff; /* White text on hover */
             }
 
             &.active {
-                background: rgba(var(--accent-primary-rgb), 0.15);
                 color: var(--accent-primary);
                 font-weight: 500;
+                
+                &:hover {
+                    color: #fff;
+                }
             }
             
             .item-text { flex: 1; }
             
-            .badge-new {
-                font-size: 0.65rem;
-                background: var(--surface-highlight);
-                padding: 2px 6px;
-                border-radius: 4px;
-                margin-right: 8px;
-                color: var(--text-primary);
-            }
-
             .check-icon {
-                width: 16px;
-                height: 16px;
-                color: var(--accent-primary);
+                width: 14px;
+                height: 14px;
+                color: currentColor;
             }
         }
     }
