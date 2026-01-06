@@ -72,6 +72,26 @@ const chatBottomRef = ref<HTMLElement | null>(null);
 const expandedThinking = ref<Record<number, boolean>>({});
 const shouldAutoScroll = ref(true); // Track if we should auto-scroll to bottom
 
+// Auto-resize Textarea
+const textareaRef = ref<HTMLTextAreaElement | null>(null);
+
+const adjustTextareaHeight = () => {
+  const el = textareaRef.value;
+  if (!el) return;
+  el.style.height = 'auto';
+  el.style.height = el.scrollHeight + 'px';
+};
+
+watch(inputMessage, (newVal) => {
+    if (!newVal) {
+        nextTick(() => {
+            if (textareaRef.value) {
+                textareaRef.value.style.height = 'auto';
+            }
+        });
+    }
+});
+
 // Toggle thinking section visibility
 const toggleThinking = (index: number) => {
   expandedThinking.value[index] = !expandedThinking.value[index];
@@ -468,6 +488,23 @@ const removeContext = (type: 'scope' | 'selection', item?: string) => {
 const isContextMenuOpen = ref(false);
 const activeSubmenu = ref<string | null>(null);
 const submenuDirection = ref<'left' | 'right'>('left');
+const isAttachmentMenuOpen = ref(false);
+
+// Toggle functions
+const toggleContextMenu = () => {
+  isContextMenuOpen.value = !isContextMenuOpen.value;
+  isModelMenuOpen.value = false;
+  isThinkingMenuOpen.value = false;
+  isAttachmentMenuOpen.value = false;
+  if (!isContextMenuOpen.value) activeSubmenu.value = null;
+};
+
+const toggleAttachmentMenu = () => {
+  isAttachmentMenuOpen.value = !isAttachmentMenuOpen.value;
+  isContextMenuOpen.value = false;
+  isModelMenuOpen.value = false;
+  isThinkingMenuOpen.value = false;
+};
 
 // Model & Thinking State
 const currentModel = ref('Claude 3.5 Sonnet');
@@ -516,11 +553,6 @@ const contextOptions = {
   ]
 };
 
-const toggleContextMenu = () => {
-  isContextMenuOpen.value = !isContextMenuOpen.value;
-  if (!isContextMenuOpen.value) activeSubmenu.value = null;
-};
-
 const openSubmenu = (id: string, event: MouseEvent) => {
     activeSubmenu.value = id;
     
@@ -561,6 +593,7 @@ const handleGlobalClick = (e: MouseEvent) => {
   // Close Context Menu
   if (!target.closest('.add-context-wrapper')) {
     isContextMenuOpen.value = false;
+    isAttachmentMenuOpen.value = false; // Also close attachment menu
     activeSubmenu.value = null;
   }
 
@@ -934,85 +967,129 @@ import MarkdownText from './base/MarkdownText.vue';
             </div>
         </div>
 
-        <!-- Input Area -->
-        <div class="input-area">
+        <!-- Antigravity Input Box -->
+        <div class="antigravity-input-box">
             <textarea
+              ref="textareaRef"
               v-model="inputMessage"
-              placeholder="输入消息..."
+              placeholder="你好"
               @keydown="handleKeydown"
+              @input="adjustTextareaHeight"
               :disabled="isLoading || agentStatus !== 'connected'"
               rows="1"
             ></textarea>
-            <button
-              class="send-btn"
-              @click="sendMessage"
-              :disabled="isLoading || !inputMessage.trim() || agentStatus !== 'connected'"
-            >
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-                    <line x1="12" y1="19" x2="12" y2="5"></line>
-                    <polyline points="5 12 12 5 19 12"></polyline>
-                </svg>
-            </button>
-
-        </div>
-        
-        <div class="control-footer">
-            <!-- Model Pill -->
-            <div class="control-pill-wrapper model" :class="{ open: isModelMenuOpen }">
-                <button class="control-pill" @click="isModelMenuOpen = !isModelMenuOpen">
-                    <span class="prefix-icon">
-                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-                            <polyline points="18 15 12 9 6 15"></polyline>
-                        </svg>
-                    </span>
-                    <span class="text">{{ currentModel }}</span>
-                </button>
-                <transition name="scale-up">
-                    <div class="pill-menu" v-if="isModelMenuOpen">
-                        <div class="menu-header">Model</div>
-                        <div 
-                            v-for="m in models" 
-                            :key="m.id" 
-                            class="menu-item"
-                            :class="{ active: currentModel === m.label }"
-                            @click="selectModel(m)"
+            
+            <div class="input-footer">
+                <div class="left-controls">
+                    <!-- Attachment Button (Paperclip) -->
+                     <div class="add-context-wrapper">
+                        <button 
+                            class="icon-btn" 
+                            title="Add Attachment"
+                            @click.stop="toggleAttachmentMenu"
+                            :class="{ active: isAttachmentMenuOpen }"
                         >
-                            <span class="item-text">{{ m.label }}</span>
-                            <svg v-if="currentModel === m.label" class="check-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                                <polyline points="20 6 9 17 4 12"></polyline>
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                <path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"></path>
                             </svg>
-                        </div>
-                    </div>
-                </transition>
-            </div>
+                        </button>
 
-            <!-- Thinking Pill -->
-            <div class="control-pill-wrapper thinking" :class="{ open: isThinkingMenuOpen }">
-                <button class="control-pill" @click="isThinkingMenuOpen = !isThinkingMenuOpen">
-                    <span class="prefix-icon">
-                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-                            <polyline points="18 15 12 9 6 15"></polyline>
-                        </svg>
-                    </span>
-                    <span class="text">{{ currentThinking }}</span>
-                </button>
-                <transition name="scale-up">
-                    <div class="pill-menu" v-if="isThinkingMenuOpen">
-                        <div class="menu-header">Thinking Intensity</div>
-                        <div 
-                            v-for="t in thinkingLevels" 
-                            :key="t.id" 
-                            class="menu-item"
-                            :class="{ active: currentThinking === t.label }"
-                            @click="selectThinking(t)"
-                        >
-                            <span class="item-text">{{ t.label }}</span>
-                            <svg v-if="currentThinking === t.label" class="check-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                                <polyline points="20 6 9 17 4 12"></polyline>
-                            </svg>
-                        </div>
+                        <!-- Attachment Menu -->
+                        <transition name="scale-up">
+                            <div class="context-menu" v-if="isAttachmentMenuOpen">
+                                <div class="menu-header">Attachments</div>
+                                <div class="menu-item">
+                                    <span class="icon">
+                                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                            <rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect>
+                                            <circle cx="8.5" cy="8.5" r="1.5"></circle>
+                                            <polyline points="21 15 16 10 5 21"></polyline>
+                                        </svg>
+                                    </span>
+                                    <span class="item-text">Upload Image</span>
+                                </div>
+                                <div class="menu-item">
+                                    <span class="icon">
+                                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                            <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
+                                            <polyline points="14 2 14 8 20 8"></polyline>
+                                            <line x1="16" y1="13" x2="8" y2="13"></line>
+                                            <line x1="16" y1="17" x2="8" y2="17"></line>
+                                            <polyline points="10 9 9 9 8 9"></polyline>
+                                        </svg>
+                                    </span>
+                                    <span class="item-text">Upload File</span>
+                                </div>
+                            </div>
+                        </transition>
                     </div>
-                </transition>
+
+                    <!-- Model Pill -->
+                    <div class="control-pill-wrapper model" :class="{ open: isModelMenuOpen }">
+                        <button class="control-pill" @click="isModelMenuOpen = !isModelMenuOpen">
+                            <span class="prefix-icon">
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                    <path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"/>
+                                </svg>
+                            </span>
+                            <span class="text">{{ currentModel }}</span>
+                        </button>
+                        <transition name="scale-up">
+                            <div class="pill-menu" v-if="isModelMenuOpen">
+                                <div class="menu-header">Model</div>
+                                <div 
+                                    v-for="m in models" 
+                                    :key="m.id" 
+                                    class="menu-item"
+                                    :class="{ active: currentModel === m.label }"
+                                    @click="selectModel(m)"
+                                >
+                                    <span class="item-text">{{ m.label }}</span>
+                                    <svg v-if="currentModel === m.label" class="check-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                        <polyline points="20 6 9 17 4 12"></polyline>
+                                    </svg>
+                                </div>
+                            </div>
+                        </transition>
+                    </div>
+
+                    <!-- Thinking Pill -->
+                     <div class="control-pill-wrapper thinking" :class="{ open: isThinkingMenuOpen }">
+                        <button class="control-pill" @click="isThinkingMenuOpen = !isThinkingMenuOpen">
+                            <span class="text">{{ currentThinking }}</span>
+                        </button>
+                        <transition name="scale-up">
+                            <div class="pill-menu" v-if="isThinkingMenuOpen">
+                                <div class="menu-header">Thinking Intensity</div>
+                                <div 
+                                    v-for="t in thinkingLevels" 
+                                    :key="t.id" 
+                                    class="menu-item"
+                                    :class="{ active: currentThinking === t.label }"
+                                    @click="selectThinking(t)"
+                                >
+                                    <span class="item-text">{{ t.label }}</span>
+                                    <svg v-if="currentThinking === t.label" class="check-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                        <polyline points="20 6 9 17 4 12"></polyline>
+                                    </svg>
+                                </div>
+                            </div>
+                        </transition>
+                    </div>
+                </div>
+
+                <div class="right-controls">
+                    <button
+                      class="send-btn-round"
+                      @click="sendMessage"
+                      :disabled="isLoading || !inputMessage.trim() || agentStatus !== 'connected'"
+                    >
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round">
+                            <line x1="12" y1="19" x2="12" y2="5"></line>
+                            <polyline points="5 12 12 5 19 12"></polyline>
+                        </svg>
+                    </button>
+                </div>
             </div>
         </div>
       </div>
@@ -2040,239 +2117,240 @@ import MarkdownText from './base/MarkdownText.vue';
     transform: scale(0.95);
 }
 
-.input-area {
+/* --- Antigravity Input Box --- */
+/* --- Antigravity Input Box --- */
+.antigravity-input-box {
+    margin: 0 4px 16px; /* Widen the box */
+    background: rgba(255, 255, 255, 0.03); /* Lighter, more distinct background */
+    backdrop-filter: blur(20px);
+    -webkit-backdrop-filter: blur(20px);
+    border-radius: 16px;
+    border: none; /* Remove solid border */
+    /* Optical border + Top highlight + Deep shadow */
+    box-shadow: 
+        inset 0 0 0 0.5px rgba(255, 255, 255, 0.1),
+        inset 0 1px 0 rgba(255, 255, 255, 0.05),
+        0 4px 24px rgba(0, 0, 0, 0.2);
     display: flex;
-    gap: 8px;
-    margin-bottom: 12px;
-    align-items: flex-end; /* Align items to bottom for multiline textarea */
-    
+    flex-direction: column;
+    position: relative;
+    transition: all 0.2s ease;
+
+    &:focus-within {
+        background: rgba(0, 0, 0, 0.6);
+        box-shadow: 
+            inset 0 0 0 0.5px rgba(255, 255, 255, 0.15),
+            inset 0 1px 0 rgba(255, 255, 255, 0.08),
+            0 8px 32px rgba(0, 0, 0, 0.4);
+    }
+
     textarea {
-        flex: 1;
-        background: var(--surface-highlight); /* White in light mode */
-        border: 1px solid var(--border-dim); /* Visible border */
-        border-radius: 8px;
-        padding: 6px 10px;
-        color: var(--text-primary);
-        font-size: 0.75rem; /* Reduced from 0.9rem */
+        width: 100%;
+        background: transparent;
+        border: none;
+        color: #E0E0E0;
+        font-size: 0.9rem;
+        line-height: 1.5;
+        padding: 12px 16px 4px; /* Top padding */
+        resize: none;
         outline: none;
-        transition: all 0.2s;
-        box-shadow: 0 2px 6px rgba(0,0,0,0.05); /* Subtle shadow */
-        resize: none; /* Prevent manual resize */
-        min-height: 32px;
-        max-height: 120px; /* Limit max height */
-        overflow-y: auto;
         font-family: inherit;
-        line-height: 1.4;
-
+        max-height: 200px;
+        overflow-y: auto;
+        
         /* Custom Scrollbar */
-        scrollbar-width: thin;
-        scrollbar-color: var(--border-dim) transparent;
-
-        &::-webkit-scrollbar { 
-            width: 4px;
-            height: 4px; /* For horizontal scrollbar if any */
-        }
-        &::-webkit-scrollbar-track { 
-            background: transparent; 
-        }
+        &::-webkit-scrollbar { width: 6px; }
+        &::-webkit-scrollbar-track { background: transparent; }
         &::-webkit-scrollbar-thumb { 
-            background: var(--border-dim); 
-            border-radius: 4px; 
+            background: rgba(255, 255, 255, 0.2); 
+            border-radius: 3px; 
         }
         &:hover::-webkit-scrollbar-thumb { 
-            background: var(--text-tertiary); 
+            background: rgba(255, 255, 255, 0.3); 
         }
-        
-        &:focus {
-            border-color: var(--accent-primary);
-            box-shadow: 0 2px 8px rgba(0,0,0,0.1); /* Stronger shadow on focus */
-        }
-        &::placeholder { color: var(--text-tertiary); }
-        
-        /* Disabled state styling */
-        &:disabled {
-            opacity: 0.6;
-            cursor: not-allowed;
-            background: var(--surface-dim);
+
+        &::placeholder {
+            color: rgba(255, 255, 255, 0.3);
         }
     }
 
-    .send-btn {
-        width: 36px;
-        height: 36px;
+    .input-footer {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        padding: 4px 8px 4px; /* Extremely compact padding */
+    }
+
+    .left-controls {
+        display: flex;
+        align-items: center;
+        gap: 4px; /* Compact gap */
+    }
+
+    .right-controls {
+        display: flex;
+        align-items: center;
+    }
+
+    /* Buttons & Pills */
+    .icon-btn {
+        width: 28px;
+        height: 28px;
         display: flex;
         align-items: center;
         justify-content: center;
-        background: var(--accent-primary);
+        background: transparent;
         border: none;
-        border-radius: 8px;
-        color: white;
+        border-radius: 6px;
+        color: rgba(255, 255, 255, 0.4);
         cursor: pointer;
-        transition: transform 0.1s;
+        transition: all 0.2s;
+
+        &:hover, &.active {
+            background: rgba(255, 255, 255, 0.1);
+            color: rgba(255, 255, 255, 0.8);
+        }
         
-        svg { width: 18px; height: 18px; }
-        &:active { transform: scale(0.95); }
-    }
-}
-
-
-
-@keyframes spin {
-    to { transform: rotate(360deg); }
-}
-
-@keyframes pulse {
-    0%, 100% { opacity: 1; }
-    50% { opacity: 0.4; }
-}
-
-/* Typing animation for loading indicator */
-.bubble.loading {
-    display: flex;
-    gap: 4px;
-    padding: 12px 16px;
-
-    .typing-dot {
-        width: 6px;
-        height: 6px;
-        background: var(--text-tertiary);
-        border-radius: 50%;
-        animation: typing 1.4s ease-in-out infinite;
-
-        &:nth-child(1) { animation-delay: 0s; }
-        &:nth-child(2) { animation-delay: 0.2s; }
-        &:nth-child(3) { animation-delay: 0.4s; }
-    }
-}
-
-@keyframes typing {
-    0%, 60%, 100% {
-        transform: translateY(0);
-        opacity: 0.4;
-    }
-    30% {
-        transform: translateY(-4px);
-        opacity: 1;
-    }
-}
-
-
-
-/* Disabled state for input/button */
-.input-area {
-    input:disabled {
-        opacity: 0.6;
-        cursor: not-allowed;
+        svg { width: 16px; height: 16px; }
     }
 
-    .send-btn:disabled {
-        opacity: 0.5;
-        cursor: not-allowed;
+    .control-pill-wrapper {
+        position: relative;
     }
-}
-
-/* --- Control Footer (Antigravity Style) --- */
-.control-footer {
-    display: flex;
-    gap: 8px;
-    padding: 8px 16px 12px;
-    border-top: 1px solid var(--border-dim);
-    margin-top: 0;
-}
-
-.control-pill-wrapper {
-    position: relative;
 
     .control-pill {
         display: flex;
         align-items: center;
-        gap: 6px;
-        padding: 4px 8px;
-        background: transparent; /* Minimalist */
+        gap: 4px;
+        padding: 0 6px;
+        background: transparent;
         border: 1px solid transparent;
         border-radius: 4px;
-        color: var(--text-secondary);
-        font-size: 0.75rem;
+        color: rgba(255, 255, 255, 0.5);
+        font-size: 11px; /* Micro typography */
+        font-weight: 500;
         cursor: pointer;
         transition: all 0.2s;
-        height: 24px; /* Compact */
+        height: 24px; /* Precision scale height */
+        letter-spacing: 0.3px;
 
         &:hover {
-            background: rgba(255, 255, 255, 0.08);
-            color: var(--text-primary);
+            background: rgba(255, 255, 255, 0.05);
+            border-color: rgba(255, 255, 255, 0.1);
+            color: rgba(255, 255, 255, 0.9);
+        }
+        
+        /* Active state when menu is open */
+        .open & {
+            background: rgba(255, 255, 255, 0.1);
+            border-color: rgba(255, 255, 255, 0.15);
+            color: rgba(255, 255, 255, 1);
         }
 
         .prefix-icon {
             display: flex;
             align-items: center;
-            opacity: 0.7;
+            opacity: 0.8;
             svg { width: 12px; height: 12px; }
         }
+    }
+
+    .send-btn-round {
+        width: 32px;
+        height: 32px;
+        border-radius: 50%;
+        background: #007AFF; /* Antigravity Blue */
+        border: none;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        color: white;
+        cursor: pointer;
+        transition: transform 0.1s, background 0.2s;
         
-        .text { font-weight: 500; white-space: nowrap; }
+        svg { width: 16px; height: 16px; transform: rotate(90deg); /* Point up */ }
+
+        &:hover {
+            background: #0062cc;
+        }
+        &:active {
+            transform: scale(0.95);
+        }
+        &:disabled {
+            background: rgba(255, 255, 255, 0.1);
+            color: rgba(255, 255, 255, 0.3);
+            cursor: not-allowed;
+        }
     }
 
-    &.open .control-pill {
-        background: rgba(255, 255, 255, 0.15);
-        color: var(--text-primary);
-    }
-
-    .pill-menu {
+    /* Menus */
+    .context-menu, .pill-menu {
         position: absolute;
         bottom: 100%;
         left: 0;
-        min-width: 200px;
         margin-bottom: 6px;
-        background: #1e1e1e;
-        border: 1px solid var(--border-subtle);
-        border-radius: 8px;
+        background: rgba(20, 20, 20, 0.95); /* Deep dark background */
+        backdrop-filter: blur(0); /* No blur needed for opaque dark */
+        border: 1px solid rgba(255, 255, 255, 0.08);
+        border-radius: 8px; /* Sharper radius */
         padding: 4px;
-        box-shadow: 0 8px 32px rgba(0,0,0,0.4);
+        box-shadow: 0 12px 40px rgba(0,0,0,0.6);
         z-index: 100;
+        min-width: 160px;
         display: flex;
         flex-direction: column;
-        gap: 2px;
+        gap: 1px;
+        transform-origin: bottom left;
+        animation: scale-up 0.1s cubic-bezier(0.2, 0, 0.13, 1.5); /* Even snappier */
 
         .menu-header {
-            padding: 8px 10px 4px;
-            font-size: 0.7rem;
-            color: var(--text-tertiary);
-            text-transform: uppercase;
-            letter-spacing: 0.5px;
+            padding: 6px 8px 4px;
+            font-size: 10px; /* Micro label */
+            color: rgba(255, 255, 255, 0.3);
             font-weight: 600;
+            letter-spacing: 0.5px;
+            text-transform: uppercase;
+        }
+        
+        .menu-label {
+             padding: 6px 8px 4px;
+            font-size: 11px;
+            color: rgba(255, 255, 255, 0.4);
+            font-weight: 500;
         }
 
         .menu-item {
             display: flex;
             align-items: center;
-            justify-content: space-between;
-            padding: 6px 10px;
+            gap: 8px;
+            padding: 4px 8px;
             border-radius: 4px;
-            font-size: 0.8rem;
-            color: var(--text-secondary);
+            font-size: 11px; /* Micro font */
+            color: rgba(255, 255, 255, 0.7);
             cursor: pointer;
             transition: all 0.1s;
+            min-height: 24px;
 
-            &:hover {
-                background: var(--accent-primary); /* Antigravity uses accent color for hover */
-                color: #fff; /* White text on hover */
-            }
-
-            &.active {
-                color: var(--accent-primary);
-                font-weight: 500;
-                
-                &:hover {
-                    color: #fff;
-                }
+            &:hover, &.active {
+                background: rgba(255, 255, 255, 0.08);
+                color: white;
             }
             
-            .item-text { flex: 1; }
-            
-            .check-icon {
+            .icon {
+                color: rgba(255, 255, 255, 0.4);
                 width: 14px;
                 height: 14px;
-                color: currentColor;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                svg { width: 100%; height: 100%; }
+            }
+
+            .check-icon {
+                margin-left: auto;
+                width: 12px;
+                height: 12px;
+                color: #007AFF;
             }
         }
     }
