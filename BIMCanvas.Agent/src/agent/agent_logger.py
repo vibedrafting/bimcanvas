@@ -2,8 +2,25 @@
 
 import json
 import logging
+import sys
 from datetime import datetime
 from typing import Any
+
+
+def _can_encode_unicode() -> bool:
+    """Check if terminal supports extended Unicode characters."""
+    encoding = getattr(sys.stdout, 'encoding', None) or ''
+    return 'utf' in encoding.lower()
+
+
+# Auto-detect Unicode support
+_USE_UNICODE = _can_encode_unicode()
+
+
+class Symbols:
+    """Terminal symbols (adaptive based on encoding capability)."""
+    ARROW_RIGHT = "\u25b6" if _USE_UNICODE else ">>"  # ▶
+    ARROW_LEFT = "\u25c0" if _USE_UNICODE else "<<"   # ◀
 
 # ANSI color codes for console output
 class Colors:
@@ -68,8 +85,14 @@ class AgentLogger:
         return "  " * self._indent_level
 
     def _print(self, text: str) -> None:
-        """Print to console with proper formatting."""
-        print(text, flush=True)
+        """Print to console with proper formatting and encoding safety."""
+        try:
+            print(text, flush=True)
+        except UnicodeEncodeError:
+            # Fallback: replace unencodable characters
+            encoding = sys.stdout.encoding or 'utf-8'
+            safe_text = text.encode(encoding, errors='replace').decode(encoding)
+            print(safe_text, flush=True)
 
     def _separator(self, char: str = "─", length: int = 60) -> None:
         """Print a separator line."""
@@ -233,7 +256,7 @@ class AgentLogger:
         self._indent_level += 1
         self._print(
             f"\n{Colors.BG_CYAN}{Colors.BLACK}{Colors.BOLD}"
-            f" ▶ SUBAGENT: {subagent_name} {Colors.RESET}"
+            f" {Symbols.ARROW_RIGHT} SUBAGENT: {subagent_name} {Colors.RESET}"
         )
         self._separator("─", 50)
 
@@ -247,7 +270,7 @@ class AgentLogger:
             )
         self._print(
             f"{Colors.BG_CYAN}{Colors.BLACK}{Colors.BOLD}"
-            f" ◀ SUBAGENT COMPLETE: {subagent_name} {Colors.RESET}\n"
+            f" {Symbols.ARROW_LEFT} SUBAGENT COMPLETE: {subagent_name} {Colors.RESET}\n"
         )
         self._indent_level = max(0, self._indent_level - 1)
         self._in_subagent = False
