@@ -97,6 +97,7 @@ class MainAgent:
         # SubAgent/ToolCall 状态跟踪（用于 SSE 事件）
         self._current_subagent_id: str | None = None
         self._tool_call_counter = 0
+        self._task_tool_use_id: str | None = None  # Task 的 tool_use_id，用于匹配 ToolResultBlock
 
     # ─────────────────────────────────────────────────────
     # Configuration
@@ -323,6 +324,7 @@ class MainAgent:
         # 重置 SubAgent/ToolCall 状态
         self._current_subagent_id = None
         self._tool_call_counter = 0
+        self._task_tool_use_id = None
 
         await self._client.query(user_message)
 
@@ -368,6 +370,7 @@ class MainAgent:
                             subagent_type = block.input.get("subagent_type", "general-purpose")
                             subagent_name = block.input.get("description", "SubAgent")
                             self._current_subagent_id = f"sa-{block.id}"
+                            self._task_tool_use_id = block.id  # 保存 tool_use_id 用于后续匹配
                             if self.verbose:
                                 self._agent_logger.enter_subagent(subagent_type)
                             yield StreamChunk(
@@ -397,7 +400,14 @@ class MainAgent:
                         if self.verbose:
                             self._agent_logger.log_tool_result(tool_name, block.content, is_error)
 
-                        if tool_name == "Task":
+                        # 使用 tool_use_id 匹配来判断是否是 Task 的结果
+                        block_tool_use_id = getattr(block, 'tool_use_id', None)
+                        is_task_result = (
+                            self._task_tool_use_id is not None and
+                            block_tool_use_id == self._task_tool_use_id
+                        )
+
+                        if is_task_result:
                             # SubAgent 完成
                             if self.verbose:
                                 self._agent_logger.exit_subagent("SubAgent")
@@ -410,6 +420,7 @@ class MainAgent:
                                 error=str(block.content) if is_error else None
                             )
                             self._current_subagent_id = None
+                            self._task_tool_use_id = None
                         else:
                             # 普通工具调用完成
                             # 使用计数器生成 tool_call_id（与 start 保持一致）
