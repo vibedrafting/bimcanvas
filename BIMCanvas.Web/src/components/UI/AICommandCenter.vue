@@ -5,6 +5,9 @@ import { useGitStore } from '../../stores/gitStore';
 import { ProjectService } from '../../services/ProjectService';
 import { storeToRefs } from 'pinia';
 import BranchCheckoutConfirmDialog from './Ribbon/BranchCheckoutConfirmDialog.vue';
+import type { SubAgent, ToolCall } from '../../types/agent';
+import { findToolCallInSubAgents } from '../../types/agent';
+import SubAgentCard from './SubAgentCard.vue';
 
 // Props from parent (MainLayout)
 const props = defineProps<{
@@ -64,6 +67,8 @@ interface ChatMessage {
   startTime?: number;
   endTime?: number;
   thinkingDuration?: string;
+  /** SubAgent/Task 列表 */
+  subAgents?: SubAgent[];
 }
 const chatMessages = ref<ChatMessage[]>([]);
 const inputMessage = ref('');
@@ -408,6 +413,59 @@ const sendMessage = async () => {
             } else if (parsed.error) {
               currentMsg.content = `Error: ${parsed.error}`;
             }
+            // SubAgent/Task SSE Events
+            else if (parsed.type === 'subagent_start') {
+              // Initialize subAgents array if needed
+              if (!currentMsg.subAgents) currentMsg.subAgents = [];
+              currentMsg.subAgents.push({
+                id: parsed.subAgentId,
+                name: parsed.subAgentName,
+                type: parsed.subAgentType,
+                status: 'running',
+                toolCalls: [],
+                startTime: Date.now(),
+                isExpanded: true
+              });
+            }
+            else if (parsed.type === 'tool_call_start') {
+              const subAgent = currentMsg.subAgents?.find(sa => sa.id === parsed.subAgentId);
+              if (subAgent) {
+                subAgent.toolCalls.push({
+                  id: parsed.toolCallId,
+                  toolName: parsed.toolName,
+                  description: parsed.toolDescription,
+                  params: parsed.toolParams || {},
+                  status: 'running',
+                  startTime: Date.now()
+                });
+              }
+            }
+            else if (parsed.type === 'tool_call_output') {
+              const toolCall = findToolCallInSubAgents(currentMsg.subAgents, parsed.toolCallId);
+              if (toolCall) {
+                toolCall.output = (toolCall.output || '') + parsed.toolOutput;
+              }
+            }
+            else if (parsed.type === 'tool_call_complete') {
+              const toolCall = findToolCallInSubAgents(currentMsg.subAgents, parsed.toolCallId);
+              if (toolCall) {
+                toolCall.status = parsed.success ? 'completed' : 'failed';
+                toolCall.endTime = Date.now();
+                if (!parsed.success && parsed.error) {
+                  toolCall.error = parsed.error;
+                }
+              }
+            }
+            else if (parsed.type === 'subagent_complete') {
+              const subAgent = currentMsg.subAgents?.find(sa => sa.id === parsed.subAgentId);
+              if (subAgent) {
+                subAgent.status = 'completed';
+                subAgent.result = parsed.result;
+                subAgent.endTime = Date.now();
+                // Auto-collapse after completion
+                subAgent.isExpanded = false;
+              }
+            }
 
              await nextTick();
              scrollToBottom();
@@ -741,6 +799,14 @@ import MarkdownText from './base/MarkdownText.vue';
                                     <MarkdownText :content="msg.thinking" />
                                 </div>
                             </transition>
+                        </div>
+                        <!-- SubAgent/Task Cards -->
+                        <div v-if="msg.role === 'ai' && msg.subAgents?.length" class="subagents-section">
+                            <SubAgentCard
+                                v-for="subAgent in msg.subAgents"
+                                :key="subAgent.id"
+                                :subAgent="subAgent"
+                            />
                         </div>
                         <!-- Main Content Bubble -->
                         <div 
@@ -1736,6 +1802,11 @@ import MarkdownText from './base/MarkdownText.vue';
                 background: rgba(0, 0, 0, 0.2); /* Very subtle background */
                 border-radius: 0 8px 8px 0;
             }
+        }
+
+        /* SubAgents Section */
+        .subagents-section {
+            margin: 8px 0;
         }
     }
 }
