@@ -1500,9 +1500,7 @@ import MarkdownText from './base/MarkdownText.vue';
         flex: 1;
     }
 }
-    padding: 4px; /* Reduced padding */
-    /* Animation is handled by specific direction classes */
-}
+
 
 .submenu-container.left {
     right: 100%; /* Fly out to the left */
