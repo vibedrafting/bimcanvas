@@ -36,7 +36,6 @@ async def get_agent(project_path: str) -> MainAgent:
             agent = MainAgent(project_path)
             await agent.connect()  # 预连接
             agents[cache_key] = agent
-            logger.info(f"MainAgent 已连接: {project_path or 'default'}")
 
         return agents[cache_key]
 
