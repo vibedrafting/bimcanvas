@@ -260,6 +260,35 @@ ClaudeAgentOptions(
 | `bypassPermissions` | 跳过所有权限检查（只读场景） |
 | `plan` | 规划模式，不执行实际操作 |
 
+### 7.2 更多配置项
+
+```python
+from claude_agent_sdk import ClaudeAgentOptions, AgentDefinition
+
+ClaudeAgentOptions(
+    # 工具权限回调（仅 ClaudeSDKClient 支持）
+    can_use_tool=async_permission_callback,
+
+    # 加载 CLAUDE.md 等配置
+    setting_sources=["project"],  # 可选: "user", "project", "local"
+
+    # 结构化输出
+    output_format={
+        "type": "json_schema",
+        "schema": {"type": "object", "properties": {...}}
+    },
+
+    # 自定义子代理
+    agents={
+        "code-reviewer": AgentDefinition(
+            description="代码审查专家",
+            prompt="分析代码质量并提出改进建议",
+            tools=["Read", "Glob", "Grep"]
+        )
+    }
+)
+```
+
 ---
 
 ## 8. 会话管理
