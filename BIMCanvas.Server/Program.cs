@@ -35,8 +35,13 @@ static void EnableVirtualTerminalProcessing()
 static void WriteWithColoredPrefix(string prefix, string message, ConsoleColor prefixColor)
 {
     var originalColor = Console.ForegroundColor;
+    // 时间戳（灰色）
+    Console.ForegroundColor = ConsoleColor.DarkGray;
+    Console.Write($"[{DateTime.Now:HH:mm:ss}] ");
+    // 前缀（保持现有颜色）
     Console.ForegroundColor = prefixColor;
     Console.Write(prefix);
+    // 消息（恢复默认颜色）
     Console.ForegroundColor = originalColor;
     Console.WriteLine($" {message}");
 }

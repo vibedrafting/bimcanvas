@@ -23,12 +23,15 @@ from .agent.main_agent import MainAgent
 from .server.http_server import run_server
 from .config.settings import get_settings
 
-# Configure logging
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
-    handlers=[logging.StreamHandler(sys.stdout)]
-)
+# Configure logging - 简化格式，时间戳由 Server 统一添加
+class SimpleFormatter(logging.Formatter):
+    """简化格式化器：只输出消息"""
+    def format(self, record):
+        return record.getMessage()
+
+handler = logging.StreamHandler(sys.stdout)
+handler.setFormatter(SimpleFormatter())
+logging.basicConfig(level=logging.INFO, handlers=[handler])
 
 # 禁用 aiohttp HTTP 访问日志（减少控制台噪音）
 logging.getLogger("aiohttp.access").setLevel(logging.WARNING)
