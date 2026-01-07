@@ -9,6 +9,7 @@ from claude_agent_sdk import (
     ClaudeSDKClient,
     ClaudeAgentOptions,
     AssistantMessage,
+    UserMessage,
     TextBlock,
     ThinkingBlock,
     ToolUseBlock,
@@ -99,6 +100,7 @@ class MainAgent:
         self._tool_call_counter = 0
         self._task_tool_use_id: str | None = None  # Task 的 tool_use_id，用于匹配 ToolResultBlock
         self._prev_parent_tool_use_id: str | None = None  # 上一条消息的 parent_tool_use_id
+        self._pending_tool_calls: dict[str, str] = {}  # tool_use_id -> tool_call_id 映射
 
     # ─────────────────────────────────────────────────────
     # Configuration
@@ -444,6 +446,8 @@ class MainAgent:
                             # 普通工具调用（可能在 SubAgent 上下文中）
                             self._tool_call_counter += 1
                             tool_call_id = f"tc-{self._tool_call_counter}"
+                            # 保存 tool_use_id -> tool_call_id 映射，用于 UserMessage 中的 ToolResultBlock 匹配
+                            self._pending_tool_calls[block.id] = tool_call_id
                             yield StreamChunk(
                                 type="tool_call_start",
                                 subagent_id=self._current_subagent_id,
@@ -452,8 +456,6 @@ class MainAgent:
                                 tool_description=block.input.get("description", ""),
                                 tool_params=block.input
                             )
-                            # 保存 tool_call_id 以便后续匹配 ToolResultBlock
-                            block._sse_tool_call_id = tool_call_id
 
                     elif isinstance(block, ToolResultBlock):
                         tool_name = self._current_tool_name or "unknown"
@@ -502,6 +504,39 @@ class MainAgent:
                             )
 
                         self._current_tool_name = None
+
+            # 处理 UserMessage 中的 ToolResultBlock（工具调用完成）
+            elif isinstance(message, UserMessage):
+                for block in message.content:
+                    if isinstance(block, ToolResultBlock):
+                        is_error = getattr(block, 'is_error', False)
+                        block_tool_use_id = getattr(block, 'tool_use_id', None)
+
+                        # 检查是否是 Task（SubAgent）的结果
+                        is_task_result = (
+                            self._task_tool_use_id is not None and
+                            block_tool_use_id == self._task_tool_use_id
+                        )
+
+                        if is_task_result:
+                            # SubAgent 完成 - 已通过 parent_tool_use_id 变化检测处理
+                            # 这里不重复发送 subagent_complete
+                            pass
+                        else:
+                            # 普通工具调用完成 - 使用 _pending_tool_calls 查找 tool_call_id
+                            tool_call_id = self._pending_tool_calls.get(block_tool_use_id)
+                            if tool_call_id:
+                                output_str = str(block.content)[:1000] if block.content else ""
+                                yield StreamChunk(
+                                    type="tool_call_complete",
+                                    subagent_id=self._current_subagent_id,
+                                    tool_call_id=tool_call_id,
+                                    tool_output=output_str,
+                                    success=not is_error,
+                                    error=str(block.content) if is_error else None
+                                )
+                                # 清理已处理的映射
+                                del self._pending_tool_calls[block_tool_use_id]
 
         if self.verbose:
             self._agent_logger.log_complete()

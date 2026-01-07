@@ -62,6 +62,7 @@ const currentProjectPath = ref('');
 interface ChatMessage {
   role: 'user' | 'ai';
   content: string;
+  preSubAgentContent?: string; // Content before subagents start
   thinking?: string;
   isStreaming?: boolean;
   startTime?: number;
@@ -405,16 +406,24 @@ const sendMessage = async () => {
                       nextTick(() => scrollToBottom());
                   }
                  
-                 if (parsed.type === 'text_complete') {
-                    msg.content = parsed.content;
-                 } else {
-                    msg.content += parsed.content;
+                 if (parsed.content) {
+                    // Strip <tool_use_error> tags but keep content
+                    const cleanContent = parsed.content.replace(/<\/?tool_use_error>/g, '');
+                    msg.content += cleanContent;
                  }
             } else if (parsed.error) {
               currentMsg.content = `Error: ${parsed.error}`;
             }
             // SubAgent/Task SSE Events
             else if (parsed.type === 'subagent_start') {
+              // If this is the first subagent, split the content
+              if (!currentMsg.subAgents || currentMsg.subAgents.length === 0) {
+                  if (currentMsg.content && currentMsg.content.length > 0) {
+                      currentMsg.preSubAgentContent = currentMsg.content;
+                      currentMsg.content = ''; // Reset content to capture post-agent text
+                  }
+              }
+
               // Initialize subAgents array if needed
               if (!currentMsg.subAgents) currentMsg.subAgents = [];
               currentMsg.subAgents.push({
@@ -800,7 +809,15 @@ import MarkdownText from './base/MarkdownText.vue';
                                 </div>
                             </transition>
                         </div>
-                        <!-- SubAgent/Task Cards -->
+                        <!-- 1. Pre-Agent Content Bubble (Intro) -->
+                        <div 
+                            class="bubble" 
+                            v-if="msg.preSubAgentContent"
+                        >
+                            <MarkdownText :content="msg.preSubAgentContent" />
+                        </div>
+
+                        <!-- 2. SubAgent/Task Cards -->
                         <div v-if="msg.role === 'ai' && msg.subAgents?.length" class="subagents-section">
                             <SubAgentCard
                                 v-for="subAgent in msg.subAgents"
@@ -808,14 +825,15 @@ import MarkdownText from './base/MarkdownText.vue';
                                 :subAgent="subAgent"
                             />
                         </div>
-                        <!-- Main Content Bubble -->
+
+                        <!-- 3. Post-Agent Content Bubble (Summary/Result) -->
                         <div 
                             class="bubble" 
                             :class="{ 
                                 empty: !msg.content && msg.isStreaming,
                                 generating: msg.isStreaming && !msg.thinking && !msg.content
                             }"
-                            v-if="msg.content || (!msg.thinking && msg.isStreaming)"
+                            v-if="msg.content || (!msg.thinking && msg.isStreaming && !msg.preSubAgentContent)"
                         >
                             <MarkdownText v-if="msg.content" :content="msg.content" />
                             <span v-else-if="msg.isStreaming && !msg.thinking" class="generating-indicator">
