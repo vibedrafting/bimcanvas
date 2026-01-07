@@ -194,38 +194,22 @@ class AgentLogger:
     def log_tool_use(self, tool_name: str, tool_input: dict,
                       subagent_id: str = None) -> None:
         """Log tool invocation with SubAgent tracking."""
+        # Task 工具的 DISPATCH 信息已移到 enter_subagent() 中输出，这里跳过
+        if tool_name == "Task":
+            return
+
         # 获取正确的标签（支持并行 SubAgent）
         agent_label = self._get_subagent_label(subagent_id)
 
-        # Special formatting for Task tool (SubAgent dispatch)
-        if tool_name == "Task":
-            self._print(
-                f"\n{self._indent()}{Colors.BG_MAGENTA}{Colors.WHITE}{Colors.BOLD}"
-                f" SUBAGENT DISPATCH {Colors.RESET}"
-            )
-            subagent_type = tool_input.get("subagent_type", "unknown")
-            prompt = tool_input.get("prompt", "")
-            self._print(
-                f"{self._indent()}{Colors.BRIGHT_MAGENTA}├─ SubAgent: "
-                f"{Colors.BOLD}{subagent_type}{Colors.RESET}"
-            )
-            # Truncate long prompts
-            if len(prompt) > 200:
-                prompt = prompt[:200] + "..."
-            self._print(
-                f"{self._indent()}{Colors.BRIGHT_MAGENTA}└─ Task: "
-                f"{Colors.RESET}{prompt}"
-            )
-        else:
-            # Regular tool - 使用带序号的标签
-            self._print(
-                f"{self._indent()}{Colors.BRIGHT_YELLOW}{agent_label} "
-                f"Tool: {Colors.BOLD}{tool_name}{Colors.RESET}"
-            )
-            # Format tool input nicely
-            input_str = self._format_tool_input(tool_input)
-            if input_str:
-                self._print(f"{self._indent()}  {Colors.DIM}{input_str}{Colors.RESET}")
+        # 普通工具 - 使用固定4空格缩进 + 带序号标签
+        self._print(
+            f"    {Colors.BRIGHT_YELLOW}{agent_label} "
+            f"Tool: {Colors.BOLD}{tool_name}{Colors.RESET}"
+        )
+        # Format tool input nicely
+        input_str = self._format_tool_input(tool_input)
+        if input_str:
+            self._print(f"      {Colors.DIM}{input_str}{Colors.RESET}")
 
     def log_tool_result(self, tool_name: str, result: Any, is_error: bool = False) -> None:
         """Log tool result."""
@@ -291,7 +275,7 @@ class AgentLogger:
         """
         self._in_subagent = True
         self._current_subagent = subagent_type
-        self._indent_level += 1
+        # 不再累加缩进，使用固定缩进
 
         # 分配序号并记录信息
         self._subagent_counter += 1
@@ -307,13 +291,23 @@ class AgentLogger:
                 'start_time': time.time()
             }
 
-        # 打印带序号的 SUBAGENT 头
+        # 输出 DISPATCH 信息（带序号，顶格）
         self._print(
-            f"\n{Colors.BG_CYAN}{Colors.BLACK}{Colors.BOLD}"
+            f"\n{Colors.BG_MAGENTA}{Colors.WHITE}{Colors.BOLD}"
+            f" SUBAGENT #{seq} DISPATCH {Colors.RESET}"
+        )
+        self._print(f"{Colors.BRIGHT_MAGENTA}├─ SubAgent: {Colors.BOLD}{subagent_type}{Colors.RESET}")
+        if description:
+            prompt = description[:200] + "..." if len(description) > 200 else description
+            self._print(f"{Colors.BRIGHT_MAGENTA}└─ Task: {Colors.RESET}{prompt}")
+
+        # 输出 SUBAGENT 头（顶格）
+        self._print(
+            f"{Colors.BG_CYAN}{Colors.BLACK}{Colors.BOLD}"
             f" {Symbols.ARROW_RIGHT} SUBAGENT #{seq}: {subagent_type} {Colors.RESET}"
         )
         if description:
-            self._print(f"{self._indent()}{Colors.CYAN}任务: {description}{Colors.RESET}")
+            self._print(f"  {Colors.CYAN}任务: {description}{Colors.RESET}")
         self._separator("─", 50)
         return seq
 
@@ -349,7 +343,7 @@ class AgentLogger:
             f"{Colors.BG_CYAN}{Colors.BLACK}{Colors.BOLD}"
             f" {Symbols.ARROW_LEFT} SUBAGENT {seq_str}COMPLETE{elapsed} {Colors.RESET}\n"
         )
-        self._indent_level = max(0, self._indent_level - 1)
+        # 不再递减缩进（使用固定缩进）
         self._in_subagent = False
         self._current_subagent = None
 

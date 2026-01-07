@@ -183,11 +183,17 @@ class MainAgent:
                         if self._in_response:
                             self._agent_logger.log_response_end()
                             self._in_response = False
-                        self._agent_logger.log_tool_use(block.name, block.input)
                         self._current_tool_name = block.name
                         if block.name == "Task":
+                            # Task 工具：enter_subagent 已包含 DISPATCH 输出
                             subagent_type = block.input.get("subagent_type", "unknown")
-                            self._agent_logger.enter_subagent(subagent_type)
+                            description = block.input.get("description", "")
+                            self._agent_logger.enter_subagent(
+                                subagent_type=subagent_type,
+                                description=description
+                            )
+                        else:
+                            self._agent_logger.log_tool_use(block.name, block.input)
 
                 elif isinstance(block, ToolResultBlock):
                     if self.verbose:
@@ -417,7 +423,7 @@ class MainAgent:
                             subagent_id = f"sa-{block.id}"
                             self._active_subagents[block.id] = subagent_id  # 添加映射
                             if self.verbose:
-                                self._agent_logger.log_tool_use(block.name, block.input)
+                                # enter_subagent 已包含 DISPATCH 输出，无需单独调用 log_tool_use
                                 self._agent_logger.enter_subagent(
                                     subagent_type=subagent_type,
                                     subagent_id=subagent_id,
