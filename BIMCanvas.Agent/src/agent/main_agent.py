@@ -98,6 +98,7 @@ class MainAgent:
         self._current_subagent_id: str | None = None
         self._tool_call_counter = 0
         self._task_tool_use_id: str | None = None  # Task 的 tool_use_id，用于匹配 ToolResultBlock
+        self._prev_parent_tool_use_id: str | None = None  # 上一条消息的 parent_tool_use_id
 
     # ─────────────────────────────────────────────────────
     # Configuration
@@ -325,10 +326,38 @@ class MainAgent:
         self._current_subagent_id = None
         self._tool_call_counter = 0
         self._task_tool_use_id = None
+        self._prev_parent_tool_use_id = None
 
         await self._client.query(user_message)
 
         async for message in self._client.receive_response():
+            # ★ 调试：打印消息的所有属性
+            msg_type = type(message).__name__
+            msg_attrs = [attr for attr in dir(message) if not attr.startswith('_')]
+            print(f"[DEBUG MSG] type={msg_type}, attrs={msg_attrs[:10]}...")  # 只打印前10个
+
+            # ★ 检测 parent_tool_use_id 变化（SubAgent 完成检测）
+            current_parent_id = getattr(message, 'parent_tool_use_id', None)
+            if hasattr(message, 'parent_tool_use_id'):
+                print(f"[DEBUG MSG] parent_tool_use_id = {current_parent_id}")
+
+            # 如果从 SubAgent 内部退出（parent_tool_use_id 从有值变为 None）
+            if (self._prev_parent_tool_use_id is not None and
+                current_parent_id is None and
+                self._current_subagent_id is not None):
+                # SubAgent 完成！
+                print(f"[DEBUG] SubAgent completed: {self._current_subagent_id} (parent_tool_use_id changed from {self._prev_parent_tool_use_id} to None)")
+                yield StreamChunk(
+                    type="subagent_complete",
+                    subagent_id=self._current_subagent_id,
+                    content="",  # 结果在后续 TextBlock 中
+                    success=True
+                )
+                self._current_subagent_id = None
+                self._task_tool_use_id = None
+
+            self._prev_parent_tool_use_id = current_parent_id
+
             if hasattr(message, 'event'):
                 event = message.event
                 event_type = event.get("type", "")
