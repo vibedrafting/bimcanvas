@@ -1,6 +1,6 @@
 <script setup lang="ts">
-import { ref, computed, watch } from 'vue';
-import type { SubAgent } from '../../types/agent';
+import { ref, computed, watch, onUnmounted } from 'vue';
+import type { SubAgent, ToolCall } from '../../types/agent';
 import { getSubAgentDuration } from '../../types/agent';
 
 const props = defineProps<{
@@ -20,7 +20,49 @@ watch(() => props.subAgent.status, (newStatus) => {
 
 const toggleExpand = () => { isExpanded.value = !isExpanded.value; };
 
-const durationDisplay = computed(() => getSubAgentDuration(props.subAgent));
+// === 实时计时器逻辑 ===
+const elapsedSeconds = ref(0);
+let timerInterval: ReturnType<typeof setInterval> | null = null;
+
+const startTimer = () => {
+  if (timerInterval) return;
+  // 立即计算一次
+  if (props.subAgent.startTime) {
+    elapsedSeconds.value = Math.round((Date.now() - props.subAgent.startTime) / 1000);
+  }
+  timerInterval = setInterval(() => {
+    if (props.subAgent.startTime) {
+      elapsedSeconds.value = Math.round((Date.now() - props.subAgent.startTime) / 1000);
+    }
+  }, 1000);
+};
+
+const stopTimer = () => {
+  if (timerInterval) {
+    clearInterval(timerInterval);
+    timerInterval = null;
+  }
+};
+
+// 监听状态变化启动/停止计时器
+watch(() => props.subAgent.status, (newStatus) => {
+  if (newStatus === 'running') {
+    startTimer();
+  } else {
+    stopTimer();
+  }
+}, { immediate: true });
+
+// 组件卸载时清理计时器
+onUnmounted(() => stopTimer());
+
+// 显示时间：运行中用实时计算，完成后用最终时间
+const durationDisplay = computed(() => {
+  if (props.subAgent.status === 'running') {
+    return `${elapsedSeconds.value}s`;
+  }
+  return getSubAgentDuration(props.subAgent);
+});
 
 const statusClass = computed(() => {
   switch (props.subAgent.status) {
@@ -44,6 +86,38 @@ const getToolDuration = (tc: { startTime?: number; endTime?: number }) => {
   if (!tc.startTime || !tc.endTime) return null;
   const sec = Math.round((tc.endTime - tc.startTime) / 1000);
   return sec > 0 ? `${sec}s` : '<1s';
+};
+
+// === 工具详情提取 ===
+// 根据工具类型提取关键参数作为详情显示
+const getToolDetail = (tc: ToolCall): string | null => {
+  // 优先使用 description
+  if (tc.description) return tc.description;
+
+  // 根据工具类型提取关键参数
+  const params = tc.params || {};
+  switch (tc.toolName) {
+    case 'Read':
+    case 'Write':
+    case 'Edit':
+      return (params.file_path as string) || null;
+    case 'Glob':
+      return (params.pattern as string) || null;
+    case 'Grep':
+      return (params.pattern as string) || null;
+    case 'Bash': {
+      const cmd = params.command as string;
+      return cmd ? (cmd.length > 60 ? cmd.slice(0, 60) + '...' : cmd) : null;
+    }
+    case 'Task': {
+      const desc = params.description as string;
+      if (desc) return desc;
+      const prompt = params.prompt as string;
+      return prompt ? (prompt.length > 50 ? prompt.slice(0, 50) + '...' : prompt) : null;
+    }
+    default:
+      return null;
+  }
 };
 </script>
 
@@ -95,7 +169,7 @@ const getToolDuration = (tc: { startTime?: number; endTime?: number }) => {
           <div class="tool-content">
             <span class="tool-name">{{ tc.toolName }}</span>
             <span class="tool-duration" v-if="getToolDuration(tc)">{{ getToolDuration(tc) }}</span>
-            <span class="tool-args" v-if="tc.description">{{ tc.description }}</span>
+            <span class="tool-args" v-if="getToolDetail(tc)">{{ getToolDetail(tc) }}</span>
             <span class="tool-error" v-if="tc.status === 'failed' && tc.error">
               {{ tc.error.length > 50 ? tc.error.slice(0, 50) + '...' : tc.error }}
             </span>
@@ -270,7 +344,11 @@ const getToolDuration = (tc: { startTime?: number; endTime?: number }) => {
 .tool-item.running .tool-status-dot {
   background: var(--accent-color);
   opacity: 1;
-  box-shadow: 0 0 4px var(--accent-color);
+  animation: pulse-glow 1.5s ease-in-out infinite;
+}
+
+.tool-item.running .tool-name {
+  animation: text-pulse 1.5s ease-in-out infinite;
 }
 
 .tool-item.completed .tool-status-dot { background: var(--accent-green, #4ade80); opacity: 0.8; }
@@ -369,4 +447,24 @@ const getToolDuration = (tc: { startTime?: number; endTime?: number }) => {
 }
 
 @keyframes spin { to { transform: rotate(360deg); } }
+
+/* 呼吸灯脉冲动画 */
+@keyframes pulse-glow {
+  0%, 100% {
+    opacity: 1;
+    box-shadow: 0 0 4px var(--accent-color);
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.6;
+    box-shadow: 0 0 8px var(--accent-color), 0 0 12px var(--accent-color);
+    transform: scale(1.3);
+  }
+}
+
+/* 文字轻微闪烁 */
+@keyframes text-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.6; }
+}
 </style>
