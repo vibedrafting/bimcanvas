@@ -38,6 +38,13 @@ const typeLabel = computed(() => {
 
 const visibleToolCalls = computed(() => props.subAgent.toolCalls.slice(0, 5));
 const hiddenToolCallsCount = computed(() => Math.max(0, props.subAgent.toolCalls.length - 5));
+
+// 计算工具调用执行时间
+const getToolDuration = (tc: { startTime?: number; endTime?: number }) => {
+  if (!tc.startTime || !tc.endTime) return null;
+  const sec = Math.round((tc.endTime - tc.startTime) / 1000);
+  return sec > 0 ? `${sec}s` : '<1s';
+};
 </script>
 
 <template>
@@ -78,17 +85,21 @@ const hiddenToolCallsCount = computed(() => Math.max(0, props.subAgent.toolCalls
     <div class="card-body" v-if="isExpanded">
       <!-- Tool List -->
       <div class="tool-list" v-if="subAgent.toolCalls.length > 0">
-        <div 
-          class="tool-item" 
-          v-for="tc in visibleToolCalls" 
+        <div
+          class="tool-item"
+          v-for="tc in visibleToolCalls"
           :key="tc.id"
           :class="tc.status"
         >
           <div class="tool-status-dot"></div>
           <div class="tool-content">
             <span class="tool-name">{{ tc.toolName }}</span>
+            <span class="tool-duration" v-if="getToolDuration(tc)">{{ getToolDuration(tc) }}</span>
             <span class="tool-args" v-if="tc.description">{{ tc.description }}</span>
-            <span class="tool-output-preview" v-if="tc.output">
+            <span class="tool-error" v-if="tc.status === 'failed' && tc.error">
+              {{ tc.error.length > 50 ? tc.error.slice(0, 50) + '...' : tc.error }}
+            </span>
+            <span class="tool-output-preview" v-else-if="tc.output && tc.status !== 'failed'">
                → {{ tc.output.replace(/\n/g, ' ').slice(0, 40) }}...
             </span>
           </div>
@@ -282,9 +293,29 @@ const hiddenToolCallsCount = computed(() => Math.max(0, props.subAgent.toolCalls
   flex-shrink: 0;
 }
 
+.tool-duration {
+  color: var(--text-tertiary);
+  font-family: var(--font-mono);
+  font-size: 0.65rem;
+  opacity: 0.6;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
 .tool-args {
   color: var(--text-secondary);
   opacity: 0.8;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  flex: 1;
+  min-width: 20px;
+}
+
+.tool-error {
+  color: var(--accent-danger, #f87171);
+  font-size: 0.7rem;
+  opacity: 0.9;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
