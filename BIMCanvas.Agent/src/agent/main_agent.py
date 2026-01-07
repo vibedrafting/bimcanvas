@@ -325,6 +325,7 @@ class MainAgent:
 
         self._in_thinking = False
         self._in_response = False
+        self._streamed_text = False  # 重置流式文本标记
         self._current_tool_name = None
         # 重置 SubAgent/ToolCall 状态
         self._current_subagent_id = None
@@ -365,6 +366,7 @@ class MainAgent:
                     if delta_type == "text_delta":
                         text = delta.get("text", "")
                         if text:
+                            self._streamed_text = True  # 标记已通过流式事件输出文本
                             yield StreamChunk(type="text", content=text)
                     elif delta_type == "thinking_delta":
                         thinking = delta.get("thinking", "")
@@ -413,7 +415,10 @@ class MainAgent:
                             self._agent_logger.log_response_start()
                             self._agent_logger.log_response(block.text)
                             self._agent_logger.log_response_end()
-                        yield StreamChunk(type="text_complete", content=block.text)
+                        # 如果已通过流式事件输出，跳过完整块输出（避免重复）
+                        if not self._streamed_text:
+                            yield StreamChunk(type="text_complete", content=block.text)
+                        self._streamed_text = False  # 重置标记，准备下一轮
                     elif isinstance(block, ToolUseBlock):
                         self._current_tool_name = block.name
                         if self.verbose:
