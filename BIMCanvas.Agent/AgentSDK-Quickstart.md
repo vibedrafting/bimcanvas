@@ -289,6 +289,46 @@ ClaudeAgentOptions(
 )
 ```
 
+### 7.3 流式输出配置（重要）
+
+要实现真正的**逐字流式输出**，必须启用 `include_partial_messages`：
+
+```python
+ClaudeAgentOptions(
+    include_partial_messages=True,  # 关键配置！
+    ...
+)
+```
+
+**为什么需要这个配置？**
+
+| 配置值 | SDK 返回内容 | 效果 |
+|--------|-------------|------|
+| `False`（默认） | 完整的 `AssistantMessage` | 文本一次性出现 |
+| `True` | 增量的 `StreamEvent` | 文本逐字流式显示 |
+
+**常见问题**：SubAgent 完成后，父 Agent 的总结文本不是流式输出，而是一次性显示。
+
+**原因**：未启用 `include_partial_messages`，SDK 默认返回完整消息而非增量事件。
+
+**注意**：启用后，SDK 会**同时**发送流式事件和完整消息，需要在代码中避免重复处理：
+
+```python
+# 添加标志位避免重复输出
+self._streamed_text = False
+
+# 处理流式事件时设置标志
+if delta_type == "text_delta":
+    self._streamed_text = True
+    yield text_chunk
+
+# 处理完整消息时检查标志
+if isinstance(block, TextBlock):
+    if not self._streamed_text:  # 只有未流式输出过才输出
+        yield text_complete
+    self._streamed_text = False  # 重置
+```
+
 ---
 
 ## 8. 会话管理
