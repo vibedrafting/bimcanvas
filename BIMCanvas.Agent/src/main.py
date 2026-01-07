@@ -140,11 +140,11 @@ def main() -> None:
 
     if args.serve:
         # Run as HTTP server
-        logger.info("Starting in HTTP server mode...")
+        logger.info("启动 HTTP 服务模式...")
         run_server(host=args.host, port=args.port)
     else:
         # Run in interactive CLI mode
-        logger.info("Starting in interactive mode...")
+        logger.info("启动交互模式...")
         asyncio.run(interactive_mode(args.project))
 
 

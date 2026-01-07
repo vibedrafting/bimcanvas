@@ -135,7 +135,6 @@ class MainAgent:
             self._client = ClaudeSDKClient(options)
             await self._client.connect()
             self._connected = True
-            logger.info(f"MainAgent connected for project: {self.project_path}")
             if self.verbose:
                 self._agent_logger.log_info(f"Connected to project: {self.project_path or 'default'}")
 

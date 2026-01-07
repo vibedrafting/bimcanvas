@@ -36,7 +36,7 @@ async def get_agent(project_path: str) -> MainAgent:
             agent = MainAgent(project_path)
             await agent.connect()  # 预连接
             agents[cache_key] = agent
-            logger.info(f"Created and connected MainAgent for project: {project_path or 'default'}")
+            logger.info(f"MainAgent 已连接: {project_path or 'default'}")
 
         return agents[cache_key]
 
@@ -320,8 +320,6 @@ def create_app() -> web.Application:
         resource = cors.add(app.router.add_resource(route.path))
         cors.add(resource.add_route(route.method, route.handler))
 
-    logger.info("HTTP application created with routes: /health, /api/chat, /api/chat/stream, /api/clear-history, /api/history, /api/interrupt")
-
     return app
 
 
@@ -340,5 +338,5 @@ def run_server(host: str = None, port: int = None) -> None:
 
     app = create_app()
 
-    logger.info(f"Starting BIMCanvas Agent server at http://{host}:{port}")
+    logger.info(f"Agent 服务启动: http://{host}:{port}")
     web.run_app(app, host=host, port=port, print=lambda s: logger.info(s))
