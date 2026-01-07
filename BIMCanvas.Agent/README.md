@@ -300,6 +300,32 @@ eventSource.onmessage = (event) => {
 };
 ```
 
+### 流式输出配置要点
+
+要实现真正的流式文本输出（逐字显示），必须在 `ClaudeAgentOptions` 中启用 `include_partial_messages`：
+
+```python
+ClaudeAgentOptions(
+    ...
+    include_partial_messages=True,  # 关键配置
+)
+```
+
+**为什么需要这个配置？**
+
+| 配置 | SDK 返回内容 | 文本事件类型 | 前端效果 |
+|------|-------------|-------------|---------|
+| `False`（默认） | 完整的 `AssistantMessage` | `text_complete`（一次性） | 文本突然出现 |
+| `True` | 增量的 `StreamEvent` | `text`（逐字） | 文本逐字流式显示 |
+
+**典型问题场景**：SubAgent 完成后，父 Agent 生成的总结文本不是流式输出，而是一次性显示。
+
+**原因**：未启用 `include_partial_messages`，SDK 默认返回完整消息而非增量事件。
+
+**解决**：在 `main_agent.py` 的 `_create_options()` 中添加 `include_partial_messages=True`。
+
+> 参考：`docs/Agent_SDK/examples/claude-agent-sdk-python/examples/include_partial_messages.py`
+
 ### 布置任务 API（P2 功能）
 
 ```http
