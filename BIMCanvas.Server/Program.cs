@@ -201,9 +201,7 @@ WriteWithColoredPrefix("[Server]", "Swagger: http://localhost:5000/swagger", Con
                     UseShellExecute = false,
                     CreateNoWindow = true,
                     RedirectStandardOutput = true,
-                    RedirectStandardError = true,
-                    StandardOutputEncoding = Encoding.UTF8,
-                    StandardErrorEncoding = Encoding.UTF8
+                    RedirectStandardError = true
                 }
             };
             agentProcess.Start();
@@ -253,9 +251,7 @@ WriteWithColoredPrefix("[Server]", "Swagger: http://localhost:5000/swagger", Con
                 UseShellExecute = false,
                 CreateNoWindow = true,
                 RedirectStandardOutput = true,
-                RedirectStandardError = true,
-                StandardOutputEncoding = Encoding.UTF8,
-                StandardErrorEncoding = Encoding.UTF8
+                RedirectStandardError = true
             }
         };
         webProcess.Start();

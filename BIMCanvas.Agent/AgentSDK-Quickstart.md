@@ -26,17 +26,36 @@ Claude Agent SDK 让你把 **Claude Code** 作为库来使用，构建能自主�
 
 ### 2.2 安装
 
-**Python**：
+**步骤 1：安装 Claude Code CLI**（SDK 运行时依赖）
+
+macOS/Linux/WSL：
+```bash
+curl -fsSL https://claude.ai/install.sh | bash
+```
+
+npm（跨平台）：
+```bash
+npm install -g @anthropic-ai/claude-code
+```
+
+Homebrew：
+```bash
+brew install --cask claude-code
+```
+
+安装后运行 `claude` 完成认证。
+
+**步骤 2：安装 SDK**
+
+Python：
 ```bash
 pip install claude-agent-sdk
 ```
 
-**TypeScript**：
+TypeScript：
 ```bash
 npm install @anthropic-ai/claude-agent-sdk
 ```
-
-> 注意：SDK 会自动捆绑 Claude Code CLI，无需单独安装。
 
 ### 2.3 设置 API Key
 
@@ -57,9 +76,24 @@ export ANTHROPIC_API_KEY=sk-ant-xxx
 
 ---
 
-## 3. 最简示例
+## 3. 两种使用方式
 
-### 3.1 基础对话
+SDK 提供两种 API 来与 Claude Code 交互：
+
+| 特性 | `query()` | `ClaudeSDKClient` |
+|------|-----------|-------------------|
+| 会话 | 每次新建 | 可复用/继续 |
+| 对话上下文 | 单轮 | 多轮连续 |
+| Hooks | ❌ 不支持 | ✅ 支持 |
+| 自定义工具 | ❌ 不支持 | ✅ 支持 |
+| 中断控制 | ❌ 不支持 | ✅ 支持 |
+| 适用场景 | 一次性任务 | 交互式对话 |
+
+---
+
+## 4. 最简示例（query 方式）
+
+### 4.1 基础对话
 
 ```python
 import asyncio
@@ -72,7 +106,7 @@ async def main():
 asyncio.run(main())
 ```
 
-### 3.2 提取文本内容
+### 4.2 提取文本内容
 
 ```python
 import asyncio
@@ -88,7 +122,7 @@ async def main():
 asyncio.run(main())
 ```
 
-### 3.3 使用配置选项
+### 4.3 使用配置选项
 
 ```python
 from claude_agent_sdk import query, ClaudeAgentOptions
@@ -104,7 +138,43 @@ async for message in query(prompt="讲个笑话", options=options):
 
 ---
 
-## 4. 内置工具
+## 5. ClaudeSDKClient（多轮对话）
+
+对于需要多轮交互、使用 Hooks 或自定义工具的场景，使用 `ClaudeSDKClient`：
+
+```python
+import asyncio
+from claude_agent_sdk import ClaudeSDKClient, ClaudeAgentOptions, AssistantMessage, TextBlock
+
+async def main():
+    options = ClaudeAgentOptions(
+        allowed_tools=["Read", "Glob"],
+        permission_mode="bypassPermissions"
+    )
+
+    async with ClaudeSDKClient(options=options) as client:
+        # 第一轮对话
+        await client.query("读取 auth.py 文件")
+        async for message in client.receive_response():
+            if isinstance(message, AssistantMessage):
+                for block in message.content:
+                    if isinstance(block, TextBlock):
+                        print(block.text)
+
+        # 第二轮对话（Claude 记得上下文）
+        await client.query("找出所有调用它的地方")
+        async for message in client.receive_response():
+            if isinstance(message, AssistantMessage):
+                for block in message.content:
+                    if isinstance(block, TextBlock):
+                        print(block.text)
+
+asyncio.run(main())
+```
+
+---
+
+## 6. 内置工具
 
 SDK 提供开箱即用的工具，无需自己实现：
 
@@ -120,7 +190,7 @@ SDK 提供开箱即用的工具，无需自己实现：
 | `WebFetch` | 获取网页 | 抓取文档内容 |
 | `Task` | 子代理 | 委派复杂任务 |
 
-### 4.1 使用工具示例
+### 6.1 使用工具示例
 
 ```python
 from claude_agent_sdk import query, ClaudeAgentOptions
@@ -138,7 +208,7 @@ async def find_todos():
         print(message)
 ```
 
-### 4.2 文件编辑示例
+### 6.2 文件编辑示例
 
 ```python
 options = ClaudeAgentOptions(
@@ -155,7 +225,7 @@ async for message in query(
 
 ---
 
-## 5. 核心配置项
+## 7. 核心配置项
 
 ```python
 ClaudeAgentOptions(
@@ -181,17 +251,18 @@ ClaudeAgentOptions(
 )
 ```
 
-### 5.1 权限模式
+### 7.1 权限模式
 
 | 模式 | 说明 |
 |------|------|
 | `default` | 默认，敏感操作需确认 |
-| `bypassPermissions` | 跳过所有权限检查（只读场景） |
 | `acceptEdits` | 自动接受文件编辑 |
+| `bypassPermissions` | 跳过所有权限检查（只读场景） |
+| `plan` | 规划模式，不执行实际操作 |
 
 ---
 
-## 6. 会话管理
+## 8. 会话管理
 
 可以保存会话 ID，之后恢复上下文继续对话：
 
@@ -201,7 +272,7 @@ session_id = None
 # 第一次查询：获取 session_id
 async for message in query(prompt="读取认证模块"):
     if hasattr(message, 'subtype') and message.subtype == 'init':
-        session_id = message.data.get('session_id')
+        session_id = message.session_id  # 直接属性访问
 
 # 恢复会话，继续对话
 async for message in query(
@@ -213,7 +284,7 @@ async for message in query(
 
 ---
 
-## 7. MCP 集成
+## 9. MCP 集成
 
 可以接入 MCP Server 扩展能力：
 
@@ -236,7 +307,7 @@ async for message in query(
 
 ---
 
-## 8. 子代理（Subagents）
+## 10. 子代理（Subagents）
 
 启用 `Task` 工具，Claude 会自动判断何时需要委派子任务：
 
@@ -254,34 +325,57 @@ async for message in query(
 
 ---
 
-## 9. Hooks 系统
+## 11. Hooks 系统
+
+> **重要**：Hooks 仅在 `ClaudeSDKClient` 中支持，`query()` 函数不支持 hooks。
 
 在 Agent 生命周期的关键点执行自定义代码：
 
 ```python
-options = ClaudeAgentOptions(
-    permission_mode="acceptEdits",
-    hooks={
-        "PostToolUse": [{
-            "matcher": "Edit|Write",
-            "hooks": [{
-                "type": "command",
-                "command": "echo \"文件已修改\" >> ./audit.log"
-            }]
-        }]
-    }
-)
+import asyncio
+from claude_agent_sdk import ClaudeSDKClient, ClaudeAgentOptions, HookMatcher, HookContext
+from typing import Any
+
+async def log_file_change(
+    input_data: dict[str, Any],
+    tool_use_id: str | None,
+    context: HookContext
+) -> dict[str, Any]:
+    """文件修改后记录日志"""
+    file_path = input_data.get('tool_input', {}).get('file_path', 'unknown')
+    with open('./audit.log', 'a') as f:
+        f.write(f"文件已修改: {file_path}\n")
+    return {}
+
+async def main():
+    options = ClaudeAgentOptions(
+        permission_mode="acceptEdits",
+        hooks={
+            "PostToolUse": [HookMatcher(matcher="Edit|Write", hooks=[log_file_change])]
+        }
+    )
+
+    async with ClaudeSDKClient(options=options) as client:
+        await client.query("重构 utils.py 提高可读性")
+        async for message in client.receive_response():
+            print(message)
+
+asyncio.run(main())
 ```
 
 **可用 Hooks**：
 - `PreToolUse` - 工具执行前
 - `PostToolUse` - 工具执行后
+- `UserPromptSubmit` - 用户提交提示时
 - `Stop` - Agent 停止时
-- `SessionStart` / `SessionEnd` - 会话开始/结束
+- `SubagentStop` - 子代理停止时
+- `PreCompact` - 消息压缩前
+
+> 注意：Python SDK 不支持 `SessionStart`、`SessionEnd` 和 `Notification` hooks。
 
 ---
 
-## 10. 参考资源
+## 12. 参考资源
 
 - [官方文档](https://platform.claude.com/docs/en/agent-sdk/overview)
 - [Python SDK GitHub](https://github.com/anthropics/claude-agent-sdk-python)

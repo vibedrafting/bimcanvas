@@ -93,6 +93,7 @@ class MainAgent:
         # State tracking for logging
         self._in_thinking = False
         self._in_response = False
+        self._streamed_text = False  # 标记是否已通过流式事件输出文本，避免重复
         self._current_tool_name = None
 
         # SubAgent/ToolCall 状态跟踪（用于 SSE 事件）
