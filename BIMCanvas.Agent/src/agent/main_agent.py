@@ -2,6 +2,7 @@
 
 import asyncio
 import logging
+import re
 from typing import AsyncIterator
 from dataclasses import dataclass
 
@@ -49,6 +50,9 @@ class StreamChunk:
     tool_output: str = None
     success: bool = None
     error: str = None
+    # 错误分类字段
+    error_type: str = None       # "recoverable" | "blocking" | None
+    hidden_content: str = None   # 被过滤的内容（调试用）
 
 
 class MainAgent:
@@ -121,6 +125,48 @@ class MainAgent:
             permission_mode="acceptEdits",
             include_partial_messages=True,  # 启用流式消息，使父Agent在SubAgent完成后的总结也流式输出
         )
+
+    # ─────────────────────────────────────────────────────
+    # Error Filtering
+    # ─────────────────────────────────────────────────────
+
+    # 可恢复错误的模式匹配
+    _RECOVERABLE_ERROR_PATTERNS = [
+        r"cygpath.*fatal error",      # Git Bash cygpath 错误
+        r"add_item.*failed.*errno",   # Git Bash 内部错误
+        r"EBUSY.*resource busy",      # 文件锁定
+    ]
+
+    def _classify_tool_error(self, error_content: str) -> str:
+        """分类工具调用错误：recoverable 或 blocking"""
+        for pattern in self._RECOVERABLE_ERROR_PATTERNS:
+            if re.search(pattern, error_content, re.IGNORECASE):
+                return "recoverable"
+        return "blocking"
+
+    def _filter_recoverable_errors(self, text: str) -> tuple[str, str | None, str | None]:
+        """
+        过滤可恢复错误，返回 (清理后内容, 隐藏内容, 错误类型)
+        """
+        pattern = r'<tool_use_error>([\s\S]*?)</tool_use_error>'
+
+        hidden_parts = []
+        error_type = None
+
+        def replace_match(m):
+            nonlocal error_type
+            error_content = m.group(1)
+            err_type = self._classify_tool_error(error_content)
+            if err_type == "recoverable":
+                hidden_parts.append(m.group(0))
+                error_type = "recoverable"
+                return ""  # 移除可恢复错误
+            return m.group(0)  # 保留阻塞性错误
+
+        cleaned = re.sub(pattern, replace_match, text)
+        hidden = "\n".join(hidden_parts) if hidden_parts else None
+
+        return cleaned.strip(), hidden, error_type
 
     # ─────────────────────────────────────────────────────
     # Connection Management
@@ -356,8 +402,20 @@ class MainAgent:
                     if delta_type == "text_delta":
                         text = delta.get("text", "")
                         if text:
-                            self._streamed_text = True  # 标记已通过流式事件输出文本
-                            yield StreamChunk(type="text", content=text)
+                            # 过滤可恢复错误
+                            cleaned, hidden, err_type = self._filter_recoverable_errors(text)
+
+                            if hidden and self.verbose:
+                                self._agent_logger.log_warning(f"过滤可恢复错误: {hidden[:200]}...")
+
+                            if cleaned:  # 只有清理后有内容才发送
+                                self._streamed_text = True
+                                yield StreamChunk(
+                                    type="text",
+                                    content=cleaned,
+                                    error_type=err_type,
+                                    hidden_content=hidden
+                                )
                     elif delta_type == "thinking_delta":
                         thinking = delta.get("thinking", "")
                         if thinking:

@@ -188,6 +188,12 @@ async def chat_stream_handler(request: web.Request) -> web.StreamResponse:
             if chunk.error:
                 event_data["error"] = chunk.error
 
+            # 错误分类字段
+            if chunk.error_type:
+                event_data["errorType"] = chunk.error_type
+            if chunk.hidden_content:
+                event_data["hiddenContent"] = chunk.hidden_content
+
             await response.write(f"data: {json.dumps(event_data, ensure_ascii=False)}\n\n".encode("utf-8"))
 
         # Send done event

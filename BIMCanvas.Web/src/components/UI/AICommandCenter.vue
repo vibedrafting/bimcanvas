@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, onMounted, nextTick, computed, watch, defineProps } from 'vue';
+import { ref, onMounted, nextTick, computed, watch } from 'vue';
 import { useCanvasStore } from '../../stores/canvasStore';
 import { useGitStore } from '../../stores/gitStore';
 import { ProjectService } from '../../services/ProjectService';
@@ -498,9 +498,13 @@ const sendMessage = async () => {
                   }
                  
                  if (parsed.content) {
-                    // Strip <tool_use_error> tags but keep content
-                    const cleanContent = parsed.content.replace(/<\/?tool_use_error>/g, '');
-                    msg.content += cleanContent;
+                    // 可恢复错误已在 Agent 层过滤，直接使用 content
+                    msg.content += parsed.content;
+
+                    // 调试模式：记录被隐藏的可恢复错误
+                    if (parsed.hiddenContent && import.meta.env.DEV) {
+                      console.debug('[Hidden recoverable error]', parsed.hiddenContent);
+                    }
                  }
             } else if (parsed.error) {
               currentMsg.content = `Error: ${parsed.error}`;

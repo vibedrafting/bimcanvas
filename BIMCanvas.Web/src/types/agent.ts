@@ -69,6 +69,18 @@ export interface SubAgent {
 
 // ========== SSE 事件类型 ==========
 
+// 错误分类类型
+export type ErrorType = 'recoverable' | 'blocking';
+
+export interface TextStreamEvent {
+  type: 'text' | 'text_complete';
+  content: string;
+  /** 错误分类：recoverable（可恢复）或 blocking（阻塞性）*/
+  errorType?: ErrorType;
+  /** 被过滤的内容（调试用）*/
+  hiddenContent?: string;
+}
+
 export interface SubAgentStartEvent {
   type: 'subagent_start';
   subAgentId: string;

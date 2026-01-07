@@ -81,13 +81,6 @@ const typeLabel = computed(() => {
 const visibleToolCalls = computed(() => props.subAgent.toolCalls.slice(0, 5));
 const hiddenToolCallsCount = computed(() => Math.max(0, props.subAgent.toolCalls.length - 5));
 
-// 计算工具调用执行时间
-const getToolDuration = (tc: { startTime?: number; endTime?: number }) => {
-  if (!tc.startTime || !tc.endTime) return null;
-  const sec = Math.round((tc.endTime - tc.startTime) / 1000);
-  return sec > 0 ? `${sec}s` : '<1s';
-};
-
 // === 工具详情提取 ===
 // 根据工具类型提取关键参数作为详情显示
 const getToolDetail = (tc: ToolCall): string | null => {
@@ -170,7 +163,6 @@ const getToolDetail = (tc: ToolCall): string | null => {
           <div class="tool-status-dot"></div>
           <div class="tool-content">
             <span class="tool-name">{{ tc.toolName }}</span>
-            <span class="tool-duration" v-if="getToolDuration(tc)">{{ getToolDuration(tc) }}</span>
             <span class="tool-args" v-if="getToolDetail(tc)">{{ getToolDetail(tc) }}</span>
             <span class="tool-error" v-if="tc.status === 'failed' && tc.error">
               {{ tc.error.length > 50 ? tc.error.slice(0, 50) + '...' : tc.error }}
@@ -354,10 +346,6 @@ const getToolDetail = (tc: ToolCall): string | null => {
   animation: pulse-glow 1.5s ease-in-out infinite;
 }
 
-.tool-item.running .tool-name {
-  animation: text-pulse 1.5s ease-in-out infinite;
-}
-
 .tool-item.completed .tool-status-dot { background: var(--accent-green, #4ade80); opacity: 0.8; }
 .tool-item.failed .tool-status-dot { background: var(--accent-danger, #f87171); }
 
@@ -374,15 +362,6 @@ const getToolDetail = (tc: ToolCall): string | null => {
   color: var(--accent-color);
   font-family: var(--font-mono);
   font-weight: 500;
-  white-space: nowrap;
-  flex-shrink: 0;
-}
-
-.tool-duration {
-  color: var(--text-tertiary);
-  font-family: var(--font-mono);
-  font-size: 0.65rem;
-  opacity: 0.6;
   white-space: nowrap;
   flex-shrink: 0;
 }
@@ -468,11 +447,5 @@ const getToolDetail = (tc: ToolCall): string | null => {
     box-shadow: 0 0 8px var(--accent-color), 0 0 12px var(--accent-color);
     transform: scale(1.3);
   }
-}
-
-/* 文字轻微闪烁 */
-@keyframes text-pulse {
-  0%, 100% { opacity: 1; }
-  50% { opacity: 0.6; }
 }
 </style>
