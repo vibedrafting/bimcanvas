@@ -30,6 +30,9 @@ logging.basicConfig(
     handlers=[logging.StreamHandler(sys.stdout)]
 )
 
+# 禁用 aiohttp HTTP 访问日志（减少控制台噪音）
+logging.getLogger("aiohttp.access").setLevel(logging.WARNING)
+
 logger = logging.getLogger(__name__)
 
 

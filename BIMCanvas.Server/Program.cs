@@ -201,9 +201,13 @@ WriteWithColoredPrefix("[Server]", "Swagger: http://localhost:5000/swagger", Con
                     UseShellExecute = false,
                     CreateNoWindow = true,
                     RedirectStandardOutput = true,
-                    RedirectStandardError = true
+                    RedirectStandardError = true,
+                    StandardOutputEncoding = Encoding.UTF8,
+                    StandardErrorEncoding = Encoding.UTF8
                 }
             };
+            // 设置环境变量确保 Python 输出 UTF-8
+            agentProcess.StartInfo.Environment["PYTHONIOENCODING"] = "utf-8";
             agentProcess.Start();
 
             // 后台读取 Agent 输出（避免缓冲区阻塞）
@@ -263,7 +267,12 @@ WriteWithColoredPrefix("[Server]", "Swagger: http://localhost:5000/swagger", Con
             {
                 var line = await webProcess.StandardOutput.ReadLineAsync();
                 if (!string.IsNullOrEmpty(line))
+                {
+                    // 过滤 Vite 冗余输出（多网卡地址、help 提示）
+                    if (line.Contains("Network:") || line.Contains("press h + enter"))
+                        continue;
                     WriteWithColoredPrefix("[Web]", line, ConsoleColor.Green);
+                }
             }
         });
         _ = Task.Run(async () =>

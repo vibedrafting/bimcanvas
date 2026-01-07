@@ -773,13 +773,12 @@ import MarkdownText from './base/MarkdownText.vue';
          <!-- View: Chat -->
         <div v-if="mode === 'chat'" class="view-chat">
 
-            <!-- Task Summary Widget -->
-            <TaskSummaryWidget :tasks="tasks" />
+
 
             <!-- Actual Chat History -->
             <template v-for="(msg, index) in chatMessages" :key="index">
                 <div class="chat-message" :class="[msg.role === 'user' ? 'user' : 'ai', { streaming: msg.isStreaming }]">
-                    <div v-if="msg.role === 'ai'" class="avatar">AI</div>
+                    <!-- Avatar Removed -->
                     <div class="message-wrapper">
                         <!-- Thinking Section (for AI messages only) -->
                         <div v-if="msg.role === 'ai' && msg.thinking" class="thinking-section">
@@ -1697,25 +1696,13 @@ import MarkdownText from './base/MarkdownText.vue';
             }
         }
 
-        .avatar {
-            width: 24px;
-            height: 24px;
-            border-radius: 50%;
-            background: var(--surface-dim);
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            font-size: 0.6rem;
-            color: var(--text-secondary);
-            border: 1px solid var(--border-dim);
-            flex-shrink: 0;
-        }
+
 
         .message-wrapper {
             display: flex;
             flex-direction: column;
             gap: 8px;
-            max-width: 85%;
+            max-width: 92%;
         }
 
         .bubble {
