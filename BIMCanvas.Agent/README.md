@@ -121,6 +121,185 @@ data: {"type": "text", "content": "，我来帮您"}
 data: [DONE]
 ```
 
+## SSE 事件协议
+
+Agent 通过 SSE（Server-Sent Events）推送实时事件，支持以下事件类型：
+
+### 事件类型一览
+
+| 事件类型 | 说明 | 关键字段 |
+|----------|------|----------|
+| `thinking` | 思考内容（流式） | `content` |
+| `thinking_complete` | 思考完成 | `content` |
+| `text` | 文本响应（流式） | `content` |
+| `text_complete` | 文本完成 | `content` |
+| `subagent_start` | SubAgent 启动 | `subAgentId`, `subAgentName`, `subAgentType` |
+| `subagent_complete` | SubAgent 完成 | `subAgentId`, `success`, `error` |
+| `tool_call_start` | 工具调用开始 | `subAgentId`, `toolCallId`, `toolName`, `toolParams` |
+| `tool_call_output` | 工具输出（流式） | `toolCallId`, `toolOutput` |
+| `tool_call_complete` | 工具调用完成 | `toolCallId`, `success`, `error` |
+
+### SubAgent 事件
+
+当 AI 决定派发 SubAgent（如 Explore、Plan、layout-agent）时，会产生以下事件序列：
+
+**1. SubAgent 启动事件**
+```json
+{
+  "type": "subagent_start",
+  "subAgentId": "sa-toolu_01ABC123",
+  "subAgentName": "探索项目结构",
+  "subAgentType": "Explore"
+}
+```
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| `subAgentId` | string | SubAgent 唯一标识，格式 `sa-{tool_use_id}` |
+| `subAgentName` | string | 任务描述（来自 Task 工具的 description 参数） |
+| `subAgentType` | string | SubAgent 类型：`Explore`、`Plan`、`general-purpose`、`layout-agent` 等 |
+
+**2. SubAgent 完成事件**
+```json
+{
+  "type": "subagent_complete",
+  "subAgentId": "sa-toolu_01ABC123",
+  "content": "分析完成，发现3个房间...",
+  "success": true
+}
+```
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| `subAgentId` | string | 对应的 SubAgent 标识 |
+| `content` | string | 执行结果摘要（最多500字符） |
+| `success` | boolean | 是否成功 |
+| `error` | string | 失败时的错误信息 |
+
+### 工具调用事件
+
+SubAgent 内部执行工具时，会产生以下事件：
+
+**1. 工具调用开始**
+```json
+{
+  "type": "tool_call_start",
+  "subAgentId": "sa-toolu_01ABC123",
+  "toolCallId": "tc-1",
+  "toolName": "Read",
+  "toolDescription": "读取房间数据",
+  "toolParams": {
+    "file_path": "C:/Projects/demo/computed/room_zones.json"
+  }
+}
+```
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| `subAgentId` | string | 所属 SubAgent 的标识 |
+| `toolCallId` | string | 工具调用唯一标识，格式 `tc-{递增数字}` |
+| `toolName` | string | 工具名称：`Read`、`Write`、`Glob`、`Grep`、`Edit`、`Bash` 等 |
+| `toolDescription` | string | 工具调用描述 |
+| `toolParams` | object | 工具参数（如 file_path、pattern、command 等） |
+
+**2. 工具输出（可选，流式）**
+```json
+{
+  "type": "tool_call_output",
+  "toolCallId": "tc-1",
+  "toolOutput": "文件内容..."
+}
+```
+
+**3. 工具调用完成**
+```json
+{
+  "type": "tool_call_complete",
+  "toolCallId": "tc-1",
+  "success": true
+}
+```
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| `toolCallId` | string | 对应的工具调用标识 |
+| `success` | boolean | 是否成功 |
+| `error` | string | 失败时的错误信息 |
+
+### 完整事件流示例
+
+以下是用户询问"看一看当前户型有几个卧室"时的完整事件序列：
+
+```
+# 1. AI 开始思考
+data: {"type": "thinking", "content": "用户想了解户型的卧室数量..."}
+
+# 2. AI 决定派发 SubAgent
+data: {"type": "subagent_start", "subAgentId": "sa-toolu_01X", "subAgentName": "查看户型卧室分布", "subAgentType": "layout-agent"}
+
+# 3. SubAgent 开始执行工具
+data: {"type": "tool_call_start", "subAgentId": "sa-toolu_01X", "toolCallId": "tc-1", "toolName": "Read", "toolParams": {"file_path": ".../room_zones.json"}}
+
+# 4. 工具执行完成
+data: {"type": "tool_call_complete", "toolCallId": "tc-1", "success": true}
+
+# 5. SubAgent 可能执行更多工具...
+data: {"type": "tool_call_start", "subAgentId": "sa-toolu_01X", "toolCallId": "tc-2", "toolName": "Read", "toolParams": {"file_path": ".../openings.json"}}
+data: {"type": "tool_call_complete", "toolCallId": "tc-2", "success": true}
+
+# 6. SubAgent 完成
+data: {"type": "subagent_complete", "subAgentId": "sa-toolu_01X", "content": "分析完成", "success": true}
+
+# 7. AI 输出最终响应
+data: {"type": "text", "content": "根据分析，当前户型共有3个卧室..."}
+data: {"type": "text_complete", "content": "...完整内容"}
+
+# 8. 流结束
+data: [DONE]
+```
+
+### 前端处理建议
+
+```typescript
+// 1. 解析 SSE 事件
+const eventSource = new EventSource('/api/chat/stream');
+eventSource.onmessage = (event) => {
+  if (event.data === '[DONE]') {
+    eventSource.close();
+    return;
+  }
+
+  const parsed = JSON.parse(event.data);
+
+  switch (parsed.type) {
+    case 'subagent_start':
+      // 创建 SubAgent 卡片，记录 startTime
+      createSubAgentCard(parsed.subAgentId, parsed.subAgentName, parsed.subAgentType);
+      break;
+
+    case 'tool_call_start':
+      // 在对应 SubAgent 下添加工具调用项
+      addToolCall(parsed.subAgentId, parsed.toolCallId, parsed.toolName, parsed.toolParams);
+      break;
+
+    case 'tool_call_complete':
+      // 更新工具状态，记录 endTime
+      updateToolStatus(parsed.toolCallId, parsed.success, parsed.error);
+      break;
+
+    case 'subagent_complete':
+      // 更新 SubAgent 状态，记录 endTime
+      updateSubAgentStatus(parsed.subAgentId, parsed.success, parsed.error);
+      break;
+
+    case 'text':
+      // 追加文本内容
+      appendText(parsed.content);
+      break;
+  }
+};
+```
+
 ### 布置任务 API（P2 功能）
 
 ```http

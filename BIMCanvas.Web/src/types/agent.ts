@@ -79,7 +79,9 @@ export interface SubAgentStartEvent {
 export interface SubAgentCompleteEvent {
   type: 'subagent_complete';
   subAgentId: string;
-  result?: string;
+  content?: string;  // 执行结果摘要
+  success?: boolean; // 是否成功
+  error?: string;    // 失败时的错误信息
 }
 
 export interface ToolCallStartEvent {
