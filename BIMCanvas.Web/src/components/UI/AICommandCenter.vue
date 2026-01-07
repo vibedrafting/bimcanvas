@@ -954,7 +954,6 @@ import MarkdownText from './base/MarkdownText.vue';
             <TaskSummaryWidget 
                 :sub-agents="activeSubAgents"
                 v-model:expanded="taskWidgetExpanded"
-                @stop="handleStopAgent"
             />
 
             <!-- Proposal Carousel -->

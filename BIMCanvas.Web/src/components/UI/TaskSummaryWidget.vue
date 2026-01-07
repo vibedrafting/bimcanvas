@@ -7,12 +7,37 @@ const props = defineProps<{
   expanded: boolean;
 }>();
 
-const emit = defineEmits(['stop', 'update:expanded']);
+const emit = defineEmits(['update:expanded']);
 
-// 状态判断
+// === 状态计算 ===
 const hasAgents = computed(() => props.subAgents.length > 0);
-const isRunning = computed(() => props.subAgents.some(a => a.status === 'running'));
-const isCompleted = computed(() => hasAgents.value && !isRunning.value);
+
+// 统计各状态数量
+const runningCount = computed(() => props.subAgents.filter(a => a.status === 'running').length);
+const completedCount = computed(() => props.subAgents.filter(a => a.status === 'completed').length);
+const failedCount = computed(() => props.subAgents.filter(a => a.status === 'failed').length);
+
+// 全局状态判断
+const isAllIdle = computed(() => !hasAgents.value);
+const hasRunning = computed(() => runningCount.value > 0);
+const isAllCompleted = computed(() => hasAgents.value && runningCount.value === 0);
+
+// Header 文案
+const headerText = computed(() => {
+  if (isAllIdle.value) return 'No active agents';
+  
+  const parts: string[] = [];
+  if (runningCount.value > 0) {
+    parts.push(`${runningCount.value} running`);
+  }
+  if (completedCount.value > 0) {
+    parts.push(`${completedCount.value} completed`);
+  }
+  if (failedCount.value > 0) {
+    parts.push(`${failedCount.value} failed`);
+  }
+  return parts.join(', ');
+});
 
 // === Timer Logic ===
 const now = ref(Date.now());
@@ -59,41 +84,41 @@ const getCurrentAction = (agent: SubAgent) => {
   return 'Thinking...';
 };
 
-const handleStop = (agentId: string) => {
-  emit('stop', agentId);
-};
-
 const toggleExpand = () => {
   if (hasAgents.value) {
     emit('update:expanded', !props.expanded);
   }
 };
+
+// 获取单个 Agent 的状态 class
+const getAgentStatusClass = (agent: SubAgent) => {
+  return agent.status; // 'running' | 'completed' | 'failed'
+};
 </script>
 
 <template>
-  <div class="task-summary-widget" :class="{ expanded: expanded, inactive: !hasAgents, completed: isCompleted }">
+  <div class="task-summary-widget" :class="{ 
+    expanded: expanded, 
+    inactive: isAllIdle, 
+    'has-running': hasRunning,
+    'all-completed': isAllCompleted 
+  }">
     <!-- Header -->
     <div class="widget-header" @click="toggleExpand">
       <div class="widget-content">
         
-        <!-- State 1: Running -->
-        <template v-if="isRunning">
+        <!-- Icon: Priority = Running > Completed > Idle -->
+        <template v-if="hasRunning">
           <div class="spinner-mini"></div>
-          <span class="info">{{ subAgents.length }} Active Agent{{ subAgents.length > 1 ? 's' : '' }} running...</span>
         </template>
-        
-        <!-- State 2: Completed -->
-        <template v-else-if="isCompleted">
+        <template v-else-if="isAllCompleted">
           <div class="icon-completed">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
               <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path>
               <polyline points="22 4 12 14.01 9 11.01"></polyline>
             </svg>
           </div>
-          <span class="info completed">Tasks Completed</span>
         </template>
-
-        <!-- State 3: Idle (Never run) -->
         <template v-else>
           <div class="icon-idle">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -101,8 +126,16 @@ const toggleExpand = () => {
               <polyline points="12 6 12 12 16 14"></polyline>
             </svg>
           </div>
-          <span class="info idle">No active agents</span>
         </template>
+
+        <!-- Header Text -->
+        <span class="info" :class="{ 
+          idle: isAllIdle, 
+          running: hasRunning, 
+          completed: isAllCompleted 
+        }">
+          {{ headerText }}
+        </span>
 
       </div>
       
@@ -116,7 +149,12 @@ const toggleExpand = () => {
     
     <!-- Expanded Details -->
     <div class="widget-details" v-if="expanded && hasAgents">
-      <div class="agent-item" v-for="agent in subAgents" :key="agent.id">
+      <div 
+        class="agent-item" 
+        v-for="agent in subAgents" 
+        :key="agent.id"
+        :class="getAgentStatusClass(agent)"
+      >
         
         <!-- Row 1: Name & Time -->
         <div class="row-primary">
@@ -127,22 +165,16 @@ const toggleExpand = () => {
           <span class="agent-time">{{ getDuration(agent) }}</span>
         </div>
 
-        <!-- Row 2: Activity Bar -->
+        <!-- Row 2: Activity Bar (状态独立) -->
         <div class="activity-track">
-          <!-- Pulse if running, Solid if completed -->
           <div v-if="agent.status === 'running'" class="activity-bar-pulse"></div>
           <div v-else-if="agent.status === 'completed'" class="activity-bar-solid completed"></div>
           <div v-else-if="agent.status === 'failed'" class="activity-bar-solid failed"></div>
         </div>
 
-        <!-- Row 3: Action & Control -->
+        <!-- Row 3: Action Status -->
         <div class="row-secondary">
           <span class="current-action" :class="agent.status">{{ getCurrentAction(agent) }}</span>
-          
-          <!-- Stop Button (Only when running) -->
-          <button v-if="agent.status === 'running'" class="btn-stop" @click.stop="handleStop(agent.id)">
-            <span class="icon">⏹</span> Stop
-          </button>
         </div>
       </div>
     </div>
@@ -174,8 +206,8 @@ const toggleExpand = () => {
         }
     }
 
-    /* Completed State Styling */
-    &.completed {
+    /* All Completed State */
+    &.all-completed {
         border-color: rgba(var(--accent-success-rgb), 0.3);
         
         .widget-header {
@@ -228,6 +260,7 @@ const toggleExpand = () => {
             font-weight: 500;
 
             &.idle { color: var(--text-tertiary); font-weight: 400; }
+            &.running { color: var(--text-primary); }
             &.completed { color: var(--accent-success); }
         }
     }
@@ -260,6 +293,14 @@ const toggleExpand = () => {
             &:last-child {
                 border-bottom: none;
                 padding-bottom: 0;
+            }
+
+            /* Agent Item 状态样式 */
+            &.completed {
+                opacity: 0.8;
+            }
+            &.failed {
+                opacity: 0.8;
             }
             
             .row-primary {
@@ -324,7 +365,7 @@ const toggleExpand = () => {
                 display: flex;
                 justify-content: space-between;
                 align-items: center;
-                min-height: 20px; /* Ensure height when stop button is gone */
+                min-height: 20px;
                 
                 .current-action {
                     font-size: 0.7rem;
@@ -337,28 +378,6 @@ const toggleExpand = () => {
 
                     &.completed { color: var(--accent-success); font-style: normal; }
                     &.failed { color: var(--accent-danger); font-style: normal; }
-                }
-                
-                .btn-stop {
-                    display: flex;
-                    align-items: center;
-                    gap: 4px;
-                    background: transparent;
-                    border: 1px solid var(--border-dim);
-                    color: var(--text-secondary);
-                    font-size: 0.65rem;
-                    padding: 2px 8px;
-                    border-radius: 4px;
-                    cursor: pointer;
-                    transition: all 0.2s;
-                    
-                    .icon { font-size: 0.7rem; }
-                    
-                    &:hover {
-                        background: rgba(248, 113, 113, 0.1);
-                        border-color: rgba(248, 113, 113, 0.3);
-                        color: #f87171;
-                    }
                 }
             }
         }
