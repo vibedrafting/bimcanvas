@@ -117,6 +117,7 @@ class MainAgent:
             allowed_tools=["Read", "Glob", "Grep", "Task"],
             agents=self._subagents,
             permission_mode="acceptEdits",
+            include_partial_messages=True,  # 启用流式消息，使父Agent在SubAgent完成后的总结也流式输出
         )
 
     # ─────────────────────────────────────────────────────

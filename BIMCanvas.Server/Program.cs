@@ -1,7 +1,54 @@
 using System.Diagnostics;
+using System.Runtime.InteropServices;
+using System.Text;
 using BIMCanvas.Server.Hubs;
 using BIMCanvas.Server.Services;
 using Newtonsoft.Json.Serialization;
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Windows API for enabling ANSI escape sequences (Virtual Terminal Processing)
+// ─────────────────────────────────────────────────────────────────────────────
+[DllImport("kernel32.dll", SetLastError = true)]
+static extern bool GetConsoleMode(IntPtr hConsoleHandle, out uint lpMode);
+
+[DllImport("kernel32.dll", SetLastError = true)]
+static extern bool SetConsoleMode(IntPtr hConsoleHandle, uint dwMode);
+
+[DllImport("kernel32.dll", SetLastError = true)]
+static extern IntPtr GetStdHandle(int nStdHandle);
+
+static void EnableVirtualTerminalProcessing()
+{
+    const int STD_OUTPUT_HANDLE = -11;
+    const uint ENABLE_VIRTUAL_TERMINAL_PROCESSING = 0x0004;
+
+    var handle = GetStdHandle(STD_OUTPUT_HANDLE);
+    if (GetConsoleMode(handle, out uint mode))
+    {
+        SetConsoleMode(handle, mode | ENABLE_VIRTUAL_TERMINAL_PROCESSING);
+    }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Console output helper: colored prefix, passthrough message (preserves ANSI)
+// ─────────────────────────────────────────────────────────────────────────────
+static void WriteWithColoredPrefix(string prefix, string message, ConsoleColor prefixColor)
+{
+    var originalColor = Console.ForegroundColor;
+    Console.ForegroundColor = prefixColor;
+    Console.Write(prefix);
+    Console.ForegroundColor = originalColor;
+    Console.WriteLine($" {message}");
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Initialize console: UTF-8 encoding + ANSI support
+// ─────────────────────────────────────────────────────────────────────────────
+Console.OutputEncoding = Encoding.UTF8;
+if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
+{
+    EnableVirtualTerminalProcessing();
+}
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -69,9 +116,9 @@ app.MapHub<CanvasHub>("/hubs/canvas");
 // 健康检查端点
 app.MapGet("/health", () => new { status = "healthy", timestamp = DateTime.UtcNow });
 
-Console.WriteLine("BIMCanvas.Server 启动中...");
-Console.WriteLine("API: http://localhost:5000/api/canvas");
-Console.WriteLine("Swagger: http://localhost:5000/swagger");
+WriteWithColoredPrefix("[Server]", "BIMCanvas.Server 启动中...", ConsoleColor.Cyan);
+WriteWithColoredPrefix("[Server]", "API: http://localhost:5000/api/canvas", ConsoleColor.Cyan);
+WriteWithColoredPrefix("[Server]", "Swagger: http://localhost:5000/swagger", ConsoleColor.Cyan);
 
 // v3.0 项目加载流程（单项目模式）
 {
@@ -88,12 +135,12 @@ Console.WriteLine("Swagger: http://localhost:5000/swagger");
         bcpFilePath = projectService.FindDemoBcpFile(baseDir, "demo_1");
         if (bcpFilePath != null)
         {
-            Console.WriteLine($"使用默认 BCP 文件: {bcpFilePath}");
+            WriteWithColoredPrefix("[Server]", $"使用默认 BCP 文件: {bcpFilePath}", ConsoleColor.Cyan);
         }
     }
     else
     {
-        Console.WriteLine($"使用指定 BCP 文件: {bcpFilePath}");
+        WriteWithColoredPrefix("[Server]", $"使用指定 BCP 文件: {bcpFilePath}", ConsoleColor.Cyan);
     }
 
     if (!string.IsNullOrEmpty(bcpFilePath))
@@ -107,7 +154,7 @@ Console.WriteLine("Swagger: http://localhost:5000/swagger");
             if (hasConflict)
             {
                 // 启动时默认使用已存在的项目（不覆盖）
-                Console.WriteLine($"使用已存在的项目目录: {existingPath}");
+                WriteWithColoredPrefix("[Server]", $"使用已存在的项目目录: {existingPath}", ConsoleColor.Cyan);
                 projectPath = existingPath!;
             }
             else
@@ -117,16 +164,16 @@ Console.WriteLine("Swagger: http://localhost:5000/swagger");
 
             // 设置 ProjectContext
             projectContext.SetProject(projectPath, bcpFilePath);
-            Console.WriteLine($"项目已加载: {projectPath}");
+            WriteWithColoredPrefix("[Server]", $"项目已加载: {projectPath}", ConsoleColor.Cyan);
         }
         catch (Exception ex)
         {
-            Console.WriteLine($"项目加载失败: {ex.Message}");
+            WriteWithColoredPrefix("[Server:ERR]", $"项目加载失败: {ex.Message}", ConsoleColor.DarkCyan);
         }
     }
     else
     {
-        Console.WriteLine("未找到可加载的 BCP 文件");
+        WriteWithColoredPrefix("[Server:ERR]", "未找到可加载的 BCP 文件", ConsoleColor.DarkCyan);
     }
 }
 
@@ -141,7 +188,7 @@ Console.WriteLine("Swagger: http://localhost:5000/swagger");
     // 1. 启动 Agent 服务（不等待，后台运行）
     if (Directory.Exists(agentProjectPath))
     {
-        Console.WriteLine($"启动 Agent 服务: {agentProjectPath}");
+        WriteWithColoredPrefix("[Server]", $"启动 Agent 服务: {agentProjectPath}", ConsoleColor.Cyan);
         try
         {
             agentProcess = new Process
@@ -154,7 +201,9 @@ Console.WriteLine("Swagger: http://localhost:5000/swagger");
                     UseShellExecute = false,
                     CreateNoWindow = true,
                     RedirectStandardOutput = true,
-                    RedirectStandardError = true
+                    RedirectStandardError = true,
+                    StandardOutputEncoding = Encoding.UTF8,
+                    StandardErrorEncoding = Encoding.UTF8
                 }
             };
             agentProcess.Start();
@@ -166,7 +215,7 @@ Console.WriteLine("Swagger: http://localhost:5000/swagger");
                 {
                     var line = await agentProcess.StandardOutput.ReadLineAsync();
                     if (!string.IsNullOrEmpty(line))
-                        Console.WriteLine($"[Agent] {line}");
+                        WriteWithColoredPrefix("[Agent]", line, ConsoleColor.Yellow);
                 }
             });
             _ = Task.Run(async () =>
@@ -175,25 +224,25 @@ Console.WriteLine("Swagger: http://localhost:5000/swagger");
                 {
                     var line = await agentProcess.StandardError.ReadLineAsync();
                     if (!string.IsNullOrEmpty(line))
-                        Console.WriteLine($"[Agent:ERR] {line}");
+                        WriteWithColoredPrefix("[Agent:ERR]", line, ConsoleColor.Red);
                 }
             });
         }
         catch (Exception ex)
         {
-            Console.WriteLine($"Agent 服务启动失败: {ex.Message}");
-            Console.WriteLine("提示: 请确保已安装 Python 并配置到 PATH，且已运行 pip install -e . 安装依赖");
+            WriteWithColoredPrefix("[Server:ERR]", $"Agent 服务启动失败: {ex.Message}", ConsoleColor.DarkCyan);
+            WriteWithColoredPrefix("[Server:ERR]", "提示: 请确保已安装 Python 并配置到 PATH，且已运行 pip install -e . 安装依赖", ConsoleColor.DarkCyan);
         }
     }
     else
     {
-        Console.WriteLine($"Agent 项目目录不存在: {agentProjectPath}");
+        WriteWithColoredPrefix("[Server:ERR]", $"Agent 项目目录不存在: {agentProjectPath}", ConsoleColor.DarkCyan);
     }
 
     // 2. 启动 Web 服务（不等待，后台运行）
     if (Directory.Exists(webProjectPath))
     {
-        Console.WriteLine($"启动 Web 开发服务器: {webProjectPath}");
+        WriteWithColoredPrefix("[Server]", $"启动 Web 开发服务器: {webProjectPath}", ConsoleColor.Cyan);
         webProcess = new Process
         {
             StartInfo = new ProcessStartInfo
@@ -204,7 +253,9 @@ Console.WriteLine("Swagger: http://localhost:5000/swagger");
                 UseShellExecute = false,
                 CreateNoWindow = true,
                 RedirectStandardOutput = true,
-                RedirectStandardError = true
+                RedirectStandardError = true,
+                StandardOutputEncoding = Encoding.UTF8,
+                StandardErrorEncoding = Encoding.UTF8
             }
         };
         webProcess.Start();
@@ -216,19 +267,28 @@ Console.WriteLine("Swagger: http://localhost:5000/swagger");
             {
                 var line = await webProcess.StandardOutput.ReadLineAsync();
                 if (!string.IsNullOrEmpty(line))
-                    Console.WriteLine($"[Web] {line}");
+                    WriteWithColoredPrefix("[Web]", line, ConsoleColor.Green);
+            }
+        });
+        _ = Task.Run(async () =>
+        {
+            while (!webProcess.HasExited)
+            {
+                var line = await webProcess.StandardError.ReadLineAsync();
+                if (!string.IsNullOrEmpty(line))
+                    WriteWithColoredPrefix("[Web:ERR]", line, ConsoleColor.DarkGreen);
             }
         });
     }
     else
     {
-        Console.WriteLine($"Web 项目目录不存在: {webProjectPath}");
+        WriteWithColoredPrefix("[Server:ERR]", $"Web 项目目录不存在: {webProjectPath}", ConsoleColor.DarkCyan);
     }
 
     // 3. 等待 Web 服务就绪后打开浏览器（Agent 在后台继续启动，Web 端通过 health 检查感知状态）
     if (webProcess != null)
     {
-        Console.WriteLine("等待 Web 服务启动...");
+        WriteWithColoredPrefix("[Server]", "等待 Web 服务启动...", ConsoleColor.Cyan);
         var webBaseUrl = "http://localhost:5173";
         using var httpClient = new HttpClient { Timeout = TimeSpan.FromMilliseconds(500) };
         for (int i = 0; i < 50; i++)
@@ -238,7 +298,7 @@ Console.WriteLine("Swagger: http://localhost:5000/swagger");
                 var response = await httpClient.GetAsync(webBaseUrl);
                 if (response.IsSuccessStatusCode)
                 {
-                    Console.WriteLine("Web 服务已就绪");
+                    WriteWithColoredPrefix("[Server]", "Web 服务已就绪", ConsoleColor.Cyan);
                     break;
                 }
             }
@@ -247,14 +307,14 @@ Console.WriteLine("Swagger: http://localhost:5000/swagger");
         }
 
         // 打开浏览器
-        Console.WriteLine($"打开浏览器: {webBaseUrl}");
+        WriteWithColoredPrefix("[Server]", $"打开浏览器: {webBaseUrl}", ConsoleColor.Cyan);
         try
         {
             Process.Start(new ProcessStartInfo(webBaseUrl) { UseShellExecute = true });
         }
         catch (Exception ex)
         {
-            Console.WriteLine($"无法自动打开浏览器: {ex.Message}");
+            WriteWithColoredPrefix("[Server:ERR]", $"无法自动打开浏览器: {ex.Message}", ConsoleColor.DarkCyan);
         }
     }
 
@@ -263,12 +323,12 @@ Console.WriteLine("Swagger: http://localhost:5000/swagger");
     {
         if (agentProcess != null && !agentProcess.HasExited)
         {
-            Console.WriteLine("正在关闭 Agent 服务...");
+            WriteWithColoredPrefix("[Server]", "正在关闭 Agent 服务...", ConsoleColor.Cyan);
             agentProcess.Kill(true);
         }
         if (webProcess != null && !webProcess.HasExited)
         {
-            Console.WriteLine("正在关闭 Web 开发服务器...");
+            WriteWithColoredPrefix("[Server]", "正在关闭 Web 开发服务器...", ConsoleColor.Cyan);
             webProcess.Kill(true);
         }
     };
