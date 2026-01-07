@@ -146,7 +146,7 @@ const properties = computed(() => {
   /* Card Mode (Default) */
   position: absolute;
   left: 24px;
-  top: 24px;
+  top: 48px;
   width: 280px;
   max-height: 50vh; /* Limit height in card mode */
   

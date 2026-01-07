@@ -227,7 +227,9 @@ const animate = () => {
   
   if (isOrdered) {
       const rawProgress = (time - transitionStartTime) / TRANSITION_DURATION;
-      opacityProgress = rawProgress > 1 ? 1 : (rawProgress < 0 ? 0 : rawProgress);
+      // Make particles disappear earlier (at 70% of total duration)
+      const fadeOutProgress = rawProgress / 0.7;
+      opacityProgress = fadeOutProgress > 1 ? 1 : (fadeOutProgress < 0 ? 0 : fadeOutProgress);
       progress = rawProgress > 1 ? 1 : easeInOutCubic(rawProgress);
   } else {
       // Chaos Phase: Add subtle movement?

@@ -70,7 +70,47 @@ interface ChatMessage {
   thinkingDuration?: string;
   /** SubAgent/Task 列表 */
   subAgents?: SubAgent[];
+  /** Claude Code 风格的等待提示词 */
+  waitingVerb?: string;
 }
+
+// Claude Code 风格的拟人等待提示词 (169 个)
+const WAITING_VERBS = [
+  'Accomplishing', 'Actioning', 'Actualizing', 'Baking', 'Beaming', 'Beboppin',
+  'Befuddling', 'Billowing', 'Blanching', 'Bloviating', 'Boogieing', 'Boondoggling',
+  'Bootstrapping', 'Booping', 'Brewing', 'Burrowing', 'Calculating', 'Caramelizing',
+  'Cascading', 'Capturing', 'Cerebrating', 'Channelling', 'Choreographing', 'Churning',
+  'Clauding', 'Coalescing', 'Cogitating', 'Composing', 'Combobulating', 'Concocting',
+  'Considering', 'Contemplating', 'Cooking', 'Crafting', 'Creating', 'Crunching',
+  'Crystallizing', 'Cultivating', 'Deciphering', 'Deliberating', 'Determining',
+  'Discombobulating', 'Distilling', 'Doing', 'Dilly-dallying', 'Doodling', 'Ebbing',
+  'Effecting', 'Elucidating', 'Embellishing', 'Enchanting', 'Envisioning', 'Evaporating',
+  'Fermenting', 'Fiddle-fadding', 'Finagling', 'Flambéing', 'Flibbertigibbeting',
+  'Flowing', 'Flummoxing', 'Forging', 'Forming', 'Frosting', 'Frolicking', 'Gallivanting',
+  'Generating', 'Germinating', 'Gitifying', 'Grooving', 'Gusting', 'Hatching', 'Herding',
+  'Hibernating', 'Honking', 'Hullaballooing', 'Hyperspacing', 'Ideating', 'Imagining',
+  'Incubating', 'Inferring', 'Infusing', 'Jitterbugging', 'Julienning', 'Kneading',
+  'Leavening', 'Levitating', 'Lollygagging', 'Manifesting', 'Marinating', 'Meandering',
+  'Misting', 'Moseying', 'Mulling', 'Mustering', 'Musing', 'Nebulizing', 'Noodling',
+  'Nucleating', 'Orbiting', 'Perambulating', 'Percolating', 'Perusing', 'Philosophising',
+  'Photosynthesizing', 'Pontificating', 'Pondering', 'Pollinating', 'Precipitating',
+  'Processing', 'Proofing', 'Propagating', 'Puttering', 'Puzzling', 'Quantumizing',
+  'Razzle-dazzling', 'Recombobulating', 'Reticulating', 'Ruminating', 'Scheming',
+  'Schlepping', 'Scurrying', 'Scampering', 'Seasoning', 'Shenaniganing', 'Shimming',
+  'Shimmying', 'Simmering', 'Skedaddling', 'Sketching', 'Slithering', 'Smooshing',
+  'Spelunking', 'Spinning', 'Sprouting', 'Stewing', 'Sublimating', 'Sussing', 'Swooping',
+  'Symbioting', 'Synthesizing', 'Tempering', 'Thinking', 'Thundering', 'Tinkering',
+  'Topsy-turvying', 'Transfiguring', 'Transmuting', 'Trick-or-treating', 'Twisting',
+  'Unfurling', 'Unravelling', 'Vibing', 'Waddling', 'Wandering', 'Warping',
+  'Whatchamacalliting', 'Whirlpooling', 'Whirring', 'Whisking', 'Wibbling', 'Working',
+  'Wrangling', 'Zesting', 'Zigzagging'
+];
+
+// 随机选择一个等待提示词
+const getRandomWaitingVerb = (): string => {
+  return WAITING_VERBS[Math.floor(Math.random() * WAITING_VERBS.length)];
+};
+
 const chatMessages = ref<ChatMessage[]>([]);
 const inputMessage = ref('');
 const isLoading = ref(false);
@@ -104,12 +144,62 @@ const toggleThinking = (index: number) => {
   expandedThinking.value[index] = !expandedThinking.value[index];
 };
 
-// Mock Data for Tasks (unchanged)
-const tasks = ref([
-  { id: 1, name: "Living Room 'Ultimate Storage' Design", progress: 45, status: 'Generating geometry...' },
-  { id: 2, name: "Living Room 'Flow Priority' Design", progress: 30, status: 'Calculating paths...' },
-  { id: 3, name: "Living Room 'Minimalist White' Design", progress: 10, status: 'Initializing...' }
-]);
+// Computed: Active or Recent SubAgents for the Task Monitor
+// Logic: 
+// 1. If any agents are RUNNING, show them (Priority: High)
+// 2. If no running agents, show agents from the LAST message (Priority: Low, represents "Completed" state)
+// 3. Otherwise empty (Idle)
+const activeSubAgents = computed(() => {
+  // 1. Find all running agents globally
+  const runningAgents: SubAgent[] = [];
+  chatMessages.value.forEach(msg => {
+    if (msg.subAgents) {
+      const running = msg.subAgents.filter(sa => sa.status === 'running');
+      runningAgents.push(...running);
+    }
+  });
+
+  if (runningAgents.length > 0) {
+    return runningAgents;
+  }
+
+  // 2. Fallback: Find the last message with agents
+  for (let i = chatMessages.value.length - 1; i >= 0; i--) {
+    const msg = chatMessages.value[i];
+    if (msg.role === 'ai' && msg.subAgents && msg.subAgents.length > 0) {
+      // Return all agents from this message (likely completed/failed)
+      return msg.subAgents;
+    }
+  }
+
+  return [];
+});
+
+const handleStopAgent = (agentId: string) => {
+    console.log('Request to stop agent:', agentId);
+    // TODO: Implement backend interrupt call
+};
+
+// === Task Widget State Management ===
+const taskWidgetExpanded = ref(false);
+
+// Auto-expand logic for Task Widget
+watch(activeSubAgents, (newAgents, oldAgents) => {
+  const newRunning = newAgents.some(a => a.status === 'running');
+  const oldRunning = oldAgents?.some(a => a.status === 'running') ?? false;
+  
+  // 1. From No Tasks -> Has Tasks: Auto expand
+  if (newAgents.length > 0 && (!oldAgents || oldAgents.length === 0)) {
+    taskWidgetExpanded.value = true;
+  }
+  // 2. From Completed/Idle -> Running: Auto expand
+  if (newRunning && !oldRunning) {
+    taskWidgetExpanded.value = true;
+  }
+}, { deep: true });
+
+// Mock Data for Tasks - REMOVED (TaskSummaryWidget now uses subAgents)
+// Proposals mock data is kept below for the Proposals carousel
 
 const proposals = ref([
   {
@@ -321,7 +411,8 @@ const sendMessage = async () => {
     thinking: '', 
     isStreaming: true,
     startTime: Date.now(),
-    thinkingDuration: undefined // Start as undefined, will be set when text starts
+    thinkingDuration: undefined, // Start as undefined, will be set when text starts
+    waitingVerb: getRandomWaitingVerb() // Claude Code 风格的随机等待提示词
   });
 
   // Start thinking timer - updates every second while streaming
@@ -763,7 +854,7 @@ import MarkdownText from './base/MarkdownText.vue';
         </div>
         <div class="mode-switch">
           <button :class="{ active: mode === 'chat' }" @click="mode = 'chat'">Chat</button>
-          <button :class="{ active: mode === 'tasks' }" @click="mode = 'tasks'">Tasks</button>
+          <button :class="{ active: mode === 'tasks' }" @click="mode = 'tasks'">Task</button>
         </div>
       </div>
 
@@ -828,17 +919,27 @@ import MarkdownText from './base/MarkdownText.vue';
                         <!-- 3. Post-Agent Content Bubble (Summary/Result) -->
                         <div 
                             class="bubble" 
-                            :class="{ 
-                                empty: !msg.content && msg.isStreaming,
-                                generating: msg.isStreaming && !msg.thinking && !msg.content
-                            }"
-                            v-if="msg.content || (!msg.thinking && msg.isStreaming && !msg.preSubAgentContent)"
+                            v-if="msg.content"
                         >
-                            <MarkdownText v-if="msg.content" :content="msg.content" />
-                            <span v-else-if="msg.isStreaming && !msg.thinking" class="generating-indicator">
-                                Generating<span class="dot">.</span><span class="dot">.</span><span class="dot">.</span>
-                            </span>
+                            <MarkdownText :content="msg.content" />
                         </div>
+
+                        <!-- 4. Universal waiting indicator for vacuum periods -->
+                        <!-- Shows when: streaming + no content + no SubAgent running -->
+                        <span 
+                            v-if="msg.isStreaming && !msg.content && !msg.subAgents?.some(sa => sa.status === 'running')"
+                            class="vacuum-generating"
+                        >
+                            <span class="generating-text">
+                                <span 
+                                    v-for="(char, i) in (msg.waitingVerb || 'Processing').split('')" 
+                                    :key="i" 
+                                    class="char"
+                                    :style="{ animationDelay: (i * 0.05) + 's' }"
+                                >{{ char }}</span>
+                            </span>
+                            <span class="dot">.</span><span class="dot">.</span><span class="dot">.</span>
+                        </span>
                     </div>
                 </div>
             </template>
@@ -849,8 +950,12 @@ import MarkdownText from './base/MarkdownText.vue';
 
         <!-- View: Tasks (formerly Review) -->
         <div v-else-if="mode === 'tasks'" class="view-tasks">
-            <!-- Task Summary Widget (Replaces old Task Cards) -->
-            <TaskSummaryWidget :tasks="tasks" />
+            <!-- Agent Activity Monitor (SubAgent tracking) -->
+            <TaskSummaryWidget 
+                :sub-agents="activeSubAgents"
+                v-model:expanded="taskWidgetExpanded"
+                @stop="handleStopAgent"
+            />
 
             <!-- Proposal Carousel -->
             <div class="carousel-section">
@@ -1718,35 +1823,21 @@ import MarkdownText from './base/MarkdownText.vue';
             &.empty {
                 min-height: 20px;
             }
-
-            &.generating {
-                background: transparent;
-                border-color: transparent;
-                padding: 0;
-                display: flex;
-                align-items: center;
-                height: 24px; /* Match avatar height */
-            }
-
-            .generating-indicator {
-                font-size: 0.8rem;
-                color: var(--text-tertiary);
-                font-style: italic;
-                
-                .dot {
-                    animation: dot-fade 1.5s infinite;
-                    opacity: 0;
-                }
-                .dot:nth-child(1) { animation-delay: 0.0s; }
-                .dot:nth-child(2) { animation-delay: 0.5s; }
-                .dot:nth-child(3) { animation-delay: 1.0s; }
-            }
         }
 
         @keyframes dot-fade {
             0% { opacity: 0; }
             50% { opacity: 1; }
             100% { opacity: 0; }
+        }
+
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+
+        @keyframes text-breathe {
+            0%, 100% { opacity: 0.4; }
+            50% { opacity: 1; }
         }
 
         /* Thinking Section Styles */
@@ -1812,6 +1903,27 @@ import MarkdownText from './base/MarkdownText.vue';
         /* SubAgents Section */
         .subagents-section {
             margin: 8px 0;
+        }
+
+        /* Universal vacuum period waiting indicator */
+        .vacuum-generating {
+            font-size: 0.8rem;
+            color: var(--text-tertiary);
+            font-style: italic;
+            padding: 4px 0;
+            margin-top: 4px;
+            
+            .generating-text .char {
+                animation: text-breathe 1.5s ease-in-out infinite;
+            }
+
+            .dot {
+                animation: dot-fade 1.5s infinite;
+                opacity: 0;
+            }
+            .dot:nth-child(1) { animation-delay: 0.0s; }
+            .dot:nth-child(2) { animation-delay: 0.5s; }
+            .dot:nth-child(3) { animation-delay: 1.0s; }
         }
     }
 }
@@ -1928,6 +2040,7 @@ import MarkdownText from './base/MarkdownText.vue';
         display: flex;
         gap: 10px;
         overflow-x: auto;
+        padding-top: 6px;  /* Space for hover translateY(-4px) effect */
         padding-bottom: 4px;
         
         &::-webkit-scrollbar { height: 6px; }
@@ -1951,7 +2064,6 @@ import MarkdownText from './base/MarkdownText.vue';
 
     &:hover {
         transform: translateY(-4px);
-        border-color: var(--accent-primary);
         box-shadow: 0 8px 20px rgba(0,0,0,0.15);
         .hover-actions { opacity: 1; }
     }
