@@ -409,8 +409,6 @@ class MainAgent:
                         self._streamed_text = False  # 重置标记，准备下一轮
                     elif isinstance(block, ToolUseBlock):
                         self._current_tool_name = block.name
-                        if self.verbose:
-                            self._agent_logger.log_tool_use(block.name, block.input)
 
                         if block.name == "Task":
                             # SubAgent 开始 - 添加到活跃映射（支持多个并行）
@@ -419,7 +417,12 @@ class MainAgent:
                             subagent_id = f"sa-{block.id}"
                             self._active_subagents[block.id] = subagent_id  # 添加映射
                             if self.verbose:
-                                self._agent_logger.enter_subagent(subagent_type)
+                                self._agent_logger.log_tool_use(block.name, block.input)
+                                self._agent_logger.enter_subagent(
+                                    subagent_type=subagent_type,
+                                    subagent_id=subagent_id,
+                                    description=subagent_name
+                                )
                             yield StreamChunk(
                                 type="subagent_start",
                                 subagent_id=subagent_id,
@@ -435,6 +438,8 @@ class MainAgent:
                             # 根据 parent_tool_use_id 确定所属的 SubAgent
                             subagent_id = self._active_subagents.get(current_parent_id) if current_parent_id else None
                             self._tool_to_subagent[block.id] = subagent_id  # 记录工具到 SubAgent 的映射
+                            if self.verbose:
+                                self._agent_logger.log_tool_use(block.name, block.input, subagent_id=subagent_id)
                             yield StreamChunk(
                                 type="tool_call_start",
                                 subagent_id=subagent_id,
@@ -457,7 +462,7 @@ class MainAgent:
                             # SubAgent 完成 - 从映射中获取并清理
                             subagent_id = self._active_subagents.pop(block_tool_use_id)
                             if self.verbose:
-                                self._agent_logger.exit_subagent("SubAgent")
+                                self._agent_logger.exit_subagent(subagent_id=subagent_id)
                             result_str = str(block.content)[:500] if block.content else ""
                             yield StreamChunk(
                                 type="subagent_complete",
@@ -497,7 +502,7 @@ class MainAgent:
                             # SubAgent 完成 - 从映射中获取并清理
                             subagent_id = self._active_subagents.pop(block_tool_use_id)
                             if self.verbose:
-                                self._agent_logger.exit_subagent("SubAgent")
+                                self._agent_logger.exit_subagent(subagent_id=subagent_id)
                             result_str = str(block.content)[:500] if block.content else ""
                             yield StreamChunk(
                                 type="subagent_complete",

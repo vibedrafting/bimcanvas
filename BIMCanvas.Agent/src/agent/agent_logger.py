@@ -3,6 +3,7 @@
 import json
 import logging
 import sys
+import time
 from datetime import datetime
 from typing import Any
 
@@ -75,6 +76,9 @@ class AgentLogger:
         self._indent_level = 0
         self._in_subagent = False
         self._current_subagent = None
+        # 并行 SubAgent 支持
+        self._subagent_counter = 0  # 全局序号
+        self._active_subagents: dict[str, dict] = {}  # subagent_id → {seq, name, short_name, type, start_time}
 
     def _timestamp(self) -> str:
         """Get formatted timestamp."""
@@ -97,6 +101,26 @@ class AgentLogger:
     def _separator(self, char: str = "─", length: int = 60) -> None:
         """Print a separator line."""
         self._print(f"{Colors.DIM}{char * length}{Colors.RESET}")
+
+    def _truncate(self, text: str, max_len: int) -> str:
+        """Truncate text to max length, keeping meaningful content."""
+        if not text:
+            return ""
+        if len(text) <= max_len:
+            return text
+        return text[:max_len] + ".."
+
+    def _get_subagent_label(self, subagent_id: str = None) -> str:
+        """Get formatted label for SubAgent (e.g., '[#1 客厅家具]')."""
+        if subagent_id and subagent_id in self._active_subagents:
+            info = self._active_subagents[subagent_id]
+            seq = info.get('seq', '?')
+            short_name = info.get('short_name', '')
+            return f"[#{seq} {short_name}]"
+        elif self._in_subagent:
+            return f"[{self._current_subagent}]"
+        else:
+            return "[MainAgent]"
 
     # ─────────────────────────────────────────────────────
     # User Input
@@ -167,9 +191,11 @@ class AgentLogger:
     # Tool Usage
     # ─────────────────────────────────────────────────────
 
-    def log_tool_use(self, tool_name: str, tool_input: dict) -> None:
-        """Log tool invocation."""
-        agent_label = f"[{self._current_subagent}]" if self._in_subagent else "[MainAgent]"
+    def log_tool_use(self, tool_name: str, tool_input: dict,
+                      subagent_id: str = None) -> None:
+        """Log tool invocation with SubAgent tracking."""
+        # 获取正确的标签（支持并行 SubAgent）
+        agent_label = self._get_subagent_label(subagent_id)
 
         # Special formatting for Task tool (SubAgent dispatch)
         if tool_name == "Task":
@@ -191,7 +217,7 @@ class AgentLogger:
                 f"{Colors.RESET}{prompt}"
             )
         else:
-            # Regular tool
+            # Regular tool - 使用带序号的标签
             self._print(
                 f"{self._indent()}{Colors.BRIGHT_YELLOW}{agent_label} "
                 f"Tool: {Colors.BOLD}{tool_name}{Colors.RESET}"
@@ -249,28 +275,79 @@ class AgentLogger:
     # SubAgent Management
     # ─────────────────────────────────────────────────────
 
-    def enter_subagent(self, subagent_name: str) -> None:
-        """Mark entering a SubAgent context."""
+    def enter_subagent(self, subagent_type: str,
+                        subagent_id: str = None,
+                        description: str = None) -> int:
+        """
+        Mark entering a SubAgent context.
+
+        Args:
+            subagent_type: Type of SubAgent (e.g., 'layout-agent')
+            subagent_id: Unique ID for this SubAgent instance
+            description: Task description for this SubAgent
+
+        Returns:
+            Assigned sequence number
+        """
         self._in_subagent = True
-        self._current_subagent = subagent_name
+        self._current_subagent = subagent_type
         self._indent_level += 1
+
+        # 分配序号并记录信息
+        self._subagent_counter += 1
+        seq = self._subagent_counter
+        short_name = self._truncate(description, 8) if description else f"任务{seq}"
+
+        if subagent_id:
+            self._active_subagents[subagent_id] = {
+                'seq': seq,
+                'name': description,
+                'short_name': short_name,
+                'type': subagent_type,
+                'start_time': time.time()
+            }
+
+        # 打印带序号的 SUBAGENT 头
         self._print(
             f"\n{Colors.BG_CYAN}{Colors.BLACK}{Colors.BOLD}"
-            f" {Symbols.ARROW_RIGHT} SUBAGENT: {subagent_name} {Colors.RESET}"
+            f" {Symbols.ARROW_RIGHT} SUBAGENT #{seq}: {subagent_type} {Colors.RESET}"
         )
+        if description:
+            self._print(f"{self._indent()}{Colors.CYAN}任务: {description}{Colors.RESET}")
         self._separator("─", 50)
+        return seq
 
-    def exit_subagent(self, subagent_name: str, result_summary: str = None) -> None:
+    def exit_subagent(self, subagent_name: str = None, result_summary: str = None,
+                       subagent_id: str = None) -> None:
         """Mark exiting a SubAgent context."""
         self._separator("─", 50)
+
+        # 获取 SubAgent 信息
+        seq = None
+        elapsed = ""
+        display_name = subagent_name or "SubAgent"
+
+        if subagent_id and subagent_id in self._active_subagents:
+            info = self._active_subagents[subagent_id]
+            seq = info.get('seq')
+            display_name = info.get('type', display_name)
+            start_time = info.get('start_time')
+            if start_time:
+                elapsed = f" (耗时 {time.time() - start_time:.1f}s)"
+            # 清理
+            del self._active_subagents[subagent_id]
+
         if result_summary:
             self._print(
-                f"{Colors.BRIGHT_CYAN}[{subagent_name}] Result: "
+                f"{Colors.BRIGHT_CYAN}[{display_name}] Result: "
                 f"{Colors.RESET}{result_summary[:200]}"
             )
+
+        # 显示带序号的完成信息
+        seq_str = f"#{seq} " if seq else ""
         self._print(
             f"{Colors.BG_CYAN}{Colors.BLACK}{Colors.BOLD}"
-            f" {Symbols.ARROW_LEFT} SUBAGENT COMPLETE: {subagent_name} {Colors.RESET}\n"
+            f" {Symbols.ARROW_LEFT} SUBAGENT {seq_str}COMPLETE{elapsed} {Colors.RESET}\n"
         )
         self._indent_level = max(0, self._indent_level - 1)
         self._in_subagent = False
