@@ -126,15 +126,21 @@ class AgentLogger:
     # User Input
     # ─────────────────────────────────────────────────────
 
-    def log_user_message(self, message: str) -> None:
-        """Log user input message."""
+    def log_session_start(self) -> None:
+        """Log start of a new interaction session."""
         self._separator("═")
         self._print(
-            f"{Colors.BRIGHT_GREEN}{Colors.BOLD}[USER]{Colors.RESET} "
+            f"{Colors.BRIGHT_GREEN}{Colors.BOLD}[START]{Colors.RESET} "
             f"{Colors.DIM}{self._timestamp()}{Colors.RESET}"
         )
-        self._print(f"{Colors.GREEN}{message}{Colors.RESET}")
-        self._separator()
+
+    def log_user_message(self, message: str) -> None:
+        """Log user input message."""
+        self.log_session_start()
+        self._print(
+            f"{Colors.BRIGHT_GREEN}{Colors.BOLD}[USER]{Colors.RESET} "
+            f"{Colors.GREEN}{message}{Colors.RESET}"
+        )
 
     # ─────────────────────────────────────────────────────
     # AI Thinking
@@ -308,13 +314,11 @@ class AgentLogger:
         )
         if description:
             self._print(f"  {Colors.CYAN}任务: {description}{Colors.RESET}")
-        self._separator("─", 50)
         return seq
 
     def exit_subagent(self, subagent_name: str = None, result_summary: str = None,
                        subagent_id: str = None) -> None:
         """Mark exiting a SubAgent context."""
-        self._separator("─", 50)
 
         # 获取 SubAgent 信息
         seq = None
@@ -383,7 +387,6 @@ class AgentLogger:
 
     def log_complete(self) -> None:
         """Log completion of the entire interaction."""
-        self._separator("═")
         self._print(
             f"{Colors.BRIGHT_GREEN}{Colors.BOLD}[COMPLETE]{Colors.RESET} "
             f"{Colors.DIM}{self._timestamp()}{Colors.RESET}"
