@@ -77,7 +77,9 @@ export interface TextStreamEvent {
   content: string;
   /** 错误分类：recoverable（可恢复）或 blocking（阻塞性）*/
   errorType?: ErrorType;
-  /** 被过滤的内容（调试用）*/
+  /** 提取的错误内容（不含 XML 标签，blocking 类型）*/
+  errorContent?: string;
+  /** 被过滤的内容（调试用，recoverable 类型）*/
   hiddenContent?: string;
 }
 

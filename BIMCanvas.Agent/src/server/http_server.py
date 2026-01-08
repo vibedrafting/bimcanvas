@@ -191,6 +191,8 @@ async def chat_stream_handler(request: web.Request) -> web.StreamResponse:
             # 错误分类字段
             if chunk.error_type:
                 event_data["errorType"] = chunk.error_type
+            if chunk.error_content:
+                event_data["errorContent"] = chunk.error_content
             if chunk.hidden_content:
                 event_data["hiddenContent"] = chunk.hidden_content
 

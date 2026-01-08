@@ -497,14 +497,24 @@ const sendMessage = async () => {
                       nextTick(() => scrollToBottom());
                   }
                  
+                 // 拼接正常内容
                  if (parsed.content) {
-                    // 可恢复错误已在 Agent 层过滤，直接使用 content
                     msg.content += parsed.content;
+                 }
 
-                    // 调试模式：记录被隐藏的可恢复错误
-                    if (parsed.hiddenContent && import.meta.env.DEV) {
-                      console.debug('[Hidden recoverable error]', parsed.hiddenContent);
+                 // 处理 blocking 错误内容
+                 if (parsed.errorContent && parsed.errorType === 'blocking') {
+                    // 开发环境：在控制台记录 blocking 错误
+                    if (import.meta.env.DEV) {
+                      console.warn('[Blocking error]', parsed.errorContent);
                     }
+                    // 生产环境默认不显示，如需显示可取消注释下行
+                    // msg.content += `\n[Error: ${parsed.errorContent}]`;
+                 }
+
+                 // 调试模式：记录被隐藏的 recoverable 错误
+                 if (parsed.hiddenContent && import.meta.env.DEV) {
+                    console.debug('[Hidden recoverable error]', parsed.hiddenContent);
                  }
             } else if (parsed.error) {
               currentMsg.content = `Error: ${parsed.error}`;

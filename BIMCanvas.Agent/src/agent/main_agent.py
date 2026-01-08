@@ -52,7 +52,8 @@ class StreamChunk:
     error: str = None
     # 错误分类字段
     error_type: str = None       # "recoverable" | "blocking" | None
-    hidden_content: str = None   # 被过滤的内容（调试用）
+    error_content: str = None    # 提取的错误内容（不含 XML 标签，blocking 类型）
+    hidden_content: str = None   # 被过滤的内容（调试用，recoverable 类型）
 
 
 class MainAgent:
@@ -152,29 +153,37 @@ class MainAgent:
                 return "recoverable"
         return "blocking"
 
-    def _filter_recoverable_errors(self, text: str) -> tuple[str, str | None, str | None]:
+    def _filter_recoverable_errors(self, text: str) -> tuple[str, str | None, str | None, str | None]:
         """
-        过滤可恢复错误，返回 (清理后内容, 隐藏内容, 错误类型)
+        过滤错误标签，返回 (清理后内容, 错误内容, 隐藏内容, 错误类型)
+        - 所有 <tool_use_error> 标签都会被移除
+        - recoverable 错误：内容放入 hidden_content（调试用）
+        - blocking 错误：内容放入 error_content（前端可选显示）
         """
         pattern = r'<tool_use_error>([\s\S]*?)</tool_use_error>'
 
-        hidden_parts = []
+        hidden_parts = []      # recoverable 错误
+        error_parts = []       # blocking 错误
         error_type = None
 
         def replace_match(m):
             nonlocal error_type
-            error_content = m.group(1)
-            err_type = self._classify_tool_error(error_content)
+            err_content = m.group(1).strip()
+            err_type = self._classify_tool_error(err_content)
             if err_type == "recoverable":
-                hidden_parts.append(m.group(0))
-                error_type = "recoverable"
-                return ""  # 移除可恢复错误
-            return m.group(0)  # 保留阻塞性错误
+                hidden_parts.append(err_content)
+                if not error_type:
+                    error_type = "recoverable"
+            else:
+                error_parts.append(err_content)
+                error_type = "blocking"  # blocking 优先级更高
+            return ""  # 统一移除 XML 标签
 
         cleaned = re.sub(pattern, replace_match, text)
         hidden = "\n".join(hidden_parts) if hidden_parts else None
+        error_content = "\n".join(error_parts) if error_parts else None
 
-        return cleaned.strip(), hidden, error_type
+        return cleaned.strip(), error_content, hidden, error_type
 
     # ─────────────────────────────────────────────────────
     # Connection Management
@@ -410,18 +419,19 @@ class MainAgent:
                     if delta_type == "text_delta":
                         text = delta.get("text", "")
                         if text:
-                            # 过滤可恢复错误
-                            cleaned, hidden, err_type = self._filter_recoverable_errors(text)
+                            # 过滤错误标签
+                            cleaned, error_content, hidden, err_type = self._filter_recoverable_errors(text)
 
                             if hidden and self.verbose:
                                 self._agent_logger.log_warning(f"过滤可恢复错误: {hidden[:200]}...")
 
-                            if cleaned:  # 只有清理后有内容才发送
+                            if cleaned or error_content:  # 有内容或有错误时发送
                                 self._streamed_text = True
                                 yield StreamChunk(
                                     type="text",
                                     content=cleaned,
                                     error_type=err_type,
+                                    error_content=error_content,
                                     hidden_content=hidden
                                 )
                     elif delta_type == "thinking_delta":
