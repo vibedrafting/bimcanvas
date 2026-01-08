@@ -546,9 +546,6 @@ const sendMessage = async () => {
 
             // ===== Text Events (使用气泡模型) =====
             else if (parsed.type === 'text') {
-              // [DEBUG] 调试日志 - 确认 text 事件接收
-              console.log('[DEBUG] text event received:', parsed.content?.slice(0, 80));
-
               // 退出等待状态
               exitWaitingState(currentMsg.waitingState);
 
@@ -605,17 +602,12 @@ const sendMessage = async () => {
 
             // ===== SubAgent Events (使用气泡模型) =====
             else if (parsed.type === 'subagent_start') {
-              // [DEBUG] 调试日志 - 确认 subagent_start 事件和当前气泡状态
-              console.log('[DEBUG] subagent_start event:', parsed.subAgentName);
-              console.log('[DEBUG] current bubbles:', currentMsg.bubbles.map(b => ({ type: b.type, content: b.content?.slice(0, 50), status: b.status })));
-
               // 退出等待状态
               exitWaitingState(currentMsg.waitingState);
 
               // 如果有正在流式传输的文本气泡，先标记为完成
               const lastTextBubble = getLastStreamingTextBubble(currentMsg.bubbles);
               if (lastTextBubble) {
-                console.log('[DEBUG] completing text bubble:', lastTextBubble.content?.slice(0, 50));
                 completeBubble(lastTextBubble);
               }
 
@@ -1048,9 +1040,10 @@ import MarkdownText from './base/MarkdownText.vue';
                         </div>
                         <!-- 时间线气泡列表渲染 -->
                         <template v-for="bubble in msg.bubbles" :key="bubble.id">
-                            <!-- 文本气泡 -->
+                            <!-- 文本气泡 - 用户消息用纯文本，AI 消息用 Markdown -->
                             <div class="bubble" v-if="bubble.type === 'text' && bubble.content">
-                                <MarkdownText :content="bubble.content" />
+                                <template v-if="msg.role === 'user'">{{ bubble.content }}</template>
+                                <MarkdownText v-else :content="bubble.content" />
                             </div>
 
                             <!-- 工具调用气泡 -->
@@ -1952,6 +1945,11 @@ import MarkdownText from './base/MarkdownText.vue';
 
             &.empty {
                 min-height: 20px;
+            }
+
+            // 覆盖 markstream-vue 库的默认样式
+            :deep(p) {
+                margin: 0;
             }
         }
 

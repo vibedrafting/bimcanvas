@@ -187,7 +187,7 @@ class MainAgent:
         hidden = "\n".join(hidden_parts) if hidden_parts else None
         error_content = "\n".join(error_parts) if error_parts else None
 
-        return cleaned.strip(), error_content, hidden, error_type
+        return cleaned, error_content, hidden, error_type
 
     # ─────────────────────────────────────────────────────
     # Connection Management
@@ -435,14 +435,8 @@ class MainAgent:
                     if delta_type == "text_delta":
                         text = delta.get("text", "")
                         if text:
-                            # [DEBUG] 调试日志 - 原始 text_delta
-                            print(f"[DEBUG] text_delta raw: {repr(text[:100])}")
-
                             # 过滤错误标签
                             cleaned, error_content, hidden, err_type = self._filter_recoverable_errors(text)
-
-                            # [DEBUG] 调试日志 - 过滤结果
-                            print(f"[DEBUG] text_delta filtered - cleaned: {repr(cleaned[:50]) if cleaned else repr('')}, error_content: {bool(error_content)}, hidden: {bool(hidden)}")
 
                             if hidden and self.verbose:
                                 self._agent_logger.log_warning(f"过滤可恢复错误: {hidden[:200]}...")
@@ -456,9 +450,6 @@ class MainAgent:
                                     error_content=error_content,
                                     hidden_content=hidden
                                 )
-                            else:
-                                # [DEBUG] 记录被丢弃的情况
-                                print(f"[DEBUG] text_delta DISCARDED! raw was: {repr(text[:100])}")
                     elif delta_type == "thinking_delta":
                         thinking = delta.get("thinking", "")
                         if thinking:
