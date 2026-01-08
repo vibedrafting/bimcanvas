@@ -31,7 +31,7 @@ const props = defineProps<{
 // API Configuration
 const AGENT_API_BASE = 'http://127.0.0.1:8765';
 
-const panelWidth = ref(360);
+const panelWidth = ref(480);
 const isResizing = ref(false);
 const isBranchDropdownOpen = ref(false);
 const showCheckoutConfirmDialog = ref(false);
@@ -356,27 +356,33 @@ const streamWelcomeMessage = async () => {
     if (chatMessages.value.length > 0) return;
 
     const welcomeText = '你好！我是 BIMCanvas 的布置助手。我可以帮助你分析房间功能、提供布置建议。有什么我能帮你的吗？';
-    
+
+    // 创建欢迎消息，使用气泡模型
+    const welcomeBubble = createTextBubble('');
     chatMessages.value.push({
         role: 'ai',
-        content: '',
+        bubbles: [welcomeBubble],
+        waitingState: { isWaiting: false, waitingVerb: '', waitingSince: 0 },
         isStreaming: true
     });
-    
+
     const msgIndex = chatMessages.value.length - 1;
 
     // Simulate typing effect
     let i = 0;
-     const interval = setInterval(() => {
-         if (i < welcomeText.length) {
-             chatMessages.value[msgIndex].content += welcomeText[i];
-             i++;
-             scrollToBottom();
-         } else {
-             clearInterval(interval);
-             chatMessages.value[msgIndex].isStreaming = false;
-         }
-     }, 30);
+    const interval = setInterval(() => {
+        if (i < welcomeText.length) {
+            // 更新气泡内容
+            chatMessages.value[msgIndex].bubbles[0].content += welcomeText[i];
+            i++;
+            scrollToBottom();
+        } else {
+            clearInterval(interval);
+            // 标记完成
+            chatMessages.value[msgIndex].bubbles[0].status = 'completed';
+            chatMessages.value[msgIndex].isStreaming = false;
+        }
+    }, 30);
 };
 
 // Watch for chat messages to auto-scroll (watch already imported at top)
