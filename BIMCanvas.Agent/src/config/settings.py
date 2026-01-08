@@ -5,37 +5,63 @@ from dataclasses import dataclass
 from functools import lru_cache
 from dotenv import load_dotenv
 
+from .loader import get_config_loader
+
 # Load environment variables from .env file
 load_dotenv()
 
 
 @dataclass
 class Settings:
-    """Application settings"""
+    """
+    Application settings
 
-    # API Configuration
-    anthropic_api_key: str = ""
-    model_name: str = "claude-sonnet-4-20250514"
-    max_tokens: int = 4096
+    加载优先级：环境变量 > config.json
+    """
 
-    # HTTP Server Configuration
-    server_host: str = "127.0.0.1"
-    server_port: int = 8765
+    anthropic_api_key: str
+    model_name: str
+    max_tokens: int
+    tools: list[str]
+    server_host: str
+    server_port: int
+    default_project_path: str
 
-    # Project Configuration
-    default_project_path: str = ""
+    @classmethod
+    def load(cls) -> "Settings":
+        """从配置文件加载，环境变量覆盖"""
+        loader = get_config_loader()
+        config = loader.load_config()
+        server = config.get('server', {})
 
-    def __post_init__(self):
-        """Load settings from environment variables"""
-        self.anthropic_api_key = os.getenv("ANTHROPIC_API_KEY", self.anthropic_api_key)
-        self.model_name = os.getenv("MODEL_NAME", self.model_name)
-        self.max_tokens = int(os.getenv("MAX_TOKENS", str(self.max_tokens)))
-        self.server_host = os.getenv("SERVER_HOST", self.server_host)
-        self.server_port = int(os.getenv("SERVER_PORT", str(self.server_port)))
-        self.default_project_path = os.getenv("DEFAULT_PROJECT_PATH", self.default_project_path)
+        # 从配置文件读取
+        api_key = config.get('apiKey', '')
+        model = config.get('model', 'claude-sonnet-4-20250514')
+        max_tokens = config.get('maxTokens', 4096)
+        tools = config.get('tools', ['Read', 'Glob', 'Grep', 'Task'])
+        host = server.get('host', '127.0.0.1')
+        port = server.get('port', 8765)
+
+        # 环境变量覆盖
+        api_key = os.getenv('ANTHROPIC_API_KEY', api_key)
+        model = os.getenv('MODEL_NAME', model)
+        max_tokens = int(os.getenv('MAX_TOKENS', str(max_tokens)))
+        host = os.getenv('SERVER_HOST', host)
+        port = int(os.getenv('SERVER_PORT', str(port)))
+        project_path = os.getenv('DEFAULT_PROJECT_PATH', '')
+
+        return cls(
+            anthropic_api_key=api_key,
+            model_name=model,
+            max_tokens=max_tokens,
+            tools=tools,
+            server_host=host,
+            server_port=port,
+            default_project_path=project_path,
+        )
 
 
 @lru_cache()
 def get_settings() -> Settings:
     """Get cached settings instance"""
-    return Settings()
+    return Settings.load()

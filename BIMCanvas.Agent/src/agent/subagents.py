@@ -1,13 +1,15 @@
-"""SubAgent definitions for BIMCanvas using AgentDefinition."""
+"""SubAgent definitions for BIMCanvas - loaded from configuration files."""
 
 from claude_agent_sdk import AgentDefinition
 
-from .prompts import LAYOUT_AGENT_PROMPT
+from ..config.loader import get_config_loader
 
 
 def create_subagents() -> dict[str, AgentDefinition]:
     """
-    Create SubAgent definitions for the main agent.
+    从配置文件加载 SubAgent 定义
+
+    配置文件位置: ~/Documents/BIMCanvas/agents/*.md
 
     SubAgents are defined using AgentDefinition and dispatched via Task tool.
     Note: SubAgent tools should NOT include "Task" (cannot dispatch further SubAgents).
@@ -15,15 +17,15 @@ def create_subagents() -> dict[str, AgentDefinition]:
     Returns:
         Dictionary mapping agent names to their definitions
     """
+    loader = get_config_loader()
+    agents_config = loader.load_agents()
+
     return {
-        "layout-agent": AgentDefinition(
-            # description: Tells Claude when to use this SubAgent
-            description="家具布置专家。用于空间规划、家具摆放、布局优化任务。当用户请求布置家具、设计布局、调整摆放位置时使用。",
-            # prompt: SubAgent's System Prompt
-            prompt=LAYOUT_AGENT_PROMPT,
-            # tools: Restricted tool set (no Task - cannot dispatch SubAgents)
-            tools=["Read", "Write", "Glob"],
-            # model: Inherit from parent agent
-            model="inherit",
-        ),
+        name: AgentDefinition(
+            description=cfg.description,
+            prompt=cfg.prompt,
+            tools=cfg.tools if cfg.tools else None,
+            model=cfg.model,
+        )
+        for name, cfg in agents_config.items()
     }

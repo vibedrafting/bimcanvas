@@ -18,7 +18,7 @@ from claude_agent_sdk import (
 )
 
 from ..config.settings import get_settings
-from .prompts import MAIN_AGENT_PROMPT
+from ..config.loader import get_config_loader
 from .subagents import create_subagents
 from .agent_logger import get_agent_logger
 
@@ -83,7 +83,10 @@ class MainAgent:
         self.project_path = project_path
         self.verbose = verbose
 
-        # SubAgent definitions
+        # Configuration loader
+        self._config_loader = get_config_loader()
+
+        # SubAgent definitions (loaded from config)
         self._subagents = create_subagents()
 
         # Agent logger for console output
@@ -115,15 +118,20 @@ class MainAgent:
     def _create_options(self) -> ClaudeAgentOptions:
         """Create agent options with SubAgent support."""
         settings = get_settings()
+
+        # 从配置加载系统提示词和工具
+        system_prompt = self._config_loader.load_system_prompt()
+        tools = self._config_loader.load_tools()
+
         return ClaudeAgentOptions(
-            system_prompt=MAIN_AGENT_PROMPT,
+            system_prompt=system_prompt,
             cwd=self.project_path,
             max_turns=20,
             model=settings.model_name,
-            allowed_tools=["Read", "Glob", "Grep", "Task"],
+            allowed_tools=tools,
             agents=self._subagents,
             permission_mode="acceptEdits",
-            include_partial_messages=True,  # 启用流式消息，使父Agent在SubAgent完成后的总结也流式输出
+            include_partial_messages=True,
         )
 
     # ─────────────────────────────────────────────────────
