@@ -125,15 +125,15 @@ class MainAgent:
 
         # 从配置加载系统提示词和工具
         system_prompt = self._config_loader.load_system_prompt()
-        tools = self._config_loader.load_tools()
+        tools = self._config_loader.load_tools()  # 可能返回 None（默认全开）
 
         return ClaudeAgentOptions(
             system_prompt=system_prompt,
             cwd=self.project_path,
             max_turns=20,
             model=settings.model_name,
-            tools=tools,           # 限制可用工具集合
-            allowed_tools=tools,   # 这些工具无需用户确认
+            tools=tools,                 # None 表示默认全开
+            allowed_tools=tools or [],   # None 时传空列表
             agents=self._subagents,
             permission_mode="acceptEdits",
             include_partial_messages=True,
@@ -201,9 +201,10 @@ class MainAgent:
             options = self._create_options()
 
             # 调试日志：打印实际使用的配置
+            tools_display = options.tools if options.tools else "默认全开"
             print(f"[MainAgent] ========== 配置信息 ==========")
             print(f"[MainAgent] 模型: {options.model}")
-            print(f"[MainAgent] 可用工具: {options.tools}")
+            print(f"[MainAgent] 可用工具: {tools_display}")
             print(f"[MainAgent] 项目路径: {self.project_path}")
             print(f"[MainAgent] ================================")
 

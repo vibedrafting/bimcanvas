@@ -5,10 +5,23 @@ import { useGitStore } from '../../stores/gitStore';
 import { ProjectService } from '../../services/ProjectService';
 import { storeToRefs } from 'pinia';
 import BranchCheckoutConfirmDialog from './Ribbon/BranchCheckoutConfirmDialog.vue';
-import type { SubAgent, ToolCall } from '../../types/agent';
-import { findToolCallInSubAgents } from '../../types/agent';
-import SubAgentCard from './SubAgentCard.vue';
-import MainAgentToolsPanel from './MainAgentToolsPanel.vue';
+import type { SubAgent, ToolCall, ChatBubble, WaitingState } from '../../types/agent';
+import {
+  createTextBubble,
+  createToolCallBubble,
+  createSubAgentBubble,
+  enterWaitingState,
+  exitWaitingState,
+  findBubbleByIdDeep,
+  getLastStreamingTextBubble,
+  completeBubble,
+  failBubble,
+  appendToolCallOutput,
+  updateSubAgentResult
+} from '../../utils/bubbleManager';
+import ToolCallBubble from './ToolCallBubble.vue';
+import SubAgentBubble from './SubAgentBubble.vue';
+import WaitingIndicator from './WaitingIndicator.vue';
 
 // Props from parent (MainLayout)
 const props = defineProps<{
@@ -59,22 +72,23 @@ watch(selectedModuleCount, (count) => {
 const agentStatus = ref<'connecting' | 'connected' | 'disconnected'>('disconnected');
 const currentProjectPath = ref('');
 
-// Chat state
+// Chat state - 使用时间线气泡模型
 interface ChatMessage {
   role: 'user' | 'ai';
-  content: string;
-  preSubAgentContent?: string; // Content before subagents start
-  thinking?: string;
+  /** 是否正在流式传输 */
   isStreaming?: boolean;
+  /** 开始时间戳 */
   startTime?: number;
+  /** 结束时间戳 */
   endTime?: number;
+  /** 思考内容 */
+  thinking?: string;
+  /** 思考持续时间 */
   thinkingDuration?: string;
-  /** SubAgent/Task 列表 */
-  subAgents?: SubAgent[];
-  /** 主Agent工具调用列表（不属于任何SubAgent） */
-  mainAgentToolCalls?: ToolCall[];
-  /** Claude Code 风格的等待提示词 */
-  waitingVerb?: string;
+  /** 时间线气泡列表（核心数据结构） */
+  bubbles: ChatBubble[];
+  /** 等待状态 */
+  waitingState: WaitingState;
 }
 
 // Claude Code 风格的拟人等待提示词 (169 个)
@@ -147,18 +161,47 @@ const toggleThinking = (index: number) => {
   expandedThinking.value[index] = !expandedThinking.value[index];
 };
 
+// 辅助函数：将 ChatBubble (subagent) 转换为 SubAgent 格式
+const bubbleToSubAgent = (bubble: ChatBubble): SubAgent => {
+  // 将 childBubbles (tool_call bubbles) 转换为 ToolCall[]
+  const toolCalls: ToolCall[] = (bubble.childBubbles || [])
+    .filter(child => child.type === 'tool_call')
+    .map(child => ({
+      id: child.id,
+      toolName: child.toolName || '',
+      description: child.toolDescription,
+      params: child.toolParams || {},
+      output: child.toolOutput,
+      status: child.status === 'streaming' ? 'running' : child.status as ToolCall['status'],
+      startTime: child.timestamp,
+      error: child.toolError
+    }));
+
+  return {
+    id: bubble.id,
+    name: bubble.subAgentName || '',
+    type: bubble.subAgentType || 'general-purpose',
+    status: bubble.status === 'streaming' ? 'running' : bubble.status as SubAgent['status'],
+    toolCalls,
+    result: bubble.subAgentResult,
+    startTime: bubble.timestamp
+  };
+};
+
 // Computed: Active or Recent SubAgents for the Task Monitor
-// Logic: 
+// Logic:
 // 1. If any agents are RUNNING, show them (Priority: High)
 // 2. If no running agents, show agents from the LAST message (Priority: Low, represents "Completed" state)
 // 3. Otherwise empty (Idle)
 const activeSubAgents = computed(() => {
-  // 1. Find all running agents globally
+  // 1. Find all running agents globally (from bubbles)
   const runningAgents: SubAgent[] = [];
   chatMessages.value.forEach(msg => {
-    if (msg.subAgents) {
-      const running = msg.subAgents.filter(sa => sa.status === 'running');
-      runningAgents.push(...running);
+    if (msg.bubbles) {
+      const runningBubbles = msg.bubbles.filter(
+        b => b.type === 'subagent' && b.status === 'streaming'
+      );
+      runningAgents.push(...runningBubbles.map(bubbleToSubAgent));
     }
   });
 
@@ -166,12 +209,14 @@ const activeSubAgents = computed(() => {
     return runningAgents;
   }
 
-  // 2. Fallback: Find the last message with agents
+  // 2. Fallback: Find the last message with subagent bubbles
   for (let i = chatMessages.value.length - 1; i >= 0; i--) {
     const msg = chatMessages.value[i];
-    if (msg.role === 'ai' && msg.subAgents && msg.subAgents.length > 0) {
-      // Return all agents from this message (likely completed/failed)
-      return msg.subAgents;
+    if (msg.role === 'ai' && msg.bubbles) {
+      const subAgentBubbles = msg.bubbles.filter(b => b.type === 'subagent');
+      if (subAgentBubbles.length > 0) {
+        return subAgentBubbles.map(bubbleToSubAgent);
+      }
     }
   }
 
@@ -392,8 +437,14 @@ const sendMessage = async () => {
   const message = inputMessage.value.trim();
   if (!message || isLoading.value) return;
 
-  // Add user message to chat
-  chatMessages.value.push({ role: 'user', content: message });
+  // Add user message to chat - 使用气泡模型
+  const userTextBubble = createTextBubble(message);
+  userTextBubble.status = 'completed';
+  chatMessages.value.push({
+    role: 'user',
+    bubbles: [userTextBubble],
+    waitingState: { isWaiting: false, waitingVerb: '', waitingSince: 0 }
+  });
   inputMessage.value = '';
   isLoading.value = true;
 
@@ -401,33 +452,36 @@ const sendMessage = async () => {
   shouldAutoScroll.value = true;
   await nextTick();
   scrollToBottom({ force: true });
-  // Additional scroll attempts to handle DOM rendering delays
   requestAnimationFrame(() => scrollToBottom({ force: true }));
   setTimeout(() => scrollToBottom({ force: true }), 50);
   setTimeout(() => scrollToBottom({ force: true }), 150);
 
-  // Add placeholder AI message for streaming
+  // Add placeholder AI message for streaming - 使用气泡模型
   const aiMessageIndex = chatMessages.value.length;
-  chatMessages.value.push({ 
-    role: 'ai', 
-    content: '', 
-    thinking: '', 
+  const initialWaitingState: WaitingState = {
+    isWaiting: true,
+    waitingVerb: getRandomWaitingVerb(),
+    waitingSince: Date.now()
+  };
+  chatMessages.value.push({
+    role: 'ai',
+    bubbles: [],
+    waitingState: initialWaitingState,
     isStreaming: true,
     startTime: Date.now(),
-    thinkingDuration: undefined, // Start as undefined, will be set when text starts
-    waitingVerb: getRandomWaitingVerb() // Claude Code 风格的随机等待提示词
+    thinking: '',
+    thinkingDuration: undefined
   });
 
   // Start thinking timer - updates every second while streaming
   const timerInterval = setInterval(() => {
     const msg = chatMessages.value[aiMessageIndex];
-    // Only update if still streaming and no content yet (still in thinking phase)
-    if (msg && msg.isStreaming && !msg.content && msg.thinking) {
-        const duration = Math.round((Date.now() - (msg.startTime || Date.now())) / 1000);
-        // Update the timer display for live thinking phase
-        msg.thinkingDuration = duration + 's';
+    // Only update if still streaming and no bubbles yet (still in thinking phase)
+    if (msg && msg.isStreaming && msg.bubbles.length === 0 && msg.thinking) {
+      const duration = Math.round((Date.now() - (msg.startTime || Date.now())) / 1000);
+      msg.thinkingDuration = duration + 's';
     } else {
-        clearInterval(timerInterval);
+      clearInterval(timerInterval);
     }
   }, 1000);
 
@@ -445,7 +499,6 @@ const sendMessage = async () => {
       throw new Error(`HTTP error: ${response.status}`);
     }
 
-    // Read SSE stream
     const reader = response.body?.getReader();
     const decoder = new TextDecoder();
 
@@ -472,170 +525,200 @@ const sendMessage = async () => {
             const parsed = JSON.parse(data);
             const currentMsg = chatMessages.value[aiMessageIndex];
 
+            // ===== Thinking Events =====
             if (parsed.type === 'thinking' || parsed.type === 'thinking_complete') {
               if (parsed.type === 'thinking_complete') {
                 currentMsg.thinking = parsed.content;
               } else {
                 currentMsg.thinking = (currentMsg.thinking || '') + parsed.content;
               }
-              
               // Auto-expand thinking on first chunk
               if (!expandedThinking.value[aiMessageIndex]) {
                 expandedThinking.value[aiMessageIndex] = true;
               }
-            } else if (parsed.type === 'text' || parsed.type === 'text_complete') {
-                 const msg = chatMessages.value[aiMessageIndex];
-                 
-                 // Auto-collapse thinking when text starts (only do this once)
-                 if (msg.thinking && expandedThinking.value[aiMessageIndex] === true) {
-                     // Calculate final thinking duration
-                     msg.endTime = Date.now();
-                     const duration = Math.round((msg.endTime - (msg.startTime || msg.endTime)) / 1000);
-                     msg.thinkingDuration = duration + 's';
-                     
-                     // Collapse the thinking section
-                     expandedThinking.value = { ...expandedThinking.value, [aiMessageIndex]: false };
-                     
-                      // Force scroll after collapse
-                      nextTick(() => scrollToBottom());
-                  }
-                 
-                 // 拼接正常内容
-                 if (parsed.content) {
-                    msg.content += parsed.content;
-                 }
-
-                 // 处理 blocking 错误内容
-                 if (parsed.errorContent && parsed.errorType === 'blocking') {
-                    // 开发环境：在控制台记录 blocking 错误
-                    if (import.meta.env.DEV) {
-                      console.warn('[Blocking error]', parsed.errorContent);
-                    }
-                    // 生产环境默认不显示，如需显示可取消注释下行
-                    // msg.content += `\n[Error: ${parsed.errorContent}]`;
-                 }
-
-                 // 调试模式：记录被隐藏的 recoverable 错误
-                 if (parsed.hiddenContent && import.meta.env.DEV) {
-                    console.debug('[Hidden recoverable error]', parsed.hiddenContent);
-                 }
-            } else if (parsed.error) {
-              currentMsg.content = `Error: ${parsed.error}`;
             }
-            // SubAgent/Task SSE Events
-            else if (parsed.type === 'subagent_start') {
-              // If this is the first subagent, split the content
-              if (!currentMsg.subAgents || currentMsg.subAgents.length === 0) {
-                  if (currentMsg.content && currentMsg.content.length > 0) {
-                      currentMsg.preSubAgentContent = currentMsg.content;
-                      currentMsg.content = ''; // Reset content to capture post-agent text
-                  }
+
+            // ===== Text Events (使用气泡模型) =====
+            else if (parsed.type === 'text') {
+              // 退出等待状态
+              exitWaitingState(currentMsg.waitingState);
+
+              // Auto-collapse thinking when text starts
+              if (currentMsg.thinking && expandedThinking.value[aiMessageIndex] === true) {
+                currentMsg.endTime = Date.now();
+                const duration = Math.round((currentMsg.endTime - (currentMsg.startTime || currentMsg.endTime)) / 1000);
+                currentMsg.thinkingDuration = duration + 's';
+                expandedThinking.value = { ...expandedThinking.value, [aiMessageIndex]: false };
+                nextTick(() => scrollToBottom());
               }
 
-              // Initialize subAgents array if needed
-              if (!currentMsg.subAgents) currentMsg.subAgents = [];
-              currentMsg.subAgents.push({
-                id: parsed.subAgentId,
-                name: parsed.subAgentName,
-                type: parsed.subAgentType,
-                status: 'running',
-                toolCalls: [],
-                startTime: Date.now(),
-                isExpanded: true
-              });
+              // 找到最后一个正在流式传输的文本气泡
+              let lastTextBubble = getLastStreamingTextBubble(currentMsg.bubbles);
+
+              if (lastTextBubble) {
+                // 追加到现有文本气泡
+                lastTextBubble.content = (lastTextBubble.content || '') + (parsed.content || '');
+              } else {
+                // 创建新的文本气泡
+                const newTextBubble = createTextBubble(parsed.content || '');
+                currentMsg.bubbles.push(newTextBubble);
+              }
+
+              // 处理 blocking 错误内容
+              if (parsed.errorContent && parsed.errorType === 'blocking') {
+                if (import.meta.env.DEV) {
+                  console.warn('[Blocking error]', parsed.errorContent);
+                }
+              }
+              // 调试模式：记录被隐藏的 recoverable 错误
+              if (parsed.hiddenContent && import.meta.env.DEV) {
+                console.debug('[Hidden recoverable error]', parsed.hiddenContent);
+              }
             }
+
+            else if (parsed.type === 'text_complete') {
+              // 标记最后一个文本气泡为完成
+              const lastTextBubble = getLastStreamingTextBubble(currentMsg.bubbles);
+              if (lastTextBubble) {
+                completeBubble(lastTextBubble);
+              }
+              // 进入等待状态
+              enterWaitingState(currentMsg.waitingState, getRandomWaitingVerb);
+            }
+
+            // ===== Error Event =====
+            else if (parsed.error) {
+              // 创建错误文本气泡
+              const errorBubble = createTextBubble(`Error: ${parsed.error}`);
+              errorBubble.status = 'failed';
+              currentMsg.bubbles.push(errorBubble);
+            }
+
+            // ===== SubAgent Events (使用气泡模型) =====
+            else if (parsed.type === 'subagent_start') {
+              // 退出等待状态
+              exitWaitingState(currentMsg.waitingState);
+
+              // 如果有正在流式传输的文本气泡，先标记为完成
+              const lastTextBubble = getLastStreamingTextBubble(currentMsg.bubbles);
+              if (lastTextBubble) {
+                completeBubble(lastTextBubble);
+              }
+
+              // 创建 SubAgent 气泡
+              const subAgentBubble = createSubAgentBubble(
+                parsed.subAgentId,
+                parsed.subAgentName,
+                parsed.subAgentType
+              );
+              currentMsg.bubbles.push(subAgentBubble);
+            }
+
+            else if (parsed.type === 'subagent_complete') {
+              const subAgentBubble = findBubbleByIdDeep(currentMsg.bubbles, parsed.subAgentId);
+              if (subAgentBubble) {
+                if (parsed.success === false) {
+                  failBubble(subAgentBubble, parsed.error);
+                } else {
+                  completeBubble(subAgentBubble);
+                }
+                if (parsed.content) {
+                  updateSubAgentResult(subAgentBubble, parsed.content);
+                }
+              }
+              // 进入等待状态
+              enterWaitingState(currentMsg.waitingState, getRandomWaitingVerb);
+            }
+
+            // ===== Tool Call Events (使用气泡模型) =====
             else if (parsed.type === 'tool_call_start') {
+              // 退出等待状态
+              exitWaitingState(currentMsg.waitingState);
+
+              // 如果有正在流式传输的文本气泡，先标记为完成
+              const lastTextBubble = getLastStreamingTextBubble(currentMsg.bubbles);
+              if (lastTextBubble) {
+                completeBubble(lastTextBubble);
+              }
+
+              // 创建工具调用气泡
+              const toolBubble = createToolCallBubble(
+                parsed.toolCallId,
+                parsed.toolName,
+                parsed.toolDescription,
+                parsed.toolParams
+              );
+
               if (parsed.subAgentId) {
-                // SubAgent 的工具调用
-                const subAgent = currentMsg.subAgents?.find(sa => sa.id === parsed.subAgentId);
-                if (subAgent) {
-                  subAgent.toolCalls.push({
-                    id: parsed.toolCallId,
-                    toolName: parsed.toolName,
-                    description: parsed.toolDescription,
-                    params: parsed.toolParams || {},
-                    status: 'running',
-                    startTime: Date.now()
-                  });
+                // SubAgent 内的工具调用 - 添加到 childBubbles
+                const subAgentBubble = findBubbleByIdDeep(currentMsg.bubbles, parsed.subAgentId);
+                if (subAgentBubble && subAgentBubble.type === 'subagent') {
+                  if (!subAgentBubble.childBubbles) {
+                    subAgentBubble.childBubbles = [];
+                  }
+                  subAgentBubble.childBubbles.push(toolBubble);
                 }
               } else {
-                // 主Agent 的工具调用
-                if (!currentMsg.mainAgentToolCalls) {
-                  currentMsg.mainAgentToolCalls = [];
-                }
-                currentMsg.mainAgentToolCalls.push({
-                  id: parsed.toolCallId,
-                  toolName: parsed.toolName,
-                  description: parsed.toolDescription,
-                  params: parsed.toolParams || {},
-                  status: 'running',
-                  startTime: Date.now()
-                });
-              }
-            }
-            else if (parsed.type === 'tool_call_output') {
-              // 先在 SubAgent 中查找
-              let toolCall = findToolCallInSubAgents(currentMsg.subAgents, parsed.toolCallId);
-              // 如果没找到，在主Agent工具中查找
-              if (!toolCall && currentMsg.mainAgentToolCalls) {
-                toolCall = currentMsg.mainAgentToolCalls.find(tc => tc.id === parsed.toolCallId);
-              }
-              if (toolCall) {
-                toolCall.output = (toolCall.output || '') + parsed.toolOutput;
-              }
-            }
-            else if (parsed.type === 'tool_call_complete') {
-              // 先在 SubAgent 中查找
-              let toolCall = findToolCallInSubAgents(currentMsg.subAgents, parsed.toolCallId);
-              // 如果没找到，在主Agent工具中查找
-              if (!toolCall && currentMsg.mainAgentToolCalls) {
-                toolCall = currentMsg.mainAgentToolCalls.find(tc => tc.id === parsed.toolCallId);
-              }
-              if (toolCall) {
-                toolCall.status = parsed.success ? 'completed' : 'failed';
-                toolCall.endTime = Date.now();
-                if (!parsed.success && parsed.error) {
-                  toolCall.error = parsed.error;
-                }
-              }
-            }
-            else if (parsed.type === 'subagent_complete') {
-              const subAgent = currentMsg.subAgents?.find(sa => sa.id === parsed.subAgentId);
-              if (subAgent) {
-                subAgent.status = 'completed';
-                subAgent.result = parsed.result;
-                subAgent.endTime = Date.now();
-                // Auto-collapse after completion
-                subAgent.isExpanded = false;
+                // 主 Agent 的工具调用 - 添加到主时间线
+                currentMsg.bubbles.push(toolBubble);
               }
             }
 
-             await nextTick();
-             scrollToBottom();
-           } catch (e) {
-             console.error('Parse error:', e, data);
-           }
+            else if (parsed.type === 'tool_call_output') {
+              // 在所有气泡中查找工具调用气泡（包括 childBubbles）
+              const toolBubble = findBubbleByIdDeep(currentMsg.bubbles, parsed.toolCallId);
+              if (toolBubble && toolBubble.type === 'tool_call') {
+                appendToolCallOutput(toolBubble, parsed.toolOutput);
+              }
+            }
+
+            else if (parsed.type === 'tool_call_complete') {
+              const toolBubble = findBubbleByIdDeep(currentMsg.bubbles, parsed.toolCallId);
+              if (toolBubble && toolBubble.type === 'tool_call') {
+                if (parsed.success) {
+                  completeBubble(toolBubble);
+                } else {
+                  failBubble(toolBubble, parsed.error);
+                }
+              }
+              // 进入等待状态
+              enterWaitingState(currentMsg.waitingState, getRandomWaitingVerb);
+            }
+
+            await nextTick();
+            scrollToBottom();
+          } catch (e) {
+            console.error('Parse error:', e, data);
+          }
         }
       }
     }
 
     // Mark streaming as complete
-    chatMessages.value[aiMessageIndex].isStreaming = false;
+    const finalMsg = chatMessages.value[aiMessageIndex];
+    finalMsg.isStreaming = false;
+    finalMsg.waitingState.isWaiting = false;
     agentStatus.value = 'connected';
 
   } catch (error) {
     console.error('Chat error:', error);
     const currentMsg = chatMessages.value[aiMessageIndex];
-    if (currentMsg && !currentMsg.content) {
-      currentMsg.content = 'Sorry, I encountered an error. Please check if the Agent server is running.';
+    if (currentMsg) {
+      // 如果没有任何气泡，创建错误文本气泡
+      if (currentMsg.bubbles.length === 0) {
+        const errorBubble = createTextBubble('Sorry, I encountered an error. Please check if the Agent server is running.');
+        errorBubble.status = 'failed';
+        currentMsg.bubbles.push(errorBubble);
+      }
+      currentMsg.isStreaming = false;
+      currentMsg.waitingState.isWaiting = false;
     }
-    currentMsg.isStreaming = false;
     agentStatus.value = 'disconnected';
   } finally {
-     isLoading.value = false;
-     await nextTick();
-     scrollToBottom();
-   }
+    isLoading.value = false;
+    await nextTick();
+    scrollToBottom();
+  }
 };
 
 
@@ -928,7 +1011,7 @@ import MarkdownText from './base/MarkdownText.vue';
                                     <polyline points="9 18 15 12 9 6"></polyline>
                                 </svg>
                                 <span class="thinking-label">
-                                    <template v-if="msg.isStreaming && !msg.content">
+                                    <template v-if="msg.isStreaming && msg.bubbles.length === 0">
                                         Thinking for {{ msg.thinkingDuration || '0s' }}<span class="dot">.</span><span class="dot">.</span><span class="dot">.</span>
                                     </template>
                                     <template v-else>
@@ -942,53 +1025,32 @@ import MarkdownText from './base/MarkdownText.vue';
                                 </div>
                             </transition>
                         </div>
-                        <!-- 1. Pre-Agent Content Bubble (Intro) -->
-                        <div
-                            class="bubble"
-                            v-if="msg.preSubAgentContent"
-                        >
-                            <MarkdownText :content="msg.preSubAgentContent" />
-                        </div>
+                        <!-- 时间线气泡列表渲染 -->
+                        <template v-for="bubble in msg.bubbles" :key="bubble.id">
+                            <!-- 文本气泡 -->
+                            <div class="bubble" v-if="bubble.type === 'text' && bubble.content">
+                                <MarkdownText :content="bubble.content" />
+                                <span v-if="bubble.status === 'streaming'" class="streaming-cursor"></span>
+                            </div>
 
-                        <!-- 1.5. Main Agent Tool Calls Panel -->
-                        <MainAgentToolsPanel
-                            v-if="msg.role === 'ai' && msg.mainAgentToolCalls?.length"
-                            :toolCalls="msg.mainAgentToolCalls"
-                        />
-
-                        <!-- 2. SubAgent/Task Cards -->
-                        <div v-if="msg.role === 'ai' && msg.subAgents?.length" class="subagents-section">
-                            <SubAgentCard
-                                v-for="subAgent in msg.subAgents"
-                                :key="subAgent.id"
-                                :subAgent="subAgent"
+                            <!-- 工具调用气泡 -->
+                            <ToolCallBubble
+                                v-else-if="bubble.type === 'tool_call'"
+                                :bubble="bubble"
                             />
-                        </div>
 
-                        <!-- 3. Post-Agent Content Bubble (Summary/Result) -->
-                        <div 
-                            class="bubble" 
-                            v-if="msg.content"
-                        >
-                            <MarkdownText :content="msg.content" />
-                        </div>
+                            <!-- SubAgent 气泡 -->
+                            <SubAgentBubble
+                                v-else-if="bubble.type === 'subagent'"
+                                :bubble="bubble"
+                            />
+                        </template>
 
-                        <!-- 4. Universal waiting indicator for vacuum periods -->
-                        <!-- Shows when: streaming + no content + no SubAgent running -->
-                        <span 
-                            v-if="msg.isStreaming && !msg.content && !msg.subAgents?.some(sa => sa.status === 'running')"
-                            class="vacuum-generating"
-                        >
-                            <span class="generating-text">
-                                <span 
-                                    v-for="(char, i) in (msg.waitingVerb || 'Processing').split('')" 
-                                    :key="i" 
-                                    class="char"
-                                    :style="{ animationDelay: (i * 0.05) + 's' }"
-                                >{{ char }}</span>
-                            </span>
-                            <span class="dot">.</span><span class="dot">.</span><span class="dot">.</span>
-                        </span>
+                        <!-- 等待提示词（在气泡列表末尾） -->
+                        <WaitingIndicator
+                            v-if="msg.waitingState?.isWaiting"
+                            :state="msg.waitingState"
+                        />
                     </div>
                 </div>
             </template>
@@ -1871,6 +1933,21 @@ import MarkdownText from './base/MarkdownText.vue';
             &.empty {
                 min-height: 20px;
             }
+        }
+
+        .streaming-cursor {
+            display: inline-block;
+            width: 2px;
+            height: 1em;
+            background: var(--accent-primary);
+            margin-left: 2px;
+            animation: blink 1s step-end infinite;
+            vertical-align: text-bottom;
+        }
+
+        @keyframes blink {
+            0%, 50% { opacity: 1; }
+            51%, 100% { opacity: 0; }
         }
 
         @keyframes dot-fade {

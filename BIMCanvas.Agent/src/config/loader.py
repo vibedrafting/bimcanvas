@@ -133,18 +133,19 @@ class ConfigLoader:
 
         return self._system_prompt
 
-    def load_tools(self) -> list[str]:
+    def load_tools(self) -> list[str] | None:
         """
         加载主 Agent 工具列表
 
         Returns:
-            工具名称列表
+            工具名称列表，或 None（表示默认全开）
         """
         config = self.load_config()
         tools = config.get('tools')
 
+        # 空数组或 null 都返回 None，表示默认全开
         if not tools:
-            raise ValueError("config.json 中缺少 tools 配置")
+            return None
 
         return tools
 
