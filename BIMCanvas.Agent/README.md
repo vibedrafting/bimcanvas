@@ -368,7 +368,9 @@ BIMCanvas.Agent/
 │   │
 │   ├── agent/
 │   │   ├── __init__.py
-│   │   └── placement_agent.py  # PlacementAgent（Agent SDK 封装）
+│   │   ├── main_agent.py       # MainAgent（主控 Agent）
+│   │   ├── subagents.py        # SubAgent 定义（从配置加载）
+│   │   └── agent_logger.py     # Agent 日志系统
 │   │
 │   ├── server/
 │   │   ├── __init__.py
@@ -381,7 +383,13 @@ BIMCanvas.Agent/
 │   │
 │   └── config/
 │       ├── __init__.py
-│       └── settings.py         # 配置管理（环境变量）
+│       ├── settings.py         # 配置管理（从 loader 加载）
+│       ├── loader.py           # 统一配置加载器
+│       └── templates/          # 配置模板（首次运行自动复制）
+│           ├── BIMCANVAS.md.template
+│           ├── config.json.template
+│           └── agents/
+│               └── layout-agent.md.template
 │
 ├── MOSS/                       # 历史代码（仅供参考）
 └── AgentSDK-Quickstart.md      # Agent SDK 快速入门文档
@@ -389,24 +397,29 @@ BIMCanvas.Agent/
 
 ## 核心模块说明
 
-### PlacementAgent (`agent/placement_agent.py`)
+### MainAgent (`agent/main_agent.py`)
 
-基于 Claude Agent SDK 的智能助手（会话式管理）：
+基于 Claude Agent SDK 的主控 Agent，采用 MainAgent + SubAgent 架构：
 
-**对话模式**（无工具调用）：
+**架构特点**：
+- 使用 ClaudeSDKClient 维持持久连接
+- 通过 Task 工具自动派发 SubAgent（如 layout-agent）
+- 系统提示词和 SubAgent 配置从外部文件加载
+
+**对话接口**：
 - **chat(message)** - 同步对话，返回完整响应
-- **chat_stream(message)** - 流式对话，支持思考过程展示
-
-**布置任务模式**（启用 Read/Write/Glob/Edit 工具）：
-- **run_layout(prompt, scheme_id)** - 执行布置任务，自动读写项目文件
-- **run_layout_stream(prompt, scheme_id)** - 流式执行布置任务
+- **chat_stream(message)** - 流式对话，支持 SubAgent 事件追踪
 
 **会话管理**：
-- **clear_history()** - 清空会话（重置 session_id）
-- **get_history()** - 获取对话历史（Agent SDK 内部管理，返回空列表）
-- **set_project_path(path)** - 设置项目路径（工具调用的工作目录）
+- **connect()** / **disconnect()** - 连接管理
+- **clear_history()** - 清空会话
+- **set_project_path(path)** - 设置项目路径
 
-> 注：Agent SDK 使用 `session_id` 管理对话上下文，支持会话恢复。布置任务每次独立执行，不使用会话恢复。
+### SubAgents (`agent/subagents.py`)
+
+从 `~/Documents/BIMCanvas/agents/*.md` 配置文件加载 SubAgent 定义：
+
+- **layout-agent** - 家具布置专家，负责空间规划和家具摆放
 
 ### HTTP Server (`server/http_server.py`)
 
@@ -416,16 +429,53 @@ BIMCanvas.Agent/
 - 按 projectPath 缓存 Agent 实例
 - SSE 流式响应支持
 
-### Settings (`config/settings.py`)
+### 配置系统 (`config/`)
 
-配置项（优先级：环境变量 > 默认值）：
+**配置文件驱动架构**：首次运行时自动在 `~/Documents/BIMCanvas/` 创建配置文件。
 
-| 配置项 | 环境变量 | 默认值 | 说明 |
-|--------|----------|--------|------|
-| API Key | `ANTHROPIC_API_KEY` | - | Anthropic API 密钥（必填） |
-| 模型 | `AGENT_MODEL` | `claude-sonnet-4-20250514` | 使用的模型 |
-| 服务地址 | `AGENT_HOST` | `127.0.0.1` | HTTP 服务监听地址 |
-| 服务端口 | `AGENT_PORT` | `8765` | HTTP 服务监听端口 |
+```
+~/Documents/BIMCanvas/
+├── BIMCANVAS.md           # 主 Agent 系统提示词（可编辑）
+├── config.json            # 应用配置（API、模型、工具）
+└── agents/
+    └── layout-agent.md    # SubAgent 配置（YAML frontmatter + 提示词）
+```
+
+**配置优先级**：环境变量 > config.json
+
+#### config.json 格式
+
+```json
+{
+  "apiKey": "$ANTHROPIC_API_KEY",
+  "model": "claude-sonnet-4-20250514",
+  "maxTokens": 4096,
+  "tools": ["Read", "Glob", "Grep", "Task"],
+  "server": { "host": "127.0.0.1", "port": 8765 }
+}
+```
+
+#### SubAgent 配置格式 (agents/*.md)
+
+```markdown
+---
+name: layout-agent
+description: 家具布置专家...
+tools: Read, Glob, Write
+model: inherit
+---
+
+（系统提示词内容）
+```
+
+#### 环境变量覆盖
+
+| 环境变量 | 说明 |
+|----------|------|
+| `ANTHROPIC_API_KEY` | Anthropic API 密钥（必填） |
+| `MODEL_NAME` | 覆盖模型名称 |
+| `SERVER_HOST` | 覆盖服务地址 |
+| `SERVER_PORT` | 覆盖服务端口 |
 
 ## 开发状态
 
