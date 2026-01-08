@@ -612,3 +612,99 @@ Agent 系统提示词内容...
   }
 }
 ```
+
+---
+
+## 十三、Agent SDK 实践经验（BIMCanvas.Agent 开发总结）
+
+> 以下内容基于 BIMCanvas.Agent 项目开发过程中的实际验证
+
+### 13.1 tools 参数 vs allowed_tools 参数
+
+**关键发现**：这两个参数的含义完全不同！
+
+| 参数 | 真实含义 | 作用 |
+|------|---------|------|
+| `tools` | 可用工具的基础集合 | **限制 AI 能使用哪些工具** |
+| `allowed_tools` | 无需用户确认的工具 | 控制权限规则（免确认白名单） |
+
+**官方证据**：
+
+1. **SDK 源码**（`types.py`）：
+   - `tools: list[str] | ToolsPreset | None = None` - 控制可用工具集合
+   - `allowed_tools: list[str]` - 权限白名单
+
+2. **CLI 参数构建**（`subprocess_cli.py`）：
+   - `tools` 参数 → `--tools` CLI 参数
+   - `allowed_tools` → `--allowedTools` CLI 参数
+
+3. **GitHub Issues 确认**：
+   - Issue #115: `allowedTools does not restrict built-in tools`
+   - Issue #19: `allowedTools Option does not work`
+
+**正确用法**：
+```python
+# 限制工具集合：使用 tools 参数
+ClaudeAgentOptions(
+    tools=["Read", "Glob", "Grep"],  # 只有这三个工具可用
+    allowed_tools=["Read", "Glob", "Grep"],  # 这些工具无需确认
+)
+```
+
+### 13.2 tools 为空时的行为
+
+| config.json 配置 | SDK tools 参数 | CLI 参数 | 效果 |
+|-----------------|---------------|---------|------|
+| 不设置或 `null` | `tools=None` | 不传递 `--tools` | **默认全开** |
+| `[]` 空数组 | `tools=[]` | `--tools ""` | **禁用所有工具** |
+| `["Read", "Grep"]` | `tools=[...]` | `--tools "Read,Grep"` | 只启用指定工具 |
+
+**关键区别**：`tools=None` 和 `tools=[]` 行为完全不同！
+
+### 13.3 模型配置与验证
+
+**配置方式**：
+```json
+{ "model": "claude-opus-4-5-20250514" }
+```
+
+**环境变量覆盖**：`export MODEL_NAME=claude-opus-4-5-20250514`
+
+**验证方式**：
+1. 启动日志：`[MainAgent] 模型: claude-opus-4-5-20250514`
+2. SDK 响应：`AssistantMessage.model` 字段
+3. Anthropic Console：查看实际 API 调用
+
+**注意**：AI 可能不知道自己的模型身份（自我认知问题），需要通过上述方式验证。
+
+### 13.4 SDK 内置工具列表
+
+```
+Task, Bash, Glob, Grep, LS, ExitPlanMode,
+Read, Edit, MultiEdit, Write, NotebookEdit,
+WebFetch, TodoWrite, WebSearch, BashOutput, KillBash
+```
+
+### 13.5 SubAgent tools 继承
+
+| 配置 | 效果 |
+|------|------|
+| 不设置 | **继承所有工具** |
+| `["Read", "Glob"]` | 只启用指定工具 |
+
+### 13.6 配置加载最佳实践
+
+```python
+def load_tools(self) -> list[str] | None:
+    tools = config.get('tools')
+    # 空数组或 null 都返回 None，表示默认全开
+    if not tools:
+        return None
+    return tools
+
+# 使用时
+ClaudeAgentOptions(
+    tools=tools,                 # None 表示默认全开
+    allowed_tools=tools or [],   # None 时传空列表
+)
+```

@@ -448,11 +448,31 @@ BIMCanvas.Agent/
 ```json
 {
   "apiKey": "$ANTHROPIC_API_KEY",
-  "model": "claude-sonnet-4-20250514",
+  "model": "claude-opus-4-5-20250514",
   "maxTokens": 4096,
   "tools": ["Read", "Glob", "Grep", "Task"],
   "server": { "host": "127.0.0.1", "port": 8765 }
 }
+```
+
+#### tools 字段说明
+
+`tools` 字段控制 Agent 可用工具的基础集合：
+
+| 配置值 | 效果 |
+|--------|------|
+| `null` 或不设置 | **默认全开**（使用 Claude Code 全部内置工具） |
+| `[]` 空数组 | **禁用所有工具**（Agent 只能对话） |
+| `["Read", "Glob", ...]` | **只启用指定工具** |
+
+**注意**：`tools` 参数与 `allowed_tools` 参数不同：
+- `tools`：控制**可用工具集合**（真正的工具限制）
+- `allowed_tools`：控制**权限规则**（哪些工具无需用户确认）
+
+**常用工具列表**：
+```
+Task, Bash, Glob, Grep, LS, Read, Edit, MultiEdit, Write,
+NotebookEdit, WebFetch, TodoWrite, WebSearch, ExitPlanMode
 ```
 
 #### SubAgent 配置格式 (agents/*.md)

@@ -698,6 +698,13 @@ const sendMessage = async () => {
     const finalMsg = chatMessages.value[aiMessageIndex];
     finalMsg.isStreaming = false;
     finalMsg.waitingState.isWaiting = false;
+
+    // 将最后一个 streaming 状态的气泡标记为 completed
+    const lastStreamingBubble = getLastStreamingTextBubble(finalMsg.bubbles);
+    if (lastStreamingBubble) {
+      completeBubble(lastStreamingBubble);
+    }
+
     agentStatus.value = 'connected';
 
   } catch (error) {

@@ -1,21 +1,30 @@
 <script setup lang="ts">
+import { computed } from 'vue';
 import type { WaitingState } from '../../types/agent';
 
-defineProps<{
+const props = defineProps<{
   state: WaitingState;
 }>();
+
+// 将等待词拆分为单个字符数组
+const verbChars = computed(() => {
+  return (props.state.waitingVerb || 'Processing').split('');
+});
 </script>
 
 <template>
   <div class="waiting-indicator" v-if="state.isWaiting">
-    <div class="waiting-content">
-      <div class="waiting-dots">
-        <span class="dot"></span>
-        <span class="dot"></span>
-        <span class="dot"></span>
-      </div>
-      <span class="waiting-verb">{{ state.waitingVerb }}...</span>
-    </div>
+    <span class="generating-text">
+      <span
+        v-for="(char, i) in verbChars"
+        :key="i"
+        class="char"
+        :style="{ animationDelay: (i * 0.05) + 's' }"
+      >{{ char }}</span>
+    </span>
+    <span class="dot">.</span>
+    <span class="dot">.</span>
+    <span class="dot">.</span>
   </div>
 </template>
 
@@ -23,57 +32,47 @@ defineProps<{
 .waiting-indicator {
   display: flex;
   align-items: center;
-  padding: 8px 0;
-  min-height: 32px;
+  font-size: 0.8rem;
+  color: var(--text-tertiary);
+  font-style: italic;
+  padding: 4px 0;
+  margin-top: 4px;
 }
 
-.waiting-content {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
+.generating-text {
+  display: inline;
 
-.waiting-dots {
-  display: flex;
-  align-items: center;
-  gap: 3px;
+  .char {
+    display: inline;
+    animation: text-breathe 1.5s ease-in-out infinite;
+  }
 }
 
 .dot {
-  width: 4px;
-  height: 4px;
-  background: var(--accent-primary);
-  border-radius: 50%;
-  animation: bounce 1.4s ease-in-out infinite both;
-
-  &:nth-child(1) {
-    animation-delay: -0.32s;
-  }
+  animation: dot-fade 1.5s infinite;
+  opacity: 0;
 
   &:nth-child(2) {
-    animation-delay: -0.16s;
+    animation-delay: 0.3s;
   }
 
   &:nth-child(3) {
-    animation-delay: 0s;
+    animation-delay: 0.6s;
+  }
+
+  &:nth-child(4) {
+    animation-delay: 0.9s;
   }
 }
 
-.waiting-verb {
-  font-size: 0.85rem;
-  color: var(--text-tertiary);
-  font-style: italic;
-  opacity: 0.8;
+@keyframes text-breathe {
+  0%, 100% { opacity: 0.4; }
+  50% { opacity: 1; }
 }
 
-@keyframes bounce {
-  0%, 80%, 100% {
-    transform: scale(0.6);
-    opacity: 0.5;
-  }
-  40% {
-    transform: scale(1);
-    opacity: 1;
-  }
+@keyframes dot-fade {
+  0% { opacity: 0; }
+  50% { opacity: 1; }
+  100% { opacity: 0; }
 }
 </style>

@@ -19,6 +19,10 @@ watch(() => props.bubble.status, (newStatus) => {
 
 const toggleExpand = () => { isExpanded.value = !isExpanded.value; };
 
+// 结果折叠状态（默认折叠）
+const isResultExpanded = ref(false);
+const toggleResult = () => { isResultExpanded.value = !isResultExpanded.value; };
+
 // === 实时计时器逻辑 ===
 const elapsedSeconds = ref(0);
 let timerInterval: ReturnType<typeof setInterval> | null = null;
@@ -167,13 +171,30 @@ const getToolDetail = (tc: ChatBubble): string | null => {
         </div>
       </div>
 
-      <!-- Result -->
-      <div class="result-box" v-if="bubble.subAgentResult">
-        <svg class="result-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-          <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path>
-          <polyline points="22 4 12 14.01 9 11.01"></polyline>
-        </svg>
-        <span class="result-text">{{ bubble.subAgentResult }}</span>
+      <!-- Result Section (Collapsible) -->
+      <div class="result-section" v-if="bubble.subAgentResult">
+        <!-- Result Header (折叠按钮) -->
+        <div class="result-header" @click.stop="toggleResult">
+          <svg
+            class="result-chevron"
+            :class="{ expanded: isResultExpanded }"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2"
+          >
+            <polyline points="9 18 15 12 9 6"></polyline>
+          </svg>
+          <svg class="result-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path>
+            <polyline points="22 4 12 14.01 9 11.01"></polyline>
+          </svg>
+          <span class="result-label">Result</span>
+        </div>
+        <!-- Result Content (可折叠) -->
+        <div class="result-box" v-if="isResultExpanded">
+          <span class="result-text">{{ bubble.subAgentResult }}</span>
+        </div>
       </div>
     </div>
   </div>
@@ -389,29 +410,67 @@ const getToolDetail = (tc: ChatBubble): string | null => {
   font-style: italic;
 }
 
-.result-box {
-  margin: 6px 10px 8px;
-  padding: 8px 12px;
-  background: rgba(var(--accent-green-rgb, 74, 222, 128), 0.08);
-  border-radius: 6px;
+/* Result Section */
+.result-section {
+  margin: 4px 10px 8px;
+}
+
+.result-header {
   display: flex;
-  align-items: flex-start;
-  gap: 8px;
-  border: 1px solid rgba(var(--accent-green-rgb, 74, 222, 128), 0.1);
+  align-items: center;
+  gap: 6px;
+  padding: 4px 6px;
+  cursor: pointer;
+  user-select: none;
+  opacity: 0.7;
+  transition: opacity 0.2s;
+  border-radius: 4px;
+
+  &:hover {
+    opacity: 1;
+    background: rgba(var(--accent-green-rgb, 74, 222, 128), 0.05);
+  }
+}
+
+.result-chevron {
+  width: 12px;
+  height: 12px;
+  color: var(--accent-green, #4ade80);
+  transition: transform 0.2s;
+  flex-shrink: 0;
+
+  &.expanded {
+    transform: rotate(90deg);
+  }
 }
 
 .result-icon {
-  width: 14px;
-  height: 14px;
+  width: 12px;
+  height: 12px;
   color: var(--accent-green, #4ade80);
-  margin-top: 2px;
   flex-shrink: 0;
+}
+
+.result-label {
+  font-size: 0.75rem;
+  font-weight: 500;
+  color: var(--accent-green, #4ade80);
+}
+
+.result-box {
+  margin-top: 4px;
+  padding: 8px 12px;
+  background: rgba(var(--accent-green-rgb, 74, 222, 128), 0.08);
+  border-radius: 6px;
+  border: 1px solid rgba(var(--accent-green-rgb, 74, 222, 128), 0.1);
 }
 
 .result-text {
   font-size: 0.8rem;
   color: var(--text-secondary);
   line-height: 1.5;
+  white-space: pre-wrap;
+  word-break: break-word;
 }
 
 @keyframes spin { to { transform: rotate(360deg); } }
