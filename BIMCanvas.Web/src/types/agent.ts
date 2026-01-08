@@ -100,7 +100,7 @@ export interface SubAgentCompleteEvent {
 
 export interface ToolCallStartEvent {
   type: 'tool_call_start';
-  subAgentId: string;
+  subAgentId?: string;  // 可选：SubAgent 内的工具调用有此字段，主 Agent 工具调用无此字段
   toolCallId: string;
   toolName: string;
   toolDescription?: string;

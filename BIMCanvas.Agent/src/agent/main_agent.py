@@ -112,6 +112,9 @@ class MainAgent:
         # 跟踪每个工具调用所属的 SubAgent：tool_use_id → subagent_id
         self._tool_to_subagent: dict[str, str] = {}
 
+        # 当前会话使用的模型（用于日志显示）
+        self._current_model: str | None = None
+
     # ─────────────────────────────────────────────────────
     # Configuration
     # ─────────────────────────────────────────────────────
@@ -129,7 +132,8 @@ class MainAgent:
             cwd=self.project_path,
             max_turns=20,
             model=settings.model_name,
-            allowed_tools=tools,
+            tools=tools,           # 限制可用工具集合
+            allowed_tools=tools,   # 这些工具无需用户确认
             agents=self._subagents,
             permission_mode="acceptEdits",
             include_partial_messages=True,
@@ -195,6 +199,14 @@ class MainAgent:
             if self._connected:
                 return
             options = self._create_options()
+
+            # 调试日志：打印实际使用的配置
+            print(f"[MainAgent] ========== 配置信息 ==========")
+            print(f"[MainAgent] 模型: {options.model}")
+            print(f"[MainAgent] 可用工具: {options.tools}")
+            print(f"[MainAgent] 项目路径: {self.project_path}")
+            print(f"[MainAgent] ================================")
+
             self._client = ClaudeSDKClient(options)
             await self._client.connect()
             self._connected = True
@@ -219,6 +231,9 @@ class MainAgent:
         text_content = ""
 
         if isinstance(message, AssistantMessage):
+            # 存储模型值，用于日志显示
+            self._current_model = getattr(message, 'model', None)
+
             for block in message.content:
                 if isinstance(block, ThinkingBlock):
                     if self.verbose:
@@ -380,7 +395,7 @@ class MainAgent:
         if self.verbose:
             if self._in_response:
                 self._agent_logger.log_response_end()
-            self._agent_logger.log_complete()
+            self._agent_logger.log_complete(model=self._current_model)
 
         return full_response
 
@@ -472,6 +487,9 @@ class MainAgent:
                     self._current_tool_name = None
 
             elif isinstance(message, AssistantMessage):
+                # 存储模型值，用于日志显示
+                self._current_model = getattr(message, 'model', None)
+
                 for block in message.content:
                     if isinstance(block, ThinkingBlock):
                         if self.verbose and not self._in_thinking:
@@ -611,7 +629,7 @@ class MainAgent:
                                 self._tool_to_subagent.pop(block_tool_use_id, None)
 
         if self.verbose:
-            self._agent_logger.log_complete()
+            self._agent_logger.log_complete(model=self._current_model)
 
     # ─────────────────────────────────────────────────────
     # Control Methods

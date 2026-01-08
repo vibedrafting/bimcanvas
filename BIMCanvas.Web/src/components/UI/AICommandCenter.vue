@@ -8,6 +8,7 @@ import BranchCheckoutConfirmDialog from './Ribbon/BranchCheckoutConfirmDialog.vu
 import type { SubAgent, ToolCall } from '../../types/agent';
 import { findToolCallInSubAgents } from '../../types/agent';
 import SubAgentCard from './SubAgentCard.vue';
+import MainAgentToolsPanel from './MainAgentToolsPanel.vue';
 
 // Props from parent (MainLayout)
 const props = defineProps<{
@@ -70,6 +71,8 @@ interface ChatMessage {
   thinkingDuration?: string;
   /** SubAgent/Task 列表 */
   subAgents?: SubAgent[];
+  /** 主Agent工具调用列表（不属于任何SubAgent） */
+  mainAgentToolCalls?: ToolCall[];
   /** Claude Code 风格的等待提示词 */
   waitingVerb?: string;
 }
@@ -542,9 +545,25 @@ const sendMessage = async () => {
               });
             }
             else if (parsed.type === 'tool_call_start') {
-              const subAgent = currentMsg.subAgents?.find(sa => sa.id === parsed.subAgentId);
-              if (subAgent) {
-                subAgent.toolCalls.push({
+              if (parsed.subAgentId) {
+                // SubAgent 的工具调用
+                const subAgent = currentMsg.subAgents?.find(sa => sa.id === parsed.subAgentId);
+                if (subAgent) {
+                  subAgent.toolCalls.push({
+                    id: parsed.toolCallId,
+                    toolName: parsed.toolName,
+                    description: parsed.toolDescription,
+                    params: parsed.toolParams || {},
+                    status: 'running',
+                    startTime: Date.now()
+                  });
+                }
+              } else {
+                // 主Agent 的工具调用
+                if (!currentMsg.mainAgentToolCalls) {
+                  currentMsg.mainAgentToolCalls = [];
+                }
+                currentMsg.mainAgentToolCalls.push({
                   id: parsed.toolCallId,
                   toolName: parsed.toolName,
                   description: parsed.toolDescription,
@@ -555,13 +574,23 @@ const sendMessage = async () => {
               }
             }
             else if (parsed.type === 'tool_call_output') {
-              const toolCall = findToolCallInSubAgents(currentMsg.subAgents, parsed.toolCallId);
+              // 先在 SubAgent 中查找
+              let toolCall = findToolCallInSubAgents(currentMsg.subAgents, parsed.toolCallId);
+              // 如果没找到，在主Agent工具中查找
+              if (!toolCall && currentMsg.mainAgentToolCalls) {
+                toolCall = currentMsg.mainAgentToolCalls.find(tc => tc.id === parsed.toolCallId);
+              }
               if (toolCall) {
                 toolCall.output = (toolCall.output || '') + parsed.toolOutput;
               }
             }
             else if (parsed.type === 'tool_call_complete') {
-              const toolCall = findToolCallInSubAgents(currentMsg.subAgents, parsed.toolCallId);
+              // 先在 SubAgent 中查找
+              let toolCall = findToolCallInSubAgents(currentMsg.subAgents, parsed.toolCallId);
+              // 如果没找到，在主Agent工具中查找
+              if (!toolCall && currentMsg.mainAgentToolCalls) {
+                toolCall = currentMsg.mainAgentToolCalls.find(tc => tc.id === parsed.toolCallId);
+              }
               if (toolCall) {
                 toolCall.status = parsed.success ? 'completed' : 'failed';
                 toolCall.endTime = Date.now();
@@ -914,12 +943,18 @@ import MarkdownText from './base/MarkdownText.vue';
                             </transition>
                         </div>
                         <!-- 1. Pre-Agent Content Bubble (Intro) -->
-                        <div 
-                            class="bubble" 
+                        <div
+                            class="bubble"
                             v-if="msg.preSubAgentContent"
                         >
                             <MarkdownText :content="msg.preSubAgentContent" />
                         </div>
+
+                        <!-- 1.5. Main Agent Tool Calls Panel -->
+                        <MainAgentToolsPanel
+                            v-if="msg.role === 'ai' && msg.mainAgentToolCalls?.length"
+                            :toolCalls="msg.mainAgentToolCalls"
+                        />
 
                         <!-- 2. SubAgent/Task Cards -->
                         <div v-if="msg.role === 'ai' && msg.subAgents?.length" class="subagents-section">

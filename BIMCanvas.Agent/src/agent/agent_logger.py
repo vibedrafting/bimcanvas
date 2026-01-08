@@ -385,11 +385,19 @@ class AgentLogger:
             f"{self._indent()}{Colors.DIM}{agent_label} {info}{Colors.RESET}"
         )
 
-    def log_complete(self) -> None:
-        """Log completion of the entire interaction."""
+    def log_complete(self, model: str | None = None) -> None:
+        """Log completion of the entire interaction.
+
+        Args:
+            model: Optional model identifier to display as a model stamp
+        """
+        model_stamp = ""
+        if model:
+            model_stamp = f" {Colors.CYAN}[{model}]{Colors.RESET}"
+
         self._print(
             f"{Colors.BRIGHT_GREEN}{Colors.BOLD}[COMPLETE]{Colors.RESET} "
-            f"{Colors.DIM}{self._timestamp()}{Colors.RESET}"
+            f"{Colors.DIM}{self._timestamp()}{Colors.RESET}{model_stamp}"
         )
         self._separator("═")
 

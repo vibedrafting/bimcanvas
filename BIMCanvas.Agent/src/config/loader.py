@@ -49,6 +49,10 @@ class ConfigLoader:
         else:
             self.config_dir = Path(config_dir) if isinstance(config_dir, str) else config_dir
 
+        # 调试日志：打印配置目录
+        print(f"[ConfigLoader] 配置目录: {self.config_dir}")
+        print(f"[ConfigLoader] config.json 路径: {self.config_dir / 'config.json'}")
+
         # 缓存
         self._config: Optional[dict] = None
         self._system_prompt: Optional[str] = None
