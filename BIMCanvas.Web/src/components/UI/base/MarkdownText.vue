@@ -15,7 +15,11 @@ const md = new MarkdownIt({
 
 const renderedContent = computed(() => {
   if (!props.content) return '';
-  return md.render(props.content);
+  const result = md.render(props.content);
+  // DEBUG: 调试日志，排查 Markdown 渲染问题
+  console.log('[MarkdownText] Input (first 150 chars):', props.content.substring(0, 150));
+  console.log('[MarkdownText] Output (first 300 chars):', result.substring(0, 300));
+  return result;
 });
 </script>
 

@@ -25,7 +25,6 @@ const hasContent = computed(() => {
 <template>
   <div class="text-bubble" :class="statusClass" v-if="hasContent">
     <div class="text-content">{{ bubble.content }}</div>
-    <div class="streaming-cursor" v-if="bubble.status === 'streaming'"></div>
   </div>
 </template>
 
@@ -49,20 +48,5 @@ const hasContent = computed(() => {
 .text-content {
   white-space: pre-wrap;
   word-break: break-word;
-}
-
-.streaming-cursor {
-  display: inline-block;
-  width: 2px;
-  height: 1em;
-  background: var(--accent-primary);
-  margin-left: 2px;
-  animation: blink 1s step-end infinite;
-  vertical-align: text-bottom;
-}
-
-@keyframes blink {
-  0%, 50% { opacity: 1; }
-  51%, 100% { opacity: 0; }
 }
 </style>
