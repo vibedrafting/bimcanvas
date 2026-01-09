@@ -1,0 +1,14 @@
+{
+    "apiKey": "$ANTHROPIC_API_KEY",
+    "model": "claude-sonnet-4-20250514",
+    "maxTokens": 4096,
+    "permissions": {
+        "deny": [
+            "Read"
+        ]
+    },
+    "server": {
+        "host": "127.0.0.1",
+        "port": 8765
+    }
+}
