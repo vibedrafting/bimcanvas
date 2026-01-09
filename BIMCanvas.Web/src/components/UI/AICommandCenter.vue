@@ -1052,7 +1052,7 @@ import MarkdownText from './base/MarkdownText.vue';
       <div class="layer-stream" ref="chatScrollRef" @scroll="handleChatScroll">
          
          <!-- View: Chat -->
-        <div v-if="mode === 'chat'" class="view-chat">
+        <div v-show="mode === 'chat'" class="view-chat">
 
 
 
@@ -1124,7 +1124,7 @@ import MarkdownText from './base/MarkdownText.vue';
          </div>
 
         <!-- View: Tasks (formerly Review) -->
-        <div v-else-if="mode === 'tasks'" class="view-tasks">
+        <div v-show="mode === 'tasks'" class="view-tasks">
             <!-- Agent Activity Monitor (SubAgent tracking) -->
             <TaskSummaryWidget 
                 :sub-agents="activeSubAgents"

@@ -22,6 +22,7 @@ namespace BIMCanvas.Server.Services
     {
         private readonly ILogger<ComputedDataService> _logger;
         private readonly ManifestService _manifestService;
+        private readonly RoomTypeTagMappingService _tagMappingService;
 
         /// <summary>
         /// 统一的 JSON 序列化配置：camelCase 命名
@@ -34,10 +35,12 @@ namespace BIMCanvas.Server.Services
 
         public ComputedDataService(
             ILogger<ComputedDataService> logger,
-            ManifestService manifestService)
+            ManifestService manifestService,
+            RoomTypeTagMappingService tagMappingService)
         {
             _logger = logger;
             _manifestService = manifestService;
+            _tagMappingService = tagMappingService;
         }
 
         /// <summary>
@@ -305,7 +308,7 @@ namespace BIMCanvas.Server.Services
                     Reason = $"room:{room.Type}",
                     RawBoundary = room.Boundary,
                     ComputedBoundary = null, // Room 类型暂不计算内缩边界
-                    Tags = new List<ZoneTag>(),
+                    Tags = _tagMappingService.GetTagsForRoomType(room.Type),
                     FinishRequirements = new List<FinishRequirement>(),
                     SchemeId = null
                 };
