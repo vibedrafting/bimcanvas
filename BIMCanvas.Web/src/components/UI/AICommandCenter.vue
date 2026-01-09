@@ -12,12 +12,15 @@ import {
   createSubAgentBubble,
   enterWaitingState,
   exitWaitingState,
+  hasStreamingSubAgent,
   findBubbleByIdDeep,
   getLastStreamingTextBubble,
   completeBubble,
   failBubble,
   appendToolCallOutput,
-  updateSubAgentResult
+  updateSubAgentResult,
+  markAsBackground,
+  findStreamingSubAgents
 } from '../../utils/bubbleManager';
 import ToolCallBubble from './ToolCallBubble.vue';
 import SubAgentBubble from './SubAgentBubble.vue';
@@ -588,8 +591,10 @@ const sendMessage = async () => {
               if (lastTextBubble) {
                 completeBubble(lastTextBubble);
               }
-              // 进入等待状态
-              enterWaitingState(currentMsg.waitingState, getRandomWaitingVerb);
+              // 只有当没有 SubAgent 在运行时，才进入等待状态
+              if (!hasStreamingSubAgent(currentMsg.bubbles)) {
+                enterWaitingState(currentMsg.waitingState, getRandomWaitingVerb);
+              }
             }
 
             // ===== Error Event =====
@@ -632,8 +637,10 @@ const sendMessage = async () => {
                   updateSubAgentResult(subAgentBubble, parsed.content);
                 }
               }
-              // 进入等待状态
-              enterWaitingState(currentMsg.waitingState, getRandomWaitingVerb);
+              // 只有当没有其他 SubAgent 在运行时，才进入等待状态
+              if (!hasStreamingSubAgent(currentMsg.bubbles)) {
+                enterWaitingState(currentMsg.waitingState, getRandomWaitingVerb);
+              }
             }
 
             // ===== Tool Call Events (使用气泡模型) =====
@@ -687,8 +694,21 @@ const sendMessage = async () => {
                   failBubble(toolBubble, parsed.error);
                 }
               }
-              // 进入等待状态
-              enterWaitingState(currentMsg.waitingState, getRandomWaitingVerb);
+              // 只有当没有 SubAgent 在运行时，才进入等待状态
+              if (!hasStreamingSubAgent(currentMsg.bubbles)) {
+                enterWaitingState(currentMsg.waitingState, getRandomWaitingVerb);
+              }
+            }
+
+            // ===== TaskOutput Polling Event (后台任务轮询) =====
+            else if (parsed.type === 'task_output_polling') {
+              // 将所有 streaming 状态的 SubAgent 标记为后台执行
+              const streamingSubAgents = findStreamingSubAgents(currentMsg.bubbles);
+              for (const bubble of streamingSubAgents) {
+                markAsBackground(bubble);
+                // 更新结果显示轮询状态
+                bubble.subAgentResult = `正在获取结果... (timeout: ${parsed.timeout / 1000}s)`;
+              }
             }
 
             await nextTick();
@@ -927,13 +947,35 @@ const handleGlobalClick = (e: MouseEvent) => {
   }
 };
 
+// 处理表格区域的滚轮事件：禁止垂直滚轮触发表格水平滚动
+const handleTableWheel = (e: WheelEvent) => {
+  const target = e.target as HTMLElement;
+  const tableWrapper = target.closest('.table-node-wrapper');
+
+  if (tableWrapper) {
+    // 如果主要是垂直滚动，阻止表格的水平滚动
+    // 让事件冒泡到父容器进行垂直滚动
+    if (Math.abs(e.deltaY) > Math.abs(e.deltaX)) {
+      e.preventDefault();
+      // 手动触发父容器的垂直滚动
+      const scrollContainer = chatScrollRef.value;
+      if (scrollContainer) {
+        scrollContainer.scrollTop += e.deltaY;
+      }
+    }
+  }
+};
+
 onMounted(() => {
   window.addEventListener('click', handleGlobalClick);
+  // 在聊天区域监听 wheel 事件，需要 passive: false 才能 preventDefault
+  chatScrollRef.value?.addEventListener('wheel', handleTableWheel, { passive: false });
 });
 
 import { onUnmounted } from 'vue';
 onUnmounted(() => {
   window.removeEventListener('click', handleGlobalClick);
+  chatScrollRef.value?.removeEventListener('wheel', handleTableWheel);
 });
 
 import TaskSummaryWidget from './TaskSummaryWidget.vue';
@@ -1913,6 +1955,7 @@ import MarkdownText from './base/MarkdownText.vue';
                 background: var(--accent-primary);
                 color: white;
                 border: none;
+                white-space: pre-wrap; // 用户消息保留换行
             }
         }
 
@@ -1947,9 +1990,91 @@ import MarkdownText from './base/MarkdownText.vue';
                 min-height: 20px;
             }
 
-            // 覆盖 markstream-vue 库的默认样式
+            // === 覆盖 markstream-vue 库的默认样式（极致紧凑） ===
+
+            // 顶层容器：清除所有默认间距
+            :deep(.markdown-renderer) {
+                margin: 0;
+                padding: 0;
+            }
+            :deep(.node-slot),
+            :deep(.node-content),
+            :deep(.node-space) {
+                margin: 0;
+                padding: 0;
+            }
+
+            // 段落：适度间距
             :deep(p) {
                 margin: 0;
+            }
+            :deep(.paragraph-node) {
+                margin: 0.3em 0;
+            }
+
+            // 标题：舒适层次感
+            :deep(.heading-1) {
+                font-size: 1.05rem;
+                margin: 0.7em 0 0.35em 0;
+            }
+            :deep(.heading-2) {
+                font-size: 0.95rem;
+                margin: 0.6em 0 0.3em 0;
+            }
+            :deep(.heading-3) {
+                font-size: 0.88rem;
+                margin: 0.5em 0 0.25em 0;
+            }
+            :deep(.heading-4),
+            :deep(.heading-5),
+            :deep(.heading-6) {
+                font-size: 0.82rem;
+                margin: 0.45em 0 0.2em 0;
+            }
+
+            // 列表：适度间距
+            :deep(.list-node) {
+                margin: 0.25em 0;
+                padding-left: 1.1em;
+            }
+            :deep(.list-item) {
+                margin: 0;
+                padding: 0;
+            }
+
+            // 表格容器：舒适间距
+            :deep(.table-node-wrapper) {
+                margin: 0.5em 0;
+            }
+
+            // 表格：边框可见 + 舒适单元格
+            :deep(.table-node) {
+                --table-border: rgba(255, 255, 255, 0.25);
+                margin: 0;
+            }
+            :deep(.table-node th),
+            :deep(.table-node td) {
+                border: 1px solid rgba(255, 255, 255, 0.2);
+                padding: 0.3em 0.5em;
+            }
+            :deep(.table-node th) {
+                background: rgba(255, 255, 255, 0.05);
+            }
+
+            // 引用块：适度间距
+            :deep(.blockquote) {
+                margin: 0.3em 0;
+                padding-left: 0.6em;
+            }
+
+            // 代码块：适度间距
+            :deep(.code-block-container) {
+                margin: 0.3em 0;
+            }
+
+            // 分割线：适度间距
+            :deep(.hr-node) {
+                margin: 0.5em 0;
             }
         }
 

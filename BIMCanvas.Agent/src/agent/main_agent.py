@@ -35,6 +35,7 @@ class StreamChunk:
     - text / text_complete: 文本内容
     - subagent_start / subagent_complete: SubAgent 生命周期
     - tool_call_start / tool_call_output / tool_call_complete: 工具调用生命周期
+    - task_output_polling: TaskOutput 工具轮询事件
     """
     type: str
     content: str = ""
@@ -54,6 +55,9 @@ class StreamChunk:
     error_type: str = None       # "recoverable" | "blocking" | None
     error_content: str = None    # 提取的错误内容（不含 XML 标签，blocking 类型）
     hidden_content: str = None   # 被过滤的内容（调试用，recoverable 类型）
+    # TaskOutput 事件字段
+    task_id: str = None          # 后台任务 ID
+    timeout: int = None          # 轮询超时时间 (ms)
 
 
 class MainAgent:
@@ -528,6 +532,17 @@ class MainAgent:
                                 subagent_id=subagent_id,
                                 subagent_name=subagent_name,
                                 subagent_type=subagent_type
+                            )
+                        elif block.name == "TaskOutput":
+                            # TaskOutput 工具 - 发送特殊事件（用于前端识别后台任务轮询）
+                            task_id = block.input.get("task_id", "")
+                            timeout = block.input.get("timeout", 30000)
+                            if self.verbose:
+                                self._agent_logger.log_tool_use(block.name, block.input)
+                            yield StreamChunk(
+                                type="task_output_polling",
+                                task_id=task_id,
+                                timeout=timeout
                             )
                         else:
                             # 普通工具调用 - 关联到所属的 SubAgent

@@ -12,7 +12,7 @@ const isExpanded = ref(props.bubble.status === 'streaming');
 watch(() => props.bubble.status, (newStatus) => {
   if (newStatus === 'completed' || newStatus === 'failed') {
     setTimeout(() => { isExpanded.value = false; }, 2000);
-  } else if (newStatus === 'streaming') {
+  } else if (newStatus === 'streaming' || newStatus === 'background') {
     isExpanded.value = true;
   }
 });
@@ -47,7 +47,7 @@ const stopTimer = () => {
 };
 
 watch(() => props.bubble.status, (newStatus) => {
-  if (newStatus === 'streaming') {
+  if (newStatus === 'streaming' || newStatus === 'background') {
     startTimer();
   } else {
     stopTimer();
@@ -60,6 +60,8 @@ onUnmounted(() => stopTimer());
 const durationDisplay = computed(() => {
   if (props.bubble.status === 'streaming') {
     return `${elapsedSeconds.value}s`;
+  } else if (props.bubble.status === 'background') {
+    return `${elapsedSeconds.value}s (后台)`;
   }
   return null;
 });
@@ -67,6 +69,7 @@ const durationDisplay = computed(() => {
 const statusClass = computed(() => {
   switch (props.bubble.status) {
     case 'streaming': return 'status-running';
+    case 'background': return 'status-background';
     case 'completed': return 'status-completed';
     case 'failed': return 'status-failed';
     default: return 'status-pending';
@@ -130,6 +133,7 @@ const getToolDetail = (tc: ChatBubble): string | null => {
       <div class="header-main">
         <div class="status-icon-container">
           <div v-if="bubble.status === 'streaming'" class="spinner-loader"></div>
+          <div v-else-if="bubble.status === 'background'" class="background-indicator">⏳</div>
           <svg v-else-if="bubble.status === 'completed'" class="icon-success" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3">
             <polyline points="20 6 9 17 4 12"></polyline>
           </svg>
@@ -486,5 +490,21 @@ const getToolDetail = (tc: ChatBubble): string | null => {
     box-shadow: 0 0 8px var(--accent-color), 0 0 12px var(--accent-color);
     transform: scale(1.3);
   }
+}
+
+/* Background Status (后台执行状态) */
+.subagent-bubble.status-background {
+  border-color: rgba(251, 191, 36, 0.3);  /* amber/warning color */
+  background: rgba(251, 191, 36, 0.05);
+}
+
+.background-indicator {
+  font-size: 12px;
+  animation: pulse-bg 1.5s ease-in-out infinite;
+}
+
+@keyframes pulse-bg {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.4; }
 }
 </style>

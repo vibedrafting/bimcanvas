@@ -120,12 +120,19 @@ export interface ToolCallCompleteEvent {
   error?: string;
 }
 
+export interface TaskOutputPollingEvent {
+  type: 'task_output_polling';
+  taskId: string;
+  timeout: number;
+}
+
 export type AgentSSEEvent =
   | SubAgentStartEvent
   | SubAgentCompleteEvent
   | ToolCallStartEvent
   | ToolCallOutputEvent
-  | ToolCallCompleteEvent;
+  | ToolCallCompleteEvent
+  | TaskOutputPollingEvent;
 
 // ========== 时间线气泡模型（Timeline Bubble Model）==========
 
@@ -133,7 +140,7 @@ export type AgentSSEEvent =
 export type BubbleType = 'text' | 'tool_call' | 'subagent';
 
 /** 气泡状态 */
-export type BubbleStatus = 'pending' | 'streaming' | 'completed' | 'failed';
+export type BubbleStatus = 'pending' | 'streaming' | 'completed' | 'failed' | 'background';
 
 /**
  * 统一的消息气泡接口

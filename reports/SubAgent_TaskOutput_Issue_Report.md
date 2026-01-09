@@ -1,198 +1,186 @@
-# SubAgent 行为异常问题报告
+# SubAgent 后台执行与 TaskOutput 工具研究报告
 
-**报告日期**: 2026-01-08  
-**问题级别**: 严重  
-**状态**: 待修复
+**报告日期**: 2026-01-08（初稿）→ 2026-01-09（深度研究更新）
+**问题级别**: 中等
+**状态**: 研究完成，待优化
 
 ---
 
 ## 1. 问题现象
 
-### 1.1 预期行为（之前）
+### 1.1 同步执行（预期行为）
 
-SubAgent 执行时，前端应显示完整的工具调用过程：
+SubAgent 执行时，前端显示完整的工具调用过程：
 
 ```
 LAYOUT-AGENT
 ├── ✓ 查询客厅家具模块
-│   ├── Tool: Read (config.json)     ← 显示工具调用
-│   ├── Tool: Glob (*.json)          ← 显示工具调用
-│   └── Result: 找到 3 件家具        ← 显示最终结果
+│   ├── Tool: Read (room_zones.json)    ← 显示工具调用
+│   ├── Tool: Glob (schemes/*/modules.json)
+│   └── Result: 找到 3 件家具
 ```
 
-### 1.2 实际行为（现在）
+**日志特征**：
+- 可用工具：`['Read', 'Glob', 'Grep', 'Task']`
+- SubAgent 完成时间：52.3s / 29.2s（实际执行时间）
 
-SubAgent 内部没有工具执行显示，出现了未知的 `TaskOutput` 工具调用：
+### 1.2 后台执行（异常行为）
+
+SubAgent 内部没有工具调用显示，出现 `TaskOutput` 工具调用：
 
 ```
 LAYOUT-AGENT
 ├── ✓ 查询客厅家具模块
 │   └── > Result                     ← 只有结果，无工具调用
 
-[MainAgent] Tool: TaskOutput         ← 异常！主 Agent 调用 TaskOutput
+[MainAgent] Tool: TaskOutput         ← 主 Agent 调用 TaskOutput
     {"task_id": "a0093a2", "block": true, "timeout": 30000}
 ```
 
+**日志特征**：
+- 可用工具：`默认全开`
+- SubAgent "完成"时间：2.5s / 0.6s（**假象！实际任务还在后台运行**）
+
 ### 1.3 截图证据
 
-![TaskOutput](E:\工作文档\开发类\MyCode\BIMCanvas\reports\TaskOutput.png)
-
-服务端日志显示：
-
-- `[MainAgent] Response: 两个 Agent 已同时启动，正在并行执行查询任务。让我获取执行结果：`
-- `[MainAgent] Tool: TaskOutput {"task_id": "a0093a2", "block": true, "timeout": 30000}`
-
-前端显示：
-- SubAgent 气泡内只显示 "Result"，没有工具调用列表
-- 出现了多个 "TaskOutput" 工具调用气泡
-
-### 1.4 对比之前的执行流程
-
-![Task](E:\工作文档\开发类\MyCode\BIMCanvas\reports\Task.png)
+| 同步执行 | 后台执行 |
+|---------|---------|
+| ![Task](Task.png) | ![TaskOutput](TaskOutput.png) |
+| 显示 SubAgent 内部工具调用 | 只显示 Result，出现 TaskOutput 工具 |
 
 ---
 
-## 2. 初步分析
+## 2. 核心机制分析
 
-### 2.1 TaskOutput 工具是什么？
+### 2.1 Task 工具的两种执行模式
 
-**TaskOutput** 是 Anthropic Agent SDK 的内置工具，用于获取后台运行任务的结果。
+| 模式 | 触发条件 | 行为 |
+|------|---------|------|
+| **同步** | TaskOutput 工具不可用 | 阻塞主 Agent，等待 SubAgent 完成 |
+| **后台** | TaskOutput 工具可用 | 异步执行，立即返回 task_id |
 
-工作原理：
+**关键发现**：Claude 根据 **TaskOutput 工具是否可用** 来决定执行模式。
+
+### 2.2 TaskOutput 工具工作原理
+
+**TaskOutput 不是事件通知，而是阻塞轮询**。
+
+时间线分析：
 ```
-MainAgent 派发 Task (run_in_background=true)
-         ↓
-SubAgent 后台异步执行（不阻塞主线程）
-         ↓
-MainAgent 调用 TaskOutput 获取结果
-```
-
-**关键点**：当 SubAgent 在后台运行时，MainAgent 看不到其内部的工具调用过程。
-
-### 2.2 问题根因定位
-
-经过排查，问题源于 **Agent 工具配置变化**：
-
-| 时间点 | tools 配置 | 行为 |
-|--------|-----------|------|
-| 修改前 | `["Read", "Glob", "Grep", "Task"]` | SubAgent 同步执行，显示工具调用 |
-| 修改后 | `null` (默认全开) | Agent 可使用 TaskOutput，SubAgent 可能后台执行 |
-
-### 2.3 代码变更追溯
-
-**关键提交**: `6407fdf` - "功能：支持 tools 配置为空时默认全开"
-
-修改内容：
-```python
-# BIMCanvas.Agent/src/config/loader.py
-def load_tools(self) -> list[str] | None:
-    config = self.load_config()
-    tools = config.get('tools')
-    
-    # 空数组或 null 都返回 None，表示默认全开
-    if not tools:
-        return None  # ← 问题所在！
-    
-    return tools
+23:02:01  Task #1 派发（查询客厅家具）
+23:02:03  Task #2 派发（统计卧室卫生间）
+23:02:03  ◀ SUBAGENT #1 COMPLETE (2.5s)  ← 假完成事件！
+23:02:04  ◀ SUBAGENT #2 COMPLETE (0.6s)  ← 假完成事件！
+23:02:08  TaskOutput(task_id="a0093a2", block=true, timeout=30000)  ← 开始等待
+23:02:12  TaskOutput(task_id="a3465b9", block=true, timeout=30000)
+23:02:45  Response: "第二个完成，第一个还在执行"  ← 37秒后返回
+23:02:47  TaskOutput(task_id="a0093a2", timeout=60000)  ← 再次轮询
+23:03:10  Response: "两个都完成"
 ```
 
-**问题**：当 `config.json` 中没有 `tools` 字段时，`config.get('tools')` 返回 `None`，导致函数返回 `None`（默认全开）。
-
-### 2.4 配置文件对比
-
-**模板文件** (`src/config/templates/config.json.template`):
-```json
-{
-  "tools": ["Read", "Glob", "Grep", "Task"]
-}
+**工作流程**：
+```
+Claude 调用 TaskOutput(block=true)
+        ↓
+Claude Code CLI 内部阻塞等待
+        ↓
+返回结果：
+  - 任务完成：返回 { result, usage, duration_ms }
+  - 任务超时：返回当前状态（可能为空）
 ```
 
-**用户配置** (`~/Documents/BIMCanvas/config.json`):
-```json
-{
-  "apiKey": "$ANTHROPIC_API_KEY",
-  "model": "claude-opus-4-5-20251101",
-  "maxTokens": 4096,
-  "server": { ... }
-  // ← 缺少 tools 字段！
-}
-```
+### 2.3 配置导致的行为差异
 
-用户配置是在模板更新前创建的，没有 `tools` 字段，导致 `load_tools()` 返回 `None`。
+| 配置 | tools 值 | TaskOutput 可用 | 执行模式 |
+|------|---------|----------------|---------|
+| 显式限制 | `["Read", "Glob", "Grep", "Task"]` | ❌ | 同步 |
+| 全开 | `null` 或 缺失 | ✅ | 可能后台 |
+
+**根因**：用户配置文件缺少 `tools` 字段，`load_tools()` 返回 `None`（默认全开）。
 
 ---
 
-## 3. 影响范围
+## 3. 研究结论与共识
 
-- **Agent 行为**：SubAgent 可能以后台模式运行，改变同步执行流程
-- **前端显示**：SubAgent 内部工具调用不显示，用户体验下降
-- **调试困难**：无法看到 SubAgent 执行细节，问题排查困难
+### 3.1 ~~废弃的方案~~
 
----
+以下方案**不采用**：
 
-## 4. 建议修复方案
+| 方案 | 原因 |
+|------|------|
+| ~~修改 loader.py 区分配置~~ | 过度工程化，不解决根本问题 |
+| ~~修改 main_agent.py 选择工具~~ | 同上 |
+| ~~通过配置禁用 TaskOutput~~ | 治标不治本，后台执行是有价值的功能 |
 
-### 方案 A：更新用户配置文件（快速修复）
+### 3.2 达成的共识
 
-在 `~/Documents/BIMCanvas/config.json` 中添加 `tools` 字段：
+1. **后台执行是有价值的功能**，不应该简单禁用
+2. **默认应该同步执行**，只有用户明确要求才后台执行
+3. **前端渲染逻辑需要优化**，正确展示后台任务状态
+4. **通过系统提示词控制行为**，而非硬编码工具限制
 
-```json
-{
-  "apiKey": "$ANTHROPIC_API_KEY",
-  "model": "claude-opus-4-5-20251101",
-  "maxTokens": 4096,
-  "tools": ["Read", "Glob", "Grep", "Task"],
-  "server": {
-    "host": "127.0.0.1",
-    "port": 8765
-  }
-}
+### 3.3 推荐的修复方向
+
+#### 方向 1：修改系统提示词
+
+在 `BIMCANVAS.md` 中添加：
+
+```markdown
+## SubAgent 执行策略
+
+- **默认使用同步模式**：启动 SubAgent 后，等待其完全完成再继续
+- **不要主动使用后台执行**：除非用户明确要求"后台执行"或"不等待"
+- **不要使用 TaskOutput 工具**：除非用户明确要求后台任务
 ```
 
-### 方案 B：修改 loader.py 逻辑（长期方案）
+#### 方向 2：优化前端渲染逻辑
 
-区分"字段不存在"和"显式设置为空"：
+当前问题：TaskOutput 被当作普通工具调用显示
 
-```python
-def load_tools(self) -> list[str] | None:
-    config = self.load_config()
-    
-    # 检查字段是否存在
-    if 'tools' not in config:
-        # 字段不存在，使用默认限制
-        return ["Read", "Glob", "Grep", "Task"]
-    
-    tools = config['tools']
-    
-    # 显式设置为 null 或空数组，返回 None（全开）
-    if not tools:
-        return None
-    
-    return tools
-```
+推荐方案：
+1. 新增 `background_task` 气泡类型
+2. Task 后台启动 → 创建后台任务气泡
+3. TaskOutput 调用 → 更新状态"获取结果中..."
+4. 结果返回 → 完成状态
+
+代码位置：
+- Agent 端：`main_agent.py:532-550`
+- 前端：`AICommandCenter.vue:663-675`
 
 ---
 
-## 5. 验证步骤
+## 4. 待验证的问题
 
-1. 更新配置文件，添加 `tools` 字段
-2. 重启 Agent 服务
-3. 发送测试消息，触发 SubAgent 执行
-4. 确认：
-   - SubAgent 内部显示工具调用
-   - 不再出现 TaskOutput 工具调用
-   - 执行流程恢复正常
+| 问题 | 状态 | 验证方法 |
+|------|------|---------|
+| 后台任务启动时是否有事件？ | ✅ 已验证：有 `subagent_start` | 日志 |
+| 后台任务"完成"事件是真的吗？ | ⚠️ 是假的（2.5s） | 日志对比 |
+| 后台工具调用是否流式返回？ | ❌ 不返回 | 截图对比 |
+| TaskOutput 是轮询还是推送？ | ✅ 阻塞轮询 | 时间线分析 |
+| SDK 消息流是否包含后台内部消息？ | ❓ 待验证 | 添加调试日志 |
+| Hooks 是否在后台执行时触发？ | ❓ 待验证 | 添加 Hook 测试 |
 
 ---
 
-## 6. 相关文件
+## 5. 相关文件
 
 | 文件路径 | 说明 |
 |---------|------|
-| `BIMCanvas.Agent/src/config/loader.py` | 配置加载器，load_tools() 方法 |
+| `BIMCanvas.Agent/src/config/loader.py` | 配置加载器 |
 | `BIMCanvas.Agent/src/agent/main_agent.py` | 主 Agent 实现 |
+| `BIMCanvas.Web/src/components/UI/AICommandCenter.vue` | 前端聊天组件 |
 | `~/Documents/BIMCanvas/config.json` | 用户配置文件 |
-| `src/config/templates/config.json.template` | 配置模板 |
+| `~/Documents/BIMCanvas/BIMCANVAS.md` | 系统提示词 |
+| `docs/Agent_SDK/docs/TypeScript SDK.md` | SDK 文档 |
+
+---
+
+## 6. 参考资料
+
+- [Feature Request: Background Agent Execution](https://github.com/anthropics/claude-code/issues/9905)
+- [Bug: Background subagent tool calls exposed](https://github.com/anthropics/claude-code/issues/14118)
+- [Bug: Parallel Task agents lose output](https://github.com/anthropics/claude-code/issues/14055)
+- [Subagents Documentation](https://code.claude.com/docs/en/sub-agents)
 
 ---
 

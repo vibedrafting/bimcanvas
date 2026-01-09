@@ -102,6 +102,13 @@ export function exitWaitingState(waitingState: WaitingState): void {
   waitingState.isWaiting = false;
 }
 
+/**
+ * 检查气泡列表中是否有正在运行的 SubAgent
+ */
+export function hasStreamingSubAgent(bubbles: ChatBubble[]): boolean {
+  return bubbles.some(b => b.type === 'subagent' && b.status === 'streaming');
+}
+
 // ========== 气泡查找函数 ==========
 
 /**
@@ -235,4 +242,22 @@ export function addChildBubble(
   if (parentBubble.type === 'subagent' && parentBubble.childBubbles) {
     parentBubble.childBubbles.push(childBubble);
   }
+}
+
+// ========== 后台任务状态管理 ==========
+
+/**
+ * 将 SubAgent 气泡标记为后台执行状态
+ */
+export function markAsBackground(bubble: ChatBubble): void {
+  if (bubble.type === 'subagent') {
+    bubble.status = 'background';
+  }
+}
+
+/**
+ * 查找所有处于 streaming 状态的 SubAgent 气泡
+ */
+export function findStreamingSubAgents(bubbles: ChatBubble[]): ChatBubble[] {
+  return bubbles.filter(b => b.type === 'subagent' && b.status === 'streaming');
 }
