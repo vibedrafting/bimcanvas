@@ -236,6 +236,18 @@ class AgentLogger:
                 f"Tool Result ({tool_name}): {result_str}{Colors.RESET}"
             )
 
+    def log_permission_error(self, message: str) -> None:
+        """Log permission error (SDK permission request)."""
+        agent_label = f"[{self._current_subagent}]" if self._in_subagent else "[MainAgent]"
+        # 截断过长的消息
+        if len(message) > 200:
+            message = message[:200] + "..."
+        self._print(
+            f"{self._indent()}{Colors.BRIGHT_YELLOW}{Colors.BOLD}"
+            f"⚠ [PERMISSION]{Colors.RESET} {Colors.YELLOW}"
+            f"{agent_label} {message}{Colors.RESET}"
+        )
+
     def _format_tool_input(self, tool_input: dict) -> str:
         """Format tool input for display."""
         if not tool_input:

@@ -377,7 +377,7 @@ Agent 解析用户意图后，输出结构化对象：
 │  ┌─────────────────────────────────────────────────────────┐   │
 │  │ 输入：                                                    │   │
 │  │   • schemes/{s}/zones.json (Designable Zone)             │   │
-│  │   • modules/*.svg (素材库)                               │   │
+│  │   • modules/module_library.json (模块元数据)             │   │
 │  │   • baseline/openings.json (门窗位置)                    │   │
 │  │   • computed/exclusions.json (禁区)                      │   │
 │  │   • 策略参数                                              │   │
@@ -535,7 +535,8 @@ class PlacementAgent:
 | `read_room_zones` | 读取 Room Zone | 读取 `computed/room_zones.json`（Server 预计算） |
 | `read_openings` | 读取门窗数据 | 读取 `baseline/openings.json` |
 | `read_exclusions` | 读取禁区数据 | 读取 `computed/exclusions.json`（Server 预计算） |
-| `list_modules` | 列出素材库 | 读取 `modules/*.svg` 文件名，解析尺寸信息 |
+| `list_modules` | 查询模块库 | 读取 `modules/module_library.json`，支持按 tags 过滤 |
+| `get_module_info` | 获取模块详情 | 根据 moduleId 返回完整信息（尺寸、标签、SVG路径）|
 | `read_strategy` | 读取策略配置 | 读取 `strategy.json`（Server 注入） |
 
 ### 6.2 方案写入工具
@@ -635,12 +636,12 @@ git_commit(project_path, f"feat(layout): {strategy.name} for {zone.name}")
 ```json
 {
   "id": "m_1",
-  "moduleId": "bed_king",
-  "moduleName": "King Bed",
+  "moduleId": "mod_bed_001",
+  "moduleName": "主卧双人床",
   "bounds": [[9100, 1750], [11100, 1750], [11100, 3750], [9100, 3750]],
   "facing": "east",
   "zoneId": "dz_1",
-  "svgPath": "modules/床_双人_2000x1800.svg",
+  "placementReason": "床头靠东墙居中",
   "dependencyGroup": "bedroom_core"
 }
 ```
@@ -649,15 +650,17 @@ git_commit(project_path, f"feat(layout): {strategy.name} for {zone.name}")
 ```json
 {
   "id": "m_1",
-  "moduleId": "bed_king",
-  "moduleName": "King Bed",
+  "moduleId": "mod_bed_001",
+  "moduleName": "主卧双人床",
   "position": [10100, 2750],
   "size": [2000, 1800],
   "facing": "east",
   "zoneId": "dz_1",
-  "svgPath": "modules/床_双人_2000x1800.svg"
+  "placementReason": "床头靠东墙居中"
 }
 ```
+
+> **注意**：`moduleId` 必须是 `modules/module_library.json` 中存在的 `id` 值。
 
 #### schemes/{s}/README.md (设计说明)
 
@@ -700,60 +703,161 @@ git_commit(project_path, f"feat(layout): {strategy.name} for {zone.name}")
 
 ## 八、模块素材库规范
 
-### 8.1 文件组织
+### 8.1 库结构概览
+
+模块素材库采用 JSON 元数据 + SVG 资源分离的架构：
 
 ```
 {项目根目录}/modules/
-├── 床_双人_2000x1800.svg
-├── 床_单人_1200x1900.svg
-├── 衣柜_三门_2400x600.svg
-├── 衣柜_双门_1800x600.svg
-├── 床头柜_500x500.svg
-├── 沙发_三人_2400x900.svg
-├── 沙发_双人_1800x900.svg
-├── 沙发_贵妃_1500x800.svg
-├── 茶几_方形_1200x600.svg
-├── 茶几_圆形_800x800.svg
-├── 电视柜_1800x400.svg
-├── 餐桌_六人_1800x900.svg
-├── 餐椅_450x450.svg
-├── 马桶_400x700.svg
-├── 洗手台_600x500.svg
-└── 淋浴房_900x900.svg
+├── module_library.json      # 模块元数据定义（37个模块）
+├── SVG_Generation_Prompt.md # SVG 生成指南
+└── assets/                  # SVG 俯视图资源
+    ├── mod_bed_001.svg      # 双人床 (1800×2000mm)
+    ├── mod_bed_002.svg      # 大双人床 (2230×2500mm)
+    ├── mod_sofa_001.svg     # 单人沙发 (760×660mm)
+    └── ...                  # 共 37 个 SVG 文件
 ```
 
-### 8.2 命名规范
+### 8.2 module_library.json 数据格式
 
+```json
+{
+  "version": "1.0",
+  "modules": [
+    {
+      "id": "mod_bed_001",
+      "name": "双人床",
+      "tags": ["sleep"],
+      "size": { "width": 1800, "depth": 2000 },
+      "description": "标准双人床",
+      "svgPath": "modules/assets/mod_bed_001.svg"
+    }
+  ]
+}
 ```
-{名称}_{规格}_{宽}x{高}.svg
 
-名称：家具中文名
-规格：可选的规格描述（如三人、双门）
-宽x高：模块尺寸（mm），宽度 x 高度（深度）
-```
+**字段说明**：
 
-### 8.3 解析逻辑
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| `id` | string | 唯一标识，格式 `mod_{类型}_{编号}`，Agent 通过此 ID 引用模块 |
+| `name` | string | 中文名称，用于显示和日志 |
+| `tags` | string[] | 功能标签数组，用于按功能过滤 |
+| `size.width` | number | 宽度（mm），俯视图水平方向 |
+| `size.depth` | number | 深度（mm），俯视图垂直方向 |
+| `description` | string | 模块描述 |
+| `svgPath` | string | SVG 资源相对路径 |
+
+### 8.3 标签体系
+
+模块使用功能标签标记用途，Agent 根据房间类型和策略过滤合适的模块：
+
+| 标签 | 说明 | 适用房间 | 示例模块 |
+|------|------|----------|----------|
+| `sleep` | 睡眠相关 | 卧室 | 床、榻榻米 |
+| `seating` | 座位相关 | 客厅、卧室 | 沙发、单椅 |
+| `dining` | 餐饮相关 | 餐厅、厨房 | 餐桌、餐椅、吧椅 |
+| `storage` | 存储相关 | 全屋 | 衣柜、储物柜 |
+| `work` | 工作相关 | 书房、卧室 | 书桌、电脑桌 |
+| `media` | 媒体相关 | 客厅 | 电视柜 |
+| `appliance` | 家电类 | 厨房、阳台 | 冰箱、洗衣机、空调 |
+| `lighting` | 照明类 | 全屋 | 落地灯、台灯 |
+| `dressing` | 梳妆相关 | 卧室 | 梳妆台 |
+
+### 8.4 模块分类统计
+
+当前库包含 **37 个模块**，分为 7 大类：
+
+| 类别 | 数量 | ID 范围 | 宽度范围 | 深度范围 |
+|------|------|---------|----------|----------|
+| 床类 | 4 | mod_bed_001~004 | 1300-2230mm | 1810-2500mm |
+| 沙发 | 7 | mod_sofa_001~007 | 760-4000mm | 660-2100mm |
+| 椅子 | 6 | mod_chair_001~006 | 380-1600mm | 380-1380mm |
+| 桌台 | 7 | mod_table_001~007 | 900-1600mm | 420-1350mm |
+| 柜架 | 7 | mod_cabinet_001~007 | 420-2000mm | 350-650mm |
+| 家电 | 4 | mod_appliance_001~004 | 530-900mm | 350-800mm |
+| 灯具 | 2 | mod_lighting_001~002 | 300-500mm | 300-500mm |
+
+### 8.5 Agent 集成方式
+
+#### 工具：查询模块库
 
 ```python
-def parse_svg_filename(filename: str) -> dict:
-    """解析 SVG 文件名获取模块信息"""
-    name = filename.replace(".svg", "")
-    parts = name.rsplit("_", 1)  # 从右边分割
+def list_modules(tags: list[str] = None) -> list[dict]:
+    """
+    查询模块库，可按标签过滤
 
-    # 尺寸部分
-    size_str = parts[-1]  # "2000x1800"
-    width, height = map(int, size_str.split("x"))
+    Args:
+        tags: 功能标签列表，如 ["sleep", "storage"]
 
-    # 名称部分
-    name_part = parts[0]  # "床_双人"
+    Returns:
+        匹配的模块列表
+    """
+    library = load_json("modules/module_library.json")
+    modules = library["modules"]
 
-    return {
-        "templateId": name,
-        "name": name_part,
-        "size": [width, height],
-        "svgPath": f"modules/{filename}"
-    }
+    if tags:
+        # 返回包含任一指定标签的模块
+        modules = [m for m in modules if any(t in m["tags"] for t in tags)]
+
+    return modules
+
+# 示例：获取卧室适用的模块
+bedroom_modules = list_modules(tags=["sleep", "storage", "dressing"])
 ```
+
+#### 工具：获取模块详情
+
+```python
+def get_module_info(module_id: str) -> dict:
+    """
+    根据 moduleId 获取完整模块信息
+
+    Args:
+        module_id: 模块 ID，如 "mod_bed_001"
+
+    Returns:
+        模块完整信息（尺寸、标签、SVG路径等）
+    """
+    library = load_json("modules/module_library.json")
+    for module in library["modules"]:
+        if module["id"] == module_id:
+            return module
+    return None
+```
+
+#### 在 modules.json 中引用
+
+布置结果中通过 `moduleId` 引用库中的模块：
+
+```json
+{
+  "id": "m_1",
+  "moduleId": "mod_bed_001",
+  "moduleName": "主卧双人床",
+  "bounds": [[600, 400], [2400, 400], [2400, 2400], [600, 2400]],
+  "facing": "north",
+  "zoneId": "dz_1",
+  "placementReason": "床头靠北墙居中，与窗户保持距离"
+}
+```
+
+> **注意**：`moduleId` 必须是 `module_library.json` 中存在的 `id` 值。
+
+### 8.6 SVG 资源规范
+
+SVG 文件作为模块的可视化表示，遵循以下规范：
+
+| 规范项 | 要求 |
+|--------|------|
+| ViewBox | `viewBox="0 0 {width} {depth}"`，单位 mm |
+| 主轮廓描边 | 25px，黑色 (#000000) |
+| 细节线描边 | 15-20px，黑色 |
+| 线型 | 实线，禁止虚线 |
+| 风格 | 极简线框，区分家具类型特征 |
+| 默认朝向 | 向上（north），床头/沙发靠背在顶部 |
+
+详细的 SVG 生成规范见 `modules/SVG_Generation_Prompt.md`。
 
 ---
 

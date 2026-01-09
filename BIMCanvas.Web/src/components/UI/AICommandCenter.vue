@@ -579,6 +579,10 @@ const sendMessage = async () => {
                   console.warn('[Blocking error]', parsed.errorContent);
                 }
               }
+              // 处理权限错误
+              if (parsed.errorType === 'permission_required') {
+                console.warn('[Permission error]', parsed.errorContent || parsed.content);
+              }
               // 调试模式：记录被隐藏的 recoverable 错误
               if (parsed.hiddenContent && import.meta.env.DEV) {
                 console.debug('[Hidden recoverable error]', parsed.hiddenContent);
