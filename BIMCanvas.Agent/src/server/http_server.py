@@ -196,6 +196,12 @@ async def chat_stream_handler(request: web.Request) -> web.StreamResponse:
             if chunk.hidden_content:
                 event_data["hiddenContent"] = chunk.hidden_content
 
+            # TaskOutput 事件字段
+            if chunk.task_id:
+                event_data["taskId"] = chunk.task_id
+            if chunk.timeout is not None:
+                event_data["timeout"] = chunk.timeout
+
             await response.write(f"data: {json.dumps(event_data, ensure_ascii=False)}\n\n".encode("utf-8"))
 
         # Send done event

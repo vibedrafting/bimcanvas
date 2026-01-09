@@ -154,6 +154,24 @@ class MainAgent:
         r"EBUSY.*resource busy",      # 文件锁定
     ]
 
+    # 权限错误的模式匹配（纯文本形式，非 XML 标签）
+    _PERMISSION_ERROR_PATTERNS = [
+        r"Error: Claude requested permissions to .+, but you haven't granted it yet",
+        r"Permission denied",
+        r"permission.*required",
+    ]
+
+    def _detect_permission_error(self, text: str) -> tuple[bool, str | None]:
+        """
+        检测文本中是否包含权限错误
+        返回: (是否为权限错误, 错误消息)
+        """
+        for pattern in self._PERMISSION_ERROR_PATTERNS:
+            match = re.search(pattern, text, re.IGNORECASE)
+            if match:
+                return True, match.group(0)
+        return False, None
+
     def _classify_tool_error(self, error_content: str) -> str:
         """分类工具调用错误：recoverable 或 blocking"""
         for pattern in self._RECOVERABLE_ERROR_PATTERNS:
@@ -439,7 +457,30 @@ class MainAgent:
                     if delta_type == "text_delta":
                         text = delta.get("text", "")
                         if text:
-                            # 过滤错误标签
+                            # 1. 检测权限错误（纯文本形式）
+                            is_perm_error, perm_msg = self._detect_permission_error(text)
+                            if is_perm_error:
+                                if self.verbose:
+                                    self._agent_logger.log_permission_error(perm_msg)
+                                # 发送权限错误事件
+                                yield StreamChunk(
+                                    type="text",
+                                    content=text,
+                                    error_type="permission_required",
+                                    error_content=perm_msg
+                                )
+                                # 关闭当前工具调用（如果有）
+                                if self._current_tool_name:
+                                    yield StreamChunk(
+                                        type="tool_call_complete",
+                                        tool_call_id=f"tc-{self._tool_call_counter}",
+                                        success=False,
+                                        error=perm_msg
+                                    )
+                                self._streamed_text = True
+                                continue  # 跳过后续处理
+
+                            # 2. 过滤错误标签
                             cleaned, error_content, hidden, err_type = self._filter_recoverable_errors(text)
 
                             if hidden and self.verbose:
