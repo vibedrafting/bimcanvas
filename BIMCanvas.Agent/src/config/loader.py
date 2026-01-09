@@ -135,19 +135,45 @@ class ConfigLoader:
 
     def load_tools(self) -> list[str] | None:
         """
-        加载主 Agent 工具列表
+        加载主 Agent 工具列表（向后兼容方法）
 
         Returns:
             工具名称列表，或 None（表示默认全开）
         """
+        allowed, _ = self.load_permissions()
+        return allowed
+
+    def load_permissions(self) -> tuple[list[str] | None, list[str]]:
+        """
+        加载工具权限配置
+
+        支持两种格式：
+        1. 新格式：permissions: { allow: [...], deny: [...] }
+        2. 旧格式：tools: [...]（向后兼容）
+
+        Returns:
+            (allowed_tools, disallowed_tools) 元组
+            - allowed_tools: 允许的工具列表，None 表示默认全开
+            - disallowed_tools: 禁止的工具列表
+        """
         config = self.load_config()
+        permissions = config.get('permissions', {})
+
+        # 新格式：permissions 结构
+        if permissions:
+            allow = permissions.get('allow')
+            deny = permissions.get('deny', [])
+            # 空数组或 null 都返回 None，表示默认全开
+            if not allow:
+                allow = None
+            return allow, deny
+
+        # 兼容旧格式：tools 字段
         tools = config.get('tools')
-
-        # 空数组或 null 都返回 None，表示默认全开
         if not tools:
-            return None
+            return None, []
+        return tools, []
 
-        return tools
 
     def load_agents(self) -> dict[str, AgentConfig]:
         """

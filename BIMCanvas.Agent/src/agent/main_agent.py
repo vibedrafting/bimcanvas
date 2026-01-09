@@ -127,17 +127,18 @@ class MainAgent:
         """Create agent options with SubAgent support."""
         settings = get_settings()
 
-        # 从配置加载系统提示词和工具
+        # 从配置加载系统提示词和工具权限
         system_prompt = self._config_loader.load_system_prompt()
-        tools = self._config_loader.load_tools()  # 可能返回 None（默认全开）
+        allowed_tools, disallowed_tools = self._config_loader.load_permissions()
 
         return ClaudeAgentOptions(
             system_prompt=system_prompt,
             cwd=self.project_path,
             max_turns=20,
             model=settings.model_name,
-            tools=tools,                 # None 表示默认全开
-            allowed_tools=tools or [],   # None 时传空列表
+            tools=allowed_tools,                   # None 表示默认全开
+            allowed_tools=allowed_tools or [],     # None 时传空列表
+            disallowed_tools=disallowed_tools,     # 工具黑名单
             agents=self._subagents,
             permission_mode="acceptEdits",
             include_partial_messages=True,
@@ -224,9 +225,11 @@ class MainAgent:
 
             # 调试日志：打印实际使用的配置
             tools_display = options.tools if options.tools else "默认全开"
+            deny_display = options.disallowed_tools if options.disallowed_tools else "无"
             print(f"[MainAgent] ========== 配置信息 ==========")
             print(f"[MainAgent] 模型: {options.model}")
-            print(f"[MainAgent] 可用工具: {tools_display}")
+            print(f"[MainAgent] 允许工具: {tools_display}")
+            print(f"[MainAgent] 禁止工具: {deny_display}")
             print(f"[MainAgent] 项目路径: {self.project_path}")
             print(f"[MainAgent] ================================")
 

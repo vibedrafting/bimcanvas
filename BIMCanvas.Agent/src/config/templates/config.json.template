@@ -2,7 +2,10 @@
   "apiKey": "$ANTHROPIC_API_KEY",
   "model": "claude-sonnet-4-20250514",
   "maxTokens": 4096,
-  "tools": ["Read", "Glob", "Grep", "Task"],
+  "permissions": {
+    "allow": ["Read", "Glob", "Grep", "Task"],
+    "deny": []
+  },
   "server": {
     "host": "127.0.0.1",
     "port": 8765
