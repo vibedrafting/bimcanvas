@@ -8,6 +8,8 @@ using BIMCanvas.Core.Services;
 using Microsoft.Extensions.Logging;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Serialization;
+using SharpCompress.Archives;
+using SharpCompress.Common;
 
 namespace BIMCanvas.Server.Services
 {
@@ -163,6 +165,8 @@ Thumbs.db
 
         /// <summary>
         /// 解压 .bcp 文件到工作目录（不带时间戳）
+        /// 支持 ZIP、RAR、7z 等多种压缩格式
+        /// 自动检测并跳过单一顶层目录（避免 demo_1/demo_1 嵌套）
         /// </summary>
         /// <param name="bcpFilePath">BCP 文件路径</param>
         /// <param name="overwrite">是否覆盖已存在的目录</param>
@@ -193,11 +197,89 @@ Thumbs.db
                 }
             }
 
-            // 解压
+            // 使用 SharpCompress 解压（自动检测格式：ZIP、RAR、7z 等）
             _logger.LogInformation("解压 BCP 到: {Path}", projectPath);
-            ZipFile.ExtractToDirectory(bcpFilePath, projectPath);
+            Directory.CreateDirectory(projectPath);
 
+            using (var archive = ArchiveFactory.Open(bcpFilePath))
+            {
+                var archiveType = archive.Type.ToString();
+                _logger.LogInformation("检测到压缩格式: {Type}", archiveType);
+
+                // 检测是否存在单一顶层目录（如 WinRAR 打包整个文件夹）
+                var entries = archive.Entries.Where(e => !e.IsDirectory).ToList();
+                var topLevelPrefix = DetectSingleTopLevelDirectory(entries);
+
+                if (!string.IsNullOrEmpty(topLevelPrefix))
+                {
+                    _logger.LogInformation("检测到单一顶层目录: {Prefix}，将跳过此层", topLevelPrefix);
+                }
+
+                foreach (var entry in entries)
+                {
+                    // 计算目标路径，跳过顶层目录
+                    var entryPath = entry.Key ?? string.Empty;
+                    if (!string.IsNullOrEmpty(topLevelPrefix) && entryPath.StartsWith(topLevelPrefix))
+                    {
+                        entryPath = entryPath.Substring(topLevelPrefix.Length);
+                    }
+
+                    if (string.IsNullOrEmpty(entryPath))
+                        continue;
+
+                    var destPath = Path.Combine(projectPath, entryPath.Replace('/', Path.DirectorySeparatorChar));
+                    var destDir = Path.GetDirectoryName(destPath);
+
+                    if (!string.IsNullOrEmpty(destDir) && !Directory.Exists(destDir))
+                    {
+                        Directory.CreateDirectory(destDir);
+                    }
+
+                    using (var entryStream = entry.OpenEntryStream())
+                    using (var fileStream = File.Create(destPath))
+                    {
+                        entryStream.CopyTo(fileStream);
+                    }
+                }
+            }
+
+            _logger.LogInformation("解压完成，已支持格式: ZIP/RAR/7z/TAR/GZ");
             return projectPath;
+        }
+
+        /// <summary>
+        /// 检测压缩包是否有单一顶层目录
+        /// 如果所有文件都以同一个目录名开头，返回该目录名（含尾部斜杠）
+        /// </summary>
+        private string? DetectSingleTopLevelDirectory(List<SharpCompress.Archives.IArchiveEntry> entries)
+        {
+            if (entries.Count == 0)
+                return null;
+
+            // 获取所有文件的第一级目录
+            var topLevelDirs = new HashSet<string>();
+            foreach (var entry in entries)
+            {
+                var key = entry.Key ?? string.Empty;
+                var slashIndex = key.IndexOfAny(new[] { '/', '\\' });
+                if (slashIndex > 0)
+                {
+                    topLevelDirs.Add(key.Substring(0, slashIndex + 1));
+                }
+                else
+                {
+                    // 有文件在根目录，不是单一顶层目录
+                    return null;
+                }
+            }
+
+            // 只有一个顶层目录时返回它
+            if (topLevelDirs.Count == 1)
+            {
+                return topLevelDirs.First();
+            }
+
+            return null;
         }
 
         /// <summary>
