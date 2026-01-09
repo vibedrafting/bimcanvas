@@ -37,7 +37,7 @@ Agent 是「设计师」：理解需求、做出决策、发出指令，但不�
 
 **Agent 负责（智能决策）：**
 - 理解用户意图和设计需求
-- 分析房间功能，推断功能标签 (tags)
+- 读取 Server 预计算的功能标签 (tags)，根据标签过滤模块
 - 选择合适的家具模块
 - 决策家具摆放位置和朝向
 - 遵循设计原则进行布置
@@ -364,7 +364,7 @@ Agent 解析用户意图后，输出结构化对象：
 │  │                                                          │   │
 │  │ AI 任务：                                                 │   │
 │  │   1. 分析户型结构（几室几厅几卫）                         │   │
-│  │   2. 为每个 Room Zone 推断功能标签 (tags)                 │   │
+│  │   2. 读取每个 Room Zone 的功能标签 (tags，Server 预计算)  │   │
 │  │   3. 根据策略调整标签权重                                 │   │
 │  │   4. 生成 Designable Zone                                │   │
 │  │   5. 细分设计区（如客厅分为沙发区、电视区）              │   │
@@ -407,11 +407,14 @@ Agent 解析用户意图后，输出结构化对象：
 
 ### 4.2 Phase A: 分区设计
 
-#### Step 1: 功能标签推断
+#### Step 1: 读取功能标签
 
-从 Room Zone 的 `name` 和 `reason` 字段推断功能标签：
+> **重要变更**：功能标签由 Server 预计算并写入 `computed/room_zones.json` 的 `tags` 字段。
+> Agent 不再自行推断标签，只需读取 Server 预计算的 `zone.tags`。
 
-| reason | name 关键词 | 推荐 tags |
+以下为 Server 使用的"房间类型 → 功能标签"映射参考（Agent 无需了解此映射逻辑）：
+
+| reason | name 关键词 | 预计算 tags |
 |--------|-------------|-----------|
 | room:LivingRoom | 客厅 | sitting, entertainment, tv_media |
 | room:MasterBedroom | 主卧 | sleeping, rest, storage, dressing |
@@ -584,6 +587,8 @@ git_commit(project_path, f"feat(layout): {strategy.name} for {zone.name}")
 
 #### computed/room_zones.json (Room Zone)
 
+> **注意**：`tags` 字段由 Server 根据"房间类型 → 功能标签"映射表预计算，Agent 直接读取使用。
+
 ```json
 {
   "id": "rz_1",
@@ -592,7 +597,7 @@ git_commit(project_path, f"feat(layout): {strategy.name} for {zone.name}")
   "type": 1,
   "reason": "room:Bedroom",
   "rawBoundary": [[9400, 10500], [6600, 10500], ...],
-  "tags": [],
+  "tags": ["sleep", "storage", "work", "lighting"],
   "computedBoundary": null
 }
 ```
@@ -858,6 +863,57 @@ SVG 文件作为模块的可视化表示，遵循以下规范：
 | 默认朝向 | 向上（north），床头/沙发靠背在顶部 |
 
 详细的 SVG 生成规范见 `modules/SVG_Generation_Prompt.md`。
+
+### 8.7 Server-Agent 模块库协作规范
+
+> 详细设计见 `plans/Server_Agent_Collaboration_Plan.md`
+
+#### 核心设计原则
+
+```
+Server = 约束管理者 + 验证者（不做布置决策）
+Agent = 智能决策者 + 规划者（不持有状态、不持有映射逻辑）
+```
+
+**关键职责边界**：
+- **Server 职责**：房间类型→功能标签映射、约束预计算、验证
+- **Agent 职责**：读取预计算数据、智能决策、布置规划
+
+#### 两种协作模式
+
+| 维度 | MVP 版本 | 完整版 |
+|------|----------|--------|
+| **交互方式** | Agent 直接读写文件 | Agent 通过 MCP 工具调用 Server |
+| **模块库访问** | 直接读取 `module_library.json` | Server 提供 `list_modules` 工具 |
+| **功能标签** | Server 预计算写入 `room_zones.json` | Server 实时计算 |
+| **验证时机** | 事后验证（Agent 提交后 Server 检查） | 实时验证（每次放置前检查） |
+| **适用场景** | 快速验证、单机开发、Claude Code 集成 | 生产环境、多 Agent 并行 |
+
+#### MVP 版本工作流
+
+```
+Server 预计算（含标签分配）→ Agent 读取数据 → Agent 独立决策 → Server 事后验证
+```
+
+**三阶段流程**：
+1. **数据准备**（Server）：生成 `computed/room_zones.json`（含 `tags` 字段）、`exclusions.json`
+2. **独立决策**（Agent）：读取 `zone.tags` → 过滤模块 → 布置决策 → 写入 `modules.json` → Git 提交
+3. **事后验证**（Server）：moduleId 有效性 + 标签兼容性 + 空间约束检查
+
+#### 房间类型 → 功能标签对照表（Server 持有）
+
+| 房间类型 (reason) | 功能标签 (tags) |
+|-------------------|-----------------|
+| `room:LivingRoom` | `seating`, `media`, `storage`, `lighting` |
+| `room:MasterBedroom` | `sleep`, `storage`, `dressing`, `lighting` |
+| `room:Bedroom` | `sleep`, `storage`, `work`, `lighting` |
+| `room:DiningRoom` | `dining`, `storage`, `lighting` |
+| `room:Kitchen` | `appliance`, `storage` |
+| `room:Bathroom` | `appliance` |
+| `room:Study` | `work`, `storage`, `seating`, `lighting` |
+| `room:Balcony` | `appliance`, `seating` |
+
+> **注意**：此对照表由 Server 持有，Agent 不需要了解此映射逻辑。
 
 ---
 

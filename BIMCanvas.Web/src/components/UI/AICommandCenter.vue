@@ -134,6 +134,7 @@ const getRandomWaitingVerb = (): string => {
 const chatMessages = ref<ChatMessage[]>([]);
 const inputMessage = ref('');
 const isLoading = ref(false);
+const isPollingBackground = ref(false);  // 后台任务 polling 状态
 const chatScrollRef = ref<HTMLElement | null>(null);
 const chatBottomRef = ref<HTMLElement | null>(null);
 const expandedThinking = ref<Record<number, boolean>>({});
@@ -706,6 +707,9 @@ const sendMessage = async () => {
 
             // ===== TaskOutput Polling Event (后台任务轮询) =====
             else if (parsed.type === 'task_output_polling') {
+              // 设置全局 polling 状态（用于 UI 提示）
+              isPollingBackground.value = true;
+
               // 将所有 streaming 状态的 SubAgent 标记为后台执行
               const streamingSubAgents = findStreamingSubAgents(currentMsg.bubbles);
               for (const bubble of streamingSubAgents) {
@@ -753,6 +757,7 @@ const sendMessage = async () => {
     agentStatus.value = 'disconnected';
   } finally {
     isLoading.value = false;
+    isPollingBackground.value = false;  // 重置 polling 状态
     await nextTick();
     scrollToBottom();
   }
@@ -1340,6 +1345,14 @@ import MarkdownText from './base/MarkdownText.vue';
                 </transition>
             </div>
         </div>
+
+        <!-- Polling Background Status Indicator -->
+        <transition name="slide-down">
+          <div v-if="isPollingBackground" class="polling-indicator">
+            <span class="polling-dot"></span>
+            <span class="polling-text">正在等待后台任务...</span>
+          </div>
+        </transition>
 
         <!-- Antigravity Input Box -->
         <div class="antigravity-input-box">
@@ -2578,6 +2591,48 @@ import MarkdownText from './base/MarkdownText.vue';
     margin-right: 0;
     border-width: 0;
     transform: scale(0.95);
+}
+
+/* --- Polling Indicator --- */
+.polling-indicator {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 16px;
+    margin: 0 4px 8px;
+    background: rgba(251, 191, 36, 0.1);  /* amber/warning color */
+    border-radius: 8px;
+    border: 1px solid rgba(251, 191, 36, 0.3);
+    color: rgba(251, 191, 36, 0.9);
+    font-size: 0.8rem;
+
+    .polling-dot {
+        width: 6px;
+        height: 6px;
+        border-radius: 50%;
+        background: rgba(251, 191, 36, 0.9);
+        animation: pulse-polling 1.5s ease-in-out infinite;
+    }
+
+    .polling-text {
+        font-weight: 500;
+    }
+}
+
+@keyframes pulse-polling {
+    0%, 100% { opacity: 1; transform: scale(1); }
+    50% { opacity: 0.4; transform: scale(1.2); }
+}
+
+.slide-down-enter-active,
+.slide-down-leave-active {
+    transition: all 0.3s ease;
+}
+
+.slide-down-enter-from,
+.slide-down-leave-to {
+    opacity: 0;
+    transform: translateY(-10px);
 }
 
 /* --- Antigravity Input Box --- */

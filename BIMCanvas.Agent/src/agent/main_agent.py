@@ -154,11 +154,11 @@ class MainAgent:
         r"EBUSY.*resource busy",      # 文件锁定
     ]
 
-    # 权限错误的模式匹配（纯文本形式，非 XML 标签）
+    # 权限错误的模式匹配（短特征，能匹配分片传输的 text_delta）
     _PERMISSION_ERROR_PATTERNS = [
-        r"Error: Claude requested permissions to .+, but you haven't granted it yet",
-        r"Permission denied",
-        r"permission.*required",
+        r"haven't granted",           # "but you haven't granted it yet"
+        r"requested permissions",     # "Claude requested permissions to"
+        r"Permission denied",         # 通用权限拒绝
     ]
 
     def _detect_permission_error(self, text: str) -> tuple[bool, str | None]:
@@ -457,6 +457,9 @@ class MainAgent:
                     if delta_type == "text_delta":
                         text = delta.get("text", "")
                         if text:
+                            # [调试] 打印每个 text_delta 的内容
+                            print(f"[DEBUG text_delta] len={len(text)}: {repr(text[:100])}")
+
                             # 1. 检测权限错误（纯文本形式）
                             is_perm_error, perm_msg = self._detect_permission_error(text)
                             if is_perm_error:

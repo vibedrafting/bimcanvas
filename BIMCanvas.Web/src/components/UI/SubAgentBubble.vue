@@ -46,7 +46,10 @@ const stopTimer = () => {
   }
 };
 
-watch(() => props.bubble.status, (newStatus) => {
+watch(() => props.bubble.status, (newStatus, oldStatus) => {
+  // [调试] 状态变化日志
+  console.log(`[SubAgentBubble] status: ${oldStatus} → ${newStatus}`);
+
   if (newStatus === 'streaming' || newStatus === 'background') {
     startTimer();
   } else {
