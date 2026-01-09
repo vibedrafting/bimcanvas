@@ -1049,10 +1049,10 @@ import MarkdownText from './base/MarkdownText.vue';
       </div>
 
       <!-- Layer 2: Intelligence Stream -->
-      <div class="layer-stream" ref="chatScrollRef" @scroll="handleChatScroll">
+      <div class="layer-stream">
          
          <!-- View: Chat -->
-        <div v-show="mode === 'chat'" class="view-chat">
+        <div v-show="mode === 'chat'" class="view-chat" ref="chatScrollRef" @scroll="handleChatScroll">
 
 
 
@@ -1778,9 +1778,18 @@ import MarkdownText from './base/MarkdownText.vue';
 /* --- Layer 2: Intelligence Stream --- */
 .layer-stream {
     flex: 1;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    position: relative;
+    min-height: 0; /* 允许 flex 子元素收缩 */
+}
+
+/* 共享滚动容器样式 */
+.view-chat, .view-tasks {
+    flex: 1;
     overflow-y: auto;
     overflow-x: hidden;
-    position: relative;
     
     /* Scrollbar styling */
     &::-webkit-scrollbar {

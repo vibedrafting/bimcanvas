@@ -332,18 +332,36 @@ const getToolDetail = (tc: ToolCall): string | null => {
 }
 
 .tool-status-dot {
-  width: 4px;
-  height: 4px;
+  width: 6px;
+  height: 6px;
   border-radius: 50%;
   background: var(--text-tertiary);
   opacity: 0.5;
   flex-shrink: 0;
+  position: relative; /* For pseudo-element positioning */
+  z-index: 1;
 }
 
 .tool-item.running .tool-status-dot {
   background: var(--accent-color);
   opacity: 1;
-  animation: pulse-glow 1.5s ease-in-out infinite;
+  /* Main dot pulses slightly */
+  animation: dot-pulse 1s ease-in-out infinite;
+}
+
+/* Ripple Effect using pseudo-element */
+.tool-item.running .tool-status-dot::after {
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: 100%;
+  height: 100%;
+  border-radius: 50%;
+  background: var(--accent-color);
+  z-index: -1;
+  animation: ripple-wave 1s cubic-bezier(0, 0, 0.2, 1) infinite;
 }
 
 .tool-item.completed .tool-status-dot { background: var(--accent-green, #4ade80); opacity: 0.8; }
@@ -435,17 +453,21 @@ const getToolDetail = (tc: ToolCall): string | null => {
 
 @keyframes spin { to { transform: rotate(360deg); } }
 
-/* 呼吸灯脉冲动画 */
-@keyframes pulse-glow {
-  0%, 100% {
-    opacity: 1;
-    box-shadow: 0 0 4px var(--accent-color);
-    transform: scale(1);
+/* Main Dot Pulse */
+@keyframes dot-pulse {
+  0%, 100% { transform: scale(1); opacity: 1; }
+  50% { transform: scale(1.2); opacity: 0.8; }
+}
+
+/* Ripple Wave Animation */
+@keyframes ripple-wave {
+  0% {
+    transform: translate(-50%, -50%) scale(1);
+    opacity: 0.8;
   }
-  50% {
-    opacity: 0.6;
-    box-shadow: 0 0 8px var(--accent-color), 0 0 12px var(--accent-color);
-    transform: scale(1.3);
+  100% {
+    transform: translate(-50%, -50%) scale(3.5);
+    opacity: 0;
   }
 }
 </style>

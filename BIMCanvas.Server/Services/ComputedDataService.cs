@@ -25,12 +25,16 @@ namespace BIMCanvas.Server.Services
         private readonly RoomTypeTagMappingService _tagMappingService;
 
         /// <summary>
-        /// 统一的 JSON 序列化配置：camelCase 命名
+        /// 统一的 JSON 序列化配置：camelCase 命名 + 枚举字符串化
         /// </summary>
         private static readonly JsonSerializerSettings CamelCaseSettings = new JsonSerializerSettings
         {
             ContractResolver = new CamelCasePropertyNamesContractResolver(),
-            Formatting = Formatting.Indented
+            Formatting = Formatting.Indented,
+            Converters = new List<JsonConverter>
+            {
+                new Newtonsoft.Json.Converters.StringEnumConverter(new CamelCaseNamingStrategy())
+            }
         };
 
         public ComputedDataService(

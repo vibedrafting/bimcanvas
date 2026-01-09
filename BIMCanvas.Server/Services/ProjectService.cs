@@ -108,7 +108,10 @@ namespace BIMCanvas.Server.Services
             // 6. 验证并生成 computed 数据
             EnsureComputedData(projectPath);
 
-            // 7. 初始化 Git 仓库（v3.1 新增：单仓库 + 多分支架构）
+            // 7. 复制 modules 文件夹（Agent 需要读取模块库）
+            CopyModulesDirectory(projectPath);
+
+            // 8. 初始化 Git 仓库（v3.1 新增：单仓库 + 多分支架构）
             InitializeGitRepository(projectPath);
 
             _logger.LogInformation("项目加载完成: {Path}", projectPath);
@@ -435,6 +438,80 @@ Thumbs.db
             File.WriteAllText(projectJsonPath, updatedJson, Encoding.UTF8);
             _logger.LogInformation("更新 project.json: ActiveSchemeId = {Id}, Schemes.Count = {Count}",
                 activeStrategyId, project.Schemes.Count);
+        }
+
+        /// <summary>
+        /// 复制 modules 文件夹到项目目录
+        /// Agent 需要读取 module_library.json 进行模块选择
+        /// </summary>
+        private void CopyModulesDirectory(string projectPath)
+        {
+            var targetModulesPath = Path.Combine(projectPath, "modules");
+
+            // 如果已存在则跳过
+            if (Directory.Exists(targetModulesPath))
+            {
+                _logger.LogDebug("modules/ 目录已存在，跳过复制");
+                return;
+            }
+
+            // 查找源 modules 目录（从 Server 所在位置向上查找 BIMCanvas 根目录）
+            var sourceModulesPath = FindSourceModulesPath();
+            if (string.IsNullOrEmpty(sourceModulesPath) || !Directory.Exists(sourceModulesPath))
+            {
+                _logger.LogWarning("未找到源 modules 目录，Agent 可能无法读取模块库");
+                return;
+            }
+
+            // 复制整个 modules 目录
+            CopyDirectory(sourceModulesPath, targetModulesPath);
+            _logger.LogInformation("复制 modules/ 目录到项目: {Path}", targetModulesPath);
+        }
+
+        /// <summary>
+        /// 查找源 modules 目录路径
+        /// </summary>
+        private string? FindSourceModulesPath()
+        {
+            // 方法1：从当前程序集位置向上查找
+            var baseDir = AppDomain.CurrentDomain.BaseDirectory;
+            var dir = new DirectoryInfo(baseDir);
+
+            for (int i = 0; i < 8 && dir != null; i++)
+            {
+                var modulesPath = Path.Combine(dir.FullName, "modules", "module_library.json");
+                if (File.Exists(modulesPath))
+                {
+                    return Path.GetDirectoryName(modulesPath);
+                }
+                dir = dir.Parent;
+            }
+
+            // 方法2：检查环境变量或配置（未来扩展）
+            return null;
+        }
+
+        /// <summary>
+        /// 递归复制目录
+        /// </summary>
+        private void CopyDirectory(string sourceDir, string targetDir)
+        {
+            Directory.CreateDirectory(targetDir);
+
+            // 复制文件
+            foreach (var file in Directory.GetFiles(sourceDir))
+            {
+                var fileName = Path.GetFileName(file);
+                var destFile = Path.Combine(targetDir, fileName);
+                File.Copy(file, destFile, overwrite: true);
+            }
+
+            // 递归复制子目录
+            foreach (var subDir in Directory.GetDirectories(sourceDir))
+            {
+                var subDirName = Path.GetFileName(subDir);
+                CopyDirectory(subDir, Path.Combine(targetDir, subDirName));
+            }
         }
 
         /// <summary>

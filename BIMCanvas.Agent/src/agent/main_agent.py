@@ -457,8 +457,6 @@ class MainAgent:
                     if delta_type == "text_delta":
                         text = delta.get("text", "")
                         if text:
-                            # [调试] 打印每个 text_delta 的内容
-                            print(f"[DEBUG text_delta] len={len(text)}: {repr(text[:100])}")
 
                             # 1. 检测权限错误（纯文本形式）
                             is_perm_error, perm_msg = self._detect_permission_error(text)
