@@ -245,7 +245,7 @@ watch(() => panelStatus.value, (newStatus) => {
   transform: rotate(-90deg);
 }
 
-.expanded .chevron { transform: rotate(0deg); }
+.main-agent-tools.expanded .chevron { transform: rotate(0deg); }
 
 /* Icons */
 .status-icon-container {
@@ -285,11 +285,11 @@ watch(() => panelStatus.value, (newStatus) => {
 
 .tool-item {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   gap: 10px;
   padding: 5px 14px;
   font-size: 0.75rem;
-  height: 26px;
+  min-height: 26px;
 }
 
 .tool-status-dot {
@@ -299,6 +299,7 @@ watch(() => panelStatus.value, (newStatus) => {
   background: var(--text-tertiary);
   opacity: 0.5;
   flex-shrink: 0;
+  margin-top: 6px;
 }
 
 .tool-item.running .tool-status-dot {
@@ -312,11 +313,11 @@ watch(() => panelStatus.value, (newStatus) => {
 
 .tool-content {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   gap: 8px;
   flex: 1;
   min-width: 0;
-  overflow: hidden;
+  flex-wrap: wrap;
 }
 
 .tool-name {
@@ -333,18 +334,18 @@ watch(() => panelStatus.value, (newStatus) => {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-  flex: 1;
+  flex: 1 1 auto;
   min-width: 20px;
 }
 
-// 展开状态下显示完整路径
-.expanded .tool-args {
+/* 展开状态下显示完整路径 */
+.main-agent-tools.expanded .tool-args {
   white-space: normal;
   overflow: visible;
   text-overflow: clip;
   word-break: break-all;
+  flex-basis: 100%;
 }
-
 .tool-error {
   color: var(--accent-danger, #f87171);
   font-size: 0.7rem;

@@ -362,14 +362,13 @@ const toggleToolList = () => {
   display: flex;
   flex-direction: column;
 }
-
 .tool-item {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   gap: 10px;
   padding: 5px 14px;
   font-size: 0.75rem;
-  height: 26px;
+  min-height: 26px;
 }
 
 .tool-status-dot {
@@ -379,6 +378,7 @@ const toggleToolList = () => {
   background: var(--text-tertiary);
   opacity: 0.5;
   flex-shrink: 0;
+  margin-top: 6px;
 }
 
 .tool-item.running .tool-status-dot,
@@ -393,11 +393,10 @@ const toggleToolList = () => {
 
 .tool-content {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   gap: 8px;
   flex: 1;
   min-width: 0;
-  overflow: hidden;
 }
 
 .tool-name {
