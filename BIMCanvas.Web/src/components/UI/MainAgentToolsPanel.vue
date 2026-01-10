@@ -103,6 +103,13 @@ const panelStatus = computed(() => {
   if (props.toolCalls.every(tc => tc.status === 'completed')) return 'completed';
   return 'pending';
 });
+
+// 自动展开逻辑：运行中自动展开
+watch(() => panelStatus.value, (newStatus) => {
+  if (newStatus === 'running') {
+    isExpanded.value = true;
+  }
+});
 </script>
 
 <template>
@@ -235,9 +242,10 @@ const panelStatus = computed(() => {
   color: var(--text-tertiary);
   transition: transform 0.2s;
   opacity: 0.5;
+  transform: rotate(-90deg);
 }
 
-.expanded .chevron { transform: rotate(180deg); }
+.expanded .chevron { transform: rotate(0deg); }
 
 /* Icons */
 .status-icon-container {
@@ -327,6 +335,14 @@ const panelStatus = computed(() => {
   text-overflow: ellipsis;
   flex: 1;
   min-width: 20px;
+}
+
+// 展开状态下显示完整路径
+.expanded .tool-args {
+  white-space: normal;
+  overflow: visible;
+  text-overflow: clip;
+  word-break: break-all;
 }
 
 .tool-error {

@@ -84,8 +84,23 @@ const typeLabel = computed(() => {
   return t === 'general-purpose' ? 'TASK' : String(t).toUpperCase();
 });
 
-const visibleToolCalls = computed(() => (props.bubble.childBubbles || []).slice(0, 5));
-const hiddenToolCallsCount = computed(() => Math.max(0, (props.bubble.childBubbles || []).length - 5));
+
+// 工具列表展开状态
+const isToolListExpanded = ref(false);
+
+const totalToolsCount = computed(() => (props.bubble.childBubbles || []).length);
+
+const visibleToolCalls = computed(() => {
+  const all = props.bubble.childBubbles || [];
+  if (isToolListExpanded.value) {
+    return all;  // 展开时显示所有
+  }
+  return all.slice(0, 5);  // 折叠时只显示5个
+});
+
+const hiddenToolCallsCount = computed(() => {
+  return isToolListExpanded.value ? 0 : Math.max(0, totalToolsCount.value - 5);
+});
 
 // 获取工具详情
 const getToolDetail = (tc: ChatBubble): string | null => {
@@ -112,6 +127,13 @@ const getToolDetail = (tc: ChatBubble): string | null => {
     }
     default:
       return null;
+  }
+};
+
+// 切换工具列表展开/折叠
+const toggleToolList = () => {
+  if (totalToolsCount.value > 5) {
+    isToolListExpanded.value = !isToolListExpanded.value;
   }
 };
 </script>
@@ -173,8 +195,18 @@ const getToolDetail = (tc: ChatBubble): string | null => {
           </div>
         </div>
 
-        <div class="tool-more" v-if="hiddenToolCallsCount > 0">
-          <span>+{{ hiddenToolCallsCount }} more</span>
+        <div
+          class="tool-more"
+          :class="{ clickable: totalToolsCount > 5 }"
+          v-if="hiddenToolCallsCount > 0 || isToolListExpanded"
+          @click.stop="toggleToolList"
+        >
+          <span v-if="!isToolListExpanded">
+            +{{ hiddenToolCallsCount }} more
+          </span>
+          <span v-else>
+            Show less
+          </span>
         </div>
       </div>
 
@@ -379,9 +411,9 @@ const getToolDetail = (tc: ChatBubble): string | null => {
 .tool-args {
   color: var(--text-secondary);
   opacity: 0.8;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  white-space: normal;
+  word-break: break-all;
+  overflow-wrap: break-word;
   flex: 1;
   min-width: 20px;
 }
@@ -415,6 +447,19 @@ const getToolDetail = (tc: ChatBubble): string | null => {
   color: var(--text-tertiary);
   opacity: 0.6;
   font-style: italic;
+
+  &.clickable {
+    cursor: pointer;
+    user-select: none;
+    transition: all 0.2s ease;
+
+    &:hover {
+      background-color: rgba(74, 158, 255, 0.1);
+      color: #4a9eff;
+      opacity: 1;
+      border-radius: 4px;
+    }
+  }
 }
 
 /* Result Section */

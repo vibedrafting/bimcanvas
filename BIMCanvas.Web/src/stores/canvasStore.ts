@@ -5,6 +5,7 @@ import axios from 'axios';
 import { TimelineManager } from '../services/state/TimelineManager';
 import { SignalRService } from '../services/SignalRService';
 import { useDebugStore } from './debugStore';
+import { ChangeSource, ChangeType, type LoadOptions } from '../types/history';
 
 export const useCanvasStore = defineStore('canvas', () => {
     // === 核心状态 ===
@@ -161,33 +162,66 @@ export const useCanvasStore = defineStore('canvas', () => {
      * 加载项目数据
      * @param preserveView 是否保持当前视图（用于分支切换时不重置缩放/位置）
      */
-    const loadProject = async (preserveView: boolean = false) => {
+    /**
+     * 从 Server 加载项目数据 - 统一入口
+     *
+     * @param options 加载选项（支持 ChangeSource 简写）
+     * @returns 加载是否成功
+     */
+    const loadProject = async (options: LoadOptions | ChangeSource): Promise<boolean> => {
+        // 兼容简写参数
+        const opts: LoadOptions = typeof options === 'string'
+            ? { source: options }
+            : options;
+
+        // 智能决策：是否保留历史/视图
+        const preserveHistory = opts.preserveHistory ?? timeline.shouldPreserveHistory(opts.source);
+        const preserveView = opts.preserveView ?? timeline.shouldPreserveView(opts.source);
+
         isLoading.value = true;
         error.value = null;
-
-        // 设置视图保持标记，供 ThreeSceneService 的 watch 检查
         preserveViewOnLoad.value = preserveView;
 
         try {
-            debugStore.log(`Loading current project from server... (preserveView=${preserveView})`);
+            debugStore.log('[Store] Loading project...', {
+                source: opts.source,
+                preserveHistory,
+                preserveView
+            });
 
+            // 从 Server 获取数据
             const response = await axios.get<ProjectData>('http://localhost:5000/api/project');
-
             projectData.value = response.data;
-            isDirty.value = false;  // 重置脏标记
-            timeline.clear();
-            saveState();
+            isDirty.value = false;
 
-            debugStore.success(`Project loaded: ${response.data.project?.name || 'Unknown'}`);
+            // 历史管理策略
+            if (timeline.shouldClearHistory(opts.source)) {
+                debugStore.log('[Store] Clearing history due to source type');
+                timeline.clear();
+            }
+
+            // 保存快照
+            timeline.push(response.data, opts.source, {
+                description: opts.description || `Load from ${opts.source}`,
+                metadata: opts.metadata
+            });
+
+            updateHistoryState();
+
+            debugStore.success(`[Store] Project loaded: ${response.data.project?.name || 'Unknown'}`);
             debugStore.log(`  - Walls: ${response.data.baseline?.walls?.length || 0}`);
             debugStore.log(`  - Rooms: ${response.data.baseline?.rooms?.length || 0}`);
             debugStore.log(`  - Zones: ${response.data.activeScheme?.zones?.length || 0}`);
             debugStore.log(`  - Modules: ${response.data.activeScheme?.modules?.length || 0}`);
 
+            return true;
+
         } catch (err: any) {
             console.error('Failed to load project:', err);
-            debugStore.error(`Failed to load project: ${err.message || err}`);
+            debugStore.error(`[Store] Load failed: ${err.message || err}`);
             error.value = `Failed to load project: ${err.message || err}`;
+            return false;
+
         } finally {
             isLoading.value = false;
             // 重置标记，确保下次默认加载仍会适配屏幕
@@ -426,6 +460,30 @@ export const useCanvasStore = defineStore('canvas', () => {
      */
     const clearDirty = () => {
         isDirty.value = false;
+    };
+
+    /**
+     * 从 Server 同步数据（保留历史）
+     *
+     * 专用于 Agent 修改、Server 推送等场景。
+     * 与 loadProject 的区别：总是保留历史栈，追加新快照。
+     *
+     * @param options 可选配置
+     * @param options.description 自定义描述
+     * @param options.metadata 元数据
+     * @returns 加载是否成功
+     */
+    const syncFromServer = async (options?: {
+        description?: string;
+        metadata?: Record<string, any>;
+    }): Promise<boolean> => {
+        return loadProject({
+            source: ChangeSource.ServerSync,
+            preserveView: true,
+            preserveHistory: true,
+            description: options?.description || 'Sync from server',
+            metadata: options?.metadata
+        });
     };
 
     /**

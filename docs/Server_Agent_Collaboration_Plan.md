@@ -430,6 +430,189 @@ def get_zone_heatmap(module_id: str, zone_id: str) -> dict:
 
 ---
 
+## 数据结构规范
+
+### 核心概念区分
+
+在家具布置系统中，有两种关键的 JSON 数据结构，职责完全不同：
+
+| 文件 | 职责 | 类比 | 读写属性 | 数据来源 |
+|------|------|------|----------|----------|
+| **module_library.json** | 设计素材库 | "家具目录" | 只读 | 预先准备的家具资源 |
+| **modules.json** | 布置结果 | "装修清单" | 可写 | Agent 生成的布置方案 |
+
+**重要**：两者数据结构不同是**正确且必要的**。module_library.json 定义"有什么家具"，modules.json 记录"用了什么家具、放在哪里"。
+
+---
+
+### module_library.json - 设计素材库
+
+**文件路径**：`modules/module_library.json`
+
+**职责**：定义可用的家具模块，包含静态元数据（尺寸、标签、SVG 资源）
+
+**数据结构**：
+```json
+{
+  "version": "1.0",
+  "modules": [
+    {
+      "id": "mod_bed_001",                    // 模块唯一标识
+      "name": "双人床",                        // 显示名称
+      "tags": ["sleep"],                      // 功能标签（用于匹配 zone.tags）
+      "size": {                               // 模块尺寸（对象格式）
+        "width": 1800,                        // 宽度（mm）
+        "depth": 2000                         // 深度（mm）
+      },
+      "description": "标准双人床",             // 描述
+      "svgPath": "modules/assets/mod_bed_001.svg"  // SVG 资源路径
+    }
+  ]
+}
+```
+
+**字段说明**：
+- `id`：模块唯一标识，命名规范 `mod_{类型}_{编号}`
+- `tags`：功能标签数组，用于与 `zone.tags` 匹配
+- `size`：使用对象格式 `{ width, depth }`，便于扩展（如添加 height）
+- `svgPath`：SVG 文件路径，用于前端渲染
+
+---
+
+### modules.json - 布置结果
+
+**文件路径**：`schemes/{schemeId}/modules.json` 或 `schemes/modules.json`
+
+**职责**：记录家具模块的实例化信息，即"哪个模块被放置在哪里、朝向如何"
+
+**数据结构**：
+```json
+{
+  "modules": [
+    {
+      "id": "m_1",                            // 布置实例唯一标识
+      "moduleId": "mod_bed_001",              // 引用 module_library.json 的模块 ID
+      "zoneId": "rz_3",                       // 所属房间分区 ID
+      "bounds": {
+        "center": [12000, 3000],              // 中心点坐标 [x, y]（mm）
+        "size": [1800, 2000],                 // 尺寸 [width, depth]（mm，从 module_library 复制）
+        "rotation": 0                         // 旋转角度（度，0 表示无旋转）
+      },
+      "facing": "north",                      // 朝向（语义字符串或 Vec2D）
+      "items": []                             // 子项（预留字段，暂时为空）
+    }
+  ]
+}
+```
+
+**字段说明**：
+
+| 字段 | 类型 | 说明 | 数据来源 |
+|------|------|------|----------|
+| `id` | string | 布置实例ID（不是 moduleId） | Agent 生成，格式 `m_{序号}` |
+| `moduleId` | string | 引用模块库的模块 ID | 从 module_library.json 选择 |
+| `zoneId` | string | 所属房间分区 ID | 从 computed/room_zones.json 选择 |
+| `bounds.center` | array | 中心点坐标 [x, y]（mm） | Agent 计算 |
+| `bounds.size` | array | 尺寸 [width, depth]（mm） | 从 module_library.json 复制 |
+| `bounds.rotation` | number | 旋转角度（度） | Agent 计算 |
+| `facing` | string/array | 朝向（语义字符串或 Vec2D） | Agent 计算 |
+| `items` | array | 子项（预留） | 暂时为空 `[]` |
+
+**关键设计决策**：
+
+1. **为什么 bounds.size 需要复制？**
+   - 虽然可以通过 moduleId 从 module_library 查询，但为了：
+     - 渲染性能（避免多次查询）
+     - 数据完整性（即使模块库更新，历史方案仍有效）
+     - 支持未来的尺寸微调（如自适应缩放）
+   - 因此在 modules.json 中**冗余存储**尺寸数据
+
+2. **为什么使用 moduleId 而不是 templateId？**
+   - `moduleId` 直接对应 module_library.json 中的 `id`，语义清晰
+   - `templateId` 容易与"模板系统"概念混淆
+
+3. **为什么 id 使用 "m_" 前缀而不是 "mod_"？**
+   - 区分布置实例（`m_1`）和模块定义（`mod_bed_001`）
+   - 避免混淆：`m_1` 是"第1个布置实例"，可能引用 `mod_bed_001`
+
+---
+
+### 数据流转关系
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│                     数据流转关系图                           │
+├─────────────────────────────────────────────────────────────┤
+│                                                             │
+│  【设计素材库】module_library.json (只读)                    │
+│  ┌───────────────────────────────────────────────────────┐  │
+│  │ {                                                     │  │
+│  │   "id": "mod_bed_001",                                │  │
+│  │   "name": "双人床",                                    │  │
+│  │   "tags": ["sleep"],                                  │  │
+│  │   "size": { "width": 1800, "depth": 2000 }            │  │
+│  │ }                                                     │  │
+│  └───────────────────────────────────────────────────────┘  │
+│                      ↓ Agent 选择                           │
+│                      ↓ （根据 zone.tags 过滤）               │
+│                                                             │
+│  【布置结果】modules.json (可写)                             │
+│  ┌───────────────────────────────────────────────────────┐  │
+│  │ {                                                     │  │
+│  │   "id": "m_1",              ← Agent 生成              │  │
+│  │   "moduleId": "mod_bed_001", ← 引用上面的模块         │  │
+│  │   "zoneId": "rz_3",         ← 从 room_zones 选择     │  │
+│  │   "bounds": {                                         │  │
+│  │     "center": [12000, 3000], ← Agent 计算            │  │
+│  │     "size": [1800, 2000],    ← 从 module_library 复制│  │
+│  │     "rotation": 0            ← Agent 计算            │  │
+│  │   },                                                  │  │
+│  │   "facing": "north",         ← Agent 计算            │  │
+│  │   "items": []                                         │  │
+│  │ }                                                     │  │
+│  └───────────────────────────────────────────────────────┘  │
+│                      ↓ Server 验证                          │
+│                      ↓ （检查 moduleId 有效性、空间约束）    │
+│                                                             │
+│  【前端渲染】                                                │
+│  - 读取 modules.json 获取位置和尺寸                          │
+│  - 通过 moduleId 查询 module_library.json 获取 SVG 路径     │
+│  - 渲染家具到指定位置                                        │
+│                                                             │
+└─────────────────────────────────────────────────────────────┘
+```
+
+---
+
+### Server 验证规则
+
+Server 在读取 Agent 提交的 modules.json 时，执行以下验证：
+
+1. **moduleId 有效性检查**
+   ```python
+   library = load_json("modules/module_library.json")
+   valid_ids = {m["id"] for m in library["modules"]}
+
+   for module in modules:
+       assert module["moduleId"] in valid_ids, f"无效的 moduleId: {module['moduleId']}"
+   ```
+
+2. **标签兼容性检查**
+   ```python
+   zone = load_json("computed/room_zones.json")[module["zoneId"]]
+   module_def = library["modules"][module["moduleId"]]
+
+   assert any(tag in zone["tags"] for tag in module_def["tags"]), \
+       f"模块 {module['moduleId']} 的标签与房间 {zone['id']} 不兼容"
+   ```
+
+3. **空间约束检查**
+   - bounds 完全在 zone.innerBoundary 内
+   - bounds 不与 computed/exclusions.json 中的禁区重叠
+   - bounds 不与其他已放置模块重叠
+
+---
+
 ## 实施步骤
 
 1. 在 `Agent_Design_Spec.md` 第八节后新增 §8.7 "Server-Agent 模块库协作规范"
