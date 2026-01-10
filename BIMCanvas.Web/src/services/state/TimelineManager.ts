@@ -14,8 +14,8 @@
  * - 易于扩展：新增场景只需修改策略配置
  */
 
-import type { ProjectData } from '@/types';
-import { ChangeSource, ChangeType, type HistorySnapshot, type HistoryStats } from '@/types/history';
+import type { ProjectData } from '../../types/canvas';
+import { ChangeSource, ChangeType, type HistorySnapshot, type HistoryStats } from '../../types/history';
 
 export class TimelineManager {
   // ========== 私有状态 ==========
