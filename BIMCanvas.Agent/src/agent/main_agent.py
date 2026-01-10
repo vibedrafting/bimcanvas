@@ -160,6 +160,9 @@ class MainAgent:
         r"haven't granted",           # "but you haven't granted it yet"
         r"requested permissions",     # "Claude requested permissions to"
         r"Permission denied",         # 通用权限拒绝
+        r"requires approval",         # Bash 命令批准
+        r"approval required",         # 变体
+        r"needs approval",            # 变体
     ]
 
     def _detect_permission_error(self, text: str) -> tuple[bool, str | None]:
@@ -180,6 +183,28 @@ class MainAgent:
                 return "recoverable"
         return "blocking"
 
+
+    def _classify_tool_result_error(self, error_message: str) -> tuple[str, str | None]:
+        """
+        分类工具调用结果中的错误
+
+        返回:
+            (error_type, classified_message)
+            - error_type: "permission_required" | "blocking" | "recoverable"
+            - classified_message: 处理后的错误消息（可选）
+        """
+        # 1. 优先检测权限错误
+        is_perm_error, perm_msg = self._detect_permission_error(error_message)
+        if is_perm_error:
+            return "permission_required", perm_msg
+
+        # 2. 检测可恢复错误
+        for pattern in self._RECOVERABLE_ERROR_PATTERNS:
+            if re.search(pattern, error_message, re.IGNORECASE):
+                return "recoverable", None
+
+        # 3. 默认为阻塞错误
+        return "blocking", None
     def _filter_recoverable_errors(self, text: str) -> tuple[str, str | None, str | None, str | None]:
         """
         过滤错误标签，返回 (清理后内容, 错误内容, 隐藏内容, 错误类型)
@@ -511,6 +536,33 @@ class MainAgent:
                     is_error = event.get("is_error", False)
                     tool_use_id = event.get("tool_use_id")
 
+                    # ✅ 对错误进行分类
+                    error_type = None
+                    error_message = None
+                    hidden_message = None
+
+                    if is_error and result:
+                        err_type, classified_msg = self._classify_tool_result_error(str(result))
+
+                        if err_type == "recoverable":
+                            # 可恢复错误：隐藏，不影响用户
+                            hidden_message = str(result)
+                            is_error = False  # 标记为成功（前端不显示错误）
+                            if self.verbose:
+                                self._agent_logger.log_warning(f"工具调用可恢复错误: {str(result)[:200]}")
+                        elif err_type == "permission_required":
+                            # 权限错误：特殊标记
+                            error_type = "permission_required"
+                            error_message = classified_msg or str(result)
+                            if self.verbose:
+                                self._agent_logger.log_permission_error(str(result)[:200])
+                        else:  # blocking
+                            # 阻塞错误：传递给前端
+                            error_type = "blocking"
+                            error_message = str(result)
+
+                            if self.verbose:
+                                self._agent_logger.log_error(f"工具调用失败 ({tool_name}): {str(result)[:200]}")
                     # 判断是否是 Task（SubAgent）的结果
                     if tool_name == "Task" and tool_use_id and tool_use_id in self._active_subagents:
                         # SubAgent 完成 - 从映射中获取并清理
@@ -518,9 +570,11 @@ class MainAgent:
                         yield StreamChunk(
                             type="subagent_complete",
                             subagent_id=subagent_id,
-                            content=str(result)[:500] if result else "",
+                            content=str(result)[:500] if result and not is_error else "",
                             success=not is_error,
-                            error=str(result) if is_error else None
+                            error=error_message,
+                            error_type=error_type,
+                            hidden_content=hidden_message
                         )
                     else:
                         # 普通工具调用完成 - 查找关联的 SubAgent
@@ -530,9 +584,11 @@ class MainAgent:
                             type="tool_call_complete",
                             subagent_id=subagent_id,
                             tool_call_id=tool_call_id or f"tc-{self._tool_call_counter}",
-                            tool_output=str(result)[:1000] if result else "",
+                            tool_output=str(result)[:1000] if result and not is_error else "",
                             success=not is_error,
-                            error=str(result) if is_error else None
+                            error=error_message,
+                            error_type=error_type,
+                            hidden_content=hidden_message
                         )
                     self._current_tool_name = None
 
@@ -631,6 +687,11 @@ class MainAgent:
                                 success=not is_error,
                                 error=str(block.content) if is_error else None
                             )
+
+                            # 如果 SubAgent 失败，打印错误日志到 Server 控制台
+                            if is_error and self.verbose:
+                                error_msg = str(block.content)
+                                self._agent_logger.log_error(f"SubAgent '{subagent_id}' failed: {error_msg[:200]}")
                         else:
                             # 普通工具调用完成 - 查找关联信息
                             tool_call_id = self._pending_tool_calls.get(block_tool_use_id)
