@@ -127,7 +127,7 @@ export const useCanvasStore = defineStore('canvas', () => {
         if (data.action === 'reload') {
             // 保持当前视图，重新加载数据
             debugStore.log('[Store] 触发数据重载 (preserveView=true)');
-            await loadProject(true);
+            await syncFromServer({ description: 'Server file changed', metadata: { trigger: data.trigger } });
         }
     });
 
@@ -152,7 +152,10 @@ export const useCanvasStore = defineStore('canvas', () => {
 
     const saveState = () => {
         if (projectData.value) {
-            timeline.push(projectData.value);
+            timeline.push(projectData.value, ChangeSource.UserEdit, {
+                description: 'User interaction',
+                changeType: ChangeType.Update
+            });
             updateHistoryState();
         }
     };
@@ -329,7 +332,7 @@ export const useCanvasStore = defineStore('canvas', () => {
         if (prevState) {
             // 撤销时保持当前视图
             preserveViewOnLoad.value = true;
-            projectData.value = prevState as ProjectData;
+            projectData.value = JSON.parse(prevState.state) as ProjectData;
             updateHistoryState();
             setTimeout(() => { preserveViewOnLoad.value = false; }, 200);
         }
@@ -340,7 +343,7 @@ export const useCanvasStore = defineStore('canvas', () => {
         if (nextState) {
             // 重做时保持当前视图
             preserveViewOnLoad.value = true;
-            projectData.value = nextState as ProjectData;
+            projectData.value = JSON.parse(nextState.state) as ProjectData;
             updateHistoryState();
             setTimeout(() => { preserveViewOnLoad.value = false; }, 200);
         }

@@ -1,5 +1,6 @@
 import { defineStore } from 'pinia';
 import { ref, computed } from 'vue';
+import { ChangeSource } from '../types/history';
 import { useCanvasStore } from './canvasStore';
 
 const SERVER_API_BASE = 'http://localhost:5000';
@@ -161,7 +162,7 @@ export const useGitStore = defineStore('git', () => {
         hasUncommittedChanges.value = false;
         // 重新加载项目以反映更改被丢弃后的状态
         const canvasStore = useCanvasStore();
-        await canvasStore.loadProject(true);
+        await canvasStore.loadProject(ChangeSource.GitDiscard);
         console.log('[GitStore] 已放弃所有更改');
         return { success: true };
       } else {
@@ -226,7 +227,7 @@ export const useGitStore = defineStore('git', () => {
 
         // ✅ 重新加载项目数据，确保 Canvas 显示新分支的数据
         // preserveView=true: 分支切换时保持当前视图位置和缩放
-        await canvasStore.loadProject(true);
+        await canvasStore.loadProject({ source: ChangeSource.GitCheckout, preserveView: true });
 
         console.log('[GitStore] 分支切换成功:', branchName);
         return { success: true };

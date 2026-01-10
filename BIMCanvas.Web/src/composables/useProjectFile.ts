@@ -1,4 +1,5 @@
 import { ref } from 'vue';
+import { ChangeSource } from '../types/history';
 import { useCanvasStore } from '../stores/canvasStore';
 import { ProjectService } from '../services/ProjectService';
 
@@ -60,7 +61,7 @@ export function useProjectFile() {
       showConflictDialog.value = true;
     } else if (result.status === 'Success') {
       // Reload project data
-      await store.loadProject();
+      await store.loadProject(ChangeSource.UserUpload);
     } else {
       alert(`Failed to open project: ${result.message}`);
     }
@@ -84,7 +85,7 @@ export function useProjectFile() {
       const result = await ProjectService.uploadResolveConflict(pendingFile.value, resolution);
 
       if (result.status === 'Success') {
-        await store.loadProject();
+        await store.loadProject(ChangeSource.SystemRestore);
       } else {
         alert(`Failed to resolve conflict: ${result.message}`);
       }

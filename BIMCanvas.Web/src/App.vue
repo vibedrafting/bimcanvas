@@ -4,6 +4,7 @@ import MainLayout from './layouts/MainLayout.vue';
 import ThreeCanvas from './components/Canvas/ThreeCanvas.vue';
 import BlueprintLoader from './components/UI/BlueprintLoader.vue';
 import { useCanvasStore } from './stores/canvasStore';
+import { ChangeSource } from './types/history';
 import { themeService } from './services/theme/ThemeService';
 
 import { ViewCalculator } from './services/interaction/ViewCalculator';
@@ -31,7 +32,7 @@ onMounted(async () => {
   
   // 单项目模式：直接从 Server 加载当前项目（无需 URL 参数）
   debugStore.log('Starting project load...');
-  const loadPromise = store.loadProject().then(() => {
+  const loadPromise = store.loadProject(ChangeSource.SystemInit).then(() => {
     debugStore.log('Project data loaded.');
     // Data loaded, calculate target view
     if (store.projectData) {
