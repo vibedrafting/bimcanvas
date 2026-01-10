@@ -4,6 +4,7 @@ using System.Text;
 using BIMCanvas.Server.Hubs;
 using BIMCanvas.Server.Services;
 using Newtonsoft.Json.Serialization;
+using Newtonsoft.Json.Linq;
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Windows API for enabling ANSI escape sequences (Virtual Terminal Processing)
@@ -124,7 +125,6 @@ app.MapHub<CanvasHub>("/hubs/canvas");
 app.MapGet("/health", () => new { status = "healthy", timestamp = DateTime.UtcNow });
 
 WriteWithColoredPrefix("[Server]", "BIMCanvas.Server 启动中...", ConsoleColor.Cyan);
-WriteWithColoredPrefix("[Server]", "API: http://localhost:5000/api/canvas", ConsoleColor.Cyan);
 WriteWithColoredPrefix("[Server]", "Swagger: http://localhost:5000/swagger", ConsoleColor.Cyan);
 
 // v3.0 项目加载流程（单项目模式）
@@ -140,14 +140,6 @@ WriteWithColoredPrefix("[Server]", "Swagger: http://localhost:5000/swagger", Con
     if (string.IsNullOrEmpty(bcpFilePath))
     {
         bcpFilePath = projectService.FindDemoBcpFile(baseDir, "demo_1");
-        if (bcpFilePath != null)
-        {
-            WriteWithColoredPrefix("[Server]", $"使用默认 BCP 文件: {bcpFilePath}", ConsoleColor.Cyan);
-        }
-    }
-    else
-    {
-        WriteWithColoredPrefix("[Server]", $"使用指定 BCP 文件: {bcpFilePath}", ConsoleColor.Cyan);
     }
 
     if (!string.IsNullOrEmpty(bcpFilePath))
@@ -161,7 +153,6 @@ WriteWithColoredPrefix("[Server]", "Swagger: http://localhost:5000/swagger", Con
             if (hasConflict)
             {
                 // 启动时默认使用已存在的项目（不覆盖）
-                WriteWithColoredPrefix("[Server]", $"使用已存在的项目目录: {existingPath}", ConsoleColor.Cyan);
                 projectPath = existingPath!;
             }
             else
@@ -171,7 +162,11 @@ WriteWithColoredPrefix("[Server]", "Swagger: http://localhost:5000/swagger", Con
 
             // 设置 ProjectContext
             projectContext.SetProject(projectPath, bcpFilePath);
-            WriteWithColoredPrefix("[Server]", $"项目已加载: {projectPath}", ConsoleColor.Cyan);
+
+            // 输出项目信息（2行：项目名 + 路径）
+            var projectName = Path.GetFileNameWithoutExtension(bcpFilePath);
+            WriteWithColoredPrefix("[Server]", $"项目: {projectName}", ConsoleColor.Cyan);
+            WriteWithColoredPrefix("[Server]", $"  路径: {projectPath}", ConsoleColor.Cyan);
         }
         catch (Exception ex)
         {
@@ -195,7 +190,28 @@ WriteWithColoredPrefix("[Server]", "Swagger: http://localhost:5000/swagger", Con
     // 1. 启动 Agent 服务（不等待，后台运行）
     if (Directory.Exists(agentProjectPath))
     {
-        WriteWithColoredPrefix("[Server]", $"启动 Agent 服务: {agentProjectPath}", ConsoleColor.Cyan);
+        // 读取 Agent 端口配置
+        var agentPort = LoadAgentPort(agentProjectPath);
+
+        // 检测并清理端口占用
+        if (IsPortOccupied(agentPort, out var occupyingPid))
+        {
+            // 验证进程身份
+            if (IsBIMCanvasAgentProcess(occupyingPid, agentProjectPath))
+            {
+                WriteWithColoredPrefix("[Server]", $"清理残留 Agent 进程 (PID: {occupyingPid})...", ConsoleColor.Cyan);
+                KillProcess(occupyingPid);
+                Thread.Sleep(500); // 等待端口释放
+            }
+            else
+            {
+                WriteWithColoredPrefix("[Server:WARN]", $"端口 {agentPort} 被其他进程占用 (PID: {occupyingPid})", ConsoleColor.Yellow);
+                WriteWithColoredPrefix("[Server:WARN]", $"提示: 可使用 'tasklist /FI \"PID eq {occupyingPid}\"' 查看进程详情", ConsoleColor.Yellow);
+                // 继续尝试启动（可能端口已释放或验证失败）
+            }
+        }
+
+        WriteWithColoredPrefix("[Server]", "Agent 服务启动中...", ConsoleColor.Cyan);
         try
         {
             agentProcess = new Process
@@ -251,7 +267,7 @@ WriteWithColoredPrefix("[Server]", "Swagger: http://localhost:5000/swagger", Con
     // 2. 启动 Web 服务（不等待，后台运行）
     if (Directory.Exists(webProjectPath))
     {
-        WriteWithColoredPrefix("[Server]", $"启动 Web 开发服务器: {webProjectPath}", ConsoleColor.Cyan);
+        WriteWithColoredPrefix("[Server]", "Web 开发服务器启动中...", ConsoleColor.Cyan);
         webProcess = new Process
         {
             StartInfo = new ProcessStartInfo
@@ -310,7 +326,7 @@ WriteWithColoredPrefix("[Server]", "Swagger: http://localhost:5000/swagger", Con
                 var response = await httpClient.GetAsync(webBaseUrl);
                 if (response.IsSuccessStatusCode)
                 {
-                    WriteWithColoredPrefix("[Server]", "Web 服务已就绪", ConsoleColor.Cyan);
+                    WriteWithColoredPrefix("[Server]", "所有服务已就绪", ConsoleColor.Cyan);
                     break;
                 }
             }
@@ -386,4 +402,239 @@ static string FindAgentProjectPath(string startDir)
 
     // 兜底：返回相对路径（兼容 dotnet run）
     return Path.GetFullPath(Path.Combine(Directory.GetCurrentDirectory(), "..", "BIMCanvas.Agent"));
+}
+
+// 辅助函数：读取 Agent 端口配置
+static int LoadAgentPort(string agentProjectPath)
+{
+    try
+    {
+        var configPath = Path.Combine(agentProjectPath, "config.json");
+        if (!File.Exists(configPath))
+        {
+            WriteWithColoredPrefix("[Server:WARN]", "未找到 Agent 配置文件，使用默认端口 8765", ConsoleColor.Yellow);
+            return 8765;
+        }
+
+        var json = File.ReadAllText(configPath);
+        var config = JObject.Parse(json);
+        var port = config?["server"]?["port"]?.Value<int>() ?? 8765;
+
+        return port;
+    }
+    catch (Exception ex)
+    {
+        WriteWithColoredPrefix("[Server:WARN]", $"读取 Agent 配置失败: {ex.Message}，使用默认端口 8765", ConsoleColor.Yellow);
+        return 8765;
+    }
+}
+
+// 辅助函数：检测端口是否被占用（跨平台）
+static bool IsPortOccupied(int port, out int pid)
+{
+    pid = 0;
+
+    try
+    {
+        if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
+        {
+            // Windows: netstat -ano | findstr :端口
+            var psi = new ProcessStartInfo
+            {
+                FileName = "cmd.exe",
+                Arguments = $"/c netstat -ano | findstr :{port}",
+                RedirectStandardOutput = true,
+                UseShellExecute = false,
+                CreateNoWindow = true
+            };
+
+            using var process = Process.Start(psi);
+            if (process == null) return false;
+
+            var output = process.StandardOutput.ReadToEnd();
+            process.WaitForExit();
+
+            // 解析输出（示例）：TCP    127.0.0.1:8765    0.0.0.0:0    LISTENING    12345
+            var lines = output.Split('\n', StringSplitOptions.RemoveEmptyEntries);
+            foreach (var line in lines)
+            {
+                var parts = line.Split(new[] { ' ' }, StringSplitOptions.RemoveEmptyEntries);
+                if (parts.Length >= 5 && parts[3] == "LISTENING")
+                {
+                    if (int.TryParse(parts[4], out pid))
+                        return true;
+                }
+            }
+        }
+        else if (RuntimeInformation.IsOSPlatform(OSPlatform.Linux) || RuntimeInformation.IsOSPlatform(OSPlatform.OSX))
+        {
+            // Linux/macOS: lsof -ti:端口
+            var psi = new ProcessStartInfo
+            {
+                FileName = "/bin/bash",
+                Arguments = $"-c \"lsof -ti:{port}\"",
+                RedirectStandardOutput = true,
+                UseShellExecute = false,
+                CreateNoWindow = true
+            };
+
+            using var process = Process.Start(psi);
+            if (process == null) return false;
+
+            var output = process.StandardOutput.ReadToEnd().Trim();
+            process.WaitForExit();
+
+            if (!string.IsNullOrEmpty(output) && int.TryParse(output, out pid))
+                return true;
+        }
+    }
+    catch (Exception ex)
+    {
+        WriteWithColoredPrefix("[Server:WARN]", $"端口检测失败: {ex.Message}，跳过检查", ConsoleColor.Yellow);
+    }
+
+    return false;
+}
+
+// 辅助函数：验证进程是否为 BIMCanvas Agent（通过进程名 + 命令行参数）
+static bool IsBIMCanvasAgentProcess(int pid, string agentProjectPath)
+{
+    try
+    {
+        var process = Process.GetProcessById(pid);
+
+        // 检查 1: 进程名必须是 python/python.exe
+        var processName = process.ProcessName.ToLower();
+        if (!processName.Contains("python"))
+            return false;
+
+        // 检查 2: 命令行参数包含 BIMCanvas.Agent 或 src.main
+        string cmdLine;
+        if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
+        {
+            cmdLine = GetCommandLineWindows(pid);
+        }
+        else
+        {
+            cmdLine = GetCommandLineUnix(pid);
+        }
+
+        return cmdLine.Contains("BIMCanvas.Agent") || cmdLine.Contains("src.main");
+    }
+    catch (Exception ex)
+    {
+        WriteWithColoredPrefix("[Server:WARN]", $"进程验证失败: {ex.Message}", ConsoleColor.Yellow);
+        return false; // 无法确认时，保守拒绝
+    }
+}
+
+// Windows WMIC 查询命令行（使用命令行工具而非 WMI API）
+static string GetCommandLineWindows(int pid)
+{
+    if (!RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
+        return "";
+
+    try
+    {
+        var psi = new ProcessStartInfo
+        {
+            FileName = "wmic",
+            Arguments = $"process where \"ProcessId={pid}\" get CommandLine /format:list",
+            RedirectStandardOutput = true,
+            UseShellExecute = false,
+            CreateNoWindow = true
+        };
+
+        using var process = Process.Start(psi);
+        if (process == null) return "";
+
+        var output = process.StandardOutput.ReadToEnd();
+        process.WaitForExit();
+
+        // 解析输出：CommandLine=python -m src.main --serve
+        foreach (var line in output.Split('\n'))
+        {
+            var trimmed = line.Trim();
+            if (trimmed.StartsWith("CommandLine="))
+            {
+                return trimmed.Substring("CommandLine=".Length);
+            }
+        }
+    }
+    catch (Exception ex)
+    {
+        WriteWithColoredPrefix("[Server:WARN]", $"WMIC 查询失败: {ex.Message}，仅验证进程名", ConsoleColor.Yellow);
+    }
+    return "";
+}
+
+// Unix 查询命令行
+static string GetCommandLineUnix(int pid)
+{
+    try
+    {
+        var psi = new ProcessStartInfo
+        {
+            FileName = "/bin/bash",
+            Arguments = $"-c \"ps -p {pid} -o args=\"",
+            RedirectStandardOutput = true,
+            UseShellExecute = false,
+            CreateNoWindow = true
+        };
+        using var process = Process.Start(psi);
+        if (process == null) return "";
+
+        var cmdLine = process.StandardOutput.ReadToEnd();
+        process.WaitForExit();
+        return cmdLine;
+    }
+    catch
+    {
+        return "";
+    }
+}
+
+// 辅助函数：安全关闭进程（优雅关闭 + 强制终止）
+static void KillProcess(int pid)
+{
+    try
+    {
+        var process = Process.GetProcessById(pid);
+
+        // 尝试优雅关闭
+        if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
+        {
+            process.CloseMainWindow();
+            if (!process.WaitForExit(2000)) // 等待 2 秒
+            {
+                // 静默强制终止（不输出日志，避免显得像错误）
+                process.Kill(entireProcessTree: true);
+            }
+        }
+        else
+        {
+            // Linux/macOS: 先 SIGTERM，后 SIGKILL
+            var psi = new ProcessStartInfo
+            {
+                FileName = "/bin/bash",
+                Arguments = $"-c \"kill {pid}\"",
+                UseShellExecute = false,
+                CreateNoWindow = true
+            };
+            Process.Start(psi)?.WaitForExit();
+
+            Thread.Sleep(2000);
+            if (!process.HasExited)
+            {
+                psi.Arguments = $"-c \"kill -9 {pid}\"";
+                Process.Start(psi)?.WaitForExit();
+            }
+        }
+
+        WriteWithColoredPrefix("[Server]", "端口清理完成", ConsoleColor.Cyan);
+    }
+    catch (Exception ex)
+    {
+        WriteWithColoredPrefix("[Server:ERR]", $"清理进程失败: {ex.Message}", ConsoleColor.DarkCyan);
+    }
 }

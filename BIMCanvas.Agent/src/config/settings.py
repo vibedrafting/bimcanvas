@@ -34,9 +34,6 @@ class Settings:
         config = loader.load_config()
         server = config.get('server', {})
 
-        # 调试日志：打印原始配置
-        print(f"[Settings] 配置文件原始内容: {config}")
-
         # 从配置文件读取
         api_key = config.get('apiKey', '')
         model = config.get('model', 'claude-sonnet-4-20250514')
@@ -45,22 +42,19 @@ class Settings:
         host = server.get('host', '127.0.0.1')
         port = server.get('port', 8765)
 
-        # 调试日志：打印配置文件中的模型
-        print(f"[Settings] 配置文件中的模型: {model}")
-
         # 环境变量覆盖
         api_key = os.getenv('ANTHROPIC_API_KEY', api_key)
         env_model = os.getenv('MODEL_NAME')
         if env_model:
-            print(f"[Settings] 环境变量 MODEL_NAME 覆盖: {env_model}")
+            print(f"环境变量覆盖模型: {env_model}")
             model = env_model
+        else:
+            print(f"使用配置模型: {model}")
+
         max_tokens = int(os.getenv('MAX_TOKENS', str(max_tokens)))
         host = os.getenv('SERVER_HOST', host)
         port = int(os.getenv('SERVER_PORT', str(port)))
         project_path = os.getenv('DEFAULT_PROJECT_PATH', '')
-
-        # 调试日志：打印最终模型
-        print(f"[Settings] 最终使用的模型: {model}")
 
         return cls(
             anthropic_api_key=api_key,

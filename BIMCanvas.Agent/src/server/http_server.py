@@ -351,5 +351,5 @@ def run_server(host: str = None, port: int = None) -> None:
 
     app = create_app()
 
-    logger.info(f"Agent 服务启动: http://{host}:{port}")
+    logger.info(f"Agent 服务已启动: http://{host}:{port}")
     web.run_app(app, host=host, port=port, print=lambda s: logger.info(s))
