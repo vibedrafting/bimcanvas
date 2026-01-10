@@ -544,11 +544,11 @@ class MainAgent:
 
                     # 🔍 调试日志：记录所有 tool_result 事件
                     if self.verbose:
+                        self._agent_logger.log_info(f"[DEBUG] tool_result: tool_name={tool_name}, is_error={is_error}, result={str(result)[:100] if result else 'None'}")
 
                     # 🔴 无条件日志（测试用）
                     import sys
                     print(f"[🔴 UNCONDITIONAL] tool_result event: tool_name={tool_name}, is_error={is_error}", file=sys.stderr, flush=True)
-                        self._agent_logger.log_info(f"[DEBUG] tool_result: tool_name={tool_name}, is_error={is_error}, result={str(result)[:100] if result else 'None'}")
                     if is_error and result:
                         err_type, classified_msg = self._classify_tool_result_error(str(result))
 
