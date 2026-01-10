@@ -562,6 +562,28 @@ const sendMessage = async () => {
                 nextTick(() => scrollToBottom());
               }
 
+              // ✅ 如果是 recoverable 错误，跳过显示
+              if (parsed.errorType === 'recoverable') {
+                if (import.meta.env.DEV) {
+                  console.log('[Recoverable error (hidden)]', parsed.errorContent || parsed.content);
+                }
+                continue;  // 跳过这个事件，不添加到气泡
+              }
+
+              // ✅ 如果是 blocking 错误，也不显示在对话面板
+              if (parsed.errorType === 'blocking') {
+                if (import.meta.env.DEV) {
+                  console.warn('[Blocking error (hidden from chat)]', parsed.errorContent || parsed.content);
+                }
+                continue;  // 跳过显示（Server 控制台已经打印了）
+              }
+
+              // ✅ 处理权限错误（打印日志但不添加到气泡）
+              if (parsed.errorType === 'permission_required') {
+                console.warn('[Permission error]', parsed.errorContent || parsed.content);
+                continue;  // 跳过显示
+              }
+
               // 找到最后一个正在流式传输的文本气泡
               let lastTextBubble = getLastStreamingTextBubble(currentMsg.bubbles);
 
@@ -574,16 +596,6 @@ const sendMessage = async () => {
                 currentMsg.bubbles.push(newTextBubble);
               }
 
-              // 处理 blocking 错误内容
-              if (parsed.errorContent && parsed.errorType === 'blocking') {
-                if (import.meta.env.DEV) {
-                  console.warn('[Blocking error]', parsed.errorContent);
-                }
-              }
-              // 处理权限错误
-              if (parsed.errorType === 'permission_required') {
-                console.warn('[Permission error]', parsed.errorContent || parsed.content);
-              }
               // 调试模式：记录被隐藏的 recoverable 错误
               if (parsed.hiddenContent && import.meta.env.DEV) {
                 console.debug('[Hidden recoverable error]', parsed.hiddenContent);
@@ -604,10 +616,9 @@ const sendMessage = async () => {
 
             // ===== Error Event =====
             else if (parsed.error) {
-              // 创建错误文本气泡
-              const errorBubble = createTextBubble(`Error: ${parsed.error}`);
-              errorBubble.status = 'failed';
-              currentMsg.bubbles.push(errorBubble);
+              // ✅ 只打印到控制台，不创建气泡（错误已在 Server 控制台显示）
+              console.error('[SSE Error]', parsed.error);
+              // 不添加到气泡列表
             }
 
             // ===== SubAgent Events (使用气泡模型) =====
