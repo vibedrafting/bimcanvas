@@ -159,31 +159,41 @@ export class SVGModuleRenderer {
               }
             }
 
-            // 获取描边（如果 CSS class 样式未被解析，使用默认白色）
+            // 获取描边（使用 SVGLoader.pointsToStroke 创建有宽度的描边几何体）
+            // 注意：THREE.Line 的 linewidth 在大多数平台被忽略，所以必须用 pointsToStroke
             const strokeColor = path.userData?.style?.stroke;
-            const strokeWidth = path.userData?.style?.strokeWidth || 20;
 
             // 如果没有填充或填充为 none，且没有明确禁止描边，则渲染描边
             const shouldRenderStroke = strokeColor !== 'none' && (!fillColor || fillColor === 'none' || strokeColor);
 
             if (shouldRenderStroke) {
-              const points = path.subPaths.flatMap(subPath => subPath.getPoints());
-              if (points.length > 0) {
-                const geometry = new THREE.BufferGeometry().setFromPoints(points);
-                // 默认白色描边（SVG CSS class 样式无法被 SVGLoader 解析时的兜底）
-                // 如果有描边颜色且是黑色，也替换为白色（深色背景下可见）
-                const displayColor = (!strokeColor || strokeColor === '#000000' || strokeColor === '#000' || strokeColor === 'black')
-                  ? '#ffffff'
-                  : strokeColor;
-                const material = new THREE.LineBasicMaterial({
-                  color: new THREE.Color(displayColor),
-                  linewidth: strokeWidth,
-                  transparent: true,
-                  opacity: 0.9
-                });
+              // 构建描边样式（CSS class 未被解析时使用默认值）
+              const strokeStyle = {
+                ...path.userData?.style,
+                strokeWidth: path.userData?.style?.strokeWidth || 20
+              };
 
-                const line = new THREE.Line(geometry, material);
-                group.add(line);
+              // 默认白色描边（SVG CSS class 样式无法被 SVGLoader 解析时的兜底）
+              // 如果有描边颜色且是黑色，也替换为白色（深色背景下可见）
+              const displayColor = (!strokeColor || strokeColor === '#000000' || strokeColor === '#000' || strokeColor === 'black')
+                ? '#ffffff'
+                : strokeColor;
+
+              const material = new THREE.MeshBasicMaterial({
+                color: new THREE.Color(displayColor),
+                side: THREE.DoubleSide,
+                depthWrite: false,
+                transparent: true,
+                opacity: 0.9
+              });
+
+              // 为每个子路径创建描边几何体
+              for (const subPath of path.subPaths) {
+                const strokeGeometry = SVGLoader.pointsToStroke(subPath.getPoints(), strokeStyle);
+                if (strokeGeometry) {
+                  const strokeMesh = new THREE.Mesh(strokeGeometry, material);
+                  group.add(strokeMesh);
+                }
               }
             }
           }
