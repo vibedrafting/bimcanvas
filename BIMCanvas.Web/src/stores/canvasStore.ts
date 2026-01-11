@@ -410,7 +410,7 @@ export const useCanvasStore = defineStore('canvas', () => {
         }
     };
 
-    const removeModule = (moduleId: string) => {
+    const removeModule = async (moduleId: string) => {
         if (!projectData.value?.activeScheme?.modules) return;
         const moduleIndex = projectData.value.activeScheme.modules.findIndex(m => m.id === moduleId);
         if (moduleIndex !== -1) {
@@ -419,6 +419,8 @@ export const useCanvasStore = defineStore('canvas', () => {
             isDirty.value = true;  // 标记数据已修改
             nextTick(() => saveState());
             signalR.sendUpdate({ type: 'module_remove', moduleId });
+            // 持久化到文件系统
+            await saveToServer();
         }
     };
 
