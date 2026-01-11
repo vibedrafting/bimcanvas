@@ -55,16 +55,23 @@ const addTag = () => {
 const removeTag = (tagToRemove: string) => {
   tags.value = tags.value.filter(tag => tag !== tagToRemove);
 };
+
+// DEBUG: 包装 cancel 事件以追踪调用来源
+const handleCancel = () => {
+  console.log('[BranchCreationDialog] Cancel emitted');
+  console.trace('[BranchCreationDialog] Stack trace:');
+  emit('cancel');
+};
 </script>
 
 <template>
   <Teleport to="body">
     <Transition name="dialog">
-      <div v-if="visible" class="dialog-overlay" @click.self="emit('cancel')">
+      <div v-if="visible" class="dialog-overlay" @click.self="handleCancel">
         <div class="dialog-card">
           <div class="dialog-header">
             <h3>Create New Branch</h3>
-            <button class="close-btn" @click="emit('cancel')">
+            <button class="close-btn" @click="handleCancel">
               <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2">
                 <line x1="18" y1="6" x2="6" y2="18"></line>
                 <line x1="6" y1="6" x2="18" y2="18"></line>
@@ -128,7 +135,7 @@ const removeTag = (tagToRemove: string) => {
           </div>
 
           <div class="dialog-footer">
-            <GlassButton variant="ghost" @click="emit('cancel')">Cancel</GlassButton>
+            <GlassButton variant="ghost" @click="handleCancel">Cancel</GlassButton>
             <GlassButton 
               variant="primary" 
               @click="handleCreate"

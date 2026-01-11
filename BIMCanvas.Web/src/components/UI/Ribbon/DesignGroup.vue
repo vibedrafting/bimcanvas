@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed, onMounted, nextTick } from 'vue';
+import { ref, computed, onMounted, nextTick, watch } from 'vue';
 import { storeToRefs } from 'pinia';
 import GlassSelect from '../base/GlassSelect.vue';
 import GlassButton from '../base/GlassButton.vue';
@@ -43,6 +43,12 @@ const showBranchDialog = ref(false);
 const showCheckoutConfirmDialog = ref(false);
 const pendingCheckoutBranch = ref('');
 
+// DEBUG: 监控弹窗状态变化
+watch(showBranchDialog, (newVal, oldVal) => {
+  console.log('[DesignGroup] showBranchDialog changed:', oldVal, '->', newVal);
+  console.trace('[DesignGroup] Stack trace:');
+});
+
 // 分支图标
 const branchIcon = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><line x1="6" y1="3" x2="6" y2="15"></line><circle cx="18" cy="6" r="3"></circle><circle cx="6" cy="18" r="3"></circle><path d="M18 9a9 9 0 0 1-9 9"></path></svg>';
 const createIcon = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>';
@@ -64,10 +70,13 @@ const branchOptions = computed(() => [
 
 // 分支切换处理
 const handleBranchChange = async (val: string | number) => {
+  console.log('[DesignGroup] handleBranchChange called:', val);
   if (val === '__create_new__') {
+    console.log('[DesignGroup] Opening branch dialog...');
     // 延迟到下一个事件循环，避免与当前 click 事件冲突
     await nextTick();
     showBranchDialog.value = true;
+    console.log('[DesignGroup] showBranchDialog set to true');
     return;
   }
 

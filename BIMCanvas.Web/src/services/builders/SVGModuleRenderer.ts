@@ -126,10 +126,7 @@ export class SVGModuleRenderer {
                   : fillColor;
                 const material = new THREE.MeshBasicMaterial({
                   color: new THREE.Color(displayFillColor),
-                  side: THREE.DoubleSide,
-                  depthWrite: false,
-                  transparent: true,
-                  opacity: 0.9
+                  side: THREE.DoubleSide
                 });
 
                 const mesh = new THREE.Mesh(geometry, material);
@@ -158,10 +155,7 @@ export class SVGModuleRenderer {
 
               const material = new THREE.MeshBasicMaterial({
                 color: new THREE.Color(displayColor),
-                side: THREE.DoubleSide,
-                depthWrite: false,
-                transparent: true,
-                opacity: 0.9
+                side: THREE.DoubleSide
               });
 
               // 为每个子路径创建描边几何体
@@ -304,9 +298,9 @@ export class SVGModuleRenderer {
     if (!moduleDef) return;
 
     const transform = this.calculateModuleTransform(module, moduleDef);
-    group.position.set(transform.position.x, this.SVG_HEIGHT, transform.position.y);
+    group.position.set(transform.position.x, this.SVG_HEIGHT, -transform.position.y);
     group.rotation.y = transform.rotation;
-    group.scale.set(transform.scale.x, 1, transform.scale.y);
+    group.scale.set(transform.scale.x, transform.scale.y, 1);
   }
 
   /**

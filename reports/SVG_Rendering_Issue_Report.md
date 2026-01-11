@@ -33,6 +33,7 @@
 | 5 | linewidth 被忽略 | 使用 SVGLoader.pointsToStroke() | ❌ 无效 |
 | 6 | **Z 轴符号错误** | rotation.x 从 +PI/2 改为 -PI/2，position.z = -y | ❌ 无效 |
 | 7 | **缩放轴错误** | scale 从 (x,1,y) 改为 (x,y,1) | ❌ 无效 |
+| 8 | **透明材质渲染顺序** | 移除 transparent/depthWrite/opacity 设置 | ⏳ 待验证 |
 
 ### 2.2 业务专家的关键分析
 
@@ -67,6 +68,10 @@ moduleGroup.scale.set(scaleX, 1, scaleY);
 moduleGroup.scale.set(scaleX, scaleY, 1);
 ```
 
+#### 问题 C：updateModuleTransform 方法不一致
+- **问题**：`updateModuleTransform()` 方法未同步更新坐标映射
+- **已修复**：同步应用 Z 轴和缩放轴修复
+
 ---
 
 ## 3. 当前代码状态
@@ -86,18 +91,44 @@ moduleGroup.rotation.y = transform.rotation;
 moduleGroup.scale.set(transform.scale.x, transform.scale.y, 1);
 ```
 
-### 3.2 日志输出（最新测试）
+### 3.2 日志输出（精简版 - 2026-01-11）
+
 ```
-[SVGModuleRenderer] SVG loaded successfully. Paths count: 6
-[SVGModuleRenderer] Created group with 6 children
-[SVGModuleRenderer] Centered SVG. Original center was: _Vector3
-[SVGModuleRenderer] Loaded SVG: mod_bed_001
-[SVGModuleRenderer] Calculated transform: Object
-[SVGModuleRenderer] Added moduleGroup to scene. Children count: 6
-[SVGModuleRenderer] Rendered SVG for module m_1 (双人床)
+[SVG] Path0: pts=53, verts=312
+[SVG] Path1: pts=53, verts=312
+[SVG] Path2: pts=53, verts=312
+[SVG] Path3: pts=53, verts=312
+[SVG] Path4: pts=2, verts=0
+[SVG] Path5: pts=2, verts=0
+[SVG] children=6, center=(900, 1000)
+[SVG] m_1: pos=(10100, 760, -2420), scale=(1.11, 0.90)
 ```
 
-日志显示一切正常，但 SVG 仍然不可见。
+### 3.3 日志分析
+
+| 指标 | 值 | 分析 |
+|------|-----|------|
+| **几何体顶点数** | 312 (Path0-3) | ✅ 正常，有实际几何数据 |
+| **Path4-5 顶点数** | 0 | ⚠️ 直线段(pts=2)生成失败，但不影响主要形状 |
+| **子对象数量** | 6 | ✅ 正常 |
+| **居中计算** | (900, 1000) | ✅ 与 viewBox 1800x2000 匹配 |
+| **X 位置** | 10100 | ✅ 在场景范围内 |
+| **Y 位置** | 760 | ✅ 高于家具(750)，低于相机(10000) |
+| **Z 位置** | -2420 | ✅ 符合 z=-y 约定 |
+| **缩放** | (1.11, 0.90) | ✅ 接近 1:1，合理 |
+
+### 3.4 相机与 SVG 空间关系
+
+```
+相机位置: Y = 10000 (俯视)
+         ↓ 看向 Y = 0 平面
+─────────────────────────────
+SVG 位置: Y = 760
+家具顶面: Y = 750
+地面:     Y = 0
+```
+
+**结论**：几何体数据正确，变换值合理，相机应该能看到 SVG。问题可能在渲染层面（材质/深度/图层）。
 
 ---
 
@@ -118,9 +149,10 @@ if (strokeGeometry) {
 - 当前设置为 760，略高于家具模块高度 (750)
 - 可能需要验证相机是否能看到这个高度
 
-### 4.3 材质渲染问题
+### 4.3 材质渲染问题 ⬅️ 第8次修复目标
 - `depthWrite: false` 可能导致渲染顺序问题
 - `transparent: true` + `opacity: 0.9` 可能与其他对象冲突
+- **修复方案**：已移除所有透明度设置，改用纯不透明材质
 
 ### 4.4 图层设置
 - SVG 设置了 `layers.enable(LAYER_MODEL)`

@@ -32,6 +32,8 @@ namespace BIMCanvas.Server.Controllers
         [HttpGet("branches")]
         public ActionResult<List<GitBranchInfo>> GetBranches()
         {
+            _logger.LogInformation(">>> [GitController] GetBranches called");
+
             // 检查项目是否已加载
             if (!_projectContext.IsLoaded)
             {
@@ -69,6 +71,9 @@ namespace BIMCanvas.Server.Controllers
         [HttpPost("checkout")]
         public ActionResult Checkout([FromBody] CheckoutBranchRequest request)
         {
+            _logger.LogInformation(">>> [GitController] Checkout called: {Branch}, CreateIfNotExist={Create}",
+                request?.BranchName ?? "(null)", request?.CreateIfNotExist ?? false);
+
             if (string.IsNullOrEmpty(request.BranchName))
             {
                 return BadRequest(new { message = "分支名不能为空" });
