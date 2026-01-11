@@ -37,6 +37,7 @@ export class SVGModuleRenderer {
   private scene: THREE.Scene;
   private svgLoader: SVGLoader;
   private svgCache: Map<string, THREE.Group> = new Map();
+  private svgSizeCache: Map<string, { width: number, height: number }> = new Map(); // SVG 原始尺寸缓存
   private moduleGroups: Map<string, THREE.Group> = new Map(); // moduleId -> Group
 
   // SVG渲染配置

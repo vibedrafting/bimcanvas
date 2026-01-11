@@ -7,6 +7,7 @@ interface Props {
   visible: boolean;
   targetBranch: string;
   currentBranch: string;
+  isCreating?: boolean;  // true = 创建新分支, false = 切换分支
 }
 
 const props = defineProps<Props>();
@@ -27,13 +28,18 @@ const defaultMessage = computed(() => {
     now.getHours().toString().padStart(2, '0') +
     now.getMinutes().toString().padStart(2, '0') +
     now.getSeconds().toString().padStart(2, '0');
-  return `切换分支存档_${timestamp}`;
+  const prefix = props.isCreating ? '创建分支存档' : '切换分支存档';
+  return `${prefix}_${timestamp}`;
 });
 
 // 最终提交信息
 const finalMessage = computed(() =>
   customMessage.value.trim() || defaultMessage.value
 );
+
+// 根据场景动态文案
+const actionText = computed(() => props.isCreating ? '创建分支' : '切换到');
+const cancelText = computed(() => props.isCreating ? '取消创建' : '取消切换');
 
 // 重置状态
 watch(() => props.visible, (newVal) => {
@@ -80,7 +86,7 @@ const handleCancel = () => {
           <div class="dialog-body">
             <p class="message">
               当前分支 <span class="branch-name">{{ currentBranch }}</span> 有未提交的更改。
-              切换到 <span class="branch-name">{{ targetBranch }}</span> 前需要处理这些更改。
+              {{ actionText }} <span class="branch-name">{{ targetBranch }}</span> 前需要处理这些更改。
             </p>
 
             <div class="input-section">
@@ -96,11 +102,11 @@ const handleCancel = () => {
           </div>
 
           <div class="dialog-footer">
-            <GlassButton 
-              variant="ghost" 
+            <GlassButton
+              variant="ghost"
               @click="handleCancel"
             >
-              取消切换
+              {{ cancelText }}
             </GlassButton>
             <GlassButton 
               variant="ghost" 

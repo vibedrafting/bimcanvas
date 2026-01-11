@@ -9,11 +9,12 @@ import LibraryGroup from './Ribbon/LibraryGroup.vue';
 import EditGroup from './Ribbon/EditGroup.vue';
 import ViewGroup from './Ribbon/ViewGroup.vue';
 import BranchCreationDialog from './Ribbon/BranchCreationDialog.vue';
+import BranchCheckoutConfirmDialog from './Ribbon/BranchCheckoutConfirmDialog.vue';
 import { useGitStore } from '../../stores/gitStore';
 
 // --- Git Store (for branch dialog) ---
 const gitStore = useGitStore();
-const { branches, currentBranchId } = storeToRefs(gitStore);
+const { branches, currentBranchId, currentBranch } = storeToRefs(gitStore);
 
 // Tabs definition
 const tabs = [
@@ -57,6 +58,10 @@ const keepOpen = () => {
 // --- Branch Creation Dialog ---
 const showBranchDialog = ref(false);
 
+// --- Branch Conflict Confirm Dialog ---
+const showConflictDialog = ref(false);
+const pendingBranchData = ref<{ name: string; baseBranch: string; tags: string[]; reason: string } | null>(null);
+
 const currentBranchTags = computed(() => {
   const branch = branches.value.find(b => b.id === currentBranchId.value);
   return branch?.commit ? [branch.commit.message.substring(0, 20)] : [];
@@ -81,6 +86,13 @@ const handleCreateBranch = async (data: { name: string; baseBranch: string; tags
     console.log('[RibbonToolbar] Switching to base branch:', data.baseBranch);
     const switchResult = await gitStore.checkout(data.baseBranch);
     if (!switchResult.success) {
+      // 切换基础分支时遇到冲突
+      if (switchResult.hasUncommittedChanges) {
+        console.log('[RibbonToolbar] Conflict detected when switching to base branch');
+        pendingBranchData.value = data;
+        showConflictDialog.value = true;
+        return;
+      }
       console.error('[RibbonToolbar] Failed to switch to base branch:', switchResult.message);
       return;
     }
@@ -97,8 +109,79 @@ const handleCreateBranch = async (data: { name: string; baseBranch: string; tags
     showBranchDialog.value = false;
     console.log('[RibbonToolbar] Branch created successfully:', branchName);
   } else {
-    console.error('[RibbonToolbar] Failed to create branch:', result.message);
+    // 创建分支时遇到冲突
+    if (result.hasUncommittedChanges) {
+      console.log('[RibbonToolbar] Conflict detected when creating branch');
+      pendingBranchData.value = data;
+      showConflictDialog.value = true;
+    } else {
+      console.error('[RibbonToolbar] Failed to create branch:', result.message);
+    }
   }
+};
+
+// 处理冲突确认弹窗的响应
+const handleConflictConfirm = async (saveBeforeSwitch: boolean, commitMessage?: string) => {
+  showConflictDialog.value = false;
+
+  if (!pendingBranchData.value) return;
+
+  const data = pendingBranchData.value;
+  const branchName = data.name.trim();
+
+  console.log('[RibbonToolbar] Conflict resolved, saveBeforeSwitch:', saveBeforeSwitch);
+
+  // 如果需要切换基础分支
+  if (data.baseBranch && data.baseBranch !== currentBranchId.value) {
+    const switchResult = await gitStore.checkout(data.baseBranch, {
+      commitBeforeCheckout: saveBeforeSwitch,
+      discardBeforeCheckout: !saveBeforeSwitch,
+      commitMessage
+    });
+
+    if (!switchResult.success) {
+      console.error('[RibbonToolbar] Failed to switch to base branch after conflict resolution:', switchResult.message);
+      pendingBranchData.value = null;
+      return;
+    }
+  } else {
+    // 不需要切换基础分支，直接处理当前分支的未提交更改
+    if (saveBeforeSwitch) {
+      const commitResult = await gitStore.commit(commitMessage);
+      if (!commitResult.success) {
+        console.error('[RibbonToolbar] Failed to commit changes:', commitResult.message);
+        pendingBranchData.value = null;
+        return;
+      }
+    } else {
+      const discardResult = await gitStore.discardChanges();
+      if (!discardResult.success) {
+        console.error('[RibbonToolbar] Failed to discard changes:', discardResult.message);
+        pendingBranchData.value = null;
+        return;
+      }
+    }
+  }
+
+  // 创建新分支
+  const result = await gitStore.checkout(branchName, {
+    createIfNotExist: true,
+    commitMessage: data.reason
+  });
+
+  if (result.success) {
+    showBranchDialog.value = false;
+    console.log('[RibbonToolbar] Branch created successfully after conflict resolution:', branchName);
+  } else {
+    console.error('[RibbonToolbar] Failed to create branch after conflict resolution:', result.message);
+  }
+
+  pendingBranchData.value = null;
+};
+
+const handleConflictCancel = () => {
+  showConflictDialog.value = false;
+  pendingBranchData.value = null;
 };
 </script>
 
@@ -148,6 +231,15 @@ const handleCreateBranch = async (data: { name: string; baseBranch: string; tags
       :all-branches="simpleBranchList"
       @create="handleCreateBranch"
       @cancel="showBranchDialog = false"
+    />
+
+    <BranchCheckoutConfirmDialog
+      :visible="showConflictDialog"
+      :target-branch="pendingBranchData?.name ?? ''"
+      :current-branch="currentBranch"
+      :is-creating="true"
+      @confirm="handleConflictConfirm"
+      @cancel="handleConflictCancel"
     />
   </div>
 </template>
