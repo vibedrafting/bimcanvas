@@ -166,12 +166,18 @@ export class SVGModuleRenderer {
             // 如果没有填充或填充为 none，且没有明确禁止描边，则渲染描边
             const shouldRenderStroke = strokeColor !== 'none' && (!fillColor || fillColor === 'none' || strokeColor);
 
+            // [DEBUG] 详细日志
+            console.log(`[SVGModuleRenderer] Path ${i}: userData.style =`, JSON.stringify(path.userData?.style));
+            console.log(`[SVGModuleRenderer] Path ${i}: subPaths.length = ${path.subPaths.length}`);
+            console.log(`[SVGModuleRenderer] Path ${i}: shouldRenderStroke = ${shouldRenderStroke}, fillColor = ${fillColor}, strokeColor = ${strokeColor}`);
+
             if (shouldRenderStroke) {
               // 构建描边样式（CSS class 未被解析时使用默认值）
               const strokeStyle = {
                 ...path.userData?.style,
                 strokeWidth: path.userData?.style?.strokeWidth || 20
               };
+              console.log(`[SVGModuleRenderer] Path ${i}: strokeStyle =`, JSON.stringify(strokeStyle));
 
               // 默认白色描边（SVG CSS class 样式无法被 SVGLoader 解析时的兜底）
               // 如果有描边颜色且是黑色，也替换为白色（深色背景下可见）
@@ -188,12 +194,26 @@ export class SVGModuleRenderer {
               });
 
               // 为每个子路径创建描边几何体
+              let subPathIndex = 0;
               for (const subPath of path.subPaths) {
-                const strokeGeometry = SVGLoader.pointsToStroke(subPath.getPoints(), strokeStyle);
+                const points = subPath.getPoints();
+                console.log(`[SVGModuleRenderer] Path ${i}, SubPath ${subPathIndex}: points.length = ${points.length}`);
+
+                const strokeGeometry = SVGLoader.pointsToStroke(points, strokeStyle);
                 if (strokeGeometry) {
-                  const strokeMesh = new THREE.Mesh(strokeGeometry, material);
-                  group.add(strokeMesh);
+                  const vertexCount = strokeGeometry.attributes.position?.count || 0;
+                  console.log(`[SVGModuleRenderer] Path ${i}, SubPath ${subPathIndex}: geometry vertices = ${vertexCount}`);
+
+                  if (vertexCount > 0) {
+                    const strokeMesh = new THREE.Mesh(strokeGeometry, material);
+                    group.add(strokeMesh);
+                  } else {
+                    console.warn(`[SVGModuleRenderer] Path ${i}, SubPath ${subPathIndex}: geometry has 0 vertices!`);
+                  }
+                } else {
+                  console.warn(`[SVGModuleRenderer] Path ${i}, SubPath ${subPathIndex}: pointsToStroke returned null!`);
                 }
+                subPathIndex++;
               }
             }
           }
