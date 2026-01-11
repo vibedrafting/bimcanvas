@@ -176,6 +176,16 @@ export class SVGModuleRenderer {
           // SVG默认Y轴向下，需要翻转
           group.scale.y = -1;
 
+          // 居中 SVG 几何体（将原点从左上角移到几何体中心）
+          // 这是因为 SVG viewBox 原点在左上角，而我们需要以中心点定位
+          const box = new THREE.Box3().setFromObject(group);
+          const center = box.getCenter(new THREE.Vector3());
+          group.children.forEach(child => {
+            child.position.x -= center.x;
+            child.position.y -= center.y;
+          });
+          console.log(`[SVGModuleRenderer] Centered SVG. Original center was:`, center);
+
           // 缓存结果（使用 moduleId 作为 key）
           this.svgCache.set(moduleId, group);
 
