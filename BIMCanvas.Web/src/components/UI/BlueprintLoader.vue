@@ -53,7 +53,7 @@ class Particle {
   currentTailLength: number = 0;
   currentProgress: number = 0;
 
-  constructor(row: number, col: number, width: number, height: number, type: 'row' | 'col') {
+  constructor(row: number, col: number, width: number, height: number, type: 'row' | 'col', direction: number) {
     this.row = row;
     this.col = col;
     this.type = type;
@@ -63,7 +63,7 @@ class Particle {
 
     // 2. Start Position (P0) - Orthogonal Constraint based on Type
     const distance = 400 + Math.random() * 600; // Slide distance
-    this.direction = Math.random() > 0.5 ? 1 : -1;
+    this.direction = direction;
 
     // Tail Length: Exactly GRID_SPACING to ensure perfect connection
     // This creates the effect of "drawing" the grid lines
@@ -197,12 +197,26 @@ const initParticles = () => {
   GRID_ROWS = Math.ceil(height / GRID_SPACING) + 2;
   
   for (let r = 0; r < GRID_ROWS; r++) {
-    for (let c = 0; c < GRID_COLS; c++) {
-      // Create TWO particles for each intersection
-      // One for the Row (Horizontal motion)
-      particles.push(new Particle(r, c, width, height, 'row'));
-      // One for the Col (Vertical motion)
-      particles.push(new Particle(r, c, width, height, 'col'));
+    for (let c = 0; c < GRID_COLS - 1; c++) {
+      // Horizontal Segments (Row)
+      // Segment between c and c+1
+      // dir = -1: Lands at c+1, Tail goes Left to c (Motion L->R)
+      // dir = 1:  Lands at c, Tail goes Right to c+1 (Motion R->L)
+      const dir = Math.random() > 0.5 ? -1 : 1;
+      const targetCol = dir === -1 ? c + 1 : c;
+      particles.push(new Particle(r, targetCol, width, height, 'row', dir));
+    }
+  }
+
+  for (let c = 0; c < GRID_COLS; c++) {
+    for (let r = 0; r < GRID_ROWS - 1; r++) {
+      // Vertical Segments (Col)
+      // Segment between r and r+1
+      // dir = -1: Lands at r+1, Tail goes Up to r (Motion U->D)
+      // dir = 1:  Lands at r, Tail goes Down to r+1 (Motion D->U)
+      const dir = Math.random() > 0.5 ? -1 : 1;
+      const targetRow = dir === -1 ? r + 1 : r;
+      particles.push(new Particle(targetRow, c, width, height, 'col', dir));
     }
   }
 };
