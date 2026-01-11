@@ -99,6 +99,9 @@ namespace BIMCanvas.Server.Services
             // 3. 创建 context/ 目录
             CreateContextDirectory(projectPath);
 
+            // 3.5 创建 knowledge/ 目录（Agent 知识库）
+            CreateKnowledgeDirectory(projectPath);
+
             // 4. 创建 schemes/ 和默认策略
             var defaultStrategyId = EnsureSchemesDirectory(projectPath, baselineHash);
 
@@ -356,6 +359,137 @@ Thumbs.db
 ";
             File.WriteAllText(requirementsPath, content, Encoding.UTF8);
             _logger.LogInformation("创建 requirements.md 模板");
+        }
+
+        /// <summary>
+        /// 创建 knowledge/ 目录和初始化知识库文件
+        /// Agent 在布置家具时可查阅此知识库
+        /// </summary>
+        private void CreateKnowledgeDirectory(string projectPath)
+        {
+            var knowledgePath = Path.Combine(projectPath, "knowledge");
+
+            if (Directory.Exists(knowledgePath))
+            {
+                _logger.LogDebug("knowledge/ 目录已存在，跳过创建");
+                return;
+            }
+
+            Directory.CreateDirectory(knowledgePath);
+            _logger.LogInformation("创建 knowledge/ 目录");
+
+            // 创建布置设计指南
+            CreatePlacementGuide(knowledgePath);
+        }
+
+        /// <summary>
+        /// 创建布置设计指南文件
+        /// </summary>
+        private void CreatePlacementGuide(string knowledgePath)
+        {
+            var guidePath = Path.Combine(knowledgePath, "placement_guide.md");
+
+            // 从嵌入资源加载内容
+            var content = GetPlacementGuideTemplate();
+
+            File.WriteAllText(guidePath, content, Encoding.UTF8);
+            _logger.LogInformation("创建 knowledge/placement_guide.md");
+        }
+
+        /// <summary>
+        /// 获取布置设计指南模板内容
+        /// </summary>
+        private string GetPlacementGuideTemplate()
+        {
+            // 尝试从 Resources 目录加载
+            var baseDir = AppDomain.CurrentDomain.BaseDirectory;
+            var resourcePath = Path.Combine(baseDir, "Resources", "placement_guide.md");
+
+            if (File.Exists(resourcePath))
+            {
+                return File.ReadAllText(resourcePath, Encoding.UTF8);
+            }
+
+            // 向上查找 BIMCanvas 根目录下的 Resources
+            var dir = new DirectoryInfo(baseDir);
+            for (int i = 0; i < 8 && dir != null; i++)
+            {
+                var tryPath = Path.Combine(dir.FullName, "BIMCanvas.Server", "Resources", "placement_guide.md");
+                if (File.Exists(tryPath))
+                {
+                    return File.ReadAllText(tryPath, Encoding.UTF8);
+                }
+                dir = dir.Parent;
+            }
+
+            // 如果找不到资源文件，使用内置的精简模板
+            _logger.LogWarning("未找到 placement_guide.md 资源文件，使用内置模板");
+            return GetBuiltInPlacementGuideTemplate();
+        }
+
+        /// <summary>
+        /// 内置的布置设计指南模板（备用）
+        /// </summary>
+        private string GetBuiltInPlacementGuideTemplate()
+        {
+            return @"# PlacementAgent 布置设计指南
+
+> 本文档为 PlacementAgent 提供布置决策所需的背景知识和设计规范。
+
+## 一、设计原则
+
+| 规则 | 说明 | 适用家具 |
+|------|------|----------|
+| **靠墙规则** | 大型家具尽量靠墙放置 | 衣柜、床、沙发、书柜 |
+| **居中规则** | 某些家具应居中于墙面 | 电视柜居中于电视墙、床居中于床头墙 |
+| **朝向规则** | 家具背面靠墙，正面朝向空间中心 | 沙发背墙面向客厅、床头靠墙 |
+| **避窗规则** | 避免家具阻挡采光 | 床头不靠窗、书桌侧对窗 |
+| **避门规则** | 不阻挡门的开启范围 | 所有家具 |
+
+## 二、布置优先级
+
+1. **锚点家具** - 确定设计区的核心定位
+   - 客厅: 电视柜 → 卧室: 床 → 餐厅: 餐桌
+2. **主要家具** - 围绕锚点布置
+3. **辅助家具** - 填充剩余空间
+
+## 三、尺寸标准
+
+### 通道宽度
+| 类型 | 最小 | 推荐 |
+|------|------|------|
+| 主通道 | 900mm | 1000mm+ |
+| 次通道 | 600mm | 700mm+ |
+| 床侧通道 | 500mm | 600mm+ |
+
+### 使用距离
+| 场景 | 距离 |
+|------|------|
+| 电视观看 | 屏幕对角线 × 2.5~3 |
+| 餐椅后退 | 600~800mm |
+| 衣柜开门 | 600mm+ |
+
+## 四、空间约束
+
+```
+1. bounds 必须在 Zone.innerBoundary 内
+2. bounds 不能与 exclusionAreas 重叠
+3. bounds 不能与其他 modules 重叠
+4. 不能阻挡门的开启范围
+```
+
+## 五、常见错误
+
+| 错误 | 正确做法 |
+|------|----------|
+| 床脚正对门 | 床侧对门或床头对门 |
+| 沙发背对入口 | 沙发背靠墙 |
+| 通道过窄 | 主通道 >= 900mm |
+| 家具挡门 | 检查门扇弧线 |
+
+---
+*此为内置精简版，完整版请参阅 Resources/placement_guide.md*
+";
         }
 
         /// <summary>

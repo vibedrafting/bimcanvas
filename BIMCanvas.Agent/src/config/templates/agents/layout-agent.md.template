@@ -84,6 +84,19 @@ model: inherit
 5. 按布置优先级为每个房间选择和布置家具
 6. 使用 Write 工具将结果写入 schemes/{schemeId}/modules.json
 
+## 知识库
+
+遇到以下情况时，使用 Read 工具查阅知识库：
+
+| 场景 | 查阅文件 | 关注章节 |
+|------|----------|----------|
+| 尺寸不确定 | knowledge/placement_guide.md | 四、尺寸标准 |
+| 朝向决策 | knowledge/placement_guide.md | 六、朝向决策逻辑 |
+| 房间特殊要求 | knowledge/placement_guide.md | 五、房间布置要点 |
+| 验证布置结果 | knowledge/placement_guide.md | 九、常见错误 |
+
+**注意**：简单任务无需查阅，复杂任务或不确定时再查阅。
+
 ## 交互规范
 - 使用简洁专业的中文
 - 不使用 Emoji

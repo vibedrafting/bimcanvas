@@ -16,7 +16,7 @@ export class SVGModuleRenderer {
   private moduleGroups: Map<string, THREE.Group> = new Map(); // moduleId -> Group
 
   // SVG渲染配置
-  private readonly SVG_HEIGHT = 10; // SVG图形在3D空间中的高度（略高于地面，避免Z-fighting）
+  private readonly SVG_HEIGHT = 760; // SVG图形在3D空间中的高度（高于家具模块的750，显示在家具上方）
   private readonly SVG_SCALE = 1.0; // SVG缩放比例
 
   constructor(scene: THREE.Scene) {
@@ -66,12 +66,14 @@ export class SVGModuleRenderer {
       console.log(`[SVGModuleRenderer] Calculated transform:`, transform);
 
       // 5. 应用变换（转换到 Y-Up 坐标系，与家具模块一致）
-      // 先设置 XY 平面到 XZ 平面的旋转
-      moduleGroup.rotation.x = -Math.PI / 2;
-      // 在 Y-Up 坐标系中设置位置：(x, height, -y)
-      moduleGroup.position.set(transform.position.x, this.SVG_HEIGHT, -transform.position.y);
+      // SVG 原始坐标系：X 向右，Y 向下（左上角原点）
+      // 目标坐标系：X 向右，Z 向下（Y-Up 3D 视图）
+      // 旋转 X 轴 +90 度将 XY 平面旋转到 XZ 平面，同时自动将 Y 向下转为 Z 向下
+      moduleGroup.rotation.x = Math.PI / 2;
+      // 位置：在 Y-Up 坐标系中 (x, height, y)
+      moduleGroup.position.set(transform.position.x, this.SVG_HEIGHT, transform.position.y);
       // 朝向旋转（在 XZ 平面上是绕 Y 轴）
-      moduleGroup.rotation.y = -transform.rotation;
+      moduleGroup.rotation.y = transform.rotation;
       moduleGroup.scale.set(transform.scale.x, 1, transform.scale.y);
 
       // 6. 设置图层（与家具模块同层）
@@ -157,16 +159,20 @@ export class SVGModuleRenderer {
               }
             }
 
-            // 获取描边
+            // 获取描边（如果 CSS class 样式未被解析，使用默认白色）
             const strokeColor = path.userData?.style?.stroke;
-            if (strokeColor && strokeColor !== 'none') {
-              const strokeWidth = path.userData?.style?.strokeWidth || 1;
+            const strokeWidth = path.userData?.style?.strokeWidth || 20;
 
+            // 如果没有填充或填充为 none，且没有明确禁止描边，则渲染描边
+            const shouldRenderStroke = strokeColor !== 'none' && (!fillColor || fillColor === 'none' || strokeColor);
+
+            if (shouldRenderStroke) {
               const points = path.subPaths.flatMap(subPath => subPath.getPoints());
               if (points.length > 0) {
                 const geometry = new THREE.BufferGeometry().setFromPoints(points);
-                // 如果是黑色描边，替换为白色（在深色背景下可见）
-                const displayColor = (strokeColor === '#000000' || strokeColor === '#000' || strokeColor === 'black')
+                // 默认白色描边（SVG CSS class 样式无法被 SVGLoader 解析时的兜底）
+                // 如果有描边颜色且是黑色，也替换为白色（深色背景下可见）
+                const displayColor = (!strokeColor || strokeColor === '#000000' || strokeColor === '#000' || strokeColor === 'black')
                   ? '#ffffff'
                   : strokeColor;
                 const material = new THREE.LineBasicMaterial({
@@ -183,10 +189,6 @@ export class SVGModuleRenderer {
           }
 
           console.log(`[SVGModuleRenderer] Created group with ${group.children.length} children`);
-
-          // 将SVG坐标系转换为BIMCanvas坐标系
-          // SVG默认Y轴向下，需要翻转
-          group.scale.y = -1;
 
           // 居中 SVG 几何体（将原点从左上角移到几何体中心）
           // 这是因为 SVG viewBox 原点在左上角，而我们需要以中心点定位
@@ -309,8 +311,8 @@ export class SVGModuleRenderer {
     if (!moduleDef) return;
 
     const transform = this.calculateModuleTransform(module, moduleDef);
-    group.position.set(transform.position.x, this.SVG_HEIGHT, -transform.position.y);
-    group.rotation.y = -transform.rotation;
+    group.position.set(transform.position.x, this.SVG_HEIGHT, transform.position.y);
+    group.rotation.y = transform.rotation;
     group.scale.set(transform.scale.x, 1, transform.scale.y);
   }
 

@@ -43,13 +43,14 @@ BIMCanvas Web 端的启动过程被设计为一个**连贯的电影式体验（C
 
 *   **视觉效果**:
     *   **初始**: 粒子处于混沌或扫描状态，屏幕中央显示 "ESTABLISHING GRID"。
-    *   **锁定**: 当后端数据返回并计算出视口后，粒子平滑移动并锁定到最终的网格交叉点 (`isOrdered = true`)。
-    *   **结束**: 进度条填满，网格线淡入，随后整个遮罩层淡出。
+    *   **锁定**: 当后端数据返回并计算出视口后，粒子开始移动。
+    *   **流星效应**: 粒子拖着长长的尾巴（**Meteor Trails**）移动，尾巴的样式（1px宽，0.8透明度）与最终网格完全一致。
+    *   **网格编织**: 随着粒子移动到位，粒子头部逐渐“燃尽”消失，留下的尾巴首尾相连，无缝编织成最终的背景网格。
 *   **组件**: [`src/components/UI/BlueprintLoader.vue`](../BIMCanvas.Web/src/components/UI/BlueprintLoader.vue)
 *   **关键代码**:
-    *   `Particle` 类: 管理每个网格点的运动（行/列分离运动逻辑）。
-    *   `animate()`: 主渲染循环，使用 `easeInOutCubic` 缓动函数处理位置插值。
-    *   `drawConnections()`: 动态绘制透明度变化的网格线。
+    *   `Particle` 类: 新增 `currentTailLength` 和 `currentProgress` 属性。
+    *   `draw()`: 实现了流星头部的淡出逻辑（80%进度时消失）和尾巴的绘制逻辑（纯色、无渐变、精确匹配网格样式）。
+    *   **去静态化**: 移除了原有的 `drawConnections` 静态连线逻辑，网格完全由动态轨迹生成。
 
 ### Phase 2: UI 展开 (UI Expansion)
 
