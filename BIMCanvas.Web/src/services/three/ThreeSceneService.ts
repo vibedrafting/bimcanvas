@@ -16,6 +16,7 @@ import { DragManager } from '../interaction/DragManager';
 import { GhostManager } from '../interaction/GhostManager';
 import { useDebugStore } from '../../stores/debugStore';
 import { themeService } from '../theme/ThemeService';
+import { moduleLibraryService } from '../ModuleLibraryService';
 
 export class ThreeSceneService {
     private container: HTMLElement;
@@ -128,6 +129,10 @@ export class ThreeSceneService {
         // }
         // Always build grid initially
         this.gridBuilder.buildGrid();
+        // 8. Load Module Library
+        moduleLibraryService.load().catch(error => {
+            console.error('[ThreeSceneService] Failed to load module library:', error);
+        });
 
         // 7. Watch for Store Changes
 

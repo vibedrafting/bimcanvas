@@ -82,6 +82,7 @@ builder.Services.AddSingleton<GitWorktreeService>();
 builder.Services.AddSingleton<StrategyService>();
 builder.Services.AddSingleton<ProjectService>();
 builder.Services.AddSingleton<ProjectContext>();  // 单项目模式上下文
+builder.Services.AddSingleton<ModuleLibraryService>();  // 模块库服务
 
 // v3.2 实时通信服务
 builder.Services.AddSignalR();

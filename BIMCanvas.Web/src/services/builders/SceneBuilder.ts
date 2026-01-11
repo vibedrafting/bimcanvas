@@ -2,11 +2,14 @@ import * as THREE from 'three';
 import type { ProjectData, Wall, Column, Module, Point2D, Opening } from '../../types/canvas';
 import { LayerManager } from '../three/LayerManager';
 import { themeService } from '../theme/ThemeService';
+import { SVGModuleRenderer } from './SVGModuleRenderer';
+import { moduleLibraryService } from '../ModuleLibraryService';
 
 export class SceneBuilder {
     private scene: THREE.Scene;
     private materials: Map<string, THREE.Material>;
     private boxHelpers: THREE.BoxHelper[] = [];
+    private svgRenderer: SVGModuleRenderer;
 
     // Constants
     private readonly WALL_HEIGHT = 2800;
@@ -14,6 +17,7 @@ export class SceneBuilder {
     constructor(scene: THREE.Scene) {
         this.scene = scene;
         this.materials = new Map();
+        this.svgRenderer = new SVGModuleRenderer(scene);
         this.initMaterials();
     }
 
@@ -94,6 +98,9 @@ export class SceneBuilder {
     public clearScene() {
         console.log('--- clearScene START ---');
         console.log('Total children before clear:', this.scene.children.length);
+
+        // 0. Clear SVG renderers
+        this.svgRenderer.clear();
 
         // 1. Remove tracked BoxHelpers
         this.boxHelpers.forEach(helper => {
@@ -767,6 +774,12 @@ export class SceneBuilder {
         aiMesh.userData = mesh.userData;
         this.enableAiLayer(aiMesh);
         this.scene.add(aiMesh);
+
+        // --- SVG 模块渲染 ---
+        // 异步渲染SVG（不阻塞模块创建）
+        this.svgRenderer.renderModuleSVG(mod).catch(error => {
+            console.error(`[SceneBuilder] Failed to render SVG for module ${mod.id}:`, error);
+        });
     }
 
     /**
