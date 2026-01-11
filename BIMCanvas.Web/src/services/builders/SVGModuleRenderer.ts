@@ -66,12 +66,11 @@ export class SVGModuleRenderer {
       console.log(`[SVGModuleRenderer] Calculated transform:`, transform);
 
       // 5. 应用变换（转换到 Y-Up 坐标系，与家具模块一致）
-      // SVG 原始坐标系：X 向右，Y 向下（左上角原点）
-      // 目标坐标系：X 向右，Z 向下（Y-Up 3D 视图）
-      // 旋转 X 轴 +90 度将 XY 平面旋转到 XZ 平面，同时自动将 Y 向下转为 Z 向下
-      moduleGroup.rotation.x = Math.PI / 2;
-      // 位置：在 Y-Up 坐标系中 (x, height, y)
-      moduleGroup.position.set(transform.position.x, this.SVG_HEIGHT, transform.position.y);
+      // 场景约定：2D (x, y) → 3D (x, 0, -y)
+      // 模块统一使用 rotation.x = -Math.PI / 2（参考 SceneBuilder.ts:754）
+      moduleGroup.rotation.x = -Math.PI / 2;
+      // 位置：与场景约定一致，z = -y
+      moduleGroup.position.set(transform.position.x, this.SVG_HEIGHT, -transform.position.y);
       // 朝向旋转（在 XZ 平面上是绕 Y 轴）
       moduleGroup.rotation.y = transform.rotation;
       moduleGroup.scale.set(transform.scale.x, 1, transform.scale.y);
