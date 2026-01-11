@@ -28,15 +28,30 @@ export class SVGModuleRenderer {
    * 为模块创建SVG渲染
    */
   async renderModuleSVG(module: Module): Promise<THREE.Group | null> {
+    // DEBUG: 输出调用信息
+    console.log(`[SVGModuleRenderer] renderModuleSVG called:`, {
+      moduleId: module.id,
+      libraryModuleId: module.moduleId,
+      bounds: module.bounds,
+      facing: module.facing,
+      libraryLoaded: moduleLibraryService.isLoaded(),
+      availableModuleIds: moduleLibraryService.getAllModules().map(m => m.id)
+    });
+
     try {
       // 1. 从模块库获取模块定义
       const moduleDef = moduleLibraryService.getModuleById(module.moduleId);
+      console.log(`[SVGModuleRenderer] moduleDef lookup result:`, moduleDef);
+
       if (!moduleDef) {
         console.warn(`[SVGModuleRenderer] Module definition not found: ${module.moduleId}`);
         return null;
       }
 
       // 2. 加载或获取缓存的SVG（使用 moduleId 作为缓存 key）
+      const svgUrl = moduleLibraryService.getSvgUrl(module.moduleId);
+      console.log(`[SVGModuleRenderer] Loading SVG from URL: ${svgUrl}`);
+
       const svgGroup = await this.loadSVG(module.moduleId);
       if (!svgGroup) {
         console.warn(`[SVGModuleRenderer] Failed to load SVG for: ${module.moduleId}`);
@@ -48,6 +63,7 @@ export class SVGModuleRenderer {
 
       // 4. 计算模块的位置和旋转
       const transform = this.calculateModuleTransform(module, moduleDef);
+      console.log(`[SVGModuleRenderer] Calculated transform:`, transform);
 
       // 5. 应用变换
       moduleGroup.position.set(transform.position.x, transform.position.y, this.SVG_HEIGHT);
@@ -71,6 +87,7 @@ export class SVGModuleRenderer {
 
       // 8. 添加到场景
       this.scene.add(moduleGroup);
+      console.log(`[SVGModuleRenderer] Added moduleGroup to scene. Children count: ${moduleGroup.children.length}`);
 
       // 9. 记录到映射表
       this.moduleGroups.set(module.id, moduleGroup);
@@ -91,16 +108,19 @@ export class SVGModuleRenderer {
   private async loadSVG(moduleId: string): Promise<THREE.Group | null> {
     // 检查缓存（使用 moduleId 作为 key）
     if (this.svgCache.has(moduleId)) {
+      console.log(`[SVGModuleRenderer] Using cached SVG for: ${moduleId}`);
       return this.svgCache.get(moduleId)!;
     }
 
     // 从 ModuleLibraryService 获取 SVG URL
     const svgUrl = moduleLibraryService.getSvgUrl(moduleId);
+    console.log(`[SVGModuleRenderer] Fetching SVG from: ${svgUrl}`);
 
     return new Promise((resolve) => {
       this.svgLoader.load(
         svgUrl,
         (data) => {
+          console.log(`[SVGModuleRenderer] SVG loaded successfully. Paths count: ${data.paths.length}`);
           const paths = data.paths;
           const group = new THREE.Group();
 
@@ -149,6 +169,8 @@ export class SVGModuleRenderer {
               }
             }
           }
+
+          console.log(`[SVGModuleRenderer] Created group with ${group.children.length} children`);
 
           // 将SVG坐标系转换为BIMCanvas坐标系
           // SVG默认Y轴向下，需要翻转
