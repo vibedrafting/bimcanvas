@@ -1,8 +1,9 @@
 # SVG 渲染问题报告
 
 > 生成时间：2026-01-11
-> **问题状态：未解决** ❌
+> **问题状态：✅ 已解决**
 > 最后更新：2026-01-11
+> 解决方案：第10次修复 - 父子 Group 方案
 
 ---
 
@@ -33,7 +34,9 @@
 | 5 | linewidth 被忽略 | 使用 SVGLoader.pointsToStroke() | ❌ 无效 |
 | 6 | **Z 轴符号错误** | rotation.x 从 +PI/2 改为 -PI/2，position.z = -y | ❌ 无效 |
 | 7 | **缩放轴错误** | scale 从 (x,1,y) 改为 (x,y,1) | ❌ 无效 |
-| 8 | **透明材质渲染顺序** | 移除 transparent/depthWrite/opacity 设置 | ⏳ 待验证 |
+| 8 | **透明材质渲染顺序** | 移除 transparent/depthWrite/opacity 设置 | ❌ 无效 |
+| 9 | **Euler 旋转顺序错误** | 使用 ZXY 顺序，朝向改用 rotation.z | ❌ 方向对但不够干净 |
+| 10 | **父子 Group 方案** | 显式控制旋转顺序 + depthTest:false + renderOrder:999 | ✅ **成功！** |
 
 ### 2.2 业务专家的关键分析
 
@@ -71,6 +74,24 @@ moduleGroup.scale.set(scaleX, scaleY, 1);
 #### 问题 C：updateModuleTransform 方法不一致
 - **问题**：`updateModuleTransform()` 方法未同步更新坐标映射
 - **已修复**：同步应用 Z 轴和缩放轴修复
+
+#### 问题 D：Euler 旋转顺序错误（第9次修复）
+- **问题**：使用 `rotation.y` 做朝向旋转，但 Three.js 默认 XYZ 顺序下，`rotation.y` 是绕已旋转后的本地 Y 轴
+- **现象**：当 facing = east/west (±90°) 时，SVG 被旋转成垂直面，俯视图看是一条线
+- **原因**：先 `rotation.x = -PI/2` 压平后，本地 Y 轴不再是世界 Y 轴
+
+**已修复**：
+```typescript
+// 修改前（错误）
+moduleGroup.rotation.x = -Math.PI / 2;
+moduleGroup.rotation.y = transform.rotation;  // 绕本地 Y 轴，会把 SVG 转成垂直面
+
+// 修改后（正确）
+moduleGroup.rotation.order = 'ZXY';           // 改变顺序：先 Z，再 X，最后 Y
+moduleGroup.rotation.z = -transform.rotation; // 朝向旋转（在 XY 平面内绕 Z 轴）
+moduleGroup.rotation.x = -Math.PI / 2;        // 压平（XY → XZ）
+moduleGroup.rotation.y = 0;
+```
 
 ---
 
@@ -208,17 +229,85 @@ for (const subPath of path.subPaths) {
 
 ---
 
-## 7. 结论
+## 7. ✅ 成功解决方案（第10次修复）
 
-已完成 7 次修复尝试，包括业务专家指出的 Z 轴映射和缩放轴问题，但 SVG 仍然不可见。
+### 7.1 根本原因
+**Euler 旋转顺序陷阱**：在同一个对象上同时设置 `rotation.x` 和 `rotation.y` 时，`rotation.y` 是绕**已旋转后的本地 Y 轴**，而不是世界 Y 轴。
 
-**最可能的剩余原因**：
-1. `SVGLoader.pointsToStroke()` 返回空几何体（样式参数不完整）
-2. SVG 几何体顶点数为 0
-3. 渲染/深度/图层配置问题
+当 facing = east/west (±90°) 时，SVG 被旋转成垂直面，俯视图完全看不到。
 
-**建议**：添加更详细的调试日志，验证几何体是否真的被创建。
+### 7.2 解决方案：父子 Group（KISS 原则）
+
+用两层 Group 显式控制旋转顺序：
+- **子级 svg2D**：在 XY 平面内做 2D 变换（旋转绕 Z，缩放 X/Y）
+- **父级 root**：只做压平（rotation.x = -PI/2）和世界坐标定位
+
+```typescript
+const root = new THREE.Group();          // 父级：压平 + 世界坐标
+const svg2D = svgGroup.clone(true);      // 子级：2D 旋转 + 缩放
+
+// 子级：2D 变换（在 XY 平面内）
+svg2D.rotation.set(0, 0, transform.rotation);  // 绕 Z 做朝向（不取反）
+svg2D.scale.set(transform.scale.x, transform.scale.y, 1);
+
+root.add(svg2D);
+
+// 父级：压平 + 世界坐标定位
+root.rotation.set(-Math.PI / 2, 0, 0);  // 压平（XY → XZ）
+root.position.set(cx, SVG_HEIGHT, -cy);
+```
+
+### 7.3 渲染兜底
+```typescript
+// 确保不被遮挡
+material.depthTest = false;
+mesh.renderOrder = 999;
+```
+
+### 7.4 验证方法
+```typescript
+const box = new THREE.Box3().setFromObject(root);
+const size = box.getSize(new THREE.Vector3());
+// size.y ≈ 0 表示 SVG 在水平面上
+```
+
+验证数据：
+```
+size=(1800, 0, 2000)  ← size.y = 0 证明 SVG 在水平面
+size=(420, 0, 350)    ← 床头柜 SVG 同样水平
+```
 
 ---
 
-*报告更新完毕*
+## 8. 经验教训总结
+
+### 8.1 Three.js Euler 旋转的本质
+- 默认 XYZ 顺序是绕**本地轴**依次旋转
+- `rotation.y` 不是绕世界 Y 轴，而是绕已被 `rotation.x` 旋转后的本地 Y 轴
+- 这导致 facing = east/west 时 SVG 被"掀起来"成为垂直面
+
+### 8.2 KISS 原则
+- 不要用 `rotation.order = 'ZXY'` 这种"魔法开关"
+- 用显式的父子 Group 结构，任何人一眼就懂
+- 子级负责 2D 变换，父级负责 3D 定位
+
+### 8.3 调试复杂 3D 变换
+- 添加 `Box3.getSize()` 验证最终几何体形状
+- `size.y ≈ 0` 表示平面是水平的，`size.y >> 0` 表示平面是倾斜/垂直的
+
+### 8.4 渲染可见性兜底
+- `depthTest: false` 确保不被其他对象遮挡
+- `renderOrder = 999` 确保最后渲染
+- 这两个设置在调试阶段非常有用
+
+### 8.5 失败尝试的价值
+10 次修复尝试中，前 9 次虽然失败，但逐步排除了各种可能性：
+- 1-5：排除了几何体/颜色/样式问题
+- 6-7：修复了 Z 轴映射和缩放轴（必要但不充分）
+- 8：排除了透明材质问题
+- 9：找到了正确方向（Euler 顺序），但方案不够干净
+- 10：业务专家指导下采用 KISS 方案，最终成功
+
+---
+
+*报告更新完毕 - 问题已解决*

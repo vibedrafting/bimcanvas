@@ -1,10 +1,14 @@
 <script setup lang="ts">
-import { ref, computed, onMounted, nextTick, watch } from 'vue';
+import { ref, computed, onMounted } from 'vue';
 import { storeToRefs } from 'pinia';
 import GlassSelect from '../base/GlassSelect.vue';
 import GlassButton from '../base/GlassButton.vue';
-import BranchCreationDialog from './BranchCreationDialog.vue';
 import BranchCheckoutConfirmDialog from './BranchCheckoutConfirmDialog.vue';
+
+// 定义 emit 事件
+const emit = defineEmits<{
+  (e: 'openBranchDialog'): void;
+}>();
 import { useGitStore } from '../../../stores/gitStore';
 import { useCanvasStore } from '../../../stores/canvasStore';
 
@@ -17,6 +21,7 @@ const { branches, currentBranch, currentBranchId, isLoading, isOffline } = store
 onMounted(() => {
   gitStore.fetchBranches();
 });
+
 
 // --- Strategy Section ---
 const currentStrategy = ref('default');
@@ -39,15 +44,8 @@ const strategies = [
 ];
 
 // --- Variant/Branch Section ---
-const showBranchDialog = ref(false);
 const showCheckoutConfirmDialog = ref(false);
 const pendingCheckoutBranch = ref('');
-
-// DEBUG: 监控弹窗状态变化
-watch(showBranchDialog, (newVal, oldVal) => {
-  console.log('[DesignGroup] showBranchDialog changed:', oldVal, '->', newVal);
-  console.trace('[DesignGroup] Stack trace:');
-});
 
 // 分支图标
 const branchIcon = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><line x1="6" y1="3" x2="6" y2="15"></line><circle cx="18" cy="6" r="3"></circle><circle cx="6" cy="18" r="3"></circle><path d="M18 9a9 9 0 0 1-9 9"></path></svg>';
@@ -70,13 +68,9 @@ const branchOptions = computed(() => [
 
 // 分支切换处理
 const handleBranchChange = async (val: string | number) => {
-  console.log('[DesignGroup] handleBranchChange called:', val);
   if (val === '__create_new__') {
-    console.log('[DesignGroup] Opening branch dialog...');
-    // 延迟到下一个事件循环，避免与当前 click 事件冲突
-    await nextTick();
-    showBranchDialog.value = true;
-    console.log('[DesignGroup] showBranchDialog set to true');
+    // 通知父组件打开新建分支弹窗
+    emit('openBranchDialog');
     return;
   }
 
@@ -130,31 +124,6 @@ const handleCheckoutCancel = () => {
   pendingCheckoutBranch.value = '';
 };
 
-// 创建分支处理
-const handleCreateBranch = async (data: { name: string; baseBranch: string; tags: string[]; reason: string }) => {
-  const branchName = `scheme/${data.name.toLowerCase().replace(/\s+/g, '-')}`;
-
-  // 使用checkout的createIfNotExist功能创建并切换到新分支
-  const result = await gitStore.checkout(branchName, true);
-  if (result.success) {
-    showBranchDialog.value = false;
-    console.log('Created Branch:', branchName);
-  } else {
-    console.error('创建分支失败:', result.message);
-    // TODO: 可以添加UI提示
-  }
-};
-
-// Get current branch tags for dialog defaults
-const currentBranchTags = computed(() => {
-  const branch = branches.value.find(b => b.id === currentBranchId.value);
-  return branch?.commit ? [branch.commit.message.substring(0, 20)] : [];
-});
-
-// Simple branch list for dialog base selection
-const simpleBranchList = computed(() =>
-  branches.value.map(b => ({ label: b.name, value: b.id }))
-);
 </script>
 
 <template>
@@ -222,16 +191,6 @@ const simpleBranchList = computed(() =>
           Merge
         </GlassButton>
       </div>
-
-      <!-- Branch Creation Dialog -->
-      <BranchCreationDialog
-        :visible="showBranchDialog"
-        :base-branch="currentBranchId"
-        :base-tags="currentBranchTags"
-        :all-branches="simpleBranchList"
-        @create="handleCreateBranch"
-        @cancel="showBranchDialog = false"
-      />
 
       <!-- Branch Checkout Confirm Dialog -->
       <BranchCheckoutConfirmDialog

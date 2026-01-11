@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, watch } from 'vue';
+import { ref, watch, computed } from 'vue';
 import GlassButton from '../base/GlassButton.vue';
 import GlassSelect from '../base/GlassSelect.vue';
 
@@ -19,47 +19,49 @@ const emit = defineEmits<{
 
 const newBranchName = ref('');
 const selectedBaseBranch = ref(props.baseBranch);
-const tags = ref<string[]>([...props.baseTags]);
-const reason = ref('');
-const newTagInput = ref('');
+const commitMessage = ref('');
+
+// 默认提交信息
+const defaultMessage = computed(() => {
+  const now = new Date();
+  const timestamp = now.getFullYear().toString() +
+    (now.getMonth() + 1).toString().padStart(2, '0') +
+    now.getDate().toString().padStart(2, '0') + '_' +
+    now.getHours().toString().padStart(2, '0') +
+    now.getMinutes().toString().padStart(2, '0') +
+    now.getSeconds().toString().padStart(2, '0');
+  return 'branch_' + timestamp;
+});
 
 // Watch for visibility changes to reset form
 watch(() => props.visible, (newVal) => {
   if (newVal) {
     newBranchName.value = '';
     selectedBaseBranch.value = props.baseBranch;
-    tags.value = [...props.baseTags];
-    reason.value = '';
-    newTagInput.value = '';
+    commitMessage.value = defaultMessage.value;
   }
 });
 
 const handleCreate = () => {
-  if (!newBranchName.value || !reason.value) return;
-  
-  emit('create', {
-    name: newBranchName.value,
-    baseBranch: selectedBaseBranch.value,
-    tags: tags.value,
-    reason: reason.value
-  });
-};
+  console.log('[BranchCreationDialog] handleCreate called, branchName:', newBranchName.value);
 
-const addTag = () => {
-  if (newTagInput.value && !tags.value.includes(newTagInput.value)) {
-    tags.value.push(newTagInput.value);
-    newTagInput.value = '';
+  if (!newBranchName.value.trim()) {
+    console.log('[BranchCreationDialog] Branch name is empty, returning');
+    return;
   }
+
+  const data = {
+    name: newBranchName.value.trim(),
+    baseBranch: selectedBaseBranch.value,
+    tags: props.baseTags,
+    reason: commitMessage.value.trim() || defaultMessage.value
+  };
+
+  console.log('[BranchCreationDialog] Emitting create event with data:', data);
+  emit('create', data);
 };
 
-const removeTag = (tagToRemove: string) => {
-  tags.value = tags.value.filter(tag => tag !== tagToRemove);
-};
-
-// DEBUG: 包装 cancel 事件以追踪调用来源
 const handleCancel = () => {
-  console.log('[BranchCreationDialog] Cancel emitted');
-  console.trace('[BranchCreationDialog] Stack trace:');
   emit('cancel');
 };
 </script>
@@ -67,10 +69,18 @@ const handleCancel = () => {
 <template>
   <Teleport to="body">
     <Transition name="dialog">
-      <div v-if="visible" class="dialog-overlay" @click.self="handleCancel">
+      <div v-if="visible" class="dialog-overlay">
         <div class="dialog-card">
           <div class="dialog-header">
-            <h3>Create New Branch</h3>
+            <div class="header-icon">
+              <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2">
+                <line x1="6" y1="3" x2="6" y2="15"></line>
+                <circle cx="18" cy="6" r="3"></circle>
+                <circle cx="6" cy="18" r="3"></circle>
+                <path d="M18 9a9 9 0 0 1-9 9"></path>
+              </svg>
+            </div>
+            <h3>创建新分支</h3>
             <button class="close-btn" @click="handleCancel">
               <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2">
                 <line x1="18" y1="6" x2="6" y2="18"></line>
@@ -81,67 +91,50 @@ const handleCancel = () => {
 
           <div class="dialog-body">
             <!-- Base Branch -->
-            <div class="form-group">
-              <label>Base Branch</label>
-              <GlassSelect 
-                v-model="selectedBaseBranch" 
-                :options="allBranches" 
+            <div class="input-section">
+              <label class="input-label">基于分支</label>
+              <GlassSelect
+                v-model="selectedBaseBranch"
+                :options="allBranches"
                 width="100%"
               />
             </div>
 
             <!-- New Branch Name -->
-            <div class="form-group">
-              <label>New Branch Name</label>
-              <input 
-                v-model="newBranchName" 
-                type="text" 
-                class="glass-input" 
-                placeholder="e.g. feat/living-room-storage"
+            <div class="input-section">
+              <label class="input-label">新分支名称</label>
+              <input
+                v-model="newBranchName"
+                type="text"
+                class="glass-input"
+                placeholder="例如: feature/new-layout"
+                @keydown.enter="handleCreate"
               />
             </div>
 
-            <!-- Tags -->
-            <div class="form-group">
-              <label>Tags</label>
-              <div class="tags-container">
-                <span v-for="tag in tags" :key="tag" class="tag-badge">
-                  {{ tag }}
-                  <button class="remove-tag" @click="removeTag(tag)">×</button>
-                </span>
-                <div class="add-tag-wrapper">
-                  <input 
-                    v-model="newTagInput" 
-                    type="text" 
-                    class="tag-input" 
-                    placeholder="+ Add tag"
-                    @keydown.enter.prevent="addTag"
-                    @blur="addTag"
-                  />
-                </div>
-              </div>
-            </div>
-
-            <!-- Reason -->
-            <div class="form-group">
-              <label>Reason (Commit Message)</label>
-              <textarea 
-                v-model="reason" 
-                class="glass-input textarea" 
-                placeholder="Why are you creating this branch?"
-                rows="3"
-              ></textarea>
+            <!-- Commit Message -->
+            <div class="input-section">
+              <label class="input-label">提交信息 (可选)</label>
+              <input
+                v-model="commitMessage"
+                type="text"
+                class="glass-input"
+                :placeholder="defaultMessage"
+                @keydown.enter="handleCreate"
+              />
             </div>
           </div>
 
           <div class="dialog-footer">
-            <GlassButton variant="ghost" @click="handleCancel">Cancel</GlassButton>
-            <GlassButton 
-              variant="primary" 
+            <GlassButton variant="ghost" @click="handleCancel">
+              取消
+            </GlassButton>
+            <GlassButton
+              variant="primary"
+              :disabled="!newBranchName.trim()"
               @click="handleCreate"
-              :disabled="!newBranchName || !reason"
             >
-              Create Branch
+              创建分支
             </GlassButton>
           </div>
         </div>
@@ -154,8 +147,7 @@ const handleCancel = () => {
 .dialog-overlay {
   position: fixed;
   inset: 0;
-  background: rgba(0, 0, 0, 0.6);
-  backdrop-filter: blur(4px);
+  background: rgba(0, 0, 0, 0.4);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -163,32 +155,42 @@ const handleCancel = () => {
 }
 
 .dialog-card {
-  background: var(--glass-bg-solid);
-  border: var(--glass-border);
+  background: #18181b;
+  border: 1px solid rgba(255, 255, 255, 0.1);
   border-radius: 12px;
-  width: 400px;
-  box-shadow: var(--shadow-modal);
+  width: 420px;
+  box-shadow:
+    0 8px 32px rgba(0, 0, 0, 0.4),
+    0 0 0 1px rgba(0, 0, 0, 0.2),
+    0 0 0 1px rgba(255, 255, 255, 0.05) inset;
   display: flex;
   flex-direction: column;
-  
-  /* Glare effect */
-  background-image: var(--glass-glare), linear-gradient(to bottom, var(--glass-bg-solid), var(--glass-bg-solid));
-  background-origin: border-box;
-  background-clip: padding-box, border-box;
 }
 
 .dialog-header {
-  padding: 16px 20px;
-  border-bottom: 1px solid var(--border-subtle);
+  padding: 16px 20px 12px;
   display: flex;
-  justify-content: space-between;
   align-items: center;
+  gap: 10px;
+
+  .header-icon {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 28px;
+    height: 28px;
+    border-radius: 8px;
+    flex-shrink: 0;
+    background: rgba(59, 130, 246, 0.15);
+    color: var(--accent-blue);
+  }
 
   h3 {
     margin: 0;
     font-size: 1rem;
     font-weight: 600;
     color: var(--text-primary);
+    flex: 1;
   }
 
   .close-btn {
@@ -196,9 +198,13 @@ const handleCancel = () => {
     border: none;
     color: var(--text-secondary);
     cursor: pointer;
-    padding: 4px;
-    border-radius: 4px;
-    
+    padding: 6px;
+    border-radius: 50%;
+    transition: all 0.2s;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+
     &:hover {
       background: rgba(255, 255, 255, 0.1);
       color: var(--text-primary);
@@ -207,125 +213,86 @@ const handleCancel = () => {
 }
 
 .dialog-body {
-  padding: 20px;
+  padding: 0 20px 20px;
   display: flex;
   flex-direction: column;
   gap: 16px;
 }
 
-.form-group {
+.input-section {
   display: flex;
   flex-direction: column;
   gap: 6px;
+}
 
-  label {
-    font-size: 0.8rem;
-    color: var(--text-secondary);
-    font-weight: 500;
-  }
+.input-label {
+  font-size: 0.75rem;
+  color: var(--text-muted);
+  font-weight: 500;
+  margin-left: 2px;
 }
 
 .glass-input {
-  background: rgba(255, 255, 255, 0.03);
+  width: 100%;
+  background: rgba(0, 0, 0, 0.3);
   border: 1px solid rgba(255, 255, 255, 0.1);
   border-radius: 6px;
   padding: 8px 12px;
   color: var(--text-primary);
-  font-family: inherit;
-  font-size: 0.9rem;
-  outline: none;
-  transition: all 0.2s;
-
-  &:focus {
-    background: rgba(255, 255, 255, 0.08);
-    border-color: var(--accent-blue);
-  }
-
-  &.textarea {
-    resize: none;
-  }
-}
-
-.tags-container {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-  padding: 6px;
-  background: rgba(255, 255, 255, 0.03);
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  border-radius: 6px;
-  min-height: 38px;
-}
-
-.tag-badge {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  padding: 2px 8px;
-  background: rgba(59, 130, 246, 0.15);
-  color: var(--accent-blue);
-  border-radius: 4px;
-  font-size: 0.8rem;
-
-  .remove-tag {
-    background: none;
-    border: none;
-    color: currentColor;
-    cursor: pointer;
-    padding: 0;
-    font-size: 1rem;
-    line-height: 1;
-    opacity: 0.7;
-
-    &:hover {
-      opacity: 1;
-    }
-  }
-}
-
-.add-tag-wrapper {
-  flex: 1;
-  min-width: 60px;
-}
-
-.tag-input {
-  width: 100%;
-  background: none;
-  border: none;
-  color: var(--text-primary);
+  font-family: 'JetBrains Mono', monospace;
   font-size: 0.85rem;
   outline: none;
-  padding: 2px 4px;
+  transition: all 0.2s;
+  box-sizing: border-box;
 
   &::placeholder {
     color: var(--text-muted);
+    opacity: 0.6;
+  }
+
+  &:focus {
+    background: rgba(0, 0, 0, 0.3);
+    border-color: var(--accent-blue);
+    box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.15);
   }
 }
 
 .dialog-footer {
   padding: 16px 20px;
-  border-top: 1px solid var(--border-subtle);
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
   display: flex;
   justify-content: flex-end;
-  gap: 12px;
+  gap: 10px;
+  background: rgba(0, 0, 0, 0.1);
+  border-radius: 0 0 12px 12px;
+
+  :deep(button) {
+    min-width: 88px;
+    height: 32px;
+    border-radius: 6px;
+    justify-content: center;
+    font-size: 0.85rem;
+    padding: 0 12px;
+    box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.05) inset;
+  }
 }
 
 /* Animation */
 .dialog-enter-active,
 .dialog-leave-active {
-  transition: opacity 0.2s ease;
-  
+  transition: opacity 0.3s ease;
+
   .dialog-card {
-    transition: transform 0.2s var(--ease-spring);
+    transition: transform 0.3s cubic-bezier(0.16, 1, 0.3, 1);
   }
 }
 
 .dialog-enter-from,
 .dialog-leave-to {
   opacity: 0;
-  
+
   .dialog-card {
-    transform: scale(0.95) translateY(10px);
+    transform: scale(0.9) translateY(20px);
   }
 }
 </style>

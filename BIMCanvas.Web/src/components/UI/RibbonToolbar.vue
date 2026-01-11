@@ -1,5 +1,6 @@
 <script setup lang="ts">
-import { ref } from 'vue';
+import { ref, computed } from 'vue';
+import { storeToRefs } from 'pinia';
 import FileGroup from './Ribbon/FileGroup.vue';
 import ProjectGroup from './Ribbon/ProjectGroup.vue';
 import DesignGroup from './Ribbon/DesignGroup.vue';
@@ -7,6 +8,12 @@ import ZoneGroup from './Ribbon/ZoneGroup.vue';
 import LibraryGroup from './Ribbon/LibraryGroup.vue';
 import EditGroup from './Ribbon/EditGroup.vue';
 import ViewGroup from './Ribbon/ViewGroup.vue';
+import BranchCreationDialog from './Ribbon/BranchCreationDialog.vue';
+import { useGitStore } from '../../stores/gitStore';
+
+// --- Git Store (for branch dialog) ---
+const gitStore = useGitStore();
+const { branches, currentBranchId } = storeToRefs(gitStore);
 
 // Tabs definition
 const tabs = [
@@ -25,37 +32,82 @@ let closeTimer: any = null;
 
 const openTab = (id: string, event: MouseEvent) => {
   if (closeTimer) clearTimeout(closeTimer);
-  
-  // Calculate position based on the tab element
+
   const target = event.currentTarget as HTMLElement;
   const rect = target.getBoundingClientRect();
-  
+
   dropdownPos.value = {
-    top: rect.bottom + 4, // Add slight gap
+    top: rect.bottom + 4,
     left: rect.left
   };
-  
+
   activeTab.value = id;
 };
 
 const closeTab = () => {
   closeTimer = setTimeout(() => {
     activeTab.value = null;
-  }, 300); // 300ms delay for smooth interaction
+  }, 300);
 };
 
 const keepOpen = () => {
   if (closeTimer) clearTimeout(closeTimer);
 };
+
+// --- Branch Creation Dialog ---
+const showBranchDialog = ref(false);
+
+const currentBranchTags = computed(() => {
+  const branch = branches.value.find(b => b.id === currentBranchId.value);
+  return branch?.commit ? [branch.commit.message.substring(0, 20)] : [];
+});
+
+const simpleBranchList = computed(() =>
+  branches.value.map(b => ({ label: b.name, value: b.id }))
+);
+
+const handleOpenBranchDialog = () => {
+  showBranchDialog.value = true;
+};
+
+const handleCreateBranch = async (data: { name: string; baseBranch: string; tags: string[]; reason: string }) => {
+  console.log('[RibbonToolbar] handleCreateBranch called:', data);
+
+  // 使用用户输入的分支名称（不添加 scheme/ 前缀，让用户自己决定格式）
+  const branchName = data.name.trim();
+
+  // 如果基础分支不是当前分支，先切换到基础分支
+  if (data.baseBranch && data.baseBranch !== currentBranchId.value) {
+    console.log('[RibbonToolbar] Switching to base branch:', data.baseBranch);
+    const switchResult = await gitStore.checkout(data.baseBranch);
+    if (!switchResult.success) {
+      console.error('[RibbonToolbar] Failed to switch to base branch:', switchResult.message);
+      return;
+    }
+  }
+
+  // 创建新分支（基于当前分支）
+  console.log('[RibbonToolbar] Creating new branch:', branchName);
+  const result = await gitStore.checkout(branchName, {
+    createIfNotExist: true,
+    commitMessage: data.reason
+  });
+
+  if (result.success) {
+    showBranchDialog.value = false;
+    console.log('[RibbonToolbar] Branch created successfully:', branchName);
+  } else {
+    console.error('[RibbonToolbar] Failed to create branch:', result.message);
+  }
+};
 </script>
 
 <template>
   <div class="ribbon-container">
-    <!-- Tabs Row -->
     <div class="ribbon-tabs">
-      <div 
-        v-for="tab in tabs" 
-        :key="tab.id" 
+      <div
+        v-for="tab in tabs"
+        :key="tab.id"
         class="tab-wrapper"
         @mouseenter="openTab(tab.id, $event)"
         @mouseleave="closeTab"
@@ -67,10 +119,9 @@ const keepOpen = () => {
           {{ tab.label }}
         </button>
 
-        <!-- Dropdown Panel - Teleported to body to avoid stacking context issues -->
         <Teleport to="body">
-          <div 
-            class="ribbon-dropdown" 
+          <div
+            class="ribbon-dropdown"
             v-if="activeTab === tab.id"
             :style="{ top: dropdownPos.top + 'px', left: dropdownPos.left + 'px' }"
             @mouseenter="keepOpen"
@@ -79,7 +130,7 @@ const keepOpen = () => {
             <div class="panel-content">
               <FileGroup v-if="tab.id === 'file'" />
               <ProjectGroup v-else-if="tab.id === 'project'" />
-              <DesignGroup v-else-if="tab.id === 'design'" />
+              <DesignGroup v-else-if="tab.id === 'design'" @openBranchDialog="handleOpenBranchDialog" />
               <ZoneGroup v-else-if="tab.id === 'zone'" />
               <LibraryGroup v-else-if="tab.id === 'library'" />
               <EditGroup v-else-if="tab.id === 'edit'" />
@@ -89,32 +140,31 @@ const keepOpen = () => {
         </Teleport>
       </div>
     </div>
+
+    <BranchCreationDialog
+      :visible="showBranchDialog"
+      :base-branch="currentBranchId"
+      :base-tags="currentBranchTags"
+      :all-branches="simpleBranchList"
+      @create="handleCreateBranch"
+      @cancel="showBranchDialog = false"
+    />
   </div>
 </template>
 
 <style scoped lang="scss">
 .ribbon-container {
-  position: relative; /* Changed from absolute to flow naturally */
-  /* top: 32px; Removed */
+  position: relative;
   left: 0;
   width: 100%;
-  height: 40px; /* Fixed height for the tab bar */
+  height: 40px;
   z-index: 90;
-  pointer-events: auto; /* The bar itself is interactive */
+  pointer-events: auto;
   display: flex;
   flex-direction: column;
   align-items: flex-start;
-  /* 
-     Alignment Fix: 
-     AppHeader padding is var(--spacing-md) = 16px.
-     Tab button padding-left is 12px.
-     To align text, Ribbon container padding-left should be 16px - 12px = 4px.
-  */
-  padding: 0 4px; 
-  
-  /* Merged Bar Style - Removed (Moved to MainLayout wrapper) */
+  padding: 0 4px;
   background: transparent;
-  /* border-bottom: var(--glass-border); Removed */
 }
 
 .ribbon-tabs {
@@ -156,11 +206,8 @@ const keepOpen = () => {
 }
 
 .ribbon-dropdown {
-  position: fixed; /* Changed to fixed for Teleport */
-  /* top/left set via inline style */
-  
-  /* Floating Glass Panel */
-  background: var(--glass-bg); /* Standard Glass Token */
+  position: fixed;
+  background: var(--glass-bg);
   backdrop-filter: var(--glass-blur);
   -webkit-backdrop-filter: var(--glass-blur);
   border: var(--glass-border);
@@ -169,13 +216,9 @@ const keepOpen = () => {
   box-shadow: var(--shadow-island), var(--glass-inner-highlight);
   pointer-events: auto;
   min-width: 200px;
-  z-index: 1000; /* High z-index for fixed element */
-  
-  /* Animation */
+  z-index: 1000;
   animation: dropdownSlideDown 0.2s var(--ease-spring);
   transform-origin: top left;
-  
-  /* Glare Overlay - Standard Token */
   background-image: var(--glass-glare), linear-gradient(to bottom, var(--glass-bg), var(--glass-bg));
   background-origin: border-box;
   background-clip: padding-box, border-box;
@@ -188,13 +231,13 @@ const keepOpen = () => {
 }
 
 @keyframes dropdownSlideDown {
-  from { 
-    opacity: 0; 
-    transform: translateY(-8px) scale(0.98); 
+  from {
+    opacity: 0;
+    transform: translateY(-8px) scale(0.98);
   }
-  to { 
-    opacity: 1; 
-    transform: translateY(0) scale(1); 
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
   }
 }
 </style>

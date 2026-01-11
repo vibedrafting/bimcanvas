@@ -1,6 +1,30 @@
 /**
  * SVG模块渲染器
  * 负责加载SVG文件并将其渲染到Three.js场景中的家具模块位置
+ *
+ * ========== 重要技术警告 ==========
+ *
+ * Three.js Euler 旋转陷阱：
+ * - 默认 XYZ 顺序是绕**本地轴**依次旋转
+ * - 在同一对象上设置 rotation.x 后再设置 rotation.y，
+ *   rotation.y 是绕已旋转后的本地 Y 轴，不是世界 Y 轴！
+ *
+ * 错误示例（会导致 SVG 变成垂直面）：
+ *   group.rotation.x = -Math.PI / 2;  // 压平
+ *   group.rotation.y = facing;        // ❌ 绕本地 Y 轴，会把 SVG 掀起来
+ *
+ * 正确方案（父子 Group）：
+ *   const root = new THREE.Group();   // 父级：只做压平
+ *   const svg2D = group.clone(true);  // 子级：在 XY 平面内做 2D 旋转
+ *   svg2D.rotation.z = facing;        // ✅ 绕 Z 轴（在 XY 平面内）
+ *   root.add(svg2D);
+ *   root.rotation.x = -Math.PI / 2;   // 最后压平
+ *
+ * 验证方法：
+ *   Box3.getSize() 的 size.y ≈ 0 表示平面是水平的
+ *
+ * 参考：reports/SVG_Rendering_Issue_Report.md
+ * =====================================
  */
 
 import * as THREE from 'three';
@@ -16,7 +40,7 @@ export class SVGModuleRenderer {
   private moduleGroups: Map<string, THREE.Group> = new Map(); // moduleId -> Group
 
   // SVG渲染配置
-  private readonly SVG_HEIGHT = 760; // SVG图形在3D空间中的高度（高于家具模块的750，显示在家具上方）
+  private readonly SVG_HEIGHT = 800; // SVG图形在3D空间中的高度（略高于家具模块顶面750）
   private readonly SVG_SCALE = 1.0; // SVG缩放比例
 
   constructor(scene: THREE.Scene) {
@@ -45,42 +69,63 @@ export class SVGModuleRenderer {
         return null;
       }
 
-      // 3. 克隆SVG组（因为每个模块实例需要独立的变换）
-      const moduleGroup = svgGroup.clone(true);
-
-      // 4. 计算模块的位置和旋转
+      // 3. 计算模块的位置和旋转
       const transform = this.calculateModuleTransform(module, moduleDef);
 
-      // 5. 应用变换（转换到 Y-Up 坐标系，与家具模块一致）
-      moduleGroup.rotation.x = -Math.PI / 2;
-      moduleGroup.position.set(transform.position.x, this.SVG_HEIGHT, -transform.position.y);
-      moduleGroup.rotation.y = transform.rotation;
-      moduleGroup.scale.set(transform.scale.x, transform.scale.y, 1);
+      // 4. 父子 Group 方案（KISS）：显式控制旋转顺序
+      // - svg2D（子级）：负责 2D 朝向旋转（绕 Z）+ 2D 缩放（仍在 XY 平面）
+      // - root（父级）：负责压平（rotation.x）+ 世界坐标定位
+      const root = new THREE.Group();
+      const svg2D = svgGroup.clone(true);
 
-      // [DEBUG] 输出最终变换值
-      console.log(`[SVG] ${module.id}: pos=(${moduleGroup.position.x.toFixed(0)}, ${moduleGroup.position.y.toFixed(0)}, ${moduleGroup.position.z.toFixed(0)}), scale=(${moduleGroup.scale.x.toFixed(2)}, ${moduleGroup.scale.y.toFixed(2)})`);
+      // 子级：2D 变换（在 XY 平面内）
+      svg2D.rotation.set(0, 0, transform.rotation);  // 绕 Z 做朝向（不取反）
+      svg2D.scale.set(transform.scale.x, transform.scale.y, 1);
+
+      root.add(svg2D);
+
+      // 父级：压平 + 世界坐标定位
+      root.rotation.set(-Math.PI / 2, 0, 0);  // 压平（XY → XZ）
+      root.position.set(transform.position.x, this.SVG_HEIGHT, -transform.position.y);
+
+      // 5. 设置渲染属性（兜底：确保不被遮挡）
+      root.renderOrder = 999;
+      svg2D.traverse((child) => {
+        if (child instanceof THREE.Mesh) {
+          child.renderOrder = 999;
+          if (child.material instanceof THREE.MeshBasicMaterial) {
+            child.material.depthTest = false;
+          }
+        }
+      });
 
       // 6. 设置图层（与家具模块同层）
-      moduleGroup.traverse((child) => {
+      root.traverse((child) => {
         if (child instanceof THREE.Mesh || child instanceof THREE.Line) {
           child.layers.enable(LayerManager.LAYER_MODEL);
         }
       });
 
       // 7. 设置用户数据（用于选择和交互）
-      moduleGroup.userData = {
+      root.userData = {
         id: module.id,
         moduleId: module.moduleId,
         type: 'module-svg',
-        data: module
+        data: module,
+        svg2D: svg2D  // 保存引用，供 updateModuleTransform 使用
       };
 
       // 8. 添加到场景
-      this.scene.add(moduleGroup);
+      this.scene.add(root);
+
+      // [DEBUG] 验证几何体方向
+      const box = new THREE.Box3().setFromObject(root);
+      const size = box.getSize(new THREE.Vector3());
+      console.log(`[SVG] ${module.id}: pos=(${root.position.x.toFixed(0)}, ${root.position.y.toFixed(0)}, ${root.position.z.toFixed(0)}), size=(${size.x.toFixed(0)}, ${size.y.toFixed(0)}, ${size.z.toFixed(0)})`);
 
       // 9. 记录到映射表
-      this.moduleGroups.set(module.id, moduleGroup);
-      return moduleGroup;
+      this.moduleGroups.set(module.id, root);
+      return root;
 
     } catch (error) {
       console.error(`[SVGModuleRenderer] Error rendering module SVG:`, error);
@@ -126,10 +171,12 @@ export class SVGModuleRenderer {
                   : fillColor;
                 const material = new THREE.MeshBasicMaterial({
                   color: new THREE.Color(displayFillColor),
-                  side: THREE.DoubleSide
+                  side: THREE.DoubleSide,
+                  depthTest: false  // 确保不被遮挡
                 });
 
                 const mesh = new THREE.Mesh(geometry, material);
+                mesh.renderOrder = 999;
                 group.add(mesh);
               }
             }
@@ -155,7 +202,8 @@ export class SVGModuleRenderer {
 
               const material = new THREE.MeshBasicMaterial({
                 color: new THREE.Color(displayColor),
-                side: THREE.DoubleSide
+                side: THREE.DoubleSide,
+                depthTest: false  // 确保不被遮挡
               });
 
               // 为每个子路径创建描边几何体
@@ -168,6 +216,7 @@ export class SVGModuleRenderer {
                   console.log(`[SVG] Path${i}: pts=${points.length}, verts=${vertexCount}`);
                   if (vertexCount > 0) {
                     const strokeMesh = new THREE.Mesh(strokeGeometry, material);
+                    strokeMesh.renderOrder = 999;
                     group.add(strokeMesh);
                   }
                 } else {
@@ -291,16 +340,23 @@ export class SVGModuleRenderer {
    * 更新模块SVG的位置和旋转（用于拖拽时跟随）
    */
   updateModuleTransform(moduleId: string, module: Module): void {
-    const group = this.moduleGroups.get(moduleId);
-    if (!group) return;
+    const root = this.moduleGroups.get(moduleId);
+    if (!root) return;
 
     const moduleDef = moduleLibraryService.getModuleById(module.moduleId);
     if (!moduleDef) return;
 
+    const svg2D = root.userData.svg2D as THREE.Group;
+    if (!svg2D) return;
+
     const transform = this.calculateModuleTransform(module, moduleDef);
-    group.position.set(transform.position.x, this.SVG_HEIGHT, -transform.position.y);
-    group.rotation.y = transform.rotation;
-    group.scale.set(transform.scale.x, transform.scale.y, 1);
+
+    // 更新子级（svg2D）：2D 变换
+    svg2D.rotation.set(0, 0, transform.rotation);
+    svg2D.scale.set(transform.scale.x, transform.scale.y, 1);
+
+    // 更新父级（root）：世界坐标定位（压平旋转不变）
+    root.position.set(transform.position.x, this.SVG_HEIGHT, -transform.position.y);
   }
 
   /**

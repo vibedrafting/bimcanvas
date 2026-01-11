@@ -32,20 +32,16 @@ const selectedOption = computed(() =>
 );
 
 const toggleDropdown = () => {
-  console.log('[GlassSelect] toggleDropdown, current isOpen:', isOpen.value);
   isOpen.value = !isOpen.value;
 };
 
 const selectOption = (option: Option) => {
-  console.log('[GlassSelect] selectOption called:', option.label, option.value);
   emit('update:modelValue', option.value);
-  console.log('[GlassSelect] emit update:modelValue done');
   isOpen.value = false;
 };
 
 const closeDropdown = (e: MouseEvent) => {
   if (containerRef.value && !containerRef.value.contains(e.target as Node)) {
-    console.log('[GlassSelect] closeDropdown triggered by click outside');
     isOpen.value = false;
   }
 };
