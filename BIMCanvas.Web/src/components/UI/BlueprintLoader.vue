@@ -51,6 +51,7 @@ class Particle {
   direction: number; // 1 or -1
   maxTailLength: number;
   currentTailLength: number = 0;
+  currentProgress: number = 0;
 
   constructor(row: number, col: number, width: number, height: number, type: 'row' | 'col') {
     this.row = row;
@@ -64,9 +65,9 @@ class Particle {
     const distance = 400 + Math.random() * 600; // Slide distance
     this.direction = Math.random() > 0.5 ? 1 : -1;
 
-    // Tail Length: Random between 20% and 100% of GRID_SPACING
-    // This ensures "length is different" and "max does not exceed one grid spacing"
-    this.maxTailLength = (0.2 + Math.random() * 0.8) * GRID_SPACING;
+    // Tail Length: Exactly GRID_SPACING to ensure perfect connection
+    // This creates the effect of "drawing" the grid lines
+    this.maxTailLength = GRID_SPACING;
 
     if (this.type === 'row') {
         // Row Particle: Moves Horizontally (Fixed Y)
@@ -136,25 +137,28 @@ class Particle {
     // Grow tail as we get closer to target (or just based on progress)
     // We want the tail to be fully grown when progress is 1
     this.currentTailLength = this.maxTailLength * Math.min(progress * 1.5, 1);
+    this.currentProgress = progress;
   }
 
   draw(context: CanvasRenderingContext2D, opacity: number) {
-    // Draw Head (Particle)
-    const size = isOrdered ? 1.5 : 2;
-    context.fillStyle = COLOR_PARTICLE;
-    context.globalAlpha = opacity;
-    context.beginPath();
-    context.arc(this.x, this.y, size, 0, Math.PI * 2);
-    context.fill();
+    // Draw Head (Particle) - Shrink and disappear early (by 80% progress)
+    // This creates the effect that the "meteor" burns out, leaving the grid line
+    const headFadeProgress = Math.min(this.currentProgress / 0.8, 1);
+    const headScale = 1 - headFadeProgress;
+    
+    if (headScale > 0) {
+        const size = (isOrdered ? 1.5 : 2) * headScale;
+        context.fillStyle = COLOR_PARTICLE;
+        context.globalAlpha = opacity;
+        context.beginPath();
+        context.arc(this.x, this.y, size, 0, Math.PI * 2);
+        context.fill();
+    }
 
-    // Draw Tail (Meteor Effect)
+    // Draw Tail (Grid Line)
     if (this.currentTailLength > 1) {
         let tailEndX, tailEndY;
         
-        // Calculate Tail End based on direction
-        // If moving Left (direction=1, p0 > p2), Tail is to the Right (+ offset)
-        // If moving Right (direction=-1, p0 < p2), Tail is to the Left (- offset)
-        // Offset = direction * length
         if (this.type === 'row') {
             tailEndX = this.x + this.direction * this.currentTailLength;
             tailEndY = this.y;
@@ -163,14 +167,13 @@ class Particle {
             tailEndY = this.y + this.direction * this.currentTailLength;
         }
 
-        // Gradient for Tail: Head (Opaque) -> Tail End (Transparent)
-        const gradient = context.createLinearGradient(this.x, this.y, tailEndX, tailEndY);
-        // Use COLOR_PARTICLE (Brighter) instead of COLOR_GRID (Dark) for visibility
-        gradient.addColorStop(0, COLOR_PARTICLE); 
-        gradient.addColorStop(1, 'transparent'); // Fade out
-
-        context.strokeStyle = gradient;
-        context.lineWidth = 2; // Increased from 1.5 for better visibility
+        // Solid Grid Color (No Gradient) to match final grid style perfectly
+        context.strokeStyle = COLOR_GRID;
+        context.lineWidth = 1; 
+        
+        // Use 0.8 opacity to match the original grid look
+        context.globalAlpha = 0.8 * opacity;
+        
         context.beginPath();
         context.moveTo(this.x, this.y);
         context.lineTo(tailEndX, tailEndY);
@@ -231,9 +234,9 @@ const animate = () => {
   
   if (isOrdered) {
       const rawProgress = (time - transitionStartTime) / TRANSITION_DURATION;
-      // Make particles disappear earlier (at 70% of total duration)
-      const fadeOutProgress = rawProgress / 0.7;
-      opacityProgress = fadeOutProgress > 1 ? 1 : (fadeOutProgress < 0 ? 0 : fadeOutProgress);
+      // REMOVED: Premature fade out. Particles should stay to form the grid.
+      // The entire component will fade out via CSS when props.active becomes false.
+      opacityProgress = 0; 
       progress = rawProgress > 1 ? 1 : easeInOutCubic(rawProgress);
   } else {
       // Chaos Phase: Add subtle movement?

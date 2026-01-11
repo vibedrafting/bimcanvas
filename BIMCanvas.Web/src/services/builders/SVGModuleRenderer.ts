@@ -65,10 +65,14 @@ export class SVGModuleRenderer {
       const transform = this.calculateModuleTransform(module, moduleDef);
       console.log(`[SVGModuleRenderer] Calculated transform:`, transform);
 
-      // 5. 应用变换
-      moduleGroup.position.set(transform.position.x, transform.position.y, this.SVG_HEIGHT);
-      moduleGroup.rotation.z = transform.rotation;
-      moduleGroup.scale.set(transform.scale.x, transform.scale.y, 1);
+      // 5. 应用变换（转换到 Y-Up 坐标系，与家具模块一致）
+      // 先设置 XY 平面到 XZ 平面的旋转
+      moduleGroup.rotation.x = -Math.PI / 2;
+      // 在 Y-Up 坐标系中设置位置：(x, height, -y)
+      moduleGroup.position.set(transform.position.x, this.SVG_HEIGHT, -transform.position.y);
+      // 朝向旋转（在 XZ 平面上是绕 Y 轴）
+      moduleGroup.rotation.y = -transform.rotation;
+      moduleGroup.scale.set(transform.scale.x, 1, transform.scale.y);
 
       // 6. 设置图层（与家具模块同层）
       moduleGroup.traverse((child) => {
@@ -136,8 +140,12 @@ export class SVGModuleRenderer {
               for (let j = 0; j < shapes.length; j++) {
                 const shape = shapes[j];
                 const geometry = new THREE.ShapeGeometry(shape);
+                // 如果是黑色填充，替换为白色（在深色背景下可见）
+                const displayFillColor = (fillColor === '#000000' || fillColor === '#000' || fillColor === 'black')
+                  ? '#ffffff'
+                  : fillColor;
                 const material = new THREE.MeshBasicMaterial({
-                  color: new THREE.Color(fillColor),
+                  color: new THREE.Color(displayFillColor),
                   side: THREE.DoubleSide,
                   depthWrite: false,
                   transparent: true,
@@ -157,8 +165,12 @@ export class SVGModuleRenderer {
               const points = path.subPaths.flatMap(subPath => subPath.getPoints());
               if (points.length > 0) {
                 const geometry = new THREE.BufferGeometry().setFromPoints(points);
+                // 如果是黑色描边，替换为白色（在深色背景下可见）
+                const displayColor = (strokeColor === '#000000' || strokeColor === '#000' || strokeColor === 'black')
+                  ? '#ffffff'
+                  : strokeColor;
                 const material = new THREE.LineBasicMaterial({
-                  color: new THREE.Color(strokeColor),
+                  color: new THREE.Color(displayColor),
                   linewidth: strokeWidth,
                   transparent: true,
                   opacity: 0.9
@@ -297,9 +309,9 @@ export class SVGModuleRenderer {
     if (!moduleDef) return;
 
     const transform = this.calculateModuleTransform(module, moduleDef);
-    group.position.set(transform.position.x, transform.position.y, this.SVG_HEIGHT);
-    group.rotation.z = transform.rotation;
-    group.scale.set(transform.scale.x, transform.scale.y, 1);
+    group.position.set(transform.position.x, this.SVG_HEIGHT, -transform.position.y);
+    group.rotation.y = -transform.rotation;
+    group.scale.set(transform.scale.x, 1, transform.scale.y);
   }
 
   /**
