@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed, onMounted } from 'vue';
+import { ref, computed, onMounted, nextTick } from 'vue';
 import { storeToRefs } from 'pinia';
 import GlassSelect from '../base/GlassSelect.vue';
 import GlassButton from '../base/GlassButton.vue';
@@ -65,6 +65,8 @@ const branchOptions = computed(() => [
 // 分支切换处理
 const handleBranchChange = async (val: string | number) => {
   if (val === '__create_new__') {
+    // 延迟到下一个事件循环，避免与当前 click 事件冲突
+    await nextTick();
     showBranchDialog.value = true;
     return;
   }
