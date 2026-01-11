@@ -28,29 +28,16 @@ export class SVGModuleRenderer {
    * 为模块创建SVG渲染
    */
   async renderModuleSVG(module: Module): Promise<THREE.Group | null> {
-    // DEBUG: 输出调用信息
-    console.log(`[SVGModuleRenderer] renderModuleSVG called:`, {
-      moduleId: module.id,
-      libraryModuleId: module.moduleId,
-      bounds: module.bounds,
-      facing: module.facing,
-      libraryLoaded: moduleLibraryService.isLoaded(),
-      availableModuleIds: moduleLibraryService.getAllModules().map(m => m.id)
-    });
-
     try {
       // 1. 从模块库获取模块定义
       const moduleDef = moduleLibraryService.getModuleById(module.moduleId);
-      console.log(`[SVGModuleRenderer] moduleDef lookup result:`, moduleDef);
-
       if (!moduleDef) {
-        console.warn(`[SVGModuleRenderer] Module definition not found: ${module.moduleId}`);
+        console.warn(`[SVG] Module not found: ${module.moduleId}`);
         return null;
       }
 
-      // 2. 加载或获取缓存的SVG（使用 moduleId 作为缓存 key）
+      // 2. 加载或获取缓存的SVG
       const svgUrl = moduleLibraryService.getSvgUrl(module.moduleId);
-      console.log(`[SVGModuleRenderer] Loading SVG from URL: ${svgUrl}`);
 
       const svgGroup = await this.loadSVG(module.moduleId);
       if (!svgGroup) {
@@ -63,18 +50,15 @@ export class SVGModuleRenderer {
 
       // 4. 计算模块的位置和旋转
       const transform = this.calculateModuleTransform(module, moduleDef);
-      console.log(`[SVGModuleRenderer] Calculated transform:`, transform);
 
       // 5. 应用变换（转换到 Y-Up 坐标系，与家具模块一致）
-      // 场景约定：2D (x, y) → 3D (x, 0, -y)
-      // 模块统一使用 rotation.x = -Math.PI / 2（参考 SceneBuilder.ts:754）
       moduleGroup.rotation.x = -Math.PI / 2;
-      // 位置：与场景约定一致，z = -y
       moduleGroup.position.set(transform.position.x, this.SVG_HEIGHT, -transform.position.y);
-      // 朝向旋转（在 XZ 平面上是绕 Y 轴）
       moduleGroup.rotation.y = transform.rotation;
-      // SVG 几何在 XY 平面，缩放作用在 X 和 Y 轴（变换顺序：Scale → Rotate → Position）
       moduleGroup.scale.set(transform.scale.x, transform.scale.y, 1);
+
+      // [DEBUG] 输出最终变换值
+      console.log(`[SVG] ${module.id}: pos=(${moduleGroup.position.x.toFixed(0)}, ${moduleGroup.position.y.toFixed(0)}, ${moduleGroup.position.z.toFixed(0)}), scale=(${moduleGroup.scale.x.toFixed(2)}, ${moduleGroup.scale.y.toFixed(2)})`);
 
       // 6. 设置图层（与家具模块同层）
       moduleGroup.traverse((child) => {
@@ -93,12 +77,9 @@ export class SVGModuleRenderer {
 
       // 8. 添加到场景
       this.scene.add(moduleGroup);
-      console.log(`[SVGModuleRenderer] Added moduleGroup to scene. Children count: ${moduleGroup.children.length}`);
 
       // 9. 记录到映射表
       this.moduleGroups.set(module.id, moduleGroup);
-
-      console.log(`[SVGModuleRenderer] Rendered SVG for module ${module.id} (${moduleDef.name})`);
       return moduleGroup;
 
     } catch (error) {
@@ -112,21 +93,18 @@ export class SVGModuleRenderer {
    * @param moduleId 模块ID，用于从后端 API 获取 SVG
    */
   private async loadSVG(moduleId: string): Promise<THREE.Group | null> {
-    // 检查缓存（使用 moduleId 作为 key）
+    // 检查缓存
     if (this.svgCache.has(moduleId)) {
-      console.log(`[SVGModuleRenderer] Using cached SVG for: ${moduleId}`);
       return this.svgCache.get(moduleId)!;
     }
 
     // 从 ModuleLibraryService 获取 SVG URL
     const svgUrl = moduleLibraryService.getSvgUrl(moduleId);
-    console.log(`[SVGModuleRenderer] Fetching SVG from: ${svgUrl}`);
 
     return new Promise((resolve) => {
       this.svgLoader.load(
         svgUrl,
         (data) => {
-          console.log(`[SVGModuleRenderer] SVG loaded successfully. Paths count: ${data.paths.length}`);
           const paths = data.paths;
           const group = new THREE.Group();
 
@@ -207,22 +185,18 @@ export class SVGModuleRenderer {
             }
           }
 
-          console.log(`[SVGModuleRenderer] Created group with ${group.children.length} children`);
-
           // 居中 SVG 几何体（将原点从左上角移到几何体中心）
-          // 这是因为 SVG viewBox 原点在左上角，而我们需要以中心点定位
           const box = new THREE.Box3().setFromObject(group);
           const center = box.getCenter(new THREE.Vector3());
           group.children.forEach(child => {
             child.position.x -= center.x;
             child.position.y -= center.y;
           });
-          console.log(`[SVGModuleRenderer] Centered SVG. Original center was:`, center);
+          // [DEBUG] 关键日志
+          console.log(`[SVG] children=${group.children.length}, center=(${center.x.toFixed(0)}, ${center.y.toFixed(0)})`);
 
-          // 缓存结果（使用 moduleId 作为 key）
+          // 缓存结果
           this.svgCache.set(moduleId, group);
-
-          console.log(`[SVGModuleRenderer] Loaded SVG: ${moduleId}`);
           resolve(group);
         },
         undefined,
