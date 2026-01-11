@@ -47,6 +47,11 @@ class Particle {
   col: number;
   type: 'row' | 'col';
   
+  // Meteor Tail Properties
+  direction: number; // 1 or -1
+  maxTailLength: number;
+  currentTailLength: number = 0;
+
   constructor(row: number, col: number, width: number, height: number, type: 'row' | 'col') {
     this.row = row;
     this.col = col;
@@ -57,18 +62,22 @@ class Particle {
 
     // 2. Start Position (P0) - Orthogonal Constraint based on Type
     const distance = 400 + Math.random() * 600; // Slide distance
-    const direction = Math.random() > 0.5 ? 1 : -1;
+    this.direction = Math.random() > 0.5 ? 1 : -1;
+
+    // Tail Length: Random between 20% and 100% of GRID_SPACING
+    // This ensures "length is different" and "max does not exceed one grid spacing"
+    this.maxTailLength = (0.2 + Math.random() * 0.8) * GRID_SPACING;
 
     if (this.type === 'row') {
         // Row Particle: Moves Horizontally (Fixed Y)
         // Used to draw Horizontal lines
-        this.p0x = this.p2x + distance * direction;
+        this.p0x = this.p2x + distance * this.direction;
         this.p0y = this.p2y; 
     } else {
         // Col Particle: Moves Vertically (Fixed X)
         // Used to draw Vertical lines
         this.p0x = this.p2x; 
-        this.p0y = this.p2y + distance * direction;
+        this.p0y = this.p2y + distance * this.direction;
     }
     
     // Initialize current pos
@@ -123,15 +132,51 @@ class Particle {
     // Linear Interpolation (Lerp)
     this.x = this.p0x + (this.p2x - this.p0x) * t;
     this.y = this.p0y + (this.p2y - this.p0y) * t;
+
+    // Grow tail as we get closer to target (or just based on progress)
+    // We want the tail to be fully grown when progress is 1
+    this.currentTailLength = this.maxTailLength * Math.min(progress * 1.5, 1);
   }
 
   draw(context: CanvasRenderingContext2D, opacity: number) {
+    // Draw Head (Particle)
     const size = isOrdered ? 1.5 : 2;
     context.fillStyle = COLOR_PARTICLE;
     context.globalAlpha = opacity;
     context.beginPath();
     context.arc(this.x, this.y, size, 0, Math.PI * 2);
     context.fill();
+
+    // Draw Tail (Meteor Effect)
+    if (this.currentTailLength > 1) {
+        let tailEndX, tailEndY;
+        
+        // Calculate Tail End based on direction
+        // If moving Left (direction=1, p0 > p2), Tail is to the Right (+ offset)
+        // If moving Right (direction=-1, p0 < p2), Tail is to the Left (- offset)
+        // Offset = direction * length
+        if (this.type === 'row') {
+            tailEndX = this.x + this.direction * this.currentTailLength;
+            tailEndY = this.y;
+        } else {
+            tailEndX = this.x;
+            tailEndY = this.y + this.direction * this.currentTailLength;
+        }
+
+        // Gradient for Tail: Head (Opaque) -> Tail End (Transparent)
+        const gradient = context.createLinearGradient(this.x, this.y, tailEndX, tailEndY);
+        // Use COLOR_PARTICLE (Brighter) instead of COLOR_GRID (Dark) for visibility
+        gradient.addColorStop(0, COLOR_PARTICLE); 
+        gradient.addColorStop(1, 'transparent'); // Fade out
+
+        context.strokeStyle = gradient;
+        context.lineWidth = 2; // Increased from 1.5 for better visibility
+        context.beginPath();
+        context.moveTo(this.x, this.y);
+        context.lineTo(tailEndX, tailEndY);
+        context.stroke();
+    }
+
     context.globalAlpha = 1.0; 
   }
 }
@@ -159,48 +204,7 @@ const initParticles = () => {
   }
 };
 
-const drawConnections = (context: CanvasRenderingContext2D, progress: number) => {
-    context.lineWidth = 1;
-    
-    // Fade in grid lines
-    const maxOpacity = 0.8;
-    const opacity = progress < 0.2 ? 0 : (progress - 0.2) / 0.8 * maxOpacity;
-    
-    context.globalAlpha = Math.min(opacity, maxOpacity);
-    context.strokeStyle = COLOR_GRID;
-    context.beginPath();
 
-    // Horizontal lines (Use 'row' particles)
-    for (let r = 0; r < GRID_ROWS; r++) {
-        // Filter only 'row' particles for this row
-        const rowParticles = particles
-            .filter(p => p.type === 'row' && p.row === r)
-            .sort((a,b) => a.col - b.col);
-            
-        if (rowParticles.length > 1) {
-            context.moveTo(rowParticles[0].x, rowParticles[0].y);
-            for(let i=1; i<rowParticles.length; i++) {
-                context.lineTo(rowParticles[i].x, rowParticles[i].y);
-            }
-        }
-    }
-    // Vertical lines (Use 'col' particles)
-    for (let c = 0; c < GRID_COLS; c++) {
-        // Filter only 'col' particles for this column
-        const colParticles = particles
-            .filter(p => p.type === 'col' && p.col === c)
-            .sort((a,b) => a.row - b.row);
-            
-        if (colParticles.length > 1) {
-            context.moveTo(colParticles[0].x, colParticles[0].y);
-            for(let i=1; i<colParticles.length; i++) {
-                context.lineTo(colParticles[i].x, colParticles[i].y);
-            }
-        }
-    }
-    context.stroke();
-    context.globalAlpha = 1.0; // Reset
-}
 
 const updateColors = () => {
     const theme = themeService.currentTheme.value;
@@ -237,12 +241,13 @@ const animate = () => {
   }
 
   // ... update particles and draw ...
-  particles.forEach(p => p.update(progress));
-  drawConnections(ctx, progress);
-  
   const particleOpacity = 1.0 - opacityProgress;
+  
   if (particleOpacity > 0) {
-      particles.forEach(p => p.draw(ctx!, particleOpacity));
+      particles.forEach(p => {
+          p.update(progress);
+          p.draw(ctx!, particleOpacity);
+      });
   }
 
   animationFrameId = requestAnimationFrame(animate);
