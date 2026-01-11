@@ -1,8 +1,8 @@
 # SVG 渲染问题报告
 
 > 生成时间：2026-01-11
-> **问题状态：已解决** ✅
-> 解决时间：2026-01-11
+> **问题状态：未解决** ❌
+> 最后更新：2026-01-11
 
 ---
 
@@ -20,185 +20,135 @@
 
 ---
 
-## 2. 技术架构
+## 2. 修复历程
 
-### 2.1 数据流
-```
-模块库 SVG 文件 (modules/assets/*.svg)
-    ↓
-Server API (/api/modules/svg/{moduleId})
-    ↓
-Web 端 fetch 请求
-    ↓
-Three.js SVGLoader 解析
-    ↓
-SVGModuleRenderer.ts 处理
-    ↓
-添加到 Three.js 场景
-```
+### 2.1 修复尝试汇总
 
-### 2.2 关键文件
-| 文件 | 职责 |
-|------|------|
-| `BIMCanvas.Web/src/services/builders/SVGModuleRenderer.ts` | SVG 加载与渲染 |
-| `BIMCanvas.Web/src/services/builders/SceneBuilder.ts` | 场景构建（调用 SVGModuleRenderer） |
-| `BIMCanvas.Server/Controllers/ModulesController.cs` | SVG 文件 API |
-| `modules/assets/*.svg` | SVG 源文件 |
+| # | 问题假设 | 修复方案 | 结果 |
+|---|---------|---------|------|
+| 1 | SVG 原点偏移 | 添加 Box3 居中逻辑 | ❌ 无效 |
+| 2 | 黑色描边不可见 | 将 #000000 替换为 #ffffff | ❌ 无效 |
+| 3 | XY→XZ 坐标系转换 | rotation.x = +Math.PI/2 | ❌ 无效 |
+| 4 | CSS class 无法解析 | 添加默认描边颜色和样式 | ❌ 无效 |
+| 5 | linewidth 被忽略 | 使用 SVGLoader.pointsToStroke() | ❌ 无效 |
+| 6 | **Z 轴符号错误** | rotation.x 从 +PI/2 改为 -PI/2，position.z = -y | ❌ 无效 |
+| 7 | **缩放轴错误** | scale 从 (x,1,y) 改为 (x,y,1) | ❌ 无效 |
 
-### 2.3 SVG 文件特点
-```svg
-<!-- mod_bed_001.svg 示例 -->
-<svg viewBox="0 0 1800 2000">
-  <defs>
-    <style>
-      .main-lines { fill: none; stroke: #000000; stroke-width: 25; }
-      .detail-lines { fill: none; stroke: #000000; stroke-width: 20; }
-    </style>
-  </defs>
-  <rect x="12.5" y="12.5" width="1775" height="1975" rx="15" class="main-lines" />
-  <!-- ... 其他元素 ... -->
-</svg>
+### 2.2 业务专家的关键分析
+
+业务专家指出了两个核心问题：
+
+#### 问题 A：Z 轴坐标映射不一致
+- **场景约定**：`2D (x, y) → 3D (x, 0, -y)`，`rotation.x = -Math.PI/2`
+- **SVG 代码**（修复前）：`rotation.x = +Math.PI/2`，`position.z = y`
+- **结果**：SVG 被放到镜像半平面（相机视野外）
+
+**已修复**：
+```typescript
+// 修改前
+moduleGroup.rotation.x = Math.PI / 2;
+moduleGroup.position.set(x, SVG_HEIGHT, y);
+
+// 修改后
+moduleGroup.rotation.x = -Math.PI / 2;
+moduleGroup.position.set(x, SVG_HEIGHT, -y);
 ```
 
-**注意**：SVG 使用 CSS class 定义样式，而非内联样式。
+#### 问题 B：缩放轴错误
+- **问题**：`scale.set(scaleX, 1, scaleY)` 对 XY 平面几何体无效
+- **原因**：Three.js 变换顺序是 Scale → Rotate → Position，SVG 几何在 XY 平面，scale.z 对 z=0 的几何不起作用
+
+**已修复**：
+```typescript
+// 修改前
+moduleGroup.scale.set(scaleX, 1, scaleY);
+
+// 修改后
+moduleGroup.scale.set(scaleX, scaleY, 1);
+```
 
 ---
 
-## 3. 已尝试的修复方案
+## 3. 当前代码状态
 
-### 3.1 修复历程
-
-| # | 问题 | 修复方案 | 结果 |
-|---|------|---------|------|
-| 1 | SVG 原点偏移 | 添加 Box3 居中逻辑 | ✅ 已应用 |
-| 2 | 黑色描边不可见 | 将 #000000 替换为 #ffffff | ✅ 已应用 |
-| 3 | XY→XZ 坐标系转换 | rotation.x = Math.PI/2 | ✅ 已应用 |
-| 4 | CSS class 无法解析 | 添加默认描边颜色 | ✅ 已应用 |
-| 5 | linewidth 被忽略 | 使用 SVGLoader.pointsToStroke() | ✅ 已应用 |
-
-### 3.2 当前代码实现
-
+### 3.1 SVGModuleRenderer.ts 变换代码
 ```typescript
-// SVGModuleRenderer.ts - loadSVG 方法核心逻辑
+// 第 68-77 行
+// 5. 应用变换（转换到 Y-Up 坐标系，与家具模块一致）
+// 场景约定：2D (x, y) → 3D (x, 0, -y)
+// 模块统一使用 rotation.x = -Math.PI / 2（参考 SceneBuilder.ts:754）
+moduleGroup.rotation.x = -Math.PI / 2;
+// 位置：与场景约定一致，z = -y
+moduleGroup.position.set(transform.position.x, this.SVG_HEIGHT, -transform.position.y);
+// 朝向旋转（在 XZ 平面上是绕 Y 轴）
+moduleGroup.rotation.y = transform.rotation;
+// SVG 几何在 XY 平面，缩放作用在 X 和 Y 轴（变换顺序：Scale → Rotate → Position）
+moduleGroup.scale.set(transform.scale.x, transform.scale.y, 1);
+```
 
-// 填充处理
-const fillColor = path.userData?.style?.fill;
-if (fillColor && fillColor !== 'none') {
-  const shapes = SVGLoader.createShapes(path);
-  // 创建 ShapeGeometry + MeshBasicMaterial
-}
+### 3.2 日志输出（最新测试）
+```
+[SVGModuleRenderer] SVG loaded successfully. Paths count: 6
+[SVGModuleRenderer] Created group with 6 children
+[SVGModuleRenderer] Centered SVG. Original center was: _Vector3
+[SVGModuleRenderer] Loaded SVG: mod_bed_001
+[SVGModuleRenderer] Calculated transform: Object
+[SVGModuleRenderer] Added moduleGroup to scene. Children count: 6
+[SVGModuleRenderer] Rendered SVG for module m_1 (双人床)
+```
 
-// 描边处理（当前实现）
-const strokeColor = path.userData?.style?.stroke;
-const shouldRenderStroke = strokeColor !== 'none' && (!fillColor || fillColor === 'none' || strokeColor);
+日志显示一切正常，但 SVG 仍然不可见。
 
-if (shouldRenderStroke) {
-  const strokeStyle = {
-    ...path.userData?.style,
-    strokeWidth: path.userData?.style?.strokeWidth || 20
-  };
+---
 
-  const material = new THREE.MeshBasicMaterial({
-    color: new THREE.Color('#ffffff'),
-    side: THREE.DoubleSide,
-    depthWrite: false,
-    transparent: true,
-    opacity: 0.9
-  });
+## 4. 待排查的问题
 
-  for (const subPath of path.subPaths) {
-    const strokeGeometry = SVGLoader.pointsToStroke(subPath.getPoints(), strokeStyle);
-    if (strokeGeometry) {
-      const strokeMesh = new THREE.Mesh(strokeGeometry, material);
-      group.add(strokeMesh);
-    }
-  }
+### 4.1 pointsToStroke 几何体是否有效
+- `Created group with 6 children` 说明确实创建了子对象
+- 但不确定这些对象的几何体是否有效（顶点数是否 > 0）
+
+**建议验证**：
+```typescript
+if (strokeGeometry) {
+  console.log('vertex count:', strokeGeometry.attributes.position?.count);
 }
 ```
 
----
+### 4.2 SVG 高度 (SVG_HEIGHT = 760) 是否合适
+- 当前设置为 760，略高于家具模块高度 (750)
+- 可能需要验证相机是否能看到这个高度
 
-## 4. 问题分析
+### 4.3 材质渲染问题
+- `depthWrite: false` 可能导致渲染顺序问题
+- `transparent: true` + `opacity: 0.9` 可能与其他对象冲突
 
-### 4.1 已排除的原因
-- ❌ SVG 文件加载失败 → 日志显示加载成功
-- ❌ SVGLoader 解析失败 → Paths count: 6
-- ❌ 对象未添加到场景 → Added moduleGroup to scene
-- ❌ 线宽太细 → 已改用 pointsToStroke
-
-### 4.2 可能的根本原因
-
-#### 假设 A：pointsToStroke 返回空几何体
-- SVG 使用 CSS class 定义样式
-- `path.userData?.style` 可能为空对象 `{}`
-- `strokeStyle` 缺少必要属性（如 strokeLineCap, strokeLineJoin）
-- `pointsToStroke` 可能因为样式不完整而返回空几何体
-
-**验证方法**：添加日志检查 `strokeGeometry.attributes.position.count`
-
-#### 假设 B：居中逻辑破坏了几何体
-- 居中时使用 `child.position.x -= center.x`
-- 如果 center 计算错误（如 NaN），可能导致几何体位置异常
-
-**验证方法**：添加日志检查 center 的具体数值
-
-#### 假设 C：深度/渲染顺序问题
-- SVG_HEIGHT = 760，但可能与其他对象深度冲突
-- depthWrite: false 可能导致渲染问题
-
-**验证方法**：尝试不同的 SVG_HEIGHT 值和 depthTest/depthWrite 组合
-
-#### 假设 D：subPaths 为空
-- 对于某些 SVG 元素，`path.subPaths` 可能是空数组
-- SVGLoader 可能将路径信息存储在其他位置
-
-**验证方法**：添加日志检查 `path.subPaths.length`
-
-### 4.3 最可能的原因
-**假设 A** - `pointsToStroke` 需要完整的样式对象，包括：
-- strokeWidth
-- strokeLineCap
-- strokeLineJoin
-- strokeMiterLimit
-
-当 CSS class 样式未被解析时，这些属性都是 undefined，可能导致 pointsToStroke 行为异常。
+### 4.4 图层设置
+- SVG 设置了 `layers.enable(LAYER_MODEL)`
+- 需要验证相机是否启用了该图层
 
 ---
 
-## 5. 建议的下一步调试
+## 5. 建议的下一步
 
-### 5.1 添加详细日志
+### 5.1 添加详细调试日志
+在 loadSVG 中添加：
 ```typescript
-// 在 loadSVG 方法中添加
-console.log('[SVGModuleRenderer] path.userData:', JSON.stringify(path.userData));
-console.log('[SVGModuleRenderer] path.subPaths.length:', path.subPaths.length);
-
 for (const subPath of path.subPaths) {
   const points = subPath.getPoints();
-  console.log('[SVGModuleRenderer] subPath points count:', points.length);
+  console.log('[SVGModuleRenderer] points count:', points.length);
 
-  const strokeGeometry = SVGLoader.pointsToStroke(points, strokeStyle);
-  if (strokeGeometry) {
-    console.log('[SVGModuleRenderer] strokeGeometry vertex count:',
-      strokeGeometry.attributes.position?.count || 0);
+  const geo = SVGLoader.pointsToStroke(points, strokeStyle);
+  if (geo) {
+    console.log('[SVGModuleRenderer] geometry vertices:',
+      geo.attributes.position?.count || 0);
   } else {
     console.warn('[SVGModuleRenderer] pointsToStroke returned null!');
   }
 }
 ```
 
-### 5.2 测试完整样式对象
-```typescript
-const strokeStyle = {
-  strokeWidth: 20,
-  strokeLineCap: 'round',
-  strokeLineJoin: 'round',
-  strokeMiterLimit: 4
-};
-```
-
-### 5.3 简化测试
-创建一个最简单的测试 SVG（使用内联样式），验证基础流程是否正常：
+### 5.2 创建简化测试 SVG
+使用内联样式的最简 SVG 验证基础流程：
 ```svg
 <svg viewBox="0 0 100 100">
   <rect x="10" y="10" width="80" height="80"
@@ -206,46 +156,37 @@ const strokeStyle = {
 </svg>
 ```
 
-### 5.4 参考 Three.js 官方示例
+### 5.3 参考 Three.js 官方 SVGLoader 示例
 - https://threejs.org/examples/#webgl_loader_svg
-- 对比官方示例的实现方式
+- 对比官方实现的差异
+
+### 5.4 考虑修改 SVG 文件
+将 CSS class 样式改为内联样式，排除样式解析问题。
 
 ---
 
-## 6. 相关资源
+## 6. 相关文件
 
-### 6.1 Three.js 文档
-- [SVGLoader](https://threejs.org/docs/#examples/en/loaders/SVGLoader)
-- [SVGLoader.pointsToStroke](https://threejs.org/docs/#examples/en/loaders/SVGLoader.pointsToStroke)
-
-### 6.2 相关代码文件
-- `BIMCanvas.Web/src/services/builders/SVGModuleRenderer.ts`
-- `BIMCanvas.Web/src/services/builders/SceneBuilder.ts`
-- `modules/assets/mod_bed_001.svg`
-- `modules/assets/mod_cabinet_005.svg`
-
-### 6.3 日志文件参考
-最后一次测试的 F12 日志显示：
-```
-SVGModuleRenderer.ts:120 [SVGModuleRenderer] SVG loaded successfully. Paths count: 6
-SVGModuleRenderer.ts:201 [SVGModuleRenderer] Created group with 6 children
-SVGModuleRenderer.ts:216 [SVGModuleRenderer] Loaded SVG: mod_bed_002
-SVGModuleRenderer.ts:96 [SVGModuleRenderer] Added moduleGroup to scene. Children count: 6
-SVGModuleRenderer.ts:101 [SVGModuleRenderer] Rendered SVG for module m_1 (大双人床)
-```
+| 文件 | 职责 |
+|------|------|
+| `BIMCanvas.Web/src/services/builders/SVGModuleRenderer.ts` | SVG 加载与渲染 |
+| `BIMCanvas.Web/src/services/builders/SceneBuilder.ts` | 场景构建 |
+| `modules/assets/mod_bed_001.svg` | 床 SVG 模板 |
+| `modules/assets/mod_cabinet_005.svg` | 床头柜 SVG 模板 |
 
 ---
 
 ## 7. 结论
 
-SVG 渲染的数据流程完整，但最终输出不可见。最可能的原因是 `SVGLoader.pointsToStroke()` 在缺少完整样式参数时行为异常。
+已完成 7 次修复尝试，包括业务专家指出的 Z 轴映射和缩放轴问题，但 SVG 仍然不可见。
 
-建议后续研究方向：
-1. 添加更详细的调试日志，验证 `pointsToStroke` 的输入输出
-2. 测试使用内联样式的简化 SVG
-3. 参考 Three.js 官方 SVGLoader 示例的完整实现
-4. 考虑直接修改 SVG 文件，将 CSS class 改为内联样式
+**最可能的剩余原因**：
+1. `SVGLoader.pointsToStroke()` 返回空几何体（样式参数不完整）
+2. SVG 几何体顶点数为 0
+3. 渲染/深度/图层配置问题
+
+**建议**：添加更详细的调试日志，验证几何体是否真的被创建。
 
 ---
 
-*报告完毕*
+*报告更新完毕*
