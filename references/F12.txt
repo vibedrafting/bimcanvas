@@ -1,0 +1,991 @@
+Skipping removal of: Group 92d6b457-9573-4dfc-90a3-4223d9493f33
+SceneBuilder.ts:139 Skipping removal of: Group bfd70062-4c6a-40e2-9f94-d390d3a4db1b
+SceneBuilder.ts:139 Skipping removal of: Group 43dc0afc-e041-4c59-ae62-a2923bee33d5
+SceneBuilder.ts:139 Skipping removal of: Group 91349453-7589-4a21-9b9e-ca1f41ec851e
+SceneBuilder.ts:139 Skipping removal of: Group ceff95e6-9016-45b0-8a96-dc33141cc589
+SceneBuilder.ts:139 Skipping removal of: Group ac97355d-4e24-4661-ae8b-968b7e07be55
+SceneBuilder.ts:139 Skipping removal of: Group df989276-e3e7-40a0-8141-d956c304c297
+SceneBuilder.ts:139 Skipping removal of: Group ac0c0966-a1da-476e-bc21-b9d6c9ad9f5d
+SceneBuilder.ts:139 Skipping removal of: Group 90f98743-580f-47b2-9acc-919c014e5e2e
+SceneBuilder.ts:139 Skipping removal of: Group 9222f006-1da4-431a-af98-a764067c817d
+SceneBuilder.ts:139 Skipping removal of: Group b86bc1e7-d1ad-4ab8-9603-eef46832ea78
+SceneBuilder.ts:139 Skipping removal of: Group 3902d874-3d5c-4e98-846d-ea6e1ba77a7b
+SceneBuilder.ts:139 Skipping removal of: Group 52ceed3c-c173-4ba6-a34d-a64b49ba7fc8
+SceneBuilder.ts:139 Skipping removal of: Group e6f68f6a-9f41-48c7-995d-1d8d239e1db6
+SceneBuilder.ts:139 Skipping removal of: Group f18abece-4c2b-4c32-9b2f-0971a970f917
+SceneBuilder.ts:139 Skipping removal of: Group 0891580e-bb17-4fe0-85b7-e24cd982aac1
+SceneBuilder.ts:139 Skipping removal of: Group 19939d01-d1e1-4e28-bb50-57774cfd0df9
+SceneBuilder.ts:139 Skipping removal of: Group 1d96dc3e-ca3f-4ef6-a691-6c5bcf03f54a
+SceneBuilder.ts:139 Skipping removal of: Group dc8b6ed4-bbff-416c-81e3-5c7867bb60a7
+SceneBuilder.ts:139 Skipping removal of: Group dcd2866f-9e4a-4f3b-ba7e-d3698e754695
+SceneBuilder.ts:139 Skipping removal of: Group ddb90f12-0060-4987-88db-9e1128055b02
+SceneBuilder.ts:139 Skipping removal of: Group e4501063-9c4c-4467-b7c0-b45fba085265
+SceneBuilder.ts:139 Skipping removal of: Group 99ee0069-51eb-4929-ab8d-e80a963f5e72
+SceneBuilder.ts:139 Skipping removal of: Group 6dd35ea6-77af-4243-a1a6-03f4804ec9f7
+SceneBuilder.ts:139 Skipping removal of: Group adaa1955-f18b-435a-a91f-c69bb2f3b618
+SceneBuilder.ts:139 Skipping removal of: Group b88cdb70-22ce-476a-8770-3239535953f9
+SceneBuilder.ts:139 Skipping removal of: Group 1c908ebf-33bd-46f1-ba63-ffd39f4139f2
+SceneBuilder.ts:139 Skipping removal of: Group 7c7e0f47-afba-4cd6-99b4-bebc32e44c73
+SceneBuilder.ts:139 Skipping removal of: Group d46fa625-530c-457f-9123-d79357d57d47
+SceneBuilder.ts:139 Skipping removal of: Group 4214e0e1-80cd-45d8-b826-1165d25e32d4
+SceneBuilder.ts:139 Skipping removal of: Group 6260a4e4-ccb0-42d0-8b47-6eb1ff6a30e1
+SceneBuilder.ts:139 Skipping removal of: Group d5925311-7ed9-4f52-a1a9-179203f1bc41
+SceneBuilder.ts:139 Skipping removal of: Group 0954aed6-c90d-4972-aa09-cc5177c63218
+SceneBuilder.ts:139 Skipping removal of: Group 84e66eb6-b731-4525-b50c-6988cbd39848
+SceneBuilder.ts:139 Skipping removal of: Group 914bd150-5adb-43c1-b584-65abfd14d114
+SceneBuilder.ts:139 Skipping removal of: Group 086f4db6-49b8-44bd-be6b-c1f4ccf58eaf
+SceneBuilder.ts:139 Skipping removal of: Group 7839c9e7-046c-414a-a542-c0fe4a86b791
+SceneBuilder.ts:139 Skipping removal of: Group 4baabbe6-32dd-4837-a84a-fda55db10a3c
+SceneBuilder.ts:139 Skipping removal of: Group a39cc3d8-3ca0-4f29-9ca9-dc3f1a5cf41b
+SceneBuilder.ts:139 Skipping removal of: Group c4b19163-bfda-4a22-8427-cb8396c2c9ea
+SceneBuilder.ts:139 Skipping removal of: Group f6806512-89fc-49bc-b156-15f73e700854
+SceneBuilder.ts:139 Skipping removal of: Group ab51b919-ae31-4740-be03-b9c6bf9a3ee6
+SceneBuilder.ts:139 Skipping removal of: Group 2f29f6e5-35dd-4ad0-9c9e-2e3baa9f523e
+SceneBuilder.ts:139 Skipping removal of: Group 60e38d68-6f0a-4d78-82de-b5314b92e36f
+SceneBuilder.ts:139 Skipping removal of: Group 4f4362f6-362f-4a02-a499-46047da3d524
+SceneBuilder.ts:139 Skipping removal of: Group 411f7980-5ec8-4749-b594-5dd368fce4ae
+SceneBuilder.ts:139 Skipping removal of: Group 06a8c312-6268-4da8-83f3-0e3b5cb2c2bd
+SceneBuilder.ts:139 Skipping removal of: Group 0f3268f3-d503-4989-af0a-7c0d1209ac0d
+SceneBuilder.ts:139 Skipping removal of: Group 24634992-07d3-461c-b479-fc540acd37cd
+SceneBuilder.ts:139 Skipping removal of: Group bd81b6d3-5416-4022-8f37-b456ad5759a3
+SceneBuilder.ts:139 Skipping removal of: Group b4731a65-b017-4000-9a78-cd48c804002c
+SceneBuilder.ts:139 Skipping removal of: Group 85a2f157-239a-457a-a3b1-fabf9f58ef95
+SceneBuilder.ts:139 Skipping removal of: Group 43f3f88b-8f96-4659-ba90-ffafffb39e09
+SceneBuilder.ts:139 Skipping removal of: Group a7ab5626-2837-4c11-aaf4-27025cbfa4bd
+SceneBuilder.ts:139 Skipping removal of: Group 30a755ca-e9de-4c94-9f47-d1ee5f0356ca
+SceneBuilder.ts:139 Skipping removal of: Group 3cea48d7-0bf4-4710-8bf0-74e1c8a15b15
+SceneBuilder.ts:139 Skipping removal of: Group c06aaa94-f8af-4e7d-8068-b8e9790f1c29
+SceneBuilder.ts:139 Skipping removal of: Group ef485081-1283-4f6e-bd31-cd31c42e023d
+SceneBuilder.ts:139 Skipping removal of: Group a3a6cbed-723f-45d5-8a43-f99d666ed67b
+SceneBuilder.ts:139 Skipping removal of: Group be66a653-a1b0-443f-a380-103efff8ad81
+SceneBuilder.ts:139 Skipping removal of: Group 0dad6577-19c9-4645-b60e-6b696d5dc69b
+SceneBuilder.ts:139 Skipping removal of: Group 8399dabf-1745-48f2-8fa8-0c6a4457523a
+SceneBuilder.ts:139 Skipping removal of: Group 9fbf2c57-8e12-4beb-bea6-b68337f47074
+SceneBuilder.ts:139 Skipping removal of: Group 73737dea-52b7-4079-9ded-1d7cfb7118fb
+SceneBuilder.ts:139 Skipping removal of: Group e5f11050-4642-4ac4-9669-1b5ff197b662
+SceneBuilder.ts:139 Skipping removal of: Group 63204d8c-21fb-43f7-9ff0-5b14e6d03c90
+SceneBuilder.ts:139 Skipping removal of: Group 486c76a6-e76d-494b-adb8-6d9aca495b34
+SceneBuilder.ts:139 Skipping removal of: Group 530f992d-6b3c-4f8b-ba56-409b13b25519
+SceneBuilder.ts:139 Skipping removal of: Group 39db7a15-7e34-4515-818a-6820b90e9168
+SceneBuilder.ts:139 Skipping removal of: Group 71500ee8-12d0-4b16-9c85-3430b419d8fc
+SceneBuilder.ts:139 Skipping removal of: Group 336e305a-5133-422b-85dd-b1d2dd329297
+SceneBuilder.ts:139 Skipping removal of: Group bc04b092-084d-4eea-8189-659954594bd9
+SceneBuilder.ts:139 Skipping removal of: Group d8f19df5-69a2-496c-bc9a-1187d3b37902
+SceneBuilder.ts:139 Skipping removal of: Group eb1eea8a-5515-4d90-b9ab-c1e77f03ceb7
+SceneBuilder.ts:139 Skipping removal of: Group f33e04e9-ba6f-449a-886f-4fd79effc582
+SceneBuilder.ts:139 Skipping removal of: Group d93f5ebd-c648-4d69-9331-963df3dd9aae
+SceneBuilder.ts:139 Skipping removal of: Group 01e60a48-9ea0-4d35-b1eb-798492c55378
+SceneBuilder.ts:139 Skipping removal of: Group 9d01d54b-8f02-42ac-86d0-848488b03b6c
+SceneBuilder.ts:139 Skipping removal of: Group 5307b154-e909-44ce-aba8-82ef47574f85
+SceneBuilder.ts:139 Skipping removal of: Group 77768fd4-0387-4739-bbec-33908f6d866e
+SceneBuilder.ts:139 Skipping removal of: Group ea66ba0b-4bb6-4f88-82b8-83a20416f228
+SceneBuilder.ts:139 Skipping removal of: Group c63aab21-c53d-4050-bb05-b08f98e30013
+SceneBuilder.ts:139 Skipping removal of: Group 384c295c-5f20-44a5-a793-ae0a09dd1e2b
+SceneBuilder.ts:139 Skipping removal of: Group 5e3437b3-1ff5-482f-aaf8-2689df1656c9
+SceneBuilder.ts:139 Skipping removal of: Group 00a7299a-b260-45b6-97ef-3fa72e53b086
+SceneBuilder.ts:139 Skipping removal of: Group 71870abd-85e6-4d5e-accd-2e7507c71faf
+SceneBuilder.ts:139 Skipping removal of: Group 064b9a83-7e68-40c2-a8b5-4fb5d6f5619c
+SceneBuilder.ts:139 Skipping removal of: Group 423ee9fb-2817-40c0-8a06-947e8143777e
+SceneBuilder.ts:139 Skipping removal of: Group 0f097218-05a4-4670-b8c2-c3749318da4d
+SceneBuilder.ts:139 Skipping removal of: Group d0c9d53e-2656-4dec-8b4f-3274b1a71540
+SceneBuilder.ts:139 Skipping removal of: Group 8efa8855-8c30-4f60-8305-16d7467a9d94
+SceneBuilder.ts:139 Skipping removal of: Group eb3b433d-8ae6-43b3-8db3-7a287364e5a1
+SceneBuilder.ts:139 Skipping removal of: Group 7052c878-eeca-4983-91ee-00b240b2a111
+SceneBuilder.ts:139 Skipping removal of: Group 553ad7b5-5944-4e96-86dc-a1403b4c1dc8
+SceneBuilder.ts:139 Skipping removal of: Group 146c7fbc-edf1-46de-9ea9-6b8d199bffde
+SceneBuilder.ts:136 Marking for removal: Mesh c4c083fc-857e-44f6-a0c3-13baeaba1a39 ExtrudeGeometry
+SceneBuilder.ts:136 Marking for removal: Mesh 52b65eaa-8030-4ad3-9b8a-3a34706004df ExtrudeGeometry
+SceneBuilder.ts:136 Marking for removal: Mesh 40a462d6-4a27-49fb-8e73-1dea388aa20d ExtrudeGeometry
+SceneBuilder.ts:136 Marking for removal: Mesh a331bb35-6b59-44af-b596-a8b8b6d7c6cc ExtrudeGeometry
+SceneBuilder.ts:136 Marking for removal: Mesh d78a6683-77ea-46a6-9251-38ecf9ddf0b7 ExtrudeGeometry
+SceneBuilder.ts:136 Marking for removal: Mesh a0b2fa0b-3320-4aa6-8917-6b09b4b73f75 ExtrudeGeometry
+SceneBuilder.ts:136 Marking for removal: Mesh 29f2d332-7151-4ed9-8aed-842e31bfb56e ExtrudeGeometry
+SceneBuilder.ts:136 Marking for removal: Mesh a6281413-47de-485e-9270-7a0461a910eb ExtrudeGeometry
+SceneBuilder.ts:136 Marking for removal: Mesh 519a5953-a647-40e7-8076-8eb4d31b13b9 ExtrudeGeometry
+SceneBuilder.ts:136 Marking for removal: Mesh 2eb7d09a-68fb-4397-b081-3cb503f09323 ExtrudeGeometry
+SceneBuilder.ts:136 Marking for removal: Mesh 52964f23-e57a-41f8-b4dc-d581e3d1288b ExtrudeGeometry
+SceneBuilder.ts:136 Marking for removal: Mesh f44722f0-7ca5-4a44-8310-d83a148c2674 ExtrudeGeometry
+SceneBuilder.ts:136 Marking for removal: Mesh 8b8729c8-2035-4e90-af83-278f0bd9009a ExtrudeGeometry
+SceneBuilder.ts:136 Marking for removal: Mesh 69b2d921-51e3-4313-bcd3-69cc9625cf14 ExtrudeGeometry
+SceneBuilder.ts:136 Marking for removal: Mesh cd56ead9-489c-4dee-b014-fb6f439f1c20 ExtrudeGeometry
+SceneBuilder.ts:136 Marking for removal: Mesh 49afd9ea-cc60-42ac-82ee-3c67e00b0f3b ExtrudeGeometry
+SceneBuilder.ts:136 Marking for removal: Mesh 0a8a988d-b8cd-49a3-abe2-d73b2a0f290d ExtrudeGeometry
+SceneBuilder.ts:136 Marking for removal: Mesh ec16c740-9859-4a81-b818-d6fddf976e8c ExtrudeGeometry
+SceneBuilder.ts:136 Marking for removal: Mesh 773f9553-3b32-4ea3-8344-82d20e205c76 ExtrudeGeometry
+SceneBuilder.ts:136 Marking for removal: Mesh 90a3926c-7a10-4129-8828-9dcd19d39968 ExtrudeGeometry
+SceneBuilder.ts:136 Marking for removal: Mesh 98b2c9c5-f29a-43c7-bc75-35fc552f1b90 ExtrudeGeometry
+SceneBuilder.ts:136 Marking for removal: Mesh 676e2c58-033b-4149-a68f-31e2a9df827e ExtrudeGeometry
+SceneBuilder.ts:136 Marking for removal: Mesh 5043e06f-692c-4cb6-8dd3-543e4a862aad ExtrudeGeometry
+SceneBuilder.ts:136 Marking for removal: Mesh 4f258034-b658-4bc2-858e-b29557ff8ffb ExtrudeGeometry
+SceneBuilder.ts:136 Marking for removal: Mesh ad5414c0-7f7d-454b-8a8d-e40eb07e4c1d ExtrudeGeometry
+SceneBuilder.ts:136 Marking for removal: Mesh aee22044-5a36-4c74-b2f5-1ee9aaa479c8 ExtrudeGeometry
+SceneBuilder.ts:136 Marking for removal: Mesh 1f2c0444-814f-4fbe-9703-4a11943c64e5 ExtrudeGeometry
+SceneBuilder.ts:136 Marking for removal: Mesh d6a37a1f-c83a-4d35-8481-f57ac55729ac ExtrudeGeometry
+SceneBuilder.ts:136 Marking for removal: Mesh e615ff3f-3b21-4c12-a7e7-6bd9ea21293e ExtrudeGeometry
+SceneBuilder.ts:136 Marking for removal: Mesh bbfd8a3a-8248-4745-b1c0-27270cd1bbe4 ExtrudeGeometry
+SceneBuilder.ts:136 Marking for removal: Mesh a7d5037a-925e-4f37-972b-b5a1172ff71d ExtrudeGeometry
+SceneBuilder.ts:136 Marking for removal: Mesh 231251ae-ecad-4045-9798-82e7cf55b745 ExtrudeGeometry
+SceneBuilder.ts:136 Marking for removal: Mesh 96bc08d7-6d87-4c33-8e46-94a3c2dd9371 ExtrudeGeometry
+SceneBuilder.ts:136 Marking for removal: Mesh 7d0609ed-eee7-496b-97a0-ffca4066ba81 ExtrudeGeometry
+SceneBuilder.ts:136 Marking for removal: Mesh f41e873b-ea9d-4aa8-ac16-4f8532ef74b4 ExtrudeGeometry
+SceneBuilder.ts:136 Marking for removal: Mesh 22b989a0-4930-4465-a0b1-3ef6a446a6c1 ExtrudeGeometry
+SceneBuilder.ts:136 Marking for removal: Mesh ef447180-bd58-4a77-aeee-5880b326c5ad ExtrudeGeometry
+SceneBuilder.ts:136 Marking for removal: Mesh b737c2f1-3077-4ac4-8ffa-225d0fb6069e ExtrudeGeometry
+SceneBuilder.ts:136 Marking for removal: Mesh 38ec1758-e8f0-4492-a6cf-a8391b65c626 ExtrudeGeometry
+SceneBuilder.ts:136 Marking for removal: Mesh e7c09d6c-4a60-466f-8434-e741e6b950dd ExtrudeGeometry
+SceneBuilder.ts:136 Marking for removal: Mesh fcf67441-3f2a-47a2-8322-3ec1ac83fcb5 ExtrudeGeometry
+SceneBuilder.ts:136 Marking for removal: Mesh f4d7ab8e-2d71-46ac-80e8-b74295917e24 ExtrudeGeometry
+SceneBuilder.ts:136 Marking for removal: Mesh 597b3bb3-bdde-462c-ade9-7f29b1fbbddc ExtrudeGeometry
+SceneBuilder.ts:136 Marking for removal: Mesh f0585d8d-aa53-4b82-a17f-cba447540405 ExtrudeGeometry
+SceneBuilder.ts:136 Marking for removal: Mesh b33be7d2-2745-4954-a64c-cad5567afcaa ExtrudeGeometry
+SceneBuilder.ts:136 Marking for removal: Mesh 3d94cd61-dd2d-4a25-b017-dd9c6a56e28c ExtrudeGeometry
+SceneBuilder.ts:136 Marking for removal: Mesh ff8b3045-4bdf-401f-9673-9eb1e9e461da ExtrudeGeometry
+SceneBuilder.ts:136 Marking for removal: Mesh faf69a16-62fb-437d-925e-40221eaeec50 ExtrudeGeometry
+SceneBuilder.ts:136 Marking for removal: Mesh 08719133-b98f-4b5d-adce-fc7846f9ff86 ExtrudeGeometry
+SceneBuilder.ts:136 Marking for removal: Mesh 214836ef-3d88-4b77-8c33-717e89bb7ccc ExtrudeGeometry
+SceneBuilder.ts:136 Marking for removal: Mesh adcdcfeb-90f5-4d94-84f9-3efdd5ca8b03 ExtrudeGeometry
+SceneBuilder.ts:136 Marking for removal: Mesh 7a5b8843-b974-45c3-aa62-32ace3d3399d ExtrudeGeometry
+SceneBuilder.ts:136 Marking for removal: Mesh cec12a83-9b11-46a2-9130-18499891d227 ExtrudeGeometry
+SceneBuilder.ts:136 Marking for removal: Mesh 31f83776-cf44-4236-b081-9998acfbd978 ExtrudeGeometry
+SceneBuilder.ts:136 Marking for removal: Mesh 4deb952f-be75-4679-9c2a-ee180a2575e4 ExtrudeGeometry
+SceneBuilder.ts:136 Marking for removal: Mesh 7878e1c0-32e1-41bd-a4d1-dcef6503afe1 ExtrudeGeometry
+SceneBuilder.ts:136 Marking for removal: Mesh 4101629c-b490-4682-9ac7-13d39cd7089f ExtrudeGeometry
+SceneBuilder.ts:136 Marking for removal: Mesh 8fd6bd0b-fa6b-4169-97b7-4fce92b5cb6e ExtrudeGeometry
+SceneBuilder.ts:136 Marking for removal: Mesh 3514f198-5cf8-4cce-95f4-873d673a1cc0 ExtrudeGeometry
+SceneBuilder.ts:136 Marking for removal: Mesh d3588397-47e4-4ac8-8642-85f15918c615 ExtrudeGeometry
+SceneBuilder.ts:136 Marking for removal: Mesh d06ec195-6ff4-4b18-9be9-e10052154fb1 ExtrudeGeometry
+SceneBuilder.ts:136 Marking for removal: Mesh 8a5bf874-d79b-4d2e-8ad3-0e9f5733b01a ExtrudeGeometry
+SceneBuilder.ts:136 Marking for removal: Mesh 6be5e4e0-d2ec-4a64-90eb-4a4ce8540b5c ExtrudeGeometry
+SceneBuilder.ts:136 Marking for removal: Mesh 89291dd5-acf2-4edf-9a87-09e7190c5e34 ExtrudeGeometry
+SceneBuilder.ts:136 Marking for removal: Mesh 0a1ff356-f1ab-42a8-86e2-e09d244b25a7 ExtrudeGeometry
+SceneBuilder.ts:136 Marking for removal: Mesh 48c6491e-6bf4-408c-a8ab-67668b90d2ac ExtrudeGeometry
+SceneBuilder.ts:136 Marking for removal: Mesh 83289092-508a-454e-9543-7c563843cc84 ExtrudeGeometry
+SceneBuilder.ts:136 Marking for removal: Mesh 90fdd31a-5d77-4b2b-a089-b2d5f7e65085 ExtrudeGeometry
+SceneBuilder.ts:136 Marking for removal: Mesh 85bea257-6a49-4e91-89c6-73c36dc197e5 ExtrudeGeometry
+SceneBuilder.ts:136 Marking for removal: Mesh 5452f70c-964e-4ea2-950a-8be54c12de61 ExtrudeGeometry
+SceneBuilder.ts:136 Marking for removal: Mesh e8b9d164-24a2-4d9a-9eca-92d1ac78e21d ExtrudeGeometry
+SceneBuilder.ts:136 Marking for removal: Mesh 72f30375-ae3f-42bf-aab1-ba5fe7073213 ExtrudeGeometry
+SceneBuilder.ts:136 Marking for removal: Mesh 401ce0e0-5c8a-4a30-9836-dcdc16a7d167 ExtrudeGeometry
+SceneBuilder.ts:136 Marking for removal: Mesh 5df9b215-7c3f-4bcc-b153-7e619afaf7e0 ExtrudeGeometry
+SceneBuilder.ts:136 Marking for removal: Mesh 6daa13dd-bf03-4b3b-a8da-a792bd3c03f6 ExtrudeGeometry
+SceneBuilder.ts:136 Marking for removal: Mesh fc4c981a-489e-497d-9038-dd7b4240bd27 ExtrudeGeometry
+SceneBuilder.ts:136 Marking for removal: Mesh ced40b00-d732-40bd-a837-80096c5b4902 ExtrudeGeometry
+SceneBuilder.ts:136 Marking for removal: Mesh ee717efc-986e-4fb2-8d32-be69079f5c5f ExtrudeGeometry
+SceneBuilder.ts:136 Marking for removal: Mesh a8012e2c-0fe7-4c8b-a14b-5c37d8cfe750 ExtrudeGeometry
+SceneBuilder.ts:136 Marking for removal: Mesh 304107ff-3bf3-4531-94ab-a14462253cc4 ExtrudeGeometry
+SceneBuilder.ts:136 Marking for removal: Mesh fc1481f0-ae21-42b6-bf5d-43a62a82f305 ExtrudeGeometry
+SceneBuilder.ts:136 Marking for removal: Mesh 330f163a-569d-4b94-83fb-226fedf30c0d ExtrudeGeometry
+SceneBuilder.ts:136 Marking for removal: Mesh 5ea820c5-0039-4e0f-9c6c-3384c09888eb ExtrudeGeometry
+SceneBuilder.ts:136 Marking for removal: Mesh 022e256e-034d-4b9a-b829-db5661b0bcfd ExtrudeGeometry
+SceneBuilder.ts:136 Marking for removal: Mesh 385dbf1e-6a25-4e9d-9dc3-4b4d898b8714 ExtrudeGeometry
+SceneBuilder.ts:136 Marking for removal: Mesh 20d71cc9-d48b-4c37-865a-29bd7cfa4ab4 ExtrudeGeometry
+SceneBuilder.ts:136 Marking for removal: Mesh a1ef7006-4d77-4761-8de2-aa611f9e480f ExtrudeGeometry
+SceneBuilder.ts:136 Marking for removal: Mesh d1420f06-89a9-4bcc-87d3-540ed3ece8ab ExtrudeGeometry
+SceneBuilder.ts:136 Marking for removal: Mesh ce053441-e67c-4550-af10-5726e6e6b905 ExtrudeGeometry
+SceneBuilder.ts:136 Marking for removal: Mesh e554cb50-dfdb-43ba-bebd-2b55e8fa649b ExtrudeGeometry
+SceneBuilder.ts:136 Marking for removal: Mesh 089e6558-e707-4d1d-bd50-011b222ae117 ExtrudeGeometry
+SceneBuilder.ts:136 Marking for removal: Mesh 85762c4e-fc50-4d9f-b82f-db280ac633b2 ExtrudeGeometry
+SceneBuilder.ts:136 Marking for removal: Mesh 1aaf56de-785a-44ed-b3f7-00c98d76c962 ExtrudeGeometry
+SceneBuilder.ts:136 Marking for removal: Mesh 38894537-1aaf-40d8-a8d2-6ffb8b9d88e5 ExtrudeGeometry
+SceneBuilder.ts:136 Marking for removal: Mesh 1cf38db3-cd54-449b-9428-f562cbf3f31c ExtrudeGeometry
+SceneBuilder.ts:136 Marking for removal: Mesh dbe4e413-5958-4323-84e7-bdf2a331c900 ExtrudeGeometry
+SceneBuilder.ts:136 Marking for removal: Mesh 0902c680-ac31-45ef-8f26-8848f4b1e35d ExtrudeGeometry
+SceneBuilder.ts:136 Marking for removal: Mesh ea3afc60-e4a2-424f-8b61-28c9d1c4feef ExtrudeGeometry
+SceneBuilder.ts:136 Marking for removal: Mesh 492dbb90-6bed-4486-bbbe-780b0b478008 ExtrudeGeometry
+SceneBuilder.ts:136 Marking for removal: Mesh 26249710-a22b-4d33-ba15-b33e588e3d21 ExtrudeGeometry
+SceneBuilder.ts:139 Skipping removal of: Group f155d1e6-80fc-4f87-a15a-cb1118d6c99a
+SceneBuilder.ts:139 Skipping removal of: Group 1c898902-52ab-46ce-8e10-4feb3466a13f
+SceneBuilder.ts:136 Marking for removal: Mesh 727377b9-77e8-4cf3-818c-1a0acdc7341f BoxGeometry
+SceneBuilder.ts:136 Marking for removal: Mesh 534a6d37-b249-4349-9a68-b33370c5a2c2 BoxGeometry
+SceneBuilder.ts:136 Marking for removal: Mesh 5854d7dd-2c05-4289-b270-806dc4861f86 BoxGeometry
+SceneBuilder.ts:139 Skipping removal of: Group db1210ee-2092-46c4-9d96-794444579c22
+SceneBuilder.ts:139 Skipping removal of: Group 56d0934d-4a1a-4c4a-9ae2-7e4ab6cb6edb
+SceneBuilder.ts:136 Marking for removal: Mesh cd96322b-ff17-459e-8a80-fd3c9a8ad8ef BoxGeometry
+SceneBuilder.ts:136 Marking for removal: Line 4d02d48a-2cfc-471d-9768-189ba0924ad6 BufferGeometry
+SceneBuilder.ts:139 Skipping removal of: Group 25dc3298-faa7-45ff-9c5d-b5e9e7844265
+SceneBuilder.ts:139 Skipping removal of: Group 7bef2856-ab5d-4b05-a2c2-c1024fc85f2f
+SceneBuilder.ts:136 Marking for removal: Mesh efa563da-5fcb-475a-a6cb-cb13f75eeb32 BoxGeometry
+SceneBuilder.ts:136 Marking for removal: Mesh 37e2983a-3644-4613-b597-5393866f5e43 BoxGeometry
+SceneBuilder.ts:136 Marking for removal: Mesh 05fdbf52-272d-4485-9b48-a4ba0a6ced3a BoxGeometry
+SceneBuilder.ts:139 Skipping removal of: Group 289fedd9-32a4-4916-91ee-7ee6d2bbb719
+SceneBuilder.ts:139 Skipping removal of: Group 84fe68bd-1310-43ae-8107-aeb28e67d4db
+SceneBuilder.ts:136 Marking for removal: Mesh ef176491-47ea-4c69-b3ca-21c204d13929 BoxGeometry
+SceneBuilder.ts:136 Marking for removal: Line b3adb6bf-d6f3-48bd-a3f4-36539463ed24 BufferGeometry
+SceneBuilder.ts:139 Skipping removal of: Group 6c4c9041-79b2-4d59-adc0-824eea24fe62
+SceneBuilder.ts:139 Skipping removal of: Group a3f5b125-fb98-42f7-8eaa-11954037b1c2
+SceneBuilder.ts:136 Marking for removal: Mesh a1f0afa1-e575-4aef-8a4b-e7eb9c387a4a BoxGeometry
+SceneBuilder.ts:136 Marking for removal: Mesh c8c2d990-b863-41be-9791-f4e42277e7cb BoxGeometry
+SceneBuilder.ts:136 Marking for removal: Mesh cbc741c9-1834-4f0e-ad4f-4711df14ee6f BoxGeometry
+SceneBuilder.ts:139 Skipping removal of: Group caeb9779-4453-4824-ba5b-04a0cd152f62
+SceneBuilder.ts:139 Skipping removal of: Group f6114839-f7eb-4fa7-8dbd-2179e043022e
+SceneBuilder.ts:136 Marking for removal: Mesh 411dd682-519a-4dd2-a404-b862ceb441d7 BoxGeometry
+SceneBuilder.ts:136 Marking for removal: Line cc49b72d-353a-46bb-8558-99d584075fac BufferGeometry
+SceneBuilder.ts:139 Skipping removal of: Group ef813ad4-4e13-4311-bcd9-455bcb9de4ac
+SceneBuilder.ts:139 Skipping removal of: Group 32d97de7-fe87-4977-a371-5e41f50dffcd
+SceneBuilder.ts:136 Marking for removal: Mesh e851e578-c504-4cd6-8bbe-d7e808257dba BoxGeometry
+SceneBuilder.ts:136 Marking for removal: Mesh 14d56cd8-f1b4-491a-938a-e3c87c2b5e6c BoxGeometry
+SceneBuilder.ts:136 Marking for removal: Mesh 3a0bfa39-d369-4bbc-8dd7-5b633fda47ff BoxGeometry
+SceneBuilder.ts:139 Skipping removal of: Group 82c3a1b8-9fd1-4bc4-8e26-077bbfca93df
+SceneBuilder.ts:139 Skipping removal of: Group a2c3cf75-f76f-4851-81a7-70e5b1e2f3ed
+SceneBuilder.ts:136 Marking for removal: Mesh d7867563-766b-4735-8f5b-adde250019f8 BoxGeometry
+SceneBuilder.ts:136 Marking for removal: Line 0314a4b6-62c0-4311-a2ac-44965c4e43a9 BufferGeometry
+SceneBuilder.ts:139 Skipping removal of: Group cb3b01d9-a7ac-4f23-8bf3-5b1fc645b5df
+SceneBuilder.ts:139 Skipping removal of: Group 4c8aaa13-62b1-4e92-9e15-886eae6254ab
+SceneBuilder.ts:136 Marking for removal: Mesh 1559e22c-badb-48ba-8c77-2830756a78b0 BoxGeometry
+SceneBuilder.ts:136 Marking for removal: Mesh 49b09831-73d1-4319-965b-5f8342e43cbb BoxGeometry
+SceneBuilder.ts:136 Marking for removal: Mesh 57f06214-bd41-4570-bac0-5a199e5f43a6 BoxGeometry
+SceneBuilder.ts:139 Skipping removal of: Group 575abd1d-df4b-4c8b-bcff-6c686d1a81d4
+SceneBuilder.ts:139 Skipping removal of: Group 14d69db6-345f-4748-b616-63c10b35d80c
+SceneBuilder.ts:136 Marking for removal: Mesh c22fb975-74c9-43ad-9b48-f8960e7e0b3c BoxGeometry
+SceneBuilder.ts:136 Marking for removal: Line 0dc6bad3-90cd-470e-8d4b-cf3a28bbc8a0 BufferGeometry
+SceneBuilder.ts:139 Skipping removal of: Group a5f0fb93-8c57-428a-b87e-87057fcd7530
+SceneBuilder.ts:139 Skipping removal of: Group 3ef264a0-928e-4e4f-bf5e-16b0d8a63d93
+SceneBuilder.ts:136 Marking for removal: Mesh 0fb4fe24-ecc4-4fc1-8ab6-8de0b03c8679 BoxGeometry
+SceneBuilder.ts:136 Marking for removal: Mesh 64e3522b-363c-4a49-ab01-91d49f4257cd BoxGeometry
+SceneBuilder.ts:136 Marking for removal: Mesh 547efe33-4167-4d5e-bae4-1850d0321a66 BoxGeometry
+SceneBuilder.ts:139 Skipping removal of: Group 7a5084a7-5c5f-4aa9-abd5-af9bfc5ddccc
+SceneBuilder.ts:139 Skipping removal of: Group 686cfc63-136d-4826-ae58-5d526a84e441
+SceneBuilder.ts:136 Marking for removal: Mesh e29761e2-3725-4338-9320-4e90f3a18551 BoxGeometry
+SceneBuilder.ts:136 Marking for removal: Line 452a4aa6-7914-4e21-8c12-b8e1f8c24fbc BufferGeometry
+SceneBuilder.ts:139 Skipping removal of: Group f23526a4-7d97-48a6-8368-2823a06c75d5
+SceneBuilder.ts:139 Skipping removal of: Group 09fcab65-c7e6-460b-b6ce-b0754f7c3d59
+SceneBuilder.ts:136 Marking for removal: Mesh 611ff5c0-e972-4051-b4aa-3fbdc68eae8f BoxGeometry
+SceneBuilder.ts:136 Marking for removal: Mesh 3c922772-8a41-4f73-b8d5-a1dd9cf81ae0 BoxGeometry
+SceneBuilder.ts:136 Marking for removal: Mesh e2e10fcc-754b-4497-9a97-9cd65cdd78ef BoxGeometry
+SceneBuilder.ts:139 Skipping removal of: Group 5a858619-5723-4cab-a7f0-bac6b6938ab6
+SceneBuilder.ts:139 Skipping removal of: Group 91aae138-4ecb-4929-ab42-c044c1730e8c
+SceneBuilder.ts:136 Marking for removal: Mesh 71a10723-fc6c-4b8a-be73-4636c363b35d BoxGeometry
+SceneBuilder.ts:136 Marking for removal: Line 120a2738-2e3a-42c5-ab71-c94873994434 BufferGeometry
+SceneBuilder.ts:139 Skipping removal of: Group c7765092-9e18-4708-aeb7-d06dd15e610d
+SceneBuilder.ts:139 Skipping removal of: Group 049f7ebb-900e-4e1c-8e36-afa02a7b5d29
+SceneBuilder.ts:136 Marking for removal: Mesh 9eba50c6-27cf-417b-8398-05df718a119d BoxGeometry
+SceneBuilder.ts:136 Marking for removal: Mesh 4c985f64-d259-4c10-b20a-490d9e908352 BoxGeometry
+SceneBuilder.ts:136 Marking for removal: Mesh c05c853f-e941-4898-9a26-32aa5918d91e BoxGeometry
+SceneBuilder.ts:139 Skipping removal of: Group 87ba563f-ab95-40dd-b79e-aad9c3c7c8e6
+SceneBuilder.ts:139 Skipping removal of: Group 139e6735-1857-495f-837c-652b672e9040
+SceneBuilder.ts:136 Marking for removal: Mesh f11df792-d528-4289-85f1-8fbda56363e7 BoxGeometry
+SceneBuilder.ts:136 Marking for removal: Line 17921746-a5b6-40b8-95d4-fcd5f32f2e97 BufferGeometry
+SceneBuilder.ts:139 Skipping removal of: Group a8d0fd16-4998-4ea4-921f-495b35657a65
+SceneBuilder.ts:139 Skipping removal of: Group 0e3dc712-b7e0-481c-b092-9d366267df9b
+SceneBuilder.ts:136 Marking for removal: Mesh 16d8c837-d6a6-4582-ad1b-2103b7cbb85a BoxGeometry
+SceneBuilder.ts:136 Marking for removal: Mesh 52abec2d-3957-43e8-9ff0-f795187c5671 BoxGeometry
+SceneBuilder.ts:136 Marking for removal: Mesh 5747b248-ee9b-42ce-8c30-91a08c17bca8 BoxGeometry
+SceneBuilder.ts:139 Skipping removal of: Group 8569b813-8452-464c-85d3-6dfc439d1311
+SceneBuilder.ts:139 Skipping removal of: Group 9527eb27-6cf6-4900-87ee-8904a35e6656
+SceneBuilder.ts:136 Marking for removal: Mesh 4ca51238-1d02-4568-a69c-3d437ff1b194 BoxGeometry
+SceneBuilder.ts:136 Marking for removal: Line 6383742a-28b0-40d0-af94-7e82853eae10 BufferGeometry
+SceneBuilder.ts:139 Skipping removal of: Group c1c3ccde-0b9e-46bd-86af-83c04f200555
+SceneBuilder.ts:139 Skipping removal of: Group fa7ab175-d885-4a31-9a82-9e69081a8d5c
+SceneBuilder.ts:136 Marking for removal: Mesh 593c8819-67b9-4ff1-ab94-bd9e48ec874b BoxGeometry
+SceneBuilder.ts:136 Marking for removal: Mesh ceb68cb2-ac29-4c2f-8b51-55784a87e7f2 BoxGeometry
+SceneBuilder.ts:136 Marking for removal: Mesh b78ee2d6-d4b8-404c-8993-c6cc3be7b21d BoxGeometry
+SceneBuilder.ts:139 Skipping removal of: Group 450b6330-4eb5-4d87-91da-e0fecff4e01e
+SceneBuilder.ts:139 Skipping removal of: Group b28e73b9-b309-4f7e-9895-596b9aabded8
+SceneBuilder.ts:136 Marking for removal: Mesh cab30156-e28a-45ff-abfc-26ff647161b2 BoxGeometry
+SceneBuilder.ts:136 Marking for removal: Line c00e3f4c-8c15-415a-a196-ae06d2b49335 BufferGeometry
+SceneBuilder.ts:139 Skipping removal of: Group 9e4ab67c-6e8b-41fe-a0aa-bef232ec5a15
+SceneBuilder.ts:139 Skipping removal of: Group d7d52af7-a5d7-42e2-98e8-b630cf066bb5
+SceneBuilder.ts:136 Marking for removal: Mesh abb915bd-37a7-4333-a5ca-1ffd214a08df BoxGeometry
+SceneBuilder.ts:136 Marking for removal: Mesh 045064aa-c066-48dd-835d-cdf540e27d08 BoxGeometry
+SceneBuilder.ts:136 Marking for removal: Mesh de879f12-2529-4d88-84e1-de1897c8c4dc BoxGeometry
+SceneBuilder.ts:139 Skipping removal of: Group f97734d4-ccfb-4c8d-988e-f9357d6fe806
+SceneBuilder.ts:139 Skipping removal of: Group af160b6b-a8cc-4239-8a99-59f7c54eabad
+SceneBuilder.ts:136 Marking for removal: Mesh 79b02b30-8820-4e47-906e-e27ff6013ac3 BoxGeometry
+SceneBuilder.ts:136 Marking for removal: Line 0567fed7-056c-4159-844c-ceecae856962 BufferGeometry
+SceneBuilder.ts:139 Skipping removal of: Group 2c800ff1-ed92-4493-98f2-9f0e1071dc15
+SceneBuilder.ts:139 Skipping removal of: Group 5fb1dd6b-2372-4fa5-9b28-e9c07ea90cda
+SceneBuilder.ts:136 Marking for removal: Mesh 529d8db3-c253-4088-b544-4c219fdb5579 BoxGeometry
+SceneBuilder.ts:136 Marking for removal: Mesh 84a63d1a-0890-4867-adca-5d4bf4a61456 BoxGeometry
+SceneBuilder.ts:136 Marking for removal: Mesh 6494512f-282e-446d-a957-6b978a26b3bf BoxGeometry
+SceneBuilder.ts:139 Skipping removal of: Group 9409c844-a0ee-4093-8173-3ea94783899e
+SceneBuilder.ts:139 Skipping removal of: Group 1492f23d-1e13-442c-81d5-f2f00bd1b85a
+SceneBuilder.ts:136 Marking for removal: Mesh 37519731-fd4e-4315-ab60-ac510add34c1 BoxGeometry
+SceneBuilder.ts:136 Marking for removal: Line 446bca74-0c7e-4dd3-8d2f-ab41aed0cdc5 BufferGeometry
+SceneBuilder.ts:139 Skipping removal of: Group 017e6d85-249d-49d2-b14b-3daeb4a02f26
+SceneBuilder.ts:139 Skipping removal of: Group 4d2df48b-7a95-4ffc-b495-68edc69e0972
+SceneBuilder.ts:136 Marking for removal: Mesh 8aa00227-bab5-4416-84fc-0d73558186ce BoxGeometry
+SceneBuilder.ts:136 Marking for removal: Mesh e33629df-dc38-4426-924c-ded0ba36d2ab BoxGeometry
+SceneBuilder.ts:136 Marking for removal: Mesh 419705da-f4cb-458b-ab82-8d2444b6948d BoxGeometry
+SceneBuilder.ts:139 Skipping removal of: Group 05724b6d-a3b3-4864-bffd-8ba9531c8fe4
+SceneBuilder.ts:139 Skipping removal of: Group 1542ec47-af4f-4f74-bcf9-afed39c2f685
+SceneBuilder.ts:136 Marking for removal: Mesh ec6f2e41-be1e-4fb8-8d0e-21fed01d97ae BoxGeometry
+SceneBuilder.ts:136 Marking for removal: Line 29fed1ec-8c9d-4c19-ad6d-dc435990f176 BufferGeometry
+SceneBuilder.ts:139 Skipping removal of: Group c681986b-c7dd-43a9-883e-ede60a3f20ca
+SceneBuilder.ts:139 Skipping removal of: Group 9ce86de7-e951-4c9f-b879-04a4e7dfddcf
+SceneBuilder.ts:136 Marking for removal: Mesh 299df3fe-0f81-4f82-9ae4-97ac54d14184 BoxGeometry
+SceneBuilder.ts:136 Marking for removal: Mesh 3b2f90b6-d084-465a-97c4-fae0885459fe BoxGeometry
+SceneBuilder.ts:136 Marking for removal: Mesh 321aff07-a147-4529-b2e9-9bb78cf40bd8 BoxGeometry
+SceneBuilder.ts:139 Skipping removal of: Group 93c347ff-a34c-40d8-8e4a-6220f3539301
+SceneBuilder.ts:139 Skipping removal of: Group e11df0d0-bbfd-470c-8fac-03f40c4e08fe
+SceneBuilder.ts:136 Marking for removal: Mesh edb61b7d-cfa0-41eb-8767-c03574bd9964 BoxGeometry
+SceneBuilder.ts:136 Marking for removal: Line 6279249e-e3f8-42ef-a7cb-84a2eafe8638 BufferGeometry
+SceneBuilder.ts:139 Skipping removal of: Group c22e90fb-5937-4d32-97ca-687c6812887a
+SceneBuilder.ts:139 Skipping removal of: Group f066105e-90b0-4e1c-b346-347b8dcd3ea1
+SceneBuilder.ts:136 Marking for removal: Mesh 7cd66f92-a613-4014-8ce5-ee002ee02b03 BoxGeometry
+SceneBuilder.ts:136 Marking for removal: Mesh e1b4c09b-66d1-445d-ab2c-b390097d3949 BoxGeometry
+SceneBuilder.ts:136 Marking for removal: Mesh 3f503e34-09ab-4e1f-9668-60405ff91def BoxGeometry
+SceneBuilder.ts:136 Marking for removal: Mesh 9fe62eff-38c7-4c8c-beec-ce6c5dab674f BoxGeometry
+SceneBuilder.ts:136 Marking for removal: Mesh aeb4988f-d813-4250-b374-9dc67d468ca8 BoxGeometry
+SceneBuilder.ts:139 Skipping removal of: Group bb6da0d8-3e60-43bd-9228-062c3689950a
+SceneBuilder.ts:139 Skipping removal of: Group f4806514-d0b9-4a54-a831-77f451035d08
+SceneBuilder.ts:136 Marking for removal: Mesh 6a4898e2-cb40-4548-beab-99558ea1ddda BoxGeometry
+SceneBuilder.ts:136 Marking for removal: Mesh 67a3b243-ef49-464b-8496-38dc09d5a313 BoxGeometry
+SceneBuilder.ts:136 Marking for removal: Mesh 2ed817d8-f41c-4fb1-a601-59ba9a0c1546 BoxGeometry
+SceneBuilder.ts:136 Marking for removal: Mesh e635260f-7db0-4d76-95a4-f253ba165e78 BoxGeometry
+SceneBuilder.ts:136 Marking for removal: Mesh 6161b89a-ae3f-4e35-aa6f-681abad138f2 BoxGeometry
+SceneBuilder.ts:139 Skipping removal of: Group 32912d71-a7b9-4e50-b2d0-763890a69a20
+SceneBuilder.ts:139 Skipping removal of: Group 979641b1-4e18-4563-9d48-66dc5fdc5c90
+SceneBuilder.ts:136 Marking for removal: Mesh 4dbab108-8a51-4295-abb8-3a8821574e8c BoxGeometry
+SceneBuilder.ts:136 Marking for removal: Mesh 49545288-ff7e-421c-bdf8-12aa54e6ff9c BoxGeometry
+SceneBuilder.ts:136 Marking for removal: Mesh 7e05b9bf-38c1-47d5-9f50-f465e0d50a40 BoxGeometry
+SceneBuilder.ts:136 Marking for removal: Mesh 3274b13c-e12e-450c-a2db-45e144ea9acf BoxGeometry
+SceneBuilder.ts:136 Marking for removal: Mesh 05f58768-b133-4def-a9a0-88f20db9249b BoxGeometry
+SceneBuilder.ts:139 Skipping removal of: Group 460a7f3b-7341-45a1-ab29-500fb576f3f5
+SceneBuilder.ts:139 Skipping removal of: Group d83ef705-c309-4814-b6b7-4aa4c85dae54
+SceneBuilder.ts:136 Marking for removal: Mesh 6db2d4dd-8c37-4278-bc70-d7db65285090 BoxGeometry
+SceneBuilder.ts:136 Marking for removal: Mesh 79b59b59-3b37-43d3-ae48-12dd3d189110 BoxGeometry
+SceneBuilder.ts:136 Marking for removal: Mesh ba6fb810-e226-4171-a223-7090b68d793a BoxGeometry
+SceneBuilder.ts:136 Marking for removal: Mesh 403f170a-dfc1-4dc0-b421-5130c0eaa190 BoxGeometry
+SceneBuilder.ts:136 Marking for removal: Mesh ec3458d6-faff-48bb-b025-83d59f631fa1 BoxGeometry
+SceneBuilder.ts:139 Skipping removal of: Group 4224aa55-190b-4678-b07a-d715b3f44a34
+SceneBuilder.ts:139 Skipping removal of: Group 45a2d9a6-9904-4cf6-a212-772166a04fe4
+SceneBuilder.ts:136 Marking for removal: Mesh d55601a7-c11e-427c-a460-8a8944f8ecd7 BoxGeometry
+SceneBuilder.ts:136 Marking for removal: Mesh 425e9101-58cc-4030-90a4-2679b0b95191 BoxGeometry
+SceneBuilder.ts:136 Marking for removal: Mesh f4c68095-c266-46ab-8cdf-c38c87ae5b64 BoxGeometry
+SceneBuilder.ts:136 Marking for removal: Mesh d1f89781-d706-4289-bd23-26b7e9fdcccb BoxGeometry
+SceneBuilder.ts:136 Marking for removal: Mesh 8d903598-c8de-4e55-b029-3d3507484e64 BoxGeometry
+SceneBuilder.ts:139 Skipping removal of: Group 45302303-a334-4a66-b87b-3299c575071d
+SceneBuilder.ts:139 Skipping removal of: Group 5298ef78-7336-4e26-b8fd-c1c22600eaf7
+SceneBuilder.ts:136 Marking for removal: Mesh bdfe7a0b-c119-49f7-9bee-8bd2a4e65f77 BoxGeometry
+SceneBuilder.ts:136 Marking for removal: Mesh df8f9a77-2093-4402-8f20-f732dc2b9cde BoxGeometry
+SceneBuilder.ts:136 Marking for removal: Mesh 966a1ea7-828f-49b8-a05a-7d4f7c6d5e49 BoxGeometry
+SceneBuilder.ts:136 Marking for removal: Mesh 45fdc2a4-ae44-4aba-95b7-eaf557060964 BoxGeometry
+SceneBuilder.ts:136 Marking for removal: Mesh 6c90bca7-3dec-4add-a5e9-92e9efe2fb4c BoxGeometry
+SceneBuilder.ts:139 Skipping removal of: Group ed2c0ed2-dcd8-4ef0-90db-f3ca61985a0a
+SceneBuilder.ts:139 Skipping removal of: Group f5123313-6607-4ee2-8f60-2ef9e87ffcef
+SceneBuilder.ts:136 Marking for removal: Mesh fedd7a0b-67ec-4918-a5c7-3e97e28266fe BoxGeometry
+SceneBuilder.ts:136 Marking for removal: Mesh 0ad403b2-bcb7-4ab7-bbc8-fc387526f0b4 BoxGeometry
+SceneBuilder.ts:136 Marking for removal: Mesh fd1858af-8e3a-41ed-8409-bdc033bc2d34 BoxGeometry
+SceneBuilder.ts:136 Marking for removal: Mesh 22b73c65-0b34-4054-b8c0-bf0d171d66d5 BoxGeometry
+SceneBuilder.ts:136 Marking for removal: Mesh 4ccf7c0b-0459-44da-bbf4-db8c599dfafb BoxGeometry
+SceneBuilder.ts:139 Skipping removal of: Group bef19f1f-e807-47e1-ab1d-6a2b1159e442
+SceneBuilder.ts:139 Skipping removal of: Group e2437286-63b5-4dcf-9a70-af2421e216fa
+SceneBuilder.ts:136 Marking for removal: Mesh 6495d3da-be50-4e71-ad11-bc1d38346f70 BoxGeometry
+SceneBuilder.ts:136 Marking for removal: Mesh 1157b477-144c-47cc-9297-9d32d4b7eb14 BoxGeometry
+SceneBuilder.ts:136 Marking for removal: Mesh 48791482-10e3-481e-ace8-87aa85ea37f7 BoxGeometry
+SceneBuilder.ts:136 Marking for removal: Mesh 1155fdd4-0bd7-4fa5-b0a3-bca93fe5c293 BoxGeometry
+SceneBuilder.ts:136 Marking for removal: Mesh d42c5450-6200-48f2-8b89-a647fc47d54b BoxGeometry
+SceneBuilder.ts:139 Skipping removal of: Group 1b079981-8ba8-4ecd-9740-d7227cb201d1
+SceneBuilder.ts:139 Skipping removal of: Group 0634b423-5005-4e32-85a3-b99283eee7e2
+SceneBuilder.ts:136 Marking for removal: Mesh 97719a7e-7942-4a96-a888-3bbcfd984c54 BoxGeometry
+SceneBuilder.ts:136 Marking for removal: Mesh d0cc2136-ede1-4e2e-a696-fc0bbcff5bfb BoxGeometry
+SceneBuilder.ts:136 Marking for removal: Mesh 2d707cbf-10fb-4747-afc8-9f8f0c0a29ce BoxGeometry
+SceneBuilder.ts:136 Marking for removal: Mesh be63729e-d17f-41b9-a0a3-3397b50cf974 BoxGeometry
+SceneBuilder.ts:136 Marking for removal: Mesh 4a1eece7-6c3c-4436-a99b-af2502e59892 BoxGeometry
+SceneBuilder.ts:139 Skipping removal of: Group 301bb26b-7549-4c00-a5e7-4c994084d2b9
+SceneBuilder.ts:139 Skipping removal of: Group edf60dc0-0779-4fd6-bc19-fe88ac1fd088
+SceneBuilder.ts:136 Marking for removal: Mesh 76898c43-f491-42ee-97fe-78a1d624b324 BoxGeometry
+SceneBuilder.ts:136 Marking for removal: Mesh 02d52b5d-eb09-4d80-88ee-61f4a43cc826 BoxGeometry
+SceneBuilder.ts:136 Marking for removal: Mesh 52a016fb-1fd5-4f4d-a269-e40789a3e18e BoxGeometry
+SceneBuilder.ts:136 Marking for removal: Mesh 2e556f1e-184c-439c-8a0b-f5476aeeb3ee BoxGeometry
+SceneBuilder.ts:136 Marking for removal: Mesh 59c5f805-c753-4108-aa0d-36984d252236 BoxGeometry
+SceneBuilder.ts:139 Skipping removal of: Group 1e4d2721-b37d-4fcd-a8ec-b8d801f46c15
+SceneBuilder.ts:139 Skipping removal of: Group a3389e56-0cf3-4963-9d3a-9c1bdfe96188
+SceneBuilder.ts:136 Marking for removal: Mesh 829981f4-a52e-4d77-98f2-5aaf5d5261f7 BoxGeometry
+SceneBuilder.ts:136 Marking for removal: Mesh e0be0028-76da-4cf4-9453-a456dc66facc BoxGeometry
+SceneBuilder.ts:136 Marking for removal: Mesh decaf343-0b9f-4a96-9280-da9c9f181b5a BoxGeometry
+SceneBuilder.ts:136 Marking for removal: Mesh d2340daf-1549-487e-bf9d-26d1b3ee30f5 BoxGeometry
+SceneBuilder.ts:136 Marking for removal: Mesh c08a015c-dc35-4840-869b-62dfeedfd768 BoxGeometry
+SceneBuilder.ts:139 Skipping removal of: Group 2d84b1da-3ccf-4651-b89e-3fb7aad8a9b3
+SceneBuilder.ts:139 Skipping removal of: Group a8da69e3-82b5-41c0-8fa6-664e6fae69b6
+SceneBuilder.ts:136 Marking for removal: Mesh d1ee6754-8ba7-4c1a-a79b-05fa08f0eee4 BoxGeometry
+SceneBuilder.ts:136 Marking for removal: Mesh 6edbdeb4-806f-4961-996b-0439e48567aa BoxGeometry
+SceneBuilder.ts:136 Marking for removal: Mesh e46687e1-a4f4-4a19-9891-06348d1382ea BoxGeometry
+SceneBuilder.ts:136 Marking for removal: Mesh 07eba65a-54bb-491a-9815-b08cacf94040 BoxGeometry
+SceneBuilder.ts:136 Marking for removal: Mesh 857b160e-8b87-4888-8cb9-42406de821ff BoxGeometry
+SceneBuilder.ts:139 Skipping removal of: Group 999c47f2-873f-49c9-94ef-b2f1449a8a1a
+SceneBuilder.ts:139 Skipping removal of: Group df2d09e4-42b6-4d4a-b7b6-32920005ac58
+SceneBuilder.ts:136 Marking for removal: Mesh 80d59e82-4ecd-4493-8aee-e37422fc57f6 BoxGeometry
+SceneBuilder.ts:136 Marking for removal: Mesh 2416648d-7c47-476a-81aa-81c67b825b92 BoxGeometry
+SceneBuilder.ts:136 Marking for removal: Mesh c1de3650-970f-48e3-b493-929a396953e4 BoxGeometry
+SceneBuilder.ts:136 Marking for removal: Mesh a33e362f-360f-4e50-98d0-83538eb63d44 BoxGeometry
+SceneBuilder.ts:136 Marking for removal: Mesh eed212a7-dca5-47c2-95aa-2a0f717b3d75 BoxGeometry
+SceneBuilder.ts:139 Skipping removal of: Group e7c6ed98-6118-4cb2-a1ef-449b4c6d4c8f
+SceneBuilder.ts:139 Skipping removal of: Group d5d2bd10-f4d5-499f-b4a7-e5759a1af5a7
+SceneBuilder.ts:136 Marking for removal: Mesh 1579624b-2bdb-42d9-ba57-cc4f0e8f5611 BoxGeometry
+SceneBuilder.ts:136 Marking for removal: Mesh d9cdcdd6-d735-4c47-80f6-88f1214eaaa6 BoxGeometry
+SceneBuilder.ts:136 Marking for removal: Mesh e31cdd26-f894-45fc-b0d2-bae259076fb3 BoxGeometry
+SceneBuilder.ts:136 Marking for removal: Mesh da9f14bc-d164-4d67-9f54-d7ebf78c4df0 BoxGeometry
+SceneBuilder.ts:136 Marking for removal: Mesh 65c62c29-5f5e-4ff6-92c0-d7b6dd68ff2e BoxGeometry
+SceneBuilder.ts:139 Skipping removal of: Group 44ac53ba-36dd-440f-8a8d-4130c57facdc
+SceneBuilder.ts:139 Skipping removal of: Group 812ff30f-e35c-485b-b17b-c28d3902ebcb
+SceneBuilder.ts:136 Marking for removal: Mesh c3ce69c6-3195-4e8e-997c-e39009f5779a BoxGeometry
+SceneBuilder.ts:136 Marking for removal: Mesh 951c163c-90f3-419b-b76c-45fb53ea5f4a BoxGeometry
+SceneBuilder.ts:136 Marking for removal: Mesh f837c7c2-cf3f-4cf9-a308-606abfdf2273 BoxGeometry
+SceneBuilder.ts:136 Marking for removal: Mesh f10b77e0-e325-4661-a865-a775d64f73ff BoxGeometry
+SceneBuilder.ts:136 Marking for removal: Mesh 83766c22-ee1f-464b-8c12-8b4f80b8a944 BoxGeometry
+SceneBuilder.ts:139 Skipping removal of: Group f5fe3696-06e7-40c9-a981-33ea0c842525
+SceneBuilder.ts:139 Skipping removal of: Group cf7308e3-2bd3-4331-be4f-de0dffee34bc
+SceneBuilder.ts:136 Marking for removal: Mesh 6ac7303b-9c3e-4b0f-97fb-fabf85c6bcf3 BoxGeometry
+SceneBuilder.ts:136 Marking for removal: Mesh 74f302ce-ae75-4433-b489-86476ad62841 BoxGeometry
+SceneBuilder.ts:136 Marking for removal: Mesh 18f1e28a-224c-4fda-be81-26af83652ab7 BoxGeometry
+SceneBuilder.ts:136 Marking for removal: Mesh 88765e5c-2d0c-46fc-b034-ffb8859ddc87 BoxGeometry
+SceneBuilder.ts:136 Marking for removal: Mesh 317d65a6-70c3-4599-8bcc-435a1e120fcc BoxGeometry
+SceneBuilder.ts:139 Skipping removal of: Group a4e2cfd5-cee3-4d9f-98e8-bd6622490468
+SceneBuilder.ts:139 Skipping removal of: Group 77d44dec-dd7d-4622-a7f1-5a7a1bbd63d6
+SceneBuilder.ts:136 Marking for removal: Mesh 7c672d02-5ae3-45b0-bbfe-adcc39df4ee1 ShapeGeometry
+SceneBuilder.ts:136 Marking for removal: Mesh 46650eea-37f8-4943-8779-4d2a88b954ad ShapeGeometry
+SceneBuilder.ts:136 Marking for removal: Mesh cb5bc254-56e9-412a-8889-21ba7eb83faf ExtrudeGeometry
+SceneBuilder.ts:136 Marking for removal: Mesh 4852a02a-8176-4f02-9545-6fa209d5d824 ExtrudeGeometry
+SceneBuilder.ts:139 Skipping removal of: Group 552ad1a9-829e-48d9-a77d-fea4d23ebe14
+SceneBuilder.ts:139 Skipping removal of: Group 1d65b691-7774-4932-82d6-33e209999954
+SceneBuilder.ts:136 Marking for removal: Mesh eee64d89-5433-411c-8208-b6b4ff813ca8 ShapeGeometry
+SceneBuilder.ts:136 Marking for removal: Mesh bb2189dd-3478-4c20-9b54-8fb3451d7031 ShapeGeometry
+SceneBuilder.ts:136 Marking for removal: Mesh 61b544dd-bd10-40af-954f-b0f92891d1c2 ExtrudeGeometry
+SceneBuilder.ts:136 Marking for removal: Mesh 76d92b0b-5d29-4fb0-81fa-4a9bc0fd99cb ExtrudeGeometry
+SceneBuilder.ts:139 Skipping removal of: Group 5c30e5b5-67bf-4122-851f-8e7586a64014
+SceneBuilder.ts:139 Skipping removal of: Group 00538031-c4c4-410d-a59b-e6cf1fe2d2d2
+SceneBuilder.ts:136 Marking for removal: Mesh f09a741b-bc4f-45d8-8899-a6076f33a768 ShapeGeometry
+SceneBuilder.ts:136 Marking for removal: Mesh 58faf314-498b-41df-a7f6-83bf88bcca24 ShapeGeometry
+SceneBuilder.ts:136 Marking for removal: Mesh e90cec88-0dc1-41be-acd6-6520fe414e61 ExtrudeGeometry
+SceneBuilder.ts:136 Marking for removal: Mesh cd431b87-a5d2-4ec1-a55e-4434f9c30709 ExtrudeGeometry
+SceneBuilder.ts:139 Skipping removal of: Group 6f1e9890-fcd0-45c3-a56f-848177a342fe
+SceneBuilder.ts:139 Skipping removal of: Group 4b8a86e7-5774-4518-809e-fc9f4dc4dba1
+SceneBuilder.ts:136 Marking for removal: Mesh 6ee75cbf-48d3-4dc4-a0f6-b42bb39bf436 ShapeGeometry
+SceneBuilder.ts:136 Marking for removal: Mesh 45d13331-2407-459f-9628-34856ebaa32d ShapeGeometry
+SceneBuilder.ts:136 Marking for removal: Mesh 91e0f21b-ff21-4d32-98e1-efe5c7a471b3 ExtrudeGeometry
+SceneBuilder.ts:136 Marking for removal: Mesh af521a28-56f0-42fd-8f57-7232cf2c86a7 ExtrudeGeometry
+SceneBuilder.ts:139 Skipping removal of: Group f9e95285-c350-434b-ada3-9f1810cc105b
+SceneBuilder.ts:139 Skipping removal of: Group 7c5dfab9-3f01-48dc-97b1-19c983961854
+SceneBuilder.ts:136 Marking for removal: Mesh 27920eca-b6df-4325-bb30-e2924ce44391 ShapeGeometry
+SceneBuilder.ts:136 Marking for removal: Mesh b84e7c81-0949-4138-9d2c-e1d78018f2af ShapeGeometry
+SceneBuilder.ts:136 Marking for removal: Mesh 3532e22c-fba6-4041-a5c7-76fe12f84cb6 ExtrudeGeometry
+SceneBuilder.ts:136 Marking for removal: Mesh 8f277884-447d-4d7d-9a98-1894a713203a ExtrudeGeometry
+SceneBuilder.ts:139 Skipping removal of: Group 8f2eddae-97ef-4a50-8ef0-abf9425a6488
+SceneBuilder.ts:139 Skipping removal of: Group 9c5bb399-3d02-4875-8e24-96cb72e6bb87
+SceneBuilder.ts:136 Marking for removal: Mesh 75df8e2d-217b-4f0d-916b-ee88e61297f6 ShapeGeometry
+SceneBuilder.ts:136 Marking for removal: Mesh 1271c159-03ca-41da-bd0e-aadc66a29b35 ShapeGeometry
+SceneBuilder.ts:136 Marking for removal: Mesh e69aac18-20cc-4e38-908d-fce83416e9ca ExtrudeGeometry
+SceneBuilder.ts:136 Marking for removal: Mesh b364cb2b-03ae-4ba1-b321-8f33e6517961 ExtrudeGeometry
+SceneBuilder.ts:139 Skipping removal of: Group 1ab772df-a067-4820-bddb-80f3cc8227b5
+SceneBuilder.ts:136 Marking for removal: Line aee6c819-5719-4ec1-96a9-4d539a87435f BufferGeometry
+SceneBuilder.ts:136 Marking for removal: Line e5500be5-a75d-4fec-b8ae-4635b933d405 BufferGeometry
+SceneBuilder.ts:136 Marking for removal: Line c995bbab-8ac9-4728-b0b2-efdb380e8eef BufferGeometry
+SceneBuilder.ts:136 Marking for removal: Line a60e9b45-6e8f-4d84-9c9a-76cfac24451d BufferGeometry
+SceneBuilder.ts:136 Marking for removal: Line 10c2763f-f0dd-4896-9097-60415a04f8fa BufferGeometry
+SceneBuilder.ts:136 Marking for removal: Line d8c47425-0bda-461e-bb90-9d26f321f4c2 BufferGeometry
+SceneBuilder.ts:136 Marking for removal: Line ff3b5913-f9fa-4f25-983d-ceba61bd7a2f BufferGeometry
+SceneBuilder.ts:136 Marking for removal: Line 2daf92fd-6b25-4925-9817-6493df90fcc6 BufferGeometry
+SceneBuilder.ts:136 Marking for removal: Line 0589ad0b-bda8-4278-b78b-b6ef108b881f BufferGeometry
+SceneBuilder.ts:136 Marking for removal: Line 051aee67-55f8-4629-87fe-366de987e8b0 BufferGeometry
+SceneBuilder.ts:136 Marking for removal: Line efbf87ec-be40-4639-b608-878e7a835f0a BufferGeometry
+SceneBuilder.ts:136 Marking for removal: Line ff4a20ff-364a-41f4-9076-ef636bdd7821 BufferGeometry
+SceneBuilder.ts:136 Marking for removal: Line 252d916d-36af-48ba-980a-5ddbb803e7bd BufferGeometry
+SceneBuilder.ts:136 Marking for removal: Line 03b1e2b1-a2d9-4cb9-bca0-6b16d64217c4 BufferGeometry
+SceneBuilder.ts:136 Marking for removal: Line 9f8c7d0f-0027-4197-9490-50b2c21712c4 BufferGeometry
+SceneBuilder.ts:136 Marking for removal: Line 9e324f2c-13b6-4085-b4dd-4fe57728995c BufferGeometry
+SceneBuilder.ts:136 Marking for removal: Line 224f9177-5d74-4532-af86-285231ad6ff9 BufferGeometry
+SceneBuilder.ts:136 Marking for removal: Line 58323145-bc50-498a-b225-a43672e52a05 BufferGeometry
+SceneBuilder.ts:136 Marking for removal: Line faa324a0-93e6-46c9-8cce-9a2fc4cd5804 BufferGeometry
+SceneBuilder.ts:136 Marking for removal: Line fa58bd6d-ec03-4848-90f3-e8ade063cf15 BufferGeometry
+SceneBuilder.ts:136 Marking for removal: Line 9455a2a0-39dd-4969-affc-48beb64b5e0c BufferGeometry
+SceneBuilder.ts:136 Marking for removal: Line 64d769fb-24f2-44ef-9c2b-60dafa409448 BufferGeometry
+SceneBuilder.ts:136 Marking for removal: Line 2f851e3c-d3aa-48ea-ad8e-dee1030d5989 BufferGeometry
+SceneBuilder.ts:136 Marking for removal: Line d2051e7a-7e8c-4b3b-9713-2c89b499bd68 BufferGeometry
+SceneBuilder.ts:136 Marking for removal: Line c1e13311-8bda-4bc4-a01a-80a5822515a0 BufferGeometry
+SceneBuilder.ts:136 Marking for removal: Line 699a2fa3-856e-4e77-84d0-28d6fff9405e BufferGeometry
+SceneBuilder.ts:136 Marking for removal: Line 5bdba357-a67b-4e8d-ac7e-d88c30255899 BufferGeometry
+SceneBuilder.ts:136 Marking for removal: Line faaf4dc9-5e79-4a00-8a96-afac21af233d BufferGeometry
+SceneBuilder.ts:136 Marking for removal: Line 84573248-117f-4212-b214-9463511ab259 BufferGeometry
+SceneBuilder.ts:136 Marking for removal: Line 671b66f8-fcf0-4566-a605-432d394caf57 BufferGeometry
+SceneBuilder.ts:136 Marking for removal: Line c8ee11a2-e905-48b4-aeec-0d4116dae9fe BufferGeometry
+SceneBuilder.ts:136 Marking for removal: Line 4f635b9a-199d-4c32-b1c3-2a3d73e30ab5 BufferGeometry
+SceneBuilder.ts:136 Marking for removal: Line 7130f432-6ccc-425f-85ca-bc4f01091591 BufferGeometry
+SceneBuilder.ts:136 Marking for removal: Line 315c621c-14c4-4d5f-b911-2afef03af4d9 BufferGeometry
+SceneBuilder.ts:136 Marking for removal: Line 91e404d3-6930-4c06-a911-2241a0acf817 BufferGeometry
+SceneBuilder.ts:136 Marking for removal: Line 03802bec-78c1-4d7b-a27a-23c6b12202e5 BufferGeometry
+SceneBuilder.ts:136 Marking for removal: Line e2210ccb-47c8-4f20-a347-c61a2448f628 BufferGeometry
+SceneBuilder.ts:136 Marking for removal: Line 272bd4ac-3549-4d56-86c1-d179747b1695 BufferGeometry
+SceneBuilder.ts:136 Marking for removal: Line cdeba41e-950a-48c9-a4f0-8ce5980356e0 BufferGeometry
+SceneBuilder.ts:136 Marking for removal: Line 86de1f79-79e7-4111-9414-7b9b7a4edeb7 BufferGeometry
+SceneBuilder.ts:136 Marking for removal: Line 3175c6ce-0a18-4c13-bd0f-340300218a90 BufferGeometry
+SceneBuilder.ts:136 Marking for removal: Line 820a26d1-66af-4b34-a14d-a03401bddd80 BufferGeometry
+SceneBuilder.ts:136 Marking for removal: Line e5b44117-32e6-4092-a32f-5854606c1cf6 BufferGeometry
+SceneBuilder.ts:136 Marking for removal: Line a454e02f-ca4a-41ad-a6ca-edd11ed9c8f3 BufferGeometry
+SceneBuilder.ts:136 Marking for removal: Line e955b0f3-bae6-4183-8498-0e121d3ad39e BufferGeometry
+SceneBuilder.ts:136 Marking for removal: Line f7079c7d-92c1-40dc-80cf-9601958d0717 BufferGeometry
+SceneBuilder.ts:136 Marking for removal: Line 14a208a4-8c0b-4db0-b2a8-8f6dfbb14520 BufferGeometry
+SceneBuilder.ts:136 Marking for removal: Line caecc4f7-79e3-4ded-9f4d-bfae3c9551dd BufferGeometry
+SceneBuilder.ts:136 Marking for removal: Line 38fc79a6-066c-427c-bab5-c8273ef8a344 BufferGeometry
+SceneBuilder.ts:136 Marking for removal: Line 6a3b4d61-1f41-4959-a863-d7ecc86b0951 BufferGeometry
+SceneBuilder.ts:136 Marking for removal: Line 24966760-cd33-410c-8a36-fa09724fc9bc BufferGeometry
+SceneBuilder.ts:136 Marking for removal: Line 33b90790-c913-4329-b08f-de21b3d43c52 BufferGeometry
+SceneBuilder.ts:136 Marking for removal: Line 23618b6d-1cda-4085-9d2f-1826b83cdfff BufferGeometry
+SceneBuilder.ts:136 Marking for removal: Line 11993347-8f62-4f04-b69b-f4f85b050051 BufferGeometry
+SceneBuilder.ts:136 Marking for removal: Line e2525887-ac02-4331-a723-8c62ae133c84 BufferGeometry
+SceneBuilder.ts:136 Marking for removal: Line 2c67ebe0-4a1c-4dfd-8eaa-364840469795 BufferGeometry
+SceneBuilder.ts:139 Skipping removal of: Group 3ae8c1c0-d681-49be-9f20-2071bda18611
+SceneBuilder.ts:139 Skipping removal of: Object3D eac90895-fde1-4b7b-a602-73fdbf70d3e6
+SceneBuilder.ts:139 Skipping removal of: Object3D ad5f96cc-905e-4b62-842d-814c54d0a004
+SceneBuilder.ts:139 Skipping removal of: Object3D 1b2cec45-81e6-4e01-9951-36e95d25b447
+SceneBuilder.ts:139 Skipping removal of: Object3D fded9a51-9d9e-4f59-9a18-d7258941c8b9
+SceneBuilder.ts:139 Skipping removal of: Object3D da356b71-e0ea-43b8-992c-b4e45c2c2672
+SceneBuilder.ts:139 Skipping removal of: Object3D 6b497c23-c126-4a30-b8c6-740f75773884
+SceneBuilder.ts:139 Skipping removal of: Object3D 4d206eac-b915-47f5-8526-bd1bff104f91
+SceneBuilder.ts:139 Skipping removal of: Object3D 91335f42-29c5-4847-95bd-5f8f3ffe9ae8
+SceneBuilder.ts:139 Skipping removal of: Object3D 62a743d6-e459-41cc-ae3b-ffedf33fc9db
+SceneBuilder.ts:139 Skipping removal of: Object3D 3370c12f-ebcb-4e01-b25f-e89779be0eab
+SceneBuilder.ts:139 Skipping removal of: Object3D ef2e114b-1c97-4c6e-8fca-d82284a4f40e
+SceneBuilder.ts:139 Skipping removal of: Object3D 00b557ac-b4db-4678-ac6f-5a2246bdf7f9
+SceneBuilder.ts:139 Skipping removal of: Object3D 4397bf79-a3da-49d2-8b38-44aebb2373a2
+SceneBuilder.ts:139 Skipping removal of: Object3D cac797e9-d933-47a7-a8c7-74ba7daba0a3
+SceneBuilder.ts:139 Skipping removal of: Object3D d3a5a3f3-7d86-4bd5-803f-8ba01176f37c
+SceneBuilder.ts:139 Skipping removal of: Object3D e183682d-80d1-4391-9242-cab5be7d09fb
+SceneBuilder.ts:139 Skipping removal of: Object3D a2f9bf9f-130c-4b6d-b684-13c9a5004bf7
+SceneBuilder.ts:139 Skipping removal of: Object3D b19910e7-b61a-434b-8c7c-f18a7e87797e
+SceneBuilder.ts:139 Skipping removal of: Object3D c803c610-728b-4fd7-8ef6-f480a8a92c83
+SceneBuilder.ts:139 Skipping removal of: Object3D 7e5340bc-c28e-4a5e-80f2-dda2e603d40f
+SceneBuilder.ts:139 Skipping removal of: Object3D 76409d96-6c45-442f-af0f-436e42cdefe0
+SceneBuilder.ts:139 Skipping removal of: Object3D c6adf56d-3318-4297-a1f2-f08bd499aff6
+SceneBuilder.ts:139 Skipping removal of: Object3D a448082f-e63e-41aa-85ba-4d86855dd2ee
+SceneBuilder.ts:139 Skipping removal of: Object3D 35e44c72-182b-4c10-a6c6-9f513cedd6df
+SceneBuilder.ts:139 Skipping removal of: Object3D 037b870f-a2a3-4601-8a31-b88bfe1fa375
+SceneBuilder.ts:139 Skipping removal of: Object3D f9edb502-2e23-45e0-a1ec-cab38f9fbb9b
+SceneBuilder.ts:139 Skipping removal of: Object3D 0bb56eae-7e5a-440a-9507-4b2e23b62435
+SceneBuilder.ts:139 Skipping removal of: Object3D 7bca7f25-241c-4a02-b4aa-5c1d45ded73d
+SceneBuilder.ts:139 Skipping removal of: Object3D 78091f9c-b013-4b79-97b4-bcc91191aa38
+SceneBuilder.ts:139 Skipping removal of: Object3D 5f8e3cc1-be6d-4b26-a2e3-f276b4280f0a
+SceneBuilder.ts:139 Skipping removal of: Object3D 5b17bad2-f895-4e81-b4b5-ee3e2f8ec2a7
+SceneBuilder.ts:139 Skipping removal of: Object3D 5fdbde36-6660-4ea2-9be2-54dae524080a
+SceneBuilder.ts:139 Skipping removal of: Object3D 757614eb-7727-415a-a70f-192270bb53c0
+SceneBuilder.ts:139 Skipping removal of: Object3D 4c8b1b44-08a0-4280-8c85-6862935eb2a8
+SceneBuilder.ts:139 Skipping removal of: Object3D 1c5468c4-1ba3-4ae2-9f9f-8696a02e2924
+SceneBuilder.ts:139 Skipping removal of: Object3D 02b9ef33-50c1-48bf-b569-34360f86ee8e
+SceneBuilder.ts:139 Skipping removal of: Object3D 0fd3193f-0dc0-4cb6-bd17-ef56dbe1d40d
+SceneBuilder.ts:139 Skipping removal of: Object3D 163ff1d0-acef-4d0b-88e4-7fff4e7d7153
+SceneBuilder.ts:139 Skipping removal of: Object3D 2f7058b4-8732-41a3-a295-d586bc4970fb
+SceneBuilder.ts:139 Skipping removal of: Object3D 1757e5f1-484c-4f2e-9c44-b9d19f8612af
+SceneBuilder.ts:139 Skipping removal of: Object3D 4b9c7f5b-7331-4d4d-9822-4a7ad58ad05c
+SceneBuilder.ts:139 Skipping removal of: Object3D 48b9f382-e040-48ae-8594-b62e8e1f5947
+SceneBuilder.ts:139 Skipping removal of: Object3D 0ef768ee-7ea9-4d16-8817-0a1c06f9a589
+SceneBuilder.ts:139 Skipping removal of: Object3D a92259c1-b2a7-4c91-81e8-c0503cf5175f
+SceneBuilder.ts:139 Skipping removal of: Object3D 398bf692-c176-4aac-a8a4-816aa0bcea96
+SceneBuilder.ts:139 Skipping removal of: Object3D 107cfcf4-7248-4b5b-a246-e9deb421e25f
+SceneBuilder.ts:139 Skipping removal of: Object3D 685a9fb5-1aad-448b-badf-a1db8b197995
+SceneBuilder.ts:139 Skipping removal of: Object3D 0b8efa48-a011-410d-9ad8-2e4853e6896f
+SceneBuilder.ts:139 Skipping removal of: Object3D cb986342-9e7d-40e2-82c7-422143631161
+SceneBuilder.ts:139 Skipping removal of: Object3D e83f22b4-3e74-40ca-8aa2-863b55ec7dda
+SceneBuilder.ts:139 Skipping removal of: Object3D 2152dcf0-10c9-4fa2-bc9f-52ace77162fa
+SceneBuilder.ts:139 Skipping removal of: Object3D 61caec66-0836-4798-afe1-2229c23b5050
+SceneBuilder.ts:139 Skipping removal of: Object3D d647b592-8230-4f83-bf30-f6917f556bad
+SceneBuilder.ts:139 Skipping removal of: Object3D 2d059aab-eef1-49f1-825b-14fbd32f5ee0
+SceneBuilder.ts:139 Skipping removal of: Object3D e63cc868-fc8d-4b76-b389-1f87d7398e1a
+SceneBuilder.ts:139 Skipping removal of: Object3D 43414f3c-c287-47c7-971d-d81066874664
+SceneBuilder.ts:139 Skipping removal of: Object3D c459e496-9dd6-4cbd-9bbe-fc26516c63b2
+SceneBuilder.ts:139 Skipping removal of: Object3D 8912cad1-b800-4b3f-8e51-91493e1734e9
+SceneBuilder.ts:139 Skipping removal of: Object3D 359b453a-5e89-407c-9bd6-4c48ac8b94e2
+SceneBuilder.ts:139 Skipping removal of: Object3D 41091e0a-0b92-44ee-aa94-cfb1570d69f3
+SceneBuilder.ts:139 Skipping removal of: Object3D 8a27dc87-4a45-4cd1-be22-dd09ee3822af
+SceneBuilder.ts:139 Skipping removal of: Object3D 2ed76d31-860d-465d-bbf2-8231a8f6c038
+SceneBuilder.ts:139 Skipping removal of: Object3D 97d04445-0059-40a8-956a-30c4f8e0b010
+SceneBuilder.ts:139 Skipping removal of: Object3D fe57022b-dd07-49d5-9b59-9613fab678bb
+SceneBuilder.ts:139 Skipping removal of: Object3D 834ed6ea-9183-4399-b59c-2d69b4cd2e2a
+SceneBuilder.ts:139 Skipping removal of: Object3D fd69fdbd-8652-4fd4-8e22-cb2e1eefcb75
+SceneBuilder.ts:139 Skipping removal of: Object3D f311e3a2-a4b0-4c85-9104-a94f7b3bb977
+SceneBuilder.ts:139 Skipping removal of: Object3D 1d77e0b6-5525-446b-b0db-376542f3faaf
+SceneBuilder.ts:139 Skipping removal of: Object3D 7ae14777-cbfa-4abe-8a1b-fe4c914c59bb
+SceneBuilder.ts:139 Skipping removal of: Object3D a02c6ca7-04ff-4d9e-b779-c7e59b7f38b5
+SceneBuilder.ts:139 Skipping removal of: Object3D 6f0e1c67-abc3-4b07-901f-68e8030ff46d
+SceneBuilder.ts:139 Skipping removal of: Object3D ea650c70-2378-400c-b878-202027f2b23f
+SceneBuilder.ts:139 Skipping removal of: Object3D b7328f43-c32f-489d-b1ce-6ba72d7a392c
+SceneBuilder.ts:139 Skipping removal of: Object3D 97bbae40-5ad4-4e41-b641-81fa26e613a8
+SceneBuilder.ts:139 Skipping removal of: Object3D 709ec16a-52dd-416b-ba90-a35cf4b2674d
+SceneBuilder.ts:139 Skipping removal of: Object3D d984307d-10b2-4238-a2a3-8cb4270a429f
+SceneBuilder.ts:139 Skipping removal of: Object3D 59d67107-f184-41e1-ac03-ea70e17285e0
+SceneBuilder.ts:139 Skipping removal of: Object3D daf8dffd-9ded-40d3-ac26-d37841d0b28b
+SceneBuilder.ts:139 Skipping removal of: Object3D fc60128d-4664-4f43-899f-bb0a205314d9
+SceneBuilder.ts:139 Skipping removal of: Object3D 37b6c8cf-c576-4575-9fc3-f815483956c4
+SceneBuilder.ts:139 Skipping removal of: Object3D ef0ba829-9c73-4523-b8e3-a3b625db8e07
+SceneBuilder.ts:139 Skipping removal of: Object3D 1d16d9bf-76cb-4803-9fbe-98ac5e378e00
+SceneBuilder.ts:139 Skipping removal of: Object3D 2eec78bb-cf94-4ddc-a6c3-c494b2eb7591
+SceneBuilder.ts:139 Skipping removal of: Object3D baed6bd8-beec-4416-92fb-7867be35e6ae
+SceneBuilder.ts:139 Skipping removal of: Group 52e9fb60-b961-4412-981c-7e1e2d459a9b
+SceneBuilder.ts:136 Marking for removal: Mesh f67254d9-a5f6-46c5-b8bd-c6e03aed48b8 ShapeGeometry
+SceneBuilder.ts:136 Marking for removal: Mesh 9985502e-a6ed-4944-95ef-22a1e8073911 ShapeGeometry
+SceneBuilder.ts:136 Marking for removal: Mesh a57cd655-ecc5-4e65-8d02-2136faeaa82e ShapeGeometry
+SceneBuilder.ts:136 Marking for removal: Mesh b235ad59-1c9b-4eb4-ad70-10da9f944e21 ShapeGeometry
+SceneBuilder.ts:136 Marking for removal: Mesh 9e0a543a-09d0-4340-b3b8-b123024b59e2 ShapeGeometry
+SceneBuilder.ts:136 Marking for removal: Mesh 73a7725c-987c-4119-a39d-6e97366f6215 ShapeGeometry
+SceneBuilder.ts:139 Skipping removal of: Group cf37026a-c1bf-479e-ac9a-e582de3913f3
+SceneBuilder.ts:136 Marking for removal: Mesh 444b0e1c-94f3-460a-94f0-8f7c15b4ac7c ShapeGeometry
+SceneBuilder.ts:136 Marking for removal: Mesh 6eadfa2c-ea8b-430c-9467-62ca96ba118d ShapeGeometry
+SceneBuilder.ts:136 Marking for removal: Mesh 2325c1b8-e58c-4cea-a930-d8670638b08e ShapeGeometry
+SceneBuilder.ts:136 Marking for removal: Mesh 20b3d480-75c2-47a3-84a5-21a18cce7e44 ShapeGeometry
+SceneBuilder.ts:136 Marking for removal: Mesh cc7122f4-0bab-4840-b998-5c89275851dd ShapeGeometry
+SceneBuilder.ts:136 Marking for removal: Mesh fc1a3157-e699-45eb-8c22-35da38751bad ShapeGeometry
+SceneBuilder.ts:136 Marking for removal: Mesh 52c5a680-8198-4e22-bd5a-a0fd70255e67 ShapeGeometry
+SceneBuilder.ts:136 Marking for removal: GridHelper ca180d55-03b8-4ff6-8a70-1de63f37a8b0 BufferGeometry
+SceneBuilder.ts:139 Skipping removal of: Group 25b3ebc5-2c1d-43e3-8125-a4a663062c77
+SceneBuilder.ts:139 Skipping removal of: Object3D 9ce0eb9f-44f6-45ca-bcc6-f64b2f1ea699
+SceneBuilder.ts:139 Skipping removal of: Object3D eb6671a4-1e34-4d32-b85e-67ea0756cfdc
+SceneBuilder.ts:139 Skipping removal of: Object3D 1bca773b-fc6f-4919-ad65-0c949cce04c3
+SceneBuilder.ts:139 Skipping removal of: Object3D 955b1d9c-d7a0-4234-bfb6-fb882c53322a
+SceneBuilder.ts:139 Skipping removal of: Object3D 03bc1ea3-de4b-4166-9ad2-2f88ec7ba918
+SceneBuilder.ts:139 Skipping removal of: Object3D 8d508bd7-0133-474e-b0d1-ce01c92be9aa
+SceneBuilder.ts:139 Skipping removal of: Object3D a4cac0f9-2c2b-4cc5-8f5f-57b40a5f24f4
+SceneBuilder.ts:139 Skipping removal of: Object3D 53df84e9-6e15-44aa-bdbe-687dea714222
+SceneBuilder.ts:139 Skipping removal of: Object3D 55881d74-3d99-4bc9-b3a9-df0413a51044
+SceneBuilder.ts:139 Skipping removal of: Object3D 01e86d40-81ca-4145-a01f-e8f53e30c6af
+SceneBuilder.ts:139 Skipping removal of: Object3D dc3e6c34-724b-4822-9830-4e7a22a4bd49
+SceneBuilder.ts:139 Skipping removal of: Object3D 6f801104-91ea-4905-ade4-5a5631f71aca
+SceneBuilder.ts:139 Skipping removal of: Object3D ab3eacc9-2060-4c13-b8d5-2e46a2fb0184
+SceneBuilder.ts:139 Skipping removal of: Object3D 7a99107f-1aa7-4868-a87b-54a4045642ce
+SceneBuilder.ts:139 Skipping removal of: Object3D 155ef160-ba8a-4df3-9fe4-06dc90ec8067
+SceneBuilder.ts:139 Skipping removal of: Object3D b811d667-88a8-4244-b21e-e35a40beb43e
+SceneBuilder.ts:139 Skipping removal of: Object3D 9351b0ad-87b6-42d0-b5bc-90077173426e
+SceneBuilder.ts:139 Skipping removal of: Object3D 9c9f4ea7-d07d-4321-8f01-af21363f369b
+SceneBuilder.ts:139 Skipping removal of: Object3D 8d03407c-aaeb-4e32-ba55-cbf39a49b50c
+SceneBuilder.ts:139 Skipping removal of: Object3D f1d0a287-b012-44d3-aa04-01411065821a
+SceneBuilder.ts:139 Skipping removal of: Object3D 9aa9ff96-7e84-4cb3-ad9c-ce139aff066d
+SceneBuilder.ts:139 Skipping removal of: Object3D ebb5d988-0e3e-40e2-95bd-03c067bc8611
+SceneBuilder.ts:139 Skipping removal of: Object3D 8b2ece97-cdc7-4d61-bdb9-5248c04f9cc9
+SceneBuilder.ts:139 Skipping removal of: Object3D 7e2be03e-2261-4566-8d26-e93f50f6c571
+SceneBuilder.ts:139 Skipping removal of: Object3D f23141b7-91ea-498f-9b7b-83f6bfddf1a6
+SceneBuilder.ts:139 Skipping removal of: Object3D cf3533b8-7282-4c27-8ee1-97582e4fdae8
+SceneBuilder.ts:139 Skipping removal of: Object3D acdadbe6-4278-4a2f-ab42-e6bf5d677a3e
+SceneBuilder.ts:139 Skipping removal of: Object3D e9e4d9f4-adf8-459d-9a3b-f0c441fac879
+SceneBuilder.ts:139 Skipping removal of: Object3D 7de07882-c360-4f99-8cc0-b53dffe52ba4
+SceneBuilder.ts:139 Skipping removal of: Object3D 7de57a27-c0d1-450a-b504-cdd58ccaf799
+SceneBuilder.ts:139 Skipping removal of: Object3D 8d59ee8a-d03b-4cfb-8db5-16d6ee1595da
+SceneBuilder.ts:139 Skipping removal of: Object3D 9d9387c3-16b2-4b12-b722-dfcdfa77bf22
+SceneBuilder.ts:139 Skipping removal of: Object3D 48b1e64b-6c3c-435f-b1ab-fecdb10bd34b
+SceneBuilder.ts:139 Skipping removal of: Object3D b9ba38db-51b0-4cb9-92d0-886bd96db63e
+SceneBuilder.ts:139 Skipping removal of: Object3D 10438bdd-b81f-483f-9349-0a4b9bb544ba
+SceneBuilder.ts:139 Skipping removal of: Object3D b5fe5daa-69dc-4724-a253-d53f186c5817
+SceneBuilder.ts:139 Skipping removal of: Object3D 84b0d46a-3f91-46dd-b094-238f8fd14795
+SceneBuilder.ts:139 Skipping removal of: Object3D 285bef8e-7196-4c23-9e6b-80420ef700e6
+SceneBuilder.ts:139 Skipping removal of: Object3D 4eb0d183-6de5-40d3-8c14-585690baa9cd
+SceneBuilder.ts:139 Skipping removal of: Object3D e4216269-1244-4ead-be34-b1db504c9b5e
+SceneBuilder.ts:139 Skipping removal of: Object3D f3dc70ff-4c61-4e07-a9f9-e94d3558c050
+SceneBuilder.ts:139 Skipping removal of: Object3D a6ce884e-412d-45bf-8ae2-7ef40dc3d1cd
+SceneBuilder.ts:139 Skipping removal of: Object3D d52dfad2-9b43-49d1-a014-b773e9b2a9d7
+SceneBuilder.ts:139 Skipping removal of: Object3D d181154d-2852-418e-89cf-3a470d40c2ce
+SceneBuilder.ts:139 Skipping removal of: Object3D 2e75b21e-4593-4c73-8b94-0a288cefab9d
+SceneBuilder.ts:139 Skipping removal of: Object3D 9b216978-4744-4a5d-86ee-0d8ac1fff237
+SceneBuilder.ts:139 Skipping removal of: Object3D 93e33d74-61b9-43f2-b9a8-b1fb5a907624
+SceneBuilder.ts:139 Skipping removal of: Object3D c4a3813d-47a0-473a-9e4c-a6282aef2187
+SceneBuilder.ts:139 Skipping removal of: Object3D d5aab2c4-0ba4-4e46-a1a7-84739aef26f8
+SceneBuilder.ts:139 Skipping removal of: Object3D 37eb6010-179f-4564-b979-0e89609abddd
+SceneBuilder.ts:139 Skipping removal of: Object3D 2f3a0343-d331-4174-9c54-855923e2fa3c
+SceneBuilder.ts:139 Skipping removal of: Object3D 8c5e6723-b649-43c4-9949-d42bc6d0468c
+SceneBuilder.ts:139 Skipping removal of: Object3D 8837e363-3bcd-4671-b5a8-d808bca7eda7
+SceneBuilder.ts:139 Skipping removal of: Object3D a787227b-1aa4-46d1-8764-d2ee50adeb97
+SceneBuilder.ts:139 Skipping removal of: Object3D e0786c09-2d16-4e89-b6ce-59bbf2d789cb
+SceneBuilder.ts:139 Skipping removal of: Object3D eb1a4305-9dfb-4b00-83c4-9364a6c764b7
+SceneBuilder.ts:139 Skipping removal of: Object3D 7333186a-4813-4c79-a6d6-59609344b450
+SceneBuilder.ts:139 Skipping removal of: Object3D ae757ae7-e12e-44c7-b3a3-b4b9be652aa1
+SceneBuilder.ts:139 Skipping removal of: Object3D d6430df3-cfa8-4335-ab4b-0473f79fafba
+SceneBuilder.ts:139 Skipping removal of: Object3D a085b119-e5e5-4751-97b7-0584dab2ecb8
+SceneBuilder.ts:139 Skipping removal of: Object3D d5722356-ea25-491b-b68d-fbd6871d4c0e
+SceneBuilder.ts:139 Skipping removal of: Object3D 782a59e4-037d-4521-8725-6794fef840ca
+SceneBuilder.ts:139 Skipping removal of: Object3D 9b4f2f90-cde8-4a3c-a7ea-00dfccfb8905
+SceneBuilder.ts:139 Skipping removal of: Object3D 4c8be67c-6568-404a-92ba-0e5fc0eec475
+SceneBuilder.ts:139 Skipping removal of: Object3D 4b72090f-a3b1-42ab-9913-fc0872e44e9a
+SceneBuilder.ts:139 Skipping removal of: Object3D 602236a2-a894-416c-8381-ed0fa07f38b3
+SceneBuilder.ts:139 Skipping removal of: Object3D a47d496e-3f6c-46fd-991f-fd5fb9e29dff
+SceneBuilder.ts:139 Skipping removal of: Object3D 90dd2768-b644-49cc-9c7b-b36aa94060f3
+SceneBuilder.ts:139 Skipping removal of: Object3D 549ba633-b14c-4a98-9b13-53061c630910
+SceneBuilder.ts:139 Skipping removal of: Object3D 002e1f16-c449-42e4-b16b-602a76fb5c75
+SceneBuilder.ts:139 Skipping removal of: Object3D 33fa8c46-98d3-40ff-bc77-0567e242c0e9
+SceneBuilder.ts:139 Skipping removal of: Object3D fb93df70-c387-4d7b-b0ef-91b35e2601e7
+SceneBuilder.ts:139 Skipping removal of: Object3D 2084cf44-882c-41e7-bebb-f81c63e1e149
+SceneBuilder.ts:139 Skipping removal of: Object3D eea46d22-c58a-4f09-8384-41297696221b
+SceneBuilder.ts:139 Skipping removal of: Object3D f8ffa2ce-99ff-4519-85fb-29757bde9851
+SceneBuilder.ts:139 Skipping removal of: Object3D 430c1b05-4c90-4772-bbbd-c4a942f7997a
+SceneBuilder.ts:139 Skipping removal of: Object3D 32232e4a-14b1-4dba-9d7d-ec5f1d6a72ea
+SceneBuilder.ts:139 Skipping removal of: Object3D 416eac94-6b3c-4f82-aaf8-e498833eee58
+SceneBuilder.ts:139 Skipping removal of: Object3D fd5224bf-1dfa-46e8-8901-e9b24dec1a7d
+SceneBuilder.ts:139 Skipping removal of: Object3D 14778e45-58ce-4914-a62a-3802477591b2
+SceneBuilder.ts:139 Skipping removal of: Object3D 3aad2f2d-8fbb-4757-a1a2-2d2a7d4f8fc2
+SceneBuilder.ts:139 Skipping removal of: Object3D 203e4df8-e784-4049-ab6f-f1242dd4507b
+SceneBuilder.ts:139 Skipping removal of: Object3D 0d784359-2938-4c36-a36c-403ee93d8ffd
+SceneBuilder.ts:139 Skipping removal of: Object3D 1045fa4b-5807-401a-9a9d-039c884a95c2
+SceneBuilder.ts:139 Skipping removal of: Object3D 3c6f2dc0-173b-4d89-bef7-a8f68adaa53a
+SceneBuilder.ts:139 Skipping removal of: Object3D 01e1c64c-3075-45ee-a8b2-7e96e2232489
+SceneBuilder.ts:139 Skipping removal of: Object3D e8f40e6b-b68b-4839-9bd6-b41fe7266455
+SceneBuilder.ts:139 Skipping removal of: Object3D fe795eb5-412e-4dc0-8476-9c17392fa54b
+SceneBuilder.ts:139 Skipping removal of: Object3D 6e29f5eb-cc60-4ac6-a870-083928b212eb
+SceneBuilder.ts:139 Skipping removal of: Object3D e2429da3-6661-4cfb-9bef-95f6d69eab66
+SceneBuilder.ts:139 Skipping removal of: Object3D d11f0b79-efaf-46e7-8a7e-2edb4d22581a
+SceneBuilder.ts:139 Skipping removal of: Object3D 7a0adefc-fb93-481b-9ddd-0309cdcb3bf5
+SceneBuilder.ts:139 Skipping removal of: Object3D b7a607a0-7c81-49eb-983c-40477ad8eb91
+SceneBuilder.ts:139 Skipping removal of: Object3D cd7daf31-daa5-48cb-9658-c145dea18461
+SceneBuilder.ts:139 Skipping removal of: Object3D 2d5f4db3-c37d-4133-85e6-7c8352830519
+SceneBuilder.ts:139 Skipping removal of: Object3D dc87d874-bad2-4330-bc13-88ba6f191a32
+SceneBuilder.ts:139 Skipping removal of: Object3D 48c6cdac-34a3-4204-9c44-b5865b50afaf
+SceneBuilder.ts:139 Skipping removal of: Object3D ae41aafe-2154-4440-ba9e-1de3ba5aaafe
+SceneBuilder.ts:139 Skipping removal of: Object3D 476d4bbe-dff4-4a2f-b089-ab49d681488d
+SceneBuilder.ts:139 Skipping removal of: Object3D 4e607ae3-64b1-45dc-8eed-38d81937b889
+SceneBuilder.ts:162 Total children after clear: 107
+SceneBuilder.ts:163 Remaining child: AmbientLight 26605bd9-200b-4987-aec1-5b0825b1aa1d
+SceneBuilder.ts:163 Remaining child: DirectionalLight f210896c-be3a-4f2e-bb68-4e3f432179b3
+SceneBuilder.ts:163 Remaining child: HemisphereLight c88bf73b-4fa5-42af-8664-30b74c933cbe
+SceneBuilder.ts:163 Remaining child: Group edfedd4b-b5c7-4803-9e4b-75a7c1ecf6c5
+SceneBuilder.ts:163 Remaining child: Group 9df4302c-f90f-4c15-8eda-671ee6f6d578
+SceneBuilder.ts:163 Remaining child: Group cf9b7d8f-7ba6-4b7c-9371-0f5ad1b02a4e
+SceneBuilder.ts:163 Remaining child: Group c63c8877-0622-413a-90df-3ce5f664a3a4
+SceneBuilder.ts:163 Remaining child: Group a93c52f3-2ca1-414e-8078-aebd2dad7265
+SceneBuilder.ts:163 Remaining child: Group ea8c49ad-3cb0-4ed6-a35b-96c9d475bcf5
+SceneBuilder.ts:163 Remaining child: Group 6a590816-645c-4c03-9d0d-afba4c7fdd1f
+SceneBuilder.ts:163 Remaining child: Group 4dd49d83-8b59-4b5a-aa8f-a06cb2aeb46f
+SceneBuilder.ts:163 Remaining child: Group c285e9ac-882a-42df-9c41-1ffd23acc233
+SceneBuilder.ts:163 Remaining child: Group d3496527-2179-4884-a5aa-12b019005939
+SceneBuilder.ts:163 Remaining child: Group f1cec19e-f2c9-493f-a926-c3b4f4d19671
+SceneBuilder.ts:163 Remaining child: Group 739fb07c-c4a8-476f-8730-c237faa8cf25
+SceneBuilder.ts:163 Remaining child: Group cb45b4e3-05ab-4bbe-be9e-670269c62c88
+SceneBuilder.ts:163 Remaining child: Group 52828da3-3c63-43b5-a128-19067721ae08
+SceneBuilder.ts:163 Remaining child: Group d3731bdb-7707-4a44-bf40-6b8053a8d5ee
+SceneBuilder.ts:163 Remaining child: Group dc1f0980-7c5f-43d0-a4ae-fb62d18d4a5b
+SceneBuilder.ts:163 Remaining child: Group f31ff933-ad16-41b7-bfcd-3644fe54758c
+SceneBuilder.ts:163 Remaining child: Group 4a78b7ed-c89b-4385-8516-d34b553dbe65
+SceneBuilder.ts:163 Remaining child: Group c95ae56d-343f-4a27-a819-df9e3f09b826
+SceneBuilder.ts:163 Remaining child: Group e10c27c9-f768-4d94-b008-635c57d1ae76
+SceneBuilder.ts:163 Remaining child: Group dd396575-9a7d-4fd9-95a2-56e6e32bf9cd
+SceneBuilder.ts:163 Remaining child: Group 23c7bbb9-7e6d-41cb-9095-d59a2c8156c7
+SceneBuilder.ts:163 Remaining child: Group b08dfdc8-0068-4daf-a383-09969b4370f7
+SceneBuilder.ts:163 Remaining child: Group 5aa6f24c-c44b-4859-b5d4-0f0fdf30e239
+SceneBuilder.ts:163 Remaining child: Group 0c1cdada-f6fb-4653-a8c9-5a1df92a4732
+SceneBuilder.ts:163 Remaining child: Group fed02450-7402-4358-affe-e87fcd8b95c0
+SceneBuilder.ts:163 Remaining child: Group 70e9a13f-8632-4801-946a-ef34c78fb4d1
+SceneBuilder.ts:163 Remaining child: Group cd34ae83-a670-4901-ba5b-f4c0403b280b
+SceneBuilder.ts:163 Remaining child: Group a7058741-dada-4e60-8c4a-71271b8ed14a
+SceneBuilder.ts:163 Remaining child: Group d9ce3501-9e91-4d84-9293-544c2c88b2de
+SceneBuilder.ts:163 Remaining child: Group bfd70062-4c6a-40e2-9f94-d390d3a4db1b
+SceneBuilder.ts:163 Remaining child: Group ac97355d-4e24-4661-ae8b-968b7e07be55
+SceneBuilder.ts:163 Remaining child: Group 9222f006-1da4-431a-af98-a764067c817d
+SceneBuilder.ts:163 Remaining child: Group e6f68f6a-9f41-48c7-995d-1d8d239e1db6
+SceneBuilder.ts:163 Remaining child: Group 1d96dc3e-ca3f-4ef6-a691-6c5bcf03f54a
+SceneBuilder.ts:163 Remaining child: Group e4501063-9c4c-4467-b7c0-b45fba085265
+SceneBuilder.ts:163 Remaining child: Group b88cdb70-22ce-476a-8770-3239535953f9
+SceneBuilder.ts:163 Remaining child: Group 4214e0e1-80cd-45d8-b826-1165d25e32d4
+SceneBuilder.ts:163 Remaining child: Group 84e66eb6-b731-4525-b50c-6988cbd39848
+SceneBuilder.ts:163 Remaining child: Group 4baabbe6-32dd-4837-a84a-fda55db10a3c
+SceneBuilder.ts:163 Remaining child: Group ab51b919-ae31-4740-be03-b9c6bf9a3ee6
+SceneBuilder.ts:163 Remaining child: Group 411f7980-5ec8-4749-b594-5dd368fce4ae
+SceneBuilder.ts:163 Remaining child: Group bd81b6d3-5416-4022-8f37-b456ad5759a3
+SceneBuilder.ts:163 Remaining child: Group a7ab5626-2837-4c11-aaf4-27025cbfa4bd
+SceneBuilder.ts:163 Remaining child: Group ef485081-1283-4f6e-bd31-cd31c42e023d
+SceneBuilder.ts:163 Remaining child: Group be66a653-a1b0-443f-a380-103efff8ad81
+SceneBuilder.ts:163 Remaining child: Group 8399dabf-1745-48f2-8fa8-0c6a4457523a
+SceneBuilder.ts:163 Remaining child: Group 73737dea-52b7-4079-9ded-1d7cfb7118fb
+SceneBuilder.ts:163 Remaining child: Group 63204d8c-21fb-43f7-9ff0-5b14e6d03c90
+SceneBuilder.ts:163 Remaining child: Group 530f992d-6b3c-4f8b-ba56-409b13b25519
+SceneBuilder.ts:163 Remaining child: Group 71500ee8-12d0-4b16-9c85-3430b419d8fc
+SceneBuilder.ts:163 Remaining child: Group bc04b092-084d-4eea-8189-659954594bd9
+SceneBuilder.ts:163 Remaining child: Group eb1eea8a-5515-4d90-b9ab-c1e77f03ceb7
+SceneBuilder.ts:163 Remaining child: Group d93f5ebd-c648-4d69-9331-963df3dd9aae
+SceneBuilder.ts:163 Remaining child: Group 9d01d54b-8f02-42ac-86d0-848488b03b6c
+SceneBuilder.ts:163 Remaining child: Group 77768fd4-0387-4739-bbec-33908f6d866e
+SceneBuilder.ts:163 Remaining child: Group c63aab21-c53d-4050-bb05-b08f98e30013
+SceneBuilder.ts:163 Remaining child: Group 5e3437b3-1ff5-482f-aaf8-2689df1656c9
+SceneBuilder.ts:163 Remaining child: Group 71870abd-85e6-4d5e-accd-2e7507c71faf
+SceneBuilder.ts:163 Remaining child: Group 423ee9fb-2817-40c0-8a06-947e8143777e
+SceneBuilder.ts:163 Remaining child: Group d0c9d53e-2656-4dec-8b4f-3274b1a71540
+SceneBuilder.ts:163 Remaining child: Group eb3b433d-8ae6-43b3-8db3-7a287364e5a1
+SceneBuilder.ts:163 Remaining child: Group 553ad7b5-5944-4e96-86dc-a1403b4c1dc8
+SceneBuilder.ts:163 Remaining child: Group f155d1e6-80fc-4f87-a15a-cb1118d6c99a
+SceneBuilder.ts:163 Remaining child: Group 25dc3298-faa7-45ff-9c5d-b5e9e7844265
+SceneBuilder.ts:163 Remaining child: Group 6c4c9041-79b2-4d59-adc0-824eea24fe62
+SceneBuilder.ts:163 Remaining child: Group ef813ad4-4e13-4311-bcd9-455bcb9de4ac
+SceneBuilder.ts:163 Remaining child: Group cb3b01d9-a7ac-4f23-8bf3-5b1fc645b5df
+SceneBuilder.ts:163 Remaining child: Group a5f0fb93-8c57-428a-b87e-87057fcd7530
+SceneBuilder.ts:163 Remaining child: Group f23526a4-7d97-48a6-8368-2823a06c75d5
+SceneBuilder.ts:163 Remaining child: Group c7765092-9e18-4708-aeb7-d06dd15e610d
+SceneBuilder.ts:163 Remaining child: Group a8d0fd16-4998-4ea4-921f-495b35657a65
+SceneBuilder.ts:163 Remaining child: Group c1c3ccde-0b9e-46bd-86af-83c04f200555
+SceneBuilder.ts:163 Remaining child: Group 9e4ab67c-6e8b-41fe-a0aa-bef232ec5a15
+SceneBuilder.ts:163 Remaining child: Group 2c800ff1-ed92-4493-98f2-9f0e1071dc15
+SceneBuilder.ts:163 Remaining child: Group 017e6d85-249d-49d2-b14b-3daeb4a02f26
+SceneBuilder.ts:163 Remaining child: Group c681986b-c7dd-43a9-883e-ede60a3f20ca
+SceneBuilder.ts:163 Remaining child: Group c22e90fb-5937-4d32-97ca-687c6812887a
+SceneBuilder.ts:163 Remaining child: Group bb6da0d8-3e60-43bd-9228-062c3689950a
+SceneBuilder.ts:163 Remaining child: Group 32912d71-a7b9-4e50-b2d0-763890a69a20
+SceneBuilder.ts:163 Remaining child: Group 460a7f3b-7341-45a1-ab29-500fb576f3f5
+SceneBuilder.ts:163 Remaining child: Group 4224aa55-190b-4678-b07a-d715b3f44a34
+SceneBuilder.ts:163 Remaining child: Group 45302303-a334-4a66-b87b-3299c575071d
+SceneBuilder.ts:163 Remaining child: Group ed2c0ed2-dcd8-4ef0-90db-f3ca61985a0a
+SceneBuilder.ts:163 Remaining child: Group bef19f1f-e807-47e1-ab1d-6a2b1159e442
+SceneBuilder.ts:163 Remaining child: Group 1b079981-8ba8-4ecd-9740-d7227cb201d1
+SceneBuilder.ts:163 Remaining child: Group 301bb26b-7549-4c00-a5e7-4c994084d2b9
+SceneBuilder.ts:163 Remaining child: Group 1e4d2721-b37d-4fcd-a8ec-b8d801f46c15
+SceneBuilder.ts:163 Remaining child: Group 2d84b1da-3ccf-4651-b89e-3fb7aad8a9b3
+SceneBuilder.ts:163 Remaining child: Group 999c47f2-873f-49c9-94ef-b2f1449a8a1a
+SceneBuilder.ts:163 Remaining child: Group e7c6ed98-6118-4cb2-a1ef-449b4c6d4c8f
+SceneBuilder.ts:163 Remaining child: Group 44ac53ba-36dd-440f-8a8d-4130c57facdc
+SceneBuilder.ts:163 Remaining child: Group f5fe3696-06e7-40c9-a981-33ea0c842525
+SceneBuilder.ts:163 Remaining child: Group a4e2cfd5-cee3-4d9f-98e8-bd6622490468
+SceneBuilder.ts:163 Remaining child: Group 552ad1a9-829e-48d9-a77d-fea4d23ebe14
+SceneBuilder.ts:163 Remaining child: Group 5c30e5b5-67bf-4122-851f-8e7586a64014
+SceneBuilder.ts:163 Remaining child: Group 6f1e9890-fcd0-45c3-a56f-848177a342fe
+SceneBuilder.ts:163 Remaining child: Group f9e95285-c350-434b-ada3-9f1810cc105b
+SceneBuilder.ts:163 Remaining child: Group 8f2eddae-97ef-4a50-8ef0-abf9425a6488
+SceneBuilder.ts:163 Remaining child: Group 1ab772df-a067-4820-bddb-80f3cc8227b5
+SceneBuilder.ts:163 Remaining child: Group 3ae8c1c0-d681-49be-9f20-2071bda18611
+SceneBuilder.ts:163 Remaining child: Group 52e9fb60-b961-4412-981c-7e1e2d459a9b
+SceneBuilder.ts:163 Remaining child: Group cf37026a-c1bf-479e-ac9a-e582de3913f3
+SceneBuilder.ts:163 Remaining child: Group 25b3ebc5-2c1d-43e3-8125-a4a663062c77
+SceneBuilder.ts:164 --- clearScene END ---
+SVGModuleRenderer.ts:32 [SVGModuleRenderer] renderModuleSVG called: Object
+SVGModuleRenderer.ts:44 [SVGModuleRenderer] moduleDef lookup result: Object
+SVGModuleRenderer.ts:53 [SVGModuleRenderer] Loading SVG from URL: http://localhost:5000/api/modules/svg/mod_bed_001
+SVGModuleRenderer.ts:117 [SVGModuleRenderer] Using cached SVG for: mod_bed_001
+SVGModuleRenderer.ts:32 [SVGModuleRenderer] renderModuleSVG called: Object
+SVGModuleRenderer.ts:44 [SVGModuleRenderer] moduleDef lookup result: Object
+SVGModuleRenderer.ts:53 [SVGModuleRenderer] Loading SVG from URL: http://localhost:5000/api/modules/svg/mod_cabinet_005
+SVGModuleRenderer.ts:117 [SVGModuleRenderer] Using cached SVG for: mod_cabinet_005
+SVGModuleRenderer.ts:32 [SVGModuleRenderer] renderModuleSVG called: Object
+SVGModuleRenderer.ts:44 [SVGModuleRenderer] moduleDef lookup result: Object
+SVGModuleRenderer.ts:53 [SVGModuleRenderer] Loading SVG from URL: http://localhost:5000/api/modules/svg/mod_cabinet_005
+SVGModuleRenderer.ts:117 [SVGModuleRenderer] Using cached SVG for: mod_cabinet_005
+SVGModuleRenderer.ts:32 [SVGModuleRenderer] renderModuleSVG called: Object
+SVGModuleRenderer.ts:44 [SVGModuleRenderer] moduleDef lookup result: Object
+SVGModuleRenderer.ts:53 [SVGModuleRenderer] Loading SVG from URL: http://localhost:5000/api/modules/svg/mod_bed_001
+SVGModuleRenderer.ts:117 [SVGModuleRenderer] Using cached SVG for: mod_bed_001
+SVGModuleRenderer.ts:32 [SVGModuleRenderer] renderModuleSVG called: Object
+SVGModuleRenderer.ts:44 [SVGModuleRenderer] moduleDef lookup result: Object
+SVGModuleRenderer.ts:53 [SVGModuleRenderer] Loading SVG from URL: http://localhost:5000/api/modules/svg/mod_cabinet_005
+SVGModuleRenderer.ts:117 [SVGModuleRenderer] Using cached SVG for: mod_cabinet_005
+SVGModuleRenderer.ts:32 [SVGModuleRenderer] renderModuleSVG called: Object
+SVGModuleRenderer.ts:44 [SVGModuleRenderer] moduleDef lookup result: Object
+SVGModuleRenderer.ts:53 [SVGModuleRenderer] Loading SVG from URL: http://localhost:5000/api/modules/svg/mod_cabinet_005
+SVGModuleRenderer.ts:117 [SVGModuleRenderer] Using cached SVG for: mod_cabinet_005
+SVGModuleRenderer.ts:32 [SVGModuleRenderer] renderModuleSVG called: Object
+SVGModuleRenderer.ts:44 [SVGModuleRenderer] moduleDef lookup result: Object
+SVGModuleRenderer.ts:53 [SVGModuleRenderer] Loading SVG from URL: http://localhost:5000/api/modules/svg/mod_bed_001
+SVGModuleRenderer.ts:117 [SVGModuleRenderer] Using cached SVG for: mod_bed_001
+SVGModuleRenderer.ts:32 [SVGModuleRenderer] renderModuleSVG called: Object
+SVGModuleRenderer.ts:44 [SVGModuleRenderer] moduleDef lookup result: Object
+SVGModuleRenderer.ts:53 [SVGModuleRenderer] Loading SVG from URL: http://localhost:5000/api/modules/svg/mod_cabinet_005
+SVGModuleRenderer.ts:117 [SVGModuleRenderer] Using cached SVG for: mod_cabinet_005
+SVGModuleRenderer.ts:32 [SVGModuleRenderer] renderModuleSVG called: Object
+SVGModuleRenderer.ts:44 [SVGModuleRenderer] moduleDef lookup result: Object
+SVGModuleRenderer.ts:53 [SVGModuleRenderer] Loading SVG from URL: http://localhost:5000/api/modules/svg/mod_cabinet_005
+SVGModuleRenderer.ts:117 [SVGModuleRenderer] Using cached SVG for: mod_cabinet_005
+LabelBuilder.ts:210 [LabelBuilder] AABB: w=200, h=5700 => vertical
+LabelBuilder.ts:210 [LabelBuilder] AABB: w=1700, h=200 => horizontal
+LabelBuilder.ts:210 [LabelBuilder] AABB: w=200, h=1100 => vertical
+LabelBuilder.ts:210 [LabelBuilder] AABB: w=650, h=200 => horizontal
+LabelBuilder.ts:210 [LabelBuilder] AABB: w=200, h=2150 => vertical
+LabelBuilder.ts:210 [LabelBuilder] AABB: w=610, h=200 => horizontal
+LabelBuilder.ts:210 [LabelBuilder] AABB: w=140, h=200 => vertical
+LabelBuilder.ts:210 [LabelBuilder] AABB: w=200, h=3700 => vertical
+LabelBuilder.ts:210 [LabelBuilder] AABB: w=400, h=200 => horizontal
+LabelBuilder.ts:210 [LabelBuilder] AABB: w=1000, h=200 => horizontal
+LabelBuilder.ts:210 [LabelBuilder] AABB: w=600, h=200 => horizontal
+LabelBuilder.ts:210 [LabelBuilder] AABB: w=200, h=800 => vertical
+LabelBuilder.ts:210 [LabelBuilder] AABB: w=500, h=200 => horizontal
+LabelBuilder.ts:210 [LabelBuilder] AABB: w=590, h=200 => horizontal
+LabelBuilder.ts:210 [LabelBuilder] AABB: w=200, h=2850 => vertical
+LabelBuilder.ts:210 [LabelBuilder] AABB: w=200, h=150 => horizontal
+LabelBuilder.ts:210 [LabelBuilder] AABB: w=400, h=200 => horizontal
+LabelBuilder.ts:210 [LabelBuilder] AABB: w=600, h=200 => horizontal
+LabelBuilder.ts:210 [LabelBuilder] AABB: w=200, h=3750 => vertical
+LabelBuilder.ts:210 [LabelBuilder] AABB: w=4070, h=200 => horizontal
+LabelBuilder.ts:210 [LabelBuilder] AABB: w=380, h=200 => horizontal
+LabelBuilder.ts:210 [LabelBuilder] AABB: w=200, h=4850 => vertical
+LabelBuilder.ts:210 [LabelBuilder] AABB: w=1100, h=200 => horizontal
+LabelBuilder.ts:210 [LabelBuilder] AABB: w=1750, h=200 => horizontal
+LabelBuilder.ts:210 [LabelBuilder] AABB: w=1200, h=200 => horizontal
+LabelBuilder.ts:210 [LabelBuilder] AABB: w=740, h=200 => horizontal
+LabelBuilder.ts:210 [LabelBuilder] AABB: w=200, h=4850 => vertical
+LabelBuilder.ts:210 [LabelBuilder] AABB: w=2070, h=100 => horizontal
+LabelBuilder.ts:210 [LabelBuilder] AABB: w=1010, h=100 => horizontal
+LabelBuilder.ts:210 [LabelBuilder] AABB: w=120, h=100 => horizontal
+LabelBuilder.ts:210 [LabelBuilder] AABB: w=100, h=2600 => vertical
+LabelBuilder.ts:210 [LabelBuilder] AABB: w=300, h=100 => horizontal
+LabelBuilder.ts:210 [LabelBuilder] AABB: w=100, h=260 => vertical
+LabelBuilder.ts:210 [LabelBuilder] AABB: w=300, h=100 => horizontal
+LabelBuilder.ts:210 [LabelBuilder] AABB: w=100, h=440 => vertical
+LabelBuilder.ts:210 [LabelBuilder] AABB: w=600, h=200 => horizontal
+LabelBuilder.ts:210 [LabelBuilder] AABB: w=200, h=350 => vertical
+LabelBuilder.ts:210 [LabelBuilder] AABB: w=850, h=200 => horizontal
+LabelBuilder.ts:210 [LabelBuilder] AABB: w=240, h=200 => horizontal
+LabelBuilder.ts:210 [LabelBuilder] AABB: w=400, h=200 => horizontal
+LabelBuilder.ts:210 [LabelBuilder] AABB: w=200, h=123 => horizontal
+LabelBuilder.ts:210 [LabelBuilder] AABB: w=200, h=927 => vertical
+LabelBuilder.ts:210 [LabelBuilder] AABB: w=100, h=3300 => vertical
+LabelBuilder.ts:210 [LabelBuilder] AABB: w=140, h=100 => horizontal
+LabelBuilder.ts:210 [LabelBuilder] AABB: w=710, h=100 => horizontal
+LabelBuilder.ts:210 [LabelBuilder] AABB: w=300, h=100 => horizontal
+LabelBuilder.ts:210 [LabelBuilder] AABB: w=100, h=260 => vertical
+LabelBuilder.ts:210 [LabelBuilder] AABB: w=300, h=100 => horizontal
+LabelBuilder.ts:210 [LabelBuilder] AABB: w=100, h=440 => vertical
+LabelBuilder.ts:210 [LabelBuilder] AABB: w=200, h=3400 => vertical
+LabelBuilder.ts:210 [LabelBuilder] AABB: w=2000, h=1800 => horizontal
+2LabelBuilder.ts:210 [LabelBuilder] AABB: w=350, h=420 => vertical
+LabelBuilder.ts:210 [LabelBuilder] AABB: w=2000, h=1800 => horizontal
+2LabelBuilder.ts:210 [LabelBuilder] AABB: w=350, h=420 => vertical
+LabelBuilder.ts:210 [LabelBuilder] AABB: w=2000, h=1800 => horizontal
+2LabelBuilder.ts:210 [LabelBuilder] AABB: w=350, h=420 => vertical
+LabelBuilder.ts:210 [LabelBuilder] AABB: w=1000, h=0 => horizontal
+LabelBuilder.ts:210 [LabelBuilder] AABB: w=0, h=750 => vertical
+3LabelBuilder.ts:210 [LabelBuilder] AABB: w=750, h=0 => horizontal
+LabelBuilder.ts:210 [LabelBuilder] AABB: w=0, h=750 => vertical
+LabelBuilder.ts:210 [LabelBuilder] AABB: w=750, h=0 => horizontal
+LabelBuilder.ts:210 [LabelBuilder] AABB: w=5000, h=0 => horizontal
+4LabelBuilder.ts:210 [LabelBuilder] AABB: w=2000, h=0 => horizontal
+3LabelBuilder.ts:210 [LabelBuilder] AABB: w=610, h=0 => horizontal
+LabelBuilder.ts:210 [LabelBuilder] AABB: w=2800, h=3400 => vertical
+LabelBuilder.ts:210 [LabelBuilder] AABB: w=2800, h=3550 => vertical
+LabelBuilder.ts:210 [LabelBuilder] AABB: w=5000, h=4850 => horizontal
+LabelBuilder.ts:210 [LabelBuilder] AABB: w=1600, h=3200 => vertical
+LabelBuilder.ts:210 [LabelBuilder] AABB: w=1600, h=2600 => vertical
+LabelBuilder.ts:210 [LabelBuilder] AABB: w=10900, h=9600 => horizontal
+LabelBuilder.ts:210 [LabelBuilder] AABB: w=1000, h=1000 => horizontal
+LabelBuilder.ts:210 [LabelBuilder] AABB: w=750, h=750 => vertical
+LabelBuilder.ts:210 [LabelBuilder] AABB: w=750, h=750 => horizontal
+3LabelBuilder.ts:210 [LabelBuilder] AABB: w=750, h=750 => vertical
+LabelBuilder.ts:210 [LabelBuilder] AABB: w=750, h=750 => horizontal
+SVGModuleRenderer.ts:66 [SVGModuleRenderer] Calculated transform: Object
+SVGModuleRenderer.ts:96 [SVGModuleRenderer] Added moduleGroup to scene. Children count: 6
+SVGModuleRenderer.ts:101 [SVGModuleRenderer] Rendered SVG for module m_1 (双人床)
+SVGModuleRenderer.ts:66 [SVGModuleRenderer] Calculated transform: Object
+SVGModuleRenderer.ts:96 [SVGModuleRenderer] Added moduleGroup to scene. Children count: 5
+SVGModuleRenderer.ts:101 [SVGModuleRenderer] Rendered SVG for module m_2 (床头柜)
+SVGModuleRenderer.ts:66 [SVGModuleRenderer] Calculated transform: Object
+SVGModuleRenderer.ts:96 [SVGModuleRenderer] Added moduleGroup to scene. Children count: 5
+SVGModuleRenderer.ts:101 [SVGModuleRenderer] Rendered SVG for module m_3 (床头柜)
+SVGModuleRenderer.ts:66 [SVGModuleRenderer] Calculated transform: Object
+SVGModuleRenderer.ts:96 [SVGModuleRenderer] Added moduleGroup to scene. Children count: 6
+SVGModuleRenderer.ts:101 [SVGModuleRenderer] Rendered SVG for module m_4 (双人床)
+SVGModuleRenderer.ts:66 [SVGModuleRenderer] Calculated transform: Object
+SVGModuleRenderer.ts:96 [SVGModuleRenderer] Added moduleGroup to scene. Children count: 5
+SVGModuleRenderer.ts:101 [SVGModuleRenderer] Rendered SVG for module m_5 (床头柜)
+SVGModuleRenderer.ts:66 [SVGModuleRenderer] Calculated transform: Object
+SVGModuleRenderer.ts:96 [SVGModuleRenderer] Added moduleGroup to scene. Children count: 5
+SVGModuleRenderer.ts:101 [SVGModuleRenderer] Rendered SVG for module m_6 (床头柜)
+SVGModuleRenderer.ts:66 [SVGModuleRenderer] Calculated transform: Object
+SVGModuleRenderer.ts:96 [SVGModuleRenderer] Added moduleGroup to scene. Children count: 6
+SVGModuleRenderer.ts:101 [SVGModuleRenderer] Rendered SVG for module m_7 (双人床)
+SVGModuleRenderer.ts:66 [SVGModuleRenderer] Calculated transform: Object
+SVGModuleRenderer.ts:96 [SVGModuleRenderer] Added moduleGroup to scene. Children count: 5
+SVGModuleRenderer.ts:101 [SVGModuleRenderer] Rendered SVG for module m_8 (床头柜)
+SVGModuleRenderer.ts:66 [SVGModuleRenderer] Calculated transform: Object
+SVGModuleRenderer.ts:96 [SVGModuleRenderer] Added moduleGroup to scene. Children count: 5
+SVGModuleRenderer.ts:101 [SVGModuleRenderer] Rendered SVG for module m_9 (床头柜)
+SubAgentBubble.vue:51 [SubAgentBubble] status: streaming → completed
+debugStore.ts:39 [INFO] Click: -0.48,-0.84 Hits: 0
+debugStore.ts:33 [WARN] No Intersects
+addLog @ debugStore.ts:33
+debugStore.ts:39 [INFO] [SelectionMgr] IDs changed: [] -> []
+debugStore.ts:39 [INFO] [SelectionMgr] syncWithStore: 0 items
+debugStore.ts:39 [INFO] Click: 0.36,0.50 Hits: 0
+debugStore.ts:33 [WARN] No Intersects
+addLog @ debugStore.ts:33
+debugStore.ts:39 [INFO] [SelectionMgr] IDs changed: [] -> []
+debugStore.ts:39 [INFO] [SelectionMgr] syncWithStore: 0 items
+debugStore.ts:39 [INFO] Click: 0.40,0.65 Hits: 0
+debugStore.ts:33 [WARN] No Intersects
+addLog @ debugStore.ts:33
+debugStore.ts:39 [INFO] [SelectionMgr] IDs changed: [] -> []
+debugStore.ts:39 [INFO] [SelectionMgr] syncWithStore: 0 items
