@@ -73,7 +73,8 @@ export class SVGModuleRenderer {
       moduleGroup.position.set(transform.position.x, this.SVG_HEIGHT, -transform.position.y);
       // 朝向旋转（在 XZ 平面上是绕 Y 轴）
       moduleGroup.rotation.y = transform.rotation;
-      moduleGroup.scale.set(transform.scale.x, 1, transform.scale.y);
+      // SVG 几何在 XY 平面，缩放作用在 X 和 Y 轴（变换顺序：Scale → Rotate → Position）
+      moduleGroup.scale.set(transform.scale.x, transform.scale.y, 1);
 
       // 6. 设置图层（与家具模块同层）
       moduleGroup.traverse((child) => {
