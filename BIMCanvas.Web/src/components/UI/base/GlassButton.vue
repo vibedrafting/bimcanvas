@@ -43,21 +43,28 @@ const classes = computed(() => {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  padding: var(--spacing-sm) var(--spacing-md);
-  border-radius: var(--radius-md);
+  padding: var(--spacing-sm, 8px) var(--spacing-md, 16px);
+  border-radius: var(--radius-md, 8px);
   font-family: var(--font-sans);
   font-size: 0.9rem;
   font-weight: 500;
   cursor: pointer;
-  transition: all 0.3s var(--ease-spring);
+  
+  /* ANTI-SHAKE: Only transition background-color to minimize rendering recalculations */
+  transition: background-color 0.15s ease-out;
+  
+  /* ANTI-SHAKE: No backdrop-filter - it causes sub-pixel rendering shifts on hover */
+  /* The parent panel already has glass blur effect */
+  
+  /* ANTI-SHAKE: Create isolated stacking context */
+  isolation: isolate;
+  
+  /* Fixed border to prevent any border-related layout shifts */
+  box-sizing: border-box;
   border: 1px solid transparent;
   outline: none;
   color: var(--text-primary);
   background: transparent;
-  
-  /* Glass Effect Base */
-  backdrop-filter: var(--glass-blur);
-  -webkit-backdrop-filter: var(--glass-blur);
 }
 
 .glass-btn:disabled {
@@ -70,26 +77,24 @@ const classes = computed(() => {
 
 /* Ghost (Default) */
 .glass-btn.variant-ghost {
-  background: var(--btn-ghost-bg);
+  background: var(--btn-ghost-bg, transparent);
   border-color: transparent;
 }
 
 .glass-btn.variant-ghost:hover:not(:disabled) {
-  background: var(--btn-ghost-bg-hover);
-  border-color: var(--border-subtle);
-  transform: translateY(-1px);
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+  background: var(--btn-ghost-bg-hover, rgba(255, 255, 255, 0.08));
+  /* ANTI-SHAKE: No transform, no border-color change, no box-shadow change */
 }
 
 .glass-btn.variant-ghost:active:not(:disabled) {
-  transform: translateY(0) scale(0.98);
+  background: var(--btn-ghost-bg-hover, rgba(255, 255, 255, 0.12));
+  /* ANTI-SHAKE: No transform */
 }
 
 .glass-btn.variant-ghost.active {
-  background: var(--btn-ghost-bg-active);
+  background: var(--btn-ghost-bg-active, rgba(255, 255, 255, 0.1));
   border-color: var(--border-subtle);
-  color: var(--btn-ghost-text-active);
-  box-shadow: var(--glass-inner-highlight);
+  color: var(--btn-ghost-text-active, var(--text-primary));
 }
 
 /* Primary */
@@ -100,10 +105,8 @@ const classes = computed(() => {
 }
 
 .glass-btn.variant-primary:hover:not(:disabled) {
-  background: rgba(59, 130, 246, 0.3);
-  border-color: var(--accent-blue);
-  box-shadow: 0 0 15px var(--accent-glow);
-  transform: translateY(-1px);
+  background: rgba(59, 130, 246, 0.35);
+  /* ANTI-SHAKE: No transform */
 }
 
 /* Danger */
@@ -114,8 +117,7 @@ const classes = computed(() => {
 }
 
 .glass-btn.variant-danger:hover:not(:disabled) {
-  background: rgba(255, 107, 107, 0.2);
-  border-color: var(--accent-danger);
-  box-shadow: 0 0 10px var(--accent-danger-glow);
+  background: rgba(255, 107, 107, 0.25);
+  /* ANTI-SHAKE: No transform */
 }
 </style>

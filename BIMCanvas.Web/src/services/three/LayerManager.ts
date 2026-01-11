@@ -7,6 +7,7 @@ export class LayerManager {
     public static readonly LAYER_LABELS = 3; // ID 标签
     public static readonly LAYER_BOUNDS = 4; // 家具模块 OBB + 朝向箭头
     public static readonly LAYER_OUTLINE = 5; // 边界描边（原 SEMANTIC）
+    public static readonly LAYER_SVG = 6;   // SVG 预览层
     public static readonly LAYER_ZONES = 7;  // 设计区 / 禁区（预留）
     public static readonly LAYER_SEMANTIC = 8; // 设计场线（预留）
     public static readonly LAYER_AI_VISION = 9; // AI 视觉层 (高对比度)
@@ -39,6 +40,7 @@ export class LayerManager {
             this.camera.layers.disable(LayerManager.LAYER_LABELS);
             this.camera.layers.disable(LayerManager.LAYER_BOUNDS);
             this.camera.layers.disable(LayerManager.LAYER_OUTLINE);
+            this.camera.layers.disable(LayerManager.LAYER_SVG);
             this.camera.layers.disable(LayerManager.LAYER_ZONES);
             this.camera.layers.disable(LayerManager.LAYER_SEMANTIC);
             this.camera.layers.disable(LayerManager.LAYER_AI_VISION);
@@ -48,6 +50,7 @@ export class LayerManager {
             this.camera.layers.enable(LayerManager.LAYER_LABELS);
             this.camera.layers.enable(LayerManager.LAYER_BOUNDS);
             this.camera.layers.enable(LayerManager.LAYER_OUTLINE);
+            this.camera.layers.enable(LayerManager.LAYER_SVG);
             this.camera.layers.enable(LayerManager.LAYER_ZONES);
             this.camera.layers.enable(LayerManager.LAYER_SEMANTIC);
             this.camera.layers.enable(LayerManager.LAYER_AI_VISION);

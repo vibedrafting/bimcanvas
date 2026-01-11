@@ -70,8 +70,8 @@ export class SVGModuleRenderer {
         return null;
       }
 
-      // 3. 计算模块的位置和旋转
-      const transform = this.calculateModuleTransform(module, moduleDef);
+      // 3. 计算模块的位置和旋转（使用 SVG 实际尺寸）
+      const transform = this.calculateModuleTransform(module, module.moduleId);
 
       // 4. 父子 Group 方案（KISS）：显式控制旋转顺序
       // - svg2D（子级）：负责 2D 朝向旋转（绕 Z）+ 2D 缩放（仍在 XY 平面）
@@ -100,10 +100,10 @@ export class SVGModuleRenderer {
         }
       });
 
-      // 6. 设置图层（与家具模块同层）
+      // 6. 设置图层（SVG 预览独立图层）
       root.traverse((child) => {
         if (child instanceof THREE.Mesh || child instanceof THREE.Line) {
-          child.layers.enable(LayerManager.LAYER_MODEL);
+          child.layers.set(LayerManager.LAYER_SVG);  // 使用 set() 确保只在 LAYER_SVG 上渲染
         }
       });
 
@@ -229,15 +229,24 @@ export class SVGModuleRenderer {
             }
           }
 
-          // 居中 SVG 几何体（将原点从左上角移到几何体中心）
+          // 计算 SVG 几何体边界
           const box = new THREE.Box3().setFromObject(group);
           const center = box.getCenter(new THREE.Vector3());
+          const svgSize = box.getSize(new THREE.Vector3());
+
+          // 保存 SVG 原始尺寸（居中前）- 关键修复
+          this.svgSizeCache.set(moduleId, {
+            width: svgSize.x,
+            height: svgSize.y
+          });
+
+          // 居中 SVG 几何体（将原点从左上角移到几何体中心）
           group.children.forEach(child => {
             child.position.x -= center.x;
             child.position.y -= center.y;
           });
-          // [DEBUG] 关键日志
-          console.log(`[SVG] children=${group.children.length}, center=(${center.x.toFixed(0)}, ${center.y.toFixed(0)})`);
+
+          console.log(`[SVG] ${moduleId}: viewBox=(${svgSize.x.toFixed(0)}, ${svgSize.y.toFixed(0)}), children=${group.children.length}`);
 
           // 缓存结果
           this.svgCache.set(moduleId, group);
@@ -254,8 +263,10 @@ export class SVGModuleRenderer {
 
   /**
    * 计算模块的变换（位置、旋转、缩放）
+   * @param module 模块数据
+   * @param moduleId 模块类型ID（用于查找缓存的 SVG 尺寸）
    */
-  private calculateModuleTransform(module: Module, moduleDef: ModuleDefinition): {
+  private calculateModuleTransform(module: Module, moduleId: string): {
     position: { x: number, y: number };
     rotation: number;
     scale: { x: number, y: number };
@@ -266,10 +277,40 @@ export class SVGModuleRenderer {
     // 2. 解析朝向角度
     const rotation = this.parseFacingAngle(module.facing);
 
-    // 3. 计算缩放（根据bounds和moduleDef.size）
+    // 3. 获取 SVG 实际尺寸（关键修复：使用 SVG viewBox 尺寸而非 moduleDef.size）
+    const svgSize = this.svgSizeCache.get(moduleId);
+    if (!svgSize) {
+      console.warn(`[SVG] No cached size for: ${moduleId}`);
+      return {
+        position: { x: center[0], y: center[1] },
+        rotation: rotation,
+        scale: { x: 1, y: 1 }
+      };
+    }
+
+    // 4. 计算 bounds 尺寸
     const boundsSize = this.calculateBoundsSize(module.bounds);
-    const scaleX = boundsSize.width / moduleDef.size.width;
-    const scaleY = boundsSize.depth / moduleDef.size.depth;
+
+    // 5. 【关键修复】判断是否需要交换尺寸对应关系
+    // Three.js 变换顺序是 Scale → Rotate → Translate
+    // 当旋转 90°/270° 时，Rotate 会交换宽高
+    // 因此缩放计算需要"预先考虑"这个交换
+    const rotationDegrees = Math.abs(rotation * 180 / Math.PI) % 360;
+    const isRotated90 = (rotationDegrees > 45 && rotationDegrees < 135) ||
+                        (rotationDegrees > 225 && rotationDegrees < 315);
+
+    let scaleX: number, scaleY: number;
+    if (isRotated90) {
+      // 旋转 90°/270°：bounds 的 width/depth 需要与 SVG 的 height/width 对应
+      scaleX = boundsSize.depth / svgSize.width;
+      scaleY = boundsSize.width / svgSize.height;
+    } else {
+      // 不旋转或旋转 180°：正常对应
+      scaleX = boundsSize.width / svgSize.width;
+      scaleY = boundsSize.depth / svgSize.height;
+    }
+
+    console.log(`[SVG Scale] bounds=(${boundsSize.width.toFixed(0)}, ${boundsSize.depth.toFixed(0)}), svg=(${svgSize.width.toFixed(0)}, ${svgSize.height.toFixed(0)}), rot=${rotationDegrees.toFixed(0)}°, rotated90=${isRotated90}, scale=(${scaleX.toFixed(2)}, ${scaleY.toFixed(2)})`);
 
     return {
       position: { x: center[0], y: center[1] },
@@ -344,13 +385,10 @@ export class SVGModuleRenderer {
     const root = this.moduleGroups.get(moduleId);
     if (!root) return;
 
-    const moduleDef = moduleLibraryService.getModuleById(module.moduleId);
-    if (!moduleDef) return;
-
     const svg2D = root.userData.svg2D as THREE.Group;
     if (!svg2D) return;
 
-    const transform = this.calculateModuleTransform(module, moduleDef);
+    const transform = this.calculateModuleTransform(module, module.moduleId);
 
     // 更新子级（svg2D）：2D 变换
     svg2D.rotation.set(0, 0, transform.rotation);
@@ -417,5 +455,6 @@ export class SVGModuleRenderer {
       });
     });
     this.svgCache.clear();
+    this.svgSizeCache.clear(); // 同步清理尺寸缓存
   }
 }

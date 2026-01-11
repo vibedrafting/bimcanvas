@@ -282,7 +282,7 @@ const handleConflictCancel = () => {
   font-weight: 500;
   cursor: pointer;
   border-radius: 4px;
-  transition: all 0.2s;
+  transition: background-color 0.2s, color 0.2s;
   position: relative;
   white-space: nowrap;
 

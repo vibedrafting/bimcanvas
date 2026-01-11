@@ -12,6 +12,7 @@ const layers = ref({
   [LayerManager.LAYER_LABELS]: false,
   [LayerManager.LAYER_BOUNDS]: false,
   [LayerManager.LAYER_OUTLINE]: false,
+  [LayerManager.LAYER_SVG]: false,
   [LayerManager.LAYER_ZONES]: false,
   [LayerManager.LAYER_SEMANTIC]: false,
   [LayerManager.LAYER_AI_VISION]: false,
@@ -133,6 +134,10 @@ onUnmounted(() => {
           <label class="layer-item">
             <input type="checkbox" :checked="layers[LayerManager.LAYER_OUTLINE]" @change="toggleLayer(LayerManager.LAYER_OUTLINE)">
             <span>Outline</span>
+          </label>
+          <label class="layer-item">
+            <input type="checkbox" :checked="layers[LayerManager.LAYER_SVG]" @change="toggleLayer(LayerManager.LAYER_SVG)">
+            <span>SVG Preview</span>
           </label>
           <label class="layer-item">
             <input type="checkbox" :checked="layers[LayerManager.LAYER_ZONES]" @change="toggleLayer(LayerManager.LAYER_ZONES)">

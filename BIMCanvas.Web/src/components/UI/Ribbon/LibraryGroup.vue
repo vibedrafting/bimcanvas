@@ -6,17 +6,17 @@ import GlassButton from '../base/GlassButton.vue';
   <div class="ribbon-group">
     <div class="group-content">
       <GlassButton variant="ghost" class="ribbon-btn">
-        <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+        <svg style="width: 18px; height: 18px; flex-shrink: 0;" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
           <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"></path>
           <path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"></path>
         </svg>
-        Local
+        <span>Local</span>
       </GlassButton>
       <GlassButton variant="ghost" class="ribbon-btn">
-        <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+        <svg style="width: 18px; height: 18px; flex-shrink: 0;" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
           <path d="M18 10h-1.26A8 8 0 1 0 9 20h9a5 5 0 0 0 0-10z"></path>
         </svg>
-        Cloud
+        <span>Cloud</span>
       </GlassButton>
     </div>
   </div>
@@ -36,15 +36,12 @@ import GlassButton from '../base/GlassButton.vue';
 
 .ribbon-btn {
   flex-direction: column;
+  align-items: center;
   height: 42px;
-  min-width: 42px;
+  min-width: 50px;
   gap: 2px;
   font-size: 0.7rem;
-  padding: 4px;
-  
-  .icon {
-    width: 18px;
-    height: 18px;
-  }
+  padding: 4px 8px;
 }
 </style>
+
