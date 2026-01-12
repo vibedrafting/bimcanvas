@@ -119,17 +119,35 @@ class MainAgent:
         # 当前会话使用的模型（用于日志显示）
         self._current_model: str | None = None
 
+        # 当前思考强度等级
+        self._current_thinking_level: str | None = None
+
     # ─────────────────────────────────────────────────────
     # Configuration
     # ─────────────────────────────────────────────────────
 
-    def _create_options(self) -> ClaudeAgentOptions:
-        """Create agent options with SubAgent support."""
+    def _create_options(self, thinking_level: str = None) -> ClaudeAgentOptions:
+        """
+        Create agent options with SubAgent support.
+
+        Args:
+            thinking_level: 思考强度等级，None 使用默认配置
+        """
         settings = get_settings()
 
         # 从配置加载系统提示词和工具权限
         system_prompt = self._config_loader.load_system_prompt()
         allowed_tools, disallowed_tools = self._config_loader.load_permissions()
+
+        # 构建自定义环境变量（用于 Agent SDK 独立配置）
+        custom_env = {}
+        if settings.base_url:
+            custom_env["ANTHROPIC_BASE_URL"] = settings.base_url
+        if settings.anthropic_api_key:
+            custom_env["ANTHROPIC_API_KEY"] = settings.anthropic_api_key
+
+        # 获取思考强度 token 数量
+        thinking_tokens = settings.thinking.get_tokens(thinking_level)
 
         return ClaudeAgentOptions(
             system_prompt=system_prompt,
@@ -142,6 +160,8 @@ class MainAgent:
             agents=self._subagents,
             permission_mode="acceptEdits",
             include_partial_messages=True,
+            env=custom_env,                        # Agent SDK 独立环境变量
+            max_thinking_tokens=thinking_tokens,   # 思考强度
         )
 
     # ─────────────────────────────────────────────────────
@@ -241,18 +261,31 @@ class MainAgent:
     # Connection Management
     # ─────────────────────────────────────────────────────
 
-    async def connect(self) -> None:
-        """Establish persistent connection."""
+    async def connect(self, thinking_level: str = None) -> None:
+        """
+        Establish persistent connection.
+
+        Args:
+            thinking_level: 初始思考强度等级，None 使用默认配置
+        """
         async with self._lock:
             if self._connected:
                 return
-            options = self._create_options()
+            options = self._create_options(thinking_level)
+
+            # 保存初始思考强度
+            settings = get_settings()
+            self._current_thinking_level = thinking_level or settings.thinking.default_level
 
             # 调试日志：打印实际使用的配置
             tools_display = options.tools if options.tools else "默认全开"
             deny_display = options.disallowed_tools if options.disallowed_tools else "无"
+            base_url_display = options.env.get("ANTHROPIC_BASE_URL", "默认端点") if options.env else "默认端点"
+            thinking_display = f"{options.max_thinking_tokens} tokens" if options.max_thinking_tokens else "禁用"
             print(f"[MainAgent] ========== 配置信息 ==========")
             print(f"[MainAgent] 模型: {options.model}")
+            print(f"[MainAgent] Base URL: {base_url_display}")
+            print(f"[MainAgent] 思考强度: {self._current_thinking_level} ({thinking_display})")
             print(f"[MainAgent] 允许工具: {tools_display}")
             print(f"[MainAgent] 禁止工具: {deny_display}")
             print(f"[MainAgent] 项目路径: {self.project_path}")
@@ -272,6 +305,49 @@ class MainAgent:
                 self._connected = False
                 self._client = None
                 logger.info(f"MainAgent disconnected for project: {self.project_path}")
+
+    async def set_thinking_level(self, level: str) -> bool:
+        """
+        动态调整思考强度（不断开连接）
+
+        通过 SDK 内部控制协议发送 set_max_thinking_tokens 消息。
+        注意：此方法依赖 SDK 内部 API，可能随版本更新变化。
+
+        Args:
+            level: 思考强度等级 ("off", "low", "medium", "high")
+
+        Returns:
+            是否成功调整
+        """
+        if not self._connected or not self._client:
+            logger.warning("Cannot set thinking level: not connected")
+            return False
+
+        if level == self._current_thinking_level:
+            return True  # 无需调整
+
+        settings = get_settings()
+        tokens = settings.thinking.get_tokens(level)
+
+        try:
+            # 通过底层 Query 发送控制消息
+            # 参考 TypeScript SDK 的 setMaxThinkingTokens 实现
+            await self._client._query._send_control_request({
+                "subtype": "set_max_thinking_tokens",
+                "max_thinking_tokens": tokens
+            })
+            self._current_thinking_level = level
+
+            if self.verbose:
+                tokens_display = f"{tokens} tokens" if tokens else "禁用"
+                self._agent_logger.log_info(f"思考强度已调整: {level} ({tokens_display})")
+
+            return True
+        except Exception as e:
+            logger.error(f"Failed to set thinking level: {e}")
+            if self.verbose:
+                self._agent_logger.log_warning(f"思考强度调整失败: {e}")
+            return False
 
     # ─────────────────────────────────────────────────────
     # Message Processing with Logging
@@ -450,10 +526,24 @@ class MainAgent:
 
         return full_response
 
-    async def chat_stream(self, user_message: str) -> AsyncIterator[StreamChunk]:
-        """Streaming chat interface with thinking support."""
+    async def chat_stream(
+        self,
+        user_message: str,
+        thinking_level: str = None
+    ) -> AsyncIterator[StreamChunk]:
+        """
+        Streaming chat interface with thinking support.
+
+        Args:
+            user_message: 用户消息
+            thinking_level: 思考强度等级 ("off", "low", "medium", "high")
+                           None 表示使用当前配置，不调整
+        """
         if not self._connected:
-            await self.connect()
+            await self.connect(thinking_level)
+        elif thinking_level is not None and thinking_level != self._current_thinking_level:
+            # 已连接但需要调整思考强度
+            await self.set_thinking_level(thinking_level)
 
         if self.verbose:
             self._agent_logger.log_user_message(user_message)
