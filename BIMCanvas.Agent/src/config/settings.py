@@ -49,9 +49,8 @@ class Settings:
 
     加载优先级：环境变量 > config.json > 默认值
 
-    环境变量说明：
-    - AGENT_SDK_API_KEY: Agent SDK 专用 API Key（优先）
-    - ANTHROPIC_API_KEY: 通用 API Key（fallback）
+    环境变量说明（与 Claude Code 隔离）：
+    - AGENT_SDK_API_KEY: Agent SDK 专用 API Key
     - AGENT_SDK_BASE_URL: Agent SDK 专用 Base URL
     """
 
@@ -95,8 +94,8 @@ class Settings:
         )
 
         # 环境变量覆盖
-        # API Key: AGENT_SDK_API_KEY > ANTHROPIC_API_KEY > config.json
-        api_key = os.getenv('AGENT_SDK_API_KEY') or os.getenv('ANTHROPIC_API_KEY', api_key)
+        # API Key: AGENT_SDK_API_KEY > config.json（与 Claude Code 隔离，不使用 ANTHROPIC_API_KEY）
+        api_key = os.getenv('AGENT_SDK_API_KEY', api_key)
 
         # Base URL: AGENT_SDK_BASE_URL > config.json
         base_url = os.getenv('AGENT_SDK_BASE_URL', base_url)
