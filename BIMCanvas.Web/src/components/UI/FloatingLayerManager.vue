@@ -9,6 +9,8 @@ const managerRef = ref<HTMLElement | null>(null);
 // Layer States
 const layers = ref({
   [LayerManager.LAYER_GRID]: true, // Default to true for User mode
+  [LayerManager.LAYER_ARCHITECTURE]: true, // 建筑图层默认启用
+  [LayerManager.LAYER_FURNITURE]: true, // 模块图层默认启用
   [LayerManager.LAYER_LABELS]: false,
   [LayerManager.LAYER_BOUNDS]: false,
   [LayerManager.LAYER_OUTLINE]: false,
@@ -63,6 +65,8 @@ onMounted(() => {
     if (mode === 'human') {
       Object.keys(layers.value).forEach(key => layers.value[key as any] = false);
       layers.value[LayerManager.LAYER_GRID] = true; // Enable Grid by default
+      layers.value[LayerManager.LAYER_ARCHITECTURE] = true; // 建筑图层默认启用
+      layers.value[LayerManager.LAYER_FURNITURE] = true; // 模块图层默认启用
     } else {
       Object.keys(layers.value).forEach(key => layers.value[key as any] = true);
     }
@@ -113,15 +117,23 @@ onUnmounted(() => {
           <label class="layer-item">
             <input type="checkbox" :checked="layers[LayerManager.LAYER_GRID]" @change="toggleLayer(LayerManager.LAYER_GRID)">
             <span>Grid</span>
-            <select 
-              class="grid-spacing-select" 
-              v-model="gridSpacing" 
+            <select
+              class="grid-spacing-select"
+              v-model="gridSpacing"
               @change="onGridSpacingChange"
               @click.stop
             >
               <option :value="1000">1m</option>
               <option :value="600">600mm</option>
             </select>
+          </label>
+          <label class="layer-item">
+            <input type="checkbox" :checked="layers[LayerManager.LAYER_ARCHITECTURE]" @change="toggleLayer(LayerManager.LAYER_ARCHITECTURE)">
+            <span>Architecture</span>
+          </label>
+          <label class="layer-item">
+            <input type="checkbox" :checked="layers[LayerManager.LAYER_FURNITURE]" @change="toggleLayer(LayerManager.LAYER_FURNITURE)">
+            <span>Furniture</span>
           </label>
           <label class="layer-item">
             <input type="checkbox" :checked="layers[LayerManager.LAYER_LABELS]" @change="toggleLayer(LayerManager.LAYER_LABELS)">

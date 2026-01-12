@@ -243,7 +243,7 @@ export class SceneBuilder {
         const wallMat = this.materials.get('wall');
         const wall = new THREE.Mesh(wallGeo, wallMat);
         wall.position.set(0, 1000, 1400);
-        this.enableLayers(wall);
+        this.enableArchitectureLayer(wall);
         this.createBoundsHelper(wall);
         this.scene.add(wall);
 
@@ -251,7 +251,7 @@ export class SceneBuilder {
         const moduleMat = this.materials.get('module');
         const module = new THREE.Mesh(moduleGeo, moduleMat);
         module.position.set(0, -500, 375);
-        this.enableLayers(module);
+        this.enableFurnitureLayer(module);
         this.createBoundsHelper(module);
         this.scene.add(module);
 
@@ -263,6 +263,16 @@ export class SceneBuilder {
     private enableLayers(object: THREE.Object3D) {
         // Enable Default and Model layers
         object.layers.enable(LayerManager.LAYER_MODEL);
+    }
+
+    private enableArchitectureLayer(object: THREE.Object3D) {
+        // 设置建筑图层（墙柱门窗）
+        object.layers.set(LayerManager.LAYER_ARCHITECTURE);
+    }
+
+    private enableFurnitureLayer(object: THREE.Object3D) {
+        // 设置模块预览图层（家具）
+        object.layers.set(LayerManager.LAYER_FURNITURE);
     }
 
     private enableAiLayer(object: THREE.Object3D) {
@@ -326,7 +336,7 @@ export class SceneBuilder {
             data: wall
         };
 
-        this.enableLayers(mesh);
+        this.enableArchitectureLayer(mesh);
         // Bounds 仅用于家具模块，建筑构件使用 Outline 描边
         this.scene.add(mesh);
 
@@ -359,7 +369,7 @@ export class SceneBuilder {
             data: col
         };
 
-        this.enableLayers(mesh);
+        this.enableArchitectureLayer(mesh);
         // Bounds 仅用于家具模块，建筑构件使用 Outline 描边
         this.scene.add(mesh);
 
@@ -424,18 +434,18 @@ export class SceneBuilder {
         const frameMat = this.materials.get('doorFrame');
         const topFrame = new THREE.Mesh(topGeo, frameMat);
         topFrame.position.set(0, 0, height);
-        this.enableLayers(topFrame);
+        this.enableArchitectureLayer(topFrame);
         frameGroup.add(topFrame);
 
         const sideGeo = new THREE.BoxGeometry(frameThickness, frameDepth, height);
         const leftFrame = new THREE.Mesh(sideGeo, frameMat);
         leftFrame.position.set(-width / 2 - frameThickness / 2, 0, height / 2);
-        this.enableLayers(leftFrame);
+        this.enableArchitectureLayer(leftFrame);
         frameGroup.add(leftFrame);
 
         const rightFrame = new THREE.Mesh(sideGeo, frameMat);
         rightFrame.position.set(width / 2 + frameThickness / 2, 0, height / 2);
-        this.enableLayers(rightFrame);
+        this.enableArchitectureLayer(rightFrame);
         frameGroup.add(rightFrame);
 
         root.add(frameGroup);
@@ -520,7 +530,7 @@ export class SceneBuilder {
             panel.position.set(-panelWidth / 2, 0, height / 2);
         }
 
-        this.enableLayers(panel);
+        this.enableArchitectureLayer(panel);
         pivotGroup.add(panel);
 
         // 2. Determine Swing Direction
@@ -596,7 +606,7 @@ export class SceneBuilder {
         const geometry = new THREE.BufferGeometry().setFromPoints(points);
         const arc = new THREE.Line(geometry, this.materials.get('swingArc'));
         arc.position.set(0, 0, 20);
-        this.enableLayers(arc);
+        this.enableArchitectureLayer(arc);
 
         panelGroup.add(arc);
 
@@ -672,29 +682,29 @@ export class SceneBuilder {
 
         const bottom = new THREE.Mesh(new THREE.BoxGeometry(width, frameDepth, frameThickness), frameMat);
         bottom.position.set(0, 0, sillHeight);
-        this.enableLayers(bottom);
+        this.enableArchitectureLayer(bottom);
         group.add(bottom);
 
         const top = new THREE.Mesh(new THREE.BoxGeometry(width, frameDepth, frameThickness), frameMat);
         top.position.set(0, 0, sillHeight + height);
-        this.enableLayers(top);
+        this.enableArchitectureLayer(top);
         group.add(top);
 
         const sideGeo = new THREE.BoxGeometry(frameThickness, frameDepth, height);
         const left = new THREE.Mesh(sideGeo, frameMat);
         left.position.set(-width / 2 + frameThickness / 2, 0, sillHeight + height / 2);
-        this.enableLayers(left);
+        this.enableArchitectureLayer(left);
         group.add(left);
 
         const right = new THREE.Mesh(sideGeo, frameMat);
         right.position.set(width / 2 - frameThickness / 2, 0, sillHeight + height / 2);
-        this.enableLayers(right);
+        this.enableArchitectureLayer(right);
         group.add(right);
 
         const glassGeo = new THREE.BoxGeometry(width - frameThickness * 2, 20, height - frameThickness * 2);
         const glass = new THREE.Mesh(glassGeo, this.materials.get('glass'));
         glass.position.set(0, 0, sillHeight + height / 2);
-        this.enableLayers(glass);
+        this.enableArchitectureLayer(glass);
         group.add(glass);
 
         root.add(group);
@@ -760,7 +770,7 @@ export class SceneBuilder {
             data: mod
         };
 
-        this.enableLayers(mesh);
+        this.enableFurnitureLayer(mesh);
         this.createBoundsHelper(mesh);
 
         // 添加朝向箭头

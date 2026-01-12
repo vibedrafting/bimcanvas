@@ -11,6 +11,8 @@ export class LayerManager {
     public static readonly LAYER_ZONES = 7;  // 设计区 / 禁区（预留）
     public static readonly LAYER_SEMANTIC = 8; // 设计场线（预留）
     public static readonly LAYER_AI_VISION = 9; // AI 视觉层 (高对比度)
+    public static readonly LAYER_ARCHITECTURE = 10; // 建筑图层（墙柱门窗）
+    public static readonly LAYER_FURNITURE = 11;    // 模块预览图层（家具）
 
     // Presets
     public static readonly PRESET_HUMAN = 'human';
@@ -37,6 +39,8 @@ export class LayerManager {
 
         if (preset === LayerManager.PRESET_HUMAN) {
             this.camera.layers.enable(LayerManager.LAYER_GRID); // Enable Grid by default for Human
+            this.camera.layers.enable(LayerManager.LAYER_ARCHITECTURE); // 建筑图层默认启用
+            this.camera.layers.enable(LayerManager.LAYER_FURNITURE);    // 模块图层默认启用
             this.camera.layers.disable(LayerManager.LAYER_LABELS);
             this.camera.layers.disable(LayerManager.LAYER_BOUNDS);
             this.camera.layers.disable(LayerManager.LAYER_OUTLINE);
@@ -54,6 +58,8 @@ export class LayerManager {
             this.camera.layers.enable(LayerManager.LAYER_ZONES);
             this.camera.layers.enable(LayerManager.LAYER_SEMANTIC);
             this.camera.layers.enable(LayerManager.LAYER_AI_VISION);
+            this.camera.layers.enable(LayerManager.LAYER_ARCHITECTURE);
+            this.camera.layers.enable(LayerManager.LAYER_FURNITURE);
             // Note: LAYER_MODEL is NOT disabled here. AI Vision is an OVERLAY, not a replacement.
         }
     }
