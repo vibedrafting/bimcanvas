@@ -62,14 +62,6 @@ class ConfigLoader:
 
     def _ensure_config_exists(self) -> None:
         """确保配置目录和文件存在，不存在则从模板初始化"""
-        config_json = self.config_dir / "config.json"
-
-        if not config_json.exists():
-            logger.info(f"配置目录不存在或不完整，正在初始化: {self.config_dir}")
-            self._init_from_templates()
-
-    def _init_from_templates(self) -> None:
-        """从模板初始化配置目录"""
         if not self.TEMPLATES_DIR.exists():
             raise FileNotFoundError(
                 f"模板目录不存在: {self.TEMPLATES_DIR}\n"
@@ -81,17 +73,16 @@ class ConfigLoader:
         agents_dir = self.config_dir / "agents"
         agents_dir.mkdir(exist_ok=True)
 
-        # 复制所有模板文件（去掉 .template 后缀）
+        # 检查每个模板文件，如果目标不存在则复制
         for template_file in self.TEMPLATES_DIR.rglob("*.template"):
             relative_path = template_file.relative_to(self.TEMPLATES_DIR)
             target_name = str(relative_path).replace(".template", "")
             target_path = self.config_dir / target_name
 
-            target_path.parent.mkdir(parents=True, exist_ok=True)
-            shutil.copy(template_file, target_path)
-            logger.info(f"已创建配置文件: {target_path}")
-
-        logger.info(f"配置已初始化到: {self.config_dir}")
+            if not target_path.exists():
+                target_path.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copy(template_file, target_path)
+                logger.info(f"已创建配置文件: {target_path}")
 
     def load_config(self) -> dict:
         """
