@@ -16,33 +16,46 @@ export class ScreenshotService {
   }
 
   /**
-   * 截取整个画布（直接从 WebGL canvas 获取）
+   * 截取整个画布（合成 WebGL + CSS2D 标签层）
    * @returns Base64 编码的图片数据
    */
   async captureCanvas(): Promise<string> {
-    // 直接获取 WebGL canvas 元素
+    // 1. 获取 WebGL canvas
     const glCanvas = document.querySelector('.three-canvas canvas') as HTMLCanvasElement
-      || document.querySelector('.canvas-area canvas') as HTMLCanvasElement
-    if (glCanvas) {
-      // WebGL canvas 直接使用 toDataURL（需要 preserveDrawingBuffer: true）
-      return glCanvas.toDataURL('image/png')
+    if (!glCanvas) {
+      throw new Error('WebGL canvas not found. Please ensure the canvas is loaded.')
     }
 
-    // 回退：使用 html2canvas（可能无法正确捕获 WebGL 内容）
-    const element = document.querySelector('.canvas-area')
-      || document.querySelector('.three-canvas')
-    if (!element) {
-      throw new Error('Canvas element not found. Please ensure the canvas is loaded.')
+    // 2. 获取 CSS2D 层（标签渲染层）
+    const css2dLayer = document.querySelector('.three-canvas > div') as HTMLElement
+
+    // 3. 创建合成 canvas
+    const finalCanvas = document.createElement('canvas')
+    finalCanvas.width = glCanvas.width
+    finalCanvas.height = glCanvas.height
+    const ctx = finalCanvas.getContext('2d')
+    if (!ctx) {
+      throw new Error('Failed to create canvas context')
     }
-    console.warn('[ScreenshotService] WebGL canvas not found, falling back to html2canvas')
-    const canvas = await html2canvas(element as HTMLElement, {
-      backgroundColor: null,
-      scale: window.devicePixelRatio || 1,
-      logging: false,
-      useCORS: true,
-      allowTaint: true
-    })
-    return canvas.toDataURL('image/png')
+
+    // 4. 绘制 WebGL 内容（底层）
+    ctx.drawImage(glCanvas, 0, 0)
+
+    // 5. 合成 CSS2D 层（标签，上层）
+    if (css2dLayer) {
+      try {
+        const cssCanvas = await html2canvas(css2dLayer, {
+          backgroundColor: null,  // 透明背景
+          scale: window.devicePixelRatio || 1,
+          logging: false
+        })
+        ctx.drawImage(cssCanvas, 0, 0)
+      } catch (e) {
+        console.warn('[ScreenshotService] Failed to capture CSS2D layer:', e)
+      }
+    }
+
+    return finalCanvas.toDataURL('image/png')
   }
 
   /**
