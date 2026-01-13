@@ -88,6 +88,9 @@ Server：管理状态、执行验证，不做布置决策
 | **query** | 只读 | Read, Glob, Grep | 统计、查看、列出、检查 |
 | **execute** | 可写 | Read, Write, Edit, Glob, Grep | 布置、添加、移动、删除 |
 
+> ⚠️ **实现差异**：MVP 阶段 SubAgent 工具为静态配置（如 layout-agent 使用 `[Read, Write, Glob]`）。
+> - **计划**：后期实现 query/execute 任务类型的动态工具权限调整
+
 **主控 Agent 判断规则**：
 
 ```markdown

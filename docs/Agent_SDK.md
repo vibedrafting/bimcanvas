@@ -353,6 +353,9 @@ async with ClaudeSDKClient(options=options) as client:
 
 ## 七、ClaudeSDKClient 完整封装
 
+> ⚠️ **历史示例**：以下代码使用旧版 `PlacementAgent` 名称，实际实现为 `MainAgent`。
+> 架构已从单体 Agent 演进为"主控 Agent + SubAgent"模式，详见 [Agent_Design.md](./Agent_Design.md)。
+
 ```python
 from claude_agent_sdk import ClaudeSDKClient, ClaudeAgentOptions, AssistantMessage, TextBlock
 

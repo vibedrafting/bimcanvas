@@ -77,10 +77,12 @@ project.bcp (ZIP)
 │   ├── openings.json       门窗 Line2D + type + direction
 │   ├── rooms.json          物理房间 { id, name, type, boundary }
 │   └── locationLines.json  完成面定位线
-├── schemes/{strategyId}/   【中层】方案设计数据（AI/Server 可写）
+├── schemes/                【中层】方案设计数据（v3.2 简化，AI/Server 可写）
+│   ├── strategy.json       策略元数据
 │   ├── zones.json          设计区域 { roomId, tags[], innerBoundary }
 │   ├── finishes.json       完成面分段
 │   └── modules.json        布置模块 { bounds, facing, items[] }
+│   注：v3.2 架构简化，多策略通过 Git 分支隔离（非子目录）
 └── computed/               【顶层】计算派生数据（Server 自动生成）
     ├── room_zones.json     房间区域 + 预计算的 tags
     └── exclusions.json     禁区集合

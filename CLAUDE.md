@@ -28,7 +28,7 @@
 |------|--------|------|------|
 | BIMCanvas.Core | .NET Standard 2.0 | 数据模型 + 空间算法 | ✅ 已完成 |
 | BIMCanvas.Revit | .NET FW 4.7.2 | Revit 插件（导出 + 回写） | 🔶 导出完成，回写待开发 |
-| BIMCanvas.Agent | Python 3.10+ | PlacementAgent（Agent SDK） | ⬜ 待开发 |
+| BIMCanvas.Agent | Python 3.10+ | MainAgent（主控+SubAgent） | ⬜ 待开发 |
 | BIMCanvas.Server | .NET 6+ | 统一后端（MCP + REST + SignalR + SSE） | ⬜ 待开发 |
 | BIMCanvas.Web | Vue 3 + TS | Web 前端 | ⬜ 待开发 |
 
@@ -75,15 +75,15 @@ BIMCanvas.Revit.*    → 仅 Revit 插件内部使用
 
 ---
 
-## PlacementAgent 架构速查
+## MainAgent 架构速查
 
-> **架构决策**：PlacementAgent 基于 Anthropic Agent SDK 实现，作为独立 Python 进程运行，通过 SSE 接收事件触发。
+> **架构决策**：MainAgent 基于 Anthropic Agent SDK 实现，采用"主控 Agent + SubAgent"架构，作为独立 Python 进程运行，通过 SSE 接收事件触发。
 
 ### 架构概览
 
 ```
 BIMCanvas.Agent (Python 3.10+)
-├── PlacementAgent (Agent SDK)
+├── MainAgent (主控+SubAgent)
 ├── EventListener (SSE 客户端)
 └── MCP 工具集成
          ↑ SSE 事件           ↓ MCP/HTTP 调用
@@ -98,7 +98,7 @@ BIMCanvas.Server (.NET 6+)
 
 | 触发方式 | 触发源 | 数据流 |
 |----------|--------|--------|
-| AI 对话 | 用户输入 | 用户 → Agent Chat → PlacementAgent.run() |
+| AI 对话 | 用户输入 | 用户 → Agent Chat → MainAgent.run() |
 | Web 按钮 | 前端 UI | Web → Server EventBus → SSE → Agent |
 | 自动修正 | Server 检测 | Server 验证 → EventBus → SSE → Agent |
 

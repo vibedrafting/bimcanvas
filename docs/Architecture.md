@@ -32,7 +32,7 @@
 | Phase 1 | 数据准备 | BIMCanvas.Revit | 精简版 CanvasDocument |
 | Phase 2 | 数据处理 | BIMCanvas.Server | 完整版 CanvasDocument |
 | Phase 3 | 区域确认 | 用户 + AI | zones[].tags + wallFinishes |
-| Phase 4 | 方案生成 | PlacementAgent | modules[] |
+| Phase 4 | 方案生成 | MainAgent | modules[] |
 | Phase 5 | 交互修改 | 用户 + AI | 更新的 modules[] |
 | Phase 6 | 回写 Revit | Revit-MCP | Revit 家具实例 |
 
@@ -106,13 +106,13 @@
 │  └── exclusions.json    禁区（门扇扫过区域等）                │
 │  特点：完全派生，可随时重建                                   │
 ├─────────────────────────────────────────────────────────────┤
-│  中层 (Schemes) - 方案设计层                                  │
-│  schemes/{strategyId}/                                       │
+│  中层 (Schemes) - 方案设计层（v3.2 简化）                     │
+│  schemes/                                                     │
 │  ├── strategy.json      策略元数据                           │
 │  ├── zones.json         设计区域划分（AI/Server 写入）       │
 │  ├── finishes.json      完成面定义（AI/Server 写入）         │
 │  └── modules.json       家具模块布置（AI 写入）              │
-│  特点：可编辑，每个方案独立                                   │
+│  特点：可编辑，多策略通过 Git 分支隔离（非子目录）            │
 ├─────────────────────────────────────────────────────────────┤
 │  底层 (Baseline) - 建筑基础层                                 │
 │  baseline/                                                   │
@@ -203,7 +203,7 @@ project.bcp (ZIP)
                  ▼                                         ▼
 ┌─────────────────────────────────────┐  ┌─────────────────────────────────────┐
 │     BIMCanvas.Agent (Python)        │  │       BIMCanvas.Server (.NET 6+)    │
-│     PlacementAgent 服务              │  │       统一后端服务                   │
+│     MainAgent（主控+SubAgent）       │  │       统一后端服务                   │
 ├─────────────────────────────────────┤  ├─────────────────────────────────────┤
 │  • 基于 Anthropic Agent SDK         │  │  McpTools/     Canvas-MCP 工具      │
 │  • 长期运行的 AI Agent              │  │  Controllers/  REST API + SSE       │
@@ -629,7 +629,7 @@ BIMCanvas/                                    【根目录】
 │       └── EventBus.cs                         事件总线
 │
 ├── BIMCanvas.Agent/                          【项目】AI Agent (Python 3.10+)
-│   └── PlacementAgent                        基于 Anthropic Agent SDK
+│   └── MainAgent                          主控Agent + SubAgent 架构
 │
 ├── BIMCanvas.Web/                            【项目】Web 前端 (Vue 3 + TS)
 │   ├── src/stores/                           Pinia 状态管理
