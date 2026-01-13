@@ -16,16 +16,18 @@
 
 ## 二、新文档命名规范
 
-采用 `分类编号_文档名.md` 格式，通过前缀体现分类：
+采用 `分类前缀_文档名.md` 格式，通过语义化前缀体现分类：
 
-| 前缀 | 分类 | 说明 |
-|------|------|------|
-| `00_` | 产品与需求 | 产品定位、功能需求 |
-| `01_` | 系统架构 | 整体架构、数据流、MCP 工具 |
-| `02_` | 数据模型 | JSON Schema、数据结构 |
-| `03_` | 业务流程 | 端到端流程、协作规范 |
-| `04_` | Agent 设计 | Agent 架构、提示词、SDK |
-| `05_` | Web 前端 | 渲染系统、交互设计 |
+| 前缀 | 分类 | 说明 | 示例 |
+|------|------|------|------|
+| `PRD` | 产品与需求 | 产品定位、功能需求 | PRD.md |
+| `Arch_` | 系统架构 | 整体架构、数据流、MCP 工具 | Arch_Overview.md |
+| `Schema` | 数据模型 | JSON Schema、数据结构 | Schema.md |
+| `Flow_` | 业务流程 | 端到端流程、协作规范 | Flow_Workflows.md |
+| `Agent_` | Agent 设计 | Agent 架构、提示词、SDK | Agent_Design.md |
+| `Web_` | Web 前端 | 渲染系统、交互设计 | Web_Frontend.md |
+
+> 注：PRD 和 Schema 作为独立文档，无需额外后缀
 
 ---
 
@@ -35,25 +37,25 @@
 
 | 新文档名 | 源文档 | 修改范围 |
 |----------|--------|----------|
-| `00_PRD.md` | PRD.md (12-04) | 补充 File-Driven、OBB 规划师、Server-Agent 职责划分概念 |
-| `02_Schema.md` | Schema-JSON-v3.md (12-30) | 保持不变（作为数据模型权威来源） |
-| `01_MCP_Tools.md` | MCP-Tools-Spec.md (12-02) | **紧急修正**: §1.3 坐标系统改为 Y-up |
+| `PRD.md` | PRD.md (12-04) | 补充 File-Driven、OBB 规划师、Server-Agent 职责划分概念 |
+| `Schema.md` | Schema-JSON-v3.md (12-30) | 保持不变（作为数据模型权威来源） |
+| `Arch_MCP_Tools.md` | MCP-Tools-Spec.md (12-02) | **紧急修正**: §1.3 坐标系统改为 Y-up |
 
 ### 3.2 合并重组文档
 
 | 新文档名 | 源文档 | 合并策略 |
 |----------|--------|----------|
-| `01_Architecture.md` | Architecture.md (12-29) + FileDrivenArchitecture.md (12-29) + Data_Flow_Guide.md (01-11) | 以 Data_Flow_Guide 为主，合并架构概述 |
-| `03_Workflows.md` | Workflows.md (12-29) + Server_Agent_Workflow.md (01-10) | 以 Server_Agent_Workflow 为主，保留六阶段流程 |
-| `04_Agent_Design.md` | Agent_Design_Spec.md (01-09) + Agent_Prompt_Design_Guide.md (01-13) | 以 Prompt Guide 为主，SubAgent 架构优先 |
-| `04_Agent_SDK.md` | Agent_SDK_Technical_Guide.md (01-06) + AI_Parallel_Design_Patterns.md (12-30) | 以 SDK Guide 为主，保留并行设计模式 |
-| `05_Web_Frontend.md` | SVG_Rendering_System.md (01-11) + Web_Loading_Sequence.md (01-11) | 合并为完整前端技术文档 |
+| `Arch_Overview.md` | Architecture.md (12-29) + FileDrivenArchitecture.md (12-29) + Data_Flow_Guide.md (01-11) | 以 Data_Flow_Guide 为主，合并架构概述 |
+| `Flow_Workflows.md` | Workflows.md (12-29) + Server_Agent_Workflow.md (01-10) | 以 Server_Agent_Workflow 为主，保留六阶段流程 |
+| `Agent_Design.md` | Agent_Design_Spec.md (01-09) + Agent_Prompt_Design_Guide.md (01-13) | 以 Prompt Guide 为主，SubAgent 架构优先 |
+| `Agent_SDK.md` | Agent_SDK_Technical_Guide.md (01-06) + AI_Parallel_Design_Patterns.md (12-30) | 以 SDK Guide 为主，保留并行设计模式 |
+| `Web_Frontend.md` | SVG_Rendering_System.md (01-11) + Web_Loading_Sequence.md (01-11) | 合并为完整前端技术文档 |
 
 ### 3.3 独立保留文档
 
 | 新文档名 | 源文档 | 说明 |
 |----------|--------|------|
-| `04_AI_Spatial.md` | AISpatialUnderstanding.md (12-22) | 独立保留，OBB 规划师核心概念 |
+| `Agent_Spatial.md` | AISpatialUnderstanding.md (12-22) | 独立保留，OBB 规划师核心概念 |
 
 ---
 
@@ -65,9 +67,9 @@
 
 | 步骤 | 操作 | 源文件 | 目标文件 |
 |------|------|--------|----------|
-| 1.1 | 复制+重命名 | archives/Schema-JSON-v3.md | docs/02_Schema.md |
-| 1.2 | 复制+修正 | archives/MCP-Tools-Spec.md | docs/01_MCP_Tools.md |
-| 1.3 | 合并生成 | archives/Architecture.md + FileDrivenArchitecture.md + Data_Flow_Guide.md | docs/01_Architecture.md |
+| 1.1 | 复制+重命名 | archives/Schema-JSON-v3.md | docs/Schema.md |
+| 1.2 | 复制+修正 | archives/MCP-Tools-Spec.md | docs/Arch_MCP_Tools.md |
+| 1.3 | 合并生成 | archives/Architecture.md + FileDrivenArchitecture.md + Data_Flow_Guide.md | docs/Arch_Overview.md |
 
 **1.2 修正内容** (MCP-Tools-Spec):
 ```markdown
@@ -90,20 +92,20 @@
 
 | 步骤 | 操作 | 源文件 | 目标文件 |
 |------|------|--------|----------|
-| 2.1 | 复制+补充 | archives/PRD.md | docs/00_PRD.md |
-| 2.2 | 合并生成 | archives/Workflows.md + Server_Agent_Workflow.md | docs/03_Workflows.md |
+| 2.1 | 复制+补充 | archives/PRD.md | docs/PRD.md |
+| 2.2 | 合并生成 | archives/Workflows.md + Server_Agent_Workflow.md | docs/Flow_Workflows.md |
 
 **2.1 补充内容** (PRD):
 - §4 架构章节补充:
   - File-Driven Architecture 概念说明
   - OBB 规划师设计约束
   - Server-Agent 职责划分表
-- §6 SVG Schema 章节标记为过时，引用 02_Schema.md
+- §6 SVG Schema 章节标记为过时，引用 Schema.md
 
 **2.2 合并策略** (Workflows):
 - 保留 Workflows.md 的六阶段流程框架
 - 用 Server_Agent_Workflow.md 的 MVP/完整版定义补充 Phase 4
-- 补充三层汉堡模型说明（引用 02_Schema.md）
+- 补充三层汉堡模型说明（引用 Schema.md）
 - 补充 ChangeSource 机制说明（来自 Data_Flow_Guide）
 - 修正 tags 生成时机为 Server 预计算
 
@@ -115,9 +117,9 @@
 
 | 步骤 | 操作 | 源文件 | 目标文件 |
 |------|------|--------|----------|
-| 3.1 | 合并生成 | archives/Agent_Design_Spec.md + Agent_Prompt_Design_Guide.md | docs/04_Agent_Design.md |
-| 3.2 | 合并生成 | archives/Agent_SDK_Technical_Guide.md + AI_Parallel_Design_Patterns.md | docs/04_Agent_SDK.md |
-| 3.3 | 复制+重命名 | archives/AISpatialUnderstanding.md | docs/04_AI_Spatial.md |
+| 3.1 | 合并生成 | archives/Agent_Design_Spec.md + Agent_Prompt_Design_Guide.md | docs/Agent_Design.md |
+| 3.2 | 合并生成 | archives/Agent_SDK_Technical_Guide.md + AI_Parallel_Design_Patterns.md | docs/Agent_SDK.md |
+| 3.3 | 复制+重命名 | archives/AISpatialUnderstanding.md | docs/Agent_Spatial.md |
 
 **3.1 合并策略** (Agent_Design):
 - 以 Agent_Prompt_Design_Guide.md 为主框架（最新）
@@ -140,7 +142,7 @@
 
 | 步骤 | 操作 | 源文件 | 目标文件 |
 |------|------|--------|----------|
-| 4.1 | 合并生成 | archives/SVG_Rendering_System.md + Web_Loading_Sequence.md | docs/05_Web_Frontend.md |
+| 4.1 | 合并生成 | archives/SVG_Rendering_System.md + Web_Loading_Sequence.md | docs/Web_Frontend.md |
 
 **4.1 合并策略**:
 - SVG_Rendering_System.md 作为渲染引擎章节
@@ -185,15 +187,21 @@
 ```
 docs/
 ├── README.md                    # 文档索引（已存在，需更新）
-├── 00_PRD.md                    # 产品需求文档
-├── 01_Architecture.md           # 系统架构总设计
-├── 01_MCP_Tools.md              # MCP 工具接口规范
-├── 02_Schema.md                 # JSON 数据模型规范
-├── 03_Workflows.md              # 端到端业务流程
-├── 04_Agent_Design.md           # Agent 架构与提示词设计
-├── 04_Agent_SDK.md              # Agent SDK 技术指南
-├── 04_AI_Spatial.md             # AI 空间理解
-├── 05_Web_Frontend.md           # Web 前端技术
+│
+├── PRD.md                       # 产品需求文档
+├── Schema.md                    # JSON 数据模型规范
+│
+├── Arch_Overview.md             # 系统架构总设计
+├── Arch_MCP_Tools.md            # MCP 工具接口规范
+│
+├── Flow_Workflows.md            # 端到端业务流程
+│
+├── Agent_Design.md              # Agent 架构与提示词设计
+├── Agent_SDK.md                 # Agent SDK 技术指南
+├── Agent_Spatial.md             # AI 空间理解
+│
+├── Web_Frontend.md              # Web 前端技术
+│
 ├── agent_sdk/                   # Agent SDK 官方文档
 └── archives/                    # 旧版本文档归档
     ├── Agent_Design_Spec.md
