@@ -3,6 +3,7 @@
 import asyncio
 import json
 import logging
+from pathlib import Path
 from typing import Any
 
 from aiohttp import web
@@ -10,6 +11,7 @@ import aiohttp_cors
 
 from ..agent.main_agent import MainAgent
 from ..config.settings import get_settings
+from ..config.loader import ConfigLoader
 
 # Configure logging
 logger = logging.getLogger(__name__)
@@ -76,6 +78,78 @@ async def config_handler(request: web.Request) -> web.Response:
         "model": settings.model_name,
         "thinkingLevel": settings.thinking.default_level
     })
+
+
+def _get_web_config_path() -> Path:
+    """获取 Web 配置文件路径"""
+    return ConfigLoader.DEFAULT_CONFIG_DIR / "web-config.json"
+
+
+def _load_web_config() -> dict:
+    """加载 Web 配置文件"""
+    config_path = _get_web_config_path()
+    if config_path.exists():
+        try:
+            with open(config_path, 'r', encoding='utf-8') as f:
+                return json.load(f)
+        except Exception as e:
+            logger.warning(f"Failed to load web config: {e}")
+    return {"customModels": []}
+
+
+def _save_web_config(config: dict) -> None:
+    """保存 Web 配置文件"""
+    config_path = _get_web_config_path()
+    config_path.parent.mkdir(parents=True, exist_ok=True)
+    with open(config_path, 'w', encoding='utf-8') as f:
+        json.dump(config, f, ensure_ascii=False, indent=2)
+
+
+async def web_config_get_handler(request: web.Request) -> web.Response:
+    """
+    Get Web client configuration (custom models, etc.)
+
+    Response:
+        {
+            "customModels": [
+                { "id": "model-id", "label": "Model Label" }
+            ]
+        }
+    """
+    config = _load_web_config()
+    return web.json_response(config)
+
+
+async def web_config_save_handler(request: web.Request) -> web.Response:
+    """
+    Save Web client configuration.
+
+    Request body:
+        {
+            "customModels": [
+                { "id": "model-id", "label": "Model Label" }
+            ]
+        }
+    """
+    try:
+        data = await request.json()
+    except json.JSONDecodeError:
+        return web.json_response({"error": "Invalid JSON"}, status=400)
+
+    # 验证数据结构
+    custom_models = data.get("customModels", [])
+    if not isinstance(custom_models, list):
+        return web.json_response({"error": "customModels must be an array"}, status=400)
+
+    # 保存配置
+    config = {"customModels": custom_models}
+    try:
+        _save_web_config(config)
+        logger.info(f"Web config saved: {len(custom_models)} custom models")
+        return web.json_response({"success": True})
+    except Exception as e:
+        logger.error(f"Failed to save web config: {e}")
+        return web.json_response({"error": str(e)}, status=500)
 
 
 async def chat_handler(request: web.Request) -> web.Response:
@@ -348,6 +422,8 @@ def create_app() -> web.Application:
     routes = [
         web.get("/health", health_handler),
         web.get("/api/config", config_handler),
+        web.get("/api/web-config", web_config_get_handler),
+        web.post("/api/web-config", web_config_save_handler),
         web.post("/api/chat", chat_handler),
         web.post("/api/chat/stream", chat_stream_handler),
         web.post("/api/clear-history", clear_history_handler),

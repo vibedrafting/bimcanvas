@@ -433,28 +433,46 @@ const checkAgentHealth = async () => {
 // 获取 Agent 服务端配置并初始化模型/思考强度选择
 const fetchAgentConfig = async () => {
   try {
-    const response = await fetch(`${AGENT_API_BASE}/api/config`);
-    if (!response.ok) return;
+    // 并行获取默认配置和 Web 配置
+    const [configRes, webConfigRes] = await Promise.all([
+      fetch(`${AGENT_API_BASE}/api/config`),
+      fetch(`${AGENT_API_BASE}/api/web-config`)
+    ]);
 
-    const config = await response.json();
-    const { model: defaultModel, thinkingLevel: defaultThinking } = config;
-
-    // 初始化模型选择
-    if (defaultModel) {
-      let found = models.value.find(m => m.id === defaultModel);
-      if (!found) {
-        // 模型不在列表中，添加到列表
-        found = { id: defaultModel, label: defaultModel };
-        models.value.push(found);
+    // 加载自定义模型列表
+    if (webConfigRes.ok) {
+      const webConfig = await webConfigRes.json();
+      const customModels = webConfig.customModels || [];
+      // 合并自定义模型到列表（避免重复）
+      for (const cm of customModels) {
+        if (!models.value.some(m => m.id === cm.id)) {
+          models.value.push(cm);
+        }
       }
-      currentModel.value = found;
     }
 
-    // 初始化思考强度选择
-    if (defaultThinking) {
-      const foundThinking = thinkingLevels.find(t => t.id === defaultThinking);
-      if (foundThinking) {
-        currentThinking.value = foundThinking;
+    // 加载默认配置
+    if (configRes.ok) {
+      const config = await configRes.json();
+      const { model: defaultModel, thinkingLevel: defaultThinking } = config;
+
+      // 初始化模型选择
+      if (defaultModel) {
+        let found = models.value.find(m => m.id === defaultModel);
+        if (!found) {
+          // 模型不在列表中，添加到列表
+          found = { id: defaultModel, label: defaultModel };
+          models.value.push(found);
+        }
+        currentModel.value = found;
+      }
+
+      // 初始化思考强度选择
+      if (defaultThinking) {
+        const foundThinking = thinkingLevels.find(t => t.id === defaultThinking);
+        if (foundThinking) {
+          currentThinking.value = foundThinking;
+        }
       }
     }
 
@@ -923,6 +941,28 @@ const isAddingModel = ref(false);
 const newModelId = ref('');
 const newModelInputRef = ref<HTMLInputElement | null>(null);
 
+// 预定义模型ID列表（用于判断哪些是自定义模型）
+const BUILTIN_MODEL_IDS = [
+  'claude-sonnet-4-20250514',
+  'claude-opus-4-5-20251101',
+  'claude-3-5-haiku-20241022'
+];
+
+// 保存自定义模型列表到服务端
+const saveCustomModels = async () => {
+  // 过滤出自定义模型（非预定义的）
+  const customModels = models.value.filter(m => !BUILTIN_MODEL_IDS.includes(m.id));
+  try {
+    await fetch(`${AGENT_API_BASE}/api/web-config`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ customModels })
+    });
+  } catch (error) {
+    console.warn('保存自定义模型列表失败:', error);
+  }
+};
+
 const selectModel = (model: { id: string; label: string }) => {
   currentModel.value = model;
   isModelMenuOpen.value = false;
@@ -940,12 +980,14 @@ const startAddModel = () => {
 };
 
 // 确认添加模型
-const confirmAddModel = () => {
+const confirmAddModel = async () => {
   const id = newModelId.value.trim();
   if (id && !models.value.some(m => m.id === id)) {
     const newModel = { id, label: id };
     models.value.push(newModel);
     selectModel(newModel);  // 自动选中新添加的模型
+    // 保存自定义模型列表到服务端
+    await saveCustomModels();
   }
   cancelAddModel();
 };
