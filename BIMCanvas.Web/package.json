@@ -12,6 +12,7 @@
     "@microsoft/signalr": "^10.0.0",
     "@types/three": "^0.182.0",
     "axios": "^1.13.2",
+    "html2canvas": "^1.4.1",
     "markstream-vue": "^0.0.5-beta.4",
     "pinia": "^3.0.4",
     "sass": "^1.96.0",

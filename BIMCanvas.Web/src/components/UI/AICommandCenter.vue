@@ -3,6 +3,7 @@ import { ref, onMounted, nextTick, computed, watch } from 'vue';
 import { useCanvasStore } from '../../stores/canvasStore';
 import { useGitStore } from '../../stores/gitStore';
 import { ProjectService } from '../../services/ProjectService';
+import { getScreenshotService } from '../../services/ScreenshotService';
 import { storeToRefs } from 'pinia';
 import BranchCheckoutConfirmDialog from './Ribbon/BranchCheckoutConfirmDialog.vue';
 import type { SubAgent, ToolCall, ChatBubble, WaitingState } from '../../types/agent';
@@ -133,6 +134,7 @@ const getRandomWaitingVerb = (): string => {
 
 const chatMessages = ref<ChatMessage[]>([]);
 const inputMessage = ref('');
+const pendingImages = ref<string[]>([]);  // 待发送的截图附件（base64）
 const isLoading = ref(false);
 const isPollingBackground = ref(false);  // 后台任务 polling 状态
 const chatScrollRef = ref<HTMLElement | null>(null);
@@ -345,6 +347,9 @@ onMounted(async () => {
   await checkAgentHealth();
   await gitStore.fetchBranches();  // 使用Store获取分支列表
   await fetchProjectPath();  // 获取当前项目路径
+  // 启动截图服务 SSE 监听（响应 Agent 截图请求）
+  const screenshotService = getScreenshotService(AGENT_API_BASE);
+  screenshotService.startListening();
   // Note: Welcome message is now triggered by panelReady prop
 });
 
@@ -547,12 +552,17 @@ const sendMessage = async () => {
   }, 1000);
 
   try {
+    // 获取并清空待发送图片
+    const imagesToSend = [...pendingImages.value];
+    pendingImages.value = [];
+
     const response = await fetch(`${AGENT_API_BASE}/api/chat/stream`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         projectPath: currentProjectPath.value,
         message: message,
+        images: imagesToSend,  // 新增：图片附件
         model: currentModel.value?.id,
         thinkingLevel: currentThinking.value.id
       })
@@ -1000,6 +1010,8 @@ const contextOptions = {
     { id: 'fire-code', label: 'Fire Safety Code' }
   ],
   attachments: [
+    { id: 'screenshot-canvas', label: 'Screenshot Canvas' },
+    { id: 'screenshot-room', label: 'Screenshot Current Room' },
     { id: 'upload', label: 'Upload Image...' },
     { id: 'docs', label: 'Project Requirements.pdf' }
   ]
@@ -1022,9 +1034,34 @@ const openSubmenu = (id: string, event: MouseEvent) => {
     }
 };
 
-const handleContextSelect = (type: string, item: any) => {
+const handleContextSelect = async (type: string, item: any) => {
   console.log('Selected context:', type, item);
-  
+
+  // Handle screenshot attachments
+  if (type === 'attachments' && (item.id === 'screenshot-canvas' || item.id === 'screenshot-room')) {
+    try {
+      const screenshotService = getScreenshotService(AGENT_API_BASE);
+      let imageData: string;
+
+      if (item.id === 'screenshot-canvas') {
+        imageData = await screenshotService.captureCanvas();
+      } else {
+        // TODO: Get current room ID from selection or active scope
+        const roomId = 'room_001'; // Placeholder
+        imageData = await screenshotService.captureRoom(roomId);
+      }
+
+      pendingImages.value.push(imageData);
+      console.log(`[Screenshot] Added ${item.id}, total pending: ${pendingImages.value.length}`);
+    } catch (e) {
+      console.error('[Screenshot] Failed:', e);
+    }
+
+    isContextMenuOpen.value = false;
+    activeSubmenu.value = null;
+    return;
+  }
+
   // Logic to add context
   if (type === 'zones') {
     activeScope.value = item.label; // Update scope for demo
@@ -1033,7 +1070,7 @@ const handleContextSelect = (type: string, item: any) => {
     // For now, let's just simulate adding it to the input for visibility
     inputMessage.value += ` [Context: ${item.label}] `;
   }
-  
+
   isContextMenuOpen.value = false;
   activeSubmenu.value = null;
 };
@@ -1094,6 +1131,9 @@ import { onUnmounted } from 'vue';
 onUnmounted(() => {
   window.removeEventListener('click', handleGlobalClick);
   chatScrollRef.value?.removeEventListener('wheel', handleTableWheel);
+  // 停止截图服务 SSE 监听
+  const screenshotService = getScreenshotService(AGENT_API_BASE);
+  screenshotService.stopListening();
 });
 
 import TaskSummaryWidget from './TaskSummaryWidget.vue';

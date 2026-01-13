@@ -21,6 +21,7 @@ from ..config.settings import get_settings
 from ..config.loader import get_config_loader
 from .subagents import create_subagents
 from .agent_logger import get_agent_logger
+from ..mcp import create_canvas_mcp, get_allowed_tools
 
 logger = logging.getLogger(__name__)
 
@@ -149,19 +150,35 @@ class MainAgent:
         # 获取思考强度 token 数量
         thinking_tokens = settings.thinking.get_tokens(thinking_level)
 
+        # 创建 MCP 服务器
+        canvas_mcp = None
+        mcp_tools = []
+        try:
+            canvas_mcp = create_canvas_mcp()
+            mcp_tools = get_allowed_tools()
+            logger.info(f"MCP 服务器已创建，工具: {mcp_tools}")
+        except ValueError as e:
+            logger.warning(f"MCP 服务器创建失败: {e}")
+        except Exception as e:
+            logger.error(f"MCP 服务器创建异常: {e}")
+
+        # 合并工具权限
+        all_allowed = (allowed_tools or []) + mcp_tools
+
         return ClaudeAgentOptions(
             system_prompt=system_prompt,
             cwd=self.project_path,
             max_turns=20,
             model=settings.model_name,
             tools=allowed_tools,                   # None 表示默认全开
-            allowed_tools=allowed_tools or [],     # None 时传空列表
+            allowed_tools=all_allowed,             # 包含 MCP 工具
             disallowed_tools=disallowed_tools,     # 工具黑名单
             agents=self._subagents,
             permission_mode="acceptEdits",
             include_partial_messages=True,
             env=custom_env,                        # Agent SDK 独立环境变量
             max_thinking_tokens=thinking_tokens,   # 思考强度
+            mcp_servers={"canvas": canvas_mcp} if canvas_mcp else {},  # MCP 服务器
         )
 
     # ─────────────────────────────────────────────────────
@@ -559,6 +576,7 @@ class MainAgent:
     async def chat_stream(
         self,
         user_message: str,
+        images: list[str] = None,
         thinking_level: str = None
     ) -> AsyncIterator[StreamChunk]:
         """
@@ -566,6 +584,7 @@ class MainAgent:
 
         Args:
             user_message: 用户消息
+            images: 图片附件列表（base64 编码，可带 data:image/png;base64, 前缀）
             thinking_level: 思考强度等级 ("off", "low", "medium", "high")
                            None 表示使用当前配置，不调整
         """
@@ -588,7 +607,26 @@ class MainAgent:
         self._pending_tool_calls.clear()
         self._tool_to_subagent.clear()
 
-        await self._client.query(user_message)
+        # 构建消息内容（支持多模态）
+        if images:
+            content = []
+            for img_base64 in images:
+                # 移除 data:image/png;base64, 前缀
+                pure_base64 = img_base64
+                if "," in img_base64:
+                    pure_base64 = img_base64.split(",", 1)[1]
+                content.append({
+                    "type": "image",
+                    "source": {
+                        "type": "base64",
+                        "media_type": "image/png",
+                        "data": pure_base64
+                    }
+                })
+            content.append({"type": "text", "text": user_message})
+            await self._client.query(content)
+        else:
+            await self._client.query(user_message)
 
         async for message in self._client.receive_response():
             # 获取当前消息的 parent_tool_use_id（用于关联工具调用到 SubAgent）

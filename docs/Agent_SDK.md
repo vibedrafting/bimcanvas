@@ -54,13 +54,29 @@
 
 ### 1.3 并行设计三大支柱
 
-> 详细设计见 [Agent_Design.md](./Agent_Design.md)
+> 详细设计见 [Agent_SDK_Parallel.md](./Agent_SDK_Parallel.md)
 
 | 支柱 | 核心思想 | 实现方式 |
 |------|----------|----------|
 | **文件驱动** | 文件是唯一真理源，AI 无需记忆复杂上下文 | Git 分支 = 完整状态 |
 | **异步协作** | 用户无需等待，AI 在后台工作 | Commit/PR 交付成果 |
 | **并行生成** | 算力换广度，同时探索 N 种可能性 | Git Worktree 物理隔离 |
+
+### 1.4 Agent SDK 与 CLI 映射
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                        概念映射                                  │
+├─────────────────────────────────────────────────────────────────┤
+│  CLI 命令                        Agent SDK                       │
+│  ─────────────────────────────────────────────────────────────  │
+│  claude "你好"                   query(prompt="你好")            │
+│  --system-prompt "..."           options.system_prompt           │
+│  --cwd /path                     options.cwd                     │
+│  --allowedTools Read,Write       options.allowed_tools           │
+│  --max-turns 10                  options.max_turns               │
+└─────────────────────────────────────────────────────────────────┘
+```
 
 ---
 
@@ -88,18 +104,22 @@
 
 | 配置项 | 类型 | 说明 |
 |--------|------|------|
-| `system_prompt` | str | 系统提示词 |
-| `cwd` | str | 工作目录 |
+| `system_prompt` | str | 系统提示词，定义 Agent 角色和行为 |
+| `cwd` | str | 工作目录，文件工具的根路径 |
 | `allowed_tools` | list | 允许的内置工具列表 |
-| `permission_mode` | str | 权限模式 |
-| `max_turns` | int | 最大对话轮次 |
+| `permission_mode` | str | 权限模式（见下表） |
+| `max_turns` | int | 最大对话轮次（工具调用次数） |
 | `resume` | str | 会话 ID，用于恢复对话 |
 | `fork_session` | bool | 恢复时是否分叉为新会话 |
-| `mcp_servers` | dict | MCP Server 配置 |
-| `agents` | dict | SubAgent 定义 |
+| `mcp_servers` | dict | MCP Server 配置（如 `{"canvas": server}`） |
+| `agents` | dict | SubAgent 定义（`AgentDefinition` 字典） |
 | `hooks` | dict | Hook 配置 |
-| `can_use_tool` | Callable | 工具权限回调 |
-| `sandbox` | SandboxSettings | 沙箱配置 |
+| `can_use_tool` | Callable | 工具权限回调函数 |
+| `sandbox` | SandboxSettings | 沙箱配置，控制命令执行隔离 |
+| `enable_file_checkpointing` | bool | 启用文件检查点，支持回滚 |
+| `output_format` | OutputFormat | 结构化输出格式（JSON Schema） |
+| `setting_sources` | list | 设置源：`["user", "project", "local"]` |
+| `add_dirs` | list | 额外允许访问的目录列表 |
 
 **权限模式 (permission_mode)**：
 
@@ -550,6 +570,7 @@ logging.basicConfig(level=logging.DEBUG)
 | 文档 | 路径 | 内容 |
 |------|------|------|
 | Agent 架构设计 | [Agent_Design.md](./Agent_Design.md) | SubAgent 架构、提示词设计 |
+| 并行设计模式 | [Agent_SDK_Parallel.md](./Agent_SDK_Parallel.md) | 三大支柱、核心场景、Git Worktree 架构 |
 | 空间理解 | [Agent_Spatial.md](./Agent_Spatial.md) | AI 空间理解 |
 | 业务流程 | [Flow_Workflows.md](./Flow_Workflows.md) | 端到端工作流 |
 

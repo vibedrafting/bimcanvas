@@ -64,6 +64,7 @@
 | **门扇区域** | 预计算为矩形禁区（AABB） | KISS - AI 只需知道"这里不能放" |
 | **布置单元** | modules（模块） | 支持单一家具或组合（如睡眠模块=床+床头柜） |
 | **模块朝向** | 语义化方向（north/south/...） | AI 友好，插件端转换为角度 |
+| **多方案管理** | Strategy 对象 | 每个方案独立文件夹，支持 Git diff 版本对比 |
 | **Core 运行时** | .NET Standard 2.0 | 同时兼容 .NET FW 4.7.2 和 .NET 6+ |
 
 ---
@@ -358,8 +359,10 @@ private void OnFileChanged(...) {
 | 系统初始化 | SystemInit | 是 | 否 | 否 |
 | 上传新项目 | UserUpload | 是 | 否 | 否 |
 | Git 切换分支 | GitCheckout | 是 | 否 | 是 |
+| Git 放弃修改 | GitDiscard | 是 | 否 | 是 |
 | Agent 修改 | AgentModify | 否 | 是 | 是 |
 | Server 推送 | ServerSync | 否 | 是 | 是 |
+| 协作同步 | CollabSync | 否 | 是 | 是 |
 | 用户编辑 | UserEdit | 否 | 是 | - |
 
 ### 5.4 撤销/重做机制

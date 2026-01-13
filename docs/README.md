@@ -19,7 +19,9 @@
 | [Arch_DataFlow.md](Arch_DataFlow.md) | 系统架构 | 数据流场景分析专题 |
 | [Flow_Workflows.md](Flow_Workflows.md) | 业务流程 | 端到端业务流程 |
 | [Agent_Design.md](Agent_Design.md) | Agent 设计 | Agent 架构与提示词设计 |
+| [Agent_Design_ModuleLib.md](Agent_Design_ModuleLib.md) | Agent 设计 | 模块素材库规范（专题） |
 | [Agent_SDK.md](Agent_SDK.md) | Agent 设计 | Agent SDK 技术指南 |
+| [Agent_SDK_Parallel.md](Agent_SDK_Parallel.md) | Agent 设计 | 并行设计模式（专题） |
 | [Agent_Spatial.md](Agent_Spatial.md) | Agent 设计 | AI 空间理解能力增强 |
 | [Web_Frontend.md](Web_Frontend.md) | Web 前端 | Web 前端技术 |
 
@@ -59,7 +61,9 @@
 | 文档 | 核心内容 |
 |------|----------|
 | [Agent_Design.md](Agent_Design.md) | 主控 Agent + SubAgent 架构、提示词规范、行为边界 |
-| [Agent_SDK.md](Agent_SDK.md) | ClaudeSDKClient 封装、并行设计模式、MCP 工具定位 |
+| [Agent_Design_ModuleLib.md](Agent_Design_ModuleLib.md) | 模块素材库规范、37 个模块、9 类标签、SVG 资源规范 |
+| [Agent_SDK.md](Agent_SDK.md) | ClaudeSDKClient 封装、MCP 工具定位 |
+| [Agent_SDK_Parallel.md](Agent_SDK_Parallel.md) | 三大支柱、核心场景（策略分叉/布局求解器/主编式合并）、Git Worktree 架构 |
 | [Agent_Spatial.md](Agent_Spatial.md) | OBB 规划师哲学、视觉增强、设计场线、语义网格 |
 
 ### 6. Web 前端
@@ -121,9 +125,11 @@ PRD (产品定位)
  │
  ├──→ Agent 设计体系
  │         │
- │         ├── Agent_SDK (SDK 技术)
- │         │
  │         ├── Agent_Design (架构与提示词)
+ │         │       └── Agent_Design_ModuleLib (模块素材库专题)
+ │         │
+ │         ├── Agent_SDK (SDK 技术)
+ │         │       └── Agent_SDK_Parallel (并行设计模式专题)
  │         │
  │         └── Agent_Spatial (空间理解)
  │
@@ -170,8 +176,8 @@ PRD (产品定位)
 | Architecture.md + FileDrivenArchitecture.md + Data_Flow_Guide.md | Architecture.md |
 | PRD.md | PRD.md |
 | Workflows.md + Server_Agent_Workflow.md | Flow_Workflows.md |
-| Agent_Design_Spec.md + Agent_Prompt_Design_Guide.md | Agent_Design.md |
-| Agent_SDK_Technical_Guide.md + AI_Parallel_Design_Patterns.md | Agent_SDK.md |
+| Agent_Design_Spec.md + Agent_Prompt_Design_Guide.md | Agent_Design.md + Agent_Design_ModuleLib.md |
+| Agent_SDK_Technical_Guide.md + AI_Parallel_Design_Patterns.md | Agent_SDK.md + Agent_SDK_Parallel.md |
 | AISpatialUnderstanding.md | Agent_Spatial.md |
 | SVG_Rendering_System.md + Web_Loading_Sequence.md | Web_Frontend.md |
 
@@ -194,4 +200,4 @@ PRD (产品定位)
 
 ---
 
-*文档重构完成于 2026-01-13，将 15 个原始文档整合为 11 个分类清晰的新文档（包含 2 个补全的专题文档）*
+*文档重构完成于 2026-01-13，将 15 个原始文档整合为 13 个分类清晰的新文档（包含 4 个专题文档：Arch_Converter、Arch_DataFlow、Agent_Design_ModuleLib、Agent_SDK_Parallel）*

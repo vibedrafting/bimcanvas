@@ -1,6 +1,6 @@
 # AI 空间理解能力增强指南
 
-> **版本**：v1.0 | **更新日期**：2025-12-22
+> **版本**：v1.1 | **更新日期**：2026-01-13
 > **目的**：本文档汇总了关于如何全方位增强 AI 对建筑空间理解能力的深度讨论与共识。核心目标是通过多维度的手段（数据抽象、视觉增强、规则显性化），消除人类视觉与 AI 逻辑之间的鸿沟，使 AI 能够像专业设计师一样进行空间规划。
 
 ---
@@ -144,5 +144,7 @@ AI 看到图上的"沙发"时，它无法直接知道这对应 JSON 里的哪个
 | 文档 | 路径 | 内容 |
 |------|------|------|
 | Agent 架构设计 | [Agent_Design.md](./Agent_Design.md) | SubAgent 架构、OBB 规划师职责 |
+| Agent SDK 指南 | [Agent_SDK.md](./Agent_SDK.md) | ClaudeSDKClient、MCP 工具集成 |
+| 模块素材库 | [Agent_Design_ModuleLib.md](./Agent_Design_ModuleLib.md) | 37 个模块、标签体系 |
 | 数据模型 | [Schema.md](./Schema.md) | JSON Schema 定义 |
-| 产品需求 | [PRD.md](./PRD.md) | OBB 规划师设计约束 |
+| 产品需求 | [PRD.md](./PRD.md) | OBB 规划师设计约束（§4.3） |

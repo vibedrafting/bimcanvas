@@ -1,8 +1,11 @@
 """HTTP Server for Web integration using aiohttp"""
 
 import asyncio
+import base64
 import json
 import logging
+import uuid
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 
@@ -19,6 +22,10 @@ logger = logging.getLogger(__name__)
 # Global agent instances (cached by project path)
 agents: dict[str, MainAgent] = {}
 _agents_lock = asyncio.Lock()
+
+# Screenshot request management
+_screenshot_requests: dict[str, asyncio.Future] = {}
+_screenshot_sse_queues: list[asyncio.Queue] = []
 
 
 async def get_agent(project_path: str) -> MainAgent:
@@ -210,6 +217,7 @@ async def chat_stream_handler(request: web.Request) -> web.StreamResponse:
         {
             "projectPath": "path/to/project",
             "message": "user message",
+            "images": ["base64..."],              // optional, 图片附件列表
             "model": "claude-sonnet-4-20250514",  // optional, 动态切换模型
             "thinkingLevel": "high"               // optional, 思考强度 (off/low/medium/high)
         }
@@ -226,8 +234,9 @@ async def chat_stream_handler(request: web.Request) -> web.StreamResponse:
 
     project_path = data.get("projectPath", "")
     message = data.get("message", "")
-    model = data.get("model")              # 新增：模型名称
-    thinking_level = data.get("thinkingLevel")  # 新增：思考强度
+    images = data.get("images", [])        # 新增：图片附件列表
+    model = data.get("model")              # 模型名称
+    thinking_level = data.get("thinkingLevel")  # 思考强度
 
     if not message:
         return web.json_response(
@@ -253,7 +262,7 @@ async def chat_stream_handler(request: web.Request) -> web.StreamResponse:
         if model:
             await agent.set_model(model)
 
-        async for chunk in agent.chat_stream(message, thinking_level=thinking_level):
+        async for chunk in agent.chat_stream(message, images=images, thinking_level=thinking_level):
             # 构建 SSE 事件数据
             event_data = {"type": chunk.type}
 
@@ -388,6 +397,172 @@ async def interrupt_handler(request: web.Request) -> web.Response:
     return web.json_response({"error": "Agent not found"}, status=404)
 
 
+# ============== Screenshot API ==============
+
+async def screenshot_events_handler(request: web.Request) -> web.StreamResponse:
+    """
+    SSE 端点：Web 端监听 Agent 截图请求
+
+    Web 端连接此端点后，当 Agent 调用截图 MCP 工具时，
+    会收到 screenshot_request 事件，需要执行截图并提交结果。
+    """
+    response = web.StreamResponse(
+        status=200,
+        headers={
+            "Content-Type": "text/event-stream",
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+        }
+    )
+    await response.prepare(request)
+
+    queue: asyncio.Queue = asyncio.Queue()
+    _screenshot_sse_queues.append(queue)
+    logger.info(f"Screenshot SSE client connected, total: {len(_screenshot_sse_queues)}")
+
+    try:
+        while True:
+            event = await queue.get()
+            event_str = json.dumps(event, ensure_ascii=False)
+            await response.write(f"event: screenshot_request\ndata: {event_str}\n\n".encode("utf-8"))
+    except asyncio.CancelledError:
+        pass
+    finally:
+        _screenshot_sse_queues.remove(queue)
+        logger.info(f"Screenshot SSE client disconnected, remaining: {len(_screenshot_sse_queues)}")
+
+    return response
+
+
+async def screenshot_request_handler(request: web.Request) -> web.Response:
+    """
+    Agent 请求截图 → 通知 Web 端
+
+    Request body:
+        {
+            "projectPath": "path/to/project",
+            "roomId": "room_001"  // optional, 不传则截取整个画布
+        }
+
+    Response:
+        {
+            "path": "screenshots/canvas_20260113_150000.png",
+            "base64": "iVBORw0KGgo..."  // 纯 base64 数据
+        }
+    """
+    try:
+        data = await request.json()
+    except json.JSONDecodeError:
+        data = {}
+
+    room_id = data.get("roomId")
+    project_path = data.get("projectPath", ".")
+    request_id = str(uuid.uuid4())
+
+    # 检查是否有 Web 客户端连接
+    if not _screenshot_sse_queues:
+        return web.json_response(
+            {"error": "No Web client connected for screenshot"},
+            status=503
+        )
+
+    # 创建等待 Future
+    loop = asyncio.get_event_loop()
+    future: asyncio.Future = loop.create_future()
+    _screenshot_requests[request_id] = future
+
+    # 广播给所有 SSE 客户端
+    event = {"requestId": request_id, "roomId": room_id}
+    for queue in _screenshot_sse_queues:
+        await queue.put(event)
+
+    logger.info(f"Screenshot request sent: {request_id}, roomId={room_id}")
+
+    try:
+        # 等待 Web 端返回（10秒超时）
+        result = await asyncio.wait_for(future, timeout=10.0)
+
+        if result.get("error"):
+            return web.json_response({"error": result["error"]}, status=400)
+
+        # 保存图片并返回 path + base64
+        image_data = result["imageData"]
+        filepath, pure_base64 = _save_screenshot(image_data, project_path, room_id)
+
+        logger.info(f"Screenshot saved: {filepath}")
+        return web.json_response({
+            "path": filepath,
+            "base64": pure_base64
+        })
+
+    except asyncio.TimeoutError:
+        logger.warning(f"Screenshot request timeout: {request_id}")
+        return web.json_response({"error": "Screenshot request timeout"}, status=504)
+    finally:
+        _screenshot_requests.pop(request_id, None)
+
+
+async def screenshot_result_handler(request: web.Request) -> web.Response:
+    """
+    Web 端返回截图结果
+
+    Request body:
+        {
+            "requestId": "uuid",
+            "imageData": "data:image/png;base64,...",  // 或纯 base64
+            "error": "error message"  // optional
+        }
+    """
+    try:
+        data = await request.json()
+    except json.JSONDecodeError:
+        return web.json_response({"error": "Invalid JSON"}, status=400)
+
+    request_id = data.get("requestId")
+    if not request_id or request_id not in _screenshot_requests:
+        return web.json_response({"error": "Unknown request ID"}, status=404)
+
+    future = _screenshot_requests[request_id]
+    future.set_result({
+        "imageData": data.get("imageData"),
+        "error": data.get("error")
+    })
+
+    logger.info(f"Screenshot result received: {request_id}")
+    return web.json_response({"success": True})
+
+
+def _save_screenshot(base64_data: str, project_path: str, room_id: str = None) -> tuple[str, str]:
+    """
+    保存 Base64 图片到文件
+
+    Args:
+        base64_data: Base64 编码的图片数据（可带 data:image/png;base64, 前缀）
+        project_path: 项目路径
+        room_id: 房间 ID（可选）
+
+    Returns:
+        (filepath, pure_base64) - 文件路径和纯 base64 数据
+    """
+    # 移除 data:image/png;base64, 前缀
+    pure_base64 = base64_data
+    if "," in base64_data:
+        pure_base64 = base64_data.split(",", 1)[1]
+
+    image_bytes = base64.b64decode(pure_base64)
+
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    prefix = f"room_{room_id}" if room_id else "canvas"
+    filename = f"{prefix}_{timestamp}.png"
+
+    save_dir = Path(project_path) / "screenshots"
+    save_dir.mkdir(parents=True, exist_ok=True)
+    filepath = save_dir / filename
+
+    filepath.write_bytes(image_bytes)
+    return str(filepath), pure_base64
+
+
 async def on_shutdown(app: web.Application) -> None:
     """应用关闭时清理资源"""
     logger.info("Shutting down, cleaning up agents...")
@@ -429,6 +604,10 @@ def create_app() -> web.Application:
         web.post("/api/clear-history", clear_history_handler),
         web.get("/api/history", get_history_handler),
         web.post("/api/interrupt", interrupt_handler),
+        # Screenshot API
+        web.get("/api/screenshot/events", screenshot_events_handler),
+        web.post("/api/screenshot/request", screenshot_request_handler),
+        web.post("/api/screenshot/result", screenshot_result_handler),
     ]
 
     # 按路径分组路由（避免同一路径重复创建 resource 导致 CORS 冲突）

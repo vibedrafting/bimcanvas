@@ -221,13 +221,13 @@ project.bcp (ZIP)
 │                                                              │
 │  // Server 持有的房间类型→功能标签对照表                      │
 │  ROOM_TYPE_TAGS = {                                          │
-│    "LivingRoom":     ["seating", "media", "storage"],        │
-│    "MasterBedroom":  ["sleep", "storage", "dressing"],       │
-│    "Bedroom":        ["sleep", "storage", "work"],           │
-│    "DiningRoom":     ["dining", "storage"],                  │
+│    "LivingRoom":     ["seating", "media", "storage", "lighting"],│
+│    "MasterBedroom":  ["sleep", "storage", "dressing", "lighting"],│
+│    "Bedroom":        ["sleep", "storage", "work", "lighting"],│
+│    "DiningRoom":     ["dining", "storage", "lighting"],      │
 │    "Kitchen":        ["appliance", "storage"],               │
 │    "Bathroom":       ["appliance"],                          │
-│    "Study":          ["work", "storage", "seating"],         │
+│    "Study":          ["work", "storage", "seating", "lighting"],│
 │    "Balcony":        ["appliance", "seating"],               │
 │  }                                                           │
 │                                                              │
@@ -502,6 +502,91 @@ Server 预计算（含标签分配）→ Agent 读取数据 → Agent 独立决�
 | **简化碰撞检测** | Agent 只能做 AABB 检测，精确 Polygon 检测由 Server 完成 |
 | **整体重做** | 验证失败时，Agent 需要重新生成整个方案 |
 | **无并行感知** | 多 Agent 可能产生冲突 |
+
+**MVP 版本 Agent 本地工具函数**
+
+```python
+# MVP 版本：Agent 内置的本地工具（非 MCP）
+# 注意：Agent 不需要 ROOM_TYPE_TAGS 映射表，直接读取 zone.tags
+
+def list_modules_by_zone(zone: dict) -> list[dict]:
+    """根据 Zone 的功能标签过滤模块"""
+    library = load_json("modules/module_library.json")
+    modules = library["modules"]
+
+    # 直接读取 Server 预计算好的 tags
+    tags = zone.get("tags", [])
+
+    # 过滤包含任一标签的模块
+    return [m for m in modules if any(t in m["tags"] for t in tags)]
+
+def list_modules(tags: list[str] = None) -> list[dict]:
+    """直接按标签过滤模块"""
+    library = load_json("modules/module_library.json")
+    modules = library["modules"]
+    if tags:
+        modules = [m for m in modules if any(t in m["tags"] for t in tags)]
+    return modules
+
+def get_zone(zone_id: str) -> dict:
+    """读取设计区数据（含预计算的 tags）"""
+    zones = load_json("computed/room_zones.json")["zones"]
+    return next((z for z in zones if z["id"] == zone_id), None)
+
+def get_exclusions(zone_id: str) -> list[dict]:
+    """读取禁区数据"""
+    exclusions = load_json("computed/exclusions.json")
+    return [e for e in exclusions if e.get("zoneId") == zone_id]
+
+def check_overlap_simple(bounds1, bounds2) -> bool:
+    """简单矩形重叠检测（Agent 自行实现）"""
+    # AABB 碰撞检测
+    aabb1 = compute_aabb(bounds1)
+    aabb2 = compute_aabb(bounds2)
+    return not (aabb1.max_x < aabb2.min_x or aabb1.min_x > aabb2.max_x or
+                aabb1.max_y < aabb2.min_y or aabb1.min_y > aabb2.max_y)
+
+def write_modules(scheme_id: str, modules: list[dict]):
+    """直接写入布置结果"""
+    write_json(f"schemes/{scheme_id}/modules.json", modules)
+```
+
+**Server 预计算逻辑（生成 room_zones.json）**
+
+```python
+# Server 端代码：生成 room_zones.json 时使用
+# Agent 不需要这段代码，仅供 Server 实现参考
+
+ROOM_TYPE_TAGS = {
+    "room:LivingRoom":     ["seating", "media", "storage", "lighting"],
+    "room:MasterBedroom":  ["sleep", "storage", "dressing", "lighting"],
+    "room:Bedroom":        ["sleep", "storage", "work", "lighting"],
+    "room:DiningRoom":     ["dining", "storage", "lighting"],
+    "room:Kitchen":        ["appliance", "storage"],
+    "room:Bathroom":       ["appliance"],
+    "room:Study":          ["work", "storage", "seating", "lighting"],
+    "room:Balcony":        ["appliance", "seating"],
+}
+
+def generate_room_zones(rooms: list[dict]) -> dict:
+    """Server 生成 room_zones.json 时，自动分配功能标签"""
+    zones = []
+    for room in rooms:
+        room_type = room.get("type", "")
+        zone_id = f"z{room['id'].replace('room_', '')}"
+
+        zones.append({
+            "id": zone_id,
+            "roomId": room["id"],
+            "reason": f"room:{room_type}",
+            "tags": ROOM_TYPE_TAGS.get(f"room:{room_type}", []),
+            "rawBoundary": room["boundary"],
+            "innerBoundary": compute_inner_boundary(room),  # Server 计算
+            "area_mm2": compute_area(room["boundary"])
+        })
+
+    return {"version": "1.0", "zones": zones}
+```
 
 ---
 
@@ -1065,13 +1150,13 @@ Web 前端                                                        Server
 
 | 房间类型 | 功能标签 | 说明 |
 |----------|----------|------|
-| `LivingRoom` | seating, media, storage | 客厅 |
-| `MasterBedroom` | sleep, storage, dressing | 主卧 |
-| `Bedroom` | sleep, storage, work | 次卧 |
-| `DiningRoom` | dining, storage | 餐厅 |
+| `LivingRoom` | seating, media, storage, lighting | 客厅 |
+| `MasterBedroom` | sleep, storage, dressing, lighting | 主卧 |
+| `Bedroom` | sleep, storage, work, lighting | 次卧 |
+| `DiningRoom` | dining, storage, lighting | 餐厅 |
 | `Kitchen` | appliance, storage | 厨房 |
 | `Bathroom` | appliance | 卫生间 |
-| `Study` | work, storage, seating | 书房 |
+| `Study` | work, storage, seating, lighting | 书房 |
 | `Balcony` | appliance, seating | 阳台 |
 
 ---
