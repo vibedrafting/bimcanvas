@@ -864,11 +864,11 @@ const toggleAttachmentMenu = () => {
 
 // Model & Thinking State
 // 存储完整对象 { id, label }，发送时使用 id，显示时使用 label
-const models = [
+const models = ref([
   { id: 'claude-sonnet-4-20250514', label: 'Claude Sonnet 4' },
   { id: 'claude-opus-4-5-20251101', label: 'Claude Opus 4.5' },
   { id: 'claude-3-5-haiku-20241022', label: 'Claude Haiku 3.5' }
-];
+]);
 
 const thinkingLevels = [
   { id: 'off', label: 'Off' },
@@ -877,14 +877,47 @@ const thinkingLevels = [
   { id: 'high', label: 'High' }
 ];
 
-const currentModel = ref(models[0]);  // 默认选择第一个模型
+const currentModel = ref(models.value[0]);  // 默认选择第一个模型
 const currentThinking = ref(thinkingLevels[2]);  // 默认 medium
 const isModelMenuOpen = ref(false);
 const isThinkingMenuOpen = ref(false);
 
+// 添加模型输入状态
+const isAddingModel = ref(false);
+const newModelId = ref('');
+const newModelInputRef = ref<HTMLInputElement | null>(null);
+
 const selectModel = (model: { id: string; label: string }) => {
   currentModel.value = model;
   isModelMenuOpen.value = false;
+  isAddingModel.value = false;
+};
+
+// 开始添加模型
+const startAddModel = () => {
+  isAddingModel.value = true;
+  newModelId.value = '';
+  // 自动聚焦输入框
+  nextTick(() => {
+    newModelInputRef.value?.focus();
+  });
+};
+
+// 确认添加模型
+const confirmAddModel = () => {
+  const id = newModelId.value.trim();
+  if (id && !models.value.some(m => m.id === id)) {
+    const newModel = { id, label: id };
+    models.value.push(newModel);
+    selectModel(newModel);  // 自动选中新添加的模型
+  }
+  cancelAddModel();
+};
+
+// 取消添加模型
+const cancelAddModel = () => {
+  isAddingModel.value = false;
+  newModelId.value = '';
 };
 
 const selectThinking = (level: { id: string; label: string }) => {
@@ -1437,7 +1470,7 @@ import MarkdownText from './base/MarkdownText.vue';
                             <span class="text">{{ currentModel.label }}</span>
                         </button>
                         <transition name="scale-up">
-                            <div class="pill-menu" v-if="isModelMenuOpen">
+                            <div class="pill-menu model-menu" v-if="isModelMenuOpen">
                                 <div class="menu-header">Model</div>
                                 <div
                                     v-for="m in models"
@@ -1450,6 +1483,39 @@ import MarkdownText from './base/MarkdownText.vue';
                                     <svg v-if="currentModel.id === m.id" class="check-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                                         <polyline points="20 6 9 17 4 12"></polyline>
                                     </svg>
+                                </div>
+                                <!-- 分隔线 -->
+                                <div class="menu-divider"></div>
+                                <!-- 添加模型按钮或输入框 -->
+                                <div v-if="!isAddingModel" class="menu-item add-model" @click.stop="startAddModel">
+                                    <svg class="add-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                        <line x1="12" y1="5" x2="12" y2="19"></line>
+                                        <line x1="5" y1="12" x2="19" y2="12"></line>
+                                    </svg>
+                                    <span class="item-text">Add Model...</span>
+                                </div>
+                                <div v-else class="add-model-input" @click.stop>
+                                    <input
+                                        ref="newModelInputRef"
+                                        v-model="newModelId"
+                                        type="text"
+                                        placeholder="Enter model ID..."
+                                        @keyup.enter="confirmAddModel"
+                                        @keyup.escape="cancelAddModel"
+                                    />
+                                    <div class="input-actions">
+                                        <button class="confirm-btn" @click="confirmAddModel" :disabled="!newModelId.trim()">
+                                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                                <polyline points="20 6 9 17 4 12"></polyline>
+                                            </svg>
+                                        </button>
+                                        <button class="cancel-btn" @click="cancelAddModel">
+                                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                                <line x1="18" y1="6" x2="6" y2="18"></line>
+                                                <line x1="6" y1="6" x2="18" y2="18"></line>
+                                            </svg>
+                                        </button>
+                                    </div>
                                 </div>
                             </div>
                         </transition>
@@ -1912,6 +1978,108 @@ import MarkdownText from './base/MarkdownText.vue';
     }
 }
 
+/* --- Add Model Styles --- */
+.menu-divider {
+    height: 1px;
+    background: rgba(255, 255, 255, 0.1);
+    margin: 4px 0;
+}
+
+.menu-item.add-model {
+    color: rgba(255, 255, 255, 0.5);
+
+    .add-icon {
+        width: 14px;
+        height: 14px;
+        color: rgba(255, 255, 255, 0.4);
+    }
+
+    &:hover {
+        color: #007AFF;
+        .add-icon {
+            color: #007AFF;
+        }
+    }
+}
+
+.add-model-input {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 4px 8px;
+
+    input {
+        flex: 1;
+        background: rgba(255, 255, 255, 0.1);
+        border: 1px solid rgba(255, 255, 255, 0.2);
+        border-radius: 4px;
+        padding: 4px 8px;
+        font-size: 11px;
+        color: white;
+        outline: none;
+        min-width: 120px;
+
+        &::placeholder {
+            color: rgba(255, 255, 255, 0.4);
+        }
+
+        &:focus {
+            border-color: #007AFF;
+            background: rgba(0, 122, 255, 0.1);
+        }
+    }
+
+    .input-actions {
+        display: flex;
+        gap: 4px;
+
+        button {
+            width: 22px;
+            height: 22px;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: all 0.1s;
+
+            svg {
+                width: 12px;
+                height: 12px;
+            }
+        }
+
+        .confirm-btn {
+            background: #007AFF;
+            color: white;
+
+            &:hover:not(:disabled) {
+                background: #0066DD;
+            }
+
+            &:disabled {
+                opacity: 0.4;
+                cursor: not-allowed;
+            }
+        }
+
+        .cancel-btn {
+            background: rgba(255, 255, 255, 0.1);
+            color: rgba(255, 255, 255, 0.6);
+
+            &:hover {
+                background: rgba(255, 255, 255, 0.15);
+                color: white;
+            }
+        }
+    }
+}
+
+/* 扩展模型菜单宽度以适应输入框 */
+.pill-menu.model-menu {
+    min-width: 200px;
+}
 
 .submenu-container.left {
     right: 100%; /* Fly out to the left */
