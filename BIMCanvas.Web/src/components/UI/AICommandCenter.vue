@@ -439,16 +439,10 @@ const fetchAgentConfig = async () => {
       fetch(`${AGENT_API_BASE}/api/web-config`)
     ]);
 
-    // 加载自定义模型列表
+    // 加载模型列表（完全由配置文件控制）
     if (webConfigRes.ok) {
       const webConfig = await webConfigRes.json();
-      const customModels = webConfig.customModels || [];
-      // 合并自定义模型到列表（避免重复）
-      for (const cm of customModels) {
-        if (!models.value.some(m => m.id === cm.id)) {
-          models.value.push(cm);
-        }
-      }
+      models.value = webConfig.customModels || [];
     }
 
     // 加载默认配置
@@ -460,11 +454,14 @@ const fetchAgentConfig = async () => {
       if (defaultModel) {
         let found = models.value.find(m => m.id === defaultModel);
         if (!found) {
-          // 模型不在列表中，添加到列表
+          // 默认模型不在列表中，添加到列表
           found = { id: defaultModel, label: defaultModel };
           models.value.push(found);
         }
         currentModel.value = found;
+      } else if (models.value.length > 0) {
+        // 没有默认模型配置，选择列表中的第一个
+        currentModel.value = models.value[0];
       }
 
       // 初始化思考强度选择
@@ -476,9 +473,9 @@ const fetchAgentConfig = async () => {
       }
     }
 
-    console.log('Agent 配置已加载:', { model: currentModel.value.id, thinking: currentThinking.value.id });
+    console.log('Agent 配置已加载:', { model: currentModel.value?.id, thinking: currentThinking.value.id });
   } catch (error) {
-    console.warn('获取 Agent 配置失败，使用默认值:', error);
+    console.warn('获取 Agent 配置失败:', error);
   }
 };
 
@@ -556,7 +553,7 @@ const sendMessage = async () => {
       body: JSON.stringify({
         projectPath: currentProjectPath.value,
         message: message,
-        model: currentModel.value.id,
+        model: currentModel.value?.id,
         thinkingLevel: currentThinking.value.id
       })
     });
@@ -918,11 +915,8 @@ const toggleAttachmentMenu = () => {
 
 // Model & Thinking State
 // 存储完整对象 { id, label }，发送时使用 id，显示时使用 label
-const models = ref([
-  { id: 'claude-sonnet-4-20250514', label: 'Claude Sonnet 4' },
-  { id: 'claude-opus-4-5-20251101', label: 'Claude Opus 4.5' },
-  { id: 'claude-3-5-haiku-20241022', label: 'Claude Haiku 3.5' }
-]);
+// 模型列表完全由配置文件控制，启动时从 web-config.json 加载
+const models = ref<{ id: string; label: string }[]>([]);
 
 const thinkingLevels = [
   { id: 'off', label: 'Off' },
@@ -931,7 +925,7 @@ const thinkingLevels = [
   { id: 'high', label: 'High' }
 ];
 
-const currentModel = ref(models.value[0]);  // 默认选择第一个模型
+const currentModel = ref<{ id: string; label: string } | null>(null);
 const currentThinking = ref(thinkingLevels[2]);  // 默认 medium
 const isModelMenuOpen = ref(false);
 const isThinkingMenuOpen = ref(false);
@@ -942,25 +936,16 @@ const newModelId = ref('');
 const newModelLabel = ref('');
 const newModelInputRef = ref<HTMLInputElement | null>(null);
 
-// 预定义模型ID列表（用于判断哪些是自定义模型）
-const BUILTIN_MODEL_IDS = [
-  'claude-sonnet-4-20250514',
-  'claude-opus-4-5-20251101',
-  'claude-3-5-haiku-20241022'
-];
-
-// 保存自定义模型列表到服务端
+// 保存模型列表到服务端
 const saveCustomModels = async () => {
-  // 过滤出自定义模型（非预定义的）
-  const customModels = models.value.filter(m => !BUILTIN_MODEL_IDS.includes(m.id));
   try {
     await fetch(`${AGENT_API_BASE}/api/web-config`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ customModels })
+      body: JSON.stringify({ customModels: models.value })
     });
   } catch (error) {
-    console.warn('保存自定义模型列表失败:', error);
+    console.warn('保存模型列表失败:', error);
   }
 };
 
@@ -1549,7 +1534,7 @@ import MarkdownText from './base/MarkdownText.vue';
                                     <path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"/>
                                 </svg>
                             </span>
-                            <span class="text">{{ currentModel.label }}</span>
+                            <span class="text">{{ currentModel?.label || 'Select Model' }}</span>
                         </button>
                         <transition name="scale-up">
                             <div class="pill-menu model-menu" v-if="isModelMenuOpen">
@@ -1558,11 +1543,11 @@ import MarkdownText from './base/MarkdownText.vue';
                                     v-for="m in models"
                                     :key="m.id"
                                     class="menu-item"
-                                    :class="{ active: currentModel.id === m.id }"
+                                    :class="{ active: currentModel?.id === m.id }"
                                     @click="selectModel(m)"
                                 >
                                     <span class="item-text">{{ m.label }}</span>
-                                    <svg v-if="currentModel.id === m.id" class="check-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                    <svg v-if="currentModel?.id === m.id" class="check-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                                         <polyline points="20 6 9 17 4 12"></polyline>
                                     </svg>
                                 </div>
