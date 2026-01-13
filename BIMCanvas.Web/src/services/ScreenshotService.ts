@@ -20,14 +20,19 @@ export class ScreenshotService {
    * @returns Base64 编码的图片数据
    */
   async captureCanvas(): Promise<string> {
-    const element = document.getElementById('bim-canvas')
+    // 尝试多种可能的选择器
+    const element = document.querySelector('.canvas-area')
+      || document.querySelector('.three-canvas')
+      || document.getElementById('bim-canvas')
     if (!element) {
-      throw new Error('Canvas element not found')
+      throw new Error('Canvas element not found. Please ensure the canvas is loaded.')
     }
-    const canvas = await html2canvas(element, {
+    const canvas = await html2canvas(element as HTMLElement, {
       backgroundColor: null,
-      scale: 1,
-      logging: false
+      scale: window.devicePixelRatio || 1,
+      logging: false,
+      useCORS: true,
+      allowTaint: true
     })
     return canvas.toDataURL('image/png')
   }

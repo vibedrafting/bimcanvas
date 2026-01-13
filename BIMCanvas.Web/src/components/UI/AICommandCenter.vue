@@ -1170,6 +1170,10 @@ const handleScreenshotCapture = async (imageData: string) => {
 const handleScreenshotCancel = () => {
   showScreenshotOverlay.value = false;
 };
+
+const removePendingImage = (index: number) => {
+  pendingImages.value.splice(index, 1);
+};
 </script>
 
 <template>
@@ -1537,6 +1541,18 @@ const handleScreenshotCancel = () => {
 
         <!-- Antigravity Input Box -->
         <div class="antigravity-input-box">
+            <!-- Pending Attachments Preview -->
+            <div class="pending-attachments" v-if="pendingImages.length > 0">
+              <div class="attachment-item" v-for="(img, idx) in pendingImages" :key="idx">
+                <img :src="img" class="attachment-thumbnail" alt="attachment" />
+                <button class="remove-attachment" @click="removePendingImage(idx)">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <line x1="18" y1="6" x2="6" y2="18"></line>
+                    <line x1="6" y1="6" x2="18" y2="18"></line>
+                  </svg>
+                </button>
+              </div>
+            </div>
             <textarea
               ref="textareaRef"
               v-model="inputMessage"
@@ -3016,10 +3032,60 @@ const handleScreenshotCancel = () => {
 
     &:focus-within {
         background: rgba(255, 255, 255, 0.05); /* Keep it bright/glassy, slightly more opaque */
-        box-shadow: 
+        box-shadow:
             inset 0 0 0 0.5px rgba(255, 255, 255, 0.2), /* Brighter border */
             inset 0 1px 0 rgba(255, 255, 255, 0.1),
             0 8px 32px rgba(0, 0, 0, 0.4);
+    }
+
+    .pending-attachments {
+        display: flex;
+        gap: 8px;
+        padding: 12px 12px 8px;
+        flex-wrap: wrap;
+
+        .attachment-item {
+            position: relative;
+            width: 64px;
+            height: 64px;
+            flex-shrink: 0;
+        }
+
+        .attachment-thumbnail {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+            border-radius: 8px;
+            border: 1px solid rgba(255, 255, 255, 0.15);
+        }
+
+        .remove-attachment {
+            position: absolute;
+            top: -6px;
+            right: -6px;
+            width: 20px;
+            height: 20px;
+            border-radius: 50%;
+            background: #ff4444;
+            border: none;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 0;
+            transition: transform 0.15s ease, background 0.15s ease;
+
+            &:hover {
+                background: #ff2222;
+                transform: scale(1.1);
+            }
+
+            svg {
+                width: 12px;
+                height: 12px;
+                stroke: white;
+            }
+        }
     }
 
     textarea {

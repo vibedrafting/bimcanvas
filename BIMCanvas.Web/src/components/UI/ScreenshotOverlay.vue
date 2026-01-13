@@ -57,17 +57,20 @@ const handleMouseUp = async (e: MouseEvent) => {
     return
   }
 
+  const overlay = document.querySelector('.screenshot-overlay') as HTMLElement
+
   try {
-    // 先隐藏覆盖层，截取整个页面
-    const overlay = document.querySelector('.screenshot-overlay') as HTMLElement
-    if (overlay) overlay.style.display = 'none'
+    // 使用 visibility 而不是 display，避免 DOM 重排
+    if (overlay) overlay.style.visibility = 'hidden'
 
     // 截取整个文档
     const canvas = await html2canvas(document.body, {
       backgroundColor: null,
       scale: window.devicePixelRatio || 1,
       logging: false,
-      useCORS: true
+      useCORS: true,
+      allowTaint: true,
+      foreignObjectRendering: true
     })
 
     // 裁剪选中区域
@@ -96,6 +99,9 @@ const handleMouseUp = async (e: MouseEvent) => {
   } catch (error) {
     console.error('[ScreenshotOverlay] Capture failed:', error)
     emit('cancel')
+  } finally {
+    // 确保恢复 overlay 可见性
+    if (overlay) overlay.style.visibility = ''
   }
 }
 
