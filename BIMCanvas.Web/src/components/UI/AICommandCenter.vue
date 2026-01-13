@@ -939,6 +939,7 @@ const isThinkingMenuOpen = ref(false);
 // 添加模型输入状态
 const isAddingModel = ref(false);
 const newModelId = ref('');
+const newModelLabel = ref('');
 const newModelInputRef = ref<HTMLInputElement | null>(null);
 
 // 预定义模型ID列表（用于判断哪些是自定义模型）
@@ -973,6 +974,7 @@ const selectModel = (model: { id: string; label: string }) => {
 const startAddModel = () => {
   isAddingModel.value = true;
   newModelId.value = '';
+  newModelLabel.value = '';
   // 自动聚焦输入框
   nextTick(() => {
     newModelInputRef.value?.focus();
@@ -982,8 +984,9 @@ const startAddModel = () => {
 // 确认添加模型
 const confirmAddModel = async () => {
   const id = newModelId.value.trim();
+  const label = newModelLabel.value.trim() || id;  // label 为空时使用 id
   if (id && !models.value.some(m => m.id === id)) {
-    const newModel = { id, label: id };
+    const newModel = { id, label };
     models.value.push(newModel);
     selectModel(newModel);  // 自动选中新添加的模型
     // 保存自定义模型列表到服务端
@@ -996,6 +999,7 @@ const confirmAddModel = async () => {
 const cancelAddModel = () => {
   isAddingModel.value = false;
   newModelId.value = '';
+  newModelLabel.value = '';
 };
 
 const selectThinking = (level: { id: string; label: string }) => {
@@ -1573,14 +1577,23 @@ import MarkdownText from './base/MarkdownText.vue';
                                     <span class="item-text">Add Model...</span>
                                 </div>
                                 <div v-else class="add-model-input" @click.stop>
-                                    <input
-                                        ref="newModelInputRef"
-                                        v-model="newModelId"
-                                        type="text"
-                                        placeholder="Enter model ID..."
-                                        @keyup.enter="confirmAddModel"
-                                        @keyup.escape="cancelAddModel"
-                                    />
+                                    <div class="input-fields">
+                                        <input
+                                            ref="newModelInputRef"
+                                            v-model="newModelId"
+                                            type="text"
+                                            placeholder="Model ID (required)"
+                                            @keyup.enter="confirmAddModel"
+                                            @keyup.escape="cancelAddModel"
+                                        />
+                                        <input
+                                            v-model="newModelLabel"
+                                            type="text"
+                                            placeholder="Display name (optional)"
+                                            @keyup.enter="confirmAddModel"
+                                            @keyup.escape="cancelAddModel"
+                                        />
+                                    </div>
                                     <div class="input-actions">
                                         <button class="confirm-btn" @click="confirmAddModel" :disabled="!newModelId.trim()">
                                             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -2082,12 +2095,19 @@ import MarkdownText from './base/MarkdownText.vue';
 
 .add-model-input {
     display: flex;
-    align-items: center;
+    align-items: flex-end;
     gap: 6px;
     padding: 4px 8px;
 
-    input {
+    .input-fields {
+        display: flex;
+        flex-direction: column;
+        gap: 4px;
         flex: 1;
+    }
+
+    input {
+        width: 100%;
         background: rgba(255, 255, 255, 0.1);
         border: 1px solid rgba(255, 255, 255, 0.2);
         border-radius: 4px;
@@ -2095,7 +2115,6 @@ import MarkdownText from './base/MarkdownText.vue';
         font-size: 11px;
         color: white;
         outline: none;
-        min-width: 120px;
 
         &::placeholder {
             color: rgba(255, 255, 255, 0.4);
