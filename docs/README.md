@@ -15,6 +15,8 @@
 | [Schema.md](Schema.md) | 数据模型 | JSON 数据模型规范 (v3.0) |
 | [Architecture.md](Architecture.md) | 系统架构 | 系统架构总设计 |
 | [Arch_MCP_Tools.md](Arch_MCP_Tools.md) | 系统架构 | MCP 工具接口规范 |
+| [Arch_Converter.md](Arch_Converter.md) | 系统架构 | 转换器架构专题 |
+| [Arch_DataFlow.md](Arch_DataFlow.md) | 系统架构 | 数据流场景分析专题 |
 | [Flow_Workflows.md](Flow_Workflows.md) | 业务流程 | 端到端业务流程 |
 | [Agent_Design.md](Agent_Design.md) | Agent 设计 | Agent 架构与提示词设计 |
 | [Agent_SDK.md](Agent_SDK.md) | Agent 设计 | Agent SDK 技术指南 |
@@ -37,6 +39,8 @@
 |------|----------|
 | [Architecture.md](Architecture.md) | 整体架构、数据流、Git Worktree、组件职责 |
 | [Arch_MCP_Tools.md](Arch_MCP_Tools.md) | Canvas-MCP 工具接口、Y-up 坐标系统 |
+| [Arch_Converter.md](Arch_Converter.md) | 转换器分层架构、坐标转换公式、NTS 中间层、PlacementValidator 设计原则 |
+| [Arch_DataFlow.md](Arch_DataFlow.md) | 五个典型场景调用链、REST/SignalR API 参考、脏数据追踪、批量更新模式 |
 
 ### 3. 数据模型
 
@@ -107,7 +111,11 @@ PRD (产品定位)
  │         │
  │         ├──→ Schema (数据模型)
  │         │
- │         └──→ Arch_MCP_Tools (工具接口)
+ │         ├──→ Arch_MCP_Tools (工具接口)
+ │         │
+ │         ├──→ Arch_Converter (转换器架构专题)
+ │         │
+ │         └──→ Arch_DataFlow (数据流场景分析专题)
  │
  ├──→ Flow_Workflows (业务流程)
  │
@@ -186,4 +194,4 @@ PRD (产品定位)
 
 ---
 
-*文档重构完成于 2026-01-13，将 15 个原始文档整合为 9 个分类清晰的新文档*
+*文档重构完成于 2026-01-13，将 15 个原始文档整合为 11 个分类清晰的新文档（包含 2 个补全的专题文档）*
