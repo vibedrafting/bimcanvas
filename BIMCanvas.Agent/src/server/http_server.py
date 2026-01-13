@@ -563,6 +563,52 @@ def _save_screenshot(base64_data: str, project_path: str, room_id: str = None) -
     return str(filepath), pure_base64
 
 
+async def screenshot_save_handler(request: web.Request) -> web.Response:
+    """
+    保存截图到本地临时目录
+
+    Request body:
+        {
+            "imageData": "data:image/png;base64,...",
+            "filename": "screenshot_001.png"  // optional
+        }
+
+    Response:
+        {
+            "path": "C:\\Users\\...\\BIMCanvas\\screenshots\\screenshot_20260113_150000.png"
+        }
+    """
+    try:
+        data = await request.json()
+    except json.JSONDecodeError:
+        return web.json_response({"error": "Invalid JSON"}, status=400)
+
+    image_data = data.get("imageData")
+    if not image_data:
+        return web.json_response({"error": "Missing imageData"}, status=400)
+
+    # 保存到用户文档目录
+    import os
+    docs_dir = Path(os.path.expanduser("~/Documents/BIMCanvas/screenshots"))
+    docs_dir.mkdir(parents=True, exist_ok=True)
+
+    # 生成文件名
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    filename = data.get("filename") or f"screenshot_{timestamp}.png"
+    filepath = docs_dir / filename
+
+    # 移除 data:image/png;base64, 前缀
+    pure_base64 = image_data
+    if "," in image_data:
+        pure_base64 = image_data.split(",", 1)[1]
+
+    image_bytes = base64.b64decode(pure_base64)
+    filepath.write_bytes(image_bytes)
+
+    logger.info(f"Screenshot saved to: {filepath}")
+    return web.json_response({"path": str(filepath)})
+
+
 async def on_shutdown(app: web.Application) -> None:
     """应用关闭时清理资源"""
     logger.info("Shutting down, cleaning up agents...")
@@ -608,6 +654,7 @@ def create_app() -> web.Application:
         web.get("/api/screenshot/events", screenshot_events_handler),
         web.post("/api/screenshot/request", screenshot_request_handler),
         web.post("/api/screenshot/result", screenshot_result_handler),
+        web.post("/api/screenshot/save", screenshot_save_handler),
     ]
 
     # 按路径分组路由（避免同一路径重复创建 resource 导致 CORS 冲突）

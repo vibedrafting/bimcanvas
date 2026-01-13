@@ -1010,6 +1010,7 @@ const contextOptions = {
     { id: 'fire-code', label: 'Fire Safety Code' }
   ],
   attachments: [
+    { id: 'screenshot-select', label: 'Select Area Screenshot' },
     { id: 'screenshot-canvas', label: 'Screenshot Canvas' },
     { id: 'screenshot-room', label: 'Screenshot Current Room' },
     { id: 'upload', label: 'Upload Image...' },
@@ -1036,6 +1037,17 @@ const openSubmenu = (id: string, event: MouseEvent) => {
 
 const handleContextSelect = async (type: string, item: any) => {
   console.log('Selected context:', type, item);
+
+  // Handle select area screenshot
+  if (type === 'attachments' && item.id === 'screenshot-select') {
+    isContextMenuOpen.value = false;
+    activeSubmenu.value = null;
+    // 延迟显示覆盖层，让菜单先关闭
+    setTimeout(() => {
+      showScreenshotOverlay.value = true;
+    }, 100);
+    return;
+  }
 
   // Handle screenshot attachments
   if (type === 'attachments' && (item.id === 'screenshot-canvas' || item.id === 'screenshot-room')) {
@@ -1138,6 +1150,29 @@ onUnmounted(() => {
 
 import TaskSummaryWidget from './TaskSummaryWidget.vue';
 import MarkdownText from './base/MarkdownText.vue';
+import ScreenshotOverlay from './ScreenshotOverlay.vue';
+
+// 框选截图状态
+const showScreenshotOverlay = ref(false);
+
+const handleScreenshotCapture = async (imageData: string) => {
+  showScreenshotOverlay.value = false;
+  try {
+    const screenshotService = getScreenshotService(AGENT_API_BASE);
+    // 保存到本地
+    const filePath = await screenshotService.saveToLocal(imageData);
+    console.log(`[Screenshot] Saved to: ${filePath}`);
+    // 添加到待发送附件
+    pendingImages.value.push(imageData);
+    console.log(`[Screenshot] Added to pending, total: ${pendingImages.value.length}`);
+  } catch (e) {
+    console.error('[Screenshot] Save failed:', e);
+  }
+};
+
+const handleScreenshotCancel = () => {
+  showScreenshotOverlay.value = false;
+};
 </script>
 
 <template>
@@ -1673,6 +1708,15 @@ import MarkdownText from './base/MarkdownText.vue';
       @confirm="handleCheckoutConfirm"
       @cancel="handleCheckoutCancel"
     />
+
+    <!-- Screenshot Overlay for select area screenshot -->
+    <Teleport to="body">
+      <ScreenshotOverlay
+        v-if="showScreenshotOverlay"
+        @capture="handleScreenshotCapture"
+        @cancel="handleScreenshotCancel"
+      />
+    </Teleport>
   </aside>
 </template>
 

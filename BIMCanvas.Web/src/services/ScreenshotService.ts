@@ -115,6 +115,25 @@ export class ScreenshotService {
       body: JSON.stringify({ requestId, imageData, error })
     })
   }
+
+  /**
+   * 保存截图到本地临时目录
+   * @param imageData Base64 编码的图片数据
+   * @param filename 可选的文件名
+   * @returns 保存的文件路径
+   */
+  async saveToLocal(imageData: string, filename?: string): Promise<string> {
+    const response = await fetch(`${this.serverUrl}/api/screenshot/save`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ imageData, filename })
+    })
+    const result = await response.json()
+    if (result.error) {
+      throw new Error(result.error)
+    }
+    return result.path
+  }
 }
 
 // 单例实例
