@@ -420,11 +420,47 @@ const checkAgentHealth = async () => {
     const response = await fetch(`${AGENT_API_BASE}/health`);
     if (response.ok) {
       agentStatus.value = 'connected';
+      // 连接成功后获取服务端配置
+      await fetchAgentConfig();
     } else {
       agentStatus.value = 'disconnected';
     }
   } catch {
     agentStatus.value = 'disconnected';
+  }
+};
+
+// 获取 Agent 服务端配置并初始化模型/思考强度选择
+const fetchAgentConfig = async () => {
+  try {
+    const response = await fetch(`${AGENT_API_BASE}/api/config`);
+    if (!response.ok) return;
+
+    const config = await response.json();
+    const { model: defaultModel, thinkingLevel: defaultThinking } = config;
+
+    // 初始化模型选择
+    if (defaultModel) {
+      let found = models.value.find(m => m.id === defaultModel);
+      if (!found) {
+        // 模型不在列表中，添加到列表
+        found = { id: defaultModel, label: defaultModel };
+        models.value.push(found);
+      }
+      currentModel.value = found;
+    }
+
+    // 初始化思考强度选择
+    if (defaultThinking) {
+      const foundThinking = thinkingLevels.find(t => t.id === defaultThinking);
+      if (foundThinking) {
+        currentThinking.value = foundThinking;
+      }
+    }
+
+    console.log('Agent 配置已加载:', { model: currentModel.value.id, thinking: currentThinking.value.id });
+  } catch (error) {
+    console.warn('获取 Agent 配置失败，使用默认值:', error);
   }
 };
 

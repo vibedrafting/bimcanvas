@@ -61,6 +61,23 @@ async def health_handler(request: web.Request) -> web.Response:
     })
 
 
+async def config_handler(request: web.Request) -> web.Response:
+    """
+    Get default configuration for Web client.
+
+    Response:
+        {
+            "model": "claude-sonnet-4-20250514",
+            "thinkingLevel": "medium"
+        }
+    """
+    settings = get_settings()
+    return web.json_response({
+        "model": settings.model_name,
+        "thinkingLevel": settings.thinking.default_level
+    })
+
+
 async def chat_handler(request: web.Request) -> web.Response:
     """
     Handle chat requests.
@@ -330,6 +347,7 @@ def create_app() -> web.Application:
     # autonomously decides when to dispatch layout-agent SubAgent
     routes = [
         web.get("/health", health_handler),
+        web.get("/api/config", config_handler),
         web.post("/api/chat", chat_handler),
         web.post("/api/chat/stream", chat_stream_handler),
         web.post("/api/clear-history", clear_history_handler),
