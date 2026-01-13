@@ -190,13 +190,9 @@
 
 ### 4.2 File-Driven Architecture
 
-> **核心理念**：文件是唯一真理源，Server 是"文件播放器"而非"内存数据库"
+> 详见 [Architecture.md §2 文件驱动架构](./Architecture.md#2-文件驱动架构-file-driven-architecture)
 
-**设计优势**：
-1. **Git 原生集成**：项目文件即 Git 仓库，分支/回滚/协作开箱即用
-2. **Agent 友好**：AI Agent 无需 API 即可直接修改 JSON 文件
-3. **调试透明**：所有状态可直接通过文件系统查看
-4. **离线可用**：文件在本地，无需网络即可编辑
+**核心理念**：文件是唯一真理源，Server 是"文件播放器"而非"内存数据库"。
 
 ### 4.3 OBB 规划师设计约束
 
@@ -215,13 +211,7 @@
 
 ### 4.4 Server-Agent 职责划分
 
-| 维度 | Server（指挥中心） | Agent（设计师） |
-|------|-------------------|-----------------|
-| 状态 | 持有项目数据 | 无状态 |
-| 几何计算 | Zone/禁区/完成面计算 | 不做几何 |
-| 智能决策 | 不决定"放哪里" | 规划布置方案 |
-| 通信 | 连接所有组件 | 只通过 MCP/SSE |
-| 验证 | 约束检查、碰撞检测 | 依赖 Server |
+> 详见 [Architecture.md §3.3 Server vs Agent 职责边界](./Architecture.md#33-server-vs-agent-职责边界)
 
 **关键设计原则**：
 - **Server 不做决策**：它不决定"沙发放哪里"，只执行验证和计算
@@ -327,7 +317,7 @@
 | BIMCanvas.Core | 核心数据模型 + 算法库 | P0 |
 | BIMCanvas.Server | 统一后端（MCP + REST + SignalR） | P0 |
 | BIMCanvas.Web | Web 前端画布 | P0 |
-| BIMCanvas.Agent | PlacementAgent（Agent SDK） | P0 |
+| BIMCanvas.Agent | MainAgent（Agent SDK） | P0 |
 | BIMCanvas.Revit | Revit 插件 | P1 |
 
 ---
@@ -353,7 +343,7 @@
 |------|------|
 | 实现 WebSocket 同步 | BIMCanvas.Server |
 | 实现元素拖拽/旋转 | BIMCanvas.Web |
-| 实现 PlacementAgent | BIMCanvas.Agent |
+| 实现 MainAgent | BIMCanvas.Agent |
 | 实现 Library-MCP | BIMCanvas.Server |
 
 ### Phase 3: Revit 集成

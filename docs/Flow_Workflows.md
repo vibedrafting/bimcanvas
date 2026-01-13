@@ -35,7 +35,7 @@
 │                                     ▼                                        │
 │  ┌─────────────────────────────────────────────────────────────────────────┐ │
 │  │  Phase 4: 方案生成                                                       │ │
-│  │  PlacementAgent → schemes/{s}/modules.json 布置方案                      │ │
+│  │  MainAgent → schemes/{s}/modules.json 布置方案                      │ │
 │  └─────────────────────────────────────────────────────────────────────────┘ │
 │                                     │                                        │
 │                                     ▼                                        │
@@ -60,33 +60,17 @@
 | Phase 1 | 用户点击"开始设计" | BIMCanvas.Revit | baseline/ 数据 | 即时 |
 | Phase 2 | Server 收到 POST | BIMCanvas.Server | computed/ 数据 + tags | < 1s |
 | Phase 3 | Web 收到推送 | 用户 | zones[].tags 确认 | 用户决定 |
-| Phase 4 | 用户确认区域 | PlacementAgent | modules.json | 数秒 |
+| Phase 4 | 用户确认区域 | MainAgent | modules.json | 数秒 |
 | Phase 5 | 用户操作 | Web + Server + AI | 更新的 modules.json | 循环 |
 | Phase 6 | 用户点击"应用" | Revit-MCP | Revit 家具实例 | 数秒 |
 
 ### 0.3 三层汉堡模型
 
-> 详细定义见 [Schema.md](./Schema.md)
+> 详见 [Architecture.md §2.3 三层汉堡模型](./Architecture.md#23-三层汉堡模型)，数据格式定义见 [Schema.md](./Schema.md)
 
-```
-project.bcp (ZIP)
-├── manifest.json           项目元数据 + 方案列表
-├── baseline/               【底层】建筑基础数据（只读，Revit 导出）
-│   ├── walls.json          墙体轮廓 Polygon2D
-│   ├── columns.json        柱子轮廓 Polygon2D
-│   ├── openings.json       门窗 Line2D + type + direction
-│   ├── rooms.json          物理房间 { id, name, type, boundary }
-│   └── locationLines.json  完成面定位线
-├── schemes/                【中层】方案设计数据（v3.2 简化，AI/Server 可写）
-│   ├── strategy.json       策略元数据
-│   ├── zones.json          设计区域 { roomId, tags[], innerBoundary }
-│   ├── finishes.json       完成面分段
-│   └── modules.json        布置模块 { bounds, facing, items[] }
-│   注：v3.2 架构简化，多策略通过 Git 分支隔离（非子目录）
-└── computed/               【顶层】计算派生数据（Server 自动生成）
-    ├── room_zones.json     房间区域 + 预计算的 tags
-    └── exclusions.json     禁区集合
-```
+**结构概要**：`baseline/`（建筑基础）→ `schemes/`（方案设计）→ `computed/`（派生数据）
+
+> **v3.2 架构简化**：多策略通过 Git 分支隔离，而非子目录。
 
 ### 0.4 组件交互概览
 
@@ -102,7 +86,7 @@ project.bcp (ZIP)
          │                       ├───────────────────────>│
          │                       │                        │
          │                       │     ┌──────────────────┴─────────────────┐
-         │                       │     │  PlacementAgent (Python)           │
+         │                       │     │  MainAgent (Python)           │
          │                       │     │  (Agent SDK)                       │
          │                       │     └──────────────────┬─────────────────┘
          │                       │   SSE 事件              │
@@ -688,12 +672,9 @@ Agent 通过 MCP 查询 → Server 实时响应 → Agent 决策 → Server 即�
 
 ### 4.3 约束验证规则
 
-```
-对于每个要放置的模块 M:
-  1. M.bounds ⊆ zone.innerBoundary    (完全在可用空间内)
-  2. M.bounds ∩ zone.exclusionAreas = ∅  (不与禁区重叠)
-  3. M.bounds ∩ otherModules.bounds = ∅  (不与其他模块重叠)
-```
+> PlacementValidator 设计原则见 [Architecture.md §5.6](./Architecture.md#56-placementvalidator-设计原则)
+
+**三条核心约束**：模块必须在 zone.innerBoundary 内、不与 exclusionAreas 重叠、不与其他 modules 重叠。
 
 ### 4.4 版本选择建议
 
@@ -846,13 +827,13 @@ level = FindLevelById(levelId)
 
 ## 7. 触发机制详解
 
-PlacementAgent 支持三种触发方式：
+MainAgent 支持三种触发方式：
 
 ### 7.1 AI 对话触发
 
 ```
 ┌─────────────────┐     ┌─────────────────┐     ┌─────────────────┐
-│  用户           │     │  Claude Code    │     │ PlacementAgent  │
+│  用户           │     │  Claude Code    │     │ MainAgent  │
 │                 │     │  (CLI)          │     │ (Python)        │
 └────────┬────────┘     └────────┬────────┘     └────────┬────────┘
          │                       │                       │
@@ -878,7 +859,7 @@ PlacementAgent 支持三种触发方式：
 
 ```
 ┌─────────────────┐     ┌─────────────────┐     ┌─────────────────┐
-│  Web 前端       │     │  BIMCanvas.Server│     │ PlacementAgent  │
+│  Web 前端       │     │  BIMCanvas.Server│     │ MainAgent  │
 │                 │     │                 │     │ (SSE 监听)       │
 └────────┬────────┘     └────────┬────────┘     └────────┬────────┘
          │                       │                       │
@@ -889,7 +870,7 @@ PlacementAgent 支持三种触发方式：
          │                       │  (PlacementRequested) │
          │                       ├──────────────────────>│  SSE: 事件推送
          │                       │                       │
-         │                       │                       │  PlacementAgent
+         │                       │                       │  MainAgent
          │                       │                       │  处理事件
          │                       │                       │  调用 MCP
          │                       │                       │
@@ -903,7 +884,7 @@ PlacementAgent 支持三种触发方式：
 
 ```
 ┌─────────────────┐     ┌─────────────────┐     ┌─────────────────┐
-│  Server         │     │  EventBus       │     │ PlacementAgent  │
+│  Server         │     │  EventBus       │     │ MainAgent  │
 │  (验证检测)      │     │                 │     │ (SSE 监听)       │
 └────────┬────────┘     └────────┬────────┘     └────────┬────────┘
          │                       │                       │

@@ -330,51 +330,23 @@ mesh.renderOrder = 999;
 
 ## 4. 坐标系统与变换
 
-### 4.1 坐标系对比
+> BIMCanvas 坐标系与角度系统详见 [Architecture.md §7 坐标系统](./Architecture.md#7-坐标系统)
 
-| 坐标系 | X 轴 | Y 轴 | Z 轴 | 原点 |
+### 4.1 Web 端坐标映射
+
+| 坐标系 | X 轴 | Y 轴 | 原点 | 用途 |
 |--------|------|------|------|------|
-| **SVG** | 右 | 下 | - | 左上角 |
-| **BIMCanvas 2D** | 右 | 上 | - | 左下角 |
-| **Three.js 3D** | 右 | 上 | 前 | 中心 |
+| **BIMCanvas 2D** | 右 | 上 | 左下角 | 数据模型 |
+| **SVG** | 右 | 下 | 左上角 | 2D 渲染 |
+| **Three.js** | 右 | 上 | 中心 | 3D 预览 |
 
-> **重要**：BIMCanvas 采用 Y-up 坐标系统（CAD 标准），详见 [Arch_MCP_Tools.md](./Arch_MCP_Tools.md)
+**转换公式**：`y_screen = canvasHeight - y_model`（用于 SVG 渲染）
 
-### 4.2 变换链路
+### 4.2 Three.js 变换链路
 
 ```
-SVG 坐标 (viewBox)
-    │
-    ▼ 居中（移动到几何体中心）
-SVG 居中坐标
-    │
-    ▼ 子级旋转（绕 Z 轴，在 XY 平面内）
-朝向旋转后
-    │
-    ▼ 子级缩放（X, Y 方向）
-缩放后
-    │
-    ▼ 父级旋转（绕 X 轴 -90°，XY → XZ）
-压平到水平面
-    │
-    ▼ 父级平移（世界坐标）
-最终 3D 位置
-
 位置映射：2D (x, y) → 3D (x, SVG_HEIGHT, -y)
-```
-
-### 4.3 朝向角度转换
-
-```typescript
-const directionMap = {
-  'north': 0,      // Y+ 方向
-  'east': 90,      // X+ 方向
-  'south': 180,    // Y- 方向
-  'west': 270      // X- 方向
-};
-
-// 转换为弧度（取反因为 Three.js 旋转方向）
-const radians = -degrees * Math.PI / 180;
+朝向映射：facing → radians（取反，因为 Three.js 旋转方向相反）
 ```
 
 ---

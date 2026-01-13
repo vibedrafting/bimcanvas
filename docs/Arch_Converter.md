@@ -204,13 +204,9 @@ function screenToModel(screenPoint: ScreenPoint, canvasHeight: number): Point2D 
 
 ### 3.4 角度语义规范
 
-BIMCanvas 使用三套角度系统，需注意区分：
+> 详见 [Architecture.md §7 坐标系与角度系统](./Architecture.md#7-坐标系与角度系统)
 
-| 系统 | 正方向 | 来源 | 使用场景 |
-|------|--------|------|----------|
-| **数据模型角** | CCW+ | 2D 数学（Y-up） | `rotatePoint2D()`, JSON 存储 |
-| **交互角** | CW+ | `atan2(z, x)` | 鼠标拖动计算 |
-| **Three.js 角** | CCW+ | `rotation.y` | 3D 渲染预览 |
+BIMCanvas 使用三套角度系统（数据模型角、交互角、Three.js 角），转换器实现时需注意正方向差异。
 
 ---
 

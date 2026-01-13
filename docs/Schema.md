@@ -75,14 +75,14 @@
 │   │  • requirements.md: 用户需求                             │   │
 │   └─────────────────────────────────────────────────────────┘   │
 │                                                                 │
-│   【schemes/: 策略集合】每个策略是独立 Git 仓库                   │
+│   【schemes/: 方案设计层】v3.2 简化架构，多策略通过 Git 分支隔离   │
 │   ┌─────────────────────────────────────────────────────────┐   │
-│   │  schemes/{s}/                                            │   │
-│   │  ├── .git/: 独立 Git 仓库                                │   │
-│   │  ├── strategy.json: 策略元数据（含 baselineHash）        │   │
-│   │  ├── zones.json: 策略级分区（可空）                       │   │
+│   │  schemes/                                                │   │
+│   │  ├── strategy.json: 策略元数据                           │   │
+│   │  ├── zones.json: 设计区域划分（可空）                     │   │
 │   │  ├── finishes.json: 完成面配置（可空）                    │   │
 │   │  └── modules.json: 家具布置                              │   │
+│   │  注：无子目录，多策略通过 Git 分支隔离                     │   │
 │   └─────────────────────────────────────────────────────────┘   │
 │                                                                 │
 └─────────────────────────────────────────────────────────────────┘
@@ -129,13 +129,12 @@
 ├── context/                             # 【上下文层】设计知识
 │   └── requirements.md                  # 用户需求
 │
-├── schemes/                             # 【策略集合】
-│   └── default/                         # 默认策略（独立 Git 仓库）
-│       ├── .git/                        # Git 仓库
-│       ├── strategy.json                # 策略元数据
-│       ├── zones.json                   # 策略级分区（通常为空数组）
-│       ├── finishes.json                # 完成面配置（通常为空数组）
-│       └── modules.json                 # 家具布置
+├── schemes/                             # 【方案设计层】v3.2 简化架构
+│   ├── strategy.json                    # 策略元数据
+│   ├── zones.json                       # 设计区域划分（可空）
+│   ├── finishes.json                    # 完成面配置（可空）
+│   └── modules.json                     # 家具布置
+│   # 注：无子目录，多策略通过 Git 分支隔离
 │
 └── Assets/                              # 【资产层】截图等（可选）
 ```
@@ -152,11 +151,11 @@
   "createdAt": "2025-12-24T10:00:00Z",
   "updatedAt": "2025-12-24T21:00:00Z",
   "coordinateSystem": "cartesian_mm_yUp",
-  "activeSchemeId": "s1_Flow",
+  "activeSchemeId": "default",
   "schemes": [
-    { "id": "s1_Flow", "path": "./schemes/s1_Flow", "name": "动线优先" },
-    { "id": "s2_Derived", "path": "./schemes/s2_Derived", "name": "衍生策略示例" }
+    { "id": "default", "path": "./schemes", "name": "默认策略" }
   ]
+  // v3.2: 多策略通过 Git 分支隔离，schemes 数组通常只有一个"当前"策略
 }
 ```
 
@@ -371,14 +370,15 @@
 
 ### 区域统一模型 (Zone)
 
-> **设计说明**：禁区 (Exclusion) 与可设计区 (Designable) 统一使用 `Zone` 类表示，通过 `type` 字段区分。
+> **设计说明**：禁区 (Exclusion)、房间 (Room) 与可设计区 (Designable) 统一使用 `Zone` 类表示，通过 `type` 字段区分。
 >
-> | type 值 | ZoneType | 说明 |
-> |---------|----------|------|
-> | `0` | Exclusion | 禁区（门开启区域、通道等），禁止布置家具 |
-> | `1` | Designable | 可设计区域，AI 可在此区域布置家具 |
+> | ZoneType 枚举值 | 说明 |
+> |-----------------|------|
+> | `Exclusion` | 禁区（门开启区域、通道等），禁止布置家具 |
+> | `Room` | 房间（直接由 Revit Room 轮廓转换） |
+> | `Designable` | 可设计区域，AI 可在此区域布置家具 |
 >
-> **设计理由**：禁区和设计区本质都是多边形区域，统一处理减少代码重复，AI 只需判断 `type` 即可确定是否可布置。
+> **设计理由**：禁区、房间和设计区本质都是多边形区域，统一处理减少代码重复，AI 只需判断 `type` 即可确定是否可布置。
 
 ### 5.1 room_zones.json（房间区域）
 
@@ -416,10 +416,11 @@
 
 #### ZoneType 枚举
 
-| 值 | 说明 |
-|----|------|
-| `0` | 禁区 (Exclusion) |
-| `1` | 可设计区 (Room/Designable) |
+| 枚举值 | 说明 |
+|--------|------|
+| `Exclusion` | 禁区（门开启区域、通道等） |
+| `Room` | 房间（直接由 Revit Room 轮廓转换） |
+| `Designable` | 可设计区域，AI 可在此布置 |
 
 ### 5.2 exclusions.json（禁区）
 
@@ -453,7 +454,10 @@
 
 ---
 
-## 6. 策略层 (schemes/{s}/)
+## 6. 策略层 (schemes/)
+
+> **v3.2 架构简化**：策略文件直接存放在 `schemes/` 目录下，不再使用 `{strategyId}/` 子目录。
+> 多策略支持通过 Git 分支实现，而非目录隔离。
 
 ### 6.1 strategy.json（策略元数据）
 
@@ -704,39 +708,40 @@
 
 ---
 
-## 7. 典型工作流
+## 7. 典型工作流（v3.2）
 
-### 7.1 新建策略
+> **v3.2 架构**：多策略通过 Git 分支隔离，所有策略共用 `schemes/` 目录。
+
+### 7.1 新建策略分支
 
 ```bash
-mkdir schemes/s3_Space
-cd schemes/s3_Space
-git init
-# 创建 strategy.json, zones.json, finishes.json, modules.json
-git add . && git commit -m "初始化策略"
+# 从当前策略创建新分支
+git checkout -b strategy/space-priority
+# 修改 schemes/strategy.json 中的策略元数据
+# 修改 schemes/zones.json, modules.json 等
+git add . && git commit -m "新建策略：空间优先"
 ```
 
-### 7.2 创建变体（存档）
+### 7.2 切换策略
 
 ```bash
-cd schemes/s1_Flow
-git branch v1_backup    # 在重大修改前存档
+# 切换到其他策略分支
+git checkout strategy/flow-priority
+# schemes/ 目录内容自动切换为该策略的数据
 ```
 
-### 7.3 切换变体（回溯）
+### 7.3 创建变体（存档）
 
 ```bash
-cd schemes/s1_Flow
-git checkout v1_backup  # 回到之前的版本
+# 在重大修改前存档当前状态
+git branch backup/v1_before_major_change
 ```
 
-### 7.4 变体升级为策略
+### 7.4 合并策略变更
 
 ```bash
-cp -r schemes/s1_Flow schemes/s3_FromVariant
-cd schemes/s3_FromVariant
-rm -rf .git && git init
-# 更新 strategy.json 的 origin 字段
+# 将某个策略的变更合并到当前分支
+git merge strategy/space-priority --no-ff
 ```
 
 ---
@@ -752,10 +757,10 @@ rm -rf .git && git init
 | `revit.openings` | `baseline/openings.json` | 门窗 |
 | `revit.rooms` | `baseline/rooms.json` | 房间边界 |
 | `revit.finishLocationBoundaries` | `baseline/location_lines.json` | 完成面定位线 |
-| `computed.zones` | `schemes/{s}/zones.json` | 策略级分区 |
-| `computed.wallFinishes` | `schemes/{s}/finishes.json` | 完成面配置 |
-| `layout.modules` | `schemes/{s}/modules.json` | 家具布置 |
-| `layout.schemes` | `schemes/` 目录结构 | 策略集合 |
+| `computed.zones` | `schemes/zones.json` | 策略级分区 |
+| `computed.wallFinishes` | `schemes/finishes.json` | 完成面配置 |
+| `layout.modules` | `schemes/modules.json` | 家具布置 |
+| `layout.schemes` | Git 分支 | 多策略隔离（v3.2）|
 | *(新增)* | `context/*.md` | 设计知识 |
 | *(新增)* | `strategy.json.origin` | 衍生追踪 |
 | *(新增)* | `strategy.json.status` | dirty 机制 |
@@ -824,7 +829,7 @@ interface Column {
 interface Opening {
   id: string;
   elementId: number;
-  type: "door" | "window";
+  type: "Door" | "Window";  // OpeningType 枚举
   wallId: string;
   line: Line2D;
   width: number;
@@ -912,7 +917,7 @@ interface Zone {
   reason: string;
 }
 
-type ZoneType = "exclusion" | "circulation" | "designable";
+type ZoneType = "Exclusion" | "Room" | "Designable";
 
 type ZoneTag =
   | "sleep"

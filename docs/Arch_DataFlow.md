@@ -87,16 +87,10 @@ public class ProjectContext {
 
 **职责**：
 - 使用 `FileSystemWatcher` 监听 `schemes/` 目录下的 JSON 文件变化
-- 500ms 防抖处理（Agent 可能连续写入多个文件）
-- Git 感知（`IsGitOperationInProgress` 为 true 时跳过事件）
+- 500ms 防抖处理 + Git 感知（详见 [Architecture.md §5.1-5.2](./Architecture.md#51-防抖机制-500ms)）
 - 通过 SignalR 广播变化通知给 Web 客户端
 
-**监听文件列表**：
-```csharp
-private static readonly HashSet<string> WatchedFiles = new() {
-    "modules.json", "zones.json", "finishes.json"
-};
-```
+**监听文件列表**：`modules.json`, `zones.json`, `finishes.json`
 
 **事件处理流程**：
 ```
@@ -109,23 +103,6 @@ private static readonly HashSet<string> WatchedFiles = new() {
 ScheduleUpdate() → 500ms 防抖
     ↓
 BroadcastUpdate() → SignalR 推送 "ReceiveUpdate"
-```
-
-**防抖实现**：
-```csharp
-private const int DebounceMs = 500;
-
-private void ScheduleUpdate(string fileName) {
-    lock (_lock) {
-        _debounceCts?.Cancel();
-        _debounceCts = new CancellationTokenSource();
-        _ = Task.Run(async () => {
-            await Task.Delay(DebounceMs, token);
-            if (!token.IsCancellationRequested)
-                await BroadcastUpdate(fileName);
-        }, token);
-    }
-}
 ```
 
 ### 2.3 CanvasHub（SignalR Hub）
@@ -426,46 +403,14 @@ window.addEventListener('bimcanvas:server-update', e => console.log(e.detail));
 
 ## 9. Visual Merge UI（方案融合）
 
-### 9.1 概述
+> 详见 [Architecture.md §6.3 Visual Merge UI](./Architecture.md#63-visual-merge-ui可视化冲突解决)
 
-当 AI Agent 完成方案生成后，系统进入"评审模式"，提供可视化的方案对比与融合功能。
-
-### 9.2 交互设计
-
-- **界面**：分屏显示，左侧"我的方案"，右侧"AI 提案"
-- **颗粒度**：按 **Zone（可设计区）** 进行差异对比
-- **选择性合并**：用户可以精确选择每个区域采纳哪个方案
-  - *"主卧采纳 AI 的（勾选右边），但客厅保留我的（勾选左边）"*
-
-### 9.3 执行结果
-
-- Server 根据用户选择，执行精确的 JSON 合并（Cherry-pick）
-- 生成一个新的 Commit 到 `main` 分支
-- Web 端退出评审模式，显示融合后的新方案
-
-### 9.4 价值
-
-| 特性 | 说明 |
-|------|------|
-| **零数据丢失** | 用户的修改和 AI 的方案都在各自的分支里安全保存 |
-| **选择权** | 用户不再被 AI 强制覆盖，拥有最终的"采纳权" |
-| **可回溯** | 所有的尝试都有 Git 记录，随时可以回退 |
+**简述**：当 AI Agent 完成方案生成后，系统进入"评审模式"，用户可按 Zone 颗粒度选择性合并 AI 方案与自己的方案。
 
 ---
 
 ## 10. 持久化双层策略
 
-### 10.1 第一层：磁盘同步 (Disk Sync)
+> 详见 [Architecture.md §5.5 持久化双层策略](./Architecture.md#55-持久化双层策略)
 
-- **触发时机**：用户交互结束时（`MouseUp`）
-- **动作**：**立即写入**硬盘上的 JSON 文件
-- **去抖动**：**禁用**。采用阻塞式或队列式立即写入
-- **效果**：保证 VS Code 等外部工具能实时看到 Web 端的修改
-
-### 10.2 第二层：版本存档 (Version Save)
-
-- **显式保存**：用户点击"保存"按钮
-  - **动作**：执行 `git add . && git commit -m "Manual Save"`
-- **自动保存**：每隔 1 分钟（无操作时不触发）
-  - **动作**：执行 `git add . && git commit -m "Auto Save"`
-- **效果**：生成 Git 历史节点，供版本回溯
+**简述**：采用"磁盘即时同步 + Git 周期存档"双层策略，确保外部工具实时同步且支持版本回溯。

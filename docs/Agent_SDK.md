@@ -54,13 +54,9 @@
 
 ### 1.3 并行设计三大支柱
 
-> 详细设计见 [Agent_SDK_Parallel.md](./Agent_SDK_Parallel.md)
+> 详见 [Flow_Agent_Parallel_Workflows.md §1.2 三大支柱](./Flow_Agent_Parallel_Workflows.md#12-三大支柱)
 
-| 支柱 | 核心思想 | 实现方式 |
-|------|----------|----------|
-| **文件驱动** | 文件是唯一真理源，AI 无需记忆复杂上下文 | Git 分支 = 完整状态 |
-| **异步协作** | 用户无需等待，AI 在后台工作 | Commit/PR 交付成果 |
-| **并行生成** | 算力换广度，同时探索 N 种可能性 | Git Worktree 物理隔离 |
+**核心支柱**：文件驱动（Git 分支 = 完整状态）+ 异步协作（Commit/PR 交付）+ 并行生成（Git Worktree 隔离）
 
 ### 1.4 Agent SDK 与 CLI 映射
 
@@ -232,14 +228,9 @@ async with ClaudeSDKClient(options=options) as client:
 
 ### 4.4 MCP 工具 vs SubAgent（重要澄清）
 
-> **MCP 是能力扩展，不是 SubAgent 实现方式**
+> 详见 [Agent_Design.md §1.4 MCP 工具 vs SubAgent](./Agent_Design.md#14-mcp-工具-vs-subagent)
 
-| 方面 | SubAgent | MCP 工具 |
-|------|----------|----------|
-| **本质** | AI Agent，有决策能力 | 函数调用，无决策能力 |
-| **定义方式** | `AgentDefinition` | `@tool` 装饰器 |
-| **用途** | AI 自主决策，派发复杂任务 | 提供特定领域功能 |
-| **调用** | Task 工具 | `mcp__server__tool_name` |
+**关键区别**：MCP 是能力扩展（函数调用，无决策），SubAgent 是 AI Agent（有决策能力）。
 
 **错误做法**：用 MCP 工具封装 SubAgent（自创方案，不推荐）
 
@@ -353,13 +344,12 @@ async with ClaudeSDKClient(options=options) as client:
 
 ## 七、ClaudeSDKClient 完整封装
 
-> ⚠️ **历史示例**：以下代码使用旧版 `PlacementAgent` 名称，实际实现为 `MainAgent`。
-> 架构已从单体 Agent 演进为"主控 Agent + SubAgent"模式，详见 [Agent_Design.md](./Agent_Design.md)。
+> **架构说明**：当前采用"主控 Agent + SubAgent"模式，详见 [Agent_Design.md](./Agent_Design.md)。
 
 ```python
 from claude_agent_sdk import ClaudeSDKClient, ClaudeAgentOptions, AssistantMessage, TextBlock
 
-class PlacementAgent:
+class MainAgent:
     """基于 ClaudeSDKClient 的布置助手 - 支持持续对话和程序触发"""
 
     def __init__(self, project_path: str = None):
@@ -417,7 +407,7 @@ class PlacementAgent:
 **使用方式**：
 
 ```python
-agent = PlacementAgent(project_path="/path/to/project")
+agent = MainAgent(project_path="/path/to/project")
 
 # 用户对话（多轮保持上下文）
 reply1 = await agent.chat("帮我分析这个户型")

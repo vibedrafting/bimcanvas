@@ -468,10 +468,12 @@ model: {sonnet/opus/haiku}
 ### 7.2 长度限制（重要！）
 
 > **已知问题**：SubAgent 提示词过长会导致加载失败。
+>
+> ⚠️ **代码验证备注（2026-01-13）**：当前代码实现（`main_agent.py`）未强制执行字符数限制，以下为建议值。
 
 | 指标 | 建议值 | 说明 |
 |------|--------|------|
-| **总字符数** | < 3000 字符 | 超过可能导致加载失败 |
+| **总字符数** | < 3000 字符 | 建议值，代码未强制 |
 | **总行数** | < 150 行 | 便于维护和阅读 |
 | **单条规则** | < 50 字符 | 便于 AI 理解 |
 
@@ -655,28 +657,11 @@ model: {sonnet/opus/haiku}
 
 ## 十一、AI 作为 OBB 规划师
 
-> AI 只操作「方向包围盒」(Oriented Bounding Box)，不处理复杂几何。
+> 详见 [Agent_Spatial.md §1 核心哲学：AI 是 OBB 规划师](./Agent_Spatial.md#1-核心哲学ai-是-obb-规划师)
 
-```
-AI 视角：
-┌─────────────┐
-│   bounds    │  ← AI 操作的是矩形包围盒
-│  [4 顶点]   │
-│   facing    │  ← 语义朝向（north/south/east/west）
-└─────────────┘
+**核心理念**：AI 只操作「方向包围盒」(OBB)，不处理复杂几何。Core 层负责 `bounds + facing → 精确几何`。
 
-Core 层：
-bounds + facing → 精确几何位置 + 旋转角度
-```
-
-**布置约束**：
-
-```
-对于每个要放置的模块：
-1. bounds 必须完全在 zone.innerBoundary 内
-2. bounds 不能与任何 exclusionAreas 重叠
-3. bounds 不能与其他已放置 modules 重叠
-```
+**布置约束**：模块必须在 zone.innerBoundary 内、不与 exclusionAreas 重叠、不与其他 modules 重叠。
 
 ---
 
