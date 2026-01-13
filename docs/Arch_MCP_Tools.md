@@ -6,7 +6,7 @@
 >
 > **相关文档**：
 > - [Schema.md](./Schema.md) - JSON 数据模型规范
-> - [Arch_Overview.md](./Arch_Overview.md) - 系统架构总设计
+> - [Architecture.md](./Architecture.md) - 系统架构总设计
 
 ---
 

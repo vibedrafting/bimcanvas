@@ -547,7 +547,7 @@ BIMCanvas.Web/src/
 |------|------|------|
 | MCP 工具规范 | [Arch_MCP_Tools.md](./Arch_MCP_Tools.md) | 坐标系统定义 |
 | 数据模型 | [Schema.md](./Schema.md) | JSON Schema 定义 |
-| 系统架构 | [Arch_Overview.md](./Arch_Overview.md) | 整体架构设计 |
+| 系统架构 | [Architecture.md](./Architecture.md) | 整体架构设计 |
 
 ---
 

@@ -658,7 +658,7 @@ Agent 通过 MCP 查询 → Server 实时响应 → Agent 决策 → Server 即�
 
 ### 5.1 ChangeSource 机制
 
-> 详细定义见 [Arch_Overview.md](./Arch_Overview.md)
+> 详细定义见 [Architecture.md](./Architecture.md)
 
 每次修改都会携带 `changeSource` 字段，用于控制 Undo/Redo 历史管理：
 
@@ -1080,7 +1080,7 @@ Web 前端                                                        Server
 
 | 文档 | 路径 | 内容 |
 |------|------|------|
-| 系统架构 | [Arch_Overview.md](./Arch_Overview.md) | 模块设计、数据流、File-Driven 架构 |
+| 系统架构 | [Architecture.md](./Architecture.md) | 模块设计、数据流、File-Driven 架构 |
 | 数据模型 | [Schema.md](./Schema.md) | JSON 字段定义 (v3.0) |
 | MCP 工具 | [Arch_MCP_Tools.md](./Arch_MCP_Tools.md) | 工具 API 规范 |
 | 产品需求 | [PRD.md](./PRD.md) | 业务需求 |

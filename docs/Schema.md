@@ -5,7 +5,7 @@
 > 状态：已实现（基于 demo_1 项目验证）
 >
 > **相关文档**：
-> - [Arch_Overview.md](./Arch_Overview.md) - 系统架构
+> - [Architecture.md](./Architecture.md) - 系统架构
 > - 实际示例项目：`C:\Users\huhaonan\Documents\BIMCanvas\Projects\demo_1`
 >
 > **v3.0 变更要点**：

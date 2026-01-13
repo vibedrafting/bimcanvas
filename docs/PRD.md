@@ -5,7 +5,7 @@
 > 状态：规划中
 >
 > **相关文档**：
-> - [Arch_Overview.md](./Arch_Overview.md) - 系统架构总设计
+> - [Architecture.md](./Architecture.md) - 系统架构总设计
 > - [Schema.md](./Schema.md) - JSON 数据模型规范
 > - [Flow_Workflows.md](./Flow_Workflows.md) - 端到端业务流程
 
@@ -175,7 +175,7 @@
 
 ### 4.1 架构总览
 
-详细架构设计见 [Arch_Overview.md](./Arch_Overview.md)。
+详细架构设计见 [Architecture.md](./Architecture.md)。
 
 **核心设计决策**：
 
@@ -405,7 +405,7 @@
 
 ### A. 参考文档
 
-- [Arch_Overview.md](./Arch_Overview.md) - 系统架构总设计
+- [Architecture.md](./Architecture.md) - 系统架构总设计
 - [Schema.md](./Schema.md) - JSON 数据模型规范
 - [Arch_MCP_Tools.md](./Arch_MCP_Tools.md) - MCP 工具接口规范
 - [Flow_Workflows.md](./Flow_Workflows.md) - 端到端业务流程

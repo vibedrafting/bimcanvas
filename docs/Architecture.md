@@ -434,6 +434,40 @@ function toModel(screenX: number, screenY: number, scale: number, canvasHeight: 
 }
 ```
 
+### 角度语义规范
+
+项目中存在三套角度系统，**混用会导致方向相反的 bug**：
+
+| 系统 | 正方向 | 来源 | 使用场景 |
+|------|--------|------|----------|
+| **数据模型角** | CCW+ | 2D 数学（Y-up） | `rotatePoint2D()`, JSON 存储 |
+| **交互角** | CW+ | `atan2(z, x)` | 鼠标拖动计算 |
+| **Three.js 角** | CCW+ | `rotation.y` | 3D 渲染预览 |
+
+**根因**：坐标映射 `y → -z` 是镜像操作，翻转了 CCW/CW。
+
+**转换规则**：
+
+| 转换方向 | 操作 |
+|----------|------|
+| 交互角 → 数据模型角 | 取反 |
+| 交互角 → Three.js | 取反 |
+| 用户输入（度数）→ 数据模型角 | 直接使用 |
+
+**代码规范**：
+
+```typescript
+// ✗ 错误：交互角直接当模型角
+const delta = endAngle - startAngle;
+rotatePoint2D(point, center, delta);
+
+// ✓ 正确：交互角取反后传入
+const delta = -(endAngle - startAngle);
+rotatePoint2D(point, center, delta);
+```
+
+> 详见：`BIMCanvas.Web/README.md` §角度语义系统
+
 ---
 
 ## 8. 项目结构
@@ -474,7 +508,7 @@ BIMCanvas/                                    【根目录】
 │
 └── docs/                                     【文档】
     ├── Schema.md                             数据模型规范
-    ├── Arch_Overview.md                      系统架构 (本文档)
+    ├── Architecture.md                       系统架构 (本文档)
     ├── Arch_MCP_Tools.md                     MCP 工具规范
     └── Flow_Workflows.md                     业务流程
 ```

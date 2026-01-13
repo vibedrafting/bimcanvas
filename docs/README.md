@@ -13,7 +13,7 @@
 |------|------|----------|
 | [PRD.md](PRD.md) | 产品与需求 | 产品需求文档 |
 | [Schema.md](Schema.md) | 数据模型 | JSON 数据模型规范 (v3.0) |
-| [Arch_Overview.md](Arch_Overview.md) | 系统架构 | 系统架构总设计 |
+| [Architecture.md](Architecture.md) | 系统架构 | 系统架构总设计 |
 | [Arch_MCP_Tools.md](Arch_MCP_Tools.md) | 系统架构 | MCP 工具接口规范 |
 | [Flow_Workflows.md](Flow_Workflows.md) | 业务流程 | 端到端业务流程 |
 | [Agent_Design.md](Agent_Design.md) | Agent 设计 | Agent 架构与提示词设计 |
@@ -35,7 +35,7 @@
 
 | 文档 | 核心内容 |
 |------|----------|
-| [Arch_Overview.md](Arch_Overview.md) | 整体架构、数据流、Git Worktree、组件职责 |
+| [Architecture.md](Architecture.md) | 整体架构、数据流、Git Worktree、组件职责 |
 | [Arch_MCP_Tools.md](Arch_MCP_Tools.md) | Canvas-MCP 工具接口、Y-up 坐标系统 |
 
 ### 3. 数据模型
@@ -103,7 +103,7 @@
 ```
 PRD (产品定位)
  │
- ├──→ Arch_Overview (系统架构)
+ ├──→ Architecture (系统架构)
  │         │
  │         ├──→ Schema (数据模型)
  │         │
@@ -159,7 +159,7 @@ PRD (产品定位)
 |----------|------------|
 | Schema-JSON-v3.md | Schema.md |
 | MCP-Tools-Spec.md | Arch_MCP_Tools.md |
-| Architecture.md + FileDrivenArchitecture.md + Data_Flow_Guide.md | Arch_Overview.md |
+| Architecture.md + FileDrivenArchitecture.md + Data_Flow_Guide.md | Architecture.md |
 | PRD.md | PRD.md |
 | Workflows.md + Server_Agent_Workflow.md | Flow_Workflows.md |
 | Agent_Design_Spec.md + Agent_Prompt_Design_Guide.md | Agent_Design.md |
@@ -173,7 +173,7 @@ PRD (产品定位)
 
 ### 新开发者
 1. 阅读 [PRD.md](PRD.md) 了解产品定位
-2. 阅读 [Arch_Overview.md](Arch_Overview.md) 了解系统架构
+2. 阅读 [Architecture.md](Architecture.md) 了解系统架构
 3. 阅读 [Schema.md](Schema.md) 了解数据模型
 
 ### Agent 开发
