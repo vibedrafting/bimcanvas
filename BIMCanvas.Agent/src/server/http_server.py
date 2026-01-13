@@ -118,7 +118,9 @@ async def chat_stream_handler(request: web.Request) -> web.StreamResponse:
     Request body:
         {
             "projectPath": "path/to/project",
-            "message": "user message"
+            "message": "user message",
+            "model": "claude-sonnet-4-20250514",  // optional, 动态切换模型
+            "thinkingLevel": "high"               // optional, 思考强度 (off/low/medium/high)
         }
 
     Response: SSE stream with chunks
@@ -133,6 +135,8 @@ async def chat_stream_handler(request: web.Request) -> web.StreamResponse:
 
     project_path = data.get("projectPath", "")
     message = data.get("message", "")
+    model = data.get("model")              # 新增：模型名称
+    thinking_level = data.get("thinkingLevel")  # 新增：思考强度
 
     if not message:
         return web.json_response(
@@ -154,7 +158,11 @@ async def chat_stream_handler(request: web.Request) -> web.StreamResponse:
     try:
         agent = await get_agent(project_path)  # 异步获取
 
-        async for chunk in agent.chat_stream(message):
+        # 动态切换模型（如果指定了模型且与当前不同）
+        if model:
+            await agent.set_model(model)
+
+        async for chunk in agent.chat_stream(message, thinking_level=thinking_level):
             # 构建 SSE 事件数据
             event_data = {"type": chunk.type}
 

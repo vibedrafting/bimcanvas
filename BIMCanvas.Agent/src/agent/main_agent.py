@@ -349,6 +349,36 @@ class MainAgent:
                 self._agent_logger.log_warning(f"思考强度调整失败: {e}")
             return False
 
+    async def set_model(self, model: str) -> bool:
+        """
+        动态切换模型（不断开连接）
+
+        通过 SDK 的 set_model() 方法发送控制消息。
+
+        Args:
+            model: 模型名称（如 "claude-sonnet-4-20250514"）
+
+        Returns:
+            是否成功切换
+        """
+        if not self._connected or not self._client:
+            logger.warning("Cannot set model: not connected")
+            return False
+
+        try:
+            await self._client.set_model(model)
+            self._current_model = model
+
+            if self.verbose:
+                self._agent_logger.log_info(f"模型已切换: {model}")
+
+            return True
+        except Exception as e:
+            logger.error(f"Failed to set model: {e}")
+            if self.verbose:
+                self._agent_logger.log_warning(f"模型切换失败: {e}")
+            return False
+
     # ─────────────────────────────────────────────────────
     # Message Processing with Logging
     # ─────────────────────────────────────────────────────

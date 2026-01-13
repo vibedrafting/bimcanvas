@@ -501,7 +501,9 @@ const sendMessage = async () => {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         projectPath: currentProjectPath.value,
-        message: message
+        message: message,
+        model: currentModel.value.id,
+        thinkingLevel: currentThinking.value.id
       })
     });
 
@@ -861,30 +863,32 @@ const toggleAttachmentMenu = () => {
 };
 
 // Model & Thinking State
-const currentModel = ref('Claude 3.5 Sonnet');
-const currentThinking = ref('Off');
-const isModelMenuOpen = ref(false);
-const isThinkingMenuOpen = ref(false);
-
+// 存储完整对象 { id, label }，发送时使用 id，显示时使用 label
 const models = [
-  { id: 'claude-3-5-sonnet', label: 'Claude 3.5 Sonnet' },
-  { id: 'gemini-1-5-pro', label: 'Gemini 1.5 Pro' },
-  { id: 'gpt-4o', label: 'GPT-4o' }
+  { id: 'claude-sonnet-4-20250514', label: 'Claude Sonnet 4' },
+  { id: 'claude-opus-4-5-20251101', label: 'Claude Opus 4.5' },
+  { id: 'claude-3-5-haiku-20241022', label: 'Claude Haiku 3.5' }
 ];
 
 const thinkingLevels = [
   { id: 'off', label: 'Off' },
   { id: 'low', label: 'Low' },
+  { id: 'medium', label: 'Medium' },
   { id: 'high', label: 'High' }
 ];
 
-const selectModel = (model: any) => {
-  currentModel.value = model.label;
+const currentModel = ref(models[0]);  // 默认选择第一个模型
+const currentThinking = ref(thinkingLevels[2]);  // 默认 medium
+const isModelMenuOpen = ref(false);
+const isThinkingMenuOpen = ref(false);
+
+const selectModel = (model: { id: string; label: string }) => {
+  currentModel.value = model;
   isModelMenuOpen.value = false;
 };
 
-const selectThinking = (level: any) => {
-  currentThinking.value = level.label;
+const selectThinking = (level: { id: string; label: string }) => {
+  currentThinking.value = level;
   isThinkingMenuOpen.value = false;
 };
 
@@ -1430,20 +1434,20 @@ import MarkdownText from './base/MarkdownText.vue';
                                     <path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"/>
                                 </svg>
                             </span>
-                            <span class="text">{{ currentModel }}</span>
+                            <span class="text">{{ currentModel.label }}</span>
                         </button>
                         <transition name="scale-up">
                             <div class="pill-menu" v-if="isModelMenuOpen">
                                 <div class="menu-header">Model</div>
-                                <div 
-                                    v-for="m in models" 
-                                    :key="m.id" 
+                                <div
+                                    v-for="m in models"
+                                    :key="m.id"
                                     class="menu-item"
-                                    :class="{ active: currentModel === m.label }"
+                                    :class="{ active: currentModel.id === m.id }"
                                     @click="selectModel(m)"
                                 >
                                     <span class="item-text">{{ m.label }}</span>
-                                    <svg v-if="currentModel === m.label" class="check-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                    <svg v-if="currentModel.id === m.id" class="check-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                                         <polyline points="20 6 9 17 4 12"></polyline>
                                     </svg>
                                 </div>
@@ -1454,20 +1458,20 @@ import MarkdownText from './base/MarkdownText.vue';
                     <!-- Thinking Pill -->
                      <div class="control-pill-wrapper thinking" :class="{ open: isThinkingMenuOpen }">
                         <button class="control-pill" @click="isThinkingMenuOpen = !isThinkingMenuOpen">
-                            <span class="text">{{ currentThinking }}</span>
+                            <span class="text">{{ currentThinking.label }}</span>
                         </button>
                         <transition name="scale-up">
                             <div class="pill-menu" v-if="isThinkingMenuOpen">
                                 <div class="menu-header">Thinking Intensity</div>
-                                <div 
-                                    v-for="t in thinkingLevels" 
-                                    :key="t.id" 
+                                <div
+                                    v-for="t in thinkingLevels"
+                                    :key="t.id"
                                     class="menu-item"
-                                    :class="{ active: currentThinking === t.label }"
+                                    :class="{ active: currentThinking.id === t.id }"
                                     @click="selectThinking(t)"
                                 >
                                     <span class="item-text">{{ t.label }}</span>
-                                    <svg v-if="currentThinking === t.label" class="check-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                    <svg v-if="currentThinking.id === t.id" class="check-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                                         <polyline points="20 6 9 17 4 12"></polyline>
                                     </svg>
                                 </div>
