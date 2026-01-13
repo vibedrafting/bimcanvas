@@ -201,7 +201,32 @@
 | "设计一下" / "帮我布置" | 单次生成 | `single_generate` |
 | "能不能塞进去" / "试试看" | 布局求解 | `layout_solve` |
 
-### 3.3 操作编排 (Operation Orchestration)
+### 3.3 意图分类系统
+
+> **历史演进**：早期设计使用 `action` 字段进行三分类，后续简化为 `task_type` 二分法。
+
+#### action 与 task_type 映射
+
+| action（设计意图） | task_type（执行分类） | 说明 |
+|-------------------|----------------------|------|
+| `parallel_generate` | `execute` | 并行生成多方案，需要写入文件 |
+| `single_generate` | `execute` | 单次生成方案，需要写入文件 |
+| `layout_solve` | `execute` | 布局求解，需要迭代写入 |
+| *(查询类操作)* | `query` | 只读查询，不修改文件 |
+
+#### 两套分类的适用场景
+
+| 分类系统 | 使用位置 | 目的 |
+|----------|----------|------|
+| **action 三分类** | 设计意图对象 | 描述用户意图的业务语义 |
+| **task_type 二分法** | 工具调用判断 | 区分读操作和写操作 |
+
+**使用原则**：
+- Agent 解析用户意图时，输出 `action` 字段（业务语义）
+- Server 根据 `action` 判断对应的 `task_type`（执行分类）
+- 所有三种 action 都属于 `execute` 类型，因为都涉及文件写入
+
+### 3.4 操作编排 (Operation Orchestration)
 
 将意图对象转化为具体的 **Git 命令序列**。
 
@@ -214,14 +239,14 @@
    - `git add .`
    - `git commit -m "Design: Living Room with {name} strategy"`
 
-### 3.4 语义化提交 (Semantic Commits)
+### 3.5 语义化提交 (Semantic Commits)
 
 AI 必须学会写"人话"Commit Message，而不是机器码。
 
 - **差评**：`Update modules.json`
 - **好评**：`feat(living-room): Maximize storage by adding full-wall cabinets, sacrificing 200mm aisle width`
 
-### 3.5 Agent 与 Server 分工
+### 3.6 Agent 与 Server 分工
 
 > **核心原则**：意图解析是 Agent 职责，Git 操作是 Server 职责。
 

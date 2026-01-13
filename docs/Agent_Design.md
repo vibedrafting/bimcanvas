@@ -73,6 +73,28 @@ Server：管理状态、执行验证，不做布置决策
 | **自主性** | 有限自主性 | 无自主性，被动调用 |
 | **示例** | 布置家具、规划方案 | 读取数据、验证碰撞 |
 
+### 1.5 Agent 禁止事项
+
+> **来源**：从老文档 Agent_Design_Spec.md §1.3-1.4 保留的核心约束
+
+**Agent 绝不做的事**：
+
+| 禁止项 | 说明 | 责任方 |
+|--------|------|--------|
+| ❌ Zone 生成 | 不自行计算区域划分 | Server 预计算到 `computed/room_zones.json` |
+| ❌ 禁区计算 | 不自行计算门扇扫过区域 | Server 预计算到 `computed/exclusions.json` |
+| ❌ InnerBoundary 计算 | 不自行计算内边界 | Server 预计算 |
+| ❌ 约束验证 | 不自行判断布置是否合法 | Server 验证，失败则通知 Agent 修正 |
+| ❌ Git 仓库管理 | 不自行创建/合并 Worktree | Server 负责 Git 操作 |
+
+**简化口诀**：
+
+```
+Agent 只做决策，不做计算
+Agent 只发指令，不持状态
+Agent 只用数据，不生数据
+```
+
 ---
 
 ## 二、核心设计原则
@@ -561,11 +583,95 @@ model: {sonnet/opus/haiku}
 | 舒适优先 | ComfortFirst | 优先考虑使用舒适度 |
 | 均衡方案 | Balanced | 各方面均衡考虑 |
 
+### 8.3 策略影响决策
+
+> **来源**：从老文档 Agent_Design_Spec.md §5.3 保留的代码示例
+
+```python
+class PlacementAgent:
+    def select_furniture(self, zone, strategy):
+        if strategy.approach == "StorageFirst":
+            # 优先选择带储物功能的家具
+            # 增加柜体数量
+            # 允许通道略窄
+            pass
+        elif strategy.approach == "CirculationFirst":
+            # 减少大型家具
+            # 保证通道宽度 >= 900mm
+            pass
+        elif strategy.approach == "MinimalistFirst":
+            # 只选择核心家具
+            # 跳过辅助家具
+            pass
+```
+
+**策略决策映射表**：
+
+| 策略 | 家具选择倾向 | 通道宽度 | 家具数量 |
+|------|-------------|----------|----------|
+| StorageFirst | 带储物功能 | 可略窄 (≥600mm) | 较多 |
+| CirculationFirst | 紧凑型 | 宽敞 (≥900mm) | 较少 |
+| MinimalistFirst | 核心家具 | 最宽 | 最少 |
+| ComfortFirst | 舒适型（大尺寸） | 适中 | 适中 |
+| Balanced | 均衡 | 标准 (≥800mm) | 标准 |
+
 ---
 
-## 九、工具体系
+## 九、布置设计原则
 
-### 9.1 数据读取工具
+> **来源**：从老文档 Agent_Design_Spec.md §4.2 保留的核心设计知识
+
+### 9.1 七条设计规则
+
+| 类型 | 规则 | 示例 |
+|------|------|------|
+| **靠墙规则** | 大型家具尽量靠墙 | 衣柜、床、沙发 |
+| **居中规则** | 某些家具居中于墙面 | 电视柜居中于电视墙 |
+| **顶角规则** | 某些家具顶墙角 | 衣柜、书柜 |
+| **朝向规则** | 模块背对墙 | 沙发背墙，面向中心 |
+| **对位规则** | 家具对位关系 | 沙发正对电视 |
+| **避窗规则** | 除淋浴外避免靠窗 | 床头不靠窗 |
+| **避门规则** | 不阻挡门开启范围 | 利用 openings 数据 |
+
+### 9.2 布置优先级（三层顺序）
+
+```
+1. 【锚点家具】确定设计区的"锚点"
+   • 客厅: 电视墙位置 → 电视柜
+   • 卧室: 床头墙位置 → 床
+   • 餐厅: 主位置 → 餐桌
+
+2. 【主要家具】围绕锚点布置
+   • 客厅: 沙发（正对电视柜）
+   • 卧室: 衣柜、床头柜
+
+3. 【辅助家具】填充剩余空间
+   • 茶几、边几、装饰柜等
+```
+
+**优先级详解**：
+
+| 层级 | 名称 | 定义 | 示例 |
+|------|------|------|------|
+| **锚点家具** | Anchor | 定义空间功能的核心家具，优先确定位置 | 床、沙发、餐桌 |
+| **主要家具** | Primary | 功能配套的重要家具，基于锚点相对定位 | 床头柜、茶几、餐椅 |
+| **辅助家具** | Secondary | 补充功能的次要家具，填充剩余空间 | 装饰柜、花架、边几 |
+
+### 9.3 布置约束
+
+```
+对于每个要放置的模块：
+1. bounds 必须完全在 Designable Zone boundary 内
+2. bounds 不能与任何 exclusionAreas 重叠
+3. bounds 不能与其他已放置 modules 重叠
+4. 不能阻挡门的开启范围
+```
+
+---
+
+## 十、工具体系
+
+### 10.1 数据读取工具
 
 | 工具 | 功能 | 说明 |
 |------|------|------|
@@ -575,7 +681,7 @@ model: {sonnet/opus/haiku}
 | `list_modules` | 查询模块库 | 读取 `modules/module_library.json` |
 | `read_strategy` | 读取策略配置 | 读取 `strategy.json` |
 
-### 9.2 方案写入工具
+### 10.2 方案写入工具
 
 | 工具 | 功能 | 说明 |
 |------|------|------|
@@ -583,7 +689,7 @@ model: {sonnet/opus/haiku}
 | `write_modules` | 写入模块布置 | 写入 `schemes/{s}/modules.json` |
 | `write_readme` | 写入设计说明 | 写入 `schemes/{s}/README.md` |
 
-### 9.3 Git 操作工具
+### 10.3 Git 操作工具
 
 | 工具 | 功能 | 说明 |
 |------|------|------|
@@ -593,7 +699,7 @@ model: {sonnet/opus/haiku}
 
 ---
 
-## 十、数据格式
+## 十一、数据格式
 
 ### 10.1 输入数据
 
@@ -655,17 +761,39 @@ model: {sonnet/opus/haiku}
 
 ---
 
-## 十一、AI 作为 OBB 规划师
+## 十二、AI 作为 OBB 规划师
 
 > 详见 [Agent_Spatial.md §1 核心哲学：AI 是 OBB 规划师](./Agent_Spatial.md#1-核心哲学ai-是-obb-规划师)
+>
+> **来源**：从老文档 Agent_Design_Spec.md §1.4 保留的核心架构图
 
-**核心理念**：AI 只操作「方向包围盒」(OBB)，不处理复杂几何。Core 层负责 `bounds + facing → 精确几何`。
+**核心理念**：AI 只操作「方向包围盒」(OBB)，不处理复杂几何。
+
+```
+AI 视角：
+┌─────────────┐
+│   bounds    │  ← AI 操作的是矩形包围盒
+│  [4 顶点]   │
+│   facing    │  ← 语义朝向（north/south/east/west）
+└─────────────┘
+
+Core 层转换：
+bounds + facing → 精确几何位置 + 旋转角度
+```
+
+**分工边界**：
+
+| 角色 | 操作对象 | 职责 |
+|------|----------|------|
+| **AI (Agent)** | OBB (bounds + facing) | 决定"放哪里"、"朝哪边" |
+| **Core 层** | Polygon2D + 角度 | 转换为精确几何表示 |
+| **Server** | 验证结果 | 检查约束、返回冲突 |
 
 **布置约束**：模块必须在 zone.innerBoundary 内、不与 exclusionAreas 重叠、不与其他 modules 重叠。
 
 ---
 
-## 十二、经验教训
+## 十三、经验教训
 
 ### 12.1 问题 1：SubAgent 在查询任务中修改数据
 

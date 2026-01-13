@@ -1010,9 +1010,6 @@ const contextOptions = {
     { id: 'fire-code', label: 'Fire Safety Code' }
   ],
   attachments: [
-    { id: 'screenshot-select', label: 'Select Area Screenshot' },
-    { id: 'screenshot-canvas', label: 'Screenshot Canvas' },
-    { id: 'screenshot-room', label: 'Screenshot Current Room' },
     { id: 'upload', label: 'Upload Image...' },
     { id: 'docs', label: 'Project Requirements.pdf' }
   ]
@@ -1038,42 +1035,7 @@ const openSubmenu = (id: string, event: MouseEvent) => {
 const handleContextSelect = async (type: string, item: any) => {
   console.log('Selected context:', type, item);
 
-  // Handle select area screenshot
-  if (type === 'attachments' && item.id === 'screenshot-select') {
-    isAttachmentMenuOpen.value = false;
-    // 延迟显示覆盖层，让菜单先关闭
-    setTimeout(() => {
-      showScreenshotOverlay.value = true;
-    }, 100);
-    return;
-  }
 
-  // Handle screenshot attachments
-  if (type === 'attachments' && (item.id === 'screenshot-canvas' || item.id === 'screenshot-room')) {
-    isAttachmentMenuOpen.value = false;
-    try {
-      const screenshotService = getScreenshotService(AGENT_API_BASE);
-      let imageData: string;
-
-      if (item.id === 'screenshot-canvas') {
-        imageData = await screenshotService.captureCanvas();
-      } else {
-        // TODO: Get current room ID from selection or active scope
-        const roomId = 'room_001'; // Placeholder
-        imageData = await screenshotService.captureRoom(roomId);
-      }
-
-      // 保存到本地
-      const filePath = await screenshotService.saveToLocal(imageData);
-      console.log(`[Screenshot] Saved to: ${filePath}`);
-
-      pendingImages.value.push(imageData);
-      console.log(`[Screenshot] Added ${item.id}, total pending: ${pendingImages.value.length}`);
-    } catch (e) {
-      console.error('[Screenshot] Failed:', e);
-    }
-    return;
-  }
 
   // Logic to add context
   if (type === 'zones') {
@@ -1151,7 +1113,7 @@ onUnmounted(() => {
 
 import TaskSummaryWidget from './TaskSummaryWidget.vue';
 import MarkdownText from './base/MarkdownText.vue';
-import ScreenshotOverlay from './ScreenshotOverlay.vue';
+import AdvancedScreenshotOverlay from './AdvancedScreenshotOverlay.vue';
 
 // 框选截图状态
 const showScreenshotOverlay = ref(false);
@@ -1570,6 +1532,19 @@ const removePendingImage = (index: number) => {
             <div class="input-footer">
                 <div class="left-controls">
                     <!-- Attachment Button (Paperclip) -->
+                    <!-- Screenshot Button -->
+                    <button 
+                        class="icon-btn" 
+                        title="Screenshot"
+                        @click="showScreenshotOverlay = true"
+                    >
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"></path>
+                            <circle cx="12" cy="13" r="4"></circle>
+                        </svg>
+                    </button>
+
+                    <!-- Attachment Button (Paperclip) -->
                      <div class="add-context-wrapper">
                         <button 
                             class="icon-btn" 
@@ -1586,31 +1561,8 @@ const removePendingImage = (index: number) => {
                         <transition name="scale-up">
                             <div class="context-menu" v-if="isAttachmentMenuOpen">
                                 <div class="menu-header">Attachments</div>
-                                <!-- Screenshot Options -->
-                                <div
-                                    class="menu-item"
-                                    @click="handleContextSelect('attachments', { id: 'screenshot-select' })"
-                                >
-                                    <span class="icon">
-                                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                                            <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"></path>
-                                            <rect x="6" y="10" width="12" height="8" rx="1"></rect>
-                                        </svg>
-                                    </span>
-                                    <span class="item-text">框选截图</span>
-                                </div>
-                                <div
-                                    class="menu-item"
-                                    @click="handleContextSelect('attachments', { id: 'screenshot-canvas' })"
-                                >
-                                    <span class="icon">
-                                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                                            <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"></path>
-                                            <circle cx="12" cy="13" r="4"></circle>
-                                        </svg>
-                                    </span>
-                                    <span class="item-text">截取画布</span>
-                                </div>
+                                <!-- Screenshot Options REMOVED -->
+
                                 <div class="menu-divider"></div>
                                 <!-- Upload Options -->
                                 <div class="menu-item">
@@ -1755,7 +1707,7 @@ const removePendingImage = (index: number) => {
 
     <!-- Screenshot Overlay for select area screenshot -->
     <Teleport to="body">
-      <ScreenshotOverlay
+      <AdvancedScreenshotOverlay
         v-if="showScreenshotOverlay"
         @capture="handleScreenshotCapture"
         @cancel="handleScreenshotCancel"

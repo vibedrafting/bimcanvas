@@ -169,7 +169,44 @@ options = ClaudeAgentOptions(
 - SubAgent 通过 **AgentDefinition 定义**
 - SubAgent **不能再派发 SubAgent**（禁止嵌套）
 
-### 4.2 AgentDefinition 配置
+### 4.2 意图分类系统演进
+
+> **设计背景**：BIMCanvas 的意图分类系统经历了从细粒度到粗粒度的演进。
+
+#### 早期设计：action 三分类
+
+原始设计使用 `action` 字段区分用户意图的业务语义：
+
+| action | 场景 | 特点 |
+|--------|------|------|
+| `parallel_generate` | 出多个方案供选择 | 创建多个 Worktree 并行执行 |
+| `single_generate` | 单次布置 | 创建单个 Worktree |
+| `layout_solve` | 约束求解 | 迭代尝试直到满足约束 |
+
+#### 当前设计：task_type 二分法
+
+为简化工具权限判断，引入 `task_type` 二分法：
+
+| task_type | 定义 | 权限要求 |
+|-----------|------|----------|
+| `query` | 只读操作，不修改文件 | 低权限 |
+| `execute` | 写操作，会修改文件 | 高权限 |
+
+#### 两套分类的协作关系
+
+```
+用户输入 → Agent 解析 → action（业务语义）
+                          ↓
+                    Server 转换 → task_type（执行分类）
+                          ↓
+                    权限判断 + 执行
+```
+
+**映射关系**：所有 action 类型（parallel_generate, single_generate, layout_solve）都映射到 `task_type: execute`。
+
+> 详见 [Flow_Agent_Parallel_Workflows.md §3.3 意图分类系统](./Flow_Agent_Parallel_Workflows.md#33-意图分类系统)
+
+### 4.3 AgentDefinition 配置
 
 | 字段 | 类型 | 必需 | 说明 |
 |------|------|------|------|
@@ -178,7 +215,7 @@ options = ClaudeAgentOptions(
 | `tools` | list | ❌ | 允许的工具，省略则继承父 agent |
 | `model` | str | ❌ | 模型：`"sonnet"` / `"opus"` / `"haiku"` |
 
-### 4.3 完整示例
+### 4.4 完整示例
 
 ```python
 from claude_agent_sdk import ClaudeSDKClient, ClaudeAgentOptions, AgentDefinition
@@ -226,7 +263,7 @@ async with ClaudeSDKClient(options=options) as client:
         print(msg)
 ```
 
-### 4.4 MCP 工具 vs SubAgent（重要澄清）
+### 4.5 MCP 工具 vs SubAgent（重要澄清）
 
 > 详见 [Agent_Design.md §1.4 MCP 工具 vs SubAgent](./Agent_Design.md#14-mcp-工具-vs-subagent)
 
