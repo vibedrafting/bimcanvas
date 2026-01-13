@@ -85,7 +85,11 @@ export class ThreeSceneService {
         this.camera.lookAt(0, 0, 0);
 
         // 3. Renderer
-        this.renderer = new THREE.WebGLRenderer({ antialias: true, alpha: false });
+        this.renderer = new THREE.WebGLRenderer({
+            antialias: true,
+            alpha: false,
+            preserveDrawingBuffer: true  // 允许截图
+        });
         this.renderer.setSize(container.clientWidth, container.clientHeight);
         this.renderer.setPixelRatio(window.devicePixelRatio);
         this.renderer.shadowMap.enabled = true;
@@ -302,6 +306,23 @@ export class ThreeSceneService {
      */
     public rebuildGrid(): void {
         this.gridBuilder.buildGrid();
+    }
+
+    /**
+     * 获取画布截图
+     * @returns Base64 编码的 PNG 图片
+     */
+    public captureScreenshot(): string {
+        // 强制渲染一帧确保内容最新
+        this.renderer.render(this.scene, this.camera);
+        return this.renderer.domElement.toDataURL('image/png');
+    }
+
+    /**
+     * 获取 WebGL canvas 元素
+     */
+    public getCanvasElement(): HTMLCanvasElement {
+        return this.renderer.domElement;
     }
 
     /**

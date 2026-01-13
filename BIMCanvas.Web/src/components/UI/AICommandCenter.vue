@@ -1063,6 +1063,10 @@ const handleContextSelect = async (type: string, item: any) => {
         imageData = await screenshotService.captureRoom(roomId);
       }
 
+      // 保存到本地
+      const filePath = await screenshotService.saveToLocal(imageData);
+      console.log(`[Screenshot] Saved to: ${filePath}`);
+
       pendingImages.value.push(imageData);
       console.log(`[Screenshot] Added ${item.id}, total pending: ${pendingImages.value.length}`);
     } catch (e) {

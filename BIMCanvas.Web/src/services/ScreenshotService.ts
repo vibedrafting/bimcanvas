@@ -16,17 +16,25 @@ export class ScreenshotService {
   }
 
   /**
-   * 截取整个画布
+   * 截取整个画布（直接从 WebGL canvas 获取）
    * @returns Base64 编码的图片数据
    */
   async captureCanvas(): Promise<string> {
-    // 尝试多种可能的选择器
+    // 直接获取 WebGL canvas 元素
+    const glCanvas = document.querySelector('.three-canvas canvas') as HTMLCanvasElement
+      || document.querySelector('.canvas-area canvas') as HTMLCanvasElement
+    if (glCanvas) {
+      // WebGL canvas 直接使用 toDataURL（需要 preserveDrawingBuffer: true）
+      return glCanvas.toDataURL('image/png')
+    }
+
+    // 回退：使用 html2canvas（可能无法正确捕获 WebGL 内容）
     const element = document.querySelector('.canvas-area')
       || document.querySelector('.three-canvas')
-      || document.getElementById('bim-canvas')
     if (!element) {
       throw new Error('Canvas element not found. Please ensure the canvas is loaded.')
     }
+    console.warn('[ScreenshotService] WebGL canvas not found, falling back to html2canvas')
     const canvas = await html2canvas(element as HTMLElement, {
       backgroundColor: null,
       scale: window.devicePixelRatio || 1,
