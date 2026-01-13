@@ -1,6 +1,8 @@
 # BIMCanvas 技术文档改造计划
 
 > **创建日期**: 2026-01-13
+> **完成日期**: 2026-01-13
+> **状态**: ✅ 已完成
 > **目标**: 将 archives 中的 15 个旧文档重构为分类清晰、观点统一的新文档体系
 
 ---
@@ -21,7 +23,7 @@
 | 前缀 | 分类 | 说明 | 示例 |
 |------|------|------|------|
 | `PRD` | 产品与需求 | 产品定位、功能需求 | PRD.md |
-| `Arch_` | 系统架构 | 整体架构、数据流、MCP 工具 | Arch_Overview.md |
+| `Arch_` | 系统架构 | 整体架构、数据流、MCP 工具 | Architecture.md |
 | `Schema` | 数据模型 | JSON Schema、数据结构 | Schema.md |
 | `Flow_` | 业务流程 | 端到端流程、协作规范 | Flow_Workflows.md |
 | `Agent_` | Agent 设计 | Agent 架构、提示词、SDK | Agent_Design.md |
@@ -45,7 +47,7 @@
 
 | 新文档名 | 源文档 | 合并策略 |
 |----------|--------|----------|
-| `Arch_Overview.md` | Architecture.md (12-29) + FileDrivenArchitecture.md (12-29) + Data_Flow_Guide.md (01-11) | 以 Data_Flow_Guide 为主，合并架构概述 |
+| `Architecture.md` | Architecture.md (12-29) + FileDrivenArchitecture.md (12-29) + Data_Flow_Guide.md (01-11) | 以 Data_Flow_Guide 为主，合并架构概述 |
 | `Flow_Workflows.md` | Workflows.md (12-29) + Server_Agent_Workflow.md (01-10) | 以 Server_Agent_Workflow 为主，保留六阶段流程 |
 | `Agent_Design.md` | Agent_Design_Spec.md (01-09) + Agent_Prompt_Design_Guide.md (01-13) | 以 Prompt Guide 为主，SubAgent 架构优先 |
 | `Agent_SDK.md` | Agent_SDK_Technical_Guide.md (01-06) + AI_Parallel_Design_Patterns.md (12-30) | 以 SDK Guide 为主，保留并行设计模式 |
@@ -69,7 +71,7 @@
 |------|------|--------|----------|
 | 1.1 | 复制+重命名 | archives/Schema-JSON-v3.md | docs/Schema.md |
 | 1.2 | 复制+修正 | archives/MCP-Tools-Spec.md | docs/Arch_MCP_Tools.md |
-| 1.3 | 合并生成 | archives/Architecture.md + FileDrivenArchitecture.md + Data_Flow_Guide.md | docs/Arch_Overview.md |
+| 1.3 | 合并生成 | archives/Architecture.md + FileDrivenArchitecture.md + Data_Flow_Guide.md | docs/Architecture.md |
 
 **1.2 修正内容** (MCP-Tools-Spec):
 ```markdown
@@ -191,7 +193,7 @@ docs/
 ├── PRD.md                       # 产品需求文档
 ├── Schema.md                    # JSON 数据模型规范
 │
-├── Arch_Overview.md             # 系统架构总设计
+├── Architecture.md              # 系统架构总设计
 ├── Arch_MCP_Tools.md            # MCP 工具接口规范
 │
 ├── Flow_Workflows.md            # 端到端业务流程
@@ -227,17 +229,17 @@ docs/
 
 ### 批次完成后验证
 
-- [ ] 新文档能正确链接到 README.md
-- [ ] 新文档内部引用正确（无死链）
-- [ ] 冲突观点已按规则处理
-- [ ] archives 中原文档保持不变
+- [x] 新文档能正确链接到 README.md
+- [x] 新文档内部引用正确（无死链）
+- [x] 冲突观点已按规则处理
+- [x] archives 中原文档保持不变
 
 ### 全部完成后验证
 
-- [ ] 所有 9 个新文档已生成
-- [ ] README.md 已更新为新文档索引
-- [ ] 文档间交叉引用已更新
-- [ ] 无遗漏的核心概念
+- [x] 所有 9 个新文档已生成
+- [x] README.md 已更新为新文档索引
+- [x] 文档间交叉引用已更新
+- [x] 无遗漏的核心概念（补充了角度语义规范）
 
 ---
 
@@ -251,3 +253,30 @@ docs/
 | 批次 4 | 1 | Web 前端合并 |
 
 **总计**: 9 个新文档，4 个批次
+
+---
+
+## 九、执行记录
+
+### 2026-01-13 执行完成
+
+**Commits**:
+- `89eac96` - 文档：重构技术文档体系（9 个新文档创建）
+- `99212d3` - 文档：重命名 Arch_Overview.md 为 Architecture.md
+
+**最终产出**:
+| 文档 | 状态 | 说明 |
+|------|------|------|
+| PRD.md | ✅ | 补充 File-Driven、OBB 规划师 |
+| Schema.md | ✅ | 复制自 Schema-JSON-v3.md |
+| Architecture.md | ✅ | 合并 3 个文档 + 角度语义规范 |
+| Arch_MCP_Tools.md | ✅ | 修正坐标系统为 Y-up |
+| Flow_Workflows.md | ✅ | 合并 2 个文档 |
+| Agent_Design.md | ✅ | 合并 2 个文档，采用 SubAgent 架构 |
+| Agent_SDK.md | ✅ | 合并 2 个文档，推荐 ClaudeSDKClient |
+| Agent_Spatial.md | ✅ | 复制自 AISpatialUnderstanding.md |
+| Web_Frontend.md | ✅ | 合并 2 个文档 |
+| README.md | ✅ | 更新为新文档索引 v2.0 |
+
+**补充内容**:
+- Architecture.md 新增 §7.x 角度语义规范（三套角度系统及转换规则）
