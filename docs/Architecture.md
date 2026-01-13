@@ -34,6 +34,22 @@
 | Phase 5 | 交互修改 | 用户 + AI | 更新的 modules[] |
 | Phase 6 | 回写 Revit | Revit-MCP | Revit 家具实例 |
 
+**阶段流程视图**：
+
+```
+    ┌──────────┐     ┌──────────┐     ┌──────────┐
+    │ Phase 1  │ ──► │ Phase 2  │ ──► │ Phase 3  │
+    │ Revit 提取│     │ Server   │     │ 区域确认 │
+    │          │     │ 计算     │     │          │
+    └──────────┘     └──────────┘     └──────────┘
+                                            │
+    ┌──────────┐     ┌──────────┐     ┌─────▼────┐
+    │ Phase 6  │ ◄── │ Phase 5  │ ◄── │ Phase 4  │
+    │ 回写 Revit│     │ 交互修改 │     │ AI 布置  │
+    │          │     │          │     │          │
+    └──────────┘     └──────────┘     └──────────┘
+```
+
 ### 1.3 核心设计决策
 
 | 决策点 | 选择 | 理由 |
@@ -105,6 +121,15 @@
 │  特点：只读，来自 Revit 导出                                  │
 └─────────────────────────────────────────────────────────────┘
 ```
+
+**读写权限明细**：
+
+| 层级 | 文件夹 | 读取方 | 写入方 | 流转逻辑 |
+|------|--------|--------|--------|----------|
+| **底层 (Baseline)** | `baseline/` | Server、Web | Revit 导出 (只读) | 启动加载 → 推送 Web 作为静态背景 |
+| **中层 (Schemes)** | `schemes/{s}/zones.json` | Server、Web | AI/Server | Server 读取 → 计算边界 → 推送 Web |
+| **中层 (Schemes)** | `schemes/{s}/modules.json` | Server、Web | AI/Web/Server | **双向同步**：文件变动 ↔ Web 渲染 |
+| **顶层 (Computed)** | `computed/` | Server、Web | Server (自动) | 根据 openings 计算禁区等派生数据 |
 
 ### 2.4 .bcp 项目格式
 
@@ -236,6 +261,8 @@ project.bcp (ZIP)
 | **文件同步流** | 文件 → Server → Web | 文件变化（Agent/外部编辑） | FileWatcher → SignalR |
 | **项目加载流** | 文件 → Server → Web | 上传/切换项目 | REST API → loadProject() |
 
+> 详细数据流场景分析（包括五个典型场景的调用链、API 参考）见：[Arch_DataFlow.md](./Arch_DataFlow.md)
+
 ### 4.2 数据流向详解
 
 ```
@@ -341,6 +368,50 @@ private void OnFileChanged(...) {
 2. 用户点击 Undo，Server 执行逆向操作并写入文件
 3. **外部干扰规则**：一旦检测到非 Web 端发起的文件变更（如手动编辑），立即清空 Undo 栈
 
+> **外部干扰规则详解**：外部修改切断了 Undo 链条，强行回滚会导致状态不一致。因此系统会主动清空历史栈，确保数据安全。
+
+### 5.5 持久化双层策略
+
+采用 **"磁盘即时同步 + Git 周期存档"** 的双层策略：
+
+| 层级 | 触发时机 | 动作 | 效果 |
+|------|---------|------|------|
+| **第一层：磁盘同步** | 用户交互结束时（MouseUp） | 立即写入 JSON 文件 | VS Code 等工具能实时看到修改 |
+| **第二层：版本存档** | 显式保存 / 每隔 1 分钟 | `git add . && git commit` | 生成 Git 历史节点 |
+
+**第一层去抖动**：禁用。采用阻塞式立即写入，确保文件系统与内存状态毫秒级一致。
+
+### 5.6 PlacementValidator 设计原则
+
+**职责边界**：
+
+| 类 | 职责 | 关键原则 |
+|---|------|---------|
+| `GeometryNormalizer` | AI 意图 → Polygon2D | 纯几何转换 |
+| `PlacementValidator` | 布置验证 | **只验证，不修正** |
+
+**关键设计原则**：
+
+- `PlacementValidator` **只做 Validation**，返回验证结果
+- **不做 Correction**：「床头靠墙」是 AI 的规划职责，不是 Core 的修正职责
+- 未来如需吸附功能，单独创建 `SnapHelper` 或 `ConstraintSolver`
+
+> 详细转换器架构（包括转换链路、坐标转换公式、NTS 中间层设计）见：[Arch_Converter.md](./Arch_Converter.md)
+
+### 5.7 WallFinish 三层来源机制
+
+完成面（WallFinish）支持三层来源，按优先级从低到高：
+
+| 优先级 | 来源类型 | 说明 | 示例 |
+|--------|---------|------|------|
+| 1 (最低) | **RoomDefault** | 根据 Room.Type 查配置 | 卧室 → 乳胶漆 → 0mm |
+| 2 | **ZoneOverride** | Zone.Tags 匹配规则 | tv_media → 护墙板 → 80mm |
+| 3 (最高) | **UserOverride** | 用户手动选择 | 用户指定特定墙面材质 |
+
+**计算规则**：
+- 每个完成面分段（FinishSegment）继承最高优先级的来源
+- 系统自动合并相邻的同材质分段
+
 ---
 
 ## 6. Git 工作流
@@ -362,20 +433,32 @@ private void OnFileChanged(...) {
    - Server 同时读取主目录和工作树目录的数据
    - 前端渲染"左右分屏"对比
 
-### 6.3 Visual Merge UI
+### 6.3 Visual Merge UI（可视化冲突解决）
 
-**界面**：分屏显示，左侧"我的方案"，右侧"AI 提案"
+这是本架构的核心交互组件，用于 AI 方案与用户方案的融合。
 
-**颗粒度**：按 Zone（可设计区）进行差异对比
+**界面设计**：
+- 分屏显示：左侧"我的方案"，右侧"AI 提案"
+- 允许按区域选择保存 AI 生成的方案
+
+**颗粒度**：按 **Zone（可设计区）** 进行差异对比
 
 **交互逻辑**：
-- 即使没有代码冲突，用户也可以进行选择性合并
-- "主卧采纳 AI 的（勾选右边），但客厅保留我的（勾选左边）"
+1. 即使没有代码冲突，用户也可以进行**选择性合并**
+2. 示例：*"主卧采纳 AI 的（勾选右边），但客厅保留我的（勾选左边）"*
 
-**价值**：
-- **零数据丢失**：用户的修改和 AI 的方案都安全保存
-- **选择权**：用户拥有最终"采纳权"
-- **可回溯**：所有尝试都有 Git 记录
+**执行结果**：
+1. Server 根据用户选择，执行精确的 JSON 合并（Cherry-pick）
+2. 生成一个新的 Commit 到 `main` 分支
+3. Web 端退出评审模式，显示融合后的新方案
+
+**核心价值**：
+
+| 特性 | 说明 |
+|------|------|
+| **零数据丢失** | 用户的修改和 AI 的方案都在各自的分支里安全保存 |
+| **选择权** | 用户不再被 AI 强制覆盖，而是拥有最终的"采纳权" |
+| **可回溯** | 所有的尝试都有 Git 记录，随时可以回退 |
 
 ---
 
@@ -472,44 +555,92 @@ rotatePoint2D(point, center, delta);
 
 ## 8. 项目结构
 
+### 8.1 解决方案目录
+
 ```
 BIMCanvas/                                    【根目录】
 │
 ├── BIMCanvas.slnx                            【解决方案文件】
 │
 ├── BIMCanvas.Core/                           【项目】核心类库 (.NET Standard 2.0)
-│   ├── Models/                               数据模型
-│   │   ├── Primitives/                       几何基元 (Point2D, Vec2D, Polygon2D, AABB)
+│   ├── Models/                               【目录】数据模型
+│   │   ├── Primitives/                       几何基元
+│   │   │   ├── Point2D.cs                      坐标点（readonly struct）
+│   │   │   ├── Vec2D.cs                        向量（结构同 Point2D，语义不同）
+│   │   │   ├── Polygon2D.cs                    多边形（封装 Point2D[]）
+│   │   │   ├── Line2D.cs                       线段
+│   │   │   ├── AABB.cs                         轴对齐包围盒
+│   │   │   ├── Facing.cs                       朝向（联合类型：语义/向量）
+│   │   │   └── FacingDirection.cs              朝向方向枚举
 │   │   ├── RevitSource/                      Revit 导出数据
 │   │   ├── CanvasData/                       画布数据 (Zone, WallFinish, ExclusionArea)
-│   │   └── RevitWriteback/                   回写数据 (Module, ModuleItem, Facing)
-│   └── Algorithms/                           空间计算
-│       ├── Geometry/                         几何运算
-│       └── Spatial/                          空间业务逻辑
+│   │   └── RevitWriteback/                   回写数据 (Module, ModuleItem)
+│   ├── Algorithms/                           【目录】空间计算
+│   │   ├── Geometry/                         几何运算
+│   │   │   ├── NtsAdapter.cs                   NTS 适配器（internal）
+│   │   │   └── CollisionDetector.cs            碰撞检测（调用 NTS）
+│   │   └── Spatial/                          空间业务逻辑
+│   │       ├── GeometryNormalizer.cs           AI 意图 → Polygon2D
+│   │       ├── PlacementValidator.cs           布置验证（只验证，不修正）
+│   │       ├── FacingHelper.cs                 方向语义 ↔ Vec2D
+│   │       └── FinishRules.cs                  特殊完成面规则表
+│   └── Converters/                           【目录】转换器
+│       ├── UnitConverter.cs                    单位转换（feet↔mm, rad↔deg）
+│       └── NtsConverter.cs                     NTS ↔ Core.Models 类型转换
 │
 ├── BIMCanvas.Revit/                          【项目】Revit 插件 (.NET FW 4.7.2)
-│   ├── Commands/                             Ribbon 命令
-│   ├── Adapters/                             数据适配器
-│   └── Services/                             导出/回写服务
+│   ├── Commands/                             【目录】Ribbon 命令
+│   │   └── ExportCanvasCommand.cs              导出命令
+│   ├── Adapters/                             【目录】数据适配器
+│   │   ├── BoundaryAdapter.cs                  边界轮廓提取（墙体+柱子几何切割）
+│   │   ├── OpeningAdapter.cs                   门窗数据提取
+│   │   └── RoomAdapter.cs                      房间边界提取
+│   ├── Models/                               【目录】中间模型
+│   │   ├── RevitBoundary.cs                    保留元素追溯信息
+│   │   ├── RevitOpening.cs                     门窗几何+方向信息
+│   │   └── RevitRoom.cs                        房间边界+名称
+│   ├── Converters/                           【目录】转换器
+│   │   └── RevitNtsConverter.cs                Revit API ↔ NTS 类型转换
+│   ├── Services/                             【目录】服务层
+│   │   ├── CanvasExportService.cs              画布导出服务（6阶段流程）
+│   │   ├── CoordinateTransformer.cs            坐标转换器（有状态）
+│   │   └── RoomTypeInferrer.cs                 房间类型推断
+│   └── Utilities/                            【目录】工具类
+│       ├── OutlineExtractor.cs                 轮廓提取（Boolean 运算）
+│       └── OpeningDirectionAnalyzer.cs         门窗方向分析
 │
 ├── BIMCanvas.Server/                         【项目】统一后端 (.NET 6+)
-│   ├── McpTools/                             Canvas-MCP 工具
-│   ├── Controllers/                          REST API
-│   ├── Hubs/                                 SignalR Hub
-│   └── Services/                             状态管理、EventBus
+│   ├── McpTools/                             【目录】Canvas-MCP 工具
+│   │   ├── ModuleTools.cs                      模块操作（add/move/rotate/delete）
+│   │   ├── CanvasTools.cs                      画布管理（create/describe/export）
+│   │   └── QueryTools.cs                       查询分析（module_at/space_analyze）
+│   ├── Controllers/                          【目录】REST API
+│   │   └── ProjectController.cs                项目管理接口
+│   ├── Hubs/                                 【目录】SignalR Hub
+│   │   └── CanvasHub.cs                        实时通信
+│   └── Services/                             【目录】状态管理
+│       ├── ProjectContext.cs                   项目上下文（单项目模式）
+│       ├── ProjectWatcherService.cs            文件监听服务（500ms 防抖）
+│       └── EventBus.cs                         事件总线
 │
 ├── BIMCanvas.Agent/                          【项目】AI Agent (Python 3.10+)
-│   └── PlacementAgent                        基于 Agent SDK
+│   └── PlacementAgent                        基于 Anthropic Agent SDK
 │
 ├── BIMCanvas.Web/                            【项目】Web 前端 (Vue 3 + TS)
 │   ├── src/stores/                           Pinia 状态管理
+│   │   ├── canvasStore.ts                      画布状态
+│   │   └── gitStore.ts                         Git 状态
 │   ├── src/services/                         服务层
+│   │   ├── SignalRService.ts                   WebSocket 客户端
+│   │   └── state/TimelineManager.ts            历史管理器
 │   └── src/components/                       Vue 组件
 │
 └── docs/                                     【文档】
     ├── Schema.md                             数据模型规范
     ├── Architecture.md                       系统架构 (本文档)
     ├── Arch_MCP_Tools.md                     MCP 工具规范
+    ├── Arch_Converter.md                     转换器架构专题
+    ├── Arch_DataFlow.md                      数据流场景分析专题
     └── Flow_Workflows.md                     业务流程
 ```
 
