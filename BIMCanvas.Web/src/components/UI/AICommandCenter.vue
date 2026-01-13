@@ -1040,8 +1040,7 @@ const handleContextSelect = async (type: string, item: any) => {
 
   // Handle select area screenshot
   if (type === 'attachments' && item.id === 'screenshot-select') {
-    isContextMenuOpen.value = false;
-    activeSubmenu.value = null;
+    isAttachmentMenuOpen.value = false;
     // 延迟显示覆盖层，让菜单先关闭
     setTimeout(() => {
       showScreenshotOverlay.value = true;
@@ -1051,6 +1050,7 @@ const handleContextSelect = async (type: string, item: any) => {
 
   // Handle screenshot attachments
   if (type === 'attachments' && (item.id === 'screenshot-canvas' || item.id === 'screenshot-room')) {
+    isAttachmentMenuOpen.value = false;
     try {
       const screenshotService = getScreenshotService(AGENT_API_BASE);
       let imageData: string;
@@ -1068,9 +1068,6 @@ const handleContextSelect = async (type: string, item: any) => {
     } catch (e) {
       console.error('[Screenshot] Failed:', e);
     }
-
-    isContextMenuOpen.value = false;
-    activeSubmenu.value = null;
     return;
   }
 
@@ -1569,6 +1566,33 @@ const handleScreenshotCancel = () => {
                         <transition name="scale-up">
                             <div class="context-menu" v-if="isAttachmentMenuOpen">
                                 <div class="menu-header">Attachments</div>
+                                <!-- Screenshot Options -->
+                                <div
+                                    class="menu-item"
+                                    @click="handleContextSelect('attachments', { id: 'screenshot-select' })"
+                                >
+                                    <span class="icon">
+                                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                            <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"></path>
+                                            <rect x="6" y="10" width="12" height="8" rx="1"></rect>
+                                        </svg>
+                                    </span>
+                                    <span class="item-text">框选截图</span>
+                                </div>
+                                <div
+                                    class="menu-item"
+                                    @click="handleContextSelect('attachments', { id: 'screenshot-canvas' })"
+                                >
+                                    <span class="icon">
+                                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                            <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"></path>
+                                            <circle cx="12" cy="13" r="4"></circle>
+                                        </svg>
+                                    </span>
+                                    <span class="item-text">截取画布</span>
+                                </div>
+                                <div class="menu-divider"></div>
+                                <!-- Upload Options -->
                                 <div class="menu-item">
                                     <span class="icon">
                                         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -1577,7 +1601,7 @@ const handleScreenshotCancel = () => {
                                             <polyline points="21 15 16 10 5 21"></polyline>
                                         </svg>
                                     </span>
-                                    <span class="item-text">Upload Image</span>
+                                    <span class="item-text">上传图片</span>
                                 </div>
                                 <div class="menu-item">
                                     <span class="icon">
@@ -1589,7 +1613,7 @@ const handleScreenshotCancel = () => {
                                             <polyline points="10 9 9 9 8 9"></polyline>
                                         </svg>
                                     </span>
-                                    <span class="item-text">Upload File</span>
+                                    <span class="item-text">上传文件</span>
                                 </div>
                             </div>
                         </transition>
