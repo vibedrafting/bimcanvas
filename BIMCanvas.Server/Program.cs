@@ -406,14 +406,21 @@ static string FindAgentProjectPath(string startDir)
 }
 
 // 辅助函数：读取 Agent 端口配置
+// Agent 配置文件位置：~/Documents/BIMCanvas/config.json
 static int LoadAgentPort(string agentProjectPath)
 {
     try
     {
-        var configPath = Path.Combine(agentProjectPath, "config.json");
+        // Agent 配置目录：~/Documents/BIMCanvas/
+        var userConfigDir = Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments),
+            "BIMCanvas"
+        );
+        var configPath = Path.Combine(userConfigDir, "config.json");
+
         if (!File.Exists(configPath))
         {
-            WriteWithColoredPrefix("[Server:WARN]", "未找到 Agent 配置文件，使用默认端口 8765", ConsoleColor.Yellow);
+            // 配置文件不存在是正常的，Agent 启动时会自动从模板创建
             return 8765;
         }
 

@@ -431,9 +431,18 @@ def create_app() -> web.Application:
         web.post("/api/interrupt", interrupt_handler),
     ]
 
+    # 按路径分组路由（避免同一路径重复创建 resource 导致 CORS 冲突）
+    routes_by_path: dict[str, list] = {}
     for route in routes:
-        resource = cors.add(app.router.add_resource(route.path))
-        cors.add(resource.add_route(route.method, route.handler))
+        if route.path not in routes_by_path:
+            routes_by_path[route.path] = []
+        routes_by_path[route.path].append(route)
+
+    # 注册路由
+    for path, path_routes in routes_by_path.items():
+        resource = cors.add(app.router.add_resource(path))
+        for route in path_routes:
+            cors.add(resource.add_route(route.method, route.handler))
 
     return app
 
