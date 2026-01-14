@@ -68,29 +68,64 @@ const editingAnnotationIndex = ref<number>(-1)
 // 用于拖拽文本输入框
 const textInputDragStartX = ref(0), textInputDragStartY = ref(0)
 
-const colors = ['#ff0000', '#00ff00', '#0000ff', '#ffff00', '#000000', '#ffffff']
+// 颜色选项（8种）
+const colors = ['#ff0000', '#ff6600', '#ffff00', '#00ff00', '#00ffff', '#0000ff', '#000000', '#ffffff']
+
+// --- 隐藏/恢复 UI 元素 ---
+const hiddenElements: { el: HTMLElement; display: string }[] = []
+
+const hideUIElements = () => {
+    // 需要隐藏的 CSS 选择器
+    const selectors = [
+        '.header-area',           // 顶栏（AppHeader + RibbonToolbar）
+        '.island-container',      // 灵动岛
+        '.floating-tools',        // 浮动工具（图层管理按钮）
+        '.properties-area',       // 属性面板
+        '.gallery-area',          // AI 对话面板
+        '.prompt-bar',            // 底部提示栏
+        '.floating-input',        // 浮动输入框
+    ]
+    
+    selectors.forEach(selector => {
+        const el = document.querySelector(selector) as HTMLElement
+        if (el) {
+            hiddenElements.push({ el, display: el.style.display })
+            el.style.display = 'none'
+        }
+    })
+}
+
+const restoreUIElements = () => {
+    hiddenElements.forEach(({ el, display }) => {
+        el.style.display = display
+    })
+    hiddenElements.length = 0
+}
 
 // --- 初始化 ---
 onMounted(async () => {
   try {
-    // 等待 Vue DOM 更新完成（父组件隐藏 AI 面板）
+    // 隐藏所有 UI 元素
+    hideUIElements()
+    
+    // 等待 DOM 更新
     await nextTick()
-    // 最小延迟确保 DOM 更新生效
-    await new Promise(resolve => setTimeout(resolve, 10))
     
     const canvas = await html2canvas(document.body, {
       backgroundColor: null,
-      scale: Math.min(window.devicePixelRatio || 1, 2), // 限制最大缩放为 2x
+      scale: Math.min(window.devicePixelRatio || 1, 2),
       logging: false,
       useCORS: true,
       allowTaint: true,
-      foreignObjectRendering: false, // 关闭以提升速度
-      removeContainer: true, // 完成后移除临时容器
+      foreignObjectRendering: false,
+      removeContainer: true,
       ignoreElements: (el) => {
-        // 忽略截图遮罩自身
         return el.classList?.contains('advanced-screenshot-overlay')
       }
     })
+    
+    // 恢复 UI 元素（但由于 overlay 仍显示，它们会被遮住）
+    restoreUIElements()
     
     bgCanvasRef.value = canvas
     
@@ -109,6 +144,7 @@ onMounted(async () => {
     window.addEventListener('mouseup', handleGlobalMouseUp)
   } catch (error) {
     console.error('[Screenshot] Init failed:', error)
+    restoreUIElements()
     emit('cancel')
   }
 })
@@ -235,11 +271,13 @@ const draw = () => {
       }
   }
 
-  // 选中标注的控制点
+
+  // 选中标注的控制点（仅显示控制点，不显示虚线框）
   if (selectedAnnotationIndex.value !== -1 && !isSelecting.value) {
       const ann = annotations.value[selectedAnnotationIndex.value]
       if (ann) drawAnnotationHandles(ctx, ann, dpr)
   }
+
 
   ctx.restore()
 }
@@ -286,31 +324,16 @@ const drawAnnotationHandles = (ctx: CanvasRenderingContext2D, ann: Annotation, d
     }
 
     if (ann.type === 'rect') {
+        // 只绘制四个角的控制点，不绘制边框
         drawHandle(ann.x, ann.y)
         drawHandle(ann.x + ann.w, ann.y)
         drawHandle(ann.x + ann.w, ann.y + ann.h)
         drawHandle(ann.x, ann.y + ann.h)
-        ctx.strokeRect(ann.x * dpr, ann.y * dpr, ann.w * dpr, ann.h * dpr)
     } else if (ann.type === 'arrow') {
         drawHandle(ann.startX, ann.startY)
         drawHandle(ann.endX, ann.endY)
-    } else if (ann.type === 'text') {
-        // 如果正在编辑该文字，使用输入框位置绘制预览框
-        let textX = ann.x
-        let textY = ann.y
-        if (editingAnnotationIndex.value !== -1) {
-            // 根据输入框位置计算文字位置
-            textX = textInputX.value + TEXT_INPUT_PADDING_X
-            textY = textInputY.value + TEXT_INPUT_PADDING_Y + ann.size * 12 + 12
-        }
-        ctx.font = `${(ann.size * 12 + 12) * dpr}px sans-serif`
-        const text = editingAnnotationIndex.value !== -1 ? (textInputValue.value || ann.text) : ann.text
-        const metrics = ctx.measureText(text || ' ')
-        const h = ann.size * 12 + 12
-        ctx.setLineDash([4, 4])
-        ctx.strokeRect((textX - 4) * dpr, (textY - h - 4) * dpr, (metrics.width + 8) * dpr, (h + 8) * dpr)
-        ctx.setLineDash([])
     }
+    // 文字标注不绘制控制点和虚线框
 }
 
 // --- 交互处理 ---
@@ -894,9 +917,10 @@ const getHandleStyle = (h: ResizeHandle) => {
                 <div v-for="c in colors" :key="c" class="color-dot" :style="{ backgroundColor: c }" :class="{ active: currentColor === c }" @click.stop="currentColor = c"></div>
             </div>
             <div class="sizes">
-                <div class="size-dot-wrapper" @click.stop="currentSize = 1"><div class="size-dot small" :class="{ active: currentSize === 1 }"></div></div>
-                <div class="size-dot-wrapper" @click.stop="currentSize = 2"><div class="size-dot medium" :class="{ active: currentSize === 2 }"></div></div>
-                <div class="size-dot-wrapper" @click.stop="currentSize = 3"><div class="size-dot large" :class="{ active: currentSize === 3 }"></div></div>
+                <div class="size-dot-wrapper" @click.stop="currentSize = 1" title="细"><div class="size-dot xs" :class="{ active: currentSize === 1 }"></div></div>
+                <div class="size-dot-wrapper" @click.stop="currentSize = 2" title="中"><div class="size-dot sm" :class="{ active: currentSize === 2 }"></div></div>
+                <div class="size-dot-wrapper" @click.stop="currentSize = 3" title="粗"><div class="size-dot md" :class="{ active: currentSize === 3 }"></div></div>
+                <div class="size-dot-wrapper" @click.stop="currentSize = 4" title="特粗"><div class="size-dot lg" :class="{ active: currentSize === 4 }"></div></div>
             </div>
         </div>
     </div>
@@ -1006,9 +1030,10 @@ const getHandleStyle = (h: ResizeHandle) => {
 
 .size-dot {
     background: #bbb; border-radius: 50%;
-    &.small { width: 4px; height: 4px; }
-    &.medium { width: 8px; height: 8px; }
-    &.large { width: 12px; height: 12px; }
+    &.xs { width: 3px; height: 3px; }
+    &.sm { width: 6px; height: 6px; }
+    &.md { width: 10px; height: 10px; }
+    &.lg { width: 14px; height: 14px; }
     &.active { background: #1890ff; }
 }
 
