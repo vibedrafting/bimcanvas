@@ -1,6 +1,6 @@
 # BIMCanvas 并行架构升级指南
 
-> **版本**：v1.1 | **更新日期**：2026-01-14
+> **版本**：v1.2 | **更新日期**：2026-01-14
 > **状态**：待实施
 > **关联文档**：[Arch_Parallel_Development.md](../docs/Arch_Parallel_Development.md)
 
@@ -200,18 +200,42 @@ git merge branch-A-agent-job-1
 - Canvas 始终渲染用户 Worktree，无需临时切换渲染目标
 - 合并后 Worktree 文件自动更新，无需额外"传递"操作
 
-### 3.3 服务设计
+### 3.3 ⚠️ 架构变更：Git 工具集成到 Agent 进程
+
+> **用户决策（2026-01-14）**：Agent 项目已支持 MCP 功能，Git 工具直接集成到 Agent 进程，不需要独立的 Server 端服务。
+
+**架构对比**：
+
+| 原设计 | 新设计 |
+|--------|--------|
+| Server 端 GitService | Agent 进程内 Git 工具 |
+| Agent 调用 Server REST API | Agent 直接调用 subprocess |
+| 需要进程间通信 | 进程内调用，零延迟 |
+
+**新架构**：
+
+```
+Agent (Python)
+    │
+    ├─► Git 工具（进程内）
+    │   ├─► worktree/create
+    │   ├─► worktree/remove
+    │   ├─► branch/merge
+    │   └─► commit/commit
+    │
+    └─► subprocess 调用 Git CLI
+```
+
+**Server 端保留**：
 
 ```
 BIMCanvas.Server/
 └── Services/
     └── Git/
-        ├── IGitService.cs              # Git 操作接口
-        ├── GitService.cs               # Git 操作实现
-        ├── IWorktreeService.cs         # Worktree 管理接口
-        ├── WorktreeService.cs          # Worktree 管理实现
-        └── BranchLockManager.cs        # 分支锁管理
+        └── BranchLockManager.cs        # 分支锁管理（多窗口互斥）
 ```
+
+> **注意**：Server 端仅保留 BranchLockManager 用于多窗口分支互斥，Git 操作逻辑迁移到 Agent 进程内。
 
 ### 3.4 接口定义
 
@@ -951,5 +975,6 @@ Phase 3: Web 多窗口    Phase 4: Agent 并行             │
 
 | 版本 | 日期 | 变更内容 |
 |------|------|----------|
+| v1.2 | 2026-01-14 | §3.3 Git 工具集成到 Agent 进程（架构变更） |
 | v1.1 | 2026-01-14 | Git 核心限制说明、Agent 工作流程修正 |
 | v1.0 | 2026-01-14 | 初版：5 阶段升级计划 |
