@@ -18,15 +18,31 @@ import { useDebugStore } from '../../stores/debugStore';
 import { themeService } from '../theme/ThemeService';
 import { moduleLibraryService } from '../ModuleLibraryService';
 
+// 全局实例引用（供 ScreenshotService 等外部服务访问）
+let globalInstance: ThreeSceneService | null = null;
+
+export function getThreeSceneService(): ThreeSceneService | null {
+    return globalInstance;
+}
+
 export class ThreeSceneService {
     private container: HTMLElement;
-    private scene: THREE.Scene;
-    private camera: THREE.OrthographicCamera;
+    private _scene: THREE.Scene;
+    private _camera: THREE.OrthographicCamera;
     private renderer: THREE.WebGLRenderer;
     private labelRenderer: CSS2DRenderer;
     private animationId: number | null = null;
 
     private isInitialLoad: boolean = true;
+
+    // Public getters for screenshot service
+    public get scene(): THREE.Scene {
+        return this._scene;
+    }
+
+    public get camera(): THREE.OrthographicCamera {
+        return this._camera;
+    }
 
 
 
@@ -63,14 +79,17 @@ export class ThreeSceneService {
         this.store = useCanvasStore();
 
         // 1. Scene
-        this.scene = new THREE.Scene();
-        this.scene.background = new THREE.Color(this.BG_COLOR);
-        this.scene.fog = new THREE.FogExp2(this.BG_COLOR, 0.00005);
+        this._scene = new THREE.Scene();
+        this._scene.background = new THREE.Color(this.BG_COLOR);
+        this._scene.fog = new THREE.FogExp2(this.BG_COLOR, 0.00005);
+
+        // 注册全局实例
+        globalInstance = this;
 
         // 2. Camera (Orthographic)
         const aspect = container.clientWidth / container.clientHeight;
         const frustumSize = 20000;
-        this.camera = new THREE.OrthographicCamera(
+        this._camera = new THREE.OrthographicCamera(
             frustumSize * aspect / -2,
             frustumSize * aspect / 2,
             frustumSize / 2,
@@ -80,9 +99,9 @@ export class ThreeSceneService {
         );
         // Y-Up Top View: Position at +Y, looking at Origin.
         // Up vector should be -Z (North) to match standard map orientation where North is Up on screen.
-        this.camera.position.set(0, 10000, 0);
-        this.camera.up.set(0, 0, -1);
-        this.camera.lookAt(0, 0, 0);
+        this._camera.position.set(0, 10000, 0);
+        this._camera.up.set(0, 0, -1);
+        this._camera.lookAt(0, 0, 0);
 
         // 3. Renderer
         this.renderer = new THREE.WebGLRenderer({
@@ -110,21 +129,21 @@ export class ThreeSceneService {
         this.viewportService = new ViewportService(this.camera, this.renderer);
 
         // Selection & Interaction
-        this.selectionManager = new SelectionManager(this.scene);
-        this.interactionService = new InteractionService(this.camera, this.renderer.domElement, this.scene, this.selectionManager);
-        this.dragManager = new DragManager(this.camera, this.renderer.domElement, this.scene, this.selectionManager);
-        this.ghostManager = GhostManager.getInstance(this.scene);
+        this.selectionManager = new SelectionManager(this._scene);
+        this.interactionService = new InteractionService(this.camera, this.renderer.domElement, this._scene, this.selectionManager);
+        this.dragManager = new DragManager(this.camera, this.renderer.domElement, this._scene, this.selectionManager);
+        this.ghostManager = GhostManager.getInstance(this._scene);
 
         // 5. Lighting
         this.setupLighting();
 
         // 6. Initialize Builders
-        this.sceneBuilder = new SceneBuilder(this.scene);
-        this.gridBuilder = new GridBuilder(this.scene);
-        this.outlineBuilder = new OutlineBuilder(this.scene);
-        this.labelBuilder = new LabelBuilder(this.scene);
-        this.zoneBuilder = new ZoneBuilder(this.scene);
-        this.exclusionBuilder = new ExclusionBuilder(this.scene);
+        this.sceneBuilder = new SceneBuilder(this._scene);
+        this.gridBuilder = new GridBuilder(this._scene);
+        this.outlineBuilder = new OutlineBuilder(this._scene);
+        this.labelBuilder = new LabelBuilder(this._scene);
+        this.zoneBuilder = new ZoneBuilder(this._scene);
+        this.exclusionBuilder = new ExclusionBuilder(this._scene);
 
         // Initial Demo Scene - REMOVED to prevent flash
         // if (!this.store.document) {
@@ -167,8 +186,8 @@ export class ThreeSceneService {
                     this.labelBuilder.buildLabels(newData);
 
                     // Update Zone Label Visibility based on current layer state
-                    const labelsOn = this.camera.layers.isEnabled(LayerManager.LAYER_LABELS);
-                    const zonesOn = this.camera.layers.isEnabled(LayerManager.LAYER_ZONES);
+                    const labelsOn = this._camera.layers.isEnabled(LayerManager.LAYER_LABELS);
+                    const zonesOn = this._camera.layers.isEnabled(LayerManager.LAYER_ZONES);
                     this.labelBuilder.updateZoneLabelVisibility(labelsOn, zonesOn);
 
                     this.zoneBuilder.buildZones(newData);
@@ -228,8 +247,8 @@ export class ThreeSceneService {
             this.toggleViewMode(e.detail);
 
             // Update Zone Label Visibility after preset application
-            const labelsOn = this.camera.layers.isEnabled(LayerManager.LAYER_LABELS);
-            const zonesOn = this.camera.layers.isEnabled(LayerManager.LAYER_ZONES);
+            const labelsOn = this._camera.layers.isEnabled(LayerManager.LAYER_LABELS);
+            const zonesOn = this._camera.layers.isEnabled(LayerManager.LAYER_ZONES);
             this.labelBuilder.updateZoneLabelVisibility(labelsOn, zonesOn);
         }) as EventListener;
         this.boundEventHandlers.set('bimcanvas:view-mode-change', viewModeHandler);
@@ -239,8 +258,8 @@ export class ThreeSceneService {
             this.toggleLayer(e.detail.layerId, e.detail.visible);
 
             // Update Zone Label Visibility (Requires both LABELS and ZONES layers)
-            const labelsOn = this.camera.layers.isEnabled(LayerManager.LAYER_LABELS);
-            const zonesOn = this.camera.layers.isEnabled(LayerManager.LAYER_ZONES);
+            const labelsOn = this._camera.layers.isEnabled(LayerManager.LAYER_LABELS);
+            const zonesOn = this._camera.layers.isEnabled(LayerManager.LAYER_ZONES);
             this.labelBuilder.updateZoneLabelVisibility(labelsOn, zonesOn);
         }) as EventListener;
         this.boundEventHandlers.set('bimcanvas:layer-toggle', layerToggleHandler);
@@ -314,7 +333,7 @@ export class ThreeSceneService {
      */
     public captureScreenshot(): string {
         // 强制渲染一帧确保内容最新
-        this.renderer.render(this.scene, this.camera);
+        this.renderer.render(this._scene, this._camera);
         return this.renderer.domElement.toDataURL('image/png');
     }
 
@@ -332,9 +351,9 @@ export class ThreeSceneService {
     private rebuildWithNewTheme() {
         // 更新场景背景色
         const bgColor = themeService.currentTheme.value.background;
-        this.scene.background = new THREE.Color(bgColor);
-        if (this.scene.fog instanceof THREE.FogExp2) {
-            this.scene.fog.color.setHex(bgColor);
+        this._scene.background = new THREE.Color(bgColor);
+        if (this._scene.fog instanceof THREE.FogExp2) {
+            this._scene.fog.color.setHex(bgColor);
         }
 
         // 清理旧的 Builder 资源（防止残留）
@@ -344,12 +363,12 @@ export class ThreeSceneService {
         this.exclusionBuilder.cleanup();
 
         // 重新创建所有 Builders（它们在构造时读取 ThemeService 配色）
-        this.sceneBuilder = new SceneBuilder(this.scene);
-        this.gridBuilder = new GridBuilder(this.scene);
-        this.outlineBuilder = new OutlineBuilder(this.scene);
-        this.labelBuilder = new LabelBuilder(this.scene);
-        this.zoneBuilder = new ZoneBuilder(this.scene);
-        this.exclusionBuilder = new ExclusionBuilder(this.scene);
+        this.sceneBuilder = new SceneBuilder(this._scene);
+        this.gridBuilder = new GridBuilder(this._scene);
+        this.outlineBuilder = new OutlineBuilder(this._scene);
+        this.labelBuilder = new LabelBuilder(this._scene);
+        this.zoneBuilder = new ZoneBuilder(this._scene);
+        this.exclusionBuilder = new ExclusionBuilder(this._scene);
 
         // 如果有当前项目数据，重建场景
         const data = this.store.projectData;
@@ -359,8 +378,8 @@ export class ThreeSceneService {
             this.labelBuilder.buildLabels(data);
 
             // Update Zone Label Visibility based on current layer state
-            const labelsOn = this.camera.layers.isEnabled(LayerManager.LAYER_LABELS);
-            const zonesOn = this.camera.layers.isEnabled(LayerManager.LAYER_ZONES);
+            const labelsOn = this._camera.layers.isEnabled(LayerManager.LAYER_LABELS);
+            const zonesOn = this._camera.layers.isEnabled(LayerManager.LAYER_ZONES);
             this.labelBuilder.updateZoneLabelVisibility(labelsOn, zonesOn);
 
             this.zoneBuilder.buildZones(data);
@@ -373,7 +392,7 @@ export class ThreeSceneService {
 
     private setupLighting() {
         const ambientLight = new THREE.AmbientLight(this.AMBIENT_LIGHT_COLOR, 0.4); // Reduced intensity
-        this.scene.add(ambientLight);
+        this._scene.add(ambientLight);
 
         const dirLight = new THREE.DirectionalLight(this.DIR_LIGHT_COLOR, 0.8); // Increased intensity slightly
         dirLight.position.set(-5000, 10000, 5000); // Angled for better shadows
@@ -383,10 +402,10 @@ export class ThreeSceneService {
         dirLight.shadow.camera.near = 0.5;
         dirLight.shadow.camera.far = 50000;
         dirLight.shadow.bias = -0.0001; // Reduce shadow acne
-        this.scene.add(dirLight);
+        this._scene.add(dirLight);
 
         const hemiLight = new THREE.HemisphereLight(0xeeeeff, 0x777788, 0.2); // Reduced intensity
-        this.scene.add(hemiLight);
+        this._scene.add(hemiLight);
     }
 
     private fitToScreen(data: any) {
@@ -443,20 +462,20 @@ export class ThreeSceneService {
         debugStore.log(`FitToScreen: Center3D [${center3D.x.toFixed(0)},${center3D.y.toFixed(0)},${center3D.z.toFixed(0)}] (offset: ${offsetWorld.toFixed(0)})`);
 
         // Update Camera Position (Keep Y high, move X and Z)
-        this.camera.position.set(center3D.x, 10000, center3D.z);
-        this.camera.lookAt(center3D.x, 0, center3D.z);
-        debugStore.log(`FitToScreen: Camera Pos [${this.camera.position.x.toFixed(0)},${this.camera.position.y.toFixed(0)},${this.camera.position.z.toFixed(0)}]`);
+        this._camera.position.set(center3D.x, 10000, center3D.z);
+        this._camera.lookAt(center3D.x, 0, center3D.z);
+        debugStore.log(`FitToScreen: Camera Pos [${this._camera.position.x.toFixed(0)},${this._camera.position.y.toFixed(0)},${this._camera.position.z.toFixed(0)}]`);
 
         // Update Controls Target via ViewportService
         this.viewportService.setTarget(center3D.x, 0, center3D.z);
 
-        this.camera.left = -frustumSize * aspect / 2;
-        this.camera.right = frustumSize * aspect / 2;
-        this.camera.top = frustumSize / 2;
-        this.camera.bottom = -frustumSize / 2;
+        this._camera.left = -frustumSize * aspect / 2;
+        this._camera.right = frustumSize * aspect / 2;
+        this._camera.top = frustumSize / 2;
+        this._camera.bottom = -frustumSize / 2;
 
-        this.camera.zoom = 1;
-        this.camera.updateProjectionMatrix();
+        this._camera.zoom = 1;
+        this._camera.updateProjectionMatrix();
 
 
     }
@@ -465,12 +484,12 @@ export class ThreeSceneService {
         const aspect = this.container.clientWidth / this.container.clientHeight;
         const frustumSize = 20000;
 
-        this.camera.left = -frustumSize * aspect / 2;
-        this.camera.right = frustumSize * aspect / 2;
-        this.camera.top = frustumSize / 2;
-        this.camera.bottom = -frustumSize / 2;
+        this._camera.left = -frustumSize * aspect / 2;
+        this._camera.right = frustumSize * aspect / 2;
+        this._camera.top = frustumSize / 2;
+        this._camera.bottom = -frustumSize / 2;
 
-        this.camera.updateProjectionMatrix();
+        this._camera.updateProjectionMatrix();
         this.renderer.setSize(this.container.clientWidth, this.container.clientHeight);
         this.labelRenderer.setSize(this.container.clientWidth, this.container.clientHeight);
     }
@@ -483,12 +502,15 @@ export class ThreeSceneService {
         this.interactionService.update();
         this.dragManager.update();
 
-        this.renderer.render(this.scene, this.camera);
-        this.labelRenderer.render(this.scene, this.camera);
+        this.renderer.render(this._scene, this._camera);
+        this.labelRenderer.render(this._scene, this._camera);
     }
 
 
     public dispose() {
+        // 清除全局实例引用
+        globalInstance = null;
+
         if (this.animationId) {
             cancelAnimationFrame(this.animationId);
         }

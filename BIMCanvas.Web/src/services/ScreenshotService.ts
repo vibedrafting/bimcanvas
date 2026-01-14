@@ -4,8 +4,14 @@
  * 提供两种能力：
  * 1. 主动截图：用户通过附件菜单截取画布/房间
  * 2. 响应截图请求：监听 Agent 的截图请求（通过 SSE）
+ *
+ * Labels 渲染策略：
+ * - 不再依赖 html2canvas（对 writing-mode: vertical-rl 支持不可靠）
+ * - 使用 LabelRenderer 手动绘制 + 投影计算
  */
 import html2canvas from 'html2canvas'
+import { LabelRenderer } from './screenshot/LabelRenderer'
+import { getThreeSceneService } from './three/ThreeSceneService'
 
 export class ScreenshotService {
   private serverUrl: string
@@ -16,8 +22,14 @@ export class ScreenshotService {
   }
 
   /**
-   * 截取整个画布（合成 WebGL + CSS2D 标签层）
+   * 截取整个画布（合成 WebGL + 手动绘制标签层）
    * @returns Base64 编码的图片数据
+   *
+   * 渲染策略：
+   * 1. 直接获取 WebGL Canvas 内容（底层）
+   * 2. 使用 LabelRenderer 手动绘制标签（上层）
+   *    - 通过投影计算获取屏幕坐标
+   *    - Canvas 2D API 绘制文字（含旋转）
    */
   async captureCanvas(): Promise<string> {
     // 1. 获取 WebGL canvas
@@ -26,10 +38,9 @@ export class ScreenshotService {
       throw new Error('WebGL canvas not found. Please ensure the canvas is loaded.')
     }
 
-    // 2. 获取 CSS2D 层（标签渲染层）
-    const css2dLayer = document.querySelector('.three-canvas > div') as HTMLElement
+    const scale = window.devicePixelRatio || 1
 
-    // 3. 创建合成 canvas
+    // 2. 创建合成 canvas
     const finalCanvas = document.createElement('canvas')
     finalCanvas.width = glCanvas.width
     finalCanvas.height = glCanvas.height
@@ -38,21 +49,35 @@ export class ScreenshotService {
       throw new Error('Failed to create canvas context')
     }
 
-    // 4. 绘制 WebGL 内容（底层）
+    // 3. 绘制 WebGL 内容（底层）
     ctx.drawImage(glCanvas, 0, 0)
 
-    // 5. 合成 CSS2D 层（标签，上层）
-    if (css2dLayer) {
-      try {
-        const cssCanvas = await html2canvas(css2dLayer, {
-          backgroundColor: null,  // 透明背景
-          scale: window.devicePixelRatio || 1,
-          logging: false
-        })
-        ctx.drawImage(cssCanvas, 0, 0)
-      } catch (e) {
-        console.warn('[ScreenshotService] Failed to capture CSS2D layer:', e)
+    // 4. 手动绘制 Labels（上层）- 使用投影计算 + Canvas 2D API
+    const sceneService = getThreeSceneService()
+    if (sceneService) {
+      const scene = sceneService.scene
+      const camera = sceneService.camera
+
+      if (scene && camera) {
+        try {
+          // 提取所有标签数据（世界坐标 → 屏幕坐标）
+          const labels = LabelRenderer.extractLabels(
+            scene,
+            camera,
+            glCanvas.width / scale,
+            glCanvas.height / scale
+          )
+
+          // 在 Canvas 上绘制标签（含旋转）
+          LabelRenderer.renderToCanvas(ctx, labels, scale)
+
+          console.log(`[ScreenshotService] Rendered ${labels.length} labels manually`)
+        } catch (e) {
+          console.warn('[ScreenshotService] Failed to render labels:', e)
+        }
       }
+    } else {
+      console.warn('[ScreenshotService] ThreeSceneService not available, skipping labels')
     }
 
     return finalCanvas.toDataURL('image/png')
