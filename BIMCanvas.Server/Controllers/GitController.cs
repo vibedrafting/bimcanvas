@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using BIMCanvas.Server.Dtos;
 using BIMCanvas.Server.Services;
 using Microsoft.AspNetCore.Mvc;
@@ -344,5 +345,217 @@ namespace BIMCanvas.Server.Controllers
                 return StatusCode(500, new { message = $"获取当前分支失败: {ex.Message}" });
             }
         }
+
+        #region Worktree API
+
+        /// <summary>
+        /// 获取所有 Worktree 列表
+        /// </summary>
+        /// <returns>Worktree 信息列表</returns>
+        [HttpGet("worktrees")]
+        public ActionResult<List<WorktreeInfoDto>> GetWorktrees()
+        {
+            _logger.LogInformation(">>> [GitController] GetWorktrees called");
+
+            if (!_projectContext.IsLoaded)
+            {
+                return Ok(new List<WorktreeInfoDto>());
+            }
+
+            var projectPath = _projectContext.CurrentProjectPath!;
+
+            if (!_gitService.IsGitRepository(projectPath))
+            {
+                return Ok(new List<WorktreeInfoDto>());
+            }
+
+            try
+            {
+                var worktrees = _gitService.GetWorktrees(projectPath);
+                var result = worktrees.Select(wt => new WorktreeInfoDto
+                {
+                    Name = System.IO.Path.GetFileName(wt.Path),
+                    Path = wt.Path,
+                    Branch = wt.Branch,
+                    CommitHash = wt.CommitHash,
+                    IsMain = wt.Path == projectPath
+                }).ToList();
+
+                _logger.LogDebug("获取 Worktree 列表成功: {Count} 个", result.Count);
+                return Ok(result);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "获取 Worktree 列表失败");
+                return StatusCode(500, new { message = $"获取 Worktree 列表失败: {ex.Message}" });
+            }
+        }
+
+        /// <summary>
+        /// 创建新的 Worktree
+        /// </summary>
+        /// <param name="request">创建请求</param>
+        /// <returns>新建的 Worktree 信息</returns>
+        [HttpPost("worktrees")]
+        public ActionResult<WorktreeInfoDto> CreateWorktree([FromBody] CreateWorktreeRequest request)
+        {
+            _logger.LogInformation(">>> [GitController] CreateWorktree called: Name={Name}, Branch={Branch}",
+                request?.Name ?? "(null)", request?.BranchName ?? "(null)");
+
+            if (string.IsNullOrEmpty(request?.Name))
+            {
+                return BadRequest(new { message = "Worktree 名称不能为空" });
+            }
+
+            if (string.IsNullOrEmpty(request.BranchName))
+            {
+                return BadRequest(new { message = "分支名不能为空" });
+            }
+
+            if (!_projectContext.IsLoaded)
+            {
+                return BadRequest(new { message = "没有加载的项目" });
+            }
+
+            var projectPath = _projectContext.CurrentProjectPath!;
+
+            if (!_gitService.IsGitRepository(projectPath))
+            {
+                return BadRequest(new { message = "项目目录不是 Git 仓库" });
+            }
+
+            try
+            {
+                var worktreePath = _gitService.CreateWorktree(projectPath, request.Name, request.BranchName);
+
+                var result = new WorktreeInfoDto
+                {
+                    Name = request.Name,
+                    Path = worktreePath,
+                    Branch = request.BranchName,
+                    IsMain = false
+                };
+
+                _logger.LogInformation("创建 Worktree 成功: {Name} @ {Path}", request.Name, worktreePath);
+                return Ok(result);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "创建 Worktree 失败: {Name}", request.Name);
+                return StatusCode(500, new { message = $"创建 Worktree 失败: {ex.Message}" });
+            }
+        }
+
+        /// <summary>
+        /// 删除 Worktree
+        /// </summary>
+        /// <param name="name">Worktree 名称</param>
+        /// <returns>操作结果</returns>
+        [HttpDelete("worktrees/{name}")]
+        public ActionResult DeleteWorktree(string name)
+        {
+            _logger.LogInformation(">>> [GitController] DeleteWorktree called: {Name}", name);
+
+            if (string.IsNullOrEmpty(name))
+            {
+                return BadRequest(new { message = "Worktree 名称不能为空" });
+            }
+
+            if (!_projectContext.IsLoaded)
+            {
+                return BadRequest(new { message = "没有加载的项目" });
+            }
+
+            var projectPath = _projectContext.CurrentProjectPath!;
+
+            if (!_gitService.IsGitRepository(projectPath))
+            {
+                return BadRequest(new { message = "项目目录不是 Git 仓库" });
+            }
+
+            try
+            {
+                _gitService.RemoveWorktree(projectPath, name);
+
+                _logger.LogInformation("删除 Worktree 成功: {Name}", name);
+                return Ok(new { success = true, message = $"Worktree '{name}' 已删除" });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "删除 Worktree 失败: {Name}", name);
+                return StatusCode(500, new { message = $"删除 Worktree 失败: {ex.Message}" });
+            }
+        }
+
+        #endregion
+
+        #region Merge API
+
+        /// <summary>
+        /// 合并分支到当前分支
+        /// </summary>
+        /// <param name="request">合并请求</param>
+        /// <returns>合并结果</returns>
+        [HttpPost("merge")]
+        public ActionResult<MergeResultDto> MergeBranch([FromBody] MergeRequest request)
+        {
+            _logger.LogInformation(">>> [GitController] MergeBranch called: Source={Source}",
+                request?.SourceBranch ?? "(null)");
+
+            if (string.IsNullOrEmpty(request?.SourceBranch))
+            {
+                return BadRequest(new { message = "源分支名不能为空" });
+            }
+
+            if (!_projectContext.IsLoaded)
+            {
+                return BadRequest(new { message = "没有加载的项目" });
+            }
+
+            var projectPath = _projectContext.CurrentProjectPath!;
+
+            if (!_gitService.IsGitRepository(projectPath))
+            {
+                return BadRequest(new { message = "项目目录不是 Git 仓库" });
+            }
+
+            try
+            {
+                // 检查源分支是否存在
+                var allBranches = _gitService.GetAllBranches(projectPath);
+                if (!allBranches.Contains(request.SourceBranch))
+                {
+                    return NotFound(new { message = $"源分支 '{request.SourceBranch}' 不存在" });
+                }
+
+                var mergeResult = _gitService.MergeBranch(projectPath, request.SourceBranch, request.CommitMessage);
+
+                var result = new MergeResultDto
+                {
+                    Success = mergeResult.Success,
+                    HasConflicts = mergeResult.HasConflicts,
+                    Message = mergeResult.Message
+                };
+
+                if (mergeResult.Success)
+                {
+                    _logger.LogInformation("合并分支成功: {Source} -> 当前分支", request.SourceBranch);
+                }
+                else
+                {
+                    _logger.LogWarning("合并分支失败: {Source}, HasConflicts={HasConflicts}",
+                        request.SourceBranch, mergeResult.HasConflicts);
+                }
+
+                return Ok(result);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "合并分支失败: {Source}", request.SourceBranch);
+                return StatusCode(500, new { message = $"合并分支失败: {ex.Message}" });
+            }
+        }
+
+        #endregion
     }
 }

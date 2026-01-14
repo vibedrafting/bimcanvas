@@ -21,6 +21,7 @@ from ..config.settings import get_settings
 from ..config.loader import get_config_loader
 from .subagents import create_subagents
 from .agent_logger import get_agent_logger
+from .worktree_manager import WorktreeManager, WorktreeContext
 from ..mcp import create_canvas_mcp, get_allowed_tools
 
 logger = logging.getLogger(__name__)
@@ -122,6 +123,9 @@ class MainAgent:
 
         # 当前思考强度等级
         self._current_thinking_level: str | None = None
+
+        # Worktree 管理器（用于并行布置）
+        self._worktree_manager: WorktreeManager | None = None
 
     # ─────────────────────────────────────────────────────
     # Configuration
@@ -956,3 +960,132 @@ class MainAgent:
     def set_verbose(self, verbose: bool) -> None:
         """Enable or disable verbose logging."""
         self.verbose = verbose
+
+    # ─────────────────────────────────────────────────────
+    # Parallel Layout Methods
+    # ─────────────────────────────────────────────────────
+
+    def _get_worktree_manager(self) -> WorktreeManager:
+        """获取或创建 WorktreeManager 实例"""
+        if self._worktree_manager is None:
+            if not self.project_path:
+                raise ValueError("Project path not set, cannot create WorktreeManager")
+            self._worktree_manager = WorktreeManager(self.project_path)
+        return self._worktree_manager
+
+    async def parallel_layout(
+        self,
+        zone_ids: list[str],
+        max_parallel: int = 3
+    ) -> dict[str, bool]:
+        """
+        并行布置多个分区
+
+        为每个分区创建独立的 Worktree，在隔离环境中执行布置任务，
+        完成后合并结果到主分支。
+
+        Args:
+            zone_ids: 要布置的分区 ID 列表
+            max_parallel: 最大并行数（默认 3）
+
+        Returns:
+            字典 {zone_id: success}，表示每个分区的布置结果
+        """
+        if not self._connected:
+            await self.connect()
+
+        manager = self._get_worktree_manager()
+        results: dict[str, bool] = {}
+
+        if self.verbose:
+            self._agent_logger.log_info(f"开始并行布置 {len(zone_ids)} 个分区（最大并行: {max_parallel}）")
+
+        # 使用 Semaphore 限制并行数
+        semaphore = asyncio.Semaphore(max_parallel)
+
+        async def layout_zone(zone_id: str) -> tuple[str, bool]:
+            """布置单个分区"""
+            async with semaphore:
+                try:
+                    # 1. 创建 Worktree
+                    context = await manager.create_for_subagent(f"zone_{zone_id}")
+                    if not context:
+                        logger.error(f"Failed to create worktree for zone {zone_id}")
+                        return zone_id, False
+
+                    if self.verbose:
+                        self._agent_logger.log_info(f"分区 {zone_id} Worktree 已创建: {context.path}")
+
+                    # 2. 执行布置任务（调用 SubAgent）
+                    # 这里简化处理，实际应该调用专门的布置 SubAgent
+                    layout_prompt = f"""
+                    请在分区 {zone_id} 中执行家具布置任务。
+                    工作目录: {context.path}
+                    分支: {context.branch_name}
+
+                    请完成以下步骤：
+                    1. 读取分区的空间数据
+                    2. 根据分区类型选择合适的布置策略
+                    3. 生成模块布置方案
+                    4. 写入 modules.json
+                    """
+
+                    # 注意：这里应该使用专门的 SubAgent，但为了简化先用 chat
+                    # 实际实现应该派发到 layout-agent SubAgent
+                    response = await self.chat(layout_prompt)
+
+                    if self.verbose:
+                        self._agent_logger.log_info(f"分区 {zone_id} 布置完成")
+
+                    # 3. 提交并合并
+                    merge_success = await manager.commit_and_merge(
+                        f"zone_{zone_id}",
+                        f"Auto layout zone {zone_id}"
+                    )
+
+                    # 4. 清理 Worktree
+                    await manager.remove(f"zone_{zone_id}")
+
+                    return zone_id, merge_success
+
+                except Exception as e:
+                    logger.error(f"Failed to layout zone {zone_id}: {e}")
+                    # 尝试清理
+                    await manager.remove(f"zone_{zone_id}")
+                    return zone_id, False
+
+        # 并行执行所有分区布置
+        tasks = [layout_zone(zone_id) for zone_id in zone_ids]
+        completed = await asyncio.gather(*tasks, return_exceptions=True)
+
+        # 收集结果
+        for item in completed:
+            if isinstance(item, Exception):
+                logger.error(f"Layout task exception: {item}")
+            elif isinstance(item, tuple):
+                zone_id, success = item
+                results[zone_id] = success
+
+        # 统计结果
+        success_count = sum(1 for v in results.values() if v)
+        if self.verbose:
+            self._agent_logger.log_info(
+                f"并行布置完成: {success_count}/{len(zone_ids)} 成功"
+            )
+
+        return results
+
+    async def cleanup_parallel_worktrees(self) -> int:
+        """
+        清理所有并行任务的 Worktree
+
+        Returns:
+            清理的 Worktree 数量
+        """
+        if self._worktree_manager is None:
+            return 0
+
+        count = await self._worktree_manager.cleanup_all()
+        if self.verbose:
+            self._agent_logger.log_info(f"已清理 {count} 个并行 Worktree")
+        return count

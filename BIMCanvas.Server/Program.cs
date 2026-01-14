@@ -3,6 +3,7 @@ using System.Runtime.InteropServices;
 using System.Text;
 using BIMCanvas.Server.Hubs;
 using BIMCanvas.Server.Services;
+using BIMCanvas.Server.Services.Git;
 using Newtonsoft.Json.Serialization;
 using Newtonsoft.Json.Linq;
 
@@ -83,6 +84,10 @@ builder.Services.AddSingleton<StrategyService>();
 builder.Services.AddSingleton<ProjectService>();
 builder.Services.AddSingleton<ProjectContext>();  // 单项目模式上下文
 builder.Services.AddSingleton<ModuleLibraryService>();  // 模块库服务
+
+// v3.3 多窗口并行架构服务
+builder.Services.AddSingleton<BranchLockManager>();  // 分支锁管理（多窗口互斥）
+builder.Services.AddSingleton<MergeService>();       // 可视化合并服务
 
 // v3.2 实时通信服务
 builder.Services.AddSignalR();

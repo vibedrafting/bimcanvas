@@ -16,6 +16,10 @@ export interface GitBranch {
     hash: string;
     author: string;
   };
+  /** 是否被锁定（多窗口场景） */
+  isLocked?: boolean;
+  /** 锁定者窗口 ID */
+  lockedBy?: string;
 }
 
 // 切换分支结果
@@ -41,12 +45,20 @@ interface CheckoutOptions {
   discardBeforeCheckout?: boolean;  // 切换前放弃更改（Server端原子操作）
 }
 
+// 分支锁信息
+interface BranchLock {
+  branch: string;
+  windowId: string;
+}
+
 export const useGitStore = defineStore('git', () => {
   // === State ===
   const branches = ref<GitBranch[]>([]);
   const isLoading = ref(false);
   const error = ref<string | null>(null);
   const hasUncommittedChanges = ref(false);
+  /** 当前窗口 ID（用于检查锁） */
+  const currentWindowId = ref<string | null>(null);
 
   // === Getters ===
   const currentBranch = computed(() => {
@@ -85,7 +97,21 @@ export const useGitStore = defineStore('git', () => {
 
       const response = await fetch(`${SERVER_API_BASE}/api/git/branches`);
       if (response.ok) {
-        branches.value = await response.json();
+        const branchList = await response.json();
+
+        // 获取分支锁状态
+        const locks = await fetchBranchLocks();
+
+        // 合并锁状态到分支列表
+        branches.value = branchList.map((branch: GitBranch) => {
+          const lock = locks.find(l => l.branch === branch.name);
+          return {
+            ...branch,
+            isLocked: !!lock && lock.windowId !== currentWindowId.value,
+            lockedBy: lock?.windowId
+          };
+        });
+
         if (branches.value.length === 0) {
           console.log('[GitStore] 分支列表为空（可能不是Git仓库）');
         }
@@ -270,12 +296,44 @@ export const useGitStore = defineStore('git', () => {
     error.value = null;
   };
 
+  /**
+   * 获取分支锁列表（内部使用）
+   */
+  const fetchBranchLocks = async (): Promise<BranchLock[]> => {
+    try {
+      const response = await fetch(`${SERVER_API_BASE}/api/windows/locks`);
+      if (response.ok) {
+        return await response.json();
+      }
+    } catch (e) {
+      console.warn('[GitStore] 获取分支锁失败:', e);
+    }
+    return [];
+  };
+
+  /**
+   * 设置当前窗口 ID（用于分支锁检查）
+   */
+  const setCurrentWindowId = (windowId: string | null) => {
+    currentWindowId.value = windowId;
+  };
+
+  /**
+   * 检查分支是否可切换（未被锁定或是自己锁定的）
+   */
+  const canSwitchToBranch = (branchName: string): boolean => {
+    const branch = branches.value.find(b => b.name === branchName);
+    if (!branch) return true; // 分支不在列表中，允许切换
+    return !branch.isLocked; // 未锁定或自己锁定的
+  };
+
   return {
     // State
     branches,
     isLoading,
     error,
     hasUncommittedChanges,
+    currentWindowId,
     // Getters
     currentBranch,
     currentBranchId,
@@ -286,6 +344,8 @@ export const useGitStore = defineStore('git', () => {
     commit,
     discardChanges,
     checkout,
-    clearError
+    clearError,
+    setCurrentWindowId,
+    canSwitchToBranch
   };
 });

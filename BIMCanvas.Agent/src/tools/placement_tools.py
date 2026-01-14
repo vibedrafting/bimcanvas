@@ -52,16 +52,19 @@ class PlacedModule:
 
 def write_modules(
     project_path: str,
-    scheme_id: str,
-    modules: list[dict | PlacedModule]
+    modules: list[dict | PlacedModule],
+    zone_id: str | None = None
 ) -> tuple[bool, str]:
     """
-    将模块列表写入 schemes/{scheme_id}/modules.json
+    将模块列表写入文件系统
+    v3.3: 支持按分区子目录写入
 
     Args:
         project_path: 项目根路径
-        scheme_id: 方案 ID
         modules: 模块列表（字典或 PlacedModule 对象）
+        zone_id: 可选的分区 ID
+            - 如果指定，写入到 schemes/{zone_id}/modules.json
+            - 如果不指定，按模块的 zoneId 自动分组写入分区子目录
 
     Returns:
         (success, message) 元组
@@ -81,13 +84,56 @@ def write_modules(
         else:
             return False, f"无效的模块类型: {type(m)}"
 
-    # 写入文件
     try:
-        relative_path = f"schemes/{scheme_id}/modules.json"
-        write_json(project_path, relative_path, module_dicts)
-        return True, f"成功写入 {len(module_dicts)} 个模块到 {relative_path}"
+        # 如果指定了 zone_id，只写入该分区
+        if zone_id:
+            relative_path = f"schemes/{zone_id}/modules.json"
+            write_json(project_path, relative_path, module_dicts)
+            return True, f"成功写入 {len(module_dicts)} 个模块到 {relative_path}"
+
+        # 按 zoneId 分组
+        grouped: dict[str, list[dict]] = {}
+        for m in module_dicts:
+            z_id = m.get("zoneId", "")
+            if z_id:
+                if z_id not in grouped:
+                    grouped[z_id] = []
+                grouped[z_id].append(m)
+
+        # 如果没有有效的 zoneId，使用旧格式（向后兼容）
+        if not grouped:
+            relative_path = "schemes/modules.json"
+            write_json(project_path, relative_path, module_dicts)
+            return True, f"成功写入 {len(module_dicts)} 个模块到 {relative_path}（向后兼容模式）"
+
+        # 按分区写入
+        for z_id, zone_modules in grouped.items():
+            relative_path = f"schemes/{z_id}/modules.json"
+            write_json(project_path, relative_path, zone_modules)
+
+        return True, f"成功写入 {len(module_dicts)} 个模块到 {len(grouped)} 个分区"
+
     except Exception as e:
         return False, f"写入失败: {str(e)}"
+
+
+def write_zone_modules(
+    project_path: str,
+    zone_id: str,
+    modules: list[dict | PlacedModule]
+) -> tuple[bool, str]:
+    """
+    将模块写入指定分区（便捷方法）
+
+    Args:
+        project_path: 项目根路径
+        zone_id: 分区 ID
+        modules: 模块列表
+
+    Returns:
+        (success, message) 元组
+    """
+    return write_modules(project_path, modules, zone_id=zone_id)
 
 
 def validate_module_data(modules: list[dict | PlacedModule]) -> list[str]:
@@ -236,17 +282,68 @@ def create_module_bounds(
     ]
 
 
-def load_existing_modules(project_path: str, scheme_id: str) -> list[dict]:
+def load_existing_modules(project_path: str, zone_id: str | None = None) -> list[dict]:
     """
-    加载方案中已有的模块
+    加载已有的模块
+    v3.3: 支持从分区子目录读取
 
     Args:
         project_path: 项目根路径
-        scheme_id: 方案 ID
+        zone_id: 可选的分区 ID
+            - 如果指定，只读取该分区的模块
+            - 如果不指定，读取所有分区的模块
 
     Returns:
         已放置模块列表
     """
-    relative_path = f"schemes/{scheme_id}/modules.json"
+    import os
+
+    schemes_path = Path(project_path) / "schemes"
+
+    # 如果指定了 zone_id，只读取该分区
+    if zone_id:
+        relative_path = f"schemes/{zone_id}/modules.json"
+        modules = read_json(project_path, relative_path)
+        return modules if isinstance(modules, list) else []
+
+    # 尝试从分区子目录读取
+    all_modules = []
+    if schemes_path.exists():
+        zone_dirs = [
+            d for d in schemes_path.iterdir()
+            if d.is_dir() and (d.name.startswith("rz_") or d.name.startswith("dz_"))
+        ]
+
+        if zone_dirs:
+            # 新格式：从分区子目录读取
+            for zone_dir in zone_dirs:
+                modules_file = zone_dir / "modules.json"
+                if modules_file.exists():
+                    relative_path = f"schemes/{zone_dir.name}/modules.json"
+                    modules = read_json(project_path, relative_path)
+                    if isinstance(modules, list):
+                        # 确保每个模块有正确的 zoneId
+                        for m in modules:
+                            if not m.get("zoneId"):
+                                m["zoneId"] = zone_dir.name
+                        all_modules.extend(modules)
+            return all_modules
+
+    # 旧格式：从单一文件读取（向后兼容）
+    relative_path = "schemes/modules.json"
     modules = read_json(project_path, relative_path)
     return modules if isinstance(modules, list) else []
+
+
+def load_zone_modules(project_path: str, zone_id: str) -> list[dict]:
+    """
+    加载指定分区的模块（便捷方法）
+
+    Args:
+        project_path: 项目根路径
+        zone_id: 分区 ID
+
+    Returns:
+        该分区的模块列表
+    """
+    return load_existing_modules(project_path, zone_id=zone_id)

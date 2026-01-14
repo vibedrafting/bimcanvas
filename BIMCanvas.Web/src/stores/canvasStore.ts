@@ -493,6 +493,7 @@ export const useCanvasStore = defineStore('canvas', () => {
 
     /**
      * 保存当前数据到 Server 文件系统
+     * v3.3: 支持按分区子目录保存（Server 会自动按 zoneId 分组）
      * @returns 保存是否成功
      */
     const saveToServer = async (): Promise<boolean> => {
@@ -506,11 +507,17 @@ export const useCanvasStore = defineStore('canvas', () => {
 
             const response = await axios.post('http://localhost:5000/api/project/save', {
                 modules: projectData.value.activeScheme.modules
+                // Server 会根据每个 module 的 zoneId 自动分组写入分区子目录
             });
 
             if (response.status === 200) {
                 isDirty.value = false;
-                debugStore.success(`[CanvasStore] 保存成功: ${projectData.value.activeScheme.modules.length} 个模块`);
+                const result = response.data;
+                if (result.mode === 'zoned') {
+                    debugStore.success(`[CanvasStore] 保存成功: ${result.modulesCount} 个模块，分布在 ${result.zoneCount} 个分区`);
+                } else {
+                    debugStore.success(`[CanvasStore] 保存成功: ${result.modulesCount} 个模块（${result.mode || 'legacy'} 模式）`);
+                }
                 return true;
             }
 
@@ -519,6 +526,45 @@ export const useCanvasStore = defineStore('canvas', () => {
         } catch (err: any) {
             console.error('[CanvasStore] 保存失败:', err);
             debugStore.error(`[CanvasStore] 保存失败: ${err.message || err}`);
+            return false;
+        }
+    };
+
+    /**
+     * 保存指定分区的模块到 Server
+     * @param zoneId 分区 ID
+     * @returns 保存是否成功
+     */
+    const saveZoneToServer = async (zoneId: string): Promise<boolean> => {
+        if (!projectData.value?.activeScheme?.modules) {
+            console.warn('[CanvasStore] saveZoneToServer: 无模块数据');
+            return false;
+        }
+
+        const zoneModules = projectData.value.activeScheme.modules.filter(m => m.zoneId === zoneId);
+        if (zoneModules.length === 0) {
+            debugStore.warn(`[CanvasStore] 分区 ${zoneId} 无模块数据`);
+            return true; // 空分区也算成功
+        }
+
+        try {
+            debugStore.log(`[CanvasStore] 正在保存分区 ${zoneId} 的模块...`);
+
+            const response = await axios.post('http://localhost:5000/api/project/save', {
+                modules: zoneModules,
+                zoneId: zoneId  // 指定分区 ID，只保存到该分区子目录
+            });
+
+            if (response.status === 200) {
+                debugStore.success(`[CanvasStore] 分区 ${zoneId} 保存成功: ${zoneModules.length} 个模块`);
+                return true;
+            }
+
+            debugStore.error(`[CanvasStore] 分区 ${zoneId} 保存失败: 非200响应`);
+            return false;
+        } catch (err: any) {
+            console.error(`[CanvasStore] 分区 ${zoneId} 保存失败:`, err);
+            debugStore.error(`[CanvasStore] 分区 ${zoneId} 保存失败: ${err.message || err}`);
             return false;
         }
     };
@@ -563,6 +609,7 @@ export const useCanvasStore = defineStore('canvas', () => {
         // Dirty Data Management
         clearDirty,
         saveToServer,
+        saveZoneToServer,  // v3.3: 按分区保存
 
         // UI State
         promptMessage,

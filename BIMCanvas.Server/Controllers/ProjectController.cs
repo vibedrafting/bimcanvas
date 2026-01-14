@@ -412,7 +412,9 @@ namespace BIMCanvas.Server.Controllers
 
         /// <summary>
         /// 保存模块数据到文件系统
-        /// 用于 Web 端将内存数据持久化到文件，以便 Git 能检测到更改
+        /// v3.3: 支持按分区子目录保存
+        /// - 如果指定 zoneId，只保存该分区到 schemes/{zoneId}/modules.json
+        /// - 如果不指定 zoneId，按模块的 zoneId 自动分组写入分区子目录
         /// </summary>
         [HttpPost("save")]
         public ActionResult SaveModules([FromBody] SaveModulesRequest request)
@@ -423,31 +425,76 @@ namespace BIMCanvas.Server.Controllers
             }
 
             var projectPath = _projectContext.CurrentProjectPath!;
-            var modulesPath = Path.Combine(projectPath, "schemes", "modules.json");
+            var schemesPath = Path.Combine(projectPath, "schemes");
 
             try
             {
                 // 确保 schemes 目录存在
-                var schemesDir = Path.GetDirectoryName(modulesPath);
-                if (!Directory.Exists(schemesDir))
+                if (!Directory.Exists(schemesPath))
                 {
-                    Directory.CreateDirectory(schemesDir!);
+                    Directory.CreateDirectory(schemesPath);
                 }
 
-                // 序列化并写入文件
-                var json = JsonConvert.SerializeObject(request.Modules ?? new List<Module>(), Formatting.Indented, _jsonSettings);
-                System.IO.File.WriteAllText(modulesPath, json, Encoding.UTF8);
+                var modules = request.Modules ?? new List<Module>();
 
-                _logger.LogInformation("模块数据已保存: {Count} 个模块 -> {Path}",
-                    request.Modules?.Count ?? 0, modulesPath);
+                // 如果指定了 zoneId，只保存该分区
+                if (!string.IsNullOrEmpty(request.ZoneId))
+                {
+                    SaveZoneModules(schemesPath, request.ZoneId, modules);
+                    _logger.LogInformation("分区模块已保存: {Count} 个模块 -> {ZoneId}",
+                        modules.Count, request.ZoneId);
+                    return Ok(new { success = true, modulesCount = modules.Count, zoneId = request.ZoneId });
+                }
 
-                return Ok(new { success = true, modulesCount = request.Modules?.Count ?? 0 });
+                // 按 zoneId 分组
+                var grouped = modules
+                    .Where(m => !string.IsNullOrEmpty(m.ZoneId))
+                    .GroupBy(m => m.ZoneId)
+                    .ToDictionary(g => g.Key, g => g.ToList());
+
+                // 如果没有有效的 zoneId 分组，使用旧格式（向后兼容）
+                if (grouped.Count == 0)
+                {
+                    var modulesPath = Path.Combine(schemesPath, "modules.json");
+                    var json = JsonConvert.SerializeObject(modules, Formatting.Indented, _jsonSettings);
+                    System.IO.File.WriteAllText(modulesPath, json, Encoding.UTF8);
+                    _logger.LogInformation("模块数据已保存（向后兼容模式）: {Count} 个模块 -> {Path}",
+                        modules.Count, modulesPath);
+                    return Ok(new { success = true, modulesCount = modules.Count, mode = "legacy" });
+                }
+
+                // 按分区子目录保存
+                foreach (var kvp in grouped)
+                {
+                    SaveZoneModules(schemesPath, kvp.Key, kvp.Value);
+                }
+
+                _logger.LogInformation("模块数据已保存: {Total} 个模块，分布在 {ZoneCount} 个分区",
+                    modules.Count, grouped.Count);
+
+                return Ok(new { success = true, modulesCount = modules.Count, zoneCount = grouped.Count, mode = "zoned" });
             }
             catch (Exception ex)
             {
                 _logger.LogError(ex, "保存模块数据失败");
                 return StatusCode(500, new { message = $"保存模块数据失败: {ex.Message}" });
             }
+        }
+
+        /// <summary>
+        /// 保存指定分区的模块到子目录
+        /// </summary>
+        private void SaveZoneModules(string schemesPath, string zoneId, List<Module> modules)
+        {
+            var zoneDir = Path.Combine(schemesPath, zoneId);
+            if (!Directory.Exists(zoneDir))
+            {
+                Directory.CreateDirectory(zoneDir);
+            }
+
+            var modulesPath = Path.Combine(zoneDir, "modules.json");
+            var json = JsonConvert.SerializeObject(modules, Formatting.Indented, _jsonSettings);
+            System.IO.File.WriteAllText(modulesPath, json, Encoding.UTF8);
         }
 
         /// <summary>
@@ -538,11 +585,10 @@ namespace BIMCanvas.Server.Controllers
 
         /// <summary>
         /// 加载策略层数据
-        /// v3.2: schemes/ 目录直接存放策略文件（无子目录）
+        /// v3.3: 支持分区子目录格式 schemes/{zoneId}/modules.json
         /// </summary>
         private SchemeData LoadSchemeData(string projectPath, string schemeId)
         {
-            // v3.2: 策略文件直接存放在 schemes/ 目录下
             var schemePath = Path.Combine(projectPath, "schemes");
             var data = new SchemeData();
 
@@ -573,17 +619,67 @@ namespace BIMCanvas.Server.Controllers
                 data.Finishes = ReadJson<List<FinishSegment>>(finishesPath) ?? new List<FinishSegment>();
             }
 
-            // modules.json
-            var modulesPath = Path.Combine(schemePath, "modules.json");
-            if (System.IO.File.Exists(modulesPath))
-            {
-                data.Modules = ReadJson<List<Module>>(modulesPath) ?? new List<Module>();
-            }
+            // modules: 优先从分区子目录读取，向后兼容单一文件
+            data.Modules = LoadAllZoneModules(schemePath);
 
             _logger.LogDebug("策略数据加载完成: SchemeId={Id}, Zones={Zones}, Modules={Modules}",
                 schemeId, data.Zones.Count, data.Modules.Count);
 
             return data;
+        }
+
+        /// <summary>
+        /// 递归读取所有分区的 modules.json
+        /// 支持两种格式：
+        /// - 新格式: schemes/{zoneId}/modules.json (分区子目录)
+        /// - 旧格式: schemes/modules.json (单一文件，向后兼容)
+        /// </summary>
+        private List<Module> LoadAllZoneModules(string schemePath)
+        {
+            var allModules = new List<Module>();
+
+            // 1. 尝试读取分区子目录 (rz_* 或 dz_*)
+            var zoneDirs = Directory.GetDirectories(schemePath)
+                .Where(d =>
+                {
+                    var name = Path.GetFileName(d);
+                    return name.StartsWith("rz_") || name.StartsWith("dz_");
+                })
+                .ToList();
+
+            if (zoneDirs.Count > 0)
+            {
+                // 新格式：从分区子目录读取
+                foreach (var zoneDir in zoneDirs)
+                {
+                    var zoneId = Path.GetFileName(zoneDir);
+                    var modulesPath = Path.Combine(zoneDir, "modules.json");
+                    if (System.IO.File.Exists(modulesPath))
+                    {
+                        var modules = ReadJson<List<Module>>(modulesPath) ?? new List<Module>();
+                        // 确保每个模块有正确的 zoneId
+                        foreach (var m in modules)
+                        {
+                            if (string.IsNullOrEmpty(m.ZoneId))
+                                m.ZoneId = zoneId;
+                        }
+                        allModules.AddRange(modules);
+                    }
+                }
+                _logger.LogDebug("从 {Count} 个分区子目录加载模块，共 {Total} 个", zoneDirs.Count, allModules.Count);
+            }
+            else
+            {
+                // 旧格式：从单一文件读取（向后兼容）
+                var modulesPath = Path.Combine(schemePath, "modules.json");
+                if (System.IO.File.Exists(modulesPath))
+                {
+                    allModules = ReadJson<List<Module>>(modulesPath) ?? new List<Module>();
+                    _logger.LogDebug("从单一 modules.json 加载 {Count} 个模块（向后兼容模式）", allModules.Count);
+                }
+            }
+
+            return allModules;
         }
 
         /// <summary>

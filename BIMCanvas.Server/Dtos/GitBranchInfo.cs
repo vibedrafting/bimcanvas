@@ -94,4 +94,89 @@ namespace BIMCanvas.Server.Dtos
         /// </summary>
         public string? Message { get; set; }
     }
+
+    /// <summary>
+    /// 创建 Worktree 请求
+    /// </summary>
+    public class CreateWorktreeRequest
+    {
+        /// <summary>
+        /// Worktree 名称（如 "ai-storage"）
+        /// </summary>
+        public string Name { get; set; } = string.Empty;
+
+        /// <summary>
+        /// 关联的分支名（如 "feat/ai-storage"）
+        /// 如果不存在会自动创建
+        /// </summary>
+        public string BranchName { get; set; } = string.Empty;
+    }
+
+    /// <summary>
+    /// Worktree 信息 DTO
+    /// </summary>
+    public class WorktreeInfoDto
+    {
+        /// <summary>
+        /// Worktree 名称
+        /// </summary>
+        public string Name { get; set; } = string.Empty;
+
+        /// <summary>
+        /// Worktree 完整路径
+        /// </summary>
+        public string Path { get; set; } = string.Empty;
+
+        /// <summary>
+        /// 关联的分支名
+        /// </summary>
+        public string? Branch { get; set; }
+
+        /// <summary>
+        /// 当前 HEAD 的 commit hash
+        /// </summary>
+        public string? CommitHash { get; set; }
+
+        /// <summary>
+        /// 是否是主工作区
+        /// </summary>
+        public bool IsMain { get; set; }
+    }
+
+    /// <summary>
+    /// 合并分支请求
+    /// </summary>
+    public class MergeRequest
+    {
+        /// <summary>
+        /// 要合并的源分支名
+        /// </summary>
+        public string SourceBranch { get; set; } = string.Empty;
+
+        /// <summary>
+        /// 可选的合并提交信息
+        /// </summary>
+        public string? CommitMessage { get; set; }
+    }
+
+    /// <summary>
+    /// 合并结果 DTO
+    /// </summary>
+    public class MergeResultDto
+    {
+        /// <summary>
+        /// 是否合并成功
+        /// </summary>
+        public bool Success { get; set; }
+
+        /// <summary>
+        /// 是否存在冲突
+        /// </summary>
+        public bool HasConflicts { get; set; }
+
+        /// <summary>
+        /// 结果消息
+        /// </summary>
+        public string? Message { get; set; }
+    }
 }

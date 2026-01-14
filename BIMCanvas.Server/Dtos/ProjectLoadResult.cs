@@ -62,6 +62,7 @@ namespace BIMCanvas.Server.Dtos
 
     /// <summary>
     /// 保存模块数据请求
+    /// v3.3: 支持按分区保存
     /// </summary>
     public class SaveModulesRequest
     {
@@ -69,5 +70,12 @@ namespace BIMCanvas.Server.Dtos
         /// 模块数据列表
         /// </summary>
         public List<BIMCanvas.Core.Models.Layout.Module>? Modules { get; set; }
+
+        /// <summary>
+        /// 可选的分区 ID
+        /// 如果指定，只保存到该分区子目录 schemes/{zoneId}/modules.json
+        /// 如果不指定，按模块的 zoneId 自动分组写入分区子目录
+        /// </summary>
+        public string? ZoneId { get; set; }
     }
 }
