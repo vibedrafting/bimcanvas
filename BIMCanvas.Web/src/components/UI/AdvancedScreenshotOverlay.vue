@@ -68,6 +68,20 @@ const editingAnnotationIndex = ref<number>(-1)
 // 用于拖拽文本输入框
 const textInputDragStartX = ref(0), textInputDragStartY = ref(0)
 
+// 计算文本输入框宽度（基于实际文本像素宽度）
+const textInputWidth = computed(() => {
+    const fontSize = currentSize.value * 12 + 12
+    const text = textInputValue.value || '输入'
+    // 使用 Canvas 测量文本宽度
+    const canvas = document.createElement('canvas')
+    const ctx = canvas.getContext('2d')!
+    ctx.font = `${fontSize}px sans-serif`
+    const textWidth = ctx.measureText(text).width
+    // 最小宽度为 5 个字符，加上内边距
+    const minWidth = ctx.measureText('输入文字').width
+    return Math.max(minWidth, textWidth) + 16 // +16 为 padding
+})
+
 // 颜色选项（8种）
 const colors = ['#ff0000', '#ff6600', '#ffff00', '#00ff00', '#00ffff', '#0000ff', '#000000', '#ffffff']
 
@@ -865,8 +879,8 @@ const getHandleStyle = (h: ResizeHandle) => {
             ref="textInputRef"
             type="text"
             v-model="textInputValue"
-            :style="{ color: currentColor, fontSize: `${currentSize * 12 + 12}px` }"
-            placeholder="输入文字"
+            :style="{ color: currentColor, fontSize: `${currentSize * 12 + 12}px`, width: `${textInputWidth}px` }"
+            placeholder="输入"
             @keydown.enter.prevent="confirmText"
             @keydown.esc.prevent="isTextInputVisible = false"
         />
@@ -1064,7 +1078,8 @@ const getHandleStyle = (h: ResizeHandle) => {
         border: none;
         outline: none;
         font-family: sans-serif;
-        min-width: 100px;
+        min-width: 40px;
+        width: auto;
         padding: 2px 4px;
         line-height: 1.2;
     }
