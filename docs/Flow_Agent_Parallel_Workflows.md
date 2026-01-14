@@ -310,19 +310,39 @@ AI 必须学会写"人话"Commit Message，而不是机器码。
 ```
 项目根目录/
 ├── .git/                      # 共享的 Git 历史
-├── baseline/                  # main 分支的基础数据
-├── schemes/                   # main 分支的方案
-├── .worktrees/                # 临时工作树目录
-│   ├── ai-job-1/              # Worktree 1 → feat/ai-storage
-│   │   ├── baseline/          # 继承 main 的基础数据
-│   │   └── schemes/           # AI-1 的独立方案
-│   ├── ai-job-2/              # Worktree 2 → feat/ai-flow
-│   │   ├── baseline/
-│   │   └── schemes/
-│   └── ai-job-3/              # Worktree 3 → feat/ai-minimal
-│       ├── baseline/
-│       └── schemes/
+├── project.json               # 项目元数据
+├── baseline/                  # 建筑基础数据（只读）
+│   ├── metadata.json
+│   ├── architecture.json
+│   ├── openings.json
+│   ├── rooms.json
+│   └── location_lines.json
+├── computed/                  # 计算派生数据（自动生成）
+│   ├── room_zones.json
+│   └── exclusions.json
+├── schemes/                   # 方案设计数据（无子目录）
+│   ├── strategy.json
+│   ├── zones.json
+│   ├── finishes.json
+│   └── modules.json
+├── context/                   # 上下文信息
+│   └── requirements.md
+├── knowledge/                 # 知识库
+│   └── placement_guide.md
+├── modules/                   # 模块素材库
+│   ├── module_library.json
+│   └── assets/
+└── .worktrees/                # 临时工作树目录（并行执行时创建）
+    ├── ai-job-1/              # Worktree 1 → feat/ai-storage
+    │   ├── baseline/          # 继承 main 的基础数据
+    │   ├── computed/          # 继承 main 的计算数据
+    │   ├── schemes/           # AI-1 的独立方案
+    │   └── ...                # 其他目录同主项目
+    └── ai-job-2/              # Worktree 2 → feat/ai-flow
+        └── ...
 ```
+
+> **注意**：`schemes/` 目录下没有子目录，文件直接存放。多策略通过 Git 分支隔离，每个 Worktree 对应一个策略分支。
 
 ### 4.4 C# 实现示例
 

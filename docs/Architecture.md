@@ -96,7 +96,7 @@
 3. **调试透明**：所有状态可直接通过文件系统查看
 4. **离线可用**：文件在本地，无需网络即可编辑
 
-### 2.3 三层汉堡模型
+### 2.3 三层汉堡模型 + 辅助层
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
@@ -106,12 +106,12 @@
 │  └── exclusions.json    禁区（门扇扫过区域等）                │
 │  特点：完全派生，可随时重建                                   │
 ├─────────────────────────────────────────────────────────────┤
-│  中层 (Schemes) - 方案设计层（v3.2 简化）                     │
-│  schemes/                                                     │
-│  ├── strategy.json      策略元数据                           │
-│  ├── zones.json         设计区域划分（AI/Server 写入）       │
-│  ├── finishes.json      完成面定义（AI/Server 写入）         │
-│  └── modules.json       家具模块布置（AI 写入）              │
+│  中层 (Schemes) - 方案设计层                                  │
+│  schemes/                 方案数据（无子目录，Git 分支隔离）  │
+│  ├── strategy.json        策略元数据                         │
+│  ├── zones.json           设计区域划分                       │
+│  ├── finishes.json        完成面定义                         │
+│  └── modules.json         家具模块布置                       │
 │  特点：可编辑，多策略通过 Git 分支隔离（非子目录）            │
 ├─────────────────────────────────────────────────────────────┤
 │  底层 (Baseline) - 建筑基础层                                 │
@@ -122,6 +122,16 @@
 │  ├── rooms.json         房间边界                             │
 │  └── location_lines.json 完成面定位线                        │
 │  特点：只读，来自 Revit 导出                                  │
+├─────────────────────────────────────────────────────────────┤
+│  辅助层 - Agent 工作资源                                      │
+│  context/                 上下文信息                          │
+│  └── requirements.md      用户需求描述                        │
+│  knowledge/               知识库                              │
+│  └── placement_guide.md   布置规则指南                        │
+│  modules/                 模块素材库                          │
+│  ├── module_library.json  模块元数据                          │
+│  └── assets/              SVG 资源                            │
+│  特点：Agent 执行布置时的参考资源                             │
 └─────────────────────────────────────────────────────────────┘
 ```
 
@@ -130,9 +140,10 @@
 | 层级 | 文件夹 | 读取方 | 写入方 | 流转逻辑 |
 |------|--------|--------|--------|----------|
 | **底层 (Baseline)** | `baseline/` | Server、Web | Revit 导出 (只读) | 启动加载 → 推送 Web 作为静态背景 |
-| **中层 (Schemes)** | `schemes/{s}/zones.json` | Server、Web | AI/Server | Server 读取 → 计算边界 → 推送 Web |
-| **中层 (Schemes)** | `schemes/{s}/modules.json` | Server、Web | AI/Web/Server | **双向同步**：文件变动 ↔ Web 渲染 |
+| **中层 (Schemes)** | `schemes/zones.json` | Server、Web | AI/Server | Server 读取 → 计算边界 → 推送 Web |
+| **中层 (Schemes)** | `schemes/modules.json` | Server、Web | AI/Web/Server | **双向同步**：文件变动 ↔ Web 渲染 |
 | **顶层 (Computed)** | `computed/` | Server、Web | Server (自动) | 根据 openings 计算禁区等派生数据 |
+| **辅助层** | `context/`, `knowledge/`, `modules/` | Agent | 预置/用户编辑 | Agent 布置决策时参考 |
 
 ### 2.4 .bcp 项目格式
 
@@ -140,23 +151,31 @@
 
 ```
 project.bcp (ZIP)
-├── project.json           项目元数据 + 方案列表
+├── project.json            项目元数据 + 方案列表
 ├── baseline/               建筑基础数据（只读）
 │   ├── metadata.json
 │   ├── architecture.json
 │   ├── openings.json
 │   ├── rooms.json
 │   └── location_lines.json
-├── schemes/                方案设计数据
-│   └── default/            默认方案
-│       ├── strategy.json
-│       ├── zones.json
-│       ├── finishes.json
-│       └── modules.json
-└── computed/               计算派生数据
-    ├── room_zones.json
-    └── exclusions.json
+├── computed/               计算派生数据（自动生成）
+│   ├── room_zones.json
+│   └── exclusions.json
+├── schemes/                方案设计数据（无子目录）
+│   ├── strategy.json       策略元数据
+│   ├── zones.json          设计区域划分
+│   ├── finishes.json       完成面定义
+│   └── modules.json        家具模块布置
+├── context/                上下文信息
+│   └── requirements.md     用户需求描述
+├── knowledge/              知识库
+│   └── placement_guide.md  布置规则指南
+└── modules/                模块素材库
+    ├── module_library.json 模块元数据
+    └── assets/             SVG 资源目录
 ```
+
+> **多策略隔离**：多个策略通过 Git 分支隔离，而非 schemes/ 子目录。每个分支的 schemes/ 目录结构相同。
 
 详细数据结构定义见：[Schema.md](./Schema.md)
 
