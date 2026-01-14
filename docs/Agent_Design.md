@@ -1,6 +1,6 @@
 # BIMCanvas Agent 架构与提示词设计
 
-> **版本**：v2.0 | **更新日期**：2026-01-13
+> **版本**：v2.1 | **更新日期**：2026-01-14
 > **目的**：定义 BIMCanvas Agent 的整体架构、SubAgent 设计规范、提示词优化指南
 
 ---
@@ -553,57 +553,108 @@ model: {sonnet/opus/haiku}
 
 ---
 
-## 八、策略参数化
+## 八、策略体系
 
-### 8.1 策略配置结构
+### 8.1 核心概念：策略 vs 变体 vs Worktree
+
+> **重要**：这三个概念是 BIMCanvas 并行设计架构的基础，Agent 必须准确理解。
+
+```
+策略 (Strategy)
+    │
+    ├─► 定义：项目初期确定的设计理念/边界条件
+    │         影响全局（整个户型），长期保留、独立演进
+    ├─► 产生时机：项目初期 / 设计空白时
+    ├─► 存储：baseline/strategies/ (模板) + schemes/strategy.json (当前分支副本)
+    ├─► 分支：scheme/{strategyName}
+    └─► 示例：极致收纳、动线优先、极简留白
+
+变体 (Variant)
+    │
+    ├─► 定义：策略下的局部差异尝试
+    │         影响局部（某个区域），可能被采纳或丢弃
+    ├─► 产生时机：设计过程中 / 阶段性决策时
+    ├─► 分支：scheme/{strategyName}-{variantName}
+    └─► 示例：scheme/极致收纳-方案A、scheme/动线优先-卧室变体1
+
+Worktree
+    │
+    ├─► 定义：AI 执行任务时的临时隔离环境
+    │         用完即销毁，不是持久版本
+    ├─► 生命周期：创建 → AI 工作 → 合并/丢弃 → 销毁
+    └─► 位置：.worktrees/
+```
+
+**核心原则**：
+
+| 概念 | 本质 | 生命周期 | Agent 职责 |
+|------|------|----------|------------|
+| **Strategy** | Git 分支（主干） | 长期保留 | 理解策略参数，影响布置决策 |
+| **Variant** | Git 分支（小分支） | 可能被采纳或丢弃 | 在策略框架内产生局部差异 |
+| **Worktree** | 临时目录 | 用完即销毁 | 在 Worktree 中执行读写操作 |
+
+**关键区分**：
+- **Worktree = 临时环境**：AI 执行任务时的隔离，用完即销毁
+- **Branch = 持久版本**：用户确认的设计状态，长期保存
+
+### 8.2 策略配置结构
+
+策略配置采用**两层存储**：
+- `baseline/strategies/*.json`：策略模板（项目级，可复用）
+- `schemes/strategy.json`：当前分支使用的策略副本
 
 ```json
 {
+  "id": "strategy_001",
   "name": "极致收纳",
-  "approach": "StorageFirst",
+  "description": "最大化储物空间，适合物品较多的家庭",
+
+  // 设计权重（参数化评分，0-1）
   "weights": {
-    "storage": 0.9,
-    "circulation": 0.2,
-    "aesthetics": 0.3
+    "storage": 0.9,      // 储物优先
+    "circulation": 0.3,  // 通道宽度可略窄
+    "aesthetics": 0.5,   // 美观适中
+    "comfort": 0.6       // 舒适度适中
   },
-  "constraints": {
-    "min_aisle_width": 600,
-    "max_furniture_count": null
-  }
+
+  // 设计规则（规范约束）
+  "designRules": {
+    "source": "万科设计规范v2.0",
+    "minAisleWidth": 600,       // 允许较窄通道 (mm)
+    "minBedClearance": 500      // 床边最小间距 (mm)
+  },
+
+  // 用户约束（人为边界）
+  "userConstraints": [
+    { "type": "tv_wall", "zoneId": "rz_living", "wall": "north" },
+    { "type": "bed_orientation", "zoneId": "rz_master", "facing": "south" }
+  ],
+
+  // AI 提示词（设计倾向指导）
+  "designHints": "优先选择带储物功能的家具，允许通道略窄（≥600mm），充分利用墙角空间"
 }
 ```
 
-### 8.2 策略类型
+**配置字段说明**：
 
-| 策略 | approach | 说明 |
-|------|----------|------|
-| 极致收纳 | StorageFirst | 最大化储物空间 |
-| 动线优先 | CirculationFirst | 保证宽敞行走动线 |
-| 极简留白 | MinimalistFirst | 只保留核心家具 |
-| 舒适优先 | ComfortFirst | 优先考虑使用舒适度 |
-| 均衡方案 | Balanced | 各方面均衡考虑 |
+| 字段 | 类型 | Agent 使用方式 |
+|------|------|----------------|
+| `weights` | 权重参数 | 影响家具选择优先级、布置评分 |
+| `designRules` | 硬约束 | 必须满足，违反则布置失败 |
+| `userConstraints` | 用户指定 | 锚定特定家具位置/朝向 |
+| `designHints` | 自然语言提示 | 注入 Agent 提示词，影响决策倾向 |
 
-### 8.3 策略影响决策
+### 8.3 策略类型
 
-> **来源**：从老文档 Agent_Design_Spec.md §5.3 保留的代码示例
+| 策略 | approach | 说明 | weights 特点 |
+|------|----------|------|--------------|
+| 极致收纳 | StorageFirst | 最大化储物空间 | storage=0.9, circulation=0.3 |
+| 动线优先 | CirculationFirst | 保证宽敞行走动线 | circulation=0.9, storage=0.3 |
+| 极简留白 | MinimalistFirst | 只保留核心家具 | aesthetics=0.9, storage=0.2 |
+| 舒适优先 | ComfortFirst | 优先考虑使用舒适度 | comfort=0.9 |
+| 均衡方案 | Balanced | 各方面均衡考虑 | 各项=0.5-0.6 |
 
-```python
-class PlacementAgent:
-    def select_furniture(self, zone, strategy):
-        if strategy.approach == "StorageFirst":
-            # 优先选择带储物功能的家具
-            # 增加柜体数量
-            # 允许通道略窄
-            pass
-        elif strategy.approach == "CirculationFirst":
-            # 减少大型家具
-            # 保证通道宽度 >= 900mm
-            pass
-        elif strategy.approach == "MinimalistFirst":
-            # 只选择核心家具
-            # 跳过辅助家具
-            pass
-```
+### 8.4 策略影响决策
 
 **策略决策映射表**：
 
@@ -614,6 +665,26 @@ class PlacementAgent:
 | MinimalistFirst | 核心家具 | 最宽 | 最少 |
 | ComfortFirst | 舒适型（大尺寸） | 适中 | 适中 |
 | Balanced | 均衡 | 标准 (≥800mm) | 标准 |
+
+**Agent 决策示例**：
+
+```python
+class LayoutAgent:
+    def select_furniture(self, zone, strategy):
+        if strategy.weights["storage"] > 0.7:
+            # 优先选择带储物功能的家具
+            # 增加柜体数量
+            # 允许通道略窄（参考 designRules.minAisleWidth）
+            pass
+        elif strategy.weights["circulation"] > 0.7:
+            # 减少大型家具
+            # 保证通道宽度 >= 900mm
+            pass
+        elif strategy.weights["aesthetics"] > 0.7:
+            # 只选择核心家具
+            # 跳过辅助家具，保留留白
+            pass
+```
 
 ---
 
@@ -920,6 +991,7 @@ bounds + facing → 精确几何位置 + 旋转角度
 
 | 版本 | 日期 | 变更 |
 |------|------|------|
-| v1.0 | 2026-01-09 | Agent_Design_Spec 初始版本 |
-| v1.0 | 2026-01-13 | Agent_Prompt_Design_Guide 初始版本 |
+| v2.1 | 2026-01-14 | §八 重构为"策略体系"：新增策略/变体/Worktree 核心概念、更新策略配置结构 |
 | v2.0 | 2026-01-13 | 合并两文档，采用 SubAgent 架构，废弃单体 PlacementAgent |
+| v1.0 | 2026-01-13 | Agent_Prompt_Design_Guide 初始版本 |
+| v1.0 | 2026-01-09 | Agent_Design_Spec 初始版本 |

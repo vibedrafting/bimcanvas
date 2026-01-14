@@ -1,6 +1,6 @@
 # BIMCanvas 并行设计模式
 
-> **版本**：v1.0 | **更新日期**：2026-01-13
+> **版本**：v1.1 | **更新日期**：2026-01-14
 > **目的**：详细描述 BIMCanvas 的并行设计架构哲学、核心场景、Git 翻译层及 Worktree 实现
 > **实现状态**：✅ v3.1 已完成核心架构实现
 > **关联代码**：`BIMCanvas.Server/Services/GitWorktreeService.cs`, `StrategyService.cs`
@@ -41,6 +41,20 @@
 - **算力换广度**：利用并发能力，同时探索 N 种可能性
 - **打破线性限制**：突破人类设计师的线性工作模式
 - **多样性保证**：通过不同策略参数确保输出差异化
+
+### 1.6 核心概念：策略 vs 变体 vs Worktree
+
+> 详细定义见 [Agent_Design.md §8.1](./Agent_Design.md#81-核心概念策略-vs-变体-vs-worktree)
+
+| 概念 | 本质 | 生命周期 | 分支格式 |
+|------|------|----------|----------|
+| **Strategy** | Git 分支（主干） | 长期保留 | `scheme/{strategyName}` |
+| **Variant** | Git 分支（小分支） | 可能被采纳或丢弃 | `scheme/{strategyName}-{variantName}` |
+| **Worktree** | 临时目录 | 用完即销毁 | `.worktrees/{name}` |
+
+**核心原则**：
+- **Worktree = 临时环境**：AI 执行任务时的隔离，用完即销毁
+- **Branch = 持久版本**：用户确认的设计状态，长期保存
 
 ---
 
@@ -320,11 +334,17 @@ AI 必须学会写"人话"Commit Message，而不是机器码。
 ├── computed/                  # 计算派生数据（自动生成）
 │   ├── room_zones.json
 │   └── exclusions.json
-├── schemes/                   # 方案设计数据（无子目录）
+├── schemes/                   # 方案设计数据（按分区子目录）
 │   ├── strategy.json
 │   ├── zones.json
 │   ├── finishes.json
-│   └── modules.json
+│   ├── rz_1/                  # 分区：次卧一
+│   │   └── modules.json
+│   ├── rz_2/                  # 分区：次卧二
+│   │   └── modules.json
+│   ├── rz_3/                  # 分区：主卧
+│   │   └── modules.json
+│   └── ...
 ├── context/                   # 上下文信息
 │   └── requirements.md
 ├── knowledge/                 # 知识库
@@ -342,7 +362,7 @@ AI 必须学会写"人话"Commit Message，而不是机器码。
         └── ...
 ```
 
-> **注意**：`schemes/` 目录下没有子目录，文件直接存放。多策略通过 Git 分支隔离，每个 Worktree 对应一个策略分支。
+> **注意**：`schemes/` 目录按分区子目录存储 `modules.json`，便于 SubAgent 并行布置和 Git diff 冲突解决。多策略通过 Git 分支隔离，每个 Worktree 对应一个策略分支。
 
 ### 4.4 C# 实现示例
 

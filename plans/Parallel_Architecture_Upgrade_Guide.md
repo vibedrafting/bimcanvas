@@ -1,6 +1,6 @@
 # BIMCanvas 并行架构升级指南
 
-> **版本**：v1.2 | **更新日期**：2026-01-14
+> **版本**：v1.3 | **更新日期**：2026-01-14
 > **状态**：待实施
 > **关联文档**：[Arch_Parallel_Development.md](../docs/Arch_Parallel_Development.md)
 
@@ -25,6 +25,20 @@
 | **Phase 3** | Web 多窗口 | 真窗口/虚拟窗口、窗口管理 | Phase 2 |
 | **Phase 4** | Agent 并行 | SubAgent 分区布置、Worktree 隔离 | Phase 2 |
 | **Phase 5** | 可视化 Merge | 评审模式、分区级 Diff | Phase 3, 4 |
+
+### 1.3 核心概念：策略 vs 变体 vs Worktree
+
+> 详细定义见 [Agent_Design.md §8.1](../docs/Agent_Design.md#81-核心概念策略-vs-变体-vs-worktree)
+
+| 概念 | 本质 | 生命周期 | 分支格式 |
+|------|------|----------|----------|
+| **Strategy** | Git 分支（主干） | 长期保留 | `scheme/{strategyName}` |
+| **Variant** | Git 分支（小分支） | 可能被采纳或丢弃 | `scheme/{strategyName}-{variantName}` |
+| **Worktree** | 临时目录 | 用完即销毁 | `.worktrees/{name}` |
+
+**核心原则**：
+- **Worktree = 临时环境**：AI 执行任务时的隔离，用完即销毁
+- **Branch = 持久版本**：用户确认的设计状态，长期保存
 
 ---
 
@@ -446,7 +460,29 @@ switch ($Operation) {
 }
 ```
 
-### 3.8 验证清单
+### 3.8 Worktree 命名规范
+
+> 详见 [Flow_Git_Operations.md §6.3](../docs/Flow_Git_Operations.md#63-worktree-命名规范)
+
+| 类型 | 目录名格式 | 示例 | 用途 |
+|------|------------|------|------|
+| **虚拟窗口** | `window-{uuid}` | `.worktrees/window-a1b2c3d4` | 用户多窗口并行 |
+| **AI 单任务** | `ai-{taskId}` | `.worktrees/ai-solver-001` | 单个 Agent 任务 |
+| **AI 策略分叉** | `ai-{taskId}-{strategyName}` | `.worktrees/ai-fork-极致收纳` | 多策略并行生成 |
+
+**命名对应关系**：
+
+| Worktree 目录 | 对应分支 |
+|---------------|----------|
+| `.worktrees/window-{id}` | 直接检出用户选择的分支 |
+| `.worktrees/ai-{taskId}` | `feat/ai-{taskId}` (新建分支) |
+
+**核心规则**：
+- 虚拟窗口 Worktree 直接检出用户选择的分支
+- AI 任务 Worktree 必须创建新分支（Git 不允许多个 Worktree 检出同一分支）
+- AI 分支以 `feat/ai-` 为前缀，便于识别和清理
+
+### 3.9 验证清单
 
 - [ ] 可创建/删除 Worktree
 - [ ] 可创建/切换/删除分支
@@ -975,6 +1011,7 @@ Phase 3: Web 多窗口    Phase 4: Agent 并行             │
 
 | 版本 | 日期 | 变更内容 |
 |------|------|----------|
+| v1.3 | 2026-01-14 | 新增 §1.3 核心概念（策略/变体/Worktree）、§3.8 Worktree 命名规范 |
 | v1.2 | 2026-01-14 | §3.3 Git 工具集成到 Agent 进程（架构变更） |
 | v1.1 | 2026-01-14 | Git 核心限制说明、Agent 工作流程修正 |
 | v1.0 | 2026-01-14 | 初版：5 阶段升级计划 |
