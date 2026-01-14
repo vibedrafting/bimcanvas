@@ -1,6 +1,6 @@
 # BIMCanvas 并行开发架构设计
 
-> **版本**：v1.0 | **更新日期**：2026-01-14
+> **版本**：v1.1 | **更新日期**：2026-01-14
 > **状态**：设计定稿
 > **关联文档**：
 > - [Architecture.md](./Architecture.md) - 系统总体架构
@@ -218,22 +218,99 @@ main
 │       └── ...
 ```
 
-### 5.2 Worktree 不能嵌套，但可以平级
+### 5.2 Git 核心限制与合并机制
 
-**关键澄清**：不能在 Worktree 里再创建 Worktree，但可以从同一个 `.git` 创建多个平级 Worktree。
+#### Git 核心限制
+
+> **Git 不允许两个 Worktree 检出同一个分支**
+
+这意味着：
+- 如果 Worktree-A 检出了 `branch-A`
+- 则 Agent 的 Worktree **不能**再检出 `branch-A`
+- 必须创建新分支（如 `branch-A-agent-job-1`）
+
+#### 关键技术发现
+
+**合并操作是在分支上进行的，不是在 Worktree 之间进行的。**
+
+可以直接在用户 Worktree 中执行合并：
+```bash
+cd /path/to/worktree-A
+git merge branch-A-agent-job-1
+# ✅ Worktree-A 的文件自动更新为合并结果
+# ✅ 冲突标记直接出现在 Worktree-A 的文件中
+```
+
+**这意味着 Canvas 可以始终渲染用户 Worktree，无需临时切换渲染目标！**
+
+### 5.3 Worktree 平级关系
+
+不能在 Worktree 里"嵌套"创建 Worktree，但可以从同一个 `.git` 创建多个平级 Worktree：
 
 ```
-❌ 错误理解：Worktree 的 Worktree
+❌ 错误理解：Worktree 嵌套
    主项目 → Worktree-A → Worktree-A-1（不可能）
 
 ✅ 正确理解：平级 Worktree
    主项目/.git/
      ├─ 主项目/
-     ├─ Worktree-A/      （平级）
-     └─ Worktree-A-job1/ （平级，不是 A 的子 Worktree）
+     ├─ Worktree-A/        （检出 branch-A）
+     └─ Worktree-A-job1/   （检出 branch-A-agent-job-1，平级）
 ```
 
-### 5.3 Worktree 生命周期
+### 5.4 虚拟窗口 Agent 编辑完整流程
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                    虚拟窗口 Agent 编辑流程                                    │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                             │
+│  【前提】                                                                    │
+│  • 虚拟窗口 A → Worktree-A (检出 branch-A)                                  │
+│  • Canvas 渲染 Worktree-A                                                   │
+│                                                                             │
+│  【Step 1: 保存用户当前改动】                                                │
+│  cd Worktree-A                                                              │
+│  git add . && git commit -m "WIP: 用户改动"                                 │
+│                                                                             │
+│  【Step 2: 创建 Agent 工作环境】                                             │
+│  # 基于当前 branch-A 创建新分支                                              │
+│  git branch branch-A-agent-job-1                                            │
+│  # 创建新的 Worktree（平级，不是嵌套）                                       │
+│  git worktree add .worktrees/agent-wt-A-job1 branch-A-agent-job-1          │
+│                                                                             │
+│  【Step 3: Agent 工作】                                                      │
+│  Agent 在 agent-wt-A-job1 中编辑                                            │
+│  cd .worktrees/agent-wt-A-job1                                              │
+│  # ... 编辑 schemes/rz_*/modules.json ...                                   │
+│  git add . && git commit -m "feat: AI 布置方案"                             │
+│                                                                             │
+│  【Step 4: 在 Worktree-A 中合并】← 关键！                                    │
+│  cd Worktree-A                                                              │
+│  git merge branch-A-agent-job-1                                             │
+│  # ✅ Worktree-A 的文件自动更新为合并结果                                    │
+│  # ✅ 如有冲突，冲突标记出现在 Worktree-A 文件中                             │
+│                                                                             │
+│  【Step 5: 可视化解决冲突】                                                  │
+│  # Canvas 继续渲染 Worktree-A（无需切换！）                                  │
+│  # 用户通过 UI 选择保留哪些改动                                              │
+│  git add . && git commit -m "merge: 合并 AI 方案"                           │
+│                                                                             │
+│  【Step 6: 清理】                                                            │
+│  git worktree remove .worktrees/agent-wt-A-job1                             │
+│  git branch -d branch-A-agent-job-1                                         │
+│                                                                             │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+### 5.5 Worktree 职责明确
+
+| Worktree | 职责 |
+|----------|------|
+| **用户 Worktree** | 用户交互编辑 + 合并执行 + 冲突解决 + Canvas 渲染源 |
+| **Agent Worktree** | 临时工作空间（用完即删） |
+
+### 5.6 Worktree 生命周期
 
 | Worktree 类型 | 创建时机 | 销毁时机 |
 |---------------|----------|----------|

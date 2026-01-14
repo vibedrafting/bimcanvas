@@ -1,6 +1,6 @@
 # BIMCanvas 并行架构升级指南
 
-> **版本**：v1.0 | **更新日期**：2026-01-14
+> **版本**：v1.1 | **更新日期**：2026-01-14
 > **状态**：待实施
 > **关联文档**：[Arch_Parallel_Development.md](../docs/Arch_Parallel_Development.md)
 
@@ -177,7 +177,30 @@ Write-Host "迁移完成！"
 - 分支创建/切换/合并
 - 分支锁管理
 
-### 3.2 服务设计
+### 3.2 ⚠️ Git 核心限制（重要）
+
+> **Git 不允许两个 Worktree 检出同一个分支**
+
+这意味着：
+- 如果 Worktree-A 检出了 `branch-A`
+- 则任何其他 Worktree **不能**再检出 `branch-A`
+- Agent 必须创建新分支（如 `branch-A-agent-job-1`）
+
+**关键技术发现**：合并操作是在分支上进行的，不是在 Worktree 之间进行的。
+
+可以直接在用户 Worktree 中执行合并：
+```bash
+cd /path/to/worktree-A
+git merge branch-A-agent-job-1
+# ✅ Worktree-A 的文件自动更新为合并结果
+# ✅ 如有冲突，冲突标记直接出现在 Worktree-A 的文件中
+```
+
+**架构简化**：
+- Canvas 始终渲染用户 Worktree，无需临时切换渲染目标
+- 合并后 Worktree 文件自动更新，无需额外"传递"操作
+
+### 3.3 服务设计
 
 ```
 BIMCanvas.Server/
@@ -190,7 +213,7 @@ BIMCanvas.Server/
         └── BranchLockManager.cs        # 分支锁管理
 ```
 
-### 3.3 接口定义
+### 3.4 接口定义
 
 **文件**：`BIMCanvas.Server/Services/Git/IGitService.cs`
 
@@ -208,7 +231,8 @@ public interface IGitService
     Task StageAllAsync();
     Task CommitAsync(string message);
 
-    // 合并操作
+    // 合并操作（关键：在用户 Worktree 中直接执行）
+    // ⚠️ 注意：合并是分支级操作，执行后 Worktree 文件自动更新
     Task<MergeResult> MergeAsync(string sourceBranch);
     Task<bool> HasConflictsAsync();
 }
@@ -233,7 +257,7 @@ public class BranchLockManager
 }
 ```
 
-### 3.4 实现方案
+### 3.5 实现方案
 
 **方案选择**：使用 `LibGit2Sharp` 库实现 Git 操作。
 
@@ -270,7 +294,7 @@ public class GitService : IGitService
 }
 ```
 
-### 3.5 Worktree 命令封装
+### 3.6 Worktree 命令封装
 
 > **注意**：LibGit2Sharp 对 Worktree 支持有限，可能需要直接调用 Git CLI。
 
@@ -316,7 +340,7 @@ public class WorktreeService : IWorktreeService
 }
 ```
 
-### 3.6 Git CLI 封装脚本（备选方案）
+### 3.7 Git CLI 封装脚本（备选方案）
 
 如果 LibGit2Sharp 不满足需求，可以直接封装 Git CLI：
 
@@ -398,12 +422,13 @@ switch ($Operation) {
 }
 ```
 
-### 3.7 验证清单
+### 3.8 验证清单
 
 - [ ] 可创建/删除 Worktree
 - [ ] 可创建/切换/删除分支
 - [ ] 分支锁正常工作（互斥）
 - [ ] Git 操作错误正确捕获和报告
+- [ ] 合并操作可在用户 Worktree 中直接执行
 
 ---
 
@@ -570,46 +595,75 @@ MainAgent
     └─► SubAgent-3 (rz_6)        ──► Worktree-3
 ```
 
-### 5.3 Agent 工作流程
+### 5.3 Agent 工作流程（修正版）
+
+> **关键变更**：Agent 不能直接检出用户的分支，必须创建新分支。合并在用户 Worktree 中直接执行。
 
 ```
-1. 用户发起布置请求
-      │
-      ▼
-2. MainAgent 解析意图，确定分区分配
-      │
-      ▼
-3. 为每个 SubAgent 创建 Worktree
-      │
-      ├─► git worktree add .worktrees/agent-job1-sub1 feat/ai-sub1
-      ├─► git worktree add .worktrees/agent-job1-sub2 feat/ai-sub2
-      └─► git worktree add .worktrees/agent-job1-sub3 feat/ai-sub3
-      │
-      ▼
-4. 并行执行 SubAgent
-      │
-      ├─► SubAgent-1: 在 Worktree-1 中布置 rz_1, rz_2
-      ├─► SubAgent-2: 在 Worktree-2 中布置 rz_3
-      └─► SubAgent-3: 在 Worktree-3 中布置 rz_6
-      │
-      ▼
-5. 各 SubAgent 提交
-      │
-      ├─► git add . && git commit -m "feat(rz_1,rz_2): ..."
-      └─► ...
-      │
-      ▼
-6. 合并所有 SubAgent 分支
-      │
-      ├─► git merge feat/ai-sub1
-      ├─► git merge feat/ai-sub2
-      └─► git merge feat/ai-sub3
-      │
-      ▼
-7. 清理 Worktree
-      │
-      └─► git worktree remove ...
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                       Agent 并行布置完整流程                                  │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                             │
+│  【前提】                                                                    │
+│  • 用户在窗口 A → Worktree-A（检出 branch-A）                                │
+│  • Canvas 渲染 Worktree-A                                                   │
+│                                                                             │
+│  【Step 1: 保存用户当前改动】                                                │
+│  cd Worktree-A                                                              │
+│  git add . && git commit -m "WIP: 用户改动"                                 │
+│                                                                             │
+│  【Step 2: 为 SubAgent 创建独立分支 + Worktree】← 关键！                      │
+│  # 基于 branch-A 创建新分支（不是检出 branch-A）                              │
+│  git branch branch-A-agent-sub1 branch-A                                    │
+│  git branch branch-A-agent-sub2 branch-A                                    │
+│  git branch branch-A-agent-sub3 branch-A                                    │
+│                                                                             │
+│  # 创建对应 Worktree（平级目录）                                              │
+│  git worktree add .worktrees/agent-sub1 branch-A-agent-sub1                 │
+│  git worktree add .worktrees/agent-sub2 branch-A-agent-sub2                 │
+│  git worktree add .worktrees/agent-sub3 branch-A-agent-sub3                 │
+│                                                                             │
+│  【Step 3: SubAgent 并行工作】                                               │
+│  ├─► SubAgent-1: 在 .worktrees/agent-sub1 中布置 rz_1, rz_2                 │
+│  ├─► SubAgent-2: 在 .worktrees/agent-sub2 中布置 rz_3                       │
+│  └─► SubAgent-3: 在 .worktrees/agent-sub3 中布置 rz_6                       │
+│                                                                             │
+│  【Step 4: 各 SubAgent 提交】                                                │
+│  cd .worktrees/agent-sub1 && git add . && git commit -m "feat: rz_1,rz_2"  │
+│  cd .worktrees/agent-sub2 && git add . && git commit -m "feat: rz_3"       │
+│  cd .worktrees/agent-sub3 && git add . && git commit -m "feat: rz_6"       │
+│                                                                             │
+│  【Step 5: 在用户 Worktree 中合并】← 关键！直接合并，无需绕道                  │
+│  cd Worktree-A                                                              │
+│  git merge branch-A-agent-sub1    # Worktree-A 文件自动更新                  │
+│  git merge branch-A-agent-sub2    # 如有冲突，标记出现在 Worktree-A          │
+│  git merge branch-A-agent-sub3                                              │
+│                                                                             │
+│  【Step 6: 可视化解决冲突（如有）】                                           │
+│  # Canvas 始终渲染 Worktree-A，用户看到带冲突标记的文件                       │
+│  # 用户通过 UI 选择保留哪些改动                                               │
+│  # 解决后提交：                                                              │
+│  git add . && git commit -m "merge: 合并 AI 方案"                           │
+│                                                                             │
+│  【Step 7: 清理】                                                            │
+│  git worktree remove .worktrees/agent-sub1                                  │
+│  git worktree remove .worktrees/agent-sub2                                  │
+│  git worktree remove .worktrees/agent-sub3                                  │
+│  git branch -d branch-A-agent-sub1                                          │
+│  git branch -d branch-A-agent-sub2                                          │
+│  git branch -d branch-A-agent-sub3                                          │
+│                                                                             │
+└─────────────────────────────────────────────────────────────────────────────┘
 ```
+
+**与旧设计的差异**：
+
+| 旧设计 | 修正后 |
+|--------|--------|
+| SubAgent 检出用户分支 | SubAgent 创建独立分支 |
+| 合并需要绕道到"本地分支" | 直接在用户 Worktree 中合并 |
+| 需要临时切换 Canvas 渲染目标 | Canvas 始终渲染用户 Worktree |
+| 合并后需要"传递"给用户 Worktree | 合并自动更新用户 Worktree 文件 |
 
 ### 5.4 Agent 端实现（预留）
 
@@ -897,4 +951,5 @@ Phase 3: Web 多窗口    Phase 4: Agent 并行             │
 
 | 版本 | 日期 | 变更内容 |
 |------|------|----------|
+| v1.1 | 2026-01-14 | Git 核心限制说明、Agent 工作流程修正 |
 | v1.0 | 2026-01-14 | 初版：5 阶段升级计划 |
