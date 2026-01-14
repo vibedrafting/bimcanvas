@@ -1146,6 +1146,7 @@ const removePendingImage = (index: number) => {
   <aside 
     class="ai-command-center" 
     :style="{ width: panelWidth + 'px' }"
+    v-show="!showScreenshotOverlay"
   >
     <!-- Resize Handle -->
     <div class="resize-handle" @mousedown="startResize">

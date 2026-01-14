@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, onMounted, onUnmounted, computed, nextTick } from 'vue'
+import { ref, onMounted, onUnmounted, computed, nextTick, watch } from 'vue'
 import html2canvas from 'html2canvas'
 
 const emit = defineEmits<{
@@ -7,78 +7,103 @@ const emit = defineEmits<{
   (e: 'cancel'): void
 }>()
 
-// 状态枚举
+// --- 类型定义 ---
 type ToolType = 'rect' | 'arrow' | 'text' | null
 type ResizeHandle = 'nw' | 'n' | 'ne' | 'e' | 'se' | 's' | 'sw' | 'w'
-type Annotation = 
-  | { type: 'rect'; x: number; y: number; w: number; h: number; color: string; size: number }
-  | { type: 'arrow'; startX: number; startY: number; endX: number; endY: number; color: string; size: number }
-  | { type: 'text'; x: number; y: number; text: string; color: string; size: number }
+type AnnotationResizeHandle = 'start' | 'end' | 'nw' | 'ne' | 'se' | 'sw'
 
-// 核心状态
+interface BaseAnnotation {
+  id: string
+  color: string
+  size: number
+}
+
+interface RectAnnotation extends BaseAnnotation {
+  type: 'rect'
+  x: number; y: number; w: number; h: number
+}
+
+interface ArrowAnnotation extends BaseAnnotation {
+  type: 'arrow'
+  startX: number; startY: number; endX: number; endY: number
+}
+
+interface TextAnnotation extends BaseAnnotation {
+  type: 'text'
+  x: number; y: number; text: string
+}
+
+type Annotation = RectAnnotation | ArrowAnnotation | TextAnnotation
+
+// --- 状态管理 ---
 const canvasRef = ref<HTMLCanvasElement | null>(null)
-const bgCanvasRef = ref<HTMLCanvasElement | null>(null) // 存储原始全屏截图
-const isSelecting = ref(true) // true=选区阶段, false=编辑阶段
-const isDrawing = ref(false) // 正在绘制标注
-const isResizing = ref(false) // 正在调整选区大小
-const currentResizeHandle = ref<ResizeHandle | null>(null)
+const bgCanvasRef = ref<HTMLCanvasElement | null>(null)
 
-// 坐标状态
-const startX = ref(0)
-const startY = ref(0)
-const endX = ref(0)
-const endY = ref(0)
+const isSelecting = ref(true)
+const interactionMode = ref<'none' | 'selecting' | 'moving_selection' | 'resizing_selection' | 'drawing' | 'moving_annotation' | 'resizing_annotation' | 'dragging_text_input'>('none')
 
-// 选区坐标 (标准化后)
-const selection = computed(() => {
-  const x = Math.min(startX.value, endX.value)
-  const y = Math.min(startY.value, endY.value)
-  const w = Math.abs(endX.value - startX.value)
-  const h = Math.abs(endY.value - startY.value)
-  return { x, y, w, h }
-})
+// 选区状态
+const selX = ref(0), selY = ref(0), selW = ref(0), selH = ref(0)
 
-// 编辑工具状态
+// 交互临时坐标
+const dragStartX = ref(0), dragStartY = ref(0), dragCurrentX = ref(0), dragCurrentY = ref(0)
+const initialSelX = ref(0), initialSelY = ref(0), initialSelW = ref(0), initialSelH = ref(0)
+const initialAnnotationState = ref<Annotation | null>(null)
+
+// 工具状态
 const currentTool = ref<ToolType>(null)
-const currentColor = ref('#ff0000') // 默认红色
-const currentSize = ref(2) // 1=small, 2=medium, 3=large
+const currentColor = ref('#ff0000')
+const currentSize = ref(2)
 const annotations = ref<Annotation[]>([])
-const history = ref<Annotation[][]>([]) // 撤销栈
-const redoStack = ref<Annotation[][]>([]) // 重做栈
+const selectedAnnotationIndex = ref<number>(-1)
+const history = ref<Annotation[][]>([])
+const redoStack = ref<Annotation[][]>([])
 
 // 文本输入状态
 const isTextInputVisible = ref(false)
-const textInputX = ref(0)
-const textInputY = ref(0)
+const textInputX = ref(0), textInputY = ref(0)
 const textInputValue = ref('')
-const textInputRef = ref<HTMLTextAreaElement | null>(null)
+const textInputRef = ref<HTMLInputElement | null>(null)
+const editingAnnotationIndex = ref<number>(-1)
+// 用于拖拽文本输入框
+const textInputDragStartX = ref(0), textInputDragStartY = ref(0)
 
-// 颜色选项
 const colors = ['#ff0000', '#00ff00', '#0000ff', '#ffff00', '#000000', '#ffffff']
 
-// 初始化：截取全屏
+// --- 初始化 ---
 onMounted(async () => {
   try {
+    // 等待 Vue DOM 更新完成（父组件隐藏 AI 面板）
+    await nextTick()
+    // 最小延迟确保 DOM 更新生效
+    await new Promise(resolve => setTimeout(resolve, 10))
+    
     const canvas = await html2canvas(document.body, {
       backgroundColor: null,
-      scale: window.devicePixelRatio || 1,
+      scale: Math.min(window.devicePixelRatio || 1, 2), // 限制最大缩放为 2x
       logging: false,
       useCORS: true,
       allowTaint: true,
-      foreignObjectRendering: true
+      foreignObjectRendering: false, // 关闭以提升速度
+      removeContainer: true, // 完成后移除临时容器
+      ignoreElements: (el) => {
+        // 忽略截图遮罩自身
+        return el.classList?.contains('advanced-screenshot-overlay')
+      }
     })
     
     bgCanvasRef.value = canvas
     
-    // 初始化绘图 Canvas
     if (canvasRef.value) {
-      canvasRef.value.width = window.innerWidth * (window.devicePixelRatio || 1)
-      canvasRef.value.height = window.innerHeight * (window.devicePixelRatio || 1)
+      const dpr = window.devicePixelRatio || 1
+      canvasRef.value.width = window.innerWidth * dpr
+      canvasRef.value.height = window.innerHeight * dpr
       canvasRef.value.style.width = '100vw'
       canvasRef.value.style.height = '100vh'
       draw()
     }
     
+    // 全局事件监听
     window.addEventListener('keydown', handleKeyDown)
     window.addEventListener('mousemove', handleGlobalMouseMove)
     window.addEventListener('mouseup', handleGlobalMouseUp)
@@ -94,339 +119,513 @@ onUnmounted(() => {
   window.removeEventListener('mouseup', handleGlobalMouseUp)
 })
 
-// 绘图循环
+// --- 辅助函数 ---
+const generateId = () => Math.random().toString(36).substr(2, 9)
+
+const isPointInRect = (x: number, y: number, rx: number, ry: number, rw: number, rh: number) => 
+    x >= rx && x <= rx + rw && y >= ry && y <= ry + rh
+
+const isPointNearLine = (px: number, py: number, x1: number, y1: number, x2: number, y2: number, threshold = 8) => {
+    const A = px - x1, B = py - y1, C = x2 - x1, D = y2 - y1
+    const dot = A * C + B * D, lenSq = C * C + D * D
+    let param = lenSq !== 0 ? dot / lenSq : -1
+    let xx, yy
+    if (param < 0) { xx = x1; yy = y1 }
+    else if (param > 1) { xx = x2; yy = y2 }
+    else { xx = x1 + param * C; yy = y1 + param * D }
+    return Math.sqrt((px - xx) ** 2 + (py - yy) ** 2) < threshold
+}
+
+const getHitAnnotation = (x: number, y: number): number => {
+    for (let i = annotations.value.length - 1; i >= 0; i--) {
+        const ann = annotations.value[i]
+        if (ann.type === 'rect') {
+            if (isPointInRect(x, y, ann.x - 5, ann.y - 5, ann.w + 10, ann.h + 10)) return i
+        } else if (ann.type === 'arrow') {
+            if (isPointNearLine(x, y, ann.startX, ann.startY, ann.endX, ann.endY, 10)) return i
+        } else if (ann.type === 'text') {
+            const ctx = canvasRef.value?.getContext('2d')
+            if (ctx) {
+                ctx.font = `${ann.size * 12 + 12}px sans-serif`
+                const metrics = ctx.measureText(ann.text)
+                const h = ann.size * 12 + 12
+                if (x >= ann.x && x <= ann.x + metrics.width && y >= ann.y - h && y <= ann.y + 5) return i
+            }
+        }
+    }
+    return -1
+}
+
+// --- 绘图逻辑 ---
 const draw = () => {
   const ctx = canvasRef.value?.getContext('2d')
   if (!ctx || !bgCanvasRef.value) return
 
   const dpr = window.devicePixelRatio || 1
-  const width = canvasRef.value!.width
-  const height = canvasRef.value!.height
+  const width = canvasRef.value!.width, height = canvasRef.value!.height
 
-  // 1. 清空
   ctx.clearRect(0, 0, width, height)
-
-  // 2. 绘制全屏截图作为底图
   ctx.drawImage(bgCanvasRef.value, 0, 0, width, height)
 
-  // 3. 绘制遮罩 (半透明黑色)
+  // 遮罩
   ctx.fillStyle = 'rgba(0, 0, 0, 0.5)'
   ctx.fillRect(0, 0, width, height)
 
-  // 4. 清除选区部分的遮罩 (使其高亮)
-  if (selection.value.w > 0 && selection.value.h > 0) {
-    const s = selection.value
-    ctx.clearRect(s.x * dpr, s.y * dpr, s.w * dpr, s.h * dpr)
-    // 重绘选区内的底图
-    ctx.drawImage(
-      bgCanvasRef.value, 
-      s.x * dpr, s.y * dpr, s.w * dpr, s.h * dpr,
-      s.x * dpr, s.y * dpr, s.w * dpr, s.h * dpr
-    )
-    
-    // 绘制选区边框
-    ctx.strokeStyle = '#00ff00'
-    ctx.lineWidth = 1 * dpr
-    ctx.strokeRect(s.x * dpr, s.y * dpr, s.w * dpr, s.h * dpr)
-    
-    // 绘制选区尺寸 (仅在拖拽选区时显示)
-    if (isSelecting.value || isResizing.value) {
-        ctx.fillStyle = 'rgba(0, 0, 0, 0.7)'
-        ctx.fillRect(s.x * dpr, (s.y - 25) * dpr, 100 * dpr, 20 * dpr)
-        ctx.fillStyle = '#fff'
-        ctx.font = `${12 * dpr}px Arial`
-        ctx.fillText(`${Math.round(s.w)} x ${Math.round(s.h)}`, (s.x + 5) * dpr, (s.y - 10) * dpr)
-    }
+  // 选区
+  let sx = selX.value, sy = selY.value, sw = selW.value, sh = selH.value
+  if (interactionMode.value === 'selecting') {
+      sx = Math.min(dragStartX.value, dragCurrentX.value)
+      sy = Math.min(dragStartY.value, dragCurrentY.value)
+      sw = Math.abs(dragCurrentX.value - dragStartX.value)
+      sh = Math.abs(dragCurrentY.value - dragStartY.value)
   }
 
-  // 5. 绘制标注 (仅在选区内)
+  if (sw > 0 && sh > 0) {
+      ctx.clearRect(sx * dpr, sy * dpr, sw * dpr, sh * dpr)
+      ctx.drawImage(bgCanvasRef.value, sx * dpr, sy * dpr, sw * dpr, sh * dpr, sx * dpr, sy * dpr, sw * dpr, sh * dpr)
+      ctx.strokeStyle = '#07c160'
+      ctx.lineWidth = 1 * dpr
+      ctx.strokeRect(sx * dpr, sy * dpr, sw * dpr, sh * dpr)
+      
+      if (isSelecting.value || interactionMode.value === 'resizing_selection') {
+          ctx.fillStyle = 'rgba(0, 0, 0, 0.7)'
+          ctx.fillRect(sx * dpr, (sy - 25) * dpr, 100 * dpr, 20 * dpr)
+          ctx.fillStyle = '#fff'
+          ctx.font = `${12 * dpr}px Arial`
+          ctx.fillText(`${Math.round(sw)} x ${Math.round(sh)}`, (sx + 5) * dpr, (sy - 10) * dpr)
+      }
+  }
+
+  // 标注
   ctx.save()
-  if (selection.value.w > 0) {
-      const s = selection.value
+  if (sw > 0) {
       ctx.beginPath()
-      ctx.rect(s.x * dpr, s.y * dpr, s.w * dpr, s.h * dpr)
+      ctx.rect(sx * dpr, sy * dpr, sw * dpr, sh * dpr)
       ctx.clip()
   }
 
-  annotations.value.forEach(ann => {
-    ctx.strokeStyle = ann.color
-    ctx.fillStyle = ann.color
-    ctx.lineWidth = ann.size * dpr
-    
-    if (ann.type === 'rect') {
-      ctx.strokeRect(ann.x * dpr, ann.y * dpr, ann.w * dpr, ann.h * dpr)
-    } else if (ann.type === 'arrow') {
-      drawArrow(ctx, ann.startX * dpr, ann.startY * dpr, ann.endX * dpr, ann.endY * dpr, ann.size * dpr)
-    } else if (ann.type === 'text') {
-      ctx.font = `${(ann.size * 12 + 12) * dpr}px sans-serif`
-      ctx.fillText(ann.text, ann.x * dpr, ann.y * dpr)
-    }
+  annotations.value.forEach((ann, index) => {
+      if (ann.type === 'text' && editingAnnotationIndex.value === index) return
+      ctx.strokeStyle = ann.color
+      ctx.fillStyle = ann.color
+      ctx.lineWidth = ann.size * dpr
+      
+      if (ann.type === 'rect') {
+          ctx.strokeRect(ann.x * dpr, ann.y * dpr, ann.w * dpr, ann.h * dpr)
+      } else if (ann.type === 'arrow') {
+          drawArrow(ctx, ann.startX * dpr, ann.startY * dpr, ann.endX * dpr, ann.endY * dpr, ann.size * dpr)
+      } else if (ann.type === 'text') {
+          ctx.font = `${(ann.size * 12 + 12) * dpr}px sans-serif`
+          ctx.fillText(ann.text, ann.x * dpr, ann.y * dpr)
+      }
   })
 
-  // 绘制当前正在画的形状
-  if (isDrawing.value && currentTool.value) {
+  // 正在绘制的标注
+  if (interactionMode.value === 'drawing' && currentTool.value) {
       ctx.strokeStyle = currentColor.value
       ctx.fillStyle = currentColor.value
       ctx.lineWidth = currentSize.value * dpr
       
       if (currentTool.value === 'rect') {
-          const w = endX.value - startX.value
-          const h = endY.value - startY.value
-          ctx.strokeRect(startX.value * dpr, startY.value * dpr, w * dpr, h * dpr)
+          const w = dragCurrentX.value - dragStartX.value
+          const h = dragCurrentY.value - dragStartY.value
+          ctx.strokeRect(dragStartX.value * dpr, dragStartY.value * dpr, w * dpr, h * dpr)
       } else if (currentTool.value === 'arrow') {
-          drawArrow(ctx, startX.value * dpr, startY.value * dpr, endX.value * dpr, endY.value * dpr, currentSize.value * dpr)
+          drawArrow(ctx, dragStartX.value * dpr, dragStartY.value * dpr, dragCurrentX.value * dpr, dragCurrentY.value * dpr, currentSize.value * dpr)
       }
   }
-  
+
+  // 选中标注的控制点
+  if (selectedAnnotationIndex.value !== -1 && !isSelecting.value) {
+      const ann = annotations.value[selectedAnnotationIndex.value]
+      if (ann) drawAnnotationHandles(ctx, ann, dpr)
+  }
+
   ctx.restore()
 }
 
-const drawArrow = (ctx: CanvasRenderingContext2D, fromX: number, fromY: number, toX: number, toY: number, width: number) => {
-    const headlen = width * 5
-    const dx = toX - fromX
-    const dy = toY - fromY
+const drawArrow = (ctx: CanvasRenderingContext2D, fromX: number, fromY: number, toX: number, toY: number, lineWidth: number) => {
+    const dx = toX - fromX, dy = toY - fromY
     const angle = Math.atan2(dy, dx)
+    const headLength = Math.max(lineWidth * 6, 16)
+    const headWidth = headLength * 0.6
+    const baseX = toX - headLength * Math.cos(angle)
+    const baseY = toY - headLength * Math.sin(angle)
     
+    ctx.lineWidth = lineWidth
+    ctx.lineCap = 'round'
     ctx.beginPath()
     ctx.moveTo(fromX, fromY)
-    ctx.lineTo(toX, toY)
+    ctx.lineTo(baseX, baseY)
     ctx.stroke()
     
+    const perpAngle = angle + Math.PI / 2
+    const leftX = baseX + headWidth / 2 * Math.cos(perpAngle)
+    const leftY = baseY + headWidth / 2 * Math.sin(perpAngle)
+    const rightX = baseX - headWidth / 2 * Math.cos(perpAngle)
+    const rightY = baseY - headWidth / 2 * Math.sin(perpAngle)
+    
     ctx.beginPath()
-    ctx.moveTo(toX - headlen * Math.cos(angle - Math.PI / 6), toY - headlen * Math.sin(angle - Math.PI / 6))
-    ctx.lineTo(toX, toY)
-    ctx.lineTo(toX - headlen * Math.cos(angle + Math.PI / 6), toY - headlen * Math.sin(angle + Math.PI / 6))
+    ctx.moveTo(toX, toY)
+    ctx.lineTo(leftX, leftY)
+    ctx.lineTo(rightX, rightY)
+    ctx.closePath()
     ctx.fill()
 }
 
-// 交互处理
-const handleMouseDown = (e: MouseEvent) => {
-  // 如果点击了文本输入框，不处理
-  if ((e.target as HTMLElement).tagName === 'TEXTAREA') return
-  
-  // 如果正在输入文本，点击其他地方确认文本
-  if (isTextInputVisible.value) {
-      confirmText()
-      return
-  }
+const drawAnnotationHandles = (ctx: CanvasRenderingContext2D, ann: Annotation, dpr: number) => {
+    ctx.fillStyle = '#fff'
+    ctx.strokeStyle = '#07c160'
+    ctx.lineWidth = 1 * dpr
+    
+    const drawHandle = (x: number, y: number) => {
+        ctx.beginPath()
+        ctx.arc(x * dpr, y * dpr, 4 * dpr, 0, Math.PI * 2)
+        ctx.fill()
+        ctx.stroke()
+    }
 
-  // 1. 选区模式
-  if (isSelecting.value) {
-    startX.value = e.clientX
-    startY.value = e.clientY
-    endX.value = e.clientX
-    endY.value = e.clientY
-    return
-  }
-
-  // 2. 编辑模式
-  // 检查是否点击了 Resize Handle (通过 DOM 事件冒泡，Handle 会先捕获)
-  // 如果 isResizing 已经被 Handle 设置为 true，则这里不需要做
-  if (isResizing.value) return
-
-  // 检查是否在选区内
-  const s = selection.value
-  if (e.clientX < s.x || e.clientX > s.x + s.w || e.clientY < s.y || e.clientY > s.y + s.h) {
-      // 点击选区外，不做任何事 (或者可以实现移动选区)
-      return
-  }
-
-  // 开始标注
-  if (!currentTool.value) return
-
-  if (currentTool.value === 'text') {
-      startTextInput(e.clientX, e.clientY)
-      return
-  }
-
-  isDrawing.value = true
-  startX.value = e.clientX
-  startY.value = e.clientY
-  endX.value = e.clientX
-  endY.value = e.clientY
-}
-
-const handleGlobalMouseMove = (e: MouseEvent) => {
-  if (isSelecting.value) {
-      if (e.buttons !== 1) return
-      endX.value = e.clientX
-      endY.value = e.clientY
-      draw()
-  } else if (isResizing.value && currentResizeHandle.value) {
-      // 调整选区大小
-      const handle = currentResizeHandle.value
-      // 根据 handle 更新 startX/Y 或 endX/Y
-      // 注意：这里需要保持 selection 的 x,y,w,h 逻辑，所以我们直接修改 start/end
-      // 简单起见，我们假设 start 是左上，end 是右下 (在 mouseup 时规范化)
-      
-      if (handle.includes('e')) endX.value = e.clientX
-      if (handle.includes('s')) endY.value = e.clientY
-      if (handle.includes('w')) startX.value = e.clientX
-      if (handle.includes('n')) startY.value = e.clientY
-      
-      draw()
-  } else if (isDrawing.value) {
-      endX.value = e.clientX
-      endY.value = e.clientY
-      draw()
-  }
-}
-
-const handleGlobalMouseUp = (e: MouseEvent) => {
-  if (isSelecting.value) {
-      if (selection.value.w > 10 && selection.value.h > 10) {
-          isSelecting.value = false
-          // 规范化坐标，确保 start 是左上，end 是右下
-          const s = selection.value
-          startX.value = s.x
-          startY.value = s.y
-          endX.value = s.x + s.w
-          endY.value = s.y + s.h
-      } else {
-          // 选区太小，重置
-          startX.value = 0; startY.value = 0; endX.value = 0; endY.value = 0;
-      }
-      draw()
-  } else if (isResizing.value) {
-      isResizing.value = false
-      currentResizeHandle.value = null
-      // 规范化
-      const s = selection.value
-      startX.value = s.x
-      startY.value = s.y
-      endX.value = s.x + s.w
-      endY.value = s.y + s.h
-      draw()
-  } else if (isDrawing.value) {
-      isDrawing.value = false
-      saveAnnotation()
-      draw()
-  }
-}
-
-const startResize = (handle: ResizeHandle) => {
-    isResizing.value = true
-    currentResizeHandle.value = handle
-}
-
-const saveAnnotation = () => {
-    // 保存当前状态到历史栈
-    history.value.push(JSON.parse(JSON.stringify(annotations.value)))
-    // 清空重做栈
-    redoStack.value = []
-
-    if (currentTool.value === 'rect') {
-        annotations.value.push({
-            type: 'rect',
-            x: startX.value, y: startY.value,
-            w: endX.value - startX.value, h: endY.value - startY.value,
-            color: currentColor.value, size: currentSize.value
-        })
-    } else if (currentTool.value === 'arrow') {
-        annotations.value.push({
-            type: 'arrow',
-            startX: startX.value, startY: startY.value,
-            endX: endX.value, endY: endY.value,
-            color: currentColor.value, size: currentSize.value
-        })
+    if (ann.type === 'rect') {
+        drawHandle(ann.x, ann.y)
+        drawHandle(ann.x + ann.w, ann.y)
+        drawHandle(ann.x + ann.w, ann.y + ann.h)
+        drawHandle(ann.x, ann.y + ann.h)
+        ctx.strokeRect(ann.x * dpr, ann.y * dpr, ann.w * dpr, ann.h * dpr)
+    } else if (ann.type === 'arrow') {
+        drawHandle(ann.startX, ann.startY)
+        drawHandle(ann.endX, ann.endY)
+    } else if (ann.type === 'text') {
+        // 如果正在编辑该文字，使用输入框位置绘制预览框
+        let textX = ann.x
+        let textY = ann.y
+        if (editingAnnotationIndex.value !== -1) {
+            // 根据输入框位置计算文字位置
+            textX = textInputX.value + TEXT_INPUT_PADDING_X
+            textY = textInputY.value + TEXT_INPUT_PADDING_Y + ann.size * 12 + 12
+        }
+        ctx.font = `${(ann.size * 12 + 12) * dpr}px sans-serif`
+        const text = editingAnnotationIndex.value !== -1 ? (textInputValue.value || ann.text) : ann.text
+        const metrics = ctx.measureText(text || ' ')
+        const h = ann.size * 12 + 12
+        ctx.setLineDash([4, 4])
+        ctx.strokeRect((textX - 4) * dpr, (textY - h - 4) * dpr, (metrics.width + 8) * dpr, (h + 8) * dpr)
+        ctx.setLineDash([])
     }
 }
 
-// 文本输入逻辑
-const startTextInput = (x: number, y: number) => {
+// --- 交互处理 ---
+const handleMouseDown = (e: MouseEvent) => {
+    if ((e.target as HTMLElement).tagName === 'INPUT') return
+    
+    const x = e.clientX, y = e.clientY
+    
+    // 如果文本输入可见，点击外部确认文本
+    if (isTextInputVisible.value) {
+        confirmText()
+        return
+    }
+
+    if (isSelecting.value) {
+        interactionMode.value = 'selecting'
+        dragStartX.value = x; dragStartY.value = y
+        dragCurrentX.value = x; dragCurrentY.value = y
+        return
+    }
+
+    if (interactionMode.value === 'resizing_selection') return
+    if (!isPointInRect(x, y, selX.value, selY.value, selW.value, selH.value)) return
+
+    // 检查标注控制点
+    if (selectedAnnotationIndex.value !== -1) {
+        const ann = annotations.value[selectedAnnotationIndex.value]
+        const handle = getAnnotationResizeHandle(x, y, ann)
+        if (handle) {
+            interactionMode.value = 'resizing_annotation'
+            currentAnnotationResizeHandle.value = handle
+            saveHistory()
+            return
+        }
+    }
+
+    // 绘制新标注
+    if (currentTool.value) {
+        if (currentTool.value === 'text') {
+            startTextInput(x, y)
+        } else {
+            interactionMode.value = 'drawing'
+            dragStartX.value = x; dragStartY.value = y
+            dragCurrentX.value = x; dragCurrentY.value = y
+            selectedAnnotationIndex.value = -1
+        }
+        return
+    }
+
+    // 选中/移动标注 (优先级高于移动选区)
+    const hitIndex = getHitAnnotation(x, y)
+    if (hitIndex !== -1) {
+        const ann = annotations.value[hitIndex]
+        // 如果已选中同一个文字标注，进入编辑模式
+        if (ann.type === 'text' && selectedAnnotationIndex.value === hitIndex) {
+            startTextInput(ann.x, ann.y - 10, hitIndex)
+            return
+        }
+        
+        selectedAnnotationIndex.value = hitIndex
+        interactionMode.value = 'moving_annotation'
+        dragStartX.value = x; dragStartY.value = y
+        initialAnnotationState.value = JSON.parse(JSON.stringify(ann))
+        saveHistory()
+        currentColor.value = ann.color
+        currentSize.value = ann.size
+        draw()
+        return
+    }
+
+    // 点击空白处，取消选中并移动选区
+    selectedAnnotationIndex.value = -1
+    interactionMode.value = 'moving_selection'
+    dragStartX.value = x; dragStartY.value = y
+    initialSelX.value = selX.value; initialSelY.value = selY.value
+    draw()
+}
+
+const handleGlobalMouseMove = (e: MouseEvent) => {
+    const x = e.clientX, y = e.clientY
+    dragCurrentX.value = x; dragCurrentY.value = y
+
+    if (interactionMode.value === 'none') {
+        updateCursor(x, y)
+        return
+    }
+
+    if (interactionMode.value === 'selecting') {
+        draw()
+    } else if (interactionMode.value === 'moving_selection') {
+        selX.value = initialSelX.value + (x - dragStartX.value)
+        selY.value = initialSelY.value + (y - dragStartY.value)
+        draw()
+    } else if (interactionMode.value === 'resizing_selection') {
+        handleSelectionResize(x, y)
+        draw()
+    } else if (interactionMode.value === 'drawing') {
+        draw()
+    } else if (interactionMode.value === 'moving_annotation') {
+        if (selectedAnnotationIndex.value !== -1 && initialAnnotationState.value) {
+            const dx = x - dragStartX.value, dy = y - dragStartY.value
+            const ann = annotations.value[selectedAnnotationIndex.value]
+            const init = initialAnnotationState.value
+            
+            if (ann.type === 'rect' && init.type === 'rect') {
+                ann.x = init.x + dx; ann.y = init.y + dy
+            } else if (ann.type === 'arrow' && init.type === 'arrow') {
+                ann.startX = init.startX + dx; ann.startY = init.startY + dy
+                ann.endX = init.endX + dx; ann.endY = init.endY + dy
+            } else if (ann.type === 'text' && init.type === 'text') {
+                ann.x = init.x + dx; ann.y = init.y + dy
+            }
+            draw()
+        }
+    } else if (interactionMode.value === 'resizing_annotation') {
+        handleAnnotationResize(x, y)
+        draw()
+    } else if (interactionMode.value === 'dragging_text_input') {
+        textInputX.value = textInputDragStartX.value + (x - dragStartX.value)
+        textInputY.value = textInputDragStartY.value + (y - dragStartY.value)
+        draw() // 更新预览框位置
+    }
+}
+
+const handleGlobalMouseUp = () => {
+    if (interactionMode.value === 'selecting') {
+        const sx = Math.min(dragStartX.value, dragCurrentX.value)
+        const sy = Math.min(dragStartY.value, dragCurrentY.value)
+        const sw = Math.abs(dragCurrentX.value - dragStartX.value)
+        const sh = Math.abs(dragCurrentY.value - dragStartY.value)
+        
+        if (sw > 10 && sh > 10) {
+            selX.value = sx; selY.value = sy; selW.value = sw; selH.value = sh
+            isSelecting.value = false
+        }
+    } else if (interactionMode.value === 'drawing') {
+        saveHistory()
+        if (currentTool.value === 'rect') {
+            annotations.value.push({
+                id: generateId(), type: 'rect',
+                x: Math.min(dragStartX.value, dragCurrentX.value),
+                y: Math.min(dragStartY.value, dragCurrentY.value),
+                w: Math.abs(dragCurrentX.value - dragStartX.value),
+                h: Math.abs(dragCurrentY.value - dragStartY.value),
+                color: currentColor.value, size: currentSize.value
+            })
+        } else if (currentTool.value === 'arrow') {
+            annotations.value.push({
+                id: generateId(), type: 'arrow',
+                startX: dragStartX.value, startY: dragStartY.value,
+                endX: dragCurrentX.value, endY: dragCurrentY.value,
+                color: currentColor.value, size: currentSize.value
+            })
+        }
+        selectedAnnotationIndex.value = annotations.value.length - 1
+        currentTool.value = null
+    }
+
+    if (interactionMode.value !== 'dragging_text_input') {
+        interactionMode.value = 'none'
+    } else {
+        interactionMode.value = 'none'
+    }
+    currentResizeHandle.value = null
+    currentAnnotationResizeHandle.value = null
+    draw()
+}
+
+// --- 选区调整 ---
+const currentResizeHandle = ref<ResizeHandle | null>(null)
+const startSelectionResize = (handle: ResizeHandle) => {
+    interactionMode.value = 'resizing_selection'
+    currentResizeHandle.value = handle
+    initialSelX.value = selX.value; initialSelY.value = selY.value
+    initialSelW.value = selW.value; initialSelH.value = selH.value
+}
+
+const handleSelectionResize = (x: number, y: number) => {
+    if (!currentResizeHandle.value) return
+    const h = currentResizeHandle.value
+    let sx = initialSelX.value, sy = initialSelY.value
+    let ex = initialSelX.value + initialSelW.value, ey = initialSelY.value + initialSelH.value
+
+    if (h.includes('w')) sx = x
+    if (h.includes('e')) ex = x
+    if (h.includes('n')) sy = y
+    if (h.includes('s')) ey = y
+
+    selX.value = Math.min(sx, ex); selY.value = Math.min(sy, ey)
+    selW.value = Math.abs(ex - sx); selH.value = Math.abs(ey - sy)
+}
+
+// --- 标注调整 ---
+const currentAnnotationResizeHandle = ref<AnnotationResizeHandle | null>(null)
+const getAnnotationResizeHandle = (x: number, y: number, ann: Annotation): AnnotationResizeHandle | null => {
+    const dist = (x1: number, y1: number) => Math.sqrt((x - x1) ** 2 + (y - y1) ** 2)
+    const threshold = 8
+
+    if (ann.type === 'rect') {
+        if (dist(ann.x, ann.y) < threshold) return 'nw'
+        if (dist(ann.x + ann.w, ann.y) < threshold) return 'ne'
+        if (dist(ann.x + ann.w, ann.y + ann.h) < threshold) return 'se'
+        if (dist(ann.x, ann.y + ann.h) < threshold) return 'sw'
+    } else if (ann.type === 'arrow') {
+        if (dist(ann.startX, ann.startY) < threshold) return 'start'
+        if (dist(ann.endX, ann.endY) < threshold) return 'end'
+    }
+    return null
+}
+
+const handleAnnotationResize = (x: number, y: number) => {
+    if (selectedAnnotationIndex.value === -1 || !currentAnnotationResizeHandle.value) return
+    const ann = annotations.value[selectedAnnotationIndex.value]
+    const h = currentAnnotationResizeHandle.value
+
+    if (ann.type === 'rect') {
+        if (h === 'nw') { ann.w += ann.x - x; ann.h += ann.y - y; ann.x = x; ann.y = y }
+        else if (h === 'ne') { ann.w = x - ann.x; ann.h += ann.y - y; ann.y = y }
+        else if (h === 'se') { ann.w = x - ann.x; ann.h = y - ann.y }
+        else if (h === 'sw') { ann.w += ann.x - x; ann.h = y - ann.y; ann.x = x }
+    } else if (ann.type === 'arrow') {
+        if (h === 'start') { ann.startX = x; ann.startY = y }
+        else if (h === 'end') { ann.endX = x; ann.endY = y }
+    }
+}
+
+// --- 文本工具 ---
+// 文字基线偏移量计算
+const getTextBaseline = (size: number) => size * 12 + 12
+// 输入框内边距（与 CSS padding 保持一致）
+const TEXT_INPUT_PADDING_X = 4
+const TEXT_INPUT_PADDING_Y = 2
+
+const startTextInput = (x: number, y: number, existingIndex = -1) => {
     isTextInputVisible.value = true
-    textInputX.value = x
-    textInputY.value = y
-    textInputValue.value = ''
-    nextTick(() => {
-        textInputRef.value?.focus()
-    })
+    
+    if (existingIndex !== -1) {
+        const ann = annotations.value[existingIndex] as TextAnnotation
+        // 编辑已有：考虑输入框内边距
+        textInputX.value = ann.x - TEXT_INPUT_PADDING_X
+        textInputY.value = ann.y - getTextBaseline(ann.size) - TEXT_INPUT_PADDING_Y
+        textInputValue.value = ann.text
+        currentColor.value = ann.color
+        currentSize.value = ann.size
+        editingAnnotationIndex.value = existingIndex
+        selectedAnnotationIndex.value = existingIndex
+    } else {
+        saveHistory()
+        // 新建：点击位置就是文字左上角，输入框需要减去 padding
+        textInputX.value = x - TEXT_INPUT_PADDING_X
+        textInputY.value = y - TEXT_INPUT_PADDING_Y
+        textInputValue.value = ''
+        editingAnnotationIndex.value = -1
+    }
+
+    setTimeout(() => textInputRef.value?.focus(), 50)
 }
 
 const confirmText = () => {
     if (!isTextInputVisible.value) return
+    
+    const fontSize = getTextBaseline(currentSize.value)
+    // 文字实际位置 = 输入框位置 + padding
+    const textX = textInputX.value + TEXT_INPUT_PADDING_X
+    const textY = textInputY.value + TEXT_INPUT_PADDING_Y + fontSize
+    
     if (textInputValue.value.trim()) {
-        history.value.push(JSON.parse(JSON.stringify(annotations.value)))
-        redoStack.value = []
-        
-        annotations.value.push({
-            type: 'text',
-            x: textInputX.value,
-            y: textInputY.value + 20,
-            text: textInputValue.value,
-            color: currentColor.value,
-            size: currentSize.value
-        })
+        if (editingAnnotationIndex.value !== -1) {
+            const ann = annotations.value[editingAnnotationIndex.value] as TextAnnotation
+            ann.text = textInputValue.value
+            ann.x = textX
+            ann.y = textY
+            ann.color = currentColor.value
+            ann.size = currentSize.value
+        } else {
+            annotations.value.push({
+                id: generateId(), type: 'text',
+                x: textX,
+                y: textY,
+                text: textInputValue.value,
+                color: currentColor.value, size: currentSize.value
+            })
+            selectedAnnotationIndex.value = annotations.value.length - 1
+        }
+    } else if (editingAnnotationIndex.value !== -1) {
+        annotations.value.splice(editingAnnotationIndex.value, 1)
+        selectedAnnotationIndex.value = -1
     }
+
     isTextInputVisible.value = false
+    editingAnnotationIndex.value = -1
     currentTool.value = null
     draw()
 }
 
-// 键盘事件
-const handleKeyDown = (e: KeyboardEvent) => {
-  if (e.key === 'Escape') {
-    if (isTextInputVisible.value) {
-        isTextInputVisible.value = false
-        return
-    }
-    if (!isSelecting.value) {
-        // 如果在编辑模式，ESC 取消
-        emit('cancel')
-    } else {
-        emit('cancel')
-    }
-  } else if ((e.ctrlKey || e.metaKey) && e.key === 'z') {
-      if (e.shiftKey) redo()
-      else undo()
-  } else if (e.key === 'Enter' && isTextInputVisible.value && !e.shiftKey) {
-      e.preventDefault()
-      confirmText()
-  }
+const startDragTextInput = (e: MouseEvent) => {
+    e.preventDefault()
+    interactionMode.value = 'dragging_text_input'
+    dragStartX.value = e.clientX
+    dragStartY.value = e.clientY
+    textInputDragStartX.value = textInputX.value
+    textInputDragStartY.value = textInputY.value
 }
 
-// 工具栏操作
-const selectTool = (tool: ToolType) => {
-    currentTool.value = tool
+// --- 历史记录 ---
+const saveHistory = () => {
+    history.value.push(JSON.parse(JSON.stringify(annotations.value)))
+    redoStack.value = []
 }
-
-const undo = () => {
-    if (annotations.value.length > 0) {
-        // 保存当前到重做栈
-        redoStack.value.push(JSON.parse(JSON.stringify(annotations.value)))
-        // 恢复上一步
-        annotations.value.pop()
-        draw()
-    }
-}
-
-const redo = () => {
-    if (redoStack.value.length > 0) {
-        const next = redoStack.value.pop()
-        if (next) {
-            // 当前状态入历史栈? 不，直接恢复
-            // 其实 undo 逻辑有点简单，应该用 snapshot
-            // 修正 undo/redo 逻辑：
-            // history 应该存储每一步的完整 annotations 列表
-            // 这里为了简单，我们假设 undo 是 pop，redo 是 push back
-            // 但是上面的 undo 只是 pop 最后一个，这意味着 history 没用上？
-            // 让我们重写 undo/redo 逻辑
-        }
-    }
-}
-
-// 重写 Undo/Redo
-// 每次操作前，push 当前 annotations 到 history
-// Undo: pop history -> current, push current -> redoStack
-// Redo: pop redoStack -> current, push current -> history
-// 上面的 saveAnnotation 已经 push 到 history 了
-// 但是 undo 实现不对
 
 const undoAction = () => {
     if (history.value.length > 0) {
         redoStack.value.push(JSON.parse(JSON.stringify(annotations.value)))
-        const prev = history.value.pop()
-        annotations.value = prev || []
+        annotations.value = history.value.pop() || []
+        selectedAnnotationIndex.value = -1
         draw()
     }
 }
@@ -434,194 +633,270 @@ const undoAction = () => {
 const redoAction = () => {
     if (redoStack.value.length > 0) {
         history.value.push(JSON.parse(JSON.stringify(annotations.value)))
-        const next = redoStack.value.pop()
-        annotations.value = next || []
+        annotations.value = redoStack.value.pop() || []
+        selectedAnnotationIndex.value = -1
         draw()
     }
 }
 
-const selectFullScreen = () => {
-    startX.value = 0
-    startY.value = 0
-    endX.value = window.innerWidth
-    endY.value = window.innerHeight
-    isSelecting.value = false
+// --- 键盘 ---
+const handleKeyDown = (e: KeyboardEvent) => {
+    if (isTextInputVisible.value) {
+        if (e.key === 'Enter') {
+            e.preventDefault()
+            confirmText()
+        } else if (e.key === 'Escape') {
+            isTextInputVisible.value = false
+            editingAnnotationIndex.value = -1
+            currentTool.value = null
+        }
+        return
+    }
+
+    if (e.key === 'Escape') {
+        if (currentTool.value) currentTool.value = null
+        else if (selectedAnnotationIndex.value !== -1) selectedAnnotationIndex.value = -1
+        else emit('cancel')
+        draw()
+    } else if (e.key === 'Delete' || e.key === 'Backspace') {
+        if (selectedAnnotationIndex.value !== -1) {
+            saveHistory()
+            annotations.value.splice(selectedAnnotationIndex.value, 1)
+            selectedAnnotationIndex.value = -1
+            draw()
+        }
+    } else if ((e.ctrlKey || e.metaKey) && e.key === 'z') {
+        if (e.shiftKey) redoAction()
+        else undoAction()
+    }
+}
+
+watch([currentColor, currentSize], ([newColor, newSize]) => {
+    if (selectedAnnotationIndex.value !== -1 && !isTextInputVisible.value) {
+        const ann = annotations.value[selectedAnnotationIndex.value]
+        ann.color = newColor; ann.size = newSize
+        draw()
+    }
+})
+
+// 获取鼠标悬停在选区边缘的 resize 方向
+const getSelectionEdgeHandle = (x: number, y: number): ResizeHandle | null => {
+    const threshold = 8
+    const sx = selX.value, sy = selY.value, sw = selW.value, sh = selH.value
+    
+    const nearLeft = Math.abs(x - sx) < threshold
+    const nearRight = Math.abs(x - (sx + sw)) < threshold
+    const nearTop = Math.abs(y - sy) < threshold
+    const nearBottom = Math.abs(y - (sy + sh)) < threshold
+    const inXRange = x >= sx - threshold && x <= sx + sw + threshold
+    const inYRange = y >= sy - threshold && y <= sy + sh + threshold
+    
+    if (nearTop && nearLeft && inXRange && inYRange) return 'nw'
+    if (nearTop && nearRight && inXRange && inYRange) return 'ne'
+    if (nearBottom && nearLeft && inXRange && inYRange) return 'sw'
+    if (nearBottom && nearRight && inXRange && inYRange) return 'se'
+    if (nearTop && inXRange) return 'n'
+    if (nearBottom && inXRange) return 's'
+    if (nearLeft && inYRange) return 'w'
+    if (nearRight && inYRange) return 'e'
+    
+    return null
+}
+
+const updateCursor = (x: number, y: number) => {
+    // 选区阶段：十字光标
+    if (isSelecting.value) {
+        document.body.style.cursor = 'crosshair'
+        return
+    }
+    
+    // 检查是否在选区边缘 (resize)
+    const edgeHandle = getSelectionEdgeHandle(x, y)
+    if (edgeHandle) {
+        const cursorMap: Record<ResizeHandle, string> = {
+            'nw': 'nwse-resize', 'se': 'nwse-resize',
+            'ne': 'nesw-resize', 'sw': 'nesw-resize',
+            'n': 'ns-resize', 's': 'ns-resize',
+            'e': 'ew-resize', 'w': 'ew-resize'
+        }
+        document.body.style.cursor = cursorMap[edgeHandle]
+        return
+    }
+    
+    // 检查是否在选区外 (禁止)
+    if (!isPointInRect(x, y, selX.value, selY.value, selW.value, selH.value)) {
+        document.body.style.cursor = 'not-allowed'
+        return
+    }
+    
+    // 在选区内
+    
+    // 1. 如果选中了工具，显示十字
+    if (currentTool.value) {
+        document.body.style.cursor = 'crosshair'
+        return
+    }
+    
+    // 2. 检查是否在已选中标注的 resize 手柄上
+    if (selectedAnnotationIndex.value !== -1) {
+        const ann = annotations.value[selectedAnnotationIndex.value]
+        const handle = getAnnotationResizeHandle(x, y, ann)
+        if (handle) {
+            if (ann.type === 'rect') {
+                const cursorMap: Record<string, string> = {
+                    'nw': 'nwse-resize', 'se': 'nwse-resize',
+                    'ne': 'nesw-resize', 'sw': 'nesw-resize'
+                }
+                document.body.style.cursor = cursorMap[handle] || 'pointer'
+            } else {
+                document.body.style.cursor = 'pointer'
+            }
+            return
+        }
+    }
+    
+    // 3. 检查是否悬停在某个标注上 (移动光标)
+    const hitIndex = getHitAnnotation(x, y)
+    if (hitIndex !== -1) {
+        document.body.style.cursor = 'move'
+        return
+    }
+    
+    // 4. 在选区内空白区域 (移动整个选区)
+    document.body.style.cursor = 'move'
+}
+
+const selectTool = (tool: ToolType) => {
+    currentTool.value = tool
+    selectedAnnotationIndex.value = -1
     draw()
+}
+
+const selectFullScreen = () => {
+    selX.value = 0; selY.value = 0
+    selW.value = window.innerWidth; selH.value = window.innerHeight
+    confirmCapture()
 }
 
 const confirmCapture = () => {
     if (!bgCanvasRef.value) return
-    
     const dpr = window.devicePixelRatio || 1
-    const s = selection.value
-    
     const tempCanvas = document.createElement('canvas')
-    tempCanvas.width = s.w * dpr
-    tempCanvas.height = s.h * dpr
+    tempCanvas.width = selW.value * dpr
+    tempCanvas.height = selH.value * dpr
     const tCtx = tempCanvas.getContext('2d')
     if (!tCtx) return
 
-    // 1. 绘制底图
-    tCtx.drawImage(
-        bgCanvasRef.value,
-        s.x * dpr, s.y * dpr, s.w * dpr, s.h * dpr,
-        0, 0, s.w * dpr, s.h * dpr
-    )
+    tCtx.drawImage(bgCanvasRef.value, selX.value * dpr, selY.value * dpr, selW.value * dpr, selH.value * dpr, 0, 0, selW.value * dpr, selH.value * dpr)
     
-    // 2. 绘制标注
     annotations.value.forEach(ann => {
-        tCtx.strokeStyle = ann.color
-        tCtx.fillStyle = ann.color
-        tCtx.lineWidth = ann.size * dpr
-        
-        const offsetX = s.x
-        const offsetY = s.y
-
+        tCtx.strokeStyle = ann.color; tCtx.fillStyle = ann.color; tCtx.lineWidth = ann.size * dpr
         if (ann.type === 'rect') {
-            tCtx.strokeRect((ann.x - offsetX) * dpr, (ann.y - offsetY) * dpr, ann.w * dpr, ann.h * dpr)
+            tCtx.strokeRect((ann.x - selX.value) * dpr, (ann.y - selY.value) * dpr, ann.w * dpr, ann.h * dpr)
         } else if (ann.type === 'arrow') {
-            drawArrow(tCtx, (ann.startX - offsetX) * dpr, (ann.startY - offsetY) * dpr, (ann.endX - offsetX) * dpr, (ann.endY - offsetY) * dpr, ann.size * dpr)
+            drawArrow(tCtx, (ann.startX - selX.value) * dpr, (ann.startY - selY.value) * dpr, (ann.endX - selX.value) * dpr, (ann.endY - selY.value) * dpr, ann.size * dpr)
         } else if (ann.type === 'text') {
             tCtx.font = `${(ann.size * 12 + 12) * dpr}px sans-serif`
-            tCtx.fillText(ann.text, (ann.x - offsetX) * dpr, (ann.y - offsetY) * dpr)
+            tCtx.fillText(ann.text, (ann.x - selX.value) * dpr, (ann.y - selY.value) * dpr)
         }
     })
-
     emit('capture', tempCanvas.toDataURL('image/png'))
 }
 
-// 计算工具栏位置
 const toolbarStyle = computed(() => {
-    const s = selection.value
-    let top = s.y + s.h + 10
-    let left = s.x + s.w - 320 
-    
-    if (top + 60 > window.innerHeight) {
-        top = s.y - 70
-    }
-    if (left < s.x) left = s.x // 保持在选区左侧以内
+    let top = selY.value + selH.value + 10
+    let left = selX.value + selW.value - 320 
+    if (top + 60 > window.innerHeight) top = selY.value - 70
+    if (left < selX.value) left = selX.value
     if (left < 10) left = 10
-    
-    return {
-        top: `${top}px`,
-        left: `${left}px`
-    }
+    return { top: `${top}px`, left: `${left}px` }
 })
 
-// Resize Handles
 const handles = ['nw', 'n', 'ne', 'e', 'se', 's', 'sw', 'w'] as const
 const getHandleStyle = (h: ResizeHandle) => {
-    const s = selection.value
-    const size = 8
-    const half = size / 2
+    const size = 8, half = size / 2
     let top = 0, left = 0
-    
-    if (h.includes('n')) top = s.y - half
-    else if (h.includes('s')) top = s.y + s.h - half
-    else top = s.y + s.h / 2 - half
-    
-    if (h.includes('w')) left = s.x - half
-    else if (h.includes('e')) left = s.x + s.w - half
-    else left = s.x + s.w / 2 - half
-    
-    return {
-        top: `${top}px`,
-        left: `${left}px`,
-        cursor: `${h}-resize`
-    }
+    if (h.includes('n')) top = selY.value - half
+    else if (h.includes('s')) top = selY.value + selH.value - half
+    else top = selY.value + selH.value / 2 - half
+    if (h.includes('w')) left = selX.value - half
+    else if (h.includes('e')) left = selX.value + selW.value - half
+    else left = selX.value + selW.value / 2 - half
+    return { top: `${top}px`, left: `${left}px`, cursor: `${h}-resize` }
 }
 </script>
 
 <template>
   <div class="advanced-screenshot-overlay">
-    <canvas 
-        ref="canvasRef"
-        @mousedown="handleMouseDown"
-    ></canvas>
+    <canvas ref="canvasRef" @mousedown="handleMouseDown"></canvas>
 
-    <!-- Resize Handles (仅在编辑模式显示) -->
-    <div v-if="!isSelecting">
-        <div 
-            v-for="h in handles" 
-            :key="h"
-            class="resize-handle"
-            :style="getHandleStyle(h)"
-            @mousedown.stop="startResize(h)"
-        ></div>
-    </div>
+    <!-- 选区 Resize Handles -->
+    <template v-if="!isSelecting">
+        <div v-for="h in handles" :key="h" class="resize-handle" :style="getHandleStyle(h)" @mousedown.stop.prevent="startSelectionResize(h)"></div>
+    </template>
 
-    <!-- 文本输入框 -->
-    <div 
-        v-if="isTextInputVisible"
-        class="text-input-wrapper"
-        :style="{ top: `${textInputY}px`, left: `${textInputX}px` }"
-    >
-        <textarea 
+    <!-- 文本输入框 (单行紧凑样式，可拖拽) -->
+    <div v-if="isTextInputVisible" class="text-input-wrapper" :style="{ top: `${textInputY}px`, left: `${textInputX}px` }" @mousedown.stop>
+        <div class="text-input-drag-handle" @mousedown="startDragTextInput">⋮⋮</div>
+        <input 
             ref="textInputRef"
+            type="text"
             v-model="textInputValue"
             :style="{ color: currentColor, fontSize: `${currentSize * 12 + 12}px` }"
-            @blur="confirmText"
-            placeholder="输入文字..."
-        ></textarea>
+            placeholder="输入文字"
+            @keydown.enter.prevent="confirmText"
+            @keydown.esc.prevent="isTextInputVisible = false"
+        />
     </div>
 
-    <!-- 全屏截图按钮 (仅在选区模式显示) -->
+    <!-- 全屏截图按钮 -->
     <div v-if="isSelecting" class="fullscreen-btn-wrapper">
-        <button class="fullscreen-btn" @click="selectFullScreen">
+        <button class="fullscreen-btn" @click.stop="selectFullScreen">
             <svg viewBox="0 0 24 24" width="20" height="20" stroke="currentColor" fill="none" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="12" cy="12" r="3"/></svg>
             截取全屏
         </button>
     </div>
 
-    <!-- 工具栏 (仅在编辑模式显示) -->
+    <!-- 工具栏 -->
     <div v-if="!isSelecting" class="toolbar" :style="toolbarStyle" @mousedown.stop>
-        <!-- 主工具 -->
         <div class="tools-row">
-            <button class="tool-btn" :class="{ active: currentTool === 'rect' }" @click="selectTool('rect')" title="矩形">
+            <button class="tool-btn" :class="{ active: currentTool === 'rect' }" @click.stop="selectTool('rect')" title="矩形">
                 <svg viewBox="0 0 24 24" width="18" height="18" stroke="currentColor" fill="none" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/></svg>
             </button>
-            <button class="tool-btn" :class="{ active: currentTool === 'arrow' }" @click="selectTool('arrow')" title="箭头">
+            <button class="tool-btn" :class="{ active: currentTool === 'arrow' }" @click.stop="selectTool('arrow')" title="箭头">
                 <svg viewBox="0 0 24 24" width="18" height="18" stroke="currentColor" fill="none" stroke-width="2"><line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/></svg>
             </button>
-            <button class="tool-btn" :class="{ active: currentTool === 'text' }" @click="selectTool('text')" title="文字">
+            <button class="tool-btn" :class="{ active: currentTool === 'text' }" @click.stop="selectTool('text')" title="文字">
                 <svg viewBox="0 0 24 24" width="18" height="18" stroke="currentColor" fill="none" stroke-width="2"><path d="M4 7V4h16v3M9 20h6M12 4v16"/></svg>
             </button>
             
             <div class="divider"></div>
             
-            <button class="tool-btn" @click="undoAction" title="撤销" :disabled="history.length === 0">
+            <button class="tool-btn" @click.stop="undoAction" title="撤销" :disabled="history.length === 0">
                 <svg viewBox="0 0 24 24" width="18" height="18" stroke="currentColor" fill="none" stroke-width="2"><path d="M3 7v6h6"/><path d="M21 17a9 9 0 0 0-9-9 9 9 0 0 0-6 2.3L3 13"/></svg>
             </button>
-            <button class="tool-btn" @click="redoAction" title="重做" :disabled="redoStack.length === 0">
+            <button class="tool-btn" @click.stop="redoAction" title="重做" :disabled="redoStack.length === 0">
                 <svg viewBox="0 0 24 24" width="18" height="18" stroke="currentColor" fill="none" stroke-width="2" style="transform: scaleX(-1)"><path d="M3 7v6h6"/><path d="M21 17a9 9 0 0 0-9-9 9 9 0 0 0-6 2.3L3 13"/></svg>
             </button>
             
             <div class="divider"></div>
 
-            <button class="tool-btn" @click="emit('cancel')" title="取消">
+            <button class="tool-btn" @click.stop="emit('cancel')" title="取消">
                 <svg viewBox="0 0 24 24" width="18" height="18" stroke="currentColor" fill="none" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
             </button>
-            <button class="tool-btn primary" @click="confirmCapture" title="完成">
+            <button class="tool-btn primary" @click.stop="confirmCapture" title="完成">
                 <svg viewBox="0 0 24 24" width="18" height="18" stroke="currentColor" fill="none" stroke-width="2"><polyline points="20 6 9 17 4 12"/></svg>
             </button>
         </div>
 
-        <!-- 属性设置 -->
-        <div class="props-row" v-if="currentTool">
+        <div class="props-row" v-if="currentTool || selectedAnnotationIndex !== -1">
             <div class="colors">
-                <div 
-                    v-for="c in colors" 
-                    :key="c" 
-                    class="color-dot"
-                    :style="{ backgroundColor: c }"
-                    :class="{ active: currentColor === c }"
-                    @click="currentColor = c"
-                ></div>
+                <div v-for="c in colors" :key="c" class="color-dot" :style="{ backgroundColor: c }" :class="{ active: currentColor === c }" @click.stop="currentColor = c"></div>
             </div>
             <div class="sizes">
-                <div class="size-dot small" :class="{ active: currentSize === 1 }" @click="currentSize = 1"></div>
-                <div class="size-dot medium" :class="{ active: currentSize === 2 }" @click="currentSize = 2"></div>
-                <div class="size-dot large" :class="{ active: currentSize === 3 }" @click="currentSize = 3"></div>
+                <div class="size-dot-wrapper" @click.stop="currentSize = 1"><div class="size-dot small" :class="{ active: currentSize === 1 }"></div></div>
+                <div class="size-dot-wrapper" @click.stop="currentSize = 2"><div class="size-dot medium" :class="{ active: currentSize === 2 }"></div></div>
+                <div class="size-dot-wrapper" @click.stop="currentSize = 3"><div class="size-dot large" :class="{ active: currentSize === 3 }"></div></div>
             </div>
         </div>
     </div>
@@ -636,7 +911,6 @@ const getHandleStyle = (h: ResizeHandle) => {
   width: 100vw;
   height: 100vh;
   z-index: 99999;
-  cursor: crosshair;
   user-select: none;
 
   canvas {
@@ -650,9 +924,8 @@ const getHandleStyle = (h: ResizeHandle) => {
     position: absolute;
     width: 8px;
     height: 8px;
-    background: white;
-    border: 1px solid #1890ff;
-    border-radius: 50%;
+    background: #07c160;
+    border: 1px solid white;
     z-index: 100000;
 }
 
@@ -696,117 +969,78 @@ const getHandleStyle = (h: ResizeHandle) => {
     z-index: 100000;
     min-width: 260px;
 
-    .tools-row {
-        display: flex;
-        align-items: center;
-        gap: 4px;
-    }
-
-    .props-row {
-        display: flex;
-        align-items: center;
-        justify-content: space-between;
-        padding-top: 8px;
-        border-top: 1px solid #f0f0f0;
-    }
+    .tools-row { display: flex; align-items: center; gap: 4px; }
+    .props-row { display: flex; align-items: center; justify-content: space-between; padding-top: 8px; border-top: 1px solid #f0f0f0; }
 }
 
 .tool-btn {
-    width: 28px;
-    height: 28px;
-    border: none;
-    background: transparent;
-    border-radius: 4px;
-    cursor: pointer;
-    color: #666;
-    display: flex;
-    align-items: center;
-    justify-content: center;
+    width: 28px; height: 28px;
+    border: none; background: transparent;
+    border-radius: 4px; cursor: pointer;
+    color: #666; display: flex; align-items: center; justify-content: center;
     transition: all 0.2s;
 
-    &:hover {
-        background: #f5f5f5;
-        color: #333;
-    }
-
-    &.active {
-        background: #e6f7ff;
-        color: #1890ff;
-    }
-
-    &.primary {
-        color: #52c41a;
-        &:hover {
-            background: #f6ffed;
-        }
-    }
-    
-    &:disabled {
-        opacity: 0.3;
-        cursor: not-allowed;
-    }
+    &:hover { background: #f5f5f5; color: #333; }
+    &.active { background: #e6f7ff; color: #1890ff; }
+    &.primary { color: #52c41a; &:hover { background: #f6ffed; } }
+    &:disabled { opacity: 0.3; cursor: not-allowed; }
 }
 
-.divider {
-    width: 1px;
-    height: 16px;
-    background: #eee;
-    margin: 0 6px;
-}
+.divider { width: 1px; height: 16px; background: #eee; margin: 0 6px; }
 
-.colors {
-    display: flex;
-    gap: 8px;
-}
+.colors { display: flex; gap: 8px; }
 
 .color-dot {
-    width: 14px;
-    height: 14px;
-    border-radius: 50%;
-    cursor: pointer;
-    border: 2px solid transparent;
-    box-shadow: 0 0 2px rgba(0,0,0,0.1);
-
-    &.active {
-        border-color: #1890ff;
-        transform: scale(1.2);
-    }
+    width: 14px; height: 14px; border-radius: 50%; cursor: pointer;
+    border: 2px solid transparent; box-shadow: 0 0 2px rgba(0,0,0,0.1);
+    &.active { border-color: #1890ff; transform: scale(1.2); }
 }
 
-.sizes {
-    display: flex;
-    align-items: center;
-    gap: 10px;
+.sizes { display: flex; align-items: center; gap: 2px; }
+
+.size-dot-wrapper {
+    width: 24px; height: 24px; display: flex; align-items: center; justify-content: center;
+    cursor: pointer; border-radius: 4px;
+    &:hover { background: #f5f5f5; }
 }
 
 .size-dot {
-    background: #bbb;
-    border-radius: 50%;
-    cursor: pointer;
-    
+    background: #bbb; border-radius: 50%;
     &.small { width: 4px; height: 4px; }
     &.medium { width: 8px; height: 8px; }
     &.large { width: 12px; height: 12px; }
-
-    &.active {
-        background: #1890ff;
-    }
+    &.active { background: #1890ff; }
 }
 
 .text-input-wrapper {
     position: absolute;
     z-index: 100001;
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    background: rgba(255,255,255,0.95);
+    border: 1px solid #07c160;
+    border-radius: 4px;
+    padding: 2px 4px;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.15);
     
-    textarea {
+    .text-input-drag-handle {
+        cursor: move;
+        color: #999;
+        font-size: 12px;
+        padding: 0 4px;
+        user-select: none;
+        
+        &:hover { color: #666; }
+    }
+    
+    input {
         background: transparent;
-        border: 1px dashed #1890ff;
+        border: none;
         outline: none;
-        resize: none;
-        overflow: hidden;
         font-family: sans-serif;
-        padding: 4px;
         min-width: 100px;
-        min-height: 40px;
+        padding: 2px 4px;
         line-height: 1.2;
     }
 }
