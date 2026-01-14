@@ -1,6 +1,6 @@
 # BIMCanvas 并行架构升级指南
 
-> **版本**：v1.3 | **更新日期**：2026-01-14
+> **版本**：v1.5 | **更新日期**：2026-01-14
 > **状态**：待实施
 > **关联文档**：[Arch_Parallel_Development.md](../docs/Arch_Parallel_Development.md)
 
@@ -117,65 +117,8 @@ async function loadZoneModules(zoneId: string): Promise<Module[]> {
 }
 ```
 
-#### Step 1.4：迁移脚本
-
-**文件**：`scripts/migrate_modules_to_zones.ps1`
-
-```powershell
-# 迁移脚本：将单一 modules.json 拆分到分区目录
-param(
-    [Parameter(Mandatory=$true)]
-    [string]$ProjectPath
-)
-
-$schemesPath = Join-Path $ProjectPath "schemes"
-$modulesPath = Join-Path $schemesPath "modules.json"
-$zonesPath = Join-Path $schemesPath "zones.json"
-
-# 1. 读取现有 modules.json
-if (-not (Test-Path $modulesPath)) {
-    Write-Host "modules.json 不存在，跳过迁移"
-    exit 0
-}
-
-$modulesContent = Get-Content $modulesPath -Raw | ConvertFrom-Json
-$zonesContent = Get-Content $zonesPath -Raw | ConvertFrom-Json
-
-# 2. 按 zoneId 分组
-$modulesByZone = @{}
-foreach ($module in $modulesContent.modules) {
-    $zoneId = $module.zoneId
-    if (-not $modulesByZone.ContainsKey($zoneId)) {
-        $modulesByZone[$zoneId] = @()
-    }
-    $modulesByZone[$zoneId] += $module
-}
-
-# 3. 创建分区目录并写入
-foreach ($zoneId in $modulesByZone.Keys) {
-    $zonePath = Join-Path $schemesPath $zoneId
-    New-Item -ItemType Directory -Force -Path $zonePath | Out-Null
-
-    $zoneModulesPath = Join-Path $zonePath "modules.json"
-    $zoneModules = @{
-        modules = $modulesByZone[$zoneId]
-    }
-    $zoneModules | ConvertTo-Json -Depth 10 | Set-Content $zoneModulesPath -Encoding UTF8
-
-    Write-Host "已创建: $zoneModulesPath"
-}
-
-# 4. 备份并删除原 modules.json
-$backupPath = Join-Path $schemesPath "modules.json.bak"
-Move-Item $modulesPath $backupPath
-Write-Host "原文件已备份至: $backupPath"
-
-Write-Host "迁移完成！"
-```
-
 ### 2.4 验证清单
 
-- [ ] 现有项目可正常打开
 - [ ] 新建项目自动创建分区目录
 - [ ] modules 数据按分区正确读写
 - [ ] Web 端正常渲染所有分区的 modules
@@ -249,9 +192,11 @@ BIMCanvas.Server/
         └── BranchLockManager.cs        # 分支锁管理（多窗口互斥）
 ```
 
-> **注意**：Server 端仅保留 BranchLockManager 用于多窗口分支互斥，Git 操作逻辑迁移到 Agent 进程内。
+> **注意**：Agent 的 Git 操作通过 MCP 工具在进程内执行（不调用 Server API）。Server 端保留 REST API 供 Web 前端调用，以及 BranchLockManager 用于多窗口分支互斥。
 
 ### 3.4 接口定义
+
+> **说明**：以下接口供 Server REST API 使用（Web 前端调用），Agent 使用 MCP 工具直接调用 Git CLI。
 
 **文件**：`BIMCanvas.Server/Services/Git/IGitService.cs`
 
@@ -295,172 +240,72 @@ public class BranchLockManager
 }
 ```
 
-### 3.5 实现方案
+### 3.5 Worktree 命令封装
 
-**方案选择**：使用 `LibGit2Sharp` 库实现 Git 操作。
+> **注意**：Worktree 操作通过 Agent 进程内的 Git 工具执行，直接调用 Git CLI。
 
-```powershell
-# 安装依赖
-dotnet add BIMCanvas.Server package LibGit2Sharp
+**文件**：`BIMCanvas.Agent/src/mcp/tools/git_worktree.py`
+
+```python
+import os
+import asyncio
+from ..decorators import mcp_tool
+
+@mcp_tool()
+async def worktree_create(args: dict) -> dict:
+    """创建 Git Worktree"""
+    name = args["name"]
+    branch = args["branch"]
+    repo_path = args["repo_path"]
+
+    worktree_path = os.path.join(repo_path, ".worktrees", name)
+
+    result = await run_git_command(
+        repo_path,
+        f'worktree add "{worktree_path}" {branch}'
+    )
+
+    if result.returncode != 0:
+        stderr = (await result.stderr.read()).decode()
+        return {"content": [{"type": "text", "text": f"Failed: {stderr}"}], "is_error": True}
+
+    return {"content": [{"type": "text", "text": f"Created worktree: {worktree_path}"}]}
+
+@mcp_tool()
+async def worktree_remove(args: dict) -> dict:
+    """删除 Git Worktree"""
+    name = args["name"]
+    repo_path = args["repo_path"]
+
+    worktree_path = os.path.join(repo_path, ".worktrees", name)
+
+    await run_git_command(
+        repo_path,
+        f'worktree remove "{worktree_path}" --force'
+    )
+
+    return {"content": [{"type": "text", "text": f"Removed worktree: {name}"}]}
+
+@mcp_tool()
+async def worktree_list(args: dict) -> dict:
+    """列出所有 Worktree"""
+    repo_path = args["repo_path"]
+
+    result = await run_git_command(repo_path, "worktree list --porcelain")
+    stdout = (await result.stdout.read()).decode()
+
+    return {"content": [{"type": "text", "text": stdout}]}
+
+async def run_git_command(repo_path: str, command: str):
+    """执行 Git 命令"""
+    return await asyncio.create_subprocess_shell(
+        f'cd "{repo_path}" && git {command}',
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.PIPE
+    )
 ```
 
-**文件**：`BIMCanvas.Server/Services/Git/GitService.cs`
-
-```csharp
-using LibGit2Sharp;
-
-public class GitService : IGitService
-{
-    private readonly string _repoPath;
-    private readonly ILogger<GitService> _logger;
-
-    public GitService(string repoPath, ILogger<GitService> logger)
-    {
-        _repoPath = repoPath;
-        _logger = logger;
-    }
-
-    public async Task<string> GetCurrentBranchAsync()
-    {
-        // TODO: 实现
-        // using var repo = new Repository(_repoPath);
-        // return repo.Head.FriendlyName;
-        throw new NotImplementedException();
-    }
-
-    // ... 其他方法实现
-}
-```
-
-### 3.6 Worktree 命令封装
-
-> **注意**：LibGit2Sharp 对 Worktree 支持有限，可能需要直接调用 Git CLI。
-
-**文件**：`BIMCanvas.Server/Services/Git/WorktreeService.cs`
-
-```csharp
-public class WorktreeService : IWorktreeService
-{
-    private readonly string _repoPath;
-    private readonly ILogger<WorktreeService> _logger;
-
-    public async Task<string> CreateWorktreeAsync(string name, string branch)
-    {
-        var worktreePath = Path.Combine(_repoPath, ".worktrees", name);
-
-        // 使用 Git CLI
-        var result = await RunGitCommandAsync(
-            $"worktree add \"{worktreePath}\" {branch}"
-        );
-
-        if (result.ExitCode != 0)
-        {
-            throw new GitOperationException($"Failed to create worktree: {result.Error}");
-        }
-
-        return worktreePath;
-    }
-
-    public async Task RemoveWorktreeAsync(string name)
-    {
-        var worktreePath = Path.Combine(_repoPath, ".worktrees", name);
-
-        // 使用 Git CLI
-        await RunGitCommandAsync($"worktree remove \"{worktreePath}\"");
-    }
-
-    private async Task<GitCommandResult> RunGitCommandAsync(string arguments)
-    {
-        // TODO: 实现 Git CLI 调用
-        // 使用 System.Diagnostics.Process 执行 git 命令
-        throw new NotImplementedException();
-    }
-}
-```
-
-### 3.7 Git CLI 封装脚本（备选方案）
-
-如果 LibGit2Sharp 不满足需求，可以直接封装 Git CLI：
-
-**文件**：`scripts/git_operations.ps1`
-
-```powershell
-# Git 操作封装脚本
-# 供 Server 通过 Process 调用
-
-param(
-    [Parameter(Mandatory=$true)]
-    [ValidateSet("worktree-add", "worktree-remove", "worktree-list",
-                 "branch-create", "branch-checkout", "branch-list",
-                 "commit", "merge")]
-    [string]$Operation,
-
-    [Parameter(Mandatory=$true)]
-    [string]$RepoPath,
-
-    [Parameter()]
-    [string]$Arg1,
-
-    [Parameter()]
-    [string]$Arg2
-)
-
-Set-Location $RepoPath
-
-switch ($Operation) {
-    "worktree-add" {
-        # $Arg1 = worktree名称, $Arg2 = 分支名
-        $wtPath = Join-Path $RepoPath ".worktrees" $Arg1
-        git worktree add $wtPath $Arg2
-        if ($LASTEXITCODE -eq 0) {
-            Write-Output $wtPath
-        } else {
-            exit 1
-        }
-    }
-
-    "worktree-remove" {
-        # $Arg1 = worktree名称
-        $wtPath = Join-Path $RepoPath ".worktrees" $Arg1
-        git worktree remove $wtPath --force
-    }
-
-    "worktree-list" {
-        git worktree list --porcelain
-    }
-
-    "branch-create" {
-        # $Arg1 = 分支名, $Arg2 = 基础分支(可选)
-        if ($Arg2) {
-            git checkout -b $Arg1 $Arg2
-        } else {
-            git checkout -b $Arg1
-        }
-    }
-
-    "branch-checkout" {
-        # $Arg1 = 分支名
-        git checkout $Arg1
-    }
-
-    "branch-list" {
-        git branch --list --format="%(refname:short)"
-    }
-
-    "commit" {
-        # $Arg1 = 提交信息
-        git add .
-        git commit -m $Arg1
-    }
-
-    "merge" {
-        # $Arg1 = 源分支
-        git merge $Arg1 --no-ff
-    }
-}
-```
-
-### 3.8 Worktree 命名规范
+### 3.6 Worktree 命名规范
 
 > 详见 [Flow_Git_Operations.md §6.3](../docs/Flow_Git_Operations.md#63-worktree-命名规范)
 
@@ -482,7 +327,7 @@ switch ($Operation) {
 - AI 任务 Worktree 必须创建新分支（Git 不允许多个 Worktree 检出同一分支）
 - AI 分支以 `feat/ai-` 为前缀，便于识别和清理
 
-### 3.9 验证清单
+### 3.7 验证清单
 
 - [ ] 可创建/删除 Worktree
 - [ ] 可创建/切换/删除分支
@@ -674,30 +519,30 @@ MainAgent
 │                                                                             │
 │  【Step 2: 为 SubAgent 创建独立分支 + Worktree】← 关键！                      │
 │  # 基于 branch-A 创建新分支（不是检出 branch-A）                              │
-│  git branch branch-A-agent-sub1 branch-A                                    │
-│  git branch branch-A-agent-sub2 branch-A                                    │
-│  git branch branch-A-agent-sub3 branch-A                                    │
+│  git branch feat/ai-sub1 branch-A                                           │
+│  git branch feat/ai-sub2 branch-A                                           │
+│  git branch feat/ai-sub3 branch-A                                           │
 │                                                                             │
 │  # 创建对应 Worktree（平级目录）                                              │
-│  git worktree add .worktrees/agent-sub1 branch-A-agent-sub1                 │
-│  git worktree add .worktrees/agent-sub2 branch-A-agent-sub2                 │
-│  git worktree add .worktrees/agent-sub3 branch-A-agent-sub3                 │
+│  git worktree add .worktrees/ai-sub1 feat/ai-sub1                           │
+│  git worktree add .worktrees/ai-sub2 feat/ai-sub2                           │
+│  git worktree add .worktrees/ai-sub3 feat/ai-sub3                           │
 │                                                                             │
 │  【Step 3: SubAgent 并行工作】                                               │
-│  ├─► SubAgent-1: 在 .worktrees/agent-sub1 中布置 rz_1, rz_2                 │
-│  ├─► SubAgent-2: 在 .worktrees/agent-sub2 中布置 rz_3                       │
-│  └─► SubAgent-3: 在 .worktrees/agent-sub3 中布置 rz_6                       │
+│  ├─► SubAgent-1: 在 .worktrees/ai-sub1 中布置 rz_1, rz_2                    │
+│  ├─► SubAgent-2: 在 .worktrees/ai-sub2 中布置 rz_3                          │
+│  └─► SubAgent-3: 在 .worktrees/ai-sub3 中布置 rz_6                          │
 │                                                                             │
 │  【Step 4: 各 SubAgent 提交】                                                │
-│  cd .worktrees/agent-sub1 && git add . && git commit -m "feat: rz_1,rz_2"  │
-│  cd .worktrees/agent-sub2 && git add . && git commit -m "feat: rz_3"       │
-│  cd .worktrees/agent-sub3 && git add . && git commit -m "feat: rz_6"       │
+│  cd .worktrees/ai-sub1 && git add . && git commit -m "feat: rz_1,rz_2"     │
+│  cd .worktrees/ai-sub2 && git add . && git commit -m "feat: rz_3"          │
+│  cd .worktrees/ai-sub3 && git add . && git commit -m "feat: rz_6"          │
 │                                                                             │
 │  【Step 5: 在用户 Worktree 中合并】← 关键！直接合并，无需绕道                  │
 │  cd Worktree-A                                                              │
-│  git merge branch-A-agent-sub1    # Worktree-A 文件自动更新                  │
-│  git merge branch-A-agent-sub2    # 如有冲突，标记出现在 Worktree-A          │
-│  git merge branch-A-agent-sub3                                              │
+│  git merge feat/ai-sub1    # Worktree-A 文件自动更新                         │
+│  git merge feat/ai-sub2    # 如有冲突，标记出现在 Worktree-A                  │
+│  git merge feat/ai-sub3                                                     │
 │                                                                             │
 │  【Step 6: 可视化解决冲突（如有）】                                           │
 │  # Canvas 始终渲染 Worktree-A，用户看到带冲突标记的文件                       │
@@ -706,12 +551,12 @@ MainAgent
 │  git add . && git commit -m "merge: 合并 AI 方案"                           │
 │                                                                             │
 │  【Step 7: 清理】                                                            │
-│  git worktree remove .worktrees/agent-sub1                                  │
-│  git worktree remove .worktrees/agent-sub2                                  │
-│  git worktree remove .worktrees/agent-sub3                                  │
-│  git branch -d branch-A-agent-sub1                                          │
-│  git branch -d branch-A-agent-sub2                                          │
-│  git branch -d branch-A-agent-sub3                                          │
+│  git worktree remove .worktrees/ai-sub1                                     │
+│  git worktree remove .worktrees/ai-sub2                                     │
+│  git worktree remove .worktrees/ai-sub3                                     │
+│  git branch -d feat/ai-sub1                                                 │
+│  git branch -d feat/ai-sub2                                                 │
+│  git branch -d feat/ai-sub3                                                 │
 │                                                                             │
 └─────────────────────────────────────────────────────────────────────────────┘
 ```
@@ -999,7 +844,7 @@ Phase 3: Web 多窗口    Phase 4: Agent 并行             │
 
 | 里程碑 | 完成标准 | 目标周期 |
 |--------|----------|----------|
-| **M1** | Phase 1 完成，现有功能不受影响 | - |
+| **M1** | Phase 1 完成，新目录结构可用 | - |
 | **M2** | Phase 2 完成，Git 操作可用 | - |
 | **M3** | Phase 3 完成，多窗口基本可用 | - |
 | **M4** | Phase 4 完成，Agent 并行可用 | - |
@@ -1011,6 +856,8 @@ Phase 3: Web 多窗口    Phase 4: Agent 并行             │
 
 | 版本 | 日期 | 变更内容 |
 |------|------|----------|
+| v1.5 | 2026-01-14 | 交叉验证修正：澄清 §3.3 架构描述、补充 §3.4 接口用途说明、统一 §5.3 分支命名为 `feat/ai-` 格式 |
+| v1.4 | 2026-01-14 | 清理兼容性内容：删除迁移脚本、LibGit2Sharp/PowerShell 备选方案；统一 Git 工具为 Python 实现 |
 | v1.3 | 2026-01-14 | 新增 §1.3 核心概念（策略/变体/Worktree）、§3.8 Worktree 命名规范 |
 | v1.2 | 2026-01-14 | §3.3 Git 工具集成到 Agent 进程（架构变更） |
 | v1.1 | 2026-01-14 | Git 核心限制说明、Agent 工作流程修正 |
