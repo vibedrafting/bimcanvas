@@ -90,14 +90,11 @@ namespace BIMCanvas.Server.Services
             };
             WriteJsonFile(Path.Combine(schemesPath, "strategy.json"), strategy);
 
-            // 创建空的 zones.json
-            WriteJsonFile(Path.Combine(schemesPath, "zones.json"), new List<object>());
-
             // 创建空的 finishes.json
             WriteJsonFile(Path.Combine(schemesPath, "finishes.json"), new List<object>());
 
-            // 创建空的 modules.json
-            WriteJsonFile(Path.Combine(schemesPath, "modules.json"), new List<object>());
+            // 注意: zones.json 由 InitializeZonesFromComputed() 从 computed/room_zones.json 复制生成
+            // 注意: modules.json 由 CreateZoneDirectories() 在各分区子目录中创建
 
             _logger.LogInformation("默认策略创建完成: {Id}", strategyId);
             return strategyId;

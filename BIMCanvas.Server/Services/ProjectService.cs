@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.IO.Compression;
 using System.Text;
+using BIMCanvas.Core.Models.Computed;
 using BIMCanvas.Core.Models.Project;
 using BIMCanvas.Core.Services;
 using Microsoft.Extensions.Logging;
@@ -111,14 +112,95 @@ namespace BIMCanvas.Server.Services
             // 6. 验证并生成 computed 数据
             EnsureComputedData(projectPath);
 
-            // 7. 复制 modules 文件夹（Agent 需要读取模块库）
+            // 7. 从 computed/room_zones.json 初始化 schemes/zones.json（MVP简化）
+            InitializeZonesFromComputed(projectPath);
+
+            // 8. 基于 schemes/zones.json 创建分区子目录
+            CreateZoneDirectories(projectPath);
+
+            // 9. 复制 modules 文件夹（Agent 需要读取模块库）
             CopyModulesDirectory(projectPath);
 
-            // 8. 初始化 Git 仓库（v3.1 新增：单仓库 + 多分支架构）
+            // 10. 初始化 Git 仓库（v3.1 新增：单仓库 + 多分支架构）
             InitializeGitRepository(projectPath);
 
             _logger.LogInformation("项目加载完成: {Path}", projectPath);
             return projectPath;
+        }
+
+        /// <summary>
+        /// 从 computed/room_zones.json 初始化 schemes/zones.json
+        /// MVP 阶段：直接复制，跳过分区设计流程
+        /// </summary>
+        private void InitializeZonesFromComputed(string projectPath)
+        {
+            var roomZonesPath = Path.Combine(projectPath, "computed", "room_zones.json");
+            var zonesPath = Path.Combine(projectPath, "schemes", "zones.json");
+
+            if (!File.Exists(roomZonesPath))
+            {
+                // 如果没有 room_zones，创建空数组
+                File.WriteAllText(zonesPath, "[]", Encoding.UTF8);
+                _logger.LogWarning("computed/room_zones.json 不存在，创建空的 schemes/zones.json");
+                return;
+            }
+
+            // MVP: 直接复制 room_zones.json → zones.json
+            var roomZonesJson = File.ReadAllText(roomZonesPath, Encoding.UTF8);
+            File.WriteAllText(zonesPath, roomZonesJson, Encoding.UTF8);
+
+            _logger.LogInformation("从 computed/room_zones.json 初始化 schemes/zones.json");
+        }
+
+        /// <summary>
+        /// 基于 schemes/zones.json 创建分区子目录
+        /// 为每个 rz_* Zone 创建子目录和空的 modules.json
+        /// </summary>
+        private void CreateZoneDirectories(string projectPath)
+        {
+            var zonesPath = Path.Combine(projectPath, "schemes", "zones.json");
+            var schemesPath = Path.Combine(projectPath, "schemes");
+
+            if (!File.Exists(zonesPath))
+            {
+                _logger.LogWarning("schemes/zones.json 不存在，跳过分区目录创建");
+                return;
+            }
+
+            try
+            {
+                var zonesJson = File.ReadAllText(zonesPath, Encoding.UTF8);
+                var zones = JsonConvert.DeserializeObject<List<Zone>>(zonesJson) ?? new List<Zone>();
+
+                var createdCount = 0;
+                foreach (var zone in zones)
+                {
+                    // 只为 rz_* (Room Zone) 创建目录
+                    if (string.IsNullOrEmpty(zone.Id) || !zone.Id.StartsWith("rz_"))
+                        continue;
+
+                    var zoneDir = Path.Combine(schemesPath, zone.Id);
+                    if (!Directory.Exists(zoneDir))
+                    {
+                        Directory.CreateDirectory(zoneDir);
+                    }
+
+                    var modulesPath = Path.Combine(zoneDir, "modules.json");
+                    if (!File.Exists(modulesPath))
+                    {
+                        File.WriteAllText(modulesPath, "[]", Encoding.UTF8);
+                    }
+
+                    createdCount++;
+                    _logger.LogDebug("创建分区目录: {ZoneId}", zone.Id);
+                }
+
+                _logger.LogInformation("创建了 {Count} 个分区目录", createdCount);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "创建分区目录失败");
+            }
         }
 
         /// <summary>
