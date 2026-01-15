@@ -7,7 +7,7 @@
 > - [Agent SDK 官方文档](../docs/Agent_SDK/docs/)
 > - [Flow_Git_Operations.md](./Flow_Git_Operations.md) - Git 标准工作流
 >
-> **Agent 项目路径**：`C:\Users\huhaonan\Documents\BIMCanvas\`（类似 Claude Code 的 `.claude` 目录）
+> **Agent 项目路径**：`C:\Users\huhaonan\.bimcanvas\`（类似 Claude Code 的 `.claude` 目录）
 > - 主控Agent提示词：`BIMCANVAS.md`
 > - layout-agent提示词：`agents/layout-agent.md`
 > - Skills目录：`skills/`
@@ -95,10 +95,10 @@ allowed-tools: Read, Write, Edit            # 可选：限制工具访问
 
 ### 3.1 整体架构
 
-**Agent 项目根目录**：`C:\Users\huhaonan\Documents\BIMCanvas\`
+**Agent 项目根目录**：`C:\Users\huhaonan\.bimcanvas\`
 
 ```
-C:\Users\huhaonan\Documents\BIMCanvas\
+C:\Users\huhaonan\.bimcanvas\
 │
 ├── BIMCANVAS.md                    # 主控Agent提示词
 ├── agents/
@@ -378,7 +378,7 @@ generate/SKILL.md   ← 布置规则、工作流程、输出格式
 
 ### 6.2 Step 1: 创建 Skill 文件
 
-在 Agent 项目根目录 `C:\Users\huhaonan\Documents\BIMCanvas\` 下创建目录结构：
+在 Agent 项目根目录 `C:\Users\huhaonan\.bimcanvas\` 下创建目录结构：
 
 ```bash
 # Windows PowerShell
@@ -649,7 +649,7 @@ client = Anthropic()
 
 # 关键配置
 options = {
-    "cwd": r"C:\Users\huhaonan\Documents\BIMCanvas",  # Agent 项目根目录
+    "cwd": r"C:\Users\huhaonan\.bimcanvas",  # Agent 项目根目录
     "setting_sources": ["user", "project"],  # 启用 Skills 加载
     "allowed_tools": ["Skill", "Read", "Write", "Edit", "Glob", "Grep"]
 }

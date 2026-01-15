@@ -35,14 +35,14 @@ class ConfigLoader:
     """
 
     TEMPLATES_DIR = Path(__file__).parent / "templates"
-    DEFAULT_CONFIG_DIR = Path.home() / "Documents" / "BIMCanvas"
+    DEFAULT_CONFIG_DIR = Path.home() / ".bimcanvas"
 
     def __init__(self, config_dir: Path | str = None):
         """
         初始化配置加载器
 
         Args:
-            config_dir: 配置目录路径，默认为 ~/Documents/BIMCanvas
+            config_dir: 配置目录路径，默认为 ~/.bimcanvas
         """
         if config_dir is None:
             self.config_dir = self.DEFAULT_CONFIG_DIR

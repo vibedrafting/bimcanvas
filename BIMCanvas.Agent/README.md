@@ -417,7 +417,7 @@ BIMCanvas.Agent/
 
 ### SubAgents (`agent/subagents.py`)
 
-从 `~/Documents/BIMCanvas/agents/*.md` 配置文件加载 SubAgent 定义：
+从 `~/.bimcanvas/agents/*.md` 配置文件加载 SubAgent 定义：
 
 - **layout-agent** - 家具布置专家，负责空间规划和家具摆放
 
@@ -431,10 +431,10 @@ BIMCanvas.Agent/
 
 ### 配置系统 (`config/`)
 
-**配置文件驱动架构**：首次运行时自动在 `~/Documents/BIMCanvas/` 创建配置文件。
+**配置文件驱动架构**：首次运行时自动在 `~/.bimcanvas/` 创建配置文件。
 
 ```
-~/Documents/BIMCanvas/
+~/.bimcanvas/
 ├── BIMCANVAS.md           # 主 Agent 系统提示词（可编辑）
 ├── config.json            # 应用配置（API、模型、工具）
 └── agents/

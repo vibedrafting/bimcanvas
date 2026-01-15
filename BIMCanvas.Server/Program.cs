@@ -411,15 +411,15 @@ static string FindAgentProjectPath(string startDir)
 }
 
 // 辅助函数：读取 Agent 端口配置
-// Agent 配置文件位置：~/Documents/BIMCanvas/config.json
+// Agent 配置文件位置：~/.bimcanvas/config.json
 static int LoadAgentPort(string agentProjectPath)
 {
     try
     {
-        // Agent 配置目录：~/Documents/BIMCanvas/
+        // Agent 配置目录：~/.bimcanvas/
         var userConfigDir = Path.Combine(
-            Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments),
-            "BIMCanvas"
+            Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
+            ".bimcanvas"
         );
         var configPath = Path.Combine(userConfigDir, "config.json");
 

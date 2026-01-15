@@ -9,7 +9,7 @@ def create_subagents() -> dict[str, AgentDefinition]:
     """
     从配置文件加载 SubAgent 定义
 
-    配置文件位置: ~/Documents/BIMCanvas/agents/*.md
+    配置文件位置: ~/.bimcanvas/agents/*.md
 
     SubAgents are defined using AgentDefinition and dispatched via Task tool.
     Note: SubAgent tools should NOT include "Task" (cannot dispatch further SubAgents).
