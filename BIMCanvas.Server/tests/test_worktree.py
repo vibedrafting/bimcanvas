@@ -11,13 +11,16 @@ Worktree 功能测试脚本
 
 用法：
   python test_worktree.py              # 运行全部测试
-  python test_worktree.py a1           # 只运行 A1
+  python test_worktree.py a1           # A1 使用默认测试分支
+  python test_worktree.py a1 分支名    # A1 使用指定分支（如 scheme/xxx）
   python test_worktree.py a2           # 只运行 A2
   python test_worktree.py b1           # 只运行 B1
   python test_worktree.py b2           # 只运行 B2
-  python test_worktree.py a1 a2        # 运行 A1 + A2
   python test_worktree.py --list       # 列出当前 worktree
   python test_worktree.py --clean      # 清理测试残留
+
+示例：
+  python test_worktree.py a1 scheme/极致收纳    # 检出已有的 scheme 分支
 """
 
 import sys
@@ -141,11 +144,14 @@ WT_B = "test-b-worktree"       # 场景 B 的测试 worktree
 # A1: 创建 Worktree（检出已有分支）
 # ============================================================
 
-def test_a1_create():
+def test_a1_create(custom_branch=None):
     """
     A1: 创建 Worktree - 检出已有分支
 
-    前置条件：分支 test/parallel-dev 已存在
+    Args:
+        custom_branch: 自定义分支名（可选），不传则使用默认测试分支
+
+    前置条件：指定分支已存在（或自动创建测试分支）
     测试内容：创建 worktree 检出该分支
     验证：worktree 存在且关联正确的分支
     """
@@ -153,21 +159,30 @@ def test_a1_create():
     print(f"{CYAN}A1: 创建 Worktree（检出已有分支）{RESET}")
     print("=" * 60)
 
+    # 确定要使用的分支
+    branch = custom_branch or BRANCH_A
+    is_custom = custom_branch is not None
+
     base_branch = get_current_branch()
 
-    # 准备：确保测试分支存在
-    log_step(1, f"准备：确保分支 {BRANCH_A} 存在")
-    if not branch_exists(BRANCH_A):
-        log_info("分支不存在，先创建...")
-        success, _ = create_worktree(WT_A_PREP, BRANCH_A, base_branch=base_branch)
-        if success:
-            delete_worktree(WT_A_PREP, delete_branch=False)
-            log_pass(f"分支 {BRANCH_A} 已创建")
-        else:
-            log_fail("无法创建测试分支")
+    # 准备：确保分支存在
+    log_step(1, f"准备：确保分支 {branch} 存在")
+    if not branch_exists(branch):
+        if is_custom:
+            log_fail(f"指定分支 '{branch}' 不存在！")
+            log_info("请确认分支名称是否正确，或先创建该分支")
             return False
+        else:
+            log_info("测试分支不存在，先创建...")
+            success, _ = create_worktree(WT_A_PREP, branch, base_branch=base_branch)
+            if success:
+                delete_worktree(WT_A_PREP, delete_branch=False)
+                log_pass(f"分支 {branch} 已创建")
+            else:
+                log_fail("无法创建测试分支")
+                return False
     else:
-        log_pass(f"分支 {BRANCH_A} 已存在")
+        log_pass(f"分支 {branch} 已存在")
 
     # 清理可能残留的 worktree
     if worktree_exists(WT_A):
@@ -176,9 +191,9 @@ def test_a1_create():
 
     # 核心测试：创建 worktree 检出已有分支
     log_step(2, f"创建 Worktree: {WT_A}")
-    log_info(f"目标分支: {BRANCH_A}（已存在，不传 baseBranch）")
+    log_info(f"目标分支: {branch}（已存在，不传 baseBranch）")
 
-    success, result = create_worktree(WT_A, BRANCH_A)  # 不传 base_branch
+    success, result = create_worktree(WT_A, branch)  # 不传 base_branch
     if not success:
         log_fail(f"创建失败: {result}")
         return False
@@ -200,10 +215,10 @@ def test_a1_create():
     log_info(f"  分支: {wt_info.get('branch')}")
     log_info(f"  提交: {(wt_info.get('commitHash') or '?')[:7]}")
 
-    if wt_info.get('branch') == BRANCH_A:
+    if wt_info.get('branch') == branch:
         log_pass("分支关联正确")
     else:
-        log_fail(f"分支不匹配: 期望 {BRANCH_A}, 实际 {wt_info.get('branch')}")
+        log_fail(f"分支不匹配: 期望 {branch}, 实际 {wt_info.get('branch')}")
         return False
 
     print(f"\n{GREEN}A1 测试通过{RESET}")
@@ -530,7 +545,8 @@ def print_usage():
 
 
 def main():
-    args = [a.lower() for a in sys.argv[1:]]
+    raw_args = sys.argv[1:]
+    args = [a.lower() for a in raw_args]
 
     if '-h' in args or '--help' in args:
         print_usage()
@@ -561,9 +577,22 @@ def main():
     print(f"Server: {BASE_URL}")
     print(f"当前分支: {info}")
 
+    # 解析参数：支持 a1 分支名 的形式
+    # 例如：python test_worktree.py a1 scheme/极致收纳
+    a1_branch = None
+    test_keys = ['a1', 'a2', 'b1', 'b2']
+
+    # 查找 a1 后面是否跟着分支名
+    for i, arg in enumerate(args):
+        if arg == 'a1' and i + 1 < len(raw_args):
+            next_arg = raw_args[i + 1]
+            # 如果下一个参数不是测试名，则认为是分支名
+            if next_arg.lower() not in test_keys and not next_arg.startswith('-'):
+                a1_branch = next_arg
+
     # 解析要运行的测试
     tests = {
-        'a1': ('A1 (创建-检出已有分支)', test_a1_create),
+        'a1': ('A1 (创建-检出已有分支)', lambda: test_a1_create(a1_branch)),
         'a2': ('A2 (删除-保留分支)', test_a2_delete),
         'b1': ('B1 (创建-新分支)', test_b1_create),
         'b2': ('B2 (删除-删除分支)', test_b2_delete),
@@ -572,7 +601,7 @@ def main():
     # 筛选要运行的测试
     to_run = []
     for arg in args:
-        if arg in tests:
+        if arg in tests and arg not in to_run:
             to_run.append(arg)
 
     # 如果没有指定，运行全部（按顺序）
@@ -582,6 +611,8 @@ def main():
     results = []
     for key in to_run:
         name, func = tests[key]
+        if key == 'a1' and a1_branch:
+            name = f"A1 (创建-检出分支: {a1_branch})"
         passed = func()
         results.append((name, passed))
 

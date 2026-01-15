@@ -1903,7 +1903,7 @@ const removePendingImage = (index: number) => {
     min-width: 0; /* Allow flex shrinking */
 }
 
-/* --- Layer 1: Context Header (Design H: Hierarchical) --- */
+/* --- Layer 1: Context Header (Design I: Left-Aligned Hierarchical) --- */
 .layer-context {
     padding: 0;
     height: auto;
@@ -1912,37 +1912,37 @@ const removePendingImage = (index: number) => {
     flex-direction: column;
     flex-shrink: 0;
 
-    /* Row 1: Global Mode Switch (Centered Toolbar) */
+    /* Row 1: Global Mode Switch (Left-Aligned Toolbar) */
     .header-toolbar {
-        height: 44px;
+        height: 40px; /* Slightly more compact */
         padding: 0 16px;
         display: flex;
         align-items: center;
-        justify-content: center; /* Center the switch */
+        justify-content: flex-start; /* Left aligned */
         background: var(--surface-dim);
         border-bottom: 1px solid var(--border-subtle);
     }
 
-    /* Mode Switch (Segmented Control Style) */
+    /* Mode Switch (Refined Segmented Control) */
     .mode-switch {
         display: flex;
         align-items: center;
-        background: rgba(0, 0, 0, 0.2); /* Darker background for container */
-        padding: 3px;
-        border-radius: 8px;
-        gap: 0; /* No gap, connected buttons */
+        background: rgba(0, 0, 0, 0.2);
+        padding: 2px;
+        border-radius: 6px;
+        gap: 0;
         
         button {
             border: none;
             background: transparent;
-            padding: 4px 24px; /* Wider click area */
+            padding: 3px 16px;
             color: var(--text-tertiary);
             font-size: 13px;
             font-weight: 500;
             cursor: pointer;
             transition: all 0.2s ease;
-            border-radius: 6px;
-            min-width: 80px; /* Fixed width for stability */
+            border-radius: 4px;
+            min-width: 60px;
             text-align: center;
 
             &:hover {
@@ -1950,21 +1950,21 @@ const removePendingImage = (index: number) => {
             }
 
             &.active {
-                background: var(--surface-elevated); /* Highlight active */
+                background: var(--surface-elevated);
                 color: var(--text-primary);
                 font-weight: 600;
-                box-shadow: 0 1px 3px rgba(0,0,0,0.2);
+                box-shadow: 0 1px 2px rgba(0,0,0,0.15);
             }
         }
     }
 
     /* Row 2: Window Context (Tabs + Branch) */
     .header-tabs {
-        height: 40px;
+        height: 44px; /* Slightly taller for tabs */
         padding: 0 16px;
         display: flex;
         align-items: center;
-        justify-content: space-between; /* Spread tabs and branch */
+        justify-content: space-between;
         background: transparent;
         gap: 16px;
     }
@@ -1976,8 +1976,8 @@ const removePendingImage = (index: number) => {
         gap: 4px;
         overflow-x: auto;
         scrollbar-width: none;
-        flex: 1; /* Take available space */
-        min-width: 0; /* Allow shrinking */
+        flex: 1;
+        min-width: 0;
         
         &::-webkit-scrollbar { display: none; }
     }
@@ -1986,7 +1986,7 @@ const removePendingImage = (index: number) => {
         display: flex;
         align-items: center;
         gap: 6px;
-        padding: 4px 10px;
+        padding: 6px 12px;
         background: transparent;
         border-radius: 6px;
         font-size: 13px;
@@ -2047,8 +2047,8 @@ const removePendingImage = (index: number) => {
         display: flex;
         align-items: center;
         justify-content: center;
-        width: 24px;
-        height: 24px;
+        width: 28px;
+        height: 28px;
         border-radius: 6px;
         background: transparent;
         border: none;
@@ -2066,28 +2066,29 @@ const removePendingImage = (index: number) => {
         svg { width: 18px; height: 18px; }
     }
 
-    /* Branch Dropdown (Right Side of Tabs Row) */
+    /* Branch Dropdown (Right Side - Distinct Pill Style) */
     .branch-dropdown {
         position: relative;
         z-index: 10;
-        flex-shrink: 0; /* Don't shrink */
+        flex-shrink: 0;
 
         .dropdown-trigger {
             display: flex;
             align-items: center;
             gap: 8px;
-            padding: 4px 8px;
-            background: transparent;
-            border: none;
-            border-radius: 4px;
+            padding: 4px 10px; /* More padding */
+            background: var(--surface-dim); /* Distinct background */
+            border: 1px solid var(--border-subtle); /* Distinct border */
+            border-radius: 100px; /* Pill shape */
             color: var(--text-secondary);
             font-size: 12px;
             cursor: pointer;
             transition: all 0.2s ease;
 
             &:hover {
-                background: var(--surface-dim);
+                background: var(--surface-elevated);
                 color: var(--text-primary);
+                border-color: var(--border-dim);
                 .icon { opacity: 1; }
             }
 
@@ -2110,8 +2111,9 @@ const removePendingImage = (index: number) => {
         }
 
         &.open .dropdown-trigger {
-            background: var(--surface-dim);
+            background: var(--surface-elevated);
             color: var(--text-primary);
+            border-color: var(--border-dim);
             .chevron { transform: rotate(180deg); }
         }
 
@@ -2120,7 +2122,7 @@ const removePendingImage = (index: number) => {
             top: 100%;
             right: 0;
             width: 240px;
-            margin-top: 4px;
+            margin-top: 6px;
             background: var(--surface-elevated);
             border: 1px solid var(--border-subtle);
             border-radius: 8px;
