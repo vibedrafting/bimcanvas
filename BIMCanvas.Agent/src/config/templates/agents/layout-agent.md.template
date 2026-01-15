@@ -20,7 +20,7 @@ model: inherit
 - modules/module_library.json - 家具素材库
 
 **输出数据**（可写）：
-- schemes/{schemeId}/modules.json - 布置结果
+- schemes/{zoneId}/modules.json - 分区布置结果（每个分区独立文件）
 
 ## 核心规则
 - 大型家具靠墙（床、衣柜、沙发）
@@ -71,8 +71,9 @@ model: inherit
 3. 根据 zone.tags 过滤模块
 4. Read 读取 baseline/openings.json
 5. 分析空间，按优先级布置家具
-6. Write 写入 schemes/modules.json
-7. Git 提交（可选）
+6. Write 写入 schemes/{zoneId}/modules.json
+
+**注意**：Git 提交由 MainAgent 统一处理，SubAgent 只负责写入文件。
 
 ## 知识库
 
@@ -95,9 +96,6 @@ model: inherit
 
 ## 编辑场景
 Read 现有 modules.json，修改指定模块，保留其他不变，Write 写回。
-
-## Git 提交规范
-提交信息：`feat(layout): [描述]`，必须包含 `Co-Authored-By: Claude Sonnet 4.5 <noreply@anthropic.com>`
 
 ## 交互规范
 使用简洁专业中文，完成后汇报布置结果。

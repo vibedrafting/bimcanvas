@@ -156,6 +156,66 @@ BIMCanvas/
 
 ---
 
+## schemes 目录结构 (v3.0)
+
+v3.0 采用分区级目录结构，每个分区独立存储，支持并行编辑和选择性合并。
+
+### 目录结构
+
+```
+schemes/
+├── {zoneId}/           # 分区目录（rz_* 或 dz_*）
+│   └── modules.json    # 该分区的布置模块
+├── zones.json          # 所有分区定义
+└── finishes.json       # 完成面分段
+```
+
+### 分区命名规则
+
+| 前缀 | 含义 | 示例 |
+|------|------|------|
+| `rz_` | Room Zone（房间区域） | `rz_master_bedroom_01` |
+| `dz_` | Design Zone（设计区域） | `dz_living_area` |
+
+### modules.json 结构
+
+每个分区的 `modules.json` 是一个数组（非对象包装）：
+
+```json
+[
+  {
+    "id": "m001",
+    "moduleId": "bed_king",
+    "zoneId": "rz_master_bedroom_01",
+    "bounds": {
+      "vertices": [[1000, 2000], [3000, 2000], [3000, 4000], [1000, 4000]]
+    },
+    "facing": "north",
+    "items": []
+  }
+]
+```
+
+### 关键字段说明
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| `id` | string | 模块实例 ID（前缀 `m`） |
+| `moduleId` | string | 模块库中的类型 ID |
+| `zoneId` | string | 所属分区 ID |
+| `bounds` | Polygon2D | 矩形边界（4 顶点，逆时针） |
+| `facing` | string/Vec2D | 朝向（8 方向字符串或单位向量） |
+
+### 设计优势
+
+- **并行编辑**：不同分区可同时编辑（通过 Git Worktree 隔离）
+- **选择性合并**：可按分区选择合并 AI 生成的方案
+- **冲突减少**：分区独立文件降低合并冲突概率
+
+详细 Schema 见：[docs/Schema-JSON-v3.md](./docs/Schema-JSON-v3.md)
+
+---
+
 ## v3.0 项目数据结构
 
 v3.0 采用 `.bcp` ZIP 格式，包含多个 JSON 文件：

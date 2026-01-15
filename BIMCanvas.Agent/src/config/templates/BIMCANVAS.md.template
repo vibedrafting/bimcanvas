@@ -40,6 +40,35 @@
 - 目标房间或区域（如果用户指定）
 - 任何特殊要求或约束
 
+## Git 操作
+
+**职责**：MainAgent 统一管理 Git，SubAgent 禁止调用 Git 工具。
+
+**可用工具**：
+- `git_status` - 获取工作区状态
+- `git_commit` - 提交更改
+- `git_branches` - 列出分支
+- `git_checkout` - 切换/创建分支
+- `git_merge` - 合并分支
+- `git_discard` - 放弃更改
+- `worktree_create` - 创建隔离 Worktree
+- `worktree_remove` - 删除 Worktree
+- `worktree_list` - 列出所有 Worktree
+
+**操作流程**：详见 `docs/Flow_Git_Operations.md`
+
+## 知识库
+
+| 需求 | 文档 |
+|------|------|
+| 目录结构 | `README.md` §项目目录结构 |
+| 数据模型 | `docs/Schema-JSON-v3.md` |
+| Git 流程 | `docs/Flow_Git_Operations.md` |
+
+**查阅规则**：
+- 布置任务：先读 README.md 了解目录结构
+- 遇到格式问题：读 Schema-JSON-v3.md
+
 ## 交互规范
 - 使用简洁专业的中文
 - 不使用 Emoji

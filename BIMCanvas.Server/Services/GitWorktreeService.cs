@@ -125,7 +125,7 @@ namespace BIMCanvas.Server.Services
 
             return result.Output
                 .Split('\n', StringSplitOptions.RemoveEmptyEntries)
-                .Select(b => b.Trim().TrimStart('*').Trim())
+                .Select(b => b.Trim().TrimStart('*', '+').Trim())  // * = 当前分支, + = worktree 关联分支
                 .Where(b => !string.IsNullOrEmpty(b))
                 .ToList();
         }

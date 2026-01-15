@@ -1,6 +1,6 @@
 # BIMCanvas 并行开发架构设计
 
-> **版本**：v1.2 | **更新日期**：2026-01-14
+> **版本**：v1.3 | **更新日期**：2026-01-15
 > **状态**：设计定稿
 > **关联文档**：
 > - [Architecture.md](./Architecture.md) - 系统总体架构
@@ -192,144 +192,230 @@ main
 
 ## 五、Worktree 架构
 
-### 5.1 核心原理
+### 5.1 Git Worktree 工作原理
+
+#### 什么是 Worktree
 
 **Git Worktree 允许同一个仓库同时检出多个分支到不同目录**，实现物理隔离的并行工作。
 
 ```
 主项目/.git/                    ← 共享的 Git 历史（唯一）
 │
-├── 主项目/                     ← 真窗口直接操作
-│   ├── baseline/
-│   ├── schemes/
-│   └── ...
+├── 主项目/                     ← 主 Worktree（根目录本身）
+│   └── checkout: master
 │
-├── .worktrees/
-│   │
-│   ├── window-2/               ← 虚拟窗口 2 的 Worktree
-│   │   ├── baseline/
-│   │   ├── schemes/
-│   │   └── ...
-│   │
-│   ├── agent-main-job1/        ← 真窗口 Agent 任务的 Worktree
-│   │   └── ...
-│   │
-│   └── agent-wt2-job1/         ← 虚拟窗口2 Agent 任务的 Worktree
-│       └── ...
+└── .worktrees/                 ← 附加 Worktree 目录
+    ├── window-2/               ← 检出 scheme/极致收纳
+    └── agent-job-1/            ← 检出 feat/ai-layout-xxx
 ```
-
-### 5.2 Git 核心限制与合并机制
 
 #### Git 核心限制
 
-> **Git 不允许两个 Worktree 检出同一个分支**
-
-这意味着：
-- 如果 Worktree-A 检出了 `branch-A`
-- 则 Agent 的 Worktree **不能**再检出 `branch-A`
-- 必须创建新分支（如 `branch-A-agent-job-1`）
-
-#### 关键技术发现
-
-**合并操作是在分支上进行的，不是在 Worktree 之间进行的。**
-
-可以直接在用户 Worktree 中执行合并：
-```bash
-cd /path/to/worktree-A
-git merge branch-A-agent-job-1
-# ✅ Worktree-A 的文件自动更新为合并结果
-# ✅ 冲突标记直接出现在 Worktree-A 的文件中
-```
-
-**这意味着 Canvas 可以始终渲染用户 Worktree，无需临时切换渲染目标！**
-
-### 5.3 Worktree 平级关系
-
-不能在 Worktree 里"嵌套"创建 Worktree，但可以从同一个 `.git` 创建多个平级 Worktree：
+> **同一个分支不能被两个 Worktree 同时检出**
 
 ```
-❌ 错误理解：Worktree 嵌套
-   主项目 → Worktree-A → Worktree-A-1（不可能）
+场景：主目录已 checkout master
 
-✅ 正确理解：平级 Worktree
+✅ 可以：git worktree add .worktrees/win2 scheme/极致收纳
+   → 不同分支，允许
+
+❌ 不可以：git worktree add .worktrees/win2 master
+   → 同一分支，Git 拒绝
+```
+
+#### 平级关系（非嵌套）
+
+Worktree 之间是平级关系，不能嵌套创建：
+
+```
+❌ 错误理解：嵌套
+   主项目 → .worktrees/win2 → .worktrees/agent（不可能）
+
+✅ 正确理解：平级
    主项目/.git/
-     ├─ 主项目/
-     ├─ Worktree-A/        （检出 branch-A）
-     └─ Worktree-A-job1/   （检出 branch-A-agent-job-1，平级）
+     ├─ 主项目/           （检出 master）
+     ├─ .worktrees/win2/  （检出 scheme/极致收纳）
+     └─ .worktrees/agent/ （检出 feat/ai-xxx，与 win2 平级）
 ```
 
-### 5.4 虚拟窗口 Agent 编辑完整流程
+### 5.2 两种使用场景
+
+BIMCanvas 中 Worktree 有两种不同的使用场景，**必须区分处理**：
+
+#### 场景 A：并行开发（多窗口）
+
+**目的**：用户同时探索多个设计方案
+
+| 属性 | 说明 |
+|------|------|
+| **触发** | 用户新建 AI 对话窗口 |
+| **分支来源** | 检出**已有分支**（用户选择） |
+| **生命周期** | 随窗口关闭而删除 Worktree |
+| **分支处理** | **保留分支**（用户可能还要用） |
+
+```
+用户新建窗口，选择 scheme/极致收纳 分支
+    │
+    ▼
+git worktree add .worktrees/window-2 scheme/极致收纳
+    │
+    ▼
+虚拟窗口 2 操作这个 Worktree
+    │
+    ▼
+用户关闭窗口
+    │
+    ▼
+git worktree remove .worktrees/window-2
+❌ 不删除分支（scheme/极致收纳 保留）
+```
+
+#### 场景 B：隔离环境（Agent 任务）
+
+**目的**：SubAgent 执行编辑/生成任务时，不干扰用户当前操作
+
+| 属性 | 说明 |
+|------|------|
+| **触发** | SubAgent 需要执行写操作 |
+| **分支来源** | 基于当前分支**创建临时分支** |
+| **生命周期** | 合并后立即删除 |
+| **分支处理** | **删除临时分支**（用完即弃） |
+
+```
+虚拟窗口 A 在 scheme/极致收纳 分支
+用户请求："重新布置客厅"
+    │
+    ▼
+基于 scheme/极致收纳 创建临时分支 feat/ai-layout-xxx
+git worktree add .worktrees/agent-job-1 -b feat/ai-layout-xxx
+    │
+    ▼
+SubAgent 在临时 Worktree 中工作 → commit
+    │
+    ▼
+合并回 scheme/极致收纳（详见 §5.4）
+    │
+    ▼
+清理：
+git worktree remove .worktrees/agent-job-1
+git branch -d feat/ai-layout-xxx  ← 删除临时分支
+```
+
+#### 两种场景对比
+
+| 维度 | 并行开发（场景 A） | 隔离环境（场景 B） |
+|------|-------------------|-------------------|
+| **Worktree 类型** | 虚拟窗口 Worktree | Agent 任务 Worktree |
+| **分支来源** | 已有分支 | 新建临时分支 |
+| **分支前缀** | `scheme/*`, `main` 等 | `feat/ai-*` |
+| **删除时** | 保留分支 | 删除分支 |
+| **命名** | `window-{id}` | `agent-{job-id}` |
+
+### 5.3 目录结构示意
+
+```
+主项目/
+├── .git/                           ← 共享的 Git 历史
+├── baseline/
+├── schemes/
+└── .worktrees/
+    │
+    ├── window-2/                   ← 【场景 A】虚拟窗口
+    │   ├── baseline/               检出: scheme/极致收纳（已有分支）
+    │   └── schemes/
+    │
+    ├── window-3/                   ← 【场景 A】虚拟窗口
+    │   ├── baseline/               检出: scheme/动线优先（已有分支）
+    │   └── schemes/
+    │
+    └── agent-job-1/                ← 【场景 B】Agent 任务
+        ├── baseline/               检出: feat/ai-layout-xxx（临时分支）
+        └── schemes/                基于 scheme/极致收纳 创建
+```
+
+### 5.4 Agent 任务合并流程（关键）
+
+#### 合并原理
+
+**合并操作是在分支上进行的，在用户 Worktree 中执行 merge 命令。**
+
+```bash
+# 在用户 Worktree（虚拟窗口 A）中执行
+cd .worktrees/window-2               # scheme/极致收纳 分支
+git merge feat/ai-layout-xxx         # 合并 Agent 的临时分支
+# ✅ 文件自动更新为合并结果
+# ✅ 冲突标记直接出现在此目录
+```
+
+#### 完整流程
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────────┐
-│                    虚拟窗口 Agent 编辑流程                                    │
+│                    Agent 任务合并流程                                         │
 ├─────────────────────────────────────────────────────────────────────────────┤
 │                                                                             │
 │  【前提】                                                                    │
-│  • 虚拟窗口 A → Worktree-A (检出 branch-A)                                  │
-│  • Canvas 渲染 Worktree-A                                                   │
+│  • 虚拟窗口 A → .worktrees/window-2 (检出 scheme/极致收纳)                  │
+│  • Canvas 渲染 window-2 目录                                                │
 │                                                                             │
 │  【Step 1: 保存用户当前改动】                                                │
-│  cd Worktree-A                                                              │
+│  cd .worktrees/window-2                                                     │
 │  git add . && git commit -m "WIP: 用户改动"                                 │
 │                                                                             │
 │  【Step 2: 创建 Agent 工作环境】                                             │
-│  # 基于当前 branch-A 创建新分支                                              │
-│  git branch branch-A-agent-job-1                                            │
-│  # 创建新的 Worktree（平级，不是嵌套）                                       │
-│  git worktree add .worktrees/agent-wt-A-job1 branch-A-agent-job-1          │
+│  # 基于 scheme/极致收纳 创建临时分支                                         │
+│  git worktree add .worktrees/agent-job-1 -b feat/ai-layout-xxx             │
 │                                                                             │
-│  【Step 3: Agent 工作】                                                      │
-│  Agent 在 agent-wt-A-job1 中编辑                                            │
-│  cd .worktrees/agent-wt-A-job1                                              │
+│  【Step 3: SubAgent 工作】                                                   │
+│  cd .worktrees/agent-job-1                                                  │
 │  # ... 编辑 schemes/rz_*/modules.json ...                                   │
 │  git add . && git commit -m "feat: AI 布置方案"                             │
 │                                                                             │
-│  【Step 4: 在 Worktree-A 中合并】← 关键！                                    │
-│  cd Worktree-A                                                              │
-│  git merge branch-A-agent-job-1                                             │
-│  # ✅ Worktree-A 的文件自动更新为合并结果                                    │
-│  # ✅ 如有冲突，冲突标记出现在 Worktree-A 文件中                             │
+│  【Step 4: 在用户 Worktree 中合并】← 关键！                                  │
+│  cd .worktrees/window-2                                                     │
+│  git merge feat/ai-layout-xxx                                               │
+│  # ✅ window-2 的文件自动更新为合并结果                                      │
 │                                                                             │
-│  【Step 5: 可视化解决冲突】                                                  │
-│  # Canvas 继续渲染 Worktree-A（无需切换！）                                  │
+│  【Step 5: Canvas 强制刷新】← 重要！                                         │
+│  # 合并后 scheme/极致收纳 分支的内容已变化                                   │
+│  # Canvas 必须重新读取 window-2 目录并刷新显示                               │
+│  # 用户看到合并后的最新结果                                                  │
+│                                                                             │
+│  【Step 6: 可视化解决冲突（如有）】                                          │
 │  # 用户通过 UI 选择保留哪些改动                                              │
 │  git add . && git commit -m "merge: 合并 AI 方案"                           │
 │                                                                             │
-│  【Step 6: 清理】                                                            │
-│  git worktree remove .worktrees/agent-wt-A-job1                             │
-│  git branch -d branch-A-agent-job-1                                         │
+│  【Step 7: 清理】                                                            │
+│  git worktree remove .worktrees/agent-job-1                                 │
+│  git branch -d feat/ai-layout-xxx   ← 删除临时分支                          │
 │                                                                             │
 └─────────────────────────────────────────────────────────────────────────────┘
 ```
 
-### 5.5 Worktree 职责明确
+#### 合并注意事项
 
-| Worktree | 职责 |
-|----------|------|
-| **用户 Worktree** | 用户交互编辑 + 合并执行 + 冲突解决 + Canvas 渲染源 |
-| **Agent Worktree** | 临时工作空间（用完即删） |
+| 注意点 | 说明 |
+|--------|------|
+| **合并目标** | 必须合并回临时分支所基于的原分支 |
+| **执行位置** | 在用户 Worktree（非 Agent Worktree）中执行 merge |
+| **Canvas 刷新** | 合并后必须强制刷新 Canvas，显示最新状态 |
+| **窗口状态** | 虚拟窗口不能手动切换分支，但合并会更新内容 |
+| **清理顺序** | 先删 Worktree，再删临时分支 |
 
-### 5.6 Worktree 生命周期
+### 5.5 Worktree 命名规范
 
-| Worktree 类型 | 创建时机 | 销毁时机 |
-|---------------|----------|----------|
-| **虚拟窗口 Worktree** | 新建对话窗口 | 关闭窗口（合并后） |
-| **Agent 任务 Worktree** | Agent 开始编辑 | 用户确认合并/丢弃 |
+| 类型 | 命名格式 | 分支 | 删除时 |
+|------|----------|------|--------|
+| 虚拟窗口 | `window-{windowId}` | 已有分支 | 保留分支 |
+| Agent 任务（真窗口） | `agent-main-{jobId}` | 临时分支 `feat/ai-*` | 删除分支 |
+| Agent 任务（虚拟窗口） | `agent-wt{windowId}-{jobId}` | 临时分支 `feat/ai-*` | 删除分支 |
 
-**设计原则**：**用完即销毁**
+### 5.6 生命周期总结
 
-```
-创建 ──► Agent 工作 ──► 提交 ──► 可视化 Diff ──► 合并/丢弃 ──► 销毁
-```
-
-### 5.4 Worktree 命名规范
-
-| 类型 | 命名格式 | 示例 |
-|------|----------|------|
-| 虚拟窗口 | `window-{windowId}` | `.worktrees/window-2` |
-| Agent 任务（真窗口） | `agent-main-{jobId}` | `.worktrees/agent-main-job1` |
-| Agent 任务（虚拟窗口） | `agent-wt{windowId}-{jobId}` | `.worktrees/agent-wt2-job1` |
+| Worktree 类型 | 创建时机 | 销毁时机 | 分支处理 |
+|---------------|----------|----------|----------|
+| **虚拟窗口 Worktree** | 新建对话窗口 | 关闭窗口 | 保留分支 |
+| **Agent 任务 Worktree** | SubAgent 开始编辑 | 合并/丢弃后 | 删除临时分支 |
 
 ---
 
@@ -662,6 +748,7 @@ git/
 
 | 版本 | 日期 | 变更内容 |
 |------|------|----------|
+| v1.3 | 2026-01-15 | §5 重构：明确 Worktree 两种使用场景（并行开发 vs 隔离环境）、合并注意事项、Canvas 刷新机制 |
 | v1.2 | 2026-01-14 | 新增 §9 Git 工具安全设计（预定义工具替代 Bash） |
 | v1.1 | 2026-01-14 | §5.2 Git 核心限制说明、合并机制修正 |
 | v1.0 | 2026-01-14 | 初版：整合并行开发架构设计，包含多窗口、Worktree、分区存储等核心设计 |
