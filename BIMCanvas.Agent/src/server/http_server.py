@@ -587,9 +587,9 @@ async def screenshot_save_handler(request: web.Request) -> web.Response:
     if not image_data:
         return web.json_response({"error": "Missing imageData"}, status=400)
 
-    # 保存到用户配置目录
+    # 保存到用户文档目录
     import os
-    docs_dir = Path(os.path.expanduser("~/.bimcanvas/Screenshots"))
+    docs_dir = Path(os.path.expanduser("~/Documents/BIMCanvas/Screenshots"))
     docs_dir.mkdir(parents=True, exist_ok=True)
 
     # 生成文件名
