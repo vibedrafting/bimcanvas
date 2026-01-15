@@ -122,6 +122,15 @@ const initDefaultWindow = () => {
   activeWindowId.value = defaultId;
 };
 
+// Sync Primary Window branchId with currentBranch from gitStore
+watch(currentBranch, (newBranch) => {
+  if (!newBranch) return;
+  const primaryWindow = windows.value.find(w => w.isPrimary);
+  if (primaryWindow && primaryWindow.branchId !== newBranch) {
+    primaryWindow.branchId = newBranch;
+  }
+}, { immediate: true });
+
 // 获取当前窗口的消息（用于渐进式迁移）
 const getCurrentWindowMessages = (): ChatMessage[] => {
   const win = windows.value.find(w => w.id === activeWindowId.value);
@@ -134,48 +143,88 @@ const getCurrentWindowMessages = (): ChatMessage[] => {
 const switchWindow = (id: string) => {
   if (activeWindowId.value === id) return;
   activeWindowId.value = id;
+  // Update current branch status for mock display
+  const win = windows.value.find(w => w.id === id);
+  if (win) {
+      branches.value.forEach(b => b.isCurrent = b.id === win.branchId);
+  }
   nextTick(() => {
     scrollToBottom({ force: true });
   });
 };
 
-// 新建窗口
-const addWindow = () => {
-  const newId = `window-${Date.now()}`;
-  const windowNumber = windows.value.length + 1;
-  const newWindow: ChatWindow = {
-    id: newId,
-    name: `Chat ${windowNumber}`,
-    branchId: currentBranch.value || 'main',
-    messages: [],
-    isPrimary: false
-  };
-  windows.value.push(newWindow);
-  activeWindowId.value = newId;
-  console.log(`[Window] Created new window: ${newWindow.name}`);
+// State for new window dropdown
+const showNewWindowDropdown = ref(false);
+
+// Computed: Available branches (not currently opened in any window)
+// Note: Using branch.name for comparison because currentBranch returns branch name, not id
+const availableBranches = computed(() => {
+    const occupiedBranchNames = windows.value.map(w => w.branchId);
+    return branches.value.filter(b => !occupiedBranchNames.includes(b.name));
+});
+
+// Close window
+const closeWindow = (id: string) => {
+    const index = windows.value.findIndex(w => w.id === id);
+    if (index === -1) return;
+    
+    const win = windows.value[index];
+    if (win.isPrimary) {
+        console.warn('[Window] Cannot close primary window');
+        return;
+    }
+    
+    // If closing the active window, switch to previous or next
+    if (activeWindowId.value === id) {
+        const newActiveIndex = index > 0 ? index - 1 : index + 1;
+        if (windows.value[newActiveIndex]) {
+            activeWindowId.value = windows.value[newActiveIndex].id;
+            switchWindow(activeWindowId.value);
+        }
+    }
+    
+    windows.value.splice(index, 1);
+    console.log(`[Window] Closed window: ${win.name}`);
 };
 
-// 关闭窗口
-const closeWindow = (id: string) => {
-  const index = windows.value.findIndex(w => w.id === id);
-  if (index === -1) return;
-  
-  const win = windows.value[index];
-  if (win.isPrimary) {
-    console.warn('[Window] Cannot close primary window');
-    return;
-  }
-  
-  // 如果关闭的是当前活动窗口，切换到上一个或下一个窗口
-  if (activeWindowId.value === id) {
-    const newActiveIndex = index > 0 ? index - 1 : index + 1;
-    if (windows.value[newActiveIndex]) {
-      activeWindowId.value = windows.value[newActiveIndex].id;
+// Toggle New Window Dropdown (Exclusive)
+const handleNewWindowClick = () => {
+    if (availableBranches.value.length === 0) {
+        console.log("No available branches");
+        return;
     }
-  }
-  
-  windows.value.splice(index, 1);
-  console.log(`[Window] Closed window: ${win.name}`);
+    // Close other dropdowns
+    isBranchDropdownOpen.value = false;
+    
+    showNewWindowDropdown.value = !showNewWindowDropdown.value;
+};
+
+// Toggle Branch Switch Dropdown (Exclusive)
+const toggleBranchDropdown = () => {
+    // Close other dropdowns
+    showNewWindowDropdown.value = false;
+    
+    isBranchDropdownOpen.value = !isBranchDropdownOpen.value;
+};
+
+// Add window with selected branch (using branch name as identifier)
+const addWindow = (branchName: string) => {
+    const branch = branches.value.find(b => b.name === branchName);
+    if (!branch) return;
+
+    const newId = `window-${Date.now()}`;
+    const windowNumber = windows.value.length + 1;
+    const newWindow: ChatWindow = {
+        id: newId,
+        name: `Chat ${windowNumber}`,
+        branchId: branch.name, // Use name, consistent with currentBranch
+        messages: [],
+        isPrimary: false
+    };
+    windows.value.push(newWindow);
+    switchWindow(newId);
+    showNewWindowDropdown.value = false;
+    console.log(`[Window] Created new window: ${newWindow.name} on branch ${branch.name}`);
 };
 
 // Claude Code 风格的拟人等待提示词 (169 个)
@@ -1146,9 +1195,14 @@ const handleGlobalClick = (e: MouseEvent) => {
     activeSubmenu.value = null;
   }
 
-  // Close Branch Dropdown
-  if (!target.closest('.branch-dropdown')) {
+  // Close Branch Dropdown (Primary Window)
+  if (!target.closest('.branch-switch-btn') && !target.closest('.branch-dropdown-overlay')) {
     isBranchDropdownOpen.value = false;
+  }
+
+  // Close New Window Dropdown
+  if (!target.closest('.new-window-wrapper')) {
+    showNewWindowDropdown.value = false;
   }
 
   // Close Model Menu
@@ -1240,79 +1294,126 @@ const removePendingImage = (index: number) => {
     
     <div class="main-content">
       
-      <!-- Layer 1: Context Header (Design H: Hierarchical) -->
+      <!-- Layer 1: Context Header (Design J: Inline Branch & Strict New Window) -->
       <div class="layer-context">
         
-        <!-- Row 1: Global Mode Switch (Centered) -->
+        <!-- Row 1: Global Mode Switch (Left-Aligned Toolbar) -->
         <div class="header-toolbar">
             <div class="mode-switch">
                 <button :class="{ active: mode === 'chat' }" @click="mode = 'chat'">Chat</button>
                 <button :class="{ active: mode === 'tasks' }" @click="mode = 'tasks'">Task</button>
             </div>
-        </div>
-
-        <!-- Row 2: Window Context (Tabs + Branch) -->
-        <div class="header-tabs" v-if="mode === 'chat'">
-          <!-- Left: Window Tabs -->
-          <div class="window-tabs">
-            <div 
-                v-for="win in windows" 
-                :key="win.id"
-                class="window-tab"
-                :class="{ active: activeWindowId === win.id }"
-                @click="switchWindow(win.id)"
-            >
-                <span class="tab-name">{{ win.name }}</span>
-                <button v-if="!win.isPrimary" class="tab-close" @click.stop="closeWindow(win.id)">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                    <line x1="18" y1="6" x2="6" y2="18"></line>
-                    <line x1="6" y1="6" x2="18" y2="18"></line>
-                </svg>
-                </button>
-            </div>
-            <button class="new-window-btn" title="New Window" @click="addWindow">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                <line x1="12" y1="5" x2="12" y2="19"></line>
-                <line x1="5" y1="12" x2="19" y2="12"></line>
-                </svg>
-            </button>
-          </div>
-
-          <!-- Right: Branch Selection (Moved Here) -->
-          <div class="branch-dropdown" :class="{ open: isBranchDropdownOpen }">
-                <button class="dropdown-trigger" @click="isBranchDropdownOpen = !isBranchDropdownOpen">
-                    <span class="icon">🌿</span>
-                    <span class="text">{{ currentBranch }}</span>
-                    <svg class="chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                        <polyline points="6 9 12 15 18 9"></polyline>
+            
+            <!-- Right Side Actions (Placeholder for Balance) -->
+            <div class="toolbar-actions">
+                <button class="icon-btn" title="History">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <circle cx="12" cy="12" r="10"></circle>
+                        <polyline points="12 6 12 12 16 14"></polyline>
                     </svg>
                 </button>
-                <div class="dropdown-menu" v-if="isBranchDropdownOpen">
-                    <div class="branch-tree">
-                        <div 
-                            v-for="branch in branches" 
-                            :key="branch.id" 
-                            class="branch-item"
-                            :class="{ current: branch.isCurrent }"
-                            @click="selectBranch(branch.id)"
+            </div>
+        </div>
+
+        <!-- Row 2: Window Context (Tabs with Inline Branch) -->
+        <div class="header-tabs" v-if="mode === 'chat'">
+          
+          <!-- Wrapper for Tabs + Fixed New Window Button -->
+          <div class="tabs-wrapper">
+              <!-- Scrollable Tabs Area -->
+              <div class="window-tabs">
+                <div 
+                    v-for="win in windows" 
+                    :key="win.id"
+                    class="window-tab"
+                    :class="{ active: activeWindowId === win.id }"
+                    @click="switchWindow(win.id)"
+                >
+                    <!-- Line 1: Window Name -->
+                    <div class="tab-header">
+                        <span class="tab-name">{{ win.name }}</span>
+                        <button v-if="!win.isPrimary" class="tab-close" @click.stop="closeWindow(win.id)">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <line x1="18" y1="6" x2="6" y2="18"></line>
+                                <line x1="6" y1="6" x2="18" y2="18"></line>
+                            </svg>
+                        </button>
+                    </div>
+
+                    <!-- Line 2: Branch Info (Inline) -->
+                    <div class="tab-branch" :title="win.branchId">
+                        <span class="branch-icon">🌿</span>
+                        <span class="branch-name">{{ win.branchId }}</span>
+                        
+                        <!-- Primary Window Switch Trigger -->
+                        <button 
+                            v-if="win.isPrimary" 
+                            class="branch-switch-btn" 
+                            @click.stop="toggleBranchDropdown"
+                            title="Switch Branch"
                         >
-                            <div class="branch-main">
-                                <span class="branch-icon">🌿</span>
-                                <span class="branch-name">{{ branch.name }}</span>
-                                <span v-if="branch.isCurrent" class="current-indicator">
-                                    <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="3">
-                                        <polyline points="20 6 9 17 4 12"></polyline>
-                                    </svg>
-                                </span>
-                            </div>
-                            <div class="branch-meta" v-if="branch.lastCommit">
-                                <span class="commit-msg">{{ branch.lastCommit }}</span>
-                                <span class="commit-time">{{ branch.time }}</span>
-                            </div>
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <polyline points="6 9 12 15 18 9"></polyline>
+                            </svg>
+                        </button>
+                    </div>
+                </div>
+              </div>
+
+              <!-- Fixed New Window Button & Dropdown -->
+              <div class="new-window-wrapper">
+                <button 
+                    class="new-window-btn" 
+                    title="New Window" 
+                    @click.stop="handleNewWindowClick"
+                    :disabled="availableBranches.length === 0"
+                >
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <line x1="12" y1="5" x2="12" y2="19"></line>
+                    <line x1="5" y1="12" x2="19" y2="12"></line>
+                    </svg>
+                </button>
+
+                <!-- New Window Branch Selection Dropdown -->
+                <div class="new-window-dropdown" v-if="showNewWindowDropdown" @click.stop>
+                    <div class="dropdown-header">Select Branch</div>
+                    <div class="branch-list">
+                        <div 
+                            v-for="branch in availableBranches" 
+                            :key="branch.name" 
+                            class="branch-item"
+                            @click="addWindow(branch.name)"
+                        >
+                            <span class="branch-icon">🌿</span>
+                            <span class="branch-name">{{ branch.name }}</span>
                         </div>
                     </div>
                 </div>
-            </div>
+              </div>
+          </div>
+
+          <!-- Primary Window Branch Dropdown (Positioned at header-tabs level to avoid overflow clipping) -->
+          <div class="branch-dropdown-overlay" v-if="isBranchDropdownOpen" @click.stop>
+              <div class="branch-tree">
+                  <div 
+                      v-for="branch in branches" 
+                      :key="branch.id" 
+                      class="branch-item"
+                      :class="{ current: branch.name === currentBranch }"
+                      @click="selectBranch(branch.id)"
+                  >
+                      <div class="branch-main">
+                          <span class="branch-icon">🌿</span>
+                          <span class="branch-name">{{ branch.name }}</span>
+                          <span v-if="branch.name === currentBranch" class="current-indicator">
+                              <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="3">
+                                  <polyline points="20 6 9 17 4 12"></polyline>
+                              </svg>
+                          </span>
+                      </div>
+                  </div>
+              </div>
+          </div>
         </div>
 
       </div>
@@ -1903,7 +2004,7 @@ const removePendingImage = (index: number) => {
     min-width: 0; /* Allow flex shrinking */
 }
 
-/* --- Layer 1: Context Header (Design I: Left-Aligned Hierarchical) --- */
+/* --- Layer 1: Context Header (Design J Refined: Premium & Balanced) --- */
 .layer-context {
     padding: 0;
     height: auto;
@@ -1912,13 +2013,13 @@ const removePendingImage = (index: number) => {
     flex-direction: column;
     flex-shrink: 0;
 
-    /* Row 1: Global Mode Switch (Left-Aligned Toolbar) */
+    /* Row 1: Global Mode Switch (Compact Toolbar) */
     .header-toolbar {
-        height: 40px; /* Slightly more compact */
-        padding: 0 16px;
+        height: 36px; /* Compact height */
+        padding: 0 12px; /* Align with tabs padding */
         display: flex;
         align-items: center;
-        justify-content: flex-start; /* Left aligned */
+        justify-content: space-between; /* Space between Mode Switch and Actions */
         background: var(--surface-dim);
         border-bottom: 1px solid var(--border-subtle);
     }
@@ -1935,14 +2036,14 @@ const removePendingImage = (index: number) => {
         button {
             border: none;
             background: transparent;
-            padding: 3px 16px;
+            padding: 2px 12px;
             color: var(--text-tertiary);
-            font-size: 13px;
+            font-size: 12px;
             font-weight: 500;
             cursor: pointer;
             transition: all 0.2s ease;
             border-radius: 4px;
-            min-width: 60px;
+            min-width: 50px;
             text-align: center;
 
             &:hover {
@@ -1958,18 +2059,54 @@ const removePendingImage = (index: number) => {
         }
     }
 
-    /* Row 2: Window Context (Tabs + Branch) */
-    .header-tabs {
-        height: 44px; /* Slightly taller for tabs */
-        padding: 0 16px;
+    /* Toolbar Actions (Right Side) */
+    .toolbar-actions {
         display: flex;
         align-items: center;
-        justify-content: space-between;
-        background: transparent;
-        gap: 16px;
+        gap: 8px;
+
+        .icon-btn {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            width: 24px;
+            height: 24px;
+            border-radius: 4px;
+            border: none;
+            background: transparent;
+            color: var(--text-tertiary);
+            cursor: pointer;
+            transition: all 0.2s ease;
+
+            &:hover {
+                background: rgba(255, 255, 255, 0.1);
+                color: var(--text-primary);
+            }
+
+            svg { width: 14px; height: 14px; }
+        }
     }
 
-    /* Window Tabs (Left Side) */
+    /* Row 2: Window Context (Tabs + Branch) */
+    .header-tabs {
+        height: 50px; /* Optimized height */
+        padding: 0 12px; /* Consistent padding */
+        display: flex;
+        align-items: center;
+        background: transparent;
+        position: relative;
+    }
+
+    /* Wrapper for Tabs + Fixed Button */
+    .tabs-wrapper {
+        display: flex;
+        align-items: center;
+        width: 100%;
+        height: 100%;
+        gap: 4px;
+    }
+
+    /* Window Tabs (Scrollable Area) */
     .window-tabs {
         display: flex;
         align-items: center;
@@ -1978,39 +2115,96 @@ const removePendingImage = (index: number) => {
         scrollbar-width: none;
         flex: 1;
         min-width: 0;
+        height: 100%;
+        padding-right: 4px;
         
         &::-webkit-scrollbar { display: none; }
     }
 
     .window-tab {
         display: flex;
-        align-items: center;
-        gap: 6px;
-        padding: 6px 12px;
+        flex-direction: column;
+        justify-content: center;
+        gap: 1px; /* Tighter gap */
+        padding: 0 8px;
         background: transparent;
         border-radius: 6px;
-        font-size: 13px;
-        color: var(--text-secondary);
         cursor: pointer;
-        white-space: nowrap;
         transition: all 0.2s ease;
-        max-width: 160px;
-
-        .tab-name {
-            overflow: hidden;
-            text-overflow: ellipsis;
-        }
+        min-width: 100px;
+        max-width: 140px;
+        height: 42px; /* Slightly shorter */
+        border: 1px solid transparent; /* Prevent layout shift on active */
 
         &:hover {
             background: var(--surface-dim);
-            color: var(--text-primary);
         }
 
         &.active {
             background: var(--surface-dim);
-            color: var(--text-primary);
-            font-weight: 600;
+            border-color: var(--border-subtle);
             box-shadow: 0 1px 2px rgba(0,0,0,0.05);
+
+            .tab-name { color: var(--text-primary); font-weight: 600; }
+            /* Branch name remains muted unless hovered, or maybe slightly brighter */
+            .tab-branch { color: var(--text-secondary); } 
+        }
+
+        /* Line 1: Window Name */
+        .tab-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            width: 100%;
+            height: 18px;
+            
+            .tab-name {
+                font-size: 13px;
+                color: var(--text-secondary);
+                white-space: nowrap;
+                overflow: hidden;
+                text-overflow: ellipsis;
+                line-height: 1.2;
+            }
+        }
+
+        /* Line 2: Branch Info */
+        .tab-branch {
+            display: flex;
+            align-items: center;
+            gap: 4px;
+            font-size: 10px;
+            color: var(--text-tertiary); /* Muted by default */
+            width: 100%;
+            height: 14px;
+            position: relative;
+
+            .branch-icon { font-size: 10px; opacity: 0.6; }
+            
+            .branch-name {
+                white-space: nowrap;
+                overflow: hidden;
+                text-overflow: ellipsis;
+                font-family: 'JetBrains Mono', monospace;
+                flex: 1;
+            }
+
+            .branch-switch-btn {
+                display: none;
+                background: transparent;
+                border: none;
+                padding: 0;
+                color: inherit;
+                cursor: pointer;
+                opacity: 0.6;
+                
+                &:hover { opacity: 1; color: var(--text-primary); }
+                svg { width: 10px; height: 10px; }
+            }
+        }
+
+        &:hover .branch-switch-btn {
+            display: flex;
         }
     }
 
@@ -2018,171 +2212,155 @@ const removePendingImage = (index: number) => {
         display: flex;
         align-items: center;
         justify-content: center;
-        width: 16px;
-        height: 16px;
+        width: 14px;
+        height: 14px;
         border-radius: 50%;
         border: none;
         background: transparent;
-        color: inherit;
+        color: var(--text-tertiary);
         cursor: pointer;
         opacity: 0;
         transition: all 0.2s ease;
         padding: 0;
-        margin-left: -2px;
 
         svg { width: 10px; height: 10px; }
     }
 
-    .window-tab:hover .tab-close,
-    .window-tab.active .tab-close {
-        opacity: 0.6;
+    .window-tab:hover .tab-close {
+        opacity: 1;
     }
 
     .tab-close:hover {
         background: rgba(255, 255, 255, 0.2);
-        opacity: 1 !important;
+        color: var(--text-primary);
+    }
+
+    /* Fixed New Window Button Wrapper */
+    .new-window-wrapper {
+        position: relative;
+        flex-shrink: 0;
+        height: 32px; /* Match button height area */
+        display: flex;
+        align-items: center;
+        border-left: 1px solid var(--border-subtle);
+        padding-left: 8px;
+        margin-left: 4px;
     }
 
     .new-window-btn {
         display: flex;
         align-items: center;
         justify-content: center;
-        width: 28px;
-        height: 28px;
+        width: 24px;
+        height: 24px;
         border-radius: 6px;
         background: transparent;
         border: none;
         color: var(--text-tertiary);
         cursor: pointer;
         transition: all 0.2s ease;
-        flex-shrink: 0;
-        margin-left: 4px;
 
-        &:hover {
+        &:hover:not(:disabled) {
             background: var(--surface-dim);
             color: var(--text-primary);
         }
 
-        svg { width: 18px; height: 18px; }
+        &:disabled {
+            opacity: 0.3;
+            cursor: not-allowed;
+        }
+
+        svg { width: 16px; height: 16px; }
     }
 
-    /* Branch Dropdown (Right Side - Distinct Pill Style) */
-    .branch-dropdown {
-        position: relative;
-        z-index: 10;
-        flex-shrink: 0;
+    /* Dropdowns (Premium Glassmorphism) */
+    .branch-dropdown-menu,
+    .new-window-dropdown,
+    .branch-dropdown-overlay {
+        position: absolute;
+        background: rgba(30, 30, 35, 0.95); /* Dark semi-transparent */
+        backdrop-filter: blur(12px);
+        -webkit-backdrop-filter: blur(12px);
+        border: 1px solid rgba(255, 255, 255, 0.1);
+        border-radius: 8px;
+        box-shadow: 
+            0 4px 20px rgba(0, 0, 0, 0.4),
+            0 0 0 1px rgba(255, 255, 255, 0.05) inset;
+        z-index: 200;
+        overflow: hidden;
+        margin-top: 4px;
+    }
+    
+    .new-window-dropdown {
+        top: 100%;
+        right: 0;
+        left: auto;
+        width: 200px;
+        
+        .dropdown-header {
+            padding: 6px 10px;
+            font-size: 10px;
+            font-weight: 600;
+            color: var(--text-tertiary);
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+            background: rgba(255, 255, 255, 0.02);
+        }
+    }
 
-        .dropdown-trigger {
+    .branch-dropdown-overlay {
+        top: 100%;
+        left: 12px; /* Align with padding */
+        width: 240px;
+        
+        .branch-tree {
+            max-height: 240px;
+            overflow-y: auto;
+            padding: 4px;
+        }
+    }
+
+    .branch-list, .branch-tree {
+        max-height: 200px;
+        overflow-y: auto;
+        padding: 4px;
+    }
+
+    .branch-item {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        padding: 6px 8px;
+        border-radius: 6px;
+        cursor: pointer;
+        font-size: 12px;
+        color: var(--text-secondary);
+        transition: all 0.15s;
+        border: 1px solid transparent;
+
+        &:hover {
+            background: rgba(255, 255, 255, 0.05);
+            color: var(--text-primary);
+        }
+
+        &.current {
+            background: rgba(var(--accent-primary-rgb), 0.1);
+            color: var(--accent-primary);
+            border-color: rgba(var(--accent-primary-rgb), 0.2);
+            font-weight: 500;
+        }
+
+        .branch-main {
             display: flex;
             align-items: center;
             gap: 8px;
-            padding: 4px 10px; /* More padding */
-            background: var(--surface-dim); /* Distinct background */
-            border: 1px solid var(--border-subtle); /* Distinct border */
-            border-radius: 100px; /* Pill shape */
-            color: var(--text-secondary);
-            font-size: 12px;
-            cursor: pointer;
-            transition: all 0.2s ease;
-
-            &:hover {
-                background: var(--surface-elevated);
-                color: var(--text-primary);
-                border-color: var(--border-dim);
-                .icon { opacity: 1; }
-            }
-
-            .icon { 
-                font-size: 12px; 
-                opacity: 0.8;
-            }
-            
-            .text { 
-                font-weight: 500;
-                font-family: 'JetBrains Mono', monospace;
-            }
-            
-            .chevron {
-                width: 12px;
-                height: 12px;
-                opacity: 0.6;
-                transition: transform 0.2s;
-            }
+            width: 100%;
         }
 
-        &.open .dropdown-trigger {
-            background: var(--surface-elevated);
-            color: var(--text-primary);
-            border-color: var(--border-dim);
-            .chevron { transform: rotate(180deg); }
-        }
-
-        .dropdown-menu {
-            position: absolute;
-            top: 100%;
-            right: 0;
-            width: 240px;
-            margin-top: 6px;
-            background: var(--surface-elevated);
-            border: 1px solid var(--border-subtle);
-            border-radius: 8px;
-            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
-            overflow: hidden;
-            max-height: 300px;
-            overflow-y: auto;
-            
-            .branch-tree {
-                padding: 4px;
-            }
-
-            .branch-item {
-                padding: 6px 8px;
-                border-radius: 4px;
-                cursor: pointer;
-                transition: all 0.15s;
-
-                &:hover {
-                    background: var(--surface-highlight);
-                }
-
-                &.current {
-                    background: rgba(var(--accent-primary-rgb), 0.1);
-                    
-                    .branch-name { 
-                        color: var(--accent-primary);
-                        font-weight: 600; 
-                    }
-                }
-
-                .branch-main {
-                    display: flex;
-                    align-items: center;
-                    gap: 8px;
-                    font-size: 0.8rem;
-                    
-                    .branch-icon { font-size: 0.9rem; opacity: 0.7; }
-                    .branch-name { color: var(--text-primary); font-weight: 500; }
-                    .current-indicator { color: var(--accent-primary); display: flex; }
-                }
-
-                .branch-meta {
-                    margin-top: 2px;
-                    margin-left: 24px;
-                    font-size: 0.7rem;
-                    color: var(--text-tertiary);
-                    display: flex;
-                    justify-content: space-between;
-                    
-                    .commit-msg {
-                        flex: 1;
-                        white-space: nowrap;
-                        overflow: hidden;
-                        text-overflow: ellipsis;
-                        max-width: 140px;
-                    }
-                }
-            }
-        }
+        .branch-icon { font-size: 12px; opacity: 0.7; }
+        .branch-name { font-family: 'JetBrains Mono', monospace; flex: 1; }
+        .current-indicator { margin-left: auto; color: var(--accent-primary); display: flex; }
     }
 }
 

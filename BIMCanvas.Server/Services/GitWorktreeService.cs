@@ -445,6 +445,36 @@ namespace BIMCanvas.Server.Services
         }
 
         /// <summary>
+        /// 尝试提交当前更改（包括新文件）
+        /// </summary>
+        /// <returns>是否成功提交（false 表示没有需要提交的内容）</returns>
+        public bool TryCommit(string workingDir, string message)
+        {
+            // 先 add 所有更改（包括新文件）
+            RunGit(workingDir, "add .");
+
+            // 执行 commit
+            var result = RunGit(workingDir, $"commit -m \"{EscapeMessage(message)}\"");
+
+            // "nothing to commit" 可能在 stdout 或 stderr 中
+            var combined = (result.Output ?? "") + (result.Error ?? "");
+
+            if (combined.Contains("nothing to commit"))
+            {
+                _logger.LogDebug("无需提交（工作区干净）");
+                return false;
+            }
+
+            if (!result.Success)
+            {
+                throw new InvalidOperationException($"提交失败: {result.Error}{result.Output}");
+            }
+
+            _logger.LogInformation("提交更改: {Message}", message);
+            return true;
+        }
+
+        /// <summary>
         /// 检查是否有未提交的更改（忽略未跟踪文件）
         /// </summary>
         public bool HasUncommittedChanges(string workingDir)

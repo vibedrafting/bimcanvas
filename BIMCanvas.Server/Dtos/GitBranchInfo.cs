@@ -93,6 +93,13 @@ namespace BIMCanvas.Server.Dtos
         /// 提交信息（可选，为空则自动生成）
         /// </summary>
         public string? Message { get; set; }
+
+        /// <summary>
+        /// Worktree 名称（可选）
+        /// 如果指定，则在该 Worktree 目录中执行提交
+        /// 如果不指定，则在主仓库中执行提交
+        /// </summary>
+        public string? WorktreeName { get; set; }
     }
 
     /// <summary>
@@ -157,9 +164,16 @@ namespace BIMCanvas.Server.Dtos
     public class MergeRequest
     {
         /// <summary>
-        /// 要合并的源分支名
+        /// 要合并的源分支名（要合并进来的分支）
         /// </summary>
         public string SourceBranch { get; set; } = string.Empty;
+
+        /// <summary>
+        /// 目标分支名（可选，合并到哪个分支）
+        /// 如果指定，会先切换到目标分支再执行合并
+        /// 如果不指定，则合并到当前分支
+        /// </summary>
+        public string? TargetBranch { get; set; }
 
         /// <summary>
         /// 可选的合并提交信息

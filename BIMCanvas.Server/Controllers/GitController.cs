@@ -168,6 +168,7 @@ namespace BIMCanvas.Server.Controllers
 
         /// <summary>
         /// 提交当前更改（存档）
+        /// 支持在主仓库或指定 Worktree 中提交
         /// </summary>
         /// <param name="request">提交请求</param>
         /// <returns>操作结果</returns>
@@ -190,8 +191,31 @@ namespace BIMCanvas.Server.Controllers
 
             try
             {
-                // 检查是否有未提交的更改
-                if (!_gitService.HasUncommittedChanges(projectPath))
+                // 确定工作目录：默认主仓库，可指定 Worktree
+                var workingDir = projectPath;
+
+                if (!string.IsNullOrEmpty(request?.WorktreeName))
+                {
+                    var worktreesDir = _gitService.GetWorktreesDir(projectPath);
+                    workingDir = System.IO.Path.Combine(worktreesDir, request.WorktreeName);
+
+                    if (!System.IO.Directory.Exists(workingDir))
+                    {
+                        return NotFound(new { message = $"Worktree '{request.WorktreeName}' 不存在" });
+                    }
+
+                    _logger.LogInformation("在 Worktree 中提交: {WorktreeName}", request.WorktreeName);
+                }
+
+                // 生成提交信息
+                var message = string.IsNullOrEmpty(request?.Message)
+                    ? $"自动存档_{DateTime.Now:yyyyMMdd_HHmmss}"
+                    : request.Message;
+
+                // 直接调用 Commit（内部会执行 git add . 并处理 nothing to commit）
+                var committed = _gitService.TryCommit(workingDir, message);
+
+                if (!committed)
                 {
                     return Ok(new
                     {
@@ -201,24 +225,19 @@ namespace BIMCanvas.Server.Controllers
                     });
                 }
 
-                // 生成提交信息
-                var message = string.IsNullOrEmpty(request?.Message)
-                    ? $"自动存档_{DateTime.Now:yyyyMMdd_HHmmss}"
-                    : request.Message;
-
-                _gitService.Commit(projectPath, message);
-                _logger.LogInformation("提交更改: {Message}", message);
+                _logger.LogInformation("提交更改: {Message} @ {WorkingDir}", message, workingDir);
 
                 // 获取当前分支信息
-                var currentBranch = _gitService.GetCurrentBranch(projectPath);
-                var commitInfo = _gitService.GetBranchCommit(projectPath, currentBranch);
+                var currentBranch = _gitService.GetCurrentBranch(workingDir);
+                var commitInfo = _gitService.GetBranchCommit(workingDir, currentBranch);
 
                 return Ok(new
                 {
                     success = true,
                     message = "提交成功",
                     committed = true,
-                    commit = commitInfo
+                    commit = commitInfo,
+                    worktree = request?.WorktreeName
                 });
             }
             catch (Exception ex)
@@ -509,15 +528,16 @@ namespace BIMCanvas.Server.Controllers
         #region Merge API
 
         /// <summary>
-        /// 合并分支到当前分支
+        /// 合并分支
+        /// 支持合并到当前分支或指定的目标分支
         /// </summary>
         /// <param name="request">合并请求</param>
         /// <returns>合并结果</returns>
         [HttpPost("merge")]
         public ActionResult<MergeResultDto> MergeBranch([FromBody] MergeRequest request)
         {
-            _logger.LogInformation(">>> [GitController] MergeBranch called: Source={Source}",
-                request?.SourceBranch ?? "(null)");
+            _logger.LogInformation(">>> [GitController] MergeBranch called: Source={Source}, Target={Target}",
+                request?.SourceBranch ?? "(null)", request?.TargetBranch ?? "(current)");
 
             if (string.IsNullOrEmpty(request?.SourceBranch))
             {
@@ -545,6 +565,35 @@ namespace BIMCanvas.Server.Controllers
                     return NotFound(new { message = $"源分支 '{request.SourceBranch}' 不存在" });
                 }
 
+                // 如果指定了目标分支，先切换到目标分支
+                string? originalBranch = null;
+                if (!string.IsNullOrEmpty(request.TargetBranch))
+                {
+                    // 检查目标分支是否存在
+                    if (!allBranches.Contains(request.TargetBranch))
+                    {
+                        return NotFound(new { message = $"目标分支 '{request.TargetBranch}' 不存在" });
+                    }
+
+                    var currentBranch = _gitService.GetCurrentBranch(projectPath);
+                    if (currentBranch != request.TargetBranch)
+                    {
+                        // 检查是否有未提交更改
+                        if (_gitService.HasUncommittedChanges(projectPath))
+                        {
+                            return Conflict(new
+                            {
+                                message = "主仓库有未提交更改，无法切换到目标分支执行合并",
+                                hasUncommittedChanges = true
+                            });
+                        }
+
+                        originalBranch = currentBranch;
+                        _gitService.CheckoutBranch(projectPath, request.TargetBranch);
+                        _logger.LogInformation("切换到目标分支: {Target}", request.TargetBranch);
+                    }
+                }
+
                 var mergeResult = _gitService.MergeBranch(projectPath, request.SourceBranch, request.CommitMessage);
 
                 var result = new MergeResultDto
@@ -554,14 +603,15 @@ namespace BIMCanvas.Server.Controllers
                     Message = mergeResult.Message
                 };
 
+                var targetDesc = request.TargetBranch ?? _gitService.GetCurrentBranch(projectPath);
                 if (mergeResult.Success)
                 {
-                    _logger.LogInformation("合并分支成功: {Source} -> 当前分支", request.SourceBranch);
+                    _logger.LogInformation("合并分支成功: {Source} -> {Target}", request.SourceBranch, targetDesc);
                 }
                 else
                 {
-                    _logger.LogWarning("合并分支失败: {Source}, HasConflicts={HasConflicts}",
-                        request.SourceBranch, mergeResult.HasConflicts);
+                    _logger.LogWarning("合并分支失败: {Source} -> {Target}, HasConflicts={HasConflicts}",
+                        request.SourceBranch, targetDesc, mergeResult.HasConflicts);
                 }
 
                 return Ok(result);
