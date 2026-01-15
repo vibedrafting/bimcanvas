@@ -135,8 +135,8 @@ app.MapHub<CanvasHub>("/hubs/canvas");
 // 健康检查端点
 app.MapGet("/health", () => new { status = "healthy", timestamp = DateTime.UtcNow });
 
-WriteWithColoredPrefix("[Server]", "BIMCanvas.Server 启动中...", ConsoleColor.Gray);
-WriteWithColoredPrefix("[Server]", "Swagger: http://localhost:5000/swagger", ConsoleColor.Gray);
+WriteWithColoredPrefix("[Server]", "BIMCanvas.Server 启动中...", ConsoleColor.White);
+WriteWithColoredPrefix("[Server]", "Swagger: http://localhost:5000/swagger", ConsoleColor.White);
 
 // v3.0 项目加载流程（单项目模式）
 {
@@ -176,8 +176,8 @@ WriteWithColoredPrefix("[Server]", "Swagger: http://localhost:5000/swagger", Con
 
             // 输出项目信息（2行：项目名 + 路径）
             var projectName = Path.GetFileNameWithoutExtension(bcpFilePath);
-            WriteWithColoredPrefix("[Server]", $"项目: {projectName}", ConsoleColor.Gray);
-            WriteWithColoredPrefix("[Server]", $"  路径: {projectPath}", ConsoleColor.Gray);
+            WriteWithColoredPrefix("[Server]", $"项目: {projectName}", ConsoleColor.White);
+            WriteWithColoredPrefix("[Server]", $"  路径: {projectPath}", ConsoleColor.White);
         }
         catch (Exception ex)
         {
@@ -210,7 +210,7 @@ WriteWithColoredPrefix("[Server]", "Swagger: http://localhost:5000/swagger", Con
             // 验证进程身份
             if (IsBIMCanvasAgentProcess(occupyingPid, agentProjectPath))
             {
-                WriteWithColoredPrefix("[Server]", $"清理残留 Agent 进程 (PID: {occupyingPid})...", ConsoleColor.Gray);
+                WriteWithColoredPrefix("[Server]", $"清理残留 Agent 进程 (PID: {occupyingPid})...", ConsoleColor.White);
                 KillProcess(occupyingPid);
                 Thread.Sleep(500); // 等待端口释放
             }
@@ -222,7 +222,7 @@ WriteWithColoredPrefix("[Server]", "Swagger: http://localhost:5000/swagger", Con
             }
         }
 
-        WriteWithColoredPrefix("[Server]", "Agent 服务启动中...", ConsoleColor.Gray);
+        WriteWithColoredPrefix("[Server]", "Agent 服务启动中...", ConsoleColor.White);
         try
         {
             agentProcess = new Process
@@ -278,7 +278,7 @@ WriteWithColoredPrefix("[Server]", "Swagger: http://localhost:5000/swagger", Con
     // 2. 启动 Web 服务（不等待，后台运行）
     if (Directory.Exists(webProjectPath))
     {
-        WriteWithColoredPrefix("[Server]", "Web 开发服务器启动中...", ConsoleColor.Gray);
+        WriteWithColoredPrefix("[Server]", "Web 开发服务器启动中...", ConsoleColor.White);
         webProcess = new Process
         {
             StartInfo = new ProcessStartInfo
@@ -327,7 +327,7 @@ WriteWithColoredPrefix("[Server]", "Swagger: http://localhost:5000/swagger", Con
     // 3. 等待 Web 服务就绪后打开浏览器（Agent 在后台继续启动，Web 端通过 health 检查感知状态）
     if (webProcess != null)
     {
-        WriteWithColoredPrefix("[Server]", "等待 Web 服务启动...", ConsoleColor.Gray);
+        WriteWithColoredPrefix("[Server]", "等待 Web 服务启动...", ConsoleColor.White);
         var webBaseUrl = "http://localhost:5173";
         using var httpClient = new HttpClient { Timeout = TimeSpan.FromMilliseconds(500) };
         for (int i = 0; i < 50; i++)
@@ -337,7 +337,7 @@ WriteWithColoredPrefix("[Server]", "Swagger: http://localhost:5000/swagger", Con
                 var response = await httpClient.GetAsync(webBaseUrl);
                 if (response.IsSuccessStatusCode)
                 {
-                    WriteWithColoredPrefix("[Server]", "所有服务已就绪", ConsoleColor.Gray);
+                    WriteWithColoredPrefix("[Server]", "所有服务已就绪", ConsoleColor.White);
                     break;
                 }
             }
@@ -346,7 +346,7 @@ WriteWithColoredPrefix("[Server]", "Swagger: http://localhost:5000/swagger", Con
         }
 
         // 打开浏览器
-        WriteWithColoredPrefix("[Server]", $"打开浏览器: {webBaseUrl}", ConsoleColor.Gray);
+        WriteWithColoredPrefix("[Server]", $"打开浏览器: {webBaseUrl}", ConsoleColor.White);
         try
         {
             Process.Start(new ProcessStartInfo(webBaseUrl) { UseShellExecute = true });
@@ -362,12 +362,12 @@ WriteWithColoredPrefix("[Server]", "Swagger: http://localhost:5000/swagger", Con
     {
         if (agentProcess != null && !agentProcess.HasExited)
         {
-            WriteWithColoredPrefix("[Server]", "正在关闭 Agent 服务...", ConsoleColor.Gray);
+            WriteWithColoredPrefix("[Server]", "正在关闭 Agent 服务...", ConsoleColor.White);
             agentProcess.Kill(true);
         }
         if (webProcess != null && !webProcess.HasExited)
         {
-            WriteWithColoredPrefix("[Server]", "正在关闭 Web 开发服务器...", ConsoleColor.Gray);
+            WriteWithColoredPrefix("[Server]", "正在关闭 Web 开发服务器...", ConsoleColor.White);
             webProcess.Kill(true);
         }
     };
@@ -649,7 +649,7 @@ static void KillProcess(int pid)
             }
         }
 
-        WriteWithColoredPrefix("[Server]", "端口清理完成", ConsoleColor.Gray);
+        WriteWithColoredPrefix("[Server]", "端口清理完成", ConsoleColor.White);
     }
     catch (Exception ex)
     {

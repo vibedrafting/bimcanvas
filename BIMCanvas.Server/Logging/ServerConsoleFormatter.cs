@@ -66,16 +66,16 @@ namespace BIMCanvas.Server.Logging
 
         private static ConsoleColor GetPrefixColor(LogLevel logLevel)
         {
-            // Server 使用灰色系（低调风格）
+            // Server 使用白色系（低调风格，与默认文本颜色一致）
             return logLevel switch
             {
                 LogLevel.Trace => ConsoleColor.DarkGray,
                 LogLevel.Debug => ConsoleColor.DarkGray,
-                LogLevel.Information => ConsoleColor.Gray,
+                LogLevel.Information => ConsoleColor.White,
                 LogLevel.Warning => ConsoleColor.DarkYellow,
                 LogLevel.Error => ConsoleColor.DarkGray,
                 LogLevel.Critical => ConsoleColor.DarkGray,
-                _ => ConsoleColor.Gray
+                _ => ConsoleColor.White
             };
         }
 
