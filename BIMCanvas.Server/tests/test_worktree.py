@@ -149,10 +149,19 @@ def commit_in_worktree(worktree_name, message):
     return resp.ok, resp.json() if resp.ok else resp.text
 
 
-def merge_branch(source_branch, target_branch=None, commit_message=None):
-    """合并分支"""
+def merge_branch(source_branch, target_branch=None, worktree_name=None, commit_message=None):
+    """合并分支
+
+    Args:
+        source_branch: 源分支（要合并进来的分支）
+        target_branch: 目标分支（在主仓库中切换后合并，场景 B）
+        worktree_name: Worktree 名称（在指定 Worktree 中合并，场景 F）
+        commit_message: 合并提交信息
+    """
     data = {"sourceBranch": source_branch}
-    if target_branch:
+    if worktree_name:
+        data["worktreeName"] = worktree_name
+    elif target_branch:
         data["targetBranch"] = target_branch
     if commit_message:
         data["commitMessage"] = commit_message
@@ -179,6 +188,13 @@ BRANCH_B = "test/ai-temp"
 WT_B = "test-b-wt"
 TEST_FILE = "test_agent_work.txt"
 STATE_FILE = os.path.join(os.path.dirname(__file__), ".test_state.json")  # 状态文件
+
+# 场景 F 配置（多窗口独立任务）
+BRANCH_F = "test/scheme-f"       # 虚拟窗口分支
+BRANCH_F_AI = "test/ai-temp-f"   # Agent 临时分支
+WT_F_WINDOW = "window-f"         # 虚拟窗口 Worktree
+WT_F_AGENT = "ai-job-f"          # Agent Worktree
+TEST_FILE_F = "test_scene_f.txt" # 场景 F 测试文件
 
 
 def save_state(key, value):
@@ -629,6 +645,373 @@ def test_b4_cleanup():
 
 
 # ============================================================
+# 场景 F：多窗口独立任务
+# ============================================================
+
+def test_f1_create_window():
+    """
+    F1: 创建虚拟窗口
+
+    场景：用户打开新窗口，检出一个分支
+    """
+    print("\n" + "=" * 60)
+    print(f"{CYAN}F1: 创建虚拟窗口{RESET}")
+    print("=" * 60)
+
+    base_branch = get_current_branch()
+
+    # Step 1: 准备 - 确保虚拟窗口分支存在
+    log_step(1, f"准备：确保虚拟窗口分支 {BRANCH_F} 存在")
+    if not branch_exists(BRANCH_F):
+        log_info("分支不存在，先创建...")
+        success, _ = create_worktree("temp-create-f", BRANCH_F, base_branch=base_branch)
+        if success:
+            delete_worktree("temp-create-f", delete_branch=False)
+            log_pass(f"分支 {BRANCH_F} 已创建")
+        else:
+            log_fail("无法创建测试分支")
+            return False
+    else:
+        log_pass(f"分支 {BRANCH_F} 已存在")
+
+    # 清理可能残留的 worktree
+    if worktree_exists(WT_F_WINDOW):
+        log_info(f"清理残留 worktree: {WT_F_WINDOW}")
+        delete_worktree(WT_F_WINDOW, delete_branch=False)
+
+    # Step 2: 创建虚拟窗口 worktree
+    log_step(2, f"创建虚拟窗口: {WT_F_WINDOW}")
+    log_info(f"检出分支: {BRANCH_F}")
+
+    success, result = create_worktree(WT_F_WINDOW, BRANCH_F)
+    if not success:
+        log_fail(f"创建失败: {result}")
+        return False
+
+    log_pass("API 调用成功")
+    log_info(f"返回路径: {result.get('path')}")
+
+    # Step 3: 验证
+    log_step(3, "验证虚拟窗口")
+    wt_info = get_worktree_info(WT_F_WINDOW)
+    if not wt_info:
+        log_fail("Worktree 不在列表中")
+        return False
+
+    log_pass("Worktree 存在")
+    log_info(f"  名称: {wt_info.get('name')}")
+    log_info(f"  路径: {wt_info.get('path')}")
+    log_info(f"  分支: {wt_info.get('branch')}")
+
+    # 保存虚拟窗口路径到状态
+    save_state("window_path", wt_info.get('path'))
+
+    print(f"\n{GREEN}F1 测试通过{RESET}")
+    print(f"{YELLOW}>>> 虚拟窗口已创建，运行 F2 创建 Agent 隔离环境 <<<{RESET}")
+    return True
+
+
+def test_f2_create_agent():
+    """
+    F2: 在虚拟窗口中创建 Agent 隔离环境
+
+    场景：用户在虚拟窗口中请求 AI 执行任务，系统创建隔离环境
+    """
+    print("\n" + "=" * 60)
+    print(f"{CYAN}F2: 创建 Agent 隔离环境（基于虚拟窗口分支）{RESET}")
+    print("=" * 60)
+
+    # Step 1: 检查前置条件
+    log_step(1, f"检查虚拟窗口 {WT_F_WINDOW} 是否存在")
+    if not worktree_exists(WT_F_WINDOW):
+        log_warn(f"虚拟窗口 {WT_F_WINDOW} 不存在，请先运行 F1")
+        return False
+    log_pass("虚拟窗口存在")
+
+    # 清理可能残留的 Agent worktree
+    if worktree_exists(WT_F_AGENT):
+        log_info(f"清理残留 worktree: {WT_F_AGENT}")
+        delete_worktree(WT_F_AGENT, delete_branch=True)
+
+    # 清理可能残留的临时分支
+    if branch_exists(BRANCH_F_AI):
+        log_info(f"清理残留分支: {BRANCH_F_AI}")
+        success, _ = create_worktree("cleanup-f-ai", BRANCH_F_AI)
+        if success:
+            delete_worktree("cleanup-f-ai", delete_branch=True)
+
+    # Step 2: 创建 Agent worktree，基于虚拟窗口分支
+    log_step(2, "创建 Agent Worktree + 临时分支")
+    log_info(f"Worktree: {WT_F_AGENT}")
+    log_info(f"临时分支: {BRANCH_F_AI}")
+    log_info(f"基准分支: {BRANCH_F}（虚拟窗口分支）")
+
+    success, result = create_worktree(WT_F_AGENT, BRANCH_F_AI, base_branch=BRANCH_F)
+    if not success:
+        log_fail(f"创建失败: {result}")
+        return False
+
+    log_pass("API 调用成功")
+    log_info(f"返回路径: {result.get('path')}")
+
+    # Step 3: 验证
+    log_step(3, "验证 Agent Worktree")
+    wt_info = get_worktree_info(WT_F_AGENT)
+    if not wt_info:
+        log_fail("Worktree 不在列表中")
+        return False
+
+    log_pass("Worktree 存在")
+    log_info(f"  名称: {wt_info.get('name')}")
+    log_info(f"  路径: {wt_info.get('path')}")
+    log_info(f"  分支: {wt_info.get('branch')}")
+
+    # 保存 Agent worktree 路径到状态
+    save_state("agent_path", wt_info.get('path'))
+
+    print(f"\n{GREEN}F2 测试通过{RESET}")
+    print(f"{YELLOW}>>> Agent 隔离环境已创建，运行 F3 模拟 Agent 工作 <<<{RESET}")
+    return True
+
+
+def test_f3_agent_work():
+    """
+    F3: Agent 在隔离环境中工作并提交
+
+    场景：Agent 在隔离环境中修改文件并提交
+    """
+    print("\n" + "=" * 60)
+    print(f"{CYAN}F3: Agent 工作并提交{RESET}")
+    print("=" * 60)
+
+    # Step 1: 检查前置条件
+    log_step(1, f"检查 Agent Worktree {WT_F_AGENT} 是否存在")
+    if not worktree_exists(WT_F_AGENT):
+        log_warn(f"Agent Worktree {WT_F_AGENT} 不存在，请先运行 F2")
+        return False
+    log_pass("Agent Worktree 存在")
+
+    wt_info = get_worktree_info(WT_F_AGENT)
+    agent_path = wt_info.get('path')
+    log_info(f"Agent Worktree 路径: {agent_path}")
+
+    # Step 2: 在 Agent worktree 中创建测试文件
+    log_step(2, "在 Agent Worktree 中创建测试文件")
+    test_file_path = os.path.join(agent_path, TEST_FILE_F)
+
+    try:
+        with open(test_file_path, 'w', encoding='utf-8') as f:
+            f.write(f"场景 F 测试文件\n创建时间: {time.strftime('%Y-%m-%d %H:%M:%S')}\n")
+            f.write("此文件由 Agent 在隔离环境中创建\n")
+        log_pass(f"测试文件已创建: {TEST_FILE_F}")
+    except Exception as e:
+        log_fail(f"创建文件失败: {e}")
+        return False
+
+    # Step 3: 通过 API 在 Agent worktree 中提交
+    log_step(3, "通过 API 在 Agent Worktree 中提交")
+    log_info(f"使用 API: commit(worktreeName={WT_F_AGENT})")
+
+    success, result = commit_in_worktree(WT_F_AGENT, "Agent 场景 F 测试提交")
+    if not success:
+        log_fail(f"提交失败: {result}")
+        return False
+
+    if result.get('committed'):
+        log_pass("提交成功")
+        log_info(f"  commit: {result.get('commit', {}).get('hash', '?')}")
+    else:
+        log_warn(f"没有提交: {result.get('message')}")
+
+    print(f"\n{GREEN}F3 测试通过{RESET}")
+    print(f"{YELLOW}>>> Agent 工作已完成，运行 F4 合并回虚拟窗口 <<<{RESET}")
+    return True
+
+
+def test_f4_merge_to_window():
+    """
+    F4: 合并回虚拟窗口分支 ★ 场景 F 关键测试点 ★
+
+    场景：Agent 完成工作后，把临时分支合并回虚拟窗口所在的分支
+    这是场景 F 的核心：使用 worktreeName 参数在虚拟窗口中执行合并
+    """
+    print("\n" + "=" * 60)
+    print(f"{CYAN}F4: 合并回虚拟窗口（使用 worktreeName）★ 关键测试 ★{RESET}")
+    print("=" * 60)
+
+    # Step 1: 检查前置条件
+    log_step(1, "检查前置条件")
+    if not worktree_exists(WT_F_WINDOW):
+        log_warn(f"虚拟窗口 {WT_F_WINDOW} 不存在，请先运行 F1")
+        return False
+    log_pass(f"虚拟窗口 {WT_F_WINDOW} 存在")
+
+    if not branch_exists(BRANCH_F_AI):
+        log_warn(f"Agent 临时分支 {BRANCH_F_AI} 不存在，请先运行 F2+F3")
+        return False
+    log_pass(f"Agent 临时分支 {BRANCH_F_AI} 存在")
+
+    window_info = get_worktree_info(WT_F_WINDOW)
+    window_path = window_info.get('path')
+    log_info(f"虚拟窗口路径: {window_path}")
+    log_info(f"虚拟窗口分支: {window_info.get('branch')}")
+
+    # Step 2: 使用 worktreeName 参数合并
+    log_step(2, "通过 API 合并（使用 worktreeName）")
+    log_info(f"使用新 API: merge(sourceBranch={BRANCH_F_AI}, worktreeName={WT_F_WINDOW})")
+    log_info("这会在虚拟窗口 Worktree 中执行合并，而不是在主仓库中")
+
+    success, result = merge_branch(
+        source_branch=BRANCH_F_AI,
+        worktree_name=WT_F_WINDOW,  # ★ 关键：使用 worktreeName 而不是 targetBranch
+        commit_message=f"合并 Agent 任务: {BRANCH_F_AI}"
+    )
+
+    if not success:
+        log_fail(f"合并失败: {result}")
+        return False
+
+    if result.get('success'):
+        log_pass("合并成功")
+        log_info(f"  消息: {result.get('message')}")
+    else:
+        if result.get('hasConflicts'):
+            log_warn("合并有冲突，需要手动解决")
+            log_info(f"  消息: {result.get('message')}")
+        else:
+            log_fail(f"合并失败: {result.get('message')}")
+            return False
+
+    # Step 3: 验证合并结果 - 检查虚拟窗口目录中是否有测试文件
+    log_step(3, "验证合并结果")
+    merged_file_path = os.path.join(window_path, TEST_FILE_F)
+    if os.path.exists(merged_file_path):
+        log_pass(f"测试文件已合并到虚拟窗口: {TEST_FILE_F}")
+        with open(merged_file_path, 'r', encoding='utf-8') as f:
+            content = f.read()
+            log_info(f"  文件内容预览: {content[:50]}...")
+    else:
+        log_fail(f"测试文件未出现在虚拟窗口目录中！")
+        log_info(f"  期望路径: {merged_file_path}")
+        return False
+
+    print(f"\n{GREEN}F4 测试通过{RESET}")
+    print(f"{YELLOW}>>> 已合并到虚拟窗口，运行 F5 清理 Agent Worktree <<<{RESET}")
+    return True
+
+
+def test_f5_cleanup_agent():
+    """
+    F5: 清理 Agent Worktree
+
+    场景：Agent 任务完成，删除 Agent 临时 worktree 和分支
+    """
+    print("\n" + "=" * 60)
+    print(f"{CYAN}F5: 清理 Agent Worktree{RESET}")
+    print("=" * 60)
+
+    # Step 1: 检查 Agent worktree
+    log_step(1, f"检查 Agent Worktree {WT_F_AGENT}")
+    if not worktree_exists(WT_F_AGENT):
+        log_info(f"Agent Worktree {WT_F_AGENT} 已不存在")
+    else:
+        log_pass("Agent Worktree 存在，将删除")
+
+    # Step 2: 删除 Agent worktree + 临时分支
+    log_step(2, "删除 Agent Worktree + 临时分支")
+    log_info("参数: delete_branch=True（删除临时分支）")
+
+    if worktree_exists(WT_F_AGENT):
+        success, result = delete_worktree(WT_F_AGENT, delete_branch=True)
+        if not success:
+            log_fail(f"删除失败: {result}")
+            return False
+        log_pass(f"删除成功: {result.get('message')}")
+
+    # Step 3: 验证
+    log_step(3, "验证 Agent Worktree 已删除")
+    time.sleep(0.2)
+    if worktree_exists(WT_F_AGENT):
+        log_fail("Agent Worktree 仍存在！")
+        return False
+    log_pass("Agent Worktree 已删除")
+
+    # Step 4: 验证临时分支已删除
+    log_step(4, "验证临时分支已删除")
+    if not branch_exists(BRANCH_F_AI):
+        log_pass(f"分支 '{BRANCH_F_AI}' 已删除")
+    else:
+        log_warn(f"分支 '{BRANCH_F_AI}' 仍存在")
+
+    print(f"\n{GREEN}F5 测试通过{RESET}")
+    print(f"{YELLOW}>>> Agent 已清理，运行 F6 清理虚拟窗口 <<<{RESET}")
+    return True
+
+
+def test_f6_cleanup_window():
+    """
+    F6: 清理虚拟窗口
+
+    场景：用户关闭虚拟窗口，删除 worktree 但保留分支
+    """
+    print("\n" + "=" * 60)
+    print(f"{CYAN}F6: 清理虚拟窗口（保留分支）{RESET}")
+    print("=" * 60)
+
+    # Step 1: 检查虚拟窗口
+    log_step(1, f"检查虚拟窗口 {WT_F_WINDOW}")
+    if not worktree_exists(WT_F_WINDOW):
+        log_info(f"虚拟窗口 {WT_F_WINDOW} 已不存在")
+    else:
+        log_pass("虚拟窗口存在，将删除")
+
+    # Step 2: 删除虚拟窗口（保留分支）
+    log_step(2, "删除虚拟窗口（保留分支）")
+    log_info("参数: delete_branch=False（保留分支）")
+
+    if worktree_exists(WT_F_WINDOW):
+        success, result = delete_worktree(WT_F_WINDOW, delete_branch=False)
+        if not success:
+            log_fail(f"删除失败: {result}")
+            return False
+        log_pass(f"删除成功: {result.get('message')}")
+
+    # Step 3: 验证 worktree 已删除
+    log_step(3, "验证虚拟窗口 Worktree 已删除")
+    time.sleep(0.2)
+    if worktree_exists(WT_F_WINDOW):
+        log_fail("虚拟窗口 Worktree 仍存在！")
+        return False
+    log_pass("虚拟窗口 Worktree 已删除")
+
+    # Step 4: 验证分支仍存在
+    log_step(4, "验证分支仍存在")
+    if branch_exists(BRANCH_F):
+        log_pass(f"分支 '{BRANCH_F}' 保留成功")
+    else:
+        log_fail(f"分支 '{BRANCH_F}' 被意外删除！")
+        return False
+
+    # Step 5: 清除状态文件
+    log_step(5, "清除状态文件")
+    clear_state()
+    log_pass("状态已清除")
+
+    print(f"\n{GREEN}F6 测试通过{RESET}")
+
+    # 清理测试分支
+    print(f"\n{YELLOW}清理测试分支...{RESET}")
+    success, _ = create_worktree("cleanup-f", BRANCH_F)
+    if success:
+        delete_worktree("cleanup-f", delete_branch=True)
+        log_pass(f"测试分支 {BRANCH_F} 已清理")
+    else:
+        log_warn("清理失败（可手动删除）")
+
+    return True
+
+
+# ============================================================
 # 辅助命令
 # ============================================================
 
@@ -740,10 +1123,19 @@ def print_usage():
     print("    b3  合并回基础分支")
     print("    b4  清理（删除 Worktree + 临时分支）")
     print()
+    print("  场景 F（多窗口独立任务）:")
+    print("    f1  创建虚拟窗口（检出 test/scheme-f）")
+    print("    f2  创建 Agent 隔离环境（基于虚拟窗口分支）")
+    print("    f3  Agent 工作并提交")
+    print("    f4  合并回虚拟窗口（使用 worktreeName）★")
+    print("    f5  清理 Agent Worktree + 临时分支")
+    print("    f6  清理虚拟窗口（保留分支）")
+    print()
     print("推荐测试顺序:")
     print("  场景 A: python test_worktree.py a1 && python test_worktree.py a2")
     print("  场景 B: python test_worktree.py b1 && python test_worktree.py b2 && ...")
-    print("  完整:   python test_worktree.py a b")
+    print("  场景 F: python test_worktree.py f  (完整 F1-F6)")
+    print("  完整:   python test_worktree.py a b f")
 
 
 def main():
@@ -782,7 +1174,7 @@ def main():
     # 解析参数
     a1_branch = None
     b1_base_branch = None
-    test_keys = ['a', 'a1', 'a2', 'b', 'b1', 'b2', 'b3', 'b4']
+    test_keys = ['a', 'a1', 'a2', 'b', 'b1', 'b2', 'b3', 'b4', 'f', 'f1', 'f2', 'f3', 'f4', 'f5', 'f6']
 
     # 查找 a1/b1 后面是否跟着分支名
     for i, arg in enumerate(args):
@@ -803,15 +1195,23 @@ def main():
         'b2': ('B2 (模拟 Agent 工作)', test_b2_agent_work),
         'b3': ('B3 (合并回基础分支)', test_b3_merge_back),
         'b4': ('B4 (清理隔离环境)', test_b4_cleanup),
+        'f1': ('F1 (创建虚拟窗口)', test_f1_create_window),
+        'f2': ('F2 (创建 Agent 隔离环境)', test_f2_create_agent),
+        'f3': ('F3 (Agent 工作并提交)', test_f3_agent_work),
+        'f4': ('F4 (合并回虚拟窗口) ★', test_f4_merge_to_window),
+        'f5': ('F5 (清理 Agent)', test_f5_cleanup_agent),
+        'f6': ('F6 (清理虚拟窗口)', test_f6_cleanup_window),
     }
 
-    # 展开 'a' 和 'b'
+    # 展开 'a', 'b', 'f'
     expanded_args = []
     for arg in args:
         if arg == 'a':
             expanded_args.extend(['a1', 'a2'])
         elif arg == 'b':
             expanded_args.extend(['b1', 'b2', 'b3', 'b4'])
+        elif arg == 'f':
+            expanded_args.extend(['f1', 'f2', 'f3', 'f4', 'f5', 'f6'])
         elif arg in tests:
             expanded_args.append(arg)
 

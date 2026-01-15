@@ -529,15 +529,20 @@ namespace BIMCanvas.Server.Controllers
 
         /// <summary>
         /// 合并分支
-        /// 支持合并到当前分支或指定的目标分支
+        /// 支持三种模式：
+        /// 1. 合并到主仓库当前分支（只传 sourceBranch）
+        /// 2. 合并到主仓库指定分支（传 sourceBranch + targetBranch）
+        /// 3. 在指定 Worktree 中合并（传 sourceBranch + worktreeName，用于场景 F）
         /// </summary>
         /// <param name="request">合并请求</param>
         /// <returns>合并结果</returns>
         [HttpPost("merge")]
         public ActionResult<MergeResultDto> MergeBranch([FromBody] MergeRequest request)
         {
-            _logger.LogInformation(">>> [GitController] MergeBranch called: Source={Source}, Target={Target}",
-                request?.SourceBranch ?? "(null)", request?.TargetBranch ?? "(current)");
+            _logger.LogInformation(">>> [GitController] MergeBranch called: Source={Source}, Target={Target}, Worktree={Worktree}",
+                request?.SourceBranch ?? "(null)",
+                request?.TargetBranch ?? "(current)",
+                request?.WorktreeName ?? "(main)");
 
             if (string.IsNullOrEmpty(request?.SourceBranch))
             {
@@ -565,9 +570,36 @@ namespace BIMCanvas.Server.Controllers
                     return NotFound(new { message = $"源分支 '{request.SourceBranch}' 不存在" });
                 }
 
-                // 如果指定了目标分支，先切换到目标分支
-                string? originalBranch = null;
-                if (!string.IsNullOrEmpty(request.TargetBranch))
+                // 确定工作目录
+                var workingDir = projectPath;
+                string targetDesc;
+
+                // 模式 1：在指定 Worktree 中执行合并（场景 F：目标分支已被 Worktree 检出）
+                if (!string.IsNullOrEmpty(request.WorktreeName))
+                {
+                    var worktreesDir = _gitService.GetWorktreesDir(projectPath);
+                    workingDir = System.IO.Path.Combine(worktreesDir, request.WorktreeName);
+
+                    if (!System.IO.Directory.Exists(workingDir))
+                    {
+                        return NotFound(new { message = $"Worktree '{request.WorktreeName}' 不存在" });
+                    }
+
+                    // 检查 Worktree 中是否有未提交更改
+                    if (_gitService.HasUncommittedChanges(workingDir))
+                    {
+                        return Conflict(new
+                        {
+                            message = $"Worktree '{request.WorktreeName}' 有未提交更改，无法执行合并",
+                            hasUncommittedChanges = true
+                        });
+                    }
+
+                    targetDesc = $"worktree:{request.WorktreeName}";
+                    _logger.LogInformation("在 Worktree 中执行合并: {WorktreeName}", request.WorktreeName);
+                }
+                // 模式 2：在主仓库中切换到目标分支后合并
+                else if (!string.IsNullOrEmpty(request.TargetBranch))
                 {
                     // 检查目标分支是否存在
                     if (!allBranches.Contains(request.TargetBranch))
@@ -588,13 +620,20 @@ namespace BIMCanvas.Server.Controllers
                             });
                         }
 
-                        originalBranch = currentBranch;
                         _gitService.CheckoutBranch(projectPath, request.TargetBranch);
                         _logger.LogInformation("切换到目标分支: {Target}", request.TargetBranch);
                     }
+
+                    targetDesc = request.TargetBranch;
+                }
+                // 模式 3：合并到主仓库当前分支
+                else
+                {
+                    targetDesc = _gitService.GetCurrentBranch(projectPath);
                 }
 
-                var mergeResult = _gitService.MergeBranch(projectPath, request.SourceBranch, request.CommitMessage);
+                // 执行合并
+                var mergeResult = _gitService.MergeBranch(workingDir, request.SourceBranch, request.CommitMessage);
 
                 var result = new MergeResultDto
                 {
@@ -603,7 +642,6 @@ namespace BIMCanvas.Server.Controllers
                     Message = mergeResult.Message
                 };
 
-                var targetDesc = request.TargetBranch ?? _gitService.GetCurrentBranch(projectPath);
                 if (mergeResult.Success)
                 {
                     _logger.LogInformation("合并分支成功: {Source} -> {Target}", request.SourceBranch, targetDesc);

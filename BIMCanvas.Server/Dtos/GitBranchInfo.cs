@@ -172,8 +172,15 @@ namespace BIMCanvas.Server.Dtos
         /// 目标分支名（可选，合并到哪个分支）
         /// 如果指定，会先切换到目标分支再执行合并
         /// 如果不指定，则合并到当前分支
+        /// 注意：与 WorktreeName 互斥，WorktreeName 优先
         /// </summary>
         public string? TargetBranch { get; set; }
+
+        /// <summary>
+        /// Worktree 名称（可选）
+        /// 如果指定，则在该 Worktree 中执行合并（用于场景 F：目标分支已被 Worktree 检出）
+        /// </summary>
+        public string? WorktreeName { get; set; }
 
         /// <summary>
         /// 可选的合并提交信息
