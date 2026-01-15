@@ -174,64 +174,6 @@ namespace BIMCanvas.Server.Services
         #region Git 分支策略管理
 
         /// <summary>
-        /// 保存当前策略到分支
-        /// </summary>
-        public void SaveStrategyToBranch(string projectPath, string strategyId, string? commitMessage = null)
-        {
-            if (!_gitService.IsGitRepository(projectPath))
-            {
-                _logger.LogWarning("项目未初始化 Git，跳过分支保存");
-                return;
-            }
-
-            var branchName = $"{GitWorktreeService.SchemeBranchPrefix}{strategyId}";
-            var message = commitMessage ?? $"Save strategy: {strategyId}";
-
-            // 提交当前更改
-            if (_gitService.HasUncommittedChanges(projectPath))
-            {
-                _gitService.Commit(projectPath, message);
-            }
-
-            // 创建/更新分支指向当前提交
-            var branches = _gitService.GetAllBranches(projectPath);
-            if (branches.Contains(branchName))
-            {
-                _gitService.DeleteBranch(projectPath, branchName, force: true);
-            }
-            _gitService.CreateBranch(projectPath, branchName);
-
-            _logger.LogInformation("策略已保存到分支: {Branch}", branchName);
-        }
-
-        /// <summary>
-        /// 从分支加载策略
-        /// </summary>
-        public void LoadStrategyFromBranch(string projectPath, string strategyId)
-        {
-            if (!_gitService.IsGitRepository(projectPath))
-            {
-                throw new InvalidOperationException("项目未初始化 Git");
-            }
-
-            var branchName = $"{GitWorktreeService.SchemeBranchPrefix}{strategyId}";
-            var branches = _gitService.GetAllBranches(projectPath);
-
-            if (!branches.Contains(branchName))
-            {
-                throw new InvalidOperationException($"策略分支不存在: {branchName}");
-            }
-
-            if (_gitService.HasUncommittedChanges(projectPath))
-            {
-                throw new InvalidOperationException("存在未提交的更改，请先保存当前策略");
-            }
-
-            _gitService.CheckoutBranch(projectPath, branchName);
-            _logger.LogInformation("已加载策略: {Id} (分支: {Branch})", strategyId, branchName);
-        }
-
-        /// <summary>
         /// 创建新策略（基于当前状态创建分支）
         /// </summary>
         public string CreateStrategy(string projectPath, string name, StrategyApproach approach, string baselineHash)
@@ -268,11 +210,27 @@ namespace BIMCanvas.Server.Services
             };
             WriteJsonFile(Path.Combine(schemesPath, "strategy.json"), strategy);
 
-            // 如果有 Git，保存到分支
+            // 如果有 Git，提交并创建分支
             if (_gitService.IsGitRepository(projectPath))
             {
-                SaveStrategyToBranch(projectPath, strategyId,
-                    $"Create strategy: {name} ({approach})");
+                var branchName = $"{GitWorktreeService.SchemeBranchPrefix}{strategyId}";
+                var commitMessage = $"Create strategy: {name} ({approach})";
+
+                // 提交当前更改
+                if (_gitService.HasUncommittedChanges(projectPath))
+                {
+                    _gitService.Commit(projectPath, commitMessage);
+                }
+
+                // 创建/更新分支指向当前提交
+                var branches = _gitService.GetAllBranches(projectPath);
+                if (branches.Contains(branchName))
+                {
+                    _gitService.DeleteBranch(projectPath, branchName, force: true);
+                }
+                _gitService.CreateBranch(projectPath, branchName);
+
+                _logger.LogInformation("策略已保存到分支: {Branch}", branchName);
             }
 
             _logger.LogInformation("策略创建完成: {Id}", strategyId);
@@ -302,77 +260,6 @@ namespace BIMCanvas.Server.Services
 
         #endregion
 
-        #region 并行策略生成
-
-        /// <summary>
-        /// 创建并行策略分叉（场景 A：策略分叉）
-        /// </summary>
-        public Dictionary<string, string> CreateParallelStrategies(
-            string projectPath,
-            List<ParallelStrategyRequest> strategies)
-        {
-            if (!_gitService.IsGitRepository(projectPath))
-            {
-                throw new InvalidOperationException("项目未初始化 Git，无法创建并行策略");
-            }
-
-            var result = new Dictionary<string, string>();
-
-            // 先提交当前状态
-            if (_gitService.HasUncommittedChanges(projectPath))
-            {
-                _gitService.Commit(projectPath, "Save state before parallel generation");
-            }
-
-            foreach (var strategyReq in strategies)
-            {
-                var jobId = strategyReq.JobId ?? SanitizeName(strategyReq.Name);
-                var worktreePath = _gitService.CreateAiJobWorktree(
-                    projectPath, jobId, SanitizeName(strategyReq.Name));
-
-                // 在 worktree 中更新策略配置
-                var schemesPath = Path.Combine(worktreePath, "schemes");
-                var strategyJsonPath = Path.Combine(schemesPath, "strategy.json");
-
-                if (File.Exists(strategyJsonPath))
-                {
-                    var json = File.ReadAllText(strategyJsonPath, Encoding.UTF8);
-                    var strategy = JsonConvert.DeserializeObject<Strategy>(json);
-                    if (strategy != null)
-                    {
-                        strategy.Name = strategyReq.Name;
-                        strategy.Approach = strategyReq.Approach;
-                        strategy.Description = strategyReq.Description;
-                        strategy.UpdatedAt = DateTime.Now;
-                        WriteJsonFile(strategyJsonPath, strategy);
-                    }
-                }
-
-                result[jobId] = worktreePath;
-                _logger.LogInformation("创建并行策略: {Name} -> {Path}", strategyReq.Name, worktreePath);
-            }
-
-            return result;
-        }
-
-        /// <summary>
-        /// 接受并行策略结果
-        /// </summary>
-        public MergeResult AcceptParallelStrategy(string projectPath, string jobId)
-        {
-            return _gitService.AcceptAiJob(projectPath, jobId);
-        }
-
-        /// <summary>
-        /// 清理所有并行策略
-        /// </summary>
-        public void CleanupParallelStrategies(string projectPath)
-        {
-            _gitService.CleanupAiWorktrees(projectPath);
-        }
-
-        #endregion
-
         #region 私有方法
 
         private void WriteJsonFile(string path, object data)
@@ -397,20 +284,4 @@ namespace BIMCanvas.Server.Services
 
         #endregion
     }
-
-    #region 请求类型
-
-    /// <summary>
-    /// 并行策略请求
-    /// </summary>
-    public class ParallelStrategyRequest
-    {
-        public string? JobId { get; set; }
-        public string Name { get; set; } = string.Empty;
-        public StrategyApproach Approach { get; set; }
-        public string? Description { get; set; }
-        public Dictionary<string, object>? Parameters { get; set; }
-    }
-
-    #endregion
 }

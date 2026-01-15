@@ -1,6 +1,6 @@
 # Git 标准工作流
 
-> **版本**：v1.2 | **更新日期**：2026-01-15
+> **版本**：v1.3 | **更新日期**：2026-01-15
 > **目的**：标准化 Agent 和 Web 用户的 Git 操作流程，提高准确率和效率
 
 ---
@@ -160,9 +160,85 @@ SubAgent 工作 → commit → 合并回 scheme/极致收纳
 
 ---
 
-## 二、已有实现清单
+## 二、存档系统
 
-### 2.1 Server REST API（已实现）
+### 2.1 存档类型
+
+| 类型 | 触发条件 | commit message | 用户交互 |
+|------|----------|----------------|----------|
+| **自动存档** | Server API 层拦截（创建 Worktree 前） | `自动存档_{timestamp}` | 无（静默执行） |
+| **手动存档** | 1. 用户点击保存按钮<br>2. 用户切换分支时弹窗选择「保存」 | 默认格式或自定义 | 可输入 |
+
+### 2.2 自动存档触发的操作
+
+| API | 触发自动存档 | 说明 |
+|-----|-------------|------|
+| `POST /api/git/worktrees` | ✅ 创建前自动存档 | 检测到未提交更改时静默执行 |
+| `POST /api/git/checkout` | ✅ 弹窗确认 | 用户选择「保存」时执行 |
+| 其他只读/清理操作 | ❌ 不需要 | 不影响数据完整性 |
+
+### 2.3 自动存档机制
+
+```
+用户请求创建 Worktree
+    │
+    ▼
+Server 检测工作区状态
+    │
+    ├─► 工作区干净（无未提交更改）
+    │       │
+    │       ▼
+    │   直接创建 Worktree
+    │
+    └─► 工作区不干净（有未提交更改）
+            │
+            ▼
+        自动执行：git add . && git commit -m "自动存档_{timestamp}"
+            │
+            ▼
+        创建 Worktree
+```
+
+**核心原则**：
+- 自动存档对用户透明，不阻塞操作
+- 保护用户数据，避免因 Git 操作丢失未保存的更改
+- commit message 格式：`自动存档_{yyyyMMdd_HHmmss}`
+
+### 2.4 手动存档流程
+
+**场景 A：用户点击保存按钮**
+
+```
+用户点击「保存」
+    │
+    ▼
+POST /api/git/commit { message: "用户自定义信息" }
+    │
+    ▼
+显示保存结果
+```
+
+**场景 B：切换分支时弹窗确认**
+
+```
+用户尝试切换分支
+    │
+    ▼
+检测到未提交更改
+    │
+    ▼
+弹窗：「存在未保存的更改」
+    │
+    ├─► 用户选择「保存」→ 执行手动存档后切换
+    ├─► 用户选择「放弃」→ 丢弃更改后切换
+    └─► 用户选择「取消」→ 不执行操作
+```
+
+---
+
+## 三、已有实现清单
+
+### 3.1 Server REST API（已实现）
 
 | 端点 | 方法 | 功能 | 文件位置 |
 |------|------|------|----------|
@@ -172,26 +248,30 @@ SubAgent 工作 → commit → 合并回 scheme/极致收纳
 | `api/git/checkout` | POST | 切换分支 | `GitController.cs:71` |
 | `api/git/commit` | POST | 提交更改 | `GitController.cs:173` |
 | `api/git/discard` | POST | 放弃更改 | `GitController.cs:234` |
+| `api/git/worktrees` | GET | 获取 Worktree 列表 | `GitController.cs:355` |
+| `api/git/worktrees` | POST | 创建 Worktree（含自动存档） | `GitController.cs:402` |
+| `api/git/worktrees/{name}` | DELETE | 删除 Worktree | `GitController.cs:460` |
+| `api/git/merge` | POST | 合并分支 | `GitController.cs:505` |
 
-### 2.2 Server 内部方法（GitWorktreeService.cs）
+### 3.2 Server 内部方法（GitWorktreeService.cs）
 
-| 方法 | 功能 | 行号 | 需暴露为 API |
-|------|------|------|--------------|
-| `CreateWorktree()` | 创建 Worktree | 246 | ✅ 给 Agent |
-| `RemoveWorktree()` | 删除 Worktree | 293 | ✅ 给 Agent |
-| `GetWorktrees()` | 列出所有 Worktree | 325 | ✅ 给 Agent |
-| `MergeBranch()` | 合并分支 | 197 | ✅ 给 Agent |
-| `CreateBranch()` | 创建分支 | 156 | 可选 |
-| `DeleteBranch()` | 删除分支 | 183 | 可选 |
-| `CreateAiJobWorktree()` | 创建 AI 任务 Worktree | 511 | ✅ 给 Agent |
-| `CompleteAiJob()` | 完成 AI 任务 | 525 | ✅ 给 Agent |
-| `AcceptAiJob()` | 接受 AI 任务并合并 | 549 | ✅ 给 Agent |
+| 方法 | 功能 | 说明 |
+|------|------|------|
+| `CreateWorktree()` | 创建 Worktree | 智能判断分支是否存在，支持 baseBranch 参数 |
+| `RemoveWorktree()` | 删除 Worktree | 支持 deleteBranch 参数 |
+| `GetWorktrees()` | 列出所有 Worktree | - |
+| `MergeBranch()` | 合并分支 | - |
+| `CreateBranch()` | 创建分支 | 支持 baseBranch 参数 |
+| `DeleteBranch()` | 删除分支 | - |
+| `Commit()` | 提交更改 | - |
+| `HasUncommittedChanges()` | 检查未提交更改 | - |
+| `DiscardChanges()` | 放弃更改 | - |
 
 ---
 
-## 三、Agent 工作流 Git 操作
+## 四、Agent 工作流 Git 操作
 
-### 3.1 场景 A：策略分叉 (Strategy Fork)
+### 4.1 场景 A：策略分叉 (Strategy Fork)
 
 **用户指令**："给我的客厅出三个方案：一个是'极致收纳'，一个是'动线优先'，还有一个'极简留白'。"
 
@@ -262,7 +342,7 @@ SubAgent 工作 → commit → 合并回 scheme/极致收纳
 └───────────────────────────────────────────────────────────────┘
 ```
 
-### 3.2 场景 B：布局求解器 (Layout Solver)
+### 4.2 场景 B：布局求解器 (Layout Solver)
 
 **用户指令**："这个卫生间太小了，帮我看看能不能塞进一个浴缸和淋浴房。"
 
@@ -318,7 +398,7 @@ SubAgent 工作 → commit → 合并回 scheme/极致收纳
 └───────────────────────────────────────────────────────────────┘
 ```
 
-### 3.3 场景 C：主编式合并 (Editorial Merge)
+### 4.3 场景 C：主编式合并 (Editorial Merge)
 
 **用户操作**：用户看着三个平行方案，觉得"方案 A 的沙发摆得好，但方案 B 的电视柜设计更合理"。
 
@@ -360,7 +440,7 @@ SubAgent 工作 → commit → 合并回 scheme/极致收纳
 └───────────────────────────────────────────────────────────────┘
 ```
 
-### 3.4 场景 D：查看任务 (Query Task)
+### 4.4 场景 D：查看任务 (Query Task)
 
 **用户指令**："当前卧室布置了什么？" / "统计一下家具数量"
 
@@ -384,7 +464,7 @@ Agent 判断任务类型: query（只读）
 返回结果: "主卧当前布置了 5 件家具：..."
 ```
 
-### 3.5 场景 E：简单编辑 (Simple Edit)
+### 4.5 场景 E：简单编辑 (Simple Edit)
 
 **用户指令**："把床向右移动 50cm" / "删除那个床头柜"
 
@@ -417,7 +497,7 @@ git add . && git commit -m "edit: 移动床位置"
 合并到用户分支 → 可视化 diff 确认 → 清理 Worktree
 ```
 
-### 3.6 场景 F：多窗口独立任务 (Multi-Window Independent)
+### 4.6 场景 F：多窗口独立任务 (Multi-Window Independent)
 
 **场景**：用户开了两个窗口，分别操作不同的策略分支。
 
@@ -448,7 +528,7 @@ Server 创建: .worktrees/ai-win2-job (feat/ai-win2-master-bedroom)
 Agent 在 Worktree 中工作...
 ```
 
-### 3.7 场景 G：同分支多窗口（禁止）
+### 4.7 场景 G：同分支多窗口（禁止）
 
 **核心规则**：**一个分支只能被一个窗口打开**
 
@@ -466,7 +546,7 @@ Agent 在 Worktree 中工作...
 - Git 不允许两个 Worktree 检出同一分支
 - 避免并发修改导致的冲突
 
-### 3.8 Agent 任务合并注意事项（关键）
+### 4.8 Agent 任务合并注意事项（关键）
 
 #### 合并流程要点
 
@@ -527,9 +607,9 @@ git branch -d feat/ai-layout-xxx
 
 ---
 
-## 四、Web 用户操作 Git 流程
+## 五、Web 用户操作 Git 流程
 
-### 4.1 切换分支 (Switch Branch)
+### 5.1 切换分支 (Switch Branch)
 
 **触发**：用户点击「切换分支」按钮
 
@@ -587,7 +667,7 @@ interface CheckoutBranchRequest {
 }
 ```
 
-### 4.2 执行保存 (Save/Commit)
+### 5.2 执行保存 (Save/Commit)
 
 **触发**：用户点击「保存」按钮
 
@@ -631,7 +711,7 @@ interface CommitResponse {
 }
 ```
 
-### 4.3 回档 (Rollback)
+### 5.3 回档 (Rollback)
 
 **触发**：用户点击「回档」或「恢复到历史版本」
 
@@ -672,7 +752,7 @@ GET /api/git/branches
 - 回档实际上是 checkout 到指定的 commit hash
 - 建议在回档前提醒用户保存重要更改
 
-### 4.4 查看历史保存 (View History)
+### 5.4 查看历史保存 (View History)
 
 **触发**：用户点击「历史记录」
 
@@ -698,7 +778,7 @@ GET /api/git/branches
     └─► 「对比差异」→ 展示可视化 diff
 ```
 
-### 4.5 新建策略 (Create Strategy)
+### 5.5 新建策略 (Create Strategy)
 
 **触发**：用户点击「新建策略」
 
@@ -723,7 +803,7 @@ Canvas 刷新（新分支，继承当前方案数据）
 - 完整格式：`scheme/{strategyName}`
 - 示例：`scheme/极致收纳`、`scheme/动线优先`、`scheme/现代简约`
 
-### 4.6 新建变体 (Create Variant)
+### 5.6 新建变体 (Create Variant)
 
 **触发**：用户在当前策略下点击「新建变体」
 
@@ -749,7 +829,7 @@ Canvas 刷新（基于当前策略的新分支）
   - 基于 `scheme/现代简约` 创建变体 `方案A`
   - 结果分支：`scheme/现代简约-方案A`
 
-### 4.7 多开窗口 (Multi-Window)
+### 5.7 多开窗口 (Multi-Window)
 
 **触发**：用户点击「新建窗口」
 
@@ -833,7 +913,7 @@ Canvas 刷新（基于当前策略的新分支）
 | **真窗口** | 首个窗口 | 主项目目录 | 不可关闭 | 可自由切换 |
 | **虚拟窗口** | 新建窗口 | Git Worktree | 可关闭 | 不可切换 |
 
-### 4.8 多窗口协作规则
+### 5.8 多窗口协作规则
 
 **核心规则**：一个分支只能被一个窗口打开
 
@@ -873,9 +953,9 @@ Canvas 刷新（基于当前策略的新分支）
 
 ---
 
-## 五、MCP 工具定义（待实现）
+## 六、MCP 工具定义
 
-### 5.1 工具清单
+### 6.1 工具清单
 
 | 工具名 | 参数 | 对应 Server API | 状态 |
 |--------|------|-----------------|------|
@@ -888,7 +968,7 @@ Canvas 刷新（基于当前策略的新分支）
 | `git_worktree_list` | - | 需补充 API | 待实现 |
 | `git_merge` | sourceBranch | 需补充 API | 待实现 |
 
-### 5.2 工具定义示例
+### 6.2 工具定义示例
 
 ```python
 # mcp/tools/git_tools.py
@@ -938,7 +1018,7 @@ async def git_checkout(args: dict) -> dict:
         }
 ```
 
-### 5.3 需补充的 Server API
+### 6.3 Worktree 工具参数说明
 
 | API 端点 | 方法 | 请求体 | 响应 |
 |----------|------|--------|------|

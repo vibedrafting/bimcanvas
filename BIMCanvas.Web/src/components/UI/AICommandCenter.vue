@@ -128,6 +128,56 @@ const getCurrentWindowMessages = (): ChatMessage[] => {
   return win ? win.messages : [];
 };
 
+// === 窗口管理函数 (Phase 4) ===
+
+// 切换窗口
+const switchWindow = (id: string) => {
+  if (activeWindowId.value === id) return;
+  activeWindowId.value = id;
+  nextTick(() => {
+    scrollToBottom({ force: true });
+  });
+};
+
+// 新建窗口
+const addWindow = () => {
+  const newId = `window-${Date.now()}`;
+  const windowNumber = windows.value.length + 1;
+  const newWindow: ChatWindow = {
+    id: newId,
+    name: `Chat ${windowNumber}`,
+    branchId: currentBranch.value || 'main',
+    messages: [],
+    isPrimary: false
+  };
+  windows.value.push(newWindow);
+  activeWindowId.value = newId;
+  console.log(`[Window] Created new window: ${newWindow.name}`);
+};
+
+// 关闭窗口
+const closeWindow = (id: string) => {
+  const index = windows.value.findIndex(w => w.id === id);
+  if (index === -1) return;
+  
+  const win = windows.value[index];
+  if (win.isPrimary) {
+    console.warn('[Window] Cannot close primary window');
+    return;
+  }
+  
+  // 如果关闭的是当前活动窗口，切换到上一个或下一个窗口
+  if (activeWindowId.value === id) {
+    const newActiveIndex = index > 0 ? index - 1 : index + 1;
+    if (windows.value[newActiveIndex]) {
+      activeWindowId.value = windows.value[newActiveIndex].id;
+    }
+  }
+  
+  windows.value.splice(index, 1);
+  console.log(`[Window] Closed window: ${win.name}`);
+};
+
 // Claude Code 风格的拟人等待提示词 (169 个)
 const WAITING_VERBS = [
   'Accomplishing', 'Actioning', 'Actualizing', 'Baking', 'Beaming', 'Beboppin',
@@ -378,6 +428,7 @@ const clearSelection = () => {
 
 // Check Agent health on mount
 onMounted(async () => {
+  initDefaultWindow();  // 初始化默认窗口
   await checkAgentHealth();
   await gitStore.fetchBranches();  // 使用Store获取分支列表
   await fetchProjectPath();  // 获取当前项目路径
@@ -1191,7 +1242,39 @@ const removePendingImage = (index: number) => {
       
       <!-- Layer 1: Context Header -->
       <div class="layer-context">
-        <div class="context-row">
+        <!-- Row 1: Mode Switch -->
+        <div class="mode-switch">
+          <button :class="{ active: mode === 'chat' }" @click="mode = 'chat'">Chat</button>
+          <button :class="{ active: mode === 'tasks' }" @click="mode = 'tasks'">Task</button>
+        </div>
+
+        <!-- Row 2: Window Tabs (Only in Chat Mode) -->
+        <div class="window-tabs" v-if="mode === 'chat'">
+          <div 
+            v-for="win in windows" 
+            :key="win.id"
+            class="window-tab"
+            :class="{ active: activeWindowId === win.id }"
+            @click="switchWindow(win.id)"
+          >
+            <span class="tab-name">{{ win.name }}</span>
+            <button v-if="!win.isPrimary" class="tab-close" @click.stop="closeWindow(win.id)">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <line x1="18" y1="6" x2="6" y2="18"></line>
+                <line x1="6" y1="6" x2="18" y2="18"></line>
+              </svg>
+            </button>
+          </div>
+          <button class="new-window-btn" title="New Window" @click="addWindow">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <line x1="12" y1="5" x2="12" y2="19"></line>
+              <line x1="5" y1="12" x2="19" y2="12"></line>
+            </svg>
+          </button>
+        </div>
+
+        <!-- Row 3: Branch Selection (Only in Chat Mode) -->
+        <div class="context-row" v-if="mode === 'chat'">
           <!-- Branch Dropdown -->
           <div class="branch-dropdown" :class="{ open: isBranchDropdownOpen }">
             <button class="dropdown-trigger" @click="isBranchDropdownOpen = !isBranchDropdownOpen">
@@ -1227,10 +1310,6 @@ const removePendingImage = (index: number) => {
               </div>
             </div>
           </div>
-        </div>
-        <div class="mode-switch">
-          <button :class="{ active: mode === 'chat' }" @click="mode = 'chat'">Chat</button>
-          <button :class="{ active: mode === 'tasks' }" @click="mode = 'tasks'">Task</button>
         </div>
       </div>
 
@@ -1831,6 +1910,99 @@ const removePendingImage = (index: number) => {
         align-items: center;
         width: 100%;
         margin-bottom: 8px; /* Reduced margin */
+    }
+
+    /* Window Tabs Styles */
+    .window-tabs {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        margin-bottom: 8px;
+        overflow-x: auto;
+        scrollbar-width: none; /* Firefox */
+        
+        &::-webkit-scrollbar {
+            display: none; /* Chrome/Safari */
+        }
+    }
+
+    .window-tab {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        padding: 6px 10px;
+        background: var(--surface-dim);
+        border: 1px solid var(--border-dim);
+        border-radius: 6px;
+        font-size: 0.8rem;
+        color: var(--text-secondary);
+        cursor: pointer;
+        white-space: nowrap;
+        transition: all 0.2s ease;
+
+        &:hover {
+            background: var(--surface-highlight);
+            color: var(--text-primary);
+        }
+
+        &.active {
+            background: var(--surface-elevated);
+            color: var(--text-primary);
+            border-color: var(--border-subtle);
+            font-weight: 500;
+        }
+    }
+
+    .tab-close {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        width: 14px;
+        height: 14px;
+        border-radius: 50%;
+        border: none;
+        background: transparent;
+        color: inherit;
+        cursor: pointer;
+        opacity: 0.5;
+        transition: all 0.2s ease;
+        padding: 0;
+
+        &:hover {
+            background: rgba(255, 255, 255, 0.1);
+            opacity: 1;
+        }
+
+        svg {
+            width: 10px;
+            height: 10px;
+        }
+    }
+
+    .new-window-btn {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        width: 28px;
+        height: 28px;
+        border-radius: 6px;
+        border: 1px solid var(--border-dim);
+        background: transparent;
+        color: var(--text-tertiary);
+        cursor: pointer;
+        transition: all 0.2s ease;
+        flex-shrink: 0;
+
+        &:hover {
+            background: var(--surface-highlight);
+            color: var(--text-primary);
+            border-color: var(--border-subtle);
+        }
+
+        svg {
+            width: 14px;
+            height: 14px;
+        }
     }
 
     /* Branch Dropdown Redesign */
