@@ -2,6 +2,7 @@ using System.Diagnostics;
 using System.Runtime.InteropServices;
 using System.Text;
 using BIMCanvas.Server.Hubs;
+using BIMCanvas.Server.Logging;
 using BIMCanvas.Server.Services;
 using BIMCanvas.Server.Services.Git;
 using Newtonsoft.Json.Serialization;
@@ -58,6 +59,10 @@ if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
 }
 
 var builder = WebApplication.CreateBuilder(args);
+
+// 配置统一日志格式（替换默认 Console Logger 格式）
+builder.Logging.ClearProviders();
+builder.Logging.AddServerConsoleFormatter();
 
 // 配置 JSON 序列化选项（使用 Newtonsoft.Json，与 BIMCanvas.Core 保持一致）
 builder.Services.AddControllers()
