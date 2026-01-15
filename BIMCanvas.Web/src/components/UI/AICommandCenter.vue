@@ -1900,48 +1900,78 @@ const removePendingImage = (index: number) => {
 }
 
 /* --- Layer 1: Context Header --- */
-/* --- Layer 1: Context Header --- */
 .layer-context {
-    padding: 12px 16px; /* Compact padding */
+    padding: 12px 16px 8px;
     border-bottom: 1px solid var(--border-dim);
+    display: flex;
+    flex-direction: column;
+    gap: 10px; /* Increased gap for better rhythm */
 
-    .context-row {
+    /* Mode Switch */
+    .mode-switch {
         display: flex;
-        align-items: center;
-        width: 100%;
-        margin-bottom: 8px; /* Reduced margin */
+        background: var(--surface-dim);
+        padding: 3px;
+        border-radius: 8px;
+        
+        button {
+            flex: 1;
+            border: none;
+            background: transparent;
+            padding: 6px;
+            border-radius: 6px;
+            color: var(--text-secondary);
+            font-size: 0.85rem;
+            font-weight: 500;
+            cursor: pointer;
+            transition: all 0.2s ease;
+
+            &:hover {
+                color: var(--text-primary);
+            }
+
+            &.active {
+                background: var(--surface-elevated);
+                color: var(--text-primary);
+                box-shadow: 0 1px 2px rgba(0,0,0,0.1);
+            }
+        }
     }
 
-    /* Window Tabs Styles */
+    /* Window Tabs (Sleek Pills) */
     .window-tabs {
         display: flex;
         align-items: center;
-        gap: 6px;
-        margin-bottom: 8px;
+        gap: 6px; /* Slightly more gap between tabs */
         overflow-x: auto;
-        scrollbar-width: none; /* Firefox */
+        scrollbar-width: none;
+        padding: 2px 0;
         
-        &::-webkit-scrollbar {
-            display: none; /* Chrome/Safari */
-        }
+        &::-webkit-scrollbar { display: none; }
     }
 
     .window-tab {
         display: flex;
         align-items: center;
         gap: 6px;
-        padding: 6px 10px;
-        background: var(--surface-dim);
-        border: 1px solid var(--border-dim);
-        border-radius: 6px;
-        font-size: 0.8rem;
+        padding: 6px 12px; /* More padding for comfort */
+        background: transparent;
+        border: 1px solid transparent;
+        border-radius: 100px;
+        font-size: 0.85rem; /* Slightly larger font */
         color: var(--text-secondary);
         cursor: pointer;
         white-space: nowrap;
         transition: all 0.2s ease;
+        max-width: 140px; /* Allow wider tabs */
+
+        .tab-name {
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
 
         &:hover {
-            background: var(--surface-highlight);
+            background: var(--surface-dim);
             color: var(--text-primary);
         }
 
@@ -1949,6 +1979,7 @@ const removePendingImage = (index: number) => {
             background: var(--surface-elevated);
             color: var(--text-primary);
             border-color: var(--border-subtle);
+            box-shadow: 0 1px 3px rgba(0,0,0,0.1);
             font-weight: 500;
         }
     }
@@ -1957,36 +1988,39 @@ const removePendingImage = (index: number) => {
         display: flex;
         align-items: center;
         justify-content: center;
-        width: 14px;
-        height: 14px;
+        width: 16px; /* Larger touch target */
+        height: 16px;
         border-radius: 50%;
         border: none;
         background: transparent;
         color: inherit;
         cursor: pointer;
-        opacity: 0.5;
+        opacity: 0;
         transition: all 0.2s ease;
         padding: 0;
+        margin-left: -2px;
 
-        &:hover {
-            background: rgba(255, 255, 255, 0.1);
-            opacity: 1;
-        }
+        svg { width: 10px; height: 10px; }
+    }
 
-        svg {
-            width: 10px;
-            height: 10px;
-        }
+    .window-tab:hover .tab-close,
+    .window-tab.active .tab-close {
+        opacity: 0.6;
+    }
+
+    .tab-close:hover {
+        background: rgba(255, 255, 255, 0.2);
+        opacity: 1 !important;
     }
 
     .new-window-btn {
         display: flex;
         align-items: center;
         justify-content: center;
-        width: 28px;
+        width: 28px; /* Larger button */
         height: 28px;
-        border-radius: 6px;
-        border: 1px solid var(--border-dim);
+        border-radius: 50%;
+        border: 1px solid transparent;
         background: transparent;
         color: var(--text-tertiary);
         cursor: pointer;
@@ -1994,44 +2028,52 @@ const removePendingImage = (index: number) => {
         flex-shrink: 0;
 
         &:hover {
-            background: var(--surface-highlight);
+            background: var(--surface-dim);
             color: var(--text-primary);
-            border-color: var(--border-subtle);
         }
 
-        svg {
-            width: 14px;
-            height: 14px;
-        }
+        svg { width: 16px; height: 16px; }
     }
 
-    /* Branch Dropdown Redesign */
+    /* Branch Info (Minimal) */
+    .context-row {
+        display: flex;
+        align-items: center;
+        width: 100%;
+        margin: 0;
+    }
+
     .branch-dropdown {
         position: relative;
         width: 100%;
         z-index: 10;
 
         .dropdown-trigger {
-            box-sizing: border-box; /* Ensure padding doesn't affect width */
             width: 100%;
             display: flex;
             align-items: center;
-            gap: 6px; /* Reduced gap */
-            padding: 6px 10px; /* Compact padding */
-            background: var(--surface-dim);
-            border: 1px solid var(--border-dim);
-            border-radius: 8px;
-            color: var(--text-primary);
-            font-size: 0.8rem; /* Smaller font */
+            gap: 8px;
+            padding: 6px 8px; /* More padding */
+            background: transparent;
+            border: 1px solid transparent; /* Reserve border space */
+            border-radius: 6px;
+            color: var(--text-tertiary);
+            font-size: 0.8rem; /* Larger font */
             cursor: pointer;
             transition: all 0.2s ease;
 
             &:hover {
-                background: var(--surface-highlight);
-                border-color: var(--border-subtle);
+                background: var(--surface-dim); /* Subtle background on hover */
+                color: var(--text-primary);
+                .icon { opacity: 1; }
             }
 
-            .icon { font-size: 1rem; }
+            .icon { 
+                font-size: 1rem; 
+                opacity: 0.7;
+                transition: opacity 0.2s;
+            }
+            
             .text { 
                 flex: 1; 
                 text-align: left; 
@@ -2039,78 +2081,57 @@ const removePendingImage = (index: number) => {
                 white-space: nowrap;
                 overflow: hidden;
                 text-overflow: ellipsis;
+                font-family: 'JetBrains Mono', monospace;
             }
+            
             .chevron {
-                width: 16px;
-                height: 16px;
-                color: var(--text-tertiary);
+                width: 14px;
+                height: 14px;
+                opacity: 0.5;
                 transition: transform 0.2s;
             }
         }
 
         &.open .dropdown-trigger {
-            background: var(--surface-elevated); /* Match dropdown menu bg */
-            border-color: var(--border-subtle); /* Match dropdown menu border */
-            border-bottom-left-radius: 0; /* Connect to menu */
-            border-bottom-right-radius: 0;
+            background: var(--surface-dim);
+            color: var(--text-primary);
             .chevron { transform: rotate(180deg); }
         }
 
         .dropdown-menu {
-            box-sizing: border-box; /* Ensure padding doesn't affect width */
             position: absolute;
-            top: 100%; /* Connect directly */
+            top: 100%;
             left: 0;
-            width: 100%; /* Consistent width */
+            width: 100%;
+            margin-top: 4px;
             background: var(--surface-elevated);
             border: 1px solid var(--border-subtle);
-            border-top: none; /* Remove top border to merge */
-            border-radius: 0 0 12px 12px; /* Only round bottom */
-            box-shadow: 0 8px 32px rgba(0,0,0,0.2);
-            padding: 6px; /* Compact padding */
-            backdrop-filter: blur(16px);
-            animation: slideDown 0.2s cubic-bezier(0.2, 0.8, 0.2, 1);
-
+            border-radius: 8px;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+            overflow: hidden;
+            max-height: 300px;
+            overflow-y: auto;
+            
             .branch-tree {
-                display: flex;
-                flex-direction: column;
-                gap: 4px;
+                padding: 4px;
             }
 
             .branch-item {
-                display: flex;
-                flex-direction: column;
-                gap: 0; /* No gap for compactness */
-                padding: 6px 8px; /* Even more compact padding */
-                border-radius: 8px;
+                padding: 6px 8px;
+                border-radius: 4px;
                 cursor: pointer;
-                border: 1px solid transparent;
-                transition: all 0.2s;
+                transition: all 0.15s;
 
                 &:hover {
                     background: var(--surface-highlight);
-                    border-color: var(--border-subtle);
                 }
 
                 &.current {
-                    background: rgba(var(--accent-primary-rgb), 0.05); /* Very subtle tint */
-                    border-color: transparent; /* Remove border to avoid boxy look */
-                    position: relative;
+                    background: rgba(var(--accent-primary-rgb), 0.1);
                     
-                    &::before {
-                        content: '';
-                        position: absolute;
-                        left: 0;
-                        top: 6px;
-                        bottom: 6px;
-                        width: 3px;
-                        background: var(--accent-primary);
-                        border-radius: 0 2px 2px 0;
-                    }
-                    
-                    .branch-main .branch-name {
+                    .branch-name { 
                         color: var(--accent-primary);
-                        font-weight: 600;
+                        font-weight: 600; 
                     }
                 }
 
@@ -2118,87 +2139,29 @@ const removePendingImage = (index: number) => {
                     display: flex;
                     align-items: center;
                     gap: 8px;
+                    font-size: 0.8rem;
                     
                     .branch-icon { font-size: 0.9rem; opacity: 0.7; }
-                    
-                    .branch-name {
-                        flex: 1;
-                        font-size: 0.85rem; /* Slightly smaller */
-                        color: var(--text-primary);
-                        font-weight: 500;
-                    }
-
-                    .current-indicator {
-                        color: var(--accent-primary);
-                        display: flex;
-                        align-items: center;
-                    }
+                    .branch-name { color: var(--text-primary); font-weight: 500; }
+                    .current-indicator { color: var(--accent-primary); display: flex; }
                 }
 
                 .branch-meta {
+                    margin-top: 2px;
+                    margin-left: 24px;
+                    font-size: 0.7rem;
+                    color: var(--text-tertiary);
                     display: flex;
                     justify-content: space-between;
-                    align-items: center;
-                    font-size: 0.7rem; /* Smaller meta text */
-                    color: var(--text-tertiary);
-                    padding-left: 22px; /* Align with text */
-
+                    
                     .commit-msg {
                         flex: 1;
                         white-space: nowrap;
                         overflow: hidden;
                         text-overflow: ellipsis;
-                        margin-right: 12px;
                         max-width: 180px;
                     }
-
-                    .commit-time {
-                        white-space: nowrap;
-                        font-feature-settings: "tnum";
-                    }
                 }
-            }
-        }
-    }
-
-    @keyframes slideDown {
-        from { opacity: 0; transform: translateY(-8px); }
-        to { opacity: 1; transform: translateY(0); }
-    }
-
-    .mode-switch {
-        display: flex;
-        background: var(--btn-ghost-bg-hover); /* Adaptive background */
-        border-radius: 8px; /* Smaller radius */
-        padding: 3px; /* Compact padding */
-        border: 1px solid var(--border-subtle); /* Standardized border */
-        
-        button {
-            flex: 1;
-            border: 1px solid transparent;
-            background: none;
-            color: var(--text-secondary);
-            font-size: 0.8rem; /* Smaller font */
-            font-weight: 500;
-            padding: 4px 10px; /* Compact padding */
-            border-radius: 6px; /* Smaller radius */
-            cursor: pointer;
-            transition: all 0.2s ease;
-            white-space: nowrap;
-            
-            &:hover:not(.active) {
-                color: var(--text-primary);
-                background: var(--btn-ghost-bg-active);
-            }
-
-            &.active {
-                background: var(--surface-elevated); /* White in light, Dark Grey in dark */
-                color: var(--text-primary);
-                border-color: var(--border-subtle);
-                box-shadow: 
-                    0 2px 8px rgba(0, 0, 0, 0.12), /* Softer shadow */
-                    0 0 0 1px var(--border-subtle) inset;
-                /* Removed text-shadow for cleaner look in light mode */
             }
         }
     }
@@ -2211,7 +2174,7 @@ const removePendingImage = (index: number) => {
     flex-direction: column;
     overflow: hidden;
     position: relative;
-    min-height: 0; /* 允许 flex 子元素收缩 */
+    min-height: 0;
 }
 
 /* 共享滚动容器样式 */

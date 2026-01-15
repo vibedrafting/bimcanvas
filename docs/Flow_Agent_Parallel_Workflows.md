@@ -1,10 +1,10 @@
 # BIMCanvas 并行设计模式
 
-> **版本**：v1.1 | **更新日期**：2026-01-14
+> **版本**：v1.2 | **更新日期**：2026-01-15
 > **目的**：详细描述 BIMCanvas 的并行设计架构哲学、核心场景、Git 翻译层及 Worktree 实现
-> **实现状态**：✅ v3.1 已完成核心架构实现
-> **关联代码**：`BIMCanvas.Server/Services/GitWorktreeService.cs`, `StrategyService.cs`
-> **关联文档**：[Agent_SDK.md](./Agent_SDK.md)
+> **实现状态**：✅ v3.2 已完成核心架构实现
+> **关联代码**：`BIMCanvas.Server/Services/GitWorktreeService.cs`, `BIMCanvas.Agent/src/mcp/tools/git_worktree.py`
+> **关联文档**：[Agent_SDK.md](./Agent_SDK.md), [Arch_Parallel_Development.md](./Arch_Parallel_Development.md)
 
 ---
 
@@ -364,26 +364,80 @@ AI 必须学会写"人话"Commit Message，而不是机器码。
 
 > **注意**：`schemes/` 目录按分区子目录存储 `modules.json`，便于 SubAgent 并行布置和 Git diff 冲突解决。多策略通过 Git 分支隔离，每个 Worktree 对应一个策略分支。
 
-### 4.4 C# 实现示例
+### 4.4 API 调用示例
+
+#### Server 端（C#）原子化操作
 
 ```csharp
-// 场景 A：策略分叉 - 创建三个并行方案
-var strategies = new List<ParallelStrategyRequest>
-{
-    new() { Name = "极致收纳", Approach = StrategyApproach.StorageFirst },
-    new() { Name = "动线优先", Approach = StrategyApproach.CirculationFirst },
-    new() { Name = "极简留白", Approach = StrategyApproach.MinimalistFirst }
-};
+// 场景 B：隔离环境 - 为 AI 任务创建临时 Worktree
+// 创建 Worktree 前会自动存档未提交的更改
+var worktreePath = _gitService.CreateWorktree(
+    projectPath,
+    worktreeName: "ai-job-1",
+    branchName: "feat/ai-storage",     // 新分支（不存在，会自动创建）
+    baseBranch: "scheme/极致收纳"       // 基于此分支创建
+);
 
-// StrategyService 调用 GitWorktreeService 创建并行 Worktree
-var worktrees = strategyService.CreateParallelStrategies(projectPath, strategies);
-
-// 三个 AI 实例可以同时在各自 worktree 中工作...
-// worktrees["极致收纳"] = "C:/.../project/.worktrees/ai-极致收纳"
-
-// 用户选择后，合并到 main
-var result = strategyService.AcceptParallelStrategy(projectPath, "动线优先");
+// AI 在 Worktree 中完成工作后...
+// 删除 Worktree 并同时删除临时分支
+_gitService.RemoveWorktree(projectPath, "ai-job-1", deleteBranch: true);
 ```
+
+```csharp
+// 场景 A：并行开发 - 用户多开窗口检出已有分支
+var worktreePath = _gitService.CreateWorktree(
+    projectPath,
+    worktreeName: "window-2",
+    branchName: "scheme/动线优先"       // 已有分支（会直接检出）
+    // 不传 baseBranch（分支已存在时忽略）
+);
+
+// 用户关闭窗口后...
+// 只删除 Worktree，保留分支
+_gitService.RemoveWorktree(projectPath, "window-2", deleteBranch: false);
+```
+
+#### Agent 端（Python）MCP 工具调用
+
+```python
+# 场景 B：隔离环境
+await worktree_create({
+    "name": "ai-job-1",
+    "branch": "feat/ai-storage",        # 新分支
+    "base_branch": "scheme/极致收纳"    # 基准分支
+})
+
+# 任务完成后清理（删除临时分支）
+await worktree_remove({
+    "name": "ai-job-1",
+    "delete_branch": True
+})
+```
+
+```python
+# 场景 A：并行开发
+await worktree_create({
+    "name": "window-2",
+    "branch": "scheme/动线优先"         # 已有分支
+})
+
+# 关闭窗口时清理（保留分支）
+await worktree_remove({
+    "name": "window-2",
+    "delete_branch": False              # 默认值
+})
+```
+
+#### 自动存档机制
+
+创建 Worktree 时，Server 会自动检测工作区状态并存档：
+
+| 工作区状态 | Server 行为 |
+|-----------|-------------|
+| 有未提交更改 | 自动执行 `git commit -m "自动存档_{timestamp}"`（静默） |
+| 工作区干净 | 直接创建 Worktree |
+
+> 💡 详见 [Arch_Parallel_Development.md §5.2](./Arch_Parallel_Development.md#52-两种使用场景)
 
 ### 4.5 为什么这能解决问题？
 
