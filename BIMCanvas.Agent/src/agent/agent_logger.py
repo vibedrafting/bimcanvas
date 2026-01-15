@@ -24,37 +24,45 @@ class Symbols:
     ARROW_LEFT = "\u25c0" if _USE_UNICODE else "<<"   # ◀
 
 # ANSI color codes for console output
+# 设计哲学：低调为主，颜色只用于关键标记
 class Colors:
+    # 基础格式
     RESET = "\033[0m"
     BOLD = "\033[1m"
     DIM = "\033[2m"
 
-    # Text colors
-    BLACK = "\033[30m"
-    RED = "\033[31m"
-    GREEN = "\033[32m"
-    YELLOW = "\033[33m"
-    BLUE = "\033[34m"
-    MAGENTA = "\033[35m"
-    CYAN = "\033[36m"
-    WHITE = "\033[37m"
+    # ─────────────────────────────────────────────────────
+    # 亮度层级（信息重要性）
+    # ─────────────────────────────────────────────────────
+    PRIMARY = "\033[97m"      # 主要信息（亮白）- AI 回应
+    SECONDARY = "\033[2m"     # 次要信息（暗淡）- 思考过程、技术细节
+    TERTIARY = "\033[90m"     # 背景信息（暗灰）- 时间戳、分隔线
 
-    # Bright colors
-    BRIGHT_BLACK = "\033[90m"
-    BRIGHT_RED = "\033[91m"
-    BRIGHT_GREEN = "\033[92m"
-    BRIGHT_YELLOW = "\033[93m"
-    BRIGHT_BLUE = "\033[94m"
-    BRIGHT_MAGENTA = "\033[95m"
-    BRIGHT_CYAN = "\033[96m"
-    BRIGHT_WHITE = "\033[97m"
+    # ─────────────────────────────────────────────────────
+    # 角色颜色（谁在说话/做事）
+    # ─────────────────────────────────────────────────────
+    USER = "\033[92m"         # 用户输入（亮绿）
+    USER_DIM = "\033[32m"     # 用户内容（暗绿）
+    AI = "\033[97m"           # AI 输出（亮白）
+    TOOL = "\033[33m"         # 工具调用（暗黄）- 操作感
+    SUBAGENT = "\033[36m"     # SubAgent（暗青）- 与外层 Agent 呼应
 
-    # Background colors
-    BG_BLUE = "\033[44m"
-    BG_GREEN = "\033[42m"
-    BG_YELLOW = "\033[43m"
-    BG_MAGENTA = "\033[45m"
-    BG_CYAN = "\033[46m"
+    # ─────────────────────────────────────────────────────
+    # 状态颜色（发生了什么）
+    # ─────────────────────────────────────────────────────
+    SUCCESS = "\033[92m"      # 成功（亮绿）
+    WARNING = "\033[93m"      # 警告（亮黄）
+    WARNING_DIM = "\033[33m"  # 警告内容（暗黄）
+    ERROR = "\033[91m"        # 错误（亮红）
+    ERROR_DIM = "\033[31m"    # 错误内容（暗红）
+
+    # ─────────────────────────────────────────────────────
+    # 背景色（仅用于重要分隔）
+    # ─────────────────────────────────────────────────────
+    BG_SUBAGENT = "\033[46m"  # SubAgent 分隔（青底）
+    BG_DISPATCH = "\033[45m"  # 派发分隔（洋红底）
+    BLACK = "\033[30m"        # 黑字（配合背景色）
+    WHITE = "\033[37m"        # 白字（配合背景色）
 
 
 class AgentLogger:
@@ -130,16 +138,16 @@ class AgentLogger:
         """Log start of a new interaction session."""
         self._separator("═")
         self._print(
-            f"{Colors.BRIGHT_GREEN}{Colors.BOLD}[START]{Colors.RESET} "
-            f"{Colors.DIM}{self._timestamp()}{Colors.RESET}"
+            f"{Colors.SUCCESS}{Colors.BOLD}[START]{Colors.RESET} "
+            f"{Colors.TERTIARY}{self._timestamp()}{Colors.RESET}"
         )
 
     def log_user_message(self, message: str) -> None:
         """Log user input message."""
         self.log_session_start()
         self._print(
-            f"{Colors.BRIGHT_GREEN}{Colors.BOLD}[USER]{Colors.RESET} "
-            f"{Colors.GREEN}{message}{Colors.RESET}"
+            f"{Colors.USER}{Colors.BOLD}[USER]{Colors.RESET} "
+            f"{Colors.USER_DIM}{message}{Colors.RESET}"
         )
 
     # ─────────────────────────────────────────────────────
@@ -150,23 +158,23 @@ class AgentLogger:
         """Log start of thinking process."""
         agent_label = f"[{self._current_subagent}]" if self._in_subagent else "[MainAgent]"
         self._print(
-            f"{self._indent()}{Colors.BRIGHT_MAGENTA}{Colors.BOLD}"
-            f"{agent_label} Thinking...{Colors.RESET}"
+            f"{self._indent()}{Colors.TERTIARY}"
+            f"{agent_label} [THINK] ...{Colors.RESET}"
         )
 
     def log_thinking(self, content: str, is_delta: bool = False) -> None:
         """Log thinking content."""
         if is_delta:
-            # For streaming, just append without newline
-            print(f"{Colors.DIM}{Colors.MAGENTA}{content}{Colors.RESET}", end="", flush=True)
+            # For streaming, just append without newline (暗灰，退居背景)
+            print(f"{Colors.SECONDARY}{content}{Colors.RESET}", end="", flush=True)
         else:
             # For complete thinking block
-            self._print(f"{self._indent()}{Colors.DIM}{Colors.MAGENTA}{content}{Colors.RESET}")
+            self._print(f"{self._indent()}{Colors.SECONDARY}{content}{Colors.RESET}")
 
     def log_thinking_end(self) -> None:
         """Log end of thinking process."""
         print()  # New line after streaming thinking
-        self._print(f"{self._indent()}{Colors.DIM}─ thinking complete ─{Colors.RESET}")
+        self._print(f"{self._indent()}{Colors.TERTIARY}─ thinking complete ─{Colors.RESET}")
 
     # ─────────────────────────────────────────────────────
     # AI Response
@@ -176,18 +184,18 @@ class AgentLogger:
         """Log start of AI response."""
         agent_label = f"[{self._current_subagent}]" if self._in_subagent else "[MainAgent]"
         self._print(
-            f"{self._indent()}{Colors.BRIGHT_CYAN}{Colors.BOLD}"
-            f"{agent_label} Response:{Colors.RESET}"
+            f"{self._indent()}{Colors.AI}{Colors.BOLD}"
+            f"{agent_label} [AI]{Colors.RESET}"
         )
 
     def log_response(self, content: str, is_delta: bool = False) -> None:
         """Log response content."""
         if is_delta:
-            # For streaming, just append without newline
-            print(f"{Colors.CYAN}{content}{Colors.RESET}", end="", flush=True)
+            # For streaming, just append without newline (白色，主要信息)
+            print(f"{Colors.PRIMARY}{content}{Colors.RESET}", end="", flush=True)
         else:
             # For complete response
-            self._print(f"{self._indent()}{Colors.CYAN}{content}{Colors.RESET}")
+            self._print(f"{self._indent()}{Colors.PRIMARY}{content}{Colors.RESET}")
 
     def log_response_end(self) -> None:
         """Log end of AI response."""
@@ -207,15 +215,15 @@ class AgentLogger:
         # 获取正确的标签（支持并行 SubAgent）
         agent_label = self._get_subagent_label(subagent_id)
 
-        # 普通工具 - 使用固定4空格缩进 + 带序号标签
+        # 普通工具 - 暗黄色（操作感）
         self._print(
-            f"    {Colors.BRIGHT_YELLOW}{agent_label} "
-            f"Tool: {Colors.BOLD}{tool_name}{Colors.RESET}"
+            f"    {Colors.TOOL}{agent_label} "
+            f"[TOOL] {Colors.BOLD}{tool_name}{Colors.RESET}"
         )
-        # Format tool input nicely
+        # Format tool input nicely (技术细节，暗淡)
         input_str = self._format_tool_input(tool_input)
         if input_str:
-            self._print(f"      {Colors.DIM}{input_str}{Colors.RESET}")
+            self._print(f"      {Colors.SECONDARY}{input_str}{Colors.RESET}")
 
     def log_tool_result(self, tool_name: str, result: Any, is_error: bool = False) -> None:
         """Log tool result."""
@@ -223,17 +231,17 @@ class AgentLogger:
 
         if is_error:
             self._print(
-                f"{self._indent()}{Colors.BRIGHT_RED}{agent_label} "
-                f"Tool Error ({tool_name}): {result}{Colors.RESET}"
+                f"{self._indent()}{Colors.ERROR}{agent_label} "
+                f"Tool Error ({tool_name}): {Colors.ERROR_DIM}{result}{Colors.RESET}"
             )
         else:
-            # Truncate long results
+            # Truncate long results (次要信息，暗淡)
             result_str = str(result)
             if len(result_str) > 300:
                 result_str = result_str[:300] + "..."
             self._print(
-                f"{self._indent()}{Colors.DIM}{agent_label} "
-                f"Tool Result ({tool_name}): {result_str}{Colors.RESET}"
+                f"{self._indent()}{Colors.SECONDARY}{agent_label} "
+                f"Result ({tool_name}): {result_str}{Colors.RESET}"
             )
 
     def log_permission_error(self, message: str) -> None:
@@ -243,8 +251,8 @@ class AgentLogger:
         if len(message) > 200:
             message = message[:200] + "..."
         self._print(
-            f"{self._indent()}{Colors.BRIGHT_YELLOW}{Colors.BOLD}"
-            f"⚠ [PERMISSION]{Colors.RESET} {Colors.YELLOW}"
+            f"{self._indent()}{Colors.WARNING}{Colors.BOLD}"
+            f"[PERMISSION]{Colors.RESET} {Colors.WARNING_DIM}"
             f"{agent_label} {message}{Colors.RESET}"
         )
 
@@ -309,23 +317,23 @@ class AgentLogger:
                 'start_time': time.time()
             }
 
-        # 输出 DISPATCH 信息（带序号，顶格）
+        # 输出 DISPATCH 信息（带序号，暗青色）
         self._print(
-            f"\n{Colors.BG_MAGENTA}{Colors.WHITE}{Colors.BOLD}"
+            f"\n{Colors.BG_DISPATCH}{Colors.WHITE}{Colors.BOLD}"
             f" SUBAGENT #{seq} DISPATCH {Colors.RESET}"
         )
-        self._print(f"{Colors.BRIGHT_MAGENTA}├─ SubAgent: {Colors.BOLD}{subagent_type}{Colors.RESET}")
+        self._print(f"{Colors.SUBAGENT}├─ Type: {Colors.BOLD}{subagent_type}{Colors.RESET}")
         if description:
             prompt = description[:200] + "..." if len(description) > 200 else description
-            self._print(f"{Colors.BRIGHT_MAGENTA}└─ Task: {Colors.RESET}{prompt}")
+            self._print(f"{Colors.SUBAGENT}└─ Task: {Colors.RESET}{Colors.SECONDARY}{prompt}{Colors.RESET}")
 
-        # 输出 SUBAGENT 头（顶格）
+        # 输出 SUBAGENT 头（顶格，暗青色）
         self._print(
-            f"{Colors.BG_CYAN}{Colors.BLACK}{Colors.BOLD}"
+            f"{Colors.BG_SUBAGENT}{Colors.BLACK}{Colors.BOLD}"
             f" {Symbols.ARROW_RIGHT} SUBAGENT #{seq}: {subagent_type} {Colors.RESET}"
         )
         if description:
-            self._print(f"  {Colors.CYAN}任务: {description}{Colors.RESET}")
+            self._print(f"  {Colors.SECONDARY}任务: {description}{Colors.RESET}")
         return seq
 
     def exit_subagent(self, subagent_name: str = None, result_summary: str = None,
@@ -349,14 +357,14 @@ class AgentLogger:
 
         if result_summary:
             self._print(
-                f"{Colors.BRIGHT_CYAN}[{display_name}] Result: "
-                f"{Colors.RESET}{result_summary[:200]}"
+                f"{Colors.SUBAGENT}[{display_name}] Result: "
+                f"{Colors.RESET}{Colors.PRIMARY}{result_summary[:200]}{Colors.RESET}"
             )
 
-        # 显示带序号的完成信息
+        # 显示带序号的完成信息（暗青色）
         seq_str = f"#{seq} " if seq else ""
         self._print(
-            f"{Colors.BG_CYAN}{Colors.BLACK}{Colors.BOLD}"
+            f"{Colors.BG_SUBAGENT}{Colors.BLACK}{Colors.BOLD}"
             f" {Symbols.ARROW_LEFT} SUBAGENT {seq_str}COMPLETE{elapsed} {Colors.RESET}\n"
         )
         # 不再递减缩进（使用固定缩进）
@@ -371,30 +379,30 @@ class AgentLogger:
         """Log a generic event."""
         agent_label = f"[{self._current_subagent}]" if self._in_subagent else "[MainAgent]"
         self._print(
-            f"{self._indent()}{Colors.DIM}{agent_label} Event: {event_type}{Colors.RESET}"
+            f"{self._indent()}{Colors.TERTIARY}{agent_label} Event: {event_type}{Colors.RESET}"
         )
         if data:
-            self._print(f"{self._indent()}  {Colors.DIM}{data}{Colors.RESET}")
+            self._print(f"{self._indent()}  {Colors.SECONDARY}{data}{Colors.RESET}")
 
     def log_error(self, error: str) -> None:
         """Log an error."""
         self._print(
-            f"{Colors.BRIGHT_RED}{Colors.BOLD}[ERROR]{Colors.RESET} "
-            f"{Colors.RED}{error}{Colors.RESET}"
+            f"{Colors.ERROR}{Colors.BOLD}[ERROR]{Colors.RESET} "
+            f"{Colors.ERROR_DIM}{error}{Colors.RESET}"
         )
 
     def log_warning(self, warning: str) -> None:
         """Log a warning."""
         self._print(
-            f"{Colors.BRIGHT_YELLOW}{Colors.BOLD}[WARN]{Colors.RESET} "
-            f"{Colors.YELLOW}{warning}{Colors.RESET}"
+            f"{Colors.WARNING}{Colors.BOLD}[WARN]{Colors.RESET} "
+            f"{Colors.WARNING_DIM}{warning}{Colors.RESET}"
         )
 
     def log_info(self, info: str) -> None:
         """Log info message."""
         agent_label = f"[{self._current_subagent}]" if self._in_subagent else "[MainAgent]"
         self._print(
-            f"{self._indent()}{Colors.DIM}{agent_label} {info}{Colors.RESET}"
+            f"{self._indent()}{Colors.SECONDARY}{agent_label} {info}{Colors.RESET}"
         )
 
     def log_complete(self, model: str | None = None) -> None:
@@ -405,11 +413,11 @@ class AgentLogger:
         """
         model_stamp = ""
         if model:
-            model_stamp = f" {Colors.CYAN}[{model}]{Colors.RESET}"
+            model_stamp = f" {Colors.TERTIARY}[{model}]{Colors.RESET}"
 
         self._print(
-            f"{Colors.BRIGHT_GREEN}{Colors.BOLD}[COMPLETE]{Colors.RESET} "
-            f"{Colors.DIM}{self._timestamp()}{Colors.RESET}{model_stamp}"
+            f"{Colors.SUCCESS}{Colors.BOLD}[COMPLETE]{Colors.RESET} "
+            f"{Colors.TERTIARY}{self._timestamp()}{Colors.RESET}{model_stamp}"
         )
         self._separator("═")
 
