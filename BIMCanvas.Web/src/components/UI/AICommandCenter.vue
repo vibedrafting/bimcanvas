@@ -1240,77 +1240,81 @@ const removePendingImage = (index: number) => {
     
     <div class="main-content">
       
-      <!-- Layer 1: Context Header -->
+      <!-- Layer 1: Context Header (Design H: Hierarchical) -->
       <div class="layer-context">
-        <!-- Row 1: Mode Switch -->
-        <div class="mode-switch">
-          <button :class="{ active: mode === 'chat' }" @click="mode = 'chat'">Chat</button>
-          <button :class="{ active: mode === 'tasks' }" @click="mode = 'tasks'">Task</button>
-        </div>
-
-        <!-- Row 2: Window Tabs (Only in Chat Mode) -->
-        <div class="window-tabs" v-if="mode === 'chat'">
-          <div 
-            v-for="win in windows" 
-            :key="win.id"
-            class="window-tab"
-            :class="{ active: activeWindowId === win.id }"
-            @click="switchWindow(win.id)"
-          >
-            <span class="tab-name">{{ win.name }}</span>
-            <button v-if="!win.isPrimary" class="tab-close" @click.stop="closeWindow(win.id)">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                <line x1="18" y1="6" x2="6" y2="18"></line>
-                <line x1="6" y1="6" x2="18" y2="18"></line>
-              </svg>
-            </button>
-          </div>
-          <button class="new-window-btn" title="New Window" @click="addWindow">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-              <line x1="12" y1="5" x2="12" y2="19"></line>
-              <line x1="5" y1="12" x2="19" y2="12"></line>
-            </svg>
-          </button>
-        </div>
-
-        <!-- Row 3: Branch Selection (Only in Chat Mode) -->
-        <div class="context-row" v-if="mode === 'chat'">
-          <!-- Branch Dropdown -->
-          <div class="branch-dropdown" :class="{ open: isBranchDropdownOpen }">
-            <button class="dropdown-trigger" @click="isBranchDropdownOpen = !isBranchDropdownOpen">
-              <span class="icon">🌿</span>
-              <span class="text">{{ currentBranch }}</span>
-              <svg class="chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                <polyline points="6 9 12 15 18 9"></polyline>
-              </svg>
-            </button>
-            <div class="dropdown-menu" v-if="isBranchDropdownOpen">
-              <div class="branch-tree">
-                <div 
-                  v-for="branch in branches" 
-                  :key="branch.id" 
-                  class="branch-item"
-                  :class="{ current: branch.isCurrent }"
-                  @click="selectBranch(branch.id)"
-                >
-                  <div class="branch-main">
-                    <span class="branch-icon">🌿</span>
-                    <span class="branch-name">{{ branch.name }}</span>
-                    <span v-if="branch.isCurrent" class="current-indicator">
-                      <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="3">
-                        <polyline points="20 6 9 17 4 12"></polyline>
-                      </svg>
-                    </span>
-                  </div>
-                  <div class="branch-meta" v-if="branch.commit">
-                    <span class="commit-msg">{{ branch.commit.message }}</span>
-                    <span class="commit-time">{{ branch.commit.time }}</span>
-                  </div>
-                </div>
-              </div>
+        
+        <!-- Row 1: Global Mode Switch (Centered) -->
+        <div class="header-toolbar">
+            <div class="mode-switch">
+                <button :class="{ active: mode === 'chat' }" @click="mode = 'chat'">Chat</button>
+                <button :class="{ active: mode === 'tasks' }" @click="mode = 'tasks'">Task</button>
             </div>
-          </div>
         </div>
+
+        <!-- Row 2: Window Context (Tabs + Branch) -->
+        <div class="header-tabs" v-if="mode === 'chat'">
+          <!-- Left: Window Tabs -->
+          <div class="window-tabs">
+            <div 
+                v-for="win in windows" 
+                :key="win.id"
+                class="window-tab"
+                :class="{ active: activeWindowId === win.id }"
+                @click="switchWindow(win.id)"
+            >
+                <span class="tab-name">{{ win.name }}</span>
+                <button v-if="!win.isPrimary" class="tab-close" @click.stop="closeWindow(win.id)">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <line x1="18" y1="6" x2="6" y2="18"></line>
+                    <line x1="6" y1="6" x2="18" y2="18"></line>
+                </svg>
+                </button>
+            </div>
+            <button class="new-window-btn" title="New Window" @click="addWindow">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <line x1="12" y1="5" x2="12" y2="19"></line>
+                <line x1="5" y1="12" x2="19" y2="12"></line>
+                </svg>
+            </button>
+          </div>
+
+          <!-- Right: Branch Selection (Moved Here) -->
+          <div class="branch-dropdown" :class="{ open: isBranchDropdownOpen }">
+                <button class="dropdown-trigger" @click="isBranchDropdownOpen = !isBranchDropdownOpen">
+                    <span class="icon">🌿</span>
+                    <span class="text">{{ currentBranch }}</span>
+                    <svg class="chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <polyline points="6 9 12 15 18 9"></polyline>
+                    </svg>
+                </button>
+                <div class="dropdown-menu" v-if="isBranchDropdownOpen">
+                    <div class="branch-tree">
+                        <div 
+                            v-for="branch in branches" 
+                            :key="branch.id" 
+                            class="branch-item"
+                            :class="{ current: branch.isCurrent }"
+                            @click="selectBranch(branch.id)"
+                        >
+                            <div class="branch-main">
+                                <span class="branch-icon">🌿</span>
+                                <span class="branch-name">{{ branch.name }}</span>
+                                <span v-if="branch.isCurrent" class="current-indicator">
+                                    <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="3">
+                                        <polyline points="20 6 9 17 4 12"></polyline>
+                                    </svg>
+                                </span>
+                            </div>
+                            <div class="branch-meta" v-if="branch.lastCommit">
+                                <span class="commit-msg">{{ branch.lastCommit }}</span>
+                                <span class="commit-time">{{ branch.time }}</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
       </div>
 
       <!-- Layer 2: Intelligence Stream -->
@@ -1899,53 +1903,81 @@ const removePendingImage = (index: number) => {
     min-width: 0; /* Allow flex shrinking */
 }
 
-/* --- Layer 1: Context Header --- */
+/* --- Layer 1: Context Header (Design H: Hierarchical) --- */
 .layer-context {
-    padding: 12px 16px 8px;
+    padding: 0;
+    height: auto;
     border-bottom: 1px solid var(--border-dim);
     display: flex;
     flex-direction: column;
-    gap: 10px; /* Increased gap for better rhythm */
+    flex-shrink: 0;
 
-    /* Mode Switch */
+    /* Row 1: Global Mode Switch (Centered Toolbar) */
+    .header-toolbar {
+        height: 44px;
+        padding: 0 16px;
+        display: flex;
+        align-items: center;
+        justify-content: center; /* Center the switch */
+        background: var(--surface-dim);
+        border-bottom: 1px solid var(--border-subtle);
+    }
+
+    /* Mode Switch (Segmented Control Style) */
     .mode-switch {
         display: flex;
-        background: var(--surface-dim);
+        align-items: center;
+        background: rgba(0, 0, 0, 0.2); /* Darker background for container */
         padding: 3px;
         border-radius: 8px;
+        gap: 0; /* No gap, connected buttons */
         
         button {
-            flex: 1;
             border: none;
             background: transparent;
-            padding: 6px;
-            border-radius: 6px;
-            color: var(--text-secondary);
-            font-size: 0.85rem;
+            padding: 4px 24px; /* Wider click area */
+            color: var(--text-tertiary);
+            font-size: 13px;
             font-weight: 500;
             cursor: pointer;
             transition: all 0.2s ease;
+            border-radius: 6px;
+            min-width: 80px; /* Fixed width for stability */
+            text-align: center;
 
             &:hover {
-                color: var(--text-primary);
+                color: var(--text-secondary);
             }
 
             &.active {
-                background: var(--surface-elevated);
+                background: var(--surface-elevated); /* Highlight active */
                 color: var(--text-primary);
-                box-shadow: 0 1px 2px rgba(0,0,0,0.1);
+                font-weight: 600;
+                box-shadow: 0 1px 3px rgba(0,0,0,0.2);
             }
         }
     }
 
-    /* Window Tabs (Sleek Pills) */
+    /* Row 2: Window Context (Tabs + Branch) */
+    .header-tabs {
+        height: 40px;
+        padding: 0 16px;
+        display: flex;
+        align-items: center;
+        justify-content: space-between; /* Spread tabs and branch */
+        background: transparent;
+        gap: 16px;
+    }
+
+    /* Window Tabs (Left Side) */
     .window-tabs {
         display: flex;
         align-items: center;
-        gap: 6px; /* Slightly more gap between tabs */
+        gap: 4px;
         overflow-x: auto;
         scrollbar-width: none;
-        padding: 2px 0;
+        flex: 1; /* Take available space */
+        min-width: 0; /* Allow shrinking */
         
         &::-webkit-scrollbar { display: none; }
     }
@@ -1954,16 +1986,15 @@ const removePendingImage = (index: number) => {
         display: flex;
         align-items: center;
         gap: 6px;
-        padding: 6px 12px; /* More padding for comfort */
+        padding: 4px 10px;
         background: transparent;
-        border: 1px solid transparent;
-        border-radius: 100px;
-        font-size: 0.85rem; /* Slightly larger font */
+        border-radius: 6px;
+        font-size: 13px;
         color: var(--text-secondary);
         cursor: pointer;
         white-space: nowrap;
         transition: all 0.2s ease;
-        max-width: 140px; /* Allow wider tabs */
+        max-width: 160px;
 
         .tab-name {
             overflow: hidden;
@@ -1976,11 +2007,10 @@ const removePendingImage = (index: number) => {
         }
 
         &.active {
-            background: var(--surface-elevated);
+            background: var(--surface-dim);
             color: var(--text-primary);
-            border-color: var(--border-subtle);
-            box-shadow: 0 1px 3px rgba(0,0,0,0.1);
-            font-weight: 500;
+            font-weight: 600;
+            box-shadow: 0 1px 2px rgba(0,0,0,0.05);
         }
     }
 
@@ -1988,7 +2018,7 @@ const removePendingImage = (index: number) => {
         display: flex;
         align-items: center;
         justify-content: center;
-        width: 16px; /* Larger touch target */
+        width: 16px;
         height: 16px;
         border-radius: 50%;
         border: none;
@@ -2017,77 +2047,64 @@ const removePendingImage = (index: number) => {
         display: flex;
         align-items: center;
         justify-content: center;
-        width: 28px; /* Larger button */
-        height: 28px;
-        border-radius: 50%;
-        border: 1px solid transparent;
+        width: 24px;
+        height: 24px;
+        border-radius: 6px;
         background: transparent;
+        border: none;
         color: var(--text-tertiary);
         cursor: pointer;
         transition: all 0.2s ease;
         flex-shrink: 0;
+        margin-left: 4px;
 
         &:hover {
             background: var(--surface-dim);
             color: var(--text-primary);
         }
 
-        svg { width: 16px; height: 16px; }
+        svg { width: 18px; height: 18px; }
     }
 
-    /* Branch Info (Minimal) */
-    .context-row {
-        display: flex;
-        align-items: center;
-        width: 100%;
-        margin: 0;
-    }
-
+    /* Branch Dropdown (Right Side of Tabs Row) */
     .branch-dropdown {
         position: relative;
-        width: 100%;
         z-index: 10;
+        flex-shrink: 0; /* Don't shrink */
 
         .dropdown-trigger {
-            width: 100%;
             display: flex;
             align-items: center;
             gap: 8px;
-            padding: 6px 8px; /* More padding */
+            padding: 4px 8px;
             background: transparent;
-            border: 1px solid transparent; /* Reserve border space */
-            border-radius: 6px;
-            color: var(--text-tertiary);
-            font-size: 0.8rem; /* Larger font */
+            border: none;
+            border-radius: 4px;
+            color: var(--text-secondary);
+            font-size: 12px;
             cursor: pointer;
             transition: all 0.2s ease;
 
             &:hover {
-                background: var(--surface-dim); /* Subtle background on hover */
+                background: var(--surface-dim);
                 color: var(--text-primary);
                 .icon { opacity: 1; }
             }
 
             .icon { 
-                font-size: 1rem; 
-                opacity: 0.7;
-                transition: opacity 0.2s;
+                font-size: 12px; 
+                opacity: 0.8;
             }
             
             .text { 
-                flex: 1; 
-                text-align: left; 
                 font-weight: 500;
-                white-space: nowrap;
-                overflow: hidden;
-                text-overflow: ellipsis;
                 font-family: 'JetBrains Mono', monospace;
             }
             
             .chevron {
-                width: 14px;
-                height: 14px;
-                opacity: 0.5;
+                width: 12px;
+                height: 12px;
+                opacity: 0.6;
                 transition: transform 0.2s;
             }
         }
@@ -2101,8 +2118,8 @@ const removePendingImage = (index: number) => {
         .dropdown-menu {
             position: absolute;
             top: 100%;
-            left: 0;
-            width: 100%;
+            right: 0;
+            width: 240px;
             margin-top: 4px;
             background: var(--surface-elevated);
             border: 1px solid var(--border-subtle);
@@ -2159,7 +2176,7 @@ const removePendingImage = (index: number) => {
                         white-space: nowrap;
                         overflow: hidden;
                         text-overflow: ellipsis;
-                        max-width: 180px;
+                        max-width: 140px;
                     }
                 }
             }

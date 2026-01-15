@@ -427,20 +427,30 @@ namespace BIMCanvas.Server.Services
             RunGit(workingDir, "add .");
             var result = RunGit(workingDir, $"commit -m \"{EscapeMessage(message)}\"");
 
-            if (!result.Success && !result.Error.Contains("nothing to commit"))
+            // "nothing to commit" 可能在 stdout 或 stderr 中
+            var combined = (result.Output ?? "") + (result.Error ?? "");
+            if (!result.Success && !combined.Contains("nothing to commit"))
             {
-                throw new InvalidOperationException($"提交失败: {result.Error}");
+                throw new InvalidOperationException($"提交失败: {result.Error}{result.Output}");
             }
 
-            _logger.LogInformation("提交更改: {Message}", message);
+            if (result.Success)
+            {
+                _logger.LogInformation("提交更改: {Message}", message);
+            }
+            else
+            {
+                _logger.LogDebug("无需提交（工作区干净）");
+            }
         }
 
         /// <summary>
-        /// 检查是否有未提交的更改
+        /// 检查是否有未提交的更改（忽略未跟踪文件）
         /// </summary>
         public bool HasUncommittedChanges(string workingDir)
         {
-            var result = RunGit(workingDir, "status --porcelain");
+            // 使用 -uno 忽略未跟踪文件，只检查已跟踪文件的更改
+            var result = RunGit(workingDir, "status --porcelain -uno");
             return !string.IsNullOrWhiteSpace(result.Output);
         }
 
