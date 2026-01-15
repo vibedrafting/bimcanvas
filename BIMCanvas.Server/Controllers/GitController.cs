@@ -393,21 +393,24 @@ namespace BIMCanvas.Server.Controllers
 
         /// <summary>
         /// 创建新的 Worktree
+        /// - 分支已存在：检出到 Worktree（场景 A：并行开发）
+        /// - 分支不存在：基于 BaseBranch 创建新分支（场景 B：隔离环境）
+        /// - 创建前自动存档：如有未提交更改，静默执行自动存档
         /// </summary>
         /// <param name="request">创建请求</param>
         /// <returns>新建的 Worktree 信息</returns>
         [HttpPost("worktrees")]
         public ActionResult<WorktreeInfoDto> CreateWorktree([FromBody] CreateWorktreeRequest request)
         {
-            _logger.LogInformation(">>> [GitController] CreateWorktree called: Name={Name}, Branch={Branch}",
-                request?.Name ?? "(null)", request?.BranchName ?? "(null)");
+            _logger.LogInformation(">>> [GitController] CreateWorktree called: Name={Name}, Branch={Branch}, BaseBranch={BaseBranch}",
+                request?.Name ?? "(null)", request?.Branch ?? "(null)", request?.BaseBranch ?? "(null)");
 
             if (string.IsNullOrEmpty(request?.Name))
             {
                 return BadRequest(new { message = "Worktree 名称不能为空" });
             }
 
-            if (string.IsNullOrEmpty(request.BranchName))
+            if (string.IsNullOrEmpty(request.Branch))
             {
                 return BadRequest(new { message = "分支名不能为空" });
             }
@@ -426,13 +429,21 @@ namespace BIMCanvas.Server.Controllers
 
             try
             {
-                var worktreePath = _gitService.CreateWorktree(projectPath, request.Name, request.BranchName);
+                // 自动存档：创建 Worktree 前检测到未提交更改，静默执行存档
+                if (_gitService.HasUncommittedChanges(projectPath))
+                {
+                    var timestamp = DateTime.Now.ToString("yyyyMMdd_HHmmss");
+                    _gitService.Commit(projectPath, $"自动存档_{timestamp}");
+                    _logger.LogInformation("创建 Worktree 前自动存档");
+                }
+
+                var worktreePath = _gitService.CreateWorktree(projectPath, request.Name, request.Branch, request.BaseBranch);
 
                 var result = new WorktreeInfoDto
                 {
                     Name = request.Name,
                     Path = worktreePath,
-                    Branch = request.BranchName,
+                    Branch = request.Branch,
                     IsMain = false
                 };
 

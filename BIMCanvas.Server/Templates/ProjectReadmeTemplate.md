@@ -1,139 +1,73 @@
 # {PROJECT_NAME} - BIMCanvas 项目工作区
 
-> 本文档由 BIMCanvas Server 自动生成，帮助 AI/用户理解项目结构和数据格式。
+> 本文档帮助 AI 快速理解项目结构。详细数据格式请直接读取对应文件。
 >
-> **生成时间**: {EXPORT_DATE}
-> **数据版本**: v3.0 (File-Driven Architecture)
+> **生成时间**: {EXPORT_DATE} | **数据版本**: v3.0
 
 ---
 
-## 1. 快速导航
+## 1. 文件导航
 
-| 数据类型 | 文件位置 | 读写属性 | 用途 |
-|----------|----------|----------|------|
-| 项目配置 | `project.json` | 读写 | 项目元数据、方案列表 |
-| 墙柱轮廓 | `baseline/architecture.json` | 只读 | Revit 导出的墙体/柱子几何 |
-| 门窗开口 | `baseline/openings.json` | 只读 | 门窗定位线、朝向、开启方向 |
-| 物理房间 | `baseline/rooms.json` | 只读 | Revit Room 边界和类型 |
-| 定位线 | `baseline/location_lines.json` | 只读 | 完成面定位基准线 |
-| 区域 | `computed/room_zones.json` | 自动生成 | 从房间派生的设计区域 |
-| 禁区 | `computed/exclusions.json` | 自动生成 | 门扇开启区域等禁止布置区 |
-| 设计需求 | `context/requirements.md` | 读写 | 用户设计需求文档 |
-| 方案配置 | `schemes/strategy.json` | 读写 | 方案元数据 + 策略参数 |
-| **布置模块** | `schemes/modules.json` | **读写** | **家具布置信息** |
+| 数据类型 | 文件位置 | 读写 | 说明 |
+|----------|----------|:----:|------|
+| 项目配置 | `project.json` | 读写 | 项目元数据 |
+| 墙柱轮廓 | `baseline/architecture.json` | 只读 | Revit 导出 |
+| 门窗开口 | `baseline/openings.json` | 只读 | 门窗定位线 |
+| 物理房间 | `baseline/rooms.json` | 只读 | 房间边界 |
+| 定位线 | `baseline/location_lines.json` | 只读 | 完成面定位 |
+| 设计区域 | `computed/room_zones.json` | 自动 | 派生区域 |
+| 禁区 | `computed/exclusions.json` | 自动 | 门扇禁区等 |
+| 设计需求 | `context/requirements.md` | 读写 | 用户需求 |
+| 方案配置 | `schemes/strategy.json` | 读写 | 策略参数 |
+| 区域配置 | `schemes/zones.json` | 读写 | 设计分区 |
+| **布置模块** | `schemes/rz_*/modules.json` | **读写** | **家具布置** |
 
 ---
 
-## 2. 项目文件结构
+## 2. 目录结构
 
 ```
 {PROJECT_FOLDER}/
-├── project.json               # 项目元数据 + 方案列表
-│
-├── baseline/                  # 【底层】建筑基础数据（只读，Revit 导出）
-│   ├── baseline.manifest      # 基线版本清单
-│   ├── metadata.json          # 坐标变换参数
-│   ├── architecture.json      # 墙体 + 柱子轮廓
-│   ├── openings.json          # 门窗开口
-│   ├── rooms.json             # 物理房间
-│   └── location_lines.json    # 完成面定位线
-│
-├── computed/                  # 【中层】计算派生数据（自动生成）
-│   ├── computed.manifest      # 计算版本清单
-│   ├── room_zones.json        # 设计区域（从房间派生）
-│   └── exclusions.json        # 禁区数据
-│
-├── context/                   # 【设计上下文】
-│   └── requirements.md        # 用户设计需求文档
-│
-└── schemes/                   # 【顶层】策略数据（读写，v3.2 扁平结构）
-    ├── strategy.json          # 方案配置（元数据 + 策略参数）
-    ├── zones.json             # 方案特定区域划分
-    ├── finishes.json          # 完成面配置
-    └── modules.json           # 家具布置模块 ⭐ AI主要操作对象
+├── project.json                # 项目元数据
+├── baseline/                   # 【底层】建筑数据（只读）
+│   ├── architecture.json       # 墙体 + 柱子
+│   ├── openings.json           # 门窗开口
+│   ├── rooms.json              # 物理房间
+│   └── location_lines.json     # 定位线
+├── computed/                   # 【中层】派生数据（自动）
+│   ├── room_zones.json         # 设计区域
+│   └── exclusions.json         # 禁区
+├── context/                    # 设计上下文
+│   └── requirements.md         # 用户需求
+└── schemes/                    # 【顶层】策略数据（读写）
+    ├── strategy.json           # 方案配置
+    ├── zones.json              # 设计分区
+    ├── finishes.json           # 完成面
+    └── rz_*/modules.json       # 各分区布置
 ```
 
-> **v3.2 架构说明**：`schemes/` 目录直接存放策略文件（无子目录），多策略通过 Git 分支切换实现。
-
-### 2.1 三层数据模型
-
-| 层级 | 文件夹 | 读写属性 | 说明 |
-|:---:|--------|----------|------|
-| **底层** | `baseline/` | 只读 | Revit 导出的原始建筑数据，作为静态背景 |
-| **中层** | `computed/` | 自动生成 | Server 计算的派生数据（区域、禁区） |
-| **顶层** | `schemes/` | 读写 | AI/用户可编辑的策略数据（v3.2 扁平结构） |
-
-### 2.2 多策略架构 (v3.2)
-
-```
-单策略模式：直接操作 schemes/ 目录下的文件
-
-多策略模式：通过 Git 分支实现
-├── main 分支          → schemes/ 包含当前激活策略
-├── scheme/收纳优先    → schemes/ 包含"收纳优先"策略
-└── scheme/动线优先    → schemes/ 包含"动线优先"策略
-```
-
-**AI 操作说明**：
-- AI 只需操作当前 `schemes/` 目录下的文件
-- 多策略切换、并行生成等由 Server 通过 Git 分支/Worktree 自动管理
-- AI 无需执行 Git 命令
+**三层架构**: baseline（只读）→ computed（自动）→ schemes（读写）
 
 ---
 
 ## 3. 坐标系统
 
-- **类型**: 笛卡尔坐标系 (Cartesian)
-- **原点**: 视图左下角
-- **X 轴**: 向右为正
-- **Y 轴**: 向上为正 (CAD 标准)
-- **单位**: 毫米 (mm)
+- **原点**: 左下角 | **X**: 向右 | **Y**: 向上 | **单位**: mm
+
+---
+
+## 4. 布置约束
 
 ```
-        Y ↑
-          │
-          │
-          └───────→ X
-       原点 (0,0)
+对于每个要放置的模块:
+1. bounds 必须完全在 zones[].rawBoundary 内
+2. bounds 不能与任何 exclusions[].rawBoundary 重叠
+3. bounds 不能与其他已放置 modules[] 重叠
 ```
 
 ---
 
-## 4. project.json - 项目配置
-
-```json
-{
-  "id": "proj_金凤127_20251225212800",
-  "name": "金凤127",
-  "version": "3.2",
-  "createdAt": "2025-12-25T21:28:00+08:00",
-  "updatedAt": "2025-12-27T01:16:47+08:00",
-  "coordinateSystem": "cartesian_mm_yUp",
-  "activeSchemeId": "default",
-  "schemes": [
-    {
-      "id": "default",
-      "path": "./schemes",
-      "name": "Default"
-    }
-  ]
-}
-```
-
-> **注意**：v3.2 架构中所有策略共用 `./schemes` 路径，多策略通过 Git 分支区分。
-
-| 字段 | 类型 | 说明 |
-|------|------|------|
-| `id` | string | 项目唯一标识 |
-| `name` | string | 项目名称 |
-| `version` | string | 数据版本 |
-| `coordinateSystem` | string | 坐标系类型 |
-| `activeSchemeId` | string | 当前激活的方案 ID |
-| `schemes` | array | 方案列表 |
-
----
-
-## 5. baseline/ - 建筑基础数据
+*本文档由 BIMCanvas Server 自动生成*
 
 ### 5.1 metadata.json - 坐标变换参数
 
@@ -335,7 +269,7 @@
 
 ## 7. schemes/ - 策略数据
 
-v3.2 架构：策略文件直接存放在 `schemes/` 目录下，AI 在此进行布置操作。多策略通过 Git 分支切换。
+分区子目录架构：布置数据按房间分区组织，每个 `rz_*/` 目录存放该分区的 `modules.json`，多策略通过 Git 分支切换。
 
 ### 7.1 strategy.json - 方案配置
 
@@ -387,9 +321,16 @@ v3.2 架构：策略文件直接存放在 `schemes/` 目录下，AI 在此进行
 | 极简留白 | 0.2 | 0.5 | `furnitureCount=min`，仅保留核心家具 |
 | 均衡方案 | 0.5 | 0.5 | 平衡收纳与动线 |
 
-### 7.2 modules.json - 布置模块 ⭐
+### 7.2 rz_*/modules.json - 分区布置模块 ⭐
 
-**这是 AI/用户最常操作的文件，用于定义家具布置信息。**
+**每个分区子目录下都有独立的 modules.json，用于定义该分区的家具布置信息。**
+
+**文件路径示例**：
+- `schemes/rz_1/modules.json` - 次卧一的布置
+- `schemes/rz_2/modules.json` - 次卧二的布置
+- `schemes/rz_3/modules.json` - 主卧的布置
+
+**内容示例** (`schemes/rz_3/modules.json` - 主卧)：
 
 ```json
 [
@@ -399,7 +340,7 @@ v3.2 架构：策略文件直接存放在 `schemes/` 目录下，AI 在此进行
     "moduleName": "King Bed",
     "bounds": [[9100, 1750], [11100, 1750], [11100, 3750], [9100, 3750]],
     "facing": "east",
-    "zoneId": "r_3",
+    "zoneId": "rz_3",
     "items": []
   },
   {
@@ -408,7 +349,7 @@ v3.2 架构：策略文件直接存放在 `schemes/` 目录下，AI 在此进行
     "moduleName": "Nightstand Left",
     "bounds": [[9100, 3750], [9600, 3750], [9600, 4250], [9100, 4250]],
     "facing": "east",
-    "zoneId": "r_3",
+    "zoneId": "rz_3",
     "items": []
   }
 ]
@@ -423,7 +364,7 @@ v3.2 架构：策略文件直接存放在 `schemes/` 目录下，AI 在此进行
 | `moduleName` | string | ✅ | 模块可读名称 |
 | `bounds` | number[][] | ✅ | 边界多边形 (矩形 4 顶点) |
 | `facing` | string | ✅ | 朝向 (见下方说明) |
-| `zoneId` | string | ✅ | 所属房间/区域 ID (如 `r_3`) |
+| `zoneId` | string | ✅ | 所属分区 ID (如 `rz_3`)，与所在目录名一致 |
 | `items` | array | ✅ | 模块内部家具清单 (可为空数组) |
 
 #### 7.2.2 bounds - 边界定义
@@ -525,18 +466,18 @@ bounds = [[x0,y0], [x1,y1], [x2,y2], [x3,y3]]
 3. ❌ bounds 不能与其他已放置 modules[] 重叠
 ```
 
-### 9.2 zoneId 选择
+### 9.2 zoneId 与目录对应
 
-`zoneId` 应使用房间 ID（如 `r_1`、`r_3`），而不是区域 ID：
+`zoneId` 使用分区 ID（`rz_*` 格式），必须与 `modules.json` 所在目录名一致：
 
-| 房间 ID | 房间名称 | 说明 |
-|---------|----------|------|
-| `r_1` | 次卧一 | 对应 zones 中的 `rz_1` |
-| `r_2` | 次卧二 | 对应 zones 中的 `rz_2` |
-| `r_3` | 主卧 | 对应 zones 中的 `rz_3` |
-| `r_4` | 主卫 | 对应 zones 中的 `rz_4` |
-| `r_5` | 公卫 | 对应 zones 中的 `rz_5` |
-| `r_6` | 公共空间 | 对应 zones 中的 `rz_6` |
+| 分区 ID | 目录位置 | 对应房间 |
+|---------|----------|----------|
+| `rz_1` | `schemes/rz_1/modules.json` | 次卧一 |
+| `rz_2` | `schemes/rz_2/modules.json` | 次卧二 |
+| `rz_3` | `schemes/rz_3/modules.json` | 主卧 |
+| `rz_4` | `schemes/rz_4/modules.json` | 主卫 |
+| `rz_5` | `schemes/rz_5/modules.json` | 公卫 |
+| `rz_6` | `schemes/rz_6/modules.json` | 公共空间 |
 
 ---
 
@@ -544,7 +485,7 @@ bounds = [[x0,y0], [x1,y1], [x2,y2], [x3,y3]]
 
 ### 10.1 空白 modules.json 模板
 
-如果方案文件夹中没有 `modules.json` 或内容为空，创建以下结构:
+每个分区目录下的 `modules.json` 初始为空数组：
 
 ```json
 []
@@ -552,7 +493,7 @@ bounds = [[x0,y0], [x1,y1], [x2,y2], [x3,y3]]
 
 ### 10.2 添加单个家具示例
 
-添加一个床到主卧 (r_3)：
+在主卧 (rz_3) 添加一个床，编辑 `schemes/rz_3/modules.json`：
 
 ```json
 [
@@ -562,7 +503,7 @@ bounds = [[x0,y0], [x1,y1], [x2,y2], [x3,y3]]
     "moduleName": "King Bed",
     "bounds": [[9100, 1750], [11100, 1750], [11100, 3750], [9100, 3750]],
     "facing": "east",
-    "zoneId": "r_3",
+    "zoneId": "rz_3",
     "items": []
   }
 ]
@@ -570,7 +511,7 @@ bounds = [[x0,y0], [x1,y1], [x2,y2], [x3,y3]]
 
 ### 10.3 添加多个家具示例
 
-添加床 + 床头柜组合：
+在主卧添加床 + 床头柜组合，编辑 `schemes/rz_3/modules.json`：
 
 ```json
 [
@@ -580,7 +521,7 @@ bounds = [[x0,y0], [x1,y1], [x2,y2], [x3,y3]]
     "moduleName": "King Bed",
     "bounds": [[9100, 1750], [11100, 1750], [11100, 3750], [9100, 3750]],
     "facing": "east",
-    "zoneId": "r_3",
+    "zoneId": "rz_3",
     "items": []
   },
   {
@@ -589,7 +530,7 @@ bounds = [[x0,y0], [x1,y1], [x2,y2], [x3,y3]]
     "moduleName": "Nightstand Left",
     "bounds": [[9100, 3750], [9600, 3750], [9600, 4250], [9100, 4250]],
     "facing": "east",
-    "zoneId": "r_3",
+    "zoneId": "rz_3",
     "items": []
   },
   {
@@ -598,7 +539,7 @@ bounds = [[x0,y0], [x1,y1], [x2,y2], [x3,y3]]
     "moduleName": "Nightstand Right",
     "bounds": [[9100, 1250], [9600, 1250], [9600, 1750], [9100, 1750]],
     "facing": "east",
-    "zoneId": "r_3",
+    "zoneId": "rz_3",
     "items": []
   }
 ]
@@ -624,9 +565,9 @@ bounds = [[x0,y0], [x1,y1], [x2,y2], [x3,y3]]
 
 ## 11. 常见问题
 
-### Q1: 如何确定模块应该放在哪个房间?
+### Q1: 如何确定模块应该放在哪个分区?
 
-查看 `baseline/rooms.json` 中的房间列表，使用房间的 `id` 作为模块的 `zoneId`。
+查看 `schemes/zones.json`，找到对应房间的分区 ID（`rz_*`），在该分区的 `modules.json` 中添加模块。
 
 ### Q2: 如何避免与门扇区域冲突?
 
@@ -642,11 +583,11 @@ bounds = [[x0,y0], [x1,y1], [x2,y2], [x3,y3]]
 
 ### Q5: 如何创建新方案?
 
-v3.2 架构中，多策略通过 Git 分支实现：
+多策略通过 Git 分支实现：
 
 1. 使用 `git checkout -b scheme/新方案名` 创建新分支
 2. 修改 `schemes/strategy.json` 中的 `id` 和 `name`
-3. 在该分支上修改 `schemes/modules.json` 进行布置
+3. 在该分支上修改各 `schemes/rz_*/modules.json` 进行布置
 4. 切换分支即可切换方案
 
 > **注意**：AI 并行生成多方案时，Server 会自动使用 Git Worktree 创建隔离的工作副本。

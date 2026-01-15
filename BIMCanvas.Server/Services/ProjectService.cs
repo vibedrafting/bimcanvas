@@ -121,7 +121,10 @@ namespace BIMCanvas.Server.Services
             // 9. 复制 modules 文件夹（Agent 需要读取模块库）
             CopyModulesDirectory(projectPath);
 
-            // 10. 初始化 Git 仓库（v3.1 新增：单仓库 + 多分支架构）
+            // 10. 复制 README.md 模板（Agent 读取此文件了解项目结构）
+            CopyReadmeTemplate(projectPath);
+
+            // 11. 初始化 Git 仓库（v3.1 新增：单仓库 + 多分支架构）
             InitializeGitRepository(projectPath);
 
             _logger.LogInformation("项目加载完成: {Path}", projectPath);
@@ -682,6 +685,73 @@ Thumbs.db
             // 复制整个 modules 目录
             CopyDirectory(sourceModulesPath, targetModulesPath);
             _logger.LogInformation("复制 modules/ 目录到项目: {Path}", targetModulesPath);
+        }
+
+        /// <summary>
+        /// 复制 README.md 模板到项目根目录
+        /// Agent 通过此文件了解项目目录结构和数据格式
+        /// </summary>
+        private void CopyReadmeTemplate(string projectPath)
+        {
+            var targetReadmePath = Path.Combine(projectPath, "README.md");
+
+            // 如果已存在则跳过
+            if (File.Exists(targetReadmePath))
+            {
+                _logger.LogDebug("README.md 已存在，跳过复制");
+                return;
+            }
+
+            // 查找模板文件
+            var templatePath = FindReadmeTemplatePath();
+            if (string.IsNullOrEmpty(templatePath) || !File.Exists(templatePath))
+            {
+                _logger.LogWarning("未找到 ProjectReadmeTemplate.md，跳过 README.md 创建");
+                return;
+            }
+
+            // 读取模板并替换占位符
+            var content = File.ReadAllText(templatePath, Encoding.UTF8);
+
+            // 获取项目信息用于替换
+            var projectName = Path.GetFileName(projectPath);
+            var exportDate = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss");
+
+            content = content.Replace("{PROJECT_NAME}", projectName);
+            content = content.Replace("{EXPORT_DATE}", exportDate);
+            content = content.Replace("{PROJECT_FOLDER}", projectName);
+
+            File.WriteAllText(targetReadmePath, content, Encoding.UTF8);
+            _logger.LogInformation("创建 README.md（Agent 项目结构说明）");
+        }
+
+        /// <summary>
+        /// 查找 README 模板文件路径
+        /// </summary>
+        private string? FindReadmeTemplatePath()
+        {
+            var baseDir = AppDomain.CurrentDomain.BaseDirectory;
+
+            // 方法1：从运行目录查找 Templates 文件夹
+            var templatePath = Path.Combine(baseDir, "Templates", "ProjectReadmeTemplate.md");
+            if (File.Exists(templatePath))
+            {
+                return templatePath;
+            }
+
+            // 方法2：从当前程序集位置向上查找 BIMCanvas.Server/Templates
+            var dir = new DirectoryInfo(baseDir);
+            for (int i = 0; i < 8 && dir != null; i++)
+            {
+                var tryPath = Path.Combine(dir.FullName, "BIMCanvas.Server", "Templates", "ProjectReadmeTemplate.md");
+                if (File.Exists(tryPath))
+                {
+                    return tryPath;
+                }
+                dir = dir.Parent;
+            }
+
+            return null;
         }
 
         /// <summary>

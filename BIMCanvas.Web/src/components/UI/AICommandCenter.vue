@@ -95,6 +95,39 @@ interface ChatMessage {
   waitingState: WaitingState;
 }
 
+// === 多窗口聊天数据结构 (Phase 1) ===
+interface ChatWindow {
+  id: string;
+  name: string;
+  branchId: string;
+  messages: ChatMessage[];
+  isPrimary: boolean;
+}
+
+// 窗口状态
+const windows = ref<ChatWindow[]>([]);
+const activeWindowId = ref<string>('');
+
+// 初始化默认窗口
+const initDefaultWindow = () => {
+  if (windows.value.length > 0) return; // 防止重复初始化
+  const defaultId = 'window-main';
+  windows.value = [{
+    id: defaultId,
+    name: 'Main',
+    branchId: currentBranch.value || 'main',
+    messages: [],
+    isPrimary: true
+  }];
+  activeWindowId.value = defaultId;
+};
+
+// 获取当前窗口的消息（用于渐进式迁移）
+const getCurrentWindowMessages = (): ChatMessage[] => {
+  const win = windows.value.find(w => w.id === activeWindowId.value);
+  return win ? win.messages : [];
+};
+
 // Claude Code 风格的拟人等待提示词 (169 个)
 const WAITING_VERBS = [
   'Accomplishing', 'Actioning', 'Actualizing', 'Baking', 'Beaming', 'Beboppin',
@@ -132,6 +165,7 @@ const getRandomWaitingVerb = (): string => {
   return WAITING_VERBS[Math.floor(Math.random() * WAITING_VERBS.length)];
 };
 
+// 保留原有的 chatMessages ref（向后兼容，Phase 1 不修改使用方式）
 const chatMessages = ref<ChatMessage[]>([]);
 const inputMessage = ref('');
 const pendingImages = ref<string[]>([]);  // 待发送的截图附件（base64）

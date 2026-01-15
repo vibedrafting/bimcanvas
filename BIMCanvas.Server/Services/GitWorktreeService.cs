@@ -238,12 +238,15 @@ namespace BIMCanvas.Server.Services
 
         /// <summary>
         /// 创建 Worktree（用于并行任务）
+        /// - 分支已存在：检出到 Worktree（场景 A：并行开发）
+        /// - 分支不存在：基于 baseBranch 创建新分支（场景 B：隔离环境）
         /// </summary>
         /// <param name="projectPath">主仓库路径</param>
         /// <param name="worktreeName">工作树名称（如 "ai-job-1"）</param>
-        /// <param name="branchName">分支名（如 "feat/ai-storage"），不存在会自动创建</param>
+        /// <param name="branchName">目标分支名（如 "feat/ai-storage"）</param>
+        /// <param name="baseBranch">基准分支（可选），分支不存在时作为创建起点，默认 HEAD</param>
         /// <returns>Worktree 的完整路径</returns>
-        public string CreateWorktree(string projectPath, string worktreeName, string branchName)
+        public string CreateWorktree(string projectPath, string worktreeName, string branchName, string? baseBranch = null)
         {
             var worktreesDir = GetWorktreesDir(projectPath);
             if (!Directory.Exists(worktreesDir))
@@ -260,29 +263,31 @@ namespace BIMCanvas.Server.Services
                 RemoveWorktree(projectPath, worktreeName);
             }
 
-            // 检查分支是否存在
+            // 智能判断：分支是否存在
             var branches = GetAllBranches(projectPath);
-            if (!branches.Contains(branchName))
+            if (branches.Contains(branchName))
             {
-                // 分支不存在，创建新分支的 worktree
-                var result = RunGit(projectPath, $"worktree add -b \"{branchName}\" \"{worktreePath}\"");
-                if (!result.Success)
-                {
-                    throw new InvalidOperationException($"创建 Worktree 失败: {result.Error}");
-                }
-            }
-            else
-            {
-                // 分支存在，直接 checkout
+                // 场景 A：分支已存在 → 直接检出
                 var result = RunGit(projectPath, $"worktree add \"{worktreePath}\" \"{branchName}\"");
                 if (!result.Success)
                 {
                     throw new InvalidOperationException($"创建 Worktree 失败: {result.Error}");
                 }
+                _logger.LogInformation("创建 Worktree（检出已有分支）: {Name} -> {Branch} @ {Path}",
+                    worktreeName, branchName, worktreePath);
             }
-
-            _logger.LogInformation("创建 Worktree: {Name} -> {Branch} @ {Path}",
-                worktreeName, branchName, worktreePath);
+            else
+            {
+                // 场景 B：分支不存在 → 基于 baseBranch 创建新分支
+                var startPoint = string.IsNullOrEmpty(baseBranch) ? "HEAD" : $"\"{baseBranch}\"";
+                var result = RunGit(projectPath, $"worktree add -b \"{branchName}\" \"{worktreePath}\" {startPoint}");
+                if (!result.Success)
+                {
+                    throw new InvalidOperationException($"创建 Worktree 失败: {result.Error}");
+                }
+                _logger.LogInformation("创建 Worktree（创建新分支）: {Name} -> {Branch} (基于 {Base}) @ {Path}",
+                    worktreeName, branchName, baseBranch ?? "HEAD", worktreePath);
+            }
 
             return worktreePath;
         }
@@ -527,87 +532,6 @@ namespace BIMCanvas.Server.Services
                 .OrderByDescending(b => b.IsCurrent)
                 .ThenBy(b => b.Name)
                 .ToList();
-        }
-
-        #endregion
-
-        #region 并行任务支持
-
-        /// <summary>
-        /// 为并行 AI 任务创建工作环境
-        /// </summary>
-        /// <param name="projectPath">主项目路径</param>
-        /// <param name="jobId">任务 ID（如 "storage", "flow", "minimal"）</param>
-        /// <param name="strategyName">策略名称（用于分支命名）</param>
-        /// <returns>Worktree 路径</returns>
-        public string CreateAiJobWorktree(string projectPath, string jobId, string strategyName)
-        {
-            var branchName = $"{AiFeatureBranchPrefix}{jobId}-{strategyName}";
-            var worktreeName = $"ai-{jobId}";
-
-            return CreateWorktree(projectPath, worktreeName, branchName);
-        }
-
-        /// <summary>
-        /// 完成 AI 任务并清理
-        /// </summary>
-        /// <param name="projectPath">主项目路径</param>
-        /// <param name="jobId">任务 ID</param>
-        /// <param name="commitMessage">提交信息</param>
-        public void CompleteAiJob(string projectPath, string jobId, string commitMessage)
-        {
-            var worktreeName = $"ai-{jobId}";
-            var worktreePath = Path.Combine(GetWorktreesDir(projectPath), worktreeName);
-
-            if (!Directory.Exists(worktreePath))
-            {
-                _logger.LogWarning("AI 任务 Worktree 不存在: {JobId}", jobId);
-                return;
-            }
-
-            // 提交更改
-            if (HasUncommittedChanges(worktreePath))
-            {
-                Commit(worktreePath, commitMessage);
-            }
-
-            // 不删除 worktree，保留供用户比较
-            _logger.LogInformation("AI 任务完成: {JobId}", jobId);
-        }
-
-        /// <summary>
-        /// 接受 AI 任务结果（合并到 main）
-        /// </summary>
-        public MergeResult AcceptAiJob(string projectPath, string jobId, bool deleteAfterMerge = true)
-        {
-            var worktreeName = $"ai-{jobId}";
-            var worktrees = GetWorktrees(projectPath);
-            var wt = worktrees.FirstOrDefault(w => w.Path.EndsWith(worktreeName));
-
-            if (wt == null || string.IsNullOrEmpty(wt.Branch))
-            {
-                throw new InvalidOperationException($"找不到 AI 任务: {jobId}");
-            }
-
-            // 确保在 main 分支
-            var currentBranch = GetCurrentBranch(projectPath);
-            if (currentBranch != "main" && currentBranch != "master")
-            {
-                CheckoutBranch(projectPath, "main");
-            }
-
-            // 合并
-            var result = MergeBranch(projectPath, wt.Branch,
-                $"Accept AI design: {jobId}");
-
-            if (result.Success && deleteAfterMerge)
-            {
-                // 删除 worktree 和分支
-                RemoveWorktree(projectPath, worktreeName);
-                DeleteBranch(projectPath, wt.Branch);
-            }
-
-            return result;
         }
 
         #endregion

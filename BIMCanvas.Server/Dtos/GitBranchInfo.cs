@@ -106,10 +106,18 @@ namespace BIMCanvas.Server.Dtos
         public string Name { get; set; } = string.Empty;
 
         /// <summary>
-        /// 关联的分支名（如 "feat/ai-storage"）
-        /// 如果不存在会自动创建
+        /// 目标分支名（如 "feat/ai-storage"）
+        /// - 分支已存在：检出到 Worktree（场景 A：并行开发）
+        /// - 分支不存在：基于 BaseBranch 创建新分支（场景 B：隔离环境）
         /// </summary>
-        public string BranchName { get; set; } = string.Empty;
+        public string Branch { get; set; } = string.Empty;
+
+        /// <summary>
+        /// 基准分支（可选）
+        /// 仅当 Branch 不存在时使用，作为新分支的创建起点
+        /// 如果不指定，默认基于当前 HEAD
+        /// </summary>
+        public string? BaseBranch { get; set; }
     }
 
     /// <summary>
