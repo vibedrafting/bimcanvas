@@ -22,6 +22,7 @@ Worktree 功能测试脚本
   python test_worktree.py a            # 运行场景 A（A1+A2）
   python test_worktree.py a1           # A1：创建（用默认分支）
   python test_worktree.py a1 分支名    # A1：创建（用指定分支）
+  python test_worktree.py f1 分支名    # F1：创建虚拟窗口（用指定分支）
   python test_worktree.py a2           # A2：删除
   python test_worktree.py b            # 运行场景 B（B1+B2+B3+B4）
   python test_worktree.py b1           # B1：创建隔离环境
@@ -648,31 +649,38 @@ def test_b4_cleanup():
 # 场景 F：多窗口独立任务
 # ============================================================
 
-def test_f1_create_window():
+def test_f1_create_window(custom_branch=None):
     """
     F1: 创建虚拟窗口
 
     场景：用户打开新窗口，检出一个分支
+
+    Args:
+        custom_branch: 自定义分支名（可选，默认使用 BRANCH_F）
     """
     print("\n" + "=" * 60)
     print(f"{CYAN}F1: 创建虚拟窗口{RESET}")
     print("=" * 60)
 
+    branch = custom_branch or BRANCH_F
     base_branch = get_current_branch()
 
+    # 保存使用的分支到状态（供后续 F2-F6 使用）
+    save_state("f_branch", branch)
+
     # Step 1: 准备 - 确保虚拟窗口分支存在
-    log_step(1, f"准备：确保虚拟窗口分支 {BRANCH_F} 存在")
-    if not branch_exists(BRANCH_F):
+    log_step(1, f"准备：确保虚拟窗口分支 {branch} 存在")
+    if not branch_exists(branch):
         log_info("分支不存在，先创建...")
-        success, _ = create_worktree("temp-create-f", BRANCH_F, base_branch=base_branch)
+        success, _ = create_worktree("temp-create-f", branch, base_branch=base_branch)
         if success:
             delete_worktree("temp-create-f", delete_branch=False)
-            log_pass(f"分支 {BRANCH_F} 已创建")
+            log_pass(f"分支 {branch} 已创建")
         else:
             log_fail("无法创建测试分支")
             return False
     else:
-        log_pass(f"分支 {BRANCH_F} 已存在")
+        log_pass(f"分支 {branch} 已存在")
 
     # 清理可能残留的 worktree
     if worktree_exists(WT_F_WINDOW):
@@ -681,9 +689,9 @@ def test_f1_create_window():
 
     # Step 2: 创建虚拟窗口 worktree
     log_step(2, f"创建虚拟窗口: {WT_F_WINDOW}")
-    log_info(f"检出分支: {BRANCH_F}")
+    log_info(f"检出分支: {branch}")
 
-    success, result = create_worktree(WT_F_WINDOW, BRANCH_F)
+    success, result = create_worktree(WT_F_WINDOW, branch)
     if not success:
         log_fail(f"创建失败: {result}")
         return False
@@ -721,6 +729,10 @@ def test_f2_create_agent():
     print(f"{CYAN}F2: 创建 Agent 隔离环境（基于虚拟窗口分支）{RESET}")
     print("=" * 60)
 
+    # 从状态文件读取虚拟窗口分支（F1 保存的）
+    window_branch = load_state("f_branch", BRANCH_F)
+    log_info(f"虚拟窗口分支: {window_branch}")
+
     # Step 1: 检查前置条件
     log_step(1, f"检查虚拟窗口 {WT_F_WINDOW} 是否存在")
     if not worktree_exists(WT_F_WINDOW):
@@ -744,9 +756,9 @@ def test_f2_create_agent():
     log_step(2, "创建 Agent Worktree + 临时分支")
     log_info(f"Worktree: {WT_F_AGENT}")
     log_info(f"临时分支: {BRANCH_F_AI}")
-    log_info(f"基准分支: {BRANCH_F}（虚拟窗口分支）")
+    log_info(f"基准分支: {window_branch}（虚拟窗口分支）")
 
-    success, result = create_worktree(WT_F_AGENT, BRANCH_F_AI, base_branch=BRANCH_F)
+    success, result = create_worktree(WT_F_AGENT, BRANCH_F_AI, base_branch=window_branch)
     if not success:
         log_fail(f"创建失败: {result}")
         return False
@@ -958,6 +970,11 @@ def test_f6_cleanup_window():
     print(f"{CYAN}F6: 清理虚拟窗口（保留分支）{RESET}")
     print("=" * 60)
 
+    # 从状态文件读取虚拟窗口分支（F1 保存的）
+    window_branch = load_state("f_branch", BRANCH_F)
+    is_test_branch = window_branch.startswith("test/")  # 判断是否是测试分支
+    log_info(f"虚拟窗口分支: {window_branch}")
+
     # Step 1: 检查虚拟窗口
     log_step(1, f"检查虚拟窗口 {WT_F_WINDOW}")
     if not worktree_exists(WT_F_WINDOW):
@@ -986,10 +1003,10 @@ def test_f6_cleanup_window():
 
     # Step 4: 验证分支仍存在
     log_step(4, "验证分支仍存在")
-    if branch_exists(BRANCH_F):
-        log_pass(f"分支 '{BRANCH_F}' 保留成功")
+    if branch_exists(window_branch):
+        log_pass(f"分支 '{window_branch}' 保留成功")
     else:
-        log_fail(f"分支 '{BRANCH_F}' 被意外删除！")
+        log_fail(f"分支 '{window_branch}' 被意外删除！")
         return False
 
     # Step 5: 清除状态文件
@@ -999,14 +1016,17 @@ def test_f6_cleanup_window():
 
     print(f"\n{GREEN}F6 测试通过{RESET}")
 
-    # 清理测试分支
-    print(f"\n{YELLOW}清理测试分支...{RESET}")
-    success, _ = create_worktree("cleanup-f", BRANCH_F)
-    if success:
-        delete_worktree("cleanup-f", delete_branch=True)
-        log_pass(f"测试分支 {BRANCH_F} 已清理")
+    # 仅清理测试分支（test/ 开头的分支才删除，用户自定义分支保留）
+    if is_test_branch:
+        print(f"\n{YELLOW}清理测试分支...{RESET}")
+        success, _ = create_worktree("cleanup-f", window_branch)
+        if success:
+            delete_worktree("cleanup-f", delete_branch=True)
+            log_pass(f"测试分支 {window_branch} 已清理")
+        else:
+            log_warn("清理失败（可手动删除）")
     else:
-        log_warn("清理失败（可手动删除）")
+        log_info(f"保留用户分支: {window_branch}（非 test/ 开头）")
 
     return True
 
@@ -1174,9 +1194,10 @@ def main():
     # 解析参数
     a1_branch = None
     b1_base_branch = None
+    f1_branch = None
     test_keys = ['a', 'a1', 'a2', 'b', 'b1', 'b2', 'b3', 'b4', 'f', 'f1', 'f2', 'f3', 'f4', 'f5', 'f6']
 
-    # 查找 a1/b1 后面是否跟着分支名
+    # 查找 a1/b1/f1 后面是否跟着分支名
     for i, arg in enumerate(args):
         if arg == 'a1' and i + 1 < len(raw_args):
             next_arg = raw_args[i + 1]
@@ -1186,6 +1207,10 @@ def main():
             next_arg = raw_args[i + 1]
             if next_arg.lower() not in test_keys and not next_arg.startswith('-'):
                 b1_base_branch = next_arg
+        elif arg == 'f1' and i + 1 < len(raw_args):
+            next_arg = raw_args[i + 1]
+            if next_arg.lower() not in test_keys and not next_arg.startswith('-'):
+                f1_branch = next_arg
 
     # 定义测试
     tests = {
@@ -1195,7 +1220,7 @@ def main():
         'b2': ('B2 (模拟 Agent 工作)', test_b2_agent_work),
         'b3': ('B3 (合并回基础分支)', test_b3_merge_back),
         'b4': ('B4 (清理隔离环境)', test_b4_cleanup),
-        'f1': ('F1 (创建虚拟窗口)', test_f1_create_window),
+        'f1': ('F1 (创建虚拟窗口)', lambda: test_f1_create_window(f1_branch)),
         'f2': ('F2 (创建 Agent 隔离环境)', test_f2_create_agent),
         'f3': ('F3 (Agent 工作并提交)', test_f3_agent_work),
         'f4': ('F4 (合并回虚拟窗口) ★', test_f4_merge_to_window),
@@ -1229,6 +1254,8 @@ def main():
         name, func = tests[key]
         if key == 'a1' and a1_branch:
             name = f"A1 (创建-检出分支: {a1_branch})"
+        elif key == 'f1' and f1_branch:
+            name = f"F1 (创建虚拟窗口: {f1_branch})"
         passed = func()
         results.append((name, passed))
 
