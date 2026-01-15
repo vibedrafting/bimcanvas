@@ -589,7 +589,7 @@ async def screenshot_save_handler(request: web.Request) -> web.Response:
 
     # 保存到用户配置目录
     import os
-    docs_dir = Path(os.path.expanduser("~/.bimcanvas/screenshots"))
+    docs_dir = Path(os.path.expanduser("~/.bimcanvas/Screenshots"))
     docs_dir.mkdir(parents=True, exist_ok=True)
 
     # 生成文件名
