@@ -290,7 +290,10 @@ namespace BIMCanvas.Server.Services
         /// <summary>
         /// 删除 Worktree
         /// </summary>
-        public void RemoveWorktree(string projectPath, string worktreeName)
+        /// <param name="projectPath">项目路径</param>
+        /// <param name="worktreeName">Worktree 名称</param>
+        /// <param name="deleteBranch">是否同时删除关联分支（场景 B：隔离环境使用）</param>
+        public void RemoveWorktree(string projectPath, string worktreeName, bool deleteBranch = false)
         {
             var worktreePath = Path.Combine(GetWorktreesDir(projectPath), worktreeName);
 
@@ -300,6 +303,21 @@ namespace BIMCanvas.Server.Services
                 return;
             }
 
+            // 如果需要删除分支，先获取 Worktree 关联的分支名
+            string? branchToDelete = null;
+            if (deleteBranch)
+            {
+                var worktrees = GetWorktrees(projectPath);
+                var targetWorktree = worktrees.FirstOrDefault(w =>
+                    w.Path.EndsWith(worktreeName, StringComparison.OrdinalIgnoreCase));
+                if (targetWorktree != null)
+                {
+                    branchToDelete = targetWorktree.Branch;
+                    _logger.LogDebug("将删除分支: {Branch}", branchToDelete);
+                }
+            }
+
+            // 删除 Worktree
             var result = RunGit(projectPath, $"worktree remove \"{worktreePath}\" --force");
             if (!result.Success)
             {
@@ -317,6 +335,20 @@ namespace BIMCanvas.Server.Services
             }
 
             _logger.LogInformation("删除 Worktree: {Name}", worktreeName);
+
+            // 删除关联分支（如果指定）
+            if (deleteBranch && !string.IsNullOrEmpty(branchToDelete))
+            {
+                var deleteResult = RunGit(projectPath, $"branch -D \"{branchToDelete}\"");
+                if (deleteResult.Success)
+                {
+                    _logger.LogInformation("删除关联分支: {Branch}", branchToDelete);
+                }
+                else
+                {
+                    _logger.LogWarning("删除分支失败: {Branch}, {Error}", branchToDelete, deleteResult.Error);
+                }
+            }
         }
 
         /// <summary>

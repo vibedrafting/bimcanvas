@@ -450,11 +450,13 @@ namespace BIMCanvas.Server.Controllers
         /// 删除 Worktree
         /// </summary>
         /// <param name="name">Worktree 名称</param>
+        /// <param name="deleteBranch">是否同时删除关联分支（场景 B：隔离环境使用）</param>
         /// <returns>操作结果</returns>
         [HttpDelete("worktrees/{name}")]
-        public ActionResult DeleteWorktree(string name)
+        public ActionResult DeleteWorktree(string name, [FromQuery] bool deleteBranch = false)
         {
-            _logger.LogInformation(">>> [GitController] DeleteWorktree called: {Name}", name);
+            _logger.LogInformation(">>> [GitController] DeleteWorktree called: {Name}, deleteBranch={DeleteBranch}",
+                name, deleteBranch);
 
             if (string.IsNullOrEmpty(name))
             {
@@ -475,10 +477,14 @@ namespace BIMCanvas.Server.Controllers
 
             try
             {
-                _gitService.RemoveWorktree(projectPath, name);
+                _gitService.RemoveWorktree(projectPath, name, deleteBranch);
+
+                var message = deleteBranch
+                    ? $"Worktree '{name}' 及关联分支已删除"
+                    : $"Worktree '{name}' 已删除";
 
                 _logger.LogInformation("删除 Worktree 成功: {Name}", name);
-                return Ok(new { success = true, message = $"Worktree '{name}' 已删除" });
+                return Ok(new { success = true, message });
             }
             catch (Exception ex)
             {
