@@ -98,14 +98,22 @@ def create_branch(branch_name):
     """创建新分支（通过 checkout -b）"""
     resp = api_post("checkout", {
         "branchName": branch_name,
-        "createIfNotExist": True
+        "createIfNotExist": True,
+        "discardBeforeCheckout": True  # 测试环境：放弃未提交更改
     })
+    if not resp.ok:
+        print_warn(f"create_branch 失败: {resp.status_code} - {resp.text}")
     return resp.ok
 
 
 def switch_branch(branch_name):
     """切换分支"""
-    resp = api_post("checkout", {"branchName": branch_name})
+    resp = api_post("checkout", {
+        "branchName": branch_name,
+        "discardBeforeCheckout": True  # 测试环境：放弃未提交更改
+    })
+    if not resp.ok:
+        print_warn(f"switch_branch 失败: {resp.status_code} - {resp.text}")
     return resp.ok
 
 
