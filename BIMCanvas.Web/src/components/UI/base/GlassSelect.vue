@@ -14,48 +14,18 @@ interface Props {
   placeholder?: string;
   width?: string;
   disabled?: boolean;
+  variant?: 'glass' | 'solid';
 }
 
 const props = withDefaults(defineProps<Props>(), {
   placeholder: 'Select...',
   width: '160px',
-  disabled: false
+  disabled: false,
+  variant: 'glass'
 });
 
-const emit = defineEmits<{
-  (e: 'update:modelValue', value: string | number): void;
-}>();
+// ... (emit, refs, computed, methods remain same)
 
-const isOpen = ref(false);
-const containerRef = ref<HTMLElement | null>(null);
-
-const selectedOption = computed(() => 
-  props.options.find(opt => opt.value === props.modelValue)
-);
-
-const toggleDropdown = () => {
-  if (props.disabled) return;
-  isOpen.value = !isOpen.value;
-};
-
-const selectOption = (option: Option) => {
-  emit('update:modelValue', option.value);
-  isOpen.value = false;
-};
-
-const closeDropdown = (e: MouseEvent) => {
-  if (containerRef.value && !containerRef.value.contains(e.target as Node)) {
-    isOpen.value = false;
-  }
-};
-
-onMounted(() => {
-  document.addEventListener('click', closeDropdown);
-});
-
-onUnmounted(() => {
-  document.removeEventListener('click', closeDropdown);
-});
 </script>
 
 <template>
@@ -63,15 +33,17 @@ onUnmounted(() => {
     <!-- Trigger Button -->
     <button 
       class="select-trigger" 
-      :class="{ active: isOpen, disabled: disabled }"
+      :class="{ 
+        active: isOpen, 
+        disabled: disabled,
+        'variant-solid': variant === 'solid'
+      }"
       @click="toggleDropdown"
       :disabled="disabled"
     >
       <span class="selected-text" :class="{ placeholder: !selectedOption }">
         <span v-if="selectedOption?.icon" class="option-icon" v-html="selectedOption.icon"></span>
         {{ selectedOption ? selectedOption.label : placeholder }}
-        <!-- Selected Tags (Optional: only show first tag if space permits, or hide in trigger) -->
-        <!-- For now, we keep trigger clean, tags are mainly for selection context -->
       </span>
       <svg class="chevron" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
         <polyline points="6 9 12 15 18 9"></polyline>
@@ -80,7 +52,11 @@ onUnmounted(() => {
 
     <!-- Dropdown Menu -->
     <transition name="dropdown">
-      <div class="select-dropdown" v-if="isOpen && !disabled">
+      <div 
+        class="select-dropdown" 
+        v-if="isOpen && !disabled"
+        :class="{ 'variant-solid': variant === 'solid' }"
+      >
         <div 
           v-for="option in options" 
           :key="option.value"
@@ -88,12 +64,12 @@ onUnmounted(() => {
           :class="{ selected: modelValue === option.value }"
           @click="selectOption(option)"
         >
+          <!-- ... (option content remains same) -->
           <div class="option-main">
             <span v-if="option.icon" class="option-icon" v-html="option.icon"></span>
             <span class="option-label">{{ option.label }}</span>
           </div>
           
-          <!-- Tags Display -->
           <div v-if="option.tags && option.tags.length > 0" class="option-tags">
             <span v-for="tag in option.tags" :key="tag" class="tag-badge">{{ tag }}</span>
           </div>
@@ -153,6 +129,22 @@ onUnmounted(() => {
       border-color: rgba(255, 255, 255, 0.1);
     }
   }
+
+  // Solid Variant
+  &.variant-solid {
+    background: #22262e;
+    border-color: rgba(255, 255, 255, 0.1);
+    
+    &:hover:not(.disabled) {
+      background: #2a2f38;
+      border-color: rgba(255, 255, 255, 0.2);
+    }
+
+    &.active {
+      background: #2a2f38;
+      border-color: var(--accent-blue);
+    }
+  }
 }
 
 .selected-text {
@@ -180,7 +172,7 @@ onUnmounted(() => {
   top: calc(100% + 4px);
   left: 0;
   width: 100%;
-  min-width: 240px; /* Increased min-width for tags */
+  min-width: 240px;
   background-color: var(--glass-bg-solid);
   border: var(--glass-border);
   border-radius: 8px;
@@ -194,12 +186,20 @@ onUnmounted(() => {
   background-image: var(--glass-glare), linear-gradient(to bottom, var(--glass-bg-solid), var(--glass-bg-solid));
   background-origin: border-box;
   background-clip: padding-box, border-box;
+
+  // Solid Variant
+  &.variant-solid {
+    background: #22262e;
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+    background-image: none; // Remove glass glare
+  }
 }
 
 .select-option {
   display: flex;
   align-items: center;
-  justify-content: space-between; /* Space between label and tags/check */
+  justify-content: space-between;
   gap: 8px;
   padding: 8px 12px;
   color: var(--text-secondary);

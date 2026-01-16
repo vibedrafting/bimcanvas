@@ -31,16 +31,21 @@ const branchOptions = computed(() => {
 watch(isVisible, async (visible, oldVisible) => {
   console.log('[BranchMergeWizard] watch isVisible triggered:', oldVisible, '->', visible);
   if (visible) {
+    // 立即设置默认目标分支，避免等待 fetchBranches 导致的 UI 闪烁
+    if (currentBranch.value && !targetBranch.value) {
+      console.log('[BranchMergeWizard] Setting default targetBranch immediately to:', currentBranch.value);
+      mergeStore.targetBranch = currentBranch.value;
+    }
+
     console.log('[BranchMergeWizard] Wizard opened, fetching branches...');
     await gitStore.fetchBranches();
     console.log('[BranchMergeWizard] Branches fetched, currentBranch:', currentBranch.value);
-    console.log('[BranchMergeWizard] Current targetBranch:', targetBranch.value);
-    // 默认目标分支为当前分支
+    
+    // fetch 后再次确认（以防 fetch 更新了 currentBranch）
     if (currentBranch.value && !targetBranch.value) {
-      console.log('[BranchMergeWizard] Setting default targetBranch to:', currentBranch.value);
+      console.log('[BranchMergeWizard] Setting default targetBranch (post-fetch) to:', currentBranch.value);
       mergeStore.targetBranch = currentBranch.value;
     }
-    console.log('[BranchMergeWizard] After setup, isVisible still:', isVisible.value);
   } else {
     console.log('[BranchMergeWizard] Wizard closed');
   }
@@ -89,7 +94,7 @@ defineExpose({
 <template>
   <Teleport to="body">
     <Transition name="fade">
-      <div v-if="isVisible" class="wizard-overlay" @click.self="handleClose">
+      <div v-if="isVisible" class="wizard-overlay">
         <div class="wizard-container">
           <!-- 标题栏 -->
           <div class="wizard-header">

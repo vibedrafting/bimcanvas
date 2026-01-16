@@ -61,6 +61,7 @@ const validationError = computed(() => {
           :options="availableTargetBranches"
           placeholder="请选择目标分支"
           width="100%"
+          variant="solid"
         />
       </div>
 
@@ -74,6 +75,7 @@ const validationError = computed(() => {
           placeholder="请选择源分支"
           width="100%"
           :disabled="!targetBranch"
+          variant="solid"
         />
       </div>
 
