@@ -19,6 +19,7 @@ interface WorktreeInfo {
 // 组件状态
 const isVisible = ref(false);
 const isLoading = ref(false);
+const isLoadingWorktrees = ref(false);
 const error = ref<string | null>(null);
 
 // 数据
@@ -54,6 +55,7 @@ const diffSummary = computed(() => {
 
 // 获取 Worktree 列表
 async function fetchWorktrees() {
+  isLoadingWorktrees.value = true;
   try {
     const response = await fetch(`${API_BASE}/api/git/worktrees`);
     if (response.ok) {
@@ -61,6 +63,8 @@ async function fetchWorktrees() {
     }
   } catch (e) {
     console.error('[SchemeDiffPanel] 获取 worktree 列表失败:', e);
+  } finally {
+    isLoadingWorktrees.value = false;
   }
 }
 
@@ -161,8 +165,8 @@ defineExpose({ open, close });
       <!-- Worktree 选择 -->
       <div class="worktree-selector">
         <label>Agent Worktree:</label>
-        <select v-model="selectedWorktree" :disabled="isLoading">
-          <option value="">-- Select --</option>
+        <select v-model="selectedWorktree" :disabled="isLoading || isLoadingWorktrees">
+          <option value="" disabled>{{ isLoadingWorktrees ? 'Loading...' : '-- Select --' }}</option>
           <option v-for="wt in availableWorktrees" :key="wt.name" :value="wt.name">
             {{ wt.name }} ({{ wt.branch || 'detached' }})
           </option>
@@ -236,13 +240,14 @@ defineExpose({ open, close });
 <style scoped lang="scss">
 .scheme-diff-panel {
   position: fixed;
-  bottom: 0;
-  right: 20px;
-  width: 360px;
-  background: var(--bg-primary);
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: 400px;
+  background: rgba(30, 35, 45, 0.98);
   border: 1px solid var(--border-subtle);
-  border-radius: 12px 12px 0 0;
-  box-shadow: 0 -4px 20px rgba(0, 0, 0, 0.15);
+  border-radius: 12px;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
   display: flex;
   flex-direction: column;
   z-index: 200;
@@ -314,6 +319,13 @@ defineExpose({ open, close });
     &:disabled {
       opacity: 0.5;
       cursor: not-allowed;
+    }
+
+    // 下拉选项样式（浏览器原生）
+    option {
+      background: #1e232d;
+      color: #e0e0e0;
+      padding: 8px;
     }
   }
 }
@@ -417,12 +429,12 @@ defineExpose({ open, close });
 // 动画
 .slide-up-enter-active,
 .slide-up-leave-active {
-  transition: transform 0.3s ease, opacity 0.3s ease;
+  transition: transform 0.25s ease, opacity 0.25s ease;
 }
 
 .slide-up-enter-from,
 .slide-up-leave-to {
-  transform: translateY(100%);
+  transform: translate(-50%, -50%) scale(0.95);
   opacity: 0;
 }
 </style>
