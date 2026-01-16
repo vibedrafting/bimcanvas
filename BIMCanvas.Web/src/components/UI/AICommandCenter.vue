@@ -306,10 +306,27 @@ const handleNewWindowClick = (event: MouseEvent) => {
         const rect = btn.getBoundingClientRect();
         const parentRect = btn.closest('.header-tabs')?.getBoundingClientRect();
         if (parentRect) {
-            newWindowDropdownPosition.value = {
-                top: rect.bottom - parentRect.top + 4, // 4px 间距
-                right: parentRect.right - rect.right
-            };
+            const dropdownWidth = 200; // 下拉框宽度
+            const viewportWidth = window.innerWidth;
+            const spaceOnRight = viewportWidth - rect.left; // 按钮左边缘到视口右边的空间
+
+            const top = rect.bottom - parentRect.top + 4; // 4px 间距
+
+            if (spaceOnRight >= dropdownWidth + 8) {
+                // 右侧空间足够，使用 left 定位（向右展开）
+                newWindowDropdownPosition.value = {
+                    top,
+                    left: rect.left - parentRect.left,
+                    right: undefined
+                };
+            } else {
+                // 右侧空间不足，使用 right 定位（向左展开）
+                newWindowDropdownPosition.value = {
+                    top,
+                    left: undefined,
+                    right: parentRect.right - rect.right
+                };
+            }
         }
     }
 
@@ -436,7 +453,11 @@ const expandedThinking = ref<Record<number, boolean>>({});
 const shouldAutoScroll = ref(true); // Track if we should auto-scroll to bottom
 const windowTabsRef = ref<HTMLElement | null>(null);
 const newWindowBtnRef = ref<HTMLElement | null>(null);
-const newWindowDropdownPosition = ref({ top: 0, right: 0 });
+const newWindowDropdownPosition = ref<{
+    top: number;
+    left?: number;
+    right?: number;
+}>({ top: 0 });
 
 // 滚轮横向滚动窗口标签
 const handleTabsWheel = (event: WheelEvent) => {
@@ -1585,7 +1606,11 @@ const removePendingImage = (index: number) => {
           <div
               class="new-window-dropdown"
               v-if="showNewWindowDropdown"
-              :style="{ top: newWindowDropdownPosition.top + 'px', right: newWindowDropdownPosition.right + 'px' }"
+              :style="{
+                top: newWindowDropdownPosition.top + 'px',
+                left: newWindowDropdownPosition.left != null ? newWindowDropdownPosition.left + 'px' : 'auto',
+                right: newWindowDropdownPosition.right != null ? newWindowDropdownPosition.right + 'px' : 'auto'
+            }"
               @click.stop
           >
               <div class="dropdown-header">选择分支</div>
@@ -2572,7 +2597,7 @@ const removePendingImage = (index: number) => {
     
     .new-window-dropdown {
         /* 位置通过 JavaScript 动态设置 */
-        left: auto;
+        /* left 和 right 由 JS 动态控制 */
         width: 200px;
         
         .dropdown-header {

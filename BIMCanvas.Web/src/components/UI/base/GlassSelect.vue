@@ -24,7 +24,40 @@ const props = withDefaults(defineProps<Props>(), {
   variant: 'glass'
 });
 
-// ... (emit, refs, computed, methods remain same)
+const emit = defineEmits<{
+  (e: 'update:modelValue', value: string | number): void;
+}>();
+
+const isOpen = ref(false);
+const containerRef = ref<HTMLElement | null>(null);
+
+const selectedOption = computed(() => 
+  props.options.find(opt => opt.value === props.modelValue)
+);
+
+const toggleDropdown = () => {
+  if (props.disabled) return;
+  isOpen.value = !isOpen.value;
+};
+
+const selectOption = (option: Option) => {
+  emit('update:modelValue', option.value);
+  isOpen.value = false;
+};
+
+const closeDropdown = (e: MouseEvent) => {
+  if (containerRef.value && !containerRef.value.contains(e.target as Node)) {
+    isOpen.value = false;
+  }
+};
+
+onMounted(() => {
+  document.addEventListener('click', closeDropdown);
+});
+
+onUnmounted(() => {
+  document.removeEventListener('click', closeDropdown);
+});
 
 </script>
 
@@ -171,8 +204,9 @@ const props = withDefaults(defineProps<Props>(), {
   position: absolute;
   top: calc(100% + 4px);
   left: 0;
-  width: 100%;
-  min-width: 240px;
+  min-width: 100%; /* At least as wide as trigger */
+  width: max-content; /* Grow to fit content */
+  max-width: 360px; /* Prevent excessive width */
   background-color: var(--glass-bg-solid);
   border: var(--glass-border);
   border-radius: 8px;
@@ -181,6 +215,7 @@ const props = withDefaults(defineProps<Props>(), {
   z-index: 200;
   max-height: 300px;
   overflow-y: auto;
+  overflow-x: hidden;
   
   /* Glare effect */
   background-image: var(--glass-glare), linear-gradient(to bottom, var(--glass-bg-solid), var(--glass-bg-solid));
@@ -200,7 +235,7 @@ const props = withDefaults(defineProps<Props>(), {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 8px;
+  gap: 12px;
   padding: 8px 12px;
   color: var(--text-secondary);
   font-size: 0.85rem;
@@ -225,21 +260,33 @@ const props = withDefaults(defineProps<Props>(), {
   align-items: center;
   gap: 8px;
   flex: 1;
+  min-width: 0; /* Enable truncation in flex child */
+}
+
+.option-label {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .option-tags {
   display: flex;
   gap: 4px;
-  margin-right: 8px;
+  flex-shrink: 0;
 }
 
 .tag-badge {
-  font-size: 0.7rem;
-  padding: 1px 6px;
-  background: rgba(255, 255, 255, 0.1);
+  font-size: 0.65rem;
+  padding: 2px 6px;
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.05);
   border-radius: 4px;
   color: var(--text-secondary);
   white-space: nowrap;
+  max-width: 120px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-family: var(--font-mono, monospace);
 }
 
 .option-icon {
@@ -247,18 +294,20 @@ const props = withDefaults(defineProps<Props>(), {
   line-height: 1;
   display: flex;
   align-items: center;
+  flex-shrink: 0;
 }
 
 .check-icon {
   flex-shrink: 0;
   color: var(--accent-blue);
+  margin-left: 4px;
 }
 
 /* Transitions */
 .dropdown-enter-active,
 .dropdown-leave-active {
   transition: all 0.2s var(--ease-spring);
-  transform-origin: top center;
+  transform-origin: top left;
 }
 
 .dropdown-enter-from,
