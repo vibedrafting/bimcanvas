@@ -2618,8 +2618,8 @@ const removePendingImage = (index: number) => {
             height: 18px; /* Slightly taller for better click target */
             position: relative;
             border-radius: 4px;
-            padding: 2px 0;
-            margin: 0 -4px;
+            padding: 2px 4px; /* Restore standard padding */
+            margin: 0; /* Remove negative margin to align with header */
             transition: all 0.2s ease;
 
             /* Wrapper for Name + Icon */
@@ -2627,7 +2627,7 @@ const removePendingImage = (index: number) => {
                 position: relative;
                 display: flex;
                 align-items: center;
-                max-width: calc(100% - 32px); /* Leave space for switch button & margins */
+                max-width: 100%; /* Full width available */
             }
 
             .branch-icon { 

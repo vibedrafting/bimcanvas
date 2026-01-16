@@ -2,7 +2,8 @@
 
 ### Web
 
-- [ ] 显式保存
+- [ ] AICommandCenter.vue代码瘦身
+- [x] 显式保存
 - [ ] 按图层、区域截图
 - [ ] 可视化diff
 - [ ] Ribbon抖动BUG

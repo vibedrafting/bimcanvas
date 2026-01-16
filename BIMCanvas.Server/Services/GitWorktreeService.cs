@@ -436,6 +436,32 @@ namespace BIMCanvas.Server.Services
             _logger.LogInformation("清理完成所有 AI Worktree");
         }
 
+        /// <summary>
+        /// 清空所有 Worktree（Server 启动时调用）
+        /// Server 重启后无活跃窗口，所有 worktree 都是残留
+        /// </summary>
+        public void CleanupAllWorktrees(string projectPath)
+        {
+            var worktrees = GetWorktrees(projectPath);
+            var worktreesDir = GetWorktreesDir(projectPath);
+            var count = 0;
+
+            foreach (var wt in worktrees)
+            {
+                // 跳过主仓库
+                if (!wt.Path.StartsWith(worktreesDir, StringComparison.OrdinalIgnoreCase))
+                    continue;
+
+                var name = Path.GetFileName(wt.Path);
+                _logger.LogInformation("清理 Worktree: {Name}", name);
+                RemoveWorktree(projectPath, name, deleteBranch: false);
+                count++;
+            }
+
+            if (count > 0)
+                _logger.LogInformation("已清理 {Count} 个 Worktree", count);
+        }
+
         #endregion
 
         #region 提交操作

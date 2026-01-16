@@ -101,9 +101,6 @@ builder.Services.AddSingleton<SchemeDataService>();  // 跨分支/Worktree 模�
 builder.Services.AddSignalR();
 builder.Services.AddHostedService<ProjectWatcherService>();
 
-// v3.3 启动时清理孤儿 Worktree（浏览器崩溃后遗留）
-builder.Services.AddHostedService<OrphanWorktreeCleanupService>();
-
 // 配置 Swagger
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
@@ -182,6 +179,10 @@ WriteWithColoredPrefix("[Server]", "Swagger: http://localhost:5000/swagger", Con
 
             // 设置 ProjectContext
             projectContext.SetProject(projectPath, bcpFilePath);
+
+            // 清空所有 Worktree（Server 重启后无活跃窗口）
+            var gitWorktreeService = app.Services.GetRequiredService<GitWorktreeService>();
+            gitWorktreeService.CleanupAllWorktrees(projectPath);
 
             // 输出项目信息（2行：项目名 + 路径）
             var projectName = Path.GetFileNameWithoutExtension(bcpFilePath);
