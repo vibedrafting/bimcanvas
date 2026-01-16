@@ -554,6 +554,10 @@ const addWindow = async (branchName: string) => {
                 })
             });
             console.log(`[Window] 注册 Worktree 映射: ${newId} -> ${createdWorktree.path}`);
+
+            // 重新加载项目数据（映射注册完成后才能正确读取 Worktree 数据）
+            await store.loadProject({ source: 'git_checkout', preserveView: true });
+            console.log(`[Window] 重新加载项目数据完成`);
         }
 
         // 4. 注册窗口到 SignalR 并获取分支锁（用于断开连接时清理资源）
