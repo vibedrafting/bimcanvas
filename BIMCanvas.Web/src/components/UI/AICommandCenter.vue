@@ -274,14 +274,35 @@ const getCurrentWindowMessages = (): ChatMessage[] => {
 // === 窗口管理函数 (Phase 4) ===
 
 // 切换窗口
-const switchWindow = (id: string) => {
+// 核心：通知 Server 切换活跃窗口，然后重新加载项目数据
+const switchWindow = async (id: string) => {
   if (activeWindowId.value === id) return;
-  activeWindowId.value = id;
-  // Update current branch status for mock display
+
   const win = windows.value.find(w => w.id === id);
-  if (win) {
-      branches.value.forEach(b => b.isCurrent = b.id === win.branchId);
+  if (!win) return;
+
+  // 1. 更新本地状态
+  activeWindowId.value = id;
+  branches.value.forEach(b => b.isCurrent = b.id === win.branchId);
+
+  // 2. 通知 Server 激活窗口（让 GetProjectData 知道读取哪个 Worktree）
+  try {
+    await fetch('http://localhost:5000/api/windows/activate', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ windowId: id })
+    });
+    console.log(`[Window] 激活窗口: ${win.name} (${id})`);
+  } catch (e) {
+    console.warn('[Window] 通知 Server 激活窗口失败:', e);
   }
+
+  // 3. 重新加载项目数据（从该窗口的 Worktree）
+  // 只有非主窗口（有 Worktree）才需要重新加载
+  if (!win.isPrimary && win.worktreeName) {
+    await store.loadProject({ source: 'git_checkout', preserveView: true });
+  }
+
   nextTick(() => {
     scrollToBottom({ force: true });
   });
@@ -402,6 +423,16 @@ const closeWindow = async (id: string) => {
         console.error(`[Window] Delete worktree failed: ${error.message}`);
     }
 
+    // 注销窗口 Worktree 映射
+    try {
+        await fetch(`http://localhost:5000/api/windows/worktree/${id}`, {
+            method: 'DELETE'
+        });
+        console.log(`[Window] 注销 Worktree 映射: ${id}`);
+    } catch (error: any) {
+        console.warn(`[Window] 注销 Worktree 映射失败: ${error.message}`);
+    }
+
     // 切换焦点
     if (activeWindowId.value === id) {
         const newActiveIndex = index > 0 ? index - 1 : index + 1;
@@ -512,7 +543,22 @@ const addWindow = async (branchName: string) => {
             console.log(`[Window] Created successfully: ${newWindow.name}`);
         }
 
-        // 3. 注册窗口到 SignalR 并获取分支锁（用于断开连接时清理资源）
+        // 3. 注册窗口 Worktree 映射到 Server（用于 Canvas 数据隔离）
+        const worktreeInfo = await GitWorktreeService.getWorktrees();
+        const createdWorktree = worktreeInfo.find(w => w.name === worktreeName);
+        if (createdWorktree) {
+            await fetch('http://localhost:5000/api/windows/register-worktree', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    windowId: newId,
+                    worktreePath: createdWorktree.path
+                })
+            });
+            console.log(`[Window] 注册 Worktree 映射: ${newId} -> ${createdWorktree.path}`);
+        }
+
+        // 4. 注册窗口到 SignalR 并获取分支锁（用于断开连接时清理资源）
         SignalRService.getInstance().registerWindow(newId, branch.name);
     } catch (error: any) {
         // 失败：显示错误

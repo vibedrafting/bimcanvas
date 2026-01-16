@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using BIMCanvas.Server.Services;
 using BIMCanvas.Server.Services.Git;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Logging;
@@ -9,7 +10,7 @@ namespace BIMCanvas.Server.Controllers
 {
     /// <summary>
     /// 窗口管理 API
-    /// 用于多窗口场景中的分支锁管理
+    /// 用于多窗口场景中的分支锁管理和 Worktree 隔离
     /// </summary>
     [ApiController]
     [Route("api/[controller]")]
@@ -17,13 +18,16 @@ namespace BIMCanvas.Server.Controllers
     {
         private readonly ILogger<WindowsController> _logger;
         private readonly BranchLockManager _lockManager;
+        private readonly ProjectContext _projectContext;
 
         public WindowsController(
             ILogger<WindowsController> logger,
-            BranchLockManager lockManager)
+            BranchLockManager lockManager,
+            ProjectContext projectContext)
         {
             _logger = logger;
             _lockManager = lockManager;
+            _projectContext = projectContext;
         }
 
         /// <summary>
@@ -214,6 +218,90 @@ namespace BIMCanvas.Server.Controllers
                 lockedBy = owner
             });
         }
+        // ========== Worktree 隔离相关端点 ==========
+
+        /// <summary>
+        /// 激活窗口（切换当前工作的 Worktree）
+        /// 前端窗口切换时调用，让 Server 知道当前激活的窗口
+        /// </summary>
+        [HttpPost("activate")]
+        public ActionResult ActivateWindow([FromBody] ActivateWindowRequest request)
+        {
+            if (string.IsNullOrEmpty(request?.WindowId))
+            {
+                return BadRequest(new { message = "窗口 ID 不能为空" });
+            }
+
+            // 更新 ProjectContext 的活跃窗口
+            _projectContext.ActiveWindowId = request.WindowId;
+
+            // 获取该窗口的 Worktree 路径
+            var worktreePath = _projectContext.GetWorktreePath(request.WindowId);
+
+            _logger.LogInformation("激活窗口: {WindowId}, Worktree: {Path}",
+                request.WindowId, worktreePath ?? "(主仓库)");
+
+            return Ok(new
+            {
+                success = true,
+                windowId = request.WindowId,
+                worktreePath = worktreePath
+            });
+        }
+
+        /// <summary>
+        /// 注册窗口的 Worktree（创建虚拟窗口时调用）
+        /// </summary>
+        [HttpPost("register-worktree")]
+        public ActionResult RegisterWorktree([FromBody] RegisterWorktreeRequest request)
+        {
+            if (string.IsNullOrEmpty(request?.WindowId) || string.IsNullOrEmpty(request?.WorktreePath))
+            {
+                return BadRequest(new { message = "窗口 ID 和 Worktree 路径不能为空" });
+            }
+
+            _projectContext.RegisterWindowWorktree(request.WindowId, request.WorktreePath);
+
+            _logger.LogInformation("注册窗口 Worktree: {WindowId} -> {Path}",
+                request.WindowId, request.WorktreePath);
+
+            return Ok(new { success = true });
+        }
+
+        /// <summary>
+        /// 注销窗口的 Worktree（关闭虚拟窗口时调用）
+        /// </summary>
+        [HttpDelete("worktree/{windowId}")]
+        public ActionResult UnregisterWorktree(string windowId)
+        {
+            _projectContext.UnregisterWindowWorktree(windowId);
+
+            // 如果关闭的是当前激活窗口，清空 ActiveWindowId
+            if (_projectContext.ActiveWindowId == windowId)
+            {
+                _projectContext.ActiveWindowId = null;
+            }
+
+            _logger.LogInformation("注销窗口 Worktree: {WindowId}", windowId);
+
+            return Ok(new { success = true });
+        }
+
+        /// <summary>
+        /// 获取当前激活窗口信息
+        /// </summary>
+        [HttpGet("active")]
+        public ActionResult GetActiveWindow()
+        {
+            var activeWindowId = _projectContext.ActiveWindowId;
+            var worktreePath = _projectContext.GetActiveWorktreePath();
+
+            return Ok(new
+            {
+                activeWindowId = activeWindowId,
+                worktreePath = worktreePath
+            });
+        }
     }
 
     #region DTOs
@@ -248,6 +336,33 @@ namespace BIMCanvas.Server.Controllers
         /// 窗口 ID
         /// </summary>
         public string WindowId { get; set; } = string.Empty;
+    }
+
+    /// <summary>
+    /// 激活窗口请求
+    /// </summary>
+    public class ActivateWindowRequest
+    {
+        /// <summary>
+        /// 窗口 ID
+        /// </summary>
+        public string WindowId { get; set; } = string.Empty;
+    }
+
+    /// <summary>
+    /// 注册 Worktree 请求
+    /// </summary>
+    public class RegisterWorktreeRequest
+    {
+        /// <summary>
+        /// 窗口 ID
+        /// </summary>
+        public string WindowId { get; set; } = string.Empty;
+
+        /// <summary>
+        /// Worktree 绝对路径
+        /// </summary>
+        public string WorktreePath { get; set; } = string.Empty;
     }
 
     #endregion

@@ -43,6 +43,7 @@ namespace BIMCanvas.Server.Controllers
 
         /// <summary>
         /// 获取当前项目数据（单项目模式：无需 path 参数）
+        /// 支持多窗口 Worktree 隔离：优先从活跃窗口的 Worktree 读取数据
         /// </summary>
         /// <returns>聚合后的 ProjectData</returns>
         [HttpGet]
@@ -53,22 +54,25 @@ namespace BIMCanvas.Server.Controllers
                 return BadRequest(new { message = "没有加载的项目" });
             }
 
-            var path = _projectContext.CurrentProjectPath!;
+            // 优先使用活跃窗口的 Worktree 路径，否则回退到主仓库路径
+            var loadPath = _projectContext.GetActiveWorktreePath()
+                           ?? _projectContext.CurrentProjectPath!;
 
-            if (!Directory.Exists(path))
+            if (!Directory.Exists(loadPath))
             {
-                return NotFound($"项目目录不存在: {path}");
+                return NotFound($"项目目录不存在: {loadPath}");
             }
 
             try
             {
-                _logger.LogInformation("加载项目数据: {Path}", path);
-                var projectData = LoadProjectData(path);
+                _logger.LogInformation("加载项目数据: {Path} (Window: {WindowId})",
+                    loadPath, _projectContext.ActiveWindowId ?? "主窗口");
+                var projectData = LoadProjectData(loadPath);
                 return Ok(projectData);
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "加载项目数据失败: {Path}", path);
+                _logger.LogError(ex, "加载项目数据失败: {Path}", loadPath);
                 return StatusCode(500, new { message = $"加载项目数据失败: {ex.Message}" });
             }
         }

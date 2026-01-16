@@ -443,13 +443,14 @@ namespace BIMCanvas.Server.Services
         public void CleanupAllWorktrees(string projectPath)
         {
             var worktrees = GetWorktrees(projectPath);
-            var worktreesDir = GetWorktreesDir(projectPath);
+            var worktreesDir = Path.GetFullPath(GetWorktreesDir(projectPath));  // 标准化路径格式
             var count = 0;
 
             foreach (var wt in worktrees)
             {
-                // 跳过主仓库
-                if (!wt.Path.StartsWith(worktreesDir, StringComparison.OrdinalIgnoreCase))
+                // 跳过主仓库（标准化路径后比较，Git 返回正斜杠，Windows 使用反斜杠）
+                var wtPath = Path.GetFullPath(wt.Path);
+                if (!wtPath.StartsWith(worktreesDir, StringComparison.OrdinalIgnoreCase))
                     continue;
 
                 var name = Path.GetFileName(wt.Path);
