@@ -475,12 +475,12 @@ namespace BIMCanvas.Server.Services
         }
 
         /// <summary>
-        /// 检查是否有未提交的更改（忽略未跟踪文件）
+        /// 检查是否有未提交的更改（包括未跟踪的新文件）
         /// </summary>
         public bool HasUncommittedChanges(string workingDir)
         {
-            // 使用 -uno 忽略未跟踪文件，只检查已跟踪文件的更改
-            var result = RunGit(workingDir, "status --porcelain -uno");
+            // 不使用 -uno，这样既检测已跟踪文件的修改，也检测未跟踪的新文件
+            var result = RunGit(workingDir, "status --porcelain");
             return !string.IsNullOrWhiteSpace(result.Output);
         }
 

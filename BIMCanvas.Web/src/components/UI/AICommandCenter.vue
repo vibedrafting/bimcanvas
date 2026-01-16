@@ -257,14 +257,10 @@ const closeWindow = async (id: string) => {
 };
 
 // Toggle New Window Dropdown (Exclusive)
+// 移除 availableBranches 检查，因为现在有"新建分支"选项，下拉框应总是能打开
 const handleNewWindowClick = () => {
-    if (availableBranches.value.length === 0) {
-        console.log("No available branches");
-        return;
-    }
     // Close other dropdowns
     isBranchDropdownOpen.value = false;
-    
     showNewWindowDropdown.value = !showNewWindowDropdown.value;
 };
 
@@ -1451,9 +1447,10 @@ const removePendingImage = (index: number) => {
                     :class="{
                         active: activeWindowId === win.id,
                         loading: win.isLoading,
-                        error: win.error
+                        error: win.error,
+                        'primary-clickable': win.isPrimary
                     }"
-                    @click="switchWindow(win.id)"
+                    @click="win.isPrimary ? toggleBranchDropdown() : switchWindow(win.id)"
                 >
                     <!-- Line 1: Window Name + Status -->
                     <div class="tab-header">
@@ -1472,14 +1469,11 @@ const removePendingImage = (index: number) => {
                     </div>
 
                     <!-- Line 2: Branch Info (Inline) -->
-                    <div class="tab-branch"
-                         :title="win.branchId"
-                         :class="{ clickable: win.isPrimary }"
-                         @click.stop="win.isPrimary && toggleBranchDropdown()">
+                    <div class="tab-branch" :title="win.branchId">
                         <span class="branch-icon">🌿</span>
                         <span class="branch-name">{{ win.branchId }}</span>
 
-                        <!-- Primary Window Switch Trigger (整行可点击，按钮仅作图标显示) -->
+                        <!-- Primary Window Switch Indicator -->
                         <span v-if="win.isPrimary" class="branch-switch-btn" title="Switch Branch">
                             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                                 <polyline points="6 9 12 15 18 9"></polyline>
@@ -2367,10 +2361,6 @@ const removePendingImage = (index: number) => {
             width: 100%;
             height: 14px;
             position: relative;
-            border-radius: 3px;
-            padding: 1px 2px;
-            margin: -1px -2px;
-            transition: background 0.15s ease;
 
             .branch-icon { font-size: 10px; opacity: 0.6; }
 
@@ -2389,14 +2379,12 @@ const removePendingImage = (index: number) => {
                 opacity: 0.6;
                 svg { width: 10px; height: 10px; }
             }
+        }
 
-            /* 主窗口分支区域可点击 */
-            &.clickable {
-                cursor: pointer;
-                &:hover {
-                    background: rgba(255, 255, 255, 0.08);
-                }
-            }
+        /* 主窗口整体可点击切换分支 */
+        &.primary-clickable {
+            cursor: pointer;
+            .branch-switch-btn { display: flex; }
         }
 
         &:hover .branch-switch-btn {
