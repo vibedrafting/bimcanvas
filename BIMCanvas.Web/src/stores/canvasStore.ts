@@ -111,12 +111,18 @@ export const useCanvasStore = defineStore('canvas', () => {
     // 监听 Server 推送的文件变化事件（文件驱动架构的核心链路）
     window.addEventListener('bimcanvas:server-update', async (e: any) => {
         const data = e.detail;
+        console.log(`[SYNC] 收到 server-update 事件:`, data);
+        console.log(`[SYNC] 当前模块数量: ${projectData.value?.activeScheme?.modules?.length}`);
+        console.log(`[SYNC] 当前模块ID列表: ${projectData.value?.activeScheme?.modules?.map(m => m.id).join(', ')}`);
         debugStore.log(`[Store] 收到服务端更新: ${JSON.stringify(data)}`);
 
         if (data.action === 'reload') {
             // 保持当前视图，重新加载数据
+            console.log(`[SYNC] 触发 syncFromServer()...`);
             debugStore.log('[Store] 触发数据重载 (preserveView=true)');
             await syncFromServer({ description: 'Server file changed', metadata: { trigger: data.trigger } });
+            console.log(`[SYNC] syncFromServer() 完成，模块数量: ${projectData.value?.activeScheme?.modules?.length}`);
+            console.log(`[SYNC] 同步后模块ID列表: ${projectData.value?.activeScheme?.modules?.map(m => m.id).join(', ')}`);
         }
     });
 
@@ -166,6 +172,10 @@ export const useCanvasStore = defineStore('canvas', () => {
             ? { source: options }
             : options;
 
+        console.log(`[LOAD] loadProject() 被调用，source: ${opts.source}`);
+        console.log(`[LOAD] 调用堆栈:`, new Error().stack);
+        console.log(`[LOAD] 加载前模块数量: ${projectData.value?.activeScheme?.modules?.length}`);
+
         // 智能决策：是否保留历史/视图
         const preserveHistory = opts.preserveHistory ?? timeline.shouldPreserveHistory(opts.source);
         const preserveView = opts.preserveView ?? timeline.shouldPreserveView(opts.source);
@@ -205,6 +215,9 @@ export const useCanvasStore = defineStore('canvas', () => {
             debugStore.log(`  - Rooms: ${response.data.baseline?.rooms?.length || 0}`);
             debugStore.log(`  - Zones: ${response.data.activeScheme?.zones?.length || 0}`);
             debugStore.log(`  - Modules: ${response.data.activeScheme?.modules?.length || 0}`);
+
+            console.log(`[LOAD] 加载完成，模块数量: ${response.data.activeScheme?.modules?.length}`);
+            console.log(`[LOAD] 加载后模块ID列表: ${response.data.activeScheme?.modules?.map(m => m.id).join(', ')}`);
 
             return true;
 
@@ -400,16 +413,27 @@ export const useCanvasStore = defineStore('canvas', () => {
     };
 
     const removeModule = async (moduleId: string) => {
+        console.log(`[DELETE] 开始删除模块: ${moduleId}`);
+        console.log(`[DELETE] 删除前模块数量: ${projectData.value?.activeScheme?.modules?.length}`);
+        console.log(`[DELETE] 删除前模块ID列表: ${projectData.value?.activeScheme?.modules?.map(m => m.id).join(', ')}`);
+
         if (!projectData.value?.activeScheme?.modules) return;
         const moduleIndex = projectData.value.activeScheme.modules.findIndex(m => m.id === moduleId);
         if (moduleIndex !== -1) {
             projectData.value.activeScheme.modules.splice(moduleIndex, 1);
             selectedIds.value = [];
             isDirty.value = true;  // 标记数据已修改
+
+            console.log(`[DELETE] 删除后模块数量: ${projectData.value.activeScheme.modules.length}`);
+            console.log(`[DELETE] 删除后模块ID列表: ${projectData.value.activeScheme.modules.map(m => m.id).join(', ')}`);
+
             nextTick(() => saveState());
             signalR.sendUpdate({ type: 'module_remove', moduleId });
+
+            console.log(`[DELETE] 调用 saveToServer()...`);
             // 持久化到文件系统
             await saveToServer();
+            console.log(`[DELETE] saveToServer() 完成`);
         }
     };
 
@@ -471,6 +495,9 @@ export const useCanvasStore = defineStore('canvas', () => {
         description?: string;
         metadata?: Record<string, any>;
     }): Promise<boolean> => {
+        console.log(`[SYNC-CALL] syncFromServer() 被调用`);
+        console.log(`[SYNC-CALL] 选项:`, options);
+        console.log(`[SYNC-CALL] 调用堆栈:`, new Error().stack);
         return loadProject({
             source: ChangeSource.ServerSync,
             preserveView: true,
@@ -486,8 +513,12 @@ export const useCanvasStore = defineStore('canvas', () => {
      * @returns 保存是否成功
      */
     const saveToServer = async (): Promise<boolean> => {
+        console.log(`[SAVE] 开始保存到服务器`);
+        console.log(`[SAVE] 当前模块数量: ${projectData.value?.activeScheme?.modules?.length}`);
+        console.log(`[SAVE] 模块ID列表: ${projectData.value?.activeScheme?.modules?.map(m => m.id).join(', ')}`);
+
         if (!projectData.value?.activeScheme?.modules) {
-            console.warn('[CanvasStore] saveToServer: 无模块数据可保存');
+            console.warn('[SAVE] saveToServer: 无模块数据可保存');
             return false;
         }
 
@@ -507,13 +538,15 @@ export const useCanvasStore = defineStore('canvas', () => {
                 } else {
                     debugStore.success(`[CanvasStore] 保存成功: ${result.modulesCount} 个模块（${result.mode || 'legacy'} 模式）`);
                 }
+                console.log(`[SAVE] 保存成功，响应: ${JSON.stringify(result)}`);
                 return true;
             }
 
+            console.error(`[SAVE] 保存失败: 非200响应, status=${response.status}`);
             debugStore.error('[CanvasStore] 保存失败: 非200响应');
             return false;
         } catch (err: any) {
-            console.error('[CanvasStore] 保存失败:', err);
+            console.error('[SAVE] 保存失败:', err);
             debugStore.error(`[CanvasStore] 保存失败: ${err.message || err}`);
             return false;
         }

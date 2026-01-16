@@ -23,7 +23,8 @@ export class SignalRService {
 
     private setupListeners() {
         this.connection.on("ReceiveUpdate", (data: any) => {
-            console.log("Received update from server:", data);
+            console.log(`[SignalR] ReceiveUpdate 收到数据:`, data);
+            console.log(`[SignalR] ReceiveUpdate action=${data?.action}, trigger=${data?.trigger}`);
             // Dispatch event or update store directly
             window.dispatchEvent(new CustomEvent('bimcanvas:server-update', { detail: data }));
         });
