@@ -2566,9 +2566,10 @@ const removePendingImage = (index: number) => {
         .tab-header {
             display: flex;
             align-items: center;
-            justify-content: space-between;
+            justify-content: center; /* 名称居中 */
             width: 100%;
             height: 18px;
+            position: relative; /* 用于绝对定位子元素 */
 
             .tab-name {
                 font-size: 13px;
@@ -2577,12 +2578,14 @@ const removePendingImage = (index: number) => {
                 overflow: hidden;
                 text-overflow: ellipsis;
                 line-height: 1.2;
+                text-align: center;
             }
 
             /* 状态指示器 */
             .tab-status {
+                position: absolute;
+                right: 0;
                 font-size: 12px;
-                margin-left: 4px;
                 flex-shrink: 0;
 
                 &.loading {
@@ -2670,6 +2673,8 @@ const removePendingImage = (index: number) => {
     }
 
     .tab-close {
+        position: absolute;
+        right: 0;
         display: flex;
         align-items: center;
         justify-content: center;
