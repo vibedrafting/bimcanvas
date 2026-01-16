@@ -1740,42 +1740,40 @@ const removePendingImage = (index: number) => {
                   }"
                   @click.stop="handleWindowTabClick(win)"
                 >
-                  <!-- Line 1: Window Name + Status -->
-                  <div class="tab-header">
-                      <span class="tab-name">{{ win.name }}</span>
-                      <!-- 加载状态指示器 -->
-                      <span v-if="win.isLoading" class="tab-status loading" title="加载中...">⏳</span>
-                      <!-- 错误状态指示器 -->
-                      <span v-else-if="win.error" class="tab-status error" :title="win.error">⚠️</span>
-                      <!-- 关闭按钮：非主窗口且非加载中时显示 -->
-                      <button v-if="!win.isPrimary && !win.isLoading" class="tab-close" @click.stop="closeWindow(win.id)">
-                          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                              <line x1="18" y1="6" x2="6" y2="18"></line>
-                              <line x1="6" y1="6" x2="18" y2="18"></line>
-                          </svg>
-                      </button>
-                  </div>
-
-                  <!-- Line 2: Branch Info (Inline) - Clickable for primary window -->
-                  <div 
-                      class="tab-branch" 
-                      :class="{ clickable: win.isPrimary }"
-                      :title="win.isPrimary ? 'Click to switch branch' : win.branchId"
-                      @click.stop="win.isPrimary && toggleBranchDropdown()"
-                  >
+                  <!-- Branch Info (Main Content) -->
+                  <div class="tab-branch">
                       <!-- Main Content Wrapper for Centering -->
                       <div class="branch-main">
                           <span class="branch-icon">🌿</span>
                           <span class="branch-name">{{ win.branchId }}</span>
                       </div>
 
-                      <!-- Primary Window Switch Indicator -->
-                      <span v-if="win.isPrimary" class="branch-switch-btn" title="Switch Branch">
+                      <!-- Primary Window Switch Indicator - Only clickable area -->
+                      <button 
+                          v-if="win.isPrimary" 
+                          class="branch-switch-btn" 
+                          :class="{ 'is-open': isBranchDropdownOpen }"
+                          title="Switch Branch"
+                          @click.stop="toggleBranchDropdown()"
+                      >
                           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
                               <polyline points="6 9 12 15 18 9"></polyline>
                           </svg>
-                      </span>
+                      </button>
                   </div>
+
+                  <!-- Status Indicators & Controls (Absolute Positioned) -->
+                  <!-- 加载状态指示器 -->
+                  <span v-if="win.isLoading" class="tab-status loading" title="加载中...">⏳</span>
+                  <!-- 错误状态指示器 -->
+                  <span v-else-if="win.error" class="tab-status error" :title="win.error">⚠️</span>
+                  <!-- 关闭按钮：非主窗口且非加载中时显示 -->
+                  <button v-if="!win.isPrimary && !win.isLoading" class="tab-close" @click.stop="closeWindow(win.id)">
+                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                          <line x1="18" y1="6" x2="6" y2="18"></line>
+                          <line x1="6" y1="6" x2="18" y2="18"></line>
+                      </svg>
+                  </button>
                 </div>
 
                 <!-- New Window Button -->
@@ -2576,15 +2574,16 @@ const removePendingImage = (index: number) => {
         flex-direction: column;
         justify-content: center;
         gap: 1px; /* Tighter gap */
-        padding: 0 8px;
+        padding: 0; /* Remove padding from container */
         background: transparent;
         border-radius: 6px;
         cursor: pointer;
         transition: all 0.2s ease;
-        width: 120px; /* 固定宽度 */
+        width: 140px; /* Increased width for larger text */
         flex-shrink: 0;
-        height: 42px; /* Slightly shorter */
+        height: 42px;
         border: 1px solid transparent; /* Prevent layout shift on active */
+        position: relative; /* For absolute positioning of controls */
 
         &:hover {
             background: var(--surface-dim);
@@ -2595,9 +2594,14 @@ const removePendingImage = (index: number) => {
             border-color: var(--border-subtle);
             box-shadow: 0 1px 2px rgba(0,0,0,0.05);
 
-            .tab-name { color: var(--text-primary); font-weight: 600; }
             /* Branch name remains muted unless hovered, or maybe slightly brighter */
             .tab-branch { color: var(--text-secondary); }
+        }
+
+        /* Controls visibility on hover */
+        &:hover {
+            .tab-close { opacity: 1; }
+            /* .branch-switch-btn is always visible for primary, no hover needed */
         }
 
         /* 加载状态 */
@@ -2614,80 +2618,66 @@ const removePendingImage = (index: number) => {
             .tab-name { color: var(--error, #ef4444); }
         }
 
-        /* Line 1: Window Name */
-        .tab-header {
-            display: flex;
-            align-items: center;
-            justify-content: center; /* 名称居中 */
-            width: 100%;
-            height: 18px;
-            position: relative; /* 用于绝对定位子元素 */
+        /* Status Indicators (Absolute) */
+        .tab-status {
+            position: absolute;
+            right: 8px;
+            top: 50%;
+            transform: translateY(-50%);
+            font-size: 12px;
+            flex-shrink: 0;
+            z-index: 10;
 
-            .tab-name {
-                font-size: 13px;
-                color: var(--text-secondary);
-                white-space: nowrap;
-                overflow: hidden;
-                text-overflow: ellipsis;
-                line-height: 1.2;
-                text-align: center;
+            &.loading {
+                animation: pulse 1.5s ease-in-out infinite;
             }
 
-            /* 状态指示器 */
-            .tab-status {
-                position: absolute;
-                right: 0;
-                font-size: 12px;
-                flex-shrink: 0;
-
-                &.loading {
-                    animation: pulse 1.5s ease-in-out infinite;
-                }
-
-                &.error {
-                    cursor: help;
-                }
-            }
-
-            @keyframes pulse {
-                0%, 100% { opacity: 1; }
-                50% { opacity: 0.4; }
+            &.error {
+                cursor: help;
             }
         }
 
-        /* Line 2: Branch Info */
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.4; }
+        }
+
+        /* Branch Info (Main Content) */
         .tab-branch {
             display: flex;
             align-items: center;
-            justify-content: center; /* Center the wrapper */
-            gap: 0;
-            font-size: 10px;
-            color: var(--text-tertiary); /* Muted by default */
+            justify-content: center;
             width: 100%;
-            height: 18px; /* Slightly taller for better click target */
-            position: relative;
-            border-radius: 4px;
-            padding: 2px 4px; /* Restore standard padding */
-            margin: 0; /* Remove negative margin to align with header */
+            height: 100%; /* Fill the tab */
+            font-size: 13px; /* Larger font */
+            font-weight: 500;
+            color: var(--text-secondary);
+            padding: 0; /* Remove padding to allow true centering */
             transition: all 0.2s ease;
 
             /* Wrapper for Name + Icon */
             .branch-main {
-                position: relative;
+                position: relative; /* For absolute positioning of icon */
                 display: flex;
                 align-items: center;
-                max-width: 100%; /* Full width available */
+                justify-content: center;
+                width: auto; /* Let text define width */
+                max-width: 100%;
+                /* Ensure this is centered */
+                margin: 0 auto;
             }
 
             .branch-icon { 
                 position: absolute;
                 right: 100%; /* Hang on the left side of the text */
-                margin-right: 4px;
-                font-size: 10px; 
-                opacity: 0.6; 
+                margin-right: 6px;
+                top: 50%;
+                transform: translateY(-50%);
+                font-size: 14px; 
+                opacity: 0.8; 
                 display: flex;
                 align-items: center;
-                white-space: nowrap;
+                white-space: nowrap; /* Prevent wrapping */
             }
 
             .branch-name {
@@ -2695,40 +2685,40 @@ const removePendingImage = (index: number) => {
                 overflow: hidden;
                 text-overflow: ellipsis;
                 font-family: 'JetBrains Mono', monospace;
-                /* No width forcing, let it shrink */
             }
 
             .branch-switch-btn {
                 position: absolute;
-                right: 4px;
-                display: none;
-                padding: 2px;
-                color: var(--accent-blue, #3b82f6);
-                opacity: 0;
-                transform: translateY(-1px);
-                transition: all 0.25s ease;
+                right: 4px; /* Align with close button position */
+                top: 50%;
+                transform: translateY(-50%);
+                padding: 4px;
+                width: 24px;
+                height: 24px;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                background: transparent;
+                border: none;
+                border-radius: 4px;
+                color: var(--text-tertiary);
+                cursor: pointer;
+                transition: background 0.2s, color 0.2s;
+                z-index: 20; /* Higher than others */
+                
                 svg { 
                     width: 14px; 
                     height: 14px; 
+                    transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
                 }
-            }
 
-            /* Clickable state for primary window */
-            &.clickable {
-                cursor: pointer;
-                
-                .branch-switch-btn { 
-                    display: flex; 
-                    opacity: 0.5;
+                &.is-open svg {
+                    transform: rotate(180deg);
                 }
 
                 &:hover {
-                    background: rgba(59, 130, 246, 0.1);
-                    color: var(--accent-blue, #3b82f6);
-                    
-                    .branch-switch-btn {
-                        opacity: 1;
-                    }
+                    background: rgba(255, 255, 255, 0.1);
+                    color: var(--text-primary);
                 }
             }
         }
@@ -2736,18 +2726,16 @@ const removePendingImage = (index: number) => {
         /* Legacy: primary-clickable class (keep for compatibility) */
         &.primary-clickable {
             cursor: pointer;
-            .branch-switch-btn { display: flex; }
-        }
-
-        &:hover .tab-branch.clickable .branch-switch-btn {
-            display: flex;
         }
     }
 
     .tab-close {
         position: absolute;
-        right: 0;
+        right: 8px;
+        top: 50%;
+        transform: translateY(-50%);
         display: flex;
+        z-index: 10;
         align-items: center;
         justify-content: center;
         width: 14px;
