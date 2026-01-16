@@ -6,6 +6,7 @@ import { ProjectService } from '../../services/ProjectService';
 import { getScreenshotService } from '../../services/ScreenshotService';
 import { storeToRefs } from 'pinia';
 import BranchCheckoutConfirmDialog from './Ribbon/BranchCheckoutConfirmDialog.vue';
+import BranchCreationDialog from './Ribbon/BranchCreationDialog.vue';
 import type { SubAgent, ToolCall, ChatBubble, WaitingState } from '../../types/agent';
 import { GitWorktreeService } from '../../services/GitWorktreeService';
 import { SignalRService } from '../../services/SignalRService';
@@ -166,6 +167,7 @@ const switchWindow = (id: string) => {
 
 // State for new window dropdown
 const showNewWindowDropdown = ref(false);
+const showBranchCreationDialog = ref(false);
 
 // Computed: Available branches (not currently opened in any window)
 // Note: Using branch.name for comparison because currentBranch returns branch name, not id
@@ -173,6 +175,32 @@ const availableBranches = computed(() => {
     const occupiedBranchNames = windows.value.map(w => w.branchId);
     return branches.value.filter(b => !occupiedBranchNames.includes(b.name));
 });
+
+// Computed: Branch options for BranchCreationDialog
+const branchOptionsForDialog = computed(() =>
+  branches.value.map(b => ({ label: b.name, value: b.id }))
+);
+
+// 打开新建分支对话框
+const handleCreateNewBranch = () => {
+  showNewWindowDropdown.value = false;
+  showBranchCreationDialog.value = true;
+};
+
+// 处理分支创建完成
+const handleBranchCreated = async (data: { name: string; baseBranch: string; reason: string }) => {
+  showBranchCreationDialog.value = false;
+  // 创建分支
+  const result = await gitStore.checkout(data.name, {
+    createIfNotExist: true,
+    commitMessage: data.reason
+  });
+  if (result.success) {
+    // 刷新分支列表后创建新窗口
+    await gitStore.fetchBranches();
+    addWindow(data.name);
+  }
+};
 
 // Bug fix: 检查分支是否被其他窗口占用（用于主窗口分支切换下拉列表）
 const isBranchOccupiedByOther = (branchName: string): boolean => {
@@ -358,6 +386,16 @@ const chatScrollRef = ref<HTMLElement | null>(null);
 const chatBottomRef = ref<HTMLElement | null>(null);
 const expandedThinking = ref<Record<number, boolean>>({});
 const shouldAutoScroll = ref(true); // Track if we should auto-scroll to bottom
+const windowTabsRef = ref<HTMLElement | null>(null);
+
+// 滚轮横向滚动窗口标签
+const handleTabsWheel = (event: WheelEvent) => {
+  if (!windowTabsRef.value) return;
+  // 阻止默认垂直滚动
+  event.preventDefault();
+  // 将垂直滚动转为水平滚动
+  windowTabsRef.value.scrollLeft += event.deltaY;
+};
 
 // Auto-resize Textarea
 const textareaRef = ref<HTMLTextAreaElement | null>(null);
@@ -1405,7 +1443,7 @@ const removePendingImage = (index: number) => {
           <!-- Wrapper for Tabs + Fixed New Window Button -->
           <div class="tabs-wrapper">
               <!-- Scrollable Tabs Area -->
-              <div class="window-tabs">
+              <div class="window-tabs" ref="windowTabsRef" @wheel="handleTabsWheel">
                 <div
                     v-for="win in windows"
                     :key="win.id"
@@ -1434,53 +1472,57 @@ const removePendingImage = (index: number) => {
                     </div>
 
                     <!-- Line 2: Branch Info (Inline) -->
-                    <div class="tab-branch" :title="win.branchId">
+                    <div class="tab-branch"
+                         :title="win.branchId"
+                         :class="{ clickable: win.isPrimary }"
+                         @click.stop="win.isPrimary && toggleBranchDropdown()">
                         <span class="branch-icon">🌿</span>
                         <span class="branch-name">{{ win.branchId }}</span>
 
-                        <!-- Primary Window Switch Trigger -->
-                        <button
-                            v-if="win.isPrimary"
-                            class="branch-switch-btn"
-                            @click.stop="toggleBranchDropdown"
-                            title="Switch Branch"
-                        >
+                        <!-- Primary Window Switch Trigger (整行可点击，按钮仅作图标显示) -->
+                        <span v-if="win.isPrimary" class="branch-switch-btn" title="Switch Branch">
                             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                                 <polyline points="6 9 12 15 18 9"></polyline>
                             </svg>
-                        </button>
+                        </span>
                     </div>
                 </div>
-              </div>
 
-              <!-- Fixed New Window Button & Dropdown -->
-              <div class="new-window-wrapper">
-                <button 
-                    class="new-window-btn" 
-                    title="New Window" 
-                    @click.stop="handleNewWindowClick"
-                    :disabled="availableBranches.length === 0"
-                >
-                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                    <line x1="12" y1="5" x2="12" y2="19"></line>
-                    <line x1="5" y1="12" x2="19" y2="12"></line>
-                    </svg>
-                </button>
+                <!-- New Window Button (紧跟窗口标签) -->
+                <div class="new-window-wrapper">
+                  <button
+                      class="new-window-btn"
+                      title="New Window"
+                      @click.stop="handleNewWindowClick"
+                      :disabled="availableBranches.length === 0"
+                  >
+                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                      <line x1="12" y1="5" x2="12" y2="19"></line>
+                      <line x1="5" y1="12" x2="19" y2="12"></line>
+                      </svg>
+                  </button>
 
-                <!-- New Window Branch Selection Dropdown -->
-                <div class="new-window-dropdown" v-if="showNewWindowDropdown" @click.stop>
-                    <div class="dropdown-header">Select Branch</div>
-                    <div class="branch-list">
-                        <div 
-                            v-for="branch in availableBranches" 
-                            :key="branch.name" 
-                            class="branch-item"
-                            @click="addWindow(branch.name)"
-                        >
-                            <span class="branch-icon">🌿</span>
-                            <span class="branch-name">{{ branch.name }}</span>
-                        </div>
-                    </div>
+                  <!-- New Window Branch Selection Dropdown -->
+                  <div class="new-window-dropdown" v-if="showNewWindowDropdown" @click.stop>
+                      <div class="dropdown-header">Select Branch</div>
+                      <div class="branch-list">
+                          <div
+                              v-for="branch in availableBranches"
+                              :key="branch.name"
+                              class="branch-item"
+                              @click="addWindow(branch.name)"
+                          >
+                              <span class="branch-icon">🌿</span>
+                              <span class="branch-name">{{ branch.name }}</span>
+                          </div>
+                          <!-- 分隔线 + 新建分支选项 -->
+                          <div class="dropdown-divider"></div>
+                          <div class="branch-item create-new" @click="handleCreateNewBranch">
+                              <span class="branch-icon">➕</span>
+                              <span class="branch-name">新建分支...</span>
+                          </div>
+                      </div>
+                  </div>
                 </div>
               </div>
           </div>
@@ -2023,6 +2065,16 @@ const removePendingImage = (index: number) => {
       @cancel="handleCheckoutCancel"
     />
 
+    <!-- Branch Creation Dialog (新建分支对话框) -->
+    <BranchCreationDialog
+      :visible="showBranchCreationDialog"
+      :base-branch="currentBranch"
+      :base-tags="[]"
+      :all-branches="branchOptionsForDialog"
+      @create="handleBranchCreated"
+      @cancel="showBranchCreationDialog = false"
+    />
+
     <!-- Screenshot Overlay for select area screenshot -->
     <Teleport to="body">
       <AdvancedScreenshotOverlay
@@ -2118,7 +2170,8 @@ const removePendingImage = (index: number) => {
         padding: 0 12px; /* Align with tabs padding */
         display: flex;
         align-items: center;
-        justify-content: space-between; /* Space between Mode Switch and Actions */
+        justify-content: center; /* 居中显示 */
+        position: relative; /* 用于绝对定位子元素 */
         background: var(--surface-dim);
         border-bottom: 1px solid var(--border-subtle);
     }
@@ -2130,19 +2183,19 @@ const removePendingImage = (index: number) => {
         background: rgba(0, 0, 0, 0.2);
         padding: 2px;
         border-radius: 6px;
-        gap: 0;
-        
+        gap: 4px; /* 增加按钮间距 */
+
         button {
             border: none;
             background: transparent;
-            padding: 2px 12px;
+            padding: 2px 16px; /* 增加左右 padding */
             color: var(--text-tertiary);
             font-size: 12px;
             font-weight: 500;
             cursor: pointer;
             transition: all 0.2s ease;
             border-radius: 4px;
-            min-width: 50px;
+            min-width: 60px; /* 增加最小宽度 */
             text-align: center;
 
             &:hover {
@@ -2158,8 +2211,10 @@ const removePendingImage = (index: number) => {
         }
     }
 
-    /* Toolbar Actions (Right Side) */
+    /* Toolbar Actions (Right Side - 绝对定位不影响居中) */
     .toolbar-actions {
+        position: absolute;
+        right: 12px;
         display: flex;
         align-items: center;
         gap: 8px;
@@ -2211,12 +2266,13 @@ const removePendingImage = (index: number) => {
         align-items: center;
         gap: 4px;
         overflow-x: auto;
+        overflow-y: visible; /* 确保下拉框不被截断 */
         scrollbar-width: none;
         flex: 1;
         min-width: 0;
         height: 100%;
         padding-right: 4px;
-        
+
         &::-webkit-scrollbar { display: none; }
     }
 
@@ -2230,8 +2286,8 @@ const removePendingImage = (index: number) => {
         border-radius: 6px;
         cursor: pointer;
         transition: all 0.2s ease;
-        min-width: 100px;
-        max-width: 140px;
+        width: 120px; /* 固定宽度 */
+        flex-shrink: 0;
         height: 42px; /* Slightly shorter */
         border: 1px solid transparent; /* Prevent layout shift on active */
 
@@ -2311,9 +2367,13 @@ const removePendingImage = (index: number) => {
             width: 100%;
             height: 14px;
             position: relative;
+            border-radius: 3px;
+            padding: 1px 2px;
+            margin: -1px -2px;
+            transition: background 0.15s ease;
 
             .branch-icon { font-size: 10px; opacity: 0.6; }
-            
+
             .branch-name {
                 white-space: nowrap;
                 overflow: hidden;
@@ -2324,15 +2384,18 @@ const removePendingImage = (index: number) => {
 
             .branch-switch-btn {
                 display: none;
-                background: transparent;
-                border: none;
                 padding: 0;
                 color: inherit;
-                cursor: pointer;
                 opacity: 0.6;
-                
-                &:hover { opacity: 1; color: var(--text-primary); }
                 svg { width: 10px; height: 10px; }
+            }
+
+            /* 主窗口分支区域可点击 */
+            &.clickable {
+                cursor: pointer;
+                &:hover {
+                    background: rgba(255, 255, 255, 0.08);
+                }
             }
         }
 
@@ -2368,16 +2431,14 @@ const removePendingImage = (index: number) => {
         color: var(--text-primary);
     }
 
-    /* Fixed New Window Button Wrapper */
+    /* New Window Button Wrapper (紧跟窗口标签) */
     .new-window-wrapper {
         position: relative;
         flex-shrink: 0;
-        height: 32px; /* Match button height area */
+        height: 42px; /* 与窗口标签高度一致 */
         display: flex;
         align-items: center;
-        border-left: 1px solid var(--border-subtle);
-        padding-left: 8px;
-        margin-left: 4px;
+        /* 移除分隔线和间距，紧跟窗口标签 */
     }
 
     .new-window-btn {
@@ -2510,6 +2571,21 @@ const removePendingImage = (index: number) => {
             color: var(--text-tertiary);
             font-style: italic;
         }
+
+        /* 新建分支选项样式 */
+        &.create-new {
+            color: var(--accent-primary);
+            &:hover {
+                background: rgba(var(--accent-primary-rgb), 0.1);
+            }
+        }
+    }
+
+    /* 下拉框分隔线 */
+    .dropdown-divider {
+        height: 1px;
+        background: rgba(255, 255, 255, 0.1);
+        margin: 4px 0;
     }
 }
 
