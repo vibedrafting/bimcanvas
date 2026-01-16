@@ -32,6 +32,8 @@ Worktree 功能测试脚本
   python test_worktree.py a2           # A2：删除
   python test_worktree.py b            # 运行场景 B（B1+B2+B3+B4）
   python test_worktree.py ai           # 运行场景 AI（AI1+AI2+AI3）★
+  python test_worktree.py ai1          # AI1：创建（用当前分支，模拟真窗口）
+  python test_worktree.py ai1 分支名   # AI1：创建（用指定分支，模拟虚拟窗口）
   python test_worktree.py --list       # 列出当前 worktree
   python test_worktree.py --clean      # 清理测试残留
 """
@@ -1063,21 +1065,33 @@ def test_f6_cleanup_window():
 # 场景 AI：高级端口测试
 # ============================================================
 
-def test_ai1_create():
+def test_ai1_create(custom_base_branch=None):
     """
     AI1: 使用高级端口创建 AI Job
 
     场景：测试 POST /api/git/ai-job 端点
     - 自动生成分支名
     - 一键创建工作环境
+
+    Args:
+        custom_base_branch: 自定义基准分支（可选）
+            - 不传：使用当前分支（模拟真窗口场景）
+            - 传入分支名：使用指定分支（模拟虚拟窗口场景）
     """
     print("\n" + "=" * 60)
     print(f"{CYAN}AI1: 创建 AI Job（高级端口）{RESET}")
     print("=" * 60)
 
-    # 获取基准分支
-    base_branch = get_current_branch()
-    log_info(f"使用当前分支作为基准: {base_branch}")
+    # 确定基准分支
+    if custom_base_branch:
+        if not branch_exists(custom_base_branch):
+            log_fail(f"指定的基准分支 '{custom_base_branch}' 不存在！")
+            return False
+        base_branch = custom_base_branch
+        log_info(f"使用指定基准分支: {base_branch}（模拟虚拟窗口场景）")
+    else:
+        base_branch = get_current_branch()
+        log_info(f"使用当前分支作为基准: {base_branch}（模拟真窗口场景）")
 
     # 清理可能残留的 worktree
     if worktree_exists(WT_AI):
@@ -1360,9 +1374,10 @@ def print_usage():
     print("    f6  清理虚拟窗口（保留分支）")
     print()
     print("  场景 AI（高级端口测试）★ 新增:")
-    print("    ai1  使用高级端口创建 AI Job（自动生成分支名）")
-    print("    ai2  在 AI Job 中工作并提交")
-    print("    ai3  清理 AI Job")
+    print("    ai1          使用当前分支创建（模拟真窗口场景）")
+    print("    ai1 分支名   使用指定分支创建（模拟虚拟窗口场景）")
+    print("    ai2          在 AI Job 中工作并提交")
+    print("    ai3          清理 AI Job")
     print()
     print("推荐测试顺序:")
     print("  场景 A:  python test_worktree.py a1 && python test_worktree.py a2")
@@ -1370,6 +1385,11 @@ def print_usage():
     print("  场景 F:  python test_worktree.py f  (完整 F1-F6)")
     print("  场景 AI: python test_worktree.py ai (完整 AI1-AI3)")
     print("  完整:    python test_worktree.py a b f ai")
+    print()
+    print("虚拟窗口场景测试:")
+    print("  1. 先用 F1 创建虚拟窗口: python test_worktree.py f1 scheme/xxx")
+    print("  2. 在虚拟窗口中测试高级端口: python test_worktree.py ai1 test/scheme-f")
+    print("  3. 清理: python test_worktree.py ai3 f6")
 
 
 def main():
@@ -1409,9 +1429,10 @@ def main():
     a1_branch = None
     b1_base_branch = None
     f1_branch = None
+    ai1_base_branch = None
     test_keys = ['a', 'a1', 'a2', 'b', 'b1', 'b2', 'b3', 'b4', 'f', 'f1', 'f2', 'f3', 'f4', 'f5', 'f6', 'ai', 'ai1', 'ai2', 'ai3']
 
-    # 查找 a1/b1/f1 后面是否跟着分支名
+    # 查找 a1/b1/f1/ai1 后面是否跟着分支名
     for i, arg in enumerate(args):
         if arg == 'a1' and i + 1 < len(raw_args):
             next_arg = raw_args[i + 1]
@@ -1425,6 +1446,10 @@ def main():
             next_arg = raw_args[i + 1]
             if next_arg.lower() not in test_keys and not next_arg.startswith('-'):
                 f1_branch = next_arg
+        elif arg == 'ai1' and i + 1 < len(raw_args):
+            next_arg = raw_args[i + 1]
+            if next_arg.lower() not in test_keys and not next_arg.startswith('-'):
+                ai1_base_branch = next_arg
 
     # 定义测试
     tests = {
@@ -1440,7 +1465,7 @@ def main():
         'f4': ('F4 (合并回虚拟窗口) ★', test_f4_merge_to_window),
         'f5': ('F5 (清理 Agent)', test_f5_cleanup_agent),
         'f6': ('F6 (清理虚拟窗口)', test_f6_cleanup_window),
-        'ai1': ('AI1 (高级端口创建) ★', test_ai1_create),
+        'ai1': ('AI1 (高级端口创建) ★', lambda: test_ai1_create(ai1_base_branch)),
         'ai2': ('AI2 (Agent 工作)', test_ai2_agent_work),
         'ai3': ('AI3 (清理)', test_ai3_cleanup),
     }
@@ -1475,6 +1500,8 @@ def main():
             name = f"A1 (创建-检出分支: {a1_branch})"
         elif key == 'f1' and f1_branch:
             name = f"F1 (创建虚拟窗口: {f1_branch})"
+        elif key == 'ai1' and ai1_base_branch:
+            name = f"AI1 (高级端口-基准分支: {ai1_base_branch})"
         passed = func()
         results.append((name, passed))
 
