@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed } from 'vue';
 import GlassButton from '../base/GlassButton.vue';
+import GlassSelect from '../base/GlassSelect.vue';
 
 interface BranchOption {
   value: string;
@@ -23,11 +24,21 @@ const emit = defineEmits<{
 
 // 可选的源分支（排除目标分支）
 const availableSourceBranches = computed(() =>
-  props.branches.filter(b => b.value !== props.targetBranch)
+  props.branches
+    .filter(b => b.value !== props.targetBranch)
+    .map(b => ({
+      ...b,
+      label: b.isCurrent ? `${b.label} (当前)` : b.label
+    }))
 );
 
 // 可选的目标分支
-const availableTargetBranches = computed(() => props.branches);
+const availableTargetBranches = computed(() => 
+  props.branches.map(b => ({
+    ...b,
+    label: b.isCurrent ? `${b.label} (当前)` : b.label
+  }))
+);
 
 // 错误提示
 const validationError = computed(() => {
@@ -44,40 +55,26 @@ const validationError = computed(() => {
       <!-- 目标分支 -->
       <div class="form-group">
         <label>目标分支 <span class="hint">(将被覆盖)</span></label>
-        <select
-          :value="targetBranch"
-          @change="emit('update:targetBranch', ($event.target as HTMLSelectElement).value)"
-          class="branch-select"
-        >
-          <option value="" disabled>请选择目标分支</option>
-          <option
-            v-for="branch in availableTargetBranches"
-            :key="branch.value"
-            :value="branch.value"
-          >
-            {{ branch.label }}{{ branch.isCurrent ? ' (当前)' : '' }}
-          </option>
-        </select>
+        <GlassSelect
+          :model-value="targetBranch"
+          @update:model-value="emit('update:targetBranch', $event as string)"
+          :options="availableTargetBranches"
+          placeholder="请选择目标分支"
+          width="100%"
+        />
       </div>
 
       <!-- 源分支 -->
       <div class="form-group">
         <label>源分支 <span class="hint">(数据来源)</span></label>
-        <select
-          :value="sourceBranch"
-          @change="emit('update:sourceBranch', ($event.target as HTMLSelectElement).value)"
-          class="branch-select"
+        <GlassSelect
+          :model-value="sourceBranch"
+          @update:model-value="emit('update:sourceBranch', $event as string)"
+          :options="availableSourceBranches"
+          placeholder="请选择源分支"
+          width="100%"
           :disabled="!targetBranch"
-        >
-          <option value="" disabled>请选择源分支</option>
-          <option
-            v-for="branch in availableSourceBranches"
-            :key="branch.value"
-            :value="branch.value"
-          >
-            {{ branch.label }}{{ branch.isCurrent ? ' (当前)' : '' }}
-          </option>
-        </select>
+        />
       </div>
 
       <!-- 验证错误 -->
@@ -127,33 +124,6 @@ const validationError = computed(() => {
       color: #a0a0a0;
       font-size: 0.75rem;
     }
-  }
-}
-
-.branch-select {
-  width: 100%;
-  padding: 10px 12px;
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  border-radius: 8px;
-  background: #22262e;
-  color: #e0e0e0;
-  font-size: 0.9rem;
-  cursor: pointer;
-  transition: border-color 0.15s ease;
-
-  &:focus {
-    outline: none;
-    border-color: #3b82f6;
-  }
-
-  &:disabled {
-    opacity: 0.5;
-    cursor: not-allowed;
-  }
-
-  option {
-    background: #22262e;
-    color: #e0e0e0;
   }
 }
 

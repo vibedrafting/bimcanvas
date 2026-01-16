@@ -279,6 +279,19 @@ namespace BIMCanvas.Server.Services
                     _gitService.CheckoutBranch(projectPath, targetBranch);
                 }
 
+                // 2.5 检测差异，如果两个分支内容相同则无需合并
+                var diffs = await ComputeZoneDiffsAsync(projectPath, sourceBranch, targetBranch);
+                if (diffs.Count == 0)
+                {
+                    _logger.LogInformation("两个分支内容相同，无需合并: {Source} -> {Target}", sourceBranch, targetBranch);
+                    return new OverwriteMergeResult
+                    {
+                        Success = true,
+                        MergedZoneCount = 0,
+                        Message = "两个分支内容相同，无需合并"
+                    };
+                }
+
                 // 3. 获取源分支的 schemes 目录内容
                 var schemesPath = "schemes";
                 var schemesDir = Path.Combine(projectPath, schemesPath);

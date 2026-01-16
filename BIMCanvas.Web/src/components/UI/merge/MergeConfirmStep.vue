@@ -20,10 +20,10 @@ const emit = defineEmits<{
     <!-- 确认信息 -->
     <div class="confirm-section">
       <div class="merge-preview">
-        <div class="branch-card target">
-          <div class="branch-label">目标分支</div>
-          <div class="branch-name">{{ targetBranch }}</div>
-          <div class="branch-hint">将被覆盖</div>
+        <div class="branch-card source">
+          <div class="branch-label">源分支</div>
+          <div class="branch-name">{{ sourceBranch }}</div>
+          <div class="branch-hint">数据来源</div>
         </div>
 
         <div class="merge-arrow">
@@ -33,10 +33,10 @@ const emit = defineEmits<{
           </svg>
         </div>
 
-        <div class="branch-card source">
-          <div class="branch-label">源分支</div>
-          <div class="branch-name">{{ sourceBranch }}</div>
-          <div class="branch-hint">数据来源</div>
+        <div class="branch-card target">
+          <div class="branch-label">目标分支</div>
+          <div class="branch-name">{{ targetBranch }}</div>
+          <div class="branch-hint">将被覆盖</div>
         </div>
       </div>
 

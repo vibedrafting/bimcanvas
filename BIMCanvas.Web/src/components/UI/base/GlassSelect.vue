@@ -13,11 +13,13 @@ interface Props {
   options: Option[];
   placeholder?: string;
   width?: string;
+  disabled?: boolean;
 }
 
 const props = withDefaults(defineProps<Props>(), {
   placeholder: 'Select...',
-  width: '160px'
+  width: '160px',
+  disabled: false
 });
 
 const emit = defineEmits<{
@@ -32,6 +34,7 @@ const selectedOption = computed(() =>
 );
 
 const toggleDropdown = () => {
+  if (props.disabled) return;
   isOpen.value = !isOpen.value;
 };
 
@@ -60,8 +63,9 @@ onUnmounted(() => {
     <!-- Trigger Button -->
     <button 
       class="select-trigger" 
-      :class="{ active: isOpen }"
+      :class="{ active: isOpen, disabled: disabled }"
       @click="toggleDropdown"
+      :disabled="disabled"
     >
       <span class="selected-text" :class="{ placeholder: !selectedOption }">
         <span v-if="selectedOption?.icon" class="option-icon" v-html="selectedOption.icon"></span>
@@ -76,7 +80,7 @@ onUnmounted(() => {
 
     <!-- Dropdown Menu -->
     <transition name="dropdown">
-      <div class="select-dropdown" v-if="isOpen">
+      <div class="select-dropdown" v-if="isOpen && !disabled">
         <div 
           v-for="option in options" 
           :key="option.value"
@@ -125,7 +129,7 @@ onUnmounted(() => {
   transition: background-color 0.2s, border-color 0.2s, color 0.2s;
   outline: none;
 
-  &:hover {
+  &:hover:not(.disabled) {
     background: rgba(255, 255, 255, 0.08);
     border-color: var(--border-subtle);
   }
@@ -136,6 +140,17 @@ onUnmounted(() => {
     
     .chevron {
       transform: rotate(180deg);
+    }
+  }
+
+  &.disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+    background: rgba(255, 255, 255, 0.01);
+    
+    &:hover {
+      background: rgba(255, 255, 255, 0.01);
+      border-color: rgba(255, 255, 255, 0.1);
     }
   }
 }
