@@ -354,7 +354,8 @@ const handleBranchCreated = async (data: { name: string; baseBranch: string; rea
     // 创建分支
     const result = await gitStore.checkout(data.name, {
       createIfNotExist: true,
-      commitMessage: data.reason
+      commitMessage: data.reason,
+      baseBranch: data.baseBranch
     });
     if (result.success) {
       // 刷新分支列表
