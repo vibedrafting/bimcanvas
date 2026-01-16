@@ -149,19 +149,20 @@ defineExpose({
   left: 0;
   right: 0;
   bottom: 0;
-  background: rgba(0, 0, 0, 0.5);
+  background: rgba(0, 0, 0, 0.6);
   display: flex;
   align-items: center;
   justify-content: center;
   z-index: 1000;
+  backdrop-filter: blur(4px);
 }
 
 .wizard-container {
   width: 480px;
-  background: var(--bg-primary);
-  border: 1px solid var(--border-subtle);
+  background: #1a1d24;
+  border: 1px solid rgba(255, 255, 255, 0.1);
   border-radius: 12px;
-  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
   overflow: hidden;
 }
 
@@ -170,13 +171,14 @@ defineExpose({
   justify-content: space-between;
   align-items: center;
   padding: 16px 20px;
-  border-bottom: 1px solid var(--border-subtle);
-  background: var(--bg-secondary);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+  background: #22262e;
 
   h3 {
     margin: 0;
     font-size: 1.1rem;
     font-weight: 600;
+    color: #e0e0e0;
   }
 }
 
@@ -190,11 +192,11 @@ defineExpose({
   background: transparent;
   border-radius: 6px;
   cursor: pointer;
-  color: var(--text-primary);
+  color: #e0e0e0;
   transition: background 0.15s ease;
 
   &:hover {
-    background: var(--bg-hover);
+    background: rgba(255, 255, 255, 0.1);
   }
 }
 
@@ -219,11 +221,11 @@ defineExpose({
   }
 
   &.done .step-number {
-    background: var(--accent-green);
+    background: #22c55e;
   }
 
   &.active .step-number {
-    background: var(--accent-blue);
+    background: #3b82f6;
   }
 }
 
@@ -231,7 +233,7 @@ defineExpose({
   width: 24px;
   height: 24px;
   border-radius: 50%;
-  background: var(--bg-tertiary);
+  background: #3a3f4a;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -242,17 +244,17 @@ defineExpose({
 
 .step-label {
   font-size: 0.85rem;
-  color: var(--text-secondary);
+  color: #a0a0a0;
 }
 
 .step-line {
   width: 40px;
   height: 2px;
-  background: var(--border-subtle);
+  background: rgba(255, 255, 255, 0.1);
   transition: background 0.2s ease;
 
   &.active {
-    background: var(--accent-blue);
+    background: #3b82f6;
   }
 }
 

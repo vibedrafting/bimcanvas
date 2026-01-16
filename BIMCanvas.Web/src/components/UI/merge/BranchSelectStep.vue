@@ -102,6 +102,7 @@ const validationError = computed(() => {
 <style scoped lang="scss">
 .step-content {
   padding: 20px;
+  background: #1a1d24;
 }
 
 .form-section {
@@ -119,11 +120,11 @@ const validationError = computed(() => {
   label {
     font-size: 0.85rem;
     font-weight: 500;
-    color: var(--text-primary);
+    color: #e0e0e0;
 
     .hint {
       font-weight: 400;
-      color: var(--text-secondary);
+      color: #a0a0a0;
       font-size: 0.75rem;
     }
   }
@@ -132,17 +133,17 @@ const validationError = computed(() => {
 .branch-select {
   width: 100%;
   padding: 10px 12px;
-  border: 1px solid var(--border-subtle);
+  border: 1px solid rgba(255, 255, 255, 0.1);
   border-radius: 8px;
-  background: var(--bg-secondary);
-  color: var(--text-primary);
+  background: #22262e;
+  color: #e0e0e0;
   font-size: 0.9rem;
   cursor: pointer;
   transition: border-color 0.15s ease;
 
   &:focus {
     outline: none;
-    border-color: var(--accent-blue);
+    border-color: #3b82f6;
   }
 
   &:disabled {
@@ -151,8 +152,8 @@ const validationError = computed(() => {
   }
 
   option {
-    background: var(--bg-secondary);
-    color: var(--text-primary);
+    background: #22262e;
+    color: #e0e0e0;
   }
 }
 
@@ -160,7 +161,7 @@ const validationError = computed(() => {
   padding: 8px 12px;
   background: rgba(239, 68, 68, 0.1);
   border-radius: 6px;
-  color: var(--accent-danger);
+  color: #ef4444;
   font-size: 0.85rem;
 }
 
@@ -168,6 +169,6 @@ const validationError = computed(() => {
   display: flex;
   justify-content: flex-end;
   padding-top: 16px;
-  border-top: 1px solid var(--border-subtle);
+  border-top: 1px solid rgba(255, 255, 255, 0.1);
 }
 </style>

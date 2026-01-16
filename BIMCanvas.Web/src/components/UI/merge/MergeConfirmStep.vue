@@ -75,6 +75,7 @@ const emit = defineEmits<{
 <style scoped lang="scss">
 .step-content {
   padding: 20px;
+  background: #1a1d24;
 }
 
 .confirm-section {
@@ -92,19 +93,19 @@ const emit = defineEmits<{
 .branch-card {
   flex: 1;
   padding: 16px;
-  background: var(--bg-secondary);
-  border: 1px solid var(--border-subtle);
+  background: #22262e;
+  border: 1px solid rgba(255, 255, 255, 0.1);
   border-radius: 10px;
   text-align: center;
 
   &.target {
-    border-color: var(--accent-danger);
-    background: rgba(239, 68, 68, 0.05);
+    border-color: #ef4444;
+    background: rgba(239, 68, 68, 0.1);
   }
 
   &.source {
-    border-color: var(--accent-green);
-    background: rgba(34, 197, 94, 0.05);
+    border-color: #22c55e;
+    background: rgba(34, 197, 94, 0.1);
   }
 }
 
@@ -113,26 +114,26 @@ const emit = defineEmits<{
   font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.05em;
-  color: var(--text-secondary);
+  color: #a0a0a0;
   margin-bottom: 8px;
 }
 
 .branch-name {
   font-size: 1rem;
   font-weight: 600;
-  color: var(--text-primary);
+  color: #e0e0e0;
   word-break: break-all;
 }
 
 .branch-hint {
   font-size: 0.75rem;
-  color: var(--text-tertiary);
+  color: #707070;
   margin-top: 4px;
 }
 
 .merge-arrow {
   flex-shrink: 0;
-  color: var(--text-secondary);
+  color: #a0a0a0;
 }
 
 .warning-box {
@@ -143,7 +144,7 @@ const emit = defineEmits<{
   background: rgba(245, 158, 11, 0.1);
   border: 1px solid rgba(245, 158, 11, 0.3);
   border-radius: 8px;
-  color: var(--text-primary);
+  color: #e0e0e0;
   font-size: 0.85rem;
 
   svg {
@@ -161,7 +162,7 @@ const emit = defineEmits<{
   padding: 12px 16px;
   background: rgba(239, 68, 68, 0.1);
   border-radius: 8px;
-  color: var(--accent-danger);
+  color: #ef4444;
   font-size: 0.85rem;
 }
 
@@ -169,7 +170,7 @@ const emit = defineEmits<{
   display: flex;
   justify-content: space-between;
   padding-top: 16px;
-  border-top: 1px solid var(--border-subtle);
+  border-top: 1px solid rgba(255, 255, 255, 0.1);
 }
 
 .action-right {
