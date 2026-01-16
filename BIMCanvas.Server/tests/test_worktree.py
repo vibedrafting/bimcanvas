@@ -81,6 +81,23 @@ def api_delete(endpoint):
     return requests.delete(f"{BASE_URL}/api/git/{endpoint}")
 
 
+# ============================================================
+# Scheme API 封装（可视化 Diff）
+# ============================================================
+
+def scheme_get_modules(source):
+    """获取模块数据 GET /api/scheme/{source}/modules"""
+    return requests.get(f"{BASE_URL}/api/scheme/{source}/modules")
+
+
+def scheme_put_modules(source, modules, commit_message=None):
+    """保存模块数据 PUT /api/scheme/{source}/modules"""
+    data = {"modules": modules}
+    if commit_message:
+        data["commitMessage"] = commit_message
+    return requests.put(f"{BASE_URL}/api/scheme/{source}/modules", json=data)
+
+
 def get_branches():
     """获取所有分支"""
     resp = api_get("branches")
@@ -871,6 +888,88 @@ def test_v6_cleanup_window():
 
 
 # ============================================================
+# Scheme API 测试（可视化 Diff）
+# ============================================================
+
+def test_scheme():
+    """
+    测试 SchemeController API：跨分支/Worktree 模块数据读写
+
+    测试流程：
+    1. 读取主仓库模块数据 (GET /api/scheme/main/modules)
+    2. 创建 AI Job
+    3. 读取 AI Job 模块数据 (GET /api/scheme/worktree:{name}/modules)
+    4. 对比两者
+    5. 清理
+    """
+    print("\n" + "=" * 60)
+    print(f"{CYAN}Scheme API 测试（可视化 Diff）{RESET}")
+    print("=" * 60)
+
+    # Step 1: 读取主仓库模块数据
+    log_step(1, "读取主仓库模块数据")
+    resp = scheme_get_modules("main")
+    if not resp.ok:
+        log_fail(f"读取失败: {resp.status_code} - {resp.text}")
+        return False
+
+    main_data = resp.json()
+    log_pass(f"读取成功: source={main_data.get('source')}, branch={main_data.get('branch')}")
+    log_info(f"  模块数量: {len(main_data.get('modules', []))}")
+
+    # Step 2: 创建临时 AI Job 用于测试
+    log_step(2, "创建临时 AI Job (scheme-test)")
+    current_branch = get_current_branch()
+    resp = api_post("ai-job", {
+        "name": "scheme-test",
+        "baseBranch": current_branch
+    })
+
+    if not resp.ok:
+        log_fail(f"创建失败: {resp.text}")
+        return False
+
+    ai_data = resp.json()
+    wt_name = "scheme-test"
+    log_pass(f"创建成功: {ai_data.get('worktreePath')}")
+    log_info(f"  分支: {ai_data.get('branchName')}")
+
+    # Step 3: 读取 AI Job 模块数据
+    log_step(3, f"读取 AI Job 模块数据 (worktree:{wt_name})")
+    resp = scheme_get_modules(f"worktree:{wt_name}")
+    if not resp.ok:
+        log_fail(f"读取失败: {resp.status_code} - {resp.text}")
+        # 清理
+        api_delete(f"worktrees/{wt_name}?deleteBranch=true")
+        return False
+
+    wt_data = resp.json()
+    log_pass(f"读取成功: source={wt_data.get('source')}, branch={wt_data.get('branch')}")
+    log_info(f"  模块数量: {len(wt_data.get('modules', []))}")
+
+    # Step 4: 对比数据
+    log_step(4, "对比模块数据")
+    main_count = len(main_data.get('modules', []))
+    wt_count = len(wt_data.get('modules', []))
+
+    if main_count == wt_count:
+        log_pass(f"模块数量一致: {main_count}")
+    else:
+        log_warn(f"模块数量不一致: main={main_count}, worktree={wt_count}")
+
+    # Step 5: 清理 AI Job
+    log_step(5, "清理测试 AI Job")
+    resp = api_delete(f"worktrees/{wt_name}?deleteBranch=true")
+    if resp.ok:
+        log_pass("清理成功")
+    else:
+        log_warn(f"清理失败: {resp.text}")
+
+    print(f"\n{GREEN}★ Scheme API 测试通过 ★{RESET}")
+    return True
+
+
+# ============================================================
 # 辅助命令
 # ============================================================
 
@@ -987,6 +1086,9 @@ def print_usage():
     print("    v5          清理 AI Job")
     print("    v6          清理虚拟窗口")
     print()
+    print("  Scheme API（可视化 Diff）：")
+    print("    scheme      测试跨分支/Worktree 模块数据读写")
+    print()
     print("推荐测试顺序：")
     print("  场景 R:  python test_worktree.py r")
     print("  场景 V:  python test_worktree.py v")
@@ -1018,6 +1120,11 @@ def main():
     if '--clean' in args:
         print(f"Server: {BASE_URL} | 当前分支: {info}")
         clean_test()
+        return
+
+    if 'scheme' in args:
+        print(f"Server: {BASE_URL} | 当前分支: {info}")
+        test_scheme()
         return
 
     # 运行测试

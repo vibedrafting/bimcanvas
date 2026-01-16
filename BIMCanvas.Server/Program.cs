@@ -94,6 +94,9 @@ builder.Services.AddSingleton<ModuleLibraryService>();  // 模块库服务
 builder.Services.AddSingleton<BranchLockManager>();  // 分支锁管理（多窗口互斥）
 builder.Services.AddSingleton<MergeService>();       // 可视化合并服务
 
+// v3.4 可视化 Diff 服务
+builder.Services.AddSingleton<SchemeDataService>();  // 跨分支/Worktree 模块数据读写
+
 // v3.2 实时通信服务
 builder.Services.AddSignalR();
 builder.Services.AddHostedService<ProjectWatcherService>();
