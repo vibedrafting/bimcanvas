@@ -172,6 +172,8 @@ WriteWithColoredPrefix("[Server]", "Swagger: http://localhost:5000/swagger", Con
             {
                 // 启动时默认使用已存在的项目（不覆盖）
                 projectPath = existingPath!;
+                // 确保项目资源文件存在（modules、README.md 等）
+                projectService.EnsureProjectAssets(projectPath);
             }
             else
             {

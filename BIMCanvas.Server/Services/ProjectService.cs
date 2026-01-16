@@ -132,6 +132,25 @@ namespace BIMCanvas.Server.Services
         }
 
         /// <summary>
+        /// 确保项目资源文件存在（用于打开已存在的项目）
+        /// 包括：modules 文件夹、README.md 等
+        /// </summary>
+        public void EnsureProjectAssets(string projectPath)
+        {
+            if (!Directory.Exists(projectPath))
+            {
+                _logger.LogWarning("项目目录不存在，跳过资源检查: {Path}", projectPath);
+                return;
+            }
+
+            // 确保 modules 文件夹存在
+            CopyModulesDirectory(projectPath);
+
+            // 确保 README.md 存在（可选，Agent 依赖此文件了解项目结构）
+            CopyReadmeTemplate(projectPath);
+        }
+
+        /// <summary>
         /// 从 computed/room_zones.json 初始化 schemes/zones.json
         /// MVP 阶段：直接复制，跳过分区设计流程
         /// </summary>

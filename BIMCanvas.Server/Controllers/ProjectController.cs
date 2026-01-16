@@ -210,6 +210,9 @@ namespace BIMCanvas.Server.Controllers
                         });
                     }
 
+                    // 确保项目资源文件存在（modules、README.md 等）
+                    _projectService.EnsureProjectAssets(projectPath);
+
                     _projectContext.SetProject(projectPath, null);
                 }
                 else // Overwrite
@@ -342,6 +345,9 @@ namespace BIMCanvas.Server.Controllers
                             Message = $"项目目录不存在: {projectPath}"
                         });
                     }
+
+                    // 确保项目资源文件存在（modules、README.md 等）
+                    _projectService.EnsureProjectAssets(projectPath);
                 }
                 else // Overwrite
                 {

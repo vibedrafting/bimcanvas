@@ -2,11 +2,15 @@
 import { ref } from 'vue';
 import GlassButton from '../base/GlassButton.vue';
 import { useProjectFile } from '../../../composables/useProjectFile';
+import { useSave } from '../../../composables/useSave';
 import { useCanvasStore } from '../../../stores/canvasStore';
 
 const store = useCanvasStore();
 const fileInputRef = ref<HTMLInputElement | null>(null);
 const { handleLoad, handleExport, processFile } = useProjectFile();
+
+// 使用统一的保存逻辑
+const { handleSave, canSave, isSaving } = useSave();
 
 const onOpen = async () => {
   const result = await handleLoad();
@@ -21,12 +25,6 @@ const onFileSelected = (event: Event) => {
   if (!file) return;
   processFile(file);
   input.value = '';
-};
-
-// Placeholder for Import/Save (Save is usually Commit in v3)
-const onSave = () => {
-  console.log('Save/Commit triggered');
-  // TODO: Implement Git Commit logic
 };
 
 const onImport = () => {
@@ -45,7 +43,7 @@ const onImport = () => {
         </svg>
         <span>Open</span>
       </GlassButton>
-      <GlassButton @click="onSave" variant="ghost" class="ribbon-btn">
+      <GlassButton @click="handleSave" :disabled="!canSave || isSaving" variant="ghost" class="ribbon-btn">
         <svg style="width: 18px; height: 18px; flex-shrink: 0;" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
           <path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"></path>
           <polyline points="17 21 17 13 7 13 7 21"></polyline>
