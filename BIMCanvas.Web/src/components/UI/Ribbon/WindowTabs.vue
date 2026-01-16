@@ -16,10 +16,12 @@ const activeWindow = computed(() => windowStore.activeWindow);
 // 所有窗口
 const windows = computed(() => windowStore.windows);
 
-// 可用于新窗口的分支列表（排除已被占用的）
+// 可用于新窗口的分支列表（双重过滤：排除本地已占用 + 排除 Git 层面被锁定的）
 const availableBranches = computed(() => {
   const occupied = windowStore.occupiedBranches;
-  return gitStore.branches.filter(b => !occupied.includes(b.name));
+  return gitStore.branches.filter(b =>
+    !occupied.includes(b.name) && !b.isLocked
+  );
 });
 
 // 切换窗口

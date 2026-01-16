@@ -395,6 +395,27 @@ namespace BIMCanvas.Server.Services
         }
 
         /// <summary>
+        /// 检查分支是否被任何 Worktree 占用
+        /// </summary>
+        /// <param name="projectPath">项目路径</param>
+        /// <param name="branchName">分支名</param>
+        /// <returns>(是否被占用, 占用者 Worktree 路径)</returns>
+        public (bool isOccupied, string? worktreePath) IsBranchOccupiedByWorktree(string projectPath, string branchName)
+        {
+            var worktrees = GetWorktrees(projectPath);
+
+            foreach (var wt in worktrees)
+            {
+                if (wt.Branch == branchName)
+                {
+                    return (true, wt.Path);
+                }
+            }
+
+            return (false, null);
+        }
+
+        /// <summary>
         /// 清理所有已完成的 AI 工作 Worktree
         /// </summary>
         public void CleanupAiWorktrees(string projectPath)

@@ -411,10 +411,54 @@ namespace BIMCanvas.Server.Controllers
         }
 
         /// <summary>
+        /// 检查分支是否被 Worktree 占用
+        /// </summary>
+        /// <param name="branchName">分支名</param>
+        /// <returns>占用状态</returns>
+        [HttpGet("worktrees/branch/{branchName}/status")]
+        public ActionResult<object> GetBranchWorktreeStatus(string branchName)
+        {
+            _logger.LogInformation(">>> [GitController] GetBranchWorktreeStatus called: {Branch}", branchName);
+
+            if (string.IsNullOrEmpty(branchName))
+            {
+                return BadRequest(new { message = "分支名不能为空" });
+            }
+
+            if (!_projectContext.IsLoaded)
+            {
+                return Ok(new { isOccupied = false });
+            }
+
+            var projectPath = _projectContext.CurrentProjectPath!;
+
+            if (!_gitService.IsGitRepository(projectPath))
+            {
+                return Ok(new { isOccupied = false });
+            }
+
+            try
+            {
+                var (isOccupied, worktreePath) = _gitService.IsBranchOccupiedByWorktree(projectPath, branchName);
+                return Ok(new
+                {
+                    isOccupied,
+                    worktreePath
+                });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "检查分支占用状态失败: {Branch}", branchName);
+                return StatusCode(500, new { message = $"检查分支占用状态失败: {ex.Message}" });
+            }
+        }
+
+        /// <summary>
         /// 创建新的 Worktree
         /// - 分支已存在：检出到 Worktree（场景 A：并行开发）
         /// - 分支不存在：基于 BaseBranch 创建新分支（场景 B：隔离环境）
         /// - 创建前自动存档：如有未提交更改，静默执行自动存档
+        /// - 创建前检查分支是否已被其他 Worktree 占用
         /// </summary>
         /// <param name="request">创建请求</param>
         /// <returns>新建的 Worktree 信息</returns>
@@ -448,6 +492,21 @@ namespace BIMCanvas.Server.Controllers
 
             try
             {
+                // 检查分支是否已被其他 Worktree 占用
+                var (isOccupied, occupiedPath) = _gitService.IsBranchOccupiedByWorktree(projectPath, request.Branch);
+                if (isOccupied)
+                {
+                    var occupiedWorktreeName = System.IO.Path.GetFileName(occupiedPath);
+                    _logger.LogWarning("分支 {Branch} 已被 Worktree {Worktree} 占用", request.Branch, occupiedWorktreeName);
+                    return Conflict(new
+                    {
+                        message = $"分支 '{request.Branch}' 已被其他 Worktree 占用",
+                        isOccupied = true,
+                        occupiedWorktree = occupiedWorktreeName,
+                        occupiedPath = occupiedPath
+                    });
+                }
+
                 // 自动存档：创建 Worktree 前检测到未提交更改，静默执行存档
                 if (_gitService.HasUncommittedChanges(projectPath))
                 {

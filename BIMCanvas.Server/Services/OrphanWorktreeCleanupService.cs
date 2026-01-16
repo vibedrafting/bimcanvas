@@ -1,5 +1,3 @@
-using BIMCanvas.Server.Services.Git;
-
 namespace BIMCanvas.Server.Services
 {
     /// <summary>
@@ -11,18 +9,15 @@ namespace BIMCanvas.Server.Services
     {
         private readonly ILogger<OrphanWorktreeCleanupService> _logger;
         private readonly GitWorktreeService _gitWorktreeService;
-        private readonly BranchLockManager _branchLockManager;
         private readonly ProjectContext _projectContext;
 
         public OrphanWorktreeCleanupService(
             ILogger<OrphanWorktreeCleanupService> logger,
             GitWorktreeService gitWorktreeService,
-            BranchLockManager branchLockManager,
             ProjectContext projectContext)
         {
             _logger = logger;
             _gitWorktreeService = gitWorktreeService;
-            _branchLockManager = branchLockManager;
             _projectContext = projectContext;
         }
 
@@ -46,6 +41,10 @@ namespace BIMCanvas.Server.Services
 
         /// <summary>
         /// 清理孤儿 Worktree
+        ///
+        /// 清理策略：Server 重启后，直接清理所有以 "window-" 开头的 Worktree
+        /// 原因：Server 重启后 BranchLockManager 是空的，所有客户端都会重新连接，
+        /// 因此 window-* 的 Worktree 都是残留的孤儿
         /// </summary>
         private void CleanupOrphanWorktrees()
         {
@@ -59,7 +58,6 @@ namespace BIMCanvas.Server.Services
             try
             {
                 var worktrees = _gitWorktreeService.GetWorktrees(projectPath);
-                var lockedBranches = _branchLockManager.GetLockedBranches().ToHashSet();
                 var worktreesDir = _gitWorktreeService.GetWorktreesDir(projectPath);
                 var cleanedCount = 0;
 
@@ -69,11 +67,13 @@ namespace BIMCanvas.Server.Services
                     if (!wt.Path.StartsWith(worktreesDir, StringComparison.OrdinalIgnoreCase))
                         continue;
 
-                    // 如果 Worktree 的分支没有对应的锁，则清理
-                    if (wt.Branch != null && !lockedBranches.Contains(wt.Branch))
+                    var worktreeName = Path.GetFileName(wt.Path);
+
+                    // 直接清理所有 window-* 开头的 Worktree
+                    // Server 重启后没有活跃窗口，这些都是残留的孤儿
+                    if (worktreeName.StartsWith("window-", StringComparison.OrdinalIgnoreCase))
                     {
-                        var worktreeName = Path.GetFileName(wt.Path);
-                        _logger.LogInformation("清理孤儿 Worktree: {Name} (分支: {Branch})", worktreeName, wt.Branch);
+                        _logger.LogInformation("清理孤儿 Worktree: {Name} (分支: {Branch})", worktreeName, wt.Branch ?? "(detached)");
 
                         try
                         {

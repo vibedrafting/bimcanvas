@@ -1714,8 +1714,11 @@ const removePendingImage = (index: number) => {
                       :title="win.isPrimary ? 'Click to switch branch' : win.branchId"
                       @click.stop="win.isPrimary && toggleBranchDropdown()"
                   >
-                      <span class="branch-icon">🌿</span>
-                      <span class="branch-name">{{ win.branchId }}</span>
+                      <!-- Main Content Wrapper for Centering -->
+                      <div class="branch-main">
+                          <span class="branch-icon">🌿</span>
+                          <span class="branch-name">{{ win.branchId }}</span>
+                      </div>
 
                       <!-- Primary Window Switch Indicator -->
                       <span v-if="win.isPrimary" class="branch-switch-btn" title="Switch Branch">
@@ -2607,24 +2610,35 @@ const removePendingImage = (index: number) => {
         .tab-branch {
             display: flex;
             align-items: center;
-            justify-content: center; /* Center content (icon + name) together */
-            gap: 4px; /* Restore gap */
+            justify-content: center; /* Center the wrapper */
+            gap: 0;
             font-size: 10px;
             color: var(--text-tertiary); /* Muted by default */
             width: 100%;
             height: 18px; /* Slightly taller for better click target */
             position: relative;
             border-radius: 4px;
-            padding: 2px 4px; /* Restore padding */
+            padding: 2px 0;
             margin: 0 -4px;
             transition: all 0.2s ease;
 
+            /* Wrapper for Name + Icon */
+            .branch-main {
+                position: relative;
+                display: flex;
+                align-items: center;
+                max-width: calc(100% - 32px); /* Leave space for switch button & margins */
+            }
+
             .branch-icon { 
-                /* Icon flows naturally with text */
+                position: absolute;
+                right: 100%; /* Hang on the left side of the text */
+                margin-right: 4px;
                 font-size: 10px; 
                 opacity: 0.6; 
                 display: flex;
                 align-items: center;
+                white-space: nowrap;
             }
 
             .branch-name {
@@ -2632,8 +2646,7 @@ const removePendingImage = (index: number) => {
                 overflow: hidden;
                 text-overflow: ellipsis;
                 font-family: 'JetBrains Mono', monospace;
-                /* Natural width */
-                max-width: calc(100% - 30px); /* Prevent overlap with absolute button if text is long */
+                /* No width forcing, let it shrink */
             }
 
             .branch-switch-btn {
