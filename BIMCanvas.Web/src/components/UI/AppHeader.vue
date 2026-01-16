@@ -4,6 +4,7 @@ import { useCanvasStore } from '../../stores/canvasStore';
 import GlassButton from './base/GlassButton.vue';
 import ConflictDialog from './ConflictDialog.vue';
 import { useProjectFile } from '../../composables/useProjectFile';
+import { useSave } from '../../composables/useSave';
 
 const store = useCanvasStore();
 const fileInputRef = ref<HTMLInputElement | null>(null);
@@ -17,6 +18,9 @@ const {
   conflictProjectName, 
   conflictExistingPath 
 } = useProjectFile();
+
+// 使用统一的保存逻辑
+const { handleSave, canSave, isSaving, registerKeyboardShortcut } = useSave();
 
 // Wrapper for load to handle fallback
 const onHandleLoad = async () => {
@@ -35,24 +39,15 @@ const onFileSelected = (event: Event) => {
   input.value = '';
 };
 
-const handleSave = () => {
-  // TODO: Implement actual save logic
-  console.log('Save triggered');
-};
-
-const handleKeydown = (e: KeyboardEvent) => {
-  if ((e.ctrlKey || e.metaKey) && e.key === 's') {
-    e.preventDefault();
-    handleSave();
-  }
-};
+// 注册 Ctrl+S 快捷键
+let unregisterShortcut: (() => void) | null = null;
 
 onMounted(() => {
-  window.addEventListener('keydown', handleKeydown);
+  unregisterShortcut = registerKeyboardShortcut();
 });
 
 onUnmounted(() => {
-  window.removeEventListener('keydown', handleKeydown);
+  unregisterShortcut?.();
 });
 </script>
 
