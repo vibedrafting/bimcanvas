@@ -1488,7 +1488,6 @@ const removePendingImage = (index: number) => {
                       class="new-window-btn"
                       title="New Window"
                       @click.stop="handleNewWindowClick"
-                      :disabled="availableBranches.length === 0"
                   >
                       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                       <line x1="12" y1="5" x2="12" y2="19"></line>
