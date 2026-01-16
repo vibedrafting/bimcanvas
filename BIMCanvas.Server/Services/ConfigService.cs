@@ -13,7 +13,7 @@ public static class ConfigService
         ".bimcanvas"
     );
 
-    private static readonly string ConfigPath = Path.Combine(ConfigDir, "config.json");
+    private static readonly string ConfigPath = Path.Combine(ConfigDir, "server_config.json");
 
     private static readonly JsonSerializerOptions JsonOptions = new()
     {
