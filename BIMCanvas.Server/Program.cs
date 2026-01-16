@@ -379,9 +379,25 @@ WriteWithColoredPrefix("[Server]", "Swagger: http://localhost:5000/swagger", Con
         }
     }
 
-    // 4. 注册退出时清理进程
+    // 4. 注册退出时清理进程和 Worktree
     AppDomain.CurrentDomain.ProcessExit += (s, e) =>
     {
+        // 清理 Worktree（双重保险：启动时 + 关闭时）
+        try
+        {
+            var projectContext = app.Services.GetRequiredService<ProjectContext>();
+            if (!string.IsNullOrEmpty(projectContext.CurrentProjectPath))
+            {
+                WriteWithColoredPrefix("[Server]", "正在清理 Worktree...", ConsoleColor.White);
+                var gitWorktreeService = app.Services.GetRequiredService<GitWorktreeService>();
+                gitWorktreeService.CleanupAllWorktrees(projectContext.CurrentProjectPath);
+            }
+        }
+        catch (Exception ex)
+        {
+            WriteWithColoredPrefix("[Server:ERR]", $"Worktree 清理失败: {ex.Message}", ConsoleColor.DarkGray);
+        }
+
         if (agentProcess != null && !agentProcess.HasExited)
         {
             WriteWithColoredPrefix("[Server]", "正在关闭 Agent 服务...", ConsoleColor.White);
