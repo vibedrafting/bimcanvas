@@ -34,6 +34,10 @@ const onImport = () => {
   // Reuse open logic for now or specific import logic
   onOpen();
 };
+
+const onDiff = () => {
+  window.dispatchEvent(new CustomEvent('bimcanvas:open-scheme-diff'));
+};
 </script>
 
 <template>
@@ -69,7 +73,16 @@ const onImport = () => {
         </svg>
         <span>Export</span>
       </GlassButton>
-      
+      <GlassButton @click="onDiff" :disabled="!store.projectData" variant="ghost" class="ribbon-btn">
+        <svg style="width: 18px; height: 18px; flex-shrink: 0;" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M16 3h5v5"></path>
+          <line x1="21" y1="3" x2="14" y2="10"></line>
+          <path d="M8 21H3v-5"></path>
+          <line x1="3" y1="21" x2="10" y2="14"></line>
+        </svg>
+        <span>Diff</span>
+      </GlassButton>
+
       <!-- Hidden Input for Fallback -->
       <input
         ref="fileInputRef"

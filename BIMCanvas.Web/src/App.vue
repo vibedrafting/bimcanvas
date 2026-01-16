@@ -9,11 +9,13 @@ import { themeService } from './services/theme/ThemeService';
 
 import { ViewCalculator } from './services/interaction/ViewCalculator';
 import DebugConsole from './components/UI/DebugConsole.vue';
+import SchemeDiffPanel from './components/UI/scheme/SchemeDiffPanel.vue';
 import { useDebugStore } from './stores/debugStore';
 
 const store = useCanvasStore();
 const debugStore = useDebugStore();
 const isSplashShowing = ref(true);
+const schemeDiffPanelRef = ref<InstanceType<typeof SchemeDiffPanel> | null>(null);
 const loaderProps = ref<{ spacing?: number, offsetX?: number, offsetY?: number, active: boolean }>({ active: true });
 
 const loadingStage = ref(0); // 0: Loader, 1: Grid, 2: Island, 3: Tools, 4: Chrome, 5: Scene
@@ -109,6 +111,12 @@ onMounted(() => {
     debugStore.log('Build Complete Event Received.');
     isBuildComplete.value = true;
   });
+
+  // 监听打开 Scheme Diff 面板事件
+  window.addEventListener('bimcanvas:open-scheme-diff', () => {
+    debugStore.log('Opening Scheme Diff Panel...');
+    schemeDiffPanelRef.value?.open();
+  });
 });
 
 import { onUnmounted } from 'vue';
@@ -154,6 +162,7 @@ const handleKeydown = (e: KeyboardEvent) => {
     <ThreeCanvas />
   </MainLayout>
   <DebugConsole />
+  <SchemeDiffPanel ref="schemeDiffPanelRef" />
 </template>
 
 <style>
