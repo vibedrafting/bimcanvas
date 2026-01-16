@@ -29,6 +29,7 @@
   python test_worktree.py r4           # R4：清理
 
   python test_worktree.py v            # 运行场景 V（V1+V2+V3+V4+V5+V6）
+  python test_worktree.py v 分支名     # 运行场景 V，使用指定分支
   python test_worktree.py v1           # V1：创建虚拟窗口
   python test_worktree.py v1 分支名    # V1：使用指定分支创建虚拟窗口
   python test_worktree.py v2           # V2：创建 AI Job
@@ -989,6 +990,7 @@ def print_usage():
     print("推荐测试顺序：")
     print("  场景 R:  python test_worktree.py r")
     print("  场景 V:  python test_worktree.py v")
+    print("  场景 V:  python test_worktree.py v scheme/xxx  (指定分支)")
     print("  完整:    python test_worktree.py r v")
 
 
@@ -1029,12 +1031,13 @@ def main():
     v1_branch = None
     test_keys = ['r', 'r1', 'r2', 'r3', 'r4', 'v', 'v1', 'v2', 'v3', 'v4', 'v5', 'v6']
 
-    # 查找 v1 后面是否跟着分支名
+    # 查找 v 或 v1 后面是否跟着分支名
     for i, arg in enumerate(args):
-        if arg == 'v1' and i + 1 < len(raw_args):
+        if arg in ('v', 'v1') and i + 1 < len(raw_args):
             next_arg = raw_args[i + 1]
             if next_arg.lower() not in test_keys and not next_arg.startswith('-'):
                 v1_branch = next_arg
+                break  # 找到就退出
 
     # 定义测试
     tests = {
