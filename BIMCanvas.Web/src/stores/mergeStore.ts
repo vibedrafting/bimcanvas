@@ -9,6 +9,7 @@ const SERVER_API_BASE = 'http://localhost:5000';
 export interface OverwriteMergeResult {
   success: boolean;
   message?: string;
+  mergedZoneCount?: number;
 }
 
 /**
@@ -123,19 +124,29 @@ export const useMergeStore = defineStore('merge', () => {
       });
 
       const result = await response.json();
+      console.log('[MergeStore] 合并响应:', result);
 
       if (response.ok && result.success) {
+        // 检查是否实际执行了合并（mergedZoneCount > 0）
+        if (result.mergedZoneCount === 0) {
+          // 无差异，显示提示但不关闭向导
+          console.log('[MergeStore] 两个分支内容相同，无需合并');
+          const msg = result.message || '两个分支内容相同，无需合并';
+          error.value = msg;
+          return { success: true, message: msg, mergedZoneCount: 0 };
+        }
         console.log('[MergeStore] 覆盖合并成功');
         closeWizard();
-        return { success: true };
+        return { success: true, mergedZoneCount: result.mergedZoneCount };
       } else {
-        error.value = result.message || '合并失败';
-        return { success: false, message: error.value };
+        const errMsg = result.message || '合并失败';
+        error.value = errMsg;
+        return { success: false, message: errMsg };
       }
     } catch (e) {
       console.error('[MergeStore] 执行合并失败:', e);
       error.value = '网络错误';
-      return { success: false, message: error.value };
+      return { success: false, message: '网络错误' };
     } finally {
       isMerging.value = false;
     }
