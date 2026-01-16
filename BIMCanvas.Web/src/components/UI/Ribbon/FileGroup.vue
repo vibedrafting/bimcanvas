@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { ref } from 'vue';
 import GlassButton from '../base/GlassButton.vue';
+import SaveConfirmDialog from '../SaveConfirmDialog.vue';
 import { useProjectFile } from '../../../composables/useProjectFile';
 import { useSave } from '../../../composables/useSave';
 import { useCanvasStore } from '../../../stores/canvasStore';
@@ -11,6 +12,9 @@ const { handleLoad, handleExport, processFile } = useProjectFile();
 
 // 使用统一的保存逻辑
 const { handleSave, canSave, isSaving } = useSave();
+
+// 保存对话框状态
+const showSaveDialog = ref(false);
 
 const onOpen = async () => {
   const result = await handleLoad();
@@ -29,8 +33,25 @@ const onFileSelected = (event: Event) => {
 
 const onImport = () => {
   console.log('Import triggered');
-  // Reuse open logic for now or specific import logic
   onOpen();
+};
+
+// 点击保存按钮时显示对话框
+const onSaveClick = () => {
+  if (canSave.value && !isSaving.value) {
+    showSaveDialog.value = true;
+  }
+};
+
+// 确认保存
+const onSaveConfirm = async (commitMessage: string) => {
+  showSaveDialog.value = false;
+  await handleSave(commitMessage);
+};
+
+// 取消保存
+const onSaveCancel = () => {
+  showSaveDialog.value = false;
 };
 </script>
 
@@ -43,7 +64,7 @@ const onImport = () => {
         </svg>
         <span>Open</span>
       </GlassButton>
-      <GlassButton @click="handleSave" :disabled="!canSave || isSaving" variant="ghost" class="ribbon-btn">
+      <GlassButton @click="onSaveClick" :disabled="!canSave || isSaving" variant="ghost" class="ribbon-btn">
         <svg style="width: 18px; height: 18px; flex-shrink: 0;" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
           <path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"></path>
           <polyline points="17 21 17 13 7 13 7 21"></polyline>
@@ -77,6 +98,13 @@ const onImport = () => {
         @change="onFileSelected"
       />
     </div>
+
+    <!-- 保存确认对话框 -->
+    <SaveConfirmDialog
+      :visible="showSaveDialog"
+      @confirm="onSaveConfirm"
+      @cancel="onSaveCancel"
+    />
   </div>
 </template>
 

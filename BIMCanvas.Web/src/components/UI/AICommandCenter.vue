@@ -181,24 +181,57 @@ const branchOptionsForDialog = computed(() =>
   branches.value.map(b => ({ label: b.name, value: b.id }))
 );
 
-// 打开新建分支对话框
+// 记录新建分支的来源：'newWindow' 或 'primarySwitch'
+const branchCreationSource = ref<'newWindow' | 'primarySwitch'>('newWindow');
+
+// 打开新建分支对话框（从新建窗口下拉框）
 const handleCreateNewBranch = () => {
   showNewWindowDropdown.value = false;
+  branchCreationSource.value = 'newWindow';
+  showBranchCreationDialog.value = true;
+};
+
+// 打开新建分支对话框（从主窗口分支切换下拉框）
+const handleCreateNewBranchForPrimary = () => {
+  isBranchDropdownOpen.value = false;
+  branchCreationSource.value = 'primarySwitch';
   showBranchCreationDialog.value = true;
 };
 
 // 处理分支创建完成
 const handleBranchCreated = async (data: { name: string; baseBranch: string; reason: string }) => {
   showBranchCreationDialog.value = false;
-  // 创建分支
-  const result = await gitStore.checkout(data.name, {
-    createIfNotExist: true,
-    commitMessage: data.reason
-  });
-  if (result.success) {
-    // 刷新分支列表后创建新窗口
-    await gitStore.fetchBranches();
-    addWindow(data.name);
+
+  // 如果是主窗口切换，显示 loading
+  const isPrimarySwitch = branchCreationSource.value === 'primarySwitch';
+  if (isPrimarySwitch) {
+    const primaryWindow = windows.value.find(w => w.isPrimary);
+    if (primaryWindow) primaryWindow.isLoading = true;
+  }
+
+  try {
+    // 创建分支
+    const result = await gitStore.checkout(data.name, {
+      createIfNotExist: true,
+      commitMessage: data.reason
+    });
+    if (result.success) {
+      // 刷新分支列表
+      await gitStore.fetchBranches();
+
+      // 根据来源决定后续操作
+      if (branchCreationSource.value === 'newWindow') {
+        // 从新建窗口下拉框来的，创建新窗口
+        addWindow(data.name);
+      }
+      // 从主窗口下拉框来的，主窗口 branchId 会通过 watch(currentBranch) 自动更新
+    }
+  } finally {
+    // 关闭 loading
+    if (isPrimarySwitch) {
+      const primaryWindow = windows.value.find(w => w.isPrimary);
+      if (primaryWindow) primaryWindow.isLoading = false;
+    }
   }
 };
 
@@ -207,6 +240,11 @@ const isBranchOccupiedByOther = (branchName: string): boolean => {
     return windows.value.some(w =>
         w.branchId === branchName && w.id !== activeWindowId.value
     );
+};
+
+// 检查分支是否被任何窗口占用（用于新建窗口下拉列表）
+const isBranchOccupied = (branchName: string): boolean => {
+    return windows.value.some(w => w.branchId === branchName);
 };
 
 // Close window
@@ -258,9 +296,23 @@ const closeWindow = async (id: string) => {
 
 // Toggle New Window Dropdown (Exclusive)
 // 移除 availableBranches 检查，因为现在有"新建分支"选项，下拉框应总是能打开
-const handleNewWindowClick = () => {
+const handleNewWindowClick = (event: MouseEvent) => {
     // Close other dropdowns
     isBranchDropdownOpen.value = false;
+
+    // 计算下拉框位置（相对于按钮）
+    const btn = event.currentTarget as HTMLElement;
+    if (btn) {
+        const rect = btn.getBoundingClientRect();
+        const parentRect = btn.closest('.header-tabs')?.getBoundingClientRect();
+        if (parentRect) {
+            newWindowDropdownPosition.value = {
+                top: rect.bottom - parentRect.top + 4, // 4px 间距
+                right: parentRect.right - rect.right
+            };
+        }
+    }
+
     showNewWindowDropdown.value = !showNewWindowDropdown.value;
 };
 
@@ -383,6 +435,8 @@ const chatBottomRef = ref<HTMLElement | null>(null);
 const expandedThinking = ref<Record<number, boolean>>({});
 const shouldAutoScroll = ref(true); // Track if we should auto-scroll to bottom
 const windowTabsRef = ref<HTMLElement | null>(null);
+const newWindowBtnRef = ref<HTMLElement | null>(null);
+const newWindowDropdownPosition = ref({ top: 0, right: 0 });
 
 // 滚轮横向滚动窗口标签
 const handleTabsWheel = (event: WheelEvent) => {
@@ -536,23 +590,42 @@ const proposals = ref([
   },
 ]);
 
+// 设置主窗口的 loading 状态
+const setPrimaryWindowLoading = (loading: boolean) => {
+  const primaryWindow = windows.value.find(w => w.isPrimary);
+  if (primaryWindow) {
+    primaryWindow.isLoading = loading;
+  }
+};
+
 // Select branch - 使用Store方法
 const selectBranch = async (branchId: string) => {
   isBranchDropdownOpen.value = false;
-  const result = await gitStore.checkout(branchId);
 
-  if (result.success) {
-    return;
+  // 开始切换，显示 loading
+  setPrimaryWindowLoading(true);
+
+  try {
+    const result = await gitStore.checkout(branchId);
+
+    if (result.success) {
+      return;
+    }
+
+    // 如果有未提交的更改，显示确认弹窗（loading 保持，等待用户选择）
+    if (result.hasUncommittedChanges) {
+      pendingCheckoutBranch.value = branchId;
+      showCheckoutConfirmDialog.value = true;
+      // 弹窗期间暂停 loading
+      setPrimaryWindowLoading(false);
+      return;
+    }
+
+    console.error('切换分支失败:', result.message);
+  } finally {
+    // 切换完成或失败，关闭 loading
+    setPrimaryWindowLoading(false);
   }
-
-  // 如果有未提交的更改，显示确认弹窗
-  if (result.hasUncommittedChanges) {
-    pendingCheckoutBranch.value = branchId;
-    showCheckoutConfirmDialog.value = true;
-    return;
-  }
-
-  console.error('切换分支失败:', result.message);
 };
 
 // 确认弹窗回调
@@ -561,26 +634,34 @@ const handleCheckoutConfirm = async (saveBeforeSwitch: boolean, commitMessage?: 
   const branchName = pendingCheckoutBranch.value;
   if (!branchName) return;
 
-  if (saveBeforeSwitch) {
-    // 1. 先保存内存数据到文件系统
-    const saved = await store.saveToServer();
-    if (!saved) {
-      console.error('保存数据失败，无法切换分支');
-      pendingCheckoutBranch.value = '';
-      return;
+  // 开始切换，显示 loading
+  setPrimaryWindowLoading(true);
+
+  try {
+    if (saveBeforeSwitch) {
+      // 1. 先保存内存数据到文件系统
+      const saved = await store.saveToServer();
+      if (!saved) {
+        console.error('保存数据失败，无法切换分支');
+        pendingCheckoutBranch.value = '';
+        return;
+      }
+
+      // 2. 再用 commitBeforeCheckout 提交并切换
+      await gitStore.checkout(branchName, {
+        commitBeforeCheckout: true,
+        commitMessage
+      });
+    } else {
+      // 放弃更改并切换：Server端原子操作
+      await gitStore.checkout(branchName, { discardBeforeCheckout: true });
     }
 
-    // 2. 再用 commitBeforeCheckout 提交并切换
-    await gitStore.checkout(branchName, {
-      commitBeforeCheckout: true,
-      commitMessage
-    });
-  } else {
-    // 放弃更改并切换：Server端原子操作
-    await gitStore.checkout(branchName, { discardBeforeCheckout: true });
+    pendingCheckoutBranch.value = '';
+  } finally {
+    // 切换完成，关闭 loading
+    setPrimaryWindowLoading(false);
   }
-
-  pendingCheckoutBranch.value = '';
 };
 
 const handleCheckoutCancel = () => {
@@ -1305,7 +1386,7 @@ const handleContextSelect = async (type: string, item: any) => {
 // Close menus when clicking outside
 const handleGlobalClick = (e: MouseEvent) => {
   const target = e.target as HTMLElement;
-  
+
   // Close Context Menu
   if (!target.closest('.add-context-wrapper')) {
     isContextMenuOpen.value = false;
@@ -1314,12 +1395,14 @@ const handleGlobalClick = (e: MouseEvent) => {
   }
 
   // Close Branch Dropdown (Primary Window)
-  if (!target.closest('.branch-switch-btn') && !target.closest('.branch-dropdown-overlay')) {
+  // 检查整个主窗口标签区域，而不仅仅是小三角图标
+  if (!target.closest('.window-tab.primary-clickable') && !target.closest('.branch-dropdown-overlay')) {
     isBranchDropdownOpen.value = false;
   }
 
   // Close New Window Dropdown
-  if (!target.closest('.new-window-wrapper')) {
+  // 检查按钮或下拉框本身（下拉框已移到 header-tabs 层级）
+  if (!target.closest('.new-window-wrapper') && !target.closest('.new-window-dropdown')) {
     showNewWindowDropdown.value = false;
   }
 
@@ -1494,29 +1577,36 @@ const removePendingImage = (index: number) => {
                       <line x1="5" y1="12" x2="19" y2="12"></line>
                       </svg>
                   </button>
-
-                  <!-- New Window Branch Selection Dropdown -->
-                  <div class="new-window-dropdown" v-if="showNewWindowDropdown" @click.stop>
-                      <div class="dropdown-header">Select Branch</div>
-                      <div class="branch-list">
-                          <div
-                              v-for="branch in availableBranches"
-                              :key="branch.name"
-                              class="branch-item"
-                              @click="addWindow(branch.name)"
-                          >
-                              <span class="branch-icon">🌿</span>
-                              <span class="branch-name">{{ branch.name }}</span>
-                          </div>
-                          <!-- 分隔线 + 新建分支选项 -->
-                          <div class="dropdown-divider"></div>
-                          <div class="branch-item create-new" @click="handleCreateNewBranch">
-                              <span class="branch-icon">➕</span>
-                              <span class="branch-name">新建分支...</span>
-                          </div>
-                      </div>
-                  </div>
                 </div>
+              </div>
+          </div>
+
+          <!-- New Window Dropdown (Positioned at header-tabs level to avoid overflow clipping) -->
+          <div
+              class="new-window-dropdown"
+              v-if="showNewWindowDropdown"
+              :style="{ top: newWindowDropdownPosition.top + 'px', right: newWindowDropdownPosition.right + 'px' }"
+              @click.stop
+          >
+              <div class="dropdown-header">选择分支</div>
+              <div class="branch-list">
+                  <div
+                      v-for="branch in branches"
+                      :key="branch.name"
+                      class="branch-item"
+                      :class="{ occupied: isBranchOccupied(branch.name) }"
+                      @click="!isBranchOccupied(branch.name) && addWindow(branch.name)"
+                  >
+                      <span class="branch-icon">🌿</span>
+                      <span class="branch-name">{{ branch.name }}</span>
+                      <span v-if="isBranchOccupied(branch.name)" class="occupied-hint">(已打开)</span>
+                  </div>
+                  <!-- 分隔线 + 新建分支选项 -->
+                  <div class="dropdown-divider"></div>
+                  <div class="branch-item create-new" @click="handleCreateNewBranch">
+                      <span class="branch-icon">➕</span>
+                      <span class="branch-name">新建分支...</span>
+                  </div>
               </div>
           </div>
 
@@ -1544,6 +1634,14 @@ const removePendingImage = (index: number) => {
                                   <polyline points="20 6 9 17 4 12"></polyline>
                               </svg>
                           </span>
+                      </div>
+                  </div>
+                  <!-- 分隔线 + 新建分支选项 -->
+                  <div class="dropdown-divider"></div>
+                  <div class="branch-item create-new" @click="handleCreateNewBranchForPrimary">
+                      <div class="branch-main">
+                          <span class="branch-icon">➕</span>
+                          <span class="branch-name">新建分支...</span>
                       </div>
                   </div>
               </div>
@@ -2473,8 +2571,7 @@ const removePendingImage = (index: number) => {
     }
     
     .new-window-dropdown {
-        top: 100%;
-        right: 0;
+        /* 位置通过 JavaScript 动态设置 */
         left: auto;
         width: 200px;
         

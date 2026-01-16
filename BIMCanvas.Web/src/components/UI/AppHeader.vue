@@ -3,6 +3,7 @@ import { ref, onMounted, onUnmounted } from 'vue';
 import { useCanvasStore } from '../../stores/canvasStore';
 import GlassButton from './base/GlassButton.vue';
 import ConflictDialog from './ConflictDialog.vue';
+import SaveConfirmDialog from './SaveConfirmDialog.vue';
 import { useProjectFile } from '../../composables/useProjectFile';
 import { useSave } from '../../composables/useSave';
 
@@ -20,7 +21,10 @@ const {
 } = useProjectFile();
 
 // 使用统一的保存逻辑
-const { handleSave, canSave, isSaving, registerKeyboardShortcut } = useSave();
+const { handleSave, canSave, isSaving } = useSave();
+
+// 保存对话框状态
+const showSaveDialog = ref(false);
 
 // Wrapper for load to handle fallback
 const onHandleLoad = async () => {
@@ -39,15 +43,38 @@ const onFileSelected = (event: Event) => {
   input.value = '';
 };
 
-// 注册 Ctrl+S 快捷键
-let unregisterShortcut: (() => void) | null = null;
+// 点击保存按钮时显示对话框
+const onSaveClick = () => {
+  if (canSave.value && !isSaving.value) {
+    showSaveDialog.value = true;
+  }
+};
+
+// 确认保存
+const onSaveConfirm = async (commitMessage: string) => {
+  showSaveDialog.value = false;
+  await handleSave(commitMessage);
+};
+
+// 取消保存
+const onSaveCancel = () => {
+  showSaveDialog.value = false;
+};
+
+// 注册 Ctrl+S 快捷键（显示保存对话框）
+const handleKeydown = (e: KeyboardEvent) => {
+  if ((e.ctrlKey || e.metaKey) && e.key === 's') {
+    e.preventDefault();
+    onSaveClick();
+  }
+};
 
 onMounted(() => {
-  unregisterShortcut = registerKeyboardShortcut();
+  window.addEventListener('keydown', handleKeydown);
 });
 
 onUnmounted(() => {
-  unregisterShortcut?.();
+  window.removeEventListener('keydown', handleKeydown);
 });
 </script>
 
@@ -67,7 +94,7 @@ onUnmounted(() => {
         </svg>
       </GlassButton>
       
-      <GlassButton @click="handleSave" :disabled="!canSave || isSaving" variant="ghost" title="Save (Ctrl+S)" class="icon-btn">
+      <GlassButton @click="onSaveClick" :disabled="!canSave || isSaving" variant="ghost" title="Save (Ctrl+S)" class="icon-btn">
         <!-- Save Icon -->
         <svg viewBox="0 0 24 24" width="1.1em" height="1.1em" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
           <path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"></path>
@@ -121,6 +148,13 @@ onUnmounted(() => {
       :project-name="conflictProjectName"
       :existing-path="conflictExistingPath"
       @resolve="handleConflictResolve"
+    />
+
+    <!-- 保存确认对话框 -->
+    <SaveConfirmDialog
+      :visible="showSaveDialog"
+      @confirm="onSaveConfirm"
+      @cancel="onSaveCancel"
     />
   </div>
 </template>
