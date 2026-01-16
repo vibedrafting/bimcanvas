@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, watch, onMounted } from 'vue';
+import { computed, watch, onMounted, onUnmounted } from 'vue';
 import { storeToRefs } from 'pinia';
 import { useMergeStore } from '../../../stores/mergeStore';
 import { useGitStore } from '../../../stores/gitStore';
@@ -7,6 +7,8 @@ import { useCanvasStore } from '../../../stores/canvasStore';
 import { ChangeSource } from '../../../types/history';
 import BranchSelectStep from './BranchSelectStep.vue';
 import MergeConfirmStep from './MergeConfirmStep.vue';
+
+console.log('[BranchMergeWizard] Component script setup executing');
 
 const mergeStore = useMergeStore();
 const gitStore = useGitStore();
@@ -16,27 +18,50 @@ const { isVisible, currentStep, targetBranch, sourceBranch, isMerging, error, ca
 const { branches, currentBranch } = storeToRefs(gitStore);
 
 // 分支选项（排除"创建新分支"选项）
-const branchOptions = computed(() =>
-  branches.value.map(b => ({
+const branchOptions = computed(() => {
+  console.log('[BranchMergeWizard] branchOptions computed, branches count:', branches.value.length);
+  return branches.value.map(b => ({
     value: b.name,
     label: b.name,
     isCurrent: b.isCurrent
-  }))
-);
+  }));
+});
 
 // 当向导打开时，获取分支列表并设置默认目标分支
-watch(isVisible, async (visible) => {
+watch(isVisible, async (visible, oldVisible) => {
+  console.log('[BranchMergeWizard] watch isVisible triggered:', oldVisible, '->', visible);
   if (visible) {
+    console.log('[BranchMergeWizard] Wizard opened, fetching branches...');
     await gitStore.fetchBranches();
+    console.log('[BranchMergeWizard] Branches fetched, currentBranch:', currentBranch.value);
+    console.log('[BranchMergeWizard] Current targetBranch:', targetBranch.value);
     // 默认目标分支为当前分支
     if (currentBranch.value && !targetBranch.value) {
+      console.log('[BranchMergeWizard] Setting default targetBranch to:', currentBranch.value);
       mergeStore.targetBranch = currentBranch.value;
     }
+    console.log('[BranchMergeWizard] After setup, isVisible still:', isVisible.value);
+  } else {
+    console.log('[BranchMergeWizard] Wizard closed');
   }
+}, { immediate: false });
+
+// 监控 isVisible 的变化（用于调试）
+watch(() => mergeStore.isVisible, (val) => {
+  console.log('[BranchMergeWizard] Direct store isVisible changed to:', val);
+});
+
+onMounted(() => {
+  console.log('[BranchMergeWizard] Component mounted, isVisible:', isVisible.value);
+});
+
+onUnmounted(() => {
+  console.log('[BranchMergeWizard] Component unmounted');
 });
 
 // 执行合并
 const handleMerge = async () => {
+  console.log('[BranchMergeWizard] handleMerge called');
   const result = await mergeStore.executeOverwriteMerge();
   if (result.success) {
     // 刷新 Canvas 显示合并后的结果
@@ -48,12 +73,16 @@ const handleMerge = async () => {
 
 // 关闭向导
 const handleClose = () => {
+  console.log('[BranchMergeWizard] handleClose called');
   mergeStore.closeWizard();
 };
 
 // 暴露打开方法供外部调用
 defineExpose({
-  open: () => mergeStore.openWizard()
+  open: () => {
+    console.log('[BranchMergeWizard] expose.open() called');
+    mergeStore.openWizard();
+  }
 });
 </script>
 

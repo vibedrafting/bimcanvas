@@ -53,22 +53,28 @@ export const useMergeStore = defineStore('merge', () => {
    * 打开合并向导
    */
   const openWizard = (): void => {
+    console.log('[MergeStore] openWizard() called, current isVisible:', isVisible.value);
+    console.trace('[MergeStore] openWizard call stack');
     isVisible.value = true;
     currentStep.value = 1;
     targetBranch.value = '';
     sourceBranch.value = '';
     error.value = null;
+    console.log('[MergeStore] openWizard() done, isVisible now:', isVisible.value);
   };
 
   /**
    * 关闭合并向导
    */
   const closeWizard = (): void => {
+    console.log('[MergeStore] closeWizard() called, current isVisible:', isVisible.value);
+    console.trace('[MergeStore] closeWizard call stack');
     isVisible.value = false;
     currentStep.value = 1;
     targetBranch.value = '';
     sourceBranch.value = '';
     error.value = null;
+    console.log('[MergeStore] closeWizard() done, isVisible now:', isVisible.value);
   };
 
   /**

@@ -4,7 +4,6 @@ import { storeToRefs } from 'pinia';
 import GlassSelect from '../base/GlassSelect.vue';
 import GlassButton from '../base/GlassButton.vue';
 import BranchCheckoutConfirmDialog from './BranchCheckoutConfirmDialog.vue';
-import BranchMergeWizard from '../merge/BranchMergeWizard.vue';
 
 // 定义 emit 事件
 const emit = defineEmits<{
@@ -129,7 +128,10 @@ const handleCheckoutCancel = () => {
 
 // 打开合并向导
 const openMergeWizard = () => {
+  console.log('[DesignGroup] openMergeWizard called');
+  console.log('[DesignGroup] mergeStore.isVisible before:', mergeStore.isVisible);
   mergeStore.openWizard();
+  console.log('[DesignGroup] mergeStore.isVisible after:', mergeStore.isVisible);
 };
 
 </script>
@@ -208,9 +210,6 @@ const openMergeWizard = () => {
         @confirm="handleCheckoutConfirm"
         @cancel="handleCheckoutCancel"
       />
-
-      <!-- Branch Merge Wizard -->
-      <BranchMergeWizard />
 
     </div>
   </div>

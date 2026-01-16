@@ -9,6 +9,7 @@ import { themeService } from './services/theme/ThemeService';
 
 import { ViewCalculator } from './services/interaction/ViewCalculator';
 import DebugConsole from './components/UI/DebugConsole.vue';
+import BranchMergeWizard from './components/UI/merge/BranchMergeWizard.vue';
 import { useDebugStore } from './stores/debugStore';
 
 const store = useCanvasStore();
@@ -154,6 +155,7 @@ const handleKeydown = (e: KeyboardEvent) => {
     <ThreeCanvas />
   </MainLayout>
   <DebugConsole />
+  <BranchMergeWizard />
 </template>
 
 <style>
