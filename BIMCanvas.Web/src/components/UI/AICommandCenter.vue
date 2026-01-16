@@ -7,6 +7,7 @@ import { getScreenshotService } from '../../services/ScreenshotService';
 import { storeToRefs } from 'pinia';
 import BranchCheckoutConfirmDialog from './Ribbon/BranchCheckoutConfirmDialog.vue';
 import type { SubAgent, ToolCall, ChatBubble, WaitingState } from '../../types/agent';
+import { GitWorktreeService } from '../../services/GitWorktreeService';
 import {
   createTextBubble,
   createToolCallBubble,
@@ -102,6 +103,10 @@ interface ChatWindow {
   branchId: string;
   messages: ChatMessage[];
   isPrimary: boolean;
+  // === 后端 Worktree 关联字段 ===
+  worktreeName?: string;  // 后端 Worktree 名称（虚拟窗口必填）
+  isLoading?: boolean;    // 加载状态（创建/删除中）
+  error?: string | null;  // 错误信息
 }
 
 // 窗口状态
@@ -164,17 +169,39 @@ const availableBranches = computed(() => {
 });
 
 // Close window
-const closeWindow = (id: string) => {
+// 对接后端 Git Worktree API 删除对应的 Worktree
+const closeWindow = async (id: string) => {
     const index = windows.value.findIndex(w => w.id === id);
     if (index === -1) return;
-    
+
     const win = windows.value[index];
     if (win.isPrimary) {
         console.warn('[Window] Cannot close primary window');
         return;
     }
-    
-    // If closing the active window, switch to previous or next
+
+    // 如果正在加载中，不允许关闭
+    if (win.isLoading) {
+        console.warn('[Window] Cannot close window while loading');
+        return;
+    }
+
+    // 设置加载状态
+    win.isLoading = true;
+    console.log(`[Window] Closing window: ${win.name}...`);
+
+    // 调用后端 API 删除 Worktree
+    try {
+        if (win.worktreeName) {
+            await GitWorktreeService.deleteWorktree(win.worktreeName, false);
+            console.log(`[Window] Worktree deleted: ${win.worktreeName}`);
+        }
+    } catch (error: any) {
+        // 即使删除失败也继续关闭窗口（后端可能已不存在）
+        console.error(`[Window] Delete worktree failed: ${error.message}`);
+    }
+
+    // 切换焦点
     if (activeWindowId.value === id) {
         const newActiveIndex = index > 0 ? index - 1 : index + 1;
         if (windows.value[newActiveIndex]) {
@@ -182,7 +209,8 @@ const closeWindow = (id: string) => {
             switchWindow(activeWindowId.value);
         }
     }
-    
+
+    // 从 UI 移除窗口
     windows.value.splice(index, 1);
     console.log(`[Window] Closed window: ${win.name}`);
 };
@@ -208,23 +236,63 @@ const toggleBranchDropdown = () => {
 };
 
 // Add window with selected branch (using branch name as identifier)
-const addWindow = (branchName: string) => {
+// 对接后端 Git Worktree API
+const addWindow = async (branchName: string) => {
     const branch = branches.value.find(b => b.name === branchName);
     if (!branch) return;
 
-    const newId = `window-${Date.now()}`;
+    const timestamp = Date.now();
+    const worktreeName = `window-${timestamp}`;
+    const newId = `window-${timestamp}`;
     const windowNumber = windows.value.length + 1;
+
+    // 1. 先在 UI 显示加载状态
     const newWindow: ChatWindow = {
         id: newId,
         name: `Chat ${windowNumber}`,
-        branchId: branch.name, // Use name, consistent with currentBranch
+        branchId: branch.name,
         messages: [],
-        isPrimary: false
+        isPrimary: false,
+        worktreeName,
+        isLoading: true,
+        error: null
     };
     windows.value.push(newWindow);
     switchWindow(newId);
     showNewWindowDropdown.value = false;
-    console.log(`[Window] Created new window: ${newWindow.name} on branch ${branch.name}`);
+    console.log(`[Window] Creating window: ${newWindow.name} on branch ${branch.name}...`);
+
+    // 2. 调用后端 API 创建 Worktree
+    try {
+        await GitWorktreeService.createWorktree({
+            name: worktreeName,
+            branch: branch.name
+        });
+        // 成功：更新状态
+        const idx = windows.value.findIndex(w => w.id === newId);
+        if (idx !== -1) {
+            windows.value[idx].isLoading = false;
+            console.log(`[Window] Created successfully: ${newWindow.name}`);
+        }
+    } catch (error: any) {
+        // 失败：显示错误
+        const idx = windows.value.findIndex(w => w.id === newId);
+        if (idx !== -1) {
+            windows.value[idx].isLoading = false;
+            windows.value[idx].error = error.message || '创建失败';
+            console.error(`[Window] Create failed: ${error.message}`);
+        }
+        // 3秒后自动移除失败的窗口
+        setTimeout(() => {
+            const idx = windows.value.findIndex(w => w.id === newId);
+            if (idx !== -1 && windows.value[idx].error) {
+                windows.value.splice(idx, 1);
+                // 切换到主窗口
+                const primary = windows.value.find(w => w.isPrimary);
+                if (primary) switchWindow(primary.id);
+            }
+        }, 3000);
+    }
 };
 
 // Claude Code 风格的拟人等待提示词 (169 个)
@@ -1322,17 +1390,26 @@ const removePendingImage = (index: number) => {
           <div class="tabs-wrapper">
               <!-- Scrollable Tabs Area -->
               <div class="window-tabs">
-                <div 
-                    v-for="win in windows" 
+                <div
+                    v-for="win in windows"
                     :key="win.id"
                     class="window-tab"
-                    :class="{ active: activeWindowId === win.id }"
+                    :class="{
+                        active: activeWindowId === win.id,
+                        loading: win.isLoading,
+                        error: win.error
+                    }"
                     @click="switchWindow(win.id)"
                 >
-                    <!-- Line 1: Window Name -->
+                    <!-- Line 1: Window Name + Status -->
                     <div class="tab-header">
                         <span class="tab-name">{{ win.name }}</span>
-                        <button v-if="!win.isPrimary" class="tab-close" @click.stop="closeWindow(win.id)">
+                        <!-- 加载状态指示器 -->
+                        <span v-if="win.isLoading" class="tab-status loading" title="加载中...">⏳</span>
+                        <!-- 错误状态指示器 -->
+                        <span v-else-if="win.error" class="tab-status error" :title="win.error">⚠️</span>
+                        <!-- 关闭按钮：非主窗口且非加载中时显示 -->
+                        <button v-if="!win.isPrimary && !win.isLoading" class="tab-close" @click.stop="closeWindow(win.id)">
                             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                                 <line x1="18" y1="6" x2="6" y2="18"></line>
                                 <line x1="6" y1="6" x2="18" y2="18"></line>
@@ -1344,11 +1421,11 @@ const removePendingImage = (index: number) => {
                     <div class="tab-branch" :title="win.branchId">
                         <span class="branch-icon">🌿</span>
                         <span class="branch-name">{{ win.branchId }}</span>
-                        
+
                         <!-- Primary Window Switch Trigger -->
-                        <button 
-                            v-if="win.isPrimary" 
-                            class="branch-switch-btn" 
+                        <button
+                            v-if="win.isPrimary"
+                            class="branch-switch-btn"
                             @click.stop="toggleBranchDropdown"
                             title="Switch Branch"
                         >
@@ -2147,7 +2224,21 @@ const removePendingImage = (index: number) => {
 
             .tab-name { color: var(--text-primary); font-weight: 600; }
             /* Branch name remains muted unless hovered, or maybe slightly brighter */
-            .tab-branch { color: var(--text-secondary); } 
+            .tab-branch { color: var(--text-secondary); }
+        }
+
+        /* 加载状态 */
+        &.loading {
+            opacity: 0.7;
+            cursor: wait;
+            .tab-name { color: var(--text-muted); }
+        }
+
+        /* 错误状态 */
+        &.error {
+            border-color: var(--error, #ef4444);
+            background: rgba(239, 68, 68, 0.1);
+            .tab-name { color: var(--error, #ef4444); }
         }
 
         /* Line 1: Window Name */
@@ -2157,7 +2248,7 @@ const removePendingImage = (index: number) => {
             justify-content: space-between;
             width: 100%;
             height: 18px;
-            
+
             .tab-name {
                 font-size: 13px;
                 color: var(--text-secondary);
@@ -2165,6 +2256,26 @@ const removePendingImage = (index: number) => {
                 overflow: hidden;
                 text-overflow: ellipsis;
                 line-height: 1.2;
+            }
+
+            /* 状态指示器 */
+            .tab-status {
+                font-size: 12px;
+                margin-left: 4px;
+                flex-shrink: 0;
+
+                &.loading {
+                    animation: pulse 1.5s ease-in-out infinite;
+                }
+
+                &.error {
+                    cursor: help;
+                }
+            }
+
+            @keyframes pulse {
+                0%, 100% { opacity: 1; }
+                50% { opacity: 0.4; }
             }
         }
 
