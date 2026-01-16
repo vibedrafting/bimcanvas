@@ -205,27 +205,19 @@ onUnmounted(() => {
   min-width: 100%; /* At least as wide as trigger */
   width: max-content; /* Grow to fit content */
   max-width: 360px; /* Prevent excessive width */
-  background-color: var(--glass-bg-solid);
-  border: var(--glass-border);
+  background: var(--glass-bg-solid, #14141e); /* Simple solid background */
+  border: 1px solid rgba(255, 255, 255, 0.1);
   border-radius: 8px;
   padding: 4px;
-  box-shadow: var(--shadow-panel);
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.6);
   z-index: 200;
   max-height: 300px;
   overflow-y: auto;
   overflow-x: hidden;
-  
-  /* Glare effect */
-  background-image: var(--glass-glare), linear-gradient(to bottom, var(--glass-bg-solid), var(--glass-bg-solid));
-  background-origin: border-box;
-  background-clip: padding-box, border-box;
 
-  // Solid Variant
+  // Solid Variant (same as default now)
   &.variant-solid {
-    background: #22262e;
-    border: 1px solid rgba(255, 255, 255, 0.1);
-    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
-    background-image: none; // Remove glass glare
+    background: var(--glass-bg-solid, #14141e);
   }
 }
 

@@ -27,6 +27,8 @@ import {
   findStreamingSubAgents
 } from '../../utils/bubbleManager';
 import ToolCallBubble from './ToolCallBubble.vue';
+import SubAgentBubble from './SubAgentBubble.vue';
+import WaitingIndicator from './WaitingIndicator.vue';
 // ... imports
 import GlassSelect from './base/GlassSelect.vue';
 
@@ -430,7 +432,8 @@ const handleNewWindowClick = (event: MouseEvent) => {
             const viewportWidth = window.innerWidth;
             const spaceOnRight = viewportWidth - rect.left; // 按钮左边缘到视口右边的空间
 
-            const top = rect.bottom - parentRect.top + 4; // 4px 间距
+            // 使用 header-tabs 的高度作为 top，确保与主窗口下拉框对齐
+            const top = parentRect.height + 4; // 4px 间距
 
             if (spaceOnRight >= dropdownWidth + 8) {
                 // 右侧空间足够，使用 left 定位（向右展开）
@@ -459,6 +462,14 @@ const toggleBranchDropdown = () => {
     showNewWindowDropdown.value = false;
     
     isBranchDropdownOpen.value = !isBranchDropdownOpen.value;
+};
+
+// Handle Window Tab Click - Only for switching windows
+// Branch dropdown is triggered by clicking on .tab-branch area (primary window only)
+const handleWindowTabClick = (win: ChatWindow) => {
+    if (activeWindowId.value !== win.id) {
+        switchWindow(win.id);
+    }
 };
 
 // Add window with selected branch (using branch name as identifier)
@@ -1678,7 +1689,7 @@ const removePendingImage = (index: number) => {
                     loading: win.isLoading,
                     error: win.error
                   }"
-                  @click="switchWindow(win.id)"
+                  @click.stop="handleWindowTabClick(win)"
                 >
                   <!-- Line 1: Window Name + Status -->
                   <div class="tab-header">
@@ -1696,14 +1707,19 @@ const removePendingImage = (index: number) => {
                       </button>
                   </div>
 
-                  <!-- Line 2: Branch Info (Inline) -->
-                  <div class="tab-branch" :title="win.branchId">
+                  <!-- Line 2: Branch Info (Inline) - Clickable for primary window -->
+                  <div 
+                      class="tab-branch" 
+                      :class="{ clickable: win.isPrimary }"
+                      :title="win.isPrimary ? 'Click to switch branch' : win.branchId"
+                      @click.stop="win.isPrimary && toggleBranchDropdown()"
+                  >
                       <span class="branch-icon">🌿</span>
                       <span class="branch-name">{{ win.branchId }}</span>
 
                       <!-- Primary Window Switch Indicator -->
-                      <span v-if="win.isPrimary" class="branch-switch-btn" title="Switch Branch" @click.stop="toggleBranchDropdown">
-                          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                      <span v-if="win.isPrimary" class="branch-switch-btn" title="Switch Branch">
+                          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
                               <polyline points="6 9 12 15 18 9"></polyline>
                           </svg>
                       </span>
@@ -1726,7 +1742,7 @@ const removePendingImage = (index: number) => {
               </div>
           </div>
 
-          <!-- New Window Dropdown (Unified Style - Select Only) -->
+          <!-- New Window Dropdown (Compact Style - Select Only) -->
           <div
               class="unified-dropdown new-window-dropdown"
               v-if="showNewWindowDropdown"
@@ -1737,55 +1753,48 @@ const removePendingImage = (index: number) => {
             }"
               @click.stop
           >
-              <div class="dropdown-header">选择分支</div>
-              <div class="dropdown-options">
-                  <div
-                      v-for="branch in branches"
-                      :key="branch.name"
-                      class="dropdown-option"
-                      :class="{ disabled: isBranchOccupied(branch.name) }"
-                      @click="!isBranchOccupied(branch.name) && addWindow(branch.name)"
-                  >
-                      <div class="option-main">
-                          <span class="option-icon" v-html="branchIcon"></span>
-                          <span class="option-label">{{ branch.name }}</span>
-                      </div>
-                      <div v-if="branch.commit" class="option-tags">
-                          <span class="tag-badge">{{ branch.commit.message.substring(0, 20) }}{{ branch.commit.message.length > 20 ? '...' : '' }}</span>
-                      </div>
+              <div
+                  v-for="branch in branches"
+                  :key="branch.name"
+                  class="dropdown-option"
+                  :class="{ disabled: isBranchOccupied(branch.name) }"
+                  @click="!isBranchOccupied(branch.name) && addWindow(branch.name)"
+              >
+                  <div class="option-main">
+                      <span class="option-icon" v-html="branchIcon"></span>
+                      <span class="option-label">{{ branch.name }}</span>
+                  </div>
+                  <div v-if="branch.commit" class="option-tags">
+                      <span class="tag-badge">{{ branch.commit.message.substring(0, 20) }}{{ branch.commit.message.length > 20 ? '...' : '' }}</span>
                   </div>
               </div>
           </div>
 
-          <!-- Primary Window Branch Dropdown (Unified Style - Switch Mode with Create New) -->
+          <!-- Primary Window Branch Dropdown (Compact Style - Switch Mode with Create New) -->
           <div class="unified-dropdown branch-dropdown-overlay" v-if="isBranchDropdownOpen" @click.stop>
-              <div class="dropdown-header">切换分支</div>
-              <div class="dropdown-options">
-                  <div
-                      v-for="branch in branches"
-                      :key="branch.id"
-                      class="dropdown-option"
-                      :class="{
-                          selected: branch.name === currentBranch,
-                          disabled: isBranchOccupiedByOther(branch.name)
-                      }"
-                      @click="!isBranchOccupiedByOther(branch.name) && selectBranch(branch.id)"
-                  >
-                      <div class="option-main">
-                          <span class="option-icon" v-html="branchIcon"></span>
-                          <span class="option-label">{{ branch.name }}</span>
-                      </div>
-                      <div v-if="branch.commit" class="option-tags">
-                          <span class="tag-badge">{{ branch.commit.message.substring(0, 20) }}{{ branch.commit.message.length > 20 ? '...' : '' }}</span>
-                      </div>
+              <div
+                  v-for="branch in branches"
+                  :key="branch.id"
+                  class="dropdown-option"
+                  :class="{
+                      selected: branch.name === currentBranch,
+                      disabled: isBranchOccupiedByOther(branch.name)
+                  }"
+                  @click="!isBranchOccupiedByOther(branch.name) && selectBranch(branch.id)"
+              >
+                  <div class="option-main">
+                      <span class="option-icon" v-html="branchIcon"></span>
+                      <span class="option-label">{{ branch.name }}</span>
                   </div>
-                  <!-- 分隔线 + 新建分支选项 -->
-                  <div class="dropdown-divider"></div>
-                  <div class="dropdown-option create-new" @click="handleCreateNewBranchForPrimary">
-                      <div class="option-main">
-                          <span class="option-icon" v-html="createIcon"></span>
-                          <span class="option-label">新建分支...</span>
-                      </div>
+                  <div v-if="branch.commit" class="option-tags">
+                      <span class="tag-badge">{{ branch.commit.message.substring(0, 20) }}{{ branch.commit.message.length > 20 ? '...' : '' }}</span>
+                  </div>
+              </div>
+              <!-- 新建分支选项 -->
+              <div class="dropdown-option create-new" @click="handleCreateNewBranchForPrimary">
+                  <div class="option-main">
+                      <span class="option-icon" v-html="createIcon"></span>
+                      <span class="option-label">新建分支...</span>
                   </div>
               </div>
           </div>
@@ -2599,8 +2608,12 @@ const removePendingImage = (index: number) => {
             font-size: 10px;
             color: var(--text-tertiary); /* Muted by default */
             width: 100%;
-            height: 14px;
+            height: 18px; /* Slightly taller for better click target */
             position: relative;
+            border-radius: 4px;
+            padding: 2px 4px;
+            margin: 0 -4px;
+            transition: all 0.2s ease;
 
             .branch-icon { font-size: 10px; opacity: 0.6; }
 
@@ -2614,20 +2627,44 @@ const removePendingImage = (index: number) => {
 
             .branch-switch-btn {
                 display: none;
-                padding: 0;
-                color: inherit;
-                opacity: 0.6;
-                svg { width: 10px; height: 10px; }
+                padding: 2px;
+                color: var(--accent-blue, #3b82f6);
+                opacity: 0;
+                transform: translateY(-2px);
+                transition: all 0.25s ease;
+                svg { 
+                    width: 14px; 
+                    height: 14px; 
+                }
+            }
+
+            /* Clickable state for primary window */
+            &.clickable {
+                cursor: pointer;
+                
+                .branch-switch-btn { 
+                    display: flex; 
+                    opacity: 0.5;
+                }
+
+                &:hover {
+                    background: rgba(59, 130, 246, 0.1);
+                    color: var(--accent-blue, #3b82f6);
+                    
+                    .branch-switch-btn {
+                        opacity: 1;
+                    }
+                }
             }
         }
 
-        /* 主窗口整体可点击切换分支 */
+        /* Legacy: primary-clickable class (keep for compatibility) */
         &.primary-clickable {
             cursor: pointer;
             .branch-switch-btn { display: flex; }
         }
 
-        &:hover .branch-switch-btn {
+        &:hover .tab-branch.clickable .branch-switch-btn {
             display: flex;
         }
     }
@@ -4097,44 +4134,27 @@ const removePendingImage = (index: number) => {
 /* ============================================== */
 .unified-dropdown {
   position: absolute;
-  background: var(--glass-bg-solid, #14141e); /* Match GlassSelect background */
-  backdrop-filter: blur(12px); /* Blur for any remaining transparency */
+  background: #14141e !important; /* Solid opaque background - force override */
   border: 1px solid rgba(255, 255, 255, 0.1);
   border-radius: 8px;
   padding: 4px;
-  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.6); /* Stronger shadow */
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.6);
   z-index: 200;
-  min-width: 280px;
-  max-width: 360px;
+  width: max-content; /* Grow to fit content */
+  min-width: 260px; /* Reasonable minimum to fit branch name + tags */
+  max-width: 320px; /* Prevent excessive width */
   max-height: 320px;
   overflow-y: auto;
   overflow-x: hidden;
-
-  .dropdown-header {
-    padding: 6px 12px 4px;
-    font-size: 0.7rem;
-    font-weight: 600;
-    color: var(--text-secondary);
-    text-transform: uppercase;
-    letter-spacing: 0.5px;
-    border-bottom: 1px solid rgba(255, 255, 255, 0.05);
-    margin-bottom: 4px;
-  }
-
-  .dropdown-options {
-    display: flex;
-    flex-direction: column;
-    gap: 2px;
-  }
 
   .dropdown-option {
     display: flex;
     align-items: center;
     justify-content: space-between;
-    gap: 12px;
-    padding: 8px 12px;
+    gap: 10px;
+    padding: 6px 10px; /* More compact like GlassSelect */
     color: var(--text-secondary);
-    font-size: 0.85rem;
+    font-size: 0.8rem; /* Slightly smaller */
     cursor: pointer;
     border-radius: 4px;
     transition: all 0.2s;
@@ -4161,8 +4181,7 @@ const removePendingImage = (index: number) => {
     }
 
     &.create-new {
-      color: var(--accent-blue);
-      margin-top: 4px;
+      /* Inherit default color */
 
       &:hover {
         background: rgba(59, 130, 246, 0.1);
