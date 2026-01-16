@@ -8,6 +8,7 @@ import { storeToRefs } from 'pinia';
 import BranchCheckoutConfirmDialog from './Ribbon/BranchCheckoutConfirmDialog.vue';
 import type { SubAgent, ToolCall, ChatBubble, WaitingState } from '../../types/agent';
 import { GitWorktreeService } from '../../services/GitWorktreeService';
+import { SignalRService } from '../../services/SignalRService';
 import {
   createTextBubble,
   createToolCallBubble,
@@ -128,10 +129,15 @@ const initDefaultWindow = () => {
 };
 
 // Sync Primary Window branchId with currentBranch from gitStore
+// Bug fix: 只在主窗口是当前活跃窗口时才同步 branchId
+// 避免创建新窗口时主窗口的分支名跟着变化
 watch(currentBranch, (newBranch) => {
   if (!newBranch) return;
   const primaryWindow = windows.value.find(w => w.isPrimary);
-  if (primaryWindow && primaryWindow.branchId !== newBranch) {
+  // 只有当主窗口是当前活跃窗口时才同步
+  if (primaryWindow &&
+      primaryWindow.id === activeWindowId.value &&
+      primaryWindow.branchId !== newBranch) {
     primaryWindow.branchId = newBranch;
   }
 }, { immediate: true });
@@ -167,6 +173,13 @@ const availableBranches = computed(() => {
     const occupiedBranchNames = windows.value.map(w => w.branchId);
     return branches.value.filter(b => !occupiedBranchNames.includes(b.name));
 });
+
+// Bug fix: 检查分支是否被其他窗口占用（用于主窗口分支切换下拉列表）
+const isBranchOccupiedByOther = (branchName: string): boolean => {
+    return windows.value.some(w =>
+        w.branchId === branchName && w.id !== activeWindowId.value
+    );
+};
 
 // Close window
 // 对接后端 Git Worktree API 删除对应的 Worktree
@@ -274,6 +287,9 @@ const addWindow = async (branchName: string) => {
             windows.value[idx].isLoading = false;
             console.log(`[Window] Created successfully: ${newWindow.name}`);
         }
+
+        // 3. 注册窗口到 SignalR 并获取分支锁（用于断开连接时清理资源）
+        SignalRService.getInstance().registerWindow(newId, branch.name);
     } catch (error: any) {
         // 失败：显示错误
         const idx = windows.value.findIndex(w => w.id === newId);
@@ -1472,17 +1488,23 @@ const removePendingImage = (index: number) => {
           <!-- Primary Window Branch Dropdown (Positioned at header-tabs level to avoid overflow clipping) -->
           <div class="branch-dropdown-overlay" v-if="isBranchDropdownOpen" @click.stop>
               <div class="branch-tree">
-                  <div 
-                      v-for="branch in branches" 
-                      :key="branch.id" 
+                  <div
+                      v-for="branch in branches"
+                      :key="branch.id"
                       class="branch-item"
-                      :class="{ current: branch.name === currentBranch }"
-                      @click="selectBranch(branch.id)"
+                      :class="{
+                          current: branch.name === currentBranch,
+                          occupied: isBranchOccupiedByOther(branch.name)
+                      }"
+                      @click="!isBranchOccupiedByOther(branch.name) && selectBranch(branch.id)"
                   >
                       <div class="branch-main">
                           <span class="branch-icon">🌿</span>
                           <span class="branch-name">{{ branch.name }}</span>
-                          <span v-if="branch.name === currentBranch" class="current-indicator">
+                          <span v-if="isBranchOccupiedByOther(branch.name)" class="occupied-hint">
+                              (已在其他窗口打开)
+                          </span>
+                          <span v-else-if="branch.name === currentBranch" class="current-indicator">
                               <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="3">
                                   <polyline points="20 6 9 17 4 12"></polyline>
                               </svg>
@@ -2462,6 +2484,16 @@ const removePendingImage = (index: number) => {
             font-weight: 500;
         }
 
+        &.occupied {
+            opacity: 0.5;
+            cursor: not-allowed;
+
+            &:hover {
+                background: transparent;
+                color: var(--text-secondary);
+            }
+        }
+
         .branch-main {
             display: flex;
             align-items: center;
@@ -2472,6 +2504,12 @@ const removePendingImage = (index: number) => {
         .branch-icon { font-size: 12px; opacity: 0.7; }
         .branch-name { font-family: 'JetBrains Mono', monospace; flex: 1; }
         .current-indicator { margin-left: auto; color: var(--accent-primary); display: flex; }
+        .occupied-hint {
+            margin-left: auto;
+            font-size: 10px;
+            color: var(--text-tertiary);
+            font-style: italic;
+        }
     }
 }
 

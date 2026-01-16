@@ -73,6 +73,28 @@ export class SignalRService {
         }
     }
 
+    /**
+     * 注册窗口并获取分支锁，用于 SignalR 断开时清理资源
+     * @param windowId 窗口 ID
+     * @param branchName 分支名（可选，用于获取分支锁）
+     * @returns 是否成功（分支锁获取结果）
+     */
+    public async registerWindow(windowId: string, branchName?: string): Promise<boolean> {
+        if (this.connection.state === signalR.HubConnectionState.Connected) {
+            try {
+                const success = await this.connection.invoke<boolean>("RegisterWindow", windowId, branchName);
+                console.log(`[SignalR] Window registered: ${windowId}${branchName ? ` (branch: ${branchName})` : ''}, success: ${success}`);
+                return success;
+            } catch (err) {
+                console.error(`[SignalR] Failed to register window: ${windowId}`, err);
+                return false;
+            }
+        } else {
+            console.warn(`[SignalR] Cannot register window: ${windowId}, connection not established`);
+            return false;
+        }
+    }
+
     public getConnectionState(): signalR.HubConnectionState {
         return this.connection.state;
     }

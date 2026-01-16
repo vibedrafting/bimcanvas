@@ -101,6 +101,9 @@ builder.Services.AddSingleton<SchemeDataService>();  // 跨分支/Worktree 模�
 builder.Services.AddSignalR();
 builder.Services.AddHostedService<ProjectWatcherService>();
 
+// v3.3 启动时清理孤儿 Worktree（浏览器崩溃后遗留）
+builder.Services.AddHostedService<OrphanWorktreeCleanupService>();
+
 // 配置 Swagger
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
