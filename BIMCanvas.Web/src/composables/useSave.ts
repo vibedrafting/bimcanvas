@@ -20,11 +20,14 @@ let isPollingActive = false;
  */
 async function refreshStatus() {
     try {
+        console.log('[useSave] Refreshing git status...');
         const status = await GitService.getStatus();
+        console.log('[useSave] Git status response:', status);
         hasUncommittedChanges.value = status.hasUncommittedChanges;
         currentBranch.value = status.currentBranch || null;
+        console.log('[useSave] hasUncommittedChanges:', hasUncommittedChanges.value);
     } catch (error) {
-        console.error('Failed to refresh git status:', error);
+        console.error('[useSave] Failed to refresh git status:', error);
     }
 }
 
@@ -32,6 +35,7 @@ async function refreshStatus() {
  * 启动状态轮询
  */
 function startPolling() {
+    console.log('[useSave] startPolling called, isPollingActive:', isPollingActive);
     if (isPollingActive) return;
     isPollingActive = true;
 
@@ -40,6 +44,7 @@ function startPolling() {
 
     // 定时刷新
     statusPollTimer = setInterval(refreshStatus, STATUS_POLL_INTERVAL);
+    console.log('[useSave] Polling started with interval:', STATUS_POLL_INTERVAL);
 }
 
 /**
