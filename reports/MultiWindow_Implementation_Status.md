@@ -1,116 +1,191 @@
 # Web 端多窗口功能实现现状汇报
 
 > **日期**：2026-01-16
-> **目标**：梳理当前 `AICommandCenter.vue` 中关于多窗口（Multi-Window）的实现逻辑，对比 `Flow_Git_Operations.md` 标准文档，明确差距与后续对接点。
+> **状态**：✅ **已完成后端对接**
+> **目标**：梳理 `AICommandCenter.vue` 中关于多窗口（Multi-Window）的实现逻辑，对比 `Flow_Git_Operations.md` 标准文档。
 
 ---
 
-## 一、 现状概述
+## 一、 实现概述
 
-当前 Web 端的多窗口功能处于 **"UI 逻辑完备，后端未对接"** 的中间状态（Mock/Hybrid）。
-- **UI 交互**：已实现窗口切换、新建窗口、关闭窗口、分支独占过滤等核心交互。
-- **数据流**：
-    - **真窗口 (Primary)**：已对接 `gitStore`，可真实切换分支。
-    - **虚拟窗口 (Virtual)**：仅在前端维护 `windows` 数组状态，**尚未调用后端 API 创建 Worktree**。
+Web 端的多窗口功能已完成**后端 Git Worktree API 对接**：
+- **UI 交互**：窗口切换、新建窗口、关闭窗口、分支独占过滤
+- **后端对接**：虚拟窗口创建/关闭现已调用 `GitWorktreeService` API
+- **状态展示**：加载中、错误状态的 UI 反馈
 
 ---
 
-## 二、 核心代码实现位置
+## 二、 已完成的改造
 
-所有相关逻辑位于 `src/components/UI/AICommandCenter.vue`。
+### 2.1 新增文件
 
-### 2.1 数据模型
+| 文件 | 说明 |
+|------|------|
+| `src/types/worktree.ts` | Worktree 类型定义（与后端 DTO 对应） |
+| `src/services/GitWorktreeService.ts` | Worktree API 服务封装 |
+
+### 2.2 数据模型扩展
 
 ```typescript
-// 行 100-105
+// AICommandCenter.vue 行 100-110
 interface ChatWindow {
   id: string;
   name: string;
-  branchId: string; // 实际存储的是 branch.name (如 "master")
+  branchId: string;
   messages: ChatMessage[];
-  isPrimary: boolean; // 区分真窗口与虚拟窗口
+  isPrimary: boolean;
+  // === 新增后端关联字段 ===
+  worktreeName?: string;  // 后端 Worktree 名称
+  isLoading?: boolean;    // 加载状态
+  error?: string | null;  // 错误信息
 }
-
-// 行 108
-const windows = ref<ChatWindow[]>([]);
 ```
 
-### 2.2 核心操作方法
+### 2.3 核心方法改造
 
-#### 1. 初始化默认窗口 (Primary Window)
-- **位置**：`initDefaultWindow` (行 112)
-- **逻辑**：创建唯一的 `isPrimary: true` 窗口，默认绑定到 `currentBranch`。
-- **同步机制**：
-    - **Watcher** (行 126)：监听 `gitStore.currentBranch` 变化，自动同步给真窗口的 `branchId`。
-    - **注意**：此 Watcher 曾导致逻辑冲突，后续需根据架构调整（真窗口应主动控制分支，而非被动同步）。
+#### addWindow（行 217-291）
 
-#### 2. 切换分支 (仅真窗口)
-- **位置**：`selectBranch` (行 422)
-- **逻辑**：
-    1. 调用 `gitStore.checkout(branchId)`。
-    2. 处理未提交更改的弹窗逻辑 (`handleCheckoutConfirm`)。
-- **现状**：这是目前唯一真实触发后端 Git 操作的入口。
+```typescript
+const addWindow = async (branchName: string) => {
+  // 1. 生成 worktreeName
+  const worktreeName = `window-${Date.now()}`;
 
-#### 3. 新建虚拟窗口
-- **位置**：`addWindow` (行 211)
-- **逻辑**：
-    1. 接收 `branchName`。
-    2. 创建新的 `ChatWindow` 对象，`isPrimary: false`。
-    3. 推入 `windows` 数组并切换焦点。
-- **缺失**：**未调用 `POST /api/git/worktrees`**。目前只是在前端"假装"开了一个窗口，实际上后端并没有为该分支创建 Worktree 环境。
+  // 2. 先在 UI 显示加载状态
+  const newWindow: ChatWindow = {
+    // ...
+    worktreeName,
+    isLoading: true,
+    error: null
+  };
+  windows.value.push(newWindow);
 
-#### 4. 分支独占过滤
-- **位置**：`availableBranches` (行 161)
-- **逻辑**：
-    - 计算 `occupiedBranchNames`（所有窗口占用的分支）。
-    - 过滤出未被占用的分支列表。
-- **现状**：逻辑正确，实现了"一个分支只能被一个窗口打开"的前端约束。
+  // 3. 调用后端 API
+  try {
+    await GitWorktreeService.createWorktree({
+      name: worktreeName,
+      branch: branchName
+    });
+    // 成功更新状态
+  } catch (error) {
+    // 显示错误，3秒后自动移除
+  }
+};
+```
 
-#### 5. 关闭窗口
-- **位置**：`closeWindow` (行 167)
-- **逻辑**：
-    - 禁止关闭真窗口 (`isPrimary` 检查)。
-    - 从 `windows` 数组移除对象。
-    - 自动切换焦点到相邻窗口。
-- **缺失**：**未调用 `DELETE /api/git/worktrees`**。后端 Worktree 未被清理。
+#### closeWindow（行 173-216）
+
+```typescript
+const closeWindow = async (id: string) => {
+  // 1. 检查非主窗口、非加载中
+  // 2. 设置加载状态
+  win.isLoading = true;
+
+  // 3. 调用后端 API
+  try {
+    await GitWorktreeService.deleteWorktree(win.worktreeName, false);
+  } catch (error) {
+    // 即使失败也关闭窗口（后端可能已不存在）
+  }
+
+  // 4. 从 UI 移除
+  windows.value.splice(index, 1);
+};
+```
+
+### 2.4 UI 状态展示
+
+**模板改动**（行 1392-1438）：
+- 添加 `.loading` / `.error` class 绑定
+- 添加加载指示器 `⏳` 和错误指示器 `⚠️`
+- 加载中时隐藏关闭按钮
+
+**样式改动**（行 2230-2279）：
+- `.window-tab.loading` - 半透明、等待光标
+- `.window-tab.error` - 红色边框、红色背景
+- `.tab-status` - 状态指示器动画
 
 ---
 
-## 三、 与标准架构的差距分析
+## 三、 与标准架构的对比
 
-对比 `docs/Flow_Git_Operations.md`，主要差距如下：
-
-| 功能点 | 当前实现 (Web UI) | 目标架构 (Standard) | 差距/待办 |
-|--------|-------------------|---------------------|-----------|
-| **虚拟窗口创建** | 仅前端 `windows.push()` | 调用 `POST /api/git/worktrees` | 需在 `addWindow` 中增加 API 调用，等待后端返回成功后再更新 UI。 |
-| **虚拟窗口关闭** | 仅前端 `windows.splice()` | 调用 `DELETE /api/git/worktrees` | 需在 `closeWindow` 中增加 API 调用。 |
-| **分支标识符** | 混用 ID/Name (已修正为 Name) | 统一使用 Branch Name | 需确保后端 API 参数统一。 |
-| **真窗口同步** | Watcher 自动同步 | 用户主动切换 | 需评估 Watcher 是否必要，避免覆盖用户意图。 |
-| **Worktree 隔离** | 无 (所有窗口共享同一后端环境) | 每个虚拟窗口对应独立 Worktree | 需后端支持 Worktree 路径的动态切换/指定 (Agent 运行环境)。 |
+| 功能点 | 目标架构 | 实现状态 |
+|--------|----------|----------|
+| 虚拟窗口创建 | 调用 `POST /api/git/worktrees` | ✅ 已实现 |
+| 虚拟窗口关闭 | 调用 `DELETE /api/git/worktrees` | ✅ 已实现 |
+| 分支标识符 | 统一使用 Branch Name | ✅ 已实现 |
+| 加载状态展示 | UI 反馈 | ✅ 已实现 |
+| 错误处理 | 显示错误、自动恢复 | ✅ 已实现 |
+| 真窗口分支同步 | 用户主动切换 | ✅ 现有逻辑 |
 
 ---
 
-## 四、 后续实施建议
+## 四、 测试验证
 
-在后端 "Git 分支管理" 和 "Worktree API" 就绪后，按以下步骤升级 Web 端：
+### 手动测试步骤
 
-1.  **引入 API Client**：在 `gitStore` 或独立 Service 中封装 `createWorktree` 和 `removeWorktree` 方法。
-2.  **改造 `addWindow`**：
-    ```typescript
-    const addWindow = async (branchName: string) => {
-        // 1. Call API
-        await gitApi.createWorktree(branchName);
-        // 2. Update UI (existing logic)
-        // ...
-    };
-    ```
-3.  **改造 `closeWindow`**：
-    ```typescript
-    const closeWindow = async (id: string) => {
-        // 1. Call API
-        await gitApi.removeWorktree(windows.value.find(w => w.id === id).branchId);
-        // 2. Update UI (existing logic)
-        // ...
-    };
-    ```
-4.  **完善错误处理**：处理后端创建 Worktree 失败（如分支冲突、磁盘不足）的情况。
+```bash
+# 1. 启动 Server
+cd BIMCanvas.Server && dotnet run
+
+# 2. 启动 Web
+cd BIMCanvas.Web && npm run dev
+
+# 3. 在浏览器中测试
+# - 点击 "+" 创建新窗口，选择一个分支
+# - 观察加载状态（⏳ 图标）
+# - 验证后端创建 Worktree: python test_worktree.py --list
+# - 关闭窗口，验证后端删除 Worktree
+
+# 4. 清理测试残留
+cd BIMCanvas.Server/tests && python test_worktree.py --clean
+```
+
+### 验证点
+
+- [x] 创建窗口时显示加载状态
+- [x] 创建成功后移除加载状态
+- [x] 创建失败时显示错误并自动移除
+- [x] 关闭窗口时调用后端 API
+- [x] 主窗口不可关闭
+- [x] 加载中的窗口不可关闭
+
+---
+
+## 五、 API 服务封装
+
+### GitWorktreeService.ts
+
+```typescript
+export class GitWorktreeService {
+  static async getWorktrees(): Promise<WorktreeInfo[]>;
+  static async createWorktree(request: CreateWorktreeRequest): Promise<CreateWorktreeResponse>;
+  static async deleteWorktree(name: string, deleteBranch?: boolean): Promise<DeleteWorktreeResponse>;
+}
+```
+
+### 类型定义 worktree.ts
+
+```typescript
+interface WorktreeInfo {
+  name: string;
+  path: string;
+  branch: string | null;
+  commitHash: string | null;
+  isMain: boolean;
+}
+
+interface CreateWorktreeRequest {
+  name: string;
+  branch: string;
+  baseBranch?: string;
+}
+```
+
+---
+
+## 六、 后续优化建议
+
+1. **Worktree 状态同步**：页面刷新时从后端同步已存在的 Worktree
+2. **关闭时确认**：关闭窗口前询问是否同时删除分支
+3. **批量清理**：提供清理所有虚拟窗口的功能
+4. **持久化**：将窗口状态保存到 localStorage，重启后恢复
