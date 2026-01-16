@@ -297,11 +297,9 @@ const switchWindow = async (id: string) => {
     console.warn('[Window] 通知 Server 激活窗口失败:', e);
   }
 
-  // 3. 重新加载项目数据（从该窗口的 Worktree）
-  // 只有非主窗口（有 Worktree）才需要重新加载
-  if (!win.isPrimary && win.worktreeName) {
-    await store.loadProject({ source: 'git_checkout', preserveView: true });
-  }
+  // 3. 重新加载项目数据（始终重新加载，因为 Server 根据 ActiveWindowId 返回不同数据）
+  await store.loadProject({ source: 'git_checkout', preserveView: true });
+  console.log(`[Window] 重新加载项目数据完成`);
 
   nextTick(() => {
     scrollToBottom({ force: true });
