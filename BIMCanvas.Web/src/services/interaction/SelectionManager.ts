@@ -23,14 +23,12 @@ export class SelectionManager {
 
     constructor(scene: THREE.Scene) {
         this.scene = scene;
-        this.debug.log('[SelectionMgr] Created');
 
         // 使用 storeToRefs 获取响应式引用
         const { selectedIds } = storeToRefs(this.store);
 
         // 监听 Store 的 selectedIds 变化，同步视觉
-        watch(selectedIds, (newIds, oldIds) => {
-            this.debug.log(`[SelectionMgr] IDs changed: [${oldIds?.join(',') || ''}] -> [${newIds.join(',')}]`);
+        watch(selectedIds, (newIds, _oldIds) => {
             this.syncWithStore(newIds);
         }, { deep: true, immediate: true });
     }
@@ -39,20 +37,17 @@ export class SelectionManager {
      * 同步 Store 的选择状态到视觉
      */
     private syncWithStore(ids: string[]) {
-        this.debug.log(`[SelectionMgr] syncWithStore: ${ids.length} items`);
         const currentIds = new Set(ids);
 
         // 移除不再选中的对象（检查 BoxHelper）
         for (const [id, _box] of this.selectionBoxes) {
             if (!currentIds.has(id)) {
-                this.debug.log(`[SelectionMgr] Remove visual: ${id}`);
                 this.removeSelectionVisual(id);
             }
         }
         // 移除不再选中的对象（检查轮廓线）
         for (const [id, _line] of this.selectionOutlines) {
             if (!currentIds.has(id)) {
-                this.debug.log(`[SelectionMgr] Remove outline: ${id}`);
                 this.removeSelectionVisual(id);
             }
         }
@@ -61,7 +56,6 @@ export class SelectionManager {
         for (const id of ids) {
             if (!this.selectionBoxes.has(id) && !this.selectionOutlines.has(id)) {
                 const object = this.findObjectById(id);
-                this.debug.log(`[SelectionMgr] Find scene obj: ${id} -> ${object ? 'FOUND' : 'NOT FOUND'}`);
                 if (object) {
                     this.addSelectionVisual(object);
                 }
@@ -107,14 +101,12 @@ export class SelectionManager {
 
             this.scene.add(line);
             this.selectionOutlines.set(id, line);
-            this.debug.log(`[SelectionMgr] Added outline for: ${id}`);
         } else {
             // 降级到 BoxHelper
             const box = new THREE.BoxHelper(object, 0x3b82f6);
             box.renderOrder = 999; // 确保最后渲染
             this.scene.add(box);
             this.selectionBoxes.set(id, box);
-            this.debug.log(`[SelectionMgr] Added boxHelper for: ${id}`);
         }
         this.selectedObjects.set(id, object);
     }

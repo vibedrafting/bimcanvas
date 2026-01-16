@@ -96,9 +96,6 @@ export class SceneBuilder {
     }
 
     public clearScene() {
-        console.log('--- clearScene START ---');
-        console.log('Total children before clear:', this.scene.children.length);
-
         // 0. Clear SVG renderers
         this.svgRenderer.clear();
 
@@ -132,11 +129,7 @@ export class SceneBuilder {
                     child instanceof THREE.LineSegments ||
                     child instanceof THREE.AxesHelper ||
                     child.type === 'BoxHelper') {
-
-                    console.log('Marking for removal:', child.type, child.uuid, (child as any).geometry?.type);
                     toRemove.push(child);
-                } else {
-                    console.log('Skipping removal of:', child.type, child.uuid);
                 }
             }
         });
@@ -158,14 +151,9 @@ export class SceneBuilder {
                 }
             }
         });
-
-        console.log('Total children after clear:', this.scene.children.length);
-        this.scene.children.forEach(c => console.log('Remaining child:', c.type, c.uuid));
-        console.log('--- clearScene END ---');
     }
 
     public buildFromDocument(data: ProjectData) {
-        console.log('SceneBuilder: Building from project data', data);
         this.clearScene();
 
         const baseline = data.baseline;
@@ -196,7 +184,6 @@ export class SceneBuilder {
     }
 
     public async buildProgressively(data: ProjectData) {
-        console.log('SceneBuilder: Starting Progressive Build...');
         // Note: Scene should already be cleared or contain only Grid.
         // We assume clearScene() was called before or we are building on top of empty scene.
         // Actually, ThreeSceneService will handle the clear.
@@ -233,7 +220,6 @@ export class SceneBuilder {
         }
 
         this.updateAllHelpers();
-        console.log('SceneBuilder: Progressive Build Completed.');
         window.dispatchEvent(new CustomEvent('bimcanvas:build-complete'));
     }
 

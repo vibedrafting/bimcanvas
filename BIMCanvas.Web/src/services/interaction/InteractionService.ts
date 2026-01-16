@@ -492,9 +492,6 @@ export class InteractionService {
         this.raycaster.setFromCamera(this.mouse, this.camera);
         const intersects = this.raycaster.intersectObjects(this.scene.children, true);
 
-        const debugStore = useDebugStore();
-        debugStore.log(`Click: ${this.mouse.x.toFixed(2)},${this.mouse.y.toFixed(2)} Hits: ${intersects.length}`);
-
         const isCtrlMode = event.ctrlKey || event.metaKey;
         const isShiftMode = event.shiftKey;
         const isModifierMode = isCtrlMode || isShiftMode;
@@ -515,7 +512,6 @@ export class InteractionService {
                     // Zone 和 Exclusion 只有在 LAYER_ZONES 启用时才能被选中
                     if (objType === 'zone' || objType === 'exclusion') {
                         if (!this.camera.layers.isEnabled(LayerManager.LAYER_ZONES)) {
-                            debugStore.log(`Skip ${objType}: LAYER_ZONES disabled`);
                             continue; // 图层未启用，跳过此对象
                         }
                     }
@@ -525,8 +521,6 @@ export class InteractionService {
             }
 
             if (target && target.userData?.id) {
-                debugStore.success(`Hit: ${target.userData.type} ${target.userData.id}`);
-
                 if (isShiftMode) {
                     this.store.removeFromSelection(target.userData);
                 } else if (isCtrlMode) {
@@ -535,13 +529,11 @@ export class InteractionService {
                     this.store.setSelectedObject(target.userData);
                 }
             } else {
-                debugStore.warn('No valid target found');
                 if (!isModifierMode) {
                     this.store.clearSelection();
                 }
             }
         } else {
-            debugStore.warn('No Intersects');
             if (!isModifierMode) {
                 this.store.clearSelection();
             }

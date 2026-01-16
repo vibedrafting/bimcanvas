@@ -205,10 +205,6 @@ export class LabelBuilder {
         const height = maxY - minY;
 
         const orientation = width >= height ? 'horizontal' : 'vertical';
-
-        // Debug log to verify orientation calculation
-        console.log(`[LabelBuilder] AABB: w=${width.toFixed(0)}, h=${height.toFixed(0)} => ${orientation}`);
-
         return orientation;
     }
 

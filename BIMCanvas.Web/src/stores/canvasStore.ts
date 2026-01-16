@@ -48,36 +48,30 @@ export const useCanvasStore = defineStore('canvas', () => {
             return null;
         }
 
-        debug.log(`[Store] findObjectById: ${id}`);
-
         const baseline = projectData.value.baseline;
         const activeScheme = projectData.value.activeScheme;
 
         // 在 modules 中查找
         const module = activeScheme?.modules?.find(m => m.id === id);
         if (module) {
-            debug.success(`[Store] findObjectById: found in modules`);
             return { ...module, type: 'module' };
         }
 
         // 在 walls 中查找
         const wall = baseline?.walls?.find(w => w.id === id);
         if (wall) {
-            debug.success(`[Store] findObjectById: found in walls`);
             return { ...wall, type: 'wall' };
         }
 
         // 在 columns 中查找
         const column = baseline?.columns?.find(c => c.id === id);
         if (column) {
-            debug.success(`[Store] findObjectById: found in columns`);
             return { ...column, type: 'column' };
         }
 
         // 在 openings 中查找
         const opening = baseline?.openings?.find(o => o.id === id);
         if (opening) {
-            debug.success(`[Store] findObjectById: found in openings`);
             const typeName = opening.type === 0 ? 'door' : 'window';
             return { ...opening, type: typeName };
         }
@@ -85,7 +79,6 @@ export const useCanvasStore = defineStore('canvas', () => {
         // 在 activeScheme.zones 中查找（设计区域）
         const schemeZone = activeScheme?.zones?.find(z => z.id === id);
         if (schemeZone) {
-            debug.success(`[Store] findObjectById: found in activeScheme.zones`);
             return { ...schemeZone, type: 'zone' };
         }
 
@@ -93,14 +86,12 @@ export const useCanvasStore = defineStore('canvas', () => {
         const computed = projectData.value.computed;
         const computedZone = computed?.roomZones?.find(z => z.id === id);
         if (computedZone) {
-            debug.success(`[Store] findObjectById: found in computed.roomZones`);
             return { ...computedZone, type: 'zone' };
         }
 
         // 在 computed.exclusions 中查找（禁区）
         const exclusion = computed?.exclusions?.find(e => e.id === id);
         if (exclusion) {
-            debug.success(`[Store] findObjectById: found in computed.exclusions`);
             return { ...exclusion, type: 'exclusion' };
         }
 
@@ -109,8 +100,6 @@ export const useCanvasStore = defineStore('canvas', () => {
     };
 
     const debugMsg = ref<string>('');
-    const instanceId = Math.random().toString(36).substring(7);
-    console.log('CanvasStore Created:', instanceId);
 
     const timeline = new TimelineManager();
     const signalR = SignalRService.getInstance();
