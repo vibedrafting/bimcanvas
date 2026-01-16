@@ -156,12 +156,18 @@ namespace BIMCanvas.Server.Services
         public void CreateBranch(string projectPath, string branchName, string? baseBranch = null)
         {
             var baseRef = baseBranch ?? "HEAD";
-            var result = RunGit(projectPath, $"branch \"{branchName}\" {baseRef}");
+            var gitCommand = $"branch \"{branchName}\" {baseRef}";
+            _logger.LogInformation("[CreateBranch] 执行 Git 命令: git {Command}", gitCommand);
+            _logger.LogInformation("[CreateBranch] 参数: branchName={BranchName}, baseBranch={BaseBranch}, baseRef={BaseRef}",
+                branchName, baseBranch ?? "(null)", baseRef);
+
+            var result = RunGit(projectPath, gitCommand);
             if (!result.Success)
             {
+                _logger.LogError("[CreateBranch] 失败: {Error}", result.Error);
                 throw new InvalidOperationException($"创建分支 {branchName} 失败: {result.Error}");
             }
-            _logger.LogInformation("创建分支: {Branch} (基于 {Base})", branchName, baseRef);
+            _logger.LogInformation("[CreateBranch] 成功: {Branch} (基于 {Base})", branchName, baseRef);
         }
 
         /// <summary>

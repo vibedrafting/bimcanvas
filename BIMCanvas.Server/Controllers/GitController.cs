@@ -72,8 +72,10 @@ namespace BIMCanvas.Server.Controllers
         [HttpPost("checkout")]
         public ActionResult Checkout([FromBody] CheckoutBranchRequest request)
         {
-            _logger.LogInformation(">>> [GitController] Checkout called: {Branch}, CreateIfNotExist={Create}",
-                request?.BranchName ?? "(null)", request?.CreateIfNotExist ?? false);
+            _logger.LogInformation(">>> [GitController] Checkout called: Branch={Branch}, CreateIfNotExist={Create}, BaseBranch={BaseBranch}",
+                request?.BranchName ?? "(null)",
+                request?.CreateIfNotExist ?? false,
+                request?.BaseBranch ?? "(null)");
 
             if (string.IsNullOrEmpty(request.BranchName))
             {

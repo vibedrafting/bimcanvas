@@ -235,17 +235,20 @@ export const useGitStore = defineStore('git', () => {
       isLoading.value = true;
       error.value = null;
 
+      const requestBody = {
+        branchName,
+        createIfNotExist: opts.createIfNotExist ?? false,
+        commitBeforeCheckout: opts.commitBeforeCheckout ?? false,
+        discardBeforeCheckout: opts.discardBeforeCheckout ?? false,
+        commitMessage: opts.commitMessage,
+        baseBranch: opts.baseBranch
+      };
+      console.log('[GitStore] checkout 请求体:', JSON.stringify(requestBody, null, 2));
+
       const response = await fetch(`${SERVER_API_BASE}/api/git/checkout`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          branchName,
-          createIfNotExist: opts.createIfNotExist ?? false,
-          commitBeforeCheckout: opts.commitBeforeCheckout ?? false,
-          discardBeforeCheckout: opts.discardBeforeCheckout ?? false,
-          commitMessage: opts.commitMessage,
-          baseBranch: opts.baseBranch
-        })
+        body: JSON.stringify(requestBody)
       });
 
       if (response.ok) {
