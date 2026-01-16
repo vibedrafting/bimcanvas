@@ -2607,33 +2607,43 @@ const removePendingImage = (index: number) => {
         .tab-branch {
             display: flex;
             align-items: center;
-            gap: 4px;
+            justify-content: center; /* Center content (icon + name) together */
+            gap: 4px; /* Restore gap */
             font-size: 10px;
             color: var(--text-tertiary); /* Muted by default */
             width: 100%;
             height: 18px; /* Slightly taller for better click target */
             position: relative;
             border-radius: 4px;
-            padding: 2px 4px;
+            padding: 2px 4px; /* Restore padding */
             margin: 0 -4px;
             transition: all 0.2s ease;
 
-            .branch-icon { font-size: 10px; opacity: 0.6; }
+            .branch-icon { 
+                /* Icon flows naturally with text */
+                font-size: 10px; 
+                opacity: 0.6; 
+                display: flex;
+                align-items: center;
+            }
 
             .branch-name {
                 white-space: nowrap;
                 overflow: hidden;
                 text-overflow: ellipsis;
                 font-family: 'JetBrains Mono', monospace;
-                flex: 1;
+                /* Natural width */
+                max-width: calc(100% - 30px); /* Prevent overlap with absolute button if text is long */
             }
 
             .branch-switch-btn {
+                position: absolute;
+                right: 4px;
                 display: none;
                 padding: 2px;
                 color: var(--accent-blue, #3b82f6);
                 opacity: 0;
-                transform: translateY(-2px);
+                transform: translateY(-1px);
                 transition: all 0.25s ease;
                 svg { 
                     width: 14px; 
