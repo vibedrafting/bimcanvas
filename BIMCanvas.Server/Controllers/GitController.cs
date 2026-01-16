@@ -523,6 +523,81 @@ namespace BIMCanvas.Server.Controllers
             }
         }
 
+        /// <summary>
+        /// 创建 AI Job（高级端口）
+        /// 一键创建 Agent 工作环境：自动生成分支名 + 创建 Worktree
+        /// </summary>
+        /// <param name="request">AI Job 请求</param>
+        /// <returns>AI Job 响应（包含自动生成的分支名）</returns>
+        [HttpPost("ai-job")]
+        public ActionResult<AiJobResponse> CreateAiJob([FromBody] AiJobRequest request)
+        {
+            _logger.LogInformation(">>> [GitController] CreateAiJob called: Name={Name}, BaseBranch={BaseBranch}",
+                request?.Name ?? "(null)", request?.BaseBranch ?? "(null)");
+
+            if (string.IsNullOrEmpty(request?.Name))
+            {
+                return BadRequest(new { message = "Worktree 名称不能为空" });
+            }
+
+            if (string.IsNullOrEmpty(request.BaseBranch))
+            {
+                return BadRequest(new { message = "基准分支不能为空" });
+            }
+
+            if (!_projectContext.IsLoaded)
+            {
+                return BadRequest(new { message = "没有加载的项目" });
+            }
+
+            var projectPath = _projectContext.CurrentProjectPath!;
+
+            if (!_gitService.IsGitRepository(projectPath))
+            {
+                return BadRequest(new { message = "项目目录不是 Git 仓库" });
+            }
+
+            try
+            {
+                // 检查基准分支是否存在
+                var allBranches = _gitService.GetAllBranches(projectPath);
+                if (!allBranches.Contains(request.BaseBranch))
+                {
+                    return NotFound(new { message = $"基准分支 '{request.BaseBranch}' 不存在" });
+                }
+
+                // 自动生成分支名：feat/{name}-{yyyyMMdd-HHmmss}
+                var timestamp = DateTime.Now.ToString("yyyyMMdd-HHmmss");
+                var branchName = $"feat/{request.Name}-{timestamp}";
+
+                // 自动存档：创建前检测到未提交更改，静默执行存档
+                if (_gitService.HasUncommittedChanges(projectPath))
+                {
+                    _gitService.Commit(projectPath, $"自动存档_{DateTime.Now:yyyyMMdd_HHmmss}");
+                    _logger.LogInformation("创建 AI Job 前自动存档");
+                }
+
+                // 创建 Worktree（复用现有逻辑）
+                var worktreePath = _gitService.CreateWorktree(projectPath, request.Name, branchName, request.BaseBranch);
+
+                var result = new AiJobResponse
+                {
+                    WorktreePath = worktreePath,
+                    BranchName = branchName
+                };
+
+                _logger.LogInformation("创建 AI Job 成功: Name={Name}, Branch={Branch}, Path={Path}",
+                    request.Name, branchName, worktreePath);
+
+                return Ok(result);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "创建 AI Job 失败: {Name}", request.Name);
+                return StatusCode(500, new { message = $"创建 AI Job 失败: {ex.Message}" });
+            }
+        }
+
         #endregion
 
         #region Merge API

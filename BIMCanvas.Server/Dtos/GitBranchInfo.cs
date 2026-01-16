@@ -208,4 +208,37 @@ namespace BIMCanvas.Server.Dtos
         /// </summary>
         public string? Message { get; set; }
     }
+
+    /// <summary>
+    /// AI Job 创建请求（高级端口）
+    /// 一键创建 Agent 工作环境，自动生成分支名
+    /// </summary>
+    public class AiJobRequest
+    {
+        /// <summary>
+        /// Worktree 名称（如 "ai-job-1"）
+        /// </summary>
+        public string Name { get; set; } = string.Empty;
+
+        /// <summary>
+        /// 基准分支（新分支基于此分支创建）
+        /// </summary>
+        public string BaseBranch { get; set; } = string.Empty;
+    }
+
+    /// <summary>
+    /// AI Job 创建响应
+    /// </summary>
+    public class AiJobResponse
+    {
+        /// <summary>
+        /// 创建的 Worktree 完整路径
+        /// </summary>
+        public string WorktreePath { get; set; } = string.Empty;
+
+        /// <summary>
+        /// 自动生成的分支名（如 "feat/ai-job-1-20260116-143052"）
+        /// </summary>
+        public string BranchName { get; set; } = string.Empty;
+    }
 }

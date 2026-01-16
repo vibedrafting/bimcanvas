@@ -3,7 +3,7 @@
 """
 Worktree 功能测试脚本
 
-测试两种场景的完整流程：
+测试场景：
 
 场景 A：并行开发（多窗口）
   - 分支特点：持久分支（用户手动创建）
@@ -17,6 +17,12 @@ Worktree 功能测试脚本
   - B3: 合并回基础分支
   - B4: 清理隔离环境
 
+场景 AI：高级端口测试（★ 新增）
+  - 测试 POST /api/git/ai-job 端口
+  - AI1: 使用高级端口创建 AI Job（自动生成分支名）
+  - AI2: 在 AI Job 中工作并提交
+  - AI3: 清理 AI Job
+
 用法：
   python test_worktree.py              # 运行全部测试
   python test_worktree.py a            # 运行场景 A（A1+A2）
@@ -25,10 +31,7 @@ Worktree 功能测试脚本
   python test_worktree.py f1 分支名    # F1：创建虚拟窗口（用指定分支）
   python test_worktree.py a2           # A2：删除
   python test_worktree.py b            # 运行场景 B（B1+B2+B3+B4）
-  python test_worktree.py b1           # B1：创建隔离环境
-  python test_worktree.py b2           # B2：模拟工作
-  python test_worktree.py b3           # B3：合并
-  python test_worktree.py b4           # B4：清理
+  python test_worktree.py ai           # 运行场景 AI（AI1+AI2+AI3）★
   python test_worktree.py --list       # 列出当前 worktree
   python test_worktree.py --clean      # 清理测试残留
 """
@@ -176,6 +179,27 @@ def merge_branch(source_branch, target_branch=None, worktree_name=None, commit_m
     return resp.ok, resp.json() if resp.ok else resp.text
 
 
+def create_ai_job(name, base_branch):
+    """创建 AI Job（高级端口）
+
+    Args:
+        name: Worktree 名称
+        base_branch: 基准分支
+
+    Returns:
+        (success, result): result 包含 worktreePath 和自动生成的 branchName
+    """
+    data = {"name": name, "baseBranch": base_branch}
+    resp = api_post("ai-job", data)
+    if not resp.ok:
+        print(f"  {RED}[DEBUG]{RESET} HTTP {resp.status_code}")
+        try:
+            print(f"  {RED}[DEBUG]{RESET} Response: {resp.json()}")
+        except:
+            print(f"  {RED}[DEBUG]{RESET} Response: {resp.text[:500]}")
+    return resp.ok, resp.json() if resp.ok else resp.text
+
+
 # ============================================================
 # 测试配置
 # ============================================================
@@ -196,6 +220,10 @@ BRANCH_F_AI = "test/ai-temp-f"   # Agent 临时分支
 WT_F_WINDOW = "window-f"         # 虚拟窗口 Worktree
 WT_F_AGENT = "ai-job-f"          # Agent Worktree
 TEST_FILE_F = "test_scene_f.txt" # 场景 F 测试文件
+
+# 场景 AI 配置（高级端口测试）
+WT_AI = "test-ai-job"            # AI Job Worktree 名称
+TEST_FILE_AI = "test_ai_job.txt" # AI Job 测试文件
 
 
 def save_state(key, value):
@@ -1032,6 +1060,186 @@ def test_f6_cleanup_window():
 
 
 # ============================================================
+# 场景 AI：高级端口测试
+# ============================================================
+
+def test_ai1_create():
+    """
+    AI1: 使用高级端口创建 AI Job
+
+    场景：测试 POST /api/git/ai-job 端点
+    - 自动生成分支名
+    - 一键创建工作环境
+    """
+    print("\n" + "=" * 60)
+    print(f"{CYAN}AI1: 创建 AI Job（高级端口）{RESET}")
+    print("=" * 60)
+
+    # 获取基准分支
+    base_branch = get_current_branch()
+    log_info(f"使用当前分支作为基准: {base_branch}")
+
+    # 清理可能残留的 worktree
+    if worktree_exists(WT_AI):
+        log_info(f"清理残留 worktree: {WT_AI}")
+        delete_worktree(WT_AI, delete_branch=True)
+
+    # Step 1: 调用高级端口创建 AI Job
+    log_step(1, f"调用 POST /api/git/ai-job")
+    log_info(f"请求: name={WT_AI}, baseBranch={base_branch}")
+
+    success, result = create_ai_job(WT_AI, base_branch)
+    if not success:
+        log_fail(f"创建失败: {result}")
+        return False
+
+    log_pass("API 调用成功")
+    worktree_path = result.get('worktreePath')
+    branch_name = result.get('branchName')
+    log_info(f"返回 worktreePath: {worktree_path}")
+    log_info(f"返回 branchName: {branch_name}")
+
+    # Step 2: 验证分支名格式
+    log_step(2, "验证自动生成的分支名")
+    if branch_name and branch_name.startswith(f"feat/{WT_AI}-"):
+        log_pass(f"分支名格式正确: {branch_name}")
+    else:
+        log_fail(f"分支名格式不正确: {branch_name}")
+        return False
+
+    # Step 3: 验证 worktree 已创建
+    log_step(3, "验证 Worktree")
+    wt_info = get_worktree_info(WT_AI)
+    if not wt_info:
+        log_fail("Worktree 不在列表中")
+        return False
+
+    log_pass("Worktree 存在")
+    log_info(f"  名称: {wt_info.get('name')}")
+    log_info(f"  路径: {wt_info.get('path')}")
+    log_info(f"  分支: {wt_info.get('branch')}")
+
+    # 保存状态
+    save_state("ai_branch", branch_name)
+    save_state("ai_path", worktree_path)
+
+    print(f"\n{GREEN}AI1 测试通过{RESET}")
+    print(f"{YELLOW}>>> AI Job 已创建，运行 AI2 模拟工作 <<<{RESET}")
+    return True
+
+
+def test_ai2_agent_work():
+    """
+    AI2: 在 AI Job 中模拟 Agent 工作
+
+    场景：Agent 在高级端口创建的环境中工作并提交
+    """
+    print("\n" + "=" * 60)
+    print(f"{CYAN}AI2: Agent 在 AI Job 中工作{RESET}")
+    print("=" * 60)
+
+    # Step 1: 检查前置条件
+    log_step(1, f"检查 Worktree {WT_AI} 是否存在")
+    if not worktree_exists(WT_AI):
+        log_warn(f"Worktree {WT_AI} 不存在，请先运行 AI1")
+        return False
+    log_pass("Worktree 存在")
+
+    wt_info = get_worktree_info(WT_AI)
+    worktree_path = wt_info.get('path')
+    log_info(f"Worktree 路径: {worktree_path}")
+
+    # Step 2: 在 worktree 中创建测试文件
+    log_step(2, "在 AI Job Worktree 中创建测试文件")
+    test_file_path = os.path.join(worktree_path, TEST_FILE_AI)
+
+    try:
+        with open(test_file_path, 'w', encoding='utf-8') as f:
+            f.write(f"AI Job 测试文件\n创建时间: {time.strftime('%Y-%m-%d %H:%M:%S')}\n")
+            f.write("此文件由 Agent 在高级端口创建的环境中创建\n")
+        log_pass(f"测试文件已创建: {TEST_FILE_AI}")
+    except Exception as e:
+        log_fail(f"创建文件失败: {e}")
+        return False
+
+    # Step 3: 通过 API 在 worktree 中提交
+    log_step(3, "通过 API 在 AI Job 中提交")
+
+    success, result = commit_in_worktree(WT_AI, "AI Job 测试提交")
+    if not success:
+        log_fail(f"提交失败: {result}")
+        return False
+
+    if result.get('committed'):
+        log_pass("提交成功")
+        log_info(f"  commit: {result.get('commit', {}).get('hash', '?')}")
+    else:
+        log_warn(f"没有提交: {result.get('message')}")
+
+    print(f"\n{GREEN}AI2 测试通过{RESET}")
+    print(f"{YELLOW}>>> Agent 工作已完成，运行 AI3 清理 <<<{RESET}")
+    return True
+
+
+def test_ai3_cleanup():
+    """
+    AI3: 清理 AI Job
+
+    场景：使用现有端口清理高级端口创建的环境
+    """
+    print("\n" + "=" * 60)
+    print(f"{CYAN}AI3: 清理 AI Job{RESET}")
+    print("=" * 60)
+
+    # 从状态文件读取分支名（AI1 保存的）
+    ai_branch = load_state("ai_branch")
+    log_info(f"AI Job 分支: {ai_branch or '(未知)'}")
+
+    # Step 1: 检查 worktree
+    log_step(1, f"检查 Worktree {WT_AI}")
+    if not worktree_exists(WT_AI):
+        log_info(f"Worktree {WT_AI} 已不存在")
+    else:
+        log_pass("Worktree 存在，将删除")
+
+    # Step 2: 删除 worktree + 分支
+    log_step(2, "删除 Worktree + 临时分支")
+    log_info("使用现有端口: DELETE /worktrees/{name}?deleteBranch=true")
+
+    if worktree_exists(WT_AI):
+        success, result = delete_worktree(WT_AI, delete_branch=True)
+        if not success:
+            log_fail(f"删除失败: {result}")
+            return False
+        log_pass(f"删除成功: {result.get('message')}")
+
+    # Step 3: 验证 worktree 已删除
+    log_step(3, "验证 Worktree 已删除")
+    time.sleep(0.2)
+    if worktree_exists(WT_AI):
+        log_fail("Worktree 仍存在！")
+        return False
+    log_pass("Worktree 已删除")
+
+    # Step 4: 验证分支已删除
+    log_step(4, "验证临时分支已删除")
+    if ai_branch and not branch_exists(ai_branch):
+        log_pass(f"分支 '{ai_branch}' 已删除")
+    elif ai_branch:
+        log_warn(f"分支 '{ai_branch}' 仍存在（可手动删除）")
+    else:
+        log_info("无法验证分支（状态文件中无分支信息）")
+
+    # Step 5: 清除状态文件
+    log_step(5, "清除状态文件")
+    clear_state()
+    log_pass("状态已清除")
+
+    print(f"\n{GREEN}AI3 测试通过{RESET}")
+    return True
+
+
+# ============================================================
 # 辅助命令
 # ============================================================
 
@@ -1151,11 +1359,17 @@ def print_usage():
     print("    f5  清理 Agent Worktree + 临时分支")
     print("    f6  清理虚拟窗口（保留分支）")
     print()
+    print("  场景 AI（高级端口测试）★ 新增:")
+    print("    ai1  使用高级端口创建 AI Job（自动生成分支名）")
+    print("    ai2  在 AI Job 中工作并提交")
+    print("    ai3  清理 AI Job")
+    print()
     print("推荐测试顺序:")
-    print("  场景 A: python test_worktree.py a1 && python test_worktree.py a2")
-    print("  场景 B: python test_worktree.py b1 && python test_worktree.py b2 && ...")
-    print("  场景 F: python test_worktree.py f  (完整 F1-F6)")
-    print("  完整:   python test_worktree.py a b f")
+    print("  场景 A:  python test_worktree.py a1 && python test_worktree.py a2")
+    print("  场景 B:  python test_worktree.py b1 && python test_worktree.py b2 && ...")
+    print("  场景 F:  python test_worktree.py f  (完整 F1-F6)")
+    print("  场景 AI: python test_worktree.py ai (完整 AI1-AI3)")
+    print("  完整:    python test_worktree.py a b f ai")
 
 
 def main():
@@ -1195,7 +1409,7 @@ def main():
     a1_branch = None
     b1_base_branch = None
     f1_branch = None
-    test_keys = ['a', 'a1', 'a2', 'b', 'b1', 'b2', 'b3', 'b4', 'f', 'f1', 'f2', 'f3', 'f4', 'f5', 'f6']
+    test_keys = ['a', 'a1', 'a2', 'b', 'b1', 'b2', 'b3', 'b4', 'f', 'f1', 'f2', 'f3', 'f4', 'f5', 'f6', 'ai', 'ai1', 'ai2', 'ai3']
 
     # 查找 a1/b1/f1 后面是否跟着分支名
     for i, arg in enumerate(args):
@@ -1226,9 +1440,12 @@ def main():
         'f4': ('F4 (合并回虚拟窗口) ★', test_f4_merge_to_window),
         'f5': ('F5 (清理 Agent)', test_f5_cleanup_agent),
         'f6': ('F6 (清理虚拟窗口)', test_f6_cleanup_window),
+        'ai1': ('AI1 (高级端口创建) ★', test_ai1_create),
+        'ai2': ('AI2 (Agent 工作)', test_ai2_agent_work),
+        'ai3': ('AI3 (清理)', test_ai3_cleanup),
     }
 
-    # 展开 'a', 'b', 'f'
+    # 展开 'a', 'b', 'f', 'ai'
     expanded_args = []
     for arg in args:
         if arg == 'a':
@@ -1237,6 +1454,8 @@ def main():
             expanded_args.extend(['b1', 'b2', 'b3', 'b4'])
         elif arg == 'f':
             expanded_args.extend(['f1', 'f2', 'f3', 'f4', 'f5', 'f6'])
+        elif arg == 'ai':
+            expanded_args.extend(['ai1', 'ai2', 'ai3'])
         elif arg in tests:
             expanded_args.append(arg)
 

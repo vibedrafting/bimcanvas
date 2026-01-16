@@ -1,6 +1,6 @@
 # BIMCanvas 并行设计模式
 
-> **版本**：v1.2 | **更新日期**：2026-01-15
+> **版本**：v1.3 | **更新日期**：2026-01-16
 > **目的**：详细描述 BIMCanvas 的并行设计架构哲学、核心场景、Git 翻译层及 Worktree 实现
 > **实现状态**：✅ v3.2 已完成核心架构实现
 > **关联代码**：`BIMCanvas.Server/Services/GitWorktreeService.cs`, `BIMCanvas.Agent/src/mcp/tools/git_worktree.py`
@@ -366,66 +366,79 @@ AI 必须学会写"人话"Commit Message，而不是机器码。
 
 ### 4.4 API 调用示例
 
-#### Server 端（C#）原子化操作
+#### 高级端口（推荐）
+
+> **适用场景**：AI 任务启动（场景 B：隔离环境）
+
+```python
+# Step 1: 一键创建 Agent 工作环境
+resp = POST /api/git/ai-job
+{
+    "name": "ai-job-1",
+    "baseBranch": "scheme/极致收纳"
+}
+# 返回: { worktreePath, branchName: "feat/ai-job-1-20260116-143052" }
+
+# Step 2: Agent 工作并提交
+POST /api/git/commit { worktreeName: "ai-job-1", message: "feat: AI 布置方案" }
+
+# Step 3: 用户通过可视化 diff 决定接受/拒绝
+
+# Step 4: 清理
+DELETE /api/git/worktrees/ai-job-1?deleteBranch=true
+```
+
+**高级端口优势**：
+- 自动生成分支名（`feat/{name}-{timestamp}`）
+- 减少调用方复杂度
+- 统一命名规范
+
+#### 原子化端口
+
+> **适用场景**：需要精确控制分支名，或检出已有分支（场景 A：并行开发）
 
 ```csharp
-// 场景 B：隔离环境 - 为 AI 任务创建临时 Worktree
-// 创建 Worktree 前会自动存档未提交的更改
+// Server 端（C#）- 场景 B：隔离环境
 var worktreePath = _gitService.CreateWorktree(
     projectPath,
     worktreeName: "ai-job-1",
-    branchName: "feat/ai-storage",     // 新分支（不存在，会自动创建）
-    baseBranch: "scheme/极致收纳"       // 基于此分支创建
+    branchName: "feat/ai-storage",     // 需手动指定分支名
+    baseBranch: "scheme/极致收纳"
 );
 
-// AI 在 Worktree 中完成工作后...
-// 删除 Worktree 并同时删除临时分支
+// 清理
 _gitService.RemoveWorktree(projectPath, "ai-job-1", deleteBranch: true);
 ```
 
 ```csharp
-// 场景 A：并行开发 - 用户多开窗口检出已有分支
+// Server 端（C#）- 场景 A：并行开发
 var worktreePath = _gitService.CreateWorktree(
     projectPath,
     worktreeName: "window-2",
-    branchName: "scheme/动线优先"       // 已有分支（会直接检出）
-    // 不传 baseBranch（分支已存在时忽略）
+    branchName: "scheme/动线优先"       // 检出已有分支
 );
 
-// 用户关闭窗口后...
-// 只删除 Worktree，保留分支
+// 清理（保留分支）
 _gitService.RemoveWorktree(projectPath, "window-2", deleteBranch: false);
 ```
 
-#### Agent 端（Python）MCP 工具调用
-
 ```python
-# 场景 B：隔离环境
+# Agent 端（Python）- 场景 B
 await worktree_create({
     "name": "ai-job-1",
-    "branch": "feat/ai-storage",        # 新分支
-    "base_branch": "scheme/极致收纳"    # 基准分支
+    "branch": "feat/ai-storage",
+    "base_branch": "scheme/极致收纳"
 })
-
-# 任务完成后清理（删除临时分支）
-await worktree_remove({
-    "name": "ai-job-1",
-    "delete_branch": True
-})
+await worktree_remove({ "name": "ai-job-1", "delete_branch": True })
 ```
 
 ```python
-# 场景 A：并行开发
+# Agent 端（Python）- 场景 A
 await worktree_create({
     "name": "window-2",
-    "branch": "scheme/动线优先"         # 已有分支
+    "branch": "scheme/动线优先"
 })
-
-# 关闭窗口时清理（保留分支）
-await worktree_remove({
-    "name": "window-2",
-    "delete_branch": False              # 默认值
-})
+await worktree_remove({ "name": "window-2", "delete_branch": False })
 ```
 
 #### 自动存档机制
@@ -489,17 +502,17 @@ AI 不再需要维护复杂的上下文窗口。Git 的 Commit History 就是它
 │  【触发阶段】                                                            │
 │  用户请求 ──→ Agent 解析意图 ──→ 创建策略配置                            │
 │                                                                         │
-│  【准备阶段】                                                            │
-│  Server ──→ git worktree add .worktrees/ai-job-{id} feat/ai-{name}     │
-│         ──→ 将策略配置写入 Worktree                                     │
-│         ──→ 启动 Agent 进程，传入 Worktree 路径                         │
+│  【准备阶段】（使用高级端口）                                             │
+│  POST /api/git/ai-job { name, baseBranch }                             │
+│         ──→ 自动生成分支名 feat/ai-job-{name}-{timestamp}               │
+│         ──→ 创建 Worktree                                               │
+│         ──→ 返回 { worktreePath, branchName }                           │
 │                                                                         │
 │  【执行阶段】                                                            │
 │  Agent ──→ 在 Worktree 中读取数据                                       │
 │        ──→ 执行布置决策                                                  │
 │        ──→ 写入 schemes/{s}/*.json                                      │
-│        ──→ 写入设计说明 schemes/{s}/README.md                           │
-│        ──→ git add . && git commit -m "feat(layout): ..."              │
+│        ──→ POST /api/git/commit { worktreeName, message }              │
 │                                                                         │
 │  【验证阶段】                                                            │
 │  Server ──→ 读取 Commit 内容                                            │
@@ -507,12 +520,17 @@ AI 不再需要维护复杂的上下文窗口。Git 的 Commit History 就是它
 │         ──→ 验证通过：通知前端展示                                       │
 │         ──→ 验证失败：通知 Agent 修正                                    │
 │                                                                         │
-│  【交付阶段】                                                            │
-│  用户选择 ──→ Server 执行 git merge feat/ai-{name} 到 main             │
-│           ──→ git worktree remove .worktrees/ai-job-{id}               │
+│  【交付阶段】（可视化 Diff，非 Git Merge）                                │
+│  用户在 Web 上 ──→ 可视化对比 Agent 分支与当前分支的 JSON 数据           │
+│                ──→ 选择"接受"：Server 将数据写入当前分支                 │
+│                ──→ 选择"拒绝"：直接清理                                  │
+│                ──→ DELETE /api/git/worktrees/{name}?deleteBranch=true  │
 │                                                                         │
 └─────────────────────────────────────────────────────────────────────────┘
 ```
+
+> **关键澄清**："交付阶段"的"合并"是 **JSON 数据层面的写入**，不是 `git merge` 命令。
+> 详见 [Arch_Parallel_Development.md §9](./Arch_Parallel_Development.md#九可视化-diff数据层合并)
 
 ---
 
