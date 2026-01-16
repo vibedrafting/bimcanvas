@@ -62,7 +62,7 @@ const branchOptions = computed(() => [
     icon: branchIcon
   })),
   {
-    label: 'Create New Branch...',
+    label: '新建分支...',
     value: '__create_new__',
     icon: createIcon
   },

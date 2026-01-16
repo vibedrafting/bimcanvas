@@ -22,13 +22,18 @@ const emit = defineEmits<{
   (e: 'next'): void;
 }>();
 
+// 分支图标
+const branchIcon = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><line x1="6" y1="3" x2="6" y2="15"></line><circle cx="18" cy="6" r="3"></circle><circle cx="6" cy="18" r="3"></circle><path d="M18 9a9 9 0 0 1-9 9"></path></svg>';
+
 // 可选的源分支（排除目标分支）
 const availableSourceBranches = computed(() =>
   props.branches
     .filter(b => b.value !== props.targetBranch)
     .map(b => ({
       ...b,
-      label: b.isCurrent ? `${b.label} (当前)` : b.label
+      label: b.isCurrent ? `${b.label} (当前)` : b.label,
+      icon: branchIcon,
+      tags: b.commit ? [b.commit.message.substring(0, 25) + (b.commit.message.length > 25 ? '...' : '')] : []
     }))
 );
 
@@ -36,7 +41,9 @@ const availableSourceBranches = computed(() =>
 const availableTargetBranches = computed(() => 
   props.branches.map(b => ({
     ...b,
-    label: b.isCurrent ? `${b.label} (当前)` : b.label
+    label: b.isCurrent ? `${b.label} (当前)` : b.label,
+    icon: branchIcon,
+    tags: b.commit ? [b.commit.message.substring(0, 25) + (b.commit.message.length > 25 ? '...' : '')] : []
   }))
 );
 

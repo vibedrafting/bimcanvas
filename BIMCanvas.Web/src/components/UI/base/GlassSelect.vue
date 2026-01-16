@@ -64,24 +64,26 @@ onUnmounted(() => {
 <template>
   <div class="glass-select-container" ref="containerRef" :style="{ width: width }">
     <!-- Trigger Button -->
-    <button 
-      class="select-trigger" 
-      :class="{ 
-        active: isOpen, 
-        disabled: disabled,
-        'variant-solid': variant === 'solid'
-      }"
-      @click="toggleDropdown"
-      :disabled="disabled"
-    >
-      <span class="selected-text" :class="{ placeholder: !selectedOption }">
-        <span v-if="selectedOption?.icon" class="option-icon" v-html="selectedOption.icon"></span>
-        {{ selectedOption ? selectedOption.label : placeholder }}
-      </span>
-      <svg class="chevron" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-        <polyline points="6 9 12 15 18 9"></polyline>
-      </svg>
-    </button>
+    <slot name="trigger" :is-open="isOpen" :disabled="disabled" :toggle="toggleDropdown">
+      <button 
+        class="select-trigger" 
+        :class="{ 
+          active: isOpen, 
+          disabled: disabled,
+          'variant-solid': variant === 'solid'
+        }"
+        @click="toggleDropdown"
+        :disabled="disabled"
+      >
+        <span class="selected-text" :class="{ placeholder: !selectedOption }">
+          <span v-if="selectedOption?.icon" class="option-icon" v-html="selectedOption.icon"></span>
+          {{ selectedOption ? selectedOption.label : placeholder }}
+        </span>
+        <svg class="chevron" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <polyline points="6 9 12 15 18 9"></polyline>
+        </svg>
+      </button>
+    </slot>
 
     <!-- Dropdown Menu -->
     <transition name="dropdown">
@@ -106,10 +108,6 @@ onUnmounted(() => {
           <div v-if="option.tags && option.tags.length > 0" class="option-tags">
             <span v-for="tag in option.tags" :key="tag" class="tag-badge">{{ tag }}</span>
           </div>
-
-          <svg v-if="modelValue === option.value" class="check-icon" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <polyline points="20 6 9 17 4 12"></polyline>
-          </svg>
         </div>
       </div>
     </transition>

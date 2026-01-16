@@ -27,10 +27,130 @@ import {
   findStreamingSubAgents
 } from '../../utils/bubbleManager';
 import ToolCallBubble from './ToolCallBubble.vue';
-import SubAgentBubble from './SubAgentBubble.vue';
-import WaitingIndicator from './WaitingIndicator.vue';
+// ... imports
+import GlassSelect from './base/GlassSelect.vue';
 
-// Props from parent (MainLayout)
+// ... existing code ...
+
+// Icons
+const branchIcon = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><line x1="6" y1="3" x2="6" y2="15"></line><circle cx="18" cy="6" r="3"></circle><circle cx="6" cy="18" r="3"></circle><path d="M18 9a9 9 0 0 1-9 9"></path></svg>';
+const createIcon = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>';
+
+// Computed: Options for Primary Window Branch Select (Switch Mode - includes Create New)
+const primaryWindowBranchOptions = computed(() => [
+  ...branches.value.map(b => ({
+    label: b.name,
+    value: b.name, // Use name as value for consistency with current logic
+    icon: branchIcon,
+    tags: b.commit ? [b.commit.message.substring(0, 25) + (b.commit.message.length > 25 ? '...' : '')] : [],
+  })),
+  {
+    label: '新建分支...',
+    value: '__create_new__',
+    icon: createIcon
+  }
+]);
+
+// Computed: Options for New Window Branch Select (Select Only - NO Create New)
+const newWindowBranchOptions = computed(() =>
+  branches.value.map(b => ({
+    label: b.name,
+    value: b.name,
+    icon: branchIcon,
+    tags: b.commit ? [b.commit.message.substring(0, 25) + (b.commit.message.length > 25 ? '...' : '')] : []
+  }))
+);
+
+// Handle Primary Window Branch Change
+const handlePrimaryBranchChange = (val: string | number) => {
+  if (val === '__create_new__') {
+    handleCreateNewBranchForPrimary();
+    return;
+  }
+  
+  const branchName = val as string;
+  // Check if occupied by other window
+  if (isBranchOccupiedByOther(branchName)) {
+    // Optional: Show warning or prevent switch
+    console.warn('Branch is occupied by another window');
+    // For now we allow it but maybe we should show a toast
+  }
+  
+  selectBranch(branchName);
+};
+
+// Handle New Window Branch Selection
+const handleNewWindowBranchSelect = (val: string | number) => {
+  if (val === '__create_new__') {
+    handleCreateNewBranch();
+    return;
+  }
+  
+  const branchName = val as string;
+  addWindow(branchName);
+};
+
+// ... existing code ...
+
+// In Template: Replace Primary Window Dropdown
+/*
+<div class="window-tab primary" ...>
+  ...
+  <GlassSelect
+    :model-value="win.branchId"
+    @update:model-value="handlePrimaryBranchChange"
+    :options="primaryWindowBranchOptions"
+    width="140px"
+    variant="glass" 
+    class="branch-select-override"
+  />
+  ...
+</div>
+*/
+
+// In Template: Replace New Window Button/Dropdown
+/*
+<div class="new-window-wrapper">
+   <GlassSelect
+      placeholder="New Window..."
+      :options="newWindowBranchOptions"
+      @update:model-value="handleNewWindowBranchSelect"
+      width="40px" 
+      variant="glass"
+      :model-value="null" 
+   >
+     <template #trigger>
+       <button class="add-window-btn" title="New Window">
+         <svg ...>+</svg>
+       </button>
+     </template>
+   </GlassSelect>
+</div>
+*/
+// Wait, GlassSelect doesn't support custom trigger slot yet. 
+// I should use GlassSelect normally but maybe style it to look like the add button? 
+// Or better, keep the add button and use a hidden GlassSelect or just use GlassSelect as the "New Window" action itself.
+
+// Actually, the user wants "New Virtual Window" to have the unified style. 
+// The current UI has a "+" button that opens a dropdown.
+// If I replace it with a GlassSelect, it will look like a select box.
+// Maybe I should modify GlassSelect to support a custom trigger or just use it as is but small?
+
+// Let's look at the screenshot. The "New Window" is a "+" tab.
+// If I use GlassSelect there, it might look weird if it's a full select box.
+// However, the user said "New Virtual Window" is one of the places to unify.
+// Maybe they mean the dropdown *content* style, not necessarily the trigger.
+// But GlassSelect bundles trigger and dropdown.
+
+// Strategy:
+// 1. For Primary Window: Replace the text/icon branch display with GlassSelect.
+// 2. For New Window: The "+" button is iconic. 
+//    I will try to use GlassSelect but maybe with a very minimal width or custom style to mimic the tab?
+//    OR, I can add a `customTrigger` slot to `GlassSelect` to allow using the "+" button as the trigger.
+//    This seems like the best approach to maintain the "+" tab aesthetic while getting the unified dropdown.
+
+// Let's first add the slot to GlassSelect.vue.
+
 const props = defineProps<{
   panelReady?: boolean;
 }>();
@@ -306,7 +426,7 @@ const handleNewWindowClick = (event: MouseEvent) => {
         const rect = btn.getBoundingClientRect();
         const parentRect = btn.closest('.header-tabs')?.getBoundingClientRect();
         if (parentRect) {
-            const dropdownWidth = 200; // 下拉框宽度
+            const dropdownWidth = 280; // 下拉框宽度
             const viewportWidth = window.innerWidth;
             const spaceOnRight = viewportWidth - rect.left; // 按钮左边缘到视口右边的空间
 
@@ -1542,51 +1662,55 @@ const removePendingImage = (index: number) => {
           
           <!-- Wrapper for Tabs + Fixed New Window Button -->
           <div class="tabs-wrapper">
-              <!-- Scrollable Tabs Area -->
-              <div class="window-tabs" ref="windowTabsRef" @wheel="handleTabsWheel">
-                <div
-                    v-for="win in windows"
-                    :key="win.id"
-                    class="window-tab"
-                    :class="{
-                        active: activeWindowId === win.id,
-                        loading: win.isLoading,
-                        error: win.error,
-                        'primary-clickable': win.isPrimary
-                    }"
-                    @click="win.isPrimary ? toggleBranchDropdown() : switchWindow(win.id)"
+              <!-- Window Tabs -->
+              <div 
+                class="window-tabs" 
+                ref="windowTabsRef"
+                @wheel="handleTabsWheel"
+              >
+                <div 
+                  v-for="win in windows" 
+                  :key="win.id"
+                  class="window-tab"
+                  :class="{ 
+                    active: activeWindowId === win.id,
+                    primary: win.isPrimary,
+                    loading: win.isLoading,
+                    error: win.error
+                  }"
+                  @click="switchWindow(win.id)"
                 >
-                    <!-- Line 1: Window Name + Status -->
-                    <div class="tab-header">
-                        <span class="tab-name">{{ win.name }}</span>
-                        <!-- 加载状态指示器 -->
-                        <span v-if="win.isLoading" class="tab-status loading" title="加载中...">⏳</span>
-                        <!-- 错误状态指示器 -->
-                        <span v-else-if="win.error" class="tab-status error" :title="win.error">⚠️</span>
-                        <!-- 关闭按钮：非主窗口且非加载中时显示 -->
-                        <button v-if="!win.isPrimary && !win.isLoading" class="tab-close" @click.stop="closeWindow(win.id)">
-                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                                <line x1="18" y1="6" x2="6" y2="18"></line>
-                                <line x1="6" y1="6" x2="18" y2="18"></line>
-                            </svg>
-                        </button>
-                    </div>
+                  <!-- Line 1: Window Name + Status -->
+                  <div class="tab-header">
+                      <span class="tab-name">{{ win.name }}</span>
+                      <!-- 加载状态指示器 -->
+                      <span v-if="win.isLoading" class="tab-status loading" title="加载中...">⏳</span>
+                      <!-- 错误状态指示器 -->
+                      <span v-else-if="win.error" class="tab-status error" :title="win.error">⚠️</span>
+                      <!-- 关闭按钮：非主窗口且非加载中时显示 -->
+                      <button v-if="!win.isPrimary && !win.isLoading" class="tab-close" @click.stop="closeWindow(win.id)">
+                          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                              <line x1="18" y1="6" x2="6" y2="18"></line>
+                              <line x1="6" y1="6" x2="18" y2="18"></line>
+                          </svg>
+                      </button>
+                  </div>
 
-                    <!-- Line 2: Branch Info (Inline) -->
-                    <div class="tab-branch" :title="win.branchId">
-                        <span class="branch-icon">🌿</span>
-                        <span class="branch-name">{{ win.branchId }}</span>
+                  <!-- Line 2: Branch Info (Inline) -->
+                  <div class="tab-branch" :title="win.branchId">
+                      <span class="branch-icon">🌿</span>
+                      <span class="branch-name">{{ win.branchId }}</span>
 
-                        <!-- Primary Window Switch Indicator -->
-                        <span v-if="win.isPrimary" class="branch-switch-btn" title="Switch Branch">
-                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                                <polyline points="6 9 12 15 18 9"></polyline>
-                            </svg>
-                        </span>
-                    </div>
+                      <!-- Primary Window Switch Indicator -->
+                      <span v-if="win.isPrimary" class="branch-switch-btn" title="Switch Branch" @click.stop="toggleBranchDropdown">
+                          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                              <polyline points="6 9 12 15 18 9"></polyline>
+                          </svg>
+                      </span>
+                  </div>
                 </div>
 
-                <!-- New Window Button (紧跟窗口标签) -->
+                <!-- New Window Button -->
                 <div class="new-window-wrapper">
                   <button
                       class="new-window-btn"
@@ -1602,9 +1726,9 @@ const removePendingImage = (index: number) => {
               </div>
           </div>
 
-          <!-- New Window Dropdown (Positioned at header-tabs level to avoid overflow clipping) -->
+          <!-- New Window Dropdown (Unified Style - Select Only) -->
           <div
-              class="new-window-dropdown"
+              class="unified-dropdown new-window-dropdown"
               v-if="showNewWindowDropdown"
               :style="{
                 top: newWindowDropdownPosition.top + 'px',
@@ -1614,59 +1738,53 @@ const removePendingImage = (index: number) => {
               @click.stop
           >
               <div class="dropdown-header">选择分支</div>
-              <div class="branch-list">
+              <div class="dropdown-options">
                   <div
                       v-for="branch in branches"
                       :key="branch.name"
-                      class="branch-item"
-                      :class="{ occupied: isBranchOccupied(branch.name) }"
+                      class="dropdown-option"
+                      :class="{ disabled: isBranchOccupied(branch.name) }"
                       @click="!isBranchOccupied(branch.name) && addWindow(branch.name)"
                   >
-                      <span class="branch-icon">🌿</span>
-                      <span class="branch-name">{{ branch.name }}</span>
-                      <span v-if="isBranchOccupied(branch.name)" class="occupied-hint">(已打开)</span>
-                  </div>
-                  <!-- 分隔线 + 新建分支选项 -->
-                  <div class="dropdown-divider"></div>
-                  <div class="branch-item create-new" @click="handleCreateNewBranch">
-                      <span class="branch-icon">➕</span>
-                      <span class="branch-name">新建分支...</span>
+                      <div class="option-main">
+                          <span class="option-icon" v-html="branchIcon"></span>
+                          <span class="option-label">{{ branch.name }}</span>
+                      </div>
+                      <div v-if="branch.commit" class="option-tags">
+                          <span class="tag-badge">{{ branch.commit.message.substring(0, 20) }}{{ branch.commit.message.length > 20 ? '...' : '' }}</span>
+                      </div>
                   </div>
               </div>
           </div>
 
-          <!-- Primary Window Branch Dropdown (Positioned at header-tabs level to avoid overflow clipping) -->
-          <div class="branch-dropdown-overlay" v-if="isBranchDropdownOpen" @click.stop>
-              <div class="branch-tree">
+          <!-- Primary Window Branch Dropdown (Unified Style - Switch Mode with Create New) -->
+          <div class="unified-dropdown branch-dropdown-overlay" v-if="isBranchDropdownOpen" @click.stop>
+              <div class="dropdown-header">切换分支</div>
+              <div class="dropdown-options">
                   <div
                       v-for="branch in branches"
                       :key="branch.id"
-                      class="branch-item"
+                      class="dropdown-option"
                       :class="{
-                          current: branch.name === currentBranch,
-                          occupied: isBranchOccupiedByOther(branch.name)
+                          selected: branch.name === currentBranch,
+                          disabled: isBranchOccupiedByOther(branch.name)
                       }"
                       @click="!isBranchOccupiedByOther(branch.name) && selectBranch(branch.id)"
                   >
-                      <div class="branch-main">
-                          <span class="branch-icon">🌿</span>
-                          <span class="branch-name">{{ branch.name }}</span>
-                          <span v-if="isBranchOccupiedByOther(branch.name)" class="occupied-hint">
-                              (已在其他窗口打开)
-                          </span>
-                          <span v-else-if="branch.name === currentBranch" class="current-indicator">
-                              <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="3">
-                                  <polyline points="20 6 9 17 4 12"></polyline>
-                              </svg>
-                          </span>
+                      <div class="option-main">
+                          <span class="option-icon" v-html="branchIcon"></span>
+                          <span class="option-label">{{ branch.name }}</span>
+                      </div>
+                      <div v-if="branch.commit" class="option-tags">
+                          <span class="tag-badge">{{ branch.commit.message.substring(0, 20) }}{{ branch.commit.message.length > 20 ? '...' : '' }}</span>
                       </div>
                   </div>
                   <!-- 分隔线 + 新建分支选项 -->
                   <div class="dropdown-divider"></div>
-                  <div class="branch-item create-new" @click="handleCreateNewBranchForPrimary">
-                      <div class="branch-main">
-                          <span class="branch-icon">➕</span>
-                          <span class="branch-name">新建分支...</span>
+                  <div class="dropdown-option create-new" @click="handleCreateNewBranchForPrimary">
+                      <div class="option-main">
+                          <span class="option-icon" v-html="createIcon"></span>
+                          <span class="option-label">新建分支...</span>
                       </div>
                   </div>
               </div>
@@ -3894,6 +4012,239 @@ const removePendingImage = (index: number) => {
     }
 
     /* Menus */
+}
 
+/* Branch Select Override for Compact Tab View */
+.branch-select-compact {
+  display: inline-flex;
+  
+  :deep(.select-trigger) {
+    padding: 0;
+    border: none;
+    background: transparent !important;
+    height: auto;
+    min-height: unset;
+    
+    &:hover {
+      background: transparent !important;
+      
+      .branch-trigger {
+        background: rgba(255, 255, 255, 0.1);
+      }
+    }
+    
+    &.active .branch-trigger {
+      background: rgba(255, 255, 255, 0.15);
+      color: var(--text-primary);
+    }
+  }
+}
+
+.branch-trigger {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 6px;
+  border-radius: 4px;
+  transition: all 0.2s;
+  cursor: pointer;
+  color: var(--text-secondary);
+
+  &:hover {
+    background: rgba(255, 255, 255, 0.1);
+    color: var(--text-primary);
+  }
+
+  .branch-name {
+    max-width: 100px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  
+  .chevron {
+    opacity: 0.5;
+  }
+}
+
+/* New Window Button Override */
+.new-window-btn {
+  width: 28px;
+  height: 28px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 6px;
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: all 0.2s;
+  flex-shrink: 0;
+  margin-left: 4px;
+
+  &:hover {
+    background: rgba(255, 255, 255, 0.1);
+    color: var(--text-primary);
+  }
+  
+  /* When GlassSelect is open, it adds 'active' class to trigger */
+  /* But here the trigger IS the button inside the slot */
+}
+
+/* ============================================== */
+/* Unified Dropdown Styles (GlassSelect-like)    */
+/* ============================================== */
+.unified-dropdown {
+  position: absolute;
+  background: var(--glass-bg-solid, #14141e); /* Match GlassSelect background */
+  backdrop-filter: blur(12px); /* Blur for any remaining transparency */
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 8px;
+  padding: 4px;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.6); /* Stronger shadow */
+  z-index: 200;
+  min-width: 280px;
+  max-width: 360px;
+  max-height: 320px;
+  overflow-y: auto;
+  overflow-x: hidden;
+
+  .dropdown-header {
+    padding: 6px 12px 4px;
+    font-size: 0.7rem;
+    font-weight: 600;
+    color: var(--text-secondary);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+    margin-bottom: 4px;
+  }
+
+  .dropdown-options {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+  }
+
+  .dropdown-option {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 8px 12px;
+    color: var(--text-secondary);
+    font-size: 0.85rem;
+    cursor: pointer;
+    border-radius: 4px;
+    transition: all 0.2s;
+    position: relative;
+
+    &:hover {
+      background: rgba(255, 255, 255, 0.05);
+      color: var(--text-primary);
+    }
+
+    &.selected {
+      background: rgba(59, 130, 246, 0.15);
+      color: var(--accent-blue);
+    }
+
+    &.disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+
+      &:hover {
+        background: transparent;
+        color: var(--text-secondary);
+      }
+    }
+
+    &.create-new {
+      color: var(--accent-blue);
+      margin-top: 4px;
+
+      &:hover {
+        background: rgba(59, 130, 246, 0.1);
+      }
+    }
+  }
+
+  .option-main {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex: 1;
+    min-width: 0; /* Enable truncation in flex child */
+  }
+
+  .option-icon {
+    font-size: 1rem;
+    line-height: 1;
+    display: flex;
+    align-items: center;
+    flex-shrink: 0;
+
+    svg {
+      width: 16px;
+      height: 16px;
+    }
+  }
+
+  .option-label {
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .option-tags {
+    display: flex;
+    gap: 4px;
+    flex-shrink: 0;
+  }
+
+  .tag-badge {
+    font-size: 0.65rem;
+    padding: 2px 6px;
+    background: rgba(255, 255, 255, 0.08);
+    border: 1px solid rgba(255, 255, 255, 0.05);
+    border-radius: 4px;
+    color: var(--text-secondary);
+    white-space: nowrap;
+    max-width: 120px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    font-family: var(--font-mono, monospace);
+  }
+
+  .option-hint {
+    font-size: 0.7rem;
+    color: var(--text-muted);
+    font-style: italic;
+    white-space: nowrap;
+  }
+
+  .check-icon {
+    flex-shrink: 0;
+    color: var(--accent-blue);
+    margin-left: 4px;
+  }
+
+  .dropdown-divider {
+    height: 1px;
+    background: rgba(255, 255, 255, 0.1);
+    margin: 4px 0;
+  }
+}
+
+/* Position override for specific dropdowns */
+.branch-dropdown-overlay {
+  top: 100%;
+  left: 0;
+  margin-top: 4px;
+}
+
+.new-window-dropdown {
+  /* Position already set via inline styles */
 }
 </style>
