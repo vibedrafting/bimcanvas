@@ -23,20 +23,16 @@ export class SignalRService {
 
     private setupListeners() {
         this.connection.on("ReceiveUpdate", (data: any) => {
-            console.log(`[SignalR] ReceiveUpdate 收到数据:`, data);
-            console.log(`[SignalR] ReceiveUpdate action=${data?.action}, trigger=${data?.trigger}`);
-            // Dispatch event or update store directly
+            // 分发服务端更新事件
             window.dispatchEvent(new CustomEvent('bimcanvas:server-update', { detail: data }));
         });
 
         this.connection.on("ReceiveGhostPatch", (patch: any) => {
-            console.log("Received ghost patch:", patch);
             window.dispatchEvent(new CustomEvent('bimcanvas:ghost-patch', { detail: patch }));
         });
 
         // Git 状态变化事件
         this.connection.on("GitStatusChanged", (status: any) => {
-            console.log("[SignalR] Git status changed:", status);
             window.dispatchEvent(new CustomEvent('bimcanvas:git-status-changed', { detail: status }));
         });
     }
@@ -89,17 +85,13 @@ export class SignalRService {
     public async registerWindow(windowId: string, branchName?: string): Promise<boolean> {
         if (this.connection.state === signalR.HubConnectionState.Connected) {
             try {
-                const success = await this.connection.invoke<boolean>("RegisterWindow", windowId, branchName);
-                console.log(`[SignalR] Window registered: ${windowId}${branchName ? ` (branch: ${branchName})` : ''}, success: ${success}`);
-                return success;
+                return await this.connection.invoke<boolean>("RegisterWindow", windowId, branchName);
             } catch (err) {
-                console.error(`[SignalR] Failed to register window: ${windowId}`, err);
+                console.error('SignalR: Failed to register window', err);
                 return false;
             }
-        } else {
-            console.warn(`[SignalR] Cannot register window: ${windowId}, connection not established`);
-            return false;
         }
+        return false;
     }
 
     public getConnectionState(): signalR.HubConnectionState {

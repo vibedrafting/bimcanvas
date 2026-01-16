@@ -215,7 +215,7 @@ export interface Module {
   moduleName?: string;
   bounds: Polygon2D;
   facing: string | Point2D;
-  zoneId: string;
+  // zoneId 已移除：分区由 Server 根据 bounds 位置自动计算
   items: ModuleItem[];
   placementReason?: string;
 }

@@ -209,10 +209,9 @@ namespace BIMCanvas.Server.Services
         /// </summary>
         private bool ModulesEqual(Module a, Module b)
         {
-            // 简单比较关键属性
+            // 简单比较关键属性（v3.4: 移除 ZoneId 比较，分区由 Server 自动计算）
             return a.Id == b.Id &&
                    a.ModuleId == b.ModuleId &&
-                   a.ZoneId == b.ZoneId &&
                    BoundsEqual(a.Bounds, b.Bounds);
         }
 

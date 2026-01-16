@@ -1,7 +1,9 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using System.Text;
+using BIMCanvas.Core.Algorithms.Spatial;
 using BIMCanvas.Core.Converters.Json;
 using BIMCanvas.Core.Models.Computed;
 using BIMCanvas.Core.Models.Layout;
@@ -422,9 +424,7 @@ namespace BIMCanvas.Server.Controllers
 
         /// <summary>
         /// 保存模块数据到文件系统
-        /// v3.3: 支持按分区子目录保存
-        /// - 如果指定 zoneId，只保存该分区到 schemes/{zoneId}/modules.json
-        /// - 如果不指定 zoneId，按模块的 zoneId 自动分组写入分区子目录
+        /// v3.4: 移除 zoneId 依赖，Server 根据模块 bounds 位置自动计算分区
         /// </summary>
         [HttpPost("save")]
         public ActionResult SaveModules([FromBody] SaveModulesRequest request)
@@ -434,7 +434,9 @@ namespace BIMCanvas.Server.Controllers
                 return BadRequest(new { message = "没有加载的项目" });
             }
 
-            var projectPath = _projectContext.CurrentProjectPath!;
+            // 优先使用活跃窗口的 Worktree 路径
+            var projectPath = _projectContext.GetActiveWorktreePath()
+                              ?? _projectContext.CurrentProjectPath!;
             var schemesPath = Path.Combine(projectPath, "schemes");
 
             try
@@ -447,42 +449,80 @@ namespace BIMCanvas.Server.Controllers
 
                 var modules = request.Modules ?? new List<Module>();
 
-                // 如果指定了 zoneId，只保存该分区
-                if (!string.IsNullOrEmpty(request.ZoneId))
+                // Step 1: 读取分区边界
+                var computedData = LoadComputedData(projectPath);
+                var roomZones = computedData.RoomZones ?? new List<Zone>();
+
+                // Step 2: 根据 bounds 位置分组
+                var grouped = new Dictionary<string, List<Module>>();
+                var orphanModules = new List<string>();
+
+                foreach (var module in modules)
                 {
-                    SaveZoneModules(schemesPath, request.ZoneId, modules);
-                    _logger.LogInformation("分区模块已保存: {Count} 个模块 -> {ZoneId}",
-                        modules.Count, request.ZoneId);
-                    return Ok(new { success = true, modulesCount = modules.Count, zoneId = request.ZoneId });
+                    var zoneId = CalculateModuleZone(module, roomZones);
+
+                    if (string.IsNullOrEmpty(zoneId))
+                    {
+                        orphanModules.Add(module.Id);
+                        _logger.LogWarning("[SaveModules] 模块 {ModuleId} 不在任何分区内", module.Id);
+                        continue;
+                    }
+
+                    if (!grouped.ContainsKey(zoneId))
+                        grouped[zoneId] = new List<Module>();
+                    grouped[zoneId].Add(module);
                 }
 
-                // 按 zoneId 分组
-                var grouped = modules
-                    .Where(m => !string.IsNullOrEmpty(m.ZoneId))
-                    .GroupBy(m => m.ZoneId)
-                    .ToDictionary(g => g.Key, g => g.ToList());
+                // Step 3: 清空所有分区的 modules.json（防止残留）
+                var existingZoneDirs = Directory.GetDirectories(schemesPath)
+                    .Where(d =>
+                    {
+                        var name = Path.GetFileName(d);
+                        return name.StartsWith("rz_") || name.StartsWith("dz_");
+                    });
 
-                // 如果没有有效的 zoneId 分组，使用旧格式（向后兼容）
-                if (grouped.Count == 0)
+                foreach (var zoneDir in existingZoneDirs)
                 {
-                    var modulesPath = Path.Combine(schemesPath, "modules.json");
-                    var json = JsonConvert.SerializeObject(modules, Formatting.Indented, _jsonSettings);
-                    System.IO.File.WriteAllText(modulesPath, json, Encoding.UTF8);
-                    _logger.LogInformation("模块数据已保存（向后兼容模式）: {Count} 个模块 -> {Path}",
-                        modules.Count, modulesPath);
-                    return Ok(new { success = true, modulesCount = modules.Count, mode = "legacy" });
+                    var modulesFile = Path.Combine(zoneDir, "modules.json");
+                    if (System.IO.File.Exists(modulesFile))
+                    {
+                        System.IO.File.Delete(modulesFile);
+                        _logger.LogDebug("[SaveModules] 清空分区文件: {Path}", modulesFile);
+                    }
                 }
 
-                // 按分区子目录保存
+                // Step 4: 写入新数据
                 foreach (var kvp in grouped)
                 {
-                    SaveZoneModules(schemesPath, kvp.Key, kvp.Value);
+                    var zoneDir = Path.Combine(schemesPath, kvp.Key);
+                    if (!Directory.Exists(zoneDir))
+                        Directory.CreateDirectory(zoneDir);
+
+                    var modulesPath = Path.Combine(zoneDir, "modules.json");
+                    var json = JsonConvert.SerializeObject(kvp.Value, Formatting.Indented, _jsonSettings);
+                    System.IO.File.WriteAllText(modulesPath, json, Encoding.UTF8);
+                    _logger.LogDebug("[SaveModules] 写入 {Count} 个模块到 {ZoneId}", kvp.Value.Count, kvp.Key);
                 }
 
-                _logger.LogInformation("模块数据已保存: {Total} 个模块，分布在 {ZoneCount} 个分区",
-                    modules.Count, grouped.Count);
+                // Step 5: 清理旧格式文件（向后兼容过渡）
+                var legacyPath = Path.Combine(schemesPath, "modules.json");
+                if (System.IO.File.Exists(legacyPath))
+                {
+                    System.IO.File.Delete(legacyPath);
+                    _logger.LogInformation("[SaveModules] 已清理旧格式 modules.json");
+                }
 
-                return Ok(new { success = true, modulesCount = modules.Count, zoneCount = grouped.Count, mode = "zoned" });
+                _logger.LogInformation("[SaveModules] 保存完成: {Total} 个模块，{ZoneCount} 个分区，{OrphanCount} 个孤立",
+                    modules.Count - orphanModules.Count, grouped.Count, orphanModules.Count);
+
+                return Ok(new
+                {
+                    success = true,
+                    modulesCount = modules.Count - orphanModules.Count,
+                    zoneCount = grouped.Count,
+                    orphanCount = orphanModules.Count,
+                    orphanModules = orphanModules
+                });
             }
             catch (Exception ex)
             {
@@ -492,19 +532,27 @@ namespace BIMCanvas.Server.Controllers
         }
 
         /// <summary>
-        /// 保存指定分区的模块到子目录
+        /// 根据模块 bounds 中心点计算所属分区
         /// </summary>
-        private void SaveZoneModules(string schemesPath, string zoneId, List<Module> modules)
+        private string? CalculateModuleZone(Module module, List<Zone> roomZones)
         {
-            var zoneDir = Path.Combine(schemesPath, zoneId);
-            if (!Directory.Exists(zoneDir))
+            if (module.Bounds == null || module.Bounds.Vertices.Length < 3)
+                return null;
+
+            // 计算 bounds 中心点
+            var center = module.Bounds.ComputeCenter();
+
+            // 遍历所有房间区域，找到包含该点的分区
+            foreach (var zone in roomZones.Where(z => z.Type == Core.Models.Shared.ZoneType.Room))
             {
-                Directory.CreateDirectory(zoneDir);
+                var boundary = zone.ComputedBoundary ?? zone.RawBoundary;
+                if (boundary != null && CollisionDetector.Contains(boundary, center))
+                {
+                    return zone.Id;
+                }
             }
 
-            var modulesPath = Path.Combine(zoneDir, "modules.json");
-            var json = JsonConvert.SerializeObject(modules, Formatting.Indented, _jsonSettings);
-            System.IO.File.WriteAllText(modulesPath, json, Encoding.UTF8);
+            return null;
         }
 
         /// <summary>
@@ -640,6 +688,7 @@ namespace BIMCanvas.Server.Controllers
 
         /// <summary>
         /// 递归读取所有分区的 modules.json
+        /// v3.4: 不再填充 zoneId，模块无此字段
         /// 支持两种格式：
         /// - 新格式: schemes/{zoneId}/modules.json (分区子目录)
         /// - 旧格式: schemes/modules.json (单一文件，向后兼容)
@@ -662,17 +711,11 @@ namespace BIMCanvas.Server.Controllers
                 // 新格式：从分区子目录读取
                 foreach (var zoneDir in zoneDirs)
                 {
-                    var zoneId = Path.GetFileName(zoneDir);
                     var modulesPath = Path.Combine(zoneDir, "modules.json");
                     if (System.IO.File.Exists(modulesPath))
                     {
                         var modules = ReadJson<List<Module>>(modulesPath) ?? new List<Module>();
-                        // 确保每个模块有正确的 zoneId
-                        foreach (var m in modules)
-                        {
-                            if (string.IsNullOrEmpty(m.ZoneId))
-                                m.ZoneId = zoneId;
-                        }
+                        // v3.4: 不再填充 zoneId，分区由 Server 保存时自动计算
                         allModules.AddRange(modules);
                     }
                 }

@@ -2,8 +2,12 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Text;
+using BIMCanvas.Core.Algorithms.Spatial;
 using BIMCanvas.Core.Converters.Json;
+using BIMCanvas.Core.Models.Computed;
 using BIMCanvas.Core.Models.Layout;
+using BIMCanvas.Core.Models.Shared;
 using BIMCanvas.Server.Dtos;
 using Microsoft.Extensions.Logging;
 using Newtonsoft.Json;
@@ -160,6 +164,7 @@ namespace BIMCanvas.Server.Services
 
         /// <summary>
         /// 按分区保存模块数据
+        /// v3.4: 根据模块 bounds 位置自动计算分区
         /// </summary>
         /// <param name="basePath">项目基础路径</param>
         /// <param name="modules">要保存的模块列表</param>
@@ -174,36 +179,49 @@ namespace BIMCanvas.Server.Services
                 Directory.CreateDirectory(schemesPath);
             }
 
-            // 按 ZoneId 分组
-            var modulesByZone = modules
-                .GroupBy(m => m.ZoneId)
-                .ToDictionary(g => g.Key, g => g.ToList());
+            // 读取分区边界
+            var roomZones = LoadRoomZones(basePath);
+
+            // 根据 bounds 位置分组
+            var modulesByZone = new Dictionary<string, List<Module>>();
+            var orphanCount = 0;
+
+            foreach (var module in modules)
+            {
+                var zoneId = CalculateModuleZone(module, roomZones);
+
+                if (string.IsNullOrEmpty(zoneId))
+                {
+                    orphanCount++;
+                    _logger.LogWarning("[SaveAllModules] 模块 {ModuleId} 不在任何分区内", module.Id);
+                    continue;
+                }
+
+                if (!modulesByZone.ContainsKey(zoneId))
+                    modulesByZone[zoneId] = new List<Module>();
+                modulesByZone[zoneId].Add(module);
+            }
 
             var savedCount = 0;
 
-            // 清空现有分区目录中的 modules.json（避免残留数据）
-            foreach (var zoneDir in Directory.GetDirectories(schemesPath))
+            // 清空所有分区的 modules.json（防止残留）
+            var existingZoneDirs = Directory.GetDirectories(schemesPath)
+                .Where(d =>
+                {
+                    var name = Path.GetFileName(d);
+                    return name.StartsWith("rz_") || name.StartsWith("dz_");
+                });
+
+            foreach (var zoneDir in existingZoneDirs)
             {
                 var modulesFile = Path.Combine(zoneDir, "modules.json");
-                var zoneName = Path.GetFileName(zoneDir);
-
-                if (modulesByZone.ContainsKey(zoneName))
+                if (File.Exists(modulesFile))
                 {
-                    // 写入新数据
-                    var zoneModules = modulesByZone[zoneName];
-                    var json = JsonConvert.SerializeObject(zoneModules, _jsonSettings);
-                    File.WriteAllText(modulesFile, json);
-                    savedCount += zoneModules.Count;
-                    modulesByZone.Remove(zoneName);
-                }
-                else if (File.Exists(modulesFile))
-                {
-                    // 删除不再有模块的分区文件
                     File.Delete(modulesFile);
                 }
             }
 
-            // 处理新增的分区
+            // 写入新数据
             foreach (var kvp in modulesByZone)
             {
                 var zoneDir = Path.Combine(schemesPath, kvp.Key);
@@ -214,12 +232,61 @@ namespace BIMCanvas.Server.Services
 
                 var modulesFile = Path.Combine(zoneDir, "modules.json");
                 var json = JsonConvert.SerializeObject(kvp.Value, _jsonSettings);
-                File.WriteAllText(modulesFile, json);
+                File.WriteAllText(modulesFile, json, Encoding.UTF8);
                 savedCount += kvp.Value.Count;
             }
 
-            _logger.LogInformation("保存了 {Count} 个模块到 {Path}", savedCount, schemesPath);
+            _logger.LogInformation("[SaveAllModules] 保存了 {Count} 个模块到 {Path}，{OrphanCount} 个孤立",
+                savedCount, schemesPath, orphanCount);
             return savedCount;
+        }
+
+        /// <summary>
+        /// 读取 computed/room_zones.json
+        /// </summary>
+        private List<Zone> LoadRoomZones(string basePath)
+        {
+            var zonesPath = Path.Combine(basePath, "computed", "room_zones.json");
+            if (!File.Exists(zonesPath))
+            {
+                _logger.LogWarning("[LoadRoomZones] room_zones.json 不存在: {Path}", zonesPath);
+                return new List<Zone>();
+            }
+
+            try
+            {
+                var json = File.ReadAllText(zonesPath, Encoding.UTF8);
+                return JsonConvert.DeserializeObject<List<Zone>>(json, _jsonSettings) ?? new List<Zone>();
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "[LoadRoomZones] 读取 room_zones.json 失败");
+                return new List<Zone>();
+            }
+        }
+
+        /// <summary>
+        /// 根据模块 bounds 中心点计算所属分区
+        /// </summary>
+        private string? CalculateModuleZone(Module module, List<Zone> roomZones)
+        {
+            if (module.Bounds == null || module.Bounds.Vertices.Length < 3)
+                return null;
+
+            // 计算 bounds 中心点
+            var center = module.Bounds.ComputeCenter();
+
+            // 遍历所有房间区域，找到包含该点的分区
+            foreach (var zone in roomZones.Where(z => z.Type == ZoneType.Room))
+            {
+                var boundary = zone.ComputedBoundary ?? zone.RawBoundary;
+                if (boundary != null && CollisionDetector.Contains(boundary, center))
+                {
+                    return zone.Id;
+                }
+            }
+
+            return null;
         }
 
         /// <summary>

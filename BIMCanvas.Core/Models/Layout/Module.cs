@@ -34,10 +34,7 @@ namespace BIMCanvas.Core.Models.Layout
         /// </summary>
         public Facing Facing { get; set; }
 
-        /// <summary>
-        /// 所属区域 ID
-        /// </summary>
-        public string ZoneId { get; set; } = string.Empty;
+        // ZoneId 已移除：分区由 Server 根据 bounds 位置自动计算
 
         /// <summary>
         /// 模块内部家具清单（回写 Revit 用）
