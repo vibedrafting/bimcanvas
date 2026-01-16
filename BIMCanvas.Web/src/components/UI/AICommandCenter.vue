@@ -643,7 +643,7 @@ const fetchAgentConfig = async () => {
     // 并行获取默认配置和 Web 配置
     const [configRes, webConfigRes] = await Promise.all([
       fetch(`${AGENT_API_BASE}/api/config`),
-      fetch(`${AGENT_API_BASE}/api/web-config`)
+      fetch(`${AGENT_API_BASE}/api/web_config`)
     ]);
 
     // 加载模型列表（完全由配置文件控制）
@@ -1127,7 +1127,7 @@ const toggleAttachmentMenu = () => {
 
 // Model & Thinking State
 // 存储完整对象 { id, label }，发送时使用 id，显示时使用 label
-// 模型列表完全由配置文件控制，启动时从 web-config.json 加载
+// 模型列表完全由配置文件控制，启动时从 web_config.json 加载
 const models = ref<{ id: string; label: string }[]>([]);
 
 const thinkingLevels = [
@@ -1150,7 +1150,7 @@ const newModelInputRef = ref<HTMLInputElement | null>(null);
 // 保存模型列表到服务端
 const saveCustomModels = async () => {
   try {
-    await fetch(`${AGENT_API_BASE}/api/web-config`, {
+    await fetch(`${AGENT_API_BASE}/api/web_config`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ customModels: models.value })

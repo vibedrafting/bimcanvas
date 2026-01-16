@@ -89,7 +89,7 @@ async def config_handler(request: web.Request) -> web.Response:
 
 def _get_web_config_path() -> Path:
     """获取 Web 配置文件路径"""
-    return ConfigLoader.DEFAULT_CONFIG_DIR / "web-config.json"
+    return ConfigLoader.DEFAULT_CONFIG_DIR / "web_config.json"
 
 
 def _load_web_config() -> dict:
@@ -643,8 +643,8 @@ def create_app() -> web.Application:
     routes = [
         web.get("/health", health_handler),
         web.get("/api/config", config_handler),
-        web.get("/api/web-config", web_config_get_handler),
-        web.post("/api/web-config", web_config_save_handler),
+        web.get("/api/web_config", web_config_get_handler),
+        web.post("/api/web_config", web_config_save_handler),
         web.post("/api/chat", chat_handler),
         web.post("/api/chat/stream", chat_stream_handler),
         web.post("/api/clear-history", clear_history_handler),
