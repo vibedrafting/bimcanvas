@@ -3,10 +3,10 @@ using System.Runtime.InteropServices;
 using System.Text;
 using BIMCanvas.Server.Hubs;
 using BIMCanvas.Server.Logging;
+using BIMCanvas.Server.Models;
 using BIMCanvas.Server.Services;
 using BIMCanvas.Server.Services.Git;
 using Newtonsoft.Json.Serialization;
-using Newtonsoft.Json.Linq;
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Windows API for enabling ANSI escape sequences (Virtual Terminal Processing)
@@ -138,6 +138,8 @@ app.MapHub<CanvasHub>("/hubs/canvas");
 // 健康检查端点
 app.MapGet("/health", () => new { status = "healthy", timestamp = DateTime.UtcNow });
 
+// 加载用户配置
+var config = ConfigService.Load();
 WriteWithColoredPrefix("[Server]", "BIMCanvas.Server 启动中...", ConsoleColor.White);
 WriteWithColoredPrefix("[Server]", "Swagger: http://localhost:5000/swagger", ConsoleColor.White);
 
@@ -147,9 +149,8 @@ WriteWithColoredPrefix("[Server]", "Swagger: http://localhost:5000/swagger", Con
     var projectContext = app.Services.GetRequiredService<ProjectContext>();
     var baseDir = AppContext.BaseDirectory;
 
-    // Case1: 通过命令行参数指定 .bcp 文件
-    // Case2: 默认加载 demo_1.bcp
-    string? bcpFilePath = args.Length > 0 ? args[0] : null;
+    // 优先级：命令行参数 > 配置文件 > demo_1
+    string? bcpFilePath = args.Length > 0 ? args[0] : config.Startup.DefaultProject;
 
     if (string.IsNullOrEmpty(bcpFilePath))
     {
@@ -205,7 +206,7 @@ WriteWithColoredPrefix("[Server]", "Swagger: http://localhost:5000/swagger", Con
     if (Directory.Exists(agentProjectPath))
     {
         // 读取 Agent 端口配置
-        var agentPort = LoadAgentPort(agentProjectPath);
+        var agentPort = config.Server.Port;
 
         // 检测并清理端口占用
         if (IsPortOccupied(agentPort, out var occupyingPid))
@@ -348,15 +349,27 @@ WriteWithColoredPrefix("[Server]", "Swagger: http://localhost:5000/swagger", Con
             await Task.Delay(200);
         }
 
-        // 打开浏览器
-        WriteWithColoredPrefix("[Server]", $"打开浏览器: {webBaseUrl}", ConsoleColor.White);
-        try
+        // 打开浏览器（根据配置）
+        if (config.Startup.OpenBrowser)
         {
-            Process.Start(new ProcessStartInfo(webBaseUrl) { UseShellExecute = true });
-        }
-        catch (Exception ex)
-        {
-            WriteWithColoredPrefix("[Server:ERR]", $"无法自动打开浏览器: {ex.Message}", ConsoleColor.DarkGray);
+            WriteWithColoredPrefix("[Server]", $"打开浏览器: {webBaseUrl}", ConsoleColor.White);
+            try
+            {
+                if (!string.IsNullOrEmpty(config.Startup.BrowserPath))
+                {
+                    // 使用指定浏览器
+                    Process.Start(config.Startup.BrowserPath, webBaseUrl);
+                }
+                else
+                {
+                    // 使用系统默认浏览器
+                    Process.Start(new ProcessStartInfo(webBaseUrl) { UseShellExecute = true });
+                }
+            }
+            catch (Exception ex)
+            {
+                WriteWithColoredPrefix("[Server:ERR]", $"无法自动打开浏览器: {ex.Message}", ConsoleColor.DarkGray);
+            }
         }
     }
 
@@ -416,38 +429,6 @@ static string FindAgentProjectPath(string startDir)
 
     // 兜底：返回相对路径（兼容 dotnet run）
     return Path.GetFullPath(Path.Combine(Directory.GetCurrentDirectory(), "..", "BIMCanvas.Agent"));
-}
-
-// 辅助函数：读取 Agent 端口配置
-// Agent 配置文件位置：~/.bimcanvas/config.json
-static int LoadAgentPort(string agentProjectPath)
-{
-    try
-    {
-        // Agent 配置目录：~/.bimcanvas/
-        var userConfigDir = Path.Combine(
-            Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
-            ".bimcanvas"
-        );
-        var configPath = Path.Combine(userConfigDir, "config.json");
-
-        if (!File.Exists(configPath))
-        {
-            // 配置文件不存在是正常的，Agent 启动时会自动从模板创建
-            return 8765;
-        }
-
-        var json = File.ReadAllText(configPath);
-        var config = JObject.Parse(json);
-        var port = config?["server"]?["port"]?.Value<int>() ?? 8765;
-
-        return port;
-    }
-    catch (Exception ex)
-    {
-        WriteWithColoredPrefix("[Server:WARN]", $"读取 Agent 配置失败: {ex.Message}，使用默认端口 8765", ConsoleColor.DarkYellow);
-        return 8765;
-    }
 }
 
 // 辅助函数：检测端口是否被占用（跨平台）
