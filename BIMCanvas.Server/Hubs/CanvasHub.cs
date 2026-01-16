@@ -33,7 +33,60 @@ namespace BIMCanvas.Server.Hubs
         public override async Task OnConnectedAsync()
         {
             _logger.LogInformation("SignalR 客户端已连接: {ConnectionId}", Context.ConnectionId);
+
+            // 推送初始 Git 状态给新连接的客户端
+            await PushGitStatusAsync();
+
             await base.OnConnectedAsync();
+        }
+
+        /// <summary>
+        /// 推送当前 Git 状态给调用者
+        /// </summary>
+        private async Task PushGitStatusAsync()
+        {
+            if (!_projectContext.IsLoaded || string.IsNullOrEmpty(_projectContext.CurrentProjectPath))
+            {
+                await Clients.Caller.SendAsync("GitStatusChanged", new
+                {
+                    isLoaded = false,
+                    hasUncommittedChanges = false
+                });
+                return;
+            }
+
+            var projectPath = _projectContext.CurrentProjectPath;
+
+            if (!_gitWorktreeService.IsGitRepository(projectPath))
+            {
+                await Clients.Caller.SendAsync("GitStatusChanged", new
+                {
+                    isLoaded = true,
+                    isGitRepo = false,
+                    hasUncommittedChanges = false
+                });
+                return;
+            }
+
+            try
+            {
+                var hasChanges = _gitWorktreeService.HasUncommittedChanges(projectPath);
+                var currentBranch = _gitWorktreeService.GetCurrentBranch(projectPath);
+
+                await Clients.Caller.SendAsync("GitStatusChanged", new
+                {
+                    isLoaded = true,
+                    isGitRepo = true,
+                    hasUncommittedChanges = hasChanges,
+                    currentBranch
+                });
+
+                _logger.LogDebug("推送 Git 状态: hasChanges={HasChanges}, branch={Branch}", hasChanges, currentBranch);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "获取 Git 状态失败");
+            }
         }
 
         /// <summary>

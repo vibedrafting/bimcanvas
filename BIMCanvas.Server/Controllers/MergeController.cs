@@ -123,6 +123,65 @@ namespace BIMCanvas.Server.Controllers
         }
 
         /// <summary>
+        /// 执行覆盖合并（MVP v0.1）
+        /// 将源分支的方案数据完全覆盖到目标分支
+        /// </summary>
+        /// <param name="request">合并请求</param>
+        /// <returns>合并结果</returns>
+        [HttpPost("overwrite")]
+        public async Task<ActionResult<OverwriteMergeResult>> ExecuteOverwriteMerge(
+            [FromBody] OverwriteMergeRequest request)
+        {
+            _logger.LogInformation(">>> [MergeController] ExecuteOverwriteMerge: Source={Source}, Target={Target}",
+                request?.SourceBranch ?? "(null)",
+                request?.TargetBranch ?? "(null)");
+
+            if (string.IsNullOrEmpty(request?.SourceBranch))
+            {
+                return BadRequest(new { success = false, message = "源分支不能为空" });
+            }
+
+            if (string.IsNullOrEmpty(request?.TargetBranch))
+            {
+                return BadRequest(new { success = false, message = "目标分支不能为空" });
+            }
+
+            if (request.SourceBranch == request.TargetBranch)
+            {
+                return BadRequest(new { success = false, message = "源分支和目标分支不能相同" });
+            }
+
+            if (!_projectContext.IsLoaded)
+            {
+                return BadRequest(new { success = false, message = "没有加载的项目" });
+            }
+
+            var projectPath = _projectContext.CurrentProjectPath!;
+
+            try
+            {
+                var result = await _mergeService.ExecuteOverwriteMergeAsync(
+                    projectPath, request.SourceBranch, request.TargetBranch);
+
+                if (result.Success)
+                {
+                    _logger.LogInformation("覆盖合并成功: {Count} 个分区", result.MergedZoneCount);
+                }
+                else
+                {
+                    _logger.LogWarning("覆盖合并失败: {Message}", result.Message);
+                }
+
+                return Ok(result);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "执行覆盖合并失败");
+                return StatusCode(500, new { success = false, message = $"执行覆盖合并失败: {ex.Message}" });
+            }
+        }
+
+        /// <summary>
         /// 获取可合并的分支列表（有差异的分支）
         /// </summary>
         /// <returns>分支列表</returns>
@@ -172,6 +231,22 @@ namespace BIMCanvas.Server.Controllers
     }
 
     #region DTOs
+
+    /// <summary>
+    /// 覆盖合并请求（MVP v0.1）
+    /// </summary>
+    public class OverwriteMergeRequest
+    {
+        /// <summary>
+        /// 源分支
+        /// </summary>
+        public string SourceBranch { get; set; } = string.Empty;
+
+        /// <summary>
+        /// 目标分支
+        /// </summary>
+        public string TargetBranch { get; set; } = string.Empty;
+    }
 
     /// <summary>
     /// 选择性合并请求

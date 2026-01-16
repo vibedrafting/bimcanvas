@@ -12,8 +12,10 @@ namespace BIMCanvas.Server.Services
         private readonly ILogger<ProjectWatcherService> _logger;
         private readonly ProjectContext _projectContext;
         private readonly IHubContext<CanvasHub> _hubContext;
+        private readonly GitWorktreeService _gitService;
 
         private FileSystemWatcher? _watcher;
+        private FileSystemWatcher? _projectWatcher; // 监控整个项目目录的 Git 状态变化
         private readonly object _lock = new();
         private CancellationTokenSource? _debounceCts;
         private CancellationTokenSource? _serviceCts;
@@ -32,11 +34,13 @@ namespace BIMCanvas.Server.Services
         public ProjectWatcherService(
             ILogger<ProjectWatcherService> logger,
             ProjectContext projectContext,
-            IHubContext<CanvasHub> hubContext)
+            IHubContext<CanvasHub> hubContext,
+            GitWorktreeService gitService)
         {
             _logger = logger;
             _projectContext = projectContext;
             _hubContext = hubContext;
+            _gitService = gitService;
         }
 
         public Task StartAsync(CancellationToken cancellationToken)
@@ -88,11 +92,12 @@ namespace BIMCanvas.Server.Services
                     return;
                 }
 
+                // 监控 schemes 目录的 JSON 文件（用于 Canvas 数据刷新）
                 _watcher = new FileSystemWatcher(schemesPath)
                 {
                     NotifyFilter = NotifyFilters.LastWrite | NotifyFilters.FileName,
                     Filter = "*.json",
-                    IncludeSubdirectories = false,
+                    IncludeSubdirectories = true,  // 包含子目录（zones 等）
                     EnableRaisingEvents = true
                 };
 
@@ -101,6 +106,21 @@ namespace BIMCanvas.Server.Services
                 _watcher.Renamed += OnFileRenamed;
 
                 _logger.LogInformation("开始监听项目文件: {Path}", schemesPath);
+
+                // 监控整个项目目录（用于 Git 状态变化推送）
+                _projectWatcher = new FileSystemWatcher(projectPath)
+                {
+                    NotifyFilter = NotifyFilters.LastWrite | NotifyFilters.FileName | NotifyFilters.DirectoryName,
+                    Filter = "*.*",
+                    IncludeSubdirectories = true,
+                    EnableRaisingEvents = true
+                };
+
+                _projectWatcher.Changed += OnProjectFileChanged;
+                _projectWatcher.Created += OnProjectFileChanged;
+                _projectWatcher.Deleted += OnProjectFileChanged;
+
+                _logger.LogInformation("开始监听项目目录（Git 状态）: {Path}", projectPath);
             }
         }
 
@@ -121,6 +141,68 @@ namespace BIMCanvas.Server.Services
                     _watcher = null;
                     _logger.LogInformation("停止监听项目文件");
                 }
+
+                if (_projectWatcher != null)
+                {
+                    _projectWatcher.EnableRaisingEvents = false;
+                    _projectWatcher.Changed -= OnProjectFileChanged;
+                    _projectWatcher.Created -= OnProjectFileChanged;
+                    _projectWatcher.Deleted -= OnProjectFileChanged;
+                    _projectWatcher.Dispose();
+                    _projectWatcher = null;
+                    _logger.LogInformation("停止监听项目目录（Git 状态）");
+                }
+            }
+        }
+
+        /// <summary>
+        /// 项目文件变化事件处理（仅用于 Git 状态推送）
+        /// </summary>
+        private void OnProjectFileChanged(object sender, FileSystemEventArgs e)
+        {
+            // 忽略 .git 目录内部的变化（Git 自己的操作）
+            if (e.FullPath.Contains(".git") || e.FullPath.Contains(".worktrees"))
+            {
+                return;
+            }
+
+            // 检查是否在 Git 操作期间
+            if (_projectContext.IsGitOperationInProgress)
+            {
+                return;
+            }
+
+            _logger.LogDebug("检测到项目文件变化: {Path} ({ChangeType})", e.FullPath, e.ChangeType);
+            ScheduleGitStatusUpdate();
+        }
+
+        /// <summary>
+        /// 调度 Git 状态更新（带防抖）
+        /// </summary>
+        private CancellationTokenSource? _gitDebounceCts;
+        private void ScheduleGitStatusUpdate()
+        {
+            lock (_lock)
+            {
+                _gitDebounceCts?.Cancel();
+                _gitDebounceCts = new CancellationTokenSource();
+                var token = _gitDebounceCts.Token;
+
+                _ = Task.Run(async () =>
+                {
+                    try
+                    {
+                        await Task.Delay(DebounceMs, token);
+                        if (!token.IsCancellationRequested)
+                        {
+                            await BroadcastGitStatus();
+                        }
+                    }
+                    catch (TaskCanceledException)
+                    {
+                        // 被新的变化取消，正常
+                    }
+                }, token);
             }
         }
 
@@ -225,10 +307,52 @@ namespace BIMCanvas.Server.Services
                 await _hubContext.Clients.All.SendAsync("ReceiveUpdate", updateMessage);
 
                 _logger.LogInformation("已广播文件变化通知: {FileName}", fileName);
+
+                // 同时广播 Git 状态变化
+                await BroadcastGitStatus();
             }
             catch (Exception ex)
             {
                 _logger.LogError(ex, "广播更新失败");
+            }
+        }
+
+        /// <summary>
+        /// 广播 Git 状态给所有客户端
+        /// </summary>
+        public async Task BroadcastGitStatus()
+        {
+            if (!_projectContext.IsLoaded || string.IsNullOrEmpty(_projectContext.CurrentProjectPath))
+            {
+                return;
+            }
+
+            var projectPath = _projectContext.CurrentProjectPath;
+
+            if (!_gitService.IsGitRepository(projectPath))
+            {
+                return;
+            }
+
+            try
+            {
+                var hasChanges = _gitService.HasUncommittedChanges(projectPath);
+                var currentBranch = _gitService.GetCurrentBranch(projectPath);
+
+                var gitStatus = new
+                {
+                    isLoaded = true,
+                    isGitRepo = true,
+                    hasUncommittedChanges = hasChanges,
+                    currentBranch
+                };
+
+                await _hubContext.Clients.All.SendAsync("GitStatusChanged", gitStatus);
+                _logger.LogDebug("已广播 Git 状态: hasChanges={HasChanges}, branch={Branch}", hasChanges, currentBranch);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "广播 Git 状态失败");
             }
         }
 
@@ -237,6 +361,7 @@ namespace BIMCanvas.Server.Services
             _serviceCts?.Cancel();
             _serviceCts?.Dispose();
             _debounceCts?.Dispose();
+            _gitDebounceCts?.Dispose();
             StopWatching();
         }
     }

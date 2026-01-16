@@ -4,81 +4,32 @@ import { ref, computed } from 'vue';
 const SERVER_API_BASE = 'http://localhost:5000';
 
 /**
- * 模块变化
+ * 覆盖合并结果
  */
-export interface ModuleChange {
-  oldModule?: any;
-  newModule?: any;
-}
-
-/**
- * 分区差异
- */
-export interface ZoneDiff {
-  /** 分区 ID */
-  zoneId: string;
-  /** 源分支 */
-  sourceBranch: string;
-  /** 目标分支 */
-  targetBranch: string;
-  /** 新增的模块 */
-  addedModules: any[];
-  /** 删除的模块 */
-  removedModules: any[];
-  /** 修改的模块 */
-  modifiedModules: ModuleChange[];
-  /** 是否有变化 */
-  hasChanges: boolean;
-  /** 变化统计 */
-  summary: string;
-}
-
-/**
- * 可合并分支信息
- */
-export interface MergeBranchInfo {
-  /** 分支名 */
-  name: string;
-  /** 最后提交信息 */
-  lastCommit: string;
-  /** 最后提交时间 */
-  lastCommitTime: string;
-  /** 是否是 AI 生成的分支 */
-  isAiBranch: boolean;
-}
-
-/**
- * 选择性合并结果
- */
-export interface SelectiveMergeResult {
+export interface OverwriteMergeResult {
   success: boolean;
-  mergedZones: string[];
-  failedZones: string[];
-  errorMessage?: string;
+  message?: string;
 }
 
 /**
- * 合并状态 Store
+ * 合并向导 Store (MVP v0.1)
  *
- * 用于管理分区级差异对比和选择性合并
+ * 简化版：只支持全量覆盖合并
  */
 export const useMergeStore = defineStore('merge', () => {
   // === State ===
 
-  /** 可合并的分支列表 */
-  const mergeableBranches = ref<MergeBranchInfo[]>([]);
+  /** 向导是否可见 */
+  const isVisible = ref(false);
 
-  /** 当前选择的源分支 */
-  const selectedSourceBranch = ref<string | null>(null);
+  /** 当前步骤：1=选择分支, 2=确认合并 */
+  const currentStep = ref(1);
 
-  /** 分区差异列表 */
-  const zoneDiffs = ref<ZoneDiff[]>([]);
+  /** 目标分支 */
+  const targetBranch = ref('');
 
-  /** 选中的分区（用于选择性合并） */
-  const selectedZones = ref<Set<string>>(new Set());
-
-  /** 是否正在加载 */
-  const isLoading = ref(false);
+  /** 源分支 */
+  const sourceBranch = ref('');
 
   /** 是否正在合并 */
   const isMerging = ref(false);
@@ -86,174 +37,102 @@ export const useMergeStore = defineStore('merge', () => {
   /** 错误信息 */
   const error = ref<string | null>(null);
 
-  /** 是否显示合并面板 */
-  const showMergePanel = ref(false);
-
   // === Getters ===
 
-  /** 是否有差异 */
-  const hasDiffs = computed(() => zoneDiffs.value.length > 0);
-
-  /** 选中的分区数量 */
-  const selectedCount = computed(() => selectedZones.value.size);
-
-  /** 全部选中 */
-  const isAllSelected = computed(() =>
-    zoneDiffs.value.length > 0 &&
-    selectedZones.value.size === zoneDiffs.value.length
-  );
-
-  /** AI 生成的分支 */
-  const aiBranches = computed(() =>
-    mergeableBranches.value.filter(b => b.isAiBranch)
-  );
+  /** 是否可以进行下一步 */
+  const canProceed = computed(() => {
+    if (currentStep.value === 1) {
+      return targetBranch.value && sourceBranch.value && targetBranch.value !== sourceBranch.value;
+    }
+    return true;
+  });
 
   // === Actions ===
 
   /**
-   * 获取可合并的分支列表
+   * 打开合并向导
    */
-  const fetchMergeableBranches = async (): Promise<void> => {
-    try {
-      isLoading.value = true;
-      error.value = null;
+  const openWizard = (): void => {
+    isVisible.value = true;
+    currentStep.value = 1;
+    targetBranch.value = '';
+    sourceBranch.value = '';
+    error.value = null;
+  };
 
-      const response = await fetch(`${SERVER_API_BASE}/api/merge/branches`);
-      if (response.ok) {
-        mergeableBranches.value = await response.json();
-      } else {
-        const err = await response.json();
-        error.value = err.message || '获取分支列表失败';
-      }
-    } catch (e) {
-      console.error('[MergeStore] 获取分支列表失败:', e);
-      error.value = '网络错误';
-    } finally {
-      isLoading.value = false;
+  /**
+   * 关闭合并向导
+   */
+  const closeWizard = (): void => {
+    isVisible.value = false;
+    currentStep.value = 1;
+    targetBranch.value = '';
+    sourceBranch.value = '';
+    error.value = null;
+  };
+
+  /**
+   * 下一步
+   */
+  const nextStep = (): void => {
+    if (canProceed.value && currentStep.value < 2) {
+      currentStep.value++;
     }
   };
 
   /**
-   * 获取分区差异
+   * 上一步
    */
-  const fetchZoneDiffs = async (sourceBranch: string): Promise<void> => {
-    try {
-      isLoading.value = true;
-      error.value = null;
-      selectedSourceBranch.value = sourceBranch;
-      selectedZones.value.clear();
-
-      const response = await fetch(
-        `${SERVER_API_BASE}/api/merge/diff?sourceBranch=${encodeURIComponent(sourceBranch)}`
-      );
-
-      if (response.ok) {
-        zoneDiffs.value = await response.json();
-        console.log(`[MergeStore] 获取到 ${zoneDiffs.value.length} 个分区差异`);
-      } else {
-        const err = await response.json();
-        error.value = err.message || '获取差异失败';
-        zoneDiffs.value = [];
-      }
-    } catch (e) {
-      console.error('[MergeStore] 获取差异失败:', e);
-      error.value = '网络错误';
-      zoneDiffs.value = [];
-    } finally {
-      isLoading.value = false;
+  const prevStep = (): void => {
+    if (currentStep.value > 1) {
+      currentStep.value--;
     }
   };
 
   /**
-   * 切换分区选中状态
+   * 执行覆盖合并
    */
-  const toggleZoneSelection = (zoneId: string): void => {
-    if (selectedZones.value.has(zoneId)) {
-      selectedZones.value.delete(zoneId);
-    } else {
-      selectedZones.value.add(zoneId);
+  const executeOverwriteMerge = async (): Promise<OverwriteMergeResult> => {
+    if (!sourceBranch.value || !targetBranch.value) {
+      error.value = '请选择源分支和目标分支';
+      return { success: false, message: error.value };
     }
-    // 触发响应式更新
-    selectedZones.value = new Set(selectedZones.value);
-  };
 
-  /**
-   * 全选/取消全选
-   */
-  const toggleSelectAll = (): void => {
-    if (isAllSelected.value) {
-      selectedZones.value.clear();
-    } else {
-      selectedZones.value = new Set(zoneDiffs.value.map(d => d.zoneId));
-    }
-    selectedZones.value = new Set(selectedZones.value);
-  };
-
-  /**
-   * 执行选择性合并
-   */
-  const executeSelectiveMerge = async (): Promise<SelectiveMergeResult | null> => {
-    if (!selectedSourceBranch.value || selectedZones.value.size === 0) {
-      error.value = '请选择分支和分区';
-      return null;
+    if (sourceBranch.value === targetBranch.value) {
+      error.value = '源分支和目标分支不能相同';
+      return { success: false, message: error.value };
     }
 
     try {
       isMerging.value = true;
       error.value = null;
 
-      const response = await fetch(`${SERVER_API_BASE}/api/merge/selective`, {
+      const response = await fetch(`${SERVER_API_BASE}/api/merge/overwrite`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          sourceBranch: selectedSourceBranch.value,
-          selectedZones: Array.from(selectedZones.value)
+          sourceBranch: sourceBranch.value,
+          targetBranch: targetBranch.value
         })
       });
 
       const result = await response.json();
 
-      if (response.ok) {
-        console.log('[MergeStore] 选择性合并完成:', result);
-
-        // 合并成功后清理状态
-        if (result.success) {
-          zoneDiffs.value = [];
-          selectedZones.value.clear();
-          selectedSourceBranch.value = null;
-        }
-
-        return result;
+      if (response.ok && result.success) {
+        console.log('[MergeStore] 覆盖合并成功');
+        closeWizard();
+        return { success: true };
       } else {
         error.value = result.message || '合并失败';
-        return null;
+        return { success: false, message: error.value };
       }
     } catch (e) {
       console.error('[MergeStore] 执行合并失败:', e);
       error.value = '网络错误';
-      return null;
+      return { success: false, message: error.value };
     } finally {
       isMerging.value = false;
     }
-  };
-
-  /**
-   * 打开合并面板
-   */
-  const openMergePanel = async (): Promise<void> => {
-    showMergePanel.value = true;
-    await fetchMergeableBranches();
-  };
-
-  /**
-   * 关闭合并面板
-   */
-  const closeMergePanel = (): void => {
-    showMergePanel.value = false;
-    zoneDiffs.value = [];
-    selectedZones.value.clear();
-    selectedSourceBranch.value = null;
-    error.value = null;
   };
 
   /**
@@ -265,27 +144,20 @@ export const useMergeStore = defineStore('merge', () => {
 
   return {
     // State
-    mergeableBranches,
-    selectedSourceBranch,
-    zoneDiffs,
-    selectedZones,
-    isLoading,
+    isVisible,
+    currentStep,
+    targetBranch,
+    sourceBranch,
     isMerging,
     error,
-    showMergePanel,
     // Getters
-    hasDiffs,
-    selectedCount,
-    isAllSelected,
-    aiBranches,
+    canProceed,
     // Actions
-    fetchMergeableBranches,
-    fetchZoneDiffs,
-    toggleZoneSelection,
-    toggleSelectAll,
-    executeSelectiveMerge,
-    openMergePanel,
-    closeMergePanel,
+    openWizard,
+    closeWizard,
+    nextStep,
+    prevStep,
+    executeOverwriteMerge,
     clearError
   };
 });

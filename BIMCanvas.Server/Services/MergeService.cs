@@ -236,6 +236,186 @@ namespace BIMCanvas.Server.Services
         }
 
         /// <summary>
+        /// 执行覆盖合并（MVP v0.1）
+        /// 将源分支的 schemes/ 数据完全覆盖到目标分支
+        /// </summary>
+        /// <param name="projectPath">项目路径</param>
+        /// <param name="sourceBranch">源分支</param>
+        /// <param name="targetBranch">目标分支</param>
+        /// <returns>合并结果</returns>
+        public async Task<OverwriteMergeResult> ExecuteOverwriteMergeAsync(
+            string projectPath,
+            string sourceBranch,
+            string targetBranch)
+        {
+            try
+            {
+                _logger.LogInformation("执行覆盖合并: {Source} -> {Target}", sourceBranch, targetBranch);
+
+                // 1. 验证分支存在
+                var allBranches = _gitService.GetAllBranches(projectPath);
+                if (!allBranches.Contains(sourceBranch))
+                {
+                    return new OverwriteMergeResult
+                    {
+                        Success = false,
+                        Message = $"源分支 '{sourceBranch}' 不存在"
+                    };
+                }
+                if (!allBranches.Contains(targetBranch))
+                {
+                    return new OverwriteMergeResult
+                    {
+                        Success = false,
+                        Message = $"目标分支 '{targetBranch}' 不存在"
+                    };
+                }
+
+                // 2. 如果目标分支不是当前分支，先切换到目标分支
+                var currentBranch = _gitService.GetCurrentBranch(projectPath);
+                if (currentBranch != targetBranch)
+                {
+                    _logger.LogInformation("切换到目标分支: {Target}", targetBranch);
+                    _gitService.CheckoutBranch(projectPath, targetBranch);
+                }
+
+                // 3. 获取源分支的 schemes 目录内容
+                var schemesPath = "schemes";
+                var schemesDir = Path.Combine(projectPath, schemesPath);
+
+                // 获取源分支的所有分区目录
+                var sourceZones = GetZonesFromBranch(projectPath, sourceBranch);
+
+                if (sourceZones.Count == 0)
+                {
+                    return new OverwriteMergeResult
+                    {
+                        Success = false,
+                        Message = "源分支没有方案数据"
+                    };
+                }
+
+                // 4. 清空目标分支的 schemes 目录（保留目录结构）
+                if (Directory.Exists(schemesDir))
+                {
+                    foreach (var dir in Directory.GetDirectories(schemesDir))
+                    {
+                        var dirName = Path.GetFileName(dir);
+                        if (dirName.StartsWith("rz_") || dirName.StartsWith("dz_"))
+                        {
+                            Directory.Delete(dir, recursive: true);
+                        }
+                    }
+                }
+                else
+                {
+                    Directory.CreateDirectory(schemesDir);
+                }
+
+                // 5. 从源分支复制所有分区数据
+                foreach (var zoneId in sourceZones)
+                {
+                    await CopyZoneFromBranchAsync(projectPath, sourceBranch, zoneId);
+                }
+
+                // 6. 提交更改
+                _gitService.Commit(projectPath,
+                    $"Overwrite merge from {sourceBranch}: {sourceZones.Count} zones");
+
+                _logger.LogInformation("覆盖合并完成: {Count} 个分区", sourceZones.Count);
+
+                return new OverwriteMergeResult
+                {
+                    Success = true,
+                    MergedZoneCount = sourceZones.Count,
+                    Message = $"成功合并 {sourceZones.Count} 个分区"
+                };
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "覆盖合并失败");
+                return new OverwriteMergeResult
+                {
+                    Success = false,
+                    Message = $"合并失败: {ex.Message}"
+                };
+            }
+        }
+
+        /// <summary>
+        /// 获取分支中的所有分区 ID
+        /// </summary>
+        private List<string> GetZonesFromBranch(string projectPath, string branch)
+        {
+            var zones = new List<string>();
+
+            try
+            {
+                // 使用 git ls-tree 获取分支中的 schemes 目录结构
+                var startInfo = new System.Diagnostics.ProcessStartInfo
+                {
+                    FileName = "git",
+                    Arguments = $"ls-tree --name-only {branch}:schemes",
+                    WorkingDirectory = projectPath,
+                    RedirectStandardOutput = true,
+                    RedirectStandardError = true,
+                    UseShellExecute = false,
+                    CreateNoWindow = true
+                };
+
+                using var process = System.Diagnostics.Process.Start(startInfo);
+                if (process == null) return zones;
+
+                var output = process.StandardOutput.ReadToEnd();
+                process.WaitForExit(5000);
+
+                if (process.ExitCode == 0)
+                {
+                    zones = output.Split('\n', StringSplitOptions.RemoveEmptyEntries)
+                        .Where(name => name.StartsWith("rz_") || name.StartsWith("dz_"))
+                        .Select(name => name.Trim())
+                        .ToList();
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "获取分支 {Branch} 的分区列表失败", branch);
+            }
+
+            return zones;
+        }
+
+        /// <summary>
+        /// 从源分支复制分区数据到当前工作目录
+        /// </summary>
+        private async Task CopyZoneFromBranchAsync(string projectPath, string sourceBranch, string zoneId)
+        {
+            var zonePath = $"schemes/{zoneId}";
+            var targetZoneDir = Path.Combine(projectPath, zonePath);
+
+            // 创建目标目录
+            if (!Directory.Exists(targetZoneDir))
+            {
+                Directory.CreateDirectory(targetZoneDir);
+            }
+
+            // 获取分区下的所有文件
+            var files = new[] { "modules.json", "zones.json", "finishes.json" };
+
+            foreach (var fileName in files)
+            {
+                var filePath = $"{zonePath}/{fileName}";
+                var content = GetFileContentFromBranch(projectPath, sourceBranch, filePath);
+
+                if (!string.IsNullOrEmpty(content))
+                {
+                    var targetFilePath = Path.Combine(targetZoneDir, fileName);
+                    await File.WriteAllTextAsync(targetFilePath, content);
+                }
+            }
+        }
+
+        /// <summary>
         /// 执行选择性合并
         /// </summary>
         /// <param name="projectPath">项目路径</param>
@@ -312,6 +492,27 @@ namespace BIMCanvas.Server.Services
     }
 
     #region DTOs
+
+    /// <summary>
+    /// 覆盖合并结果（MVP v0.1）
+    /// </summary>
+    public class OverwriteMergeResult
+    {
+        /// <summary>
+        /// 是否成功
+        /// </summary>
+        public bool Success { get; set; }
+
+        /// <summary>
+        /// 合并的分区数量
+        /// </summary>
+        public int MergedZoneCount { get; set; }
+
+        /// <summary>
+        /// 消息（成功或错误信息）
+        /// </summary>
+        public string? Message { get; set; }
+    }
 
     /// <summary>
     /// 分区差异

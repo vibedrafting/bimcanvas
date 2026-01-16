@@ -1,5 +1,5 @@
 import { ref, computed, onMounted, onUnmounted } from 'vue';
-import { GitService } from '../services/GitService';
+import { GitService, type GitStatus } from '../services/GitService';
 import { useCanvasStore } from '../stores/canvasStore';
 
 /**
@@ -10,58 +10,63 @@ const isSaving = ref(false);
 const currentBranch = ref<string | null>(null);
 const lastSaveTime = ref<Date | null>(null);
 
-// 定时刷新状态的间隔（毫秒）
-const STATUS_POLL_INTERVAL = 5000;
-let statusPollTimer: ReturnType<typeof setInterval> | null = null;
-let isPollingActive = false;
+// SignalR 事件监听器是否已注册
+let isListenerRegistered = false;
 
 /**
- * 刷新 Git 状态
+ * 处理 SignalR 推送的 Git 状态变化事件
+ */
+function handleGitStatusChanged(event: CustomEvent<GitStatus>) {
+    const status = event.detail;
+    console.log('[useSave] Git status changed (SignalR):', status);
+
+    hasUncommittedChanges.value = status.hasUncommittedChanges;
+    currentBranch.value = status.currentBranch || null;
+}
+
+/**
+ * 注册 SignalR 事件监听器
+ */
+function registerSignalRListener() {
+    if (isListenerRegistered) return;
+
+    window.addEventListener('bimcanvas:git-status-changed', handleGitStatusChanged as EventListener);
+    isListenerRegistered = true;
+    console.log('[useSave] SignalR listener registered');
+}
+
+/**
+ * 注销 SignalR 事件监听器
+ */
+function unregisterSignalRListener() {
+    window.removeEventListener('bimcanvas:git-status-changed', handleGitStatusChanged as EventListener);
+    isListenerRegistered = false;
+    console.log('[useSave] SignalR listener unregistered');
+}
+
+/**
+ * 手动刷新 Git 状态（备用方法，用于 SignalR 失效时）
  */
 async function refreshStatus() {
     try {
-        console.log('[useSave] Refreshing git status...');
+        console.log('[useSave] Manually refreshing git status...');
         const status = await GitService.getStatus();
         console.log('[useSave] Git status response:', status);
         hasUncommittedChanges.value = status.hasUncommittedChanges;
         currentBranch.value = status.currentBranch || null;
-        console.log('[useSave] hasUncommittedChanges:', hasUncommittedChanges.value);
     } catch (error) {
         console.error('[useSave] Failed to refresh git status:', error);
     }
 }
 
 /**
- * 启动状态轮询
- */
-function startPolling() {
-    console.log('[useSave] startPolling called, isPollingActive:', isPollingActive);
-    if (isPollingActive) return;
-    isPollingActive = true;
-
-    // 立即刷新一次
-    refreshStatus();
-
-    // 定时刷新
-    statusPollTimer = setInterval(refreshStatus, STATUS_POLL_INTERVAL);
-    console.log('[useSave] Polling started with interval:', STATUS_POLL_INTERVAL);
-}
-
-/**
- * 停止状态轮询
- */
-function stopPolling() {
-    if (statusPollTimer) {
-        clearInterval(statusPollTimer);
-        statusPollTimer = null;
-    }
-    isPollingActive = false;
-}
-
-/**
  * 保存功能的 Composable
  * 
  * 核心概念：在 BIMCanvas v3 架构中，"保存" = "Git Commit"（存档）
+ * 
+ * 状态更新方式：
+ * - 主要：通过 SignalR 推送接收 Git 状态变化
+ * - 备用：refreshStatus() 方法可手动刷新
  * 
  * 保存类型：
  * 1. 自动存档：在创建 Worktree 前静默执行（Server 端处理）
@@ -107,12 +112,11 @@ export function useSave() {
                 if (result.committed) {
                     console.log('[useSave] Saved successfully:', result.commit?.hash);
                     lastSaveTime.value = new Date();
+                    // 保存成功后，状态会通过 SignalR 推送更新
                 } else {
                     console.log('[useSave] No changes to save');
                 }
 
-                // 刷新状态
-                await refreshStatus();
                 return true;
             } else {
                 console.error('[useSave] Save failed:', result.message);
@@ -141,16 +145,15 @@ export function useSave() {
     }
 
     /**
-     * 组件挂载时启动轮询，卸载时停止
+     * 组件挂载时注册 SignalR 监听器
      */
     onMounted(() => {
-        startPolling();
+        registerSignalRListener();
     });
 
     onUnmounted(() => {
-        // 注意：因为是单例状态，只有当所有使用此 composable 的组件都卸载时才停止轮询
-        // 这里暂时不停止，保持状态更新
-        // stopPolling();
+        // 注意：因为是单例状态，保持监听器注册
+        // unregisterSignalRListener();
     });
 
     return {
@@ -165,7 +168,7 @@ export function useSave() {
         handleSave,
         refreshStatus,
         registerKeyboardShortcut,
-        startPolling,
-        stopPolling
+        registerSignalRListener,
+        unregisterSignalRListener
     };
 }

@@ -32,6 +32,12 @@ export class SignalRService {
             console.log("Received ghost patch:", patch);
             window.dispatchEvent(new CustomEvent('bimcanvas:ghost-patch', { detail: patch }));
         });
+
+        // Git 状态变化事件
+        this.connection.on("GitStatusChanged", (status: any) => {
+            console.log("[SignalR] Git status changed:", status);
+            window.dispatchEvent(new CustomEvent('bimcanvas:git-status-changed', { detail: status }));
+        });
     }
 
     private setupLifecycleHooks() {

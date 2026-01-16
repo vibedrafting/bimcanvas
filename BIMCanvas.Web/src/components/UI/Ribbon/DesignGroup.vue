@@ -4,6 +4,7 @@ import { storeToRefs } from 'pinia';
 import GlassSelect from '../base/GlassSelect.vue';
 import GlassButton from '../base/GlassButton.vue';
 import BranchCheckoutConfirmDialog from './BranchCheckoutConfirmDialog.vue';
+import BranchMergeWizard from '../merge/BranchMergeWizard.vue';
 
 // 定义 emit 事件
 const emit = defineEmits<{
@@ -11,10 +12,12 @@ const emit = defineEmits<{
 }>();
 import { useGitStore } from '../../../stores/gitStore';
 import { useCanvasStore } from '../../../stores/canvasStore';
+import { useMergeStore } from '../../../stores/mergeStore';
 
 // --- Git Store ---
 const gitStore = useGitStore();
 const canvasStore = useCanvasStore();
+const mergeStore = useMergeStore();
 const { branches, currentBranch, currentBranchId, isLoading, isOffline } = storeToRefs(gitStore);
 
 // 组件挂载时获取分支列表
@@ -124,9 +127,9 @@ const handleCheckoutCancel = () => {
   pendingCheckoutBranch.value = '';
 };
 
-// 打开 Diff 面板
-const onDiff = () => {
-  window.dispatchEvent(new CustomEvent('bimcanvas:open-scheme-diff'));
+// 打开合并向导
+const openMergeWizard = () => {
+  mergeStore.openWizard();
 };
 
 </script>
@@ -189,21 +192,11 @@ const onDiff = () => {
           <span>Compare</span>
         </GlassButton>
 
-        <GlassButton variant="ghost" class="ribbon-btn">
+        <GlassButton variant="ghost" class="ribbon-btn" @click="openMergeWizard">
           <svg style="width: 18px; height: 18px; flex-shrink: 0;" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
             <polyline points="6 9 12 15 18 9"></polyline>
           </svg>
           <span>Merge</span>
-        </GlassButton>
-
-        <GlassButton variant="ghost" class="ribbon-btn" @click="onDiff">
-          <svg style="width: 18px; height: 18px; flex-shrink: 0;" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
-            <path d="M16 3h5v5"></path>
-            <line x1="21" y1="3" x2="14" y2="10"></line>
-            <path d="M8 21H3v-5"></path>
-            <line x1="3" y1="21" x2="10" y2="14"></line>
-          </svg>
-          <span>Diff</span>
         </GlassButton>
       </div>
 
@@ -215,6 +208,9 @@ const onDiff = () => {
         @confirm="handleCheckoutConfirm"
         @cancel="handleCheckoutCancel"
       />
+
+      <!-- Branch Merge Wizard -->
+      <BranchMergeWizard />
 
     </div>
   </div>
