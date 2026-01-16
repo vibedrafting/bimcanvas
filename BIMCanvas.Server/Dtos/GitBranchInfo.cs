@@ -82,6 +82,13 @@ namespace BIMCanvas.Server.Dtos
         /// 自动提交时的提交信息（可选）
         /// </summary>
         public string? CommitMessage { get; set; }
+
+        /// <summary>
+        /// 创建新分支时的基准分支（可选）
+        /// 仅当 CreateIfNotExist=true 时使用
+        /// 如果不指定，默认基于当前 HEAD
+        /// </summary>
+        public string? BaseBranch { get; set; }
     }
 
     /// <summary>

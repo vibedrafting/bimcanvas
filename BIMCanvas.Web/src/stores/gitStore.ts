@@ -43,6 +43,7 @@ interface CheckoutOptions {
   commitBeforeCheckout?: boolean;
   commitMessage?: string;
   discardBeforeCheckout?: boolean;  // 切换前放弃更改（Server端原子操作）
+  baseBranch?: string;  // 创建新分支时的基准分支（仅 createIfNotExist=true 时使用）
 }
 
 // 分支锁信息
@@ -242,7 +243,8 @@ export const useGitStore = defineStore('git', () => {
           createIfNotExist: opts.createIfNotExist ?? false,
           commitBeforeCheckout: opts.commitBeforeCheckout ?? false,
           discardBeforeCheckout: opts.discardBeforeCheckout ?? false,
-          commitMessage: opts.commitMessage
+          commitMessage: opts.commitMessage,
+          baseBranch: opts.baseBranch
         })
       });
 

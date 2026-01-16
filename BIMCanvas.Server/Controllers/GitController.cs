@@ -138,9 +138,10 @@ namespace BIMCanvas.Server.Controllers
                 {
                     if (request.CreateIfNotExist)
                     {
-                        // 基于当前分支创建新分支
-                        _gitService.CreateBranch(projectPath, request.BranchName);
-                        _logger.LogInformation("创建新分支: {Branch}", request.BranchName);
+                        // 基于指定分支（或当前 HEAD）创建新分支
+                        _gitService.CreateBranch(projectPath, request.BranchName, request.BaseBranch);
+                        _logger.LogInformation("创建新分支: {Branch}, 基于: {BaseBranch}",
+                            request.BranchName, request.BaseBranch ?? "(当前HEAD)");
                         created = true;
                     }
                     else

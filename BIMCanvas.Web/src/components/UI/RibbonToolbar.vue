@@ -78,45 +78,27 @@ const handleOpenBranchDialog = () => {
 const handleCreateBranch = async (data: { name: string; baseBranch: string; tags: string[]; reason: string }) => {
   console.log('[RibbonToolbar] handleCreateBranch called:', data);
 
-  // 使用用户输入的分支名称（不添加 scheme/ 前缀，让用户自己决定格式）
   const branchName = data.name.trim();
 
-  // 如果基础分支不是当前分支，先切换到基础分支
-  if (data.baseBranch && data.baseBranch !== currentBranchId.value) {
-    console.log('[RibbonToolbar] Switching to base branch:', data.baseBranch);
-    const switchResult = await gitStore.checkout(data.baseBranch);
-    if (!switchResult.success) {
-      // 切换基础分支时遇到冲突
-      if (switchResult.hasUncommittedChanges) {
-        console.log('[RibbonToolbar] Conflict detected when switching to base branch');
-        pendingBranchData.value = data;
-        showConflictDialog.value = true;
-        return;
-      }
-      console.error('[RibbonToolbar] Failed to switch to base branch:', switchResult.message);
-      return;
-    }
-  }
-
-  // 创建新分支（基于当前分支）
-  console.log('[RibbonToolbar] Creating new branch:', branchName);
+  // 直接创建分支，传递 baseBranch（无需先切换）
+  // Git 支持 `git branch <new-branch> <base-branch>` 直接基于任意分支创建
+  console.log('[RibbonToolbar] Creating new branch:', branchName, 'based on:', data.baseBranch);
   const result = await gitStore.checkout(branchName, {
     createIfNotExist: true,
-    commitMessage: data.reason
+    commitMessage: data.reason,
+    baseBranch: data.baseBranch  // 传递基础分支
   });
 
   if (result.success) {
     showBranchDialog.value = false;
     console.log('[RibbonToolbar] Branch created successfully:', branchName);
+  } else if (result.hasUncommittedChanges) {
+    // 有未提交的更改，弹出冲突确认对话框
+    console.log('[RibbonToolbar] Conflict detected: uncommitted changes');
+    pendingBranchData.value = data;
+    showConflictDialog.value = true;
   } else {
-    // 创建分支时遇到冲突
-    if (result.hasUncommittedChanges) {
-      console.log('[RibbonToolbar] Conflict detected when creating branch');
-      pendingBranchData.value = data;
-      showConflictDialog.value = true;
-    } else {
-      console.error('[RibbonToolbar] Failed to create branch:', result.message);
-    }
+    console.error('[RibbonToolbar] Failed to create branch:', result.message);
   }
 };
 
@@ -131,42 +113,14 @@ const handleConflictConfirm = async (saveBeforeSwitch: boolean, commitMessage?: 
 
   console.log('[RibbonToolbar] Conflict resolved, saveBeforeSwitch:', saveBeforeSwitch);
 
-  // 如果需要切换基础分支
-  if (data.baseBranch && data.baseBranch !== currentBranchId.value) {
-    const switchResult = await gitStore.checkout(data.baseBranch, {
-      commitBeforeCheckout: saveBeforeSwitch,
-      discardBeforeCheckout: !saveBeforeSwitch,
-      commitMessage
-    });
-
-    if (!switchResult.success) {
-      console.error('[RibbonToolbar] Failed to switch to base branch after conflict resolution:', switchResult.message);
-      pendingBranchData.value = null;
-      return;
-    }
-  } else {
-    // 不需要切换基础分支，直接处理当前分支的未提交更改
-    if (saveBeforeSwitch) {
-      const commitResult = await gitStore.commit(commitMessage);
-      if (!commitResult.success) {
-        console.error('[RibbonToolbar] Failed to commit changes:', commitResult.message);
-        pendingBranchData.value = null;
-        return;
-      }
-    } else {
-      const discardResult = await gitStore.discardChanges();
-      if (!discardResult.success) {
-        console.error('[RibbonToolbar] Failed to discard changes:', discardResult.message);
-        pendingBranchData.value = null;
-        return;
-      }
-    }
-  }
-
-  // 创建新分支
+  // 直接创建分支，让 Server 处理存档/放弃操作
+  // baseBranch 确保新分支基于正确的分支创建
   const result = await gitStore.checkout(branchName, {
     createIfNotExist: true,
-    commitMessage: data.reason
+    commitBeforeCheckout: saveBeforeSwitch,
+    discardBeforeCheckout: !saveBeforeSwitch,
+    commitMessage: saveBeforeSwitch ? commitMessage : data.reason,
+    baseBranch: data.baseBranch  // 传递基础分支
   });
 
   if (result.success) {
