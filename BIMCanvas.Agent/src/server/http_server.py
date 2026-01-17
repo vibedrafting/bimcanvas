@@ -19,8 +19,8 @@ from ..config.loader import ConfigLoader
 # Configure logging
 logger = logging.getLogger(__name__)
 
-# Global agent instances (cached by project path)
-agents: dict[str, MainAgent] = {}
+# Global agent instances (cached by window ID for multi-window parallel support)
+agents: dict[str, MainAgent] = {}  # windowId → Agent
 _agents_lock = asyncio.Lock()
 
 # Screenshot request management
@@ -28,25 +28,31 @@ _screenshot_requests: dict[str, asyncio.Future] = {}
 _screenshot_sse_queues: list[asyncio.Queue] = []
 
 
-async def get_agent(project_path: str) -> MainAgent:
+async def get_agent(
+    window_id: str,
+    project_path: str,
+    worktree_path: str = None
+) -> MainAgent:
     """
-    异步获取或创建 Agent 实例（带预连接）
+    获取或创建窗口专属的 Agent 实例
 
     Args:
-        project_path: Path to the project
+        window_id: 窗口唯一标识
+        project_path: 项目根目录
+        worktree_path: 实际工作目录（虚拟窗口的 Worktree 路径）
 
     Returns:
         MainAgent instance
     """
-    cache_key = project_path or "__default__"
-
     async with _agents_lock:
-        if cache_key not in agents:
-            agent = MainAgent(project_path)
+        if window_id not in agents:
+            working_dir = worktree_path or project_path
+            agent = MainAgent(project_path, working_directory=working_dir)
             await agent.connect()  # 预连接
-            agents[cache_key] = agent
+            agents[window_id] = agent
+            logger.info(f"Created agent for window: {window_id}, working_dir: {working_dir}")
 
-        return agents[cache_key]
+        return agents[window_id]
 
 
 async def cleanup_agents() -> None:
@@ -166,6 +172,8 @@ async def chat_handler(request: web.Request) -> web.Response:
     Request body:
         {
             "projectPath": "path/to/project",  // optional
+            "windowId": "window-1",            // 窗口唯一标识
+            "worktreePath": null,              // optional, 工作目录
             "message": "user message"
         }
 
@@ -184,6 +192,8 @@ async def chat_handler(request: web.Request) -> web.Response:
         )
 
     project_path = data.get("projectPath", "")
+    window_id = data.get("windowId", "primary")
+    worktree_path = data.get("worktreePath")
     message = data.get("message", "")
 
     if not message:
@@ -193,7 +203,7 @@ async def chat_handler(request: web.Request) -> web.Response:
         )
 
     try:
-        agent = await get_agent(project_path)  # 异步获取
+        agent = await get_agent(window_id, project_path, worktree_path)  # 按窗口获取
         reply = await agent.chat(message)
 
         return web.json_response({
@@ -216,6 +226,8 @@ async def chat_stream_handler(request: web.Request) -> web.StreamResponse:
     Request body:
         {
             "projectPath": "path/to/project",
+            "windowId": "window-1",               // 窗口唯一标识（必填）
+            "worktreePath": null,                 // optional, 工作目录（虚拟窗口的 Worktree 路径）
             "message": "user message",
             "images": ["base64..."],              // optional, 图片附件列表
             "model": "claude-sonnet-4-20250514",  // optional, 动态切换模型
@@ -233,8 +245,10 @@ async def chat_stream_handler(request: web.Request) -> web.StreamResponse:
         )
 
     project_path = data.get("projectPath", "")
+    window_id = data.get("windowId", "primary")       # 窗口ID，默认 primary
+    worktree_path = data.get("worktreePath")          # 工作目录
     message = data.get("message", "")
-    images = data.get("images", [])        # 新增：图片附件列表
+    images = data.get("images", [])        # 图片附件列表
     model = data.get("model")              # 模型名称
     thinking_level = data.get("thinkingLevel")  # 思考强度
 
@@ -256,7 +270,7 @@ async def chat_stream_handler(request: web.Request) -> web.StreamResponse:
     await response.prepare(request)
 
     try:
-        agent = await get_agent(project_path)  # 异步获取
+        agent = await get_agent(window_id, project_path, worktree_path)  # 按窗口获取
 
         # 动态切换模型（如果指定了模型且与当前不同）
         if model:
@@ -325,11 +339,11 @@ async def chat_stream_handler(request: web.Request) -> web.StreamResponse:
 
 async def clear_history_handler(request: web.Request) -> web.Response:
     """
-    Clear conversation history for a project.
+    Clear conversation history for a window.
 
     Request body:
         {
-            "projectPath": "path/to/project"
+            "windowId": "window-1"
         }
     """
     try:
@@ -340,31 +354,37 @@ async def clear_history_handler(request: web.Request) -> web.Response:
             status=400
         )
 
-    project_path = data.get("projectPath", "")
-    cache_key = project_path or "__default__"
+    window_id = data.get("windowId")
+    if not window_id:
+        return web.json_response({"error": "windowId required"}, status=400)
 
-    if cache_key in agents:
-        agents[cache_key].clear_history()
-        logger.info(f"Cleared history for project: {project_path or 'default'}")
+    if window_id in agents:
+        agents[window_id].clear_history()
+        logger.info(f"Cleared history for window: {window_id}")
 
     return web.json_response({"success": True})
 
 
 async def get_history_handler(request: web.Request) -> web.Response:
     """
-    Get conversation history for a project.
+    Get conversation history for a window.
 
     Query params:
-        projectPath: path to the project
+        windowId: window identifier
     """
-    project_path = request.query.get("projectPath", "")
+    window_id = request.query.get("windowId", "primary")
 
-    agent = await get_agent(project_path)  # 异步获取
-    history = agent.get_history()
+    if window_id not in agents:
+        return web.json_response({
+            "history": [],
+            "windowId": window_id
+        })
+
+    history = agents[window_id].get_history()
 
     return web.json_response({
         "history": history,
-        "projectPath": project_path
+        "windowId": window_id
     })
 
 
@@ -374,7 +394,7 @@ async def interrupt_handler(request: web.Request) -> web.Response:
 
     Request body:
         {
-            "projectPath": "path/to/project"
+            "windowId": "window-1"
         }
     """
     try:
@@ -385,13 +405,42 @@ async def interrupt_handler(request: web.Request) -> web.Response:
             status=400
         )
 
-    project_path = data.get("projectPath", "")
-    cache_key = project_path or "__default__"
+    window_id = data.get("windowId")
+    if not window_id:
+        return web.json_response({"error": "windowId required"}, status=400)
 
     async with _agents_lock:
-        if cache_key in agents:
-            await agents[cache_key].interrupt()
-            logger.info(f"Interrupted task for project: {project_path or 'default'}")
+        if window_id in agents:
+            await agents[window_id].interrupt()
+            logger.info(f"Interrupted task for window: {window_id}")
+            return web.json_response({"success": True})
+
+    return web.json_response({"error": "Agent not found"}, status=404)
+
+
+async def close_agent_handler(request: web.Request) -> web.Response:
+    """
+    关闭指定窗口的 Agent（窗口关闭时调用）
+
+    Request body:
+        {
+            "windowId": "window-1"
+        }
+    """
+    try:
+        data = await request.json()
+    except json.JSONDecodeError:
+        return web.json_response({"error": "Invalid JSON"}, status=400)
+
+    window_id = data.get("windowId")
+    if not window_id:
+        return web.json_response({"error": "windowId required"}, status=400)
+
+    async with _agents_lock:
+        if window_id in agents:
+            await agents[window_id].disconnect()
+            del agents[window_id]
+            logger.info(f"Closed agent for window: {window_id}")
             return web.json_response({"success": True})
 
     return web.json_response({"error": "Agent not found"}, status=404)
@@ -648,6 +697,7 @@ def create_app() -> web.Application:
         web.post("/api/chat", chat_handler),
         web.post("/api/chat/stream", chat_stream_handler),
         web.post("/api/clear-history", clear_history_handler),
+        web.post("/api/agent/close", close_agent_handler),
         web.get("/api/history", get_history_handler),
         web.post("/api/interrupt", interrupt_handler),
         # Screenshot API

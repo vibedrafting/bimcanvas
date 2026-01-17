@@ -79,15 +79,23 @@ class MainAgent:
     - 详细日志输出所有 Agent 活动
     """
 
-    def __init__(self, project_path: str = None, verbose: bool = True):
+    def __init__(
+        self,
+        project_path: str = None,
+        working_directory: str = None,
+        verbose: bool = True
+    ):
         """
         Initialize the MainAgent.
 
         Args:
-            project_path: Path to the current project
+            project_path: 项目根目录（用于定位配置等）
+            working_directory: 实际工作目录（文件操作的基准目录）
+                              为 None 时等于 project_path
             verbose: Enable detailed console logging
         """
         self.project_path = project_path
+        self.working_directory = working_directory or project_path
         self.verbose = verbose
 
         # Configuration loader
@@ -171,7 +179,7 @@ class MainAgent:
 
         return ClaudeAgentOptions(
             system_prompt=system_prompt,
-            cwd=self.project_path,
+            cwd=self.working_directory,
             max_turns=20,
             model=settings.model_name,
             tools=allowed_tools,                   # None 表示默认全开
@@ -310,6 +318,7 @@ class MainAgent:
             print(f"[MainAgent] 允许工具: {tools_display}")
             print(f"[MainAgent] 禁止工具: {deny_display}")
             print(f"[MainAgent] 项目路径: {self.project_path}")
+            print(f"[MainAgent] 工作目录: {self.working_directory}")
             print(f"[MainAgent] ================================")
 
             self._client = ClaudeSDKClient(options)
