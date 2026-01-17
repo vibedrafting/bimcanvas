@@ -114,11 +114,7 @@ namespace BIMCanvas.Server.Hubs
                 {
                     foreach (var branch in lockedBranches)
                     {
-                        // 跳过主分支（主窗口使用的）
-                        if (branch == "master" || branch == "main")
-                            continue;
-
-                        // 查找关联的 Worktree 并删除
+                        // 查找关联的 Worktree 并删除（只清理 .worktrees/ 目录下的虚拟窗口 Worktree）
                         try
                         {
                             var worktrees = _gitWorktreeService.GetWorktrees(projectPath);
