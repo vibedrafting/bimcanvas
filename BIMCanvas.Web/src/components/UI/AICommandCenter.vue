@@ -2463,7 +2463,7 @@ const removePendingImage = (index: number) => {
 
     /* Row 1: Global Mode Switch (Compact Toolbar) */
     .header-toolbar {
-        height: 36px; /* Compact height */
+        height: 40px; /* Increased height for larger toggle */
         padding: 0 12px; /* Align with tabs padding */
         display: flex;
         align-items: center;
@@ -2477,22 +2477,23 @@ const removePendingImage = (index: number) => {
     .mode-switch {
         display: flex;
         align-items: center;
+        align-items: center;
         background: rgba(0, 0, 0, 0.2);
-        padding: 2px;
+        padding: 3px; /* Increased padding */
         border-radius: 6px;
         gap: 4px; /* 增加按钮间距 */
 
         button {
             border: none;
             background: transparent;
-            padding: 2px 16px; /* 增加左右 padding */
+            padding: 4px 20px; /* Increased padding */
             color: var(--text-tertiary);
-            font-size: 12px;
+            font-size: 13px; /* Slightly larger font */
             font-weight: 500;
             cursor: pointer;
             transition: all 0.2s ease;
             border-radius: 4px;
-            min-width: 60px; /* 增加最小宽度 */
+            min-width: 72px; /* Increased min-width */
             text-align: center;
 
             &:hover {
