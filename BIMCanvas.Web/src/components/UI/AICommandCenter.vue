@@ -2381,13 +2381,17 @@ const removePendingImage = (index: number) => {
 
 <style scoped lang="scss">
 .ai-command-center {
+  /* Local Variables */
+  --chrome-bg: #0A0A0A; /* Pure Dark Grey for seamless integration */
+
   /* Layout & Positioning */
   height: 100%;
   margin-left: auto;
   margin-right: 0;
   
   /* Aurora Glass Effect */
-  background: var(--glass-bg);
+  /* Aurora Glass Effect */
+  background: #050505; /* Darken header to Black for Chrome contrast */
   backdrop-filter: var(--glass-blur);
   -webkit-backdrop-filter: var(--glass-blur);
   border: 1px solid rgba(255, 255, 255, 0.2); /* Stronger border */
@@ -2395,7 +2399,7 @@ const removePendingImage = (index: number) => {
   border-radius: 24px 0 0 24px;
   
   /* Glare & Shadow */
-  background-image: var(--glass-glare), linear-gradient(to bottom, var(--glass-bg), var(--glass-bg));
+  background-image: var(--glass-glare); /* Remove gradient to keep it dark */
   box-shadow: 
     -12px 0 40px rgba(0, 0, 0, 0.4), /* Deep drop shadow to the left */
     0 0 0 1px rgba(255, 255, 255, 0.1) inset, /* Inner rim */
@@ -2452,7 +2456,7 @@ const removePendingImage = (index: number) => {
 .layer-context {
     padding: 0;
     height: auto;
-    border-bottom: 1px solid var(--border-dim);
+    border-bottom: none; /* Remove border to allow tabs to overlap content border */
     display: flex;
     flex-direction: column;
     flex-shrink: 0;
@@ -2536,12 +2540,13 @@ const removePendingImage = (index: number) => {
 
     /* Row 2: Window Context (Tabs + Branch) */
     .header-tabs {
-        height: 50px; /* Optimized height */
-        padding: 0 12px; /* Consistent padding */
+        height: 40px; /* Compact height */
+        padding: 0; /* Remove padding for flush left alignment */
         display: flex;
-        align-items: center;
+        align-items: flex-end; /* Align tabs to bottom for connected look */
         background: transparent;
         position: relative;
+        /* border-bottom is on layer-context, we will overlap it */
     }
 
     /* Wrapper for Tabs + Fixed Button */
@@ -2556,15 +2561,19 @@ const removePendingImage = (index: number) => {
     /* Window Tabs (Scrollable Area) */
     .window-tabs {
         display: flex;
-        align-items: center;
-        gap: 4px;
+        align-items: flex-end; /* Align items to bottom */
+        gap: 2px; /* Small gap between tabs */
         overflow-x: auto;
         overflow-y: visible; /* 确保下拉框不被截断 */
         scrollbar-width: none;
         flex: 1;
         min-width: 0;
         height: 100%;
-        padding-right: 4px;
+        /* Remove segmented control style */
+        background: transparent;
+        padding: 0;
+        border-radius: 0;
+        align-self: stretch; /* Stretch to fill height */
 
         &::-webkit-scrollbar { display: none; }
     }
@@ -2576,26 +2585,45 @@ const removePendingImage = (index: number) => {
         gap: 1px; /* Tighter gap */
         padding: 0; /* Remove padding from container */
         background: transparent;
-        border-radius: 6px;
-        cursor: pointer;
-        transition: all 0.2s ease;
-        width: 140px; /* Increased width for larger text */
-        flex-shrink: 0;
-        height: 42px;
-        border: 1px solid transparent; /* Prevent layout shift on active */
+        color: rgba(255, 255, 255, 0.5); /* Dim Grey for inactive (50%) */
+        font-weight: 500; /* Medium weight for inactive */
+        /* Chrome Style: Physical Surface */
+        border-radius: 8px 8px 0 0; /* Chrome-like rounded top */
+        margin-right: -1px; /* Connect tabs visually */
+        border: 1px solid transparent; /* Prepare for border */
+        border-right: 1px solid rgba(255,255,255,0.05); /* Separator */
+        border-bottom: none;
         position: relative; /* For absolute positioning of controls */
+        margin-bottom: 0;
+        
+        /* Layout Fixes */
+        height: 34px; /* Standard height for inactive tabs */
+        margin-top: 1px; /* Push down to align text with active tab */
+        min-width: 120px;
+        max-width: 200px;
+        padding: 0 20px; /* Space for content */
 
         &:hover {
-            background: var(--surface-dim);
+            background: rgba(255, 255, 255, 0.05);
+            color: rgba(255, 255, 255, 0.8); /* 80% White on hover */
         }
 
         &.active {
-            background: var(--surface-dim);
-            border-color: var(--border-subtle);
-            box-shadow: 0 1px 2px rgba(0,0,0,0.05);
+            /* Chrome Style: Seamless Active State */
+            background: var(--chrome-bg); /* Match content area background */
+            color: #ffffff; /* Pure White */
+            font-weight: 600; /* Semi-Bold for active */
+            border: 1px solid var(--border-dim);
+            border-bottom: none; /* Open to bottom */
+            
+            /* Overlap the content border */
+            margin-bottom: -1px;
+            margin-top: 0; /* Rise up */
+            z-index: 100; /* Ensure it sits on top of content border */
+            height: 35px; /* Increase height to ensure overlap */
 
-            /* Branch name remains muted unless hovered, or maybe slightly brighter */
-            .tab-branch { color: var(--text-secondary); }
+            /* Branch name becomes white */
+            .tab-branch { color: inherit; }
         }
 
         /* Controls visibility on hover */
@@ -2649,9 +2677,9 @@ const removePendingImage = (index: number) => {
             justify-content: center;
             width: 100%;
             height: 100%; /* Fill the tab */
-            font-size: 13px; /* Larger font */
+            font-size: 12px; /* Compact font */
             font-weight: 500;
-            color: var(--text-secondary);
+            color: inherit; /* Inherit from parent to match active/inactive state */
             padding: 0; /* Remove padding to allow true centering */
             transition: all 0.2s ease;
 
@@ -2673,7 +2701,7 @@ const removePendingImage = (index: number) => {
                 margin-right: 6px;
                 top: 50%;
                 transform: translateY(-50%);
-                font-size: 14px; 
+                font-size: 12px; /* Compact icon */
                 opacity: 0.8; 
                 display: flex;
                 align-items: center;
@@ -2684,6 +2712,8 @@ const removePendingImage = (index: number) => {
                 white-space: nowrap;
                 overflow: hidden;
                 text-overflow: ellipsis;
+                flex: 1;
+                text-align: center;
                 font-family: 'JetBrains Mono', monospace;
             }
 
@@ -2692,9 +2722,9 @@ const removePendingImage = (index: number) => {
                 right: 4px; /* Align with close button position */
                 top: 50%;
                 transform: translateY(-50%);
-                padding: 4px;
-                width: 24px;
-                height: 24px;
+                padding: 0;
+                width: 20px;
+                height: 20px;
                 display: flex;
                 align-items: center;
                 justify-content: center;
@@ -2765,10 +2795,12 @@ const removePendingImage = (index: number) => {
     .new-window-wrapper {
         position: relative;
         flex-shrink: 0;
-        height: 42px; /* 与窗口标签高度一致 */
+        height: 32px; /* Match tab height */
         display: flex;
         align-items: center;
-        /* 移除分隔线和间距，紧跟窗口标签 */
+        margin-left: 4px; /* Add spacing from the tabs */
+        margin-bottom: 0; /* Sit on the line */
+        align-self: flex-end; /* Align to bottom like tabs */
     }
 
     .new-window-btn {
@@ -2926,6 +2958,11 @@ const removePendingImage = (index: number) => {
     overflow: hidden;
     position: relative;
     min-height: 0;
+    background: var(--chrome-bg); /* Unified opaque background */
+    border-top: 1px solid var(--border-dim); /* Add border here for tabs to overlap */
+    border-left: 1px solid var(--border-dim); /* Match tab border for alignment */
+    border-right: 1px solid var(--border-dim); /* Match tab border for alignment */
+    margin-top: -1px; /* Pull up to meet tabs */
 }
 
 /* 共享滚动容器样式 */
