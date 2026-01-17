@@ -50,6 +50,13 @@ async def get_agent(
             agent = MainAgent(project_path, working_directory=working_dir)
             await agent.connect()  # 预连接
             agents[window_id] = agent
+            # 醒目的控制台输出
+            print(f"[Server] ========== Agent 实例创建 ==========")
+            print(f"[Server] 窗口ID: {window_id}")
+            print(f"[Server] 项目路径: {project_path}")
+            print(f"[Server] 工作目录: {working_dir}")
+            print(f"[Server] 当前实例数: {len(agents)}")
+            print(f"[Server] =====================================")
             logger.info(f"Created agent for window: {window_id}, working_dir: {working_dir}")
 
         return agents[window_id]
@@ -58,12 +65,19 @@ async def get_agent(
 async def cleanup_agents() -> None:
     """清理所有 Agent 连接（shutdown 时调用）"""
     async with _agents_lock:
+        if agents:
+            print(f"[Server] ========== 清理所有 Agent ==========")
+            print(f"[Server] 待清理实例数: {len(agents)}")
         for cache_key, agent in agents.items():
             try:
                 await agent.disconnect()
+                print(f"[Server] 已断开: {cache_key}")
                 logger.info(f"Disconnected agent: {cache_key}")
             except Exception as e:
+                print(f"[Server] 断开失败: {cache_key} - {e}")
                 logger.error(f"Error disconnecting agent {cache_key}: {e}")
+        if agents:
+            print(f"[Server] =====================================")
         agents.clear()
 
 
@@ -412,6 +426,7 @@ async def interrupt_handler(request: web.Request) -> web.Response:
     async with _agents_lock:
         if window_id in agents:
             await agents[window_id].interrupt()
+            print(f"[Server] 任务中断: 窗口 {window_id}")
             logger.info(f"Interrupted task for window: {window_id}")
             return web.json_response({"success": True})
 
@@ -440,6 +455,11 @@ async def close_agent_handler(request: web.Request) -> web.Response:
         if window_id in agents:
             await agents[window_id].disconnect()
             del agents[window_id]
+            # 醒目的控制台输出
+            print(f"[Server] ========== Agent 实例关闭 ==========")
+            print(f"[Server] 窗口ID: {window_id}")
+            print(f"[Server] 剩余实例数: {len(agents)}")
+            print(f"[Server] =====================================")
             logger.info(f"Closed agent for window: {window_id}")
             return web.json_response({"success": True})
 
