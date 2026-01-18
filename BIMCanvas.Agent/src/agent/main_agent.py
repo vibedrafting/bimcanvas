@@ -83,6 +83,7 @@ class MainAgent:
         self,
         project_path: str = None,
         working_directory: str = None,
+        window_seq: int = 0,
         verbose: bool = True
     ):
         """
@@ -92,10 +93,12 @@ class MainAgent:
             project_path: 项目根目录（用于定位配置等）
             working_directory: 实际工作目录（文件操作的基准目录）
                               为 None 时等于 project_path
+            window_seq: 窗口序号（0=primary, 2+=虚拟窗口）用于日志前缀区分
             verbose: Enable detailed console logging
         """
         self.project_path = project_path
         self.working_directory = working_directory or project_path
+        self.window_seq = window_seq
         self.verbose = verbose
 
         # Configuration loader
@@ -104,8 +107,8 @@ class MainAgent:
         # SubAgent definitions (loaded from config)
         self._subagents = create_subagents()
 
-        # Agent logger for console output
-        self._agent_logger = get_agent_logger("MainAgent")
+        # Agent logger for console output (with window_seq for multi-window prefix)
+        self._agent_logger = get_agent_logger("MainAgent", window_seq=self.window_seq)
 
         # ClaudeSDKClient instance management
         self._client: ClaudeSDKClient | None = None

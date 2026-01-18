@@ -78,8 +78,9 @@ class AgentLogger:
     - Errors and warnings
     """
 
-    def __init__(self, name: str = "MainAgent"):
+    def __init__(self, name: str = "MainAgent", window_seq: int = 0):
         self.name = name
+        self.window_seq = window_seq  # 0 = primary, 2+ = 虚拟窗口
         self.logger = logging.getLogger(f"agent.{name}")
         self._indent_level = 0
         self._in_subagent = False
@@ -96,14 +97,23 @@ class AgentLogger:
         """Get indentation string."""
         return "  " * self._indent_level
 
+    def _get_window_prefix(self) -> str:
+        """Get window prefix for multi-window log differentiation."""
+        if self.window_seq == 0:
+            return "[Agent]"
+        else:
+            return f"[Agent#{self.window_seq}]"
+
     def _print(self, text: str) -> None:
-        """Print to console with proper formatting and encoding safety."""
+        """Print to console with window prefix and proper encoding safety."""
+        prefix = self._get_window_prefix()
+        output = f"{prefix} {text}"
         try:
-            print(text, flush=True)
+            print(output, flush=True)
         except UnicodeEncodeError:
             # Fallback: replace unencodable characters
             encoding = sys.stdout.encoding or 'utf-8'
-            safe_text = text.encode(encoding, errors='replace').decode(encoding)
+            safe_text = output.encode(encoding, errors='replace').decode(encoding)
             print(safe_text, flush=True)
 
     def _separator(self, char: str = "─", length: int = 60) -> None:
@@ -422,13 +432,21 @@ class AgentLogger:
         self._separator("═")
 
 
-# Global logger instance
-_agent_logger: AgentLogger | None = None
+# Global logger instances (keyed by window_seq for multi-window support)
+_agent_loggers: dict[int, AgentLogger] = {}
 
 
-def get_agent_logger(name: str = "MainAgent") -> AgentLogger:
-    """Get or create the agent logger."""
-    global _agent_logger
-    if _agent_logger is None or _agent_logger.name != name:
-        _agent_logger = AgentLogger(name)
-    return _agent_logger
+def get_agent_logger(name: str = "MainAgent", window_seq: int = 0) -> AgentLogger:
+    """Get or create the agent logger for a specific window.
+
+    Args:
+        name: Logger name (e.g., "MainAgent")
+        window_seq: Window sequence number (0 = primary, 2+ = virtual windows)
+
+    Returns:
+        AgentLogger instance for the specified window
+    """
+    global _agent_loggers
+    if window_seq not in _agent_loggers:
+        _agent_loggers[window_seq] = AgentLogger(name, window_seq)
+    return _agent_loggers[window_seq]

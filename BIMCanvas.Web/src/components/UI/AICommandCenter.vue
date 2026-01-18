@@ -432,6 +432,19 @@ const closeWindow = async (id: string) => {
         console.warn(`[Window] 注销 Worktree 映射失败: ${error.message}`);
     }
 
+    // 关闭 Agent 实例（释放资源）
+    try {
+        await fetch(`${AGENT_API_BASE}/api/agent/close`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ windowId: id })
+        });
+        console.log(`[Window] Agent 实例已关闭: ${id}`);
+    } catch (error: any) {
+        // 即使关闭失败也继续（Agent可能未创建）
+        console.warn(`[Window] 关闭 Agent 实例失败: ${error.message}`);
+    }
+
     // 切换焦点
     if (activeWindowId.value === id) {
         const newActiveIndex = index > 0 ? index - 1 : index + 1;
@@ -1090,11 +1103,25 @@ const sendMessage = async () => {
     const imagesToSend = [...pendingImages.value];
     pendingImages.value = [];
 
+    // 确保 windowId 有效（空值保护）
+    const effectiveWindowId = activeWindowId.value || 'window-main';
+
+    // 调试日志：排查请求发送问题
+    console.log('[sendMessage] Request:', {
+      projectPath: currentProjectPath.value,
+      windowId: effectiveWindowId,
+      message: message.substring(0, 50) + (message.length > 50 ? '...' : ''),
+      imagesCount: imagesToSend.length,
+      model: currentModel.value?.id,
+      thinkingLevel: currentThinking.value.id
+    });
+
     const response = await fetch(`${AGENT_API_BASE}/api/chat/stream`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         projectPath: currentProjectPath.value,
+        windowId: effectiveWindowId,  // 支持多窗口并行（已空值保护）
         message: message,
         images: imagesToSend,  // 新增：图片附件
         model: currentModel.value?.id,

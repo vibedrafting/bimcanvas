@@ -23,6 +23,18 @@ logger = logging.getLogger(__name__)
 agents: dict[str, MainAgent] = {}  # windowId → Agent
 _agents_lock = asyncio.Lock()
 
+# 窗口序号管理（日志前缀用）
+_window_counter = 1  # 从 1 开始，primary 不占用（序号 0）
+_window_seq_map: dict[str, int] = {}  # windowId → 序号
+
+
+def _get_window_prefix(window_seq: int) -> str:
+    """获取窗口日志前缀"""
+    if window_seq == 0:
+        return "[Agent]"
+    else:
+        return f"[Agent#{window_seq}]"
+
 # Screenshot request management
 _screenshot_requests: dict[str, asyncio.Future] = {}
 _screenshot_sse_queues: list[asyncio.Queue] = []
@@ -44,20 +56,33 @@ async def get_agent(
     Returns:
         MainAgent instance
     """
+    global _window_counter
+
     async with _agents_lock:
         if window_id not in agents:
+            # 分配窗口序号（primary=0，其他递增）
+            if window_id == "primary":
+                seq = 0
+            else:
+                seq = _window_counter
+                _window_counter += 1
+            _window_seq_map[window_id] = seq
+
             working_dir = worktree_path or project_path
-            agent = MainAgent(project_path, working_directory=working_dir)
+            agent = MainAgent(project_path, working_directory=working_dir, window_seq=seq)
             await agent.connect()  # 预连接
             agents[window_id] = agent
-            # 醒目的控制台输出
-            print(f"[Server] ========== Agent 实例创建 ==========")
-            print(f"[Server] 窗口ID: {window_id}")
-            print(f"[Server] 项目路径: {project_path}")
-            print(f"[Server] 工作目录: {working_dir}")
-            print(f"[Server] 当前实例数: {len(agents)}")
-            print(f"[Server] =====================================")
-            logger.info(f"Created agent for window: {window_id}, working_dir: {working_dir}")
+
+            # 醒目的控制台输出（带窗口前缀）
+            prefix = _get_window_prefix(seq)
+            print(f"{prefix} [Server] ========== Agent 实例创建 ==========")
+            print(f"{prefix} [Server] 窗口ID: {window_id}")
+            print(f"{prefix} [Server] 窗口序号: {seq}")
+            print(f"{prefix} [Server] 项目路径: {project_path}")
+            print(f"{prefix} [Server] 工作目录: {working_dir}")
+            print(f"{prefix} [Server] 当前实例数: {len(agents)}")
+            print(f"{prefix} [Server] =====================================")
+            logger.info(f"Created agent for window: {window_id} (seq={seq}), working_dir: {working_dir}")
 
         return agents[window_id]
 
@@ -266,6 +291,14 @@ async def chat_stream_handler(request: web.Request) -> web.StreamResponse:
     model = data.get("model")              # 模型名称
     thinking_level = data.get("thinkingLevel")  # 思考强度
 
+    # 调试日志：记录收到的请求
+    logger.info(f"[chat_stream] Received request: windowId={window_id}, projectPath={project_path[:50] if project_path else 'None'}")
+
+    # 空字符串保护
+    if not window_id:
+        window_id = "primary"
+        logger.warning("[chat_stream] Empty windowId received, using default 'primary'")
+
     if not message:
         return web.json_response(
             {"error": "Message cannot be empty"},
@@ -453,14 +486,22 @@ async def close_agent_handler(request: web.Request) -> web.Response:
 
     async with _agents_lock:
         if window_id in agents:
+            # 获取窗口序号（用于日志前缀）
+            seq = _window_seq_map.get(window_id, 0)
+            prefix = _get_window_prefix(seq)
+
             await agents[window_id].disconnect()
             del agents[window_id]
-            # 醒目的控制台输出
-            print(f"[Server] ========== Agent 实例关闭 ==========")
-            print(f"[Server] 窗口ID: {window_id}")
-            print(f"[Server] 剩余实例数: {len(agents)}")
-            print(f"[Server] =====================================")
-            logger.info(f"Closed agent for window: {window_id}")
+            # 清理序号映射（但不回收序号）
+            _window_seq_map.pop(window_id, None)
+
+            # 醒目的控制台输出（带窗口前缀）
+            print(f"{prefix} [Server] ========== Agent 实例关闭 ==========")
+            print(f"{prefix} [Server] 窗口ID: {window_id}")
+            print(f"{prefix} [Server] 窗口序号: {seq}")
+            print(f"{prefix} [Server] 剩余实例数: {len(agents)}")
+            print(f"{prefix} [Server] =====================================")
+            logger.info(f"Closed agent for window: {window_id} (seq={seq})")
             return web.json_response({"success": True})
 
     return web.json_response({"error": "Agent not found"}, status=404)

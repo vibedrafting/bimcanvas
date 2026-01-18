@@ -50,6 +50,21 @@ static void WriteWithColoredPrefix(string prefix, string message, ConsoleColor p
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Console output helper: timestamp only (for Agent stdout where prefix comes from Python)
+// ─────────────────────────────────────────────────────────────────────────────
+static void WriteWithTimestampOnly(string message, ConsoleColor messageColor)
+{
+    var originalColor = Console.ForegroundColor;
+    // 时间戳（灰色）
+    Console.ForegroundColor = ConsoleColor.DarkGray;
+    Console.Write($"[{DateTime.Now:HH:mm:ss}] ");
+    // 消息（指定颜色，保留 ANSI 序列）
+    Console.ForegroundColor = messageColor;
+    Console.WriteLine(message);
+    Console.ForegroundColor = originalColor;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Initialize console: UTF-8 encoding + ANSI support
 // ─────────────────────────────────────────────────────────────────────────────
 Console.OutputEncoding = Encoding.UTF8;
@@ -255,13 +270,14 @@ WriteWithColoredPrefix("[Server]", "Swagger: http://localhost:5000/swagger", Con
             agentProcess.Start();
 
             // 后台读取 Agent 输出（避免缓冲区阻塞）
+            // 注意：stdout 使用 WriteWithTimestampOnly，前缀 [Agent] 或 [Agent#n] 由 Python 输出
             _ = Task.Run(async () =>
             {
                 while (!agentProcess.HasExited)
                 {
                     var line = await agentProcess.StandardOutput.ReadLineAsync();
                     if (!string.IsNullOrEmpty(line))
-                        WriteWithColoredPrefix("[Agent]", line, ConsoleColor.Cyan);
+                        WriteWithTimestampOnly(line, ConsoleColor.Cyan);
                 }
             });
             _ = Task.Run(async () =>
