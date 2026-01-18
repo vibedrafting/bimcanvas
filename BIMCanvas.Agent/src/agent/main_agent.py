@@ -171,11 +171,11 @@ class MainAgent:
         try:
             canvas_mcp = create_canvas_mcp()
             mcp_tools = get_allowed_tools()
-            logger.info(f"MCP 服务器已创建，工具: {mcp_tools}")
+            self._agent_logger._print(f"[MCP] MCP 服务器已创建，工具: {mcp_tools}")
         except ValueError as e:
-            logger.warning(f"MCP 服务器创建失败: {e}")
+            self._agent_logger.log_warning(f"MCP 服务器创建失败: {e}")
         except Exception as e:
-            logger.error(f"MCP 服务器创建异常: {e}")
+            self._agent_logger.log_error(f"MCP 服务器创建异常: {e}")
 
         # 合并工具权限
         all_allowed = (allowed_tools or []) + mcp_tools

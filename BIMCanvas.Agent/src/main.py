@@ -25,9 +25,9 @@ from .config.settings import get_settings
 
 # Configure logging - 简化格式，时间戳由 Server 统一添加
 class SimpleFormatter(logging.Formatter):
-    """简化格式化器：只输出消息"""
+    """简化格式化器：添加 [Agent] 前缀（Server 级日志统一使用）"""
     def format(self, record):
-        return record.getMessage()
+        return f"[Agent] {record.getMessage()}"
 
 handler = logging.StreamHandler(sys.stdout)
 handler.setFormatter(SimpleFormatter())

@@ -1,11 +1,14 @@
 """Configuration settings for BIMCanvas Agent"""
 
+import logging
 import os
 from dataclasses import dataclass, field
 from functools import lru_cache
 from dotenv import load_dotenv
 
 from .loader import get_config_loader
+
+logger = logging.getLogger(__name__)
 
 # Load environment variables from .env file
 load_dotenv()
@@ -103,10 +106,10 @@ class Settings:
         # Model: MODEL_NAME > config.json
         env_model = os.getenv('MODEL_NAME')
         if env_model:
-            print(f"环境变量覆盖模型: {env_model}")
+            logger.info(f"环境变量覆盖模型: {env_model}")
             model = env_model
         else:
-            print(f"使用配置模型: {model}")
+            logger.info(f"使用配置模型: {model}")
 
         max_tokens = int(os.getenv('MAX_TOKENS', str(max_tokens)))
         host = os.getenv('SERVER_HOST', host)
