@@ -271,6 +271,45 @@ const getCurrentWindowMessages = (): ChatMessage[] => {
   return win ? win.messages : [];
 };
 
+/**
+ * 添加消息到 chatMessages 并同步到当前窗口
+ * @param message 要添加的消息
+ * @returns 消息在 chatMessages 中的索引
+ */
+const addMessageWithSync = (message: ChatMessage): number => {
+  const index = chatMessages.value.length;
+  chatMessages.value.push(message);
+
+  const currentWin = windows.value.find(w => w.id === activeWindowId.value);
+  if (currentWin) {
+    currentWin.messages.push(message);
+  }
+
+  return index;
+};
+
+/**
+ * 切换窗口时同步消息
+ * @param fromWindowId 源窗口ID
+ * @param toWindowId 目标窗口ID
+ */
+const syncMessagesOnSwitch = (fromWindowId: string, toWindowId: string) => {
+  // 保存当前窗口消息
+  const fromWin = windows.value.find(w => w.id === fromWindowId);
+  if (fromWin) {
+    fromWin.messages = [...chatMessages.value];
+  }
+
+  // 加载目标窗口消息
+  const toWin = windows.value.find(w => w.id === toWindowId);
+  if (toWin) {
+    chatMessages.value = [...toWin.messages];
+  } else {
+    // 如果目标窗口不存在，清空消息
+    chatMessages.value = [];
+  }
+};
+
 // === 窗口管理函数 (Phase 4) ===
 
 // 切换窗口
@@ -280,6 +319,9 @@ const switchWindow = async (id: string) => {
 
   const win = windows.value.find(w => w.id === id);
   if (!win) return;
+
+  // 0. 同步消息：保存当前窗口消息，加载目标窗口消息
+  syncMessagesOnSwitch(activeWindowId.value, id);
 
   // 1. 更新本地状态
   activeWindowId.value = id;
@@ -445,18 +487,24 @@ const closeWindow = async (id: string) => {
         console.warn(`[Window] 关闭 Agent 实例失败: ${error.message}`);
     }
 
-    // 切换焦点
-    if (activeWindowId.value === id) {
-        const newActiveIndex = index > 0 ? index - 1 : index + 1;
-        if (windows.value[newActiveIndex]) {
-            activeWindowId.value = windows.value[newActiveIndex].id;
-            switchWindow(activeWindowId.value);
-        }
-    }
-
-    // 从 UI 移除窗口
+    // 从 UI 移除窗口（先移除，再切换焦点）
     windows.value.splice(index, 1);
     console.log(`[Window] Closed window: ${win.name}`);
+
+    // 切换焦点（如果关闭的是当前活跃窗口）
+    if (activeWindowId.value === id) {
+        // 计算新的活跃窗口索引（移除后的数组）
+        const newActiveIndex = Math.min(index, windows.value.length - 1);
+        const newActiveWin = windows.value[newActiveIndex];
+        if (newActiveWin) {
+            // 手动同步消息（因为旧窗口已被移除，不需要保存）
+            chatMessages.value = [...newActiveWin.messages];
+            activeWindowId.value = newActiveWin.id;
+            branches.value.forEach(b => b.isCurrent = b.id === newActiveWin.branchId);
+            // 重新加载项目数据
+            await store.loadProject({ source: 'git_checkout', preserveView: true });
+        }
+    }
 };
 
 // Toggle New Window Dropdown (Exclusive)
@@ -576,6 +624,9 @@ const addWindow = async (branchName: string) => {
 
         // 4. 注册窗口到 SignalR 并获取分支锁（用于断开连接时清理资源）
         SignalRService.getInstance().registerWindow(newId, branch.name);
+
+        // 5. 为新窗口初始化欢迎消息
+        await streamWelcomeMessage();
     } catch (error: any) {
         // 失败：显示错误
         const idx = windows.value.findIndex(w => w.id === newId);
@@ -913,16 +964,14 @@ const streamWelcomeMessage = async () => {
 
     const welcomeText = '你好！我是 BIMCanvas 的布置助手。我可以帮助你分析房间功能、提供布置建议。有什么我能帮你的吗？';
 
-    // 创建欢迎消息，使用气泡模型
+    // 创建欢迎消息，使用气泡模型（同步到窗口）
     const welcomeBubble = createTextBubble('');
-    chatMessages.value.push({
+    const msgIndex = addMessageWithSync({
         role: 'ai',
         bubbles: [welcomeBubble],
         waitingState: { isWaiting: false, waitingVerb: '', waitingSince: 0 },
         isStreaming: true
     });
-
-    const msgIndex = chatMessages.value.length - 1;
 
     // Simulate typing effect
     let i = 0;
@@ -1050,10 +1099,10 @@ const sendMessage = async () => {
   const message = inputMessage.value.trim();
   if (!message || isLoading.value) return;
 
-  // Add user message to chat - 使用气泡模型
+  // Add user message to chat - 使用气泡模型（同步到窗口）
   const userTextBubble = createTextBubble(message);
   userTextBubble.status = 'completed';
-  chatMessages.value.push({
+  addMessageWithSync({
     role: 'user',
     bubbles: [userTextBubble],
     waitingState: { isWaiting: false, waitingVerb: '', waitingSince: 0 }
@@ -1069,14 +1118,13 @@ const sendMessage = async () => {
   setTimeout(() => scrollToBottom({ force: true }), 50);
   setTimeout(() => scrollToBottom({ force: true }), 150);
 
-  // Add placeholder AI message for streaming - 使用气泡模型
-  const aiMessageIndex = chatMessages.value.length;
+  // Add placeholder AI message for streaming - 使用气泡模型（同步到窗口）
   const initialWaitingState: WaitingState = {
     isWaiting: true,
     waitingVerb: getRandomWaitingVerb(),
     waitingSince: Date.now()
   };
-  chatMessages.value.push({
+  const aiMessageIndex = addMessageWithSync({
     role: 'ai',
     bubbles: [],
     waitingState: initialWaitingState,
