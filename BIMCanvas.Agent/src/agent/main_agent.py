@@ -309,20 +309,20 @@ class MainAgent:
             settings = get_settings()
             self._current_thinking_level = thinking_level or settings.thinking.default_level
 
-            # 调试日志：打印实际使用的配置
+            # 调试日志：打印实际使用的配置（使用 _agent_logger 确保带窗口前缀）
             tools_display = options.tools if options.tools else "默认全开"
             deny_display = options.disallowed_tools if options.disallowed_tools else "无"
             base_url_display = options.env.get("ANTHROPIC_BASE_URL", "默认端点") if options.env else "默认端点"
             thinking_display = f"{options.max_thinking_tokens} tokens" if options.max_thinking_tokens else "禁用"
-            print(f"[MainAgent] ========== 配置信息 ==========")
-            print(f"[MainAgent] 模型: {options.model}")
-            print(f"[MainAgent] Base URL: {base_url_display}")
-            print(f"[MainAgent] 思考强度: {self._current_thinking_level} ({thinking_display})")
-            print(f"[MainAgent] 允许工具: {tools_display}")
-            print(f"[MainAgent] 禁止工具: {deny_display}")
-            print(f"[MainAgent] 项目路径: {self.project_path}")
-            print(f"[MainAgent] 工作目录: {self.working_directory}")
-            print(f"[MainAgent] ================================")
+            self._agent_logger._print(f"[MainAgent] ========== 配置信息 ==========")
+            self._agent_logger._print(f"[MainAgent] 模型: {options.model}")
+            self._agent_logger._print(f"[MainAgent] Base URL: {base_url_display}")
+            self._agent_logger._print(f"[MainAgent] 思考强度: {self._current_thinking_level} ({thinking_display})")
+            self._agent_logger._print(f"[MainAgent] 允许工具: {tools_display}")
+            self._agent_logger._print(f"[MainAgent] 禁止工具: {deny_display}")
+            self._agent_logger._print(f"[MainAgent] 项目路径: {self.project_path}")
+            self._agent_logger._print(f"[MainAgent] 工作目录: {self.working_directory}")
+            self._agent_logger._print(f"[MainAgent] ================================")
 
             self._client = ClaudeSDKClient(options)
             await self._client.connect()

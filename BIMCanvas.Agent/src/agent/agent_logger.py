@@ -88,6 +88,8 @@ class AgentLogger:
         # 并行 SubAgent 支持
         self._subagent_counter = 0  # 全局序号
         self._active_subagents: dict[str, dict] = {}  # subagent_id → {seq, name, short_name, type, start_time}
+        # 流式输出状态：当前行是否已输出前缀
+        self._streaming_line_has_prefix = False
 
     def _timestamp(self) -> str:
         """Get formatted timestamp."""
@@ -115,6 +117,43 @@ class AgentLogger:
             encoding = sys.stdout.encoding or 'utf-8'
             safe_text = output.encode(encoding, errors='replace').decode(encoding)
             print(safe_text, flush=True)
+
+    def _print_streaming(self, text: str, color: str = "") -> None:
+        """Print streaming content with window prefix on each line.
+
+        用于流式输出（thinking/response delta），确保每行都有窗口前缀。
+        """
+        if not text:
+            return
+
+        prefix = self._get_window_prefix()
+        reset = Colors.RESET if color else ""
+        lines = text.split('\n')
+
+        for i, line in enumerate(lines):
+            if i > 0:
+                # 换行：结束当前行，开始新行
+                print()
+                self._streaming_line_has_prefix = False
+
+            if line:  # 有内容要输出
+                if not self._streaming_line_has_prefix:
+                    # 当前行还没有前缀，添加前缀
+                    try:
+                        print(f"{prefix} {color}{line}{reset}", end="", flush=True)
+                    except UnicodeEncodeError:
+                        encoding = sys.stdout.encoding or 'utf-8'
+                        safe_line = f"{prefix} {color}{line}{reset}".encode(encoding, errors='replace').decode(encoding)
+                        print(safe_line, end="", flush=True)
+                    self._streaming_line_has_prefix = True
+                else:
+                    # 当前行已有前缀，直接追加内容
+                    try:
+                        print(f"{color}{line}{reset}", end="", flush=True)
+                    except UnicodeEncodeError:
+                        encoding = sys.stdout.encoding or 'utf-8'
+                        safe_line = f"{color}{line}{reset}".encode(encoding, errors='replace').decode(encoding)
+                        print(safe_line, end="", flush=True)
 
     def _separator(self, char: str = "─", length: int = 60) -> None:
         """Print a separator line."""
@@ -175,8 +214,8 @@ class AgentLogger:
     def log_thinking(self, content: str, is_delta: bool = False) -> None:
         """Log thinking content."""
         if is_delta:
-            # For streaming, just append without newline (暗灰，退居背景)
-            print(f"{Colors.SECONDARY}{content}{Colors.RESET}", end="", flush=True)
+            # For streaming: ensure each line has window prefix (暗灰，退居背景)
+            self._print_streaming(content, Colors.SECONDARY)
         else:
             # For complete thinking block
             self._print(f"{self._indent()}{Colors.SECONDARY}{content}{Colors.RESET}")
@@ -184,6 +223,7 @@ class AgentLogger:
     def log_thinking_end(self) -> None:
         """Log end of thinking process."""
         print()  # New line after streaming thinking
+        self._streaming_line_has_prefix = False  # 重置流式状态
         self._print(f"{self._indent()}{Colors.TERTIARY}─ thinking complete ─{Colors.RESET}")
 
     # ─────────────────────────────────────────────────────
@@ -201,8 +241,8 @@ class AgentLogger:
     def log_response(self, content: str, is_delta: bool = False) -> None:
         """Log response content."""
         if is_delta:
-            # For streaming, just append without newline (白色，主要信息)
-            print(f"{Colors.PRIMARY}{content}{Colors.RESET}", end="", flush=True)
+            # For streaming: ensure each line has window prefix (白色，主要信息)
+            self._print_streaming(content, Colors.PRIMARY)
         else:
             # For complete response
             self._print(f"{self._indent()}{Colors.PRIMARY}{content}{Colors.RESET}")
@@ -210,6 +250,7 @@ class AgentLogger:
     def log_response_end(self) -> None:
         """Log end of AI response."""
         print()  # New line after streaming response
+        self._streaming_line_has_prefix = False  # 重置流式状态
 
     # ─────────────────────────────────────────────────────
     # Tool Usage
