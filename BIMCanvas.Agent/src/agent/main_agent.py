@@ -124,10 +124,6 @@ class MainAgent:
         # SubAgent/ToolCall 状态跟踪（用于 SSE 事件）
         # 支持多个并行 SubAgent：task_tool_use_id → subagent_id
         self._active_subagents: dict[str, str] = {}
-        # SubAgent 文本收集器：task_tool_use_id → text_list（用于收集 SubAgent 的实际输出）
-        self._subagent_text_collector: dict[str, list[str]] = {}
-        # 当前 SubAgent 上下文（状态机核心）：用于关联流式 text_delta 到 SubAgent
-        self._current_subagent_parent_id: str | None = None
         self._tool_call_counter = 0
         self._pending_tool_calls: dict[str, str] = {}  # tool_use_id -> tool_call_id 映射
         # 跟踪每个工具调用所属的 SubAgent：tool_use_id → subagent_id
@@ -632,8 +628,6 @@ class MainAgent:
         self._current_tool_name = None
         # 重置 SubAgent/ToolCall 状态
         self._active_subagents.clear()
-        self._subagent_text_collector.clear()  # 重置 SubAgent 文本收集器
-        self._current_subagent_parent_id = None  # 重置当前 SubAgent 上下文
         self._tool_call_counter = 0
         self._pending_tool_calls.clear()
         self._tool_to_subagent.clear()
@@ -674,14 +668,6 @@ class MainAgent:
                     if delta_type == "text_delta":
                         text = delta.get("text", "")
                         if text:
-                            # 收集 SubAgent 文本输出
-                            # 优先使用消息自带的 parent_tool_use_id（更可靠）
-                            target_id = current_parent_id or self._current_subagent_parent_id
-                            if target_id and target_id in self._subagent_text_collector:
-                                self._subagent_text_collector[target_id].append(text)
-                                if self.verbose:
-                                    self._agent_logger.log_info(f"[SubAgent Text Collected] parent={target_id[:8]}... len={len(text)}")
-
                             # 1. 检测权限错误（纯文本形式）
                             is_perm_error, perm_msg = self._detect_permission_error(text)
                             if is_perm_error:
@@ -768,23 +754,12 @@ class MainAgent:
                     if tool_name == "Task" and tool_use_id and tool_use_id in self._active_subagents:
                         # SubAgent 完成 - 从映射中获取并清理
                         subagent_id = self._active_subagents.pop(tool_use_id)
-                        # 获取收集的 SubAgent 文本内容（优先使用收集的实际输出）
-                        collected_texts = self._subagent_text_collector.pop(tool_use_id, [])
-                        collected_content = "".join(collected_texts) if collected_texts else ""
-                        # 使用收集的内容，如果为空则回退到 SDK 返回的 result
-                        final_content = collected_content[:2000] if collected_content else (str(result)[:500] if result and not is_error else "")
                         if self.verbose:
-                            content_source = "collected" if collected_content else "sdk_result"
-                            self._agent_logger.log_info(f"[SubAgent Complete] id={subagent_id} source={content_source} len={len(final_content)}")
-                            # 输出结果摘要
-                            self._agent_logger.exit_subagent(
-                                subagent_id=subagent_id,
-                                result_summary=final_content[:500] if final_content else None
-                            )
+                            self._agent_logger.exit_subagent(subagent_id=subagent_id)
                         yield StreamChunk(
                             type="subagent_complete",
                             subagent_id=subagent_id,
-                            content=final_content,
+                            content=str(result)[:500] if result and not is_error else "",
                             success=not is_error,
                             error=error_message,
                             error_type=error_type,
@@ -810,15 +785,6 @@ class MainAgent:
                 # 存储 API 响应的模型值，用于日志显示（不覆盖 _current_model）
                 self._response_model = getattr(message, 'model', None)
 
-                # 状态机核心：从 AssistantMessage 更新当前 SubAgent 上下文
-                msg_parent_id = getattr(message, 'parent_tool_use_id', None)
-                if msg_parent_id and msg_parent_id in self._subagent_text_collector:
-                    # 这是 SubAgent 的消息，设置当前上下文
-                    self._current_subagent_parent_id = msg_parent_id
-                elif not msg_parent_id:
-                    # MainAgent 自己的消息，清空 SubAgent 上下文
-                    self._current_subagent_parent_id = None
-
                 for block in message.content:
                     if isinstance(block, ThinkingBlock):
                         if self.verbose and not self._in_thinking:
@@ -827,10 +793,6 @@ class MainAgent:
                             self._agent_logger.log_thinking_end()
                         yield StreamChunk(type="thinking_complete", content=block.thinking)
                     elif isinstance(block, TextBlock):
-                        # 如果当前在 SubAgent 上下文中，也收集文本
-                        if self._current_subagent_parent_id and self._current_subagent_parent_id in self._subagent_text_collector:
-                            self._subagent_text_collector[self._current_subagent_parent_id].append(block.text)
-
                         if self.verbose and not self._in_response:
                             self._agent_logger.log_response_start()
                             self._agent_logger.log_response(block.text)
@@ -848,7 +810,6 @@ class MainAgent:
                             subagent_name = block.input.get("description", "SubAgent")
                             subagent_id = f"sa-{block.id}"
                             self._active_subagents[block.id] = subagent_id  # 添加映射
-                            self._subagent_text_collector[block.id] = []  # 初始化文本收集器
                             if self.verbose:
                                 # enter_subagent 已包含 DISPATCH 输出，无需单独调用 log_tool_use
                                 self._agent_logger.enter_subagent(
@@ -905,29 +866,16 @@ class MainAgent:
                         if block_tool_use_id and block_tool_use_id in self._active_subagents:
                             # SubAgent 完成 - 从映射中获取并清理
                             subagent_id = self._active_subagents.pop(block_tool_use_id)
-                            # 获取收集的 SubAgent 文本内容（优先使用收集的实际输出）
-                            collected_texts = self._subagent_text_collector.pop(block_tool_use_id, [])
-                            collected_content = "".join(collected_texts) if collected_texts else ""
-                            # 使用收集的内容，如果为空则回退到 block.content
-                            final_content = collected_content[:2000] if collected_content else (str(block.content)[:500] if block.content and not is_error else "")
-                            # 日志输出（包含结果摘要）
                             if self.verbose:
-                                self._agent_logger.exit_subagent(
-                                    subagent_id=subagent_id,
-                                    result_summary=final_content[:500] if final_content else None
-                                )
+                                self._agent_logger.exit_subagent(subagent_id=subagent_id)
+                            result_str = str(block.content)[:500] if block.content else ""
                             yield StreamChunk(
                                 type="subagent_complete",
                                 subagent_id=subagent_id,
-                                content=final_content,
+                                content=result_str,
                                 success=not is_error,
                                 error=str(block.content) if is_error else None
                             )
-
-                            # 如果 SubAgent 失败，打印错误日志到 Server 控制台
-                            if is_error and self.verbose:
-                                error_msg = str(block.content)
-                                self._agent_logger.log_error(f"SubAgent '{subagent_id}' failed: {error_msg[:200]}")
                         else:
                             # 普通工具调用完成 - 查找关联信息
                             tool_call_id = self._pending_tool_calls.get(block_tool_use_id)
@@ -958,21 +906,13 @@ class MainAgent:
                         if block_tool_use_id and block_tool_use_id in self._active_subagents:
                             # SubAgent 完成 - 从映射中获取并清理
                             subagent_id = self._active_subagents.pop(block_tool_use_id)
-                            # 获取收集的 SubAgent 文本内容（优先使用收集的实际输出）
-                            collected_texts = self._subagent_text_collector.pop(block_tool_use_id, [])
-                            collected_content = "".join(collected_texts) if collected_texts else ""
-                            # 使用收集的内容，如果为空则回退到 block.content
-                            final_content = collected_content[:2000] if collected_content else (str(block.content)[:500] if block.content and not is_error else "")
-                            # 日志输出（包含结果摘要）
                             if self.verbose:
-                                self._agent_logger.exit_subagent(
-                                    subagent_id=subagent_id,
-                                    result_summary=final_content[:500] if final_content else None
-                                )
+                                self._agent_logger.exit_subagent(subagent_id=subagent_id)
+                            result_str = str(block.content)[:500] if block.content else ""
                             yield StreamChunk(
                                 type="subagent_complete",
                                 subagent_id=subagent_id,
-                                content=final_content,
+                                content=result_str,
                                 success=not is_error,
                                 error=str(block.content) if is_error else None
                             )
