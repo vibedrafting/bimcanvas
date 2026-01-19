@@ -129,8 +129,10 @@ class MainAgent:
         # 跟踪每个工具调用所属的 SubAgent：tool_use_id → subagent_id
         self._tool_to_subagent: dict[str, str] = {}
 
-        # 当前会话使用的模型（用于日志显示）
+        # 当前请求的模型（用于 set_model 检查，避免重复发送控制消息）
         self._current_model: str | None = None
+        # API 响应的模型（用于日志显示，可能与请求模型名称不同）
+        self._response_model: str | None = None
 
         # 当前思考强度等级
         self._current_thinking_level: str | None = None
@@ -428,8 +430,8 @@ class MainAgent:
         text_content = ""
 
         if isinstance(message, AssistantMessage):
-            # 存储模型值，用于日志显示
-            self._current_model = getattr(message, 'model', None)
+            # 存储 API 响应的模型值，用于日志显示（不覆盖 _current_model）
+            self._response_model = getattr(message, 'model', None)
 
             for block in message.content:
                 if isinstance(block, ThinkingBlock):
@@ -592,7 +594,7 @@ class MainAgent:
         if self.verbose:
             if self._in_response:
                 self._agent_logger.log_response_end()
-            self._agent_logger.log_complete(model=self._current_model)
+            self._agent_logger.log_complete(model=self._response_model)
 
         return full_response
 
@@ -782,8 +784,8 @@ class MainAgent:
                     self._current_tool_name = None
 
             elif isinstance(message, AssistantMessage):
-                # 存储模型值，用于日志显示
-                self._current_model = getattr(message, 'model', None)
+                # 存储 API 响应的模型值，用于日志显示（不覆盖 _current_model）
+                self._response_model = getattr(message, 'model', None)
 
                 for block in message.content:
                     if isinstance(block, ThinkingBlock):
@@ -940,7 +942,7 @@ class MainAgent:
                                 self._tool_to_subagent.pop(block_tool_use_id, None)
 
         if self.verbose:
-            self._agent_logger.log_complete(model=self._current_model)
+            self._agent_logger.log_complete(model=self._response_model)
 
     # ─────────────────────────────────────────────────────
     # Control Methods
