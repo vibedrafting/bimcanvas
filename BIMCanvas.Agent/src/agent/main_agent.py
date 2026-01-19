@@ -387,6 +387,7 @@ class MainAgent:
         动态切换模型（不断开连接）
 
         通过 SDK 的 set_model() 方法发送控制消息。
+        仅当模型实际变化时才发送控制消息，避免触发会话状态问题。
 
         Args:
             model: 模型名称（如 "claude-sonnet-4-20250514"）
@@ -397,6 +398,12 @@ class MainAgent:
         if not self._connected or not self._client:
             logger.warning("Cannot set model: not connected")
             return False
+
+        # 检查模型是否相同，相同则跳过，避免不必要的控制消息
+        if model == self._current_model:
+            if self.verbose:
+                self._agent_logger.log_info(f"模型未变化，跳过: {model}")
+            return True
 
         try:
             await self._client.set_model(model)
@@ -960,6 +967,10 @@ class MainAgent:
     def get_history(self) -> list[dict]:
         """Get conversation history."""
         return []
+
+    def get_current_model(self) -> str | None:
+        """获取当前模型名称"""
+        return self._current_model
 
     def set_project_path(self, project_path: str) -> None:
         """Set project path (triggers reconnect)."""

@@ -319,8 +319,8 @@ async def chat_stream_handler(request: web.Request) -> web.StreamResponse:
     try:
         agent = await get_agent(window_id, project_path, worktree_path)  # 按窗口获取
 
-        # 动态切换模型（如果指定了模型且与当前不同）
-        if model:
+        # 动态切换模型（仅当模型实际变化时）
+        if model and model != agent.get_current_model():
             await agent.set_model(model)
 
         async for chunk in agent.chat_stream(message, images=images, thinking_level=thinking_level):
