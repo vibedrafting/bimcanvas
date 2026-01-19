@@ -1,8 +1,12 @@
 # BIMCanvas
 
-基于 AI CLI 的室内装修平面方案设计助手，实现 Revit 与 AI 之间的人机协作设计。
+BIMCanvas 是一款连接 AI 与 Revit 的室内设计辅助工具。它通过解析自然语言指令，自动生成符合空间逻辑的家具布局方案，并支持在 Web 端进行交互式调整，最终直接输出为可编辑的 Revit BIM 模型。
 
-> **当前版本**: v3.0 | **数据模型**: File-Driven Architecture + .bcp 项目格式 | **架构**: 三层汉堡模型 (baseline/schemes/computed)
+> **当前版本**: v3.0 | **数据架构**: File-Driven Architecture + .bcp 项目格式 | **Agent 架构**: 主控 Agent + SubAgent
+
+**核心竞争力**：实现从"自然语言创意"到"可编辑 BIM 模型"的直接转化。
+
+---
 
 ## 解决的问题
 
@@ -16,13 +20,23 @@
 
 ## 核心设计理念
 
-### v3.0 三层汉堡模型
+### 文件驱动架构 (File-Driven Architecture)
+
+> **文件是唯一真理源，Server 是"文件播放器"而非"内存数据库"**
+
+- **持久化优先**：所有业务数据以 JSON 文件形式存储在磁盘
+- **Server 无状态**：Server 不"拥有"数据，只负责读取、聚合、分发文件内容
+- **Git 原生集成**：项目文件即 Git 仓库，分支/回滚/协作开箱即用
+
+### 三层汉堡模型
 
 | 层 | 目录 | 内容 | 权限 |
 |---|---|---|---|
-| 顶层 | `computed/` | exclusions (禁区) | 自动生成 |
-| 中层 | `schemes/{id}/` | zones, finishes, modules | AI/Server 可写 |
-| 底层 | `baseline/` | walls, columns, openings, rooms | 只读 |
+| 顶层 | `computed/` | room_zones, exclusions (禁区) | 自动生成 |
+| 中层 | `schemes/` | strategy, zones, finishes, modules | AI/Server 可写 |
+| 底层 | `baseline/` | walls, columns, openings, rooms, locationLines | 只读 |
+
+> **多策略隔离**：多个策略通过 **Git 分支** 隔离，而非 schemes/ 子目录。每个分支的 schemes/ 目录结构相同。
 
 ### JSON 为骨，SVG 为皮
 
@@ -33,11 +47,6 @@
 
 **数据流**：AI 修改 JSON → WebSocket 推送 → 前端生成 SVG → 用户看到画布
 
-**选择理由**：
-- JSON Token 消耗远低于 SVG（约 1/10）
-- JSON 结构化数据 AI 更易推理
-- SVG 仅在渲染时生成，避免解析开销
-
 ### 坐标系统
 
 采用 **CAD 标准坐标系**（非 Web 屏幕坐标系）：
@@ -47,11 +56,6 @@
 | 原点 | 左下角 | 左上角 |
 | Y 轴 | 向上为正 | 向下为正 |
 | 单位 | 毫米 (mm) | 像素 (px) |
-
-**选择理由**：
-- 数据层符合数学直觉
-- 与 Revit 坐标系一致，减少转换
-- 空间关系语义自洽（above = Y 值更大）
 
 ---
 
@@ -83,25 +87,55 @@
                       ┌───────────────────────┐
                       │  BIMCanvas.Agent      │
                       │  (Python 3.10+)       │
-                      │  PlacementAgent       │
-                      │  基于 Agent SDK       │
+                      │  MainAgent            │
+                      │  (主控 + SubAgent)    │
                       └───────────────────────┘
 ```
+
+### 组件角色定位
+
+| 组件 | 比喻 | 核心职责 |
+|------|------|----------|
+| **BIMCanvas.Server** | 心脏 + 神经系统 | 状态管理、几何计算、通信中枢、事件分发 |
+| **BIMCanvas.Agent** | 大脑 | 智能决策、理解意图、规划布置方案 |
+| **BIMCanvas.Core** | 骨骼 | 数据结构、基础算法、类型定义 |
+| **BIMCanvas.Web** | 皮肤 + 眼睛 | 渲染展示、用户交互 |
+| **BIMCanvas.Revit** | 手臂 | 从 Revit 抓取数据、回写 Revit |
+
+### Agent 架构
+
+采用「主控 Agent + SubAgent」架构（基于 Anthropic Agent SDK）：
+
+| 组件 | 角色 | 职责 |
+|------|------|------|
+| **主控 Agent** | 项目经理 | 任务协调、意图解析、结果整合 |
+| **SubAgent** | 领域专家 | 专注单一领域任务执行 |
+| **MCP 工具** | 工具箱 | 能力扩展、数据接口 |
+
+**SubAgent 清单**：
+- `layout-agent`：家具布置专家
+- `zone-agent`：空间分区专家
+- 更多规划中...
+
+**关键设计原则**：
+- Agent 只做决策，不做计算
+- Agent 只发指令，不持状态
+- Server 是通信中枢，负责状态管理和约束验证
 
 ### 数据流向
 
 ```
 【Revit → 画布】
-Revit 模型 → ai_element_filter 提取 → Core 转换 JSON → Canvas-MCP 创建 → Web 渲染
+Revit 模型 → BIMCanvas.Revit 提取 → Core 转换 JSON → Server 处理 → Web 渲染
 
-【AI 设计】
+【AI 布置方案】
 AI 理解需求 → Library-MCP 搜索家具 → Canvas-MCP 修改 JSON → WebSocket 推送 → Web 渲染
 
-【用户修改】
-Web 拖拽 → 修改本地 JSON → 点击 Commit → 生成 change_set → AI 感知并响应
+【用户交互修改】
+Web 拖拽 → 修改本地 JSON → REST API → Server 写入文件 → AI 可感知变化
 
 【同步回 Revit】
-导出 JSON → Core 解析 → Revit-MCP 加载族 → 创建 Revit 元素
+导出 JSON → Core 解析 → Revit-MCP 创建元素
 ```
 
 ---
@@ -113,20 +147,20 @@ Web 拖拽 → 修改本地 JSON → 点击 Commit → 生成 change_set → AI 
 | Core 类库 | .NET Standard | 2.0 | 同时兼容 .NET FW 4.7.2 和 .NET 6+ |
 | Revit 插件 | .NET Framework | 4.7.2 | Revit API 限制 |
 | Server 后端 | ASP.NET Core | 6+ | MCP + REST + SignalR + SSE |
-| Agent 服务 | Python + Agent SDK | 3.10+ | 基于 Anthropic Agent SDK 的 PlacementAgent |
+| Agent 服务 | Python + Agent SDK | 3.10+ | 基于 Anthropic Agent SDK |
 | Web 前端 | Vue 3 + TypeScript | 3.x | 响应式 + 类型安全 |
 | 构建工具 | Vite | 5.x | 快速开发体验 |
 | 状态管理 | Pinia | 2.x | Vue 3 官方推荐 |
 
 ---
 
-## 项目结构（规划）
+## 项目结构
 
 ```
 BIMCanvas/
 ├── BIMCanvas.Core/              核心类库 (.NET Standard 2.0)
-│   ├── Models/                  数据模型 (CanvasDocument, Zone, Module...)
-│   └── Algorithms/              空间算法 (碰撞检测, 朝向转换)
+│   ├── Models/                  数据模型 (Project, Zone, Module...)
+│   └── Algorithms/              空间算法 (碰撞检测, 布置验证)
 │
 ├── BIMCanvas.Server/            统一后端服务 (.NET 6+)
 │   ├── McpTools/                Canvas-MCP + Library-MCP 工具
@@ -134,10 +168,12 @@ BIMCanvas/
 │   ├── Hubs/                    SignalR Hub
 │   └── Services/                EventBus、状态管理、业务服务
 │
-├── BIMCanvas.Agent/             PlacementAgent 服务 (Python 3.10+)
-│   ├── src/agent/               Agent SDK 实现
-│   ├── src/events/              SSE 事件监听器
-│   └── src/mcp/                 MCP 工具客户端
+├── BIMCanvas.Agent/             MainAgent 服务 (Python 3.10+)
+│   ├── main_agent.py            主控 Agent
+│   ├── subagents/               SubAgent 实现
+│   │   ├── layout_agent.py      家具布置专家
+│   │   └── zone_agent.py        空间分区专家
+│   └── events/                  SSE 事件监听器
 │
 ├── BIMCanvas.Revit/             Revit 插件 (.NET FW 4.7.2)
 │   ├── Commands/                Ribbon 按钮命令
@@ -150,136 +186,57 @@ BIMCanvas/
 │       ├── stores/              Pinia 状态
 │       └── services/            SignalR 客户端、渲染器
 │
-├── docs/                        文档 ✅
+├── docs/                        文档
 └── external/Revit-MCP/          已有 Revit-MCP 项目
 ```
 
 ---
 
-## schemes 目录结构 (v3.0)
+## .bcp 项目格式
 
-v3.0 采用分区级目录结构，每个分区独立存储，支持并行编辑和选择性合并。
-
-### 目录结构
+`.bcp` 是项目的标准交换格式，本质是包含以下结构的 ZIP 文件：
 
 ```
-schemes/
-├── {zoneId}/           # 分区目录（rz_* 或 dz_*）
-│   └── modules.json    # 该分区的布置模块
-├── zones.json          # 所有分区定义
-└── finishes.json       # 完成面分段
+project.bcp (ZIP)
+├── project.json            项目元数据 + 方案列表
+├── baseline/               建筑基础数据（只读）
+│   ├── metadata.json       坐标转换参数
+│   ├── architecture.json   墙体 + 柱子
+│   ├── openings.json       门窗数据
+│   ├── rooms.json          房间边界
+│   └── location_lines.json 完成面定位线
+├── computed/               计算派生数据（自动生成）
+│   ├── room_zones.json     房间区域
+│   └── exclusions.json     禁区
+├── schemes/                方案设计数据（无子目录）
+│   ├── strategy.json       策略元数据
+│   ├── zones.json          设计区域划分
+│   ├── finishes.json       完成面定义
+│   └── modules.json        家具模块布置
+├── context/                上下文信息
+│   └── requirements.md     用户需求描述
+├── knowledge/              知识库
+│   └── placement_guide.md  布置规则指南
+└── modules/                模块素材库
+    ├── module_library.json 模块元数据
+    └── assets/             SVG 资源目录
 ```
-
-### 分区命名规则
-
-| 前缀 | 含义 | 示例 |
-|------|------|------|
-| `rz_` | Room Zone（房间区域） | `rz_master_bedroom_01` |
-| `dz_` | Design Zone（设计区域） | `dz_living_area` |
-
-### modules.json 结构
-
-每个分区的 `modules.json` 是一个数组（非对象包装）：
-
-```json
-[
-  {
-    "id": "m001",
-    "moduleId": "bed_king",
-    "zoneId": "rz_master_bedroom_01",
-    "bounds": {
-      "vertices": [[1000, 2000], [3000, 2000], [3000, 4000], [1000, 4000]]
-    },
-    "facing": "north",
-    "items": []
-  }
-]
-```
-
-### 关键字段说明
-
-| 字段 | 类型 | 说明 |
-|------|------|------|
-| `id` | string | 模块实例 ID（前缀 `m`） |
-| `moduleId` | string | 模块库中的类型 ID |
-| `zoneId` | string | 所属分区 ID |
-| `bounds` | Polygon2D | 矩形边界（4 顶点，逆时针） |
-| `facing` | string/Vec2D | 朝向（8 方向字符串或单位向量） |
-
-### 设计优势
-
-- **并行编辑**：不同分区可同时编辑（通过 Git Worktree 隔离）
-- **选择性合并**：可按分区选择合并 AI 生成的方案
-- **冲突减少**：分区独立文件降低合并冲突概率
 
 详细 Schema 见：[docs/Schema-JSON-v3.md](./docs/Schema-JSON-v3.md)
 
 ---
 
-## v3.0 项目数据结构
+## 核心设计决策
 
-v3.0 采用 `.bcp` ZIP 格式，包含多个 JSON 文件：
-
-```json
-{
-  "id": "project_001",
-  "name": "Sample Project",
-  "coordinateSystem": "cartesian_mm_yUp",
-  "metadata": { "placementElevation": 0, "origin": [0, 0, 0], "rotation": 0 },
-
-  "walls": [{ "id": "wall_001", "elementId": 12345, "polygon": [[0,0], [6000,0], [6000,200], [0,200]] }],
-  "columns": [{ "id": "col_001", "elementId": 23456, "isStructural": true, "polygon": [[3000,0], [3500,0], [3500,500], [3000,500]] }],
-  "openings": [{ "id": "d1", "type": "door", "line": [[2000,0], [2900,0]] }],
-  "finishLocationBoundaries": [{ "id": "flb_001", "elementIds": [12345, 23456], "polygon": [[...]] }],
-
-  "rooms": [{
-    "id": "r1",
-    "name": "主卧",
-    "type": "master_bedroom",
-    "boundary": [[0,0], [6000,0], [6000,5000], [0,5000]]
-  }],
-
-  "zones": [{
-    "id": "z1",
-    "name": "主卧睡眠区",
-    "tags": ["sleep", "master_bedroom"],
-    "roomId": "r1",
-    "innerBoundary": [[50,50], [5950,50], ...],
-    "exclusionAreas": [{ "id": "ex1", "type": "door_swing", "boundary": [[2000,0], [2900,0], [2900,900], [2000,900]] }],
-    "openings": ["d1"]
-  }],
-
-  "wallFinishes": [{
-    "id": "wf1",
-    "locationLine": [[200, 200], [200, 5800]],
-    "thickness": 20,
-    "exclusionBoundary": [[200, 200], [220, 200], [220, 5800], [200, 5800]]
-  }],
-
-  "modules": [{
-    "id": "m1",
-    "moduleId": "sleep_master_01",
-    "moduleName": "主卧睡眠模块",
-    "bounds": [[1500, 2000], [4500, 2000], [4500, 4500], [1500, 4500]],
-    "facing": "north",
-    "zoneId": "z1",
-    "items": [{ "familyId": "bed_double_01", "offset": [0,0], "role": "主体" }]
-  }]
-}
-```
-
-**核心设计决策**：
 | 决策点 | 选择 | 理由 |
 |--------|------|------|
-| 数据架构 | File-Driven + .bcp ZIP | 文件为真理源，多文件夹结构 |
-| 墙体/柱子 | 分离存储（walls + columns） | AI 需要区分构件类型做空间理解 |
-| 柱子类型 | isStructural 布尔 | 区分结构柱/建筑柱 |
-| 完成面定位 | LocationLine + FinishSegment | 定位线 + 分段化完成面 (v3.0) |
-| 门窗表示 | 简化为线段 | 厚度不影响家具布置 |
-| 门扇区域 | 预计算为禁区 Polygon2D | KISS - AI 只需知道"这里不能放" |
-| 房间结构 | rooms + zones 分离 | rooms 对应 Revit 房间，zones 为设计区域 |
+| 数据架构 | File-Driven + .bcp ZIP | 文件为真理源，Git 原生支持 |
+| 多策略管理 | Git 分支隔离 | 每个策略一个分支，支持 diff 对比 |
+| Agent 架构 | 主控 + SubAgent | 职责分离，支持并行执行 |
+| 坐标系 | Y-Up (笛卡尔) | 符合 CAD/BIM/数学直觉 |
+| 门扇区域 | 预计算为禁区 | KISS - AI 只需知道"这里不能放" |
 | 布置单元 | modules（模块） | 支持单一家具或组合 |
-| 模块朝向 | Facing 联合类型 | 语义字符串 or Vec2D 单位向量 |
+| 模块朝向 | 语义化方向 | AI 友好，插件端转换为角度 |
 
 ---
 
@@ -289,21 +246,18 @@ v3.0 采用 `.bcp` ZIP 格式，包含多个 JSON 文件：
 
 **目标**：AI 可以在画布上设计，Web 可以显示
 
-**当前阶段**：v3.0 架构升级完成（Core + Revit + Server + Web 项目加载）
-
-- ✅ 实现 Core 数据模型（CanvasDocument, Zone, Module 等）
+- ✅ 实现 Core 数据模型（Project, Zone, Module 等）
 - ✅ 实现空间算法（CollisionDetector, PlacementValidator）
-- ✅ 实现 v3.0 数据模型（Project, Strategy, LocationLine, ExclusionArea 等）
-- ✅ 实现 Server 层 v3.0 项目加载（ProjectService, ManifestService）
-- ✅ 实现 Web 层 v3.0 项目数据加载
+- ✅ 实现 Server 层项目加载
+- ✅ 实现 Web 层项目数据加载
 - ⬜ 实现 Web 前端 JSON → SVG 渲染
 
-### Phase 2: PlacementAgent 集成
+### Phase 2: Agent 集成
 
 **目标**：智能布置助手自动化
 
-- ⬜ 实现 BIMCanvas.Agent 项目结构（Python 3.10+）
-- ⬜ 实现 PlacementAgent（基于 Anthropic Agent SDK）
+- ⬜ 实现 BIMCanvas.Agent 项目结构
+- ⬜ 实现 MainAgent + SubAgent 架构
 - ⬜ 实现 EventBus + SSE 事件机制
 - ⬜ 实现三种触发方式（AI 对话、Web 按钮、自动修正）
 
@@ -311,19 +265,16 @@ v3.0 采用 `.bcp` ZIP 格式，包含多个 JSON 文件：
 
 **目标**：AI 和用户可以实时协作
 
-- ⬜ 实现 Commit 同步机制
+- ⬜ 实现 Git Worktree 并行设计
 - ⬜ 实现元素拖拽/旋转交互
-- ⬜ 实现 Library-MCP 族库查询
-- ⬜ 实现 Visual Fallback 占位符
+- ⬜ 实现 Visual Merge UI（可视化合并）
 
 ### Phase 4: Revit 集成
 
 **目标**：完整的 Revit 双向同步
 
-- ✅ 实现 Revit → JSON 导出（墙体/柱子/门窗/房间）
-- ✅ 实现 Ribbon 面板和配置窗口
-- ✅ 实现 LocationLine 提取（v3.0）
-- ✅ 实现 .bcp 格式导出（v3.0）
+- ✅ 实现 Revit → JSON 导出
+- ✅ 实现 .bcp 格式导出
 - ⬜ 实现 JSON → Revit 同步（回写家具）
 
 ---
@@ -332,8 +283,8 @@ v3.0 采用 `.bcp` ZIP 格式，包含多个 JSON 文件：
 
 | 文档 | 说明 |
 |------|------|
-| [Architecture.md](./docs/Architecture.md) | 详细架构设计 |
-| [Schema-JSON-v3.md](./docs/Schema-JSON-v3.md) | JSON 数据模型规范 (v3.0) |
+| [Architecture.md](./docs/Architecture.md) | 系统架构设计 |
+| [Schema-JSON-v3.md](./docs/Schema-JSON-v3.md) | JSON 数据模型规范 |
+| [Agent_Design.md](./docs/Agent_Design.md) | Agent 架构与提示词设计 |
 | [PRD.md](./docs/PRD.md) | 产品需求文档 |
-| [Architecture_Design_Review.md](./docs/Architecture_Design_Review.md) | 专家评审记录 |
-| [PlacementAgent_Review.md](./reviews/PlacementAgent_Review.md) | PlacementAgent 架构决策记录 |
+| [Flow_Workflows.md](./docs/Flow_Workflows.md) | 端到端业务流程 |
