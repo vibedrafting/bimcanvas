@@ -126,6 +126,8 @@ class MainAgent:
         self._active_subagents: dict[str, str] = {}
         # SubAgent 文本收集器：task_tool_use_id → text_list（用于收集 SubAgent 的实际输出）
         self._subagent_text_collector: dict[str, list[str]] = {}
+        # 当前 SubAgent 上下文（状态机核心）：用于关联流式 text_delta 到 SubAgent
+        self._current_subagent_parent_id: str | None = None
         self._tool_call_counter = 0
         self._pending_tool_calls: dict[str, str] = {}  # tool_use_id -> tool_call_id 映射
         # 跟踪每个工具调用所属的 SubAgent：tool_use_id → subagent_id
@@ -631,6 +633,7 @@ class MainAgent:
         # 重置 SubAgent/ToolCall 状态
         self._active_subagents.clear()
         self._subagent_text_collector.clear()  # 重置 SubAgent 文本收集器
+        self._current_subagent_parent_id = None  # 重置当前 SubAgent 上下文
         self._tool_call_counter = 0
         self._pending_tool_calls.clear()
         self._tool_to_subagent.clear()
@@ -671,12 +674,12 @@ class MainAgent:
                     if delta_type == "text_delta":
                         text = delta.get("text", "")
                         if text:
-                            # 收集 SubAgent 文本输出（用于最终结果传递）
-                            if current_parent_id and current_parent_id in self._subagent_text_collector:
-                                self._subagent_text_collector[current_parent_id].append(text)
+                            # 收集 SubAgent 文本输出（使用状态机跟踪的当前上下文）
+                            if self._current_subagent_parent_id and self._current_subagent_parent_id in self._subagent_text_collector:
+                                self._subagent_text_collector[self._current_subagent_parent_id].append(text)
                                 if self.verbose:
                                     # 调试日志：记录收集的 SubAgent 文本
-                                    self._agent_logger.log_info(f"[SubAgent Text Collected] parent={current_parent_id[:8]}... len={len(text)}")
+                                    self._agent_logger.log_info(f"[SubAgent Text Collected] parent={self._current_subagent_parent_id[:8]}... len={len(text)}")
 
                             # 1. 检测权限错误（纯文本形式）
                             is_perm_error, perm_msg = self._detect_permission_error(text)
@@ -801,6 +804,15 @@ class MainAgent:
                 # 存储 API 响应的模型值，用于日志显示（不覆盖 _current_model）
                 self._response_model = getattr(message, 'model', None)
 
+                # 状态机核心：从 AssistantMessage 更新当前 SubAgent 上下文
+                msg_parent_id = getattr(message, 'parent_tool_use_id', None)
+                if msg_parent_id and msg_parent_id in self._subagent_text_collector:
+                    # 这是 SubAgent 的消息，设置当前上下文
+                    self._current_subagent_parent_id = msg_parent_id
+                elif not msg_parent_id:
+                    # MainAgent 自己的消息，清空 SubAgent 上下文
+                    self._current_subagent_parent_id = None
+
                 for block in message.content:
                     if isinstance(block, ThinkingBlock):
                         if self.verbose and not self._in_thinking:
@@ -809,6 +821,10 @@ class MainAgent:
                             self._agent_logger.log_thinking_end()
                         yield StreamChunk(type="thinking_complete", content=block.thinking)
                     elif isinstance(block, TextBlock):
+                        # 如果当前在 SubAgent 上下文中，也收集文本
+                        if self._current_subagent_parent_id and self._current_subagent_parent_id in self._subagent_text_collector:
+                            self._subagent_text_collector[self._current_subagent_parent_id].append(block.text)
+
                         if self.verbose and not self._in_response:
                             self._agent_logger.log_response_start()
                             self._agent_logger.log_response(block.text)
