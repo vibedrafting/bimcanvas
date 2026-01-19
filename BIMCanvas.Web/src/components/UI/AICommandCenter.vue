@@ -1388,10 +1388,19 @@ const sendMessage = async () => {
 
             else if (parsed.type === 'text_complete') {
               // 标记最后一个文本气泡为完成
-              const lastTextBubble = getLastStreamingTextBubble(currentMsg.bubbles);
+              let lastTextBubble = getLastStreamingTextBubble(currentMsg.bubbles);
+
               if (lastTextBubble) {
+                // 情况1：有正在流式传输的气泡，标记为完成
                 completeBubble(lastTextBubble);
+              } else if (parsed.content) {
+                // 情况2：没有流式气泡但有内容（SubAgent完成后的最终文本）
+                // 创建新气泡并直接标记为完成
+                const newTextBubble = createTextBubble(parsed.content);
+                newTextBubble.status = 'completed';
+                currentMsg.bubbles.push(newTextBubble);
               }
+
               // 只有当没有 SubAgent 在运行时，才进入等待状态
               if (!hasStreamingSubAgent(currentMsg.bubbles)) {
                 enterWaitingState(currentMsg.waitingState, getRandomWaitingVerb);
