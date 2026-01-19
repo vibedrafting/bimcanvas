@@ -775,6 +775,11 @@ class MainAgent:
                         if self.verbose:
                             content_source = "collected" if collected_content else "sdk_result"
                             self._agent_logger.log_info(f"[SubAgent Complete] id={subagent_id} source={content_source} len={len(final_content)}")
+                            # 输出结果摘要
+                            self._agent_logger.exit_subagent(
+                                subagent_id=subagent_id,
+                                result_summary=final_content[:500] if final_content else None
+                            )
                         yield StreamChunk(
                             type="subagent_complete",
                             subagent_id=subagent_id,
