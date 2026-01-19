@@ -765,6 +765,8 @@ class MainAgent:
                             error_type=error_type,
                             hidden_content=hidden_message
                         )
+                        # 重置标记，准备接收 MainAgent 后续输出（修复 SubAgent 完成后最终结论不显示的 bug）
+                        self._streamed_text = False
                     else:
                         # 普通工具调用完成 - 查找关联的 SubAgent
                         tool_call_id = self._pending_tool_calls.get(tool_use_id) if tool_use_id else None
@@ -876,6 +878,8 @@ class MainAgent:
                                 success=not is_error,
                                 error=str(block.content) if is_error else None
                             )
+                            # 重置标记，准备接收 MainAgent 后续输出（修复 SubAgent 完成后最终结论不显示的 bug）
+                            self._streamed_text = False
                         else:
                             # 普通工具调用完成 - 查找关联信息
                             tool_call_id = self._pending_tool_calls.get(block_tool_use_id)
@@ -916,6 +920,8 @@ class MainAgent:
                                 success=not is_error,
                                 error=str(block.content) if is_error else None
                             )
+                            # 重置标记，准备接收 MainAgent 后续输出（修复 SubAgent 完成后最终结论不显示的 bug）
+                            self._streamed_text = False
                         else:
                             # 普通工具调用完成 - 查找关联信息
                             tool_call_id = self._pending_tool_calls.get(block_tool_use_id)

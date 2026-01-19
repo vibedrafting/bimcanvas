@@ -1300,6 +1300,17 @@ const sendMessage = async () => {
           }
           try {
             const parsed = JSON.parse(data);
+
+            // 调试日志：记录所有接收到的 SSE 事件（用于验证 SubAgent 完成后最终结论是否正常输出）
+            if (import.meta.env.DEV) {
+              console.log('[SSE Event]', {
+                type: parsed.type,
+                content: parsed.content?.slice(0, 100),
+                subAgentId: parsed.subAgentId,
+                success: parsed.success
+              });
+            }
+
             // Phase 2: 使用 getWindowMessage 定位到目标窗口的消息
             const currentMsg = getWindowMessage(targetWindowId, aiMessageIndex);
             if (!currentMsg) continue;  // 窗口可能已关闭
