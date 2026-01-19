@@ -529,6 +529,54 @@ model: inherit
 - [ ] 布置方案评估与修正
 - [ ] 与 Revit 回写集成
 
+## 开发难点记录
+
+本章节记录开发过程中遇到的技术难点及解决方案，供后续参考。
+
+### 1. 连续对话失败（Thinking Signature）
+
+| 项目 | 内容 |
+|------|------|
+| **现象** | 启用 thinking 后，第二条消息返回 400 错误：`Invalid signature in thinking block` |
+| **根因** | Claude Agent SDK 在构建多轮对话请求时，把之前响应中的 thinking block（包含 signature）原封不动地放入历史消息中，导致 API 校验失败 |
+| **方案** | **临时**：禁用 thinking（`max_thinking_tokens=None`）；**长期**：等待 SDK 修复 |
+| **状态** | ✅ 临时方案已生效 |
+
+### 2. SubAgent 结果传递（状态机追踪）
+
+| 项目 | 内容 |
+|------|------|
+| **现象** | SubAgent 完成后，MainAgent 收到的结果是 `agentId: xxx` 而非实际输出 |
+| **根因** | SDK 的 `ToolResultBlock.content` 返回的是恢复标识符，而非 SubAgent 的实际文本输出 |
+| **方案** | 使用**状态机模式**追踪 `parent_tool_use_id`，从流式事件（`text_delta`）和 `AssistantMessage` 中收集实际文本 |
+| **状态** | ✅ 已修复（v3 方案） |
+
+**技术细节**：
+
+- 官方示例（`research-agent`）也使用状态机追踪 SubAgent 上下文
+- 流式 `text_delta` 事件没有 `parent_tool_use_id`，需要从 `AssistantMessage` 中获取并保存
+- 核心变量：`_current_subagent_parent_id`、`_subagent_text_collector`
+
+### 3. SubAgent 文本关联
+
+| 项目 | 内容 |
+|------|------|
+| **现象** | 流式 `text_delta` 事件无法直接关联到 SubAgent |
+| **根因** | SDK 的 `StreamEvent` 中 `parent_tool_use_id` 始终为 None，只有完整的 `AssistantMessage` 才有这个字段 |
+| **方案** | 从 `AssistantMessage` 中获取 `parent_tool_use_id`，更新状态机的当前上下文，后续 `text_delta` 使用该上下文关联 |
+| **状态** | ✅ 已修复（v3 方案） |
+
+**关键代码**（`main_agent.py`）：
+
+```python
+# 状态机核心：从 AssistantMessage 更新当前 SubAgent 上下文
+msg_parent_id = getattr(message, 'parent_tool_use_id', None)
+if msg_parent_id and msg_parent_id in self._subagent_text_collector:
+    self._current_subagent_parent_id = msg_parent_id
+elif not msg_parent_id:
+    self._current_subagent_parent_id = None
+```
+
 ## 开发指南
 
 ### 本地调试

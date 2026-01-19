@@ -899,13 +899,17 @@ class MainAgent:
                         if block_tool_use_id and block_tool_use_id in self._active_subagents:
                             # SubAgent 完成 - 从映射中获取并清理
                             subagent_id = self._active_subagents.pop(block_tool_use_id)
-                            if self.verbose:
-                                self._agent_logger.exit_subagent(subagent_id=subagent_id)
                             # 获取收集的 SubAgent 文本内容（优先使用收集的实际输出）
                             collected_texts = self._subagent_text_collector.pop(block_tool_use_id, [])
                             collected_content = "".join(collected_texts) if collected_texts else ""
                             # 使用收集的内容，如果为空则回退到 block.content
                             final_content = collected_content[:2000] if collected_content else (str(block.content)[:500] if block.content and not is_error else "")
+                            # 日志输出（包含结果摘要）
+                            if self.verbose:
+                                self._agent_logger.exit_subagent(
+                                    subagent_id=subagent_id,
+                                    result_summary=final_content[:500] if final_content else None
+                                )
                             yield StreamChunk(
                                 type="subagent_complete",
                                 subagent_id=subagent_id,
@@ -948,13 +952,17 @@ class MainAgent:
                         if block_tool_use_id and block_tool_use_id in self._active_subagents:
                             # SubAgent 完成 - 从映射中获取并清理
                             subagent_id = self._active_subagents.pop(block_tool_use_id)
-                            if self.verbose:
-                                self._agent_logger.exit_subagent(subagent_id=subagent_id)
                             # 获取收集的 SubAgent 文本内容（优先使用收集的实际输出）
                             collected_texts = self._subagent_text_collector.pop(block_tool_use_id, [])
                             collected_content = "".join(collected_texts) if collected_texts else ""
                             # 使用收集的内容，如果为空则回退到 block.content
                             final_content = collected_content[:2000] if collected_content else (str(block.content)[:500] if block.content and not is_error else "")
+                            # 日志输出（包含结果摘要）
+                            if self.verbose:
+                                self._agent_logger.exit_subagent(
+                                    subagent_id=subagent_id,
+                                    result_summary=final_content[:500] if final_content else None
+                                )
                             yield StreamChunk(
                                 type="subagent_complete",
                                 subagent_id=subagent_id,
