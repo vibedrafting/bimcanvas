@@ -220,7 +220,7 @@ interface ChatMessage {
   waitingState: WaitingState;
 }
 
-// === 多窗口聊天数据结构 (Phase 1) ===
+// === 多窗口聊天数据结构 (Phase 2: 窗口隔离架构) ===
 interface ChatWindow {
   id: string;
   name: string;
@@ -231,6 +231,13 @@ interface ChatWindow {
   worktreeName?: string;  // 后端 Worktree 名称（虚拟窗口必填）
   isLoading?: boolean;    // 加载状态（创建/删除中）
   error?: string | null;  // 错误信息
+  // === 窗口隔离状态（Phase 2 新增）===
+  inputMessage: string;           // 输入框内容
+  isStreaming: boolean;           // 正在接收SSE流
+  pendingImages: string[];        // 待发送截图
+  scrollPosition: number;         // 滚动位置
+  expandedThinking: Record<number, boolean>; // 思考折叠状态
+  shouldAutoScroll: boolean;      // 是否自动滚动
 }
 
 // 窗口状态
@@ -246,7 +253,14 @@ const initDefaultWindow = () => {
     name: 'Main',
     branchId: currentBranch.value || 'main',
     messages: [],
-    isPrimary: true
+    isPrimary: true,
+    // Phase 2: 窗口隔离状态
+    inputMessage: '',
+    isStreaming: false,
+    pendingImages: [],
+    scrollPosition: 0,
+    expandedThinking: {},
+    shouldAutoScroll: true
   }];
   activeWindowId.value = defaultId;
 };
@@ -265,54 +279,51 @@ watch(currentBranch, (newBranch) => {
   }
 }, { immediate: true });
 
-// 获取当前窗口的消息（用于渐进式迁移）
-const getCurrentWindowMessages = (): ChatMessage[] => {
-  const win = windows.value.find(w => w.id === activeWindowId.value);
-  return win ? win.messages : [];
-};
+// === Phase 2: 核心 computed - 当前活跃窗口 ===
+const activeWindow = computed(() =>
+  windows.value.find(w => w.id === activeWindowId.value) || windows.value[0]
+);
 
 /**
- * 添加消息到 chatMessages 并同步到当前窗口
+ * 添加消息到当前窗口（Phase 2 简化版）
  * @param message 要添加的消息
- * @returns 消息在 chatMessages 中的索引
+ * @returns 消息在窗口消息列表中的索引
  */
-const addMessageWithSync = (message: ChatMessage): number => {
-  const index = chatMessages.value.length;
-  chatMessages.value.push(message);
-
-  const currentWin = windows.value.find(w => w.id === activeWindowId.value);
-  if (currentWin) {
-    currentWin.messages.push(message);
-  }
-
+const addMessage = (message: ChatMessage): number => {
+  const win = activeWindow.value;
+  if (!win) return -1;
+  const index = win.messages.length;
+  win.messages.push(message);
   return index;
 };
 
 /**
- * 切换窗口时同步消息
- * @param fromWindowId 源窗口ID
- * @param toWindowId 目标窗口ID
+ * 向指定窗口添加消息（用于 SSE 流定位）
+ * @param windowId 窗口ID
+ * @param message 要添加的消息
+ * @returns 消息索引
  */
-const syncMessagesOnSwitch = (fromWindowId: string, toWindowId: string) => {
-  // 保存当前窗口消息
-  const fromWin = windows.value.find(w => w.id === fromWindowId);
-  if (fromWin) {
-    fromWin.messages = [...chatMessages.value];
-  }
+const addMessageToWindow = (windowId: string, message: ChatMessage): number => {
+  const win = windows.value.find(w => w.id === windowId);
+  if (!win) return -1;
+  const index = win.messages.length;
+  win.messages.push(message);
+  return index;
+};
 
-  // 加载目标窗口消息
-  const toWin = windows.value.find(w => w.id === toWindowId);
-  if (toWin) {
-    chatMessages.value = [...toWin.messages];
-  } else {
-    // 如果目标窗口不存在，清空消息
-    chatMessages.value = [];
-  }
+/**
+ * 获取指定窗口的消息
+ * @param windowId 窗口ID
+ * @param msgIndex 消息索引
+ */
+const getWindowMessage = (windowId: string, msgIndex: number): ChatMessage | undefined => {
+  const win = windows.value.find(w => w.id === windowId);
+  return win?.messages[msgIndex];
 };
 
 // === 窗口管理函数 (Phase 4) ===
 
-// 切换窗口
+// 切换窗口（Phase 2: 无消息拷贝，v-show 瞬间切换）
 // 核心：通知 Server 切换活跃窗口，然后重新加载项目数据
 const switchWindow = async (id: string) => {
   if (activeWindowId.value === id) return;
@@ -320,10 +331,14 @@ const switchWindow = async (id: string) => {
   const win = windows.value.find(w => w.id === id);
   if (!win) return;
 
-  // 0. 同步消息：保存当前窗口消息，加载目标窗口消息
-  syncMessagesOnSwitch(activeWindowId.value, id);
+  // 0. 保存当前窗口滚动位置
+  const currentWin = activeWindow.value;
+  const currentScrollRef = chatScrollRefs.value[activeWindowId.value];
+  if (currentScrollRef && currentWin) {
+    currentWin.scrollPosition = currentScrollRef.scrollTop;
+  }
 
-  // 1. 更新本地状态
+  // 1. 切换（Phase 2: 不再需要消息拷贝！v-show 保留所有窗口 DOM）
   activeWindowId.value = id;
   branches.value.forEach(b => b.isCurrent = b.id === win.branchId);
 
@@ -343,8 +358,12 @@ const switchWindow = async (id: string) => {
   await store.loadProject({ source: 'git_checkout', preserveView: true });
   console.log(`[Window] 重新加载项目数据完成`);
 
+  // 4. 恢复目标窗口滚动位置
   nextTick(() => {
-    scrollToBottom({ force: true });
+    const targetScrollRef = chatScrollRefs.value[id];
+    if (targetScrollRef && win.scrollPosition) {
+      targetScrollRef.scrollTop = win.scrollPosition;
+    }
   });
 };
 
@@ -497,8 +516,7 @@ const closeWindow = async (id: string) => {
         const newActiveIndex = Math.min(index, windows.value.length - 1);
         const newActiveWin = windows.value[newActiveIndex];
         if (newActiveWin) {
-            // 手动同步消息（因为旧窗口已被移除，不需要保存）
-            chatMessages.value = [...newActiveWin.messages];
+            // Phase 2: 只需切换 activeWindowId，computed 兼容层会自动映射消息
             activeWindowId.value = newActiveWin.id;
             branches.value.forEach(b => b.isCurrent = b.id === newActiveWin.branchId);
             // 重新加载项目数据
@@ -583,7 +601,14 @@ const addWindow = async (branchName: string) => {
         isPrimary: false,
         worktreeName,
         isLoading: true,
-        error: null
+        error: null,
+        // Phase 2: 窗口隔离状态
+        inputMessage: '',
+        isStreaming: false,
+        pendingImages: [],
+        scrollPosition: 0,
+        expandedThinking: {},
+        shouldAutoScroll: true
     };
     windows.value.push(newWindow);
     switchWindow(newId);
@@ -685,16 +710,61 @@ const getRandomWaitingVerb = (): string => {
   return WAITING_VERBS[Math.floor(Math.random() * WAITING_VERBS.length)];
 };
 
-// 保留原有的 chatMessages ref（向后兼容，Phase 1 不修改使用方式）
-const chatMessages = ref<ChatMessage[]>([]);
-const inputMessage = ref('');
-const pendingImages = ref<string[]>([]);  // 待发送的截图附件（base64）
-const isLoading = ref(false);
+// === Phase 2: 兼容层 computed（映射到当前活跃窗口）===
+// 让大部分旧代码无需修改即可工作
+const chatMessages = computed({
+  get: () => activeWindow.value?.messages || [],
+  set: (val) => { if (activeWindow.value) activeWindow.value.messages = val; }
+});
+
+const inputMessage = computed({
+  get: () => activeWindow.value?.inputMessage || '',
+  set: (val) => { if (activeWindow.value) activeWindow.value.inputMessage = val; }
+});
+
+const pendingImages = computed({
+  get: () => activeWindow.value?.pendingImages || [],
+  set: (val) => { if (activeWindow.value) activeWindow.value.pendingImages = val; }
+});
+
+const isLoading = computed({
+  get: () => activeWindow.value?.isStreaming || false,
+  set: (val) => { if (activeWindow.value) activeWindow.value.isStreaming = val; }
+});
+
+const expandedThinking = computed({
+  get: () => activeWindow.value?.expandedThinking || {},
+  set: (val) => { if (activeWindow.value) activeWindow.value.expandedThinking = val; }
+});
+
+const shouldAutoScroll = computed({
+  get: () => activeWindow.value?.shouldAutoScroll ?? true,
+  set: (val) => { if (activeWindow.value) activeWindow.value.shouldAutoScroll = val; }
+});
+
+// 全局状态（非窗口隔离）
 const isPollingBackground = ref(false);  // 后台任务 polling 状态
-const chatScrollRef = ref<HTMLElement | null>(null);
-const chatBottomRef = ref<HTMLElement | null>(null);
-const expandedThinking = ref<Record<number, boolean>>({});
-const shouldAutoScroll = ref(true); // Track if we should auto-scroll to bottom
+
+// === Phase 2: 多窗口滚动容器 ref ===
+const chatScrollRefs = ref<Record<string, HTMLElement | null>>({});
+const chatBottomRefs = ref<Record<string, HTMLElement | null>>({});
+
+// 兼容层：保留原有单窗口 ref（用于部分旧逻辑）
+const chatScrollRef = computed(() => chatScrollRefs.value[activeWindowId.value] || null);
+const chatBottomRef = computed(() => chatBottomRefs.value[activeWindowId.value] || null);
+
+// 设置滚动容器 ref（用于模板 :ref）
+const setChatScrollRef = (windowId: string, el: HTMLElement | null) => {
+  if (el) {
+    chatScrollRefs.value[windowId] = el;
+  }
+};
+
+const setChatBottomRef = (windowId: string, el: HTMLElement | null) => {
+  if (el) {
+    chatBottomRefs.value[windowId] = el;
+  }
+};
 const windowTabsRef = ref<HTMLElement | null>(null);
 const newWindowBtnRef = ref<HTMLElement | null>(null);
 const newWindowDropdownPosition = ref<{
@@ -732,9 +802,12 @@ watch(inputMessage, (newVal) => {
     }
 });
 
-// Toggle thinking section visibility
-const toggleThinking = (index: number) => {
-  expandedThinking.value[index] = !expandedThinking.value[index];
+// Phase 2: 支持指定窗口的思考折叠切换
+const toggleThinking = (windowId: string, index: number) => {
+  const win = windows.value.find(w => w.id === windowId);
+  if (win) {
+    win.expandedThinking[index] = !win.expandedThinking[index];
+  }
 };
 
 // 辅助函数：将 ChatBubble (subagent) 转换为 SubAgent 格式
@@ -959,14 +1032,18 @@ watch(() => props.panelReady, (newVal) => {
 });
 
 const streamWelcomeMessage = async () => {
+    const win = activeWindow.value;
+    if (!win) return;
+
     // Prevent duplicate welcome messages if one already exists
-    if (chatMessages.value.length > 0) return;
+    if (win.messages.length > 0) return;
 
     const welcomeText = '你好！我是 BIMCanvas 的布置助手。我可以帮助你分析房间功能、提供布置建议。有什么我能帮你的吗？';
+    const targetWindowId = win.id;
 
-    // 创建欢迎消息，使用气泡模型（同步到窗口）
+    // 创建欢迎消息，使用气泡模型
     const welcomeBubble = createTextBubble('');
-    const msgIndex = addMessageWithSync({
+    const msgIndex = addMessage({
         role: 'ai',
         bubbles: [welcomeBubble],
         waitingState: { isWaiting: false, waitingVerb: '', waitingSince: 0 },
@@ -976,16 +1053,23 @@ const streamWelcomeMessage = async () => {
     // Simulate typing effect
     let i = 0;
     const interval = setInterval(() => {
+        // Phase 2: 使用 getWindowMessage 定位消息
+        const msg = getWindowMessage(targetWindowId, msgIndex);
+        if (!msg) {
+            clearInterval(interval);
+            return;
+        }
+
         if (i < welcomeText.length) {
             // 更新气泡内容
-            chatMessages.value[msgIndex].bubbles[0].content += welcomeText[i];
+            msg.bubbles[0].content += welcomeText[i];
             i++;
-            scrollToBottom();
+            scrollToBottom({ windowId: targetWindowId });
         } else {
             clearInterval(interval);
             // 标记完成
-            chatMessages.value[msgIndex].bubbles[0].status = 'completed';
-            chatMessages.value[msgIndex].isStreaming = false;
+            msg.bubbles[0].status = 'completed';
+            msg.isStreaming = false;
         }
     }, 30);
 };
@@ -1000,18 +1084,22 @@ watch(() => chatMessages.value, () => {
     }
 }, { deep: true });
 
-// Check if user is near bottom (within 100px threshold)
-const isNearBottom = () => {
-    const el = chatScrollRef.value;
+// Phase 2: 支持指定窗口的 isNearBottom
+const isNearBottom = (windowId?: string) => {
+    const targetWindowId = windowId || activeWindowId.value;
+    const el = chatScrollRefs.value[targetWindowId];
     if (!el) return true;
     const threshold = 100;
     return el.scrollHeight - el.scrollTop - el.clientHeight < threshold;
 };
 
-// Handle scroll event to track if user scrolled up
-const handleChatScroll = () => {
+// Phase 2: 支持指定窗口的滚动事件处理
+const handleChatScroll = (windowId: string) => {
     if (mode.value !== 'chat') return;
-    shouldAutoScroll.value = isNearBottom();
+    const win = windows.value.find(w => w.id === windowId);
+    if (win) {
+        win.shouldAutoScroll = isNearBottom(windowId);
+    }
 };
 
 // Agent API functions
@@ -1096,35 +1184,41 @@ const fetchProjectPath = async () => {
 };
 
 const sendMessage = async () => {
-  const message = inputMessage.value.trim();
-  if (!message || isLoading.value) return;
+  const win = activeWindow.value;
+  if (!win) return;
 
-  // Add user message to chat - 使用气泡模型（同步到窗口）
+  const message = win.inputMessage.trim();
+  if (!message || win.isStreaming) return;
+
+  // Phase 2: 记住发送时的窗口ID，SSE循环中使用此ID定位消息
+  const targetWindowId = win.id;
+
+  // Add user message to chat - 使用气泡模型
   const userTextBubble = createTextBubble(message);
   userTextBubble.status = 'completed';
-  addMessageWithSync({
+  addMessageToWindow(targetWindowId, {
     role: 'user',
     bubbles: [userTextBubble],
     waitingState: { isWaiting: false, waitingVerb: '', waitingSince: 0 }
   });
-  inputMessage.value = '';
-  isLoading.value = true;
+  win.inputMessage = '';
+  win.isStreaming = true;  // 仅当前窗口进入加载状态
 
   // Force scroll to bottom when user sends message
-  shouldAutoScroll.value = true;
+  win.shouldAutoScroll = true;
   await nextTick();
-  scrollToBottom({ force: true });
-  requestAnimationFrame(() => scrollToBottom({ force: true }));
-  setTimeout(() => scrollToBottom({ force: true }), 50);
-  setTimeout(() => scrollToBottom({ force: true }), 150);
+  scrollToBottom({ force: true, windowId: targetWindowId });
+  requestAnimationFrame(() => scrollToBottom({ force: true, windowId: targetWindowId }));
+  setTimeout(() => scrollToBottom({ force: true, windowId: targetWindowId }), 50);
+  setTimeout(() => scrollToBottom({ force: true, windowId: targetWindowId }), 150);
 
-  // Add placeholder AI message for streaming - 使用气泡模型（同步到窗口）
+  // Add placeholder AI message for streaming - 使用气泡模型
   const initialWaitingState: WaitingState = {
     isWaiting: true,
     waitingVerb: getRandomWaitingVerb(),
     waitingSince: Date.now()
   };
-  const aiMessageIndex = addMessageWithSync({
+  const aiMessageIndex = addMessageToWindow(targetWindowId, {
     role: 'ai',
     bubbles: [],
     waitingState: initialWaitingState,
@@ -1135,8 +1229,9 @@ const sendMessage = async () => {
   });
 
   // Start thinking timer - updates every second while streaming
+  // Phase 2: 使用 getWindowMessage 定位到目标窗口的消息
   const timerInterval = setInterval(() => {
-    const msg = chatMessages.value[aiMessageIndex];
+    const msg = getWindowMessage(targetWindowId, aiMessageIndex);
     // Only update if still streaming and no bubbles yet (still in thinking phase)
     if (msg && msg.isStreaming && msg.bubbles.length === 0 && msg.thinking) {
       const duration = Math.round((Date.now() - (msg.startTime || Date.now())) / 1000);
@@ -1205,7 +1300,13 @@ const sendMessage = async () => {
           }
           try {
             const parsed = JSON.parse(data);
-            const currentMsg = chatMessages.value[aiMessageIndex];
+            // Phase 2: 使用 getWindowMessage 定位到目标窗口的消息
+            const currentMsg = getWindowMessage(targetWindowId, aiMessageIndex);
+            if (!currentMsg) continue;  // 窗口可能已关闭
+
+            // Phase 2: 获取目标窗口的 expandedThinking 状态
+            const targetWin = windows.value.find(w => w.id === targetWindowId);
+            if (!targetWin) continue;
 
             // ===== Thinking Events =====
             if (parsed.type === 'thinking' || parsed.type === 'thinking_complete') {
@@ -1215,8 +1316,8 @@ const sendMessage = async () => {
                 currentMsg.thinking = (currentMsg.thinking || '') + parsed.content;
               }
               // Auto-expand thinking on first chunk
-              if (!expandedThinking.value[aiMessageIndex]) {
-                expandedThinking.value[aiMessageIndex] = true;
+              if (!targetWin.expandedThinking[aiMessageIndex]) {
+                targetWin.expandedThinking[aiMessageIndex] = true;
               }
             }
 
@@ -1226,12 +1327,12 @@ const sendMessage = async () => {
               exitWaitingState(currentMsg.waitingState);
 
               // Auto-collapse thinking when text starts
-              if (currentMsg.thinking && expandedThinking.value[aiMessageIndex] === true) {
+              if (currentMsg.thinking && targetWin.expandedThinking[aiMessageIndex] === true) {
                 currentMsg.endTime = Date.now();
                 const duration = Math.round((currentMsg.endTime - (currentMsg.startTime || currentMsg.endTime)) / 1000);
                 currentMsg.thinkingDuration = duration + 's';
-                expandedThinking.value = { ...expandedThinking.value, [aiMessageIndex]: false };
-                nextTick(() => scrollToBottom());
+                targetWin.expandedThinking = { ...targetWin.expandedThinking, [aiMessageIndex]: false };
+                nextTick(() => scrollToBottom({ windowId: targetWindowId }));
               }
 
               // ✅ 如果是 recoverable 错误，跳过显示
@@ -1403,7 +1504,7 @@ const sendMessage = async () => {
             }
 
             await nextTick();
-            scrollToBottom();
+            scrollToBottom({ windowId: targetWindowId });
           } catch (e) {
             console.error('Parse error:', e, data);
           }
@@ -1411,22 +1512,25 @@ const sendMessage = async () => {
       }
     }
 
-    // Mark streaming as complete
-    const finalMsg = chatMessages.value[aiMessageIndex];
-    finalMsg.isStreaming = false;
-    finalMsg.waitingState.isWaiting = false;
+    // Mark streaming as complete - Phase 2: 使用目标窗口
+    const finalMsg = getWindowMessage(targetWindowId, aiMessageIndex);
+    if (finalMsg) {
+      finalMsg.isStreaming = false;
+      finalMsg.waitingState.isWaiting = false;
 
-    // 将最后一个 streaming 状态的气泡标记为 completed
-    const lastStreamingBubble = getLastStreamingTextBubble(finalMsg.bubbles);
-    if (lastStreamingBubble) {
-      completeBubble(lastStreamingBubble);
+      // 将最后一个 streaming 状态的气泡标记为 completed
+      const lastStreamingBubble = getLastStreamingTextBubble(finalMsg.bubbles);
+      if (lastStreamingBubble) {
+        completeBubble(lastStreamingBubble);
+      }
     }
 
     agentStatus.value = 'connected';
 
   } catch (error) {
     console.error('Chat error:', error);
-    const currentMsg = chatMessages.value[aiMessageIndex];
+    // Phase 2: 使用目标窗口
+    const currentMsg = getWindowMessage(targetWindowId, aiMessageIndex);
     if (currentMsg) {
       // 如果没有任何气泡，创建错误文本气泡
       if (currentMsg.bubbles.length === 0) {
@@ -1439,25 +1543,38 @@ const sendMessage = async () => {
     }
     agentStatus.value = 'disconnected';
   } finally {
-    isLoading.value = false;
+    // Phase 2: 使用目标窗口的 isStreaming
+    const targetWin = windows.value.find(w => w.id === targetWindowId);
+    if (targetWin) {
+      targetWin.isStreaming = false;
+    }
     isPollingBackground.value = false;  // 重置 polling 状态
     await nextTick();
-    scrollToBottom();
+    scrollToBottom({ windowId: targetWindowId });
   }
 };
 
 
 
-const scrollToBottom = (options?: { force?: boolean }) => {
+// Phase 2: scrollToBottom 支持指定窗口
+const scrollToBottom = (options?: { force?: boolean; windowId?: string }) => {
   if (!options?.force && mode.value !== 'chat') return;
-  if (!options?.force && !shouldAutoScroll.value) return;
 
-  if (chatBottomRef.value) {
-    chatBottomRef.value.scrollIntoView({ block: 'end' });
+  // 确定目标窗口
+  const targetWindowId = options?.windowId || activeWindowId.value;
+  const targetWin = windows.value.find(w => w.id === targetWindowId);
+
+  // 检查目标窗口是否应该自动滚动
+  if (!options?.force && targetWin && !targetWin.shouldAutoScroll) return;
+
+  // 获取目标窗口的滚动容器
+  const bottomRef = chatBottomRefs.value[targetWindowId];
+  if (bottomRef) {
+    bottomRef.scrollIntoView({ block: 'end' });
     return;
   }
 
-  const el = chatScrollRef.value;
+  const el = chatScrollRefs.value[targetWindowId];
   if (el) {
     el.scrollTop = el.scrollHeight;
   }
@@ -1929,23 +2046,29 @@ const removePendingImage = (index: number) => {
 
       <!-- Layer 2: Intelligence Stream -->
       <div class="layer-stream">
-         
-         <!-- View: Chat -->
-        <div v-show="mode === 'chat'" class="view-chat" ref="chatScrollRef" @scroll="handleChatScroll">
 
-
-
+         <!-- View: Chat - Phase 2: 多窗口 v-show 架构 -->
+        <div v-show="mode === 'chat'" class="view-chat-container">
+          <!-- 每个窗口独立的聊天容器 -->
+          <div
+            v-for="win in windows"
+            :key="win.id"
+            v-show="activeWindowId === win.id"
+            class="view-chat window-chat-container"
+            :ref="el => setChatScrollRef(win.id, el as HTMLElement)"
+            @scroll="handleChatScroll(win.id)"
+          >
             <!-- Actual Chat History -->
-            <template v-for="(msg, index) in chatMessages" :key="index">
+            <template v-for="(msg, msgIndex) in win.messages" :key="`${win.id}-${msgIndex}`">
                 <div class="chat-message" :class="[msg.role === 'user' ? 'user' : 'ai', { streaming: msg.isStreaming }]">
                     <!-- Avatar Removed -->
                     <div class="message-wrapper">
                         <!-- Thinking Section (for AI messages only) -->
                         <div v-if="msg.role === 'ai' && msg.thinking" class="thinking-section">
-                            <div class="thinking-header" @click="toggleThinking(index)">
+                            <div class="thinking-header" @click="toggleThinking(win.id, msgIndex)">
                                 <svg
                                     class="thinking-chevron"
-                                    :class="{ expanded: expandedThinking[index] }"
+                                    :class="{ expanded: win.expandedThinking[msgIndex] }"
                                     viewBox="0 0 24 24"
                                     fill="none"
                                     stroke="currentColor"
@@ -1963,7 +2086,7 @@ const removePendingImage = (index: number) => {
                                 </span>
                             </div>
                             <transition name="thinking-expand">
-                                <div v-show="expandedThinking[index]" class="thinking-content">
+                                <div v-show="win.expandedThinking[msgIndex]" class="thinking-content">
                                     <MarkdownText :content="msg.thinking" />
                                 </div>
                             </transition>
@@ -1998,9 +2121,10 @@ const removePendingImage = (index: number) => {
                 </div>
             </template>
 
-             <!-- Note: Loading state now handled within streaming messages -->
-            <div ref="chatBottomRef" class="chat-bottom-anchor"></div>
-         </div>
+            <!-- Note: Loading state now handled within streaming messages -->
+            <div :ref="el => setChatBottomRef(win.id, el as HTMLElement)" class="chat-bottom-anchor"></div>
+          </div>
+        </div>
 
         <!-- View: Tasks (formerly Review) -->
         <div v-show="mode === 'tasks'" class="view-tasks">
@@ -3314,6 +3438,24 @@ const removePendingImage = (index: number) => {
     display: flex;
     flex-direction: column;
     gap: 16px;
+}
+
+/* Phase 2: 多窗口聊天容器 */
+.view-chat-container {
+    position: relative;
+    width: 100%;
+    height: 100%;
+    overflow: hidden;
+}
+
+.window-chat-container {
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    overflow-y: auto;
+    overflow-x: hidden;
 }
 
 .view-chat {
