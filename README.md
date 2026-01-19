@@ -2,7 +2,7 @@
 
 BIMCanvas 是一款连接 AI 与 Revit 的室内设计辅助工具。它通过解析自然语言指令，自动生成符合空间逻辑的家具布局方案，并支持在 Web 端进行交互式调整，最终直接输出为可编辑的 Revit BIM 模型。
 
-> **当前版本**: v3.0 | **数据架构**: File-Driven Architecture + .bcp 项目格式 | **Agent 架构**: 主控 Agent + SubAgent
+> **当前版本**: v3.0 | **数据架构**: File-Driven Architecture | **Agent 架构**: 主控 Agent + SubAgent
 
 **核心竞争力**：实现从"自然语言创意"到"可编辑 BIM 模型"的直接转化。
 
@@ -22,10 +22,11 @@ BIMCanvas 是一款连接 AI 与 Revit 的室内设计辅助工具。它通过�
 
 ### 文件驱动架构 (File-Driven Architecture)
 
-> **文件是唯一真理源，Server 是"文件播放器"而非"内存数据库"**
+> **核心理念：文件是唯一真理源，Server 是"文件播放器"而非"内存数据库"**
 
 - **持久化优先**：所有业务数据以 JSON 文件形式存储在磁盘
 - **Server 无状态**：Server 不"拥有"数据，只负责读取、聚合、分发文件内容
+- **变更可追溯**：任何外部进程（Agent、脚本、手工编辑）修改文件后，系统自动感知并同步
 - **Git 原生集成**：项目文件即 Git 仓库，分支/回滚/协作开箱即用
 
 ### 三层汉堡模型
@@ -34,27 +35,18 @@ BIMCanvas 是一款连接 AI 与 Revit 的室内设计辅助工具。它通过�
 |---|---|---|---|
 | 顶层 | `computed/` | room_zones, exclusions (禁区) | 自动生成 |
 | 中层 | `schemes/` | strategy, zones, finishes, modules | AI/Server 可写 |
-| 底层 | `baseline/` | walls, columns, openings, rooms, locationLines | 只读 |
+| 底层 | `baseline/` | walls, columns, openings, rooms, locationLines | 只读（Revit 导出） |
 
 > **多策略隔离**：多个策略通过 **Git 分支** 隔离，而非 schemes/ 子目录。每个分支的 schemes/ 目录结构相同。
 
-### JSON 为骨，SVG 为皮
-
-| 层面 | 格式 | 职责 |
-|------|------|------|
-| 数据层（骨） | JSON | 存储、传输、AI 交互、业务逻辑 |
-| 视图层（皮） | SVG | 渲染、显示、视觉反馈 |
-
-**数据流**：AI 修改 JSON → WebSocket 推送 → 前端生成 SVG → 用户看到画布
-
 ### 坐标系统
 
-采用 **CAD 标准坐标系**（非 Web 屏幕坐标系）：
+采用 **CAD 标准坐标系**（笛卡尔坐标系）：
 
 | 属性 | BIMCanvas | Web 屏幕 |
 |------|-----------|----------|
 | 原点 | 左下角 | 左上角 |
-| Y 轴 | 向上为正 | 向下为正 |
+| Y 轴 | **向上为正** | 向下为正 |
 | 单位 | 毫米 (mm) | 像素 (px) |
 
 ---
@@ -72,7 +64,8 @@ BIMCanvas 是一款连接 AI 与 Revit 的室内设计辅助工具。它通过�
 ┌──────────────────────────────┼──────────────────────────────────┐
 │                         MCP Server 集群                          │
 ├──────────────────────────────┴──────────────────────────────────┤
-│   Revit-MCP (.NET FW 4.7.2)   提取建筑结构、创建 Revit 元素       │
+│   Revit-MCP (.NET FW 4.7.2)        Library-MCP (.NET 6+)        │
+│   提取建筑结构、创建 Revit 元素       搜索族资源、获取族信息        │
 └─────────────────────────────────────────────────────────────────┘
                                │ 引用
               ┌────────────────┼─────────────────────────┐
@@ -80,7 +73,7 @@ BIMCanvas 是一款连接 AI 与 Revit 的室内设计辅助工具。它通过�
 ┌──────────────────┐  ┌───────────────────────┐  ┌────────────────────┐
 │  BIMCanvas.Core  │  │  BIMCanvas.Server     │  │  BIMCanvas.Web     │
 │  (.NET Std 2.0)  │  │  (.NET 6+)            │  │  (Vue 3 + TS)      │
-│  数据模型+算法    │  │  MCP + REST + SignalR │  │  JSON → SVG 渲染   │
+│  数据模型+算法    │  │  状态管理+通信中枢     │  │  渲染+用户交互     │
 └──────────────────┘  └───────────┬───────────┘  └────────────────────┘
                                   │ SSE 事件流
                                   ▼
@@ -122,21 +115,16 @@ BIMCanvas 是一款连接 AI 与 Revit 的室内设计辅助工具。它通过�
 - Agent 只发指令，不持状态
 - Server 是通信中枢，负责状态管理和约束验证
 
-### 数据流向
+### Server vs Agent 职责边界
 
-```
-【Revit → 画布】
-Revit 模型 → BIMCanvas.Revit 提取 → Core 转换 JSON → Server 处理 → Web 渲染
-
-【AI 布置方案】
-AI 理解需求 → Library-MCP 搜索家具 → Canvas-MCP 修改 JSON → WebSocket 推送 → Web 渲染
-
-【用户交互修改】
-Web 拖拽 → 修改本地 JSON → REST API → Server 写入文件 → AI 可感知变化
-
-【同步回 Revit】
-导出 JSON → Core 解析 → Revit-MCP 创建元素
-```
+| 维度 | Server（指挥中心） | Agent（设计师） |
+|------|-------------------|-----------------|
+| **状态管理** | ✅ 管理项目文件夹 | ❌ 无状态 |
+| **几何计算** | ✅ Zone生成/禁区/innerBoundary | ❌ 不做几何计算 |
+| **智能决策** | ❌ 不决定"放哪里" | ✅ 规划布置方案 |
+| **约束验证** | ✅ 边界/碰撞检查 | ❌ 依赖 Server |
+| **Git 操作** | ✅ Worktree 创建/合并 | ✅ 在 Worktree 中工作 |
+| **通信中枢** | ✅ REST/WebSocket/SSE/MCP | ❌ 只通过 MCP/SSE |
 
 ---
 
@@ -182,9 +170,9 @@ BIMCanvas/
 │
 ├── BIMCanvas.Web/               Web 前端 (Vue 3)
 │   └── src/
-│       ├── components/Canvas/   SVG 画布组件
+│       ├── components/Canvas/   画布组件
 │       ├── stores/              Pinia 状态
-│       └── services/            SignalR 客户端、渲染器
+│       └── services/            SignalR 客户端
 │
 ├── docs/                        文档
 └── external/Revit-MCP/          已有 Revit-MCP 项目
@@ -198,7 +186,7 @@ BIMCanvas/
 
 ```
 project.bcp (ZIP)
-├── project.json            项目元数据 + 方案列表
+├── project.json            项目元数据
 ├── baseline/               建筑基础数据（只读）
 │   ├── metadata.json       坐标转换参数
 │   ├── architecture.json   墙体 + 柱子
@@ -219,7 +207,7 @@ project.bcp (ZIP)
 │   └── placement_guide.md  布置规则指南
 └── modules/                模块素材库
     ├── module_library.json 模块元数据
-    └── assets/             SVG 资源目录
+    └── assets/             资源目录
 ```
 
 详细 Schema 见：[docs/Schema-JSON-v3.md](./docs/Schema-JSON-v3.md)
@@ -237,6 +225,7 @@ project.bcp (ZIP)
 | 门扇区域 | 预计算为禁区 | KISS - AI 只需知道"这里不能放" |
 | 布置单元 | modules（模块） | 支持单一家具或组合 |
 | 模块朝向 | 语义化方向 | AI 友好，插件端转换为角度 |
+| Core 运行时 | .NET Standard 2.0 | 同时兼容 .NET FW 4.7.2 和 .NET 6+ |
 
 ---
 
@@ -250,7 +239,7 @@ project.bcp (ZIP)
 - ✅ 实现空间算法（CollisionDetector, PlacementValidator）
 - ✅ 实现 Server 层项目加载
 - ✅ 实现 Web 层项目数据加载
-- ⬜ 实现 Web 前端 JSON → SVG 渲染
+- ⬜ 实现 Web 前端渲染
 
 ### Phase 2: Agent 集成
 
