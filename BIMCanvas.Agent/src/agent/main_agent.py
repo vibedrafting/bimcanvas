@@ -674,12 +674,13 @@ class MainAgent:
                     if delta_type == "text_delta":
                         text = delta.get("text", "")
                         if text:
-                            # 收集 SubAgent 文本输出（使用状态机跟踪的当前上下文）
-                            if self._current_subagent_parent_id and self._current_subagent_parent_id in self._subagent_text_collector:
-                                self._subagent_text_collector[self._current_subagent_parent_id].append(text)
+                            # 收集 SubAgent 文本输出
+                            # 优先使用消息自带的 parent_tool_use_id（更可靠）
+                            target_id = current_parent_id or self._current_subagent_parent_id
+                            if target_id and target_id in self._subagent_text_collector:
+                                self._subagent_text_collector[target_id].append(text)
                                 if self.verbose:
-                                    # 调试日志：记录收集的 SubAgent 文本
-                                    self._agent_logger.log_info(f"[SubAgent Text Collected] parent={self._current_subagent_parent_id[:8]}... len={len(text)}")
+                                    self._agent_logger.log_info(f"[SubAgent Text Collected] parent={target_id[:8]}... len={len(text)}")
 
                             # 1. 检测权限错误（纯文本形式）
                             is_perm_error, perm_msg = self._detect_permission_error(text)
