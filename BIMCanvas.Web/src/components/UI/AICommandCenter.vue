@@ -1662,7 +1662,7 @@ const thinkingLevels = [
 ];
 
 const currentModel = ref<{ id: string; label: string } | null>(null);
-const currentThinking = ref(thinkingLevels[2]);  // 默认 medium
+const currentThinking = ref(thinkingLevels[0]);  // 默认 off，后续由配置文件覆盖
 const isModelMenuOpen = ref(false);
 const isThinkingMenuOpen = ref(false);
 

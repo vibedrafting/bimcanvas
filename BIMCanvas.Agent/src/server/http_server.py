@@ -122,13 +122,20 @@ async def config_handler(request: web.Request) -> web.Response:
     Response:
         {
             "model": "claude-sonnet-4-20250514",
-            "thinkingLevel": "medium"
+            "thinkingLevel": "medium"  // 或 "off" 如果 thinking.enabled=false
         }
     """
     settings = get_settings()
+
+    # 根据 thinking 配置决定返回的 level
+    if not settings.thinking.enabled:
+        thinking_level = "off"
+    else:
+        thinking_level = settings.thinking.default_level
+
     return web.json_response({
         "model": settings.model_name,
-        "thinkingLevel": settings.thinking.default_level
+        "thinkingLevel": thinking_level
     })
 
 
