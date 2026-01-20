@@ -22,6 +22,7 @@ from ..config.loader import get_config_loader
 from .subagents import create_subagents
 from .agent_logger import get_agent_logger
 from .worktree_manager import WorktreeManager, WorktreeContext
+from .skill_loader import get_skill_loader
 from ..mcp import create_canvas_mcp, get_allowed_tools
 
 logger = logging.getLogger(__name__)
@@ -152,6 +153,12 @@ class MainAgent:
 
         # 从配置加载系统提示词和工具权限
         system_prompt = self._config_loader.load_system_prompt()
+
+        # 加载 MainAgent 的 Skill 内容并追加到 system_prompt
+        skill_loader = get_skill_loader()
+        main_skills = skill_loader.get_main_agent_skills()
+        if main_skills:
+            system_prompt = f"{system_prompt}\n\n{main_skills}"
 
         # 追加工作目录到 system prompt，让 AI 知道自己的工作路径
         system_prompt = system_prompt + f"\n\n工作目录: {self.working_directory}"

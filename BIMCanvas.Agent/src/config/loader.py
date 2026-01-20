@@ -72,6 +72,8 @@ class ConfigLoader:
         self.config_dir.mkdir(parents=True, exist_ok=True)
         agents_dir = self.config_dir / "agents"
         agents_dir.mkdir(exist_ok=True)
+        skills_dir = self.config_dir / "skills"
+        skills_dir.mkdir(exist_ok=True)
 
         # 检查每个模板文件，如果目标不存在则复制
         for template_file in self.TEMPLATES_DIR.rglob("*.template"):
