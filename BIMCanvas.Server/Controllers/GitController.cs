@@ -588,6 +588,7 @@ namespace BIMCanvas.Server.Controllers
         /// <summary>
         /// 创建 AI Job（高级端口）
         /// 一键创建 Agent 工作环境：自动生成分支名 + 创建 Worktree
+        /// baseBranch 可选：不传则自动使用当前分支
         /// </summary>
         /// <param name="request">AI Job 请求</param>
         /// <returns>AI Job 响应（包含自动生成的分支名）</returns>
@@ -595,16 +596,11 @@ namespace BIMCanvas.Server.Controllers
         public ActionResult<AiJobResponse> CreateAiJob([FromBody] AiJobRequest request)
         {
             _logger.LogInformation(">>> [GitController] CreateAiJob called: Name={Name}, BaseBranch={BaseBranch}",
-                request?.Name ?? "(null)", request?.BaseBranch ?? "(null)");
+                request?.Name ?? "(null)", request?.BaseBranch ?? "(auto)");
 
             if (string.IsNullOrEmpty(request?.Name))
             {
                 return BadRequest(new { message = "Worktree 名称不能为空" });
-            }
-
-            if (string.IsNullOrEmpty(request.BaseBranch))
-            {
-                return BadRequest(new { message = "基准分支不能为空" });
             }
 
             if (!_projectContext.IsLoaded)
@@ -621,11 +617,19 @@ namespace BIMCanvas.Server.Controllers
 
             try
             {
+                // baseBranch 为空时自动获取当前分支
+                var baseBranch = request.BaseBranch;
+                if (string.IsNullOrEmpty(baseBranch))
+                {
+                    baseBranch = _gitService.GetCurrentBranch(projectPath);
+                    _logger.LogInformation("自动使用当前分支作为基准: {Branch}", baseBranch);
+                }
+
                 // 检查基准分支是否存在
                 var allBranches = _gitService.GetAllBranches(projectPath);
-                if (!allBranches.Contains(request.BaseBranch))
+                if (!allBranches.Contains(baseBranch))
                 {
-                    return NotFound(new { message = $"基准分支 '{request.BaseBranch}' 不存在" });
+                    return NotFound(new { message = $"基准分支 '{baseBranch}' 不存在" });
                 }
 
                 // 自动生成分支名：feat/{name}-{yyyyMMdd-HHmmss}
@@ -640,7 +644,7 @@ namespace BIMCanvas.Server.Controllers
                 }
 
                 // 创建 Worktree（复用现有逻辑）
-                var worktreePath = _gitService.CreateWorktree(projectPath, request.Name, branchName, request.BaseBranch);
+                var worktreePath = _gitService.CreateWorktree(projectPath, request.Name, branchName, baseBranch);
 
                 var result = new AiJobResponse
                 {
@@ -657,6 +661,90 @@ namespace BIMCanvas.Server.Controllers
             {
                 _logger.LogError(ex, "创建 AI Job 失败: {Name}", request.Name);
                 return StatusCode(500, new { message = $"创建 AI Job 失败: {ex.Message}" });
+            }
+        }
+
+        /// <summary>
+        /// 标记 AI Job 完成
+        /// 在 Worktree 中执行 git commit（如有修改），通知 Web 端供用户审查
+        /// </summary>
+        /// <param name="name">AI Job 名称（Worktree 名称）</param>
+        /// <param name="request">完成请求（包含修改总结）</param>
+        /// <returns>完成响应</returns>
+        [HttpPost("ai-job/{name}/complete")]
+        public ActionResult<AiJobCompleteResponse> CompleteAiJob(string name, [FromBody] AiJobCompleteRequest request)
+        {
+            _logger.LogInformation(">>> [GitController] CompleteAiJob called: Name={Name}, Summary={Summary}",
+                name, request?.Summary ?? "(null)");
+
+            if (string.IsNullOrEmpty(name))
+            {
+                return BadRequest(new { message = "AI Job 名称不能为空" });
+            }
+
+            if (string.IsNullOrEmpty(request?.Summary))
+            {
+                return BadRequest(new { message = "修改总结不能为空" });
+            }
+
+            if (!_projectContext.IsLoaded)
+            {
+                return BadRequest(new { message = "没有加载的项目" });
+            }
+
+            var projectPath = _projectContext.CurrentProjectPath!;
+
+            if (!_gitService.IsGitRepository(projectPath))
+            {
+                return BadRequest(new { message = "项目目录不是 Git 仓库" });
+            }
+
+            try
+            {
+                // 确认 Worktree 存在
+                var worktreesDir = _gitService.GetWorktreesDir(projectPath);
+                var worktreePath = System.IO.Path.Combine(worktreesDir, name);
+
+                if (!System.IO.Directory.Exists(worktreePath))
+                {
+                    return NotFound(new { message = $"AI Job '{name}' 不存在（Worktree 未找到）" });
+                }
+
+                // 获取 Worktree 的分支名
+                var branchName = _gitService.GetCurrentBranch(worktreePath);
+
+                // 在 Worktree 中提交（如有未提交更改）
+                var hasCommit = _gitService.TryCommit(worktreePath, $"AI Job 完成: {request.Summary}");
+
+                if (hasCommit)
+                {
+                    _logger.LogInformation("AI Job '{Name}' 提交成功", name);
+                }
+                else
+                {
+                    _logger.LogInformation("AI Job '{Name}' 没有需要提交的更改", name);
+                }
+
+                // TODO: 通知 Web 端（通过 SignalR）
+                // 后续实现：await _hubContext.Clients.All.SendAsync("AiJobCompleted", ...)
+
+                var result = new AiJobCompleteResponse
+                {
+                    Success = true,
+                    Message = "AI Job 已完成，等待用户审查",
+                    HasCommit = hasCommit,
+                    BranchName = branchName
+                };
+
+                _logger.LogInformation("AI Job 完成: Name={Name}, HasCommit={HasCommit}, Branch={Branch}",
+                    name, hasCommit, branchName);
+
+                return Ok(result);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "完成 AI Job 失败: {Name}", name);
+                return StatusCode(500, new { message = $"完成 AI Job 失败: {ex.Message}" });
             }
         }
 

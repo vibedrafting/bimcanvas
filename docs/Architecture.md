@@ -7,6 +7,7 @@
 > **相关文档**：
 > - [Schema.md](./Schema.md) - JSON 数据模型规范
 > - [Arch_MCP_Tools.md](./Arch_MCP_Tools.md) - MCP 工具接口规范
+> - [Arch_Agent_Git_Workflow.md](./Arch_Agent_Git_Workflow.md) - Agent Git 工作流架构（MCP 工具定义）
 > - [Arch_Converter.md](./Arch_Converter.md) - 转换器架构专题（转换链路、坐标转换、NTS 中间层）
 > - [Arch_DataFlow.md](./Arch_DataFlow.md) - 数据流场景分析专题（典型场景调用链、API 参考）
 > - [Flow_Workflows.md](./Flow_Workflows.md) - 端到端业务流程

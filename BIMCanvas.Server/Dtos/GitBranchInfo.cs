@@ -229,8 +229,46 @@ namespace BIMCanvas.Server.Dtos
 
         /// <summary>
         /// 基准分支（新分支基于此分支创建）
+        /// 可选：不传则自动使用当前分支
         /// </summary>
-        public string BaseBranch { get; set; } = string.Empty;
+        public string? BaseBranch { get; set; }
+    }
+
+    /// <summary>
+    /// AI Job 完成请求
+    /// </summary>
+    public class AiJobCompleteRequest
+    {
+        /// <summary>
+        /// 修改总结（展示给用户）
+        /// </summary>
+        public string Summary { get; set; } = string.Empty;
+    }
+
+    /// <summary>
+    /// AI Job 完成响应
+    /// </summary>
+    public class AiJobCompleteResponse
+    {
+        /// <summary>
+        /// 是否成功
+        /// </summary>
+        public bool Success { get; set; }
+
+        /// <summary>
+        /// 消息
+        /// </summary>
+        public string Message { get; set; } = string.Empty;
+
+        /// <summary>
+        /// 是否有新的提交（SubAgent 是否有修改文件）
+        /// </summary>
+        public bool HasCommit { get; set; }
+
+        /// <summary>
+        /// AI Job 关联的分支名
+        /// </summary>
+        public string? BranchName { get; set; }
     }
 
     /// <summary>

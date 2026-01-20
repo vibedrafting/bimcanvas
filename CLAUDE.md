@@ -13,6 +13,7 @@
 | 文档 | 路径 | 内容 |
 |------|------|------|
 | 架构文档 | `docs/Architecture.md` | 系统架构、数据流 |
+| Agent Git 工作流 | `docs/Arch_Agent_Git_Workflow.md` | Agent Git 工具体系、MCP 工具定义 |
 | 执行流程 | `docs/Workflows.md` | 端到端执行流程、触发机制 |
 | JSON Schema | `docs/Schema-JSON-v3.md` | v3.0 数据模型定义 |
 | PRD | `docs/PRD.md` | 产品需求、工作流程 |
