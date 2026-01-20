@@ -26,7 +26,7 @@
 | MCP 工具 | 对应 Server API | 职责 |
 |----------|----------------|------|
 | `ai_job_create` | `POST /api/git/ai-job` | 为 SubAgent 创建隔离工作环境 |
-| `ai_job_complete` | `POST /api/git/ai-job/{name}/complete` | 标记完成，通知 Web 端供用户审查 |
+| `ai_job_complete` | `POST /api/git/ai-jobs/complete` | 批量通知 Web 端 AI Job 已完成，可供用户审查 |
 
 ### 1.3 Agent 不负责的操作
 
@@ -91,53 +91,69 @@ async def ai_job_create(name: str, base_branch: str = None) -> dict:
     # POST /api/git/ai-job { name, baseBranch? }
 ```
 
-### 2.2 ai_job_complete - 标记 AI Job 完成
+### 2.2 ai_job_complete - 批量标记 AI Job 完成
 
-标记 AI Job 完成，通知 Web 端供用户审查。
+批量通知 Web 端指定的 AI Job 已完成，可供用户审查。
 
-**Server API**：`POST /api/git/ai-job/{name}/complete`
+**Server API**：`POST /api/git/ai-jobs/complete`
 
 **请求参数**：
 
 | 参数 | 类型 | 必填 | 说明 |
 |------|------|------|------|
-| `summary` | string | ✅ | 修改总结（展示给用户） |
+| `names` | string[] | ✅ | AI Job 名称列表 |
 
 **返回值**：
 
 ```json
 {
-    "success": true,
-    "message": "AI Job 已完成，等待用户审查"
+    "jobs": [
+        {
+            "name": "job1",
+            "worktreePath": "/path/to/worktree1",
+            "branchName": "ai/job1_20260120",
+            "status": "ready_for_review"
+        },
+        {
+            "name": "job2",
+            "worktreePath": "/path/to/worktree2",
+            "branchName": "ai/job2_20260120",
+            "status": "ready_for_review"
+        }
+    ]
 }
 ```
 
 **Server 内部逻辑**：
 
-1. 在 Worktree 中执行 `git add . && git commit`（提交未暂存的修改）
-2. 通知 Web 端该 AI Job 已完成
+1. 遍历每个 name，在对应 Worktree 中执行 `git add . && git commit`（提交未暂存的修改）
+2. 通知 Web 端这些 AI Job 已完成
 3. Web 端展示 diff/合并按钮
 4. 用户点击合并 → 调用合并 API
 
 **MCP 工具定义（Python）**：
 
 ```python
-@mcp_tool()
-async def ai_job_complete(name: str, summary: str) -> dict:
+@mcp_tool(schema={"names": list})
+async def ai_job_complete(args: dict) -> dict:
     """
-    标记 AI Job 完成，通知 Web 端供用户审查
+    批量通知 Web 端指定的 AI Job 已完成
+
+    Web 端收到通知后，会打开 diff/merge 可视化界面。
+    MainAgent 在对话中总结修改内容，此工具仅负责通知。
 
     Args:
-        name: AI Job 名称（同 ai_job_create 返回的 name）
-        summary: 修改总结（展示给用户）
+        names: AI Job 名称列表
 
     Returns:
         {
-            "success": true,
-            "message": "AI Job 已完成，等待用户审查"
+            "jobs": [
+                { "name": "job1", "worktreePath": "...", "branchName": "...", "status": "ready_for_review" },
+                ...
+            ]
         }
     """
-    # POST /api/git/ai-job/{name}/complete { summary }
+    # POST /api/git/ai-jobs/complete { names: [...] }
 ```
 
 ---
@@ -238,10 +254,9 @@ async def ai_job_complete(name: str, summary: str) -> dict:
 │                         │                                       │
 │                         ▼                                       │
 │  ┌───────────────────────────────────────────────────────────┐  │
-│  │ 【R4】MCP: ai_job_complete(                               │  │
-│  │   name="move-bed-1",                                       │  │
-│  │   summary="已将主卧床向右移动50cm"                         │  │
-│  │ )                                                          │  │
+│  │ 【R4】MainAgent 在对话中总结修改                           │  │
+│  │ 然后调用：                                                 │  │
+│  │ MCP: ai_job_complete(names=["move-bed-1"])                │  │
 │  │ → Server 内部：git commit + 通知 Web                       │  │
 │  └───────────────────────────────────────────────────────────┘  │
 │                         │                                       │
@@ -284,7 +299,7 @@ async def ai_job_complete(name: str, summary: str) -> dict:
 │                         │                                       │
 │                         ▼                                       │
 │  ┌───────────────────────────────────────────────────────────┐  │
-│  │ 【V4】MCP: ai_job_complete(name="move-bed-v", summary=".")│  │
+│  │ 【V4】MCP: ai_job_complete(names=["move-bed-v"])          │  │
 │  └───────────────────────────────────────────────────────────┘  │
 │                         │                                       │
 │                         ▼                                       │
@@ -424,11 +439,11 @@ async def ai_job_complete(name: str, summary: str) -> dict:
 │                         │                                       │
 │                         ▼                                       │
 │  ┌───────────────────────────────────────────────────────────┐  │
-│  │ 【R4】MCP: ai_job_complete(                               │  │
-│  │   name="layout-solver-1",                                  │  │
-│  │   summary="可以放置。浴缸靠北墙(1700x800)，               │  │
-│  │            淋浴房靠西南角(900x900)，保留80cm通道。"        │  │
-│  │ )                                                          │  │
+│  │ 【R4】MainAgent 在对话中总结布局方案：                     │  │
+│  │ "可以放置。浴缸靠北墙(1700x800)，淋浴房靠西南角(900x900)，│  │
+│  │  保留80cm通道。"                                          │  │
+│  │ 然后调用：                                                 │  │
+│  │ MCP: ai_job_complete(names=["layout-solver-1"])           │  │
 │  └───────────────────────────────────────────────────────────┘  │
 │                         │                                       │
 │                         ▼                                       │
@@ -828,7 +843,7 @@ AI Job 的 Worktree 和临时分支被删除
 | 工具 | 用途 | 调用时机 |
 |------|------|----------|
 | `ai_job_create` | 创建隔离环境 | execute 任务开始时 |
-| `ai_job_complete` | 标记完成，通知 Web 端供用户审查 | SubAgent 完成后 |
+| `ai_job_complete` | 批量通知 Web 端 AI Job 已完成，可供用户审查 | SubAgent 完成后 |
 
 **设计优势**：
 
