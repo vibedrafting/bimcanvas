@@ -32,6 +32,10 @@ import WaitingIndicator from './WaitingIndicator.vue';
 // ... imports
 import GlassSelect from './base/GlassSelect.vue';
 
+const props = defineProps<{
+  panelReady?: boolean;
+}>();
+
 // ... existing code ...
 
 // Icons
@@ -152,10 +156,6 @@ const handleNewWindowBranchSelect = (val: string | number) => {
 //    This seems like the best approach to maintain the "+" tab aesthetic while getting the unified dropdown.
 
 // Let's first add the slot to GlassSelect.vue.
-
-const props = defineProps<{
-  panelReady?: boolean;
-}>();
 
 // API Configuration
 const AGENT_API_BASE = 'http://127.0.0.1:8765';
@@ -1904,10 +1904,19 @@ const removePendingImage = (index: number) => {
 </script>
 
 <template>
+  <Teleport to="body">
+  <transition name="panel-slide" appear>
   <aside 
     class="ai-command-center" 
-    :style="{ width: panelWidth + 'px' }"
-    v-show="!showScreenshotOverlay"
+    :style="{ 
+      width: panelWidth + 'px',
+      position: 'fixed',
+      top: '72px',
+      right: '0',
+      height: 'calc(100% - 72px)',
+      zIndex: 190
+    }"
+    v-show="props.panelReady && !showScreenshotOverlay"
   >
     <!-- Resize Handle -->
     <div class="resize-handle" @mousedown="startResize">
@@ -2604,15 +2613,32 @@ const removePendingImage = (index: number) => {
       />
     </Teleport>
   </aside>
+  </transition>
+  </Teleport>
 </template>
 
 <style scoped lang="scss">
+/* Panel Slide Animation */
+.panel-slide-enter-active,
+.panel-slide-leave-active {
+  transition: transform 0.6s cubic-bezier(0.25, 1, 0.5, 1);
+}
+
+.panel-slide-enter-from,
+.panel-slide-leave-to {
+  transform: translateX(120%); /* Move completely off-screen to the right */
+}
+
 .ai-command-center {
   /* Local Variables */
   --chrome-bg: #0A0A0A; /* Pure Dark Grey for seamless integration */
 
-  /* Layout & Positioning */
-  height: 100%;
+  /* Layout & Positioning - Fixed to float over Canvas */
+  position: fixed;
+  z-index: 190; /* Ensure it's above canvas but below header (200) */
+  top: 72px; /* Below header */
+  right: 0;
+  height: calc(100% - 72px);
   margin-left: auto;
   margin-right: 0;
   

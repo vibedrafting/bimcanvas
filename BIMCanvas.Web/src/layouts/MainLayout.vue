@@ -27,10 +27,8 @@ const aiPanelReady = ref(false);
 
 watch(() => props.buildComplete, (newVal) => {
   if (newVal) {
-    // Wait for AI Panel slide-in animation (800ms) before triggering welcome message
-    setTimeout(() => {
-      aiPanelReady.value = true;
-    }, 900); // 800ms animation + 100ms buffer
+    // 立即触发 AI 面板动画
+    aiPanelReady.value = true;
     
     // Wait for pulse animation
     setTimeout(() => {
@@ -173,14 +171,13 @@ watch(() => props.buildComplete, (newVal) => {
 }
 
 .gallery-area {
-  transform: translateX(20px);
-  transition: transform 0.8s cubic-bezier(0.2, 0.8, 0.2, 1);
+  /* 无过渡动画，由 AICommandCenter 自己控制滑入 */
 }
 .properties-area {
   transform: translateX(-20px);
 }
 
-.gallery-area.visible, .properties-area.visible {
+.properties-area.visible {
   opacity: 1;
   transform: translateX(0);
 }
