@@ -134,9 +134,6 @@ class MainAgent:
         # API 响应的模型（用于日志显示，可能与请求模型名称不同）
         self._response_model: str | None = None
 
-        # 当前思考强度等级
-        self._current_thinking_level: str | None = None
-
         # Worktree 管理器（用于并行布置）
         self._worktree_manager: WorktreeManager | None = None
 
@@ -191,14 +188,13 @@ class MainAgent:
             cwd=self.working_directory,
             max_turns=20,
             model=settings.model_name,
-            tools=allowed_tools,                   # None 表示默认全开
             allowed_tools=all_allowed,             # 包含 MCP 工具
             disallowed_tools=disallowed_tools,     # 工具黑名单
             agents=self._subagents,
             permission_mode="acceptEdits",
             include_partial_messages=True,
             env=custom_env,                        # Agent SDK 独立环境变量
-            max_thinking_tokens=thinking_tokens,   # 思考强度
+            extra_args={"max-thinking-tokens": str(thinking_tokens)} if thinking_tokens else {},  # 思考强度
             mcp_servers={"canvas": canvas_mcp} if canvas_mcp else {},  # MCP 服务器
         )
 
@@ -311,19 +307,16 @@ class MainAgent:
                 return
             options = self._create_options(thinking_level)
 
-            # 保存初始思考强度
-            settings = get_settings()
-            self._current_thinking_level = thinking_level or settings.thinking.default_level
-
             # 调试日志：打印实际使用的配置（使用 _agent_logger 确保带窗口前缀）
-            tools_display = options.tools if options.tools else "默认全开"
+            tools_display = options.allowed_tools if options.allowed_tools else "默认全开"
             deny_display = options.disallowed_tools if options.disallowed_tools else "无"
             base_url_display = options.env.get("ANTHROPIC_BASE_URL", "默认端点") if options.env else "默认端点"
-            thinking_display = f"{options.max_thinking_tokens} tokens" if options.max_thinking_tokens else "禁用"
+            thinking_tokens_str = options.extra_args.get("max-thinking-tokens") if options.extra_args else None
+            thinking_display = f"{thinking_tokens_str} tokens" if thinking_tokens_str else "禁用"
             self._agent_logger._print(f"[MainAgent] ========== 配置信息 ==========")
             self._agent_logger._print(f"[MainAgent] 模型: {options.model}")
             self._agent_logger._print(f"[MainAgent] Base URL: {base_url_display}")
-            self._agent_logger._print(f"[MainAgent] 思考强度: {self._current_thinking_level} ({thinking_display})")
+            self._agent_logger._print(f"[MainAgent] 思考强度: {thinking_display}")
             self._agent_logger._print(f"[MainAgent] 允许工具: {tools_display}")
             self._agent_logger._print(f"[MainAgent] 禁止工具: {deny_display}")
             self._agent_logger._print(f"[MainAgent] 项目路径: {self.project_path}")
@@ -344,49 +337,6 @@ class MainAgent:
                 self._connected = False
                 self._client = None
                 logger.info(f"MainAgent disconnected for project: {self.project_path}")
-
-    async def set_thinking_level(self, level: str) -> bool:
-        """
-        动态调整思考强度（不断开连接）
-
-        通过 SDK 内部控制协议发送 set_max_thinking_tokens 消息。
-        注意：此方法依赖 SDK 内部 API，可能随版本更新变化。
-
-        Args:
-            level: 思考强度等级 ("off", "low", "medium", "high")
-
-        Returns:
-            是否成功调整
-        """
-        if not self._connected or not self._client:
-            logger.warning("Cannot set thinking level: not connected")
-            return False
-
-        if level == self._current_thinking_level:
-            return True  # 无需调整
-
-        settings = get_settings()
-        tokens = settings.thinking.get_tokens(level)
-
-        try:
-            # 通过底层 Query 发送控制消息
-            # 参考 TypeScript SDK 的 setMaxThinkingTokens 实现
-            await self._client._query._send_control_request({
-                "subtype": "set_max_thinking_tokens",
-                "max_thinking_tokens": tokens
-            })
-            self._current_thinking_level = level
-
-            if self.verbose:
-                tokens_display = f"{tokens} tokens" if tokens else "禁用"
-                self._agent_logger.log_info(f"思考强度已调整: {level} ({tokens_display})")
-
-            return True
-        except Exception as e:
-            logger.error(f"Failed to set thinking level: {e}")
-            if self.verbose:
-                self._agent_logger.log_warning(f"思考强度调整失败: {e}")
-            return False
 
     async def set_model(self, model: str) -> bool:
         """
@@ -619,9 +569,8 @@ class MainAgent:
         """
         if not self._connected:
             await self.connect(thinking_level)
-        elif thinking_level is not None and thinking_level != self._current_thinking_level:
-            # 已连接但需要调整思考强度
-            await self.set_thinking_level(thinking_level)
+        # 注意：思考强度仅在 connect() 时配置，不支持动态调整
+        # 如需不同思考强度，需要断开后重新 connect(thinking_level=xxx)
 
         if self.verbose:
             self._agent_logger.log_user_message(user_message)

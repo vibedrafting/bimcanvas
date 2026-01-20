@@ -67,11 +67,14 @@ def get_allowed_tools(server_name: str = "canvas") -> list[str]:
 
     allowed = []
     for t in tools:
-        # 获取原始函数名
-        if hasattr(t, '__wrapped__'):
-            tool_name = t.__wrapped__.__name__
-        else:
-            tool_name = getattr(t, '__name__', 'unknown')
+        # SdkMcpTool 对象有 .name 属性
+        tool_name = getattr(t, 'name', None)
+        if tool_name is None:
+            # 回退：尝试从 __wrapped__ 或 __name__ 获取
+            if hasattr(t, '__wrapped__'):
+                tool_name = t.__wrapped__.__name__
+            else:
+                tool_name = getattr(t, '__name__', 'unknown')
         allowed.append(f"mcp__{server_name}__{tool_name}")
 
     return allowed
