@@ -229,6 +229,7 @@ interface ChatWindow {
   isPrimary: boolean;
   // === 后端 Worktree 关联字段 ===
   worktreeName?: string;  // 后端 Worktree 名称（虚拟窗口必填）
+  worktreePath?: string;  // 后端 Worktree 完整路径（虚拟窗口必填）
   isLoading?: boolean;    // 加载状态（创建/删除中）
   error?: string | null;  // 错误信息
   // === 窗口隔离状态（Phase 2 新增）===
@@ -641,6 +642,12 @@ const addWindow = async (branchName: string) => {
                 })
             });
             console.log(`[Window] 注册 Worktree 映射: ${newId} -> ${createdWorktree.path}`);
+
+            // 保存 worktreePath 到窗口对象（用于 Chat 请求时传递给 Agent）
+            const pathIdx = windows.value.findIndex(w => w.id === newId);
+            if (pathIdx !== -1) {
+                windows.value[pathIdx].worktreePath = createdWorktree.path;
+            }
 
             // 重新加载项目数据（映射注册完成后才能正确读取 Worktree 数据）
             await store.loadProject({ source: 'git_checkout', preserveView: true });
@@ -1265,6 +1272,7 @@ const sendMessage = async () => {
       body: JSON.stringify({
         projectPath: currentProjectPath.value,
         windowId: effectiveWindowId,  // 支持多窗口并行（已空值保护）
+        worktreePath: activeWindow.value?.worktreePath,  // 虚拟窗口工作路径
         message: message,
         images: imagesToSend,  // 新增：图片附件
         model: currentModel.value?.id,
