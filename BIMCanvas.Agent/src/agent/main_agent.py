@@ -155,6 +155,10 @@ class MainAgent:
 
         # 从配置加载系统提示词和工具权限
         system_prompt = self._config_loader.load_system_prompt()
+
+        # 追加工作目录到 system prompt，让 AI 知道自己的工作路径
+        system_prompt = system_prompt + f"\n\n工作目录: {self.working_directory}"
+
         allowed_tools, disallowed_tools = self._config_loader.load_permissions()
 
         # 构建自定义环境变量（用于 Agent SDK 独立配置）
