@@ -16,7 +16,10 @@ from ..decorators import mcp_tool
 SERVER_URL = "http://localhost:5000"
 
 
-@mcp_tool()
+@mcp_tool(
+    description="为 SubAgent 创建隔离工作环境（Git Worktree）",
+    schema={"name": str, "base_branch": str}
+)
 async def ai_job_create(args: dict[str, Any]) -> dict[str, Any]:
     """
     为 SubAgent 创建隔离工作环境
@@ -67,7 +70,10 @@ SubAgent 应在此目录下执行文件修改。"""
         }
 
 
-@mcp_tool()
+@mcp_tool(
+    description="标记 AI Job 完成，通知 Web 端供用户审查",
+    schema={"name": str, "summary": str}
+)
 async def ai_job_complete(args: dict[str, Any]) -> dict[str, Any]:
     """
     标记 AI Job 完成，通知 Web 端供用户审查

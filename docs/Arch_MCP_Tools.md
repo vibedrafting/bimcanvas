@@ -279,6 +279,79 @@ options = ClaudeAgentOptions(
 )
 ```
 
+### 4.5 参数 Schema 定义
+
+MCP 工具的参数 Schema 定义决定了 AI 如何理解和调用工具。有两种方案：
+
+#### 方案 A：简单类型映射（推荐用于简单工具）
+
+直接在 `@mcp_tool` 装饰器中指定参数类型：
+
+```python
+from ..decorators import mcp_tool
+
+@mcp_tool(
+    name="add",
+    description="Add two numbers",
+    schema={"a": float, "b": float}
+)
+async def add_numbers(args: dict[str, Any]) -> dict[str, Any]:
+    result = args["a"] + args["b"]
+    return {"content": [{"type": "text", "text": f"Result: {result}"}]}
+```
+
+**支持的类型映射**：
+- `str` → `{"type": "string"}`
+- `int` → `{"type": "integer"}`
+- `float` → `{"type": "number"}`
+- `bool` → `{"type": "boolean"}`
+
+**适用场景**：参数简单（2-5个），无需复杂描述
+
+#### 方案 B：完整 JSON Schema（推荐用于复杂工具）
+
+使用完整的 JSON Schema 格式，可为每个参数添加描述：
+
+```python
+@mcp_tool(
+    name="create_element",
+    description="创建元素",
+    schema={
+        "type": "object",
+        "properties": {
+            "typeId": {
+                "type": "integer",
+                "description": "族类型的 ElementId，必须是项目中已加载的有效类型"
+            },
+            "location": {
+                "type": "object",
+                "properties": {
+                    "x": {"type": "number", "description": "X坐标（毫米）"},
+                    "y": {"type": "number", "description": "Y坐标（毫米）"}
+                },
+                "description": "定位点坐标"
+            }
+        },
+        "required": ["typeId", "location"]
+    }
+)
+async def create_element(args: dict[str, Any]) -> dict[str, Any]:
+    type_id = args["typeId"]
+    location = args["location"]
+    # ...
+```
+
+**适用场景**：复杂参数、需要 AI 理解每个字段含义、有嵌套对象
+
+#### Schema 选择指南
+
+| 场景 | 推荐方案 | 示例 |
+|------|----------|------|
+| 简单参数（1-3个基本类型） | 方案 A | `{"name": str, "count": int}` |
+| 需要参数描述 | 方案 B | 字段含义不明显时 |
+| 嵌套对象参数 | 方案 B | location 包含 x、y 坐标 |
+| 可选参数 | 方案 B | 需要指定 `required` 字段 |
+
 ---
 
 ## 五、注意事项
