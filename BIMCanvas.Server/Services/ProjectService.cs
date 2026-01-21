@@ -103,6 +103,9 @@ namespace BIMCanvas.Server.Services
             // 3.5 创建 knowledge/ 目录（Agent 知识库）
             CreateKnowledgeDirectory(projectPath);
 
+            // 3.6 创建 .claude/skills/ 目录（项目级 Skills）
+            CreateSkillsDirectory(projectPath);
+
             // 4. 创建 schemes/ 和默认策略
             var defaultStrategyId = EnsureSchemesDirectory(projectPath, baselineHash);
 
@@ -148,6 +151,9 @@ namespace BIMCanvas.Server.Services
 
             // 确保 README.md 存在（可选，Agent 依赖此文件了解项目结构）
             CopyReadmeTemplate(projectPath);
+
+            // 确保 .claude/skills/ 存在（项目级 Skills）
+            CreateSkillsDirectory(projectPath);
         }
 
         /// <summary>
@@ -594,6 +600,70 @@ Thumbs.db
 ---
 *此为内置精简版，完整版请参阅 Resources/placement_guide.md*
 ";
+        }
+
+        /// <summary>
+        /// 创建项目级 Skills 目录（.claude/skills/）
+        /// Agent 使用 setting_sources=["project"] 从此目录加载 Skills
+        /// </summary>
+        private void CreateSkillsDirectory(string projectPath)
+        {
+            var skillsPath = Path.Combine(projectPath, ".claude", "skills");
+
+            if (Directory.Exists(skillsPath))
+            {
+                _logger.LogDebug(".claude/skills/ 目录已存在，跳过创建");
+                return;
+            }
+
+            Directory.CreateDirectory(skillsPath);
+            _logger.LogInformation("创建 .claude/skills/ 目录");
+
+            // 复制 Skills 模板
+            CopySkillsFromResources(skillsPath);
+        }
+
+        /// <summary>
+        /// 从 Resources/skills 复制 Skills 模板
+        /// </summary>
+        private void CopySkillsFromResources(string targetSkillsPath)
+        {
+            var sourceSkillsPath = FindResourceSkillsPath();
+
+            if (string.IsNullOrEmpty(sourceSkillsPath) || !Directory.Exists(sourceSkillsPath))
+            {
+                _logger.LogWarning("未找到 Skills 模板目录，Agent 可能无法加载 Skills");
+                return;
+            }
+
+            CopyDirectory(sourceSkillsPath, targetSkillsPath);
+            _logger.LogInformation("复制 Skills 模板到项目: {Path}", targetSkillsPath);
+        }
+
+        /// <summary>
+        /// 查找 Resources/skills 目录
+        /// </summary>
+        private string? FindResourceSkillsPath()
+        {
+            var baseDir = AppDomain.CurrentDomain.BaseDirectory;
+            var dir = new DirectoryInfo(baseDir);
+
+            for (int i = 0; i < 8 && dir != null; i++)
+            {
+                // 查找 BIMCanvas.Server/Resources/skills
+                var tryPath = Path.Combine(dir.FullName, "BIMCanvas.Server", "Resources", "skills");
+                if (Directory.Exists(tryPath))
+                    return tryPath;
+
+                // 也查找 Resources/skills（编译后的相对路径）
+                tryPath = Path.Combine(dir.FullName, "Resources", "skills");
+                if (Directory.Exists(tryPath))
+                    return tryPath;
+
+                dir = dir.Parent;
+            }
+
+            return null;
         }
 
         /// <summary>
