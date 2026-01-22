@@ -64,9 +64,44 @@ async def ping_server(args: dict[str, Any]) -> dict[str, Any]:
 async def create_job(args: dict[str, Any]) -> dict[str, Any]:
     """Create isolated Git Worktree for SubAgent to work in."""
     name = args.get("name", "")
-    base_branch = args.get("base_branch", "main")
-    # Step 8: 简化为 echo 实现
-    return {"content": [{"type": "text", "text": f"Echo: name={name}, base_branch={base_branch}"}]}
+    base_branch = args.get("base_branch", "")  # 空值让 Server 自动获取当前分支
+
+    if not name:
+        return {
+            "content": [{"type": "text", "text": "Error: name is required"}],
+            "is_error": True
+        }
+
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.post(
+                f"{SERVER_URL}/api/git/ai-job",
+                json={"name": name, "baseBranch": base_branch},
+                timeout=aiohttp.ClientTimeout(total=30)
+            ) as resp:
+                if resp.status != 200:
+                    error_data = await resp.json()
+                    return {
+                        "content": [{"type": "text", "text": f"Failed to create job: {error_data.get('message', 'Unknown error')}"}],
+                        "is_error": True
+                    }
+
+                result = await resp.json()
+                worktree_path = result.get("worktreePath", "")
+                branch_name = result.get("branchName", "")
+
+                return {"content": [{"type": "text", "text": f"Job created: {name}\nBranch: {branch_name}\nWorktree: {worktree_path}"}]}
+
+    except aiohttp.ClientError as e:
+        return {
+            "content": [{"type": "text", "text": f"Connection error: {str(e)}"}],
+            "is_error": True
+        }
+    except Exception as e:
+        return {
+            "content": [{"type": "text", "text": f"Error: {str(e)}"}],
+            "is_error": True
+        }
 
 
 @tool("ai_job_complete", "批量通知 Web 端：指定的 AI Job 已完成，可供用户审查", {"names": list})
