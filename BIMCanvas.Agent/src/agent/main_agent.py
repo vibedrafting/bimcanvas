@@ -23,7 +23,11 @@ from .subagents import create_subagents
 from .agent_logger import get_agent_logger
 from .worktree_manager import WorktreeManager, WorktreeContext
 from .skill_loader import get_skill_loader
-from ..mcp import create_canvas_mcp, get_allowed_tools
+# === 注释掉原 Canvas MCP 导入 ===
+# from ..mcp import create_canvas_mcp, get_allowed_tools
+
+# === 使用 Calculator MCP 进行测试 ===
+from ..mcp import calculator_mcp, CALCULATOR_ALLOWED_TOOLS
 
 logger = logging.getLogger(__name__)
 
@@ -175,17 +179,21 @@ class MainAgent:
         # 获取思考强度 token 数量
         thinking_tokens = settings.thinking.get_tokens(thinking_level)
 
-        # 创建 MCP 服务器
-        canvas_mcp = None
-        mcp_tools = []
-        try:
-            canvas_mcp = create_canvas_mcp()
-            mcp_tools = get_allowed_tools()
-            self._agent_logger._print(f"[MCP] MCP 服务器已创建，工具: {mcp_tools}")
-        except ValueError as e:
-            self._agent_logger.log_warning(f"MCP 服务器创建失败: {e}")
-        except Exception as e:
-            self._agent_logger.log_error(f"MCP 服务器创建异常: {e}")
+        # === 注释掉现有 Canvas MCP ===
+        # canvas_mcp = None
+        # mcp_tools = []
+        # try:
+        #     canvas_mcp = create_canvas_mcp()
+        #     mcp_tools = get_allowed_tools()
+        #     self._agent_logger._print(f"[MCP] MCP 服务器已创建，工具: {mcp_tools}")
+        # except ValueError as e:
+        #     self._agent_logger.log_warning(f"MCP 服务器创建失败: {e}")
+        # except Exception as e:
+        #     self._agent_logger.log_error(f"MCP 服务器创建异常: {e}")
+
+        # === 使用 Calculator MCP 进行测试 ===
+        mcp_tools = CALCULATOR_ALLOWED_TOOLS
+        self._agent_logger._print(f"[MCP] Calculator MCP 已注册，工具: {mcp_tools}")
 
         # 合并工具权限
         all_allowed = (allowed_tools or []) + mcp_tools
@@ -202,7 +210,7 @@ class MainAgent:
             include_partial_messages=True,
             env=custom_env,                        # Agent SDK 独立环境变量
             extra_args={"max-thinking-tokens": str(thinking_tokens)} if thinking_tokens else {},  # 思考强度
-            mcp_servers={"canvas": canvas_mcp} if canvas_mcp else {},  # MCP 服务器
+            mcp_servers={"calc": calculator_mcp},  # 使用 Calculator MCP
         )
 
     # ─────────────────────────────────────────────────────
