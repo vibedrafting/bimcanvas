@@ -58,32 +58,14 @@ async def ping_server(args: dict[str, Any]) -> dict[str, Any]:
         return {"content": [{"type": "text", "text": f"Error: {str(e)}"}], "is_error": True}
 
 
-# ============ Step 6: 最小差异测试工具 ============
-
-@tool("test_api", "Test API call", {"name": str})
-async def test_api(args: dict[str, Any]) -> dict[str, Any]:
-    """调用与 ai_job_create 相同的 API，但使用简单英文名称和描述"""
-    name = args.get("name", "test")
-    try:
-        async with aiohttp.ClientSession() as session:
-            async with session.post(
-                f"{SERVER_URL}/api/git/ai-job",
-                json={"name": name},
-                timeout=aiohttp.ClientTimeout(total=5)
-            ) as resp:
-                return {"content": [{"type": "text", "text": f"API responded: {resp.status}"}]}
-    except Exception as e:
-        return {"content": [{"type": "text", "text": f"Error: {str(e)}"}], "is_error": True}
-
-
 # ============ Canvas 工具（从 canvas.py 迁移）============
 
 @tool("create_job", "Create isolated work environment (Git Worktree)", {"name": str, "base_branch": str})
 async def create_job(args: dict[str, Any]) -> dict[str, Any]:
     """Create isolated Git Worktree for SubAgent to work in."""
     name = args.get("name", "")
-    base_branch = args.get("base_branch", "")
-    # Step 11: 回退到 echo 实现，验证稳定性
+    base_branch = args.get("base_branch", "main")
+    # Step 8: 简化为 echo 实现
     return {"content": [{"type": "text", "text": f"Echo: name={name}, base_branch={base_branch}"}]}
 
 
@@ -136,7 +118,7 @@ async def ai_job_complete(args: dict[str, Any]) -> dict[str, Any]:
 calculator_mcp = create_sdk_mcp_server(
     name="calculator",
     version="1.0.0",
-    tools=[add_numbers, subtract_numbers, multiply_numbers, divide_numbers, echo_message, ping_server, test_api, create_job, ai_job_complete],
+    tools=[add_numbers, subtract_numbers, multiply_numbers, divide_numbers, echo_message, ping_server, create_job, ai_job_complete],
 )
 
 # 预批准工具列表（注意：别名是 "calc"，不是 "calculator"）
@@ -147,7 +129,6 @@ CALCULATOR_ALLOWED_TOOLS = [
     "mcp__calc__divide",
     "mcp__calc__echo",  # 测试自定义工具
     "mcp__calc__ping_server",  # 测试 HTTP 调用
-    "mcp__calc__test_api",  # Step 6: 最小差异测试
     # Canvas 工具（迁移自 canvas.py）
     "mcp__calc__create_job",
     "mcp__calc__ai_job_complete",
