@@ -165,6 +165,8 @@ const isResizing = ref(false);
 const isBranchDropdownOpen = ref(false);
 const showCheckoutConfirmDialog = ref(false);
 const pendingCheckoutBranch = ref('');
+const pendingWindowId = ref('');  // 窗口标签页切换时记录目标窗口ID
+const pendingIsCreateBranch = ref(false);  // 是否是新建分支场景
 const mode = ref('chat'); // 'chat' | 'tasks'
 const isTaskSummaryExpanded = ref(false);
 
@@ -429,7 +431,24 @@ const handleBranchCreated = async (data: { name: string; baseBranch: string; rea
         addWindow(data.name);
       }
       // 从主窗口下拉框来的，主窗口 branchId 会通过 watch(currentBranch) 自动更新
+      return;
     }
+    
+    // 如果有未提交的更改，显示确认弹窗
+    if (result.hasUncommittedChanges) {
+      pendingCheckoutBranch.value = data.name;
+      pendingWindowId.value = '';  // 清空窗口ID，这不是窗口切换场景
+      pendingIsCreateBranch.value = true;  // 标记为新建分支场景
+      showCheckoutConfirmDialog.value = true;
+      // 关闭 loading（弹窗期间暂停）
+      if (isPrimarySwitch) {
+        const primaryWindow = windows.value.find(w => w.isPrimary);
+        if (primaryWindow) primaryWindow.isLoading = false;
+      }
+      return;
+    }
+    
+    console.error('创建/切换分支失败:', result.message);
   } finally {
     // 关闭 loading
     if (isPrimarySwitch) {
@@ -576,8 +595,30 @@ const toggleBranchDropdown = () => {
 
 // Handle Window Tab Click - Only for switching windows
 // Branch dropdown is triggered by clicking on .tab-branch area (primary window only)
-const handleWindowTabClick = (win: ChatWindow) => {
+const handleWindowTabClick = async (win: ChatWindow) => {
     if (activeWindowId.value !== win.id) {
+        // 如果目标窗口的分支与当前分支不同，需要检查未提交更改
+        const currentWin = activeWindow.value;
+        if (currentWin && win.branchId !== currentWin.branchId) {
+            // 调用 gitStore.checkout 检查是否有未提交更改
+            const result = await gitStore.checkout(win.branchId);
+            if (result.success) {
+                // 切换成功，继续切换窗口
+                switchWindow(win.id);
+                return;
+            }
+            if (result.hasUncommittedChanges) {
+                // 有未提交更改，显示确认弹窗
+                pendingCheckoutBranch.value = win.branchId;
+                // 记录目标窗口ID，弹窗确认后需要切换到该窗口
+                pendingWindowId.value = win.id;
+                showCheckoutConfirmDialog.value = true;
+                return;
+            }
+            console.error('切换分支失败:', result.message);
+            return;
+        }
+        // 同一分支内的窗口切换，直接切换
         switchWindow(win.id);
     }
 };
@@ -977,6 +1018,8 @@ const selectBranch = async (branchId: string) => {
 const handleCheckoutConfirm = async (saveBeforeSwitch: boolean, commitMessage?: string) => {
   showCheckoutConfirmDialog.value = false;
   const branchName = pendingCheckoutBranch.value;
+  const targetWindowId = pendingWindowId.value;  // 窗口标签页切换时的目标窗口
+  const isCreateBranch = pendingIsCreateBranch.value;  // 是否是新建分支场景
   if (!branchName) return;
 
   // 开始切换，显示 loading
@@ -989,20 +1032,33 @@ const handleCheckoutConfirm = async (saveBeforeSwitch: boolean, commitMessage?: 
       if (!saved) {
         console.error('保存数据失败，无法切换分支');
         pendingCheckoutBranch.value = '';
+        pendingWindowId.value = '';
+        pendingIsCreateBranch.value = false;
         return;
       }
 
       // 2. 再用 commitBeforeCheckout 提交并切换
       await gitStore.checkout(branchName, {
         commitBeforeCheckout: true,
-        commitMessage
+        commitMessage,
+        createIfNotExist: isCreateBranch  // 新建分支场景需要此参数
       });
     } else {
       // 放弃更改并切换：Server端原子操作
-      await gitStore.checkout(branchName, { discardBeforeCheckout: true });
+      await gitStore.checkout(branchName, { 
+        discardBeforeCheckout: true,
+        createIfNotExist: isCreateBranch  // 新建分支场景需要此参数
+      });
     }
 
     pendingCheckoutBranch.value = '';
+    pendingIsCreateBranch.value = false;
+    
+    // 如果是窗口标签页切换触发的，切换到目标窗口
+    if (targetWindowId) {
+      switchWindow(targetWindowId);
+      pendingWindowId.value = '';
+    }
   } finally {
     // 切换完成，关闭 loading
     setPrimaryWindowLoading(false);
@@ -1012,6 +1068,8 @@ const handleCheckoutConfirm = async (saveBeforeSwitch: boolean, commitMessage?: 
 const handleCheckoutCancel = () => {
   showCheckoutConfirmDialog.value = false;
   pendingCheckoutBranch.value = '';
+  pendingWindowId.value = '';
+  pendingIsCreateBranch.value = false;
 };
 
 // Clear selection
