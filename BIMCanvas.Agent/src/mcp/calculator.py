@@ -33,7 +33,7 @@ async def divide_numbers(args: dict[str, Any]) -> dict[str, Any]:
     return {"content": [{"type": "text", "text": f"{args['a']} ÷ {args['b']} = {result}"}]}
 
 
-@tool("echo", "Echo the input message back", {"message": str})
+@tool("echo", "回显输入的消息", {"message": str})
 async def echo_message(args: dict[str, Any]) -> dict[str, Any]:
     """回显输入消息 - 用于测试自定义工具"""
     message = args.get("message", "")
