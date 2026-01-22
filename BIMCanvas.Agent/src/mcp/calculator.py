@@ -33,11 +33,18 @@ async def divide_numbers(args: dict[str, Any]) -> dict[str, Any]:
     return {"content": [{"type": "text", "text": f"{args['a']} ÷ {args['b']} = {result}"}]}
 
 
+@tool("echo", "Echo the input message back", {"message": str})
+async def echo_message(args: dict[str, Any]) -> dict[str, Any]:
+    """回显输入消息 - 用于测试自定义工具"""
+    message = args.get("message", "")
+    return {"content": [{"type": "text", "text": f"Echo: {message}"}]}
+
+
 # 创建 Calculator MCP Server
 calculator_mcp = create_sdk_mcp_server(
     name="calculator",
     version="1.0.0",
-    tools=[add_numbers, subtract_numbers, multiply_numbers, divide_numbers],
+    tools=[add_numbers, subtract_numbers, multiply_numbers, divide_numbers, echo_message],
 )
 
 # 预批准工具列表（注意：别名是 "calc"，不是 "calculator"）
@@ -46,4 +53,5 @@ CALCULATOR_ALLOWED_TOOLS = [
     "mcp__calc__subtract",
     "mcp__calc__multiply",
     "mcp__calc__divide",
+    "mcp__calc__echo",  # 新增：测试自定义工具
 ]
