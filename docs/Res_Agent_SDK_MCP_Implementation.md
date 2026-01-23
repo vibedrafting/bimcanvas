@@ -284,10 +284,6 @@ options = ClaudeAgentOptions(
 )
 ```
 
-**环境变量语法**：
-- `${VAR}` - 必需变量
-- `${VAR:-default}` - 带默认值
-
 ---
 
 ## 四、权限控制
@@ -323,154 +319,9 @@ options = ClaudeAgentOptions(
 
 ---
 
-## 五、BIMCanvas 集成方案
+## 五、常见错误与排查
 
-### 5.1 工具定义
-
-```python
-# BIMCanvas.Agent/mcp_tools.py
-
-from claude_agent_sdk import tool, create_sdk_mcp_server
-from typing import Any
-import httpx
-import json
-
-
-@tool(
-    "get_room_zones",
-    "获取房间可布置区域，返回 innerBoundary 和 exclusionAreas",
-    {"roomId": str}
-)
-async def get_room_zones(args: dict[str, Any]) -> dict[str, Any]:
-    """获取房间区域数据"""
-    async with httpx.AsyncClient() as client:
-        response = await client.get(
-            f"http://localhost:5000/api/canvas/rooms/{args['roomId']}/zones"
-        )
-    return {"content": [{"type": "text", "text": response.text}]}
-
-
-@tool(
-    "place_module",
-    "放置家具模块到指定位置",
-    {
-        "moduleId": str,
-        "bounds": dict,   # {"x": float, "y": float, "width": float, "height": float}
-        "facing": str,    # "north" | "south" | "east" | "west" 或 Vec2D
-    }
-)
-async def place_module(args: dict[str, Any]) -> dict[str, Any]:
-    """放置家具模块"""
-    async with httpx.AsyncClient() as client:
-        response = await client.post(
-            "http://localhost:5000/api/canvas/modules",
-            json=args
-        )
-    if response.status_code != 200:
-        return {
-            "content": [{"type": "text", "text": f"Error: {response.text}"}],
-            "is_error": True
-        }
-    return {"content": [{"type": "text", "text": response.text}]}
-
-
-@tool(
-    "validate_placement",
-    "验证模块放置是否合法（不与禁区/其他模块重叠）",
-    {"moduleId": str, "bounds": dict}
-)
-async def validate_placement(args: dict[str, Any]) -> dict[str, Any]:
-    """验证放置合法性"""
-    async with httpx.AsyncClient() as client:
-        response = await client.post(
-            "http://localhost:5000/api/canvas/validate",
-            json=args
-        )
-    result = response.json()
-    return {"content": [{"type": "text", "text": json.dumps(result)}]}
-
-
-@tool(
-    "get_project",
-    "获取当前项目完整数据",
-    {}
-)
-async def get_project(args: dict[str, Any]) -> dict[str, Any]:
-    """获取项目数据"""
-    async with httpx.AsyncClient() as client:
-        response = await client.get("http://localhost:5000/api/canvas/project")
-    return {"content": [{"type": "text", "text": response.text}]}
-
-
-# 创建 Canvas-MCP Server
-canvas_mcp = create_sdk_mcp_server(
-    name="bimcanvas",
-    version="1.0.0",
-    tools=[
-        get_room_zones,
-        place_module,
-        validate_placement,
-        get_project,
-    ],
-)
-```
-
-### 5.2 MainAgent 配置
-
-```python
-# BIMCanvas.Agent/main_agent.py
-
-from claude_agent_sdk import ClaudeSDKClient, ClaudeAgentOptions
-from .mcp_tools import canvas_mcp
-
-
-async def start_main_agent():
-    options = ClaudeAgentOptions(
-        mcp_servers={
-            "canvas": canvas_mcp,  # SDK MCP（自定义业务工具）
-        },
-        allowed_tools=[
-            "mcp__canvas__get_room_zones",
-            "mcp__canvas__place_module",
-            "mcp__canvas__validate_placement",
-            "mcp__canvas__get_project",
-        ],
-        system_prompt="""你是 BIMCanvas 布置助手，负责在建筑平面内布置家具。
-
-## 工作流程
-1. 调用 get_project 获取项目数据
-2. 调用 get_room_zones 获取目标房间的可布置区域
-3. 规划家具布置方案
-4. 调用 validate_placement 验证方案
-5. 调用 place_module 执行布置
-
-## 约束
-- 模块 bounds 必须完全在 innerBoundary 内
-- 模块 bounds 不能与 exclusionAreas 重叠
-- 模块 bounds 不能与其他已放置模块重叠
-""",
-    )
-
-    async with ClaudeSDKClient(options=options) as client:
-        await client.query("在客厅布置沙发和茶几")
-        async for msg in client.receive_response():
-            await process_message(msg)
-```
-
-### 5.3 工具调用名速查表
-
-| 工具函数 | 调用名 |
-|----------|--------|
-| `get_room_zones` | `mcp__canvas__get_room_zones` |
-| `place_module` | `mcp__canvas__place_module` |
-| `validate_placement` | `mcp__canvas__validate_placement` |
-| `get_project` | `mcp__canvas__get_project` |
-
----
-
-## 六、常见错误与排查
-
-### 6.1 工具函数必须是 async
+### 5.1 工具函数必须是 async
 
 ```python
 # ❌ 错误：同步函数
@@ -484,7 +335,7 @@ async def add(args: dict[str, Any]) -> dict[str, Any]:
     return {"content": [...]}
 ```
 
-### 6.2 工具调用名不匹配
+### 5.2 工具调用名不匹配
 
 ```python
 # ❌ 错误：使用 Server name
@@ -495,7 +346,7 @@ allowed_tools=["mcp__calculator__add"]  # 应该用别名 calc
 allowed_tools=["mcp__calc__add"]
 ```
 
-### 6.3 返回值格式错误
+### 5.3 返回值格式错误
 
 ```python
 # ❌ 错误：返回字符串
@@ -508,7 +359,7 @@ return {"text": "Result: 42"}
 return {"content": [{"type": "text", "text": "Result: 42"}]}
 ```
 
-### 6.4 未预批准工具
+### 5.4 未预批准工具
 
 ```python
 # ❌ 错误：工具未在 allowed_tools 中
@@ -524,7 +375,7 @@ options = ClaudeAgentOptions(
 )
 ```
 
-### 6.5 AI 输出 XML 文本模拟工具调用 ⭐⭐⭐
+### 5.5 AI 输出 XML 文本模拟工具调用 ⭐⭐⭐
 
 **问题现象**：
 
@@ -596,9 +447,9 @@ system_prompt = """
 
 ---
 
-## 七、调试技巧
+## 六、调试技巧
 
-### 7.1 记录工具执行
+### 6.1 记录工具执行
 
 ```python
 @tool("add", "Add numbers", {"a": float, "b": float})
@@ -609,7 +460,7 @@ async def add_numbers(args: dict[str, Any]) -> dict[str, Any]:
     return {"content": [{"type": "text", "text": str(result)}]}
 ```
 
-### 7.2 使用执行跟踪
+### 6.2 使用执行跟踪
 
 ```python
 executions = []  # 全局列表
@@ -623,7 +474,7 @@ async def echo_tool(args: dict[str, Any]) -> dict[str, Any]:
 assert "echo" in [e["tool"] for e in executions]
 ```
 
-### 7.3 检查 MCP 连接状态
+### 6.3 检查 MCP 连接状态
 
 ```python
 async for message in client.receive_response():
@@ -637,9 +488,9 @@ async for message in client.receive_response():
 
 ---
 
-## 八、架构要点总结
+## 七、架构要点总结
 
-### 8.1 SDK MCP 内部机制
+### 7.1 SDK MCP 内部机制
 
 ```
 ┌──────────────────────────────────────────┐
@@ -667,7 +518,7 @@ async for message in client.receive_response():
                 └───────────────────────────┘
 ```
 
-### 8.2 执行链路
+### 7.2 执行链路
 
 ```
 Claude 请求调用工具
@@ -685,7 +536,7 @@ Query 对象接收请求
 返回给 Claude
 ```
 
-### 8.3 关键特性
+### 7.3 关键特性
 
 | 特性 | 说明 |
 |------|------|
@@ -696,9 +547,9 @@ Query 对象接收请求
 
 ---
 
-## 九、参考资源
+## 八、参考资源
 
-### 9.1 官方文档路径
+### 8.1 官方文档路径
 
 | 文档 | 路径 |
 |------|------|
@@ -707,7 +558,7 @@ Query 对象接收请求
 | 计算器示例 | `docs/agent_sdk/examples/mcp_calculator.py` |
 | 测试用例 | `docs/agent_sdk/examples/e2e-tests/test_sdk_mcp_tools.py` |
 
-### 9.2 核心 API 速查
+### 8.2 核心 API 速查
 
 ```python
 # 工具定义
@@ -733,7 +584,7 @@ async with ClaudeSDKClient(options=options) as client:
 
 ---
 
-## 十、Checklist
+## 九、Checklist
 
 开发 MCP 工具时的检查清单：
 
