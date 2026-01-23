@@ -3,7 +3,7 @@
 按 Calculator MCP 模式重构，直接使用 @tool 装饰器，避免复杂的动态发现机制。
 """
 
-from typing import Any, Annotated
+from typing import Any
 import json
 import aiohttp
 from claude_agent_sdk import tool, create_sdk_mcp_server
@@ -34,11 +34,11 @@ def parse_names_param(raw: Any) -> list[str]:
     return [n.strip() for n in raw.split(",") if n.strip()]
 
 
-@tool("create_job", "批量创建隔离工作环境（Git Worktree）")
-async def ai_job_create(
-    count: Annotated[int, "创建隔离环境个数（默认 1，最大 10）"] = 1
-) -> dict[str, Any]:
+@tool("create_job", "批量创建隔离工作环境（Git Worktree）。参数 count: 创建个数（默认1，最大10）", {"count": int})
+async def ai_job_create(args: dict[str, Any]) -> dict[str, Any]:
     """创建独立的 Git Worktree，让 SubAgent 在隔离环境中执行修改。"""
+    count = args.get("count", 1)
+
     # 参数验证
     if not isinstance(count, int) or count < 1 or count > 10:
         return {
@@ -101,14 +101,14 @@ async def ai_job_create(
         }
 
 
-@tool("complete_job", "批量通知 Web 端：指定的 AI Job 已完成，可供用户审查")
-async def ai_job_complete(
-    names: Annotated[str, "AI Job 名称列表，逗号分隔。例如：'job-1-32,job-2-33'"],
-    summary: Annotated[str, "修改总结（可选），将显示在 Web 端弹窗中"] = ""
-) -> dict[str, Any]:
+@tool("complete_job", "批量通知 Web 端：指定的 AI Job 已完成。参数 names: 逗号分隔的名称列表（如 'job-1,job-2'）; summary: 修改总结（可选）", {"names": str, "summary": str})
+async def ai_job_complete(args: dict[str, Any]) -> dict[str, Any]:
     """Web 端收到通知后，会打开 diff/merge 可视化界面。"""
+    raw_names = args.get("names", "")
+    summary = args.get("summary", "")
+
     # 解析 names（兼容逗号分隔和 JSON 数组）
-    names_list = parse_names_param(names)
+    names_list = parse_names_param(raw_names)
 
     if not names_list:
         return {
