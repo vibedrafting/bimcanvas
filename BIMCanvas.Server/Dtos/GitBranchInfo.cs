@@ -223,9 +223,10 @@ namespace BIMCanvas.Server.Dtos
     public class AiJobRequest
     {
         /// <summary>
-        /// Worktree 名称（如 "ai-job-1"）
+        /// Worktree 名称（可选）
+        /// 如果不指定，自动生成格式：job-{序号}-{时间戳后2位}
         /// </summary>
-        public string Name { get; set; } = string.Empty;
+        public string? Name { get; set; }
 
         /// <summary>
         /// 基准分支（新分支基于此分支创建）
@@ -277,12 +278,17 @@ namespace BIMCanvas.Server.Dtos
     public class AiJobResponse
     {
         /// <summary>
+        /// AI Job 名称（自动生成或用户指定）
+        /// </summary>
+        public string Name { get; set; } = string.Empty;
+
+        /// <summary>
         /// 创建的 Worktree 完整路径
         /// </summary>
         public string WorktreePath { get; set; } = string.Empty;
 
         /// <summary>
-        /// 自动生成的分支名（如 "feat/ai-job-1-20260116-143052"）
+        /// 自动生成的分支名（如 "feat/job-1-52-20260116-143052"）
         /// </summary>
         public string BranchName { get; set; } = string.Empty;
     }

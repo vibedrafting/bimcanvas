@@ -10,44 +10,68 @@ from claude_agent_sdk import tool, create_sdk_mcp_server
 SERVER_URL = "http://localhost:5000"
 
 
-@tool("create_job", "为 SubAgent 创建隔离工作环境（Git Worktree）", {"name": str, "base_branch": str})
+@tool("create_job", "批量创建隔离工作环境（Git Worktree）", {"count": int})
 async def ai_job_create(args: dict[str, Any]) -> dict[str, Any]:
-    """创建独立的 Git Worktree，让 SubAgent 在隔离环境中执行修改。"""
-    name = args.get("name")
-    base_branch = args.get("base_branch")
+    """创建独立的 Git Worktree，让 SubAgent 在隔离环境中执行修改。
 
-    if not name:
+    count: 创建隔离环境个数（默认 1，最大 10）
+    """
+    count = args.get("count", 1)
+
+    # 参数验证
+    if not isinstance(count, int) or count < 1 or count > 10:
         return {
-            "content": [{"type": "text", "text": "错误: 必须指定 name"}],
+            "content": [{"type": "text", "text": "错误: count 必须在 1-10 之间"}],
             "is_error": True
         }
 
+    results = []
     try:
         async with aiohttp.ClientSession() as session:
-            request_body = {"name": name}
-            if base_branch:
-                request_body["baseBranch"] = base_branch
+            for i in range(count):
+                async with session.post(
+                    f"{SERVER_URL}/api/git/ai-job",
+                    json={}  # 空 body，Server 自动生成 name 和 baseBranch
+                ) as resp:
+                    if resp.status == 200:
+                        data = await resp.json()
+                        results.append({
+                            "name": data.get("name", "?"),
+                            "path": data.get("worktreePath", "?"),
+                            "branch": data.get("branchName", "?")
+                        })
+                    else:
+                        # 部分失败处理
+                        try:
+                            error_data = await resp.json()
+                            error_msg = error_data.get("message", "未知错误")
+                        except:
+                            error_msg = await resp.text()
+                        results.append({"error": error_msg})
 
-            async with session.post(
-                f"{SERVER_URL}/api/git/ai-job",
-                json=request_body
-            ) as resp:
-                if resp.status != 200:
-                    error_data = await resp.json()
-                    return {
-                        "content": [{"type": "text", "text": f"创建 AI Job 失败: {error_data.get('message', '未知错误')}"}],
-                        "is_error": True
-                    }
+        # 格式化输出
+        success_count = len([r for r in results if "error" not in r])
 
-                result = await resp.json()
-                text = f"""AI Job 创建成功:
-- 名称: {name}
-- 工作目录: {result.get('worktreePath', '?')}
-- 分支: {result.get('branchName', '?')}
+        if success_count == 0:
+            # 全部失败
+            error_msgs = [r.get("error", "未知错误") for r in results]
+            return {
+                "content": [{"type": "text", "text": f"创建隔离环境失败:\n" + "\n".join(error_msgs)}],
+                "is_error": True
+            }
 
-SubAgent 应在此目录下执行文件修改。"""
+        # 构建成功输出
+        output_lines = [f"创建 {success_count}/{count} 个隔离环境:"]
+        for r in results:
+            if "error" not in r:
+                output_lines.append(f"- {r['name']}: {r['path']} (分支: {r['branch']})")
+            else:
+                output_lines.append(f"- [失败]: {r['error']}")
 
-                return {"content": [{"type": "text", "text": text}]}
+        output_lines.append("")
+        output_lines.append("SubAgent 应在对应目录下执行文件修改。")
+
+        return {"content": [{"type": "text", "text": "\n".join(output_lines)}]}
 
     except aiohttp.ClientError as e:
         return {

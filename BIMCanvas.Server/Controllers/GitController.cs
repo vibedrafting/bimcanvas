@@ -588,20 +588,16 @@ namespace BIMCanvas.Server.Controllers
         /// <summary>
         /// 创建 AI Job（高级端口）
         /// 一键创建 Agent 工作环境：自动生成分支名 + 创建 Worktree
+        /// name 可选：不传则自动生成
         /// baseBranch 可选：不传则自动使用当前分支
         /// </summary>
-        /// <param name="request">AI Job 请求</param>
-        /// <returns>AI Job 响应（包含自动生成的分支名）</returns>
+        /// <param name="request">AI Job 请求（可为空）</param>
+        /// <returns>AI Job 响应（包含自动生成的名称和分支名）</returns>
         [HttpPost("ai-job")]
-        public ActionResult<AiJobResponse> CreateAiJob([FromBody] AiJobRequest request)
+        public ActionResult<AiJobResponse> CreateAiJob([FromBody] AiJobRequest? request)
         {
             _logger.LogInformation(">>> [GitController] CreateAiJob called: Name={Name}, BaseBranch={BaseBranch}",
-                request?.Name ?? "(null)", request?.BaseBranch ?? "(auto)");
-
-            if (string.IsNullOrEmpty(request?.Name))
-            {
-                return BadRequest(new { message = "Worktree 名称不能为空" });
-            }
+                request?.Name ?? "(auto)", request?.BaseBranch ?? "(auto)");
 
             if (!_projectContext.IsLoaded)
             {
@@ -617,8 +613,16 @@ namespace BIMCanvas.Server.Controllers
 
             try
             {
+                // 自动生成名称（如果未提供）
+                var name = request?.Name;
+                if (string.IsNullOrEmpty(name))
+                {
+                    name = GenerateJobName(projectPath);
+                    _logger.LogInformation("自动生成 AI Job 名称: {Name}", name);
+                }
+
                 // baseBranch 为空时自动获取当前分支
-                var baseBranch = request.BaseBranch;
+                var baseBranch = request?.BaseBranch;
                 if (string.IsNullOrEmpty(baseBranch))
                 {
                     baseBranch = _gitService.GetCurrentBranch(projectPath);
@@ -634,7 +638,7 @@ namespace BIMCanvas.Server.Controllers
 
                 // 自动生成分支名：feat/{name}-{yyyyMMdd-HHmmss}
                 var timestamp = DateTime.Now.ToString("yyyyMMdd-HHmmss");
-                var branchName = $"feat/{request.Name}-{timestamp}";
+                var branchName = $"feat/{name}-{timestamp}";
 
                 // 自动存档：创建前检测到未提交更改，静默执行存档
                 if (_gitService.HasUncommittedChanges(projectPath))
@@ -644,24 +648,38 @@ namespace BIMCanvas.Server.Controllers
                 }
 
                 // 创建 Worktree（复用现有逻辑）
-                var worktreePath = _gitService.CreateWorktree(projectPath, request.Name, branchName, baseBranch);
+                var worktreePath = _gitService.CreateWorktree(projectPath, name, branchName, baseBranch);
 
                 var result = new AiJobResponse
                 {
+                    Name = name,
                     WorktreePath = worktreePath,
                     BranchName = branchName
                 };
 
                 _logger.LogInformation("创建 AI Job 成功: Name={Name}, Branch={Branch}, Path={Path}",
-                    request.Name, branchName, worktreePath);
+                    name, branchName, worktreePath);
 
                 return Ok(result);
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "创建 AI Job 失败: {Name}", request.Name);
+                _logger.LogError(ex, "创建 AI Job 失败: {Name}", request?.Name ?? "(auto)");
                 return StatusCode(500, new { message = $"创建 AI Job 失败: {ex.Message}" });
             }
+        }
+
+        /// <summary>
+        /// 自动生成 AI Job 名称
+        /// 格式：job-{序号}-{时间戳后2位}
+        /// </summary>
+        private string GenerateJobName(string projectPath)
+        {
+            var timestamp = DateTime.Now.ToString("HHmmss");
+            var shortTs = timestamp.Substring(4);  // 取后2位
+            var worktrees = _gitService.GetWorktrees(projectPath);
+            var index = worktrees.Count;  // 使用现有 worktree 数量作为序号
+            return $"job-{index}-{shortTs}";
         }
 
         /// <summary>
