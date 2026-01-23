@@ -1,7 +1,8 @@
 # MCP 工具调用问题排查报告
 
 > **报告日期**: 2025-01-22
-> **问题状态**: 排查中（Step 12）
+> **更新日期**: 2025-01-23
+> **问题状态**: ✅ 已解决（Step 15）
 > **严重程度**: 高 - 影响 AI Agent 核心功能
 
 ---
@@ -42,7 +43,11 @@
 | Step 8 | 简化为 echo 实现 | ✅ 成功 | 问题在原实现代码 |
 | Step 9 | 恢复 HTTP 实现 | ✅ 调用成功，404 | API 端点问题 |
 | Step 10 | 修复 base_branch 默认值 | ✅ 代码已修改 | - |
-| Step 11 | 回退 echo 验证稳定性 | ❌ 成功率 20% | **模型行为不稳定** |
+| Step 11 | 回退 echo 验证稳定性 | ❌ 成功率 20% | 模型行为不稳定 |
+| Step 12 | 对比 add 工具 | ✅ add 100% 成功 | 问题在工具定义差异 |
+| Step 13 | 复制 add 实现风格 | ❌ 成功率仍 20% | 问题不在代码风格 |
+| Step 14 | 恢复到 Step 8 状态 | ✅ "测试"措辞下 100% | 用户措辞影响模型行为 |
+| Step 15 | 修改系统提示词 | ✅ **成功率 100%** | **根本解决方案** |
 
 ### 2.2 关键发现
 
@@ -58,12 +63,12 @@
 
 **成功率：1/5 = 20%**
 
-#### 关键观察
+#### Step 14 关键观察
 
-1. **问题不在工具实现代码** - echo 版本同样不稳定
-2. **成功时 AI 能获取上下文** - 正确填入 `"master"` 分支
-3. **失败时 AI 只是猜测** - 填入默认的 `"main"` 分支
-4. **工具名称/描述已简化为英文** - 与 `test_api` 风格一致
+| 用户措辞模式 | AI 行为 | 成功率 |
+|--------------|---------|--------|
+| `"测试 [工具名]"` | 真正调用工具 | ~100% |
+| `"计算 X"` / `"create job X"` | 输出 XML 文本 + 编造结果 | ~20% |
 
 ---
 
@@ -78,137 +83,160 @@
 | `aiohttp` 异步问题 | 测试 HTTP 工具 | 正常工作 |
 | 工具实现代码问题 | 简化为 echo | 仍不稳定 |
 | API 端点问题 | test_api 对照测试 | API 可达 |
+| 工具数量过多 | 减少到 8 个 | 仍不稳定 |
+| 代码风格差异 | 复制 add 风格 | 仍不稳定 |
 
-### 3.2 当前怀疑方向
+### 3.2 根本原因确认
 
-问题出在**模型层面**，可能原因：
+**问题出在模型行为层面**：
 
-| 层级 | 可能原因 | 证据 |
-|------|----------|------|
-| **模型随机性** | Claude 模型在某些情况下选择文本模拟 | 同一工具 20% 成功率 |
-| **工具数量过多** | 9 个工具导致模型混淆 | 待验证 |
-| **工具目的抽象** | "创建工作环境"不如"计算"明确 | 待验证 |
-| **系统提示不足** | 缺少强制使用工具的指令 | 待验证 |
+AI 模型认为"模拟调用 + 给出答案"在某些情况下是可接受的行为，系统提示词未明确禁止此行为。
 
 ---
 
-## 4. Step 12 排查方案
+## 4. 解决方案
 
-### 4.1 方案 C：对比 add 工具（推荐）
+### 4.1 修改系统提示词
 
-**目的**：确定是模型/SDK 层问题还是工具定义差异
+**文件**: `C:\Users\huhaonan\.bimcanvas\BIMCANVAS.md`
 
-**测试步骤**：
-1. 发送 `"calculate 1 + 1"` 5 次
-2. 记录成功率
-3. 对比分析
+在现有提示词末尾添加 MCP 工具使用规范：
 
-**预期结论**：
+```markdown
+## MCP 工具使用规范
 
-| add 成功率 | 说明 | 下一步 |
-|------------|------|--------|
-| 100% | 问题在 `create_job` 工具定义 | 分析工具差异 |
-| < 100% | 问题在模型/SDK 层 | 检查 Agent 配置 |
+### 强制要求
+当需要使用 MCP 工具（以 `mcp__` 开头的工具）时，你**必须**：
+1. **真正调用工具** - 使用正确的工具调用格式
+2. **等待工具返回** - 不要预测或编造结果
 
-### 4.2 工具对比分析
+### 禁止行为
+你**绝对不能**：
+1. 输出 `<mcp__xxx>...</mcp__xxx>` 格式的**文本**来模拟工具调用
+2. 自己计算或编造工具应该返回的结果
+3. 在工具调用前就给出"结果"
 
-| 差异点 | `add` | `create_job` |
-|--------|-------|--------------|
-| 参数类型 | `float` | `str` |
-| 参数名 | `a`, `b` | `name`, `base_branch` |
-| 工具目的 | 计算（明确） | 创建环境（抽象） |
-| 描述长度 | 短 | 较长 |
-
----
-
-## 5. 当前代码状态
-
-### 5.1 calculator.py 工具清单
-
-```python
-tools = [
-    add_numbers,        # add - 英文描述 - float 参数
-    subtract_numbers,   # subtract - 英文描述 - float 参数
-    multiply_numbers,   # multiply - 英文描述 - float 参数
-    divide_numbers,     # divide - 英文描述 - float 参数
-    echo_message,       # echo - 中文描述 - str 参数
-    ping_server,        # ping_server - 中文描述 - str 参数
-    test_api,           # test_api - 英文描述 - str 参数
-    create_job,         # create_job - 英文描述 - str 参数（echo 实现）
-    ai_job_complete,    # ai_job_complete - 中文描述 - list 参数
-]
+### 判断标准
+- ✅ 正确：调用工具 → 收到结果 → 向用户展示
+- ❌ 错误：输出 XML 文本 → 自己编造结果 → 向用户展示
 ```
 
-### 5.2 create_job 当前实现（echo 版本）
+### 4.2 验证结果
+
+**测试命令**: `"create job test"`（不使用"测试"措辞）
+**测试次数**: 5+ 次
+**成功率**: **100%**
+
+**日志证据**：
+```
+[00:16:09] [Agent#1] [TOOL] mcp__calc__create_job
+[00:16:09]   {"base_branch": "main", "name": "test"}
+[00:16:33] 已成功创建名为 "test" 的 AI Job 隔离工作环境。
+```
+
+### 4.3 代码最终状态
+
+**文件**: `BIMCanvas.Agent/src/mcp/calculator.py`
+
+`create_job` 工具已恢复完整的 HTTP 调用实现：
 
 ```python
 @tool("create_job", "Create isolated work environment (Git Worktree)", {"name": str, "base_branch": str})
 async def create_job(args: dict[str, Any]) -> dict[str, Any]:
+    """Create isolated Git Worktree for SubAgent to work in."""
     name = args.get("name", "")
-    base_branch = args.get("base_branch", "")
-    return {"content": [{"type": "text", "text": f"Echo: name={name}, base_branch={base_branch}"}]}
+    base_branch = args.get("base_branch", "")  # 空值让 Server 自动获取当前分支
+
+    if not name:
+        return {
+            "content": [{"type": "text", "text": "Error: name is required"}],
+            "is_error": True
+        }
+
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.post(
+                f"{SERVER_URL}/api/git/ai-job",
+                json={"name": name, "baseBranch": base_branch},
+                timeout=aiohttp.ClientTimeout(total=30)
+            ) as resp:
+                if resp.status != 200:
+                    error_data = await resp.json()
+                    return {
+                        "content": [{"type": "text", "text": f"Failed to create job: {error_data.get('message', 'Unknown error')}"}],
+                        "is_error": True
+                    }
+
+                result = await resp.json()
+                worktree_path = result.get("worktreePath", "")
+                branch_name = result.get("branchName", "")
+
+                return {"content": [{"type": "text", "text": f"Job created: {name}\nBranch: {branch_name}\nWorktree: {worktree_path}"}]}
+
+    except aiohttp.ClientError as e:
+        return {
+            "content": [{"type": "text", "text": f"Connection error: {str(e)}"}],
+            "is_error": True
+        }
+    except Exception as e:
+        return {
+            "content": [{"type": "text", "text": f"Error: {str(e)}"}],
+            "is_error": True
+        }
 ```
 
 ---
 
-## 6. 后续行动计划
+## 5. 核心经验总结
 
-### 6.1 短期（验证阶段）
+### 5.1 排查方法论
 
-1. **执行 Step 12 方案 C** - 对比测试 `add` 工具稳定性
-2. **根据结果决定下一步**：
-   - 如果 `add` 100% 成功 → 分析工具定义差异
-   - 如果 `add` 也不稳定 → 检查 Agent SDK 配置
+1. **渐进式验证** - 从基线开始，逐步添加复杂度
+2. **隔离变量** - 每次只改变一个因素
+3. **对比测试** - 用已知工作的工具作为参照
+4. **记录数据** - 量化成功率，避免主观判断
 
-### 6.2 中期（修复阶段）
+### 5.2 关键教训
 
-根据排查结果选择修复方案：
+| 教训 | 说明 |
+|------|------|
+| MCP 注册 ≠ 调用成功 | 工具能注册不代表会被正确调用 |
+| 模型行为需要约束 | 系统提示词要明确禁止不良行为 |
+| 用户措辞影响模型 | "测试"触发真正调用，其他措辞可能不行 |
+| 代码问题 vs 模型问题 | 要区分是代码 bug 还是模型行为选择 |
 
-| 问题根因 | 修复方案 |
-|----------|----------|
-| 工具数量过多 | 减少工具数量，只保留核心工具 |
-| 工具目的抽象 | 重写工具描述，使用更明确的动作词 |
-| 系统提示不足 | 在 system_prompt 中强制要求使用工具 |
-| SDK 配置问题 | 调整 ClaudeAgentOptions 参数 |
+### 5.3 迁移路径回顾
 
-### 6.3 长期（架构优化）
-
-- 考虑将工具调用逻辑从 MCP 迁移到更可靠的方式
-- 添加工具调用监控和重试机制
-- 研究其他 Agent 框架的工具调用实现
-
----
-
-## 7. 核心观点总结
-
-1. **MCP 注册机制正常** - 工具能被正确注册到 Agent SDK
-2. **问题在模型行为层** - 同一工具同一输入，成功率仅 20%
-3. **成功时模型能获取上下文** - 说明工具调用路径本身没问题
-4. **失败时模型选择文本模拟** - 这是 Claude 模型的行为选择
-5. **需要进一步对比测试** - 确认是特定工具问题还是全局问题
+1. **Step 1-4**: 验证 Calculator MCP 基线（echo、中文描述、HTTP 调用）
+2. **Step 5-6**: 迁移 Canvas 工具，发现工具名称/描述问题
+3. **Step 7-10**: 简化工具定义，修复 base_branch 默认值
+4. **Step 11-14**: 诊断模型行为不稳定问题，排除代码风格因素
+5. **Step 15**: 通过系统提示词强制正确的工具调用行为 ✅
 
 ---
 
-## 8. 相关文档
+## 6. 相关文档
 
 - `plans/MCP_Migration_Plan.md` - 迁移计划详情
 - `reports/Agent_SDK_MCP_Integration_Guide.md` - MCP 集成指南
 - `BIMCanvas.Agent/src/mcp/calculator.py` - 当前工具实现
+- `C:\Users\huhaonan\.bimcanvas\BIMCANVAS.md` - 系统提示词（包含 MCP 规范）
 
 ---
 
 ## 附录：测试日志示例
 
-### 成功调用日志
+### 成功调用日志（修复后）
 
 ```
-[TOOL] mcp__calc__create_job
-  name: "test-job"
-  base_branch: "master"
-[RESULT] Echo: name=test-job, base_branch=master
+[00:16:09] [Agent#1] [TOOL] mcp__calc__create_job
+[00:16:09]   {"base_branch": "main", "name": "test"}
+[00:16:33] 已成功创建名为 "test" 的 AI Job 隔离工作环境。
+           分支: ai-job/test_20250123
+           Worktree: E:\...\BIMCanvas\.worktrees\test
 ```
 
-### 失败调用日志
+### 失败调用日志（修复前）
 
 ```
 [AI Response]
@@ -216,9 +244,11 @@ async def create_job(args: dict[str, Any]) -> dict[str, Any]:
   <name>test-job</name>
   <base_branch>main</base_branch>
 </mcp__calc__create_job>
+
+我已经为您创建了... (编造的结果)
 ```
 
 ---
 
 *报告生成时间: 2025-01-22 22:50*
-*下次更新: Step 12 测试完成后*
+*最终更新: 2025-01-23 00:20 - 问题已解决*
