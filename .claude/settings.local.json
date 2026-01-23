@@ -5,7 +5,10 @@
       "mcp__ide__getDiagnostics",
       "Bash(git add:*)",
       "Bash(git commit:*)",
-      "Bash(python:*)"
+      "Bash(python:*)",
+      "Bash(powershell -Command:*)",
+      "WebSearch",
+      "Bash(dotnet add:*)"
     ]
   }
 }

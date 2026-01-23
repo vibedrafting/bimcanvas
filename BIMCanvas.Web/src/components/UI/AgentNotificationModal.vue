@@ -1,7 +1,7 @@
 <template>
   <Teleport to="body">
     <Transition name="fade">
-      <div v-if="visible" class="agent-notification-overlay" @click.self="close">
+      <div v-if="visible" class="agent-notification-overlay">
         <div class="agent-notification-modal" :class="notification?.type">
           <div class="modal-header">
             <span class="icon">{{ icon }}</span>
@@ -109,7 +109,7 @@ onUnmounted(() => {
 }
 
 .agent-notification-modal {
-  background: var(--glass-bg, rgba(30, 30, 30, 0.95));
+  background: #1e1e1e;
   border: 1px solid var(--glass-border, rgba(255, 255, 255, 0.1));
   border-radius: 12px;
   min-width: 400px;

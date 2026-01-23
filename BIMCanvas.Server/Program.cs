@@ -112,8 +112,13 @@ builder.Services.AddSingleton<MergeService>();       // 可视化合并服务
 // v3.4 可视化 Diff 服务
 builder.Services.AddSingleton<SchemeDataService>();  // 跨分支/Worktree 模块数据读写
 
-// v3.2 实时通信服务
-builder.Services.AddSignalR();
+// v3.2 实时通信服务（使用 Newtonsoft.Json 避免 JsonElement 序列化问题）
+builder.Services.AddSignalR()
+    .AddNewtonsoftJsonProtocol(options =>
+    {
+        options.PayloadSerializerSettings.ContractResolver = new CamelCasePropertyNamesContractResolver();
+        options.PayloadSerializerSettings.NullValueHandling = Newtonsoft.Json.NullValueHandling.Ignore;
+    });
 builder.Services.AddHostedService<ProjectWatcherService>();
 
 // 配置 Swagger
