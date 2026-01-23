@@ -3,10 +3,9 @@
 按 Calculator MCP 模式重构，直接使用 @tool 装饰器，避免复杂的动态发现机制。
 """
 
-from typing import Any
+from typing import Any, Annotated
 import json
 import aiohttp
-from pydantic import BaseModel, Field
 from claude_agent_sdk import tool, create_sdk_mcp_server
 
 SERVER_URL = "http://localhost:5000"
@@ -35,28 +34,11 @@ def parse_names_param(raw: Any) -> list[str]:
     return [n.strip() for n in raw.split(",") if n.strip()]
 
 
-class CreateJobInput(BaseModel):
-    count: int = Field(
-        default=1,
-        description="创建隔离环境个数（默认 1，最大 10）"
-    )
-
-
-class CompleteJobInput(BaseModel):
-    names: str = Field(
-        description="AI Job 名称列表，逗号分隔。例如：'job-1-32,job-2-33'"
-    )
-    summary: str = Field(
-        default="",
-        description="修改总结（可选），将显示在 Web 端弹窗中"
-    )
-
-
-@tool("create_job", "批量创建隔离工作环境（Git Worktree）", CreateJobInput)
-async def ai_job_create(args: dict[str, Any]) -> dict[str, Any]:
+@tool("create_job", "批量创建隔离工作环境（Git Worktree）")
+async def ai_job_create(
+    count: Annotated[int, "创建隔离环境个数（默认 1，最大 10）"] = 1
+) -> dict[str, Any]:
     """创建独立的 Git Worktree，让 SubAgent 在隔离环境中执行修改。"""
-    count = args.get("count", 1)
-
     # 参数验证
     if not isinstance(count, int) or count < 1 or count > 10:
         return {
@@ -119,16 +101,16 @@ async def ai_job_create(args: dict[str, Any]) -> dict[str, Any]:
         }
 
 
-@tool("complete_job", "批量通知 Web 端：指定的 AI Job 已完成，可供用户审查", CompleteJobInput)
-async def ai_job_complete(args: dict[str, Any]) -> dict[str, Any]:
+@tool("complete_job", "批量通知 Web 端：指定的 AI Job 已完成，可供用户审查")
+async def ai_job_complete(
+    names: Annotated[str, "AI Job 名称列表，逗号分隔。例如：'job-1-32,job-2-33'"],
+    summary: Annotated[str, "修改总结（可选），将显示在 Web 端弹窗中"] = ""
+) -> dict[str, Any]:
     """Web 端收到通知后，会打开 diff/merge 可视化界面。"""
-    raw_names = args.get("names", "")
-    summary = args.get("summary", "")
-
     # 解析 names（兼容逗号分隔和 JSON 数组）
-    names = parse_names_param(raw_names)
+    names_list = parse_names_param(names)
 
-    if not names:
+    if not names_list:
         return {
             "content": [{"type": "text", "text": "错误: 必须指定 names（AI Job 名称列表，逗号分隔）"}],
             "is_error": True
@@ -139,7 +121,7 @@ async def ai_job_complete(args: dict[str, Any]) -> dict[str, Any]:
             # 1. 调用 Server 标记完成
             async with session.post(
                 f"{SERVER_URL}/api/git/ai-jobs/complete",
-                json={"names": names}
+                json={"names": names_list}
             ) as resp:
                 if resp.status != 200:
                     error_data = await resp.json()
@@ -152,7 +134,7 @@ async def ai_job_complete(args: dict[str, Any]) -> dict[str, Any]:
                 jobs = result.get("jobs", [])
 
             # 2. 发送弹窗通知到 Web 端
-            notification_message = f"完成 {len(names)} 个任务: {', '.join(names)}"
+            notification_message = f"完成 {len(names_list)} 个任务: {', '.join(names_list)}"
             if summary:
                 notification_message += f"\n\n{summary}"
 
