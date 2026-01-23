@@ -40,7 +40,8 @@ namespace BIMCanvas.Server.Controllers
                 title = request.Title ?? "",
                 message = request.Message ?? "",
                 type = request.Type ?? "info",
-                timestamp = DateTime.Now.ToString("O")
+                timestamp = DateTime.Now.ToString("O"),
+                metadata = request.Metadata  // 转发元数据
             });
 
             return Ok(new { success = true });
@@ -66,5 +67,10 @@ namespace BIMCanvas.Server.Controllers
         /// 通知类型: info, success, warning, error
         /// </summary>
         public string? Type { get; set; }
+
+        /// <summary>
+        /// 元数据（如 worktreeNames 列表供 Web 端删除）
+        /// </summary>
+        public Dictionary<string, object>? Metadata { get; set; }
     }
 }

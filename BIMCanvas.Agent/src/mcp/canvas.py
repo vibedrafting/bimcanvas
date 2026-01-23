@@ -101,9 +101,9 @@ async def ai_job_create(args: dict[str, Any]) -> dict[str, Any]:
         }
 
 
-@tool("complete_job", "批量通知 Web 端：指定的 AI Job 已完成。参数 names: 逗号分隔的名称列表（如 'job-1,job-2'）; summary: 修改总结（可选）", {"names": str, "summary": str})
+@tool("complete_job", "通知 Web 端：指定的 AI Job 已完成。参数 names: 逗号分隔的名称列表（如 'job-1,job-2'）; summary: 修改总结（可选）", {"names": str, "summary": str})
 async def ai_job_complete(args: dict[str, Any]) -> dict[str, Any]:
-    """Web 端收到通知后，会打开 diff/merge 可视化界面。"""
+    """通知 Web 端弹窗显示已完成的任务列表，传递 worktree 名称供 Web 端删除。"""
     raw_names = args.get("names", "")
     summary = args.get("summary", "")
 
@@ -118,52 +118,35 @@ async def ai_job_complete(args: dict[str, Any]) -> dict[str, Any]:
 
     try:
         async with aiohttp.ClientSession() as session:
-            # 1. 调用 Server 标记完成
+            # 构建通知消息
+            notification_message = f"完成 {len(names_list)} 个任务:\n"
+            for name in names_list:
+                notification_message += f"  - {name}\n"
+
+            if summary:
+                notification_message += f"\n{summary}"
+
+            # 发送通知，包含 worktreeNames 供 Web 端删除
             async with session.post(
-                f"{SERVER_URL}/api/git/ai-jobs/complete",
-                json={"names": names_list}
+                f"{SERVER_URL}/api/notification/agent",
+                json={
+                    "title": "AI Job 已完成",
+                    "message": notification_message,
+                    "type": "success",
+                    "metadata": {
+                        "worktreeNames": names_list  # 关键：传递 worktree 名称列表
+                    }
+                }
             ) as resp:
                 if resp.status != 200:
-                    error_data = await resp.json()
                     return {
-                        "content": [{"type": "text", "text": f"批量标记完成失败: {error_data.get('message', '未知错误')}"}],
+                        "content": [{"type": "text", "text": f"发送通知失败: HTTP {resp.status}"}],
                         "is_error": True
                     }
 
-                result = await resp.json()
-                jobs = result.get("jobs", [])
-
-            # 2. 发送弹窗通知到 Web 端
-            notification_message = f"完成 {len(names_list)} 个任务: {', '.join(names_list)}"
-            if summary:
-                notification_message += f"\n\n{summary}"
-
-            try:
-                async with session.post(
-                    f"{SERVER_URL}/api/notification/agent",
-                    json={
-                        "title": "AI Job 已完成",
-                        "message": notification_message,
-                        "type": "success"
-                    }
-                ) as notify_resp:
-                    if notify_resp.status != 200:
-                        # 通知失败不影响主流程，只记录警告
-                        pass
-            except Exception:
-                # 通知失败不影响主流程
-                pass
-
-            job_lines = []
-            for job in jobs:
-                job_lines.append(f"  - {job.get('name')}: {job.get('branchName')} ({job.get('status')})")
-
-            text = f"""AI Jobs 已标记完成 ({len(jobs)} 个):
-{chr(10).join(job_lines)}
-
-用户将在 Web 端看到 diff 预览，并决定是否合并这些修改。"""
-
-            return {"content": [{"type": "text", "text": text}]}
+            return {
+                "content": [{"type": "text", "text": f"已通知 Web 端：{', '.join(names_list)} 任务完成\n\n用户可在弹窗中选择删除对应的 worktree。"}]
+            }
 
     except aiohttp.ClientError as e:
         return {
