@@ -1,5 +1,12 @@
 import * as signalR from '@microsoft/signalr';
 
+export interface AgentNotification {
+    title: string;
+    message: string;
+    type: 'info' | 'success' | 'warning' | 'error';
+    timestamp: string;
+}
+
 export class SignalRService {
     private connection: signalR.HubConnection;
     private static instance: SignalRService;
@@ -34,6 +41,11 @@ export class SignalRService {
         // Git 状态变化事件
         this.connection.on("GitStatusChanged", (status: any) => {
             window.dispatchEvent(new CustomEvent('bimcanvas:git-status-changed', { detail: status }));
+        });
+
+        // Agent 通知事件
+        this.connection.on("AgentNotification", (data: AgentNotification) => {
+            window.dispatchEvent(new CustomEvent('bimcanvas:agent-notification', { detail: data }));
         });
     }
 

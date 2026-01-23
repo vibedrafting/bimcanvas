@@ -4,18 +4,57 @@
 """
 
 from typing import Any
+import json
 import aiohttp
+from pydantic import BaseModel, Field
 from claude_agent_sdk import tool, create_sdk_mcp_server
 
 SERVER_URL = "http://localhost:5000"
 
 
-@tool("create_job", "批量创建隔离工作环境（Git Worktree）", {"count": int})
-async def ai_job_create(args: dict[str, Any]) -> dict[str, Any]:
-    """创建独立的 Git Worktree，让 SubAgent 在隔离环境中执行修改。
+def parse_names_param(raw: Any) -> list[str]:
+    """解析 names 参数，兼容多种输入格式"""
+    if isinstance(raw, list):
+        return [str(n).strip() for n in raw if n]
 
-    count: 创建隔离环境个数（默认 1，最大 10）
-    """
+    if not isinstance(raw, str) or not raw.strip():
+        return []
+
+    raw = raw.strip()
+
+    # 尝试 JSON 解析
+    if raw.startswith("["):
+        try:
+            parsed = json.loads(raw)
+            if isinstance(parsed, list):
+                return [str(n).strip() for n in parsed if n]
+        except json.JSONDecodeError:
+            pass
+
+    # 逗号分隔
+    return [n.strip() for n in raw.split(",") if n.strip()]
+
+
+class CreateJobInput(BaseModel):
+    count: int = Field(
+        default=1,
+        description="创建隔离环境个数（默认 1，最大 10）"
+    )
+
+
+class CompleteJobInput(BaseModel):
+    names: str = Field(
+        description="AI Job 名称列表，逗号分隔。例如：'job-1-32,job-2-33'"
+    )
+    summary: str = Field(
+        default="",
+        description="修改总结（可选），将显示在 Web 端弹窗中"
+    )
+
+
+@tool("create_job", "批量创建隔离工作环境（Git Worktree）", CreateJobInput)
+async def ai_job_create(args: dict[str, Any]) -> dict[str, Any]:
+    """创建独立的 Git Worktree，让 SubAgent 在隔离环境中执行修改。"""
     count = args.get("count", 1)
 
     # 参数验证
@@ -80,19 +119,24 @@ async def ai_job_create(args: dict[str, Any]) -> dict[str, Any]:
         }
 
 
-@tool("complete_job", "批量通知 Web 端：指定的 AI Job 已完成，可供用户审查", {"names": list})
+@tool("complete_job", "批量通知 Web 端：指定的 AI Job 已完成，可供用户审查", CompleteJobInput)
 async def ai_job_complete(args: dict[str, Any]) -> dict[str, Any]:
     """Web 端收到通知后，会打开 diff/merge 可视化界面。"""
-    names = args.get("names", [])
+    raw_names = args.get("names", "")
+    summary = args.get("summary", "")
 
-    if not names or not isinstance(names, list):
+    # 解析 names（兼容逗号分隔和 JSON 数组）
+    names = parse_names_param(raw_names)
+
+    if not names:
         return {
-            "content": [{"type": "text", "text": "错误: 必须指定 names（AI Job 名称列表）"}],
+            "content": [{"type": "text", "text": "错误: 必须指定 names（AI Job 名称列表，逗号分隔）"}],
             "is_error": True
         }
 
     try:
         async with aiohttp.ClientSession() as session:
+            # 1. 调用 Server 标记完成
             async with session.post(
                 f"{SERVER_URL}/api/git/ai-jobs/complete",
                 json={"names": names}
@@ -107,16 +151,37 @@ async def ai_job_complete(args: dict[str, Any]) -> dict[str, Any]:
                 result = await resp.json()
                 jobs = result.get("jobs", [])
 
-                job_lines = []
-                for job in jobs:
-                    job_lines.append(f"  - {job.get('name')}: {job.get('branchName')} ({job.get('status')})")
+            # 2. 发送弹窗通知到 Web 端
+            notification_message = f"完成 {len(names)} 个任务: {', '.join(names)}"
+            if summary:
+                notification_message += f"\n\n{summary}"
 
-                text = f"""AI Jobs 已标记完成 ({len(jobs)} 个):
+            try:
+                async with session.post(
+                    f"{SERVER_URL}/api/notification/agent",
+                    json={
+                        "title": "AI Job 已完成",
+                        "message": notification_message,
+                        "type": "success"
+                    }
+                ) as notify_resp:
+                    if notify_resp.status != 200:
+                        # 通知失败不影响主流程，只记录警告
+                        pass
+            except Exception:
+                # 通知失败不影响主流程
+                pass
+
+            job_lines = []
+            for job in jobs:
+                job_lines.append(f"  - {job.get('name')}: {job.get('branchName')} ({job.get('status')})")
+
+            text = f"""AI Jobs 已标记完成 ({len(jobs)} 个):
 {chr(10).join(job_lines)}
 
 用户将在 Web 端看到 diff 预览，并决定是否合并这些修改。"""
 
-                return {"content": [{"type": "text", "text": text}]}
+            return {"content": [{"type": "text", "text": text}]}
 
     except aiohttp.ClientError as e:
         return {

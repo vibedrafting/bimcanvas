@@ -10,6 +10,7 @@ import { themeService } from './services/theme/ThemeService';
 import { ViewCalculator } from './services/interaction/ViewCalculator';
 import DebugConsole from './components/UI/DebugConsole.vue';
 import BranchMergeWizard from './components/UI/merge/BranchMergeWizard.vue';
+import AgentNotificationModal from './components/UI/AgentNotificationModal.vue';
 import { useDebugStore } from './stores/debugStore';
 
 const store = useCanvasStore();
@@ -156,6 +157,7 @@ const handleKeydown = (e: KeyboardEvent) => {
   </MainLayout>
   <DebugConsole />
   <BranchMergeWizard />
+  <AgentNotificationModal />
 </template>
 
 <style>
