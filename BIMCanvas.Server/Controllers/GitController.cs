@@ -613,12 +613,15 @@ namespace BIMCanvas.Server.Controllers
 
             try
             {
+                // 获取意图（默认隔离环境）
+                var purpose = request?.Purpose ?? WorktreePurpose.Isolation;
+
                 // 自动生成名称（如果未提供）
                 var name = request?.Name;
                 if (string.IsNullOrEmpty(name))
                 {
-                    name = GenerateJobName(projectPath);
-                    _logger.LogInformation("自动生成 AI Job 名称: {Name}", name);
+                    name = GenerateWorktreeName(projectPath, purpose);
+                    _logger.LogInformation("自动生成 Worktree 名称: {Name} (Purpose={Purpose})", name, purpose);
                 }
 
                 // baseBranch 为空时自动获取当前分支
@@ -670,16 +673,23 @@ namespace BIMCanvas.Server.Controllers
         }
 
         /// <summary>
-        /// 自动生成 AI Job 名称
-        /// 格式：job-{序号}-{时间戳后2位}
+        /// 根据意图自动生成 Worktree 名称
+        /// - Isolation: agent-main-job{n}-{ts}（Agent 任务）
+        /// - Parallel: window-{n}-{ts}（虚拟窗口）
         /// </summary>
-        private string GenerateJobName(string projectPath)
+        private string GenerateWorktreeName(string projectPath, WorktreePurpose purpose)
         {
             var timestamp = DateTime.Now.ToString("HHmmss");
             var shortTs = timestamp.Substring(4);  // 取后2位
             var worktrees = _gitService.GetWorktrees(projectPath);
             var index = worktrees.Count;  // 使用现有 worktree 数量作为序号
-            return $"job-{index}-{shortTs}";
+
+            return purpose switch
+            {
+                WorktreePurpose.Isolation => $"agent-main-job{index}-{shortTs}",  // Agent 任务
+                WorktreePurpose.Parallel => $"window-{index}-{shortTs}",          // 虚拟窗口
+                _ => $"wt-{index}-{shortTs}"
+            };
         }
 
         /// <summary>

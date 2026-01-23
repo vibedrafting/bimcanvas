@@ -1,6 +1,22 @@
 namespace BIMCanvas.Server.Dtos
 {
     /// <summary>
+    /// Worktree 创建意图
+    /// </summary>
+    public enum WorktreePurpose
+    {
+        /// <summary>
+        /// 隔离环境（Agent 任务）- 创建临时分支，删除时删除分支
+        /// </summary>
+        Isolation = 0,
+
+        /// <summary>
+        /// 并行开发（虚拟窗口）- 检出已有分支，删除时保留分支
+        /// </summary>
+        Parallel = 1
+    }
+
+    /// <summary>
     /// Git 分支信息 DTO
     /// </summary>
     public class GitBranchInfo
@@ -224,7 +240,9 @@ namespace BIMCanvas.Server.Dtos
     {
         /// <summary>
         /// Worktree 名称（可选）
-        /// 如果不指定，自动生成格式：job-{序号}-{时间戳后2位}
+        /// 如果不指定，根据 Purpose 自动生成：
+        /// - Isolation: agent-main-job{n}-{ts}
+        /// - Parallel: window-{n}-{ts}
         /// </summary>
         public string? Name { get; set; }
 
@@ -233,6 +251,13 @@ namespace BIMCanvas.Server.Dtos
         /// 可选：不传则自动使用当前分支
         /// </summary>
         public string? BaseBranch { get; set; }
+
+        /// <summary>
+        /// Worktree 创建意图（默认：隔离环境）
+        /// - Isolation: Agent 任务，删除时删除临时分支
+        /// - Parallel: 虚拟窗口，删除时保留用户分支
+        /// </summary>
+        public WorktreePurpose Purpose { get; set; } = WorktreePurpose.Isolation;
     }
 
     /// <summary>

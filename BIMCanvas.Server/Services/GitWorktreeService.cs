@@ -445,6 +445,9 @@ namespace BIMCanvas.Server.Services
         /// <summary>
         /// 清空所有 Worktree（Server 启动时调用）
         /// Server 重启后无活跃窗口，所有 worktree 都是残留
+        /// 根据命名前缀判断是否删除关联分支：
+        /// - agent-* 前缀：隔离环境，删除临时分支
+        /// - window-* 前缀：并行开发，保留用户分支
         /// </summary>
         public void CleanupAllWorktrees(string projectPath)
         {
@@ -460,8 +463,14 @@ namespace BIMCanvas.Server.Services
                     continue;
 
                 var name = Path.GetFileName(wt.Path);
-                _logger.LogInformation("清理 Worktree: {Name}", name);
-                RemoveWorktree(projectPath, name, deleteBranch: false);
+
+                // 根据命名前缀判断是否删除分支
+                // agent-* 前缀 = 隔离环境，删除临时分支
+                // window-* 前缀 = 并行开发，保留用户分支
+                var isAgentWorktree = name.StartsWith("agent-", StringComparison.OrdinalIgnoreCase);
+
+                _logger.LogInformation("清理 Worktree: {Name}, 删除分支: {DeleteBranch}", name, isAgentWorktree);
+                RemoveWorktree(projectPath, name, deleteBranch: isAgentWorktree);
                 count++;
             }
 
