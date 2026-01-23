@@ -10,7 +10,7 @@ from claude_agent_sdk import tool, create_sdk_mcp_server
 SERVER_URL = "http://localhost:5000"
 
 
-@tool("ai_job_create", "为 SubAgent 创建隔离工作环境（Git Worktree）", {"name": str, "base_branch": str})
+@tool("create_job", "为 SubAgent 创建隔离工作环境（Git Worktree）", {"name": str, "base_branch": str})
 async def ai_job_create(args: dict[str, Any]) -> dict[str, Any]:
     """创建独立的 Git Worktree，让 SubAgent 在隔离环境中执行修改。"""
     name = args.get("name")
@@ -56,7 +56,7 @@ SubAgent 应在此目录下执行文件修改。"""
         }
 
 
-@tool("ai_job_complete", "批量通知 Web 端：指定的 AI Job 已完成，可供用户审查", {"names": list})
+@tool("complete_job", "批量通知 Web 端：指定的 AI Job 已完成，可供用户审查", {"names": list})
 async def ai_job_complete(args: dict[str, Any]) -> dict[str, Any]:
     """Web 端收到通知后，会打开 diff/merge 可视化界面。"""
     names = args.get("names", [])
@@ -110,6 +110,6 @@ canvas_mcp = create_sdk_mcp_server(
 
 # 预批准工具列表
 CANVAS_ALLOWED_TOOLS = [
-    "mcp__canvas__ai_job_create",
-    "mcp__canvas__ai_job_complete",
+    "mcp__canvas__create_job",
+    "mcp__canvas__complete_job",
 ]
