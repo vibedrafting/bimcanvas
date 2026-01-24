@@ -23,8 +23,8 @@ from .subagents import create_subagents
 from .agent_logger import get_agent_logger
 from .worktree_manager import WorktreeManager, WorktreeContext
 from .skill_loader import get_skill_loader
-# MCP 服务器（业务工具 + 测试工具）
-from ..mcp import canvas_mcp, CANVAS_ALLOWED_TOOLS, test_mcp, TEST_ALLOWED_TOOLS
+# MCP 服务器（业务工具）
+from ..mcp import canvas_mcp, CANVAS_ALLOWED_TOOLS
 
 logger = logging.getLogger(__name__)
 
@@ -189,8 +189,8 @@ class MainAgent:
         #     self._agent_logger.log_error(f"MCP 服务器创建异常: {e}")
 
         # === MCP 服务器配置 ===
-        mcp_tools = CANVAS_ALLOWED_TOOLS + TEST_ALLOWED_TOOLS
-        self._agent_logger._print(f"[MCP] Canvas MCP + Test MCP 已注册，工具: {mcp_tools}")
+        mcp_tools = CANVAS_ALLOWED_TOOLS
+        self._agent_logger._print(f"[MCP] Canvas MCP 已注册，工具: {mcp_tools}")
 
         # 合并工具权限
         all_allowed = (allowed_tools or []) + mcp_tools
@@ -207,7 +207,7 @@ class MainAgent:
             include_partial_messages=True,
             env=custom_env,                        # Agent SDK 独立环境变量
             extra_args={"max-thinking-tokens": str(thinking_tokens)} if thinking_tokens else {},  # 思考强度
-            mcp_servers={"canvas": canvas_mcp, "test": test_mcp},  # 业务工具 + 测试工具
+            mcp_servers={"canvas": canvas_mcp},  # 业务工具
         )
 
     # ─────────────────────────────────────────────────────
