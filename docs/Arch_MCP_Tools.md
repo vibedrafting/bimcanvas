@@ -255,28 +255,93 @@ async def get_room_data(args):
 # 工具名: room_info, 描述: 查询指定房间的详细信息
 ```
 
-### 4.4 工具调用命名规则
+### 4.4 工具调用命名规则 ⭐⭐⭐
 
 MCP 工具在 `allowed_tools` 中的命名格式：
 
 ```
-mcp__{server_name}__{tool_name}
+mcp__{server_key}__{tool_name}
 ```
 
-示例：
-- Server 名称：`canvas`
-- 工具名称：`get_room_data`
-- 完整名称：`mcp__canvas__get_room_data`
+**关键要素**：
 
+| 组成部分 | 来源 | 示例 |
+|---------|------|------|
+| `mcp__` | 固定前缀 | `mcp__` |
+| `{server_key}` | `mcp_servers` 字典的 **key** | `canvas` |
+| `{tool_name}` | `@tool()` 的第一个参数 | `get_room_data` |
+| **完整名称** | - | `mcp__canvas__get_room_data` |
+
+**示例**：
 ```python
 options = ClaudeAgentOptions(
-    mcp_servers={"canvas": canvas_mcp},
+    mcp_servers={"canvas": canvas_mcp},  # ← "canvas" 影响调用名
     allowed_tools=[
         "Read", "Write",
-        "mcp__canvas__get_room_data",
+        "mcp__canvas__get_room_data",      # ← 使用字典 key "canvas"
         "mcp__canvas__validate_placement"
     ]
 )
+```
+
+#### 常见误解
+
+**❌ 误解**：`create_sdk_mcp_server(name="...")` 的 `name` 参数影响工具调用名
+
+```python
+# ❌ 错误示例
+canvas_mcp = create_sdk_mcp_server(
+    name="canvas-mcp",  # ← 误以为这会影响调用名
+    tools=[get_room_data]
+)
+
+mcp_servers={"canvas": canvas_mcp}
+allowed_tools=["mcp__canvas-mcp__get_room_data"]  # ❌ 错误！
+
+# 实际调用名是 "mcp__canvas__get_room_data"（使用字典 key "canvas"）
+```
+
+**✅ 正确理解**：真正影响调用名的是 `mcp_servers` 字典的 **key**
+
+```python
+# ✅ 正确示例
+canvas_mcp = create_sdk_mcp_server(
+    name="canvas-mcp",  # ← 仅用于日志、元数据，不影响调用名
+    tools=[get_room_data]
+)
+
+mcp_servers={"canvas": canvas_mcp}  # ← "canvas" 决定调用名
+allowed_tools=["mcp__canvas__get_room_data"]  # ✅ 正确！
+```
+
+#### 对比表：什么影响工具调用名？
+
+| 要素 | 影响调用名？ | 用途 |
+|------|------------|------|
+| `create_sdk_mcp_server(name="...")` | ❌ 否 | 日志、元数据 |
+| `mcp_servers={"key": ...}` 的 **key** | ✅ 是 | 拼接调用名 |
+| `@tool("name", ...)` 的 **name** | ✅ 是 | 拼接调用名 |
+| `allowed_tools` | ❌ 否 | 预判调用名（白名单） |
+
+#### 验证方法
+
+**方法 1**：查看启动日志
+
+```bash
+python -m src.main
+# 输出：
+# [MCP] Canvas MCP 已注册，工具: ['mcp__canvas__get_room_data', ...]
+```
+
+**方法 2**：故意配置错误，观察错误信息
+
+```python
+# 故意配置错误的白名单
+allowed_tools=["mcp__wrong__get_room_data"]
+
+# 错误信息会提示实际工具名
+# Error: Tool mcp__canvas__get_room_data requires approval
+#        ^^^^^^^^^^^^^^^^^^^^^^^^^^^ 实际名称
 ```
 
 ### 4.5 参数 Schema 定义
@@ -308,6 +373,11 @@ async def add_numbers(args: dict[str, Any]) -> dict[str, Any]:
 
 **适用场景**：参数简单（2-5个），无需复杂描述
 
+**局限性**：
+- ❌ 缺少参数级别的 `description`（AI 难以理解参数用途）
+- ❌ 缺少 `minimum`、`maximum`、`default` 等高级约束
+- ❌ 缺少 `$schema`、`additionalProperties` 等字段
+
 #### 方案 B：完整 JSON Schema（推荐用于复杂工具）
 
 使用完整的 JSON Schema 格式，可为每个参数添加描述：
@@ -317,22 +387,25 @@ async def add_numbers(args: dict[str, Any]) -> dict[str, Any]:
     name="create_element",
     description="创建元素",
     schema={
+        "$schema": "http://json-schema.org/draft-07/schema#",  # ✅ Schema 版本
         "type": "object",
         "properties": {
             "typeId": {
                 "type": "integer",
-                "description": "族类型的 ElementId，必须是项目中已加载的有效类型"
+                "description": "族类型的 ElementId，必须是项目中已加载的有效类型"  # ✅ 参数描述
             },
             "location": {
                 "type": "object",
+                "description": "定位点坐标",  # ✅ 嵌套对象描述
                 "properties": {
                     "x": {"type": "number", "description": "X坐标（毫米）"},
                     "y": {"type": "number", "description": "Y坐标（毫米）"}
                 },
-                "description": "定位点坐标"
+                "required": ["x", "y"]
             }
         },
-        "required": ["typeId", "location"]
+        "required": ["typeId", "location"],
+        "additionalProperties": False  # ✅ 禁止额外属性
     }
 )
 async def create_element(args: dict[str, Any]) -> dict[str, Any]:
@@ -343,6 +416,53 @@ async def create_element(args: dict[str, Any]) -> dict[str, Any]:
 
 **适用场景**：复杂参数、需要 AI 理解每个字段含义、有嵌套对象
 
+**优势**：
+- ✅ 参数描述帮助 AI 理解用途
+- ✅ 类型约束（minimum、maximum）提供自动验证
+- ✅ 明确 Schema 规范（`$schema`）
+- ✅ 禁止额外属性（`additionalProperties: False`）
+
+#### Schema 生成机制
+
+**SDK 内部处理逻辑**（来源：`claude_agent_sdk/__init__.py:227-253`）：
+
+```python
+# 检查是否已是完整 JSON Schema
+if isinstance(tool_def.input_schema, dict):
+    if "type" in tool_def.input_schema and "properties" in tool_def.input_schema:
+        # ✅ 已是完整 Schema，直接使用
+        schema = tool_def.input_schema
+    else:
+        # ⭐ 简单字典 → JSON Schema 转换逻辑
+        properties = {}
+        for param_name, param_type in tool_def.input_schema.items():
+            if param_type is str:
+                properties[param_name] = {"type": "string"}
+            elif param_type is int:
+                properties[param_name] = {"type": "integer"}
+            # ...
+
+        # ⭐ 生成基础 Schema（仅包含核心字段）
+        schema = {
+            "type": "object",
+            "properties": properties,
+            "required": list(properties.keys()),
+        }
+        # ❌ 未添加 $schema、additionalProperties、参数描述等字段
+```
+
+#### SDK 内置工具 vs MCP 工具对比
+
+| 特性 | SDK 内置工具 | MCP 工具（简单字典） | MCP 工具（完整 Schema） |
+|------|-------------|-------------------|---------------------|
+| **Schema 生成方式** | CLI 内置定义（TypeScript） | Python SDK 动态生成 | 用户提供完整 Schema |
+| `$schema` | ✅ 有 | ❌ 无 | ✅ 可指定 |
+| `properties.*.description` | ✅ 有 | ❌ 无 | ✅ 可指定 |
+| `additionalProperties` | ✅ 有 | ❌ 无 | ✅ 可指定 |
+| `minimum`/`maximum` | ✅ 有 | ❌ 无 | ✅ 可指定 |
+| `default` | ✅ 有 | ❌ 无 | ✅ 可指定 |
+| **AI 理解度** | 高 | 中 | 高 |
+
 #### Schema 选择指南
 
 | 场景 | 推荐方案 | 示例 |
@@ -351,6 +471,46 @@ async def create_element(args: dict[str, Any]) -> dict[str, Any]:
 | 需要参数描述 | 方案 B | 字段含义不明显时 |
 | 嵌套对象参数 | 方案 B | location 包含 x、y 坐标 |
 | 可选参数 | 方案 B | 需要指定 `required` 字段 |
+| 高级约束（范围、默认值） | 方案 B | `minimum: 1, maximum: 10, default: 5` |
+
+#### 完整 Schema 示例模板
+
+```python
+@mcp_tool(
+    name="tool_name",
+    description="工具描述",
+    schema={
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "type": "object",
+        "properties": {
+            "required_param": {
+                "type": "string",
+                "description": "必填参数的详细说明"
+            },
+            "optional_param": {
+                "type": "integer",
+                "description": "可选参数的详细说明",
+                "minimum": 1,
+                "maximum": 100,
+                "default": 10
+            },
+            "nested_param": {
+                "type": "object",
+                "description": "嵌套对象参数",
+                "properties": {
+                    "x": {"type": "number"},
+                    "y": {"type": "number"}
+                },
+                "required": ["x", "y"]
+            }
+        },
+        "required": ["required_param"],
+        "additionalProperties": False
+    }
+)
+async def tool_func(args: dict[str, Any]) -> dict[str, Any]:
+    ...
+```
 
 ---
 

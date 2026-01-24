@@ -123,22 +123,60 @@ async def main():
 | `{tool_name}` | `@tool()` 的第一个参数 | `add` |
 | **完整名称** | - | `mcp__calc__add` |
 
-**注意**：`create_sdk_mcp_server(name="calculator")` 的 `name` 参数 **不影响** 工具调用名！
+**⚠️ 注意**：`create_sdk_mcp_server(name="...")` 的 `name` 参数 **不影响** 工具调用名！
+
+**真正影响调用名的是 `mcp_servers` 字典的 key**：
 
 ```python
 # 示例对照
-create_sdk_mcp_server(name="calculator", ...)  # name="calculator" 不影响调用名
-mcp_servers={"calc": calculator}               # "calc" 影响调用名
-@tool("add", ...)                              # "add" 影响调用名
+create_sdk_mcp_server(name="calculator", ...)  # ← name="calculator" 不影响调用名
+mcp_servers={"calc": calculator}               # ← "calc" 影响调用名
+@tool("add", ...)                              # ← "add" 影响调用名
 
 # 最终调用名
-"mcp__calc__add"  # ✅ 正确
-"mcp__calculator__add"  # ❌ 错误！
+✅ "mcp__calc__add"        # 正确（使用字典 key "calc"）
+❌ "mcp__calculator__add"  # 错误（不使用 Server name "calculator"）
+```
+
+**完整示例**：
+
+```python
+# 创建 Server
+calculator = create_sdk_mcp_server(
+    name="calculator",  # ← 仅用于日志、元数据
+    tools=[add_numbers, divide_numbers],
+)
+
+# 配置 Agent
+options = ClaudeAgentOptions(
+    mcp_servers={
+        "calc": calculator  # ⭐ "calc" 决定工具调用名
+    },
+    allowed_tools=[         # ⭐ 使用 "calc"，而非 "calculator"
+        "mcp__calc__add",
+        "mcp__calc__divide",
+    ],
+)
+```
+
+**验证方法**：
+
+查看启动日志或故意配置错误的白名单，观察错误信息中的实际工具名：
+
+```python
+# 故意配置错误
+allowed_tools=["mcp__wrong__add"]
+
+# 错误信息会提示实际工具名
+# Error: Tool mcp__calc__add requires approval
+#        ^^^^^^^^^^^^^^^^ 实际名称
 ```
 
 ### 2.4 支持的参数类型
 
-**简单字典格式**（推荐）：
+#### 简单字典格式
+
+**支持的类型映射**：
 
 | Python 类型 | JSON Schema 类型 | 示例 |
 |-------------|------------------|------|
@@ -148,32 +186,140 @@ mcp_servers={"calc": calculator}               # "calc" 影响调用名
 | `bool` | `"boolean"` | `{"enabled": bool}` |
 | `dict` | `"object"` | `{"config": dict}` |
 
-**完整 JSON Schema 格式**（复杂场景）：
+**示例**：
+
+```python
+@tool(
+    "add",
+    "Add two numbers",
+    {"a": float, "b": float}  # ← 简单字典格式
+)
+async def add_numbers(args: dict[str, Any]) -> dict[str, Any]:
+    result = args["a"] + args["b"]
+    return {"content": [{"type": "text", "text": f"Result: {result}"}]}
+```
+
+#### Schema 生成机制
+
+**SDK 内部处理逻辑**（来源：`claude_agent_sdk/__init__.py:227-253`）：
+
+```python
+@server.list_tools()
+async def list_tools() -> list[Tool]:
+    """Return the list of available tools."""
+    for tool_def in tools:
+        # 检查是否已是完整 JSON Schema
+        if isinstance(tool_def.input_schema, dict):
+            if "type" in tool_def.input_schema and "properties" in tool_def.input_schema:
+                # ✅ 已是完整 Schema，直接使用
+                schema = tool_def.input_schema
+            else:
+                # ⭐ 简单字典 → JSON Schema 转换逻辑
+                properties = {}
+                for param_name, param_type in tool_def.input_schema.items():
+                    if param_type is str:
+                        properties[param_name] = {"type": "string"}
+                    elif param_type is int:
+                        properties[param_name] = {"type": "integer"}
+                    elif param_type is float:
+                        properties[param_name] = {"type": "number"}
+                    elif param_type is bool:
+                        properties[param_name] = {"type": "boolean"}
+                    else:
+                        properties[param_name] = {"type": "string"}  # 默认
+
+                # ⭐ 生成基础 Schema（仅包含核心字段）
+                schema = {
+                    "type": "object",
+                    "properties": properties,
+                    "required": list(properties.keys()),  # 所有参数默认必填
+                }
+                # ❌ 未添加 $schema、additionalProperties、参数描述等字段
+```
+
+**生成的 Schema 缺失字段**：
+
+| 字段 | 状态 | 原因 |
+|------|------|------|
+| `$schema` | ❌ 缺失 | SDK 未生成（MCP 协议不强制要求） |
+| `additionalProperties` | ❌ 缺失 | SDK 默认行为未设置 |
+| `description`（参数级别） | ❌ 缺失 | 简单字典格式不支持参数描述 |
+| `minimum`/`maximum` | ❌ 缺失 | 简单字典格式不支持高级约束 |
+| `default` | ❌ 缺失 | 简单字典格式不支持默认值 |
+| `required` | ✅ 生成 | 默认所有参数必填 |
+| `type`、`properties` | ✅ 生成 | 核心字段，自动转换 |
+
+#### SDK 内置工具 vs MCP 工具对比
+
+| 特性 | SDK 内置工具 | MCP 工具（简单字典） | MCP 工具（完整 Schema） |
+|------|-------------|-------------------|---------------------|
+| **Schema 生成方式** | CLI 内置定义（TypeScript） | Python SDK 动态生成 | 用户提供完整 Schema |
+| **Schema 完整度** | ✅ 完整（含所有字段） | ⚠️ 基础（仅核心字段） | ✅ 完整（用户自定义） |
+| `$schema` | ✅ 有 | ❌ 无 | ✅ 可指定 |
+| `properties.*.description` | ✅ 支持 | ❌ 不支持 | ✅ 支持 |
+| `additionalProperties` | ✅ 有 | ❌ 无 | ✅ 可指定 |
+| `minimum`/`maximum` | ✅ 支持 | ❌ 不支持 | ✅ 支持 |
+| `default` | ✅ 支持 | ❌ 不支持 | ✅ 支持 |
+| **控制粒度** | 固定（CLI 硬编码） | 有限（类型映射） | 灵活（可自定义） |
+| **AI 理解度** | 高 | 中 | 高 |
+
+#### 完整 JSON Schema 格式（复杂场景）
+
+**适用场景**：复杂参数、需要详细文档、有嵌套对象
 
 ```python
 @tool(
     "place_module",
     "Place furniture module",
     {
+        "$schema": "http://json-schema.org/draft-07/schema#",
         "type": "object",
         "properties": {
-            "moduleId": {"type": "string"},
+            "moduleId": {
+                "type": "string",
+                "description": "家具模块的唯一标识符"
+            },
             "position": {
                 "type": "object",
+                "description": "定位点坐标（单位：毫米）",
                 "properties": {
-                    "x": {"type": "number"},
-                    "y": {"type": "number"}
+                    "x": {"type": "number", "description": "X坐标"},
+                    "y": {"type": "number", "description": "Y坐标"}
                 },
                 "required": ["x", "y"]
             },
-            "facing": {"type": "string", "enum": ["north", "south", "east", "west"]}
+            "facing": {
+                "type": "string",
+                "description": "朝向（8方向）",
+                "enum": ["north", "south", "east", "west", "northeast", "southeast", "southwest", "northwest"]
+            }
         },
-        "required": ["moduleId", "position", "facing"]
+        "required": ["moduleId", "position", "facing"],
+        "additionalProperties": False
     }
 )
 async def place_module(args: dict) -> dict:
     # ...
 ```
+
+**优势对比**：
+
+| 维度 | 简单字典 | 完整 Schema | 改进 |
+|------|---------|------------|------|
+| **参数描述** | ❌ 无 | ✅ 详细说明 | AI 更好理解参数用途 |
+| **参数约束** | ❌ 仅代码验证 | ✅ Schema 级别约束 | 类型安全，自动验证 |
+| **默认值** | ❌ 代码硬编码 | ✅ Schema 声明 | 更清晰的默认行为 |
+| **额外属性** | ⚠️ 允许 | ✅ 禁止 | 防止参数错误 |
+| **Schema 版本** | ❌ 无 | ✅ draft-07 | 明确 Schema 规范 |
+| **代码行数** | 5 行 | 20 行 | 更详细但更规范 |
+
+**选择策略**：
+
+| 工具类型 | 推荐方案 | 理由 |
+|----------|---------|------|
+| **简单工具**<br>（1-2个参数，无复杂约束） | 简单字典<br>`{"param": int}` | 代码简洁，快速开发 |
+| **复杂工具**<br>（多参数、嵌套对象、需要验证） | 完整 JSON Schema | 类型安全，提供更好的 AI 提示 |
+| **面向用户的工具**<br>（需要详细文档） | 完整 JSON Schema | 参数描述帮助 AI 理解用法 |
 
 ### 2.5 返回值格式
 
@@ -444,6 +590,50 @@ system_prompt = """
 | 代码问题 vs 模型问题 | 要区分是代码 bug 还是模型行为选择 |
 
 > 📋 详细排查过程见 `reports/MCP_Tool_Call_Issue_Report_20250122.md`
+
+### 5.6 工具命名常见错误
+
+**错误 1**：误用 Server name 而非字典 key
+
+```python
+# ❌ 错误
+canvas_mcp = create_sdk_mcp_server(name="canvas-mcp", ...)
+mcp_servers={"canvas": canvas_mcp}
+allowed_tools=["mcp__canvas-mcp__create_job"]  # 使用了 Server name
+
+# ✅ 正确
+allowed_tools=["mcp__canvas__create_job"]  # 使用字典 key
+```
+
+**错误 2**：字典 key 与白名单不一致
+
+```python
+# ❌ 错误
+mcp_servers={"canvas_server": canvas_mcp}  # 字典 key 是 "canvas_server"
+allowed_tools=["mcp__canvas__create_job"]  # 白名单用了 "canvas"
+
+# ✅ 正确
+allowed_tools=["mcp__canvas_server__create_job"]  # 与字典 key 一致
+```
+
+**错误 3**：工具名拼写错误
+
+```python
+# ❌ 错误
+@tool("create_job", ...)  # 工具名是 "create_job"
+allowed_tools=["mcp__canvas__createJob"]  # 拼写成了驼峰
+
+# ✅ 正确
+allowed_tools=["mcp__canvas__create_job"]  # 与 @tool() 参数一致
+```
+
+**验证清单**：
+
+- [ ] 检查 `mcp_servers` 字典的 key
+- [ ] 检查 `@tool()` 的第一个参数
+- [ ] 拼接格式：`mcp__{字典key}__{工具名}`
+- [ ] 在 `allowed_tools` 中配置拼接后的完整名称
+- [ ] 通过日志或错误信息验证实际工具名
 
 ---
 

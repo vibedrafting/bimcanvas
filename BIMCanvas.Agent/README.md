@@ -596,6 +596,161 @@ curl -X POST http://127.0.0.1:8765/api/chat \
   -d '{"message": "你好"}'
 ```
 
+### MCP 工具开发指南
+
+#### MCP 工具命名规则 ⭐
+
+**格式**：`mcp__{server_key}__{tool_name}`
+
+| 组成部分 | 来源 | 示例 |
+|---------|------|------|
+| `mcp__` | 固定前缀 | `mcp__` |
+| `{server_key}` | `mcp_servers` 字典的 **key** | `canvas` |
+| `{tool_name}` | `@tool()` 的第一个参数 | `create_job` |
+| **完整名称** | - | `mcp__canvas__create_job` |
+
+**⚠️ 重要**：`create_sdk_mcp_server(name="...")` 的 `name` 参数**不影响**工具调用名！
+
+```python
+# 示例对照
+canvas_mcp = create_sdk_mcp_server(
+    name="canvas",  # ← name="canvas" 不影响调用名！
+    tools=[ai_job_create]
+)
+
+# 配置 Agent
+mcp_servers={"canvas": canvas_mcp}  # ← "canvas" 影响调用名
+@tool("create_job", ...)            # ← "create_job" 影响调用名
+
+# 最终调用名
+✅ "mcp__canvas__create_job"        # 正确（使用字典 key "canvas"）
+❌ "mcp__different__create_job"     # 错误（不使用 Server name）
+```
+
+**常见错误**：
+
+```python
+# ❌ 错误：误用 Server name
+canvas_mcp = create_sdk_mcp_server(name="canvas-mcp", ...)
+mcp_servers={"canvas": canvas_mcp}
+allowed_tools=["mcp__canvas-mcp__create_job"]  # 应该用 "canvas"
+
+# ✅ 正确：使用字典 key
+allowed_tools=["mcp__canvas__create_job"]
+```
+
+#### Schema 定义指南
+
+MCP 工具的参数 Schema 决定了 AI 如何理解和调用工具，支持两种定义方式：
+
+##### 简单字典格式（推荐简单工具）
+
+适用于参数简单（1-3 个基本类型）的工具：
+
+```python
+@tool(
+    "create_job",
+    "批量创建隔离工作环境",
+    {"count": int}  # ← 简单字典：仅指定参数类型
+)
+async def ai_job_create(args: dict[str, Any]) -> dict[str, Any]:
+    count = args.get("count", 1)
+    # ...
+```
+
+**支持的类型映射**：
+- `str` → `{"type": "string"}`
+- `int` → `{"type": "integer"}`
+- `float` → `{"type": "number"}`
+- `bool` → `{"type": "boolean"}`
+
+**局限性**：
+- ❌ 缺少参数级别的 `description`（AI 难以理解参数用途）
+- ❌ 缺少 `minimum`、`maximum` 等高级约束
+- ❌ 缺少 `$schema`、`additionalProperties` 等字段
+
+##### 完整 JSON Schema（推荐复杂工具）
+
+适用于复杂参数、需要详细文档的工具：
+
+```python
+@tool(
+    "create_job",
+    "批量创建隔离工作环境（Git Worktree）",
+    {
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "type": "object",
+        "properties": {
+            "count": {
+                "type": "integer",
+                "description": "创建的工作环境个数，用于并行执行多个 SubAgent 任务",
+                "minimum": 1,
+                "maximum": 10,
+                "default": 1
+            }
+        },
+        "required": ["count"],
+        "additionalProperties": False
+    }
+)
+async def ai_job_create(args: dict[str, Any]) -> dict[str, Any]:
+    count = args.get("count", 1)
+    # ...
+```
+
+**优势**：
+- ✅ 参数描述帮助 AI 理解用途
+- ✅ 类型约束（minimum、maximum）提供自动验证
+- ✅ 明确 Schema 规范（`$schema`）
+- ✅ 禁止额外属性（`additionalProperties: False`）
+
+##### Schema 选择策略
+
+| 工具类型 | 推荐方案 | 理由 |
+|----------|---------|------|
+| **简单工具**<br>（1-2 个参数，无复杂约束） | 简单字典<br>`{"param": int}` | 代码简洁，快速开发 |
+| **复杂工具**<br>（多参数、嵌套对象、需要验证） | 完整 JSON Schema | 类型安全，提供更好的 AI 提示 |
+| **面向用户的工具**<br>（需要详细文档） | 完整 JSON Schema | 参数描述帮助 AI 理解用法 |
+
+##### 完整 Schema 模板
+
+```python
+@tool(
+    "tool_name",
+    "工具描述（会出现在工具列表中）",
+    {
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "type": "object",
+        "properties": {
+            "required_param": {
+                "type": "string",
+                "description": "必填参数的详细说明"
+            },
+            "optional_param": {
+                "type": "integer",
+                "description": "可选参数的详细说明",
+                "minimum": 1,
+                "maximum": 100,
+                "default": 10
+            },
+            "nested_param": {
+                "type": "object",
+                "description": "嵌套对象参数",
+                "properties": {
+                    "x": {"type": "number"},
+                    "y": {"type": "number"}
+                },
+                "required": ["x", "y"]
+            }
+        },
+        "required": ["required_param"],
+        "additionalProperties": False
+    }
+)
+async def tool_func(args: dict[str, Any]) -> dict[str, Any]:
+    ...
+```
+
 ### 添加新工具
 
 1. 在 `src/tools/` 下创建工具模块
