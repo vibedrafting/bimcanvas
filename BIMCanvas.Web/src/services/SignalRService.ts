@@ -5,10 +5,6 @@ export interface AgentNotification {
     message: string;
     type: 'info' | 'success' | 'warning' | 'error';
     timestamp: string;
-    metadata?: {
-        worktreeNames?: string[];
-        [key: string]: any;
-    };
 }
 
 export class SignalRService {

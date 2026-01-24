@@ -4,37 +4,31 @@
 """
 
 from typing import Any
-import json
 import aiohttp
 from claude_agent_sdk import tool, create_sdk_mcp_server
 
 SERVER_URL = "http://localhost:5000"
 
 
-def parse_names_param(raw: Any) -> list[str]:
-    """解析 names 参数，兼容多种输入格式"""
-    if isinstance(raw, list):
-        return [str(n).strip() for n in raw if n]
-
-    if not isinstance(raw, str) or not raw.strip():
-        return []
-
-    raw = raw.strip()
-
-    # 尝试 JSON 解析
-    if raw.startswith("["):
-        try:
-            parsed = json.loads(raw)
-            if isinstance(parsed, list):
-                return [str(n).strip() for n in parsed if n]
-        except json.JSONDecodeError:
-            pass
-
-    # 逗号分隔
-    return [n.strip() for n in raw.split(",") if n.strip()]
-
-
-@tool("create_job", "批量创建隔离工作环境（Git Worktree）。参数 count: 创建个数（默认1，最大10）", {"count": int})
+@tool(
+    "create_job",
+    "批量创建隔离工作环境（Git Worktree），为 SubAgent 提供独立的开发空间",
+    {
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "type": "object",
+        "properties": {
+            "count": {
+                "type": "integer",
+                "description": "创建的工作环境个数，用于并行执行多个 SubAgent 任务",
+                "minimum": 1,
+                "maximum": 10,
+                "default": 1
+            }
+        },
+        "required": ["count"],
+        "additionalProperties": False
+    }
+)
 async def ai_job_create(args: dict[str, Any]) -> dict[str, Any]:
     """创建独立的 Git Worktree，让 SubAgent 在隔离环境中执行修改。"""
     count = args.get("count", 1)
@@ -101,41 +95,50 @@ async def ai_job_create(args: dict[str, Any]) -> dict[str, Any]:
         }
 
 
-@tool("complete_job", "通知 Web 端：指定的 AI Job 已完成。参数 names: 逗号分隔的名称列表（如 'job-1,job-2'）; summary: 修改总结（可选）", {"names": str, "summary": str})
+@tool(
+    "complete_job",
+    "通知 Web 端 AI Job 已完成",
+    {
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "type": "object",
+        "properties": {
+            "names": {
+                "type": "array",
+                "items": {"type": "string"},
+                "description": "已完成的 worktree 名称列表（例如 ['job-1', 'job-2']）",
+                "minItems": 1
+            },
+            "message": {
+                "type": "string",
+                "description": "发送给 Web 端的完整通知消息文本",
+                "minLength": 1
+            }
+        },
+        "required": ["names", "message"],
+        "additionalProperties": False
+    }
+)
 async def ai_job_complete(args: dict[str, Any]) -> dict[str, Any]:
-    """通知 Web 端弹窗显示已完成的任务列表，传递 worktree 名称供 Web 端删除。"""
-    raw_names = args.get("names", "")
-    summary = args.get("summary", "")
+    """通知 Web 端 AI Job 已完成，显示通用文本消息弹窗"""
+    names_list = args.get("names", [])
+    message = args.get("message", "")
 
-    # 解析 names（兼容逗号分隔和 JSON 数组）
-    names_list = parse_names_param(raw_names)
-
-    if not names_list:
+    # 参数验证
+    if not names_list or not message:
         return {
-            "content": [{"type": "text", "text": "错误: 必须指定 names（AI Job 名称列表，逗号分隔）"}],
+            "content": [{"type": "text", "text": "错误: names 和 message 参数都是必需的"}],
             "is_error": True
         }
 
     try:
         async with aiohttp.ClientSession() as session:
-            # 构建通知消息
-            notification_message = f"完成 {len(names_list)} 个任务:\n"
-            for name in names_list:
-                notification_message += f"  - {name}\n"
-
-            if summary:
-                notification_message += f"\n{summary}"
-
-            # 发送通知，包含 worktreeNames 供 Web 端删除
+            # 发送简化的通知（title + message）
             async with session.post(
                 f"{SERVER_URL}/api/notification/agent",
                 json={
                     "title": "AI Job 已完成",
-                    "message": notification_message,
-                    "type": "success",
-                    "metadata": {
-                        "worktreeNames": names_list  # 关键：传递 worktree 名称列表
-                    }
+                    "message": message,
+                    "type": "success"
                 }
             ) as resp:
                 if resp.status != 200:
@@ -145,7 +148,7 @@ async def ai_job_complete(args: dict[str, Any]) -> dict[str, Any]:
                     }
 
             return {
-                "content": [{"type": "text", "text": f"已通知 Web 端：{', '.join(names_list)} 任务完成\n\n用户可在弹窗中选择删除对应的 worktree。"}]
+                "content": [{"type": "text", "text": f"已通知 Web 端：{', '.join(names_list)} 任务完成"}]
             }
 
     except aiohttp.ClientError as e:

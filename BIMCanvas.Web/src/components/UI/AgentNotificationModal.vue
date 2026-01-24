@@ -10,17 +10,6 @@
           </div>
           <div class="modal-body">
             <pre>{{ notification?.message }}</pre>
-
-            <!-- 如果有 worktreeNames，显示删除选项 -->
-            <div v-if="worktreeNames && worktreeNames.length > 0" class="worktree-actions">
-              <h4>Worktree 清理</h4>
-              <ul>
-                <li v-for="name in worktreeNames" :key="name">
-                  <span class="worktree-name">{{ name }}</span>
-                  <button @click="deleteWorktree(name)" class="delete-btn">删除</button>
-                </li>
-              </ul>
-            </div>
           </div>
           <div class="modal-footer">
             <button class="confirm-btn" @click="close">确定</button>
@@ -33,8 +22,14 @@
 
 <script setup lang="ts">
 import { ref, computed, onMounted, onUnmounted } from 'vue';
-import type { AgentNotification } from '@/services/SignalRService';
-import axios from 'axios';
+
+// 简化的通知接口（移除 metadata）
+interface AgentNotification {
+  title: string;
+  message: string;
+  type: 'info' | 'success' | 'warning' | 'error';
+  timestamp: string;
+}
 
 const visible = ref(false);
 const notification = ref<AgentNotification | null>(null);
@@ -48,10 +43,6 @@ const icon = computed(() => {
   }
 });
 
-const worktreeNames = computed(() => {
-  return notification.value?.metadata?.worktreeNames || [];
-});
-
 function handleNotification(event: Event) {
   const customEvent = event as CustomEvent<AgentNotification>;
   notification.value = customEvent.detail;
@@ -60,28 +51,6 @@ function handleNotification(event: Event) {
 
 function close() {
   visible.value = false;
-}
-
-async function deleteWorktree(name: string) {
-  if (!confirm(`确定删除 worktree "${name}" 及其分支？`)) {
-    return;
-  }
-
-  try {
-    await axios.delete(`http://localhost:5000/api/git/worktrees/${name}?deleteBranch=true`);
-    alert(`已删除 worktree: ${name}`);
-
-    // 从列表中移除
-    if (notification.value?.metadata?.worktreeNames) {
-      const index = notification.value.metadata.worktreeNames.indexOf(name);
-      if (index > -1) {
-        notification.value.metadata.worktreeNames.splice(index, 1);
-      }
-    }
-  } catch (error: any) {
-    const errorMsg = error.response?.data?.message || error.message || '未知错误';
-    alert(`删除失败: ${errorMsg}`);
-  }
 }
 
 onMounted(() => {
@@ -218,78 +187,6 @@ onUnmounted(() => {
 }
 
 .confirm-btn:active {
-  transform: translateY(0);
-}
-
-/* Worktree Actions */
-.worktree-actions {
-  margin-top: 1rem;
-  padding-top: 1rem;
-  border-top: 1px solid var(--glass-border, rgba(255, 255, 255, 0.1));
-}
-
-.worktree-actions h4 {
-  margin: 0 0 0.75rem 0;
-  font-size: 14px;
-  font-weight: 600;
-  color: var(--text-secondary, #aaa);
-  text-transform: uppercase;
-  letter-spacing: 0.5px;
-}
-
-.worktree-actions ul {
-  list-style: none;
-  padding: 0;
-  margin: 0;
-}
-
-.worktree-actions li {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  padding: 0.75rem;
-  margin-bottom: 0.5rem;
-  background: rgba(255, 255, 255, 0.05);
-  border: 1px solid var(--glass-border, rgba(255, 255, 255, 0.05));
-  border-radius: 6px;
-  transition: all 0.2s;
-}
-
-.worktree-actions li:hover {
-  background: rgba(255, 255, 255, 0.08);
-  border-color: rgba(255, 255, 255, 0.1);
-}
-
-.worktree-actions li:last-child {
-  margin-bottom: 0;
-}
-
-.worktree-name {
-  font-family: 'Consolas', 'Monaco', monospace;
-  font-size: 13px;
-  color: var(--text-primary, #fff);
-  flex: 1;
-}
-
-.delete-btn {
-  background-color: #dc3545;
-  color: white;
-  border: none;
-  padding: 0.375rem 0.75rem;
-  border-radius: 4px;
-  font-size: 12px;
-  font-weight: 500;
-  cursor: pointer;
-  transition: all 0.2s;
-}
-
-.delete-btn:hover {
-  background-color: #c82333;
-  transform: translateY(-1px);
-  box-shadow: 0 2px 8px rgba(220, 53, 69, 0.3);
-}
-
-.delete-btn:active {
   transform: translateY(0);
 }
 
