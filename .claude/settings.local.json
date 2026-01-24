@@ -8,7 +8,8 @@
       "Bash(python:*)",
       "Bash(powershell -Command:*)",
       "WebSearch",
-      "Bash(dotnet add:*)"
+      "Bash(dotnet add:*)",
+      "Bash(dir /b \"E:\\\\工作文档\\\\开发类\\\\MyCode\\\\BIMCanvas\\\\BIMCanvas.Web\\\\src\\\\main.ts\")"
     ]
   }
 }

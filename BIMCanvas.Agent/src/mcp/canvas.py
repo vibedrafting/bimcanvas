@@ -4,6 +4,7 @@
 """
 
 from typing import Any
+import json
 import aiohttp
 from claude_agent_sdk import tool, create_sdk_mcp_server
 
@@ -105,33 +106,30 @@ async def ai_job_create(args: dict[str, Any]) -> dict[str, Any]:
             "names": {
                 "type": "array",
                 "items": {"type": "string"},
-                "description": "已完成的 worktree 名称列表（例如 ['job-1', 'job-2']）",
+                "description": "已完成的 worktree 名称列表",
                 "minItems": 1
-            },
-            "message": {
-                "type": "string",
-                "description": "发送给 Web 端的完整通知消息文本",
-                "minLength": 1
             }
         },
-        "required": ["names", "message"],
+        "required": ["names"],
         "additionalProperties": False
     }
 )
 async def ai_job_complete(args: dict[str, Any]) -> dict[str, Any]:
-    """通知 Web 端 AI Job 已完成，显示通用文本消息弹窗"""
+    """通知 Web 端 AI Job 已完成"""
     names_list = args.get("names", [])
-    message = args.get("message", "")
 
     # 参数验证
-    if not names_list or not message:
+    if not names_list:
         return {
-            "content": [{"type": "text", "text": "错误: names 和 message 参数都是必需的"}],
+            "content": [{"type": "text", "text": "错误: names 参数是必需的"}],
             "is_error": True
         }
 
     try:
         async with aiohttp.ClientSession() as session:
+            # 将 names 数组转为 JSON 字符串作为消息
+            message = json.dumps(names_list, ensure_ascii=False)
+
             # 发送简化的通知（title + message）
             async with session.post(
                 f"{SERVER_URL}/api/notification/agent",
