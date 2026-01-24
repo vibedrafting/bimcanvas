@@ -661,7 +661,8 @@ const addWindow = async (branchName: string) => {
     try {
         await GitWorktreeService.createWorktree({
             name: worktreeName,
-            branch: branch.name
+            branch: branch.name,
+            intent: 'parallel'  // 虚拟窗口使用并行意图，关闭时保留分支
         });
         // 成功：更新状态
         const idx = windows.value.findIndex(w => w.id === newId);

@@ -21,6 +21,7 @@ export interface CreateWorktreeRequest {
   name: string;
   branch: string;
   baseBranch?: string;
+  intent?: 'isolation' | 'parallel';  // 创建意图：isolation=隔离测试（删除worktree时删除分支），parallel=并行开发（保留分支）
 }
 
 /**
