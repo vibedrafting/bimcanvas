@@ -148,6 +148,14 @@ namespace BIMCanvas.Server.Dtos
         /// 如果不指定，默认基于当前 HEAD
         /// </summary>
         public string? BaseBranch { get; set; }
+
+        /// <summary>
+        /// 创建意图：
+        /// - "isolation": 隔离环境（临时分支，删除 worktree 时一并删除分支）
+        /// - "parallel": 并行开发（长期分支，删除 worktree 时保留分支）
+        /// 默认为 "isolation"
+        /// </summary>
+        public string Intent { get; set; } = "isolation";
     }
 
     /// <summary>

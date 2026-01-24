@@ -468,8 +468,8 @@ namespace BIMCanvas.Server.Controllers
         [HttpPost("worktrees")]
         public ActionResult<WorktreeInfoDto> CreateWorktree([FromBody] CreateWorktreeRequest request)
         {
-            _logger.LogInformation(">>> [GitController] CreateWorktree called: Name={Name}, Branch={Branch}, BaseBranch={BaseBranch}",
-                request?.Name ?? "(null)", request?.Branch ?? "(null)", request?.BaseBranch ?? "(null)");
+            _logger.LogInformation(">>> [GitController] CreateWorktree called: Name={Name}, Branch={Branch}, BaseBranch={BaseBranch}, Intent={Intent}",
+                request?.Name ?? "(null)", request?.Branch ?? "(null)", request?.BaseBranch ?? "(null)", request?.Intent ?? "(null)");
 
             if (string.IsNullOrEmpty(request?.Name))
             {
@@ -518,7 +518,7 @@ namespace BIMCanvas.Server.Controllers
                     _logger.LogInformation("创建 Worktree 前自动存档");
                 }
 
-                var worktreePath = _gitService.CreateWorktree(projectPath, request.Name, request.Branch, request.BaseBranch);
+                var worktreePath = _gitService.CreateWorktree(projectPath, request.Name, request.Branch, request.BaseBranch, request.Intent);
 
                 var result = new WorktreeInfoDto
                 {
@@ -650,8 +650,8 @@ namespace BIMCanvas.Server.Controllers
                     _logger.LogInformation("创建 AI Job 前自动存档");
                 }
 
-                // 创建 Worktree（复用现有逻辑）
-                var worktreePath = _gitService.CreateWorktree(projectPath, name, branchName, baseBranch);
+                // 创建 Worktree（复用现有逻辑，AI Job 使用隔离意图）
+                var worktreePath = _gitService.CreateWorktree(projectPath, name, branchName, baseBranch, intent: "isolation");
 
                 var result = new AiJobResponse
                 {

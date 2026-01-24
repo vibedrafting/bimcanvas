@@ -251,8 +251,9 @@ namespace BIMCanvas.Server.Services
         /// <param name="worktreeName">工作树名称（如 "ai-job-1"）</param>
         /// <param name="branchName">目标分支名（如 "feat/ai-storage"）</param>
         /// <param name="baseBranch">基准分支（可选），分支不存在时作为创建起点，默认 HEAD</param>
+        /// <param name="intent">创建意图：isolation（隔离）或 parallel（并行）</param>
         /// <returns>Worktree 的完整路径</returns>
-        public string CreateWorktree(string projectPath, string worktreeName, string branchName, string? baseBranch = null)
+        public string CreateWorktree(string projectPath, string worktreeName, string branchName, string? baseBranch = null, string intent = "isolation")
         {
             var worktreesDir = GetWorktreesDir(projectPath);
             if (!Directory.Exists(worktreesDir))
@@ -295,6 +296,10 @@ namespace BIMCanvas.Server.Services
                     worktreeName, branchName, baseBranch ?? "HEAD", worktreePath);
             }
 
+            // ⭐ 新增：写入元数据
+            var metadataService = new WorktreeMetadataService(projectPath, _logger as ILogger<WorktreeMetadataService>);
+            metadataService.AddWorktree(worktreeName, branchName, intent, baseBranch ?? "HEAD", createdBy: "Agent");
+
             return worktreePath;
         }
 
@@ -303,7 +308,7 @@ namespace BIMCanvas.Server.Services
         /// </summary>
         /// <param name="projectPath">项目路径</param>
         /// <param name="worktreeName">Worktree 名称</param>
-        /// <param name="deleteBranch">是否同时删除关联分支（场景 B：隔离环境使用）</param>
+        /// <param name="deleteBranch">已废弃：是否删除分支现在由元数据 intent 决定</param>
         public void RemoveWorktree(string projectPath, string worktreeName, bool deleteBranch = false)
         {
             var worktreePath = Path.Combine(GetWorktreesDir(projectPath), worktreeName);
@@ -311,20 +316,34 @@ namespace BIMCanvas.Server.Services
             if (!Directory.Exists(worktreePath))
             {
                 _logger.LogDebug("Worktree 不存在: {Path}", worktreePath);
+                // 即使目录不存在，也尝试清理元数据
+                var metadataService = new WorktreeMetadataService(projectPath, _logger as ILogger<WorktreeMetadataService>);
+                metadataService.RemoveWorktree(worktreeName);
                 return;
             }
 
-            // 如果需要删除分支，先获取 Worktree 关联的分支名
+            // ⭐ 新增：读取元数据，判断是否应删除分支
+            var metadataService2 = new WorktreeMetadataService(projectPath, _logger as ILogger<WorktreeMetadataService>);
+            var entry = metadataService2.RemoveWorktree(worktreeName);
+            bool shouldDeleteBranch = entry?.Intent == "isolation";
+
+            // 如果元数据中没有记录，降级到旧逻辑（获取分支名）
             string? branchToDelete = null;
-            if (deleteBranch)
+            if ((shouldDeleteBranch || deleteBranch) && entry != null)
             {
+                branchToDelete = entry.BranchName;
+                _logger.LogDebug("将删除分支: {Branch} (intent: {Intent})", branchToDelete, entry.Intent);
+            }
+            else if (deleteBranch && entry == null)
+            {
+                // 元数据缺失，降级到旧逻辑
                 var worktrees = GetWorktrees(projectPath);
                 var targetWorktree = worktrees.FirstOrDefault(w =>
                     w.Path.EndsWith(worktreeName, StringComparison.OrdinalIgnoreCase));
                 if (targetWorktree != null)
                 {
                     branchToDelete = targetWorktree.Branch;
-                    _logger.LogDebug("将删除分支: {Branch}", branchToDelete);
+                    _logger.LogWarning("元数据缺失，使用旧逻辑判断分支: {Branch}", branchToDelete);
                 }
             }
 
@@ -347,18 +366,29 @@ namespace BIMCanvas.Server.Services
 
             _logger.LogInformation("删除 Worktree: {Name}", worktreeName);
 
-            // 删除关联分支（如果指定）
-            if (deleteBranch && !string.IsNullOrEmpty(branchToDelete))
+            // 删除关联分支（根据元数据 intent 决定）
+            if (!string.IsNullOrEmpty(branchToDelete))
             {
                 var deleteResult = RunGit(projectPath, $"branch -D \"{branchToDelete}\"");
                 if (deleteResult.Success)
                 {
-                    _logger.LogInformation("删除关联分支: {Branch}", branchToDelete);
+                    if (shouldDeleteBranch)
+                    {
+                        _logger.LogInformation("删除临时分支（隔离意图）: {Branch}", branchToDelete);
+                    }
+                    else
+                    {
+                        _logger.LogInformation("删除关联分支: {Branch}", branchToDelete);
+                    }
                 }
                 else
                 {
                     _logger.LogWarning("删除分支失败: {Branch}, {Error}", branchToDelete, deleteResult.Error);
                 }
+            }
+            else if (entry != null && entry.Intent == "parallel")
+            {
+                _logger.LogInformation("保留分支（并行意图）: {Branch}", entry.BranchName);
             }
         }
 
@@ -445,15 +475,34 @@ namespace BIMCanvas.Server.Services
         /// <summary>
         /// 清空所有 Worktree（Server 启动时调用）
         /// Server 重启后无活跃窗口，所有 worktree 都是残留
-        /// 根据命名前缀判断是否删除关联分支：
-        /// - agent-* 前缀：隔离环境，删除临时分支
-        /// - window-* 前缀：并行开发，保留用户分支
+        /// 根据元数据 intent 判断是否删除关联分支：
+        /// - isolation 意图：隔离环境，删除临时分支
+        /// - parallel 意图：并行开发，保留用户分支
         /// </summary>
         public void CleanupAllWorktrees(string projectPath)
         {
             var worktrees = GetWorktrees(projectPath);
             var worktreesDir = Path.GetFullPath(GetWorktreesDir(projectPath));  // 标准化路径格式
             var count = 0;
+
+            // ⭐ 新增：元数据服务
+            var metadataService = new WorktreeMetadataService(projectPath, _logger as ILogger<WorktreeMetadataService>);
+
+            // ⭐ 新增：先同步元数据（清理不存在的 worktree 记录）
+            var actualWorktreeNames = worktrees
+                .Where(wt =>
+                {
+                    var wtPath = Path.GetFullPath(wt.Path);
+                    return wtPath.StartsWith(worktreesDir, StringComparison.OrdinalIgnoreCase);
+                })
+                .Select(wt => Path.GetFileName(wt.Path))
+                .ToList();
+
+            var syncedCount = metadataService.SyncWithActualWorktrees(actualWorktreeNames);
+            if (syncedCount > 0)
+            {
+                _logger.LogInformation("同步元数据：清理了 {Count} 条过期记录", syncedCount);
+            }
 
             foreach (var wt in worktrees)
             {
@@ -464,13 +513,24 @@ namespace BIMCanvas.Server.Services
 
                 var name = Path.GetFileName(wt.Path);
 
-                // 根据命名前缀判断是否删除分支
-                // agent-* 前缀 = 隔离环境，删除临时分支
-                // window-* 前缀 = 并行开发，保留用户分支
-                var isAgentWorktree = name.StartsWith("agent-", StringComparison.OrdinalIgnoreCase);
+                // ⭐ 改造：根据元数据 intent 判断是否删除分支
+                var entry = metadataService.GetWorktreeEntry(name);
+                bool shouldDeleteBranch = entry?.Intent == "isolation";
 
-                _logger.LogInformation("清理 Worktree: {Name}, 删除分支: {DeleteBranch}", name, isAgentWorktree);
-                RemoveWorktree(projectPath, name, deleteBranch: isAgentWorktree);
+                // 如果元数据缺失，降级到旧逻辑（根据名称前缀判断）
+                if (entry == null)
+                {
+                    shouldDeleteBranch = name.StartsWith("agent-", StringComparison.OrdinalIgnoreCase);
+                    _logger.LogWarning("清理 Worktree: {Name}，元数据缺失，使用名称前缀判断，删除分支: {DeleteBranch}",
+                        name, shouldDeleteBranch);
+                }
+                else
+                {
+                    _logger.LogInformation("清理 Worktree: {Name} (intent: {Intent})，删除分支: {DeleteBranch}",
+                        name, entry.Intent, shouldDeleteBranch);
+                }
+
+                RemoveWorktree(projectPath, name, deleteBranch: shouldDeleteBranch);
                 count++;
             }
 
