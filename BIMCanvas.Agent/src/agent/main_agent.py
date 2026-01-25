@@ -155,11 +155,11 @@ class MainAgent:
         # 从配置加载系统提示词和工具权限
         system_prompt = self._config_loader.load_system_prompt()
 
-        # 加载 MainAgent 的 Skill 内容并追加到 system_prompt
-        skill_loader = get_skill_loader()
-        main_skills = skill_loader.get_main_agent_skills()
-        if main_skills:
-            system_prompt = f"{system_prompt}\n\n{main_skills}"
+        # ✅ 删除手动 Skill 加载（改用 SDK 的 setting_sources 机制）
+        # skill_loader = get_skill_loader()
+        # main_skills = skill_loader.get_main_agent_skills()
+        # if main_skills:
+        #     system_prompt = f"{system_prompt}\n\n{main_skills}"
 
         # 追加工作目录到 system prompt，让 AI 知道自己的工作路径
         system_prompt = system_prompt + f"\n\n工作目录: {self.working_directory}"
@@ -192,22 +192,23 @@ class MainAgent:
         mcp_tools = CANVAS_ALLOWED_TOOLS
         self._agent_logger._print(f"[MCP] Canvas MCP 已注册，工具: {mcp_tools}")
 
-        # 合并工具权限
-        all_allowed = (allowed_tools or []) + mcp_tools
+        # 合并工具权限（✅ 添加 Skill 工具）
+        all_allowed = (allowed_tools or []) + mcp_tools + ["Skill"]
 
         return ClaudeAgentOptions(
             system_prompt=system_prompt,
             cwd=self.working_directory,
             max_turns=20,
             model=settings.model_name,
-            allowed_tools=all_allowed,             # 包含 MCP 工具
+            allowed_tools=all_allowed,             # 包含 MCP 工具 + Skill 工具
             disallowed_tools=disallowed_tools,     # 工具黑名单
             agents=self._subagents,
             permission_mode="acceptEdits",
             include_partial_messages=True,
             env=custom_env,                        # Agent SDK 独立环境变量
             extra_args={"max-thinking-tokens": str(thinking_tokens)} if thinking_tokens else {},  # 思考强度
-            mcp_servers={"canvas": canvas_mcp},  # 业务工具
+            mcp_servers={"canvas": canvas_mcp},    # 业务工具
+            setting_sources=["user", "project"],   # ✅ 启用文件系统 Skill 加载
         )
 
     # ─────────────────────────────────────────────────────
