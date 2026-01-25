@@ -14,7 +14,11 @@ const mergeStore = useMergeStore();
 const gitStore = useGitStore();
 const canvasStore = useCanvasStore();
 
-const { isVisible, currentStep, targetBranch, sourceBranch, isMerging, error, canProceed } = storeToRefs(mergeStore);
+const {
+  isVisible, currentStep, targetBranch, sourceBranch, isMerging, error, canProceed,
+  worktreeNames, selectedWorktree, cleanupAfterMerge,
+  isWorktreeMode, worktreeOptions
+} = storeToRefs(mergeStore);
 const { branches, currentBranch } = storeToRefs(gitStore);
 
 // 分支选项（排除"创建新分支"选项）
@@ -126,8 +130,11 @@ defineExpose({
               v-if="currentStep === 1"
               v-model:targetBranch="mergeStore.targetBranch"
               v-model:sourceBranch="mergeStore.sourceBranch"
+              v-model:selectedWorktree="mergeStore.selectedWorktree"
               :branches="branchOptions"
               :canProceed="canProceed"
+              :worktreeMode="isWorktreeMode"
+              :worktreeOptions="worktreeOptions"
               @next="mergeStore.nextStep()"
             />
             <MergeConfirmStep
@@ -136,6 +143,9 @@ defineExpose({
               :sourceBranch="sourceBranch"
               :isMerging="isMerging"
               :error="error"
+              :showCleanupOption="isWorktreeMode"
+              :worktreeName="selectedWorktree"
+              v-model:cleanupAfterMerge="mergeStore.cleanupAfterMerge"
               @back="mergeStore.prevStep()"
               @cancel="handleClose"
               @confirm="handleMerge"

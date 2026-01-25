@@ -166,6 +166,24 @@ namespace BIMCanvas.Server.Controllers
                 if (result.Success)
                 {
                     _logger.LogInformation("覆盖合并成功: {Count} 个分区", result.MergedZoneCount);
+
+                    // 如果请求清理 worktree
+                    if (request.CleanupWorktree && !string.IsNullOrEmpty(request.WorktreeName))
+                    {
+                        try
+                        {
+                            var gitService = HttpContext.RequestServices.GetService<GitWorktreeService>();
+                            if (gitService != null)
+                            {
+                                gitService.RemoveWorktree(projectPath, request.WorktreeName);
+                                _logger.LogInformation("清理 worktree 成功: {Name}", request.WorktreeName);
+                            }
+                        }
+                        catch (Exception cleanupEx)
+                        {
+                            _logger.LogWarning(cleanupEx, "清理 worktree 失败但合并已完成: {Name}", request.WorktreeName);
+                        }
+                    }
                 }
                 else
                 {
@@ -246,6 +264,16 @@ namespace BIMCanvas.Server.Controllers
         /// 目标分支
         /// </summary>
         public string TargetBranch { get; set; } = string.Empty;
+
+        /// <summary>
+        /// 是否在合并后清理 worktree
+        /// </summary>
+        public bool CleanupWorktree { get; set; } = false;
+
+        /// <summary>
+        /// Worktree 名称（用于清理）
+        /// </summary>
+        public string? WorktreeName { get; set; }
     }
 
     /// <summary>

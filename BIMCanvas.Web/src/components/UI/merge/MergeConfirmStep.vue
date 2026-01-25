@@ -6,12 +6,16 @@ defineProps<{
   sourceBranch: string;
   isMerging: boolean;
   error: string | null;
+  showCleanupOption?: boolean;
+  worktreeName?: string;
+  cleanupAfterMerge?: boolean;
 }>();
 
 const emit = defineEmits<{
   (e: 'back'): void;
   (e: 'cancel'): void;
   (e: 'confirm'): void;
+  (e: 'update:cleanupAfterMerge', value: boolean): void;
 }>();
 </script>
 
@@ -47,6 +51,16 @@ const emit = defineEmits<{
           <line x1="12" y1="17" x2="12.01" y2="17"></line>
         </svg>
         <span>源分支的方案数据将 <strong>完全覆盖</strong> 目标分支</span>
+      </div>
+
+      <!-- Worktree 清理选项 -->
+      <div v-if="showCleanupOption && worktreeName" class="cleanup-option">
+        <label class="checkbox-label">
+          <input type="checkbox" :checked="cleanupAfterMerge"
+                 @change="emit('update:cleanupAfterMerge', ($event.target as HTMLInputElement).checked)" />
+          <span>合并后清理 worktree: <code>{{ worktreeName }}</code></span>
+        </label>
+        <p class="cleanup-hint">清理后，该任务的工作树和临时分支将被删除</p>
       </div>
 
       <!-- 错误信息 -->
@@ -155,6 +169,42 @@ const emit = defineEmits<{
   strong {
     color: #f59e0b;
   }
+}
+
+.cleanup-option {
+  margin-top: 16px;
+  padding: 12px 16px;
+  background: rgba(59, 130, 246, 0.1);
+  border: 1px solid rgba(59, 130, 246, 0.3);
+  border-radius: 8px;
+}
+
+.checkbox-label {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  cursor: pointer;
+
+  input[type="checkbox"] {
+    width: 18px;
+    height: 18px;
+    accent-color: #3b82f6;
+    cursor: pointer;
+  }
+
+  code {
+    font-family: 'Consolas', monospace;
+    background: rgba(255, 255, 255, 0.1);
+    padding: 2px 6px;
+    border-radius: 4px;
+    color: #60a5fa;
+  }
+}
+
+.cleanup-hint {
+  margin: 8px 0 0 28px;
+  font-size: 0.75rem;
+  color: #a0a0a0;
 }
 
 .error-message {

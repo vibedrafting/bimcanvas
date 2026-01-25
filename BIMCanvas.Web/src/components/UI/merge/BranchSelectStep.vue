@@ -9,16 +9,26 @@ interface BranchOption {
   isCurrent: boolean;
 }
 
+interface WorktreeOption {
+  value: string;
+  label: string;
+  branchName: string;
+}
+
 const props = defineProps<{
   targetBranch: string;
   sourceBranch: string;
   branches: BranchOption[];
   canProceed: boolean;
+  worktreeMode?: boolean;
+  worktreeOptions?: WorktreeOption[];
+  selectedWorktree?: string;
 }>();
 
 const emit = defineEmits<{
   (e: 'update:targetBranch', value: string): void;
   (e: 'update:sourceBranch', value: string): void;
+  (e: 'update:selectedWorktree', value: string): void;
   (e: 'next'): void;
 }>();
 
@@ -38,7 +48,7 @@ const availableSourceBranches = computed(() =>
 );
 
 // 可选的目标分支
-const availableTargetBranches = computed(() => 
+const availableTargetBranches = computed(() =>
   props.branches.map(b => ({
     ...b,
     label: b.isCurrent ? `${b.label} (当前)` : b.label,
@@ -59,37 +69,72 @@ const validationError = computed(() => {
 <template>
   <div class="step-content">
     <div class="form-section">
-      <!-- 目标分支 -->
-      <div class="form-group">
-        <label>目标分支 <span class="hint">(将被覆盖)</span></label>
-        <GlassSelect
-          :model-value="targetBranch"
-          @update:model-value="emit('update:targetBranch', $event as string)"
-          :options="availableTargetBranches"
-          placeholder="请选择目标分支"
-          width="100%"
-          variant="solid"
-        />
-      </div>
 
-      <!-- 源分支 -->
-      <div class="form-group">
-        <label>源分支 <span class="hint">(数据来源)</span></label>
-        <GlassSelect
-          :model-value="sourceBranch"
-          @update:model-value="emit('update:sourceBranch', $event as string)"
-          :options="availableSourceBranches"
-          placeholder="请选择源分支"
-          width="100%"
-          :disabled="!targetBranch"
-          variant="solid"
-        />
-      </div>
+      <!-- Worktree 模式：单选列表 -->
+      <template v-if="worktreeMode">
+        <div class="form-group">
+          <label>选择要合并的任务 <span class="hint">(Agent 完成的任务)</span></label>
+          <div class="worktree-list">
+            <label v-for="option in worktreeOptions" :key="option.value"
+                   class="worktree-item" :class="{ selected: selectedWorktree === option.value }">
+              <input type="radio" :value="option.value"
+                     :checked="selectedWorktree === option.value"
+                     @change="emit('update:selectedWorktree', option.value);
+                              emit('update:sourceBranch', option.branchName)" />
+              <div class="worktree-info">
+                <span class="worktree-name">{{ option.label }}</span>
+                <span class="worktree-branch">{{ option.branchName }}</span>
+              </div>
+            </label>
+          </div>
+        </div>
 
-      <!-- 验证错误 -->
-      <div v-if="validationError" class="validation-error">
-        {{ validationError }}
-      </div>
+        <div class="form-group">
+          <label>合并到目标分支 <span class="hint">(将被覆盖)</span></label>
+          <GlassSelect :model-value="targetBranch"
+                       @update:model-value="emit('update:targetBranch', $event as string)"
+                       :options="availableTargetBranches"
+                       placeholder="请选择目标分支"
+                       width="100%"
+                       variant="solid" />
+        </div>
+      </template>
+
+      <!-- 传统模式：双下拉框 -->
+      <template v-else>
+        <!-- 目标分支 -->
+        <div class="form-group">
+          <label>目标分支 <span class="hint">(将被覆盖)</span></label>
+          <GlassSelect
+            :model-value="targetBranch"
+            @update:model-value="emit('update:targetBranch', $event as string)"
+            :options="availableTargetBranches"
+            placeholder="请选择目标分支"
+            width="100%"
+            variant="solid"
+          />
+        </div>
+
+        <!-- 源分支 -->
+        <div class="form-group">
+          <label>源分支 <span class="hint">(数据来源)</span></label>
+          <GlassSelect
+            :model-value="sourceBranch"
+            @update:model-value="emit('update:sourceBranch', $event as string)"
+            :options="availableSourceBranches"
+            placeholder="请选择源分支"
+            width="100%"
+            :disabled="!targetBranch"
+            variant="solid"
+          />
+        </div>
+
+        <!-- 验证错误 -->
+        <div v-if="validationError" class="validation-error">
+          {{ validationError }}
+        </div>
+      </template>
+
     </div>
 
     <!-- 操作按钮 -->
@@ -134,6 +179,60 @@ const validationError = computed(() => {
       font-size: 0.75rem;
     }
   }
+}
+
+.worktree-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.worktree-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 16px;
+  background: #22262e;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 8px;
+  cursor: pointer;
+  transition: all 0.2s;
+
+  &:hover {
+    background: #2a2f38;
+    border-color: rgba(59, 130, 246, 0.3);
+  }
+
+  &.selected {
+    background: rgba(59, 130, 246, 0.15);
+    border-color: #3b82f6;
+  }
+
+  input[type="radio"] {
+    width: 18px;
+    height: 18px;
+    accent-color: #3b82f6;
+    cursor: pointer;
+  }
+}
+
+.worktree-info {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  flex: 1;
+}
+
+.worktree-name {
+  font-size: 0.9rem;
+  font-weight: 500;
+  color: #e0e0e0;
+}
+
+.worktree-branch {
+  font-size: 0.75rem;
+  color: #a0a0a0;
+  font-family: 'Consolas', monospace;
 }
 
 .validation-error {

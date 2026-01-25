@@ -38,11 +38,40 @@ export const useMergeStore = defineStore('merge', () => {
   /** 错误信息 */
   const error = ref<string | null>(null);
 
+  /** Worktree 名称数组（用于多选一模式） */
+  const worktreeNames = ref<string[]>([]);
+
+  /** 选中的 worktree 名称 */
+  const selectedWorktree = ref<string>('');
+
+  /** 合并后是否清理 worktree */
+  const cleanupAfterMerge = ref<boolean>(false);
+
+  /** Worktree 到分支的映射 */
+  const worktreeBranchMapping = ref<Record<string, string>>({});
+
   // === Getters ===
+
+  /** 是否为 Worktree 模式 */
+  const isWorktreeMode = computed(() => worktreeNames.value.length > 0);
+
+  /** Worktree 选项列表（用于单选列表） */
+  const worktreeOptions = computed(() =>
+    worktreeNames.value.map(name => ({
+      value: name,
+      label: name,
+      branchName: worktreeBranchMapping.value[name] || '(未解析)'
+    }))
+  );
 
   /** 是否可以进行下一步 */
   const canProceed = computed(() => {
     if (currentStep.value === 1) {
+      // Worktree 模式：必须选择一个 worktree
+      if (isWorktreeMode.value) {
+        return selectedWorktree.value !== '' && targetBranch.value !== '';
+      }
+      // 传统模式
       return targetBranch.value && sourceBranch.value && targetBranch.value !== sourceBranch.value;
     }
     return true;
@@ -51,7 +80,7 @@ export const useMergeStore = defineStore('merge', () => {
   // === Actions ===
 
   /**
-   * 打开合并向导
+   * 打开合并向导（传统模式）
    */
   const openWizard = (): void => {
     console.log('[MergeStore] openWizard() called, current isVisible:', isVisible.value);
@@ -61,7 +90,49 @@ export const useMergeStore = defineStore('merge', () => {
     targetBranch.value = '';
     sourceBranch.value = '';
     error.value = null;
+    // 清空 worktree 相关字段
+    worktreeNames.value = [];
+    selectedWorktree.value = '';
+    cleanupAfterMerge.value = false;
+    worktreeBranchMapping.value = {};
     console.log('[MergeStore] openWizard() done, isVisible now:', isVisible.value);
+  };
+
+  /**
+   * 打开合并向导（Worktree 模式）
+   */
+  const openWizardWithWorktrees = async (names: string[]): Promise<void> => {
+    console.log('[MergeStore] openWizardWithWorktrees() called with:', names);
+    isVisible.value = true;
+    currentStep.value = 1;
+    targetBranch.value = '';
+    sourceBranch.value = '';
+    error.value = null;
+    worktreeNames.value = names;
+    selectedWorktree.value = '';
+    cleanupAfterMerge.value = false;
+    worktreeBranchMapping.value = {};
+
+    // 批量解析 worktree 到 branch 映射
+    try {
+      const response = await fetch(`${SERVER_API_BASE}/api/worktree/batch-resolve`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ names })
+      });
+
+      const result = await response.json();
+      console.log('[MergeStore] batch-resolve 响应:', result);
+
+      if (result.success) {
+        worktreeBranchMapping.value = result.mapping;
+      } else {
+        error.value = `部分任务未找到: ${result.errors?.join(', ')}`;
+      }
+    } catch (e) {
+      console.error('[MergeStore] 解析 worktree 映射失败:', e);
+      error.value = '无法解析 worktree 元数据';
+    }
   };
 
   /**
@@ -75,6 +146,11 @@ export const useMergeStore = defineStore('merge', () => {
     targetBranch.value = '';
     sourceBranch.value = '';
     error.value = null;
+    // 清空 worktree 相关字段
+    worktreeNames.value = [];
+    selectedWorktree.value = '';
+    cleanupAfterMerge.value = false;
+    worktreeBranchMapping.value = {};
     console.log('[MergeStore] closeWizard() done, isVisible now:', isVisible.value);
   };
 
@@ -119,7 +195,9 @@ export const useMergeStore = defineStore('merge', () => {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           sourceBranch: sourceBranch.value,
-          targetBranch: targetBranch.value
+          targetBranch: targetBranch.value,
+          cleanupWorktree: cleanupAfterMerge.value,
+          worktreeName: selectedWorktree.value
         })
       });
 
@@ -167,10 +245,17 @@ export const useMergeStore = defineStore('merge', () => {
     sourceBranch,
     isMerging,
     error,
+    worktreeNames,
+    selectedWorktree,
+    cleanupAfterMerge,
+    worktreeBranchMapping,
     // Getters
     canProceed,
+    isWorktreeMode,
+    worktreeOptions,
     // Actions
     openWizard,
+    openWizardWithWorktrees,
     closeWizard,
     nextStep,
     prevStep,
