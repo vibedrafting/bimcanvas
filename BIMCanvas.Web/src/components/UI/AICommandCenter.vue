@@ -597,10 +597,17 @@ const toggleBranchDropdown = () => {
 // Branch dropdown is triggered by clicking on .tab-branch area (primary window only)
 const handleWindowTabClick = async (win: ChatWindow) => {
     if (activeWindowId.value !== win.id) {
-        // 如果目标窗口的分支与当前分支不同，需要检查未提交更改
         const currentWin = activeWindow.value;
-        if (currentWin && win.branchId !== currentWin.branchId) {
-            // 调用 gitStore.checkout 检查是否有未提交更改
+
+        // ⭐ 关键判断：虚拟窗口切换跳过 checkout
+        // 虚拟窗口已在 worktree 中绑定分支，只需激活窗口即可
+        const isVirtualWindow = !!win.worktreeName;
+        const needsCheckout = currentWin &&
+                              win.branchId !== currentWin.branchId &&
+                              !isVirtualWindow;
+
+        if (needsCheckout) {
+            // 主窗口切换分支：检查未提交更改
             const result = await gitStore.checkout(win.branchId);
             if (result.success) {
                 // 切换成功，继续切换窗口
@@ -610,7 +617,6 @@ const handleWindowTabClick = async (win: ChatWindow) => {
             if (result.hasUncommittedChanges) {
                 // 有未提交更改，显示确认弹窗
                 pendingCheckoutBranch.value = win.branchId;
-                // 记录目标窗口ID，弹窗确认后需要切换到该窗口
                 pendingWindowId.value = win.id;
                 showCheckoutConfirmDialog.value = true;
                 return;
@@ -618,7 +624,8 @@ const handleWindowTabClick = async (win: ChatWindow) => {
             console.error('切换分支失败:', result.message);
             return;
         }
-        // 同一分支内的窗口切换，直接切换
+
+        // 虚拟窗口切换或同分支切换：直接切换
         switchWindow(win.id);
     }
 };

@@ -10,7 +10,8 @@
       "WebSearch",
       "Bash(dotnet add:*)",
       "Bash(dir /b \"E:\\\\工作文档\\\\开发类\\\\MyCode\\\\BIMCanvas\\\\BIMCanvas.Web\\\\src\\\\main.ts\")",
-      "Bash(dotnet build:*)"
+      "Bash(dotnet build:*)",
+      "Bash(npm run build:*)"
     ]
   }
 }

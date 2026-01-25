@@ -256,6 +256,20 @@ export const useGitStore = defineStore('git', () => {
         hasUncommittedChanges.value = false;
         await fetchBranches();
 
+        // ⭐ 新增：通知 Server 激活主窗口
+        // 确保 ProjectContext.ActiveWindowId 指向主窗口，避免读取错误的 worktree
+        try {
+          await fetch('http://localhost:5000/api/windows/activate', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              windowId: 'window-main'  // 主窗口的固定ID
+            })
+          });
+        } catch (e) {
+          console.warn('[GitStore] 激活主窗口请求失败（非致命错误）:', e);
+        }
+
         // ✅ 重新加载项目数据，确保 Canvas 显示新分支的数据
         // preserveView=true: 分支切换时保持当前视图位置和缩放
         await canvasStore.loadProject({ source: ChangeSource.GitCheckout, preserveView: true });

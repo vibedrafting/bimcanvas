@@ -2,10 +2,13 @@
 import { computed, ref } from 'vue';
 import { useWindowStore, type VirtualWindow } from '../../../stores/windowStore';
 import { useGitStore } from '../../../stores/gitStore';
+import { useCanvasStore } from '../../../stores/canvasStore';
+import { ChangeSource } from '../../../types/history';
 import GlassButton from '../base/GlassButton.vue';
 
 const windowStore = useWindowStore();
 const gitStore = useGitStore();
+const canvasStore = useCanvasStore();
 
 // 是否显示新窗口下拉菜单
 const showNewWindowMenu = ref(false);
@@ -25,11 +28,17 @@ const availableBranches = computed(() => {
 });
 
 // 切换窗口
-const handleTabClick = (window: VirtualWindow) => {
+const handleTabClick = async (window: VirtualWindow) => {
   if (window.id !== windowStore.activeWindowId) {
+    // ⭐ 移除 checkout 调用：虚拟窗口已在 worktree 中绑定分支
+    // 只需激活窗口，Server 端会自动路由到正确的 Worktree
     windowStore.activateWindow(window.id);
-    // 同时切换到对应分支
-    gitStore.checkout(window.branchName);
+
+    // 重新加载项目数据（Server 端会根据 ActiveWindowId 自动路由）
+    await canvasStore.loadProject({
+      source: ChangeSource.GitCheckout,
+      preserveView: true
+    });
   }
 };
 
