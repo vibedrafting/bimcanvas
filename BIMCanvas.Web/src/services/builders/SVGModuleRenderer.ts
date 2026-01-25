@@ -57,7 +57,7 @@ export class SVGModuleRenderer {
       // 1. 从模块库获取模块定义
       const moduleDef = moduleLibraryService.getModuleById(module.moduleId);
       if (!moduleDef) {
-        console.warn(`[SVG] Module not found: ${module.moduleId}`);
+        // console.warn(`[SVG] Module not found: ${module.moduleId}`); // 降级日志噪音
         return null;
       }
 

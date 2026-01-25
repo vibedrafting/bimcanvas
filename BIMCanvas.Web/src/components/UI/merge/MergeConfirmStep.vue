@@ -6,16 +6,13 @@ defineProps<{
   sourceBranch: string;
   isMerging: boolean;
   error: string | null;
-  showCleanupOption?: boolean;
-  worktreeName?: string;
-  cleanupAfterMerge?: boolean;
+  worktreesToCleanup?: string[];
 }>();
 
 const emit = defineEmits<{
   (e: 'back'): void;
   (e: 'cancel'): void;
   (e: 'confirm'): void;
-  (e: 'update:cleanupAfterMerge', value: boolean): void;
 }>();
 </script>
 
@@ -53,14 +50,15 @@ const emit = defineEmits<{
         <span>源分支的方案数据将 <strong>完全覆盖</strong> 目标分支</span>
       </div>
 
-      <!-- Worktree 清理选项 -->
-      <div v-if="showCleanupOption && worktreeName" class="cleanup-option">
-        <label class="checkbox-label">
-          <input type="checkbox" :checked="cleanupAfterMerge"
-                 @change="emit('update:cleanupAfterMerge', ($event.target as HTMLInputElement).checked)" />
-          <span>合并后清理 worktree: <code>{{ worktreeName }}</code></span>
-        </label>
-        <p class="cleanup-hint">清理后，该任务的工作树和临时分支将被删除</p>
+      <!-- Worktree 清理提示 -->
+      <div v-if="worktreesToCleanup && worktreesToCleanup.length > 0" class="cleanup-info">
+        <div class="info-icon">🗑️</div>
+        <div class="info-content">
+          <div class="info-title">合并后将清理 {{ worktreesToCleanup.length }} 个 worktree</div>
+          <div class="info-list">
+            <code v-for="name in worktreesToCleanup" :key="name">{{ name }}</code>
+          </div>
+        </div>
       </div>
 
       <!-- 错误信息 -->
@@ -205,6 +203,48 @@ const emit = defineEmits<{
   margin: 8px 0 0 28px;
   font-size: 0.75rem;
   color: #a0a0a0;
+}
+
+.cleanup-info {
+  margin-top: 16px;
+  padding: 12px 16px;
+  background: rgba(239, 68, 68, 0.1);
+  border: 1px solid rgba(239, 68, 68, 0.3);
+  border-radius: 8px;
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
+}
+
+.info-icon {
+  font-size: 20px;
+  line-height: 1;
+}
+
+.info-content {
+  flex: 1;
+}
+
+.info-title {
+  font-size: 0.9rem;
+  font-weight: 500;
+  color: #ef4444;
+  margin-bottom: 8px;
+}
+
+.info-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+
+  code {
+    font-family: 'Consolas', monospace;
+    background: rgba(255, 255, 255, 0.1);
+    padding: 2px 8px;
+    border-radius: 4px;
+    color: #ef4444;
+    font-size: 0.8rem;
+  }
 }
 
 .error-message {

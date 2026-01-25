@@ -167,21 +167,24 @@ namespace BIMCanvas.Server.Controllers
                 {
                     _logger.LogInformation("覆盖合并成功: {Count} 个分区", result.MergedZoneCount);
 
-                    // 如果请求清理 worktree
-                    if (request.CleanupWorktree && !string.IsNullOrEmpty(request.WorktreeName))
+                    // 批量清理 worktree
+                    if (request.WorktreeNamesToCleanup != null && request.WorktreeNamesToCleanup.Count > 0)
                     {
-                        try
+                        var gitService = HttpContext.RequestServices.GetService<GitWorktreeService>();
+                        if (gitService != null)
                         {
-                            var gitService = HttpContext.RequestServices.GetService<GitWorktreeService>();
-                            if (gitService != null)
+                            foreach (var worktreeName in request.WorktreeNamesToCleanup)
                             {
-                                gitService.RemoveWorktree(projectPath, request.WorktreeName);
-                                _logger.LogInformation("清理 worktree 成功: {Name}", request.WorktreeName);
+                                try
+                                {
+                                    gitService.RemoveWorktree(projectPath, worktreeName);
+                                    _logger.LogInformation("清理 worktree 成功: {Name}", worktreeName);
+                                }
+                                catch (Exception cleanupEx)
+                                {
+                                    _logger.LogWarning(cleanupEx, "清理 worktree 失败: {Name}", worktreeName);
+                                }
                             }
-                        }
-                        catch (Exception cleanupEx)
-                        {
-                            _logger.LogWarning(cleanupEx, "清理 worktree 失败但合并已完成: {Name}", request.WorktreeName);
                         }
                     }
                 }
@@ -266,14 +269,9 @@ namespace BIMCanvas.Server.Controllers
         public string TargetBranch { get; set; } = string.Empty;
 
         /// <summary>
-        /// 是否在合并后清理 worktree
+        /// 要清理的 worktree 名称列表
         /// </summary>
-        public bool CleanupWorktree { get; set; } = false;
-
-        /// <summary>
-        /// Worktree 名称（用于清理）
-        /// </summary>
-        public string? WorktreeName { get; set; }
+        public List<string> WorktreeNamesToCleanup { get; set; } = new List<string>();
     }
 
     /// <summary>

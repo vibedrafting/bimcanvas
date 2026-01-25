@@ -23,17 +23,30 @@ const props = defineProps<{
   worktreeMode?: boolean;
   worktreeOptions?: WorktreeOption[];
   selectedWorktree?: string;
+  worktreesToCleanup?: string[];
 }>();
 
 const emit = defineEmits<{
   (e: 'update:targetBranch', value: string): void;
   (e: 'update:sourceBranch', value: string): void;
   (e: 'update:selectedWorktree', value: string): void;
+  (e: 'update:worktreesToCleanup', value: string[]): void;
   (e: 'next'): void;
 }>();
 
 // 分支图标
 const branchIcon = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><line x1="6" y1="3" x2="6" y2="15"></line><circle cx="18" cy="6" r="3"></circle><circle cx="6" cy="18" r="3"></circle><path d="M18 9a9 9 0 0 1-9 9"></path></svg>';
+
+// 切换 worktree 清理选择
+const toggleWorktreeCleanup = (name: string) => {
+  const current = props.worktreesToCleanup || [];
+  const index = current.indexOf(name);
+  if (index >= 0) {
+    emit('update:worktreesToCleanup', current.filter(n => n !== name));
+  } else {
+    emit('update:worktreesToCleanup', [...current, name]);
+  }
+};
 
 // 可选的源分支（排除目标分支）
 const availableSourceBranches = computed(() =>
@@ -97,6 +110,24 @@ const validationError = computed(() => {
                        placeholder="请选择目标分支"
                        width="100%"
                        variant="solid" />
+        </div>
+
+        <!-- 批量清理区域 -->
+        <div class="cleanup-section">
+          <div class="section-divider"></div>
+          <div class="form-group">
+            <label>合并后要清理的 worktree <span class="hint">(可多选)</span></label>
+            <div class="cleanup-list">
+              <label v-for="option in worktreeOptions" :key="option.value" class="cleanup-item">
+                <input type="checkbox"
+                       :checked="worktreesToCleanup?.includes(option.value)"
+                       @change="toggleWorktreeCleanup(option.value)" />
+                <span class="cleanup-name">{{ option.label }}</span>
+                <span v-if="option.value === selectedWorktree" class="cleanup-badge">已选择合并</span>
+              </label>
+            </div>
+            <p class="cleanup-hint">清理后，这些任务的工作树和临时分支将被删除</p>
+          </div>
         </div>
       </template>
 
@@ -233,6 +264,65 @@ const validationError = computed(() => {
   font-size: 0.75rem;
   color: #a0a0a0;
   font-family: 'Consolas', monospace;
+}
+
+.cleanup-section {
+  margin-top: 20px;
+}
+
+.section-divider {
+  height: 1px;
+  background: rgba(255, 255, 255, 0.1);
+  margin-bottom: 16px;
+}
+
+.cleanup-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.cleanup-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 12px;
+  background: rgba(255, 255, 255, 0.03);
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all 0.2s;
+
+  &:hover {
+    background: rgba(255, 255, 255, 0.06);
+  }
+
+  input[type="checkbox"] {
+    width: 16px;
+    height: 16px;
+    accent-color: #ef4444;
+    cursor: pointer;
+  }
+}
+
+.cleanup-name {
+  flex: 1;
+  font-size: 0.85rem;
+  color: #e0e0e0;
+}
+
+.cleanup-badge {
+  font-size: 0.7rem;
+  padding: 2px 8px;
+  background: rgba(34, 197, 94, 0.15);
+  border: 1px solid rgba(34, 197, 94, 0.3);
+  border-radius: 4px;
+  color: #22c55e;
+}
+
+.cleanup-hint {
+  margin: 8px 0 0 0;
+  font-size: 0.75rem;
+  color: #ef4444;
 }
 
 .validation-error {

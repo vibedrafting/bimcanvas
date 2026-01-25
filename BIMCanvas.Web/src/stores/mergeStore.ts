@@ -41,11 +41,11 @@ export const useMergeStore = defineStore('merge', () => {
   /** Worktree 名称数组（用于多选一模式） */
   const worktreeNames = ref<string[]>([]);
 
-  /** 选中的 worktree 名称 */
+  /** 选中的 worktree 名称（用于合并） */
   const selectedWorktree = ref<string>('');
 
-  /** 合并后是否清理 worktree */
-  const cleanupAfterMerge = ref<boolean>(false);
+  /** 要清理的 worktree 列表（批量清理） */
+  const worktreesToCleanup = ref<string[]>([]);
 
   /** Worktree 到分支的映射 */
   const worktreeBranchMapping = ref<Record<string, string>>({});
@@ -93,7 +93,7 @@ export const useMergeStore = defineStore('merge', () => {
     // 清空 worktree 相关字段
     worktreeNames.value = [];
     selectedWorktree.value = '';
-    cleanupAfterMerge.value = false;
+    worktreesToCleanup.value = [];
     worktreeBranchMapping.value = {};
     console.log('[MergeStore] openWizard() done, isVisible now:', isVisible.value);
   };
@@ -110,7 +110,7 @@ export const useMergeStore = defineStore('merge', () => {
     error.value = null;
     worktreeNames.value = names;
     selectedWorktree.value = '';
-    cleanupAfterMerge.value = false;
+    worktreesToCleanup.value = [...names]; // 默认全选
     worktreeBranchMapping.value = {};
 
     // 批量解析 worktree 到 branch 映射
@@ -149,7 +149,7 @@ export const useMergeStore = defineStore('merge', () => {
     // 清空 worktree 相关字段
     worktreeNames.value = [];
     selectedWorktree.value = '';
-    cleanupAfterMerge.value = false;
+    worktreesToCleanup.value = [];
     worktreeBranchMapping.value = {};
     console.log('[MergeStore] closeWizard() done, isVisible now:', isVisible.value);
   };
@@ -196,8 +196,7 @@ export const useMergeStore = defineStore('merge', () => {
         body: JSON.stringify({
           sourceBranch: sourceBranch.value,
           targetBranch: targetBranch.value,
-          cleanupWorktree: cleanupAfterMerge.value,
-          worktreeName: selectedWorktree.value
+          worktreeNamesToCleanup: worktreesToCleanup.value
         })
       });
 
@@ -207,11 +206,10 @@ export const useMergeStore = defineStore('merge', () => {
       if (response.ok && result.success) {
         // 检查是否实际执行了合并（mergedZoneCount > 0）
         if (result.mergedZoneCount === 0) {
-          // 无差异，显示提示但不关闭向导
-          console.log('[MergeStore] 两个分支内容相同，无需合并');
-          const msg = result.message || '两个分支内容相同，无需合并';
-          error.value = msg;
-          return { success: true, message: msg, mergedZoneCount: 0 };
+          // 无差异，自动清理并关闭向导
+          console.log('[MergeStore] 两个分支内容相同，无需合并，自动清理worktree并关闭');
+          closeWizard();
+          return { success: true, message: '两个分支内容相同，无需合并', mergedZoneCount: 0 };
         }
         console.log('[MergeStore] 覆盖合并成功');
         closeWizard();
@@ -247,7 +245,7 @@ export const useMergeStore = defineStore('merge', () => {
     error,
     worktreeNames,
     selectedWorktree,
-    cleanupAfterMerge,
+    worktreesToCleanup,
     worktreeBranchMapping,
     // Getters
     canProceed,

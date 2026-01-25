@@ -16,7 +16,7 @@ const canvasStore = useCanvasStore();
 
 const {
   isVisible, currentStep, targetBranch, sourceBranch, isMerging, error, canProceed,
-  worktreeNames, selectedWorktree, cleanupAfterMerge,
+  worktreeNames, selectedWorktree, worktreesToCleanup,
   isWorktreeMode, worktreeOptions
 } = storeToRefs(mergeStore);
 const { branches, currentBranch } = storeToRefs(gitStore);
@@ -131,6 +131,7 @@ defineExpose({
               v-model:targetBranch="mergeStore.targetBranch"
               v-model:sourceBranch="mergeStore.sourceBranch"
               v-model:selectedWorktree="mergeStore.selectedWorktree"
+              v-model:worktreesToCleanup="mergeStore.worktreesToCleanup"
               :branches="branchOptions"
               :canProceed="canProceed"
               :worktreeMode="isWorktreeMode"
@@ -143,9 +144,7 @@ defineExpose({
               :sourceBranch="sourceBranch"
               :isMerging="isMerging"
               :error="error"
-              :showCleanupOption="isWorktreeMode"
-              :worktreeName="selectedWorktree"
-              v-model:cleanupAfterMerge="mergeStore.cleanupAfterMerge"
+              :worktreesToCleanup="worktreesToCleanup"
               @back="mergeStore.prevStep()"
               @cancel="handleClose"
               @confirm="handleMerge"
