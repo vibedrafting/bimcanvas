@@ -173,6 +173,7 @@ const closeMenu = () => {
   border-radius: 6px 6px 0 0;
   background: var(--bg-tertiary);
   cursor: pointer;
+  user-select: none;
   transition: all 0.2s ease;
   border: 1px solid transparent;
   border-bottom: none;
@@ -209,6 +210,8 @@ const closeMenu = () => {
   overflow: hidden;
   text-overflow: ellipsis;
   flex: 1;
+  user-select: none;
+  cursor: pointer !important;
 }
 
 .tab-branch {
@@ -218,6 +221,8 @@ const closeMenu = () => {
   overflow: hidden;
   text-overflow: ellipsis;
   max-width: 60px;
+  user-select: none;
+  cursor: pointer !important;
 }
 
 .close-btn {
