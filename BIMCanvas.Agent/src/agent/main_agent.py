@@ -192,8 +192,8 @@ class MainAgent:
         mcp_tools = CANVAS_ALLOWED_TOOLS
         self._agent_logger._print(f"[MCP] Canvas MCP 已注册，工具: {mcp_tools}")
 
-        # 合并工具权限（✅ 添加 Skill 工具）
-        all_allowed = (allowed_tools or []) + mcp_tools + ["Skill"]
+        # 合并工具权限
+        all_allowed = (allowed_tools or []) + mcp_tools
 
         return ClaudeAgentOptions(
             system_prompt=system_prompt,
@@ -208,7 +208,7 @@ class MainAgent:
             env=custom_env,                        # Agent SDK 独立环境变量
             extra_args={"max-thinking-tokens": str(thinking_tokens)} if thinking_tokens else {},  # 思考强度
             mcp_servers={"canvas": canvas_mcp},    # 业务工具
-            setting_sources=["user", "project"],   # ✅ 启用文件系统 Skill 加载
+            setting_sources=None,                  # ❌ 禁用文件系统配置加载（修复配置污染）
         )
 
     # ─────────────────────────────────────────────────────
