@@ -192,8 +192,21 @@ class MainAgent:
         mcp_tools = CANVAS_ALLOWED_TOOLS
         self._agent_logger._print(f"[MCP] Canvas MCP 已注册，工具: {mcp_tools}")
 
-        # 合并工具权限
-        all_allowed = (allowed_tools or []) + mcp_tools
+        # === 配置 Skills 插件目录 ===
+        from pathlib import Path
+        user_home = Path.home()
+        skills_plugin_dir = user_home / ".bimcanvas" / "skills-plugin"
+
+        # 检查插件目录是否存在
+        if skills_plugin_dir.exists():
+            self._agent_logger._print(f"[Plugins] Skills 插件目录: {skills_plugin_dir}")
+        else:
+            self._agent_logger.log_warning(
+                f"[Plugins] ⚠️ Skills 插件目录不存在，Skills 将不可用: {skills_plugin_dir}"
+            )
+
+        # 合并工具权限（包含 Skill 工具）
+        all_allowed = (allowed_tools or []) + mcp_tools + ["Skill"]
 
         return ClaudeAgentOptions(
             system_prompt=system_prompt,
@@ -208,6 +221,12 @@ class MainAgent:
             env=custom_env,                        # Agent SDK 独立环境变量
             extra_args={"max-thinking-tokens": str(thinking_tokens)} if thinking_tokens else {},  # 思考强度
             mcp_servers={"canvas": canvas_mcp},    # 业务工具
+            plugins=[                               # ✅ 启用 Skills 插件加载
+                {
+                    "type": "local",
+                    "path": str(skills_plugin_dir)
+                }
+            ],
             setting_sources=None,                  # ❌ 禁用文件系统配置加载（修复配置污染）
         )
 
