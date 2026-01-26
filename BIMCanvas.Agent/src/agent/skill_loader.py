@@ -38,7 +38,7 @@ class SkillLoader:
     # Skill 与目标 Agent 的映射关系
     SKILL_TARGET_MAP = {
         'git-workflow': 'main',          # MainAgent 专用
-        'layout-guide': 'layout-agent',  # layout-agent 专用
+        # 'layout-guide': 'layout-agent',  # 已移除：改用 MCP 工具 get_workflow_guide 替代
     }
 
     def __init__(self, config_dir: Path | str = None):

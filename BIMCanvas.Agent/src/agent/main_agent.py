@@ -330,6 +330,14 @@ class MainAgent:
             self._agent_logger._print(f"[MainAgent] 工作目录: {self.working_directory}")
             self._agent_logger._print(f"[MainAgent] ================================")
 
+            # 调试日志：输出 SubAgent 加载信息
+            if self._subagents:
+                self._agent_logger._print(f"[MainAgent] SubAgents loaded: {list(self._subagents.keys())}")
+                for name, agent_def in self._subagents.items():
+                    self._agent_logger._print(f"  - {name}: {len(agent_def.prompt)} chars")
+            else:
+                self._agent_logger._print(f"[MainAgent] 警告: 未加载任何 SubAgent")
+
             self._client = ClaudeSDKClient(options)
             await self._client.connect()
             self._connected = True

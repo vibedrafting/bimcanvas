@@ -1,9 +1,12 @@
 """SubAgent definitions for BIMCanvas - loaded from configuration files."""
 
+import logging
 from claude_agent_sdk import AgentDefinition
 
 from ..config.loader import get_config_loader
 from .skill_loader import get_skill_loader
+
+logger = logging.getLogger(__name__)
 
 
 def create_subagents() -> dict[str, AgentDefinition]:
@@ -39,5 +42,10 @@ def create_subagents() -> dict[str, AgentDefinition]:
             tools=cfg.tools if cfg.tools else None,
             model=cfg.model,
         )
+
+    # 调试日志：输出每个 SubAgent 的注册信息和 prompt 长度
+    for name, agent_def in result.items():
+        prompt_length = len(agent_def.prompt)
+        logger.info(f"SubAgent registered: {name} (prompt: {prompt_length} chars)")
 
     return result
