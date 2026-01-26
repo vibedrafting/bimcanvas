@@ -155,11 +155,43 @@ class MainAgent:
         # 从配置加载系统提示词和工具权限
         system_prompt = self._config_loader.load_system_prompt()
 
-        # ✅ 删除手动 Skill 加载（改用 SDK 的 setting_sources 机制）
-        # skill_loader = get_skill_loader()
-        # main_skills = skill_loader.get_main_agent_skills()
-        # if main_skills:
-        #     system_prompt = f"{system_prompt}\n\n{main_skills}"
+        # ==================== 手动加载 Skills ====================
+        from pathlib import Path
+
+        user_home = Path.home()
+        skills_dir = user_home / ".bimcanvas" / "skills"
+
+        if skills_dir.exists():
+            self._agent_logger._print(f"[Skills] 正在加载 Skills: {skills_dir}")
+
+            skill_dirs = sorted([d for d in skills_dir.iterdir() if d.is_dir()])
+
+            for skill_dir in skill_dirs:
+                skill_file = skill_dir / "SKILL.md"
+
+                if skill_file.exists():
+                    skill_name = skill_dir.name
+
+                    try:
+                        skill_content = skill_file.read_text(encoding="utf-8")
+                        system_prompt += f"\n\n# Skill: {skill_name}\n{skill_content}"
+
+                        self._agent_logger._print(
+                            f"[Skills] ✅ 已加载: {skill_name} ({len(skill_content)} 字符)"
+                        )
+                    except Exception as e:
+                        self._agent_logger.log_warning(
+                            f"[Skills] ❌ 加载失败: {skill_name} - {e}"
+                        )
+                else:
+                    self._agent_logger.log_warning(
+                        f"[Skills] ⚠️ Skill 目录缺少 SKILL.md: {skill_dir}"
+                    )
+        else:
+            self._agent_logger._print(
+                f"[Skills] ⚠️ Skills 目录不存在: {skills_dir}"
+            )
+        # ====================================================================
 
         # 追加工作目录到 system prompt，让 AI 知道自己的工作路径
         system_prompt = system_prompt + f"\n\n工作目录: {self.working_directory}"
@@ -192,19 +224,6 @@ class MainAgent:
         mcp_tools = CANVAS_ALLOWED_TOOLS
         self._agent_logger._print(f"[MCP] Canvas MCP 已注册，工具: {mcp_tools}")
 
-        # === 配置 Skills 插件目录 ===
-        from pathlib import Path
-        user_home = Path.home()
-        skills_plugin_dir = user_home / ".bimcanvas" / "skills-plugin"
-
-        # 检查插件目录是否存在
-        if skills_plugin_dir.exists():
-            self._agent_logger._print(f"[Plugins] Skills 插件目录: {skills_plugin_dir}")
-        else:
-            self._agent_logger.log_warning(
-                f"[Plugins] ⚠️ Skills 插件目录不存在，Skills 将不可用: {skills_plugin_dir}"
-            )
-
         # 合并工具权限（包含 Skill 工具）
         all_allowed = (allowed_tools or []) + mcp_tools + ["Skill"]
 
@@ -221,12 +240,6 @@ class MainAgent:
             env=custom_env,                        # Agent SDK 独立环境变量
             extra_args={"max-thinking-tokens": str(thinking_tokens)} if thinking_tokens else {},  # 思考强度
             mcp_servers={"canvas": canvas_mcp},    # 业务工具
-            plugins=[                               # ✅ 启用 Skills 插件加载
-                {
-                    "type": "local",
-                    "path": str(skills_plugin_dir)
-                }
-            ],
             setting_sources=None,                  # ❌ 禁用文件系统配置加载（修复配置污染）
         )
 
