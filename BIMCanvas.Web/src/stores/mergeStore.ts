@@ -144,12 +144,13 @@ export const useMergeStore = defineStore('merge', () => {
         );
         worktreeMetadata.value = relevantMetadata;
 
-        // 默认全选所有 isolation intent 的分支
-        branchesToCleanup.value = relevantMetadata
-          .filter((w: WorktreeMetadataEntry) => w.intent === 'isolation')
-          .map((w: WorktreeMetadataEntry) => w.branchName);
+        // 🔧 修复：默认不勾选任何分支（更安全，避免用户误操作）
+        // 用户需要主动勾选才会删除分支
+        branchesToCleanup.value = [];
 
-        console.log('[MergeStore] 可清理分支:', branchesToCleanup.value);
+        console.log('[MergeStore] 可清理分支（默认未勾选）:', relevantMetadata
+          .filter((w: WorktreeMetadataEntry) => w.intent === 'isolation')
+          .map((w: WorktreeMetadataEntry) => w.branchName));
       }
     } catch (e) {
       console.error('[MergeStore] 获取元数据失败:', e);
@@ -234,14 +235,17 @@ export const useMergeStore = defineStore('merge', () => {
       isMerging.value = true;
       error.value = null;
 
+      const requestBody = {
+        sourceBranch: sourceBranch.value,
+        targetBranch: targetBranch.value,
+        branchesToCleanup: branchesToCleanup.value
+      };
+      console.log('[MergeStore] 发送合并请求:', requestBody);
+
       const response = await fetch(`${SERVER_API_BASE}/api/merge/overwrite`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          sourceBranch: sourceBranch.value,
-          targetBranch: targetBranch.value,
-          branchesToCleanup: branchesToCleanup.value
-        })
+        body: JSON.stringify(requestBody)
       });
 
       const result = await response.json();

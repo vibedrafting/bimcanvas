@@ -325,14 +325,17 @@ namespace BIMCanvas.Server.Services
             // ⭐ 新增：读取元数据，判断是否应删除分支
             var metadataService2 = new WorktreeMetadataService(projectPath, _logger as ILogger<WorktreeMetadataService>);
             var entry = metadataService2.RemoveWorktree(worktreeName);
-            bool shouldDeleteBranch = entry?.Intent == "isolation";
+
+            // 🔧 修复：优先使用 Controller 传递的 deleteBranch 参数（用户意图）
+            // 不再使用元数据的 Intent 字段自作主张
+            bool shouldDeleteBranch = deleteBranch;
 
             // 如果元数据中没有记录，降级到旧逻辑（获取分支名）
             string? branchToDelete = null;
-            if ((shouldDeleteBranch || deleteBranch) && entry != null)
+            if (shouldDeleteBranch && entry != null)
             {
                 branchToDelete = entry.BranchName;
-                _logger.LogDebug("将删除分支: {Branch} (intent: {Intent})", branchToDelete, entry.Intent);
+                _logger.LogDebug("将删除分支: {Branch} (调用者指定 deleteBranch=true)", branchToDelete);
             }
             else if (deleteBranch && entry == null)
             {
