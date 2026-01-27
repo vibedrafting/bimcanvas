@@ -124,8 +124,7 @@ const validationError = computed(() => {
                 <input type="checkbox"
                        :checked="branchesToCleanup?.includes(meta.branchName)"
                        @change="toggleBranchCleanup(meta.branchName)" />
-                <span class="cleanup-name">{{ meta.name }}</span>
-                <span class="cleanup-branch">{{ meta.branchName }}</span>
+                <span class="cleanup-name">{{ meta.branchName }}</span>
                 <span v-if="meta.name === selectedWorktree" class="cleanup-badge">已选择合并</span>
               </label>
             </div>
@@ -311,14 +310,7 @@ const validationError = computed(() => {
   flex: 1;
   font-size: 0.85rem;
   color: #e0e0e0;
-}
-
-.cleanup-branch {
-  font-size: 0.7rem;
-  color: #707070;
   font-family: 'Consolas', monospace;
-  margin-left: auto;
-  margin-right: 8px;
 }
 
 .cleanup-badge {
