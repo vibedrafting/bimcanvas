@@ -2,11 +2,11 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
-using System.Text.Json;
 using System.Threading.Tasks;
 using BIMCanvas.Core.Models.Geometry;
 using BIMCanvas.Core.Models.Layout;
 using Microsoft.Extensions.Logging;
+using Newtonsoft.Json;
 
 namespace BIMCanvas.Server.Services
 {
@@ -248,14 +248,11 @@ namespace BIMCanvas.Server.Services
 
             try
             {
-                var options = new JsonSerializerOptions
-                {
-                    PropertyNameCaseInsensitive = true
-                };
-                return JsonSerializer.Deserialize<List<Module>>(json, options) ?? new List<Module>();
+                return JsonConvert.DeserializeObject<List<Module>>(json) ?? new List<Module>();
             }
-            catch
+            catch (Exception ex)
             {
+                _logger.LogError(ex, "[ParseModules] JSON反序列化失败,内容: {Json}", json);
                 return new List<Module>();
             }
         }
