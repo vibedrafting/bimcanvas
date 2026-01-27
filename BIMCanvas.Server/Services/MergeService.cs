@@ -334,7 +334,10 @@ namespace BIMCanvas.Server.Services
                     _gitService.CheckoutBranch(projectPath, targetBranch);
                 }
 
-                // 2.5 检测差异，如果两个分支内容相同则无需合并
+                // 2.5 自动存档未提交的改动(合并前存档)
+                await AutoCommitUncommittedChangesAsync(projectPath, sourceBranch, targetBranch);
+
+                // 3. 检测差异，如果两个分支内容相同则无需合并
                 var diffs = await ComputeZoneDiffsAsync(projectPath, sourceBranch, targetBranch);
                 if (diffs.Count == 0)
                 {
@@ -585,6 +588,61 @@ namespace BIMCanvas.Server.Services
                 result.ErrorMessage = ex.Message;
                 return result;
             }
+        }
+
+        /// <summary>
+        /// 自动提交未提交的改动(合并前存档)
+        /// </summary>
+        private async Task AutoCommitUncommittedChangesAsync(
+            string projectPath,
+            string sourceBranch,
+            string targetBranch)
+        {
+            // 1. 检查源分支(通常是 worktree 临时分支)
+            var (sourceOccupied, sourceWorktreePath) = _gitService.IsBranchOccupiedByWorktree(projectPath, sourceBranch);
+            if (sourceOccupied && sourceWorktreePath != null)
+            {
+                if (_gitService.HasUncommittedChanges(sourceWorktreePath))
+                {
+                    var timestamp = DateTime.Now.ToString("yyyyMMdd_HHmmss");
+                    var message = $"Merge前{sourceBranch}的存档_{timestamp}";
+
+                    _logger.LogInformation("源分支有未提交改动,自动存档: {Branch}", sourceBranch);
+                    var committed = _gitService.TryCommit(sourceWorktreePath, message);
+                    if (committed)
+                    {
+                        _logger.LogInformation("源分支自动存档成功: {Message}", message);
+                    }
+                    else
+                    {
+                        _logger.LogWarning("源分支自动存档失败: {Branch}", sourceBranch);
+                    }
+                }
+            }
+
+            // 2. 检查目标分支(通常是 master)
+            var currentBranch = _gitService.GetCurrentBranch(projectPath);
+            if (currentBranch == targetBranch)
+            {
+                if (_gitService.HasUncommittedChanges(projectPath))
+                {
+                    var timestamp = DateTime.Now.ToString("yyyyMMdd_HHmmss");
+                    var message = $"Merge前{targetBranch}的存档_{timestamp}";
+
+                    _logger.LogInformation("目标分支有未提交改动,自动存档: {Branch}", targetBranch);
+                    var committed = _gitService.TryCommit(projectPath, message);
+                    if (committed)
+                    {
+                        _logger.LogInformation("目标分支自动存档成功: {Message}", message);
+                    }
+                    else
+                    {
+                        _logger.LogWarning("目标分支自动存档失败: {Branch}", targetBranch);
+                    }
+                }
+            }
+
+            await Task.CompletedTask; // 满足 async 签名
         }
     }
 
