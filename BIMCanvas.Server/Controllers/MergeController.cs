@@ -171,7 +171,10 @@ namespace BIMCanvas.Server.Controllers
 
                     // 清理被合并的 worktree（通过源分支反向查找）
                     var gitService = HttpContext.RequestServices.GetService<GitWorktreeService>();
-                    var metadataService = HttpContext.RequestServices.GetService<WorktreeMetadataService>();
+                    var metadataService = new WorktreeMetadataService(
+                        projectPath,
+                        HttpContext.RequestServices.GetService<ILogger<WorktreeMetadataService>>()
+                    );
 
                     if (gitService != null && metadataService != null)
                     {
