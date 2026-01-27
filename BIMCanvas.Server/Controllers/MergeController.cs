@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Threading.Tasks;
 using BIMCanvas.Server.Services;
 using Microsoft.AspNetCore.Mvc;
@@ -167,23 +168,45 @@ namespace BIMCanvas.Server.Controllers
                 {
                     _logger.LogInformation("覆盖合并成功: {Count} 个分区", result.MergedZoneCount);
 
-                    // 批量清理 worktree
-                    if (request.WorktreeNamesToCleanup != null && request.WorktreeNamesToCleanup.Count > 0)
+                    // 批量清理 worktree（根据元数据智能删除分支）
+                    var gitService = HttpContext.RequestServices.GetService<GitWorktreeService>();
+                    var metadataService = HttpContext.RequestServices.GetService<WorktreeMetadataService>();
+
+                    if (gitService != null && metadataService != null)
                     {
-                        var gitService = HttpContext.RequestServices.GetService<GitWorktreeService>();
-                        if (gitService != null)
+                        // 获取所有 worktree
+                        var allWorktrees = gitService.GetWorktrees(projectPath);
+                        var worktreesDir = Path.Combine(projectPath, GitWorktreeService.WorktreeDirName);
+
+                        foreach (var wt in allWorktrees)
                         {
-                            foreach (var worktreeName in request.WorktreeNamesToCleanup)
+                            // 仅处理 .worktrees 目录下的 worktree
+                            if (!wt.Path.StartsWith(worktreesDir, StringComparison.OrdinalIgnoreCase))
+                                continue;
+
+                            var worktreeName = Path.GetFileName(wt.Path);
+                            var entry = metadataService.GetWorktreeEntry(worktreeName);
+
+                            if (entry == null)
                             {
-                                try
-                                {
-                                    gitService.RemoveWorktree(projectPath, worktreeName);
-                                    _logger.LogInformation("清理 worktree 成功: {Name}", worktreeName);
-                                }
-                                catch (Exception cleanupEx)
-                                {
-                                    _logger.LogWarning(cleanupEx, "清理 worktree 失败: {Name}", worktreeName);
-                                }
+                                _logger.LogWarning("Worktree 元数据缺失: {Name}", worktreeName);
+                                continue;
+                            }
+
+                            // 判断是否应删除分支
+                            bool shouldDeleteBranch = entry.Intent == "isolation"
+                                && request.BranchesToCleanup != null
+                                && request.BranchesToCleanup.Contains(entry.BranchName);
+
+                            try
+                            {
+                                gitService.RemoveWorktree(projectPath, worktreeName, deleteBranch: shouldDeleteBranch);
+                                _logger.LogInformation("清理 worktree 成功: {Name}, 删除分支={Delete}",
+                                    worktreeName, shouldDeleteBranch);
+                            }
+                            catch (Exception cleanupEx)
+                            {
+                                _logger.LogWarning(cleanupEx, "清理 worktree 失败: {Name}", worktreeName);
                             }
                         }
                     }
@@ -269,9 +292,9 @@ namespace BIMCanvas.Server.Controllers
         public string TargetBranch { get; set; } = string.Empty;
 
         /// <summary>
-        /// 要清理的 worktree 名称列表
+        /// 要清理的临时分支名称列表（仅 isolation intent）
         /// </summary>
-        public List<string> WorktreeNamesToCleanup { get; set; } = new List<string>();
+        public List<string> BranchesToCleanup { get; set; } = new List<string>();
     }
 
     /// <summary>

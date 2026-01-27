@@ -41,3 +41,24 @@ export interface DeleteWorktreeResponse {
   success: boolean;
   message: string;
 }
+
+/**
+ * Worktree 元数据条目
+ * 对应后端 WorktreeMetadataEntry
+ */
+export interface WorktreeMetadataEntry {
+  name: string;
+  branchName: string;
+  intent: 'isolation' | 'parallel';
+  baseBranch: string;
+  createdAt: string;
+  createdBy: string;
+}
+
+/**
+ * 获取元数据响应
+ */
+export interface WorktreeMetadataResponse {
+  success: boolean;
+  worktrees: WorktreeMetadataEntry[];
+}

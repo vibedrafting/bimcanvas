@@ -1,5 +1,6 @@
 import { defineStore } from 'pinia';
 import { ref, computed } from 'vue';
+import type { WorktreeMetadataEntry } from '../types/worktree';
 
 const SERVER_API_BASE = 'http://localhost:5000';
 
@@ -44,8 +45,11 @@ export const useMergeStore = defineStore('merge', () => {
   /** 选中的 worktree 名称（用于合并） */
   const selectedWorktree = ref<string>('');
 
-  /** 要清理的 worktree 列表（批量清理） */
-  const worktreesToCleanup = ref<string[]>([]);
+  /** Worktree 元数据列表 */
+  const worktreeMetadata = ref<WorktreeMetadataEntry[]>([]);
+
+  /** 要清理的临时分支列表（仅 isolation intent） */
+  const branchesToCleanup = ref<string[]>([]);
 
   /** Worktree 到分支的映射 */
   const worktreeBranchMapping = ref<Record<string, string>>({});
@@ -63,6 +67,17 @@ export const useMergeStore = defineStore('merge', () => {
       branchName: worktreeBranchMapping.value[name] || '(未解析)'
     }))
   );
+
+  /** 可清理的分支选项（仅 isolation intent） */
+  const cleanableBranchOptions = computed(() => {
+    return worktreeMetadata.value
+      .filter(meta => meta.intent === 'isolation')
+      .map(meta => ({
+        value: meta.branchName,
+        label: meta.name,
+        branchName: meta.branchName
+      }));
+  });
 
   /** 是否可以进行下一步 */
   const canProceed = computed(() => {
@@ -93,7 +108,8 @@ export const useMergeStore = defineStore('merge', () => {
     // 清空 worktree 相关字段
     worktreeNames.value = [];
     selectedWorktree.value = '';
-    worktreesToCleanup.value = [];
+    worktreeMetadata.value = [];
+    branchesToCleanup.value = [];
     worktreeBranchMapping.value = {};
     console.log('[MergeStore] openWizard() done, isVisible now:', isVisible.value);
   };
@@ -110,8 +126,35 @@ export const useMergeStore = defineStore('merge', () => {
     error.value = null;
     worktreeNames.value = names;
     selectedWorktree.value = '';
-    worktreesToCleanup.value = [...names]; // 默认全选
+    worktreeMetadata.value = [];
+    branchesToCleanup.value = [];
     worktreeBranchMapping.value = {};
+
+    // 获取完整元数据
+    try {
+      const metaResp = await fetch(`${SERVER_API_BASE}/api/worktree/metadata`);
+      const metaResult = await metaResp.json();
+
+      console.log('[MergeStore] metadata 响应:', metaResult);
+
+      if (metaResult.success) {
+        // 过滤出当前 worktree 相关的元数据
+        const relevantMetadata = metaResult.worktrees.filter((w: WorktreeMetadataEntry) =>
+          names.includes(w.name)
+        );
+        worktreeMetadata.value = relevantMetadata;
+
+        // 默认全选所有 isolation intent 的分支
+        branchesToCleanup.value = relevantMetadata
+          .filter((w: WorktreeMetadataEntry) => w.intent === 'isolation')
+          .map((w: WorktreeMetadataEntry) => w.branchName);
+
+        console.log('[MergeStore] 可清理分支:', branchesToCleanup.value);
+      }
+    } catch (e) {
+      console.error('[MergeStore] 获取元数据失败:', e);
+      error.value = '无法获取 worktree 元数据';
+    }
 
     // 批量解析 worktree 到 branch 映射
     try {
@@ -149,7 +192,8 @@ export const useMergeStore = defineStore('merge', () => {
     // 清空 worktree 相关字段
     worktreeNames.value = [];
     selectedWorktree.value = '';
-    worktreesToCleanup.value = [];
+    worktreeMetadata.value = [];
+    branchesToCleanup.value = [];
     worktreeBranchMapping.value = {};
     console.log('[MergeStore] closeWizard() done, isVisible now:', isVisible.value);
   };
@@ -196,7 +240,7 @@ export const useMergeStore = defineStore('merge', () => {
         body: JSON.stringify({
           sourceBranch: sourceBranch.value,
           targetBranch: targetBranch.value,
-          worktreeNamesToCleanup: worktreesToCleanup.value
+          branchesToCleanup: branchesToCleanup.value
         })
       });
 
@@ -245,12 +289,14 @@ export const useMergeStore = defineStore('merge', () => {
     error,
     worktreeNames,
     selectedWorktree,
-    worktreesToCleanup,
+    worktreeMetadata,
+    branchesToCleanup,
     worktreeBranchMapping,
     // Getters
     canProceed,
     isWorktreeMode,
     worktreeOptions,
+    cleanableBranchOptions,
     // Actions
     openWizard,
     openWizardWithWorktrees,

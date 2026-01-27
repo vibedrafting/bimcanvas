@@ -2,6 +2,7 @@
 import { computed } from 'vue';
 import GlassButton from '../base/GlassButton.vue';
 import GlassSelect from '../base/GlassSelect.vue';
+import type { WorktreeMetadataEntry } from '../../../types/worktree';
 
 interface BranchOption {
   value: string;
@@ -23,28 +24,29 @@ const props = defineProps<{
   worktreeMode?: boolean;
   worktreeOptions?: WorktreeOption[];
   selectedWorktree?: string;
-  worktreesToCleanup?: string[];
+  worktreeMetadata?: WorktreeMetadataEntry[];
+  branchesToCleanup?: string[];
 }>();
 
 const emit = defineEmits<{
   (e: 'update:targetBranch', value: string): void;
   (e: 'update:sourceBranch', value: string): void;
   (e: 'update:selectedWorktree', value: string): void;
-  (e: 'update:worktreesToCleanup', value: string[]): void;
+  (e: 'update:branchesToCleanup', value: string[]): void;
   (e: 'next'): void;
 }>();
 
 // 分支图标
 const branchIcon = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><line x1="6" y1="3" x2="6" y2="15"></line><circle cx="18" cy="6" r="3"></circle><circle cx="6" cy="18" r="3"></circle><path d="M18 9a9 9 0 0 1-9 9"></path></svg>';
 
-// 切换 worktree 清理选择
-const toggleWorktreeCleanup = (name: string) => {
-  const current = props.worktreesToCleanup || [];
-  const index = current.indexOf(name);
+// 切换分支清理选择
+const toggleBranchCleanup = (branchName: string) => {
+  const current = props.branchesToCleanup || [];
+  const index = current.indexOf(branchName);
   if (index >= 0) {
-    emit('update:worktreesToCleanup', current.filter(n => n !== name));
+    emit('update:branchesToCleanup', current.filter(n => n !== branchName));
   } else {
-    emit('update:worktreesToCleanup', [...current, name]);
+    emit('update:branchesToCleanup', [...current, branchName]);
   }
 };
 
@@ -113,20 +115,21 @@ const validationError = computed(() => {
         </div>
 
         <!-- 批量清理区域 -->
-        <div class="cleanup-section">
+        <div v-if="worktreeMetadata && worktreeMetadata.filter(m => m.intent === 'isolation').length > 0" class="cleanup-section">
           <div class="section-divider"></div>
           <div class="form-group">
-            <label>合并后要清理的 worktree <span class="hint">(可多选)</span></label>
+            <label>合并后要清理的临时 Git 分支 <span class="hint">(可多选)</span></label>
             <div class="cleanup-list">
-              <label v-for="option in worktreeOptions" :key="option.value" class="cleanup-item">
+              <label v-for="meta in worktreeMetadata.filter(m => m.intent === 'isolation')" :key="meta.branchName" class="cleanup-item">
                 <input type="checkbox"
-                       :checked="worktreesToCleanup?.includes(option.value)"
-                       @change="toggleWorktreeCleanup(option.value)" />
-                <span class="cleanup-name">{{ option.label }}</span>
-                <span v-if="option.value === selectedWorktree" class="cleanup-badge">已选择合并</span>
+                       :checked="branchesToCleanup?.includes(meta.branchName)"
+                       @change="toggleBranchCleanup(meta.branchName)" />
+                <span class="cleanup-name">{{ meta.name }}</span>
+                <span class="cleanup-branch">{{ meta.branchName }}</span>
+                <span v-if="meta.name === selectedWorktree" class="cleanup-badge">已选择合并</span>
               </label>
             </div>
-            <p class="cleanup-hint">清理后，这些任务的工作树和临时分支将被删除</p>
+            <p class="cleanup-hint">清理后,这些分支将被永久删除(工作树会自动清理)</p>
           </div>
         </div>
       </template>
@@ -308,6 +311,14 @@ const validationError = computed(() => {
   flex: 1;
   font-size: 0.85rem;
   color: #e0e0e0;
+}
+
+.cleanup-branch {
+  font-size: 0.7rem;
+  color: #707070;
+  font-family: 'Consolas', monospace;
+  margin-left: auto;
+  margin-right: 8px;
 }
 
 .cleanup-badge {

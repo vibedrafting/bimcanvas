@@ -13,7 +13,8 @@
       "Bash(dotnet build:*)",
       "Bash(npm run build:*)",
       "Bash(taskkill:*)",
-      "Bash(dir:*)"
+      "Bash(dir:*)",
+      "Bash(npx vue-tsc:*)"
     ]
   }
 }

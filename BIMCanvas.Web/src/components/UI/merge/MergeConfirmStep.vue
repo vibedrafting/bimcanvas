@@ -6,7 +6,7 @@ defineProps<{
   sourceBranch: string;
   isMerging: boolean;
   error: string | null;
-  worktreesToCleanup?: string[];
+  branchesToCleanup?: string[];
 }>();
 
 const emit = defineEmits<{
@@ -50,13 +50,13 @@ const emit = defineEmits<{
         <span>源分支的方案数据将 <strong>完全覆盖</strong> 目标分支</span>
       </div>
 
-      <!-- Worktree 清理提示 -->
-      <div v-if="worktreesToCleanup && worktreesToCleanup.length > 0" class="cleanup-info">
+      <!-- 分支清理提示 -->
+      <div v-if="branchesToCleanup && branchesToCleanup.length > 0" class="cleanup-info">
         <div class="info-icon">🗑️</div>
         <div class="info-content">
-          <div class="info-title">合并后将清理 {{ worktreesToCleanup.length }} 个 worktree</div>
+          <div class="info-title">合并后将清理 {{ branchesToCleanup.length }} 个临时分支</div>
           <div class="info-list">
-            <code v-for="name in worktreesToCleanup" :key="name">{{ name }}</code>
+            <code v-for="branch in branchesToCleanup" :key="branch">{{ branch }}</code>
           </div>
         </div>
       </div>
