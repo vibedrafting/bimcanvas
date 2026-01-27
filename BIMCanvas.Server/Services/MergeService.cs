@@ -45,37 +45,59 @@ namespace BIMCanvas.Server.Services
                 // 获取目标分支（默认当前分支）
                 var target = targetBranch ?? _gitService.GetCurrentBranch(projectPath);
 
+                // ✅ 调试：方法入口
+                _logger.LogWarning("========== [DEBUG] ComputeZoneDiffsAsync 开始 ==========");
+                _logger.LogWarning("[DEBUG] 项目路径: {Path}", projectPath);
+                _logger.LogWarning("[DEBUG] 源分支: {Source}", sourceBranch);
+                _logger.LogWarning("[DEBUG] 目标分支: {Target}", target);
+
                 _logger.LogInformation("计算分区差异: {Source} -> {Target}", sourceBranch, target);
 
-                // 获取 schemes 目录下的所有分区
-                var schemesPath = Path.Combine(projectPath, "schemes");
-                if (!Directory.Exists(schemesPath))
+                // 从源分支和目标分支读取分区列表（使用 git ls-tree）
+                var sourceZones = GetZonesFromBranch(projectPath, sourceBranch);
+                var targetZones = GetZonesFromBranch(projectPath, target);
+
+                // ✅ 调试：分区列表
+                _logger.LogWarning("[DEBUG] 源分支分区数: {Count}", sourceZones.Count);
+                _logger.LogWarning("[DEBUG] 源分支分区列表: {Zones}", string.Join(", ", sourceZones));
+                _logger.LogWarning("[DEBUG] 目标分支分区数: {Count}", targetZones.Count);
+                _logger.LogWarning("[DEBUG] 目标分支分区列表: {Zones}", string.Join(", ", targetZones));
+
+                // 合并两个分支的分区列表（取并集）
+                var zoneDirs = sourceZones.Union(targetZones).Distinct().ToList();
+
+                _logger.LogInformation(
+                    "找到 {Count} 个分区待比较（源分支: {SourceCount}, 目标分支: {TargetCount}）",
+                    zoneDirs.Count, sourceZones.Count, targetZones.Count);
+
+                // ✅ 调试：合并后的分区列表
+                _logger.LogWarning("[DEBUG] 合并后分区列表: {Zones}", string.Join(", ", zoneDirs));
+
+                if (zoneDirs.Count == 0)
                 {
-                    _logger.LogWarning("schemes 目录不存在: {Path}", schemesPath);
+                    _logger.LogWarning("两个分支都没有分区数据");
+                    _logger.LogWarning("========== [DEBUG] ComputeZoneDiffsAsync 结束（无分区） ==========");
                     return diffs;
                 }
 
-                // 查找所有分区目录
-                var zoneDirs = Directory.GetDirectories(schemesPath)
-                    .Where(d =>
-                    {
-                        var name = Path.GetFileName(d);
-                        return name.StartsWith("rz_") || name.StartsWith("dz_");
-                    })
-                    .Select(d => Path.GetFileName(d))
-                    .ToList();
-
                 foreach (var zoneId in zoneDirs)
                 {
+                    _logger.LogWarning("[DEBUG] 开始计算分区 {ZoneId} 的差异", zoneId);
                     var diff = await ComputeSingleZoneDiffAsync(
                         projectPath, zoneId, sourceBranch, target);
                     if (diff != null && diff.HasChanges)
                     {
+                        _logger.LogWarning("[DEBUG] 分区 {ZoneId} 有差异: {Summary}", zoneId, diff.Summary);
                         diffs.Add(diff);
+                    }
+                    else
+                    {
+                        _logger.LogWarning("[DEBUG] 分区 {ZoneId} 无差异", zoneId);
                     }
                 }
 
                 _logger.LogInformation("发现 {Count} 个分区有差异", diffs.Count);
+                _logger.LogWarning("========== [DEBUG] ComputeZoneDiffsAsync 结束（共 {Count} 个差异） ==========", diffs.Count);
                 return diffs;
             }
             catch (Exception ex)
@@ -98,13 +120,38 @@ namespace BIMCanvas.Server.Services
 
             try
             {
+                // ✅ 调试：方法入口
+                _logger.LogWarning("    --- [DEBUG] ComputeSingleZoneDiffAsync: {ZoneId} ---", zoneId);
+                _logger.LogWarning("    [DEBUG] 文件路径: {Path}", modulesPath);
+
                 // 使用 git show 获取两个分支的文件内容
                 var sourceContent = GetFileContentFromBranch(projectPath, sourceBranch, modulesPath);
                 var targetContent = GetFileContentFromBranch(projectPath, targetBranch, modulesPath);
 
+                // ✅ 调试：文件内容
+                _logger.LogWarning("    [DEBUG] 源分支文件长度: {Length} 字符", sourceContent?.Length ?? 0);
+                _logger.LogWarning("    [DEBUG] 目标分支文件长度: {Length} 字符", targetContent?.Length ?? 0);
+
+                if (string.IsNullOrEmpty(sourceContent))
+                {
+                    _logger.LogWarning("    [DEBUG] ⚠️ 源分支文件内容为空！");
+                }
+                if (string.IsNullOrEmpty(targetContent))
+                {
+                    _logger.LogWarning("    [DEBUG] ⚠️ 目标分支文件内容为空！");
+                }
+
                 // 解析 JSON
                 var sourceModules = ParseModules(sourceContent);
                 var targetModules = ParseModules(targetContent);
+
+                // ✅ 调试：解析结果
+                _logger.LogWarning("    [DEBUG] 源分支模块数: {Count}", sourceModules.Count);
+                _logger.LogWarning("    [DEBUG] 源分支模块ID列表: {Ids}",
+                    string.Join(", ", sourceModules.Select(m => m.Id ?? "null")));
+                _logger.LogWarning("    [DEBUG] 目标分支模块数: {Count}", targetModules.Count);
+                _logger.LogWarning("    [DEBUG] 目标分支模块ID列表: {Ids}",
+                    string.Join(", ", targetModules.Select(m => m.Id ?? "null")));
 
                 // 计算差异
                 var diff = new ZoneDiff
@@ -121,6 +168,7 @@ namespace BIMCanvas.Server.Services
                     if (existing == null)
                     {
                         diff.AddedModules.Add(module);
+                        _logger.LogWarning("    [DEBUG]   + 新增模块: {Id}", module.Id);
                     }
                     else if (!ModulesEqual(module, existing))
                     {
@@ -129,6 +177,7 @@ namespace BIMCanvas.Server.Services
                             OldModule = existing,
                             NewModule = module
                         });
+                        _logger.LogWarning("    [DEBUG]   ~ 修改模块: {Id}", module.Id);
                     }
                 }
 
@@ -138,8 +187,15 @@ namespace BIMCanvas.Server.Services
                     if (!sourceModules.Any(m => m.Id == module.Id))
                     {
                         diff.RemovedModules.Add(module);
+                        _logger.LogWarning("    [DEBUG]   - 删除模块: {Id}", module.Id);
                     }
                 }
+
+                // ✅ 调试：差异统计
+                _logger.LogWarning("    [DEBUG] 差异统计: +{Added} -{Removed} ~{Modified}",
+                    diff.AddedModules.Count, diff.RemovedModules.Count, diff.ModifiedModules.Count);
+                _logger.LogWarning("    [DEBUG] HasChanges: {HasChanges}", diff.HasChanges);
+                _logger.LogWarning("    --- [DEBUG] ComputeSingleZoneDiffAsync 结束 ---");
 
                 return diff;
             }
@@ -363,11 +419,19 @@ namespace BIMCanvas.Server.Services
 
             try
             {
+                // ✅ 调试：Git 命令入口
+                _logger.LogWarning("--- [DEBUG] GetZonesFromBranch 开始 ---");
+                _logger.LogWarning("[DEBUG] 分支: {Branch}", branch);
+                _logger.LogWarning("[DEBUG] 项目路径: {Path}", projectPath);
+
                 // 使用 git ls-tree 获取分支中的 schemes 目录结构
+                var arguments = $"ls-tree --name-only {branch}:schemes";
+                _logger.LogWarning("[DEBUG] Git 命令: git {Args}", arguments);
+
                 var startInfo = new System.Diagnostics.ProcessStartInfo
                 {
                     FileName = "git",
-                    Arguments = $"ls-tree --name-only {branch}:schemes",
+                    Arguments = arguments,
                     WorkingDirectory = projectPath,
                     RedirectStandardOutput = true,
                     RedirectStandardError = true,
@@ -376,10 +440,23 @@ namespace BIMCanvas.Server.Services
                 };
 
                 using var process = System.Diagnostics.Process.Start(startInfo);
-                if (process == null) return zones;
+                if (process == null)
+                {
+                    _logger.LogWarning("[DEBUG] 无法启动 git 进程");
+                    return zones;
+                }
 
                 var output = process.StandardOutput.ReadToEnd();
+                var error = process.StandardError.ReadToEnd();
                 process.WaitForExit(5000);
+
+                // ✅ 调试：Git 命令结果
+                _logger.LogWarning("[DEBUG] Git 退出码: {ExitCode}", process.ExitCode);
+                _logger.LogWarning("[DEBUG] Git 标准输出: {Output}", output);
+                if (!string.IsNullOrEmpty(error))
+                {
+                    _logger.LogWarning("[DEBUG] Git 错误输出: {Error}", error);
+                }
 
                 if (process.ExitCode == 0)
                 {
@@ -387,7 +464,15 @@ namespace BIMCanvas.Server.Services
                         .Where(name => name.StartsWith("rz_") || name.StartsWith("dz_"))
                         .Select(name => name.Trim())
                         .ToList();
+
+                    _logger.LogWarning("[DEBUG] 解析后的分区列表: {Zones}", string.Join(", ", zones));
                 }
+                else
+                {
+                    _logger.LogWarning("[DEBUG] Git 命令失败，未解析分区");
+                }
+
+                _logger.LogWarning("--- [DEBUG] GetZonesFromBranch 结束（返回 {Count} 个分区） ---", zones.Count);
             }
             catch (Exception ex)
             {
