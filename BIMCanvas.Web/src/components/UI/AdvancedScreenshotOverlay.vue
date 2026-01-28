@@ -96,6 +96,7 @@ const hideUIElements = () => {
         '.floating-tools',        // 浮动工具（图层管理按钮）
         '.properties-area',       // 属性面板
         '.gallery-area',          // AI 对话面板
+        '.ai-command-center',     // AI 面板(内层,直接隐藏)
         '.prompt-bar',            // 底部提示栏
         '.floating-input',        // 浮动输入框
     ]
@@ -138,9 +139,6 @@ onMounted(async () => {
       }
     })
     
-    // 恢复 UI 元素（但由于 overlay 仍显示，它们会被遮住）
-    restoreUIElements()
-    
     bgCanvasRef.value = canvas
     
     if (canvasRef.value) {
@@ -164,6 +162,10 @@ onMounted(async () => {
 })
 
 onUnmounted(() => {
+  // 恢复 UI 元素
+  restoreUIElements()
+
+  // 移除全局事件监听
   window.removeEventListener('keydown', handleKeyDown)
   window.removeEventListener('mousemove', handleGlobalMouseMove)
   window.removeEventListener('mouseup', handleGlobalMouseUp)
