@@ -17,13 +17,16 @@ namespace BIMCanvas.Server.Services
     {
         private readonly ILogger<MergeService> _logger;
         private readonly GitWorktreeService _gitService;
+        private readonly IWorktreeMetadataServiceFactory _metadataServiceFactory;
 
         public MergeService(
             ILogger<MergeService> logger,
-            GitWorktreeService gitService)
+            GitWorktreeService gitService,
+            IWorktreeMetadataServiceFactory metadataServiceFactory)
         {
             _logger = logger;
             _gitService = gitService;
+            _metadataServiceFactory = metadataServiceFactory;
         }
 
         /// <summary>
@@ -237,11 +240,13 @@ namespace BIMCanvas.Server.Services
         /// <param name="projectPath">项目路径</param>
         /// <param name="sourceBranch">源分支</param>
         /// <param name="targetBranch">目标分支</param>
+        /// <param name="branchesToCleanup">用户勾选要清理的分支列表（可选）</param>
         /// <returns>合并结果</returns>
         public async Task<OverwriteMergeResult> ExecuteOverwriteMergeAsync(
             string projectPath,
             string sourceBranch,
-            string targetBranch)
+            string targetBranch,
+            List<string>? branchesToCleanup = null)
         {
             try
             {
@@ -334,6 +339,9 @@ namespace BIMCanvas.Server.Services
                     $"Overwrite merge from {sourceBranch}: {sourceZones.Count} zones");
 
                 _logger.LogInformation("覆盖合并完成: {Count} 个分区", sourceZones.Count);
+
+                // 7. ✅ 合并成功后自动清理被合并的 worktree
+                await CleanupMergedWorktreeAsync(projectPath, sourceBranch, branchesToCleanup);
 
                 return new OverwriteMergeResult
                 {
@@ -560,6 +568,43 @@ namespace BIMCanvas.Server.Services
             }
 
             await Task.CompletedTask; // 满足 async 签名
+        }
+
+        /// <summary>
+        /// 清理已合并的 Worktree（私有方法，被 ExecuteOverwriteMergeAsync 调用）
+        /// </summary>
+        private async Task CleanupMergedWorktreeAsync(
+            string projectPath,
+            string sourceBranch,
+            List<string>? branchesToCleanup)
+        {
+            try
+            {
+                var metadataService = _metadataServiceFactory.Create(projectPath);
+                var metadata = metadataService.Load();
+                var entry = metadata.Worktrees.FirstOrDefault(e => e.BranchName == sourceBranch);
+
+                if (entry != null)
+                {
+                    // ✅ 决策逻辑：用户勾选 + isolation intent
+                    bool shouldDeleteBranch = entry.Intent == "isolation"
+                        && branchesToCleanup != null
+                        && branchesToCleanup.Contains(entry.BranchName);
+
+                    _logger.LogInformation("清理 worktree: {Name}, 删除分支={Delete}", entry.Name, shouldDeleteBranch);
+                    _gitService.RemoveWorktree(projectPath, entry.Name, deleteBranch: shouldDeleteBranch);
+                }
+                else
+                {
+                    _logger.LogWarning("无法通过元数据找到 worktree (SourceBranch={SourceBranch})", sourceBranch);
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "清理 worktree 失败 (SourceBranch={SourceBranch})", sourceBranch);
+            }
+
+            await Task.CompletedTask;
         }
     }
 
