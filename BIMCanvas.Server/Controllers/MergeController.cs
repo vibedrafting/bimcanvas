@@ -20,17 +20,20 @@ namespace BIMCanvas.Server.Controllers
         private readonly ProjectContext _projectContext;
         private readonly MergeService _mergeService;
         private readonly GitWorktreeService _gitService;
+        private readonly IWorktreeMetadataServiceFactory _metadataServiceFactory;
 
         public MergeController(
             ILogger<MergeController> logger,
             ProjectContext projectContext,
             MergeService mergeService,
-            GitWorktreeService gitService)
+            GitWorktreeService gitService,
+            IWorktreeMetadataServiceFactory metadataServiceFactory)
         {
             _logger = logger;
             _projectContext = projectContext;
             _mergeService = mergeService;
             _gitService = gitService;
+            _metadataServiceFactory = metadataServiceFactory;
         }
 
         /// <summary>
@@ -172,8 +175,8 @@ namespace BIMCanvas.Server.Controllers
                 {
                     _logger.LogInformation("覆盖合并成功: {Count} 个分区", result.MergedZoneCount);
 
-                    // ✅ 清理被合并的 worktree（使用注入的依赖，而非 Service Locator）
-                    var metadataService = new WorktreeMetadataService(projectPath, _logger as ILogger<WorktreeMetadataService>);
+                    // ✅ 清理被合并的 worktree（使用工厂创建）
+                    var metadataService = _metadataServiceFactory.Create(projectPath);
                     _logger.LogInformation("开始清理被合并的 worktree: SourceBranch={SourceBranch}", request.SourceBranch);
 
                     // 通过源分支查找对应的 worktree 元数据
@@ -193,16 +196,16 @@ namespace BIMCanvas.Server.Controllers
                         try
                         {
                             _gitService.RemoveWorktree(projectPath, worktreeName, deleteBranch: shouldDeleteBranch);
-                                _logger.LogInformation("清理 worktree 成功: {Name}, 删除分支={Delete}",
-                                    worktreeName, shouldDeleteBranch);
-                            }
-                            catch (Exception cleanupEx)
-                            {
-                                _logger.LogWarning(cleanupEx, "清理 worktree 失败: {Name}", worktreeName);
-                            }
+                            _logger.LogInformation("清理 worktree 成功: {Name}, 删除分支={Delete}",
+                                worktreeName, shouldDeleteBranch);
                         }
-                        else
+                        catch (Exception cleanupEx)
                         {
+                            _logger.LogWarning(cleanupEx, "清理 worktree 失败: {Name}", worktreeName);
+                        }
+                    }
+                    else
+                    {
                             // 元数据缺失时，尝试查找匹配的 worktree 路径并清理
                             _logger.LogWarning("无法通过元数据找到 worktree (SourceBranch={SourceBranch}), 尝试路径匹配",
                                 request.SourceBranch);
@@ -240,7 +243,6 @@ namespace BIMCanvas.Server.Controllers
                             }
                         }
                     }
-                }
                 else
                 {
                     _logger.LogWarning("覆盖合并失败: {Message}", result.Message);

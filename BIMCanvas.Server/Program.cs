@@ -100,6 +100,7 @@ builder.Services.AddSingleton<PlacementService>();
 
 // v3.1 Git Worktree 架构服务（单仓库 + 多分支 + Worktree 并行）
 builder.Services.AddSingleton<GitWorktreeService>();
+builder.Services.AddSingleton<IWorktreeMetadataServiceFactory, WorktreeMetadataServiceFactory>();  // ✅ 工厂模式
 builder.Services.AddSingleton<StrategyService>();
 builder.Services.AddSingleton<ProjectService>();
 builder.Services.AddSingleton<ProjectContext>();  // 单项目模式上下文

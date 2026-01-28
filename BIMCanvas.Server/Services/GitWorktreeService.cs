@@ -26,6 +26,7 @@ namespace BIMCanvas.Server.Services
     public class GitWorktreeService
     {
         private readonly ILogger<GitWorktreeService> _logger;
+        private readonly IWorktreeMetadataServiceFactory _metadataServiceFactory;
 
         /// <summary>
         /// Worktree 临时目录名
@@ -42,9 +43,12 @@ namespace BIMCanvas.Server.Services
         /// </summary>
         public const string AiFeatureBranchPrefix = "feat/ai-";
 
-        public GitWorktreeService(ILogger<GitWorktreeService> logger)
+        public GitWorktreeService(
+            ILogger<GitWorktreeService> logger,
+            IWorktreeMetadataServiceFactory metadataServiceFactory)
         {
             _logger = logger;
+            _metadataServiceFactory = metadataServiceFactory;
         }
 
         #region Git 仓库初始化
@@ -297,7 +301,7 @@ namespace BIMCanvas.Server.Services
             }
 
             // ⭐ 新增：写入元数据
-            var metadataService = new WorktreeMetadataService(projectPath, _logger as ILogger<WorktreeMetadataService>);
+            var metadataService = _metadataServiceFactory.Create(projectPath);
             metadataService.AddWorktree(worktreeName, branchName, intent, baseBranch ?? "HEAD", createdBy: "Agent");
 
             return worktreePath;
@@ -314,7 +318,7 @@ namespace BIMCanvas.Server.Services
             var worktreePath = Path.Combine(GetWorktreesDir(projectPath), worktreeName);
 
             // ⭐ 统一元数据处理：只实例化一次
-            var metadataService = new WorktreeMetadataService(projectPath, _logger as ILogger<WorktreeMetadataService>);
+            var metadataService = _metadataServiceFactory.Create(projectPath);
             var entry = metadataService.RemoveWorktree(worktreeName);
 
             if (!Directory.Exists(worktreePath))
@@ -487,7 +491,7 @@ namespace BIMCanvas.Server.Services
             var count = 0;
 
             // ⭐ 新增：元数据服务
-            var metadataService = new WorktreeMetadataService(projectPath, _logger as ILogger<WorktreeMetadataService>);
+            var metadataService = _metadataServiceFactory.Create(projectPath);
 
             // ⭐ 新增：先同步元数据（清理不存在的 worktree 记录）
             var actualWorktreeNames = worktrees

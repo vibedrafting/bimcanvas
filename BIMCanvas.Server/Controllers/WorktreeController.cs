@@ -16,13 +16,16 @@ namespace BIMCanvas.Server.Controllers
     {
         private readonly ILogger<WorktreeController> _logger;
         private readonly ProjectContext _projectContext;
+        private readonly IWorktreeMetadataServiceFactory _metadataServiceFactory;
 
         public WorktreeController(
             ILogger<WorktreeController> logger,
-            ProjectContext projectContext)
+            ProjectContext projectContext,
+            IWorktreeMetadataServiceFactory metadataServiceFactory)
         {
             _logger = logger;
             _projectContext = projectContext;
+            _metadataServiceFactory = metadataServiceFactory;
         }
 
         /// <summary>
@@ -37,7 +40,7 @@ namespace BIMCanvas.Server.Controllers
             }
 
             var projectPath = _projectContext.CurrentProjectPath!;
-            var metadataService = new WorktreeMetadataService(projectPath, _logger as ILogger<WorktreeMetadataService>);
+            var metadataService = _metadataServiceFactory.Create(projectPath);
             var metadata = metadataService.Load();
 
             return Ok(new MetadataResponse
@@ -67,7 +70,7 @@ namespace BIMCanvas.Server.Controllers
             }
 
             var projectPath = _projectContext.CurrentProjectPath!;
-            var metadataService = new WorktreeMetadataService(projectPath, _logger as ILogger<WorktreeMetadataService>);
+            var metadataService = _metadataServiceFactory.Create(projectPath);
 
             // ✅ 优化：一次性加载所有元数据，避免循环内重复 I/O
             var metadata = metadataService.Load();
