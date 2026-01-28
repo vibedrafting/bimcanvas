@@ -313,18 +313,16 @@ namespace BIMCanvas.Server.Services
         {
             var worktreePath = Path.Combine(GetWorktreesDir(projectPath), worktreeName);
 
+            // ⭐ 统一元数据处理：只实例化一次
+            var metadataService = new WorktreeMetadataService(projectPath, _logger as ILogger<WorktreeMetadataService>);
+            var entry = metadataService.RemoveWorktree(worktreeName);
+
             if (!Directory.Exists(worktreePath))
             {
                 _logger.LogDebug("Worktree 不存在: {Path}", worktreePath);
-                // 即使目录不存在，也尝试清理元数据
-                var metadataService = new WorktreeMetadataService(projectPath, _logger as ILogger<WorktreeMetadataService>);
-                metadataService.RemoveWorktree(worktreeName);
+                // 元数据已清理，直接返回
                 return;
             }
-
-            // ⭐ 新增：读取元数据，判断是否应删除分支
-            var metadataService2 = new WorktreeMetadataService(projectPath, _logger as ILogger<WorktreeMetadataService>);
-            var entry = metadataService2.RemoveWorktree(worktreeName);
 
             // 🔧 修复：优先使用 Controller 传递的 deleteBranch 参数（用户意图）
             // 不再使用元数据的 Intent 字段自作主张

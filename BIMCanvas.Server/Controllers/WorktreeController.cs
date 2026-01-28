@@ -68,12 +68,15 @@ namespace BIMCanvas.Server.Controllers
 
             var projectPath = _projectContext.CurrentProjectPath!;
             var metadataService = new WorktreeMetadataService(projectPath, _logger as ILogger<WorktreeMetadataService>);
+
+            // ✅ 优化：一次性加载所有元数据，避免循环内重复 I/O
+            var metadata = metadataService.Load();
             var mapping = new Dictionary<string, string>();
             var errors = new List<string>();
 
             foreach (var name in request.Names)
             {
-                var entry = metadataService.GetWorktreeEntry(name);
+                var entry = metadata.Worktrees.FirstOrDefault(w => w.Name == name);
                 if (entry != null)
                 {
                     mapping[name] = entry.BranchName;

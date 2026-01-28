@@ -19,15 +19,18 @@ namespace BIMCanvas.Server.Controllers
         private readonly ILogger<MergeController> _logger;
         private readonly ProjectContext _projectContext;
         private readonly MergeService _mergeService;
+        private readonly GitWorktreeService _gitService;
 
         public MergeController(
             ILogger<MergeController> logger,
             ProjectContext projectContext,
-            MergeService mergeService)
+            MergeService mergeService,
+            GitWorktreeService gitService)
         {
             _logger = logger;
             _projectContext = projectContext;
             _mergeService = mergeService;
+            _gitService = gitService;
         }
 
         /// <summary>
@@ -169,34 +172,27 @@ namespace BIMCanvas.Server.Controllers
                 {
                     _logger.LogInformation("覆盖合并成功: {Count} 个分区", result.MergedZoneCount);
 
-                    // 清理被合并的 worktree（通过源分支反向查找）
-                    var gitService = HttpContext.RequestServices.GetService<GitWorktreeService>();
-                    var metadataService = new WorktreeMetadataService(
-                        projectPath,
-                        HttpContext.RequestServices.GetService<ILogger<WorktreeMetadataService>>()
-                    );
+                    // ✅ 清理被合并的 worktree（使用注入的依赖，而非 Service Locator）
+                    var metadataService = new WorktreeMetadataService(projectPath, _logger as ILogger<WorktreeMetadataService>);
+                    _logger.LogInformation("开始清理被合并的 worktree: SourceBranch={SourceBranch}", request.SourceBranch);
 
-                    if (gitService != null && metadataService != null)
+                    // 通过源分支查找对应的 worktree 元数据
+                    var allMetadata = metadataService.Load().Worktrees;
+                    var targetEntry = allMetadata.FirstOrDefault(e => e.BranchName == request.SourceBranch);
+
+                    if (targetEntry != null)
                     {
-                        _logger.LogInformation("开始清理被合并的 worktree: SourceBranch={SourceBranch}", request.SourceBranch);
+                        var worktreeName = targetEntry.Name;
+                        _logger.LogInformation("找到对应的 worktree: {Name}", worktreeName);
 
-                        // 通过源分支查找对应的 worktree 元数据
-                        var allMetadata = metadataService.Load().Worktrees;
-                        var targetEntry = allMetadata.FirstOrDefault(e => e.BranchName == request.SourceBranch);
+                        // 判断是否应删除分支（仅 isolation intent 且用户勾选）
+                        bool shouldDeleteBranch = targetEntry.Intent == "isolation"
+                            && request.BranchesToCleanup != null
+                            && request.BranchesToCleanup.Contains(targetEntry.BranchName);
 
-                        if (targetEntry != null)
+                        try
                         {
-                            var worktreeName = targetEntry.Name;
-                            _logger.LogInformation("找到对应的 worktree: {Name}", worktreeName);
-
-                            // 判断是否应删除分支（仅 isolation intent 且用户勾选）
-                            bool shouldDeleteBranch = targetEntry.Intent == "isolation"
-                                && request.BranchesToCleanup != null
-                                && request.BranchesToCleanup.Contains(targetEntry.BranchName);
-
-                            try
-                            {
-                                gitService.RemoveWorktree(projectPath, worktreeName, deleteBranch: shouldDeleteBranch);
+                            _gitService.RemoveWorktree(projectPath, worktreeName, deleteBranch: shouldDeleteBranch);
                                 _logger.LogInformation("清理 worktree 成功: {Name}, 删除分支={Delete}",
                                     worktreeName, shouldDeleteBranch);
                             }
@@ -211,7 +207,7 @@ namespace BIMCanvas.Server.Controllers
                             _logger.LogWarning("无法通过元数据找到 worktree (SourceBranch={SourceBranch}), 尝试路径匹配",
                                 request.SourceBranch);
 
-                            var allWorktrees = gitService.GetWorktrees(projectPath);
+                            var allWorktrees = _gitService.GetWorktrees(projectPath);
                             var worktreesDir = Path.GetFullPath(Path.Combine(projectPath, GitWorktreeService.WorktreeDirName));
 
                             foreach (var wt in allWorktrees)
@@ -231,7 +227,7 @@ namespace BIMCanvas.Server.Controllers
                                     try
                                     {
                                         // 元数据缺失时，保守起见不删除分支
-                                        gitService.RemoveWorktree(projectPath, worktreeName, deleteBranch: false);
+                                        _gitService.RemoveWorktree(projectPath, worktreeName, deleteBranch: false);
                                         _logger.LogInformation("清理 worktree 成功 (元数据缺失，保留分支): {Name}", worktreeName);
                                     }
                                     catch (Exception cleanupEx)
@@ -277,15 +273,9 @@ namespace BIMCanvas.Server.Controllers
 
             try
             {
-                // 获取所有分支（除当前分支外）
-                var gitService = HttpContext.RequestServices.GetService<GitWorktreeService>();
-                if (gitService == null)
-                {
-                    return StatusCode(500, new { message = "GitWorktreeService 不可用" });
-                }
-
-                var currentBranch = gitService.GetCurrentBranch(projectPath);
-                var allBranches = gitService.GetBranchesWithDetails(projectPath);
+                // ✅ 获取所有分支（除当前分支外），使用注入的依赖
+                var currentBranch = _gitService.GetCurrentBranch(projectPath);
+                var allBranches = _gitService.GetBranchesWithDetails(projectPath);
 
                 var result = allBranches
                     .Where(b => !b.IsCurrent)
