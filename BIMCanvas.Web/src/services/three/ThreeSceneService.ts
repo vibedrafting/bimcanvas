@@ -327,6 +327,37 @@ export class ThreeSceneService {
         this.gridBuilder.buildGrid();
     }
 
+    public fitToBounds(bounds: { minX: number; minY: number; maxX: number; maxY: number }): void {
+        const width = bounds.maxX - bounds.minX;
+        const height = bounds.maxY - bounds.minY;
+        if (width <= 0 || height <= 0) return;
+
+        const centerX = (bounds.minX + bounds.maxX) / 2;
+        const centerY = (bounds.minY + bounds.maxY) / 2;
+
+        const aspect = this.container.clientWidth / this.container.clientHeight;
+        let frustumWidth = width;
+        let frustumHeight = height;
+
+        if (width / height > aspect) {
+            frustumHeight = width / aspect;
+        } else {
+            frustumWidth = height * aspect;
+        }
+
+        const center3D = new THREE.Vector3(centerX, 0, -centerY);
+        this._camera.position.set(center3D.x, 10000, center3D.z);
+        this._camera.lookAt(center3D.x, 0, center3D.z);
+        this.viewportService.setTarget(center3D.x, 0, center3D.z);
+
+        this._camera.left = -frustumWidth / 2;
+        this._camera.right = frustumWidth / 2;
+        this._camera.top = frustumHeight / 2;
+        this._camera.bottom = -frustumHeight / 2;
+        this._camera.zoom = 1;
+        this._camera.updateProjectionMatrix();
+    }
+
     /**
      * 获取画布截图
      * @returns Base64 编码的 PNG 图片

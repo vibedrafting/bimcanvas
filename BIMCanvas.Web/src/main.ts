@@ -3,8 +3,11 @@ import { createPinia } from 'pinia';
 import './style.css';
 import 'markstream-vue/index.css';
 import App from './App.vue';
+import ScreenshotRenderView from './views/ScreenshotRenderView.vue';
 
-const app = createApp(App);
+const isRenderMode = window.location.pathname.startsWith('/screenshot-render');
+const rootComponent = isRenderMode ? ScreenshotRenderView : App;
+const app = createApp(rootComponent);
 const pinia = createPinia();
 
 app.use(pinia);

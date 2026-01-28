@@ -10,6 +10,7 @@
     <PackageReference Include="Microsoft.AspNetCore.Mvc.NewtonsoftJson" Version="8.0.0" />
     <PackageReference Include="Microsoft.AspNetCore.OpenApi" Version="8.0.22" />
     <PackageReference Include="Microsoft.AspNetCore.SignalR.Protocols.NewtonsoftJson" Version="10.0.2" />
+    <PackageReference Include="Microsoft.Playwright" Version="1.42.0" />
     <PackageReference Include="SharpCompress" Version="0.44.0" />
     <PackageReference Include="Swashbuckle.AspNetCore" Version="6.6.2" />
     <PackageReference Include="System.Management" Version="8.0.0" Condition="'$(OS)' == 'Windows_NT'" />

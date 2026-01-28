@@ -105,6 +105,8 @@ builder.Services.AddSingleton<StrategyService>();
 builder.Services.AddSingleton<ProjectService>();
 builder.Services.AddSingleton<ProjectContext>();  // 单项目模式上下文
 builder.Services.AddSingleton<ModuleLibraryService>();  // 模块库服务
+builder.Services.AddSingleton<ProjectSnapshotService>();
+builder.Services.AddSingleton<BackgroundScreenshotService>();
 
 // v3.3 多窗口并行架构服务
 builder.Services.AddSingleton<BranchLockManager>();  // 分支锁管理（多窗口互斥）
