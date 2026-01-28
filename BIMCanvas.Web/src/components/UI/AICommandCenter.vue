@@ -586,16 +586,18 @@ const handleNewWindowClick = (event: MouseEvent) => {
 };
 
 // Toggle Branch Switch Dropdown (Exclusive)
-const toggleBranchDropdown = async () => {
+const toggleBranchDropdown = () => {
     // Close other dropdowns
     showNewWindowDropdown.value = false;
 
-    // 打开下拉框前刷新分支列表，确保显示Agent新创建的分支
-    if (!isBranchDropdownOpen.value) {
-        await gitStore.fetchBranches();
-    }
+    // 先切换状态（立即打开下拉框，无延迟）
+    const opening = !isBranchDropdownOpen.value;
+    isBranchDropdownOpen.value = opening;
 
-    isBranchDropdownOpen.value = !isBranchDropdownOpen.value;
+    // 打开时触发后台刷新，利用Vue响应式自动更新列表
+    if (opening) {
+        void gitStore.fetchBranches();  // 不阻塞UI
+    }
 };
 
 // Handle Window Tab Click - Only for switching windows
