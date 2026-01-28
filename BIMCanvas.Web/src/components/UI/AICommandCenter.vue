@@ -586,10 +586,15 @@ const handleNewWindowClick = (event: MouseEvent) => {
 };
 
 // Toggle Branch Switch Dropdown (Exclusive)
-const toggleBranchDropdown = () => {
+const toggleBranchDropdown = async () => {
     // Close other dropdowns
     showNewWindowDropdown.value = false;
-    
+
+    // 打开下拉框前刷新分支列表，确保显示Agent新创建的分支
+    if (!isBranchDropdownOpen.value) {
+        await gitStore.fetchBranches();
+    }
+
     isBranchDropdownOpen.value = !isBranchDropdownOpen.value;
 };
 
