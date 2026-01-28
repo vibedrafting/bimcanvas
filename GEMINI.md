@@ -2,7 +2,7 @@
 
 > 在用户提供的建筑平面内，布置符合设计逻辑的家具组合。
 
-**数据模型版本**: v2.7 (新增 BIMCanvas.Agent + Agent SDK 架构)
+**数据模型版本**: v3.0 (File-Driven Architecture + .bcp 项目格式)
 
 ---
 
@@ -13,11 +13,13 @@
 | 文档 | 路径 | 内容 |
 |------|------|------|
 | 架构文档 | `docs/Architecture.md` | 系统架构、数据流 |
+| Agent Git 工作流 | `docs/Arch_Agent_Git_Workflow.md` | Agent Git 工具体系、MCP 工具定义 |
 | 执行流程 | `docs/Workflows.md` | 端到端执行流程、触发机制 |
 | JSON Schema | `docs/Schema-JSON-v3.md` | v3.0 数据模型定义 |
 | PRD | `docs/PRD.md` | 产品需求、工作流程 |
 | Core 层 | `BIMCanvas.Core/README.md` | 数据模型 + 空间算法实现 |
 | Revit 插件 | `BIMCanvas.Revit/README.md` | Revit 导出/回写实现细节 |
+| Server 层 | `BIMCanvas.Server/README.md` | 统一后端服务、状态管理、通信中枢 |
 | Core 实现计划 | `plans/Core_Implementation_Plan.md` | Core 层代码生成计划 |
 | PlacementAgent 评审 | `reviews/PlacementAgent_Review.md` | Agent SDK 架构决策讨论 |
 
@@ -27,11 +29,25 @@
 |------|--------|------|------|
 | BIMCanvas.Core | .NET Standard 2.0 | 数据模型 + 空间算法 | ✅ 已完成 |
 | BIMCanvas.Revit | .NET FW 4.7.2 | Revit 插件（导出 + 回写） | 🔶 导出完成，回写待开发 |
-| BIMCanvas.Agent | Python 3.10+ | PlacementAgent（Agent SDK） | ⬜ 待开发 |
+| BIMCanvas.Agent | Python 3.10+ | MainAgent（主控+SubAgent） | ⬜ 待开发 |
 | BIMCanvas.Server | .NET 6+ | 统一后端（MCP + REST + SignalR + SSE） | ⬜ 待开发 |
 | BIMCanvas.Web | Vue 3 + TS | Web 前端 | ⬜ 待开发 |
 
 > **当前阶段**：Core 层已完成，Revit 导出功能已完成，下一步开发 Revit 回写或 Server/Agent 层
+
+### 组件角色定位
+
+| 组件 | 比喻 | 核心职责 |
+|------|------|----------|
+| **Server** | 心脏 + 神经系统 | 状态管理、几何计算、通信中枢、事件分发 |
+| **Agent** | 大脑 | 智能决策、理解意图、规划方案 |
+| **Core** | 骨骼 | 数据结构、基础算法、类型定义 |
+| **Web** | 皮肤 + 眼睛 | 渲染展示、用户交互 |
+| **Revit** | 手臂 | 从 Revit 抓取数据、回写 Revit |
+
+**关键区分**：
+- **Server 是「指挥中心」**：协调各方、管理状态、执行验证，但**不做布置决策**
+- **Agent 是「设计师」**：理解需求、做出决策、发出指令，但**不持有状态**
 
 ---
 
@@ -60,15 +76,15 @@ BIMCanvas.Revit.*    → 仅 Revit 插件内部使用
 
 ---
 
-## PlacementAgent 架构速查
+## MainAgent 架构速查
 
-> **架构决策**：PlacementAgent 基于 Anthropic Agent SDK 实现，作为独立 Python 进程运行，通过 SSE 接收事件触发。
+> **架构决策**：MainAgent 基于 Anthropic Agent SDK 实现，采用"主控 Agent + SubAgent"架构，作为独立 Python 进程运行，通过 SSE 接收事件触发。
 
 ### 架构概览
 
 ```
 BIMCanvas.Agent (Python 3.10+)
-├── PlacementAgent (Agent SDK)
+├── MainAgent (主控+SubAgent)
 ├── EventListener (SSE 客户端)
 └── MCP 工具集成
          ↑ SSE 事件           ↓ MCP/HTTP 调用
@@ -83,7 +99,7 @@ BIMCanvas.Server (.NET 6+)
 
 | 触发方式 | 触发源 | 数据流 |
 |----------|--------|--------|
-| AI 对话 | 用户输入 | 用户 → Agent Chat → PlacementAgent.run() |
+| AI 对话 | 用户输入 | 用户 → Agent Chat → MainAgent.run() |
 | Web 按钮 | 前端 UI | Web → Server EventBus → SSE → Agent |
 | 自动修正 | Server 检测 | Server 验证 → EventBus → SSE → Agent |
 
@@ -135,46 +151,50 @@ Revit (feet, 项目坐标)  ←→  BIMCanvas (mm, 归一化坐标)
 
 ---
 
-## v2.5 数据模型速查
+## v3.0 数据模型速查
 
 ### 核心设计原则
 
+> **File-Driven Architecture**：文件是唯一真理源，Server 是"文件播放器"而非"内存数据库"
 > **AI = OBB 规划师**：AI 只操作矩形包围盒，不计算精确几何。Core 层负责转换。
 
-### JSON 顶级结构
+### 三层汉堡模型 (.bcp 项目结构)
 
 ```
-CanvasDocument
-├── outline              边界轮廓 + 门窗线段 (仅视觉)
-│   ├── boundaries[]     封闭多边形 Polygon2D (墙体 + 柱子)
-│   └── openings[]       线段 Line2D + type (door/window)
-├── rooms[]              物理房间 (v2.5 新增)
-│   ├── id, name, type   RoomType 枚举
-│   └── boundary         Polygon2D
-├── zones[]              设计区域 (AI 核心工作区)
-│   ├── roomId           所属房间 ID (v2.5 新增)
-│   ├── tags[]           ZoneTag 枚举列表 (v2.5 替代 function)
-│   ├── rawBoundary      原始边界 (v2.5 新增)
-│   ├── innerBoundary    可用空间轮廓 Polygon2D
-│   ├── exclusionAreas[] 禁区 boundary: Polygon2D (4顶点矩形)
-│   └── openings[]       关联门窗 ID
-├── wallFinishes[]       墙面完成面 (v2.5 新增)
-│   ├── locationLine     定位线 Line2D
-│   ├── thickness        厚度 (mm)
-│   └── exclusionBoundary 禁区轮廓 Polygon2D
-└── modules[]            布置模块 (最小布置单元)
-    ├── bounds           Polygon2D [[x,y], ...] (4顶点矩形)
-    ├── facing           Facing (FacingDirection 枚举 | Vec2D)
-    └── items[]          内部家具清单 (回写 Revit 用)
+project.bcp (ZIP)
+├── manifest.json           项目元数据 + 方案列表
+├── baseline/               【底层】建筑基础数据（只读，Revit 导出）
+│   ├── walls.json          墙体轮廓 Polygon2D
+│   ├── columns.json        柱子轮廓 Polygon2D
+│   ├── openings.json       门窗 Line2D + type + direction
+│   ├── rooms.json          物理房间 { id, name, type, boundary }
+│   └── locationLines.json  完成面定位线 { wallId, roomId, line, normal }
+├── schemes/{strategyId}/   【中层】方案设计数据（AI/Server 可写）
+│   ├── zones.json          设计区域 { roomId, tags[], innerBoundary, openings[] }
+│   ├── finishes.json       完成面分段 { locationLineId, startT, endT, thickness }
+│   └── modules.json        布置模块 { bounds, facing, items[] }
+└── computed/               【顶层】计算派生数据（自动生成）
+    ├── room_zones.json     房间区域 { id, roomId, type, rawBoundary }
+    └── exclusions.json     禁区 { sourceType, sourceId, boundary }
 ```
+
+### 关键模型变化 (v2.x → v3.0)
+
+| v2.x | v3.0 | 说明 |
+|------|------|------|
+| DesignDocument | Project | 根对象重构 |
+| WallFinish | FinishSegment | 完成面分段化 |
+| - | LocationLine | 新增定位线模型 |
+| - | ExclusionArea | 禁区独立类 |
+| - | Strategy | 多方案支持 |
 
 ### AI 布置约束
 
 ```
 对于每个要放置的模块：
-1. bounds 必须完全在 zone.innerBoundary 内
-2. bounds 不能与任何 zone.exclusionAreas 重叠
-3. bounds 不能与其他已放置模块重叠
+1. bounds 必须完全在 computed.roomZones[].innerBoundary 内
+2. bounds 不能与任何 computed.roomZones[].exclusionAreas 重叠
+3. bounds 不能与其他已放置 modules[] 重叠
 ```
 
 ### Facing 类型 (语义朝向)
@@ -199,7 +219,7 @@ CanvasDocument
 
 ### 数据格式
 
-- **存储/传输**：JSON（CanvasDocument）
+- **存储/传输**：JSON（DesignDocument）
 - **AI 交互**：纯 JSON
 - **渲染**：前端根据 JSON 生成 SVG
 
@@ -215,18 +235,18 @@ CanvasDocument
 - Edit 工具可能导致中文乱码，批量替换前先存档
 - 优先编辑现有文件，不创建新文件
 
-### 改造+验证工作流 (Renovation + Verification)
+### 调试代码规范
 
-> **核心原则**：KISS (Keep It Simple, Stupid) - 小步快跑，稳健迭代。
+调试输出统一使用 `System.Diagnostics.Trace.WriteLine()`：
 
-1.  **改造 (Renovation)**：
-    -   按阶段执行计划，每次只关注一个核心目标。
-    -   保持代码处于“可工作状态”。
+```csharp
+System.Diagnostics.Trace.WriteLine($"[方法名] 调试信息: {变量}");
+```
 
-2.  **验证 (Verification)**：
-    -   **新功能验证**：必须提供浏览器截图，证明新功能符合预期。
-    -   **回归验证**：每次改造后，必须验证**原核心功能**（如数据加载、视图切换）未受损。
-    -   **止损机制**：若验证失败且多次修复无效，立即停止并汇报，避免破坏现有功能。
+**规范要求**：
+- 前缀格式：`[类名/方法名]`，便于过滤
+- 调试完成后必须删除调试代码
+- 不要使用 `Console.WriteLine` 或 `MessageBox`（会阻塞 UI）
 
 ---
 
