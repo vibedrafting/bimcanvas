@@ -154,29 +154,6 @@ namespace BIMCanvas.Server.Services
         }
 
         /// <summary>
-        /// 判断是否应删除分支
-        /// </summary>
-        /// <param name="worktreeName">Worktree 名称</param>
-        /// <returns>true 表示应删除分支（隔离意图），false 表示保留分支（并行意图或未找到记录）</returns>
-        public bool ShouldDeleteBranch(string worktreeName)
-        {
-            var metadata = Load();
-            var entry = metadata.Worktrees.FirstOrDefault(w => w.Name == worktreeName);
-
-            if (entry == null)
-            {
-                _logger?.LogWarning("[WorktreeMetadata] 未找到元数据记录，默认不删除分支: {Name}", worktreeName);
-                return false;
-            }
-
-            var shouldDelete = entry.Intent == "isolation";
-            _logger?.LogDebug("[WorktreeMetadata] 判断结果: {Name} -> {ShouldDelete} (intent: {Intent})",
-                worktreeName, shouldDelete, entry.Intent);
-
-            return shouldDelete;
-        }
-
-        /// <summary>
         /// 同步元数据与实际 worktree 列表
         /// 清理元数据中不存在的 worktree 记录
         /// </summary>

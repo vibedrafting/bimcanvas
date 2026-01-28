@@ -586,8 +586,8 @@ namespace BIMCanvas.Server.Services
 
                 if (entry != null)
                 {
-                    // ✅ 决策逻辑：用户勾选 + isolation intent
-                    bool shouldDeleteBranch = entry.Intent == "isolation"
+                    // ✅ 基于分支命名规则 + 用户勾选
+                    bool shouldDeleteBranch = ShouldDeleteBranchByNamingRule(entry.BranchName)
                         && branchesToCleanup != null
                         && branchesToCleanup.Contains(entry.BranchName);
 
@@ -605,6 +605,19 @@ namespace BIMCanvas.Server.Services
             }
 
             await Task.CompletedTask;
+        }
+
+        /// <summary>
+        /// 基于分支命名规则判断是否应删除分支
+        /// </summary>
+        /// <param name="branchName">分支名</param>
+        /// <returns>true 表示是临时分支，应删除</returns>
+        private bool ShouldDeleteBranchByNamingRule(string branchName)
+        {
+            // ✅ 临时分支前缀：temp/、feat/ai-、isolation/
+            return branchName.StartsWith("temp/")
+                || branchName.StartsWith("feat/ai-")
+                || branchName.StartsWith("isolation/");
         }
     }
 
