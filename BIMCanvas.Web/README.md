@@ -92,6 +92,27 @@
     *   **异步体验**: AI 生成耗时较长 (10-30s)，必须利用任务卡进度条安抚用户，支持后台运行。
     *   **流式渲染**: 推荐让 AI 分阶段推送数据（如先推墙体再推家具），提升感知速度。
 
+#### 6.3 当前实现状态与代码结构 (Implementation Snapshot)
+
+**已实现能力**:
+- **多窗口隔离**: 基于 Worktree 的虚拟窗口，窗口间聊天、分支、滚动状态互不干扰。
+- **SSE 流式对话**: `/api/chat/stream` 逐行推送，支持思考过程与分段输出。
+- **子任务可视化**: SubAgent/ToolCall 气泡模型 + Waiting 提示。
+- **截图附件**: 框选截图、保存到本地、加入待发送附件队列。
+- **模型/思考强度**: 从 `/api/config` 与 `/api/web_config` 加载模型列表与默认配置。
+
+**代码拆分**（核心文件）:
+- `src/components/UI/AICommandCenter.vue`: 组装层，负责 UI 绑定与模块协作。
+- `src/composables/aiCommandCenter/useWindowManager.ts`: 窗口/分支/Worktree 管理。
+- `src/composables/aiCommandCenter/useChatStream.ts`: SSE 流处理与消息发送。
+- `src/composables/aiCommandCenter/useAgentConfig.ts`: 模型与思考强度配置。
+- `src/composables/aiCommandCenter/useChatScroll.ts`: 滚动与自动滚动策略。
+- `src/composables/aiCommandCenter/usePanelUI.ts`: 面板尺寸、Tab 横向滚动、轮播滚动。
+- `src/composables/aiCommandCenter/useScreenshot.ts`: 截图监听与附件管理。
+- `src/composables/aiCommandCenter/useContextMenu.ts`: Context/Attachment 菜单逻辑。
+- `src/constants/aiCommandCenter.ts`: WAITING_VERBS / thinkingLevels / contextOptions / proposalMocks。
+- `src/types/aiCommandCenter.ts`: ChatWindow/ChatMessage/Proposal 等类型。
+
 ## 🛠️ 技术栈 (Tech Stack)
 
 | 领域 | 技术选型 | 说明 |
@@ -101,7 +122,7 @@
 | **3D 引擎** | Three.js | 业界标准的 WebGL 库 |
 | **状态管理** | Pinia | 轻量级、类型安全的状态管理 |
 | **样式方案** | Vanilla CSS | 使用 CSS Variables 定义设计系统 (Design Tokens) |
-| **通信协议** | SignalR (规划中) | 用于与后端 Server/Agent 进行实时事件通讯 |
+| **通信协议** | HTTP Streaming (SSE-like) + SignalR (规划中) | 前端已接入 Agent 流式输出，SignalR 用于后续双向同步 |
 
 ## 🚀 快速开始 (Getting Started)
 
@@ -133,6 +154,10 @@
 src/
 ├── components/         # Vue UI 组件
 │   └── (UI 覆盖层、工具栏等)
+├── composables/        # 组合式逻辑
+│   └── aiCommandCenter/ # AI Command Center 模块化逻辑
+├── constants/          # 项目常量
+│   └── aiCommandCenter.ts # AI 指挥中心常量
 ├── services/           # 核心业务逻辑服务
 │   ├── builders/       # 3D 场景构建器
 │   │   └── SceneBuilder.ts  # 负责解析 JSON 并生成 Three.js Mesh
@@ -141,7 +166,8 @@ src/
 ├── stores/             # Pinia 状态仓库
 │   └── canvasStore.ts  # 管理 CanvasDocument 数据流和加载状态
 ├── types/              # TypeScript 类型定义
-│   └── canvas.ts       # 核心数据模型 (Wall, Column, Opening, etc.)
+│   ├── canvas.ts       # 核心数据模型 (Wall, Column, Opening, etc.)
+│   └── aiCommandCenter.ts # AI 指挥中心类型
 ├── App.vue             # 应用入口组件 (负责挂载 3D 画布和 UI)
 └── main.ts             # 应用初始化
 ```
@@ -342,4 +368,4 @@ const endBatchUpdate = async () => {
 > 架构文档: `docs/FileDrivenArchitecture.md`
 
 ---
-*文档最后更新时间: 2026-01-06*
+*文档最后更新时间: 2026-01-28*
