@@ -1,780 +1,89 @@
 <script setup lang="ts">
-import { ref, onMounted, nextTick, computed, watch } from 'vue';
+import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue';
+import { storeToRefs } from 'pinia';
 import { useCanvasStore } from '../../stores/canvasStore';
 import { useGitStore } from '../../stores/gitStore';
-import { ProjectService } from '../../services/ProjectService';
-import { getScreenshotService } from '../../services/ScreenshotService';
-import { storeToRefs } from 'pinia';
+import type { SubAgent, ToolCall, ChatBubble } from '../../types/agent';
+import { proposalMocks } from '../../constants/aiCommandCenter';
+import { useAgentConfig } from '../../composables/aiCommandCenter/useAgentConfig';
+import { useChatScroll } from '../../composables/aiCommandCenter/useChatScroll';
+import { useChatStream } from '../../composables/aiCommandCenter/useChatStream';
+import { useContextMenu } from '../../composables/aiCommandCenter/useContextMenu';
+import { usePanelUI } from '../../composables/aiCommandCenter/usePanelUI';
+import { useScreenshot } from '../../composables/aiCommandCenter/useScreenshot';
+import { useWindowManager } from '../../composables/aiCommandCenter/useWindowManager';
 import BranchCheckoutConfirmDialog from './Ribbon/BranchCheckoutConfirmDialog.vue';
 import BranchCreationDialog from './Ribbon/BranchCreationDialog.vue';
-import type { SubAgent, ToolCall, ChatBubble, WaitingState } from '../../types/agent';
-import { GitWorktreeService } from '../../services/GitWorktreeService';
-import { SignalRService } from '../../services/SignalRService';
-import {
-  createTextBubble,
-  createToolCallBubble,
-  createSubAgentBubble,
-  enterWaitingState,
-  exitWaitingState,
-  hasStreamingSubAgent,
-  findBubbleByIdDeep,
-  getLastStreamingTextBubble,
-  completeBubble,
-  failBubble,
-  appendToolCallOutput,
-  updateSubAgentResult,
-  markAsBackground,
-  findStreamingSubAgents
-} from '../../utils/bubbleManager';
 import ToolCallBubble from './ToolCallBubble.vue';
 import SubAgentBubble from './SubAgentBubble.vue';
 import WaitingIndicator from './WaitingIndicator.vue';
-// ... imports
-import GlassSelect from './base/GlassSelect.vue';
+import TaskSummaryWidget from './TaskSummaryWidget.vue';
+import MarkdownText from './base/MarkdownText.vue';
+import AdvancedScreenshotOverlay from './AdvancedScreenshotOverlay.vue';
 
 const props = defineProps<{
   panelReady?: boolean;
 }>();
 
-// ... existing code ...
-
-// Icons
-const branchIcon = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><line x1="6" y1="3" x2="6" y2="15"></line><circle cx="18" cy="6" r="3"></circle><circle cx="6" cy="18" r="3"></circle><path d="M18 9a9 9 0 0 1-9 9"></path></svg>';
-const createIcon = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>';
-
-// Computed: Options for Primary Window Branch Select (Switch Mode - includes Create New)
-const primaryWindowBranchOptions = computed(() => [
-  ...branches.value.map(b => ({
-    label: b.name,
-    value: b.name, // Use name as value for consistency with current logic
-    icon: branchIcon,
-    tags: b.commit ? [b.commit.message.substring(0, 25) + (b.commit.message.length > 25 ? '...' : '')] : [],
-  })),
-  {
-    label: '新建分支...',
-    value: '__create_new__',
-    icon: createIcon
-  }
-]);
-
-// Computed: Options for New Window Branch Select (Select Only - NO Create New)
-const newWindowBranchOptions = computed(() =>
-  branches.value.map(b => ({
-    label: b.name,
-    value: b.name,
-    icon: branchIcon,
-    tags: b.commit ? [b.commit.message.substring(0, 25) + (b.commit.message.length > 25 ? '...' : '')] : []
-  }))
-);
-
-// Handle Primary Window Branch Change
-const handlePrimaryBranchChange = (val: string | number) => {
-  if (val === '__create_new__') {
-    handleCreateNewBranchForPrimary();
-    return;
-  }
-  
-  const branchName = val as string;
-  // Check if occupied by other window
-  if (isBranchOccupiedByOther(branchName)) {
-    // Optional: Show warning or prevent switch
-    console.warn('Branch is occupied by another window');
-    // For now we allow it but maybe we should show a toast
-  }
-  
-  selectBranch(branchName);
-};
-
-// Handle New Window Branch Selection
-const handleNewWindowBranchSelect = (val: string | number) => {
-  if (val === '__create_new__') {
-    handleCreateNewBranch();
-    return;
-  }
-  
-  const branchName = val as string;
-  addWindow(branchName);
-};
-
-// ... existing code ...
-
-// In Template: Replace Primary Window Dropdown
-/*
-<div class="window-tab primary" ...>
-  ...
-  <GlassSelect
-    :model-value="win.branchId"
-    @update:model-value="handlePrimaryBranchChange"
-    :options="primaryWindowBranchOptions"
-    width="140px"
-    variant="glass" 
-    class="branch-select-override"
-  />
-  ...
-</div>
-*/
-
-// In Template: Replace New Window Button/Dropdown
-/*
-<div class="new-window-wrapper">
-   <GlassSelect
-      placeholder="New Window..."
-      :options="newWindowBranchOptions"
-      @update:model-value="handleNewWindowBranchSelect"
-      width="40px" 
-      variant="glass"
-      :model-value="null" 
-   >
-     <template #trigger>
-       <button class="add-window-btn" title="New Window">
-         <svg ...>+</svg>
-       </button>
-     </template>
-   </GlassSelect>
-</div>
-*/
-// Wait, GlassSelect doesn't support custom trigger slot yet. 
-// I should use GlassSelect normally but maybe style it to look like the add button? 
-// Or better, keep the add button and use a hidden GlassSelect or just use GlassSelect as the "New Window" action itself.
-
-// Actually, the user wants "New Virtual Window" to have the unified style. 
-// The current UI has a "+" button that opens a dropdown.
-// If I replace it with a GlassSelect, it will look like a select box.
-// Maybe I should modify GlassSelect to support a custom trigger or just use it as is but small?
-
-// Let's look at the screenshot. The "New Window" is a "+" tab.
-// If I use GlassSelect there, it might look weird if it's a full select box.
-// However, the user said "New Virtual Window" is one of the places to unify.
-// Maybe they mean the dropdown *content* style, not necessarily the trigger.
-// But GlassSelect bundles trigger and dropdown.
-
-// Strategy:
-// 1. For Primary Window: Replace the text/icon branch display with GlassSelect.
-// 2. For New Window: The "+" button is iconic. 
-//    I will try to use GlassSelect but maybe with a very minimal width or custom style to mimic the tab?
-//    OR, I can add a `customTrigger` slot to `GlassSelect` to allow using the "+" button as the trigger.
-//    This seems like the best approach to maintain the "+" tab aesthetic while getting the unified dropdown.
-
-// Let's first add the slot to GlassSelect.vue.
-
-// API Configuration
 const AGENT_API_BASE = 'http://127.0.0.1:8765';
 
-const panelWidth = ref(480);
-const isResizing = ref(false);
-const isBranchDropdownOpen = ref(false);
-const showCheckoutConfirmDialog = ref(false);
-const pendingCheckoutBranch = ref('');
-const pendingWindowId = ref('');  // 窗口标签页切换时记录目标窗口ID
-const pendingIsCreateBranch = ref(false);  // 是否是新建分支场景
-const mode = ref('chat'); // 'chat' | 'tasks'
-const isTaskSummaryExpanded = ref(false);
+const { panelWidth, windowTabsRef, carouselTrackRef, startResize, handleTabsWheel, handleWheel } = usePanelUI();
 
-// Git Store - 使用共享Store管理分支状态
+const mode = ref<'chat' | 'tasks'>('chat');
+
 const gitStore = useGitStore();
-const { branches, currentBranch, isLoading: isBranchLoading } = storeToRefs(gitStore);
+const { branches, currentBranch } = storeToRefs(gitStore);
 
-// Store Integration
 const store = useCanvasStore();
 const { selectedIds } = storeToRefs(store);
 
-// Computed Selection State - 使用 selectedIds 作为选中数量的数据源
-const selectedModuleCount = computed(() => {
-  return selectedIds.value.length;
-});
+const selectedModuleCount = computed(() => selectedIds.value.length);
 
-// Debug watcher
-
-
-// Sticky Scope State
 const activeScope = ref('Global');
 
-// Watch selection to update scope (Sticky Logic)
 watch(selectedModuleCount, (count) => {
   if (count > 0) {
-    // In a real app, we would find the room of the selected item here.
-    // For now, we simulate it being 'Living Room'.
     activeScope.value = 'Living Room';
   }
-  // If count === 0, we DO NOT reset activeScope, keeping it "sticky".
 });
 
-// Agent connection state
-const agentStatus = ref<'connecting' | 'connected' | 'disconnected'>('disconnected');
-const currentProjectPath = ref('');
-
-// Chat state - 使用时间线气泡模型
-interface ChatMessage {
-  role: 'user' | 'ai';
-  /** 是否正在流式传输 */
-  isStreaming?: boolean;
-  /** 开始时间戳 */
-  startTime?: number;
-  /** 结束时间戳 */
-  endTime?: number;
-  /** 思考内容 */
-  thinking?: string;
-  /** 思考持续时间 */
-  thinkingDuration?: string;
-  /** 时间线气泡列表（核心数据结构） */
-  bubbles: ChatBubble[];
-  /** 等待状态 */
-  waitingState: WaitingState;
-}
-
-// === 多窗口聊天数据结构 (Phase 2: 窗口隔离架构) ===
-interface ChatWindow {
-  id: string;
-  name: string;
-  branchId: string;
-  messages: ChatMessage[];
-  isPrimary: boolean;
-  // === 后端 Worktree 关联字段 ===
-  worktreeName?: string;  // 后端 Worktree 名称（虚拟窗口必填）
-  worktreePath?: string;  // 后端 Worktree 完整路径（虚拟窗口必填）
-  isLoading?: boolean;    // 加载状态（创建/删除中）
-  error?: string | null;  // 错误信息
-  // === 窗口隔离状态（Phase 2 新增）===
-  inputMessage: string;           // 输入框内容
-  isStreaming: boolean;           // 正在接收SSE流
-  pendingImages: string[];        // 待发送截图
-  scrollPosition: number;         // 滚动位置
-  expandedThinking: Record<number, boolean>; // 思考折叠状态
-  shouldAutoScroll: boolean;      // 是否自动滚动
-}
-
-// 窗口状态
-const windows = ref<ChatWindow[]>([]);
-const activeWindowId = ref<string>('');
-
-// 初始化默认窗口
-const initDefaultWindow = () => {
-  if (windows.value.length > 0) return; // 防止重复初始化
-  const defaultId = 'window-main';
-  windows.value = [{
-    id: defaultId,
-    name: 'Main',
-    branchId: currentBranch.value || 'main',
-    messages: [],
-    isPrimary: true,
-    // Phase 2: 窗口隔离状态
-    inputMessage: '',
-    isStreaming: false,
-    pendingImages: [],
-    scrollPosition: 0,
-    expandedThinking: {},
-    shouldAutoScroll: true
-  }];
-  activeWindowId.value = defaultId;
-};
-
-// Sync Primary Window branchId with currentBranch from gitStore
-// Bug fix: 只在主窗口是当前活跃窗口时才同步 branchId
-// 避免创建新窗口时主窗口的分支名跟着变化
-watch(currentBranch, (newBranch) => {
-  if (!newBranch) return;
-  const primaryWindow = windows.value.find(w => w.isPrimary);
-  // 只有当主窗口是当前活跃窗口时才同步
-  if (primaryWindow &&
-      primaryWindow.id === activeWindowId.value &&
-      primaryWindow.branchId !== newBranch) {
-    primaryWindow.branchId = newBranch;
-  }
-}, { immediate: true });
-
-// === Phase 2: 核心 computed - 当前活跃窗口 ===
-const activeWindow = computed(() =>
-  windows.value.find(w => w.id === activeWindowId.value) || windows.value[0]
-);
-
-/**
- * 添加消息到当前窗口（Phase 2 简化版）
- * @param message 要添加的消息
- * @returns 消息在窗口消息列表中的索引
- */
-const addMessage = (message: ChatMessage): number => {
-  const win = activeWindow.value;
-  if (!win) return -1;
-  const index = win.messages.length;
-  win.messages.push(message);
-  return index;
-};
-
-/**
- * 向指定窗口添加消息（用于 SSE 流定位）
- * @param windowId 窗口ID
- * @param message 要添加的消息
- * @returns 消息索引
- */
-const addMessageToWindow = (windowId: string, message: ChatMessage): number => {
-  const win = windows.value.find(w => w.id === windowId);
-  if (!win) return -1;
-  const index = win.messages.length;
-  win.messages.push(message);
-  return index;
-};
-
-/**
- * 获取指定窗口的消息
- * @param windowId 窗口ID
- * @param msgIndex 消息索引
- */
-const getWindowMessage = (windowId: string, msgIndex: number): ChatMessage | undefined => {
-  const win = windows.value.find(w => w.id === windowId);
-  return win?.messages[msgIndex];
-};
-
-// === 窗口管理函数 (Phase 4) ===
-
-// 切换窗口（Phase 2: 无消息拷贝，v-show 瞬间切换）
-// 核心：通知 Server 切换活跃窗口，然后重新加载项目数据
-const switchWindow = async (id: string) => {
-  if (activeWindowId.value === id) return;
-
-  const win = windows.value.find(w => w.id === id);
-  if (!win) return;
-
-  // 0. 保存当前窗口滚动位置
-  const currentWin = activeWindow.value;
-  const currentScrollRef = chatScrollRefs.value[activeWindowId.value];
-  if (currentScrollRef && currentWin) {
-    currentWin.scrollPosition = currentScrollRef.scrollTop;
-  }
-
-  // 1. 切换（Phase 2: 不再需要消息拷贝！v-show 保留所有窗口 DOM）
-  activeWindowId.value = id;
-  branches.value.forEach(b => b.isCurrent = b.id === win.branchId);
-
-  // 2. 通知 Server 激活窗口（让 GetProjectData 知道读取哪个 Worktree）
-  try {
-    await fetch('http://localhost:5000/api/windows/activate', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ windowId: id })
-    });
-    console.log(`[Window] 激活窗口: ${win.name} (${id})`);
-  } catch (e) {
-    console.warn('[Window] 通知 Server 激活窗口失败:', e);
-  }
-
-  // 3. 重新加载项目数据（始终重新加载，因为 Server 根据 ActiveWindowId 返回不同数据）
-  await store.loadProject({ source: 'git_checkout', preserveView: true });
-  console.log(`[Window] 重新加载项目数据完成`);
-
-  // 4. 恢复目标窗口滚动位置
-  nextTick(() => {
-    const targetScrollRef = chatScrollRefs.value[id];
-    if (targetScrollRef && win.scrollPosition) {
-      targetScrollRef.scrollTop = win.scrollPosition;
-    }
-  });
-};
-
-// State for new window dropdown
-const showNewWindowDropdown = ref(false);
-const showBranchCreationDialog = ref(false);
-
-// Computed: Available branches (not currently opened in any window)
-// Note: Using branch.name for comparison because currentBranch returns branch name, not id
-const availableBranches = computed(() => {
-    const occupiedBranchNames = windows.value.map(w => w.branchId);
-    return branches.value.filter(b => !occupiedBranchNames.includes(b.name));
+const {
+  windows,
+  activeWindowId,
+  activeWindow,
+  showNewWindowDropdown,
+  showBranchCreationDialog,
+  showCheckoutConfirmDialog,
+  pendingCheckoutBranch,
+  isBranchDropdownOpen,
+  newWindowDropdownPosition,
+  branchOptionsForDialog,
+  initDefaultWindow,
+  addMessage,
+  addMessageToWindow,
+  getWindowMessage,
+  handleCreateNewBranchForPrimary,
+  handleBranchCreated,
+  selectBranch,
+  handleCheckoutConfirm,
+  handleCheckoutCancel,
+  isBranchOccupiedByOther,
+  isBranchOccupied,
+  closeWindow,
+  handleNewWindowClick,
+  toggleBranchDropdown,
+  handleWindowTabClick,
+  addWindow,
+  setChatScrollRefs,
+  setStreamWelcomeMessage
+} = useWindowManager({
+  branches,
+  currentBranch,
+  gitStore,
+  store,
+  agentApiBase: AGENT_API_BASE
 });
 
-// Computed: Branch options for BranchCreationDialog
-const branchOptionsForDialog = computed(() =>
-  branches.value.map(b => ({ label: b.name, value: b.id }))
-);
-
-// 记录新建分支的来源：'newWindow' 或 'primarySwitch'
-const branchCreationSource = ref<'newWindow' | 'primarySwitch'>('newWindow');
-
-// 打开新建分支对话框（从新建窗口下拉框）
-const handleCreateNewBranch = () => {
-  showNewWindowDropdown.value = false;
-  branchCreationSource.value = 'newWindow';
-  showBranchCreationDialog.value = true;
-};
-
-// 打开新建分支对话框（从主窗口分支切换下拉框）
-const handleCreateNewBranchForPrimary = () => {
-  isBranchDropdownOpen.value = false;
-  branchCreationSource.value = 'primarySwitch';
-  showBranchCreationDialog.value = true;
-};
-
-// 处理分支创建完成
-const handleBranchCreated = async (data: { name: string; baseBranch: string; reason: string }) => {
-  showBranchCreationDialog.value = false;
-
-  // 如果是主窗口切换，显示 loading
-  const isPrimarySwitch = branchCreationSource.value === 'primarySwitch';
-  if (isPrimarySwitch) {
-    const primaryWindow = windows.value.find(w => w.isPrimary);
-    if (primaryWindow) primaryWindow.isLoading = true;
-  }
-
-  try {
-    // 创建分支
-    const result = await gitStore.checkout(data.name, {
-      createIfNotExist: true,
-      commitMessage: data.reason,
-      baseBranch: data.baseBranch
-    });
-    if (result.success) {
-      // 刷新分支列表
-      await gitStore.fetchBranches();
-
-      // 根据来源决定后续操作
-      if (branchCreationSource.value === 'newWindow') {
-        // 从新建窗口下拉框来的，创建新窗口
-        addWindow(data.name);
-      }
-      // 从主窗口下拉框来的，主窗口 branchId 会通过 watch(currentBranch) 自动更新
-      return;
-    }
-    
-    // 如果有未提交的更改，显示确认弹窗
-    if (result.hasUncommittedChanges) {
-      pendingCheckoutBranch.value = data.name;
-      pendingWindowId.value = '';  // 清空窗口ID，这不是窗口切换场景
-      pendingIsCreateBranch.value = true;  // 标记为新建分支场景
-      showCheckoutConfirmDialog.value = true;
-      // 关闭 loading（弹窗期间暂停）
-      if (isPrimarySwitch) {
-        const primaryWindow = windows.value.find(w => w.isPrimary);
-        if (primaryWindow) primaryWindow.isLoading = false;
-      }
-      return;
-    }
-    
-    console.error('创建/切换分支失败:', result.message);
-  } finally {
-    // 关闭 loading
-    if (isPrimarySwitch) {
-      const primaryWindow = windows.value.find(w => w.isPrimary);
-      if (primaryWindow) primaryWindow.isLoading = false;
-    }
-  }
-};
-
-// Bug fix: 检查分支是否被其他窗口占用（用于主窗口分支切换下拉列表）
-const isBranchOccupiedByOther = (branchName: string): boolean => {
-    return windows.value.some(w =>
-        w.branchId === branchName && w.id !== activeWindowId.value
-    );
-};
-
-// 检查分支是否被任何窗口占用（用于新建窗口下拉列表）
-const isBranchOccupied = (branchName: string): boolean => {
-    return windows.value.some(w => w.branchId === branchName);
-};
-
-// Close window
-// 对接后端 Git Worktree API 删除对应的 Worktree
-const closeWindow = async (id: string) => {
-    const index = windows.value.findIndex(w => w.id === id);
-    if (index === -1) return;
-
-    const win = windows.value[index];
-    if (win.isPrimary) {
-        console.warn('[Window] Cannot close primary window');
-        return;
-    }
-
-    // 如果正在加载中，不允许关闭
-    if (win.isLoading) {
-        console.warn('[Window] Cannot close window while loading');
-        return;
-    }
-
-    // 设置加载状态
-    win.isLoading = true;
-    console.log(`[Window] Closing window: ${win.name}...`);
-
-    // 调用后端 API 删除 Worktree
-    try {
-        if (win.worktreeName) {
-            await GitWorktreeService.deleteWorktree(win.worktreeName, false);
-            console.log(`[Window] Worktree deleted: ${win.worktreeName}`);
-        }
-    } catch (error: any) {
-        // 即使删除失败也继续关闭窗口（后端可能已不存在）
-        console.error(`[Window] Delete worktree failed: ${error.message}`);
-    }
-
-    // 注销窗口 Worktree 映射
-    try {
-        await fetch(`http://localhost:5000/api/windows/worktree/${id}`, {
-            method: 'DELETE'
-        });
-        console.log(`[Window] 注销 Worktree 映射: ${id}`);
-    } catch (error: any) {
-        console.warn(`[Window] 注销 Worktree 映射失败: ${error.message}`);
-    }
-
-    // 关闭 Agent 实例（释放资源）
-    try {
-        await fetch(`${AGENT_API_BASE}/api/agent/close`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ windowId: id })
-        });
-        console.log(`[Window] Agent 实例已关闭: ${id}`);
-    } catch (error: any) {
-        // 即使关闭失败也继续（Agent可能未创建）
-        console.warn(`[Window] 关闭 Agent 实例失败: ${error.message}`);
-    }
-
-    // 从 UI 移除窗口（先移除，再切换焦点）
-    windows.value.splice(index, 1);
-    console.log(`[Window] Closed window: ${win.name}`);
-
-    // 切换焦点（如果关闭的是当前活跃窗口）
-    if (activeWindowId.value === id) {
-        // 计算新的活跃窗口索引（移除后的数组）
-        const newActiveIndex = Math.min(index, windows.value.length - 1);
-        const newActiveWin = windows.value[newActiveIndex];
-        if (newActiveWin) {
-            // Phase 2: 只需切换 activeWindowId，computed 兼容层会自动映射消息
-            activeWindowId.value = newActiveWin.id;
-            branches.value.forEach(b => b.isCurrent = b.id === newActiveWin.branchId);
-            // 重新加载项目数据
-            await store.loadProject({ source: 'git_checkout', preserveView: true });
-        }
-    }
-};
-
-// Toggle New Window Dropdown (Exclusive)
-// 移除 availableBranches 检查，因为现在有"新建分支"选项，下拉框应总是能打开
-const handleNewWindowClick = (event: MouseEvent) => {
-    // Close other dropdowns
-    isBranchDropdownOpen.value = false;
-
-    // 计算下拉框位置（相对于按钮）
-    const btn = event.currentTarget as HTMLElement;
-    if (btn) {
-        const rect = btn.getBoundingClientRect();
-        const parentRect = btn.closest('.header-tabs')?.getBoundingClientRect();
-        if (parentRect) {
-            const dropdownWidth = 280; // 下拉框宽度
-            const viewportWidth = window.innerWidth;
-            const spaceOnRight = viewportWidth - rect.left; // 按钮左边缘到视口右边的空间
-
-            // 使用 header-tabs 的高度作为 top，确保与主窗口下拉框对齐
-            const top = parentRect.height + 4; // 4px 间距
-
-            if (spaceOnRight >= dropdownWidth + 8) {
-                // 右侧空间足够，使用 left 定位（向右展开）
-                newWindowDropdownPosition.value = {
-                    top,
-                    left: rect.left - parentRect.left,
-                    right: undefined
-                };
-            } else {
-                // 右侧空间不足，使用 right 定位（向左展开）
-                newWindowDropdownPosition.value = {
-                    top,
-                    left: undefined,
-                    right: parentRect.right - rect.right
-                };
-            }
-        }
-    }
-
-    showNewWindowDropdown.value = !showNewWindowDropdown.value;
-};
-
-// Toggle Branch Switch Dropdown (Exclusive)
-const toggleBranchDropdown = () => {
-    // Close other dropdowns
-    showNewWindowDropdown.value = false;
-
-    // 先切换状态（立即打开下拉框，无延迟）
-    const opening = !isBranchDropdownOpen.value;
-    isBranchDropdownOpen.value = opening;
-
-    // 打开时触发后台刷新，利用Vue响应式自动更新列表
-    if (opening) {
-        void gitStore.fetchBranches();  // 不阻塞UI
-    }
-};
-
-// Handle Window Tab Click - Only for switching windows
-// Branch dropdown is triggered by clicking on .tab-branch area (primary window only)
-const handleWindowTabClick = async (win: ChatWindow) => {
-    if (activeWindowId.value !== win.id) {
-        const currentWin = activeWindow.value;
-
-        // ⭐ 关键判断：虚拟窗口切换跳过 checkout
-        // 虚拟窗口已在 worktree 中绑定分支，只需激活窗口即可
-        const isVirtualWindow = !!win.worktreeName;
-        const needsCheckout = currentWin &&
-                              win.branchId !== currentWin.branchId &&
-                              !isVirtualWindow;
-
-        if (needsCheckout) {
-            // 主窗口切换分支：检查未提交更改
-            const result = await gitStore.checkout(win.branchId);
-            if (result.success) {
-                // 切换成功，继续切换窗口
-                switchWindow(win.id);
-                return;
-            }
-            if (result.hasUncommittedChanges) {
-                // 有未提交更改，显示确认弹窗
-                pendingCheckoutBranch.value = win.branchId;
-                pendingWindowId.value = win.id;
-                showCheckoutConfirmDialog.value = true;
-                return;
-            }
-            console.error('切换分支失败:', result.message);
-            return;
-        }
-
-        // 虚拟窗口切换或同分支切换：直接切换
-        switchWindow(win.id);
-    }
-};
-
-// Add window with selected branch (using branch name as identifier)
-// 对接后端 Git Worktree API
-const addWindow = async (branchName: string) => {
-    const branch = branches.value.find(b => b.name === branchName);
-    if (!branch) return;
-
-    const timestamp = Date.now();
-    const worktreeName = `window-${timestamp}`;
-    const newId = `window-${timestamp}`;
-    const windowNumber = windows.value.length + 1;
-
-    // 1. 先在 UI 显示加载状态
-    const newWindow: ChatWindow = {
-        id: newId,
-        name: `Chat ${windowNumber}`,
-        branchId: branch.name,
-        messages: [],
-        isPrimary: false,
-        worktreeName,
-        isLoading: true,
-        error: null,
-        // Phase 2: 窗口隔离状态
-        inputMessage: '',
-        isStreaming: false,
-        pendingImages: [],
-        scrollPosition: 0,
-        expandedThinking: {},
-        shouldAutoScroll: true
-    };
-    windows.value.push(newWindow);
-    switchWindow(newId);
-    showNewWindowDropdown.value = false;
-    console.log(`[Window] Creating window: ${newWindow.name} on branch ${branch.name}...`);
-
-    // 2. 调用后端 API 创建 Worktree
-    try {
-        await GitWorktreeService.createWorktree({
-            name: worktreeName,
-            branch: branch.name,
-            intent: 'parallel'  // 虚拟窗口使用并行意图，关闭时保留分支
-        });
-        // 成功：更新状态
-        const idx = windows.value.findIndex(w => w.id === newId);
-        if (idx !== -1) {
-            windows.value[idx].isLoading = false;
-            console.log(`[Window] Created successfully: ${newWindow.name}`);
-        }
-
-        // 3. 注册窗口 Worktree 映射到 Server（用于 Canvas 数据隔离）
-        const worktreeInfo = await GitWorktreeService.getWorktrees();
-        const createdWorktree = worktreeInfo.find(w => w.name === worktreeName);
-        if (createdWorktree) {
-            await fetch('http://localhost:5000/api/windows/register-worktree', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    windowId: newId,
-                    worktreePath: createdWorktree.path
-                })
-            });
-            console.log(`[Window] 注册 Worktree 映射: ${newId} -> ${createdWorktree.path}`);
-
-            // 保存 worktreePath 到窗口对象（用于 Chat 请求时传递给 Agent）
-            const pathIdx = windows.value.findIndex(w => w.id === newId);
-            if (pathIdx !== -1) {
-                windows.value[pathIdx].worktreePath = createdWorktree.path;
-            }
-
-            // 重新加载项目数据（映射注册完成后才能正确读取 Worktree 数据）
-            await store.loadProject({ source: 'git_checkout', preserveView: true });
-            console.log(`[Window] 重新加载项目数据完成`);
-        }
-
-        // 4. 注册窗口到 SignalR 并获取分支锁（用于断开连接时清理资源）
-        SignalRService.getInstance().registerWindow(newId, branch.name);
-
-        // 5. 为新窗口初始化欢迎消息
-        await streamWelcomeMessage();
-    } catch (error: any) {
-        // 失败：显示错误
-        const idx = windows.value.findIndex(w => w.id === newId);
-        if (idx !== -1) {
-            windows.value[idx].isLoading = false;
-            windows.value[idx].error = error.message || '创建失败';
-            console.error(`[Window] Create failed: ${error.message}`);
-        }
-        // 3秒后自动移除失败的窗口
-        setTimeout(() => {
-            const idx = windows.value.findIndex(w => w.id === newId);
-            if (idx !== -1 && windows.value[idx].error) {
-                windows.value.splice(idx, 1);
-                // 切换到主窗口
-                const primary = windows.value.find(w => w.isPrimary);
-                if (primary) switchWindow(primary.id);
-            }
-        }, 3000);
-    }
-};
-
-// Claude Code 风格的拟人等待提示词 (169 个)
-const WAITING_VERBS = [
-  'Accomplishing', 'Actioning', 'Actualizing', 'Baking', 'Beaming', 'Beboppin',
-  'Befuddling', 'Billowing', 'Blanching', 'Bloviating', 'Boogieing', 'Boondoggling',
-  'Bootstrapping', 'Booping', 'Brewing', 'Burrowing', 'Calculating', 'Caramelizing',
-  'Cascading', 'Capturing', 'Cerebrating', 'Channelling', 'Choreographing', 'Churning',
-  'Clauding', 'Coalescing', 'Cogitating', 'Composing', 'Combobulating', 'Concocting',
-  'Considering', 'Contemplating', 'Cooking', 'Crafting', 'Creating', 'Crunching',
-  'Crystallizing', 'Cultivating', 'Deciphering', 'Deliberating', 'Determining',
-  'Discombobulating', 'Distilling', 'Doing', 'Dilly-dallying', 'Doodling', 'Ebbing',
-  'Effecting', 'Elucidating', 'Embellishing', 'Enchanting', 'Envisioning', 'Evaporating',
-  'Fermenting', 'Fiddle-fadding', 'Finagling', 'Flambéing', 'Flibbertigibbeting',
-  'Flowing', 'Flummoxing', 'Forging', 'Forming', 'Frosting', 'Frolicking', 'Gallivanting',
-  'Generating', 'Germinating', 'Gitifying', 'Grooving', 'Gusting', 'Hatching', 'Herding',
-  'Hibernating', 'Honking', 'Hullaballooing', 'Hyperspacing', 'Ideating', 'Imagining',
-  'Incubating', 'Inferring', 'Infusing', 'Jitterbugging', 'Julienning', 'Kneading',
-  'Leavening', 'Levitating', 'Lollygagging', 'Manifesting', 'Marinating', 'Meandering',
-  'Misting', 'Moseying', 'Mulling', 'Mustering', 'Musing', 'Nebulizing', 'Noodling',
-  'Nucleating', 'Orbiting', 'Perambulating', 'Percolating', 'Perusing', 'Philosophising',
-  'Photosynthesizing', 'Pontificating', 'Pondering', 'Pollinating', 'Precipitating',
-  'Processing', 'Proofing', 'Propagating', 'Puttering', 'Puzzling', 'Quantumizing',
-  'Razzle-dazzling', 'Recombobulating', 'Reticulating', 'Ruminating', 'Scheming',
-  'Schlepping', 'Scurrying', 'Scampering', 'Seasoning', 'Shenaniganing', 'Shimming',
-  'Shimmying', 'Simmering', 'Skedaddling', 'Sketching', 'Slithering', 'Smooshing',
-  'Spelunking', 'Spinning', 'Sprouting', 'Stewing', 'Sublimating', 'Sussing', 'Swooping',
-  'Symbioting', 'Synthesizing', 'Tempering', 'Thinking', 'Thundering', 'Tinkering',
-  'Topsy-turvying', 'Transfiguring', 'Transmuting', 'Trick-or-treating', 'Twisting',
-  'Unfurling', 'Unravelling', 'Vibing', 'Waddling', 'Wandering', 'Warping',
-  'Whatchamacalliting', 'Whirlpooling', 'Whirring', 'Whisking', 'Wibbling', 'Working',
-  'Wrangling', 'Zesting', 'Zigzagging'
-];
-
-// 随机选择一个等待提示词
-const getRandomWaitingVerb = (): string => {
-  return WAITING_VERBS[Math.floor(Math.random() * WAITING_VERBS.length)];
-};
-
-// === Phase 2: 兼容层 computed（映射到当前活跃窗口）===
-// 让大部分旧代码无需修改即可工作
 const chatMessages = computed({
   get: () => activeWindow.value?.messages || [],
   set: (val) => { if (activeWindow.value) activeWindow.value.messages = val; }
@@ -795,57 +104,111 @@ const isLoading = computed({
   set: (val) => { if (activeWindow.value) activeWindow.value.isStreaming = val; }
 });
 
-const expandedThinking = computed({
-  get: () => activeWindow.value?.expandedThinking || {},
-  set: (val) => { if (activeWindow.value) activeWindow.value.expandedThinking = val; }
-});
-
 const shouldAutoScroll = computed({
   get: () => activeWindow.value?.shouldAutoScroll ?? true,
   set: (val) => { if (activeWindow.value) activeWindow.value.shouldAutoScroll = val; }
 });
 
-// 全局状态（非窗口隔离）
-const isPollingBackground = ref(false);  // 后台任务 polling 状态
+const {
+  models,
+  currentModel,
+  currentThinking,
+  thinkingLevels,
+  isModelMenuOpen,
+  isThinkingMenuOpen,
+  isAddingModel,
+  newModelId,
+  newModelInputRef,
+  fetchAgentConfig,
+  selectModel,
+  startAddModel,
+  confirmAddModel,
+  cancelAddModel,
+  selectThinking
+} = useAgentConfig(AGENT_API_BASE);
 
-// === Phase 2: 多窗口滚动容器 ref ===
-const chatScrollRefs = ref<Record<string, HTMLElement | null>>({});
-const chatBottomRefs = ref<Record<string, HTMLElement | null>>({});
+const {
+  chatScrollRefs,
+  chatScrollRef,
+  setChatScrollRef,
+  setChatBottomRef,
+  handleChatScroll,
+  scrollToBottom,
+  handleTableWheel
+} = useChatScroll({
+  mode,
+  windows,
+  activeWindowId
+});
 
-// 兼容层：保留原有单窗口 ref（用于部分旧逻辑）
-const chatScrollRef = computed(() => chatScrollRefs.value[activeWindowId.value] || null);
-const chatBottomRef = computed(() => chatBottomRefs.value[activeWindowId.value] || null);
+setChatScrollRefs(chatScrollRefs);
 
-// 设置滚动容器 ref（用于模板 :ref）
-const setChatScrollRef = (windowId: string, el: HTMLElement | null) => {
-  if (el) {
-    chatScrollRefs.value[windowId] = el;
-  }
+const {
+  contextOptions,
+  isContextMenuOpen,
+  activeSubmenu,
+  submenuDirection,
+  isAttachmentMenuOpen,
+  toggleContextMenu: baseToggleContextMenu,
+  toggleAttachmentMenu: baseToggleAttachmentMenu,
+  openSubmenu,
+  handleContextSelect
+} = useContextMenu({
+  inputMessage,
+  activeScope
+});
+
+const toggleContextMenu = () => {
+  baseToggleContextMenu();
+  isModelMenuOpen.value = false;
+  isThinkingMenuOpen.value = false;
 };
 
-const setChatBottomRef = (windowId: string, el: HTMLElement | null) => {
-  if (el) {
-    chatBottomRefs.value[windowId] = el;
-  }
-};
-const windowTabsRef = ref<HTMLElement | null>(null);
-const newWindowBtnRef = ref<HTMLElement | null>(null);
-const newWindowDropdownPosition = ref<{
-    top: number;
-    left?: number;
-    right?: number;
-}>({ top: 0 });
-
-// 滚轮横向滚动窗口标签
-const handleTabsWheel = (event: WheelEvent) => {
-  if (!windowTabsRef.value) return;
-  // 阻止默认垂直滚动
-  event.preventDefault();
-  // 将垂直滚动转为水平滚动
-  windowTabsRef.value.scrollLeft += event.deltaY;
+const toggleAttachmentMenu = () => {
+  baseToggleAttachmentMenu();
+  isModelMenuOpen.value = false;
+  isThinkingMenuOpen.value = false;
 };
 
-// Auto-resize Textarea
+const {
+  showScreenshotOverlay,
+  startListening,
+  stopListening,
+  handleScreenshotCapture,
+  handleScreenshotCancel,
+  removePendingImage
+} = useScreenshot({
+  agentApiBase: AGENT_API_BASE,
+  pendingImages
+});
+
+const {
+  agentStatus,
+  isPollingBackground,
+  streamWelcomeMessage,
+  sendMessage,
+  checkAgentHealth,
+  fetchProjectPath
+} = useChatStream({
+  agentApiBase: AGENT_API_BASE,
+  windows,
+  activeWindowId,
+  activeWindow,
+  addMessage,
+  addMessageToWindow,
+  getWindowMessage,
+  pendingImages,
+  currentModel,
+  currentThinking,
+  scrollToBottom,
+  fetchAgentConfig
+});
+
+setStreamWelcomeMessage(streamWelcomeMessage);
+
+const branchIcon = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><line x1="6" y1="3" x2="6" y2="15"></line><circle cx="18" cy="6" r="3"></circle><circle cx="6" cy="18" r="3"></circle><path d="M18 9a9 9 0 0 1-9 9"></path></svg>';
+const createIcon = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>';
+
 const textareaRef = ref<HTMLTextAreaElement | null>(null);
 
 const adjustTextareaHeight = () => {
@@ -856,16 +219,15 @@ const adjustTextareaHeight = () => {
 };
 
 watch(inputMessage, (newVal) => {
-    if (!newVal) {
-        nextTick(() => {
-            if (textareaRef.value) {
-                textareaRef.value.style.height = 'auto';
-            }
-        });
-    }
+  if (!newVal) {
+    nextTick(() => {
+      if (textareaRef.value) {
+        textareaRef.value.style.height = 'auto';
+      }
+    });
+  }
 });
 
-// Phase 2: 支持指定窗口的思考折叠切换
 const toggleThinking = (windowId: string, index: number) => {
   const win = windows.value.find(w => w.id === windowId);
   if (win) {
@@ -873,9 +235,7 @@ const toggleThinking = (windowId: string, index: number) => {
   }
 };
 
-// 辅助函数：将 ChatBubble (subagent) 转换为 SubAgent 格式
 const bubbleToSubAgent = (bubble: ChatBubble): SubAgent => {
-  // 将 childBubbles (tool_call bubbles) 转换为 ToolCall[]
   const toolCalls: ToolCall[] = (bubble.childBubbles || [])
     .filter(child => child.type === 'tool_call')
     .map(child => ({
@@ -900,13 +260,7 @@ const bubbleToSubAgent = (bubble: ChatBubble): SubAgent => {
   };
 };
 
-// Computed: Active or Recent SubAgents for the Task Monitor
-// Logic:
-// 1. If any agents are RUNNING, show them (Priority: High)
-// 2. If no running agents, show agents from the LAST message (Priority: Low, represents "Completed" state)
-// 3. Otherwise empty (Idle)
 const activeSubAgents = computed(() => {
-  // 1. Find all running agents globally (from bubbles)
   const runningAgents: SubAgent[] = [];
   chatMessages.value.forEach(msg => {
     if (msg.bubbles) {
@@ -921,7 +275,6 @@ const activeSubAgents = computed(() => {
     return runningAgents;
   }
 
-  // 2. Fallback: Find the last message with subagent bubbles
   for (let i = chatMessages.value.length - 1; i >= 0; i--) {
     const msg = chatMessages.value[i];
     if (msg.role === 'ai' && msg.bubbles) {
@@ -935,751 +288,47 @@ const activeSubAgents = computed(() => {
   return [];
 });
 
-const handleStopAgent = (agentId: string) => {
-    console.log('Request to stop agent:', agentId);
-    // TODO: Implement backend interrupt call
-};
-
-// === Task Widget State Management ===
 const taskWidgetExpanded = ref(false);
 
-// Auto-expand logic for Task Widget
 watch(activeSubAgents, (newAgents, oldAgents) => {
   const newRunning = newAgents.some(a => a.status === 'running');
   const oldRunning = oldAgents?.some(a => a.status === 'running') ?? false;
-  
-  // 1. From No Tasks -> Has Tasks: Auto expand
+
   if (newAgents.length > 0 && (!oldAgents || oldAgents.length === 0)) {
     taskWidgetExpanded.value = true;
   }
-  // 2. From Completed/Idle -> Running: Auto expand
   if (newRunning && !oldRunning) {
     taskWidgetExpanded.value = true;
   }
 }, { deep: true });
 
-// Mock Data for Tasks - REMOVED (TaskSummaryWidget now uses subAgents)
-// Proposals mock data is kept below for the Proposals carousel
+const proposals = ref(proposalMocks);
 
-const proposals = ref([
-  {
-    id: 'A',
-    name: 'Ultimate Storage',
-    tags: ['Storage++', 'Flow-'],
-    metrics: { storage: '12.5m³', flow: 'Compact' },
-    insight: 'Sacrificed 10% open space for max storage.',
-    color: '#4facfe',
-    thumbnailPattern: 'radial-gradient(circle at 30% 30%, rgba(255,255,255,0.1) 0%, transparent 60%), linear-gradient(135deg, #4facfe 0%, #00f2fe 100%)'
-  },
-  {
-    id: 'B',
-    name: 'Flow Priority',
-    tags: ['Flow++', 'Open'],
-    metrics: { storage: '8.0m³', flow: 'Excellent' },
-    insight: 'Optimized for 1200mm main walkways.',
-    color: '#00f2fe',
-    thumbnailPattern: 'radial-gradient(circle at 70% 70%, rgba(255,255,255,0.1) 0%, transparent 60%), linear-gradient(135deg, #43e97b 0%, #38f9d7 100%)'
-  },
-  {
-    id: 'C',
-    name: 'Minimalist',
-    tags: ['Light++', 'Cost-'],
-    metrics: { storage: '6.5m³', flow: 'Good' },
-    insight: 'Removed non-essential partitions.',
-    color: '#a18cd1',
-    thumbnailPattern: 'radial-gradient(circle at 50% 50%, rgba(255,255,255,0.1) 0%, transparent 60%), linear-gradient(135deg, #fbc2eb 0%, #a6c1ee 100%)'
-  },
-]);
-
-// 设置主窗口的 loading 状态
-const setPrimaryWindowLoading = (loading: boolean) => {
-  const primaryWindow = windows.value.find(w => w.isPrimary);
-  if (primaryWindow) {
-    primaryWindow.isLoading = loading;
-  }
-};
-
-// Select branch - 使用Store方法
-const selectBranch = async (branchId: string) => {
-  isBranchDropdownOpen.value = false;
-
-  // 开始切换，显示 loading
-  setPrimaryWindowLoading(true);
-
-  try {
-    const result = await gitStore.checkout(branchId);
-
-    if (result.success) {
-      return;
-    }
-
-    // 如果有未提交的更改，显示确认弹窗（loading 保持，等待用户选择）
-    if (result.hasUncommittedChanges) {
-      pendingCheckoutBranch.value = branchId;
-      showCheckoutConfirmDialog.value = true;
-      // 弹窗期间暂停 loading
-      setPrimaryWindowLoading(false);
-      return;
-    }
-
-    console.error('切换分支失败:', result.message);
-  } finally {
-    // 切换完成或失败，关闭 loading
-    setPrimaryWindowLoading(false);
-  }
-};
-
-// 确认弹窗回调
-const handleCheckoutConfirm = async (saveBeforeSwitch: boolean, commitMessage?: string) => {
-  showCheckoutConfirmDialog.value = false;
-  const branchName = pendingCheckoutBranch.value;
-  const targetWindowId = pendingWindowId.value;  // 窗口标签页切换时的目标窗口
-  const isCreateBranch = pendingIsCreateBranch.value;  // 是否是新建分支场景
-  if (!branchName) return;
-
-  // 开始切换，显示 loading
-  setPrimaryWindowLoading(true);
-
-  try {
-    if (saveBeforeSwitch) {
-      // 1. 先保存内存数据到文件系统
-      const saved = await store.saveToServer();
-      if (!saved) {
-        console.error('保存数据失败，无法切换分支');
-        pendingCheckoutBranch.value = '';
-        pendingWindowId.value = '';
-        pendingIsCreateBranch.value = false;
-        return;
-      }
-
-      // 2. 再用 commitBeforeCheckout 提交并切换
-      await gitStore.checkout(branchName, {
-        commitBeforeCheckout: true,
-        commitMessage,
-        createIfNotExist: isCreateBranch  // 新建分支场景需要此参数
-      });
-    } else {
-      // 放弃更改并切换：Server端原子操作
-      await gitStore.checkout(branchName, { 
-        discardBeforeCheckout: true,
-        createIfNotExist: isCreateBranch  // 新建分支场景需要此参数
-      });
-    }
-
-    pendingCheckoutBranch.value = '';
-    pendingIsCreateBranch.value = false;
-    
-    // 如果是窗口标签页切换触发的，切换到目标窗口
-    if (targetWindowId) {
-      switchWindow(targetWindowId);
-      pendingWindowId.value = '';
-    }
-  } finally {
-    // 切换完成，关闭 loading
-    setPrimaryWindowLoading(false);
-  }
-};
-
-const handleCheckoutCancel = () => {
-  showCheckoutConfirmDialog.value = false;
-  pendingCheckoutBranch.value = '';
-  pendingWindowId.value = '';
-  pendingIsCreateBranch.value = false;
-};
-
-// Clear selection
 const clearSelection = () => {
   store.clearSelection();
 };
 
-// Check Agent health on mount
 onMounted(async () => {
-  initDefaultWindow();  // 初始化默认窗口
+  initDefaultWindow();
   await checkAgentHealth();
-  await gitStore.fetchBranches();  // 使用Store获取分支列表
-  await fetchProjectPath();  // 获取当前项目路径
-  // 启动截图服务 SSE 监听（响应 Agent 截图请求）
-  const screenshotService = getScreenshotService(AGENT_API_BASE);
-  screenshotService.startListening();
-  // Note: Welcome message is now triggered by panelReady prop
+  await gitStore.fetchBranches();
+  await fetchProjectPath();
+  startListening();
 });
 
-// Watch for panelReady to trigger welcome message streaming
 watch(() => props.panelReady, (newVal) => {
   if (newVal) {
     streamWelcomeMessage();
   }
 });
 
-const streamWelcomeMessage = async () => {
-    const win = activeWindow.value;
-    if (!win) return;
-
-    // Prevent duplicate welcome messages if one already exists
-    if (win.messages.length > 0) return;
-
-    const welcomeText = '你好！我是 BIMCanvas 的布置助手。我可以帮助你分析房间功能、提供布置建议。有什么我能帮你的吗？';
-    const targetWindowId = win.id;
-
-    // 创建欢迎消息，使用气泡模型
-    const welcomeBubble = createTextBubble('');
-    const msgIndex = addMessage({
-        role: 'ai',
-        bubbles: [welcomeBubble],
-        waitingState: { isWaiting: false, waitingVerb: '', waitingSince: 0 },
-        isStreaming: true
-    });
-
-    // Simulate typing effect
-    let i = 0;
-    const interval = setInterval(() => {
-        // Phase 2: 使用 getWindowMessage 定位消息
-        const msg = getWindowMessage(targetWindowId, msgIndex);
-        if (!msg) {
-            clearInterval(interval);
-            return;
-        }
-
-        if (i < welcomeText.length) {
-            // 更新气泡内容
-            msg.bubbles[0].content += welcomeText[i];
-            i++;
-            scrollToBottom({ windowId: targetWindowId });
-        } else {
-            clearInterval(interval);
-            // 标记完成
-            msg.bubbles[0].status = 'completed';
-            msg.isStreaming = false;
-        }
-    }, 30);
-};
-
-// Watch for chat messages to auto-scroll (watch already imported at top)
 watch(() => chatMessages.value, () => {
-    // Only auto-scroll if user is already near bottom
-    if (shouldAutoScroll.value) {
-        nextTick(() => {
-            scrollToBottom();
-        });
-    }
+  if (shouldAutoScroll.value) {
+    nextTick(() => {
+      scrollToBottom();
+    });
+  }
 }, { deep: true });
-
-// Phase 2: 支持指定窗口的 isNearBottom
-const isNearBottom = (windowId?: string) => {
-    const targetWindowId = windowId || activeWindowId.value;
-    const el = chatScrollRefs.value[targetWindowId];
-    if (!el) return true;
-    const threshold = 100;
-    return el.scrollHeight - el.scrollTop - el.clientHeight < threshold;
-};
-
-// Phase 2: 支持指定窗口的滚动事件处理
-const handleChatScroll = (windowId: string) => {
-    if (mode.value !== 'chat') return;
-    const win = windows.value.find(w => w.id === windowId);
-    if (win) {
-        win.shouldAutoScroll = isNearBottom(windowId);
-    }
-};
-
-// Agent API functions
-const checkAgentHealth = async () => {
-  agentStatus.value = 'connecting';
-  try {
-    const response = await fetch(`${AGENT_API_BASE}/health`);
-    if (response.ok) {
-      agentStatus.value = 'connected';
-      // 连接成功后获取服务端配置
-      await fetchAgentConfig();
-    } else {
-      agentStatus.value = 'disconnected';
-    }
-  } catch {
-    agentStatus.value = 'disconnected';
-  }
-};
-
-// 获取 Agent 服务端配置并初始化模型/思考强度选择
-const fetchAgentConfig = async () => {
-  try {
-    // 并行获取默认配置和 Web 配置
-    const [configRes, webConfigRes] = await Promise.all([
-      fetch(`${AGENT_API_BASE}/api/config`),
-      fetch(`${AGENT_API_BASE}/api/web_config`)
-    ]);
-
-    // 加载模型列表（完全由配置文件控制）
-    if (webConfigRes.ok) {
-      const webConfig = await webConfigRes.json();
-      models.value = webConfig.customModels || [];
-    }
-
-    // 加载默认配置
-    if (configRes.ok) {
-      const config = await configRes.json();
-      const { model: defaultModel, thinkingLevel: defaultThinking } = config;
-
-      // 初始化模型选择
-      if (defaultModel) {
-        let found = models.value.find(m => m.id === defaultModel);
-        if (!found) {
-          // 默认模型不在列表中，添加到列表
-          found = { id: defaultModel, label: defaultModel };
-          models.value.push(found);
-        }
-        currentModel.value = found;
-      } else if (models.value.length > 0) {
-        // 没有默认模型配置，选择列表中的第一个
-        currentModel.value = models.value[0];
-      }
-
-      // 初始化思考强度选择
-      if (defaultThinking) {
-        const foundThinking = thinkingLevels.find(t => t.id === defaultThinking);
-        if (foundThinking) {
-          currentThinking.value = foundThinking;
-        }
-      }
-    }
-
-    console.log('Agent 配置已加载:', { model: currentModel.value?.id, thinking: currentThinking.value.id });
-  } catch (error) {
-    console.warn('获取 Agent 配置失败:', error);
-  }
-};
-
-// 获取当前项目路径
-const fetchProjectPath = async () => {
-  try {
-    const status = await ProjectService.getStatus();
-    if (status.isLoaded && status.projectPath) {
-      currentProjectPath.value = status.projectPath;
-      console.log('项目路径已设置:', status.projectPath);
-    } else {
-      console.warn('项目未加载或路径为空');
-    }
-  } catch (error) {
-    console.error('获取项目路径失败:', error);
-  }
-};
-
-const sendMessage = async () => {
-  const win = activeWindow.value;
-  if (!win) return;
-
-  const message = win.inputMessage.trim();
-  if (!message || win.isStreaming) return;
-
-  // Phase 2: 记住发送时的窗口ID，SSE循环中使用此ID定位消息
-  const targetWindowId = win.id;
-
-  // Add user message to chat - 使用气泡模型
-  const userTextBubble = createTextBubble(message);
-  userTextBubble.status = 'completed';
-  addMessageToWindow(targetWindowId, {
-    role: 'user',
-    bubbles: [userTextBubble],
-    waitingState: { isWaiting: false, waitingVerb: '', waitingSince: 0 }
-  });
-  win.inputMessage = '';
-  win.isStreaming = true;  // 仅当前窗口进入加载状态
-
-  // Force scroll to bottom when user sends message
-  win.shouldAutoScroll = true;
-  await nextTick();
-  scrollToBottom({ force: true, windowId: targetWindowId });
-  requestAnimationFrame(() => scrollToBottom({ force: true, windowId: targetWindowId }));
-  setTimeout(() => scrollToBottom({ force: true, windowId: targetWindowId }), 50);
-  setTimeout(() => scrollToBottom({ force: true, windowId: targetWindowId }), 150);
-
-  // Add placeholder AI message for streaming - 使用气泡模型
-  const initialWaitingState: WaitingState = {
-    isWaiting: true,
-    waitingVerb: getRandomWaitingVerb(),
-    waitingSince: Date.now()
-  };
-  const aiMessageIndex = addMessageToWindow(targetWindowId, {
-    role: 'ai',
-    bubbles: [],
-    waitingState: initialWaitingState,
-    isStreaming: true,
-    startTime: Date.now(),
-    thinking: '',
-    thinkingDuration: undefined
-  });
-
-  // Start thinking timer - updates every second while streaming
-  // Phase 2: 使用 getWindowMessage 定位到目标窗口的消息
-  const timerInterval = setInterval(() => {
-    const msg = getWindowMessage(targetWindowId, aiMessageIndex);
-    // Only update if still streaming and no bubbles yet (still in thinking phase)
-    if (msg && msg.isStreaming && msg.bubbles.length === 0 && msg.thinking) {
-      const duration = Math.round((Date.now() - (msg.startTime || Date.now())) / 1000);
-      msg.thinkingDuration = duration + 's';
-    } else {
-      clearInterval(timerInterval);
-    }
-  }, 1000);
-
-  try {
-    // 获取并清空待发送图片
-    const imagesToSend = [...pendingImages.value];
-    pendingImages.value = [];
-
-    // 确保 windowId 有效（空值保护）
-    const effectiveWindowId = activeWindowId.value || 'window-main';
-
-    // 调试日志：排查请求发送问题
-    console.log('[sendMessage] Request:', {
-      projectPath: currentProjectPath.value,
-      windowId: effectiveWindowId,
-      message: message.substring(0, 50) + (message.length > 50 ? '...' : ''),
-      imagesCount: imagesToSend.length,
-      model: currentModel.value?.id,
-      thinkingLevel: currentThinking.value.id
-    });
-
-    const response = await fetch(`${AGENT_API_BASE}/api/chat/stream`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        projectPath: currentProjectPath.value,
-        windowId: effectiveWindowId,  // 支持多窗口并行（已空值保护）
-        worktreePath: activeWindow.value?.worktreePath,  // 虚拟窗口工作路径
-        message: message,
-        images: imagesToSend,  // 新增：图片附件
-        model: currentModel.value?.id,
-        thinkingLevel: currentThinking.value.id
-      })
-    });
-
-    if (!response.ok) {
-      throw new Error(`HTTP error: ${response.status}`);
-    }
-
-    const reader = response.body?.getReader();
-    const decoder = new TextDecoder();
-
-    if (!reader) {
-      throw new Error('No response body');
-    }
-
-    let buffer = '';
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
-
-      buffer += decoder.decode(value, { stream: true });
-      const lines = buffer.split('\n');
-      buffer = lines.pop() || '';
-
-      for (const line of lines) {
-        if (line.startsWith('data: ')) {
-          const data = line.slice(6);
-          if (data === '[DONE]') {
-            break;
-          }
-          try {
-            const parsed = JSON.parse(data);
-
-            // 调试日志：记录所有接收到的 SSE 事件（用于验证 SubAgent 完成后最终结论是否正常输出）
-            // if (import.meta.env.DEV) {
-            //   console.log('[SSE Event]', {
-            //     type: parsed.type,
-            //     content: parsed.content?.slice(0, 100),
-            //     subAgentId: parsed.subAgentId,
-            //     success: parsed.success
-            //   });
-            // }
-
-            // Phase 2: 使用 getWindowMessage 定位到目标窗口的消息
-            const currentMsg = getWindowMessage(targetWindowId, aiMessageIndex);
-            if (!currentMsg) continue;  // 窗口可能已关闭
-
-            // Phase 2: 获取目标窗口的 expandedThinking 状态
-            const targetWin = windows.value.find(w => w.id === targetWindowId);
-            if (!targetWin) continue;
-
-            // ===== Thinking Events =====
-            if (parsed.type === 'thinking' || parsed.type === 'thinking_complete') {
-              if (parsed.type === 'thinking_complete') {
-                currentMsg.thinking = parsed.content;
-              } else {
-                currentMsg.thinking = (currentMsg.thinking || '') + parsed.content;
-              }
-              // Auto-expand thinking on first chunk
-              if (!targetWin.expandedThinking[aiMessageIndex]) {
-                targetWin.expandedThinking[aiMessageIndex] = true;
-              }
-            }
-
-            // ===== Text Events (使用气泡模型) =====
-            else if (parsed.type === 'text') {
-              // 退出等待状态
-              exitWaitingState(currentMsg.waitingState);
-
-              // Auto-collapse thinking when text starts
-              if (currentMsg.thinking && targetWin.expandedThinking[aiMessageIndex] === true) {
-                currentMsg.endTime = Date.now();
-                const duration = Math.round((currentMsg.endTime - (currentMsg.startTime || currentMsg.endTime)) / 1000);
-                currentMsg.thinkingDuration = duration + 's';
-                targetWin.expandedThinking = { ...targetWin.expandedThinking, [aiMessageIndex]: false };
-                nextTick(() => scrollToBottom({ windowId: targetWindowId }));
-              }
-
-              // ✅ 如果是 recoverable 错误，跳过显示
-              if (parsed.errorType === 'recoverable') {
-                if (import.meta.env.DEV) {
-                  console.log('[Recoverable error (hidden)]', parsed.errorContent || parsed.content);
-                }
-                continue;  // 跳过这个事件，不添加到气泡
-              }
-
-              // ✅ 如果是 blocking 错误，也不显示在对话面板
-              if (parsed.errorType === 'blocking') {
-                if (import.meta.env.DEV) {
-                  console.warn('[Blocking error (hidden from chat)]', parsed.errorContent || parsed.content);
-                }
-                continue;  // 跳过显示（Server 控制台已经打印了）
-              }
-
-              // ✅ 处理权限错误（打印日志但不添加到气泡）
-              if (parsed.errorType === 'permission_required') {
-                console.warn('[Permission error]', parsed.errorContent || parsed.content);
-                continue;  // 跳过显示
-              }
-
-              // 找到最后一个正在流式传输的文本气泡
-              let lastTextBubble = getLastStreamingTextBubble(currentMsg.bubbles);
-
-              if (lastTextBubble) {
-                // 追加到现有文本气泡
-                lastTextBubble.content = (lastTextBubble.content || '') + (parsed.content || '');
-              } else {
-                // 创建新的文本气泡
-                const newTextBubble = createTextBubble(parsed.content || '');
-                currentMsg.bubbles.push(newTextBubble);
-              }
-
-              // 调试模式：记录被隐藏的 recoverable 错误
-              if (parsed.hiddenContent && import.meta.env.DEV) {
-                console.debug('[Hidden recoverable error]', parsed.hiddenContent);
-              }
-            }
-
-            else if (parsed.type === 'text_complete') {
-              // 标记最后一个文本气泡为完成
-              let lastTextBubble = getLastStreamingTextBubble(currentMsg.bubbles);
-
-              if (lastTextBubble) {
-                // 情况1：有正在流式传输的气泡，标记为完成
-                completeBubble(lastTextBubble);
-              } else if (parsed.content) {
-                // 情况2：没有流式气泡但有内容（SubAgent完成后的最终文本）
-                // 创建新气泡并直接标记为完成
-                const newTextBubble = createTextBubble(parsed.content);
-                newTextBubble.status = 'completed';
-                currentMsg.bubbles.push(newTextBubble);
-              }
-
-              // 只有当没有 SubAgent 在运行时，才进入等待状态
-              if (!hasStreamingSubAgent(currentMsg.bubbles)) {
-                enterWaitingState(currentMsg.waitingState, getRandomWaitingVerb);
-              }
-            }
-
-            // ===== Error Event =====
-            else if (parsed.error) {
-              // ✅ 只打印到控制台，不创建气泡（错误已在 Server 控制台显示）
-              console.error('[SSE Error]', parsed.error);
-              // 不添加到气泡列表
-            }
-
-            // ===== SubAgent Events (使用气泡模型) =====
-            else if (parsed.type === 'subagent_start') {
-              // 退出等待状态
-              exitWaitingState(currentMsg.waitingState);
-
-              // 如果有正在流式传输的文本气泡，先标记为完成
-              const lastTextBubble = getLastStreamingTextBubble(currentMsg.bubbles);
-              if (lastTextBubble) {
-                completeBubble(lastTextBubble);
-              }
-
-              // 创建 SubAgent 气泡
-              const subAgentBubble = createSubAgentBubble(
-                parsed.subAgentId,
-                parsed.subAgentName,
-                parsed.subAgentType
-              );
-              currentMsg.bubbles.push(subAgentBubble);
-            }
-
-            else if (parsed.type === 'subagent_complete') {
-              const subAgentBubble = findBubbleByIdDeep(currentMsg.bubbles, parsed.subAgentId);
-              if (subAgentBubble) {
-                if (parsed.success === false) {
-                  failBubble(subAgentBubble, parsed.error);
-                } else {
-                  completeBubble(subAgentBubble);
-                }
-                if (parsed.content) {
-                  updateSubAgentResult(subAgentBubble, parsed.content);
-                }
-              }
-              // 只有当没有其他 SubAgent 在运行时，才进入等待状态
-              if (!hasStreamingSubAgent(currentMsg.bubbles)) {
-                enterWaitingState(currentMsg.waitingState, getRandomWaitingVerb);
-              }
-            }
-
-            // ===== Tool Call Events (使用气泡模型) =====
-            else if (parsed.type === 'tool_call_start') {
-              // 退出等待状态
-              exitWaitingState(currentMsg.waitingState);
-
-              // 如果有正在流式传输的文本气泡，先标记为完成
-              const lastTextBubble = getLastStreamingTextBubble(currentMsg.bubbles);
-              if (lastTextBubble) {
-                completeBubble(lastTextBubble);
-              }
-
-              // 创建工具调用气泡
-              const toolBubble = createToolCallBubble(
-                parsed.toolCallId,
-                parsed.toolName,
-                parsed.toolDescription,
-                parsed.toolParams
-              );
-
-              if (parsed.subAgentId) {
-                // SubAgent 内的工具调用 - 添加到 childBubbles
-                const subAgentBubble = findBubbleByIdDeep(currentMsg.bubbles, parsed.subAgentId);
-                if (subAgentBubble && subAgentBubble.type === 'subagent') {
-                  if (!subAgentBubble.childBubbles) {
-                    subAgentBubble.childBubbles = [];
-                  }
-                  subAgentBubble.childBubbles.push(toolBubble);
-                }
-              } else {
-                // 主 Agent 的工具调用 - 添加到主时间线
-                currentMsg.bubbles.push(toolBubble);
-              }
-            }
-
-            else if (parsed.type === 'tool_call_output') {
-              // 在所有气泡中查找工具调用气泡（包括 childBubbles）
-              const toolBubble = findBubbleByIdDeep(currentMsg.bubbles, parsed.toolCallId);
-              if (toolBubble && toolBubble.type === 'tool_call') {
-                appendToolCallOutput(toolBubble, parsed.toolOutput);
-              }
-            }
-
-            else if (parsed.type === 'tool_call_complete') {
-              const toolBubble = findBubbleByIdDeep(currentMsg.bubbles, parsed.toolCallId);
-              if (toolBubble && toolBubble.type === 'tool_call') {
-                if (parsed.success) {
-                  completeBubble(toolBubble);
-                } else {
-                  failBubble(toolBubble, parsed.error);
-                }
-              }
-              // 只有当没有 SubAgent 在运行时，才进入等待状态
-              if (!hasStreamingSubAgent(currentMsg.bubbles)) {
-                enterWaitingState(currentMsg.waitingState, getRandomWaitingVerb);
-              }
-            }
-
-            // ===== TaskOutput Polling Event (后台任务轮询) =====
-            else if (parsed.type === 'task_output_polling') {
-              // 设置全局 polling 状态（用于 UI 提示）
-              isPollingBackground.value = true;
-
-              // 将所有 streaming 状态的 SubAgent 标记为后台执行
-              const streamingSubAgents = findStreamingSubAgents(currentMsg.bubbles);
-              for (const bubble of streamingSubAgents) {
-                markAsBackground(bubble);
-                // 更新结果显示轮询状态
-                bubble.subAgentResult = `正在获取结果... (timeout: ${parsed.timeout / 1000}s)`;
-              }
-            }
-
-            await nextTick();
-            scrollToBottom({ windowId: targetWindowId });
-          } catch (e) {
-            console.error('Parse error:', e, data);
-          }
-        }
-      }
-    }
-
-    // Mark streaming as complete - Phase 2: 使用目标窗口
-    const finalMsg = getWindowMessage(targetWindowId, aiMessageIndex);
-    if (finalMsg) {
-      finalMsg.isStreaming = false;
-      finalMsg.waitingState.isWaiting = false;
-
-      // 将最后一个 streaming 状态的气泡标记为 completed
-      const lastStreamingBubble = getLastStreamingTextBubble(finalMsg.bubbles);
-      if (lastStreamingBubble) {
-        completeBubble(lastStreamingBubble);
-      }
-    }
-
-    agentStatus.value = 'connected';
-
-  } catch (error) {
-    console.error('Chat error:', error);
-    // Phase 2: 使用目标窗口
-    const currentMsg = getWindowMessage(targetWindowId, aiMessageIndex);
-    if (currentMsg) {
-      // 如果没有任何气泡，创建错误文本气泡
-      if (currentMsg.bubbles.length === 0) {
-        const errorBubble = createTextBubble('Sorry, I encountered an error. Please check if the Agent server is running.');
-        errorBubble.status = 'failed';
-        currentMsg.bubbles.push(errorBubble);
-      }
-      currentMsg.isStreaming = false;
-      currentMsg.waitingState.isWaiting = false;
-    }
-    agentStatus.value = 'disconnected';
-  } finally {
-    // Phase 2: 使用目标窗口的 isStreaming
-    const targetWin = windows.value.find(w => w.id === targetWindowId);
-    if (targetWin) {
-      targetWin.isStreaming = false;
-    }
-    isPollingBackground.value = false;  // 重置 polling 状态
-    await nextTick();
-    scrollToBottom({ windowId: targetWindowId });
-  }
-};
-
-
-
-// Phase 2: scrollToBottom 支持指定窗口
-const scrollToBottom = (options?: { force?: boolean; windowId?: string }) => {
-  if (!options?.force && mode.value !== 'chat') return;
-
-  // 确定目标窗口
-  const targetWindowId = options?.windowId || activeWindowId.value;
-  const targetWin = windows.value.find(w => w.id === targetWindowId);
-
-  // 检查目标窗口是否应该自动滚动
-  if (!options?.force && targetWin && !targetWin.shouldAutoScroll) return;
-
-  // 获取目标窗口的滚动容器
-  const bottomRef = chatBottomRefs.value[targetWindowId];
-  if (bottomRef) {
-    bottomRef.scrollIntoView({ block: 'end' });
-    return;
-  }
-
-  const el = chatScrollRefs.value[targetWindowId];
-  if (el) {
-    el.scrollTop = el.scrollHeight;
-  }
-};
 
 const handleKeydown = (event: KeyboardEvent) => {
   if (event.key === 'Enter' && !event.shiftKey) {
@@ -1688,292 +337,42 @@ const handleKeydown = (event: KeyboardEvent) => {
   }
 };
 
-const startResize = () => {
-  isResizing.value = true;
-  window.addEventListener('mousemove', handleResize);
-  window.addEventListener('mouseup', stopResize);
-  document.body.style.cursor = 'ew-resize';
-  document.body.style.userSelect = 'none';
-};
+const handleGlobalClick = (event: MouseEvent) => {
+  const target = event.target as HTMLElement;
 
-const handleResize = (e: MouseEvent) => {
-  const newWidth = window.innerWidth - e.clientX;
-  if (newWidth >= 300 && newWidth <= 600) {
-    panelWidth.value = newWidth;
-  }
-};
-
-const stopResize = () => {
-  isResizing.value = false;
-  window.removeEventListener('mousemove', handleResize);
-  window.removeEventListener('mouseup', stopResize);
-  document.body.style.cursor = '';
-  document.body.style.userSelect = '';
-};
-
-const carouselTrackRef = ref<HTMLElement | null>(null);
-
-const handleWheel = (e: WheelEvent) => {
-  if (carouselTrackRef.value && e.deltaY !== 0) {
-    e.preventDefault();
-    carouselTrackRef.value.scrollLeft += e.deltaY;
-  }
-};
-
-const removeContext = (type: 'scope' | 'selection', item?: string) => {
-    if (type === 'scope') {
-        contextScope.value = '';
-    } else if (item) {
-        contextSelection.value = contextSelection.value.filter(i => i !== item);
-    }
-}
-
-// Context Menu State
-const isContextMenuOpen = ref(false);
-const activeSubmenu = ref<string | null>(null);
-const submenuDirection = ref<'left' | 'right'>('left');
-const isAttachmentMenuOpen = ref(false);
-
-// Toggle functions
-const toggleContextMenu = () => {
-  isContextMenuOpen.value = !isContextMenuOpen.value;
-  isModelMenuOpen.value = false;
-  isThinkingMenuOpen.value = false;
-  isAttachmentMenuOpen.value = false;
-  if (!isContextMenuOpen.value) activeSubmenu.value = null;
-};
-
-const toggleAttachmentMenu = () => {
-  isAttachmentMenuOpen.value = !isAttachmentMenuOpen.value;
-  isContextMenuOpen.value = false;
-  isModelMenuOpen.value = false;
-  isThinkingMenuOpen.value = false;
-};
-
-// Model & Thinking State
-// 存储完整对象 { id, label }，发送时使用 id，显示时使用 label
-// 模型列表完全由配置文件控制，启动时从 web_config.json 加载
-const models = ref<{ id: string; label: string }[]>([]);
-
-const thinkingLevels = [
-  { id: 'off', label: 'Off' },
-  { id: 'low', label: 'Low' },
-  { id: 'medium', label: 'Medium' },
-  { id: 'high', label: 'High' }
-];
-
-const currentModel = ref<{ id: string; label: string } | null>(null);
-const currentThinking = ref(thinkingLevels[0]);  // 默认 off，后续由配置文件覆盖
-const isModelMenuOpen = ref(false);
-const isThinkingMenuOpen = ref(false);
-
-// 添加模型输入状态
-const isAddingModel = ref(false);
-const newModelId = ref('');
-const newModelInputRef = ref<HTMLInputElement | null>(null);
-
-// 保存模型列表到服务端
-const saveCustomModels = async () => {
-  try {
-    await fetch(`${AGENT_API_BASE}/api/web_config`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ customModels: models.value })
-    });
-  } catch (error) {
-    console.warn('保存模型列表失败:', error);
-  }
-};
-
-const selectModel = (model: { id: string; label: string }) => {
-  currentModel.value = model;
-  isModelMenuOpen.value = false;
-  isAddingModel.value = false;
-};
-
-// 开始添加模型
-const startAddModel = () => {
-  isAddingModel.value = true;
-  newModelId.value = '';
-  nextTick(() => {
-    newModelInputRef.value?.focus();
-  });
-};
-
-// 确认添加模型
-const confirmAddModel = async () => {
-  const id = newModelId.value.trim();
-  if (id && !models.value.some(m => m.id === id)) {
-    const newModel = { id, label: id };  // label 使用 id
-    models.value.push(newModel);
-    selectModel(newModel);
-    await saveCustomModels();
-  }
-  cancelAddModel();
-};
-
-// 取消添加模型
-const cancelAddModel = () => {
-  isAddingModel.value = false;
-  newModelId.value = '';
-};
-
-const selectThinking = (level: { id: string; label: string }) => {
-  currentThinking.value = level;
-  isThinkingMenuOpen.value = false;
-};
-
-const contextOptions = {
-  zones: [
-    { id: 'living-room', label: 'Living Room' },
-    { id: 'kitchen', label: 'Kitchen' },
-    { id: 'master-bedroom', label: 'Master Bedroom' },
-    { id: 'bathroom', label: 'Bathroom' },
-    { id: 'balcony', label: 'Balcony' }
-  ],
-  regulations: [
-    { id: 'wheelchair', label: 'Wheelchair Access (ADA)' },
-    { id: 'feng-shui', label: 'Feng Shui Principles' },
-    { id: 'fire-code', label: 'Fire Safety Code' }
-  ],
-  attachments: [
-    { id: 'upload', label: 'Upload Image...' },
-    { id: 'docs', label: 'Project Requirements.pdf' }
-  ]
-};
-
-const openSubmenu = (id: string, event: MouseEvent) => {
-    activeSubmenu.value = id;
-    
-    // Smart positioning logic
-    const target = event.currentTarget as HTMLElement;
-    const rect = target.getBoundingClientRect();
-    const submenuWidth = 220; // Matches CSS width
-    const windowWidth = window.innerWidth;
-    
-    // Check if there is space on the right
-    if (rect.right + submenuWidth + 20 < windowWidth) {
-        submenuDirection.value = 'right';
-    } else {
-        submenuDirection.value = 'left';
-    }
-};
-
-const handleContextSelect = async (type: string, item: any) => {
-  console.log('Selected context:', type, item);
-
-
-
-  // Logic to add context
-  if (type === 'zones') {
-    activeScope.value = item.label; // Update scope for demo
-  } else {
-    // For other types, maybe add a chip to the input or a temporary toast
-    // For now, let's just simulate adding it to the input for visibility
-    inputMessage.value += ` [Context: ${item.label}] `;
-  }
-
-  isContextMenuOpen.value = false;
-  activeSubmenu.value = null;
-};
-
-// Close menus when clicking outside
-const handleGlobalClick = (e: MouseEvent) => {
-  const target = e.target as HTMLElement;
-
-  // Close Context Menu
   if (!target.closest('.add-context-wrapper')) {
     isContextMenuOpen.value = false;
-    isAttachmentMenuOpen.value = false; // Also close attachment menu
+    isAttachmentMenuOpen.value = false;
     activeSubmenu.value = null;
   }
 
-  // Close Branch Dropdown (Primary Window)
-  // 检查整个主窗口标签区域，而不仅仅是小三角图标
   if (!target.closest('.window-tab.primary-clickable') && !target.closest('.branch-dropdown-overlay')) {
     isBranchDropdownOpen.value = false;
   }
 
-  // Close New Window Dropdown
-  // 检查按钮或下拉框本身（下拉框已移到 header-tabs 层级）
   if (!target.closest('.new-window-wrapper') && !target.closest('.new-window-dropdown')) {
     showNewWindowDropdown.value = false;
   }
 
-  // Close Model Menu
   if (!target.closest('.control-pill-wrapper.model')) {
     isModelMenuOpen.value = false;
   }
 
-  // Close Thinking Menu
   if (!target.closest('.control-pill-wrapper.thinking')) {
     isThinkingMenuOpen.value = false;
   }
 };
 
-// 处理表格区域的滚轮事件：禁止垂直滚轮触发表格水平滚动
-const handleTableWheel = (e: WheelEvent) => {
-  const target = e.target as HTMLElement;
-  const tableWrapper = target.closest('.table-node-wrapper');
-
-  if (tableWrapper) {
-    // 如果主要是垂直滚动，阻止表格的水平滚动
-    // 让事件冒泡到父容器进行垂直滚动
-    if (Math.abs(e.deltaY) > Math.abs(e.deltaX)) {
-      e.preventDefault();
-      // 手动触发父容器的垂直滚动
-      const scrollContainer = chatScrollRef.value;
-      if (scrollContainer) {
-        scrollContainer.scrollTop += e.deltaY;
-      }
-    }
-  }
-};
-
 onMounted(() => {
   window.addEventListener('click', handleGlobalClick);
-  // 在聊天区域监听 wheel 事件，需要 passive: false 才能 preventDefault
   chatScrollRef.value?.addEventListener('wheel', handleTableWheel, { passive: false });
 });
 
-import { onUnmounted } from 'vue';
 onUnmounted(() => {
   window.removeEventListener('click', handleGlobalClick);
   chatScrollRef.value?.removeEventListener('wheel', handleTableWheel);
-  // 停止截图服务 SSE 监听
-  const screenshotService = getScreenshotService(AGENT_API_BASE);
-  screenshotService.stopListening();
+  stopListening();
 });
-
-import TaskSummaryWidget from './TaskSummaryWidget.vue';
-import MarkdownText from './base/MarkdownText.vue';
-import AdvancedScreenshotOverlay from './AdvancedScreenshotOverlay.vue';
-
-// 框选截图状态
-const showScreenshotOverlay = ref(false);
-
-const handleScreenshotCapture = async (imageData: string) => {
-  showScreenshotOverlay.value = false;
-  try {
-    const screenshotService = getScreenshotService(AGENT_API_BASE);
-    // 保存到本地
-    const filePath = await screenshotService.saveToLocal(imageData);
-    console.log(`[Screenshot] Saved to: ${filePath}`);
-    // 添加到待发送附件
-    pendingImages.value.push(imageData);
-    console.log(`[Screenshot] Added to pending, total: ${pendingImages.value.length}`);
-  } catch (e) {
-    console.error('[Screenshot] Save failed:', e);
-  }
-};
-
-const handleScreenshotCancel = () => {
-  showScreenshotOverlay.value = false;
-};
-
-const removePendingImage = (index: number) => {
-  pendingImages.value.splice(index, 1);
-};
 </script>
 
 <template>

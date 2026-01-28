@@ -1,0 +1,1634 @@
+
+ ▐▛███▜▌   Claude Code v2.1.22
+▝▜█████▛▘  Sonnet 4.5 · API Usage Billing
+  ▘▘ ▝▝    E:\工作文档\开发类\MyCode\BIMCanvas
+
+  /model to try Opus 4.5
+
+> 当前“AICommandCenter.vue”代码是不是太臃肿了？有没有“瘦身”方案，把代码拆分 
+  一下成多个文件，但是不要影响现有功能                                      
+
+● 我来帮你分析 AICommandCenter.vue
+  的代码结构，并设计一个拆分方案。首先让我探索当前的代码。
+
+● Explore(探索 AICommandCenter.vue 代码结构)
+  ⎿  Done (36 tool uses · 70.1k tokens · 7m 6s)
+
+● 非常好！现在让我基于探索结果设计详细的拆分方案：
+
+● Plan(设计 AICommandCenter 拆分方案)
+  ⎿  Done (20 tool uses · 94.3k tokens · 3m 24s)
+
+● 完美！现在让我将最终的重构计划写入计划文件：
+
+● Updated plan
+  ⎿  /plan to preview
+
+● 完美!我已经完成了 AICommandCenter.vue 的代码拆分重构方案设计。让我总结一下:
+
+  📋 重构方案要点
+
+  🎯 核心发现
+
+  AICommandCenter.vue 确实非常臃肿（4716 行），是 Vue 官方推荐规模的 9-16 倍！
+
+  🔧 拆分方案（分两阶段）
+
+  Phase 1: 提取 3 个独立 Composables（低风险 → 高收益）
+  1. ✅ useModelConfig.ts - 模型配置管理
+  2. ✅ useAutoScroll.ts - 自动滚动逻辑
+  3. ✅ useUIState.ts - UI 状态管理
+
+  Phase 2: 提取 3 个核心 Composables（可选，复杂度较高）
+  1. ⭕ useWindowManager.ts - 多窗口管理
+  2. ⭕ useBranchManager.ts - 分支管理
+  3. ⭕ useAgentStream.ts - SSE 流处理
+
+  📊 预期效果
+
+  - 减少代码: 净减少约 316 行（从 4716 → 3600）
+  - 可维护性: 单一职责 + 独立测试 + 可复用
+  - 零破坏: 保证现有功能 100% 兼容
+
+  🎲 推荐策略
+
+  优先执行 Phase 1（风险低，收益高），Phase 2 可根据后续需求选择性执行。
+
+  详细的实施步骤、代码迁移清单、依赖关系图、风险评估和测试方案已写入计划文件。
+  ⎿  User rejected Claude's plan:
+     ╭─────────────────────────────────────────────────────────────────────────╮
+     │ AICommandCenter.vue 代码拆分重构计划                                    │
+     │                                                                         │
+     │ 一、重构目标                                                            │
+     │                                                                         │
+     │ 现状问题：                                                              │
+     │ - AICommandCenter.vue 当前 4716 行，远超 Vue                            │
+     │ 官方推荐的单文件组件规模（300-500行）                                   │
+     │ - Script 1977 行 + Template 2200 行 + Style 540 行                      │
+     │ - 多个独立功能模块耦合在单文件中，维护困难                              │
+     │                                                                         │
+     │ 重构目标：                                                              │
+     │ - 提取 6 个独立 Composables，减少约 1100 行代码                         │
+     │ - 提升可维护性和可测试性                                                │
+     │ - 保证现有功能 100% 兼容，无破坏性修改                                  │
+     │                                                                         │
+     │ ---                                                                     │
+     │ 二、三阶段重构方案                                                      │
+     │                                                                         │
+     │ Phase 1: 提取独立 Composables（低风险 → 高收益）                        │
+     │                                                                         │
+     │ 1.1 创建 useModelConfig.ts                                              │
+     │                                                                         │
+     │ 路径: src/composables/useModelConfig.ts                                 │
+     │                                                                         │
+     │ 职责:                                                                   │
+     │ - 管理模型列表（加载/保存/添加）                                        │
+     │ - 管理 Thinking Level 选择                                              │
+     │                                                                         │
+     │ 导出 API:                                                               │
+     │ export function useModelConfig(agentApiBase: string) {                  │
+     │   const models = ref<{ id: string; label: string }[]>([]);              │
+     │   const currentModel = ref<{ id: string; label: string } | null>(null); │
+     │   const thinkingLevels = [                                              │
+     │     { id: 'none', label: '无' },                                        │
+     │     { id: 'low', label: '低' },                                         │
+     │     { id: 'medium', label: '中' },                                      │
+     │     { id: 'high', label: '高' }                                         │
+     │   ];                                                                    │
+     │   const currentThinking = ref(thinkingLevels[0]);                       │
+     │                                                                         │
+     │   const fetchConfig = async () => { /* ... */ };                        │
+     │   const selectModel = (model: { id: string; label: string }) => { /* ...│
+     │  */ };                                                                  │
+     │   const selectThinking = (level: { id: string; label: string }) => { /* │
+     │ ... */ };                                                               │
+     │   const addCustomModel = async (modelId: string) => { /* ... */ };      │
+     │                                                                         │
+     │   return { models, currentModel, thinkingLevels, currentThinking,       │
+     │ fetchConfig, selectModel, selectThinking, addCustomModel };             │
+     │ }                                                                       │
+     │                                                                         │
+     │ 迁移代码清单:                                                           │
+     │ - Lines 1754-1823: 模型/思考状态定义                                    │
+     │ - Lines 1203-1248: fetchAgentConfig 函数                                │
+     │ - Lines 1776-1819: 保存/添加模型逻辑                                    │
+     │                                                                         │
+     │ 在 AICommandCenter.vue 中使用:                                          │
+     │ // 原代码                                                               │
+     │ const models = ref<{ id: string; label: string }[]>([]);                │
+     │ const currentModel = ref<{ id: string; label: string } | null>(null);   │
+     │ // ... 以及相关函数                                                     │
+     │                                                                         │
+     │ // 新代码                                                               │
+     │ import { useModelConfig } from '@/composables/useModelConfig';          │
+     │ const modelConfig = useModelConfig(AGENT_API_BASE);                     │
+     │ const { models, currentModel, thinkingLevels, currentThinking,          │
+     │ fetchConfig, selectModel, selectThinking, addCustomModel } =            │
+     │ modelConfig;                                                            │
+     │                                                                         │
+     │ ---                                                                     │
+     │ 1.2 创建 useAutoScroll.ts                                               │
+     │                                                                         │
+     │ 路径: src/composables/useAutoScroll.ts                                  │
+     │                                                                         │
+     │ 职责:                                                                   │
+     │ - 管理滚动容器 refs                                                     │
+     │ - 自动滚动逻辑                                                          │
+     │ - 滚动位置检测                                                          │
+     │                                                                         │
+     │ 导出 API:                                                               │
+     │ export function useAutoScroll() {                                       │
+     │   const scrollRefs = ref<Record<string, HTMLElement | null>>({});       │
+     │   const bottomRefs = ref<Record<string, HTMLElement | null>>({});       │
+     │                                                                         │
+     │   const setScrollRef = (id: string, el: HTMLElement | null) => {        │
+     │     scrollRefs.value[id] = el;                                          │
+     │   };                                                                    │
+     │                                                                         │
+     │   const setBottomRef = (id: string, el: HTMLElement | null) => {        │
+     │     bottomRefs.value[id] = el;                                          │
+     │   };                                                                    │
+     │                                                                         │
+     │   const scrollToBottom = (options?: { windowId?: string; force?: boolean│
+     │  }) => { /* ... */ };                                                   │
+     │   const isNearBottom = (windowId?: string) => { /* ... */ };            │
+     │                                                                         │
+     │   return { scrollRefs, bottomRefs, setScrollRef, setBottomRef,          │
+     │ scrollToBottom, isNearBottom };                                         │
+     │ }                                                                       │
+     │                                                                         │
+     │ 迁移代码清单:                                                           │
+     │ - Lines 811-846: 滚动 refs 管理                                         │
+     │ - Lines 1660-1682: scrollToBottom 函数                                  │
+     │ - Lines 1168-1183: isNearBottom + handleChatScroll                      │
+     │                                                                         │
+     │ 在 AICommandCenter.vue 中使用:                                          │
+     │ <!-- 原模板 -->                                                         │
+     │ <div :ref="(el) => { chatScrollRefs[window.id] = el as HTMLElement }">  │
+     │                                                                         │
+     │ <!-- 新模板 -->                                                         │
+     │ <div :ref="(el) => setScrollRef(window.id, el as HTMLElement)">         │
+     │                                                                         │
+     │ ---                                                                     │
+     │ 1.3 创建 useUIState.ts                                                  │
+     │                                                                         │
+     │ 路径: src/composables/useUIState.ts                                     │
+     │                                                                         │
+     │ 职责:                                                                   │
+     │ - 管理所有 dropdown/dialog 开关状态                                     │
+     │ - 全局点击事件处理                                                      │
+     │                                                                         │
+     │ 导出 API:                                                               │
+     │ export function useUIState() {                                          │
+     │   // Dropdown 状态                                                      │
+     │   const isBranchDropdownOpen = ref(false);                              │
+     │   const showNewWindowDropdown = ref(false);                             │
+     │   const isContextMenuOpen = ref(false);                                 │
+     │   const isModelMenuOpen = ref(false);                                   │
+     │   const isThinkingMenuOpen = ref(false);                                │
+     │   const isAttachmentMenuOpen = ref(false);                              │
+     │                                                                         │
+     │   // Dialog 状态                                                        │
+     │   const showCheckoutConfirmDialog = ref(false);                         │
+     │   const showBranchCreationDialog = ref(false);                          │
+     │   const showScreenshotOverlay = ref(false);                             │
+     │                                                                         │
+     │   // 其他状态                                                           │
+     │   const mode = ref<'chat' | 'tasks'>('chat');                           │
+     │   const taskWidgetExpanded = ref(false);                                │
+     │                                                                         │
+     │   const toggleBranchDropdown = () => { isBranchDropdownOpen.value =     │
+     │ !isBranchDropdownOpen.value; };                                         │
+     │   const toggleContextMenu = () => { isContextMenuOpen.value =           │
+     │ !isContextMenuOpen.value; };                                            │
+     │   const closeAllDropdowns = () => { /* ... */ };                        │
+     │   const handleGlobalClick = (e: MouseEvent) => { /* ... */ };           │
+     │                                                                         │
+     │   onMounted(() => {                                                     │
+     │     document.addEventListener('click', handleGlobalClick);              │
+     │   });                                                                   │
+     │                                                                         │
+     │   onUnmounted(() => {                                                   │
+     │     document.removeEventListener('click', handleGlobalClick);           │
+     │   });                                                                   │
+     │                                                                         │
+     │   return { /* 所有状态和方法 */ };                                      │
+     │ }                                                                       │
+     │                                                                         │
+     │ 迁移代码清单:                                                           │
+     │ - Lines 165-170: Dropdown 状态                                          │
+     │ - Lines 1732-1751: Context/Attachment Menu                              │
+     │ - Lines 1767-1768: Model/Thinking Menu                                  │
+     │ - Lines 1881-1912: 全局点击处理                                         │
+     │                                                                         │
+     │ ---                                                                     │
+     │ Phase 2: 提取核心逻辑 Composables（中等风险）                           │
+     │                                                                         │
+     │ 2.1 创建 useWindowManager.ts                                            │
+     │                                                                         │
+     │ 路径: src/composables/useWindowManager.ts                               │
+     │                                                                         │
+     │ 职责:                                                                   │
+     │ - 管理多窗口状态（ChatWindow[]）                                        │
+     │ - 窗口切换/添加/关闭                                                    │
+     │ - Worktree 映射管理                                                     │
+     │                                                                         │
+     │ 导出 API:                                                               │
+     │ export function useWindowManager(deps: {                                │
+     │   gitStore: ReturnType<typeof useGitStore>;                             │
+     │   canvasStore: ReturnType<typeof useCanvasStore>;                       │
+     │   currentBranch: Ref<string | null>;                                    │
+     │ }) {                                                                    │
+     │   const windows = ref<ChatWindow[]>([]);                                │
+     │   const activeWindowId = ref<string>('');                               │
+     │                                                                         │
+     │   const activeWindow = computed(() => windows.value.find(w => w.id ===  │
+     │ activeWindowId.value));                                                 │
+     │                                                                         │
+     │   const initDefaultWindow = () => { /* ... */ };                        │
+     │   const switchWindow = async (id: string) => { /* ... */ };             │
+     │   const addWindow = async (branchName: string) => { /* ... */ };        │
+     │   const closeWindow = async (id: string) => { /* ... */ };              │
+     │                                                                         │
+     │   // 消息操作                                                           │
+     │   const addMessage = (message: ChatMessage) => { /* ... */ };           │
+     │   const addMessageToWindow = (windowId: string, message: ChatMessage) =>│
+     │  { /* ... */ };                                                         │
+     │   const getWindowMessage = (windowId: string, msgIndex: number) => { /* │
+     │ ... */ };                                                               │
+     │                                                                         │
+     │   return { windows, activeWindowId, activeWindow, initDefaultWindow,    │
+     │ switchWindow, addWindow, closeWindow, addMessage, addMessageToWindow,   │
+     │ getWindowMessage };                                                     │
+     │ }                                                                       │
+     │                                                                         │
+     │ 迁移代码清单:                                                           │
+     │ - Lines 225-283: ChatWindow 接口 + 状态                                 │
+     │ - Lines 251-269: initDefaultWindow                                      │
+     │ - Lines 330-371: switchWindow                                           │
+     │ - Lines 642-737: addWindow                                              │
+     │ - Lines 475-546: closeWindow                                            │
+     │ - Lines 295-325: 消息操作函数                                           │
+     │                                                                         │
+     │ 依赖关系:                                                               │
+     │ - 依赖: gitStore, canvasStore, currentBranch                            │
+     │ - 被依赖: Agent Stream, Branch Manager                                  │
+     │                                                                         │
+     │ ---                                                                     │
+     │ 2.2 创建 useBranchManager.ts                                            │
+     │                                                                         │
+     │ 路径: src/composables/useBranchManager.ts                               │
+     │                                                                         │
+     │ 职责:                                                                   │
+     │ - 分支切换逻辑                                                          │
+     │ - 未提交更改处理                                                        │
+     │ - 分支创建对话框协调                                                    │
+     │                                                                         │
+     │ 导出 API:                                                               │
+     │ export function useBranchManager(deps: {                                │
+     │   gitStore: ReturnType<typeof useGitStore>;                             │
+     │   canvasStore: ReturnType<typeof useCanvasStore>;                       │
+     │   windowManager: ReturnType<typeof useWindowManager>;                   │
+     │ }) {                                                                    │
+     │   const pendingCheckoutBranch = ref('');                                │
+     │   const pendingWindowId = ref('');                                      │
+     │   const pendingIsCreateBranch = ref(false);                             │
+     │                                                                         │
+     │   const selectBranch = async (branchId: string) => { /* ... */ };       │
+     │   const handleCheckoutConfirm = async (save: boolean, msg?: string) => {│
+     │  /* ... */ };                                                           │
+     │   const handleCheckoutCancel = () => { /* ... */ };                     │
+     │   const handleBranchCreated = async (data: { name: string; baseBranch:  │
+     │ string; reason: string }) => { /* ... */ };                             │
+     │                                                                         │
+     │   const isBranchOccupied = (branchName: string) => { /* ... */ };       │
+     │   const isBranchOccupiedByOther = (branchName: string) => { /* ... */ };│
+     │                                                                         │
+     │   return { /* 所有状态和方法 */ };                                      │
+     │ }                                                                       │
+     │                                                                         │
+     │ 迁移代码清单:                                                           │
+     │ - Lines 167-169: Checkout 状态                                          │
+     │ - Lines 1002-1030: selectBranch                                         │
+     │ - Lines 1033-1088: Checkout Confirm/Cancel                              │
+     │ - Lines 407-459: handleBranchCreated                                    │
+     │ - Lines 462-471: 分支占用检查                                           │
+     │                                                                         │
+     │ 依赖关系:                                                               │
+     │ - 依赖: gitStore, canvasStore, windowManager                            │
+     │ - 与 windowManager 相互协作                                             │
+     │                                                                         │
+     │ ---                                                                     │
+     │ 2.3 创建 useAgentStream.ts                                              │
+     │                                                                         │
+     │ 路径: src/composables/useAgentStream.ts                                 │
+     │                                                                         │
+     │ 职责:                                                                   │
+     │ - SSE 流处理核心逻辑                                                    │
+     │ - 消息发送                                                              │
+     │ - 气泡模型管理                                                          │
+     │                                                                         │
+     │ 导出 API:                                                               │
+     │ export function useAgentStream(deps: {                                  │
+     │   agentApiBase: string;                                                 │
+     │   windowManager: ReturnType<typeof useWindowManager>;                   │
+     │   modelConfig: ReturnType<typeof useModelConfig>;                       │
+     │   projectPath: Ref<string>;                                             │
+     │ }) {                                                                    │
+     │   const sendMessage = async (windowId: string, message: string, images: │
+     │ string[]) => { /* ... */ };                                             │
+     │   const streamWelcomeMessage = async () => { /* ... */ };               │
+     │                                                                         │
+     │   return { sendMessage, streamWelcomeMessage };                         │
+     │ }                                                                       │
+     │                                                                         │
+     │ 迁移代码清单:                                                           │
+     │ - Lines 1266-1656: sendMessage 核心逻辑                                 │
+     │ - Lines 1114-1155: streamWelcomeMessage                                 │
+     │                                                                         │
+     │ 依赖关系:                                                               │
+     │ - 依赖: windowManager, modelConfig, projectPath                         │
+     │ - 使用: bubbleManager 工具函数                                          │
+     │                                                                         │
+     │ ---                                                                     │
+     │ 三、实施步骤                                                            │
+     │                                                                         │
+     │ Step 1: Phase 1 重构（优先执行，风险低）                                │
+     │                                                                         │
+     │ 1. 创建文件骨架                                                         │
+     │ touch src/composables/useModelConfig.ts                                 │
+     │ touch src/composables/useAutoScroll.ts                                  │
+     │ touch src/composables/useUIState.ts                                     │
+     │ 2. 按顺序迁移（每次一个 Composable）                                    │
+     │   - ✅ 迁移 useModelConfig.ts                                           │
+     │   - ✅ 迁移 useAutoScroll.ts                                            │
+     │   - ✅ 迁移 useUIState.ts                                               │
+     │ 3. 每次迁移后测试                                                       │
+     │   - 模型选择功能正常                                                    │
+     │   - 自动滚动逻辑正常                                                    │
+     │   - 下拉菜单开关正常                                                    │
+     │                                                                         │
+     │ Step 2: Phase 2 重构（可选，复杂度较高）                                │
+     │                                                                         │
+     │ 1. 创建文件骨架                                                         │
+     │ touch src/composables/useWindowManager.ts                               │
+     │ touch src/composables/useBranchManager.ts                               │
+     │ touch src/composables/useAgentStream.ts                                 │
+     │ 2. 按依赖顺序迁移                                                       │
+     │   - ⭕ 迁移 useWindowManager.ts（核心模块）                             │
+     │   - ⭕ 迁移 useBranchManager.ts（依赖 WindowManager）                   │
+     │   - ⭕ 迁移 useAgentStream.ts（依赖 WindowManager + ModelConfig）       │
+     │ 3. 全面测试                                                             │
+     │   - 多窗口切换功能                                                      │
+     │   - 分支切换流程                                                        │
+     │   - SSE 消息接收                                                        │
+     │                                                                         │
+     │ ---                                                                     │
+     │ 四、代码量对比                                                          │
+     │                                                                         │
+     │                                                                         │
+     │                                                                         │
+     │                                                                         │
+     │ ┌─────────────────────┬──────────┬────────────┬───────┐                 │
+     │ │        模块         │ 当前行数 │ 重构后行数 │ 减少  │                 │
+     │ ├─────────────────────┼──────────┼────────────┼───────┤                 │
+     │ │ AICommandCenter.vue │ 4716     │ ~3600      │ -1116 │                 │
+     │ ├─────────────────────┼──────────┼────────────┼───────┤                 │
+     │ │ Composables (新增)  │ 0        │ ~800       │ +800  │                 │
+     │ ├─────────────────────┼──────────┼────────────┼───────┤                 │
+     │ │ 净减少              │ -        │ -          │ -316  │                 │
+     │ └─────────────────────┴──────────┴────────────┴───────┘                 │
+     │ 可维护性提升:                                                           │
+     │ - ✅ 单一职责：每个 Composable 只负责一个功能域                         │
+     │ - ✅ 独立测试：可为每个 Composable 编写单元测试                         │
+     │ - ✅ 复用性：Model Config 等可在其他组件复用                            │
+     │                                                                         │
+     │ ---                                                                     │
+     │ 五、关键文件清单                                                        │
+     │                                                                         │
+     │ 需要修改的文件                                                          │
+     │                                                                         │
+     │ 1. E:\工作文档\开发类\MyCode\BIMCanvas\BIMCanvas.Web\src\components\UI\A│
+     │ ICommandCenter.vue                                                      │
+     │   - 主重构目标文件                                                      │
+     │                                                                         │
+     │ 需要创建的文件（Phase 1）                                               │
+     │                                                                         │
+     │ 1. E:\工作文档\开发类\MyCode\BIMCanvas\BIMCanvas.Web\src\composables\use│
+     │ ModelConfig.ts                                                          │
+     │ 2. E:\工作文档\开发类\MyCode\BIMCanvas\BIMCanvas.Web\src\composables\use│
+     │ AutoScroll.ts                                                           │
+     │ 3. E:\工作文档\开发类\MyCode\BIMCanvas\BIMCanvas.Web\src\composables\use│
+     │ UIState.ts                                                              │
+     │                                                                         │
+     │ 需要创建的文件（Phase 2，可选）                                         │
+     │                                                                         │
+     │ 1. E:\工作文档\开发类\MyCode\BIMCanvas\BIMCanvas.Web\src\composables\use│
+     │ WindowManager.ts                                                        │
+     │ 2. E:\工作文档\开发类\MyCode\BIMCanvas\BIMCanvas.Web\src\composables\use│
+     │ BranchManager.ts                                                        │
+     │ 3. E:\工作文档\开发类\MyCode\BIMCanvas\BIMCanvas.Web\src\composables\use│
+     │ AgentStream.ts                                                          │
+     │                                                                         │
+     │ 参考文件                                                                │
+     │                                                                         │
+     │ 1. E:\工作文档\开发类\MyCode\BIMCanvas\BIMCanvas.Web\src\composables\use│
+     │ Save.ts                                                                 │
+     │   - 参考模板：Composable 代码风格                                       │
+     │                                                                         │
+     │ ---                                                                     │
+     │ 六、验证方案                                                            │
+     │                                                                         │
+     │ 功能测试清单（Phase 1）                                                 │
+     │                                                                         │
+     │ - 模型选择正常工作                                                      │
+     │ - Thinking Level 切换正常                                               │
+     │ - 自定义模型添加功能正常                                                │
+     │ - 自动滚动逻辑正常                                                      │
+     │ - 滚动到底部功能正常                                                    │
+     │ - 所有下拉菜单开关正常                                                  │
+     │ - 全局点击关闭菜单正常                                                  │
+     │ - 对话框显示/关闭正常                                                   │
+     │                                                                         │
+     │ 功能测试清单（Phase 2）                                                 │
+     │                                                                         │
+     │ - 多窗口切换无错                                                        │
+     │ - 窗口关闭正常                                                          │
+     │ - 新建窗口功能正常                                                      │
+     │ - 分支切换流程正常                                                      │
+     │ - 未提交更改警告正常                                                    │
+     │ - SSE 消息接收正常                                                      │
+     │ - 气泡模型渲染正常                                                      │
+     │                                                                         │
+     │ 性能测试                                                                │
+     │                                                                         │
+     │ - 组件初始化时间 < 500ms                                                │
+     │ - SSE 流处理无卡顿                                                      │
+     │ - 窗口切换流畅度                                                        │
+     │                                                                         │
+     │ ---                                                                     │
+     │ 七、风险评估                                                            │
+     │                                                                         │
+     │ 低风险（Phase 1）                                                       │
+     │                                                                         │
+     │ - ✅ useModelConfig: 完全独立，无外部副作用                             │
+     │ - ✅ useAutoScroll: 纯 DOM 操作，易于测试                               │
+     │ - ✅ useUIState: 简单开关逻辑，易于验证                                 │
+     │                                                                         │
+     │ 中等风险（Phase 2）                                                     │
+     │                                                                         │
+     │ - ⚠️ useWindowManager: 窗口状态管理复杂，需仔细测试                     │
+     │   - 缓解: 保留原有测试用例，逐步迁移                                    │
+     │ - ⚠️ useBranchManager: 与 Git Store 深度耦合                            │
+     │   - 缓解: 通过依赖注入传递 Store，保持可测试性                          │
+     │ - ⚠️ useAgentStream: SSE 流处理关键                                     │
+     │   - 缓解: 先提取工具函数，保留核心逻辑在主组件                          │
+     │                                                                         │
+     │ ---                                                                     │
+     │ 八、依赖关系图                                                          │
+     │                                                                         │
+     │ ┌─────────────────────────────────────────────────┐                     │
+     │ │         AICommandCenter.vue (主组件)              │                   │
+     │ └───────────┬─────────────────────────────────────┘                     │
+     │             │                                                           │
+     │             ├─→ [Phase 1: 独立模块]                                     │
+     │             │   ├─→ useModelConfig (无依赖)                             │
+     │             │   ├─→ useAutoScroll (无依赖)                              │
+     │             │   └─→ useUIState (无依赖)                                 │
+     │             │                                                           │
+     │             ├─→ [Phase 2: 核心模块]                                     │
+     │             │   ├─→ useWindowManager ──┐                                │
+     │             │   ├─→ useBranchManager ──┼─→ 相互依赖                     │
+     │             │   └─→ useAgentStream ────┘                                │
+     │             │                                                           │
+     │             └─→ [External Dependencies]                                 │
+     │                 ├─→ canvasStore (Pinia)                                 │
+     │                 ├─→ gitStore (Pinia)                                    │
+     │                 └─→ Services (ProjectService, GitWorktreeService, etc.) │
+     │                                                                         │
+     │ ---                                                                     │
+     │ 九、后续优化建议                                                        │
+     │                                                                         │
+     │ 1. TypeScript 类型强化: 为 Composables 添加完整类型注解                 │
+     │ 2. 单元测试覆盖: 为每个 Composable 编写 Vitest 测试                     │
+     │ 3. 文档完善: 为每个 Composable 编写 JSDoc 注释                          │
+     │ 4. 性能优化: 使用 shallowRef 优化大对象响应性                           │
+     │                                                                         │
+     │ ---                                                                     │
+     │ 总结: 本重构方案采用渐进式策略，从低风险高收益的独立模块开始（Phase     │
+     │ 1），逐步提取核心逻辑（Phase 2）。建议优先执行 Phase 1，即可减少约 300  │
+     │ 行代码，显著提升可维护性。Phase 2 可根据后续需求选择性执行。            │
+     ╰─────────────────────────────────────────────────────────────────────────╯
+
+> /export 
+  ⎿  Conversation exported to: 2026-01-28-aicommandcentervue.txt
+
+> # 业务专家对相同问题的建议                                                
+  我看完了 AICommandCenter.vue。这个文件同时承担窗口/分支/Worktree          
+  管理、SSE 聊天流解析、截图与附件、模型/思考强度配置、Context 菜单、Task   
+  视图，以及整套 Layer 1/2/3 的样式和输入框视觉，体量 4k+                   
+  行，确实臃肿，适合拆分。                                                  
+                                                                            
+  拆分方向                                                                  
+                                                                            
+  组件层：把大块模板拆成 AICommandHeader.vue（mode + tabs +                 
+  分支下拉）、ChatView.vue（messages + thinking +                           
+  bubbles）、TaskView.vue（TaskSummaryWidget + proposals +                  
+  alert）、CommandFooter.vue（context bar + input +                         
+  pills）；ToolCallBubble.vue/SubAgentBubble.vue/WaitingIndicator.vue       
+  保持不动。                                                                
+  逻辑层：把脚本里成组逻辑抽到 composables，比如                            
+  useWindowManager（windows/switch/add/close/branch 占用/Worktree           
+  注册）、useChatStream（sendMessage + SSE 解析 + bubble                    
+  管理）、useChatScroll（scroll                                             
+  refs/isNearBottom/autoScroll）、useAgentConfig（health +                  
+  model/thinking）、useScreenshot（overlay +                                
+  pendingImages）、useContextMenu（submenu 方向/关闭）。                    
+  类型与常量：把 ChatMessage/ChatWindow、WAITING_VERBS、thinkingLevels、con 
+  textOptions、proposals 外置到 ai-command-center.ts 和                     
+  ai-command-center.ts，脚本更清爽。                                        
+  样式层：将 .layer-context/.layer-stream/.layer-footer、.antigravity-input 
+  -box、.unified-dropdown 等拆到对应子组件的 style                          
+  scoped，避免单文件全量样式堆叠。                                          
+  拆分顺序建议（低风险）                                                    
+                                                                            
+  先拆纯展示组件（Task/Proposal/Alert/ContextBar 等），只走                 
+  props/emit，不动状态逻辑。                                                
+  再抽 composables，把现有函数原样搬出去并保持返回结构。                    
+  最后迁移样式和常量/类型。                                                 
+  注意点                                                                    
+                                                                            
+  多窗口 chat 现在靠 v-show 保留 DOM +                                      
+  chatScrollRefs，拆分时要保留这一点，否则滚动/思考折叠会丢状态。           
+  分支/新窗口下拉的定位依赖 .header-tabs                                    
+  的几何计算，抽组件后别改变定位参照。                                      
+  Teleport 与 z-index 层级最好继续留在顶层容器，避免 overlay 叠层错乱。     
+  如果你愿意，我可以给一个更具体的“文件树 + props/emit/composable API       
+  草案”，仍然只讨论不改代码。                                               
+                                                                            
+  基于 AICommandCenter.vue                                                  
+  的现状，给你一个更具体的拆分草案（仅讨论，不改动）。                      
+                                                                            
+  File Tree                                                                 
+                                                                            
+  BIMCanvas.Web/src/components/UI/AICommandCenter.vue                       
+  BIMCanvas.Web/src/components/UI/AICommandCenter/AICommandHeader.vue       
+  BIMCanvas.Web/src/components/UI/AICommandCenter/WindowTabs.vue            
+  BIMCanvas.Web/src/components/UI/AICommandCenter/ResizeHandle.vue          
+  BIMCanvas.Web/src/components/UI/AICommandCenter/ChatView.vue              
+  BIMCanvas.Web/src/components/UI/AICommandCenter/ChatMessage.vue           
+  BIMCanvas.Web/src/components/UI/AICommandCenter/TaskView.vue              
+  BIMCanvas.Web/src/components/UI/AICommandCenter/TaskProposals.vue         
+  BIMCanvas.Web/src/components/UI/AICommandCenter/CommandFooter.vue         
+  BIMCanvas.Web/src/components/UI/AICommandCenter/ContextBar.vue            
+  BIMCanvas.Web/src/components/UI/AICommandCenter/ContextMenu.vue           
+  BIMCanvas.Web/src/components/UI/AICommandCenter/ChatInputBox.vue          
+  BIMCanvas.Web/src/components/UI/AICommandCenter/PollingIndicator.vue      
+  BIMCanvas.Web/src/composables/aiCommandCenter/useWindowManager.ts         
+  BIMCanvas.Web/src/composables/aiCommandCenter/useBranchCheckoutFlow.ts    
+  BIMCanvas.Web/src/composables/aiCommandCenter/useChatStream.ts            
+  BIMCanvas.Web/src/composables/aiCommandCenter/useChatScroll.ts            
+  BIMCanvas.Web/src/composables/aiCommandCenter/useAgentConfig.ts           
+  BIMCanvas.Web/src/composables/aiCommandCenter/useScreenshot.ts            
+  BIMCanvas.Web/src/composables/aiCommandCenter/useMenus.ts                 
+  BIMCanvas.Web/src/composables/aiCommandCenter/usePanelUI.ts               
+  BIMCanvas.Web/src/composables/aiCommandCenter/useInputBox.ts              
+  BIMCanvas.Web/src/composables/aiCommandCenter/useTaskWidget.ts            
+  BIMCanvas.Web/src/types/aiCommandCenter.ts                                
+  BIMCanvas.Web/src/constants/aiCommandCenter.ts                            
+  Component APIs (Container/Header)                                         
+                                                                            
+  AICommandCenter.vue: Props panelReady?; 负责组装各 composable +           
+  对话框/Overlay；Emits 无                                                  
+  AICommandHeader.vue: Props mode/windows/activeWindowId/branches/currentBr 
+  anch/isBranchDropdownOpen/showNewWindowDropdown/newWindowDropdownPosition 
+  /branchIcon/createIcon/isBranchOccupied/isBranchOccupiedByOther; Emits    
+  update:mode, window:switch, window:close, new-window:toggle,              
+  new-window:select, branch:toggle, branch:select, branch:create            
+  WindowTabs.vue: Props windows/activeWindowId/branches/currentBranch/dropd 
+  ownState/branchIcon/createIcon/isBranchOccupied/isBranchOccupiedByOther;  
+  Emits window:switch, window:close, new-window:toggle, new-window:select,  
+  branch:toggle, branch:select, branch:create                               
+  ResizeHandle.vue: Props enabled?; Emits resize:start (MouseEvent)         
+  Component APIs (Chat/Task)                                                
+                                                                            
+  ChatView.vue: Props windows/activeWindowId/mode/setChatScrollRef/setChatB 
+  ottomRef/handleChatScroll/toggleThinking; Emits 无                        
+  ChatMessage.vue: Props                                                    
+  message/windowId/msgIndex/expandedThinking/toggleThinking; Emits 无       
+  TaskView.vue: Props activeSubAgents/expanded(v-model)/proposals; Emits    
+  update:expanded, proposal:apply, proposal:refine                          
+  TaskProposals.vue: Props proposals; Emits proposal:apply, proposal:refine 
+  Component APIs (Footer/Input)                                             
+                                                                            
+  CommandFooter.vue: Props                                                  
+  mode/activeScope/selectedModuleCount/pendingImages/inputMessage/isLoading 
+  /agentStatus/isPollingBackground/menuState/modelState/thinkingState;      
+  Emits clear-selection, update:inputMessage, send, remove-image,           
+  screenshot:start, toggle-context, context:select, toggle-attachment,      
+  model:select, thinking:select                                             
+  ContextBar.vue: Props activeScope/selectedModuleCount/isContextMenuOpen;  
+  Emits clear-selection, toggle-context                                     
+  ContextMenu.vue: Props contextOptions/activeSubmenu/submenuDirection;     
+  Emits submenu:open, context:select                                        
+  ChatInputBox.vue: Props                                                   
+  inputMessage/pendingImages/isLoading/agentStatus/models/currentModel/thin 
+  kingLevels/currentThinking/menuState/addModelState; Emits                 
+  update:inputMessage, send, remove-image, screenshot:start,                
+  model:toggle/select/add, thinking:toggle/select, attachment:toggle        
+  PollingIndicator.vue: Props active; Emits 无                              
+  Composables (Core)                                                        
+                                                                            
+  useWindowManager.ts: Inputs { branches, currentBranch, gitStore, store,   
+  agentApiBase }; Returns windows/activeWindowId/activeWindow/initDefaultWi 
+  ndow/switchWindow/addWindow/closeWindow/handleWindowTabClick/isBranchOccu 
+  pied/isBranchOccupiedByOther                                              
+  useBranchCheckoutFlow.ts: Inputs { gitStore, store, windows,              
+  activeWindowId }; Returns isBranchDropdownOpen/showBranchCreationDialog/b 
+  ranchCreationSource/branchOptionsForDialog/showCheckoutConfirmDialog/pend 
+  ingCheckoutBranch/pendingWindowId/pendingIsCreateBranch/selectBranch/hand 
+  leCreateNewBranch/handleCreateNewBranchForPrimary/handleBranchCreated/han 
+  dleCheckoutConfirm/handleCheckoutCancel                                   
+  useChatStream.ts: Inputs { agentApiBase, windows, activeWindowId,         
+  pendingImages, currentModel, currentThinking, currentProjectPath,         
+  addMessageToWindow, getWindowMessage, scrollToBottom }; Returns           
+  sendMessage/streamWelcomeMessage/agentStatus/isPollingBackground/checkAge 
+  ntHealth/fetchProjectPath                                                 
+  useChatScroll.ts: Inputs { mode, activeWindowId, windows }; Returns       
+  chatScrollRefs/chatBottomRefs/setChatScrollRef/setChatBottomRef/scrollToB 
+  ottom/isNearBottom/handleChatScroll/handleTableWheel                      
+  useAgentConfig.ts: Inputs { agentApiBase }; Returns models/currentModel/t 
+  hinkingLevels/currentThinking/isModelMenuOpen/isThinkingMenuOpen/isAdding 
+  Model/newModelId/newModelInputRef/fetchAgentConfig/selectModel/selectThin 
+  king/startAddModel/confirmAddModel/cancelAddModel/saveCustomModels        
+  useScreenshot.ts: Inputs { agentApiBase, pendingImages }; Returns         
+  showScreenshotOverlay/handleScreenshotCapture/handleScreenshotCancel/remo 
+  vePendingImage/startListening/stopListening                               
+  Composables (UI/辅助)                                                     
+                                                                            
+  useMenus.ts: Inputs { inputMessage, activeScope }; Returns isContextMenuO 
+  pen/isAttachmentMenuOpen/activeSubmenu/submenuDirection/toggleContextMenu 
+  /toggleAttachmentMenu/openSubmenu/handleContextSelect/handleGlobalClick   
+  usePanelUI.ts: Returns panelWidth/isResizing/startResize/stopResize/windo 
+  wTabsRef/handleTabsWheel/carouselTrackRef/handleWheel                     
+  useInputBox.ts: Inputs { inputMessage }; Returns                          
+  textareaRef/adjustTextareaHeight/handleKeydown                            
+  useTaskWidget.ts: Inputs { activeSubAgents }; Returns                     
+  taskWidgetExpanded（含自动展开逻辑）                                      
+  Types/Constants                                                           
+                                                                            
+  aiCommandCenter.ts: ChatWindow/ChatMessage/Proposal/DropdownPosition 等   
+  UI 类型                                                                   
+  aiCommandCenter.ts:                                                       
+  WAITING_VERBS/thinkingLevels/contextOptions/proposalMocks                 
+  agent.ts: 继续作为 ChatBubble/SubAgent/ToolCall/WaitingState 来源         
+  bubbleManager.ts: 仍由 useChatStream 统一调用，避免分散修改               
+  Wiring Notes                                                              
+                                                                            
+  保持 v-show 多窗口与 chatScrollRefs 结构，避免切换窗口时滚动/折叠状态丢失 
+  watch(currentBranch)                                                      
+  只在主窗口且活跃时同步，继续防止新窗口创建时主分支被改                    
+  SSE 解析必须保留 targetWindowId 定位，不要改成全局消息写入                
+  全局点击关闭菜单/下拉需要集中处理并在 onMounted/onUnmounted 统一挂载/卸载 
+  Worktree 注册/解绑、SignalR 注册、Agent 关闭流程必须仍在                  
+  addWindow/closeWindow 内成对出现                                          
+  如果你想，我可以在这个草案上再细化到每个 props                            
+  的具体类型签名或给一个“精简版拆分”（少文件版本）。                        
+  下一步你可以选：                                                          
+                                                                            
+  采用“多文件细拆”还是“少文件粗拆”                                          
+  composables 是否集中放在 composables/aiCommandCenter 子目录               
+  要不要我给出拆分的分步迁移顺序清单                                        
+                                                                            
+                                                                            
+                                                                            
+                                                                            
+                                                                            
+                                                                            
+                                                                            
+                                                                            
+                                                                            
+  本地                                                                      
+
+● 非常感谢业务专家的详细建议！我看到了两种拆分方案的差异，让我帮你对比分析：
+
+  📊 两种方案对比
+
+  方案 A：我的 Composable 优先方案
+
+  特点：
+  - ✅ 低风险渐进式：Phase 1 只抽 3 个最独立的
+  Composable（useModelConfig、useAutoScroll、useUIState）
+  - ✅ 快速见效：2-3 天即可减少约 300 行代码
+  - ⚠️ 模板仍臃肿：2200 行模板暂时保留在主组件
+
+  方案 B：专家的组件+逻辑并行方案
+
+  特点：
+  - ✅ 全面重构：同时拆分组件层（Header、ChatView、Footer等）+ 逻辑层（10+
+  composables）
+  - ✅ 彻底解决：模板从 2200 行 → 可能降到 500 行以内
+  - ⚠️ 工作量大：需要处理大量 props/emit 传递，预计 1-2 周
+  - ⚠️ 风险较高：同时改动模板和逻辑，调试复杂度增加
+
+  方案 C：折中的精简版（我的建议）
+
+  特点：
+  - 保留方案 A 的 Composable 拆分（useWindowManager、useChatStream 等）
+  - 只拆分 3-4 个最关键的子组件：
+    - ChatInputBox.vue（输入框 + 附件 + 模型选择）
+    - WindowTabs.vue（窗口标签 + 分支下拉）
+    - ChatMessageList.vue（消息列表渲染）
+    - ContextBar.vue（上下文栏）
+  - 不拆：Header/Footer 保留在主组件，减少 props 传递
+
+  ---
+  🤔 需要你的决策
+
+● User declined to answer questions
+
+> 需要你和业务专家讨论，而不是和我 
+
+● 明白了！让我直接与业务专家讨论这两种方案的优劣：
+
+  ---
+  💬 与业务专家的技术讨论
+
+  关于你的"全面重构"方案，我有几点看法：
+
+  ✅ 赞同的部分
+
+  1. 组件拆分思路很清晰
+    - ChatInputBox.vue、WindowTabs.vue、ContextBar.vue 这些确实是高复用候选
+    - 你提到的"v-show 保留 DOM"这点很关键，避免状态丢失
+  2. Composable 分类合理
+    - useWindowManager + useBranchCheckoutFlow 
+  的分离很好（我原方案把它们合并了，可能耦合太紧）
+    - useChatScroll 独立出来确实比我的 useAutoScroll 更聚焦
+  3. 类型外置
+    - types/aiCommandCenter.ts + constants/aiCommandCenter.ts
+  这个我同意，能让主文件更清爽
+
+  ⚠️ 我的顾虑
+
+  1. 同时拆组件 + 逻辑的风险
+  你的方案：组件层（11个文件）+ 逻辑层（10个 composables）= 21+ 新文件
+  我的方案：Phase 1 只拆 3 个 composables = 3 个新文件
+  1. 问题：一次性改动太大，调试时很难定位是"组件拆分"还是"逻辑拆分"导致的 bug
+  2. props/emit 传递地狱
+    - 你的 ChatInputBox.vue
+  需要接收：inputMessage/pendingImages/isLoading/agentStatus/models/currentModel
+  /thinkingLevels/currentThinking/menuState/addModelState
+    - Emit: update:inputMessage/send/remove-image/screenshot:start/model:toggle/
+  model:select/model:add/thinking:toggle/thinking:select/attachment:toggle
+
+  这是 10+ 个 props 和 10+ 个 emits！维护成本会很高。
+  3. Worktree 注册的隐患
+    - 你提到"Worktree 注册/解绑必须在 addWindow/closeWindow 内成对出现"
+    - 如果把 addWindow 移到 useWindowManager.ts，但窗口创建的 UI 逻辑在
+  WindowTabs.vue，这两者的协调需要非常小心
+
+  🤝 我的折中建议
+
+  Phase 1（优先，1周内）：
+  Composables 优先（你我都同意的部分）：
+  ├── useWindowManager.ts        ← 采用你的 API 设计
+  ├── useBranchCheckoutFlow.ts   ← 从 WindowManager 中分离（你的建议）
+  ├── useChatStream.ts            ← 合并我的 useAgentStream
+  ├── useChatScroll.ts            ← 你的命名更准确
+  ├── useAgentConfig.ts           ← 我的 useModelConfig
+  └── useScreenshot.ts            ← 独立出来
+
+  类型/常量外置（你的建议）：
+  ├── types/aiCommandCenter.ts
+  └── constants/aiCommandCenter.ts
+
+  Phase 2（可选，后续迭代）：
+  只拆 3-4 个最独立的子组件：
+  ├── ChatInputBox.vue       ← 但简化 props，通过 composable 共享状态
+  ├── WindowTabs.vue         ← 只负责渲染，逻辑在 useWindowManager
+  ├── ContextBar.vue         ← 轻量级，纯展示
+  └── PollingIndicator.vue   ← 已经很小了
+
+  不拆的部分：
+  - ChatView.vue / TaskView.vue 暂时不拆（嵌套太深，收益低）
+  - Header/Footer 保留在主组件（避免过度设计）
+
+  ---
+  关键分歧点讨论
+  维度: 文件数量
+  你的方案: 21+ 新文件
+  我的方案: 6-9 个新文件
+  我的立场: 我倾向少文件，降低心智负担
+  ────────────────────────────────────────
+  维度: 拆分粒度
+  你的方案: 细粒度（Header/Footer 都拆）
+  我的方案: 中等粒度（只拆关键部分）
+  我的立场: 我倾向中等，平衡收益与成本
+  ────────────────────────────────────────
+  维度: 状态共享
+  你的方案: props/emit
+  我的方案: Composable 共享
+  我的立场: 我倾向 Composable，减少 prop drilling
+  ────────────────────────────────────────
+  维度: 实施顺序
+  你的方案: 并行（组件+逻辑）
+  我的方案: 串行（逻辑优先）
+  我的立场: 我倾向串行，风险可控
+  ---
+  📌 最终建议（综合双方优点）
+
+  采用你的 Composable API 设计 + 我的渐进式策略：
+
+  // 第一步：类型/常量外置（你的建议）
+  types/aiCommandCenter.ts
+  constants/aiCommandCenter.ts
+
+  // 第二步：6 个核心 Composables（融合双方设计）
+  composables/aiCommandCenter/
+  ├── useWindowManager.ts        ← 你的 API 设计
+  ├── useBranchCheckoutFlow.ts   ← 你的分离逻辑
+  ├── useChatStream.ts            ← 我的命名 + 你的功能分组
+  ├── useChatScroll.ts            ← 你的命名
+  ├── useAgentConfig.ts           ← 我的命名 + 你的功能扩展
+  └── useScreenshot.ts            ← 你的建议
+
+  // 第三步（可选）：3 个子组件（简化版）
+  components/UI/AICommandCenter/
+  ├── ChatInputBox.vue    ← 通过 inject 减少 props
+  ├── WindowTabs.vue      ← 纯展示组件
+  └── PollingIndicator.vue
+
+  不做：
+  - 不拆 ChatView/TaskView/Header/Footer（过度设计）
+  - 不创建 ChatMessage.vue（单个消息渲染逻辑简单，不值得拆）
+
+  ---
+  ❓ 我想听听你的反驳
+
+  1. 你认为"并行拆分"的优势在哪里？ 是否有我没考虑到的场景？
+  2. props/emit vs Composable 共享状态，你更偏好哪种？为什么？
+  3. 11 个组件文件是否真的必要？ 还是可以合并一些（比如 Header 系列）？
+
+  等待你的回应，我们可以继续迭代方案 🤝
+
+✻ Crunched for 48s
+
+> 以下是业务专家对你改造方案的建议，请你仔细阅读并给出回复，要求：          
+  - 适当的坚持你认为正确的观点，并且主动在回复中要求深入讨论                
+  - 在业务专家的帮助下，不断的更新优化你的改造方案                          
+  # 业务专家建议                                                            
+  给 Claude 的沟通要点                                                      
+                                                                            
+  Claude 当前方案偏“composables 拆分”，但缺少模板拆分；先把 UI              
+  分块成子组件，否则逻辑仍高度耦合在 AICommandCenter.vue                    
+  既然“不考虑兼容性”，建议删除“兼容层 computed”（chatMessages/inputMessage  
+  等），所有读写都显式绑定 windowId                                         
+  把“业务核心”放进 composable，把“UI 状态”下放到组件本地，避免一个          
+  useUIState 控制全局一切                                                   
+  SSE 解析建议做成“事件映射表 + 明确状态变更”，减少 if-else 串联逻辑        
+  常量与类型外置，清理“Phase/Debug/Strategy 注释”，为后续演进留干净基线     
+  KISS 重构目标                                                             
+                                                                            
+  AICommandCenter.vue 只做“组装 + 依赖注入 + 事件转发”，不保留复杂逻辑      
+  控制在 5 个核心 composables，7–9 个子组件，避免过度切片                   
+  单一事实源：窗口/消息/流状态只在一个模块维护                              
+  明确读写路径：UI 组件只读 props，只通过 emit 修改状态                     
+  剪掉“兼容层/过渡层”，一次性改到新的 API                                   
+  建议目录结构                                                              
+                                                                            
+  BIMCanvas.Web/src/components/UI/AICommandCenter.vue                       
+  BIMCanvas.Web/src/components/UI/AICommandCenter/AICommandHeader.vue       
+  BIMCanvas.Web/src/components/UI/AICommandCenter/WindowTabs.vue            
+  BIMCanvas.Web/src/components/UI/AICommandCenter/ChatView.vue              
+  BIMCanvas.Web/src/components/UI/AICommandCenter/ChatMessage.vue           
+  BIMCanvas.Web/src/components/UI/AICommandCenter/TaskView.vue              
+  BIMCanvas.Web/src/components/UI/AICommandCenter/CommandFooter.vue         
+  BIMCanvas.Web/src/components/UI/AICommandCenter/ChatInputBox.vue          
+  BIMCanvas.Web/src/components/UI/AICommandCenter/ContextMenu.vue           
+  BIMCanvas.Web/src/composables/aiCommandCenter/useWindowManager.ts         
+  BIMCanvas.Web/src/composables/aiCommandCenter/useBranchFlow.ts            
+  BIMCanvas.Web/src/composables/aiCommandCenter/useChatStream.ts            
+  BIMCanvas.Web/src/composables/aiCommandCenter/useAgentConfig.ts           
+  BIMCanvas.Web/src/composables/aiCommandCenter/useChatScroll.ts            
+  BIMCanvas.Web/src/composables/aiCommandCenter/usePanelUI.ts               
+  BIMCanvas.Web/src/types/aiCommandCenter.ts                                
+  BIMCanvas.Web/src/constants/aiCommandCenter.ts                            
+  Composables API 草案                                                      
+                                                                            
+  useWindowManager：windows/activeWindowId/activeWindow/initDefaultWindow/s 
+  witchWindow/addWindow/closeWindow/addMessageToWindow/getWindowMessage     
+  useBranchFlow：isBranchDropdownOpen/showCheckoutConfirmDialog/showBranchC 
+  reationDialog/pendingCheckoutBranch/pendingWindowId/selectBranch/handleBr 
+  anchCreated/handleCheckoutConfirm                                         
+  useChatStream：agentStatus/isPollingBackground/streamWelcomeMessage/sendM 
+  essage/checkAgentHealth/fetchProjectPath                                  
+  useAgentConfig：models/currentModel/thinkingLevels/currentThinking/select 
+  Model/selectThinking/addCustomModel/saveCustomModels                      
+  useChatScroll：chatScrollRefs/chatBottomRefs/setChatScrollRef/setChatBott 
+  omRef/scrollToBottom/isNearBottom/handleChatScroll                        
+  组件 Props/Emit 草案                                                      
+                                                                            
+  AICommandHeader.vue：props                                                
+  mode/windows/activeWindowId/branches/currentBranch/...；emit update:mode/ 
+  window:switch/window:close/branch:select/branch:create/new-window:toggle  
+  ChatView.vue：props windows/activeWindowId/setChatScrollRef/setChatBottom 
+  Ref/handleChatScroll/toggleThinking；emit 无                              
+  ChatMessage.vue：props message/windowId/msgIndex/expandedThinking；emit   
+  thinking:toggle                                                           
+  TaskView.vue：props activeSubAgents/taskWidgetExpanded/proposals；emit    
+  update:taskWidgetExpanded/proposal:apply/proposal:refine                  
+  CommandFooter.vue：props activeScope/selectedModuleCount/pendingImages/in 
+  putMessage/isLoading/agentStatus/menuState/modelState/thinkingState；emit 
+  send/update:inputMessage/toggle-context/context:select/model:select/thin  
+  king:select/remove-image                                                  
+  ChatInputBox.vue：props inputMessage/pendingImages/isLoading/agentStatus/ 
+  models/currentModel/thinkingLevels/currentThinking；emit                  
+  send/update:inputMessage/remove-image/model:select/thinking:select/attach 
+  ment:toggle/screenshot:start                                              
+  实施顺序与验收                                                            
+                                                                            
+  第一步拆模板：Header/Stream/Footer/Overlays 拆出，确保 DOM 与样式不变     
+  第二步抽 useWindowManager 与 useChatStream，先把“聊天 + 多窗口 +          
+  SSE”核心落位                                                              
+  第三步抽 useAgentConfig 与 useChatScroll，把模型配置与滚动独立出来        
+  第四步清理兼容层与冗余注释，把所有逻辑改为显式 windowId                   
+  验收覆盖：多窗口切换、分支切换/新建、SSE 流式输出、截图/附件、菜单关闭    
+  如果你希望我继续辅助 Claude，我可以把每个 composable                      
+  的函数签名和事件类型再精细到参数级别，或给出“最小变更版 vs                
+  彻底重构版”的取舍清单。                                                   
+                                                                            
+                                                                            
+                                                                            
+                                                                            
+                                                                            
+                                                                            
+                                                                            
+                                                                            
+                                                                            
+                                                                            
+  本地                                                                      
+
+● 好的，我仔细读了业务专家的建议，有几点我需要深入讨论和适当坚持我的观点：
+
+  ---
+  🔍 关键分歧点讨论
+
+  1. 渐进式 vs 一次性重构（我需要坚持）
+
+  专家建议：
+  "剪掉兼容层/过渡层，一次性改到新的 API"
+
+  我的立场：
+  对于 4716 行的巨型组件，一次性重构风险极高！我强烈建议分两步走：
+
+  第一步（核心拆分，1周）：
+  - 先抽 5 个 composables（逻辑与状态分离）
+  - 不动模板，通过 computed 提供兼容层
+  - 验证所有功能正常后，再进入第二步
+
+  第二步（模板拆分，1周）：
+  - 拆 7-9 个子组件
+  - 删除兼容层，直接绑定 windowId
+
+  为什么坚持这个顺序？
+  一次性拆分的问题：
+  ├── 模板拆分后，props/emit 传递路径变了
+  ├── Composables 抽取后，状态管理逻辑变了
+  └── 如果出 bug，无法判断是"模板问题"还是"逻辑问题"
+
+  渐进式拆分的优势：
+  ├── 逻辑拆分后，可以单独测试 composables
+  ├── 模板保持不变，回归测试简单
+  └── 每一步都可以回滚
+
+  ❓ 问题给专家：
+  - 你是否有过"巨型组件一次性重构"的成功案例？如何控制回归风险？
+  - 如果我们先拆 composables + 保留模板，是否可以作为"最小可行方案"？
+
+  ---
+  2. 模板拆分的优先级（我需要修正）
+
+  专家建议：
+  "先把 UI 分块成子组件，否则逻辑仍高度耦合在 AICommandCenter.vue"
+
+  我的反思：
+  你说得对！我之前的方案确实低估了模板拆分的重要性。但我有疑问：
+
+  问题 1：Props/Emit 数量爆炸
+  你设计的 ChatInputBox.vue：
+  // Props (10+)
+  inputMessage, pendingImages, isLoading, agentStatus, 
+  models, currentModel, thinkingLevels, currentThinking, ...
+
+  // Emits (10+)
+  send, update:inputMessage, remove-image, model:select,
+  thinking:select, attachment:toggle, screenshot:start, ...
+
+  这不是"props drilling hell"吗？
+
+  我的建议：使用 provide/inject + Composables 共享状态
+  <!-- ChatInputBox.vue -->
+  <script setup>
+  import { inject } from 'vue';
+
+  // 通过 inject 获取状态，而不是 props
+  const { inputMessage, pendingImages, isLoading } = inject('chatState');
+  const { models, currentModel, selectModel } = inject('agentConfig');
+  const { sendMessage } = inject('chatStream');
+  </script>
+
+  ❓ 问题给专家：
+  - 你更倾向于 props/emit 明确性 还是 provide/inject 简洁性？
+  - 如果用 provide/inject，是否会导致"隐式依赖"难以追踪？
+
+  ---
+  3. useUIState 的设计问题（我接受批评）
+
+  专家建议：
+  "把'UI 状态'下放到组件本地，避免一个 useUIState 控制全局一切"
+
+  我的立场：
+  完全同意！ 我的 useUIState 设计确实过度集中。修正方案：
+
+  删除 useUIState，状态下放到组件：
+  // ❌ 旧方案：useUIState 集中管理
+  const { isBranchDropdownOpen, isModelMenuOpen, ... } = useUIState();
+
+  // ✅ 新方案：状态下放到组件
+  // WindowTabs.vue 内部
+  const isBranchDropdownOpen = ref(false);
+
+  // ChatInputBox.vue 内部
+  const isModelMenuOpen = ref(false);
+
+  但我仍需保留一个轻量的全局状态管理：
+  // usePanelUI.ts（只管全局UI状态）
+  export function usePanelUI() {
+    const panelWidth = ref(450);
+    const isResizing = ref(false);
+    const mode = ref<'chat' | 'tasks'>('chat');
+    
+    return { panelWidth, isResizing, mode };
+  }
+
+  ✅ 这一点我接受专家建议，会在更新方案中修正
+
+  ---
+  4. SSE 解析重构的优先级（我需要讨论）
+
+  专家建议：
+  "SSE 解析建议做成'事件映射表 + 明确状态变更'，减少 if-else 串联逻辑"
+
+  我的疑问：
+  这是架构优化，不是拆分重构。如果在第一期重构中同时做：
+  - 模板拆分（7-9 个子组件）
+  - 逻辑拆分（5 个 composables）
+  - SSE 解析重构（事件映射表）
+
+  工作量会爆炸！ 我建议分两期：
+
+  第一期（重构目标）：
+  - 拆分 composables 和子组件
+  - SSE 解析逻辑原样迁移到 useChatStream.ts，不改架构
+
+  第二期（架构优化）：
+  - 重构 SSE 解析为事件映射表
+  - 优化状态变更逻辑
+
+  ❓ 问题给专家：
+  - SSE 解析重构是否必须在第一期完成？还是可以作为第二期优化？
+  - 如果第一期只做"拆分"，第二期做"优化"，是否更安全？
+
+  ---
+  5. 文件数量的权衡（我需要坚持）
+
+  专家建议：
+  "7–9 个子组件，5 个核心 composables"
+
+  我的计算：
+  子组件（9个）：
+  ├── AICommandHeader.vue
+  ├── WindowTabs.vue
+  ├── ChatView.vue
+  ├── ChatMessage.vue
+  ├── TaskView.vue
+  ├── CommandFooter.vue
+  ├── ChatInputBox.vue
+  ├── ContextMenu.vue
+  └── PollingIndicator.vue（已存在，不需要新建）
+
+  Composables（5个）：
+  ├── useWindowManager.ts
+  ├── useBranchFlow.ts
+  ├── useChatStream.ts
+  ├── useAgentConfig.ts
+  └── useChatScroll.ts
+
+  类型/常量（2个）：
+  ├── types/aiCommandCenter.ts
+  └── constants/aiCommandCenter.ts
+
+  总计：9 + 5 + 2 = 16 个新文件
+
+  我的担忧：
+  - 16 个新文件对于一个组件来说太多了！
+  - 开发者需要在多个文件间跳转，心智负担增加
+
+  我的建议：减少到 10-12 个文件
+  必须拆的子组件（5个）：
+  ├── WindowTabs.vue（复杂的分支下拉逻辑）
+  ├── ChatInputBox.vue（复杂的输入框逻辑）
+  ├── ChatMessageList.vue（消息列表渲染）
+  ├── TaskView.vue（任务视图独立）
+  └── ContextMenu.vue（复杂的菜单逻辑）
+
+  不拆的部分：
+  ├── AICommandHeader（只是简单的 mode 切换，保留在主组件）
+  ├── CommandFooter（只是容器，保留在主组件）
+  ├── ChatMessage（单条消息渲染简单，保留在 ChatMessageList 内部）
+  └── ChatView（只是 v-show 切换，保留在主组件）
+
+  ❓ 问题给专家：
+  - 是否同意"Header/Footer 太简单，不值得拆"？
+  - ChatMessage 是否真的需要单独组件？还是可以在 ChatMessageList 内部渲染？
+
+  ---
+  📝 我的修正方案（综合专家建议）
+
+  新的实施顺序
+
+  Phase 1（第一周）：Composables 拆分 + 类型外置
+  1. 创建 types/aiCommandCenter.ts（外置类型）
+  2. 创建 constants/aiCommandCenter.ts（外置常量）
+  3. 创建 5 个 composables：
+     ├── useWindowManager.ts
+     ├── useBranchFlow.ts
+     ├── useChatStream.ts
+     ├── useAgentConfig.ts
+     └── useChatScroll.ts
+  4. 在 AICommandCenter.vue 中引入 composables
+  5. 保留模板不变，通过 computed 提供兼容层
+  6. 测试所有功能正常
+
+  Phase 2（第二周）：模板拆分 + 删除兼容层
+  1. 拆分 5 个子组件：
+     ├── WindowTabs.vue
+     ├── ChatInputBox.vue
+     ├── ChatMessageList.vue
+     ├── TaskView.vue
+     └── ContextMenu.vue
+  2. 使用 provide/inject 共享状态（减少 props drilling）
+  3. 删除兼容层 computed
+  4. 清理冗余注释（Phase/Debug/Strategy）
+  5. 测试所有功能正常
+
+  Phase 3（可选，后续优化）：架构优化
+  1. SSE 解析改为事件映射表
+  2. 优化状态变更逻辑
+  3. 性能优化（shallowRef 等）
+
+  ---
+  ❗ 我需要专家明确回答的问题
+
+  1. 重构策略：你能否接受"Phase 1 + Phase 2"的两步走策略？还是坚持一次性重构？
+  2. Props vs Provide/Inject：ChatInputBox 的 10+ props 是否可以通过
+  provide/inject 优化？
+  3. SSE 解析重构：是否可以延后到 Phase 3？
+  4. 文件数量：是否可以减少到 10-12 个文件（不拆 Header/Footer/ChatMessage）？
+  5. 验收标准：你提到的"验收覆盖"是否需要自动化测试？还是手动测试即可？
+
+  等待你的回应，我会基于你的反馈继续优化方案！
+
+✻ Churned for 1m 14s
+
+> /export 
+  ⎿  Conversation exported to: 2026-01-28-aicommandcentervue.txt
+
+> 专家回复：                                                                
+  核心结论                                                                  
+                                                                            
+  不走“兼容层+两周”路线；既然明确“不考虑兼容性”，就不保留 computed          
+  兼容层，直接切到新 API                                                    
+  允许“分片式一次性重构”：按功能块拆分，但在同一轮完成，避免两套状态并存    
+  props/emit 仍是首选；如果嫌多，用“聚合对象”而不是 provide/inject          
+  对你 5 个问题的明确答复                                                   
+                                                                            
+  重构策略：建议“一次性但分片”的单轮重构，去掉兼容层；若坚持分阶段，Phase 1 
+  也必须同步改模板，不做“逻辑抽取但模板不动”                                
+  props vs provide/inject：默认 props/emit；ChatInputBox 的 10+ props 用    
+  state/actions 两个聚合 props 解决，不引入隐式依赖                         
+  SSE 解析重构：可以延后到 Phase 3；Phase 1 只迁移，不改语义，最多抽        
+  handleSseEvent() 预埋                                                     
+  文件数量：10–12 个文件可以接受；但 Header 不算“简单”，应该拆；ChatMessage 
+  可以不拆，留在 ChatMessageList 内                                         
+  验收标准：优先手动回归清单即可，不强制自动化；关键路径必须逐条验证        
+  建议 Claude 调整后的“最小干净方案”                                        
+                                                                            
+  子组件（5–6 个）                                                          
+  WindowTabs.vue（复杂下拉与分支/新窗）                                     
+  ChatMessageList.vue（消息/思考/气泡渲染）                                 
+  ChatInputBox.vue（输入+模型+思考强度+附件）                               
+  TaskView.vue（任务视图与 Proposal）                                       
+  ContextMenu.vue（上下文菜单）                                             
+  可选 AICommandHeader.vue（建议拆，不小）                                  
+  composables（4–5 个）                                                     
+  useWindowManager.ts（含分支流转，避免额外 useBranchFlow）                 
+  useChatStream.ts                                                          
+  useAgentConfig.ts                                                         
+  useChatScroll.ts                                                          
+  可选 usePanelUI.ts                                                        
+  types/constants（2 个）                                                   
+  aiCommandCenter.ts                                                        
+  aiCommandCenter.ts                                                        
+  关于 props 数量的 KISS 解决法                                             
+                                                                            
+  不用 provide/inject                                                       
+  传两个对象即可：                                                          
+  ChatInputBox：props: { state: ChatInputState, actions: ChatInputActions } 
+  ChatMessageList：props: { state: ChatWindowState, actions: ChatActions }  
+  这样显式、可追踪，还能控制 props 数量                                     
+  推荐实施顺序（单轮分片）                                                  
+                                                                            
+  先抽类型与常量                                                            
+  抽 useWindowManager/useChatStream 并立即改模板使用（不留兼容层）          
+  拆 UI 子组件（WindowTabs → ChatMessageList → ChatInputBox → ContextMenu → 
+  TaskView）                                                                
+  最后清理注释/兼容层/临时逻辑                                              
+  最小回归清单（手动即可）                                                  
+                                                                            
+  新建/切换/关闭窗口                                                        
+  分支切换 + 未提交确认                                                     
+  SSE 流式对话完整返回                                                      
+  思考折叠/滚动锁定                                                         
+  模型/思考强度切换                                                         
+  截图与附件发送                                                            
+  Context 菜单与全局点击关闭                                                
+
+● 好的，我理解了专家的立场！让我先承认合理性，然后深入讨论具体执行细节：
+
+  ---
+  ✅ 我接受的部分
+
+  1. 不要兼容层（我被说服了）
+
+  专家观点：
+  "既然明确'不考虑兼容性'，就不保留 computed 兼容层"
+
+  我的反思：
+  你说得对！兼容层确实会导致两套状态并存，增加维护负担。我接受直接切到新 API。
+
+  2. Props 聚合对象（这个方案很优雅）
+
+  专家建议：
+  // ✅ 聚合对象方案
+  interface ChatInputState {
+    inputMessage: string;
+    pendingImages: string[];
+    isLoading: boolean;
+    agentStatus: string;
+  }
+
+  interface ChatInputActions {
+    send: (msg: string) => void;
+    updateMessage: (msg: string) => void;
+    removeImage: (idx: number) => void;
+  }
+
+  // ChatInputBox.vue
+  <script setup>
+  defineProps<{
+    state: ChatInputState;
+    actions: ChatInputActions;
+  }>()
+  </script>
+
+  我的评价：这比我的 provide/inject 方案更清晰！接受。
+
+  3. Header 应该拆（我同意）
+
+  我之前低估了 Header 的复杂度（mode 切换 + Task Widget + resize 
+  handle），应该拆成独立组件。
+
+  4. 合并 useBranchFlow 到 useWindowManager（合理）
+
+  分支切换确实和窗口管理紧密耦合，合并后更清晰。
+
+  ---
+  🔍 我需要深入讨论的部分
+
+  1. "分片式一次性重构"的具体执行（关键问题）
+
+  专家建议：
+  "按功能块拆分，但在同一轮完成"
+
+  我的疑问：具体操作步骤是什么？
+
+  方案 A："串行分片"（我的理解）
+
+  Day 1-2: 拆 useWindowManager + 改模板中的窗口管理部分
+           ↓ 测试窗口切换功能
+  Day 3-4: 拆 useChatStream + 改模板中的消息部分
+           ↓ 测试 SSE 流式对话
+  Day 5-6: 拆子组件（WindowTabs → ChatInputBox → ...）
+           ↓ 测试 UI 交互
+  Day 7: 清理注释 + 回归测试
+
+  优势：每一片完成后可以验证，出问题可以定位
+  劣势：仍然需要 1 周时间
+
+  方案 B："并行分片"（专家意图？）
+
+  同时进行：
+  - 开发者 A：拆 useWindowManager + WindowTabs.vue
+  - 开发者 B：拆 useChatStream + ChatMessageList.vue
+  - 开发者 C：拆 useAgentConfig + ChatInputBox.vue
+    ↓ 最后合并 + 集成测试
+
+  优势：3 天完成
+  劣势：需要多人协作，合并时可能冲突
+
+  ❓ 问题给专家：
+  - 你指的"分片式一次性"是方案 A 还是方案 B？
+  - 如果是方案 A，那和我的 Phase 1 有什么本质区别（除了不要兼容层）？
+  - 如果是方案 B，在单人开发场景下如何操作？
+
+  ---
+  2. 模板改动的时机（具体执行细节）
+
+  场景：我抽取了 useWindowManager.ts，现在需要改模板
+
+  原代码（AICommandCenter.vue）：
+  <template>
+    <div v-for="window in windows" :key="window.id">
+      <div v-show="window.id === activeWindowId">
+        <!-- 2000 行消息列表模板 -->
+      </div>
+    </div>
+  </template>
+
+  <script>
+  const windows = ref<ChatWindow[]>([]);
+  const activeWindowId = ref('');
+  </script>
+
+  新代码（两种选择）：
+
+  选择 1：只改 script，保留模板（我的原方案）
+
+  <template>
+    <!-- 模板完全不变 -->
+    <div v-for="window in windows" :key="window.id">
+      ...
+    </div>
+  </template>
+
+  <script>
+  // ✅ 抽取逻辑
+  import { useWindowManager } from 
+  '@/composables/aiCommandCenter/useWindowManager';
+  const windowManager = useWindowManager(...);
+
+  // ❌ 兼容层（专家不允许）
+  const windows = computed(() => windowManager.windows.value);
+  const activeWindowId = computed(() => windowManager.activeWindowId.value);
+  </script>
+
+  选择 2：同步改 script + 模板（专家要求）
+
+  <template>
+    <!-- ✅ 模板直接引用 composable -->
+    <div v-for="window in windowManager.windows.value" :key="window.id">
+      <div v-show="window.id === windowManager.activeWindowId.value">
+        <!-- 但这里还有 2000 行未拆分的消息列表！ -->
+      </div>
+    </div>
+  </template>
+
+  <script>
+  import { useWindowManager } from
+  '@/composables/aiCommandCenter/useWindowManager';
+  const windowManager = useWindowManager(...);
+  // ✅ 没有兼容层
+  </script>
+
+  问题：选择 2 虽然没有兼容层，但模板仍然是 2000 行，还是没拆子组件！
+
+  ❓ 问题给专家：
+  - 你要求"同步改模板"，是指改变量引用路径（windowManager.windows）还是同步拆子
+  组件？
+  - 如果是后者，那就意味着我必须在抽取 useWindowManager 的同时拆
+  WindowTabs.vue，这不就是"逻辑+模板并行拆分"吗？
+
+  ---
+  3. 回归测试的保障（风险控制）
+
+  专家建议：
+  "优先手动回归清单即可，不强制自动化"
+
+  我的担忧：
+  手动测试清单：
+  - [ ] 新建/切换/关闭窗口
+  - [ ] 分支切换 + 未提交确认
+  - [ ] SSE 流式对话完整返回
+  - [ ] 思考折叠/滚动锁定
+  - [ ] 模型/思考强度切换
+  - [ ] 截图与附件发送
+  - [ ] Context 菜单与全局点击关闭
+
+  这是 7 个功能点，但实际有 20+ 交互路径（比如"新建窗口 → 切换分支 → SSE
+  发送消息 → 思考折叠"）
+
+  问题：如果在第 5 天拆 ChatInputBox 时，发现"新建窗口"功能坏了（因为第 2 天拆
+  useWindowManager 时埋了一个 bug），这时候我要回退到哪一步？
+
+  ❓ 问题给专家：
+  - 是否建议在每一片完成后（比如每天下班前）都跑一遍完整回归清单？
+  - 还是说最后一天集中回归？（风险高）
+
+  ---
+  4. Git 分支策略（实操细节）
+
+  场景：我要进行"分片式一次性重构"
+
+  策略 A：单分支开发
+  git checkout -b refactor/ai-command-center
+
+  Day 1: 拆 useWindowManager
+  Day 2: 拆 useChatStream
+  Day 3: 拆 WindowTabs.vue
+  ...
+  Day 7: git commit -m "refactor: AICommandCenter 重构完成"
+
+  问题：如果 Day 5 发现 Day 2 的代码有问题，需要 reset 到 Day 2，会丢失 Day 3-4 
+  的成果
+
+  策略 B：每片一个 commit
+  Day 1: git commit -m "refactor: extract useWindowManager"
+  Day 2: git commit -m "refactor: extract useChatStream"
+  Day 3: git commit -m "refactor: extract WindowTabs component"
+  ...
+
+  问题：虽然可以回退到任意 commit，但每个 commit 都可能是功能不完整的状态（比如
+  useWindowManager 抽取了，但 ChatInputBox 还没拆）
+
+  ❓ 问题给专家：
+  - 推荐哪种 Git 策略？
+  - 是否需要每一片完成后都保证"功能可运行"？
+
+  ---
+  📝 我的最新方案（基于专家反馈）
+
+  文件结构（10-12 个文件）
+
+  子组件（6个）：
+  ├── AICommandHeader.vue      ← 接受专家建议，拆出来
+  ├── WindowTabs.vue
+  ├── ChatMessageList.vue
+  ├── ChatInputBox.vue
+  ├── TaskView.vue
+  └── ContextMenu.vue
+
+  Composables（5个）：
+  ├── useWindowManager.ts      ← 合并 useBranchFlow
+  ├── useChatStream.ts
+  ├── useAgentConfig.ts
+  ├── useChatScroll.ts
+  └── usePanelUI.ts
+
+  类型/常量（2个）：
+  ├── types/aiCommandCenter.ts
+  └── constants/aiCommandCenter.ts
+
+  Props 聚合对象设计
+
+  // WindowTabs.vue
+  interface WindowTabsState {
+    windows: ChatWindow[];
+    activeWindowId: string;
+    branches: string[];
+    currentBranch: string | null;
+    isBranchDropdownOpen: boolean;
+    showNewWindowDropdown: boolean;
+  }
+
+  interface WindowTabsActions {
+    switchWindow: (id: string) => void;
+    closeWindow: (id: string) => void;
+    selectBranch: (branch: string) => void;
+    createBranch: () => void;
+    toggleBranchDropdown: () => void;
+  }
+
+  // ChatInputBox.vue
+  interface ChatInputState {
+    inputMessage: string;
+    pendingImages: string[];
+    isLoading: boolean;
+    agentStatus: string;
+    models: { id: string; label: string }[];
+    currentModel: { id: string; label: string } | null;
+    thinkingLevels: { id: string; label: string }[];
+    currentThinking: { id: string; label: string };
+  }
+
+  interface ChatInputActions {
+    send: () => void;
+    updateMessage: (msg: string) => void;
+    removeImage: (idx: number) => void;
+    selectModel: (model: any) => void;
+    selectThinking: (level: any) => void;
+    startScreenshot: () => void;
+  }
+
+  实施顺序（等待专家确认具体操作）
+
+  Step 1: 类型/常量外置（1天）
+  ├── 创建 types/aiCommandCenter.ts
+  ├── 创建 constants/aiCommandCenter.ts
+  └── 迁移类型定义和常量
+
+  Step 2: 抽取 Composables + 改模板引用（3-4天）
+  ├── Day 1: useWindowManager + 改模板中的 windows/activeWindowId 引用
+  ├── Day 2: useChatStream + 改模板中的消息发送部分
+  ├── Day 3: useAgentConfig + useChatScroll
+  └── Day 4: usePanelUI
+
+  Step 3: 拆分子组件（2-3天）
+  ├── Day 5: WindowTabs.vue + AICommandHeader.vue
+  ├── Day 6: ChatInputBox.vue + ChatMessageList.vue
+  └── Day 7: TaskView.vue + ContextMenu.vue
+
+  Step 4: 清理 + 回归测试（1天）
+  ├── 删除冗余注释
+  ├── 清理临时代码
+  └── 完整回归测试
+
+  ---
+  ❗ 我需要专家最终确认的问题
+
+  1. "分片式一次性"的具体执行：是串行（方案 A）还是并行（方案 B）？
+  2. "同步改模板"的定义：是改变量引用路径，还是同步拆子组件？
+  3. 回归测试频率：每天都测，还是最后集中测？
+  4. Git 策略：单 commit 还是每片一个 commit？
+  5. Step 2 的执行细节：在抽取 useWindowManager 时，我需要同时拆 WindowTabs.vue
+  吗？
+
+  如果专家能明确这 5 个问题，我会立即更新计划文件并准备执行！ 🚀
+
+✻ Cooked for 1m 12s
+
+> /export 
+  ⎿  Conversation exported to: 2026-01-28-aicommandcentervue.txt
+
+> # 专家建议                                                                
+  “分片式一次性”= 串行分片（方案 A）                                        
+  单人场景就按 A                                                            
+  做：一次性完成全部拆分，但按功能块串行推进，每块完成就局部回归            
+  关键点：不保留兼容层；每块都把模板引用切到新 API                          
+  “同步改模板”= 同步改引用路径，不要求同日拆子组件                          
+  抽 useWindowManager 时，只要模板把 windows/activeWindowId 引用切到        
+  composable 即可                                                           
+  子组件拆分可以后续进行，但必须保证模板不再依赖旧变量/兼容层               
+  回归测试频率：每块完成都跑“局部清单”                                      
+  不需要每天完整回归                                                        
+  每完成一块，跑与该块相关的 2–3 条关键路径；最后一天跑全量清单             
+  这样风险和成本平衡                                                        
+  Git 策略：每块一个 commit，但要求“可运行”                                 
+  每个 commit 必须能启动且核心路径可跑通（不必全覆盖）                      
+  Commit 粒度 = 一块功能（例如：useWindowManager+模板引用切换）             
+  抽 useWindowManager 时不强制拆 WindowTabs.vue                             
+  先替换引用路径，保证状态来源唯一                                          
+  WindowTabs.vue 在 Step 3 单独拆，确保 UI 层从 script 中剥离               
+  最终执行共识（单人可落地）                                                
+                                                                            
+  Step 1：类型/常量外置                                                     
+                                                                            
+  迁移                                                                      
+  ChatWindow/ChatMessage/Proposal/ThinkingLevel/ContextOption/WaitingVerb   
+  Step 2：composables 串行抽取（不留兼容层）                                
+                                                                            
+  Day 1：useWindowManager + 模板改引用路径                                  
+  Day 2：useChatStream + sendMessage/streamWelcome 的调用替换               
+  Day 3：useAgentConfig + useChatScroll                                     
+  Day 4：usePanelUI                                                         
+  Step 3：子组件串行拆分                                                    
+                                                                            
+  Day 5：AICommandHeader + WindowTabs                                       
+  Day 6：ChatMessageList + ChatInputBox                                     
+  Day 7：TaskView + ContextMenu                                             
+  Step 4：清理 + 全量回归                                                   
+                                                                            
+  删冗余注释、临时变量、废弃逻辑                                            
+  走全量测试清单一次                                                        
+  KISS 关键约束（防止膨胀）                                                 
+                                                                            
+  不引入 provide/inject                                                     
+  props 用“聚合对象”减少 drilling                                           
+  不重写 SSE 逻辑，只迁移                                                   
+  不保留兼容层 computed                                                     
+                                                                            
+  # 我的建议                                                                
+  尽快达成共识                                                              
+
+● 完美！专家的回答已经非常明确了，我完全接受这个方案！让我立即更新计划文件：
