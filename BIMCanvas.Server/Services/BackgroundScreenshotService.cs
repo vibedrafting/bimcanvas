@@ -17,6 +17,11 @@ namespace BIMCanvas.Server.Services
     {
         private const int DefaultViewportWidth = 1920;
         private const int DefaultViewportHeight = 1080;
+        private const int MinViewportSide = 720;
+        private const int MaxViewportSide = 4096;
+        private const double DefaultFullPadding = 1000;
+        private const double DefaultViewPadding = 500;
+        private const double PaddingRatio = 0.05;
 
         private readonly ProjectSnapshotService _snapshotService;
         private readonly ILogger<BackgroundScreenshotService> _logger;
@@ -104,13 +109,15 @@ namespace BIMCanvas.Server.Services
 
             var configJson = JsonConvert.SerializeObject(renderConfig, _jsonSettings);
 
+            var viewportSize = ResolveViewportSize(projectData, viewport);
+
             await _semaphore.WaitAsync(cancellationToken);
             try
             {
                 var browser = await GetBrowserAsync(cancellationToken);
                 await using var context = await browser.NewContextAsync(new BrowserNewContextOptions
                 {
-                    ViewportSize = new ViewportSize { Width = DefaultViewportWidth, Height = DefaultViewportHeight },
+                    ViewportSize = viewportSize,
                     DeviceScaleFactor = request.Scale,
                     ColorScheme = renderConfig.Theme == "light" ? ColorScheme.Light : ColorScheme.Dark
                 });
@@ -211,6 +218,184 @@ namespace BIMCanvas.Server.Services
             public ViewportConfig? Viewport { get; set; }
 
             public string Theme { get; set; } = "dark";
+        }
+
+        private static ViewportSize ResolveViewportSize(ProjectData projectData, ViewportConfig? viewport)
+        {
+            var bounds = ComputeTargetBounds(projectData, viewport);
+            if (bounds == null)
+            {
+                return new ViewportSize { Width = DefaultViewportWidth, Height = DefaultViewportHeight };
+            }
+
+            var mode = viewport?.Mode ?? "full";
+            var padded = ExpandBounds(bounds, ComputePadding(bounds, mode));
+            var width = padded.MaxX - padded.MinX;
+            var height = padded.MaxY - padded.MinY;
+
+            if (width <= 0 || height <= 0)
+            {
+                return new ViewportSize { Width = DefaultViewportWidth, Height = DefaultViewportHeight };
+            }
+
+            var aspect = width / height;
+            if (!double.IsFinite(aspect) || aspect <= 0)
+            {
+                return new ViewportSize { Width = DefaultViewportWidth, Height = DefaultViewportHeight };
+            }
+
+            var baseArea = DefaultViewportWidth * DefaultViewportHeight;
+            var targetWidth = Math.Sqrt(baseArea * aspect);
+            var targetHeight = baseArea / targetWidth;
+
+            var maxSide = Math.Max(targetWidth, targetHeight);
+            var minSide = Math.Min(targetWidth, targetHeight);
+            var scale = 1.0;
+
+            if (minSide < MinViewportSide)
+            {
+                scale = MinViewportSide / minSide;
+            }
+
+            if (maxSide * scale > MaxViewportSide)
+            {
+                scale = MaxViewportSide / maxSide;
+            }
+
+            targetWidth = Math.Round(targetWidth * scale);
+            targetHeight = Math.Round(targetHeight * scale);
+
+            return new ViewportSize
+            {
+                Width = Math.Max(1, (int)targetWidth),
+                Height = Math.Max(1, (int)targetHeight)
+            };
+        }
+
+        private static Bounds2D? ComputeTargetBounds(ProjectData projectData, ViewportConfig? viewport)
+        {
+            var mode = viewport?.Mode ?? "full";
+            switch (mode)
+            {
+                case "bounds":
+                    return viewport?.Bounds;
+                case "room":
+                    return ComputeRoomBounds(projectData, viewport?.RoomId);
+                default:
+                    return ComputeProjectBounds(projectData);
+            }
+        }
+
+        private static Bounds2D? ComputeRoomBounds(ProjectData projectData, string? roomId)
+        {
+            if (string.IsNullOrWhiteSpace(roomId))
+            {
+                return null;
+            }
+
+            var room = projectData.Baseline.Rooms
+                .Find(r => string.Equals(r.Id, roomId, StringComparison.OrdinalIgnoreCase));
+            var roomBounds = ToBounds(room?.Boundary);
+            if (roomBounds != null)
+            {
+                return roomBounds;
+            }
+
+            var roomZone = projectData.Computed.RoomZones.Find(zone =>
+                string.Equals(zone.Id, roomId, StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(zone.RoomId, roomId, StringComparison.OrdinalIgnoreCase));
+
+            var zoneBoundary = roomZone?.ComputedBoundary ?? roomZone?.RawBoundary;
+            return ToBounds(zoneBoundary);
+        }
+
+        private static Bounds2D? ComputeProjectBounds(ProjectData projectData)
+        {
+            var minX = double.PositiveInfinity;
+            var minY = double.PositiveInfinity;
+            var maxX = double.NegativeInfinity;
+            var maxY = double.NegativeInfinity;
+
+            void AppendBounds(BIMCanvas.Core.Models.Geometry.AABB aabb)
+            {
+                minX = Math.Min(minX, aabb.MinX);
+                minY = Math.Min(minY, aabb.MinY);
+                maxX = Math.Max(maxX, aabb.MaxX);
+                maxY = Math.Max(maxY, aabb.MaxY);
+            }
+
+            void AddPolygon(BIMCanvas.Core.Models.Geometry.Polygon2D? polygon)
+            {
+                if (polygon == null || polygon.VertexCount == 0)
+                {
+                    return;
+                }
+
+                AppendBounds(polygon.ComputeAABB());
+            }
+
+            projectData.Baseline.Walls.ForEach(wall => AddPolygon(wall.Polygon));
+            projectData.Baseline.Columns.ForEach(column => AddPolygon(column.Polygon));
+            projectData.Baseline.Rooms.ForEach(room => AddPolygon(room.Boundary));
+            projectData.ActiveScheme.Modules.ForEach(module => AddPolygon(module.Bounds));
+
+            if (!double.IsFinite(minX) || !double.IsFinite(minY))
+            {
+                return null;
+            }
+
+            return new Bounds2D
+            {
+                MinX = minX,
+                MinY = minY,
+                MaxX = maxX,
+                MaxY = maxY
+            };
+        }
+
+        private static Bounds2D? ToBounds(BIMCanvas.Core.Models.Geometry.Polygon2D? polygon)
+        {
+            if (polygon == null || polygon.VertexCount == 0)
+            {
+                return null;
+            }
+
+            var aabb = polygon.ComputeAABB();
+            return new Bounds2D
+            {
+                MinX = aabb.MinX,
+                MinY = aabb.MinY,
+                MaxX = aabb.MaxX,
+                MaxY = aabb.MaxY
+            };
+        }
+
+        private static Bounds2D ExpandBounds(Bounds2D bounds, double padding)
+        {
+            return new Bounds2D
+            {
+                MinX = bounds.MinX - padding,
+                MinY = bounds.MinY - padding,
+                MaxX = bounds.MaxX + padding,
+                MaxY = bounds.MaxY + padding
+            };
+        }
+
+        private static double ComputePadding(Bounds2D bounds, string mode)
+        {
+            var width = bounds.MaxX - bounds.MinX;
+            var height = bounds.MaxY - bounds.MinY;
+            var maxSize = Math.Max(width, height);
+            var minPadding = string.Equals(mode, "full", StringComparison.OrdinalIgnoreCase)
+                ? DefaultFullPadding
+                : DefaultViewPadding;
+
+            if (!double.IsFinite(maxSize) || maxSize <= 0)
+            {
+                return minPadding;
+            }
+
+            return Math.Max(minPadding, maxSize * PaddingRatio);
         }
     }
 }
