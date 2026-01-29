@@ -48,6 +48,7 @@ declare global {
 }
 
 const store = useCanvasStore();
+store.isScreenshotRender = true;
 
 const ALL_LAYERS = [
   LayerManager.LAYER_MODEL,
@@ -213,6 +214,61 @@ const resolveLayerIds = (names?: string[] | null): number[] => {
     console.warn(`[ScreenshotRenderView] Unknown layer name: ${name}`);
   });
   return Array.from(ids);
+};
+
+const computeEnabledLayers = (config: RenderConfig): Set<number> => {
+  const enabled = new Set<number>();
+  const hasNewConfig = Boolean(
+    (config.layerPreset && config.layerPreset.trim()) ||
+    (config.layerEnable && config.layerEnable.length) ||
+    (config.layerDisable && config.layerDisable.length)
+  );
+
+  if (!hasNewConfig) {
+    if (config.layers && config.layers.length > 0) {
+      config.layers.forEach(layerId => enabled.add(layerId));
+      return enabled;
+    }
+
+    const preset = normalizePreset(undefined, config.viewMode);
+    if (preset === 'ai') {
+      ALL_LAYERS.forEach(layerId => enabled.add(layerId));
+      return enabled;
+    }
+
+    enabled.add(LayerManager.LAYER_MODEL);
+    enabled.add(LayerManager.LAYER_GRID);
+    enabled.add(LayerManager.LAYER_ARCHITECTURE);
+    enabled.add(LayerManager.LAYER_FURNITURE);
+    return enabled;
+  }
+
+  const preset = normalizePreset(config.layerPreset, config.viewMode);
+  if (preset === 'ai') {
+    ALL_LAYERS.forEach(layerId => enabled.add(layerId));
+  } else {
+    enabled.add(LayerManager.LAYER_MODEL);
+    enabled.add(LayerManager.LAYER_GRID);
+    enabled.add(LayerManager.LAYER_ARCHITECTURE);
+    enabled.add(LayerManager.LAYER_FURNITURE);
+  }
+
+  resolveLayerIds(config.layerEnable).forEach(layerId => enabled.add(layerId));
+  resolveLayerIds(config.layerDisable).forEach(layerId => enabled.delete(layerId));
+  return enabled;
+};
+
+const computeBuildOptions = (config: RenderConfig) => {
+  const enabled = computeEnabledLayers(config);
+  return {
+    labels: enabled.has(LayerManager.LAYER_LABELS),
+    outline: enabled.has(LayerManager.LAYER_OUTLINE),
+    zones: enabled.has(LayerManager.LAYER_ZONES),
+    exclusions: enabled.has(LayerManager.LAYER_ZONES),
+    grid: enabled.has(LayerManager.LAYER_GRID),
+    bounds: enabled.has(LayerManager.LAYER_BOUNDS),
+    svg: enabled.has(LayerManager.LAYER_SVG)
+  };
 };
 
 const dispatchPreset = (preset: ViewMode) => {
@@ -396,6 +452,7 @@ const renderWithConfig = async (config: RenderConfig) => {
   window.__renderReady = false;
   window.__renderError = undefined;
   store.preserveViewOnLoad = true;
+  store.suppressAutoBuild = true;
 
   try {
     if (!config?.projectData) {
@@ -412,8 +469,11 @@ const renderWithConfig = async (config: RenderConfig) => {
     await nextTick();
     const sceneService = await waitForSceneService();
 
+    const buildOptions = computeBuildOptions(config);
     const buildPromise = waitForBuildComplete();
-    window.dispatchEvent(new CustomEvent('bimcanvas:play-build-sequence-fast'));
+    window.dispatchEvent(new CustomEvent('bimcanvas:play-build-sequence-fast', {
+      detail: { build: buildOptions }
+    }));
     await buildPromise;
 
     applyLayerConfig(config);
@@ -439,6 +499,7 @@ const renderWithConfig = async (config: RenderConfig) => {
     window.__renderError = message;
   } finally {
     store.preserveViewOnLoad = false;
+    store.suppressAutoBuild = false;
   }
 };
 

@@ -20,6 +20,12 @@ export const useCanvasStore = defineStore('canvas', () => {
     // === 视图保持标记：加载项目时是否保持当前视图（用于分支切换） ===
     const preserveViewOnLoad = ref(false);
 
+    // === 截图渲染模式：用于后台截图页 ===
+    const isScreenshotRender = ref(false);
+
+    // === 禁止自动重建：截图页手动控制渲染流程 ===
+    const suppressAutoBuild = ref(false);
+
     // === 多选支持 ===
     const selectedIds = ref<string[]>([]);
 
@@ -532,6 +538,8 @@ export const useCanvasStore = defineStore('canvas', () => {
         currentOperation,
         isDirty,  // 脏数据标记
         preserveViewOnLoad,  // 视图保持标记（分支切换时使用）
+        isScreenshotRender,  // 截图渲染模式
+        suppressAutoBuild,   // 禁止自动重建
 
         // Getters
         canUndo,

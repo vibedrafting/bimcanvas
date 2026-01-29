@@ -10,6 +10,10 @@ export class SceneBuilder {
     private materials: Map<string, THREE.Material>;
     private boxHelpers: THREE.BoxHelper[] = [];
     private svgRenderer: SVGModuleRenderer;
+    private buildOptions = {
+        includeBounds: true,
+        includeSvg: true
+    };
 
     // Constants
     private readonly WALL_HEIGHT = 2800;
@@ -19,6 +23,15 @@ export class SceneBuilder {
         this.materials = new Map();
         this.svgRenderer = new SVGModuleRenderer(scene);
         this.initMaterials();
+    }
+
+    public setBuildOptions(options: { includeBounds?: boolean; includeSvg?: boolean }) {
+        if (typeof options.includeBounds === 'boolean') {
+            this.buildOptions.includeBounds = options.includeBounds;
+        }
+        if (typeof options.includeSvg === 'boolean') {
+            this.buildOptions.includeSvg = options.includeSvg;
+        }
     }
 
     private initMaterials() {
@@ -757,10 +770,11 @@ export class SceneBuilder {
         };
 
         this.enableFurnitureLayer(mesh);
-        this.createBoundsHelper(mesh);
-
-        // 添加朝向箭头
-        this.createFacingArrow(mod);
+        if (this.buildOptions.includeBounds) {
+            this.createBoundsHelper(mesh);
+            // 添加朝向箭头
+            this.createFacingArrow(mod);
+        }
 
         this.scene.add(mesh);
 
@@ -773,9 +787,11 @@ export class SceneBuilder {
 
         // --- SVG 模块渲染 ---
         // 异步渲染SVG（不阻塞模块创建）
-        this.svgRenderer.renderModuleSVG(mod).catch(error => {
-            console.error(`[SceneBuilder] Failed to render SVG for module ${mod.id}:`, error);
-        });
+        if (this.buildOptions.includeSvg) {
+            this.svgRenderer.renderModuleSVG(mod).catch(error => {
+                console.error(`[SceneBuilder] Failed to render SVG for module ${mod.id}:`, error);
+            });
+        }
     }
 
     /**

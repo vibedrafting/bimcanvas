@@ -23,6 +23,13 @@ export class OutlineBuilder {
         });
     }
 
+    public clearLines() {
+        if (this.lineGroup) {
+            this.scene.remove(this.lineGroup);
+            this.lineGroup = null;
+        }
+    }
+
     public buildLines(data: ProjectData) {
         // Clear existing lines
         if (this.lineGroup) {

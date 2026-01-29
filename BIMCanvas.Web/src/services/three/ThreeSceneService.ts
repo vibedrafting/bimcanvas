@@ -168,6 +168,10 @@ export class ThreeSceneService {
         // A. Deep watch for content updates (Rebuild Scene)
         watch(() => this.store.projectData, (newData) => {
             if (newData) {
+                if (this.store.suppressAutoBuild) {
+                    this.isInitialLoad = false;
+                    return;
+                }
                 if (this.isInitialLoad) {
                     console.log('Initial load detected. Building Grid ONLY and fitting screen.');
                     // Only build Grid (already built in init, but ensure it's there)
@@ -203,6 +207,9 @@ export class ThreeSceneService {
         // This only triggers when a NEW document is loaded (reference change),
         // not when modules are moved/rotated (mutation).
         watch(() => this.store.projectData, (newData) => {
+            if (this.store.suppressAutoBuild) {
+                return;
+            }
             if (newData && !this.isInitialLoad && !this.store.preserveViewOnLoad) {
                 // Only fit to screen on subsequent loads, initial load handled above
                 // Skip fitToScreen when:
@@ -230,19 +237,58 @@ export class ThreeSceneService {
         this.boundEventHandlers.set('bimcanvas:play-build-sequence', playBuildSequenceHandler);
         window.addEventListener('bimcanvas:play-build-sequence', playBuildSequenceHandler);
 
-        const playBuildSequenceFastHandler = (() => {
+        const playBuildSequenceFastHandler = ((event: Event) => {
             if (this.store.projectData) {
+                const detail = (event as CustomEvent).detail ?? {};
+                const build = detail.build ?? {};
+                const buildLabels = build.labels !== false;
+                const buildOutline = build.outline !== false;
+                const buildZones = build.zones !== false;
+                const buildExclusions = build.exclusions !== false;
+                const buildGrid = build.grid !== false;
+                const buildBounds = build.bounds !== false;
+                const buildSvg = build.svg !== false;
+
+                this.sceneBuilder.setBuildOptions({
+                    includeBounds: buildBounds,
+                    includeSvg: buildSvg
+                });
+
                 this.sceneBuilder.buildFromDocument(this.store.projectData);
-                this.outlineBuilder.buildLines(this.store.projectData);
-                this.labelBuilder.buildLabels(this.store.projectData);
 
-                const labelsOn = this._camera.layers.isEnabled(LayerManager.LAYER_LABELS);
-                const zonesOn = this._camera.layers.isEnabled(LayerManager.LAYER_ZONES);
-                this.labelBuilder.updateZoneLabelVisibility(labelsOn, zonesOn);
+                if (buildOutline) {
+                    this.outlineBuilder.buildLines(this.store.projectData);
+                } else {
+                    this.outlineBuilder.clearLines();
+                }
 
-                this.zoneBuilder.buildZones(this.store.projectData);
-                this.exclusionBuilder.buildExclusions(this.store.projectData);
-                this.gridBuilder.buildGrid();
+                if (buildLabels) {
+                    this.labelBuilder.buildLabels(this.store.projectData);
+
+                    const labelsOn = this._camera.layers.isEnabled(LayerManager.LAYER_LABELS);
+                    const zonesOn = this._camera.layers.isEnabled(LayerManager.LAYER_ZONES);
+                    this.labelBuilder.updateZoneLabelVisibility(labelsOn, zonesOn);
+                } else {
+                    this.labelBuilder.cleanup();
+                }
+
+                if (buildZones) {
+                    this.zoneBuilder.buildZones(this.store.projectData);
+                } else {
+                    this.zoneBuilder.cleanup();
+                }
+
+                if (buildExclusions) {
+                    this.exclusionBuilder.buildExclusions(this.store.projectData);
+                } else {
+                    this.exclusionBuilder.cleanup();
+                }
+
+                if (buildGrid) {
+                    this.gridBuilder.buildGrid();
+                } else {
+                    this.gridBuilder.cleanup();
+                }
 
                 window.dispatchEvent(new CustomEvent('bimcanvas:build-complete'));
             }
@@ -257,7 +303,7 @@ export class ThreeSceneService {
 
         // Listen for reset view
         const onResetView = () => {
-            if (this.store.projectData) {
+            if (this.store.projectData && !this.store.suppressAutoBuild) {
                 this.fitToScreen(this.store.projectData);
             }
         };
@@ -332,7 +378,9 @@ export class ThreeSceneService {
         window.addEventListener('bimcanvas:grid-spacing-change', gridSpacingHandler);
 
         // 6. Start Animation Loop
-        this.animate();
+        if (!this.store.isScreenshotRender) {
+            this.animate();
+        }
     }
 
     public toggleViewMode(mode: 'human' | 'ai') {
@@ -556,6 +604,9 @@ export class ThreeSceneService {
     }
 
     public animate() {
+        if (this.store.isScreenshotRender) {
+            return;
+        }
         this.animationId = requestAnimationFrame(this.boundAnimate);
 
         // Update services
