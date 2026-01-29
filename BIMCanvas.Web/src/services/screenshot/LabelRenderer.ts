@@ -39,8 +39,9 @@ export class LabelRenderer {
       const div = obj.element as HTMLDivElement
       if (!div || !div.classList.contains('ai-label')) return
 
-      // 检查可见性
+      // 检查可见性与图层
       if (!obj.visible) return
+      if (!camera.layers.test(obj.layers)) return
 
       // 投影计算：世界坐标 → 屏幕坐标
       const worldPos = new THREE.Vector3()

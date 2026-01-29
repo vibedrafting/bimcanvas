@@ -124,8 +124,8 @@ const computeRoomBounds = (room: Room): Bounds2D => {
   return computeBoundsFromPolygon(shell);
 };
 
-const applyLayers = (viewMode: ViewMode, layers?: number[]) => {
-  if (layers === undefined) {
+const applyLayers = (viewMode: ViewMode, layers?: number[] | null) => {
+  if (!layers || layers.length === 0) {
     window.dispatchEvent(new CustomEvent('bimcanvas:view-mode-change', { detail: viewMode }));
     return;
   }
