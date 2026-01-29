@@ -17,6 +17,7 @@ export interface LabelData {
   fontWeight: string
   color: string
   textShadow: string
+  labelType: 'component' | 'grid'
 }
 
 export class LabelRenderer {
@@ -37,7 +38,10 @@ export class LabelRenderer {
       if (!(obj instanceof CSS2DObject)) return
 
       const div = obj.element as HTMLDivElement
-      if (!div || !div.classList.contains('ai-label')) return
+      if (!div) return
+      const isAiLabel = div.classList.contains('ai-label')
+      const isGridLabel = div.classList.contains('semantic-grid-label')
+      if (!isAiLabel && !isGridLabel) return
 
       // 检查可见性与图层
       if (!obj.visible) return
@@ -57,6 +61,7 @@ export class LabelRenderer {
       // 提取样式
       const style = window.getComputedStyle(div)
       const isVertical = style.writingMode === 'vertical-rl'
+      const labelType: LabelData['labelType'] = isGridLabel ? 'grid' : 'component'
 
       labels.push({
         text: div.textContent || '',
@@ -67,7 +72,8 @@ export class LabelRenderer {
         fontFamily: style.fontFamily || 'monospace',
         fontWeight: style.fontWeight || 'normal',
         color: style.color || '#ffffff',
-        textShadow: style.textShadow || ''
+        textShadow: style.textShadow || '',
+        labelType
       })
     })
 
@@ -98,16 +104,26 @@ export class LabelRenderer {
       ctx.textAlign = 'center'
       ctx.textBaseline = 'middle'
 
-      // 绘制描边（模拟 text-shadow 描边效果）
-      if (label.textShadow && label.textShadow !== 'none') {
-        // 解析 text-shadow 获取描边颜色
-        // 格式: "-1px -1px 0 #000, 1px -1px 0 #000, ..."
-        const shadowColor = this.parseShadowColor(label.textShadow)
-        if (shadowColor) {
-          ctx.strokeStyle = shadowColor
-          ctx.lineWidth = 2 * scale
-          ctx.lineJoin = 'round'
-          ctx.strokeText(label.text, 0, 0)
+      const hasShadow = label.textShadow && label.textShadow !== 'none'
+      if (hasShadow) {
+        if (label.labelType === 'grid') {
+          const shadow = this.parseShadow(label.textShadow)
+          if (shadow) {
+            ctx.shadowColor = shadow.color
+            ctx.shadowBlur = shadow.blur * scale
+            ctx.shadowOffsetX = shadow.offsetX * scale
+            ctx.shadowOffsetY = shadow.offsetY * scale
+          }
+        } else {
+          // 解析 text-shadow 获取描边颜色
+          // 格式: "-1px -1px 0 #000, 1px -1px 0 #000, ..."
+          const shadowColor = this.parseShadowColor(label.textShadow)
+          if (shadowColor) {
+            ctx.strokeStyle = shadowColor
+            ctx.lineWidth = 2 * scale
+            ctx.lineJoin = 'round'
+            ctx.strokeText(label.text, 0, 0)
+          }
         }
       }
 
@@ -127,5 +143,24 @@ export class LabelRenderer {
     // 提取第一个颜色值
     const match = textShadow.match(/(#[0-9a-fA-F]{3,6}|rgb\([^)]+\)|rgba\([^)]+\))/)
     return match ? match[1] : null
+  }
+
+  /**
+   * 解析单个 text-shadow（优先取第一个阴影）
+   * 支持格式: "0 1px 2px rgba(...)" 或 "rgba(...) 0 1px 2px"
+   */
+  private static parseShadow(textShadow: string): { offsetX: number; offsetY: number; blur: number; color: string } | null {
+    const shadowPart = textShadow.split(',')[0]?.trim()
+    if (!shadowPart) return null
+
+    const colorMatch = shadowPart.match(/(#[0-9a-fA-F]{3,6}|rgb\([^)]+\)|rgba\([^)]+\))/)
+    const color = colorMatch ? colorMatch[1] : 'rgba(0,0,0,0.5)'
+    const numberMatches = shadowPart.match(/-?\d*\.?\d+px/g) || []
+    if (numberMatches.length < 2) return null
+
+    const offsetX = parseFloat(numberMatches[0])
+    const offsetY = parseFloat(numberMatches[1])
+    const blur = numberMatches.length >= 3 ? parseFloat(numberMatches[2]) : 0
+    return { offsetX, offsetY, blur, color }
   }
 }
