@@ -40,6 +40,7 @@ declare global {
     __renderConfig?: RenderConfig;
     __renderReady?: boolean;
     __renderError?: string;
+    __render?: (config: RenderConfig) => Promise<void>;
     __capture?: () => Promise<string>;
   }
 }
@@ -324,12 +325,11 @@ const applyViewport = async (projectData: ProjectData, viewport?: ViewportConfig
   }
 };
 
-onMounted(async () => {
+const renderWithConfig = async (config: RenderConfig) => {
   window.__renderReady = false;
   window.__renderError = undefined;
 
   try {
-    const config = window.__renderConfig;
     if (!config?.projectData) {
       throw new Error('Render config missing projectData');
     }
@@ -345,7 +345,7 @@ onMounted(async () => {
     await waitForSceneService();
 
     const buildPromise = waitForBuildComplete();
-    window.dispatchEvent(new CustomEvent('bimcanvas:play-build-sequence'));
+    window.dispatchEvent(new CustomEvent('bimcanvas:play-build-sequence-fast'));
     await buildPromise;
 
     applyLayerConfig(config);
@@ -360,6 +360,15 @@ onMounted(async () => {
     const message = error?.message ?? String(error);
     console.error('[ScreenshotRenderView] Failed:', message);
     window.__renderError = message;
+  }
+};
+
+onMounted(async () => {
+  window.__render = renderWithConfig;
+
+  const config = window.__renderConfig;
+  if (config) {
+    await renderWithConfig(config);
   }
 });
 </script>

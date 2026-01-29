@@ -228,6 +228,26 @@ export class ThreeSceneService {
         this.boundEventHandlers.set('bimcanvas:play-build-sequence', playBuildSequenceHandler);
         window.addEventListener('bimcanvas:play-build-sequence', playBuildSequenceHandler);
 
+        const playBuildSequenceFastHandler = (() => {
+            if (this.store.projectData) {
+                this.sceneBuilder.buildFromDocument(this.store.projectData);
+                this.outlineBuilder.buildLines(this.store.projectData);
+                this.labelBuilder.buildLabels(this.store.projectData);
+
+                const labelsOn = this._camera.layers.isEnabled(LayerManager.LAYER_LABELS);
+                const zonesOn = this._camera.layers.isEnabled(LayerManager.LAYER_ZONES);
+                this.labelBuilder.updateZoneLabelVisibility(labelsOn, zonesOn);
+
+                this.zoneBuilder.buildZones(this.store.projectData);
+                this.exclusionBuilder.buildExclusions(this.store.projectData);
+                this.gridBuilder.buildGrid();
+
+                window.dispatchEvent(new CustomEvent('bimcanvas:build-complete'));
+            }
+        }) as EventListener;
+        this.boundEventHandlers.set('bimcanvas:play-build-sequence-fast', playBuildSequenceFastHandler);
+        window.addEventListener('bimcanvas:play-build-sequence-fast', playBuildSequenceFastHandler);
+
         // 8. Events - 使用保存的引用以便正确移除
         this.boundOnResize = this.onWindowResize.bind(this);
         this.boundAnimate = this.animate.bind(this);

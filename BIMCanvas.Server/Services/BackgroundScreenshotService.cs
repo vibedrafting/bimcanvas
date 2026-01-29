@@ -29,6 +29,13 @@ namespace BIMCanvas.Server.Services
         private readonly SemaphoreSlim _semaphore;
         private readonly Lazy<Task<IPlaywright>> _playwright;
         private IBrowser? _browser;
+        private IBrowserContext? _context;
+        private IPage? _page;
+        private int _contextScale = -1;
+        private ColorScheme? _contextColorScheme;
+        private int _currentViewportWidth;
+        private int _currentViewportHeight;
+        private bool _pageInitialized;
         private readonly string _webBaseUrl;
 
         public BackgroundScreenshotService(
@@ -117,23 +124,9 @@ namespace BIMCanvas.Server.Services
             await _semaphore.WaitAsync(cancellationToken);
             try
             {
-                var browser = await GetBrowserAsync(cancellationToken);
-                await using var context = await browser.NewContextAsync(new BrowserNewContextOptions
-                {
-                    ViewportSize = viewportSize,
-                    DeviceScaleFactor = request.Scale,
-                    ColorScheme = renderConfig.Theme == "light" ? ColorScheme.Light : ColorScheme.Dark
-                });
+                var page = await GetPageAsync(viewportSize, request.Scale, renderConfig.Theme, cancellationToken);
 
-                var page = await context.NewPageAsync();
-                await page.AddInitScriptAsync($"window.__renderConfig = {configJson};");
-
-                var url = $"{_webBaseUrl.TrimEnd('/')}/screenshot-render";
-                await page.GotoAsync(url, new PageGotoOptions
-                {
-                    WaitUntil = WaitUntilState.Load,
-                    Timeout = 30000
-                });
+                await page.EvaluateAsync("configJson => window.__render(JSON.parse(configJson))", configJson);
 
                 await page.WaitForFunctionAsync(
                     "() => window.__renderReady === true || window.__renderError",
@@ -187,9 +180,75 @@ namespace BIMCanvas.Server.Services
             return _browser;
         }
 
+        private async Task<IPage> GetPageAsync(
+            ViewportSize viewportSize,
+            int scale,
+            string theme,
+            CancellationToken cancellationToken)
+        {
+            var browser = await GetBrowserAsync(cancellationToken);
+            var colorScheme = theme == "light" ? ColorScheme.Light : ColorScheme.Dark;
+
+            var needsNewContext = _context == null
+                                  || _page == null
+                                  || _page.IsClosed
+                                  || _contextScale != scale
+                                  || _contextColorScheme != colorScheme;
+
+            if (needsNewContext)
+            {
+                await DisposePageAsync();
+
+                _context = await browser.NewContextAsync(new BrowserNewContextOptions
+                {
+                    ViewportSize = viewportSize,
+                    DeviceScaleFactor = scale,
+                    ColorScheme = colorScheme
+                });
+                _contextScale = scale;
+                _contextColorScheme = colorScheme;
+                _page = await _context.NewPageAsync();
+                _currentViewportWidth = viewportSize.Width;
+                _currentViewportHeight = viewportSize.Height;
+                _pageInitialized = false;
+            }
+            else if (_page != null
+                     && (_currentViewportWidth != viewportSize.Width || _currentViewportHeight != viewportSize.Height))
+            {
+                await _page.SetViewportSizeAsync(viewportSize.Width, viewportSize.Height);
+                _currentViewportWidth = viewportSize.Width;
+                _currentViewportHeight = viewportSize.Height;
+            }
+
+            if (_page == null)
+            {
+                throw new InvalidOperationException("Playwright 页面未初始化");
+            }
+
+            if (!_pageInitialized)
+            {
+                var url = $"{_webBaseUrl.TrimEnd('/')}/screenshot-render";
+                await _page.GotoAsync(url, new PageGotoOptions
+                {
+                    WaitUntil = WaitUntilState.Load,
+                    Timeout = 30000
+                });
+
+                await _page.WaitForFunctionAsync(
+                    "() => window.__render !== undefined",
+                    new PageWaitForFunctionOptions { Timeout = 30000 });
+
+                _pageInitialized = true;
+            }
+
+            return _page;
+        }
+
         public async ValueTask DisposeAsync()
         {
             _semaphore.Dispose();
+
+            await DisposePageAsync();
 
             if (_browser != null)
             {
@@ -202,6 +261,25 @@ namespace BIMCanvas.Server.Services
                 var playwright = await _playwright.Value;
                 playwright.Dispose();
             }
+        }
+
+        private async Task DisposePageAsync()
+        {
+            if (_page != null)
+            {
+                await _page.CloseAsync();
+                _page = null;
+            }
+
+            if (_context != null)
+            {
+                await _context.CloseAsync();
+                _context = null;
+            }
+
+            _pageInitialized = false;
+            _currentViewportWidth = 0;
+            _currentViewportHeight = 0;
         }
 
         private class RenderConfig
