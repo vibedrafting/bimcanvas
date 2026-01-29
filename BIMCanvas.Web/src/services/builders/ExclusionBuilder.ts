@@ -36,6 +36,12 @@ export class ExclusionBuilder {
         }));
     }
 
+    private ensureMaterials() {
+        if (this.materials.size === 0) {
+            this.initMaterials();
+        }
+    }
+
     /**
      * 清理禁区资源（主题切换时调用）
      */
@@ -55,6 +61,8 @@ export class ExclusionBuilder {
     }
 
     public buildExclusions(data: ProjectData) {
+        this.ensureMaterials();
+
         // 清理旧禁区
         if (this.exclusionGroup) {
             this.exclusionGroup.traverse(child => {
@@ -90,7 +98,14 @@ export class ExclusionBuilder {
 
         const subType = this.parseSubType(exclusion.reason);
         const materialKey = this.materials.has(subType) ? subType : 'default';
-        const material = this.materials.get(materialKey);
+        let material = this.materials.get(materialKey);
+        if (!material) {
+            this.ensureMaterials();
+            material = this.materials.get(materialKey) ?? this.materials.get('default');
+        }
+        if (!material) {
+            return;
+        }
 
         const mesh = new THREE.Mesh(geometry, material);
         mesh.rotation.x = -Math.PI / 2;

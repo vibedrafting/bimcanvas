@@ -46,6 +46,12 @@ export class ZoneBuilder {
         }));
     }
 
+    private ensureMaterials() {
+        if (this.materials.size === 0) {
+            this.initMaterials();
+        }
+    }
+
     /**
      * 清理 Zone 资源（主题切换时调用）
      */
@@ -68,6 +74,8 @@ export class ZoneBuilder {
     }
 
     public buildZones(data: ProjectData) {
+        this.ensureMaterials();
+
         if (this.zoneGroup) {
             // 释放旧的几何体资源
             this.zoneGroup.traverse(child => {
@@ -130,7 +138,16 @@ export class ZoneBuilder {
                 break;
         }
 
-        const mesh = new THREE.Mesh(geometry, this.materials.get(materialKey));
+        let material = this.materials.get(materialKey);
+        if (!material) {
+            this.ensureMaterials();
+            material = this.materials.get(materialKey) ?? this.materials.get('designable');
+        }
+        if (!material) {
+            return;
+        }
+
+        const mesh = new THREE.Mesh(geometry, material);
         mesh.rotation.x = -Math.PI / 2;
         mesh.position.y = yPosition;
         mesh.layers.set(LayerManager.LAYER_ZONES);

@@ -104,7 +104,7 @@ export class GridBuilder {
         this.labelGroup = new THREE.Group();
         this.labelGroup.layers.set(LayerManager.LAYER_GRID);
 
-        const labelConfig = style.label;
+        const labelConfig = canvasStyleService.currentStyle.value.layers.grid.label;
 
         // 固定生成 50 个标签
         const maxLabels = 50;
