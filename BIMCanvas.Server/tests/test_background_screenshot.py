@@ -46,12 +46,12 @@ def build_tests(project_path: str) -> list[dict]:
             },
         },
         {
-            "name": "room_rz_1_labels_zones_autofit",
+            "name": "zone_rz_1_labels_zones_autofit",
             "payload": {
                 "projectPath": project_path,
                 "layerPreset": "User",
                 "layerEnable": ["Labels", "Zones"],
-                "viewport": {"mode": "room", "roomId": "rz_1"},
+                "viewport": {"mode": "zone", "zoneId": "rz_1"},
                 "autoFitViewport": True,
                 "scale": 2,
             },

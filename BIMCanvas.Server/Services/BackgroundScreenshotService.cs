@@ -98,6 +98,7 @@ namespace BIMCanvas.Server.Services
                         ? "full"
                         : request.Viewport.Mode.ToLowerInvariant(),
                     RoomId = request.Viewport.RoomId,
+                    ZoneId = request.Viewport.ZoneId,
                     Bounds = request.Viewport.Bounds
                 };
             }
@@ -362,6 +363,8 @@ namespace BIMCanvas.Server.Services
                     return viewport?.Bounds;
                 case "room":
                     return ComputeRoomBounds(projectData, viewport?.RoomId);
+                case "zone":
+                    return ComputeZoneBounds(projectData, viewport?.ZoneId);
                 default:
                     return ComputeProjectBounds(projectData);
             }
@@ -382,11 +385,20 @@ namespace BIMCanvas.Server.Services
                 return roomBounds;
             }
 
-            var roomZone = projectData.Computed.RoomZones.Find(zone =>
-                string.Equals(zone.Id, roomId, StringComparison.OrdinalIgnoreCase) ||
-                string.Equals(zone.RoomId, roomId, StringComparison.OrdinalIgnoreCase));
+            return null;
+        }
 
-            var zoneBoundary = roomZone?.ComputedBoundary ?? roomZone?.RawBoundary;
+        private static Bounds2D? ComputeZoneBounds(ProjectData projectData, string? zoneId)
+        {
+            if (string.IsNullOrWhiteSpace(zoneId))
+            {
+                return null;
+            }
+
+            var zone = projectData.ActiveScheme.Zones
+                .Find(z => string.Equals(z.Id, zoneId, StringComparison.OrdinalIgnoreCase));
+
+            var zoneBoundary = zone?.ComputedBoundary ?? zone?.RawBoundary;
             return ToBounds(zoneBoundary);
         }
 

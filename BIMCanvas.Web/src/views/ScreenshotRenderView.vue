@@ -9,7 +9,7 @@ import { LayerManager } from '../services/three/LayerManager';
 import type { ProjectData, Polygon2D, Room, Zone } from '../types/canvas';
 
 type ViewMode = 'human' | 'ai';
-type ViewportMode = 'full' | 'bounds' | 'room';
+type ViewportMode = 'full' | 'bounds' | 'room' | 'zone';
 
 interface Bounds2D {
   minX: number;
@@ -21,6 +21,7 @@ interface Bounds2D {
 interface ViewportConfig {
   mode: ViewportMode;
   roomId?: string;
+  zoneId?: string;
   bounds?: Bounds2D;
 }
 
@@ -159,7 +160,10 @@ const computeProjectBounds = (projectData: ProjectData): Bounds2D | null => {
   const baseline = projectData.baseline;
   baseline?.walls?.forEach(wall => addPolygon(wall.polygon));
   baseline?.columns?.forEach(column => addPolygon(column.polygon));
-  baseline?.rooms?.forEach(room => addPolygon(room.boundary?.shell));
+  baseline?.rooms?.forEach(room => {
+    const boundary = (room.boundary as unknown) as Polygon2D | { shell?: Polygon2D } | null | undefined;
+    addPolygon(Array.isArray(boundary) ? boundary : boundary?.shell ?? null);
+  });
 
   projectData.activeScheme?.modules?.forEach(mod => addPolygon(mod.bounds));
 
@@ -221,7 +225,8 @@ const dispatchLayerToggle = (layerId: number, visible: boolean) => {
 };
 
 const computeRoomBounds = (room: Room): Bounds2D => {
-  const shell = room.boundary?.shell;
+  const boundary = (room.boundary as unknown) as Polygon2D | { shell?: Polygon2D } | null | undefined;
+  const shell = Array.isArray(boundary) ? boundary : boundary?.shell;
   if (!shell || shell.length === 0) {
     throw new Error(`Room ${room.id} has no boundary`);
   }
@@ -307,19 +312,28 @@ const applyViewport = async (projectData: ProjectData, viewport?: ViewportConfig
     if (!roomId) {
       throw new Error('Viewport roomId missing');
     }
-    const room = projectData.baseline?.rooms?.find(r => r.id === roomId);
-    if (room) {
-      const bounds = computeRoomBounds(room);
-      const padding = computePadding(bounds, mode);
-      sceneService.fitToBounds(expandBounds(bounds, padding));
-      return;
-    }
-
-    const roomZone = projectData.computed?.roomZones?.find(z => z.id === roomId || z.roomId === roomId);
-    if (!roomZone) {
+    const roomIdKey = roomId.toLowerCase();
+    const room = projectData.baseline?.rooms?.find(r => r.id.toLowerCase() === roomIdKey);
+    if (!room) {
       throw new Error(`Room not found: ${roomId}`);
     }
-    const bounds = computeZoneBounds(roomZone);
+    const bounds = computeRoomBounds(room);
+    const padding = computePadding(bounds, mode);
+    sceneService.fitToBounds(expandBounds(bounds, padding));
+    return;
+  }
+
+  if (mode === 'zone') {
+    const zoneId = viewport?.zoneId;
+    if (!zoneId) {
+      throw new Error('Viewport zoneId missing');
+    }
+    const zoneIdKey = zoneId.toLowerCase();
+    const zone = projectData.activeScheme?.zones?.find(z => z.id.toLowerCase() === zoneIdKey);
+    if (!zone) {
+      throw new Error(`Zone not found: ${zoneId}`);
+    }
+    const bounds = computeZoneBounds(zone);
     const padding = computePadding(bounds, mode);
     sceneService.fitToBounds(expandBounds(bounds, padding));
   }

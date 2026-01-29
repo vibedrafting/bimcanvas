@@ -59,6 +59,11 @@ namespace BIMCanvas.Server.Controllers
                 return BadRequest(new { message = "viewport.mode=room 时必须提供 roomId" });
             }
 
+            if (viewportMode == "zone" && string.IsNullOrWhiteSpace(request.Viewport?.ZoneId))
+            {
+                return BadRequest(new { message = "viewport.mode=zone 时必须提供 zoneId" });
+            }
+
             try
             {
                 var imageData = await _screenshotService.CaptureAsync(request, cancellationToken);

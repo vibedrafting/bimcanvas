@@ -65,7 +65,7 @@ pwsh BIMCanvas.Server\bin\Debug\net8.0\playwright.ps1 install
   "layerPreset": "User",
   "layerEnable": ["Labels","Zones"],
   "layerDisable": ["Furniture"],
-  "viewport": { "mode": "room", "roomId": "rz_1" },
+  "viewport": { "mode": "zone", "zoneId": "rz_1" },
   "scale": 2,
   "autoFitViewport": true,
   "theme": "dark"
@@ -83,8 +83,9 @@ pwsh BIMCanvas.Server\bin\Debug\net8.0\playwright.ps1 install
   - 支持：`Grid`, `Architecture`, `Furniture`, `Labels`, `Bounds`, `Outline`,
     `SVG`, `SVG Preview`, `Zones`, `Semantic`, `AI Vision`, `Model`。
 - `viewport`：
-  - `mode = full | room | bounds`
-  - `roomId`：可传 `r_1`（baseline）或 `rz_1`（computed room zone）
+  - `mode = full | room | zone | bounds`
+  - `roomId`：房间 ID（来自 `baseline/rooms.json`，如 `r_1`）
+  - `zoneId`：设计区 ID（来自 `schemes/zones.json`，如 `rz_1`）
   - `bounds`：手动范围（见 §4.4）
 - `scale`：1-4，放大像素密度。
 - `autoFitViewport`：是否自动按范围计算输出比例（默认 `true`）。
@@ -114,14 +115,14 @@ pwsh BIMCanvas.Server\bin\Debug\net8.0\playwright.ps1 install
 
 ## 5. 调用示例（PowerShell）
 
-### 5.1 rz_1 房间 + Labels/Zones + 自动比例
+### 5.1 rz_1 设计区 + Labels/Zones + 自动比例
 
 ```powershell
 $body = @{
   projectPath = "C:\Users\huhaonan\Documents\BIMCanvas\Projects\demo_1"
   layerPreset = "User"
   layerEnable = @("Labels", "Zones")
-  viewport = @{ mode = "room"; roomId = "rz_1" }
+  viewport = @{ mode = "zone"; zoneId = "rz_1" }
   autoFitViewport = $true
   scale = 2
 } | ConvertTo-Json -Depth 10
@@ -138,7 +139,7 @@ Invoke-RestMethod -Method Post `
 $body = @{
   projectPath = "C:\Users\huhaonan\Documents\BIMCanvas\Projects\demo_1"
   layerPreset = "User"
-  viewport = @{ mode = "room"; roomId = "rz_1" }
+  viewport = @{ mode = "zone"; zoneId = "rz_1" }
   autoFitViewport = $false
   scale = 2
 } | ConvertTo-Json -Depth 10
@@ -159,6 +160,7 @@ $body = @{
 
 ## 6. 常见问题
 
-- **Room not found**：`roomId` 用错。`r_1` 来自 `baseline/rooms.json`，`rz_1` 来自 `computed/room_zones.json`。
+- **Room not found**：`roomId` 用错。`r_1` 来自 `baseline/rooms.json`。
+- **Zone not found**：`zoneId` 用错。`rz_1` 来自 `schemes/zones.json`。
 - **图层不对**：确认 `layerPreset` + `layerEnable/Disable` 是否冲突，关闭优先。
 - **比例不符合预期**：尝试调整 `autoFitViewport` 或 `scale`。

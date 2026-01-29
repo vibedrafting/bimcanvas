@@ -38,6 +38,8 @@ namespace BIMCanvas.Server.Dtos
 
         public string? RoomId { get; set; }
 
+        public string? ZoneId { get; set; }
+
         public Bounds2D? Bounds { get; set; }
     }
 
