@@ -1,0 +1,164 @@
+# 后台截图系统（Background Screenshot）
+
+> 本文档描述 BIMCanvas 后台截图的系统构成、配置项与调用方式。
+
+## 1. 目标与原则
+
+- **目标**：在不影响前端 UI 的前提下，通过后台接口生成与“前端截图功能”一致的图片。
+- **一致性**：复用 Web 端 Three.js 渲染与 ScreenshotService 的合成逻辑（WebGL + LabelRenderer）。
+- **静默运行**：后台通过 Playwright 打开渲染页，不占用用户前台视窗。
+
+## 2. 架构概览
+
+```
+Server (BIMCanvas.Server)
+  └─ BackgroundScreenshotController
+      └─ BackgroundScreenshotService
+          └─ Playwright (Chromium Headless)
+              └─ Web /screenshot-render (ScreenshotRenderView)
+                  └─ ScreenshotService.captureCanvas()
+```
+
+关键点：
+- **渲染页**：`/screenshot-render` 为无 UI 的渲染页，仅用于截图输出。
+- **图层与标签**：图层由 LayerManager 控制，标签通过 LabelRenderer 绘制（保证与前端一致）。
+- **数据来源**：`projectPath` 指向解压后的项目目录（含 `project.json`、`baseline/*`、`computed/*`）。
+
+## 3. 配置与环境
+
+### 3.1 Web 服务地址
+
+后台截图需要可访问的 Web 前端（Vite 或已部署的 Web）。
+
+可通过配置项指定：
+- `Web:BaseUrl`（appsettings）
+- 环境变量：`BIMCANVAS_WEB_URL`
+- 默认：`http://localhost:5173`
+
+### 3.2 Playwright 安装
+
+首次运行需要安装浏览器：
+
+```powershell
+pwsh BIMCanvas.Server\bin\Debug\net8.0\playwright.ps1 install
+```
+
+## 4. API 调用
+
+### 4.1 接口
+
+`POST /api/screenshot/render`
+
+返回：
+```json
+{ "imageData": "data:image/png;base64,..." }
+```
+
+### 4.2 请求参数
+
+```json
+{
+  "projectPath": "C:\\path\\to\\project",
+  "strategyId": "default",
+  "viewMode": "human",
+  "layers": [2,10,11],
+  "layerPreset": "User",
+  "layerEnable": ["Labels","Zones"],
+  "layerDisable": ["Furniture"],
+  "viewport": { "mode": "room", "roomId": "rz_1" },
+  "scale": 2,
+  "autoFitViewport": true,
+  "theme": "dark"
+}
+```
+
+说明：
+- `projectPath`（必填）：解压后的项目目录。
+- `strategyId`：方案 ID，默认 `default`。
+- `viewMode`/`layers`：**旧参数**（兼容），建议使用新图层配置。
+- `layerPreset`：图层预设（`User`/`Agent`，大小写不敏感）。
+- `layerEnable`/`layerDisable`：额外开启/关闭的图层名称（字符串）。
+  - **关闭优先**：同名同时出现时，`layerDisable` 生效。
+  - 名称忽略大小写、空格、下划线、连字符。
+  - 支持：`Grid`, `Architecture`, `Furniture`, `Labels`, `Bounds`, `Outline`,
+    `SVG`, `SVG Preview`, `Zones`, `Semantic`, `AI Vision`, `Model`。
+- `viewport`：
+  - `mode = full | room | bounds`
+  - `roomId`：可传 `r_1`（baseline）或 `rz_1`（computed room zone）
+  - `bounds`：手动范围（见 §4.4）
+- `scale`：1-4，放大像素密度。
+- `autoFitViewport`：是否自动按范围计算输出比例（默认 `true`）。
+- `theme`：`dark`/`light`。
+
+### 4.3 自动比例（autoFitViewport）
+
+当 `autoFitViewport=true` 时：
+- 根据目标范围 + 边距计算宽高比；
+- 输出视口面积约等于 1920×1080；
+- 最小边 720、最大边 4096；
+- `scale` 会进一步放大像素密度。
+
+当 `autoFitViewport=false` 时：
+- 固定视口 1920×1080。
+
+### 4.4 bounds 示例
+
+```json
+{
+  "viewport": {
+    "mode": "bounds",
+    "bounds": { "minX": 1000, "minY": 1000, "maxX": 8000, "maxY": 6000 }
+  }
+}
+```
+
+## 5. 调用示例（PowerShell）
+
+### 5.1 rz_1 房间 + Labels/Zones + 自动比例
+
+```powershell
+$body = @{
+  projectPath = "C:\Users\huhaonan\Documents\BIMCanvas\Projects\demo_1"
+  layerPreset = "User"
+  layerEnable = @("Labels", "Zones")
+  viewport = @{ mode = "room"; roomId = "rz_1" }
+  autoFitViewport = $true
+  scale = 2
+} | ConvertTo-Json -Depth 10
+
+Invoke-RestMethod -Method Post `
+  -Uri "http://localhost:5000/api/screenshot/render" `
+  -ContentType "application/json" `
+  -Body $body
+```
+
+### 5.2 固定 16:9（关闭自动比例）
+
+```powershell
+$body = @{
+  projectPath = "C:\Users\huhaonan\Documents\BIMCanvas\Projects\demo_1"
+  layerPreset = "User"
+  viewport = @{ mode = "room"; roomId = "rz_1" }
+  autoFitViewport = $false
+  scale = 2
+} | ConvertTo-Json -Depth 10
+```
+
+### 5.3 只开启 Grid + Architecture
+
+```powershell
+$body = @{
+  projectPath = "C:\Users\huhaonan\Documents\BIMCanvas\Projects\demo_1"
+  layerPreset = "User"
+  layerEnable = @("Grid", "Architecture")
+  viewport = @{ mode = "full" }
+  autoFitViewport = $true
+  scale = 2
+} | ConvertTo-Json -Depth 10
+```
+
+## 6. 常见问题
+
+- **Room not found**：`roomId` 用错。`r_1` 来自 `baseline/rooms.json`，`rz_1` 来自 `computed/room_zones.json`。
+- **图层不对**：确认 `layerPreset` + `layerEnable/Disable` 是否冲突，关闭优先。
+- **比例不符合预期**：尝试调整 `autoFitViewport` 或 `scale`。

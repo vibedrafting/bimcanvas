@@ -109,7 +109,10 @@ namespace BIMCanvas.Server.Services
 
             var configJson = JsonConvert.SerializeObject(renderConfig, _jsonSettings);
 
-            var viewportSize = ResolveViewportSize(projectData, viewport);
+            var autoFitViewport = request.AutoFitViewport ?? true;
+            var viewportSize = autoFitViewport
+                ? ResolveViewportSize(projectData, viewport)
+                : new ViewportSize { Width = DefaultViewportWidth, Height = DefaultViewportHeight };
 
             await _semaphore.WaitAsync(cancellationToken);
             try

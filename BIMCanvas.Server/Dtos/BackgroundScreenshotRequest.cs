@@ -26,6 +26,9 @@ namespace BIMCanvas.Server.Dtos
         [Range(1, 4)]
         public int Scale { get; set; } = 2;
 
+        // When true, auto-calculate viewport ratio based on target bounds.
+        public bool? AutoFitViewport { get; set; }
+
         public string? Theme { get; set; }
     }
 
