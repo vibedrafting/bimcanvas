@@ -9,9 +9,17 @@ namespace BIMCanvas.Server.Dtos
 
         public string StrategyId { get; set; } = "default";
 
-        public string ViewMode { get; set; } = "human";
+        // Legacy: viewMode + layers (number). Prefer LayerPreset + LayerEnable/Disable.
+        public string? ViewMode { get; set; }
 
         public int[]? Layers { get; set; }
+
+        // New layer control
+        public string? LayerPreset { get; set; }
+
+        public string[]? LayerEnable { get; set; }
+
+        public string[]? LayerDisable { get; set; }
 
         public ViewportConfig? Viewport { get; set; }
 

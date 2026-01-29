@@ -28,6 +28,9 @@ interface RenderConfig {
   projectData: ProjectData;
   viewMode?: ViewMode;
   layers?: number[];
+  layerPreset?: string;
+  layerEnable?: string[];
+  layerDisable?: string[];
   viewport?: ViewportConfig;
   theme?: 'dark' | 'light';
 }
@@ -56,6 +59,10 @@ const ALL_LAYERS = [
   LayerManager.LAYER_ARCHITECTURE,
   LayerManager.LAYER_FURNITURE
 ];
+
+const DEFAULT_FULL_PADDING = 1000;
+const DEFAULT_VIEW_PADDING = 500;
+const PADDING_RATIO = 0.05;
 
 const wait = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
@@ -116,6 +123,102 @@ const computeBoundsFromPolygon = (polygon: Polygon2D): Bounds2D => {
   return { minX, minY, maxX, maxY };
 };
 
+const expandBounds = (bounds: Bounds2D, padding: number): Bounds2D => ({
+  minX: bounds.minX - padding,
+  minY: bounds.minY - padding,
+  maxX: bounds.maxX + padding,
+  maxY: bounds.maxY + padding
+});
+
+const computePadding = (bounds: Bounds2D, mode: ViewportMode): number => {
+  const width = bounds.maxX - bounds.minX;
+  const height = bounds.maxY - bounds.minY;
+  const maxSize = Math.max(width, height);
+  const minPadding = mode === 'full' ? DEFAULT_FULL_PADDING : DEFAULT_VIEW_PADDING;
+  if (!Number.isFinite(maxSize) || maxSize <= 0) return minPadding;
+  return Math.max(minPadding, maxSize * PADDING_RATIO);
+};
+
+const computeProjectBounds = (projectData: ProjectData): Bounds2D | null => {
+  let minX = Infinity;
+  let minY = Infinity;
+  let maxX = -Infinity;
+  let maxY = -Infinity;
+
+  const addPolygon = (polygon?: Polygon2D | null) => {
+    if (!polygon || polygon.length === 0) return;
+    polygon.forEach(([x, y]) => {
+      minX = Math.min(minX, x);
+      minY = Math.min(minY, y);
+      maxX = Math.max(maxX, x);
+      maxY = Math.max(maxY, y);
+    });
+  };
+
+  const baseline = projectData.baseline;
+  baseline?.walls?.forEach(wall => addPolygon(wall.polygon));
+  baseline?.columns?.forEach(column => addPolygon(column.polygon));
+  baseline?.rooms?.forEach(room => addPolygon(room.boundary?.shell));
+
+  projectData.activeScheme?.modules?.forEach(mod => addPolygon(mod.bounds));
+
+  if (!Number.isFinite(minX) || !Number.isFinite(minY)) {
+    return null;
+  }
+
+  return { minX, minY, maxX, maxY };
+};
+
+const normalizePreset = (preset?: string, fallback?: ViewMode): ViewMode => {
+  const value = (preset ?? fallback ?? 'human').toLowerCase().trim();
+  if (value === 'ai' || value === 'agent') return 'ai';
+  return 'human';
+};
+
+const normalizeLayerName = (name: string) => name.trim().toLowerCase().replace(/[\s_-]+/g, '');
+
+const LAYER_NAME_MAP: Record<string, number> = {
+  grid: LayerManager.LAYER_GRID,
+  architecture: LayerManager.LAYER_ARCHITECTURE,
+  furniture: LayerManager.LAYER_FURNITURE,
+  labels: LayerManager.LAYER_LABELS,
+  label: LayerManager.LAYER_LABELS,
+  bounds: LayerManager.LAYER_BOUNDS,
+  outline: LayerManager.LAYER_OUTLINE,
+  svg: LayerManager.LAYER_SVG,
+  svgpreview: LayerManager.LAYER_SVG,
+  zones: LayerManager.LAYER_ZONES,
+  zone: LayerManager.LAYER_ZONES,
+  semantic: LayerManager.LAYER_SEMANTIC,
+  aivision: LayerManager.LAYER_AI_VISION,
+  model: LayerManager.LAYER_MODEL
+};
+
+const resolveLayerIds = (names?: string[] | null): number[] => {
+  if (!names || names.length === 0) return [];
+  const ids = new Set<number>();
+  names.forEach((name) => {
+    const key = normalizeLayerName(name);
+    const id = LAYER_NAME_MAP[key];
+    if (typeof id === 'number') {
+      ids.add(id);
+      return;
+    }
+    console.warn(`[ScreenshotRenderView] Unknown layer name: ${name}`);
+  });
+  return Array.from(ids);
+};
+
+const dispatchPreset = (preset: ViewMode) => {
+  window.dispatchEvent(new CustomEvent('bimcanvas:view-mode-change', { detail: preset }));
+};
+
+const dispatchLayerToggle = (layerId: number, visible: boolean) => {
+  window.dispatchEvent(new CustomEvent('bimcanvas:layer-toggle', {
+    detail: { layerId, visible }
+  }));
+};
+
 const computeRoomBounds = (room: Room): Bounds2D => {
   const shell = room.boundary?.shell;
   if (!shell || shell.length === 0) {
@@ -124,40 +227,74 @@ const computeRoomBounds = (room: Room): Bounds2D => {
   return computeBoundsFromPolygon(shell);
 };
 
-const applyLayers = (viewMode: ViewMode, layers?: number[] | null) => {
+const applyLegacyLayers = (viewMode: ViewMode, layers?: number[] | null) => {
   if (!layers || layers.length === 0) {
-    window.dispatchEvent(new CustomEvent('bimcanvas:view-mode-change', { detail: viewMode }));
+    dispatchPreset(viewMode);
     return;
   }
 
   ALL_LAYERS.forEach((layerId) => {
-    window.dispatchEvent(new CustomEvent('bimcanvas:layer-toggle', {
-      detail: { layerId, visible: false }
-    }));
+    dispatchLayerToggle(layerId, false);
   });
 
   [...new Set(layers)].forEach((layerId) => {
-    window.dispatchEvent(new CustomEvent('bimcanvas:layer-toggle', {
-      detail: { layerId, visible: true }
-    }));
+    dispatchLayerToggle(layerId, true);
+  });
+};
+
+const applyLayerConfig = (config: RenderConfig) => {
+  const hasNewConfig = Boolean(
+    (config.layerPreset && config.layerPreset.trim()) ||
+    (config.layerEnable && config.layerEnable.length) ||
+    (config.layerDisable && config.layerDisable.length)
+  );
+
+  if (!hasNewConfig) {
+    applyLegacyLayers(config.viewMode ?? 'human', config.layers);
+    return;
+  }
+
+  const preset = normalizePreset(config.layerPreset, config.viewMode);
+  dispatchPreset(preset);
+
+  const enableIds = resolveLayerIds(config.layerEnable);
+  const disableIds = resolveLayerIds(config.layerDisable);
+  const disableSet = new Set(disableIds);
+
+  enableIds.forEach(layerId => {
+    if (!disableSet.has(layerId)) {
+      dispatchLayerToggle(layerId, true);
+    }
+  });
+
+  disableIds.forEach(layerId => {
+    dispatchLayerToggle(layerId, false);
   });
 };
 
 const applyViewport = async (projectData: ProjectData, viewport?: ViewportConfig) => {
-  if (!viewport || viewport.mode === 'full') return;
-
   const sceneService = await waitForSceneService();
+  const mode = viewport?.mode ?? 'full';
 
-  if (viewport.mode === 'bounds') {
-    if (!viewport.bounds) {
-      throw new Error('Viewport bounds missing');
-    }
-    sceneService.fitToBounds(viewport.bounds);
+  if (mode === 'full') {
+    const bounds = computeProjectBounds(projectData);
+    if (!bounds) return;
+    const padding = computePadding(bounds, mode);
+    sceneService.fitToBounds(expandBounds(bounds, padding));
     return;
   }
 
-  if (viewport.mode === 'room') {
-    const roomId = viewport.roomId;
+  if (mode === 'bounds') {
+    if (!viewport?.bounds) {
+      throw new Error('Viewport bounds missing');
+    }
+    const padding = computePadding(viewport.bounds, mode);
+    sceneService.fitToBounds(expandBounds(viewport.bounds, padding));
+    return;
+  }
+
+  if (mode === 'room') {
+    const roomId = viewport?.roomId;
     if (!roomId) {
       throw new Error('Viewport roomId missing');
     }
@@ -165,7 +302,9 @@ const applyViewport = async (projectData: ProjectData, viewport?: ViewportConfig
     if (!room) {
       throw new Error(`Room not found: ${roomId}`);
     }
-    sceneService.fitToBounds(computeRoomBounds(room));
+    const bounds = computeRoomBounds(room);
+    const padding = computePadding(bounds, mode);
+    sceneService.fitToBounds(expandBounds(bounds, padding));
   }
 };
 
@@ -193,7 +332,7 @@ onMounted(async () => {
     window.dispatchEvent(new CustomEvent('bimcanvas:play-build-sequence'));
     await buildPromise;
 
-    applyLayers(config.viewMode ?? 'human', config.layers);
+    applyLayerConfig(config);
     await applyViewport(config.projectData, config.viewport);
 
     await waitFrames(3);

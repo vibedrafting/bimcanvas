@@ -95,6 +95,9 @@ namespace BIMCanvas.Server.Services
                 ProjectData = projectData,
                 ViewMode = viewMode,
                 Layers = request.Layers,
+                LayerPreset = request.LayerPreset,
+                LayerEnable = request.LayerEnable,
+                LayerDisable = request.LayerDisable,
                 Viewport = viewport,
                 Theme = theme
             };
@@ -198,6 +201,12 @@ namespace BIMCanvas.Server.Services
             public string ViewMode { get; set; } = "human";
 
             public int[]? Layers { get; set; }
+
+            public string? LayerPreset { get; set; }
+
+            public string[]? LayerEnable { get; set; }
+
+            public string[]? LayerDisable { get; set; }
 
             public ViewportConfig? Viewport { get; set; }
 
