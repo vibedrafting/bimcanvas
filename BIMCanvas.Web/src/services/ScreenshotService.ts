@@ -13,6 +13,13 @@ import html2canvas from 'html2canvas'
 import { LabelRenderer } from './screenshot/LabelRenderer'
 import { getThreeSceneService } from './three/ThreeSceneService'
 
+export interface ClipRect {
+  x: number
+  y: number
+  width: number
+  height: number
+}
+
 export class ScreenshotService {
   private serverUrl: string
   private eventSource: EventSource | null = null
@@ -31,7 +38,7 @@ export class ScreenshotService {
    *    - 通过投影计算获取屏幕坐标
    *    - Canvas 2D API 绘制文字（含旋转）
    */
-  async captureCanvas(): Promise<string> {
+  async captureCanvas(clipRect?: ClipRect): Promise<string> {
     // 1. 获取 WebGL canvas
     const glCanvas = document.querySelector('.three-canvas canvas') as HTMLCanvasElement
     if (!glCanvas) {
@@ -40,20 +47,52 @@ export class ScreenshotService {
 
     const scale = window.devicePixelRatio || 1
 
+    const sourceRect = (() => {
+      if (!clipRect) {
+        return { x: 0, y: 0, width: glCanvas.width, height: glCanvas.height }
+      }
+
+      const x = Math.max(0, Math.floor(clipRect.x * scale))
+      const y = Math.max(0, Math.floor(clipRect.y * scale))
+      const maxWidth = Math.max(0, glCanvas.width - x)
+      const maxHeight = Math.max(0, glCanvas.height - y)
+      const width = Math.min(Math.floor(clipRect.width * scale), maxWidth)
+      const height = Math.min(Math.floor(clipRect.height * scale), maxHeight)
+      return { x, y, width, height }
+    })()
+
+    if (sourceRect.width <= 0 || sourceRect.height <= 0) {
+      throw new Error('Clip rect out of canvas bounds')
+    }
+
     // 2. 创建合成 canvas
     const finalCanvas = document.createElement('canvas')
-    finalCanvas.width = glCanvas.width
-    finalCanvas.height = glCanvas.height
+    finalCanvas.width = sourceRect.width
+    finalCanvas.height = sourceRect.height
     const ctx = finalCanvas.getContext('2d')
     if (!ctx) {
       throw new Error('Failed to create canvas context')
     }
 
     // 3. 绘制 WebGL 内容（底层）
-    ctx.drawImage(glCanvas, 0, 0)
+    const sceneService = getThreeSceneService()
+    if (sceneService) {
+      sceneService.renderOnce()
+    }
+
+    ctx.drawImage(
+      glCanvas,
+      sourceRect.x,
+      sourceRect.y,
+      sourceRect.width,
+      sourceRect.height,
+      0,
+      0,
+      sourceRect.width,
+      sourceRect.height
+    )
 
     // 4. 手动绘制 Labels（上层）- 使用投影计算 + Canvas 2D API
-    const sceneService = getThreeSceneService()
     if (sceneService) {
       const scene = sceneService.scene
       const camera = sceneService.camera
@@ -61,12 +100,32 @@ export class ScreenshotService {
       if (scene && camera) {
         try {
           // 提取所有标签数据（世界坐标 → 屏幕坐标）
-          const labels = LabelRenderer.extractLabels(
+          let labels = LabelRenderer.extractLabels(
             scene,
             camera,
             glCanvas.width / scale,
             glCanvas.height / scale
           )
+
+          if (clipRect) {
+            const minX = clipRect.x
+            const minY = clipRect.y
+            const maxX = minX + clipRect.width
+            const maxY = minY + clipRect.height
+
+            labels = labels
+              .filter(label =>
+                label.screenX >= minX &&
+                label.screenX <= maxX &&
+                label.screenY >= minY &&
+                label.screenY <= maxY
+              )
+              .map(label => ({
+                ...label,
+                screenX: label.screenX - minX,
+                screenY: label.screenY - minY
+              }))
+          }
 
           // 在 Canvas 上绘制标签（含旋转）
           LabelRenderer.renderToCanvas(ctx, labels, scale)

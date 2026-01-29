@@ -1,9 +1,10 @@
 <script setup lang="ts">
 import { onMounted, nextTick } from 'vue';
+import * as THREE from 'three';
 import ThreeCanvas from '../components/Canvas/ThreeCanvas.vue';
 import { useCanvasStore } from '../stores/canvasStore';
 import { themeService } from '../services/theme/ThemeService';
-import { ScreenshotService } from '../services/ScreenshotService';
+import { ScreenshotService, type ClipRect } from '../services/ScreenshotService';
 import { getThreeSceneService } from '../services/three/ThreeSceneService';
 import { LayerManager } from '../services/three/LayerManager';
 import type { ProjectData, Polygon2D, Room, Zone } from '../types/canvas';
@@ -286,16 +287,15 @@ const applyLayerConfig = (config: RenderConfig) => {
   });
 };
 
-const applyViewport = async (projectData: ProjectData, viewport?: ViewportConfig) => {
-  const sceneService = await waitForSceneService();
+const applyViewport = (sceneService: NonNullable<ReturnType<typeof getThreeSceneService>>, projectData: ProjectData, viewport?: ViewportConfig): Bounds2D | null => {
   const mode = viewport?.mode ?? 'full';
 
   if (mode === 'full') {
     const bounds = computeProjectBounds(projectData);
-    if (!bounds) return;
+    if (!bounds) return null;
     const padding = computePadding(bounds, mode);
     sceneService.fitToBounds(expandBounds(bounds, padding));
-    return;
+    return null;
   }
 
   if (mode === 'bounds') {
@@ -303,8 +303,9 @@ const applyViewport = async (projectData: ProjectData, viewport?: ViewportConfig
       throw new Error('Viewport bounds missing');
     }
     const padding = computePadding(viewport.bounds, mode);
-    sceneService.fitToBounds(expandBounds(viewport.bounds, padding));
-    return;
+    const targetBounds = expandBounds(viewport.bounds, padding);
+    sceneService.fitToBounds(targetBounds);
+    return targetBounds;
   }
 
   if (mode === 'room') {
@@ -319,8 +320,9 @@ const applyViewport = async (projectData: ProjectData, viewport?: ViewportConfig
     }
     const bounds = computeRoomBounds(room);
     const padding = computePadding(bounds, mode);
-    sceneService.fitToBounds(expandBounds(bounds, padding));
-    return;
+    const targetBounds = expandBounds(bounds, padding);
+    sceneService.fitToBounds(targetBounds);
+    return targetBounds;
   }
 
   if (mode === 'zone') {
@@ -335,8 +337,59 @@ const applyViewport = async (projectData: ProjectData, viewport?: ViewportConfig
     }
     const bounds = computeZoneBounds(zone);
     const padding = computePadding(bounds, mode);
-    sceneService.fitToBounds(expandBounds(bounds, padding));
+    const targetBounds = expandBounds(bounds, padding);
+    sceneService.fitToBounds(targetBounds);
+    return targetBounds;
   }
+  return null;
+};
+
+const computeClipRect = (
+  bounds: Bounds2D,
+  camera: THREE.Camera,
+  canvasWidth: number,
+  canvasHeight: number
+): ClipRect | null => {
+  if (canvasWidth <= 0 || canvasHeight <= 0) {
+    return null;
+  }
+
+  const points = [
+    new THREE.Vector3(bounds.minX, 0, -bounds.minY),
+    new THREE.Vector3(bounds.minX, 0, -bounds.maxY),
+    new THREE.Vector3(bounds.maxX, 0, -bounds.minY),
+    new THREE.Vector3(bounds.maxX, 0, -bounds.maxY)
+  ];
+
+  let minX = Infinity;
+  let minY = Infinity;
+  let maxX = -Infinity;
+  let maxY = -Infinity;
+
+  points.forEach(point => {
+    const ndc = point.clone().project(camera);
+    const screenX = (ndc.x + 1) / 2 * canvasWidth;
+    const screenY = (1 - ndc.y) / 2 * canvasHeight;
+    minX = Math.min(minX, screenX);
+    minY = Math.min(minY, screenY);
+    maxX = Math.max(maxX, screenX);
+    maxY = Math.max(maxY, screenY);
+  });
+
+  if (!Number.isFinite(minX) || !Number.isFinite(minY)) {
+    return null;
+  }
+
+  const x = Math.max(0, Math.floor(minX));
+  const y = Math.max(0, Math.floor(minY));
+  const width = Math.min(canvasWidth, Math.ceil(maxX)) - x;
+  const height = Math.min(canvasHeight, Math.ceil(maxY)) - y;
+
+  if (width <= 0 || height <= 0) {
+    return null;
+  }
+
+  return { x, y, width, height };
 };
 
 const renderWithConfig = async (config: RenderConfig) => {
@@ -357,19 +410,28 @@ const renderWithConfig = async (config: RenderConfig) => {
     store.projectData = config.projectData;
 
     await nextTick();
-    await waitForSceneService();
+    const sceneService = await waitForSceneService();
 
     const buildPromise = waitForBuildComplete();
     window.dispatchEvent(new CustomEvent('bimcanvas:play-build-sequence-fast'));
     await buildPromise;
 
     applyLayerConfig(config);
-    await applyViewport(config.projectData, config.viewport);
+    const targetBounds = applyViewport(sceneService, config.projectData, config.viewport);
 
     await waitFrames(3);
 
     const screenshotService = new ScreenshotService();
-    window.__capture = async () => screenshotService.captureCanvas();
+    const mode = config.viewport?.mode ?? 'full';
+    let clipRect: ClipRect | null = null;
+    if (mode !== 'full' && targetBounds) {
+      const canvas = sceneService.getCanvasElement();
+      const scale = window.devicePixelRatio || 1;
+      const canvasWidth = canvas.width / scale;
+      const canvasHeight = canvas.height / scale;
+      clipRect = computeClipRect(targetBounds, sceneService.camera, canvasWidth, canvasHeight);
+    }
+    window.__capture = async () => screenshotService.captureCanvas(clipRect ?? undefined);
     window.__renderReady = true;
   } catch (error: any) {
     const message = error?.message ?? String(error);

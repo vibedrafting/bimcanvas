@@ -391,6 +391,14 @@ export class ThreeSceneService {
     }
 
     /**
+     * 强制渲染一帧（不生成图片）
+     */
+    public renderOnce(): void {
+        this.renderer.render(this._scene, this._camera);
+        this.labelRenderer.render(this._scene, this._camera);
+    }
+
+    /**
      * 获取 WebGL canvas 元素
      */
     public getCanvasElement(): HTMLCanvasElement {
