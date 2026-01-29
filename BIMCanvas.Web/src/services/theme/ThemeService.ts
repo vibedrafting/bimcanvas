@@ -1,8 +1,7 @@
 /**
- * ThemeService - 配色管理核心服务
- * 
- * 提供暗色和亮色两套主题配色，集中管理所有 Builder 和 UI 组件的配色定义。
- * 借鉴 Apple 设计风格：简洁、优雅、高对比度。
+ * ThemeService - UI theme tokens only.
+ *
+ * Canvas visuals are controlled by CanvasStyleService.
  */
 import { ref, readonly } from 'vue';
 

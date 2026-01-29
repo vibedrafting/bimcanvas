@@ -2,16 +2,17 @@
 import * as THREE from 'three';
 import { CSS2DObject } from 'three-stdlib';
 import { LayerManager } from '../three/LayerManager';
-import { themeService } from '../theme/ThemeService';
+import { canvasStyleService, type LabelStyle } from '../canvas/CanvasStyleService';
 
 export class GridBuilder {
     private scene: THREE.Scene;
     private gridHelper: THREE.GridHelper | null = null;
     private labelGroup: THREE.Group | null = null;
-    private gridSpacing: number = 1000; // 默认 1000mm (1m)
+    private gridSpacing: number;
 
     constructor(scene: THREE.Scene) {
         this.scene = scene;
+        this.gridSpacing = canvasStyleService.currentStyle.value.layers.grid.spacing;
     }
 
     /**
@@ -19,6 +20,7 @@ export class GridBuilder {
      */
     public setGridSpacing(spacing: 600 | 1000): void {
         this.gridSpacing = spacing;
+        canvasStyleService.setGridSpacing(spacing);
     }
 
     public getGridSpacing(): number {
@@ -33,12 +35,13 @@ export class GridBuilder {
     public buildGrid() {
         this.cleanup();
 
-        const colors = themeService.currentTheme.value.grid;
-        const color1 = colors.centerLine; // 中心线
-        const color2 = colors.gridLine;   // 网格线
+        const style = canvasStyleService.currentStyle.value.layers.grid;
+        this.gridSpacing = style.spacing;
+        const color1 = style.centerLine; // 中心线
+        const color2 = style.gridLine;   // 网格线
 
         // 网格铺满整个场景（以原点为中心，100m x 100m）
-        const gridSize = 100000; // 100m
+        const gridSize = style.size; // 100m
         // divisions 必须为偶数才能正确显示通过原点的中心线
         let divisions = Math.round(gridSize / this.gridSpacing);
         if (divisions % 2 !== 0) {
@@ -101,7 +104,7 @@ export class GridBuilder {
         this.labelGroup = new THREE.Group();
         this.labelGroup.layers.set(LayerManager.LAYER_GRID);
 
-        const labelConfig = themeService.currentTheme.value.gridLabel;
+        const labelConfig = style.label;
 
         // 固定生成 50 个标签
         const maxLabels = 50;
@@ -148,7 +151,7 @@ export class GridBuilder {
     private createSemanticLabel(
         text: string,
         position: THREE.Vector3,
-        config: { text: string; shadow: string; background?: string; padding?: string; borderRadius?: string }
+        config: LabelStyle
     ) {
         const div = document.createElement('div');
         div.className = 'semantic-grid-label';
@@ -161,8 +164,11 @@ export class GridBuilder {
         if (config.padding) div.style.padding = config.padding;
         if (config.borderRadius) div.style.borderRadius = config.borderRadius;
 
-        div.style.fontSize = '14px';
-        div.style.fontWeight = 'bold';
+        div.style.fontSize = `${config.fontSize}px`;
+        div.style.fontWeight = config.fontWeight;
+        if (config.fontFamily) {
+            div.style.fontFamily = config.fontFamily;
+        }
 
         const label = new CSS2DObject(div);
         label.position.copy(position);

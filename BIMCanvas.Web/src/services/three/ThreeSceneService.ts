@@ -15,7 +15,7 @@ import { SelectionManager } from '../interaction/SelectionManager';
 import { DragManager } from '../interaction/DragManager';
 import { GhostManager } from '../interaction/GhostManager';
 import { useDebugStore } from '../../stores/debugStore';
-import { themeService } from '../theme/ThemeService';
+import { canvasStyleService } from '../canvas/CanvasStyleService';
 import { moduleLibraryService } from '../ModuleLibraryService';
 
 // 全局实例引用（供 ScreenshotService 等外部服务访问）
@@ -69,10 +69,9 @@ export class ThreeSceneService {
     private dragManager: DragManager;
     private ghostManager: GhostManager;
 
-    // Calm Tech Colors
-    private readonly BG_COLOR = 0x0a0a0f;
-    private readonly AMBIENT_LIGHT_COLOR = 0xffffff;
-    private readonly DIR_LIGHT_COLOR = 0xffffff;
+    private ambientLight: THREE.AmbientLight | null = null;
+    private directionalLight: THREE.DirectionalLight | null = null;
+    private hemisphereLight: THREE.HemisphereLight | null = null;
 
     constructor(container: HTMLElement) {
         this.container = container;
@@ -80,8 +79,7 @@ export class ThreeSceneService {
 
         // 1. Scene
         this._scene = new THREE.Scene();
-        this._scene.background = new THREE.Color(this.BG_COLOR);
-        this._scene.fog = new THREE.FogExp2(this.BG_COLOR, 0.00005);
+        this.applySceneStyle();
 
         // 注册全局实例
         globalInstance = this;
@@ -359,13 +357,13 @@ export class ThreeSceneService {
         // this.boundEventHandlers.set('bimcanvas:ghost-patch', ghostPatchHandler);
         // window.addEventListener('bimcanvas:ghost-patch', ghostPatchHandler);
 
-        // 主题切换事件监听 - 重建 Builders 和场景
-        const themeChangeHandler = (() => {
-            console.log('Theme changed, rebuilding scene with new colors...');
-            this.rebuildWithNewTheme();
+        // Canvas style change - rebuild Builders and scene
+        const canvasStyleChangeHandler = (() => {
+            console.log('Canvas style changed, rebuilding scene...');
+            this.rebuildWithCanvasStyle();
         }) as EventListener;
-        this.boundEventHandlers.set('bimcanvas:theme-change', themeChangeHandler);
-        window.addEventListener('bimcanvas:theme-change', themeChangeHandler);
+        this.boundEventHandlers.set('bimcanvas:canvas-style-change', canvasStyleChangeHandler);
+        window.addEventListener('bimcanvas:canvas-style-change', canvasStyleChangeHandler);
 
         // 网格规格切换事件监听
         const gridSpacingHandler = ((e: CustomEvent) => {
@@ -453,17 +451,28 @@ export class ThreeSceneService {
         return this.renderer.domElement;
     }
 
-    /**
-     * 主题切换时重建场景
-     * 重新创建 Builders 以应用新的配色，然后重建当前文档
-     */
-    private rebuildWithNewTheme() {
-        // 更新场景背景色
-        const bgColor = themeService.currentTheme.value.background;
-        this._scene.background = new THREE.Color(bgColor);
-        if (this._scene.fog instanceof THREE.FogExp2) {
-            this._scene.fog.color.setHex(bgColor);
+    private applySceneStyle(): void {
+        const style = canvasStyleService.currentStyle.value.scene;
+        this._scene.background = new THREE.Color(style.background);
+
+        if (style.fog) {
+            if (this._scene.fog instanceof THREE.FogExp2) {
+                this._scene.fog.color.setHex(style.fog.color);
+                this._scene.fog.density = style.fog.density;
+            } else {
+                this._scene.fog = new THREE.FogExp2(style.fog.color, style.fog.density);
+            }
+        } else {
+            this._scene.fog = null;
         }
+    }
+
+    /**
+     * Rebuild scene after canvas style change.
+     */
+    private rebuildWithCanvasStyle() {
+        this.applySceneStyle();
+        this.setupLighting();
 
         // 清理旧的 Builder 资源（防止残留）
         this.gridBuilder.cleanup();
@@ -471,7 +480,7 @@ export class ThreeSceneService {
         this.zoneBuilder.cleanup();
         this.exclusionBuilder.cleanup();
 
-        // 重新创建所有 Builders（它们在构造时读取 ThemeService 配色）
+        // Recreate Builders to apply updated canvas styles.
         this.sceneBuilder = new SceneBuilder(this._scene);
         this.gridBuilder = new GridBuilder(this._scene);
         this.outlineBuilder = new OutlineBuilder(this._scene);
@@ -500,21 +509,48 @@ export class ThreeSceneService {
     }
 
     private setupLighting() {
-        const ambientLight = new THREE.AmbientLight(this.AMBIENT_LIGHT_COLOR, 0.4); // Reduced intensity
-        this._scene.add(ambientLight);
+        const style = canvasStyleService.currentStyle.value.lighting;
 
-        const dirLight = new THREE.DirectionalLight(this.DIR_LIGHT_COLOR, 0.8); // Increased intensity slightly
-        dirLight.position.set(-5000, 10000, 5000); // Angled for better shadows
-        dirLight.castShadow = true;
-        dirLight.shadow.mapSize.width = 2048;
-        dirLight.shadow.mapSize.height = 2048;
-        dirLight.shadow.camera.near = 0.5;
-        dirLight.shadow.camera.far = 50000;
-        dirLight.shadow.bias = -0.0001; // Reduce shadow acne
-        this._scene.add(dirLight);
+        if (!this.ambientLight) {
+            this.ambientLight = new THREE.AmbientLight(style.ambient.color, style.ambient.intensity);
+            this._scene.add(this.ambientLight);
+        } else {
+            this.ambientLight.color.setHex(style.ambient.color);
+            this.ambientLight.intensity = style.ambient.intensity;
+        }
 
-        const hemiLight = new THREE.HemisphereLight(0xeeeeff, 0x777788, 0.2); // Reduced intensity
-        this._scene.add(hemiLight);
+        if (!this.directionalLight) {
+            this.directionalLight = new THREE.DirectionalLight(style.directional.color, style.directional.intensity);
+            this.directionalLight.castShadow = true;
+            this._scene.add(this.directionalLight);
+        } else {
+            this.directionalLight.color.setHex(style.directional.color);
+            this.directionalLight.intensity = style.directional.intensity;
+        }
+
+        this.directionalLight.position.set(
+            style.directional.position[0],
+            style.directional.position[1],
+            style.directional.position[2]
+        );
+        this.directionalLight.shadow.mapSize.width = style.directional.shadow.mapSize;
+        this.directionalLight.shadow.mapSize.height = style.directional.shadow.mapSize;
+        this.directionalLight.shadow.camera.near = style.directional.shadow.near;
+        this.directionalLight.shadow.camera.far = style.directional.shadow.far;
+        this.directionalLight.shadow.bias = style.directional.shadow.bias;
+
+        if (!this.hemisphereLight) {
+            this.hemisphereLight = new THREE.HemisphereLight(
+                style.hemisphere.skyColor,
+                style.hemisphere.groundColor,
+                style.hemisphere.intensity
+            );
+            this._scene.add(this.hemisphereLight);
+        } else {
+            this.hemisphereLight.color.setHex(style.hemisphere.skyColor);
+            this.hemisphereLight.groundColor.setHex(style.hemisphere.groundColor);
+            this.hemisphereLight.intensity = style.hemisphere.intensity;
+        }
     }
 
     private fitToScreen(data: any) {

@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import { CSS2DObject } from 'three-stdlib';
 import { LayerManager } from '../three/LayerManager';
 import type { ProjectData, Point2D, Line2D, Polygon2D } from '../../types/canvas';
-import { themeService } from '../theme/ThemeService';
+import { canvasStyleService } from '../canvas/CanvasStyleService';
 import { polygonCenterToWorld, lineCenterToWorld } from '../../utils/coordinates';
 
 export class LabelBuilder {
@@ -128,8 +128,7 @@ export class LabelBuilder {
 
     private createLabel(id: string, position: THREE.Vector3, orientation: 'horizontal' | 'vertical', isZoneLabel: boolean = false) {
 
-        // 从 ThemeService 获取构件标签配色
-        const config = themeService.currentTheme.value.componentLabel;
+        const config = canvasStyleService.currentStyle.value.layers.labels.component;
 
         const div = document.createElement('div');
         div.className = 'ai-label';
@@ -156,9 +155,11 @@ export class LabelBuilder {
         if (config.padding) div.style.padding = config.padding;
         if (config.borderRadius) div.style.borderRadius = config.borderRadius;
 
-        div.style.fontSize = '10px';
-        div.style.fontWeight = 'normal'; // 变细，减少视觉干扰
-        div.style.fontFamily = 'monospace'; // 等宽字体利于 AI 识别
+        div.style.fontSize = `${config.fontSize}px`;
+        div.style.fontWeight = config.fontWeight; // 变细，减少视觉干扰
+        if (config.fontFamily) {
+            div.style.fontFamily = config.fontFamily; // 等宽字体利于 AI 识别
+        }
         div.style.pointerEvents = 'none'; // Crucial for clicking through
 
         // Apply orientation

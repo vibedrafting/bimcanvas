@@ -32,6 +32,7 @@ import { SVGLoader } from 'three/examples/jsm/loaders/SVGLoader.js';
 import type { Module, Point2D } from '../../types/canvas';
 import { moduleLibraryService, type ModuleDefinition } from '../ModuleLibraryService';
 import { LayerManager } from '../three/LayerManager';
+import { canvasStyleService } from '../canvas/CanvasStyleService';
 
 export class SVGModuleRenderer {
   private scene: THREE.Scene;
@@ -153,6 +154,7 @@ export class SVGModuleRenderer {
         (data) => {
           const paths = data.paths;
           const group = new THREE.Group();
+          const svgStyle = canvasStyleService.currentStyle.value.layers.svg;
 
           // 遍历SVG路径并创建几何体
           for (let i = 0; i < paths.length; i++) {
@@ -168,12 +170,12 @@ export class SVGModuleRenderer {
                 const geometry = new THREE.ShapeGeometry(shape);
                 // 如果是黑色填充，替换为白色（在深色背景下可见）
                 const displayFillColor = (fillColor === '#000000' || fillColor === '#000' || fillColor === 'black')
-                  ? '#ffffff'
+                  ? svgStyle.replaceBlackFill
                   : fillColor;
                 const material = new THREE.MeshBasicMaterial({
                   color: new THREE.Color(displayFillColor),
                   side: THREE.DoubleSide,
-                  depthTest: false  // 确保不被遮挡
+                  depthTest: svgStyle.depthTest  // 确保不被遮挡
                 });
 
                 const mesh = new THREE.Mesh(geometry, material);
@@ -193,18 +195,18 @@ export class SVGModuleRenderer {
               // 构建描边样式（CSS class 未被解析时使用默认值）
               const strokeStyle = {
                 ...path.userData?.style,
-                strokeWidth: path.userData?.style?.strokeWidth || 20
+                strokeWidth: path.userData?.style?.strokeWidth || svgStyle.defaultStrokeWidth
               };
 
               // 默认白色描边（SVG CSS class 样式无法被 SVGLoader 解析时的兜底）
               const displayColor = (!strokeColor || strokeColor === '#000000' || strokeColor === '#000' || strokeColor === 'black')
-                ? '#ffffff'
+                ? svgStyle.replaceBlackStroke
                 : strokeColor;
 
               const material = new THREE.MeshBasicMaterial({
                 color: new THREE.Color(displayColor),
                 side: THREE.DoubleSide,
-                depthTest: false  // 确保不被遮挡
+                depthTest: svgStyle.depthTest  // 确保不被遮挡
               });
 
               // 为每个子路径创建描边几何体

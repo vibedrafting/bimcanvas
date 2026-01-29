@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import type { ProjectData, Wall, Column, Module, Point2D, Opening } from '../../types/canvas';
 import { LayerManager } from '../three/LayerManager';
-import { themeService } from '../theme/ThemeService';
+import { canvasStyleService } from '../canvas/CanvasStyleService';
 import { SVGModuleRenderer } from './SVGModuleRenderer';
 import { moduleLibraryService } from '../ModuleLibraryService';
 
@@ -35,77 +35,79 @@ export class SceneBuilder {
     }
 
     private initMaterials() {
-        // 从 ThemeService 获取当前主题配色
-        const colors = themeService.currentTheme.value.scene;
+        const styles = canvasStyleService.currentStyle.value.layers;
+        const architecture = styles.architecture;
+        const furniture = styles.furniture;
 
         this.materials.set('wall', new THREE.MeshStandardMaterial({
-            color: colors.wall,
-            roughness: 0.8,
-            metalness: 0.1
+            color: architecture.wall.color,
+            roughness: architecture.wall.roughness,
+            metalness: architecture.wall.metalness
         }));
 
         this.materials.set('column', new THREE.MeshStandardMaterial({
-            color: colors.column,
-            roughness: 0.8,
-            metalness: 0.1
+            color: architecture.column.color,
+            roughness: architecture.column.roughness,
+            metalness: architecture.column.metalness
         }));
 
         this.materials.set('module', new THREE.MeshStandardMaterial({
-            color: colors.module,
-            roughness: 0.6,
-            metalness: 0.2,
-            side: THREE.DoubleSide
+            color: furniture.module.color,
+            roughness: furniture.module.roughness,
+            metalness: furniture.module.metalness,
+            side: furniture.module.doubleSided ? THREE.DoubleSide : undefined
         }));
 
         this.materials.set('floor', new THREE.MeshStandardMaterial({
-            color: colors.floor,
-            roughness: 0.9,
-            metalness: 0.1
+            color: architecture.floor.color,
+            roughness: architecture.floor.roughness,
+            metalness: architecture.floor.metalness
         }));
 
         this.materials.set('doorFrame', new THREE.MeshStandardMaterial({
-            color: colors.doorFrame,
-            roughness: 0.8,
-            metalness: 0.3
+            color: architecture.doorFrame.color,
+            roughness: architecture.doorFrame.roughness,
+            metalness: architecture.doorFrame.metalness
         }));
 
         this.materials.set('doorPanel', new THREE.MeshStandardMaterial({
-            color: colors.doorPanel,
-            roughness: 0.7,
-            metalness: 0.1
+            color: architecture.doorPanel.color,
+            roughness: architecture.doorPanel.roughness,
+            metalness: architecture.doorPanel.metalness
         }));
 
         this.materials.set('windowFrame', new THREE.MeshStandardMaterial({
-            color: colors.windowFrame,
-            roughness: 0.8,
-            metalness: 0.3
+            color: architecture.windowFrame.color,
+            roughness: architecture.windowFrame.roughness,
+            metalness: architecture.windowFrame.metalness
         }));
 
         this.materials.set('glass', new THREE.MeshPhysicalMaterial({
-            color: colors.glass,
-            metalness: 0.1,
-            roughness: 0.1,
-            transmission: 0.6,
-            transparent: true,
-            opacity: 0.6
+            color: architecture.glass.color,
+            metalness: architecture.glass.metalness,
+            roughness: architecture.glass.roughness,
+            transmission: architecture.glass.transmission,
+            transparent: architecture.glass.transparent,
+            opacity: architecture.glass.opacity
         }));
 
+        const swingArc = architecture.swingArc;
         this.materials.set('swingArc', new THREE.LineBasicMaterial({
-            color: colors.swingArc,
-            opacity: 0.3,
-            transparent: true,
-            linewidth: 1
+            color: swingArc.color,
+            opacity: swingArc.opacity,
+            transparent: swingArc.transparent,
+            linewidth: swingArc.lineWidth
         }));
 
         // --- AI Vision Materials (Basic Material for flat shading) ---
-        const aiColors = themeService.currentTheme.value.aiVision;
+        const aiColors = styles.aiVision;
 
-        this.materials.set('ai_wall', new THREE.MeshBasicMaterial({ color: aiColors.wall }));
-        this.materials.set('ai_column', new THREE.MeshBasicMaterial({ color: aiColors.column }));
-        this.materials.set('ai_module', new THREE.MeshBasicMaterial({ color: aiColors.module }));
-        this.materials.set('ai_door', new THREE.MeshBasicMaterial({ color: aiColors.door }));
-        this.materials.set('ai_window', new THREE.MeshBasicMaterial({ color: aiColors.window }));
-        this.materials.set('ai_slab', new THREE.MeshBasicMaterial({ color: aiColors.slab }));
+        this.materials.set('ai_wall', new THREE.MeshBasicMaterial({ color: aiColors.wall.color }));
+        this.materials.set('ai_column', new THREE.MeshBasicMaterial({ color: aiColors.column.color }));
+        this.materials.set('ai_module', new THREE.MeshBasicMaterial({ color: aiColors.module.color }));
+        this.materials.set('ai_door', new THREE.MeshBasicMaterial({ color: aiColors.door.color }));
+        this.materials.set('ai_window', new THREE.MeshBasicMaterial({ color: aiColors.window.color }));
+        this.materials.set('ai_slab', new THREE.MeshBasicMaterial({ color: aiColors.slab.color }));
     }
 
     public clearScene() {
@@ -279,8 +281,7 @@ export class SceneBuilder {
     }
 
     private createBoundsHelper(object: THREE.Object3D) {
-        // 使用 ThemeService 的包围盒颜色
-        const boundsColor = themeService.currentTheme.value.scene.bounds;
+        const boundsColor = canvasStyleService.currentStyle.value.layers.bounds.color;
         const boxHelper = new THREE.BoxHelper(object, boundsColor);
         boxHelper.layers.set(LayerManager.LAYER_BOUNDS);
         this.scene.add(boxHelper);
@@ -831,10 +832,12 @@ export class SceneBuilder {
         const arrowGroup = new THREE.Group();
 
         // 样式参数
-        const shaftLength = 250;
-        const shaftWidth = 40;
-        const headLength = 120;
-        const headWidth = 100;
+        const boundsStyle = canvasStyleService.currentStyle.value.layers.bounds;
+        const arrowStyle = boundsStyle.arrow;
+        const shaftLength = arrowStyle.shaftLength;
+        const shaftWidth = arrowStyle.shaftWidth;
+        const headLength = arrowStyle.headLength;
+        const headWidth = arrowStyle.headWidth;
 
         // 1. 箭杆 (矩形)
         const shaftShape = new THREE.Shape();
@@ -845,14 +848,14 @@ export class SceneBuilder {
         shaftShape.closePath();
 
         const shaftGeo = new THREE.ShapeGeometry(shaftShape);
-        // 使用 ThemeService 的 bounds 颜色（与 Bounds 框线一致）
-        const boundsColor = themeService.currentTheme.value.scene.bounds;
+        // Use bounds layer style (matches bounds outline color)
+        const boundsColor = boundsStyle.color;
         const arrowMat = new THREE.MeshBasicMaterial({
             color: boundsColor,
             side: THREE.DoubleSide,
             depthTest: false,
             transparent: true,
-            opacity: 0.9
+            opacity: boundsStyle.opacity
         });
         const shaft = new THREE.Mesh(shaftGeo, arrowMat);
         shaft.layers.set(LayerManager.LAYER_BOUNDS);  // 关键：设置图层
@@ -878,7 +881,7 @@ export class SceneBuilder {
         const container = new THREE.Group();
         container.add(arrowGroup);
         container.rotation.x = -Math.PI / 2;
-        container.position.y = 800; // 略高于模块顶部
+        container.position.y = boundsStyle.arrow.height; // Slightly above module top
 
         container.layers.set(LayerManager.LAYER_BOUNDS);
 

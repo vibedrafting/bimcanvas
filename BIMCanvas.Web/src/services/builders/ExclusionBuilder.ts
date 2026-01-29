@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { LayerManager } from '../three/LayerManager';
 import type { ProjectData, Zone, Point2D } from '../../types/canvas';
-import { themeService } from '../theme/ThemeService';
+import { canvasStyleService } from '../canvas/CanvasStyleService';
 
 export class ExclusionBuilder {
     private scene: THREE.Scene;
@@ -15,22 +15,22 @@ export class ExclusionBuilder {
     }
 
     private initMaterials() {
-        const colors = themeService.currentTheme.value.zones;
+        const colors = canvasStyleService.currentStyle.value.layers.zones;
 
         // 门扇禁区材质 - 红色半透明
         this.materials.set('door_swing', new THREE.MeshBasicMaterial({
-            color: colors.exclusion,
+            color: colors.exclusionDoorSwing.color,
             transparent: true,
-            opacity: colors.opacity * 1.5,
+            opacity: colors.exclusionDoorSwing.opacity,
             side: THREE.DoubleSide,
             depthWrite: false
         }));
 
         // 通用禁区材质
         this.materials.set('default', new THREE.MeshBasicMaterial({
-            color: colors.exclusion,
+            color: colors.exclusion.color,
             transparent: true,
-            opacity: colors.opacity,
+            opacity: colors.exclusion.opacity,
             side: THREE.DoubleSide,
             depthWrite: false
         }));

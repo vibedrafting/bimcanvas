@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import { LayerManager } from '../three/LayerManager';
 import type { ProjectData, Zone, Point2D } from '../../types/canvas';
 import { ZoneType } from '../../types/canvas';
-import { themeService } from '../theme/ThemeService';
+import { canvasStyleService } from '../canvas/CanvasStyleService';
 
 export class ZoneBuilder {
     private scene: THREE.Scene;
@@ -16,31 +16,31 @@ export class ZoneBuilder {
     }
 
     private initMaterials() {
-        const colors = themeService.currentTheme.value.zones;
+        const colors = canvasStyleService.currentStyle.value.layers.zones;
 
         // Room zones: light fill
         this.materials.set('room', new THREE.MeshBasicMaterial({
-            color: colors.innerBoundary,
+            color: colors.room.color,
             transparent: true,
-            opacity: colors.opacity * 0.5,
+            opacity: colors.room.opacity,
             side: THREE.DoubleSide,
             depthWrite: false
         }));
 
         // Designable zones: green fill
         this.materials.set('designable', new THREE.MeshBasicMaterial({
-            color: colors.innerBoundary,
+            color: colors.designable.color,
             transparent: true,
-            opacity: colors.opacity,
+            opacity: colors.designable.opacity,
             side: THREE.DoubleSide,
             depthWrite: false
         }));
 
         // Exclusion zones: red fill
         this.materials.set('exclusion', new THREE.MeshBasicMaterial({
-            color: colors.exclusion,
+            color: colors.exclusion.color,
             transparent: true,
-            opacity: colors.opacity * 2,
+            opacity: colors.exclusion.opacity,
             side: THREE.DoubleSide,
             depthWrite: false
         }));

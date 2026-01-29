@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { LayerManager } from '../three/LayerManager';
 import type { ProjectData } from '../../types/canvas';
-import { themeService } from '../theme/ThemeService';
+import { canvasStyleService } from '../canvas/CanvasStyleService';
 
 /**
  * OutlineBuilder - 边界描边构建器
@@ -14,12 +14,11 @@ export class OutlineBuilder {
 
     constructor(scene: THREE.Scene) {
         this.scene = scene;
-        // 从 ThemeService 获取描边配色
-        const colors = themeService.currentTheme.value.semantic;
+        const style = canvasStyleService.currentStyle.value.layers.outline;
         this.material = new THREE.LineBasicMaterial({
-            color: colors.line,
-            linewidth: 2,
-            depthTest: false // Ensure lines are always visible on top
+            color: style.color,
+            linewidth: style.lineWidth,
+            depthTest: style.depthTest // Ensure lines are always visible on top
         });
     }
 
