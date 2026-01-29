@@ -342,6 +342,7 @@ const applyViewport = async (projectData: ProjectData, viewport?: ViewportConfig
 const renderWithConfig = async (config: RenderConfig) => {
   window.__renderReady = false;
   window.__renderError = undefined;
+  store.preserveViewOnLoad = true;
 
   try {
     if (!config?.projectData) {
@@ -374,6 +375,8 @@ const renderWithConfig = async (config: RenderConfig) => {
     const message = error?.message ?? String(error);
     console.error('[ScreenshotRenderView] Failed:', message);
     window.__renderError = message;
+  } finally {
+    store.preserveViewOnLoad = false;
   }
 };
 

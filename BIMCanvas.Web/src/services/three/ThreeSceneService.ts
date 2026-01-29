@@ -174,7 +174,9 @@ export class ThreeSceneService {
                     this.gridBuilder.buildGrid();
 
                     // Fit to screen immediately so camera is ready for the show
-                    this.fitToScreen(newData);
+                    if (!this.store.preserveViewOnLoad) {
+                        this.fitToScreen(newData);
+                    }
 
                     // Do NOT build scene yet. Wait for event.
                     this.isInitialLoad = false;
