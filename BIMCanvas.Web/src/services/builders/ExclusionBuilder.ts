@@ -43,9 +43,10 @@ export class ExclusionBuilder {
     }
 
     /**
-     * 清理禁区资源（主题切换时调用）
+     * 清理禁区资源
+     * @param disposeMaterials 是否释放材质（仅在彻底重建/销毁时使用）
      */
-    public cleanup() {
+    public cleanup(disposeMaterials = false) {
         if (this.exclusionGroup) {
             this.exclusionGroup.traverse(child => {
                 if ((child as THREE.Mesh).geometry) {
@@ -56,8 +57,10 @@ export class ExclusionBuilder {
             this.scene.remove(this.exclusionGroup);
             this.exclusionGroup = null;
         }
-        this.materials.forEach(material => material.dispose());
-        this.materials.clear();
+        if (disposeMaterials) {
+            this.materials.forEach(material => material.dispose());
+            this.materials.clear();
+        }
     }
 
     public buildExclusions(data: ProjectData) {

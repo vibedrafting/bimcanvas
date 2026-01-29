@@ -53,9 +53,10 @@ export class ZoneBuilder {
     }
 
     /**
-     * 清理 Zone 资源（主题切换时调用）
+     * 清理 Zone 资源
+     * @param disposeMaterials 是否释放材质（仅在彻底重建/销毁时使用）
      */
-    public cleanup() {
+    public cleanup(disposeMaterials = false) {
         if (this.zoneGroup) {
             // 释放所有子对象的几何体
             this.zoneGroup.traverse(child => {
@@ -68,9 +69,10 @@ export class ZoneBuilder {
             this.zoneGroup = null;
         }
 
-        // 释放材质
-        this.materials.forEach(material => material.dispose());
-        this.materials.clear();
+        if (disposeMaterials) {
+            this.materials.forEach(material => material.dispose());
+            this.materials.clear();
+        }
     }
 
     public buildZones(data: ProjectData) {

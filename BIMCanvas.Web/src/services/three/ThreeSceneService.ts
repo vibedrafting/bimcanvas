@@ -477,8 +477,8 @@ export class ThreeSceneService {
         // 清理旧的 Builder 资源（防止残留）
         this.gridBuilder.cleanup();
         this.labelBuilder.cleanup();
-        this.zoneBuilder.cleanup();
-        this.exclusionBuilder.cleanup();
+        this.zoneBuilder.cleanup(true);
+        this.exclusionBuilder.cleanup(true);
 
         // Recreate Builders to apply updated canvas styles.
         this.sceneBuilder = new SceneBuilder(this._scene);
@@ -658,6 +658,9 @@ export class ThreeSceneService {
     public dispose() {
         // 清除全局实例引用
         globalInstance = null;
+
+        this.zoneBuilder.cleanup(true);
+        this.exclusionBuilder.cleanup(true);
 
         if (this.animationId) {
             cancelAnimationFrame(this.animationId);
