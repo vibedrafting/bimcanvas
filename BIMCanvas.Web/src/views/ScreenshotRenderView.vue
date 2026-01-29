@@ -6,7 +6,7 @@ import { themeService } from '../services/theme/ThemeService';
 import { ScreenshotService } from '../services/ScreenshotService';
 import { getThreeSceneService } from '../services/three/ThreeSceneService';
 import { LayerManager } from '../services/three/LayerManager';
-import type { ProjectData, Polygon2D, Room } from '../types/canvas';
+import type { ProjectData, Polygon2D, Room, Zone } from '../types/canvas';
 
 type ViewMode = 'human' | 'ai';
 type ViewportMode = 'full' | 'bounds' | 'room';
@@ -227,6 +227,14 @@ const computeRoomBounds = (room: Room): Bounds2D => {
   return computeBoundsFromPolygon(shell);
 };
 
+const computeZoneBounds = (zone: Zone): Bounds2D => {
+  const boundary = zone.computedBoundary ?? zone.rawBoundary;
+  if (!boundary || boundary.length === 0) {
+    throw new Error(`Room zone ${zone.id} has no boundary`);
+  }
+  return computeBoundsFromPolygon(boundary);
+};
+
 const applyLegacyLayers = (viewMode: ViewMode, layers?: number[] | null) => {
   if (!layers || layers.length === 0) {
     dispatchPreset(viewMode);
@@ -299,10 +307,18 @@ const applyViewport = async (projectData: ProjectData, viewport?: ViewportConfig
       throw new Error('Viewport roomId missing');
     }
     const room = projectData.baseline?.rooms?.find(r => r.id === roomId);
-    if (!room) {
+    if (room) {
+      const bounds = computeRoomBounds(room);
+      const padding = computePadding(bounds, mode);
+      sceneService.fitToBounds(expandBounds(bounds, padding));
+      return;
+    }
+
+    const roomZone = projectData.computed?.roomZones?.find(z => z.id === roomId || z.roomId === roomId);
+    if (!roomZone) {
       throw new Error(`Room not found: ${roomId}`);
     }
-    const bounds = computeRoomBounds(room);
+    const bounds = computeZoneBounds(roomZone);
     const padding = computePadding(bounds, mode);
     sceneService.fitToBounds(expandBounds(bounds, padding));
   }
