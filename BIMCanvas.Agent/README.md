@@ -598,6 +598,39 @@ curl -X POST http://127.0.0.1:8765/api/chat \
 
 ### MCP 工具开发指南
 
+#### 已集成 MCP 工具（canvas）
+
+- `mcp__canvas__create_job`：创建 AI Job（Git Worktree）
+- `mcp__canvas__complete_job`：通知 Web 端 AI Job 已完成
+- `mcp__canvas__get_workflow_guide`：获取 layout-agent 工作流指导
+- `mcp__canvas__request_background_screenshot`：后台截图（仅 layout-agent 使用）
+
+#### 后台截图 MCP 工具（request_background_screenshot）
+
+- **用途**：调用后台截图 API，保存到 `projectPath/screenshots`，返回保存后的完整路径。
+- **参数**：仅开放 `projectPath` + `viewport`（单张）或 `shots`（批量）。
+- **默认**：`layerPreset=Agent`、`autoFitViewport=true`、`scale=2`。
+- **权限**：需在 `~/.bimcanvas/agents/layout-agent.md` 的 `tools` 中显式加入该工具。
+
+单张示例：
+```json
+{
+  "projectPath": "C:\\Users\\...\\Projects\\demo_1",
+  "viewport": { "mode": "full" }
+}
+```
+
+批量示例：
+```json
+{
+  "projectPath": "C:\\Users\\...\\Projects\\demo_1",
+  "shots": [
+    { "viewport": { "mode": "full" } },
+    { "viewport": { "mode": "zone", "zoneId": "rz_1" } }
+  ]
+}
+```
+
 #### MCP 工具命名规则 ⭐
 
 **格式**：`mcp__{server_key}__{tool_name}`
@@ -753,9 +786,10 @@ async def tool_func(args: dict[str, Any]) -> dict[str, Any]:
 
 ### 添加新工具
 
-1. 在 `src/tools/` 下创建工具模块
-2. 在 `PlacementAgent` 中注册工具定义
-3. 更新 README 文档
+1. 在 `src/mcp/` 下创建或修改工具模块（使用 `@tool` 装饰器）
+2. 在 `create_sdk_mcp_server(...)` 中注册工具并更新 `CANVAS_ALLOWED_TOOLS`
+3. 若仅限子代理使用，在 `~/.bimcanvas/agents/*.md` 的 `tools` 中显式添加
+4. 更新 README 文档
 
 ## 相关文档
 
