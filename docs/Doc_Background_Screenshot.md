@@ -47,14 +47,28 @@ pwsh BIMCanvas.Server\bin\Debug\net8.0\playwright.ps1 install
 
 ### 4.1 接口
 
+单张截图：
 `POST /api/screenshot/render`
+
+批量截图：
+`POST /api/screenshot/render-batch`
 
 返回：
 ```json
 { "imageData": "data:image/png;base64,..." }
 ```
 
-### 4.2 请求参数
+批量返回：
+```json
+{
+  "items": [
+    { "name": "full_user_autofit", "imageData": "data:image/png;base64,...", "elapsedMs": 1200 },
+    { "name": "room_r_3_fixed_16_9", "error": "xxx", "elapsedMs": 3000 }
+  ]
+}
+```
+
+### 4.2 单张请求参数
 
 ```json
 {
@@ -91,7 +105,39 @@ pwsh BIMCanvas.Server\bin\Debug\net8.0\playwright.ps1 install
 - `autoFitViewport`：是否自动按范围计算输出比例（默认 `true`）。
 - `theme`：`dark`/`light`。
 
-### 4.3 自动比例（autoFitViewport）
+### 4.3 批量请求参数
+
+```json
+{
+  "projectPath": "C:\\path\\to\\project",
+  "strategyId": "default",
+  "scale": 2,
+  "autoFitViewport": true,
+  "theme": "dark",
+  "items": [
+    {
+      "name": "full_user_autofit",
+      "layerPreset": "User",
+      "viewport": { "mode": "full" }
+    },
+    {
+      "name": "zone_rz_1_labels_zones_autofit",
+      "layerPreset": "User",
+      "layerEnable": ["Labels", "Zones"],
+      "viewport": { "mode": "zone", "zoneId": "rz_1" },
+      "autoFitViewport": true
+    }
+  ]
+}
+```
+
+说明：
+- `scale`/`theme` 在 batch 内必须一致。
+- `autoFitViewport` 是 batch 的默认值，单个 item 可覆盖。
+- item 可使用与单张相同的图层/视口参数（`layerPreset`、`layerEnable`、`layerDisable`、`viewport` 等）。
+- `elapsedMs` 为服务端单项渲染耗时；**总墙钟时间**以客户端计时为准。
+
+### 4.4 自动比例（autoFitViewport）
 
 当 `autoFitViewport=true` 时：
 - 根据目标范围 + 边距计算宽高比；
@@ -102,7 +148,7 @@ pwsh BIMCanvas.Server\bin\Debug\net8.0\playwright.ps1 install
 当 `autoFitViewport=false` 时：
 - 固定视口 1920×1080。
 
-### 4.4 bounds 示例
+### 4.5 bounds 示例
 
 ```json
 {
@@ -158,7 +204,34 @@ $body = @{
 } | ConvertTo-Json -Depth 10
 ```
 
-## 6. 常见问题
+## 6. 性能与测试
+
+### 6.1 性能注意事项
+
+- 批量截图通过 Playwright 多页面并行渲染，硬件资源不足时可能出现 **单张耗时升高**。
+- `elapsedMs` 是服务端单项渲染时间，不代表 batch 总耗时。
+- **总墙钟时间**应以客户端计时为准（例如测试脚本输出的 `batch_wall_time`）。
+- 批量并行度由服务端常量 `MaxBatchParallelism` 控制（见 `BackgroundScreenshotService.cs`），可根据机器性能调整。
+
+### 6.2 测试脚本
+
+脚本路径：`BIMCanvas.Server/tests/test_background_screenshot.py`
+
+当前输出包含：
+- `batch_wall_time`：批量请求墙钟时间
+- `batch_max_item`：批量中最慢单项
+- `total_wall_time`：单张模式总墙钟时间
+
+示例：
+```
+Summary:
+- full_user_autofit: OK (8219ms)
+- ...
+- batch_wall_time: 9255ms
+- batch_max_item: 8819ms
+```
+
+## 7. 常见问题
 
 - **Room not found**：`roomId` 用错。`r_1` 来自 `baseline/rooms.json`。
 - **Zone not found**：`zoneId` 用错。`rz_1` 来自 `schemes/zones.json`。
