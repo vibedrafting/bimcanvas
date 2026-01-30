@@ -26,6 +26,9 @@ export const useCanvasStore = defineStore('canvas', () => {
     // === 禁止自动重建：截图页手动控制渲染流程 ===
     const suppressAutoBuild = ref(false);
 
+    // 用于跳过一次由本地写入触发的 ServerSync（避免撤回/重做清空 redo 栈）
+    let pendingServerSyncSkips = 0;
+
     // === 多选支持 ===
     const selectedIds = ref<string[]>([]);
 
@@ -120,6 +123,11 @@ export const useCanvasStore = defineStore('canvas', () => {
         debugStore.log(`[Store] 收到服务端更新: ${JSON.stringify(data)}`);
 
         if (data.action === 'reload') {
+            if (data.file === 'modules.json' && pendingServerSyncSkips > 0) {
+                pendingServerSyncSkips -= 1;
+                debugStore.log('[Store] 跳过本地写入触发的 ServerSync');
+                return;
+            }
             // 保持当前视图，重新加载数据
             debugStore.log('[Store] 触发数据重载 (preserveView=true)');
             await syncFromServer({ description: 'Server file changed', metadata: { trigger: data.trigger } });
@@ -328,8 +336,10 @@ export const useCanvasStore = defineStore('canvas', () => {
             // 撤销时保持当前视图
             preserveViewOnLoad.value = true;
             projectData.value = JSON.parse(prevState.state) as ProjectData;
+            isDirty.value = true;
             updateHistoryState();
             setTimeout(() => { preserveViewOnLoad.value = false; }, 200);
+            void saveToServer({ suppressServerSync: true });
         }
     };
 
@@ -339,8 +349,10 @@ export const useCanvasStore = defineStore('canvas', () => {
             // 重做时保持当前视图
             preserveViewOnLoad.value = true;
             projectData.value = JSON.parse(nextState.state) as ProjectData;
+            isDirty.value = true;
             updateHistoryState();
             setTimeout(() => { preserveViewOnLoad.value = false; }, 200);
+            void saveToServer({ suppressServerSync: true });
         }
     };
 
@@ -497,7 +509,7 @@ export const useCanvasStore = defineStore('canvas', () => {
      * v3.4: Server 根据模块 bounds 位置自动计算分区
      * @returns 保存是否成功
      */
-    const saveToServer = async (): Promise<boolean> => {
+    const saveToServer = async (options?: { suppressServerSync?: boolean }): Promise<boolean> => {
         if (!projectData.value?.activeScheme?.modules) {
             console.warn('[CanvasStore] saveToServer: 无模块数据可保存');
             return false;
@@ -516,6 +528,9 @@ export const useCanvasStore = defineStore('canvas', () => {
 
                 if (result.orphanCount > 0) {
                     debugStore.warn(`[CanvasStore] ${result.orphanCount} 个模块不在任何分区内`);
+                }
+                if (options?.suppressServerSync) {
+                    pendingServerSyncSkips += 1;
                 }
                 return true;
             }
