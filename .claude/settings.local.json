@@ -16,7 +16,8 @@
       "Bash(dir:*)",
       "Bash(npx vue-tsc:*)",
       "Bash(npx tsc:*)",
-      "Bash(git -C \"E:\\\\工作文档\\\\开发类\\\\MyCode\\\\BIMCanvas\" add .)"
+      "Bash(git -C \"E:\\\\工作文档\\\\开发类\\\\MyCode\\\\BIMCanvas\" add .)",
+      "Bash(npm run type-check:*)"
     ]
   }
 }

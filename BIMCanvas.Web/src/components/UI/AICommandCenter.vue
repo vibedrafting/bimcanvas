@@ -20,6 +20,16 @@ import WaitingIndicator from './WaitingIndicator.vue';
 import TaskSummaryWidget from './TaskSummaryWidget.vue';
 import MarkdownText from './base/MarkdownText.vue';
 import AdvancedScreenshotOverlay from './AdvancedScreenshotOverlay.vue';
+import ImageLightbox from './ImageLightbox.vue';
+
+// === Lightbox 状态 ===
+const lightbox = ref({ visible: false, src: '' });
+const openLightbox = (src: string) => {
+  lightbox.value = { visible: true, src };
+};
+const closeLightbox = () => {
+  lightbox.value.visible = false;
+};
 
 const props = defineProps<{
   panelReady?: boolean;
@@ -609,7 +619,8 @@ onUnmounted(() => {
                                 <!-- 图片显示区域（用户消息专有） -->
                                 <div class="bubble-images" v-if="bubble.images && bubble.images.length > 0">
                                     <img v-for="(img, idx) in bubble.images" :key="idx"
-                                         :src="img" class="bubble-image" alt="attached image" />
+                                         :src="img" class="bubble-image" alt="attached image"
+                                         @click="openLightbox(img)" />
                                 </div>
                                 <!-- 文本内容 -->
                                 <template v-if="msg.role === 'user'">{{ bubble.content }}</template>
@@ -1092,6 +1103,13 @@ onUnmounted(() => {
         @cancel="handleScreenshotCancel"
       />
     </Teleport>
+
+    <!-- Image Lightbox for enlarging images -->
+    <ImageLightbox
+      :visible="lightbox.visible"
+      :src="lightbox.src"
+      @close="closeLightbox"
+    />
   </aside>
   </transition>
   </Teleport>
@@ -2048,20 +2066,22 @@ onUnmounted(() => {
             // === 用户消息附带图片样式 ===
             .bubble-images {
                 display: flex;
-                gap: 6px;
-                margin-bottom: 8px;
+                gap: 4px;
+                margin-bottom: 6px;
                 flex-wrap: wrap;
             }
 
             .bubble-image {
-                max-width: 160px;
-                max-height: 120px;
-                border-radius: 6px;
+                width: 72px;
+                height: 72px;
+                border-radius: 4px;
                 object-fit: cover;
                 cursor: pointer;
+                border: 1px solid var(--border-dim);
+                transition: opacity 0.15s;
 
                 &:hover {
-                    opacity: 0.9;
+                    opacity: 0.85;
                 }
             }
 
