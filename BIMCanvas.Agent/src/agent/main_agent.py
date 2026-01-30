@@ -617,7 +617,18 @@ class MainAgent:
                     }
                 })
             content.append({"type": "text", "text": user_message})
-            await self._client.query(content)
+
+            # 构建完整消息并以异步迭代器形式发送
+            # query() 接受 str 或 AsyncIterable，不接受 list
+            async def message_stream():
+                yield {
+                    "type": "user",
+                    "message": {"role": "user", "content": content},
+                    "parent_tool_use_id": None,
+                    "session_id": "default",
+                }
+
+            await self._client.query(message_stream())
         else:
             await self._client.query(user_message)
 
