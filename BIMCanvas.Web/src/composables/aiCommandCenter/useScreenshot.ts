@@ -5,6 +5,7 @@ import { getScreenshotService } from '../../services/ScreenshotService';
 interface ScreenshotOptions {
   agentApiBase: string;
   pendingImages: Ref<string[]>;
+  currentProjectPath: Ref<string>;  // 当前项目路径，用于动态确定截图保存位置
 }
 
 export const useScreenshot = (options: ScreenshotOptions) => {
@@ -24,7 +25,11 @@ export const useScreenshot = (options: ScreenshotOptions) => {
     showScreenshotOverlay.value = false;
     try {
       const screenshotService = getScreenshotService(options.agentApiBase);
-      const filePath = await screenshotService.saveToLocal(imageData);
+      const filePath = await screenshotService.saveToLocal(
+        imageData,
+        undefined,
+        options.currentProjectPath.value  // 传递项目路径
+      );
       console.log(`[Screenshot] Saved to: ${filePath}`);
       options.pendingImages.value.push(imageData);
       console.log(`[Screenshot] Added to pending, total: ${options.pendingImages.value.length}`);

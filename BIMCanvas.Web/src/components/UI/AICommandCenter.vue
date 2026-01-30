@@ -171,19 +171,8 @@ const toggleAttachmentMenu = () => {
 };
 
 const {
-  showScreenshotOverlay,
-  startListening,
-  stopListening,
-  handleScreenshotCapture,
-  handleScreenshotCancel,
-  removePendingImage
-} = useScreenshot({
-  agentApiBase: AGENT_API_BASE,
-  pendingImages
-});
-
-const {
   agentStatus,
+  currentProjectPath,
   isPollingBackground,
   streamWelcomeMessage,
   sendMessage,
@@ -202,6 +191,19 @@ const {
   currentThinking,
   scrollToBottom,
   fetchAgentConfig
+});
+
+const {
+  showScreenshotOverlay,
+  startListening,
+  stopListening,
+  handleScreenshotCapture,
+  handleScreenshotCancel,
+  removePendingImage
+} = useScreenshot({
+  agentApiBase: AGENT_API_BASE,
+  pendingImages,
+  currentProjectPath
 });
 
 setStreamWelcomeMessage(streamWelcomeMessage);

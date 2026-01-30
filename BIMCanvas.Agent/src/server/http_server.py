@@ -687,7 +687,8 @@ async def screenshot_save_handler(request: web.Request) -> web.Response:
     Request body:
         {
             "imageData": "data:image/png;base64,...",
-            "filename": "screenshot_001.png"  // optional
+            "filename": "screenshot_001.png",  // optional
+            "projectPath": "C:\\Users\\xxx\\Documents\\BIMCanvas\\Projects\\demo_1"  // optional
         }
 
     Response:
@@ -704,9 +705,19 @@ async def screenshot_save_handler(request: web.Request) -> web.Response:
     if not image_data:
         return web.json_response({"error": "Missing imageData"}, status=400)
 
-    # 保存到用户文档目录
+    project_path = data.get("projectPath")
+
+    # 动态构建保存路径
     import os
-    docs_dir = Path(os.path.expanduser("~/Documents/BIMCanvas/Screenshots"))
+    if project_path:
+        # 项目路径格式: C:\Users\xxx\Documents\BIMCanvas\Projects\demo_1
+        docs_dir = Path(project_path) / "screenshots"
+        logger.info(f"Using project screenshots dir: {docs_dir}")
+    else:
+        # 降级：使用全局路径
+        docs_dir = Path(os.path.expanduser("~/Documents/BIMCanvas/Screenshots"))
+        logger.info(f"Using global screenshots dir: {docs_dir}")
+
     docs_dir.mkdir(parents=True, exist_ok=True)
 
     # 生成文件名
