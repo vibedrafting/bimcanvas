@@ -119,8 +119,16 @@ export const useChatStream = (options: ChatStreamOptions) => {
 
     const targetWindowId = win.id;
 
+    // 先提取待发送图片，再清空
+    const imagesToSend = [...options.pendingImages.value];
+    options.pendingImages.value = [];
+
     const userTextBubble = createTextBubble(message);
     userTextBubble.status = 'completed';
+    // 如果有图片，存储到气泡中
+    if (imagesToSend.length > 0) {
+      userTextBubble.images = imagesToSend;
+    }
     options.addMessageToWindow(targetWindowId, {
       role: 'user',
       bubbles: [userTextBubble],
@@ -162,9 +170,6 @@ export const useChatStream = (options: ChatStreamOptions) => {
     }, 1000);
 
     try {
-      const imagesToSend = [...options.pendingImages.value];
-      options.pendingImages.value = [];
-
       const effectiveWindowId = options.activeWindowId.value || 'window-main';
 
       console.log('[sendMessage] Request:', {

@@ -605,7 +605,13 @@ onUnmounted(() => {
                         <!-- 时间线气泡列表渲染 -->
                         <template v-for="bubble in msg.bubbles" :key="bubble.id">
                             <!-- 文本气泡 - 用户消息用纯文本，AI 消息用 Markdown -->
-                            <div class="bubble" v-if="bubble.type === 'text' && bubble.content">
+                            <div class="bubble" v-if="bubble.type === 'text' && (bubble.content || bubble.images?.length)">
+                                <!-- 图片显示区域（用户消息专有） -->
+                                <div class="bubble-images" v-if="bubble.images && bubble.images.length > 0">
+                                    <img v-for="(img, idx) in bubble.images" :key="idx"
+                                         :src="img" class="bubble-image" alt="attached image" />
+                                </div>
+                                <!-- 文本内容 -->
                                 <template v-if="msg.role === 'user'">{{ bubble.content }}</template>
                                 <MarkdownText v-else :content="bubble.content" />
                             </div>
@@ -2038,6 +2044,26 @@ onUnmounted(() => {
             word-break: break-word; /* Break long words */
             overflow-wrap: break-word; /* Fallback for older browsers */
             /* Note: white-space: pre-wrap removed - causes bottom padding from trailing newlines */
+
+            // === 用户消息附带图片样式 ===
+            .bubble-images {
+                display: flex;
+                gap: 6px;
+                margin-bottom: 8px;
+                flex-wrap: wrap;
+            }
+
+            .bubble-image {
+                max-width: 160px;
+                max-height: 120px;
+                border-radius: 6px;
+                object-fit: cover;
+                cursor: pointer;
+
+                &:hover {
+                    opacity: 0.9;
+                }
+            }
 
             &.empty {
                 min-height: 20px;

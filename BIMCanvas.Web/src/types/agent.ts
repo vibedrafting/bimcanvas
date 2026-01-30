@@ -159,6 +159,8 @@ export interface ChatBubble {
   // ===== TextBubble 专有 =====
   /** 文本内容 */
   content?: string;
+  /** 附带的图片（Base64 格式，用户消息专有） */
+  images?: string[];
 
   // ===== ToolCallBubble 专有 =====
   /** 工具名称 */
