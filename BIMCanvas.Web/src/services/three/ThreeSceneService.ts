@@ -439,9 +439,11 @@ export class ThreeSceneService {
     /**
      * 强制渲染一帧（不生成图片）
      */
-    public renderOnce(): void {
+    public renderOnce(renderLabels: boolean = true): void {
         this.renderer.render(this._scene, this._camera);
-        this.labelRenderer.render(this._scene, this._camera);
+        if (renderLabels) {
+            this.labelRenderer.render(this._scene, this._camera);
+        }
     }
 
     /**

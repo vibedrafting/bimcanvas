@@ -20,6 +20,7 @@ namespace BIMCanvas.Server.Services
         private const int DefaultViewportHeight = 1080;
         private const int MinViewportSide = 720;
         private const int MaxViewportSide = 4096;
+        private const int MaxBatchParallelism = 5;
         private const double DefaultFullPadding = 1000;
         private const double DefaultViewPadding = 500;
         private const double PaddingRatio = 0.05;
@@ -213,77 +214,80 @@ namespace BIMCanvas.Server.Services
             await _semaphore.WaitAsync(cancellationToken);
             try
             {
-                foreach (var group in GroupByViewportSize(contexts))
+                var parallelism = Math.Min(contexts.Count, MaxBatchParallelism);
+                var queue = new Queue<BatchItemContext>(contexts);
+                var queueLock = new object();
+                var tasks = new List<Task>();
+                var sessions = new List<BatchPageSession>();
+
+                for (var i = 0; i < parallelism; i++)
                 {
-                    cancellationToken.ThrowIfCancellationRequested();
-
-                    var viewportSize = new ViewportSize { Width = group.Key.Width, Height = group.Key.Height };
-                    var page = await GetPageAsync(viewportSize, request.Scale, theme, cancellationToken);
-
-                    var includeProjectData = !string.Equals(_pageProjectKey, projectKey, StringComparison.Ordinal);
-                    var firstConfig = true;
-                    foreach (var item in group.Value)
+                    var session = new BatchPageSession();
+                    sessions.Add(session);
+                    tasks.Add(Task.Run(async () =>
                     {
-                        if (includeProjectData && firstConfig)
+                        while (true)
                         {
-                            item.Config.ProjectData = projectData;
-                            firstConfig = false;
-                        }
-                    }
+                            cancellationToken.ThrowIfCancellationRequested();
 
-                    if (group.Value.Count > 1)
-                    {
-                        var configsJson = JsonConvert.SerializeObject(group.Value.ConvertAll(x => x.Config), _jsonSettings);
-                        var batchResults = await page.EvaluateAsync<List<RenderBatchResult>>(
-                            "configJson => window.__renderBatch(JSON.parse(configJson))",
-                            configsJson);
+                            BatchItemContext? item = null;
+                            lock (queueLock)
+                            {
+                                if (queue.Count > 0)
+                                {
+                                    item = queue.Dequeue();
+                                }
+                            }
 
-                        for (var i = 0; i < group.Value.Count; i++)
-                        {
-                            var item = group.Value[i];
-                            var result = batchResults != null && i < batchResults.Count
-                                ? batchResults[i]
-                                : new RenderBatchResult { Error = "Batch result missing" };
-                            results[item.Index] = new BackgroundScreenshotBatchItemResult
+                            if (item == null)
                             {
-                                Name = item.Name,
-                                ImageData = result.ImageData,
-                                Error = result.Error,
-                                ElapsedMs = result.ElapsedMs
-                            };
-                        }
-                    }
-                    else
-                    {
-                        var item = group.Value[0];
-                        var itemWatch = Stopwatch.StartNew();
-                        try
-                        {
-                            var configJson = JsonConvert.SerializeObject(item.Config, _jsonSettings);
-                            var imageData = await page.EvaluateAsync<string>(
-                                "configJson => window.__renderAndCapture(JSON.parse(configJson))",
-                                configJson);
-                            itemWatch.Stop();
-                            results[item.Index] = new BackgroundScreenshotBatchItemResult
-                            {
-                                Name = item.Name,
-                                ImageData = imageData,
-                                ElapsedMs = (int)itemWatch.ElapsedMilliseconds
-                            };
-                        }
-                        catch (Exception ex)
-                        {
-                            itemWatch.Stop();
-                            results[item.Index] = new BackgroundScreenshotBatchItemResult
-                            {
-                                Name = item.Name,
-                                Error = ex.Message,
-                                ElapsedMs = (int)itemWatch.ElapsedMilliseconds
-                            };
-                        }
-                    }
+                                break;
+                            }
 
-                    _pageProjectKey = projectKey;
+                            var itemWatch = Stopwatch.StartNew();
+                            try
+                            {
+                                var page = await GetBatchPageAsync(session, item.ViewportSize, request.Scale, theme, cancellationToken);
+                                var includeProjectData = !string.Equals(session.ProjectKey, projectKey, StringComparison.Ordinal);
+                                if (includeProjectData)
+                                {
+                                    item.Config.ProjectData = projectData;
+                                }
+
+                                var configJson = JsonConvert.SerializeObject(item.Config, _jsonSettings);
+                                var imageData = await page.EvaluateAsync<string>(
+                                    "configJson => window.__renderAndCapture(JSON.parse(configJson))",
+                                    configJson);
+
+                                itemWatch.Stop();
+                                results[item.Index] = new BackgroundScreenshotBatchItemResult
+                                {
+                                    Name = item.Name,
+                                    ImageData = imageData,
+                                    ElapsedMs = (int)itemWatch.ElapsedMilliseconds
+                                };
+
+                                session.ProjectKey = projectKey;
+                            }
+                            catch (Exception ex)
+                            {
+                                itemWatch.Stop();
+                                results[item.Index] = new BackgroundScreenshotBatchItemResult
+                                {
+                                    Name = item.Name,
+                                    Error = ex.Message,
+                                    ElapsedMs = (int)itemWatch.ElapsedMilliseconds
+                                };
+                            }
+                        }
+                    }, cancellationToken));
+                }
+
+                await Task.WhenAll(tasks);
+
+                foreach (var session in sessions)
+                {
+                    await session.DisposeAsync();
                 }
             }
             finally
@@ -484,6 +488,12 @@ namespace BIMCanvas.Server.Services
                 ViewportWidth = viewportSize.Width;
                 ViewportHeight = viewportSize.Height;
             }
+
+            public ViewportSize ViewportSize => new ViewportSize
+            {
+                Width = ViewportWidth,
+                Height = ViewportHeight
+            };
         }
 
         private ProjectData GetProjectData(string projectKey, string projectPath, string? strategyId)
@@ -586,50 +596,108 @@ namespace BIMCanvas.Server.Services
             };
         }
 
-        private static Dictionary<ViewportSizeKey, List<BatchItemContext>> GroupByViewportSize(
-            List<BatchItemContext> items)
+        private sealed class BatchPageSession : IAsyncDisposable
         {
-            var groups = new Dictionary<ViewportSizeKey, List<BatchItemContext>>();
-            foreach (var item in items)
-            {
-                var key = new ViewportSizeKey(item.ViewportWidth, item.ViewportHeight);
-                if (!groups.TryGetValue(key, out var list))
-                {
-                    list = new List<BatchItemContext>();
-                    groups[key] = list;
-                }
-                list.Add(item);
-            }
+            public IBrowserContext? Context { get; set; }
 
-            return groups;
+            public IPage? Page { get; set; }
+
+            public int Scale { get; set; } = -1;
+
+            public ColorScheme? ColorScheme { get; set; }
+
+            public int Width { get; set; }
+
+            public int Height { get; set; }
+
+            public bool Initialized { get; set; }
+
+            public string? ProjectKey { get; set; }
+
+            public async ValueTask DisposeAsync()
+            {
+                if (Page != null)
+                {
+                    await Page.CloseAsync();
+                    Page = null;
+                }
+
+                if (Context != null)
+                {
+                    await Context.CloseAsync();
+                    Context = null;
+                }
+
+                Initialized = false;
+                ProjectKey = null;
+            }
         }
 
-        private readonly struct ViewportSizeKey : IEquatable<ViewportSizeKey>
+        private async Task<IPage> GetBatchPageAsync(
+            BatchPageSession session,
+            ViewportSize viewportSize,
+            int scale,
+            string theme,
+            CancellationToken cancellationToken)
         {
-            public int Width { get; }
+            var browser = await GetBrowserAsync(cancellationToken);
+            var colorScheme = theme == "light" ? ColorScheme.Light : ColorScheme.Dark;
 
-            public int Height { get; }
+            var needsNewContext = session.Context == null
+                                  || session.Page == null
+                                  || session.Page.IsClosed
+                                  || session.Scale != scale
+                                  || session.ColorScheme != colorScheme;
 
-            public ViewportSizeKey(int width, int height)
+            if (needsNewContext)
             {
-                Width = width;
-                Height = height;
+                await session.DisposeAsync();
+
+                session.Context = await browser.NewContextAsync(new BrowserNewContextOptions
+                {
+                    ViewportSize = viewportSize,
+                    DeviceScaleFactor = scale,
+                    ColorScheme = colorScheme
+                });
+                session.Scale = scale;
+                session.ColorScheme = colorScheme;
+                session.Page = await session.Context.NewPageAsync();
+                session.Width = viewportSize.Width;
+                session.Height = viewportSize.Height;
+                session.Initialized = false;
+                session.ProjectKey = null;
+            }
+            else if (session.Page != null
+                     && (session.Width != viewportSize.Width || session.Height != viewportSize.Height))
+            {
+                await session.Page.SetViewportSizeAsync(viewportSize.Width, viewportSize.Height);
+                session.Width = viewportSize.Width;
+                session.Height = viewportSize.Height;
             }
 
-            public bool Equals(ViewportSizeKey other)
+            if (session.Page == null)
             {
-                return Width == other.Width && Height == other.Height;
+                throw new InvalidOperationException("Playwright 页面未初始化");
             }
 
-            public override bool Equals(object? obj)
+            if (!session.Initialized)
             {
-                return obj is ViewportSizeKey other && Equals(other);
+                var url = $"{_webBaseUrl.TrimEnd('/')}/screenshot-render";
+                await session.Page.GotoAsync(url, new PageGotoOptions
+                {
+                    WaitUntil = WaitUntilState.Load,
+                    Timeout = 30000
+                });
+
+                await session.Page.WaitForFunctionAsync(
+                    "() => window.__render !== undefined",
+                    new PageWaitForFunctionOptions { Timeout = 30000 });
+
+                session.Initialized = true;
+                session.ProjectKey = null;
             }
 
-            public override int GetHashCode()
-            {
-                return HashCode.Combine(Width, Height);
-            }
+            return session.Page;
         }
 
         private static Bounds2D? ComputeTargetBounds(ProjectData projectData, ViewportConfig? viewport)

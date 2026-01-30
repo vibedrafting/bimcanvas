@@ -12,6 +12,7 @@
 import html2canvas from 'html2canvas'
 import { LabelRenderer } from './screenshot/LabelRenderer'
 import { getThreeSceneService } from './three/ThreeSceneService'
+import { LayerManager } from './three/LayerManager'
 
 export interface ClipRect {
   x: number
@@ -76,8 +77,14 @@ export class ScreenshotService {
 
     // 3. 绘制 WebGL 内容（底层）
     const sceneService = getThreeSceneService()
+    const labelsEnabled = (() => {
+      if (!sceneService) return false
+      return sceneService.camera.layers.isEnabled(LayerManager.LAYER_LABELS)
+        || sceneService.camera.layers.isEnabled(LayerManager.LAYER_GRID)
+    })()
+
     if (sceneService) {
-      sceneService.renderOnce()
+      sceneService.renderOnce(labelsEnabled)
     }
 
     ctx.drawImage(
@@ -93,7 +100,7 @@ export class ScreenshotService {
     )
 
     // 4. 手动绘制 Labels（上层）- 使用投影计算 + Canvas 2D API
-    if (sceneService) {
+    if (sceneService && labelsEnabled) {
       const scene = sceneService.scene
       const camera = sceneService.camera
 
