@@ -818,6 +818,11 @@ const selectFullScreen = () => {
 }
 
 const confirmCapture = () => {
+    // 先提交未确认的文字标注
+    if (isTextInputVisible.value) {
+        confirmText()
+    }
+
     if (!bgCanvasRef.value) return
     const dpr = window.devicePixelRatio || 1
     const tempCanvas = document.createElement('canvas')
