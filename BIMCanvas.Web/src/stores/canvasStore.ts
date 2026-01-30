@@ -413,11 +413,15 @@ export const useCanvasStore = defineStore('canvas', () => {
             selectedIds.value = [];
             isDirty.value = true;  // 标记数据已修改
 
-            nextTick(() => saveState());
+            if (!batchUpdateMode.value) {
+                nextTick(() => saveState());
+            }
             signalR.sendUpdate({ type: 'module_remove', moduleId });
 
             // 持久化到文件系统
-            await saveToServer();
+            if (!batchUpdateMode.value) {
+                await saveToServer();
+            }
         }
     };
 

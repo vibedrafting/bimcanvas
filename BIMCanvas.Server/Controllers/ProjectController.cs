@@ -486,6 +486,7 @@ namespace BIMCanvas.Server.Controllers
                     var modulesFile = Path.Combine(zoneDir, "modules.json");
                     if (System.IO.File.Exists(modulesFile))
                     {
+                        EnsureWritableFile(modulesFile);
                         System.IO.File.Delete(modulesFile);
                         _logger.LogDebug("[SaveModules] 清空分区文件: {Path}", modulesFile);
                     }
@@ -500,6 +501,7 @@ namespace BIMCanvas.Server.Controllers
 
                     var modulesPath = Path.Combine(zoneDir, "modules.json");
                     var json = JsonConvert.SerializeObject(kvp.Value, Formatting.Indented, _jsonSettings);
+                    EnsureWritableFile(modulesPath);
                     System.IO.File.WriteAllText(modulesPath, json, Encoding.UTF8);
                     _logger.LogDebug("[SaveModules] 写入 {Count} 个模块到 {ZoneId}", kvp.Value.Count, kvp.Key);
                 }
@@ -508,6 +510,7 @@ namespace BIMCanvas.Server.Controllers
                 var legacyPath = Path.Combine(schemesPath, "modules.json");
                 if (System.IO.File.Exists(legacyPath))
                 {
+                    EnsureWritableFile(legacyPath);
                     System.IO.File.Delete(legacyPath);
                     _logger.LogInformation("[SaveModules] 已清理旧格式 modules.json");
                 }
@@ -776,6 +779,21 @@ namespace BIMCanvas.Server.Controllers
         {
             var json = System.IO.File.ReadAllText(path, Encoding.UTF8);
             return JsonConvert.DeserializeObject<T>(json, _jsonSettings) ?? new T();
+        }
+
+        /// <summary>
+        /// 确保文件可写（移除 ReadOnly 属性）
+        /// </summary>
+        private static void EnsureWritableFile(string path)
+        {
+            if (!System.IO.File.Exists(path))
+                return;
+
+            var attributes = System.IO.File.GetAttributes(path);
+            if ((attributes & FileAttributes.ReadOnly) != 0)
+            {
+                System.IO.File.SetAttributes(path, attributes & ~FileAttributes.ReadOnly);
+            }
         }
     }
 }

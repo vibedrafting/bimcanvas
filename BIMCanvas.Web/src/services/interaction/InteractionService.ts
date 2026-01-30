@@ -202,6 +202,8 @@ export class InteractionService {
             return;
         }
 
+        this.store.beginBatchUpdate();
+
         // 2. Delete valid modules
         modulesToDelete.forEach((obj: any) => {
             if (obj.id) {
@@ -210,6 +212,7 @@ export class InteractionService {
         });
 
         this.store.clearSelection();
+        void this.store.endBatchUpdate();
 
         // 3. Only show feedback if something was actually deleted
         this.store.currentOperation = 'deleted';

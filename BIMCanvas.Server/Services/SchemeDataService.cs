@@ -217,6 +217,7 @@ namespace BIMCanvas.Server.Services
                 var modulesFile = Path.Combine(zoneDir, "modules.json");
                 if (File.Exists(modulesFile))
                 {
+                    EnsureWritableFile(modulesFile);
                     File.Delete(modulesFile);
                 }
             }
@@ -232,6 +233,7 @@ namespace BIMCanvas.Server.Services
 
                 var modulesFile = Path.Combine(zoneDir, "modules.json");
                 var json = JsonConvert.SerializeObject(kvp.Value, _jsonSettings);
+                EnsureWritableFile(modulesFile);
                 File.WriteAllText(modulesFile, json, Encoding.UTF8);
                 savedCount += kvp.Value.Count;
             }
@@ -287,6 +289,21 @@ namespace BIMCanvas.Server.Services
             }
 
             return null;
+        }
+
+        /// <summary>
+        /// 确保文件可写（移除 ReadOnly 属性）
+        /// </summary>
+        private static void EnsureWritableFile(string path)
+        {
+            if (!File.Exists(path))
+                return;
+
+            var attributes = File.GetAttributes(path);
+            if ((attributes & FileAttributes.ReadOnly) != 0)
+            {
+                File.SetAttributes(path, attributes & ~FileAttributes.ReadOnly);
+            }
         }
 
         /// <summary>
