@@ -180,6 +180,9 @@ def main() -> int:
 
     results = []
 
+    total_wall_ms = 0
+    max_item_ms = 0
+
     if args.mode == "batch":
         api_url = f"{args.server.rstrip('/')}/api/screenshot/render-batch"
         batch_payload = build_batch_payload(args.project, tests)
@@ -187,6 +190,9 @@ def main() -> int:
         try:
             response = post_json(api_url, batch_payload, args.timeout)
             items = response.get("items", [])
+            total_wall_ms = int((time.time() - start) * 1000)
+            if items:
+                max_item_ms = max((item.get("elapsedMs") or 0) for item in items)
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
             for idx, item in enumerate(items):
                 name = item.get("name") or tests[idx]["name"]
@@ -204,15 +210,17 @@ def main() -> int:
                 print(f"[OK] {name} {elapsed_ms or 0}ms -> {output_path}")
         except Exception as exc:
             elapsed_ms = int((time.time() - start) * 1000)
+            total_wall_ms = elapsed_ms
             for test in tests:
                 results.append((test["name"], "FAIL", elapsed_ms, str(exc)))
             print(f"[FAIL] batch {elapsed_ms}ms -> {exc}")
     else:
         api_url = f"{args.server.rstrip('/')}/api/screenshot/render"
+        start = time.time()
         for test in tests:
             name = test["name"]
             payload = test["payload"]
-            start = time.time()
+            item_start = time.time()
             try:
                 response = post_json(api_url, payload, args.timeout)
                 image_data = response.get("imageData")
@@ -220,19 +228,26 @@ def main() -> int:
                 filename = f"{name}_{timestamp}.png"
                 output_path = os.path.join(args.output, filename)
                 save_image(image_data, output_path)
-                elapsed_ms = int((time.time() - start) * 1000)
+                elapsed_ms = int((time.time() - item_start) * 1000)
                 results.append((name, "OK", elapsed_ms, output_path))
                 print(f"[OK] {name} {elapsed_ms}ms -> {output_path}")
             except Exception as exc:
-                elapsed_ms = int((time.time() - start) * 1000)
+                elapsed_ms = int((time.time() - item_start) * 1000)
                 results.append((name, "FAIL", elapsed_ms, str(exc)))
                 print(f"[FAIL] {name} {elapsed_ms}ms -> {exc}")
+        total_wall_ms = int((time.time() - start) * 1000)
 
     print("\nSummary:")
     for name, status, elapsed_ms, detail in results:
         print(f"- {name}: {status} ({elapsed_ms}ms)")
         if status != "OK":
             print(f"  {detail}")
+    if args.mode == "batch":
+        print(f"- batch_wall_time: {total_wall_ms}ms")
+        if max_item_ms:
+            print(f"- batch_max_item: {max_item_ms}ms")
+    else:
+        print(f"- total_wall_time: {total_wall_ms}ms")
 
     return 0 if all(r[1] == "OK" for r in results) else 1
 

@@ -118,8 +118,6 @@ namespace BIMCanvas.Server.Services
                 Theme = theme
             };
 
-            var configJson = JsonConvert.SerializeObject(renderConfig, _jsonSettings);
-
             var autoFitViewport = request.AutoFitViewport ?? true;
             var viewportSize = autoFitViewport
                 ? ResolveViewportSize(projectData, viewport)
@@ -129,14 +127,7 @@ namespace BIMCanvas.Server.Services
             try
             {
                 var page = await GetPageAsync(viewportSize, request.Scale, renderConfig.Theme, cancellationToken);
-
-                var imageData = await page.EvaluateAsync<string>(
-                    "configJson => window.__renderAndCapture(JSON.parse(configJson))",
-                    configJson);
-                if (string.IsNullOrWhiteSpace(imageData))
-                {
-                    throw new InvalidOperationException("截图结果为空");
-                }
+                var imageData = await RenderAndCaptureAsync(page, renderConfig, cancellationToken);
 
                 _pageProjectKey = projectKey;
 
@@ -254,10 +245,7 @@ namespace BIMCanvas.Server.Services
                                     item.Config.ProjectData = projectData;
                                 }
 
-                                var configJson = JsonConvert.SerializeObject(item.Config, _jsonSettings);
-                                var imageData = await page.EvaluateAsync<string>(
-                                    "configJson => window.__renderAndCapture(JSON.parse(configJson))",
-                                    configJson);
+                                var imageData = await RenderAndCaptureAsync(page, item.Config, cancellationToken);
 
                                 itemWatch.Stop();
                                 results[item.Index] = new BackgroundScreenshotBatchItemResult
@@ -835,6 +823,25 @@ namespace BIMCanvas.Server.Services
             }
 
             return Math.Max(minPadding, maxSize * PaddingRatio);
+        }
+
+        private async Task<string> RenderAndCaptureAsync(
+            IPage page,
+            RenderConfig renderConfig,
+            CancellationToken cancellationToken)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+
+            var configJson = JsonConvert.SerializeObject(renderConfig, _jsonSettings);
+            var imageData = await page.EvaluateAsync<string>(
+                "configJson => window.__renderAndCapture(JSON.parse(configJson))",
+                configJson);
+            if (string.IsNullOrWhiteSpace(imageData))
+            {
+                throw new InvalidOperationException("截图结果为空");
+            }
+
+            return imageData;
         }
     }
 }

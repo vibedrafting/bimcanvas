@@ -38,6 +38,16 @@ interface RenderConfig {
   theme?: 'dark' | 'light';
 }
 
+interface BuildOptions {
+  labels: boolean;
+  outline: boolean;
+  zones: boolean;
+  exclusions: boolean;
+  grid: boolean;
+  bounds: boolean;
+  svg: boolean;
+}
+
 declare global {
   interface Window {
     __renderConfig?: RenderConfig;
@@ -74,17 +84,8 @@ const ALL_LAYERS = [
 const DEFAULT_FULL_PADDING = 1000;
 const DEFAULT_VIEW_PADDING = 500;
 const PADDING_RATIO = 0.05;
-const FULL_BUILD_OPTIONS = {
-  labels: true,
-  outline: true,
-  zones: true,
-  exclusions: true,
-  grid: true,
-  bounds: true,
-  svg: true
-};
-
 let lastProjectKey: string | null = null;
+let lastBuildOptions: BuildOptions | null = null;
 
 const wait = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
@@ -306,6 +307,87 @@ const applyLayerConfig = (config: RenderConfig) => {
   });
 };
 
+const resolveEnabledLayers = (config: RenderConfig): Set<number> => {
+  const hasNewConfig = Boolean(
+    (config.layerPreset && config.layerPreset.trim()) ||
+    (config.layerEnable && config.layerEnable.length) ||
+    (config.layerDisable && config.layerDisable.length)
+  );
+
+  const presetLayers = (preset: ViewMode) => {
+    const enabled = new Set<number>();
+    enabled.add(LayerManager.LAYER_MODEL);
+    if (preset === 'ai') {
+      enabled.add(LayerManager.LAYER_GRID);
+      enabled.add(LayerManager.LAYER_LABELS);
+      enabled.add(LayerManager.LAYER_BOUNDS);
+      enabled.add(LayerManager.LAYER_OUTLINE);
+      enabled.add(LayerManager.LAYER_SVG);
+      enabled.add(LayerManager.LAYER_ZONES);
+      enabled.add(LayerManager.LAYER_SEMANTIC);
+      enabled.add(LayerManager.LAYER_AI_VISION);
+      enabled.add(LayerManager.LAYER_ARCHITECTURE);
+      enabled.add(LayerManager.LAYER_FURNITURE);
+    } else {
+      enabled.add(LayerManager.LAYER_GRID);
+      enabled.add(LayerManager.LAYER_ARCHITECTURE);
+      enabled.add(LayerManager.LAYER_FURNITURE);
+    }
+    return enabled;
+  };
+
+  if (!hasNewConfig) {
+    if (config.layers && config.layers.length > 0) {
+      return new Set(config.layers);
+    }
+    const preset = normalizePreset(config.viewMode);
+    return presetLayers(preset);
+  }
+
+  const preset = normalizePreset(config.layerPreset, config.viewMode);
+  const enabled = presetLayers(preset);
+  const enableIds = resolveLayerIds(config.layerEnable);
+  const disableIds = resolveLayerIds(config.layerDisable);
+
+  enableIds.forEach(layerId => enabled.add(layerId));
+  disableIds.forEach(layerId => enabled.delete(layerId));
+
+  return enabled;
+};
+
+const resolveBuildOptions = (config: RenderConfig): BuildOptions => {
+  const enabled = resolveEnabledLayers(config);
+  return {
+    labels: enabled.has(LayerManager.LAYER_LABELS),
+    outline: enabled.has(LayerManager.LAYER_OUTLINE),
+    zones: enabled.has(LayerManager.LAYER_ZONES),
+    exclusions: enabled.has(LayerManager.LAYER_ZONES),
+    grid: enabled.has(LayerManager.LAYER_GRID),
+    bounds: enabled.has(LayerManager.LAYER_BOUNDS),
+    svg: enabled.has(LayerManager.LAYER_SVG)
+  };
+};
+
+const mergeBuildOptions = (base: BuildOptions, next: BuildOptions): BuildOptions => ({
+  labels: base.labels || next.labels,
+  outline: base.outline || next.outline,
+  zones: base.zones || next.zones,
+  exclusions: base.exclusions || next.exclusions,
+  grid: base.grid || next.grid,
+  bounds: base.bounds || next.bounds,
+  svg: base.svg || next.svg
+});
+
+const needsRebuild = (current: BuildOptions, required: BuildOptions) => (
+  (required.labels && !current.labels)
+  || (required.outline && !current.outline)
+  || (required.zones && !current.zones)
+  || (required.exclusions && !current.exclusions)
+  || (required.grid && !current.grid)
+  || (required.bounds && !current.bounds)
+  || (required.svg && !current.svg)
+);
+
 const applyViewport = (sceneService: NonNullable<ReturnType<typeof getThreeSceneService>>, projectData: ProjectData, viewport?: ViewportConfig): Bounds2D | null => {
   const mode = viewport?.mode ?? 'full';
 
@@ -431,24 +513,46 @@ const renderWithConfig = async (config: RenderConfig) => {
 
     let sceneService: NonNullable<ReturnType<typeof getThreeSceneService>>;
 
+    let layerApplied = false;
+
     if (!canReuseProject && config.projectData) {
       store.projectData = config.projectData;
 
       await nextTick();
       sceneService = await waitForSceneService();
 
+      const buildOptions = resolveBuildOptions(config);
+      applyLayerConfig(config);
+      layerApplied = true;
       const buildPromise = waitForBuildComplete();
       window.dispatchEvent(new CustomEvent('bimcanvas:play-build-sequence-fast', {
-        detail: { build: FULL_BUILD_OPTIONS }
+        detail: { build: buildOptions }
       }));
       await buildPromise;
       lastProjectKey = projectKey;
+      lastBuildOptions = buildOptions;
     } else {
       await nextTick();
       sceneService = await waitForSceneService();
+
+      const buildOptions = resolveBuildOptions(config);
+      if (lastBuildOptions && needsRebuild(lastBuildOptions, buildOptions)) {
+        applyLayerConfig(config);
+        layerApplied = true;
+
+        const merged = mergeBuildOptions(lastBuildOptions, buildOptions);
+        const buildPromise = waitForBuildComplete();
+        window.dispatchEvent(new CustomEvent('bimcanvas:play-build-sequence-fast', {
+          detail: { build: merged }
+        }));
+        await buildPromise;
+        lastBuildOptions = merged;
+      }
     }
 
-    applyLayerConfig(config);
+    if (!layerApplied) {
+      applyLayerConfig(config);
+    }
     const dataForViewport = config.projectData ?? store.projectData;
     if (!dataForViewport) {
       throw new Error('Render config missing project data for viewport');
