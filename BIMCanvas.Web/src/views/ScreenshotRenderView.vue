@@ -27,7 +27,8 @@ interface ViewportConfig {
 }
 
 interface RenderConfig {
-  projectData: ProjectData;
+  projectData?: ProjectData | null;
+  projectKey?: string | null;
   viewMode?: ViewMode;
   layers?: number[];
   layerPreset?: string;
@@ -44,6 +45,12 @@ declare global {
     __renderError?: string;
     __render?: (config: RenderConfig) => Promise<void>;
     __capture?: () => Promise<string>;
+    __renderAndCapture?: (config: RenderConfig) => Promise<string>;
+    __renderBatch?: (configs: RenderConfig[]) => Promise<Array<{
+      imageData?: string;
+      error?: string;
+      elapsedMs?: number;
+    }>>;
   }
 }
 
@@ -67,6 +74,17 @@ const ALL_LAYERS = [
 const DEFAULT_FULL_PADDING = 1000;
 const DEFAULT_VIEW_PADDING = 500;
 const PADDING_RATIO = 0.05;
+const FULL_BUILD_OPTIONS = {
+  labels: true,
+  outline: true,
+  zones: true,
+  exclusions: true,
+  grid: true,
+  bounds: true,
+  svg: true
+};
+
+let lastProjectKey: string | null = null;
 
 const wait = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
@@ -214,61 +232,6 @@ const resolveLayerIds = (names?: string[] | null): number[] => {
     console.warn(`[ScreenshotRenderView] Unknown layer name: ${name}`);
   });
   return Array.from(ids);
-};
-
-const computeEnabledLayers = (config: RenderConfig): Set<number> => {
-  const enabled = new Set<number>();
-  const hasNewConfig = Boolean(
-    (config.layerPreset && config.layerPreset.trim()) ||
-    (config.layerEnable && config.layerEnable.length) ||
-    (config.layerDisable && config.layerDisable.length)
-  );
-
-  if (!hasNewConfig) {
-    if (config.layers && config.layers.length > 0) {
-      config.layers.forEach(layerId => enabled.add(layerId));
-      return enabled;
-    }
-
-    const preset = normalizePreset(undefined, config.viewMode);
-    if (preset === 'ai') {
-      ALL_LAYERS.forEach(layerId => enabled.add(layerId));
-      return enabled;
-    }
-
-    enabled.add(LayerManager.LAYER_MODEL);
-    enabled.add(LayerManager.LAYER_GRID);
-    enabled.add(LayerManager.LAYER_ARCHITECTURE);
-    enabled.add(LayerManager.LAYER_FURNITURE);
-    return enabled;
-  }
-
-  const preset = normalizePreset(config.layerPreset, config.viewMode);
-  if (preset === 'ai') {
-    ALL_LAYERS.forEach(layerId => enabled.add(layerId));
-  } else {
-    enabled.add(LayerManager.LAYER_MODEL);
-    enabled.add(LayerManager.LAYER_GRID);
-    enabled.add(LayerManager.LAYER_ARCHITECTURE);
-    enabled.add(LayerManager.LAYER_FURNITURE);
-  }
-
-  resolveLayerIds(config.layerEnable).forEach(layerId => enabled.add(layerId));
-  resolveLayerIds(config.layerDisable).forEach(layerId => enabled.delete(layerId));
-  return enabled;
-};
-
-const computeBuildOptions = (config: RenderConfig) => {
-  const enabled = computeEnabledLayers(config);
-  return {
-    labels: enabled.has(LayerManager.LAYER_LABELS),
-    outline: enabled.has(LayerManager.LAYER_OUTLINE),
-    zones: enabled.has(LayerManager.LAYER_ZONES),
-    exclusions: enabled.has(LayerManager.LAYER_ZONES),
-    grid: enabled.has(LayerManager.LAYER_GRID),
-    bounds: enabled.has(LayerManager.LAYER_BOUNDS),
-    svg: enabled.has(LayerManager.LAYER_SVG)
-  };
 };
 
 const dispatchPreset = (preset: ViewMode) => {
@@ -455,7 +418,9 @@ const renderWithConfig = async (config: RenderConfig) => {
   store.suppressAutoBuild = true;
 
   try {
-    if (!config?.projectData) {
+    const projectKey = config.projectKey?.trim() || null;
+    const canReuseProject = Boolean(projectKey && projectKey === lastProjectKey && store.projectData);
+    if (!config?.projectData && !canReuseProject) {
       throw new Error('Render config missing projectData');
     }
 
@@ -464,20 +429,31 @@ const renderWithConfig = async (config: RenderConfig) => {
       themeService.setTheme(config.theme);
     }
 
-    store.projectData = config.projectData;
+    let sceneService: NonNullable<ReturnType<typeof getThreeSceneService>>;
 
-    await nextTick();
-    const sceneService = await waitForSceneService();
+    if (!canReuseProject && config.projectData) {
+      store.projectData = config.projectData;
 
-    const buildOptions = computeBuildOptions(config);
-    const buildPromise = waitForBuildComplete();
-    window.dispatchEvent(new CustomEvent('bimcanvas:play-build-sequence-fast', {
-      detail: { build: buildOptions }
-    }));
-    await buildPromise;
+      await nextTick();
+      sceneService = await waitForSceneService();
+
+      const buildPromise = waitForBuildComplete();
+      window.dispatchEvent(new CustomEvent('bimcanvas:play-build-sequence-fast', {
+        detail: { build: FULL_BUILD_OPTIONS }
+      }));
+      await buildPromise;
+      lastProjectKey = projectKey;
+    } else {
+      await nextTick();
+      sceneService = await waitForSceneService();
+    }
 
     applyLayerConfig(config);
-    const targetBounds = applyViewport(sceneService, config.projectData, config.viewport);
+    const dataForViewport = config.projectData ?? store.projectData;
+    if (!dataForViewport) {
+      throw new Error('Render config missing project data for viewport');
+    }
+    const targetBounds = applyViewport(sceneService, dataForViewport, config.viewport);
 
     await waitFrames(3);
 
@@ -505,6 +481,51 @@ const renderWithConfig = async (config: RenderConfig) => {
 
 onMounted(async () => {
   window.__render = renderWithConfig;
+  window.__renderAndCapture = async (config: RenderConfig) => {
+    await renderWithConfig(config);
+    if (window.__renderError) {
+      throw new Error(window.__renderError);
+    }
+    if (!window.__capture) {
+      throw new Error('Capture not ready');
+    }
+    return window.__capture();
+  };
+  window.__renderBatch = async (configs: RenderConfig[]) => {
+    const results: Array<{ imageData?: string; error?: string; elapsedMs?: number }> = [];
+    for (const config of configs) {
+      const start = performance.now();
+      await renderWithConfig(config);
+      if (window.__renderError) {
+        results.push({
+          error: window.__renderError,
+          elapsedMs: Math.round(performance.now() - start)
+        });
+        continue;
+      }
+      if (!window.__capture) {
+        results.push({
+          error: 'Capture not ready',
+          elapsedMs: Math.round(performance.now() - start)
+        });
+        continue;
+      }
+      try {
+        const imageData = await window.__capture();
+        results.push({
+          imageData,
+          elapsedMs: Math.round(performance.now() - start)
+        });
+      } catch (error: any) {
+        const message = error?.message ?? String(error);
+        results.push({
+          error: message,
+          elapsedMs: Math.round(performance.now() - start)
+        });
+      }
+    }
+    return results;
+  };
 
   const config = window.__renderConfig;
   if (config) {

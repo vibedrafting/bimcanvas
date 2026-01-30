@@ -93,6 +93,43 @@ def build_tests(project_path: str) -> list[dict]:
         },
     ]
 
+def build_batch_payload(project_path: str, tests: list[dict]) -> dict:
+    if not tests:
+        raise ValueError("No tests to batch")
+
+    base_scale = tests[0]["payload"].get("scale", 2)
+    base_theme = tests[0]["payload"].get("theme")
+    base_autofit = True
+
+    for test in tests:
+        payload = test["payload"]
+        if payload.get("scale", base_scale) != base_scale:
+            raise ValueError("Batch requires a single shared scale")
+        if payload.get("theme") not in (None, base_theme):
+            raise ValueError("Batch requires a single shared theme")
+
+    items = []
+    for test in tests:
+        payload = test["payload"]
+        item = {"name": test["name"]}
+        for key in ("viewMode", "layers", "layerPreset", "layerEnable", "layerDisable", "viewport"):
+            if key in payload:
+                item[key] = payload[key]
+        item_autofit = payload.get("autoFitViewport")
+        if item_autofit is not None and item_autofit != base_autofit:
+            item["autoFitViewport"] = item_autofit
+        items.append(item)
+
+    batch_payload = {
+        "projectPath": project_path,
+        "scale": base_scale,
+        "autoFitViewport": base_autofit,
+        "items": items,
+    }
+    if base_theme:
+        batch_payload["theme"] = base_theme
+    return batch_payload
+
 
 def main() -> int:
     parser = argparse.ArgumentParser(description="Background screenshot API tests")
@@ -118,6 +155,12 @@ def main() -> int:
         help="Request timeout in seconds",
     )
     parser.add_argument(
+        "--mode",
+        choices=("single", "batch"),
+        default="batch",
+        help="Request mode: batch (default) or single",
+    )
+    parser.add_argument(
         "--only",
         default="",
         help="Comma-separated test names to run (optional)",
@@ -135,27 +178,55 @@ def main() -> int:
         print("No tests to run.")
         return 1
 
-    api_url = f"{args.server.rstrip('/')}/api/screenshot/render"
     results = []
 
-    for test in tests:
-        name = test["name"]
-        payload = test["payload"]
+    if args.mode == "batch":
+        api_url = f"{args.server.rstrip('/')}/api/screenshot/render-batch"
+        batch_payload = build_batch_payload(args.project, tests)
         start = time.time()
         try:
-            response = post_json(api_url, payload, args.timeout)
-            image_data = response.get("imageData")
+            response = post_json(api_url, batch_payload, args.timeout)
+            items = response.get("items", [])
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-            filename = f"{name}_{timestamp}.png"
-            output_path = os.path.join(args.output, filename)
-            save_image(image_data, output_path)
-            elapsed_ms = int((time.time() - start) * 1000)
-            results.append((name, "OK", elapsed_ms, output_path))
-            print(f"[OK] {name} {elapsed_ms}ms -> {output_path}")
+            for idx, item in enumerate(items):
+                name = item.get("name") or tests[idx]["name"]
+                error = item.get("error")
+                elapsed_ms = item.get("elapsedMs")
+                if error:
+                    results.append((name, "FAIL", elapsed_ms or 0, error))
+                    print(f"[FAIL] {name} {elapsed_ms or 0}ms -> {error}")
+                    continue
+                image_data = item.get("imageData")
+                filename = f"{name}_{timestamp}.png"
+                output_path = os.path.join(args.output, filename)
+                save_image(image_data, output_path)
+                results.append((name, "OK", elapsed_ms or 0, output_path))
+                print(f"[OK] {name} {elapsed_ms or 0}ms -> {output_path}")
         except Exception as exc:
             elapsed_ms = int((time.time() - start) * 1000)
-            results.append((name, "FAIL", elapsed_ms, str(exc)))
-            print(f"[FAIL] {name} {elapsed_ms}ms -> {exc}")
+            for test in tests:
+                results.append((test["name"], "FAIL", elapsed_ms, str(exc)))
+            print(f"[FAIL] batch {elapsed_ms}ms -> {exc}")
+    else:
+        api_url = f"{args.server.rstrip('/')}/api/screenshot/render"
+        for test in tests:
+            name = test["name"]
+            payload = test["payload"]
+            start = time.time()
+            try:
+                response = post_json(api_url, payload, args.timeout)
+                image_data = response.get("imageData")
+                timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+                filename = f"{name}_{timestamp}.png"
+                output_path = os.path.join(args.output, filename)
+                save_image(image_data, output_path)
+                elapsed_ms = int((time.time() - start) * 1000)
+                results.append((name, "OK", elapsed_ms, output_path))
+                print(f"[OK] {name} {elapsed_ms}ms -> {output_path}")
+            except Exception as exc:
+                elapsed_ms = int((time.time() - start) * 1000)
+                results.append((name, "FAIL", elapsed_ms, str(exc)))
+                print(f"[FAIL] {name} {elapsed_ms}ms -> {exc}")
 
     print("\nSummary:")
     for name, status, elapsed_ms, detail in results:

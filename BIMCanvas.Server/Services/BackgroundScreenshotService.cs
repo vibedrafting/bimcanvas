@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
 using System.Threading;
@@ -36,6 +37,9 @@ namespace BIMCanvas.Server.Services
         private int _currentViewportWidth;
         private int _currentViewportHeight;
         private bool _pageInitialized;
+        private string? _pageProjectKey;
+        private string? _cachedProjectKey;
+        private ProjectData? _cachedProjectData;
         private readonly string _webBaseUrl;
 
         public BackgroundScreenshotService(
@@ -79,12 +83,8 @@ namespace BIMCanvas.Server.Services
 
             var stopwatch = Stopwatch.StartNew();
 
-            var projectData = _snapshotService.LoadProjectData(request.ProjectPath, request.StrategyId);
-
-            if (!string.IsNullOrWhiteSpace(request.StrategyId))
-            {
-                projectData.Project.ActiveSchemeId = request.StrategyId;
-            }
+            var projectKey = BuildProjectKey(request.ProjectPath, request.StrategyId);
+            var projectData = GetProjectData(projectKey, request.ProjectPath, request.StrategyId);
 
             var viewMode = string.Equals(request.ViewMode, "ai", StringComparison.OrdinalIgnoreCase) ? "ai" : "human";
             var theme = string.Equals(request.Theme, "light", StringComparison.OrdinalIgnoreCase) ? "light" : "dark";
@@ -103,9 +103,11 @@ namespace BIMCanvas.Server.Services
                 };
             }
 
+            var shouldReuseProject = string.Equals(_pageProjectKey, projectKey, StringComparison.Ordinal);
             var renderConfig = new RenderConfig
             {
-                ProjectData = projectData,
+                ProjectData = shouldReuseProject ? null : projectData,
+                ProjectKey = projectKey,
                 ViewMode = viewMode,
                 Layers = request.Layers,
                 LayerPreset = request.LayerPreset,
@@ -127,23 +129,15 @@ namespace BIMCanvas.Server.Services
             {
                 var page = await GetPageAsync(viewportSize, request.Scale, renderConfig.Theme, cancellationToken);
 
-                await page.EvaluateAsync("configJson => window.__render(JSON.parse(configJson))", configJson);
-
-                await page.WaitForFunctionAsync(
-                    "() => window.__renderReady === true || window.__renderError",
-                    new PageWaitForFunctionOptions { Timeout = 30000 });
-
-                var error = await page.EvaluateAsync<string?>("() => window.__renderError || null");
-                if (!string.IsNullOrWhiteSpace(error))
-                {
-                    throw new InvalidOperationException(error);
-                }
-
-                var imageData = await page.EvaluateAsync<string>("() => window.__capture()");
+                var imageData = await page.EvaluateAsync<string>(
+                    "configJson => window.__renderAndCapture(JSON.parse(configJson))",
+                    configJson);
                 if (string.IsNullOrWhiteSpace(imageData))
                 {
                     throw new InvalidOperationException("截图结果为空");
                 }
+
+                _pageProjectKey = projectKey;
 
                 stopwatch.Stop();
                 _logger.LogInformation("后台截图完成，耗时 {Elapsed}ms", stopwatch.ElapsedMilliseconds);
@@ -154,6 +148,161 @@ namespace BIMCanvas.Server.Services
             {
                 _semaphore.Release();
             }
+        }
+
+        public async Task<BackgroundScreenshotBatchResponse> CaptureBatchAsync(
+            BackgroundScreenshotBatchRequest request,
+            CancellationToken cancellationToken)
+        {
+            if (string.IsNullOrWhiteSpace(request.ProjectPath))
+            {
+                throw new ArgumentException("projectPath 不能为空");
+            }
+
+            if (!Directory.Exists(request.ProjectPath))
+            {
+                throw new DirectoryNotFoundException($"项目目录不存在: {request.ProjectPath}");
+            }
+
+            if (request.Scale < 1 || request.Scale > 4)
+            {
+                throw new ArgumentOutOfRangeException(nameof(request.Scale), "scale 必须在 1-4 之间");
+            }
+
+            if (request.Items == null || request.Items.Count == 0)
+            {
+                throw new ArgumentException("items 不能为空");
+            }
+
+            var stopwatch = Stopwatch.StartNew();
+
+            var projectKey = BuildProjectKey(request.ProjectPath, request.StrategyId);
+            var projectData = GetProjectData(projectKey, request.ProjectPath, request.StrategyId);
+
+            var theme = string.Equals(request.Theme, "light", StringComparison.OrdinalIgnoreCase) ? "light" : "dark";
+            var defaultAutoFit = request.AutoFitViewport ?? true;
+
+            var contexts = new List<BatchItemContext>();
+            for (var i = 0; i < request.Items.Count; i++)
+            {
+                var item = request.Items[i];
+                var viewMode = string.Equals(item.ViewMode, "ai", StringComparison.OrdinalIgnoreCase) ? "ai" : "human";
+                var viewport = NormalizeViewport(item.Viewport);
+                var autoFit = item.AutoFitViewport ?? defaultAutoFit;
+                var viewportSize = ResolveViewportSize(projectData, viewport, autoFit);
+
+                var config = new RenderConfig
+                {
+                    ProjectData = null,
+                    ProjectKey = projectKey,
+                    ViewMode = viewMode,
+                    Layers = item.Layers,
+                    LayerPreset = item.LayerPreset,
+                    LayerEnable = item.LayerEnable,
+                    LayerDisable = item.LayerDisable,
+                    Viewport = viewport,
+                    Theme = theme
+                };
+
+                contexts.Add(new BatchItemContext(i, item.Name, config, viewportSize));
+            }
+
+            var response = new BackgroundScreenshotBatchResponse();
+            var results = new BackgroundScreenshotBatchItemResult[contexts.Count];
+
+            await _semaphore.WaitAsync(cancellationToken);
+            try
+            {
+                foreach (var group in GroupByViewportSize(contexts))
+                {
+                    cancellationToken.ThrowIfCancellationRequested();
+
+                    var viewportSize = new ViewportSize { Width = group.Key.Width, Height = group.Key.Height };
+                    var page = await GetPageAsync(viewportSize, request.Scale, theme, cancellationToken);
+
+                    var includeProjectData = !string.Equals(_pageProjectKey, projectKey, StringComparison.Ordinal);
+                    var firstConfig = true;
+                    foreach (var item in group.Value)
+                    {
+                        if (includeProjectData && firstConfig)
+                        {
+                            item.Config.ProjectData = projectData;
+                            firstConfig = false;
+                        }
+                    }
+
+                    if (group.Value.Count > 1)
+                    {
+                        var configsJson = JsonConvert.SerializeObject(group.Value.ConvertAll(x => x.Config), _jsonSettings);
+                        var batchResults = await page.EvaluateAsync<List<RenderBatchResult>>(
+                            "configJson => window.__renderBatch(JSON.parse(configJson))",
+                            configsJson);
+
+                        for (var i = 0; i < group.Value.Count; i++)
+                        {
+                            var item = group.Value[i];
+                            var result = batchResults != null && i < batchResults.Count
+                                ? batchResults[i]
+                                : new RenderBatchResult { Error = "Batch result missing" };
+                            results[item.Index] = new BackgroundScreenshotBatchItemResult
+                            {
+                                Name = item.Name,
+                                ImageData = result.ImageData,
+                                Error = result.Error,
+                                ElapsedMs = result.ElapsedMs
+                            };
+                        }
+                    }
+                    else
+                    {
+                        var item = group.Value[0];
+                        var itemWatch = Stopwatch.StartNew();
+                        try
+                        {
+                            var configJson = JsonConvert.SerializeObject(item.Config, _jsonSettings);
+                            var imageData = await page.EvaluateAsync<string>(
+                                "configJson => window.__renderAndCapture(JSON.parse(configJson))",
+                                configJson);
+                            itemWatch.Stop();
+                            results[item.Index] = new BackgroundScreenshotBatchItemResult
+                            {
+                                Name = item.Name,
+                                ImageData = imageData,
+                                ElapsedMs = (int)itemWatch.ElapsedMilliseconds
+                            };
+                        }
+                        catch (Exception ex)
+                        {
+                            itemWatch.Stop();
+                            results[item.Index] = new BackgroundScreenshotBatchItemResult
+                            {
+                                Name = item.Name,
+                                Error = ex.Message,
+                                ElapsedMs = (int)itemWatch.ElapsedMilliseconds
+                            };
+                        }
+                    }
+
+                    _pageProjectKey = projectKey;
+                }
+            }
+            finally
+            {
+                _semaphore.Release();
+            }
+
+            foreach (var result in results)
+            {
+                if (result != null)
+                {
+                    response.Items.Add(result);
+                }
+            }
+
+            stopwatch.Stop();
+            _logger.LogInformation("后台批量截图完成，耗时 {Elapsed}ms，数量 {Count}", stopwatch.ElapsedMilliseconds, response.Items.Count);
+
+            return response;
         }
 
         private async Task<IBrowser> GetBrowserAsync(CancellationToken cancellationToken)
@@ -212,6 +361,7 @@ namespace BIMCanvas.Server.Services
                 _currentViewportWidth = viewportSize.Width;
                 _currentViewportHeight = viewportSize.Height;
                 _pageInitialized = false;
+                _pageProjectKey = null;
             }
             else if (_page != null
                      && (_currentViewportWidth != viewportSize.Width || _currentViewportHeight != viewportSize.Height))
@@ -240,6 +390,7 @@ namespace BIMCanvas.Server.Services
                     new PageWaitForFunctionOptions { Timeout = 30000 });
 
                 _pageInitialized = true;
+                _pageProjectKey = null;
             }
 
             return _page;
@@ -285,7 +436,9 @@ namespace BIMCanvas.Server.Services
 
         private class RenderConfig
         {
-            public ProjectData ProjectData { get; set; } = new ProjectData();
+            public ProjectData? ProjectData { get; set; }
+
+            public string? ProjectKey { get; set; }
 
             public string ViewMode { get; set; } = "human";
 
@@ -300,6 +453,58 @@ namespace BIMCanvas.Server.Services
             public ViewportConfig? Viewport { get; set; }
 
             public string Theme { get; set; } = "dark";
+        }
+
+        private sealed class RenderBatchResult
+        {
+            public string? ImageData { get; set; }
+
+            public string? Error { get; set; }
+
+            public int? ElapsedMs { get; set; }
+        }
+
+        private sealed class BatchItemContext
+        {
+            public int Index { get; }
+
+            public string? Name { get; }
+
+            public RenderConfig Config { get; }
+
+            public int ViewportWidth { get; }
+
+            public int ViewportHeight { get; }
+
+            public BatchItemContext(int index, string? name, RenderConfig config, ViewportSize viewportSize)
+            {
+                Index = index;
+                Name = name;
+                Config = config;
+                ViewportWidth = viewportSize.Width;
+                ViewportHeight = viewportSize.Height;
+            }
+        }
+
+        private ProjectData GetProjectData(string projectKey, string projectPath, string? strategyId)
+        {
+            if (_cachedProjectKey == projectKey && _cachedProjectData != null)
+            {
+                return _cachedProjectData;
+            }
+
+            var projectData = _snapshotService.LoadProjectData(projectPath, strategyId);
+
+            _cachedProjectKey = projectKey;
+            _cachedProjectData = projectData;
+            return projectData;
+        }
+
+        private static string BuildProjectKey(string projectPath, string? strategyId)
+        {
+            var lastWrite = Directory.GetLastWriteTimeUtc(projectPath).Ticks;
+            var schemeId = string.IsNullOrWhiteSpace(strategyId) ? "default" : strategyId.Trim();
+            return $"{projectPath}|{schemeId}|{lastWrite}";
         }
 
         private static ViewportSize ResolveViewportSize(ProjectData projectData, ViewportConfig? viewport)
@@ -352,6 +557,79 @@ namespace BIMCanvas.Server.Services
                 Width = Math.Max(1, (int)targetWidth),
                 Height = Math.Max(1, (int)targetHeight)
             };
+        }
+
+        private static ViewportSize ResolveViewportSize(ProjectData projectData, ViewportConfig? viewport, bool autoFit)
+        {
+            if (!autoFit)
+            {
+                return new ViewportSize { Width = DefaultViewportWidth, Height = DefaultViewportHeight };
+            }
+            return ResolveViewportSize(projectData, viewport);
+        }
+
+        private static ViewportConfig? NormalizeViewport(ViewportConfig? viewport)
+        {
+            if (viewport == null)
+            {
+                return null;
+            }
+
+            return new ViewportConfig
+            {
+                Mode = string.IsNullOrWhiteSpace(viewport.Mode)
+                    ? "full"
+                    : viewport.Mode.ToLowerInvariant(),
+                RoomId = viewport.RoomId,
+                ZoneId = viewport.ZoneId,
+                Bounds = viewport.Bounds
+            };
+        }
+
+        private static Dictionary<ViewportSizeKey, List<BatchItemContext>> GroupByViewportSize(
+            List<BatchItemContext> items)
+        {
+            var groups = new Dictionary<ViewportSizeKey, List<BatchItemContext>>();
+            foreach (var item in items)
+            {
+                var key = new ViewportSizeKey(item.ViewportWidth, item.ViewportHeight);
+                if (!groups.TryGetValue(key, out var list))
+                {
+                    list = new List<BatchItemContext>();
+                    groups[key] = list;
+                }
+                list.Add(item);
+            }
+
+            return groups;
+        }
+
+        private readonly struct ViewportSizeKey : IEquatable<ViewportSizeKey>
+        {
+            public int Width { get; }
+
+            public int Height { get; }
+
+            public ViewportSizeKey(int width, int height)
+            {
+                Width = width;
+                Height = height;
+            }
+
+            public bool Equals(ViewportSizeKey other)
+            {
+                return Width == other.Width && Height == other.Height;
+            }
+
+            public override bool Equals(object? obj)
+            {
+                return obj is ViewportSizeKey other && Equals(other);
+            }
+
+            public override int GetHashCode()
+            {
+                return HashCode.Combine(Width, Height);
+            }
         }
 
         private static Bounds2D? ComputeTargetBounds(ProjectData projectData, ViewportConfig? viewport)
