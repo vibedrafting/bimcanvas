@@ -581,43 +581,100 @@ Step 2: 判断任务类型
 """,
         "generate": """# Generate 流程（完整布置）
 
-**触发条件**：【操作类型】: execute + 关键词"布置/设计/创建/生成"
+## 执行前强制检查清单
 
-**步骤**：
-1. **必须**先调用 `mcp__canvas__request_background_screenshot` 获取全项目截图（必要时补充分区/房间）
-2. **必须**先阅读 knowledge/placement_guide.md
-3. Read computed/room_zones.json
-4. Read modules/module_library.json
-5. Read baseline/openings.json
-6. 分析空间，按优先级布置：
+在执行任何 Write 操作前，必须确认以下步骤已完成：
+
+□ 已调用 mcp__canvas__request_background_screenshot（前置）
+  → 如果未调用，立即停止并先执行截图
+
+□ 已读取 knowledge/placement_guide.md
+  → 如果未读取，立即停止并先读取
+  → 重点阅读：§四 尺寸标准、§五 房间布置要点
+
+□ 已读取 modules/module_library.json
+  → 如果未读取，立即停止并先读取
+  → 家具尺寸必须从此文件选择，禁止编造
+
+□ 已读取 computed/room_zones.json
+
+□ 已读取 baseline/openings.json
+
+**警告**：如果以上任何步骤缺失，禁止执行 Write 操作。
+
+## 执行步骤
+
+1. **前置截图**（必须）
+   mcp__canvas__request_background_screenshot(
+     projectPath="{当前工作目录}",
+     viewport={"mode": "full"}
+   )
+   → 理解空间形态、门窗位置、房间朝向
+
+2. **读取设计规范**（必须）
+   Read knowledge/placement_guide.md
+
+3. **读取家具库**（必须）
+   Read modules/module_library.json
+   → 家具尺寸必须从此文件选择
+
+4. **读取空间数据**
+   - Read computed/room_zones.json
+   - Read computed/exclusions.json
+   - Read baseline/openings.json
+
+5. **设计布置方案**
+   基于：
+   - 截图理解的空间形态
+   - placement_guide 的设计规范
+   - module_library 的家具选择
+
+   按优先级布置：
    - 锚点家具（电视柜/床/餐桌）
    - 主要家具（沙发/衣柜）
    - 辅助家具（茶几/边几）
-7. 验证约束
-8. Write schemes/modules.json
-9. **必须**再次调用截图工具验证生成效果（建议全项目）
 
-**布置优先级**：
-1. **锚点家具**：客厅→电视柜，卧室→床，餐厅→餐桌
-2. **主要家具**：围绕锚点布置
-3. **辅助家具**：填充剩余空间
+6. **写入结果**（注意路径）
+   Write schemes/modules.json
 
-**标签驱动选择**：
-根据 zone.tags 筛选 module.tags 有交集的模块。
+   **路径规范**：
+   - ✅ 正确：schemes/modules.json（统一文件）
+   - ❌ 错误：schemes/rz_1/modules.json（不存在）
 
-**输出格式（modules.json）**：
-```json
-[
-  {
-    "id": "m_1",
-    "moduleId": "mod_bed_001",
-    "zoneId": "rz_3",
-    "bounds": [[11100, 2000], [13100, 2000], [13100, 4000], [11100, 4000]],
-    "facing": "north",
-    "items": []
-  }
-]
-```
+   **数据格式**：
+   ```json
+   [
+     {
+       "id": "m_1",
+       "zoneId": "rz_1",  // ← 区分所属区域
+       "moduleId": "mod_bed_double_001",  // ← 来自 module_library
+       "bounds": [[x1,y1], [x2,y2], [x3,y3], [x4,y4]],
+       "facing": "north",
+       "items": []
+     }
+   ]
+   ```
+
+7. **后置截图验证**（必须）
+   mcp__canvas__request_background_screenshot(
+     projectPath="{当前工作目录}",
+     viewport={"mode": "full"}
+   )
+
+## 数据真实性约束
+
+- 家具尺寸必须来自 module_library.json，禁止编造
+- 空数组 → 报告"数量为 0"，禁止推断
+- 所有 moduleId 必须在 module_library 中实际存在
+
+## 常见错误
+
+| 错误 | 正确做法 |
+|------|----------|
+| 写入 schemes/rz_1/modules.json | 写入 schemes/modules.json |
+| 凭空编造家具尺寸 | 从 module_library.json 选择 |
+| 跳过截图步骤 | 前后各调用一次截图工具 |
+| 跳过 placement_guide | 必须读取并遵守规范 |
 """
     }
 

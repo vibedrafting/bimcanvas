@@ -2,7 +2,7 @@
 
 > 本文档帮助 AI 快速理解项目结构。详细数据格式请直接读取对应文件。
 >
-> **生成时间**: {EXPORT_DATE} | **数据版本**: v3.0
+> **生成时间**: {EXPORT_DATE} | **数据版本**: v3.2（统一文件）
 
 ---
 
@@ -29,7 +29,8 @@
     ├── strategy.json               方案配置、策略参数
     ├── zones.json                  设计分区定义
     ├── finishes.json               完成面配置
-    └── rz_*/modules.json           ⭐ 各分区的家具布置
+    └── modules.json                ⭐ 家具布置（统一文件）
+                                       包含所有区域的模块，通过 zoneId 区分
 ```
 
 **多策略**: 通过 Git 分支实现，AI 只需操作当前 `schemes/`，分支切换由 Server 管理
@@ -53,9 +54,65 @@
 
 ---
 
-## 4. 添加布置模块
+## 4. 重要：modules.json 路径规范
 
-在对应分区目录的 `modules.json` 中添加模块，示例（主卧 rz_3）：
+**数据模型版本**：v3.2（统一文件）
+
+**正确路径**：
+- ✅ `schemes/modules.json`（所有区域的模块在一个文件中）
+
+**错误路径**：
+- ❌ `schemes/rz_1/modules.json`（此路径不存在）
+- ❌ `schemes/rz_2/modules.json`（此路径不存在）
+- ❌ `schemes/default/modules.json`（此路径不存在）
+
+**区分方式**：
+通过 `zoneId` 字段区分模块所属的区域：
+
+```json
+[
+  {
+    "id": "m_1",
+    "zoneId": "rz_3",  // ← 主卧
+    "moduleId": "bed_king",
+    "bounds": [[9100, 1750], [11100, 1750], [11100, 3750], [9100, 3750]],
+    "facing": "east",
+    "items": []
+  },
+  {
+    "id": "m_2",
+    "zoneId": "rz_1",  // ← 客厅
+    "moduleId": "sofa_main",
+    "bounds": [[2000, 3000], [5000, 3000], [5000, 4500], [2000, 4500]],
+    "facing": "east",
+    "items": []
+  }
+]
+```
+
+**操作流程**：
+1. Read `schemes/modules.json`（可能为空数组 `[]`）
+2. 根据 zoneId 添加新模块到数组
+3. Write `schemes/modules.json`（覆盖整个数组）
+
+---
+
+## 5. 快速路径参考
+
+| 用途 | 文件路径 | 读写 |
+|------|---------|------|
+| 项目入口 | `project.json` | 读 |
+| 房间区域 | `computed/room_zones.json` | 读 |
+| 门窗数据 | `baseline/openings.json` | 读 |
+| 禁区信息 | `computed/exclusions.json` | 读 |
+| 家具库 | `modules/module_library.json` | 读 |
+| **布置结果** | `schemes/modules.json` | **写** |
+
+---
+
+## 6. 添加布置模块示例
+
+在 `schemes/modules.json` 中添加模块（注意不是 rz_*/modules.json）：
 
 ```json
 [
@@ -77,7 +134,7 @@
 
 ---
 
-## 5. 常见问题
+## 7. 常见问题
 
 | 问题 | 答案 |
 |------|------|
