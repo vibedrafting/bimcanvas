@@ -465,7 +465,7 @@ async def request_background_screenshot(args: dict[str, Any]) -> dict[str, Any]:
 
 @tool(
     "get_workflow_guide",
-    "获取 layout-agent 工作流指导。**必须在执行任何操作前调用此工具**获取详细的操作流程。",
+    "【唯一官方来源】获取 layout-agent 工作流指导。本工具是 layout-agent 执行流程的唯一权威定义，必须在执行任何操作前调用以确保遵守最新规范。返回内容覆盖所有任务类型的完整决策树和实现步骤。",
     {
         "$schema": "http://json-schema.org/draft-07/schema#",
         "type": "object",
@@ -473,10 +473,10 @@ async def request_background_screenshot(args: dict[str, Any]) -> dict[str, Any]:
             "task_type": {
                 "type": "string",
                 "enum": ["query", "edit", "generate", "overview"],
-                "description": "任务类型：query（查询统计）、edit（单一修改）、generate（完整布置）、overview（完整决策树）",
-                "default": "overview"
+                "description": "任务类型：query（查询统计）、edit（单一修改）、generate（完整布置）、overview（完整决策树，用于首次判断任务类型）"
             }
         },
+        "required": ["task_type"],
         "additionalProperties": False
     }
 )
@@ -486,6 +486,8 @@ async def get_workflow_guide(args: dict[str, Any]) -> dict[str, Any]:
 
     guides = {
         "overview": """# Layout Agent 工作流程完整指南
+
+⚠️ **本指南是 layout-agent 工作流程的唯一官方定义，必须严格遵守**
 
 ## 决策树
 
@@ -540,6 +542,8 @@ Step 2: 判断任务类型
 """,
         "query": """# Query 流程（只读）
 
+⚠️ **本流程是 query 任务的唯一官方定义，必须严格按步骤执行**
+
 **触发条件**：【操作类型】: query 或关键词"统计/查看/列出/有多少"
 
 **允许工具**：Read, Glob, Grep
@@ -563,6 +567,8 @@ Step 2: 判断任务类型
 """,
         "edit": """# Edit 流程（单一修改）
 
+⚠️ **本流程是 edit 任务的唯一官方定义，必须严格按步骤执行**
+
 **触发条件**：【操作类型】: execute + 关键词"移动/删除/旋转/调整"
 
 **步骤**：
@@ -580,6 +586,8 @@ Step 2: 判断任务类型
 - "旋转床 90 度" → Read → 修改 facing 和 bounds → Write
 """,
         "generate": """# Generate 流程（完整布置）
+
+⚠️ **本流程是 generate 任务的唯一官方定义，必须严格按步骤执行**
 
 ## 执行前强制检查清单
 

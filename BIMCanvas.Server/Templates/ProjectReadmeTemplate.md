@@ -91,9 +91,8 @@
 ```
 
 **操作流程**：
-1. Read `schemes/modules.json`（可能为空数组 `[]`）
-2. 根据 zoneId 添加新模块到数组
-3. Write `schemes/modules.json`（覆盖整个数组）
+- layout-agent 的具体操作流程由 `mcp__canvas__get_workflow_guide` 工具定义
+- 本 README 仅提供数据格式说明，不包含工作流程
 
 ---
 
