@@ -495,7 +495,7 @@ async def get_workflow_guide(args: dict[str, Any]) -> dict[str, Any]:
 **禁止工具**：Write, Edit
 
 **步骤**：
-1. 如需空间/布局判断，先调用 `mcp__canvas__request_background_screenshot` 获取必要截图
+1. 如需空间/布局判断，先调用 `mcp__canvas__request_background_screenshot` 并用 Read 查看图片
 2. Read 目标数据文件（如 modules.json）
 3. 空数据检查 → 空则报告"数量为 0"
 4. 分析/统计（仅基于实际读取的数据）
@@ -517,13 +517,13 @@ async def get_workflow_guide(args: dict[str, Any]) -> dict[str, Any]:
 **触发条件**：关键词"移动/删除/旋转/调整"
 
 **步骤**：
-1. 视需要在修改前调用 `mcp__canvas__request_background_screenshot`（局部或全局）
+1. 视需要在修改前调用 `mcp__canvas__request_background_screenshot` 并用 Read 查看图片
 2. Read modules.json
 3. 定位目标模块
 4. 执行修改操作
 5. 验证约束（间距≥800mm、不超边界、不重叠）
 6. Write 保存结果
-7. 视需要在修改后再次调用截图工具验证结果
+7. 视需要在修改后再次调用截图工具 + Read 查看图片验证结果
 
 **示例**：
 - "移动沙发到靠窗位置" → Read → 修改 bounds 坐标 → 验证 → Write
@@ -538,8 +538,8 @@ async def get_workflow_guide(args: dict[str, Any]) -> dict[str, Any]:
 
 在执行任何 Write 操作前，必须确认以下步骤已完成：
 
-□ 已调用 mcp__canvas__request_background_screenshot（前置）
-  → 如果未调用，立即停止并先执行截图
+□ 已调用 mcp__canvas__request_background_screenshot 并用 Read 查看图片（前置）
+  → 如果未调用或未查看，立即停止并先执行
 
 □ 已读取 knowledge/placement_guide.md
   → 如果未读取，立即停止并先读取
@@ -559,12 +559,19 @@ async def get_workflow_guide(args: dict[str, Any]) -> dict[str, Any]:
 
 ## 执行步骤
 
-1. **前置截图**（必须）
-   mcp__canvas__request_background_screenshot(
+1. **前置截图 + 查看**（必须）
+   ```
+   # 步骤 1.1：调用截图工具，获取图片路径
+   screenshot_path = mcp__canvas__request_background_screenshot(
      projectPath="{当前工作目录}",
      viewport={"mode": "full"}
    )
+
+   # 步骤 1.2：必须用 Read 查看图片！
+   Read {screenshot_path}
+   ```
    → 理解空间形态、门窗位置、房间朝向
+   → **警告**：仅调用截图工具但不 Read 查看 = 未完成此步骤
 
 2. **读取设计规范**（必须）
    Read knowledge/placement_guide.md
@@ -590,19 +597,24 @@ async def get_workflow_guide(args: dict[str, Any]) -> dict[str, Any]:
    - 辅助家具（茶几/边几）
 
 6. **写入结果**（注意路径）
-   Write schemes/modules.json
+   Write schemes/{zoneId}/modules.json（每个分区单独文件）
 
    **路径规范**：
-   - ✅ 正确：schemes/modules.json（统一文件）
-   - ❌ 错误：schemes/rz_1/modules.json（不存在）
+   - ✅ 正确：schemes/rz_1/modules.json（分区 1）
+   - ✅ 正确：schemes/rz_2/modules.json（分区 2）
+   - ❌ 错误：schemes/modules.json（此路径不存在，已废弃）
+
+   **查找分区**：
+   1. 读取 schemes/zones.json 获取所有分区 ID
+   2. 根据分区 ID 写入对应的 schemes/{zoneId}/modules.json
 
    **数据格式**：
    ```json
    [
      {
        "id": "m_1",
-       "zoneId": "rz_1",  // ← 区分所属区域
-       "moduleId": "mod_bed_double_001",  // ← 来自 module_library
+       "zoneId": "rz_1",  // ← 与文件路径中的 zoneId 一致
+       "moduleId": "mod_bed_001",  // ← 来自 module_library
        "bounds": [[x1,y1], [x2,y2], [x3,y3], [x4,y4]],
        "facing": "north",
        "items": []
@@ -610,11 +622,21 @@ async def get_workflow_guide(args: dict[str, Any]) -> dict[str, Any]:
    ]
    ```
 
-7. **后置截图验证**（必须）
-   mcp__canvas__request_background_screenshot(
+7. **后置截图验证 + 查看**（必须）
+   ```
+   # 步骤 7.1：调用截图工具，获取图片路径
+   screenshot_path = mcp__canvas__request_background_screenshot(
      projectPath="{当前工作目录}",
      viewport={"mode": "full"}
    )
+
+   # 步骤 7.2：必须用 Read 查看图片！
+   Read {screenshot_path}
+   ```
+   → 验证家具位置、朝向、间距是否符合预期
+   → 如发现问题，返回步骤 5 修正
+
+   **警告**：仅调用截图工具但不 Read 查看 = 未完成验证
 
 ## 数据真实性约束
 
@@ -626,7 +648,7 @@ async def get_workflow_guide(args: dict[str, Any]) -> dict[str, Any]:
 
 | 错误 | 正确做法 |
 |------|----------|
-| 写入 schemes/rz_1/modules.json | 写入 schemes/modules.json |
+| 写入 schemes/modules.json | 写入 schemes/{zoneId}/modules.json |
 | 凭空编造家具尺寸 | 从 module_library.json 选择 |
 | 跳过截图步骤 | 前后各调用一次截图工具 |
 | 跳过 placement_guide | 必须读取并遵守规范 |
