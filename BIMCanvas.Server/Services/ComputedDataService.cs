@@ -209,15 +209,28 @@ namespace BIMCanvas.Server.Services
                 if (opening.Type != OpeningType.Door)
                     continue;
 
-                // 必须有线段和面向方向
-                if (opening.Line == null || opening.FacingDirection == null)
+                // 必须有线段
+                if (opening.Line == null)
                 {
-                    _logger.LogWarning("门 {Id} 缺少线段或面向方向数据，跳过", opening.Id);
+                    _logger.LogWarning("门 {Id} 缺少线段数据，跳过", opening.Id);
                     continue;
                 }
 
                 var line = opening.Line;
-                var facing = opening.FacingDirection.Value;
+                var facing = opening.FacingDirection?.Normalize();
+                if (facing == null || facing.Value.Length < 1e-6)
+                {
+                    // 兼容：缺失面向方向时，使用线段朝向的正交方向
+                    var dir = line.Direction;
+                    if (dir.Length < 1e-6)
+                    {
+                        _logger.LogWarning("门 {Id} 线段长度过小，无法推断面向方向，跳过", opening.Id);
+                        continue;
+                    }
+                    facing = new Vec2D(-dir.Y, dir.X);
+                    _logger.LogDebug("门 {Id} 缺少面向方向，已根据线段推断为 {Facing}", opening.Id, facing.Value);
+                }
+                var facingVec = facing.Value;
                 var doorWidth = line.Length;
 
                 if (doorWidth < 1) // 门宽太小，忽略
@@ -228,7 +241,7 @@ namespace BIMCanvas.Server.Services
 
                 // 计算禁区矩形边界
                 // 向房间内扩展 doorWidth 的距离
-                var offset = facing * doorWidth;
+                var offset = facingVec * doorWidth;
                 var vertices = new[]
                 {
                     line.Start,

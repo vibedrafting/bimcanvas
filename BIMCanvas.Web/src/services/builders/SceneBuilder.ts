@@ -390,14 +390,66 @@ export class SceneBuilder {
         const height = 2100;
         const center = new THREE.Vector2().addVectors(start, end).multiplyScalar(0.5);
         const angle = Math.atan2(end.y - start.y, end.x - start.x);
+        const renderOp = this.normalizeOpeningForRender(op, start, end);
 
         if (op.type === 0) {
-            this.createDoor(center, width, height, angle, op);
+            this.createDoor(center, width, height, angle, renderOp);
         } else {
-            this.createWindow(center, width, height, angle, op);
+            this.createWindow(center, width, height, angle, renderOp);
         }
     }
 
+    private normalizeOpeningForRender(op: Opening, start: THREE.Vector2, end: THREE.Vector2): Opening {
+        const lineVec = new THREE.Vector2(end.x - start.x, end.y - start.y);
+        if (lineVec.lengthSq() === 0) return op;
+        lineVec.normalize();
+
+        const defaultHand: Point2D = [lineVec.x, lineVec.y];
+        const defaultFacing: Point2D = [-lineVec.y, lineVec.x];
+
+        const normalizeVec2 = (value: unknown): Point2D | null => {
+            if (Array.isArray(value) && value.length >= 2) {
+                const x = Number(value[0]);
+                const y = Number(value[1]);
+                if (!Number.isFinite(x) || !Number.isFinite(y)) return null;
+                const len = Math.hypot(x, y);
+                if (len < 1e-6) return null;
+                return [x / len, y / len];
+            }
+            if (value && typeof value === 'object') {
+                const raw = value as { x?: number; y?: number; X?: number; Y?: number };
+                const x = Number(raw.x ?? raw.X);
+                const y = Number(raw.y ?? raw.Y);
+                if (!Number.isFinite(x) || !Number.isFinite(y)) return null;
+                const len = Math.hypot(x, y);
+                if (len < 1e-6) return null;
+                return [x / len, y / len];
+            }
+            return null;
+        };
+
+        const rawFacing = normalizeVec2((op as any).facingDirection);
+        const facing = rawFacing ?? defaultFacing;
+
+        const handDirections: Point2D[] = [];
+        const rawHands = (op as any).handDirections;
+        if (Array.isArray(rawHands)) {
+            rawHands.forEach((hand) => {
+                const vec = normalizeVec2(hand);
+                if (vec) handDirections.push(vec);
+            });
+        } else {
+            const vec = normalizeVec2(rawHands);
+            if (vec) handDirections.push(vec);
+        }
+
+        const result: Opening = {
+            ...op,
+            facingDirection: facing,
+            handDirections: handDirections.length > 0 ? handDirections : [defaultHand]
+        };
+        return result;
+    }
 
     private createDoor(center: THREE.Vector2, width: number, height: number, angle: number, originalOp?: Opening) {
         const root = new THREE.Group();
@@ -577,6 +629,7 @@ export class SceneBuilder {
                 isCCW = true;
             }
         }
+
 
         pivotGroup.rotation.z = swingAngle;
         panelGroup.add(pivotGroup);
