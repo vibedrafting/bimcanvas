@@ -109,8 +109,9 @@ export class SVGModuleRenderer {
       });
 
       // 7. 设置用户数据（用于选择和交互）
+      // 使用 _internalId（全局唯一）作为内部标识，避免跨分区 ID 冲突
       root.userData = {
-        id: module.id,
+        id: module._internalId || module.id,  // 优先使用 _internalId
         moduleId: module.moduleId,
         type: 'module-svg',
         data: module,

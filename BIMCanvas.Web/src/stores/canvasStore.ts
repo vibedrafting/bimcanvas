@@ -60,8 +60,8 @@ export const useCanvasStore = defineStore('canvas', () => {
         const baseline = projectData.value.baseline;
         const activeScheme = projectData.value.activeScheme;
 
-        // 在 modules 中查找
-        const module = activeScheme?.modules?.find(m => m.id === id);
+        // 在 modules 中查找（优先匹配 _internalId，兼容旧数据匹配 id）
+        const module = activeScheme?.modules?.find(m => m._internalId === id || m.id === id);
         if (module) {
             return { ...module, type: 'module' };
         }

@@ -215,7 +215,10 @@ export interface Module {
   moduleName?: string;
   bounds: Polygon2D;
   facing: string | Point2D;
-  // zoneId 已移除：分区由 Server 根据 bounds 位置自动计算
+  /** 所属分区 ID（由 Server 加载时自动填充） */
+  zoneId?: string;
+  /** 全局唯一内部 ID，格式：{zoneId}_{id}，用于跨分区模块的唯一匹配 */
+  _internalId?: string;
   items: ModuleItem[];
   placementReason?: string;
 }

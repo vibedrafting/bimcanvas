@@ -499,11 +499,19 @@ namespace BIMCanvas.Server.Controllers
                     if (!Directory.Exists(zoneDir))
                         Directory.CreateDirectory(zoneDir);
 
+                    // v3.5: 清理运行时字段（InternalId、ZoneId 不写入文件）
+                    var modulesToSave = kvp.Value.Select(m =>
+                    {
+                        m.InternalId = null;  // 清理内部ID
+                        m.ZoneId = null;      // 清理分区ID（由加载时自动计算）
+                        return m;
+                    }).ToList();
+
                     var modulesPath = Path.Combine(zoneDir, "modules.json");
-                    var json = JsonConvert.SerializeObject(kvp.Value, Formatting.Indented, _jsonSettings);
+                    var json = JsonConvert.SerializeObject(modulesToSave, Formatting.Indented, _jsonSettings);
                     EnsureWritableFile(modulesPath);
                     System.IO.File.WriteAllText(modulesPath, json, Encoding.UTF8);
-                    _logger.LogDebug("[SaveModules] 写入 {Count} 个模块到 {ZoneId}", kvp.Value.Count, kvp.Key);
+                    _logger.LogDebug("[SaveModules] 写入 {Count} 个模块到 {ZoneId}", modulesToSave.Count, kvp.Key);
                 }
 
                 // Step 5: 清理旧格式文件（向后兼容过渡）
@@ -714,11 +722,20 @@ namespace BIMCanvas.Server.Controllers
                 // 新格式：从分区子目录读取
                 foreach (var zoneDir in zoneDirs)
                 {
+                    var zoneId = Path.GetFileName(zoneDir);  // e.g., "rz_1"
                     var modulesPath = Path.Combine(zoneDir, "modules.json");
                     if (System.IO.File.Exists(modulesPath))
                     {
                         var modules = ReadJson<List<Module>>(modulesPath) ?? new List<Module>();
-                        // v3.4: 不再填充 zoneId，分区由 Server 保存时自动计算
+
+                        // v3.5: 生成全局唯一内部 ID，避免跨分区 ID 冲突
+                        // Id 保持不变（用于显示），InternalId 用于内部匹配
+                        foreach (var module in modules)
+                        {
+                            module.InternalId = $"{zoneId}_{module.Id}";    // 全局唯一内部ID
+                            module.ZoneId ??= zoneId;                       // 确保ZoneId填充
+                        }
+
                         allModules.AddRange(modules);
                     }
                 }

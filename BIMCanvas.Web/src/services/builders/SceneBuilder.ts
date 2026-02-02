@@ -817,8 +817,9 @@ export class SceneBuilder {
         mesh.rotation.x = -Math.PI / 2; // Y-Up Rotation
 
         // Set User Data
+        // 使用 _internalId（全局唯一）作为内部标识，避免跨分区 ID 冲突
         mesh.userData = {
-            id: mod.id,
+            id: mod._internalId || mod.id,  // 优先使用 _internalId
             type: 'module',
             data: mod
         };

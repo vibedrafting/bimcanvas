@@ -1,6 +1,7 @@
 using System.Collections.Generic;
 using BIMCanvas.Core.Models.Geometry;
 using BIMCanvas.Core.Models.Semantic;
+using Newtonsoft.Json;
 
 namespace BIMCanvas.Core.Models.Layout
 {
@@ -34,7 +35,18 @@ namespace BIMCanvas.Core.Models.Layout
         /// </summary>
         public Facing Facing { get; set; }
 
-        // ZoneId 已移除：分区由 Server 根据 bounds 位置自动计算
+        /// <summary>
+        /// 所属分区 ID（运行时填充，保存时根据 bounds 位置自动计算）
+        /// </summary>
+        public string? ZoneId { get; set; }
+
+        /// <summary>
+        /// 全局唯一内部 ID，格式：{zoneId}_{id}
+        /// 用于跨分区模块的唯一标识和匹配（Three.js userData、选择等）
+        /// 不对外显示，仅用于内部逻辑
+        /// </summary>
+        [JsonProperty("_internalId")]
+        public string? InternalId { get; set; }
 
         /// <summary>
         /// 模块内部家具清单（回写 Revit 用）

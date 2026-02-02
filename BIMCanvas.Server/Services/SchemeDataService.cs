@@ -139,6 +139,7 @@ namespace BIMCanvas.Server.Services
             // 遍历所有分区子目录
             foreach (var zoneDir in Directory.GetDirectories(schemesPath))
             {
+                var zoneId = Path.GetFileName(zoneDir);  // e.g., "rz_1"
                 var modulesFile = Path.Combine(zoneDir, "modules.json");
                 if (File.Exists(modulesFile))
                 {
@@ -148,6 +149,14 @@ namespace BIMCanvas.Server.Services
                         var zoneModules = JsonConvert.DeserializeObject<List<Module>>(json, _jsonSettings);
                         if (zoneModules != null)
                         {
+                            // v3.5: 生成全局唯一内部 ID，避免跨分区 ID 冲突
+                            // Id 保持不变（用于显示），InternalId 用于内部匹配
+                            foreach (var module in zoneModules)
+                            {
+                                module.InternalId = $"{zoneId}_{module.Id}";    // 全局唯一内部ID
+                                module.ZoneId ??= zoneId;                       // 确保ZoneId填充
+                            }
+
                             modules.AddRange(zoneModules);
                         }
                     }
@@ -231,11 +240,19 @@ namespace BIMCanvas.Server.Services
                     Directory.CreateDirectory(zoneDir);
                 }
 
+                // v3.5: 清理运行时字段（InternalId、ZoneId 不写入文件）
+                var modulesToSave = kvp.Value.Select(m =>
+                {
+                    m.InternalId = null;  // 清理内部ID
+                    m.ZoneId = null;      // 清理分区ID（由加载时自动计算）
+                    return m;
+                }).ToList();
+
                 var modulesFile = Path.Combine(zoneDir, "modules.json");
-                var json = JsonConvert.SerializeObject(kvp.Value, _jsonSettings);
+                var json = JsonConvert.SerializeObject(modulesToSave, _jsonSettings);
                 EnsureWritableFile(modulesFile);
                 File.WriteAllText(modulesFile, json, Encoding.UTF8);
-                savedCount += kvp.Value.Count;
+                savedCount += modulesToSave.Count;
             }
 
             _logger.LogInformation("[SaveAllModules] 保存了 {Count} 个模块到 {Path}，{OrphanCount} 个孤立",
