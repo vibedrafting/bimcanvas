@@ -472,8 +472,8 @@ async def request_background_screenshot(args: dict[str, Any]) -> dict[str, Any]:
         "properties": {
             "task_type": {
                 "type": "string",
-                "enum": ["query", "edit", "generate", "overview"],
-                "description": "任务类型：query（查询统计）、edit（单一修改）、generate（完整布置）、overview（完整决策树，用于首次判断任务类型）"
+                "enum": ["query", "edit", "generate"],
+                "description": "任务类型：query（查询统计）、edit（单一修改）、generate（完整布置）"
             }
         },
         "required": ["task_type"],
@@ -482,54 +482,9 @@ async def request_background_screenshot(args: dict[str, Any]) -> dict[str, Any]:
 )
 async def get_workflow_guide(args: dict[str, Any]) -> dict[str, Any]:
     """获取布置任务工作流指导"""
-    task_type = args.get("task_type", "overview")
+    task_type = args.get("task_type", "generate")
 
     guides = {
-        "overview": """# 布置任务工作流程完整指南
-
-⚠️ **本指南是工作流程的唯一官方定义，必须严格遵守**
-
-## 决策树
-
-```
-收到任务
-    │
-    ▼
-Step 1: 判断任务类型
-│ → 根据关键词判断
-    │
-    ├─ query（只读）→ 调用 get_workflow_guide(task_type="query")
-    │
-    ├─ edit（单一修改）→ 调用 get_workflow_guide(task_type="edit")
-    │
-    └─ generate（完整布置）→ 调用 get_workflow_guide(task_type="generate")
-```
-
-## 核心约束（所有流程适用）
-
-### 布置规则
-- 大型家具靠墙（床、衣柜、沙发）
-- 电视柜居中于电视墙，沙发正对电视（2.5-4m）
-- 床头不靠窗，家具不阻挡门
-- 通道宽度 ≥ 800mm
-- 不与禁区重叠
-- 不阻挡门开启
-
-### 数据真实性
-- 输出必须**严格基于**实际读取的文件内容
-- 统计结果必须与 modules.json 数组长度一致
-- 空数组 → 报告"数量为 0"，禁止推断
-- 报告的每个模块 ID 必须在 modules.json 中实际存在
-
-## 后台截图工具
-- 工具：`mcp__canvas__request_background_screenshot`
-- 仅传入 `projectPath` + `viewport`（或 `shots`），默认使用 Agent 图层预设。
-- 截图落盘：`projectPath\\screenshots`，工具返回完整路径。
-- 调用时机：
-  - query：按需调用（仅当需要视觉/布局判断）
-  - edit：按需调用（必要时前后各一次）
-  - generate：前后**必须**调用，前置至少包含全项目截图
-""",
         "query": """# Query 流程（只读）
 
 ⚠️ **本流程是 query 任务的唯一官方定义，必须严格按步骤执行**
@@ -678,7 +633,7 @@ Step 1: 判断任务类型
 """
     }
 
-    guide_text = guides.get(task_type, guides["overview"])
+    guide_text = guides.get(task_type, guides["generate"])
 
     return {
         "content": [{"type": "text", "text": guide_text}]
