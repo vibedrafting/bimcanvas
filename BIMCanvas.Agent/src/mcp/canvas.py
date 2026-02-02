@@ -465,7 +465,7 @@ async def request_background_screenshot(args: dict[str, Any]) -> dict[str, Any]:
 
 @tool(
     "get_workflow_guide",
-    "【唯一官方来源】获取 layout-agent 工作流指导。本工具是 layout-agent 执行流程的唯一权威定义，必须在执行任何操作前调用以确保遵守最新规范。返回内容覆盖所有任务类型的完整决策树和实现步骤。",
+    "【唯一官方来源】获取布置任务工作流指导。本工具是执行流程的唯一权威定义，必须在执行 Generate 任务前调用以确保遵守最新规范。返回内容覆盖所有任务类型的完整决策树和实现步骤。",
     {
         "$schema": "http://json-schema.org/draft-07/schema#",
         "type": "object",
@@ -481,13 +481,13 @@ async def request_background_screenshot(args: dict[str, Any]) -> dict[str, Any]:
     }
 )
 async def get_workflow_guide(args: dict[str, Any]) -> dict[str, Any]:
-    """获取 layout-agent 工作流指导"""
+    """获取布置任务工作流指导"""
     task_type = args.get("task_type", "overview")
 
     guides = {
-        "overview": """# Layout Agent 工作流程完整指南
+        "overview": """# 布置任务工作流程完整指南
 
-⚠️ **本指南是 layout-agent 工作流程的唯一官方定义，必须严格遵守**
+⚠️ **本指南是工作流程的唯一官方定义，必须严格遵守**
 
 ## 决策树
 
@@ -495,12 +495,8 @@ async def get_workflow_guide(args: dict[str, Any]) -> dict[str, Any]:
 收到任务
     │
     ▼
-Step 1: 阅读项目 README.md
-│ → 了解目录结构、文件用途
-    │
-    ▼
-Step 2: 判断任务类型
-│ → 根据【操作类型】或关键词判断
+Step 1: 判断任务类型
+│ → 根据关键词判断
     │
     ├─ query（只读）→ 调用 get_workflow_guide(task_type="query")
     │
@@ -525,7 +521,7 @@ Step 2: 判断任务类型
 - 空数组 → 报告"数量为 0"，禁止推断
 - 报告的每个模块 ID 必须在 modules.json 中实际存在
 
-## 后台截图工具（layout-agent 专用）
+## 后台截图工具
 - 工具：`mcp__canvas__request_background_screenshot`
 - 仅传入 `projectPath` + `viewport`（或 `shots`），默认使用 Agent 图层预设。
 - 截图落盘：`projectPath\\screenshots`，工具返回完整路径。
@@ -533,18 +529,12 @@ Step 2: 判断任务类型
   - query：按需调用（仅当需要视觉/布局判断）
   - edit：按需调用（必要时前后各一次）
   - generate：前后**必须**调用，前置至少包含全项目截图
-
-## 工作目录说明
-- **query 任务**：使用当前工作目录
-- **execute 任务**：使用 MainAgent 传递的 worktreePath（隔离环境）
-
-确保所有文件操作都在正确的工作目录下执行。
 """,
         "query": """# Query 流程（只读）
 
 ⚠️ **本流程是 query 任务的唯一官方定义，必须严格按步骤执行**
 
-**触发条件**：【操作类型】: query 或关键词"统计/查看/列出/有多少"
+**触发条件**：关键词"统计/查看/列出/有多少"
 
 **允许工具**：Read, Glob, Grep
 **禁止工具**：Write, Edit
@@ -569,7 +559,7 @@ Step 2: 判断任务类型
 
 ⚠️ **本流程是 edit 任务的唯一官方定义，必须严格按步骤执行**
 
-**触发条件**：【操作类型】: execute + 关键词"移动/删除/旋转/调整"
+**触发条件**：关键词"移动/删除/旋转/调整"
 
 **步骤**：
 1. 视需要在修改前调用 `mcp__canvas__request_background_screenshot`（局部或全局）
@@ -605,6 +595,8 @@ Step 2: 判断任务类型
   → 家具尺寸必须从此文件选择，禁止编造
 
 □ 已读取 computed/room_zones.json
+
+□ 已读取 computed/exclusions.json
 
 □ 已读取 baseline/openings.json
 
