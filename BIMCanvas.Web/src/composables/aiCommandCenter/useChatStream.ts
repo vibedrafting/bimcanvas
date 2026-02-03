@@ -36,6 +36,9 @@ interface ChatStreamOptions {
   fetchAgentConfig: () => Promise<void>;
 }
 
+// 用于中止请求的 AbortController 管理
+let currentAbortController: AbortController | null = null;
+
 export const useChatStream = (options: ChatStreamOptions) => {
   const agentStatus = ref<'connecting' | 'connected' | 'disconnected'>('disconnected');
   const currentProjectPath = ref('');
@@ -181,6 +184,9 @@ export const useChatStream = (options: ChatStreamOptions) => {
         thinkingLevel: options.currentThinking.value.id
       });
 
+      // 创建新的 AbortController 用于中止请求
+      currentAbortController = new AbortController();
+
       const response = await fetch(`${options.agentApiBase}/api/chat/stream`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -192,7 +198,8 @@ export const useChatStream = (options: ChatStreamOptions) => {
           images: imagesToSend,
           model: options.currentModel.value?.id,
           thinkingLevel: options.currentThinking.value.id
-        })
+        }),
+        signal: currentAbortController.signal
       });
 
       if (!response.ok) {
@@ -418,8 +425,75 @@ export const useChatStream = (options: ChatStreamOptions) => {
         targetWin.isStreaming = false;
       }
       isPollingBackground.value = false;
+      currentAbortController = null;  // 清理 AbortController
       await nextTick();
       options.scrollToBottom({ windowId: targetWindowId });
+    }
+  };
+
+  /**
+   * 中止当前正在进行的 AI 对话
+   * 通过调用后端 /api/interrupt 端点实现
+   */
+  const interruptMessage = async () => {
+    const win = options.activeWindow.value;
+    if (!win || !win.isStreaming) {
+      console.log('[interruptMessage] No active streaming to interrupt');
+      return;
+    }
+
+    const targetWindowId = win.id;
+    const effectiveWindowId = options.activeWindowId.value || 'window-main';
+
+    console.log('[interruptMessage] Interrupting conversation:', { windowId: effectiveWindowId });
+
+    try {
+      // 1. 取消前端 fetch 请求
+      if (currentAbortController) {
+        currentAbortController.abort();
+        currentAbortController = null;
+      }
+
+      // 2. 通知后端中止 Agent
+      const response = await fetch(`${options.agentApiBase}/api/interrupt`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          windowId: effectiveWindowId
+        })
+      });
+
+      if (response.ok) {
+        console.log('[interruptMessage] Successfully interrupted');
+      } else {
+        console.warn('[interruptMessage] Backend interrupt returned:', response.status);
+      }
+
+      // 3. 更新前端状态
+      win.isStreaming = false;
+
+      // 4. 找到最后一条 AI 消息并标记为中止
+      const lastAiMsgIndex = win.messages.length - 1;
+      if (lastAiMsgIndex >= 0) {
+        const lastMsg = win.messages[lastAiMsgIndex];
+        if (lastMsg && lastMsg.role === 'ai') {
+          lastMsg.isStreaming = false;
+          lastMsg.waitingState.isWaiting = false;
+
+          // 如果有 streaming 的 bubble，标记为中止
+          const lastBubble = lastMsg.bubbles[lastMsg.bubbles.length - 1];
+          if (lastBubble && lastBubble.status === 'streaming') {
+            lastBubble.status = 'completed';
+            lastBubble.content = lastBubble.content + '\n\n[已中止]';
+          }
+        }
+      }
+
+    } catch (error) {
+      // AbortError 是正常的取消，不需要报错
+      if (error instanceof Error && error.name !== 'AbortError') {
+        console.error('[interruptMessage] Error:', error);
+      }
     }
   };
 
@@ -429,6 +503,7 @@ export const useChatStream = (options: ChatStreamOptions) => {
     isPollingBackground,
     streamWelcomeMessage,
     sendMessage,
+    interruptMessage,
     checkAgentHealth,
     fetchProjectPath
   };

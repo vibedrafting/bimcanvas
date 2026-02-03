@@ -284,6 +284,7 @@ const {
   isPollingBackground,
   streamWelcomeMessage,
   sendMessage,
+  interruptMessage,
   checkAgentHealth,
   fetchProjectPath
 } = useChatStream({
@@ -1167,10 +1168,23 @@ onUnmounted(() => {
                 </div>
 
                 <div class="right-controls">
+                    <!-- 停止按钮：AI 处理过程中显示 -->
                     <button
+                      v-if="isLoading"
+                      class="stop-btn-round"
+                      @click="interruptMessage"
+                      title="停止生成"
+                    >
+                        <svg viewBox="0 0 24 24" fill="currentColor">
+                            <rect x="6" y="6" width="12" height="12" rx="1" />
+                        </svg>
+                    </button>
+                    <!-- 发送按钮：空闲时显示 -->
+                    <button
+                      v-else
                       class="send-btn-round"
                       @click="sendMessage"
-                      :disabled="isLoading || !inputMessage.trim() || agentStatus !== 'connected'"
+                      :disabled="!inputMessage.trim() || agentStatus !== 'connected'"
                     >
                         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round">
                             <line x1="12" y1="19" x2="12" y2="5"></line>
@@ -3048,6 +3062,30 @@ onUnmounted(() => {
             background: rgba(255, 255, 255, 0.1);
             color: rgba(255, 255, 255, 0.3);
             cursor: not-allowed;
+        }
+    }
+
+    /* 停止按钮样式（Codex 风格） */
+    .stop-btn-round {
+        width: 32px;
+        height: 32px;
+        border-radius: 50%;
+        background: #ff3b30; /* 红色警示 */
+        border: none;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        color: white;
+        cursor: pointer;
+        transition: transform 0.1s, background 0.2s;
+
+        svg { width: 14px; height: 14px; }
+
+        &:hover {
+            background: #e0352b;
+        }
+        &:active {
+            transform: scale(0.95);
         }
     }
 

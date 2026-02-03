@@ -18,7 +18,8 @@
       "Bash(npx tsc:*)",
       "Bash(git -C \"E:\\\\工作文档\\\\开发类\\\\MyCode\\\\BIMCanvas\" add .)",
       "Bash(npm run type-check:*)",
-      "Bash(move:*)"
+      "Bash(move:*)",
+      "Bash(npx vite build:*)"
     ]
   }
 }
