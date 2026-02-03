@@ -890,8 +890,8 @@ onUnmounted(() => {
             <!-- Pending Attachments Preview -->
             <div class="pending-attachments" v-if="pendingImages.length > 0">
               <div class="attachment-item" v-for="(img, idx) in pendingImages" :key="idx">
-                <img :src="img" class="attachment-thumbnail" alt="attachment" />
-                <button class="remove-attachment" @click="removePendingImage(idx)">
+                <img :src="img" class="attachment-thumbnail" alt="attachment" @click="openLightbox(img)" />
+                <button class="remove-attachment" @click.stop="removePendingImage(idx)">
                   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                     <line x1="18" y1="6" x2="6" y2="18"></line>
                     <line x1="6" y1="6" x2="18" y2="18"></line>
@@ -2763,6 +2763,7 @@ onUnmounted(() => {
             object-fit: cover;
             border-radius: 8px;
             border: 1px solid rgba(255, 255, 255, 0.15);
+            cursor: pointer;
         }
 
         .remove-attachment {
