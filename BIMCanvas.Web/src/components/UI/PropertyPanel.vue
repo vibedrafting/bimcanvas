@@ -66,8 +66,7 @@ const isPrimitiveValue = (value: any): boolean => {
 const properties = computed(() => {
   if (selectionCount.value > 1) {
     return [
-      { key: 'Count', value: `${selectionCount.value} items`, readonly: true },
-      { key: 'IDs', value: selectedIds.value.join(', '), readonly: true }
+      { key: 'Count', value: `${selectionCount.value} items`, readonly: true }
     ];
   }
 
