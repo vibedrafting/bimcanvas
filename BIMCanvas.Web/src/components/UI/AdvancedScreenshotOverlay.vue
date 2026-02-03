@@ -8,9 +8,10 @@ const emit = defineEmits<{
 }>()
 
 // --- 类型定义 ---
-type ToolType = 'rect' | 'arrow' | 'text' | null
+type ToolType = 'rect' | 'arrow' | 'text' | 'pen' | null
 type ResizeHandle = 'nw' | 'n' | 'ne' | 'e' | 'se' | 's' | 'sw' | 'w'
 type AnnotationResizeHandle = 'start' | 'end' | 'nw' | 'ne' | 'se' | 'sw'
+type PenPoint = { x: number; y: number } | null
 
 interface BaseAnnotation {
   id: string
@@ -33,7 +34,12 @@ interface TextAnnotation extends BaseAnnotation {
   x: number; y: number; text: string
 }
 
-type Annotation = RectAnnotation | ArrowAnnotation | TextAnnotation
+interface PenAnnotation extends BaseAnnotation {
+  type: 'pen'
+  points: PenPoint[]
+}
+
+type Annotation = RectAnnotation | ArrowAnnotation | TextAnnotation | PenAnnotation
 
 // --- 状态管理 ---
 const canvasRef = ref<HTMLCanvasElement | null>(null)
@@ -55,6 +61,7 @@ const currentTool = ref<ToolType>(null)
 const currentColor = ref('#ff0000')
 const currentSize = ref(2)
 const annotations = ref<Annotation[]>([])
+const currentStroke = ref<PenPoint[]>([])
 const selectedAnnotationIndex = ref<number>(-1)
 const history = ref<Annotation[][]>([])
 const redoStack = ref<Annotation[][]>([])
@@ -92,6 +99,16 @@ const setBodyCursor = (value: string) => {
 }
 const restoreBodyCursor = () => {
     document.body.style.cursor = previousBodyCursor.value
+}
+
+// --- Toolbar size ---
+const toolbarRef = ref<HTMLElement | null>(null)
+const toolbarSize = ref({ width: 320, height: 70 })
+const updateToolbarSize = () => {
+    const rect = toolbarRef.value?.getBoundingClientRect()
+    if (rect && rect.width > 0 && rect.height > 0) {
+        toolbarSize.value = { width: rect.width, height: rect.height }
+    }
 }
 
 // --- 隐藏/恢复 UI 元素 ---
@@ -165,6 +182,8 @@ onMounted(async () => {
     window.addEventListener('keydown', handleKeyDown)
     window.addEventListener('mousemove', handleGlobalMouseMove)
     window.addEventListener('mouseup', handleGlobalMouseUp)
+    await nextTick()
+    updateToolbarSize()
   } catch (error) {
     console.error('[Screenshot] Init failed:', error)
     restoreUIElements()
@@ -201,6 +220,44 @@ const isPointNearLine = (px: number, py: number, x1: number, y1: number, x2: num
     return Math.sqrt((px - xx) ** 2 + (py - yy) ** 2) < threshold
 }
 
+const isPointNearPenPath = (px: number, py: number, points: PenPoint[], threshold = 8) => {
+    let prev: { x: number; y: number } | null = null
+    for (const pt of points) {
+        if (!pt) {
+            prev = null
+            continue
+        }
+        if (!prev) {
+            if (Math.hypot(px - pt.x, py - pt.y) < threshold) return true
+            prev = pt
+            continue
+        }
+        if (isPointNearLine(px, py, prev.x, prev.y, pt.x, pt.y, threshold)) return true
+        prev = pt
+    }
+    return false
+}
+
+const addPenPoint = (x: number, y: number) => {
+    const points = currentStroke.value
+    const last = points[points.length - 1]
+    if (last && Math.hypot(x - last.x, y - last.y) < 2) return
+    points.push({ x, y })
+}
+
+const sanitizePenPoints = (points: PenPoint[]) => {
+    const trimmed = points.slice()
+    while (trimmed.length && trimmed[0] === null) trimmed.shift()
+    while (trimmed.length && trimmed[trimmed.length - 1] === null) trimmed.pop()
+    const hasPoint = trimmed.some(p => p !== null)
+    if (!hasPoint) return null
+    if (trimmed.length === 1 && trimmed[0]) {
+        const only = trimmed[0]
+        trimmed.push({ x: only.x, y: only.y })
+    }
+    return trimmed
+}
+
 const getHitAnnotation = (x: number, y: number): number => {
     for (let i = annotations.value.length - 1; i >= 0; i--) {
         const ann = annotations.value[i]
@@ -216,6 +273,9 @@ const getHitAnnotation = (x: number, y: number): number => {
                 const h = ann.size * 12 + 12
                 if (x >= ann.x && x <= ann.x + metrics.width && y >= ann.y - h && y <= ann.y + 5) return i
             }
+        } else if (ann.type === 'pen') {
+            const threshold = Math.max(6, ann.size * 4)
+            if (isPointNearPenPath(x, y, ann.points, threshold)) return i
         }
     }
     return -1
@@ -282,6 +342,8 @@ const draw = () => {
       } else if (ann.type === 'text') {
           ctx.font = `${(ann.size * 12 + 12) * dpr}px sans-serif`
           ctx.fillText(ann.text, ann.x * dpr, ann.y * dpr)
+      } else if (ann.type === 'pen') {
+          drawPen(ctx, ann.points, ann.size * dpr, 0, 0, dpr)
       }
   })
 
@@ -297,6 +359,8 @@ const draw = () => {
           ctx.strokeRect(dragStartX.value * dpr, dragStartY.value * dpr, w * dpr, h * dpr)
       } else if (currentTool.value === 'arrow') {
           drawArrow(ctx, dragStartX.value * dpr, dragStartY.value * dpr, dragCurrentX.value * dpr, dragCurrentY.value * dpr, currentSize.value * dpr)
+      } else if (currentTool.value === 'pen') {
+          drawPen(ctx, currentStroke.value, currentSize.value * dpr, 0, 0, dpr)
       }
   }
 
@@ -338,6 +402,49 @@ const drawArrow = (ctx: CanvasRenderingContext2D, fromX: number, fromY: number, 
     ctx.lineTo(rightX, rightY)
     ctx.closePath()
     ctx.fill()
+}
+
+const drawPen = (
+    ctx: CanvasRenderingContext2D,
+    points: PenPoint[],
+    lineWidth: number,
+    offsetX = 0,
+    offsetY = 0,
+    dpr = 1
+) => {
+    if (!points.length) return
+    ctx.lineCap = 'round'
+    ctx.lineJoin = 'round'
+    ctx.lineWidth = lineWidth
+
+    const renderSegment = (segment: { x: number; y: number }[]) => {
+        if (!segment.length) return
+        if (segment.length === 1) {
+            const p = segment[0]
+            ctx.beginPath()
+            ctx.arc((p.x - offsetX) * dpr, (p.y - offsetY) * dpr, lineWidth / 2, 0, Math.PI * 2)
+            ctx.fill()
+            return
+        }
+        ctx.beginPath()
+        ctx.moveTo((segment[0].x - offsetX) * dpr, (segment[0].y - offsetY) * dpr)
+        for (let i = 1; i < segment.length; i++) {
+            const p = segment[i]
+            ctx.lineTo((p.x - offsetX) * dpr, (p.y - offsetY) * dpr)
+        }
+        ctx.stroke()
+    }
+
+    let segment: { x: number; y: number }[] = []
+    points.forEach((pt) => {
+        if (!pt) {
+            renderSegment(segment)
+            segment = []
+            return
+        }
+        segment.push(pt)
+    })
+    renderSegment(segment)
 }
 
 const drawAnnotationHandles = (ctx: CanvasRenderingContext2D, ann: Annotation, dpr: number) => {
@@ -403,6 +510,12 @@ const handleMouseDown = (e: MouseEvent) => {
     if (currentTool.value) {
         if (currentTool.value === 'text') {
             startTextInput(x, y)
+        } else if (currentTool.value === 'pen') {
+            interactionMode.value = 'drawing'
+            dragStartX.value = x; dragStartY.value = y
+            dragCurrentX.value = x; dragCurrentY.value = y
+            currentStroke.value = [{ x, y }]
+            selectedAnnotationIndex.value = -1
         } else {
             interactionMode.value = 'drawing'
             dragStartX.value = x; dragStartY.value = y
@@ -460,6 +573,13 @@ const handleGlobalMouseMove = (e: MouseEvent) => {
         handleSelectionResize(x, y)
         draw()
     } else if (interactionMode.value === 'drawing') {
+        if (currentTool.value === 'pen') {
+            if (isPointInRect(x, y, selX.value, selY.value, selW.value, selH.value)) {
+                addPenPoint(x, y)
+            } else if (currentStroke.value.length && currentStroke.value[currentStroke.value.length - 1] !== null) {
+                currentStroke.value.push(null)
+            }
+        }
         draw()
     } else if (interactionMode.value === 'moving_annotation') {
         if (selectedAnnotationIndex.value !== -1 && initialAnnotationState.value) {
@@ -474,6 +594,8 @@ const handleGlobalMouseMove = (e: MouseEvent) => {
                 ann.endX = init.endX + dx; ann.endY = init.endY + dy
             } else if (ann.type === 'text' && init.type === 'text') {
                 ann.x = init.x + dx; ann.y = init.y + dy
+            } else if (ann.type === 'pen' && init.type === 'pen') {
+                ann.points = init.points.map(pt => pt ? ({ x: pt.x + dx, y: pt.y + dy }) : null)
             }
             draw()
         }
@@ -499,8 +621,8 @@ const handleGlobalMouseUp = () => {
             isSelecting.value = false
         }
     } else if (interactionMode.value === 'drawing') {
-        saveHistory()
         if (currentTool.value === 'rect') {
+            saveHistory()
             annotations.value.push({
                 id: generateId(), type: 'rect',
                 x: Math.min(dragStartX.value, dragCurrentX.value),
@@ -509,16 +631,32 @@ const handleGlobalMouseUp = () => {
                 h: Math.abs(dragCurrentY.value - dragStartY.value),
                 color: currentColor.value, size: currentSize.value
             })
+            selectedAnnotationIndex.value = annotations.value.length - 1
         } else if (currentTool.value === 'arrow') {
+            saveHistory()
             annotations.value.push({
                 id: generateId(), type: 'arrow',
                 startX: dragStartX.value, startY: dragStartY.value,
                 endX: dragCurrentX.value, endY: dragCurrentY.value,
                 color: currentColor.value, size: currentSize.value
             })
+            selectedAnnotationIndex.value = annotations.value.length - 1
+        } else if (currentTool.value === 'pen') {
+            const points = sanitizePenPoints(currentStroke.value)
+            if (points) {
+                saveHistory()
+                annotations.value.push({
+                    id: generateId(), type: 'pen',
+                    points,
+                    color: currentColor.value, size: currentSize.value
+                })
+                selectedAnnotationIndex.value = annotations.value.length - 1
+            }
+            currentStroke.value = []
         }
-        selectedAnnotationIndex.value = annotations.value.length - 1
-        currentTool.value = null
+        if (currentTool.value !== 'pen') {
+            currentTool.value = null
+        }
     }
 
     if (interactionMode.value !== 'dragging_text_input') {
@@ -706,7 +844,10 @@ const handleKeyDown = (e: KeyboardEvent) => {
     }
 
     if (e.key === 'Escape') {
-        if (currentTool.value) currentTool.value = null
+        if (currentTool.value) {
+            currentTool.value = null
+            currentStroke.value = []
+        }
         else if (selectedAnnotationIndex.value !== -1) selectedAnnotationIndex.value = -1
         else emit('cancel')
         draw()
@@ -729,6 +870,10 @@ watch([currentColor, currentSize], ([newColor, newSize]) => {
         ann.color = newColor; ann.size = newSize
         draw()
     }
+})
+
+watch([isSelecting, currentTool, selectedAnnotationIndex, selW, selH], () => {
+    nextTick(() => updateToolbarSize())
 })
 
 // 获取鼠标悬停在选区边缘的 resize 方向
@@ -821,13 +966,16 @@ const updateCursor = (x: number, y: number) => {
 const selectTool = (tool: ToolType) => {
     currentTool.value = tool
     selectedAnnotationIndex.value = -1
+    currentStroke.value = []
     draw()
 }
 
 const selectFullScreen = () => {
     selX.value = 0; selY.value = 0
     selW.value = window.innerWidth; selH.value = window.innerHeight
-    confirmCapture()
+    isSelecting.value = false
+    interactionMode.value = 'none'
+    draw()
 }
 
 const confirmCapture = () => {
@@ -855,6 +1003,8 @@ const confirmCapture = () => {
         } else if (ann.type === 'text') {
             tCtx.font = `${(ann.size * 12 + 12) * dpr}px sans-serif`
             tCtx.fillText(ann.text, (ann.x - selX.value) * dpr, (ann.y - selY.value) * dpr)
+        } else if (ann.type === 'pen') {
+            drawPen(tCtx, ann.points, ann.size * dpr, selX.value, selY.value, dpr)
         }
     })
     restoreBodyCursor()
@@ -862,11 +1012,26 @@ const confirmCapture = () => {
 }
 
 const toolbarStyle = computed(() => {
+    const margin = 10
+    const viewportW = window.innerWidth
+    const viewportH = window.innerHeight
+    const toolbarW = toolbarSize.value.width
+    const toolbarH = toolbarSize.value.height
+
     let top = selY.value + selH.value + 10
-    let left = selX.value + selW.value - 320 
-    if (top + 60 > window.innerHeight) top = selY.value - 70
+    const maxTop = viewportH - toolbarH - margin
+    if (top > maxTop) {
+        const above = selY.value - toolbarH - 10
+        top = above >= margin ? above : Math.max(margin, maxTop)
+    }
+
+    let left = selX.value + selW.value - toolbarW
     if (left < selX.value) left = selX.value
-    if (left < 10) left = 10
+
+    const maxLeft = viewportW - toolbarW - margin
+    top = Math.min(Math.max(top, margin), Math.max(margin, maxTop))
+    left = Math.min(Math.max(left, margin), Math.max(margin, maxLeft))
+
     return { top: `${top}px`, left: `${left}px` }
 })
 
@@ -916,7 +1081,7 @@ const getHandleStyle = (h: ResizeHandle) => {
     </div>
 
     <!-- 工具栏 -->
-    <div v-if="!isSelecting" class="toolbar" :style="toolbarStyle" @mousedown.stop>
+    <div v-if="!isSelecting" ref="toolbarRef" class="toolbar" :style="toolbarStyle" @mousedown.stop>
         <div class="tools-row">
             <button class="tool-btn" :class="{ active: currentTool === 'rect' }" @click.stop="selectTool('rect')" title="矩形">
                 <svg viewBox="0 0 24 24" width="18" height="18" stroke="currentColor" fill="none" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/></svg>
@@ -926,6 +1091,9 @@ const getHandleStyle = (h: ResizeHandle) => {
             </button>
             <button class="tool-btn" :class="{ active: currentTool === 'text' }" @click.stop="selectTool('text')" title="文字">
                 <svg viewBox="0 0 24 24" width="18" height="18" stroke="currentColor" fill="none" stroke-width="2"><path d="M4 7V4h16v3M9 20h6M12 4v16"/></svg>
+            </button>
+            <button class="tool-btn" :class="{ active: currentTool === 'pen' }" @click.stop="selectTool('pen')" title="画笔">
+                <svg viewBox="0 0 24 24" width="18" height="18" stroke="currentColor" fill="none" stroke-width="2"><path d="M3 21c2-2 4-2 6 0"/><path d="M15 3l6 6"/><path d="M4 17l10-10 3 3-10 10-4 1z"/></svg>
             </button>
             
             <div class="divider"></div>
