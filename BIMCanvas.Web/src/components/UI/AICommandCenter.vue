@@ -234,6 +234,28 @@ const handleImageInputChange = async (event: Event) => {
   await appendImageFiles(files);
 };
 
+const handleImagePaste = async (event: ClipboardEvent) => {
+  const clipboard = event.clipboardData;
+  if (!clipboard) return;
+
+  const items = Array.from(clipboard.items);
+  const imageFiles = items
+    .filter(item => item.kind === 'file' && item.type.startsWith('image/'))
+    .map(item => item.getAsFile())
+    .filter((file): file is File => Boolean(file));
+
+  if (imageFiles.length === 0) return;
+
+  event.preventDefault();
+  await appendImageFiles(imageFiles);
+
+  const text = clipboard.getData('text/plain');
+  if (text) {
+    inputMessage.value += text;
+    nextTick(() => adjustTextareaHeight());
+  }
+};
+
 const handleAttachmentSelect = (att: { id: string; label: string }) => {
   isAttachmentMenuOpen.value = false;
   activeSubmenu.value = null;
@@ -989,6 +1011,7 @@ onUnmounted(() => {
               v-model="inputMessage"
               placeholder="你好"
               @keydown="handleKeydown"
+              @paste="handleImagePaste"
               @input="adjustTextareaHeight"
               :disabled="isLoading || agentStatus !== 'connected'"
               rows="1"
