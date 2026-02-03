@@ -37,9 +37,9 @@ const onGridSpacingChange = () => {
   }));
 };
 
-const currentView = ref<'human' | 'ai'>('human');
+const currentView = ref<'User' | 'Agent'>('User');
 
-const toggleView = (mode: 'human' | 'ai') => {
+const toggleView = (mode: 'User' | 'Agent') => {
   currentView.value = mode;
   window.dispatchEvent(new CustomEvent('bimcanvas:view-mode-change', { detail: mode }));
 };
@@ -97,17 +97,17 @@ onUnmounted(() => {
           <!-- Vision Mode -->
           <div class="vision-section">
             <div class="vision-toggle">
-              <button 
-                class="vision-btn" 
-                :class="{ active: currentView === 'human' }" 
-                @click="toggleView('human')"
+              <button
+                class="vision-btn"
+                :class="{ active: currentView === 'User' }"
+                @click="toggleView('User')"
               >
                 User
               </button>
-              <button 
-                class="vision-btn" 
-                :class="{ active: currentView === 'ai' }" 
-                @click="toggleView('ai')"
+              <button
+                class="vision-btn"
+                :class="{ active: currentView === 'Agent' }"
+                @click="toggleView('Agent')"
               >
                 Agent
               </button>

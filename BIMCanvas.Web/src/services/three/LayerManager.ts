@@ -6,6 +6,10 @@ export interface LayerPresetConfig {
 }
 
 export interface LayerPresetsConfig {
+    // 新格式（与 UI 一致）
+    User?: LayerPresetConfig;
+    Agent?: LayerPresetConfig;
+    // 旧格式（向后兼容）
     human?: LayerPresetConfig;
     ai?: LayerPresetConfig;
 }
@@ -84,16 +88,20 @@ export class LayerManager {
         LayerManager.LAYER_FURNITURE
     ];
 
-    // Presets
-    public static readonly PRESET_HUMAN = 'human';
-    public static readonly PRESET_AI = 'ai';
+    // Presets（与 UI 显示名称一致）
+    public static readonly PRESET_USER = 'User';
+    public static readonly PRESET_AGENT = 'Agent';
+
+    // 向后兼容旧名称
+    public static readonly PRESET_HUMAN = 'User';  // @deprecated 使用 PRESET_USER
+    public static readonly PRESET_AI = 'Agent';    // @deprecated 使用 PRESET_AGENT
 
     private camera: THREE.Camera;
     private presetConfig: LayerPresetsConfig | null = null;
 
     constructor(camera: THREE.Camera) {
         this.camera = camera;
-        this.applyPreset(LayerManager.PRESET_HUMAN);
+        this.applyPreset(LayerManager.PRESET_USER);
     }
 
     /**
@@ -143,8 +151,13 @@ export class LayerManager {
      * 从外部配置应用预设
      */
     private applyPresetFromConfig(preset: string): void {
-        const presetKey = preset as keyof LayerPresetsConfig;
-        const config = this.presetConfig?.[presetKey];
+        // 查找配置：优先使用新格式，回退到旧格式
+        let config: LayerPresetConfig | undefined;
+        if (preset === 'User' || preset === 'human') {
+            config = this.presetConfig?.User ?? this.presetConfig?.human;
+        } else if (preset === 'Agent' || preset === 'ai') {
+            config = this.presetConfig?.Agent ?? this.presetConfig?.ai;
+        }
 
         // 先禁用所有图层
         LayerManager.ALL_LAYER_IDS.forEach(id => {
@@ -207,8 +220,8 @@ export class LayerManager {
         this.camera.layers.enable(LayerManager.LAYER_MODEL);
         layerStates[LayerManager.LAYER_MODEL] = true;
 
-        if (preset === LayerManager.PRESET_HUMAN) {
-            this.camera.layers.enable(LayerManager.LAYER_GRID); // Enable Grid by default for Human
+        if (preset === LayerManager.PRESET_USER || preset === 'human') {
+            this.camera.layers.enable(LayerManager.LAYER_GRID); // Enable Grid by default for User
             this.camera.layers.enable(LayerManager.LAYER_ARCHITECTURE); // 建筑图层默认启用
             this.camera.layers.enable(LayerManager.LAYER_FURNITURE);    // 模块图层默认启用
             this.camera.layers.disable(LayerManager.LAYER_LABELS);
@@ -223,8 +236,8 @@ export class LayerManager {
             layerStates[LayerManager.LAYER_GRID] = true;
             layerStates[LayerManager.LAYER_ARCHITECTURE] = true;
             layerStates[LayerManager.LAYER_FURNITURE] = true;
-        } else if (preset === LayerManager.PRESET_AI) {
-            // AI Mode: Enable all auxiliary layers (LAYER_MODEL always stays enabled)
+        } else if (preset === LayerManager.PRESET_AGENT || preset === 'ai') {
+            // Agent Mode: Enable all auxiliary layers (LAYER_MODEL always stays enabled)
             this.camera.layers.enable(LayerManager.LAYER_GRID);
             this.camera.layers.enable(LayerManager.LAYER_LABELS);
             this.camera.layers.enable(LayerManager.LAYER_BOUNDS);

@@ -6,7 +6,7 @@ import IconBadge from './base/IconBadge.vue';
 import { LayerManager } from '../../services/three/LayerManager';
 
 const store = useCanvasStore();
-const currentView = ref<'human' | 'ai'>('human');
+const currentView = ref<'User' | 'Agent'>('User');
 const showLayerMenu = ref(false);
 
 // Layer States
@@ -18,12 +18,12 @@ const layers = ref({
   [LayerManager.LAYER_AXES]: false,
 });
 
-const toggleView = (mode: 'human' | 'ai') => {
+const toggleView = (mode: 'User' | 'Agent') => {
   currentView.value = mode;
   window.dispatchEvent(new CustomEvent('bimcanvas:view-mode-change', { detail: mode }));
-  
+
   // Update local layer state based on preset
-  if (mode === 'human') {
+  if (mode === 'User') {
     Object.keys(layers.value).forEach(key => layers.value[key as any] = false);
   } else {
     Object.keys(layers.value).forEach(key => layers.value[key as any] = true);
@@ -70,21 +70,21 @@ const dispatchAction = (action: 'rotate' | 'delete' | 'move') => {
             <div class="dropdown-section">
               <span class="section-label">Vision Mode</span>
               <div class="vision-toggle-group">
-                <GlassButton 
-                  :active="currentView === 'human'" 
-                  @click="toggleView('human')"
+                <GlassButton
+                  :active="currentView === 'User'"
+                  @click="toggleView('User')"
                   variant="ghost"
                   size="sm"
                 >
-                  Human
+                  User
                 </GlassButton>
-                <GlassButton 
-                  :active="currentView === 'ai'" 
-                  @click="toggleView('ai')"
+                <GlassButton
+                  :active="currentView === 'Agent'"
+                  @click="toggleView('Agent')"
                   variant="ghost"
                   size="sm"
                 >
-                  AI Vision
+                  Agent
                 </GlassButton>
               </div>
             </div>
@@ -200,12 +200,12 @@ const dispatchAction = (action: 'rotate' | 'delete' | 'move') => {
   [LayerManager.LAYER_AXES]: false,
 });
 
-const toggleView = (mode: 'human' | 'ai') => {
+const toggleView = (mode: 'User' | 'Agent') => {
   currentView.value = mode;
   window.dispatchEvent(new CustomEvent('bimcanvas:view-mode-change', { detail: mode }));
-  
+
   // Update local layer state based on preset
-  if (mode === 'human') {
+  if (mode === 'User') {
     Object.keys(layers.value).forEach(key => layers.value[key as any] = false);
   } else {
     Object.keys(layers.value).forEach(key => layers.value[key as any] = true);
@@ -252,21 +252,21 @@ const dispatchAction = (action: 'rotate' | 'delete' | 'move' | 'copy') => {
             <div class="dropdown-section">
               <span class="section-label">Vision Mode</span>
               <div class="vision-toggle-group">
-                <GlassButton 
-                  :active="currentView === 'human'" 
-                  @click="toggleView('human')"
+                <GlassButton
+                  :active="currentView === 'User'"
+                  @click="toggleView('User')"
                   variant="ghost"
                   size="sm"
                 >
-                  Human
+                  User
                 </GlassButton>
-                <GlassButton 
-                  :active="currentView === 'ai'" 
-                  @click="toggleView('ai')"
+                <GlassButton
+                  :active="currentView === 'Agent'"
+                  @click="toggleView('Agent')"
                   variant="ghost"
                   size="sm"
                 >
-                  AI Vision
+                  Agent
                 </GlassButton>
               </div>
             </div>

@@ -392,8 +392,10 @@ export class ThreeSceneService {
         }
     }
 
-    public toggleViewMode(mode: 'human' | 'ai') {
-        this.layerManager.applyPreset(mode);
+    public toggleViewMode(mode: 'User' | 'Agent' | 'human' | 'ai') {
+        // 统一转换为新格式
+        const preset = (mode === 'human') ? 'User' : (mode === 'ai') ? 'Agent' : mode;
+        this.layerManager.applyPreset(preset);
     }
 
     public toggleLayer(layerId: number, visible: boolean) {
