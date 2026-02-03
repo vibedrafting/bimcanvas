@@ -168,6 +168,82 @@ const {
   activeScope
 });
 
+// === Image Upload ===
+const imageUploadInputRef = ref<HTMLInputElement | null>(null);
+const imageExtPattern = /\.(png|jpe?g|gif|webp|bmp|tiff)$/i;
+
+const readFileAsDataUrl = (file: File) =>
+  new Promise<string>((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result as string);
+    reader.onerror = () => reject(reader.error || new Error('Failed to read file'));
+    reader.readAsDataURL(file);
+  });
+
+const appendImageFiles = async (files: File[]) => {
+  const imageFiles = files.filter(file =>
+    file.type.startsWith('image/') || imageExtPattern.test(file.name)
+  );
+  if (imageFiles.length === 0) return;
+
+  const images = await Promise.all(imageFiles.map(readFileAsDataUrl));
+  pendingImages.value.push(...images);
+};
+
+const openImagePicker = async () => {
+  isAttachmentMenuOpen.value = false;
+  activeSubmenu.value = null;
+
+  const picker = (window as unknown as {
+    showOpenFilePicker?: (options?: unknown) => Promise<Array<{ getFile: () => Promise<File> }>>;
+  }).showOpenFilePicker;
+
+  if (picker) {
+    try {
+      const handles = await picker({
+        multiple: true,
+        startIn: 'desktop',
+        types: [
+          {
+            description: 'Images',
+            accept: {
+              'image/*': ['.png', '.jpg', '.jpeg', '.gif', '.webp', '.bmp', '.tiff']
+            }
+          }
+        ]
+      });
+      const files = await Promise.all(handles.map(handle => handle.getFile()));
+      await appendImageFiles(files);
+      return;
+    } catch (error) {
+      const err = error as DOMException;
+      if (err?.name !== 'AbortError') {
+        console.error('[ImageUpload] File picker failed:', error);
+      }
+    }
+  }
+
+  imageUploadInputRef.value?.click();
+};
+
+const handleImageInputChange = async (event: Event) => {
+  const input = event.target as HTMLInputElement;
+  const files = input.files ? Array.from(input.files) : [];
+  input.value = '';
+  if (files.length === 0) return;
+  await appendImageFiles(files);
+};
+
+const handleAttachmentSelect = (att: { id: string; label: string }) => {
+  isAttachmentMenuOpen.value = false;
+  activeSubmenu.value = null;
+  if (att.id === 'upload') {
+    openImagePicker();
+    return;
+  }
+  handleContextSelect('attachments', att);
+};
+
 const toggleContextMenu = () => {
   baseToggleContextMenu();
   isModelMenuOpen.value = false;
@@ -864,7 +940,7 @@ onUnmounted(() => {
                                     class="menu-item" 
                                     v-for="att in contextOptions.attachments" 
                                     :key="att.id"
-                                    @click="handleContextSelect('attachments', att)"
+                                    @click="handleAttachmentSelect(att)"
                                 >
                                     <span class="item-text">{{ att.label }}</span>
                                 </div>
@@ -879,11 +955,20 @@ onUnmounted(() => {
 
         <!-- Polling Background Status Indicator -->
         <transition name="slide-down">
-          <div v-if="isPollingBackground" class="polling-indicator">
+        <div v-if="isPollingBackground" class="polling-indicator">
             <span class="polling-dot"></span>
             <span class="polling-text">正在等待后台任务...</span>
           </div>
         </transition>
+
+        <input
+          ref="imageUploadInputRef"
+          type="file"
+          accept="image/*,.png,.jpg,.jpeg,.gif,.webp,.bmp,.tiff"
+          multiple
+          style="display: none;"
+          @change="handleImageInputChange"
+        />
 
         <!-- Antigravity Input Box -->
         <div class="antigravity-input-box">
@@ -945,7 +1030,7 @@ onUnmounted(() => {
 
                                 <div class="menu-divider"></div>
                                 <!-- Upload Options -->
-                                <div class="menu-item">
+                                <div class="menu-item" @click.stop="openImagePicker">
                                     <span class="icon">
                                         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                                             <rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect>
