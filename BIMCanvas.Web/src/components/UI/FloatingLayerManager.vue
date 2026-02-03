@@ -53,23 +53,25 @@ const handleClickOutside = (event: MouseEvent) => {
 
 onMounted(() => {
   document.addEventListener('mousedown', handleClickOutside);
-  
-  // Listen for external layer updates (e.g. from View Mode toggle)
-  // Ideally we should use a store, but for now we listen to events or just rely on the fact 
-  // that this component is the main driver for these specific layers.
-  // However, RibbonToolbar toggles View Mode which affects layers.
-  // We should listen to 'bimcanvas:view-mode-change' to update UI state.
+
+  // 监听视图模式切换事件
   window.addEventListener('bimcanvas:view-mode-change', ((e: CustomEvent) => {
     const mode = e.detail;
-    currentView.value = mode; // Sync local state
-    if (mode === 'human') {
-      Object.keys(layers.value).forEach(key => layers.value[key as any] = false);
-      layers.value[LayerManager.LAYER_GRID] = true; // Enable Grid by default
-      layers.value[LayerManager.LAYER_ARCHITECTURE] = true; // 建筑图层默认启用
-      layers.value[LayerManager.LAYER_FURNITURE] = true; // 模块图层默认启用
-    } else {
-      Object.keys(layers.value).forEach(key => layers.value[key as any] = true);
-    }
+    currentView.value = mode; // 同步本地视图模式状态
+    // 注意：不再在此处硬编码图层状态，由 layer-state-change 事件处理
+  }) as EventListener);
+
+  // 监听图层状态变化事件（来自 LayerManager.applyPresetFromConfig）
+  window.addEventListener('bimcanvas:layer-state-change', ((e: CustomEvent) => {
+    const { layerStates } = e.detail as { preset: string; layerStates: Record<number, boolean> };
+    // 同步 UI 复选框状态
+    Object.keys(layers.value).forEach(key => {
+      const layerId = Number(key);
+      if (layerStates[layerId] !== undefined) {
+        layers.value[layerId] = layerStates[layerId];
+      }
+    });
+    console.log('[FloatingLayerManager] UI 图层状态已同步:', layers.value);
   }) as EventListener);
 });
 

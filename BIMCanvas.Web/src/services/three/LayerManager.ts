@@ -39,6 +39,21 @@ export class LayerManager {
         'FURNITURE': LayerManager.LAYER_FURNITURE
     };
 
+    // 图层 ID 到显示名称的映射（供 UI 使用）
+    public static readonly LAYER_DISPLAY_NAMES: Record<number, string> = {
+        [LayerManager.LAYER_MODEL]: 'Model',
+        [LayerManager.LAYER_GRID]: 'Grid',
+        [LayerManager.LAYER_LABELS]: 'Labels',
+        [LayerManager.LAYER_BOUNDS]: 'Bounds',
+        [LayerManager.LAYER_OUTLINE]: 'Outline',
+        [LayerManager.LAYER_SVG]: 'SVG Preview',
+        [LayerManager.LAYER_ZONES]: 'Zones',
+        [LayerManager.LAYER_SEMANTIC]: 'Semantic',
+        [LayerManager.LAYER_AI_VISION]: 'AI Vision',
+        [LayerManager.LAYER_ARCHITECTURE]: 'Architecture',
+        [LayerManager.LAYER_FURNITURE]: 'Furniture'
+    };
+
     // 所有图层 ID 列表（用于禁用全部）
     private static readonly ALL_LAYER_IDS: number[] = [
         LayerManager.LAYER_MODEL,
@@ -106,9 +121,16 @@ export class LayerManager {
             this.camera.layers.disable(id);
         });
 
+        // 构建图层状态记录
+        const layerStates: Record<number, boolean> = {};
+        LayerManager.ALL_LAYER_IDS.forEach(id => {
+            layerStates[id] = false;
+        });
+
         // 如果配置不存在，所有图层保持禁用
         if (!config || !config.enabledLayers) {
             console.log(`[LayerManager] 预设 "${preset}" 配置不存在，所有图层已禁用`);
+            this.dispatchLayerStateChangeEvent(preset, layerStates);
             return;
         }
 
@@ -117,20 +139,39 @@ export class LayerManager {
             const layerId = LayerManager.LAYER_NAME_MAP[layerName];
             if (layerId !== undefined) {
                 this.camera.layers.enable(layerId);
+                layerStates[layerId] = true;
             } else {
                 console.warn(`[LayerManager] 未知图层名称: ${layerName}`);
             }
         });
 
         console.log(`[LayerManager] 已应用预设 "${preset}":`, config.enabledLayers);
+        this.dispatchLayerStateChangeEvent(preset, layerStates);
+    }
+
+    /**
+     * 派发图层状态变化事件，通知 UI 同步状态
+     */
+    private dispatchLayerStateChangeEvent(preset: string, layerStates: Record<number, boolean>): void {
+        window.dispatchEvent(new CustomEvent('bimcanvas:layer-state-change', {
+            detail: { preset, layerStates }
+        }));
+        console.log(`[LayerManager] 已派发 layer-state-change 事件:`, { preset, layerStates });
     }
 
     /**
      * 硬编码默认预设（回退方案）
      */
     private applyPresetHardcoded(preset: string): void {
+        // 构建图层状态记录
+        const layerStates: Record<number, boolean> = {};
+        LayerManager.ALL_LAYER_IDS.forEach(id => {
+            layerStates[id] = false;
+        });
+
         // Always enable model
         this.camera.layers.enable(LayerManager.LAYER_MODEL);
+        layerStates[LayerManager.LAYER_MODEL] = true;
 
         if (preset === LayerManager.PRESET_HUMAN) {
             this.camera.layers.enable(LayerManager.LAYER_GRID); // Enable Grid by default for Human
@@ -143,6 +184,11 @@ export class LayerManager {
             this.camera.layers.disable(LayerManager.LAYER_ZONES);
             this.camera.layers.disable(LayerManager.LAYER_SEMANTIC);
             this.camera.layers.disable(LayerManager.LAYER_AI_VISION);
+
+            // 更新状态记录
+            layerStates[LayerManager.LAYER_GRID] = true;
+            layerStates[LayerManager.LAYER_ARCHITECTURE] = true;
+            layerStates[LayerManager.LAYER_FURNITURE] = true;
         } else if (preset === LayerManager.PRESET_AI) {
             // AI Mode: Enable all auxiliary layers (LAYER_MODEL always stays enabled)
             this.camera.layers.enable(LayerManager.LAYER_GRID);
@@ -156,7 +202,15 @@ export class LayerManager {
             this.camera.layers.enable(LayerManager.LAYER_ARCHITECTURE);
             this.camera.layers.enable(LayerManager.LAYER_FURNITURE);
             // Note: LAYER_MODEL is NOT disabled here. AI Vision is an OVERLAY, not a replacement.
+
+            // 更新状态记录 - 所有图层启用
+            LayerManager.ALL_LAYER_IDS.forEach(id => {
+                layerStates[id] = true;
+            });
         }
+
+        // 派发事件通知 UI 同步状态
+        this.dispatchLayerStateChangeEvent(preset, layerStates);
     }
 
     // Deprecated, kept for compatibility during refactor if needed, but better to remove or alias
