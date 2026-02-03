@@ -85,6 +85,15 @@ const textInputWidth = computed(() => {
 // 颜色选项（8种）
 const colors = ['#ff0000', '#ff6600', '#ffff00', '#00ff00', '#00ffff', '#0000ff', '#000000', '#ffffff']
 
+// --- Cursor restore ---
+const previousBodyCursor = ref('')
+const setBodyCursor = (value: string) => {
+    document.body.style.cursor = value
+}
+const restoreBodyCursor = () => {
+    document.body.style.cursor = previousBodyCursor.value
+}
+
 // --- 隐藏/恢复 UI 元素 ---
 const hiddenElements: { el: HTMLElement; display: string }[] = []
 
@@ -120,6 +129,8 @@ const restoreUIElements = () => {
 // --- 初始化 ---
 onMounted(async () => {
   try {
+    previousBodyCursor.value = document.body.style.cursor
+
     // 隐藏所有 UI 元素
     hideUIElements()
     
@@ -157,6 +168,7 @@ onMounted(async () => {
   } catch (error) {
     console.error('[Screenshot] Init failed:', error)
     restoreUIElements()
+    restoreBodyCursor()
     emit('cancel')
   }
 })
@@ -164,6 +176,7 @@ onMounted(async () => {
 onUnmounted(() => {
   // 恢复 UI 元素
   restoreUIElements()
+  restoreBodyCursor()
 
   // 移除全局事件监听
   window.removeEventListener('keydown', handleKeyDown)
@@ -745,7 +758,7 @@ const getSelectionEdgeHandle = (x: number, y: number): ResizeHandle | null => {
 const updateCursor = (x: number, y: number) => {
     // 选区阶段：十字光标
     if (isSelecting.value) {
-        document.body.style.cursor = 'crosshair'
+        setBodyCursor('crosshair')
         return
     }
     
@@ -758,13 +771,13 @@ const updateCursor = (x: number, y: number) => {
             'n': 'ns-resize', 's': 'ns-resize',
             'e': 'ew-resize', 'w': 'ew-resize'
         }
-        document.body.style.cursor = cursorMap[edgeHandle]
+        setBodyCursor(cursorMap[edgeHandle])
         return
     }
     
     // 检查是否在选区外 (禁止)
     if (!isPointInRect(x, y, selX.value, selY.value, selW.value, selH.value)) {
-        document.body.style.cursor = 'not-allowed'
+        setBodyCursor('not-allowed')
         return
     }
     
@@ -772,7 +785,7 @@ const updateCursor = (x: number, y: number) => {
     
     // 1. 如果选中了工具，显示十字
     if (currentTool.value) {
-        document.body.style.cursor = 'crosshair'
+        setBodyCursor('crosshair')
         return
     }
     
@@ -786,9 +799,9 @@ const updateCursor = (x: number, y: number) => {
                     'nw': 'nwse-resize', 'se': 'nwse-resize',
                     'ne': 'nesw-resize', 'sw': 'nesw-resize'
                 }
-                document.body.style.cursor = cursorMap[handle] || 'pointer'
+                setBodyCursor(cursorMap[handle] || 'pointer')
             } else {
-                document.body.style.cursor = 'pointer'
+                setBodyCursor('pointer')
             }
             return
         }
@@ -797,12 +810,12 @@ const updateCursor = (x: number, y: number) => {
     // 3. 检查是否悬停在某个标注上 (移动光标)
     const hitIndex = getHitAnnotation(x, y)
     if (hitIndex !== -1) {
-        document.body.style.cursor = 'move'
+        setBodyCursor('move')
         return
     }
     
     // 4. 在选区内空白区域 (移动整个选区)
-    document.body.style.cursor = 'move'
+    setBodyCursor('move')
 }
 
 const selectTool = (tool: ToolType) => {
@@ -844,6 +857,7 @@ const confirmCapture = () => {
             tCtx.fillText(ann.text, (ann.x - selX.value) * dpr, (ann.y - selY.value) * dpr)
         }
     })
+    restoreBodyCursor()
     emit('capture', tempCanvas.toDataURL('image/png'))
 }
 
