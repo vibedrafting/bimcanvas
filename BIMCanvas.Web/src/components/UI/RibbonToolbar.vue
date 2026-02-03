@@ -279,11 +279,11 @@ const handleConflictCancel = () => {
 @keyframes dropdownSlideDown {
   from {
     opacity: 0;
-    transform: translateY(-8px) scale(0.98);
+    transform: translateY(-8px);
   }
   to {
     opacity: 1;
-    transform: translateY(0) scale(1);
+    transform: translateY(0);
   }
 }
 </style>
