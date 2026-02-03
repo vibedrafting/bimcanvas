@@ -24,9 +24,24 @@ export class LayerManager {
     public static readonly LAYER_ARCHITECTURE = 10; // 建筑图层（墙柱门窗）
     public static readonly LAYER_FURNITURE = 11;    // 模块预览图层（家具）
 
-    // 图层名称到 ID 的映射
+    // 图层名称到 ID 的映射（首字母大写格式，与 UI 显示一致）
+    // 注意：配置文件中的图层名称应使用此格式
     private static readonly LAYER_NAME_MAP: Record<string, number> = {
-        'MODEL': LayerManager.LAYER_MODEL,
+        'Grid': LayerManager.LAYER_GRID,
+        'Labels': LayerManager.LAYER_LABELS,
+        'Bounds': LayerManager.LAYER_BOUNDS,
+        'Outline': LayerManager.LAYER_OUTLINE,
+        'SVG Preview': LayerManager.LAYER_SVG,
+        'Zones': LayerManager.LAYER_ZONES,
+        'Semantic': LayerManager.LAYER_SEMANTIC,
+        'AI Vision': LayerManager.LAYER_AI_VISION,
+        'Architecture': LayerManager.LAYER_ARCHITECTURE,
+        'Furniture': LayerManager.LAYER_FURNITURE
+        // 注意：Model 不在此映射中，因为它是强制启用的
+    };
+
+    // 旧格式映射（向后兼容大写格式）
+    private static readonly LAYER_NAME_MAP_LEGACY: Record<string, number> = {
         'GRID': LayerManager.LAYER_GRID,
         'LABELS': LayerManager.LAYER_LABELS,
         'BOUNDS': LayerManager.LAYER_BOUNDS,
@@ -110,6 +125,21 @@ export class LayerManager {
     }
 
     /**
+     * 根据图层名称查找图层 ID（支持新旧两种格式）
+     */
+    private static resolveLayerId(layerName: string): number | undefined {
+        // 优先使用新格式（首字母大写）
+        if (LayerManager.LAYER_NAME_MAP[layerName] !== undefined) {
+            return LayerManager.LAYER_NAME_MAP[layerName];
+        }
+        // 向后兼容旧格式（全大写）
+        if (LayerManager.LAYER_NAME_MAP_LEGACY[layerName] !== undefined) {
+            return LayerManager.LAYER_NAME_MAP_LEGACY[layerName];
+        }
+        return undefined;
+    }
+
+    /**
      * 从外部配置应用预设
      */
     private applyPresetFromConfig(preset: string): void {
@@ -127,16 +157,20 @@ export class LayerManager {
             layerStates[id] = false;
         });
 
-        // 如果配置不存在，所有图层保持禁用
+        // MODEL 图层强制启用（无论配置如何）
+        this.camera.layers.enable(LayerManager.LAYER_MODEL);
+        layerStates[LayerManager.LAYER_MODEL] = true;
+
+        // 如果配置不存在，仅启用 MODEL
         if (!config || !config.enabledLayers) {
-            console.log(`[LayerManager] 预设 "${preset}" 配置不存在，所有图层已禁用`);
+            console.log(`[LayerManager] 预设 "${preset}" 配置不存在，仅启用 MODEL 图层`);
             this.dispatchLayerStateChangeEvent(preset, layerStates);
             return;
         }
 
         // 根据配置启用指定图层
         config.enabledLayers.forEach(layerName => {
-            const layerId = LayerManager.LAYER_NAME_MAP[layerName];
+            const layerId = LayerManager.resolveLayerId(layerName);
             if (layerId !== undefined) {
                 this.camera.layers.enable(layerId);
                 layerStates[layerId] = true;
