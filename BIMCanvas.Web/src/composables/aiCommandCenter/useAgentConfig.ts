@@ -2,6 +2,16 @@ import { nextTick, ref } from 'vue';
 import type { ModelOption, ThinkingLevel } from '../../types/aiCommandCenter';
 import { thinkingLevels } from '../../constants/aiCommandCenter';
 
+// 图层预设配置类型
+export interface LayerPresetConfig {
+  enabledLayers: string[];
+}
+
+export interface LayerPresetsConfig {
+  human?: LayerPresetConfig;
+  ai?: LayerPresetConfig;
+}
+
 export const useAgentConfig = (agentApiBase: string) => {
   const models = ref<ModelOption[]>([]);
   const currentModel = ref<ModelOption | null>(null);
@@ -11,6 +21,7 @@ export const useAgentConfig = (agentApiBase: string) => {
   const isAddingModel = ref(false);
   const newModelId = ref('');
   const newModelInputRef = ref<HTMLInputElement | null>(null);
+  const layerPresets = ref<LayerPresetsConfig>({});
 
   const saveCustomModels = async () => {
     try {
@@ -69,6 +80,14 @@ export const useAgentConfig = (agentApiBase: string) => {
       if (webConfigRes.ok) {
         const webConfig = await webConfigRes.json();
         models.value = webConfig.customModels || [];
+        // 解析图层预设配置
+        layerPresets.value = webConfig.layerPresets || {};
+        console.log('图层预设配置已加载:', layerPresets.value);
+
+        // 派发事件通知 LayerManager 更新配置
+        window.dispatchEvent(new CustomEvent('bimcanvas:layer-presets-loaded', {
+          detail: layerPresets.value
+        }));
       }
 
       if (configRes.ok) {
@@ -110,6 +129,7 @@ export const useAgentConfig = (agentApiBase: string) => {
     isAddingModel,
     newModelId,
     newModelInputRef,
+    layerPresets,
     fetchAgentConfig,
     selectModel,
     startAddModel,

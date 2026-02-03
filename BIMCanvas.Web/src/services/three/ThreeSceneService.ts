@@ -375,6 +375,17 @@ export class ThreeSceneService {
         this.boundEventHandlers.set('bimcanvas:grid-spacing-change', gridSpacingHandler);
         window.addEventListener('bimcanvas:grid-spacing-change', gridSpacingHandler);
 
+        // 图层预设配置加载事件监听
+        const layerPresetsHandler = ((e: CustomEvent) => {
+            const presets = e.detail;
+            console.log('[ThreeSceneService] 收到图层预设配置:', presets);
+            this.layerManager.setPresetConfig(presets);
+            // 重新应用当前预设以使配置生效
+            this.layerManager.applyPreset(LayerManager.PRESET_HUMAN);
+        }) as EventListener;
+        this.boundEventHandlers.set('bimcanvas:layer-presets-loaded', layerPresetsHandler);
+        window.addEventListener('bimcanvas:layer-presets-loaded', layerPresetsHandler);
+
         // 6. Start Animation Loop
         if (!this.store.isScreenshotRender) {
             this.animate();

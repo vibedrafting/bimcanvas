@@ -1,5 +1,15 @@
 import * as THREE from 'three';
 
+// 图层预设配置类型
+export interface LayerPresetConfig {
+    enabledLayers: string[];
+}
+
+export interface LayerPresetsConfig {
+    human?: LayerPresetConfig;
+    ai?: LayerPresetConfig;
+}
+
 export class LayerManager {
     // Layer Definitions
     public static readonly LAYER_MODEL = 0; // 默认模型层
@@ -14,15 +24,55 @@ export class LayerManager {
     public static readonly LAYER_ARCHITECTURE = 10; // 建筑图层（墙柱门窗）
     public static readonly LAYER_FURNITURE = 11;    // 模块预览图层（家具）
 
+    // 图层名称到 ID 的映射
+    private static readonly LAYER_NAME_MAP: Record<string, number> = {
+        'MODEL': LayerManager.LAYER_MODEL,
+        'GRID': LayerManager.LAYER_GRID,
+        'LABELS': LayerManager.LAYER_LABELS,
+        'BOUNDS': LayerManager.LAYER_BOUNDS,
+        'OUTLINE': LayerManager.LAYER_OUTLINE,
+        'SVG': LayerManager.LAYER_SVG,
+        'ZONES': LayerManager.LAYER_ZONES,
+        'SEMANTIC': LayerManager.LAYER_SEMANTIC,
+        'AI_VISION': LayerManager.LAYER_AI_VISION,
+        'ARCHITECTURE': LayerManager.LAYER_ARCHITECTURE,
+        'FURNITURE': LayerManager.LAYER_FURNITURE
+    };
+
+    // 所有图层 ID 列表（用于禁用全部）
+    private static readonly ALL_LAYER_IDS: number[] = [
+        LayerManager.LAYER_MODEL,
+        LayerManager.LAYER_GRID,
+        LayerManager.LAYER_LABELS,
+        LayerManager.LAYER_BOUNDS,
+        LayerManager.LAYER_OUTLINE,
+        LayerManager.LAYER_SVG,
+        LayerManager.LAYER_ZONES,
+        LayerManager.LAYER_SEMANTIC,
+        LayerManager.LAYER_AI_VISION,
+        LayerManager.LAYER_ARCHITECTURE,
+        LayerManager.LAYER_FURNITURE
+    ];
+
     // Presets
     public static readonly PRESET_HUMAN = 'human';
     public static readonly PRESET_AI = 'ai';
 
     private camera: THREE.Camera;
+    private presetConfig: LayerPresetsConfig | null = null;
 
     constructor(camera: THREE.Camera) {
         this.camera = camera;
         this.applyPreset(LayerManager.PRESET_HUMAN);
+    }
+
+    /**
+     * 设置预设配置（从外部配置文件加载）
+     * @param config 图层预设配置
+     */
+    public setPresetConfig(config: LayerPresetsConfig): void {
+        this.presetConfig = config;
+        console.log('[LayerManager] 预设配置已更新:', config);
     }
 
     public toggleLayer(layerId: number, visible: boolean) {
@@ -34,6 +84,51 @@ export class LayerManager {
     }
 
     public applyPreset(preset: string) {
+        // 如果有外部配置，使用外部配置
+        if (this.presetConfig) {
+            this.applyPresetFromConfig(preset);
+            return;
+        }
+
+        // 回退到硬编码默认值（兼容性保留）
+        this.applyPresetHardcoded(preset);
+    }
+
+    /**
+     * 从外部配置应用预设
+     */
+    private applyPresetFromConfig(preset: string): void {
+        const presetKey = preset as keyof LayerPresetsConfig;
+        const config = this.presetConfig?.[presetKey];
+
+        // 先禁用所有图层
+        LayerManager.ALL_LAYER_IDS.forEach(id => {
+            this.camera.layers.disable(id);
+        });
+
+        // 如果配置不存在，所有图层保持禁用
+        if (!config || !config.enabledLayers) {
+            console.log(`[LayerManager] 预设 "${preset}" 配置不存在，所有图层已禁用`);
+            return;
+        }
+
+        // 根据配置启用指定图层
+        config.enabledLayers.forEach(layerName => {
+            const layerId = LayerManager.LAYER_NAME_MAP[layerName];
+            if (layerId !== undefined) {
+                this.camera.layers.enable(layerId);
+            } else {
+                console.warn(`[LayerManager] 未知图层名称: ${layerName}`);
+            }
+        });
+
+        console.log(`[LayerManager] 已应用预设 "${preset}":`, config.enabledLayers);
+    }
+
+    /**
+     * 硬编码默认预设（回退方案）
+     */
+    private applyPresetHardcoded(preset: string): void {
         // Always enable model
         this.camera.layers.enable(LayerManager.LAYER_MODEL);
 
