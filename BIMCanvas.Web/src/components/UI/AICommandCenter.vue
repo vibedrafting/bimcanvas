@@ -1014,7 +1014,7 @@ onUnmounted(() => {
               @keydown="handleKeydown"
               @paste="handleImagePaste"
               @input="adjustTextareaHeight"
-              :disabled="isLoading || agentStatus !== 'connected'"
+              :disabled="agentStatus !== 'connected'"
               rows="1"
             ></textarea>
             

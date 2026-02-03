@@ -407,6 +407,19 @@ export const useChatStream = (options: ChatStreamOptions) => {
 
       agentStatus.value = 'connected';
     } catch (error) {
+      // AbortError 是用户主动中止，不是真正的错误
+      if (error instanceof Error && error.name === 'AbortError') {
+        console.log('[sendMessage] Request aborted by user');
+        // 正常结束，不显示错误
+        const currentMsg = options.getWindowMessage(targetWindowId, aiMessageIndex);
+        if (currentMsg) {
+          currentMsg.isStreaming = false;
+          currentMsg.waitingState.isWaiting = false;
+        }
+        return;  // 提前返回，跳过错误处理
+      }
+
+      // 其他错误正常处理
       console.error('Chat error:', error);
       const currentMsg = options.getWindowMessage(targetWindowId, aiMessageIndex);
       if (currentMsg) {
