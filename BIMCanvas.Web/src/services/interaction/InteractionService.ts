@@ -28,6 +28,10 @@ export class InteractionService {
     private isBoxSelecting = false;
     private mouseDownStart = new THREE.Vector2(); // Screen coords (pixels)
     private selectionBoxElement: HTMLDivElement;
+    private selectionBoxRafId = 0;
+    private pendingSelectionBoxPoint: { x: number; y: number } | null = null;
+    private selectionBoxCrossing: boolean | null = null;
+    private cachedDomRect: DOMRect | null = null;
 
     // Bound Event Handlers
     private boundOnMouseMove: (event: MouseEvent) => void;
@@ -58,6 +62,7 @@ export class InteractionService {
         this.selectionBoxElement.style.pointerEvents = 'none';
         this.selectionBoxElement.style.display = 'none';
         this.selectionBoxElement.style.zIndex = '9999';
+        this.selectionBoxElement.style.willChange = 'left, top, width, height';
         document.body.appendChild(this.selectionBoxElement);
 
         // Bind handlers
@@ -274,6 +279,8 @@ export class InteractionService {
         this.isMouseDown = true;
         this.mouseDownStart.set(event.clientX, event.clientY);
         this.isBoxSelecting = false;
+        this.selectionBoxCrossing = null;
+        this.cachedDomRect = this.domElement.getBoundingClientRect();
     }
 
     private onMouseMove(event: MouseEvent) {
@@ -287,7 +294,7 @@ export class InteractionService {
             }
         }
 
-        const rect = this.domElement.getBoundingClientRect();
+        const rect = this.cachedDomRect ?? this.domElement.getBoundingClientRect();
         this.mouse.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
         this.mouse.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
 
@@ -295,11 +302,14 @@ export class InteractionService {
         if (this.isMouseDown) {
             const deltaX = event.clientX - this.mouseDownStart.x;
             const deltaY = event.clientY - this.mouseDownStart.y;
-            const distance = Math.sqrt(deltaX * deltaX + deltaY * deltaY);
+            const distanceSq = deltaX * deltaX + deltaY * deltaY;
 
-            if (distance > 5) { // Threshold to start box selection
-                this.isBoxSelecting = true;
-                this.updateSelectionBoxVisual(event.clientX, event.clientY);
+            if (distanceSq > 25) { // Threshold to start box selection (5px)
+                if (!this.isBoxSelecting) {
+                    this.isBoxSelecting = true;
+                    this.selectionBoxElement.style.display = 'block';
+                }
+                this.scheduleSelectionBoxUpdate(event.clientX, event.clientY);
             }
         }
     }
@@ -321,6 +331,24 @@ export class InteractionService {
         }
 
         this.isMouseDown = false;
+        this.cachedDomRect = null;
+        this.pendingSelectionBoxPoint = null;
+        if (this.selectionBoxRafId) {
+            cancelAnimationFrame(this.selectionBoxRafId);
+            this.selectionBoxRafId = 0;
+        }
+    }
+
+    private scheduleSelectionBoxUpdate(currentX: number, currentY: number) {
+        this.pendingSelectionBoxPoint = { x: currentX, y: currentY };
+        if (this.selectionBoxRafId) return;
+
+        this.selectionBoxRafId = requestAnimationFrame(() => {
+            this.selectionBoxRafId = 0;
+            const point = this.pendingSelectionBoxPoint;
+            if (!point || !this.isBoxSelecting) return;
+            this.updateSelectionBoxVisual(point.x, point.y);
+        });
     }
 
     private updateSelectionBoxVisual(currentX: number, currentY: number) {
@@ -335,7 +363,6 @@ export class InteractionService {
         const width = maxX - minX;
         const height = maxY - minY;
 
-        this.selectionBoxElement.style.display = 'block';
         this.selectionBoxElement.style.left = `${minX}px`;
         this.selectionBoxElement.style.top = `${minY}px`;
         this.selectionBoxElement.style.width = `${width}px`;
@@ -344,14 +371,18 @@ export class InteractionService {
         // CAD Style:
         // Left-to-Right (startX < currentX): Blue (Inclusive)
         // Right-to-Left (startX > currentX): Green (Crossing)
-        if (currentX > startX) {
-            // Blue - Inclusive
-            this.selectionBoxElement.style.backgroundColor = 'rgba(0, 0, 255, 0.1)';
-            this.selectionBoxElement.style.border = '1px solid rgba(0, 0, 255, 0.5)';
-        } else {
-            // Green - Crossing
-            this.selectionBoxElement.style.backgroundColor = 'rgba(0, 255, 0, 0.1)';
-            this.selectionBoxElement.style.border = '1px solid rgba(0, 255, 0, 0.5)';
+        const isCrossing = currentX < startX;
+        if (isCrossing !== this.selectionBoxCrossing) {
+            this.selectionBoxCrossing = isCrossing;
+            if (!isCrossing) {
+                // Blue - Inclusive
+                this.selectionBoxElement.style.backgroundColor = 'rgba(0, 0, 255, 0.1)';
+                this.selectionBoxElement.style.border = '1px solid rgba(0, 0, 255, 0.5)';
+            } else {
+                // Green - Crossing
+                this.selectionBoxElement.style.backgroundColor = 'rgba(0, 255, 0, 0.1)';
+                this.selectionBoxElement.style.border = '1px solid rgba(0, 255, 0, 0.5)';
+            }
         }
     }
 
