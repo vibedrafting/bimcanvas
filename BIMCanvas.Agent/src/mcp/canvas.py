@@ -545,6 +545,10 @@ async def get_workflow_guide(args: dict[str, Any]) -> dict[str, Any]:
   → 如果未读取，立即停止并先读取
   → 重点阅读：§四 尺寸标准、§五 房间布置要点
 
+□ 已读取 modules/README.md（模块库架构说明）
+  → 如果未读取，立即停止并先读取
+  → 了解双层架构：契约层（尺寸）+ 意图层（agent_config）
+
 □ 已读取 modules/module_library.json
   → 如果未读取，立即停止并先读取
   → 家具尺寸必须从此文件选择，禁止编造
@@ -576,27 +580,39 @@ async def get_workflow_guide(args: dict[str, Any]) -> dict[str, Any]:
 2. **读取设计规范**（必须）
    Read knowledge/placement_guide.md
 
-3. **读取家具库**（必须）
+3. **读取模块库架构说明**（必须）
+   Read modules/README.md
+   → 了解模块库的双层架构：
+     - 契约层：id, tags, size, svgPath（用于选择模块）
+     - 意图层：agent_config（用于决策布置）
+   → 理解 agent_config 的三个关键字段：
+     - morphology.strategy: 形态策略（fixed=固定尺寸, horizontal_fill=横向填充, parametric=参数化）
+     - topology_rules: 拓扑规则（物体与环境的空间关系，如"靠墙放置"）
+     - relation_rules: 关系规则（物体与其他家具的配合，如"面向电视墙"）
+
+4. **读取家具库数据**（必须）
    Read modules/module_library.json
    → 家具尺寸必须从此文件选择
+   → 根据目标 Zone.tags 筛选兼容模块（模块的 tags 与 zone 的 tags 有交集）
+   → 布置时参考每个模块的 agent_config 进行决策
 
-4. **读取空间数据**
+5. **读取空间数据**
    - Read computed/room_zones.json
    - Read computed/exclusions.json
    - Read baseline/openings.json
 
-5. **设计布置方案**
+6. **设计布置方案**
    基于：
    - 截图理解的空间形态
    - placement_guide 的设计规范
-   - module_library 的家具选择
+   - module_library 的家具选择 + agent_config 的布置规则
 
    按优先级布置：
    - 锚点家具（电视柜/床/餐桌）
    - 主要家具（沙发/衣柜）
    - 辅助家具（茶几/边几）
 
-6. **写入结果**（注意路径）
+7. **写入结果**（注意路径）
    Write schemes/{zoneId}/modules.json（每个分区单独文件）
 
    **路径规范**：
@@ -622,19 +638,19 @@ async def get_workflow_guide(args: dict[str, Any]) -> dict[str, Any]:
    ]
    ```
 
-7. **后置截图验证 + 查看**（必须）
+8. **后置截图验证 + 查看**（必须）
    ```
-   # 步骤 7.1：调用截图工具，获取图片路径
+   # 步骤 8.1：调用截图工具，获取图片路径
    screenshot_path = mcp__canvas__request_background_screenshot(
      projectPath="{当前工作目录}",
      viewport={"mode": "full"}
    )
 
-   # 步骤 7.2：必须用 Read 查看图片！
+   # 步骤 8.2：必须用 Read 查看图片！
    Read {screenshot_path}
    ```
    → 验证家具位置、朝向、间距是否符合预期
-   → 如发现问题，返回步骤 5 修正
+   → 如发现问题，返回步骤 6 修正
 
    **警告**：仅调用截图工具但不 Read 查看 = 未完成验证
 
@@ -652,6 +668,7 @@ async def get_workflow_guide(args: dict[str, Any]) -> dict[str, Any]:
 | 凭空编造家具尺寸 | 从 module_library.json 选择 |
 | 跳过截图步骤 | 前后各调用一次截图工具 |
 | 跳过 placement_guide | 必须读取并遵守规范 |
+| 跳过 modules/README.md | 必须读取以理解 agent_config 使用方式 |
 """
     }
 

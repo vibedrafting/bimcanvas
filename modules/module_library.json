@@ -3,27 +3,6 @@
   "modules": [
     {
       "id": "mod_bed_001",
-      "name": "双人床",
-      "tags": [
-        "sleep"
-      ],
-      "size": {
-        "width": 1800,
-        "depth": 2000
-      },
-      "agent_config": {
-        "morphology": {
-          "strategy": "fixed"
-        },
-        "topology_rules": [
-          "严格避让门的开启扇区域"
-        ]
-      },
-      "description": "标准双人床",
-      "svgPath": "assets/mod_bed_001.svg"
-    },
-    {
-      "id": "mod_bed_002",
       "name": "凤栖湖大床",
       "tags": [
         "sleep"
@@ -45,7 +24,7 @@
         ]
       },
       "description": "凤栖湖定制1800床",
-      "svgPath": "assets/mod_bed_002.svg"
+      "svgPath": "assets/mod_bed_001.svg"
     },
     {
       "id": "mod_cabinet_001",
