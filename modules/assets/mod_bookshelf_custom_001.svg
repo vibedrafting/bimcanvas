@@ -1,0 +1,23 @@
+<svg viewBox="0 0 3500 350" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <style>
+      .main-lines { fill: none; stroke: #000000; stroke-width: 25; stroke-linecap: round; stroke-linejoin: round; }
+      .fine-lines { fill: none; stroke: #000000; stroke-width: 15; stroke-linecap: round; stroke-linejoin: round; }
+    </style>
+  </defs>
+  
+  <!-- 1. Bookshelf Body - 矩形外框 (Inset 13px) -->
+  <!-- 3500 - 26 = 3474, 350 - 26 = 324 -->
+  <rect x="13" y="13" width="3474" height="324" class="main-lines" />
+  
+  <!-- 2. Dividers & Symbol -->
+  <!-- 中间分隔线 (x = 1750) -->
+  <line x1="1750" y1="13" x2="1750" y2="337" class="fine-lines" />
+  
+  <!-- 左侧单斜线表示层板/收纳 -->
+  <line x1="13" y1="13" x2="1750" y2="337" class="fine-lines" />
+  
+  <!-- 右侧单斜线 -->
+  <line x1="1750" y1="13" x2="3487" y2="337" class="fine-lines" />
+
+</svg>

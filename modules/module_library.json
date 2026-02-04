@@ -1,42 +1,147 @@
 {
   "version": "1.0",
   "modules": [
-    {"id": "mod_bed_001", "name": "双人床", "tags": ["sleep"], "size": {"width": 1800, "depth": 2000}, "description": "标准双人床", "svgPath": "E:/工作文档/开发类/MyCode/BIMCanvas/modules/assets/mod_bed_001.svg"},
-    {"id": "mod_bed_002", "name": "大双人床", "tags": ["sleep"], "size": {"width": 2230, "depth": 2500}, "description": "加大双人床", "svgPath": "E:/工作文档/开发类/MyCode/BIMCanvas/modules/assets/mod_bed_002.svg"},
-    {"id": "mod_bed_003", "name": "单人床", "tags": ["sleep"], "size": {"width": 1300, "depth": 2000}, "description": "标准单人床", "svgPath": "E:/工作文档/开发类/MyCode/BIMCanvas/modules/assets/mod_bed_003.svg"},
-    {"id": "mod_bed_004", "name": "榻榻米", "tags": ["sleep", "storage"], "size": {"width": 1810, "depth": 1810}, "description": "榻榻米床", "svgPath": "E:/工作文档/开发类/MyCode/BIMCanvas/modules/assets/mod_bed_004.svg"},
-    {"id": "mod_sofa_001", "name": "单人沙发", "tags": ["seating"], "size": {"width": 760, "depth": 660}, "description": "单人休闲沙发", "svgPath": "E:/工作文档/开发类/MyCode/BIMCanvas/modules/assets/mod_sofa_001.svg"},
-    {"id": "mod_sofa_002", "name": "双人沙发", "tags": ["seating"], "size": {"width": 1800, "depth": 810}, "description": "双人沙发", "svgPath": "E:/工作文档/开发类/MyCode/BIMCanvas/modules/assets/mod_sofa_002.svg"},
-    {"id": "mod_sofa_003", "name": "多人沙发", "tags": ["seating"], "size": {"width": 2650, "depth": 960}, "description": "三人沙发", "svgPath": "E:/工作文档/开发类/MyCode/BIMCanvas/modules/assets/mod_sofa_003.svg"},
-    {"id": "mod_sofa_004", "name": "转角沙发", "tags": ["seating"], "size": {"width": 2800, "depth": 1850}, "description": "L型转角沙发", "svgPath": "E:/工作文档/开发类/MyCode/BIMCanvas/modules/assets/mod_sofa_004.svg"},
-    {"id": "mod_sofa_005", "name": "组合沙发", "tags": ["seating"], "size": {"width": 4000, "depth": 2100}, "description": "大型组合沙发", "svgPath": "E:/工作文档/开发类/MyCode/BIMCanvas/modules/assets/mod_sofa_005.svg"},
-    {"id": "mod_sofa_006", "name": "弧形沙发", "tags": ["seating"], "size": {"width": 3200, "depth": 1300}, "description": "弧形沙发", "svgPath": "E:/工作文档/开发类/MyCode/BIMCanvas/modules/assets/mod_sofa_006.svg"},
-    {"id": "mod_sofa_007", "name": "贵妃椅", "tags": ["seating"], "size": {"width": 1600, "depth": 840}, "description": "贵妃椅", "svgPath": "E:/工作文档/开发类/MyCode/BIMCanvas/modules/assets/mod_sofa_007.svg"},
-    {"id": "mod_chair_001", "name": "吧椅", "tags": ["seating", "dining"], "size": {"width": 430, "depth": 500}, "description": "高脚吧椅", "svgPath": "E:/工作文档/开发类/MyCode/BIMCanvas/modules/assets/mod_chair_001.svg"},
-    {"id": "mod_chair_002", "name": "凳子", "tags": ["seating"], "size": {"width": 380, "depth": 380}, "description": "方形凳子", "svgPath": "E:/工作文档/开发类/MyCode/BIMCanvas/modules/assets/mod_chair_002.svg"},
-    {"id": "mod_chair_003", "name": "靠背椅", "tags": ["seating", "dining"], "size": {"width": 470, "depth": 470}, "description": "带靠背餐椅", "svgPath": "E:/工作文档/开发类/MyCode/BIMCanvas/modules/assets/mod_chair_003.svg"},
-    {"id": "mod_chair_004", "name": "休闲椅", "tags": ["seating"], "size": {"width": 730, "depth": 1380}, "description": "休闲躺椅", "svgPath": "E:/工作文档/开发类/MyCode/BIMCanvas/modules/assets/mod_chair_004.svg"},
-    {"id": "mod_chair_005", "name": "床尾凳", "tags": ["seating", "storage"], "size": {"width": 1600, "depth": 480}, "description": "床尾凳", "svgPath": "E:/工作文档/开发类/MyCode/BIMCanvas/modules/assets/mod_chair_005.svg"},
-    {"id": "mod_chair_006", "name": "长方形凳", "tags": ["seating"], "size": {"width": 520, "depth": 400}, "description": "长方形矮凳", "svgPath": "E:/工作文档/开发类/MyCode/BIMCanvas/modules/assets/mod_chair_006.svg"},
-    {"id": "mod_table_001", "name": "餐桌", "tags": ["dining"], "size": {"width": 1600, "depth": 900}, "description": "长方形餐桌", "svgPath": "E:/工作文档/开发类/MyCode/BIMCanvas/modules/assets/mod_table_001.svg"},
-    {"id": "mod_table_002", "name": "茶几", "tags": ["storage"], "size": {"width": 1200, "depth": 760}, "description": "客厅茶几", "svgPath": "E:/工作文档/开发类/MyCode/BIMCanvas/modules/assets/mod_table_002.svg"},
-    {"id": "mod_table_003", "name": "书桌", "tags": ["work"], "size": {"width": 1470, "depth": 700}, "description": "书房书桌", "svgPath": "E:/工作文档/开发类/MyCode/BIMCanvas/modules/assets/mod_table_003.svg"},
-    {"id": "mod_table_004", "name": "方形桌", "tags": ["dining"], "size": {"width": 900, "depth": 900}, "description": "方形餐桌", "svgPath": "E:/工作文档/开发类/MyCode/BIMCanvas/modules/assets/mod_table_004.svg"},
-    {"id": "mod_table_005", "name": "圆桌", "tags": ["dining"], "size": {"width": 1350, "depth": 1350}, "description": "圆形餐桌", "svgPath": "E:/工作文档/开发类/MyCode/BIMCanvas/modules/assets/mod_table_005.svg"},
-    {"id": "mod_table_006", "name": "梳妆台", "tags": ["dressing", "storage"], "size": {"width": 1200, "depth": 1000}, "description": "梳妆台", "svgPath": "E:/工作文档/开发类/MyCode/BIMCanvas/modules/assets/mod_table_006.svg"},
-    {"id": "mod_table_007", "name": "吧台", "tags": ["dining"], "size": {"width": 1100, "depth": 420}, "description": "吧台", "svgPath": "E:/工作文档/开发类/MyCode/BIMCanvas/modules/assets/mod_table_007.svg"},
-    {"id": "mod_cabinet_001", "name": "电视柜", "tags": ["media", "storage"], "size": {"width": 1200, "depth": 500}, "description": "小型电视柜", "svgPath": "E:/工作文档/开发类/MyCode/BIMCanvas/modules/assets/mod_cabinet_001.svg"},
-    {"id": "mod_cabinet_002", "name": "大电视柜", "tags": ["media", "storage"], "size": {"width": 2000, "depth": 450}, "description": "大型电视柜", "svgPath": "E:/工作文档/开发类/MyCode/BIMCanvas/modules/assets/mod_cabinet_002.svg"},
-    {"id": "mod_cabinet_003", "name": "边柜", "tags": ["storage"], "size": {"width": 920, "depth": 380}, "description": "边柜", "svgPath": "E:/工作文档/开发类/MyCode/BIMCanvas/modules/assets/mod_cabinet_003.svg"},
-    {"id": "mod_cabinet_004", "name": "边几", "tags": ["storage"], "size": {"width": 460, "depth": 420}, "description": "边几", "svgPath": "E:/工作文档/开发类/MyCode/BIMCanvas/modules/assets/mod_cabinet_004.svg"},
-    {"id": "mod_cabinet_005", "name": "床头柜", "tags": ["storage"], "size": {"width": 420, "depth": 350}, "description": "床头柜", "svgPath": "E:/工作文档/开发类/MyCode/BIMCanvas/modules/assets/mod_cabinet_005.svg"},
-    {"id": "mod_cabinet_006", "name": "衣柜", "tags": ["storage"], "size": {"width": 2000, "depth": 650}, "description": "大衣柜", "svgPath": "E:/工作文档/开发类/MyCode/BIMCanvas/modules/assets/mod_cabinet_006.svg"},
-    {"id": "mod_cabinet_007", "name": "通用柜架", "tags": ["storage"], "size": {"width": 1400, "depth": 500}, "description": "通用储物柜架", "svgPath": "E:/工作文档/开发类/MyCode/BIMCanvas/modules/assets/mod_cabinet_007.svg"},
-    {"id": "mod_appliance_001", "name": "冰箱", "tags": ["appliance"], "size": {"width": 600, "depth": 450}, "description": "单门冰箱", "svgPath": "E:/工作文档/开发类/MyCode/BIMCanvas/modules/assets/mod_appliance_001.svg"},
-    {"id": "mod_appliance_002", "name": "双门冰箱", "tags": ["appliance"], "size": {"width": 900, "depth": 800}, "description": "双门大冰箱", "svgPath": "E:/工作文档/开发类/MyCode/BIMCanvas/modules/assets/mod_appliance_002.svg"},
-    {"id": "mod_appliance_003", "name": "洗衣机", "tags": ["appliance"], "size": {"width": 600, "depth": 620}, "description": "滚筒洗衣机", "svgPath": "E:/工作文档/开发类/MyCode/BIMCanvas/modules/assets/mod_appliance_003.svg"},
-    {"id": "mod_appliance_004", "name": "柜式空调", "tags": ["appliance"], "size": {"width": 530, "depth": 350}, "description": "立式柜机空调", "svgPath": "E:/工作文档/开发类/MyCode/BIMCanvas/modules/assets/mod_appliance_004.svg"},
-    {"id": "mod_lighting_001", "name": "落地灯", "tags": ["lighting"], "size": {"width": 500, "depth": 500}, "description": "落地灯", "svgPath": "E:/工作文档/开发类/MyCode/BIMCanvas/modules/assets/mod_lighting_001.svg"},
-    {"id": "mod_lighting_002", "name": "台灯", "tags": ["lighting"], "size": {"width": 300, "depth": 300}, "description": "台灯", "svgPath": "E:/工作文档/开发类/MyCode/BIMCanvas/modules/assets/mod_lighting_002.svg"}
+    {
+      "id": "mod_bed_001",
+      "name": "双人床",
+      "tags": [
+        "sleep"
+      ],
+      "size": {
+        "width": 1800,
+        "depth": 2000
+      },
+      "description": "标准双人床",
+      "svgPath": "assets/mod_bed_001.svg"
+    },
+    {
+      "id": "mod_bed_002",
+      "name": "凤栖湖大床",
+      "tags": [
+        "sleep"
+      ],
+      "size": {
+        "width": 1800,
+        "depth": 2100
+      },
+      "agent_config": {
+        "placement_rules": [
+          "Avoid facing window directly (privacy). Prefer side-to-window placement.",
+          "Snap entire sleep group (bed + nightstands) to window wall, leaving 200mm gap for curtains."
+        ]
+      },
+      "description": "凤栖湖定制1800床",
+      "svgPath": "assets/mod_bed_002.svg"
+    },
+    {
+      "id": "mod_cabinet_001",
+      "name": "床头柜",
+      "tags": [
+        "sleep"
+      ],
+      "size": {
+        "width": 450,
+        "depth": 400
+      },
+      "agent_config": {
+        "placement_rules": [
+          "Must snap to bed (head end).",
+          "Prefer 2 instances (symmetry) for Master Bedroom.",
+          "If space < 800mm on one side, allow 1 instance (prioritize side away from window)."
+        ]
+      },
+      "description": "凤栖湖450床头柜",
+      "svgPath": "assets/mod_cabinet_001.svg"
+    },
+    {
+      "id": "mod_cabinet_custom_001",
+      "name": "定制柜体",
+      "tags": [
+        "generalStorage"
+      ],
+      "size": {
+        "width": 800,
+        "depth": 600
+      },
+      "agent_config": {
+        "description": "Customizable width cabinet (<1500mm), used for filling gaps.",
+        "resize_strategy": "horizontal_fill",
+        "width_range": [
+          300,
+          1500
+        ]
+      },
+      "description": "凤栖湖定制柜体(宽<1500)",
+      "svgPath": "assets/mod_cabinet_custom_001.svg"
+    },
+    {
+      "id": "mod_cabinet_1500",
+      "name": "凤栖湖1500柜体",
+      "tags": [
+        "generalStorage"
+      ],
+      "size": {
+        "width": 1500,
+        "depth": 600
+      },
+      "description": "标准1500柜体",
+      "svgPath": "assets/mod_cabinet_1500.svg"
+    },
+    {
+      "id": "mod_bookshelf_custom_001",
+      "name": "定制书架",
+      "tags": [
+        "generalStorage",
+        "study"
+      ],
+      "size": {
+        "width": 3500,
+        "depth": 350
+      },
+      "agent_config": {
+        "description": "Customizable bookshelf (width > 1000mm), typically used in study or living rooms.",
+        "resize_strategy": "horizontal_fill",
+        "width_range": [
+          1000,
+          5000
+        ]
+      },
+      "description": "凤栖湖定制书架(3500x350)",
+      "svgPath": "assets/mod_bookshelf_custom_001.svg"
+    },
+    {
+      "id": "mod_vanity_custom_001",
+      "name": "定制梳妆台",
+      "tags": [
+        "vanity"
+      ],
+      "size": {
+        "width": 800,
+        "depth": 500
+      },
+      "agent_config": {
+        "description": "Customizable vanity table (width > 800mm). includes stool space.",
+        "resize_strategy": "horizontal_fill",
+        "width_range": [
+          800,
+          1800
+        ]
+      },
+      "description": "凤栖湖定制梳妆台(宽>800)",
+      "svgPath": "assets/mod_vanity_custom_001.svg"
+    },
+    {
+      "id": "mod_desk_1860",
+      "name": "凤栖湖书桌",
+      "tags": [
+        "study"
+      ],
+      "size": {
+        "width": 1860,
+        "depth": 600
+      },
+      "description": "凤栖湖标准书桌",
+      "svgPath": "assets/mod_desk_1860.svg"
+    }
   ]
 }
