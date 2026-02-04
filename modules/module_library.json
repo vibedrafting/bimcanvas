@@ -11,6 +11,11 @@
         "width": 1800,
         "depth": 2000
       },
+      "agent_config": {
+        "morphology": {
+          "strategy": "fixed"
+        }
+      },
       "description": "标准双人床",
       "svgPath": "assets/mod_bed_001.svg"
     },
@@ -25,9 +30,14 @@
         "depth": 2100
       },
       "agent_config": {
-        "placement_rules": [
-          "Avoid facing window directly (privacy). Prefer side-to-window placement.",
-          "Snap entire sleep group (bed + nightstands) to window wall, leaving 200mm gap for curtains."
+        "morphology": {
+          "strategy": "fixed"
+        },
+        "topology_rules": [
+          "整组睡眠家具（床+床头柜）需靠窗户所在的墙放置，并预留200mm窗帘缝隙"
+        ],
+        "relation_rules": [
+          "避免床尾正对窗户（隐私考虑）。优先采用侧对窗户的布局。"
         ]
       },
       "description": "凤栖湖定制1800床",
@@ -44,10 +54,15 @@
         "depth": 400
       },
       "agent_config": {
-        "placement_rules": [
-          "Must snap to bed (head end).",
-          "Prefer 2 instances (symmetry) for Master Bedroom.",
-          "If space < 800mm on one side, allow 1 instance (prioritize side away from window)."
+        "morphology": {
+          "strategy": "fixed"
+        },
+        "topology_rules": [
+          "必须紧贴床头两侧"
+        ],
+        "relation_rules": [
+          "主卧优先成对布置（对称布局）。",
+          "若单侧空间不足800mm，允许单边布置（优先保留远离窗户的一侧）。"
         ]
       },
       "description": "凤栖湖450床头柜",
@@ -64,12 +79,19 @@
         "depth": 600
       },
       "agent_config": {
-        "description": "Customizable width cabinet (<1500mm), used for filling gaps.",
-        "resize_strategy": "horizontal_fill",
-        "width_range": [
-          300,
-          1500
-        ]
+        "morphology": {
+          "strategy": "horizontal_fill",
+          "limits": {
+            "width": [
+              300,
+              1500
+            ]
+          }
+        },
+        "topology_rules": [
+          "靠墙放置"
+        ],
+        "relation_rules": []
       },
       "description": "凤栖湖定制柜体(宽<1500)",
       "svgPath": "assets/mod_cabinet_custom_001.svg"
@@ -83,6 +105,15 @@
       "size": {
         "width": 1500,
         "depth": 600
+      },
+      "agent_config": {
+        "morphology": {
+          "strategy": "fixed"
+        },
+        "topology_rules": [
+          "靠墙放置"
+        ],
+        "relation_rules": []
       },
       "description": "标准1500柜体",
       "svgPath": "assets/mod_cabinet_1500.svg"
@@ -99,12 +130,19 @@
         "depth": 350
       },
       "agent_config": {
-        "description": "Customizable bookshelf (width > 1000mm), typically used in study or living rooms.",
-        "resize_strategy": "horizontal_fill",
-        "width_range": [
-          1000,
-          5000
-        ]
+        "morphology": {
+          "strategy": "horizontal_fill",
+          "limits": {
+            "width": [
+              1000,
+              5000
+            ]
+          }
+        },
+        "topology_rules": [
+          "靠墙放置"
+        ],
+        "relation_rules": []
       },
       "description": "凤栖湖定制书架(3500x350)",
       "svgPath": "assets/mod_bookshelf_custom_001.svg"
@@ -116,16 +154,23 @@
         "vanity"
       ],
       "size": {
-        "width": 800,
+        "width": 1000,
         "depth": 500
       },
       "agent_config": {
-        "description": "Customizable vanity table (width > 800mm). includes stool space.",
-        "resize_strategy": "horizontal_fill",
-        "width_range": [
-          800,
-          1800
-        ]
+        "morphology": {
+          "strategy": "horizontal_fill",
+          "limits": {
+            "width": [
+              800,
+              1800
+            ]
+          }
+        },
+        "topology_rules": [
+          "靠墙放置"
+        ],
+        "relation_rules": []
       },
       "description": "凤栖湖定制梳妆台(宽>800)",
       "svgPath": "assets/mod_vanity_custom_001.svg"
@@ -139,6 +184,18 @@
       "size": {
         "width": 1860,
         "depth": 600
+      },
+      "agent_config": {
+        "morphology": {
+          "strategy": "fixed"
+        },
+        "topology_rules": [
+          "靠墙或岛式布置",
+          "背后需预留椅子空间"
+        ],
+        "relation_rules": [
+          "面向房间中心或窗户"
+        ]
       },
       "description": "凤栖湖标准书桌",
       "svgPath": "assets/mod_desk_1860.svg"

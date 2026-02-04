@@ -58,18 +58,29 @@
 6.  **AI Configuration (agent_config) [v3.1]**:
     *   **定位**：替代传统的硬约束，用于向 Agent 传递"设计意图"和"柔性规则"。
     *   **结构**：开放式字典，但推荐遵守以下标准字段以保持一致性。
-    *   **标准字段**：
-        *   `resize_strategy` (Enum): `horizontal_fill` (横向填充) / `vertical_stretch` (纵向拉伸) / `scale` (等比缩放)。
-        *   `width_range` / `depth_range` (Array): `[min, max]` (物理极限)。
-        *   `placement_rules` (Array): **核心设计原则**。包含多条件判断、硬性避让等复杂逻辑 (如 "Snap to window")。
-        *   `placement_hint` (String): **弱约束/微调建议**。用于简单的对齐或亲和性提示 (如 "Align with wardrobe", "Near door")，优先级低于 rules。
-        *   `description` (String): 对 AI 的补充说明。
-    *   **示例 (Bed Rules)**：
+    *   **Intent Layer (`agent_config`)**：
+        *   **`morphology` (强结构)**：
+            *   `strategy` (Enum): `fixed` (刚体) / `horizontal_fill` (横向填充) / `pad_to_fit` (适配填充)。
+            *   `limits` (Object, Optional): 当 `strategy != fixed` 时必填。含 `width: [min, max]`, `depth: [min, max]`。
+        *   **`topology_rules` (语义数组)**：
+            *   描述物体在空间中的位置 (Object-to-Space)。
+            *   Ex: `"靠墙放置"`, `"岛式布置"`, `"避开交通动线"`.
+        *   **`relation_rules` (语义数组)**：
+            *   描述物体间的关系 (Object-to-Object) 及组合逻辑。
+            *   Ex: `"与床头齐平"`, `"面向电视"`, `"要求对称"`.
+    *   **示例 (Bed Config)**：
         ```json
-        "placement_rules": [
-             "Avoid facing window directly (privacy). Prefer side-to-window.",
-             "Snap entire sleep group (bed+nightstands) to window wall, leaving 200mm gap for curtains."
-        ]
+        "agent_config": {
+            "morphology": { "strategy": "fixed" },
+            "topology_rules": [
+                "整组睡眠家具（床+床头柜）靠窗墙放置，预留200mm窗帘缝",
+                "避开交通动线"
+            ],
+            "relation_rules": [
+                "避免正对窗户（隐私考虑）",
+                "优先对称布置（需成对床头柜）"
+            ]
+        }
         ```
     *   **扩展性**：允许新增自定义字段，要求使用 snake_case 命名。
 5.  **SvgPath**:
