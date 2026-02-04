@@ -199,6 +199,309 @@
       },
       "description": "凤栖湖标准书桌",
       "svgPath": "assets/mod_desk_1860.svg"
+    },
+    {
+      "id": "mod_chair_001",
+      "name": "书椅",
+      "tags": [
+        "study",
+        "dining"
+      ],
+      "size": {
+        "width": 550,
+        "depth": 600
+      },
+      "agent_config": {
+        "morphology": {
+          "strategy": "fixed"
+        },
+        "topology_rules": [
+          "需放置在桌子已预留的椅子空间内"
+        ],
+        "relation_rules": [
+          "面向桌子",
+          "与桌子中心对齐"
+        ]
+      },
+      "description": "标准书椅/餐椅",
+      "svgPath": "assets/mod_chair_001.svg"
+    },
+    {
+      "id": "mod_basin_001",
+      "name": "标准台下盆",
+      "tags": [
+        "washing"
+      ],
+      "size": {
+        "width": 850,
+        "depth": 550
+      },
+      "agent_config": {
+        "morphology": {
+          "strategy": "fixed"
+        },
+        "topology_rules": [
+          "靠墙放置"
+        ],
+        "relation_rules": []
+      },
+      "description": "凤栖湖850台下盆",
+      "svgPath": "assets/mod_basin_001.svg"
+    },
+    {
+      "id": "mod_basin_custom_001",
+      "name": "定制台下盆",
+      "tags": [
+        "washing"
+      ],
+      "size": {
+        "width": 1000,
+        "depth": 550
+      },
+      "agent_config": {
+        "morphology": {
+          "strategy": "horizontal_fill",
+          "limits": {
+            "width": [
+              850,
+              2000
+            ]
+          }
+        },
+        "topology_rules": [
+          "靠墙放置"
+        ],
+        "relation_rules": []
+      },
+      "description": "可变宽台下盆(>850mm)",
+      "svgPath": "assets/mod_basin_custom_001.svg"
+    },
+    {
+      "id": "mod_toilet_001",
+      "name": "坐便器",
+      "tags": [
+        "toilet"
+      ],
+      "size": {
+        "width": 400,
+        "depth": 650
+      },
+      "agent_config": {
+        "morphology": {
+          "strategy": "fixed"
+        },
+        "topology_rules": [
+          "靠墙放置（水箱侧）"
+        ],
+        "relation_rules": [
+          "避免正对门",
+          "通常与盥洗区（台盆）并排相邻布置"
+        ]
+      },
+      "description": "标准坐便器",
+      "svgPath": "assets/mod_toilet_001.svg"
+    },
+    {
+      "id": "mod_shower_linear",
+      "name": "一字型淋浴屏",
+      "tags": [
+        "shower"
+      ],
+      "size": {
+        "width": 1000,
+        "depth": 60
+      },
+      "agent_config": {
+        "morphology": {
+          "strategy": "horizontal_fill",
+          "limits": {
+            "width": [
+              800,
+              2000
+            ]
+          }
+        },
+        "topology_rules": [
+          "靠墙或隔断"
+        ],
+        "relation_rules": []
+      },
+      "description": "定制一字型淋浴屏",
+      "svgPath": "assets/mod_shower_linear.svg"
+    },
+    {
+      "id": "mod_shower_corner",
+      "name": "钻石淋浴房",
+      "tags": [
+        "shower"
+      ],
+      "size": {
+        "width": 900,
+        "depth": 900
+      },
+      "agent_config": {
+        "morphology": {
+          "strategy": "fixed"
+        },
+        "topology_rules": [
+          "靠墙角放置"
+        ],
+        "relation_rules": []
+      },
+      "description": "标准900钻石淋浴房",
+      "svgPath": "assets/mod_shower_corner.svg"
+    },
+    {
+      "id": "mod_shower_head",
+      "name": "淋浴花洒",
+      "tags": [
+        "shower"
+      ],
+      "size": {
+        "width": 135,
+        "depth": 165
+      },
+      "agent_config": {
+        "morphology": {
+          "strategy": "fixed"
+        },
+        "topology_rules": [
+          "靠墙放置（淋浴区内）"
+        ],
+        "relation_rules": []
+      },
+      "description": "明装花洒",
+      "svgPath": "assets/mod_shower_head.svg"
+    },
+    {
+      "id": "mod_dining_table_2000",
+      "name": "餐桌",
+      "tags": [
+        "dining"
+      ],
+      "size": {
+        "width": 2000,
+        "depth": 1600
+      },
+      "agent_config": {
+        "morphology": {
+          "strategy": "fixed"
+        },
+        "topology_rules": [
+          "岛式布置（四周留出动线）"
+        ],
+        "relation_rules": []
+      },
+      "description": "2000x1600餐桌",
+      "svgPath": "assets/mod_dining_table_2000.svg"
+    },
+    {
+      "id": "mod_sofa_l_shape",
+      "name": "L形沙发",
+      "tags": [
+        "rest",
+        "tvMedia"
+      ],
+      "size": {
+        "width": 3500,
+        "depth": 1650
+      },
+      "agent_config": {
+        "morphology": {
+          "strategy": "fixed"
+        },
+        "topology_rules": [
+          "靠墙放置"
+        ],
+        "relation_rules": [
+          "面向电视背景墙"
+        ]
+      },
+      "description": "3500x1650 L形沙发",
+      "svgPath": "assets/mod_sofa_l_shape.svg"
+    },
+    {
+      "id": "mod_tea_table",
+      "name": "茶几",
+      "tags": [
+        "rest"
+      ],
+      "size": {
+        "width": 1000,
+        "depth": 780
+      },
+      "agent_config": {
+        "morphology": {
+          "strategy": "fixed"
+        },
+        "topology_rules": [
+          "必须位于沙发前"
+        ],
+        "relation_rules": [
+          "与沙发中心对齐"
+        ]
+      },
+      "description": "1000x780茶几",
+      "svgPath": "assets/mod_tea_table.svg"
+    },
+    {
+      "id": "mod_shoe_cabinet_custom",
+      "name": "定制鞋柜",
+      "tags": [
+        "shoeStorage"
+      ],
+      "size": {
+        "width": 1800,
+        "depth": 350
+      },
+      "agent_config": {
+        "morphology": {
+          "strategy": "horizontal_fill",
+          "limits": {
+            "width": [
+              800,
+              2400
+            ]
+          }
+        },
+        "topology_rules": [
+          "靠墙放置"
+        ],
+        "relation_rules": [
+          "接近入户门"
+        ]
+      },
+      "description": "可变宽鞋柜(>800mm)",
+      "svgPath": "assets/mod_shoe_cabinet_custom.svg"
+    },
+    {
+      "id": "mod_curtain",
+      "name": "窗帘",
+      "tags": [
+        "sleep",
+        "rest"
+      ],
+      "size": {
+        "width": 1000,
+        "depth": 200
+      },
+      "agent_config": {
+        "morphology": {
+          "strategy": "horizontal_fill",
+          "limits": {
+            "width": [
+              500,
+              5000
+            ]
+          }
+        },
+        "topology_rules": [
+          "靠窗放置"
+        ],
+        "relation_rules": []
+      },
+      "description": "窗帘装饰",
+      "svgPath": "assets/mod_curtain.svg"
     }
   ]
 }

@@ -1,0 +1,13 @@
+<svg viewBox="0 0 2000 1600" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <style>
+      .main-lines { fill: none; stroke: #000000; stroke-width: 25; stroke-linecap: round; stroke-linejoin: round; }
+      .detail-lines { fill: none; stroke: #000000; stroke-width: 20; stroke-linecap: round; stroke-linejoin: round; }
+    </style>
+  </defs>
+  <!-- Table Top -->
+  <rect x="13" y="13" width="1974" height="1574" class="main-lines" />
+  <!-- Chairs Representation (Optional or just table?) Default just table for module --> 
+  <!-- Center Decoration -->
+  <rect x="800" y="600" width="400" height="400" rx="20" ry="20" class="detail-lines" />
+</svg>
