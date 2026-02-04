@@ -81,7 +81,8 @@
         ],
         "relation_rules": [
           "可成对布置形成步入式通道",
-          "优先利用门后凹位"
+          "优先利用门后凹位",
+          "作为标准柜体阵列后的补充，填充剩余空间"
         ]
       },
       "description": "凤栖湖定制柜体(宽<1500)",
@@ -102,9 +103,12 @@
           "strategy": "fixed"
         },
         "topology_rules": [
-          "靠墙放置"
+          "靠墙放置",
+          "优先连续阵列布置以最大化利用墙面"
         ],
-        "relation_rules": []
+        "relation_rules": [
+          "通常与定制柜体组合使用"
+        ]
       },
       "description": "标准1500柜体",
       "svgPath": "assets/mod_cabinet_1500.svg"
@@ -506,7 +510,7 @@
           }
         },
         "topology_rules": [
-          "靠窗放置"
+          "靠窗墙放置，必须填满整面墙宽度（Snap to side walls）"
         ],
         "relation_rules": []
       },
