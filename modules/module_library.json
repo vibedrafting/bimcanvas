@@ -14,7 +14,10 @@
       "agent_config": {
         "morphology": {
           "strategy": "fixed"
-        }
+        },
+        "topology_rules": [
+          "严格避让门的开启扇区域"
+        ]
       },
       "description": "标准双人床",
       "svgPath": "assets/mod_bed_001.svg"
@@ -34,7 +37,8 @@
           "strategy": "fixed"
         },
         "topology_rules": [
-          "整组睡眠家具（床+床头柜）需靠窗户所在的墙放置，并预留200mm窗帘缝隙"
+          "整组睡眠家具（床+床头柜）需靠窗户所在的墙放置，并预留200mm窗帘缝隙",
+          "严格避让门的开启扇区域"
         ],
         "relation_rules": [
           "避免床尾正对窗户（隐私考虑）。优先采用侧对窗户的布局。"
@@ -80,18 +84,26 @@
       },
       "agent_config": {
         "morphology": {
-          "strategy": "horizontal_fill",
+          "strategy": "parametric",
           "limits": {
             "width": [
-              300,
-              1500
+              800,
+              1200
+            ],
+            "depth": [
+              800,
+              1200
             ]
           }
         },
         "topology_rules": [
-          "靠墙放置"
+          "靠墙放置",
+          "严格避让门的开启扇区域"
         ],
-        "relation_rules": []
+        "relation_rules": [
+          "可成对布置形成步入式通道",
+          "优先利用门后凹位"
+        ]
       },
       "description": "凤栖湖定制柜体(宽<1500)",
       "svgPath": "assets/mod_cabinet_custom_001.svg"
@@ -191,10 +203,12 @@
         },
         "topology_rules": [
           "靠墙或岛式布置",
-          "背后需预留椅子空间"
+          "背后需预留椅子空间",
+          "严格避让门的开启扇区域"
         ],
         "relation_rules": [
-          "面向房间中心或窗户"
+          "面向房间中心或窗户",
+          "优先侧对自然采光窗口"
         ]
       },
       "description": "凤栖湖标准书桌",
@@ -322,16 +336,18 @@
           }
         },
         "topology_rules": [
-          "靠墙或隔断"
+          "布置在房间尽端，连接两面实墙"
         ],
-        "relation_rules": []
+        "relation_rules": [
+          "形成干湿分离的尽端空间"
+        ]
       },
       "description": "定制一字型淋浴屏",
       "svgPath": "assets/mod_shower_linear.svg"
     },
     {
       "id": "mod_shower_corner",
-      "name": "钻石淋浴房",
+      "name": "矩形淋浴房",
       "tags": [
         "shower"
       ],
@@ -341,14 +357,26 @@
       },
       "agent_config": {
         "morphology": {
-          "strategy": "fixed"
+          "strategy": "parametric",
+          "limits": {
+            "width": [
+              800,
+              1200
+            ],
+            "depth": [
+              800,
+              1200
+            ]
+          }
         },
         "topology_rules": [
-          "靠墙角放置"
+          "布置于卫生间角落（深处或门侧）"
         ],
-        "relation_rules": []
+        "relation_rules": [
+          "通常与坐便器相邻布置"
+        ]
       },
-      "description": "标准900钻石淋浴房",
+      "description": "定制矩形淋浴房",
       "svgPath": "assets/mod_shower_corner.svg"
     },
     {
@@ -411,7 +439,10 @@
           "strategy": "fixed"
         },
         "topology_rules": [
-          "靠墙放置"
+          "靠墙放置",
+          "允许岛式布置（作为空间分隔）",
+          "可背对餐厅/交通空间放置",
+          "严格避让门的开启扇区域"
         ],
         "relation_rules": [
           "面向电视背景墙"

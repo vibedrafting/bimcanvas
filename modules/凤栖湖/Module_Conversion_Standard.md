@@ -60,7 +60,7 @@
     *   **结构**：开放式字典，但推荐遵守以下标准字段以保持一致性。
     *   **Intent Layer (`agent_config`)**：
         *   **`morphology` (强结构)**：
-            *   `strategy` (Enum): `fixed` (刚体) / `horizontal_fill` (横向填充) / `pad_to_fit` (适配填充)。
+            *   `strategy` (Enum): `fixed` (刚体) / `horizontal_fill` (横向填充) / `pad_to_fit` (适配填充) / `parametric` (参数化)。
             *   `limits` (Object, Optional): 当 `strategy != fixed` 时必填。含 `width: [min, max]`, `depth: [min, max]`。
         *   **`topology_rules` (语义数组)**：
             *   描述物体在空间中的位置 (Object-to-Space)。
