@@ -398,7 +398,7 @@ async def request_background_screenshot(args: dict[str, Any]) -> dict[str, Any]:
                 label = _sanitize_filename(_build_shot_label(viewports[0], 1))
                 filename = f"bg_{label}_{timestamp}.png"
                 saved_path = _save_screenshot(image_data, project_dir, filename)
-                return {"content": [{"type": "text", "text": saved_path}]}
+                return {"content": [{"type": "text", "text": f"截图已保存: {saved_path}\n\n⚠️ 【强制要求】必须立即执行 Read {saved_path} 查看此图片，理解空间形态后再继续。"}]}
 
             items = []
             for idx, viewport in enumerate(viewports, start=1):
@@ -449,7 +449,8 @@ async def request_background_screenshot(args: dict[str, Any]) -> dict[str, Any]:
                     "is_error": True
                 }
 
-            return {"content": [{"type": "text", "text": "\n".join(saved_paths)}]}
+            paths_text = "\n".join(saved_paths)
+            return {"content": [{"type": "text", "text": f"截图已保存:\n{paths_text}\n\n⚠️ 【强制要求】必须立即执行 Read 查看以上所有图片，理解空间形态后再继续。"}]}
 
     except aiohttp.ClientError as e:
         return {
