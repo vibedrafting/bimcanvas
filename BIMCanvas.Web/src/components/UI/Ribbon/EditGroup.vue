@@ -1,8 +1,21 @@
 <script setup lang="ts">
 import GlassButton from '../base/GlassButton.vue';
 
-const dispatchAction = (action: 'rotate' | 'delete' | 'move' | 'mirror' | 'copy') => {
-  window.dispatchEvent(new CustomEvent(`bimcanvas:action-${action}`));
+const dispatchAction = (action: 'rotate' | 'delete' | 'move' | 'mirror' | 'copy' | 'measure') => {
+  if (action === 'measure') {
+    // Measurement doesn't dispatch a BIMCanvas action event, it's a tool activation directly? 
+    // Or we should add a listener in InteractionService?
+    // MoveTool listens for `bimcanvas:action-move`.
+    // Let's add listener for `bimcanvas:action-measure` in InteractionService (wait, I haven't added that yet).
+    // I added activateMeasurementTool() but no event listener in InteractionService constructor?
+    // Let's check InteractionService.ts again.
+    // I missed adding the event listener in InteractionService.ts!
+    // I should add it there too. 
+    // But for now let's emit the event.
+    window.dispatchEvent(new CustomEvent(`bimcanvas:action-${action}`));
+  } else {
+    window.dispatchEvent(new CustomEvent(`bimcanvas:action-${action}`));
+  }
 };
 </script>
 
@@ -26,6 +39,12 @@ const dispatchAction = (action: 'rotate' | 'delete' | 'move' | 'mirror' | 'copy'
           <line x1="12" y1="2" x2="12" y2="22"></line>
         </svg>
         <span>Move</span>
+      </GlassButton>
+      <GlassButton @click="dispatchAction('measure')" variant="ghost" class="ribbon-btn">
+        <svg style="width: 18px; height: 18px; flex-shrink: 0;" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M21 6H3"></path><path d="M21 12H3"></path><path d="M21 18H3"></path><path d="M5 6v12"></path><path d="M9 6v12"></path><path d="M13 6v12"></path><path d="M17 6v12"></path>
+        </svg>
+        <span>Measure</span>
       </GlassButton>
       <GlassButton @click="dispatchAction('rotate')" variant="ghost" class="ribbon-btn">
         <svg style="width: 18px; height: 18px; flex-shrink: 0;" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">

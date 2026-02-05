@@ -23,7 +23,7 @@ const toggleTheme = () => {
 };
 
 // Actions
-const dispatchAction = (action: 'rotate' | 'delete' | 'move' | 'mirror' | 'copy') => {
+const dispatchAction = (action: 'rotate' | 'delete' | 'move' | 'mirror' | 'copy' | 'measure') => {
   window.dispatchEvent(new CustomEvent(`bimcanvas:action-${action}`));
 };
 
@@ -101,6 +101,15 @@ const dynamicStatusText = computed(() => {
         </GlassButton>
         <GlassButton @click="dispatchAction('rotate')" variant="ghost" class="compact-btn">
           <span class="icon">↻</span> Rotate
+        </GlassButton>
+        <GlassButton @click="dispatchAction('measure')" variant="ghost" class="compact-btn">
+          <svg class="icon" width="1.1em" height="1.1em" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M2 10h20"></path>
+            <path d="M5 10v5"></path>
+            <path d="M12 10v8"></path>
+            <path d="M19 10v5"></path>
+          </svg>
+           Measure
         </GlassButton>
         <GlassButton @click="dispatchAction('delete')" :disabled="!store.selectedObject" variant="danger" class="compact-btn">
           <span class="icon">🗑</span> Delete

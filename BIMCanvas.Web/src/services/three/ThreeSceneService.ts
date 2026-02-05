@@ -351,6 +351,10 @@ export class ThreeSceneService {
         this.boundEventHandlers.set('bimcanvas:action-copy', copyHandler);
         window.addEventListener('bimcanvas:action-copy', copyHandler);
 
+        const measureHandler = () => this.interactionService.activateMeasurementTool();
+        this.boundEventHandlers.set('bimcanvas:action-measure', measureHandler);
+        window.addEventListener('bimcanvas:action-measure', measureHandler);
+
         // const ghostPatchHandler = ((e: CustomEvent) => {
         //     this.ghostManager.updateGhosts(e.detail);
         // }) as EventListener;

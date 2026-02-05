@@ -20,19 +20,42 @@ export class SnapIndicator {
     }
 
     private createMesh() {
-        const geometry = new THREE.CircleGeometry(this.radius, 32);
-        const material = new THREE.MeshBasicMaterial({
-            color: this.color,
-            transparent: true,
-            opacity: this.opacity,
+        const size = 60; // Cross size
+        const geometry = new THREE.BufferGeometry();
+        const vertices = new Float32Array([
+            -size, 0, 0, size, 0, 0, // X-axis line
+            0, 0, -size, 0, 0, size, // Z-axis line
+            // Optional: Diagonal for "Star" or just Plus? User said "Cross Star" (十字星). 
+            // Often X shape + Plus shape = Star.
+            // Let's add diagonals for "Star" look if desired, or stick to clean Cross.
+            // CAD uses a specialized glyph. Let's do a tilted cross (X) + Plus (+) ? 
+            // Or just a simple 'X' is often used for points.
+            // Let's do a Plus (+) shape as base, maybe tilted 45 deg?
+            // User: "十字星" -> Cross Star.
+            // Let's do a 4-point star.
+        ]);
+        // Let's stick to a Plus (+) shape which is standard "Crosshair" key point snap.
+        // Or 'X' for Intersection. 
+        // Let's do an 'X' shape.
+        const xVertices = new Float32Array([
+            -size, 0, -size, size, 0, size,
+            -size, 0, size, size, 0, -size
+        ]);
+
+        geometry.setAttribute('position', new THREE.BufferAttribute(xVertices, 3));
+
+        const material = new THREE.LineBasicMaterial({
+            color: 0x00ff00, // Green
             depthTest: false,
-            side: THREE.DoubleSide
+            transparent: true,
+            opacity: 0.8
         });
 
-        this.mesh = new THREE.Mesh(geometry, material);
-        this.mesh.rotation.x = -Math.PI / 2;  // 平铺在 XZ 平面
-        this.mesh.renderOrder = 1000;  // 确保在最上层
-        this.mesh.visible = false;
+        // Use LineSegments
+        this.mesh = new THREE.LineSegments(geometry, material) as any;
+        // this.mesh.rotation.x is not needed if we defined flat in XZ
+        this.mesh!.renderOrder = 1000;
+        this.mesh!.visible = false;
     }
 
     /**

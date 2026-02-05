@@ -9,6 +9,7 @@ import { useDebugStore } from '../../stores/debugStore';
 import { RotateTool } from './tools/RotateTool';
 import { MirrorTool } from './tools/MirrorTool';
 import { CopyTool } from './tools/CopyTool';
+import { MeasurementTool } from './tools/MeasurementTool';
 import { LayerManager } from '../three/LayerManager';
 
 export class InteractionService {
@@ -127,7 +128,11 @@ export class InteractionService {
         this.shortcutManager.register('ArrowUp', () => this.moveSelection(0, NUDGE_AMOUNT));
         this.shortcutManager.register('ArrowDown', () => this.moveSelection(0, -NUDGE_AMOUNT));
         this.shortcutManager.register('ArrowLeft', () => this.moveSelection(-NUDGE_AMOUNT, 0));
+        this.shortcutManager.register('ArrowLeft', () => this.moveSelection(-NUDGE_AMOUNT, 0));
         this.shortcutManager.register('ArrowRight', () => this.moveSelection(NUDGE_AMOUNT, 0));
+
+        // Measurement Tool
+        this.shortcutManager.register('DI', () => this.activateMeasurementTool());
     }
 
     public moveSelection(dx: number, dy: number) {
@@ -185,6 +190,19 @@ export class InteractionService {
             this.camera,
             this.domElement,
             this.ghostManager
+        );
+        this.activeTool.activate();
+    }
+
+    public activateMeasurementTool() {
+        const debugStore = useDebugStore();
+        debugStore.log('Command: Measure Triggered');
+        if (this.activeTool) this.activeTool.deactivate();
+
+        this.activeTool = new MeasurementTool(
+            this.scene,
+            this.camera,
+            this.domElement
         );
         this.activeTool.activate();
     }
