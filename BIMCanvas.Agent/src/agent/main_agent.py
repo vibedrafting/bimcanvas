@@ -200,7 +200,7 @@ class MainAgent:
             permission_mode="acceptEdits",
             include_partial_messages=True,
             env=custom_env,                        # Agent SDK 独立环境变量
-            extra_args={"max-thinking-tokens": str(thinking_tokens)} if thinking_tokens else {},  # 思考强度
+            max_thinking_tokens=thinking_tokens,  # 原生参数（0.1.12+），int | None
             mcp_servers={"canvas": canvas_mcp},    # 业务工具
             setting_sources=None,                  # ❌ 禁用文件系统配置加载（修复配置污染）
         )
@@ -318,8 +318,7 @@ class MainAgent:
             tools_display = options.allowed_tools if options.allowed_tools else "默认全开"
             deny_display = options.disallowed_tools if options.disallowed_tools else "无"
             base_url_display = options.env.get("ANTHROPIC_BASE_URL", "默认端点") if options.env else "默认端点"
-            thinking_tokens_str = options.extra_args.get("max-thinking-tokens") if options.extra_args else None
-            thinking_display = f"{thinking_tokens_str} tokens" if thinking_tokens_str else "禁用"
+            thinking_display = f"{options.max_thinking_tokens} tokens" if options.max_thinking_tokens else "禁用"
             self._agent_logger._print(f"[MainAgent] ========== 配置信息 ==========")
             self._agent_logger._print(f"[MainAgent] 模型: {options.model}")
             self._agent_logger._print(f"[MainAgent] Base URL: {base_url_display}")
@@ -765,6 +764,25 @@ class MainAgent:
             elif isinstance(message, AssistantMessage):
                 # 存储 API 响应的模型值，用于日志显示（不覆盖 _current_model）
                 self._response_model = getattr(message, 'model', None)
+
+                # 检查 API 级错误（0.1.28 修复了 error 字段填充 bug）
+                api_error = getattr(message, 'error', None)
+                if api_error:
+                    error_display = {
+                        "authentication_failed": "API 认证失败，请检查 API Key",
+                        "billing_error": "计费错误，请检查账户余额",
+                        "rate_limit": "请求频率超限，请稍后重试",
+                        "invalid_request": "请求格式错误",
+                        "server_error": "Anthropic 服务器错误",
+                    }.get(api_error, f"未知 API 错误: {api_error}")
+                    if self.verbose:
+                        self._agent_logger.log_error(f"API 错误: {error_display}")
+                    yield StreamChunk(
+                        type="text",
+                        content=f"\n[API 错误] {error_display}\n",
+                        error_type="api_error",
+                        error_content=api_error
+                    )
 
                 for block in message.content:
                     if isinstance(block, ThinkingBlock):
