@@ -2,8 +2,9 @@ import * as THREE from 'three';
 import { CSS2DObject } from 'three-stdlib';
 import type { Tool } from './Tool';
 import { GhostManager } from '../GhostManager';
-import { SnappingEngine } from '../SnappingEngine';
-import { SnapIndicator } from '../SnapIndicator';
+import { SnapIndex2D } from '../snap/SnapIndex2D';
+import { SnapSolver } from '../snap/SnapSolver';
+import { SnapVisual } from '../snap/SnapVisual';
 import { AxisLockHelper } from '../AxisLockHelper';
 import { useCanvasStore } from '../../../stores/canvasStore';
 import { useDebugStore } from '../../../stores/debugStore';
@@ -24,8 +25,9 @@ export class CopyTool implements Tool {
     private camera: THREE.Camera;
     private domElement: HTMLElement;
     private ghostManager: GhostManager;
-    private snappingEngine: SnappingEngine;
-    private snapIndicator: SnapIndicator;
+    private snapIndex: SnapIndex2D;
+    private snapSolver: SnapSolver;
+    private snapVisual: SnapVisual;
     private axisLockHelper: AxisLockHelper;
     private raycaster: THREE.Raycaster;
     private plane: THREE.Plane;
@@ -57,8 +59,9 @@ export class CopyTool implements Tool {
         this.camera = camera;
         this.domElement = domElement;
         this.ghostManager = ghostManager;
-        this.snappingEngine = new SnappingEngine();
-        this.snapIndicator = new SnapIndicator(scene);
+        this.snapIndex = new SnapIndex2D();
+        this.snapSolver = new SnapSolver(this.snapIndex, this.camera, this.domElement);
+        this.snapVisual = new SnapVisual(scene, this.domElement);
         this.axisLockHelper = new AxisLockHelper(scene);
         this.raycaster = new THREE.Raycaster();
         this.plane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
@@ -115,8 +118,8 @@ export class CopyTool implements Tool {
         store.setPrompt(`请点击选择复制基点 (已选${this.selectedObjects.length}个对象)`);
 
         const debug = useDebugStore();
-        debug.log(`[Copy] Building snap points`);
-        this.snappingEngine.buildSnapPoints(store.projectData, []);
+        debug.log(`[Copy] Building snap edges`);
+        this.snapIndex.rebuild(store.projectData);
     }
 
     private calculateGroupCenter(): THREE.Vector3 {
@@ -192,9 +195,8 @@ export class CopyTool implements Tool {
         store.setPrompt(null);
         store.currentOperation = null;
 
-        this.snappingEngine.clear();
-        this.snapIndicator.dispose();
-        this.snapIndicator = new SnapIndicator(this.scene);
+        this.snapSolver.clear();
+        this.snapVisual.dispose();
         this.axisLockHelper.dispose();
         this.axisLockHelper = new AxisLockHelper(this.scene);
         this.shiftHeld = false;
@@ -222,8 +224,14 @@ export class CopyTool implements Tool {
         if (!point) return;
 
         const store = useCanvasStore();
-        const snapResult = this.snappingEngine.snap(point);
-        const finalPoint = snapResult.snapped ? snapResult.position : point;
+        const snapResult = this.snapSolver.snap({ x: event.clientX, y: event.clientY }, point);
+        const finalPoint = snapResult ? snapResult.worldPoint : point;
+
+        if (snapResult) {
+            this.snapVisual.show(snapResult, { x: event.clientX, y: event.clientY });
+        } else {
+            this.snapVisual.hide();
+        }
 
         if (this.state === 'waiting_base') {
             this.basePoint = finalPoint;
@@ -243,13 +251,13 @@ export class CopyTool implements Tool {
         const point = this.getRayIntersection(event);
         if (!point) return;
 
-        const snapResult = this.snappingEngine.snap(point);
-        const finalPoint = snapResult.snapped ? snapResult.position : point;
+        const snapResult = this.snapSolver.snap({ x: event.clientX, y: event.clientY }, point);
+        const finalPoint = snapResult ? snapResult.worldPoint : point;
 
-        if (snapResult.snapped && (snapResult.type === 'vertex' || snapResult.type === 'midpoint')) {
-            this.snapIndicator.show(snapResult.position);
+        if (snapResult) {
+            this.snapVisual.show(snapResult, { x: event.clientX, y: event.clientY });
         } else {
-            this.snapIndicator.hide();
+            this.snapVisual.hide();
         }
 
         if (this.state === 'waiting_dest' && this.basePoint) {

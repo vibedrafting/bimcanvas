@@ -1,5 +1,7 @@
 <script setup lang="ts">
+import { ref, reactive, watch, onMounted, onBeforeUnmount, toRaw } from 'vue';
 import GlassButton from '../base/GlassButton.vue';
+import { SnapConfig, type SnapConfigState } from '../../../services/interaction/snap/SnapConfig';
 
 const dispatchAction = (action: 'rotate' | 'delete' | 'move' | 'mirror' | 'copy' | 'measure') => {
   if (action === 'measure') {
@@ -17,6 +19,48 @@ const dispatchAction = (action: 'rotate' | 'delete' | 'move' | 'mirror' | 'copy'
     window.dispatchEvent(new CustomEvent(`bimcanvas:action-${action}`));
   }
 };
+
+const showSnapSettings = ref(false);
+const snapSettingsRef = ref<HTMLElement | null>(null);
+const initialSnapConfig = SnapConfig.get();
+const snapConfig = reactive<SnapConfigState>({
+  ...initialSnapConfig,
+  enabled: { ...initialSnapConfig.enabled }
+});
+
+const toggleSnapSettings = (event: MouseEvent) => {
+  event.stopPropagation();
+  showSnapSettings.value = !showSnapSettings.value;
+};
+
+const closeSnapSettings = () => {
+  showSnapSettings.value = false;
+};
+
+const handleGlobalClick = (event: MouseEvent) => {
+  if (!showSnapSettings.value) return;
+  const target = event.target as Node | null;
+  if (snapSettingsRef.value && target && snapSettingsRef.value.contains(target)) {
+    return;
+  }
+  closeSnapSettings();
+};
+
+watch(
+  snapConfig,
+  () => {
+    SnapConfig.set(toRaw(snapConfig) as SnapConfigState);
+  },
+  { deep: true }
+);
+
+onMounted(() => {
+  window.addEventListener('click', handleGlobalClick);
+});
+
+onBeforeUnmount(() => {
+  window.removeEventListener('click', handleGlobalClick);
+});
 </script>
 
 <template>
@@ -69,6 +113,35 @@ const dispatchAction = (action: 'rotate' | 'delete' | 'move' | 'mirror' | 'copy'
         </svg>
         <span>Delete</span>
       </GlassButton>
+      <div class="snap-settings-container" ref="snapSettingsRef">
+        <GlassButton @click="toggleSnapSettings" variant="ghost" class="ribbon-btn">
+          <svg style="width: 18px; height: 18px; flex-shrink: 0;" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="12" cy="12" r="10"></circle>
+            <path d="M12 6v12"></path>
+            <path d="M6 12h12"></path>
+          </svg>
+          <span>Osnap</span>
+        </GlassButton>
+        <div v-if="showSnapSettings" class="snap-settings" @click.stop>
+          <div class="snap-title">对象捕捉</div>
+          <label class="snap-option">
+            <input type="checkbox" v-model="snapConfig.enabled.endpoint" />
+            <span>端点</span>
+          </label>
+          <label class="snap-option">
+            <input type="checkbox" v-model="snapConfig.enabled.midpoint" />
+            <span>中点</span>
+          </label>
+          <label class="snap-option">
+            <input type="checkbox" v-model="snapConfig.enabled.perpendicular" />
+            <span>垂足</span>
+          </label>
+          <label class="snap-option">
+            <input type="checkbox" v-model="snapConfig.enabled.intersection" />
+            <span>交点</span>
+          </label>
+        </div>
+      </div>
     </div>
   </div>
 </template>
@@ -93,6 +166,43 @@ const dispatchAction = (action: 'rotate' | 'delete' | 'move' | 'mirror' | 'copy'
   gap: 2px;
   font-size: 0.7rem;
   padding: 4px 8px;
+}
+
+.snap-settings-container {
+  position: relative;
+}
+
+.snap-settings {
+  position: absolute;
+  top: 44px;
+  left: 0;
+  min-width: 160px;
+  padding: 8px 10px;
+  background: rgba(20, 20, 30, 0.95);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 6px;
+  box-shadow: 0 8px 16px rgba(0, 0, 0, 0.35);
+  z-index: 1000;
+}
+
+.snap-title {
+  font-size: 0.75rem;
+  color: var(--text-secondary);
+  margin-bottom: 6px;
+}
+
+.snap-option {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.8rem;
+  color: var(--text-primary);
+  margin: 4px 0;
+  cursor: pointer;
+}
+
+.snap-option input[type='checkbox'] {
+  accent-color: #00ff66;
 }
 </style>
 

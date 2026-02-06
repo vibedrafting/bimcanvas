@@ -2,8 +2,9 @@ import * as THREE from 'three';
 import { CSS2DObject } from 'three-stdlib';
 import type { Tool } from './Tool';
 import { GhostManager } from '../GhostManager';
-import { SnappingEngine } from '../SnappingEngine';
-import { SnapIndicator } from '../SnapIndicator';
+import { SnapIndex2D } from '../snap/SnapIndex2D';
+import { SnapSolver } from '../snap/SnapSolver';
+import { SnapVisual } from '../snap/SnapVisual';
 import { AxisLockHelper } from '../AxisLockHelper';
 import { useCanvasStore } from '../../../stores/canvasStore';
 import { useDebugStore } from '../../../stores/debugStore';
@@ -17,8 +18,9 @@ export class MoveTool implements Tool {
     private camera: THREE.Camera;
     private domElement: HTMLElement;
     private ghostManager: GhostManager;
-    private snappingEngine: SnappingEngine;
-    private snapIndicator: SnapIndicator;  // Phase 2: 吸附指示器
+    private snapIndex: SnapIndex2D;
+    private snapSolver: SnapSolver;
+    private snapVisual: SnapVisual;
     private axisLockHelper: AxisLockHelper;  // Phase 3: 轴锁定辅助器
     private raycaster: THREE.Raycaster;
     private plane: THREE.Plane;
@@ -53,8 +55,9 @@ export class MoveTool implements Tool {
         this.camera = camera;
         this.domElement = domElement;
         this.ghostManager = ghostManager;
-        this.snappingEngine = new SnappingEngine();
-        this.snapIndicator = new SnapIndicator(scene);  // Phase 2: 初始化吸附指示器
+        this.snapIndex = new SnapIndex2D();
+        this.snapSolver = new SnapSolver(this.snapIndex, this.camera, this.domElement);
+        this.snapVisual = new SnapVisual(scene, this.domElement);
         this.axisLockHelper = new AxisLockHelper(scene);  // Phase 3
         this.raycaster = new THREE.Raycaster();
         this.plane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
@@ -118,10 +121,10 @@ export class MoveTool implements Tool {
         this.domElement.style.cursor = 'crosshair';
         store.setPrompt(`请点击选择移动基点 (已选${this.selectedObjects.length}个对象)`);
 
-        // Revit-Lite: 构建吸附点索引（包含墙柱门窗 + 包括自己的模块，不排除）
+        // CAD Snap: 构建边索引（包含墙柱门窗 + 家具）
         const debug = useDebugStore();
-        debug.log(`[Move] Building snap points, including selected modules for self-snapping`);
-        this.snappingEngine.buildSnapPoints(store.projectData, []); // 不排除任何模块的吸附点
+        debug.log(`[Move] Building snap edges`);
+        this.snapIndex.rebuild(store.projectData);
     }
 
     private calculateGroupCenter(): THREE.Vector3 {
@@ -202,12 +205,9 @@ export class MoveTool implements Tool {
         store.setPrompt(null);
         store.currentOperation = null;
 
-        // Revit-Lite: 清理吸附点缓存
-        this.snappingEngine.clear();
-
-        // Phase 2: 清理吸附指示器
-        this.snapIndicator.dispose();
-        this.snapIndicator = new SnapIndicator(this.scene);  // 重新创建以备下次使用
+        // CAD Snap: 清理吸附状态与视觉
+        this.snapSolver.clear();
+        this.snapVisual.dispose();
 
         // Phase 3: 清理轴锁定辅助器
         this.axisLockHelper.dispose();
@@ -243,9 +243,14 @@ export class MoveTool implements Tool {
 
         const store = useCanvasStore();
 
-        // Apply Snapping for Base/Dest points
-        const snapResult = this.snappingEngine.snap(point);
-        const finalPoint = snapResult.snapped ? snapResult.position : point;
+        const snapResult = this.snapSolver.snap({ x: event.clientX, y: event.clientY }, point);
+        const finalPoint = snapResult ? snapResult.worldPoint : point;
+
+        if (snapResult) {
+            this.snapVisual.show(snapResult, { x: event.clientX, y: event.clientY });
+        } else {
+            this.snapVisual.hide();
+        }
 
         if (this.state === 'waiting_base') {
             this.basePoint = finalPoint;
@@ -271,15 +276,14 @@ export class MoveTool implements Tool {
         const point = this.getRayIntersection(event);
         if (!point) return;
 
-        // 优化：只进行网格捕捉，跳过昂贵的对象边缘捕捉
-        const snapResult = this.snappingEngine.snap(point);
-        const finalPoint = snapResult.snapped ? snapResult.position : point;
+        // CAD Snap: 屏幕像素捕捉 + 端点/中点/垂足/交点
+        const snapResult = this.snapSolver.snap({ x: event.clientX, y: event.clientY }, point);
+        const finalPoint = snapResult ? snapResult.worldPoint : point;
 
-        // Phase 2: 更新吸附指示器
-        if (snapResult.snapped && (snapResult.type === 'vertex' || snapResult.type === 'midpoint')) {
-            this.snapIndicator.show(snapResult.position);
+        if (snapResult) {
+            this.snapVisual.show(snapResult, { x: event.clientX, y: event.clientY });
         } else {
-            this.snapIndicator.hide();
+            this.snapVisual.hide();
         }
 
         if (this.state === 'waiting_dest' && this.basePoint) {

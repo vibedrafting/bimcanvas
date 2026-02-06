@@ -1,8 +1,9 @@
 import * as THREE from 'three';
 import { CSS2DObject } from 'three-stdlib';
 import type { Tool } from './Tool';
-import { SnappingEngine } from '../SnappingEngine';
-import { SnapIndicator } from '../SnapIndicator';
+import { SnapIndex2D } from '../snap/SnapIndex2D';
+import { SnapSolver } from '../snap/SnapSolver';
+import { SnapVisual } from '../snap/SnapVisual';
 import { AxisLockHelper } from '../AxisLockHelper';
 import { useCanvasStore } from '../../../stores/canvasStore';
 import { LayerManager } from '../../three/LayerManager';
@@ -12,8 +13,9 @@ export class MeasurementTool implements Tool {
     private scene: THREE.Scene;
     private camera: THREE.Camera;
     private domElement: HTMLElement;
-    private snappingEngine: SnappingEngine;
-    private snapIndicator: SnapIndicator;
+    private snapIndex: SnapIndex2D;
+    private snapSolver: SnapSolver;
+    private snapVisual: SnapVisual;
     private axisLockHelper: AxisLockHelper;
     private raycaster: THREE.Raycaster;
     private plane: THREE.Plane;
@@ -31,13 +33,16 @@ export class MeasurementTool implements Tool {
     private rubberBand: THREE.Line | null = null;  // The line being drawn
     private endMarker: THREE.Mesh | null = null;   // Small 'X' or dot at end
     private distanceLabel: CSS2DObject | null = null;
+    private cursorMarker: THREE.LineSegments | null = null;
+    private cursorVisible: boolean = false;
 
     constructor(scene: THREE.Scene, camera: THREE.Camera, domElement: HTMLElement) {
         this.scene = scene;
         this.camera = camera;
         this.domElement = domElement;
-        this.snappingEngine = new SnappingEngine();
-        this.snapIndicator = new SnapIndicator(scene);
+        this.snapIndex = new SnapIndex2D();
+        this.snapSolver = new SnapSolver(this.snapIndex, this.camera, this.domElement);
+        this.snapVisual = new SnapVisual(scene, this.domElement);
         this.axisLockHelper = new AxisLockHelper(scene);
         this.raycaster = new THREE.Raycaster();
         this.plane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
@@ -48,15 +53,16 @@ export class MeasurementTool implements Tool {
         store.currentOperation = 'measuring';
         this.resetState();
 
-        // Build snap points from current project data
-        this.snappingEngine.buildSnapPoints(store.projectData);
+        // Build snap edges from current project data
+        this.snapIndex.rebuild(store.projectData);
     }
 
     deactivate() {
         this.cleanupVisuals();
-        this.snapIndicator.dispose();
+        this.disposeCursorMarker();
+        this.snapVisual.dispose();
         this.axisLockHelper.dispose();
-        this.snappingEngine.clear();
+        this.snapSolver.clear();
 
         const store = useCanvasStore();
         if (store.currentOperation === 'measuring') {
@@ -65,9 +71,7 @@ export class MeasurementTool implements Tool {
         }
         this.domElement.style.cursor = 'default';
 
-        // Re-init helpers for next usage
-        this.snapIndicator = new SnapIndicator(this.scene);
-        this.axisLockHelper = new AxisLockHelper(this.scene);
+        // Tool instance is discarded after deactivate
     }
 
     private resetState() {
@@ -76,10 +80,12 @@ export class MeasurementTool implements Tool {
         this.startPoint = null;
         this.endPoint = null;
         this.axisLockHelper.hide();
+        this.snapVisual.hide();
+        this.hideCursorMarker();
 
         const store = useCanvasStore();
         store.setPrompt('Specify first point');
-        this.domElement.style.cursor = 'crosshair';
+        this.domElement.style.cursor = 'none';
     }
 
     onMouseDown(event: MouseEvent) {
@@ -88,8 +94,14 @@ export class MeasurementTool implements Tool {
         if (!point) return;
 
         // Apply snapping
-        const snapResult = this.snappingEngine.snap(point);
-        const finalPoint = snapResult.snapped ? snapResult.position : point;
+        const snapResult = this.snapSolver.snap({ x: event.clientX, y: event.clientY }, point);
+        const finalPoint = snapResult ? snapResult.worldPoint : point;
+
+        if (snapResult) {
+            this.snapVisual.show(snapResult, { x: event.clientX, y: event.clientY });
+        } else {
+            this.snapVisual.hide();
+        }
 
         if (this.state === 'idle' || this.state === 'finished') {
             // Start new measurement
@@ -118,7 +130,8 @@ export class MeasurementTool implements Tool {
                 // Clean up ALL visuals
                 this.cleanupVisuals(); // Removes rubberBand, endMarker, distanceLabel
                 this.axisLockHelper.hide();
-                this.snapIndicator.hide();
+                this.snapVisual.hide();
+                this.hideCursorMarker();
 
                 this.state = 'finished';
                 const store = useCanvasStore();
@@ -131,17 +144,26 @@ export class MeasurementTool implements Tool {
 
     onMouseMove(event: MouseEvent) {
         const point = this.getRayIntersection(event);
-        if (!point) return;
+        if (!point) {
+            this.hideCursorMarker();
+            return;
+        }
+
+        if (this.state === 'finished') {
+            this.hideCursorMarker();
+            return;
+        }
+
+        this.updateCursorMarker(point);
 
         // Apply snapping (always snap to world objects)
-        const snapResult = this.snappingEngine.snap(point);
-        const finalPoint = snapResult.snapped ? snapResult.position : point;
+        const snapResult = this.snapSolver.snap({ x: event.clientX, y: event.clientY }, point);
+        const finalPoint = snapResult ? snapResult.worldPoint : point;
 
-        // Update snap indicator
-        if (snapResult.snapped) {
-            this.snapIndicator.show(snapResult.position);
+        if (snapResult) {
+            this.snapVisual.show(snapResult, { x: event.clientX, y: event.clientY });
         } else {
-            this.snapIndicator.hide();
+            this.snapVisual.hide();
         }
 
         // Logic during measurement
@@ -328,6 +350,50 @@ export class MeasurementTool implements Tool {
             }
             this.scene.remove(this.distanceLabel);
             this.distanceLabel = null;
+        }
+    }
+
+    private updateCursorMarker(position: THREE.Vector3) {
+        if (!this.cursorMarker) {
+            const size = 60;
+            const geometry = new THREE.BufferGeometry();
+            const vertices = new Float32Array([
+                -size, 0, -size, size, 0, size,
+                -size, 0, size, size, 0, -size
+            ]);
+            geometry.setAttribute('position', new THREE.BufferAttribute(vertices, 3));
+            const material = new THREE.LineBasicMaterial({
+                color: 0x00ff00,
+                depthTest: false,
+                transparent: true,
+                opacity: 0.8
+            });
+            this.cursorMarker = new THREE.LineSegments(geometry, material);
+            this.cursorMarker.renderOrder = 1000;
+        }
+
+        this.cursorMarker.position.copy(position);
+        this.cursorMarker.position.y = 1;
+
+        if (!this.cursorVisible) {
+            this.scene.add(this.cursorMarker);
+            this.cursorVisible = true;
+        }
+    }
+
+    private hideCursorMarker() {
+        if (this.cursorMarker && this.cursorVisible) {
+            this.scene.remove(this.cursorMarker);
+            this.cursorVisible = false;
+        }
+    }
+
+    private disposeCursorMarker() {
+        if (this.cursorMarker) {
+            this.hideCursorMarker();
+            this.cursorMarker.geometry.dispose();
+            (this.cursorMarker.material as THREE.Material).dispose();
+            this.cursorMarker = null;
         }
     }
 }
