@@ -224,7 +224,7 @@ export class CopyTool implements Tool {
         if (!point) return;
 
         const store = useCanvasStore();
-        const snapResult = this.snapSolver.snap({ x: event.clientX, y: event.clientY }, point);
+        const snapResult = this.snapSolver.snap({ x: event.clientX, y: event.clientY }, point, this.basePoint);
         const finalPoint = snapResult ? snapResult.worldPoint : point;
 
         if (snapResult) {
@@ -251,7 +251,7 @@ export class CopyTool implements Tool {
         const point = this.getRayIntersection(event);
         if (!point) return;
 
-        const snapResult = this.snapSolver.snap({ x: event.clientX, y: event.clientY }, point);
+        const snapResult = this.snapSolver.snap({ x: event.clientX, y: event.clientY }, point, this.basePoint);
         const finalPoint = snapResult ? snapResult.worldPoint : point;
 
         if (snapResult) {

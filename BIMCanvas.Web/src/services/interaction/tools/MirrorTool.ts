@@ -139,7 +139,7 @@ export class MirrorTool implements Tool {
         const point = this.getRayIntersection(event);
         if (!point) return;
 
-        const snapResult = this.snapSolver.snap({ x: event.clientX, y: event.clientY }, point);
+        const snapResult = this.snapSolver.snap({ x: event.clientX, y: event.clientY }, point, this.startPoint);
         const finalPoint = snapResult ? snapResult.worldPoint : point;
 
         if (snapResult) {
@@ -170,7 +170,7 @@ export class MirrorTool implements Tool {
         if (!point) return;
 
         // CAD Snap: 屏幕像素捕捉 + 端点/中点/垂足/交点
-        const snapResult = this.snapSolver.snap({ x: event.clientX, y: event.clientY }, point);
+        const snapResult = this.snapSolver.snap({ x: event.clientX, y: event.clientY }, point, this.startPoint);
         const finalPoint = snapResult ? snapResult.worldPoint : point;
 
         if (snapResult) {

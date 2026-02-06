@@ -21,10 +21,9 @@ export class MeasurementTool implements Tool {
     private plane: THREE.Plane;
 
     // State Machine
-    // idle: Ready to start
+    // idle: Ready to start (or ready for next measurement after completion)
     // measuring: First point set, waiting for second point
-    // finished: Result displayed, waiting for reset or exit
-    private state: 'idle' | 'measuring' | 'finished' = 'idle';
+    private state: 'idle' | 'measuring' = 'idle';
 
     private startPoint: THREE.Vector3 | null = null;
     private endPoint: THREE.Vector3 | null = null;
@@ -88,8 +87,8 @@ export class MeasurementTool implements Tool {
         const point = this.getRayIntersection(event);
         if (!point) return;
 
-        // Apply snapping
-        const snapResult = this.snapSolver.snap({ x: event.clientX, y: event.clientY }, point);
+        // Apply snapping (perpendicular needs startPoint as reference)
+        const snapResult = this.snapSolver.snap({ x: event.clientX, y: event.clientY }, point, this.startPoint);
         const finalPoint = snapResult ? snapResult.worldPoint : point;
 
         if (snapResult) {
@@ -98,12 +97,8 @@ export class MeasurementTool implements Tool {
             this.snapVisual.hide();
         }
 
-        if (this.state === 'idle' || this.state === 'finished') {
+        if (this.state === 'idle') {
             // Start new measurement
-            if (this.state === 'finished') {
-                this.resetState();
-            }
-
             this.startPoint = finalPoint;
             this.state = 'measuring';
             this.createRubberBand(this.startPoint);
@@ -112,26 +107,26 @@ export class MeasurementTool implements Tool {
             store.setPrompt('Specify second point');
 
         } else if (this.state === 'measuring') {
-            // Finish measurement
+            // Finish measurement, then return to idle for next measurement
             if (this.startPoint) {
-                // Apply auto-ortho lock for the final point
                 const lockedPoint = this.axisLockHelper.lock(this.startPoint, finalPoint, false);
                 this.endPoint = lockedPoint;
 
-                // Calculate result BEFORE cleanup
                 const resultText = this.getDistanceText(this.startPoint, this.endPoint);
 
-                // User wants: Only the bottom prompt visible after finish.
-                // Clean up ALL visuals
-                this.cleanupVisuals(); // Removes rubberBand, endMarker, distanceLabel
+                // Clean up visuals
+                this.cleanupVisuals();
                 this.axisLockHelper.hide();
                 this.snapVisual.hide();
 
-                this.state = 'finished';
+                // Return to idle: ready for next measurement, keep crosshair and snap active
+                this.state = 'idle';
+                this.startPoint = null;
+                this.endPoint = null;
+
                 const store = useCanvasStore();
                 store.setPrompt('Measurement: ' + resultText);
-
-                this.domElement.style.cursor = 'default';
+                this.domElement.style.cursor = 'crosshair';
             }
         }
     }
@@ -140,10 +135,8 @@ export class MeasurementTool implements Tool {
         const point = this.getRayIntersection(event);
         if (!point) return;
 
-        if (this.state === 'finished') return;
-
-        // Apply snapping (always snap to world objects)
-        const snapResult = this.snapSolver.snap({ x: event.clientX, y: event.clientY }, point);
+        // Apply snapping (perpendicular needs startPoint as reference)
+        const snapResult = this.snapSolver.snap({ x: event.clientX, y: event.clientY }, point, this.startPoint);
         const finalPoint = snapResult ? snapResult.worldPoint : point;
 
         if (snapResult) {

@@ -40,7 +40,7 @@ export class SnapSolver {
         this.currentSnap = null;
     }
 
-    public snap(screen: { x: number; y: number }, worldPoint?: THREE.Vector3 | null): SnapResult | null {
+    public snap(screen: { x: number; y: number }, worldPoint?: THREE.Vector3 | null, referencePoint?: THREE.Vector3 | null): SnapResult | null {
         const config = SnapConfig.get();
         const enabledTypes = config.enabled;
 
@@ -68,7 +68,7 @@ export class SnapSolver {
         const aabb = this.getWorldAabb(screen, world, queryRadiusPx);
         const edges = this.index.queryEdges(aabb);
 
-        const candidates = this.buildCandidates(edges, world, screen, config.snapInPx, enabledTypes);
+        const candidates = this.buildCandidates(edges, world, screen, config.snapInPx, enabledTypes, referencePoint);
         if (candidates.length === 0) {
             this.currentSnap = null;
             return null;
@@ -101,7 +101,8 @@ export class SnapSolver {
         worldPoint: THREE.Vector3,
         screenPoint: { x: number; y: number },
         snapInPx: number,
-        enabled: Record<SnapType, boolean>
+        enabled: Record<SnapType, boolean>,
+        referencePoint?: THREE.Vector3 | null
     ): SnapCandidate[] {
         const candidates: SnapCandidate[] = [];
         const mouse2 = new THREE.Vector2(worldPoint.x, worldPoint.z);
@@ -136,10 +137,11 @@ export class SnapSolver {
             }
         }
 
-        // Perpendicular foot (allow extension)
-        if (enabled.perpendicular) {
+        // Perpendicular foot: only when a reference point exists
+        if (enabled.perpendicular && referencePoint) {
+            const ref2 = new THREE.Vector2(referencePoint.x, referencePoint.z);
             for (const edge of edges) {
-                const foot = this.projectPointToLine(mouse2, edge.a, edge.b);
+                const foot = this.projectPointToLine(ref2, edge.a, edge.b);
                 addCandidate('perpendicular', foot);
             }
         }

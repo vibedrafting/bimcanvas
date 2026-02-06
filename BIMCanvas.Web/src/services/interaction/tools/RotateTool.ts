@@ -207,7 +207,7 @@ export class RotateTool implements Tool {
         const store = useCanvasStore();
 
         // Snap
-        const snapResult = this.snapSolver.snap({ x: event.clientX, y: event.clientY }, point);
+        const snapResult = this.snapSolver.snap({ x: event.clientX, y: event.clientY }, point, this.centerPoint);
         const finalPoint = snapResult ? snapResult.worldPoint : point;
 
         if (snapResult) {
@@ -273,7 +273,7 @@ export class RotateTool implements Tool {
         if (!point) return;
 
         // CAD Snap: 屏幕像素捕捉 + 端点/中点/垂足/交点
-        const snapResult = this.snapSolver.snap({ x: event.clientX, y: event.clientY }, point);
+        const snapResult = this.snapSolver.snap({ x: event.clientX, y: event.clientY }, point, this.centerPoint);
         const finalPoint = snapResult ? snapResult.worldPoint : point;
 
         if (snapResult) {
