@@ -46,6 +46,34 @@ namespace BIMCanvas.Server.Controllers
 
             return Ok(new { success = true });
         }
+
+        /// <summary>
+        /// Agent 数据变更通知 - 显式通知 Web 端数据已更新（绕开 FileSystemWatcher）
+        /// </summary>
+        [HttpPost("data-changed")]
+        public async Task<IActionResult> NotifyDataChanged([FromBody] DataChangedRequest request)
+        {
+            var source = request.Source ?? "agent";
+            var files = request.ChangedFiles ?? new List<string> { "modules.json" };
+
+            _logger.LogInformation("数据变更通知: source={Source}, files=[{Files}]",
+                source, string.Join(", ", files));
+
+            // 为每个变更文件广播 ReceiveUpdate 事件（复用现有事件名）
+            foreach (var file in files)
+            {
+                await _hubContext.Clients.All.SendAsync("ReceiveUpdate", new
+                {
+                    type = "file_changed",
+                    file,
+                    timestamp = DateTime.UtcNow,
+                    action = "reload",
+                    trigger = source  // 标识来源，Web 端据此决定是否跳过
+                });
+            }
+
+            return Ok(new { success = true, filesNotified = files.Count });
+        }
     }
 
     /// <summary>
@@ -72,5 +100,21 @@ namespace BIMCanvas.Server.Controllers
         /// 元数据（如 worktreeNames 列表供 Web 端删除）
         /// </summary>
         public Dictionary<string, object>? Metadata { get; set; }
+    }
+
+    /// <summary>
+    /// 数据变更通知请求模型
+    /// </summary>
+    public class DataChangedRequest
+    {
+        /// <summary>
+        /// 变更的文件列表（如 ["modules.json"]）
+        /// </summary>
+        public List<string>? ChangedFiles { get; set; }
+
+        /// <summary>
+        /// 变更来源标识（如 "agent"）
+        /// </summary>
+        public string? Source { get; set; }
     }
 }

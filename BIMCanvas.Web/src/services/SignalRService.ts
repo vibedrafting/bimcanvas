@@ -58,6 +58,15 @@ export class SignalRService {
         this.connection.onreconnected((connectionId) => {
             console.log('SignalR Reconnected.', connectionId);
             this.dispatchConnectionState('Connected');
+            // 重连后自动触发数据重载，弥补断连期间丢失的更新
+            window.dispatchEvent(new CustomEvent('bimcanvas:server-update', {
+                detail: {
+                    type: 'file_changed',
+                    file: 'modules.json',
+                    action: 'reload',
+                    trigger: 'reconnect'
+                }
+            }));
         });
 
         this.connection.onclose((error) => {
@@ -78,7 +87,11 @@ export class SignalRService {
         } catch (err) {
             console.error("SignalR Connection Error: ", err);
             this.dispatchConnectionState('Disconnected');
-            // Retry logic could go here
+            // 初始连接失败时 5 秒后重试（withAutomaticReconnect 只处理建立后的断连）
+            setTimeout(() => {
+                console.log("SignalR: Retrying initial connection...");
+                this.start();
+            }, 5000);
         }
     }
 

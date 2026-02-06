@@ -465,6 +465,64 @@ async def request_background_screenshot(args: dict[str, Any]) -> dict[str, Any]:
 
 
 @tool(
+    "notify_data_changed",
+    "通知 Server 数据已变更，Server 会立即推送更新到 Web 端（绕开 FileSystemWatcher，确保 Web 实时刷新）",
+    {
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "type": "object",
+        "properties": {
+            "changedFiles": {
+                "type": "array",
+                "items": {"type": "string"},
+                "description": "变更的文件名列表，默认 ['modules.json']",
+                "default": ["modules.json"]
+            },
+            "source": {
+                "type": "string",
+                "description": "变更来源标识，默认 'agent'",
+                "default": "agent"
+            }
+        },
+        "additionalProperties": False
+    }
+)
+async def notify_data_changed(args: dict[str, Any]) -> dict[str, Any]:
+    """通知 Server 数据已变更，触发 Web 端实时刷新"""
+    changed_files = args.get("changedFiles", ["modules.json"])
+    source = args.get("source", "agent")
+
+    if not isinstance(changed_files, list) or not changed_files:
+        changed_files = ["modules.json"]
+
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.post(
+                f"{SERVER_URL}/api/notification/data-changed",
+                json={
+                    "changedFiles": changed_files,
+                    "source": source
+                }
+            ) as resp:
+                if resp.status == 200:
+                    data = await resp.json()
+                    count = data.get("filesNotified", len(changed_files))
+                    return {
+                        "content": [{"type": "text", "text": f"已通知 Web 端数据变更: {count} 个文件 ({', '.join(changed_files)})"}]
+                    }
+                else:
+                    return {
+                        "content": [{"type": "text", "text": f"通知失败: HTTP {resp.status}"}],
+                        "is_error": True
+                    }
+
+    except aiohttp.ClientError as e:
+        return {
+            "content": [{"type": "text", "text": f"无法连接 Server: {str(e)}"}],
+            "is_error": True
+        }
+
+
+@tool(
     "get_workflow_guide",
     "【唯一官方来源】获取布置任务工作流指导。本工具是执行流程的唯一权威定义，必须在执行 Generate 任务前调用以确保遵守最新规范。返回内容覆盖所有任务类型的完整决策树和实现步骤。",
     {
@@ -524,7 +582,8 @@ async def get_workflow_guide(args: dict[str, Any]) -> dict[str, Any]:
 4. 执行修改操作
 5. 验证约束（间距≥800mm、不超边界、不重叠）
 6. Write 保存结果
-7. 视需要在修改后再次调用截图工具 + Read 查看图片验证结果
+7. 调用 `mcp__canvas__notify_data_changed` 通知 Web 端数据已更新
+8. 视需要在修改后再次调用截图工具 + Read 查看图片验证结果
 
 **示例**：
 - "移动沙发到靠窗位置" → Read → 修改 bounds 坐标 → 验证 → Write
@@ -639,6 +698,12 @@ async def get_workflow_guide(args: dict[str, Any]) -> dict[str, Any]:
    ]
    ```
 
+7.5. **通知 Web 端数据已更新**（必须）
+   ```
+   mcp__canvas__notify_data_changed(changedFiles=["modules.json"])
+   ```
+   → 确保 Web 端立即刷新，不依赖 FileSystemWatcher
+
 8. **后置截图验证 + 查看**（必须）
    ```
    # 步骤 8.1：调用截图工具，获取图片路径
@@ -684,7 +749,7 @@ async def get_workflow_guide(args: dict[str, Any]) -> dict[str, Any]:
 canvas_mcp = create_sdk_mcp_server(
     name="canvas",
     version="1.0.0",
-    tools=[ai_job_create, ai_job_complete, request_background_screenshot, get_workflow_guide],
+    tools=[ai_job_create, ai_job_complete, request_background_screenshot, notify_data_changed, get_workflow_guide],
 )
 
 # 预批准工具列表
@@ -692,5 +757,6 @@ CANVAS_ALLOWED_TOOLS = [
     "mcp__canvas__create_job",
     "mcp__canvas__complete_job",
     "mcp__canvas__request_background_screenshot",
+    "mcp__canvas__notify_data_changed",
     "mcp__canvas__get_workflow_guide",
 ]

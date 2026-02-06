@@ -123,14 +123,22 @@ export const useCanvasStore = defineStore('canvas', () => {
         debugStore.log(`[Store] 收到服务端更新: ${JSON.stringify(data)}`);
 
         if (data.action === 'reload') {
-            if (data.file === 'modules.json' && pendingServerSyncSkips > 0) {
+            const trigger = data.trigger as string | undefined;
+
+            // Agent/重连/手动触发的更新：重置 skip 计数器，确保更新不被跳过
+            if (trigger === 'agent' || trigger === 'reconnect' || trigger === 'manual') {
+                pendingServerSyncSkips = 0;
+                debugStore.log(`[Store] 显式触发 (${trigger})，重置 skip 计数器`);
+            } else if (data.file === 'modules.json' && pendingServerSyncSkips > 0) {
+                // 仅 FileSystemWatcher 触发的普通更新才走 skip 逻辑
                 pendingServerSyncSkips -= 1;
                 debugStore.log('[Store] 跳过本地写入触发的 ServerSync');
                 return;
             }
+
             // 保持当前视图，重新加载数据
-            debugStore.log('[Store] 触发数据重载 (preserveView=true)');
-            await syncFromServer({ description: 'Server file changed', metadata: { trigger: data.trigger } });
+            debugStore.log(`[Store] 触发数据重载 (preserveView=true, trigger=${trigger || 'watcher'})`);
+            await syncFromServer({ description: 'Server file changed', metadata: { trigger: trigger || 'watcher' } });
         }
     });
 
@@ -505,6 +513,16 @@ export const useCanvasStore = defineStore('canvas', () => {
     };
 
     /**
+     * 强制从 Server 同步数据（手动刷新兜底）
+     * 重置 skip 计数器，确保数据一定被加载
+     */
+    const forceSync = async (): Promise<boolean> => {
+        pendingServerSyncSkips = 0;
+        debugStore.log('[Store] 强制同步: 重置 skip 计数器');
+        return syncFromServer({ description: 'Manual force sync', metadata: { trigger: 'manual' } });
+    };
+
+    /**
      * 保存当前数据到 Server 文件系统
      * v3.4: Server 根据模块 bounds 位置自动计算分区
      * @returns 保存是否成功
@@ -587,6 +605,7 @@ export const useCanvasStore = defineStore('canvas', () => {
         // Dirty Data Management
         clearDirty,
         saveToServer,
+        forceSync,
         // saveZoneToServer 已移除：v3.4 Server 自动计算分区
 
         // UI State

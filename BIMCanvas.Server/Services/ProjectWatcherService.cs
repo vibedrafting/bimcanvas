@@ -20,6 +20,9 @@ namespace BIMCanvas.Server.Services
         private CancellationTokenSource? _debounceCts;
         private CancellationTokenSource? _serviceCts;
 
+        // Git 操作标志超时保护：记录首次检测到 Git 操作的时间
+        private DateTime? _gitOperationStartTime;
+
         // 防抖时间：500ms（Agent 可能连续写入多个文件）
         private const int DebounceMs = 500;
 
@@ -166,7 +169,7 @@ namespace BIMCanvas.Server.Services
                 return;
             }
 
-            // 检查是否在 Git 操作期间
+            // 检查是否在 Git 操作期间（超时保护由 OnFileChanged 统一处理）
             if (_projectContext.IsGitOperationInProgress)
             {
                 return;
@@ -219,11 +222,29 @@ namespace BIMCanvas.Server.Services
                 return;
             }
 
-            // 检查是否在 Git 操作期间
+            // 检查是否在 Git 操作期间（带 30 秒超时保护）
             if (_projectContext.IsGitOperationInProgress)
             {
-                _logger.LogDebug("Git 操作进行中，跳过文件变化: {Path}", e.FullPath);
-                return;
+                if (_gitOperationStartTime == null)
+                {
+                    _gitOperationStartTime = DateTime.UtcNow;
+                }
+                else if ((DateTime.UtcNow - _gitOperationStartTime.Value).TotalSeconds > 30)
+                {
+                    _logger.LogWarning("Git 操作标志超过 30 秒未重置，自动恢复文件监听");
+                    _projectContext.IsGitOperationInProgress = false;
+                    _gitOperationStartTime = null;
+                    // 继续处理本次事件
+                }
+                else
+                {
+                    _logger.LogDebug("Git 操作进行中，跳过文件变化: {Path}", e.FullPath);
+                    return;
+                }
+            }
+            else
+            {
+                _gitOperationStartTime = null;
             }
 
             _logger.LogDebug("检测到文件变化: {Path} ({ChangeType})", e.FullPath, e.ChangeType);

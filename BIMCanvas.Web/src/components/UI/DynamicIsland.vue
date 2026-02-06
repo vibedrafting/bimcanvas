@@ -8,6 +8,17 @@ import { storeToRefs } from 'pinia';
 const store = useCanvasStore();
 const { agentConnectionState, currentOperation } = storeToRefs(store);
 const isExpanded = ref(false);
+const isSyncing = ref(false);
+
+const handleSync = async () => {
+  if (isSyncing.value) return;
+  isSyncing.value = true;
+  try {
+    await store.forceSync();
+  } finally {
+    setTimeout(() => { isSyncing.value = false; }, 600);
+  }
+};
 
 // 调试开关：设为 true 可保持灵动岛展开状态，方便截图调试
 const DEBUG_KEEP_EXPANDED = false;
@@ -116,11 +127,26 @@ const dynamicStatusText = computed(() => {
         </GlassButton>
       </div>
 
-      <!-- Divider before Theme Toggle -->
+      <!-- Divider before Sync -->
       <div class="divider-vertical stagger-4"></div>
 
-      <!-- THEME Group -->
+      <!-- SYNC Group -->
       <div class="group stagger-5">
+        <GlassButton @click="handleSync" variant="ghost" :disabled="isSyncing" class="compact-btn" title="Force sync from server">
+          <svg class="icon" :class="{ 'spin-icon': isSyncing }" width="1.1em" height="1.1em" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+            <polyline points="23 4 23 10 17 10"></polyline>
+            <polyline points="1 20 1 14 7 14"></polyline>
+            <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"></path>
+          </svg>
+          Sync
+        </GlassButton>
+      </div>
+
+      <!-- Divider before Theme Toggle -->
+      <div class="divider-vertical stagger-6"></div>
+
+      <!-- THEME Group -->
+      <div class="group stagger-7">
         <button
           @click="toggleTheme"
           class="theme-toggle-btn"
@@ -296,7 +322,7 @@ const dynamicStatusText = computed(() => {
 
 /* Stagger Animation for Dynamic Island content */
 .island-expanded {
-  .stagger-1, .stagger-2, .stagger-3, .stagger-4, .stagger-5 {
+  .stagger-1, .stagger-2, .stagger-3, .stagger-4, .stagger-5, .stagger-6, .stagger-7 {
     opacity: 0;
     animation: staggerFadeIn 0.5s var(--ease-spring) forwards;
   }
@@ -306,6 +332,8 @@ const dynamicStatusText = computed(() => {
   .stagger-3 { animation-delay: 0.15s; }
   .stagger-4 { animation-delay: 0.2s; }
   .stagger-5 { animation-delay: 0.25s; }
+  .stagger-6 { animation-delay: 0.3s; }
+  .stagger-7 { animation-delay: 0.35s; }
 }
 
 /* Theme Toggle Button - 精美的明暗切换按钮 */
@@ -393,6 +421,15 @@ const dynamicStatusText = computed(() => {
   50% {
     transform: translateY(-2px) rotate(-5deg);
   }
+}
+
+.spin-icon {
+  animation: spinSync 0.8s linear infinite;
+}
+
+@keyframes spinSync {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
 }
 
 @keyframes staggerFadeIn {
