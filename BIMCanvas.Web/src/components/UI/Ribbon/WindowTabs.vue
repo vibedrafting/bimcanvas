@@ -40,12 +40,6 @@ const handleTabClick = async (window: VirtualWindow) => {
 // 关闭窗口
 const handleCloseTab = async (window: VirtualWindow, event: MouseEvent) => {
   event.stopPropagation();
-
-  if (window.isDirty) {
-    const confirmed = confirm(`窗口 "${window.title}" 有未保存的更改，确定关闭吗？`);
-    if (!confirmed) return;
-  }
-
   await windowStore.closeVirtualWindow(window.id, true);
 };
 

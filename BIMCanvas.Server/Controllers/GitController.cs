@@ -545,7 +545,7 @@ namespace BIMCanvas.Server.Controllers
         /// <param name="deleteBranch">是否同时删除关联分支（场景 B：隔离环境使用）</param>
         /// <returns>操作结果</returns>
         [HttpDelete("worktrees/{name}")]
-        public ActionResult DeleteWorktree(string name, [FromQuery] bool deleteBranch = false)
+        public ActionResult DeleteWorktree(string name, [FromQuery] bool deleteBranch = false, [FromQuery] bool autoCommit = true)
         {
             _logger.LogInformation(">>> [GitController] DeleteWorktree called: {Name}, deleteBranch={DeleteBranch}",
                 name, deleteBranch);
@@ -569,7 +569,7 @@ namespace BIMCanvas.Server.Controllers
 
             try
             {
-                _gitService.RemoveWorktree(projectPath, name, deleteBranch);
+                _gitService.RemoveWorktree(projectPath, name, deleteBranch, autoCommit);
 
                 var message = deleteBranch
                     ? $"Worktree '{name}' 及关联分支已删除"

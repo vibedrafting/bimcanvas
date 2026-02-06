@@ -313,7 +313,7 @@ namespace BIMCanvas.Server.Services
         /// <param name="projectPath">项目路径</param>
         /// <param name="worktreeName">Worktree 名称</param>
         /// <param name="deleteBranch">已废弃：是否删除分支现在由元数据 intent 决定</param>
-        public void RemoveWorktree(string projectPath, string worktreeName, bool deleteBranch = false)
+        public void RemoveWorktree(string projectPath, string worktreeName, bool deleteBranch = false, bool autoCommit = true)
         {
             var worktreePath = Path.Combine(GetWorktreesDir(projectPath), worktreeName);
 
@@ -326,6 +326,17 @@ namespace BIMCanvas.Server.Services
                 _logger.LogDebug("Worktree 不存在: {Path}", worktreePath);
                 // 元数据已清理，直接返回
                 return;
+            }
+
+            // 删除前自动存档
+            if (autoCommit && HasUncommittedChanges(worktreePath))
+            {
+                var timestamp = DateTime.Now.ToString("yyyyMMdd_HHmmss");
+                var committed = TryCommit(worktreePath, $"自动存档_{timestamp}");
+                if (committed)
+                {
+                    _logger.LogInformation("删除 Worktree 前自动存档: {Name}", worktreeName);
+                }
             }
 
             // 🔧 修复：优先使用 Controller 传递的 deleteBranch 参数（用户意图）
