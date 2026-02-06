@@ -33,9 +33,6 @@ export class MeasurementTool implements Tool {
     private rubberBand: THREE.Line | null = null;  // The line being drawn
     private endMarker: THREE.Mesh | null = null;   // Small 'X' or dot at end
     private distanceLabel: CSS2DObject | null = null;
-    private cursorMarker: THREE.LineSegments | null = null;
-    private cursorVisible: boolean = false;
-
     constructor(scene: THREE.Scene, camera: THREE.Camera, domElement: HTMLElement) {
         this.scene = scene;
         this.camera = camera;
@@ -59,7 +56,6 @@ export class MeasurementTool implements Tool {
 
     deactivate() {
         this.cleanupVisuals();
-        this.disposeCursorMarker();
         this.snapVisual.dispose();
         this.axisLockHelper.dispose();
         this.snapSolver.clear();
@@ -81,11 +77,10 @@ export class MeasurementTool implements Tool {
         this.endPoint = null;
         this.axisLockHelper.hide();
         this.snapVisual.hide();
-        this.hideCursorMarker();
 
         const store = useCanvasStore();
         store.setPrompt('Specify first point');
-        this.domElement.style.cursor = 'none';
+        this.domElement.style.cursor = 'crosshair';
     }
 
     onMouseDown(event: MouseEvent) {
@@ -131,7 +126,6 @@ export class MeasurementTool implements Tool {
                 this.cleanupVisuals(); // Removes rubberBand, endMarker, distanceLabel
                 this.axisLockHelper.hide();
                 this.snapVisual.hide();
-                this.hideCursorMarker();
 
                 this.state = 'finished';
                 const store = useCanvasStore();
@@ -144,17 +138,9 @@ export class MeasurementTool implements Tool {
 
     onMouseMove(event: MouseEvent) {
         const point = this.getRayIntersection(event);
-        if (!point) {
-            this.hideCursorMarker();
-            return;
-        }
+        if (!point) return;
 
-        if (this.state === 'finished') {
-            this.hideCursorMarker();
-            return;
-        }
-
-        this.updateCursorMarker(point);
+        if (this.state === 'finished') return;
 
         // Apply snapping (always snap to world objects)
         const snapResult = this.snapSolver.snap({ x: event.clientX, y: event.clientY }, point);
@@ -353,47 +339,4 @@ export class MeasurementTool implements Tool {
         }
     }
 
-    private updateCursorMarker(position: THREE.Vector3) {
-        if (!this.cursorMarker) {
-            const size = 60;
-            const geometry = new THREE.BufferGeometry();
-            const vertices = new Float32Array([
-                -size, 0, -size, size, 0, size,
-                -size, 0, size, size, 0, -size
-            ]);
-            geometry.setAttribute('position', new THREE.BufferAttribute(vertices, 3));
-            const material = new THREE.LineBasicMaterial({
-                color: 0x00ff00,
-                depthTest: false,
-                transparent: true,
-                opacity: 0.8
-            });
-            this.cursorMarker = new THREE.LineSegments(geometry, material);
-            this.cursorMarker.renderOrder = 1000;
-        }
-
-        this.cursorMarker.position.copy(position);
-        this.cursorMarker.position.y = 1;
-
-        if (!this.cursorVisible) {
-            this.scene.add(this.cursorMarker);
-            this.cursorVisible = true;
-        }
-    }
-
-    private hideCursorMarker() {
-        if (this.cursorMarker && this.cursorVisible) {
-            this.scene.remove(this.cursorMarker);
-            this.cursorVisible = false;
-        }
-    }
-
-    private disposeCursorMarker() {
-        if (this.cursorMarker) {
-            this.hideCursorMarker();
-            this.cursorMarker.geometry.dispose();
-            (this.cursorMarker.material as THREE.Material).dispose();
-            this.cursorMarker = null;
-        }
-    }
 }
