@@ -48,6 +48,8 @@ def parse_message(data: dict[str, Any]) -> Message:
         case "user":
             try:
                 parent_tool_use_id = data.get("parent_tool_use_id")
+                tool_use_result = data.get("tool_use_result")
+                uuid = data.get("uuid")
                 if isinstance(data["message"]["content"], list):
                     user_content_blocks: list[ContentBlock] = []
                     for block in data["message"]["content"]:
@@ -74,11 +76,15 @@ def parse_message(data: dict[str, Any]) -> Message:
                                 )
                     return UserMessage(
                         content=user_content_blocks,
+                        uuid=uuid,
                         parent_tool_use_id=parent_tool_use_id,
+                        tool_use_result=tool_use_result,
                     )
                 return UserMessage(
                     content=data["message"]["content"],
+                    uuid=uuid,
                     parent_tool_use_id=parent_tool_use_id,
+                    tool_use_result=tool_use_result,
                 )
             except KeyError as e:
                 raise MessageParseError(
@@ -120,7 +126,7 @@ def parse_message(data: dict[str, Any]) -> Message:
                     content=content_blocks,
                     model=data["message"]["model"],
                     parent_tool_use_id=data.get("parent_tool_use_id"),
-                    error=data["message"].get("error"),
+                    error=data.get("error"),
                 )
             except KeyError as e:
                 raise MessageParseError(

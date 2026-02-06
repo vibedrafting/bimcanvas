@@ -3,7 +3,7 @@
 import json
 import os
 from collections.abc import AsyncIterable, AsyncIterator
-from dataclasses import replace
+from dataclasses import asdict, replace
 from typing import Any
 
 from . import Transport
@@ -147,6 +147,14 @@ class ClaudeSDKClient:
         )
         initialize_timeout = max(initialize_timeout_ms / 1000.0, 60.0)
 
+        # Convert agents to dict format for initialize request
+        agents_dict: dict[str, dict[str, Any]] | None = None
+        if self.options.agents:
+            agents_dict = {
+                name: {k: v for k, v in asdict(agent_def).items() if v is not None}
+                for name, agent_def in self.options.agents.items()
+            }
+
         # Create Query to handle control protocol
         self._query = Query(
             transport=self._transport,
@@ -157,6 +165,7 @@ class ClaudeSDKClient:
             else None,
             sdk_mcp_servers=sdk_mcp_servers,
             initialize_timeout=initialize_timeout,
+            agents=agents_dict,
         )
 
         # Start reading messages and initialize
@@ -264,8 +273,10 @@ class ClaudeSDKClient:
     async def rewind_files(self, user_message_id: str) -> None:
         """Rewind tracked files to their state at a specific user message.
 
-        Requires file checkpointing to be enabled via the `enable_file_checkpointing` option
-        when creating the ClaudeSDKClient.
+        Requires:
+            - `enable_file_checkpointing=True` to track file changes
+            - `extra_args={"replay-user-messages": None}` to receive UserMessage
+              objects with `uuid` in the response stream
 
         Args:
             user_message_id: UUID of the user message to rewind to. This should be
@@ -273,11 +284,14 @@ class ClaudeSDKClient:
 
         Example:
             ```python
-            options = ClaudeAgentOptions(enable_file_checkpointing=True)
+            options = ClaudeAgentOptions(
+                enable_file_checkpointing=True,
+                extra_args={"replay-user-messages": None},
+            )
             async with ClaudeSDKClient(options) as client:
                 await client.query("Make some changes to my files")
                 async for msg in client.receive_response():
-                    if isinstance(msg, UserMessage):
+                    if isinstance(msg, UserMessage) and msg.uuid:
                         checkpoint_id = msg.uuid  # Save this for later
 
                 # Later, rewind to that point
@@ -287,6 +301,32 @@ class ClaudeSDKClient:
         if not self._query:
             raise CLIConnectionError("Not connected. Call connect() first.")
         await self._query.rewind_files(user_message_id)
+
+    async def get_mcp_status(self) -> dict[str, Any]:
+        """Get current MCP server connection status (only works with streaming mode).
+
+        Queries the Claude Code CLI for the live connection status of all
+        configured MCP servers.
+
+        Returns:
+            Dictionary with MCP server status information. Contains a
+            'mcpServers' key with a list of server status objects, each having:
+            - 'name': Server name (str)
+            - 'status': Connection status ('connected', 'pending', 'failed',
+              'needs-auth', 'disabled')
+
+        Example:
+            ```python
+            async with ClaudeSDKClient(options) as client:
+                status = await client.get_mcp_status()
+                for server in status.get("mcpServers", []):
+                    print(f"{server['name']}: {server['status']}")
+            ```
+        """
+        if not self._query:
+            raise CLIConnectionError("Not connected. Call connect() first.")
+        result: dict[str, Any] = await self._query.get_mcp_status()
+        return result
 
     async def get_server_info(self) -> dict[str, Any] | None:
         """Get server initialization info including available commands and output styles.

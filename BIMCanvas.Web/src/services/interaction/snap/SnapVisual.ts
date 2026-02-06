@@ -9,6 +9,7 @@ export class SnapVisual {
     private tooltip: HTMLDivElement | null = null;
     private currentType: SnapType | null = null;
     private isVisible = false;
+    private geometries: Record<SnapType, THREE.BufferGeometry> | null = null;
 
     constructor(scene: THREE.Scene, domElement: HTMLElement) {
         this.scene = scene;
@@ -18,9 +19,14 @@ export class SnapVisual {
     }
 
     public show(result: SnapResult, screenPoint: { x: number; y: number }): void {
-        if (!this.marker || !this.tooltip) return;
+        if (!this.marker || !this.tooltip || !this.geometries) return;
 
-        this.currentType = result.type;
+        // Switch geometry when snap type changes
+        if (result.type !== this.currentType) {
+            this.marker.geometry = this.geometries[result.type];
+            this.currentType = result.type;
+        }
+
         this.marker.position.copy(result.worldPoint);
         this.marker.position.y = 1;
 
@@ -51,9 +57,14 @@ export class SnapVisual {
         this.hide();
         if (this.marker) {
             this.scene.remove(this.marker);
-            this.marker.geometry.dispose();
             (this.marker.material as THREE.Material).dispose();
             this.marker = null;
+        }
+        if (this.geometries) {
+            for (const type of Object.keys(this.geometries) as SnapType[]) {
+                this.geometries[type].dispose();
+            }
+            this.geometries = null;
         }
         if (this.tooltip && this.tooltip.parentNode) {
             this.tooltip.parentNode.removeChild(this.tooltip);
@@ -63,22 +74,52 @@ export class SnapVisual {
     }
 
     private createMarker(): void {
-        const size = 60;
-        const geometry = new THREE.BufferGeometry();
-        const vertices = new Float32Array([
-            -size, 0, -size, size, 0, size,   // diagonal 1
-            -size, 0, size, size, 0, -size     // diagonal 2
-        ]);
-        geometry.setAttribute('position', new THREE.BufferAttribute(vertices, 3));
+        const s = 60;
+
+        // Build 4 geometries for different snap types
+        this.geometries = {
+            // endpoint: □ square
+            endpoint: this.buildGeometry([
+                -s, 0, -s,  s, 0, -s,
+                 s, 0, -s,  s, 0,  s,
+                 s, 0,  s, -s, 0,  s,
+                -s, 0,  s, -s, 0, -s
+            ]),
+            // midpoint: △ triangle
+            midpoint: this.buildGeometry([
+                 0, 0, -s,  s, 0,  s,
+                 s, 0,  s, -s, 0,  s,
+                -s, 0,  s,  0, 0, -s
+            ]),
+            // intersection: × cross (original)
+            intersection: this.buildGeometry([
+                -s, 0, -s,  s, 0,  s,
+                -s, 0,  s,  s, 0, -s
+            ]),
+            // perpendicular: ⊥ right-angle L shape
+            perpendicular: this.buildGeometry([
+                -s, 0,  s,  s, 0,  s,
+                -s, 0, -s, -s, 0,  s
+            ])
+        };
+
         const material = new THREE.LineBasicMaterial({
             color: 0x00ff00,
             depthTest: false,
             transparent: true,
             opacity: 0.8
         });
-        this.marker = new THREE.LineSegments(geometry, material);
+
+        // Default to intersection geometry
+        this.marker = new THREE.LineSegments(this.geometries.intersection, material);
         this.marker.renderOrder = 1000;
         this.marker.visible = false;
+    }
+
+    private buildGeometry(vertices: number[]): THREE.BufferGeometry {
+        const geometry = new THREE.BufferGeometry();
+        geometry.setAttribute('position', new THREE.BufferAttribute(new Float32Array(vertices), 3));
+        return geometry;
     }
 
     private createTooltip(): void {
