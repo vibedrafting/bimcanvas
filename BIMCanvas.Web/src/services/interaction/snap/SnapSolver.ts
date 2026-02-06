@@ -146,7 +146,7 @@ export class SnapSolver {
             }
         }
 
-        // Intersections (allow extension)
+        // Intersections (segment only)
         if (enabled.intersection && edges.length > 1) {
             const dedupe = new Set<string>();
             for (let i = 0; i < edges.length; i++) {
@@ -193,6 +193,9 @@ export class SnapSolver {
         if (Math.abs(cross) < 1e-8) return null;
         const cma = new THREE.Vector2(c.x - a.x, c.y - a.y);
         const t = (cma.x * s.y - cma.y * s.x) / cross;
+        const u = (cma.x * r.y - cma.y * r.x) / cross;
+        // Only return intersection if it lies on both segments
+        if (t < 0 || t > 1 || u < 0 || u > 1) return null;
         return new THREE.Vector2(a.x + t * r.x, a.y + t * r.y);
     }
 
