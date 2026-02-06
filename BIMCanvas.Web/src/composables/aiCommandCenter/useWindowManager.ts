@@ -391,26 +391,8 @@ export const useWindowManager = (options: WindowManagerOptions) => {
 
   const handleWindowTabClick = async (win: ChatWindow) => {
     if (activeWindowId.value !== win.id) {
-      const currentWin = activeWindow.value;
-      const isVirtualWindow = !!win.worktreeName;
-      const needsCheckout = currentWin && win.branchId !== currentWin.branchId && !isVirtualWindow;
-
-      if (needsCheckout) {
-        const result = await options.gitStore.checkout(win.branchId);
-        if (result.success) {
-          switchWindow(win.id);
-          return;
-        }
-        if (result.hasUncommittedChanges) {
-          pendingCheckoutBranch.value = win.branchId;
-          pendingWindowId.value = win.id;
-          showCheckoutConfirmDialog.value = true;
-          return;
-        }
-        console.error('切换分支失败:', result.message);
-        return;
-      }
-
+      // 窗口切换 ≠ 分支切换，不需要 git checkout
+      // switchWindow 会通知 Server 激活窗口并重新加载项目数据
       switchWindow(win.id);
     }
   };

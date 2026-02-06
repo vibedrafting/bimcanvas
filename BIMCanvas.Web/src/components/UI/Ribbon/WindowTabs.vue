@@ -52,11 +52,8 @@ const handleCloseTab = async (window: VirtualWindow, event: MouseEvent) => {
 // 创建新窗口
 const handleCreateWindow = async (branchName: string) => {
   showNewWindowMenu.value = false;
-  const newWindow = await windowStore.createVirtualWindow(branchName);
-  if (newWindow) {
-    // 切换到新分支
-    await gitStore.checkout(branchName);
-  }
+  // 虚拟窗口通过 worktree 绑定分支，不需要 git checkout
+  await windowStore.createVirtualWindow(branchName);
 };
 
 // 切换下拉菜单
