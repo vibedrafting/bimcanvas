@@ -20,7 +20,10 @@
       "Bash(npm run type-check:*)",
       "Bash(move:*)",
       "Bash(npx vite build:*)",
-      "Bash(grep:*)"
+      "Bash(grep:*)",
+      "Bash(find:*)",
+      "WebFetch(domain:docs.claude.com)",
+      "WebFetch(domain:pypi.org)"
     ]
   }
 }
