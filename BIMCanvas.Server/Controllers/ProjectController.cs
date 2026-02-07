@@ -464,8 +464,8 @@ namespace BIMCanvas.Server.Controllers
                     if (string.IsNullOrEmpty(zoneId))
                     {
                         orphanModules.Add(module.Id);
-                        _logger.LogWarning("[SaveModules] 模块 {ModuleId} 不在任何分区内", module.Id);
-                        continue;
+                        zoneId = "_unzoned";
+                        _logger.LogWarning("[SaveModules] 模块 {ModuleId} 不在任何分区内，归入 _unzoned", module.Id);
                     }
 
                     if (!grouped.ContainsKey(zoneId))
@@ -478,7 +478,7 @@ namespace BIMCanvas.Server.Controllers
                     .Where(d =>
                     {
                         var name = Path.GetFileName(d);
-                        return name.StartsWith("rz_") || name.StartsWith("dz_");
+                        return name.StartsWith("rz_") || name.StartsWith("dz_") || name == "_unzoned";
                     });
 
                 foreach (var zoneDir in existingZoneDirs)
@@ -529,7 +529,7 @@ namespace BIMCanvas.Server.Controllers
                 return Ok(new
                 {
                     success = true,
-                    modulesCount = modules.Count - orphanModules.Count,
+                    modulesCount = modules.Count,
                     zoneCount = grouped.Count,
                     orphanCount = orphanModules.Count,
                     orphanModules = orphanModules
@@ -713,7 +713,7 @@ namespace BIMCanvas.Server.Controllers
                 .Where(d =>
                 {
                     var name = Path.GetFileName(d);
-                    return name.StartsWith("rz_") || name.StartsWith("dz_");
+                    return name.StartsWith("rz_") || name.StartsWith("dz_") || name == "_unzoned";
                 })
                 .ToList();
 

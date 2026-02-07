@@ -158,7 +158,7 @@ namespace BIMCanvas.Server.Services
                 .Where(d =>
                 {
                     var name = Path.GetFileName(d);
-                    return name.StartsWith("rz_") || name.StartsWith("dz_");
+                    return name.StartsWith("rz_") || name.StartsWith("dz_") || name == "_unzoned";
                 })
                 .ToList();
 

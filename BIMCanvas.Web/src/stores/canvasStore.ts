@@ -545,7 +545,7 @@ export const useCanvasStore = defineStore('canvas', () => {
                 debugStore.success(`[CanvasStore] 保存成功: ${result.modulesCount} 个模块`);
 
                 if (result.orphanCount > 0) {
-                    debugStore.warn(`[CanvasStore] ${result.orphanCount} 个模块不在任何分区内`);
+                    debugStore.warn(`[CanvasStore] ${result.orphanCount} 个模块不在任何分区内，已保存到 _unzoned`);
                 }
                 if (options?.suppressServerSync) {
                     pendingServerSyncSkips += 1;

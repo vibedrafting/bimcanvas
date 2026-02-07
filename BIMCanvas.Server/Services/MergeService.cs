@@ -317,7 +317,7 @@ namespace BIMCanvas.Server.Services
                     foreach (var dir in Directory.GetDirectories(schemesDir))
                     {
                         var dirName = Path.GetFileName(dir);
-                        if (dirName.StartsWith("rz_") || dirName.StartsWith("dz_"))
+                        if (dirName.StartsWith("rz_") || dirName.StartsWith("dz_") || dirName == "_unzoned")
                         {
                             Directory.Delete(dir, recursive: true);
                         }
@@ -397,7 +397,7 @@ namespace BIMCanvas.Server.Services
                 if (process.ExitCode == 0)
                 {
                     zones = output.Split('\n', StringSplitOptions.RemoveEmptyEntries)
-                        .Where(name => name.StartsWith("rz_") || name.StartsWith("dz_"))
+                        .Where(name => name.StartsWith("rz_") || name.StartsWith("dz_") || name == "_unzoned")
                         .Select(name => name.Trim())
                         .ToList();
                 }
