@@ -77,7 +77,7 @@ export class MirrorTool implements Tool {
     private findAllOriginalObjects() {
         this.originalObjects = [];
         for (const obj of this.selectedObjects) {
-            const threeObj = this.findObjectById(obj.id);
+            const threeObj = this.findObjectById(obj._internalId || obj.id);
             if (threeObj) {
                 this.originalObjects.push(threeObj);
             }
@@ -275,7 +275,7 @@ export class MirrorTool implements Tool {
                 vy - 2 * b * dot
             ];
 
-            store.updateModule(obj.id, {
+            store.updateModule(obj._internalId || obj.id, {
                 bounds: newBounds,
                 facing: newFacing
             });

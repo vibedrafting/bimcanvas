@@ -368,7 +368,7 @@ export const useCanvasStore = defineStore('canvas', () => {
 
     const updateModule = (moduleId: string, updates: Partial<Module>) => {
         if (!projectData.value?.activeScheme?.modules) return;
-        const moduleIndex = projectData.value.activeScheme.modules.findIndex(m => m.id === moduleId);
+        const moduleIndex = projectData.value.activeScheme.modules.findIndex(m => m._internalId === moduleId || m.id === moduleId);
         if (moduleIndex !== -1) {
             const updatedModule = { ...projectData.value.activeScheme.modules[moduleIndex], ...updates };
             projectData.value.activeScheme.modules[moduleIndex] = updatedModule;
@@ -427,7 +427,7 @@ export const useCanvasStore = defineStore('canvas', () => {
 
     const removeModule = async (moduleId: string) => {
         if (!projectData.value?.activeScheme?.modules) return;
-        const moduleIndex = projectData.value.activeScheme.modules.findIndex(m => m.id === moduleId);
+        const moduleIndex = projectData.value.activeScheme.modules.findIndex(m => m._internalId === moduleId || m.id === moduleId);
         if (moduleIndex !== -1) {
             projectData.value.activeScheme.modules.splice(moduleIndex, 1);
             selectedIds.value = [];

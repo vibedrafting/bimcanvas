@@ -96,7 +96,7 @@ export class CopyTool implements Tool {
     private findAllOriginalObjects() {
         this.originalObjects = [];
         for (const obj of this.selectedObjects) {
-            const threeObj = this.findObjectById(obj.id);
+            const threeObj = this.findObjectById(obj._internalId || obj.id);
             if (threeObj) {
                 this.originalObjects.push(threeObj);
             }
@@ -373,8 +373,10 @@ export class CopyTool implements Tool {
                 // Create deep copy of the module
                 const newModule = JSON.parse(JSON.stringify(obj));
 
-                // Generate new ID
+                // Generate new ID and clear derived fields
                 newModule.id = generateUUID();
+                delete newModule._internalId;  // 让 Server 重新计算
+                delete newModule.zoneId;        // 让 Server 根据 bounds 重新计算
 
                 // Update bounds
                 newModule.bounds = obj.bounds.map((p: [number, number]) => [

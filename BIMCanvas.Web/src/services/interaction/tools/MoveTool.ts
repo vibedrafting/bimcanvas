@@ -99,7 +99,7 @@ export class MoveTool implements Tool {
     private findAllOriginalObjects() {
         this.originalObjects = [];
         for (const obj of this.selectedObjects) {
-            const threeObj = this.findObjectById(obj.id);
+            const threeObj = this.findObjectById(obj._internalId || obj.id);
             if (threeObj) {
                 this.originalObjects.push(threeObj);
             }
@@ -428,7 +428,7 @@ export class MoveTool implements Tool {
                     p[0] + delta2D[0],
                     p[1] + delta2D[1]
                 ]);
-                store.updateModule(obj.id, { bounds: newBounds });
+                store.updateModule(obj._internalId || obj.id, { bounds: newBounds });
             }
         }
 
