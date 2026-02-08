@@ -511,20 +511,20 @@ Thumbs.db
         /// </summary>
         private string GetPlacementGuideTemplate()
         {
-            // 尝试从 Resources 目录加载
+            // 尝试从 Templates 目录加载
             var baseDir = AppDomain.CurrentDomain.BaseDirectory;
-            var resourcePath = Path.Combine(baseDir, "Resources", "placement_guide.md");
+            var resourcePath = Path.Combine(baseDir, "Templates", "placement_guide.md");
 
             if (File.Exists(resourcePath))
             {
                 return File.ReadAllText(resourcePath, Encoding.UTF8);
             }
 
-            // 向上查找 BIMCanvas 根目录下的 Resources
+            // 向上查找 BIMCanvas.Server/Templates
             var dir = new DirectoryInfo(baseDir);
             for (int i = 0; i < 8 && dir != null; i++)
             {
-                var tryPath = Path.Combine(dir.FullName, "BIMCanvas.Server", "Resources", "placement_guide.md");
+                var tryPath = Path.Combine(dir.FullName, "BIMCanvas.Server", "Templates", "placement_guide.md");
                 if (File.Exists(tryPath))
                 {
                     return File.ReadAllText(tryPath, Encoding.UTF8);
@@ -598,7 +598,7 @@ Thumbs.db
 | 家具挡门 | 检查门扇弧线 |
 
 ---
-*此为内置精简版，完整版请参阅 Resources/placement_guide.md*
+*此为内置精简版，完整版请参阅 Templates/placement_guide.md*
 ";
         }
 
@@ -641,7 +641,7 @@ Thumbs.db
         }
 
         /// <summary>
-        /// 查找 Resources/skills 目录
+        /// 查找 Templates/skills 目录
         /// </summary>
         private string? FindResourceSkillsPath()
         {
@@ -650,13 +650,13 @@ Thumbs.db
 
             for (int i = 0; i < 8 && dir != null; i++)
             {
-                // 查找 BIMCanvas.Server/Resources/skills
-                var tryPath = Path.Combine(dir.FullName, "BIMCanvas.Server", "Resources", "skills");
+                // 查找 BIMCanvas.Server/Templates/skills
+                var tryPath = Path.Combine(dir.FullName, "BIMCanvas.Server", "Templates", "skills");
                 if (Directory.Exists(tryPath))
                     return tryPath;
 
-                // 也查找 Resources/skills（编译后的相对路径）
-                tryPath = Path.Combine(dir.FullName, "Resources", "skills");
+                // 也查找 Templates/skills（编译后的相对路径）
+                tryPath = Path.Combine(dir.FullName, "Templates", "skills");
                 if (Directory.Exists(tryPath))
                     return tryPath;
 
@@ -844,25 +844,28 @@ Thumbs.db
         }
 
         /// <summary>
-        /// 查找源 modules 目录路径
+        /// 查找源 modules 目录路径（优先 Templates/modules，兼容旧结构）
         /// </summary>
         private string? FindSourceModulesPath()
         {
-            // 方法1：从当前程序集位置向上查找
             var baseDir = AppDomain.CurrentDomain.BaseDirectory;
-            var dir = new DirectoryInfo(baseDir);
 
+            // 方法1：从编译输出目录查找 Templates/modules
+            var directPath = Path.Combine(baseDir, "Templates", "modules", "module_library.json");
+            if (File.Exists(directPath))
+                return Path.GetDirectoryName(directPath);
+
+            // 方法2：向上查找 BIMCanvas.Server/Templates/modules
+            var dir = new DirectoryInfo(baseDir);
             for (int i = 0; i < 8 && dir != null; i++)
             {
-                var modulesPath = Path.Combine(dir.FullName, "modules", "module_library.json");
+                var modulesPath = Path.Combine(dir.FullName, "BIMCanvas.Server", "Templates", "modules", "module_library.json");
                 if (File.Exists(modulesPath))
-                {
                     return Path.GetDirectoryName(modulesPath);
-                }
+
                 dir = dir.Parent;
             }
 
-            // 方法2：检查环境变量或配置（未来扩展）
             return null;
         }
 
