@@ -2,7 +2,7 @@
 
 > 本文档帮助 AI 快速理解项目结构。详细数据格式请直接读取对应文件。
 >
-> **生成时间**: {EXPORT_DATE} | **数据版本**: v3.3（分区文件）
+> **生成时间**: {EXPORT_DATE} | **数据版本**: v3.4（分区文件 + _unzoned）
 
 ---
 
@@ -36,6 +36,8 @@
     │   └── modules.json            该分区的家具布置
     ├── rz_2/                       ⭐ 分区 2 的布置数据
     │   └── modules.json
+    ├── _unzoned/                   未分区模块（bounds 不在任何分区内）
+    │   └── modules.json
     └── ...                         其他分区
 ```
 
@@ -62,12 +64,13 @@
 
 ## 4. 重要：modules.json 路径规范
 
-**数据模型版本**：v3.3（分区文件）
+**数据模型版本**：v3.4（分区文件 + _unzoned）
 
 **正确路径**：
 - ✅ `schemes/rz_1/modules.json`（分区 1 的家具布置）
 - ✅ `schemes/rz_2/modules.json`（分区 2 的家具布置）
 - ✅ `schemes/rz_3/modules.json`（分区 3 的家具布置）
+- ✅ `schemes/_unzoned/modules.json`（不在任何分区内的模块，Server 自动归类）
 
 **错误路径**：
 - ❌ `schemes/modules.json`（此路径不存在，已废弃）
@@ -76,6 +79,7 @@
 **查找分区**：
 1. 读取 `schemes/zones.json` 获取所有分区 ID（如 rz_1, rz_2, rz_3...）
 2. 根据分区 ID 定位对应的 `schemes/{zoneId}/modules.json`
+3. `_unzoned` 目录由 Server 自动管理，存放 bounds 中心点不在任何 Room Zone 内的模块
 
 **文件格式示例** (`schemes/rz_3/modules.json`)：
 
@@ -151,6 +155,7 @@
 | 如何避免与禁区冲突？ | 读取 `computed/exclusions.json`，确保 bounds 不重叠 |
 | bounds 顶点顺序？ | 矩形连续顺序：左下→右下→右上→左上 |
 | items 可以为空？ | 是，`items: []` 有效，后续由 Server 填充 |
+| `_unzoned` 目录是什么？ | Server 保存时，bounds 中心不在任何分区内的模块自动归入此目录，避免数据丢失 |
 
 ---
 
