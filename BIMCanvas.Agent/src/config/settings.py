@@ -35,13 +35,13 @@ class ThinkingConfig:
                    如果为 None，使用默认等级
 
         Returns:
-            token 数量，None 表示禁用思考
+            token 数量，0 表示显式禁用思考（SDK 传递 --max-thinking-tokens 0）
         """
         if not self.enabled:
-            return None
+            return 0
         level = level or self.default_level
         if level == "off":
-            return None
+            return 0
         return self.budget.get(level, self.budget.get("medium"))
 
 
