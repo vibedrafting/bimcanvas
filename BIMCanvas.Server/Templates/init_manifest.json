@@ -9,6 +9,13 @@
       "description": "项目说明文档（支持占位符替换）"
     },
     {
+      "name": "context",
+      "target": "context",
+      "type": "directory",
+      "enabled": true,
+      "description": "设计上下文（requirements.md 模板）"
+    },
+    {
       "name": "knowledge",
       "target": "knowledge",
       "type": "directory",

@@ -97,10 +97,7 @@ namespace BIMCanvas.Server.Services
             // 2. 计算 baseline 哈希并写入 baseline.manifest
             var baselineHash = EnsureBaselineManifest(projectPath);
 
-            // 3. 创建 context/ 目录
-            CreateContextDirectory(projectPath);
-
-            // 4. 创建 schemes/ 和默认策略
+            // 3. 创建 schemes/ 和默认策略
             var defaultStrategyId = EnsureSchemesDirectory(projectPath, baselineHash);
 
             // 5. 更新 project.json
@@ -413,47 +410,6 @@ Thumbs.db
             _manifestService.WriteBaselineManifest(baselinePath, hash);
 
             return hash;
-        }
-
-        /// <summary>
-        /// 创建 context/ 目录和 requirements.md
-        /// </summary>
-        private void CreateContextDirectory(string projectPath)
-        {
-            var contextPath = Path.Combine(projectPath, "context");
-
-            if (Directory.Exists(contextPath))
-            {
-                _logger.LogDebug("context/ 目录已存在，跳过创建");
-                return;
-            }
-
-            Directory.CreateDirectory(contextPath);
-            _logger.LogInformation("创建 context/ 目录");
-
-            // 创建 requirements.md 模板
-            var requirementsPath = Path.Combine(contextPath, "requirements.md");
-            var content = @"# 设计需求
-
-## 项目概述
-
-（在此描述项目的基本情况）
-
-## 功能需求
-
--
-
-## 风格偏好
-
--
-
-## 特殊要求
-
--
-
-";
-            File.WriteAllText(requirementsPath, content, Encoding.UTF8);
-            _logger.LogInformation("创建 requirements.md 模板");
         }
 
         /// <summary>
