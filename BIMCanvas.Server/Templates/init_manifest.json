@@ -12,7 +12,7 @@
       "name": "context",
       "target": "context",
       "type": "directory",
-      "enabled": true,
+      "enabled": false,
       "description": "设计上下文（requirements.md 模板）"
     },
     {
