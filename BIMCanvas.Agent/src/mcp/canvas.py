@@ -67,12 +67,17 @@ def _build_shot_label(viewport: dict[str, Any], index: int) -> str:
     return "full"
 
 
+def _strip_data_uri_prefix(image_data: str) -> str:
+    """去掉 data URI 前缀（如 data:image/png;base64,），返回纯 base64 字符串"""
+    if "," in image_data:
+        return image_data.split(",", 1)[1]
+    return image_data
+
+
 def _decode_image_data(image_data: str) -> bytes:
     if not image_data:
         raise ValueError("imageData 为空")
-    if "," in image_data:
-        image_data = image_data.split(",", 1)[1]
-    return base64.b64decode(image_data)
+    return base64.b64decode(_strip_data_uri_prefix(image_data))
 
 
 def _save_screenshot(image_data: str, project_dir: Path, filename: str) -> str:
@@ -231,7 +236,7 @@ async def ai_job_complete(args: dict[str, Any]) -> dict[str, Any]:
 
 @tool(
     "request_background_screenshot",
-    "后台截图：调用 Server 截图 API，保存到项目 screenshots 目录并返回完整路径（仅供 layout-agent 使用）",
+    "后台截图：调用 Server 截图 API，直接返回截图图片（同时保存到 screenshots 目录备查）",
     {
         "$schema": "http://json-schema.org/draft-07/schema#",
         "type": "object",
@@ -398,7 +403,10 @@ async def request_background_screenshot(args: dict[str, Any]) -> dict[str, Any]:
                 label = _sanitize_filename(_build_shot_label(viewports[0], 1))
                 filename = f"bg_{label}_{timestamp}.png"
                 saved_path = _save_screenshot(image_data, project_dir, filename)
-                return {"content": [{"type": "text", "text": f"截图已保存: {saved_path}\n\n⚠️ 【强制要求】必须立即执行 Read {saved_path} 查看此图片，理解空间形态后再继续。"}]}
+                return {"content": [
+                    {"type": "image", "data": _strip_data_uri_prefix(image_data), "mimeType": "image/png"},
+                    {"type": "text", "text": f"以上是当前布局截图（已保存至 {saved_path}）。请对照自审检查清单逐项检查。"}
+                ]}
 
             items = []
             for idx, viewport in enumerate(viewports, start=1):
@@ -430,7 +438,7 @@ async def request_background_screenshot(args: dict[str, Any]) -> dict[str, Any]:
                     "is_error": True
                 }
 
-            saved_paths: list[str] = []
+            content_blocks: list[dict[str, Any]] = []
             errors: list[str] = []
             for idx, result in enumerate(items_result):
                 if result.get("error"):
@@ -441,7 +449,9 @@ async def request_background_screenshot(args: dict[str, Any]) -> dict[str, Any]:
                     errors.append(f"{items[idx]['name']}: imageData 为空")
                     continue
                 filename = f"bg_{items[idx]['name']}_{timestamp}_{idx + 1:02d}.png"
-                saved_paths.append(_save_screenshot(image_data, project_dir, filename))
+                saved_path = _save_screenshot(image_data, project_dir, filename)
+                content_blocks.append({"type": "image", "data": _strip_data_uri_prefix(image_data), "mimeType": "image/png"})
+                content_blocks.append({"type": "text", "text": f"[{items[idx]['name']}] 已保存至 {saved_path}"})
 
             if errors:
                 return {
@@ -449,8 +459,8 @@ async def request_background_screenshot(args: dict[str, Any]) -> dict[str, Any]:
                     "is_error": True
                 }
 
-            paths_text = "\n".join(saved_paths)
-            return {"content": [{"type": "text", "text": f"截图已保存:\n{paths_text}\n\n⚠️ 【强制要求】必须立即执行 Read 查看以上所有图片，理解空间形态后再继续。"}]}
+            content_blocks.append({"type": "text", "text": "以上是所有截图。请对照自审检查清单逐项检查。"})
+            return {"content": content_blocks}
 
     except aiohttp.ClientError as e:
         return {
@@ -554,7 +564,7 @@ async def get_workflow_guide(args: dict[str, Any]) -> dict[str, Any]:
 **禁止工具**：Write, Edit
 
 **步骤**：
-1. 如需空间/布局判断，先调用 `mcp__canvas__request_background_screenshot` 并用 Read 查看图片
+1. 如需空间/布局判断，先调用 `mcp__canvas__request_background_screenshot` 查看截图
 2. Read 目标数据文件（如 modules.json）
 3. 空数据检查 → 空则报告"数量为 0"
 4. 分析/统计（仅基于实际读取的数据）
@@ -576,14 +586,14 @@ async def get_workflow_guide(args: dict[str, Any]) -> dict[str, Any]:
 **触发条件**：关键词"移动/删除/旋转/调整"
 
 **步骤**：
-1. 视需要在修改前调用 `mcp__canvas__request_background_screenshot` 并用 Read 查看图片
+1. 视需要在修改前调用 `mcp__canvas__request_background_screenshot` 查看截图
 2. Read modules.json
 3. 定位目标模块
 4. 执行修改操作
 5. 验证约束（间距≥800mm、不超边界、不重叠）
 6. Write 保存结果
 7. 调用 `mcp__canvas__notify_data_changed` 通知 Web 端数据已更新
-8. 视需要在修改后再次调用截图工具 + Read 查看图片验证结果
+8. 视需要在修改后再次调用截图工具验证结果
 
 **示例**：
 - "移动沙发到靠窗位置" → Read → 修改 bounds 坐标 → 验证 → Write
@@ -613,8 +623,8 @@ async def get_workflow_guide(args: dict[str, Any]) -> dict[str, Any]:
 
 在执行任何 Write 操作前，必须确认以下步骤已完成：
 
-□ 已调用 mcp__canvas__request_background_screenshot 并用 Read 查看图片（前置）
-  → 如果未调用或未查看，立即停止并先执行
+□ 已调用 mcp__canvas__request_background_screenshot 查看截图（前置）
+  → 截图工具会直接返回图片，无需额外 Read
 
 □ 已读取 knowledge/placement_guide.md
   → 如果未读取，立即停止并先读取
@@ -640,16 +650,15 @@ async def get_workflow_guide(args: dict[str, Any]) -> dict[str, Any]:
 
 ## 前置准备（步骤 1-5）
 
-### 1. 前置截图 + 查看（必须）
+### 1. 前置截图（必须）
 ```
-screenshot_path = mcp__canvas__request_background_screenshot(
+mcp__canvas__request_background_screenshot(
   projectPath="{当前工作目录}",
   viewport={"mode": "full"}
 )
-Read {screenshot_path}
 ```
+→ 截图工具直接返回图片，无需额外 Read
 → 理解空间形态、门窗位置、房间朝向
-→ **警告**：仅调用截图工具但不 Read 查看 = 未完成此步骤
 
 ### 2. 读取设计规范（必须）
 Read knowledge/placement_guide.md
@@ -735,12 +744,12 @@ mcp__canvas__notify_data_changed(changedFiles=["modules.json"])
 ### 8A. 阶段 A 截图验证 + 自审
 
 ```
-screenshot_path = mcp__canvas__request_background_screenshot(
+mcp__canvas__request_background_screenshot(
   projectPath="{当前工作目录}",
   viewport={"mode": "full"}
 )
-Read {screenshot_path}
 ```
+→ 截图工具直接返回图片，无需额外 Read
 
 **对照截图执行自审检查清单**：
 
@@ -804,12 +813,12 @@ mcp__canvas__notify_data_changed(changedFiles=["modules.json"])
 ### 8B. 最终截图验证 + 自审
 
 ```
-screenshot_path = mcp__canvas__request_background_screenshot(
+mcp__canvas__request_background_screenshot(
   projectPath="{当前工作目录}",
   viewport={"mode": "full"}
 )
-Read {screenshot_path}
 ```
+→ 截图工具直接返回图片，无需额外 Read
 
 **执行完整自审检查清单**（同阶段 A，但覆盖全部家具）：
 
@@ -869,7 +878,7 @@ Read {screenshot_path}
 | 凭空编造家具尺寸 | 从 module_library.json 选择 |
 | 一次性放置全部家具再验证 | 分阶段 A/B 放置，每阶段截图自审 |
 | 跳过截图步骤 | 前置 + 阶段 A 后 + 最终，各一次 |
-| 截图后不 Read 查看 | 截图后必须 Read 查看图片 |
+| 自审结果只在思考中分析 | 必须输出 H1-H5/S1-S5 的 PASS/FAIL 结果 |
 | 跳过自审检查清单 | 每次截图后逐项检查 H1-H5 |
 | 发现违规但不修正就继续 | 硬性约束违反必须修正后才能继续 |
 | 阶段 B 只写新增家具 | 必须合并已有+新增全部写入 |
