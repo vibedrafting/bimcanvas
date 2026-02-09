@@ -1,0 +1,33 @@
+{
+  "version": "1.0",
+  "items": [
+    {
+      "name": "README.md",
+      "target": "README.md",
+      "type": "template",
+      "enabled": true,
+      "description": "项目说明文档（支持占位符替换）"
+    },
+    {
+      "name": "knowledge",
+      "target": "knowledge",
+      "type": "directory",
+      "enabled": true,
+      "description": "AI 知识库（placement_guide.md）"
+    },
+    {
+      "name": "modules",
+      "target": "modules",
+      "type": "directory",
+      "enabled": true,
+      "description": "家具模块库（module_library.json + SVG）"
+    },
+    {
+      "name": "skills",
+      "target": ".claude/skills",
+      "type": "directory",
+      "enabled": false,
+      "description": "Agent Skills 模板（当前不参与初始化）"
+    }
+  ]
+}

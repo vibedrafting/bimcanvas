@@ -100,12 +100,6 @@ namespace BIMCanvas.Server.Services
             // 3. 创建 context/ 目录
             CreateContextDirectory(projectPath);
 
-            // 3.5 创建 knowledge/ 目录（Agent 知识库）
-            CreateKnowledgeDirectory(projectPath);
-
-            // 3.6 创建 .claude/skills/ 目录（项目级 Skills）
-            CreateSkillsDirectory(projectPath);
-
             // 4. 创建 schemes/ 和默认策略
             var defaultStrategyId = EnsureSchemesDirectory(projectPath, baselineHash);
 
@@ -121,13 +115,10 @@ namespace BIMCanvas.Server.Services
             // 8. 基于 schemes/zones.json 创建分区子目录
             CreateZoneDirectories(projectPath);
 
-            // 9. 复制 modules 文件夹（Agent 需要读取模块库）
-            CopyModulesDirectory(projectPath);
+            // 9. 从 Templates 统一初始化资源文件（modules、knowledge、README 等）
+            InitializeFromTemplates(projectPath);
 
-            // 10. 复制 README.md 模板（Agent 读取此文件了解项目结构）
-            CopyReadmeTemplate(projectPath);
-
-            // 11. 初始化 Git 仓库（v3.1 新增：单仓库 + 多分支架构）
+            // 10. 初始化 Git 仓库（v3.1 新增：单仓库 + 多分支架构）
             InitializeGitRepository(projectPath);
 
             _logger.LogInformation("项目加载完成: {Path}", projectPath);
@@ -146,14 +137,8 @@ namespace BIMCanvas.Server.Services
                 return;
             }
 
-            // 确保 modules 文件夹存在
-            CopyModulesDirectory(projectPath);
-
-            // 确保 README.md 存在（可选，Agent 依赖此文件了解项目结构）
-            CopyReadmeTemplate(projectPath);
-
-            // 确保 .claude/skills/ 存在（项目级 Skills）
-            CreateSkillsDirectory(projectPath);
+            // 从 Templates 统一初始化资源文件
+            InitializeFromTemplates(projectPath);
         }
 
         /// <summary>
@@ -472,201 +457,6 @@ Thumbs.db
         }
 
         /// <summary>
-        /// 创建 knowledge/ 目录和初始化知识库文件
-        /// Agent 在布置家具时可查阅此知识库
-        /// </summary>
-        private void CreateKnowledgeDirectory(string projectPath)
-        {
-            var knowledgePath = Path.Combine(projectPath, "knowledge");
-
-            if (Directory.Exists(knowledgePath))
-            {
-                _logger.LogDebug("knowledge/ 目录已存在，跳过创建");
-                return;
-            }
-
-            Directory.CreateDirectory(knowledgePath);
-            _logger.LogInformation("创建 knowledge/ 目录");
-
-            // 创建布置设计指南
-            CreatePlacementGuide(knowledgePath);
-        }
-
-        /// <summary>
-        /// 创建布置设计指南文件
-        /// </summary>
-        private void CreatePlacementGuide(string knowledgePath)
-        {
-            var guidePath = Path.Combine(knowledgePath, "placement_guide.md");
-
-            // 从嵌入资源加载内容
-            var content = GetPlacementGuideTemplate();
-
-            File.WriteAllText(guidePath, content, Encoding.UTF8);
-            _logger.LogInformation("创建 knowledge/placement_guide.md");
-        }
-
-        /// <summary>
-        /// 获取布置设计指南模板内容
-        /// </summary>
-        private string GetPlacementGuideTemplate()
-        {
-            // 尝试从 Templates 目录加载
-            var baseDir = AppDomain.CurrentDomain.BaseDirectory;
-            var resourcePath = Path.Combine(baseDir, "Templates", "knowledge", "placement_guide.md");
-
-            if (File.Exists(resourcePath))
-            {
-                return File.ReadAllText(resourcePath, Encoding.UTF8);
-            }
-
-            // 向上查找 BIMCanvas.Server/Templates
-            var dir = new DirectoryInfo(baseDir);
-            for (int i = 0; i < 8 && dir != null; i++)
-            {
-                var tryPath = Path.Combine(dir.FullName, "BIMCanvas.Server", "Templates", "knowledge", "placement_guide.md");
-                if (File.Exists(tryPath))
-                {
-                    return File.ReadAllText(tryPath, Encoding.UTF8);
-                }
-                dir = dir.Parent;
-            }
-
-            // 如果找不到资源文件，使用内置的精简模板
-            _logger.LogWarning("未找到 placement_guide.md 资源文件，使用内置模板");
-            return GetBuiltInPlacementGuideTemplate();
-        }
-
-        /// <summary>
-        /// 内置的布置设计指南模板（备用）
-        /// </summary>
-        private string GetBuiltInPlacementGuideTemplate()
-        {
-            return @"# PlacementAgent 布置设计指南
-
-> 本文档为 PlacementAgent 提供布置决策所需的背景知识和设计规范。
-
-## 一、设计原则
-
-| 规则 | 说明 | 适用家具 |
-|------|------|----------|
-| **靠墙规则** | 大型家具尽量靠墙放置 | 衣柜、床、沙发、书柜 |
-| **居中规则** | 某些家具应居中于墙面 | 电视柜居中于电视墙、床居中于床头墙 |
-| **朝向规则** | 家具背面靠墙，正面朝向空间中心 | 沙发背墙面向客厅、床头靠墙 |
-| **避窗规则** | 避免家具阻挡采光 | 床头不靠窗、书桌侧对窗 |
-| **避门规则** | 不阻挡门的开启范围 | 所有家具 |
-
-## 二、布置优先级
-
-1. **锚点家具** - 确定设计区的核心定位
-   - 客厅: 电视柜 → 卧室: 床 → 餐厅: 餐桌
-2. **主要家具** - 围绕锚点布置
-3. **辅助家具** - 填充剩余空间
-
-## 三、尺寸标准
-
-### 通道宽度
-| 类型 | 最小 | 推荐 |
-|------|------|------|
-| 主通道 | 900mm | 1000mm+ |
-| 次通道 | 600mm | 700mm+ |
-| 床侧通道 | 500mm | 600mm+ |
-
-### 使用距离
-| 场景 | 距离 |
-|------|------|
-| 电视观看 | 屏幕对角线 × 2.5~3 |
-| 餐椅后退 | 600~800mm |
-| 衣柜开门 | 600mm+ |
-
-## 四、空间约束
-
-```
-1. bounds 必须在 Zone.innerBoundary 内
-2. bounds 不能与 exclusionAreas 重叠
-3. bounds 不能与其他 modules 重叠
-4. 不能阻挡门的开启范围
-```
-
-## 五、常见错误
-
-| 错误 | 正确做法 |
-|------|----------|
-| 床脚正对门 | 床侧对门或床头对门 |
-| 沙发背对入口 | 沙发背靠墙 |
-| 通道过窄 | 主通道 >= 900mm |
-| 家具挡门 | 检查门扇弧线 |
-
----
-*此为内置精简版，完整版请参阅 Templates/knowledge/placement_guide.md*
-";
-        }
-
-        /// <summary>
-        /// 创建项目级 Skills 目录（.claude/skills/）
-        /// Agent 使用 setting_sources=["project"] 从此目录加载 Skills
-        /// </summary>
-        private void CreateSkillsDirectory(string projectPath)
-        {
-            var skillsPath = Path.Combine(projectPath, ".claude", "skills");
-
-            if (Directory.Exists(skillsPath))
-            {
-                _logger.LogDebug(".claude/skills/ 目录已存在，跳过创建");
-                return;
-            }
-
-            Directory.CreateDirectory(skillsPath);
-            _logger.LogInformation("创建 .claude/skills/ 目录");
-
-            // 复制 Skills 模板
-            CopySkillsFromResources(skillsPath);
-        }
-
-        /// <summary>
-        /// 从 Resources/skills 复制 Skills 模板
-        /// </summary>
-        private void CopySkillsFromResources(string targetSkillsPath)
-        {
-            var sourceSkillsPath = FindResourceSkillsPath();
-
-            if (string.IsNullOrEmpty(sourceSkillsPath) || !Directory.Exists(sourceSkillsPath))
-            {
-                _logger.LogWarning("未找到 Skills 模板目录，Agent 可能无法加载 Skills");
-                return;
-            }
-
-            CopyDirectory(sourceSkillsPath, targetSkillsPath);
-            _logger.LogInformation("复制 Skills 模板到项目: {Path}", targetSkillsPath);
-        }
-
-        /// <summary>
-        /// 查找 Templates/skills 目录
-        /// </summary>
-        private string? FindResourceSkillsPath()
-        {
-            var baseDir = AppDomain.CurrentDomain.BaseDirectory;
-            var dir = new DirectoryInfo(baseDir);
-
-            for (int i = 0; i < 8 && dir != null; i++)
-            {
-                // 查找 BIMCanvas.Server/Templates/skills
-                var tryPath = Path.Combine(dir.FullName, "BIMCanvas.Server", "Templates", "skills");
-                if (Directory.Exists(tryPath))
-                    return tryPath;
-
-                // 也查找 Templates/skills（编译后的相对路径）
-                tryPath = Path.Combine(dir.FullName, "Templates", "skills");
-                if (Directory.Exists(tryPath))
-                    return tryPath;
-
-                dir = dir.Parent;
-            }
-
-            return null;
-        }
-
-        /// <summary>
         /// 确保 schemes/ 目录和默认策略存在
         /// v3.2: 策略文件直接存放在 schemes/ 目录下（无子目录）
         /// </summary>
@@ -749,127 +539,6 @@ Thumbs.db
         }
 
         /// <summary>
-        /// 复制 modules 文件夹到项目目录
-        /// Agent 需要读取 module_library.json 进行模块选择
-        /// </summary>
-        private void CopyModulesDirectory(string projectPath)
-        {
-            var targetModulesPath = Path.Combine(projectPath, "modules");
-
-            // 如果已存在则跳过
-            if (Directory.Exists(targetModulesPath))
-            {
-                _logger.LogDebug("modules/ 目录已存在，跳过复制");
-                return;
-            }
-
-            // 查找源 modules 目录（从 Server 所在位置向上查找 BIMCanvas 根目录）
-            var sourceModulesPath = FindSourceModulesPath();
-            if (string.IsNullOrEmpty(sourceModulesPath) || !Directory.Exists(sourceModulesPath))
-            {
-                _logger.LogWarning("未找到源 modules 目录，Agent 可能无法读取模块库");
-                return;
-            }
-
-            // 复制整个 modules 目录
-            CopyDirectory(sourceModulesPath, targetModulesPath);
-            _logger.LogInformation("复制 modules/ 目录到项目: {Path}", targetModulesPath);
-        }
-
-        /// <summary>
-        /// 复制 README.md 模板到项目根目录
-        /// Agent 通过此文件了解项目目录结构和数据格式
-        /// </summary>
-        private void CopyReadmeTemplate(string projectPath)
-        {
-            var targetReadmePath = Path.Combine(projectPath, "README.md");
-
-            // 如果已存在则跳过
-            if (File.Exists(targetReadmePath))
-            {
-                _logger.LogDebug("README.md 已存在，跳过复制");
-                return;
-            }
-
-            // 查找模板文件
-            var templatePath = FindReadmeTemplatePath();
-            if (string.IsNullOrEmpty(templatePath) || !File.Exists(templatePath))
-            {
-                _logger.LogWarning("未找到 ProjectReadmeTemplate.md，跳过 README.md 创建");
-                return;
-            }
-
-            // 读取模板并替换占位符
-            var content = File.ReadAllText(templatePath, Encoding.UTF8);
-
-            // 获取项目信息用于替换
-            var projectName = Path.GetFileName(projectPath);
-            var exportDate = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss");
-
-            content = content.Replace("{PROJECT_NAME}", projectName);
-            content = content.Replace("{EXPORT_DATE}", exportDate);
-            content = content.Replace("{PROJECT_FOLDER}", projectName);
-
-            File.WriteAllText(targetReadmePath, content, Encoding.UTF8);
-            _logger.LogInformation("创建 README.md（Agent 项目结构说明）");
-        }
-
-        /// <summary>
-        /// 查找 README 模板文件路径
-        /// </summary>
-        private string? FindReadmeTemplatePath()
-        {
-            var baseDir = AppDomain.CurrentDomain.BaseDirectory;
-
-            // 方法1：从运行目录查找 Templates 文件夹
-            var templatePath = Path.Combine(baseDir, "Templates", "ProjectReadmeTemplate.md");
-            if (File.Exists(templatePath))
-            {
-                return templatePath;
-            }
-
-            // 方法2：从当前程序集位置向上查找 BIMCanvas.Server/Templates
-            var dir = new DirectoryInfo(baseDir);
-            for (int i = 0; i < 8 && dir != null; i++)
-            {
-                var tryPath = Path.Combine(dir.FullName, "BIMCanvas.Server", "Templates", "ProjectReadmeTemplate.md");
-                if (File.Exists(tryPath))
-                {
-                    return tryPath;
-                }
-                dir = dir.Parent;
-            }
-
-            return null;
-        }
-
-        /// <summary>
-        /// 查找源 modules 目录路径（优先 Templates/modules，兼容旧结构）
-        /// </summary>
-        private string? FindSourceModulesPath()
-        {
-            var baseDir = AppDomain.CurrentDomain.BaseDirectory;
-
-            // 方法1：从编译输出目录查找 Templates/modules
-            var directPath = Path.Combine(baseDir, "Templates", "modules", "module_library.json");
-            if (File.Exists(directPath))
-                return Path.GetDirectoryName(directPath);
-
-            // 方法2：向上查找 BIMCanvas.Server/Templates/modules
-            var dir = new DirectoryInfo(baseDir);
-            for (int i = 0; i < 8 && dir != null; i++)
-            {
-                var modulesPath = Path.Combine(dir.FullName, "BIMCanvas.Server", "Templates", "modules", "module_library.json");
-                if (File.Exists(modulesPath))
-                    return Path.GetDirectoryName(modulesPath);
-
-                dir = dir.Parent;
-            }
-
-            return null;
-        }
-
-        /// <summary>
         /// 递归复制目录
         /// </summary>
         private void CopyDirectory(string sourceDir, string targetDir)
@@ -891,6 +560,153 @@ Thumbs.db
                 CopyDirectory(subDir, Path.Combine(targetDir, subDirName));
             }
         }
+
+        #region 统一模板初始化
+
+        /// <summary>
+        /// 查找 Templates 根目录
+        /// 优先查编译输出目录，再向上 8 级查开发目录
+        /// </summary>
+        private string? FindTemplatesRoot()
+        {
+            var baseDir = AppDomain.CurrentDomain.BaseDirectory;
+
+            // 方法1：编译输出目录（bin/Debug/net8.0/Templates/）
+            var directPath = Path.Combine(baseDir, "Templates");
+            if (Directory.Exists(directPath) &&
+                File.Exists(Path.Combine(directPath, "init_manifest.json")))
+            {
+                return directPath;
+            }
+
+            // 方法2：向上查找 BIMCanvas.Server/Templates（开发目录）
+            var dir = new DirectoryInfo(baseDir);
+            for (int i = 0; i < 8 && dir != null; i++)
+            {
+                var tryPath = Path.Combine(dir.FullName, "BIMCanvas.Server", "Templates");
+                if (Directory.Exists(tryPath) &&
+                    File.Exists(Path.Combine(tryPath, "init_manifest.json")))
+                {
+                    return tryPath;
+                }
+                dir = dir.Parent;
+            }
+
+            return null;
+        }
+
+        /// <summary>
+        /// 统一从 Templates 目录初始化项目资源
+        /// 读取 init_manifest.json，按配置逐项初始化
+        /// </summary>
+        private void InitializeFromTemplates(string projectPath)
+        {
+            var templatesRoot = FindTemplatesRoot();
+            if (string.IsNullOrEmpty(templatesRoot))
+            {
+                _logger.LogWarning("未找到 Templates 目录，跳过模板初始化");
+                return;
+            }
+
+            // 读取 init_manifest.json
+            var manifestPath = Path.Combine(templatesRoot, "init_manifest.json");
+            var manifestJson = File.ReadAllText(manifestPath, Encoding.UTF8);
+            var manifest = JsonConvert.DeserializeObject<InitManifest>(manifestJson);
+
+            if (manifest?.Items == null || manifest.Items.Count == 0)
+            {
+                _logger.LogWarning("init_manifest.json 为空或无效，跳过模板初始化");
+                return;
+            }
+
+            var projectName = Path.GetFileName(projectPath);
+
+            foreach (var item in manifest.Items)
+            {
+                if (!item.Enabled)
+                {
+                    _logger.LogDebug("跳过禁用项: {Name}", item.Name);
+                    continue;
+                }
+
+                var sourcePath = Path.Combine(templatesRoot, item.Name);
+                var targetPath = Path.Combine(projectPath, item.Target);
+
+                try
+                {
+                    if (item.Type == "directory")
+                    {
+                        if (Directory.Exists(targetPath))
+                        {
+                            _logger.LogDebug("{Target} 已存在，跳过", item.Target);
+                            continue;
+                        }
+
+                        if (!Directory.Exists(sourcePath))
+                        {
+                            _logger.LogWarning("模板源目录不存在: {Path}", sourcePath);
+                            continue;
+                        }
+
+                        CopyDirectory(sourcePath, targetPath);
+                        _logger.LogInformation("初始化目录: {Target}", item.Target);
+                    }
+                    else if (item.Type == "template")
+                    {
+                        if (File.Exists(targetPath))
+                        {
+                            _logger.LogDebug("{Target} 已存在，跳过", item.Target);
+                            continue;
+                        }
+
+                        if (!File.Exists(sourcePath))
+                        {
+                            _logger.LogWarning("模板源文件不存在: {Path}", sourcePath);
+                            continue;
+                        }
+
+                        // 读取并替换占位符
+                        var content = File.ReadAllText(sourcePath, Encoding.UTF8);
+                        content = content.Replace("{PROJECT_NAME}", projectName);
+                        content = content.Replace("{EXPORT_DATE}", DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss"));
+                        content = content.Replace("{PROJECT_FOLDER}", projectName);
+
+                        // 确保目标目录存在
+                        var targetDir = Path.GetDirectoryName(targetPath);
+                        if (!string.IsNullOrEmpty(targetDir) && !Directory.Exists(targetDir))
+                        {
+                            Directory.CreateDirectory(targetDir);
+                        }
+
+                        File.WriteAllText(targetPath, content, Encoding.UTF8);
+                        _logger.LogInformation("初始化模板: {Target}", item.Target);
+                    }
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, "初始化模板项失败: {Name}", item.Name);
+                }
+            }
+        }
+
+        /// <summary>初始化清单</summary>
+        private class InitManifest
+        {
+            public string Version { get; set; } = "1.0";
+            public List<InitItem> Items { get; set; } = new();
+        }
+
+        /// <summary>初始化清单项</summary>
+        private class InitItem
+        {
+            public string Name { get; set; } = "";
+            public string Target { get; set; } = "";
+            public string Type { get; set; } = "directory";
+            public bool Enabled { get; set; } = true;
+            public string? Description { get; set; }
+        }
+
+        #endregion
 
         /// <summary>
         /// 确保 computed 数据有效
