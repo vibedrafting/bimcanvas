@@ -35,6 +35,13 @@
       "type": "directory",
       "enabled": false,
       "description": "Agent Skills 模板（当前不参与初始化）"
+    },
+    {
+      "name": ".gitignore",
+      "target": ".gitignore",
+      "type": "template",
+      "enabled": true,
+      "description": "Git 忽略规则（项目级）"
     }
   ]
 }

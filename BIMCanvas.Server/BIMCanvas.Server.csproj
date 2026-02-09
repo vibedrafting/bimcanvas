@@ -23,6 +23,7 @@
   <!-- Agent 模板/资源文件：复制到输出目录 -->
   <ItemGroup>
     <Content Update="Templates\**\*" CopyToOutputDirectory="PreserveNewest" />
+    <Content Include="Templates\.gitignore" CopyToOutputDirectory="PreserveNewest" />
     <None Include="Templates\**\*.md" CopyToOutputDirectory="PreserveNewest" />
     <None Include="Templates\**\*.svg" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>

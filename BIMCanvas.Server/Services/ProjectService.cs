@@ -100,22 +100,22 @@ namespace BIMCanvas.Server.Services
             // 3. 创建 schemes/ 和默认策略
             var defaultStrategyId = EnsureSchemesDirectory(projectPath, baselineHash);
 
-            // 5. 更新 project.json
+            // 4. 更新 project.json
             UpdateProjectJson(projectPath, defaultStrategyId);
 
-            // 6. 验证并生成 computed 数据
+            // 5. 验证并生成 computed 数据
             EnsureComputedData(projectPath);
 
-            // 7. 从 computed/room_zones.json 初始化 schemes/zones.json（MVP简化）
+            // 6. 从 computed/room_zones.json 初始化 schemes/zones.json（MVP简化）
             InitializeZonesFromComputed(projectPath);
 
-            // 8. 基于 schemes/zones.json 创建分区子目录
+            // 7. 基于 schemes/zones.json 创建分区子目录
             CreateZoneDirectories(projectPath);
 
-            // 9. 从 Templates 统一初始化资源文件（modules、knowledge、README 等）
+            // 8. 从 Templates 统一初始化资源文件（modules、knowledge、README、.gitignore 等）
             InitializeFromTemplates(projectPath);
 
-            // 10. 初始化 Git 仓库（v3.1 新增：单仓库 + 多分支架构）
+            // 9. 初始化 Git 仓库（单仓库 + 多分支架构）
             InitializeGitRepository(projectPath);
 
             _logger.LogInformation("项目加载完成: {Path}", projectPath);
@@ -221,33 +221,6 @@ namespace BIMCanvas.Server.Services
         {
             try
             {
-                // 创建 .gitignore
-                var gitignorePath = Path.Combine(projectPath, ".gitignore");
-                if (!File.Exists(gitignorePath))
-                {
-                    var gitignoreContent = @"# BIMCanvas Project .gitignore
-
-# Worktree 临时目录
-.worktrees/
-
-# 系统文件
-.DS_Store
-Thumbs.db
-
-# IDE / 开发工具
-.idea/
-.vscode/
-.vs/
-*.suo
-*.user
-*.sln
-*.csproj
-";
-                    File.WriteAllText(gitignorePath, gitignoreContent, Encoding.UTF8);
-                    _logger.LogDebug("创建 .gitignore");
-                }
-
-                // 初始化 Git 仓库
                 var initialized = _gitService.InitializeRepository(projectPath);
                 if (initialized)
                 {
