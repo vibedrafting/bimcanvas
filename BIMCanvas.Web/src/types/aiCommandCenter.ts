@@ -5,7 +5,9 @@ export interface ChatMessage {
   isStreaming?: boolean;
   startTime?: number;
   endTime?: number;
+  /** @deprecated Thinking 现在存储在 type='thinking' 的气泡中 */
   thinking?: string;
+  /** @deprecated Thinking 时长现在存储在各个 thinking 气泡的 thinkingDuration 中 */
   thinkingDuration?: string;
   bubbles: ChatBubble[];
   waitingState: WaitingState;

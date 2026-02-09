@@ -192,7 +192,7 @@ class MainAgent:
         return ClaudeAgentOptions(
             system_prompt=system_prompt,
             cwd=self.working_directory,
-            max_turns=20,
+            max_turns=30,
             model=settings.model_name,
             allowed_tools=all_allowed,             # 包含 MCP 工具
             disallowed_tools=disallowed_tools,     # 工具黑名单

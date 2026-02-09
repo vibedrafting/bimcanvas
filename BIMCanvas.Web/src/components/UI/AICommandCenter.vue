@@ -14,6 +14,7 @@ import { useScreenshot } from '../../composables/aiCommandCenter/useScreenshot';
 import { useWindowManager } from '../../composables/aiCommandCenter/useWindowManager';
 import BranchCheckoutConfirmDialog from './Ribbon/BranchCheckoutConfirmDialog.vue';
 import BranchCreationDialog from './Ribbon/BranchCreationDialog.vue';
+import ThinkingBubble from './ThinkingBubble.vue';
 import ToolCallBubble from './ToolCallBubble.vue';
 import SubAgentBubble from './SubAgentBubble.vue';
 import WaitingIndicator from './WaitingIndicator.vue';
@@ -338,13 +339,6 @@ watch(inputMessage, (newVal) => {
     });
   }
 });
-
-const toggleThinking = (windowId: string, index: number) => {
-  const win = windows.value.find(w => w.id === windowId);
-  if (win) {
-    win.expandedThinking[index] = !win.expandedThinking[index];
-  }
-};
 
 const bubbleToSubAgent = (bubble: ChatBubble): SubAgent => {
   const toolCalls: ToolCall[] = (bubble.childBubbles || [])
@@ -683,38 +677,16 @@ onUnmounted(() => {
                 <div class="chat-message" :class="[msg.role === 'user' ? 'user' : 'ai', { streaming: msg.isStreaming }]">
                     <!-- Avatar Removed -->
                     <div class="message-wrapper">
-                        <!-- Thinking Section (for AI messages only) -->
-                        <div v-if="msg.role === 'ai' && msg.thinking" class="thinking-section">
-                            <div class="thinking-header" @click="toggleThinking(win.id, msgIndex)">
-                                <svg
-                                    class="thinking-chevron"
-                                    :class="{ expanded: win.expandedThinking[msgIndex] }"
-                                    viewBox="0 0 24 24"
-                                    fill="none"
-                                    stroke="currentColor"
-                                    stroke-width="2"
-                                >
-                                    <polyline points="9 18 15 12 9 6"></polyline>
-                                </svg>
-                                <span class="thinking-label">
-                                    <template v-if="msg.isStreaming && msg.bubbles.length === 0">
-                                        Thinking for {{ msg.thinkingDuration || '0s' }}<span class="dot">.</span><span class="dot">.</span><span class="dot">.</span>
-                                    </template>
-                                    <template v-else>
-                                        Thought for {{ msg.thinkingDuration || '0s' }}
-                                    </template>
-                                </span>
-                            </div>
-                            <transition name="thinking-expand">
-                                <div v-show="win.expandedThinking[msgIndex]" class="thinking-content">
-                                    <MarkdownText :content="msg.thinking" />
-                                </div>
-                            </transition>
-                        </div>
                         <!-- 时间线气泡列表渲染 -->
                         <template v-for="bubble in msg.bubbles" :key="bubble.id">
+                            <!-- Thinking 气泡 -->
+                            <ThinkingBubble
+                                v-if="bubble.type === 'thinking'"
+                                :bubble="bubble"
+                            />
+
                             <!-- 文本气泡 - 用户消息用纯文本，AI 消息用 Markdown -->
-                            <div class="bubble" v-if="bubble.type === 'text' && (bubble.content || bubble.images?.length)">
+                            <div class="bubble" v-else-if="bubble.type === 'text' && (bubble.content || bubble.images?.length)">
                                 <!-- 图片显示区域（用户消息专有） -->
                                 <div class="bubble-images" v-if="bubble.images && bubble.images.length > 0">
                                     <img v-for="(img, idx) in bubble.images" :key="idx"
@@ -2314,66 +2286,6 @@ onUnmounted(() => {
             50% { opacity: 1; }
         }
 
-        /* Thinking Section Styles */
-        .thinking-section {
-            margin-bottom: 4px;
-
-            .thinking-header {
-                display: flex;
-                align-items: center;
-                gap: 6px;
-                padding: 4px 0;
-                cursor: pointer;
-                user-select: none;
-                opacity: 0.7;
-                transition: opacity 0.2s;
-
-                &:hover {
-                    opacity: 1;
-                }
-
-                .thinking-label {
-                    font-size: 0.8rem;
-                    color: var(--text-tertiary);
-                    font-style: italic;
-                    /* font-family: 'SF Mono', 'Roboto Mono', monospace; Removed to match Generating... */
-                    
-                    .dot {
-                        animation: dot-fade 1.5s infinite;
-                        opacity: 0;
-                    }
-                    .dot:nth-child(1) { animation-delay: 0.0s; }
-                    .dot:nth-child(2) { animation-delay: 0.5s; }
-                    .dot:nth-child(3) { animation-delay: 1.0s; }
-                }
-
-                .thinking-chevron {
-                    width: 14px;
-                    height: 14px;
-                    color: var(--text-tertiary);
-                    transition: transform 0.2s;
-
-                    &.expanded {
-                        transform: rotate(90deg);
-                    }
-                }
-            }
-
-            .thinking-content {
-                padding: 6px 10px; /* Reduced padding */
-                color: var(--text-secondary);
-                line-height: 1.4; /* Tighter line height */
-                font-size: 0.8rem;
-                border-left: 2px solid var(--border-dim);
-                margin-left: 6px; /* Align with chevron center approx */
-                margin-top: 2px;
-                margin-bottom: 6px;
-                /* white-space: pre-wrap;  Removed because MarkdownText handles it */
-                background: rgba(0, 0, 0, 0.2); /* Very subtle background */
-                border-radius: 0 8px 8px 0;
-            }
-        }
-
         /* SubAgents Section */
         .subagents-section {
             margin: 8px 0;
@@ -2401,21 +2313,6 @@ onUnmounted(() => {
         }
     }
 }
-
-/* Thinking expand transition */
-.thinking-expand-enter-active,
-.thinking-expand-leave-active {
-    transition: all 0.2s ease;
-    max-height: 200px;
-    overflow: hidden;
-}
-
-.thinking-expand-enter-from,
-.thinking-expand-leave-to {
-    opacity: 0;
-    max-height: 0;
-}
-
 
 .card {
     background: var(--surface-card);

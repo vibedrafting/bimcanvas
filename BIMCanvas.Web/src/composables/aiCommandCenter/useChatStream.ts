@@ -7,6 +7,10 @@ import {
   createTextBubble,
   createToolCallBubble,
   createSubAgentBubble,
+  createThinkingBubble,
+  getLastStreamingThinkingBubble,
+  completeThinkingBubble,
+  collapseLastThinkingBubble,
   enterWaitingState,
   exitWaitingState,
   hasStreamingSubAgent,
@@ -157,18 +161,20 @@ export const useChatStream = (options: ChatStreamOptions) => {
       bubbles: [],
       waitingState: initialWaitingState,
       isStreaming: true,
-      startTime: Date.now(),
-      thinking: '',
-      thinkingDuration: undefined
+      startTime: Date.now()
     });
 
+    // 定时器：更新当前 streaming thinking 气泡的时长
     const timerInterval = setInterval(() => {
       const msg = options.getWindowMessage(targetWindowId, aiMessageIndex);
-      if (msg && msg.isStreaming && msg.bubbles.length === 0 && msg.thinking) {
-        const duration = Math.round((Date.now() - (msg.startTime || Date.now())) / 1000);
-        msg.thinkingDuration = duration + 's';
-      } else {
+      if (!msg || !msg.isStreaming) {
         clearInterval(timerInterval);
+        return;
+      }
+      const activeThinking = getLastStreamingThinkingBubble(msg.bubbles);
+      if (activeThinking && activeThinking.thinkingStartTime) {
+        const duration = Math.round((Date.now() - activeThinking.thinkingStartTime) / 1000);
+        activeThinking.thinkingDuration = duration + 's';
       }
     }, 1000);
 
@@ -237,25 +243,34 @@ export const useChatStream = (options: ChatStreamOptions) => {
               const targetWin = options.windows.value.find(w => w.id === targetWindowId);
               if (!targetWin) continue;
 
-              if (parsed.type === 'thinking' || parsed.type === 'thinking_complete') {
-                if (parsed.type === 'thinking_complete') {
-                  currentMsg.thinking = parsed.content;
+              if (parsed.type === 'thinking') {
+                // 查找当前正在 streaming 的 thinking 气泡
+                let activeThinking = getLastStreamingThinkingBubble(currentMsg.bubbles);
+                if (!activeThinking) {
+                  // 创建新的 thinking 气泡
+                  activeThinking = createThinkingBubble(parsed.content || '');
+                  currentMsg.bubbles.push(activeThinking);
                 } else {
-                  currentMsg.thinking = (currentMsg.thinking || '') + parsed.content;
+                  // 追加到现有 thinking 气泡
+                  activeThinking.content = (activeThinking.content || '') + (parsed.content || '');
                 }
-                if (!targetWin.expandedThinking[aiMessageIndex]) {
-                  targetWin.expandedThinking[aiMessageIndex] = true;
+                exitWaitingState(currentMsg.waitingState);
+              } else if (parsed.type === 'thinking_complete') {
+                let activeThinking = getLastStreamingThinkingBubble(currentMsg.bubbles);
+                if (!activeThinking) {
+                  // 边界情况：没有活跃的 thinking 气泡
+                  activeThinking = createThinkingBubble(parsed.content || '');
+                  currentMsg.bubbles.push(activeThinking);
                 }
+                // 用完整内容覆盖并标记完成
+                if (parsed.content) {
+                  activeThinking.content = parsed.content;
+                }
+                completeThinkingBubble(activeThinking);
               } else if (parsed.type === 'text') {
                 exitWaitingState(currentMsg.waitingState);
-
-                if (currentMsg.thinking && targetWin.expandedThinking[aiMessageIndex] === true) {
-                  currentMsg.endTime = Date.now();
-                  const duration = Math.round((currentMsg.endTime - (currentMsg.startTime || currentMsg.endTime)) / 1000);
-                  currentMsg.thinkingDuration = duration + 's';
-                  targetWin.expandedThinking = { ...targetWin.expandedThinking, [aiMessageIndex]: false };
-                  nextTick(() => options.scrollToBottom({ windowId: targetWindowId }));
-                }
+                // 自动折叠最后一个 thinking 气泡
+                collapseLastThinkingBubble(currentMsg.bubbles);
 
                 if (parsed.errorType === 'recoverable') {
                   if (import.meta.env.DEV) {
@@ -306,6 +321,7 @@ export const useChatStream = (options: ChatStreamOptions) => {
                 console.error('[SSE Error]', parsed.error);
               } else if (parsed.type === 'subagent_start') {
                 exitWaitingState(currentMsg.waitingState);
+                collapseLastThinkingBubble(currentMsg.bubbles);
 
                 const lastTextBubble = getLastStreamingTextBubble(currentMsg.bubbles);
                 if (lastTextBubble) {
@@ -335,6 +351,7 @@ export const useChatStream = (options: ChatStreamOptions) => {
                 }
               } else if (parsed.type === 'tool_call_start') {
                 exitWaitingState(currentMsg.waitingState);
+                collapseLastThinkingBubble(currentMsg.bubbles);
 
                 const lastTextBubble = getLastStreamingTextBubble(currentMsg.bubbles);
                 if (lastTextBubble) {
@@ -402,6 +419,12 @@ export const useChatStream = (options: ChatStreamOptions) => {
         const lastStreamingBubble = getLastStreamingTextBubble(finalMsg.bubbles);
         if (lastStreamingBubble) {
           completeBubble(lastStreamingBubble);
+        }
+        // 完成并折叠残留的 streaming thinking 气泡
+        const lastThinking = getLastStreamingThinkingBubble(finalMsg.bubbles);
+        if (lastThinking) {
+          completeThinkingBubble(lastThinking);
+          lastThinking.isExpanded = false;
         }
       }
 
@@ -496,8 +519,13 @@ export const useChatStream = (options: ChatStreamOptions) => {
           // 如果有 streaming 的 bubble，标记为中止
           const lastBubble = lastMsg.bubbles[lastMsg.bubbles.length - 1];
           if (lastBubble && lastBubble.status === 'streaming') {
-            lastBubble.status = 'completed';
-            lastBubble.content = lastBubble.content + '\n\n[已中止]';
+            if (lastBubble.type === 'thinking') {
+              completeThinkingBubble(lastBubble);
+              lastBubble.isExpanded = false;
+            } else {
+              lastBubble.status = 'completed';
+              lastBubble.content = lastBubble.content + '\n\n[已中止]';
+            }
           }
         }
       }

@@ -137,7 +137,7 @@ export type AgentSSEEvent =
 // ========== 时间线气泡模型（Timeline Bubble Model）==========
 
 /** 气泡类型 */
-export type BubbleType = 'text' | 'tool_call' | 'subagent';
+export type BubbleType = 'text' | 'tool_call' | 'subagent' | 'thinking';
 
 /** 气泡状态 */
 export type BubbleStatus = 'pending' | 'streaming' | 'completed' | 'failed' | 'background';
@@ -173,6 +173,14 @@ export interface ChatBubble {
   toolOutput?: string;
   /** 工具错误信息 */
   toolError?: string;
+
+  // ===== ThinkingBubble 专有 =====
+  /** Thinking 时长显示 (如 "3s") */
+  thinkingDuration?: string;
+  /** Thinking 开始时间 (ms) */
+  thinkingStartTime?: number;
+  /** 展开/折叠状态（Thinking 气泡专用） */
+  isExpanded?: boolean;
 
   // ===== SubAgentBubble 专有 =====
   /** SubAgent 名称 */

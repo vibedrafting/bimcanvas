@@ -70,6 +70,21 @@ export function createSubAgentBubble(
   };
 }
 
+/**
+ * 创建 Thinking 气泡
+ */
+export function createThinkingBubble(content: string = ''): ChatBubble {
+  return {
+    id: generateBubbleId('thinking'),
+    type: 'thinking',
+    timestamp: Date.now(),
+    status: 'streaming',
+    content,
+    thinkingStartTime: Date.now(),
+    isExpanded: true
+  };
+}
+
 // ========== 等待状态管理 ==========
 
 /**
@@ -149,6 +164,21 @@ export function getLastBubbleOfType(
 }
 
 /**
+ * 获取最后一个正在流式传输的 Thinking 气泡
+ */
+export function getLastStreamingThinkingBubble(
+  bubbles: ChatBubble[]
+): ChatBubble | undefined {
+  for (let i = bubbles.length - 1; i >= 0; i--) {
+    const bubble = bubbles[i];
+    if (bubble.type === 'thinking' && bubble.status === 'streaming') {
+      return bubble;
+    }
+  }
+  return undefined;
+}
+
+/**
  * 获取最后一个正在流式传输的文本气泡
  */
 export function getLastStreamingTextBubble(
@@ -189,6 +219,31 @@ export function failBubble(bubble: ChatBubble, error?: string): void {
   bubble.status = 'failed';
   if (error && bubble.type === 'tool_call') {
     bubble.toolError = error;
+  }
+}
+
+/**
+ * 完成 Thinking 气泡并计算时长
+ */
+export function completeThinkingBubble(bubble: ChatBubble): void {
+  if (bubble.type !== 'thinking') return;
+  bubble.status = 'completed';
+  if (bubble.thinkingStartTime) {
+    const durationSec = Math.round((Date.now() - bubble.thinkingStartTime) / 1000);
+    bubble.thinkingDuration = durationSec + 's';
+  }
+}
+
+/**
+ * 折叠最后一个展开的 Thinking 气泡
+ */
+export function collapseLastThinkingBubble(bubbles: ChatBubble[]): void {
+  for (let i = bubbles.length - 1; i >= 0; i--) {
+    const bubble = bubbles[i];
+    if (bubble.type === 'thinking' && bubble.isExpanded) {
+      bubble.isExpanded = false;
+      return;
+    }
   }
 }
 
