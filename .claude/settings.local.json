@@ -23,7 +23,8 @@
       "Bash(grep:*)",
       "Bash(find:*)",
       "WebFetch(domain:docs.claude.com)",
-      "WebFetch(domain:pypi.org)"
+      "WebFetch(domain:pypi.org)",
+      "Bash(git mv:*)"
     ]
   }
 }

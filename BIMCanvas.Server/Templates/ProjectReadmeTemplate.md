@@ -19,7 +19,7 @@
 │   └── location_lines.json         完成面定位线
 │
 ├── computed/                       【自动层】Server 计算的派生数据
-│   ├── room_zones.json             设计区域（从房间派生）
+│   ├── room_zones.json             房间分区（从房间派生，分区方案的依据）
 │   └── exclusions.json             禁区（门扇开启区等）
 │
 ├── context/                        设计上下文
@@ -30,7 +30,7 @@
 │
 └── schemes/                        【读写层】AI 操作的策略数据
     ├── strategy.json               方案配置、策略参数
-    ├── zones.json                  设计分区定义
+    ├── zones.json                  分区方案（当前策略对应的分区设计，rz_1、rz_2等分区文件夹创建的依据）
     ├── finishes.json               完成面配置
     ├── rz_1/                       ⭐ 分区 1 的布置数据
     │   └── modules.json            该分区的家具布置
@@ -40,8 +40,6 @@
     │   └── modules.json
     └── ...                         其他分区
 ```
-
-**多策略**: 通过 Git 分支实现，AI 只需操作当前 `schemes/`，分支切换由 Server 管理
 
 ---
 
@@ -74,7 +72,6 @@
 
 **错误路径**：
 - ❌ `schemes/modules.json`（此路径不存在，已废弃）
-- ❌ `schemes/default/modules.json`（此路径不存在）
 
 **查找分区**：
 1. 读取 `schemes/zones.json` 获取所有分区 ID（如 rz_1, rz_2, rz_3...）
