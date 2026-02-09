@@ -513,7 +513,7 @@ Thumbs.db
         {
             // 尝试从 Templates 目录加载
             var baseDir = AppDomain.CurrentDomain.BaseDirectory;
-            var resourcePath = Path.Combine(baseDir, "Templates", "placement_guide.md");
+            var resourcePath = Path.Combine(baseDir, "Templates", "knowledge", "placement_guide.md");
 
             if (File.Exists(resourcePath))
             {
@@ -524,7 +524,7 @@ Thumbs.db
             var dir = new DirectoryInfo(baseDir);
             for (int i = 0; i < 8 && dir != null; i++)
             {
-                var tryPath = Path.Combine(dir.FullName, "BIMCanvas.Server", "Templates", "placement_guide.md");
+                var tryPath = Path.Combine(dir.FullName, "BIMCanvas.Server", "Templates", "knowledge", "placement_guide.md");
                 if (File.Exists(tryPath))
                 {
                     return File.ReadAllText(tryPath, Encoding.UTF8);
@@ -598,7 +598,7 @@ Thumbs.db
 | 家具挡门 | 检查门扇弧线 |
 
 ---
-*此为内置精简版，完整版请参阅 Templates/placement_guide.md*
+*此为内置精简版，完整版请参阅 Templates/knowledge/placement_guide.md*
 ";
         }
 
