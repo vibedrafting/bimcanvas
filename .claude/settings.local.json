@@ -25,7 +25,8 @@
       "WebFetch(domain:docs.claude.com)",
       "WebFetch(domain:pypi.org)",
       "Bash(git mv:*)",
-      "Bash(git checkout:*)"
+      "Bash(git checkout:*)",
+      "Bash(ls:*)"
     ]
   }
 }
