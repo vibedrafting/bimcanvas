@@ -9,6 +9,17 @@ import { useSave } from '../../composables/useSave';
 
 const store = useCanvasStore();
 const fileInputRef = ref<HTMLInputElement | null>(null);
+const isSyncing = ref(false);
+
+const handleSync = async () => {
+  if (isSyncing.value) return;
+  isSyncing.value = true;
+  try {
+    await store.forceSync();
+  } finally {
+    setTimeout(() => { isSyncing.value = false; }, 600);
+  }
+};
 
 const { 
   handleLoad, 
@@ -132,6 +143,17 @@ onUnmounted(() => {
         </svg>
       </GlassButton>
 
+      <div class="divider"></div>
+
+      <GlassButton @click="handleSync" :disabled="isSyncing" variant="ghost" title="Sync Data" class="icon-btn">
+        <!-- Sync Icon (Refresh Arrows) -->
+        <svg :class="{ 'spin-icon': isSyncing }" viewBox="0 0 24 24" width="1.1em" height="1.1em" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <polyline points="23 4 23 10 17 10"></polyline>
+          <polyline points="1 20 1 14 7 14"></polyline>
+          <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"></path>
+        </svg>
+      </GlassButton>
+
       <!-- 隐藏的文件输入 -->
       <input
         ref="fileInputRef"
@@ -194,9 +216,18 @@ onUnmounted(() => {
   padding: 2px 4px; /* Reduced padding for compactness */
   font-size: 1.0rem;
   color: var(--text-secondary);
-  
+
   &:hover {
     color: var(--text-primary);
   }
+}
+
+.spin-icon {
+  animation: spinSync 0.8s linear infinite;
+}
+
+@keyframes spinSync {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
 }
 </style>

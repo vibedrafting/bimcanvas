@@ -81,6 +81,7 @@ const properties = computed(() => {
 
   for (const [key, value] of Object.entries(data)) {
     if (key === 'id') continue; // Skip ID as it's added manually
+    if (key.startsWith('_')) continue; // 跳过内部字段
     if (isPrimitiveValue(value)) {
       props.push({ key, value, readonly: true });
     }
