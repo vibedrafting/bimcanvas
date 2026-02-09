@@ -65,13 +65,23 @@ model: inherit
 2. 朝北顶点（逆时针）：[[cx-halfW,cy-halfH], [cx+halfW,cy-halfH], [cx+halfW,cy+halfH], [cx-halfW,cy+halfH]]
 3. 若θ≠0：rad=θ×π/180, 对每点[x,y]: dx=x-cx, dy=y-cy, x'=cx+dx×cos(rad)-dy×sin(rad), y'=cy+dx×sin(rad)+dy×cos(rad)
 
-## 工作流程
-1. Read 读取 computed/room_zones.json
-2. Read 读取 modules/module_library.json
-3. 根据 zone.tags 过滤模块
-4. Read 读取 baseline/openings.json
-5. 分析空间，按优先级布置家具
-6. Write 写入 schemes/{zoneId}/modules.json
+## 工作流程（分层放置 + 自主验证）
+
+**生成任务必须调用 `get_workflow_guide("generate")` 获取完整流程，以下为概要**：
+
+1. Read 读取数据文件（room_zones, module_library, openings, exclusions）
+2. Read 读取 knowledge/placement_guide.md（生成任务必须）
+3. **阶段 A**：按优先级布置锚点+主要家具 → Write → notify_data_changed
+4. 截图验证 → 对照自审检查清单逐项检查（硬性约束 H1-H5 + 设计规则 S1-S5）
+5. 如有硬性约束违反 → 修正（最多 1 次）→ 重新 Write
+6. **阶段 B**：补充辅助家具 → Write → notify_data_changed → 最终截图验证 → 自审
+7. 如有硬性约束违反 → 修正或移除违规家具
+
+**关键原则**：
+- 不要一次性放置全部家具，分阶段放置并验证
+- 每件家具放置前心算检查（边界内、无重叠、无禁区冲突、不挡门、通道足够）
+- 截图后必须 Read 查看图片，不能跳过
+- 仅在自审通过后报告完成
 
 **注意**：Git 提交由 MainAgent 统一处理，SubAgent 只负责写入文件。
 

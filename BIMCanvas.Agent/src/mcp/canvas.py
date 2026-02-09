@@ -594,6 +594,21 @@ async def get_workflow_guide(args: dict[str, Any]) -> dict[str, Any]:
 
 ⚠️ **本流程是 generate 任务的唯一官方定义，必须严格按步骤执行**
 
+## 流程概览
+
+```
+前置准备（步骤 1-5，只读）
+  → 阶段 A：放置锚点 + 主要家具 → 写入 → 截图 → 自审
+    → [如有硬性违规] → 修正（最多 1 次）
+  → 阶段 B：补充辅助家具 → 写入 → 截图 → 自审
+    → [如有硬性违规] → 修正（最多 1 次）
+  → 报告结果（仅在审核通过后）
+```
+
+**核心原则**：不要一次性放置全部家具。分两阶段放置，每阶段截图自审，自主修正后再继续。
+
+---
+
 ## 执行前强制检查清单
 
 在执行任何 Write 操作前，必须确认以下步骤已完成：
@@ -621,104 +636,224 @@ async def get_workflow_guide(args: dict[str, Any]) -> dict[str, Any]:
 
 **警告**：如果以上任何步骤缺失，禁止执行 Write 操作。
 
-## 执行步骤
+---
 
-1. **前置截图 + 查看**（必须）
-   ```
-   # 步骤 1.1：调用截图工具，获取图片路径
-   screenshot_path = mcp__canvas__request_background_screenshot(
-     projectPath="{当前工作目录}",
-     viewport={"mode": "full"}
-   )
+## 前置准备（步骤 1-5）
 
-   # 步骤 1.2：必须用 Read 查看图片！
-   Read {screenshot_path}
-   ```
-   → 理解空间形态、门窗位置、房间朝向
-   → **警告**：仅调用截图工具但不 Read 查看 = 未完成此步骤
+### 1. 前置截图 + 查看（必须）
+```
+screenshot_path = mcp__canvas__request_background_screenshot(
+  projectPath="{当前工作目录}",
+  viewport={"mode": "full"}
+)
+Read {screenshot_path}
+```
+→ 理解空间形态、门窗位置、房间朝向
+→ **警告**：仅调用截图工具但不 Read 查看 = 未完成此步骤
 
-2. **读取设计规范**（必须）
-   Read knowledge/placement_guide.md
+### 2. 读取设计规范（必须）
+Read knowledge/placement_guide.md
 
-3. **读取模块库架构说明**（必须）
-   Read modules/README.md
-   → 了解模块库的双层架构：
-     - 契约层：id, tags, size, svgPath（用于选择模块）
-     - 意图层：agent_config（用于决策布置）
-   → 理解 agent_config 的三个关键字段：
-     - morphology.strategy: 形态策略（fixed=固定尺寸, horizontal_fill=横向填充, parametric=参数化）
-     - topology_rules: 拓扑规则（物体与环境的空间关系，如"靠墙放置"）
-     - relation_rules: 关系规则（物体与其他家具的配合，如"面向电视墙"）
+### 3. 读取模块库架构说明（必须）
+Read modules/README.md
+→ 了解模块库的双层架构：
+  - 契约层：id, tags, size, svgPath（用于选择模块）
+  - 意图层：agent_config（用于决策布置）
+→ 理解 agent_config 的三个关键字段：
+  - morphology.strategy: 形态策略（fixed=固定尺寸, horizontal_fill=横向填充, parametric=参数化）
+  - topology_rules: 拓扑规则（物体与环境的空间关系，如"靠墙放置"）
+  - relation_rules: 关系规则（物体与其他家具的配合，如"面向电视墙"）
 
-4. **读取家具库数据**（必须）
-   Read modules/module_library.json
-   → 家具尺寸必须从此文件选择
-   → 根据目标 Zone.tags 筛选兼容模块（模块的 tags 与 zone 的 tags 有交集）
-   → 布置时参考每个模块的 agent_config 进行决策
+### 4. 读取家具库数据（必须）
+Read modules/module_library.json
+→ 家具尺寸必须从此文件选择
+→ 根据目标 Zone.tags 筛选兼容模块（模块的 tags 与 zone 的 tags 有交集）
+→ 布置时参考每个模块的 agent_config 进行决策
 
-5. **读取空间数据**
-   - Read computed/room_zones.json
-   - Read computed/exclusions.json
-   - Read baseline/openings.json
+### 5. 读取空间数据
+- Read computed/room_zones.json
+- Read computed/exclusions.json
+- Read baseline/openings.json
 
-6. **设计布置方案**
-   基于：
-   - 截图理解的空间形态
-   - placement_guide 的设计规范
-   - module_library 的家具选择 + agent_config 的布置规则
+---
 
-   按优先级布置：
-   - 锚点家具（电视柜/床/餐桌）
-   - 主要家具（沙发/衣柜）
-   - 辅助家具（茶几/边几）
+## 阶段 A：布置锚点 + 主要家具
 
-7. **写入结果**（注意路径）
-   Write schemes/{zoneId}/modules.json（每个分区单独文件）
+### 家具分层定义
 
-   **路径规范**：
-   - ✅ 正确：schemes/rz_1/modules.json（分区 1）
-   - ✅ 正确：schemes/rz_2/modules.json（分区 2）
-   - ❌ 错误：schemes/modules.json（此路径不存在，已废弃）
+| 层级 | 定义 | 示例 |
+|------|------|------|
+| 锚点家具 | 决定房间布局核心定位 | 床、电视柜、餐桌、书桌 |
+| 主要家具 | 围绕锚点的功能家具 | 衣柜、沙发、床头柜、餐椅 |
+| 辅助家具 | 填充和装饰性家具 | 茶几、边几、梳妆台、落地灯 |
 
-   **查找分区**：
-   1. 读取 schemes/zones.json 获取所有分区 ID
-   2. 根据分区 ID 写入对应的 schemes/{zoneId}/modules.json
+**成套依赖必须同阶段放置**：床+床头柜、书桌+椅子、餐桌+餐椅。
 
-   **数据格式**：
-   ```json
-   [
-     {
-       "id": "m_1",
-       "zoneId": "rz_1",  // ← 与文件路径中的 zoneId 一致
-       "moduleId": "mod_bed_001",  // ← 来自 module_library
-       "bounds": [[x1,y1], [x2,y2], [x3,y3], [x4,y4]],
-       "facing": "north",
-       "items": []
-     }
-   ]
-   ```
+### 6A. 放置前逐件心算检查
 
-7.5. **通知 Web 端数据已更新**（必须）
-   ```
-   mcp__canvas__notify_data_changed(changedFiles=["modules.json"])
-   ```
-   → 确保 Web 端立即刷新，不依赖 FileSystemWatcher
+对每件要放置的家具，在确定坐标前检查：
+1. bounds 是否完全在 innerBoundary 内？
+2. bounds 是否与已放置的其他家具 AABB 重叠？（逐一比对）
+3. bounds 是否与 exclusionAreas 重叠？
+4. 是否阻挡门开启（门前 900mm 净空）？
+5. 相邻通道是否满足：主通道>=900mm、次通道>=600mm、床侧>=500mm？
 
-8. **后置截图验证 + 查看**（必须）
-   ```
-   # 步骤 8.1：调用截图工具，获取图片路径
-   screenshot_path = mcp__canvas__request_background_screenshot(
-     projectPath="{当前工作目录}",
-     viewport={"mode": "full"}
-   )
+如果检查不通过，**在放置前**调整位置或朝向，不要先写入再修正。
 
-   # 步骤 8.2：必须用 Read 查看图片！
-   Read {screenshot_path}
-   ```
-   → 验证家具位置、朝向、间距是否符合预期
-   → 如发现问题，返回步骤 6 修正
+### 7A. 写入阶段 A 结果
 
-   **警告**：仅调用截图工具但不 Read 查看 = 未完成验证
+Write schemes/{zoneId}/modules.json（仅包含锚点 + 主要家具）
+
+**路径规范**：
+- 正确：schemes/rz_1/modules.json（分区 1）
+- 正确：schemes/rz_2/modules.json（分区 2）
+- 错误：schemes/modules.json（此路径不存在，已废弃）
+
+**查找分区**：
+1. 读取 schemes/zones.json 获取所有分区 ID
+2. 根据分区 ID 写入对应的 schemes/{zoneId}/modules.json
+
+**数据格式**：
+```json
+[
+  {
+    "id": "m_1",
+    "zoneId": "rz_1",
+    "moduleId": "mod_bed_001",
+    "bounds": [[x1,y1], [x2,y2], [x3,y3], [x4,y4]],
+    "facing": "north",
+    "items": []
+  }
+]
+```
+
+### 7A.5. 通知数据变更（必须）
+```
+mcp__canvas__notify_data_changed(changedFiles=["modules.json"])
+```
+
+### 8A. 阶段 A 截图验证 + 自审
+
+```
+screenshot_path = mcp__canvas__request_background_screenshot(
+  projectPath="{当前工作目录}",
+  viewport={"mode": "full"}
+)
+Read {screenshot_path}
+```
+
+**对照截图执行自审检查清单**：
+
+**硬性约束（违反则必须修正，不能跳过）**：
+- [ ] H1: 所有家具完全在 Zone 边界内（无越界）
+- [ ] H2: 没有家具之间相互重叠
+- [ ] H3: 没有家具与禁区（exclusion）重叠
+- [ ] H4: 没有家具阻挡门开启（门前 900mm 净空）
+- [ ] H5: 主通道宽度 >= 900mm
+
+**设计规则（优先修正）**：
+- [ ] S1: 锚点家具居中于目标墙面
+- [ ] S2: 家具朝向符合 topology_rules / relation_rules
+- [ ] S3: 衣柜沿最长连续墙面放置
+- [ ] S4: 床头不靠窗、床脚不正对门
+- [ ] S5: 成套家具完整（床+床头柜、书桌+椅子）
+
+**判断**：
+- 硬性约束全部通过 → 跳到阶段 B
+- 有硬性约束违反 → 进入修正循环 A
+
+### 修正循环 A（最多 1 次）
+
+1. 明确列出所有违规项（编号 + 具体描述）
+2. 按以下优先级制定修正方案：
+   - 优先**平移**（保持朝向，仅调位置）
+   - 其次**旋转**（改朝向 + 调位置）
+   - 其次**缩小**（parametric/horizontal_fill 类型在 limits 内缩小）
+   - 其次**替换**为更小尺寸的同功能模块
+   - 最后**移除**无法修正的家具（报告中说明原因）
+3. Read 当前 modules.json（确认最新状态）
+4. 修改违规模块的 bounds/facing
+5. Write 保存修正结果
+6. mcp__canvas__notify_data_changed(changedFiles=["modules.json"])
+
+**修正原则**：最小化变动，只改违规家具，不动已通过验证的家具。
+
+---
+
+## 阶段 B：补充辅助家具
+
+**前提**：阶段 A 家具已验证通过（或已修正）。
+
+### 6B. 规划辅助家具
+
+1. Read 当前 schemes/{zoneId}/modules.json（获取阶段 A 已放置的家具）
+2. 在已有布局基础上，规划辅助家具位置
+3. 对每件辅助家具执行同样的放置前心算检查（同 6A）
+
+### 7B. 写入完整结果
+
+Write schemes/{zoneId}/modules.json（包含全部家具：阶段 A 已有 + 阶段 B 新增）
+
+**注意**：Write 时必须包含阶段 A 已有的家具，不能只写新增的辅助家具。
+
+### 7B.5. 通知数据变更（必须）
+```
+mcp__canvas__notify_data_changed(changedFiles=["modules.json"])
+```
+
+### 8B. 最终截图验证 + 自审
+
+```
+screenshot_path = mcp__canvas__request_background_screenshot(
+  projectPath="{当前工作目录}",
+  viewport={"mode": "full"}
+)
+Read {screenshot_path}
+```
+
+**执行完整自审检查清单**（同阶段 A，但覆盖全部家具）：
+
+**硬性约束**：
+- [ ] H1: 所有家具完全在 Zone 边界内
+- [ ] H2: 没有家具之间相互重叠
+- [ ] H3: 没有家具与禁区重叠
+- [ ] H4: 没有家具阻挡门开启（门前 900mm 净空）
+- [ ] H5: 主通道 >= 900mm，次通道 >= 600mm，床侧通道 >= 500mm
+
+**设计规则**：
+- [ ] S1: 锚点家具居中于目标墙面
+- [ ] S2: 家具朝向正确
+- [ ] S3: 衣柜沿最长连续墙面
+- [ ] S4: 床头不靠窗、床脚不正对门
+- [ ] S5: 成套家具完整
+- [ ] S6: 家具间距合理（茶几离沙发 400-500mm、餐椅后退 600-800mm）
+
+**判断**：
+- 硬性约束全部通过 → 跳到报告结果
+- 有硬性约束违反 → 进入修正循环 B
+
+### 修正循环 B（最多 1 次）
+
+步骤同修正循环 A。
+
+**如果修正后仍有硬性约束违反**：
+→ 移除违规的辅助家具，保留核心布局（锚点+主要家具）
+→ 在报告中说明被移除的家具及原因
+
+---
+
+## 报告结果
+
+仅在自审检查通过后，向用户汇报：
+1. 已放置的家具清单（名称、位置概要、朝向）
+2. 自审检查结果（逐项列出通过状态）
+3. 如有修正，说明修正了什么
+4. 如有被放弃的家具，说明原因
+5. 整体布局评价（动线是否通畅、功能是否完整）
+
+**禁止**：在自审未通过时就向用户报告"布置完成"。
+
+---
 
 ## 数据真实性约束
 
@@ -732,7 +867,13 @@ async def get_workflow_guide(args: dict[str, Any]) -> dict[str, Any]:
 |------|----------|
 | 写入 schemes/modules.json | 写入 schemes/{zoneId}/modules.json |
 | 凭空编造家具尺寸 | 从 module_library.json 选择 |
-| 跳过截图步骤 | 前后各调用一次截图工具 |
+| 一次性放置全部家具再验证 | 分阶段 A/B 放置，每阶段截图自审 |
+| 跳过截图步骤 | 前置 + 阶段 A 后 + 最终，各一次 |
+| 截图后不 Read 查看 | 截图后必须 Read 查看图片 |
+| 跳过自审检查清单 | 每次截图后逐项检查 H1-H5 |
+| 发现违规但不修正就继续 | 硬性约束违反必须修正后才能继续 |
+| 阶段 B 只写新增家具 | 必须合并已有+新增全部写入 |
+| 修正循环超过 1 次仍失败 | 移除违规家具，保留核心布局 |
 | 跳过 placement_guide | 必须读取并遵守规范 |
 | 跳过 modules/README.md | 必须读取以理解 agent_config 使用方式 |
 """
