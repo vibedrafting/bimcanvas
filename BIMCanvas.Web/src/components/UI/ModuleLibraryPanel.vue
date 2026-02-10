@@ -564,13 +564,17 @@ onUnmounted(() => {
 }
 
 .module-grid {
+  --grid-gap: 8px;
+  --card-size-collapsed: 96px;
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 8px;
+  grid-template-columns: repeat(3, var(--card-size-collapsed));
+  gap: var(--grid-gap);
   padding: 12px;
-  overflow-y: auto;
+  overflow-y: scroll;
+  scrollbar-gutter: stable both-edges;
   flex: 1;
   align-content: start;
+  justify-content: start;
 
   &::-webkit-scrollbar {
     width: 4px;
@@ -590,9 +594,12 @@ onUnmounted(() => {
 }
 
 .module-library-panel.expanded .module-grid {
-  grid-template-columns: repeat(auto-fill, minmax(136px, 1fr));
-  gap: 12px;
+  --grid-gap: 12px;
+  --card-size-expanded: 136px;
+  grid-template-columns: repeat(auto-fill, var(--card-size-expanded));
+  gap: var(--grid-gap);
   padding: 14px;
+  justify-content: start;
 }
 
 .module-card {
