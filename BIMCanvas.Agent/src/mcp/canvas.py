@@ -405,7 +405,7 @@ async def request_background_screenshot(args: dict[str, Any]) -> dict[str, Any]:
                 saved_path = _save_screenshot(image_data, project_dir, filename)
                 return {"content": [
                     {"type": "image", "data": _strip_data_uri_prefix(image_data), "mimeType": "image/png"},
-                    # {"type": "text", "text": f"以上是当前布局截图（已保存至 {saved_path}）。请对照自审检查清单逐项检查。"}
+                    {"type": "text", "text": f"以上是当前布局截图（已保存至 {saved_path}）。请对照自审检查清单逐项检查。"}
                 ]}
 
             items = []
@@ -524,6 +524,90 @@ async def notify_data_changed(args: dict[str, Any]) -> dict[str, Any]:
                         "content": [{"type": "text", "text": f"通知失败: HTTP {resp.status}"}],
                         "is_error": True
                     }
+
+    except aiohttp.ClientError as e:
+        return {
+            "content": [{"type": "text", "text": f"无法连接 Server: {str(e)}"}],
+            "is_error": True
+        }
+
+
+def _format_validation_report(report: dict[str, Any]) -> str:
+    """将 SchemeValidationReport JSON 格式化为 AI 友好文本"""
+    total = report.get("totalModules", 0)
+    error_count = report.get("errorCount", 0)
+    elapsed = report.get("elapsedMs", 0)
+    diagnostics = report.get("diagnostics", [])
+
+    if report.get("isValid", True) and error_count == 0:
+        return f"=== 布局验证通过 ===\n共 {total} 个模块，0 个错误 ({elapsed}ms)"
+
+    lines = [
+        f"=== 布局验证失败 ===",
+        f"共 {total} 个模块，{error_count} 个错误 ({elapsed}ms)",
+        "",
+    ]
+
+    # 按错误代码分组
+    by_code: dict[str, list[dict[str, Any]]] = {}
+    for d in diagnostics:
+        code = d.get("code", "UNKNOWN")
+        by_code.setdefault(code, []).append(d)
+
+    for code, diags in by_code.items():
+        lines.append(f"--- {code} ({len(diags)} 个) ---")
+        for d in diags:
+            module_id = d.get("moduleId", "?")
+            module_name = d.get("moduleName")
+            name_part = f" ({module_name})" if module_name else ""
+            conflict_id = d.get("conflictId")
+            conflict_type = d.get("conflictType")
+            if conflict_id and conflict_type:
+                if conflict_type == "module":
+                    lines.append(f"  {module_id}{name_part} ↔ {conflict_type}:{conflict_id}")
+                else:
+                    lines.append(f"  {module_id}{name_part} ← {conflict_type}:{conflict_id}")
+            else:
+                lines.append(f"  {module_id}{name_part}")
+        lines.append("")
+
+    return "\n".join(lines)
+
+
+@tool(
+    "validate_layout",
+    "验证当前方案的布局合法性（布局编译器）。检查所有模块的三类错误：(1)超出设计区域 (2)与墙体/柱子/禁区重叠 (3)模块间重叠。无参数，自动验证当前项目。",
+    {
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "type": "object",
+        "properties": {},
+        "additionalProperties": False
+    }
+)
+async def validate_layout(args: dict[str, Any]) -> dict[str, Any]:
+    """验证当前方案的布局合法性（布局编译器）"""
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.post(f"{SERVER_URL}/api/validation/layout") as resp:
+                if resp.status == 400:
+                    return {
+                        "content": [{"type": "text", "text": "错误: 没有加载的项目"}],
+                        "is_error": True
+                    }
+                if resp.status != 200:
+                    try:
+                        error_data = await resp.json()
+                        error_msg = error_data.get("message", f"HTTP {resp.status}")
+                    except Exception:
+                        error_msg = await resp.text()
+                    return {
+                        "content": [{"type": "text", "text": f"验证请求失败: {error_msg}"}],
+                        "is_error": True
+                    }
+
+                report = await resp.json()
+                text = _format_validation_report(report)
+                return {"content": [{"type": "text", "text": text}]}
 
     except aiohttp.ClientError as e:
         return {
@@ -899,7 +983,7 @@ mcp__canvas__request_background_screenshot(
 canvas_mcp = create_sdk_mcp_server(
     name="canvas",
     version="1.0.0",
-    tools=[ai_job_create, ai_job_complete, request_background_screenshot, notify_data_changed, get_workflow_guide],
+    tools=[ai_job_create, ai_job_complete, request_background_screenshot, notify_data_changed, validate_layout, get_workflow_guide],
 )
 
 # 预批准工具列表
@@ -908,5 +992,6 @@ CANVAS_ALLOWED_TOOLS = [
     "mcp__canvas__complete_job",
     "mcp__canvas__request_background_screenshot",
     "mcp__canvas__notify_data_changed",
+    "mcp__canvas__validate_layout",
     "mcp__canvas__get_workflow_guide",
 ]
