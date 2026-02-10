@@ -203,6 +203,7 @@ class MainAgent:
             max_thinking_tokens=thinking_tokens,  # 原生参数（0.1.12+），int | None
             mcp_servers={"canvas": canvas_mcp},    # 业务工具
             setting_sources=None,                  # ❌ 禁用文件系统配置加载（修复配置污染）
+            max_buffer_size=10 * 1024 * 1024,      # 10MB — 截图 ImageContent 需要足够缓冲区（默认仅 1MB）
         )
 
     # ─────────────────────────────────────────────────────

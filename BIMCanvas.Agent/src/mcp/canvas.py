@@ -405,7 +405,7 @@ async def request_background_screenshot(args: dict[str, Any]) -> dict[str, Any]:
                 saved_path = _save_screenshot(image_data, project_dir, filename)
                 return {"content": [
                     {"type": "image", "data": _strip_data_uri_prefix(image_data), "mimeType": "image/png"},
-                    {"type": "text", "text": f"以上是当前布局截图（已保存至 {saved_path}）。请对照自审检查清单逐项检查。"}
+                    # {"type": "text", "text": f"以上是当前布局截图（已保存至 {saved_path}）。请对照自审检查清单逐项检查。"}
                 ]}
 
             items = []
