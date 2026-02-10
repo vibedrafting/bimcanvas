@@ -499,10 +499,9 @@ namespace BIMCanvas.Server.Controllers
                     if (!Directory.Exists(zoneDir))
                         Directory.CreateDirectory(zoneDir);
 
-                    // v3.5: 清理运行时字段（InternalId、ZoneId 不写入文件）
+                    // 清理运行时字段（ZoneId 不写入文件，Uid 保留持久化）
                     var modulesToSave = kvp.Value.Select(m =>
                     {
-                        m.InternalId = null;  // 清理内部ID
                         m.ZoneId = null;      // 清理分区ID（由加载时自动计算）
                         return m;
                     }).ToList();
@@ -728,11 +727,9 @@ namespace BIMCanvas.Server.Controllers
                     {
                         var modules = ReadJson<List<Module>>(modulesPath) ?? new List<Module>();
 
-                        // v3.5: 生成全局唯一内部 ID，避免跨分区 ID 冲突
-                        // Id 保持不变（用于显示），InternalId 用于内部匹配
+                        // Uid 由 [OnDeserialized] 自动补全，无需手动赋值
                         foreach (var module in modules)
                         {
-                            module.InternalId = $"{zoneId}_{module.Id}";    // 全局唯一内部ID
                             module.ZoneId ??= zoneId;                       // 确保ZoneId填充
                         }
 
