@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed, onMounted, onUnmounted } from 'vue';
+import { ref, computed, onMounted, onUnmounted, nextTick } from 'vue';
 import { moduleLibraryService, type ModuleDefinition } from '../../services/ModuleLibraryService';
 
 defineProps<{
@@ -19,6 +19,11 @@ const dragOffset = ref({ x: 0, y: 0 });
 
 // 展开状态
 const isExpanded = ref(false);
+const isSearchExpanded = ref(false);
+const searchInputRef = ref<HTMLInputElement | null>(null);
+
+const isCollapsed = computed(() => !isExpanded.value);
+const showSearchInput = computed(() => isExpanded.value || isSearchExpanded.value);
 
 // Tag + 搜索
 const allTags = ref<string[]>([]);
@@ -141,6 +146,35 @@ const clearSearch = () => {
   searchQuery.value = '';
 };
 
+const expandSearch = async () => {
+  if (!isCollapsed.value) return;
+  isSearchExpanded.value = true;
+  await nextTick();
+  searchInputRef.value?.focus();
+};
+
+const onSearchBlur = () => {
+  if (!isCollapsed.value) return;
+  if (!searchQuery.value.trim()) {
+    isSearchExpanded.value = false;
+  }
+};
+
+const onSearchKeyDown = (event: KeyboardEvent) => {
+  if (event.key !== 'Escape') return;
+
+  if (isCollapsed.value) {
+    searchQuery.value = '';
+    isSearchExpanded.value = false;
+    searchInputRef.value?.blur();
+  } else {
+    clearSearch();
+  }
+
+  event.preventDefault();
+  event.stopPropagation();
+};
+
 // 获取 SVG URL
 const getSvgUrl = (mod: ModuleDefinition) => moduleLibraryService.getSvgUrl(mod.id);
 
@@ -152,6 +186,13 @@ const onModuleClick = (mod: ModuleDefinition) => {
 // 展开/收起
 const toggleExpand = () => {
   isExpanded.value = !isExpanded.value;
+
+  if (isExpanded.value) {
+    isSearchExpanded.value = true;
+    return;
+  }
+
+  isSearchExpanded.value = normalizedSearchQuery.value.length > 0;
 };
 
 // 面板样式
@@ -188,19 +229,35 @@ onUnmounted(() => {
             </svg>
           </button>
 
-          <div class="title">MODULE LIBRARY</div>
+          <div v-if="isExpanded" class="title">MODULE LIBRARY</div>
+          <div v-else class="title-placeholder"></div>
 
           <div class="header-actions" @mousedown.stop>
-            <div class="search-box">
+            <button
+              v-if="isCollapsed && !showSearchInput"
+              class="icon-btn search-toggle-btn"
+              title="搜索"
+              @click="expandSearch"
+            >
+              <svg class="search-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <circle cx="11" cy="11" r="8"></circle>
+                <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
+              </svg>
+            </button>
+
+            <div v-if="showSearchInput" class="search-box" :class="{ collapsed: isCollapsed }">
               <svg class="search-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                 <circle cx="11" cy="11" r="8"></circle>
                 <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
               </svg>
               <input
+                ref="searchInputRef"
                 v-model.trim="searchQuery"
                 class="search-input"
                 type="text"
                 placeholder="搜索名称/标签/描述"
+                @keydown="onSearchKeyDown"
+                @blur="onSearchBlur"
               />
               <button
                 v-if="searchQuery"
@@ -355,6 +412,10 @@ onUnmounted(() => {
   }
 }
 
+.title-placeholder {
+  height: 1px;
+}
+
 .module-library-panel.expanded .panel-header {
   cursor: default;
 
@@ -367,6 +428,12 @@ onUnmounted(() => {
   display: flex;
   align-items: center;
   gap: 8px;
+}
+
+.search-toggle-btn {
+  width: 28px;
+  height: 28px;
+  padding: 0;
 }
 
 .search-box {
@@ -384,6 +451,10 @@ onUnmounted(() => {
     border-color: rgba(0, 170, 255, 0.65);
     box-shadow: 0 0 0 2px rgba(0, 170, 255, 0.18);
   }
+}
+
+.search-box.collapsed {
+  width: 148px;
 }
 
 .module-library-panel.expanded .search-box {
@@ -527,7 +598,7 @@ onUnmounted(() => {
 .module-card {
   display: flex;
   flex-direction: column;
-  height: 122px;
+  height: auto;
   border: 1px solid var(--border-subtle);
   border-radius: 10px;
   overflow: hidden;
@@ -542,35 +613,35 @@ onUnmounted(() => {
   }
 }
 
-.module-card.expanded {
-  height: 232px;
-}
-
 .thumbnail-area {
   width: 100%;
-  height: 88px;
+  aspect-ratio: 1 / 1;
   display: flex;
   align-items: center;
   justify-content: center;
   background: #ffffff;
-  padding: 8px;
+  padding: 0;
   border-bottom: 1px solid rgba(255, 255, 255, 0.16);
+  overflow: hidden;
+  contain: paint;
+  box-sizing: border-box;
 
   img {
+    display: block;
     width: 100%;
     height: 100%;
     object-fit: contain;
+    object-position: center center;
+    clip-path: inset(0);
   }
 }
 
 .module-card.expanded .thumbnail-area {
-  height: auto;
-  aspect-ratio: 1 / 1;
-  padding: 10px;
+  padding: 0;
 }
 
 .name-area {
-  height: 34px;
+  height: 32px;
   padding: 0 6px;
   display: flex;
   align-items: center;
@@ -647,5 +718,9 @@ onUnmounted(() => {
 .panel-fade-leave-to {
   opacity: 0;
   transform: scale(0.95) translateY(-8px);
+}
+
+.module-library-panel:not(.expanded) .search-box {
+  width: 148px;
 }
 </style>
