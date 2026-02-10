@@ -355,6 +355,12 @@ export class ThreeSceneService {
         this.boundEventHandlers.set('bimcanvas:action-measure', measureHandler);
         window.addEventListener('bimcanvas:action-measure', measureHandler);
 
+        const placeHandler = ((e: CustomEvent) => {
+            this.interactionService.activatePlaceTool(e.detail.moduleDef);
+        }) as EventListener;
+        this.boundEventHandlers.set('bimcanvas:activate-place-tool', placeHandler);
+        window.addEventListener('bimcanvas:activate-place-tool', placeHandler);
+
         // const ghostPatchHandler = ((e: CustomEvent) => {
         //     this.ghostManager.updateGhosts(e.detail);
         // }) as EventListener;

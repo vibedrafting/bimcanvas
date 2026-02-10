@@ -10,7 +10,9 @@ import { RotateTool } from './tools/RotateTool';
 import { MirrorTool } from './tools/MirrorTool';
 import { CopyTool } from './tools/CopyTool';
 import { MeasurementTool } from './tools/MeasurementTool';
+import { PlaceTool } from './tools/PlaceTool';
 import { LayerManager } from '../three/LayerManager';
+import type { ModuleDefinition } from '../ModuleLibraryService';
 
 export class InteractionService {
     private raycaster: THREE.Raycaster;
@@ -203,6 +205,20 @@ export class InteractionService {
             this.scene,
             this.camera,
             this.domElement
+        );
+        this.activeTool.activate();
+    }
+
+    public activatePlaceTool(moduleDef: ModuleDefinition) {
+        const debugStore = useDebugStore();
+        debugStore.log(`Command: Place Triggered for ${moduleDef.id}`);
+        if (this.activeTool) this.activeTool.deactivate();
+
+        this.activeTool = new PlaceTool(
+            this.scene,
+            this.camera,
+            this.domElement,
+            moduleDef
         );
         this.activeTool.activate();
     }

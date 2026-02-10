@@ -7,8 +7,10 @@ import PropertyPanel from '../components/UI/PropertyPanel.vue';
 import FloatingLayerManager from '../components/UI/FloatingLayerManager.vue';
 import FloatingInput from '../components/UI/FloatingInput.vue';
 import PromptBar from '../components/UI/PromptBar.vue';
+import ModuleLibraryPanel from '../components/UI/ModuleLibraryPanel.vue';
 import { useDebugStore } from '../stores/debugStore';
-import { onMounted, ref, watch } from 'vue';
+import { onMounted, onUnmounted, ref, watch } from 'vue';
+import type { ModuleDefinition } from '../services/ModuleLibraryService';
 
 const props = defineProps<{
   loadingStage?: number;
@@ -17,9 +19,27 @@ const props = defineProps<{
 
 const debugStore = useDebugStore();
 
+// 模块库面板
+const showModuleLibrary = ref(false);
+
+const onOpenModuleLibrary = () => {
+  showModuleLibrary.value = !showModuleLibrary.value;
+};
+
+const onSelectModule = (mod: ModuleDefinition) => {
+  showModuleLibrary.value = false;
+  window.dispatchEvent(new CustomEvent('bimcanvas:activate-place-tool', {
+    detail: { moduleDef: mod }
+  }));
+};
+
 onMounted(() => {
-  // Log mount
   debugStore.log('MainLayout Mounted.');
+  window.addEventListener('bimcanvas:open-module-library', onOpenModuleLibrary);
+});
+
+onUnmounted(() => {
+  window.removeEventListener('bimcanvas:open-module-library', onOpenModuleLibrary);
 });
 
 const showPulse = ref(false);
@@ -68,6 +88,12 @@ watch(() => props.buildComplete, (newVal) => {
     
     <PromptBar />
     <FloatingInput />
+
+    <ModuleLibraryPanel
+      :visible="showModuleLibrary"
+      @close="showModuleLibrary = false"
+      @select-module="onSelectModule"
+    />
   </div>
 </template>
 

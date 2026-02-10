@@ -121,6 +121,18 @@ class ModuleLibraryService {
   }
 
   /**
+   * 获取所有唯一的 tags
+   */
+  getAllTags(): string[] {
+    if (!this.library) return [];
+    const tagSet = new Set<string>();
+    this.library.modules.forEach(mod => {
+      mod.tags?.forEach(tag => tagSet.add(tag));
+    });
+    return Array.from(tagSet);
+  }
+
+  /**
    * 检查是否已加载
    */
   isLoaded(): boolean {
