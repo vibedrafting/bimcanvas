@@ -137,6 +137,9 @@ export class SceneBuilder {
             // Keep Lights and Camera (if in scene)
             if (child instanceof THREE.Light || child instanceof THREE.Camera) return;
 
+            // Keep Ghost objects (e.g. PlaceTool preview)
+            if (this.isGhostObject(child)) return;
+
             // Remove Meshes, Lines, LineSegments (BoxHelper), AxesHelper, Group (if not root)
             if (child !== this.scene) {
                 if (child instanceof THREE.Mesh ||
@@ -166,6 +169,18 @@ export class SceneBuilder {
                 }
             }
         });
+    }
+
+    /**
+     * Check if an object or any of its ancestors is marked as ghost.
+     */
+    private isGhostObject(obj: THREE.Object3D): boolean {
+        let current: THREE.Object3D | null = obj;
+        while (current) {
+            if (current.userData?.isGhost) return true;
+            current = current.parent;
+        }
+        return false;
     }
 
     public buildFromDocument(data: ProjectData) {

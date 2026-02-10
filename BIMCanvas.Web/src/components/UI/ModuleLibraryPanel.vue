@@ -214,7 +214,7 @@ onUnmounted(() => {
 .module-library-panel {
   position: fixed;
   z-index: 300;
-  width: 340px;
+  width: 360px;
   max-height: 75vh;
   display: flex;
   flex-direction: column;
@@ -353,8 +353,8 @@ onUnmounted(() => {
 
 .module-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(130px, 1fr));
-  gap: 10px;
+  grid-template-columns: repeat(auto-fill, minmax(100px, 1fr));
+  gap: 8px;
   padding: 12px;
   overflow-y: auto;
   flex: 1;
@@ -389,7 +389,7 @@ onUnmounted(() => {
 
 .card-thumbnail {
   width: 100%;
-  aspect-ratio: 1;
+  aspect-ratio: 4 / 3;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -404,8 +404,8 @@ onUnmounted(() => {
 }
 
 .card-name {
-  padding: 6px 8px 2px;
-  font-size: 0.78rem;
+  padding: 4px 6px 1px;
+  font-size: 0.72rem;
   color: var(--text-primary);
   text-align: center;
   white-space: nowrap;
@@ -418,7 +418,7 @@ onUnmounted(() => {
   justify-content: center;
   flex-wrap: wrap;
   gap: 3px;
-  padding: 2px 6px 6px;
+  padding: 1px 4px 4px;
 }
 
 .mini-tag {

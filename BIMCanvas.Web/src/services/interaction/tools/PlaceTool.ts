@@ -142,8 +142,8 @@ export class PlaceTool implements Tool {
         this.previewGroup.add(outline);
         this.previewGroup.add(arrow);
         this.previewGroup.add(tip);
-        this.previewGroup.userData.isGhost = true;
         this.previewGroup.traverse((child) => {
+            child.userData.isGhost = true;
             child.layers.set(LayerManager.LAYER_MODEL);
         });
 
@@ -250,14 +250,7 @@ export class PlaceTool implements Tool {
         debug.log(`[PlaceTool] Placed "${this.moduleDef.name}" at (${center[0].toFixed(0)}, ${center[1].toFixed(0)}), facing: ${facing}`);
 
         // 6. 继续放置（不退出工具）
-        // 场景重建（deep watcher → clearScene）会移除 previewGroup，延迟后重新创建
-        setTimeout(() => {
-            this.createPreview();
-            if (this.currentWorldPoint) {
-                this.updatePreviewPosition(this.currentWorldPoint);
-            }
-        }, 50);
-
+        // previewGroup 标记为 isGhost，clearScene() 会跳过它，无需重建
         store.setPrompt(`已放置 "${this.moduleDef.name}" — 继续点击放置，R 旋转，Esc 退出`);
     }
 

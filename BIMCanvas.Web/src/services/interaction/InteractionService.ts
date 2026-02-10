@@ -93,6 +93,7 @@ export class InteractionService {
         debugStore.log('Command: Move Triggered');
         if (this.activeTool) this.activeTool.deactivate();
 
+        this.shortcutManager.setEnabled(false);
         this.activeTool = new MoveTool(
             this.scene,
             this.camera,
@@ -110,6 +111,7 @@ export class InteractionService {
             this.activeTool.deactivate();
             this.activeTool = null;
             this.store.currentOperation = null;
+            this.shortcutManager.setEnabled(true);
 
             // Prevent immediate re-selection if tool finished via mouse click
             this.preventNextClick = true;
@@ -158,6 +160,7 @@ export class InteractionService {
         debugStore.log('Command: Rotate Triggered');
         if (this.activeTool) this.activeTool.deactivate();
 
+        this.shortcutManager.setEnabled(false);
         this.activeTool = new RotateTool(
             this.scene,
             this.camera,
@@ -173,6 +176,7 @@ export class InteractionService {
         debugStore.log('Command: Mirror Triggered');
         if (this.activeTool) this.activeTool.deactivate();
 
+        this.shortcutManager.setEnabled(false);
         this.activeTool = new MirrorTool(
             this.scene,
             this.camera,
@@ -187,6 +191,7 @@ export class InteractionService {
         debugStore.log('Command: Copy Triggered');
         if (this.activeTool) this.activeTool.deactivate();
 
+        this.shortcutManager.setEnabled(false);
         this.activeTool = new CopyTool(
             this.scene,
             this.camera,
@@ -201,6 +206,7 @@ export class InteractionService {
         debugStore.log('Command: Measure Triggered');
         if (this.activeTool) this.activeTool.deactivate();
 
+        this.shortcutManager.setEnabled(false);
         this.activeTool = new MeasurementTool(
             this.scene,
             this.camera,
@@ -214,6 +220,7 @@ export class InteractionService {
         debugStore.log(`Command: Place Triggered for ${moduleDef.id}`);
         if (this.activeTool) this.activeTool.deactivate();
 
+        this.shortcutManager.setEnabled(false);
         this.activeTool = new PlaceTool(
             this.scene,
             this.camera,
