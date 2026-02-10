@@ -203,9 +203,9 @@ export class PlaceTool implements Tool {
             return;
         }
 
-        // R 键旋转 90 度（CCW+）
+        // R 键顺时针旋转 90 度（数据模型 CCW- = 视觉顺时针）
         if (event.key === 'r' || event.key === 'R') {
-            this.currentRotation += Math.PI / 2;
+            this.currentRotation -= Math.PI / 2;
             if (this.currentWorldPoint) {
                 this.updatePreviewPosition(this.currentWorldPoint);
             }
@@ -250,6 +250,14 @@ export class PlaceTool implements Tool {
         debug.log(`[PlaceTool] Placed "${this.moduleDef.name}" at (${center[0].toFixed(0)}, ${center[1].toFixed(0)}), facing: ${facing}`);
 
         // 6. 继续放置（不退出工具）
+        // 场景重建（deep watcher → clearScene）会移除 previewGroup，延迟后重新创建
+        setTimeout(() => {
+            this.createPreview();
+            if (this.currentWorldPoint) {
+                this.updatePreviewPosition(this.currentWorldPoint);
+            }
+        }, 50);
+
         store.setPrompt(`已放置 "${this.moduleDef.name}" — 继续点击放置，R 旋转，Esc 退出`);
     }
 

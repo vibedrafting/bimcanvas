@@ -17,6 +17,9 @@ const panelY = ref(120);
 const isDragging = ref(false);
 const dragOffset = ref({ x: 0, y: 0 });
 
+// 展开状态
+const isExpanded = ref(false);
+
 // Tag 筛选
 const allTags = ref<string[]>([]);
 const activeTag = ref<string | null>(null);
@@ -45,6 +48,14 @@ const tagLabels: Record<string, string> = {
 
 const getTagLabel = (tag: string) => tagLabels[tag] || tag;
 
+// Tooltip 文本
+const getTooltip = (mod: ModuleDefinition) => {
+  const lines = [mod.name];
+  lines.push(`${mod.size.width} × ${mod.size.depth} mm`);
+  if (mod.description) lines.push(mod.description);
+  return lines.join('\n');
+};
+
 // 初始化
 onMounted(async () => {
   await moduleLibraryService.load();
@@ -54,6 +65,7 @@ onMounted(async () => {
 
 // 拖拽逻辑
 const onTitleMouseDown = (e: MouseEvent) => {
+  if (isExpanded.value) return; // 展开模式不允许拖拽
   isDragging.value = true;
   dragOffset.value = {
     x: e.clientX - panelX.value,
@@ -89,6 +101,22 @@ const onModuleClick = (mod: ModuleDefinition) => {
   emit('select-module', mod);
 };
 
+// 展开/收起
+const toggleExpand = () => {
+  isExpanded.value = !isExpanded.value;
+};
+
+// 面板样式
+const panelStyle = computed(() => {
+  if (isExpanded.value) {
+    return {}; // 展开模式用 CSS class 控制
+  }
+  return {
+    left: panelX.value + 'px',
+    top: panelY.value + 'px'
+  };
+});
+
 onUnmounted(() => {
   document.removeEventListener('mousemove', onDrag);
   document.removeEventListener('mouseup', onDragEnd);
@@ -101,12 +129,34 @@ onUnmounted(() => {
       <div
         v-if="visible"
         class="module-library-panel"
-        :style="{ left: panelX + 'px', top: panelY + 'px' }"
+        :class="{ expanded: isExpanded }"
+        :style="panelStyle"
       >
-        <!-- 标题栏 -->
+        <!-- 标题栏 (PropertyPanel 风格) -->
         <div class="panel-header" @mousedown.prevent="onTitleMouseDown">
-          <span class="panel-title">Module Library</span>
-          <button class="close-btn" @click="emit('close')">&times;</button>
+          <button class="icon-btn back-btn" @click="emit('close')" title="关闭">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <line x1="19" y1="12" x2="5" y2="12"></line>
+              <polyline points="12 19 5 12 12 5"></polyline>
+            </svg>
+          </button>
+
+          <div class="title">MODULE LIBRARY</div>
+
+          <button class="icon-btn expand-btn" @click="toggleExpand" :title="isExpanded ? '收起' : '展开'">
+            <svg v-if="!isExpanded" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <polyline points="15 3 21 3 21 9"></polyline>
+              <polyline points="9 21 3 21 3 15"></polyline>
+              <line x1="21" y1="3" x2="14" y2="10"></line>
+              <line x1="3" y1="21" x2="10" y2="14"></line>
+            </svg>
+            <svg v-else viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <polyline points="4 14 10 14 10 20"></polyline>
+              <polyline points="20 10 14 10 14 4"></polyline>
+              <line x1="14" y1="10" x2="21" y2="3"></line>
+              <line x1="3" y1="21" x2="10" y2="14"></line>
+            </svg>
+          </button>
         </div>
 
         <!-- Tag 筛选栏 -->
@@ -131,7 +181,7 @@ onUnmounted(() => {
             v-for="mod in filteredModules"
             :key="mod.id"
             class="module-card"
-            :title="mod.description || mod.name"
+            :title="getTooltip(mod)"
             @click="onModuleClick(mod)"
           >
             <div class="card-thumbnail">
@@ -141,9 +191,13 @@ onUnmounted(() => {
                 @error="onImgError"
               />
             </div>
-            <div class="card-info">
-              <span class="card-name">{{ mod.name }}</span>
-              <span class="card-size">{{ mod.size.width }} × {{ mod.size.depth }}</span>
+            <div class="card-name">{{ mod.name }}</div>
+            <div class="card-tags">
+              <span
+                v-for="tag in (mod.tags || [])"
+                :key="tag"
+                class="mini-tag"
+              >{{ getTagLabel(tag) }}</span>
             </div>
           </div>
 
@@ -160,56 +214,104 @@ onUnmounted(() => {
 .module-library-panel {
   position: fixed;
   z-index: 300;
-  width: 320px;
-  max-height: 70vh;
+  width: 340px;
+  max-height: 75vh;
   display: flex;
   flex-direction: column;
 
-  // 毛玻璃
+  // Aurora Glass (复用 PropertyPanel 风格)
   background: var(--glass-bg);
   backdrop-filter: var(--glass-blur);
   -webkit-backdrop-filter: var(--glass-blur);
-  border: 1px solid rgba(255, 255, 255, 0.15);
-  border-radius: 12px;
-  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.4);
+
+  // 增强边框 + 发光
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: 20px;
+
+  // Glare + 深阴影 + 边缘发光
+  background-image: var(--glass-glare), linear-gradient(to bottom, var(--glass-bg), var(--glass-bg));
+  box-shadow:
+    0 12px 40px rgba(0, 0, 0, 0.4),
+    0 0 0 1px rgba(255, 255, 255, 0.1) inset,
+    0 0 20px rgba(255, 255, 255, 0.15);
+
   overflow: hidden;
+
+  // 可拖拽调整大小
+  resize: both;
+  min-width: 280px;
+  min-height: 300px;
+  max-width: 80vw;
+
+  // 过渡
+  transition:
+    width 0.4s cubic-bezier(0.19, 1, 0.22, 1),
+    height 0.4s cubic-bezier(0.19, 1, 0.22, 1),
+    top 0.4s cubic-bezier(0.19, 1, 0.22, 1),
+    left 0.4s cubic-bezier(0.19, 1, 0.22, 1),
+    max-height 0.4s cubic-bezier(0.19, 1, 0.22, 1);
+
+  // 展开模式
+  &.expanded {
+    left: 50% !important;
+    top: 50% !important;
+    transform: translate(-50%, -50%);
+    width: 60vw;
+    max-height: 80vh;
+    resize: none;
+  }
 }
 
 .panel-header {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 10px 14px;
+  padding: 12px 16px;
   border-bottom: 1px solid var(--border-subtle);
+  flex-shrink: 0;
   cursor: grab;
   user-select: none;
 
   &:active {
     cursor: grabbing;
   }
-}
 
-.panel-title {
-  font-size: 0.85rem;
-  font-weight: 600;
-  color: var(--text-primary);
-  letter-spacing: 0.02em;
-}
-
-.close-btn {
-  background: none;
-  border: none;
-  color: var(--text-secondary);
-  font-size: 1.2rem;
-  cursor: pointer;
-  padding: 0 4px;
-  line-height: 1;
-  border-radius: 4px;
-  transition: color 0.15s, background 0.15s;
-
-  &:hover {
+  .title {
+    font-weight: 600;
+    font-size: 0.9rem;
     color: var(--text-primary);
-    background: var(--surface-glass-hover);
+    letter-spacing: 0.5px;
+  }
+
+  .icon-btn {
+    background: transparent;
+    border: none;
+    color: var(--text-secondary);
+    cursor: pointer;
+    padding: 4px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: all 0.2s ease;
+
+    svg {
+      width: 18px;
+      height: 18px;
+    }
+
+    &:hover {
+      background: var(--surface-hover);
+      color: var(--text-primary);
+    }
+  }
+}
+
+// 展开模式下不允许拖拽
+.module-library-panel.expanded .panel-header {
+  cursor: default;
+  &:active {
+    cursor: default;
   }
 }
 
@@ -221,7 +323,6 @@ onUnmounted(() => {
   border-bottom: 1px solid var(--border-subtle);
   flex-shrink: 0;
 
-  // 隐藏滚动条
   scrollbar-width: none;
   &::-webkit-scrollbar { display: none; }
 }
@@ -252,13 +353,19 @@ onUnmounted(() => {
 
 .module-grid {
   display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 8px;
-  padding: 10px 12px;
+  grid-template-columns: repeat(auto-fill, minmax(130px, 1fr));
+  gap: 10px;
+  padding: 12px;
   overflow-y: auto;
   flex: 1;
 
   // 自定义滚动条
+  &::-webkit-scrollbar { width: 4px; }
+  &::-webkit-scrollbar-track { background: transparent; }
+  &::-webkit-scrollbar-thumb {
+    background: var(--border-strong);
+    border-radius: 2px;
+  }
   scrollbar-width: thin;
   scrollbar-color: rgba(255,255,255,0.15) transparent;
 }
@@ -267,26 +374,27 @@ onUnmounted(() => {
   display: flex;
   flex-direction: column;
   border: 1px solid var(--border-subtle);
-  border-radius: 8px;
+  border-radius: 10px;
   overflow: hidden;
   cursor: pointer;
-  transition: border-color 0.15s, transform 0.15s;
+  transition: border-color 0.15s, transform 0.15s, box-shadow 0.15s;
   background: rgba(0, 0, 0, 0.15);
 
   &:hover {
     border-color: var(--accent-primary, #00aaff);
-    transform: scale(1.02);
+    transform: translateY(-2px);
+    box-shadow: 0 4px 12px rgba(0, 170, 255, 0.15);
   }
 }
 
 .card-thumbnail {
   width: 100%;
-  height: 100px;
+  aspect-ratio: 1;
   display: flex;
   align-items: center;
   justify-content: center;
-  background: rgba(10, 12, 20, 0.6);
-  padding: 8px;
+  background: #ffffff;
+  padding: 10px;
 
   img {
     max-width: 100%;
@@ -295,25 +403,31 @@ onUnmounted(() => {
   }
 }
 
-.card-info {
-  padding: 6px 8px;
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-}
-
 .card-name {
-  font-size: 0.75rem;
+  padding: 6px 8px 2px;
+  font-size: 0.78rem;
   color: var(--text-primary);
+  text-align: center;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
 }
 
-.card-size {
-  font-size: 0.65rem;
+.card-tags {
+  display: flex;
+  justify-content: center;
+  flex-wrap: wrap;
+  gap: 3px;
+  padding: 2px 6px 6px;
+}
+
+.mini-tag {
+  padding: 1px 6px;
+  font-size: 0.62rem;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.08);
   color: var(--text-secondary);
-  font-family: var(--font-mono, 'JetBrains Mono', monospace);
+  white-space: nowrap;
 }
 
 .empty-state {
