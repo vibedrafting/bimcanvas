@@ -474,64 +474,6 @@ async def request_background_screenshot(args: dict[str, Any]) -> dict[str, Any]:
         }
 
 
-@tool(
-    "notify_data_changed",
-    "通知 Server 数据已变更，Server 会立即推送更新到 Web 端（绕开 FileSystemWatcher，确保 Web 实时刷新）",
-    {
-        "$schema": "http://json-schema.org/draft-07/schema#",
-        "type": "object",
-        "properties": {
-            "changedFiles": {
-                "type": "array",
-                "items": {"type": "string"},
-                "description": "变更的文件名列表，默认 ['modules.json']",
-                "default": ["modules.json"]
-            },
-            "source": {
-                "type": "string",
-                "description": "变更来源标识，默认 'agent'",
-                "default": "agent"
-            }
-        },
-        "additionalProperties": False
-    }
-)
-async def notify_data_changed(args: dict[str, Any]) -> dict[str, Any]:
-    """通知 Server 数据已变更，触发 Web 端实时刷新"""
-    changed_files = args.get("changedFiles", ["modules.json"])
-    source = args.get("source", "agent")
-
-    if not isinstance(changed_files, list) or not changed_files:
-        changed_files = ["modules.json"]
-
-    try:
-        async with aiohttp.ClientSession() as session:
-            async with session.post(
-                f"{SERVER_URL}/api/notification/data-changed",
-                json={
-                    "changedFiles": changed_files,
-                    "source": source
-                }
-            ) as resp:
-                if resp.status == 200:
-                    data = await resp.json()
-                    count = data.get("filesNotified", len(changed_files))
-                    return {
-                        "content": [{"type": "text", "text": f"已通知 Web 端数据变更: {count} 个文件 ({', '.join(changed_files)})"}]
-                    }
-                else:
-                    return {
-                        "content": [{"type": "text", "text": f"通知失败: HTTP {resp.status}"}],
-                        "is_error": True
-                    }
-
-    except aiohttp.ClientError as e:
-        return {
-            "content": [{"type": "text", "text": f"无法连接 Server: {str(e)}"}],
-            "is_error": True
-        }
-
-
 def _format_validation_report(report: dict[str, Any]) -> str:
     """将 SchemeValidationReport JSON 格式化为 AI 友好文本"""
     total = report.get("totalModules", 0)
@@ -676,8 +618,7 @@ async def get_workflow_guide(args: dict[str, Any]) -> dict[str, Any]:
 4. 执行修改操作
 5. 验证约束（间距≥800mm、不超边界、不重叠）
 6. Write 保存结果
-7. 调用 `mcp__canvas__notify_data_changed` 通知 Web 端数据已更新
-8. 视需要在修改后再次调用截图工具验证结果
+7. 视需要在修改后再次调用截图工具验证结果
 
 **示例**：
 - "移动沙发到靠窗位置" → Read → 修改 bounds 坐标 → 验证 → Write
@@ -820,11 +761,6 @@ Write schemes/{zoneId}/modules.json（仅包含锚点 + 主要家具）
 ]
 ```
 
-### 7A.5. 通知数据变更（必须）
-```
-mcp__canvas__notify_data_changed(changedFiles=["modules.json"])
-```
-
 ### 8A. 阶段 A 截图验证 + 自审
 
 ```
@@ -867,7 +803,6 @@ mcp__canvas__request_background_screenshot(
 3. Read 当前 modules.json（确认最新状态）
 4. 修改违规模块的 bounds/facing
 5. Write 保存修正结果
-6. mcp__canvas__notify_data_changed(changedFiles=["modules.json"])
 
 **修正原则**：最小化变动，只改违规家具，不动已通过验证的家具。
 
@@ -888,11 +823,6 @@ mcp__canvas__request_background_screenshot(
 Write schemes/{zoneId}/modules.json（包含全部家具：阶段 A 已有 + 阶段 B 新增）
 
 **注意**：Write 时必须包含阶段 A 已有的家具，不能只写新增的辅助家具。
-
-### 7B.5. 通知数据变更（必须）
-```
-mcp__canvas__notify_data_changed(changedFiles=["modules.json"])
-```
 
 ### 8B. 最终截图验证 + 自审
 
@@ -983,7 +913,7 @@ mcp__canvas__request_background_screenshot(
 canvas_mcp = create_sdk_mcp_server(
     name="canvas",
     version="1.0.0",
-    tools=[ai_job_create, ai_job_complete, request_background_screenshot, notify_data_changed, validate_layout, get_workflow_guide],
+    tools=[ai_job_create, ai_job_complete, request_background_screenshot, validate_layout, get_workflow_guide],
 )
 
 # 预批准工具列表
@@ -991,7 +921,6 @@ CANVAS_ALLOWED_TOOLS = [
     "mcp__canvas__create_job",
     "mcp__canvas__complete_job",
     "mcp__canvas__request_background_screenshot",
-    "mcp__canvas__notify_data_changed",
     "mcp__canvas__validate_layout",
     "mcp__canvas__get_workflow_guide",
 ]
