@@ -30,6 +30,11 @@
 - 🔶 **镜像 (Mirror)**: 逻辑已实现 (`MirrorTool`)，UI 按钮待集成。
 - ✅ **幽灵系统 (Ghost System)**: 移动/旋转操作时显示半透明预览，操作结束后自动清除。
     - **技术要点**: 使用 `LineLoop` 从 bounds 生成本地坐标轮廓，而非 `BoxHelper`。详见下方"开发经验"章节。
+- ✅ **模块库与放置系统 (Module Library & Placement)**:
+    - **模块库面板**: Ribbon 工具栏 Library > Local 按钮触发，PropertyPanel 风格浮动窗口，支持标签筛选、SVG 缩略图预览、拖拽移动和自由调整大小。
+    - **放置工具 (PlaceTool)**: 选择模块后鼠标跟随 LineLoop 矩形轮廓 + 朝向箭头预览，点击放置，支持连续放置（Revit 风格），R 键顺时针旋转 90°，Esc 退出。
+    - **Ghost 保留机制**: PlaceTool 预览标记 `userData.isGhost`，SceneBuilder.clearScene() 跳过 Ghost 对象，确保场景重建不会清除放置预览。
+    - **快捷键隔离**: 工具激活时自动禁用 ShortcutManager，避免全局快捷键与工具内部按键冲突。
 - ⬜ **语义吸附 (Semantic Snapping)**: 待实现，吸附墙中线、门窗边缘、对齐线。
 
 ### 3. 数据与协作 (Data & Sync)
@@ -160,7 +165,20 @@ src/
 │   └── aiCommandCenter.ts # AI 指挥中心常量
 ├── services/           # 核心业务逻辑服务
 │   ├── builders/       # 3D 场景构建器
-│   │   └── SceneBuilder.ts  # 负责解析 JSON 并生成 Three.js Mesh
+│   │   ├── SceneBuilder.ts      # 负责解析 JSON 并生成 Three.js Mesh（含 Ghost 保留逻辑）
+│   │   └── SVGModuleRenderer.ts # SVG → Three.js Group 渲染器
+│   ├── interaction/    # 交互工具层
+│   │   ├── InteractionService.ts # 交互总线（事件分发、快捷键管理、工具生命周期）
+│   │   ├── ShortcutManager.ts    # 全局快捷键管理（支持组合键和序列键）
+│   │   ├── GhostManager.ts       # 幽灵预览管理器
+│   │   └── tools/                # 工具实现
+│   │       ├── PlaceTool.ts      # 模块放置工具（连续放置 + Ghost 预览）
+│   │       ├── MoveTool.ts       # 移动工具
+│   │       ├── RotateTool.ts     # 旋转工具
+│   │       ├── CopyTool.ts       # 复制工具
+│   │       ├── MirrorTool.ts     # 镜像工具
+│   │       └── MeasurementTool.ts# 测量工具
+│   ├── ModuleLibraryService.ts   # 模块库数据服务（加载 JSON、缓存、标签索引）
 │   └── three/          # Three.js 集成层
 │       └── ThreeSceneService.ts # 负责场景、相机、渲染器、光照的生命周期管理
 ├── stores/             # Pinia 状态仓库
@@ -311,6 +329,46 @@ Three.js 顺时针 ✓              rotatePoint2D 顺时针 ✓
 > 相关文件: `RotateTool.ts`, `GhostManager.ts`, `coordinates.ts`
 > 完整分析: `reports/BUG_RotateDirection/`
 
+### 模块库与放置系统 (Module Library & Placement)
+
+**系统概述**：类 Revit 族库功能，从 Server 加载模块定义（JSON + SVG），通过浮动面板浏览，点击后进入连续放置模式。
+
+**数据流**：
+
+```
+Server 模块库 API
+├── GET /api/modules/library → module_library.json（21 个模块定义）
+└── GET /api/modules/svg/{id} → SVG 缩略图文件
+
+用户操作流：
+Ribbon [Local] → CustomEvent('bimcanvas:open-module-library')
+→ MainLayout 切换 ModuleLibraryPanel 可见性
+→ 用户点击模块卡片 → CustomEvent('bimcanvas:activate-place-tool')
+→ ThreeSceneService → InteractionService.activatePlaceTool()
+→ PlaceTool 创建 LineLoop 预览 → 鼠标跟随
+→ 点击放置 → store.addModule() → endBatchUpdate() → 持久化
+→ 预览保持（Ghost 保留机制）→ 继续放置...
+→ Esc 退出 → cancelTool() → 恢复快捷键
+```
+
+**核心代码位置**：
+
+| 文件 | 职责 |
+|------|------|
+| `src/services/ModuleLibraryService.ts` | 模块库数据加载、缓存、标签索引、SVG URL 生成 |
+| `src/services/interaction/tools/PlaceTool.ts` | 放置工具（预览创建、鼠标跟随、旋转、连续放置） |
+| `src/components/UI/ModuleLibraryPanel.vue` | 浮动面板 UI（PropertyPanel 风格、标签筛选、拖拽/缩放） |
+| `src/components/UI/Ribbon/LibraryGroup.vue` | Ribbon 工具栏 Library 分组（Local/Cloud 按钮） |
+| `src/layouts/MainLayout.vue` | 面板挂载点 + 事件桥接（面板 ↔ 放置工具） |
+
+**关键设计决策**：
+
+1. **Ghost 保留机制**：PlaceTool 创建的预览对象标记 `userData.isGhost = true`，SceneBuilder.clearScene() 通过 `isGhostObject()` 方法检查祖先链，跳过所有 Ghost 对象。这解决了 `addModule()` 触发 deep watcher → 场景重建 → 预览被意外清除的问题。
+
+2. **快捷键隔离**：工具激活时调用 `shortcutManager.setEnabled(false)` 禁用全局快捷键（R/M/C/Delete 等），避免与工具内部按键（如 PlaceTool 的 R 旋转）冲突。工具退出时自动恢复。
+
+3. **事件通信**：面板与 Three.js 服务之间通过 `window.dispatchEvent(CustomEvent)` 桥接，遵循现有项目的解耦模式。
+
 ### 文件驱动持久化 ⚠️ 核心架构
 
 **问题现象**：移动家具模块后刷新页面，家具回到原位。
@@ -368,4 +426,4 @@ const endBatchUpdate = async () => {
 > 架构文档: `docs/FileDrivenArchitecture.md`
 
 ---
-*文档最后更新时间: 2026-01-28*
+*文档最后更新时间: 2026-02-10*
