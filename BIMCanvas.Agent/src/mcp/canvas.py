@@ -405,7 +405,7 @@ async def request_background_screenshot(args: dict[str, Any]) -> dict[str, Any]:
                 saved_path = _save_screenshot(image_data, project_dir, filename)
                 return {"content": [
                     {"type": "image", "data": _strip_data_uri_prefix(image_data), "mimeType": "image/png"},
-                    {"type": "text", "text": f"以上是当前布局截图（已保存至 {saved_path}）。请对照自审检查清单逐项检查。"}
+                    {"type": "text", "text": f"截图已完成（已保存至 {saved_path}）。如果你能直接看到上方的图片，请基于图片分析；如果看不到图片，请用 Read 工具查看 {saved_path} 。请对照自审检查清单逐项检查。"}
                 ]}
 
             items = []
@@ -459,7 +459,7 @@ async def request_background_screenshot(args: dict[str, Any]) -> dict[str, Any]:
                     "is_error": True
                 }
 
-            content_blocks.append({"type": "text", "text": "以上是所有截图。请对照自审检查清单逐项检查。"})
+            content_blocks.append({"type": "text", "text": "以上是所有截图。如果你无法直接看到图片，请用 Read 工具逐一查看上述路径。请对照自审检查清单逐项检查。"})
             return {"content": content_blocks}
 
     except aiohttp.ClientError as e:
@@ -649,7 +649,7 @@ async def get_workflow_guide(args: dict[str, Any]) -> dict[str, Any]:
 在执行任何 Write 操作前，必须确认以下步骤已完成：
 
 □ 已调用 mcp__canvas__request_background_screenshot 查看截图（前置）
-  → 截图工具会直接返回图片，无需额外 Read
+  → 截图工具会直接返回图片；如果你看不到图片内容，请用 Read 工具查看返回的文件路径
 
 □ 已读取 knowledge/placement_guide.md
   → 如果未读取，立即停止并先读取
@@ -682,7 +682,7 @@ mcp__canvas__request_background_screenshot(
   viewport={"mode": "full"}
 )
 ```
-→ 截图工具直接返回图片，无需额外 Read
+→ 截图工具会直接返回图片；如果你看不到图片内容，请用 Read 工具查看返回的文件路径
 → 理解空间形态、门窗位置、房间朝向
 
 ### 2. 读取设计规范（必须）
@@ -769,7 +769,7 @@ mcp__canvas__request_background_screenshot(
   viewport={"mode": "full"}
 )
 ```
-→ 截图工具直接返回图片，无需额外 Read
+→ 截图工具会直接返回图片；如果你看不到图片内容，请用 Read 工具查看返回的文件路径
 
 **对照截图执行自审检查清单**：
 
@@ -832,7 +832,7 @@ mcp__canvas__request_background_screenshot(
   viewport={"mode": "full"}
 )
 ```
-→ 截图工具直接返回图片，无需额外 Read
+→ 截图工具会直接返回图片；如果你看不到图片内容，请用 Read 工具查看返回的文件路径
 
 **执行完整自审检查清单**（同阶段 A，但覆盖全部家具）：
 
