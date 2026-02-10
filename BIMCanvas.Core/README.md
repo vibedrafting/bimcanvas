@@ -77,7 +77,8 @@ BIMCanvas.Core/
 │   │   └── NtsAdapter.cs           NTS 适配器
 │   │
 │   └── Spatial/                 空间算法
-│       ├── PlacementValidator.cs   布置验证
+│       ├── SchemeValidator.cs      方案级全量验证（布局编译器）
+│       ├── PlacementValidator.cs   单模块布置验证
 │       ├── CollisionDetector.cs    碰撞检测
 │       ├── FacingHelper.cs         朝向转换
 │       ├── GeometryNormalizer.cs   几何规范化
@@ -94,7 +95,9 @@ BIMCanvas.Core/
 │   └── BaselineHashService.cs   【v3.0 新增】Baseline 哈希计算
 │
 └── Validation/
-    └── Result.cs                验证结果类型
+    ├── Result.cs                验证结果类型（单模块级）
+    ├── Diagnostic.cs            诊断项 + 错误代码常量（方案级）
+    └── SchemeValidationReport.cs 方案验证报告
 ```
 
 ---
@@ -342,9 +345,46 @@ bool contains = CollisionDetector.Contains(polygon, point);
 bool mayIntersect = CollisionDetector.AABBIntersects(poly1, poly2);
 ```
 
-### 布置验证 (PlacementValidator)
+### 方案级全量验证 (SchemeValidator) — 布局编译器
 
-验证模块布置是否合法：
+类比 C# 编译器，一次性检查整个方案中所有模块的合法性：
+
+```csharp
+SchemeValidationReport report = SchemeValidator.Validate(
+    modules,           // 所有模块
+    designZones,       // 合法放置区域（Room + Designable）
+    exclusionZones,    // 禁区（Exclusion）
+    walls,             // 墙体（baseline）
+    columns            // 柱子（baseline）
+);
+
+if (!report.IsValid)
+{
+    Console.WriteLine($"验证失败: {report.ErrorCount} 个错误 ({report.ElapsedMs}ms)");
+    foreach (var d in report.Diagnostics)
+        Console.WriteLine(d);  // [E001_OUT_OF_BOUNDS] m3: 模块不在任何设计区域内
+}
+```
+
+**检查项（6 种错误代码）**：
+
+| 错误代码 | 说明 | ConflictType |
+|---------|------|-------------|
+| `E001_OUT_OF_BOUNDS` | 模块不在任何设计区/房间区域内 | — |
+| `E002_WALL_OVERLAP` | 模块与墙体重叠 | `wall` |
+| `E003_COLUMN_OVERLAP` | 模块与柱子重叠 | `column` |
+| `E004_EXCLUSION_OVERLAP` | 模块与禁区重叠（门扇等） | `exclusion` |
+| `E005_MODULE_OVERLAP` | 模块之间互相重叠 | `module` |
+| `E006_MISSING_BOUNDS` | 模块缺少 Bounds 定义 | — |
+
+**算法流程**：3 阶段，全程 AABB 预检加速
+1. Phase 1: 预计算所有几何体的 AABB
+2. Phase 2: 逐模块检查（边界、墙/柱碰撞、禁区碰撞）
+3. Phase 3: 模块间两两重叠检查（O(n²)，双向记录）
+
+### 单模块布置验证 (PlacementValidator)
+
+验证单个模块在指定区域内的布置合法性（用于 Agent 放置前即时检查）：
 
 ```csharp
 ValidationResult result = PlacementValidator.Validate(
@@ -361,9 +401,17 @@ if (!result.IsValid)
 ```
 
 **验证规则**：
-1. 模块必须完全在 `zone.InnerBoundary` 内
-2. 模块不能与 `zone.ExclusionAreas` 重叠
+1. 模块必须完全在 `zone.ComputedBoundary` 内
+2. 模块不能与禁区重叠
 3. 模块不能与其他已放置模块重叠
+
+### SchemeValidator vs PlacementValidator
+
+```
+CollisionDetector (底层碰撞检测)
+  ├── SchemeValidator    (全方案 → 所有 zone/墙/柱, 方案完成后编译检查)
+  └── PlacementValidator (单模块 → 指定 zone, Agent 放置前即时验证)
+```
 
 ### Baseline 哈希服务 (BaselineHashService)
 
