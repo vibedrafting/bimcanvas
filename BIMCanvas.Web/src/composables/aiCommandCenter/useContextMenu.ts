@@ -1,10 +1,10 @@
-import { ref } from 'vue';
-import type { Ref } from 'vue';
+import { computed, ref } from 'vue';
+import type { ComputedRef, Ref } from 'vue';
 import { contextOptions } from '../../constants/aiCommandCenter';
 
 interface ContextMenuOptions {
   inputMessage: Ref<string>;
-  activeScope: Ref<string>;
+  availableZones: ComputedRef<{ id: string; label: string }[]>;
 }
 
 export const useContextMenu = (options: ContextMenuOptions) => {
@@ -43,7 +43,8 @@ export const useContextMenu = (options: ContextMenuOptions) => {
     console.log('Selected context:', type, item);
 
     if (type === 'zones') {
-      options.activeScope.value = item.label;
+      // zone 选择追加 @zone 标记到输入框
+      options.inputMessage.value += `@zone:${item.label} `;
     } else {
       options.inputMessage.value += ` [Context: ${item.label}] `;
     }

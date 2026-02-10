@@ -62,7 +62,6 @@ export interface ContextOption {
 }
 
 export interface ContextOptions {
-  zones: ContextOption[];
   regulations: ContextOption[];
   attachments: ContextOption[];
 }

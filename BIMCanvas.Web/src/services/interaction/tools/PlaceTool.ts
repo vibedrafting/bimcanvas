@@ -6,13 +6,7 @@ import { useDebugStore } from '../../../stores/debugStore';
 import { toModel } from '../../../utils/coordinates';
 import type { Module, Point2D } from '../../../types/canvas';
 import { LayerManager } from '../../three/LayerManager';
-
-function generateUUID(): string {
-    return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function (c) {
-        var r = Math.random() * 16 | 0, v = c == 'x' ? r : (r & 0x3 | 0x8);
-        return v.toString(16);
-    });
-}
+import { generateUid } from '../../../utils/shortId';
 
 /**
  * PlaceTool - 模块放置工具
@@ -232,8 +226,8 @@ export class PlaceTool implements Tool {
 
         // 4. 构造 Module 对象
         const newModule: Module = {
-            id: generateUUID(),
-            _internalId: '',  // Server 自动计算
+            id: `m_${Date.now()}`,
+            uid: generateUid(),
             moduleId: this.moduleDef.id,
             moduleName: this.moduleDef.name,
             bounds: bounds,

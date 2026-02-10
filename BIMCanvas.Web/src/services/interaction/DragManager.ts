@@ -163,7 +163,7 @@ export class DragManager {
                 if (delta.lengthSq() > 0.001) {
                     const store = useCanvasStore();
                     const moduleId = this.dragObject.userData.id;
-                    const module = store.projectData?.activeScheme?.modules?.find(m => m._internalId === moduleId || m.id === moduleId);
+                    const module = store.projectData?.activeScheme?.modules?.find(m => m.uid === moduleId || m.id === moduleId);
 
                     if (moduleId && module) {
                         // 使用统一坐标转换工具：3D delta -> 2D delta

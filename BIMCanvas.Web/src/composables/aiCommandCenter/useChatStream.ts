@@ -38,6 +38,7 @@ interface ChatStreamOptions {
   currentThinking: Ref<ThinkingLevel>;
   scrollToBottom: (options?: { force?: boolean; windowId?: string }) => void;
   fetchAgentConfig: () => Promise<void>;
+  buildContextPayload?: () => Record<string, any> | undefined;
 }
 
 // 用于中止请求的 AbortController 管理
@@ -193,6 +194,7 @@ export const useChatStream = (options: ChatStreamOptions) => {
       // 创建新的 AbortController 用于中止请求
       currentAbortController = new AbortController();
 
+      const context = options.buildContextPayload?.();
       const response = await fetch(`${options.agentApiBase}/api/chat/stream`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -203,7 +205,8 @@ export const useChatStream = (options: ChatStreamOptions) => {
           message,
           images: imagesToSend,
           model: options.currentModel.value?.id,
-          thinkingLevel: options.currentThinking.value.id
+          thinkingLevel: options.currentThinking.value.id,
+          ...(context ? { context } : {})
         }),
         signal: currentAbortController.signal
       });

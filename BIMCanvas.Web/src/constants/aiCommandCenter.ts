@@ -39,13 +39,6 @@ export const thinkingLevels: ThinkingLevel[] = [
 ];
 
 export const contextOptions: ContextOptions = {
-  zones: [
-    { id: 'living-room', label: 'Living Room' },
-    { id: 'kitchen', label: 'Kitchen' },
-    { id: 'master-bedroom', label: 'Master Bedroom' },
-    { id: 'bathroom', label: 'Bathroom' },
-    { id: 'balcony', label: 'Balcony' }
-  ],
   regulations: [
     { id: 'wheelchair', label: 'Wheelchair Access (ADA)' },
     { id: 'feng-shui', label: 'Feng Shui Principles' },

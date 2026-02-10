@@ -11,13 +11,7 @@ import { useDebugStore } from '../../../stores/debugStore';
 import { deltaToModel } from '../../../utils/coordinates';
 import { LayerManager } from '../../three/LayerManager';
 import { NumericInputManager } from '../NumericInputManager';
-
-function generateUUID(): string {
-    return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function (c) {
-        var r = Math.random() * 16 | 0, v = c == 'x' ? r : (r & 0x3 | 0x8);
-        return v.toString(16);
-    });
-}
+import { generateUid } from '../../../utils/shortId';
 
 export class CopyTool implements Tool {
     name = 'Copy';
@@ -96,7 +90,7 @@ export class CopyTool implements Tool {
     private findAllOriginalObjects() {
         this.originalObjects = [];
         for (const obj of this.selectedObjects) {
-            const threeObj = this.findObjectById(obj._internalId || obj.id);
+            const threeObj = this.findObjectById(obj.uid || obj.id);
             if (threeObj) {
                 this.originalObjects.push(threeObj);
             }
@@ -374,8 +368,8 @@ export class CopyTool implements Tool {
                 const newModule = JSON.parse(JSON.stringify(obj));
 
                 // Generate new ID and clear derived fields
-                newModule.id = generateUUID();
-                delete newModule._internalId;  // 让 Server 重新计算
+                newModule.id = `m_${Date.now()}`;
+                newModule.uid = generateUid();
                 delete newModule.zoneId;        // 让 Server 根据 bounds 重新计算
 
                 // Update bounds

@@ -11,6 +11,7 @@ import { useChatStream } from '../../composables/aiCommandCenter/useChatStream';
 import { useContextMenu } from '../../composables/aiCommandCenter/useContextMenu';
 import { usePanelUI } from '../../composables/aiCommandCenter/usePanelUI';
 import { useScreenshot } from '../../composables/aiCommandCenter/useScreenshot';
+import { useSelectionContext } from '../../composables/aiCommandCenter/useSelectionContext';
 import { useWindowManager } from '../../composables/aiCommandCenter/useWindowManager';
 import BranchCheckoutConfirmDialog from './Ribbon/BranchCheckoutConfirmDialog.vue';
 import BranchCreationDialog from './Ribbon/BranchCreationDialog.vue';
@@ -46,17 +47,15 @@ const gitStore = useGitStore();
 const { branches, currentBranch } = storeToRefs(gitStore);
 
 const store = useCanvasStore();
-const { selectedIds } = storeToRefs(store);
 
-const selectedModuleCount = computed(() => selectedIds.value.length);
-
-const activeScope = ref('Global');
-
-watch(selectedModuleCount, (count) => {
-  if (count > 0) {
-    activeScope.value = 'Living Room';
-  }
-});
+const {
+  selectedModuleCount,
+  selectionDisplayText,
+  scopeDisplayText,
+  availableZones,
+  buildContextPayload
+} = useSelectionContext();
+const isSelectionExpanded = ref(false);
 
 const {
   windows,
@@ -166,7 +165,7 @@ const {
   handleContextSelect
 } = useContextMenu({
   inputMessage,
-  activeScope
+  availableZones
 });
 
 // === Image Upload ===
@@ -300,7 +299,8 @@ const {
   currentModel,
   currentThinking,
   scrollToBottom,
-  fetchAgentConfig
+  fetchAgentConfig,
+  buildContextPayload
 });
 
 const {
@@ -805,7 +805,7 @@ onUnmounted(() => {
         
         <!-- Context Bar (Replaces Selection Status Bar) -->
         <div class="context-bar">
-            <!-- 1. Scope Chip (Always visible, defaults to Global/Room) -->
+            <!-- 1. Scope Chip (Always visible, defaults to 全局) -->
             <div class="context-chip scope">
                 <span class="chip-icon">
                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -813,12 +813,12 @@ onUnmounted(() => {
                         <polyline points="9 22 9 12 15 12 15 22"></polyline>
                     </svg>
                 </span>
-                <span class="chip-text">{{ activeScope }}</span>
+                <span class="chip-text">{{ scopeDisplayText }}</span>
             </div>
 
-            <!-- 2. Selection Chip (Visible only when items selected) -->
+            <!-- 2. Selection Chip (Visible only when modules selected) -->
             <transition name="chip-fade">
-                <div class="context-chip selection" v-if="selectedModuleCount > 0">
+                <div class="context-chip selection" v-if="selectedModuleCount > 0" @click.stop="isSelectionExpanded = !isSelectionExpanded">
                     <span class="chip-icon">
                         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                             <path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"></path>
@@ -826,7 +826,7 @@ onUnmounted(() => {
                             <line x1="12" y1="22.08" x2="12" y2="12"></line>
                         </svg>
                     </span>
-                    <span class="chip-text">Selected ({{ selectedModuleCount }})</span>
+                    <span class="chip-text">{{ selectionDisplayText }}</span>
                     <button class="chip-close" @click.stop="clearSelection">
                         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                             <line x1="18" y1="6" x2="6" y2="18"></line>
@@ -905,9 +905,9 @@ onUnmounted(() => {
                             <!-- Zones Submenu -->
                             <div class="submenu" v-if="activeSubmenu === 'zones'">
                                 <div class="menu-header">Select Zone</div>
-                                <div 
-                                    class="menu-item" 
-                                    v-for="zone in contextOptions.zones" 
+                                <div
+                                    class="menu-item"
+                                    v-for="zone in availableZones"
                                     :key="zone.id"
                                     @click="handleContextSelect('zones', zone)"
                                 >

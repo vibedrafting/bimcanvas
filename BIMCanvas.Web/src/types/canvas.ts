@@ -211,14 +211,14 @@ export interface ModuleItem {
 
 export interface Module {
   id: string;
+  /** 全局唯一短 ID（8 位字母数字），替代 _internalId */
+  uid: string;
   moduleId: string;
   moduleName?: string;
   bounds: Polygon2D;
   facing: string | Point2D;
   /** 所属分区 ID（由 Server 加载时自动填充） */
   zoneId?: string;
-  /** 全局唯一内部 ID，格式：{zoneId}_{id}，用于跨分区模块的唯一匹配 */
-  _internalId?: string;
   items: ModuleItem[];
   placementReason?: string;
 }
