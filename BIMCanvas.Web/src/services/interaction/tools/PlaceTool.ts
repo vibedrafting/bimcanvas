@@ -203,9 +203,9 @@ export class PlaceTool implements Tool {
             return;
         }
 
-        // R 键顺时针旋转 90 度（数据模型 CCW- = 视觉顺时针）
+        // R 键顺时针旋转 90 度（预览与落库 facing 保持一致）
         if (event.key === 'r' || event.key === 'R') {
-            this.currentRotation -= Math.PI / 2;
+            this.currentRotation += Math.PI / 2;
             if (this.currentWorldPoint) {
                 this.updatePreviewPosition(this.currentWorldPoint);
             }
@@ -238,7 +238,6 @@ export class PlaceTool implements Tool {
             moduleName: this.moduleDef.name,
             bounds: bounds,
             facing: facing,
-            rotation: 0,
             items: []
         };
 
@@ -291,7 +290,7 @@ export class PlaceTool implements Tool {
         const deg = angle * 180 / Math.PI;
         const directions = ['north', 'northeast', 'east', 'southeast', 'south', 'southwest', 'west', 'northwest'];
         const index = Math.round(deg / 45) % 8;
-        return directions[index];
+        return directions[index] ?? 'north';
     }
 
     private getRayIntersection(event: MouseEvent): THREE.Vector3 | null {
