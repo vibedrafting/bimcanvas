@@ -589,13 +589,13 @@ class MainAgent:
             group_strs = []
             for zid, mods in zone_groups.items():
                 names = "、".join(
-                    f'{m.get("name", "?")}（{m.get("id", "?")}）'
+                    f'{m.get("name", "?")}(id:{m.get("id", "?")})'
                     for m in mods
                 )
                 if zid:
                     zname = mods[0].get("zoneName") or zid
                     group_strs.append(
-                        f"{names}，所在区域：{zname}（{zid}）"
+                        f"{names}，所在区域：{zname}(id:{zid})"
                     )
                 else:
                     group_strs.append(names)
