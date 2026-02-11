@@ -571,7 +571,8 @@ class MainAgent:
         self,
         user_message: str,
         images: list[str] = None,
-        thinking_level: str = None
+        thinking_level: str = None,
+        context: dict = None
     ) -> AsyncIterator[StreamChunk]:
         """
         Streaming chat interface with thinking support.
@@ -581,6 +582,7 @@ class MainAgent:
             images: 图片附件列表（base64 编码，可带 data:image/png;base64, 前缀）
             thinking_level: 思考强度等级 ("off", "low", "medium", "high")
                            None 表示使用当前配置，不调整
+            context: 画布上下文（选中模块/区域），由前端 buildContextPayload() 构建
         """
         if not self._connected:
             await self.connect(thinking_level)
@@ -600,6 +602,24 @@ class MainAgent:
         self._pending_tool_calls.clear()
         self._tool_to_subagent.clear()
 
+        # 注入画布上下文到用户消息（类似 Claude Code 的 <ide_selection> 标签）
+        effective_message = user_message
+        if context:
+            context_parts = []
+            if context.get("modules"):
+                module_list = ", ".join(
+                    f'{m.get("name", "unknown")}(uid:{m.get("uid", "?")})' for m in context["modules"]
+                )
+                context_parts.append(f"选中的模块: {module_list}")
+            if context.get("zones"):
+                zone_list = ", ".join(
+                    f'{z.get("name", "unknown")}(id:{z.get("id", "?")})' for z in context["zones"]
+                )
+                context_parts.append(f"所在区域: {zone_list}")
+            if context_parts:
+                context_text = "\n".join(context_parts)
+                effective_message = f"<canvas_context>\n{context_text}\n</canvas_context>\n\n{user_message}"
+
         # 构建消息内容（支持多模态）
         if images:
             content = []
@@ -616,7 +636,7 @@ class MainAgent:
                         "data": pure_base64
                     }
                 })
-            content.append({"type": "text", "text": user_message})
+            content.append({"type": "text", "text": effective_message})
 
             # 构建完整消息并以异步迭代器形式发送
             # query() 接受 str 或 AsyncIterable，不接受 list
@@ -630,7 +650,7 @@ class MainAgent:
 
             await self._client.query(message_stream())
         else:
-            await self._client.query(user_message)
+            await self._client.query(effective_message)
 
         async for message in self._client.receive_response():
             # 获取当前消息的 parent_tool_use_id（用于关联工具调用到 SubAgent）

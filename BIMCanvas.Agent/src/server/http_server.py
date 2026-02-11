@@ -297,6 +297,7 @@ async def chat_stream_handler(request: web.Request) -> web.StreamResponse:
     images = data.get("images", [])        # 图片附件列表
     model = data.get("model")              # 模型名称
     thinking_level = data.get("thinkingLevel")  # 思考强度
+    context = data.get("context")                # 画布上下文（选中模块/区域）
 
     # 调试日志：记录收到的请求
     logger.info(f"[chat_stream] Received request: windowId={window_id}, projectPath={project_path[:50] if project_path else 'None'}")
@@ -330,7 +331,7 @@ async def chat_stream_handler(request: web.Request) -> web.StreamResponse:
         if model and model != agent.get_current_model():
             await agent.set_model(model)
 
-        async for chunk in agent.chat_stream(message, images=images, thinking_level=thinking_level):
+        async for chunk in agent.chat_stream(message, images=images, thinking_level=thinking_level, context=context):
             # 构建 SSE 事件数据
             event_data = {"type": chunk.type}
 
