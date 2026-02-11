@@ -87,6 +87,7 @@ const onSelect = () => {
 
 <style scoped lang="scss">
 .module-card {
+  box-sizing: border-box;
   width: 96px;
   display: flex;
   flex-direction: column;
@@ -109,6 +110,7 @@ const onSelect = () => {
 }
 
 .thumbnail-area {
+  flex-shrink: 0;
   width: 100%;
   aspect-ratio: 1 / 1;
   display: flex;
@@ -142,6 +144,7 @@ const onSelect = () => {
 }
 
 .name-area {
+  flex-shrink: 0;
   height: 32px;
   padding: 0 6px;
   display: flex;

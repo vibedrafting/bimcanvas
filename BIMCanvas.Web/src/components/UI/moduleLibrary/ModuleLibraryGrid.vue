@@ -58,10 +58,10 @@ const onSelect = (module: ModuleDefinition) => {
   --grid-gap: 8px;
   display: grid;
   grid-template-columns: repeat(3, 96px);
+  grid-auto-rows: max-content;
   gap: var(--grid-gap);
   padding: 12px;
-  overflow-y: scroll;
-  scrollbar-gutter: stable both-edges;
+  overflow-y: auto;
   flex: 1;
   align-content: start;
   justify-content: start;
