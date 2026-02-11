@@ -567,6 +567,31 @@ class MainAgent:
 
         return full_response
 
+    @staticmethod
+    def _build_context_block(context: dict) -> str | None:
+        """构建画布上下文 content block（独立于用户消息）。"""
+        if not context:
+            return None
+        parts = []
+        if context.get("modules"):
+            module_list = ", ".join(
+                f'{m.get("name", "unknown")}(uid:{m.get("uid", "?")})' for m in context["modules"]
+            )
+            parts.append(f"选中的模块: {module_list}")
+        if context.get("zones"):
+            zone_list = ", ".join(
+                f'{z.get("name", "unknown")}(id:{z.get("id", "?")})' for z in context["zones"]
+            )
+            parts.append(f"所在区域: {zone_list}")
+        if not parts:
+            return None
+        detail = "\n".join(parts)
+        return (
+            f"<canvas_context>The user has selected the following objects on the design canvas:\n"
+            f"{detail}\n\n"
+            f"This context may or may not be related to the current request.</canvas_context>"
+        )
+
     async def chat_stream(
         self,
         user_message: str,
@@ -602,41 +627,32 @@ class MainAgent:
         self._pending_tool_calls.clear()
         self._tool_to_subagent.clear()
 
-        # 注入画布上下文到用户消息（类似 Claude Code 的 <ide_selection> 标签）
-        effective_message = user_message
-        if context:
-            context_parts = []
-            if context.get("modules"):
-                module_list = ", ".join(
-                    f'{m.get("name", "unknown")}(uid:{m.get("uid", "?")})' for m in context["modules"]
-                )
-                context_parts.append(f"选中的模块: {module_list}")
-            if context.get("zones"):
-                zone_list = ", ".join(
-                    f'{z.get("name", "unknown")}(id:{z.get("id", "?")})' for z in context["zones"]
-                )
-                context_parts.append(f"所在区域: {zone_list}")
-            if context_parts:
-                context_text = "\n".join(context_parts)
-                effective_message = f"<canvas_context>\n{context_text}\n</canvas_context>\n\n{user_message}"
+        # 构建画布上下文 content block（独立于用户消息，对齐 Claude Code 的 <ide_selection> 模式）
+        context_block = self._build_context_block(context)
 
-        # 构建消息内容（支持多模态）
-        if images:
+        # 构建消息内容（images 或 context 存在时走多 content block 路径）
+        if images or context_block:
             content = []
-            for img_base64 in images:
-                # 移除 data:image/png;base64, 前缀
-                pure_base64 = img_base64
-                if "," in img_base64:
-                    pure_base64 = img_base64.split(",", 1)[1]
-                content.append({
-                    "type": "image",
-                    "source": {
-                        "type": "base64",
-                        "media_type": "image/png",
-                        "data": pure_base64
-                    }
-                })
-            content.append({"type": "text", "text": effective_message})
+            # 1. 图片附件（如有）
+            if images:
+                for img_base64 in images:
+                    # 移除 data:image/png;base64, 前缀
+                    pure_base64 = img_base64
+                    if "," in img_base64:
+                        pure_base64 = img_base64.split(",", 1)[1]
+                    content.append({
+                        "type": "image",
+                        "source": {
+                            "type": "base64",
+                            "media_type": "image/png",
+                            "data": pure_base64
+                        }
+                    })
+            # 2. 画布上下文（独立 block）
+            if context_block:
+                content.append({"type": "text", "text": context_block})
+            # 3. 用户消息（独立 block）
+            content.append({"type": "text", "text": user_message})
 
             # 构建完整消息并以异步迭代器形式发送
             # query() 接受 str 或 AsyncIterable，不接受 list
@@ -650,7 +666,7 @@ class MainAgent:
 
             await self._client.query(message_stream())
         else:
-            await self._client.query(effective_message)
+            await self._client.query(user_message)
 
         async for message in self._client.receive_response():
             # 获取当前消息的 parent_tool_use_id（用于关联工具调用到 SubAgent）
