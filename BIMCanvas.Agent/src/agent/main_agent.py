@@ -569,52 +569,83 @@ class MainAgent:
 
     @staticmethod
     def _build_context_block(context: dict) -> str | None:
-        """构建画布上下文 content block（独立于用户消息）。"""
+        """构建画布上下文 content block（独立于用户消息）。
+
+        模块按所属区域分组显示，其他类型按类型平铺显示。
+        直接选中的区域标签作为"分区"类别独立展示。
+        """
         if not context:
             return None
         parts = []
-        # 模块
+
+        # ── 模块（按区域分组） ──
         if context.get("modules"):
-            module_list = ", ".join(
-                f'{m.get("name", "unknown")}(id:{m.get("id", "?")})' for m in context["modules"]
-            )
-            parts.append(f"选中的模块: {module_list}")
-        # 墙体
+            from collections import OrderedDict
+            zone_groups: dict[str | None, list] = OrderedDict()
+            for m in context["modules"]:
+                zid = m.get("zoneId")
+                zone_groups.setdefault(zid, []).append(m)
+
+            group_strs = []
+            for zid, mods in zone_groups.items():
+                names = "、".join(
+                    f'{m.get("name", "?")}（{m.get("id", "?")}）'
+                    for m in mods
+                )
+                if zid:
+                    zname = mods[0].get("zoneName") or zid
+                    group_strs.append(
+                        f"{names}，所在区域：{zname}（{zid}）"
+                    )
+                else:
+                    group_strs.append(names)
+            parts.append(f"模块：{'；'.join(group_strs)}")
+
+        # ── 墙体 ──
         if context.get("walls"):
-            wall_list = ", ".join(
+            wall_list = "、".join(
                 f'墙体(id:{w.get("id", "?")})' for w in context["walls"]
             )
-            parts.append(f"选中的墙体: {wall_list}")
-        # 柱子
+            parts.append(f"墙体：{wall_list}")
+
+        # ── 柱子 ──
         if context.get("columns"):
-            col_list = ", ".join(
-                f'柱(id:{c.get("id", "?")}, 结构柱:{"是" if c.get("isStructural") else "否"})' for c in context["columns"]
+            col_list = "、".join(
+                f'柱(id:{c.get("id", "?")}, 结构柱:{"是" if c.get("isStructural") else "否"})'
+                for c in context["columns"]
             )
-            parts.append(f"选中的柱: {col_list}")
-        # 门
+            parts.append(f"柱：{col_list}")
+
+        # ── 门 ──
         if context.get("doors"):
-            door_list = ", ".join(
+            door_list = "、".join(
                 f'门(id:{d.get("id", "?")})' for d in context["doors"]
             )
-            parts.append(f"选中的门: {door_list}")
-        # 窗
+            parts.append(f"门：{door_list}")
+
+        # ── 窗 ──
         if context.get("windows"):
-            win_list = ", ".join(
+            win_list = "、".join(
                 f'窗(id:{w.get("id", "?")})' for w in context["windows"]
             )
-            parts.append(f"选中的窗: {win_list}")
-        # 禁区
+            parts.append(f"窗：{win_list}")
+
+        # ── 禁区 ──
         if context.get("exclusions"):
-            exc_list = ", ".join(
-                f'{e.get("name") or "禁区"}(id:{e.get("id", "?")})' for e in context["exclusions"]
+            exc_list = "、".join(
+                f'{e.get("name") or "禁区"}(id:{e.get("id", "?")})'
+                for e in context["exclusions"]
             )
-            parts.append(f"选中的禁区: {exc_list}")
-        # 区域（放在最后，作为范围信息）
+            parts.append(f"禁区：{exc_list}")
+
+        # ── 分区（直接选中的区域标签） ──
         if context.get("zones"):
-            zone_list = ", ".join(
-                f'{z.get("name", "unknown")}(id:{z.get("id", "?")})' for z in context["zones"]
+            zone_list = "、".join(
+                f'{z.get("name", "?")}(id:{z.get("id", "?")})'
+                for z in context["zones"]
             )
-            parts.append(f"所在区域: {zone_list}")
+            parts.append(f"分区：{zone_list}")
+
         if not parts:
             return None
         detail = "\n".join(parts)

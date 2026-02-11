@@ -68,15 +68,15 @@ export function useSelectionContext() {
     return Object.entries(counts).map(([label, n]) => `${n} 个${label}`).join(', ');
   });
 
-  // 4. Scope 推断（优先级：手动选中zone > 模块推断zone > 全局）
+  // 4. Scope 推断（合并两个来源，仅用于 scope chip 显示）
   // 注意：建筑元件（wall/column/door/window）不参与区域推断
   const inferredZoneIds = computed(() => {
-    // 优先：用户直接选中了 zone 标记
-    if (selectedZones.value.length > 0) {
-      return selectedZones.value.map((z: any) => z.id);
-    }
-    // 其次：从选中模块的 zoneId 推断
     const ids = new Set<string>();
+    // 来源1：用户直接选中的 zone
+    for (const z of selectedZones.value) {
+      ids.add((z as any).id);
+    }
+    // 来源2：从选中模块的 zoneId 推断
     for (const m of selectedModules.value) {
       if ((m as any).zoneId) ids.add((m as any).zoneId);
     }
@@ -111,7 +111,7 @@ export function useSelectionContext() {
 
   // 6. 构建上下文 payload（智能：无选择时返回 undefined）
   const buildContextPayload = () => {
-    if (selectedObjects.value.length === 0 && inferredZoneIds.value.length === 0) return undefined;
+    if (selectedObjects.value.length === 0) return undefined;
 
     const ctx: Record<string, any> = {};
     const modules = selectedModules.value;
@@ -120,16 +120,33 @@ export function useSelectionContext() {
     const doors = selectedDoors.value;
     const windows = selectedWindows.value;
     const exclusions = selectedExclusions.value;
-    const zones = inferredZoneIds.value;
 
     if (modules.length > 0) {
-      ctx.modules = modules.map((m: any) => ({
-        id: m.id,
-        name: m.moduleName ?? m.moduleId ?? m.id
-      }));
+      const allZones = [
+        ...(projectData.value?.activeScheme?.zones || []),
+        ...(projectData.value?.computed?.roomZones || [])
+      ];
+      ctx.modules = modules.map((m: any) => {
+        const zoneId = m.zoneId ?? null;
+        let zoneName: string | null = null;
+        if (zoneId) {
+          const zone = allZones.find((z: any) => z.id === zoneId);
+          zoneName = zone?.name ?? null;
+        }
+        return {
+          id: m.id,
+          name: m.moduleName ?? m.moduleId ?? m.id,
+          zoneId,
+          zoneName
+        };
+      });
     }
-    if (zones.length > 0) {
-      ctx.zones = zones.map((id, i) => ({ id, name: inferredZoneNames.value[i] }));
+    // 直接选中的区域标签作为独立类别（不再使用 inferredZoneIds）
+    if (selectedZones.value.length > 0) {
+      ctx.zones = selectedZones.value.map((z: any) => ({
+        id: z.id,
+        name: z.name ?? z.id
+      }));
     }
     if (walls.length > 0) {
       ctx.walls = walls.map((w: any) => ({ id: w.id, elementId: w.elementId ?? null }));

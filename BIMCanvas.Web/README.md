@@ -132,15 +132,15 @@
 
 ##### 支持的对象类型
 
-| 类型 | payload 键 | 字段 | 推断区域 | UI 显示标签 |
+| 类型 | payload 键 | 字段 | 区域信息 | UI 显示标签 |
 |------|-----------|------|---------|------------|
-| 家具模块 | `modules` | `id`, `name` | 是（通过 zoneId） | moduleName |
-| 设计区域 | `zones` | `id`, `name` | 自身即区域 | name |
-| 墙体 | `walls` | `id`, `elementId` | 否 | 墙体 #xxxx |
-| 柱子 | `columns` | `id`, `elementId`, `isStructural` | 否 | 柱 #xxxx |
-| 门 | `doors` | `id`, `elementId` | 否 | 门 #xxxx |
-| 窗 | `windows` | `id`, `elementId` | 否 | 窗 #xxxx |
-| 禁区 | `exclusions` | `id`, `name` | 否 | 禁区: name |
+| 家具模块 | `modules` | `id`, `name`, `zoneId`, `zoneName` | 每模块携带所属区域 | moduleName |
+| 区域标签 | `zones` | `id`, `name` | 仅直接选中时出现（作为"分区"类别） | name |
+| 墙体 | `walls` | `id`, `elementId` | 无 | 墙体 #xxxx |
+| 柱子 | `columns` | `id`, `elementId`, `isStructural` | 无 | 柱 #xxxx |
+| 门 | `doors` | `id`, `elementId` | 无 | 门 #xxxx |
+| 窗 | `windows` | `id`, `elementId` | 无 | 窗 #xxxx |
+| 禁区 | `exclusions` | `id`, `name` | 无 | 禁区: name |
 
 ##### 数据流
 
@@ -148,7 +148,8 @@
 前端选中任意对象（模块/墙体/门窗/区域等）
     ↓
 useSelectionContext.buildContextPayload()
-→ { modules: [{id, name}], zones: [{id, name}],
+→ { modules: [{id, name, zoneId, zoneName}],
+    zones: [{id, name}],              ← 仅直接选中的区域标签
     walls: [{id, elementId}], columns: [{id, elementId, isStructural}],
     doors: [{id, elementId}], windows: [{id, elementId}],
     exclusions: [{id, name}] }
@@ -169,23 +170,26 @@ Claude API messages.content: [
 
 ```xml
 <canvas_context>用户在设计画布上选中了以下对象：
-选中的模块: 三人沙发(id:m_a7x2k9m1), 茶几(id:m_b3y5j8n2)
-选中的墙体: 墙体(id:wall_1)
-选中的门: 门(id:opening_5)
-所在区域: 客厅活动区(id:rz_1)
+模块：三人沙发（m_a7x2k9m1）、茶几（m_b3y5j8n2），所在区域：客厅活动区（rz_1）
+门：门(id:d_3)
+分区：主卧(id:rz_3)
 
 以上上下文可能与当前请求相关，也可能无关。</canvas_context>
 ```
+
+> 模块按所属区域分组显示（用"；"分隔不同区域），其他类型按类型平铺，直接选中的区域标签作为"分区"类别独立展示。
 
 ##### 边界情况
 
 | 场景 | 行为 |
 |------|------|
 | 无选中 | 不注入 `<canvas_context>`，只发送用户消息 |
-| 仅选区域标签 | 只有"所在区域"，无"选中的模块" |
-| 跨区域多选 | 多模块 + 多区域自动聚合 |
-| 仅选中建筑元件（墙体/门窗/柱） | 上下文包含对应元件，不推断区域 |
-| 混合选中（模块 + 墙体） | 模块推断区域，墙体独立列出 |
+| 仅选区域标签 | 显示"分区：XXX"，无"模块"行 |
+| 仅选模块 | 显示"模块：XXX，所在区域：YYY"，无"分区"行 |
+| 跨区域多选模块 | 模块按区域分组，用"；"分隔不同区域 |
+| 模块 + 区域标签混合选中 | 模块按各自区域分组，区域标签作为独立"分区"行 |
+| 仅选中建筑元件（墙体/门窗/柱） | 上下文包含对应元件，按类型独立行显示 |
+| 模块无 zoneId（新复制的模块） | 模块名后不带区域信息 |
 
 ##### 核心文件
 
