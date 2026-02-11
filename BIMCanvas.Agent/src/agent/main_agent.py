@@ -587,9 +587,9 @@ class MainAgent:
             return None
         detail = "\n".join(parts)
         return (
-            f"<canvas_context>The user has selected the following objects on the design canvas:\n"
+            f"<canvas_context>用户在设计画布上选中了以下对象：\n"
             f"{detail}\n\n"
-            f"This context may or may not be related to the current request.</canvas_context>"
+            f"以上上下文可能与当前请求相关，也可能无关。</canvas_context>"
         )
 
     async def chat_stream(
