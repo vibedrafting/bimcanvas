@@ -130,13 +130,28 @@
 - **TypeScript**：`Module.uid: string`（必填）
 - **水合机制**：`canvasStore.hydrateModuleUids()` 在加载时为缺少 uid 的旧模块自动生成并持久化
 
+##### 支持的对象类型
+
+| 类型 | payload 键 | 字段 | 推断区域 | UI 显示标签 |
+|------|-----------|------|---------|------------|
+| 家具模块 | `modules` | `uid`, `name` | 是（通过 zoneId） | moduleName |
+| 设计区域 | `zones` | `id`, `name` | 自身即区域 | name |
+| 墙体 | `walls` | `id`, `elementId` | 否 | 墙体 #xxxx |
+| 柱子 | `columns` | `id`, `elementId`, `isStructural` | 否 | 柱 #xxxx |
+| 门 | `doors` | `id`, `elementId` | 否 | 门 #xxxx |
+| 窗 | `windows` | `id`, `elementId` | 否 | 窗 #xxxx |
+| 禁区 | `exclusions` | `id`, `name` | 否 | 禁区: name |
+
 ##### 数据流
 
 ```
-前端选中模块/区域
+前端选中任意对象（模块/墙体/门窗/区域等）
     ↓
 useSelectionContext.buildContextPayload()
-→ { modules: [{uid, name}], zones: [{id, name}] }
+→ { modules: [{uid, name}], zones: [{id, name}],
+    walls: [{id, elementId}], columns: [{id, elementId, isStructural}],
+    doors: [{id, elementId}], windows: [{id, elementId}],
+    exclusions: [{id, name}] }
     ↓
 useChatStream → fetch('/api/chat/stream', { message, context })
     ↓
@@ -155,6 +170,8 @@ Claude API messages.content: [
 ```xml
 <canvas_context>用户在设计画布上选中了以下对象：
 选中的模块: 三人沙发(uid:a7x2k9m1), 茶几(uid:b3y5j8n2)
+选中的墙体: 墙体(id:wall_1)
+选中的门: 门(id:opening_5)
 所在区域: 客厅活动区(id:rz_1)
 
 以上上下文可能与当前请求相关，也可能无关。</canvas_context>
@@ -167,14 +184,15 @@ Claude API messages.content: [
 | 无选中 | 不注入 `<canvas_context>`，只发送用户消息 |
 | 仅选区域标签 | 只有"所在区域"，无"选中的模块" |
 | 跨区域多选 | 多模块 + 多区域自动聚合 |
-| 选中非模块（墙体/门窗） | 不计入 context |
+| 仅选中建筑元件（墙体/门窗/柱） | 上下文包含对应元件，不推断区域 |
+| 混合选中（模块 + 墙体） | 模块推断区域，墙体独立列出 |
 | 旧数据无 uid | 首次加载时水合生成 + 持久化 |
 
 ##### 核心文件
 
 | 文件 | 职责 |
 |------|------|
-| `src/composables/aiCommandCenter/useSelectionContext.ts` | 画布选择上下文（模块/区域分离、scope 推断、payload 构建） |
+| `src/composables/aiCommandCenter/useSelectionContext.ts` | 画布选择上下文（全部 7 种对象分离、scope 推断、payload 构建） |
 | `src/utils/shortId.ts` | 8 位短唯一 ID 生成器 |
 | `src/composables/aiCommandCenter/useChatStream.ts` | 发送请求时注入 context |
 | `BIMCanvas.Agent/src/agent/main_agent.py` | `_build_context_block()` 构建独立 content block |

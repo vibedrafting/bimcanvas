@@ -573,11 +573,43 @@ class MainAgent:
         if not context:
             return None
         parts = []
+        # 模块
         if context.get("modules"):
             module_list = ", ".join(
                 f'{m.get("name", "unknown")}(uid:{m.get("uid", "?")})' for m in context["modules"]
             )
             parts.append(f"选中的模块: {module_list}")
+        # 墙体
+        if context.get("walls"):
+            wall_list = ", ".join(
+                f'墙体(id:{w.get("id", "?")})' for w in context["walls"]
+            )
+            parts.append(f"选中的墙体: {wall_list}")
+        # 柱子
+        if context.get("columns"):
+            col_list = ", ".join(
+                f'柱(id:{c.get("id", "?")}, 结构柱:{"是" if c.get("isStructural") else "否"})' for c in context["columns"]
+            )
+            parts.append(f"选中的柱: {col_list}")
+        # 门
+        if context.get("doors"):
+            door_list = ", ".join(
+                f'门(id:{d.get("id", "?")})' for d in context["doors"]
+            )
+            parts.append(f"选中的门: {door_list}")
+        # 窗
+        if context.get("windows"):
+            win_list = ", ".join(
+                f'窗(id:{w.get("id", "?")})' for w in context["windows"]
+            )
+            parts.append(f"选中的窗: {win_list}")
+        # 禁区
+        if context.get("exclusions"):
+            exc_list = ", ".join(
+                f'{e.get("name") or "禁区"}(id:{e.get("id", "?")})' for e in context["exclusions"]
+            )
+            parts.append(f"选中的禁区: {exc_list}")
+        # 区域（放在最后，作为范围信息）
         if context.get("zones"):
             zone_list = ", ".join(
                 f'{z.get("name", "unknown")}(id:{z.get("id", "?")})' for z in context["zones"]

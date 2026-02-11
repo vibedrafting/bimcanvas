@@ -50,6 +50,7 @@ const store = useCanvasStore();
 
 const {
   selectedModuleCount,
+  selectedCount,
   selectionDisplayText,
   scopeDisplayText,
   availableZones,
@@ -816,9 +817,9 @@ onUnmounted(() => {
                 <span class="chip-text">{{ scopeDisplayText }}</span>
             </div>
 
-            <!-- 2. Selection Chip (Visible only when modules selected) -->
+            <!-- 2. Selection Chip (Visible when any object selected) -->
             <transition name="chip-fade">
-                <div class="context-chip selection" v-if="selectedModuleCount > 0" @click.stop="isSelectionExpanded = !isSelectionExpanded">
+                <div class="context-chip selection" v-if="selectedCount > 0" @click.stop="isSelectionExpanded = !isSelectionExpanded">
                     <span class="chip-icon">
                         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                             <path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"></path>
