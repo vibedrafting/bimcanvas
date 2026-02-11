@@ -12,15 +12,10 @@ namespace BIMCanvas.Core.Models.Layout
     public class Module
     {
         /// <summary>
-        /// 模块实例 ID，格式：m{序号}
+        /// 模块实例唯一 ID，格式：m_xxxxxxxx（8 位随机字母数字）
+        /// Agent 写入时可不填，Server 反序列化时自动补全
         /// </summary>
         public string Id { get; set; } = string.Empty;
-
-        /// <summary>
-        /// 全局唯一短 ID（8 位字母数字），自动生成，持久化存储
-        /// </summary>
-        [JsonProperty("uid")]
-        public string Uid { get; set; } = GenerateShortId();
 
         /// <summary>
         /// 模块库中的模块类型 ID
@@ -60,17 +55,20 @@ namespace BIMCanvas.Core.Models.Layout
         [OnDeserialized]
         internal void OnDeserialized(StreamingContext context)
         {
-            if (string.IsNullOrEmpty(Uid))
-                Uid = GenerateShortId();
+            if (string.IsNullOrEmpty(Id))
+                Id = GenerateModuleId();
         }
 
-        private static string GenerateShortId()
+        /// <summary>
+        /// 生成模块 ID：m_ + 8 位随机字母数字
+        /// </summary>
+        public static string GenerateModuleId()
         {
             const string chars = "0123456789abcdefghijklmnopqrstuvwxyz";
             var bytes = new byte[8];
             using (var rng = System.Security.Cryptography.RandomNumberGenerator.Create())
                 rng.GetBytes(bytes);
-            return new string(System.Array.ConvertAll(bytes, b => chars[b % chars.Length]));
+            return "m_" + new string(System.Array.ConvertAll(bytes, b => chars[b % chars.Length]));
         }
     }
 }

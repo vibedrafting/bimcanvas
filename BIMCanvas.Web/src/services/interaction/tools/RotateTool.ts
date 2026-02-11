@@ -103,7 +103,7 @@ export class RotateTool implements Tool {
     private findAllOriginalObjects() {
         this.originalObjects = [];
         for (const obj of this.selectedObjects) {
-            const threeObj = this.findObjectById(obj.uid || obj.id);
+            const threeObj = this.findObjectById(obj.id);
             if (threeObj) {
                 this.originalObjects.push(threeObj);
             }
@@ -503,7 +503,7 @@ export class RotateTool implements Tool {
             }
             const newFacing = rotateFacing2D(facingVector, deltaRotation);
 
-            store.updateModule(obj.uid || obj.id, {
+            store.updateModule(obj.id, {
                 bounds: newBounds,
                 facing: newFacing
             });

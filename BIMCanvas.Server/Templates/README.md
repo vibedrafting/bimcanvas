@@ -83,16 +83,16 @@
 ```json
 [
   {
-    "id": "m_1",
     "moduleId": "mod_bed_001",
     "moduleName": "双人床",
     "bounds": [[9100, 1750], [11100, 1750], [11100, 3750], [9100, 3750]],
     "facing": "east",
-    "zoneId": "rz_3",
     "items": []
   }
 ]
 ```
+
+> **注意**：`id` 由 Server 在 `validate_layout` 时自动生成（格式 `m_xxxxxxxx`），Agent 写入时无需填写。`zoneId` 由 Server 根据 bounds 位置自动计算。
 
 **操作流程**：
 - layout-agent 的具体操作流程由 `mcp__canvas__get_workflow_guide` 工具定义
@@ -132,11 +132,11 @@
 ```
 
 **字段说明**:
-- `id`: 实例 ID（分区内唯一）
+- `id`: 由 Server 自动生成（格式 `m_xxxxxxxx`），Agent 无需填写
 - `moduleId`: 模块类型（来自 module_library.json）
 - `bounds`: 矩形 4 顶点（左下→右下→右上→左上）
 - `facing`: 朝向（north/south/east/west）
-- `zoneId`: 所属分区
+- `zoneId`: 由 Server 根据 bounds 位置自动计算
 - `items`: 子项（可为空数组）
 
 **常用 moduleId**: mod_bed_001, mod_bed_002, mod_sofa_001, mod_cabinet_006, mod_table_001

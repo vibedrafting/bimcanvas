@@ -122,19 +122,19 @@
 
 > **核心目标**：让 AI 能"看到"用户在画布上选中了什么，对标 Claude Code 的 `<ide_selection>` / `<ide_opened_file>` 上下文注入模式。
 
-##### uid 模块标识
+##### 模块 ID 标识
 
-旧的 `_internalId` 设计为运行时拼接 `{zoneId}_{id}`，但实际数据中全是 null，且 `id`（如 "m_bed"）跨 zone 可重复。替换为持久化的 `uid`（8 位小写字母数字，36^8 ≈ 2.8 万亿种组合）：
+`Module.id` 是模块的唯一标识，格式 `"m_" + 8位随机字母数字`（36^8 ≈ 2.8 万亿种组合）：
 
-- **C# Core**：`Module.Uid` 自动属性 + `[OnDeserialized]` 旧数据补全
-- **TypeScript**：`Module.uid: string`（必填）
-- **水合机制**：`canvasStore.hydrateModuleUids()` 在加载时为缺少 uid 的旧模块自动生成并持久化
+- **C# Core**：`Module.Id` + `[OnDeserialized]` 反序列化时自动补全空 id
+- **TypeScript**：`Module.id: string`（必填）
+- **生成方式**：Web 端由 `generateModuleId()` 生成，Agent 写入时由 Server 自动补全
 
 ##### 支持的对象类型
 
 | 类型 | payload 键 | 字段 | 推断区域 | UI 显示标签 |
 |------|-----------|------|---------|------------|
-| 家具模块 | `modules` | `uid`, `name` | 是（通过 zoneId） | moduleName |
+| 家具模块 | `modules` | `id`, `name` | 是（通过 zoneId） | moduleName |
 | 设计区域 | `zones` | `id`, `name` | 自身即区域 | name |
 | 墙体 | `walls` | `id`, `elementId` | 否 | 墙体 #xxxx |
 | 柱子 | `columns` | `id`, `elementId`, `isStructural` | 否 | 柱 #xxxx |
@@ -148,7 +148,7 @@
 前端选中任意对象（模块/墙体/门窗/区域等）
     ↓
 useSelectionContext.buildContextPayload()
-→ { modules: [{uid, name}], zones: [{id, name}],
+→ { modules: [{id, name}], zones: [{id, name}],
     walls: [{id, elementId}], columns: [{id, elementId, isStructural}],
     doors: [{id, elementId}], windows: [{id, elementId}],
     exclusions: [{id, name}] }
@@ -169,7 +169,7 @@ Claude API messages.content: [
 
 ```xml
 <canvas_context>用户在设计画布上选中了以下对象：
-选中的模块: 三人沙发(uid:a7x2k9m1), 茶几(uid:b3y5j8n2)
+选中的模块: 三人沙发(id:m_a7x2k9m1), 茶几(id:m_b3y5j8n2)
 选中的墙体: 墙体(id:wall_1)
 选中的门: 门(id:opening_5)
 所在区域: 客厅活动区(id:rz_1)
@@ -186,14 +186,13 @@ Claude API messages.content: [
 | 跨区域多选 | 多模块 + 多区域自动聚合 |
 | 仅选中建筑元件（墙体/门窗/柱） | 上下文包含对应元件，不推断区域 |
 | 混合选中（模块 + 墙体） | 模块推断区域，墙体独立列出 |
-| 旧数据无 uid | 首次加载时水合生成 + 持久化 |
 
 ##### 核心文件
 
 | 文件 | 职责 |
 |------|------|
 | `src/composables/aiCommandCenter/useSelectionContext.ts` | 画布选择上下文（全部 7 种对象分离、scope 推断、payload 构建） |
-| `src/utils/shortId.ts` | 8 位短唯一 ID 生成器 |
+| `src/utils/shortId.ts` | 模块 ID 生成器（`m_` + 8 位随机） |
 | `src/composables/aiCommandCenter/useChatStream.ts` | 发送请求时注入 context |
 | `BIMCanvas.Agent/src/agent/main_agent.py` | `_build_context_block()` 构建独立 content block |
 | `BIMCanvas.Agent/src/server/http_server.py` | 提取 context 字段并转发 |

@@ -576,7 +576,7 @@ class MainAgent:
         # 模块
         if context.get("modules"):
             module_list = ", ".join(
-                f'{m.get("name", "unknown")}(uid:{m.get("uid", "?")})' for m in context["modules"]
+                f'{m.get("name", "unknown")}(id:{m.get("id", "?")})' for m in context["modules"]
             )
             parts.append(f"选中的模块: {module_list}")
         # 墙体

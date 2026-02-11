@@ -75,6 +75,9 @@ namespace BIMCanvas.Server.Controllers
                 // 3. 读取当前方案的所有模块
                 var modules = LoadAllModules(projectPath);
 
+                // 3.5 持久化模块（确保 [OnDeserialized] 自动生成的 Id 写回文件）
+                PersistModules(projectPath, modules);
+
                 // 4. 调用 Core 层全量验证
                 var report = SchemeValidator.Validate(
                     modules, designZones, exclusionZones, walls, columns);
@@ -205,6 +208,52 @@ namespace BIMCanvas.Server.Controllers
         {
             var json = System.IO.File.ReadAllText(path, Encoding.UTF8);
             return JsonConvert.DeserializeObject<T>(json, _jsonSettings) ?? new T();
+        }
+
+        /// <summary>
+        /// 序列化并写入 JSON 文件
+        /// </summary>
+        private void WriteJson<T>(string path, T data)
+        {
+            var json = JsonConvert.SerializeObject(data, Formatting.Indented, _jsonSettings);
+            System.IO.File.WriteAllText(path, json, Encoding.UTF8);
+        }
+
+        /// <summary>
+        /// 将模块按 ZoneId 分组写回对应 schemes/{zoneId}/modules.json
+        /// 确保反序列化时自动生成的 Id 被持久化
+        /// </summary>
+        private void PersistModules(string projectPath, List<Module> modules)
+        {
+            if (modules.Count == 0) return;
+
+            var byZone = modules
+                .GroupBy(m => m.ZoneId ?? "_unzoned")
+                .ToDictionary(g => g.Key, g => g.ToList());
+
+            foreach (var kvp in byZone)
+            {
+                var zoneDir = Path.Combine(projectPath, "schemes", kvp.Key);
+                if (!Directory.Exists(zoneDir))
+                    Directory.CreateDirectory(zoneDir);
+
+                var modulesPath = Path.Combine(zoneDir, "modules.json");
+
+                // 写入时清理运行时字段 ZoneId
+                var toSave = kvp.Value.Select(m =>
+                {
+                    m.ZoneId = null;
+                    return m;
+                }).ToList();
+
+                WriteJson(modulesPath, toSave);
+
+                // 恢复 ZoneId 以供后续验证使用
+                foreach (var m in kvp.Value)
+                    m.ZoneId = kvp.Key;
+            }
+
+            _logger.LogDebug("[Validation] 持久化 {Count} 个模块的 Id", modules.Count);
         }
     }
 }

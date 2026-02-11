@@ -750,12 +750,10 @@ Write schemes/{zoneId}/modules.json（仅包含锚点 + 主要家具）
 1. 读取 schemes/zones.json 获取所有分区 ID
 2. 根据分区 ID 写入对应的 schemes/{zoneId}/modules.json
 
-**数据格式**：
+**数据格式**（id 由 Server 在 validate_layout 时自动生成并持久化，禁止手动填写）：
 ```json
 [
   {
-    "id": "m_1",
-    "zoneId": "rz_1",
     "moduleId": "mod_bed_001",
     "bounds": [[x1,y1], [x2,y2], [x3,y3], [x4,y4]],
     "facing": "north",

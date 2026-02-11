@@ -211,8 +211,6 @@ export interface ModuleItem {
 
 export interface Module {
   id: string;
-  /** 全局唯一短 ID（8 位字母数字），替代 _internalId */
-  uid: string;
   moduleId: string;
   moduleName?: string;
   bounds: Polygon2D;

@@ -6,7 +6,7 @@ import { useDebugStore } from '../../../stores/debugStore';
 import { toModel } from '../../../utils/coordinates';
 import type { Module, Point2D } from '../../../types/canvas';
 import { LayerManager } from '../../three/LayerManager';
-import { generateUid } from '../../../utils/shortId';
+import { generateModuleId } from '../../../utils/shortId';
 
 /**
  * PlaceTool - 模块放置工具
@@ -226,8 +226,7 @@ export class PlaceTool implements Tool {
 
         // 4. 构造 Module 对象
         const newModule: Module = {
-            id: `m_${Date.now()}`,
-            uid: generateUid(),
+            id: generateModuleId(),
             moduleId: this.moduleDef.id,
             moduleName: this.moduleDef.name,
             bounds: bounds,

@@ -124,7 +124,7 @@ export function useSelectionContext() {
 
     if (modules.length > 0) {
       ctx.modules = modules.map((m: any) => ({
-        uid: m.uid ?? m.id,
+        id: m.id,
         name: m.moduleName ?? m.moduleId ?? m.id
       }));
     }

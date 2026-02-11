@@ -6,8 +6,6 @@ import { TimelineManager } from '../services/state/TimelineManager';
 import { SignalRService } from '../services/SignalRService';
 import { useDebugStore } from './debugStore';
 import { ChangeSource, ChangeType, type LoadOptions } from '../types/history';
-import { generateUid } from '../utils/shortId';
-
 export const useCanvasStore = defineStore('canvas', () => {
     // === 核心状态 ===
     const projectData = ref<ProjectData | null>(null);
@@ -61,8 +59,8 @@ export const useCanvasStore = defineStore('canvas', () => {
         const baseline = projectData.value.baseline;
         const activeScheme = projectData.value.activeScheme;
 
-        // 在 modules 中查找（优先匹配 uid，兼容旧数据匹配 id）
-        const module = activeScheme?.modules?.find(m => m.uid === id || m.id === id);
+        // 在 modules 中查找
+        const module = activeScheme?.modules?.find(m => m.id === id);
         if (module) {
             return { ...module, type: 'module' };
         }
@@ -172,23 +170,6 @@ export const useCanvasStore = defineStore('canvas', () => {
         }
     };
 
-    // === uid 水合：为缺少 uid 的旧模块自动生成 ===
-    const hydrateModuleUids = () => {
-        const modules = projectData.value?.activeScheme?.modules;
-        if (!modules) return;
-        let needsSave = false;
-        for (const m of modules) {
-            if (!m.uid) {
-                m.uid = generateUid();
-                needsSave = true;
-            }
-        }
-        if (needsSave) {
-            isDirty.value = true;
-            saveToServer();
-        }
-    };
-
     // === 核心加载方法：从 Server 获取当前项目（单项目模式：无需路径参数）===
     /**
      * 加载项目数据
@@ -225,9 +206,6 @@ export const useCanvasStore = defineStore('canvas', () => {
             const response = await axios.get<ProjectData>('http://localhost:5000/api/project');
             projectData.value = response.data;
             isDirty.value = false;
-
-            // uid 水合：为缺少 uid 的旧模块自动生成并持久化
-            hydrateModuleUids();
 
             // 历史管理策略
             if (timeline.shouldClearHistory(opts.source)) {
@@ -389,7 +367,7 @@ export const useCanvasStore = defineStore('canvas', () => {
 
     const updateModule = (moduleId: string, updates: Partial<Module>) => {
         if (!projectData.value?.activeScheme?.modules) return;
-        const moduleIndex = projectData.value.activeScheme.modules.findIndex(m => m.uid === moduleId || m.id === moduleId);
+        const moduleIndex = projectData.value.activeScheme.modules.findIndex(m => m.id === moduleId);
         if (moduleIndex !== -1) {
             const updatedModule = { ...projectData.value.activeScheme.modules[moduleIndex], ...updates };
             projectData.value.activeScheme.modules[moduleIndex] = updatedModule;
@@ -448,7 +426,7 @@ export const useCanvasStore = defineStore('canvas', () => {
 
     const removeModule = async (moduleId: string) => {
         if (!projectData.value?.activeScheme?.modules) return;
-        const moduleIndex = projectData.value.activeScheme.modules.findIndex(m => m.uid === moduleId || m.id === moduleId);
+        const moduleIndex = projectData.value.activeScheme.modules.findIndex(m => m.id === moduleId);
         if (moduleIndex !== -1) {
             projectData.value.activeScheme.modules.splice(moduleIndex, 1);
             selectedIds.value = [];

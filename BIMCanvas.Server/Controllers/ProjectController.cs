@@ -499,7 +499,7 @@ namespace BIMCanvas.Server.Controllers
                     if (!Directory.Exists(zoneDir))
                         Directory.CreateDirectory(zoneDir);
 
-                    // 清理运行时字段（ZoneId 不写入文件，Uid 保留持久化）
+                    // 清理运行时字段（ZoneId 不写入文件）
                     var modulesToSave = kvp.Value.Select(m =>
                     {
                         m.ZoneId = null;      // 清理分区ID（由加载时自动计算）
@@ -727,7 +727,6 @@ namespace BIMCanvas.Server.Controllers
                     {
                         var modules = ReadJson<List<Module>>(modulesPath) ?? new List<Module>();
 
-                        // Uid 由 [OnDeserialized] 自动补全，无需手动赋值
                         foreach (var module in modules)
                         {
                             module.ZoneId ??= zoneId;                       // 确保ZoneId填充

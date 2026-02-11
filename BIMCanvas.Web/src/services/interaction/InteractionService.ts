@@ -145,11 +145,11 @@ export class InteractionService {
 
         const newBounds = selected.bounds.map((p: [number, number]) => [p[0] + dx, p[1] + dy] as [number, number]);
 
-        this.store.updateModule(selected.uid || selected.id, {
+        this.store.updateModule(selected.id, {
             bounds: newBounds
         });
 
-        const updated = this.store.projectData?.activeScheme?.modules?.find(m => m.uid === (selected.uid || selected.id) || m.id === selected.id);
+        const updated = this.store.projectData?.activeScheme?.modules?.find(m => m.id === selected.id);
         if (updated) {
             this.store.setSelectedObject(updated);
         }
@@ -252,8 +252,8 @@ export class InteractionService {
 
         // 2. Delete valid modules
         modulesToDelete.forEach((obj: any) => {
-            if (obj.uid || obj.id) {
-                this.store.removeModule(obj.uid || obj.id);
+            if (obj.id) {
+                this.store.removeModule(obj.id);
             }
         });
 
