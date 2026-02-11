@@ -67,20 +67,19 @@ const onSelect = () => {
         @error="onImageError"
       />
       <div v-else class="thumbnail-fallback">{{ module.name }}</div>
-    </div>
 
-    <div class="name-area">
-      <div class="card-name">{{ module.name }}</div>
-    </div>
-
-    <div class="tag-area">
-      <div class="card-tags">
+      <!-- Tag Overlay -->
+      <div class="tag-overlay">
         <span
           v-for="tag in (module.tags || [])"
           :key="tag"
           class="mini-tag"
         >{{ getTagLabel(tag) }}</span>
       </div>
+    </div>
+
+    <div class="name-area">
+      <div class="card-name">{{ module.name }}</div>
     </div>
   </div>
 </template>
@@ -92,11 +91,11 @@ const onSelect = () => {
   display: flex;
   flex-direction: column;
   border: 1px solid var(--border-subtle);
-  border-radius: 10px;
+  border-radius: 8px; /* Slightly tighter radius */
   overflow: hidden;
   cursor: pointer;
   transition: border-color 0.15s, transform 0.15s, box-shadow 0.15s;
-  background: rgba(0, 0, 0, 0.15);
+  background: rgba(0, 0, 0, 0.2); /* Slightly darker bg */
 
   &:hover {
     border-color: var(--accent-primary, #00aaff);
@@ -110,6 +109,7 @@ const onSelect = () => {
 }
 
 .thumbnail-area {
+  position: relative; /* Context for overlay */
   flex-shrink: 0;
   width: 100%;
   aspect-ratio: 1 / 1;
@@ -117,7 +117,7 @@ const onSelect = () => {
   align-items: center;
   justify-content: center;
   background: #ffffff;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.16);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
   overflow: hidden;
   contain: paint;
 
@@ -127,7 +127,9 @@ const onSelect = () => {
     height: 100%;
     object-fit: contain;
     object-position: center center;
-    clip-path: inset(0);
+    /* Add slight padding so image doesn't touch edges */
+    padding: 4px;
+    box-sizing: border-box; 
   }
 }
 
@@ -143,82 +145,77 @@ const onSelect = () => {
   padding: 4px;
 }
 
+/* New Tag Overlay Styles */
+.tag-overlay {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  padding: 4px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px;
+  align-items: flex-end;
+  pointer-events: none; /* Let clicks pass through to card */
+  /* Optional gradient to make tags readable against complex images */
+  background: linear-gradient(to top, rgba(0,0,0,0.4) 0%, transparent 100%);
+}
+
+.mini-tag {
+  padding: 1px 4px;
+  font-size: 0.56rem;
+  border-radius: 4px;
+  background: rgba(0, 0, 0, 0.65); /* Dark semi-transparent bg */
+  backdrop-filter: blur(2px);
+  color: rgba(255, 255, 255, 0.9);
+  white-space: nowrap;
+  line-height: 1.1;
+  
+  /* Make tags standout */
+  border: 1px solid rgba(255, 255, 255, 0.15);
+
+  &::before {
+    content: ''; /* Remove # to save space in compact view, or keep if preferred */
+    display: none;
+  }
+}
+
 .name-area {
   flex-shrink: 0;
-  height: 32px;
-  padding: 0 6px;
+  height: 26px; /* Reduced height */
+  padding: 0 4px;
   display: flex;
   align-items: center;
   justify-content: center;
+  background: transparent;
 }
 
 .card-name {
   width: 100%;
-  font-size: 0.72rem;
+  font-size: 0.7rem; /* Slightly smaller */
   color: var(--text-primary);
   text-align: center;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
   line-height: 1.2;
+  opacity: 0.9;
 }
 
+/* Expanded state adjustments */
 .module-card.expanded .name-area {
-  height: 42px;
-  padding: 4px 8px 2px;
+  height: 30px;
+  padding: 0 6px;
 }
 
 .module-card.expanded .card-name {
-  display: -webkit-box;
-  -webkit-box-orient: vertical;
-  -webkit-line-clamp: 2;
+  white-space: nowrap; /* Keep single line for tidiness, or normal if wrapping desired */
+  /* If we want 2 lines, use: */
+  /*
   white-space: normal;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.tag-area {
-  height: 24px;
-  padding: 2px 4px 4px;
-}
-
-.card-tags {
-  height: 100%;
-  display: flex;
-  justify-content: center;
-  align-content: flex-start;
-  flex-wrap: nowrap;
-  gap: 2px;
-  overflow: hidden;
-}
-
-.mini-tag {
-  padding: 0px 4px;
-  font-size: 0.56rem;
-  border-radius: 8px;
-  background: rgba(255, 255, 255, 0.08);
-  color: var(--text-secondary);
-  white-space: nowrap;
-
-  &::before {
-    content: '#';
-    opacity: 0.5;
-    margin-right: 1px;
-  }
-}
-
-.module-card.expanded .tag-area {
-  height: 52px;
-  padding: 2px 6px 8px;
-}
-
-.module-card.expanded .card-tags {
-  flex-wrap: wrap;
-  gap: 4px;
-}
-
-.module-card.expanded .mini-tag {
-  padding: 1px 6px;
-  font-size: 0.62rem;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  */
 }
 </style>

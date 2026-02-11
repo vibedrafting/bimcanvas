@@ -15,8 +15,8 @@ const emit = defineEmits<{
 
 const panelX = ref(100);
 const panelY = ref(120);
-const isDragging = ref(false);
-const dragOffset = ref({ x: 0, y: 0 });
+// Dragging logic removed
+
 
 const isExpanded = ref(false);
 const isSearchExpanded = ref(false);
@@ -50,36 +50,8 @@ const panelStyle = computed(() => {
   };
 });
 
-const onTitleMouseDown = (event: MouseEvent) => {
-  if (isExpanded.value) return;
+// Drag event handlers removed
 
-  const target = event.target as HTMLElement;
-  if (target.closest('.header-actions')) {
-    return;
-  }
-
-  event.preventDefault();
-  isDragging.value = true;
-  dragOffset.value = {
-    x: event.clientX - panelX.value,
-    y: event.clientY - panelY.value
-  };
-
-  document.addEventListener('mousemove', onDrag);
-  document.addEventListener('mouseup', onDragEnd);
-};
-
-const onDrag = (event: MouseEvent) => {
-  if (!isDragging.value) return;
-  panelX.value = event.clientX - dragOffset.value.x;
-  panelY.value = event.clientY - dragOffset.value.y;
-};
-
-const onDragEnd = () => {
-  isDragging.value = false;
-  document.removeEventListener('mousemove', onDrag);
-  document.removeEventListener('mouseup', onDragEnd);
-};
 
 const expandSearch = async () => {
   if (!isCollapsed.value) return;
@@ -140,6 +112,7 @@ const onTagBarDragStart = (event: MouseEvent) => {
   tagBarScrollStart.value = tagBarRef.value.scrollLeft;
   document.addEventListener('mousemove', onTagBarDragMove);
   document.addEventListener('mouseup', onTagBarDragEnd);
+  document.documentElement.addEventListener('mouseleave', onTagBarDragEnd);
 };
 
 const onTagBarDragMove = (event: MouseEvent) => {
@@ -165,6 +138,7 @@ const onTagBarDragEnd = () => {
   isTagBarDragging.value = false;
   document.removeEventListener('mousemove', onTagBarDragMove);
   document.removeEventListener('mouseup', onTagBarDragEnd);
+  document.documentElement.removeEventListener('mouseleave', onTagBarDragEnd);
 };
 
 const onModuleSelect = (module: ModuleDefinition) => {
@@ -176,10 +150,10 @@ onMounted(async () => {
 });
 
 onUnmounted(() => {
-  document.removeEventListener('mousemove', onDrag);
-  document.removeEventListener('mouseup', onDragEnd);
   document.removeEventListener('mousemove', onTagBarDragMove);
+
   document.removeEventListener('mouseup', onTagBarDragEnd);
+  document.documentElement.removeEventListener('mouseleave', onTagBarDragEnd);
 });
 </script>
 
@@ -192,7 +166,7 @@ onUnmounted(() => {
         :class="{ expanded: isExpanded }"
         :style="panelStyle"
       >
-        <div class="panel-header" @mousedown="onTitleMouseDown">
+        <div class="panel-header">
           <button class="icon-btn back-btn" @click="emit('close')" title="关闭">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
               <line x1="19" y1="12" x2="5" y2="12"></line>
@@ -200,8 +174,9 @@ onUnmounted(() => {
             </svg>
           </button>
 
-          <div v-if="isExpanded" class="title">MODULE LIBRARY</div>
-          <div v-else class="title-placeholder"></div>
+          <!-- Title removed -->
+          <div class="title-placeholder"></div>
+
 
           <div class="header-actions" @mousedown.stop>
             <button
@@ -322,8 +297,9 @@ onUnmounted(() => {
     left: 50% !important;
     top: 50% !important;
     transform: translate(-50%, -50%);
-    width: min(1280px, calc(100vw - 64px));
-    height: min(620px, calc(100vh - 96px));
+    width: min(1000px, 90vw);
+    height: min(600px, 80vh);
+
     min-width: 0;
     min-height: 0;
     max-width: none;
@@ -338,29 +314,10 @@ onUnmounted(() => {
   padding: 10px 14px;
   border-bottom: 1px solid var(--border-subtle);
   flex-shrink: 0;
-  cursor: grab;
-  user-select: none;
-
-  &:active {
-    cursor: grabbing;
-  }
-
-  .title {
-    font-weight: 600;
-    font-size: 0.9rem;
-    color: var(--text-primary);
-    letter-spacing: 0.5px;
-    text-align: center;
-  }
-}
-
-.module-library-panel.expanded .panel-header {
   cursor: default;
-
-  &:active {
-    cursor: default;
-  }
+  user-select: none;
 }
+
 
 .title-placeholder {
   height: 1px;

@@ -27,6 +27,11 @@ const dispatchAction = (action: 'rotate' | 'delete' | 'move' | 'mirror' | 'copy'
   window.dispatchEvent(new CustomEvent(`bimcanvas:action-${action}`));
 };
 
+// 打开模块库
+const openModuleLibrary = () => {
+  window.dispatchEvent(new CustomEvent('bimcanvas:open-module-library'));
+};
+
 // Dynamic Status Text
 const selectionCount = computed(() => store.selectedIds.length);
 
@@ -82,10 +87,14 @@ const dynamicStatusText = computed(() => {
     <div class="island-expanded" v-show="shouldExpand">
       <!-- BASIC Group -->
       <div class="group stagger-1">
-        <GlassButton variant="ghost" title="Select" active class="compact-btn">
-          <svg class="icon" viewBox="0 0 24 24" width="1.1em" height="1.1em" fill="currentColor">
-            <path d="M7 2l12 11.2-5.8.5 3.3 7.3-2.2.9-3.2-7.4-4.4 4V2z"/>
+        <GlassButton @click="openModuleLibrary" variant="ghost" class="compact-btn" title="Open Module Library">
+          <svg class="icon" viewBox="0 0 24 24" width="1.1em" height="1.1em" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <rect x="3" y="3" width="7" height="7"></rect>
+            <rect x="14" y="3" width="7" height="7"></rect>
+            <rect x="14" y="14" width="7" height="7"></rect>
+            <rect x="3" y="14" width="7" height="7"></rect>
           </svg>
+          Library
         </GlassButton>
       </div>
 
