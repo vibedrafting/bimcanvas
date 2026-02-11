@@ -118,6 +118,68 @@
 - `src/constants/aiCommandCenter.ts`: WAITING_VERBS / thinkingLevels / contextOptions / proposalMocks。
 - `src/types/aiCommandCenter.ts`: ChatWindow/ChatMessage/Proposal 等类型。
 
+#### 6.4 上下文绑定 (Context Binding)
+
+> **核心目标**：让 AI 能"看到"用户在画布上选中了什么，对标 Claude Code 的 `<ide_selection>` / `<ide_opened_file>` 上下文注入模式。
+
+##### uid 模块标识
+
+旧的 `_internalId` 设计为运行时拼接 `{zoneId}_{id}`，但实际数据中全是 null，且 `id`（如 "m_bed"）跨 zone 可重复。替换为持久化的 `uid`（8 位小写字母数字，36^8 ≈ 2.8 万亿种组合）：
+
+- **C# Core**：`Module.Uid` 自动属性 + `[OnDeserialized]` 旧数据补全
+- **TypeScript**：`Module.uid: string`（必填）
+- **水合机制**：`canvasStore.hydrateModuleUids()` 在加载时为缺少 uid 的旧模块自动生成并持久化
+
+##### 数据流
+
+```
+前端选中模块/区域
+    ↓
+useSelectionContext.buildContextPayload()
+→ { modules: [{uid, name}], zones: [{id, name}] }
+    ↓
+useChatStream → fetch('/api/chat/stream', { message, context })
+    ↓
+http_server.py → data.get("context") → agent.chat_stream(message, context=context)
+    ↓
+main_agent.py → _build_context_block(context) → 独立 content block
+    ↓
+Claude API messages.content: [
+  { type: "text", text: "<canvas_context>...</canvas_context>" },  ← 上下文
+  { type: "text", text: "用户消息" }                                ← 用户输入
+]
+```
+
+##### 注入格式
+
+```xml
+<canvas_context>用户在设计画布上选中了以下对象：
+选中的模块: 三人沙发(uid:a7x2k9m1), 茶几(uid:b3y5j8n2)
+所在区域: 客厅活动区(id:rz_1)
+
+以上上下文可能与当前请求相关，也可能无关。</canvas_context>
+```
+
+##### 边界情况
+
+| 场景 | 行为 |
+|------|------|
+| 无选中 | 不注入 `<canvas_context>`，只发送用户消息 |
+| 仅选区域标签 | 只有"所在区域"，无"选中的模块" |
+| 跨区域多选 | 多模块 + 多区域自动聚合 |
+| 选中非模块（墙体/门窗） | 不计入 context |
+| 旧数据无 uid | 首次加载时水合生成 + 持久化 |
+
+##### 核心文件
+
+| 文件 | 职责 |
+|------|------|
+| `src/composables/aiCommandCenter/useSelectionContext.ts` | 画布选择上下文（模块/区域分离、scope 推断、payload 构建） |
+| `src/utils/shortId.ts` | 8 位短唯一 ID 生成器 |
+| `src/composables/aiCommandCenter/useChatStream.ts` | 发送请求时注入 context |
+| `BIMCanvas.Agent/src/agent/main_agent.py` | `_build_context_block()` 构建独立 content block |
+| `BIMCanvas.Agent/src/server/http_server.py` | 提取 context 字段并转发 |
+
 ## 🛠️ 技术栈 (Tech Stack)
 
 | 领域 | 技术选型 | 说明 |
