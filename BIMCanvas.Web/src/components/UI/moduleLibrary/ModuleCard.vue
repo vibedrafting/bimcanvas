@@ -73,7 +73,7 @@ const onSelect = () => {
       <div class="card-name">{{ module.name }}</div>
     </div>
 
-    <div v-if="expanded" class="tag-area">
+    <div class="tag-area">
       <div class="card-tags">
         <span
           v-for="tag in (module.tags || [])"
@@ -178,8 +178,8 @@ const onSelect = () => {
 }
 
 .tag-area {
-  height: 52px;
-  padding: 2px 6px 8px;
+  height: 24px;
+  padding: 2px 4px 4px;
 }
 
 .card-tags {
@@ -187,17 +187,38 @@ const onSelect = () => {
   display: flex;
   justify-content: center;
   align-content: flex-start;
-  flex-wrap: wrap;
-  gap: 4px;
+  flex-wrap: nowrap;
+  gap: 2px;
   overflow: hidden;
 }
 
 .mini-tag {
-  padding: 1px 6px;
-  font-size: 0.62rem;
+  padding: 0px 4px;
+  font-size: 0.56rem;
   border-radius: 8px;
   background: rgba(255, 255, 255, 0.08);
   color: var(--text-secondary);
   white-space: nowrap;
+
+  &::before {
+    content: '#';
+    opacity: 0.5;
+    margin-right: 1px;
+  }
+}
+
+.module-card.expanded .tag-area {
+  height: 52px;
+  padding: 2px 6px 8px;
+}
+
+.module-card.expanded .card-tags {
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.module-card.expanded .mini-tag {
+  padding: 1px 6px;
+  font-size: 0.62rem;
 }
 </style>

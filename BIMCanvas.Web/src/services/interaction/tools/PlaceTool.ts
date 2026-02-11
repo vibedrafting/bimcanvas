@@ -59,7 +59,7 @@ export class PlaceTool implements Tool {
         store.setPrompt(`放置 "${this.moduleDef.name}" — 点击放置，R 旋转，Esc 退出`);
 
         this.domElement.style.cursor = 'crosshair';
-        this.currentRotation = 0;
+        this.currentRotation = Math.PI;
 
         this.createPreview();
 

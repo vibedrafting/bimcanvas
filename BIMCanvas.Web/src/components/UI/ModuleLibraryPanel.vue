@@ -21,6 +21,7 @@ const dragOffset = ref({ x: 0, y: 0 });
 const isExpanded = ref(false);
 const isSearchExpanded = ref(false);
 const searchInputRef = ref<HTMLInputElement | null>(null);
+const tagBarRef = ref<HTMLElement | null>(null);
 
 const isCollapsed = computed(() => !isExpanded.value);
 const showSearchInput = computed(() => isExpanded.value || isSearchExpanded.value);
@@ -120,6 +121,52 @@ const toggleExpand = () => {
   isSearchExpanded.value = normalizedSearchQuery.value.length > 0;
 };
 
+// --- tag-bar 滚动交互 ---
+const isTagBarDragging = ref(false);
+const tagBarDragStartX = ref(0);
+const tagBarScrollStart = ref(0);
+const DRAG_THRESHOLD = 3;
+
+const onTagBarWheel = (event: WheelEvent) => {
+  if (!tagBarRef.value) return;
+  event.preventDefault();
+  tagBarRef.value.scrollLeft += event.deltaY;
+};
+
+const onTagBarDragStart = (event: MouseEvent) => {
+  if (!tagBarRef.value) return;
+  isTagBarDragging.value = false;
+  tagBarDragStartX.value = event.clientX;
+  tagBarScrollStart.value = tagBarRef.value.scrollLeft;
+  document.addEventListener('mousemove', onTagBarDragMove);
+  document.addEventListener('mouseup', onTagBarDragEnd);
+};
+
+const onTagBarDragMove = (event: MouseEvent) => {
+  if (!tagBarRef.value) return;
+  const dx = event.clientX - tagBarDragStartX.value;
+  if (!isTagBarDragging.value && Math.abs(dx) > DRAG_THRESHOLD) {
+    isTagBarDragging.value = true;
+  }
+  if (isTagBarDragging.value) {
+    tagBarRef.value.scrollLeft = tagBarScrollStart.value - dx;
+  }
+};
+
+const onTagBarDragEnd = () => {
+  if (isTagBarDragging.value) {
+    const blockClick = (e: MouseEvent) => {
+      e.stopPropagation();
+      e.preventDefault();
+      document.removeEventListener('click', blockClick, true);
+    };
+    document.addEventListener('click', blockClick, true);
+  }
+  isTagBarDragging.value = false;
+  document.removeEventListener('mousemove', onTagBarDragMove);
+  document.removeEventListener('mouseup', onTagBarDragEnd);
+};
+
 const onModuleSelect = (module: ModuleDefinition) => {
   emit('select-module', module);
 };
@@ -131,6 +178,8 @@ onMounted(async () => {
 onUnmounted(() => {
   document.removeEventListener('mousemove', onDrag);
   document.removeEventListener('mouseup', onDragEnd);
+  document.removeEventListener('mousemove', onTagBarDragMove);
+  document.removeEventListener('mouseup', onTagBarDragEnd);
 });
 </script>
 
@@ -206,7 +255,7 @@ onUnmounted(() => {
           </div>
         </div>
 
-        <div class="tag-bar">
+        <div class="tag-bar" ref="tagBarRef" @wheel="onTagBarWheel" @mousedown="onTagBarDragStart">
           <button
             class="tag-chip"
             :class="{ active: activeTag === null }"
@@ -424,6 +473,7 @@ onUnmounted(() => {
   overflow-x: auto;
   border-bottom: 1px solid var(--border-subtle);
   flex-shrink: 0;
+  cursor: grab;
 
   scrollbar-width: none;
 
