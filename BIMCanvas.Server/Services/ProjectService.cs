@@ -659,12 +659,12 @@ namespace BIMCanvas.Server.Services
         /// <returns>.bcp 文件路径，未找到返回 null</returns>
         public string? FindDemoBcpFile(string baseDir, string demoName = "demo_1")
         {
-            // 向上查找 BIMCanvas.Web/demos 目录
+            // 向上查找 demos 目录
             var dir = new DirectoryInfo(baseDir);
             for (int i = 0; i < 5 && dir != null; i++)
             {
-                var webPath = Path.Combine(dir.FullName, "BIMCanvas.Web", "demos");
-                var bcpPath = Path.Combine(webPath, $"{demoName}.bcp");
+                var demosPath = Path.Combine(dir.FullName, "demos");
+                var bcpPath = Path.Combine(demosPath, $"{demoName}.bcp");
 
                 if (File.Exists(bcpPath))
                 {

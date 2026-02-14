@@ -171,9 +171,24 @@ WriteWithColoredPrefix("[Server]", "Swagger: http://localhost:5000/swagger", Con
     var projectService = app.Services.GetRequiredService<ProjectService>();
     var projectContext = app.Services.GetRequiredService<ProjectContext>();
     var baseDir = AppContext.BaseDirectory;
+    var projectRoot = FindProjectRoot(baseDir);
 
     // 优先级：命令行参数 > 配置文件 > demo_1
     string? bcpFilePath = args.Length > 0 ? args[0] : config.Startup.DefaultProject;
+
+    // 相对路径解析：以项目根目录为基准
+    if (!string.IsNullOrEmpty(bcpFilePath) && !Path.IsPathRooted(bcpFilePath))
+    {
+        if (projectRoot != null)
+        {
+            bcpFilePath = Path.GetFullPath(Path.Combine(projectRoot, bcpFilePath));
+        }
+        else
+        {
+            WriteWithColoredPrefix("[Server:WARN]", $"无法解析相对路径 '{bcpFilePath}'：未找到项目根目录", ConsoleColor.DarkYellow);
+            bcpFilePath = null;
+        }
+    }
 
     if (string.IsNullOrEmpty(bcpFilePath))
     {
@@ -223,7 +238,35 @@ WriteWithColoredPrefix("[Server]", "Swagger: http://localhost:5000/swagger", Con
     }
 }
 
-// 自动启动 Agent 和 Web 服务（并行启动）
+// ─── 环境检测阶段 ───
+var agentReady = true;
+{
+    var baseDir = AppContext.BaseDirectory;
+    var agentDir = FindAgentProjectPath(baseDir);
+
+    WriteWithColoredPrefix("[Server]", "环境检测中...", ConsoleColor.White);
+
+    if (!Directory.Exists(agentDir))
+    {
+        WriteWithColoredPrefix("[Server:WARN]", $"Agent 项目目录不存在: {agentDir}", ConsoleColor.DarkYellow);
+        agentReady = false;
+    }
+    else if (!IsPythonAvailable())
+    {
+        WriteWithColoredPrefix("[Server:WARN]", "未检测到 Python，Agent 服务将不启动", ConsoleColor.DarkYellow);
+        WriteWithColoredPrefix("[Server:WARN]", "提示: 请安装 Python 3.10+ 并添加到 PATH", ConsoleColor.DarkYellow);
+        agentReady = false;
+    }
+    else if (!IsAgentDependencyReady())
+    {
+        agentReady = TryInstallAgentDependencies(agentDir);
+    }
+
+    // 未来扩展点：
+    // if (!IsNodeAvailable()) { webReady = false; }
+}
+
+// ─── 自动启动 Agent 和 Web 服务 ───
 {
     var baseDir = AppContext.BaseDirectory;
     var agentProjectPath = FindAgentProjectPath(baseDir);
@@ -232,7 +275,7 @@ WriteWithColoredPrefix("[Server]", "Swagger: http://localhost:5000/swagger", Con
     Process? webProcess = null;
 
     // 1. 启动 Agent 服务（不等待，后台运行）
-    if (Directory.Exists(agentProjectPath))
+    if (agentReady)
     {
         // 读取 Agent 端口配置
         var agentPort = config.Server.Port;
@@ -301,12 +344,7 @@ WriteWithColoredPrefix("[Server]", "Swagger: http://localhost:5000/swagger", Con
         catch (Exception ex)
         {
             WriteWithColoredPrefix("[Server:ERR]", $"Agent 服务启动失败: {ex.Message}", ConsoleColor.DarkGray);
-            WriteWithColoredPrefix("[Server:ERR]", "提示: 请确保已安装 Python 并配置到 PATH，且已运行 pip install -e . 安装依赖", ConsoleColor.DarkGray);
         }
-    }
-    else
-    {
-        WriteWithColoredPrefix("[Server:ERR]", $"Agent 项目目录不存在: {agentProjectPath}", ConsoleColor.DarkGray);
     }
 
     // 2. 启动 Web 服务（不等待，后台运行）
@@ -436,6 +474,180 @@ WriteWithColoredPrefix("[Server]", "Swagger: http://localhost:5000/swagger", Con
 }
 
 app.Run();
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 环境检测辅助函数
+// ─────────────────────────────────────────────────────────────────────────────
+
+// 辅助函数：检测 Python 是否可用
+static bool IsPythonAvailable()
+{
+    try
+    {
+        var psi = new ProcessStartInfo
+        {
+            FileName = "python",
+            Arguments = "--version",
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+            UseShellExecute = false,
+            CreateNoWindow = true
+        };
+        using var process = Process.Start(psi);
+        if (process == null) return false;
+        process.WaitForExit(5000);
+        return process.ExitCode == 0;
+    }
+    catch
+    {
+        return false;
+    }
+}
+
+// 辅助函数：检测 Agent 核心依赖是否就绪
+static bool IsAgentDependencyReady()
+{
+    try
+    {
+        var psi = new ProcessStartInfo
+        {
+            FileName = "python",
+            Arguments = "-c \"import claude_agent_sdk\"",
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+            UseShellExecute = false,
+            CreateNoWindow = true
+        };
+        using var process = Process.Start(psi);
+        if (process == null) return false;
+        process.WaitForExit(10000);
+        return process.ExitCode == 0;
+    }
+    catch
+    {
+        return false;
+    }
+}
+
+// 辅助函数：交互式安装 Agent 依赖（返回 true = 安装成功）
+static bool TryInstallAgentDependencies(string agentProjectPath)
+{
+    WriteWithColoredPrefix("[Server]", "检测到 Agent 依赖缺失", ConsoleColor.DarkYellow);
+    Console.Write($"[{DateTime.Now:HH:mm:ss}] ");
+    Console.ForegroundColor = ConsoleColor.DarkYellow;
+    Console.Write("[Server]");
+    Console.ResetColor();
+    Console.Write(" 是否自动安装依赖？(Y/n): ");
+    var input = Console.ReadLine()?.Trim().ToLower();
+
+    // 默认 Y（直接回车 = 同意，null = 非交互模式也同意）
+    if (!string.IsNullOrEmpty(input) && input != "y" && input != "yes")
+    {
+        WriteWithColoredPrefix("[Server]", "跳过安装，Agent 服务将不启动", ConsoleColor.DarkYellow);
+        return false;
+    }
+
+    WriteWithColoredPrefix("[Server]", "正在安装 Agent 依赖 (pip install -e .)...", ConsoleColor.White);
+
+    try
+    {
+        var psi = new ProcessStartInfo
+        {
+            FileName = "python",
+            Arguments = "-m pip install -e .",
+            WorkingDirectory = agentProjectPath,
+            UseShellExecute = false,
+            CreateNoWindow = true,
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+            StandardOutputEncoding = Encoding.UTF8,
+            StandardErrorEncoding = Encoding.UTF8
+        };
+
+        using var process = Process.Start(psi);
+        if (process == null)
+        {
+            WriteWithColoredPrefix("[Server:ERR]", "无法启动 pip 进程", ConsoleColor.DarkGray);
+            return false;
+        }
+
+        // 实时输出安装过程（使用 CancellationToken 控制线程退出）
+        var cts = new CancellationTokenSource();
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                while (!cts.Token.IsCancellationRequested)
+                {
+                    var line = await process.StandardOutput.ReadLineAsync();
+                    if (line == null) break;
+                    if (!string.IsNullOrEmpty(line))
+                        WriteWithColoredPrefix("[pip]", line, ConsoleColor.DarkMagenta);
+                }
+            }
+            catch { }
+        });
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                while (!cts.Token.IsCancellationRequested)
+                {
+                    var line = await process.StandardError.ReadLineAsync();
+                    if (line == null) break;
+                    if (!string.IsNullOrEmpty(line))
+                        WriteWithColoredPrefix("[pip]", line, ConsoleColor.DarkMagenta);
+                }
+            }
+            catch { }
+        });
+
+        // 同步等待安装完成（超时 10 分钟）
+        var completed = process.WaitForExit(600_000);
+
+        if (!completed)
+        {
+            WriteWithColoredPrefix("[Server:ERR]", "依赖安装超时（10分钟），跳过 Agent 启动", ConsoleColor.DarkGray);
+            cts.Cancel();
+            process.Kill(true);
+            return false;
+        }
+
+        if (process.ExitCode == 0)
+        {
+            WriteWithColoredPrefix("[Server]", "Agent 依赖安装成功", ConsoleColor.White);
+            return true;
+        }
+        else
+        {
+            WriteWithColoredPrefix("[Server:ERR]", $"依赖安装失败 (exit code: {process.ExitCode})", ConsoleColor.DarkGray);
+            return false;
+        }
+    }
+    catch (Exception ex)
+    {
+        WriteWithColoredPrefix("[Server:ERR]", $"依赖安装异常: {ex.Message}", ConsoleColor.DarkGray);
+        return false;
+    }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 路径查找辅助函数
+// ─────────────────────────────────────────────────────────────────────────────
+
+// 辅助函数：向上查找项目根目录（包含 BIMCanvas.Server + BIMCanvas.sln 的目录）
+static string? FindProjectRoot(string startDir)
+{
+    var dir = new DirectoryInfo(startDir);
+    for (int i = 0; i < 6 && dir != null; i++)
+    {
+        if (Directory.Exists(Path.Combine(dir.FullName, "BIMCanvas.Server"))
+            && File.Exists(Path.Combine(dir.FullName, "BIMCanvas.sln")))
+            return dir.FullName;
+        dir = dir.Parent;
+    }
+    return null;
+}
 
 // 辅助函数：向上查找 BIMCanvas.Web 目录
 static string FindWebProjectPath(string startDir)
