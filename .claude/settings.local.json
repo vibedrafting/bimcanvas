@@ -26,7 +26,8 @@
       "WebFetch(domain:pypi.org)",
       "Bash(git mv:*)",
       "Bash(git checkout:*)",
-      "Bash(ls:*)"
+      "Bash(ls:*)",
+      "Bash(head:*)"
     ]
   }
 }
