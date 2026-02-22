@@ -111,6 +111,24 @@ public static class ConfigService
     }
 
     /// <summary>
+    /// 加载 Web 客户端配置的原始 JSON（供 API 直接返回，避免序列化器转换字典键名）
+    /// </summary>
+    public static string LoadWebConfigRaw()
+    {
+        if (!File.Exists(WebConfigPath))
+            return "{}";
+
+        try
+        {
+            return File.ReadAllText(WebConfigPath);
+        }
+        catch (Exception)
+        {
+            return "{}";
+        }
+    }
+
+    /// <summary>
     /// 保存 Web 客户端配置
     /// </summary>
     public static void SaveWebConfig(WebConfig config)

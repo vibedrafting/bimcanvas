@@ -11,8 +11,10 @@ public class WebConfigController : ControllerBase
     [HttpGet]
     public IActionResult Get()
     {
-        var config = ConfigService.LoadWebConfig();
-        return Ok(config);
+        // 直接返回原始 JSON，避免 Newtonsoft CamelCasePropertyNamesContractResolver
+        // 将字典键 "User"/"Agent" 转成 "user"/"agent" 导致前端匹配失败
+        var json = ConfigService.LoadWebConfigRaw();
+        return Content(json, "application/json");
     }
 
     [HttpPost]
