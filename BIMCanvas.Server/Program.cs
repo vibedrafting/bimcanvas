@@ -262,6 +262,12 @@ var agentReady = true;
         agentReady = TryInstallAgentDependencies(agentDir);
     }
 
+    // 检测 Playwright Chromium（Server 自身依赖，不影响启动）
+    if (!IsPlaywrightChromiumInstalled())
+    {
+        TryInstallPlaywrightChromium();
+    }
+
     // 未来扩展点：
     // if (!IsNodeAvailable()) { webReady = false; }
 }
@@ -628,6 +634,55 @@ static bool TryInstallAgentDependencies(string agentProjectPath)
     {
         WriteWithColoredPrefix("[Server:ERR]", $"依赖安装异常: {ex.Message}", ConsoleColor.DarkGray);
         return false;
+    }
+}
+
+// 辅助函数：检测 Playwright Chromium 是否已安装
+static bool IsPlaywrightChromiumInstalled()
+{
+    var msPlaywrightDir = Path.Combine(
+        Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+        "ms-playwright");
+    if (!Directory.Exists(msPlaywrightDir))
+        return false;
+    return Directory.GetDirectories(msPlaywrightDir, "chromium-*").Length > 0;
+}
+
+// 辅助函数：交互式安装 Playwright Chromium
+static void TryInstallPlaywrightChromium()
+{
+    WriteWithColoredPrefix("[Server]", "Playwright Chromium 未安装，后台截图功能不可用", ConsoleColor.DarkYellow);
+    Console.Write($"[{DateTime.Now:HH:mm:ss}] ");
+    Console.ForegroundColor = ConsoleColor.DarkYellow;
+    Console.Write("[Server]");
+    Console.ResetColor();
+    Console.Write(" 是否自动安装 Playwright Chromium？(Y/n): ");
+    var input = Console.ReadLine()?.Trim().ToLower();
+
+    // 默认 Y（直接回车 = 同意）
+    if (!string.IsNullOrEmpty(input) && input != "y" && input != "yes")
+    {
+        WriteWithColoredPrefix("[Server]", "跳过安装，后台截图功能将不可用", ConsoleColor.DarkYellow);
+        return;
+    }
+
+    WriteWithColoredPrefix("[Server]", "正在安装 Playwright Chromium...", ConsoleColor.White);
+
+    try
+    {
+        var exitCode = Microsoft.Playwright.Program.Main(new[] { "install", "chromium" });
+        if (exitCode == 0)
+        {
+            WriteWithColoredPrefix("[Server]", "Playwright Chromium 安装成功", ConsoleColor.White);
+        }
+        else
+        {
+            WriteWithColoredPrefix("[Server:ERR]", $"Playwright Chromium 安装失败 (exit code: {exitCode})", ConsoleColor.DarkGray);
+        }
+    }
+    catch (Exception ex)
+    {
+        WriteWithColoredPrefix("[Server:ERR]", $"Playwright Chromium 安装异常: {ex.Message}", ConsoleColor.DarkGray);
     }
 }
 
