@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
@@ -22,7 +23,7 @@ namespace BIMCanvas.Server.Services
         // 缓存
         private ModuleLibraryDto? _cachedLibrary;
         private string? _cachedProjectPath;
-        private readonly Dictionary<string, (string Content, string ETag)> _svgCache = new();
+        private readonly ConcurrentDictionary<string, (string Content, string ETag)> _svgCache = new();
 
         private readonly JsonSerializerSettings _jsonSettings;
 
