@@ -20,7 +20,7 @@
       "name": "agents/layout-agent.md",
       "target": "agents/layout-agent.md",
       "type": "template",
-      "enabled": true,
+      "enabled": false,
       "description": "布置专家 SubAgent 配置"
     }
   ]

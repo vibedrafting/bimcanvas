@@ -1,24 +1,21 @@
 {
-  "apiKey": "$ANTHROPIC_API_KEY",
-  "baseUrl": "",
-  "model": "claude-sonnet-4-20250514",
-  "maxTokens": 4096,
-  "thinking": {
-    "enabled": true,
-    "defaultLevel": "medium",
-    "budget": {
-      "off": null,
-      "low": 5000,
-      "medium": 10000,
-      "high": 20000
+    "model": "claude-sonnet-4-5-20250929",
+    "maxTokens": 4096,
+    "thinking": {
+      "enabled": true,
+      "defaultLevel": "low",
+      "budget": {
+        "off": null,
+        "low": 5000,
+        "medium": 10000,
+        "high": 20000
+      }    },
+    "permissions": {
+        "allow": ["Read", "Glob", "Grep", "Task"],
+        "deny": []
+    },
+    "server": {
+        "host": "127.0.0.1",
+        "port": 8765
     }
-  },
-  "permissions": {
-    "allow": ["Read", "Glob", "Grep", "Task"],
-    "deny": []
-  },
-  "server": {
-    "host": "127.0.0.1",
-    "port": 8765
-  }
 }
