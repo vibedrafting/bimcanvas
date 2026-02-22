@@ -1,0 +1,15 @@
+{
+  "customModels": [
+    { "id": "claude-opus-4-5-20251101", "label": "Claude Opus 4.5" },
+    { "id": "claude-sonnet-4-5-20250929", "label": "Claude Sonnet 4.5" },
+    { "id": "claude-haiku-4-5-20251001", "label": "Claude Haiku 4.5" }
+  ],
+  "layerPresets": {
+    "User": {
+      "enabledLayers": ["Grid", "Architecture", "Furniture"]
+    },
+    "Agent": {
+      "enabledLayers": ["Grid", "Labels", "Bounds", "Outline", "Zones", "Semantic", "AI Vision", "Architecture", "Furniture"]
+    }
+  }
+}

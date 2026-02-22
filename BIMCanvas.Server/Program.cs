@@ -161,6 +161,9 @@ app.MapHub<CanvasHub>("/hubs/canvas");
 // 健康检查端点
 app.MapGet("/health", () => new { status = "healthy", timestamp = DateTime.UtcNow });
 
+// 确保程序配置文件存在（Documents/BIMCanvas/）
+ConfigService.EnsureDefaultConfigs();
+
 // 加载用户配置
 var config = ConfigService.Load();
 WriteWithColoredPrefix("[Server]", "BIMCanvas.Server 启动中...", ConsoleColor.White);

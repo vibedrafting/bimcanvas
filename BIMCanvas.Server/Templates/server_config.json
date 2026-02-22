@@ -1,0 +1,10 @@
+{
+  "server": {
+    "port": 8765
+  },
+  "startup": {
+    "defaultProject": "demos/demo_0.bcp",
+    "openBrowser": true,
+    "browserPath": null
+  }
+}

@@ -38,6 +38,7 @@ const props = defineProps<{
 }>();
 
 const AGENT_API_BASE = 'http://127.0.0.1:8765';
+const SERVER_API_BASE = 'http://localhost:5000';
 
 const { panelWidth, windowTabsRef, carouselTrackRef, startResize, handleTabsWheel, handleWheel } = usePanelUI();
 
@@ -136,7 +137,7 @@ const {
   confirmAddModel,
   cancelAddModel,
   selectThinking
-} = useAgentConfig(AGENT_API_BASE);
+} = useAgentConfig(AGENT_API_BASE, SERVER_API_BASE);
 
 const {
   chatScrollRefs,

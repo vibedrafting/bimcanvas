@@ -27,7 +27,8 @@
       "Bash(git mv:*)",
       "Bash(git checkout:*)",
       "Bash(ls:*)",
-      "Bash(head:*)"
+      "Bash(head:*)",
+      "Bash(cd:*)"
     ]
   }
 }

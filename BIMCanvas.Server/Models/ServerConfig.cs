@@ -1,7 +1,7 @@
 namespace BIMCanvas.Server.Models;
 
 /// <summary>
-/// Server 启动配置（~/.bimcanvas/config.json）
+/// Server 启动配置（Documents/BIMCanvas/server_config.json）
 /// </summary>
 public class ServerConfig
 {

@@ -12,7 +12,7 @@ export interface LayerPresetsConfig {
   ai?: LayerPresetConfig;
 }
 
-export const useAgentConfig = (agentApiBase: string) => {
+export const useAgentConfig = (agentApiBase: string, serverApiBase: string) => {
   const models = ref<ModelOption[]>([]);
   const currentModel = ref<ModelOption | null>(null);
   const currentThinking = ref<ThinkingLevel>(thinkingLevels[0]);
@@ -25,7 +25,7 @@ export const useAgentConfig = (agentApiBase: string) => {
 
   const saveCustomModels = async () => {
     try {
-      await fetch(`${agentApiBase}/api/web_config`, {
+      await fetch(`${serverApiBase}/api/web_config`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ customModels: models.value })
@@ -74,7 +74,7 @@ export const useAgentConfig = (agentApiBase: string) => {
     try {
       const [configRes, webConfigRes] = await Promise.all([
         fetch(`${agentApiBase}/api/config`),
-        fetch(`${agentApiBase}/api/web_config`)
+        fetch(`${serverApiBase}/api/web_config`)
       ]);
 
       if (webConfigRes.ok) {

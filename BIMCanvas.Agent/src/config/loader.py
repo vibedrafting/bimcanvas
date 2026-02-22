@@ -61,30 +61,43 @@ class ConfigLoader:
         self._ensure_config_exists()
 
     def _ensure_config_exists(self) -> None:
-        """确保配置目录和文件存在，不存在则从模板初始化"""
-        if not self.TEMPLATES_DIR.exists():
+        """确保配置目录和文件存在，不存在则从 init_manifest.json 初始化"""
+        manifest_path = self.TEMPLATES_DIR / "init_manifest.json"
+        if not manifest_path.exists():
             raise FileNotFoundError(
-                f"模板目录不存在: {self.TEMPLATES_DIR}\n"
+                f"模板清单不存在: {manifest_path}\n"
                 "请确保项目安装正确"
             )
 
+        with open(manifest_path, 'r', encoding='utf-8') as f:
+            manifest = json.load(f)
+
         # 创建配置目录
         self.config_dir.mkdir(parents=True, exist_ok=True)
-        agents_dir = self.config_dir / "agents"
-        agents_dir.mkdir(exist_ok=True)
-        skills_dir = self.config_dir / "skills"
-        skills_dir.mkdir(exist_ok=True)
 
-        # 检查每个模板文件，如果目标不存在则复制
-        for template_file in self.TEMPLATES_DIR.rglob("*.template"):
-            relative_path = template_file.relative_to(self.TEMPLATES_DIR)
-            target_name = str(relative_path).replace(".template", "")
-            target_path = self.config_dir / target_name
+        # 创建清单中声明的子目录
+        for dir_name in manifest.get("createDirs", []):
+            (self.config_dir / dir_name).mkdir(exist_ok=True)
 
-            if not target_path.exists():
-                target_path.parent.mkdir(parents=True, exist_ok=True)
-                shutil.copy(template_file, target_path)
-                logger.info(f"已创建配置文件: {target_path}")
+        # 按清单初始化模板文件
+        for item in manifest.get("items", []):
+            if not item.get("enabled", True):
+                logger.debug(f"跳过禁用项: {item['name']}")
+                continue
+
+            source_path = self.TEMPLATES_DIR / item["name"]
+            target_path = self.config_dir / item["target"]
+
+            if target_path.exists():
+                continue
+
+            if not source_path.exists():
+                logger.warning(f"模板源文件不存在: {source_path}")
+                continue
+
+            target_path.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy(source_path, target_path)
+            logger.info(f"已创建配置文件: {target_path}")
 
     def load_config(self) -> dict:
         """
