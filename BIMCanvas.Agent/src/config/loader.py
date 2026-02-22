@@ -185,28 +185,31 @@ class ConfigLoader:
         加载 agents/ 目录下所有子 Agent 配置
 
         Returns:
-            子 Agent 名称到配置的映射字典
+            子 Agent 名称到配置的映射字典（可能为空）
         """
         if self._agents is not None:
             return self._agents
 
         agents_dir = self.config_dir / "agents"
         if not agents_dir.exists():
-            raise FileNotFoundError(f"agents 目录不存在: {agents_dir}")
+            logger.warning(f"agents 目录不存在: {agents_dir}，SubAgent 功能不可用")
+            self._agents = {}
+            return self._agents
 
-        self._agents = {}
+        result = {}
 
         for md_file in agents_dir.glob("*.md"):
             try:
                 agent_config = self._parse_agent_md(md_file)
-                self._agents[agent_config.name] = agent_config
+                result[agent_config.name] = agent_config
                 logger.debug(f"已加载子 Agent: {agent_config.name}")
             except Exception as e:
                 logger.warning(f"解析子 Agent 配置失败 {md_file}: {e}")
 
-        if not self._agents:
-            raise ValueError(f"agents 目录为空或所有文件解析失败: {agents_dir}")
+        if not result:
+            logger.warning(f"agents 目录为空或所有文件解析失败: {agents_dir}，SubAgent 功能不可用")
 
+        self._agents = result
         return self._agents
 
     def _parse_agent_md(self, file_path: Path) -> AgentConfig:

@@ -60,17 +60,20 @@ async def get_agent(
 
     async with _agents_lock:
         if window_id not in agents:
-            # 分配窗口序号（primary=0，其他递增）
+            # 先用临时序号创建 Agent，成功后再写入全局状态
             if window_id == "primary":
                 seq = 0
             else:
                 seq = _window_counter
-                _window_counter += 1
-            _window_seq_map[window_id] = seq
 
             working_dir = worktree_path or project_path
             agent = MainAgent(project_path, working_directory=working_dir, window_seq=seq)
             await agent.connect()  # 预连接
+
+            # Agent 创建成功，提交全局状态
+            if window_id != "primary":
+                _window_counter += 1
+            _window_seq_map[window_id] = seq
             agents[window_id] = agent
 
             # 醒目的控制台输出（带窗口前缀）

@@ -26,6 +26,10 @@ def create_subagents() -> dict[str, AgentDefinition]:
     skill_loader = get_skill_loader()
     agents_config = loader.load_agents()
 
+    if not agents_config:
+        logger.warning("无可用的 SubAgent 配置，跳过 SubAgent 创建")
+        return {}
+
     result = {}
     for name, cfg in agents_config.items():
         # 获取该 SubAgent 的 Skill 内容
