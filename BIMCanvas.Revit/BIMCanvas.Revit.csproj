@@ -23,19 +23,19 @@
   </ItemGroup>
   <ItemGroup>
     <Reference Include="Revit.IFC.Export">
-      <HintPath>..\..\..\BaiduSyncdisk\dll\2019\Revit.IFC.Export.dll</HintPath>
+      <HintPath>..\libs\revit\2019\Revit.IFC.Export.dll</HintPath>
       <Private>False</Private>
     </Reference>
     <Reference Include="RevitAPI">
-      <HintPath>..\..\..\BaiduSyncdisk\dll\2019\RevitAPI.dll</HintPath>
+      <HintPath>D:\Autodesk\Revit 2019\RevitAPI.dll</HintPath>
       <Private>False</Private>
     </Reference>
     <Reference Include="RevitAPIIFC">
-      <HintPath>..\..\..\BaiduSyncdisk\dll\2019\RevitAPIIFC.dll</HintPath>
+      <HintPath>D:\Autodesk\Revit 2019\RevitAPIIFC.dll</HintPath>
       <Private>False</Private>
     </Reference>
     <Reference Include="RevitAPIUI">
-      <HintPath>..\..\..\BaiduSyncdisk\dll\2019\RevitAPIUI.dll</HintPath>
+      <HintPath>D:\Autodesk\Revit 2019\RevitAPIUI.dll</HintPath>
       <Private>False</Private>
     </Reference>
   </ItemGroup>

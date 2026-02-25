@@ -28,7 +28,10 @@
       "Bash(git checkout:*)",
       "Bash(ls:*)",
       "Bash(head:*)",
-      "Bash(cd:*)"
+      "Bash(cd:*)",
+      "Bash(pip download:*)",
+      "Bash(pip install:*)",
+      "Bash(pip show:*)"
     ]
   }
 }
