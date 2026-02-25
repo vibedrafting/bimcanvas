@@ -89,18 +89,39 @@ export const useChatStream = (options: ChatStreamOptions) => {
     }, 30);
   };
 
-  const checkAgentHealth = async () => {
+  // 健康检查重试定时器（用于组件卸载时清理）
+  let healthCheckTimer: ReturnType<typeof setTimeout> | null = null;
+
+  const checkAgentHealth = async (retries = 5, delay = 1000): Promise<void> => {
     agentStatus.value = 'connecting';
     try {
       const response = await fetch(`${options.agentApiBase}/health`);
       if (response.ok) {
         agentStatus.value = 'connected';
         await options.fetchAgentConfig();
-      } else {
-        agentStatus.value = 'disconnected';
+        return;
       }
     } catch {
-      agentStatus.value = 'disconnected';
+      // fetch 失败，下方重试
+    }
+
+    if (retries > 0) {
+      await new Promise<void>((resolve) => {
+        healthCheckTimer = setTimeout(() => {
+          healthCheckTimer = null;
+          resolve();
+        }, delay);
+      });
+      return checkAgentHealth(retries - 1, delay * 2);
+    }
+
+    agentStatus.value = 'disconnected';
+  };
+
+  const cleanupHealthCheck = () => {
+    if (healthCheckTimer) {
+      clearTimeout(healthCheckTimer);
+      healthCheckTimer = null;
     }
   };
 
@@ -549,6 +570,7 @@ export const useChatStream = (options: ChatStreamOptions) => {
     sendMessage,
     interruptMessage,
     checkAgentHealth,
-    fetchProjectPath
+    fetchProjectPath,
+    cleanupHealthCheck
   };
 };

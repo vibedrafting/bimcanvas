@@ -288,7 +288,8 @@ const {
   sendMessage,
   interruptMessage,
   checkAgentHealth,
-  fetchProjectPath
+  fetchProjectPath,
+  cleanupHealthCheck
 } = useChatStream({
   agentApiBase: AGENT_API_BASE,
   windows,
@@ -479,6 +480,7 @@ onUnmounted(() => {
   window.removeEventListener('click', handleGlobalClick);
   chatScrollRef.value?.removeEventListener('wheel', handleTableWheel);
   stopListening();
+  cleanupHealthCheck();
 });
 </script>
 
@@ -984,11 +986,10 @@ onUnmounted(() => {
             <textarea
               ref="textareaRef"
               v-model="inputMessage"
-              placeholder="你好"
+              :placeholder="agentStatus === 'connected' ? '你好' : agentStatus === 'connecting' ? '正在连接 Agent...' : 'Agent 未连接'"
               @keydown="handleKeydown"
               @paste="handleImagePaste"
               @input="adjustTextareaHeight"
-              :disabled="agentStatus !== 'connected'"
               rows="1"
             ></textarea>
             
