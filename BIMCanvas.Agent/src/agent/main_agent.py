@@ -16,7 +16,7 @@ from claude_agent_sdk import (
     ToolUseBlock,
     ToolResultBlock,
 )
-from claude_agent_sdk.types import ThinkingConfigAdaptive, ThinkingConfigDisabled
+from claude_agent_sdk.types import ThinkingConfigAdaptive
 
 from ..config.settings import get_settings
 from ..config.loader import get_config_loader
@@ -171,9 +171,13 @@ class MainAgent:
 
         # effort: "off"→None, 其他直传
         sdk_effort = None if effort == "off" else (effort or settings.default_effort)
-        # thinking: "adaptive"→ThinkingConfigAdaptive, 其他→ThinkingConfigDisabled
+        # thinking: "off"→None（不传给 CLI，避免 --max-thinking-tokens 0 导致代理 502）
+        #           "adaptive"→ThinkingConfigAdaptive
         thinking_val = thinking or settings.default_thinking
-        sdk_thinking = ThinkingConfigAdaptive(type="adaptive") if thinking_val == "adaptive" else ThinkingConfigDisabled(type="disabled")
+        if thinking_val == "adaptive":
+            sdk_thinking = ThinkingConfigAdaptive(type="adaptive")
+        else:
+            sdk_thinking = None
 
         # === 注释掉现有 Canvas MCP ===
         # canvas_mcp = None
@@ -327,7 +331,7 @@ class MainAgent:
             deny_display = options.disallowed_tools if options.disallowed_tools else "无"
             base_url_display = options.env.get("ANTHROPIC_BASE_URL", "默认端点") if options.env else "默认端点"
             effort_display = options.effort or "未设置"
-            thinking_display = options.thinking.get("type", "unknown") if options.thinking else "未设置"
+            thinking_display = options.thinking.get("type", "unknown") if options.thinking else "disabled"
             self._agent_logger._print(f"[MainAgent] ========== 配置信息 ==========")
             self._agent_logger._print(f"[MainAgent] 模型: {options.model}")
             self._agent_logger._print(f"[MainAgent] Base URL: {base_url_display}")
