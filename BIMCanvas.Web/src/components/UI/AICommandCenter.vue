@@ -125,9 +125,12 @@ const {
   models,
   currentModel,
   currentThinking,
+  currentEffort,
   thinkingLevels,
+  effortLevels,
   isModelMenuOpen,
   isThinkingMenuOpen,
+  isEffortMenuOpen,
   isAddingModel,
   newModelId,
   newModelInputRef,
@@ -136,7 +139,8 @@ const {
   startAddModel,
   confirmAddModel,
   cancelAddModel,
-  selectThinking
+  selectThinking,
+  selectEffort
 } = useAgentConfig(AGENT_API_BASE, SERVER_API_BASE);
 
 const {
@@ -300,6 +304,7 @@ const {
   getWindowMessage,
   pendingImages,
   currentModel,
+  currentEffort,
   currentThinking,
   scrollToBottom,
   fetchAgentConfig,
@@ -468,6 +473,10 @@ const handleGlobalClick = (event: MouseEvent) => {
 
   if (!target.closest('.control-pill-wrapper.thinking')) {
     isThinkingMenuOpen.value = false;
+  }
+
+  if (!target.closest('.control-pill-wrapper.effort')) {
+    isEffortMenuOpen.value = false;
   }
 };
 
@@ -1117,14 +1126,38 @@ onUnmounted(() => {
                         </transition>
                     </div>
 
+                    <!-- Effort Pill -->
+                    <div class="control-pill-wrapper effort" :class="{ open: isEffortMenuOpen }">
+                        <button class="control-pill" @click="isEffortMenuOpen = !isEffortMenuOpen">
+                            <span class="text">{{ currentEffort.label }}</span>
+                        </button>
+                        <transition name="scale-up">
+                            <div class="pill-menu" v-if="isEffortMenuOpen">
+                                <div class="menu-header">Effort</div>
+                                <div
+                                    v-for="e in effortLevels"
+                                    :key="e.id"
+                                    class="menu-item"
+                                    :class="{ active: currentEffort.id === e.id }"
+                                    @click="selectEffort(e)"
+                                >
+                                    <span class="item-text">{{ e.label }}</span>
+                                    <svg v-if="currentEffort.id === e.id" class="check-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                        <polyline points="20 6 9 17 4 12"></polyline>
+                                    </svg>
+                                </div>
+                            </div>
+                        </transition>
+                    </div>
+
                     <!-- Thinking Pill -->
-                     <div class="control-pill-wrapper thinking" :class="{ open: isThinkingMenuOpen }">
+                    <div class="control-pill-wrapper thinking" :class="{ open: isThinkingMenuOpen }">
                         <button class="control-pill" @click="isThinkingMenuOpen = !isThinkingMenuOpen">
                             <span class="text">{{ currentThinking.label }}</span>
                         </button>
                         <transition name="scale-up">
                             <div class="pill-menu" v-if="isThinkingMenuOpen">
-                                <div class="menu-header">Thinking Intensity</div>
+                                <div class="menu-header">Thinking</div>
                                 <div
                                     v-for="t in thinkingLevels"
                                     :key="t.id"

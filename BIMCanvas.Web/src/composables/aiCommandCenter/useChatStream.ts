@@ -1,6 +1,6 @@
 import { nextTick, ref } from 'vue';
 import type { Ref } from 'vue';
-import type { ChatMessage, ChatWindow, ModelOption, ThinkingLevel } from '../../types/aiCommandCenter';
+import type { ChatMessage, ChatWindow, EffortLevel, ModelOption, ThinkingLevel } from '../../types/aiCommandCenter';
 import type { WaitingState } from '../../types/agent';
 import { ProjectService } from '../../services/ProjectService';
 import {
@@ -35,6 +35,7 @@ interface ChatStreamOptions {
   getWindowMessage: (windowId: string, msgIndex: number) => ChatMessage | undefined;
   pendingImages: Ref<string[]>;
   currentModel: Ref<ModelOption | null>;
+  currentEffort: Ref<EffortLevel>;
   currentThinking: Ref<ThinkingLevel>;
   scrollToBottom: (options?: { force?: boolean; windowId?: string }) => void;
   fetchAgentConfig: () => Promise<void>;
@@ -209,7 +210,8 @@ export const useChatStream = (options: ChatStreamOptions) => {
         message: message.substring(0, 50) + (message.length > 50 ? '...' : ''),
         imagesCount: imagesToSend.length,
         model: options.currentModel.value?.id,
-        thinkingLevel: options.currentThinking.value.id
+        effort: options.currentEffort.value.id,
+        thinking: options.currentThinking.value.id
       });
 
       // 创建新的 AbortController 用于中止请求
@@ -226,7 +228,8 @@ export const useChatStream = (options: ChatStreamOptions) => {
           message,
           images: imagesToSend,
           model: options.currentModel.value?.id,
-          thinkingLevel: options.currentThinking.value.id,
+          effort: options.currentEffort.value.id,
+          thinking: options.currentThinking.value.id,
           ...(context ? { context } : {})
         }),
         signal: currentAbortController.signal

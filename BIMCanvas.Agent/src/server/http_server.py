@@ -125,20 +125,16 @@ async def config_handler(request: web.Request) -> web.Response:
     Response:
         {
             "model": "claude-sonnet-4-20250514",
-            "thinkingLevel": "medium"  // 或 "off" 如果 thinking.enabled=false
+            "defaultEffort": "medium",
+            "defaultThinking": "off"
         }
     """
     settings = get_settings()
 
-    # 根据 thinking 配置决定返回的 level
-    if not settings.thinking.enabled:
-        thinking_level = "off"
-    else:
-        thinking_level = settings.thinking.default_level
-
     return web.json_response({
         "model": settings.model_name,
-        "thinkingLevel": thinking_level
+        "defaultEffort": settings.default_effort,
+        "defaultThinking": settings.default_thinking,
     })
 
 
@@ -208,7 +204,8 @@ async def chat_stream_handler(request: web.Request) -> web.StreamResponse:
             "message": "user message",
             "images": ["base64..."],              // optional, 图片附件列表
             "model": "claude-sonnet-4-20250514",  // optional, 动态切换模型
-            "thinkingLevel": "high"               // optional, 思考强度 (off/low/medium/high)
+            "effort": "high",                     // optional, 推理深度 (low/medium/high/max)
+            "thinking": "adaptive"                // optional, 扩展思考 (off/adaptive)
         }
 
     Response: SSE stream with chunks
@@ -227,7 +224,8 @@ async def chat_stream_handler(request: web.Request) -> web.StreamResponse:
     message = data.get("message", "")
     images = data.get("images", [])        # 图片附件列表
     model = data.get("model")              # 模型名称
-    thinking_level = data.get("thinkingLevel")  # 思考强度
+    effort = data.get("effort")            # 推理深度
+    thinking = data.get("thinking")        # 扩展思考
     context = data.get("context")                # 画布上下文（选中模块/区域）
 
     # 调试日志：记录收到的请求
@@ -262,7 +260,7 @@ async def chat_stream_handler(request: web.Request) -> web.StreamResponse:
         if model and model != agent.get_current_model():
             await agent.set_model(model)
 
-        async for chunk in agent.chat_stream(message, images=images, thinking_level=thinking_level, context=context):
+        async for chunk in agent.chat_stream(message, images=images, effort=effort, thinking=thinking, context=context):
             # 构建 SSE 事件数据
             event_data = {"type": chunk.type}
 

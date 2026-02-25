@@ -16,6 +16,7 @@ from claude_agent_sdk import (
     ToolUseBlock,
     ToolResultBlock,
 )
+from claude_agent_sdk.types import ThinkingConfigAdaptive, ThinkingConfigDisabled
 
 from ..config.settings import get_settings
 from ..config.loader import get_config_loader
@@ -143,12 +144,13 @@ class MainAgent:
     # Configuration
     # ─────────────────────────────────────────────────────
 
-    def _create_options(self, thinking_level: str = None) -> ClaudeAgentOptions:
+    def _create_options(self, effort: str = None, thinking: str = None) -> ClaudeAgentOptions:
         """
         Create agent options with SubAgent support.
 
         Args:
-            thinking_level: 思考强度等级，None 使用默认配置
+            effort: 推理深度 ("low"/"medium"/"high"/"max")，None 使用默认配置
+            thinking: 扩展思考开关 ("off"/"adaptive")，None 使用默认配置
         """
         settings = get_settings()
 
@@ -167,8 +169,11 @@ class MainAgent:
         if settings.anthropic_api_key:
             custom_env["ANTHROPIC_API_KEY"] = settings.anthropic_api_key
 
-        # 获取思考强度 token 数量
-        thinking_tokens = settings.thinking.get_tokens(thinking_level)
+        # effort: "off"→None, 其他直传
+        sdk_effort = None if effort == "off" else (effort or settings.default_effort)
+        # thinking: "adaptive"→ThinkingConfigAdaptive, 其他→ThinkingConfigDisabled
+        thinking_val = thinking or settings.default_thinking
+        sdk_thinking = ThinkingConfigAdaptive(type="adaptive") if thinking_val == "adaptive" else ThinkingConfigDisabled(type="disabled")
 
         # === 注释掉现有 Canvas MCP ===
         # canvas_mcp = None
@@ -200,7 +205,8 @@ class MainAgent:
             permission_mode="acceptEdits",
             include_partial_messages=True,
             env=custom_env,                        # Agent SDK 独立环境变量
-            max_thinking_tokens=thinking_tokens,  # 原生参数（0.1.12+），int | None
+            effort=sdk_effort,                     # SDK 原生（0.1.36+）
+            thinking=sdk_thinking,                 # SDK 原生（0.1.36+）
             mcp_servers={"canvas": canvas_mcp},    # 业务工具
             setting_sources=None,                  # ❌ 禁用文件系统配置加载（修复配置污染）
             max_buffer_size=10 * 1024 * 1024,      # 10MB — 截图 ImageContent 需要足够缓冲区（默认仅 1MB）
@@ -303,27 +309,30 @@ class MainAgent:
     # Connection Management
     # ─────────────────────────────────────────────────────
 
-    async def connect(self, thinking_level: str = None) -> None:
+    async def connect(self, effort: str = None, thinking: str = None) -> None:
         """
         Establish persistent connection.
 
         Args:
-            thinking_level: 初始思考强度等级，None 使用默认配置
+            effort: 推理深度 ("low"/"medium"/"high"/"max")，None 使用默认配置
+            thinking: 扩展思考开关 ("off"/"adaptive")，None 使用默认配置
         """
         async with self._lock:
             if self._connected:
                 return
-            options = self._create_options(thinking_level)
+            options = self._create_options(effort, thinking)
 
             # 调试日志：打印实际使用的配置（使用 _agent_logger 确保带窗口前缀）
             tools_display = options.allowed_tools if options.allowed_tools else "默认全开"
             deny_display = options.disallowed_tools if options.disallowed_tools else "无"
             base_url_display = options.env.get("ANTHROPIC_BASE_URL", "默认端点") if options.env else "默认端点"
-            thinking_display = f"{options.max_thinking_tokens} tokens" if options.max_thinking_tokens else "禁用"
+            effort_display = options.effort or "未设置"
+            thinking_display = options.thinking.get("type", "unknown") if options.thinking else "未设置"
             self._agent_logger._print(f"[MainAgent] ========== 配置信息 ==========")
             self._agent_logger._print(f"[MainAgent] 模型: {options.model}")
             self._agent_logger._print(f"[MainAgent] Base URL: {base_url_display}")
-            self._agent_logger._print(f"[MainAgent] 思考强度: {thinking_display}")
+            self._agent_logger._print(f"[MainAgent] effort: {effort_display}")
+            self._agent_logger._print(f"[MainAgent] thinking: {thinking_display}")
             self._agent_logger._print(f"[MainAgent] 允许工具: {tools_display}")
             self._agent_logger._print(f"[MainAgent] 禁止工具: {deny_display}")
             self._agent_logger._print(f"[MainAgent] 项目路径: {self.project_path}")
@@ -659,7 +668,8 @@ class MainAgent:
         self,
         user_message: str,
         images: list[str] = None,
-        thinking_level: str = None,
+        effort: str = None,
+        thinking: str = None,
         context: dict = None
     ) -> AsyncIterator[StreamChunk]:
         """
@@ -668,14 +678,14 @@ class MainAgent:
         Args:
             user_message: 用户消息
             images: 图片附件列表（base64 编码，可带 data:image/png;base64, 前缀）
-            thinking_level: 思考强度等级 ("off", "low", "medium", "high")
-                           None 表示使用当前配置，不调整
+            effort: 推理深度 ("low"/"medium"/"high"/"max")，None 使用默认配置
+            thinking: 扩展思考开关 ("off"/"adaptive")，None 使用默认配置
             context: 画布上下文（选中模块/区域），由前端 buildContextPayload() 构建
         """
         if not self._connected:
-            await self.connect(thinking_level)
-        # 注意：思考强度仅在 connect() 时配置，不支持动态调整
-        # 如需不同思考强度，需要断开后重新 connect(thinking_level=xxx)
+            await self.connect(effort=effort, thinking=thinking)
+        # 注意：effort/thinking 仅在 connect() 时配置，不支持动态调整
+        # 如需不同配置，需要断开后重新 connect()
 
         if self.verbose:
             self._agent_logger.log_user_message(user_message)

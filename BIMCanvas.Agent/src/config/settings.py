@@ -2,7 +2,7 @@
 
 import logging
 import os
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from functools import lru_cache
 from dotenv import load_dotenv
 
@@ -12,37 +12,6 @@ logger = logging.getLogger(__name__)
 
 # Load environment variables from .env file
 load_dotenv()
-
-
-@dataclass
-class ThinkingConfig:
-    """思考强度配置"""
-    enabled: bool = True
-    default_level: str = "medium"
-    budget: dict[str, int | None] = field(default_factory=lambda: {
-        "off": None,
-        "low": 5000,
-        "medium": 10000,
-        "high": 20000
-    })
-
-    def get_tokens(self, level: str = None) -> int | None:
-        """
-        获取指定等级的 token 数量
-
-        Args:
-            level: 思考强度等级 ("off", "low", "medium", "high")
-                   如果为 None，使用默认等级
-
-        Returns:
-            token 数量，0 表示显式禁用思考（SDK 传递 --max-thinking-tokens 0）
-        """
-        if not self.enabled:
-            return 0
-        level = level or self.default_level
-        if level == "off":
-            return 0
-        return self.budget.get(level, self.budget.get("medium"))
 
 
 @dataclass
@@ -61,7 +30,8 @@ class Settings:
     base_url: str
     model_name: str
     max_tokens: int
-    thinking: ThinkingConfig
+    default_effort: str       # "low"/"medium"/"high"/"max", 默认 "medium"
+    default_thinking: str     # "off"/"adaptive", 默认 "off"
     tools: list[str]
     server_host: str
     server_port: int
@@ -73,28 +43,17 @@ class Settings:
         loader = get_config_loader()
         config = loader.load_config()
         server = config.get('server', {})
-        thinking_config = config.get('thinking', {})
 
         # 从配置文件读取
         api_key = config.get('apiKey', '')
         base_url = config.get('baseUrl', '')
         model = config.get('model', 'claude-sonnet-4-20250514')
         max_tokens = config.get('maxTokens', 4096)
+        default_effort = config.get('defaultEffort', 'medium')
+        default_thinking = config.get('defaultThinking', 'off')
         tools = config.get('tools', ['Read', 'Glob', 'Grep', 'Task'])
         host = server.get('host', '127.0.0.1')
         port = server.get('port', 8765)
-
-        # 构建 ThinkingConfig
-        thinking = ThinkingConfig(
-            enabled=thinking_config.get('enabled', True),
-            default_level=thinking_config.get('defaultLevel', 'medium'),
-            budget=thinking_config.get('budget', {
-                "off": None,
-                "low": 5000,
-                "medium": 10000,
-                "high": 20000
-            })
-        )
 
         # 环境变量覆盖
         # API Key: AGENT_SDK_API_KEY > config.json（与 Claude Code 隔离，不使用 ANTHROPIC_API_KEY）
@@ -121,7 +80,8 @@ class Settings:
             base_url=base_url,
             model_name=model,
             max_tokens=max_tokens,
-            thinking=thinking,
+            default_effort=default_effort,
+            default_thinking=default_thinking,
             tools=tools,
             server_host=host,
             server_port=port,

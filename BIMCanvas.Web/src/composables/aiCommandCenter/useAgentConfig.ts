@@ -1,6 +1,6 @@
 import { nextTick, ref } from 'vue';
-import type { ModelOption, ThinkingLevel } from '../../types/aiCommandCenter';
-import { thinkingLevels } from '../../constants/aiCommandCenter';
+import type { EffortLevel, ModelOption, ThinkingLevel } from '../../types/aiCommandCenter';
+import { effortLevels, thinkingLevels } from '../../constants/aiCommandCenter';
 
 // 图层预设配置类型
 export interface LayerPresetConfig {
@@ -16,8 +16,10 @@ export const useAgentConfig = (agentApiBase: string, serverApiBase: string) => {
   const models = ref<ModelOption[]>([]);
   const currentModel = ref<ModelOption | null>(null);
   const currentThinking = ref<ThinkingLevel>(thinkingLevels[0]);
+  const currentEffort = ref<EffortLevel>(effortLevels[2]); // 默认 "medium"
   const isModelMenuOpen = ref(false);
   const isThinkingMenuOpen = ref(false);
+  const isEffortMenuOpen = ref(false);
   const isAddingModel = ref(false);
   const newModelId = ref('');
   const newModelInputRef = ref<HTMLInputElement | null>(null);
@@ -70,6 +72,11 @@ export const useAgentConfig = (agentApiBase: string, serverApiBase: string) => {
     isThinkingMenuOpen.value = false;
   };
 
+  const selectEffort = (level: EffortLevel) => {
+    currentEffort.value = level;
+    isEffortMenuOpen.value = false;
+  };
+
   const fetchAgentConfig = async () => {
     try {
       const [configRes, webConfigRes] = await Promise.all([
@@ -92,7 +99,7 @@ export const useAgentConfig = (agentApiBase: string, serverApiBase: string) => {
 
       if (configRes.ok) {
         const config = await configRes.json();
-        const { model: defaultModel, thinkingLevel: defaultThinking } = config;
+        const { model: defaultModel, defaultEffort: cfgEffort, defaultThinking: cfgThinking } = config;
 
         if (defaultModel) {
           let found = models.value.find(m => m.id === defaultModel);
@@ -105,15 +112,26 @@ export const useAgentConfig = (agentApiBase: string, serverApiBase: string) => {
           currentModel.value = models.value[0];
         }
 
-        if (defaultThinking) {
-          const foundThinking = thinkingLevels.find(t => t.id === defaultThinking);
+        if (cfgEffort) {
+          const foundEffort = effortLevels.find(e => e.id === cfgEffort);
+          if (foundEffort) {
+            currentEffort.value = foundEffort;
+          }
+        }
+
+        if (cfgThinking) {
+          const foundThinking = thinkingLevels.find(t => t.id === cfgThinking);
           if (foundThinking) {
             currentThinking.value = foundThinking;
           }
         }
       }
 
-      console.log('Agent 配置已加载:', { model: currentModel.value?.id, thinking: currentThinking.value.id });
+      console.log('Agent 配置已加载:', {
+        model: currentModel.value?.id,
+        effort: currentEffort.value.id,
+        thinking: currentThinking.value.id
+      });
     } catch (error) {
       console.warn('获取 Agent 配置失败:', error);
     }
@@ -123,9 +141,12 @@ export const useAgentConfig = (agentApiBase: string, serverApiBase: string) => {
     models,
     currentModel,
     currentThinking,
+    currentEffort,
     thinkingLevels,
+    effortLevels,
     isModelMenuOpen,
     isThinkingMenuOpen,
+    isEffortMenuOpen,
     isAddingModel,
     newModelId,
     newModelInputRef,
@@ -136,6 +157,7 @@ export const useAgentConfig = (agentApiBase: string, serverApiBase: string) => {
     confirmAddModel,
     cancelAddModel,
     selectThinking,
+    selectEffort,
     saveCustomModels
   };
 };

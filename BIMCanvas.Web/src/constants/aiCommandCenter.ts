@@ -1,4 +1,4 @@
-import type { ContextOptions, Proposal, ThinkingLevel } from '../types/aiCommandCenter';
+import type { ContextOptions, EffortLevel, Proposal, ThinkingLevel } from '../types/aiCommandCenter';
 
 export const WAITING_VERBS = [
   'Accomplishing', 'Actioning', 'Actualizing', 'Baking', 'Beaming', 'Beboppin',
@@ -33,9 +33,15 @@ export const WAITING_VERBS = [
 
 export const thinkingLevels: ThinkingLevel[] = [
   { id: 'off', label: 'Off' },
+  { id: 'adaptive', label: 'Adaptive' }
+];
+
+export const effortLevels: EffortLevel[] = [
+  { id: 'off', label: 'Off' },
   { id: 'low', label: 'Low' },
   { id: 'medium', label: 'Medium' },
-  { id: 'high', label: 'High' }
+  { id: 'high', label: 'High' },
+  { id: 'max', label: 'Max' }
 ];
 
 export const contextOptions: ContextOptions = {

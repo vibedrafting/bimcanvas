@@ -41,6 +41,11 @@ export interface ThinkingLevel {
   label: string;
 }
 
+export interface EffortLevel {
+  id: string;
+  label: string;
+}
+
 export interface ProposalMetric {
   storage: string;
   flow: string;
