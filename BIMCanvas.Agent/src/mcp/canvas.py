@@ -302,11 +302,7 @@ async def ai_job_complete(args: dict[str, Any]) -> dict[str, Any]:
             }
         },
         "required": ["projectPath"],
-        "additionalProperties": False,
-        "oneOf": [
-            {"required": ["viewport"]},
-            {"required": ["shots"]}
-        ]
+        "additionalProperties": False
     }
 )
 async def request_background_screenshot(args: dict[str, Any]) -> dict[str, Any]:
