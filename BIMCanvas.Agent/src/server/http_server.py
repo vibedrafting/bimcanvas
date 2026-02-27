@@ -68,7 +68,6 @@ async def get_agent(
 
             working_dir = worktree_path or project_path
             agent = MainAgent(project_path, working_directory=working_dir, window_seq=seq)
-            await agent.connect()  # 预连接
 
             # Agent 创建成功，提交全局状态
             if window_id != "primary":
