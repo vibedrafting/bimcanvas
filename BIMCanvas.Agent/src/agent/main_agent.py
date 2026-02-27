@@ -1037,17 +1037,17 @@ class MainAgent:
                             # 普通工具调用完成 - 查找关联信息
                             tool_call_id = self._pending_tool_calls.get(block_tool_use_id)
                             subagent_id = self._tool_to_subagent.get(block_tool_use_id)
-                            if tool_call_id:
-                                output_str = str(block.content)[:1000] if block.content else ""
-                                yield StreamChunk(
-                                    type="tool_call_complete",
-                                    subagent_id=subagent_id,
-                                    tool_call_id=tool_call_id,
-                                    tool_output=output_str,
-                                    success=not is_error,
-                                    error=str(block.content) if is_error else None
-                                )
-                                # 清理映射
+                            output_str = str(block.content)[:1000] if block.content else ""
+                            yield StreamChunk(
+                                type="tool_call_complete",
+                                subagent_id=subagent_id,
+                                tool_call_id=tool_call_id or f"tc-{self._tool_call_counter}",
+                                tool_output=output_str,
+                                success=not is_error,
+                                error=str(block.content) if is_error else None
+                            )
+                            # 清理映射
+                            if block_tool_use_id:
                                 self._pending_tool_calls.pop(block_tool_use_id, None)
                                 self._tool_to_subagent.pop(block_tool_use_id, None)
 

@@ -1,7 +1,7 @@
 import { nextTick, ref } from 'vue';
 import type { Ref } from 'vue';
 import type { ChatMessage, ChatWindow, EffortLevel, ModelOption, ThinkingLevel } from '../../types/aiCommandCenter';
-import type { WaitingState } from '../../types/agent';
+import type { WaitingState, ChatBubble } from '../../types/agent';
 import { ProjectService } from '../../services/ProjectService';
 import {
   createTextBubble,
@@ -137,6 +137,23 @@ export const useChatStream = (options: ChatStreamOptions) => {
       }
     } catch (error) {
       console.error('获取项目路径失败:', error);
+    }
+  };
+
+  // 兜底清理：递归完成所有残留的 streaming 气泡（tool_call、subagent、text、thinking）
+  const cleanupAllStreamingBubbles = (bubbles: ChatBubble[]) => {
+    for (const bubble of bubbles) {
+      if (bubble.status === 'streaming') {
+        if (bubble.type === 'thinking') {
+          completeThinkingBubble(bubble);
+          bubble.isExpanded = false;
+        } else {
+          completeBubble(bubble);
+        }
+      }
+      if (bubble.childBubbles) {
+        cleanupAllStreamingBubbles(bubble.childBubbles);
+      }
     }
   };
 
@@ -443,16 +460,8 @@ export const useChatStream = (options: ChatStreamOptions) => {
         finalMsg.isStreaming = false;
         finalMsg.waitingState.isWaiting = false;
 
-        const lastStreamingBubble = getLastStreamingTextBubble(finalMsg.bubbles);
-        if (lastStreamingBubble) {
-          completeBubble(lastStreamingBubble);
-        }
-        // 完成并折叠残留的 streaming thinking 气泡
-        const lastThinking = getLastStreamingThinkingBubble(finalMsg.bubbles);
-        if (lastThinking) {
-          completeThinkingBubble(lastThinking);
-          lastThinking.isExpanded = false;
-        }
+        // 兜底清理：递归完成所有残留的 streaming 气泡（包括 tool_call、subagent、text、thinking）
+        cleanupAllStreamingBubbles(finalMsg.bubbles);
       }
 
       agentStatus.value = 'connected';
@@ -465,6 +474,8 @@ export const useChatStream = (options: ChatStreamOptions) => {
         if (currentMsg) {
           currentMsg.isStreaming = false;
           currentMsg.waitingState.isWaiting = false;
+          // 兜底清理所有残留的 streaming 气泡
+          cleanupAllStreamingBubbles(currentMsg.bubbles);
         }
         return;  // 提前返回，跳过错误处理
       }
@@ -543,16 +554,12 @@ export const useChatStream = (options: ChatStreamOptions) => {
           lastMsg.isStreaming = false;
           lastMsg.waitingState.isWaiting = false;
 
-          // 如果有 streaming 的 bubble，标记为中止
-          const lastBubble = lastMsg.bubbles[lastMsg.bubbles.length - 1];
-          if (lastBubble && lastBubble.status === 'streaming') {
-            if (lastBubble.type === 'thinking') {
-              completeThinkingBubble(lastBubble);
-              lastBubble.isExpanded = false;
-            } else {
-              lastBubble.status = 'completed';
-              lastBubble.content = lastBubble.content + '\n\n[已中止]';
-            }
+          // 清理所有 streaming 状态的 bubble（包括并行工具调用和子气泡）
+          cleanupAllStreamingBubbles(lastMsg.bubbles);
+          // 在最后一个 text bubble 上追加中止标记
+          const lastTextBubble = lastMsg.bubbles.filter(b => b.type === 'text').pop();
+          if (lastTextBubble && lastTextBubble.status === 'completed') {
+            lastTextBubble.content = lastTextBubble.content + '\n\n[已中止]';
           }
         }
       }
