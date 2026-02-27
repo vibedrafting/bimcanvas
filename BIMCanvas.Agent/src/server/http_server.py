@@ -255,11 +255,11 @@ async def chat_stream_handler(request: web.Request) -> web.StreamResponse:
     try:
         agent = await get_agent(window_id, project_path, worktree_path)  # 按窗口获取
 
-        # 动态切换模型（仅当模型实际变化时）
-        if model and model != agent.get_current_model():
+        # 动态切换模型（仅已连接时生效，未连接时由 chat_stream→connect 处理）
+        if agent._connected and model and model != agent.get_current_model():
             await agent.set_model(model)
 
-        async for chunk in agent.chat_stream(message, images=images, effort=effort, thinking=thinking, context=context):
+        async for chunk in agent.chat_stream(message, images=images, effort=effort, thinking=thinking, model=model, context=context):
             # 构建 SSE 事件数据
             event_data = {"type": chunk.type}
 

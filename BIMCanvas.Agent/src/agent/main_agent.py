@@ -148,13 +148,14 @@ class MainAgent:
     # Configuration
     # ─────────────────────────────────────────────────────
 
-    def _create_options(self, effort: str = None, thinking: str = None) -> ClaudeAgentOptions:
+    def _create_options(self, effort: str = None, thinking: str = None, model: str = None) -> ClaudeAgentOptions:
         """
         Create agent options with SubAgent support.
 
         Args:
             effort: 推理深度 ("low"/"medium"/"high"/"max")，None 使用默认配置
             thinking: 扩展思考开关 ("off"/"adaptive")，None 使用默认配置
+            model: 模型名称，None 使用默认配置
         """
         settings = get_settings()
 
@@ -206,7 +207,7 @@ class MainAgent:
             system_prompt=system_prompt,
             cwd=self.working_directory,
             max_turns=30,
-            model=settings.model_name,
+            model=model or settings.model_name,
             allowed_tools=all_allowed,             # 包含 MCP 工具
             disallowed_tools=disallowed_tools,     # 工具黑名单
             agents=self._subagents,
@@ -261,18 +262,19 @@ class MainAgent:
     # Connection Management
     # ─────────────────────────────────────────────────────
 
-    async def connect(self, effort: str = None, thinking: str = None) -> None:
+    async def connect(self, effort: str = None, thinking: str = None, model: str = None) -> None:
         """
         Establish persistent connection.
 
         Args:
             effort: 推理深度 ("low"/"medium"/"high"/"max")，None 使用默认配置
             thinking: 扩展思考开关 ("off"/"adaptive")，None 使用默认配置
+            model: 模型名称，None 使用默认配置
         """
         async with self._lock:
             if self._connected:
                 return
-            options = self._create_options(effort, thinking)
+            options = self._create_options(effort, thinking, model)
 
             # 调试日志：打印实际使用的配置（使用 _agent_logger 确保带窗口前缀）
             tools_display = options.allowed_tools if options.allowed_tools else "默认全开"
@@ -622,6 +624,7 @@ class MainAgent:
         images: list[str] = None,
         effort: str = None,
         thinking: str = None,
+        model: str = None,
         context: dict = None
     ) -> AsyncIterator[StreamChunk]:
         """
@@ -632,10 +635,11 @@ class MainAgent:
             images: 图片附件列表（base64 编码，可带 data:image/png;base64, 前缀）
             effort: 推理深度 ("low"/"medium"/"high"/"max")，None 使用默认配置
             thinking: 扩展思考开关 ("off"/"adaptive")，None 使用默认配置
+            model: 模型名称，None 使用默认配置
             context: 画布上下文（选中模块/区域），由前端 buildContextPayload() 构建
         """
         if not self._connected:
-            await self.connect(effort=effort, thinking=thinking)
+            await self.connect(effort=effort, thinking=thinking, model=model)
         # 注意：effort/thinking 仅在 connect() 时配置，不支持动态调整
         # 如需不同配置，需要断开后重新 connect()
 
