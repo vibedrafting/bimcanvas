@@ -1,5 +1,5 @@
 {
-    "model": "gemini-3.1-pro-low",
+    "model": "gemini-pro",
     "maxTokens": 4096,
     "defaultEffort": "medium",
     "defaultThinking": "off",
