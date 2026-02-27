@@ -934,13 +934,19 @@ mcp__canvas__request_background_screenshot(
 canvas_mcp = create_sdk_mcp_server(
     name="canvas",
     version="1.0.0",
-    tools=[ai_job_create, ai_job_complete, request_background_screenshot, validate_layout, get_workflow_guide],
+    tools=[
+        # ai_job_create,          # 临时禁用：Worktree 隔离环境（暂不需要）
+        # ai_job_complete,        # 临时禁用：Job 完成通知（暂不需要）
+        request_background_screenshot,
+        validate_layout,
+        get_workflow_guide,
+    ],
 )
 
 # 预批准工具列表
 CANVAS_ALLOWED_TOOLS = [
-    "mcp__canvas__create_job",
-    "mcp__canvas__complete_job",
+    # "mcp__canvas__create_job",                      # 临时禁用
+    # "mcp__canvas__complete_job",                     # 临时禁用
     "mcp__canvas__request_background_screenshot",
     "mcp__canvas__validate_layout",
     "mcp__canvas__get_workflow_guide",
