@@ -11,10 +11,14 @@ from claude_agent_sdk import (
     ClaudeAgentOptions,
     AssistantMessage,
     UserMessage,
+    ResultMessage,
+    SystemMessage,
     TextBlock,
     ThinkingBlock,
     ToolUseBlock,
     ToolResultBlock,
+    PermissionResultAllow,
+    ToolPermissionContext,
 )
 from claude_agent_sdk.types import ThinkingConfigAdaptive, ThinkingConfigDisabled
 
@@ -214,100 +218,44 @@ class MainAgent:
             mcp_servers={"canvas": canvas_mcp},    # 业务工具
             setting_sources=None,                  # ❌ 禁用文件系统配置加载（修复配置污染）
             max_buffer_size=10 * 1024 * 1024,      # 10MB — 截图 ImageContent 需要足够缓冲区（默认仅 1MB）
+            can_use_tool=self._auto_approve_tool,  # Agent 后端无人值守，自动批准所有工具调用
         )
+
+    async def _auto_approve_tool(
+        self, tool_name: str, tool_input: dict, context: ToolPermissionContext
+    ) -> PermissionResultAllow:
+        """Agent 后端模式：自动批准所有工具调用。
+
+        通过 SDK 回调结构化处理权限请求，替代正则匹配权限文字。
+        """
+        if self.verbose:
+            self._agent_logger.log_info(f"[Permission] 自动批准工具: {tool_name}")
+        return PermissionResultAllow()
 
     # ─────────────────────────────────────────────────────
     # Error Filtering
     # ─────────────────────────────────────────────────────
 
-    # 可恢复错误的模式匹配
+    # 可恢复错误的模式匹配（环境特有噪音，SDK 无法结构化识别）
     _RECOVERABLE_ERROR_PATTERNS = [
         r"cygpath.*fatal error",      # Git Bash cygpath 错误
         r"add_item.*failed.*errno",   # Git Bash 内部错误
         r"EBUSY.*resource busy",      # 文件锁定
     ]
 
-    # 权限错误的模式匹配（短特征，能匹配分片传输的 text_delta）
-    _PERMISSION_ERROR_PATTERNS = [
-        r"haven't granted",           # "but you haven't granted it yet"
-        r"requested permissions",     # "Claude requested permissions to"
-        r"Permission denied",         # 通用权限拒绝
-        r"requires approval",         # Bash 命令批准
-        r"approval required",         # 变体
-        r"needs approval",            # 变体
-    ]
-
-    def _detect_permission_error(self, text: str) -> tuple[bool, str | None]:
-        """
-        检测文本中是否包含权限错误
-        返回: (是否为权限错误, 错误消息)
-        """
-        for pattern in self._PERMISSION_ERROR_PATTERNS:
-            match = re.search(pattern, text, re.IGNORECASE)
-            if match:
-                return True, match.group(0)
-        return False, None
-
-    def _classify_tool_error(self, error_content: str) -> str:
-        """分类工具调用错误：recoverable 或 blocking"""
+    def _classify_tool_error(self, error_message: str) -> str:
+        """分类工具错误：recoverable（已知可忽略）或 blocking（需通知前端）。"""
         for pattern in self._RECOVERABLE_ERROR_PATTERNS:
-            if re.search(pattern, error_content, re.IGNORECASE):
+            if re.search(pattern, error_message, re.IGNORECASE):
                 return "recoverable"
         return "blocking"
 
+    def _strip_tool_error_tags(self, text: str) -> str:
+        """剥离 <tool_use_error> XML 标签，保留干净文本。
 
-    def _classify_tool_result_error(self, error_message: str) -> tuple[str, str | None]:
+        错误分类由 tool_result 事件的 is_error 字段处理。
         """
-        分类工具调用结果中的错误
-
-        返回:
-            (error_type, classified_message)
-            - error_type: "permission_required" | "blocking" | "recoverable"
-            - classified_message: 处理后的错误消息（可选）
-        """
-        # 1. 优先检测权限错误
-        is_perm_error, perm_msg = self._detect_permission_error(error_message)
-        if is_perm_error:
-            return "permission_required", perm_msg
-
-        # 2. 检测可恢复错误
-        for pattern in self._RECOVERABLE_ERROR_PATTERNS:
-            if re.search(pattern, error_message, re.IGNORECASE):
-                return "recoverable", None
-
-        # 3. 默认为阻塞错误
-        return "blocking", None
-    def _filter_recoverable_errors(self, text: str) -> tuple[str, str | None, str | None, str | None]:
-        """
-        过滤错误标签，返回 (清理后内容, 错误内容, 隐藏内容, 错误类型)
-        - 所有 <tool_use_error> 标签都会被移除
-        - recoverable 错误：内容放入 hidden_content（调试用）
-        - blocking 错误：内容放入 error_content（前端可选显示）
-        """
-        pattern = r'<tool_use_error>([\s\S]*?)</tool_use_error>'
-
-        hidden_parts = []      # recoverable 错误
-        error_parts = []       # blocking 错误
-        error_type = None
-
-        def replace_match(m):
-            nonlocal error_type
-            err_content = m.group(1).strip()
-            err_type = self._classify_tool_error(err_content)
-            if err_type == "recoverable":
-                hidden_parts.append(err_content)
-                if not error_type:
-                    error_type = "recoverable"
-            else:
-                error_parts.append(err_content)
-                error_type = "blocking"  # blocking 优先级更高
-            return ""  # 统一移除 XML 标签
-
-        cleaned = re.sub(pattern, replace_match, text)
-        hidden = "\n".join(hidden_parts) if hidden_parts else None
-        error_content = "\n".join(error_parts) if error_parts else None
-
-        return cleaned, error_content, hidden, error_type
+        return re.sub(r'<tool_use_error>[\s\S]*?</tool_use_error>', '', text).strip()
 
     # ─────────────────────────────────────────────────────
     # Connection Management
@@ -760,44 +708,11 @@ class MainAgent:
                     if delta_type == "text_delta":
                         text = delta.get("text", "")
                         if text:
-                            # 1. 检测权限错误（纯文本形式）
-                            is_perm_error, perm_msg = self._detect_permission_error(text)
-                            if is_perm_error:
-                                if self.verbose:
-                                    self._agent_logger.log_permission_error(perm_msg)
-                                # 发送权限错误事件
-                                yield StreamChunk(
-                                    type="text",
-                                    content=text,
-                                    error_type="permission_required",
-                                    error_content=perm_msg
-                                )
-                                # 关闭当前工具调用（如果有）
-                                if self._current_tool_name:
-                                    yield StreamChunk(
-                                        type="tool_call_complete",
-                                        tool_call_id=f"tc-{self._tool_call_counter}",
-                                        success=False,
-                                        error=perm_msg
-                                    )
+                            # 剥离 <tool_use_error> XML 标签（错误分类由 tool_result 处理）
+                            cleaned = self._strip_tool_error_tags(text)
+                            if cleaned:
                                 self._streamed_text = True
-                                continue  # 跳过后续处理
-
-                            # 2. 过滤错误标签
-                            cleaned, error_content, hidden, err_type = self._filter_recoverable_errors(text)
-
-                            if hidden and self.verbose:
-                                self._agent_logger.log_warning(f"过滤可恢复错误: {hidden[:200]}...")
-
-                            if cleaned or error_content:  # 有内容或有错误时发送
-                                self._streamed_text = True
-                                yield StreamChunk(
-                                    type="text",
-                                    content=cleaned,
-                                    error_type=err_type,
-                                    error_content=error_content,
-                                    hidden_content=hidden
-                                )
+                                yield StreamChunk(type="text", content=cleaned)
                     elif delta_type == "thinking_delta":
                         thinking = delta.get("thinking", "")
                         if thinking:
@@ -810,18 +725,16 @@ class MainAgent:
                     is_error = event.get("is_error", False)
                     tool_use_id = event.get("tool_use_id")
 
-                    # ✅ 对错误进行分类
+                    # 对错误进行分类
                     error_type = None
                     error_message = None
                     hidden_message = None
 
-
-                    # 🔍 调试日志：记录所有 tool_result 事件
                     if self.verbose:
-                        self._agent_logger.log_info(f"[DEBUG] tool_result: tool_name={tool_name}, is_error={is_error}, result={str(result)[:100] if result else 'None'}")
+                        self._agent_logger.log_info(f"[tool_result] tool_name={tool_name}, is_error={is_error}, result={str(result)[:100] if result else 'None'}")
 
                     if is_error and result:
-                        err_type, classified_msg = self._classify_tool_result_error(str(result))
+                        err_type = self._classify_tool_error(str(result))
 
                         if err_type == "recoverable":
                             # 可恢复错误：隐藏，不影响用户
@@ -829,17 +742,10 @@ class MainAgent:
                             is_error = False  # 标记为成功（前端不显示错误）
                             if self.verbose:
                                 self._agent_logger.log_warning(f"工具调用可恢复错误: {str(result)[:200]}")
-                        elif err_type == "permission_required":
-                            # 权限错误：特殊标记
-                            error_type = "permission_required"
-                            error_message = classified_msg or str(result)
-                            if self.verbose:
-                                self._agent_logger.log_permission_error(str(result)[:200])
                         else:  # blocking
                             # 阻塞错误：传递给前端
                             error_type = "blocking"
                             error_message = str(result)
-
                             if self.verbose:
                                 self._agent_logger.log_error(f"工具调用失败 ({tool_name}): {str(result)[:200]}")
                     # 判断是否是 Task（SubAgent）的结果
@@ -1050,6 +956,32 @@ class MainAgent:
                             if block_tool_use_id:
                                 self._pending_tool_calls.pop(block_tool_use_id, None)
                                 self._tool_to_subagent.pop(block_tool_use_id, None)
+
+            elif isinstance(message, ResultMessage):
+                # SDK 级结果消息（超轮、超预算、执行错误、正常完成）
+                if message.is_error:
+                    error_display = {
+                        "error_during_execution": "执行过程中发生错误",
+                        "error_max_turns": f"已达最大轮数限制 ({message.num_turns} 轮)",
+                        "error_max_budget_usd": f"已达预算上限 (${message.total_cost_usd:.2f})",
+                        "error_max_structured_output_retries": "结构化输出重试失败",
+                    }.get(message.subtype, f"未知 SDK 错误: {message.subtype}")
+                    yield StreamChunk(
+                        type="text",
+                        content=f"\n[SDK 错误] {error_display}\n",
+                        error_type="sdk_error",
+                        error_content=message.subtype
+                    )
+                if self.verbose:
+                    self._agent_logger.log_info(
+                        f"[Result] subtype={message.subtype}, cost=${message.total_cost_usd or 0:.4f}, "
+                        f"turns={message.num_turns}, duration={message.duration_ms}ms"
+                    )
+
+            elif isinstance(message, SystemMessage):
+                # SDK 级系统消息（会话初始化、上下文压缩等）
+                if self.verbose:
+                    self._agent_logger.log_info(f"[System] subtype={message.subtype}")
 
         if self.verbose:
             self._agent_logger.log_complete(model=self._response_model)

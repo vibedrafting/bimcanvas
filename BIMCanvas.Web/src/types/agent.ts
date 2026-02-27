@@ -70,7 +70,7 @@ export interface SubAgent {
 // ========== SSE 事件类型 ==========
 
 // 错误分类类型
-export type ErrorType = 'recoverable' | 'blocking';
+export type ErrorType = 'recoverable' | 'blocking' | 'api_error' | 'sdk_error';
 
 export interface TextStreamEvent {
   type: 'text' | 'text_complete';

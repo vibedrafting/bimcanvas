@@ -330,10 +330,7 @@ export const useChatStream = (options: ChatStreamOptions) => {
                   continue;
                 }
 
-                if (parsed.errorType === 'permission_required') {
-                  console.warn('[Permission error]', parsed.errorContent || parsed.content);
-                  continue;
-                }
+                // sdk_error 和 api_error 需要用户知晓 → 不跳过，走正常文本追加逻辑
 
                 const lastTextBubble = getLastStreamingTextBubble(currentMsg.bubbles);
 
