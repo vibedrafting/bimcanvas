@@ -121,6 +121,8 @@ const shouldAutoScroll = computed({
   set: (val) => { if (activeWindow.value) activeWindow.value.shouldAutoScroll = val; }
 });
 
+const isConfigLocked = computed(() => chatMessages.value.length > 0);
+
 const {
   models,
   currentModel,
@@ -1127,8 +1129,8 @@ onUnmounted(() => {
                     </div>
 
                     <!-- Effort Pill -->
-                    <div class="control-pill-wrapper effort" :class="{ open: isEffortMenuOpen }">
-                        <button class="control-pill" @click="isEffortMenuOpen = !isEffortMenuOpen">
+                    <div class="control-pill-wrapper effort" :class="{ open: isEffortMenuOpen, disabled: isConfigLocked }">
+                        <button class="control-pill" @click="!isConfigLocked && (isEffortMenuOpen = !isEffortMenuOpen)" :disabled="isConfigLocked">
                             <span class="text">{{ currentEffort.label }}</span>
                         </button>
                         <transition name="scale-up">
@@ -1151,8 +1153,8 @@ onUnmounted(() => {
                     </div>
 
                     <!-- Thinking Pill -->
-                    <div class="control-pill-wrapper thinking" :class="{ open: isThinkingMenuOpen }">
-                        <button class="control-pill" @click="isThinkingMenuOpen = !isThinkingMenuOpen">
+                    <div class="control-pill-wrapper thinking" :class="{ open: isThinkingMenuOpen, disabled: isConfigLocked }">
+                        <button class="control-pill" @click="!isConfigLocked && (isThinkingMenuOpen = !isThinkingMenuOpen)" :disabled="isConfigLocked">
                             <span class="text">{{ currentThinking.label }}</span>
                         </button>
                         <transition name="scale-up">
@@ -2967,6 +2969,18 @@ onUnmounted(() => {
             align-items: center;
             opacity: 0.8;
             svg { width: 12px; height: 12px; }
+        }
+    }
+
+    .control-pill-wrapper.disabled {
+        .control-pill {
+            opacity: 0.35;
+            cursor: not-allowed;
+            &:hover {
+                background: transparent;
+                border-color: transparent;
+                color: rgba(255, 255, 255, 0.5);
+            }
         }
     }
 
