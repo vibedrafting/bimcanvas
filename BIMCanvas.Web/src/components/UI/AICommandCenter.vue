@@ -121,7 +121,7 @@ const shouldAutoScroll = computed({
   set: (val) => { if (activeWindow.value) activeWindow.value.shouldAutoScroll = val; }
 });
 
-const isConfigLocked = computed(() => chatMessages.value.length > 0);
+const isConfigLocked = computed(() => chatMessages.value.some(m => m.role === 'user'));
 
 const {
   models,
