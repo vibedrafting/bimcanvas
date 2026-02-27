@@ -16,7 +16,7 @@ from claude_agent_sdk import (
     ToolUseBlock,
     ToolResultBlock,
 )
-from claude_agent_sdk.types import ThinkingConfigAdaptive
+from claude_agent_sdk.types import ThinkingConfigAdaptive, ThinkingConfigDisabled
 
 from ..config.settings import get_settings
 from ..config.loader import get_config_loader
@@ -171,13 +171,13 @@ class MainAgent:
 
         # effort: "off"→None, 其他直传
         sdk_effort = None if effort == "off" else (effort or settings.default_effort)
-        # thinking: "off"→None（不传给 CLI，避免 --max-thinking-tokens 0 导致代理 502）
+        # thinking: "off"→ThinkingConfigDisabled（显式告知 CLI 关闭扩展思考）
         #           "adaptive"→ThinkingConfigAdaptive
         thinking_val = thinking or settings.default_thinking
         if thinking_val == "adaptive":
             sdk_thinking = ThinkingConfigAdaptive(type="adaptive")
         else:
-            sdk_thinking = None
+            sdk_thinking = ThinkingConfigDisabled(type="disabled")
 
         # === 注释掉现有 Canvas MCP ===
         # canvas_mcp = None
