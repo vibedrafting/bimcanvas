@@ -1,5 +1,5 @@
 {
-    "model": "gemini-pro",
+    "model": "claude-sonnet-4-6",
     "maxTokens": 4096,
     "defaultEffort": "medium",
     "defaultThinking": "off",
