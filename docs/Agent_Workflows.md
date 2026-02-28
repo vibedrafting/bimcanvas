@@ -22,15 +22,17 @@ BIMCanvas Agent 是基于 Anthropic Claude Agent SDK 的 AI 室内布置助手�
 HTTP Server (aiohttp)           ← /api/chat/stream (SSE)
   │
   ▼
-MainAgent (Claude Agent SDK)    ← 意图分析、任务分类、派发
+MainAgent (Claude Agent SDK)    ← 意图分析、任务分类、直接执行
   │
-  ├──→ SubAgent (layout-agent)  ← 家具布置专家
+  ├──→ [预留] SubAgent          ← 已设计未启用（enabled: false）
   │
   └──→ Canvas MCP Tools         ← get_workflow_guide / validate_layout / screenshot
          │
          ▼
   .NET Server (BIMCanvas.Server) ← 几何验证、截图渲染、数据持久化
 ```
+
+> **当前状态**：SubAgent 机制已设计但未启用，MainAgent 通过 `self.chat()` 直接处理所有任务类型（query / edit / generate）。详见 [§8 SubAgent 设计预留](#8-subagent-设计预留)。
 
 ### 运行模式
 
@@ -91,7 +93,7 @@ MainAgent 通过 `ClaudeAgentOptions` 配置 SDK：
 | `include_partial_messages` | `True`（启用流式文本输出） |
 | `tools` | 内置工具列表 |
 | `mcp_servers` | `{"canvas": canvas_mcp}` |
-| `agents` | `{"layout-agent": AgentDefinition(...)}` |
+| `agents` | `{}`（SubAgent 未启用，`create_subagents()` 返回空字典） |
 | `plugins` | `[{"type": "local", "path": "~/.bimcanvas"}]` |
 
 ### 2.3 MCP 工具注册
@@ -117,9 +119,15 @@ canvas_mcp = create_sdk_mcp_server(
 | validate_layout | `mcp__canvas__validate_layout` |
 | request_background_screenshot | `mcp__canvas__request_background_screenshot` |
 
-### 2.4 SubAgent 加载
+### 2.4 SubAgent 加载（当前未启用）
 
-从 `~/.bimcanvas/agents/*.md` 解析 YAML frontmatter：
+`create_subagents()` 从 `~/.bimcanvas/agents/*.md` 解析 YAML frontmatter，但当前**返回空字典**：
+
+- `init_manifest.json` 中 `layout-agent.md` 被设为 `enabled: false`
+- `~/.bimcanvas/agents/` 目录未初始化（首次运行不会创建）
+- 因此 MainAgent 的 `agents` 参数为 `{}`，不会派发任何 SubAgent
+
+**预留配置格式**（启用后将使用）：
 
 ```yaml
 ---
@@ -176,13 +184,13 @@ MainAgent 收到用户消息后，根据关键词判断任务类型：
 ```
 data: {"type": "thinking", "content": "分析用户意图..."}
 data: {"type": "text", "content": "好的，我来帮你布置客厅"}
-data: {"type": "subagent_start", "subAgentId": "sa-xxx", "subAgentType": "layout-agent"}
 data: {"type": "tool_call_start", "toolCallId": "tc-1", "toolName": "Read", "toolParams": {...}}
 data: {"type": "tool_call_output", "toolCallId": "tc-1", "toolOutput": "..."}
 data: {"type": "tool_call_complete", "toolCallId": "tc-1", "success": true}
-data: {"type": "subagent_complete", "subAgentId": "sa-xxx", "content": "布置完成"}
 data: [DONE]
 ```
+
+> **注**：SSE 协议中预留了 `subagent_start` / `subagent_complete` 事件类型，但当前 SubAgent 未启用，不会产生这些事件。
 
 ---
 
@@ -709,11 +717,25 @@ mcp__canvas__request_background_screenshot({
 
 ---
 
-## 8. SubAgent 机制
+## 8. SubAgent 设计预留
 
-### 8.1 layout-agent 配置
+> **当前状态**：SubAgent 机制已完成架构设计，但**未启用**。`init_manifest.json` 中 `layout-agent.md` 被设为 `enabled: false`，`create_subagents()` 返回空字典。所有任务（query / edit / generate）由 MainAgent 通过 `self.chat()` 直接执行。
 
-**来源**：`~/.bimcanvas/agents/layout-agent.md`
+### 8.1 当前实际运行方式
+
+MainAgent 收到用户消息后，**不经过 SubAgent 派发**，直接通过 `self.chat()` 完成全部工作：
+
+```
+用户消息 → MainAgent.chat() → 意图分析 → 调用 MCP 工具 → 返回结果
+```
+
+- 所有工作流（§4 Query、§5 Edit、§6 Generate）均由 MainAgent 自身执行
+- 工具调用权限由 MainAgent 的 `permissions` 配置统一控制
+- 不会产生 `subagent_start` / `subagent_complete` SSE 事件
+
+### 8.2 预留设计：layout-agent
+
+以下为架构设计中规划的 SubAgent 配置，**启用后**将用于家具布置任务的专项处理：
 
 | 配置项 | 值 |
 |--------|-----|
@@ -721,30 +743,30 @@ mcp__canvas__request_background_screenshot({
 | 描述 | 家具布置专家 |
 | 工具权限 | Read, Write, Glob |
 | 模型 | inherit（继承主控 Agent 模型） |
+| 配置来源 | `~/.bimcanvas/agents/layout-agent.md` |
+| 启用状态 | `enabled: false`（init_manifest.json） |
 
-### 8.2 职责
+**设计职责**（启用后）：
 
 1. 读取房间分区数据，理解空间特点
 2. 分析门窗位置，规划动线
 3. 根据布置规则为房间布置家具
 4. 输出符合规范的布置结果
 
-### 8.3 布置优先级
-
-1. **锚点家具**：客厅→电视柜，卧室→床，餐厅→餐桌
-2. **主要家具**：客厅→沙发，卧室→衣柜/床头柜
-3. **辅助家具**：茶几、边几、装饰柜
-
-### 8.4 派发与结果传递
-
-MainAgent 通过 Agent SDK 的 `agents` 机制自动派发任务给 SubAgent：
+**设计的派发流程**（启用后）：
 
 1. MainAgent 分析意图后，SDK 自动选择匹配的 SubAgent
 2. SubAgent 在独立上下文中执行（使用自己的工具权限和提示词）
 3. 执行过程通过 SSE 事件实时推送（`subagent_start` → `tool_call_*` → `subagent_complete`）
 4. SubAgent 完成后，结果返回给 MainAgent 整合
 
-**关键实现细节**：SubAgent 的文本输出通过 `parent_tool_use_id` 状态机追踪关联。
+### 8.3 启用条件
+
+SubAgent 启用需满足：
+
+1. 将 `init_manifest.json` 中 `layout-agent.md` 的 `enabled` 改为 `true`
+2. 确保 `~/.bimcanvas/agents/layout-agent.md` 文件存在（首次运行时从 templates/ 初始化）
+3. MainAgent 的 `create_subagents()` 将返回非空字典，SDK 自动接管派发
 
 ---
 
