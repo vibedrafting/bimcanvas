@@ -134,7 +134,17 @@ public static class ConfigService
     public static void SaveWebConfig(WebConfig config)
     {
         Directory.CreateDirectory(ConfigDir);
-        var json = JsonSerializer.Serialize(config, WriteOptions);
+
+        // 读取现有配置，合并更新（避免局部更新清空其他字段）
+        var existing = LoadWebConfig();
+
+        if (config.CustomModels is { Count: > 0 })
+            existing.CustomModels = config.CustomModels;
+
+        if (config.LayerPresets != null)
+            existing.LayerPresets = config.LayerPresets;
+
+        var json = JsonSerializer.Serialize(existing, WriteOptions);
         File.WriteAllText(WebConfigPath, json);
     }
 
