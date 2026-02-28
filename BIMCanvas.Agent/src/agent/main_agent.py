@@ -927,6 +927,10 @@ class MainAgent:
                     if isinstance(block, ToolResultBlock):
                         is_error = getattr(block, 'is_error', False)
                         block_tool_use_id = getattr(block, 'tool_use_id', None)
+                        # 日志：输出工具结果
+                        if self.verbose:
+                            tool_name = self._current_tool_name or "unknown"
+                            self._agent_logger.log_tool_result(tool_name, block.content, is_error)
 
                         if block_tool_use_id and block_tool_use_id in self._active_subagents:
                             # SubAgent 完成 - 从映射中获取并清理
