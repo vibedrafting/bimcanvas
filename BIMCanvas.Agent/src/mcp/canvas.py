@@ -536,7 +536,8 @@ def _format_validation_report(report: dict[str, Any]) -> str:
             if penetration is not None and direction is not None:
                 fix_dir = _reverse_dir.get(direction, direction)
                 fix_cn = _dir_cn.get(fix_dir, fix_dir)
-                hint = f" | 修正：向{fix_cn}移动 {penetration}mm"
+                action = "建议" if severity == "warning" else "修正"
+                hint = f" | {action}：向{fix_cn}移动 {penetration}mm"
                 if area is not None:
                     hint += f"（重叠 {area}mm²）"
                 base_line += hint
