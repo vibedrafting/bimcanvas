@@ -19,6 +19,8 @@ namespace BIMCanvas.Core.Algorithms.Spatial
     /// </summary>
     public static class SchemeValidator
     {
+        private const double ErrorThresholdMm = 10.0;
+
         /// <summary>
         /// 验证整个方案的布局合法性
         /// </summary>
@@ -119,77 +121,80 @@ namespace BIMCanvas.Core.Algorithms.Spatial
                         module.ModuleName));
                 }
 
-                // Check 2a: 模块与墙体重叠（带容差 + 穿透信息）
+                // Check 2a: 模块与墙体重叠（穿透深度分级）
                 foreach (var (wall, wallAABB) in wallCache)
                 {
                     if (moduleAABB.Intersects(wallAABB))
                     {
-                        if (CollisionDetector.OverlapsTolerant(moduleBounds, wall.Polygon!))
+                        var wallInfo = CollisionDetector.ComputeOverlapInfo(moduleBounds, wall.Polygon!);
+                        if (wallInfo.HasOverlap)
                         {
-                            var info = CollisionDetector.ComputeOverlapInfo(moduleBounds, wall.Polygon!);
+                            string severity = wallInfo.PenetrationDepthMm > ErrorThresholdMm ? "error" : "warning";
                             diagnostics.Add(new Diagnostic(
                                 DiagnosticCodes.WallOverlap,
-                                "error",
+                                severity,
                                 $"模块 {module.Id} ({module.ModuleName ?? "未命名"}) 与墙体 {wall.Id} 重叠",
                                 module.Id,
                                 module.ModuleName,
                                 wall.Id,
                                 "wall",
-                                info.OverlapAreaMm2,
-                                info.PenetrationDepthMm,
-                                info.PenetrationDirection));
+                                wallInfo.OverlapAreaMm2,
+                                wallInfo.PenetrationDepthMm,
+                                wallInfo.PenetrationDirection));
                         }
                     }
                 }
 
-                // Check 2b: 模块与柱子重叠（带容差 + 穿透信息）
+                // Check 2b: 模块与柱子重叠（穿透深度分级）
                 foreach (var (column, colAABB) in columnCache)
                 {
                     if (moduleAABB.Intersects(colAABB))
                     {
-                        if (CollisionDetector.OverlapsTolerant(moduleBounds, column.Polygon!))
+                        var colInfo = CollisionDetector.ComputeOverlapInfo(moduleBounds, column.Polygon!);
+                        if (colInfo.HasOverlap)
                         {
-                            var info = CollisionDetector.ComputeOverlapInfo(moduleBounds, column.Polygon!);
+                            string severity = colInfo.PenetrationDepthMm > ErrorThresholdMm ? "error" : "warning";
                             diagnostics.Add(new Diagnostic(
                                 DiagnosticCodes.ColumnOverlap,
-                                "error",
+                                severity,
                                 $"模块 {module.Id} ({module.ModuleName ?? "未命名"}) 与柱子 {column.Id} 重叠",
                                 module.Id,
                                 module.ModuleName,
                                 column.Id,
                                 "column",
-                                info.OverlapAreaMm2,
-                                info.PenetrationDepthMm,
-                                info.PenetrationDirection));
+                                colInfo.OverlapAreaMm2,
+                                colInfo.PenetrationDepthMm,
+                                colInfo.PenetrationDirection));
                         }
                     }
                 }
 
-                // Check 2c: 模块与禁区重叠（带容差 + 穿透信息）
+                // Check 2c: 模块与禁区重叠（穿透深度分级）
                 foreach (var (zone, boundary, exclAABB) in exclusionCache)
                 {
                     if (exclAABB.HasValue && moduleAABB.Intersects(exclAABB.Value))
                     {
-                        if (CollisionDetector.OverlapsTolerant(moduleBounds, boundary!))
+                        var exclInfo = CollisionDetector.ComputeOverlapInfo(moduleBounds, boundary!);
+                        if (exclInfo.HasOverlap)
                         {
-                            var info = CollisionDetector.ComputeOverlapInfo(moduleBounds, boundary!);
+                            string severity = exclInfo.PenetrationDepthMm > ErrorThresholdMm ? "error" : "warning";
                             diagnostics.Add(new Diagnostic(
                                 DiagnosticCodes.ExclusionOverlap,
-                                "error",
+                                severity,
                                 $"模块 {module.Id} ({module.ModuleName ?? "未命名"}) 与禁区 {zone.Id} 重叠 ({zone.Reason})",
                                 module.Id,
                                 module.ModuleName,
                                 zone.Id,
                                 "exclusion",
-                                info.OverlapAreaMm2,
-                                info.PenetrationDepthMm,
-                                info.PenetrationDirection));
+                                exclInfo.OverlapAreaMm2,
+                                exclInfo.PenetrationDepthMm,
+                                exclInfo.PenetrationDirection));
                         }
                     }
                 }
             }
 
-            // ============ Phase 3: 模块间两两重叠检查（带容差 + 穿透信息） ============
+            // ============ Phase 3: 模块间两两重叠检查（穿透深度分级） ============
 
             for (int i = 0; i < moduleCache.Count; i++)
             {
@@ -203,35 +208,35 @@ namespace BIMCanvas.Core.Algorithms.Spatial
                     if (!aabbA.Intersects(aabbB))
                         continue;
 
-                    // 精确重叠检测（带容差）
-                    if (CollisionDetector.OverlapsTolerant(moduleA.Bounds!, moduleB.Bounds!))
+                    var modInfo = CollisionDetector.ComputeOverlapInfo(moduleA.Bounds!, moduleB.Bounds!);
+                    if (modInfo.HasOverlap)
                     {
-                        var info = CollisionDetector.ComputeOverlapInfo(moduleA.Bounds!, moduleB.Bounds!);
-                        string reverseDir = ReverseDirection(info.PenetrationDirection);
+                        string severity = modInfo.PenetrationDepthMm > ErrorThresholdMm ? "error" : "warning";
+                        string reverseDir = ReverseDirection(modInfo.PenetrationDirection);
 
                         // 双向记录（方向互反）
                         diagnostics.Add(new Diagnostic(
                             DiagnosticCodes.ModuleOverlap,
-                            "error",
+                            severity,
                             $"模块 {moduleA.Id} ({moduleA.ModuleName ?? "未命名"}) 与模块 {moduleB.Id} ({moduleB.ModuleName ?? "未命名"}) 重叠",
                             moduleA.Id,
                             moduleA.ModuleName,
                             moduleB.Id,
                             "module",
-                            info.OverlapAreaMm2,
-                            info.PenetrationDepthMm,
-                            info.PenetrationDirection));
+                            modInfo.OverlapAreaMm2,
+                            modInfo.PenetrationDepthMm,
+                            modInfo.PenetrationDirection));
 
                         diagnostics.Add(new Diagnostic(
                             DiagnosticCodes.ModuleOverlap,
-                            "error",
+                            severity,
                             $"模块 {moduleB.Id} ({moduleB.ModuleName ?? "未命名"}) 与模块 {moduleA.Id} ({moduleA.ModuleName ?? "未命名"}) 重叠",
                             moduleB.Id,
                             moduleB.ModuleName,
                             moduleA.Id,
                             "module",
-                            info.OverlapAreaMm2,
-                            info.PenetrationDepthMm,
+                            modInfo.OverlapAreaMm2,
+                            modInfo.PenetrationDepthMm,
                             reverseDir));
                     }
                 }
@@ -242,7 +247,8 @@ namespace BIMCanvas.Core.Algorithms.Spatial
             return new SchemeValidationReport
             {
                 TotalModules = modules.Count,
-                ErrorCount = diagnostics.Count,
+                ErrorCount = diagnostics.Count(d => d.Severity == "error"),
+                WarningCount = diagnostics.Count(d => d.Severity == "warning"),
                 Diagnostics = diagnostics,
                 ElapsedMs = sw.ElapsedMilliseconds
             };

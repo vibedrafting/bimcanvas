@@ -74,7 +74,7 @@ namespace BIMCanvas.Core.Algorithms.Spatial
         /// 带容差的包含检测：outer 膨胀 toleranceMm 后判断是否包含 inner。
         /// 用于 E001 检测，容忍 room zone 边界与实际墙面的微小偏差。
         /// </summary>
-        public static bool IsWithinTolerant(Polygon2D inner, Polygon2D outer, double toleranceMm = 2.0)
+        public static bool IsWithinTolerant(Polygon2D inner, Polygon2D outer, double toleranceMm = 10.0)
         {
             var ntsInner = NtsConverter.ToNtsPolygon(inner);
             var ntsOuter = NtsConverter.ToNtsPolygon(outer);
@@ -96,36 +96,19 @@ namespace BIMCanvas.Core.Algorithms.Spatial
         }
 
         /// <summary>
-        /// 带容差的重叠检测：忽略面积小于 toleranceMm² 的微小重叠。
-        /// 用于 E002-E005 检测，容忍几何源偏差导致的边缘微小交叠。
+        /// 带容差的重叠检测：穿透深度超过阈值才视为真实碰撞。
+        /// 用于 PlacementValidator，只需布尔结果。
+        /// SchemeValidator 应直接使用 ComputeOverlapInfo 获取详情。
         /// </summary>
-        public static bool OverlapsTolerant(Polygon2D a, Polygon2D b, double toleranceMm = 2.0)
+        public static bool OverlapsTolerant(Polygon2D a, Polygon2D b, double toleranceMm = 10.0)
         {
-            var ntsA = NtsConverter.ToNtsPolygon(a);
-            var ntsB = NtsConverter.ToNtsPolygon(b);
-
-            if (!ntsA.Intersects(ntsB))
-                return false;
-
-            try
-            {
-                var intersection = ntsA.Intersection(ntsB);
-                if (intersection.IsEmpty || intersection.Area < 1e-6)
-                    return false;
-
-                // 面积阈值：toleranceMm² (2mm × 2mm = 4mm²)
-                return intersection.Area > toleranceMm * toleranceMm;
-            }
-            catch (TopologyException)
-            {
-                // 几何异常时回退到原始判断
-                return ntsA.Overlaps(ntsB) || ntsA.Contains(ntsB) || ntsB.Contains(ntsA);
-            }
+            var info = ComputeOverlapInfo(a, b);
+            return info.HasOverlap && info.PenetrationDepthMm > toleranceMm;
         }
 
         /// <summary>
         /// 计算重叠详情：面积、穿透深度、穿透方向。
-        /// 在 OverlapsTolerant 返回 true 后调用，为 Diagnostic 提供修正指引。
+        /// PenetrationDepthMm = 交集各子几何包络矩形最小维度的最大值，不依赖方向判断。
         /// PenetrationDirection 表示障碍物在模块的哪个方位，Agent 应朝相反方向移动。
         /// </summary>
         public static OverlapInfo ComputeOverlapInfo(Polygon2D moduleBounds, Polygon2D obstacle)
@@ -142,6 +125,20 @@ namespace BIMCanvas.Core.Algorithms.Spatial
                 if (intersection.IsEmpty || intersection.Area < 1e-6)
                     return new OverlapInfo { HasOverlap = false };
 
+                // 穿透深度：遍历交集所有子几何，每个取 Min(W,H)，整体取 Max
+                double maxDepth = 0;
+                for (int i = 0; i < intersection.NumGeometries; i++)
+                {
+                    var part = intersection.GetGeometryN(i);
+                    if (part.Area < 1e-6) continue;
+                    var partEnv = part.EnvelopeInternal;
+                    double partDepth = Math.Min(partEnv.Width, partEnv.Height);
+                    maxDepth = Math.Max(maxDepth, partDepth);
+                }
+
+                if (maxDepth < 1e-6)
+                    return new OverlapInfo { HasOverlap = false };
+
                 // 穿透方向：障碍物相对于模块中心的方位
                 var moduleCentroid = ntsModule.Centroid.Coordinate;
                 var overlapCentroid = intersection.Centroid.Coordinate;
@@ -151,16 +148,11 @@ namespace BIMCanvas.Core.Algorithms.Spatial
                     ? (dx >= 0 ? "east" : "west")
                     : (dy >= 0 ? "north" : "south");
 
-                // 穿透深度：重叠区域在穿透方向的投影尺寸
-                var env = intersection.EnvelopeInternal;
-                double depth = (direction == "east" || direction == "west")
-                    ? env.Width : env.Height;
-
                 return new OverlapInfo
                 {
                     HasOverlap = true,
                     OverlapAreaMm2 = Math.Round(intersection.Area, 1),
-                    PenetrationDepthMm = Math.Round(depth, 1),
+                    PenetrationDepthMm = Math.Round(maxDepth, 1),
                     PenetrationDirection = direction
                 };
             }

@@ -474,17 +474,24 @@ def _format_validation_report(report: dict[str, Any]) -> str:
     """将 SchemeValidationReport JSON 格式化为 AI 友好文本"""
     total = report.get("totalModules", 0)
     error_count = report.get("errorCount", 0)
+    warning_count = report.get("warningCount", 0)
     elapsed = report.get("elapsedMs", 0)
     diagnostics = report.get("diagnostics", [])
 
+    # 通过判断：0 个 error 即通过（warning 不阻塞）
     if report.get("isValid", True) and error_count == 0:
-        return f"=== 布局验证通过 ===\n共 {total} 个模块，0 个错误 ({elapsed}ms)"
-
-    lines = [
-        f"=== 布局验证失败 ===",
-        f"共 {total} 个模块，{error_count} 个错误 ({elapsed}ms)",
-        "",
-    ]
+        if warning_count > 0:
+            header = f"=== 布局验证通过（{warning_count} 个警告）==="
+            summary = f"共 {total} 个模块，0 个错误，{warning_count} 个警告 ({elapsed}ms)"
+        else:
+            return f"=== 布局验证通过 ===\n共 {total} 个模块，0 个错误 ({elapsed}ms)"
+        lines = [header, summary, ""]
+    else:
+        lines = [
+            f"=== 布局验证失败 ===",
+            f"共 {total} 个模块，{error_count} 个错误，{warning_count} 个警告 ({elapsed}ms)",
+            "",
+        ]
 
     # 按错误代码分组
     by_code: dict[str, list[dict[str, Any]]] = {}
@@ -492,9 +499,23 @@ def _format_validation_report(report: dict[str, Any]) -> str:
         code = d.get("code", "UNKNOWN")
         by_code.setdefault(code, []).append(d)
 
+    _reverse_dir = {"north": "south", "south": "north", "east": "west", "west": "east"}
+    _dir_cn = {"north": "北", "south": "南", "east": "东", "west": "西"}
+
     for code, diags in by_code.items():
-        lines.append(f"--- {code} ({len(diags)} 个) ---")
+        errors_in_group = sum(1 for d in diags if d.get("severity") == "error")
+        warnings_in_group = sum(1 for d in diags if d.get("severity") == "warning")
+        count_parts = []
+        if errors_in_group > 0:
+            count_parts.append(f"{errors_in_group} 个错误")
+        if warnings_in_group > 0:
+            count_parts.append(f"{warnings_in_group} 个警告")
+        count_label = "，".join(count_parts) if count_parts else f"{len(diags)} 个"
+        lines.append(f"--- {code} ({count_label}) ---")
+
         for d in diags:
+            severity = d.get("severity", "error")
+            prefix = "⚠" if severity == "warning" else "✗"
             module_id = d.get("moduleId", "?")
             module_name = d.get("moduleName")
             name_part = f" ({module_name})" if module_name else ""
@@ -502,19 +523,19 @@ def _format_validation_report(report: dict[str, Any]) -> str:
             conflict_type = d.get("conflictType")
             if conflict_id and conflict_type:
                 if conflict_type == "module":
-                    base_line = f"  {module_id}{name_part} ↔ {conflict_type}:{conflict_id}"
+                    base_line = f"  {prefix} {module_id}{name_part} ↔ {conflict_type}:{conflict_id}"
                 else:
-                    base_line = f"  {module_id}{name_part} ← {conflict_type}:{conflict_id}"
+                    base_line = f"  {prefix} {module_id}{name_part} ← {conflict_type}:{conflict_id}"
             else:
-                base_line = f"  {module_id}{name_part}"
+                base_line = f"  {prefix} {module_id}{name_part}"
 
             # 追加穿透修正指引
             penetration = d.get("penetrationDepthMm")
             direction = d.get("penetrationDirection")
             area = d.get("overlapAreaMm2")
             if penetration is not None and direction is not None:
-                fix_dir = {"north": "south", "south": "north", "east": "west", "west": "east"}.get(direction, direction)
-                fix_cn = {"north": "北", "south": "南", "east": "东", "west": "西"}.get(fix_dir, fix_dir)
+                fix_dir = _reverse_dir.get(direction, direction)
+                fix_cn = _dir_cn.get(fix_dir, fix_dir)
                 hint = f" | 修正：向{fix_cn}移动 {penetration}mm"
                 if area is not None:
                     hint += f"（重叠 {area}mm²）"

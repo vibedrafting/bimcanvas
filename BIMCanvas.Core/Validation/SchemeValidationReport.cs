@@ -18,9 +18,14 @@ namespace BIMCanvas.Core.Validation
         public int TotalModules { get; set; }
 
         /// <summary>
-        /// 错误总数
+        /// 错误总数（severity = "error"）
         /// </summary>
         public int ErrorCount { get; set; }
+
+        /// <summary>
+        /// 警告总数（severity = "warning"）
+        /// </summary>
+        public int WarningCount { get; set; }
 
         /// <summary>
         /// 诊断列表
