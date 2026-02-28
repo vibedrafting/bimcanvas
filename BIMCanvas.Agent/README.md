@@ -632,8 +632,8 @@ curl -X POST http://127.0.0.1:8765/api/chat \
 
 - `mcp__canvas__create_job`：创建 AI Job（Git Worktree）
 - `mcp__canvas__complete_job`：通知 Web 端 AI Job 已完成
-- `mcp__canvas__get_workflow_guide`：获取 layout-agent 工作流指导
-- `mcp__canvas__request_background_screenshot`：后台截图（仅 layout-agent 使用）
+- ~~`mcp__canvas__get_workflow_guide`~~：已迁移到 Skills（query-workflow / edit-workflow / generate-workflow）
+- `mcp__canvas__request_background_screenshot`：后台截图
 
 #### 后台截图 MCP 工具（request_background_screenshot）
 

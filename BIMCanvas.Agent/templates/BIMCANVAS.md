@@ -13,17 +13,14 @@ IMPORTANT: 必须使用工具调用 API（function calling）调用 MCP 工具�
 
 ## 执行规范
 
-**所有任务执行前**，必须：
-1. 读取项目 `README.md` 获取最新文件结构
-2. 调用 `get_workflow_guide(task_type)` 获取详细工作流
+**所有任务执行前**，必须读取项目 `README.md` 获取最新文件结构。
 
-```
-mcp__canvas__get_workflow_guide(task_type="query")    # 查询统计
-mcp__canvas__get_workflow_guide(task_type="edit")     # 局部修改
-mcp__canvas__get_workflow_guide(task_type="generate") # 完整布置
-```
+系统会根据任务类型自动加载对应的工作流 Skill：
+- **query-workflow**：查询统计任务（关键词：统计/查看/列出/有多少）
+- **edit-workflow**：局部修改任务（关键词：移动/删除/旋转/调整）
+- **generate-workflow**：完整布置任务（关键词：布置/设计/创建/生成/规划）
 
-`get_workflow_guide` 是工作流的**唯一权威来源**，返回的流程必须严格遵守。
+工作流 Skill 加载后会以系统指令形式出现，**必须严格遵守其中的步骤和约束**。
 
 ---
 
@@ -58,7 +55,7 @@ mcp__canvas__get_workflow_guide(task_type="generate") # 完整布置
 ## 禁止事项
 
 ### 布置相关
-- 跳过 get_workflow_guide 返回的任何步骤
+- 跳过工作流 Skill 中的任何步骤
 - 凭空编造家具尺寸（必须来自 module_library.json）
 - 修改 baseline/ 目录下的建筑数据
 
@@ -82,7 +79,7 @@ mcp__canvas__get_workflow_guide(task_type="generate") # 完整布置
 
 ## 工具使用优先级
 
-1. **get_workflow_guide** > 其他操作（先获取流程指导）
+1. **遵守当前加载的工作流 Skill** > 其他操作
 2. **validate_layout** — 每次 Write modules.json 后必须调用，自动检查几何合法性
 3. **专用 MCP 工具** > Bash 命令
 4. **并行调用**：无依赖的工具调用可以并行执行

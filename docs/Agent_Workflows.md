@@ -26,7 +26,8 @@ MainAgent (Claude Agent SDK)    ← 意图分析、任务分类、直接执行
   │
   ├──→ [预留] SubAgent          ← 已设计未启用（enabled: false）
   │
-  └──→ Canvas MCP Tools         ← get_workflow_guide / validate_layout / screenshot
+  └──→ Canvas MCP Tools         ← validate_layout / screenshot
+  └──→ Workflow Skills           ← query-workflow / edit-workflow / generate-workflow
          │
          ▼
   .NET Server (BIMCanvas.Server) ← 几何验证、截图渲染、数据持久化
@@ -106,7 +107,6 @@ canvas_mcp = create_sdk_mcp_server(
     tools=[
         request_background_screenshot,
         validate_layout,
-        get_workflow_guide,
     ],
 )
 ```
@@ -115,9 +115,10 @@ canvas_mcp = create_sdk_mcp_server(
 
 | 工具 | 调用名 |
 |------|--------|
-| get_workflow_guide | `mcp__canvas__get_workflow_guide` |
 | validate_layout | `mcp__canvas__validate_layout` |
 | request_background_screenshot | `mcp__canvas__request_background_screenshot` |
+
+> **注**：`get_workflow_guide` 已迁移到 Skills 机制（query-workflow / edit-workflow / generate-workflow），不再作为 MCP 工具注册。
 
 ### 2.4 SubAgent 加载（当前未启用）
 
@@ -173,9 +174,17 @@ MainAgent 收到用户消息后，根据关键词判断任务类型：
 | **edit** | 移动、删除、旋转、调整 | 单一修改 |
 | **generate** | 布置、设计、创建、生成、规划 | 完整布置 |
 
-### 3.3 调用 get_workflow_guide
+### 3.3 工作流 Skill 自动加载
 
-分类后，MainAgent 调用 `mcp__canvas__get_workflow_guide(task_type)` 获取该类型任务的详细执行步骤。这是工作流的**唯一权威来源**。
+分类后，Claude 根据任务类型自动触发对应的工作流 Skill：
+
+| 任务类型 | Skill | 触发关键词 |
+|----------|-------|-----------|
+| query | `query-workflow` | 统计、查看、列出、有多少 |
+| edit | `edit-workflow` | 移动、删除、旋转、调整 |
+| generate | `generate-workflow` | 布置、设计、创建、生成、规划 |
+
+Skill 内容以系统指令形式注入上下文，MainAgent 严格按照 Skill 中定义的步骤执行。
 
 ### 3.4 SSE 事件流
 
@@ -206,7 +215,7 @@ data: [DONE]
 用户请求（如"统计当前卧室有多少家具"）
   │
   ▼
-1. 调用 get_workflow_guide("query")
+1. 自动加载 query-workflow Skill
   │
   ▼
 2. [可选] 调用 request_background_screenshot 查看空间截图
@@ -259,7 +268,7 @@ data: [DONE]
 用户请求（如"移动沙发到靠窗位置"）
   │
   ▼
-1. 调用 get_workflow_guide("edit")
+1. 自动加载 edit-workflow Skill
   │
   ▼
 2. [可选] 调用 request_background_screenshot 查看修改前状态
@@ -595,21 +604,19 @@ mcp__canvas__validate_layout()
 
 ## 7. MCP 工具参考
 
-### 7.1 get_workflow_guide
+### 7.1 工作流 Skills（替代原 get_workflow_guide）
 
-**调用名**：`mcp__canvas__get_workflow_guide`
+原 `get_workflow_guide` MCP 工具已迁移为三个独立的 Skills，通过 Plugin 机制按需加载：
 
-**功能**：获取任务工作流指导。是执行流程的**唯一权威来源**。
+| Skill | 触发关键词 | 内容 |
+|-------|-----------|------|
+| `query-workflow` | 统计、查看、列出、有多少 | 只读查询流程 |
+| `edit-workflow` | 移动、删除、旋转、调整 | 单一修改流程 |
+| `generate-workflow` | 布置、设计、创建、生成、规划 | 完整布置流程（含阶段 A/B、验证修正循环） |
 
-**参数**：
+**加载方式**：Claude 根据用户请求自动匹配 Skill 的 `description` 字段触发，Skill 内容作为系统指令注入上下文。
 
-| 参数 | 类型 | 必填 | 说明 |
-|------|------|------|------|
-| task_type | string | 是 | "query" / "edit" / "generate" |
-
-**返回**：对应任务类型的完整工作流 Markdown 文本。
-
-**调用时机**：每次执行任务前必须调用。
+**Skill 文件位置**：`~/.bimcanvas/skills/{skill-name}/SKILL.md`
 
 ---
 

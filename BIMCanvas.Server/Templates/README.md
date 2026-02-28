@@ -95,7 +95,7 @@
 > **注意**：`id` 由 Server 在 `validate_layout` 时自动生成（格式 `m_xxxxxxxx`），Agent 写入时无需填写。`zoneId` 由 Server 根据 bounds 位置自动计算。
 
 **操作流程**：
-- layout-agent 的具体操作流程由 `mcp__canvas__get_workflow_guide` 工具定义
+- 布置操作流程由工作流 Skills（query-workflow / edit-workflow / generate-workflow）定义
 - 本 README 仅提供数据格式说明，不包含工作流程
 
 ---

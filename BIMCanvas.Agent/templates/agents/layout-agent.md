@@ -68,7 +68,7 @@ model: inherit
 
 ## 工作流程（分层放置 + 自主验证）
 
-**生成任务必须调用 `get_workflow_guide("generate")` 获取完整流程，以下为概要**：
+**生成任务由 `generate-workflow` Skill 自动加载完整流程，以下为概要**：
 
 1. Read 读取数据文件（room_zones, module_library, openings, exclusions）
 2. Read 读取 knowledge/placement_guide.md（生成任务必须）
