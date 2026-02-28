@@ -28,7 +28,6 @@ from ..config.loader import get_config_loader
 from .subagents import create_subagents
 from .agent_logger import get_agent_logger
 from .worktree_manager import WorktreeManager, WorktreeContext
-from .skill_loader import get_skill_loader
 # MCP 服务器（业务工具）
 from ..mcp import canvas_mcp, CANVAS_ALLOWED_TOOLS
 
