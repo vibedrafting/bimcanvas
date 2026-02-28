@@ -92,7 +92,10 @@ class ConfigLoader:
                 continue
 
             target_path.parent.mkdir(parents=True, exist_ok=True)
-            shutil.copy(source_path, target_path)
+            if item.get("type") == "directory":
+                shutil.copytree(source_path, target_path)
+            else:
+                shutil.copy(source_path, target_path)
             logger.info(f"已创建配置文件: {target_path}")
 
     def load_config(self) -> dict:
