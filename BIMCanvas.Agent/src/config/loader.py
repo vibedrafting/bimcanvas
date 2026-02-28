@@ -34,7 +34,7 @@ class ConfigLoader:
     4. 加载 agents/*.md 作为子 Agent 配置
     """
 
-    TEMPLATES_DIR = Path(__file__).parent / "templates"
+    TEMPLATES_DIR = Path(__file__).parent.parent.parent / "templates"
     DEFAULT_CONFIG_DIR = Path.home() / ".bimcanvas"
 
     def __init__(self, config_dir: Path | str = None):

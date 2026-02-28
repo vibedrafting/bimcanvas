@@ -384,12 +384,14 @@ BIMCanvas.Agent/
 │   └── config/
 │       ├── __init__.py
 │       ├── settings.py         # 配置管理（从 loader 加载）
-│       ├── loader.py           # 统一配置加载器
-│       └── templates/          # 配置模板（首次运行自动复制）
-│           ├── BIMCANVAS.md.template
-│           ├── config.json.template
-│           └── agents/
-│               └── layout-agent.md.template
+│       └── loader.py           # 统一配置加载器
+│
+├── templates/                  # 配置模板（首次运行自动复制到 ~/.bimcanvas/）
+│   ├── BIMCANVAS.md
+│   ├── config.json
+│   ├── init_manifest.json
+│   └── agents/
+│       └── layout-agent.md
 │
 ├── MOSS/                       # 历史代码（仅供参考）
 └── AgentSDK-Quickstart.md      # Agent SDK 快速入门文档
