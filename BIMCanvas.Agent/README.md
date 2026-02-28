@@ -390,6 +390,11 @@ BIMCanvas.Agent/
 │   ├── BIMCANVAS.md
 │   ├── config.json
 │   ├── init_manifest.json
+│   ├── .claude-plugin/         # Plugin 清单（使 ~/.bimcanvas 成为 Plugin 目录）
+│   │   └── plugin.json
+│   ├── skills/                 # Agent Skills 模板
+│   │   └── test-echo/
+│   │       └── SKILL.md
 │   └── agents/
 │       └── layout-agent.md
 │
@@ -436,7 +441,12 @@ BIMCanvas.Agent/
 **配置文件驱动架构**：首次运行时自动在 `~/.bimcanvas/` 创建配置文件。
 
 ```
-~/.bimcanvas/
+~/.bimcanvas/                  ← 同时作为 Agent 配置目录和 Claude Plugin 目录
+├── .claude-plugin/
+│   └── plugin.json        # Plugin 清单（使该目录成为合法 Plugin）
+├── skills/                # Agent Skills（通过 Plugin 机制加载，避免 CLAUDE.md 污染）
+│   └── test-echo/
+│       └── SKILL.md
 ├── BIMCANVAS.md           # 主 Agent 系统提示词（可编辑）
 ├── config.json            # 应用配置（API、模型、工具）
 └── agents/
@@ -522,11 +532,13 @@ model: inherit
 - [x] 更新 System Prompt（布置任务指导）
 - [x] 添加布置任务 API（/api/task/layout）
 - [x] 添加流式布置任务 API（/api/task/layout/stream）
+- [x] Skill 功能集成（Plugin 旁路策略，零配置污染）
 - [ ] 端到端测试（完整布置流程）
 - [ ] Web 端布置任务集成
 
 ### P3 阶段（完整功能）- 待开发
 
+- [ ] 编写生产级 Skills（layout-guide、git-workflow、furniture-catalog）
 - [ ] 多轮对话上下文优化
 - [ ] 布置方案评估与修正
 - [ ] 与 Revit 回写集成
@@ -578,6 +590,22 @@ if msg_parent_id and msg_parent_id in self._subagent_text_collector:
 elif not msg_parent_id:
     self._current_subagent_parent_id = None
 ```
+
+### 4. Skill 配置污染（Plugin 旁路策略）
+
+| 项目 | 内容 |
+|------|------|
+| **现象** | 使用 `setting_sources=["project"]` 加载 Skills 时，CLI 同时注入了 `~/.claude/CLAUDE.md` 全局配置（Git 存档规则、MSBuild 路径等），导致 Agent 行为异常 |
+| **根因** | SDK 的 `setting_sources` 是粗粒度开关，无法单独加载 Skills 而不加载其他配置。即使只设 `"project"`，CLI 仍扫描全局 CLAUDE.md |
+| **方案** | **Plugin 旁路策略**：`setting_sources=None`（不加载任何配置）+ `plugins=[{"type": "local", "path": "~/.bimcanvas"}]`（通过 Plugin 机制独立加载 Skills） |
+| **状态** | ✅ 已解决（HTTP 抓包验证零污染） |
+
+**技术细节**：
+
+- `~/.bimcanvas/` 同时作为 Agent 配置目录和 Claude Plugin 目录
+- 需要 `.claude-plugin/plugin.json` 清单文件使目录成为合法 Plugin
+- Skills 通过 `system-reminder` 注入，AI 通过 `Skill` 工具按需调用
+- 详细研究报告见 `reports/Skill/Agent_SDK_Skill最终实践报告.md`
 
 ## 开发指南
 
