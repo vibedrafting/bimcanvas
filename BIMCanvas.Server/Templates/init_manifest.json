@@ -30,13 +30,6 @@
       "description": "家具模块库（module_library.json + SVG）"
     },
     {
-      "name": "bimcanvas-plugin",
-      "target": ".bimcanvas-plugin",
-      "type": "directory",
-      "enabled": true,
-      "description": "BIMCanvas Skills Plugin（通过 --plugin-dir 加载，不依赖 setting_sources）"
-    },
-    {
       "name": ".gitignore",
       "target": ".gitignore",
       "type": "template",

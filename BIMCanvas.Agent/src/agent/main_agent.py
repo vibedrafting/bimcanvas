@@ -3,7 +3,6 @@
 import asyncio
 import logging
 import re
-from pathlib import Path
 from typing import AsyncIterator
 from dataclasses import dataclass
 
@@ -204,14 +203,14 @@ class MainAgent:
         all_allowed = (allowed_tools or []) + mcp_tools + ["Skill"]
 
         # === Plugin 机制加载 Skills ===
-        # 通过 --plugin-dir 加载，独立于 setting_sources，彻底避免 CLAUDE.md 污染
+        # ~/.bimcanvas/ 本身就是 Plugin 目录，独立于 setting_sources，彻底避免 CLAUDE.md 污染
         plugins = []
-        plugin_path = Path(self.working_directory) / ".bimcanvas-plugin"
-        if plugin_path.exists():
+        plugin_path = self._config_loader.config_dir  # ~/.bimcanvas/
+        if (plugin_path / ".claude-plugin").exists():
             plugins.append({"type": "local", "path": str(plugin_path)})
             self._agent_logger._print(f"[Plugin] BIMCanvas Plugin 已注册: {plugin_path}")
         else:
-            self._agent_logger.log_warning(f"[Plugin] Plugin 目录不存在: {plugin_path}")
+            self._agent_logger.log_warning(f"[Plugin] Plugin 清单不存在: {plugin_path / '.claude-plugin'}")
 
         return ClaudeAgentOptions(
             system_prompt=system_prompt,

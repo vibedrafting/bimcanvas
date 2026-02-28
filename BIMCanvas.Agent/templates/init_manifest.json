@@ -21,6 +21,20 @@
       "type": "template",
       "enabled": false,
       "description": "布置专家 SubAgent 配置"
+    },
+    {
+      "name": ".claude-plugin",
+      "target": ".claude-plugin",
+      "type": "directory",
+      "enabled": true,
+      "description": "Plugin 清单（使 ~/.bimcanvas 成为合法 Plugin 目录）"
+    },
+    {
+      "name": "skills",
+      "target": "skills",
+      "type": "directory",
+      "enabled": true,
+      "description": "Agent Skills（布置指导、Git 工作流等）"
     }
   ]
 }

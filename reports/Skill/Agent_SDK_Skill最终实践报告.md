@@ -116,17 +116,18 @@ Agent SDK 官方文档（Plugins in the SDK）明确指出：
 
 ### 3.2 Plugin 目录结构
 
+`~/.bimcanvas/` 目录本身就是 Plugin 目录，同时扮演 Agent 配置目录和 Plugin 目录：
+
 ```
-.bimcanvas-plugin/                 ← Plugin 根目录
+~/.bimcanvas/                      ← 整个目录既是 Agent 配置又是 Plugin
 ├── .claude-plugin/
 │   └── plugin.json               ← Plugin 清单文件（必需）
-└── skills/
-    ├── test-echo/
-    │   └── SKILL.md              ← Skill 定义文件
-    ├── layout-guide/
-    │   └── SKILL.md
-    └── git-workflow/
-        └── SKILL.md
+├── skills/                        ← Skills 集中管理
+│   └── test-echo/
+│       └── SKILL.md
+├── config.json                    ← Agent 配置（已有）
+├── BIMCANVAS.md                   ← System Prompt（已有）
+└── agents/                        ← SubAgent 定义（已有）
 ```
 
 **plugin.json 最小格式**：
@@ -141,14 +142,14 @@ Agent SDK 官方文档（Plugins in the SDK）明确指出：
 ### 3.3 代码实现
 
 ```python
-from pathlib import Path
 from claude_agent_sdk import ClaudeAgentOptions
 
 def _create_options(self) -> ClaudeAgentOptions:
     # === Plugin 机制加载 Skills ===
+    # ~/.bimcanvas/ 本身就是 Plugin 目录
     plugins = []
-    plugin_path = Path(self.working_directory) / ".bimcanvas-plugin"
-    if plugin_path.exists():
+    plugin_path = self._config_loader.config_dir  # ~/.bimcanvas/
+    if (plugin_path / ".claude-plugin").exists():
         plugins.append({"type": "local", "path": str(plugin_path)})
 
     return ClaudeAgentOptions(
@@ -214,32 +215,25 @@ def _create_options(self) -> ClaudeAgentOptions:
 
 ### 4.2 Plugin 模板分发
 
-在 BIMCanvas 架构中，Plugin 目录由 Server 的模板系统管理：
+Plugin 文件由 Agent 的模板系统管理，初始化时自动复制到 `~/.bimcanvas/`：
 
 ```
-BIMCanvas.Server/Templates/
-└── bimcanvas-plugin/              ← 源模板
-    ├── .claude-plugin/
-    │   └── plugin.json
-    └── skills/
-        └── test-echo/
-            └── SKILL.md
+BIMCanvas.Agent/templates/
+├── .claude-plugin/plugin.json     ← 源模板
+├── skills/test-echo/SKILL.md      ← 源模板
+├── config.json                    ← 已有
+└── BIMCANVAS.md                   ← 已有
 
-    ↓ Server 初始化项目时复制到 ↓
+    ↓ Agent 初始化时复制到 ↓
 
-{project}/.bimcanvas-plugin/       ← 部署位置
+~/.bimcanvas/                      ← 部署位置（全局唯一）
+├── .claude-plugin/plugin.json
+├── skills/test-echo/SKILL.md
+├── config.json
+└── BIMCANVAS.md
 ```
 
-**init_manifest.json 配置**：
-```json
-{
-  "name": "bimcanvas-plugin",
-  "target": ".bimcanvas-plugin",
-  "type": "directory",
-  "enabled": true,
-  "description": "BIMCanvas Skills Plugin（通过 --plugin-dir 加载，不依赖 setting_sources）"
-}
-```
+所有项目共享同一个 `~/.bimcanvas/skills/` 目录，统一管理 Skills。
 
 ### 4.3 SKILL.md 编写规范
 
@@ -311,11 +305,7 @@ disallowed_tools=["TodoWrite", "EnterPlanMode", "ExitPlanMode"]
 
 ### 6.2 Skill 名称前缀
 
-通过 Plugin 加载的 Skill，名称会带有 Plugin 目录前缀：
-- **Plugin 加载**：`.bimcanvas-plugin:test-echo`
-- **原生加载**：`test-echo`
-
-如果 AI 通过 `Skill` 工具调用时需要使用完整名称。
+通过 Plugin 加载的 Skill，名称会带有 Plugin 目录名前缀（取决于 Plugin 目录的名称）。AI 通过 `Skill` 工具调用时需要使用完整名称。
 
 ### 6.3 SubAgent 不继承 Plugin Skills
 
@@ -330,7 +320,7 @@ Plugin 机制仅影响顶层 CLI 会话（MainAgent）。SubAgent 作为独立�
 为 BIMCanvas.Agent 开发实际业务 Skills：
 
 ```
-.bimcanvas-plugin/skills/
+~/.bimcanvas/skills/
 ├── test-echo/SKILL.md              ← 已完成（测试验证用）
 ├── layout-guide/SKILL.md           ← 待开发（布置设计规范）
 ├── git-workflow/SKILL.md           ← 待开发（Git 工作流指导）
@@ -390,6 +380,7 @@ async def layout_validator(args: dict) -> dict:
 | 2026-02-28 | 测试 `["project"]` | 失败：CLI 仍加载 `~/.claude/CLAUDE.md` |
 | 2026-02-28 | **Plugin 旁路方案** | **成功**：`None` + `plugins=[...]` 实现零污染 Skill 加载 |
 | 2026-02-28 | 清理旧 skill_loader | 删除无效的手动加载机制，仅保留 Plugin 新方案 |
+| 2026-02-28 | Plugin 迁移到 ~/.bimcanvas/ | 全局统一管理 Skills，项目目录不再存放 Plugin |
 
 ---
 
