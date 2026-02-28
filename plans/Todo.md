@@ -2,25 +2,27 @@
 
 ### Web
 
-- [ ] AICommandCenter.vue代码瘦身
+- [x] AICommandCenter.vue代码瘦身
 - [x] 显式保存
-- [ ] 按图层、区域截图
+- [x] 按图层、区域截图
 - [ ] 可视化diff
-- [ ] Ribbon抖动BUG
+- [x] Ribbon抖动BUG
 - [ ] 设计辅助线
 - [ ] 通过网格示意分区，影响策略
-- [ ] “+”快速参照：选中的构件/分区/网格
+- [x] “+”快速参照：选中的构件/分区/网格
 - [ ] 方案生长动画
+- [ ] 截图多模态验证
+- [ ] Task Tool
 
 ### Server
 
 - [ ] 新增“语义转向量”函数，不应该是web的职责
-- [ ] git功能
+- [x] git功能
   - [x] checkout
-  - [ ] commit
-  - [ ] merge
-  - [ ] git worktree
-  - [ ] diff
+  - [x] commit
+  - [x] merge
+  - [x] git worktree
+  - [x] diff
 
 - [ ] 完成面
 
