@@ -201,7 +201,7 @@ class MainAgent:
         self._agent_logger._print(f"[MCP] Canvas MCP 已注册，工具: {mcp_tools}")
 
         # 合并工具权限
-        all_allowed = (allowed_tools or []) + mcp_tools
+        all_allowed = (allowed_tools or []) + mcp_tools + ["Skill"]
 
         return ClaudeAgentOptions(
             system_prompt=system_prompt,
@@ -217,7 +217,7 @@ class MainAgent:
             effort=sdk_effort,                     # SDK 原生（0.1.36+）
             thinking=sdk_thinking,                 # SDK 原生（0.1.36+）
             mcp_servers={"canvas": canvas_mcp},    # 业务工具
-            setting_sources=None,                  # ❌ 禁用文件系统配置加载（修复配置污染）
+            setting_sources=["project"],           # ✅ 仅加载项目级 Skills（项目目录无 CLAUDE.md，零污染）
             max_buffer_size=10 * 1024 * 1024,      # 10MB — 截图 ImageContent 需要足够缓冲区（默认仅 1MB）
             can_use_tool=self._auto_approve_tool,  # Agent 后端无人值守，自动批准所有工具调用
         )

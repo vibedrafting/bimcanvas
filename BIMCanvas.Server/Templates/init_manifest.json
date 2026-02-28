@@ -33,8 +33,8 @@
       "name": "skills",
       "target": ".claude/skills",
       "type": "directory",
-      "enabled": false,
-      "description": "Agent Skills 模板（当前不参与初始化）"
+      "enabled": true,
+      "description": "Agent Skills（布置指导 + Git 工作流 + 测试）"
     },
     {
       "name": ".gitignore",
