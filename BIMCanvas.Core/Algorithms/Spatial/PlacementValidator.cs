@@ -33,7 +33,7 @@ namespace BIMCanvas.Core.Algorithms.Spatial
             var boundary = designZone.ComputedBoundary ?? designZone.RawBoundary;
             if (boundary != null)
             {
-                if (!CollisionDetector.IsWithin(moduleBounds, boundary))
+                if (!CollisionDetector.IsWithinTolerant(moduleBounds, boundary))
                 {
                     violations.Add(new Violation(
                         "模块超出区域边界",
@@ -47,7 +47,7 @@ namespace BIMCanvas.Core.Algorithms.Spatial
             {
                 var exclusionBoundary = exclusion.RawBoundary ?? exclusion.ComputedBoundary;
                 if (exclusionBoundary != null &&
-                    CollisionDetector.Overlaps(moduleBounds, exclusionBoundary))
+                    CollisionDetector.OverlapsTolerant(moduleBounds, exclusionBoundary))
                 {
                     violations.Add(new Violation(
                         $"模块与禁区重叠：{exclusion.Reason}",
@@ -60,7 +60,7 @@ namespace BIMCanvas.Core.Algorithms.Spatial
             foreach (var existing in existingModules)
             {
                 if (existing.Bounds != null &&
-                    CollisionDetector.Overlaps(moduleBounds, existing.Bounds))
+                    CollisionDetector.OverlapsTolerant(moduleBounds, existing.Bounds))
                 {
                     violations.Add(new Violation(
                         $"模块与已放置模块 {existing.Id} 重叠",
@@ -113,7 +113,7 @@ namespace BIMCanvas.Core.Algorithms.Spatial
             foreach (var module in modules)
             {
                 if (module.Bounds != null &&
-                    CollisionDetector.Overlaps(bounds, module.Bounds))
+                    CollisionDetector.OverlapsTolerant(bounds, module.Bounds))
                 {
                     return true;
                 }

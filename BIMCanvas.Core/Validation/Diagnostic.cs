@@ -40,6 +40,15 @@ namespace BIMCanvas.Core.Validation
         /// </summary>
         public string? ConflictType { get; }
 
+        /// <summary>重叠面积 mm²（E002-E005 有效，E001/E006 为 null）</summary>
+        public double? OverlapAreaMm2 { get; }
+
+        /// <summary>穿透深度 mm，模块应朝反方向移动此距离</summary>
+        public double? PenetrationDepthMm { get; }
+
+        /// <summary>穿透方向 north/south/east/west（障碍物相对于模块的方位）</summary>
+        public string? PenetrationDirection { get; }
+
         public Diagnostic(
             string code,
             string severity,
@@ -47,7 +56,10 @@ namespace BIMCanvas.Core.Validation
             string moduleId,
             string? moduleName = null,
             string? conflictId = null,
-            string? conflictType = null)
+            string? conflictType = null,
+            double? overlapAreaMm2 = null,
+            double? penetrationDepthMm = null,
+            string? penetrationDirection = null)
         {
             Code = code;
             Severity = severity;
@@ -56,6 +68,9 @@ namespace BIMCanvas.Core.Validation
             ModuleName = moduleName;
             ConflictId = conflictId;
             ConflictType = conflictType;
+            OverlapAreaMm2 = overlapAreaMm2;
+            PenetrationDepthMm = penetrationDepthMm;
+            PenetrationDirection = penetrationDirection;
         }
 
         public override string ToString()

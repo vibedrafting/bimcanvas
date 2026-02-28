@@ -502,11 +502,25 @@ def _format_validation_report(report: dict[str, Any]) -> str:
             conflict_type = d.get("conflictType")
             if conflict_id and conflict_type:
                 if conflict_type == "module":
-                    lines.append(f"  {module_id}{name_part} ↔ {conflict_type}:{conflict_id}")
+                    base_line = f"  {module_id}{name_part} ↔ {conflict_type}:{conflict_id}"
                 else:
-                    lines.append(f"  {module_id}{name_part} ← {conflict_type}:{conflict_id}")
+                    base_line = f"  {module_id}{name_part} ← {conflict_type}:{conflict_id}"
             else:
-                lines.append(f"  {module_id}{name_part}")
+                base_line = f"  {module_id}{name_part}"
+
+            # 追加穿透修正指引
+            penetration = d.get("penetrationDepthMm")
+            direction = d.get("penetrationDirection")
+            area = d.get("overlapAreaMm2")
+            if penetration is not None and direction is not None:
+                fix_dir = {"north": "south", "south": "north", "east": "west", "west": "east"}.get(direction, direction)
+                fix_cn = {"north": "北", "south": "南", "east": "东", "west": "西"}.get(fix_dir, fix_dir)
+                hint = f" | 修正：向{fix_cn}移动 {penetration}mm"
+                if area is not None:
+                    hint += f"（重叠 {area}mm²）"
+                base_line += hint
+
+            lines.append(base_line)
         lines.append("")
 
     return "\n".join(lines)
