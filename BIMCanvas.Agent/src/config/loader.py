@@ -75,11 +75,7 @@ class ConfigLoader:
         # 创建配置目录
         self.config_dir.mkdir(parents=True, exist_ok=True)
 
-        # 创建清单中声明的子目录
-        for dir_name in manifest.get("createDirs", []):
-            (self.config_dir / dir_name).mkdir(exist_ok=True)
-
-        # 按清单初始化模板文件
+        # 按清单初始化模板文件（目录由 target 路径自动创建）
         for item in manifest.get("items", []):
             if not item.get("enabled", True):
                 logger.debug(f"跳过禁用项: {item['name']}")
