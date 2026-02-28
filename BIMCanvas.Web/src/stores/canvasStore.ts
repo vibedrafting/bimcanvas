@@ -47,12 +47,16 @@ export const useCanvasStore = defineStore('canvas', () => {
             .filter((obj): obj is NonNullable<typeof obj> => obj !== null);
     });
 
-    // 辅助函数：在所有对象类型中查找
-    const findObjectById = (id: string): any | null => {
-        const debug = useDebugStore();
+    // Scene 数据缓存：用于竞态条件下的降级回退
+    // 当 Scene mesh 的 userData.data 与 Store 数据暂时不同步时，
+    // 使用缓存的 Scene 数据确保属性面板仍可展示
+    const sceneDataCache = new Map<string, any>();
 
+    // 辅助函数：在所有对象类型中查找
+    // 注意：此函数在 computed 中调用，禁止使用 debugStore（会产生响应式副作用导致无限循环）
+    const findObjectById = (id: string): any | null => {
         if (!projectData.value) {
-            debug.warn('[Store] findObjectById: projectData is null');
+            console.warn('[Store] findObjectById: projectData is null');
             return null;
         }
 
@@ -103,7 +107,14 @@ export const useCanvasStore = defineStore('canvas', () => {
             return { ...exclusion, type: 'exclusion' };
         }
 
-        debug.warn(`[Store] findObjectById: NOT FOUND (${id})`);
+        // 降级：使用 Scene 数据缓存（解决 Scene 与 Store 竞态不同步）
+        const cached = sceneDataCache.get(id);
+        if (cached) {
+            console.warn(`[Store] findObjectById: using scene cache for (${id})`);
+            return cached;
+        }
+
+        console.warn(`[Store] findObjectById: NOT FOUND (${id})`);
         return null;
     };
 
@@ -206,6 +217,7 @@ export const useCanvasStore = defineStore('canvas', () => {
             const response = await axios.get<ProjectData>('http://localhost:5000/api/project');
             projectData.value = response.data;
             isDirty.value = false;
+            sceneDataCache.clear(); // 数据已刷新，清理 Scene 降级缓存
 
             // 历史管理策略
             if (timeline.shouldClearHistory(opts.source)) {
@@ -261,6 +273,11 @@ export const useCanvasStore = defineStore('canvas', () => {
                 id = obj.userData.id;
             }
             selectedIds.value = id ? [id] : [];
+
+            // 缓存 Scene mesh 数据快照（竞态降级回退）
+            if (id && obj.data) {
+                sceneDataCache.set(id, { ...obj.data, type: obj.type || 'module' });
+            }
         }
         debugMsg.value += `\nSet: ${selectedIds.value.join(',')} at ${Date.now()}`;
         console.log('Store setSelectedObject:', selectedIds.value, '->', selectedObject.value);
@@ -283,6 +300,10 @@ export const useCanvasStore = defineStore('canvas', () => {
         if (id && !selectedIds.value.includes(id)) {
             selectedIds.value = [...selectedIds.value, id];
             debugMsg.value += `\nAdd: ${id} at ${Date.now()}`;
+        }
+        // 缓存 Scene mesh 数据快照（竞态降级回退）
+        if (id && obj?.data) {
+            sceneDataCache.set(id, { ...obj.data, type: obj.type || 'module' });
         }
     };
 
@@ -311,6 +332,10 @@ export const useCanvasStore = defineStore('canvas', () => {
             id = obj.userData.id;
         }
         if (id) {
+            // 缓存 Scene mesh 数据快照（竞态降级回退）
+            if (obj?.data) {
+                sceneDataCache.set(id, { ...obj.data, type: obj.type || 'module' });
+            }
             if (selectedIds.value.includes(id)) {
                 removeFromSelection(id);
             } else {
