@@ -735,7 +735,7 @@ class MainAgent:
                     hidden_message = None
 
                     if self.verbose:
-                        self._agent_logger.log_info(f"[tool_result] tool_name={tool_name}, is_error={is_error}, result={str(result)[:100] if result else 'None'}")
+                        self._agent_logger.log_tool_result(tool_name, result, is_error)
 
                     if is_error and result:
                         err_type = self._classify_tool_error(str(result))

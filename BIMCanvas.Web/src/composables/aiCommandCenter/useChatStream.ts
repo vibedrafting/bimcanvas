@@ -425,6 +425,10 @@ export const useChatStream = (options: ChatStreamOptions) => {
               } else if (parsed.type === 'tool_call_complete') {
                 const toolBubble = findBubbleByIdDeep(currentMsg.bubbles, parsed.toolCallId);
                 if (toolBubble && toolBubble.type === 'tool_call') {
+                  // 保存工具返回结果到 bubble
+                  if (parsed.toolOutput) {
+                    appendToolCallOutput(toolBubble, parsed.toolOutput);
+                  }
                   if (parsed.success) {
                     completeBubble(toolBubble);
                   } else {

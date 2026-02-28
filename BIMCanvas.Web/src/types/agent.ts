@@ -116,6 +116,7 @@ export interface ToolCallOutputEvent {
 export interface ToolCallCompleteEvent {
   type: 'tool_call_complete';
   toolCallId: string;
+  toolOutput?: string;
   success: boolean;
   error?: string;
 }

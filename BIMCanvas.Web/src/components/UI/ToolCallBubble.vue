@@ -47,6 +47,17 @@ const toolDetail = computed((): string | null => {
       return null;
   }
 });
+
+// 完整格式化的工具参数（展开视图用，不截断）
+const formattedParams = computed((): string => {
+  const params = props.bubble.toolParams;
+  if (!params) return '';
+  try {
+    return JSON.stringify(params, null, 2);
+  } catch {
+    return String(params);
+  }
+});
 </script>
 
 <template>
@@ -80,9 +91,17 @@ const toolDetail = computed((): string | null => {
     </div>
 
     <!-- Expanded content -->
-    <div class="bubble-body" v-if="isExpanded && bubble.toolOutput">
-      <div class="tool-output">
+    <div class="bubble-body" v-if="isExpanded">
+      <div class="tool-params" v-if="bubble.toolParams && Object.keys(bubble.toolParams).length > 0">
+        <div class="section-label">参数</div>
+        <pre>{{ formattedParams }}</pre>
+      </div>
+      <div class="tool-output" v-if="bubble.toolOutput">
+        <div class="section-label">结果</div>
         <pre>{{ bubble.toolOutput.slice(0, 500) }}{{ bubble.toolOutput.length > 500 ? '...' : '' }}</pre>
+      </div>
+      <div class="tool-no-data" v-if="!bubble.toolParams && !bubble.toolOutput">
+        <span>暂无详细信息</span>
       </div>
     </div>
   </div>
@@ -213,6 +232,36 @@ const toolDetail = computed((): string | null => {
     max-height: 200px;
     overflow-y: auto;
   }
+}
+
+.section-label {
+  font-size: 0.65rem;
+  color: var(--text-tertiary);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  margin-bottom: 4px;
+  font-weight: 500;
+}
+
+.tool-params {
+  margin-bottom: 8px;
+
+  pre {
+    font-size: 0.7rem;
+    font-family: var(--font-mono);
+    color: var(--text-secondary);
+    margin: 0;
+    white-space: pre-wrap;
+    word-break: break-all;
+    max-height: 300px;
+    overflow-y: auto;
+  }
+}
+
+.tool-no-data {
+  font-size: 0.7rem;
+  color: var(--text-tertiary);
+  font-style: italic;
 }
 
 @keyframes spin { to { transform: rotate(360deg); } }
