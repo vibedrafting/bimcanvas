@@ -3,6 +3,7 @@
 import asyncio
 import logging
 import re
+from pathlib import Path
 from typing import AsyncIterator
 from dataclasses import dataclass
 
@@ -203,6 +204,16 @@ class MainAgent:
         # 合并工具权限
         all_allowed = (allowed_tools or []) + mcp_tools + ["Skill"]
 
+        # === Plugin 机制加载 Skills ===
+        # 通过 --plugin-dir 加载，独立于 setting_sources，彻底避免 CLAUDE.md 污染
+        plugins = []
+        plugin_path = Path(self.working_directory) / ".bimcanvas-plugin"
+        if plugin_path.exists():
+            plugins.append({"type": "local", "path": str(plugin_path)})
+            self._agent_logger._print(f"[Plugin] BIMCanvas Plugin 已注册: {plugin_path}")
+        else:
+            self._agent_logger.log_warning(f"[Plugin] Plugin 目录不存在: {plugin_path}")
+
         return ClaudeAgentOptions(
             system_prompt=system_prompt,
             cwd=self.working_directory,
@@ -217,7 +228,8 @@ class MainAgent:
             effort=sdk_effort,                     # SDK 原生（0.1.36+）
             thinking=sdk_thinking,                 # SDK 原生（0.1.36+）
             mcp_servers={"canvas": canvas_mcp},    # 业务工具
-            setting_sources=["project"],           # ✅ 仅加载项目级 Skills（项目目录无 CLAUDE.md，零污染）
+            setting_sources=None,                  # ✅ 安全：不加载任何文件系统配置（CLAUDE.md 零污染）
+            plugins=plugins,                       # ✅ 通过 Plugin 机制加载 Skills
             max_buffer_size=10 * 1024 * 1024,      # 10MB — 截图 ImageContent 需要足够缓冲区（默认仅 1MB）
             can_use_tool=self._auto_approve_tool,  # Agent 后端无人值守，自动批准所有工具调用
         )

@@ -30,11 +30,11 @@
       "description": "家具模块库（module_library.json + SVG）"
     },
     {
-      "name": "skills",
-      "target": ".claude/skills",
+      "name": "bimcanvas-plugin",
+      "target": ".bimcanvas-plugin",
       "type": "directory",
       "enabled": true,
-      "description": "Agent Skills（布置指导 + Git 工作流 + 测试）"
+      "description": "BIMCanvas Skills Plugin（通过 --plugin-dir 加载，不依赖 setting_sources）"
     },
     {
       "name": ".gitignore",
