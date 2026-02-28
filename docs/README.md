@@ -2,8 +2,8 @@
 
 > 本文档索引 `docs/` 根目录下的技术文档。
 >
-> **最后更新**: 2026-01-13
-> **文档版本**: v2.0 (重构后)
+> **最后更新**: 2026-03-01
+> **文档版本**: v2.1
 
 ---
 
@@ -23,6 +23,7 @@
 | [Agent_SDK.md](Agent_SDK.md) | Agent 设计 | Agent SDK 技术指南 |
 | [Agent_SDK_Parallel.md](Agent_SDK_Parallel.md) | Agent 设计 | 并行设计模式（专题） |
 | [Agent_Spatial.md](Agent_Spatial.md) | Agent 设计 | AI 空间理解能力增强 |
+| [Agent_Workflows.md](Agent_Workflows.md) | Agent 设计 | Agent 运行时工作流（query/edit/generate） |
 | [Web_Frontend.md](Web_Frontend.md) | Web 前端 | Web 前端技术 |
 
 ---
@@ -65,6 +66,7 @@
 | [Agent_SDK.md](Agent_SDK.md) | ClaudeSDKClient 封装、MCP 工具定位 |
 | [Agent_SDK_Parallel.md](Agent_SDK_Parallel.md) | 三大支柱、核心场景（策略分叉/布局求解器/主编式合并）、Git Worktree 架构 |
 | [Agent_Spatial.md](Agent_Spatial.md) | OBB 规划师哲学、视觉增强、设计场线、语义网格 |
+| [Agent_Workflows.md](Agent_Workflows.md) | Agent 运行时工作流手册，三种任务类型（query/edit/generate）完整链路 |
 
 ### 6. Web 前端
 
@@ -131,7 +133,9 @@ PRD (产品定位)
  │         ├── Agent_SDK (SDK 技术)
  │         │       └── Agent_SDK_Parallel (并行设计模式专题)
  │         │
- │         └── Agent_Spatial (空间理解)
+ │         ├── Agent_Spatial (空间理解)
+ │         │
+ │         └── Agent_Workflows (运行时工作流)
  │
  └──→ Web_Frontend (前端技术)
 ```
@@ -192,8 +196,9 @@ PRD (产品定位)
 
 ### Agent 开发
 1. 阅读 [Agent_Design.md](Agent_Design.md) 了解架构与提示词规范
-2. 阅读 [Agent_SDK.md](Agent_SDK.md) 了解 SDK 使用
-3. 阅读 [Agent_Spatial.md](Agent_Spatial.md) 了解空间理解增强
+2. 阅读 [Agent_Workflows.md](Agent_Workflows.md) 了解运行时工作流（query/edit/generate）
+3. 阅读 [Agent_SDK.md](Agent_SDK.md) 了解 SDK 使用
+4. 阅读 [Agent_Spatial.md](Agent_Spatial.md) 了解空间理解增强
 
 ### Web 前端开发
 1. 阅读 [Web_Frontend.md](Web_Frontend.md) 了解前端技术栈

@@ -1,0 +1,820 @@
+# BIMCanvas Agent 运行时工作流
+
+> **版本**：v1.0 | **更新日期**：2026-03-01
+> **定位**：Agent 运行手册 — 从请求进入到结果输出的完整链路
+>
+> **相关文档**：
+> - [Flow_Workflows.md](Flow_Workflows.md) — 端到端 6 阶段业务流程（宏观视角）
+> - [Agent_Design.md](Agent_Design.md) — Agent 架构设计决策
+> - [Agent_Skills_Design.md](Agent_Skills_Design.md) — Skills 工作流封装机制
+> - [Arch_MCP_Tools.md](Arch_MCP_Tools.md) — MCP 工具接口规范
+
+---
+
+## 1. 概述
+
+BIMCanvas Agent 是基于 Anthropic Claude Agent SDK 的 AI 室内布置助手，在建筑平面内为用户规划和布置家具。
+
+```
+用户请求
+  │
+  ▼
+HTTP Server (aiohttp)           ← /api/chat/stream (SSE)
+  │
+  ▼
+MainAgent (Claude Agent SDK)    ← 意图分析、任务分类、派发
+  │
+  ├──→ SubAgent (layout-agent)  ← 家具布置专家
+  │
+  └──→ Canvas MCP Tools         ← get_workflow_guide / validate_layout / screenshot
+         │
+         ▼
+  .NET Server (BIMCanvas.Server) ← 几何验证、截图渲染、数据持久化
+```
+
+### 运行模式
+
+| 模式 | 命令 | 用途 |
+|------|------|------|
+| HTTP 服务 | `python -m src.main --serve` | 生产环境，Web 前端通过 SSE 调用 |
+| 交互式 CLI | `python -m src.main` | 开发调试 |
+
+---
+
+## 2. 系统启动流程
+
+### 2.1 配置加载
+
+Agent 启动时从 `~/.bimcanvas/` 加载全部配置（首次运行自动从 `templates/` 初始化）：
+
+```
+~/.bimcanvas/
+├── config.json              ← 模型、Token、权限、服务器配置
+├── BIMCANVAS.md             ← 主控 Agent 系统提示词
+├── .claude-plugin/
+│   └── plugin.json          ← Plugin 清单（旁路加载 Skills）
+├── agents/
+│   └── layout-agent.md      ← SubAgent 配置（frontmatter + 提示词）
+├── skills/                  ← Skills 按需加载
+└── knowledge/
+    └── placement_guide.md   ← 布置规则知识库
+```
+
+**加载优先级**：环境变量 > config.json > 默认值
+
+**config.json 关键配置**：
+
+```json
+{
+    "model": "claude-sonnet-4-6",
+    "maxTokens": 4096,
+    "defaultEffort": "medium",
+    "defaultThinking": "off",
+    "permissions": {
+        "allow": ["Read", "Glob", "Grep", "Task"],
+        "deny": []
+    },
+    "server": { "host": "127.0.0.1", "port": 8765 }
+}
+```
+
+### 2.2 Agent SDK 初始化
+
+MainAgent 通过 `ClaudeAgentOptions` 配置 SDK：
+
+| 参数 | 说明 |
+|------|------|
+| `model` | 模型名称（默认 claude-sonnet-4-6） |
+| `system_prompt` | BIMCANVAS.md 内容 |
+| `thinking` | ThinkingConfigAdaptive(8000) 或 ThinkingConfigDisabled |
+| `thinking_effort` | "low" / "medium" / "high" / "max" |
+| `include_partial_messages` | `True`（启用流式文本输出） |
+| `tools` | 内置工具列表 |
+| `mcp_servers` | `{"canvas": canvas_mcp}` |
+| `agents` | `{"layout-agent": AgentDefinition(...)}` |
+| `plugins` | `[{"type": "local", "path": "~/.bimcanvas"}]` |
+
+### 2.3 MCP 工具注册
+
+Canvas MCP Server 在进程内直接注册（无 IPC 开销）：
+
+```python
+canvas_mcp = create_sdk_mcp_server(
+    name="canvas",
+    tools=[
+        request_background_screenshot,
+        validate_layout,
+        get_workflow_guide,
+    ],
+)
+```
+
+**工具调用名规则**：`mcp__{mcp_servers字典key}__{@tool装饰器名}`
+
+| 工具 | 调用名 |
+|------|--------|
+| get_workflow_guide | `mcp__canvas__get_workflow_guide` |
+| validate_layout | `mcp__canvas__validate_layout` |
+| request_background_screenshot | `mcp__canvas__request_background_screenshot` |
+
+### 2.4 SubAgent 加载
+
+从 `~/.bimcanvas/agents/*.md` 解析 YAML frontmatter：
+
+```yaml
+---
+name: layout-agent
+description: 家具布置专家。用于空间规划、家具摆放、布局优化任务。
+tools: Read, Write, Glob
+model: inherit
+---
+```
+
+### 2.5 HTTP 服务启动
+
+- 多窗口支持：每个 `windowId` 对应独立的 Agent 实例（缓存在内存中）
+- CORS 启用：支持 Web 前端跨域调用
+
+---
+
+## 3. 请求处理总流程
+
+### 3.1 HTTP 入口
+
+**端点**：`POST /api/chat/stream`
+
+**请求体**：
+```json
+{
+    "projectPath": "path/to/project",
+    "windowId": "primary",
+    "message": "帮我布置客厅",
+    "model": "claude-sonnet-4-6",
+    "effort": "high",
+    "thinking": "adaptive"
+}
+```
+
+### 3.2 意图分析与任务分类
+
+MainAgent 收到用户消息后，根据关键词判断任务类型：
+
+| 类型 | 触发关键词 | 性质 |
+|------|-----------|------|
+| **query** | 有多少、统计、查看、列出、当前状态 | 只读 |
+| **edit** | 移动、删除、旋转、调整 | 单一修改 |
+| **generate** | 布置、设计、创建、生成、规划 | 完整布置 |
+
+### 3.3 调用 get_workflow_guide
+
+分类后，MainAgent 调用 `mcp__canvas__get_workflow_guide(task_type)` 获取该类型任务的详细执行步骤。这是工作流的**唯一权威来源**。
+
+### 3.4 SSE 事件流
+
+响应通过 Server-Sent Events 实时推送：
+
+```
+data: {"type": "thinking", "content": "分析用户意图..."}
+data: {"type": "text", "content": "好的，我来帮你布置客厅"}
+data: {"type": "subagent_start", "subAgentId": "sa-xxx", "subAgentType": "layout-agent"}
+data: {"type": "tool_call_start", "toolCallId": "tc-1", "toolName": "Read", "toolParams": {...}}
+data: {"type": "tool_call_output", "toolCallId": "tc-1", "toolOutput": "..."}
+data: {"type": "tool_call_complete", "toolCallId": "tc-1", "success": true}
+data: {"type": "subagent_complete", "subAgentId": "sa-xxx", "content": "布置完成"}
+data: [DONE]
+```
+
+---
+
+## 4. Query 工作流（只读查询）
+
+### 触发条件
+
+关键词："统计"、"查看"、"列出"、"有多少"、"当前状态"
+
+### 执行流程
+
+```
+用户请求（如"统计当前卧室有多少家具"）
+  │
+  ▼
+1. 调用 get_workflow_guide("query")
+  │
+  ▼
+2. [可选] 调用 request_background_screenshot 查看空间截图
+  │
+  ▼
+3. Read 目标数据文件（如 schemes/{zoneId}/modules.json）
+  │
+  ▼
+4. 空数据检查
+  ├── 空 → 报告"数量为 0"
+  └── 非空 → 分析/统计
+  │
+  ▼
+5. 验证报告内容与文件实际内容一致
+  │
+  ▼
+6. 返回结果
+```
+
+### 工具权限
+
+| 允许 | 禁止 |
+|------|------|
+| Read, Glob, Grep | Write, Edit |
+
+### 约束
+
+- 禁止根据房间信息推断/编造不存在的模块
+- 空数据时报告"数量为 0"，禁止自动创建示例数据
+- 所有统计结果必须基于实际读取的文件内容
+
+### 示例
+
+| 用户输入 | 执行动作 |
+|----------|----------|
+| "统计当前卧室有多少家具" | Read modules.json → 统计 zoneId 为卧室的模块数量 |
+| "查看客厅布置状态" | Read modules.json → 筛选客厅区域的模块并展示 |
+
+---
+
+## 5. Edit 工作流（单一修改）
+
+### 触发条件
+
+关键词："移动"、"删除"、"旋转"、"调整"
+
+### 执行流程
+
+```
+用户请求（如"移动沙发到靠窗位置"）
+  │
+  ▼
+1. 调用 get_workflow_guide("edit")
+  │
+  ▼
+2. [可选] 调用 request_background_screenshot 查看修改前状态
+  │
+  ▼
+3. Read schemes/{zoneId}/modules.json
+  │
+  ▼
+4. 定位目标模块
+  │
+  ▼
+5. 执行修改（修改 bounds/facing）
+  │
+  ▼
+6. 预检约束（门前净空 900mm、通道宽度）
+  │
+  ▼
+7. Write 保存结果
+  │
+  ▼
+8. 调用 validate_layout() 编译检查
+  │
+  ├── 通过（0 个错误）→ 修改完成
+  │
+  └── 失败 → 根据错误报告修正 → Write → 再次 validate_layout
+  │
+  ▼
+9. [可选] 调用截图工具验证视觉效果
+```
+
+### validate_layout 错误代码
+
+| 代码 | 含义 | 说明 |
+|------|------|------|
+| E001 | 超出设计区域 | 模块 bounds 超出 innerBoundary |
+| E002 | 与墙体重叠 | 模块与墙体几何冲突 |
+| E003 | 与柱子重叠 | 模块与柱子几何冲突 |
+| E004 | 与禁区重叠 | 模块与 exclusionAreas 冲突 |
+| E005 | 模块间重叠 | 两个模块之间几何冲突 |
+
+**错误报告格式**（validate_layout 返回文本）：
+
+```
+=== 布局验证失败 ===
+共 12 个模块，2 个错误，0 个警告 (45ms)
+
+--- E005 (2 个错误) ---
+  ✗ mod_sofa_001 (沙发) ↔ module:mod_coffee_table | 修正：向南移动 150mm（重叠 500mm²）
+  ✗ mod_bed_001 (双人床) ← wall:w_003 | 修正：向东移动 80mm
+```
+
+### 修正策略
+
+按优先级尝试：平移 → 旋转 → 缩小 → 替换 → 移除
+
+### 示例
+
+| 用户输入 | 执行动作 |
+|----------|----------|
+| "移动沙发到靠窗位置" | Read → 修改 bounds → Write → validate_layout |
+| "删除茶几" | Read → 移除对应项 → Write → validate_layout |
+| "旋转床 90 度" | Read → 修改 facing 和 bounds → Write → validate_layout |
+
+---
+
+## 6. Generate 工作流（完整布置）
+
+这是最复杂的工作流，分两个阶段执行，每个阶段包含"编译检查 + 截图审查 + 修正循环"。
+
+### 触发条件
+
+关键词："布置"、"设计"、"创建"、"生成"、"规划"
+
+### 流程总览
+
+```
+前置准备（步骤 1-5，只读）
+  │
+  ▼
+阶段 A：放置锚点 + 主要家具
+  │  Write → validate_layout → [失败则修正] → 截图审查
+  │  [设计违规] → 修正循环 A（最多 1 次）
+  │
+  ▼
+阶段 B：补充辅助家具
+  │  Read A 结果 → Write（合并全部）→ validate_layout → 截图审查
+  │  [设计违规] → 修正循环 B（最多 1 次）
+  │
+  ▼
+报告结果（仅在自审通过后）
+```
+
+**核心原则**：不要一次性放置全部家具。分两阶段放置，每阶段"编译检查 + 截图审查"，自主修正后再继续。
+
+---
+
+### 6.1 执行前强制检查清单
+
+在执行任何 Write 操作前，以下步骤必须全部完成：
+
+| # | 必读文件 | 用途 |
+|---|----------|------|
+| 1 | 前置截图（`request_background_screenshot`） | 理解空间形态、门窗位置 |
+| 2 | `knowledge/placement_guide.md` | 布置规则（§四尺寸标准、§五房间要点） |
+| 3 | `modules/README.md` | 模块库架构（双层：契约层+意图层） |
+| 4 | `modules/module_library.json` | 家具尺寸（禁止编造） |
+| 5 | `computed/room_zones.json` | 设计区域边界 |
+| 6 | `computed/exclusions.json` | 禁区数据 |
+| 7 | `baseline/openings.json` | 门窗位置 |
+
+**任何步骤缺失，禁止执行 Write 操作。**
+
+---
+
+### 6.2 前置准备（步骤 1-5）
+
+#### 步骤 1：前置截图
+
+```
+mcp__canvas__request_background_screenshot(
+  projectPath="{当前工作目录}",
+  viewport={"mode": "full"}
+)
+```
+
+理解空间形态、门窗位置、房间朝向。
+
+#### 步骤 2：读取设计规范
+
+```
+Read knowledge/placement_guide.md
+```
+
+#### 步骤 3：读取模块库架构说明
+
+```
+Read modules/README.md
+```
+
+了解模块库双层架构：
+- **契约层**：id, tags, size, svgPath（用于选择模块）
+- **意图层**：agent_config（用于决策布置）
+  - `morphology.strategy`：形态策略（fixed / horizontal_fill / parametric）
+  - `topology_rules`：拓扑规则（物体与环境的空间关系，如"靠墙放置"）
+  - `relation_rules`：关系规则（物体与其他家具的配合，如"面向电视墙"）
+
+#### 步骤 4：读取家具库数据
+
+```
+Read modules/module_library.json
+```
+
+根据目标 Zone.tags 筛选兼容模块（模块的 tags 与 zone 的 tags 有交集）。
+
+#### 步骤 5：读取空间数据
+
+```
+Read computed/room_zones.json
+Read computed/exclusions.json
+Read baseline/openings.json
+```
+
+---
+
+### 6.3 阶段 A：布置锚点 + 主要家具
+
+#### 家具分层定义
+
+| 层级 | 定义 | 示例 |
+|------|------|------|
+| **锚点家具** | 决定房间布局核心定位 | 床、电视柜、餐桌、书桌 |
+| **主要家具** | 围绕锚点的功能家具 | 衣柜、沙发、床头柜、餐椅 |
+| **辅助家具** | 填充和装饰性家具 | 茶几、边几、梳妆台、落地灯 |
+
+**成套依赖必须同阶段放置**：床+床头柜、书桌+椅子、餐桌+餐椅。
+
+#### 6A. 放置前预检
+
+对每件要放置的家具，在确定坐标前检查：
+
+1. **H4**：是否阻挡门开启？（门前 900mm 净空）
+2. **H5**：相邻通道是否满足？（主通道 ≥ 900mm、次通道 ≥ 600mm、床侧 ≥ 500mm）
+
+> bounds 范围、重叠、禁区冲突等几何检查将在写入后由 `validate_layout` 自动完成，无需心算。
+
+如果检查不通过，**在放置前**调整位置或朝向，不要先写入再修正。
+
+#### 7A. 写入阶段 A 结果
+
+```
+Write schemes/{zoneId}/modules.json
+```
+
+**路径规范**：
+- 正确：`schemes/rz_1/modules.json`（分区 1）
+- 正确：`schemes/rz_2/modules.json`（分区 2）
+- 错误：`schemes/modules.json`（已废弃）
+
+**查找分区**：先读取 `schemes/zones.json` 获取所有分区 ID。
+
+**数据格式**（id 由 Server 在 validate_layout 时自动生成，禁止手动填写）：
+
+```json
+[
+  {
+    "moduleId": "mod_bed_001",
+    "bounds": [[x1,y1], [x2,y2], [x3,y3], [x4,y4]],
+    "facing": "north",
+    "items": []
+  }
+]
+```
+
+#### 8A. 阶段 A 验证
+
+**8A.1 布局编译检查（必须）**
+
+```
+mcp__canvas__validate_layout()
+```
+
+自动检测几何错误：越界(E001)、墙体重叠(E002)、柱子重叠(E003)、禁区重叠(E004)、模块间重叠(E005)。
+
+- 验证通过（0 个错误）→ 进入 8A.2 截图设计审查
+- 验证失败 → 进入修正循环 A
+
+**8A.2 截图设计审查**
+
+```
+mcp__canvas__request_background_screenshot(
+  projectPath="{当前工作目录}",
+  viewport={"mode": "full"}
+)
+```
+
+**对照截图执行设计检查清单**：
+
+**硬性约束**（validate_layout 不覆盖，需人工判断）：
+
+| 编号 | 检查项 |
+|------|--------|
+| H4 | 没有家具阻挡门开启（门前 900mm 净空） |
+| H5 | 主通道 ≥ 900mm，次通道 ≥ 600mm，床侧 ≥ 500mm |
+
+**设计规则**（优先修正）：
+
+| 编号 | 检查项 |
+|------|--------|
+| S1 | 锚点家具居中于目标墙面 |
+| S2 | 家具朝向符合 topology_rules / relation_rules |
+| S3 | 衣柜沿最长连续墙面放置 |
+| S4 | 床头不靠窗、床脚不正对门 |
+| S5 | 成套家具完整（床+床头柜、书桌+椅子） |
+
+- 检查全部通过 → 跳到阶段 B
+- 有违反 → 进入修正循环 A
+
+#### 修正循环 A（最多 1 次）
+
+1. 明确列出所有违规项（编号 + 具体描述）
+2. 按优先级制定修正方案：
+   - 优先**平移**（保持朝向，仅调位置）
+   - 其次**旋转**（改朝向 + 调位置）
+   - 其次**缩小**（parametric/horizontal_fill 类型在 limits 内缩小）
+   - 其次**替换**为更小尺寸的同功能模块
+   - 最后**移除**无法修正的家具（报告中说明原因）
+3. Read 当前 modules.json（确认最新状态）
+4. 修改违规模块的 bounds/facing
+5. Write 保存修正结果
+6. 再次调用 `validate_layout()` 确认几何错误已消除
+
+**修正原则**：最小化变动，只改违规家具，不动已通过验证的家具。
+
+---
+
+### 6.4 阶段 B：补充辅助家具
+
+**前提**：阶段 A 家具已验证通过。
+
+#### 6B. 规划辅助家具
+
+1. Read 当前 `schemes/{zoneId}/modules.json`（获取阶段 A 已放置的家具）
+2. 在已有布局基础上，规划辅助家具位置
+3. 对每件辅助家具执行同样的放置前预检（H4、H5）
+
+#### 7B. 写入完整结果
+
+```
+Write schemes/{zoneId}/modules.json
+```
+
+**必须包含阶段 A 已有的全部家具 + 阶段 B 新增的辅助家具**，不能只写新增部分。
+
+#### 8B. 最终验证
+
+**8B.1 布局编译检查（必须）**
+
+```
+mcp__canvas__validate_layout()
+```
+
+检测全部家具（阶段 A + B）的几何错误。
+
+**8B.2 截图设计审查**
+
+检查清单覆盖全部家具，额外增加：
+
+| 编号 | 检查项 |
+|------|--------|
+| S6 | 家具间距合理（茶几离沙发 400-500mm、餐椅后退 600-800mm） |
+
+#### 修正循环 B（最多 1 次）
+
+步骤同修正循环 A。
+
+**如果修正后仍有违规**：移除违规的辅助家具，保留核心布局（锚点+主要家具），再次调用 `validate_layout` 确认，在报告中说明被移除的家具及原因。
+
+---
+
+### 6.5 报告结果
+
+仅在自审检查通过后，向用户汇报：
+
+1. 已放置的家具清单（名称、位置概要、朝向）
+2. 自审检查结果（逐项列出 H4-H5、S1-S6 通过状态）
+3. 如有修正，说明修正了什么
+4. 如有被放弃的家具，说明原因
+5. 整体布局评价（动线是否通畅、功能是否完整）
+
+**禁止在自审未通过时报告"布置完成"。**
+
+---
+
+## 7. MCP 工具参考
+
+### 7.1 get_workflow_guide
+
+**调用名**：`mcp__canvas__get_workflow_guide`
+
+**功能**：获取任务工作流指导。是执行流程的**唯一权威来源**。
+
+**参数**：
+
+| 参数 | 类型 | 必填 | 说明 |
+|------|------|------|------|
+| task_type | string | 是 | "query" / "edit" / "generate" |
+
+**返回**：对应任务类型的完整工作流 Markdown 文本。
+
+**调用时机**：每次执行任务前必须调用。
+
+---
+
+### 7.2 validate_layout
+
+**调用名**：`mcp__canvas__validate_layout`
+
+**功能**：验证当前方案的布局合法性（布局编译器）。检查三类错误：越界、与建筑元素重叠、模块间重叠。
+
+**参数**：无（自动验证当前项目）。
+
+**返回**：格式化的验证报告文本。
+
+**Server 端实现**：
+
+1. 读取 baseline 数据（walls, columns）
+2. 读取 computed 数据（designZones, exclusionZones）
+3. 读取所有模块（支持 `schemes/{zoneId}/modules.json` 分区格式）
+4. 调用 Core 层 `SchemeValidator.Validate()`
+5. 自动持久化模块的自动生成 ID
+
+**错误代码表**：
+
+| 代码 | 严重度 | 含义 | 修正指引 |
+|------|--------|------|----------|
+| E001 | error | 模块超出设计区域 | 向区域内方向移动 |
+| E002 | error | 与墙体重叠 | 反方向移动穿透深度 |
+| E003 | error | 与柱子重叠 | 反方向移动穿透深度 |
+| E004 | error | 与禁区重叠 | 反方向移动穿透深度 |
+| E005 | error | 模块间互相重叠 | 沿穿透方向反向移动 |
+
+**返回格式示例**（通过）：
+
+```
+=== 布局验证通过 ===
+共 8 个模块，0 个错误 (32ms)
+```
+
+**返回格式示例**（失败）：
+
+```
+=== 布局验证失败 ===
+共 12 个模块，2 个错误，1 个警告 (45ms)
+
+--- E005 (2 个错误) ---
+  ✗ mod_sofa_001 (沙发) ↔ module:mod_coffee_table | 修正：向南移动 150mm（重叠 500mm²）
+  ✗ mod_bed_001 (双人床) ← wall:w_003 | 修正：向东移动 80mm
+
+--- E004 (1 个警告) ---
+  ⚠ mod_cabinet_002 (边柜) ← exclusion:ex_door_001 | 建议：向北移动 50mm
+```
+
+**调用时机**：每次 Write modules.json 后必须调用。
+
+---
+
+### 7.3 request_background_screenshot
+
+**调用名**：`mcp__canvas__request_background_screenshot`
+
+**功能**：后台截图，返回 base64 图片 + 保存到 `screenshots/` 目录。
+
+**参数**：
+
+| 参数 | 类型 | 必填 | 说明 |
+|------|------|------|------|
+| projectPath | string | 是 | 项目根目录 |
+| viewport | object | 否 | 视口配置 |
+| shots | array | 否 | 批量截图列表 |
+
+**viewport 模式**：
+
+| 模式 | 附加参数 | 说明 |
+|------|----------|------|
+| full | 无 | 全局视图 |
+| room | roomId | 指定房间 |
+| zone | zoneId | 指定分区 |
+| bounds | minX/minY/maxX/maxY | 自定义区域 |
+
+**单张截图示例**：
+
+```
+mcp__canvas__request_background_screenshot({
+  "projectPath": "C:\\Projects\\demo_1",
+  "viewport": {"mode": "full"}
+})
+```
+
+**批量截图示例**：
+
+```
+mcp__canvas__request_background_screenshot({
+  "projectPath": "C:\\Projects\\demo_1",
+  "shots": [
+    {"viewport": {"mode": "full"}},
+    {"viewport": {"mode": "zone", "zoneId": "rz_1"}}
+  ]
+})
+```
+
+**调用时机**：
+- Generate 流程前置准备（必须）
+- 每个阶段编译通过后的设计审查（必须）
+- Query/Edit 流程中可选使用
+
+---
+
+## 8. SubAgent 机制
+
+### 8.1 layout-agent 配置
+
+**来源**：`~/.bimcanvas/agents/layout-agent.md`
+
+| 配置项 | 值 |
+|--------|-----|
+| 名称 | layout-agent |
+| 描述 | 家具布置专家 |
+| 工具权限 | Read, Write, Glob |
+| 模型 | inherit（继承主控 Agent 模型） |
+
+### 8.2 职责
+
+1. 读取房间分区数据，理解空间特点
+2. 分析门窗位置，规划动线
+3. 根据布置规则为房间布置家具
+4. 输出符合规范的布置结果
+
+### 8.3 布置优先级
+
+1. **锚点家具**：客厅→电视柜，卧室→床，餐厅→餐桌
+2. **主要家具**：客厅→沙发，卧室→衣柜/床头柜
+3. **辅助家具**：茶几、边几、装饰柜
+
+### 8.4 派发与结果传递
+
+MainAgent 通过 Agent SDK 的 `agents` 机制自动派发任务给 SubAgent：
+
+1. MainAgent 分析意图后，SDK 自动选择匹配的 SubAgent
+2. SubAgent 在独立上下文中执行（使用自己的工具权限和提示词）
+3. 执行过程通过 SSE 事件实时推送（`subagent_start` → `tool_call_*` → `subagent_complete`）
+4. SubAgent 完成后，结果返回给 MainAgent 整合
+
+**关键实现细节**：SubAgent 的文本输出通过 `parent_tool_use_id` 状态机追踪关联。
+
+---
+
+## 9. 数据路径规范
+
+### 9.1 .bcp 项目三层结构
+
+```
+project/
+├── baseline/               【只读】建筑基础数据（Revit 导出）
+│   ├── walls.json
+│   ├── columns.json
+│   ├── openings.json
+│   └── rooms.json
+├── computed/               【只读】计算派生数据（Server 自动生成）
+│   ├── room_zones.json
+│   └── exclusions.json
+├── schemes/                【可读写】方案设计数据
+│   ├── zones.json
+│   └── {zoneId}/
+│       └── modules.json    ← Agent 写入的布置结果
+└── modules/
+    ├── README.md           ← 模块库架构说明
+    └── module_library.json ← 家具素材库
+```
+
+### 9.2 modules.json 数据格式
+
+```json
+[
+  {
+    "id": "auto_generated_by_server",
+    "moduleId": "mod_bed_001",
+    "bounds": [[x1,y1], [x2,y2], [x3,y3], [x4,y4]],
+    "facing": "north",
+    "items": []
+  }
+]
+```
+
+| 字段 | 说明 |
+|------|------|
+| id | Server 在 validate_layout 时自动生成，**禁止手动填写** |
+| moduleId | 家具模块 ID，必须在 module_library.json 中存在 |
+| bounds | OBB 四角坐标 [[x1,y1], [x2,y2], [x3,y3], [x4,y4]] |
+| facing | 语义朝向（"north"/"south"/"east"/"west" 等）或 Vec2D |
+| items | 子物件列表（通常为空数组） |
+
+### 9.3 Facing 朝向对照
+
+| 朝向 | 角度 | 朝向 | 角度 |
+|------|------|------|------|
+| north | 0° | south | 180° |
+| east | 90° | west | 270° |
+| northeast | 45° | southwest | 225° |
+| southeast | 135° | northwest | 315° |
+
+---
+
+## 附录：常见错误
+
+| 错误 | 正确做法 |
+|------|----------|
+| 写入 `schemes/modules.json` | 写入 `schemes/{zoneId}/modules.json` |
+| 凭空编造家具尺寸 | 从 `module_library.json` 选择 |
+| 一次性放置全部家具再验证 | 分阶段 A/B 放置，每阶段编译+截图审查 |
+| 跳过 `validate_layout` | 每次 Write 后必须调用 |
+| 跳过截图设计审查 | 编译通过后仍须截图检查 H4-H5 和 S1-S6 |
+| 跳过 `placement_guide.md` | 必须读取并遵守规范 |
+| 跳过 `modules/README.md` | 必须读取以理解 agent_config 使用方式 |
+| 阶段 B 只写新增家具 | 必须合并已有+新增全部写入 |
+| 修正循环超过 1 次仍失败 | 移除违规家具，保留核心布局 |
+| 自审未通过就报告完成 | 禁止，必须通过后才报告 |
