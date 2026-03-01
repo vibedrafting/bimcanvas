@@ -1,6 +1,6 @@
 # BIMCanvas Agent 运行时工作流
 
-> **版本**：v1.0 | **更新日期**：2026-03-01
+> **版本**：v1.1 | **更新日期**：2026-03-01
 > **定位**：Agent 运行手册 — 从请求进入到结果输出的完整链路
 >
 > **相关文档**：
@@ -65,21 +65,7 @@ Agent 启动时从 `~/.bimcanvas/` 加载全部配置（首次运行自动从 `t
 
 **加载优先级**：环境变量 > config.json > 默认值
 
-**config.json 关键配置**：
-
-```json
-{
-    "model": "claude-sonnet-4-6",
-    "maxTokens": 4096,
-    "defaultEffort": "medium",
-    "defaultThinking": "off",
-    "permissions": {
-        "allow": ["Read", "Glob", "Grep", "Task"],
-        "deny": []
-    },
-    "server": { "host": "127.0.0.1", "port": 8765 }
-}
-```
+**config.json 关键字段**：model、maxTokens、defaultEffort、defaultThinking、permissions、server。详见 `templates/config.json`。
 
 ### 2.2 Agent SDK 初始化
 
@@ -87,9 +73,9 @@ MainAgent 通过 `ClaudeAgentOptions` 配置 SDK：
 
 | 参数 | 说明 |
 |------|------|
-| `model` | 模型名称（默认 claude-sonnet-4-6） |
+| `model` | 模型名称（默认值见 config.json） |
 | `system_prompt` | BIMCANVAS.md 内容 |
-| `thinking` | ThinkingConfigAdaptive(8000) 或 ThinkingConfigDisabled |
+| `thinking` | ThinkingConfigAdaptive 或 ThinkingConfigDisabled |
 | `thinking_effort` | "low" / "medium" / "high" / "max" |
 | `include_partial_messages` | `True`（启用流式文本输出） |
 | `tools` | 内置工具列表 |
@@ -99,17 +85,7 @@ MainAgent 通过 `ClaudeAgentOptions` 配置 SDK：
 
 ### 2.3 MCP 工具注册
 
-Canvas MCP Server 在进程内直接注册（无 IPC 开销）：
-
-```python
-canvas_mcp = create_sdk_mcp_server(
-    name="canvas",
-    tools=[
-        request_background_screenshot,
-        validate_layout,
-    ],
-)
-```
+Canvas MCP Server 在进程内直接注册（无 IPC 开销）。
 
 **工具调用名规则**：`mcp__{mcp_servers字典key}__{@tool装饰器名}`
 
@@ -158,7 +134,7 @@ model: inherit
     "projectPath": "path/to/project",
     "windowId": "primary",
     "message": "帮我布置客厅",
-    "model": "claude-sonnet-4-6",
+    "model": "<model-id>",
     "effort": "high",
     "thinking": "adaptive"
 }
@@ -283,7 +259,7 @@ data: [DONE]
 5. 执行修改（修改 bounds/facing）
   │
   ▼
-6. 预检约束（门前净空 900mm、通道宽度）
+6. 预检约束（门前净空、通道宽度）
   │
   ▼
 7. Write 保存结果
@@ -299,26 +275,7 @@ data: [DONE]
 9. [可选] 调用截图工具验证视觉效果
 ```
 
-### validate_layout 错误代码
-
-| 代码 | 含义 | 说明 |
-|------|------|------|
-| E001 | 超出设计区域 | 模块 bounds 超出 innerBoundary |
-| E002 | 与墙体重叠 | 模块与墙体几何冲突 |
-| E003 | 与柱子重叠 | 模块与柱子几何冲突 |
-| E004 | 与禁区重叠 | 模块与 exclusionAreas 冲突 |
-| E005 | 模块间重叠 | 两个模块之间几何冲突 |
-
-**错误报告格式**（validate_layout 返回文本）：
-
-```
-=== 布局验证失败 ===
-共 12 个模块，2 个错误，0 个警告 (45ms)
-
---- E005 (2 个错误) ---
-  ✗ mod_sofa_001 (沙发) ↔ module:mod_coffee_table | 修正：向南移动 150mm（重叠 500mm²）
-  ✗ mod_bed_001 (双人床) ← wall:w_003 | 修正：向东移动 80mm
-```
+validate_layout 错误代码及返回格式详见 [§7.2](#72-validate_layout)。
 
 ### 修正策略
 
@@ -372,7 +329,7 @@ data: [DONE]
 | # | 必读文件 | 用途 |
 |---|----------|------|
 | 1 | 前置截图（`request_background_screenshot`） | 理解空间形态、门窗位置 |
-| 2 | `knowledge/placement_guide.md` | 布置规则（§四尺寸标准、§五房间要点） |
+| 2 | `knowledge/placement_guide.md` | 布置规则（尺寸标准、房间要点） |
 | 3 | `modules/README.md` | 模块库架构（双层：契约层+意图层） |
 | 4 | `modules/module_library.json` | 家具尺寸（禁止编造） |
 | 5 | `computed/room_zones.json` | 设计区域边界 |
@@ -383,53 +340,9 @@ data: [DONE]
 
 ---
 
-### 6.2 前置准备（步骤 1-5）
+### 6.2 前置准备
 
-#### 步骤 1：前置截图
-
-```
-mcp__canvas__request_background_screenshot(
-  projectPath="{当前工作目录}",
-  viewport={"mode": "full"}
-)
-```
-
-理解空间形态、门窗位置、房间朝向。
-
-#### 步骤 2：读取设计规范
-
-```
-Read knowledge/placement_guide.md
-```
-
-#### 步骤 3：读取模块库架构说明
-
-```
-Read modules/README.md
-```
-
-了解模块库双层架构：
-- **契约层**：id, tags, size, svgPath（用于选择模块）
-- **意图层**：agent_config（用于决策布置）
-  - `morphology.strategy`：形态策略（fixed / horizontal_fill / parametric）
-  - `topology_rules`：拓扑规则（物体与环境的空间关系，如"靠墙放置"）
-  - `relation_rules`：关系规则（物体与其他家具的配合，如"面向电视墙"）
-
-#### 步骤 4：读取家具库数据
-
-```
-Read modules/module_library.json
-```
-
-根据目标 Zone.tags 筛选兼容模块（模块的 tags 与 zone 的 tags 有交集）。
-
-#### 步骤 5：读取空间数据
-
-```
-Read computed/room_zones.json
-Read computed/exclusions.json
-Read baseline/openings.json
-```
+按 `generate-workflow` Skill 定义的步骤 1-5 顺序读取必要数据（截图、设计规范、模块库、空间数据）。
 
 ---
 
@@ -447,10 +360,7 @@ Read baseline/openings.json
 
 #### 6A. 放置前预检
 
-对每件要放置的家具，在确定坐标前检查：
-
-1. **H4**：是否阻挡门开启？（门前 900mm 净空）
-2. **H5**：相邻通道是否满足？（主通道 ≥ 900mm、次通道 ≥ 600mm、床侧 ≥ 500mm）
+对每件要放置的家具，在确定坐标前预检门前净空和通道宽度要求。
 
 > bounds 范围、重叠、禁区冲突等几何检查将在写入后由 `validate_layout` 自动完成，无需心算。
 
@@ -504,41 +414,16 @@ mcp__canvas__request_background_screenshot(
 )
 ```
 
-**对照截图执行设计检查清单**：
-
-**硬性约束**（validate_layout 不覆盖，需人工判断）：
-
-| 编号 | 检查项 |
-|------|--------|
-| H4 | 没有家具阻挡门开启（门前 900mm 净空） |
-| H5 | 主通道 ≥ 900mm，次通道 ≥ 600mm，床侧 ≥ 500mm |
-
-**设计规则**（优先修正）：
-
-| 编号 | 检查项 |
-|------|--------|
-| S1 | 锚点家具居中于目标墙面 |
-| S2 | 家具朝向符合 topology_rules / relation_rules |
-| S3 | 衣柜沿最长连续墙面放置 |
-| S4 | 床头不靠窗、床脚不正对门 |
-| S5 | 成套家具完整（床+床头柜、书桌+椅子） |
+**对照 `generate-workflow` Skill 中的设计检查清单执行截图审查**（硬性约束 H4-H5 + 设计规则 S1-Sn）。
 
 - 检查全部通过 → 跳到阶段 B
 - 有违反 → 进入修正循环 A
 
 #### 修正循环 A（最多 1 次）
 
-1. 明确列出所有违规项（编号 + 具体描述）
-2. 按优先级制定修正方案：
-   - 优先**平移**（保持朝向，仅调位置）
-   - 其次**旋转**（改朝向 + 调位置）
-   - 其次**缩小**（parametric/horizontal_fill 类型在 limits 内缩小）
-   - 其次**替换**为更小尺寸的同功能模块
-   - 最后**移除**无法修正的家具（报告中说明原因）
-3. Read 当前 modules.json（确认最新状态）
-4. 修改违规模块的 bounds/facing
-5. Write 保存修正结果
-6. 再次调用 `validate_layout()` 确认几何错误已消除
+按优先级修正违规项：平移 → 旋转 → 缩小 → 替换 → 移除。修正后重新 validate_layout 确认。
+
+详细步骤见 `generate-workflow` Skill。
 
 **修正原则**：最小化变动，只改违规家具，不动已通过验证的家具。
 
@@ -552,7 +437,7 @@ mcp__canvas__request_background_screenshot(
 
 1. Read 当前 `schemes/{zoneId}/modules.json`（获取阶段 A 已放置的家具）
 2. 在已有布局基础上，规划辅助家具位置
-3. 对每件辅助家具执行同样的放置前预检（H4、H5）
+3. 对每件辅助家具执行同样的放置前预检
 
 #### 7B. 写入完整结果
 
@@ -574,11 +459,7 @@ mcp__canvas__validate_layout()
 
 **8B.2 截图设计审查**
 
-检查清单覆盖全部家具，额外增加：
-
-| 编号 | 检查项 |
-|------|--------|
-| S6 | 家具间距合理（茶几离沙发 400-500mm、餐椅后退 600-800mm） |
+对照 `generate-workflow` Skill 中的完整设计检查清单执行审查。
 
 #### 修正循环 B（最多 1 次）
 
@@ -593,7 +474,7 @@ mcp__canvas__validate_layout()
 仅在自审检查通过后，向用户汇报：
 
 1. 已放置的家具清单（名称、位置概要、朝向）
-2. 自审检查结果（逐项列出 H4-H5、S1-S6 通过状态）
+2. 自审检查结果（逐项列出设计检查清单的通过状态）
 3. 如有修正，说明修正了什么
 4. 如有被放弃的家具，说明原因
 5. 整体布局评价（动线是否通畅、功能是否完整）
@@ -648,26 +529,14 @@ mcp__canvas__validate_layout()
 | E004 | error | 与禁区重叠 | 反方向移动穿透深度 |
 | E005 | error | 模块间互相重叠 | 沿穿透方向反向移动 |
 
-**返回格式示例**（通过）：
+**返回格式示例**：
 
 ```
 === 布局验证通过 ===
 共 8 个模块，0 个错误 (32ms)
 ```
 
-**返回格式示例**（失败）：
-
-```
-=== 布局验证失败 ===
-共 12 个模块，2 个错误，1 个警告 (45ms)
-
---- E005 (2 个错误) ---
-  ✗ mod_sofa_001 (沙发) ↔ module:mod_coffee_table | 修正：向南移动 150mm（重叠 500mm²）
-  ✗ mod_bed_001 (双人床) ← wall:w_003 | 修正：向东移动 80mm
-
---- E004 (1 个警告) ---
-  ⚠ mod_cabinet_002 (边柜) ← exclusion:ex_door_001 | 建议：向北移动 50mm
-```
+验证失败时返回错误明细（错误代码 + 模块名 + 修正建议）。
 
 **调用时机**：每次 Write modules.json 后必须调用。
 
@@ -696,24 +565,12 @@ mcp__canvas__validate_layout()
 | zone | zoneId | 指定分区 |
 | bounds | minX/minY/maxX/maxY | 自定义区域 |
 
-**单张截图示例**：
+**调用示例**：
 
 ```
 mcp__canvas__request_background_screenshot({
   "projectPath": "C:\\Projects\\demo_1",
   "viewport": {"mode": "full"}
-})
-```
-
-**批量截图示例**：
-
-```
-mcp__canvas__request_background_screenshot({
-  "projectPath": "C:\\Projects\\demo_1",
-  "shots": [
-    {"viewport": {"mode": "full"}},
-    {"viewport": {"mode": "zone", "zoneId": "rz_1"}}
-  ]
 })
 ```
 
@@ -841,7 +698,7 @@ project/
 | 凭空编造家具尺寸 | 从 `module_library.json` 选择 |
 | 一次性放置全部家具再验证 | 分阶段 A/B 放置，每阶段编译+截图审查 |
 | 跳过 `validate_layout` | 每次 Write 后必须调用 |
-| 跳过截图设计审查 | 编译通过后仍须截图检查 H4-H5 和 S1-S6 |
+| 跳过截图设计审查 | 编译通过后仍须对照设计检查清单审查 |
 | 跳过 `placement_guide.md` | 必须读取并遵守规范 |
 | 跳过 `modules/README.md` | 必须读取以理解 agent_config 使用方式 |
 | 阶段 B 只写新增家具 | 必须合并已有+新增全部写入 |
