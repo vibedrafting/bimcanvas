@@ -5,7 +5,7 @@
     "defaultThinking": "off",
     "permissions": {
         "allow": ["Read", "Glob", "Grep", "Task"],
-        "deny": []
+        "deny": ["AskUserQuestion"]
     },
     "server": {
         "host": "127.0.0.1",
