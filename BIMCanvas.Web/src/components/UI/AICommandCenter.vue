@@ -710,7 +710,7 @@ onUnmounted(() => {
                                 </div>
                                 <!-- 文本内容 -->
                                 <template v-if="msg.role === 'user'">{{ bubble.content }}</template>
-                                <MarkdownText v-else :content="bubble.content" />
+                                <MarkdownText v-else :content="bubble.content || ''" density="chat-compact" />
                             </div>
 
                             <!-- 工具调用气泡 -->
@@ -2219,93 +2219,6 @@ onUnmounted(() => {
 
             &.empty {
                 min-height: 20px;
-            }
-
-            // === 覆盖 markstream-vue 库的默认样式（极致紧凑） ===
-
-            // 顶层容器：清除所有默认间距
-            :deep(.markdown-renderer) {
-                margin: 0;
-                padding: 0;
-            }
-            :deep(.node-slot),
-            :deep(.node-content),
-            :deep(.node-space) {
-                margin: 0;
-                padding: 0;
-            }
-
-            // 段落：适度间距
-            :deep(p) {
-                margin: 0;
-            }
-            :deep(.paragraph-node) {
-                margin: 0.3em 0;
-            }
-
-            // 标题：舒适层次感
-            :deep(.heading-1) {
-                font-size: 1.05rem;
-                margin: 0.7em 0 0.35em 0;
-            }
-            :deep(.heading-2) {
-                font-size: 0.95rem;
-                margin: 0.6em 0 0.3em 0;
-            }
-            :deep(.heading-3) {
-                font-size: 0.88rem;
-                margin: 0.5em 0 0.25em 0;
-            }
-            :deep(.heading-4),
-            :deep(.heading-5),
-            :deep(.heading-6) {
-                font-size: 0.82rem;
-                margin: 0.45em 0 0.2em 0;
-            }
-
-            // 列表：适度间距
-            :deep(.list-node) {
-                margin: 0.25em 0;
-                padding-left: 1.1em;
-            }
-            :deep(.list-item) {
-                margin: 0;
-                padding: 0;
-            }
-
-            // 表格容器：舒适间距
-            :deep(.table-node-wrapper) {
-                margin: 0.5em 0;
-            }
-
-            // 表格：边框可见 + 舒适单元格
-            :deep(.table-node) {
-                --table-border: rgba(255, 255, 255, 0.25);
-                margin: 0;
-            }
-            :deep(.table-node th),
-            :deep(.table-node td) {
-                border: 1px solid rgba(255, 255, 255, 0.2);
-                padding: 0.3em 0.5em;
-            }
-            :deep(.table-node th) {
-                background: rgba(255, 255, 255, 0.05);
-            }
-
-            // 引用块：适度间距
-            :deep(.blockquote) {
-                margin: 0.3em 0;
-                padding-left: 0.6em;
-            }
-
-            // 代码块：适度间距
-            :deep(.code-block-container) {
-                margin: 0.3em 0;
-            }
-
-            // 分割线：适度间距
-            :deep(.hr-node) {
-                margin: 0.5em 0;
             }
         }
 

@@ -35,7 +35,7 @@ const toggle = () => {
     </div>
     <transition name="thinking-expand">
       <div v-show="bubble.isExpanded" class="thinking-content">
-        <MarkdownText :content="bubble.content || ''" />
+        <MarkdownText :content="bubble.content || ''" density="chat-compact" />
       </div>
     </transition>
   </div>
@@ -89,7 +89,7 @@ const toggle = () => {
 .thinking-content {
   padding: 6px 10px;
   color: var(--text-secondary);
-  line-height: 1.4;
+  line-height: 1.35;
   font-size: 0.8rem;
   border-left: 2px solid var(--border-dim);
   margin-left: 6px;
