@@ -528,7 +528,9 @@
         "topology_rules": [
           "靠窗墙放置，必须填满整面墙宽度（Snap to side walls）"
         ],
-        "relation_rules": []
+        "relation_rules": [
+          "卧室、客厅中有窗户时建议配置窗帘"
+        ]
       },
       "description": "窗帘装饰",
       "svgPath": "assets/mod_curtain.svg"
