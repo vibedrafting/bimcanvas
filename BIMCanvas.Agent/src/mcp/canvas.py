@@ -533,7 +533,7 @@ def _format_validation_report(report: dict[str, Any]) -> str:
             penetration = d.get("penetrationDepthMm")
             direction = d.get("penetrationDirection")
             area = d.get("overlapAreaMm2")
-            if penetration is not None and direction is not None:
+            if penetration is not None and direction is not None and penetration > 0:
                 fix_dir = _reverse_dir.get(direction, direction)
                 fix_cn = _dir_cn.get(fix_dir, fix_dir)
                 action = "建议" if severity == "warning" else "修正"

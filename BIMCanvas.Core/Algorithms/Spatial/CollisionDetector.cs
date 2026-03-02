@@ -136,7 +136,7 @@ namespace BIMCanvas.Core.Algorithms.Spatial
                     maxDepth = Math.Max(maxDepth, partDepth);
                 }
 
-                if (maxDepth < 1e-6)
+                if (maxDepth < 1.0)     // < 1mm 穿透为数值噪声，不可操作
                     return new OverlapInfo { HasOverlap = false };
 
                 // 穿透方向：障碍物相对于模块中心的方位
