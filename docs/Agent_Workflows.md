@@ -326,15 +326,15 @@ validate_layout 错误代码及返回格式详见 [§7.2](#72-validate_layout)�
 
 在执行任何 Write 操作前，以下步骤必须全部完成：
 
-| # | 必读文件 | 用途 |
-|---|----------|------|
-| 1 | 前置截图（`request_background_screenshot`） | 理解空间形态、门窗位置 |
-| 2 | `knowledge/placement_guide.md` | 布置规则（尺寸标准、房间要点） |
-| 3 | `modules/README.md` | 模块库架构（双层：契约层+意图层） |
-| 4 | `modules/module_library.json` | 家具尺寸（禁止编造） |
-| 5 | `computed/room_zones.json` | 设计区域边界 |
-| 6 | `computed/exclusions.json` | 禁区数据 |
-| 7 | `baseline/openings.json` | 门窗位置 |
+| # | 必读文件 | 用途 | 并行规则 |
+|---|----------|------|----------|
+| 1 | 前置截图（`request_background_screenshot`） | 理解空间形态、门窗位置 | **单独调用** |
+| 2 | `knowledge/placement_guide.md` | 布置规则（尺寸标准、房间要点） | 2-7 可并行 |
+| 3 | `modules/README.md` | 模块库架构（双层：契约层+意图层） | 2-7 可并行 |
+| 4 | `modules/module_library.json` | 家具尺寸（禁止编造） | 2-7 可并行 |
+| 5 | `computed/room_zones.json` | 设计区域边界 | 2-7 可并行 |
+| 6 | `computed/exclusions.json` | 禁区数据 | 2-7 可并行 |
+| 7 | `baseline/openings.json` | 门窗位置 | 2-7 可并行 |
 
 **任何步骤缺失，禁止执行 Write 操作。**
 
@@ -342,7 +342,7 @@ validate_layout 错误代码及返回格式详见 [§7.2](#72-validate_layout)�
 
 ### 6.2 前置准备
 
-按 `generate-workflow` Skill 定义的步骤 1-5 顺序读取必要数据（截图、设计规范、模块库、空间数据）。
+分两步执行：先单独调用截图工具查看空间，再并行读取设计规范、模块库、空间数据（步骤 2-5）。详见 `generate-workflow` Skill。
 
 ---
 
@@ -575,8 +575,8 @@ mcp__canvas__request_background_screenshot({
 ```
 
 **调用时机**：
-- Generate 流程前置准备（必须）
-- 每个阶段编译通过后的设计审查（必须）
+- Generate 流程前置准备（必须，单独调用）
+- 每个阶段编译通过后的设计审查（必须，单独调用）
 - Query/Edit 流程中可选使用
 
 ---

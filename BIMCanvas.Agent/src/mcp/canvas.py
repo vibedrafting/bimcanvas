@@ -401,7 +401,7 @@ async def request_background_screenshot(args: dict[str, Any]) -> dict[str, Any]:
                 saved_path = _save_screenshot(image_data, project_dir, filename)
                 return {"content": [
                     {"type": "image", "data": _strip_data_uri_prefix(image_data), "mimeType": "image/png"},
-                    {"type": "text", "text": f"截图已完成（已保存至 {saved_path}）。如果你能直接看到上方的图片，请基于图片分析；如果看不到图片，请用 Read 工具查看 {saved_path} 。请对照自审检查清单逐项检查。"}
+                    {"type": "text", "text": f"截图已完成（已保存至 {saved_path}）。请先仔细查看上方图片再继续后续步骤。如果看不到图片，请用 Read 工具查看 {saved_path} 。"}
                 ]}
 
             items = []
@@ -455,7 +455,7 @@ async def request_background_screenshot(args: dict[str, Any]) -> dict[str, Any]:
                     "is_error": True
                 }
 
-            content_blocks.append({"type": "text", "text": "以上是所有截图。如果你无法直接看到图片，请用 Read 工具逐一查看上述路径。请对照自审检查清单逐项检查。"})
+            content_blocks.append({"type": "text", "text": "以上是所有截图。请先仔细查看图片再继续后续步骤。如果你无法直接看到图片，请用 Read 工具逐一查看上述路径。"})
             return {"content": content_blocks}
 
     except aiohttp.ClientError as e:
