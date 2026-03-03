@@ -43,7 +43,8 @@ description: |
   → 如果未读取，立即停止并先读取
   → 家具尺寸必须从此文件选择，禁止编造
 
-□ 已读取 computed/room_zones.json
+□ 已读取 schemes/zones.json
+  → 获取分区 ID、边界和功能标签；分区 ID 用于后续写入 schemes/{zoneId}/modules.json
 
 □ 已读取 computed/exclusions.json
 
@@ -91,7 +92,9 @@ Read modules/module_library.json
 → 布置时参考每个模块的 agent_config 进行决策
 
 ### 5. 读取空间数据
-- Read computed/room_zones.json
+- Read schemes/zones.json
+  → 包含所有可设计分区的 ID、边界（rawBoundary）、功能标签（tags）
+  → 分区 ID（如 rz_1）用于后续写入 schemes/{zoneId}/modules.json
 - Read computed/exclusions.json
 - Read baseline/openings.json
 
