@@ -22,13 +22,13 @@ description: |
 
 ## 规则的 3 个注入点
 
-| 注入点 | 源码路径 | Agent 读取时机 |
-|--------|---------|---------------|
-| **设计指南** | `BIMCanvas.Server/Templates/knowledge/placement_guide.md` | 前置准备（步骤2） |
-| **执行工作流** | `BIMCanvas.Agent/templates/skills/generate-workflow/SKILL.md` | 每个执行步骤 |
-| **家具规则** | `BIMCanvas.Server/Templates/modules/module_library.json` | 放置每件家具时 |
+| 注入点 | 源码路径 | Agent 读取时机 | 职责（只放这类内容） |
+|--------|---------|---------------|---------------------|
+| **设计指南** | `BIMCanvas.Server/Templates/knowledge/placement_guide.md` | 前置准备（步骤2） | 设计原则、标准值、评估方法论 |
+| **执行工作流** | `BIMCanvas.Agent/templates/skills/generate-workflow/SKILL.md` | 每个执行步骤 | 步骤序列、入口/出口条件、检查清单、常见误判提醒 |
+| **家具规则** | `BIMCanvas.Server/Templates/modules/module_library.json` | 放置每件家具时 | 模块尺寸约束、放置拓扑、模块间关系 |
 
-**修改规则时必须检查 3 个注入点的一致性，避免互相矛盾。**
+**规则一处定义、其他处引用，不跨文件复制内容。修改后检查 3 个注入点无矛盾。**
 
 ## 规则问题 4 分类（按排查优先级）
 
@@ -42,10 +42,25 @@ description: |
 ## 规则修改 5 原则
 
 1. **最小有效改动** — 不为假设场景预设规则，不新增复杂公式/阈值表
-2. **跨文件一致性** — 3 个注入点同步修改，保持一致语义
+2. **一处定义、引用不重复** — 每条规则只在职责匹配的文件中定义（设计标准 → placement_guide，模块行为 → module_library，流程步骤 → SKILL.md）；其他文件通过引用（如"参照 §X.X"）保持一致，不复制内容
 3. **许可性→指令性** — "可缩减至"→"应取最小值"（Agent 更可能执行）
 4. **警惕新矛盾** — 新增/修改规则后检查是否与已有规则冲突
 5. **保留弹性** — 不硬编码，用"推荐 X，紧凑取 Y"的分层表述
+
+## 文件职责速查（设计改动前必读）
+
+> 详见 `docs/Prompt_Design_Philosophy.md` §3
+
+| 判断条件 | 放入 |
+|----------|------|
+| 这是一个执行步骤、阶段入口条件、或已知误判陷阱？ | **SKILL.md** |
+| 这是设计原则、间距标准值、评估方法论、房间类型规范？ | **placement_guide.md** |
+| 这是某个具体模块的尺寸/拓扑/关系约束？ | **module_library.json** |
+
+**反模式自检**：
+- SKILL.md 中出现了具体数值（如"窗侧 200mm"）→ 应放 placement_guide
+- 同一条规则在多个文件中重复 → 一处定义，其他处引用
+- placement_guide 中写了工作流步骤 → 应放 SKILL.md
 
 ## Agent 日志分析要点
 
@@ -67,3 +82,4 @@ description: |
 
 - **规则体系地图**：Read [references/rule-system-map.md](references/rule-system-map.md) — 完整文件路径、数据流、架构
 - **实战案例**：Read [references/case-studies.md](references/case-studies.md) — 历史调优的完整记录（现象→根因→修复→效果）
+- **提示词设计哲学**：Read `docs/Prompt_Design_Philosophy.md` — 文件职责边界、设计原则、常见反模式
