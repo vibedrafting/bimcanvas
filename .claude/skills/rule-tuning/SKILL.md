@@ -26,7 +26,7 @@ description: |
 |--------|---------|---------------|---------------------|
 | **设计指南** | `BIMCanvas.Server/Templates/knowledge/placement_guide.md` | 前置准备（步骤2） | 设计原则、标准值、评估方法论 |
 | **执行工作流** | `BIMCanvas.Agent/templates/skills/generate-workflow/SKILL.md` | 每个执行步骤 | 步骤序列、入口/出口条件、检查清单、常见误判提醒 |
-| **家具规则** | `BIMCanvas.Server/Templates/modules/module_library.json` | 放置每件家具时 | 模块尺寸约束、放置拓扑、模块间关系 |
+| **家具规则** | `BIMCanvas.Server/Templates/modules/module_library.json` | 放置每件家具时 | 模块尺寸约束、放置拓扑、模块间关系（跨项目通用，自包含，禁止引用外部文件） |
 
 **规则一处定义、其他处引用，不跨文件复制内容。修改后检查 3 个注入点无矛盾。**
 
@@ -42,7 +42,7 @@ description: |
 ## 规则修改 5 原则
 
 1. **最小有效改动** — 不为假设场景预设规则，不新增复杂公式/阈值表
-2. **一处定义、引用不重复** — 每条规则只在职责匹配的文件中定义（设计标准 → placement_guide，模块行为 → module_library，流程步骤 → SKILL.md）；其他文件通过引用（如"参照 §X.X"）保持一致，不复制内容
+2. **一处定义、引用不重复** — 每条规则只在职责匹配的文件中定义（设计标准 → placement_guide，模块行为 → module_library，流程步骤 → SKILL.md）；SKILL.md 和 placement_guide 可通过引用（如"参照 §X.X"）保持一致；**module_library 例外：作为跨项目通用模块库（模拟未来 AI 族库数据源），必须自包含，禁止引用外部文件——规则需内联完整描述**
 3. **许可性→指令性** — "可缩减至"→"应取最小值"（Agent 更可能执行）
 4. **警惕新矛盾** — 新增/修改规则后检查是否与已有规则冲突
 5. **保留弹性** — 不硬编码，用"推荐 X，紧凑取 Y"的分层表述
@@ -61,6 +61,7 @@ description: |
 - SKILL.md 中出现了具体数值（如"窗侧 200mm"）→ 应放 placement_guide
 - 同一条规则在多个文件中重复 → 一处定义，其他处引用
 - placement_guide 中写了工作流步骤 → 应放 SKILL.md
+- module_library 中出现了对外部文件的引用（如"参照 placement_guide §X.X"）→ 应改为自包含描述
 
 ## Agent 日志分析要点
 

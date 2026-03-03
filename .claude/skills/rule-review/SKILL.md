@@ -19,7 +19,7 @@ description: |
 | 系统提示词 | `BIMCanvas.Agent/templates/BIMCANVAS.md` | 身份 + 规范 |
 | 执行工作流 | `BIMCanvas.Agent/templates/skills/generate-workflow/SKILL.md` | 流程卡 |
 | 设计指南 | `BIMCanvas.Server/Templates/knowledge/placement_guide.md` | 规范手册 |
-| 家具规则库 | `BIMCanvas.Server/Templates/modules/module_library.json` | 模块规格 |
+| 家具规则库 | `BIMCanvas.Server/Templates/modules/module_library.json` | 模块规格（跨项目通用，自包含，禁止引用外部文件） |
 
 ### 审查依据
 
@@ -93,6 +93,7 @@ Read [references/review-checklist.md](references/review-checklist.md)
 - [ ] module_library 中是否包含了应属于 placement_guide 的通用设计原则？
 - [ ] 同一规则是否在多个文件中重复表述？（列出具体条目）
 - [ ] BIMCANVAS.md 是否保持了纯"身份 + 规范"定位？
+- [ ] module_library 中是否引用了外部文件（如 placement_guide §X.X）？（module_library 是跨项目通用模块库，模拟未来 AI 族库数据源，必须自包含）
 
 ### A4. 跨文件一致性检查
 
@@ -166,7 +167,7 @@ Read [references/review-checklist.md](references/review-checklist.md)
 | 变更了 | 检查同步 |
 |--------|---------|
 | placement_guide | SKILL.md 检查清单 + module_library relation_rules |
-| module_library | placement_guide 的相关规则描述 |
+| module_library | 检查变更后是否仍自包含（禁止引入外部文件引用）；placement_guide 中的对应规则是否需要同步语义 |
 | generate SKILL.md | placement_guide 的自检清单（§9.2） |
 | BIMCANVAS.md | 检查禁止事项是否与其他文件矛盾 |
 
