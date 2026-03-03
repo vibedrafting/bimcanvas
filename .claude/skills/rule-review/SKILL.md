@@ -1,5 +1,5 @@
 ---
-name: prompt-review
+name: rule-review
 description: |
   BIMCanvas Agent 提示词体系审查与优化工作流。
   当用户需要审查、评估或优化 Agent 端提示词设计时使用。
