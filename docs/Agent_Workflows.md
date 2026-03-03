@@ -329,9 +329,9 @@ validate_layout 错误代码及返回格式详见 [§7.2](#72-validate_layout)�
 | # | 必读文件 | 用途 | 并行规则 |
 |---|----------|------|----------|
 | 1 | 前置截图（`request_background_screenshot`） | 理解空间形态、门窗位置 | **单独调用** |
-| 2 | `knowledge/placement_guide.md` | 布置规则（尺寸标准、房间要点） | 2-7 可并行 |
+| 2 | `knowledge/placement_guide.md` | 布置规则（设计原则、尺寸标准、房间要点、朝向逻辑） | 2-7 可并行 |
 | 3 | `modules/README.md` | 模块库架构（双层：契约层+意图层） | 2-7 可并行 |
-| 4 | `modules/module_library.json` | 家具尺寸（禁止编造） | 2-7 可并行 |
+| 4 | `modules/module_library.json` | 家具尺寸 + 放置规则 + 模块间关系（尺寸禁止编造） | 2-7 可并行 |
 | 5 | `computed/room_zones.json` | 设计区域边界 | 2-7 可并行 |
 | 6 | `computed/exclusions.json` | 禁区数据 | 2-7 可并行 |
 | 7 | `baseline/openings.json` | 门窗位置 | 2-7 可并行 |
