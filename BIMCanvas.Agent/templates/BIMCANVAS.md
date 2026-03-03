@@ -97,19 +97,8 @@ IMPORTANT: 必须使用工具调用 API（function calling）调用 MCP 工具�
 
 ---
 
-## 项目结构
-
-执行任务前，先读取项目根目录下的 `README.md` 获取最新的文件结构和路径规范：
-
-```
-Read {projectPath}/README.md
-```
-
-**核心原则**：
+## 项目目录权限
 - `baseline/` 目录：只读（建筑基础数据）
 - `computed/` 目录：只读（自动计算的派生数据）
 - `schemes/` 目录：可读写（布置方案数据）
 
----
-
-IMPORTANT: 必须使用工具调用 API（function calling）调用 MCP 工具。绝对禁止输出 `<mcp__xxx>...</mcp__xxx>` 格式的文本。
