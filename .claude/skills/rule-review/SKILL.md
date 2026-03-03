@@ -23,7 +23,7 @@ description: |
 
 ### 审查依据
 
-Read `docs/Prompt_Design_Philosophy.md`（执行前**必须**读取）。
+Read `docs/Agent_Prompt_Design_Philosophy.md`（执行前**必须**读取）。
 核心内容：§2 六原则、§3 职责边界、§5 演进方向、§6 反模式清单。
 
 ### 两种模式
@@ -37,7 +37,7 @@ Read `docs/Prompt_Design_Philosophy.md`（执行前**必须**读取）。
 
 ### 步骤 1：读取设计哲学文档（必须）
 
-Read `docs/Prompt_Design_Philosophy.md`
+Read `docs/Agent_Prompt_Design_Philosophy.md`
 → 重点：§2 六原则定义、§3 职责边界、§6 反模式清单
 
 ### 步骤 2：读取文件结构索引（必须）
@@ -86,7 +86,7 @@ Read [references/review-checklist.md](references/review-checklist.md)
 
 ### A3. 职责边界验证
 
-对照 `docs/Prompt_Design_Philosophy.md` §3 和 `references/prompt-file-map.md` 职责边界表：
+对照 `docs/Agent_Prompt_Design_Philosophy.md` §3 和 `references/prompt-file-map.md` 职责边界表：
 
 - [ ] SKILL.md 中是否包含了应属于 placement_guide 的设计标准数值？
 - [ ] placement_guide 中是否包含了应属于 SKILL.md 的工作流步骤？
@@ -152,7 +152,7 @@ Read [references/review-checklist.md](references/review-checklist.md)
 
 1. **职责归属**：变更内容是否放在了正确的文件中？（对照 §3 职责边界）
 2. **六原则合规**：从 `references/review-checklist.md` 中选取与变更相关的检查项执行
-3. **新增规则 5 问**（仅新增规则时，引自 `docs/Prompt_Design_Philosophy.md` §6）：
+3. **新增规则 5 问**（仅新增规则时，引自 `docs/Agent_Prompt_Design_Philosophy.md` §6）：
    - 解决的是已发生的问题还是假想问题？
    - 放在了正确的文件中吗？
    - 去掉这条规则，Agent 会犯错吗？
@@ -218,6 +218,6 @@ Read [references/review-checklist.md](references/review-checklist.md)
 |------|------|---------|
 | 审查清单 | [references/review-checklist.md](references/review-checklist.md) | 准备阶段（必读） |
 | 文件结构索引 | [references/prompt-file-map.md](references/prompt-file-map.md) | 准备阶段（必读） |
-| 设计哲学文档 | `docs/Prompt_Design_Philosophy.md` | 准备阶段（必读） |
+| 设计哲学文档 | `docs/Agent_Prompt_Design_Philosophy.md` | 准备阶段（必读） |
 | 规则体系地图 | `.claude/skills/rule-tuning/references/rule-system-map.md` | 需要理解规则注入机制时 |
 | 历史调优案例 | `.claude/skills/rule-tuning/references/case-studies.md` | 需要了解规则演进脉络时 |

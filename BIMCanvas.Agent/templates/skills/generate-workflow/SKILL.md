@@ -11,7 +11,7 @@ description: |
 ## 流程概览
 
 ```
-前置准备：截图（单独一轮）→ 读取数据（步骤 2-5 可并行）
+前置准备：截图（单独一轮）→ 读取数据（步骤 2-4 可并行）
   → 阶段 A：放置锚点 + 主要家具 → 写入 → 编译检查 → [失败则修正]
     → 截图设计审查（单独一轮） → [如有设计违规] → 修正（最多 1 次）
   → 阶段 B：补充辅助家具 → 写入 → 编译检查 → [失败则修正]
@@ -31,13 +31,9 @@ description: |
 □ 已调用 mcp__canvas__request_background_screenshot 查看截图（前置）
   → 截图工具会直接返回图片；如果你看不到图片内容，请用 Read 工具查看返回的文件路径
 
-□ 已读取 {projectPath}/knowledge/placement_guide.md（项目目录下，非 Skill 目录）
+□ 已读取 knowledge/placement_guide.md（项目目录下，非 Skill 目录）
   → 如果未读取，立即停止并先读取
   → 重点阅读：§四 尺寸标准（尤其 §4.1 通道分类）、§五 房间布置要点、§七 家具依赖关系
-
-□ 已读取 modules/README.md（模块库架构说明）
-  → 如果未读取，立即停止并先读取
-  → 了解双层架构：契约层（尺寸）+ 意图层（agent_config）
 
 □ 已读取 modules/module_library.json
   → 如果未读取，立即停止并先读取
@@ -56,42 +52,46 @@ description: |
 
 ## 前置准备
 
-### 步骤 1：前置截图（单独调用，不与步骤 2-5 并行）
+### 步骤 1：前置截图（单独调用，不与步骤 2-4 并行）
 
 ```
 mcp__canvas__request_background_screenshot(
   projectPath="{当前工作目录}",
-  viewport={"mode": "full"}
+  viewport={"mode": "full"}          // 全部房间
+  // 或 {"mode": "zone", "zoneId": "rz_1"}  // 仅指定分区
 )
 ```
+→ 若用户指定了具体房间，使用 zone 模式聚焦目标分区
+→ 若为全屋布置或未指定，使用 full 模式
 → 截图工具会直接返回图片；如果你看不到图片内容，请用 Read 工具查看返回的文件路径
 → 仔细查看截图，理解空间形态、门窗位置、房间朝向
-→ **等收到并查看截图后，再继续步骤 2-5**
+→ **等收到并查看截图后，再继续步骤 2-4**
 
 ---
 
-### 步骤 2-5：读取设计数据（可并行）
+### 步骤 2-4：读取设计数据（可并行）
 
 ### 2. 读取设计规范（必须）
-Read {projectPath}/knowledge/placement_guide.md
+Read knowledge/placement_guide.md
 
-### 3. 读取模块库架构说明（必须）
-Read modules/README.md
-→ 了解模块库的双层架构：
-  - 契约层：id, tags, size, svgPath（用于选择模块）
-  - 意图层：agent_config（用于决策布置）
-→ 理解 agent_config 的三个关键字段：
-  - morphology.strategy: 形态策略（fixed=固定尺寸, horizontal_fill=横向填充, parametric=参数化）
-  - topology_rules: 拓扑规则（物体与环境的空间关系，如"靠墙放置"）
-  - relation_rules: 关系规则（物体与其他家具的配合，如"面向电视墙"）
-
-### 4. 读取家具库数据（必须）
+### 3. 读取模块库（必须）
 Read modules/module_library.json
-→ 家具尺寸必须从此文件选择
+→ 家具尺寸必须从此文件选择，禁止编造
 → 根据目标 Zone.tags 筛选兼容模块（模块的 tags 与 zone 的 tags 有交集）
 → 布置时参考每个模块的 agent_config 进行决策
 
-### 5. 读取空间数据
+模块数据采用「契约层 + 意图层」双层架构：
+- **契约层**：id, tags, size, svgPath — 用于选择模块和渲染
+- **意图层**（agent_config）— 用于布置决策，包含三个关键字段：
+  - morphology.strategy: 形态策略
+    - fixed: 固定尺寸（如马桶、成品床头柜）
+    - horizontal_fill: 横向填充，宽度可变（如定制衣柜、窗帘）
+    - parametric: 参数化，长宽均可调（如转角淋浴房）
+    - pad_to_fit: 适配填充，物体不变但加填充物（如嵌入式电器）
+  - topology_rules: 拓扑规则 — 物体与环境的空间关系（如"靠墙放置"）
+  - relation_rules: 关系规则 — 物体与其他家具的配合（如"面向电视墙"）
+
+### 4. 读取空间数据
 - Read schemes/zones.json
   → 包含所有可设计分区的 ID、边界（rawBoundary）、功能标签（tags）
   → 分区 ID（如 rz_1）用于后续写入 schemes/{zoneId}/modules.json
@@ -110,24 +110,13 @@ Read modules/module_library.json
 | 主要家具 | 围绕锚点的功能家具 | 衣柜、沙发、床头柜、餐椅 |
 | 辅助家具 | 填充和装饰性家具 | 茶几、边几、梳妆台、落地灯 |
 
-**成套依赖必须同阶段放置**：床+床头柜、书桌+椅子、餐桌+餐椅。
+**成套依赖必须同阶段放置**：床+床头柜、书桌+椅子、餐桌+餐椅、床+衣柜（卧室）。
 
-**衣柜是卧室的主要家具**：阶段 A 应与床一同规划（省略条件参照 placement_guide §5.3）。
+### 阶段 A 前置：锚点朝向决策
 
-### 5.5 锚点朝向决策（阶段 A 前必须完成）
-
-在规划具体坐标前，先确定每个锚点家具的朝向策略：
-
-1. 读取锚点家具的 `agent_config.topology_rules` 和 `agent_config.relation_rules`
-2. 结合 `placement_guide §六 朝向决策逻辑` 确定朝向
-3. 如果用户提供了参考方案，以模块 `agent_config` 的规则为主，参考方案为辅
-   → 当参考方案与设计规则冲突时，**优先遵守设计规则**（尤其是 topology_rules 中的硬性约束）
+参照 placement_guide §6 和锚点家具的 agent_config（topology_rules + relation_rules）确定朝向。
 
 > 朝向决定了后续所有空间计算的基础。朝向错误会导致连锁的空间分析失败。
-
-### 5.6 衣柜墙面评估（阶段 A 前必须完成）
-
-参照 placement_guide §6.4，穷举所有墙段并评估有效段长度，选择最优墙面。在 placementReason 中记录评估结果。
 
 ### 6A. 放置前预检
 
@@ -136,7 +125,7 @@ Read modules/module_library.json
 2. 通行间隙是否满足通道标准？→ 参见 placement_guide §4.1
    注意：先区分「通行间隙」与「使用间隙」（参见 placement_guide §4.1），使用间隙不适用通道标准。
 3. 间距分配是否合理？→ 参见 placement_guide §5.2/§5.3
-4. **衣柜墙面选择**：是否已完成有效段评估？→ 参见 §5.6 → placement_guide §6.4
+4. **衣柜墙面选择**（仅卧室）：是否已完成有效段评估？→ 参见 placement_guide §6.4
 
 > bounds 范围、重叠、禁区冲突等几何检查将在写入后由 `validate_layout` 自动完成，无需心算。
 
@@ -321,4 +310,3 @@ mcp__canvas__request_background_screenshot(
 | 阶段 B 只写新增家具 | 必须合并已有+新增全部写入 |
 | 修正循环超过 1 次仍失败 | 移除违规家具，保留核心布局 |
 | 跳过 placement_guide | 必须读取并遵守规范 |
-| 跳过 modules/README.md | 必须读取以理解 agent_config 使用方式 |
