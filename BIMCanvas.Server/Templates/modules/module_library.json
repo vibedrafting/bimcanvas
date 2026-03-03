@@ -263,7 +263,9 @@
         "topology_rules": [
           "【必须】靠墙放置"
         ],
-        "relation_rules": []
+        "relation_rules": [
+          "【建议】应布置在靠近卫生间入口的一侧——便于进出时洗手"
+        ]
       },
       "description": "凤栖湖850台下盆",
       "svgPath": "assets/mod_basin_001.svg"
@@ -291,7 +293,9 @@
         "topology_rules": [
           "【必须】靠墙放置"
         ],
-        "relation_rules": []
+        "relation_rules": [
+          "【建议】应布置在靠近卫生间入口的一侧——便于进出时洗手"
+        ]
       },
       "description": "可变宽台下盆(>850mm)",
       "svgPath": "assets/mod_basin_custom_001.svg"
@@ -315,7 +319,8 @@
         ],
         "relation_rules": [
           "【建议】避免正对门——隐私与美观",
-          "【建议】通常与盥洗区（台盆）并排相邻布置"
+          "【建议】通常与盥洗区（台盆）并排相邻布置",
+          "【建议】相对于台盆，坐便器应布置在远离入口的一侧——隐私优先"
         ]
       },
       "description": "标准坐便器",
@@ -400,7 +405,8 @@
           "strategy": "fixed"
         },
         "topology_rules": [
-          "【必须】靠墙放置（淋浴区内）"
+          "【必须】靠墙放置（淋浴区内）",
+          "【建议】优先安装在淋浴区内的实墙（非窗墙）——走管安装需要实墙支撑"
         ],
         "relation_rules": []
       },
