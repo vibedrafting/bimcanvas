@@ -136,7 +136,8 @@ description: |
 - [ ] 用户在目标房间重新运行布置，关键指标改善
 - [ ] Agent [THINK] 日志中引用了更新后的规则/概念
 - [ ] 抽检至少一个同类型房间，确认无副作用
-- [ ] 将本次调优记录到 references/case-studies.md（偏离点 → 层级 → 修复 → 效果）
+
+用户确认改动有效后，将本次调优记录到 references/case-studies.md（偏离点 → 层级 → 修复 → 效果）。
 
 ---
 
