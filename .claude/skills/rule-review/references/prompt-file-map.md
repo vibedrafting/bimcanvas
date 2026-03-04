@@ -48,7 +48,7 @@ module_library.json
 
 | 规则 | generate SKILL.md | placement_guide | module_library |
 |------|-------------------|-----------------|----------------|
-| 衣柜穷举墙面 | §5.6, S3 | §5.2, §6.4 | mod_cabinet_1500, mod_cabinet_custom_001 |
+| 衣柜穷举墙面 | §5.6, S3 | §5.2, §7.4 | mod_cabinet_1500, mod_cabinet_custom_001 |
 | 间距分配 | §6A.2 | §5.2, §5.3 | mod_bed_001 relation_rules |
 | 侧对窗户 | S4 | §5.2, §5.3, §6.1 | mod_bed_001 relation_rules |
 | 通道分类 | §6A.1, H5 | §4.1 | — |
