@@ -151,7 +151,8 @@ Read modules/module_library.json
 2. 通行间隙是否满足通道标准？→ 参见 placement_guide §4.1
    注意：先区分「通行间隙」与「使用间隙」（参见 placement_guide §4.1），使用间隙不适用通道标准。
 3. 间距分配是否合理？→ 参见 placement_guide §7.6（卧室）或对应房间章节
-4. **衣柜墙面选择**（仅卧室）：是否已完成有效段评估？→ 参见 placement_guide §7.4
+4. **衣柜布局模式**（仅卧室）：是否已评估 L 形转角与线性两种模式？→ 参见 placement_guide §7.4
+5. **前瞻协调**：主要家具的位置是否会阻断辅助家具的必要空间（如衣柜占据窗墙角部）？→ 参见 placement_guide §1 前瞻协调规则
 
 > bounds 范围、重叠、禁区冲突等几何检查将在写入后由 `validate_layout` 自动完成，无需心算。
 
@@ -215,7 +216,7 @@ mcp__canvas__request_background_screenshot(
 **设计规则（优先修正）**：
 - [ ] S1: [卧室] 锚点家具沿床头墙定位合理（参照 placement_guide §7.6 的布局间距分配规则）
 - [ ] S2: 家具朝向符合 topology_rules / relation_rules
-- [ ] S3: [卧室] 衣柜沿最长连续有效段放置，填满全长（参照 placement_guide §7.4）
+- [ ] S3: [卧室] 衣柜按 §7.4 选定的布局模式放置——L 形转角：两段各填满对应有效段；线性：填满单面墙有效段全长
 - [ ] S4: [卧室] 床头靠实墙（非窗墙、非门墙）；次卧/主卧优先「侧对窗户」布局（床长边朝窗）；床脚不正对门（参照 placement_guide §7.3）
 - [ ] S5: [封闭空间] 成套家具完整（床+床头柜≥1、书桌+椅子）；卧室缺少床头柜须说明省略原因（参照 placement_guide §5.1）
 - [ ] S7: 沿墙柜体贴靠墙角放置，避免产生卫生死角（参照顶角规则和模块 relation_rules）
