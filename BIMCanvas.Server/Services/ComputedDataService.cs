@@ -240,12 +240,13 @@ namespace BIMCanvas.Server.Services
                 }
 
                 // 计算禁区矩形边界
-                // 向房间内扩展 doorWidth 的距离
+                // 向门线两侧各扩展 doorWidth 的距离，合并为双向禁区
                 var offset = facingVec * doorWidth;
+                var reverseOffset = facingVec * (-doorWidth);
                 var vertices = new[]
                 {
-                    line.Start,
-                    line.End,
+                    line.Start + reverseOffset,
+                    line.End + reverseOffset,
                     line.End + offset,
                     line.Start + offset
                 };
@@ -257,7 +258,7 @@ namespace BIMCanvas.Server.Services
                     Name = "门扇禁区",
                     RoomId = string.Empty,
                     Type = ZoneType.Exclusion,
-                    Reason = $"door_swing:门 {opening.Id} 的开启扫过区域",
+                    Reason = $"door_swing:门 {opening.Id} 的双向通行区域",
                     RawBoundary = new Polygon2D(vertices),
                     ComputedBoundary = null,
                     Tags = new List<ZoneTag>(),
