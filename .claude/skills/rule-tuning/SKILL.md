@@ -166,7 +166,7 @@ description: |
 
 ### 文件职责速查
 
-> 详见 `docs/Agent_Prompt_Design_Philosophy.md` §3
+> 详见 `docs/Agent_Prompt_Design_Philosophy.md` §4
 
 | 判断条件 | 放入 |
 |----------|------|

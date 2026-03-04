@@ -1,6 +1,6 @@
 # 提示词审查检查清单
 
-> 对照 `docs/Agent_Prompt_Design_Philosophy.md` §2 六原则展开。
+> 对照 `docs/Agent_Prompt_Design_Philosophy.md` §2 三层论中的设计原则展开。
 > 每条检查项格式：**检查什么** → **怎么判断** → **典型违规示例**
 
 ---
@@ -117,7 +117,7 @@
 
 ### C7.1 职责越界
 
-- **检查**：对照 `docs/Agent_Prompt_Design_Philosophy.md` §3 和 `references/prompt-file-map.md` 职责边界表
+- **检查**：对照 `docs/Agent_Prompt_Design_Philosophy.md` §4 和 `references/prompt-file-map.md` 职责边界表
 - **判断**：每个文件是否只包含属于自己职责范围的内容
 - **违规示例**：SKILL.md §6A 中写了"间距分配"的具体数值——应在 placement_guide 中
 
