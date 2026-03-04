@@ -88,15 +88,19 @@ namespace BIMCanvas.Revit.Adapters
                 var facingDirection = directions.FacingDirection;
                 var handDirections = directions.OpeningDirections ?? new List<XYZ>();
 
-                // 4. 计算定位线起终点（英尺）
+                // 4. 推断门操作方式（族名优先 + 弧线兜底）
+                var doorOperation = InferDoorOperationType(door, handDirections);
+
+                // 5. 计算定位线起终点（英尺）
                 var (start, end) = CalculateLocationLine(locationPoint, width, facingDirection);
 
-                // 5. 创建 RevitOpening 对象
+                // 6. 创建 RevitOpening 对象
                 return new RevitOpening
                 {
                     Id = PrefixId.NewId("d_"),
                     ElementId = door.Id.IntegerValue,
                     Type = OpeningType.Door,
+                    DoorOperation = doorOperation,
                     LocationPoint = locationPoint.ToCoordinate(),
                     LocationLine = CreateLineSegment(start, end),
                     FacingDirection = facingDirection.ToVector2D(),
@@ -179,6 +183,35 @@ namespace BIMCanvas.Revit.Adapters
             );
 
             return (start, end);
+        }
+
+        /// <summary>
+        /// 推断门操作方式
+        /// 策略：族名关键词优先，IFC 弧线数量兜底
+        /// </summary>
+        /// <param name="door">门族实例</param>
+        /// <param name="handDirections">IFC 弧线计算得到的开启方向（空表示无弧线）</param>
+        /// <returns>门操作类型</returns>
+        private DoorOperationType InferDoorOperationType(FamilyInstance door, List<XYZ> handDirections)
+        {
+            // 1. 族名关键词匹配（最强意图信号）
+            string familyName = door.Symbol?.Family?.Name ?? "";
+            string typeName = door.Symbol?.Name ?? "";
+            string combinedName = (familyName + " " + typeName).ToLowerInvariant();
+
+            string[] slidingKeywords = { "推拉", "移门", "sliding", "slide", "pocket" };
+            foreach (var keyword in slidingKeywords)
+            {
+                if (combinedName.Contains(keyword))
+                    return DoorOperationType.Sliding;
+            }
+
+            // 2. IFC 弧线数量兜底（无弧线 → 推拉门）
+            if (handDirections == null || handDirections.Count == 0)
+                return DoorOperationType.Sliding;
+
+            // 3. 默认平开门
+            return DoorOperationType.Swing;
         }
 
         /// <summary>

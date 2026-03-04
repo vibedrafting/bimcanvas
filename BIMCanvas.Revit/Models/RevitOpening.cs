@@ -47,5 +47,10 @@ namespace BIMCanvas.Revit.Models
         /// 左右开启方向（NTS Vector2D列表，单位向量）
         /// </summary>
         public List<Vector2D> HandDirections { get; set; }
+
+        /// <summary>
+        /// 门操作方式：平开 / 推拉（仅门有效，窗为 null）
+        /// </summary>
+        public DoorOperationType? DoorOperation { get; set; }
     }
 }

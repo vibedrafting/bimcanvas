@@ -239,9 +239,12 @@ namespace BIMCanvas.Server.Services
                     continue;
                 }
 
-                // 根据门操作方式决定禁区扩展距离
+                // 根据门操作方式和门扇数决定禁区扩展距离
                 var isSliding = opening.DoorOperation == DoorOperationType.Sliding;
-                var extensionDistance = isSliding ? 300.0 : doorWidth; // 推拉门：300mm通行禁区；平开门：门宽扫过禁区
+                var isDoubleDoor = opening.HandDirections?.Count >= 2;
+                var extensionDistance = isSliding ? 300.0
+                    : isDoubleDoor ? doorWidth / 2.0  // 双开门：每扇宽 doorWidth/2
+                    : doorWidth;                       // 单开门：整个门宽
                 var exclusionName = isSliding ? "通行禁区" : "门扇禁区";
                 var reasonPrefix = isSliding ? "door_passage" : "door_swing";
 

@@ -410,6 +410,8 @@ export class SceneBuilder {
         if (op.type === 0) {
             if (op.doorOperation === 1) {
                 this.createSlidingDoor(center, width, height, angle, renderOp);
+            } else if (renderOp.handDirections && renderOp.handDirections.length >= 2) {
+                this.createDoubleDoor(center, width, height, angle, renderOp);
             } else {
                 this.createDoor(center, width, height, angle, renderOp);
             }
@@ -468,6 +470,175 @@ export class SceneBuilder {
             handDirections: handDirections.length > 0 ? handDirections : [defaultHand]
         };
         return result;
+    }
+
+    private createDoubleDoor(center: THREE.Vector2, width: number, height: number, angle: number, originalOp?: Opening) {
+        const root = new THREE.Group();
+        root.rotation.x = -Math.PI / 2;
+
+        if (originalOp) {
+            root.userData = {
+                id: originalOp.id,
+                type: 'door',
+                subType: 'double',
+                data: originalOp
+            };
+        }
+        this.scene.add(root);
+
+        // --- AI Vision Group ---
+        const aiRoot = new THREE.Group();
+        aiRoot.rotation.x = -Math.PI / 2;
+        if (originalOp) {
+            aiRoot.userData = { id: originalOp.id, type: 'door', subType: 'double', data: originalOp };
+        }
+        this.scene.add(aiRoot);
+
+        const frameThickness = 50;
+        const frameDepth = 120;
+        const panelThickness = 40;
+        const leafWidth = width / 2;
+        const lineVec = new THREE.Vector2(Math.cos(angle), Math.sin(angle));
+        const normalVec = new THREE.Vector2(-Math.sin(angle), Math.cos(angle));
+
+        // === Frame (same as single door) ===
+        const frameGroup = new THREE.Group();
+        frameGroup.position.set(center.x, center.y, 0);
+        frameGroup.rotation.z = angle;
+
+        const topGeo = new THREE.BoxGeometry(width + frameThickness * 2, frameDepth, frameThickness);
+        const frameMat = this.materials.get('doorFrame');
+        const topFrame = new THREE.Mesh(topGeo, frameMat);
+        topFrame.position.set(0, 0, height);
+        this.enableArchitectureLayer(topFrame);
+        frameGroup.add(topFrame);
+
+        const sideGeo = new THREE.BoxGeometry(frameThickness, frameDepth, height);
+        const leftFrame = new THREE.Mesh(sideGeo, frameMat);
+        leftFrame.position.set(-width / 2 - frameThickness / 2, 0, height / 2);
+        this.enableArchitectureLayer(leftFrame);
+        frameGroup.add(leftFrame);
+
+        const rightFrame = new THREE.Mesh(sideGeo, frameMat);
+        rightFrame.position.set(width / 2 + frameThickness / 2, 0, height / 2);
+        this.enableArchitectureLayer(rightFrame);
+        frameGroup.add(rightFrame);
+
+        root.add(frameGroup);
+
+        // AI Frame
+        const aiFrameGroup = new THREE.Group();
+        aiFrameGroup.position.set(center.x, center.y, 0);
+        aiFrameGroup.rotation.z = angle;
+        const aiFrameMat = this.materials.get('ai_door');
+
+        const aiTopFrame = new THREE.Mesh(topGeo, aiFrameMat);
+        aiTopFrame.position.set(0, 0, height);
+        this.enableAiLayer(aiTopFrame);
+        aiFrameGroup.add(aiTopFrame);
+
+        const aiLeftFrame = new THREE.Mesh(sideGeo, aiFrameMat);
+        aiLeftFrame.position.set(-width / 2 - frameThickness / 2, 0, height / 2);
+        this.enableAiLayer(aiLeftFrame);
+        aiFrameGroup.add(aiLeftFrame);
+
+        const aiRightFrame = new THREE.Mesh(sideGeo, aiFrameMat);
+        aiRightFrame.position.set(width / 2 + frameThickness / 2, 0, height / 2);
+        this.enableAiLayer(aiRightFrame);
+        aiFrameGroup.add(aiRightFrame);
+
+        aiRoot.add(aiFrameGroup);
+
+        // === Determine open direction (shared by both leaves) ===
+        let openTowardsUp = true;
+        if (originalOp?.facingDirection) {
+            const faceVec = new THREE.Vector2(originalOp.facingDirection[0], originalOp.facingDirection[1]);
+            if (faceVec.dot(normalVec) < 0) {
+                openTowardsUp = false;
+            }
+        }
+
+        const panelGeo = new THREE.BoxGeometry(leafWidth, panelThickness, height - frameThickness);
+        const panelMat = this.materials.get('doorPanel');
+
+        // Helper: create one leaf (architecture + AI) and return arc geometry
+        const createLeaf = (isLeftLeaf: boolean, handDir: [number, number]) => {
+            const panelGroup = new THREE.Group();
+            panelGroup.position.set(center.x, center.y, 0);
+            panelGroup.rotation.z = angle;
+
+            // Left leaf: hinge at line start (-width/2), Right leaf: hinge at line end (+width/2)
+            const hingeX = isLeftLeaf ? -width / 2 : width / 2;
+
+            const pivotGroup = new THREE.Group();
+            pivotGroup.position.set(hingeX, 0, 0);
+
+            const panel = new THREE.Mesh(panelGeo, panelMat);
+            // Left leaf extends rightward from hinge, right leaf extends leftward
+            panel.position.set(isLeftLeaf ? leafWidth / 2 : -leafWidth / 2, 0, height / 2);
+            this.enableArchitectureLayer(panel);
+            pivotGroup.add(panel);
+
+            // Swing angle: left hinge opens CCW when up, right hinge opens CW when up
+            let swingAngle = 0;
+            let isCCW = true;
+
+            if (isLeftLeaf) {
+                swingAngle = openTowardsUp ? Math.PI / 2 : -Math.PI / 2;
+                isCCW = openTowardsUp;
+            } else {
+                swingAngle = openTowardsUp ? -Math.PI / 2 : Math.PI / 2;
+                isCCW = !openTowardsUp;
+            }
+
+            pivotGroup.rotation.z = swingAngle;
+            panelGroup.add(pivotGroup);
+
+            // Arc
+            const startAngle = isLeftLeaf ? 0 : Math.PI;
+            const curve = new THREE.EllipseCurve(
+                hingeX, 0,
+                leafWidth, leafWidth,
+                startAngle, startAngle + swingAngle,
+                !isCCW,
+                0
+            );
+            const arcPoints = curve.getPoints(32);
+            const arcGeo = new THREE.BufferGeometry().setFromPoints(arcPoints);
+            const arc = new THREE.Line(arcGeo, this.materials.get('swingArc'));
+            arc.position.set(0, 0, 20);
+            this.enableArchitectureLayer(arc);
+            panelGroup.add(arc);
+
+            root.add(panelGroup);
+
+            // AI Vision leaf
+            const aiPanelGroup = new THREE.Group();
+            aiPanelGroup.position.set(center.x, center.y, 0);
+            aiPanelGroup.rotation.z = angle;
+
+            const aiPivotGroup = new THREE.Group();
+            aiPivotGroup.position.set(hingeX, 0, 0);
+
+            const aiPanel = new THREE.Mesh(panelGeo, aiFrameMat);
+            aiPanel.position.set(isLeftLeaf ? leafWidth / 2 : -leafWidth / 2, 0, height / 2);
+            this.enableAiLayer(aiPanel);
+            aiPivotGroup.add(aiPanel);
+            aiPivotGroup.rotation.z = swingAngle;
+            aiPanelGroup.add(aiPivotGroup);
+
+            const aiArc = new THREE.Line(arcGeo, this.materials.get('swingArc'));
+            aiArc.position.set(0, 0, 20);
+            this.enableAiLayer(aiArc);
+            aiPanelGroup.add(aiArc);
+
+            aiRoot.add(aiPanelGroup);
+        };
+
+        // Create both leaves
+        const hands = originalOp?.handDirections ?? [[1, 0], [-1, 0]];
+        createLeaf(true, hands[0] as [number, number]);
+        createLeaf(false, hands[1] as [number, number]);
     }
 
     private createSlidingDoor(center: THREE.Vector2, width: number, height: number, angle: number, originalOp?: Opening) {
