@@ -408,7 +408,11 @@ export class SceneBuilder {
         const renderOp = this.normalizeOpeningForRender(op, start, end);
 
         if (op.type === 0) {
-            this.createDoor(center, width, height, angle, renderOp);
+            if (op.doorOperation === 1) {
+                this.createSlidingDoor(center, width, height, angle, renderOp);
+            } else {
+                this.createDoor(center, width, height, angle, renderOp);
+            }
         } else {
             this.createWindow(center, width, height, angle, renderOp);
         }
@@ -464,6 +468,124 @@ export class SceneBuilder {
             handDirections: handDirections.length > 0 ? handDirections : [defaultHand]
         };
         return result;
+    }
+
+    private createSlidingDoor(center: THREE.Vector2, width: number, height: number, angle: number, originalOp?: Opening) {
+        const root = new THREE.Group();
+        root.rotation.x = -Math.PI / 2;
+
+        if (originalOp) {
+            root.userData = {
+                id: originalOp.id,
+                type: 'door',
+                subType: 'sliding',
+                data: originalOp
+            };
+        }
+
+        this.scene.add(root);
+
+        // --- AI Vision Group ---
+        const aiRoot = new THREE.Group();
+        aiRoot.rotation.x = -Math.PI / 2;
+        if (originalOp) {
+            aiRoot.userData = { id: originalOp.id, type: 'door', subType: 'sliding', data: originalOp };
+        }
+        this.scene.add(aiRoot);
+
+        const frameThickness = 50;
+        const frameDepth = 120;
+
+        // === Architecture Layer: Frame ===
+        const frameGroup = new THREE.Group();
+        frameGroup.position.set(center.x, center.y, 0);
+        frameGroup.rotation.z = angle;
+
+        const topGeo = new THREE.BoxGeometry(width + frameThickness * 2, frameDepth, frameThickness);
+        const frameMat = this.materials.get('doorFrame');
+        const topFrame = new THREE.Mesh(topGeo, frameMat);
+        topFrame.position.set(0, 0, height);
+        this.enableArchitectureLayer(topFrame);
+        frameGroup.add(topFrame);
+
+        const sideGeo = new THREE.BoxGeometry(frameThickness, frameDepth, height);
+        const leftFrame = new THREE.Mesh(sideGeo, frameMat);
+        leftFrame.position.set(-width / 2 - frameThickness / 2, 0, height / 2);
+        this.enableArchitectureLayer(leftFrame);
+        frameGroup.add(leftFrame);
+
+        const rightFrame = new THREE.Mesh(sideGeo, frameMat);
+        rightFrame.position.set(width / 2 + frameThickness / 2, 0, height / 2);
+        this.enableArchitectureLayer(rightFrame);
+        frameGroup.add(rightFrame);
+
+        root.add(frameGroup);
+
+        // === Architecture Layer: Two sliding panels ===
+        const panelGroup = new THREE.Group();
+        panelGroup.position.set(center.x, center.y, 0);
+        panelGroup.rotation.z = angle;
+
+        const panelThickness = 40;
+        const halfWidth = width / 2;
+        const panelMat = this.materials.get('doorPanel');
+
+        const leftPanelGeo = new THREE.BoxGeometry(halfWidth, panelThickness, height - frameThickness);
+        const leftPanel = new THREE.Mesh(leftPanelGeo, panelMat);
+        leftPanel.position.set(-halfWidth / 2, -panelThickness / 2, height / 2);
+        this.enableArchitectureLayer(leftPanel);
+        panelGroup.add(leftPanel);
+
+        const rightPanelGeo = new THREE.BoxGeometry(halfWidth, panelThickness, height - frameThickness);
+        const rightPanel = new THREE.Mesh(rightPanelGeo, panelMat);
+        rightPanel.position.set(halfWidth / 2, panelThickness / 2, height / 2);
+        this.enableArchitectureLayer(rightPanel);
+        panelGroup.add(rightPanel);
+
+        // No swing arc for sliding doors
+
+        root.add(panelGroup);
+
+        // === AI Vision Layer: Frame ===
+        const aiFrameGroup = new THREE.Group();
+        aiFrameGroup.position.set(center.x, center.y, 0);
+        aiFrameGroup.rotation.z = angle;
+
+        const aiFrameMat = this.materials.get('ai_door');
+
+        const aiTopFrame = new THREE.Mesh(topGeo, aiFrameMat);
+        aiTopFrame.position.set(0, 0, height);
+        this.enableAiLayer(aiTopFrame);
+        aiFrameGroup.add(aiTopFrame);
+
+        const aiLeftFrame = new THREE.Mesh(sideGeo, aiFrameMat);
+        aiLeftFrame.position.set(-width / 2 - frameThickness / 2, 0, height / 2);
+        this.enableAiLayer(aiLeftFrame);
+        aiFrameGroup.add(aiLeftFrame);
+
+        const aiRightFrame = new THREE.Mesh(sideGeo, aiFrameMat);
+        aiRightFrame.position.set(width / 2 + frameThickness / 2, 0, height / 2);
+        this.enableAiLayer(aiRightFrame);
+        aiFrameGroup.add(aiRightFrame);
+
+        aiRoot.add(aiFrameGroup);
+
+        // === AI Vision Layer: Two sliding panels ===
+        const aiPanelGroup = new THREE.Group();
+        aiPanelGroup.position.set(center.x, center.y, 0);
+        aiPanelGroup.rotation.z = angle;
+
+        const aiLeftPanel = new THREE.Mesh(leftPanelGeo, aiFrameMat);
+        aiLeftPanel.position.set(-halfWidth / 2, -panelThickness / 2, height / 2);
+        this.enableAiLayer(aiLeftPanel);
+        aiPanelGroup.add(aiLeftPanel);
+
+        const aiRightPanel = new THREE.Mesh(rightPanelGeo, aiFrameMat);
+        aiRightPanel.position.set(halfWidth / 2, panelThickness / 2, height / 2);
+        this.enableAiLayer(aiRightPanel);
+        aiPanelGroup.add(aiRightPanel);
+
+        aiRoot.add(aiPanelGroup);
     }
 
     private createDoor(center: THREE.Vector2, width: number, height: number, angle: number, originalOp?: Opening) {

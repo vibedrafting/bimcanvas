@@ -127,6 +127,7 @@ export interface Column {
 export interface Opening {
   id: string;
   type: number;  // 0: Door, 1: Window
+  doorOperation?: number;  // 0: Swing(平开), 1: Sliding(推拉)。仅门有效，可选，缺省为 Swing
   line: Line2D;
   facingDirection?: Point2D;
   handDirections?: Point2D[];
