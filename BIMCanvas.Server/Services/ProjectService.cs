@@ -136,6 +136,9 @@ namespace BIMCanvas.Server.Services
 
             // 从 Templates 统一初始化资源文件
             InitializeFromTemplates(projectPath);
+
+            // 确保 Git 仓库状态完整（修复无 commit 的僵死状态）
+            InitializeGitRepository(projectPath);
         }
 
         /// <summary>

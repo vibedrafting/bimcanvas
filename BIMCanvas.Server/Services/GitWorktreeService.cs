@@ -70,8 +70,28 @@ namespace BIMCanvas.Server.Services
         {
             if (IsGitRepository(projectPath))
             {
-                _logger.LogDebug("Git 仓库已存在: {Path}", projectPath);
-                return false;
+                // 检查是否有 commit（.git 存在但可能没有初始提交）
+                var headCheck = RunGit(projectPath, "rev-parse HEAD");
+                if (headCheck.Success)
+                {
+                    _logger.LogDebug("Git 仓库已存在: {Path}", projectPath);
+                    return false;
+                }
+
+                // .git 存在但没有 commit，需要创建初始提交
+                _logger.LogInformation("Git 仓库存在但无提交，创建初始提交: {Path}", projectPath);
+
+                // 确保用户信息已配置
+                RunGit(projectPath, "config user.email \"bimcanvas@local\"");
+                RunGit(projectPath, "config user.name \"BIMCanvas\"");
+
+                RunGit(projectPath, "add .");
+                var initialCommit = RunGit(projectPath, "commit -m \"Initial commit: Project imported\"");
+                if (initialCommit.Success)
+                {
+                    _logger.LogInformation("初始提交创建完成");
+                }
+                return true;
             }
 
             _logger.LogInformation("初始化 Git 仓库: {Path}", projectPath);
