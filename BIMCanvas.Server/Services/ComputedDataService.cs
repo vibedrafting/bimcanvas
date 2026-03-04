@@ -270,6 +270,7 @@ namespace BIMCanvas.Server.Services
                     RawBoundary = new Polygon2D(vertices),
                     ComputedBoundary = null,
                     Tags = new List<ZoneTag>(),
+                    OptionalTags = new List<ZoneTag>(),
                     FinishRequirements = new List<FinishRequirement>(),
                     SchemeId = null
                 };
@@ -335,6 +336,7 @@ namespace BIMCanvas.Server.Services
                     RawBoundary = room.Boundary,
                     ComputedBoundary = null, // Room 类型暂不计算内缩边界
                     Tags = _tagMappingService.GetTagsForRoomType(room.Type),
+                    OptionalTags = _tagMappingService.GetOptionalTagsForRoomType(room.Type),
                     FinishRequirements = new List<FinishRequirement>(),
                     SchemeId = null
                 };

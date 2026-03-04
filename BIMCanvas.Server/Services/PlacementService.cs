@@ -208,9 +208,11 @@ namespace BIMCanvas.Server.Services
                     continue;
                 }
 
-                // 4.3 检查标签兼容性（模块的 tags 必须与 zone.tags 有交集）
+                // 4.3 检查标签兼容性（模块的 tags 必须与 zone 的 Tags ∪ OptionalTags 有交集）
                 var moduleTags = libraryEntry.Tags.Select(t => t.ToLowerInvariant()).ToHashSet();
-                var zoneTags = zone.Tags.Select(t => t.ToString().ToLowerInvariant()).ToHashSet();
+                var zoneTags = zone.Tags
+                    .Concat(zone.OptionalTags ?? Enumerable.Empty<ZoneTag>())
+                    .Select(t => t.ToString().ToLowerInvariant()).ToHashSet();
 
                 if (!moduleTags.Overlaps(zoneTags))
                 {

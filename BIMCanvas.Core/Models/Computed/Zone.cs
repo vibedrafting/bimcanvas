@@ -50,9 +50,15 @@ namespace BIMCanvas.Core.Models.Computed
         public Polygon2D? ComputedBoundary { get; set; }
 
         /// <summary>
-        /// 4. 功能标签：用于匹配设计素材
+        /// 4a. 必备功能标签：该空间的核心功能，对应的家具必须布置
         /// </summary>
         public List<ZoneTag> Tags { get; set; } = new List<ZoneTag>();
+
+        /// <summary>
+        /// 4b. 建议功能标签：该空间可选的扩展功能（如主卧的梳妆台）
+        /// Agent 匹配到建议标签对应的模块时，应视为可选家具（可放可不放）
+        /// </summary>
+        public List<ZoneTag> OptionalTags { get; set; } = new List<ZoneTag>();
 
         /// <summary>
         /// 5. 完成面需求：关联的 WallFinish 及其类型

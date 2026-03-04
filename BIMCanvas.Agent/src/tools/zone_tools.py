@@ -93,16 +93,19 @@ def list_modules_by_zone(project_path: str, zone_id: str) -> dict:
         }
 
     zone_tags = zone.get("tags", [])
-    if not zone_tags:
+    optional_tags = zone.get("optionalTags", [])
+    all_tags = zone_tags + optional_tags
+    if not all_tags:
         return {
             "zone_id": zone_id,
             "zone_tags": [],
+            "optional_tags": [],
             "modules": [],
             "error": "Zone has no tags"
         }
 
-    # 标准化 zone tags（转小写进行比较）
-    zone_tags_lower = {str(t).lower() for t in zone_tags}
+    # 标准化 zone tags（转小写进行比较，必备+建议标签并集用于模块匹配）
+    all_tags_lower = {str(t).lower() for t in all_tags}
 
     # 加载模块库
     library = read_json(project_path, "modules/module_library.json")
@@ -122,12 +125,13 @@ def list_modules_by_zone(project_path: str, zone_id: str) -> dict:
         module_tags = module.get("tags", [])
         module_tags_lower = {str(t).lower() for t in module_tags}
 
-        if module_tags_lower & zone_tags_lower:  # 交集非空
+        if module_tags_lower & all_tags_lower:  # 交集非空
             compatible_modules.append(module)
 
     return {
         "zone_id": zone_id,
         "zone_tags": zone_tags,
+        "optional_tags": optional_tags,
         "modules": compatible_modules
     }
 
