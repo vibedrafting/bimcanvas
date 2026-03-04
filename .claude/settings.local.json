@@ -31,7 +31,8 @@
       "Bash(cd:*)",
       "Bash(pip download:*)",
       "Bash(pip install:*)",
-      "Bash(pip show:*)"
+      "Bash(pip show:*)",
+      "Bash(unzip:*)"
     ]
   }
 }
