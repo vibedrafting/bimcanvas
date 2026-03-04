@@ -6,8 +6,7 @@ description: |
   触发场景：(1) 提示词审查/提示词 review (2) 审查提示词体系/全面审查
   (3) 检查刚修改的提示词/检查 diff (4) 提示词优化建议 (5) 评估提示词质量
   (6) 提示词变更影响分析。
-  包含：两种审查模式（全面审查/局部变更）、六原则检查清单、
-  职责边界验证、跨文件一致性检查、改进建议生成。
+  包含：诊断式全面审查、局部变更检查、六原则诊断工具、职责边界验证、改进建议生成。
 ---
 
 ## §1 审查体系概览
@@ -26,94 +25,113 @@ description: |
 Read `docs/Agent_Prompt_Design_Philosophy.md`（执行前**必须**读取）。
 核心内容：§2 六原则、§3 职责边界、§5 演进方向、§6 反模式清单。
 
-### 两种模式
-
-- **模式 A（全面审查）**：逐文件、逐原则检查 → 生成审查报告 → 见 §3
-- **模式 B（局部变更）**：分析 diff → 检查合规性 + 影响面 → 生成变更评审 → 见 §4
-
 ---
 
-## §2 通用准备步骤
-
-### 步骤 1：读取设计哲学文档（必须）
-
-Read `docs/Agent_Prompt_Design_Philosophy.md`
-→ 重点：§2 六原则定义、§3 职责边界、§6 反模式清单
-
-### 步骤 2：读取文件结构索引（必须）
-
-Read [references/prompt-file-map.md](references/prompt-file-map.md)
-→ 了解四文件的职责边界、引用关系、跨文件规则追踪表
-
-### 步骤 3：读取审查清单（必须）
-
-Read [references/review-checklist.md](references/review-checklist.md)
-→ 加载六原则逐项检查清单 C1.1 ~ C7.2
+## §2 模式判断 + 准备
 
 ### 模式判断
 
 | 用户输入特征 | 模式 |
 |-------------|------|
-| 提供了 git diff 或说"刚改了 XX" | 模式 B（局部变更） |
-| "全面审查" / "审查提示词体系" | 模式 A（全面审查） |
+| 提供了 git diff 或说"刚改了 XX" | 模式 B（局部变更）→ §4 |
+| "全面审查" / "审查提示词体系" | 模式 A（全面审查）→ §3 |
 | 未明确说明 | 询问用户意图 |
+
+### 准备
+
+**必读**：`docs/Agent_Prompt_Design_Philosophy.md`（审查的判断标准）
+**按需**：`references/prompt-file-map.md`（跨文件分析时读取）、`references/review-checklist.md`（针对特定原则深入分析时查阅，见附录）
 
 ---
 
 ## §3 模式 A：全面审查工作流
 
-### A1. 逐文件阅读
+### A1. 理解审查背景
 
-按以下顺序读取，每读完一个文件记录初步观察：
+审查前先了解上下文：
+- 用户为什么要做这次审查？（日常检查 / Agent 出了问题 / 刚做了大改动 / 其他）
+- 用户有没有特定关注点？（"我觉得 SKILL.md 太长了" / "Agent 最近老在 L 形房间出错"）
+- 近期有没有重大变更？（检查 git log）
 
-1. Read `BIMCanvas.Agent/templates/BIMCANVAS.md`
-2. Read `BIMCanvas.Agent/templates/skills/generate-workflow/SKILL.md`
-3. Read `BIMCanvas.Server/Templates/knowledge/placement_guide.md`
-4. Read `BIMCanvas.Server/Templates/modules/module_library.json`
+如果用户没有主动说明，用发现式问题提取：
+- "最近 Agent 有没有反复出现的布置问题？"
+- "你对当前提示词体系最不满意的是哪个方面？"
 
-### A2. 逐原则检查
+### A2. 通读与形成初步印象
 
-对照 `references/review-checklist.md`，逐项检查。按原则（而非按文件）组织检查，以便跨文件发现同一原则的违反模式：
+按顺序读取 4 个文件。阅读时不要逐项对照清单，而是带着以下问题读：
+1. 这个文件想要达成什么目标？它做到了吗？
+2. 作为 Agent，读完这个文件后，我对"该怎么做"的理解是否清晰无歧义？
+3. 哪些内容读起来最有价值？哪些内容读完后感觉"这段可以不要"？
 
-| 原则 | 检查项 | 主要关注文件 |
-|------|--------|-------------|
-| 结构化分层 | C1.1-C1.3 | 四个文件均检查 |
-| 示例代替描述 | C2.1-C2.2 | placement_guide, module_library |
-| 禁止项优先 | C3.1-C3.2 | BIMCANVAS.md, SKILL.md |
-| 提供原因 | C4.1-C4.2 | placement_guide, module_library |
-| 渐进信任 | C5.1-C5.2 | 三个规则文件 |
-| 信噪比 | C6.1-C6.3 | 四个文件均检查 |
+每读完一个文件，记一句话总结（不是检查清单结果，是直觉判断）：
+- BIMCANVAS.md: "..."
+- generate-workflow SKILL.md: "..."
+- placement_guide.md: "..."
+- module_library.json: "..."
 
-### A3. 职责边界验证
+### A3. 识别最大的系统性问题
 
-对照 `docs/Agent_Prompt_Design_Philosophy.md` §3 和 `references/prompt-file-map.md` 职责边界表：
+基于 A2 的通读印象，回答一个关键问题：
 
+**如果只能改一件事来让这个提示词体系变得更好，应该改什么？**
+
+这个问题迫使你从众多潜在问题中提炼出最重要的那一个。可能的答案模式：
+- "placement_guide 规则很多但几乎没有解释 WHY——Agent 只能机械执行，无法在边界场景推导"
+- "SKILL.md 和 placement_guide 职责边界模糊——很多设计标准写在了 SKILL.md 里"
+- "规则之间有系统性矛盾——A 处说优先填满，B 处说保留余量"
+- "信噪比严重失衡——某个文件有大量 Agent 不需要的信息"
+
+然后再问：**还有第二重要的问题吗？** 最多识别 2-3 个系统性问题。
+
+### A4. 针对性深入分析
+
+对 A3 识别的系统性问题，用六原则作为**诊断工具**（而非检查清单）进行深入分析。
+
+不是"逐条过六原则"，而是"选取与该问题最相关的原则来分析"：
+
+| 如果系统性问题是 | 最相关的原则 | 分析方法 |
+|-----------------|-------------|---------|
+| Agent 行为僵硬/机械 | 原则 4（提供原因）+ 原则 5（渐进信任） | 抽查关键规则是否有 WHY；约束层级是否区分了"必须/建议/自由" |
+| 规则之间矛盾 | 原则 6（信噪比）+ 跨文件一致性 | 追踪矛盾规则的来源文件；检查是否同一规则多处表述不一致 |
+| 某个文件过长/臃肿 | 原则 1（结构化分层）+ 原则 6（信噪比） | 逐节评估"去掉这节 Agent 会犯错吗？"；检查职责越界 |
+| Agent 在特定场景反复犯错 | 原则 2（示例代替描述）+ 原则 4（提供原因） | 检查该场景是否有具体示例或操作性定义；规则是否只说"做什么"没说"为什么" |
+
+如需查阅六原则的详细检查项，参考附录中的六原则诊断指南。
+
+### A5. 结构性验证（兜底检查）
+
+A3-A4 是假设驱动的，可能遗漏不在假设范围内的问题。以下两项结构性检查作为兜底：
+
+**职责边界验证**（对照 `references/prompt-file-map.md`）：
 - [ ] SKILL.md 中是否包含了应属于 placement_guide 的设计标准数值？
 - [ ] placement_guide 中是否包含了应属于 SKILL.md 的工作流步骤？
 - [ ] module_library 中是否包含了应属于 placement_guide 的通用设计原则？
 - [ ] 同一规则是否在多个文件中重复表述？（列出具体条目）
 - [ ] BIMCANVAS.md 是否保持了纯"身份 + 规范"定位？
-- [ ] module_library 中是否引用了外部文件（如 placement_guide §X.X）？（module_library 是跨项目通用模块库，模拟未来 AI 族库数据源，必须自包含）
+- [ ] module_library 中是否引用了外部文件？（module_library 是跨项目通用模块库，必须自包含）
 
-### A4. 跨文件一致性检查
-
-对照 `references/prompt-file-map.md` 跨文件追踪表：
-
+**跨文件一致性检查**（对照 `references/prompt-file-map.md` 跨文件追踪表）：
 1. 选取表中 6 条高频同步项（衣柜选墙、间距分配、侧对窗户、通道分类、床头柜成套、顶角规则）
 2. 追踪每条规则在各文件中的表述
 3. 标记不一致之处（用词差异、数值差异、适用范围差异）
 
-### A5. 生成审查报告
+### A6. 与用户讨论发现
 
-按以下格式输出：
+在生成正式报告前，先与用户讨论关键发现：
+- "我认为当前体系最大的问题是 [X]，理由是 [证据]"
+- "这个问题的影响范围是 [具体场景]"
+- "我建议的改进方向是 [方向]——你同意吗？有没有我没考虑到的背景？"
+
+不要把所有发现一股脑丢给用户——聚焦最重要的 2-3 个，确认方向后再出完整报告。
+
+### A7. 生成审查报告
 
 ```
 ## 审查报告
 
-### 总体评估
-- 体系成熟度：[评级 + 一句话]
-- 最大优势：[...]
-- 最大风险：[...]
+### 核心发现
+[1-2 段话描述体系最大的系统性问题及其影响——这是报告的灵魂，不是问题清单]
 
 ### 问题清单（按严重程度排序）
 
@@ -140,19 +158,21 @@ Read [references/review-checklist.md](references/review-checklist.md)
 - 用户直接提供 diff 文本
 - 用户告知修改了哪个文件 → 执行 `git diff HEAD~1 -- <file_path>` 获取
 
+先问用户："这次修改是为了解决什么问题？"——理解修改意图才能判断修改是否合理。
+
 ### B2. 变更归类
 
 | 变更类型 | 判断依据 | 检查重点 |
 |---------|---------|---------|
-| 新增规则 | diff 中有纯新增内容 | §6 新增规则 5 问 |
+| 新增规则 | diff 中有纯新增内容 | 新增规则 5 问 |
 | 修改规则 | diff 中有替换内容 | 语义变化 + 跨文件同步 |
 | 删除规则 | diff 中有纯删除内容 | 删除后是否留下引用悬空 |
 | 结构调整 | 章节移动/合并/拆分 | 职责边界是否仍正确 |
 
 ### B3. 对照设计原则检查
 
-1. **职责归属**：变更内容是否放在了正确的文件中？（对照 §3 职责边界）
-2. **六原则合规**：从 `references/review-checklist.md` 中选取与变更相关的检查项执行
+1. **职责归属**：变更内容是否放在了正确的文件中？（对照职责边界）
+2. **六原则合规**：从附录的六原则诊断指南中选取与变更相关的检查项执行
 3. **新增规则 5 问**（仅新增规则时，引自 `docs/Agent_Prompt_Design_Philosophy.md` §6）：
    - 解决的是已发生的问题还是假想问题？
    - 放在了正确的文件中吗？
@@ -162,7 +182,7 @@ Read [references/review-checklist.md](references/review-checklist.md)
 
 ### B4. 跨文件影响分析
 
-对照 `references/prompt-file-map.md` 跨文件追踪表和引用关系图，判断哪些文件需要同步：
+对照 `references/prompt-file-map.md` 跨文件追踪表，判断哪些文件需要同步：
 
 | 变更了 | 检查同步 |
 |--------|---------|
@@ -171,7 +191,7 @@ Read [references/review-checklist.md](references/review-checklist.md)
 | generate SKILL.md | placement_guide 的自检清单（§9.2） |
 | BIMCANVAS.md | 检查禁止事项是否与其他文件矛盾 |
 
-读取可能受影响的关联文件，确认是否需要同步更新。
+如果发现需要同步其他文件，先告知用户再执行。
 
 ### B5. 生成变更评审
 
@@ -210,6 +230,7 @@ Read [references/review-checklist.md](references/review-checklist.md)
 3. **区分"不好"与"不同"**：审查者的偏好不等于设计缺陷，以六原则为判断标准
 4. **关注实际影响**：优先报告可能导致 Agent 错误决策的问题，风格问题其次
 5. **不替代 rule-tuning**：发现具体布置规则有误时，建议用户启动 `/rule-tuning` 工作流处理
+6. **系统性问题优先于逐条问题**：审查的价值在于发现"一条规则怎么改能提升整体"，而非列出"20 条规则各自哪里不合格"
 
 ---
 
@@ -217,8 +238,15 @@ Read [references/review-checklist.md](references/review-checklist.md)
 
 | 资料 | 路径 | 何时读取 |
 |------|------|---------|
-| 审查清单 | [references/review-checklist.md](references/review-checklist.md) | 准备阶段（必读） |
-| 文件结构索引 | [references/prompt-file-map.md](references/prompt-file-map.md) | 准备阶段（必读） |
 | 设计哲学文档 | `docs/Agent_Prompt_Design_Philosophy.md` | 准备阶段（必读） |
+| 文件结构索引 | [references/prompt-file-map.md](references/prompt-file-map.md) | A5 结构性验证时 |
 | 规则体系地图 | `.claude/skills/rule-tuning/references/rule-system-map.md` | 需要理解规则注入机制时 |
 | 历史调优案例 | `.claude/skills/rule-tuning/references/case-studies.md` | 需要了解规则演进脉络时 |
+
+---
+
+## 附录：六原则诊断指南（按需查阅）
+
+> 当 A4 需要针对特定原则做深入分析时，查阅此指南获取具体检查项。
+
+参考 [references/review-checklist.md](references/review-checklist.md)
