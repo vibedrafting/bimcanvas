@@ -239,10 +239,15 @@ namespace BIMCanvas.Server.Services
                     continue;
                 }
 
+                // 根据门操作方式决定禁区扩展距离
+                var isSliding = opening.DoorOperation == DoorOperationType.Sliding;
+                var extensionDistance = isSliding ? 300.0 : doorWidth; // 推拉门：300mm通行禁区；平开门：门宽扫过禁区
+                var exclusionName = isSliding ? "通行禁区" : "门扇禁区";
+                var reasonPrefix = isSliding ? "door_passage" : "door_swing";
+
                 // 计算禁区矩形边界
-                // 向门线两侧各扩展 doorWidth 的距离，合并为双向禁区
-                var offset = facingVec * doorWidth;
-                var reverseOffset = facingVec * (-doorWidth);
+                var offset = facingVec * extensionDistance;
+                var reverseOffset = facingVec * (-extensionDistance);
                 var vertices = new[]
                 {
                     line.Start + reverseOffset,
@@ -255,10 +260,10 @@ namespace BIMCanvas.Server.Services
                 var exclusion = new Zone
                 {
                     Id = $"ez_{exclusionIndex}",
-                    Name = "门扇禁区",
+                    Name = exclusionName,
                     RoomId = string.Empty,
                     Type = ZoneType.Exclusion,
-                    Reason = $"door_swing:门 {opening.Id} 的双向通行区域",
+                    Reason = $"{reasonPrefix}:门 {opening.Id} 的双向通行区域",
                     RawBoundary = new Polygon2D(vertices),
                     ComputedBoundary = null,
                     Tags = new List<ZoneTag>(),
@@ -267,7 +272,7 @@ namespace BIMCanvas.Server.Services
                 };
 
                 result.Add(exclusion);
-                _logger.LogDebug("生成门扇禁区: {Id} (源门: {DoorId}), 宽度={Width}mm", exclusion.Id, opening.Id, doorWidth);
+                _logger.LogDebug("生成{Name}: {Id} (源门: {DoorId}), 扩展距离={Dist}mm", exclusionName, exclusion.Id, opening.Id, extensionDistance);
             }
 
             return result;
