@@ -32,7 +32,8 @@
       "Bash(pip download:*)",
       "Bash(pip install:*)",
       "Bash(pip show:*)",
-      "Bash(unzip:*)"
+      "Bash(unzip:*)",
+      "Bash(\"D:/Microsoft Visual Studio/2026/MSBuild/Current/Bin/MSBuild.exe\":*)"
     ]
   }
 }
