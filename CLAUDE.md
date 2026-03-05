@@ -186,7 +186,7 @@ dotnet restore BIMCanvas.Core
 dotnet build BIMCanvas.Core --no-restore
 
 # MSBuild 路径（备用）
-"D:\JetBrains\JetBrains Rider 2025.1.4\tools\MSBuild\Current\Bin\MSBuild.exe"
+"D:\Microsoft Visual Studio\2026\MSBuild\Current\Bin\MSBuild.exe"
 ```
 
 ### 运行
