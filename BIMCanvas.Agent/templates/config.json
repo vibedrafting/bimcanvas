@@ -4,8 +4,8 @@
     "defaultEffort": "medium",
     "defaultThinking": "adaptive",
     "permissions": {
-        "allow": ["Read", "Glob", "Grep", "Task"],
-        "deny": ["AskUserQuestion"]
+        "allow": ["Read", "Glob", "Grep", "Task", "AskUserQuestion"],
+        "deny": []
     },
     "server": {
         "host": "127.0.0.1",
