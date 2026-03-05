@@ -2,7 +2,7 @@
 
 BIMCanvas 是一款连接 AI 与 Revit 的室内设计辅助工具。它通过解析自然语言指令，自动生成符合空间逻辑的家具布局方案，并支持在 Web 端进行交互式调整，最终直接输出为可编辑的 Revit BIM 模型。
 
-> **当前版本**: v3.0 | **数据架构**: File-Driven Architecture | **Agent 架构**: 主控 Agent + SubAgent
+> **当前版本**: v3.1 | **数据架构**: File-Driven Architecture | **Agent 架构**: 主控 Agent + SubAgent
 
 **核心竞争力**：实现从"自然语言创意"到"可编辑 BIM 模型"的直接转化。
 
@@ -57,32 +57,29 @@ BIMCanvas 是一款连接 AI 与 Revit 的室内设计辅助工具。它通过�
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
-│                      Claude Code (AI CLI)                        │
-│                    用户与 AI 的对话交互入口                        │
-└──────────────────────────────┬──────────────────────────────────┘
-                               │ MCP Protocol
-┌──────────────────────────────┼──────────────────────────────────┐
-│                         MCP Server 集群                          │
-├──────────────────────────────┴──────────────────────────────────┤
-│   Revit-MCP (.NET FW 4.7.2)        Library-MCP (.NET 6+)        │
-│   提取建筑结构、创建 Revit 元素       搜索族资源、获取族信息        │
-└─────────────────────────────────────────────────────────────────┘
-                               │ 引用
-              ┌────────────────┼─────────────────────────┐
-              ▼                ▼                         ▼
-┌──────────────────┐  ┌───────────────────────┐  ┌────────────────────┐
-│  BIMCanvas.Core  │  │  BIMCanvas.Server     │  │  BIMCanvas.Web     │
-│  (.NET Std 2.0)  │  │  (.NET 6+)            │  │  (Vue 3 + TS)      │
-│  数据模型+算法    │  │  状态管理+通信中枢     │  │  渲染+用户交互     │
-└──────────────────┘  └───────────┬───────────┘  └────────────────────┘
-                                  │ SSE 事件流
-                                  ▼
-                      ┌───────────────────────┐
-                      │  BIMCanvas.Agent      │
-                      │  (Python 3.10+)       │
-                      │  MainAgent            │
-                      │  (主控 + SubAgent)    │
-                      └───────────────────────┘
+│                      用户交互层                                    │
+│         Web UI (Vue 3)  /  Claude Code (AI CLI)                   │
+└──────────┬──────────────────────────────┬────────────────────────┘
+           │ REST / SignalR               │ HTTP / SSE
+           ▼                              ▼
+┌───────────────────────┐      ┌───────────────────────┐
+│  BIMCanvas.Server     │      │  BIMCanvas.Agent      │
+│  (.NET 8.0)           │◄────►│  (Python 3.10+)       │
+│  状态管理+通信中枢     │ HTTP │  MainAgent+SubAgent   │
+│  Canvas-MCP 工具      │      │  AI 决策+工具调用      │
+└───────────┬───────────┘      └───────────────────────┘
+            │ 引用
+┌───────────┴───────────┐
+│  BIMCanvas.Core       │
+│  (.NET Std 2.0)       │
+│  数据模型+空间算法     │
+└───────────────────────┘
+            │ 引用
+┌───────────┴───────────┐
+│  BIMCanvas.Revit      │
+│  (.NET FW 4.7.2)      │
+│  Revit 导出+回写       │
+└───────────────────────┘
 ```
 
 ### 组件角色定位
@@ -107,8 +104,11 @@ BIMCanvas 是一款连接 AI 与 Revit 的室内设计辅助工具。它通过�
 
 **SubAgent 清单**：
 - `layout-agent`：家具布置专家
-- `zone-agent`：空间分区专家
-- 更多规划中...
+
+**Skill 工作流**：
+- `query-workflow`：查询统计（查看布置状态、房间信息）
+- `edit-workflow`：编辑操作（移动、删除、旋转家具）
+- `generate-workflow`：生成任务（完整布置方案生成）
 
 **关键设计原则**：
 - Agent 只做决策，不做计算
@@ -134,7 +134,7 @@ BIMCanvas 是一款连接 AI 与 Revit 的室内设计辅助工具。它通过�
 |------|------|------|----------|
 | Core 类库 | .NET Standard | 2.0 | 同时兼容 .NET FW 4.7.2 和 .NET 6+ |
 | Revit 插件 | .NET Framework | 4.7.2 | Revit API 限制 |
-| Server 后端 | ASP.NET Core | 6+ | MCP + REST + SignalR + SSE |
+| Server 后端 | ASP.NET Core | 8.0 | REST + SignalR + SSE + Canvas-MCP |
 | Agent 服务 | Python + Agent SDK | 3.10+ | 基于 Anthropic Agent SDK |
 | Web 前端 | Vue 3 + TypeScript | 3.x | 响应式 + 类型安全 |
 | 构建工具 | Vite | 5.x | 快速开发体验 |
@@ -150,31 +150,38 @@ BIMCanvas/
 │   ├── Models/                  数据模型 (Project, Zone, Module...)
 │   └── Algorithms/              空间算法 (碰撞检测, 布置验证)
 │
-├── BIMCanvas.Server/            统一后端服务 (.NET 6+)
-│   ├── McpTools/                Canvas-MCP + Library-MCP 工具
-│   ├── Controllers/             REST API + SSE 事件端点
+├── BIMCanvas.Server/            统一后端服务 (.NET 8.0)
+│   ├── Controllers/             REST API (Project, Git, Validation...)
+│   ├── Services/                项目管理、Git Worktree、方案数据、禁区计算
+│   ├── McpTools/                Canvas-MCP 工具
 │   ├── Hubs/                    SignalR Hub
-│   └── Services/                EventBus、状态管理、业务服务
+│   └── Templates/               知识库 + 模块库 + 配置模板
 │
 ├── BIMCanvas.Agent/             MainAgent 服务 (Python 3.10+)
-│   ├── main_agent.py            主控 Agent
-│   ├── subagents/               SubAgent 实现
-│   │   ├── layout_agent.py      家具布置专家
-│   │   └── zone_agent.py        空间分区专家
-│   └── events/                  SSE 事件监听器
+│   ├── src/
+│   │   ├── main.py              入口 (CLI + HTTP 服务)
+│   │   ├── agent/               主控 Agent + SubAgent + Worktree 管理
+│   │   ├── server/              HTTP 服务 (aiohttp + CORS)
+│   │   ├── tools/               文件读写、布置、分区工具
+│   │   ├── mcp/                 MCP 工具集成
+│   │   └── config/              配置管理
+│   └── templates/               系统提示词 + SubAgent 配置 + Skill 工作流
 │
 ├── BIMCanvas.Revit/             Revit 插件 (.NET FW 4.7.2)
 │   ├── Commands/                Ribbon 按钮命令
-│   ├── Views/                   WPF 配置窗口
-│   └── Adapters/                Revit 元素适配器
+│   ├── Adapters/                Revit 元素适配器 (墙体/门窗/房间)
+│   ├── Services/                导出服务、坐标转换、房间推断
+│   └── Views/                   WPF 配置窗口
 │
-├── BIMCanvas.Web/               Web 前端 (Vue 3)
+├── BIMCanvas.Web/               Web 前端 (Vue 3 + TypeScript)
 │   └── src/
-│       ├── components/Canvas/   画布组件
-│       ├── stores/              Pinia 状态
-│       └── services/            SignalR 客户端
+│       ├── components/          Canvas + UI 组件 (Ribbon, AI Command Center...)
+│       ├── services/            Three.js 场景、交互工具、模块库
+│       ├── composables/         组合式逻辑 (Chat, Screenshot, Selection...)
+│       └── stores/              Pinia 状态管理
 │
-└── docs/                        文档
+├── demos/                       示例 .bcp 项目文件
+└── docs/                        架构文档、设计文档、工作流文档
 ```
 
 ---
@@ -184,32 +191,33 @@ BIMCanvas/
 `.bcp` 是项目的标准交换格式，本质是包含以下结构的 ZIP 文件：
 
 ```
-project.bcp (ZIP)
-├── project.json            项目元数据
-├── baseline/               建筑基础数据（只读）
-│   ├── metadata.json       坐标转换参数
-│   ├── architecture.json   墙体 + 柱子
-│   ├── openings.json       门窗数据
-│   ├── rooms.json          房间边界
-│   └── location_lines.json 完成面定位线
-├── computed/               计算派生数据（自动生成）
-│   ├── room_zones.json     房间区域
-│   └── exclusions.json     禁区
-├── schemes/                方案设计数据（无子目录）
-│   ├── strategy.json       策略元数据
-│   ├── zones.json          设计区域划分
-│   ├── finishes.json       完成面定义
-│   └── modules.json        家具模块布置
-├── context/                上下文信息
-│   └── requirements.md     用户需求描述
-├── knowledge/              知识库
-│   └── placement_guide.md  布置规则指南
-└── modules/                模块素材库
-    ├── module_library.json 模块元数据
-    └── assets/             资源目录
+project.bcp (ZIP) → 解压为 Git 仓库
+├── project.json              项目元数据
+├── baseline/                 建筑基础数据（只读，Revit 导出）
+│   ├── metadata.json         坐标转换参数
+│   ├── architecture.json     墙体 + 柱子
+│   ├── openings.json         门窗数据
+│   ├── rooms.json            房间边界
+│   ├── location_lines.json   完成面定位线
+│   └── baseline.manifest     哈希校验
+├── computed/                 计算派生数据（自动生成）
+│   └── exclusions.json       禁区
+├── schemes/{strategyId}/     方案设计数据（按策略分目录）
+│   ├── strategy.json         策略元数据
+│   ├── zones.json            设计区域划分
+│   ├── finishes.json         完成面定义
+│   └── modules.json          家具模块布置
+├── context/                  上下文信息
+│   └── requirements.md       用户需求描述
+├── knowledge/                知识库
+│   └── placement_guide.md    布置规则指南
+├── modules/                  模块素材库
+│   ├── module_library.json   模块元数据
+│   └── assets/               SVG 资源
+└── .git/                     Git 仓库（v3.1 多策略通过分支隔离）
 ```
 
-详细 Schema 见：[docs/Schema-JSON-v3.md](./docs/Schema-JSON-v3.md)
+详细 Schema 见：[docs/Schema.md](./docs/Schema.md)
 
 ---
 
@@ -230,38 +238,41 @@ project.bcp (ZIP)
 
 ## 开发阶段
 
-### Phase 1: 核心基础（MVP）
+### Phase 1: 核心基础（MVP） ✅
 
 **目标**：AI 可以在画布上设计，Web 可以显示
 
 - ✅ 实现 Core 数据模型（Project, Zone, Module 等）
 - ✅ 实现空间算法（CollisionDetector, PlacementValidator）
-- ✅ 实现 Server 层项目加载
+- ✅ 实现 Server 层项目加载（v3.1 文件驱动架构）
 - ✅ 实现 Web 层项目数据加载
-- ⬜ 实现 Web 前端渲染
+- ✅ 实现 Web 前端 3D 渲染（Three.js 引擎，双视图模式）
 
-### Phase 2: Agent 集成
+### Phase 2: Agent 集成 ✅
 
 **目标**：智能布置助手自动化
 
-- ⬜ 实现 BIMCanvas.Agent 项目结构
-- ⬜ 实现 MainAgent + SubAgent 架构
-- ⬜ 实现 EventBus + SSE 事件机制
-- ⬜ 实现三种触发方式（AI 对话、Web 按钮、自动修正）
+- ✅ 实现 BIMCanvas.Agent 项目结构（Python + Anthropic Agent SDK）
+- ✅ 实现 MainAgent + SubAgent 架构（layout-agent）
+- ✅ 实现 HTTP 服务 + SSE 流式响应
+- ✅ 实现 Skill 工作流系统（query / edit / generate）
+- ✅ 实现 AI Command Center（Web 端对话 + 任务卡）
 
-### Phase 3: 协作编辑
+### Phase 3: 协作编辑 🔶
 
 **目标**：AI 和用户可以实时协作
 
-- ⬜ 实现 Git Worktree 并行设计
-- ⬜ 实现元素拖拽/旋转交互
-- ⬜ 实现 Visual Merge UI（可视化合并）
+- ✅ 实现 Git Worktree 并行设计（Server 端分支管理）
+- ✅ 实现元素拖拽/旋转交互（Move + Rotate + Ghost 预览）
+- ✅ 实现模块库面板 + 放置工具（拖拽放置、连续放置）
+- ✅ 实现 Web 端分支选择器 + 切换
+- 🔶 实现 Visual Merge UI（分支合并向导已实现，冲突解决待完善）
 
 ### Phase 4: Revit 集成
 
 **目标**：完整的 Revit 双向同步
 
-- ✅ 实现 Revit → JSON 导出
+- ✅ 实现 Revit → JSON 导出（6 阶段导出流程）
 - ✅ 实现 .bcp 格式导出
 - ⬜ 实现 JSON → Revit 同步（回写家具）
 
@@ -272,7 +283,11 @@ project.bcp (ZIP)
 | 文档 | 说明 |
 |------|------|
 | [Architecture.md](./docs/Architecture.md) | 系统架构设计 |
-| [Schema-JSON-v3.md](./docs/Schema-JSON-v3.md) | JSON 数据模型规范 |
+| [Schema.md](./docs/Schema.md) | JSON 数据模型规范 |
 | [Agent_Design.md](./docs/Agent_Design.md) | Agent 架构与提示词设计 |
 | [PRD.md](./docs/PRD.md) | 产品需求文档 |
 | [Flow_Workflows.md](./docs/Flow_Workflows.md) | 端到端业务流程 |
+| [Arch_Agent_Git_Workflow.md](./docs/Arch_Agent_Git_Workflow.md) | Agent Git 工具体系 |
+| [BIMCanvas.Agent/README.md](./BIMCanvas.Agent/README.md) | Agent 实现文档 |
+| [BIMCanvas.Server/README.md](./BIMCanvas.Server/README.md) | Server 实现文档 |
+| [BIMCanvas.Web/README.md](./BIMCanvas.Web/README.md) | Web 前端文档 |
