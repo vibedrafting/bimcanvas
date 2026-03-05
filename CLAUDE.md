@@ -1,8 +1,8 @@
-﻿# BIMCanvas 项目指令
+# BIMCanvas 项目指令
 
 > 在用户提供的建筑平面内，布置符合设计逻辑的家具组合。
 
-**数据模型版本**: v3.0 (File-Driven Architecture + .bcp 项目格式)
+**架构版本**: v3.4 (File-Driven Architecture + .bcp 项目格式)
 
 ---
 
@@ -12,16 +12,20 @@
 
 | 文档 | 路径 | 内容 |
 |------|------|------|
-| 架构文档 | `docs/Architecture.md` | 系统架构、数据流 |
-| Agent Git 工作流 | `docs/Arch_Agent_Git_Workflow.md` | Agent Git 工具体系、MCP 工具定义 |
-| 执行流程 | `docs/Workflows.md` | 端到端执行流程、触发机制 |
-| JSON Schema | `docs/Schema-JSON-v3.md` | v3.0 数据模型定义 |
-| PRD | `docs/PRD.md` | 产品需求、工作流程 |
-| Core 层 | `BIMCanvas.Core/README.md` | 数据模型 + 空间算法实现 |
-| Revit 插件 | `BIMCanvas.Revit/README.md` | Revit 导出/回写实现细节 |
-| Server 层 | `BIMCanvas.Server/README.md` | 统一后端服务、状态管理、通信中枢 |
-| Core 实现计划 | `plans/Core_Implementation_Plan.md` | Core 层代码生成计划 |
-| PlacementAgent 评审 | `reviews/PlacementAgent_Review.md` | Agent SDK 架构决策讨论 |
+| 系统架构 | `docs/Architecture.md` | 整体架构、组件关系 |
+| 数据流 | `docs/Arch_DataFlow.md` | 三层职责、数据流场景 |
+| Agent 运行时工作流 | `docs/Agent_Workflows.md` | query/edit/generate 完整链路 |
+| Agent 架构设计 | `docs/Agent_Design.md` | SubAgent 架构、策略体系 |
+| 提示词设计哲学 | `docs/Agent_Prompt_Design_Philosophy.md` | 三层论、留白、调优指南 |
+| 并行设计模式 | `docs/Flow_Agent_Parallel_Workflows.md` | Git Worktree 并行架构 |
+| Agent Git 工作流 | `docs/Arch_Agent_Git_Workflow.md` | Agent Git 工具体系 |
+| 业务流程 | `docs/Flow_Workflows.md` | 端到端 6 阶段流程 |
+| JSON Schema | `docs/Schema.md` | 数据模型定义 |
+| Agent 层 | `BIMCanvas.Agent/README.md` | MainAgent + SubAgent + Skills + MCP 工具 |
+| Server 层 | `BIMCanvas.Server/README.md` | 统一后端、状态管理、Git Worktree |
+| Web 层 | `BIMCanvas.Web/README.md` | 前端渲染、交互工具、AI 指挥中心 |
+| Core 层 | `BIMCanvas.Core/README.md` | 数据模型 + 空间算法 |
+| Revit 插件 | `BIMCanvas.Revit/README.md` | Revit 导出/回写 |
 
 ### 模块速查
 
@@ -29,11 +33,11 @@
 |------|--------|------|------|
 | BIMCanvas.Core | .NET Standard 2.0 | 数据模型 + 空间算法 | ✅ 已完成 |
 | BIMCanvas.Revit | .NET FW 4.7.2 | Revit 插件（导出 + 回写） | 🔶 导出完成，回写待开发 |
-| BIMCanvas.Agent | Python 3.10+ | MainAgent（主控+SubAgent） | ⬜ 待开发 |
-| BIMCanvas.Server | .NET 6+ | 统一后端（MCP + REST + SignalR + SSE） | ⬜ 待开发 |
-| BIMCanvas.Web | Vue 3 + TS | Web 前端 | ⬜ 待开发 |
+| BIMCanvas.Agent | Python 3.10+ | MainAgent + SubAgent + Skills | 🔶 P2 工具调用阶段 |
+| BIMCanvas.Server | .NET 8.0 | 统一后端（REST + SignalR + Git Worktree） | ✅ v3.4 核心就绪 |
+| BIMCanvas.Web | Vue 3 + TS | Web 前端（渲染 + 交互 + AI 指挥中心） | ✅ 核心就绪 |
 
-> **当前阶段**：Core 层已完成，Revit 导出功能已完成，下一步开发 Revit 回写或 Server/Agent 层
+> **当前阶段**：全栈核心功能就绪，Agent 端到端测试 + Web 集成收尾中
 
 ### 组件角色定位
 
@@ -48,6 +52,46 @@
 **关键区分**：
 - **Server 是「指挥中心」**：协调各方、管理状态、执行验证，但**不做布置决策**
 - **Agent 是「设计师」**：理解需求、做出决策、发出指令，但**不持有状态**
+
+---
+
+## 设计理念
+
+### 架构三原则
+- **File-Driven**：文件是唯一真理源，Server 是"文件播放器"而非"内存数据库"
+- **AI = OBB 规划师**：AI 只操作矩形包围盒 (bounds + facing)，不计算精确几何
+- **Agent 只做决策，不做计算**：几何验证、禁区计算、Zone 生成均由 Server 负责
+
+### 数据流三条线
+
+| 数据流 | 方向 | 触发 |
+|--------|------|------|
+| 用户编辑流 | Web → Server → 文件 | 用户拖动模块 |
+| 文件同步流 | 文件 → Server → Web | Agent/外部编辑 |
+| 项目加载流 | 文件 → Server → Web | 上传/切换项目 |
+
+### Agent 提示词哲学
+
+> 详见 `docs/Agent_Prompt_Design_Philosophy.md`
+
+- **注意力零和**：每条规则都在竞争 AI 注意力，精准 > 数量
+- **三级约束**：硬约束（必须/禁止）→ 软指导（应/建议）→ 自由区域（AI 自主决策）
+- **WHY 决定泛化能力**：有理由的规则能被灵活应用，没理由的只能机械执行
+- **留白是设计选择**：自由区域不是遗漏，是有意识地让 AI 施展判断力
+
+### Agent 工作流模式
+
+- **三种任务类型**：query（只读）→ edit（单一修改）→ generate（完整布置，分阶段 A/B）
+- **Skills 驱动**：工作流通过 Plugin 旁路加载，不污染全局配置
+- **验证闭环**：Write → validate_layout（编译检查）→ 截图审查 → 修正循环
+
+### 并行设计架构
+
+> 详见 `docs/Flow_Agent_Parallel_Workflows.md`
+
+- **Git Worktree 隔离**：多 Agent 实例在物理隔离的 Worktree 中并行工作
+- **策略/变体/Worktree 三层**：Strategy（长期分支）→ Variant（局部尝试）→ Worktree（临时环境）
+- **JSON 数据层合并**：交付阶段是数据写入，不是 git merge
 
 ---
 
@@ -66,127 +110,7 @@ BIMCanvas.Revit.*    → 仅 Revit 插件内部使用
 
 - **Core 层**：必须使用 .NET Standard 2.0（跨框架兼容）
 - **Revit 层**：必须使用 .NET FW 4.7.2（Revit API 限制）
-- **其他层**：使用 .NET 6+
-
-### 禁止事项
-
-- Core 层引用 Revit API
-- 直接让 AI 操作 SVG 代码（应操作 JSON）
-- 使用 CSS `scaleY(-1)` 做坐标翻转
-
----
-
-## MainAgent 架构速查
-
-> **架构决策**：MainAgent 基于 Anthropic Agent SDK 实现，采用"主控 Agent + SubAgent"架构，作为独立 Python 进程运行，通过 SSE 接收事件触发。
-
-### 架构概览
-
-```
-BIMCanvas.Agent (Python 3.10+)
-├── MainAgent (主控+SubAgent)
-├── EventListener (SSE 客户端)
-└── MCP 工具集成
-         ↑ SSE 事件           ↓ MCP/HTTP 调用
-         │                    │
-BIMCanvas.Server (.NET 6+)
-├── EventBus (事件总线)
-├── EventsController (SSE 端点)
-└── McpTools/ (Canvas-MCP)
-```
-
-### 三种触发方式
-
-| 触发方式 | 触发源 | 数据流 |
-|----------|--------|--------|
-| AI 对话 | 用户输入 | 用户 → Agent Chat → MainAgent.run() |
-| Web 按钮 | 前端 UI | Web → Server EventBus → SSE → Agent |
-| 自动修正 | Server 检测 | Server 验证 → EventBus → SSE → Agent |
-
-### Agent SDK 要点
-
-- 安装：`pip install anthropic`（Agent SDK 包含在 anthropic 包中）
-- 长期运行：Agent 持续监听 SSE 事件流
-- 工具调用：通过 MCP 协议调用 Canvas-MCP 工具
-- 详细设计见 `docs/Architecture.md` §6.4
-
----
-
-## BIMCanvas.Revit 速查
-
-> **项目状态**：Phase 1（导出）✅ 完成，Phase 2（回写）⬜ 待开发
-
-### 已实现功能（Phase 1）
-
-| 模块 | 关键文件 | 功能 |
-|------|----------|------|
-| 命令层 | `Commands/ExportCanvasCommand.cs` | Ribbon 面板 + 导出命令 |
-| 适配器层 | `Adapters/BoundaryAdapter.cs` | 边界轮廓提取（墙体+柱子几何切割） |
-| | `Adapters/OpeningAdapter.cs` | 门窗数据提取（定位线、方向、开启方式） |
-| | `Adapters/RoomAdapter.cs` | 房间边界提取（自动设置柱子为边界） |
-| 服务层 | `Services/CanvasExportService.cs` | 6 阶段导出流程 |
-| | `Services/CoordinateTransformer.cs` | 坐标系转换（Revit ↔ BIMCanvas） |
-| | `Services/RoomTypeInferrer.cs` | 房间类型智能推断（中英文关键词） |
-| 工具层 | `Utilities/OutlineExtractor.cs` | Boolean 运算合并 Solid + 平面切割 |
-| | `Utilities/OpeningDirectionAnalyzer.cs` | IFC 工具提取门弧线 + 方向计算 |
-| 视图层 | `Views/ConfigWindow.xaml` | 房间类型确认界面（WPF MVVM） |
-
-### 待开发功能（Phase 2）
-
-| 功能 | 计划文件 | 描述 |
-|------|----------|------|
-| 布置应用服务 | `Services/LayoutApplyService.cs` | 读取 JSON → 创建 FamilyInstance |
-| 应用命令 | `Commands/ApplyLayoutCommand.cs` | 导入布置结果命令 |
-| 族加载逻辑 | `Services/FamilyLoader.cs` | 自动加载/匹配家具族文件 |
-
-### 坐标转换
-
-```
-Revit (feet, 项目坐标)  ←→  BIMCanvas (mm, 归一化坐标)
-         ↓                        ↓
-  CoordinateTransformer.ToPoint2D()  /  ToXYZ()
-```
-
-- 详细设计见 `BIMCanvas.Revit/README.md`
-
----
-
-## v3.0 数据模型速查
-
-### 核心设计原则
-
-> **File-Driven Architecture**：文件是唯一真理源，Server 是"文件播放器"而非"内存数据库"
-> **AI = OBB 规划师**：AI 只操作矩形包围盒，不计算精确几何。Core 层负责转换。
-
-### 三层汉堡模型 (.bcp 项目结构)
-
-```
-project.bcp (ZIP)
-├── manifest.json           项目元数据 + 方案列表
-├── baseline/               【底层】建筑基础数据（只读，Revit 导出）
-│   ├── walls.json          墙体轮廓 Polygon2D
-│   ├── columns.json        柱子轮廓 Polygon2D
-│   ├── openings.json       门窗 Line2D + type + direction
-│   ├── rooms.json          物理房间 { id, name, type, boundary }
-│   └── locationLines.json  完成面定位线 { wallId, roomId, line, normal }
-├── schemes/{strategyId}/   【中层】方案设计数据（AI/Server 可写）
-│   ├── zones.json          设计区域 { roomId, tags[], innerBoundary, openings[] }
-│   ├── finishes.json       完成面分段 { locationLineId, startT, endT, thickness }
-│   └── modules.json        布置模块 { bounds, facing, items[] }
-└── computed/               【顶层】计算派生数据（自动生成）
-    ├── room_zones.json     房间区域 { id, roomId, type, rawBoundary }
-    └── exclusions.json     禁区 { sourceType, sourceId, boundary }
-```
-
-### 关键模型变化 (v2.x → v3.0)
-
-| v2.x | v3.0 | 说明 |
-|------|------|------|
-| DesignDocument | Project | 根对象重构 |
-| WallFinish | FinishSegment | 完成面分段化 |
-| - | LocationLine | 新增定位线模型 |
-| - | ExclusionArea | 禁区独立类 |
-| - | Strategy | 多方案支持 |
+- **Server 层**：使用 .NET 8.0
 
 ### AI 布置约束
 
@@ -197,21 +121,23 @@ project.bcp (ZIP)
 3. bounds 不能与其他已放置 modules[] 重叠
 ```
 
-### Facing 类型 (语义朝向)
+### 禁止事项
 
-| 格式 | 示例 | 说明 |
-|------|------|------|
-| 语义字符串 | `"north"` | 标准 8 方向 |
-| Vec2D | `[0.707, 0.707]` | 任意角度单位向量 |
+- Core 层引用 Revit API
+- 直接让 AI 操作 SVG 代码（应操作 JSON）
+- 使用 CSS `scaleY(-1)` 做坐标翻转
 
-**语义字符串 → 角度转换**：
+---
 
-| 朝向 | 角度 | 朝向 | 角度 |
-|------|------|------|------|
-| north | 0° | south | 180° |
-| east | 90° | west | 270° |
-| northeast | 45° | southwest | 225° |
-| southeast | 135° | northwest | 315° |
+## 模块速查
+
+### Agent
+
+> 基于 Anthropic Agent SDK，采用 MainAgent + SubAgent 架构，通过 Skills（query/edit/generate-workflow）驱动三种工作流。详见 `BIMCanvas.Agent/README.md`
+
+### Revit
+
+> Phase 1（导出）完成，Phase 2（回写）待开发。6 阶段导出流程 + feet↔mm 坐标转换。详见 `BIMCanvas.Revit/README.md`
 
 ---
 
@@ -219,7 +145,7 @@ project.bcp (ZIP)
 
 ### 数据格式
 
-- **存储/传输**：JSON（DesignDocument）
+- **存储/传输**：JSON
 - **AI 交互**：纯 JSON
 - **渲染**：前端根据 JSON 生成 SVG
 
@@ -255,7 +181,7 @@ System.Diagnostics.Trace.WriteLine($"[方法名] 调试信息: {变量}");
 ### 编译
 
 ```bash
-# .NET Standard / .NET 6+ 项目（推荐）
+# .NET Standard / .NET 8.0 项目（推荐）
 dotnet restore BIMCanvas.Core
 dotnet build BIMCanvas.Core --no-restore
 
@@ -266,8 +192,8 @@ dotnet build BIMCanvas.Core --no-restore
 ### 运行
 
 ```bash
-# .NET 6+ 项目
-dotnet run --project BIMCanvas.MCP.Canvas
+# .NET 8.0 项目
+dotnet run --project BIMCanvas.Server
 
 # .NET FW 控制台（必须直接执行 exe）
 "bin/Debug/[项目名].exe"
