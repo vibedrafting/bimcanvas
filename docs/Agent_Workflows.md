@@ -581,56 +581,61 @@ mcp__canvas__request_background_screenshot({
 
 ---
 
-## 8. SubAgent 设计预留
+## 8. SubAgent 多分区并行派发
 
-> **当前状态**：SubAgent 机制已完成架构设计，但**未启用**。`init_manifest.json` 中 `layout-agent.md` 被设为 `enabled: false`，`create_subagents()` 返回空字典。所有任务（query / edit / generate）由 MainAgent 通过 `self.chat()` 直接执行。
+> **当前状态**：layout-agent SubAgent **已启用**。多房间布置请求时，MainAgent 并行派发 layout-agent 分身，每个分身独立完成一个分区的布置。
 
-### 8.1 当前实际运行方式
-
-MainAgent 收到用户消息后，**不经过 SubAgent 派发**，直接通过 `self.chat()` 完成全部工作：
+### 8.1 派发机制
 
 ```
-用户消息 → MainAgent.chat() → 意图分析 → 调用 MCP 工具 → 返回结果
+用户请求（如"全屋布置"）
+  │
+  ▼
+MainAgent 判断分区数量
+  ├── 单分区 → 直接执行 generate-workflow Skill（同 §6）
+  └── 多分区 → 并行派发 layout-agent SubAgent
+        │
+        ├── Task: layout-agent（rz_1 主卧）
+        ├── Task: layout-agent（rz_2 次卧）
+        └── Task: layout-agent（rz_3 客厅）
+              │
+              ▼（各 SubAgent 独立执行 generate-workflow）
+        MainAgent 全局验证 + 汇总报告
 ```
 
-- 所有工作流（§4 Query、§5 Edit、§6 Generate）均由 MainAgent 自身执行
-- 工具调用权限由 MainAgent 的 `permissions` 配置统一控制
-- 不会产生 `subagent_start` / `subagent_complete` SSE 事件
-
-### 8.2 预留设计：layout-agent
-
-以下为架构设计中规划的 SubAgent 配置，**启用后**将用于家具布置任务的专项处理：
+### 8.2 layout-agent 配置
 
 | 配置项 | 值 |
 |--------|-----|
 | 名称 | layout-agent |
-| 描述 | 家具布置专家 |
-| 工具权限 | Read, Write, Glob |
+| 描述 | 单区布置专家 |
+| 工具权限 | Read, Write, Glob, Grep, Skill, mcp__canvas__validate_layout, mcp__canvas__request_background_screenshot |
 | 模型 | inherit（继承主控 Agent 模型） |
 | 配置来源 | `~/.bimcanvas/agents/layout-agent.md` |
-| 启用状态 | `enabled: false`（init_manifest.json） |
 
-**设计职责**（启用后）：
+**设计原则**：
+- layout-agent 的系统提示词极简（~300 字），只包含 Skill 未覆盖的信息（身份、范围约束）
+- 核心执行能力通过加载 generate-workflow Skill 获取，不在提示词中重复
+- 包含 `Skill` 工具以加载工作流，**不包含 `Task`** 工具以防止嵌套派发
 
-1. 读取房间分区数据，理解空间特点
-2. 分析门窗位置，规划动线
-3. 根据布置规则为房间布置家具
-4. 输出符合规范的布置结果
+### 8.3 并发安全
 
-**设计的派发流程**（启用后）：
+- 各 SubAgent 写入不同的 `schemes/{zoneId}/modules.json`，无文件冲突
+- validate_layout 是只读操作，并发安全
+- 截图请求由 Server 串行处理，SubAgent 自然排队
 
-1. MainAgent 分析意图后，SDK 自动选择匹配的 SubAgent
-2. SubAgent 在独立上下文中执行（使用自己的工具权限和提示词）
-3. 执行过程通过 SSE 事件实时推送（`subagent_start` → `tool_call_*` → `subagent_complete`）
-4. SubAgent 完成后，结果返回给 MainAgent 整合
+### 8.4 SSE 事件
 
-### 8.3 启用条件
+多分区派发时，SSE 流中会产生以下事件：
 
-SubAgent 启用需满足：
-
-1. 将 `init_manifest.json` 中 `layout-agent.md` 的 `enabled` 改为 `true`
-2. 确保 `~/.bimcanvas/agents/layout-agent.md` 文件存在（首次运行时从 templates/ 初始化）
-3. MainAgent 的 `create_subagents()` 将返回非空字典，SDK 自动接管派发
+```
+data: {"type": "subagent_start", "subagentId": "sa-1", "subagentName": "布置 rz_1", "subagentType": "layout-agent"}
+data: {"type": "subagent_start", "subagentId": "sa-2", "subagentName": "布置 rz_2", "subagentType": "layout-agent"}
+... (各 SubAgent 的 tool_call 事件)
+data: {"type": "subagent_complete", "subagentId": "sa-1"}
+data: {"type": "subagent_complete", "subagentId": "sa-2"}
+data: {"type": "text", "content": "全局验证结果..."}
+```
 
 ---
 
