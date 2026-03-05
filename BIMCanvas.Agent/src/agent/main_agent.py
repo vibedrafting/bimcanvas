@@ -1038,6 +1038,7 @@ class MainAgent:
         """Set project path (triggers reconnect)."""
         if self.project_path != project_path:
             self.project_path = project_path
+            self.working_directory = project_path
             asyncio.create_task(self.disconnect())
             if self.verbose:
                 self._agent_logger.log_info(f"Project path changed to: {project_path}")

@@ -164,6 +164,9 @@ export const useChatStream = (options: ChatStreamOptions) => {
     const message = win.inputMessage.trim();
     if (!message || win.isStreaming) return;
 
+    // 每次发消息前刷新项目路径，确保项目切换后携带最新路径
+    await fetchProjectPath();
+
     const targetWindowId = win.id;
 
     // 先提取待发送图片，再清空

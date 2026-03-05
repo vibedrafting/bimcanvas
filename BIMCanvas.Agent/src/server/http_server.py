@@ -59,6 +59,23 @@ async def get_agent(
     global _window_counter
 
     async with _agents_lock:
+        # 检测项目切换：路径变更时销毁旧 Agent，重建新实例
+        if window_id in agents:
+            agent = agents[window_id]
+            working_dir = worktree_path or project_path
+            if agent.working_directory != working_dir:
+                seq = _window_seq_map.get(window_id, 0)
+                prefix = _get_window_prefix(seq)
+                print(f"{prefix} [Server] ========== 项目切换 ==========")
+                print(f"{prefix} [Server] 旧路径: {agent.working_directory}")
+                print(f"{prefix} [Server] 新路径: {working_dir}")
+                print(f"{prefix} [Server] ===================================")
+                await agent.disconnect()
+                del agents[window_id]
+                logger.info(f"Project switched for window {window_id}, recreating agent")
+            else:
+                return agent
+
         if window_id not in agents:
             # 先用临时序号创建 Agent，成功后再写入全局状态
             if window_id == "primary":
