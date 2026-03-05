@@ -17,15 +17,11 @@
 | Agent 运行时工作流 | `docs/Agent_Workflows.md` | query/edit/generate 完整链路 |
 | Agent 架构设计 | `docs/Agent_Design.md` | SubAgent 架构、策略体系 |
 | 提示词设计哲学 | `docs/Agent_Prompt_Design_Philosophy.md` | 三层论、留白、调优指南 |
-| 并行设计模式 | `docs/Flow_Agent_Parallel_Workflows.md` | Git Worktree 并行架构 |
-| Agent Git 工作流 | `docs/Arch_Agent_Git_Workflow.md` | Agent Git 工具体系 |
-| 业务流程 | `docs/Flow_Workflows.md` | 端到端 6 阶段流程 |
-| JSON Schema | `docs/Schema.md` | 数据模型定义 |
 | Agent 层 | `BIMCanvas.Agent/README.md` | MainAgent + SubAgent + Skills + MCP 工具 |
 | Server 层 | `BIMCanvas.Server/README.md` | 统一后端、状态管理、Git Worktree |
 | Web 层 | `BIMCanvas.Web/README.md` | 前端渲染、交互工具、AI 指挥中心 |
 | Core 层 | `BIMCanvas.Core/README.md` | 数据模型 + 空间算法 |
-| Revit 插件 | `BIMCanvas.Revit/README.md` | Revit 导出/回写 |
+| Revit 层 | `BIMCanvas.Revit/README.md` | Revit 导出/回写 |
 
 ### 模块速查
 
