@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, reactive, ref } from 'vue'
+import { computed, reactive } from 'vue'
 import type { ChatBubble, UserQuestion } from '../../types/agent'
 
 const props = defineProps<{
@@ -99,56 +99,85 @@ const answerSummary = computed(() => {
 
 <template>
   <div class="question-bubble" :class="{ submitted: isSubmitted }">
-    <!-- 等待回答状态 -->
     <template v-if="!isSubmitted">
-      <div class="question-title">
-        <span class="question-icon">&#128172;</span>
-        <span>需要你的决策</span>
-      </div>
-
-      <div v-for="q in bubble.questions" :key="q.question" class="question-item">
+      <!-- 每个问题块 -->
+      <div v-for="(q, qIdx) in bubble.questions" :key="q.question" class="question-block">
         <div class="question-text">
-          <span class="header-chip">{{ q.header }}</span>
-          <span>{{ q.question }}</span>
+          {{ q.question }}
           <span v-if="q.multiSelect" class="multi-hint">(可多选)</span>
         </div>
 
-        <div class="options-grid">
+        <div class="option-list">
           <button
-            v-for="opt in q.options"
+            v-for="(opt, idx) in q.options"
             :key="opt.label"
-            class="option-card"
+            class="option-row"
             :class="{ selected: selections[q.question]?.has(opt.label) }"
             @click="toggleOption(q, opt.label)"
           >
+            <span class="option-indicator">
+              <span v-if="q.multiSelect" class="check-box" :class="{ checked: selections[q.question]?.has(opt.label) }">
+                <svg v-if="selections[q.question]?.has(opt.label)" viewBox="0 0 12 12" fill="none">
+                  <path d="M2.5 6L5 8.5L9.5 3.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+                </svg>
+              </span>
+              <span v-else class="radio-dot" :class="{ checked: selections[q.question]?.has(opt.label) }" />
+            </span>
+            <span class="option-index">{{ idx + 1 }}.</span>
             <span class="option-label">{{ opt.label }}</span>
-            <span v-if="opt.description" class="option-desc">{{ opt.description }}</span>
+            <span v-if="opt.description" class="option-info" :title="opt.description">
+              <svg viewBox="0 0 16 16" fill="none">
+                <circle cx="8" cy="8" r="6.5" stroke="currentColor" stroke-width="1"/>
+                <path d="M8 7V11" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/>
+                <circle cx="8" cy="5" r="0.7" fill="currentColor"/>
+              </svg>
+            </span>
           </button>
 
-          <!-- Other 选项 -->
+          <!-- Other 行 -->
           <button
-            class="option-card option-other"
+            class="option-row"
             :class="{ selected: isOtherActive(q) }"
             @click="toggleOther(q)"
           >
-            <span class="option-label">其他...</span>
+            <span class="option-indicator">
+              <span v-if="q.multiSelect" class="check-box" :class="{ checked: isOtherActive(q) }">
+                <svg v-if="isOtherActive(q)" viewBox="0 0 12 12" fill="none">
+                  <path d="M2.5 6L5 8.5L9.5 3.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+                </svg>
+              </span>
+              <span v-else class="radio-dot" :class="{ checked: isOtherActive(q) }" />
+            </span>
+            <span class="option-index">{{ q.options.length + 1 }}.</span>
+            <span class="option-label option-label-other">其他...</span>
           </button>
         </div>
 
         <!-- Other 输入框 -->
         <div v-if="otherExpanded[q.question]" class="other-input-wrapper">
-          <textarea
+          <input
             v-model="otherText[q.question]"
             class="other-input"
+            type="text"
             placeholder="输入自定义答案..."
-            rows="2"
           />
         </div>
+
+        <!-- 问题间分隔 -->
+        <div v-if="qIdx < (bubble.questions?.length ?? 0) - 1" class="question-divider" />
       </div>
 
-      <div class="question-actions">
-        <button class="btn-skip" @click="handleCancel">跳过</button>
-        <button class="btn-submit" :disabled="!isSubmittable" @click="handleSubmit">确认选择</button>
+      <!-- 底栏 -->
+      <div class="action-bar">
+        <button class="btn-ignore" @click="handleCancel">
+          忽略 <kbd>ESC</kbd>
+        </button>
+        <button class="btn-submit" :disabled="!isSubmittable" @click="handleSubmit">
+          提交
+          <svg class="submit-check" viewBox="0 0 12 12" fill="none">
+            <path d="M2.5 6L5 8.5L9.5 3.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+          </svg>
+        </button>
       </div>
     </template>
 
@@ -164,185 +193,273 @@ const answerSummary = computed(() => {
 
 <style scoped lang="scss">
 .question-bubble {
-  --card-bg: rgba(20, 20, 22, 0.4);
-  --card-border: rgba(255, 255, 255, 0.06);
-  --accent: #818cf8;  // indigo-400
-  --accent-rgb: 129, 140, 248;
-
-  background: var(--card-bg);
-  border: 1px solid rgba(var(--accent-rgb), 0.25);
-  border-radius: 8px;
+  background: rgba(20, 20, 22, 0.6);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 10px;
   margin: 6px 0;
-  padding: 12px;
+  padding: 16px;
   font-family: 'Inter', system-ui, sans-serif;
 
   &.submitted {
     padding: 8px 12px;
-    border-color: var(--card-border);
   }
 }
 
-.question-title {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  font-size: 12px;
-  font-weight: 600;
-  color: var(--accent);
-  margin-bottom: 12px;
-}
+// ── 问题块 ──
 
-.question-icon {
-  font-size: 14px;
-}
-
-.question-item {
-  margin-bottom: 14px;
-
-  &:last-of-type {
-    margin-bottom: 10px;
+.question-block {
+  & + .question-block {
+    margin-top: 4px;
   }
 }
 
 .question-text {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  font-size: 12px;
-  color: rgba(255, 255, 255, 0.85);
-  margin-bottom: 8px;
-  flex-wrap: wrap;
-}
-
-.header-chip {
-  display: inline-block;
-  padding: 1px 6px;
-  border-radius: 4px;
-  background: rgba(var(--accent-rgb), 0.15);
-  color: var(--accent);
-  font-size: 10px;
+  font-size: 13px;
   font-weight: 600;
-  flex-shrink: 0;
+  color: rgba(255, 255, 255, 0.9);
+  line-height: 1.5;
+  margin-bottom: 10px;
 }
 
 .multi-hint {
-  color: rgba(255, 255, 255, 0.4);
-  font-size: 11px;
+  font-weight: 400;
+  color: rgba(255, 255, 255, 0.35);
+  font-size: 12px;
+  margin-left: 4px;
 }
 
-.options-grid {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
+.question-divider {
+  height: 1px;
+  background: rgba(255, 255, 255, 0.06);
+  margin: 12px 0;
 }
 
-.option-card {
+// ── 选项列表 ──
+
+.option-list {
   display: flex;
   flex-direction: column;
   gap: 2px;
-  padding: 8px 12px;
-  border: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.option-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 7px 10px;
+  border: none;
+  border-left: 3px solid transparent;
   border-radius: 6px;
-  background: rgba(255, 255, 255, 0.03);
+  background: transparent;
   cursor: pointer;
-  transition: all 0.15s ease;
+  transition: all 0.12s ease;
   text-align: left;
-  color: rgba(255, 255, 255, 0.8);
+  color: rgba(255, 255, 255, 0.75);
+  font-family: inherit;
 
   &:hover {
-    border-color: rgba(var(--accent-rgb), 0.3);
-    background: rgba(var(--accent-rgb), 0.05);
+    background: rgba(255, 255, 255, 0.04);
   }
 
   &.selected {
-    border-color: var(--accent);
-    background: rgba(var(--accent-rgb), 0.12);
-    color: #fff;
+    background: rgba(59, 130, 246, 0.1);
+    border-left-color: #3b82f6;
+    color: rgba(255, 255, 255, 0.95);
   }
 }
 
-.option-label {
+// ── 选中指示器 ──
+
+.option-indicator {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 14px;
+  height: 14px;
+}
+
+.radio-dot {
+  display: block;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  border: 1.5px solid rgba(255, 255, 255, 0.25);
+  transition: all 0.12s ease;
+
+  &.checked {
+    border-color: #3b82f6;
+    background: #3b82f6;
+    box-shadow: inset 0 0 0 2.5px rgba(20, 20, 22, 0.8);
+  }
+}
+
+.check-box {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 12px;
+  height: 12px;
+  border-radius: 3px;
+  border: 1.5px solid rgba(255, 255, 255, 0.25);
+  transition: all 0.12s ease;
+  color: #fff;
+
+  svg {
+    width: 10px;
+    height: 10px;
+  }
+
+  &.checked {
+    border-color: #3b82f6;
+    background: #3b82f6;
+  }
+}
+
+// ── 序号 + 标签 + 信息图标 ──
+
+.option-index {
+  color: rgba(255, 255, 255, 0.35);
   font-size: 12px;
-  font-weight: 500;
+  min-width: 18px;
+  flex-shrink: 0;
+  font-variant-numeric: tabular-nums;
 }
 
-.option-desc {
-  font-size: 10px;
-  color: rgba(255, 255, 255, 0.45);
-  line-height: 1.3;
+.option-label {
+  font-size: 13px;
+  font-weight: 400;
+  flex: 1;
+  min-width: 0;
 }
 
-.option-other {
-  border-style: dashed;
+.option-label-other {
+  color: rgba(255, 255, 255, 0.5);
+  font-style: italic;
 }
+
+.option-info {
+  flex-shrink: 0;
+  margin-left: auto;
+  color: rgba(255, 255, 255, 0.2);
+  cursor: help;
+  display: flex;
+  align-items: center;
+  transition: color 0.12s ease;
+
+  svg {
+    width: 14px;
+    height: 14px;
+  }
+
+  &:hover {
+    color: rgba(255, 255, 255, 0.5);
+  }
+}
+
+// ── Other 输入 ──
 
 .other-input-wrapper {
-  margin-top: 6px;
+  margin: 4px 0 0 37px; // 对齐选项文本
 }
 
 .other-input {
   width: 100%;
-  padding: 6px 8px;
+  padding: 6px 10px;
   border: 1px solid rgba(255, 255, 255, 0.1);
   border-radius: 6px;
   background: rgba(255, 255, 255, 0.03);
   color: rgba(255, 255, 255, 0.85);
   font-size: 12px;
   font-family: inherit;
-  resize: vertical;
   outline: none;
   box-sizing: border-box;
 
   &:focus {
-    border-color: rgba(var(--accent-rgb), 0.4);
+    border-color: rgba(59, 130, 246, 0.4);
   }
 
   &::placeholder {
-    color: rgba(255, 255, 255, 0.3);
+    color: rgba(255, 255, 255, 0.25);
   }
 }
 
-.question-actions {
+// ── 底栏 ──
+
+.action-bar {
   display: flex;
   justify-content: flex-end;
-  gap: 8px;
-  margin-top: 4px;
+  align-items: center;
+  gap: 12px;
+  margin-top: 12px;
+  padding-top: 10px;
+  border-top: 1px solid rgba(255, 255, 255, 0.06);
 }
 
-.btn-skip {
-  padding: 4px 12px;
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  border-radius: 6px;
+.btn-ignore {
+  padding: 4px 8px;
+  border: none;
+  border-radius: 4px;
   background: transparent;
-  color: rgba(255, 255, 255, 0.5);
-  font-size: 11px;
+  color: rgba(255, 255, 255, 0.35);
+  font-size: 12px;
   cursor: pointer;
+  font-family: inherit;
+
+  kbd {
+    display: inline-block;
+    padding: 0 4px;
+    margin-left: 2px;
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    border-radius: 3px;
+    font-size: 10px;
+    font-family: inherit;
+    color: rgba(255, 255, 255, 0.3);
+    line-height: 1.4;
+  }
 
   &:hover {
-    color: rgba(255, 255, 255, 0.8);
-    border-color: rgba(255, 255, 255, 0.2);
+    color: rgba(255, 255, 255, 0.6);
+
+    kbd {
+      border-color: rgba(255, 255, 255, 0.2);
+      color: rgba(255, 255, 255, 0.5);
+    }
   }
 }
 
 .btn-submit {
-  padding: 4px 14px;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 5px 14px;
   border: none;
-  border-radius: 6px;
-  background: var(--accent);
+  border-radius: 14px;
+  background: #3b82f6;
   color: #fff;
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 500;
   cursor: pointer;
+  font-family: inherit;
+  transition: all 0.12s ease;
+
+  .submit-check {
+    width: 12px;
+    height: 12px;
+  }
 
   &:disabled {
-    opacity: 0.4;
+    opacity: 0.35;
     cursor: not-allowed;
   }
 
   &:not(:disabled):hover {
-    filter: brightness(1.1);
+    background: #2563eb;
   }
 }
+
+// ── 已提交摘要 ──
 
 .question-result {
   display: flex;
