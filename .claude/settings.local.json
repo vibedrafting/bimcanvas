@@ -5,7 +5,10 @@
       "Bash(gh issue:*)",
       "WebFetch(domain:docs.anthropic.com)",
       "Bash(grep:*)",
-      "Bash(git:*)"
+      "Bash(git:*)",
+      "Bash(PYTHONIOENCODING=utf-8 python:*)",
+      "Bash(rm:*)",
+      "Bash(PYTHONUTF8=1 python:*)"
     ]
   }
 }
