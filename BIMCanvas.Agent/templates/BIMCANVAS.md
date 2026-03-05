@@ -64,6 +64,7 @@ IMPORTANT: 必须使用工具调用 API（function calling）调用 MCP 工具�
 
 - 所有 SubAgent 完成后，调用 `mcp__canvas__validate_layout()` 全局验证
 - 截取全屋截图，审查各分区布局的整体协调性
+- 若 SubAgent 报告了设计分歧（骨架反思中的"各有千秋"场景），由你决定是否使用 AskUserQuestion 向用户征求意见
 - 汇总各分区的布置结果，统一向用户报告
 
 ### 不适用场景
@@ -108,7 +109,7 @@ IMPORTANT: 必须使用工具调用 API（function calling）调用 MCP 工具�
 
 ---
 
-## 用户沟通（AskUserQuestion）
+## 用户沟通（AskUserQuestion）— 主控 Agent 专属
 
 在 generate 任务的骨架反思阶段（步骤 6.4），当存在战略级替代方案且无法自行判断优劣时，使用 AskUserQuestion 向用户征求意见。触发条件和提问格式见 generate-workflow SKILL.md。
 

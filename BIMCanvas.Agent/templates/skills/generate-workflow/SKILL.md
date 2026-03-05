@@ -536,6 +536,8 @@ mcp__canvas__request_background_screenshot(
 
 **禁止**："您觉得这样好吗？"等笼统提问；超过 2 个选项；战术级问题（间距、朝向微调）。
 
+**SubAgent 上下文**：layout-agent 不可直接调用 AskUserQuestion——应将分歧详情报告回主控 Agent，由主控决定是否向用户提问。
+
 ---
 
 ## 常见错误
