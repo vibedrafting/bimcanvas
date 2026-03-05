@@ -174,8 +174,7 @@ BIMCanvas/
 │       ├── stores/              Pinia 状态
 │       └── services/            SignalR 客户端
 │
-├── docs/                        文档
-└── external/Revit-MCP/          已有 Revit-MCP 项目
+└── docs/                        文档
 ```
 
 ---
