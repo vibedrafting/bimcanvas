@@ -28,4 +28,9 @@
     <None Include="Templates\**\*.svg" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
+  <!-- 示例项目文件：发布时复制到 publish/demos -->
+  <ItemGroup>
+    <Content Include="..\demos\**\*" LinkBase="demos" CopyToPublishDirectory="PreserveNewest" />
+  </ItemGroup>
+
 </Project>

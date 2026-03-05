@@ -174,23 +174,13 @@ WriteWithColoredPrefix("[Server]", "Swagger: http://localhost:5000/swagger", Con
     var projectService = app.Services.GetRequiredService<ProjectService>();
     var projectContext = app.Services.GetRequiredService<ProjectContext>();
     var baseDir = AppContext.BaseDirectory;
-    var projectRoot = FindProjectRoot(baseDir);
-
     // 优先级：命令行参数 > 配置文件 > demo_1
     string? bcpFilePath = args.Length > 0 ? args[0] : config.Startup.DefaultProject;
 
-    // 相对路径解析：以项目根目录为基准
+    // 相对路径解析：以 exe 所在目录为基准
     if (!string.IsNullOrEmpty(bcpFilePath) && !Path.IsPathRooted(bcpFilePath))
     {
-        if (projectRoot != null)
-        {
-            bcpFilePath = Path.GetFullPath(Path.Combine(projectRoot, bcpFilePath));
-        }
-        else
-        {
-            WriteWithColoredPrefix("[Server:WARN]", $"无法解析相对路径 '{bcpFilePath}'：未找到项目根目录", ConsoleColor.DarkYellow);
-            bcpFilePath = null;
-        }
+        bcpFilePath = Path.GetFullPath(Path.Combine(baseDir, bcpFilePath));
     }
 
     if (string.IsNullOrEmpty(bcpFilePath))
@@ -692,20 +682,6 @@ static void TryInstallPlaywrightChromium()
 // ─────────────────────────────────────────────────────────────────────────────
 // 路径查找辅助函数
 // ─────────────────────────────────────────────────────────────────────────────
-
-// 辅助函数：向上查找项目根目录（包含 BIMCanvas.Server + BIMCanvas.sln 的目录）
-static string? FindProjectRoot(string startDir)
-{
-    var dir = new DirectoryInfo(startDir);
-    for (int i = 0; i < 6 && dir != null; i++)
-    {
-        if (Directory.Exists(Path.Combine(dir.FullName, "BIMCanvas.Server"))
-            && File.Exists(Path.Combine(dir.FullName, "BIMCanvas.sln")))
-            return dir.FullName;
-        dir = dir.Parent;
-    }
-    return null;
-}
 
 // 辅助函数：向上查找 BIMCanvas.Web 目录
 static string FindWebProjectPath(string startDir)
