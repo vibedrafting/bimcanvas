@@ -533,7 +533,7 @@ model: inherit
 - [x] 添加布置任务 API（/api/task/layout）
 - [x] 添加流式布置任务 API（/api/task/layout/stream）
 - [x] Skill 功能集成（Plugin 旁路策略，零配置污染）
-- [ ] 端到端测试（完整布置流程）
+- [ ] **端到端测试（完整布置流程验证）** ← 当前最紧迫
 - [ ] Web 端布置任务集成
 
 ### P3 阶段（完整功能）- 待开发
@@ -606,6 +606,12 @@ elif not msg_parent_id:
 - 需要 `.claude-plugin/plugin.json` 清单文件使目录成为合法 Plugin
 - Skills 通过 `system-reminder` 注入，AI 通过 `Skill` 工具按需调用
 - 详细研究报告见 `reports/Skill/Agent_SDK_Skill最终实践报告.md`
+
+## 与 Server 集成
+
+Agent 通过两种方式与 .NET Server 通信：
+- **MCP 工具调用**：`mcp__canvas__create_job`、`mcp__canvas__request_background_screenshot` 等，通过进程内 MCP Server 调用 .NET REST API
+- **文件驱动**：Agent 直接读写项目目录下的 JSON 文件，Server 的 FileWatcher 检测变化并通过 SignalR 推送给 Web 前端
 
 ## 开发指南
 
@@ -820,6 +826,14 @@ async def tool_func(args: dict[str, Any]) -> dict[str, Any]:
 2. 在 `create_sdk_mcp_server(...)` 中注册工具并更新 `CANVAS_ALLOWED_TOOLS`
 3. 若仅限子代理使用，在 `~/.bimcanvas/agents/*.md` 的 `tools` 中显式添加
 4. 更新 README 文档
+
+## 常见问题
+
+| 问题 | 排查 |
+|------|------|
+| Agent 启动失败 | 检查 `ANTHROPIC_API_KEY` 环境变量是否设置 |
+| MCP 工具调用失败 | 确认 .NET Server 已启动且端口可达 |
+| 中文路径问题 | 在 git-bash 下路径需要转义或使用引号 |
 
 ## 相关文档
 
