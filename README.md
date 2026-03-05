@@ -8,6 +8,45 @@ BIMCanvas 是一款连接 AI 与 Revit 的室内设计辅助工具。它通过�
 
 ---
 
+## 快速上手
+
+### 环境要求
+
+- [.NET 8.0 SDK](https://dotnet.microsoft.com/download/dotnet/8.0)
+- [Node.js](https://nodejs.org/)（用于 Web 前端）
+- [Git](https://git-scm.com/)（用于项目版本管理）
+- [Python 3.10+](https://www.python.org/)（用于 Agent 服务，可选）
+
+### 编译 & 发布
+
+在项目根目录执行：
+
+```bash
+dotnet publish BIMCanvas.Server -c Release -o publish
+```
+
+> 发布路径必须为项目根目录下的 `publish/` 文件夹（`-o publish`）。项目绝对路径因电脑而异，命令中无需写绝对路径，在项目根目录执行即可。
+
+### 启动
+
+双击 `publish/BIMCanvas.Server.exe` 即可一键拉起所有服务：
+
+| 服务 | 地址 | 说明 |
+|------|------|------|
+| Server API | http://localhost:5000 | REST + SignalR 后端 |
+| Web 前端 | http://localhost:5173 | 自动启动并打开浏览器 |
+| Agent 服务 | 后台进程 | 自动启动（需 Python 环境） |
+
+### 开发调试
+
+如果需要开发调试，可用以下命令替代，效果相同：
+
+```bash
+dotnet run --project BIMCanvas.Server
+```
+
+---
+
 ## 解决的问题
 
 | 问题 | 现状 | BIMCanvas 方案 |
