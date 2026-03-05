@@ -3,8 +3,8 @@
 > 统一后端服务 - 系统的状态中心与通信中枢
 
 **运行时**: .NET 8.0
-**数据模型版本**: v3.1
-**状态**: 🔶 v3.1 Git Worktree 架构已完成，遗留服务待迁移
+**数据模型版本**: v3.4
+**状态**: 🔶 v3.4 可视化 Diff + 选择性合并已完成，遗留服务待迁移
 
 ---
 
@@ -63,14 +63,21 @@ v3.0 采用"文件驱动架构"，Server 从"内存数据库"模式转型为"文
 
 ### 1.2 新增服务
 
-| 服务 | 文件 | 职责 |
-|------|------|------|
-| `ManifestService` | `Services/ManifestService.cs` | `.manifest` 键值对文件读写 |
-| `ComputedDataService` | `Services/ComputedDataService.cs` | 计算数据管理（禁区生成 + 验证） |
-| `GitWorktreeService` | `Services/GitWorktreeService.cs` | **v3.1 新增** Git 仓库 + 分支 + Worktree 管理 |
-| `StrategyService` | `Services/StrategyService.cs` | 策略管理（v3.1: 分支模式） |
-| `ProjectService` | `Services/ProjectService.cs` | 项目加载（v3.1: 含 Git 初始化） |
-| `ProjectController` | `Controllers/ProjectController.cs` | `/api/project` 端点 |
+| 服务 | 文件 | 版本 | 职责 |
+|------|------|------|------|
+| `ManifestService` | `Services/ManifestService.cs` | v3.0 | `.manifest` 键值对文件读写 |
+| `ComputedDataService` | `Services/ComputedDataService.cs` | v3.0 | 计算数据管理（禁区生成 + 验证） |
+| `GitWorktreeService` | `Services/GitWorktreeService.cs` | v3.1 | Git 仓库 + 分支 + Worktree 管理 |
+| `StrategyService` | `Services/StrategyService.cs` | v3.1 | 策略管理（分支模式） |
+| `ProjectService` | `Services/ProjectService.cs` | v3.1 | 项目加载（含 Git 初始化） |
+| `ProjectWatcherService` | `Services/ProjectWatcherService.cs` | v3.2 | 文件监听 + SignalR 推送（防抖 500ms） |
+| `BranchLockManager` | `Services/Git/BranchLockManager.cs` | v3.3 | 分支互斥锁（多窗口并行） |
+| `WorktreeMetadataService` | `Services/WorktreeMetadataService.cs` | v3.3 | Worktree 元数据读写（intent / baseBranch） |
+| `BackgroundScreenshotService` | `Services/BackgroundScreenshotService.cs` | v3.3 | Playwright 无头截图（支持批量 + 视口自适应） |
+| `ProjectSnapshotService` | `Services/ProjectSnapshotService.cs` | v3.3 | 项目数据快照读取（供截图服务使用） |
+| `SchemeDataService` | `Services/SchemeDataService.cs` | v3.4 | 跨分支/Worktree 模块数据读写 |
+| `MergeService` | `Services/MergeService.cs` | v3.4 | 分区级差异计算 + 选择性/覆盖合并 |
+| `ProjectController` | `Controllers/ProjectController.cs` | v3.0 | `/api/project` 端点 |
 
 ### 1.3 遗留服务（待迁移）
 
@@ -93,11 +100,18 @@ BIMCanvas.Server/
 │   └── launchSettings.json       ✅ 启动配置（端口 5000）
 │
 ├── Controllers/                  【REST API】
-│   ├── ProjectController.cs      ✅【v3.0 新增】项目数据聚合 API
-│   ├── GitController.cs          ✅【v3.1 新增】Git 分支管理 API
-│   ├── CanvasController.cs.legacy   ⚠️ 遗留 v2.9 API，待迁移
-│   ├── EventsController.cs         SSE 端点 ⬜ 待开发
-│   └── PlacementController.cs      布置 API ⬜ 待开发
+│   ├── ProjectController.cs      ✅【v3.0】项目数据聚合 API
+│   ├── GitController.cs          ✅【v3.1】Git 分支管理 API
+│   ├── ValidationController.cs   ✅【v3.2】布局全量验证（布局编译器）
+│   ├── WindowsController.cs      ✅【v3.3】多窗口分支锁 + Worktree 隔离
+│   ├── WorktreeController.cs     ✅【v3.3】Worktree 元数据查询 API
+│   ├── BackgroundScreenshotController.cs ✅ 后台截图 API（Playwright）
+│   ├── MergeController.cs        ✅【v3.4】分区级差异对比 + 选择性合并
+│   ├── ModulesController.cs      ✅ 跨分支模块数据读写 API
+│   ├── SchemeController.cs       ✅ 方案管理 API
+│   ├── NotificationController.cs ✅ 通知 API
+│   ├── WebConfigController.cs    ✅ Web 配置 API
+│   └── CanvasController.cs.legacy   ⚠️ 遗留 v2.9 API，待迁移
 │
 ├── Dtos/                         【v3.0 新增】数据传输对象
 │   ├── ProjectData.cs            ✅ v3.0 项目数据 DTO
@@ -106,19 +120,28 @@ BIMCanvas.Server/
 ├── Services/                     【业务服务】
 │   ├── ManifestService.cs        ✅【v3.0】.manifest 文件读写
 │   ├── ComputedDataService.cs    ✅【v3.0】计算数据管理
-│   ├── GitWorktreeService.cs     ✅【v3.1 新增】Git 仓库 + Worktree 管理
-│   ├── StrategyService.cs        ✅【v3.1 重构】策略分支管理
-│   ├── ProjectService.cs         ✅【v3.1 重构】项目加载 + Git 初始化
-│   ├── ProjectContext.cs         ✅ 单项目模式上下文
+│   ├── GitWorktreeService.cs     ✅【v3.1】Git 仓库 + Worktree 管理
+│   ├── StrategyService.cs        ✅【v3.1】策略分支管理
+│   ├── ProjectService.cs         ✅【v3.1】项目加载 + Git 初始化
+│   ├── ProjectContext.cs         ✅ 单项目模式上下文（含多窗口 Worktree 映射）
+│   ├── ProjectWatcherService.cs  ✅【v3.2】文件监听 + SignalR 推送
+│   ├── ProjectSnapshotService.cs ✅ 项目快照读取（供截图服务使用）
+│   ├── SchemeDataService.cs      ✅ 跨分支/Worktree 模块数据读写
+│   ├── BackgroundScreenshotService.cs ✅ 后台截图（Playwright 无头浏览器）
+│   ├── MergeService.cs           ✅【v3.4】分区级差异计算 + 选择性/覆盖合并
+│   ├── WorktreeMetadataService.cs ✅【v3.3】Worktree 元数据管理
+│   ├── IWorktreeMetadataServiceFactory.cs ✅ 元数据服务工厂接口
+│   ├── PlacementService.cs       ✅ 布置逻辑
+│   ├── ModuleLibraryService.cs   ✅ 模块库服务
+│   ├── ConfigService.cs          ✅ 配置服务
+│   ├── RoomTypeTagMappingService.cs ✅ 房间类型标签映射
+│   ├── Git/                      【Git 子服务】
+│   │   └── BranchLockManager.cs  ✅【v3.3】分支互斥锁（多窗口并行）
 │   ├── CanvasStateManager.cs.legacy  ⚠️ 遗留，待迁移
-│   ├── ZoneCalculator.cs.legacy      ⚠️ 遗留，待迁移
-│   ├── PlacementService.cs         布置逻辑 ⬜ 待开发
-│   ├── EventBus.cs                 事件总线 ⬜ 待开发
-│   ├── ScreenshotService.cs        截图服务 ⬜ 待开发
-│   └── ChangeSetService.cs         变更集服务 ⬜ 待开发
+│   └── ZoneCalculator.cs.legacy      ⚠️ 遗留，待迁移
 │
-├── Hubs/                         【SignalR Hub】⬜ 待开发
-│   └── CanvasHub.cs                画布实时通信
+├── Hubs/                         【SignalR Hub】✅ v3.2 已完成
+│   └── CanvasHub.cs              ✅ 画布实时通信（窗口注册 + 分支锁 + 状态推送）
 │
 ├── Mcp/                          【MCP 协议相关】⬜ 待开发
 │   └── McpHost.cs                  MCP Server 宿主
@@ -420,7 +443,54 @@ computed/*.json        → computed
 }
 ```
 
-### 5.3 遗留端点（待迁移）
+### 5.3 布局验证 API
+
+| 端点 | 方法 | 功能 | 状态 |
+|------|------|------|------|
+| `/api/validation/layout` | POST | 全量验证布局合法性（布局编译器） | ✅ v3.2 |
+
+验证三类错误：模块超出设计区域、模块与墙体/柱子/禁区重叠、模块间互相重叠。
+
+### 5.4 窗口管理 API
+
+| 端点 | 方法 | 功能 | 状态 |
+|------|------|------|------|
+| `/api/windows/locks` | GET | 获取所有分支锁 | ✅ v3.3 |
+| `/api/windows/locks/{branch}` | GET | 获取指定分支锁信息 | ✅ v3.3 |
+| `/api/windows/lock` | POST | 申请分支锁 | ✅ v3.3 |
+| `/api/windows/lock` | DELETE | 释放分支锁 | ✅ v3.3 |
+| `/api/windows/locks/window/{windowId}` | GET | 获取窗口锁定的分支 | ✅ v3.3 |
+| `/api/windows/locks/window/{windowId}` | DELETE | 释放窗口所有锁 | ✅ v3.3 |
+| `/api/windows/available/{branch}` | GET | 检查分支可用性 | ✅ v3.3 |
+| `/api/windows/activate` | POST | 激活窗口（切换 Worktree） | ✅ v3.3 |
+| `/api/windows/register-worktree` | POST | 注册窗口 Worktree | ✅ v3.3 |
+| `/api/windows/worktree/{windowId}` | DELETE | 注销窗口 Worktree | ✅ v3.3 |
+| `/api/windows/active` | GET | 获取当前激活窗口信息 | ✅ v3.3 |
+
+### 5.5 Worktree 元数据 API
+
+| 端点 | 方法 | 功能 | 状态 |
+|------|------|------|------|
+| `/api/worktree/metadata` | GET | 获取完整 Worktree 元数据 | ✅ v3.3 |
+| `/api/worktree/batch-resolve` | POST | 批量解析 worktree 名称到分支名称 | ✅ v3.3 |
+
+### 5.6 截图 API
+
+| 端点 | 方法 | 功能 | 状态 |
+|------|------|------|------|
+| `/api/screenshot/render` | POST | 后台截图（Playwright 无头渲染） | ✅ |
+| `/api/screenshot/render-batch` | POST | 批量截图（多视口并行） | ✅ |
+
+### 5.7 合并 API
+
+| 端点 | 方法 | 功能 | 状态 |
+|------|------|------|------|
+| `/api/merge/diff` | GET | 获取分区级差异 | ✅ v3.4 |
+| `/api/merge/selective` | POST | 执行选择性合并 | ✅ v3.4 |
+| `/api/merge/overwrite` | POST | 执行覆盖合并 | ✅ v3.4 |
+| `/api/merge/branches` | GET | 获取可合并分支列表 | ✅ v3.4 |
+
+### 5.8 遗留端点（待迁移）
 
 | 端点 | 方法 | 功能 | 状态 |
 |------|------|------|------|
@@ -574,19 +644,39 @@ public class ManifestService
 | 项目数据 DTO | Dtos/ProjectData.cs | ✅ v3.0 |
 | Git 分支管理 API | GitController.cs | ✅ v3.1 |
 | Git 分支信息 DTO | Dtos/GitBranchInfo.cs | ✅ v3.1 |
+| SignalR Hub | Hubs/CanvasHub.cs | ✅ v3.2 |
+| 文件监听 | ProjectWatcherService.cs | ✅ v3.2 |
+| 多窗口分支锁 | Git/BranchLockManager.cs | ✅ v3.3 |
+| Worktree 元数据 | WorktreeMetadataService.cs | ✅ v3.3 |
+| 窗口管理 API | WindowsController.cs | ✅ v3.3 |
+| Worktree 元数据 API | WorktreeController.cs | ✅ v3.3 |
+| 后台截图服务 | BackgroundScreenshotService.cs | ✅ v3.3 |
+| 后台截图 API | BackgroundScreenshotController.cs | ✅ v3.3 |
+| 项目快照 | ProjectSnapshotService.cs | ✅ v3.3 |
+| 布局验证 API | ValidationController.cs | ✅ v3.2 |
+| 跨分支数据读写 | SchemeDataService.cs | ✅ v3.4 |
+| 分区级差异对比 | MergeService.cs | ✅ v3.4 |
+| 合并 API | MergeController.cs | ✅ v3.4 |
 
 ### 10.2 待开发
 
 | 功能 | 文件 | 状态 |
 |------|------|------|
-| 遗留服务迁移 | CanvasStateManager.cs | ⬜ |
-| 遗留服务迁移 | ZoneCalculator.cs | ⬜ |
-| 遗留服务迁移 | CanvasController.cs | ⬜ |
-| SignalR Hub | Hubs/CanvasHub.cs | ⬜ |
+| 遗留服务迁移 | CanvasStateManager.cs.legacy | ⬜ |
+| 遗留服务迁移 | ZoneCalculator.cs.legacy | ⬜ |
+| 遗留服务迁移 | CanvasController.cs.legacy | ⬜ |
 | SSE 端点 | Controllers/EventsController.cs | ⬜ |
 | MCP 工具 | McpTools/*.cs | ⬜ |
-| 文件监听 | ProjectWatcherService.cs | ⬜ |
-| 文件写入 | ProjectWriterService.cs | ⬜ |
+
+### 10.3 版本演进
+
+```
+v3.0: File-Driven Architecture（文件播放器模式）
+v3.1: + Git Worktree 基础架构（单仓库 + 多分支 + Worktree）
+v3.2: + SignalR 实时通信 + 文件监听 + 布局验证
+v3.3: + 多窗口并行（BranchLockManager + WorktreeMetadata + 截图服务）
+v3.4: + 可视化 Diff（MergeService + 选择性/覆盖合并）← 当前
+```
 
 ---
 

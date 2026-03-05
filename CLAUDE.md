@@ -147,7 +147,7 @@ BIMCanvas.Revit.*    → 仅 Revit 插件内部使用
 
 - **存储/传输**：JSON
 - **AI 交互**：纯 JSON
-- **渲染**：前端根据 JSON 生成 SVG
+- **渲染**：前端根据 JSON 渲染
 
 ### 坐标系统
 
