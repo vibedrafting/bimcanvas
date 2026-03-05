@@ -18,9 +18,9 @@
 - ✅ **AI 视觉层 (AI Vision Layer)**:
     - 专为 Agent 识别优化的高对比度语义图层。
     - 采用 "Elegant Tech" 配色方案，通过明度与色相差异清晰区分构件。
-- 🔶 **CAD 图层管理器 (Layer Manager)**: 
-    - 正在恢复并优化类似 CAD 的图层控制系统。
-    - 支持 Base (底图), Layout (布置), Intent (意图), Analysis (分析) 图层的独立开关。
+- ✅ **CAD 图层管理器 (Layer Manager)**:
+    - FloatingLayerManager + LayerManager 已完成，支持 11 个图层独立控制。
+    - 支持 Grid、Labels、Bounds、Outline、SVG、Zones、Semantic、AI Vision、Architecture、Furniture 等图层。
 
 ### 2. 交互与编辑 (Interaction & Editing)
 - ✅ **基础导航**: 平移 (Pan)、缩放 (Zoom)、旋转视图 (Orbit)。
@@ -35,11 +35,11 @@
     - **放置工具 (PlaceTool)**: 选择模块后鼠标跟随 LineLoop 矩形轮廓 + 朝向箭头预览，点击放置，支持连续放置（Revit 风格），R 键顺时针旋转 90°，Esc 退出。
     - **Ghost 保留机制**: PlaceTool 预览标记 `userData.isGhost`，SceneBuilder.clearScene() 跳过 Ghost 对象，确保场景重建不会清除放置预览。
     - **快捷键隔离**: 工具激活时自动禁用 ShortcutManager，避免全局快捷键与工具内部按键冲突。
-- ⬜ **语义吸附 (Semantic Snapping)**: 待实现，吸附墙中线、门窗边缘、对齐线。
+- 🔶 **语义吸附 (Semantic Snapping)**: SnappingEngine + SnapConfig + SnapIndex2D 已实现基础框架，集成调优中。
 
 ### 3. 数据与协作 (Data & Sync)
-- ⬜ **AI 实时同步**: 基于 SignalR 的双向状态同步，AI 操作实时可见。
-- 🔶 **撤销/重做 (Undo/Redo)**: 正在恢复基于时间轴 (Timeline) 的历史记录管理。
+- 🔶 **AI 实时同步**: SignalR 基础连接已实现（事件监听 + 重连机制），集成收尾中。
+- ✅ **撤销/重做 (Undo/Redo)**: TimelineManager 已完成（快照、历史策略、变更来源检测）。
 - ⬜ **补丁审查 (Patch Review)**: 可视化审查 AI 提出的修改建议 (Diff)。
 
 ### 4. 调试与辅助 (Debug & Tools)
@@ -210,7 +210,7 @@ Claude API messages.content: [
 | **3D 引擎** | Three.js | 业界标准的 WebGL 库 |
 | **状态管理** | Pinia | 轻量级、类型安全的状态管理 |
 | **样式方案** | Vanilla CSS | 使用 CSS Variables 定义设计系统 (Design Tokens) |
-| **通信协议** | HTTP Streaming (SSE-like) + SignalR (规划中) | 前端已接入 Agent 流式输出，SignalR 用于后续双向同步 |
+| **通信协议** | HTTP Streaming (SSE) + SignalR (已实现) | Agent 流式输出 + Server 实时双向同步 |
 
 ## 🚀 快速开始 (Getting Started)
 
@@ -249,11 +249,21 @@ src/
 ├── services/           # 核心业务逻辑服务
 │   ├── builders/       # 3D 场景构建器
 │   │   ├── SceneBuilder.ts      # 负责解析 JSON 并生成 Three.js Mesh（含 Ghost 保留逻辑）
-│   │   └── SVGModuleRenderer.ts # SVG → Three.js Group 渲染器
+│   │   ├── SVGModuleRenderer.ts # SVG → Three.js Group 渲染器
+│   │   ├── ExclusionBuilder.ts  # 禁区构建器
+│   │   ├── GridBuilder.ts       # 网格构建器
+│   │   ├── LabelBuilder.ts      # 标签构建器
+│   │   ├── OutlineBuilder.ts    # 轮廓构建器
+│   │   └── ZoneBuilder.ts       # 区域构建器
 │   ├── interaction/    # 交互工具层
 │   │   ├── InteractionService.ts # 交互总线（事件分发、快捷键管理、工具生命周期）
 │   │   ├── ShortcutManager.ts    # 全局快捷键管理（支持组合键和序列键）
 │   │   ├── GhostManager.ts       # 幽灵预览管理器
+│   │   ├── ViewportService.ts    # 视口计算和管理
+│   │   ├── snap/                 # 语义吸附子系统
+│   │   │   ├── SnappingEngine.ts    # 吸附引擎
+│   │   │   ├── SnapConfig.ts        # 吸附配置
+│   │   │   └── SnapIndex2D.ts       # 空间索引
 │   │   └── tools/                # 工具实现
 │   │       ├── PlaceTool.ts      # 模块放置工具（连续放置 + Ghost 预览）
 │   │       ├── MoveTool.ts       # 移动工具
@@ -261,11 +271,32 @@ src/
 │   │       ├── CopyTool.ts       # 复制工具
 │   │       ├── MirrorTool.ts     # 镜像工具
 │   │       └── MeasurementTool.ts# 测量工具
+│   ├── validation/     # 约束验证
+│   │   └── ConstraintService.ts  # 布置约束验证
+│   ├── state/          # 状态管理
+│   │   └── TimelineManager.ts    # Undo/Redo 时间线管理
+│   ├── screenshot/     # 截图服务
+│   │   └── LabelRenderer.ts     # 截图标签渲染
+│   ├── theme/          # 主题系统
+│   │   └── ThemeService.ts      # 明/暗主题切换
+│   ├── canvas/         # 画布样式
+│   │   └── CanvasStyleService.ts# 画布样式管理
 │   ├── ModuleLibraryService.ts   # 模块库数据服务（加载 JSON、缓存、标签索引）
+│   ├── SignalRService.ts         # SignalR 实时通信（事件监听 + 重连）
+│   ├── GitService.ts             # Git 操作
+│   ├── GitWorktreeService.ts     # Worktree 管理
+│   ├── ProjectService.ts         # 项目加载
+│   ├── SchemeService.ts          # 方案管理
+│   ├── ScreenshotService.ts      # 截图服务
 │   └── three/          # Three.js 集成层
-│       └── ThreeSceneService.ts # 负责场景、相机、渲染器、光照的生命周期管理
+│       ├── ThreeSceneService.ts  # 场景、相机、渲染器、光照的生命周期管理
+│       └── LayerManager.ts       # 图层管理器（11 个图层控制）
 ├── stores/             # Pinia 状态仓库
-│   └── canvasStore.ts  # 管理 CanvasDocument 数据流和加载状态
+│   ├── canvasStore.ts  # CanvasDocument 数据流和加载状态
+│   ├── gitStore.ts     # Git 分支/Worktree 状态
+│   ├── windowStore.ts  # 多窗口管理状态
+│   ├── mergeStore.ts   # 合并流程状态
+│   └── debugStore.ts   # 调试面板状态
 ├── types/              # TypeScript 类型定义
 │   ├── canvas.ts       # 核心数据模型 (Wall, Column, Opening, etc.)
 │   └── aiCommandCenter.ts # AI 指挥中心类型
@@ -509,4 +540,4 @@ const endBatchUpdate = async () => {
 > 架构文档: `docs/FileDrivenArchitecture.md`
 
 ---
-*文档最后更新时间: 2026-02-10*
+*文档最后更新时间: 2026-03-05*

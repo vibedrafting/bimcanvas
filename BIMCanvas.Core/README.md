@@ -49,9 +49,8 @@ BIMCanvas.Core/
 │   │   └── LocationLine.cs         【v3.0 新增】完成面定位线
 │   │
 │   ├── Computed/                计算派生数据（Server 生成）
-│   │   ├── Zone.cs                 设计区域
+│   │   ├── Zone.cs                 设计区域（含禁区，Type = ZoneType.Exclusion）
 │   │   ├── FinishSegment.cs        【v3.0 重构】完成面段（range 表示法）
-│   │   ├── ExclusionArea.cs        【v3.0 新增】禁区模型
 │   │   └── FinishRequirement.cs    完成面需求
 │   │
 │   ├── Layout/                  方案数据（AI 生成）
@@ -124,7 +123,7 @@ v3.0 采用"文件驱动架构"，数据分为三个物理层级：
 |------|-----------|------|----------|
 | **底层 (Baseline)** | `baseline/` | 墙、柱、门窗、房间 | **只读** (Revit 导出) |
 | **中层 (Schemes)** | `schemes/{s}/` | 功能分区、完成面、家具模块 | **混合** (AI/Server) |
-| **顶层 (Computed)** | `computed/` | 禁区、缓存数据 | **自动生成** (Server) |
+| **顶层 (Computed)** | `computed/` | 禁区（Zone 类型）、缓存数据 | **自动生成** (Server) |
 
 ### 删除的类
 
@@ -150,7 +149,6 @@ v3.0 采用"文件驱动架构"，数据分为三个物理层级：
 | `BaselineManifest` | `Models/Project/BaselineManifest.cs` | Baseline 元数据 |
 | `Architecture` | `Models/Revit/Architecture.cs` | 建筑构造容器 |
 | `LocationLine` | `Models/Revit/LocationLine.cs` | 完成面定位线 |
-| `ExclusionArea` | `Models/Computed/ExclusionArea.cs` | 禁区模型 |
 | `FinishSegment` | `Models/Computed/FinishSegment.cs` | 完成面段 |
 | `StrategyStatus` | `Models/Shared/StrategyStatus.cs` | 策略状态枚举 |
 | `StrategyApproach` | `Models/Shared/StrategyApproach.cs` | 设计方法枚举 |
@@ -212,7 +210,7 @@ BIMCanvas.Revit.*    → 仅 Revit 插件内部使用
 │   ├── finishes.json      → FinishSegment[]
 │   └── modules.json       → Module[]
 └── computed/
-    ├── exclusions.json    → ExclusionArea[]
+    ├── exclusions.json    → Zone[]（Type = ZoneType.Exclusion）
     └── computed.manifest  → 键值对哈希文件
 ```
 
@@ -272,19 +270,10 @@ public class FinishSegment
 }
 ```
 
-### ExclusionArea（禁区）
+### 禁区（Zone 统一模型）
 
-由 Server 计算生成的禁区：
-
-```csharp
-public class ExclusionArea
-{
-    public string Id { get; set; }           // excl_{类型}_{序号}
-    public string Type { get; set; }         // "door_swing" | "window_sill"
-    public Polygon2D Boundary { get; set; }  // 禁区轮廓（矩形）
-    public string SourceId { get; set; }     // 来源元素 ID
-}
-```
+禁区不使用独立类，而是通过 Zone 类统一表示（`Type = ZoneType.Exclusion`）。
+由 Server 端 ComputedDataService 计算生成，包含：门扇开启区域 (door_swing)、窗台区域 (window_sill) 等。
 
 ### 朝向系统 (Facing)
 

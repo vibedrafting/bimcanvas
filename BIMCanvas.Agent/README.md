@@ -76,8 +76,13 @@ python -m src.main
 | `/api/chat/stream` | POST | 发送聊天消息（SSE 流式响应） |
 | `/api/clear-history` | POST | 清空对话历史 |
 | `/api/history` | GET | 获取对话历史 |
-| `/api/task/layout` | POST | 执行布置任务（P2 功能） |
-| `/api/task/layout/stream` | POST | 执行布置任务（SSE 流式响应） |
+| `/api/config` | GET | 获取 Agent 配置（模型、思考强度等） |
+| `/api/agent/close` | POST | 关闭指定窗口的 Agent 实例 |
+| `/api/interrupt` | POST | 中断当前 Agent 执行 |
+| `/api/screenshot/events` | GET | 截图 SSE 事件流（Web→Agent 截图通道） |
+| `/api/screenshot/request` | POST | 发起截图请求 |
+| `/api/screenshot/result` | POST | 提交截图结果 |
+| `/api/screenshot/save` | POST | 保存截图到项目目录 |
 
 ### 请求示例
 
@@ -326,33 +331,7 @@ ClaudeAgentOptions(
 
 > 参考：`docs/Agent_SDK/examples/claude-agent-sdk-python/examples/include_partial_messages.py`
 
-### 布置任务 API（P2 功能）
-
-```http
-POST /api/task/layout
-Content-Type: application/json
-
-{
-  "projectPath": "C:/Users/.../Projects/demo_1",
-  "schemeId": "default",
-  "prompt": "请为客厅布置现代简约风格的家具"
-}
-```
-
-响应：
-```json
-{
-  "success": true,
-  "summary": "布置任务完成。已为客厅布置沙发、茶几、电视柜...",
-  "schemeId": "default"
-}
-```
-
-Agent 会自动：
-1. 读取 `computed/room_zones.json` 获取房间数据
-2. 读取 `baseline/openings.json` 获取门窗信息
-3. 查看 `modules/` 目录获取可用家具
-4. 将布置结果写入 `schemes/{schemeId}/modules.json`
+> **注意**：布置任务已整合到 `/api/chat/stream`，MainAgent 自主决定何时派发 layout-agent SubAgent，无需专用端点。
 
 ## 项目结构
 
@@ -370,7 +349,8 @@ BIMCanvas.Agent/
 │   │   ├── __init__.py
 │   │   ├── main_agent.py       # MainAgent（主控 Agent）
 │   │   ├── subagents.py        # SubAgent 定义（从配置加载）
-│   │   └── agent_logger.py     # Agent 日志系统
+│   │   ├── agent_logger.py     # Agent 日志系统
+│   │   └── worktree_manager.py # Worktree 生命周期管理
 │   │
 │   ├── server/
 │   │   ├── __init__.py
@@ -379,7 +359,13 @@ BIMCanvas.Agent/
 │   ├── tools/
 │   │   ├── __init__.py
 │   │   ├── file_tools.py       # JSON 文件读写工具
-│   │   └── svg_parser.py       # SVG 解析工具
+│   │   ├── svg_parser.py       # SVG 解析工具
+│   │   ├── placement_tools.py  # 布置工具（模块放置/移动/删除）
+│   │   └── zone_tools.py       # 区域工具（Zone 查询/操作）
+│   │
+│   ├── mcp/
+│   │   ├── __init__.py
+│   │   └── canvas.py           # MCP 工具（create_job, complete_job, screenshot）
 │   │
 │   └── config/
 │       ├── __init__.py
@@ -392,8 +378,12 @@ BIMCanvas.Agent/
 │   ├── init_manifest.json
 │   ├── .claude-plugin/         # Plugin 清单（使 ~/.bimcanvas 成为 Plugin 目录）
 │   │   └── plugin.json
-│   ├── skills/                 # Agent Skills 模板
-│   │   └── test-echo/
+│   ├── skills/                 # Agent Skills 模板（三种工作流）
+│   │   ├── query-workflow/     # 只读查询工作流
+│   │   │   └── SKILL.md
+│   │   ├── edit-workflow/      # 单一修改工作流
+│   │   │   └── SKILL.md
+│   │   └── generate-workflow/  # 完整布置工作流
 │   │       └── SKILL.md
 │   └── agents/
 │       └── layout-agent.md
@@ -459,33 +449,28 @@ BIMCanvas.Agent/
 
 ```json
 {
-  "apiKey": "$ANTHROPIC_API_KEY",
-  "model": "claude-opus-4-5-20250514",
+  "model": "claude-opus-4-6",
   "maxTokens": 4096,
-  "tools": ["Read", "Glob", "Grep", "Task"],
+  "defaultEffort": "medium",
+  "defaultThinking": "adaptive",
+  "permissions": {
+    "allow": ["Read", "Glob", "Grep", "Task"],
+    "deny": ["AskUserQuestion"]
+  },
   "server": { "host": "127.0.0.1", "port": 8765 }
 }
 ```
 
-#### tools 字段说明
+#### permissions 字段说明
 
-`tools` 字段控制 Agent 可用工具的基础集合：
+`permissions` 字段通过 allow/deny 列表控制 Agent 可用工具权限：
 
-| 配置值 | 效果 |
-|--------|------|
-| `null` 或不设置 | **默认全开**（使用 Claude Code 全部内置工具） |
-| `[]` 空数组 | **禁用所有工具**（Agent 只能对话） |
-| `["Read", "Glob", ...]` | **只启用指定工具** |
+| 字段 | 效果 |
+|------|------|
+| `allow` | 白名单：只允许使用列出的工具 |
+| `deny` | 黑名单：禁止使用列出的工具 |
 
-**注意**：`tools` 参数与 `allowed_tools` 参数不同：
-- `tools`：控制**可用工具集合**（真正的工具限制）
-- `allowed_tools`：控制**权限规则**（哪些工具无需用户确认）
-
-**常用工具列表**：
-```
-Task, Bash, Glob, Grep, LS, Read, Edit, MultiEdit, Write,
-NotebookEdit, WebFetch, TodoWrite, WebSearch, ExitPlanMode
-```
+**注意**：API Key 通过环境变量 `AGENT_SDK_API_KEY` 设置，不再写入 config.json。
 
 #### SubAgent 配置格式 (agents/*.md)
 
@@ -504,7 +489,8 @@ model: inherit
 
 | 环境变量 | 说明 |
 |----------|------|
-| `ANTHROPIC_API_KEY` | Anthropic API 密钥（必填） |
+| `AGENT_SDK_API_KEY` | Anthropic API 密钥（必填，与 Claude Code 环境隔离） |
+| `AGENT_SDK_BASE_URL` | 自定义 API 基础 URL（可选） |
 | `MODEL_NAME` | 覆盖模型名称 |
 | `SERVER_HOST` | 覆盖服务地址 |
 | `SERVER_PORT` | 覆盖服务端口 |
@@ -530,8 +516,7 @@ model: inherit
 
 - [x] 启用 Agent SDK 内置工具（Read, Write, Glob, Edit）
 - [x] 更新 System Prompt（布置任务指导）
-- [x] 添加布置任务 API（/api/task/layout）
-- [x] 添加流式布置任务 API（/api/task/layout/stream）
+- [x] ~~布置任务 API~~ → 已废弃，整合到 /api/chat（MainAgent 自主派发 SubAgent）
 - [x] Skill 功能集成（Plugin 旁路策略，零配置污染）
 - [ ] **端到端测试（完整布置流程验证）** ← 当前最紧迫
 - [ ] Web 端布置任务集成
@@ -831,7 +816,7 @@ async def tool_func(args: dict[str, Any]) -> dict[str, Any]:
 
 | 问题 | 排查 |
 |------|------|
-| Agent 启动失败 | 检查 `ANTHROPIC_API_KEY` 环境变量是否设置 |
+| Agent 启动失败 | 检查 `AGENT_SDK_API_KEY` 环境变量是否设置 |
 | MCP 工具调用失败 | 确认 .NET Server 已启动且端口可达 |
 | 中文路径问题 | 在 git-bash 下路径需要转义或使用引号 |
 

@@ -89,6 +89,8 @@ v3.0 采用"文件驱动架构"，Server 从"内存数据库"模式转型为"文
 | `ZoneCalculator.cs.legacy` | 使用 `DesignDocument` | 改为读取 baseline/ 和 schemes/ |
 | `CanvasController.cs.legacy` | 使用 `DesignDocument` | 改为使用 ProjectService |
 
+> **当前状态**：遗留服务功能已被新服务完全替代，暂无迁移计划，保留仅供参考。
+
 ---
 
 ## 2. 项目结构
@@ -143,14 +145,7 @@ BIMCanvas.Server/
 ├── Hubs/                         【SignalR Hub】✅ v3.2 已完成
 │   └── CanvasHub.cs              ✅ 画布实时通信（窗口注册 + 分支锁 + 状态推送）
 │
-├── Mcp/                          【MCP 协议相关】⬜ 待开发
-│   └── McpHost.cs                  MCP Server 宿主
-│
-└── McpTools/                     【MCP 工具实现】⬜ 待开发
-    ├── CanvasTools.cs              画布管理工具
-    ├── ModuleTools.cs              模块操作工具
-    ├── PlacementTools.cs           布置工具
-    └── QueryTools.cs               查询工具
+└── （MCP 工具由 BIMCanvas.Agent 端提供，Server 通过 REST API 响应 Agent 的工具调用）
 ```
 
 ---
@@ -287,7 +282,7 @@ var result = strategyService.AcceptParallelStrategy(projectPath, "动线优先")
    - 尺寸：doorWidth × doorWidth
    - 偏移：facingDirection × doorWidth
    - 4 个顶点：门线起点、门线终点、终点+偏移、起点+偏移
-4. 生成 ExclusionArea 对象
+4. 生成 Zone 对象（Type = Exclusion）
 5. 写入 computed/exclusions.json
 ```
 
@@ -490,7 +485,27 @@ computed/*.json        → computed
 | `/api/merge/overwrite` | POST | 执行覆盖合并 | ✅ v3.4 |
 | `/api/merge/branches` | GET | 获取可合并分支列表 | ✅ v3.4 |
 
-### 5.8 遗留端点（待迁移）
+### 5.8 通知与配置 API
+
+| 端点 | 方法 | 功能 | 状态 |
+|------|------|------|------|
+| `/api/notification/agent` | POST | Agent 通知推送（通过 SignalR 转发给 Web） | ✅ |
+| `/api/notification/data-changed` | POST | 数据变更通知 | ✅ |
+| `/api/web_config` | GET | 获取 Web 配置 | ✅ |
+| `/api/web_config` | POST | 更新 Web 配置 | ✅ |
+| `/api/modules/library` | GET | 获取模块库列表 | ✅ |
+| `/api/modules/svg/{moduleId}` | GET | 获取模块 SVG 缩略图 | ✅ |
+| `/api/scheme` | GET | 获取方案数据 | ✅ |
+
+### 5.9 Git 扩展 API（v3.3+）
+
+| 端点 | 方法 | 功能 | 状态 |
+|------|------|------|------|
+| `/api/git/worktrees` | GET | 获取 Worktree 列表 | ✅ v3.3 |
+| `/api/git/ai-job` | POST | 创建 AI Job（Git Worktree 隔离） | ✅ v3.3 |
+| `/api/git/ai-job/{name}/complete` | POST | 完成 AI Job | ✅ v3.3 |
+
+### 5.10 遗留端点（待迁移）
 
 | 端点 | 方法 | 功能 | 状态 |
 |------|------|------|------|
@@ -535,7 +550,8 @@ public class SchemeData
 
 public class ComputedData
 {
-    public List<ExclusionArea> Exclusions { get; set; }
+    public List<Zone> RoomZones { get; set; }   // Type = ZoneType.Room
+    public List<Zone> Exclusions { get; set; }  // Type = ZoneType.Exclusion
 }
 ```
 
@@ -666,7 +682,7 @@ public class ManifestService
 | 遗留服务迁移 | ZoneCalculator.cs.legacy | ⬜ |
 | 遗留服务迁移 | CanvasController.cs.legacy | ⬜ |
 | SSE 端点 | Controllers/EventsController.cs | ⬜ |
-| MCP 工具 | McpTools/*.cs | ⬜ |
+| ~~MCP 工具~~ | ~~McpTools/*.cs~~ | 已取消（由 Agent 端提供） |
 
 ### 10.3 版本演进
 

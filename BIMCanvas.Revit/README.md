@@ -1,7 +1,7 @@
 # BIMCanvas.Revit
 
 > **版本**：v3.0
-> **更新日期**：2025-12-26
+> **更新日期**：2026-03-05
 > **状态**：Phase 1 核心导出功能已完成（支持 v3.0 .bcp 格式）
 
 ---
@@ -50,6 +50,9 @@ BIMCanvas.Revit/
 │   ├── App.cs                       IExternalApplication 入口
 │   └── ExportCanvasCommand.cs       导出命令（v3.0 .bcp 格式）
 │
+├── Converters/                   【转换器层】类型转换
+│   └── RevitNtsConverter.cs       Revit API ↔ NTS 类型转换
+│
 ├── Adapters/                     【适配器层】数据提取
 │   ├── BoundaryAdapter.cs           墙/柱单独轮廓提取
 │   ├── WallFinishAdapter.cs         完成面定位边界提取
@@ -76,7 +79,6 @@ BIMCanvas.Revit/
 ├── Utilities/                    【工具层】通用功能
 │   ├── OutlineExtractor.cs          轮廓提取（几何切割）
 │   ├── OpeningDirectionAnalyzer.cs  门窗方向分析
-│   ├── RevitNtsGeometryConverter.cs 类型转换扩展
 │   ├── PrefixId.cs                  ID 生成器
 │   ├── TransactionHelper.cs         事务处理
 │   └── DebugViewer.cs               调试可视化
@@ -154,6 +156,8 @@ Phase 4: 统一坐标转换 + 定位线提取
 │  RevitWallFinish → LocationLine【v3.0 新增】                │
 │  RevitOpening → Opening (Line2D, mm)                        │
 │  RevitRoom → Room (Polygon2D, mm)                           │
+│      ↓ FilterExteriorEdges()                                │
+│  过滤外墙边（只保留与房间关联的内侧定位线）                    │
 │      ↓ LocationLineAdapter.ExtractLocationLines()           │
 │  完成面定位边界 → LocationLine[]                             │
 │      ↓                                                      │
@@ -217,8 +221,9 @@ public class LocationLineAdapter
     /// 从完成面边界提取定位线，关联墙体和房间
     /// </summary>
     public List<LocationLine> ExtractLocationLines(
-        List<RevitWallFinish> wallFinishes,
-        List<RevitRoom> rooms
+        List<RevitWallFinish> filteredWallFinishes,
+        List<RevitRoom> revitRooms,
+        List<RevitWall> revitWalls    // 用于查找所属墙体
     );
 }
 ```
@@ -293,7 +298,27 @@ public class LocationLineAdapter
 
 ---
 
-## 五、坐标转换
+## 五、导出配置
+
+### 5.1 ExportOptions.json
+
+配置文件位置：`BIMCanvas.Revit/ExportOptions.json`
+
+| 配置项 | 类型 | 默认值 | 说明 |
+|--------|------|--------|------|
+| showConfigWindow | bool | true | 显示房间类型确认窗口 |
+| defaultSavePath | string | null | 默认保存路径 |
+| placementElevation | double | 0 | 布置基准高度 (mm) |
+| boundaryCutHeightMm | double | 2000 | 边界轮廓切割高度 (mm) |
+| wallFinishCutHeightMm | double | 200 | 完成面切割高度 (mm) |
+| exportBoundarys | bool | true | 导出墙柱轮廓 |
+| exportOpenings | bool | true | 导出门窗数据 |
+| exportRooms | bool | true | 导出房间数据 |
+| exportElementOutlines | bool | true | 导出单构件轮廓 |
+
+---
+
+## 六、坐标转换
 
 ### 5.1 数据类型演进
 
@@ -328,6 +353,7 @@ public class CoordinateTransformer
     public Coordinate TransformCoordinate(Coordinate coord);
     public Polygon TransformPolygon(Polygon ntsPolygon);
     public LineSegment TransformLineSegment(LineSegment segment);
+    public Vector2D TransformVector2D(Vector2D vector);  // 仅旋转，不平移（用于门窗方向向量）
 }
 ```
 
@@ -341,7 +367,7 @@ public class CoordinateTransformer
 
 ---
 
-## 六、开发状态
+## 七、开发状态
 
 ### 6.1 已完成 (Phase 1)
 
@@ -370,7 +396,7 @@ public class CoordinateTransformer
 
 ---
 
-## 七、命名空间冲突处理
+## 八、命名空间冲突处理
 
 在 Revit 层使用别名解决与 Revit API 的类型冲突：
 
@@ -385,7 +411,7 @@ using CoreLocationLine = BIMCanvas.Core.Models.Revit.LocationLine;
 
 ---
 
-## 八、使用指南
+## 九、使用指南
 
 ### 8.1 安装
 
@@ -420,7 +446,7 @@ v3.0 导出 `.bcp` 压缩包，解压后结构：
 
 ---
 
-## 九、相关文档
+## 十、相关文档
 
 | 文档 | 路径 | 内容 |
 |------|------|------|
