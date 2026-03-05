@@ -39,6 +39,10 @@ def _get_window_prefix(window_seq: int) -> str:
 _screenshot_requests: dict[str, asyncio.Future] = {}
 _screenshot_sse_queues: list[asyncio.Queue] = []
 
+# Question request management (AskUserQuestion 侧信道，复用截图模式)
+_question_requests: dict[str, asyncio.Future] = {}
+_question_sse_queues: list[asyncio.Queue] = []
+
 
 async def get_agent(
     window_id: str,
@@ -414,6 +418,11 @@ async def interrupt_handler(request: web.Request) -> web.Response:
             await agents[window_id].interrupt()
             print(f"[Server] 任务中断: 窗口 {window_id}")
             logger.info(f"Interrupted task for window: {window_id}")
+            # 清理未完成的问题请求（避免 Future 永远挂起）
+            for req_id, future in list(_question_requests.items()):
+                if not future.done():
+                    future.set_result({"answers": {}})
+                    _question_requests.pop(req_id, None)
             return web.json_response({"success": True})
 
     return web.json_response({"error": "Agent not found"}, status=404)
@@ -458,6 +467,105 @@ async def close_agent_handler(request: web.Request) -> web.Response:
             return web.json_response({"success": True})
 
     return web.json_response({"error": "Agent not found"}, status=404)
+
+
+# ============== Question API (AskUserQuestion) ==============
+
+async def request_user_question(questions: list[dict], timeout: float = 120.0) -> dict:
+    """
+    发送问题给 Web 端并等待用户回答（供 MainAgent._auto_approve_tool 调用）。
+    完全复用截图模式的 Future 等待架构。
+
+    Args:
+        questions: AskUserQuestion 的 questions 数组
+        timeout: 超时秒数（默认 120 秒，用户需要阅读思考）
+
+    Returns:
+        answers: dict，key=问题文本，value=选中label
+    """
+    if not _question_sse_queues:
+        logger.warning("No Web client connected for user question, returning empty answers")
+        return {}
+
+    request_id = str(uuid.uuid4())
+    loop = asyncio.get_event_loop()
+    future: asyncio.Future = loop.create_future()
+    _question_requests[request_id] = future
+
+    event = {"requestId": request_id, "questions": questions}
+    for queue in _question_sse_queues:
+        await queue.put(event)
+
+    logger.info(f"Question request sent: {request_id}, {len(questions)} questions")
+
+    try:
+        result = await asyncio.wait_for(future, timeout=timeout)
+        return result.get("answers", {})
+    except asyncio.TimeoutError:
+        logger.warning(f"Question request timeout: {request_id}")
+        return {}
+    finally:
+        _question_requests.pop(request_id, None)
+
+
+async def question_events_handler(request: web.Request) -> web.StreamResponse:
+    """SSE 端点：Web 端监听 Agent 用户问题请求（AskUserQuestion）"""
+    response = web.StreamResponse(
+        status=200,
+        headers={
+            "Content-Type": "text/event-stream",
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+        }
+    )
+    await response.prepare(request)
+
+    queue: asyncio.Queue = asyncio.Queue()
+    _question_sse_queues.append(queue)
+    logger.info(f"Question SSE client connected, total: {len(_question_sse_queues)}")
+
+    try:
+        while True:
+            event = await queue.get()
+            event_str = json.dumps(event, ensure_ascii=False)
+            await response.write(f"event: question_request\ndata: {event_str}\n\n".encode("utf-8"))
+    except asyncio.CancelledError:
+        pass
+    finally:
+        _question_sse_queues.remove(queue)
+        logger.info(f"Question SSE client disconnected, remaining: {len(_question_sse_queues)}")
+
+    return response
+
+
+async def question_answer_handler(request: web.Request) -> web.Response:
+    """
+    Web 端提交用户答案（AskUserQuestion）
+
+    Request body:
+        {
+            "requestId": "uuid",
+            "answers": {"问题文本": "选项A"},
+            "cancelled": false
+        }
+    """
+    try:
+        data = await request.json()
+    except json.JSONDecodeError:
+        return web.json_response({"error": "Invalid JSON"}, status=400)
+
+    request_id = data.get("requestId")
+    if not request_id or request_id not in _question_requests:
+        return web.json_response({"error": "Unknown request ID"}, status=404)
+
+    future = _question_requests[request_id]
+    if data.get("cancelled"):
+        future.set_result({"answers": {}})
+    else:
+        future.set_result({"answers": data.get("answers", {})})
+
+    logger.info(f"Question answer received: {request_id}")
+    return web.json_response({"success": True})
 
 
 # ============== Screenshot API ==============
@@ -728,6 +836,9 @@ def create_app() -> web.Application:
         web.post("/api/screenshot/request", screenshot_request_handler),
         web.post("/api/screenshot/result", screenshot_result_handler),
         web.post("/api/screenshot/save", screenshot_save_handler),
+        # Question API (AskUserQuestion)
+        web.get("/api/question/events", question_events_handler),
+        web.post("/api/question/answer", question_answer_handler),
     ]
 
     # 按路径分组路由（避免同一路径重复创建 resource 导致 CORS 冲突）

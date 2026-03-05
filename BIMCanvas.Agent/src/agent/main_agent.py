@@ -235,10 +235,21 @@ class MainAgent:
     async def _auto_approve_tool(
         self, tool_name: str, tool_input: dict, context: ToolPermissionContext
     ) -> PermissionResultAllow:
-        """Agent 后端模式：自动批准所有工具调用。
+        """Agent 后端模式：自动批准所有工具调用，AskUserQuestion 走侧信道等待用户回答。"""
 
-        通过 SDK 回调结构化处理权限请求，替代正则匹配权限文字。
-        """
+        if tool_name == "AskUserQuestion":
+            from ..server.http_server import request_user_question
+            questions = tool_input.get("questions", [])
+            if self.verbose:
+                self._agent_logger.log_info(
+                    f"[Permission] AskUserQuestion: {len(questions)} questions, forwarding to Web"
+                )
+            answers = await request_user_question(questions)
+            return PermissionResultAllow(updated_input={
+                **tool_input,
+                "answers": answers
+            })
+
         if self.verbose:
             self._agent_logger.log_info(f"[Permission] 自动批准工具: {tool_name}")
         return PermissionResultAllow()

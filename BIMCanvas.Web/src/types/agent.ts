@@ -138,7 +138,7 @@ export type AgentSSEEvent =
 // ========== 时间线气泡模型（Timeline Bubble Model）==========
 
 /** 气泡类型 */
-export type BubbleType = 'text' | 'tool_call' | 'subagent' | 'thinking';
+export type BubbleType = 'text' | 'tool_call' | 'subagent' | 'thinking' | 'question';
 
 /** 气泡状态 */
 export type BubbleStatus = 'pending' | 'streaming' | 'completed' | 'failed' | 'background';
@@ -192,6 +192,16 @@ export interface ChatBubble {
   subAgentResult?: string;
   /** SubAgent 内部的气泡（工具调用等） */
   childBubbles?: ChatBubble[];
+
+  // ===== QuestionBubble 专有 =====
+  /** 问题请求 ID（用于提交答案） */
+  questionRequestId?: string;
+  /** 问题列表 */
+  questions?: UserQuestion[];
+  /** 用户已选答案（key=问题文本，value=选中label） */
+  questionAnswers?: Record<string, string>;
+  /** 是否已提交答案 */
+  questionSubmitted?: boolean;
 }
 
 /**
@@ -205,6 +215,28 @@ export interface WaitingState {
   waitingVerb: string;
   /** 等待开始时间（ms） */
   waitingSince: number;
+}
+
+// ========== AskUserQuestion 类型 ==========
+
+/** AskUserQuestion 问题选项 */
+export interface UserQuestionOption {
+  label: string;
+  description?: string;
+}
+
+/** AskUserQuestion 单个问题 */
+export interface UserQuestion {
+  question: string;
+  header: string;
+  options: UserQuestionOption[];
+  multiSelect: boolean;
+}
+
+/** Agent SSE 问题请求事件（独立 SSE 通道） */
+export interface QuestionRequestEvent {
+  requestId: string;
+  questions: UserQuestion[];
 }
 
 // ========== 工具函数 ==========

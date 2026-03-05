@@ -257,7 +257,22 @@ async def _auto_approve_tool(self, tool_name, tool_input, context):
 
 ---
 
-## 6. 参考资料
+## 6. 已实现的文件
+
+| 操作 | 文件路径 | 说明 |
+|------|---------|------|
+| 修改 | `BIMCanvas.Agent/src/server/http_server.py` | 新增 Question SSE/REST 端点 + `request_user_question` 函数 |
+| 修改 | `BIMCanvas.Agent/src/agent/main_agent.py` | `_auto_approve_tool` 拦截 AskUserQuestion |
+| 修改 | `BIMCanvas.Web/src/types/agent.ts` | 扩展 BubbleType + ChatBubble + 新增类型 |
+| 修改 | `BIMCanvas.Web/src/utils/bubbleManager.ts` | 新增 `createQuestionBubble` |
+| 修改 | `BIMCanvas.Web/src/components/UI/AICommandCenter.vue` | 集成 QuestionBubble + useQuestion |
+| 新建 | `BIMCanvas.Web/src/services/QuestionService.ts` | 问题 SSE 监听 + 答案提交 |
+| 新建 | `BIMCanvas.Web/src/composables/aiCommandCenter/useQuestion.ts` | 问题交互逻辑 |
+| 新建 | `BIMCanvas.Web/src/components/UI/QuestionBubble.vue` | 选择控件组件 |
+
+---
+
+## 7. 参考资料
 
 | 内容 | 文件路径 |
 |------|---------|
@@ -267,4 +282,3 @@ async def _auto_approve_tool(self, tool_name, tool_input, context):
 | Python SDK 类型定义 | `docs/agent_sdk/examples/claude-agent-sdk-python/src/claude_agent_sdk/types.py` |
 | 官方 Excel Demo 工具展示组件 | `docs/agent_sdk/examples/claude-agent-sdk-demos/excel-demo/src/renderer/components/ToolUseDisplay.tsx` |
 | 官方工具元数据定义 | `docs/agent_sdk/examples/claude-agent-sdk-demos/excel-demo/src/renderer/components/utils/toolMetadata.ts` |
-| 当前 Agent 自动批准逻辑 | `BIMCanvas.Agent/src/agent/main_agent.py` (行 232-244) |

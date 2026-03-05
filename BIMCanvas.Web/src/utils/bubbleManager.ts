@@ -3,7 +3,7 @@
  * 用于创建和管理时间线气泡模型中的各类气泡
  */
 
-import type { ChatBubble, WaitingState, BubbleStatus, SubAgentType } from '../types/agent';
+import type { ChatBubble, WaitingState, BubbleStatus, SubAgentType, UserQuestion } from '../types/agent';
 
 // ========== ID 生成器 ==========
 
@@ -67,6 +67,25 @@ export function createSubAgentBubble(
     subAgentName,
     subAgentType,
     childBubbles: []
+  };
+}
+
+/**
+ * 创建问题气泡（AskUserQuestion）
+ */
+export function createQuestionBubble(
+  requestId: string,
+  questions: UserQuestion[]
+): ChatBubble {
+  return {
+    id: generateBubbleId('question'),
+    type: 'question',
+    timestamp: Date.now(),
+    status: 'streaming',  // streaming = 等待用户回答
+    questionRequestId: requestId,
+    questions,
+    questionAnswers: {},
+    questionSubmitted: false
   };
 }
 
