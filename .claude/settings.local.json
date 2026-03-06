@@ -8,7 +8,9 @@
       "Bash(git:*)",
       "Bash(PYTHONIOENCODING=utf-8 python:*)",
       "Bash(rm:*)",
-      "Bash(PYTHONUTF8=1 python:*)"
+      "Bash(PYTHONUTF8=1 python:*)",
+      "Bash(find C:\\\\Users\\\\huhaonan\\\\Documents\\\\BIMCanvas\\\\Projects\\\\金凤143\\\\schemes:*)",
+      "Bash(xargs wc:*)"
     ]
   }
 }
