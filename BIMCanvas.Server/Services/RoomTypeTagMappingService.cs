@@ -33,7 +33,8 @@ namespace BIMCanvas.Server.Services
         /// </summary>
         private static readonly Dictionary<RoomType, List<ZoneTag>> OptionalTagMapping = new()
         {
-            { RoomType.MasterBedroom, new List<ZoneTag> { ZoneTag.Vanity } },
+            { RoomType.MasterBedroom, new List<ZoneTag> { ZoneTag.Vanity, ZoneTag.GeneralStorage } },
+            { RoomType.Bedroom, new List<ZoneTag> { ZoneTag.GeneralStorage } },
             { RoomType.Kitchen, new List<ZoneTag> { ZoneTag.Bar } },
             { RoomType.Bathroom, new List<ZoneTag> { ZoneTag.Vanity } },
         };

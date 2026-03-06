@@ -129,6 +129,44 @@
       "svgPath": "assets/mod_cabinet_1500.svg"
     },
     {
+      "id": "mod_display_cabinet_custom_001",
+      "name": "定制通用柜体",
+      "tags": [
+        "generalStorage",
+        "display"
+      ],
+      "size": {
+        "width": 800,
+        "depth": 450
+      },
+      "agent_config": {
+        "morphology": {
+          "strategy": "parametric",
+          "limits": {
+            "width": [
+              600,
+              1500
+            ],
+            "depth": [
+              350,
+              600
+            ]
+          }
+        },
+        "topology_rules": [
+          "【必须】靠墙放置",
+          "【必须】严格避让门的开启扇区域",
+          "【建议】门扇类型选择：前方净空 ≥ 600mm 用平开门；< 600mm 用移门/滑门"
+        ],
+        "relation_rules": [
+          "【建议】适用于卧室延伸区、客厅展示墙等需要通用储物或展示功能的位置——当同类型储物已充足时，功能多样性优于同质化叠加",
+          "【必须】布置后执行顶角规则检查：若某侧剩余<600mm且非门口/通道侧，应将柜体组整体平移贴靠该侧墙角"
+        ]
+      },
+      "description": "凤栖湖定制通用柜体/展示柜(宽600-1500)",
+      "svgPath": "assets/mod_display_cabinet_custom_001.svg"
+    },
+    {
       "id": "mod_bookshelf_custom_001",
       "name": "定制书架",
       "tags": [
