@@ -50,7 +50,7 @@ const toggleOption = (question: UserQuestion, label: string) => {
   } else {
     set.clear()
     otherExpanded[question.question] = false
-    otherText[question.question] = ''
+    // 不清空 otherText，保留用户已输入内容，切回 Other 时恢复
     set.add(label)
   }
   console.log(`[QuestionBubble] toggleOption: "${label}", set size: ${set.size}, isSubmittable: ${isSubmittable.value}`)
@@ -99,8 +99,11 @@ const buildAnswers = (): Record<string, string> => {
   const answers: Record<string, string> = {}
   for (const q of (props.bubble.questions || [])) {
     const parts: string[] = [...(selections[q.question] || [])]
-    const other = otherText[q.question]?.trim()
-    if (other) parts.push(other)
+    // 仅在 Other 展开时才计入自定义文本，避免切走后残留文本被带入
+    if (otherExpanded[q.question]) {
+      const other = otherText[q.question]?.trim()
+      if (other) parts.push(other)
+    }
     answers[q.question] = parts.join(', ')
   }
   return answers
@@ -178,9 +181,13 @@ const answerSummary = computed(() => {
               <span v-else class="radio-dot" :class="{ checked: isOtherActive(q) }" />
             </span>
             <span class="option-index">{{ q.options.length + 1 }}.</span>
-            <span v-if="!otherExpanded[q.question] || !otherText[q.question]" class="option-label option-label-other">其他...</span>
+            <!-- 未展开且无文本：显示"其他..." -->
+            <span v-if="!otherExpanded[q.question] && !otherText[q.question]" class="option-label option-label-other">其他...</span>
+            <!-- 未展开但有文本：显示已输入内容（灰色） -->
+            <span v-else-if="!otherExpanded[q.question] && otherText[q.question]" class="option-label option-label-saved">{{ otherText[q.question] }}</span>
+            <!-- 展开：显示输入框 -->
             <input
-              v-if="otherExpanded[q.question]"
+              v-else
               ref="otherInputRefs"
               v-model="otherText[q.question]"
               class="other-inline-input"
@@ -367,6 +374,14 @@ const answerSummary = computed(() => {
   font-style: italic;
 }
 
+.option-label-saved {
+  font-size: 13px;
+  font-weight: 400;
+  flex: 1;
+  min-width: 0;
+  color: rgba(255, 255, 255, 0.45);
+}
+
 .option-info {
   flex-shrink: 0;
   margin-left: auto;
@@ -389,7 +404,9 @@ const answerSummary = computed(() => {
 // ── Other 行内联输入 ──
 
 .option-row-other {
-  // 当输入框展开且有内容时，隐藏"其他..."文字
+  box-sizing: border-box; // div 不像 button 默认 border-box，需显式设置
+  overflow: hidden;
+
   .option-label-other {
     flex-shrink: 0;
   }
@@ -397,6 +414,7 @@ const answerSummary = computed(() => {
 
 .other-inline-input {
   flex: 1;
+  width: 0; // 配合 flex:1 防止 input 固有宽度撑开
   min-width: 0;
   padding: 2px 0;
   border: none;

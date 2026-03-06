@@ -420,6 +420,10 @@ export const useChatStream = (options: ChatStreamOptions) => {
                 } else {
                   currentMsg.bubbles.push(toolBubble);
                 }
+
+                // 工具开始执行，进入等待状态（与 tool_call_complete 后 enter 对称）
+                // 快速工具：等待指示器闪现即消失；异步工具（如 AskUserQuestion）：持续到内容到达
+                enterWaitingState(currentMsg.waitingState, getRandomWaitingVerb);
               } else if (parsed.type === 'tool_call_output') {
                 const toolBubble = findBubbleByIdDeep(currentMsg.bubbles, parsed.toolCallId);
                 if (toolBubble && toolBubble.type === 'tool_call') {

@@ -471,14 +471,14 @@ async def close_agent_handler(request: web.Request) -> web.Response:
 
 # ============== Question API (AskUserQuestion) ==============
 
-async def request_user_question(questions: list[dict], timeout: float = 120.0) -> dict:
+async def request_user_question(questions: list[dict]) -> dict:
     """
     发送问题给 Web 端并等待用户回答（供 MainAgent._auto_approve_tool 调用）。
     完全复用截图模式的 Future 等待架构。
+    无超时限制，永远等待用户操作（用户可通过"忽略"跳过或中断对话取消）。
 
     Args:
         questions: AskUserQuestion 的 questions 数组
-        timeout: 超时秒数（默认 120 秒，用户需要阅读思考）
 
     Returns:
         answers: dict，key=问题文本，value=选中label
@@ -499,11 +499,8 @@ async def request_user_question(questions: list[dict], timeout: float = 120.0) -
     logger.info(f"Question request sent: {request_id}, {len(questions)} questions")
 
     try:
-        result = await asyncio.wait_for(future, timeout=timeout)
+        result = await future
         return result.get("answers", {})
-    except asyncio.TimeoutError:
-        logger.warning(f"Question request timeout: {request_id}")
-        return {}
     finally:
         _question_requests.pop(request_id, None)
 

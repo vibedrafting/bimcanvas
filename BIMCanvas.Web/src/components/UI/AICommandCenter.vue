@@ -2198,6 +2198,9 @@ onUnmounted(() => {
                 border: 1px solid var(--border-dim);
                 color: var(--text-primary);
             }
+            .message-wrapper {
+                width: 100%; // AI 消息强制全宽，避免短内容时 wrapper 被压缩
+            }
         }
 
 
