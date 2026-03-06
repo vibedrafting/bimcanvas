@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, reactive } from 'vue'
+import { computed, nextTick, reactive, ref } from 'vue'
 import type { ChatBubble, UserQuestion } from '../../types/agent'
 
 const props = defineProps<{
@@ -40,6 +40,10 @@ const isSubmittable = computed(() => {
 const toggleOption = (question: UserQuestion, label: string) => {
   if (isSubmitted.value) return
   const set = selections[question.question]
+  if (!set) {
+    console.warn('[QuestionBubble] No selection set for question:', question.question)
+    return
+  }
   if (question.multiSelect) {
     if (set.has(label)) set.delete(label)
     else set.add(label)
@@ -49,6 +53,7 @@ const toggleOption = (question: UserQuestion, label: string) => {
     otherText[question.question] = ''
     set.add(label)
   }
+  console.log(`[QuestionBubble] toggleOption: "${label}", set size: ${set.size}, isSubmittable: ${isSubmittable.value}`)
 }
 
 const toggleOther = (question: UserQuestion) => {
@@ -64,8 +69,30 @@ const toggleOther = (question: UserQuestion) => {
   }
 }
 
+const otherInputRefs = ref<HTMLInputElement[]>([])
+
 const isOtherActive = (question: UserQuestion) => {
   return otherExpanded[question.question] && otherText[question.question].trim()
+}
+
+const handleOtherRowClick = (question: UserQuestion) => {
+  if (isSubmitted.value) return
+  const key = question.question
+  if (!otherExpanded[key]) {
+    // 首次展开
+    if (!question.multiSelect) {
+      selections[key].clear()
+    }
+    otherExpanded[key] = true
+    nextTick(() => {
+      // 聚焦到输入框
+      const inputs = otherInputRefs.value
+      if (inputs?.length) {
+        inputs[inputs.length - 1]?.focus()
+      }
+    })
+  }
+  // 已展开时点击行不收起（避免误操作），用户可以通过选其他选项来切走
 }
 
 const buildAnswers = (): Record<string, string> => {
@@ -80,8 +107,10 @@ const buildAnswers = (): Record<string, string> => {
 }
 
 const handleSubmit = () => {
+  console.log(`[QuestionBubble] handleSubmit called, isSubmittable: ${isSubmittable.value}, isSubmitted: ${isSubmitted.value}`)
   if (!isSubmittable.value || isSubmitted.value) return
   props.bubble.questionAnswers = buildAnswers()
+  console.log('[QuestionBubble] emitting submit, answers:', props.bubble.questionAnswers)
   emit('submit', props.bubble)
 }
 
@@ -134,11 +163,11 @@ const answerSummary = computed(() => {
             </span>
           </button>
 
-          <!-- Other 行 -->
-          <button
-            class="option-row"
+          <!-- Other 行（内联输入） -->
+          <div
+            class="option-row option-row-other"
             :class="{ selected: isOtherActive(q) }"
-            @click="toggleOther(q)"
+            @click="handleOtherRowClick(q)"
           >
             <span class="option-indicator">
               <span v-if="q.multiSelect" class="check-box" :class="{ checked: isOtherActive(q) }">
@@ -149,18 +178,17 @@ const answerSummary = computed(() => {
               <span v-else class="radio-dot" :class="{ checked: isOtherActive(q) }" />
             </span>
             <span class="option-index">{{ q.options.length + 1 }}.</span>
-            <span class="option-label option-label-other">其他...</span>
-          </button>
-        </div>
-
-        <!-- Other 输入框 -->
-        <div v-if="otherExpanded[q.question]" class="other-input-wrapper">
-          <input
-            v-model="otherText[q.question]"
-            class="other-input"
-            type="text"
-            placeholder="输入自定义答案..."
-          />
+            <span v-if="!otherExpanded[q.question] || !otherText[q.question]" class="option-label option-label-other">其他...</span>
+            <input
+              v-if="otherExpanded[q.question]"
+              ref="otherInputRefs"
+              v-model="otherText[q.question]"
+              class="other-inline-input"
+              type="text"
+              placeholder="输入自定义答案..."
+              @click.stop
+            />
+          </div>
         </div>
 
         <!-- 问题间分隔 -->
@@ -358,30 +386,35 @@ const answerSummary = computed(() => {
   }
 }
 
-// ── Other 输入 ──
+// ── Other 行内联输入 ──
 
-.other-input-wrapper {
-  margin: 4px 0 0 37px; // 对齐选项文本
+.option-row-other {
+  // 当输入框展开且有内容时，隐藏"其他..."文字
+  .option-label-other {
+    flex-shrink: 0;
+  }
 }
 
-.other-input {
-  width: 100%;
-  padding: 6px 10px;
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  border-radius: 6px;
-  background: rgba(255, 255, 255, 0.03);
-  color: rgba(255, 255, 255, 0.85);
-  font-size: 12px;
+.other-inline-input {
+  flex: 1;
+  min-width: 0;
+  padding: 2px 0;
+  border: none;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.15);
+  border-radius: 0;
+  background: transparent;
+  color: rgba(255, 255, 255, 0.9);
+  font-size: 13px;
   font-family: inherit;
   outline: none;
-  box-sizing: border-box;
 
   &:focus {
-    border-color: rgba(59, 130, 246, 0.4);
+    border-bottom-color: #3b82f6;
   }
 
   &::placeholder {
     color: rgba(255, 255, 255, 0.25);
+    font-style: italic;
   }
 }
 
