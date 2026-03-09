@@ -14,7 +14,7 @@
 | T2：知识体系 + 其余房间 | 💬 待讨论 | `T2-knowledge-system.md` ❌ | 进入讨论 |
 | T3：分区架构 + zoning Skill | 💬 待讨论 | `T3-zoning-architecture.md` ❌ | T2 完成后讨论 |
 
-**当前卡点**：T1 计划已更新（含 layout-agent.md 改写），等待用户最终确认。确认后进入 T2 讨论。
+**当前卡点**：T1 计划已更新（含 layout-agent.md 改写 + 附录 A：AskUserQuestion 驱动机制调研），等待用户最终确认。确认后进入 T2 讨论。
 
 **执行顺序**：T1（主框架+卧室） → T2（知识+其余房间） → T3（分区数据+zoning Skill）
 
@@ -339,6 +339,7 @@ Skills
 - **计划文档**：`plans/workflow-refactor/T1-agent-workflow.md`
 - **范围**：只处理简单矩形卧室（不含分区场景）
 - **交付文件**：generate-workflow/SKILL.md + BIMCANVAS.md + layout-agent.md + generate-bedroom/SKILL.md
+- **附录 A**：AskUserQuestion 驱动机制调研（逆向分析 Claude Code 系统提示词，为 D7 对话能力设计提供实施依据）
 - **与 T2 联动**：T1 定义房间 Skill 接口规范和范例（generate-bedroom），T2 按此编写其余房间 Skill
 - **与 T3 联动**：T1 预留分区接口（"加载 generate-zoning"），T3 完成后自动解锁
 

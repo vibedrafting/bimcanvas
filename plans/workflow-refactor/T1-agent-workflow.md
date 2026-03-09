@@ -342,3 +342,108 @@
 2. **design_principles.md 暂不创建**：T1 中 generate-workflow 引用它，但感知阶段暂读取现有 placement_guide（T2 完成前的过渡方案）
 3. **分区接口预留但不实现**：generate-workflow 中写明"如需分区→加载 generate-zoning"，但 T1 阶段该 Skill 不存在
 4. **保持向后兼容**：新工作流使用现有 MCP 工具（validate_layout、request_background_screenshot）和数据格式（modules.json）
+
+---
+
+## 附录 A：AskUserQuestion 驱动机制调研
+
+> 调研目标：如何让 Agent 更自然、主动地调用 AskUserQuestion，而非依赖规则表触发。
+> 约束条件：无法修改 claude_agent_sdk 源码（即无法修改 AskUserQuestion 的工具描述）。
+
+### A.1 Claude Code 的三层驱动机制
+
+通过逆向分析 Claude Code v2.1.71 的系统提示词和 HTTP 请求日志，发现 AskUserQuestion 在系统提示词中**仅出现 2 次**，却能实现自然的主动调用。核心在于三层协同：
+
+**第 1 层：工具描述（Tool Description）— 最直接的驱动力**
+
+SDK 内置的 AskUserQuestion 工具描述开头就是 "Use this tool when you need to ask the user questions during execution"，并列出 4 个具体场景：
+1. Gather user preferences or requirements
+2. Clarify ambiguous instructions
+3. Get decisions on implementation choices as you work
+4. Offer choices to the user about what direction to take
+
+关键设计：用 "during execution" 强调这是工作中的自然行为；提供结构化选项（options/preview/multiSelect）降低 AI 决定"怎么问"的认知负担。
+
+> **BIMCanvas 约束**：此层无法修改（SDK 源码），需通过其他两层补偿。
+
+**第 2 层：行为倾向（Behavioral Disposition）— 系统提示词营造"问"的氛围**
+
+Claude Code 不直接规定"你必须调用 AskUserQuestion"，而是在系统提示词中反复营造 **"问比猜好"** 的价值观：
+
+- "check with the user before proceeding"
+- "when in doubt, ask before acting"
+- "The cost of pausing to confirm is low, while the cost of an unwanted action can be very high"（给出合理性论证）
+- "do not attempt to brute force your way to the outcome"（禁止蛮干，隐含"应该问"）
+- "Match the scope of your actions to what was actually requested"（不要自作主张）
+
+这些句子都不提 AskUserQuestion，但构建了一个"不确定时应该问"的行为倾向。AI 内化价值观后，AskUserQuestion 成为自然的执行手段。
+
+**第 3 层：场景嵌入（Contextual Triggers）— 在工作流中埋入触发点**
+
+AskUserQuestion 在系统提示词中的 2 次出现，都是嵌入在具体场景中：
+- 触发点 1："If the user denies a tool you call... use the AskUserQuestion to ask them."
+- 触发点 2："If your approach is blocked... **consider** using the AskUserQuestion to align with the user on the right path forward."
+
+注意触发点 2 用 "consider using" 而非 "must use"——给 AI 留判断空间，避免过度提问。
+
+### A.2 当前 BIMCanvas 设计的四个薄弱点
+
+| # | 问题 | 详细说明 |
+|---|------|---------|
+| 1 | **缺少行为倾向层** | BIMCANVAS.md 直接跳到"什么时候问"的规则，缺少"为什么要问"的价值观建设。没有价值观支撑的规则，AI 执行起来是机械的——匹配场景才问，不匹配就不问。 |
+| 2 | **触发场景过于具体** | 当前 4 个触发场景（功能区联动、动线策略重写、使用姿态选择、空间性格选择）是**示例**而非**原则**。AI 遇到新的战略分歧时，如果不能匹配这 4 个模式就不会提问。缺少一个泛化原则统领这些示例。 |
+| 3 | **注意力位置效应** | AskUserQuestion 指导在 SKILL.md 的 554-577 行（总 601 行），正处于注意力薄弱的中后段。根据提示词哲学的"位置效应"：头尾内容获得更多注意力，中间容易被遗忘。 |
+| 4 | **"禁止"信号压过"鼓励"信号** | 禁止场景（query/edit、战术级、已明确偏好）非常明确，但鼓励的部分力度不足。AI 在不确定时倾向保守——"不确定要不要问"时选择不问，因为禁止信号更强。 |
+
+### A.3 可迁移的三个改动方向
+
+以下改动方向对应 T1 中已规划的文件修改：
+
+**方向 1 → 对应 §2.2 BIMCANVAS.md 调整**
+
+在角色定位段落中融入协作价值观（行为倾向层），而非作为独立规则。参考 Claude Code 的 "the cost of pausing to confirm is low" 模式：
+
+```
+翻译到室内设计语境：
+"确认偏好只需几秒，但按错误方向完成整个布置的返工成本很高"
+```
+
+这不是一条规则，而是一个设计价值观。AI 内化后，会在不确定时自然倾向于问。
+
+**方向 2 → 对应 §2.1 generate-workflow/SKILL.md 重写**
+
+在触发场景前添加泛化原则，让具体场景变为原则的"示例"而非"穷举"：
+
+```markdown
+判断原则：如果存在两种方案，且选择不同会导致用户日常使用体验有质的差异，
+则向用户展示推荐方案和替代方案。
+典型场景（非穷举）：...
+```
+
+关键是 "（非穷举）" 三个字——明确告诉 AI 这不是完整列表，鼓励其识别新场景。
+
+同时，将用户沟通判断从中后段提到策略阶段之前（利用位置效应）。
+
+**方向 3 → 对应 §2.3 layout-agent.md 改写**
+
+用 Claude Code 的 "consider" 模式调整分歧上报措辞——禁止直接调用 AskUserQuestion 不变，但积极鼓励上报分歧：
+
+```markdown
+当你发现两种同样合理的方案时，不要自行选择，将分歧上报给主控 Agent。
+确认偏好比猜测偏好更有效率。
+```
+
+### A.4 参考资料索引
+
+| 资料 | 路径 | 关键内容 |
+|------|------|---------|
+| Claude Code 系统提示词 | `references/Claude Code请求日志/Claude Code系统提示词_0309.md` | 完整系统提示词，AskUserQuestion 出现在第 8、20 行 |
+| Claude Code HTTP 日志 | `references/Claude Code请求日志/0309日志.json` | 完整请求体，含 AskUserQuestion 工具定义（第 526-639 行）和 EnterPlanMode 定义 |
+| BIMCanvas Agent 入口 | `BIMCanvas.Agent/src/agent/main_agent.py` | `_auto_approve_tool()` 方法（第 235-255 行）：AskUserQuestion 的侧信道实现 |
+| HTTP Server | `BIMCanvas.Agent/src/server/http_server.py` | `request_user_question()`（第 472-565 行）：SSE 推送 + Future 等待架构 |
+| MCP 工具定义 | `BIMCanvas.Agent/src/mcp/canvas.py` | `@tool()` 装饰器模式（无法用此模式自定义 AskUserQuestion 描述） |
+| 配置加载器 | `BIMCanvas.Agent/src/config/loader.py` | `load_system_prompt()` / `load_agents()`：提示词注入链路 |
+| 当前 BIMCANVAS.md | `BIMCanvas.Agent/templates/BIMCANVAS.md` | 第 112-124 行：现有用户沟通规范 |
+| 当前 SKILL.md | `BIMCanvas.Agent/templates/skills/generate-workflow/SKILL.md` | 第 554-577 行：现有 AskUserQuestion 触发条件 |
+| 当前 layout-agent.md | `BIMCanvas.Agent/templates/agents/layout-agent.md` | 第 36-47 行：禁止直接调用 + 分歧上报格式 |
+| 提示词设计哲学 | `docs/Agent_Prompt_Design_Philosophy.md` | 注意力零和、位置效应、WHY=泛化能力等底层机制 |
