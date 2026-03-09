@@ -16,7 +16,7 @@
 | 数据流 | `docs/Arch_DataFlow.md` | 三层职责、数据流场景 |
 | Agent 运行时工作流 | `docs/Agent_Workflows.md` | query/edit/generate 完整链路 |
 | Agent 架构设计 | `docs/Agent_Design.md` | SubAgent 架构、策略体系 |
-| 提示词设计哲学 | `docs/Agent_Prompt_Design_Philosophy.md` | 三层论、留白、调优指南 |
+| 提示词设计哲学 | `docs/Agent_Prompt_Design_Philosophy.md` | 五个底层机制、三层论、留白、实操指南（通用） |
 | Agent 层 | `BIMCanvas.Agent/README.md` | MainAgent + SubAgent + Skills + MCP 工具 |
 | Server 层 | `BIMCanvas.Server/README.md` | 统一后端、状态管理、Git Worktree |
 | Web 层 | `BIMCanvas.Web/README.md` | 前端渲染、交互工具、AI 指挥中心 |
@@ -71,8 +71,11 @@
 > 详见 `docs/Agent_Prompt_Design_Philosophy.md`
 
 - **注意力零和**：每条规则都在竞争 AI 注意力，精准 > 数量
-- **三级约束**：硬约束（必须/禁止）→ 软指导（应/建议）→ 自由区域（AI 自主决策）
+- **激活而非注入**：提示词唤醒 AI 已有知识，无法注入新知识
 - **WHY 决定泛化能力**：有理由的规则能被灵活应用，没理由的只能机械执行
+- **示例是最强锚定**：一个好示例的信息密度远超十条文字规则
+- **位置效应**：头尾内容获得更多注意力，中间容易被遗忘
+- **三级约束**：硬约束（必须/禁止）→ 软指导（应/建议）→ 自由区域（AI 自主决策）
 - **留白是设计选择**：自由区域不是遗漏，是有意识地让 AI 施展判断力
 
 ### Agent 工作流模式

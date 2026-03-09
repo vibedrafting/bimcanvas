@@ -211,4 +211,4 @@ description: |
 
 - **规则体系地图**：Read [references/rule-system-map.md](references/rule-system-map.md) — 完整文件路径、数据流、架构
 - **实战案例**：Read [references/case-studies.md](references/case-studies.md) — 历史调优的完整记录（现象→根因→修复→效果）
-- **提示词设计哲学**：Read `docs/Agent_Prompt_Design_Philosophy.md` — 文件职责边界、设计原则、常见反模式
+- **提示词设计哲学**：Read `docs/Agent_Prompt_Design_Philosophy.md` — 五个底层机制、三层论、留白、实操指南（通用原则）

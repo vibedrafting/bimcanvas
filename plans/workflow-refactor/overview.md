@@ -194,12 +194,18 @@ Skills（主控和 layout-agent 共用）
 ### 新文件体系
 
 ```
-BIMCANVAS.md                                    Agent 身份 + 对话能力 + 全局约束
+Agent 定义
+├── BIMCANVAS.md                                 主控 Agent 身份 + 对话能力 + 全局约束
+├── agents/layout-agent.md                       单房间设计专家定义
+
+Skills
 ├── skills/generate-workflow/SKILL.md            主工作流框架（五阶段）
 ├── skills/generate-zoning/SKILL.md              分区能力 Skill（条件加载）
 ├── skills/generate-bedroom/SKILL.md             卧室策略 Skill
 ├── skills/generate-bathroom/SKILL.md            卫生间策略 Skill
 ├── skills/generate-livingroom/SKILL.md          客厅策略 Skill
+
+知识库
 ├── knowledge/design_principles.md               通用设计原则
 └── modules/module_library.json                  家具规则库
 ```
@@ -208,7 +214,8 @@ BIMCANVAS.md                                    Agent 身份 + 对话能力 + �
 
 | 文件 | 管什么 | 不管什么 |
 |------|--------|---------|
-| **BIMCANVAS.md** | Agent 身份、对话能力（何时与用户沟通）、全局硬约束、任务路由 | 具体流程、设计知识 |
+| **BIMCANVAS.md** | 主控 Agent 身份、对话能力、任务路由、多房间派发、全局验证 | 具体流程、设计知识、单房间执行 |
+| **layout-agent.md** | 单房间设计专家：静默执行、单房间验证、上报分歧、Skill 自主加载 | 用户沟通、任务派发、全局验证 |
 | **generate-workflow** | 五阶段流程、数据读取、截图/验证、Skill 加载逻辑、修正循环 | 任何设计知识或房间策略 |
 | **generate-zoning** | 空间拆解方法、子空间识别、功能定义 | 房间策略、家具配置 |
 | **generate-bedroom** | 卧室的策略生成、家具配置、关键约束 | 分区逻辑、通用流程 |
@@ -217,10 +224,11 @@ BIMCANVAS.md                                    Agent 身份 + 对话能力 + �
 
 ### 核心原则
 
-- generate-workflow 管"**怎么工作**"
-- generate-zoning 管"**怎么拆分空间**"
-- room Skill 管"**怎么设计家具方案**"
-- BIMCANVAS.md 管"**怎么与用户沟通**"
+- **BIMCANVAS.md** 管"**怎么协调和沟通**"
+- **layout-agent.md** 管"**怎么做单房间设计专家**"
+- **generate-workflow** 管"**怎么工作**"
+- **generate-zoning** 管"**怎么拆分空间**"
+- **room Skill** 管"**怎么设计家具方案**"
 
 ---
 
@@ -290,7 +298,7 @@ BIMCANVAS.md                                    Agent 身份 + 对话能力 + �
 
 | 任务 | 名称 | 核心交付 |
 |------|------|---------|
-| T1 | Agent 工作流 + 身份 + 卧室策略 | generate-workflow/SKILL.md + BIMCANVAS.md + generate-bedroom/SKILL.md |
+| T1 | Agent 工作流 + 双层 Agent 定义 + 卧室策略 | generate-workflow/SKILL.md + BIMCANVAS.md + layout-agent.md + generate-bedroom/SKILL.md |
 | T2 | 通用设计原则 + 其余房间 Skill + module_library | design_principles.md + generate-bathroom/SKILL.md + generate-livingroom/SKILL.md + module_library.json |
 | T3 | 分区数据架构 + 分区 Skill | zones.json 扩展 + Server 代码 + generate-zoning/SKILL.md |
 

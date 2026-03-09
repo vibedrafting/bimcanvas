@@ -1,4 +1,4 @@
-# T1：Agent 工作流 + 身份定义 + 卧室策略 Skill
+# T1：Agent 工作流 + 双层 Agent 定义 + 卧室策略 Skill
 
 > 依赖：无（第一波任务）
 > 上游文档：`plans/workflow-refactor/overview.md`
@@ -8,10 +8,11 @@
 ## 一、改造目标
 
 1. **重写 generate-workflow/SKILL.md**：从 601 行的线性流程改为 ~150 行的五阶段主工作流框架
-2. **调整 BIMCANVAS.md**：Agent 身份重定义 + 对话作为 Agent 通用能力
-3. **新建 generate-bedroom/SKILL.md**：第一个房间策略 Skill，作为其他房间 Skill 的范例
+2. **调整 BIMCANVAS.md**：主控 Agent 重定义为"全屋协调者 + 用户代言人"，新增对话通用能力
+3. **改写 layout-agent.md**：从"单区布置执行者"重定位为"单房间设计专家"
+4. **新建 generate-bedroom/SKILL.md**：第一个房间策略 Skill，作为其他房间 Skill 的范例
 
-完成后效果：Agent 能使用新工作流完整布置**简单矩形卧室**（主卧和次卧）。分区能力由 T3 提供。
+完成后效果：Agent 能使用新工作流完整布置**简单矩形卧室**（单房间和多房间并行派发）。分区能力由 T3 提供。
 
 ---
 
@@ -97,11 +98,47 @@
 4. **generate 路由更新**：
    - generate 触发 generate-workflow Skill
    - generate-workflow 内部按需加载房间 Skill 和 zoning Skill
-5. **多分区派发调整**：每个分区可能是不同空间类型，SubAgent 独立加载各自的房间 Skill
+5. **多房间派发调整**：每个房间可能是不同空间类型，layout-agent 自主加载各自的房间 Skill
 6. **工具优先级保持**：validate_layout 必调、专用 MCP 工具 > Bash
 7. **约束层级保持三级**：必须/建议/提示
 
-### 2.3 generate-bedroom/SKILL.md（新建）
+### 2.3 layout-agent.md（改写）
+
+**源码路径**：`BIMCanvas.Agent/templates/agents/layout-agent.md`
+
+**当前内容**：定位为"单区布置专家"，严格遵守 Skill 步骤，设计分歧上报
+
+**新定位**："单房间设计专家"——运行完整五阶段工作流，自主加载 Skill，具备独立设计判断力
+
+**调整要点**：
+
+1. **身份重定义**：
+   ```
+   当前："单区布置专家，由主控 Agent 派发，专注于单个设计区的布置"
+   目标："单房间设计专家，由主控 Agent 派发，负责单个房间的完整设计流程"
+   ```
+
+2. **核心行为约束**（区别于主控 Agent）：
+   - **【必须】静默执行**：不使用 AskUserQuestion，遇到设计分歧在输出中上报
+   - **【必须】单房间验证**：只对自己负责的房间做验证和审查
+   - **【必须】不派发任务**：不能创建子任务或派发其他 Agent
+
+3. **Skill 自主加载**：
+   ```
+   收到任务后：
+   1. 加载 generate-workflow Skill（主工作流）
+   2. 在理解阶段自主判断空间类型 → 加载对应房间 Skill
+   3. 如判断需要分区 → 加载 generate-zoning Skill（T3 后可用）
+   ```
+
+4. **分歧上报机制**：
+   - 遇到需要用户确认的设计分歧（如多种有效方案）
+   - 在任务输出中详细描述分歧：推荐方案 + 替代方案 + 核心取舍
+   - 由主控 Agent 决定是否向用户提问
+
+5. **文件写入范围**：保持只写入 `schemes/{指定zoneId}/modules.json`
+
+### 2.4 generate-bedroom/SKILL.md（新建）
 
 **源码路径**：`BIMCanvas.Agent/templates/skills/generate-bedroom/SKILL.md`
 
@@ -178,6 +215,8 @@
 | placement_guide §7 朝向逻辑 | 床朝向优先级 | generate-bedroom |
 | BIMCANVAS.md 约束层级 | 必须/建议/提示三级 | BIMCANVAS.md（保留） |
 | BIMCANVAS.md 先读后写 | 安全机制 | BIMCANVAS.md（保留） |
+| layout-agent.md 范围约束 | 只写指定分区、不修改 baseline | layout-agent.md（保留） |
+| layout-agent.md 分歧上报 | 不用 AskUserQuestion，上报给主控 | layout-agent.md（增强） |
 
 ---
 
@@ -206,6 +245,7 @@
 3. `plans/Space_Type_Workflow_Vision.md` — 空间类型差异分析
 4. `BIMCanvas.Agent/templates/skills/generate-workflow/SKILL.md` — 当前 SKILL.md
 5. `BIMCanvas.Agent/templates/BIMCANVAS.md` — 当前 BIMCANVAS.md
+6. `BIMCanvas.Agent/templates/agents/layout-agent.md` — 当前 layout-agent.md
 6. `BIMCanvas.Server/Templates/knowledge/placement_guide.md` — 当前 placement_guide（卧室策略来源）
 7. `BIMCanvas.Server/Templates/modules/module_library.json` — 模块库
 8. `docs/Agent_Workflows.md` — Agent 工作流架构（Skill 加载机制）
@@ -220,7 +260,8 @@
 - [ ] `generate-workflow/SKILL.md` ≤ 150 行
 - [ ] `generate-bedroom/SKILL.md` ≤ 150 行
 - [ ] `BIMCANVAS.md` ≤ 100 行
-- [ ] 三个文件间无信息重复
+- [ ] `layout-agent.md` ≤ 80 行
+- [ ] 四个文件间无信息重复
 - [ ] 五阶段流程完整（感知→理解→策略→执行→审查→汇报）
 - [ ] Skill 加载机制有明确说明（房间 Skill + zoning Skill 预留接口）
 
@@ -241,7 +282,15 @@
 - [ ] 行为规范明确（展示分析→征求确认）
 - [ ] 可以在工作流的任何阶段触发
 
-### 6.4 卧室策略验收
+### 6.4 layout-agent.md 验收
+
+- [ ] 定位为"单房间设计专家"（非"单区布置执行者"）
+- [ ] 明确三个核心约束：静默执行、单房间验证、不派发任务
+- [ ] Skill 自主加载机制清晰（generate-workflow + 房间 Skill + zoning 预留）
+- [ ] 分歧上报机制明确（详情格式、由主控决定是否询问用户）
+- [ ] 文件写入范围约束保留
+
+### 6.5 卧室策略验收
 
 - [ ] 覆盖主卧和次卧的策略差异
 - [ ] 床头墙选择逻辑完整（优先级链 + WHY）
