@@ -1,8 +1,22 @@
-# Agent 工作流重构 —— 统一说明文档
+# Agent 工作流重构 —— 指挥部记忆
 
-> 本文档是工作流重构的**跨任务共享上下文**。
-> 所有任务计划文档都引用本文档作为设计依据。
-> 分支：`refactor/workflow-zoning`
+> **定位**：重构指挥部的持久化记忆文件。新窗口读取本文档即可恢复完整上下文。
+> **分支**：`refactor/workflow-zoning`
+> **指挥部职责**：讨论架构 → 拆分任务 → 写计划文档 → 验收执行结果。不执行代码修改。
+
+---
+
+## 〇、进展总览
+
+| 任务 | 状态 | 计划文档 | 下一步 |
+|------|------|---------|--------|
+| T1：工作流 + Agent 定义 + 卧室 | 📝 计划已完成，待用户确认定稿 | `T1-agent-workflow.md` ✅ | 用户确认 → 交执行窗口 |
+| T2：知识体系 + 其余房间 | 💬 待讨论 | `T2-knowledge-system.md` ❌ | 进入讨论 |
+| T3：分区架构 + zoning Skill | 💬 待讨论 | `T3-zoning-architecture.md` ❌ | T2 完成后讨论 |
+
+**当前卡点**：T1 计划已更新（含 layout-agent.md 改写），等待用户最终确认。确认后进入 T2 讨论。
+
+**执行顺序**：T1（主框架+卧室） → T2（知识+其余房间） → T3（分区数据+zoning Skill）
 
 ---
 
@@ -42,7 +56,24 @@ SKILL.md 大量硬编码设计知识，与 placement_guide 信息冗余。
 
 ---
 
-## 三、新工作流架构
+## 三、核心设计决策
+
+> 以下决策均经过讨论达成共识，后续新决策追加到此。
+
+| # | 决策 | 说明 | 背景 |
+|---|------|------|------|
+| D1 | 混合模式 | 简单场景快速执行，复杂场景先对话再执行 | 避免一刀切：简单卧室不需要对话，L形客餐厅需要 |
+| D2 | 彻底重写 | 从旧 Skill 提取有用内容，但不受旧结构约束 | 旧流程线性僵化，修补不如重建 |
+| D3 | 空间画像 | 理解阶段输出自然语言空间分析 | 替代旧"骨架规划"的机械步骤，给 Agent 全局视角 |
+| D4 | 一次性放置后验证 | 信赖前端决策质量，不逐件放置验证 | 理解+策略阶段投入足够，执行阶段专注精确计算 |
+| D5 | 扩展 zones.json | 分区能力与 Server 数据深度集成 | 分区不只是 Agent 提示词概念，需要数据层支撑 |
+| D6 | 分区是独立 Skill | generate-zoning 跨房间类型，Agent 自主判断是否加载 | 封闭空间（L形卧室）也可能需要分区，不应绑定特定空间类型 |
+| D7 | 对话是主控通用能力 | 由 BIMCANVAS.md 定义，layout-agent 静默执行 | 对话不是工作流固定阶段，而是 Agent 在任何阶段可触发的行为 |
+| D8 | layout-agent = 单房间设计专家 | 运行完整五阶段，三个核心约束：静默/单房间验证/不派发 | 区别于旧的"单区布置执行者"，具备独立设计判断力 |
+
+---
+
+## 四、新工作流架构
 
 ### Agent 双层架构
 
@@ -63,7 +94,7 @@ MainAgent（全屋协调者 + 用户代言人）
 | **设计能力** | 不做具体设计 | 完整五阶段设计流程 |
 | **用户沟通** | ✅ AskUserQuestion | ❌ 静默执行，上报分歧 |
 | **派发能力** | ✅ 派发 layout-agent | ❌ 不能派发 |
-| **验证范围** | 全屋验证 + 跨房间协调 | 单房间验证 |
+| **验证范围** | 全屋验证：`validate_layout()` | 单房间验证：`validate_layout(zoneIds=[指定zone])` |
 | **Skill 加载** | 不加载房间 Skill | 自主加载 generate-zoning + 房间 Skill |
 
 **单房间直接执行 vs 多房间派发**：
@@ -189,7 +220,7 @@ Skills（主控和 layout-agent 共用）
 
 ---
 
-## 四、文件架构
+## 五、文件架构
 
 ### 新文件体系
 
@@ -232,7 +263,7 @@ Skills
 
 ---
 
-## 五、空间类型策略差异
+## 六、空间类型策略差异
 
 > 详见 `plans/Space_Type_Workflow_Vision.md`
 
@@ -246,7 +277,7 @@ Skills
 
 ---
 
-## 六、跨任务设计原则
+## 七、跨任务设计原则
 
 ### 原则 1：注意力预算
 
@@ -262,7 +293,15 @@ Skills
 
 每条规则必须回答"为什么"。没有 WHY 的规则只能被机械执行；有 WHY 的规则能被灵活应用。
 
-### 原则 3：三级约束分明
+### 原则 3：示例锚定基准
+
+示例是最强的模式锚定（机制 4）。规则+WHY 告诉 Agent "为什么这么做"，示例告诉 Agent "做出来是什么样"。
+
+- **房间 Skill 必须包含至少 1 个策略声明示例**：展示完整的空间画像→策略推导过程
+- **示例锚定基准，WHY 覆盖边界**：示例校准典型场景，WHY 处理示例未覆盖的变体
+- 能用示例替代文字规则时，优先用示例
+
+### 原则 4：三级约束分明
 
 | 层级 | 语气 | Agent 行为 |
 |------|------|-----------|
@@ -270,21 +309,21 @@ Skills
 | 软指导 | 应/建议 | 默认遵守，可说明理由后偏离 |
 | 自由区域 | （不写规则） | Agent 自主决策 |
 
-### 原则 4：职责单一
+### 原则 5：职责单一
 
 每条知识**只在一个文件中定义**。禁止跨文件重复。
 
-### 原则 5：留白是设计选择
+### 原则 6：留白是设计选择
 
 自由区域是"经过深思熟虑后决定不写规则的地方"。Agent 在此展现设计判断力。
 
 ---
 
-## 七、从旧体系保留的核心机制
+## 八、从旧体系保留的核心机制
 
 | 机制 | 来源 | 保留原因 |
 |------|------|---------|
-| `validate_layout` 编译检查 | 旧 SKILL.md | 每次写入后的硬性验证，防止物理错误 |
+| `validate_layout` 编译检查 | 旧 SKILL.md | 每次写入后的硬性验证，防止物理错误。新增 zoneIds 参数支持单分区验证 |
 | 截图审查 | 旧 SKILL.md | 视觉验证是唯一能发现"看起来不对"的手段 |
 | 家具优先级 | 旧 placement_guide | 锚点→主要→辅助的放置顺序经过验证有效 |
 | 先读后写 | 旧 BIMCANVAS.md | 防止覆盖已有数据的安全机制 |
@@ -292,15 +331,39 @@ Skills
 
 ---
 
-## 八、任务拆分与依赖
+## 九、任务拆分与进展
 
-### 任务列表
+### T1：Agent 工作流 + 双层 Agent 定义 + 卧室策略
 
-| 任务 | 名称 | 核心交付 |
-|------|------|---------|
-| T1 | Agent 工作流 + 双层 Agent 定义 + 卧室策略 | generate-workflow/SKILL.md + BIMCANVAS.md + layout-agent.md + generate-bedroom/SKILL.md |
-| T2 | 通用设计原则 + 其余房间 Skill + module_library | design_principles.md + generate-bathroom/SKILL.md + generate-livingroom/SKILL.md + module_library.json |
-| T3 | 分区数据架构 + 分区 Skill | zones.json 扩展 + Server 代码 + generate-zoning/SKILL.md |
+- **状态**：📝 计划已完成，待用户确认定稿
+- **计划文档**：`plans/workflow-refactor/T1-agent-workflow.md`
+- **范围**：只处理简单矩形卧室（不含分区场景）
+- **交付文件**：generate-workflow/SKILL.md + BIMCANVAS.md + layout-agent.md + generate-bedroom/SKILL.md
+- **与 T2 联动**：T1 定义房间 Skill 接口规范和范例（generate-bedroom），T2 按此编写其余房间 Skill
+- **与 T3 联动**：T1 预留分区接口（"加载 generate-zoning"），T3 完成后自动解锁
+
+### T2：设计知识体系重构
+
+- **状态**：💬 待讨论
+- **计划文档**：`plans/workflow-refactor/T2-knowledge-system.md`（待写）
+- **范围**：design_principles.md + generate-bathroom/SKILL.md + generate-livingroom/SKILL.md + module_library.json
+- **依赖**：T1 完成后开始（基于 T1 的框架和范例）
+- **待讨论要点**：
+  - placement_guide → design_principles 的重构策略
+  - 卫生间模板匹配工作流细节
+  - 客厅策略 Skill 结构
+  - module_library.json 是否需要调整
+
+### T3：分区数据架构 + 分区 Skill
+
+- **状态**：💬 待讨论
+- **计划文档**：`plans/workflow-refactor/T3-zoning-architecture.md`（待写）
+- **范围**：zones.json 扩展 + Server 代码 + generate-zoning/SKILL.md
+- **依赖**：T1/T2 完成后开始
+- **待讨论要点**：
+  - zones.json 扩展方案（功能分区数据结构）
+  - Server 端需要哪些代码变更
+  - generate-zoning Skill 的分区方法论
 
 ### 依赖关系
 
@@ -312,17 +375,9 @@ T2（知识 + 其余房间）
 T3（分区架构 + generate-zoning）
 ```
 
-### 执行顺序
-
-```
-第一波：T1 — 主框架 + 卧室（简单矩形，不含分区）
-第二波：T2 — 知识体系 + 其余房间
-第三波：T3 — 分区数据架构 + generate-zoning Skill
-```
-
 ---
 
-## 九、参考文档
+## 十、参考文档
 
 | 文档 | 路径 | 用途 |
 |------|------|------|
