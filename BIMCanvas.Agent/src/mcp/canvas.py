@@ -550,19 +550,28 @@ def _format_validation_report(report: dict[str, Any]) -> str:
 
 @tool(
     "validate_layout",
-    "验证当前方案的布局合法性（布局编译器）。检查所有模块的三类错误：(1)超出设计区域 (2)与墙体/柱子/禁区重叠 (3)模块间重叠。无参数，自动验证当前项目。",
+    "验证当前方案的布局合法性（布局编译器）。检查三类错误：(1)超出设计区域 (2)与墙体/柱子/禁区重叠 (3)模块间重叠。可选 zoneIds 参数仅验证指定分区内的模块。",
     {
         "$schema": "http://json-schema.org/draft-07/schema#",
         "type": "object",
-        "properties": {},
+        "properties": {
+            "zoneIds": {
+                "type": "array",
+                "items": {"type": "string"},
+                "description": "可选。仅验证这些 Zone 内的模块（如 [\"rz_1\", \"dz_2\"]）。不传则验证全部模块。"
+            }
+        },
         "additionalProperties": False
     }
 )
 async def validate_layout(args: dict[str, Any]) -> dict[str, Any]:
     """验证当前方案的布局合法性（布局编译器）"""
+    zone_ids = args.get("zoneIds")
+    body = {"zoneIds": zone_ids} if zone_ids else None
+
     try:
         async with aiohttp.ClientSession() as session:
-            async with session.post(f"{SERVER_URL}/api/validation/layout") as resp:
+            async with session.post(f"{SERVER_URL}/api/validation/layout", json=body) as resp:
                 if resp.status == 400:
                     return {
                         "content": [{"type": "text", "text": "错误: 没有加载的项目"}],

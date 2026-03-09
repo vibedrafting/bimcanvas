@@ -39,14 +39,15 @@ namespace BIMCanvas.Server.Controllers
         }
 
         /// <summary>
-        /// 全量验证当前方案的布局合法性（布局编译器）
+        /// 验证当前方案的布局合法性（布局编译器）
         /// 检查所有模块的三类错误：
         /// 1. 模块超出所有设计区域
         /// 2. 模块与墙体/柱子/禁区重叠
         /// 3. 模块之间互相重叠
+        /// 可选 zoneIds 参数：仅验证指定分区内的模块
         /// </summary>
         [HttpPost("layout")]
-        public ActionResult<SchemeValidationReport> ValidateLayout()
+        public ActionResult<SchemeValidationReport> ValidateLayout([FromBody] ValidateLayoutRequest request)
         {
             if (!_projectContext.IsLoaded)
             {
@@ -78,7 +79,16 @@ namespace BIMCanvas.Server.Controllers
                 // 3.5 持久化模块（确保 [OnDeserialized] 自动生成的 Id 写回文件）
                 PersistModules(projectPath, modules);
 
-                // 4. 调用 Core 层全量验证
+                // 3.6 按 zoneIds 过滤（可选）
+                if (request?.ZoneIds is { Count: > 0 } filterIds)
+                {
+                    var filterSet = new HashSet<string>(filterIds);
+                    modules = modules.Where(m => filterSet.Contains(m.ZoneId ?? "_unzoned")).ToList();
+                    _logger.LogInformation("[Validation] 按分区过滤: {ZoneIds} → {Count} 个模块",
+                        string.Join(", ", filterIds), modules.Count);
+                }
+
+                // 4. 调用 Core 层验证
                 var report = SchemeValidator.Validate(
                     modules, designZones, exclusionZones, walls, columns);
 
@@ -255,5 +265,14 @@ namespace BIMCanvas.Server.Controllers
 
             _logger.LogDebug("[Validation] 持久化 {Count} 个模块的 Id", modules.Count);
         }
+    }
+
+    /// <summary>
+    /// validate_layout 请求体（所有字段可选，向后兼容空 body）
+    /// </summary>
+    public class ValidateLayoutRequest
+    {
+        /// <summary>仅验证这些 Zone 内的模块（为空或 null 时验证全部）</summary>
+        public List<string> ZoneIds { get; set; }
     }
 }
