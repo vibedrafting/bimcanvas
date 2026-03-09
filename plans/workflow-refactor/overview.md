@@ -44,26 +44,47 @@ SKILL.md 大量硬编码设计知识，与 placement_guide 信息冗余。
 
 ## 三、新工作流架构
 
+### Agent 双层架构
+
+```
+MainAgent（全屋协调者 + 用户代言人）
+│  BIMCANVAS.md 定义
+│  职责：任务路由、多房间派发、用户对话、全局验证、结果汇总
+│
+└── layout-agent（单房间设计专家）×N（并行）
+      layout-agent.md 定义
+      职责：运行完整五阶段流程、自主加载 Skill、静默执行、上报分歧
+```
+
+| 维度 | MainAgent | layout-agent |
+|------|-----------|-------------|
+| **角色** | 全屋协调者 + 用户代言人 | 单房间设计专家 |
+| **作用域** | 跨房间（全屋） | 单个房间 |
+| **设计能力** | 不做具体设计 | 完整五阶段设计流程 |
+| **用户沟通** | ✅ AskUserQuestion | ❌ 静默执行，上报分歧 |
+| **派发能力** | ✅ 派发 layout-agent | ❌ 不能派发 |
+| **验证范围** | 全屋验证 + 跨房间协调 | 单房间验证 |
+| **Skill 加载** | 不加载房间 Skill | 自主加载 generate-zoning + 房间 Skill |
+
+**单房间直接执行 vs 多房间派发**：
+- 1 个房间 → MainAgent 直接运行 generate-workflow
+- ≥2 个房间 → MainAgent 并行派发 layout-agent
+
+**对话能力**：仅主控 Agent 拥有。layout-agent 遇到需要用户确认的设计分歧时，在任务输出中上报分歧详情，由 MainAgent 决定是否向用户提问。
+
 ### Skills 架构
 
 ```
-BIMCANVAS.md（Agent 身份 + 对话能力 + 全局约束）
-  │
-  ├── generate-workflow/SKILL.md（主工作流框架）
-  │     定义五阶段：感知→理解→策略→执行→审查→汇报
-  │     管"怎么工作"，不管"怎么设计"
-  │     │
-  │     └── 理解阶段：确定空间类型 + 按需加载 Skill ↓
-  │
-  │   ┌────────────┼────────────┼────────────┐
-  │   ↓            ↓            ↓            ↓
-  │   generate-    generate-    generate-    generate-
-  │   zoning       bedroom      bathroom     livingroom
-  │   分区能力      卧室策略      卫生间策略    客厅策略
-  │   (条件加载)    (按类型加载)  (按类型加载)  (按类型加载)
-  │
-  └── knowledge/design_principles.md（通用设计原则）
-        跨房间类型的通用设计思维：动线、通道、采光
+Skills（主控和 layout-agent 共用）
+├── generate-workflow/SKILL.md        主工作流框架（五阶段）
+├── generate-zoning/SKILL.md          分区能力（条件加载）
+├── generate-bedroom/SKILL.md         卧室策略
+├── generate-bathroom/SKILL.md        卫生间策略
+└── generate-livingroom/SKILL.md      客厅策略
+
+知识库
+├── knowledge/design_principles.md    通用设计原则
+└── modules/module_library.json       家具规则库
 ```
 
 **两类 Skill 的加载逻辑**：
@@ -72,8 +93,6 @@ BIMCANVAS.md（Agent 身份 + 对话能力 + 全局约束）
 |-----------|---------|------|
 | 能力 Skill（generate-zoning） | Agent 判断空间需要分区时 | 跨房间类型的通用能力 |
 | 房间 Skill（generate-bedroom 等） | 根据空间类型标签 | 房间特定的设计策略 |
-
-**对话是 Agent 通用能力**：不是工作流的固定阶段，而是 Agent 在任何时刻都可以调用的行为。由 BIMCANVAS.md / layout-agent.md 定义触发条件和行为规范。
 
 ### 注意力优化效果
 
