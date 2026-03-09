@@ -11,10 +11,10 @@
 | 任务 | 状态 | 计划文档 | 下一步 |
 |------|------|---------|--------|
 | T1：工作流 + Agent 定义 + 卧室 | ✅ 计划已定稿，待交执行窗口 | `T1-agent-workflow.md` ✅ | 交执行窗口实施 |
-| T2：知识体系 + 其余房间 | 💬 待讨论 | `T2-knowledge-system.md` ❌ | 进入讨论 |
+| T2：知识体系 + 其余房间 | ✅ 计划已定稿，待交执行窗口 | `T2-knowledge-system.md` ✅ | 交执行窗口实施 |
 | T3：分区架构 + zoning Skill | 💬 待讨论 | `T3-zoning-architecture.md` ❌ | T2 完成后讨论 |
 
-**当前状态**：T1 计划已定稿（用户确认通过），可交执行窗口实施。下一步进入 T2 讨论。
+**当前状态**：T1、T2 计划均已定稿（用户确认通过），可交执行窗口实施。下一步进入 T3 讨论。
 
 **执行顺序**：T1（主框架+卧室） → T2（知识+其余房间） → T3（分区数据+zoning Skill）
 
@@ -285,15 +285,19 @@ Skills
 
 ### T2：设计知识体系重构
 
-- **状态**：💬 待讨论
-- **计划文档**：`plans/workflow-refactor/T2-knowledge-system.md`（待写）
-- **范围**：design_principles.md + generate-bathroom/SKILL.md + generate-livingroom/SKILL.md + module_library.json
+- **状态**：✅ 计划已定稿（用户确认通过）
+- **计划文档**：`plans/workflow-refactor/T2-knowledge-system.md`
+- **范围**：design_principles.md + generate-bathroom/SKILL.md + generate-livingroom/SKILL.md（框架级） + generate-workflow 引用更新
 - **依赖**：T1 完成后开始（基于 T1 的框架和范例）
-- **待讨论要点**：
-  - placement_guide → design_principles 的重构策略
-  - 卫生间模板匹配工作流细节
-  - 客厅策略 Skill 结构
-  - module_library.json 是否需要调整
+- **交付文件**：design_principles.md + generate-bathroom/SKILL.md + generate-livingroom/SKILL.md + generate-workflow 更新
+- **关键决策**：
+  - design_principles = 原理+速查混合模式（WHY + 关键数值）
+  - generate-bathroom = 模板匹配工作流（5种模式决策树）
+  - generate-livingroom = 框架级定义（待 T3 后充实）
+  - module_library.json 不调整
+  - placement_guide 标记 deprecated（内容分散到新文件）
+- **与 T1 联动**：T1 定义接口规范，T2 实现内容；T2 更新 generate-workflow 中的过渡引用
+- **与 T3 联动**：generate-livingroom 预留分区接口，T3 完成后从框架升级为完整版
 
 ### T3：分区数据架构 + 分区 Skill
 
