@@ -137,8 +137,6 @@ Write `schemes/{zoneId}/modules.json`，每个模块包含 moduleId、bounds（�
 
 ## 机制速查
 
-- **【必须】先读后写**：修改 modules.json 前先 Read 当前内容，不凭猜测修改
-- **【必须】validate_layout**：每次 Write 后必调
 - **【必须】截图单独调用**：不与其他工具并行
 - **修正优先级**：平移 → 旋转 → 缩小 → 替换 → 移除
-- **目录权限**：baseline/ 只读、computed/ 只读、schemes/ 可读写
+- 先读后写、validate_layout 必调、目录权限 → 见 BIMCANVAS.md 安全机制
