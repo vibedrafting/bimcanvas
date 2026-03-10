@@ -36,6 +36,15 @@ export class ZoneBuilder {
             depthWrite: false
         }));
 
+        // Sub-zones: indigo fill (区分于母分区的绿色)
+        this.materials.set('subZone', new THREE.MeshBasicMaterial({
+            color: colors.subZone.color,
+            transparent: true,
+            opacity: colors.subZone.opacity,
+            side: THREE.DoubleSide,
+            depthWrite: false
+        }));
+
         // Exclusion zones: red fill
         this.materials.set('exclusion', new THREE.MeshBasicMaterial({
             color: colors.exclusion.color,
@@ -106,11 +115,11 @@ export class ZoneBuilder {
         if (schemeZones) {
             schemeZones.forEach(zone => {
                 if (zone.subZones && zone.subZones.length > 0) {
-                    // 容器 zone：半透明轮廓线（整体边界参考）
-                    this.createContainerZoneOutline(zone);
-                    // 子 zone：标准 Designable 渲染
+                    // 容器 zone：保留绿色填充，降低 y 使子分区可覆盖其上
+                    this.createContainerZoneMesh(zone);
+                    // 子 zone：蓝紫色填充 + X 对角线
                     zone.subZones.forEach(subZone => {
-                        this.createZoneMesh(subZone);
+                        this.createSubZoneMesh(subZone, zone.id);
                     });
                 } else {
                     // 叶子 zone：保持现有渲染
@@ -177,30 +186,29 @@ export class ZoneBuilder {
     }
 
     /**
-     * 容器 zone（有 subZones）：绘制半透明轮廓线作为整体边界参考
+     * 容器 zone（有 subZones）：保留绿色填充，y=4（低于子分区 y=5）
+     * 子分区未覆盖的缝隙区域仍可点击到此容器
      */
-    private createContainerZoneOutline(zone: Zone) {
+    private createContainerZoneMesh(zone: Zone) {
         const boundary = zone.computedBoundary ?? zone.rawBoundary;
         if (!boundary || boundary.length === 0) return;
 
-        // 构建 3D 点序列（CAD 坐标 XY → Three.js XZ 平面）
-        const points = boundary.map(p => new THREE.Vector3(p[0], 0, -p[1]));
-        // 闭合
-        if (points.length > 0) {
-            points.push(points[0].clone());
+        const shape = this.createShapeFromPolygon(boundary);
+        const geometry = new THREE.ShapeGeometry(shape);
+
+        let material = this.materials.get('designable');
+        if (!material) {
+            this.ensureMaterials();
+            material = this.materials.get('designable');
         }
+        if (!material) return;
 
-        const geometry = new THREE.BufferGeometry().setFromPoints(points);
-        const material = new THREE.LineBasicMaterial({
-            color: 0x22c55e,
-            transparent: true,
-            opacity: 0.3
-        });
+        const mesh = new THREE.Mesh(geometry, material);
+        mesh.rotation.x = -Math.PI / 2;
+        mesh.position.y = 4; // 低于子分区(5)，高于房间(3)
+        mesh.layers.set(LayerManager.LAYER_ZONES);
 
-        const line = new THREE.Line(geometry, material);
-        line.position.y = 4; // 介于 Room(3) 和 Designable(5) 之间
-        line.layers.set(LayerManager.LAYER_ZONES);
-        line.userData = {
+        mesh.userData = {
             id: zone.id,
             type: 'zone',
             zoneType: zone.type,
@@ -208,6 +216,69 @@ export class ZoneBuilder {
             isContainer: true,
             data: zone
         };
+
+        this.zoneGroup!.add(mesh);
+    }
+
+    /**
+     * 子分区：青色填充 + 轮廓线
+     */
+    private createSubZoneMesh(zone: Zone, parentZoneId: string) {
+        const boundary = zone.computedBoundary ?? zone.rawBoundary;
+        if (!boundary || boundary.length === 0) return;
+
+        // 1. 青色填充
+        const shape = this.createShapeFromPolygon(boundary);
+        const geometry = new THREE.ShapeGeometry(shape);
+
+        let material = this.materials.get('subZone');
+        if (!material) {
+            this.ensureMaterials();
+            material = this.materials.get('subZone');
+        }
+        if (!material) return;
+
+        const mesh = new THREE.Mesh(geometry, material);
+        mesh.rotation.x = -Math.PI / 2;
+        mesh.position.y = 5;
+        mesh.layers.set(LayerManager.LAYER_ZONES);
+
+        mesh.userData = {
+            id: zone.id,
+            type: 'zone',
+            zoneType: zone.type,
+            roomId: zone.roomId,
+            parentZoneId,
+            data: zone
+        };
+
+        this.zoneGroup!.add(mesh);
+
+        // 2. 轮廓线（边框）
+        this.createSubZoneOutline(boundary);
+    }
+
+    /**
+     * 子分区轮廓线：青色边框
+     */
+    private createSubZoneOutline(boundary: Point2D[]) {
+        const colors = canvasStyleService.currentStyle.value.layers.zones;
+
+        const points = boundary.map(p => new THREE.Vector3(p[0], 0, -p[1]));
+        if (points.length > 0) {
+            points.push(points[0].clone());
+        }
+
+        const geometry = new THREE.BufferGeometry().setFromPoints(points);
+        const material = new THREE.LineBasicMaterial({
+            color: colors.subZone.color,
+            transparent: true,
+            opacity: 0.4
+        });
+
+        const line = new THREE.Line(geometry, material);
+        line.position.y = 5.5;
+        line.layers.set(LayerManager.LAYER_ZONES);
 
         this.zoneGroup!.add(line);
     }

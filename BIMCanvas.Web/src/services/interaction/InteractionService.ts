@@ -572,8 +572,10 @@ export class InteractionService {
         const isModifierMode = isCtrlMode || isShiftMode;
 
         if (intersects.length > 0) {
-            // 查找有效的点击目标（跳过图层被禁用的对象）
-            let target: THREE.Object3D | null = null;
+            // 收集所有有效的点击目标（支持 zone 穿透循环）
+            const validTargets: THREE.Object3D[] = [];
+            const seenIds = new Set<string>();
+
             for (const hit of intersects) {
                 if (!(hit.object instanceof THREE.Mesh)) continue;
 
@@ -587,11 +589,39 @@ export class InteractionService {
                     // Zone 和 Exclusion 只有在 LAYER_ZONES 启用时才能被选中
                     if (objType === 'zone' || objType === 'exclusion') {
                         if (!this.camera.layers.isEnabled(LayerManager.LAYER_ZONES)) {
-                            continue; // 图层未启用，跳过此对象
+                            continue;
                         }
                     }
-                    target = candidate;
-                    break; // 找到有效目标
+
+                    // 去重（同一 ID 可能被多次命中）
+                    const candidateId = candidate.userData.id as string;
+                    if (seenIds.has(candidateId)) continue;
+                    seenIds.add(candidateId);
+
+                    if (objType === 'zone') {
+                        // Zone 类型：收集多个候选（支持穿透循环）
+                        validTargets.push(candidate);
+                    } else {
+                        // 非 Zone 类型：取第一个有效目标即可
+                        if (validTargets.length === 0) {
+                            validTargets.push(candidate);
+                        }
+                        break;
+                    }
+                }
+            }
+
+            // 选择目标：如果第一个候选已选中且有更多候选，穿透到下一个
+            let target: THREE.Object3D | null = null;
+            if (validTargets.length > 0) {
+                const first = validTargets[0];
+                if (first.userData?.type === 'zone' &&
+                    validTargets.length > 1 &&
+                    this.store.isSelected(first.userData)) {
+                    // 已选中的 zone 被再次点击 → 穿透到下一层
+                    target = validTargets[1];
+                } else {
+                    target = first;
                 }
             }
 

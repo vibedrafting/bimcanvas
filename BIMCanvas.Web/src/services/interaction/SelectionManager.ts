@@ -9,6 +9,7 @@ export class SelectionManager {
     private selectedObjects: Map<string, THREE.Object3D> = new Map();
     private selectionBoxes: Map<string, THREE.BoxHelper> = new Map();
     private selectionOutlines: Map<string, THREE.Line> = new Map();
+    private selectionCrossLines: Map<string, THREE.LineSegments> = new Map();
     private scene: THREE.Scene;
     private store = useCanvasStore();
     private debug = useDebugStore();
@@ -47,6 +48,12 @@ export class SelectionManager {
         }
         // 移除不再选中的对象（检查轮廓线）
         for (const [id, _line] of this.selectionOutlines) {
+            if (!currentIds.has(id)) {
+                this.removeSelectionVisual(id);
+            }
+        }
+        // 移除不再选中的对象（检查 X 对角线）
+        for (const [id, _cross] of this.selectionCrossLines) {
             if (!currentIds.has(id)) {
                 this.removeSelectionVisual(id);
             }
@@ -101,6 +108,11 @@ export class SelectionManager {
 
             this.scene.add(line);
             this.selectionOutlines.set(id, line);
+
+            // Zone 类型额外添加 X 对角线
+            if (object.userData?.type === 'zone') {
+                this.addSelectionCrossLines(id, polygon);
+            }
         } else {
             // 降级到 BoxHelper
             const box = new THREE.BoxHelper(object, 0x3b82f6);
@@ -109,6 +121,38 @@ export class SelectionManager {
             this.selectionBoxes.set(id, box);
         }
         this.selectedObjects.set(id, object);
+    }
+
+    /**
+     * Zone 选中时的 X 对角线（Revit 风格）
+     */
+    private addSelectionCrossLines(id: string, polygon: [number, number][]) {
+        let minX = Infinity, minY = Infinity;
+        let maxX = -Infinity, maxY = -Infinity;
+        for (const p of polygon) {
+            if (p[0] < minX) minX = p[0];
+            if (p[0] > maxX) maxX = p[0];
+            if (p[1] < minY) minY = p[1];
+            if (p[1] > maxY) maxY = p[1];
+        }
+
+        const vertices = new Float32Array([
+            minX, minY, 0,
+            maxX, maxY, 0,
+            minX, maxY, 0,
+            maxX, minY, 0,
+        ]);
+
+        const geometry = new THREE.BufferGeometry();
+        geometry.setAttribute('position', new THREE.BufferAttribute(vertices, 3));
+
+        const crossLines = new THREE.LineSegments(geometry, this.selectionMaterial);
+        crossLines.rotation.x = -Math.PI / 2;
+        crossLines.position.y = 1000;
+        crossLines.renderOrder = 999;
+
+        this.scene.add(crossLines);
+        this.selectionCrossLines.set(id, crossLines);
     }
 
     /**
@@ -128,6 +172,13 @@ export class SelectionManager {
             this.scene.remove(box);
             box.geometry?.dispose();
             this.selectionBoxes.delete(id);
+        }
+        // 清理 X 对角线
+        const cross = this.selectionCrossLines.get(id);
+        if (cross) {
+            this.scene.remove(cross);
+            cross.geometry?.dispose();
+            this.selectionCrossLines.delete(id);
         }
         this.selectedObjects.delete(id);
     }
@@ -192,6 +243,12 @@ export class SelectionManager {
             box.geometry?.dispose();
         }
         this.selectionBoxes.clear();
+        // 清理 X 对角线
+        for (const [_id, cross] of this.selectionCrossLines) {
+            this.scene.remove(cross);
+            cross.geometry?.dispose();
+        }
+        this.selectionCrossLines.clear();
         this.selectedObjects.clear();
     }
 

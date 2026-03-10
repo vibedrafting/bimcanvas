@@ -45,6 +45,7 @@ export interface ZoneFillStyle {
 export interface ZoneLayerStyle {
     room: ZoneFillStyle;
     designable: ZoneFillStyle;
+    subZone: ZoneFillStyle;
     exclusion: ZoneFillStyle;
     exclusionDoorSwing: ZoneFillStyle;
 }
@@ -237,6 +238,10 @@ const darkCanvasStyle: CanvasStyle = {
             designable: {
                 color: 0x22c55e,
                 opacity: 0.2
+            },
+            subZone: {
+                color: 0x2dd4bf,
+                opacity: 0.12
             },
             exclusion: {
                 color: 0xef4444,

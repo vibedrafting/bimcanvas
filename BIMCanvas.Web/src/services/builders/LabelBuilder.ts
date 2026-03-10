@@ -123,6 +123,31 @@ export class LabelBuilder {
             });
         }
 
+        // 7. Scheme Zones (Designable) - subZones 显示名称标签
+        if (data.activeScheme?.zones) {
+            data.activeScheme.zones.forEach(zone => {
+                if (zone.subZones && zone.subZones.length > 0) {
+                    // 容器 zone 有子分区时，为每个子分区创建标签
+                    zone.subZones.forEach(subZone => {
+                        const boundary = subZone.computedBoundary ?? subZone.rawBoundary;
+                        if (boundary && boundary.length > 0) {
+                            const center = this.getPolygonCenter(boundary);
+                            const orientation = this.getOrientation(boundary);
+                            this.createLabel(subZone.id, center, orientation, true);
+                        }
+                    });
+                } else if (zone.type === 2 && zone.id) {
+                    // 叶子 Designable zone
+                    const boundary = zone.computedBoundary ?? zone.rawBoundary;
+                    if (boundary && boundary.length > 0) {
+                        const center = this.getPolygonCenter(boundary);
+                        const orientation = this.getOrientation(boundary);
+                        this.createLabel(zone.id, center, orientation, true);
+                    }
+                }
+            });
+        }
+
         this.scene.add(this.labelGroup);
     }
 
@@ -132,12 +157,15 @@ export class LabelBuilder {
 
         const div = document.createElement('div');
         div.className = 'ai-label';
-        // Simplify: Just show ID, maybe with a small prefix if needed, but user asked for ID emphasis.
-        // Let's use "#" + last 4 chars for brevity, or full ID if short.
-        // User example: "#m_12".
-        // Let's assume ID is meaningful. If it's a UUID, take last 4.
-        const shortId = id.length > 8 ? id.substring(0, 4) : id;
-        div.textContent = `#${shortId}`;
+
+        if (isZoneLabel) {
+            // Zone 标签：统一 #ID 格式
+            div.textContent = `#${id}`;
+        } else {
+            // 组件标签：#前缀 + 截断
+            const shortId = id.length > 8 ? id.substring(0, 4) : id;
+            div.textContent = `#${shortId}`;
+        }
 
         // 样式设置
         div.style.color = config.text;
