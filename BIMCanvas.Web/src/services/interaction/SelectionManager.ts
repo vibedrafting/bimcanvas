@@ -301,10 +301,8 @@ export class SelectionManager {
         polygon: [number, number][]
     ): [[number, number], [number, number]][] {
         // 收集线段与多边形各边的交点参数 t (0~1)
-        const tValues: number[] = [];
-
-        if (this.pointInPolygon(p1, polygon)) tValues.push(0);
-        if (this.pointInPolygon(p2, polygon)) tValues.push(1);
+        // 始终包含端点 t=0 和 t=1，靠中点检测决定是否保留
+        const tValues: number[] = [0, 1];
 
         for (let i = 0; i < polygon.length; i++) {
             const a = polygon[i];
