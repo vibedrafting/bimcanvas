@@ -2,6 +2,10 @@
 
 > **版本**：v1.0 | **更新日期**：2026-01-13
 > **目的**：为 BIMCanvas SubAgent 开发和提示词优化提供系统性指导，积累设计经验
+>
+> ⚠️ **注意**：本文档为早期提示词设计指南。提示词设计哲学已升级为 `docs/Agent_Prompt_Design_Philosophy.md`（五个底层机制 + 三层论 + 三级约束）。
+> 知识库已从 `placement_guide.md` 迁移为模块化架构：`design_principles.md` + 各房间 Skill。
+> layout-agent 角色已从「家具布置专家」重定位为「单房间设计专家」。
 
 ---
 

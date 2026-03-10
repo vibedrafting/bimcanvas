@@ -2,6 +2,14 @@
 
 > **版本**：v2.1 | **更新日期**：2026-01-14
 > **目的**：定义 BIMCanvas Agent 的整体架构、SubAgent 设计规范、提示词优化指南
+>
+> ⚠️ **注意**：本文档部分内容（如知识库路径、SubAgent 清单）已在工作流重构（T1-T3）中更新。
+> 当前架构参考：
+> - 主控 Agent 定义 → `BIMCanvas.Agent/templates/BIMCANVAS.md`
+> - layout-agent 定义 → `BIMCanvas.Agent/templates/agents/layout-agent.md`（角色：单房间设计专家）
+> - 工作流 → `skills/generate-workflow/SKILL.md`（五阶段：感知→理解→策略→执行→审查→汇报）
+> - 知识库 → `knowledge/design_principles.md` + 各房间 Skill（替代原 `placement_guide.md`）
+> - 提示词设计哲学 → `docs/Agent_Prompt_Design_Philosophy.md`
 
 ---
 

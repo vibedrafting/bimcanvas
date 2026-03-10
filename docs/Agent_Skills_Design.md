@@ -3,6 +3,12 @@
 > **版本**：v1.0 | **更新日期**：2026-01-15
 > **状态**：设计中
 >
+> ⚠️ **注意**：本文档为 Skills 机制的早期设计文档。当前 Skills 架构已在工作流重构（T1-T3）中全面升级：
+> - Skills 按功能分为：`generate-workflow`（五阶段主流程）、`generate-zoning`（分区能力）、`generate-bedroom/bathroom/livingroom`（房间策略）
+> - 知识库已从 `placement_guide.md` 迁移为 `design_principles.md` + 各房间 Skill
+> - layout-agent 角色已从「家具布置专家」重定位为「单房间设计专家」
+> - 详见：`plans/workflow-refactor/overview.md`
+>
 > **相关文档**：
 > - [Agent SDK 官方文档](../docs/Agent_SDK/docs/)
 > - [Flow_Git_Operations.md](./Flow_Git_Operations.md) - Git 标准工作流
