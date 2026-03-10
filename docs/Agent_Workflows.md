@@ -1,5 +1,16 @@
 # BIMCanvas Agent 运行时工作流
 
+> ⚠️ **注意**：本文档部分内容已在工作流重构（T1-T3）中更新。以下引用已过时：
+> - `knowledge/placement_guide.md` → 已替换为 `knowledge/design_principles.md` + 各房间 Skill（generate-bedroom/bathroom/livingroom）
+> - "单区布置专家" → 现为"单房间设计专家"
+> - "分阶段 A/B 放置" → 现为五阶段流程（感知→理解→策略→执行→审查→汇报）
+> - SubAgent 已启用：layout-agent 作为单房间设计专家由 MainAgent 派发任务
+>
+> 当前架构参考：
+> - 工作流 → `skills/generate-workflow/SKILL.md`
+> - 房间 Skills → `skills/generate-bedroom/` `generate-bathroom/` `generate-livingroom/` `generate-zoning/`
+> - 提示词设计哲学 → `docs/Agent_Prompt_Design_Philosophy.md`
+
 > **版本**：v1.1 | **更新日期**：2026-03-01
 > **定位**：Agent 运行手册 — 从请求进入到结果输出的完整链路
 >
@@ -60,7 +71,7 @@ Agent 启动时从 `~/.bimcanvas/` 加载全部配置（首次运行自动从 `t
 │   └── layout-agent.md      ← SubAgent 配置（frontmatter + 提示词）
 ├── skills/                  ← Skills 按需加载
 └── knowledge/
-    └── placement_guide.md   ← 布置规则知识库
+    └── design_principles.md ← 跨房间设计原则（替代原 placement_guide.md）
 ```
 
 **加载优先级**：环境变量 > config.json > 默认值
@@ -329,7 +340,7 @@ validate_layout 错误代码及返回格式详见 [§7.2](#72-validate_layout)�
 | # | 必读文件 | 用途 | 并行规则 |
 |---|----------|------|----------|
 | 1 | 前置截图（`request_background_screenshot`） | 理解空间形态、门窗位置 | **单独调用** |
-| 2 | `knowledge/placement_guide.md` | 布置规则（设计原则、尺寸标准、房间要点、朝向逻辑） | 2-7 可并行 |
+| 2 | `knowledge/design_principles.md` + 对应房间 Skill | 跨房间设计原则 + 房间专属布置规则 | 2-7 可并行 |
 | 3 | `modules/README.md` | 模块库架构（双层：契约层+意图层） | 2-7 可并行 |
 | 4 | `modules/module_library.json` | 家具尺寸 + 放置规则 + 模块间关系（尺寸禁止编造） | 2-7 可并行 |
 | 5 | `computed/room_zones.json` | 设计区域边界 | 2-7 可并行 |
@@ -608,7 +619,7 @@ MainAgent 判断分区数量
 | 配置项 | 值 |
 |--------|-----|
 | 名称 | layout-agent |
-| 描述 | 单区布置专家 |
+| 描述 | 单房间设计专家 |
 | 工具权限 | Read, Write, Glob, Grep, Skill, mcp__canvas__validate_layout, mcp__canvas__request_background_screenshot |
 | 模型 | inherit（继承主控 Agent 模型） |
 | 配置来源 | `~/.bimcanvas/agents/layout-agent.md` |
@@ -704,7 +715,7 @@ project/
 | 一次性放置全部家具再验证 | 分阶段 A/B 放置，每阶段编译+截图审查 |
 | 跳过 `validate_layout` | 每次 Write 后必须调用 |
 | 跳过截图设计审查 | 编译通过后仍须对照设计检查清单审查 |
-| 跳过 `placement_guide.md` | 必须读取并遵守规范 |
+| 跳过 `design_principles.md` 和房间 Skill | 必须读取并遵守规范 |
 | 跳过 `modules/README.md` | 必须读取以理解 agent_config 使用方式 |
 | 阶段 B 只写新增家具 | 必须合并已有+新增全部写入 |
 | 修正循环超过 1 次仍失败 | 移除违规家具，保留核心布局 |

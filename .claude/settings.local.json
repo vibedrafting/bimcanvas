@@ -19,7 +19,9 @@
       "Bash(cd \"E:/工作文档/开发类/MyCode/BIMCanvas\" && dotnet build BIMCanvas.Core --no-restore -nologo -clp:ErrorsOnly 2>&1)",
       "Bash(cd \"E:/工作文档/开发类/MyCode/BIMCanvas\" && dotnet build BIMCanvas.Server --no-restore -nologo -clp:ErrorsOnly 2>&1)",
       "Bash(find /e/工作文档/开发类/MyCode/BIMCanvas -name \"*.md\" -path \"*archived*\" -o -name \"*archive*\" 2>/dev/null | head -20)",
-      "Bash(dotnet build:*)"
+      "Bash(dotnet build:*)",
+      "Bash(cd \"E:\\\\工作文档\\\\开发类\\\\MyCode\\\\BIMCanvas\" && cp \".claude/skills/rule-tuning/SKILL.md\" \".agents/skills/rule-tuning/SKILL.md\" && cp \".claude/skills/rule-tuning/references/case-studies.md\" \".agents/skills/rule-tuning/references/case-studies.md\" 2>/dev/null; cp \".claude/skills/rule-tuning/references/rule-system-map.md\" \".agents/skills/rule-tuning/references/rule-system-map.md\" 2>/dev/null; echo \"done\")",
+      "Bash(cd \"E:\\\\工作文档\\\\开发类\\\\MyCode\\\\BIMCanvas\" && cp \".claude/skills/rule-tuning/references/case-studies.md\" \".agents/skills/rule-tuning/references/case-studies.md\")"
     ]
   }
 }

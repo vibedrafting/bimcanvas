@@ -37,7 +37,7 @@
   - `generate-workflow/SKILL.md`：136行（-7行），引用placement_guide→design_principles，映射表补充bathroom/livingroom，删除卫生间过渡段
   - `BIMCANVAS.md`：引用更新（2处 placement_guide→design_principles/房间Skill）
   - `generate-bedroom/SKILL.md`：移除placement_guide §1.3引用，改为自包含WHY描述
-  - `placement_guide.md`：标记deprecated，保留历史参考
+  - `placement_guide.md`：已从源码删除（内容分散到 design_principles.md + 各房间 Skill）
 - **注意力优化效果**：旧体系652行全局加载 → 新体系按房间类型加载215-230行（减少60-67%）
 - **已知缺口**：钻石型淋浴房模块缺失（module_library待补充，不在T2范围）
 - **P0 验收**：✅ 通过（11项中9项完全通过，2项经复核降级——信息重复为有意的通用→特化设计模式，WHY缺失已补充）
@@ -338,7 +338,7 @@ Skills
   - generate-bathroom = 模板匹配工作流（5种模式决策树）
   - generate-livingroom = 框架级定义（待 T3 后充实）
   - module_library.json 不调整
-  - placement_guide 标记 deprecated（内容分散到新文件）
+  - placement_guide 已删除（内容分散到 design_principles.md + 各房间 Skill）
 - **与 T1 联动**：T1 定义接口规范，T2 实现内容；T2 更新 generate-workflow 中的过渡引用
 - **与 T3 联动**：generate-livingroom 预留分区接口，T3 完成后从框架升级为完整版
 
@@ -384,6 +384,6 @@ T3（分区架构 + generate-zoning）
 | Agent 工作流架构 | `docs/Agent_Workflows.md` | 当前架构参考 |
 | Agent 架构设计 | `docs/Agent_Design.md` | SubAgent 机制参考 |
 | 当前 SKILL.md | `BIMCanvas.Agent/templates/skills/generate-workflow/SKILL.md` | 旧工作流参考 |
-| 当前 placement_guide | `BIMCanvas.Server/Templates/knowledge/placement_guide.md` | 旧知识库参考 |
+| 旧 placement_guide | 已删除（内容分散到 design_principles.md + 各房间 Skill） | 旧知识库参考 |
 | 当前 BIMCANVAS.md | `BIMCanvas.Agent/templates/BIMCANVAS.md` | 旧身份定义参考 |
 | 当前 module_library | `BIMCanvas.Server/Templates/modules/module_library.json` | 旧家具规则参考 |

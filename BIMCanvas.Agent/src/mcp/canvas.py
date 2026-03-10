@@ -599,10 +599,6 @@ async def validate_layout(args: dict[str, Any]) -> dict[str, Any]:
         }
 
 
-# get_workflow_guide 已迁移到 Skills（query-workflow / edit-workflow / generate-workflow）
-# 原函数代码已删除，工作流内容见 templates/skills/{query,edit,generate}-workflow/SKILL.md
-
-
 
 # 创建 Canvas MCP Server
 canvas_mcp = create_sdk_mcp_server(
@@ -613,7 +609,6 @@ canvas_mcp = create_sdk_mcp_server(
         # ai_job_complete,        # 临时禁用：Job 完成通知（暂不需要）
         request_background_screenshot,
         validate_layout,
-        # get_workflow_guide,     # 已迁移到 Skills（query-workflow / edit-workflow / generate-workflow）
     ],
 )
 
@@ -623,5 +618,4 @@ CANVAS_ALLOWED_TOOLS = [
     # "mcp__canvas__complete_job",                     # 临时禁用
     "mcp__canvas__request_background_screenshot",
     "mcp__canvas__validate_layout",
-    # "mcp__canvas__get_workflow_guide",              # 已迁移到 Skills
 ]

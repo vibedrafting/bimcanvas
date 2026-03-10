@@ -31,7 +31,8 @@ description: |
 |------|------|------|
 | 系统提示词 | `BIMCanvas.Agent/templates/BIMCANVAS.md` | 身份 + 规范 |
 | 执行工作流 | `BIMCanvas.Agent/templates/skills/generate-workflow/SKILL.md` | 流程卡 |
-| 设计指南 | `BIMCanvas.Server/Templates/knowledge/placement_guide.md` | 规范手册 |
+| 设计原则 | `BIMCanvas.Server/Templates/knowledge/design_principles.md` | 跨房间通用原则 |
+| 房间 Skills | `BIMCanvas.Agent/templates/skills/generate-{bedroom,bathroom,livingroom}/SKILL.md` | 房间专属策略 |
 | 家具规则库 | `BIMCanvas.Server/Templates/modules/module_library.json` | 模块规格（跨项目通用，自包含，禁止引用外部文件） |
 
 ### 审查依据
@@ -120,9 +121,9 @@ description: |
 A3-A4 是假设驱动的，可能遗漏不在假设范围内的问题。以下两项结构性检查作为兜底：
 
 **职责边界验证**（对照 `references/prompt-file-map.md`）：
-- [ ] SKILL.md 中是否包含了应属于 placement_guide 的设计标准数值？
-- [ ] placement_guide 中是否包含了应属于 SKILL.md 的工作流步骤？
-- [ ] module_library 中是否包含了应属于 placement_guide 的通用设计原则？
+- [ ] SKILL.md 中是否包含了应属于 design_principles 或房间 Skill 的设计标准数值？
+- [ ] design_principles/房间 Skill 中是否包含了应属于 SKILL.md 的工作流步骤？
+- [ ] module_library 中是否包含了应属于 design_principles 的通用设计原则？
 - [ ] 同一规则是否在多个文件中重复表述？（列出具体条目）
 - [ ] BIMCANVAS.md 是否保持了纯"身份 + 规范"定位？
 - [ ] module_library 中是否引用了外部文件？（必须自包含）
@@ -205,9 +206,9 @@ A3-A4 是假设驱动的，可能遗漏不在假设范围内的问题。以下�
 
 | 变更了 | 检查同步 |
 |--------|---------|
-| placement_guide | SKILL.md 检查清单 + module_library relation_rules |
-| module_library | 是否仍自包含；placement_guide 对应规则是否需同步 |
-| generate SKILL.md | placement_guide 的自检清单（§9.2） |
+| design_principles/房间 Skill | SKILL.md 检查清单 + module_library relation_rules |
+| module_library | 是否仍自包含；design_principles 对应规则是否需同步 |
+| generate SKILL.md | design_principles 的相关章节 |
 | BIMCANVAS.md | 禁止事项是否与其他文件矛盾 |
 
 如果发现需要同步其他文件，先告知用户再执行。

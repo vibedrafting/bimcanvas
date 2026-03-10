@@ -1,5 +1,8 @@
 # BIMCanvas 系统架构总设计
 
+> ⚠️ **注意**：知识库目录结构已在工作流重构（T1-T3）中更新：
+> `knowledge/placement_guide.md` → `knowledge/design_principles.md` + 各房间 Skill（按需加载）
+
 > 版本：v3.0
 > 更新日期：2026-01-13
 > 状态：已定稿（File-Driven Architecture + .bcp 项目格式）
@@ -128,7 +131,7 @@
 │  context/                 上下文信息                          │
 │  └── requirements.md      用户需求描述                        │
 │  knowledge/               知识库                              │
-│  └── placement_guide.md   布置规则指南                        │
+│  └── design_principles.md 跨房间设计原则                        │
 │  modules/                 模块素材库                          │
 │  ├── module_library.json  模块元数据                          │
 │  └── assets/              SVG 资源                            │

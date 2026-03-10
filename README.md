@@ -249,7 +249,7 @@ project.bcp (ZIP) → 解压为 Git 仓库
 ├── context/                  上下文信息
 │   └── requirements.md       用户需求描述
 ├── knowledge/                知识库
-│   └── placement_guide.md    布置规则指南
+│   └── design_principles.md  跨房间设计原则
 ├── modules/                  模块素材库
 │   ├── module_library.json   模块元数据
 │   └── assets/               SVG 资源

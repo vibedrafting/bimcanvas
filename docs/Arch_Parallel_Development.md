@@ -1,5 +1,7 @@
 # BIMCanvas 并行开发架构设计
 
+> ⚠️ **注意**：知识库路径已更新：`knowledge/placement_guide.md` → `knowledge/design_principles.md`
+
 > **版本**：v1.5 | **更新日期**：2026-01-16
 > **状态**：设计定稿
 > **关联文档**：
@@ -559,7 +561,7 @@ ai_job(name="ai-job-1", base_branch="scheme/极致收纳")
 │   └── requirements.md
 │
 ├── knowledge/                      # 【知识层】设计规则
-│   └── placement_guide.md
+│   └── design_principles.md
 │
 ├── modules/                        # 【素材层】模块库
 │   ├── module_library.json

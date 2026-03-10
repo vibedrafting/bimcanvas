@@ -1,5 +1,7 @@
 # BIMCanvas 并行设计模式
 
+> ⚠️ **注意**：知识库路径已更新：`knowledge/placement_guide.md` → `knowledge/design_principles.md`
+
 > **版本**：v1.3 | **更新日期**：2026-01-16
 > **目的**：详细描述 BIMCanvas 的并行设计架构哲学、核心场景、Git 翻译层及 Worktree 实现
 > **实现状态**：✅ v3.2 已完成核心架构实现
@@ -348,7 +350,7 @@ AI 必须学会写"人话"Commit Message，而不是机器码。
 ├── context/                   # 上下文信息
 │   └── requirements.md
 ├── knowledge/                 # 知识库
-│   └── placement_guide.md
+│   └── design_principles.md
 ├── modules/                   # 模块素材库
 │   ├── module_library.json
 │   └── assets/
