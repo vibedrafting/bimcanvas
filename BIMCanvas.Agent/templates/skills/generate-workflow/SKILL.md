@@ -19,7 +19,7 @@ description: |
 > WHY：纯机械操作，不占认知资源。先建立感官输入，后续阶段才有决策素材。
 
 1. **截图**（单独调用，等收到后再继续）— `mcp__canvas__request_background_screenshot`，用 zone 模式聚焦目标分区或 full 模式看全屋。截图工具直接返回图片；若看不到内容，用 Read 查看返回的文件路径
-2. **并行读取**：knowledge/placement_guide.md + modules/module_library.json + schemes/zones.json + computed/exclusions.json + baseline/openings.json
+2. **并行读取**：knowledge/design_principles.md + modules/module_library.json + schemes/zones.json + computed/exclusions.json + baseline/openings.json
 
 **模块数据**：契约层（id/tags/size）用于选择，意图层（agent_config: morphology + topology_rules + relation_rules）用于布置决策。按 Zone 的 tags/optionalTags 筛选兼容模块——匹配 tags 为必备家具，仅匹配 optionalTags 为可选家具。
 
@@ -36,12 +36,12 @@ description: |
 
 **确定空间类型 → 加载房间 Skill**：
 
-| tags 特征 | 空间类型 | 加载 Skill | 参照 placement_guide |
-|-----------|---------|-----------|---------------------|
-| sleep / bedroom | 卧室 | generate-bedroom | §1-§6 + §7 |
-| shower / toilet / washing | 卫生间 | generate-bathroom（见底部过渡段） | §1-§6 + §11 |
-| circulation 或跨多功能区 | 开放空间 | generate-livingroom（T2 后可用） | — |
-| 其他封闭空间 | 按 tags 判断 | 对应房间 Skill | §1-§6 + 对应章节 |
+| tags 特征 | 空间类型 | 加载 Skill |
+|-----------|---------|-----------|
+| sleep / bedroom | 卧室 | generate-bedroom |
+| shower / toilet / washing | 卫生间 | generate-bathroom |
+| rest / tvMedia / dining / circulation | 客餐厅 | generate-livingroom |
+| 其他封闭空间 | 按 tags 判断 | 对应房间 Skill（如有） |
 
 **评估分区需求**：rawBoundary 顶点数 > 4（非矩形）→ 加载 generate-zoning Skill（T3 后可用）。矩形房间跳过。
 
@@ -67,12 +67,12 @@ description: |
 
 ### 放置
 
-按策略声明 + placement_guide 规则 + module_library agent_config，精确定位全部家具（锚点→主要→辅助，一次性写入）。
+按策略声明 + design_principles + 房间 Skill 约束 + module_library agent_config，精确定位全部家具（锚点→主要→辅助，一次性写入）。
 
 **放置前原则性检查**（每件家具）：
-1. 是否阻挡门开启？（placement_guide §4.2）
-2. 通行间隙是否满足通道标准？（§4.1，区分通行间隙与使用间隙）
-3. 前瞻协调：主要家具是否阻断辅助家具的必要空间？（§1 前瞻协调规则）
+1. 是否阻挡门开启？（design_principles 空间硬约束）
+2. 通行间隙是否满足通道标准？（design_principles 通道与间距，区分通行间隙与使用间隙）
+3. 前瞻协调：主要家具是否阻断辅助家具的必要空间？（design_principles 前瞻协调规则）
 
 > bounds/重叠/禁区等几何检查由 validate_layout 自动完成，无需心算。
 
@@ -126,12 +126,6 @@ Write `schemes/{zoneId}/modules.json`，每个模块包含 moduleId、bounds（�
 - 决策痕迹：分歧点+选择理由（如有）
 
 **禁止**：审查未通过时报告"布置完成"。
-
----
-
-## 卫生间过渡（待迁出至 generate-bathroom Skill）
-
-卫生间走"模板匹配+参数化微调"，不走上述创造性规划流程。按 placement_guide §11 执行：测量分区 → §11.3 决策树选模式(A/B/C/D/E) → §11.4 定位洁具 → 参数化微调 → Write → validate_layout → 截图审查 → 修正（最多1轮）。
 
 ---
 

@@ -1,3 +1,12 @@
+> ⚠️ **DEPRECATED**: 本文件已被拆分重构（T2 知识系统重构）。
+> - 通用规则 → `knowledge/design_principles.md`
+> - 卧室规则 → `skills/generate-bedroom/SKILL.md`（T1）
+> - 卫生间规则 → `skills/generate-bathroom/SKILL.md`（T2）
+> - 客餐厅规则 → `skills/generate-livingroom/SKILL.md`（T2）
+> - 书房规则 → 待迁移
+>
+> 本文件保留作为历史参考，不再被 Agent 工作流读取。
+
 # PlacementAgent 布置设计指南
 
 > 本文档为 PlacementAgent 提供布置决策所需的背景知识和设计规范。

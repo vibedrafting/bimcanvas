@@ -11,12 +11,12 @@
 | 任务 | 状态 | 计划文档 | 下一步 |
 |------|------|---------|--------|
 | T1：工作流 + Agent 定义 + 卧室 | ✅ 已完成 | `T1-agent-workflow.md` ✅ | 验收通过，已提交 `c2c1f3d` |
-| T2：知识体系 + 其余房间 | ✅ 计划已定稿，待交执行窗口 | `T2-knowledge-system.md` ✅ | 交执行窗口实施 |
+| T2：知识体系 + 其余房间 | ✅ 已完成 | `T2-knowledge-system.md` ✅ | 验收待确认 |
 | T3：分区架构 + zoning Skill | ✅ 计划已定稿，待交执行窗口 | `T3-zoning-architecture.md` ✅ | 交执行窗口实施 |
 
-**当前状态**：T1 已完成（commit `c2c1f3d`），T2/T3 计划已定稿待实施。
+**当前状态**：T1 已完成（commit `c2c1f3d`），T2 已完成待验收，T3 计划已定稿待实施。
 
-**执行顺序**：~~T1（主框架+卧室）~~ → T2（知识+其余房间） → T3（分区架构+zoning Skill，全栈交付）
+**执行顺序**：~~T1（主框架+卧室）~~ → ~~T2（知识+其余房间）~~ → T3（分区架构+zoning Skill，全栈交付）
 
 ### T1 执行摘要
 
@@ -27,6 +27,20 @@
   - `layout-agent.md`：52→80行，单房间设计专家+Skill自主加载+分歧上报增强
   - `generate-bedroom/SKILL.md`：新建123行，卧室策略Skill（决策链+示例锚定）
 - **P0 验收**：全部通过（无信息重复、WHY全覆盖、行数达标、五阶段完整、策略声明示例、对话能力、三约束明确）
+
+### T2 执行摘要
+
+- **交付文件**：
+  - `design_principles.md`：新建91行，从652行placement_guide提炼跨房间通用原则（原理+速查混合模式）
+  - `generate-bathroom/SKILL.md`：新建139行，卫生间策略Skill（5种模式决策树+模板匹配工作流+策略声明示例）
+  - `generate-livingroom/SKILL.md`：新建81行，客餐厅策略Skill框架级（核心决策链+待充实标注）
+  - `generate-workflow/SKILL.md`：136行（-7行），引用placement_guide→design_principles，映射表补充bathroom/livingroom，删除卫生间过渡段
+  - `BIMCANVAS.md`：引用更新（2处 placement_guide→design_principles/房间Skill）
+  - `generate-bedroom/SKILL.md`：移除placement_guide §1.3引用，改为自包含WHY描述
+  - `placement_guide.md`：标记deprecated，保留历史参考
+- **注意力优化效果**：旧体系652行全局加载 → 新体系按房间类型加载215-230行（减少60-67%）
+- **已知缺口**：钻石型淋浴房模块缺失（module_library待补充，不在T2范围）
+- **P0 验收**：待确认
 
 ---
 

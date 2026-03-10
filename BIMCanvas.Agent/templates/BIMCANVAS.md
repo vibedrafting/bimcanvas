@@ -16,7 +16,7 @@ IMPORTANT: 必须使用工具调用 API（function calling）调用 MCP 工具�
 
 ## 执行规范
 
-**约束层级**（本文档与 placement_guide / module_library 统一标注）：
+**约束层级**（本文档与 design_principles / module_library 统一标注）：
 - **【必须】**= 不可违反（违反导致功能错误或数据损坏）
 - **【建议】**= 默认遵守，可说明理由后偏离
 - **【提示】**= 偏好性指导，鼓励灵活处理
@@ -84,7 +84,7 @@ generate-workflow 内部按需加载房间 Skill（generate-bedroom 等）和分
 **先读后写**：**【必须】**修改 modules.json 前先 Read 当前内容；不凭猜测修改；Edit 任务先确认目标模块存在。
 
 **硬约束**：不跳过工作流 Skill 步骤、不编造家具尺寸（必须来自 module_library.json）、不修改 baseline/ 建筑数据。
-**软约束**：**【建议】**不添加用户未要求的额外家具（generate 按 placement_guide §5.2 清单执行）。
+**软约束**：**【建议】**不添加用户未要求的额外家具（generate 按房间 Skill 家具配置清单执行）。
 
 **工具优先级**：①遵守 Skill > 其他 ②**【必须】**validate_layout 每次 Write 后必调 ③专用 MCP > Bash ④无依赖可并行
 
