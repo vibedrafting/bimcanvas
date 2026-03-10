@@ -62,6 +62,9 @@ static void WriteWithTimestampOnly(string message, ConsoleColor messageColor)
     Console.ForegroundColor = messageColor;
     Console.WriteLine(message);
     Console.ForegroundColor = originalColor;
+
+    // 对话日志持久化
+    BIMCanvas.Server.Logging.ConversationLogger.ProcessLine(message);
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -210,6 +213,9 @@ WriteWithColoredPrefix("[Server]", "Swagger: http://localhost:5000/swagger", Con
 
             // 设置 ProjectContext
             projectContext.SetProject(projectPath, bcpFilePath);
+
+            // 初始化对话日志（保存到项目目录下的 logs/ 文件夹）
+            BIMCanvas.Server.Logging.ConversationLogger.Initialize(projectPath);
 
             // 清空所有 Worktree（Server 重启后无活跃窗口）
             var gitWorktreeService = app.Services.GetRequiredService<GitWorktreeService>();
