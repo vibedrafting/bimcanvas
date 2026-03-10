@@ -20,7 +20,7 @@
       "target": "knowledge",
       "type": "directory",
       "enabled": true,
-      "description": "AI 知识库（design_principles.md + placement_guide.md[deprecated]）"
+      "description": "AI 知识库（design_principles.md）"
     },
     {
       "name": "modules",

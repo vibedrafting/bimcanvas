@@ -12,7 +12,8 @@
       "Bash(find C:\\\\Users\\\\huhaonan\\\\Documents\\\\BIMCanvas\\\\Projects\\\\金凤143\\\\schemes:*)",
       "Bash(xargs wc:*)",
       "Bash(find /e/工作文档/开发类/MyCode/BIMCanvas -name \"SKILL.md\" -path \"*generate-workflow*\" 2>/dev/null | head -5)",
-      "Bash(find \"E:\\\\工作文档\\\\开发类\\\\MyCode\\\\BIMCanvas\" -name \"*.json\" -path \"*/baseline/*\" -o -name \"*.json\" -path \"*/computed/*\" 2>/dev/null | head -30)"
+      "Bash(find \"E:\\\\工作文档\\\\开发类\\\\MyCode\\\\BIMCanvas\" -name \"*.json\" -path \"*/baseline/*\" -o -name \"*.json\" -path \"*/computed/*\" 2>/dev/null | head -30)",
+      "Bash(find \"E:\\\\工作文档\\\\开发类\\\\MyCode\\\\BIMCanvas\" -name \"*.md\" -type f 2>/dev/null | grep -i zone | head -10)"
     ]
   }
 }
