@@ -344,19 +344,23 @@ Skills
 
 ### T3：分区架构 + zoning Skill（全栈交付）
 
-- **状态**：✅ 计划已定稿（用户确认通过）
+- **状态**：✅ 已完成（待验收）
 - **计划文档**：`plans/workflow-refactor/T3-zoning-architecture.md`
 - **范围**：Zone.cs 扩展（SubZones 嵌套）+ Server 适配 + Web 适配 + generate-zoning/SKILL.md + generate-workflow 更新 + generate-livingroom 升级
 - **依赖**：T1/T2 完成后开始
-- **交付文件**：Zone.cs + ProjectService + ValidationController + ZoneBuilder + generate-zoning/SKILL.md + generate-workflow + generate-livingroom + zone_tools.py
+- **交付文件**（12 个文件，Core/Server/Web/Agent 四层）：
+  - Core：`Zone.cs`（+SubZones 字段）
+  - Server：`ProjectService.cs`（递归目录创建）、`ValidationController.cs`（展平嵌套+递归遍历+嵌套路径写回）、`ProjectWatcherService.cs`（zones.json 触发目录刷新）
+  - Web：`canvas.ts`（+optionalTags/subZones）、`ZoneBuilder.ts`（容器轮廓线+子 zone 递归渲染）
+  - Agent：`generate-zoning/SKILL.md`（新建 97 行）、`generate-workflow/SKILL.md`（142 行，3 处激活）、`generate-livingroom/SKILL.md`（81→118 行，完整版）、`layout-agent.md`（清理残留）、`zone_tools.py`（递归查找+get_leaf_zones）、`placement_tools.py`（嵌套路径读写）
 - **关键决策**：
   - Zone 新增 SubZones 嵌套字段，子分区复用 Zone 类型
   - 只有叶子 zone 放置家具，目录结构跟随嵌套
   - Agent 推理坐标完成分区边界，零新增 Server API
   - 跳过 openingIds（Agent 按坐标匹配，性价比更高）
   - 统一方法论覆盖异形拆解 + 功能分区（空间降维）
-- **与 T1 联动**：激活 generate-workflow 分区接口、generate-bedroom 分区交接点
-- **与 T2 联动**：升级 generate-livingroom 为完整版、提炼 placement_guide 异形利用知识
+- **与 T1 联动**：激活 generate-workflow 分区接口、layout-agent 分区加载描述
+- **与 T2 联动**：升级 generate-livingroom 为完整版（分区逻辑+策略声明示例+电视墙优先级链）
 
 ### 依赖关系
 
