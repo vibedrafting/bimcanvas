@@ -1,7 +1,7 @@
 """Zone data access tools for Agent decision making
 
 提供读取 Zone 信息、过滤兼容模块、获取禁区等功能
-MVP 版本：直接读取文件，无需 MCP 调用
+支持嵌套分区（SubZones）的递归查找和叶子 zone 过滤
 """
 
 from pathlib import Path
@@ -9,58 +9,83 @@ from typing import Any
 from .file_tools import read_json
 
 
+def _find_zone_recursive(zones: list[dict], zone_id: str) -> dict | None:
+    """在 zone 列表中递归查找（支持 subZones 嵌套）"""
+    for zone in zones:
+        if zone.get("id") == zone_id:
+            return zone
+        sub_zones = zone.get("subZones")
+        if sub_zones:
+            found = _find_zone_recursive(sub_zones, zone_id)
+            if found:
+                return found
+    return None
+
+
+def _collect_leaves(zones: list[dict], result: list[dict]):
+    """递归收集叶子 zone（subZones 为空或不存在的 zone）"""
+    for zone in zones:
+        sub_zones = zone.get("subZones")
+        if sub_zones and len(sub_zones) > 0:
+            _collect_leaves(sub_zones, result)
+        else:
+            result.append(zone)
+
+
 def get_zone(project_path: str, zone_id: str) -> dict | None:
     """
     获取单个 Zone 的完整信息（含 tags、边界）
+    支持在 subZones 嵌套结构中递归查找
 
     Args:
         project_path: 项目根路径
-        zone_id: Zone ID (如 "rz_1")
+        zone_id: Zone ID (如 "rz_1" 或 "dz_1")
 
     Returns:
         Zone 数据字典，如果不存在则返回 None
-
-    示例返回:
-        {
-            "id": "rz_1",
-            "name": "主卧",
-            "roomId": "r_1",
-            "type": 1,
-            "reason": "room:MasterBedroom",
-            "tags": ["Sleep", "WardrobeStorage", "Vanity"],
-            "rawBoundary": [[...], ...],
-            "computedBoundary": null
-        }
     """
-    zones = read_json(project_path, "computed/room_zones.json")
-    if not zones:
-        return None
-
-    # 支持列表格式和带 version 字段的对象格式
-    zone_list = zones if isinstance(zones, list) else zones.get("zones", [])
-
-    for zone in zone_list:
-        if zone.get("id") == zone_id:
-            return zone
-
-    return None
+    zones = get_all_zones(project_path)
+    return _find_zone_recursive(zones, zone_id)
 
 
 def get_all_zones(project_path: str) -> list[dict]:
     """
     获取所有 Zone 列表
+    优先读取 schemes/zones.json（含 subZones），回退到 computed/room_zones.json
 
     Args:
         project_path: 项目根路径
 
     Returns:
-        Zone 数据列表
+        Zone 数据列表（顶层，可能包含 subZones）
     """
+    # 优先 schemes/zones.json（含 subZones 信息）
+    scheme_zones = read_json(project_path, "schemes/zones.json")
+    if scheme_zones and isinstance(scheme_zones, list) and len(scheme_zones) > 0:
+        return scheme_zones
+
+    # 回退 computed/room_zones.json
     zones = read_json(project_path, "computed/room_zones.json")
     if not zones:
         return []
 
     return zones if isinstance(zones, list) else zones.get("zones", [])
+
+
+def get_leaf_zones(project_path: str) -> list[dict]:
+    """
+    只返回可放置家具的叶子 zone（展平嵌套结构）
+
+    Args:
+        project_path: 项目根路径
+
+    Returns:
+        叶子 Zone 列表（无 subZones 的 zone）
+    """
+    zones = get_all_zones(project_path)
+    leaves: list[dict] = []
+    _collect_leaves(zones, leaves)
+    return leaves
 
 
 def list_modules_by_zone(project_path: str, zone_id: str) -> dict:
@@ -73,14 +98,6 @@ def list_modules_by_zone(project_path: str, zone_id: str) -> dict:
 
     Returns:
         包含 zone_tags 和 modules 的字典
-        {
-            "zone_id": "rz_1",
-            "zone_tags": ["Sleep", "WardrobeStorage", "Vanity"],
-            "modules": [
-                {"id": "mod_bed_001", "name": "双人床", "tags": ["sleep"], ...},
-                ...
-            ]
-        }
     """
     # 获取 Zone
     zone = get_zone(project_path, zone_id)
@@ -159,7 +176,7 @@ def get_exclusions(project_path: str, zone_id: str | None = None) -> list[dict]:
 
     # 过滤与指定 Zone 相关的禁区
     # 注意：当前版本禁区没有 zoneId 字段，直接返回全部
-    # 未来可根据空间关系过滤
+    # Agent 通过坐标匹配判断禁区归属
     return exclusion_list
 
 

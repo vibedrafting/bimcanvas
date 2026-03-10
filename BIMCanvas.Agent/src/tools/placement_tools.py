@@ -1,13 +1,31 @@
 """Placement tools for Agent to write module layouts
 
 提供写入布置结果、验证模块数据等功能
-MVP 版本：直接写入文件，Server 事后验证
+支持嵌套分区路径（schemes/{parentZoneId}/{childZoneId}/modules.json）
 """
 
 import json
 from pathlib import Path
 from typing import Any
 from .file_tools import read_json, write_json
+
+
+def _resolve_module_path(project_path: str, zone_id: str) -> str:
+    """解析 zone_id 到正确的 modules.json 相对路径（支持嵌套分区）"""
+    schemes_path = Path(project_path) / "schemes"
+
+    # 1. 检查一级目录
+    if (schemes_path / zone_id).exists():
+        return f"schemes/{zone_id}/modules.json"
+
+    # 2. 搜索嵌套目录（在父 zone 目录下查找）
+    if schemes_path.exists():
+        for parent_dir in schemes_path.iterdir():
+            if parent_dir.is_dir() and (parent_dir / zone_id).exists():
+                return f"schemes/{parent_dir.name}/{zone_id}/modules.json"
+
+    # 3. 回退到一级目录（新建场景，由 file_tools.write_json 自动创建目录）
+    return f"schemes/{zone_id}/modules.json"
 
 
 class PlacedModule:
@@ -85,9 +103,9 @@ def write_modules(
             return False, f"无效的模块类型: {type(m)}"
 
     try:
-        # 如果指定了 zone_id，只写入该分区
+        # 如果指定了 zone_id，只写入该分区（支持嵌套路径）
         if zone_id:
-            relative_path = f"schemes/{zone_id}/modules.json"
+            relative_path = _resolve_module_path(project_path, zone_id)
             write_json(project_path, relative_path, module_dicts)
             return True, f"成功写入 {len(module_dicts)} 个模块到 {relative_path}"
 
@@ -106,9 +124,9 @@ def write_modules(
             write_json(project_path, relative_path, module_dicts)
             return True, f"成功写入 {len(module_dicts)} 个模块到 {relative_path}（向后兼容模式）"
 
-        # 按分区写入
+        # 按分区写入（支持嵌套路径）
         for z_id, zone_modules in grouped.items():
-            relative_path = f"schemes/{z_id}/modules.json"
+            relative_path = _resolve_module_path(project_path, z_id)
             write_json(project_path, relative_path, zone_modules)
 
         return True, f"成功写入 {len(module_dicts)} 个模块到 {len(grouped)} 个分区"
@@ -300,29 +318,35 @@ def load_existing_modules(project_path: str, zone_id: str | None = None) -> list
 
     schemes_path = Path(project_path) / "schemes"
 
-    # 如果指定了 zone_id，只读取该分区
+    # 如果指定了 zone_id，只读取该分区（支持嵌套路径）
     if zone_id:
-        relative_path = f"schemes/{zone_id}/modules.json"
+        relative_path = _resolve_module_path(project_path, zone_id)
         modules = read_json(project_path, relative_path)
         return modules if isinstance(modules, list) else []
 
-    # 尝试从分区子目录读取
+    # 尝试从分区子目录读取（支持嵌套分区）
     all_modules = []
     if schemes_path.exists():
-        zone_dirs = [
-            d for d in schemes_path.iterdir()
-            if d.is_dir() and (d.name.startswith("rz_") or d.name.startswith("dz_"))
-        ]
+        # 收集所有叶子 zone 目录（含嵌套子目录）
+        leaf_zone_dirs = []
+        for d in schemes_path.iterdir():
+            if not d.is_dir() or not (d.name.startswith("rz_") or d.name.startswith("dz_")):
+                continue
+            # 检查是否有嵌套子分区目录
+            sub_dirs = [sd for sd in d.iterdir() if sd.is_dir() and sd.name.startswith("dz_")]
+            if sub_dirs:
+                # 容器 zone → 收集子目录
+                leaf_zone_dirs.extend(sub_dirs)
+            elif (d / "modules.json").exists():
+                # 叶子 zone → 直接收集
+                leaf_zone_dirs.append(d)
 
-        if zone_dirs:
-            # 新格式：从分区子目录读取
-            for zone_dir in zone_dirs:
+        if leaf_zone_dirs:
+            for zone_dir in leaf_zone_dirs:
                 modules_file = zone_dir / "modules.json"
                 if modules_file.exists():
-                    relative_path = f"schemes/{zone_dir.name}/modules.json"
-                    modules = read_json(project_path, relative_path)
+                    modules = read_json(project_path, str(modules_file.relative_to(Path(project_path))))
                     if isinstance(modules, list):
-                        # 确保每个模块有正确的 zoneId
                         for m in modules:
                             if not m.get("zoneId"):
                                 m["zoneId"] = zone_dir.name

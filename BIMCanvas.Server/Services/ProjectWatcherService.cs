@@ -13,6 +13,7 @@ namespace BIMCanvas.Server.Services
         private readonly ProjectContext _projectContext;
         private readonly IHubContext<CanvasHub> _hubContext;
         private readonly GitWorktreeService _gitService;
+        private readonly ProjectService _projectService;
 
         private FileSystemWatcher? _watcher;
         private FileSystemWatcher? _projectWatcher; // 监控整个项目目录的 Git 状态变化
@@ -38,12 +39,14 @@ namespace BIMCanvas.Server.Services
             ILogger<ProjectWatcherService> logger,
             ProjectContext projectContext,
             IHubContext<CanvasHub> hubContext,
-            GitWorktreeService gitService)
+            GitWorktreeService gitService,
+            ProjectService projectService)
         {
             _logger = logger;
             _projectContext = projectContext;
             _hubContext = hubContext;
             _gitService = gitService;
+            _projectService = projectService;
         }
 
         public Task StartAsync(CancellationToken cancellationToken)
@@ -316,6 +319,14 @@ namespace BIMCanvas.Server.Services
 
             try
             {
+                // zones.json 变更时刷新分区目录结构（支持 Agent 写入 subZones 后自动创建子目录）
+                if (string.Equals(fileName, "zones.json", StringComparison.OrdinalIgnoreCase)
+                    && !string.IsNullOrEmpty(_projectContext.CurrentProjectPath))
+                {
+                    _projectService.CreateZoneDirectories(_projectContext.CurrentProjectPath);
+                    _logger.LogInformation("zones.json 变更，已刷新分区目录结构");
+                }
+
                 var updateMessage = new
                 {
                     type = "file_changed",

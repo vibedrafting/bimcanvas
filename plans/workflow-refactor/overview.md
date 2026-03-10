@@ -12,11 +12,11 @@
 |------|------|---------|--------|
 | T1：工作流 + Agent 定义 + 卧室 | ✅ 已完成 | `T1-agent-workflow.md` ✅ | 验收通过，已提交 `c2c1f3d` |
 | T2：知识体系 + 其余房间 | ✅ 已完成 | `T2-knowledge-system.md` ✅ | 验收通过，已补充 WHY |
-| T3：分区架构 + zoning Skill | ✅ 计划已定稿，待交执行窗口 | `T3-zoning-architecture.md` ✅ | 交执行窗口实施 |
+| T3：分区架构 + zoning Skill | ✅ 已完成 | `T3-zoning-architecture.md` ✅ | 待验收 |
 
-**当前状态**：T1 已完成（commit `c2c1f3d`），T2 验收通过（补充 WHY + 信息安全检查通过），T3 计划已定稿待实施。
+**当前状态**：T1 已完成（commit `c2c1f3d`），T2 验收通过，T3 全栈交付已完成（待验收）。
 
-**执行顺序**：~~T1（主框架+卧室）~~ → ~~T2（知识+其余房间）~~ → **T3（分区架构+zoning Skill，全栈交付）**
+**执行顺序**：~~T1（主框架+卧室）~~ → ~~T2（知识+其余房间）~~ → ~~T3（分区架构+zoning Skill，全栈交付）~~
 
 ### T1 执行摘要
 
@@ -42,6 +42,24 @@
 - **已知缺口**：钻石型淋浴房模块缺失（module_library待补充，不在T2范围）
 - **P0 验收**：✅ 通过（11项中9项完全通过，2项经复核降级——信息重复为有意的通用→特化设计模式，WHY缺失已补充）
 - **信息安全检查**：✅ 通过（§1.2特色资源→T3、§4.3使用距离5/6迁移完成、§5.3互斥依赖已覆盖、§12常见错误8/8覆盖）
+
+### T3 执行摘要
+
+- **交付文件**（11 个文件，6 层变更）：
+  - `Zone.cs`：新增 SubZones 嵌套字段
+  - `ProjectService.cs`：CreateZoneDirectories 递归化（private→internal）
+  - `ValidationController.cs`：LoadZoneData 展平嵌套 + LoadAllModules 递归遍历 + PersistModules 嵌套路径 + FlattenToLeafZones/ResolveZoneDirectory 新方法
+  - `ProjectWatcherService.cs`：注入 ProjectService + zones.json 变更触发目录刷新
+  - `canvas.ts`：Zone 接口新增 optionalTags + subZones
+  - `ZoneBuilder.ts`：容器 zone 轮廓线渲染 + 子 zone 递归渲染
+  - `generate-zoning/SKILL.md`：新建 97 行，统一三步框架 + 2 个策略声明示例
+  - `generate-workflow/SKILL.md`：142 行，3 处激活（理解/执行/审查）
+  - `generate-livingroom/SKILL.md`：81→118 行，框架级→完整版（分区逻辑+策略声明示例+电视墙优先级链）
+  - `layout-agent.md`：清理"T3 后可用"残留
+  - `zone_tools.py`：递归查找 + get_leaf_zones 新函数
+  - `placement_tools.py`：嵌套路径写入/读取支持
+- **编译验证**：Core ✅ / Server ✅ / Web(vue-tsc) ✅
+- **残留检查**：无"T3 后可用"或"待充实"残留
 
 ---
 

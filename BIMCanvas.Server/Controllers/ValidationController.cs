@@ -138,11 +138,13 @@ namespace BIMCanvas.Server.Controllers
             }
 
             // schemes/zones.json（设计区，Type = Designable）
+            // 支持嵌套：展平 SubZones，只取叶子 zone 参与验证
             var schemesZonesPath = Path.Combine(projectPath, "schemes", "zones.json");
             if (System.IO.File.Exists(schemesZonesPath))
             {
                 var schemeZones = ReadJson<List<Zone>>(schemesZonesPath) ?? new List<Zone>();
-                designZones.AddRange(schemeZones);
+                var leafZones = FlattenToLeafZones(schemeZones);
+                designZones.AddRange(leafZones);
             }
 
             // exclusions.json（禁区，Type = Exclusion）
@@ -171,30 +173,27 @@ namespace BIMCanvas.Server.Controllers
                 return allModules;
             }
 
-            // 新格式：从分区子目录读取 (rz_*, dz_*, _unzoned)
-            var zoneDirs = Directory.GetDirectories(schemesPath)
-                .Where(d =>
+            // 递归查找所有 zone 子目录中的 modules.json（支持嵌套分区）
+            var moduleFiles = Directory.GetFiles(schemesPath, "modules.json", SearchOption.AllDirectories)
+                .Where(f =>
                 {
-                    var name = Path.GetFileName(d);
-                    return name.StartsWith("rz_") || name.StartsWith("dz_") || name == "_unzoned";
+                    // 提取相对于 schemes/ 的路径，取最近的目录名作为 zone 标识
+                    var dir = Path.GetFileName(Path.GetDirectoryName(f) ?? "");
+                    return dir.StartsWith("rz_") || dir.StartsWith("dz_") || dir == "_unzoned";
                 })
                 .ToList();
 
-            if (zoneDirs.Count > 0)
+            if (moduleFiles.Count > 0)
             {
-                foreach (var zoneDir in zoneDirs)
+                foreach (var modulesPath in moduleFiles)
                 {
-                    var zoneId = Path.GetFileName(zoneDir);
-                    var modulesPath = Path.Combine(zoneDir, "modules.json");
-                    if (System.IO.File.Exists(modulesPath))
+                    var zoneId = Path.GetFileName(Path.GetDirectoryName(modulesPath)!);
+                    var modules = ReadJson<List<Module>>(modulesPath) ?? new List<Module>();
+                    foreach (var module in modules)
                     {
-                        var modules = ReadJson<List<Module>>(modulesPath) ?? new List<Module>();
-                        foreach (var module in modules)
-                        {
-                            module.ZoneId ??= zoneId;
-                        }
-                        allModules.AddRange(modules);
+                        module.ZoneId ??= zoneId;
                     }
+                    allModules.AddRange(modules);
                 }
             }
             else
@@ -209,6 +208,48 @@ namespace BIMCanvas.Server.Controllers
 
             _logger.LogDebug("[Validation] 加载 {Count} 个模块", allModules.Count);
             return allModules;
+        }
+
+        /// <summary>
+        /// 递归展平嵌套 zone，只返回叶子 zone（SubZones 为 null 或空）
+        /// </summary>
+        private List<Zone> FlattenToLeafZones(List<Zone> zones)
+        {
+            var result = new List<Zone>();
+            foreach (var zone in zones)
+            {
+                if (zone.SubZones != null && zone.SubZones.Count > 0)
+                    result.AddRange(FlattenToLeafZones(zone.SubZones));
+                else
+                    result.Add(zone);
+            }
+            return result;
+        }
+
+        /// <summary>
+        /// 解析 zoneId 到实际目录路径（支持嵌套分区）
+        /// 例如 dz_1 → schemes/rz_3/dz_1（搜索已有目录）
+        /// </summary>
+        private string ResolveZoneDirectory(string schemesPath, string zoneId)
+        {
+            // 1. 检查一级目录
+            var directPath = Path.Combine(schemesPath, zoneId);
+            if (Directory.Exists(directPath))
+                return directPath;
+
+            // 2. 搜索嵌套目录（在 rz_* 父目录下查找）
+            if (Directory.Exists(schemesPath))
+            {
+                foreach (var parentDir in Directory.GetDirectories(schemesPath))
+                {
+                    var nestedPath = Path.Combine(parentDir, zoneId);
+                    if (Directory.Exists(nestedPath))
+                        return nestedPath;
+                }
+            }
+
+            // 3. 回退到一级目录（新建场景）
+            return directPath;
         }
 
         /// <summary>
@@ -241,9 +282,12 @@ namespace BIMCanvas.Server.Controllers
                 .GroupBy(m => m.ZoneId ?? "_unzoned")
                 .ToDictionary(g => g.Key, g => g.ToList());
 
+            var schemesPath = Path.Combine(projectPath, "schemes");
+
             foreach (var kvp in byZone)
             {
-                var zoneDir = Path.Combine(projectPath, "schemes", kvp.Key);
+                // 支持嵌套分区：先搜索已有目录，再回退到一级目录
+                var zoneDir = ResolveZoneDirectory(schemesPath, kvp.Key);
                 if (!Directory.Exists(zoneDir))
                     Directory.CreateDirectory(zoneDir);
 

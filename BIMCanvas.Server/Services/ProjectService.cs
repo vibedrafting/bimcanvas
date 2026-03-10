@@ -167,9 +167,10 @@ namespace BIMCanvas.Server.Services
 
         /// <summary>
         /// 基于 schemes/zones.json 创建分区子目录
-        /// 为每个 rz_* Zone 创建子目录和空的 modules.json
+        /// 支持嵌套：有 SubZones 的 zone 为容器（不创建 modules.json），
+        /// 只有叶子 zone 创建 modules.json
         /// </summary>
-        private void CreateZoneDirectories(string projectPath)
+        internal void CreateZoneDirectories(string projectPath)
         {
             var zonesPath = Path.Combine(projectPath, "schemes", "zones.json");
             var schemesPath = Path.Combine(projectPath, "schemes");
@@ -188,32 +189,61 @@ namespace BIMCanvas.Server.Services
                 var createdCount = 0;
                 foreach (var zone in zones)
                 {
-                    // 只为 rz_* (Room Zone) 创建目录
-                    if (string.IsNullOrEmpty(zone.Id) || !zone.Id.StartsWith("rz_"))
+                    if (string.IsNullOrEmpty(zone.Id))
                         continue;
 
-                    var zoneDir = Path.Combine(schemesPath, zone.Id);
-                    if (!Directory.Exists(zoneDir))
-                    {
-                        Directory.CreateDirectory(zoneDir);
-                    }
-
-                    var modulesPath = Path.Combine(zoneDir, "modules.json");
-                    if (!File.Exists(modulesPath))
-                    {
-                        File.WriteAllText(modulesPath, "[]", Encoding.UTF8);
-                    }
-
-                    createdCount++;
-                    _logger.LogDebug("创建分区目录: {ZoneId}", zone.Id);
+                    createdCount += CreateZoneDirectory(schemesPath, zone.Id, zone);
                 }
 
-                _logger.LogInformation("创建了 {Count} 个分区目录", createdCount);
+                _logger.LogInformation("创建/刷新了 {Count} 个分区目录", createdCount);
             }
             catch (Exception ex)
             {
                 _logger.LogError(ex, "创建分区目录失败");
             }
+        }
+
+        /// <summary>
+        /// 为单个 zone 创建目录（递归处理 SubZones）
+        /// </summary>
+        private int CreateZoneDirectory(string parentDir, string zoneId, Zone zone)
+        {
+            var zoneDir = Path.Combine(parentDir, zoneId);
+            var count = 0;
+
+            if (zone.SubZones != null && zone.SubZones.Count > 0)
+            {
+                // 容器 zone：创建目录但不创建 modules.json
+                Directory.CreateDirectory(zoneDir);
+                _logger.LogDebug("创建容器分区目录: {ZoneId}", zoneId);
+
+                foreach (var subZone in zone.SubZones)
+                {
+                    if (!string.IsNullOrEmpty(subZone.Id))
+                    {
+                        count += CreateZoneDirectory(zoneDir, subZone.Id, subZone);
+                    }
+                }
+            }
+            else
+            {
+                // 叶子 zone：创建目录 + modules.json
+                if (!Directory.Exists(zoneDir))
+                {
+                    Directory.CreateDirectory(zoneDir);
+                }
+
+                var modulesPath = Path.Combine(zoneDir, "modules.json");
+                if (!File.Exists(modulesPath))
+                {
+                    File.WriteAllText(modulesPath, "[]", Encoding.UTF8);
+                }
+
+                count++;
+                _logger.LogDebug("创建叶子分区目录: {ZoneId}", zoneId);
+            }
+
+            return count;
         }
 
         /// <summary>

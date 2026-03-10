@@ -101,11 +101,21 @@ export class ZoneBuilder {
             });
         }
 
-        // 2. 渲染 activeScheme.zones（设计区域，ZoneType.Designable）
+        // 2. 渲染 activeScheme.zones（设计区域，支持嵌套分区）
         const schemeZones = data.activeScheme?.zones;
         if (schemeZones) {
             schemeZones.forEach(zone => {
-                this.createZoneMesh(zone);
+                if (zone.subZones && zone.subZones.length > 0) {
+                    // 容器 zone：半透明轮廓线（整体边界参考）
+                    this.createContainerZoneOutline(zone);
+                    // 子 zone：标准 Designable 渲染
+                    zone.subZones.forEach(subZone => {
+                        this.createZoneMesh(subZone);
+                    });
+                } else {
+                    // 叶子 zone：保持现有渲染
+                    this.createZoneMesh(zone);
+                }
             });
         }
 
@@ -164,6 +174,42 @@ export class ZoneBuilder {
         };
 
         this.zoneGroup!.add(mesh);
+    }
+
+    /**
+     * 容器 zone（有 subZones）：绘制半透明轮廓线作为整体边界参考
+     */
+    private createContainerZoneOutline(zone: Zone) {
+        const boundary = zone.computedBoundary ?? zone.rawBoundary;
+        if (!boundary || boundary.length === 0) return;
+
+        // 构建 3D 点序列（CAD 坐标 XY → Three.js XZ 平面）
+        const points = boundary.map(p => new THREE.Vector3(p[0], 0, -p[1]));
+        // 闭合
+        if (points.length > 0) {
+            points.push(points[0].clone());
+        }
+
+        const geometry = new THREE.BufferGeometry().setFromPoints(points);
+        const material = new THREE.LineBasicMaterial({
+            color: 0x22c55e,
+            transparent: true,
+            opacity: 0.3
+        });
+
+        const line = new THREE.Line(geometry, material);
+        line.position.y = 4; // 介于 Room(3) 和 Designable(5) 之间
+        line.layers.set(LayerManager.LAYER_ZONES);
+        line.userData = {
+            id: zone.id,
+            type: 'zone',
+            zoneType: zone.type,
+            roomId: zone.roomId,
+            isContainer: true,
+            data: zone
+        };
+
+        this.zoneGroup!.add(line);
     }
 
     private createShapeFromPolygon(polygon: Point2D[]): THREE.Shape {

@@ -188,8 +188,10 @@ export interface Zone {
   rawBoundary?: Polygon2D;
   computedBoundary?: Polygon2D;
   tags: ZoneTag[];
+  optionalTags?: ZoneTag[];
   finishRequirements: FinishRequirement[];
   schemeId?: string;
+  subZones?: Zone[];
 }
 
 export interface FinishSegment {

@@ -43,7 +43,11 @@ description: |
 | rest / tvMedia / dining / circulation | 客餐厅 | generate-livingroom |
 | 其他封闭空间 | 按 tags 判断 | 对应房间 Skill（如有） |
 
-**评估分区需求**：rawBoundary 顶点数 > 4（非矩形）→ 加载 generate-zoning Skill（T3 后可用）。矩形房间跳过。
+**评估分区需求**：
+- rawBoundary 顶点 > 4 → 加载 generate-zoning（异形空间需几何拆解）
+- 多功能标签组 + 面积 > 20㎡ → 加载 generate-zoning（开放空间需功能分区）
+- 执行分区 → 产出 subZones → 为每个叶子 zone 分别加载房间 Skill
+- 矩形单功能房间 → 跳过
 
 ---
 
@@ -79,6 +83,7 @@ description: |
 ### 写入
 
 Write `schemes/{zoneId}/modules.json`，每个模块包含 moduleId、bounds（四点坐标）、facing、items。id 由 Server 在 validate_layout 时自动生成，禁止手动填写。
+分区场景写入路径：`schemes/{parentZoneId}/{childZoneId}/modules.json`（如 `schemes/rz_3/dz_1/modules.json`）。
 
 ### 验证闭环
 
@@ -108,6 +113,7 @@ Write `schemes/{zoneId}/modules.json`，每个模块包含 moduleId、bounds（�
 2. **策略一致**：最终布局是否实现了策略声明的核心意图
 3. **设计品质**：空间效率合理、功能联动、填充舒适度
 4. **规则遵从**：房间 Skill 的硬约束全部满足
+5. **分区连贯**（分区场景）：相邻子分区之间的动线是否连贯
 
 **判断**：
 - 四维度均通过 → 汇报
