@@ -133,7 +133,8 @@
       "name": "定制通用柜体",
       "tags": [
         "generalStorage",
-        "display"
+        "display",
+        "dining"
       ],
       "size": {
         "width": 800,
@@ -592,6 +593,149 @@
       },
       "description": "窗帘装饰",
       "svgPath": "assets/mod_curtain.svg"
+    },
+    {
+      "id": "mod_tv_cabinet_custom",
+      "name": "定制电视柜",
+      "tags": [
+        "tvMedia",
+        "display"
+      ],
+      "size": {
+        "width": 2400,
+        "depth": 400
+      },
+      "agent_config": {
+        "morphology": {
+          "strategy": "horizontal_fill",
+          "limits": {
+            "width": [
+              1500,
+              3500
+            ]
+          }
+        },
+        "topology_rules": [
+          "【必须】靠墙放置（电视墙）",
+          "【必须】严格避让门的开启扇区域"
+        ],
+        "relation_rules": [
+          "【必须】放置于客厅电视墙——电视墙是客厅空间主轴的焦点端",
+          "【建议】在电视墙有效段内居中——视觉均衡，与对面沙发中轴对齐",
+          "【必须】布置后执行顶角规则检查：无法填满整面墙时，贴靠实墙角，将空隙留在门口/通道一侧"
+        ]
+      },
+      "description": "定制电视柜(宽1500-3500)",
+      "svgPath": "assets/mod_tv_cabinet_custom.svg"
+    },
+    {
+      "id": "mod_shower_l_screen",
+      "name": "L型淋浴屏",
+      "tags": [
+        "shower"
+      ],
+      "size": {
+        "width": 900,
+        "depth": 900
+      },
+      "agent_config": {
+        "morphology": {
+          "strategy": "parametric",
+          "limits": {
+            "width": [
+              800,
+              1200
+            ],
+            "depth": [
+              800,
+              1200
+            ]
+          }
+        },
+        "topology_rules": [
+          "【必须】布置于卫生间角落，两边紧贴两面垂直实墙",
+          "【必须】开放面朝向卫生间内部（便于进出）"
+        ],
+        "relation_rules": [
+          "【建议】通常放置在远离入口的角落——淋浴区隐私需求最高",
+          "【建议】与矩形淋浴房互斥（同一空间选其一）——功能完全重叠"
+        ]
+      },
+      "description": "L型淋浴屏(800-1200)",
+      "svgPath": "assets/mod_shower_l_screen.svg"
+    },
+    {
+      "id": "mod_shower_diamond",
+      "name": "钻石型淋浴房",
+      "tags": [
+        "shower"
+      ],
+      "size": {
+        "width": 900,
+        "depth": 900
+      },
+      "agent_config": {
+        "morphology": {
+          "strategy": "parametric",
+          "limits": {
+            "width": [
+              800,
+              1100
+            ],
+            "depth": [
+              800,
+              1100
+            ]
+          }
+        },
+        "topology_rules": [
+          "【必须】布置于卫生间角落（两边紧贴垂直实墙）",
+          "【建议】优先用于近方形紧凑卫生间——斜面切角比矩形房更节省通道空间"
+        ],
+        "relation_rules": [
+          "【建议】与矩形淋浴房、L型淋浴屏互斥（同一空间选其一）",
+          "【建议】紧凑空间（模式C）优先选用钻石型——斜面门不侵占通道空间"
+        ]
+      },
+      "description": "钻石型淋浴房(800-1100)",
+      "svgPath": "assets/mod_shower_diamond.svg"
+    },
+    {
+      "id": "mod_bathtub_001",
+      "name": "浴缸",
+      "tags": [
+        "shower"
+      ],
+      "size": {
+        "width": 1700,
+        "depth": 750
+      },
+      "agent_config": {
+        "morphology": {
+          "strategy": "parametric",
+          "limits": {
+            "width": [
+              1500,
+              1800
+            ],
+            "depth": [
+              700,
+              800
+            ]
+          }
+        },
+        "topology_rules": [
+          "【必须】靠墙放置（至少连接一面实墙）",
+          "【建议】长边靠墙——稳固性 + 空间利用率"
+        ],
+        "relation_rules": [
+          "【必须】仅在面积 ≥ 5㎡ 的宽裕型卫生间中使用——小空间放浴缸挤占其他洁具的操作空间",
+          "【建议】与淋浴屏/淋浴房互斥（同一空间通常不同时放置）——功能重叠且空间不足",
+          "【建议】优先靠窗墙放置——泡澡时的采光和视野体验"
+        ]
+      },
+      "description": "标准浴缸(1500-1800)",
+      "svgPath": "assets/mod_bathtub_001.svg"
     }
   ]
 }
