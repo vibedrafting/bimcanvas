@@ -12,11 +12,12 @@
 |------|------|---------|--------|
 | T1：工作流 + Agent 定义 + 卧室 | ✅ 已完成 | `T1-agent-workflow.md` ✅ | 验收通过，已提交 `c2c1f3d` |
 | T2：知识体系 + 其余房间 | ✅ 已完成 | `T2-knowledge-system.md` ✅ | 验收通过，已补充 WHY |
-| T3：分区架构 + zoning Skill | ✅ 已完成 | `T3-zoning-architecture.md` ✅ | 待验收 |
+| T3：分区架构 + zoning Skill | ✅ 已完成 | `T3-zoning-architecture.md` ✅ | 验收通过 |
+| 全面审查 + 文档清理 | ✅ 已完成 | — | commit `bbca6fe` |
 
-**当前状态**：T1 已完成（commit `c2c1f3d`），T2 验收通过，T3 全栈交付已完成（待验收）。
+**当前状态**：T1-T3 全部完成并通过全面审查。旧体系清理完毕（18 个文件，placement_guide 引用全部更新）。重构闭环。
 
-**执行顺序**：~~T1（主框架+卧室）~~ → ~~T2（知识+其余房间）~~ → ~~T3（分区架构+zoning Skill，全栈交付）~~
+**执行顺序**：~~T1（主框架+卧室）~~ → ~~T2（知识+其余房间）~~ → ~~T3（分区架构+zoning Skill，全栈交付）~~ → ~~全面审查+文档清理~~
 
 ### T1 执行摘要
 
@@ -60,6 +61,18 @@
   - `placement_tools.py`：嵌套路径写入/读取支持
 - **编译验证**：Core ✅ / Server ✅ / Web(vue-tsc) ✅
 - **残留检查**：无"T3 后可用"或"待充实"残留
+
+### 全面审查 + 文档清理摘要
+
+- **commit**: `bbca6fe`（+166/-78，18 个文件）
+- **审查结论**：T1-T3 核心交付物全部达标（提示词体系 ✅ / 代码实现 ✅ / 设计哲学合规 ✅）
+- **发现并修复的问题**：
+  - docs/ 文档（7 个）：添加过时提醒头 + 更新 placement_guide 引用
+  - Claude Code Skills（rule-review / rule-tuning）：更新文件路径、职责表、注入点表
+  - `canvas.py`：清除已迁移的 `get_workflow_guide` 注释代码
+  - `README.md` / `Templates/README.md`：更新知识库目录结构
+  - `.agents/skills/`：同步更新
+- **无 P0 问题**，所有发现均为文档层面的旧引用残留
 
 ---
 
@@ -171,7 +184,7 @@ Skills（主控和 layout-agent 共用）
 ### 注意力优化效果
 
 ```
-当前：SKILL.md(601行) + placement_guide(652行) = 1253 行全部加载
+旧：SKILL.md(601行) + placement_guide(652行) = 1253 行全部加载
 新（简单场景）：generate-workflow(~150行) + generate-bedroom(~150行) + design_principles(~100行) = ~400 行
 新（复杂场景）：上述 + generate-zoning(~100行) = ~500 行
                 ↑ 只加载需要的 Skill
@@ -318,7 +331,7 @@ Skills
 
 ### T1：Agent 工作流 + 双层 Agent 定义 + 卧室策略
 
-- **状态**：✅ 计划已定稿（用户确认通过）
+- **状态**：✅ 已完成（验收通过，commit `c2c1f3d`）
 - **计划文档**：`plans/workflow-refactor/T1-agent-workflow.md`
 - **范围**：只处理简单矩形卧室（不含分区场景）
 - **交付文件**：generate-workflow/SKILL.md + BIMCANVAS.md + layout-agent.md + generate-bedroom/SKILL.md
@@ -328,7 +341,7 @@ Skills
 
 ### T2：设计知识体系重构
 
-- **状态**：✅ 计划已定稿（用户确认通过）
+- **状态**：✅ 已完成（验收通过）
 - **计划文档**：`plans/workflow-refactor/T2-knowledge-system.md`
 - **范围**：design_principles.md + generate-bathroom/SKILL.md + generate-livingroom/SKILL.md（框架级） + generate-workflow 引用更新
 - **依赖**：T1 完成后开始（基于 T1 的框架和范例）
@@ -344,7 +357,7 @@ Skills
 
 ### T3：分区架构 + zoning Skill（全栈交付）
 
-- **状态**：✅ 已完成（待验收）
+- **状态**：✅ 已完成（验收通过）
 - **计划文档**：`plans/workflow-refactor/T3-zoning-architecture.md`
 - **范围**：Zone.cs 扩展（SubZones 嵌套）+ Server 适配 + Web 适配 + generate-zoning/SKILL.md + generate-workflow 更新 + generate-livingroom 升级
 - **依赖**：T1/T2 完成后开始
@@ -378,12 +391,12 @@ T3（分区架构 + generate-zoning）
 
 | 文档 | 路径 | 用途 |
 |------|------|------|
-| 提示词设计哲学 | `docs/Agent_Prompt_Design_Philosophy.md` | 所有任务的设计理论基础 |
+| 提示词设计哲学 | `docs/Agent_Prompt_Design_Philosophy.md` | 设计理论基础 |
 | 空间类型工作流架构 | `plans/Space_Type_Workflow_Vision.md` | 空间类型差异分析 |
-| 规则体系地图 | `.claude/skills/rule-tuning/references/rule-system-map.md` | 当前文件关系和数据流 |
-| Agent 工作流架构 | `docs/Agent_Workflows.md` | 当前架构参考 |
-| Agent 架构设计 | `docs/Agent_Design.md` | SubAgent 机制参考 |
-| 当前 SKILL.md | `BIMCanvas.Agent/templates/skills/generate-workflow/SKILL.md` | 旧工作流参考 |
-| 旧 placement_guide | 已删除（内容分散到 design_principles.md + 各房间 Skill） | 旧知识库参考 |
-| 当前 BIMCANVAS.md | `BIMCanvas.Agent/templates/BIMCANVAS.md` | 旧身份定义参考 |
-| 当前 module_library | `BIMCanvas.Server/Templates/modules/module_library.json` | 旧家具规则参考 |
+| 规则体系地图 | `.claude/skills/rule-tuning/references/rule-system-map.md` | 文件关系和数据流 |
+| Agent 工作流架构 | `docs/Agent_Workflows.md` | 运行时架构（已添加过时提醒头） |
+| Agent 架构设计 | `docs/Agent_Design.md` | SubAgent 机制（已添加过时提醒头） |
+| generate-workflow | `BIMCanvas.Agent/templates/skills/generate-workflow/SKILL.md` | 五阶段主工作流 |
+| design_principles | `BIMCanvas.Server/Templates/knowledge/design_principles.md` | 跨房间通用设计原则 |
+| BIMCANVAS.md | `BIMCanvas.Agent/templates/BIMCANVAS.md` | 主控 Agent 身份定义 |
+| module_library | `BIMCanvas.Server/Templates/modules/module_library.json` | 家具规则库 |
