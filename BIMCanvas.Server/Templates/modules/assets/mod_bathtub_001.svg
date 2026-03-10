@@ -1,0 +1,19 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1700 750">
+  <defs>
+    <style>
+      .main-lines { fill: none; stroke: #000000; stroke-width: 25; stroke-linecap: round; stroke-linejoin: round; }
+      .detail-lines { fill: none; stroke: #000000; stroke-width: 20; stroke-linecap: round; stroke-linejoin: round; }
+      .fine-lines { fill: none; stroke: #000000; stroke-width: 15; stroke-linecap: round; stroke-linejoin: round; }
+    </style>
+  </defs>
+  <!-- 浴缸整体外框 -->
+  <rect class="main-lines" x="12.5" y="12.5" width="1675" height="725" />
+  <!-- 浴缸内部盆体，使用圆角表示 -->
+  <rect class="detail-lines" x="100" y="80" width="1400" height="590" rx="250" ry="250" />
+  <!-- 下水口 / 地漏位置在靠壁侧 -->
+  <circle class="fine-lines" cx="1380" cy="375" r="30" />
+  <!-- 水龙头安装基座区 -->
+  <rect class="fine-lines" x="1480" y="325" width="70" height="100" rx="15" />
+  <!-- 水龙头出水方向指示线 -->
+  <line class="main-lines" x1="1400" y1="375" x2="1480" y2="375" />
+</svg>
