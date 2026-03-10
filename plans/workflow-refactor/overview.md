@@ -12,11 +12,11 @@
 |------|------|---------|--------|
 | T1：工作流 + Agent 定义 + 卧室 | ✅ 计划已定稿，待交执行窗口 | `T1-agent-workflow.md` ✅ | 交执行窗口实施 |
 | T2：知识体系 + 其余房间 | ✅ 计划已定稿，待交执行窗口 | `T2-knowledge-system.md` ✅ | 交执行窗口实施 |
-| T3：分区架构 + zoning Skill | 💬 待讨论 | `T3-zoning-architecture.md` ❌ | 进入讨论 |
+| T3：分区架构 + zoning Skill | ✅ 计划已定稿，待交执行窗口 | `T3-zoning-architecture.md` ✅ | 交执行窗口实施 |
 
-**当前状态**：T1、T2 计划均已定稿（用户确认通过），可交执行窗口实施。下一步进入 T3 讨论。
+**当前状态**：T1、T2、T3 计划均已定稿（用户确认通过），可按序交执行窗口实施。
 
-**执行顺序**：T1（主框架+卧室） → T2（知识+其余房间） → T3（分区数据+zoning Skill）
+**执行顺序**：T1（主框架+卧室） → T2（知识+其余房间） → T3（分区架构+zoning Skill，全栈交付）
 
 ---
 
@@ -299,16 +299,21 @@ Skills
 - **与 T1 联动**：T1 定义接口规范，T2 实现内容；T2 更新 generate-workflow 中的过渡引用
 - **与 T3 联动**：generate-livingroom 预留分区接口，T3 完成后从框架升级为完整版
 
-### T3：分区数据架构 + 分区 Skill
+### T3：分区架构 + zoning Skill（全栈交付）
 
-- **状态**：💬 待讨论
-- **计划文档**：`plans/workflow-refactor/T3-zoning-architecture.md`（待写）
-- **范围**：zones.json 扩展 + Server 代码 + generate-zoning/SKILL.md
+- **状态**：✅ 计划已定稿（用户确认通过）
+- **计划文档**：`plans/workflow-refactor/T3-zoning-architecture.md`
+- **范围**：Zone.cs 扩展（SubZones 嵌套）+ Server 适配 + Web 适配 + generate-zoning/SKILL.md + generate-workflow 更新 + generate-livingroom 升级
 - **依赖**：T1/T2 完成后开始
-- **待讨论要点**：
-  - zones.json 扩展方案（功能分区数据结构）
-  - Server 端需要哪些代码变更
-  - generate-zoning Skill 的分区方法论
+- **交付文件**：Zone.cs + ProjectService + ValidationController + ZoneBuilder + generate-zoning/SKILL.md + generate-workflow + generate-livingroom + zone_tools.py
+- **关键决策**：
+  - Zone 新增 SubZones 嵌套字段，子分区复用 Zone 类型
+  - 只有叶子 zone 放置家具，目录结构跟随嵌套
+  - Agent 推理坐标完成分区边界，零新增 Server API
+  - 跳过 openingIds（Agent 按坐标匹配，性价比更高）
+  - 统一方法论覆盖异形拆解 + 功能分区（空间降维）
+- **与 T1 联动**：激活 generate-workflow 分区接口、generate-bedroom 分区交接点
+- **与 T2 联动**：升级 generate-livingroom 为完整版、提炼 placement_guide 异形利用知识
 
 ### 依赖关系
 
