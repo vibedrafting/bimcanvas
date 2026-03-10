@@ -12,7 +12,7 @@
 |------|------|---------|--------|
 | T1：工作流 + Agent 定义 + 卧室 | ✅ 计划已定稿，待交执行窗口 | `T1-agent-workflow.md` ✅ | 交执行窗口实施 |
 | T2：知识体系 + 其余房间 | ✅ 计划已定稿，待交执行窗口 | `T2-knowledge-system.md` ✅ | 交执行窗口实施 |
-| T3：分区架构 + zoning Skill | 💬 待讨论 | `T3-zoning-architecture.md` ❌ | T2 完成后讨论 |
+| T3：分区架构 + zoning Skill | 💬 待讨论 | `T3-zoning-architecture.md` ❌ | 进入讨论 |
 
 **当前状态**：T1、T2 计划均已定稿（用户确认通过），可交执行窗口实施。下一步进入 T3 讨论。
 
