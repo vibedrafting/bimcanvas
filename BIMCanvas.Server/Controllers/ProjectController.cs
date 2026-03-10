@@ -473,29 +473,13 @@ namespace BIMCanvas.Server.Controllers
                     grouped[zoneId].Add(module);
                 }
 
-                // Step 3: 清空所有分区的 modules.json（防止残留）
-                var existingZoneDirs = Directory.GetDirectories(schemesPath)
-                    .Where(d =>
-                    {
-                        var name = Path.GetFileName(d);
-                        return name.StartsWith("rz_") || name.StartsWith("dz_") || name == "_unzoned";
-                    });
+                // Step 3: 递归清空所有叶子 zone 的 modules.json（支持嵌套分区，防止残留）
+                ProjectService.ClearAllLeafModuleFiles(schemesPath);
 
-                foreach (var zoneDir in existingZoneDirs)
-                {
-                    var modulesFile = Path.Combine(zoneDir, "modules.json");
-                    if (System.IO.File.Exists(modulesFile))
-                    {
-                        EnsureWritableFile(modulesFile);
-                        System.IO.File.Delete(modulesFile);
-                        _logger.LogDebug("[SaveModules] 清空分区文件: {Path}", modulesFile);
-                    }
-                }
-
-                // Step 4: 写入新数据
+                // Step 4: 写入新数据（支持嵌套分区路径解析）
                 foreach (var kvp in grouped)
                 {
-                    var zoneDir = Path.Combine(schemesPath, kvp.Key);
+                    var zoneDir = ProjectService.ResolveZoneDirectory(schemesPath, kvp.Key);
                     if (!Directory.Exists(zoneDir))
                         Directory.CreateDirectory(zoneDir);
 
@@ -707,35 +691,23 @@ namespace BIMCanvas.Server.Controllers
         {
             var allModules = new List<Module>();
 
-            // 1. 尝试读取分区子目录 (rz_* 或 dz_*)
-            var zoneDirs = Directory.GetDirectories(schemePath)
-                .Where(d =>
-                {
-                    var name = Path.GetFileName(d);
-                    return name.StartsWith("rz_") || name.StartsWith("dz_") || name == "_unzoned";
-                })
-                .ToList();
+            // 递归查找所有叶子 zone 的 modules.json（支持嵌套分区 schemes/rz_3/dz_1/modules.json）
+            var leafFiles = ProjectService.FindAllLeafModuleFiles(schemePath);
 
-            if (zoneDirs.Count > 0)
+            if (leafFiles.Count > 0)
             {
-                // 新格式：从分区子目录读取
-                foreach (var zoneDir in zoneDirs)
+                foreach (var (filePath, zoneId) in leafFiles)
                 {
-                    var zoneId = Path.GetFileName(zoneDir);  // e.g., "rz_1"
-                    var modulesPath = Path.Combine(zoneDir, "modules.json");
-                    if (System.IO.File.Exists(modulesPath))
+                    var modules = ReadJson<List<Module>>(filePath) ?? new List<Module>();
+
+                    foreach (var module in modules)
                     {
-                        var modules = ReadJson<List<Module>>(modulesPath) ?? new List<Module>();
-
-                        foreach (var module in modules)
-                        {
-                            module.ZoneId ??= zoneId;                       // 确保ZoneId填充
-                        }
-
-                        allModules.AddRange(modules);
+                        module.ZoneId ??= zoneId;                       // 确保ZoneId填充
                     }
+
+                    allModules.AddRange(modules);
                 }
-                _logger.LogDebug("从 {Count} 个分区子目录加载模块，共 {Total} 个", zoneDirs.Count, allModules.Count);
+                _logger.LogDebug("从 {Count} 个叶子分区加载模块，共 {Total} 个", leafFiles.Count, allModules.Count);
             }
             else
             {

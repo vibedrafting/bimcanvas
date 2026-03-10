@@ -15,7 +15,9 @@
       "Bash(find \"E:\\\\工作文档\\\\开发类\\\\MyCode\\\\BIMCanvas\" -name \"*.json\" -path \"*/baseline/*\" -o -name \"*.json\" -path \"*/computed/*\" 2>/dev/null | head -30)",
       "Bash(find \"E:\\\\工作文档\\\\开发类\\\\MyCode\\\\BIMCanvas\" -name \"*.md\" -type f 2>/dev/null | grep -i zone | head -10)",
       "Bash(cd \"E:/工作文档/开发类/MyCode/BIMCanvas/BIMCanvas.Web\" && npx vue-tsc --noEmit 2>&1 | tail -15)",
-      "Bash(cd \"E:/工作文档/开发类/MyCode/BIMCanvas/BIMCanvas.Web\" && npx vue-tsc --noEmit 2>&1 | tail -5; echo \"exit code: $?\")"
+      "Bash(cd \"E:/工作文档/开发类/MyCode/BIMCanvas/BIMCanvas.Web\" && npx vue-tsc --noEmit 2>&1 | tail -5; echo \"exit code: $?\")",
+      "Bash(cd \"E:/工作文档/开发类/MyCode/BIMCanvas\" && dotnet build BIMCanvas.Core --no-restore -nologo -clp:ErrorsOnly 2>&1)",
+      "Bash(cd \"E:/工作文档/开发类/MyCode/BIMCanvas\" && dotnet build BIMCanvas.Server --no-restore -nologo -clp:ErrorsOnly 2>&1)"
     ]
   }
 }

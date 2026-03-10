@@ -247,6 +247,81 @@ namespace BIMCanvas.Server.Services
         }
 
         /// <summary>
+        /// 解析 zoneId 到实际目录路径（支持嵌套分区）。
+        /// 例如 dz_1 → schemes/rz_3/dz_1（搜索已有目录）。
+        /// 静态方法，供各 Service/Controller 共用。
+        /// </summary>
+        internal static string ResolveZoneDirectory(string schemesPath, string zoneId)
+        {
+            // 1. 检查一级目录
+            var directPath = Path.Combine(schemesPath, zoneId);
+            if (Directory.Exists(directPath))
+                return directPath;
+
+            // 2. 搜索嵌套目录（在父 zone 目录下查找 dz_*）
+            if (Directory.Exists(schemesPath))
+            {
+                foreach (var parentDir in Directory.GetDirectories(schemesPath))
+                {
+                    var nestedPath = Path.Combine(parentDir, zoneId);
+                    if (Directory.Exists(nestedPath))
+                        return nestedPath;
+                }
+            }
+
+            // 3. 回退到一级目录（新建场景）
+            return directPath;
+        }
+
+        /// <summary>
+        /// 递归查找 schemes 下所有叶子 zone 的 modules.json 文件路径。
+        /// 静态方法，供各 Service/Controller 共用。
+        /// </summary>
+        /// <returns>(modulesFilePath, zoneId) 列表</returns>
+        internal static List<(string FilePath, string ZoneId)> FindAllLeafModuleFiles(string schemesPath)
+        {
+            var result = new List<(string, string)>();
+            if (!Directory.Exists(schemesPath))
+                return result;
+
+            var moduleFiles = Directory.GetFiles(schemesPath, "modules.json", SearchOption.AllDirectories);
+            foreach (var f in moduleFiles)
+            {
+                var dir = Path.GetFileName(Path.GetDirectoryName(f) ?? "");
+                if (dir.StartsWith("rz_") || dir.StartsWith("dz_") || dir == "_unzoned")
+                {
+                    result.Add((f, dir));
+                }
+            }
+
+            return result;
+        }
+
+        /// <summary>
+        /// 递归清空 schemes 下所有叶子 zone 的 modules.json（重写为空数组）。
+        /// 静态方法，供 SaveAllModules 等场景使用。
+        /// </summary>
+        internal static void ClearAllLeafModuleFiles(string schemesPath)
+        {
+            if (!Directory.Exists(schemesPath))
+                return;
+
+            var moduleFiles = Directory.GetFiles(schemesPath, "modules.json", SearchOption.AllDirectories);
+            foreach (var f in moduleFiles)
+            {
+                var dir = Path.GetFileName(Path.GetDirectoryName(f) ?? "");
+                if (dir.StartsWith("rz_") || dir.StartsWith("dz_") || dir == "_unzoned")
+                {
+                    // 移除只读属性
+                    var attrs = File.GetAttributes(f);
+                    if ((attrs & FileAttributes.ReadOnly) != 0)
+                        File.SetAttributes(f, attrs & ~FileAttributes.ReadOnly);
+                    File.Delete(f);
+                }
+            }
+        }
+
+        /// <summary>
         /// 初始化项目 Git 仓库
         /// v3.1 架构：单仓库 + 多分支，支持 Worktree 并行任务
         /// </summary>

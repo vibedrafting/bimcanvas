@@ -136,31 +136,27 @@ namespace BIMCanvas.Server.Services
                 return modules;
             }
 
-            // 遍历所有分区子目录
-            foreach (var zoneDir in Directory.GetDirectories(schemesPath))
+            // 递归遍历所有叶子 zone 的 modules.json（支持嵌套分区 schemes/rz_3/dz_1/modules.json）
+            var leafFiles = ProjectService.FindAllLeafModuleFiles(schemesPath);
+            foreach (var (filePath, zoneId) in leafFiles)
             {
-                var zoneId = Path.GetFileName(zoneDir);  // e.g., "rz_1"
-                var modulesFile = Path.Combine(zoneDir, "modules.json");
-                if (File.Exists(modulesFile))
+                try
                 {
-                    try
+                    var json = File.ReadAllText(filePath);
+                    var zoneModules = JsonConvert.DeserializeObject<List<Module>>(json, _jsonSettings);
+                    if (zoneModules != null)
                     {
-                        var json = File.ReadAllText(modulesFile);
-                        var zoneModules = JsonConvert.DeserializeObject<List<Module>>(json, _jsonSettings);
-                        if (zoneModules != null)
+                        foreach (var module in zoneModules)
                         {
-                            foreach (var module in zoneModules)
-                            {
-                                module.ZoneId ??= zoneId;                       // 确保ZoneId填充
-                            }
-
-                            modules.AddRange(zoneModules);
+                            module.ZoneId ??= zoneId;                       // 确保ZoneId填充
                         }
+
+                        modules.AddRange(zoneModules);
                     }
-                    catch (Exception ex)
-                    {
-                        _logger.LogWarning(ex, "读取模块文件失败: {Path}", modulesFile);
-                    }
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "读取模块文件失败: {Path}", filePath);
                 }
             }
 
@@ -210,28 +206,13 @@ namespace BIMCanvas.Server.Services
 
             var savedCount = 0;
 
-            // 清空所有分区的 modules.json（防止残留）
-            var existingZoneDirs = Directory.GetDirectories(schemesPath)
-                .Where(d =>
-                {
-                    var name = Path.GetFileName(d);
-                    return name.StartsWith("rz_") || name.StartsWith("dz_") || name == "_unzoned";
-                });
+            // 递归清空所有叶子 zone 的 modules.json（支持嵌套分区，防止残留）
+            ProjectService.ClearAllLeafModuleFiles(schemesPath);
 
-            foreach (var zoneDir in existingZoneDirs)
-            {
-                var modulesFile = Path.Combine(zoneDir, "modules.json");
-                if (File.Exists(modulesFile))
-                {
-                    EnsureWritableFile(modulesFile);
-                    File.Delete(modulesFile);
-                }
-            }
-
-            // 写入新数据
+            // 写入新数据（支持嵌套分区路径解析）
             foreach (var kvp in modulesByZone)
             {
-                var zoneDir = Path.Combine(schemesPath, kvp.Key);
+                var zoneDir = ProjectService.ResolveZoneDirectory(schemesPath, kvp.Key);
                 if (!Directory.Exists(zoneDir))
                 {
                     Directory.CreateDirectory(zoneDir);

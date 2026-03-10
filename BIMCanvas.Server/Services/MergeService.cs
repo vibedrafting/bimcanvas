@@ -362,7 +362,9 @@ namespace BIMCanvas.Server.Services
         }
 
         /// <summary>
-        /// 获取分支中的所有分区 ID
+        /// 获取分支中的所有叶子分区路径（支持嵌套分区）。
+        /// 返回相对于 schemes/ 的路径，如 "rz_1"、"rz_3/dz_1"、"rz_3/dz_2"。
+        /// 叶子 zone = 包含 modules.json 的目录。
         /// </summary>
         private List<string> GetZonesFromBranch(string projectPath, string branch)
         {
@@ -370,8 +372,8 @@ namespace BIMCanvas.Server.Services
 
             try
             {
-                // 使用 git ls-tree 获取分支中的 schemes 目录结构
-                var arguments = $"ls-tree --name-only {branch}:schemes";
+                // 使用 git ls-tree -r 递归列出 schemes/ 下所有文件
+                var arguments = $"ls-tree -r --name-only {branch}:schemes";
 
                 var startInfo = new System.Diagnostics.ProcessStartInfo
                 {
@@ -391,14 +393,23 @@ namespace BIMCanvas.Server.Services
                 }
 
                 var output = process.StandardOutput.ReadToEnd();
-                var error = process.StandardError.ReadToEnd();
                 process.WaitForExit(5000);
 
                 if (process.ExitCode == 0)
                 {
+                    // 找出所有 modules.json 的路径，提取其所在目录作为叶子 zone 路径
+                    // 例如 "rz_1/modules.json" → "rz_1"
+                    //      "rz_3/dz_1/modules.json" → "rz_3/dz_1"
                     zones = output.Split('\n', StringSplitOptions.RemoveEmptyEntries)
-                        .Where(name => name.StartsWith("rz_") || name.StartsWith("dz_") || name == "_unzoned")
-                        .Select(name => name.Trim())
+                        .Select(line => line.Trim())
+                        .Where(line => line.EndsWith("/modules.json"))
+                        .Select(line => line.Substring(0, line.Length - "/modules.json".Length))
+                        .Where(dir =>
+                        {
+                            // 取最深层目录名，检查是否是 zone 目录
+                            var leafDir = dir.Contains('/') ? dir.Substring(dir.LastIndexOf('/') + 1) : dir;
+                            return leafDir.StartsWith("rz_") || leafDir.StartsWith("dz_") || leafDir == "_unzoned";
+                        })
                         .ToList();
                 }
             }
@@ -411,14 +422,15 @@ namespace BIMCanvas.Server.Services
         }
 
         /// <summary>
-        /// 从源分支复制分区数据到当前工作目录
+        /// 从源分支复制分区数据到当前工作目录。
+        /// zoneId 可以是嵌套路径（如 "rz_3/dz_1"），自动创建对应目录结构。
         /// </summary>
         private async Task CopyZoneFromBranchAsync(string projectPath, string sourceBranch, string zoneId)
         {
             var zonePath = $"schemes/{zoneId}";
             var targetZoneDir = Path.Combine(projectPath, zonePath);
 
-            // 创建目标目录
+            // 创建目标目录（支持嵌套路径）
             if (!Directory.Exists(targetZoneDir))
             {
                 Directory.CreateDirectory(targetZoneDir);
