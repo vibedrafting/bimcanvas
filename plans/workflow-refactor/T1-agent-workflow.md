@@ -1,5 +1,6 @@
 # T1：Agent 工作流 + 双层 Agent 定义 + 卧室策略 Skill
 
+> **状态**：✅ 已完成（commit `c2c1f3d`，+299/-653）
 > 依赖：无（第一波任务）
 > 上游文档：`plans/workflow-refactor/overview.md`
 
