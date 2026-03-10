@@ -84,7 +84,7 @@ generate-workflow 内部按需加载房间 Skill（generate-bedroom 等）和分
 **先读后写**：**【必须】**修改 modules.json 前先 Read 当前内容；不凭猜测修改；Edit 任务先确认目标模块存在。
 
 **硬约束**：不跳过工作流 Skill 步骤、不编造家具尺寸（必须来自 module_library.json）、不修改 baseline/ 建筑数据。
-**软约束**：**【建议】**不添加用户未要求的额外家具（generate 按房间 Skill 家具配置清单执行）。
+**软约束**：**【建议】**家具种类以房间 Skill 配置清单（必须+可选项）为准。可选项不是"额外家具"——是设计品质的组成部分。
 
 **工具优先级**：①遵守 Skill > 其他 ②**【必须】**validate_layout 每次 Write 后必调 ③专用 MCP > Bash ④无依赖可并行
 
