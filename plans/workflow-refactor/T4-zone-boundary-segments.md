@@ -3,7 +3,23 @@
 > 为 Zone 添加边界段类型描述（wall/passage/door/window），解决 Agent 无法区分墙和通道的问题。
 
 **前置任务**：T3-zoning-architecture（分区架构已完成）
-**状态**：设计完成，待实现
+**状态**：✅ 核心实现完成，已通过金凤143实测验证
+
+---
+
+## 实施进度
+
+| 步骤 | 状态 | 说明 |
+|------|------|------|
+| Core 层数据模型 | ✅ 完成 | BoundarySegment.cs + ZoneBoundaryData.cs |
+| Server 算法 | ✅ 完成 | ZoneBoundaryService.cs（四阶段算法） |
+| Server 端点 | ✅ 完成 | `POST /api/validation/zone-boundaries` |
+| Agent MCP 工具 | ✅ 完成 | `mcp__canvas__get_zone_boundaries` |
+| 金凤143 实测 | ✅ 通过 | rz_2 测试：门窗匹配准确，wall 分类正确 |
+| 坐标精度优化 | ✅ 完成 | 输出坐标四舍五入到整数 mm |
+| 共线段合并优化 | ✅ 完成 | 相邻共线同类型段自动合并 |
+| Skill 提示词调整 | 🔶 待做 | generate-workflow/bedroom/zoning 引导使用 boundarySegments |
+| dz_1/dz_2 端到端验证 | 🔶 待做 | 验证子分区 passage 分类 + Agent 布置行为 |
 
 ---
 
@@ -22,35 +38,29 @@ Zone 的 `rawBoundary` 只描述多边形形状，不描述每条边的物理含
 
 ---
 
-## 一、数据模型（Core 层新增）
+## 一、数据模型（Core 层）
 
-### `BIMCanvas.Core/Models/Computed/BoundarySegment.cs`（新建）
+### `BIMCanvas.Core/Models/Computed/BoundarySegment.cs`
 
 ```csharp
-/// <summary>
-/// Zone 边界段：wall/passage/door/window
-/// 有序数组，首尾闭合，完整描述 zone 的边界语义。
-/// </summary>
 public class BoundarySegment
 {
-    /// <summary>门窗 ID（d_5/wi_5）或相邻 zone ID（dz_1），wall 时为 null</summary>
-    public string? Id { get; set; }
+    [JsonProperty(NullValueHandling = NullValueHandling.Ignore)]
+    public string Id { get; set; }       // door/window: Opening.Id, passage: sibling zone Id, wall: null(省略)
 
-    /// <summary>"wall" | "passage" | "door" | "window"</summary>
-    public string Type { get; set; }
-
+    public string Type { get; set; } = "wall";  // "wall" | "passage" | "door" | "window"
     public Point2D Start { get; set; }
     public Point2D End { get; set; }
 }
 ```
 
-### `BIMCanvas.Core/Models/Computed/ZoneBoundaryData.cs`（新建）
+### `BIMCanvas.Core/Models/Computed/ZoneBoundaryData.cs`
 
 ```csharp
 public class ZoneBoundaryData
 {
-    public string ZoneId { get; set; }
-    public List<BoundarySegment> Segments { get; set; } = new();
+    public string ZoneId { get; set; } = string.Empty;
+    public List<BoundarySegment> Segments { get; set; } = new List<BoundarySegment>();
 }
 ```
 
@@ -58,6 +68,8 @@ public class ZoneBoundaryData
 - 4 字段、每段自包含、有序闭合
 - 门窗从 wall 段中拆出成独立段（不是嵌套在 wall 的 openings 字段里）
 - 不修改 Zone.cs：boundarySegments 是派生计算数据
+- wall 段 Id 为 null，JSON 中省略（`NullValueHandling.Ignore`）
+- 坐标四舍五入到整数 mm（消除 Revit 导出浮点噪声）
 
 ---
 
@@ -94,74 +106,43 @@ public class ZoneBoundaryData
 
 ---
 
-## 三、计算算法（Server 层）— 待深入讨论
+## 三、计算算法（Server 层）
 
-### 核心逻辑：`ZoneBoundaryService.CalculateZoneBoundarySegments()`
+### `ZoneBoundaryService.CalculateBoundarySegments()`
+
+四阶段算法，详见 `T4-boundary-algorithm-design.md`。
 
 ```
-输入：allZones（含 subZones）, openings
-输出：List<ZoneBoundaryData>
-
-对每个叶子 zone Z：
-  parent = Z 的父 zone（room zone）
-  siblings = 同父 zone 的兄弟叶子 zone
-
-  对 Z.rawBoundary 的每条边 E (Vi → Vi+1)：
-
-    // 1. 检查 E 是否在父 zone 的边界上（共线+重叠判定，容差 ~150mm）
-    wallOverlap = findOverlapWithPolygon(E, parent.rawBoundary)
-
-    // 2. 检查 E 是否与兄弟 zone 共享
-    passageOverlaps = []
-    for each sibling S:
-      passageOverlaps += findOverlapWithPolygon(E, S.rawBoundary)
-
-    // 3. 混合边自动拆分
-    //    将 wallOverlap 和 passageOverlaps 投影到 E 的参数化区间 [0,1]
-    //    合并+排序 → 生成多个子段，每段标记 wall 或 passage
-    //    未被覆盖的部分默认为 wall（外墙，可能因浮点精度未匹配到父边界）
-
-    segments += splitEdgeByRanges(E, wallOverlap, passageOverlaps)
-
-  // 4. 匹配门窗到 wall 段，拆分为 wall + door/window + wall
-  for each seg where seg.Type == "wall":
-    for each opening in openings:
-      if opening.Line 中点到 seg 直线距离 < 150mm:
-        投影 opening 端点到 seg 上 → 拆分 seg 为最多 3 段
+Phase A: Opening 预归属 — 每个 opening 绑定到垂距最小的 zone 边（平行+垂距<150mm）
+Phase B: Wall/Passage 分类 — "非 wall 即 passage"：parent 匹配→wall，补集→passage，sibling 匹配→passage.Id
+Phase C: 门窗精确切割 — 线性游标拆分 wall 段为 wall+door/window+wall
+Phase D: 后处理 — 极短段合并(<50mm) + 短passage修正(<200mm) + 共线同类型合并 + 首尾闭合
 ```
 
-### 关键算法细节
+### 关键算法：`FindOverlapRange`
 
-**共线+重叠判定（容差 150mm）**：
-- 开口（门窗）在 Revit 导出时坐标有 ~50-100mm 偏移（门线在墙中线，zone 边界在墙内面）
-- 子 zone 的 rawBoundary 是 Agent 四舍五入的整数坐标
-- 使用 150mm 容差覆盖这两种误差
+平行检测（叉积<0.05≈3°）+ 垂距检测（到无限延长线<150mm）+ 参数化投影 [0,1]
 
-### 正确分类示例（金凤143 rz_3 → dz_1 + dz_2）
+### 关键常量
 
-**父 zone rz_3 边界**（关键段）：
-- x=12100 线：y=7800→10700 是墙
-- x=12000 线：y=5350→5800 是墙（注意是 12000 不是 12100）
-- y=7800 线：x=9500→12100 是墙
-- y=5350 线：x=9500→12000 是墙
+| 常量 | 值 | 用途 |
+|------|------|------|
+| ParallelTolerance | 0.05 | ~3° 平行检测 |
+| DistanceTolerance | 150mm | 覆盖 Revit 偏移 + Agent 四舍五入 |
+| MinOverlapLength | 10mm | 最小有效重叠 |
+| MergeThreshold | 50mm | 极短段合并 |
+| ShortPassageThreshold | 200mm | 短 passage 修正 |
 
-**dz_1** `[[12100,5800],[15500,5800],[15500,10700],[12100,10700]]`：
+### 边界情况处理
 
-| 边 | 方向 | 父边界匹配 | 类型 |
-|----|------|-----------|------|
-| (12100,5800)→(15500,5800) | south | (12000,5800)→(13650,5800) ≈匹配 | **wall** |
-| (15500,5800)→(15500,10700) | east | 完全匹配 | **wall** |
-| (15500,10700)→(12100,10700) | north | 完全匹配 | **wall**（含 wi_5） |
-| (12100,10700)→(12100,5800) | west | y=10700→7800 匹配，y=7800→5800 不匹配 | **拆分**：wall(10700→7800) + passage(7800→5800, →dz_2) |
-
-**dz_2** `[[9500,5350],[12100,5350],[12100,7800],[9500,7800]]`：
-
-| 边 | 方向 | 父边界匹配 | 类型 |
-|----|------|-----------|------|
-| (9500,5350)→(12100,5350) | south | (9500,5350)→(12000,5350) 部分匹配 | **wall**（含 d_6） |
-| (12100,5350)→(12100,7800) | east | 父边界无 x=12100 y<7800 的段 | **passage**（→dz_1） |
-| (12100,7800)→(9500,7800) | north | (12100,7800)→(9500,7800) 完全匹配 | **wall**（含 d_5） |
-| (9500,7800)→(9500,5350) | west | (9500,7800)→(9500,5350) 完全匹配 | **wall** |
+| 场景 | 处理 |
+|------|------|
+| Zone.RawBoundary 为 null | 跳过，返回空 segments |
+| Opening.Line 为 null | 跳过该 opening |
+| 顶层 room zone（无 parent） | 所有边默认 wall，只做门窗切割 |
+| Polygon2D.Vertices 隐式闭合 | 遍历时处理 Vn→V0 边 |
+| Revit 浮点噪声 | 输出坐标 Math.Round 到整数 mm |
+| 共线同类型段 | PostProcess 自动合并 |
 
 ---
 
@@ -173,20 +154,32 @@ boundary segments 是**派生计算**（由 zones + openings 完全决定），�
 
 **不存文件** → 不需要触发/同步机制 → 架构更简单。
 
-### MCP 工具：`get_zone_boundaries`
+### Server 端点
 
 ```
-输入：{ projectPath, zoneIds?: string[] }
-输出：List<ZoneBoundaryData>
-
-Server 内部：
-1. 读当前有效 zones（schemes/zones.json 优先，回退 computed/room_zones.json）
-2. 读 baseline/openings.json
-3. 实时计算 boundary segments
-4. 返回
+POST /api/validation/zone-boundaries
+请求体：{ "zoneIds": ["dz_1", "dz_2"] }  // 可选，不传返回所有叶子 zone
+响应体：List<ZoneBoundaryData>
 ```
 
-zoneIds 可选：指定时只返回这些 zone 的 segments，不指定时返回所有叶子 zone。
+### Agent MCP 工具：`mcp__canvas__get_zone_boundaries`
+
+```python
+@tool("get_zone_boundaries", ...)
+async def get_zone_boundaries(args):
+    # 调用 Server → 格式化为 AI 友好文本
+```
+
+输出格式：
+```
+=== Zone 边界段数据（1 个 zone）===
+--- rz_2 (14 段) ---
+  wall: [11675, 10700] → [11188, 10700]
+  window (wi_6): [11188, 10700] → [9988, 10700]
+  wall: [9988, 10700] → [9500, 10700]
+  wall: [9500, 10700] → [9500, 7900]
+  ...
+```
 
 ### Agent 调用时机
 
@@ -195,24 +188,23 @@ zoneIds 可选：指定时只返回这些 zone 的 segments，不指定时返回
 | generate-workflow 感知阶段 | 读完 zones 后 | 获取墙面清单，替代手动推断 |
 | generate-zoning 完成后 | 写入 subZones 后 | 获取新 subZone 的墙/通道分类 |
 
-两个触发场景都是 **Agent 主动调用**，Server 无需任何监听逻辑。
-
 ---
 
-## 五、改动文件清单
+## 五、实际改动文件清单
 
 | 层 | 文件 | 操作 | 内容 |
 |----|------|------|------|
-| **Core** | `Models/Computed/BoundarySegment.cs` | 新建 | BoundarySegment（4 字段） |
-| **Core** | `Models/Computed/ZoneBoundaryData.cs` | 新建 | ZoneBoundaryData 包装类 |
-| **Server** | `Services/ZoneBoundaryService.cs` | 新建 | 计算逻辑：CalculateZoneBoundarySegments() |
-| **Server** | Controller（扩展现有 MCP 端点） | 修改 | MCP 端点：get_zone_boundaries |
-| **Agent** | MCP 工具注册 | 修改 | 注册 get_zone_boundaries 工具 |
-| **Agent** | Skill 提示词 | 修改 | generate-bedroom、generate-workflow 引导使用 boundarySegments |
+| **Core** | `Models/Computed/BoundarySegment.cs` | ✅ 新建 | BoundarySegment（4 字段 + NullValueHandling） |
+| **Core** | `Models/Computed/ZoneBoundaryData.cs` | ✅ 新建 | ZoneBoundaryData 包装类 |
+| **Server** | `Services/ZoneBoundaryService.cs` | ✅ 新建 | 四阶段算法 + 坐标四舍五入 + 共线合并 |
+| **Server** | `Program.cs` | ✅ 修改 | +1 行 AddSingleton<ZoneBoundaryService> |
+| **Server** | `Controllers/ValidationController.cs` | ✅ 修改 | zone-boundaries 端点 + 构造函数注入 |
+| **Agent** | `src/mcp/canvas.py` | ✅ 修改 | get_zone_boundaries 工具 + 格式化 + 注册 |
+| **Agent** | Skill 提示词 | 🔶 待做 | generate-workflow/bedroom/zoning 引导使用 |
 
 ---
 
-## 六、提示词调整方向
+## 六、提示词调整方向（待实施）
 
 ### generate-workflow（感知阶段）
 增加指引：调用 `get_zone_boundaries` 获取边界语义数据，直接使用此数据进行墙面分析，不再从 rawBoundary 顶点手动推断。
@@ -225,23 +217,24 @@ zoneIds 可选：指定时只返回这些 zone 的 segments，不指定时返回
 
 ---
 
-## 七、实施顺序
+## 七、验证记录
 
-1. Core 层：新建 BoundarySegment.cs、ZoneBoundaryData.cs
-2. Server 算法：新建 ZoneBoundaryService，实现计算逻辑（核心难点）
-3. Server 端点：MCP Controller 端点暴露 get_zone_boundaries
-4. Agent MCP：注册工具 + Skill 提示词调整
-5. 编译验证 + 用金凤143数据测试
+### 金凤143 rz_2 实测（2026-03-11）
 
----
+**结果**：✅ 算法逻辑完全正确
 
-## 八、验证方案
+| 检查项 | 结果 |
+|--------|------|
+| wi_6（窗）匹配到北边 | ✅ 垂距 100mm < 150mm，位置准确 |
+| d_5（门）匹配到南边 | ✅ 垂距 50mm < 150mm，位置准确 |
+| 东侧凹凸结构（7段 wall） | ✅ 与截图吻合 |
+| 总段数 | 15段（优化后 14段，西边共线合并） |
 
-1. **编译**：Core + Server 编译通过
-2. **MCP 调用测试**：调用 get_zone_boundaries(金凤143, ["dz_1", "dz_2"])，验证：
-   - dz_1 西边拆分为 wall(10700→7800) + passage(7800→5800)
-   - dz_2 东边整体为 passage
-   - dz_2 南墙：wall + d_6(door) + wall
-   - dz_2 北墙：wall + d_5(door) + wall
-   - dz_1 北墙：wall + wi_5(window) + wall
-3. **Agent 端到端**：重新运行主卧布局任务，观察 Agent 是否避免在 passage 段放家具
+**优化项**：
+1. ~~坐标浮点噪声~~（已修复：Math.Round 取整）
+2. ~~共线 wall 段未合并~~（已修复：PostProcess 新增 MergeCollinearSegments）
+
+### 待验证
+
+- [ ] dz_1/dz_2 子分区 passage 分类
+- [ ] Agent 端到端布置行为（避免在 passage 段放家具）

@@ -685,7 +685,10 @@ namespace BIMCanvas.Server.Services
             // 规则 2: 短 passage 修正 (< 200mm)
             segments = FixShortPassages(segments, ShortPassageThreshold);
 
-            // 规则 3: 首尾闭合验证
+            // 规则 3: 共线同类型段合并
+            segments = MergeCollinearSegments(segments);
+
+            // 规则 4: 首尾闭合验证
             EnsureClosure(segments);
 
             return segments;
@@ -834,7 +837,59 @@ namespace BIMCanvas.Server.Services
             return result;
         }
 
-        /// <summary>规则 3: 首尾闭合验证</summary>
+        /// <summary>规则 3: 合并相邻共线同类型段</summary>
+        private List<BoundarySegment> MergeCollinearSegments(List<BoundarySegment> segments)
+        {
+            if (segments.Count <= 1) return segments;
+
+            var result = new List<BoundarySegment> { segments[0] };
+
+            for (int i = 1; i < segments.Count; i++)
+            {
+                var prev = result[result.Count - 1];
+                var curr = segments[i];
+
+                // 类型相同 + Id 相同 + 前段 End ≈ 后段 Start + 方向共线
+                if (prev.Type == curr.Type
+                    && prev.Id == curr.Id
+                    && Distance(prev.End, curr.Start) < ClosureTolerance)
+                {
+                    // 共线检测：两段方向向量叉积 ≈ 0
+                    var prevDx = prev.End.X - prev.Start.X;
+                    var prevDy = prev.End.Y - prev.Start.Y;
+                    var currDx = curr.End.X - curr.Start.X;
+                    var currDy = curr.End.Y - curr.Start.Y;
+                    var prevLen = Math.Sqrt(prevDx * prevDx + prevDy * prevDy);
+                    var currLen = Math.Sqrt(currDx * currDx + currDy * currDy);
+
+                    if (prevLen > 1e-6 && currLen > 1e-6)
+                    {
+                        var cross = Math.Abs(
+                            (prevDx / prevLen) * (currDy / currLen) -
+                            (prevDy / prevLen) * (currDx / currLen));
+
+                        if (cross < ParallelTolerance)
+                        {
+                            // 合并：扩展前段的 End
+                            result[result.Count - 1] = new BoundarySegment
+                            {
+                                Id = prev.Id,
+                                Type = prev.Type,
+                                Start = prev.Start,
+                                End = curr.End
+                            };
+                            continue;
+                        }
+                    }
+                }
+
+                result.Add(curr);
+            }
+
+            return result;
+        }
+
+        /// <summary>规则 4: 首尾闭合验证</summary>
         private void EnsureClosure(List<BoundarySegment> segments)
         {
             if (segments.Count < 2) return;
@@ -872,11 +927,11 @@ namespace BIMCanvas.Server.Services
                 Id = id,
                 Type = type,
                 Start = new Point2D(
-                    edgeStart.X + tStart * dx,
-                    edgeStart.Y + tStart * dy),
+                    Math.Round(edgeStart.X + tStart * dx),
+                    Math.Round(edgeStart.Y + tStart * dy)),
                 End = new Point2D(
-                    edgeStart.X + tEnd * dx,
-                    edgeStart.Y + tEnd * dy)
+                    Math.Round(edgeStart.X + tEnd * dx),
+                    Math.Round(edgeStart.Y + tEnd * dy))
             };
         }
 
