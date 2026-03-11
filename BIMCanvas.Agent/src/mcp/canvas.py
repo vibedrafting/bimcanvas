@@ -600,6 +600,83 @@ async def validate_layout(args: dict[str, Any]) -> dict[str, Any]:
 
 
 
+def _format_zone_boundaries(data: list[dict[str, Any]]) -> str:
+    """将 ZoneBoundaryData 列表格式化为 AI 友好文本"""
+    if not data:
+        return "没有找到 zone 边界数据"
+
+    lines = [f"=== Zone 边界段数据（{len(data)} 个 zone）===", ""]
+    for zone_data in data:
+        zone_id = zone_data.get("zoneId", "?")
+        segments = zone_data.get("segments", [])
+        lines.append(f"--- {zone_id} ({len(segments)} 段) ---")
+        for seg in segments:
+            seg_type = seg.get("type", "?")
+            seg_id = seg.get("id")
+            start = seg.get("start", [0, 0])
+            end = seg.get("end", [0, 0])
+            id_part = f" ({seg_id})" if seg_id else ""
+            lines.append(f"  {seg_type}{id_part}: {start} → {end}")
+        lines.append("")
+
+    return "\n".join(lines)
+
+
+@tool(
+    "get_zone_boundaries",
+    "获取 Zone 边界语义数据：将 zone 的多边形边界拆分为 wall/passage/door/window 段，"
+    "帮助理解每条边的物理含义。子分区场景下区分实墙和通道。",
+    {
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "type": "object",
+        "properties": {
+            "zoneIds": {
+                "type": "array",
+                "items": {"type": "string"},
+                "description": "可选。指定要查询的 Zone ID 列表（如 [\"dz_1\", \"dz_2\"]）。"
+                               "不传则返回所有叶子 zone 的边界段数据。"
+            }
+        },
+        "additionalProperties": False
+    }
+)
+async def get_zone_boundaries(args: dict[str, Any]) -> dict[str, Any]:
+    """获取 Zone 边界段语义数据"""
+    zone_ids = args.get("zoneIds")
+    body = {"zoneIds": zone_ids} if zone_ids else None
+
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.post(
+                f"{SERVER_URL}/api/validation/zone-boundaries", json=body
+            ) as resp:
+                if resp.status == 400:
+                    return {
+                        "content": [{"type": "text", "text": "错误: 没有加载的项目"}],
+                        "is_error": True
+                    }
+                if resp.status != 200:
+                    try:
+                        error_data = await resp.json()
+                        error_msg = error_data.get("message", f"HTTP {resp.status}")
+                    except Exception:
+                        error_msg = await resp.text()
+                    return {
+                        "content": [{"type": "text", "text": f"获取边界数据失败: {error_msg}"}],
+                        "is_error": True
+                    }
+
+                data = await resp.json()
+                text = _format_zone_boundaries(data)
+                return {"content": [{"type": "text", "text": text}]}
+
+    except aiohttp.ClientError as e:
+        return {
+            "content": [{"type": "text", "text": f"无法连接 Server: {str(e)}"}],
+            "is_error": True
+        }
+
+
 # 创建 Canvas MCP Server
 canvas_mcp = create_sdk_mcp_server(
     name="canvas",
@@ -609,6 +686,7 @@ canvas_mcp = create_sdk_mcp_server(
         # ai_job_complete,        # 临时禁用：Job 完成通知（暂不需要）
         request_background_screenshot,
         validate_layout,
+        get_zone_boundaries,
     ],
 )
 
@@ -618,4 +696,5 @@ CANVAS_ALLOWED_TOOLS = [
     # "mcp__canvas__complete_job",                     # 临时禁用
     "mcp__canvas__request_background_screenshot",
     "mcp__canvas__validate_layout",
+    "mcp__canvas__get_zone_boundaries",
 ]

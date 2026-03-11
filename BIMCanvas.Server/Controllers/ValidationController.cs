@@ -23,14 +23,17 @@ namespace BIMCanvas.Server.Controllers
     {
         private readonly ILogger<ValidationController> _logger;
         private readonly ProjectContext _projectContext;
+        private readonly ZoneBoundaryService _zoneBoundaryService;
         private readonly JsonSerializerSettings _jsonSettings;
 
         public ValidationController(
             ILogger<ValidationController> logger,
-            ProjectContext projectContext)
+            ProjectContext projectContext,
+            ZoneBoundaryService zoneBoundaryService)
         {
             _logger = logger;
             _projectContext = projectContext;
+            _zoneBoundaryService = zoneBoundaryService;
             _jsonSettings = new JsonSerializerSettings
             {
                 ContractResolver = new CamelCasePropertyNamesContractResolver(),
@@ -309,6 +312,85 @@ namespace BIMCanvas.Server.Controllers
 
             _logger.LogDebug("[Validation] 持久化 {Count} 个模块的 Id", modules.Count);
         }
+
+        /// <summary>
+        /// 获取 Zone 边界语义数据（wall/passage/door/window 段）
+        /// Agent 按需调用，实时计算不存文件
+        /// </summary>
+        [HttpPost("zone-boundaries")]
+        public ActionResult<List<ZoneBoundaryData>> GetZoneBoundaries(
+            [FromBody] ZoneBoundaryRequest request)
+        {
+            if (!_projectContext.IsLoaded)
+            {
+                return BadRequest(new { message = "没有加载的项目" });
+            }
+
+            var projectPath = _projectContext.GetActiveWorktreePath()
+                              ?? _projectContext.CurrentProjectPath!;
+
+            if (!Directory.Exists(projectPath))
+            {
+                return NotFound(new { message = $"项目目录不存在: {projectPath}" });
+            }
+
+            try
+            {
+                _logger.LogInformation("[ZoneBoundary] 计算边界段: {Path}", projectPath);
+
+                // 1. 读取 zones（优先 schemes/zones.json，回退 computed/room_zones.json）
+                var allZones = LoadAllZones(projectPath);
+                if (allZones.Count == 0)
+                {
+                    return Ok(new List<ZoneBoundaryData>());
+                }
+
+                // 2. 读取 openings
+                var openings = LoadOpenings(projectPath);
+
+                // 3. 计算
+                var results = _zoneBoundaryService.CalculateBoundarySegments(
+                    allZones, openings, request?.ZoneIds);
+
+                _logger.LogInformation("[ZoneBoundary] 计算完成: {Count} 个 zone 的边界段", results.Count);
+                return Ok(results);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "[ZoneBoundary] 计算失败: {Path}", projectPath);
+                return StatusCode(500, new { message = $"边界段计算失败: {ex.Message}" });
+            }
+        }
+
+        /// <summary>
+        /// 读取所有 zones（优先 schemes/zones.json，回退 computed/room_zones.json）
+        /// </summary>
+        private List<Zone> LoadAllZones(string projectPath)
+        {
+            var schemesZonesPath = Path.Combine(projectPath, "schemes", "zones.json");
+            if (System.IO.File.Exists(schemesZonesPath))
+            {
+                var zones = ReadJson<List<Zone>>(schemesZonesPath);
+                if (zones != null && zones.Count > 0)
+                    return zones;
+            }
+
+            var roomZonesPath = Path.Combine(projectPath, "computed", "room_zones.json");
+            if (System.IO.File.Exists(roomZonesPath))
+                return ReadJson<List<Zone>>(roomZonesPath) ?? new List<Zone>();
+
+            return new List<Zone>();
+        }
+
+        /// <summary>
+        /// 读取 openings
+        /// </summary>
+        private List<Opening> LoadOpenings(string projectPath)
+        {
+            var path = Path.Combine(projectPath, "baseline", "openings.json");
+            if (!System.IO.File.Exists(path)) return new List<Opening>();
+            return ReadJson<List<Opening>>(path) ?? new List<Opening>();
+        }
     }
 
     /// <summary>
@@ -317,6 +399,15 @@ namespace BIMCanvas.Server.Controllers
     public class ValidateLayoutRequest
     {
         /// <summary>仅验证这些 Zone 内的模块（为空或 null 时验证全部）</summary>
+        public List<string> ZoneIds { get; set; }
+    }
+
+    /// <summary>
+    /// get_zone_boundaries 请求体
+    /// </summary>
+    public class ZoneBoundaryRequest
+    {
+        /// <summary>可选，指定要计算的 Zone ID 列表。不传则返回所有叶子 zone。</summary>
         public List<string> ZoneIds { get; set; }
     }
 }

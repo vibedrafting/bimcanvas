@@ -100,6 +100,7 @@ builder.Services.AddSingleton<ManifestService>();
 builder.Services.AddSingleton<RoomTypeTagMappingService>();
 builder.Services.AddSingleton<ComputedDataService>();
 builder.Services.AddSingleton<PlacementService>();
+builder.Services.AddSingleton<ZoneBoundaryService>();
 
 // v3.1 Git Worktree 架构服务（单仓库 + 多分支 + Worktree 并行）
 builder.Services.AddSingleton<GitWorktreeService>();
