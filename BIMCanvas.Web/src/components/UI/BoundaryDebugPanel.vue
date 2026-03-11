@@ -463,44 +463,54 @@ function onResizeMouseDown(event: MouseEvent) {
   window.addEventListener('mouseup', onResizeEnd);
 }
 
+let resizeRafId = 0;
+
 function onResizeMove(event: MouseEvent) {
   if (!isResizing.value) return;
   const newW = Math.max(400, resizeStart.w + (event.clientX - resizeStart.x));
   const newH = Math.max(320, resizeStart.h + (event.clientY - resizeStart.y));
   panelSize.value = { width: newW, height: newH };
-  // 实时更新 renderer 尺寸
-  nextTick(() => onWindowResize());
+  // RAF 节流，每帧最多更新一次
+  if (!resizeRafId) {
+    resizeRafId = requestAnimationFrame(() => {
+      resizeRafId = 0;
+      updateRendererSize();
+    });
+  }
 }
 
 function onResizeEnd() {
   isResizing.value = false;
   window.removeEventListener('mousemove', onResizeMove);
   window.removeEventListener('mouseup', onResizeEnd);
-  // resize 后更新 renderer 和相机
-  onWindowResize();
+  updateRendererSize();
 }
 
 // ==================== resize ====================
 
-function onWindowResize() {
+/** 仅更新 renderer 尺寸和相机 aspect，保持视口中心和缩放级别不变 */
+function updateRendererSize() {
   if (!renderer || !canvasRef.value) return;
   const rect = canvasRef.value.parentElement!.getBoundingClientRect();
   renderer.setSize(rect.width, rect.height);
-  // 保持视口比例
-  const aspect = rect.width / rect.height;
-  const halfH = (camera.top - camera.bottom) / 2;
+
+  const newAspect = rect.width / rect.height;
+  const cx = (camera.left + camera.right) / 2;
   const cy = (camera.top + camera.bottom) / 2;
-  camera.left = cy - halfH * aspect;
-  camera.right = cy + halfH * aspect;
+  const halfH = (camera.top - camera.bottom) / 2;
+  const newHalfW = halfH * newAspect;
+
+  camera.left = cx - newHalfW;
+  camera.right = cx + newHalfW;
   camera.updateProjectionMatrix();
 }
 
 onMounted(() => {
-  window.addEventListener('resize', onWindowResize);
+  window.addEventListener('resize', updateRendererSize);
 });
 
 onUnmounted(() => {
-  window.removeEventListener('resize', onWindowResize);
+  window.removeEventListener('resize', updateRendererSize);
 });
 
 // ==================== 面板控制 ====================
@@ -510,8 +520,23 @@ function close() {
   selectedSegment.value = null;
 }
 
+function clearSelection() {
+  selectedSegment.value = null;
+  selectedZoneId.value = '';
+  if (selectionOutline && scene) {
+    scene.remove(selectionOutline);
+    selectionOutline = null;
+  }
+}
+
 const panelStyle = computed(() => {
   const style: Record<string, string> = {};
+
+  // 自定义尺寸
+  if (panelSize.value.width > 0) {
+    style.width = `${panelSize.value.width}px`;
+    style.height = `${panelSize.value.height}px`;
+  }
 
   // 位置
   if (panelPos.value.x >= 0) {
@@ -520,14 +545,13 @@ const panelStyle = computed(() => {
     style.right = 'auto';
     style.bottom = 'auto';
   } else {
-    style.right = '24px';
-    style.bottom = '24px';
-  }
-
-  // 自定义尺寸
-  if (panelSize.value.width > 0) {
-    style.width = `${panelSize.value.width}px`;
-    style.height = `${panelSize.value.height}px`;
+    // 默认居中
+    const w = panelSize.value.width > 0 ? panelSize.value.width : window.innerWidth * 0.5;
+    const h = panelSize.value.height > 0 ? panelSize.value.height : window.innerHeight * 0.5;
+    style.left = `${(window.innerWidth - w) / 2}px`;
+    style.top = `${(window.innerHeight - h) / 2}px`;
+    style.right = 'auto';
+    style.bottom = 'auto';
   }
 
   return style;
@@ -590,17 +614,22 @@ const totalSegments = computed(() => {
             @contextmenu="onCanvasContextMenu"
           ></canvas>
 
-          <!-- 属性面板（绝对定位，浮在 canvas 上方） -->
+          <!-- 属性面板（绝对定位，模仿主界面 PropertyPanel 风格） -->
           <div v-if="selectedSegment" class="props-section">
+            <div class="props-color-bar" :style="{ backgroundColor: '#' + (SEGMENT_COLORS[selectedSegment.type as BoundarySegmentType] ?? 0x888888).toString(16).padStart(6, '0') }"></div>
             <div class="props-header">
-              <span class="props-type-badge" :style="{ backgroundColor: '#' + (SEGMENT_COLORS[selectedSegment.type as BoundarySegmentType] ?? 0x888888).toString(16).padStart(6, '0') }">
-                {{ SEGMENT_LABELS[selectedSegment.type as BoundarySegmentType] ?? selectedSegment.type }}
-              </span>
+              <button class="icon-btn back-btn" @click="clearSelection" title="Deselect">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <line x1="19" y1="12" x2="5" y2="12"></line>
+                  <polyline points="12 19 5 12 12 5"></polyline>
+                </svg>
+              </button>
+              <div class="props-title">{{ SEGMENT_LABELS[selectedSegment.type as BoundarySegmentType] ?? selectedSegment.type }}</div>
             </div>
-            <div class="prop-list">
+            <div class="props-content">
               <div v-for="prop in properties" :key="prop.key" class="prop-row">
                 <span class="label">{{ prop.key }}</span>
-                <span class="value">{{ prop.value }}</span>
+                <span class="value" :title="prop.value">{{ prop.value }}</span>
               </div>
             </div>
           </div>
@@ -739,32 +768,75 @@ const totalSegments = computed(() => {
   bottom: 0;
   left: 0;
   right: 0;
-  padding: 8px 16px 10px;
-  max-height: 140px;
-  overflow-y: auto;
-  background: rgba(10, 10, 15, 0.85);
-  backdrop-filter: blur(8px);
+  max-height: 180px;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  background: rgba(10, 10, 15, 0.9);
+  backdrop-filter: blur(12px);
   border-top: 1px solid rgba(255, 255, 255, 0.1);
 
+  .props-color-bar {
+    height: 3px;
+    flex-shrink: 0;
+  }
+
   .props-header {
-    margin-bottom: 6px;
-  }
-
-  .props-type-badge {
-    display: inline-block;
-    font-size: 0.72rem;
-    font-weight: 600;
-    color: #fff;
-    padding: 2px 10px;
-    border-radius: 8px;
-    text-transform: uppercase;
-    letter-spacing: 0.5px;
-  }
-
-  .prop-list {
     display: flex;
-    flex-direction: column;
-    gap: 4px;
+    align-items: center;
+    padding: 8px 16px;
+    border-bottom: 1px solid var(--border-subtle, rgba(255, 255, 255, 0.08));
+    flex-shrink: 0;
+    gap: 10px;
+
+    .icon-btn {
+      background: transparent;
+      border: none;
+      color: var(--text-secondary);
+      cursor: pointer;
+      padding: 4px;
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      transition: all 0.2s ease;
+      flex-shrink: 0;
+
+      svg {
+        width: 16px;
+        height: 16px;
+      }
+
+      &:hover {
+        background: var(--surface-hover, rgba(255, 255, 255, 0.1));
+        color: var(--text-primary);
+      }
+    }
+
+    .props-title {
+      font-weight: 600;
+      font-size: 0.9rem;
+      color: var(--text-primary);
+      letter-spacing: 0.5px;
+      text-transform: uppercase;
+    }
+  }
+
+  .props-content {
+    flex: 1;
+    overflow-y: auto;
+    padding: 10px 16px;
+
+    &::-webkit-scrollbar {
+      width: 4px;
+    }
+    &::-webkit-scrollbar-track {
+      background: transparent;
+    }
+    &::-webkit-scrollbar-thumb {
+      background: var(--border-strong, rgba(255, 255, 255, 0.2));
+      border-radius: 2px;
+    }
   }
 
   .prop-row {
@@ -772,19 +844,29 @@ const totalSegments = computed(() => {
     justify-content: space-between;
     align-items: baseline;
     gap: 12px;
-    font-size: 0.78rem;
+    font-size: 0.85rem;
     line-height: 1.4;
+
+    & + .prop-row {
+      margin-top: 6px;
+    }
 
     .label {
       color: var(--text-secondary);
       flex-shrink: 0;
+      max-width: 40%;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
     }
 
     .value {
       color: var(--text-primary);
       text-align: right;
-      font-family: var(--font-mono);
+      flex: 1;
+      overflow: hidden;
       word-break: break-word;
+      font-family: var(--font-mono);
     }
   }
 }
