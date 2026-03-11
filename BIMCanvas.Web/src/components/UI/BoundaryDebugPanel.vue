@@ -24,7 +24,6 @@ let renderer: THREE.WebGLRenderer;
 let animationId: number;
 const meshMap = new Map<THREE.Mesh, { segment: BoundarySegment; zoneId: string }>();
 let selectionOutline: THREE.LineSegments | null = null;
-let zoneCrossLines: THREE.LineSegments | null = null;
 
 // 视口交互
 const isPanning = ref(false);
@@ -53,77 +52,35 @@ const ZONE_FILL_OPACITY = 0.15;
 const WALL_THICKNESS = 200; // mm，视觉厚度
 const SELECTION_COLOR = 0x3b82f6; // 与主场景选中蓝色一致
 
-// Zone 标签（3D→2D 投影）
-interface ZoneLabelData {
-  zoneId: string;
-  worldX: number;
-  worldY: number;
-  screenX: number;
-  screenY: number;
-  segCount: number;
-}
-const zoneLabels = ref<ZoneLabelData[]>([]);
-const activeZoneLabelId = ref<string>(''); // 当前展开的 zone 标签
-
 // ==================== 属性面板 ====================
 
-// 选中类型：segment 或 zone
-const selectionMode = computed<'segment' | 'zone' | null>(() => {
-  if (selectedSegment.value) return 'segment';
-  if (activeZoneLabelId.value) return 'zone';
-  return null;
-});
-
 const selectionTitle = computed(() => {
-  if (selectionMode.value === 'segment' && selectedSegment.value) {
+  if (selectedSegment.value) {
     return SEGMENT_LABELS[selectedSegment.value.type as BoundarySegmentType] ?? selectedSegment.value.type;
-  }
-  if (selectionMode.value === 'zone') {
-    return activeZoneLabelId.value;
   }
   return '';
 });
 
 const properties = computed(() => {
-  if (selectionMode.value === 'segment' && selectedSegment.value) {
-    const seg = selectedSegment.value;
-    const dx = seg.end[0] - seg.start[0];
-    const dy = seg.end[1] - seg.start[1];
-    const length = Math.round(Math.sqrt(dx * dx + dy * dy));
+  if (!selectedSegment.value) return [];
+  const seg = selectedSegment.value;
+  const dx = seg.end[0] - seg.start[0];
+  const dy = seg.end[1] - seg.start[1];
+  const length = Math.round(Math.sqrt(dx * dx + dy * dy));
 
-    const props: { key: string; value: string }[] = [
-      { key: 'zoneId', value: selectedZoneId.value },
-      { key: 'type', value: seg.type },
-    ];
-    if (seg.id) {
-      props.push({ key: 'id', value: seg.id });
-    }
-    props.push(
-      { key: 'start', value: `[${seg.start[0]}, ${seg.start[1]}]` },
-      { key: 'end', value: `[${seg.end[0]}, ${seg.end[1]}]` },
-      { key: 'length', value: `${length} mm` },
-    );
-    return props;
+  const props: { key: string; value: string }[] = [
+    { key: 'zoneId', value: selectedZoneId.value },
+    { key: 'type', value: seg.type },
+  ];
+  if (seg.id) {
+    props.push({ key: 'id', value: seg.id });
   }
-
-  if (selectionMode.value === 'zone') {
-    const zone = boundaryData.value.find(z => z.zoneId === activeZoneLabelId.value);
-    if (!zone) return [];
-    const typeStats: Record<string, number> = {};
-    for (const seg of zone.segments) {
-      typeStats[seg.type] = (typeStats[seg.type] || 0) + 1;
-    }
-    const props: { key: string; value: string }[] = [
-      { key: 'zoneId', value: zone.zoneId },
-      { key: 'segments', value: `${zone.segments.length}` },
-    ];
-    for (const [type, count] of Object.entries(typeStats)) {
-      props.push({ key: type, value: `${count}` });
-    }
-    return props;
-  }
-
-  return [];
+  props.push(
+    { key: 'start', value: `[${seg.start[0]}, ${seg.start[1]}]` },
+    { key: 'end', value: `[${seg.end[0]}, ${seg.end[1]}]` },
+    { key: 'length', value: `${length} mm` },
+  );
+  return props;
 });
 
 // ==================== SignalR 事件 ====================
@@ -214,7 +171,6 @@ function disposeThree() {
   }
   meshMap.clear();
   selectionOutline = null;
-  zoneCrossLines = null;
   if (renderer) {
     renderer.dispose();
   }
@@ -224,23 +180,6 @@ function animate() {
   if (!renderer || !visible.value) return;
   animationId = requestAnimationFrame(animate);
   renderer.render(scene, camera);
-  updateLabelPositions();
-}
-
-/** 将 zone 标签的 3D 世界坐标投影到屏幕坐标 */
-function updateLabelPositions() {
-  if (!camera || !canvasRef.value || zoneLabels.value.length === 0) return;
-  const canvas = canvasRef.value;
-  const rect = canvas.getBoundingClientRect();
-  const vec = new THREE.Vector3();
-
-  for (const label of zoneLabels.value) {
-    // 世界坐标：X 不变，Y=0（地面），Z=-worldY（Shape 旋转后 Z 取反）
-    vec.set(label.worldX, 0, -label.worldY);
-    vec.project(camera);
-    label.screenX = (vec.x * 0.5 + 0.5) * rect.width;
-    label.screenY = (-vec.y * 0.5 + 0.5) * rect.height;
-  }
 }
 
 // ==================== 场景构建 ====================
@@ -271,9 +210,7 @@ function buildScene() {
     }
   }
 
-  // 为每个 zone 创建填充和边界段
-  const labels: ZoneLabelData[] = [];
-
+  // 为每个 zone 创建填充、虚线边框和边界段
   for (const zone of boundaryData.value) {
     const outwardSign = computeWindingSign(zone.segments);
 
@@ -281,26 +218,18 @@ function buildScene() {
     const fillMesh = createZoneFillMesh(zone.segments);
     if (fillMesh) scene.add(fillMesh);
 
-    // 2. 边界段
+    // 2. Zone 加粗虚线边框
+    const outlineLine = createZoneOutline(zone.segments);
+    if (outlineLine) scene.add(outlineLine);
+
+    // 3. 边界段
     for (const seg of zone.segments) {
       const mesh = createSegmentMesh(seg, outwardSign);
       mesh.userData = { segment: seg, zoneId: zone.zoneId };
       meshMap.set(mesh, { segment: seg, zoneId: zone.zoneId });
       scene.add(mesh);
     }
-
-    // 3. 计算 zone 中心（用于标签）
-    let cx = 0, cy = 0;
-    for (const seg of zone.segments) {
-      cx += seg.start[0];
-      cy += seg.start[1];
-    }
-    cx /= zone.segments.length;
-    cy /= zone.segments.length;
-    labels.push({ zoneId: zone.zoneId, worldX: cx, worldY: cy, screenX: 0, screenY: 0, segCount: zone.segments.length });
   }
-
-  zoneLabels.value = labels;
 
   // 自适应相机
   const cx = (minX + maxX) / 2;
@@ -337,7 +266,7 @@ function computeWindingSign(segments: BoundarySegment[]): number {
   for (const seg of segments) {
     area += (seg.start[0] * seg.end[1] - seg.end[0] * seg.start[1]);
   }
-  return area >= 0 ? 1 : -1;
+  return area >= 0 ? -1 : 1;
 }
 
 /** 创建单个段的 Mesh（带厚度的矩形，向外侧偏移） */
@@ -416,104 +345,36 @@ function createZoneFillMesh(segments: BoundarySegment[]): THREE.Mesh | null {
 
   const mesh = new THREE.Mesh(geometry, material);
   mesh.rotation.x = -Math.PI / 2;
-  mesh.position.y = 0; // 最底层，低于 wall(1) 和 door/window(2)
+  mesh.position.y = 3; // 顶层，高于 wall(1) 和 door/window(2)
 
   return mesh;
 }
 
-// ==================== Zone X 对角线 ====================
+/** 创建 Zone 加粗虚线边框 */
+function createZoneOutline(segments: BoundarySegment[]): THREE.Line | null {
+  if (segments.length < 3) return null;
 
-const ZONE_CROSS_COLOR = 0x22c55e; // 绿色，与 zone fill 一致
-
-/** 两线段参数化求交，返回第一条线段上的参数 t */
-function lineLineIntersectT(
-  p1: [number, number], p2: [number, number],
-  p3: [number, number], p4: [number, number]
-): number | null {
-  const d1x = p2[0] - p1[0], d1y = p2[1] - p1[1];
-  const d2x = p4[0] - p3[0], d2y = p4[1] - p3[1];
-  const denom = d1x * d2y - d1y * d2x;
-  if (Math.abs(denom) < 1e-12) return null;
-  const t = ((p3[0] - p1[0]) * d2y - (p3[1] - p1[1]) * d2x) / denom;
-  const u = ((p3[0] - p1[0]) * d1y - (p3[1] - p1[1]) * d1x) / denom;
-  if (t < 0 || u < 0 || u > 1) return null;
-  return t;
-}
-
-/** 从 origin 沿 direction 发射射线，返回与多边形边界的最近交点 */
-function rayPolygonIntersection(
-  origin: [number, number],
-  direction: [number, number],
-  polygon: [number, number][]
-): [number, number] | null {
-  const farPoint: [number, number] = [
-    origin[0] + direction[0] * 1e8,
-    origin[1] + direction[1] * 1e8,
-  ];
-  let minT = Infinity;
-  for (let i = 0; i < polygon.length; i++) {
-    const a = polygon[i];
-    const b = polygon[(i + 1) % polygon.length];
-    const t = lineLineIntersectT(origin, farPoint, a, b);
-    if (t !== null && t > 1e-9 && t < minT) minT = t;
+  const points: THREE.Vector3[] = [];
+  for (const seg of segments) {
+    points.push(new THREE.Vector3(seg.start[0], seg.start[1], 0));
   }
-  if (minT === Infinity) return null;
-  return [
-    origin[0] + (farPoint[0] - origin[0]) * minT,
-    origin[1] + (farPoint[1] - origin[1]) * minT,
-  ];
-}
+  points.push(points[0].clone()); // 闭合
 
-/** 为选中的 Zone 添加 X 对角线（从顶点平均中心向 NE/SW/NW/SE 发射到边界） */
-function addZoneCrossLines(zoneId: string) {
-  removeZoneCrossLines();
+  const geometry = new THREE.BufferGeometry().setFromPoints(points);
+  const material = new THREE.LineDashedMaterial({
+    color: ZONE_FILL_COLOR,
+    linewidth: 2,
+    dashSize: 150,
+    gapSize: 100,
+    depthTest: false,
+  });
 
-  const zone = boundaryData.value.find(z => z.zoneId === zoneId);
-  if (!zone || zone.segments.length < 3) return;
+  const line = new THREE.Line(geometry, material);
+  line.computeLineDistances(); // LineDashedMaterial 必须
+  line.rotation.x = -Math.PI / 2;
+  line.position.y = 4; // 最顶层，高于 fill(3)
 
-  const polygon: [number, number][] = zone.segments.map(s => s.start as [number, number]);
-
-  // 顶点平均中心（与标签位置一致）
-  let cx = 0, cy = 0;
-  for (const p of polygon) { cx += p[0]; cy += p[1]; }
-  cx /= polygon.length;
-  cy /= polygon.length;
-  const centroid: [number, number] = [cx, cy];
-
-  const NE = rayPolygonIntersection(centroid, [1, 1], polygon);
-  const SW = rayPolygonIntersection(centroid, [-1, -1], polygon);
-  const NW = rayPolygonIntersection(centroid, [-1, 1], polygon);
-  const SE = rayPolygonIntersection(centroid, [1, -1], polygon);
-
-  const segs: [[number, number], [number, number]][] = [];
-  if (NE && SW) segs.push([NE, SW]);
-  if (NW && SE) segs.push([NW, SE]);
-  if (segs.length === 0) return;
-
-  const coords: number[] = [];
-  for (const s of segs) {
-    coords.push(s[0][0], s[0][1], 0, s[1][0], s[1][1], 0);
-  }
-
-  const geometry = new THREE.BufferGeometry();
-  geometry.setAttribute('position', new THREE.BufferAttribute(new Float32Array(coords), 3));
-
-  zoneCrossLines = new THREE.LineSegments(
-    geometry,
-    new THREE.LineBasicMaterial({ color: ZONE_CROSS_COLOR, linewidth: 2, depthTest: false })
-  );
-  zoneCrossLines.rotation.x = -Math.PI / 2;
-  zoneCrossLines.position.y = 3; // 高于 segment mesh (y=1,2)
-  scene.add(zoneCrossLines);
-}
-
-function removeZoneCrossLines() {
-  if (zoneCrossLines && scene) {
-    scene.remove(zoneCrossLines);
-    zoneCrossLines.geometry.dispose();
-    (zoneCrossLines.material as THREE.Material).dispose();
-    zoneCrossLines = null;
-  }
+  return line;
 }
 
 // ==================== 交互：点击选中 ====================
@@ -547,8 +408,6 @@ function onCanvasClick(event: MouseEvent) {
     if (data) {
       selectedSegment.value = data.segment;
       selectedZoneId.value = data.zoneId;
-      activeZoneLabelId.value = ''; // 清除 zone 标签展开
-      removeZoneCrossLines(); // 清除 zone X 对角线
 
       // 添加选中高亮描边
       const edges = new THREE.EdgesGeometry(hit.geometry);
@@ -693,35 +552,10 @@ function close() {
 function clearSelection() {
   selectedSegment.value = null;
   selectedZoneId.value = '';
-  activeZoneLabelId.value = '';
   if (selectionOutline && scene) {
     scene.remove(selectionOutline);
     selectionOutline = null;
   }
-  removeZoneCrossLines();
-}
-
-function onZoneLabelClick(zoneId: string) {
-  // 清除 segment 选中
-  selectedSegment.value = null;
-  selectedZoneId.value = '';
-  if (selectionOutline && scene) {
-    scene.remove(selectionOutline);
-    selectionOutline = null;
-  }
-  // 切换 zone 展开
-  if (activeZoneLabelId.value === zoneId) {
-    activeZoneLabelId.value = '';
-    removeZoneCrossLines();
-  } else {
-    activeZoneLabelId.value = zoneId;
-    addZoneCrossLines(zoneId);
-  }
-}
-
-function closeZoneLabel() {
-  activeZoneLabelId.value = '';
-  removeZoneCrossLines();
 }
 
 // 4:3 比例：宽度 50vw，高度 = 50vw * 3/4 = 37.5vw
@@ -802,27 +636,9 @@ const totalSegments = computed(() => {
             @contextmenu="onCanvasContextMenu"
           ></canvas>
 
-          <!-- Zone 标签（3D→2D 投影定位） -->
-          <div
-            v-for="zl in zoneLabels"
-            :key="zl.zoneId"
-            class="zone-label"
-            :class="{ active: activeZoneLabelId === zl.zoneId }"
-            :style="{ left: zl.screenX + 'px', top: zl.screenY + 'px' }"
-            @click.stop="onZoneLabelClick(zl.zoneId)"
-          >
-            <span class="zone-label-text">#{{ zl.zoneId }}</span>
-            <button v-if="activeZoneLabelId === zl.zoneId" class="zone-label-close" @click.stop="closeZoneLabel">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                <line x1="18" y1="6" x2="6" y2="18"></line>
-                <line x1="6" y1="6" x2="18" y2="18"></line>
-              </svg>
-            </button>
-          </div>
-
           <!-- 属性浮窗（模仿主界面 PropertyPanel，悬浮在 canvas 左上角） -->
           <Transition name="props-card">
-            <aside v-if="selectionMode" class="props-card">
+            <aside v-if="selectedSegment" class="props-card">
               <div class="props-header">
                 <button class="icon-btn" @click="clearSelection" title="Deselect">
                   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -965,58 +781,6 @@ const totalSegments = computed(() => {
     width: 100% !important;
     height: 100% !important;
     display: block;
-  }
-}
-
-/* Zone 标签 */
-.zone-label {
-  position: absolute;
-  transform: translate(-50%, -50%);
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  padding: 2px 8px;
-  border-radius: 8px;
-  background: rgba(34, 197, 94, 0.15);
-  border: 1px solid rgba(34, 197, 94, 0.3);
-  cursor: pointer;
-  user-select: none;
-  transition: all 0.2s ease;
-  z-index: 5;
-  white-space: nowrap;
-
-  &:hover, &.active {
-    background: rgba(34, 197, 94, 0.3);
-    border-color: rgba(34, 197, 94, 0.6);
-  }
-
-  .zone-label-text {
-    font-size: 0.72rem;
-    font-family: var(--font-mono, monospace);
-    color: #22c55e;
-    font-weight: 600;
-    letter-spacing: 0.5px;
-  }
-
-  .zone-label-close {
-    background: transparent;
-    border: none;
-    color: #22c55e;
-    cursor: pointer;
-    padding: 0;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    transition: color 0.15s;
-
-    svg {
-      width: 12px;
-      height: 12px;
-    }
-
-    &:hover {
-      color: #ef4444;
-    }
   }
 }
 
