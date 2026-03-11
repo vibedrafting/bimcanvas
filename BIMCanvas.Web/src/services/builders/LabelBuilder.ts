@@ -4,6 +4,7 @@ import { LayerManager } from '../three/LayerManager';
 import type { ProjectData, Point2D, Line2D, Polygon2D } from '../../types/canvas';
 import { canvasStyleService } from '../canvas/CanvasStyleService';
 import { polygonCenterToWorld, lineCenterToWorld } from '../../utils/coordinates';
+import { useCanvasStore } from '../../stores/canvasStore';
 
 export class LabelBuilder {
     private scene: THREE.Scene;
@@ -18,11 +19,9 @@ export class LabelBuilder {
      */
     public cleanup() {
         if (this.labelGroup) {
-            // 清理 CSS2DObject DOM 元素
+            // 清理 CSS2DObject DOM 元素和事件监听器
             this.labelGroup.children.forEach(child => {
-                if ((child as any).element && (child as any).element.parentNode) {
-                    (child as any).element.parentNode.removeChild((child as any).element);
-                }
+                this.cleanupLabelElement(child);
             });
             this.labelGroup.clear();
             this.scene.remove(this.labelGroup);
@@ -30,14 +29,24 @@ export class LabelBuilder {
         }
     }
 
+    private cleanupLabelElement(child: THREE.Object3D) {
+        const el = (child as any).element as HTMLElement | undefined;
+        if (!el) return;
+        // 移除 zone 标签的 click handler
+        if (child.userData.clickHandler) {
+            el.removeEventListener('click', child.userData.clickHandler);
+            child.userData.clickHandler = null;
+        }
+        if (el.parentNode) {
+            el.parentNode.removeChild(el);
+        }
+    }
+
     public buildLabels(data: ProjectData) {
         if (this.labelGroup) {
-            // Explicitly cleanup CSS2DObject DOM elements to prevent ghosts
+            // Explicitly cleanup CSS2DObject DOM elements and event listeners
             this.labelGroup.children.forEach(child => {
-                // Check if it's a CSS2DObject (has element property)
-                if ((child as any).element && (child as any).element.parentNode) {
-                    (child as any).element.parentNode.removeChild((child as any).element);
-                }
+                this.cleanupLabelElement(child);
             });
             this.scene.remove(this.labelGroup);
             this.labelGroup = null;
@@ -188,7 +197,13 @@ export class LabelBuilder {
         if (config.fontFamily) {
             div.style.fontFamily = config.fontFamily; // 等宽字体利于 AI 识别
         }
-        div.style.pointerEvents = 'none'; // Crucial for clicking through
+        if (isZoneLabel) {
+            // Zone 标签可点击，用于选中 Zone
+            div.style.pointerEvents = 'auto';
+            div.style.cursor = 'pointer';
+        } else {
+            div.style.pointerEvents = 'none'; // 非 Zone 标签穿透点击
+        }
 
         // Apply orientation
         if (orientation === 'vertical') {
@@ -206,6 +221,22 @@ export class LabelBuilder {
 
         if (isZoneLabel) {
             label.userData.isZoneLabel = true;
+            label.userData.zoneId = id;
+
+            // Zone 标签 click handler：通过 canvasStore 设置选中状态
+            const store = useCanvasStore();
+            const clickHandler = (e: MouseEvent) => {
+                e.stopPropagation();
+                if (e.shiftKey) {
+                    store.removeFromSelection(id);
+                } else if (e.ctrlKey || e.metaKey) {
+                    store.toggleSelection(id);
+                } else {
+                    store.setSelectedObject(id);
+                }
+            };
+            div.addEventListener('click', clickHandler);
+            label.userData.clickHandler = clickHandler;
         }
 
         this.labelGroup!.add(label);

@@ -444,8 +444,8 @@ export class InteractionService {
         const candidates: THREE.Mesh[] = [];
         this.scene.traverse((child) => {
             if (child instanceof THREE.Mesh && child.userData && child.userData.id) {
-                // Ignore ghosts and helpers
-                if (!child.userData.isGhost && child.visible) {
+                // Ignore ghosts, helpers, and zones (zones are selected via label click only)
+                if (!child.userData.isGhost && child.visible && child.userData.type !== 'zone') {
                     candidates.push(child);
                 }
             }
@@ -586,11 +586,9 @@ export class InteractionService {
 
                 if (candidate && candidate.userData?.id) {
                     const objType = candidate.userData.type;
-                    // Zone 和 Exclusion 只有在 LAYER_ZONES 启用时才能被选中
+                    // Zone 只能通过标签选中，raycaster 跳过
                     if (objType === 'zone' || objType === 'exclusion') {
-                        if (!this.camera.layers.isEnabled(LayerManager.LAYER_ZONES)) {
-                            continue;
-                        }
+                        continue;
                     }
 
                     // 去重（同一 ID 可能被多次命中）
@@ -598,31 +596,18 @@ export class InteractionService {
                     if (seenIds.has(candidateId)) continue;
                     seenIds.add(candidateId);
 
-                    if (objType === 'zone') {
-                        // Zone 类型：收集多个候选（支持穿透循环）
+                    // 取第一个有效目标即可
+                    if (validTargets.length === 0) {
                         validTargets.push(candidate);
-                    } else {
-                        // 非 Zone 类型：取第一个有效目标即可
-                        if (validTargets.length === 0) {
-                            validTargets.push(candidate);
-                        }
-                        break;
                     }
+                    break;
                 }
             }
 
-            // 选择目标：如果第一个候选已选中且有更多候选，穿透到下一个
+            // 选择目标
             let target: THREE.Object3D | null = null;
             if (validTargets.length > 0) {
-                const first = validTargets[0];
-                if (first.userData?.type === 'zone' &&
-                    validTargets.length > 1 &&
-                    this.store.isSelected(first.userData)) {
-                    // 已选中的 zone 被再次点击 → 穿透到下一层
-                    target = validTargets[1];
-                } else {
-                    target = first;
-                }
+                target = validTargets[0];
             }
 
             if (target && target.userData?.id) {

@@ -124,25 +124,29 @@ export class SelectionManager {
     }
 
     /**
-     * Zone 选中时的 X 对角线（AABB 对角线裁剪到多边形边界内）
+     * Zone 选中时的 X 对角线（从质心向 4 个对角方向延伸到多边形边界）
+     * 保证 X 中心 = 标签位置（顶点平均中心）
      */
     private addSelectionCrossLines(id: string, polygon: [number, number][]) {
         if (polygon.length < 3) return;
 
-        // 1. 计算 AABB
-        let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
-        for (const p of polygon) {
-            if (p[0] < minX) minX = p[0];
-            if (p[0] > maxX) maxX = p[0];
-            if (p[1] < minY) minY = p[1];
-            if (p[1] > maxY) maxY = p[1];
-        }
+        // 1. 计算顶点平均中心（与 polygonCenterToWorld 一致）
+        let cx = 0, cy = 0;
+        for (const p of polygon) { cx += p[0]; cy += p[1]; }
+        cx /= polygon.length;
+        cy /= polygon.length;
+        const centroid: [number, number] = [cx, cy];
 
-        // 2. 两条 AABB 对角线，裁剪到多边形内
-        const segs = [
-            ...this.clipLineToPolygon([minX, minY], [maxX, maxY], polygon),
-            ...this.clipLineToPolygon([minX, maxY], [maxX, minY], polygon),
-        ];
+        // 2. 从质心向 4 个对角方向发射射线，求与多边形边界的交点
+        const NE = this.rayPolygonIntersection(centroid, [1, 1], polygon);
+        const SW = this.rayPolygonIntersection(centroid, [-1, -1], polygon);
+        const NW = this.rayPolygonIntersection(centroid, [-1, 1], polygon);
+        const SE = this.rayPolygonIntersection(centroid, [1, -1], polygon);
+
+        // 3. 连线形成 X
+        const segs: [[number, number], [number, number]][] = [];
+        if (NE && SW) segs.push([NE, SW]);
+        if (NW && SE) segs.push([NW, SE]);
         if (segs.length === 0) return;
 
         const coords: number[] = [];
@@ -160,6 +164,35 @@ export class SelectionManager {
 
         this.scene.add(crossLines);
         this.selectionCrossLines.set(id, crossLines);
+    }
+
+    /**
+     * 从 origin 沿 direction 发射射线，返回与多边形边界的最近交点
+     */
+    private rayPolygonIntersection(
+        origin: [number, number],
+        direction: [number, number],
+        polygon: [number, number][]
+    ): [number, number] | null {
+        // 用足够远的点模拟射线
+        const farPoint: [number, number] = [
+            origin[0] + direction[0] * 1e8,
+            origin[1] + direction[1] * 1e8
+        ];
+        let minT = Infinity;
+        for (let i = 0; i < polygon.length; i++) {
+            const a = polygon[i];
+            const b = polygon[(i + 1) % polygon.length];
+            const t = this.lineLineIntersectT(origin, farPoint, a, b);
+            if (t !== null && t > 1e-9 && t < minT) {
+                minT = t;
+            }
+        }
+        if (minT === Infinity) return null;
+        return [
+            origin[0] + (farPoint[0] - origin[0]) * minT,
+            origin[1] + (farPoint[1] - origin[1]) * minT
+        ];
     }
 
     /**
