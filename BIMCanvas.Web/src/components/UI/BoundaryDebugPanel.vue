@@ -24,6 +24,7 @@ let renderer: THREE.WebGLRenderer;
 let animationId: number;
 const meshMap = new Map<THREE.Mesh, { segment: BoundarySegment; zoneId: string }>();
 let selectionOutline: THREE.LineSegments | null = null;
+let zoneCrossLines: THREE.LineSegments | null = null;
 
 // 视口交互
 const isPanning = ref(false);
@@ -213,6 +214,7 @@ function disposeThree() {
   }
   meshMap.clear();
   selectionOutline = null;
+  zoneCrossLines = null;
   if (renderer) {
     renderer.dispose();
   }
@@ -419,6 +421,101 @@ function createZoneFillMesh(segments: BoundarySegment[]): THREE.Mesh | null {
   return mesh;
 }
 
+// ==================== Zone X 对角线 ====================
+
+const ZONE_CROSS_COLOR = 0x22c55e; // 绿色，与 zone fill 一致
+
+/** 两线段参数化求交，返回第一条线段上的参数 t */
+function lineLineIntersectT(
+  p1: [number, number], p2: [number, number],
+  p3: [number, number], p4: [number, number]
+): number | null {
+  const d1x = p2[0] - p1[0], d1y = p2[1] - p1[1];
+  const d2x = p4[0] - p3[0], d2y = p4[1] - p3[1];
+  const denom = d1x * d2y - d1y * d2x;
+  if (Math.abs(denom) < 1e-12) return null;
+  const t = ((p3[0] - p1[0]) * d2y - (p3[1] - p1[1]) * d2x) / denom;
+  const u = ((p3[0] - p1[0]) * d1y - (p3[1] - p1[1]) * d1x) / denom;
+  if (t < 0 || u < 0 || u > 1) return null;
+  return t;
+}
+
+/** 从 origin 沿 direction 发射射线，返回与多边形边界的最近交点 */
+function rayPolygonIntersection(
+  origin: [number, number],
+  direction: [number, number],
+  polygon: [number, number][]
+): [number, number] | null {
+  const farPoint: [number, number] = [
+    origin[0] + direction[0] * 1e8,
+    origin[1] + direction[1] * 1e8,
+  ];
+  let minT = Infinity;
+  for (let i = 0; i < polygon.length; i++) {
+    const a = polygon[i];
+    const b = polygon[(i + 1) % polygon.length];
+    const t = lineLineIntersectT(origin, farPoint, a, b);
+    if (t !== null && t > 1e-9 && t < minT) minT = t;
+  }
+  if (minT === Infinity) return null;
+  return [
+    origin[0] + (farPoint[0] - origin[0]) * minT,
+    origin[1] + (farPoint[1] - origin[1]) * minT,
+  ];
+}
+
+/** 为选中的 Zone 添加 X 对角线（从顶点平均中心向 NE/SW/NW/SE 发射到边界） */
+function addZoneCrossLines(zoneId: string) {
+  removeZoneCrossLines();
+
+  const zone = boundaryData.value.find(z => z.zoneId === zoneId);
+  if (!zone || zone.segments.length < 3) return;
+
+  const polygon: [number, number][] = zone.segments.map(s => s.start as [number, number]);
+
+  // 顶点平均中心（与标签位置一致）
+  let cx = 0, cy = 0;
+  for (const p of polygon) { cx += p[0]; cy += p[1]; }
+  cx /= polygon.length;
+  cy /= polygon.length;
+  const centroid: [number, number] = [cx, cy];
+
+  const NE = rayPolygonIntersection(centroid, [1, 1], polygon);
+  const SW = rayPolygonIntersection(centroid, [-1, -1], polygon);
+  const NW = rayPolygonIntersection(centroid, [-1, 1], polygon);
+  const SE = rayPolygonIntersection(centroid, [1, -1], polygon);
+
+  const segs: [[number, number], [number, number]][] = [];
+  if (NE && SW) segs.push([NE, SW]);
+  if (NW && SE) segs.push([NW, SE]);
+  if (segs.length === 0) return;
+
+  const coords: number[] = [];
+  for (const s of segs) {
+    coords.push(s[0][0], s[0][1], 0, s[1][0], s[1][1], 0);
+  }
+
+  const geometry = new THREE.BufferGeometry();
+  geometry.setAttribute('position', new THREE.BufferAttribute(new Float32Array(coords), 3));
+
+  zoneCrossLines = new THREE.LineSegments(
+    geometry,
+    new THREE.LineBasicMaterial({ color: ZONE_CROSS_COLOR, linewidth: 2, depthTest: false })
+  );
+  zoneCrossLines.rotation.x = -Math.PI / 2;
+  zoneCrossLines.position.y = 3; // 高于 segment mesh (y=1,2)
+  scene.add(zoneCrossLines);
+}
+
+function removeZoneCrossLines() {
+  if (zoneCrossLines && scene) {
+    scene.remove(zoneCrossLines);
+    zoneCrossLines.geometry.dispose();
+    (zoneCrossLines.material as THREE.Material).dispose();
+    zoneCrossLines = null;
+  }
+}
+
 // ==================== 交互：点击选中 ====================
 
 function onCanvasClick(event: MouseEvent) {
@@ -451,6 +548,7 @@ function onCanvasClick(event: MouseEvent) {
       selectedSegment.value = data.segment;
       selectedZoneId.value = data.zoneId;
       activeZoneLabelId.value = ''; // 清除 zone 标签展开
+      removeZoneCrossLines(); // 清除 zone X 对角线
 
       // 添加选中高亮描边
       const edges = new THREE.EdgesGeometry(hit.geometry);
@@ -600,6 +698,7 @@ function clearSelection() {
     scene.remove(selectionOutline);
     selectionOutline = null;
   }
+  removeZoneCrossLines();
 }
 
 function onZoneLabelClick(zoneId: string) {
@@ -611,11 +710,18 @@ function onZoneLabelClick(zoneId: string) {
     selectionOutline = null;
   }
   // 切换 zone 展开
-  activeZoneLabelId.value = activeZoneLabelId.value === zoneId ? '' : zoneId;
+  if (activeZoneLabelId.value === zoneId) {
+    activeZoneLabelId.value = '';
+    removeZoneCrossLines();
+  } else {
+    activeZoneLabelId.value = zoneId;
+    addZoneCrossLines(zoneId);
+  }
 }
 
 function closeZoneLabel() {
   activeZoneLabelId.value = '';
+  removeZoneCrossLines();
 }
 
 // 4:3 比例：宽度 50vw，高度 = 50vw * 3/4 = 37.5vw
