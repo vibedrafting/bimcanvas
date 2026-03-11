@@ -16,6 +16,11 @@ const isDraggingPanel = ref(false);
 const panelPos = ref({ x: -1, y: -1 }); // -1 表示使用默认位置
 const dragOffset = ref({ x: 0, y: 0 });
 
+// 拖拽调整大小
+const panelSize = ref({ width: 0, height: 0 }); // 0 表示使用默认尺寸
+const isResizing = ref(false);
+const resizeStart = { x: 0, y: 0, w: 0, h: 0 };
+
 // Three.js
 const canvasRef = ref<HTMLCanvasElement>();
 let scene: THREE.Scene;
@@ -235,8 +240,8 @@ function buildScene() {
   camera.right = halfW;
   camera.top = halfH;
   camera.bottom = -halfH;
-  camera.position.set(cx, 10000, cy);
-  camera.lookAt(cx, 0, cy);
+  camera.position.set(cx, 10000, -cy);
+  camera.lookAt(cx, 0, -cy);
   camera.updateProjectionMatrix();
 }
 
@@ -382,7 +387,7 @@ function onCanvasPanMove(event: MouseEvent) {
   const dy = (event.clientY - panStart.y) / h * viewH;
 
   camera.position.x = cameraStart.x - dx;
-  camera.position.z = cameraStart.z + dy;
+  camera.position.z = cameraStart.z - dy;
   camera.updateProjectionMatrix();
 }
 
@@ -442,9 +447,42 @@ function onPanelDragEnd() {
   window.removeEventListener('mouseup', onPanelDragEnd);
 }
 
+// ==================== 拖拽调整大小 ====================
+
+function onResizeMouseDown(event: MouseEvent) {
+  if (event.button !== 0) return;
+  event.preventDefault();
+  isResizing.value = true;
+  const panel = panelRef.value!;
+  const rect = panel.getBoundingClientRect();
+  resizeStart.x = event.clientX;
+  resizeStart.y = event.clientY;
+  resizeStart.w = rect.width;
+  resizeStart.h = rect.height;
+  window.addEventListener('mousemove', onResizeMove);
+  window.addEventListener('mouseup', onResizeEnd);
+}
+
+function onResizeMove(event: MouseEvent) {
+  if (!isResizing.value) return;
+  const newW = Math.max(400, resizeStart.w + (event.clientX - resizeStart.x));
+  const newH = Math.max(320, resizeStart.h + (event.clientY - resizeStart.y));
+  panelSize.value = { width: newW, height: newH };
+  // 实时更新 renderer 尺寸
+  nextTick(() => onWindowResize());
+}
+
+function onResizeEnd() {
+  isResizing.value = false;
+  window.removeEventListener('mousemove', onResizeMove);
+  window.removeEventListener('mouseup', onResizeEnd);
+  // resize 后更新 renderer 和相机
+  onWindowResize();
+}
+
 // ==================== resize ====================
 
-function onResize() {
+function onWindowResize() {
   if (!renderer || !canvasRef.value) return;
   const rect = canvasRef.value.parentElement!.getBoundingClientRect();
   renderer.setSize(rect.width, rect.height);
@@ -458,11 +496,11 @@ function onResize() {
 }
 
 onMounted(() => {
-  window.addEventListener('resize', onResize);
+  window.addEventListener('resize', onWindowResize);
 });
 
 onUnmounted(() => {
-  window.removeEventListener('resize', onResize);
+  window.removeEventListener('resize', onWindowResize);
 });
 
 // ==================== 面板控制 ====================
@@ -473,19 +511,26 @@ function close() {
 }
 
 const panelStyle = computed(() => {
+  const style: Record<string, string> = {};
+
+  // 位置
   if (panelPos.value.x >= 0) {
-    return {
-      left: `${panelPos.value.x}px`,
-      top: `${panelPos.value.y}px`,
-      right: 'auto',
-      bottom: 'auto',
-    };
+    style.left = `${panelPos.value.x}px`;
+    style.top = `${panelPos.value.y}px`;
+    style.right = 'auto';
+    style.bottom = 'auto';
+  } else {
+    style.right = '24px';
+    style.bottom = '24px';
   }
-  // 默认位置：右下角
-  return {
-    right: '24px',
-    bottom: '24px',
-  };
+
+  // 自定义尺寸
+  if (panelSize.value.width > 0) {
+    style.width = `${panelSize.value.width}px`;
+    style.height = `${panelSize.value.height}px`;
+  }
+
+  return style;
 });
 
 // 段统计
@@ -544,22 +589,25 @@ const totalSegments = computed(() => {
             @wheel="onCanvasWheel"
             @contextmenu="onCanvasContextMenu"
           ></canvas>
-        </div>
 
-        <!-- 属性面板 -->
-        <div v-if="selectedSegment" class="props-section">
-          <div class="props-header">
-            <span class="props-type-badge" :style="{ backgroundColor: '#' + (SEGMENT_COLORS[selectedSegment.type as BoundarySegmentType] ?? 0x888888).toString(16).padStart(6, '0') }">
-              {{ SEGMENT_LABELS[selectedSegment.type as BoundarySegmentType] ?? selectedSegment.type }}
-            </span>
-          </div>
-          <div class="prop-list">
-            <div v-for="prop in properties" :key="prop.key" class="prop-row">
-              <span class="label">{{ prop.key }}</span>
-              <span class="value">{{ prop.value }}</span>
+          <!-- 属性面板（绝对定位，浮在 canvas 上方） -->
+          <div v-if="selectedSegment" class="props-section">
+            <div class="props-header">
+              <span class="props-type-badge" :style="{ backgroundColor: '#' + (SEGMENT_COLORS[selectedSegment.type as BoundarySegmentType] ?? 0x888888).toString(16).padStart(6, '0') }">
+                {{ SEGMENT_LABELS[selectedSegment.type as BoundarySegmentType] ?? selectedSegment.type }}
+              </span>
+            </div>
+            <div class="prop-list">
+              <div v-for="prop in properties" :key="prop.key" class="prop-row">
+                <span class="label">{{ prop.key }}</span>
+                <span class="value">{{ prop.value }}</span>
+              </div>
             </div>
           </div>
         </div>
+
+        <!-- Resize 拖拽手柄 -->
+        <div class="resize-handle" @mousedown="onResizeMouseDown"></div>
       </div>
     </Transition>
   </Teleport>
@@ -687,11 +735,16 @@ const totalSegments = computed(() => {
 }
 
 .props-section {
-  border-top: 1px solid rgba(255, 255, 255, 0.1);
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
   padding: 8px 16px 10px;
-  flex-shrink: 0;
   max-height: 140px;
   overflow-y: auto;
+  background: rgba(10, 10, 15, 0.85);
+  backdrop-filter: blur(8px);
+  border-top: 1px solid rgba(255, 255, 255, 0.1);
 
   .props-header {
     margin-bottom: 6px;
@@ -733,6 +786,43 @@ const totalSegments = computed(() => {
       font-family: var(--font-mono);
       word-break: break-word;
     }
+  }
+}
+
+.resize-handle {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  width: 12px;
+  height: 12px;
+  cursor: nwse-resize;
+  z-index: 10;
+
+  &::before,
+  &::after {
+    content: '';
+    position: absolute;
+    background: rgba(255, 255, 255, 0.3);
+    border-radius: 1px;
+  }
+
+  // 三条斜线
+  &::before {
+    width: 8px;
+    height: 1px;
+    bottom: 3px;
+    right: 1px;
+    transform: rotate(-45deg);
+    box-shadow:
+      2px -2px 0 rgba(255, 255, 255, 0.3),
+      4px -4px 0 rgba(255, 255, 255, 0.3);
+  }
+
+  &:hover::before {
+    background: rgba(255, 255, 255, 0.6);
+    box-shadow:
+      2px -2px 0 rgba(255, 255, 255, 0.6),
+      4px -4px 0 rgba(255, 255, 255, 0.6);
   }
 }
 
