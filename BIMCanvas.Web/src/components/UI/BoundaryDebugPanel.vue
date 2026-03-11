@@ -46,31 +46,83 @@ const SEGMENT_LABELS: Record<BoundarySegmentType, string> = {
   passage: 'Passage',
 };
 
+const ZONE_FILL_COLOR = 0x22c55e; // 绿色，与主画布一致
+const ZONE_FILL_OPACITY = 0.15;
+
 const WALL_THICKNESS = 200; // mm，视觉厚度
 const SELECTION_COLOR = 0x3b82f6; // 与主场景选中蓝色一致
 
+// Zone 标签（3D→2D 投影）
+interface ZoneLabelData {
+  zoneId: string;
+  worldX: number;
+  worldY: number;
+  screenX: number;
+  screenY: number;
+  segCount: number;
+}
+const zoneLabels = ref<ZoneLabelData[]>([]);
+const activeZoneLabelId = ref<string>(''); // 当前展开的 zone 标签
+
 // ==================== 属性面板 ====================
 
-const properties = computed(() => {
-  if (!selectedSegment.value) return [];
-  const seg = selectedSegment.value;
-  const dx = seg.end[0] - seg.start[0];
-  const dy = seg.end[1] - seg.start[1];
-  const length = Math.round(Math.sqrt(dx * dx + dy * dy));
+// 选中类型：segment 或 zone
+const selectionMode = computed<'segment' | 'zone' | null>(() => {
+  if (selectedSegment.value) return 'segment';
+  if (activeZoneLabelId.value) return 'zone';
+  return null;
+});
 
-  const props: { key: string; value: string }[] = [
-    { key: 'zoneId', value: selectedZoneId.value },
-    { key: 'type', value: seg.type },
-  ];
-  if (seg.id) {
-    props.push({ key: 'id', value: seg.id });
+const selectionTitle = computed(() => {
+  if (selectionMode.value === 'segment' && selectedSegment.value) {
+    return SEGMENT_LABELS[selectedSegment.value.type as BoundarySegmentType] ?? selectedSegment.value.type;
   }
-  props.push(
-    { key: 'start', value: `[${seg.start[0]}, ${seg.start[1]}]` },
-    { key: 'end', value: `[${seg.end[0]}, ${seg.end[1]}]` },
-    { key: 'length', value: `${length} mm` },
-  );
-  return props;
+  if (selectionMode.value === 'zone') {
+    return activeZoneLabelId.value;
+  }
+  return '';
+});
+
+const properties = computed(() => {
+  if (selectionMode.value === 'segment' && selectedSegment.value) {
+    const seg = selectedSegment.value;
+    const dx = seg.end[0] - seg.start[0];
+    const dy = seg.end[1] - seg.start[1];
+    const length = Math.round(Math.sqrt(dx * dx + dy * dy));
+
+    const props: { key: string; value: string }[] = [
+      { key: 'zoneId', value: selectedZoneId.value },
+      { key: 'type', value: seg.type },
+    ];
+    if (seg.id) {
+      props.push({ key: 'id', value: seg.id });
+    }
+    props.push(
+      { key: 'start', value: `[${seg.start[0]}, ${seg.start[1]}]` },
+      { key: 'end', value: `[${seg.end[0]}, ${seg.end[1]}]` },
+      { key: 'length', value: `${length} mm` },
+    );
+    return props;
+  }
+
+  if (selectionMode.value === 'zone') {
+    const zone = boundaryData.value.find(z => z.zoneId === activeZoneLabelId.value);
+    if (!zone) return [];
+    const typeStats: Record<string, number> = {};
+    for (const seg of zone.segments) {
+      typeStats[seg.type] = (typeStats[seg.type] || 0) + 1;
+    }
+    const props: { key: string; value: string }[] = [
+      { key: 'zoneId', value: zone.zoneId },
+      { key: 'segments', value: `${zone.segments.length}` },
+    ];
+    for (const [type, count] of Object.entries(typeStats)) {
+      props.push({ key: type, value: `${count}` });
+    }
+    return props;
+  }
+
+  return [];
 });
 
 // ==================== SignalR 事件 ====================
@@ -170,6 +222,23 @@ function animate() {
   if (!renderer || !visible.value) return;
   animationId = requestAnimationFrame(animate);
   renderer.render(scene, camera);
+  updateLabelPositions();
+}
+
+/** 将 zone 标签的 3D 世界坐标投影到屏幕坐标 */
+function updateLabelPositions() {
+  if (!camera || !canvasRef.value || zoneLabels.value.length === 0) return;
+  const canvas = canvasRef.value;
+  const rect = canvas.getBoundingClientRect();
+  const vec = new THREE.Vector3();
+
+  for (const label of zoneLabels.value) {
+    // 世界坐标：X 不变，Y=0（地面），Z=-worldY（Shape 旋转后 Z 取反）
+    vec.set(label.worldX, 0, -label.worldY);
+    vec.project(camera);
+    label.screenX = (vec.x * 0.5 + 0.5) * rect.width;
+    label.screenY = (-vec.y * 0.5 + 0.5) * rect.height;
+  }
 }
 
 // ==================== 场景构建 ====================
@@ -200,17 +269,36 @@ function buildScene() {
     }
   }
 
-  // 为每个 zone 的段计算外法线方向
+  // 为每个 zone 创建填充和边界段
+  const labels: ZoneLabelData[] = [];
+
   for (const zone of boundaryData.value) {
     const outwardSign = computeWindingSign(zone.segments);
 
+    // 1. Zone 绿色填充
+    const fillMesh = createZoneFillMesh(zone.segments);
+    if (fillMesh) scene.add(fillMesh);
+
+    // 2. 边界段
     for (const seg of zone.segments) {
       const mesh = createSegmentMesh(seg, outwardSign);
       mesh.userData = { segment: seg, zoneId: zone.zoneId };
       meshMap.set(mesh, { segment: seg, zoneId: zone.zoneId });
       scene.add(mesh);
     }
+
+    // 3. 计算 zone 中心（用于标签）
+    let cx = 0, cy = 0;
+    for (const seg of zone.segments) {
+      cx += seg.start[0];
+      cy += seg.start[1];
+    }
+    cx /= zone.segments.length;
+    cy /= zone.segments.length;
+    labels.push({ zoneId: zone.zoneId, worldX: cx, worldY: cy, screenX: 0, screenY: 0, segCount: zone.segments.length });
   }
+
+  zoneLabels.value = labels;
 
   // 自适应相机
   const cx = (minX + maxX) / 2;
@@ -304,6 +392,33 @@ function createSegmentMesh(seg: BoundarySegment, outwardSign: number): THREE.Mes
   return mesh;
 }
 
+/** 从闭合边界段创建 Zone 填充 Mesh */
+function createZoneFillMesh(segments: BoundarySegment[]): THREE.Mesh | null {
+  if (segments.length < 3) return null;
+
+  const shape = new THREE.Shape();
+  shape.moveTo(segments[0].start[0], segments[0].start[1]);
+  for (let i = 1; i < segments.length; i++) {
+    shape.lineTo(segments[i].start[0], segments[i].start[1]);
+  }
+  shape.closePath();
+
+  const geometry = new THREE.ShapeGeometry(shape);
+  const material = new THREE.MeshBasicMaterial({
+    color: ZONE_FILL_COLOR,
+    transparent: true,
+    opacity: ZONE_FILL_OPACITY,
+    side: THREE.DoubleSide,
+    depthWrite: false,
+  });
+
+  const mesh = new THREE.Mesh(geometry, material);
+  mesh.rotation.x = -Math.PI / 2;
+  mesh.position.y = 0; // 最底层，低于 wall(1) 和 door/window(2)
+
+  return mesh;
+}
+
 // ==================== 交互：点击选中 ====================
 
 function onCanvasClick(event: MouseEvent) {
@@ -335,6 +450,7 @@ function onCanvasClick(event: MouseEvent) {
     if (data) {
       selectedSegment.value = data.segment;
       selectedZoneId.value = data.zoneId;
+      activeZoneLabelId.value = ''; // 清除 zone 标签展开
 
       // 添加选中高亮描边
       const edges = new THREE.EdgesGeometry(hit.geometry);
@@ -479,10 +595,27 @@ function close() {
 function clearSelection() {
   selectedSegment.value = null;
   selectedZoneId.value = '';
+  activeZoneLabelId.value = '';
   if (selectionOutline && scene) {
     scene.remove(selectionOutline);
     selectionOutline = null;
   }
+}
+
+function onZoneLabelClick(zoneId: string) {
+  // 清除 segment 选中
+  selectedSegment.value = null;
+  selectedZoneId.value = '';
+  if (selectionOutline && scene) {
+    scene.remove(selectionOutline);
+    selectionOutline = null;
+  }
+  // 切换 zone 展开
+  activeZoneLabelId.value = activeZoneLabelId.value === zoneId ? '' : zoneId;
+}
+
+function closeZoneLabel() {
+  activeZoneLabelId.value = '';
 }
 
 // 4:3 比例：宽度 50vw，高度 = 50vw * 3/4 = 37.5vw
@@ -563,9 +696,27 @@ const totalSegments = computed(() => {
             @contextmenu="onCanvasContextMenu"
           ></canvas>
 
+          <!-- Zone 标签（3D→2D 投影定位） -->
+          <div
+            v-for="zl in zoneLabels"
+            :key="zl.zoneId"
+            class="zone-label"
+            :class="{ active: activeZoneLabelId === zl.zoneId }"
+            :style="{ left: zl.screenX + 'px', top: zl.screenY + 'px' }"
+            @click.stop="onZoneLabelClick(zl.zoneId)"
+          >
+            <span class="zone-label-text">#{{ zl.zoneId }}</span>
+            <button v-if="activeZoneLabelId === zl.zoneId" class="zone-label-close" @click.stop="closeZoneLabel">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <line x1="18" y1="6" x2="6" y2="18"></line>
+                <line x1="6" y1="6" x2="18" y2="18"></line>
+              </svg>
+            </button>
+          </div>
+
           <!-- 属性浮窗（模仿主界面 PropertyPanel，悬浮在 canvas 左上角） -->
           <Transition name="props-card">
-            <aside v-if="selectedSegment" class="props-card">
+            <aside v-if="selectionMode" class="props-card">
               <div class="props-header">
                 <button class="icon-btn" @click="clearSelection" title="Deselect">
                   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -573,7 +724,7 @@ const totalSegments = computed(() => {
                     <polyline points="12 19 5 12 12 5"></polyline>
                   </svg>
                 </button>
-                <div class="props-title">{{ SEGMENT_LABELS[selectedSegment.type as BoundarySegmentType] ?? selectedSegment.type }}</div>
+                <div class="props-title">{{ selectionTitle }}</div>
               </div>
               <div class="props-content">
                 <div v-for="prop in properties" :key="prop.key" class="prop-row">
@@ -708,6 +859,58 @@ const totalSegments = computed(() => {
     width: 100% !important;
     height: 100% !important;
     display: block;
+  }
+}
+
+/* Zone 标签 */
+.zone-label {
+  position: absolute;
+  transform: translate(-50%, -50%);
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px;
+  border-radius: 8px;
+  background: rgba(34, 197, 94, 0.15);
+  border: 1px solid rgba(34, 197, 94, 0.3);
+  cursor: pointer;
+  user-select: none;
+  transition: all 0.2s ease;
+  z-index: 5;
+  white-space: nowrap;
+
+  &:hover, &.active {
+    background: rgba(34, 197, 94, 0.3);
+    border-color: rgba(34, 197, 94, 0.6);
+  }
+
+  .zone-label-text {
+    font-size: 0.72rem;
+    font-family: var(--font-mono, monospace);
+    color: #22c55e;
+    font-weight: 600;
+    letter-spacing: 0.5px;
+  }
+
+  .zone-label-close {
+    background: transparent;
+    border: none;
+    color: #22c55e;
+    cursor: pointer;
+    padding: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: color 0.15s;
+
+    svg {
+      width: 12px;
+      height: 12px;
+    }
+
+    &:hover {
+      color: #ef4444;
+    }
   }
 }
 
