@@ -16,11 +16,6 @@ const isDraggingPanel = ref(false);
 const panelPos = ref({ x: -1, y: -1 }); // -1 表示使用默认位置
 const dragOffset = ref({ x: 0, y: 0 });
 
-// 拖拽调整大小
-const panelSize = ref({ width: 0, height: 0 }); // 0 表示使用默认尺寸
-const isResizing = ref(false);
-const resizeStart = { x: 0, y: 0, w: 0, h: 0 };
-
 // Three.js
 const canvasRef = ref<HTMLCanvasElement>();
 let scene: THREE.Scene;
@@ -447,45 +442,6 @@ function onPanelDragEnd() {
   window.removeEventListener('mouseup', onPanelDragEnd);
 }
 
-// ==================== 拖拽调整大小 ====================
-
-function onResizeMouseDown(event: MouseEvent) {
-  if (event.button !== 0) return;
-  event.preventDefault();
-  isResizing.value = true;
-  const panel = panelRef.value!;
-  const rect = panel.getBoundingClientRect();
-  resizeStart.x = event.clientX;
-  resizeStart.y = event.clientY;
-  resizeStart.w = rect.width;
-  resizeStart.h = rect.height;
-  window.addEventListener('mousemove', onResizeMove);
-  window.addEventListener('mouseup', onResizeEnd);
-}
-
-let resizeRafId = 0;
-
-function onResizeMove(event: MouseEvent) {
-  if (!isResizing.value) return;
-  const newW = Math.max(400, resizeStart.w + (event.clientX - resizeStart.x));
-  const newH = Math.max(320, resizeStart.h + (event.clientY - resizeStart.y));
-  panelSize.value = { width: newW, height: newH };
-  // RAF 节流，每帧最多更新一次
-  if (!resizeRafId) {
-    resizeRafId = requestAnimationFrame(() => {
-      resizeRafId = 0;
-      updateRendererSize();
-    });
-  }
-}
-
-function onResizeEnd() {
-  isResizing.value = false;
-  window.removeEventListener('mousemove', onResizeMove);
-  window.removeEventListener('mouseup', onResizeEnd);
-  updateRendererSize();
-}
-
 // ==================== resize ====================
 
 /** 仅更新 renderer 尺寸和相机 aspect，保持视口中心和缩放级别不变 */
@@ -529,29 +485,22 @@ function clearSelection() {
   }
 }
 
+// 4:3 比例：宽度 50vw，高度 = 50vw * 3/4 = 37.5vw
+const PANEL_W_RATIO = 0.5;  // 50vw
+const PANEL_H_RATIO = PANEL_W_RATIO * 0.75; // 37.5vw (4:3)
+
 const panelStyle = computed(() => {
   const style: Record<string, string> = {};
 
-  // 自定义尺寸
-  if (panelSize.value.width > 0) {
-    style.width = `${panelSize.value.width}px`;
-    style.height = `${panelSize.value.height}px`;
-  }
-
-  // 位置
   if (panelPos.value.x >= 0) {
     style.left = `${panelPos.value.x}px`;
     style.top = `${panelPos.value.y}px`;
-    style.right = 'auto';
-    style.bottom = 'auto';
   } else {
     // 默认居中
-    const w = panelSize.value.width > 0 ? panelSize.value.width : window.innerWidth * 0.5;
-    const h = panelSize.value.height > 0 ? panelSize.value.height : window.innerHeight * 0.5;
+    const w = window.innerWidth * PANEL_W_RATIO;
+    const h = window.innerWidth * PANEL_H_RATIO;
     style.left = `${(window.innerWidth - w) / 2}px`;
     style.top = `${(window.innerHeight - h) / 2}px`;
-    style.right = 'auto';
-    style.bottom = 'auto';
   }
 
   return style;
@@ -614,29 +563,27 @@ const totalSegments = computed(() => {
             @contextmenu="onCanvasContextMenu"
           ></canvas>
 
-          <!-- 属性面板（绝对定位，模仿主界面 PropertyPanel 风格） -->
-          <div v-if="selectedSegment" class="props-section">
-            <div class="props-color-bar" :style="{ backgroundColor: '#' + (SEGMENT_COLORS[selectedSegment.type as BoundarySegmentType] ?? 0x888888).toString(16).padStart(6, '0') }"></div>
-            <div class="props-header">
-              <button class="icon-btn back-btn" @click="clearSelection" title="Deselect">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                  <line x1="19" y1="12" x2="5" y2="12"></line>
-                  <polyline points="12 19 5 12 12 5"></polyline>
-                </svg>
-              </button>
-              <div class="props-title">{{ SEGMENT_LABELS[selectedSegment.type as BoundarySegmentType] ?? selectedSegment.type }}</div>
-            </div>
-            <div class="props-content">
-              <div v-for="prop in properties" :key="prop.key" class="prop-row">
-                <span class="label">{{ prop.key }}</span>
-                <span class="value" :title="prop.value">{{ prop.value }}</span>
+          <!-- 属性浮窗（模仿主界面 PropertyPanel，悬浮在 canvas 左上角） -->
+          <Transition name="props-card">
+            <aside v-if="selectedSegment" class="props-card">
+              <div class="props-header">
+                <button class="icon-btn" @click="clearSelection" title="Deselect">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <line x1="19" y1="12" x2="5" y2="12"></line>
+                    <polyline points="12 19 5 12 12 5"></polyline>
+                  </svg>
+                </button>
+                <div class="props-title">{{ SEGMENT_LABELS[selectedSegment.type as BoundarySegmentType] ?? selectedSegment.type }}</div>
               </div>
-            </div>
-          </div>
+              <div class="props-content">
+                <div v-for="prop in properties" :key="prop.key" class="prop-row">
+                  <span class="label">{{ prop.key }}</span>
+                  <span class="value" :title="prop.value">{{ prop.value }}</span>
+                </div>
+              </div>
+            </aside>
+          </Transition>
         </div>
-
-        <!-- Resize 拖拽手柄 -->
-        <div class="resize-handle" @mousedown="onResizeMouseDown"></div>
       </div>
     </Transition>
   </Teleport>
@@ -646,9 +593,10 @@ const totalSegments = computed(() => {
 .boundary-debug-panel {
   position: fixed;
   width: 50vw;
-  height: 50vh;
+  height: 37.5vw; /* 4:3 比例 */
   min-width: 400px;
-  min-height: 320px;
+  min-height: 300px;
+  max-height: 90vh;
   z-index: 500;
 
   display: flex;
@@ -763,31 +711,36 @@ const totalSegments = computed(() => {
   }
 }
 
-.props-section {
+/* 属性浮窗卡片（模仿主界面 PropertyPanel） */
+.props-card {
   position: absolute;
-  bottom: 0;
-  left: 0;
-  right: 0;
-  max-height: 180px;
+  left: 12px;
+  top: 12px;
+  width: 240px;
+  max-height: calc(100% - 24px);
+
+  /* Aurora Glass */
+  background: var(--glass-bg, rgba(15, 15, 25, 0.85));
+  backdrop-filter: var(--glass-blur, blur(20px));
+  -webkit-backdrop-filter: var(--glass-blur, blur(20px));
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: 16px;
+  box-shadow:
+    0 12px 40px rgba(0, 0, 0, 0.4),
+    0 0 0 1px rgba(255, 255, 255, 0.1) inset;
+
   display: flex;
   flex-direction: column;
   overflow: hidden;
-  background: rgba(10, 10, 15, 0.9);
-  backdrop-filter: blur(12px);
-  border-top: 1px solid rgba(255, 255, 255, 0.1);
-
-  .props-color-bar {
-    height: 3px;
-    flex-shrink: 0;
-  }
+  z-index: 10;
 
   .props-header {
     display: flex;
     align-items: center;
-    padding: 8px 16px;
+    justify-content: space-between;
+    padding: 12px 16px;
     border-bottom: 1px solid var(--border-subtle, rgba(255, 255, 255, 0.08));
     flex-shrink: 0;
-    gap: 10px;
 
     .icon-btn {
       background: transparent;
@@ -800,11 +753,10 @@ const totalSegments = computed(() => {
       align-items: center;
       justify-content: center;
       transition: all 0.2s ease;
-      flex-shrink: 0;
 
       svg {
-        width: 16px;
-        height: 16px;
+        width: 18px;
+        height: 18px;
       }
 
       &:hover {
@@ -825,7 +777,7 @@ const totalSegments = computed(() => {
   .props-content {
     flex: 1;
     overflow-y: auto;
-    padding: 10px 16px;
+    padding: 12px 16px;
 
     &::-webkit-scrollbar {
       width: 4px;
@@ -848,7 +800,7 @@ const totalSegments = computed(() => {
     line-height: 1.4;
 
     & + .prop-row {
-      margin-top: 6px;
+      margin-top: 8px;
     }
 
     .label {
@@ -871,41 +823,20 @@ const totalSegments = computed(() => {
   }
 }
 
-.resize-handle {
-  position: absolute;
-  right: 0;
-  bottom: 0;
-  width: 12px;
-  height: 12px;
-  cursor: nwse-resize;
-  z-index: 10;
-
-  &::before,
-  &::after {
-    content: '';
-    position: absolute;
-    background: rgba(255, 255, 255, 0.3);
-    border-radius: 1px;
-  }
-
-  // 三条斜线
-  &::before {
-    width: 8px;
-    height: 1px;
-    bottom: 3px;
-    right: 1px;
-    transform: rotate(-45deg);
-    box-shadow:
-      2px -2px 0 rgba(255, 255, 255, 0.3),
-      4px -4px 0 rgba(255, 255, 255, 0.3);
-  }
-
-  &:hover::before {
-    background: rgba(255, 255, 255, 0.6);
-    box-shadow:
-      2px -2px 0 rgba(255, 255, 255, 0.6),
-      4px -4px 0 rgba(255, 255, 255, 0.6);
-  }
+/* 属性卡片过渡 */
+.props-card-enter-active {
+  transition: all 0.25s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+.props-card-leave-active {
+  transition: all 0.15s ease;
+}
+.props-card-enter-from {
+  opacity: 0;
+  transform: translateY(-10px) scale(0.95);
+}
+.props-card-leave-to {
+  opacity: 0;
+  transform: scale(0.95);
 }
 
 /* 过渡动画 */
