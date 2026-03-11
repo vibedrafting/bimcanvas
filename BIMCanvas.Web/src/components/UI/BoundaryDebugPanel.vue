@@ -75,10 +75,30 @@ const properties = computed(() => {
 
 // ==================== SignalR 事件 ====================
 
+/** 标准化 Point2D：兼容 [x,y] 数组和 {x,y} 对象两种格式 */
+function normalizePoint(p: any): [number, number] {
+  if (Array.isArray(p)) return [p[0], p[1]];
+  if (p && typeof p === 'object') return [p.x, p.y];
+  return [0, 0];
+}
+
+/** 标准化接收到的数据，确保 start/end 为 [x,y] 格式 */
+function normalizeData(raw: any[]): ZoneBoundaryData[] {
+  return raw.map(zone => ({
+    zoneId: zone.zoneId,
+    segments: (zone.segments || []).map((seg: any) => ({
+      id: seg.id,
+      type: seg.type,
+      start: normalizePoint(seg.start),
+      end: normalizePoint(seg.end),
+    }))
+  }));
+}
+
 function onBoundaryDebug(event: Event) {
-  const data = (event as CustomEvent).detail as ZoneBoundaryData[];
-  if (!data || !Array.isArray(data)) return;
-  boundaryData.value = data;
+  const raw = (event as CustomEvent).detail;
+  if (!raw || !Array.isArray(raw)) return;
+  boundaryData.value = normalizeData(raw);
   selectedSegment.value = null;
   visible.value = true;
 }
