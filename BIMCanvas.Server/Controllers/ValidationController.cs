@@ -3,14 +3,17 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Text;
+using System.Threading.Tasks;
 using BIMCanvas.Core.Algorithms.Spatial;
 using BIMCanvas.Core.Converters.Json;
 using BIMCanvas.Core.Models.Computed;
 using BIMCanvas.Core.Models.Layout;
 using BIMCanvas.Core.Models.Revit;
 using BIMCanvas.Core.Validation;
+using BIMCanvas.Server.Hubs;
 using BIMCanvas.Server.Services;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.SignalR;
 using Microsoft.Extensions.Logging;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Serialization;
@@ -24,16 +27,19 @@ namespace BIMCanvas.Server.Controllers
         private readonly ILogger<ValidationController> _logger;
         private readonly ProjectContext _projectContext;
         private readonly ZoneBoundaryService _zoneBoundaryService;
+        private readonly IHubContext<CanvasHub> _hubContext;
         private readonly JsonSerializerSettings _jsonSettings;
 
         public ValidationController(
             ILogger<ValidationController> logger,
             ProjectContext projectContext,
-            ZoneBoundaryService zoneBoundaryService)
+            ZoneBoundaryService zoneBoundaryService,
+            IHubContext<CanvasHub> hubContext)
         {
             _logger = logger;
             _projectContext = projectContext;
             _zoneBoundaryService = zoneBoundaryService;
+            _hubContext = hubContext;
             _jsonSettings = new JsonSerializerSettings
             {
                 ContractResolver = new CamelCasePropertyNamesContractResolver(),
@@ -318,7 +324,7 @@ namespace BIMCanvas.Server.Controllers
         /// Agent 按需调用，实时计算不存文件
         /// </summary>
         [HttpPost("zone-boundaries")]
-        public ActionResult<List<ZoneBoundaryData>> GetZoneBoundaries(
+        public async Task<ActionResult<List<ZoneBoundaryData>>> GetZoneBoundaries(
             [FromBody] ZoneBoundaryRequest request)
         {
             if (!_projectContext.IsLoaded)
@@ -353,6 +359,15 @@ namespace BIMCanvas.Server.Controllers
                     allZones, openings, request?.ZoneIds);
 
                 _logger.LogInformation("[ZoneBoundary] 计算完成: {Count} 个 zone 的边界段", results.Count);
+
+                // 4. Debug 模式：通过 SignalR 推送给 Web 端可视化
+                if (request?.Debug == true)
+                {
+                    var payload = JsonConvert.SerializeObject(results, _jsonSettings);
+                    await _hubContext.Clients.All.SendAsync("BoundaryDebugData", payload);
+                    _logger.LogInformation("[ZoneBoundary] Debug 模式：已推送 {Count} 个 zone 边界数据到 Web", results.Count);
+                }
+
                 return Ok(results);
             }
             catch (Exception ex)
@@ -409,5 +424,8 @@ namespace BIMCanvas.Server.Controllers
     {
         /// <summary>可选，指定要计算的 Zone ID 列表。不传则返回所有叶子 zone。</summary>
         public List<string> ZoneIds { get; set; }
+
+        /// <summary>调试模式：为 true 时通过 SignalR 推送数据给 Web 端进行可视化调试</summary>
+        public bool Debug { get; set; }
     }
 }

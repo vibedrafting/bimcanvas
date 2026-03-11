@@ -635,6 +635,10 @@ def _format_zone_boundaries(data: list[dict[str, Any]]) -> str:
                 "items": {"type": "string"},
                 "description": "可选。指定要查询的 Zone ID 列表（如 [\"dz_1\", \"dz_2\"]）。"
                                "不传则返回所有叶子 zone 的边界段数据。"
+            },
+            "debug": {
+                "type": "boolean",
+                "description": "可选。为 true 时同步推送数据到 Web 端进行可视化调试。"
             }
         },
         "additionalProperties": False
@@ -643,7 +647,13 @@ def _format_zone_boundaries(data: list[dict[str, Any]]) -> str:
 async def get_zone_boundaries(args: dict[str, Any]) -> dict[str, Any]:
     """获取 Zone 边界段语义数据"""
     zone_ids = args.get("zoneIds")
-    body = {"zoneIds": zone_ids} if zone_ids else None
+    debug = args.get("debug", False)
+    body = {}
+    if zone_ids:
+        body["zoneIds"] = zone_ids
+    if debug:
+        body["debug"] = True
+    body = body or None
 
     try:
         async with aiohttp.ClientSession() as session:

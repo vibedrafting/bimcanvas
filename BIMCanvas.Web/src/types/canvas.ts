@@ -248,3 +248,19 @@ export interface ProjectData {
   activeScheme: SchemeData;
   computed: ComputedData;
 }
+
+// ========== 边界段调试数据 ==========
+
+export type BoundarySegmentType = 'wall' | 'passage' | 'door' | 'window';
+
+export interface BoundarySegment {
+  id?: string;
+  type: BoundarySegmentType;
+  start: Point2D;
+  end: Point2D;
+}
+
+export interface ZoneBoundaryData {
+  zoneId: string;
+  segments: BoundarySegment[];
+}

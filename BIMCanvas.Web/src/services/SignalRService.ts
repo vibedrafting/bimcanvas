@@ -47,6 +47,16 @@ export class SignalRService {
         this.connection.on("AgentNotification", (data: AgentNotification) => {
             window.dispatchEvent(new CustomEvent('bimcanvas:agent-notification', { detail: data }));
         });
+
+        // 边界段调试可视化数据
+        this.connection.on("BoundaryDebugData", (data: string) => {
+            try {
+                const parsed = JSON.parse(data);
+                window.dispatchEvent(new CustomEvent('bimcanvas:boundary-debug', { detail: parsed }));
+            } catch {
+                console.error('[SignalR] Failed to parse BoundaryDebugData');
+            }
+        });
     }
 
     private setupLifecycleHooks() {

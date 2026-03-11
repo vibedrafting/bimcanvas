@@ -8,6 +8,7 @@ import FloatingLayerManager from '../components/UI/FloatingLayerManager.vue';
 import FloatingInput from '../components/UI/FloatingInput.vue';
 import PromptBar from '../components/UI/PromptBar.vue';
 import ModuleLibraryPanel from '../components/UI/ModuleLibraryPanel.vue';
+import BoundaryDebugPanel from '../components/UI/BoundaryDebugPanel.vue';
 import { useDebugStore } from '../stores/debugStore';
 import { onMounted, onUnmounted, ref, watch } from 'vue';
 import type { ModuleDefinition } from '../services/ModuleLibraryService';
@@ -94,6 +95,8 @@ watch(() => props.buildComplete, (newVal) => {
       @close="showModuleLibrary = false"
       @select-module="onSelectModule"
     />
+
+    <BoundaryDebugPanel />
   </div>
 </template>
 
