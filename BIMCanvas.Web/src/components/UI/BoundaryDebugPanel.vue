@@ -13,7 +13,7 @@ const selectedZoneId = ref<string>('');
 // 拖拽浮窗
 const panelRef = ref<HTMLDivElement>();
 const isDraggingPanel = ref(false);
-const panelPos = ref({ x: -1, y: -1 }); // -1 表示使用默认位置
+const panelPos = ref<{ x: number; y: number } | null>(null);
 const dragOffset = ref({ x: 0, y: 0 });
 
 // Three.js
@@ -565,7 +565,7 @@ const PANEL_H_RATIO = PANEL_W_RATIO * 0.75; // 37.5vw (4:3)
 const panelStyle = computed(() => {
   const style: Record<string, string> = {};
 
-  if (panelPos.value.x >= 0) {
+  if (panelPos.value !== null) {
     style.left = `${panelPos.value.x}px`;
     style.top = `${panelPos.value.y}px`;
   } else {
