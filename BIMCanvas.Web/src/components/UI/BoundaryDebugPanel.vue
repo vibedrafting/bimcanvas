@@ -23,6 +23,7 @@ let camera: THREE.OrthographicCamera;
 let renderer: THREE.WebGLRenderer;
 let animationId: number;
 const meshMap = new Map<THREE.Mesh, { segment: BoundarySegment; zoneId: string }>();
+const zoneMeshMap = new Map<THREE.Mesh, string>();  // zone fill mesh → zoneId
 let selectionOutline: THREE.LineSegments | null = null;
 
 // 视口交互
@@ -54,14 +55,23 @@ const SELECTION_COLOR = 0x3b82f6; // 与主场景选中蓝色一致
 
 // ==================== 属性面板 ====================
 
+const hasSelection = computed(() => !!selectedSegment.value || !!selectedZoneId.value);
+
 const selectionTitle = computed(() => {
   if (selectedSegment.value) {
     return SEGMENT_LABELS[selectedSegment.value.type as BoundarySegmentType] ?? selectedSegment.value.type;
+  }
+  if (selectedZoneId.value) {
+    return 'Zone';
   }
   return '';
 });
 
 const properties = computed(() => {
+  // Zone 选中（无 segment）：只显示 zoneId
+  if (!selectedSegment.value && selectedZoneId.value) {
+    return [{ key: 'zoneId', value: selectedZoneId.value }];
+  }
   if (!selectedSegment.value) return [];
   const seg = selectedSegment.value;
   const dx = seg.end[0] - seg.start[0];
@@ -170,6 +180,7 @@ function disposeThree() {
     animationId = 0;
   }
   meshMap.clear();
+  zoneMeshMap.clear();
   selectionOutline = null;
   if (renderer) {
     renderer.dispose();
@@ -193,6 +204,7 @@ function buildScene() {
     scene.remove(child);
   }
   meshMap.clear();
+  zoneMeshMap.clear();
   selectionOutline = null;
   scene.add(new THREE.AmbientLight(0xffffff, 1.0));
 
@@ -216,7 +228,10 @@ function buildScene() {
 
     // 1. Zone 绿色填充
     const fillMesh = createZoneFillMesh(zone.segments);
-    if (fillMesh) scene.add(fillMesh);
+    if (fillMesh) {
+      scene.add(fillMesh);
+      zoneMeshMap.set(fillMesh, zone.zoneId);
+    }
 
     // 2. Zone 加粗虚线边框
     const outlineLine = createZoneOutline(zone.segments);
@@ -405,23 +420,23 @@ function onCanvasClick(event: MouseEvent) {
   const raycaster = new THREE.Raycaster();
   raycaster.setFromCamera(mouse, camera);
 
-  const meshes = Array.from(meshMap.keys());
-  const intersects = raycaster.intersectObjects(meshes);
-
   // 移除旧高亮
   if (selectionOutline) {
     scene.remove(selectionOutline);
     selectionOutline = null;
   }
 
-  if (intersects.length > 0) {
-    const hit = intersects[0].object as THREE.Mesh;
+  // 优先命中 segment，回退到 zone fill
+  const segMeshes = Array.from(meshMap.keys());
+  const segHits = raycaster.intersectObjects(segMeshes);
+
+  if (segHits.length > 0) {
+    const hit = segHits[0].object as THREE.Mesh;
     const data = meshMap.get(hit);
     if (data) {
       selectedSegment.value = data.segment;
       selectedZoneId.value = data.zoneId;
 
-      // 添加选中高亮描边
       const edges = new THREE.EdgesGeometry(hit.geometry);
       selectionOutline = new THREE.LineSegments(
         edges,
@@ -429,13 +444,29 @@ function onCanvasClick(event: MouseEvent) {
       );
       selectionOutline.rotation.copy(hit.rotation);
       selectionOutline.position.copy(hit.position);
-      selectionOutline.position.y += 0.5; // 略高于 mesh
+      selectionOutline.position.y += 0.5;
       scene.add(selectionOutline);
+      return;
     }
-  } else {
-    selectedSegment.value = null;
-    selectedZoneId.value = '';
   }
+
+  // 回退：点击 zone 内部空白区域
+  const zoneMeshes = Array.from(zoneMeshMap.keys());
+  const zoneHits = raycaster.intersectObjects(zoneMeshes);
+
+  if (zoneHits.length > 0) {
+    const hit = zoneHits[0].object as THREE.Mesh;
+    const zoneId = zoneMeshMap.get(hit);
+    if (zoneId) {
+      selectedSegment.value = null;
+      selectedZoneId.value = zoneId;
+      return;
+    }
+  }
+
+  // 未命中任何对象
+  selectedSegment.value = null;
+  selectedZoneId.value = '';
 }
 
 // ==================== 交互：Pan (中键/右键拖拽) ====================
@@ -650,7 +681,7 @@ const totalSegments = computed(() => {
 
           <!-- 属性浮窗（模仿主界面 PropertyPanel，悬浮在 canvas 左上角） -->
           <Transition name="props-card">
-            <aside v-if="selectedSegment" class="props-card">
+            <aside v-if="hasSelection" class="props-card">
               <div class="props-header">
                 <button class="icon-btn" @click="clearSelection" title="Deselect">
                   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
