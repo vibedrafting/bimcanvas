@@ -36,7 +36,7 @@ const SEGMENT_COLORS: Record<BoundarySegmentType, number> = {
   wall: 0x37474F,     // Blue Grey 800
   door: 0x00E676,     // Spring Green
   window: 0x64B5F6,   // Blue 300
-  passage: 0xFFB74D,  // Orange 300 (暖橙)
+  passage: 0x22c55e,  // 与 Zone 填充同色（"可通过 = 空间本身"）
 };
 
 const SEGMENT_LABELS: Record<BoundarySegmentType, string> = {
@@ -295,13 +295,16 @@ function createSegmentMesh(seg: BoundarySegment, outwardSign: number): THREE.Mes
   const t = WALL_THICKNESS;
 
   // 4 个角点：内侧沿线段，外侧偏移 thickness
-  // 注意：Three.js 中 X→X, Y→Z（因为 Y-up 俯视）
   const p0 = [sx, sy];           // 内侧起点
   const p1 = [ex, ey];           // 内侧终点
   const p2 = [ex + nx * t, ey + ny * t]; // 外侧终点
   const p3 = [sx + nx * t, sy + ny * t]; // 外侧起点
 
-  // 创建 Shape（2D 平面，之后旋转到 XZ 平面）
+  const color = SEGMENT_COLORS[seg.type as BoundarySegmentType] ?? 0x888888;
+  const yPos = seg.type === 'wall' ? 1 : 2;
+  const isPassage = seg.type === 'passage';
+
+  // Shape → ShapeGeometry（所有类型统一流程）
   const shape = new THREE.Shape();
   shape.moveTo(p0[0], p0[1]);
   shape.lineTo(p1[0], p1[1]);
@@ -311,14 +314,23 @@ function createSegmentMesh(seg: BoundarySegment, outwardSign: number): THREE.Mes
 
   const geometry = new THREE.ShapeGeometry(shape);
   const material = new THREE.MeshBasicMaterial({
-    color: SEGMENT_COLORS[seg.type as BoundarySegmentType] ?? 0x888888,
+    color,
     side: THREE.DoubleSide,
+    // Passage: 与 Zone 填充一致的半透明效果
+    ...(isPassage && { transparent: true, opacity: ZONE_FILL_OPACITY, depthWrite: false }),
   });
 
   const mesh = new THREE.Mesh(geometry, material);
-  // Shape 在 XY 平面，旋转到 XZ 平面（Y-up 俯视）
   mesh.rotation.x = -Math.PI / 2;
-  mesh.position.y = seg.type === 'wall' ? 1 : 2; // door/window/passage 略高于 wall
+  mesh.position.y = yPos;
+
+  // Passage: 添加子级边框线
+  if (isPassage) {
+    const edges = new THREE.EdgesGeometry(geometry);
+    const outline = new THREE.LineSegments(edges,
+      new THREE.LineBasicMaterial({ color }));
+    mesh.add(outline);
+  }
 
   return mesh;
 }
