@@ -20,9 +20,9 @@ const dragOffset = ref({ x: 0, y: 0 });
 
 // Three.js
 const canvasRef = ref<HTMLCanvasElement>();
-let scene: THREE.Scene;
-let camera: THREE.OrthographicCamera;
-let renderer: THREE.WebGLRenderer;
+let scene: THREE.Scene | null = null;
+let camera: THREE.OrthographicCamera | null = null;
+let renderer: THREE.WebGLRenderer | null = null;
 let animationId: number;
 const meshMap = new Map<THREE.Mesh, { segment: BoundarySegment; zoneId: string }>();
 const zoneMeshMap = new Map<THREE.Mesh, string>();  // zone fill mesh → zoneId
@@ -210,11 +210,14 @@ function disposeThree() {
   selectionOutline = null;
   if (renderer) {
     renderer.dispose();
+    renderer = null;
   }
+  scene = null;
+  camera = null;
 }
 
 function animate() {
-  if (!renderer || !visible.value) return;
+  if (!renderer || !scene || !camera || !visible.value) return;
   animationId = requestAnimationFrame(animate);
   renderer.render(scene, camera);
 }
