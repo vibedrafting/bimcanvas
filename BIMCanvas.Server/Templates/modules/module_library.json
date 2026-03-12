@@ -46,7 +46,8 @@
           "strategy": "fixed"
         },
         "topology_rules": [
-          "必须紧贴床头两侧"
+          "必须紧贴床头两侧",
+          "【必须】facing 方向与所依附的床一致（背靠同一面墙，正面朝房间）"
         ],
         "relation_rules": [
           "【必须】卧室中应至少布置一个床头柜（bedroom_core 成套），仅在两侧都放下后使用侧 < 500mm 时可省略窗侧",
