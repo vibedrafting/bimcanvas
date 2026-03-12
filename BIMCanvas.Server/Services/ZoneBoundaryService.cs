@@ -807,7 +807,7 @@ namespace BIMCanvas.Server.Services
             return segments;
         }
 
-        /// <summary>合并相邻的 wall 段</summary>
+        /// <summary>合并相邻的共线 wall 段</summary>
         private List<BoundarySegment> MergeAdjacentWalls(List<BoundarySegment> segments)
         {
             var result = new List<BoundarySegment>();
@@ -819,20 +819,41 @@ namespace BIMCanvas.Server.Services
                     && result[result.Count - 1].Id == null
                     && segments[i].Id == null)
                 {
-                    // 合并：扩展前一段的 End
                     var prev = result[result.Count - 1];
-                    result[result.Count - 1] = new BoundarySegment
+                    var curr = segments[i];
+
+                    // 共线性检查：防止合并方向不同的 wall 段（如转角处垂直段）
+                    var prevDx = prev.End.X - prev.Start.X;
+                    var prevDy = prev.End.Y - prev.Start.Y;
+                    var currDx = curr.End.X - curr.Start.X;
+                    var currDy = curr.End.Y - curr.Start.Y;
+                    var prevLen = Math.Sqrt(prevDx * prevDx + prevDy * prevDy);
+                    var currLen = Math.Sqrt(currDx * currDx + currDy * currDy);
+
+                    bool isCollinear = false;
+                    if (prevLen > 1e-6 && currLen > 1e-6)
                     {
-                        Id = null,
-                        Type = "wall",
-                        Start = prev.Start,
-                        End = segments[i].End
-                    };
+                        var cross = Math.Abs(
+                            (prevDx / prevLen) * (currDy / currLen) -
+                            (prevDy / prevLen) * (currDx / currLen));
+                        isCollinear = cross < ParallelTolerance;
+                    }
+
+                    if (isCollinear)
+                    {
+                        // 共线：合并，扩展前一段的 End
+                        result[result.Count - 1] = new BoundarySegment
+                        {
+                            Id = null,
+                            Type = "wall",
+                            Start = prev.Start,
+                            End = curr.End
+                        };
+                        continue;
+                    }
                 }
-                else
-                {
-                    result.Add(segments[i]);
-                }
+
+                result.Add(segments[i]);
             }
             return result;
         }
