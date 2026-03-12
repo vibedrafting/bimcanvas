@@ -2,9 +2,11 @@
 import { ref, onMounted, onUnmounted, watch, nextTick, computed } from 'vue';
 import * as THREE from 'three';
 import type { ZoneBoundaryData, BoundarySegment, BoundarySegmentType } from '../../types/canvas';
+import { useCanvasStore } from '../../stores/canvasStore';
 
 // ==================== 状态 ====================
 
+const store = useCanvasStore();
 const visible = ref(false);
 const boundaryData = ref<ZoneBoundaryData[]>([]);
 const selectedSegment = ref<BoundarySegment | null>(null);
@@ -68,9 +70,33 @@ const selectionTitle = computed(() => {
 });
 
 const properties = computed(() => {
-  // Zone 选中（无 segment）：只显示 zoneId
+  // Zone 选中（无 segment）：从 store 查找完整 zone 数据
   if (!selectedSegment.value && selectedZoneId.value) {
-    return [{ key: 'zoneId', value: selectedZoneId.value }];
+    const props: { key: string; value: string }[] = [
+      { key: 'ID', value: selectedZoneId.value },
+    ];
+    // 从 projectData 查找 zone 详细信息
+    const pd = store.projectData;
+    const zones = pd?.activeScheme?.zones ?? [];
+    let zone = zones.find(z => z.id === selectedZoneId.value);
+    // 搜索子分区
+    if (!zone) {
+      for (const z of zones) {
+        const sub = z.subZones?.find(sz => sz.id === selectedZoneId.value);
+        if (sub) { zone = sub; props.push({ key: 'parentZoneId', value: z.id }); break; }
+      }
+    }
+    // 回退到 computed.roomZones
+    if (!zone) {
+      zone = pd?.computed?.roomZones?.find(z => z.id === selectedZoneId.value);
+    }
+    if (zone) {
+      if (zone.name) props.push({ key: 'name', value: zone.name });
+      if (zone.roomId) props.push({ key: 'roomId', value: zone.roomId });
+      if (zone.type !== undefined) props.push({ key: 'type', value: String(zone.type) });
+      if (zone.reason) props.push({ key: 'reason', value: zone.reason });
+    }
+    return props;
   }
   if (!selectedSegment.value) return [];
   const seg = selectedSegment.value;
