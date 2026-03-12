@@ -23,7 +23,8 @@
 | Web 调试面板 Zone 属性 | ✅ 完成 | 选中 Zone 时显示完整属性（ID/name/roomId/type/reason/parentZoneId） |
 | Web 调试面板重复打开 | ✅ 完成 | 修复 disposeThree 未置空变量导致 watch 竞态 |
 | Web 主属性面板子分区 | ✅ 完成 | findObjectById 增加嵌套 subZones 搜索 + sceneDataCache 兼容 userData |
-| Skill 提示词调整 | 🔶 待做 | generate-workflow/bedroom/zoning 引导使用 boundarySegments |
+| Skill 提示词调整 | ✅ 完成 | T5 完成：workflow/bedroom/zoning/livingroom/bathroom 全部集成 boundarySegments |
+| MCP 输出格式优化 | ✅ 完成 | T5 完成：_format_zone_boundaries 重构为按墙面分组+方位标签+实墙摘要 |
 | dz_1/dz_2 端到端验证 | 🔶 待做 | 验证子分区 passage 分类 + Agent 布置行为 |
 
 ---

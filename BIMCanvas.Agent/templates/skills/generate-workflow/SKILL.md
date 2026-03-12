@@ -19,7 +19,8 @@ description: |
 > WHY：纯机械操作，不占认知资源。先建立感官输入，后续阶段才有决策素材。
 
 1. **截图**（单独调用，等收到后再继续）— `mcp__canvas__request_background_screenshot`，用 zone 模式聚焦目标分区或 full 模式看全屋。截图工具直接返回图片；若看不到内容，用 Read 查看返回的文件路径
-2. **并行读取**：knowledge/design_principles.md + modules/module_library.json + schemes/zones.json + computed/exclusions.json + baseline/openings.json
+2. **并行读取**：knowledge/design_principles.md + modules/module_library.json + schemes/zones.json + computed/exclusions.json
+3. **边界语义**：调用 `get_zone_boundaries` — 获取每条边的类型（wall/passage/door/window）和坐标，直接用于墙面分析，不再从 rawBoundary + openings 手动推断
 
 **模块数据**：契约层（id/tags/size）用于选择，意图层（agent_config: morphology + topology_rules + relation_rules）用于布置决策。按 Zone 的 tags/optionalTags 筛选兼容模块——匹配 tags 为必备家具，仅匹配 optionalTags 为可选家具。
 
@@ -46,7 +47,7 @@ description: |
 **评估分区需求**：
 - rawBoundary 顶点 > 4 → 加载 generate-zoning（异形空间需几何拆解）
 - 多功能标签组 + 面积 > 20㎡ → 加载 generate-zoning（开放空间需功能分区）
-- 执行分区 → 产出 subZones → 为每个叶子 zone 分别加载房间 Skill
+- 执行分区 → 产出 subZones → 再次调用 `get_zone_boundaries` 获取子 zone 边界语义（含 passage 段）→ 为每个叶子 zone 分别加载房间 Skill
 - 矩形单功能房间 → 跳过
 
 ---

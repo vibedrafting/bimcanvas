@@ -14,10 +14,12 @@
 | T2：知识体系 + 其余房间 | ✅ 已完成 | `T2-knowledge-system.md` ✅ | 验收通过，已补充 WHY |
 | T3：分区架构 + zoning Skill | ✅ 已完成 | `T3-zoning-architecture.md` ✅ | 验收通过 |
 | 全面审查 + 文档清理 | ✅ 已完成 | — | commit `bbca6fe` |
+| T4：Zone 边界语义化 | ✅ 已完成 | `T4-zone-boundary-segments.md` ✅ | 核心实现+Web调试面板 |
+| T5：工作流提示词集成 boundarySegments | ✅ 已完成 | `T5-prompt-integration.md` ✅ | 6 个文件改造完成 |
 
-**当前状态**：T1-T3 全部完成并通过全面审查。旧体系清理完毕（18 个文件，placement_guide 引用全部更新）。重构闭环。
+**当前状态**：T1-T5 全部完成。墙面分析从"AI 手动推断"升级为"数据驱动筛选"。待端到端验证。
 
-**执行顺序**：~~T1（主框架+卧室）~~ → ~~T2（知识+其余房间）~~ → ~~T3（分区架构+zoning Skill，全栈交付）~~ → ~~全面审查+文档清理~~
+**执行顺序**：~~T1（主框架+卧室）~~ → ~~T2（知识+其余房间）~~ → ~~T3（分区架构+zoning Skill，全栈交付）~~ → ~~全面审查+文档清理~~ → ~~T4（Zone 边界语义化）~~ → ~~T5（提示词集成 boundarySegments）~~
 
 ### T1 执行摘要
 
