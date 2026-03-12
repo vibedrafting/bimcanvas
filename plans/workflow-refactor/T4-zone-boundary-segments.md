@@ -20,6 +20,9 @@
 | 坐标精度优化 | ✅ 完成 | 输出坐标四舍五入到整数 mm |
 | 共线段合并优化 | ✅ 完成 | 相邻共线同类型段自动合并 |
 | Web 调试面板可视化 | ✅ 完成 | BoundaryDebugPanel：Zone 绿色填充 + 虚线边框 + 构件外扩 |
+| Web 调试面板 Zone 属性 | ✅ 完成 | 选中 Zone 时显示完整属性（ID/name/roomId/type/reason/parentZoneId） |
+| Web 调试面板重复打开 | ✅ 完成 | 修复 disposeThree 未置空变量导致 watch 竞态 |
+| Web 主属性面板子分区 | ✅ 完成 | findObjectById 增加嵌套 subZones 搜索 + sceneDataCache 兼容 userData |
 | Skill 提示词调整 | 🔶 待做 | generate-workflow/bedroom/zoning 引导使用 boundarySegments |
 | dz_1/dz_2 端到端验证 | 🔶 待做 | 验证子分区 passage 分类 + Agent 布置行为 |
 
@@ -582,9 +585,15 @@ BoundaryDebugPanel 是 Web 端的调试面板，使用独立 Three.js 场景渲�
 
 ### 交互设计
 
-- Zone **不可点击选中**（仅作为背景可视化）
-- 墙/门/窗段**可点击**查看属性（类型、坐标、厚度）
+- Zone 填充区域**可点击**，选中后显示完整属性（ID/name/roomId/type/reason），子分区额外显示 parentZoneId
+- 墙/门/窗段**可点击**查看属性（类型、坐标、长度）
+- 属性数据从 `canvasStore.projectData` 查找（含嵌套子分区搜索）
 - 无 X 对角线、无 Zone 标签（简化方案，与主画布差异化）
+
+### 生命周期管理
+
+- `disposeThree()` 必须置空 `renderer`/`scene`/`camera`，防止 `watch(boundaryData)` 与 `watch(visible)` 竞态
+- 面板关闭后再次接收 SignalR 事件时，`watch(visible)` 负责重新初始化 Three.js
 
 ---
 
@@ -612,7 +621,8 @@ BoundaryDebugPanel 是 Web 端的调试面板，使用独立 Three.js 场景渲�
 | **Server** | `Controllers/ValidationController.cs` | ✅ 修改 | zone-boundaries 端点 + 构造函数注入 |
 | **Agent** | `src/mcp/canvas.py` | ✅ 修改 | get_zone_boundaries 工具 + 格式化 + 注册 |
 | **Agent** | Skill 提示词 | 🔶 待做 | generate-workflow/bedroom/zoning 引导使用 |
-| **Web** | `components/UI/BoundaryDebugPanel.vue` | ✅ 修改 | Zone 可视化：绿色填充 + 虚线边框 + 构件外扩渲染 |
+| **Web** | `components/UI/BoundaryDebugPanel.vue` | ✅ 修改 | Zone 可视化 + Zone 属性面板 + disposeThree 竞态修复 |
+| **Web** | `stores/canvasStore.ts` | ✅ 修改 | findObjectById 嵌套子分区搜索 + sceneDataCache 兼容 userData |
 
 ### 算法方法清单（ZoneBoundaryService.cs）
 
