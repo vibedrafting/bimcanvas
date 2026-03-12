@@ -88,10 +88,17 @@ export const useCanvasStore = defineStore('canvas', () => {
             return { ...opening, type: typeName };
         }
 
-        // 在 activeScheme.zones 中查找（设计区域）
+        // 在 activeScheme.zones 中查找（设计区域，含嵌套子分区）
         const schemeZone = activeScheme?.zones?.find(z => z.id === id);
         if (schemeZone) {
             return { ...schemeZone, type: 'zone' };
+        }
+        // 搜索嵌套子分区
+        for (const z of activeScheme?.zones ?? []) {
+            const subZone = z.subZones?.find(sz => sz.id === id);
+            if (subZone) {
+                return { ...subZone, type: 'zone', parentZoneId: z.id };
+            }
         }
 
         // 在 computed.roomZones 中查找（房间区域）
@@ -274,9 +281,10 @@ export const useCanvasStore = defineStore('canvas', () => {
             }
             selectedIds.value = id ? [id] : [];
 
-            // 缓存 Scene mesh 数据快照（竞态降级回退）
-            if (id && obj.data) {
-                sceneDataCache.set(id, { ...obj.data, type: obj.type || 'module' });
+            // 缓存 Scene mesh 数据快照（竞态降级回退，兼容 THREE.Mesh 的 userData）
+            const cacheData = obj.data || obj.userData?.data;
+            if (id && cacheData) {
+                sceneDataCache.set(id, { ...cacheData, type: obj.type || obj.userData?.type || 'module' });
             }
         }
         debugMsg.value += `\nSet: ${selectedIds.value.join(',')} at ${Date.now()}`;
@@ -301,9 +309,10 @@ export const useCanvasStore = defineStore('canvas', () => {
             selectedIds.value = [...selectedIds.value, id];
             debugMsg.value += `\nAdd: ${id} at ${Date.now()}`;
         }
-        // 缓存 Scene mesh 数据快照（竞态降级回退）
-        if (id && obj?.data) {
-            sceneDataCache.set(id, { ...obj.data, type: obj.type || 'module' });
+        // 缓存 Scene mesh 数据快照（竞态降级回退，兼容 THREE.Mesh 的 userData）
+        const addCacheData = obj?.data || obj?.userData?.data;
+        if (id && addCacheData) {
+            sceneDataCache.set(id, { ...addCacheData, type: obj.type || obj.userData?.type || 'module' });
         }
     };
 
@@ -332,9 +341,10 @@ export const useCanvasStore = defineStore('canvas', () => {
             id = obj.userData.id;
         }
         if (id) {
-            // 缓存 Scene mesh 数据快照（竞态降级回退）
-            if (obj?.data) {
-                sceneDataCache.set(id, { ...obj.data, type: obj.type || 'module' });
+            // 缓存 Scene mesh 数据快照（竞态降级回退，兼容 THREE.Mesh 的 userData）
+            const toggleCacheData = obj?.data || obj?.userData?.data;
+            if (toggleCacheData) {
+                sceneDataCache.set(id, { ...toggleCacheData, type: obj.type || obj.userData?.type || 'module' });
             }
             if (selectedIds.value.includes(id)) {
                 removeFromSelection(id);
