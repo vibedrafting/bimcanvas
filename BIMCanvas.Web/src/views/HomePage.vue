@@ -129,7 +129,6 @@ const displayProjects = computed(() => {
 
 // 加载数据
 onMounted(() => {
-  document.title = 'BIMCanvas';
   appStore.fetchProjectList();
 });
 </script>

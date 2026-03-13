@@ -70,11 +70,6 @@ const enterWorkspace = async () => {
       } catch { /* non-critical */ }
     }
 
-    // 设置浏览器标签页标题
-    if (store.projectData?.project?.name) {
-      document.title = `BIMCanvas \u2014 ${store.projectData.project.name}`;
-    }
-
     // 计算目标视图
     if (store.projectData) {
       debugStore.log('Calculating target view...');
