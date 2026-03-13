@@ -104,6 +104,13 @@ const enterWorkspace = async () => {
     await new Promise(resolve => setTimeout(resolve, 500));
 
     loadingStage.value = 5;
+
+    // 导入路径：data 在 ThreeCanvas 挂载前已加载，
+    // watch 不会触发 fitToScreen，需主动触发
+    if (dataAlreadyLoaded) {
+      window.dispatchEvent(new Event('bimcanvas:reset-view'));
+    }
+
     debugStore.log('Triggering Progressive Scene Build...');
     window.dispatchEvent(new CustomEvent('bimcanvas:play-build-sequence'));
 
