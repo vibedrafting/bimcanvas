@@ -119,6 +119,9 @@ builder.Services.AddSingleton<MergeService>();       // 可视化合并服务
 // v3.4 可视化 Diff 服务
 builder.Services.AddSingleton<SchemeDataService>();  // 跨分支/Worktree 模块数据读写
 
+// 首页项目管理服务
+builder.Services.AddSingleton<RecentProjectsService>();
+
 // v3.2 实时通信服务（使用 Newtonsoft.Json 避免 JsonElement 序列化问题）
 builder.Services.AddSignalR()
     .AddNewtonsoftJsonProtocol(options =>
@@ -173,70 +176,8 @@ var config = ConfigService.Load();
 WriteWithColoredPrefix("[Server]", "BIMCanvas.Server 启动中...", ConsoleColor.White);
 WriteWithColoredPrefix("[Server]", "Swagger: http://localhost:5000/swagger", ConsoleColor.White);
 
-// v3.0 项目加载流程（单项目模式）
-{
-    var projectService = app.Services.GetRequiredService<ProjectService>();
-    var projectContext = app.Services.GetRequiredService<ProjectContext>();
-    var baseDir = AppContext.BaseDirectory;
-    // 优先级：命令行参数 > 配置文件 > demo_1
-    string? bcpFilePath = args.Length > 0 ? args[0] : config.Startup.DefaultProject;
-
-    // 相对路径解析：以 exe 所在目录为基准
-    if (!string.IsNullOrEmpty(bcpFilePath) && !Path.IsPathRooted(bcpFilePath))
-    {
-        bcpFilePath = Path.GetFullPath(Path.Combine(baseDir, bcpFilePath));
-    }
-
-    if (string.IsNullOrEmpty(bcpFilePath))
-    {
-        bcpFilePath = projectService.FindDemoBcpFile(baseDir, "demo_1");
-    }
-
-    if (!string.IsNullOrEmpty(bcpFilePath))
-    {
-        try
-        {
-            // 检测冲突
-            var (hasConflict, existingPath) = projectService.CheckProjectConflict(bcpFilePath);
-            string projectPath;
-
-            if (hasConflict)
-            {
-                // 启动时默认使用已存在的项目（不覆盖）
-                projectPath = existingPath!;
-                // 确保项目资源文件存在（modules、README.md 等）
-                projectService.EnsureProjectAssets(projectPath);
-            }
-            else
-            {
-                projectPath = projectService.LoadProject(bcpFilePath);
-            }
-
-            // 设置 ProjectContext
-            projectContext.SetProject(projectPath, bcpFilePath);
-
-            // 初始化对话日志（保存到项目目录下的 logs/ 文件夹）
-            BIMCanvas.Server.Logging.ConversationLogger.Initialize(projectPath);
-
-            // 清空所有 Worktree（Server 重启后无活跃窗口）
-            var gitWorktreeService = app.Services.GetRequiredService<GitWorktreeService>();
-            gitWorktreeService.CleanupAllWorktrees(projectPath);
-
-            // 输出项目信息（2行：项目名 + 路径）
-            var projectName = Path.GetFileNameWithoutExtension(bcpFilePath);
-            WriteWithColoredPrefix("[Server]", $"项目: {projectName}", ConsoleColor.White);
-            WriteWithColoredPrefix("[Server]", $"  路径: {projectPath}", ConsoleColor.White);
-        }
-        catch (Exception ex)
-        {
-            WriteWithColoredPrefix("[Server:ERR]", $"项目加载失败: {ex.Message}", ConsoleColor.DarkGray);
-        }
-    }
-    else
-    {
-        WriteWithColoredPrefix("[Server:ERR]", "未找到可加载的 BCP 文件", ConsoleColor.DarkGray);
-    }
-}
+// 空启动模式：不自动加载项目，等待用户通过首页选择
+WriteWithColoredPrefix("[Server]", "空启动模式，等待用户选择项目", ConsoleColor.White);
 
 // ─── 环境检测阶段 ───
 var agentReady = true;

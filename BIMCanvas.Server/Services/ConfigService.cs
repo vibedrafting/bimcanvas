@@ -159,6 +159,11 @@ public static class ConfigService
     public static string GetConfigDir() => ConfigDir;
 
     /// <summary>
+    /// 获取最近项目记录文件路径
+    /// </summary>
+    public static string GetRecentProjectsPath() => Path.Combine(ConfigDir, "recent_projects.json");
+
+    /// <summary>
     /// 查找 Templates 目录
     /// </summary>
     private static string? FindTemplatesRoot()

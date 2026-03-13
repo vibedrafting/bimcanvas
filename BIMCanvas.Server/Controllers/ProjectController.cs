@@ -26,16 +26,22 @@ namespace BIMCanvas.Server.Controllers
         private readonly ILogger<ProjectController> _logger;
         private readonly ProjectContext _projectContext;
         private readonly ProjectService _projectService;
+        private readonly RecentProjectsService _recentProjectsService;
+        private readonly GitWorktreeService _gitService;
         private readonly JsonSerializerSettings _jsonSettings;
 
         public ProjectController(
             ILogger<ProjectController> logger,
             ProjectContext projectContext,
-            ProjectService projectService)
+            ProjectService projectService,
+            RecentProjectsService recentProjectsService,
+            GitWorktreeService gitService)
         {
             _logger = logger;
             _projectContext = projectContext;
             _projectService = projectService;
+            _recentProjectsService = recentProjectsService;
+            _gitService = gitService;
             _jsonSettings = new JsonSerializerSettings
             {
                 ContractResolver = new CamelCasePropertyNamesContractResolver(),
@@ -94,6 +100,164 @@ namespace BIMCanvas.Server.Controllers
         }
 
         /// <summary>
+        /// 扫描项目列表
+        /// </summary>
+        [HttpGet("list")]
+        public ActionResult<List<ProjectSummary>> ListProjects()
+        {
+            try
+            {
+                var projects = _projectService.ScanProjects();
+                return Ok(projects);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "扫描项目列表失败");
+                return StatusCode(500, new { message = $"扫描项目列表失败: {ex.Message}" });
+            }
+        }
+
+        /// <summary>
+        /// 打开已有项目文件夹
+        /// </summary>
+        [HttpPost("open-folder")]
+        public ActionResult<ProjectLoadResult> OpenFolder([FromBody] OpenFolderRequest request)
+        {
+            if (string.IsNullOrEmpty(request.FolderPath))
+            {
+                return BadRequest(new ProjectLoadResult
+                {
+                    Status = "Error",
+                    Message = "文件夹路径不能为空"
+                });
+            }
+
+            try
+            {
+                _projectService.OpenFolder(request.FolderPath);
+                _projectContext.SetProject(request.FolderPath);
+
+                // 记录最近打开
+                var projectName = Path.GetFileName(request.FolderPath);
+                _recentProjectsService.RecordOpen(projectName, request.FolderPath);
+
+                // 初始化对话日志
+                BIMCanvas.Server.Logging.ConversationLogger.Initialize(request.FolderPath);
+
+                // 清空 Worktree（切换项目后旧 Worktree 无效）
+                _gitService.CleanupAllWorktrees(request.FolderPath);
+
+                return Ok(new ProjectLoadResult
+                {
+                    Status = "Success",
+                    ProjectPath = request.FolderPath
+                });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "打开项目文件夹失败: {Path}", request.FolderPath);
+                return StatusCode(500, new ProjectLoadResult
+                {
+                    Status = "Error",
+                    Message = ex.Message
+                });
+            }
+        }
+
+        /// <summary>
+        /// 关闭当前项目
+        /// </summary>
+        [HttpPost("close")]
+        public ActionResult CloseProject([FromBody] CloseProjectRequest? request)
+        {
+            if (!_projectContext.IsLoaded)
+            {
+                return Ok(new { message = "没有已加载的项目" });
+            }
+
+            var projectPath = _projectContext.CurrentProjectPath!;
+
+            // 检测未保存变更
+            if (request?.Force != true)
+            {
+                try
+                {
+                    var hasChanges = _gitService.HasUncommittedChanges(projectPath);
+                    if (hasChanges)
+                    {
+                        return Conflict(new
+                        {
+                            message = "项目有未保存的更改",
+                            hasUncommittedChanges = true
+                        });
+                    }
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "检测未保存变更失败，继续关闭");
+                }
+            }
+
+            _projectContext.Clear();
+            _logger.LogInformation("项目已关闭");
+
+            return Ok(new { message = "项目已关闭" });
+        }
+
+        /// <summary>
+        /// 删除项目
+        /// </summary>
+        [HttpDelete("{name}")]
+        public ActionResult DeleteProject(string name)
+        {
+            // 禁止删除当前打开的项目
+            if (_projectContext.IsLoaded)
+            {
+                var currentName = Path.GetFileName(_projectContext.CurrentProjectPath);
+                if (string.Equals(currentName, name, StringComparison.OrdinalIgnoreCase))
+                {
+                    return BadRequest(new { message = "不能删除当前打开的项目，请先关闭" });
+                }
+            }
+
+            try
+            {
+                var folderPath = Path.Combine(ProjectService.DefaultProjectsRoot, name);
+                _projectService.DeleteProject(name);
+                _recentProjectsService.Remove(folderPath);
+
+                return Ok(new { message = $"项目 '{name}' 已删除" });
+            }
+            catch (DirectoryNotFoundException)
+            {
+                return NotFound(new { message = $"项目不存在: {name}" });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "删除项目失败: {Name}", name);
+                return StatusCode(500, new { message = $"删除项目失败: {ex.Message}" });
+            }
+        }
+
+        /// <summary>
+        /// 获取最近打开的项目列表
+        /// </summary>
+        [HttpGet("recent")]
+        public ActionResult<List<RecentProjectEntry>> GetRecentProjects()
+        {
+            try
+            {
+                var recent = _recentProjectsService.LoadWithExistsCheck();
+                return Ok(recent);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "加载最近项目失败");
+                return StatusCode(500, new { message = $"加载最近项目失败: {ex.Message}" });
+            }
+        }
+
+        /// <summary>
         /// 上传并打开 BCP 文件（带冲突检测）
         /// </summary>
         [HttpPost("upload")]
@@ -149,6 +313,9 @@ namespace BIMCanvas.Server.Controllers
                 // 无冲突，直接加载
                 var projectPath = _projectService.LoadProject(tempFilePath);
                 _projectContext.SetProject(projectPath, tempFilePath);
+
+                // 记录最近打开
+                _recentProjectsService.RecordOpen(Path.GetFileNameWithoutExtension(file.FileName), projectPath);
 
                 // 清理临时文件
                 try { System.IO.File.Delete(tempFilePath); } catch { }

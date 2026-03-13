@@ -61,6 +61,38 @@ namespace BIMCanvas.Server.Dtos
     }
 
     /// <summary>
+    /// 项目摘要（轻量，用于列表展示）
+    /// </summary>
+    public class ProjectSummary
+    {
+        public string Name { get; set; } = "";
+        public string FolderPath { get; set; } = "";
+        public DateTime CreatedAt { get; set; }
+        public DateTime UpdatedAt { get; set; }
+        public int SchemeCount { get; set; }
+        public string? ActiveScheme { get; set; }
+        public string Version { get; set; } = "";
+        public bool IsValid { get; set; } = true;
+        public string? ErrorMessage { get; set; }
+    }
+
+    /// <summary>
+    /// 打开项目文件夹请求
+    /// </summary>
+    public class OpenFolderRequest
+    {
+        public string FolderPath { get; set; } = "";
+    }
+
+    /// <summary>
+    /// 关闭项目请求
+    /// </summary>
+    public class CloseProjectRequest
+    {
+        public bool Force { get; set; }
+    }
+
+    /// <summary>
     /// 保存模块数据请求
     /// v3.3: 支持按分区保存
     /// </summary>

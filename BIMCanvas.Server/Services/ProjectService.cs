@@ -145,7 +145,7 @@ namespace BIMCanvas.Server.Services
         /// 从 computed/room_zones.json 初始化 schemes/zones.json
         /// MVP 阶段：直接复制，跳过分区设计流程
         /// </summary>
-        private void InitializeZonesFromComputed(string projectPath)
+        internal void InitializeZonesFromComputed(string projectPath)
         {
             var roomZonesPath = Path.Combine(projectPath, "computed", "room_zones.json");
             var zonesPath = Path.Combine(projectPath, "schemes", "zones.json");
@@ -748,7 +748,7 @@ namespace BIMCanvas.Server.Services
         /// <summary>
         /// 确保 computed 数据有效
         /// </summary>
-        private void EnsureComputedData(string projectPath)
+        internal void EnsureComputedData(string projectPath)
         {
             if (_computedDataService.ValidateComputedData(projectPath))
             {
@@ -808,6 +808,126 @@ namespace BIMCanvas.Server.Services
             // 压缩为 ZIP
             ZipFile.CreateFromDirectory(projectPath, bcpOutputPath);
             _logger.LogInformation("项目保存完成");
+        }
+
+        /// <summary>
+        /// 扫描 DefaultProjectsRoot 下的所有项目（轻量，只读 project.json）
+        /// </summary>
+        public List<Dtos.ProjectSummary> ScanProjects()
+        {
+            var result = new List<Dtos.ProjectSummary>();
+            var root = DefaultProjectsRoot;
+
+            if (!Directory.Exists(root))
+                return result;
+
+            foreach (var dir in Directory.GetDirectories(root))
+            {
+                var projectJsonPath = Path.Combine(dir, "project.json");
+                var summary = new Dtos.ProjectSummary
+                {
+                    Name = Path.GetFileName(dir),
+                    FolderPath = dir
+                };
+
+                if (!File.Exists(projectJsonPath))
+                {
+                    summary.IsValid = false;
+                    summary.ErrorMessage = "缺少 project.json";
+                    result.Add(summary);
+                    continue;
+                }
+
+                try
+                {
+                    var json = File.ReadAllText(projectJsonPath, Encoding.UTF8);
+                    var project = JsonConvert.DeserializeObject<BIMCanvas.Core.Models.Project.Project>(json, _jsonSettings);
+                    if (project == null)
+                    {
+                        summary.IsValid = false;
+                        summary.ErrorMessage = "project.json 解析失败";
+                    }
+                    else
+                    {
+                        summary.CreatedAt = project.CreatedAt;
+                        summary.UpdatedAt = project.UpdatedAt;
+                        summary.SchemeCount = project.Schemes?.Count ?? 0;
+                        summary.ActiveScheme = project.ActiveSchemeId;
+                        summary.Version = project.Version;
+                    }
+                }
+                catch (Exception ex)
+                {
+                    summary.IsValid = false;
+                    summary.ErrorMessage = $"读取失败: {ex.Message}";
+                }
+
+                result.Add(summary);
+            }
+
+            return result;
+        }
+
+        /// <summary>
+        /// 打开已存在的项目文件夹（验证 + 初始化链路）
+        /// </summary>
+        public void OpenFolder(string folderPath)
+        {
+            // 路径穿越检查
+            var normalizedFolder = Path.GetFullPath(folderPath);
+            var normalizedRoot = Path.GetFullPath(DefaultProjectsRoot);
+            if (!normalizedFolder.StartsWith(normalizedRoot, StringComparison.OrdinalIgnoreCase))
+            {
+                throw new InvalidOperationException($"路径不在项目根目录下: {folderPath}");
+            }
+
+            if (!Directory.Exists(folderPath))
+            {
+                throw new DirectoryNotFoundException($"项目目录不存在: {folderPath}");
+            }
+
+            var projectJsonPath = Path.Combine(folderPath, "project.json");
+            if (!File.Exists(projectJsonPath))
+            {
+                throw new FileNotFoundException($"project.json 不存在: {projectJsonPath}");
+            }
+
+            var baselinePath = Path.Combine(folderPath, "baseline");
+            if (!Directory.Exists(baselinePath))
+            {
+                throw new DirectoryNotFoundException($"baseline 目录不存在: {baselinePath}");
+            }
+
+            // 复用链
+            EnsureProjectAssets(folderPath);
+            EnsureComputedData(folderPath);
+            InitializeZonesFromComputed(folderPath);
+            CreateZoneDirectories(folderPath);
+
+            _logger.LogInformation("项目文件夹打开完成: {Path}", folderPath);
+        }
+
+        /// <summary>
+        /// 删除项目（带路径穿越检查）
+        /// </summary>
+        public void DeleteProject(string projectName)
+        {
+            var projectPath = Path.Combine(DefaultProjectsRoot, projectName);
+            var normalizedPath = Path.GetFullPath(projectPath);
+            var normalizedRoot = Path.GetFullPath(DefaultProjectsRoot);
+
+            if (!normalizedPath.StartsWith(normalizedRoot, StringComparison.OrdinalIgnoreCase))
+            {
+                throw new InvalidOperationException($"路径穿越检测: {projectName}");
+            }
+
+            if (!Directory.Exists(normalizedPath))
+            {
+                throw new DirectoryNotFoundException($"项目不存在: {projectName}");
+            }
+
+            Directory.Delete(normalizedPath, recursive: true);
+            _logger.LogInformation("项目已删除: {Name}", projectName);
         }
     }
 }
