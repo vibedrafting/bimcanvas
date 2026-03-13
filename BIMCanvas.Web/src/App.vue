@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onMounted, ref, watch, onUnmounted } from 'vue';
+import { onMounted, ref, watch, onUnmounted, nextTick } from 'vue';
 import MainLayout from './layouts/MainLayout.vue';
 import ThreeCanvas from './components/Canvas/ThreeCanvas.vue';
 import BlueprintLoader from './components/UI/BlueprintLoader.vue';
@@ -19,25 +19,52 @@ import { useDebugStore } from './stores/debugStore';
 const store = useCanvasStore();
 const appStore = useAppStore();
 const debugStore = useDebugStore();
+
+// 初始化状态：在判断完 Server 状态前，不渲染任何视图
+const isInitialized = ref(false);
+
+// 工作区 cinematic 状态
 const isSplashShowing = ref(true);
 const loaderProps = ref<{ spacing?: number, offsetX?: number, offsetY?: number, active: boolean }>({ active: false });
+const loadingStage = ref(0);
+const isBuildComplete = ref(false);
 
-const loadingStage = ref(0); // 0: Loader, 1: Grid, 2: Island, 3: Tools, 4: Chrome, 5: Scene
+// 防止 enterWorkspace 被并发调用
+let enterWorkspaceLock = false;
 
-/** 执行工作区加载 + cinematic sequence */
+/**
+ * 执行工作区加载 + cinematic sequence
+ * 唯一的入口点，由 watch 触发
+ */
 const enterWorkspace = async () => {
-  // 重置 workspace 状态
-  isSplashShowing.value = true;
-  loaderProps.value = { active: true };
-  loadingStage.value = 0;
-  isBuildComplete.value = false;
+  if (enterWorkspaceLock) {
+    debugStore.warn('[App] enterWorkspace already running, skipping');
+    return;
+  }
+  enterWorkspaceLock = true;
 
-  // Force splash screen for at least 2.5s
-  const minTimePromise = new Promise(resolve => setTimeout(resolve, 2500));
+  try {
+    // 重置 workspace UI 状态
+    isSplashShowing.value = true;
+    loaderProps.value = { active: true };
+    loadingStage.value = 0;
+    isBuildComplete.value = false;
 
-  debugStore.log('Starting project load...');
-  const loadPromise = store.loadProject(ChangeSource.SystemInit).then(() => {
-    debugStore.log('Project data loaded.');
+    // 等待下一帧，确保 MainLayout/ThreeCanvas 已挂载
+    await nextTick();
+
+    const minTimePromise = new Promise(resolve => setTimeout(resolve, 2500));
+
+    // 如果数据已加载（来自导入流程），跳过 API 调用
+    const dataAlreadyLoaded = !!store.projectData;
+
+    const loadPromise = dataAlreadyLoaded
+      ? Promise.resolve()
+      : store.loadProject(ChangeSource.SystemInit);
+
+    await loadPromise;
+
+    // 计算目标视图
     if (store.projectData) {
       debugStore.log('Calculating target view...');
       const target = ViewCalculator.calculateTargetView(
@@ -53,32 +80,15 @@ const enterWorkspace = async () => {
           offsetX: target.offsetX,
           offsetY: target.offsetY
         };
-      } else {
-        debugStore.warn('Failed to calculate target view (no valid bounds).');
       }
     } else {
       debugStore.warn('No project data found after load.');
     }
-  }).catch(err => {
-    debugStore.error(`Project load failed: ${err}`);
-    throw err;
-  });
 
-  // Timeout Promise (10 seconds max)
-  const timeoutPromise = new Promise((_, reject) =>
-    setTimeout(() => reject(new Error('Loading timed out')), 10000)
-  );
+    // 等待最小展示时间
+    await minTimePromise;
 
-  try {
-    await Promise.race([
-      Promise.all([minTimePromise, loadPromise]),
-      timeoutPromise
-    ]);
-    debugStore.log('Loading sequence completed successfully.');
-  } catch (error) {
-    console.error('Failed to load project:', error);
-    debugStore.error(`Loading sequence failed or timed out: ${error}`);
-  } finally {
+    // Cinematic Sequence
     debugStore.log('Starting Cinematic Sequence...');
 
     isSplashShowing.value = false;
@@ -96,6 +106,12 @@ const enterWorkspace = async () => {
     loadingStage.value = 5;
     debugStore.log('Triggering Progressive Scene Build...');
     window.dispatchEvent(new CustomEvent('bimcanvas:play-build-sequence'));
+
+  } catch (error) {
+    console.error('Failed to enter workspace:', error);
+    debugStore.error(`enterWorkspace failed: ${error}`);
+  } finally {
+    enterWorkspaceLock = false;
   }
 };
 
@@ -104,39 +120,36 @@ onMounted(async () => {
   debugStore.log('App Mounted. Initializing...');
 
   window.addEventListener('keydown', handleKeydown);
-  debugStore.log('Debug Mode Initialized. Press Ctrl + ` to toggle.');
+  window.addEventListener('bimcanvas:build-complete', () => {
+    debugStore.log('Build Complete Event Received.');
+    isBuildComplete.value = true;
+  });
 
   // 检查 Server 是否已有加载的项目
   try {
     const status = await ProjectService.getStatus();
     if (status.isLoaded) {
       debugStore.log('Server has loaded project, entering workspace...');
+      // 设置 currentView，watch 会触发 enterWorkspace
       appStore.goToWorkspace();
-      await enterWorkspace();
     } else {
       debugStore.log('No project loaded, showing homepage...');
-      appStore.goToHomepage();
+      // currentView 默认就是 'homepage'，无需操作
     }
   } catch (err) {
     debugStore.warn(`Failed to check project status: ${err}, showing homepage...`);
-    appStore.goToHomepage();
   }
+
+  isInitialized.value = true;
 });
 
-// 监听视图切换：从 homepage → workspace 时加载项目
+// 核心：监听视图切换，homepage → workspace 时加载项目
+// 这是进入工作区的唯一触发点
 watch(() => appStore.currentView, async (newView, oldView) => {
   if (newView === 'workspace' && oldView === 'homepage') {
+    debugStore.log(`[App] View changed: ${oldView} → ${newView}, entering workspace...`);
     await enterWorkspace();
   }
-});
-
-const isBuildComplete = ref(false);
-
-onMounted(() => {
-  window.addEventListener('bimcanvas:build-complete', () => {
-    debugStore.log('Build Complete Event Received.');
-    isBuildComplete.value = true;
-  });
 });
 
 onUnmounted(() => {
@@ -149,6 +162,9 @@ const handleKeydown = (e: KeyboardEvent) => {
   }
 
   if (['INPUT', 'TEXTAREA'].includes((e.target as HTMLElement).tagName)) return;
+
+  // 只在工作区处理 undo/redo
+  if (appStore.currentView !== 'workspace') return;
 
   if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'z') {
     e.preventDefault();
@@ -165,23 +181,26 @@ const handleKeydown = (e: KeyboardEvent) => {
 </script>
 
 <template>
-  <!-- 首页 -->
-  <HomePage v-if="appStore.currentView === 'homepage'" />
+  <!-- 初始化完成前不显示任何内容 -->
+  <template v-if="isInitialized">
+    <!-- 首页 -->
+    <HomePage v-if="appStore.currentView === 'homepage'" />
 
-  <!-- 工作区 -->
-  <template v-else>
-    <BlueprintLoader
-      :active="loaderProps.active"
-      :target-spacing="loaderProps.spacing"
-      :target-offset-x="loaderProps.offsetX"
-      :target-offset-y="loaderProps.offsetY"
-    />
-    <MainLayout :loading-stage="loadingStage" :build-complete="isBuildComplete">
-      <ThreeCanvas />
-    </MainLayout>
+    <!-- 工作区 -->
+    <template v-else>
+      <BlueprintLoader
+        :active="loaderProps.active"
+        :target-spacing="loaderProps.spacing"
+        :target-offset-x="loaderProps.offsetX"
+        :target-offset-y="loaderProps.offsetY"
+      />
+      <MainLayout :loading-stage="loadingStage" :build-complete="isBuildComplete">
+        <ThreeCanvas />
+      </MainLayout>
+    </template>
   </template>
 
-  <!-- 全局组件 -->
+  <!-- 全局组件（始终存在） -->
   <DebugConsole />
   <BranchMergeWizard />
   <AgentNotificationModal />

@@ -51,7 +51,7 @@ description: |
 - 多功能组合：多个功能标签 + 面积足以分区
 - 功能间空间冲突：主要家具在同一空间内产生通道不足等矛盾
 
-→ 需要分区：加载 generate-zoning → 产出 subZones → 调用 `get_zone_boundaries` 获取子 zone 边界语义（含 passage 段）→ 为每个叶子 zone 分别加载房间 Skill
+→ 需要分区：加载 generate-zoning → 产出 subZones → 调用 `get_zone_boundaries` 获取子 zone 边界语义（含 passage 段）→ 进入策略阶段（房间 Skill 已在理解阶段加载，覆盖所有子 zone）
 → 无需分区：直接进入策略阶段
 
 ---

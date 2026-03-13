@@ -1,5 +1,5 @@
 import axios from 'axios';
-import type { ProjectListResponse, RecentProjectEntry, CloseProjectResponse } from '../types/homepage';
+import type { ProjectSummary, RecentProjectEntry, CloseProjectResult } from '../types/homepage';
 
 const API_BASE = 'http://localhost:5000/api/project';
 
@@ -150,22 +150,25 @@ export class ProjectService {
 
     /**
      * 获取项目列表（扫描默认目录）
+     * Server 返回 ProjectSummary[] 数组
      */
-    static async listProjects(): Promise<ProjectListResponse> {
-        const response = await axios.get<ProjectListResponse>(`${API_BASE}/list`);
+    static async listProjects(): Promise<ProjectSummary[]> {
+        const response = await axios.get<ProjectSummary[]>(`${API_BASE}/list`);
         return response.data;
     }
 
     /**
      * 获取最近打开记录
+     * Server 返回 RecentProjectEntry[] 数组
      */
     static async getRecentProjects(): Promise<RecentProjectEntry[]> {
-        const response = await axios.get<{ projects: RecentProjectEntry[] }>(`${API_BASE}/recent`);
-        return response.data.projects;
+        const response = await axios.get<RecentProjectEntry[]>(`${API_BASE}/recent`);
+        return response.data;
     }
 
     /**
      * 打开项目文件夹（从首页选择）
+     * Server 返回 ProjectLoadResult { Status, ProjectPath, Message }
      */
     static async openFolder(folderPath: string): Promise<ProjectLoadResult> {
         try {
@@ -183,17 +186,33 @@ export class ProjectService {
 
     /**
      * 关闭当前项目
+     * Server 返回格式：
+     * - 成功 200: { message: "项目已关闭" }
+     * - 未保存变更 409: { message: "...", hasUncommittedChanges: true }
+     * 前端适配为统一的 CloseProjectResult
      */
-    static async closeProject(force: boolean = false): Promise<CloseProjectResponse> {
+    static async closeProject(force: boolean = false): Promise<CloseProjectResult> {
         try {
-            const response = await axios.post<CloseProjectResponse>(
+            const response = await axios.post(
                 `${API_BASE}/close`,
                 { force }
             );
-            return response.data;
-        } catch (error: any) {
             return {
-                status: 'Error',
+                success: true,
+                hasUnsavedChanges: false,
+                message: response.data.message
+            };
+        } catch (error: any) {
+            // 409 Conflict: 有未保存变更
+            if (error.response?.status === 409) {
+                return {
+                    success: false,
+                    hasUnsavedChanges: true,
+                    message: error.response.data.message
+                };
+            }
+            return {
+                success: false,
                 hasUnsavedChanges: false,
                 message: error.response?.data?.message || error.message || '关闭项目失败'
             };
@@ -202,14 +221,16 @@ export class ProjectService {
 
     /**
      * 删除项目
+     * Server 返回: { message: "..." }
+     * 成功 200 / 禁止 400 / 不存在 404 / 错误 500
      */
-    static async deleteProject(name: string): Promise<{ status: string; message?: string }> {
+    static async deleteProject(name: string): Promise<{ success: boolean; message?: string }> {
         try {
             const response = await axios.delete(`${API_BASE}/${encodeURIComponent(name)}`);
-            return response.data;
+            return { success: true, message: response.data.message };
         } catch (error: any) {
             return {
-                status: 'Error',
+                success: false,
                 message: error.response?.data?.message || error.message || '删除项目失败'
             };
         }

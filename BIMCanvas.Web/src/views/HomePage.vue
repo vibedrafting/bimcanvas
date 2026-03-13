@@ -1,8 +1,7 @@
 <script setup lang="ts">
-import { ref, computed, onMounted } from 'vue';
+import { ref, computed, onMounted, watch } from 'vue';
 import { useAppStore } from '../stores/appStore';
 import { useCanvasStore } from '../stores/canvasStore';
-import { ChangeSource } from '../types/history';
 import GlassButton from '../components/UI/base/GlassButton.vue';
 import ConflictDialog from '../components/UI/ConflictDialog.vue';
 import { useProjectFile } from '../composables/useProjectFile';
@@ -29,25 +28,35 @@ const {
   conflictExistingPath
 } = useProjectFile();
 
-// 打开项目后进入工作区
-const originalProcessFile = processFile;
+// ============================================================
+// 核心：监听 canvasStore.projectData 变化
+// 当数据出现时（来自导入成功或冲突解决），自动跳转到工作区
+// 这是导入流程和冲突解决流程的唯一过渡点
+// ============================================================
+watch(() => canvasStore.projectData, (newData, oldData) => {
+  if (newData && !oldData && appStore.currentView === 'homepage') {
+    console.log('[HomePage] Project data loaded, transitioning to workspace...');
+    appStore.goToWorkspace();
+  }
+});
+
+// 导入 .bcp
 const handleImport = async () => {
   const result = await handleLoad();
   if (result === 'fallback') {
     fileInputRef.value?.click();
   }
+  // 不需要手动跳转 — watch 监听 projectData 变化后自动跳转
 };
 
 const onFileSelected = async (event: Event) => {
   const input = event.target as HTMLInputElement;
   const file = input.files?.[0];
   if (!file) return;
-  await originalProcessFile(file);
+  await processFile(file);
   input.value = '';
-  // 导入成功后进入工作区（loadProject 在 useProjectFile 内已调用）
-  if (canvasStore.projectData) {
-    appStore.goToWorkspace();
-  }
+  // 不需要手动跳转 — watch 监听 projectData 变化后自动跳转
+  // 冲突情况下 processFile 会显示 ConflictDialog，解决后也由 watch 处理
 };
 
 // 打开项目
@@ -59,14 +68,17 @@ const handleOpen = async (project: ProjectSummary) => {
   isOpening.value = true;
   openError.value = null;
   try {
+    // openProject 调用 POST /api/project/open-folder
+    // 成功后设置 currentView = 'workspace'
+    // App.vue 的 watch 触发 enterWorkspace() → loadProject()
     const success = await appStore.openProject(project.folderPath);
-    if (success) {
-      await canvasStore.loadProject(ChangeSource.SystemInit);
-    } else {
+    if (!success) {
       openError.value = `无法打开项目 "${project.name}"`;
     }
+    // 成功时 appStore.openProject 已设置 currentView = 'workspace'
+    // App.vue 的 watch 会触发加载 + cinematic
   } catch (err: any) {
-    openError.value = err.message;
+    openError.value = err.message || '打开项目失败';
   } finally {
     isOpening.value = false;
   }
@@ -81,7 +93,10 @@ const confirmDelete = (project: ProjectSummary) => {
 const handleDelete = async () => {
   showDeleteDialog.value = false;
   if (deleteTargetName.value) {
-    await appStore.deleteProject(deleteTargetName.value);
+    const success = await appStore.deleteProject(deleteTargetName.value);
+    if (!success) {
+      openError.value = `删除项目 "${deleteTargetName.value}" 失败`;
+    }
     deleteTargetName.value = '';
   }
 };
@@ -177,8 +192,13 @@ onMounted(() => {
         {{ openError }}
       </div>
 
+      <!-- 列表错误 -->
+      <div v-if="appStore.listError" class="error-banner">
+        {{ appStore.listError }}
+      </div>
+
       <!-- 加载中 -->
-      <div v-if="appStore.isLoadingList" class="loading-state">
+      <div v-if="appStore.isLoadingList && displayProjects.length === 0" class="loading-state">
         加载中...
       </div>
 
@@ -241,10 +261,6 @@ onMounted(() => {
         </div>
       </div>
 
-      <!-- 项目根目录提示 -->
-      <div v-if="appStore.projectsRoot" class="projects-root-hint">
-        {{ appStore.projectsRoot }}
-      </div>
     </main>
 
     <!-- 删除确认对话框 -->
@@ -507,16 +523,6 @@ onMounted(() => {
 
 .delete-btn {
   padding: 4px 8px !important;
-}
-
-/* Projects Root Hint */
-.projects-root-hint {
-  margin-top: 24px;
-  padding-top: 12px;
-  border-top: 1px solid var(--border-subtle);
-  font-size: 0.75rem;
-  color: var(--text-tertiary);
-  font-family: var(--font-mono);
 }
 
 /* Delete Dialog */

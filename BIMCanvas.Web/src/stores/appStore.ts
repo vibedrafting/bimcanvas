@@ -14,25 +14,25 @@ export const useAppStore = defineStore('app', () => {
     const currentView = ref<AppView>('homepage');
     const projectList = ref<ProjectSummary[]>([]);
     const recentProjects = ref<RecentProjectEntry[]>([]);
-    const projectsRoot = ref('');
     const isLoadingList = ref(false);
     const listError = ref<string | null>(null);
 
     // === Actions ===
 
-    /** 获取项目列表 */
+    /** 获取项目列表 + 最近打开记录 */
     const fetchProjectList = async () => {
         isLoadingList.value = true;
         listError.value = null;
         try {
-            const [listRes, recentRes] = await Promise.all([
+            // Server GET /api/project/list 返回 ProjectSummary[]
+            // Server GET /api/project/recent 返回 RecentProjectEntry[]
+            const [projects, recent] = await Promise.all([
                 ProjectService.listProjects(),
                 ProjectService.getRecentProjects()
             ]);
-            projectList.value = listRes.projects;
-            projectsRoot.value = listRes.projectsRoot;
-            recentProjects.value = recentRes;
-            debugStore.log(`[AppStore] Loaded ${listRes.projects.length} projects`);
+            projectList.value = projects;
+            recentProjects.value = recent;
+            debugStore.log(`[AppStore] Loaded ${projects.length} projects, ${recent.length} recent`);
         } catch (err: any) {
             listError.value = err.message || '获取项目列表失败';
             debugStore.error(`[AppStore] Failed to fetch projects: ${err}`);
@@ -41,49 +41,72 @@ export const useAppStore = defineStore('app', () => {
         }
     };
 
-    /** 打开项目（从首页） */
+    /**
+     * 打开项目（从首页）
+     * 成功后自动切换到 workspace 视图
+     * App.vue 的 watch 会触发 enterWorkspace() → loadProject()
+     */
     const openProject = async (folderPath: string): Promise<boolean> => {
         debugStore.log(`[AppStore] Opening project: ${folderPath}`);
-        const result = await ProjectService.openFolder(folderPath);
-        if (result.status === 'Success') {
-            currentView.value = 'workspace';
-            return true;
-        } else {
-            debugStore.error(`[AppStore] Open failed: ${result.message}`);
+        try {
+            const result = await ProjectService.openFolder(folderPath);
+            if (result.status === 'Success') {
+                currentView.value = 'workspace';
+                return true;
+            } else {
+                debugStore.error(`[AppStore] Open failed: ${result.message}`);
+                return false;
+            }
+        } catch (err: any) {
+            debugStore.error(`[AppStore] Open error: ${err}`);
             return false;
         }
     };
 
-    /** 关闭项目（返回首页） */
+    /**
+     * 关闭项目（返回首页）
+     * 清理 canvasStore 状态，切换到 homepage 视图
+     * HomePage 的 onMounted 会自动 fetchProjectList
+     */
     const closeProject = async (force: boolean = false): Promise<{ success: boolean; hasUnsavedChanges?: boolean }> => {
         debugStore.log(`[AppStore] Closing project (force=${force})`);
-        const result = await ProjectService.closeProject(force);
+        try {
+            const result = await ProjectService.closeProject(force);
 
-        if (result.status === 'Warning' && result.hasUnsavedChanges && !force) {
-            return { success: false, hasUnsavedChanges: true };
-        }
+            if (!result.success && result.hasUnsavedChanges && !force) {
+                return { success: false, hasUnsavedChanges: true };
+            }
 
-        if (result.status === 'Success' || force) {
+            // 成功关闭（或强制关闭）
             const canvasStore = useCanvasStore();
             canvasStore.resetProject();
             currentView.value = 'homepage';
-            await fetchProjectList();
+            return { success: true };
+        } catch (err: any) {
+            debugStore.error(`[AppStore] Close error: ${err}`);
+            // 即使 API 报错也尝试本地清理
+            const canvasStore = useCanvasStore();
+            canvasStore.resetProject();
+            currentView.value = 'homepage';
             return { success: true };
         }
-
-        return { success: false };
     };
 
     /** 删除项目 */
     const deleteProject = async (name: string): Promise<boolean> => {
         debugStore.log(`[AppStore] Deleting project: ${name}`);
-        const result = await ProjectService.deleteProject(name);
-        if (result.status === 'Success') {
-            await fetchProjectList();
-            return true;
+        try {
+            const result = await ProjectService.deleteProject(name);
+            if (result.success) {
+                await fetchProjectList();
+                return true;
+            }
+            debugStore.error(`[AppStore] Delete failed: ${result.message}`);
+            return false;
+        } catch (err: any) {
+            debugStore.error(`[AppStore] Delete error: ${err}`);
+            return false;
         }
-        debugStore.error(`[AppStore] Delete failed: ${result.message}`);
-        return false;
     };
 
     /** 导航到首页 */
@@ -100,7 +123,6 @@ export const useAppStore = defineStore('app', () => {
         currentView,
         projectList,
         recentProjects,
-        projectsRoot,
         isLoadingList,
         listError,
         fetchProjectList,
