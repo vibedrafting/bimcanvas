@@ -16,6 +16,12 @@ const isSyncing = ref(false);
 const projectName = computed(() => store.projectData?.project?.name);
 const projectPath = computed(() => appStore.projectPath);
 
+const homeTooltip = computed(() => {
+  if (!projectName.value) return '返回首页';
+  const path = projectPath.value ? `\n${projectPath.value}` : '';
+  return `${projectName.value}${path}\n\n点击返回首页`;
+});
+
 // 返回首页
 const showCloseConfirm = ref(false);
 const isClosing = ref(false);
@@ -130,7 +136,7 @@ onUnmounted(() => {
   <div class="top-bar">
     <div class="brand-area">
       <!-- 返回首页按钮 -->
-      <GlassButton @click="handleGoHome" :disabled="isClosing" variant="ghost" title="返回首页" class="icon-btn home-btn">
+      <GlassButton @click="handleGoHome" :disabled="isClosing" variant="ghost" :title="homeTooltip" class="icon-btn home-btn">
         <svg viewBox="0 0 24 24" width="1.1em" height="1.1em" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
           <path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"></path>
           <polyline points="9 22 9 12 15 12 15 22"></polyline>
@@ -209,11 +215,6 @@ onUnmounted(() => {
       />
     </div>
 
-    <!-- 项目名称（居中显示） -->
-    <span v-if="projectName" class="project-name-center" :title="projectPath ?? ''">
-      {{ projectName }}
-    </span>
-
     <!-- 冲突对话框 -->
     <ConflictDialog
       :visible="showConflictDialog"
@@ -257,7 +258,6 @@ onUnmounted(() => {
 
 <style scoped lang="scss">
 .top-bar {
-  position: relative;
   display: flex;
   align-items: center;
   height: 32px;
@@ -295,27 +295,6 @@ onUnmounted(() => {
   &:hover {
     color: var(--text-primary);
   }
-}
-
-.project-name-center {
-  position: absolute;
-  left: 50%;
-  transform: translateX(-50%);
-  background: var(--glass-bg);
-  backdrop-filter: var(--glass-blur);
-  -webkit-backdrop-filter: var(--glass-blur);
-  border: var(--glass-border);
-  border-radius: 12px;
-  padding: 2px 12px;
-  color: var(--text-secondary);
-  font-size: 0.8rem;
-  font-weight: 500;
-  max-width: 300px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  cursor: default;
-  pointer-events: auto;
 }
 
 .home-btn {
