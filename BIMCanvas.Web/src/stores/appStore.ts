@@ -16,7 +16,6 @@ export const useAppStore = defineStore('app', () => {
     const recentProjects = ref<RecentProjectEntry[]>([]);
     const isLoadingList = ref(false);
     const listError = ref<string | null>(null);
-    const projectPath = ref<string | null>(null);
 
     // === Actions ===
 
@@ -52,7 +51,6 @@ export const useAppStore = defineStore('app', () => {
         try {
             const result = await ProjectService.openFolder(folderPath);
             if (result.status === 'Success') {
-                projectPath.value = folderPath;
                 currentView.value = 'workspace';
                 return true;
             } else {
@@ -82,7 +80,7 @@ export const useAppStore = defineStore('app', () => {
             // 成功关闭（或强制关闭）
             const canvasStore = useCanvasStore();
             canvasStore.resetProject();
-            projectPath.value = null;
+
             currentView.value = 'homepage';
             return { success: true };
         } catch (err: any) {
@@ -90,7 +88,7 @@ export const useAppStore = defineStore('app', () => {
             // 即使 API 报错也尝试本地清理
             const canvasStore = useCanvasStore();
             canvasStore.resetProject();
-            projectPath.value = null;
+
             currentView.value = 'homepage';
             return { success: true };
         }
@@ -125,7 +123,6 @@ export const useAppStore = defineStore('app', () => {
 
     return {
         currentView,
-        projectPath,
         projectList,
         recentProjects,
         isLoadingList,

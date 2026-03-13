@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed, onMounted, onUnmounted } from 'vue';
+import { ref, onMounted, onUnmounted } from 'vue';
 import { useCanvasStore } from '../../stores/canvasStore';
 import { useAppStore } from '../../stores/appStore';
 import GlassButton from './base/GlassButton.vue';
@@ -12,9 +12,6 @@ const store = useCanvasStore();
 const appStore = useAppStore();
 const fileInputRef = ref<HTMLInputElement | null>(null);
 const isSyncing = ref(false);
-
-const projectName = computed(() => store.projectData?.project?.name);
-const projectPath = computed(() => appStore.projectPath);
 
 // 返回首页
 const showCloseConfirm = ref(false);
@@ -209,11 +206,6 @@ onUnmounted(() => {
       />
     </div>
 
-    <!-- 项目名称（居中显示） -->
-    <span v-if="projectName" class="project-name-center" :title="projectPath ?? ''">
-      {{ projectName }}
-    </span>
-
     <!-- 冲突对话框 -->
     <ConflictDialog
       :visible="showConflictDialog"
@@ -257,7 +249,6 @@ onUnmounted(() => {
 
 <style scoped lang="scss">
 .top-bar {
-  position: relative;
   display: flex;
   align-items: center;
   height: 32px;
@@ -295,21 +286,6 @@ onUnmounted(() => {
   &:hover {
     color: var(--text-primary);
   }
-}
-
-.project-name-center {
-  position: absolute;
-  left: 50%;
-  transform: translateX(-50%);
-  color: var(--text-secondary);
-  font-size: 0.85rem;
-  font-weight: 500;
-  max-width: 300px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  cursor: default;
-  pointer-events: auto;
 }
 
 .home-btn {
