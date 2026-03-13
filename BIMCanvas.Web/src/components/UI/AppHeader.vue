@@ -302,8 +302,9 @@ onUnmounted(() => {
   left: 50%;
   transform: translateX(-50%);
   background: var(--glass-bg);
-  backdrop-filter: blur(var(--glass-blur));
-  border: 1px solid var(--glass-border);
+  backdrop-filter: var(--glass-blur);
+  -webkit-backdrop-filter: var(--glass-blur);
+  border: var(--glass-border);
   border-radius: 12px;
   padding: 2px 12px;
   color: var(--text-secondary);
