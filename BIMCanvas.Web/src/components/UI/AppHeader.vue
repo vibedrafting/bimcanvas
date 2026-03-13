@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { ref, onMounted, onUnmounted } from 'vue';
 import { useCanvasStore } from '../../stores/canvasStore';
+import { useAppStore } from '../../stores/appStore';
 import GlassButton from './base/GlassButton.vue';
 import ConflictDialog from './ConflictDialog.vue';
 import SaveConfirmDialog from './SaveConfirmDialog.vue';
@@ -8,8 +9,41 @@ import { useProjectFile } from '../../composables/useProjectFile';
 import { useSave } from '../../composables/useSave';
 
 const store = useCanvasStore();
+const appStore = useAppStore();
 const fileInputRef = ref<HTMLInputElement | null>(null);
 const isSyncing = ref(false);
+
+// 返回首页
+const showCloseConfirm = ref(false);
+const isClosing = ref(false);
+
+const handleGoHome = async () => {
+  if (isClosing.value) return;
+
+  // 检查未保存变更
+  if (store.isDirty) {
+    showCloseConfirm.value = true;
+    return;
+  }
+
+  // 无未保存变更，直接关闭
+  isClosing.value = true;
+  await appStore.closeProject(true);
+  isClosing.value = false;
+};
+
+const handleCloseConfirm = async (action: 'save' | 'discard' | 'cancel') => {
+  showCloseConfirm.value = false;
+  if (action === 'cancel') return;
+
+  isClosing.value = true;
+  if (action === 'save') {
+    // 先保存再关闭
+    await handleSave(`自动存档_${new Date().toISOString().replace(/[-:T]/g, '').slice(0, 15)}`);
+  }
+  await appStore.closeProject(true);
+  isClosing.value = false;
+};
 
 const handleSync = async () => {
   if (isSyncing.value) return;
@@ -92,6 +126,14 @@ onUnmounted(() => {
 <template>
   <div class="top-bar">
     <div class="brand-area">
+      <!-- 返回首页按钮 -->
+      <GlassButton @click="handleGoHome" :disabled="isClosing" variant="ghost" title="返回首页" class="icon-btn home-btn">
+        <svg viewBox="0 0 24 24" width="1.1em" height="1.1em" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"></path>
+          <polyline points="9 22 9 12 15 12 15 22"></polyline>
+        </svg>
+      </GlassButton>
+
       <span class="brand-text">BIMCanvas</span>
       <div class="divider"></div>
       
@@ -178,6 +220,30 @@ onUnmounted(() => {
       @confirm="onSaveConfirm"
       @cancel="onSaveCancel"
     />
+
+    <!-- 关闭项目确认对话框 -->
+    <Teleport to="body">
+      <Transition name="close-dialog">
+        <div v-if="showCloseConfirm" class="close-dialog-overlay" @click.self="handleCloseConfirm('cancel')">
+          <div class="close-dialog">
+            <div class="close-dialog-header">
+              <svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="var(--accent-yellow, #ffcc00)" stroke-width="2">
+                <path d="M12 9v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+              </svg>
+              <h3>未保存的变更</h3>
+            </div>
+            <div class="close-dialog-content">
+              <p>有未保存的设计变更，是否仍要关闭？</p>
+            </div>
+            <div class="close-dialog-actions">
+              <GlassButton variant="primary" @click="handleCloseConfirm('save')">保存并关闭</GlassButton>
+              <GlassButton variant="danger" @click="handleCloseConfirm('discard')">不保存关闭</GlassButton>
+              <GlassButton variant="ghost" @click="handleCloseConfirm('cancel')">取消</GlassButton>
+            </div>
+          </div>
+        </div>
+      </Transition>
+    </Teleport>
   </div>
 </template>
 
@@ -222,6 +288,15 @@ onUnmounted(() => {
   }
 }
 
+.home-btn {
+  margin-right: 4px;
+  color: var(--text-secondary);
+
+  &:hover {
+    color: var(--accent-blue);
+  }
+}
+
 .spin-icon {
   animation: spinSync 0.8s linear infinite;
 }
@@ -229,5 +304,79 @@ onUnmounted(() => {
 @keyframes spinSync {
   from { transform: rotate(0deg); }
   to { transform: rotate(360deg); }
+}
+</style>
+
+<style scoped>
+/* 关闭确认对话框样式 */
+.close-dialog-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.6);
+  backdrop-filter: blur(4px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 9999;
+}
+
+.close-dialog {
+  background: var(--glass-bg-solid);
+  border: 1px solid var(--border-subtle);
+  border-radius: 12px;
+  padding: 24px;
+  min-width: 380px;
+  max-width: 460px;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3),
+    0 0 0 1px rgba(255, 255, 255, 0.05) inset;
+}
+
+.close-dialog-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+.close-dialog-header h3 {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.close-dialog-content p {
+  margin: 0 0 8px;
+  color: var(--text-secondary);
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+.close-dialog-actions {
+  display: flex;
+  gap: 12px;
+  justify-content: flex-end;
+  margin-top: 20px;
+}
+
+.close-dialog-enter-active,
+.close-dialog-leave-active {
+  transition: all 0.2s ease;
+}
+
+.close-dialog-enter-from,
+.close-dialog-leave-to {
+  opacity: 0;
+}
+
+.close-dialog-enter-from .close-dialog,
+.close-dialog-leave-to .close-dialog {
+  transform: scale(0.95) translateY(-10px);
+  opacity: 0;
+}
+
+.close-dialog-enter-active .close-dialog,
+.close-dialog-leave-active .close-dialog {
+  transition: all 0.2s cubic-bezier(0.19, 1, 0.22, 1);
 }
 </style>

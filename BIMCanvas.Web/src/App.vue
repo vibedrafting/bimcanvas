@@ -1,11 +1,14 @@
 <script setup lang="ts">
-import { onMounted, ref } from 'vue';
+import { onMounted, ref, watch, onUnmounted } from 'vue';
 import MainLayout from './layouts/MainLayout.vue';
 import ThreeCanvas from './components/Canvas/ThreeCanvas.vue';
 import BlueprintLoader from './components/UI/BlueprintLoader.vue';
+import HomePage from './views/HomePage.vue';
 import { useCanvasStore } from './stores/canvasStore';
+import { useAppStore } from './stores/appStore';
 import { ChangeSource } from './types/history';
 import { themeService } from './services/theme/ThemeService';
+import { ProjectService } from './services/ProjectService';
 
 import { ViewCalculator } from './services/interaction/ViewCalculator';
 import DebugConsole from './components/UI/DebugConsole.vue';
@@ -14,34 +17,32 @@ import AgentNotificationModal from './components/UI/AgentNotificationModal.vue';
 import { useDebugStore } from './stores/debugStore';
 
 const store = useCanvasStore();
+const appStore = useAppStore();
 const debugStore = useDebugStore();
 const isSplashShowing = ref(true);
-const loaderProps = ref<{ spacing?: number, offsetX?: number, offsetY?: number, active: boolean }>({ active: true });
+const loaderProps = ref<{ spacing?: number, offsetX?: number, offsetY?: number, active: boolean }>({ active: false });
 
 const loadingStage = ref(0); // 0: Loader, 1: Grid, 2: Island, 3: Tools, 4: Chrome, 5: Scene
 
-onMounted(async () => {
-  // Initialize Theme
-  themeService.init();
-  debugStore.log('App Mounted. Initializing...');
-
-  // Attach Keyboard Shortcuts IMMEDIATELY so debug console works during loading
-  window.addEventListener('keydown', handleKeydown);
-  debugStore.log('Debug Mode Initialized. Press Ctrl + ` to toggle.');
+/** 执行工作区加载 + cinematic sequence */
+const enterWorkspace = async () => {
+  // 重置 workspace 状态
+  isSplashShowing.value = true;
+  loaderProps.value = { active: true };
+  loadingStage.value = 0;
+  isBuildComplete.value = false;
 
   // Force splash screen for at least 2.5s
   const minTimePromise = new Promise(resolve => setTimeout(resolve, 2500));
-  
-  // 单项目模式：直接从 Server 加载当前项目（无需 URL 参数）
+
   debugStore.log('Starting project load...');
   const loadPromise = store.loadProject(ChangeSource.SystemInit).then(() => {
     debugStore.log('Project data loaded.');
-    // Data loaded, calculate target view
     if (store.projectData) {
       debugStore.log('Calculating target view...');
       const target = ViewCalculator.calculateTargetView(
-        store.projectData, 
-        window.innerWidth, 
+        store.projectData,
+        window.innerWidth,
         window.innerHeight
       );
       if (target) {
@@ -64,11 +65,10 @@ onMounted(async () => {
   });
 
   // Timeout Promise (10 seconds max)
-  const timeoutPromise = new Promise((_, reject) => 
+  const timeoutPromise = new Promise((_, reject) =>
     setTimeout(() => reject(new Error('Loading timed out')), 10000)
   );
 
-  // 等待两者都完成 (Race against timeout)
   try {
     await Promise.race([
       Promise.all([minTimePromise, loadPromise]),
@@ -80,27 +80,53 @@ onMounted(async () => {
     debugStore.error(`Loading sequence failed or timed out: ${error}`);
   } finally {
     debugStore.log('Starting Cinematic Sequence...');
-    
-    // Stage 1: Grid Ready (Loader Fades Out)
+
     isSplashShowing.value = false;
     loaderProps.value.active = false;
     loadingStage.value = 1;
-    
-    // Wait for loader fade out (approx 200ms) - Reduced from 800ms for snappier feel
+
     await new Promise(resolve => setTimeout(resolve, 200));
 
-    // Stage 2 & 3: Dynamic Island & Layer Manager (Together)
     loadingStage.value = 3;
     await new Promise(resolve => setTimeout(resolve, 300));
 
-    // Stage 4: Chrome (Header, Ribbon, Panels)
     loadingStage.value = 4;
     await new Promise(resolve => setTimeout(resolve, 500));
 
-    // Stage 5: Scene Build
     loadingStage.value = 5;
     debugStore.log('Triggering Progressive Scene Build...');
     window.dispatchEvent(new CustomEvent('bimcanvas:play-build-sequence'));
+  }
+};
+
+onMounted(async () => {
+  themeService.init();
+  debugStore.log('App Mounted. Initializing...');
+
+  window.addEventListener('keydown', handleKeydown);
+  debugStore.log('Debug Mode Initialized. Press Ctrl + ` to toggle.');
+
+  // 检查 Server 是否已有加载的项目
+  try {
+    const status = await ProjectService.getStatus();
+    if (status.isLoaded) {
+      debugStore.log('Server has loaded project, entering workspace...');
+      appStore.goToWorkspace();
+      await enterWorkspace();
+    } else {
+      debugStore.log('No project loaded, showing homepage...');
+      appStore.goToHomepage();
+    }
+  } catch (err) {
+    debugStore.warn(`Failed to check project status: ${err}, showing homepage...`);
+    appStore.goToHomepage();
+  }
+});
+
+// 监听视图切换：从 homepage → workspace 时加载项目
+watch(() => appStore.currentView, async (newView, oldView) => {
+  if (newView === 'workspace' && oldView === 'homepage') {
+    await enterWorkspace();
   }
 });
 
@@ -113,32 +139,25 @@ onMounted(() => {
   });
 });
 
-import { onUnmounted } from 'vue';
-
 onUnmounted(() => {
   window.removeEventListener('keydown', handleKeydown);
 });
 
 const handleKeydown = (e: KeyboardEvent) => {
-  // Toggle debug console with Ctrl + ` (Backtick)
   if (e.ctrlKey && e.key === '`') {
     debugStore.toggle();
   }
 
-  // Ignore if typing in an input
   if (['INPUT', 'TEXTAREA'].includes((e.target as HTMLElement).tagName)) return;
 
   if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'z') {
     e.preventDefault();
     if (e.shiftKey) {
-      // Ctrl + Shift + Z -> Redo
       if (store.canRedo) store.redo();
     } else {
-      // Ctrl + Z -> Undo
       if (store.canUndo) store.undo();
     }
   } else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'y') {
-    // Ctrl + Y -> Redo
     e.preventDefault();
     if (store.canRedo) store.redo();
   }
@@ -146,15 +165,23 @@ const handleKeydown = (e: KeyboardEvent) => {
 </script>
 
 <template>
-  <BlueprintLoader 
-    :active="loaderProps.active" 
-    :target-spacing="loaderProps.spacing"
-    :target-offset-x="loaderProps.offsetX"
-    :target-offset-y="loaderProps.offsetY"
-  />
-  <MainLayout :loading-stage="loadingStage" :build-complete="isBuildComplete">
-    <ThreeCanvas />
-  </MainLayout>
+  <!-- 首页 -->
+  <HomePage v-if="appStore.currentView === 'homepage'" />
+
+  <!-- 工作区 -->
+  <template v-else>
+    <BlueprintLoader
+      :active="loaderProps.active"
+      :target-spacing="loaderProps.spacing"
+      :target-offset-x="loaderProps.offsetX"
+      :target-offset-y="loaderProps.offsetY"
+    />
+    <MainLayout :loading-stage="loadingStage" :build-complete="isBuildComplete">
+      <ThreeCanvas />
+    </MainLayout>
+  </template>
+
+  <!-- 全局组件 -->
   <DebugConsole />
   <BranchMergeWizard />
   <AgentNotificationModal />

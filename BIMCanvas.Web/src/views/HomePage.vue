@@ -1,0 +1,606 @@
+<script setup lang="ts">
+import { ref, computed, onMounted } from 'vue';
+import { useAppStore } from '../stores/appStore';
+import { useCanvasStore } from '../stores/canvasStore';
+import { ChangeSource } from '../types/history';
+import GlassButton from '../components/UI/base/GlassButton.vue';
+import ConflictDialog from '../components/UI/ConflictDialog.vue';
+import { useProjectFile } from '../composables/useProjectFile';
+import type { ProjectSummary } from '../types/homepage';
+
+const appStore = useAppStore();
+const canvasStore = useCanvasStore();
+
+// Tab 状态
+const activeTab = ref<'all' | 'recent'>('all');
+
+// 删除确认
+const showDeleteDialog = ref(false);
+const deleteTargetName = ref('');
+
+// 导入相关（复用现有 composable）
+const fileInputRef = ref<HTMLInputElement | null>(null);
+const {
+  handleLoad,
+  processFile,
+  handleConflictResolve,
+  showConflictDialog,
+  conflictProjectName,
+  conflictExistingPath
+} = useProjectFile();
+
+// 打开项目后进入工作区
+const originalProcessFile = processFile;
+const handleImport = async () => {
+  const result = await handleLoad();
+  if (result === 'fallback') {
+    fileInputRef.value?.click();
+  }
+};
+
+const onFileSelected = async (event: Event) => {
+  const input = event.target as HTMLInputElement;
+  const file = input.files?.[0];
+  if (!file) return;
+  await originalProcessFile(file);
+  input.value = '';
+  // 导入成功后进入工作区（loadProject 在 useProjectFile 内已调用）
+  if (canvasStore.projectData) {
+    appStore.goToWorkspace();
+  }
+};
+
+// 打开项目
+const isOpening = ref(false);
+const openError = ref<string | null>(null);
+
+const handleOpen = async (project: ProjectSummary) => {
+  if (!project.isValid || isOpening.value) return;
+  isOpening.value = true;
+  openError.value = null;
+  try {
+    const success = await appStore.openProject(project.folderPath);
+    if (success) {
+      await canvasStore.loadProject(ChangeSource.SystemInit);
+    } else {
+      openError.value = `无法打开项目 "${project.name}"`;
+    }
+  } catch (err: any) {
+    openError.value = err.message;
+  } finally {
+    isOpening.value = false;
+  }
+};
+
+// 删除项目
+const confirmDelete = (project: ProjectSummary) => {
+  deleteTargetName.value = project.name;
+  showDeleteDialog.value = true;
+};
+
+const handleDelete = async () => {
+  showDeleteDialog.value = false;
+  if (deleteTargetName.value) {
+    await appStore.deleteProject(deleteTargetName.value);
+    deleteTargetName.value = '';
+  }
+};
+
+const cancelDelete = () => {
+  showDeleteDialog.value = false;
+  deleteTargetName.value = '';
+};
+
+// 格式化日期
+const formatDate = (dateStr: string | null): string => {
+  if (!dateStr) return '--';
+  try {
+    const d = new Date(dateStr);
+    return d.toLocaleDateString('zh-CN', { year: 'numeric', month: '2-digit', day: '2-digit' })
+      + ' ' + d.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' });
+  } catch {
+    return '--';
+  }
+};
+
+// 计算显示列表
+const displayProjects = computed(() => {
+  if (activeTab.value === 'recent') {
+    const recentPaths = new Set(appStore.recentProjects.map(r => r.folderPath));
+    return appStore.projectList.filter(p => recentPaths.has(p.folderPath));
+  }
+  return appStore.projectList;
+});
+
+// 加载数据
+onMounted(() => {
+  appStore.fetchProjectList();
+});
+</script>
+
+<template>
+  <div class="homepage">
+    <!-- 顶部 Header -->
+    <header class="homepage-header">
+      <div class="header-left">
+        <span class="brand-text">BIMCanvas</span>
+      </div>
+      <div class="header-right">
+        <GlassButton variant="primary" @click="handleImport">
+          <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="margin-right: 6px;">
+            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+            <polyline points="7 10 12 15 17 10"></polyline>
+            <line x1="12" y1="15" x2="12" y2="3"></line>
+          </svg>
+          导入 .bcp
+        </GlassButton>
+        <input
+          ref="fileInputRef"
+          type="file"
+          accept=".bcp"
+          style="display: none"
+          @change="onFileSelected"
+        />
+      </div>
+    </header>
+
+    <!-- 主内容 -->
+    <main class="homepage-content">
+      <!-- Tab 栏 -->
+      <div class="tab-bar">
+        <button
+          class="tab-item"
+          :class="{ active: activeTab === 'all' }"
+          @click="activeTab = 'all'"
+        >
+          全部项目
+        </button>
+        <button
+          class="tab-item"
+          :class="{ active: activeTab === 'recent' }"
+          @click="activeTab = 'recent'"
+        >
+          最近打开
+        </button>
+        <div class="tab-spacer"></div>
+        <GlassButton variant="ghost" @click="appStore.fetchProjectList()" :disabled="appStore.isLoadingList" title="刷新列表" class="refresh-btn">
+          <svg :class="{ spinning: appStore.isLoadingList }" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <polyline points="23 4 23 10 17 10"></polyline>
+            <polyline points="1 20 1 14 7 14"></polyline>
+            <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"></path>
+          </svg>
+        </GlassButton>
+      </div>
+
+      <!-- 错误提示 -->
+      <div v-if="openError" class="error-banner" @click="openError = null">
+        {{ openError }}
+      </div>
+
+      <!-- 加载中 -->
+      <div v-if="appStore.isLoadingList" class="loading-state">
+        加载中...
+      </div>
+
+      <!-- 空状态 -->
+      <div v-else-if="displayProjects.length === 0" class="empty-state">
+        <svg viewBox="0 0 24 24" width="48" height="48" fill="none" stroke="currentColor" stroke-width="1.5" opacity="0.3">
+          <path d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z" />
+        </svg>
+        <p class="empty-title">{{ activeTab === 'recent' ? '暂无最近打开的项目' : '暂无项目' }}</p>
+        <p class="empty-hint">点击上方「导入 .bcp」按钮导入项目</p>
+      </div>
+
+      <!-- 项目卡片列表 -->
+      <div v-else class="project-grid">
+        <div
+          v-for="project in displayProjects"
+          :key="project.folderPath"
+          class="project-card"
+          :class="{ invalid: !project.isValid, opening: isOpening }"
+          :title="project.isValid ? `打开 ${project.name}` : project.errorMessage || '项目异常'"
+          @click="handleOpen(project)"
+        >
+          <!-- 项目图标 -->
+          <div class="card-icon" :class="{ 'icon-error': !project.isValid }">
+            <svg v-if="project.isValid" viewBox="0 0 24 24" width="32" height="32" fill="none" stroke="currentColor" stroke-width="1.5">
+              <path d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z" />
+            </svg>
+            <svg v-else viewBox="0 0 24 24" width="32" height="32" fill="none" stroke="currentColor" stroke-width="1.5">
+              <path d="M12 9v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+            </svg>
+          </div>
+
+          <!-- 项目信息 -->
+          <div class="card-body">
+            <div class="card-name">{{ project.name }}</div>
+            <div class="card-meta">
+              <span>{{ formatDate(project.updatedAt) }}</span>
+              <span v-if="project.schemeCount > 0" class="meta-dot">{{ project.schemeCount }} 个方案</span>
+              <span v-if="project.activeScheme" class="meta-dot">{{ project.activeScheme }}</span>
+            </div>
+            <div v-if="!project.isValid" class="card-error">
+              {{ project.errorMessage || '项目异常' }}
+            </div>
+          </div>
+
+          <!-- 操作按钮 -->
+          <div class="card-actions" v-if="project.isValid">
+            <GlassButton
+              variant="danger"
+              class="delete-btn"
+              title="删除项目"
+              @click.stop="confirmDelete(project)"
+            >
+              <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2">
+                <polyline points="3 6 5 6 21 6"></polyline>
+                <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
+              </svg>
+            </GlassButton>
+          </div>
+        </div>
+      </div>
+
+      <!-- 项目根目录提示 -->
+      <div v-if="appStore.projectsRoot" class="projects-root-hint">
+        {{ appStore.projectsRoot }}
+      </div>
+    </main>
+
+    <!-- 删除确认对话框 -->
+    <Teleport to="body">
+      <Transition name="dialog">
+        <div v-if="showDeleteDialog" class="dialog-overlay" @click.self="cancelDelete">
+          <div class="delete-dialog">
+            <div class="dialog-header">
+              <svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="var(--accent-danger)" stroke-width="2">
+                <path d="M12 9v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+              </svg>
+              <h3>确认删除</h3>
+            </div>
+            <div class="dialog-content">
+              <p>确定删除项目 "<strong>{{ deleteTargetName }}</strong>" 吗？</p>
+              <p class="warning-text">此操作不可恢复，项目文件夹将被永久删除。</p>
+            </div>
+            <div class="dialog-actions">
+              <GlassButton variant="danger" @click="handleDelete">删除</GlassButton>
+              <GlassButton variant="ghost" @click="cancelDelete">取消</GlassButton>
+            </div>
+          </div>
+        </div>
+      </Transition>
+    </Teleport>
+
+    <!-- 导入冲突对话框 -->
+    <ConflictDialog
+      :visible="showConflictDialog"
+      :project-name="conflictProjectName"
+      :existing-path="conflictExistingPath"
+      @resolve="handleConflictResolve"
+    />
+  </div>
+</template>
+
+<style scoped>
+.homepage {
+  width: 100vw;
+  height: 100vh;
+  background: var(--bg-canvas);
+  display: flex;
+  flex-direction: column;
+  color: var(--text-primary);
+  font-family: var(--font-sans);
+}
+
+/* Header */
+.homepage-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px 32px;
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.brand-text {
+  font-size: 1.2rem;
+  font-weight: 700;
+  letter-spacing: 0.5px;
+}
+
+.header-right {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+/* Content */
+.homepage-content {
+  flex: 1;
+  overflow-y: auto;
+  padding: 24px 32px;
+  max-width: 960px;
+  width: 100%;
+  margin: 0 auto;
+}
+
+/* Tabs */
+.tab-bar {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin-bottom: 20px;
+  border-bottom: 1px solid var(--border-subtle);
+  padding-bottom: 0;
+}
+
+.tab-item {
+  background: none;
+  border: none;
+  color: var(--text-secondary);
+  font-family: var(--font-sans);
+  font-size: 0.9rem;
+  padding: 8px 16px;
+  cursor: pointer;
+  border-bottom: 2px solid transparent;
+  margin-bottom: -1px;
+  transition: color 0.15s, border-color 0.15s;
+}
+
+.tab-item:hover {
+  color: var(--text-primary);
+}
+
+.tab-item.active {
+  color: var(--accent-blue);
+  border-bottom-color: var(--accent-blue);
+}
+
+.tab-spacer {
+  flex: 1;
+}
+
+.refresh-btn {
+  padding: 4px 8px !important;
+  margin-bottom: 2px;
+}
+
+.spinning {
+  animation: spin 0.8s linear infinite;
+}
+
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+/* Error Banner */
+.error-banner {
+  background: rgba(255, 107, 107, 0.15);
+  border: 1px solid rgba(255, 107, 107, 0.3);
+  border-radius: var(--radius-md);
+  padding: 10px 16px;
+  margin-bottom: 16px;
+  color: var(--accent-danger);
+  font-size: 0.85rem;
+  cursor: pointer;
+}
+
+/* Loading */
+.loading-state {
+  text-align: center;
+  padding: 60px 0;
+  color: var(--text-secondary);
+  font-size: 0.9rem;
+}
+
+/* Empty State */
+.empty-state {
+  text-align: center;
+  padding: 80px 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+}
+
+.empty-title {
+  color: var(--text-secondary);
+  font-size: 1rem;
+  margin: 8px 0 0;
+}
+
+.empty-hint {
+  color: var(--text-tertiary);
+  font-size: 0.85rem;
+  margin: 0;
+}
+
+/* Project Grid */
+.project-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.project-card {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 14px 18px;
+  background: var(--surface-card);
+  border: var(--glass-border);
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  transition: background-color 0.15s;
+}
+
+.project-card:hover:not(.invalid):not(.opening) {
+  background: var(--surface-highlight-hover);
+}
+
+.project-card.invalid {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.project-card.opening {
+  opacity: 0.7;
+  pointer-events: none;
+}
+
+/* Card Icon */
+.card-icon {
+  flex-shrink: 0;
+  color: var(--accent-blue);
+  opacity: 0.7;
+}
+
+.card-icon.icon-error {
+  color: var(--accent-danger);
+}
+
+/* Card Body */
+.card-body {
+  flex: 1;
+  min-width: 0;
+}
+
+.card-name {
+  font-size: 0.95rem;
+  font-weight: 600;
+  margin-bottom: 4px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.card-meta {
+  font-size: 0.8rem;
+  color: var(--text-secondary);
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-wrap: wrap;
+}
+
+.meta-dot::before {
+  content: '\00B7';
+  margin-right: 4px;
+}
+
+.card-error {
+  font-size: 0.75rem;
+  color: var(--accent-danger);
+  margin-top: 4px;
+}
+
+/* Card Actions */
+.card-actions {
+  flex-shrink: 0;
+  opacity: 0;
+  transition: opacity 0.15s;
+}
+
+.project-card:hover .card-actions {
+  opacity: 1;
+}
+
+.delete-btn {
+  padding: 4px 8px !important;
+}
+
+/* Projects Root Hint */
+.projects-root-hint {
+  margin-top: 24px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border-subtle);
+  font-size: 0.75rem;
+  color: var(--text-tertiary);
+  font-family: var(--font-mono);
+}
+
+/* Delete Dialog */
+.dialog-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.6);
+  backdrop-filter: blur(4px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 9999;
+}
+
+.delete-dialog {
+  background: var(--glass-bg-solid);
+  border: 1px solid var(--border-subtle);
+  border-radius: 12px;
+  padding: 24px;
+  min-width: 380px;
+  max-width: 460px;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3),
+    0 0 0 1px rgba(255, 255, 255, 0.05) inset;
+}
+
+.dialog-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+.dialog-header h3 {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 600;
+}
+
+.dialog-content {
+  margin-bottom: 20px;
+}
+
+.dialog-content p {
+  margin: 0 0 8px;
+  color: var(--text-secondary);
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+.dialog-content strong {
+  color: var(--text-primary);
+  font-weight: 600;
+}
+
+.warning-text {
+  color: var(--accent-danger) !important;
+  font-size: 0.85rem !important;
+}
+
+.dialog-actions {
+  display: flex;
+  gap: 12px;
+  justify-content: flex-end;
+}
+
+/* Dialog Transitions */
+.dialog-enter-active,
+.dialog-leave-active {
+  transition: all 0.2s ease;
+}
+
+.dialog-enter-from,
+.dialog-leave-to {
+  opacity: 0;
+}
+
+.dialog-enter-from .delete-dialog,
+.dialog-leave-to .delete-dialog {
+  transform: scale(0.95) translateY(-10px);
+  opacity: 0;
+}
+
+.dialog-enter-active .delete-dialog,
+.dialog-leave-active .delete-dialog {
+  transition: all 0.2s cubic-bezier(0.19, 1, 0.22, 1);
+}
+</style>

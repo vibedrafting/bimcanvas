@@ -515,6 +515,20 @@ export const useCanvasStore = defineStore('canvas', () => {
     // === 脏数据管理 API ===
 
     /**
+     * 重置项目状态（关闭项目返回首页时调用）
+     */
+    const resetProject = () => {
+        projectData.value = null;
+        isDirty.value = false;
+        selectedIds.value = [];
+        error.value = null;
+        promptMessage.value = null;
+        sceneDataCache.clear();
+        timeline.clear();
+        debugStore.log('[Store] Project state reset');
+    };
+
+    /**
      * 清除脏数据标记
      * 用于放弃更改后重置状态
      */
@@ -640,6 +654,7 @@ export const useCanvasStore = defineStore('canvas', () => {
         clearDirty,
         saveToServer,
         forceSync,
+        resetProject,
         // saveZoneToServer 已移除：v3.4 Server 自动计算分区
 
         // UI State

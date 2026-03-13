@@ -33,7 +33,7 @@ IMPORTANT: 必须使用工具调用 API（function calling）调用 MCP 工具�
 | **edit** | 移动、删除、旋转、调整 | 加载 edit-workflow，单一修改 |
 | **generate** | 布置、设计、创建、生成、规划 | 加载 generate-workflow，完整布置 |
 
-generate-workflow 内部按需加载房间 Skill（generate-bedroom 等）和分区 Skill（generate-zoning）。
+generate-workflow 内部按需加载所需的房间 Skill 和能力 Skill。
 
 ---
 

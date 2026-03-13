@@ -44,11 +44,15 @@ description: |
 | rest / tvMedia / dining / circulation | 客餐厅 | generate-livingroom |
 | 其他封闭空间 | 按 tags 判断 | 对应房间 Skill（如有） |
 
-**评估分区需求**：
-- rawBoundary 顶点 > 4 → 加载 generate-zoning（异形空间需几何拆解）
-- 多功能标签组 + 面积 > 20㎡ → 加载 generate-zoning（开放空间需功能分区）
-- 执行分区 → 产出 subZones → 再次调用 `get_zone_boundaries` 获取子 zone 边界语义（含 passage 段）→ 为每个叶子 zone 分别加载房间 Skill
-- 矩形单功能房间 → 跳过
+**评估分区需求**（加载 generate-zoning）：
+
+结合空间画像，判断空间的功能需求能否在单一空间内被同时满足。常见触发信号：
+- 异形空间：rawBoundary 顶点 > 4，存在可独立围合的子空间
+- 多功能组合：多个功能标签 + 面积足以分区
+- 功能间空间冲突：主要家具在同一空间内产生通道不足等矛盾
+
+→ 需要分区：加载 generate-zoning → 产出 subZones → 调用 `get_zone_boundaries` 获取子 zone 边界语义（含 passage 段）→ 为每个叶子 zone 分别加载房间 Skill
+→ 无需分区：直接进入策略阶段
 
 ---
 

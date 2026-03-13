@@ -43,9 +43,8 @@ IMPORTANT: 必须使用工具调用 API（function calling）调用 MCP 工具�
 收到任务后：
 1. 加载 **generate-workflow** Skill（主工作流框架）
 2. 在理解阶段，根据空间类型自主加载对应**房间 Skill**（generate-bedroom 等）
-3. 评估分区需求 → 如需要，加载 **generate-zoning** Skill（异形/开放空间分区）
 
-Skill 加载后严格遵守其中的步骤和约束。
+Skill 加载后严格遵守其中的步骤和约束。分区需求在 generate-workflow 理解阶段内部评估。
 
 > WHY：每个房间可能是不同空间类型（主卧、次卧、卫生间等），自主判断+加载让你适配任何房间，无需主控 Agent 预设。
 

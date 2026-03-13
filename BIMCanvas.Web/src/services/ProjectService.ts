@@ -1,4 +1,5 @@
 import axios from 'axios';
+import type { ProjectListResponse, RecentProjectEntry, CloseProjectResponse } from '../types/homepage';
 
 const API_BASE = 'http://localhost:5000/api/project';
 
@@ -141,6 +142,75 @@ export class ProjectService {
             return {
                 status: 'Error',
                 message: error.response?.data?.message || error.message || '解决冲突失败'
+            };
+        }
+    }
+
+    // ========== 首页 API ==========
+
+    /**
+     * 获取项目列表（扫描默认目录）
+     */
+    static async listProjects(): Promise<ProjectListResponse> {
+        const response = await axios.get<ProjectListResponse>(`${API_BASE}/list`);
+        return response.data;
+    }
+
+    /**
+     * 获取最近打开记录
+     */
+    static async getRecentProjects(): Promise<RecentProjectEntry[]> {
+        const response = await axios.get<{ projects: RecentProjectEntry[] }>(`${API_BASE}/recent`);
+        return response.data.projects;
+    }
+
+    /**
+     * 打开项目文件夹（从首页选择）
+     */
+    static async openFolder(folderPath: string): Promise<ProjectLoadResult> {
+        try {
+            const response = await axios.post<ProjectLoadResult>(`${API_BASE}/open-folder`, {
+                folderPath
+            });
+            return response.data;
+        } catch (error: any) {
+            return {
+                status: 'Error',
+                message: error.response?.data?.message || error.message || '打开项目失败'
+            };
+        }
+    }
+
+    /**
+     * 关闭当前项目
+     */
+    static async closeProject(force: boolean = false): Promise<CloseProjectResponse> {
+        try {
+            const response = await axios.post<CloseProjectResponse>(
+                `${API_BASE}/close`,
+                { force }
+            );
+            return response.data;
+        } catch (error: any) {
+            return {
+                status: 'Error',
+                hasUnsavedChanges: false,
+                message: error.response?.data?.message || error.message || '关闭项目失败'
+            };
+        }
+    }
+
+    /**
+     * 删除项目
+     */
+    static async deleteProject(name: string): Promise<{ status: string; message?: string }> {
+        try {
+            const response = await axios.delete(`${API_BASE}/${encodeURIComponent(name)}`);
+            return response.data;
+        } catch (error: any) {
+            return {
+                status: 'Error',
+                message: error.response?.data?.message || error.message || '删除项目失败'
             };
         }
     }
