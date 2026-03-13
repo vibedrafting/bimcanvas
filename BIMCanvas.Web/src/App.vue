@@ -60,6 +60,16 @@ const enterWorkspace = async () => {
     store.projectData = null;
     await store.loadProject(ChangeSource.SystemInit);
 
+    // 补充获取项目路径（Server 已有项目直接进入的场景）
+    if (store.projectData && !appStore.projectPath) {
+      try {
+        const status = await ProjectService.getStatus();
+        if (status.projectPath) {
+          appStore.projectPath = status.projectPath;
+        }
+      } catch { /* non-critical */ }
+    }
+
     // 计算目标视图
     if (store.projectData) {
       debugStore.log('Calculating target view...');
