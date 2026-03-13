@@ -926,8 +926,23 @@ namespace BIMCanvas.Server.Services
                 throw new DirectoryNotFoundException($"项目不存在: {projectName}");
             }
 
+            // Git 对象文件默认只读，Directory.Delete 无法删除只读文件
+            RemoveReadOnlyAttributes(normalizedPath);
             Directory.Delete(normalizedPath, recursive: true);
             _logger.LogInformation("项目已删除: {Name}", projectName);
+        }
+
+        /// <summary>
+        /// 递归移除目录内所有文件的只读属性（Git 对象文件默认只读）
+        /// </summary>
+        private static void RemoveReadOnlyAttributes(string dirPath)
+        {
+            foreach (var file in Directory.GetFiles(dirPath, "*", SearchOption.AllDirectories))
+            {
+                var attrs = File.GetAttributes(file);
+                if ((attrs & FileAttributes.ReadOnly) != 0)
+                    File.SetAttributes(file, attrs & ~FileAttributes.ReadOnly);
+            }
         }
     }
 }

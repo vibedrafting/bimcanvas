@@ -55,14 +55,10 @@ const enterWorkspace = async () => {
 
     const minTimePromise = new Promise(resolve => setTimeout(resolve, 2500));
 
-    // 如果数据已加载（来自导入流程），跳过 API 调用
-    const dataAlreadyLoaded = !!store.projectData;
-
-    const loadPromise = dataAlreadyLoaded
-      ? Promise.resolve()
-      : store.loadProject(ChangeSource.SystemInit);
-
-    await loadPromise;
+    // 统一加载：无论数据是否已存在，都清空后重新从 Server 加载
+    // 确保 ThreeSceneService 的 watch 能检测到 null → data 变化并触发 fitToScreen
+    store.projectData = null;
+    await store.loadProject(ChangeSource.SystemInit);
 
     // 计算目标视图
     if (store.projectData) {
@@ -104,13 +100,6 @@ const enterWorkspace = async () => {
     await new Promise(resolve => setTimeout(resolve, 500));
 
     loadingStage.value = 5;
-
-    // 导入路径：data 在 ThreeCanvas 挂载前已加载，
-    // watch 不会触发 fitToScreen，需主动触发
-    if (dataAlreadyLoaded) {
-      window.dispatchEvent(new Event('bimcanvas:reset-view'));
-    }
-
     debugStore.log('Triggering Progressive Scene Build...');
     window.dispatchEvent(new CustomEvent('bimcanvas:play-build-sequence'));
 
