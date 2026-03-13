@@ -1,13 +1,6 @@
----
-name: generate-bedroom
-description: |
-  卧室策略 Skill。适用于主卧、次卧、儿童房等有明确墙体围合的睡眠空间。
-  由 generate-workflow 在理解阶段根据空间类型自动加载。
----
-
 # 卧室策略
 
-适用：tags 含 `sleep` 或 `bedroom` 的封闭空间。本 Skill 指导**策略生成**——从空间画像推导出布局方案，不含流程步骤（流程由 generate-workflow 管理）。
+适用：tags 含 `sleep` 或 `bedroom` 的封闭空间。本策略文件指导**策略生成**——从空间画像推导出布局方案，不含流程步骤（流程由 generate-workflow 管理）。
 
 ---
 

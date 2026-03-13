@@ -1,10 +1,3 @@
----
-name: generate-bathroom
-description: |
-  卫生间策略 Skill。适用于主卫、公卫、半卫等包含洁具的空间。
-  由 generate-workflow 在理解阶段根据空间类型自动加载。
----
-
 # 卫生间策略
 
 适用：tags 含 `shower`/`toilet`/`washing` 的空间。卫生间是**模板匹配型空间**——测量空间 → 选择布局模式 → 参数化定位洁具。Agent 角色：工程师（精度优先，自由度极低）。

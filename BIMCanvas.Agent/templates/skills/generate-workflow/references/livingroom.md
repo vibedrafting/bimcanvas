@@ -1,14 +1,7 @@
----
-name: generate-livingroom
-description: |
-  客餐厅策略 Skill。适用于客厅、餐厅及客餐一体空间。
-  由 generate-workflow 在理解阶段根据空间类型自动加载。
----
-
 # 客餐厅策略
 
 适用：tags 含 `rest`/`tvMedia`/`dining` 的空间，或含 `circulation` 的开放连通空间。
-本 Skill 适用于独立客厅、独立餐厅、或分区后的子 zone——无论是否经过分区，策略逻辑相同。
+本策略文件适用于独立客厅、独立餐厅、或分区后的子 zone——无论是否经过分区，策略逻辑相同。
 
 ## 一、空间理解补充
 

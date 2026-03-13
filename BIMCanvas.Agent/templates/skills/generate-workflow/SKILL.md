@@ -35,14 +35,15 @@ description: |
 2. **纵深层次**：前场（入口侧）和深处（远离入口）分别在哪？
 3. **采光轴**：窗户方向，光线通路有无遮挡风险？
 
-**确定空间类型 → 加载房间 Skill**：
+**确定空间类型 → 加载房间策略**：
 
-| tags 特征 | 空间类型 | 加载 Skill |
-|-----------|---------|-----------|
-| sleep / bedroom | 卧室 | generate-bedroom |
-| shower / toilet / washing | 卫生间 | generate-bathroom |
-| rest / tvMedia / dining / circulation | 客餐厅 | generate-livingroom |
-| 其他封闭空间 | 按 tags 判断 | 对应房间 Skill（如有） |
+Read 策略参考文件路径（见系统注入的"策略参考文件"路径）下对应文件：
+
+| tags 特征 | 空间类型 | 策略文件 |
+|-----------|---------|---------|
+| sleep / bedroom | 卧室 | bedroom.md |
+| shower / toilet / washing | 卫生间 | bathroom.md |
+| rest / tvMedia / dining / circulation | 客餐厅 | livingroom.md |
 
 **评估分区需求**（加载 generate-zoning）：
 
@@ -60,7 +61,7 @@ description: |
 
 > WHY：先想清楚整体方案再动手放家具。策略是全局决策的记录，让执行时有明确方向，不陷入局部优化。
 
-遵循已加载的房间 Skill，产出**策略声明**：
+遵循已加载的房间策略，产出**策略声明**：
 - 锚点决策：核心家具选哪面墙，WHY
 - 主要家具布局：衣柜/沙发等的墙面和模式
 - 间距分配：各侧空间分配
@@ -76,7 +77,7 @@ description: |
 
 ### 放置
 
-按策略声明 + design_principles + 房间 Skill 约束 + module_library agent_config，精确定位全部家具（锚点→主要→辅助，一次性写入）。
+按策略声明 + design_principles + 房间策略约束 + module_library agent_config，精确定位全部家具（锚点→主要→辅助，一次性写入）。
 
 **放置前原则性检查**（每件家具）：
 1. 是否阻挡门开启？（design_principles 空间硬约束）
@@ -117,7 +118,7 @@ Write `schemes/{zoneId}/modules.json`，每个模块包含 moduleId、bounds（�
 1. **空间合规**：家具未阻挡门开启、通道满足标准
 2. **策略一致**：最终布局是否实现了策略声明的核心意图
 3. **设计品质**：空间效率合理、功能联动、填充舒适度
-4. **规则遵从**：房间 Skill 的硬约束全部满足
+4. **规则遵从**：房间策略的硬约束全部满足
 5. **分区连贯**（分区场景）：相邻子分区之间的动线是否连贯
 
 **判断**：
