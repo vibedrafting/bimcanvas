@@ -277,7 +277,7 @@ class MainAgent:
 
         错误分类由 tool_result 事件的 is_error 字段处理。
         """
-        return re.sub(r'<tool_use_error>[\s\S]*?</tool_use_error>', '', text).strip()
+        return re.sub(r'<tool_use_error>[\s\S]*?</tool_use_error>', '', text)
 
     # ─────────────────────────────────────────────────────
     # Connection Management
