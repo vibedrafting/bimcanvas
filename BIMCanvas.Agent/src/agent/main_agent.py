@@ -329,17 +329,34 @@ class MainAgent:
                 self._agent_logger.log_info(f"Connected to project: {self.project_path or 'default'}")
 
     async def disconnect(self) -> None:
-        """Disconnect from the agent."""
+        """Disconnect from the agent with force-kill fallback."""
         async with self._lock:
             if self._client and self._connected:
                 try:
                     await self._client.disconnect()
                 except Exception as e:
-                    logger.warning(f"SDK disconnect error (safe to ignore): {e}")
+                    logger.warning(f"SDK disconnect error: {e}")
+                    # disconnect 失败，强制杀掉 claude.exe 子进程（释放 CWD 文件锁）
+                    await self._force_kill_subprocess()
                 finally:
                     self._connected = False
                     self._client = None
                     logger.info(f"MainAgent disconnected for project: {self.project_path}")
+
+    async def _force_kill_subprocess(self) -> None:
+        """强制杀掉 claude.exe 子进程（disconnect 失败时的 fallback）"""
+        try:
+            transport = getattr(self._client, '_transport', None)
+            process = getattr(transport, '_process', None) if transport else None
+            if process and process.returncode is None:
+                process.kill()
+                try:
+                    await process.wait()
+                except Exception:
+                    pass
+                logger.info("Force-killed claude.exe subprocess")
+        except Exception as e:
+            logger.error(f"Force-kill subprocess failed: {e}")
 
     async def set_model(self, model: str) -> bool:
         """
