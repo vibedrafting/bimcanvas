@@ -387,24 +387,25 @@ namespace BIMCanvas.Server.Services
             var result = RunGit(projectPath, $"worktree remove \"{worktreePath}\" --force");
             if (!result.Success)
             {
-                // git worktree remove 失败，带重试地直接删除目录（Windows CWD 锁可能有延迟释放）
+                // git worktree remove 失败，带重试地直接删除目录
+                // Windows 上 claude.exe 退出后 CWD 文件锁可能延迟释放，需要足够的重试窗口
                 _logger.LogWarning("git worktree remove 失败，重试删除: {Error}", result.Error);
-                for (int retry = 0; retry < 3; retry++)
+                for (int retry = 0; retry < 5; retry++)
                 {
                     try
                     {
-                        if (retry > 0) Thread.Sleep(1000);
+                        if (retry > 0) Thread.Sleep(2000);
                         Directory.Delete(worktreePath, recursive: true);
                         RunGit(projectPath, "worktree prune");
                         break;
                     }
-                    catch (Exception ex) when (retry < 2)
+                    catch (Exception ex) when (retry < 4)
                     {
-                        _logger.LogWarning("删除 Worktree 重试 {N}/3: {Err}", retry + 1, ex.Message);
+                        _logger.LogWarning("删除 Worktree 重试 {N}/5: {Err}", retry + 1, ex.Message);
                     }
                     catch (Exception ex)
                     {
-                        _logger.LogError(ex, "删除 Worktree 目录最终失败");
+                        _logger.LogError(ex, "删除 Worktree 目录最终失败（5 次重试均失败）");
                     }
                 }
             }

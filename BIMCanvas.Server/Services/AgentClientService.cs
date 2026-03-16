@@ -46,9 +46,11 @@ namespace BIMCanvas.Server.Services
                 }
 
                 // 404 = Agent 实例不存在（已自行关闭），视为成功
+                // 仍需等待：进程可能刚被关闭，CWD 文件锁尚未释放
                 if (response.StatusCode == System.Net.HttpStatusCode.NotFound)
                 {
                     _logger.LogDebug("Agent 窗口不存在（已关闭）: {WindowId}", windowId);
+                    await Task.Delay(waitMs);
                     return true;
                 }
 
@@ -58,7 +60,9 @@ namespace BIMCanvas.Server.Services
             catch (Exception ex)
             {
                 // Agent 服务不可达（已退出），视为成功
+                // 仍需等待：进程可能正在退出，CWD 文件锁尚未释放
                 _logger.LogDebug("Agent 服务不可达（已退出）: {Message}", ex.Message);
+                await Task.Delay(waitMs);
                 return true;
             }
         }

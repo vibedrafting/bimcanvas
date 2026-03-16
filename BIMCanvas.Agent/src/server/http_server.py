@@ -466,6 +466,9 @@ async def close_agent_handler(request: web.Request) -> web.Response:
             # 清理序号映射（但不回收序号）
             _window_seq_map.pop(window_id, None)
 
+            # 等待 claude.exe 子进程完全退出，释放 CWD 文件锁（Windows 需要）
+            await asyncio.sleep(1.5)
+
             # 醒目的控制台输出（带窗口前缀）
             print(f"{prefix} [Server] ========== Agent 实例关闭 ==========")
             print(f"{prefix} [Server] 窗口ID: {window_id}")
