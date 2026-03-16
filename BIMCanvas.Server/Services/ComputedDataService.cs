@@ -366,6 +366,7 @@ namespace BIMCanvas.Server.Services
                     Reason = $"room:{room.Type}",
                     RawBoundary = room.Boundary,
                     ComputedBoundary = null, // Room 类型暂不计算内缩边界
+                    Visible = true,
                     Tags = _tagMappingService.GetTagsForRoomType(room.Type),
                     OptionalTags = _tagMappingService.GetOptionalTagsForRoomType(room.Type),
                     FinishRequirements = new List<FinishRequirement>(),
