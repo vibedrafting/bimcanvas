@@ -355,7 +355,7 @@ namespace BIMCanvas.Server.Services
                 var committed = TryCommit(worktreePath, $"自动存档_{timestamp}");
                 if (committed)
                 {
-                    _logger.LogInformation("删除 Worktree 前自动存档: {Name}", worktreeName);
+                    _logger.LogWarning("删除 Worktree 前自动存档: {Name}", worktreeName);
                 }
             }
 
@@ -410,7 +410,7 @@ namespace BIMCanvas.Server.Services
                 }
             }
 
-            _logger.LogInformation("删除 Worktree: {Name}", worktreeName);
+            _logger.LogWarning("删除 Worktree: {Name}", worktreeName);
 
             // 删除关联分支（根据元数据 intent 决定）
             if (!string.IsNullOrEmpty(branchToDelete))
@@ -420,11 +420,11 @@ namespace BIMCanvas.Server.Services
                 {
                     if (shouldDeleteBranch)
                     {
-                        _logger.LogInformation("删除临时分支（隔离意图）: {Branch}", branchToDelete);
+                        _logger.LogWarning("删除临时分支（隔离意图）: {Branch}", branchToDelete);
                     }
                     else
                     {
-                        _logger.LogInformation("删除关联分支: {Branch}", branchToDelete);
+                        _logger.LogWarning("删除关联分支: {Branch}", branchToDelete);
                     }
                 }
                 else
@@ -434,7 +434,7 @@ namespace BIMCanvas.Server.Services
             }
             else if (entry != null && entry.Intent == "parallel")
             {
-                _logger.LogInformation("保留分支（并行意图）: {Branch}", entry.BranchName);
+                _logger.LogWarning("保留分支（并行意图）: {Branch}", entry.BranchName);
             }
         }
 
@@ -528,7 +528,7 @@ namespace BIMCanvas.Server.Services
         /// </summary>
         public void CleanupAllWorktrees(string projectPath)
         {
-            _logger.LogInformation("开始清理 Worktree: {ProjectPath}", projectPath);
+            _logger.LogWarning("开始清理 Worktree: {ProjectPath}", projectPath);
 
             var worktrees = GetWorktrees(projectPath);
             var worktreesDir = Path.GetFullPath(GetWorktreesDir(projectPath));  // 标准化路径格式
@@ -550,7 +550,7 @@ namespace BIMCanvas.Server.Services
             var syncedCount = metadataService.SyncWithActualWorktrees(actualWorktreeNames);
             if (syncedCount > 0)
             {
-                _logger.LogInformation("同步元数据：清理了 {Count} 条过期记录", syncedCount);
+                _logger.LogWarning("同步元数据：清理了 {Count} 条过期记录", syncedCount);
             }
 
             // 第一层：通过 git worktree list 清理（git 元数据完整的情况）
@@ -576,7 +576,7 @@ namespace BIMCanvas.Server.Services
                 }
                 else
                 {
-                    _logger.LogInformation("清理 Worktree: {Name} (intent: {Intent})，删除分支: {DeleteBranch}",
+                    _logger.LogWarning("清理 Worktree: {Name} (intent: {Intent})，删除分支: {DeleteBranch}",
                         name, entry.Intent, shouldDeleteBranch);
                 }
 
@@ -595,7 +595,7 @@ namespace BIMCanvas.Server.Services
                     try
                     {
                         Directory.Delete(subDir, recursive: true);
-                        _logger.LogInformation("已删除残留目录: {Name}", dirName);
+                        _logger.LogWarning("已删除残留目录: {Name}", dirName);
                         count++;
                     }
                     catch (Exception ex)
@@ -608,7 +608,7 @@ namespace BIMCanvas.Server.Services
                 RunGit(projectPath, "worktree prune");
             }
 
-            _logger.LogInformation("Worktree 清理完成，共处理 {Count} 个", count);
+            _logger.LogWarning("Worktree 清理完成，共处理 {Count} 个", count);
         }
 
         #endregion
