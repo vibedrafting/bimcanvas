@@ -23,10 +23,10 @@ export class QuestionService {
    * 开始监听 Agent 问题请求（通过 SSE）
    */
   startListening(callback: (event: QuestionRequestEvent) => void): void {
+    this.onQuestionRequest = callback  // 始终更新回调，即使 SSE 连接已存在
     if (this.eventSource) {
-      return  // 单例连接已存在，无需重建
+      return  // SSE 连接已建立，仅更新回调
     }
-    this.onQuestionRequest = callback
     this.eventSource = new EventSource(`${this.serverUrl}/api/question/events`)
 
     this.eventSource.addEventListener('question_request', (event) => {
