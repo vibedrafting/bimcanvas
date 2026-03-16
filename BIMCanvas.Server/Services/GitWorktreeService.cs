@@ -446,6 +446,7 @@ namespace BIMCanvas.Server.Services
             var result = RunGit(projectPath, "worktree list --porcelain");
             if (!result.Success)
             {
+                _logger.LogWarning("git worktree list 失败: {Error}", result.Error);
                 return new List<WorktreeInfo>();
             }
 
@@ -527,14 +528,16 @@ namespace BIMCanvas.Server.Services
         /// </summary>
         public void CleanupAllWorktrees(string projectPath)
         {
+            _logger.LogInformation("开始清理 Worktree: {ProjectPath}", projectPath);
+
             var worktrees = GetWorktrees(projectPath);
             var worktreesDir = Path.GetFullPath(GetWorktreesDir(projectPath));  // 标准化路径格式
             var count = 0;
 
-            // ⭐ 新增：元数据服务
+            // ⭐ 元数据服务
             var metadataService = _metadataServiceFactory.Create(projectPath);
 
-            // ⭐ 新增：先同步元数据（清理不存在的 worktree 记录）
+            // 先同步元数据（清理不存在的 worktree 记录）
             var actualWorktreeNames = worktrees
                 .Where(wt =>
                 {
@@ -550,6 +553,7 @@ namespace BIMCanvas.Server.Services
                 _logger.LogInformation("同步元数据：清理了 {Count} 条过期记录", syncedCount);
             }
 
+            // 第一层：通过 git worktree list 清理（git 元数据完整的情况）
             foreach (var wt in worktrees)
             {
                 // 跳过主仓库（标准化路径后比较，Git 返回正斜杠，Windows 使用反斜杠）
@@ -559,7 +563,7 @@ namespace BIMCanvas.Server.Services
 
                 var name = Path.GetFileName(wt.Path);
 
-                // ⭐ 改造：根据元数据 intent 判断是否删除分支
+                // 根据元数据 intent 判断是否删除分支
                 var entry = metadataService.GetWorktreeEntry(name);
                 bool shouldDeleteBranch = entry?.Intent == "isolation";
 
@@ -580,8 +584,31 @@ namespace BIMCanvas.Server.Services
                 count++;
             }
 
-            if (count > 0)
-                _logger.LogInformation("已清理 {Count} 个 Worktree", count);
+            // 第二层：扫描 .worktrees/ 目录，清理 git 元数据已丢失但目录残留的 worktree
+            // 场景：git worktree remove --force 先清了 git 元数据，但目录删除因 CWD 锁失败
+            if (Directory.Exists(worktreesDir))
+            {
+                foreach (var subDir in Directory.GetDirectories(worktreesDir))
+                {
+                    var dirName = Path.GetFileName(subDir);
+                    _logger.LogWarning("发现残留 Worktree 目录（git 未追踪）: {Name}", dirName);
+                    try
+                    {
+                        Directory.Delete(subDir, recursive: true);
+                        _logger.LogInformation("已删除残留目录: {Name}", dirName);
+                        count++;
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogError(ex, "删除残留目录失败: {Name}", dirName);
+                    }
+                }
+
+                // 同步清理 git 的 worktree 元数据（如有残留）
+                RunGit(projectPath, "worktree prune");
+            }
+
+            _logger.LogInformation("Worktree 清理完成，共处理 {Count} 个", count);
         }
 
         #endregion
