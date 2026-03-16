@@ -249,25 +249,6 @@ namespace BIMCanvas.Server.Controllers
         }
 
         /// <summary>
-        /// 获取 demos 文件夹路径（供前端引导用户选择默认导入目录）
-        /// </summary>
-        [HttpGet("demos-path")]
-        public ActionResult GetDemosPath()
-        {
-            try
-            {
-                var baseDir = AppContext.BaseDirectory;
-                var demosPath = _projectService.GetDemosDirectory(baseDir);
-                return Ok(new { path = demosPath });
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "获取 demos 路径失败");
-                return StatusCode(500, new { path = (string?)null, message = ex.Message });
-            }
-        }
-
-        /// <summary>
         /// 获取最近打开的项目列表
         /// </summary>
         [HttpGet("recent")]

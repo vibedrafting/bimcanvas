@@ -146,18 +146,6 @@ export class ProjectService {
         }
     }
 
-    /**
-     * 获取 demos 文件夹路径（引导用户选择默认导入目录）
-     */
-    static async getDemosPath(): Promise<string | null> {
-        try {
-            const response = await axios.get<{ path: string | null }>(`${API_BASE}/demos-path`);
-            return response.data.path;
-        } catch {
-            return null;
-        }
-    }
-
     // ========== 首页 API ==========
 
     /**

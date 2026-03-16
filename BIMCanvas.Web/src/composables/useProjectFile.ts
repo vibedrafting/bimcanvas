@@ -2,9 +2,6 @@ import { ref } from 'vue';
 import { ChangeSource } from '../types/history';
 import { useCanvasStore } from '../stores/canvasStore';
 import { ProjectService } from '../services/ProjectService';
-import { saveDirectoryHandle, loadDirectoryHandle } from '../utils/fileHandleStore';
-
-const IMPORT_DIR_KEY = 'bcp-import-dir';
 
 // Global state for the conflict dialog (singleton pattern to share state)
 const showConflictDialog = ref(false);
@@ -12,75 +9,14 @@ const conflictProjectName = ref('');
 const conflictExistingPath = ref('');
 const pendingFile = ref<File | null>(null);
 
-// 是否需要用户首次设置默认导入目录
-const needsDirectorySetup = ref(false);
-const demosPathHint = ref<string | null>(null);
-
 export function useProjectFile() {
   const store = useCanvasStore();
-
-  /**
-   * 获取已存储的导入目录 handle，用作 showOpenFilePicker 的 startIn
-   */
-  const getImportStartIn = async (): Promise<FileSystemDirectoryHandle | 'desktop'> => {
-    try {
-      const handle = await loadDirectoryHandle(IMPORT_DIR_KEY);
-      if (handle) {
-        // 验证权限是否仍有效
-        const permission = await (handle as any).queryPermission({ mode: 'read' });
-        if (permission === 'granted') return handle;
-      }
-    } catch {
-      // IndexedDB 或权限检查失败，降级
-    }
-    return 'desktop';
-  };
-
-  /**
-   * 让用户选择默认导入目录并存储
-   * @returns 选中的目录 handle，或 null（用户取消）
-   */
-  const setupImportDirectory = async (): Promise<FileSystemDirectoryHandle | null> => {
-    if (!('showDirectoryPicker' in window)) return null;
-
-    try {
-      // 获取 Server 端 demos 路径作为提示
-      const demosPath = await ProjectService.getDemosPath();
-      if (demosPath) {
-        demosPathHint.value = demosPath;
-      }
-
-      const dirHandle = await (window as any).showDirectoryPicker({
-        id: 'bcp-import-dir',
-        mode: 'read'
-      });
-
-      await saveDirectoryHandle(IMPORT_DIR_KEY, dirHandle);
-      return dirHandle;
-    } catch (err: any) {
-      if (err.name !== 'AbortError') {
-        console.error('Failed to select import directory:', err);
-      }
-      return null;
-    }
-  };
 
   // Load Data (only .bcp format)
   const handleLoad = async () => {
     try {
       // Try using File System Access API
       if ('showOpenFilePicker' in window) {
-        let startIn = await getImportStartIn();
-
-        // 首次使用：没有存储的目录，先让用户选择默认目录
-        if (startIn === 'desktop') {
-          const dirHandle = await setupImportDirectory();
-          if (dirHandle) {
-            startIn = dirHandle;
-          }
-          // 用户取消目录选择也继续，用 desktop 降级
-        }
-
         const [fileHandle] = await (window as any).showOpenFilePicker({
           types: [
             {
@@ -89,7 +25,8 @@ export function useProjectFile() {
             }
           ],
           multiple: false,
-          startIn
+          id: 'bcp-import',
+          startIn: 'desktop'
         });
 
         const file = await fileHandle.getFile();
@@ -211,8 +148,6 @@ export function useProjectFile() {
     handleConflictResolve,
     showConflictDialog,
     conflictProjectName,
-    conflictExistingPath,
-    needsDirectorySetup,
-    demosPathHint
+    conflictExistingPath
   };
 }
