@@ -760,6 +760,29 @@ namespace BIMCanvas.Server.Services
         }
 
         /// <summary>
+        /// 从指定目录向上查找 demos 文件夹
+        /// </summary>
+        /// <param name="baseDir">起始目录</param>
+        /// <returns>demos 文件夹路径，未找到返回 null</returns>
+        public string? GetDemosDirectory(string baseDir)
+        {
+            var dir = new DirectoryInfo(baseDir);
+            for (int i = 0; i < 5 && dir != null; i++)
+            {
+                var demosPath = Path.Combine(dir.FullName, "demos");
+                if (Directory.Exists(demosPath))
+                {
+                    _logger.LogDebug("找到 demos 目录: {Path}", demosPath);
+                    return demosPath;
+                }
+                dir = dir.Parent;
+            }
+
+            _logger.LogDebug("未找到 demos 目录（起始: {BaseDir}）", baseDir);
+            return null;
+        }
+
+        /// <summary>
         /// 查找默认的 demo .bcp 文件
         /// </summary>
         /// <param name="baseDir">起始目录</param>
@@ -767,20 +790,15 @@ namespace BIMCanvas.Server.Services
         /// <returns>.bcp 文件路径，未找到返回 null</returns>
         public string? FindDemoBcpFile(string baseDir, string demoName = "demo_1")
         {
-            // 向上查找 demos 目录
-            var dir = new DirectoryInfo(baseDir);
-            for (int i = 0; i < 5 && dir != null; i++)
+            var demosDir = GetDemosDirectory(baseDir);
+            if (demosDir != null)
             {
-                var demosPath = Path.Combine(dir.FullName, "demos");
-                var bcpPath = Path.Combine(demosPath, $"{demoName}.bcp");
-
+                var bcpPath = Path.Combine(demosDir, $"{demoName}.bcp");
                 if (File.Exists(bcpPath))
                 {
                     _logger.LogDebug("找到默认 BCP 文件: {Path}", bcpPath);
                     return bcpPath;
                 }
-
-                dir = dir.Parent;
             }
 
             _logger.LogWarning("未找到默认 BCP 文件: {Name}", demoName);
