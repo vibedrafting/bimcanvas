@@ -15,15 +15,18 @@ namespace BIMCanvas.Server.Controllers
         private readonly ILogger<GitController> _logger;
         private readonly ProjectContext _projectContext;
         private readonly GitWorktreeService _gitService;
+        private readonly AgentClientService _agentClientService;
 
         public GitController(
             ILogger<GitController> logger,
             ProjectContext projectContext,
-            GitWorktreeService gitService)
+            GitWorktreeService gitService,
+            AgentClientService agentClientService)
         {
             _logger = logger;
             _projectContext = projectContext;
             _gitService = gitService;
+            _agentClientService = agentClientService;
         }
 
         /// <summary>
@@ -585,6 +588,12 @@ namespace BIMCanvas.Server.Controllers
 
             try
             {
+                // 防御性：如果是虚拟窗口的 Worktree，先关闭 Agent 释放 CWD 文件锁
+                if (name.StartsWith("window-", StringComparison.OrdinalIgnoreCase))
+                {
+                    _agentClientService.CloseAgentSync(name);
+                }
+
                 _gitService.RemoveWorktree(projectPath, name, deleteBranch, autoCommit);
 
                 var message = deleteBranch

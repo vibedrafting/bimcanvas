@@ -305,24 +305,7 @@ export const useWindowManager = (options: WindowManagerOptions) => {
     win.isLoading = true;
     console.log(`[Window] Closing window: ${win.name}...`);
 
-    try {
-      if (win.worktreeName) {
-        await GitWorktreeService.deleteWorktree(win.worktreeName, false);
-        console.log(`[Window] Worktree deleted: ${win.worktreeName}`);
-      }
-    } catch (error: any) {
-      console.error(`[Window] Delete worktree failed: ${error.message}`);
-    }
-
-    try {
-      await fetch(`http://localhost:5000/api/windows/worktree/${id}`, {
-        method: 'DELETE'
-      });
-      console.log(`[Window] 注销 Worktree 映射: ${id}`);
-    } catch (error: any) {
-      console.warn(`[Window] 注销 Worktree 映射失败: ${error.message}`);
-    }
-
+    // ① 先关闭 Agent（释放 claude.exe 对 worktree 目录的 CWD 文件锁）
     try {
       await fetch(`${options.agentApiBase}/api/agent/close`, {
         method: 'POST',
@@ -332,6 +315,26 @@ export const useWindowManager = (options: WindowManagerOptions) => {
       console.log(`[Window] Agent 实例已关闭: ${id}`);
     } catch (error: any) {
       console.warn(`[Window] 关闭 Agent 实例失败: ${error.message}`);
+    }
+
+    // ② 再删除 Worktree（Agent 已释放 CWD 锁，目录可被删除）
+    try {
+      if (win.worktreeName) {
+        await GitWorktreeService.deleteWorktree(win.worktreeName, false);
+        console.log(`[Window] Worktree deleted: ${win.worktreeName}`);
+      }
+    } catch (error: any) {
+      console.error(`[Window] Delete worktree failed: ${error.message}`);
+    }
+
+    // ③ 注销映射
+    try {
+      await fetch(`http://localhost:5000/api/windows/worktree/${id}`, {
+        method: 'DELETE'
+      });
+      console.log(`[Window] 注销 Worktree 映射: ${id}`);
+    } catch (error: any) {
+      console.warn(`[Window] 注销 Worktree 映射失败: ${error.message}`);
     }
 
     windows.value.splice(index, 1);
