@@ -28,6 +28,7 @@ namespace BIMCanvas.Server.Controllers
         private readonly ProjectService _projectService;
         private readonly RecentProjectsService _recentProjectsService;
         private readonly GitWorktreeService _gitService;
+        private readonly AgentClientService _agentClientService;
         private readonly JsonSerializerSettings _jsonSettings;
 
         public ProjectController(
@@ -35,13 +36,15 @@ namespace BIMCanvas.Server.Controllers
             ProjectContext projectContext,
             ProjectService projectService,
             RecentProjectsService recentProjectsService,
-            GitWorktreeService gitService)
+            GitWorktreeService gitService,
+            AgentClientService agentClientService)
         {
             _logger = logger;
             _projectContext = projectContext;
             _projectService = projectService;
             _recentProjectsService = recentProjectsService;
             _gitService = gitService;
+            _agentClientService = agentClientService;
             _jsonSettings = new JsonSerializerSettings
             {
                 ContractResolver = new CamelCasePropertyNamesContractResolver(),
@@ -143,6 +146,12 @@ namespace BIMCanvas.Server.Controllers
 
                 // 初始化对话日志
                 BIMCanvas.Server.Logging.ConversationLogger.Initialize(request.FolderPath);
+
+                // 关闭虚拟窗口的 Agent 进程（释放 CWD 文件锁，必须在删除 Worktree 之前）
+                foreach (var wid in _projectContext.GetRegisteredWindowIds().ToList())
+                {
+                    _agentClientService.CloseAgentSync(wid, waitMs: 500);
+                }
 
                 // 清空 Worktree（切换项目后旧 Worktree 无效）
                 _gitService.CleanupAllWorktrees(request.FolderPath);

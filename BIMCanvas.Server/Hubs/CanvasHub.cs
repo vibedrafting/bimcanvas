@@ -14,17 +14,20 @@ namespace BIMCanvas.Server.Hubs
         private readonly BranchLockManager _branchLockManager;
         private readonly GitWorktreeService _gitWorktreeService;
         private readonly ProjectContext _projectContext;
+        private readonly AgentClientService _agentClientService;
 
         public CanvasHub(
             ILogger<CanvasHub> logger,
             BranchLockManager branchLockManager,
             GitWorktreeService gitWorktreeService,
-            ProjectContext projectContext)
+            ProjectContext projectContext,
+            AgentClientService agentClientService)
         {
             _logger = logger;
             _branchLockManager = branchLockManager;
             _gitWorktreeService = gitWorktreeService;
             _projectContext = projectContext;
+            _agentClientService = agentClientService;
         }
 
         /// <summary>
@@ -108,7 +111,10 @@ namespace BIMCanvas.Server.Hubs
                 var releasedCount = _branchLockManager.ReleaseAllForWindow(windowId);
                 _logger.LogInformation("释放分支锁: {Count} 个", releasedCount);
 
-                // 3. 清理关联的 Worktree（只清理虚拟窗口创建的）
+                // 3. 关闭 Agent 进程（释放 CWD 文件锁，必须在删除 Worktree 之前）
+                await _agentClientService.CloseAgentAsync(windowId);
+
+                // 4. 清理关联的 Worktree（只清理虚拟窗口创建的）
                 var projectPath = _projectContext.CurrentProjectPath;
                 if (!string.IsNullOrEmpty(projectPath))
                 {

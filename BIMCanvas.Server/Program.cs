@@ -82,6 +82,14 @@ var builder = WebApplication.CreateBuilder(args);
 builder.Logging.ClearProviders();
 builder.Logging.AddServerConsoleFormatter();
 
+// 加载用户配置（提前到 DI 注册前，供 AgentClientService 等服务使用）
+ConfigService.EnsureDefaultConfigs();
+var config = ConfigService.Load();
+
+// 注册配置 + Agent HTTP 客户端
+builder.Services.AddSingleton(config);
+builder.Services.AddSingleton<AgentClientService>();
+
 // 配置 JSON 序列化选项（使用 Newtonsoft.Json，与 BIMCanvas.Core 保持一致）
 builder.Services.AddControllers()
     .AddNewtonsoftJson(options =>
@@ -168,11 +176,7 @@ app.MapHub<CanvasHub>("/hubs/canvas");
 // 健康检查端点
 app.MapGet("/health", () => new { status = "healthy", timestamp = DateTime.UtcNow });
 
-// 确保程序配置文件存在（Documents/BIMCanvas/）
-ConfigService.EnsureDefaultConfigs();
-
-// 加载用户配置
-var config = ConfigService.Load();
+// config 已在 DI 注册阶段加载（line 85 附近）
 WriteWithColoredPrefix("[Server]", "BIMCanvas.Server 启动中...", ConsoleColor.White);
 WriteWithColoredPrefix("[Server]", "Swagger: http://localhost:5000/swagger", ConsoleColor.White);
 
@@ -391,7 +395,15 @@ var agentReady = true;
     // 4. 注册退出时清理进程和 Worktree
     AppDomain.CurrentDomain.ProcessExit += (s, e) =>
     {
-        // 清理 Worktree（双重保险：启动时 + 关闭时）
+        // ① 先关闭 Agent（释放 CWD 文件锁）
+        if (agentProcess != null && !agentProcess.HasExited)
+        {
+            WriteWithColoredPrefix("[Server]", "正在关闭 Agent 服务...", ConsoleColor.White);
+            agentProcess.Kill(true);
+            Thread.Sleep(500); // 等待进程完全退出，释放文件锁
+        }
+
+        // ② 再清理 Worktree（Agent 已退出，目录不再被占用）
         try
         {
             var projectContext = app.Services.GetRequiredService<ProjectContext>();
@@ -407,11 +419,7 @@ var agentReady = true;
             WriteWithColoredPrefix("[Server:ERR]", $"Worktree 清理失败: {ex.Message}", ConsoleColor.DarkGray);
         }
 
-        if (agentProcess != null && !agentProcess.HasExited)
-        {
-            WriteWithColoredPrefix("[Server]", "正在关闭 Agent 服务...", ConsoleColor.White);
-            agentProcess.Kill(true);
-        }
+        // ③ 最后关闭 Web
         if (webProcess != null && !webProcess.HasExited)
         {
             WriteWithColoredPrefix("[Server]", "正在关闭 Web 开发服务器...", ConsoleColor.White);
