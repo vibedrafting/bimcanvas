@@ -121,6 +121,7 @@ export class LabelBuilder {
         // 6. Exclusion Zones - from computed/exclusions.json
         if (data.computed?.exclusions) {
             data.computed.exclusions.forEach(exclusion => {
+                if (!exclusion.visible) return;
                 if (exclusion.id) {
                     const boundary = exclusion.computedBoundary ?? exclusion.rawBoundary;
                     if (boundary && boundary.length > 0) {

@@ -191,6 +191,7 @@ export interface Zone {
   optionalTags?: ZoneTag[];
   finishRequirements: FinishRequirement[];
   schemeId?: string;
+  visible: boolean;
   subZones?: Zone[];
 }
 

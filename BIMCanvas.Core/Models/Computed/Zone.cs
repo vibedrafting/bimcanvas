@@ -71,7 +71,12 @@ namespace BIMCanvas.Core.Models.Computed
         public string? SchemeId { get; set; }
 
         /// <summary>
-        /// 7. 子分区列表。非空时，当前 Zone 为容器（不参与布置），
+        /// 7. 前端可见性：false 时前端不渲染但仍参与碰撞验证
+        /// </summary>
+        public bool Visible { get; set; }
+
+        /// <summary>
+        /// 8. 子分区列表。非空时，当前 Zone 为容器（不参与布置），
         /// 只有叶子 Zone（SubZones 为 null 或空）才接受家具放置。
         /// </summary>
         public List<Zone>? SubZones { get; set; }

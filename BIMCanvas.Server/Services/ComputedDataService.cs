@@ -245,38 +245,69 @@ namespace BIMCanvas.Server.Services
                 var extensionDistance = isSliding ? 300.0
                     : isDoubleDoor ? doorWidth / 2.0  // 双开门：每扇宽 doorWidth/2
                     : doorWidth;                       // 单开门：整个门宽
-                var exclusionName = isSliding ? "通行禁区" : "门扇禁区";
-                var reasonPrefix = isSliding ? "door_passage" : "door_swing";
+                var swingName = isSliding ? "通行禁区" : "门扇禁区";
+                var swingReasonPrefix = isSliding ? "door_passage" : "door_swing";
 
-                // 计算禁区矩形边界
+                // 计算单向禁区矩形边界
                 var offset = facingVec * extensionDistance;
                 var reverseOffset = facingVec * (-extensionDistance);
-                var vertices = new[]
+
+                // Zone A：面向方向（门扇开启侧），前端可见
+                var swingVertices = new[]
                 {
-                    line.Start + reverseOffset,
-                    line.End + reverseOffset,
+                    line.Start,
+                    line.End,
                     line.End + offset,
                     line.Start + offset
                 };
 
-                exclusionIndex++;
-                var exclusion = new Zone
+                // Zone B：反向（门前净空侧），前端不可见
+                var clearanceVertices = new[]
                 {
-                    Id = $"ez_{exclusionIndex}",
-                    Name = exclusionName,
+                    line.Start + reverseOffset,
+                    line.End + reverseOffset,
+                    line.End,
+                    line.Start
+                };
+
+                exclusionIndex++;
+
+                var swingExclusion = new Zone
+                {
+                    Id = $"ez_{exclusionIndex}a",
+                    Name = swingName,
                     RoomId = string.Empty,
                     Type = ZoneType.Exclusion,
-                    Reason = $"{reasonPrefix}:门 {opening.Id} 的双向通行区域",
-                    RawBoundary = new Polygon2D(vertices),
+                    Reason = $"{swingReasonPrefix}:门 {opening.Id} 的门扇开启区域",
+                    RawBoundary = new Polygon2D(swingVertices),
                     ComputedBoundary = null,
+                    Visible = true,
                     Tags = new List<ZoneTag>(),
                     OptionalTags = new List<ZoneTag>(),
                     FinishRequirements = new List<FinishRequirement>(),
                     SchemeId = null
                 };
 
-                result.Add(exclusion);
-                _logger.LogDebug("生成{Name}: {Id} (源门: {DoorId}), 扩展距离={Dist}mm", exclusionName, exclusion.Id, opening.Id, extensionDistance);
+                var clearanceExclusion = new Zone
+                {
+                    Id = $"ez_{exclusionIndex}b",
+                    Name = "门前净空区",
+                    RoomId = string.Empty,
+                    Type = ZoneType.Exclusion,
+                    Reason = $"door_clearance:门 {opening.Id} 的门前净空区域",
+                    RawBoundary = new Polygon2D(clearanceVertices),
+                    ComputedBoundary = null,
+                    Visible = false,
+                    Tags = new List<ZoneTag>(),
+                    OptionalTags = new List<ZoneTag>(),
+                    FinishRequirements = new List<FinishRequirement>(),
+                    SchemeId = null
+                };
+
+                result.Add(swingExclusion);
+                result.Add(clearanceExclusion);
+                _logger.LogDebug("生成{SwingName}: {SwingId} + 门前净空区: {ClearanceId} (源门: {DoorId}), 扩展距离={Dist}mm",
+                    swingName, swingExclusion.Id, clearanceExclusion.Id, opening.Id, extensionDistance);
             }
 
             return result;

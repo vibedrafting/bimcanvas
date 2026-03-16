@@ -85,6 +85,7 @@ export class ExclusionBuilder {
         const exclusions = data.computed?.exclusions;
         if (exclusions && exclusions.length > 0) {
             exclusions.forEach(exclusion => {
+                if (!exclusion.visible) return;
                 this.createExclusionMesh(exclusion);
             });
         }
