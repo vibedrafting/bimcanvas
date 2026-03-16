@@ -726,7 +726,7 @@ onUnmounted(() => {
                                 </div>
                                 <!-- 文本内容 -->
                                 <template v-if="msg.role === 'user'">{{ bubble.content }}</template>
-                                <MarkdownText v-else :content="bubble.content || ''" density="default" />
+                                <MarkdownText v-else :content="bubble.content || ''" density="chat-compact" />
                             </div>
 
                             <!-- 工具调用气泡 -->
