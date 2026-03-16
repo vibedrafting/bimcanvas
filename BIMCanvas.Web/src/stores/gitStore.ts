@@ -44,6 +44,7 @@ interface CheckoutOptions {
   commitMessage?: string;
   discardBeforeCheckout?: boolean;  // 切换前放弃更改（Server端原子操作）
   baseBranch?: string;  // 创建新分支时的基准分支（仅 createIfNotExist=true 时使用）
+  switchAfterCreate?: boolean;  // 创建新分支后是否切换（默认 true）
 }
 
 // 分支锁信息
@@ -241,7 +242,8 @@ export const useGitStore = defineStore('git', () => {
         commitBeforeCheckout: opts.commitBeforeCheckout ?? false,
         discardBeforeCheckout: opts.discardBeforeCheckout ?? false,
         commitMessage: opts.commitMessage,
-        baseBranch: opts.baseBranch
+        baseBranch: opts.baseBranch,
+        switchAfterCreate: opts.switchAfterCreate ?? true
       };
       console.log('[GitStore] checkout 请求体:', JSON.stringify(requestBody, null, 2));
 
@@ -252,26 +254,31 @@ export const useGitStore = defineStore('git', () => {
       });
 
       if (response.ok) {
-        // 切换成功后重新获取分支列表，确保状态与Server同步
+        const result = await response.json();
         hasUncommittedChanges.value = false;
         await fetchBranches();
 
-        // ⭐ 新增：通知 Server 激活主窗口
-        // 确保 ProjectContext.ActiveWindowId 指向主窗口，避免读取错误的 worktree
+        // 只创建不切换时，跳过项目重载和窗口激活
+        if (result.switched === false) {
+          console.log('[GitStore] 分支已创建但未切换:', branchName);
+          return { success: true };
+        }
+
+        // 切换成功后的正常流程
+        // 通知 Server 激活主窗口
         try {
           await fetch('http://localhost:5000/api/windows/activate', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
-              windowId: 'window-main'  // 主窗口的固定ID
+              windowId: 'window-main'
             })
           });
         } catch (e) {
           console.warn('[GitStore] 激活主窗口请求失败（非致命错误）:', e);
         }
 
-        // ✅ 重新加载项目数据，确保 Canvas 显示新分支的数据
-        // preserveView=true: 分支切换时保持当前视图位置和缩放
+        // 重新加载项目数据，确保 Canvas 显示新分支的数据
         await canvasStore.loadProject({ source: ChangeSource.GitCheckout, preserveView: true });
 
         console.log('[GitStore] 分支切换成功:', branchName);

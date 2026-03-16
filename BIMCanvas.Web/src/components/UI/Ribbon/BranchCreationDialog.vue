@@ -13,13 +13,14 @@ interface Props {
 const props = defineProps<Props>();
 
 const emit = defineEmits<{
-  (e: 'create', data: { name: string; baseBranch: string; tags: string[]; reason: string }): void;
+  (e: 'create', data: { name: string; baseBranch: string; tags: string[]; reason: string; switchAfterCreate: boolean }): void;
   (e: 'cancel'): void;
 }>();
 
 const newBranchName = ref('');
 const selectedBaseBranch = ref(props.baseBranch);
 const commitMessage = ref('');
+const switchAfterCreate = ref(true);
 
 // 默认提交信息
 const defaultMessage = computed(() => {
@@ -39,6 +40,7 @@ watch(() => props.visible, (newVal) => {
     newBranchName.value = '';
     selectedBaseBranch.value = props.baseBranch;
     commitMessage.value = defaultMessage.value;
+    switchAfterCreate.value = true;
   }
 });
 
@@ -54,7 +56,8 @@ const handleCreate = () => {
     name: newBranchName.value.trim(),
     baseBranch: selectedBaseBranch.value,
     tags: props.baseTags,
-    reason: commitMessage.value.trim() || defaultMessage.value
+    reason: commitMessage.value.trim() || defaultMessage.value,
+    switchAfterCreate: switchAfterCreate.value
   };
 
   console.log('[BranchCreationDialog] Emitting create event with data:', data);
@@ -123,6 +126,16 @@ const handleCancel = () => {
                 @keydown.enter="handleCreate"
               />
             </div>
+
+            <!-- Switch After Create -->
+            <label class="checkbox-row">
+              <input
+                v-model="switchAfterCreate"
+                type="checkbox"
+                class="glass-checkbox"
+              />
+              <span class="checkbox-label">创建后切换到新分支</span>
+            </label>
           </div>
 
           <div class="dialog-footer">
@@ -255,6 +268,26 @@ const handleCancel = () => {
     border-color: var(--accent-blue);
     box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.15);
   }
+}
+
+.checkbox-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+  user-select: none;
+}
+
+.glass-checkbox {
+  width: 16px;
+  height: 16px;
+  accent-color: var(--accent-blue);
+  cursor: pointer;
+}
+
+.checkbox-label {
+  font-size: 0.8rem;
+  color: var(--text-secondary);
 }
 
 .dialog-footer {

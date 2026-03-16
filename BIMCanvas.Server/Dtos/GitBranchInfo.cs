@@ -105,6 +105,13 @@ namespace BIMCanvas.Server.Dtos
         /// 如果不指定，默认基于当前 HEAD
         /// </summary>
         public string? BaseBranch { get; set; }
+
+        /// <summary>
+        /// 创建新分支后是否切换到该分支（默认 true）
+        /// 仅当 CreateIfNotExist=true 且分支被新建时生效
+        /// false 时只创建分支，不切换，保持当前分支不变
+        /// </summary>
+        public bool SwitchAfterCreate { get; set; } = true;
     }
 
     /// <summary>

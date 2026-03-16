@@ -75,7 +75,7 @@ const handleOpenBranchDialog = () => {
   showBranchDialog.value = true;
 };
 
-const handleCreateBranch = async (data: { name: string; baseBranch: string; tags: string[]; reason: string }) => {
+const handleCreateBranch = async (data: { name: string; baseBranch: string; tags: string[]; reason: string; switchAfterCreate?: boolean }) => {
   console.log('[RibbonToolbar] handleCreateBranch called:', data);
 
   const branchName = data.name.trim();
@@ -86,7 +86,8 @@ const handleCreateBranch = async (data: { name: string; baseBranch: string; tags
   const result = await gitStore.checkout(branchName, {
     createIfNotExist: true,
     commitMessage: data.reason,
-    baseBranch: data.baseBranch  // 传递基础分支
+    baseBranch: data.baseBranch,
+    switchAfterCreate: data.switchAfterCreate ?? true
   });
 
   if (result.success) {

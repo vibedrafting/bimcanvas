@@ -152,14 +152,30 @@ namespace BIMCanvas.Server.Controllers
                     }
                 }
 
-                _gitService.CheckoutBranch(projectPath, request.BranchName);
-                _logger.LogInformation("切换到分支: {Branch}", request.BranchName);
+                // 新建分支且用户选择不切换时，跳过 checkout
+                var switched = true;
+                if (created && !request.SwitchAfterCreate)
+                {
+                    _logger.LogInformation("新分支已创建但不切换: {Branch}", request.BranchName);
+                    switched = false;
+                }
+                else
+                {
+                    _gitService.CheckoutBranch(projectPath, request.BranchName);
+                    _logger.LogInformation("切换到分支: {Branch}", request.BranchName);
+                }
+
+                // 返回实际当前分支名
+                var actualBranch = switched
+                    ? request.BranchName
+                    : _gitService.GetCurrentBranch(projectPath);
 
                 return Ok(new
                 {
                     success = true,
-                    currentBranch = request.BranchName,
-                    created
+                    currentBranch = actualBranch,
+                    created,
+                    switched
                 });
             }
             catch (Exception ex)

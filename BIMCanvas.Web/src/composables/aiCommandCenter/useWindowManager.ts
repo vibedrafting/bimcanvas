@@ -231,7 +231,7 @@ export const useWindowManager = (options: WindowManagerOptions) => {
     pendingIsCreateBranch.value = false;
   };
 
-  const handleBranchCreated = async (data: { name: string; baseBranch: string; reason: string }) => {
+  const handleBranchCreated = async (data: { name: string; baseBranch: string; reason: string; switchAfterCreate?: boolean }) => {
     showBranchCreationDialog.value = false;
 
     const isPrimarySwitch = branchCreationSource.value === 'primarySwitch';
@@ -244,7 +244,8 @@ export const useWindowManager = (options: WindowManagerOptions) => {
       const result = await options.gitStore.checkout(data.name, {
         createIfNotExist: true,
         commitMessage: data.reason,
-        baseBranch: data.baseBranch
+        baseBranch: data.baseBranch,
+        switchAfterCreate: data.switchAfterCreate ?? true
       });
       if (result.success) {
         await options.gitStore.fetchBranches();
