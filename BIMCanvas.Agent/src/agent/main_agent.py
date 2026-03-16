@@ -332,10 +332,14 @@ class MainAgent:
         """Disconnect from the agent."""
         async with self._lock:
             if self._client and self._connected:
-                await self._client.disconnect()
-                self._connected = False
-                self._client = None
-                logger.info(f"MainAgent disconnected for project: {self.project_path}")
+                try:
+                    await self._client.disconnect()
+                except Exception as e:
+                    logger.warning(f"SDK disconnect error (safe to ignore): {e}")
+                finally:
+                    self._connected = False
+                    self._client = None
+                    logger.info(f"MainAgent disconnected for project: {self.project_path}")
 
     async def set_model(self, model: str) -> bool:
         """

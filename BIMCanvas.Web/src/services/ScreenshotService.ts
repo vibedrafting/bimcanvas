@@ -175,8 +175,7 @@ export class ScreenshotService {
    */
   startListening(): void {
     if (this.eventSource) {
-      console.warn('[ScreenshotService] Already listening')
-      return
+      return  // 单例连接已存在，无需重建
     }
 
     this.eventSource = new EventSource(`${this.serverUrl}/api/screenshot/events`)

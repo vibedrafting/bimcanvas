@@ -505,8 +505,8 @@ onMounted(() => {
 onUnmounted(() => {
   window.removeEventListener('click', handleGlobalClick);
   chatScrollRef.value?.removeEventListener('wheel', handleTableWheel);
-  stopListening();
-  stopQuestionListening();
+  // SSE 连接由 singleton 服务管理，不随组件卸载关闭
+  // stopListening() / stopQuestionListening() 已移除
   cleanupHealthCheck();
 });
 </script>

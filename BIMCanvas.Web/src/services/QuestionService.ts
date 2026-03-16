@@ -24,8 +24,7 @@ export class QuestionService {
    */
   startListening(callback: (event: QuestionRequestEvent) => void): void {
     if (this.eventSource) {
-      console.warn('[QuestionService] Already listening')
-      return
+      return  // 单例连接已存在，无需重建
     }
     this.onQuestionRequest = callback
     this.eventSource = new EventSource(`${this.serverUrl}/api/question/events`)

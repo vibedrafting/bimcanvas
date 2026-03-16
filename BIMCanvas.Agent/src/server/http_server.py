@@ -74,8 +74,17 @@ async def get_agent(
                 print(f"{prefix} [Server] 旧路径: {agent.working_directory}")
                 print(f"{prefix} [Server] 新路径: {working_dir}")
                 print(f"{prefix} [Server] ===================================")
-                await agent.disconnect()
-                del agents[window_id]
+                del agents[window_id]  # 先从缓存中移除，避免后续请求复用
+                try:
+                    await agent.disconnect()
+                except Exception as e:
+                    logger.warning(f"Error disconnecting agent during project switch: {e}")
+                    # 强制清理：即使 SDK disconnect 失败，也确保状态重置
+                    try:
+                        agent._connected = False
+                        agent._client = None
+                    except Exception:
+                        pass
                 logger.info(f"Project switched for window {window_id}, recreating agent")
             else:
                 return agent
