@@ -225,6 +225,7 @@ class MainAgent:
             env=custom_env,                        # Agent SDK 独立环境变量
             effort=sdk_effort,                     # SDK 原生（0.1.36+）
             thinking=sdk_thinking,                 # SDK 原生（0.1.36+）
+            max_thinking_tokens=settings.max_thinking_tokens,  # thinking 预算上限（None=不限制）
             mcp_servers={"canvas": canvas_mcp},    # 业务工具
             setting_sources=None,                  # ✅ 安全：不加载任何文件系统配置（CLAUDE.md 零污染）
             plugins=plugins,                       # ✅ 通过 Plugin 机制加载 Skills

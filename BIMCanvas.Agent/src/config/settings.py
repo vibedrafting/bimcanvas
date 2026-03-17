@@ -29,9 +29,9 @@ class Settings:
     anthropic_api_key: str
     base_url: str
     model_name: str
-    max_tokens: int
-    default_effort: str       # "low"/"medium"/"high"/"max", 默认 "medium"
-    default_thinking: str     # "off"/"adaptive", 默认 "off"
+    default_effort: str              # "low"/"medium"/"high"/"max", 默认 "medium"
+    default_thinking: str            # "off"/"adaptive", 默认 "off"
+    max_thinking_tokens: int | None  # thinking token 预算上限，None/-1/空 = 不限制
     tools: list[str]
     server_host: str
     server_port: int
@@ -48,9 +48,10 @@ class Settings:
         api_key = config.get('apiKey', '')
         base_url = config.get('baseUrl', '')
         model = config.get('model', 'claude-sonnet-4-20250514')
-        max_tokens = config.get('maxTokens', 4096)
         default_effort = config.get('defaultEffort', 'medium')
         default_thinking = config.get('defaultThinking', 'off')
+        raw_thinking_tokens = config.get('maxThinkingTokens', None)
+        max_thinking_tokens = None if raw_thinking_tokens in (None, '', -1) else int(raw_thinking_tokens)
         tools = config.get('tools', ['Read', 'Glob', 'Grep', 'Task'])
         host = server.get('host', '127.0.0.1')
         port = server.get('port', 8765)
@@ -70,7 +71,9 @@ class Settings:
         else:
             logger.info(f"使用配置模型: {model}")
 
-        max_tokens = int(os.getenv('MAX_TOKENS', str(max_tokens)))
+        env_thinking_tokens = os.getenv('MAX_THINKING_TOKENS')
+        if env_thinking_tokens is not None:
+            max_thinking_tokens = None if env_thinking_tokens in ('', '-1') else int(env_thinking_tokens)
         host = os.getenv('SERVER_HOST', host)
         port = int(os.getenv('SERVER_PORT', str(port)))
         project_path = os.getenv('DEFAULT_PROJECT_PATH', '')
@@ -79,7 +82,7 @@ class Settings:
             anthropic_api_key=api_key,
             base_url=base_url,
             model_name=model,
-            max_tokens=max_tokens,
+            max_thinking_tokens=max_thinking_tokens,
             default_effort=default_effort,
             default_thinking=default_thinking,
             tools=tools,
