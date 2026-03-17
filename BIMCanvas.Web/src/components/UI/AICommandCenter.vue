@@ -39,7 +39,7 @@ const props = defineProps<{
   panelReady?: boolean;
 }>();
 
-const AGENT_API_BASE = 'http://127.0.0.1:8765';
+const AGENT_API_BASE = 'http://127.0.0.1:8865';
 const SERVER_API_BASE = 'http://localhost:5000';
 
 const { panelWidth, windowTabsRef, carouselTrackRef, startResize, handleTabsWheel, handleWheel } = usePanelUI();

@@ -15,9 +15,9 @@ public class ServerConfig
 public class ServerSection
 {
     /// <summary>
-    /// Agent 服务端口（默认 8765）
+    /// Agent 服务端口（默认 8865）
     /// </summary>
-    public int Port { get; set; } = 8765;
+    public int Port { get; set; } = 8865;
 }
 
 /// <summary>

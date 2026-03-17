@@ -25,7 +25,7 @@ export class ScreenshotService {
   private serverUrl: string
   private eventSource: EventSource | null = null
 
-  constructor(serverUrl: string = 'http://localhost:8765') {
+  constructor(serverUrl: string = 'http://localhost:8865') {
     this.serverUrl = serverUrl
   }
 

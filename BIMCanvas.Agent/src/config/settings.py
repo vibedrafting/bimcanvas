@@ -54,7 +54,7 @@ class Settings:
         max_thinking_tokens = None if raw_thinking_tokens in (None, '', -1) else int(raw_thinking_tokens)
         tools = config.get('tools', ['Read', 'Glob', 'Grep', 'Task'])
         host = server.get('host', '127.0.0.1')
-        port = server.get('port', 8765)
+        port = server.get('port', 8865)
 
         # 环境变量覆盖
         # API Key: AGENT_SDK_API_KEY > config.json（与 Claude Code 隔离，不使用 ANTHROPIC_API_KEY）

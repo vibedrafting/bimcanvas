@@ -15,7 +15,7 @@ export class QuestionService {
   private eventSource: EventSource | null = null
   private onQuestionRequest: ((event: QuestionRequestEvent) => void) | null = null
 
-  constructor(serverUrl: string = 'http://localhost:8765') {
+  constructor(serverUrl: string = 'http://localhost:8865') {
     this.serverUrl = serverUrl
   }
 

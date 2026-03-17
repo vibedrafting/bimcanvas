@@ -126,7 +126,7 @@ def main() -> None:
         "--port",
         type=int,
         default=None,
-        help="Server port (default: 8765)"
+        help="Server port (default: 8865)"
     )
 
     parser.add_argument(
