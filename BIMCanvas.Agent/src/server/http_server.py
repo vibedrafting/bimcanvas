@@ -879,6 +879,22 @@ def run_server(host: str = None, port: int = None) -> None:
     host = host or settings.server_host
     port = port or settings.server_port
 
+    # 端口可用性检查（最多重试 3 次，每次等 2 秒）
+    import socket
+    import time
+    for attempt in range(3):
+        try:
+            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+                s.bind((host, port))
+            break
+        except OSError:
+            if attempt < 2:
+                logger.warning(f"端口 {port} 暂不可用，2秒后重试 ({attempt + 1}/3)...")
+                time.sleep(2)
+            else:
+                logger.error(f"端口 {port} 持续被占用，Agent 服务无法启动")
+                return
+
     app = create_app()
 
     logger.info(f"Agent 服务已启动: http://{host}:{port}")
