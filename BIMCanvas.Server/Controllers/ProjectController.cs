@@ -326,6 +326,9 @@ namespace BIMCanvas.Server.Controllers
                 // 记录最近打开
                 _recentProjectsService.RecordOpen(Path.GetFileNameWithoutExtension(file.FileName), projectPath);
 
+                // 初始化对话日志
+                BIMCanvas.Server.Logging.ConversationLogger.Initialize(projectPath);
+
                 // 清理临时文件
                 try { System.IO.File.Delete(tempFilePath); } catch { }
 
@@ -396,6 +399,9 @@ namespace BIMCanvas.Server.Controllers
                     _projectService.EnsureProjectAssets(projectPath);
 
                     _projectContext.SetProject(projectPath, null);
+
+                    // 初始化对话日志
+                    BIMCanvas.Server.Logging.ConversationLogger.Initialize(projectPath);
                 }
                 else // Overwrite
                 {
@@ -412,6 +418,9 @@ namespace BIMCanvas.Server.Controllers
                     // 覆盖加载
                     projectPath = _projectService.LoadProject(tempFilePath, overwrite: true);
                     _projectContext.SetProject(projectPath, tempFilePath);
+
+                    // 初始化对话日志
+                    BIMCanvas.Server.Logging.ConversationLogger.Initialize(projectPath);
 
                     // 清理临时文件
                     try { System.IO.File.Delete(tempFilePath); } catch { }
