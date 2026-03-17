@@ -45,15 +45,17 @@ Read 策略参考文件路径（见系统注入的"策略参考文件"路径）�
 | shower / toilet / washing | 卫生间 | bathroom.md |
 | rest / tvMedia / dining / circulation | 客餐厅 | livingroom.md |
 
-**评估分区需求**（加载 generate-zoning）：
+**【必须】评估分区需求**：
 
-结合空间画像，判断空间的功能需求能否在单一空间内被同时满足。常见触发信号：
+以下信号命中任一时，**加载 generate-zoning Skill**，由 Skill 内部的预布置验证决定是否产出 subZones：
 - 异形空间：rawBoundary 顶点 > 4，存在可独立围合的子空间
 - 多功能组合：多个功能标签 + 面积足以分区
 - 功能间空间冲突：主要家具在同一空间内产生通道不足等矛盾
 
-→ 需要分区：加载 generate-zoning → 产出 subZones → 调用 `get_zone_boundaries` 获取子 zone 边界语义（含 passage 段）→ 进入策略阶段（房间 Skill 已在理解阶段加载，覆盖所有子 zone）
-→ 无需分区：直接进入策略阶段
+→ Skill 产出 subZones：调用 `get_zone_boundaries` 获取子 zone 边界语义（含 passage 段）→ 进入策略阶段（房间 Skill 已在理解阶段加载，覆盖所有子 zone）
+→ Skill 判定无需分区：直接进入策略阶段
+
+> ⚠ 反模式：信号命中后，用面积直觉（"延伸区太小"）跳过 Skill 加载。面积判断属于 Skill 内部的预布置验证——你的职责是触发 Skill，不是替代 Skill。
 
 ---
 
