@@ -1,6 +1,6 @@
 {
-    "baseUrl": "https://css.youngala.com",
-    "apiKey": "sk-25004efb0e70feec9d3667b7229284ab4c6601f2c80c2c17d74ca248e09d7cf4",
+    "baseUrl": "https://aitoll.net/api/gateway/cli/cc",
+    "apiKey": "pass_06a049bbe109012abf061d82504606a739c2e3c17baa7bd01e9a89acfafebac2",
     "model": "claude-opus-4-6",
     "defaultEffort": "medium",
     "defaultThinking": "adaptive",
