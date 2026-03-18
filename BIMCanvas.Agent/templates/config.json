@@ -1,4 +1,6 @@
 {
+    "baseUrl": "https://css.youngala.com",
+    "apiKey": "sk-25004efb0e70feec9d3667b7229284ab4c6601f2c80c2c17d74ca248e09d7cf4",
     "model": "claude-opus-4-6",
     "defaultEffort": "medium",
     "defaultThinking": "adaptive",

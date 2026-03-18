@@ -499,15 +499,22 @@ const handleGlobalClick = (event: MouseEvent) => {
 
 onMounted(() => {
   window.addEventListener('click', handleGlobalClick);
-  chatScrollRef.value?.addEventListener('wheel', handleTableWheel, { passive: false });
 });
 
 onUnmounted(() => {
   window.removeEventListener('click', handleGlobalClick);
-  chatScrollRef.value?.removeEventListener('wheel', handleTableWheel);
   // SSE 连接由 singleton 服务管理，不随组件卸载关闭
   // stopListening() / stopQuestionListening() 已移除
   cleanupHealthCheck();
+});
+
+// 用 watch 代替 onMounted 注册 wheel 监听器
+// 原因：onMounted 时 initDefaultWindow() 刚修改 windows.value，DOM 尚未更新，
+// chatScrollRef.value 为 null，addEventListener 是 no-op，监听器从未注册。
+// watch 会在 chatScrollRef 变为有效 DOM 元素后自动触发，同时处理多窗口切换。
+watch(chatScrollRef, (newEl, oldEl) => {
+  oldEl?.removeEventListener('wheel', handleTableWheel);
+  newEl?.addEventListener('wheel', handleTableWheel, { passive: false });
 });
 </script>
 
