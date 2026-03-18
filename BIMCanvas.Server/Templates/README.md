@@ -22,9 +22,6 @@
 │   ├── room_zones.json             房间分区（从房间派生，分区方案的依据）
 │   └── exclusions.json             禁区（门扇开启区等）
 │
-├── knowledge/                     【只读层】AI 设计知识库
-│   └── design_principles.md        跨房间设计原则（通道标准、家具依赖等）
-│
 ├── context/                        设计上下文
 │   └── requirements.md             [读写] 用户设计需求
 │
@@ -111,7 +108,6 @@
 | 房间区域 | `computed/room_zones.json` | 读 |
 | 门窗数据 | `baseline/openings.json` | 读 |
 | 禁区信息 | `computed/exclusions.json` | 读 |
-| 设计原则 | `knowledge/design_principles.md` | 读 |
 | 家具库 | `modules/module_library.json` | 读 |
 | **布置结果** | `schemes/{zoneId}/modules.json` | **写** |
 

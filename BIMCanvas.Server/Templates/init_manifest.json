@@ -19,8 +19,8 @@
       "name": "knowledge",
       "target": "knowledge",
       "type": "directory",
-      "enabled": true,
-      "description": "AI 知识库（design_principles.md）"
+      "enabled": false,
+      "description": "AI 知识库（已迁移到 Agent references）"
     },
     {
       "name": "modules",
