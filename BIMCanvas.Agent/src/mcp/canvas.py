@@ -29,6 +29,19 @@ def _normalize_viewport(viewport: dict[str, Any]) -> tuple[dict[str, Any] | None
     if not isinstance(viewport, dict):
         return None, "viewport 必须是对象"
 
+    # 新格式：id 字段 — 前端依次在 baseline.rooms → computed.roomZones → activeScheme.zones 中查找
+    target_id = str(viewport.get("id") or "").strip()
+    if target_id:
+        normalized: dict[str, Any] = {"id": target_id}
+        bounds = viewport.get("bounds")
+        if isinstance(bounds, dict):
+            required_keys = {"minX", "minY", "maxX", "maxY"}
+            if not required_keys.issubset(bounds.keys()):
+                return None, "viewport.bounds 需要 minX/minY/maxX/maxY"
+            normalized["bounds"] = bounds
+        return normalized, None
+
+    # 旧格式：mode + roomId/zoneId/bounds（向后兼容）
     mode = str(viewport.get("mode") or "full").strip().lower()
     if mode not in {"full", "room", "zone", "bounds"}:
         return None, "viewport.mode 必须是 full/room/zone/bounds"
@@ -57,6 +70,10 @@ def _normalize_viewport(viewport: dict[str, Any]) -> tuple[dict[str, Any] | None
 
 
 def _build_shot_label(viewport: dict[str, Any], index: int) -> str:
+    # 新格式
+    if viewport.get("id"):
+        return f"id_{viewport['id']}"
+    # 旧格式
     mode = viewport.get("mode", "full")
     if mode == "room":
         return f"room_{viewport.get('roomId', index)}"
@@ -247,17 +264,15 @@ async def ai_job_complete(args: dict[str, Any]) -> dict[str, Any]:
             },
             "viewport": {
                 "type": "object",
-                "description": "单张截图范围",
+                "description": "单张截图范围。推荐用 id 字段（如 rz_1/r_1/dz_1），前端自动查找；留空则全屏。也兼容旧格式 mode+roomId/zoneId。",
                 "properties": {
-                    "mode": {
+                    "id": {
                         "type": "string",
-                        "enum": ["full", "room", "zone", "bounds"],
-                        "description": "full/room/zone/bounds"
+                        "description": "目标 ID（推荐）：传入任意有效 ID（如 rz_1、r_1、dz_1），前端依次在物理房间、计算区域、设计分区中查找。留空则全屏截图。"
                     },
-                    "roomId": {"type": "string"},
-                    "zoneId": {"type": "string"},
                     "bounds": {
                         "type": "object",
+                        "description": "精确坐标范围（优先级最高，可与 id 同时提供覆盖自动计算）",
                         "properties": {
                             "minX": {"type": "number"},
                             "minY": {"type": "number"},
@@ -265,7 +280,14 @@ async def ai_job_complete(args: dict[str, Any]) -> dict[str, Any]:
                             "maxY": {"type": "number"}
                         },
                         "required": ["minX", "minY", "maxX", "maxY"]
-                    }
+                    },
+                    "mode": {
+                        "type": "string",
+                        "enum": ["full", "room", "zone", "bounds"],
+                        "description": "旧格式兼容，推荐改用 id 字段"
+                    },
+                    "roomId": {"type": "string", "description": "旧格式兼容，配合 mode=room 使用"},
+                    "zoneId": {"type": "string", "description": "旧格式兼容，配合 mode=zone 使用"}
                 }
             },
             "shots": {
@@ -276,13 +298,9 @@ async def ai_job_complete(args: dict[str, Any]) -> dict[str, Any]:
                     "properties": {
                         "viewport": {
                             "type": "object",
+                            "description": "截图范围，同单张截图的 viewport",
                             "properties": {
-                                "mode": {
-                                    "type": "string",
-                                    "enum": ["full", "room", "zone", "bounds"]
-                                },
-                                "roomId": {"type": "string"},
-                                "zoneId": {"type": "string"},
+                                "id": {"type": "string", "description": "目标 ID（推荐）"},
                                 "bounds": {
                                     "type": "object",
                                     "properties": {
@@ -292,7 +310,10 @@ async def ai_job_complete(args: dict[str, Any]) -> dict[str, Any]:
                                         "maxY": {"type": "number"}
                                     },
                                     "required": ["minX", "minY", "maxX", "maxY"]
-                                }
+                                },
+                                "mode": {"type": "string", "enum": ["full", "room", "zone", "bounds"]},
+                                "roomId": {"type": "string"},
+                                "zoneId": {"type": "string"}
                             }
                         }
                     },

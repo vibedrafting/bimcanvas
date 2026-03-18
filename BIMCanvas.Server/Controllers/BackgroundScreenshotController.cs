@@ -48,20 +48,25 @@ namespace BIMCanvas.Server.Controllers
                 return BadRequest(new { message = "scale 必须在 1-4 之间" });
             }
 
-            var viewportMode = request.Viewport?.Mode?.ToLowerInvariant();
-            if (viewportMode == "bounds" && request.Viewport?.Bounds == null)
+            // 新格式（id 字段）：前端负责查找，后端直接透传，无需验证 mode/roomId/zoneId
+            if (string.IsNullOrWhiteSpace(request.Viewport?.Id))
             {
-                return BadRequest(new { message = "viewport.mode=bounds 时必须提供 bounds" });
-            }
+                // 旧格式：继续校验 mode + roomId/zoneId
+                var viewportMode = request.Viewport?.Mode?.ToLowerInvariant();
+                if (viewportMode == "bounds" && request.Viewport?.Bounds == null)
+                {
+                    return BadRequest(new { message = "viewport.mode=bounds 时必须提供 bounds" });
+                }
 
-            if (viewportMode == "room" && string.IsNullOrWhiteSpace(request.Viewport?.RoomId))
-            {
-                return BadRequest(new { message = "viewport.mode=room 时必须提供 roomId" });
-            }
+                if (viewportMode == "room" && string.IsNullOrWhiteSpace(request.Viewport?.RoomId))
+                {
+                    return BadRequest(new { message = "viewport.mode=room 时必须提供 roomId" });
+                }
 
-            if (viewportMode == "zone" && string.IsNullOrWhiteSpace(request.Viewport?.ZoneId))
-            {
-                return BadRequest(new { message = "viewport.mode=zone 时必须提供 zoneId" });
+                if (viewportMode == "zone" && string.IsNullOrWhiteSpace(request.Viewport?.ZoneId))
+                {
+                    return BadRequest(new { message = "viewport.mode=zone 时必须提供 zoneId" });
+                }
             }
 
             try
@@ -108,18 +113,23 @@ namespace BIMCanvas.Server.Controllers
             for (var i = 0; i < request.Items.Count; i++)
             {
                 var item = request.Items[i];
-                var viewportMode = item.Viewport?.Mode?.ToLowerInvariant();
-                if (viewportMode == "bounds" && item.Viewport?.Bounds == null)
+                // 新格式（id 字段）：前端负责查找，直接透传，无需校验 mode/roomId/zoneId
+                if (string.IsNullOrWhiteSpace(item.Viewport?.Id))
                 {
-                    return BadRequest(new { message = $"items[{i}].viewport.mode=bounds 时必须提供 bounds" });
-                }
-                if (viewportMode == "room" && string.IsNullOrWhiteSpace(item.Viewport?.RoomId))
-                {
-                    return BadRequest(new { message = $"items[{i}].viewport.mode=room 时必须提供 roomId" });
-                }
-                if (viewportMode == "zone" && string.IsNullOrWhiteSpace(item.Viewport?.ZoneId))
-                {
-                    return BadRequest(new { message = $"items[{i}].viewport.mode=zone 时必须提供 zoneId" });
+                    // 旧格式：继续校验 mode + roomId/zoneId
+                    var viewportMode = item.Viewport?.Mode?.ToLowerInvariant();
+                    if (viewportMode == "bounds" && item.Viewport?.Bounds == null)
+                    {
+                        return BadRequest(new { message = $"items[{i}].viewport.mode=bounds 时必须提供 bounds" });
+                    }
+                    if (viewportMode == "room" && string.IsNullOrWhiteSpace(item.Viewport?.RoomId))
+                    {
+                        return BadRequest(new { message = $"items[{i}].viewport.mode=room 时必须提供 roomId" });
+                    }
+                    if (viewportMode == "zone" && string.IsNullOrWhiteSpace(item.Viewport?.ZoneId))
+                    {
+                        return BadRequest(new { message = $"items[{i}].viewport.mode=zone 时必须提供 zoneId" });
+                    }
                 }
             }
 

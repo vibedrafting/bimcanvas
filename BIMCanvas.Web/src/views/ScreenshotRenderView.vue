@@ -20,7 +20,10 @@ interface Bounds2D {
 }
 
 interface ViewportConfig {
-  mode: ViewportMode;
+  // 新格式（推荐）：传入任意有效 ID，前端依次在三个数据集合中查找
+  id?: string;
+  // 旧格式（向后兼容）
+  mode?: ViewportMode;
   roomId?: string;
   zoneId?: string;
   bounds?: Bounds2D;
@@ -389,6 +392,43 @@ const needsRebuild = (current: BuildOptions, required: BuildOptions) => (
 );
 
 const applyViewport = (sceneService: NonNullable<ReturnType<typeof getThreeSceneService>>, projectData: ProjectData, viewport?: ViewportConfig): Bounds2D | null => {
+  // 新格式：id 字段 — 依次在三个数据集合中查找，不依赖前缀约定
+  if (viewport?.id) {
+    const targetId = viewport.id.toLowerCase();
+
+    // 1. 先在 baseline.rooms 中查找（物理房间，id=r_*）
+    const room = projectData.baseline?.rooms?.find(r => r.id.toLowerCase() === targetId);
+    if (room) {
+      const bounds = computeRoomBounds(room);
+      const padding = computePadding(bounds, 'room');
+      const targetBounds = expandBounds(bounds, padding);
+      sceneService.fitToBounds(targetBounds);
+      return targetBounds;
+    }
+
+    // 2. 再在 computed.roomZones 中查找（计算区域，id=rz_*）
+    const roomZone = (projectData as any).computed?.roomZones?.find((r: any) => r.id.toLowerCase() === targetId);
+    if (roomZone) {
+      const bounds = computeZoneBounds(roomZone as Zone);
+      const padding = computePadding(bounds, 'zone');
+      const targetBounds = expandBounds(bounds, padding);
+      sceneService.fitToBounds(targetBounds);
+      return targetBounds;
+    }
+
+    // 3. 最后在 activeScheme.zones 中查找（设计分区，id=dz_*）
+    const zone = projectData.activeScheme?.zones?.find(z => z.id.toLowerCase() === targetId);
+    if (zone) {
+      const bounds = computeZoneBounds(zone);
+      const padding = computePadding(bounds, 'zone');
+      const targetBounds = expandBounds(bounds, padding);
+      sceneService.fitToBounds(targetBounds);
+      return targetBounds;
+    }
+
+    throw new Error(`ID not found in any data source: ${viewport.id}`);
+  }
+
   const mode = viewport?.mode ?? 'full';
 
   if (mode === 'full') {

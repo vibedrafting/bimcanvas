@@ -35,6 +35,14 @@ namespace BIMCanvas.Server.Dtos
 
     public class ViewportConfig
     {
+        /// <summary>
+        /// 新格式（推荐）：传入任意有效 ID（如 rz_1/r_1/dz_1），
+        /// 前端依次在 baseline.rooms → computed.roomZones → activeScheme.zones 中查找。
+        /// 留空且 Mode=full 时全屏截图。
+        /// </summary>
+        public string? Id { get; set; }
+
+        // 旧格式（向后兼容）
         public string Mode { get; set; } = "full";
 
         public string? RoomId { get; set; }

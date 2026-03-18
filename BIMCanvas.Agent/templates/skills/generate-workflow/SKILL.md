@@ -18,7 +18,7 @@ description: |
 
 > WHY：纯机械操作，不占认知资源。先建立感官输入，后续阶段才有决策素材。
 
-1. **截图**（单独调用，等收到后再继续）— `mcp__canvas__request_background_screenshot`，用 zone 模式聚焦目标分区或 full 模式看全屋。截图工具直接返回图片；若看不到内容，用 Read 查看返回的文件路径
+1. **截图**（单独调用，等收到后再继续）— `mcp__canvas__request_background_screenshot`，用 `viewport: {"id": "rz_1"}` 聚焦目标区域，或省略 viewport 看全屋。截图工具直接返回图片；若看不到内容，用 Read 查看返回的文件路径
 2. **并行读取**：knowledge/design_principles.md + modules/module_library.json + schemes/zones.json + computed/exclusions.json
 3. **边界语义**：调用 `get_zone_boundaries` — 获取每条边的类型（wall/passage/door/window）和坐标，直接用于墙面分析，不再从 rawBoundary + openings 手动推断
 
