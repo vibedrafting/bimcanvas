@@ -1,7 +1,7 @@
 # BIMCanvas 系统架构总设计
 
 > ⚠️ **注意**：知识库目录结构已在工作流重构（T1-T3）中更新：
-> `knowledge/placement_guide.md` → `knowledge/design_principles.md` + 各房间 Skill（按需加载）
+> `knowledge/placement_guide.md` → `references/design_principles.md`（generate-workflow 下）+ 各房间 Skill（按需加载）
 
 > 版本：v3.0
 > 更新日期：2026-01-13

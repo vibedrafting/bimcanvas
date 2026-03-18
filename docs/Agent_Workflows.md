@@ -1,7 +1,7 @@
 # BIMCanvas Agent 运行时工作流
 
 > ⚠️ **注意**：本文档部分内容已在工作流重构（T1-T3）中更新。以下引用已过时：
-> - `knowledge/placement_guide.md` → 已替换为 `knowledge/design_principles.md` + 各房间 Skill（generate-bedroom/bathroom/livingroom）
+> - `knowledge/placement_guide.md` → 已替换为 `references/design_principles.md`（generate-workflow 下）+ 各房间 Skill（generate-bedroom/bathroom/livingroom）
 > - "单区布置专家" → 现为"单房间设计专家"
 > - "分阶段 A/B 放置" → 现为五阶段流程（感知→理解→策略→执行→审查→汇报）
 > - SubAgent 已启用：layout-agent 作为单房间设计专家由 MainAgent 派发任务
@@ -340,7 +340,7 @@ validate_layout 错误代码及返回格式详见 [§7.2](#72-validate_layout)�
 | # | 必读文件 | 用途 | 并行规则 |
 |---|----------|------|----------|
 | 1 | 前置截图（`request_background_screenshot`） | 理解空间形态、门窗位置 | **单独调用** |
-| 2 | `knowledge/design_principles.md` + 对应房间 Skill | 跨房间设计原则 + 房间专属布置规则 | 2-7 可并行 |
+| 2 | `references/design_principles.md`（generate-workflow 下）+ 对应房间 Skill | 跨房间设计原则 + 房间专属布置规则 | 2-7 可并行 |
 | 3 | `modules/README.md` | 模块库架构（双层：契约层+意图层） | 2-7 可并行 |
 | 4 | `modules/module_library.json` | 家具尺寸 + 放置规则 + 模块间关系（尺寸禁止编造） | 2-7 可并行 |
 | 5 | `computed/room_zones.json` | 设计区域边界 | 2-7 可并行 |

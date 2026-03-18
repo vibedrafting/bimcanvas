@@ -1,6 +1,6 @@
 # BIMCanvas 并行设计模式
 
-> ⚠️ **注意**：知识库路径已更新：`knowledge/placement_guide.md` → `knowledge/design_principles.md`
+> ⚠️ **注意**：知识库路径已更新：`knowledge/placement_guide.md` → `references/design_principles.md`（generate-workflow 下）
 
 > **版本**：v1.3 | **更新日期**：2026-01-16
 > **目的**：详细描述 BIMCanvas 的并行设计架构哲学、核心场景、Git 翻译层及 Worktree 实现

@@ -8,7 +8,7 @@
 > - 主控 Agent 定义 → `BIMCanvas.Agent/templates/BIMCANVAS.md`
 > - layout-agent 定义 → `BIMCanvas.Agent/templates/agents/layout-agent.md`（角色：单房间设计专家）
 > - 工作流 → `skills/generate-workflow/SKILL.md`（五阶段：感知→理解→策略→执行→审查→汇报）
-> - 知识库 → `knowledge/design_principles.md` + 各房间 Skill（替代原 `placement_guide.md`）
+> - 知识库 → `references/design_principles.md`（generate-workflow 下）+ 各房间 Skill（替代原 `placement_guide.md`）
 > - 提示词设计哲学 → `docs/Agent_Prompt_Design_Philosophy.md`
 
 ---
