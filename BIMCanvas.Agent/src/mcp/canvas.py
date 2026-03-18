@@ -260,7 +260,7 @@ async def ai_job_complete(args: dict[str, Any]) -> dict[str, Any]:
         "properties": {
             "projectPath": {
                 "type": "string",
-                "description": "项目根目录（必须是解压后的项目目录，通常使用当前工作目录 cwd）"
+                "description": "BIMCanvas 项目目录（包含 project.json 的目录）。必须使用系统提示词中的「项目路径」或「工作目录」，不要使用 skill/plugin 目录。"
             },
             "viewport": {
                 "type": "object",
