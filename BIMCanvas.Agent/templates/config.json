@@ -4,7 +4,7 @@
     "model": "claude-opus-4-6",
     "defaultEffort": "medium",
     "defaultThinking": "adaptive",
-    "maxThinkingTokens": -1,
+    "maxThinkingTokens": 16000,
     "permissions": {
         "allow": ["Read", "Glob", "Grep", "Task", "AskUserQuestion"],
         "deny": []
