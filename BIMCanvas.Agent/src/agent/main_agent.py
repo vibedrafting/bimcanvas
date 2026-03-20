@@ -309,7 +309,7 @@ class MainAgent:
             self._agent_logger._print(f"[MainAgent] Base URL: {base_url_display}")
             self._agent_logger._print(f"[MainAgent] effort: {effort_display}")
             self._agent_logger._print(f"[MainAgent] thinking: {thinking_display}")
-            thinking_tokens_display = settings.max_thinking_tokens if settings.max_thinking_tokens else "无限制"
+            thinking_tokens_display = options.max_thinking_tokens if options.max_thinking_tokens else "无限制"
             self._agent_logger._print(f"[MainAgent] thinking token 预算: {thinking_tokens_display}")
             self._agent_logger._print(f"[MainAgent] 允许工具: {tools_display}")
             self._agent_logger._print(f"[MainAgent] 禁止工具: {deny_display}")
