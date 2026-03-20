@@ -814,6 +814,69 @@ async def get_zone_boundaries(args: dict[str, Any]) -> dict[str, Any]:
         }
 
 
+@tool(
+    "save_semantic_plan",
+    "保存语义方案版本。在规划阶段的每个子阶段（2.1/2.2/2.3）完成后调用，提交当前版本的语义方案。",
+    {
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "type": "object",
+        "properties": {
+            "zoneId": {
+                "type": "string",
+                "description": "目标 Zone ID，如 'rz_3'"
+            },
+            "version": {
+                "type": "string",
+                "enum": ["v0.1", "v0.2", "v0.3"],
+                "description": "语义方案版本：v0.1=空间骨架, v0.2=主体框架, v0.3=完整方案"
+            },
+            "content": {
+                "type": "string",
+                "description": "语义方案文本内容（markdown 格式）"
+            }
+        },
+        "required": ["zoneId", "version", "content"],
+        "additionalProperties": False
+    }
+)
+async def save_semantic_plan(args: dict[str, Any]) -> dict[str, Any]:
+    """保存语义方案版本"""
+    zone_id = args["zoneId"]
+    version = args["version"]
+    content = args["content"]
+
+    body = {
+        "zoneId": zone_id,
+        "version": version,
+        "content": content
+    }
+
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.post(
+                f"{SERVER_URL}/api/semantic-plan/save",
+                json=body
+            ) as resp:
+                if resp.status == 200:
+                    return {
+                        "content": [{
+                            "type": "text",
+                            "text": f"语义方案 {version} 已保存。继续下一阶段。"
+                        }]
+                    }
+                else:
+                    error_text = await resp.text()
+                    return {
+                        "content": [{"type": "text", "text": f"保存失败: {error_text}"}],
+                        "is_error": True
+                    }
+    except aiohttp.ClientError as e:
+        return {
+            "content": [{"type": "text", "text": f"无法连接 Server: {str(e)}"}],
+            "is_error": True
+        }
+
+
 # 创建 Canvas MCP Server
 canvas_mcp = create_sdk_mcp_server(
     name="canvas",
@@ -824,6 +887,7 @@ canvas_mcp = create_sdk_mcp_server(
         request_background_screenshot,
         validate_layout,
         get_zone_boundaries,
+        save_semantic_plan,  # 新增：语义方案提交（turn 边界）
     ],
 )
 
@@ -834,4 +898,5 @@ CANVAS_ALLOWED_TOOLS = [
     "mcp__canvas__request_background_screenshot",
     "mcp__canvas__validate_layout",
     "mcp__canvas__get_zone_boundaries",
+    "mcp__canvas__save_semantic_plan",
 ]

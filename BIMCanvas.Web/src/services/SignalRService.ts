@@ -57,6 +57,11 @@ export class SignalRService {
                 console.error('[SignalR] Failed to parse BoundaryDebugData');
             }
         });
+
+        // 语义方案版本更新
+        this.connection.on("SemanticPlanUpdated", (data: any) => {
+            window.dispatchEvent(new CustomEvent('bimcanvas:semantic-plan-updated', { detail: data }));
+        });
     }
 
     private setupLifecycleHooks() {
