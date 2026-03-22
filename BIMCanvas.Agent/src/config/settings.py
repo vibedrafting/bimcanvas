@@ -19,7 +19,9 @@ class Settings:
     """
     Application settings
 
-    加载优先级：环境变量 > config.json > 默认值
+    配置来源：
+    - liteLlmEnabled=false: base_url / api_key 来自 config.json
+    - liteLlmEnabled=true:  base_url / api_key 必须来自 LiteLLM 运行时环境变量
 
     环境变量说明（与 Claude Code 隔离）：
     - AGENT_SDK_API_KEY: Agent SDK 专用 API Key
@@ -28,6 +30,7 @@ class Settings:
 
     anthropic_api_key: str
     base_url: str
+    lite_llm_enabled: bool
     model_name: str
     default_effort: str              # "low"/"medium"/"high"/"max", 默认 "medium"
     default_thinking: str            # "off"/"adaptive", 默认 "off"
@@ -39,14 +42,15 @@ class Settings:
 
     @classmethod
     def load(cls) -> "Settings":
-        """从配置文件加载，环境变量覆盖"""
+        """从配置文件加载运行时设置。"""
         loader = get_config_loader()
         config = loader.load_config()
         server = config.get('server', {})
 
         # 从配置文件读取
-        api_key = config.get('apiKey', '')
-        base_url = config.get('baseUrl', '')
+        direct_api_key = config.get('apiKey', '')
+        direct_base_url = config.get('baseUrl', '')
+        lite_llm_enabled = _resolve_litellm_enabled(config)
         model = config.get('model', 'claude-sonnet-4-20250514')
         default_effort = config.get('defaultEffort', 'medium')
         default_thinking = config.get('defaultThinking', 'off')
@@ -56,12 +60,25 @@ class Settings:
         host = server.get('host', '127.0.0.1')
         port = server.get('port', 8865)
 
-        # 环境变量覆盖
-        # API Key: AGENT_SDK_API_KEY > config.json（与 Claude Code 隔离，不使用 ANTHROPIC_API_KEY）
-        api_key = os.getenv('AGENT_SDK_API_KEY', api_key)
+        if lite_llm_enabled:
+            api_key = os.getenv('AGENT_SDK_API_KEY', '').strip()
+            base_url = os.getenv('AGENT_SDK_BASE_URL', '').strip()
 
-        # Base URL: AGENT_SDK_BASE_URL > config.json
-        base_url = os.getenv('AGENT_SDK_BASE_URL', base_url)
+            missing_vars = []
+            if not base_url:
+                missing_vars.append('AGENT_SDK_BASE_URL')
+            if not api_key:
+                missing_vars.append('AGENT_SDK_API_KEY')
+
+            if missing_vars:
+                missing_vars_display = ', '.join(missing_vars)
+                raise ValueError(
+                    "LiteLLM 托管模式已开启，但缺少运行时环境变量: "
+                    f"{missing_vars_display}"
+                )
+        else:
+            api_key = direct_api_key
+            base_url = direct_base_url
 
         # Model: MODEL_NAME > config.json
         env_model = os.getenv('MODEL_NAME')
@@ -81,6 +98,7 @@ class Settings:
         return cls(
             anthropic_api_key=api_key,
             base_url=base_url,
+            lite_llm_enabled=lite_llm_enabled,
             model_name=model,
             max_thinking_tokens=max_thinking_tokens,
             default_effort=default_effort,
@@ -96,3 +114,33 @@ class Settings:
 def get_settings() -> Settings:
     """Get cached settings instance"""
     return Settings.load()
+
+
+def _resolve_litellm_enabled(config: dict) -> bool:
+    env_value = os.getenv('AGENT_LITELLM_ENABLED')
+    if env_value is not None:
+        parsed_env = _parse_bool_value(env_value)
+        if parsed_env is not None:
+            return parsed_env
+        logger.warning(f"环境变量 AGENT_LITELLM_ENABLED 值无效: {env_value}，回退到 config.json")
+
+    parsed_config = _parse_bool_value(config.get('liteLlmEnabled', False))
+    return False if parsed_config is None else parsed_config
+
+
+def _parse_bool_value(value) -> bool | None:
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, (int, float)):
+        if value == 1:
+            return True
+        if value == 0:
+            return False
+        return None
+    if isinstance(value, str):
+        normalized = value.strip().lower()
+        if normalized in {'1', 'true', 'yes', 'on'}:
+            return True
+        if normalized in {'0', 'false', 'no', 'off'}:
+            return False
+    return None

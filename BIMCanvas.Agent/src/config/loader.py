@@ -36,6 +36,7 @@ class ConfigLoader:
 
     TEMPLATES_DIR = Path(__file__).parent.parent.parent / "templates"
     DEFAULT_CONFIG_DIR = Path.home() / ".bimcanvas"
+    LITELLM_ENABLED_ENV = "AGENT_LITELLM_ENABLED"
 
     def __init__(self, config_dir: Path | str = None):
         """
@@ -59,6 +60,7 @@ class ConfigLoader:
 
         # 确保配置存在
         self._ensure_config_exists()
+        self._sync_litellm_mode_marker()
 
     def _ensure_config_exists(self) -> None:
         """确保配置目录和文件存在，不存在则从 init_manifest.json 初始化"""
@@ -97,6 +99,48 @@ class ConfigLoader:
             else:
                 shutil.copy(source_path, target_path)
             logger.info(f"已创建配置文件: {target_path}")
+
+    def _sync_litellm_mode_marker(self) -> None:
+        """若 Server 注入了运行时模式，则将 liteLlmEnabled 同步回 config.json。"""
+        env_value = os.getenv(self.LITELLM_ENABLED_ENV)
+        if env_value is None:
+            return
+
+        lite_llm_enabled = self._parse_bool_env(env_value)
+        if lite_llm_enabled is None:
+            logger.warning(
+                f"环境变量 {self.LITELLM_ENABLED_ENV} 值无效: {env_value}，跳过 liteLlmEnabled 同步"
+            )
+            return
+
+        config_path = self.config_dir / "config.json"
+        if not config_path.exists():
+            return
+
+        with open(config_path, 'r', encoding='utf-8') as f:
+            config = json.load(f)
+
+        current_value = config.get("liteLlmEnabled")
+        if isinstance(current_value, bool) and current_value == lite_llm_enabled:
+            return
+
+        config["liteLlmEnabled"] = lite_llm_enabled
+        with open(config_path, 'w', encoding='utf-8') as f:
+            json.dump(config, f, ensure_ascii=False, indent=4)
+            f.write('\n')
+
+        logger.info(
+            f"已同步配置字段: {config_path}.liteLlmEnabled = {str(lite_llm_enabled).lower()}"
+        )
+
+    @staticmethod
+    def _parse_bool_env(value: str) -> bool | None:
+        normalized = value.strip().lower()
+        if normalized in {"1", "true", "yes", "on"}:
+            return True
+        if normalized in {"0", "false", "no", "off"}:
+            return False
+        return None
 
     def load_config(self) -> dict:
         """

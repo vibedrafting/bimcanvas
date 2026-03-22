@@ -90,10 +90,14 @@ var config = ConfigService.Load();
 var pythonCommand = string.IsNullOrWhiteSpace(config.LiteLlm.PythonCommand)
     ? "python"
     : config.LiteLlm.PythonCommand.Trim();
-var liteLlmConfigPath = Path.Combine(
-    ConfigService.GetConfigDir(),
+var configDir = ConfigService.GetConfigDir();
+var liteLlmSourceConfigPath = Path.Combine(
+    configDir,
     string.IsNullOrWhiteSpace(config.LiteLlm.ConfigFileName) ? "litellm_config.yaml" : config.LiteLlm.ConfigFileName
 );
+var liteLlmConfigPath = liteLlmSourceConfigPath;
+LiteLlmRuntimeConfigBuildResult? liteLlmRuntimeArtifacts = null;
+var liteLlmConfigReady = !config.LiteLlm.Enabled;
 
 // 注册配置 + Agent HTTP 客户端
 builder.Services.AddSingleton(config);
@@ -219,22 +223,40 @@ var liteLlmReady = !config.LiteLlm.Enabled;
 
     if (config.LiteLlm.Enabled && IsPythonAvailable(pythonCommand))
     {
-        if (!File.Exists(liteLlmConfigPath))
+        if (!File.Exists(liteLlmSourceConfigPath))
         {
-            WriteWithColoredPrefix("[Server:WARN]", $"LiteLLM 配置模板缺失: {liteLlmConfigPath}", ConsoleColor.DarkYellow);
-        }
-
-        var liteLlmDependencyMissing =
-            !IsLiteLlmReady(pythonCommand) ||
-            (LiteLlmConfigUsesGemini(liteLlmConfigPath) && !IsPythonModuleAvailable(pythonCommand, "google.genai"));
-
-        if (liteLlmDependencyMissing)
-        {
-            liteLlmReady = TryInstallLiteLlmDependencies(pythonCommand);
+            WriteWithColoredPrefix("[Server:WARN]", $"LiteLLM 配置模板缺失: {liteLlmSourceConfigPath}", ConsoleColor.DarkYellow);
         }
         else
         {
-            liteLlmReady = true;
+            try
+            {
+                liteLlmRuntimeArtifacts = LiteLlmRuntimeConfigBuilder.Generate(config, liteLlmSourceConfigPath, configDir);
+                liteLlmConfigPath = liteLlmRuntimeArtifacts.RuntimeLiteLlmConfigPath;
+                liteLlmConfigReady = true;
+            }
+            catch (Exception ex)
+            {
+                WriteWithColoredPrefix("[Server:WARN]", $"LiteLLM 运行时配置生成失败: {ex.Message}", ConsoleColor.DarkYellow);
+                liteLlmReady = false;
+                liteLlmConfigReady = false;
+            }
+        }
+
+        if (liteLlmConfigReady)
+        {
+            var liteLlmDependencyMissing =
+                !IsLiteLlmReady(pythonCommand) ||
+                (LiteLlmConfigUsesGemini(liteLlmSourceConfigPath) && !IsPythonModuleAvailable(pythonCommand, "google.genai"));
+
+            if (liteLlmDependencyMissing)
+            {
+                liteLlmReady = TryInstallLiteLlmDependencies(pythonCommand);
+            }
+            else
+            {
+                liteLlmReady = true;
+            }
         }
     }
 
@@ -252,16 +274,90 @@ var liteLlmReady = !config.LiteLlm.Enabled;
 {
     var baseDir = AppContext.BaseDirectory;
     var agentProjectPath = FindAgentProjectPath(baseDir);
+    var providerAdapterProjectPath = FindProviderAdapterProjectPath(baseDir);
     var webProjectPath = FindWebProjectPath(baseDir);
+    Process? providerAdapterProcess = null;
+    var providerAdapterRequired = liteLlmRuntimeArtifacts?.RequiresAdapter == true;
+    var providerAdapterRuntimeReady = !providerAdapterRequired;
     Process? liteLlmProcess = null;
     var liteLlmRuntimeReady = !config.LiteLlm.Enabled || !config.LiteLlm.AutoStart;
     Process? agentProcess = null;
     Process? webProcess = null;
 
-    // 1. 启动 LiteLLM（如果启用）
+    // 1. 启动 ProviderAdapter（如果 LiteLLM 运行时配置需要）
+    if (config.LiteLlm.Enabled && providerAdapterRequired)
+    {
+        if (!config.ProviderAdapter.Enabled)
+        {
+            WriteWithColoredPrefix("[Server:WARN]", "当前 LiteLLM provider 需要 ProviderAdapter，但 providerAdapter.enabled=false", ConsoleColor.DarkYellow);
+        }
+        else if (config.ProviderAdapter.AutoStart)
+        {
+            if (!Directory.Exists(providerAdapterProjectPath))
+            {
+                WriteWithColoredPrefix("[Server:WARN]", $"ProviderAdapter 项目目录不存在: {providerAdapterProjectPath}", ConsoleColor.DarkYellow);
+            }
+            else
+            {
+                if (IsPortOccupied(config.ProviderAdapter.Port, out var occupyingPid))
+                {
+                    if (IsProviderAdapterProcess(occupyingPid))
+                    {
+                        WriteWithColoredPrefix("[Server]", $"清理残留 ProviderAdapter 进程 (PID: {occupyingPid})...", ConsoleColor.White);
+                        KillProcess(occupyingPid);
+                        Thread.Sleep(500);
+                    }
+                    else
+                    {
+                        WriteWithColoredPrefix("[Server:WARN]", $"ProviderAdapter 端口 {config.ProviderAdapter.Port} 被其他进程占用 (PID: {occupyingPid})", ConsoleColor.DarkYellow);
+                        WriteWithColoredPrefix("[Server:WARN]", "ProviderAdapter 将尝试继续启动，若失败请手动处理端口占用", ConsoleColor.DarkYellow);
+                    }
+                }
+
+                if (liteLlmRuntimeArtifacts != null)
+                {
+                    WriteWithColoredPrefix("[Server]", $"生成 LiteLLM 运行时配置: {liteLlmRuntimeArtifacts.RuntimeLiteLlmConfigPath}", ConsoleColor.White);
+                    WriteWithColoredPrefix("[Server]", $"生成 ProviderAdapter 运行时配置: {liteLlmRuntimeArtifacts.RuntimeAdapterConfigPath}", ConsoleColor.White);
+                }
+
+                WriteWithColoredPrefix("[Server]", "ProviderAdapter 服务启动中...", ConsoleColor.White);
+                providerAdapterProcess = StartProviderAdapterProcess(config, providerAdapterProjectPath, liteLlmRuntimeArtifacts!.RuntimeAdapterConfigPath);
+                if (providerAdapterProcess != null)
+                {
+                    providerAdapterRuntimeReady = await WaitForHttpServiceReadyAsync(
+                        BuildProviderAdapterHealthUrl(config),
+                        providerAdapterProcess);
+
+                    if (!providerAdapterRuntimeReady)
+                    {
+                        if (providerAdapterProcess.HasExited)
+                        {
+                            WriteWithColoredPrefix("[Server:WARN]", "ProviderAdapter 进程启动后立即退出，LiteLLM 下游适配将不可用", ConsoleColor.DarkYellow);
+                            providerAdapterProcess = null;
+                        }
+                        else
+                        {
+                            WriteWithColoredPrefix("[Server:WARN]", "ProviderAdapter 进程已启动，但在等待窗口内未就绪", ConsoleColor.DarkYellow);
+                        }
+                    }
+                }
+            }
+        }
+        else
+        {
+            WriteWithColoredPrefix("[Server]", "ProviderAdapter 自动启动已禁用，默认依赖外部手工启动", ConsoleColor.DarkYellow);
+            providerAdapterRuntimeReady = await WaitForHttpServiceReadyAsync(BuildProviderAdapterHealthUrl(config));
+            if (!providerAdapterRuntimeReady)
+            {
+                WriteWithColoredPrefix("[Server:WARN]", "ProviderAdapter 未就绪，LiteLLM 自动启动将被跳过", ConsoleColor.DarkYellow);
+            }
+        }
+    }
+
+    // 2. 启动 LiteLLM（如果启用）
     if (config.LiteLlm.Enabled)
     {
-        if (config.LiteLlm.AutoStart && liteLlmReady)
+        if (config.LiteLlm.AutoStart && liteLlmReady && (!providerAdapterRequired || providerAdapterRuntimeReady))
         {
             if (IsPortOccupied(config.LiteLlm.Port, out var occupyingPid))
             {
@@ -301,6 +397,10 @@ var liteLlmReady = !config.LiteLlm.Enabled;
         {
             WriteWithColoredPrefix("[Server]", "LiteLLM 自动启动已禁用，默认依赖外部手工启动", ConsoleColor.DarkYellow);
         }
+        else if (providerAdapterRequired && !providerAdapterRuntimeReady)
+        {
+            WriteWithColoredPrefix("[Server:WARN]", "ProviderAdapter 未就绪，跳过 LiteLLM 自动启动", ConsoleColor.DarkYellow);
+        }
         else
         {
             WriteWithColoredPrefix("[Server:WARN]", "LiteLLM 未就绪，跳过自动启动", ConsoleColor.DarkYellow);
@@ -312,7 +412,7 @@ var liteLlmReady = !config.LiteLlm.Enabled;
         WriteWithColoredPrefix("[Server:WARN]", "Agent 仍将指向 LiteLLM 网关，若网关不可用，后续 AI 请求会明确失败", ConsoleColor.DarkYellow);
     }
 
-    // 2. 启动 Agent 服务（不等待，后台运行）
+    // 3. 启动 Agent 服务（不等待，后台运行）
     if (agentReady)
     {
         // 读取 Agent 端口配置
@@ -356,17 +456,33 @@ var liteLlmReady = !config.LiteLlm.Enabled;
             };
             // 设置环境变量确保 Python 输出 UTF-8
             agentProcess.StartInfo.Environment["PYTHONIOENCODING"] = "utf-8";
+            agentProcess.StartInfo.Environment["AGENT_LITELLM_ENABLED"] = config.LiteLlm.Enabled ? "true" : "false";
             if (config.LiteLlm.Enabled)
             {
                 var activeProvider = NormalizeProviderName(config.LiteLlm.ActiveProvider);
                 var defaultModelFamily = NormalizeModelFamily(config.LiteLlm.DefaultModelFamily);
                 var gatewayUrl = $"http://{config.LiteLlm.Host}:{config.LiteLlm.Port}";
+                if (!agentProcess.StartInfo.Environment.TryGetValue("AGENT_SDK_API_KEY", out var existingAgentSdkApiKey)
+                    || string.IsNullOrWhiteSpace(existingAgentSdkApiKey))
+                {
+                    agentProcess.StartInfo.Environment["AGENT_SDK_API_KEY"] = "bimcanvas-local-gateway";
+                }
                 agentProcess.StartInfo.Environment["AGENT_SDK_BASE_URL"] = gatewayUrl;
                 agentProcess.StartInfo.Environment["MODEL_NAME"] = defaultModelFamily;
                 agentProcess.StartInfo.Environment["ANTHROPIC_DEFAULT_OPUS_MODEL"] = $"bc-{activeProvider}-opus";
                 agentProcess.StartInfo.Environment["ANTHROPIC_DEFAULT_SONNET_MODEL"] = $"bc-{activeProvider}-sonnet";
                 agentProcess.StartInfo.Environment["ANTHROPIC_DEFAULT_HAIKU_MODEL"] = $"bc-{activeProvider}-haiku";
                 agentProcess.StartInfo.Environment["CLAUDE_CODE_SUBAGENT_MODEL"] = $"bc-{activeProvider}-subagent";
+            }
+            else
+            {
+                agentProcess.StartInfo.Environment.Remove("AGENT_SDK_BASE_URL");
+                agentProcess.StartInfo.Environment.Remove("AGENT_SDK_API_KEY");
+                agentProcess.StartInfo.Environment.Remove("MODEL_NAME");
+                agentProcess.StartInfo.Environment.Remove("ANTHROPIC_DEFAULT_OPUS_MODEL");
+                agentProcess.StartInfo.Environment.Remove("ANTHROPIC_DEFAULT_SONNET_MODEL");
+                agentProcess.StartInfo.Environment.Remove("ANTHROPIC_DEFAULT_HAIKU_MODEL");
+                agentProcess.StartInfo.Environment.Remove("CLAUDE_CODE_SUBAGENT_MODEL");
             }
             agentProcess.Start();
 
@@ -397,7 +513,7 @@ var liteLlmReady = !config.LiteLlm.Enabled;
         }
     }
 
-    // 3. 启动 Web 服务（不等待，后台运行）
+    // 4. 启动 Web 服务（不等待，后台运行）
     if (Directory.Exists(webProjectPath))
     {
         WriteWithColoredPrefix("[Server]", "Web 开发服务器启动中...", ConsoleColor.White);
@@ -459,7 +575,11 @@ var liteLlmReady = !config.LiteLlm.Enabled;
                 var response = await httpClient.GetAsync(webBaseUrl);
                 if (response.IsSuccessStatusCode)
                 {
-                    if (config.LiteLlm.Enabled && config.LiteLlm.AutoStart && !liteLlmRuntimeReady)
+                    if (agentReady && agentProcess == null)
+                    {
+                        WriteWithColoredPrefix("[Server:WARN]", "Web 已就绪，但 Agent 未启动；Agent 功能暂不可用", ConsoleColor.DarkYellow);
+                    }
+                    else if (config.LiteLlm.Enabled && config.LiteLlm.AutoStart && !liteLlmRuntimeReady)
                     {
                         WriteWithColoredPrefix("[Server:WARN]", "Web 已就绪，但 LiteLLM 未就绪；AI 功能暂不可用", ConsoleColor.DarkYellow);
                     }
@@ -867,6 +987,101 @@ static bool TryInstallLiteLlmDependencies(string pythonCommand)
     }
 }
 
+// 辅助函数：构建 ProviderAdapter 健康检查地址
+static string BuildProviderAdapterHealthUrl(ServerConfig config)
+{
+    return $"http://{config.ProviderAdapter.Host}:{config.ProviderAdapter.Port}/health";
+}
+
+// 辅助函数：启动 ProviderAdapter 进程
+static Process? StartProviderAdapterProcess(ServerConfig config, string projectPath, string runtimeConfigPath)
+{
+    try
+    {
+        var startInfo = new ProcessStartInfo
+        {
+            FileName = "dotnet",
+            Arguments =
+                $"run -v quiet --no-launch-profile --project \"{Path.Combine(projectPath, "BIMCanvas.ProviderAdapter.csproj")}\" -- --config \"{runtimeConfigPath}\" --host {config.ProviderAdapter.Host} --port {config.ProviderAdapter.Port}",
+            WorkingDirectory = projectPath,
+            UseShellExecute = false,
+            CreateNoWindow = true,
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+            StandardOutputEncoding = Encoding.UTF8,
+            StandardErrorEncoding = Encoding.UTF8
+        };
+        startInfo.Environment["DOTNET_CLI_TELEMETRY_OPTOUT"] = "1";
+        startInfo.Environment["DOTNET_NOLOGO"] = "1";
+
+        var process = new Process { StartInfo = startInfo };
+        process.Start();
+
+        _ = Task.Run(async () =>
+        {
+            while (true)
+            {
+                var line = await process.StandardOutput.ReadLineAsync();
+                if (line == null)
+                    break;
+
+                if (!string.IsNullOrWhiteSpace(line))
+                    WriteWithColoredPrefix("[ProviderAdapter]", line, ConsoleColor.Magenta);
+            }
+        });
+        _ = Task.Run(async () =>
+        {
+            while (true)
+            {
+                var line = await process.StandardError.ReadLineAsync();
+                if (line == null)
+                    break;
+
+                if (!string.IsNullOrWhiteSpace(line))
+                    WriteWithColoredPrefix("[ProviderAdapter:ERR]", line, ConsoleColor.DarkMagenta);
+            }
+        });
+
+        return process;
+    }
+    catch (Exception ex)
+    {
+        WriteWithColoredPrefix("[Server:ERR]", $"ProviderAdapter 服务启动失败: {ex.Message}", ConsoleColor.DarkGray);
+        return null;
+    }
+}
+
+// 辅助函数：等待 HTTP 服务健康检查通过
+static async Task<bool> WaitForHttpServiceReadyAsync(string healthUrl, Process? process = null, int timeoutMs = 20000)
+{
+    using var httpClient = new HttpClient
+    {
+        Timeout = TimeSpan.FromSeconds(2)
+    };
+
+    var deadline = DateTime.UtcNow.AddMilliseconds(timeoutMs);
+    while (DateTime.UtcNow < deadline)
+    {
+        if (process?.HasExited == true)
+            return false;
+
+        try
+        {
+            using var response = await httpClient.GetAsync(healthUrl);
+            if (response.IsSuccessStatusCode)
+                return true;
+        }
+        catch
+        {
+            // 服务尚未就绪，继续等待
+        }
+
+        await Task.Delay(300);
+    }
+
+    return false;
+}
+
 // 辅助函数：启动 LiteLLM 进程
 static Process? StartLiteLlmProcess(ServerConfig config, string configPath, string pythonCommand)
 {
@@ -996,6 +1211,35 @@ static bool IsLiteLlmProcess(int pid)
     }
 }
 
+// 辅助函数：验证进程是否为 ProviderAdapter
+static bool IsProviderAdapterProcess(int pid)
+{
+    try
+    {
+        var process = Process.GetProcessById(pid);
+        var processName = process.ProcessName.ToLowerInvariant();
+        if (!processName.Contains("dotnet") && !processName.Contains("provideradapter"))
+            return false;
+
+        string cmdLine;
+        if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
+        {
+            cmdLine = GetCommandLineWindows(pid);
+        }
+        else
+        {
+            cmdLine = GetCommandLineUnix(pid);
+        }
+
+        return cmdLine.Contains("BIMCanvas.ProviderAdapter", StringComparison.OrdinalIgnoreCase);
+    }
+    catch (Exception ex)
+    {
+        WriteWithColoredPrefix("[Server:WARN]", $"ProviderAdapter 进程验证失败: {ex.Message}", ConsoleColor.DarkYellow);
+        return false;
+    }
+}
+
 // 辅助函数：归一化 provider 名称
 static string NormalizeProviderName(string? provider)
 {
@@ -1111,6 +1355,24 @@ static string FindAgentProjectPath(string startDir)
 
     // 兜底：返回相对路径（兼容 dotnet run）
     return Path.GetFullPath(Path.Combine(Directory.GetCurrentDirectory(), "..", "BIMCanvas.Agent"));
+}
+
+// 辅助函数：向上查找 BIMCanvas.ProviderAdapter 目录
+static string FindProviderAdapterProjectPath(string startDir)
+{
+    var dir = new DirectoryInfo(startDir);
+
+    for (int i = 0; i < 5 && dir != null; i++)
+    {
+        var adapterPath = Path.Combine(dir.FullName, "BIMCanvas.ProviderAdapter");
+        if (Directory.Exists(adapterPath))
+        {
+            return adapterPath;
+        }
+        dir = dir.Parent;
+    }
+
+    return Path.GetFullPath(Path.Combine(Directory.GetCurrentDirectory(), "..", "BIMCanvas.ProviderAdapter"));
 }
 
 // 辅助函数：检测端口是否被占用（跨平台）

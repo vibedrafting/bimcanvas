@@ -1,4 +1,5 @@
 {
+    "liteLlmEnabled": false,
     "baseUrl": "https://aitoll.net/api/gateway/cli/cc",
     "apiKey": "pass_06a049bbe109012abf061d82504606a739c2e3c17baa7bd01e9a89acfafebac2",
     "model": "claude-opus-4-6",

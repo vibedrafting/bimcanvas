@@ -1,0 +1,12 @@
+{
+  "profiles": {
+    "BIMCanvas.ProviderAdapter": {
+      "commandName": "Project",
+      "launchBrowser": true,
+      "environmentVariables": {
+        "ASPNETCORE_ENVIRONMENT": "Development"
+      },
+      "applicationUrl": "https://localhost:12772;http://localhost:12773"
+    }
+  }
+}

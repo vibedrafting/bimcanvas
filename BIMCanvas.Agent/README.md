@@ -52,8 +52,10 @@ cp .env.example .env
 **方式一：随 Server 自动启动（推荐）**
 
 Agent 会在 BIMCanvas.Server 启动时自动启动，无需手动操作。
-在该模式下，Server 会注入 `AGENT_SDK_BASE_URL`、`MODEL_NAME` 以及 Claude Code 家族模型映射环境变量，
-默认把主模型、background requests、subagent 请求都指向 LiteLLM 网关。
+在该模式下，Server 会注入 `AGENT_LITELLM_ENABLED`、`AGENT_SDK_BASE_URL`、`AGENT_SDK_API_KEY`、
+`MODEL_NAME` 以及 Claude Code 家族模型映射环境变量，默认把主模型、background requests、
+subagent 请求都指向 LiteLLM 网关；同时会把 `~/.bimcanvas/config.json` 中的 `liteLlmEnabled`
+同步为 `true`。
 
 **方式二：HTTP 服务模式（独立运行）**
 
@@ -451,17 +453,25 @@ BIMCanvas.Agent/
 
 ```json
 {
+  "liteLlmEnabled": false,
+  "baseUrl": "https://your-direct-provider.example/v1",
+  "apiKey": "your-direct-api-key",
   "model": "claude-opus-4-6",
-  "maxTokens": 4096,
   "defaultEffort": "medium",
   "defaultThinking": "adaptive",
+  "maxThinkingTokens": 16000,
   "permissions": {
     "allow": ["Read", "Glob", "Grep", "Task"],
     "deny": ["AskUserQuestion"]
   },
-  "server": { "host": "127.0.0.1", "port": 8765 }
+  "server": { "host": "127.0.0.1", "port": 8865 }
 }
 ```
+
+#### 直连模式与 LiteLLM 托管模式
+
+- `liteLlmEnabled=false`：Agent 使用 `config.json` 中的 `baseUrl` 和 `apiKey` 直连下游。
+- `liteLlmEnabled=true`：`config.json` 中的 `baseUrl` 和 `apiKey` 仅保留，不参与当前请求链路；实际连接参数由 Server 注入的 LiteLLM 环境变量托管。
 
 #### permissions 字段说明
 
@@ -472,7 +482,7 @@ BIMCanvas.Agent/
 | `allow` | 白名单：只允许使用列出的工具 |
 | `deny` | 黑名单：禁止使用列出的工具 |
 
-**注意**：API Key 通过环境变量 `AGENT_SDK_API_KEY` 设置，不再写入 config.json。
+**注意**：`baseUrl` / `apiKey` 是“直连模式”配置；启用 LiteLLM 托管后，它们不会被覆盖删除，但会暂时失效。
 
 #### SubAgent 配置格式 (agents/*.md)
 
@@ -491,8 +501,9 @@ model: inherit
 
 | 环境变量 | 说明 |
 |----------|------|
-| `AGENT_SDK_API_KEY` | Anthropic API 密钥（必填，与 Claude Code 环境隔离） |
-| `AGENT_SDK_BASE_URL` | 自定义 API 基础 URL（可选） |
+| `AGENT_LITELLM_ENABLED` | 当前是否使用 LiteLLM 托管模式（通常由 Server 注入） |
+| `AGENT_SDK_API_KEY` | LiteLLM 托管模式下的 Agent SDK API Key |
+| `AGENT_SDK_BASE_URL` | LiteLLM 托管模式下的 Agent SDK Base URL |
 | `MODEL_NAME` | 覆盖模型名称 |
 | `ANTHROPIC_DEFAULT_OPUS_MODEL` | 覆盖 Claude Code 的 `opus` 家族映射 |
 | `ANTHROPIC_DEFAULT_SONNET_MODEL` | 覆盖 Claude Code 的 `sonnet` 家族映射 |
@@ -501,7 +512,7 @@ model: inherit
 | `SERVER_HOST` | 覆盖服务地址 |
 | `SERVER_PORT` | 覆盖服务端口 |
 
-**说明**：当 Agent 由 BIMCanvas.Server 托管启动时，这些模型映射变量通常由 Server 注入，无需手工写入 `.env`。
+**说明**：当 Agent 由 BIMCanvas.Server 托管启动时，LiteLLM 模式相关环境变量通常都由 Server 注入，无需手工写入 `.env`。
 
 ## 开发状态
 
