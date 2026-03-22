@@ -1,6 +1,8 @@
 using System.Diagnostics;
+using System.Net.Sockets;
 using System.Runtime.InteropServices;
 using System.Text;
+using System.Text.RegularExpressions;
 using BIMCanvas.Server.Hubs;
 using BIMCanvas.Server.Logging;
 using BIMCanvas.Server.Models;
@@ -222,7 +224,11 @@ var liteLlmReady = !config.LiteLlm.Enabled;
             WriteWithColoredPrefix("[Server:WARN]", $"LiteLLM 配置模板缺失: {liteLlmConfigPath}", ConsoleColor.DarkYellow);
         }
 
-        if (!IsLiteLlmReady(pythonCommand))
+        var liteLlmDependencyMissing =
+            !IsLiteLlmReady(pythonCommand) ||
+            (LiteLlmConfigUsesGemini(liteLlmConfigPath) && !IsPythonModuleAvailable(pythonCommand, "google.genai"));
+
+        if (liteLlmDependencyMissing)
         {
             liteLlmReady = TryInstallLiteLlmDependencies(pythonCommand);
         }
@@ -248,6 +254,7 @@ var liteLlmReady = !config.LiteLlm.Enabled;
     var agentProjectPath = FindAgentProjectPath(baseDir);
     var webProjectPath = FindWebProjectPath(baseDir);
     Process? liteLlmProcess = null;
+    var liteLlmRuntimeReady = !config.LiteLlm.Enabled || !config.LiteLlm.AutoStart;
     Process? agentProcess = null;
     Process? webProcess = null;
 
@@ -273,6 +280,22 @@ var liteLlmReady = !config.LiteLlm.Enabled;
 
             WriteWithColoredPrefix("[Server]", "LiteLLM 服务启动中...", ConsoleColor.White);
             liteLlmProcess = StartLiteLlmProcess(config, liteLlmConfigPath, pythonCommand);
+            if (liteLlmProcess != null)
+            {
+                liteLlmRuntimeReady = await WaitForLiteLlmServiceReadyAsync(liteLlmProcess, config);
+                if (!liteLlmRuntimeReady)
+                {
+                    if (liteLlmProcess.HasExited)
+                    {
+                        WriteWithColoredPrefix("[Server:WARN]", "LiteLLM 进程启动后立即退出，AI 请求后续将失败", ConsoleColor.DarkYellow);
+                        liteLlmProcess = null;
+                    }
+                    else
+                    {
+                        WriteWithColoredPrefix("[Server:WARN]", "LiteLLM 进程已启动，但在等待窗口内未就绪；AI 功能可能暂不可用", ConsoleColor.DarkYellow);
+                    }
+                }
+            }
         }
         else if (!config.LiteLlm.AutoStart)
         {
@@ -436,7 +459,14 @@ var liteLlmReady = !config.LiteLlm.Enabled;
                 var response = await httpClient.GetAsync(webBaseUrl);
                 if (response.IsSuccessStatusCode)
                 {
-                    WriteWithColoredPrefix("[Server]", "所有服务已就绪", ConsoleColor.White);
+                    if (config.LiteLlm.Enabled && config.LiteLlm.AutoStart && !liteLlmRuntimeReady)
+                    {
+                        WriteWithColoredPrefix("[Server:WARN]", "Web 已就绪，但 LiteLLM 未就绪；AI 功能暂不可用", ConsoleColor.DarkYellow);
+                    }
+                    else
+                    {
+                        WriteWithColoredPrefix("[Server]", "所有服务已就绪", ConsoleColor.White);
+                    }
                     break;
                 }
             }
@@ -674,10 +704,11 @@ static bool IsLiteLlmReady(string pythonCommand)
 {
     try
     {
+        var locatorCommand = RuntimeInformation.IsOSPlatform(OSPlatform.Windows) ? "where.exe" : "which";
         var psi = new ProcessStartInfo
         {
-            FileName = pythonCommand,
-            Arguments = "-m litellm --help",
+            FileName = locatorCommand,
+            Arguments = GetLiteLlmCommand(),
             RedirectStandardOutput = true,
             RedirectStandardError = true,
             UseShellExecute = false,
@@ -686,8 +717,54 @@ static bool IsLiteLlmReady(string pythonCommand)
 
         using var process = Process.Start(psi);
         if (process == null) return false;
-        process.WaitForExit(10000);
+        if (!process.WaitForExit(5000))
+            return false;
         return process.ExitCode == 0;
+    }
+    catch
+    {
+        return false;
+    }
+}
+
+// 辅助函数：检测 Python 模块是否可用
+static bool IsPythonModuleAvailable(string pythonCommand, string moduleName)
+{
+    try
+    {
+        var escapedModuleName = moduleName.Replace("'", "\\'");
+        var psi = new ProcessStartInfo
+        {
+            FileName = pythonCommand,
+            Arguments = $"-c \"import importlib.util, sys; sys.exit(0 if importlib.util.find_spec('{escapedModuleName}') else 1)\"",
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+            UseShellExecute = false,
+            CreateNoWindow = true
+        };
+
+        using var process = Process.Start(psi);
+        if (process == null) return false;
+        if (!process.WaitForExit(5000))
+            return false;
+        return process.ExitCode == 0;
+    }
+    catch
+    {
+        return false;
+    }
+}
+
+// 辅助函数：检测 LiteLLM 配置是否使用 Gemini provider
+static bool LiteLlmConfigUsesGemini(string configPath)
+{
+    try
+    {
+        if (!File.Exists(configPath))
+            return false;
+
+        var content = File.ReadAllText(configPath);
+        return content.Contains("model: gemini/", StringComparison.OrdinalIgnoreCase);
     }
     catch
     {
@@ -712,14 +789,14 @@ static bool TryInstallLiteLlmDependencies(string pythonCommand)
         return false;
     }
 
-    WriteWithColoredPrefix("[Server]", "正在安装 LiteLLM 依赖 (pip install \"litellm[proxy]\")...", ConsoleColor.White);
+    WriteWithColoredPrefix("[Server]", "正在安装 LiteLLM 依赖 (pip install \"litellm[proxy]\" google-genai)...", ConsoleColor.White);
 
     try
     {
         var psi = new ProcessStartInfo
         {
             FileName = pythonCommand,
-            Arguments = "-m pip install \"litellm[proxy]\"",
+            Arguments = "-m pip install \"litellm[proxy]\" google-genai",
             UseShellExecute = false,
             CreateNoWindow = true,
             RedirectStandardOutput = true,
@@ -797,25 +874,34 @@ static Process? StartLiteLlmProcess(ServerConfig config, string configPath, stri
     {
         var startInfo = BuildLiteLlmStartInfo(config, configPath, pythonCommand);
         var process = new Process { StartInfo = startInfo };
+        var stderrFilter = new LiteLlmStderrFilter(message =>
+            WriteWithColoredPrefix("[LiteLLM]", message, ConsoleColor.Yellow));
         process.Start();
 
         _ = Task.Run(async () =>
         {
-            while (!process.HasExited)
+            while (true)
             {
                 var line = await process.StandardOutput.ReadLineAsync();
-                if (!string.IsNullOrEmpty(line))
+                if (line == null)
+                    break;
+
+                if (!string.IsNullOrWhiteSpace(line))
                     WriteWithColoredPrefix("[LiteLLM]", line, ConsoleColor.Yellow);
             }
         });
         _ = Task.Run(async () =>
         {
-            while (!process.HasExited)
+            while (true)
             {
                 var line = await process.StandardError.ReadLineAsync();
-                if (!string.IsNullOrEmpty(line))
-                    WriteWithColoredPrefix("[LiteLLM:ERR]", line, ConsoleColor.DarkYellow);
+                if (line == null)
+                    break;
+
+                stderrFilter.ProcessLine(line);
             }
+
+            stderrFilter.Flush();
         });
 
         return process;
@@ -827,13 +913,41 @@ static Process? StartLiteLlmProcess(ServerConfig config, string configPath, stri
     }
 }
 
+// 辅助函数：等待 LiteLLM 端口就绪
+static async Task<bool> WaitForLiteLlmServiceReadyAsync(Process process, ServerConfig config, int timeoutMs = 20000)
+{
+    var deadline = DateTime.UtcNow.AddMilliseconds(timeoutMs);
+    while (DateTime.UtcNow < deadline)
+    {
+        if (process.HasExited)
+            return false;
+
+        try
+        {
+            using var client = new TcpClient();
+            var connectTask = client.ConnectAsync(config.LiteLlm.Host, config.LiteLlm.Port);
+            var completedTask = await Task.WhenAny(connectTask, Task.Delay(500));
+            if (completedTask == connectTask && client.Connected)
+                return true;
+        }
+        catch
+        {
+            // 端口尚未就绪，继续等待
+        }
+
+        await Task.Delay(300);
+    }
+
+    return false;
+}
+
 // 辅助函数：构建 LiteLLM 启动参数
 static ProcessStartInfo BuildLiteLlmStartInfo(ServerConfig config, string configPath, string pythonCommand)
 {
     var psi = new ProcessStartInfo
     {
-        FileName = pythonCommand,
-        Arguments = $"-m litellm --config \"{configPath}\" --host {config.LiteLlm.Host} --port {config.LiteLlm.Port}",
+        FileName = GetLiteLlmCommand(),
+        Arguments = $"--config \"{configPath}\" --host {config.LiteLlm.Host} --port {config.LiteLlm.Port}",
         UseShellExecute = false,
         CreateNoWindow = true,
         RedirectStandardOutput = true,
@@ -842,7 +956,14 @@ static ProcessStartInfo BuildLiteLlmStartInfo(ServerConfig config, string config
         StandardErrorEncoding = Encoding.UTF8
     };
     psi.Environment["PYTHONIOENCODING"] = "utf-8";
+    psi.Environment["DEBUG"] = "false";
     return psi;
+}
+
+// 辅助函数：获取 LiteLLM CLI 命令
+static string GetLiteLlmCommand()
+{
+    return RuntimeInformation.IsOSPlatform(OSPlatform.Windows) ? "litellm.exe" : "litellm";
 }
 
 // 辅助函数：验证进程是否为 LiteLLM
@@ -1200,4 +1321,197 @@ static void KillProcess(int pid)
     {
         WriteWithColoredPrefix("[Server:ERR]", $"清理进程失败: {ex.Message}", ConsoleColor.DarkGray);
     }
+}
+
+file sealed class LiteLlmStderrFilter
+{
+    private static readonly TimeSpan DedupWindow = TimeSpan.FromSeconds(30);
+    private static readonly Regex JsonErrorRegex = new(
+        "\"code\"\\s*:\\s*(?<code>\\d+)\\s*,\\s*\"message\"\\s*:\\s*\"(?<message>[^\"]+)\"",
+        RegexOptions.Compiled | RegexOptions.CultureInvariant | RegexOptions.IgnoreCase);
+    private static readonly Regex ApiErrorRegex = new(
+        "API error:\\s*(?<code>\\d{3})\\s*-\\s*(?<message>.+)$",
+        RegexOptions.Compiled | RegexOptions.CultureInvariant | RegexOptions.IgnoreCase);
+    private static readonly Regex HttpStatusRegex = new(
+        "HTTPStatusError:\\s*(?:Client|Server) error '\\s*(?<code>\\d{3})\\s+(?<message>[^']+)'",
+        RegexOptions.Compiled | RegexOptions.CultureInvariant | RegexOptions.IgnoreCase);
+    private static readonly Regex RequestAccessLogRegex = new(
+        "\"(?:POST|GET)\\s+/v1/messages(?:/count_tokens)?[^\\\"]*\\s+HTTP/1\\.1\"\\s+\\d{3}",
+        RegexOptions.Compiled | RegexOptions.CultureInvariant | RegexOptions.IgnoreCase);
+
+    private readonly Action<string> _writeMessage;
+    private readonly Dictionary<string, DateTime> _lastEmittedAtUtc = new(StringComparer.Ordinal);
+
+    private PendingSummary? _pendingSummary;
+    private bool _inErrorBlock;
+
+    public LiteLlmStderrFilter(Action<string> writeMessage)
+    {
+        _writeMessage = writeMessage;
+    }
+
+    public void ProcessLine(string line)
+    {
+        if (string.IsNullOrWhiteSpace(line))
+            return;
+
+        var trimmed = line.Trim();
+
+        if (IsRequestAccessLog(trimmed))
+        {
+            FinalizePendingBlock();
+            return;
+        }
+
+        if (IsTopLevelLiteLlmError(trimmed))
+        {
+            FinalizePendingBlock();
+            _inErrorBlock = true;
+
+            if (TryExtractSummary(trimmed, out var topLevelSummary))
+                UpdatePendingSummary(topLevelSummary);
+
+            return;
+        }
+
+        if (TryExtractSummary(trimmed, out var summary))
+        {
+            _inErrorBlock = true;
+            UpdatePendingSummary(summary);
+            return;
+        }
+
+        if (IsErrorMarker(trimmed))
+        {
+            _inErrorBlock = true;
+        }
+    }
+
+    public void Flush()
+    {
+        FinalizePendingBlock();
+    }
+
+    private void FinalizePendingBlock()
+    {
+        if (!_inErrorBlock)
+            return;
+
+        if (_pendingSummary is { } pendingSummary)
+        {
+            EmitDeduped($"下游供应商错误: {pendingSummary.Code} {pendingSummary.Message}");
+        }
+        else
+        {
+            EmitDeduped("LiteLLM 请求失败，未提取到下游错误摘要");
+        }
+
+        _pendingSummary = null;
+        _inErrorBlock = false;
+    }
+
+    private void UpdatePendingSummary(PendingSummary candidate)
+    {
+        if (_pendingSummary == null || candidate.Priority > _pendingSummary.Value.Priority)
+        {
+            _pendingSummary = candidate;
+        }
+    }
+
+    private void EmitDeduped(string message)
+    {
+        var now = DateTime.UtcNow;
+        TrimExpiredEntries(now);
+
+        if (_lastEmittedAtUtc.TryGetValue(message, out var lastEmittedAtUtc)
+            && now - lastEmittedAtUtc < DedupWindow)
+        {
+            return;
+        }
+
+        _lastEmittedAtUtc[message] = now;
+        _writeMessage(message);
+    }
+
+    private void TrimExpiredEntries(DateTime now)
+    {
+        if (_lastEmittedAtUtc.Count == 0)
+            return;
+
+        var expiredKeys = _lastEmittedAtUtc
+            .Where(kvp => now - kvp.Value >= DedupWindow)
+            .Select(kvp => kvp.Key)
+            .ToList();
+
+        foreach (var key in expiredKeys)
+        {
+            _lastEmittedAtUtc.Remove(key);
+        }
+    }
+
+    private static bool TryExtractSummary(string line, out PendingSummary summary)
+    {
+        if (TryMatchSummary(JsonErrorRegex, line, priority: 3, out summary))
+            return true;
+
+        if (TryMatchSummary(ApiErrorRegex, line, priority: 2, out summary))
+            return true;
+
+        if (TryMatchSummary(HttpStatusRegex, line, priority: 1, out summary))
+            return true;
+
+        summary = default;
+        return false;
+    }
+
+    private static bool TryMatchSummary(Regex regex, string line, int priority, out PendingSummary summary)
+    {
+        var match = regex.Match(line);
+        if (!match.Success)
+        {
+            summary = default;
+            return false;
+        }
+
+        var code = match.Groups["code"].Value.Trim();
+        var message = NormalizeWhitespace(match.Groups["message"].Value);
+        if (string.IsNullOrWhiteSpace(code) || string.IsNullOrWhiteSpace(message))
+        {
+            summary = default;
+            return false;
+        }
+
+        summary = new PendingSummary(code, message, priority);
+        return true;
+    }
+
+    private static bool IsTopLevelLiteLlmError(string line)
+    {
+        return line.Contains("LiteLLM Proxy:ERROR:", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static bool IsRequestAccessLog(string line)
+    {
+        return RequestAccessLogRegex.IsMatch(line);
+    }
+
+    private static bool IsErrorMarker(string line)
+    {
+        return line.Contains("Traceback (most recent call last):", StringComparison.OrdinalIgnoreCase)
+            || line.Contains("The above exception was the direct cause", StringComparison.OrdinalIgnoreCase)
+            || line.Contains("During handling of the above exception", StringComparison.OrdinalIgnoreCase)
+            || line.Contains("ServiceUnavailableError", StringComparison.OrdinalIgnoreCase)
+            || line.Contains("APIError", StringComparison.OrdinalIgnoreCase)
+            || line.Contains("HTTPStatusError", StringComparison.OrdinalIgnoreCase)
+            || line.Contains("VertexAIError", StringComparison.OrdinalIgnoreCase)
+            || line.Contains("GeminiException", StringComparison.OrdinalIgnoreCase)
+            || line.Contains("count_tokens()", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static string NormalizeWhitespace(string value)
+    {
+        return Regex.Replace(value, "\\s+", " ").Trim().TrimEnd('.');
+    }
+
+    private readonly record struct PendingSummary(string Code, string Message, int Priority);
 }

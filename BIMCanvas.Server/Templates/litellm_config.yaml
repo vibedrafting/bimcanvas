@@ -46,6 +46,50 @@ model_list:
       model: openai/gpt-5-mini
       api_key: os.environ/OPENAI_API_KEY
 
+  # Gemini_Sub2API via Gemini native endpoint
+  - model_name: bc-gemini_sub2api-opus
+    litellm_params:
+      model: gemini/gemini-3.1-pro-preview
+      api_base: https://css.youngala.com/v1beta
+      api_key: sk-715fca35f0d602ed381e2a43e48797ba257dd0b0114cc78af0fad63124d8e499
+  - model_name: bc-gemini_sub2api-sonnet
+    litellm_params:
+      model: gemini/gemini-3-flash-preview
+      api_base: https://css.youngala.com/v1beta
+      api_key: sk-715fca35f0d602ed381e2a43e48797ba257dd0b0114cc78af0fad63124d8e499
+  - model_name: bc-gemini_sub2api-haiku
+    litellm_params:
+      model: gemini/gemini-3-flash-preview
+      api_base: https://css.youngala.com/v1beta
+      api_key: sk-715fca35f0d602ed381e2a43e48797ba257dd0b0114cc78af0fad63124d8e499
+  - model_name: bc-gemini_sub2api-subagent
+    litellm_params:
+      model: gemini/gemini-3-flash-preview
+      api_base: https://css.youngala.com/v1beta
+      api_key: sk-715fca35f0d602ed381e2a43e48797ba257dd0b0114cc78af0fad63124d8e499
+
+  # Gemini_YesCode via Gemini native endpoint
+  - model_name: bc-gemini_yescode-opus
+    litellm_params:
+      model: gemini/gemini-3.1-pro-preview
+      api_base: https://co.yes.vg/gemini
+      api_key: cr_2bee0f94e10f9a1857c94b8ee2c98ccc1ff815658d8ac673de87716af012ac09
+  - model_name: bc-gemini_yescode-sonnet
+    litellm_params:
+      model: gemini/gemini-3-flash-preview
+      api_base: https://co.yes.vg/gemini
+      api_key: cr_2bee0f94e10f9a1857c94b8ee2c98ccc1ff815658d8ac673de87716af012ac09
+  - model_name: bc-gemini_yescode-haiku
+    litellm_params:
+      model: gemini/gemini-3-flash-preview
+      api_base: https://co.yes.vg/gemini
+      api_key: cr_2bee0f94e10f9a1857c94b8ee2c98ccc1ff815658d8ac673de87716af012ac09
+  - model_name: bc-gemini_yescode-subagent
+    litellm_params:
+      model: gemini/gemini-3-flash-preview
+      api_base: https://co.yes.vg/gemini
+      api_key: cr_2bee0f94e10f9a1857c94b8ee2c98ccc1ff815658d8ac673de87716af012ac09
+
   # Vertex AI
   - model_name: bc-vertex_ai-opus
     litellm_params:
