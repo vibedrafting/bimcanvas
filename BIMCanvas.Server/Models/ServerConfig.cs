@@ -79,7 +79,7 @@ public class LiteLlmSection
     public string ActiveProvider { get; set; } = "anthropic";
 
     /// <summary>
-    /// 默认模型家族（opus/sonnet/haiku）
+    /// LiteLLM 模式下的默认模型家族（opus/sonnet/haiku）
     /// </summary>
     public string DefaultModelFamily { get; set; } = "sonnet";
 

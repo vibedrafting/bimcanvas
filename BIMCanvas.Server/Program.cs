@@ -456,10 +456,10 @@ var liteLlmReady = !config.LiteLlm.Enabled;
             };
             // 设置环境变量确保 Python 输出 UTF-8
             agentProcess.StartInfo.Environment["PYTHONIOENCODING"] = "utf-8";
-            agentProcess.StartInfo.Environment["AGENT_LITELLM_ENABLED"] = config.LiteLlm.Enabled ? "true" : "false";
             if (config.LiteLlm.Enabled)
             {
                 var activeProvider = NormalizeProviderName(config.LiteLlm.ActiveProvider);
+                // LiteLLM 模式下，默认模型真源来自 server_config.json > liteLlm.defaultModelFamily。
                 var defaultModelFamily = NormalizeModelFamily(config.LiteLlm.DefaultModelFamily);
                 var gatewayUrl = $"http://{config.LiteLlm.Host}:{config.LiteLlm.Port}";
                 if (!agentProcess.StartInfo.Environment.TryGetValue("AGENT_SDK_API_KEY", out var existingAgentSdkApiKey)

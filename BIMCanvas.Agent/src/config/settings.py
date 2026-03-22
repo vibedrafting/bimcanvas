@@ -20,8 +20,9 @@ class Settings:
     Application settings
 
     配置来源：
-    - liteLlmEnabled=false: base_url / api_key 来自 config.json
-    - liteLlmEnabled=true:  base_url / api_key 必须来自 LiteLLM 运行时环境变量
+    - 直连模式：base_url / api_key / model 来自 config.json
+    - LiteLLM 模式：base_url / api_key 来自 Server 注入的网关环境变量，
+      默认模型来自 Server 注入的 MODEL_NAME
 
     环境变量说明（与 Claude Code 隔离）：
     - AGENT_SDK_API_KEY: Agent SDK 专用 API Key
@@ -30,7 +31,6 @@ class Settings:
 
     anthropic_api_key: str
     base_url: str
-    lite_llm_enabled: bool
     model_name: str
     default_effort: str              # "low"/"medium"/"high"/"max", 默认 "medium"
     default_thinking: str            # "off"/"adaptive", 默认 "off"
@@ -50,7 +50,6 @@ class Settings:
         # 从配置文件读取
         direct_api_key = config.get('apiKey', '')
         direct_base_url = config.get('baseUrl', '')
-        lite_llm_enabled = _resolve_litellm_enabled(config)
         model = config.get('model', 'claude-sonnet-4-20250514')
         default_effort = config.get('defaultEffort', 'medium')
         default_thinking = config.get('defaultThinking', 'off')
@@ -59,8 +58,9 @@ class Settings:
         tools = config.get('tools', ['Read', 'Glob', 'Grep', 'Task'])
         host = server.get('host', '127.0.0.1')
         port = server.get('port', 8865)
+        lite_llm_managed = _is_litellm_managed_mode()
 
-        if lite_llm_enabled:
+        if lite_llm_managed:
             api_key = os.getenv('AGENT_SDK_API_KEY', '').strip()
             base_url = os.getenv('AGENT_SDK_BASE_URL', '').strip()
 
@@ -73,19 +73,19 @@ class Settings:
             if missing_vars:
                 missing_vars_display = ', '.join(missing_vars)
                 raise ValueError(
-                    "LiteLLM 托管模式已开启，但缺少运行时环境变量: "
+                    "检测到 LiteLLM 托管环境变量，但缺少必需项: "
                     f"{missing_vars_display}"
                 )
+
+            env_model = os.getenv('MODEL_NAME', '').strip()
+            if env_model:
+                logger.info(f"环境变量覆盖模型: {env_model}")
+                model = env_model
+            else:
+                logger.info(f"使用配置模型: {model}")
         else:
             api_key = direct_api_key
             base_url = direct_base_url
-
-        # Model: MODEL_NAME > config.json
-        env_model = os.getenv('MODEL_NAME')
-        if env_model:
-            logger.info(f"环境变量覆盖模型: {env_model}")
-            model = env_model
-        else:
             logger.info(f"使用配置模型: {model}")
 
         env_thinking_tokens = os.getenv('MAX_THINKING_TOKENS')
@@ -98,7 +98,6 @@ class Settings:
         return cls(
             anthropic_api_key=api_key,
             base_url=base_url,
-            lite_llm_enabled=lite_llm_enabled,
             model_name=model,
             max_thinking_tokens=max_thinking_tokens,
             default_effort=default_effort,
@@ -116,31 +115,8 @@ def get_settings() -> Settings:
     return Settings.load()
 
 
-def _resolve_litellm_enabled(config: dict) -> bool:
-    env_value = os.getenv('AGENT_LITELLM_ENABLED')
-    if env_value is not None:
-        parsed_env = _parse_bool_value(env_value)
-        if parsed_env is not None:
-            return parsed_env
-        logger.warning(f"环境变量 AGENT_LITELLM_ENABLED 值无效: {env_value}，回退到 config.json")
-
-    parsed_config = _parse_bool_value(config.get('liteLlmEnabled', False))
-    return False if parsed_config is None else parsed_config
-
-
-def _parse_bool_value(value) -> bool | None:
-    if isinstance(value, bool):
-        return value
-    if isinstance(value, (int, float)):
-        if value == 1:
-            return True
-        if value == 0:
-            return False
-        return None
-    if isinstance(value, str):
-        normalized = value.strip().lower()
-        if normalized in {'1', 'true', 'yes', 'on'}:
-            return True
-        if normalized in {'0', 'false', 'no', 'off'}:
-            return False
-    return None
+def _is_litellm_managed_mode() -> bool:
+    """通过 Server 注入的网关环境变量判断是否处于 LiteLLM 托管模式。"""
+    api_key = os.getenv('AGENT_SDK_API_KEY', '').strip()
+    base_url = os.getenv('AGENT_SDK_BASE_URL', '').strip()
+    return bool(api_key or base_url)

@@ -52,10 +52,9 @@ cp .env.example .env
 **方式一：随 Server 自动启动（推荐）**
 
 Agent 会在 BIMCanvas.Server 启动时自动启动，无需手动操作。
-在该模式下，Server 会注入 `AGENT_LITELLM_ENABLED`、`AGENT_SDK_BASE_URL`、`AGENT_SDK_API_KEY`、
-`MODEL_NAME` 以及 Claude Code 家族模型映射环境变量，默认把主模型、background requests、
-subagent 请求都指向 LiteLLM 网关；同时会把 `~/.bimcanvas/config.json` 中的 `liteLlmEnabled`
-同步为 `true`。
+当 `Documents/BIMCanvas/server_config.json > liteLlm.enabled=true` 时，Server 会注入
+`AGENT_SDK_BASE_URL`、`AGENT_SDK_API_KEY`、`MODEL_NAME` 以及 Claude Code 家族模型映射环境变量，
+默认把主模型、background requests、subagent 请求都指向 LiteLLM 网关。
 
 **方式二：HTTP 服务模式（独立运行）**
 
@@ -447,13 +446,17 @@ BIMCanvas.Agent/
     └── layout-agent.md    # SubAgent 配置（YAML frontmatter + 提示词）
 ```
 
-**配置优先级**：环境变量 > config.json
+**配置原则**：
+
+- 直连模式：`~/.bimcanvas/config.json` 是连接参数和默认模型的真源。
+- LiteLLM 模式：连接参数来自 Server 注入的 `AGENT_SDK_BASE_URL` / `AGENT_SDK_API_KEY`，
+  默认模型来自 `Documents/BIMCanvas/server_config.json > liteLlm.defaultModelFamily`
+  并通过 `MODEL_NAME` 注入给 Agent。
 
 #### config.json 格式
 
 ```json
 {
-  "liteLlmEnabled": false,
   "baseUrl": "https://your-direct-provider.example/v1",
   "apiKey": "your-direct-api-key",
   "model": "claude-opus-4-6",
@@ -470,8 +473,9 @@ BIMCanvas.Agent/
 
 #### 直连模式与 LiteLLM 托管模式
 
-- `liteLlmEnabled=false`：Agent 使用 `config.json` 中的 `baseUrl` 和 `apiKey` 直连下游。
-- `liteLlmEnabled=true`：`config.json` 中的 `baseUrl` 和 `apiKey` 仅保留，不参与当前请求链路；实际连接参数由 Server 注入的 LiteLLM 环境变量托管。
+- 直连模式：Agent 使用 `config.json` 中的 `baseUrl`、`apiKey`、`model` 直连下游。
+- LiteLLM 模式：`config.json` 中的 `baseUrl` 和 `apiKey` 仅保留，不参与当前请求链路；实际连接参数由 Server 注入的 LiteLLM 网关环境变量托管。
+- LiteLLM 模式下的默认模型真源不是 `config.json.model`，而是 `server_config.json > liteLlm.defaultModelFamily`。
 
 #### permissions 字段说明
 
@@ -482,7 +486,10 @@ BIMCanvas.Agent/
 | `allow` | 白名单：只允许使用列出的工具 |
 | `deny` | 黑名单：禁止使用列出的工具 |
 
-**注意**：`baseUrl` / `apiKey` 是“直连模式”配置；启用 LiteLLM 托管后，它们不会被覆盖删除，但会暂时失效。
+**注意**：
+
+- `baseUrl` / `apiKey` 是“直连模式”配置；启用 LiteLLM 托管后，它们不会被覆盖删除，但会暂时失效。
+- 旧版 `config.json` 中若仍存在 `liteLlmEnabled`，Agent 启动时会自动清理该过时字段。
 
 #### SubAgent 配置格式 (agents/*.md)
 
@@ -501,10 +508,9 @@ model: inherit
 
 | 环境变量 | 说明 |
 |----------|------|
-| `AGENT_LITELLM_ENABLED` | 当前是否使用 LiteLLM 托管模式（通常由 Server 注入） |
-| `AGENT_SDK_API_KEY` | LiteLLM 托管模式下的 Agent SDK API Key |
-| `AGENT_SDK_BASE_URL` | LiteLLM 托管模式下的 Agent SDK Base URL |
-| `MODEL_NAME` | 覆盖模型名称 |
+| `AGENT_SDK_API_KEY` | LiteLLM 模式下的 Agent SDK API Key |
+| `AGENT_SDK_BASE_URL` | LiteLLM 模式下的 Agent SDK Base URL |
+| `MODEL_NAME` | LiteLLM 模式下覆盖默认模型家族（由 Server 注入） |
 | `ANTHROPIC_DEFAULT_OPUS_MODEL` | 覆盖 Claude Code 的 `opus` 家族映射 |
 | `ANTHROPIC_DEFAULT_SONNET_MODEL` | 覆盖 Claude Code 的 `sonnet` 家族映射 |
 | `ANTHROPIC_DEFAULT_HAIKU_MODEL` | 覆盖 Claude Code 的 `haiku` / background 映射 |
@@ -512,7 +518,7 @@ model: inherit
 | `SERVER_HOST` | 覆盖服务地址 |
 | `SERVER_PORT` | 覆盖服务端口 |
 
-**说明**：当 Agent 由 BIMCanvas.Server 托管启动时，LiteLLM 模式相关环境变量通常都由 Server 注入，无需手工写入 `.env`。
+**说明**：当 Agent 由 BIMCanvas.Server 托管启动且 `liteLlm.enabled=true` 时，上述 LiteLLM 模式相关环境变量通常都由 Server 注入，无需手工写入 `.env`。直连模式下，Agent 会忽略 `MODEL_NAME`，默认模型以 `config.json.model` 为准。
 
 ## 开发状态
 

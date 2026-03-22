@@ -43,6 +43,8 @@ Server 默认托管 LiteLLM，用于给 Claude Code / Agent SDK 提供统一的 
 
 - 启动命令由 Server 自动执行：`python -m litellm --config Documents/BIMCanvas/litellm_config.yaml --host 127.0.0.1 --port 4000`
 - 当前供应商通过 `Documents/BIMCanvas/server_config.json > liteLlm.activeProvider` 切换
+- LiteLLM 模式下的默认模型家族通过 `Documents/BIMCanvas/server_config.json > liteLlm.defaultModelFamily` 指定，并由 Server 注入 Agent 的 `MODEL_NAME`
+- 当 `liteLlm.enabled=false` 时，不启动 LiteLLM / ProviderAdapter，Agent 默认模型回退到 `~/.bimcanvas/config.json > model`
 - 切换供应商后需要重启 Server，LiteLLM 与 Agent 会一起重建
 - `Documents/BIMCanvas/litellm_config.yaml` 只提供模板，不会覆盖已存在的用户配置
 - 如果 LiteLLM 不可用，Server 与 Web 仍会启动，但 AI 请求会在运行时失败并输出明确日志
