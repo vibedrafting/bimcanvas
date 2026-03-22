@@ -6,5 +6,15 @@
     "defaultProject": "demos/金凤143.bcp",
     "openBrowser": true,
     "browserPath": null
+  },
+  "liteLlm": {
+    "enabled": true,
+    "autoStart": true,
+    "host": "127.0.0.1",
+    "port": 4000,
+    "pythonCommand": "python",
+    "activeProvider": "anthropic",
+    "defaultModelFamily": "sonnet",
+    "configFileName": "litellm_config.yaml"
   }
 }

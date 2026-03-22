@@ -52,6 +52,8 @@ cp .env.example .env
 **方式一：随 Server 自动启动（推荐）**
 
 Agent 会在 BIMCanvas.Server 启动时自动启动，无需手动操作。
+在该模式下，Server 会注入 `AGENT_SDK_BASE_URL`、`MODEL_NAME` 以及 Claude Code 家族模型映射环境变量，
+默认把主模型、background requests、subagent 请求都指向 LiteLLM 网关。
 
 **方式二：HTTP 服务模式（独立运行）**
 
@@ -492,8 +494,14 @@ model: inherit
 | `AGENT_SDK_API_KEY` | Anthropic API 密钥（必填，与 Claude Code 环境隔离） |
 | `AGENT_SDK_BASE_URL` | 自定义 API 基础 URL（可选） |
 | `MODEL_NAME` | 覆盖模型名称 |
+| `ANTHROPIC_DEFAULT_OPUS_MODEL` | 覆盖 Claude Code 的 `opus` 家族映射 |
+| `ANTHROPIC_DEFAULT_SONNET_MODEL` | 覆盖 Claude Code 的 `sonnet` 家族映射 |
+| `ANTHROPIC_DEFAULT_HAIKU_MODEL` | 覆盖 Claude Code 的 `haiku` / background 映射 |
+| `CLAUDE_CODE_SUBAGENT_MODEL` | 覆盖 Claude Code 的 SubAgent 模型映射 |
 | `SERVER_HOST` | 覆盖服务地址 |
 | `SERVER_PORT` | 覆盖服务端口 |
+
+**说明**：当 Agent 由 BIMCanvas.Server 托管启动时，这些模型映射变量通常由 Server 注入，无需手工写入 `.env`。
 
 ## 开发状态
 

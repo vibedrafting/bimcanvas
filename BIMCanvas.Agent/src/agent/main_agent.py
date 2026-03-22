@@ -2,6 +2,7 @@
 
 import asyncio
 import logging
+import os
 import re
 from typing import AsyncIterator
 from dataclasses import dataclass
@@ -172,6 +173,16 @@ class MainAgent:
             custom_env["ANTHROPIC_BASE_URL"] = settings.base_url
         if settings.anthropic_api_key:
             custom_env["ANTHROPIC_API_KEY"] = settings.anthropic_api_key
+        # 透传 Claude Code 模型映射环境变量，覆盖后台小模型与 SubAgent 请求
+        for env_name in (
+            "ANTHROPIC_DEFAULT_OPUS_MODEL",
+            "ANTHROPIC_DEFAULT_SONNET_MODEL",
+            "ANTHROPIC_DEFAULT_HAIKU_MODEL",
+            "CLAUDE_CODE_SUBAGENT_MODEL",
+        ):
+            env_val = os.getenv(env_name)
+            if env_val:
+                custom_env[env_name] = env_val
 
         # effort: "off"→None, 其他直传
         sdk_effort = None if effort == "off" else (effort or settings.default_effort)

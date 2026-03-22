@@ -26,6 +26,7 @@
     <Content Include="Templates\.gitignore" CopyToOutputDirectory="PreserveNewest" />
     <None Include="Templates\**\*.md" CopyToOutputDirectory="PreserveNewest" />
     <None Include="Templates\**\*.svg" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="Templates\**\*.yaml" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
   <!-- 示例项目文件：发布时复制到 publish/demos -->

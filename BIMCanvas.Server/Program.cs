@@ -85,6 +85,13 @@ builder.Logging.AddServerConsoleFormatter();
 // 加载用户配置（提前到 DI 注册前，供 AgentClientService 等服务使用）
 ConfigService.EnsureDefaultConfigs();
 var config = ConfigService.Load();
+var pythonCommand = string.IsNullOrWhiteSpace(config.LiteLlm.PythonCommand)
+    ? "python"
+    : config.LiteLlm.PythonCommand.Trim();
+var liteLlmConfigPath = Path.Combine(
+    ConfigService.GetConfigDir(),
+    string.IsNullOrWhiteSpace(config.LiteLlm.ConfigFileName) ? "litellm_config.yaml" : config.LiteLlm.ConfigFileName
+);
 
 // 注册配置 + Agent HTTP 客户端
 builder.Services.AddSingleton(config);
@@ -185,6 +192,7 @@ WriteWithColoredPrefix("[Server]", "空启动模式，等待用户选择项目",
 
 // ─── 环境检测阶段 ───
 var agentReady = true;
+var liteLlmReady = !config.LiteLlm.Enabled;
 {
     var baseDir = AppContext.BaseDirectory;
     var agentDir = FindAgentProjectPath(baseDir);
@@ -196,15 +204,32 @@ var agentReady = true;
         WriteWithColoredPrefix("[Server:WARN]", $"Agent 项目目录不存在: {agentDir}", ConsoleColor.DarkYellow);
         agentReady = false;
     }
-    else if (!IsPythonAvailable())
+    else if (!IsPythonAvailable(pythonCommand))
     {
         WriteWithColoredPrefix("[Server:WARN]", "未检测到 Python，Agent 服务将不启动", ConsoleColor.DarkYellow);
         WriteWithColoredPrefix("[Server:WARN]", "提示: 请安装 Python 3.10+ 并添加到 PATH", ConsoleColor.DarkYellow);
         agentReady = false;
     }
-    else if (!IsAgentDependencyReady())
+    else if (!IsAgentDependencyReady(pythonCommand))
     {
-        agentReady = TryInstallAgentDependencies(agentDir);
+        agentReady = TryInstallAgentDependencies(agentDir, pythonCommand);
+    }
+
+    if (config.LiteLlm.Enabled && IsPythonAvailable(pythonCommand))
+    {
+        if (!File.Exists(liteLlmConfigPath))
+        {
+            WriteWithColoredPrefix("[Server:WARN]", $"LiteLLM 配置模板缺失: {liteLlmConfigPath}", ConsoleColor.DarkYellow);
+        }
+
+        if (!IsLiteLlmReady(pythonCommand))
+        {
+            liteLlmReady = TryInstallLiteLlmDependencies(pythonCommand);
+        }
+        else
+        {
+            liteLlmReady = true;
+        }
     }
 
     // 检测 Playwright Chromium（Server 自身依赖，不影响启动）
@@ -222,10 +247,49 @@ var agentReady = true;
     var baseDir = AppContext.BaseDirectory;
     var agentProjectPath = FindAgentProjectPath(baseDir);
     var webProjectPath = FindWebProjectPath(baseDir);
+    Process? liteLlmProcess = null;
     Process? agentProcess = null;
     Process? webProcess = null;
 
-    // 1. 启动 Agent 服务（不等待，后台运行）
+    // 1. 启动 LiteLLM（如果启用）
+    if (config.LiteLlm.Enabled)
+    {
+        if (config.LiteLlm.AutoStart && liteLlmReady)
+        {
+            if (IsPortOccupied(config.LiteLlm.Port, out var occupyingPid))
+            {
+                if (IsLiteLlmProcess(occupyingPid))
+                {
+                    WriteWithColoredPrefix("[Server]", $"清理残留 LiteLLM 进程 (PID: {occupyingPid})...", ConsoleColor.White);
+                    KillProcess(occupyingPid);
+                    Thread.Sleep(500);
+                }
+                else
+                {
+                    WriteWithColoredPrefix("[Server:WARN]", $"LiteLLM 端口 {config.LiteLlm.Port} 被其他进程占用 (PID: {occupyingPid})", ConsoleColor.DarkYellow);
+                    WriteWithColoredPrefix("[Server:WARN]", "LiteLLM 将尝试继续启动，若失败请手动处理端口占用", ConsoleColor.DarkYellow);
+                }
+            }
+
+            WriteWithColoredPrefix("[Server]", "LiteLLM 服务启动中...", ConsoleColor.White);
+            liteLlmProcess = StartLiteLlmProcess(config, liteLlmConfigPath, pythonCommand);
+        }
+        else if (!config.LiteLlm.AutoStart)
+        {
+            WriteWithColoredPrefix("[Server]", "LiteLLM 自动启动已禁用，默认依赖外部手工启动", ConsoleColor.DarkYellow);
+        }
+        else
+        {
+            WriteWithColoredPrefix("[Server:WARN]", "LiteLLM 未就绪，跳过自动启动", ConsoleColor.DarkYellow);
+        }
+    }
+
+    if (config.LiteLlm.Enabled && (!config.LiteLlm.AutoStart || liteLlmProcess == null))
+    {
+        WriteWithColoredPrefix("[Server:WARN]", "Agent 仍将指向 LiteLLM 网关，若网关不可用，后续 AI 请求会明确失败", ConsoleColor.DarkYellow);
+    }
+
+    // 2. 启动 Agent 服务（不等待，后台运行）
     if (agentReady)
     {
         // 读取 Agent 端口配置
@@ -256,7 +320,7 @@ var agentReady = true;
             {
                 StartInfo = new ProcessStartInfo
                 {
-                    FileName = "python",
+                    FileName = pythonCommand,
                     Arguments = "-m src.main --serve",
                     WorkingDirectory = agentProjectPath,
                     UseShellExecute = false,
@@ -269,6 +333,18 @@ var agentReady = true;
             };
             // 设置环境变量确保 Python 输出 UTF-8
             agentProcess.StartInfo.Environment["PYTHONIOENCODING"] = "utf-8";
+            if (config.LiteLlm.Enabled)
+            {
+                var activeProvider = NormalizeProviderName(config.LiteLlm.ActiveProvider);
+                var defaultModelFamily = NormalizeModelFamily(config.LiteLlm.DefaultModelFamily);
+                var gatewayUrl = $"http://{config.LiteLlm.Host}:{config.LiteLlm.Port}";
+                agentProcess.StartInfo.Environment["AGENT_SDK_BASE_URL"] = gatewayUrl;
+                agentProcess.StartInfo.Environment["MODEL_NAME"] = defaultModelFamily;
+                agentProcess.StartInfo.Environment["ANTHROPIC_DEFAULT_OPUS_MODEL"] = $"bc-{activeProvider}-opus";
+                agentProcess.StartInfo.Environment["ANTHROPIC_DEFAULT_SONNET_MODEL"] = $"bc-{activeProvider}-sonnet";
+                agentProcess.StartInfo.Environment["ANTHROPIC_DEFAULT_HAIKU_MODEL"] = $"bc-{activeProvider}-haiku";
+                agentProcess.StartInfo.Environment["CLAUDE_CODE_SUBAGENT_MODEL"] = $"bc-{activeProvider}-subagent";
+            }
             agentProcess.Start();
 
             // 后台读取 Agent 输出（避免缓冲区阻塞）
@@ -298,7 +374,7 @@ var agentReady = true;
         }
     }
 
-    // 2. 启动 Web 服务（不等待，后台运行）
+    // 3. 启动 Web 服务（不等待，后台运行）
     if (Directory.Exists(webProjectPath))
     {
         WriteWithColoredPrefix("[Server]", "Web 开发服务器启动中...", ConsoleColor.White);
@@ -347,7 +423,7 @@ var agentReady = true;
         WriteWithColoredPrefix("[Server:ERR]", $"Web 项目目录不存在: {webProjectPath}", ConsoleColor.DarkGray);
     }
 
-    // 3. 等待 Web 服务就绪后打开浏览器（Agent 在后台继续启动，Web 端通过 health 检查感知状态）
+    // 4. 等待 Web 服务就绪后打开浏览器（Agent 在后台继续启动，Web 端通过 health 检查感知状态）
     if (webProcess != null)
     {
         WriteWithColoredPrefix("[Server]", "等待 Web 服务启动...", ConsoleColor.White);
@@ -392,7 +468,7 @@ var agentReady = true;
         }
     }
 
-    // 4. 注册退出时清理进程和 Worktree
+    // 5. 注册退出时清理进程和 Worktree
     AppDomain.CurrentDomain.ProcessExit += (s, e) =>
     {
         // ① 先关闭 Agent（释放 CWD 文件锁）
@@ -419,7 +495,14 @@ var agentReady = true;
             WriteWithColoredPrefix("[Server:ERR]", $"Worktree 清理失败: {ex.Message}", ConsoleColor.DarkGray);
         }
 
-        // ③ 最后关闭 Web
+        // ③ 关闭 LiteLLM
+        if (liteLlmProcess != null && !liteLlmProcess.HasExited)
+        {
+            WriteWithColoredPrefix("[Server]", "正在关闭 LiteLLM 服务...", ConsoleColor.White);
+            liteLlmProcess.Kill(true);
+        }
+
+        // ④ 最后关闭 Web
         if (webProcess != null && !webProcess.HasExited)
         {
             WriteWithColoredPrefix("[Server]", "正在关闭 Web 开发服务器...", ConsoleColor.White);
@@ -435,13 +518,13 @@ app.Run();
 // ─────────────────────────────────────────────────────────────────────────────
 
 // 辅助函数：检测 Python 是否可用
-static bool IsPythonAvailable()
+static bool IsPythonAvailable(string pythonCommand)
 {
     try
     {
         var psi = new ProcessStartInfo
         {
-            FileName = "python",
+            FileName = pythonCommand,
             Arguments = "--version",
             RedirectStandardOutput = true,
             RedirectStandardError = true,
@@ -460,13 +543,13 @@ static bool IsPythonAvailable()
 }
 
 // 辅助函数：检测 Agent 核心依赖是否就绪
-static bool IsAgentDependencyReady()
+static bool IsAgentDependencyReady(string pythonCommand)
 {
     try
     {
         var psi = new ProcessStartInfo
         {
-            FileName = "python",
+            FileName = pythonCommand,
             Arguments = "-c \"import claude_agent_sdk\"",
             RedirectStandardOutput = true,
             RedirectStandardError = true,
@@ -485,7 +568,7 @@ static bool IsAgentDependencyReady()
 }
 
 // 辅助函数：交互式安装 Agent 依赖（返回 true = 安装成功）
-static bool TryInstallAgentDependencies(string agentProjectPath)
+static bool TryInstallAgentDependencies(string agentProjectPath, string pythonCommand)
 {
     WriteWithColoredPrefix("[Server]", "检测到 Agent 依赖缺失", ConsoleColor.DarkYellow);
     Console.Write($"[{DateTime.Now:HH:mm:ss}] ");
@@ -508,7 +591,7 @@ static bool TryInstallAgentDependencies(string agentProjectPath)
     {
         var psi = new ProcessStartInfo
         {
-            FileName = "python",
+            FileName = pythonCommand,
             Arguments = "-m pip install -e .",
             WorkingDirectory = agentProjectPath,
             UseShellExecute = false,
@@ -584,6 +667,236 @@ static bool TryInstallAgentDependencies(string agentProjectPath)
         WriteWithColoredPrefix("[Server:ERR]", $"依赖安装异常: {ex.Message}", ConsoleColor.DarkGray);
         return false;
     }
+}
+
+// 辅助函数：检测 LiteLLM 是否可用
+static bool IsLiteLlmReady(string pythonCommand)
+{
+    try
+    {
+        var psi = new ProcessStartInfo
+        {
+            FileName = pythonCommand,
+            Arguments = "-m litellm --help",
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+            UseShellExecute = false,
+            CreateNoWindow = true
+        };
+
+        using var process = Process.Start(psi);
+        if (process == null) return false;
+        process.WaitForExit(10000);
+        return process.ExitCode == 0;
+    }
+    catch
+    {
+        return false;
+    }
+}
+
+// 辅助函数：交互式安装 LiteLLM 依赖（返回 true = 安装成功）
+static bool TryInstallLiteLlmDependencies(string pythonCommand)
+{
+    WriteWithColoredPrefix("[Server]", "检测到 LiteLLM 依赖缺失", ConsoleColor.DarkYellow);
+    Console.Write($"[{DateTime.Now:HH:mm:ss}] ");
+    Console.ForegroundColor = ConsoleColor.DarkYellow;
+    Console.Write("[Server]");
+    Console.ResetColor();
+    Console.Write(" 是否自动安装 LiteLLM 依赖？(Y/n): ");
+    var input = Console.ReadLine()?.Trim().ToLower();
+
+    if (!string.IsNullOrEmpty(input) && input != "y" && input != "yes")
+    {
+        WriteWithColoredPrefix("[Server]", "跳过安装，LiteLLM 将不可用", ConsoleColor.DarkYellow);
+        return false;
+    }
+
+    WriteWithColoredPrefix("[Server]", "正在安装 LiteLLM 依赖 (pip install \"litellm[proxy]\")...", ConsoleColor.White);
+
+    try
+    {
+        var psi = new ProcessStartInfo
+        {
+            FileName = pythonCommand,
+            Arguments = "-m pip install \"litellm[proxy]\"",
+            UseShellExecute = false,
+            CreateNoWindow = true,
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+            StandardOutputEncoding = Encoding.UTF8,
+            StandardErrorEncoding = Encoding.UTF8
+        };
+
+        using var process = Process.Start(psi);
+        if (process == null)
+        {
+            WriteWithColoredPrefix("[Server:ERR]", "无法启动 LiteLLM pip 进程", ConsoleColor.DarkGray);
+            return false;
+        }
+
+        var cts = new CancellationTokenSource();
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                while (!cts.Token.IsCancellationRequested)
+                {
+                    var line = await process.StandardOutput.ReadLineAsync();
+                    if (line == null) break;
+                    if (!string.IsNullOrEmpty(line))
+                        WriteWithColoredPrefix("[pip]", line, ConsoleColor.DarkMagenta);
+                }
+            }
+            catch { }
+        });
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                while (!cts.Token.IsCancellationRequested)
+                {
+                    var line = await process.StandardError.ReadLineAsync();
+                    if (line == null) break;
+                    if (!string.IsNullOrEmpty(line))
+                        WriteWithColoredPrefix("[pip]", line, ConsoleColor.DarkMagenta);
+                }
+            }
+            catch { }
+        });
+
+        var completed = process.WaitForExit(600_000);
+        if (!completed)
+        {
+            WriteWithColoredPrefix("[Server:ERR]", "LiteLLM 依赖安装超时（10分钟）", ConsoleColor.DarkGray);
+            cts.Cancel();
+            process.Kill(true);
+            return false;
+        }
+
+        if (process.ExitCode == 0)
+        {
+            WriteWithColoredPrefix("[Server]", "LiteLLM 依赖安装成功", ConsoleColor.White);
+            return true;
+        }
+
+        WriteWithColoredPrefix("[Server:ERR]", $"LiteLLM 依赖安装失败 (exit code: {process.ExitCode})", ConsoleColor.DarkGray);
+        return false;
+    }
+    catch (Exception ex)
+    {
+        WriteWithColoredPrefix("[Server:ERR]", $"LiteLLM 依赖安装异常: {ex.Message}", ConsoleColor.DarkGray);
+        return false;
+    }
+}
+
+// 辅助函数：启动 LiteLLM 进程
+static Process? StartLiteLlmProcess(ServerConfig config, string configPath, string pythonCommand)
+{
+    try
+    {
+        var startInfo = BuildLiteLlmStartInfo(config, configPath, pythonCommand);
+        var process = new Process { StartInfo = startInfo };
+        process.Start();
+
+        _ = Task.Run(async () =>
+        {
+            while (!process.HasExited)
+            {
+                var line = await process.StandardOutput.ReadLineAsync();
+                if (!string.IsNullOrEmpty(line))
+                    WriteWithColoredPrefix("[LiteLLM]", line, ConsoleColor.Yellow);
+            }
+        });
+        _ = Task.Run(async () =>
+        {
+            while (!process.HasExited)
+            {
+                var line = await process.StandardError.ReadLineAsync();
+                if (!string.IsNullOrEmpty(line))
+                    WriteWithColoredPrefix("[LiteLLM:ERR]", line, ConsoleColor.DarkYellow);
+            }
+        });
+
+        return process;
+    }
+    catch (Exception ex)
+    {
+        WriteWithColoredPrefix("[Server:ERR]", $"LiteLLM 服务启动失败: {ex.Message}", ConsoleColor.DarkGray);
+        return null;
+    }
+}
+
+// 辅助函数：构建 LiteLLM 启动参数
+static ProcessStartInfo BuildLiteLlmStartInfo(ServerConfig config, string configPath, string pythonCommand)
+{
+    var psi = new ProcessStartInfo
+    {
+        FileName = pythonCommand,
+        Arguments = $"-m litellm --config \"{configPath}\" --host {config.LiteLlm.Host} --port {config.LiteLlm.Port}",
+        UseShellExecute = false,
+        CreateNoWindow = true,
+        RedirectStandardOutput = true,
+        RedirectStandardError = true,
+        StandardOutputEncoding = Encoding.UTF8,
+        StandardErrorEncoding = Encoding.UTF8
+    };
+    psi.Environment["PYTHONIOENCODING"] = "utf-8";
+    return psi;
+}
+
+// 辅助函数：验证进程是否为 LiteLLM
+static bool IsLiteLlmProcess(int pid)
+{
+    try
+    {
+        var process = Process.GetProcessById(pid);
+        var processName = process.ProcessName.ToLowerInvariant();
+        if (!processName.Contains("python"))
+            return false;
+
+        string cmdLine;
+        if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
+        {
+            cmdLine = GetCommandLineWindows(pid);
+        }
+        else
+        {
+            cmdLine = GetCommandLineUnix(pid);
+        }
+
+        return cmdLine.Contains("-m litellm", StringComparison.OrdinalIgnoreCase)
+            || cmdLine.Contains("litellm", StringComparison.OrdinalIgnoreCase);
+    }
+    catch (Exception ex)
+    {
+        WriteWithColoredPrefix("[Server:WARN]", $"LiteLLM 进程验证失败: {ex.Message}", ConsoleColor.DarkYellow);
+        return false;
+    }
+}
+
+// 辅助函数：归一化 provider 名称
+static string NormalizeProviderName(string? provider)
+{
+    if (string.IsNullOrWhiteSpace(provider))
+        return "anthropic";
+
+    return provider.Trim().ToLowerInvariant();
+}
+
+// 辅助函数：归一化模型家族名称
+static string NormalizeModelFamily(string? modelFamily)
+{
+    var normalized = string.IsNullOrWhiteSpace(modelFamily)
+        ? "sonnet"
+        : modelFamily.Trim().ToLowerInvariant();
+
+    return normalized switch
+    {
+        "opus" => "opus",
+        "haiku" => "haiku",
+        _ => "sonnet"
+    };
 }
 
 // 辅助函数：检测 Playwright Chromium 是否已安装

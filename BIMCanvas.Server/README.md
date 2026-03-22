@@ -20,9 +20,12 @@ dotnet run --project BIMCanvas.Server
 ### 启动行为
 
 1. 启动 HTTP 服务器（http://localhost:5000）
-2. 自动查找并启动 Web 开发服务器（BIMCanvas.Web）
-3. 等待 Web 服务就绪后打开浏览器
-4. **v3.0**：通过 URL 参数 `?project={项目路径}` 加载项目
+2. 检测 Python / Agent / LiteLLM 依赖并按需安装
+3. 自动初始化 `Documents/BIMCanvas/` 下的配置模板（含 LiteLLM）
+4. 自动启动 LiteLLM 网关与 Agent 服务
+5. 自动查找并启动 Web 开发服务器（BIMCanvas.Web）
+6. 等待 Web 服务就绪后打开浏览器
+7. **v3.0**：通过 URL 参数 `?project={项目路径}` 加载项目
 
 ### 配置项
 
@@ -31,6 +34,18 @@ dotnet run --project BIMCanvas.Server
 | API 端口 | `launchSettings.json` | `5000` | REST API 服务端口 |
 | Web 端口 | 自动检测 | `5173` | Vite 开发服务器端口 |
 | 项目目录 | 用户文档 | `Documents/BIMCanvas/Projects/` | v3.0 项目解压目录 |
+| LiteLLM 配置 | `Documents/BIMCanvas/server_config.json` | `enabled=true` | 网关启用、端口、当前供应商 |
+| LiteLLM model_list 模板 | `Documents/BIMCanvas/litellm_config.yaml` | 自动初始化 | 下游 provider / alias 映射 |
+
+### LiteLLM 网关
+
+Server 默认托管 LiteLLM，用于给 Claude Code / Agent SDK 提供统一的 Anthropic 风格入口，再转发到真实下游 provider。
+
+- 启动命令由 Server 自动执行：`python -m litellm --config Documents/BIMCanvas/litellm_config.yaml --host 127.0.0.1 --port 4000`
+- 当前供应商通过 `Documents/BIMCanvas/server_config.json > liteLlm.activeProvider` 切换
+- 切换供应商后需要重启 Server，LiteLLM 与 Agent 会一起重建
+- `Documents/BIMCanvas/litellm_config.yaml` 只提供模板，不会覆盖已存在的用户配置
+- 如果 LiteLLM 不可用，Server 与 Web 仍会启动，但 AI 请求会在运行时失败并输出明确日志
 
 ### JSON 序列化
 

@@ -1,9 +1,8 @@
 {
   "customModels": [
-    { "id": "claude-opus-4-6", "label": "Claude Opus" },
-    { "id": "claude-sonnet-4-6", "label": "Claude Sonnet" },
-    { "id": "gemini-pro", "label": "Gemini Pro" },
-    { "id": "gemini-flash", "label": "Gemini Flash" }
+    { "id": "opus", "label": "Opus" },
+    { "id": "sonnet", "label": "Sonnet" },
+    { "id": "haiku", "label": "Haiku" }
   ],
   "layerPresets": {
     "User": {

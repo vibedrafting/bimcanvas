@@ -1,0 +1,71 @@
+# LiteLLM gateway config for BIMCanvas
+# Reference: https://docs.litellm.ai/
+#
+# Alias convention:
+#   bc-{provider}-opus
+#   bc-{provider}-sonnet
+#   bc-{provider}-haiku
+#   bc-{provider}-subagent
+#
+# Fill in provider credentials with real environment variables before use.
+
+model_list:
+  # Anthropic direct
+  - model_name: bc-anthropic-opus
+    litellm_params:
+      model: anthropic/claude-opus-4-1-20250805
+      api_key: os.environ/ANTHROPIC_API_KEY
+  - model_name: bc-anthropic-sonnet
+    litellm_params:
+      model: anthropic/claude-sonnet-4-5-20250929
+      api_key: os.environ/ANTHROPIC_API_KEY
+  - model_name: bc-anthropic-haiku
+    litellm_params:
+      model: anthropic/claude-3-5-haiku-20241022
+      api_key: os.environ/ANTHROPIC_API_KEY
+  - model_name: bc-anthropic-subagent
+    litellm_params:
+      model: anthropic/claude-sonnet-4-5-20250929
+      api_key: os.environ/ANTHROPIC_API_KEY
+
+  # OpenAI
+  - model_name: bc-openai-opus
+    litellm_params:
+      model: openai/gpt-5
+      api_key: os.environ/OPENAI_API_KEY
+  - model_name: bc-openai-sonnet
+    litellm_params:
+      model: openai/gpt-5-mini
+      api_key: os.environ/OPENAI_API_KEY
+  - model_name: bc-openai-haiku
+    litellm_params:
+      model: openai/gpt-5-nano
+      api_key: os.environ/OPENAI_API_KEY
+  - model_name: bc-openai-subagent
+    litellm_params:
+      model: openai/gpt-5-mini
+      api_key: os.environ/OPENAI_API_KEY
+
+  # Vertex AI
+  - model_name: bc-vertex_ai-opus
+    litellm_params:
+      model: vertex_ai/gemini-2.5-pro
+      vertex_project: os.environ/VERTEXAI_PROJECT
+      vertex_location: os.environ/VERTEXAI_LOCATION
+  - model_name: bc-vertex_ai-sonnet
+    litellm_params:
+      model: vertex_ai/gemini-2.5-flash
+      vertex_project: os.environ/VERTEXAI_PROJECT
+      vertex_location: os.environ/VERTEXAI_LOCATION
+  - model_name: bc-vertex_ai-haiku
+    litellm_params:
+      model: vertex_ai/gemini-2.0-flash
+      vertex_project: os.environ/VERTEXAI_PROJECT
+      vertex_location: os.environ/VERTEXAI_LOCATION
+  - model_name: bc-vertex_ai-subagent
+    litellm_params:
+      model: vertex_ai/gemini-2.5-flash
+      vertex_project: os.environ/VERTEXAI_PROJECT
+      vertex_location: os.environ/VERTEXAI_LOCATION
+
+general_settings: {}
