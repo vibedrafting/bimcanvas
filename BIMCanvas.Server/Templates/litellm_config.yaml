@@ -7,44 +7,33 @@
 #   bc-{provider}-haiku
 #   bc-{provider}-subagent
 #
-# Fill in provider credentials with real environment variables before use.
+# Currently enabled supplier groups:
+#   - anthropic_proxy
+#   - gemini_sub2api
+#   - gemini_yescode
 
 model_list:
-  # Anthropic direct
-  - model_name: bc-anthropic-opus
+  # Anthropic proxy supplier
+  - model_name: bc-anthropic_proxy-opus
     litellm_params:
       model: anthropic/claude-opus-4-1-20250805
-      api_key: os.environ/ANTHROPIC_API_KEY
-  - model_name: bc-anthropic-sonnet
+      api_base: http://199.180.115.3:8080
+      api_key: sk-a121f9e163d3f7e9f36c53f8be5fb069aae4e2ca0a7766d8451a3102e8d21e0e
+  - model_name: bc-anthropic_proxy-sonnet
     litellm_params:
       model: anthropic/claude-sonnet-4-5-20250929
-      api_key: os.environ/ANTHROPIC_API_KEY
-  - model_name: bc-anthropic-haiku
+      api_base: http://199.180.115.3:8080
+      api_key: sk-a121f9e163d3f7e9f36c53f8be5fb069aae4e2ca0a7766d8451a3102e8d21e0e
+  - model_name: bc-anthropic_proxy-haiku
     litellm_params:
       model: anthropic/claude-3-5-haiku-20241022
-      api_key: os.environ/ANTHROPIC_API_KEY
-  - model_name: bc-anthropic-subagent
+      api_base: http://199.180.115.3:8080
+      api_key: sk-a121f9e163d3f7e9f36c53f8be5fb069aae4e2ca0a7766d8451a3102e8d21e0e
+  - model_name: bc-anthropic_proxy-subagent
     litellm_params:
       model: anthropic/claude-sonnet-4-5-20250929
-      api_key: os.environ/ANTHROPIC_API_KEY
-
-  # OpenAI
-  - model_name: bc-openai-opus
-    litellm_params:
-      model: openai/gpt-5
-      api_key: os.environ/OPENAI_API_KEY
-  - model_name: bc-openai-sonnet
-    litellm_params:
-      model: openai/gpt-5-mini
-      api_key: os.environ/OPENAI_API_KEY
-  - model_name: bc-openai-haiku
-    litellm_params:
-      model: openai/gpt-5-nano
-      api_key: os.environ/OPENAI_API_KEY
-  - model_name: bc-openai-subagent
-    litellm_params:
-      model: openai/gpt-5-mini
-      api_key: os.environ/OPENAI_API_KEY
+      api_base: http://199.180.115.3:8080
+      api_key: sk-a121f9e163d3f7e9f36c53f8be5fb069aae4e2ca0a7766d8451a3102e8d21e0e
 
   # Gemini_Sub2API via Gemini native endpoint
   - model_name: bc-gemini_sub2api-opus
@@ -89,27 +78,5 @@ model_list:
       model: gemini/gemini-3-flash-preview
       api_base: https://co.yes.vg/gemini
       api_key: cr_2bee0f94e10f9a1857c94b8ee2c98ccc1ff815658d8ac673de87716af012ac09
-
-  # Vertex AI
-  - model_name: bc-vertex_ai-opus
-    litellm_params:
-      model: vertex_ai/gemini-2.5-pro
-      vertex_project: os.environ/VERTEXAI_PROJECT
-      vertex_location: os.environ/VERTEXAI_LOCATION
-  - model_name: bc-vertex_ai-sonnet
-    litellm_params:
-      model: vertex_ai/gemini-2.5-flash
-      vertex_project: os.environ/VERTEXAI_PROJECT
-      vertex_location: os.environ/VERTEXAI_LOCATION
-  - model_name: bc-vertex_ai-haiku
-    litellm_params:
-      model: vertex_ai/gemini-2.0-flash
-      vertex_project: os.environ/VERTEXAI_PROJECT
-      vertex_location: os.environ/VERTEXAI_LOCATION
-  - model_name: bc-vertex_ai-subagent
-    litellm_params:
-      model: vertex_ai/gemini-2.5-flash
-      vertex_project: os.environ/VERTEXAI_PROJECT
-      vertex_location: os.environ/VERTEXAI_LOCATION
 
 general_settings: {}

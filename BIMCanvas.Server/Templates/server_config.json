@@ -13,7 +13,7 @@
     "host": "127.0.0.1",
     "port": 4000,
     "pythonCommand": "python",
-    "activeProvider": "gemini_yescode",
+    "activeProvider": "anthropic_proxy",
     "defaultModelFamily": "sonnet",
     "configFileName": "litellm_config.yaml"
   },
@@ -26,25 +26,16 @@
     "runtimeAdapterConfigFileName": "provider_adapter_runtime.generated.json",
     "mappings": [
       {
+        "providerAlias": "anthropic_proxy",
+        "mode": "direct"
+      },
+      {
         "providerAlias": "gemini_yescode",
         "mode": "adapter",
         "profile": "gemini_native_v1beta"
       },
       {
-        "providerAlias": "openai_yescode",
-        "mode": "adapter",
-        "profile": "openai_compatible_v1"
-      },
-      {
-        "providerAlias": "anthropic",
-        "mode": "direct"
-      },
-      {
-        "providerAlias": "openai",
-        "mode": "direct"
-      },
-      {
-        "providerAlias": "vertex_ai",
+        "providerAlias": "gemini_sub2api",
         "mode": "direct"
       }
     ]
