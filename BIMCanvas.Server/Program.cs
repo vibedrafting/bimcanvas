@@ -2,7 +2,6 @@ using System.Diagnostics;
 using System.Net.Sockets;
 using System.Runtime.InteropServices;
 using System.Text;
-using System.Text.RegularExpressions;
 using BIMCanvas.Server.Hubs;
 using BIMCanvas.Server.Logging;
 using BIMCanvas.Server.Models;
@@ -87,17 +86,10 @@ builder.Logging.AddServerConsoleFormatter();
 // 加载用户配置（提前到 DI 注册前，供 AgentClientService 等服务使用）
 ConfigService.EnsureDefaultConfigs();
 var config = ConfigService.Load();
-var pythonCommand = string.IsNullOrWhiteSpace(config.LiteLlm.PythonCommand)
+var pythonCommand = string.IsNullOrWhiteSpace(config.Server.PythonCommand)
     ? "python"
-    : config.LiteLlm.PythonCommand.Trim();
+    : config.Server.PythonCommand.Trim();
 var configDir = ConfigService.GetConfigDir();
-var liteLlmSourceConfigPath = Path.Combine(
-    configDir,
-    string.IsNullOrWhiteSpace(config.LiteLlm.ConfigFileName) ? "litellm_config.yaml" : config.LiteLlm.ConfigFileName
-);
-var liteLlmConfigPath = liteLlmSourceConfigPath;
-LiteLlmRuntimeConfigBuildResult? liteLlmRuntimeArtifacts = null;
-var liteLlmConfigReady = !config.LiteLlm.Enabled;
 
 // 注册配置 + Agent HTTP 客户端
 builder.Services.AddSingleton(config);
@@ -198,7 +190,6 @@ WriteWithColoredPrefix("[Server]", "空启动模式，等待用户选择项目",
 
 // ─── 环境检测阶段 ───
 var agentReady = true;
-var liteLlmReady = !config.LiteLlm.Enabled;
 {
     var baseDir = AppContext.BaseDirectory;
     var agentDir = FindAgentProjectPath(baseDir);
@@ -221,45 +212,6 @@ var liteLlmReady = !config.LiteLlm.Enabled;
         agentReady = TryInstallAgentDependencies(agentDir, pythonCommand);
     }
 
-    if (config.LiteLlm.Enabled && IsPythonAvailable(pythonCommand))
-    {
-        if (!File.Exists(liteLlmSourceConfigPath))
-        {
-            WriteWithColoredPrefix("[Server:WARN]", $"LiteLLM 配置模板缺失: {liteLlmSourceConfigPath}", ConsoleColor.DarkYellow);
-        }
-        else
-        {
-            try
-            {
-                liteLlmRuntimeArtifacts = LiteLlmRuntimeConfigBuilder.Generate(config, liteLlmSourceConfigPath, configDir);
-                liteLlmConfigPath = liteLlmRuntimeArtifacts.RuntimeLiteLlmConfigPath;
-                liteLlmConfigReady = true;
-            }
-            catch (Exception ex)
-            {
-                WriteWithColoredPrefix("[Server:WARN]", $"LiteLLM 运行时配置生成失败: {ex.Message}", ConsoleColor.DarkYellow);
-                liteLlmReady = false;
-                liteLlmConfigReady = false;
-            }
-        }
-
-        if (liteLlmConfigReady)
-        {
-            var liteLlmDependencyMissing =
-                !IsLiteLlmReady(pythonCommand) ||
-                (LiteLlmConfigUsesGemini(liteLlmSourceConfigPath) && !IsPythonModuleAvailable(pythonCommand, "google.genai"));
-
-            if (liteLlmDependencyMissing)
-            {
-                liteLlmReady = TryInstallLiteLlmDependencies(pythonCommand);
-            }
-            else
-            {
-                liteLlmReady = true;
-            }
-        }
-    }
-
     // 检测 Playwright Chromium（Server 自身依赖，不影响启动）
     if (!IsPlaywrightChromiumInstalled())
     {
@@ -274,149 +226,11 @@ var liteLlmReady = !config.LiteLlm.Enabled;
 {
     var baseDir = AppContext.BaseDirectory;
     var agentProjectPath = FindAgentProjectPath(baseDir);
-    var providerAdapterProjectPath = FindProviderAdapterProjectPath(baseDir);
     var webProjectPath = FindWebProjectPath(baseDir);
-    Process? providerAdapterProcess = null;
-    var providerAdapterRequired = liteLlmRuntimeArtifacts?.RequiresAdapter == true;
-    var providerAdapterRuntimeReady = !providerAdapterRequired;
-    Process? liteLlmProcess = null;
-    var liteLlmRuntimeReady = !config.LiteLlm.Enabled || !config.LiteLlm.AutoStart;
     Process? agentProcess = null;
     Process? webProcess = null;
 
-    // 判断是否由 CCR 接管（CCR 启用 + activeProvider 是 Gemini 系列）
-    var activeProviderForRouting = NormalizeProviderName(config.LiteLlm.ActiveProvider);
-    var ccrTakeover = config.Ccr.Enabled && activeProviderForRouting.StartsWith("gemini_");
-
-    // 1. 启动 ProviderAdapter（如果 LiteLLM 运行时配置需要，且非 CCR 接管）
-    if (config.LiteLlm.Enabled && providerAdapterRequired && !ccrTakeover)
-    {
-        if (!config.ProviderAdapter.Enabled)
-        {
-            WriteWithColoredPrefix("[Server:WARN]", "当前 LiteLLM provider 需要 ProviderAdapter，但 providerAdapter.enabled=false", ConsoleColor.DarkYellow);
-        }
-        else if (config.ProviderAdapter.AutoStart)
-        {
-            if (!Directory.Exists(providerAdapterProjectPath))
-            {
-                WriteWithColoredPrefix("[Server:WARN]", $"ProviderAdapter 项目目录不存在: {providerAdapterProjectPath}", ConsoleColor.DarkYellow);
-            }
-            else
-            {
-                if (IsPortOccupied(config.ProviderAdapter.Port, out var occupyingPid))
-                {
-                    if (IsProviderAdapterProcess(occupyingPid))
-                    {
-                        WriteWithColoredPrefix("[Server]", $"清理残留 ProviderAdapter 进程 (PID: {occupyingPid})...", ConsoleColor.White);
-                        KillProcess(occupyingPid);
-                        Thread.Sleep(500);
-                    }
-                    else
-                    {
-                        WriteWithColoredPrefix("[Server:WARN]", $"ProviderAdapter 端口 {config.ProviderAdapter.Port} 被其他进程占用 (PID: {occupyingPid})", ConsoleColor.DarkYellow);
-                        WriteWithColoredPrefix("[Server:WARN]", "ProviderAdapter 将尝试继续启动，若失败请手动处理端口占用", ConsoleColor.DarkYellow);
-                    }
-                }
-
-                if (liteLlmRuntimeArtifacts != null)
-                {
-                    WriteWithColoredPrefix("[Server]", $"生成 LiteLLM 运行时配置: {liteLlmRuntimeArtifacts.RuntimeLiteLlmConfigPath}", ConsoleColor.White);
-                    WriteWithColoredPrefix("[Server]", $"生成 ProviderAdapter 运行时配置: {liteLlmRuntimeArtifacts.RuntimeAdapterConfigPath}", ConsoleColor.White);
-                }
-
-                WriteWithColoredPrefix("[Server]", "ProviderAdapter 服务启动中...", ConsoleColor.White);
-                providerAdapterProcess = StartProviderAdapterProcess(config, providerAdapterProjectPath, liteLlmRuntimeArtifacts!.RuntimeAdapterConfigPath);
-                if (providerAdapterProcess != null)
-                {
-                    providerAdapterRuntimeReady = await WaitForHttpServiceReadyAsync(
-                        BuildProviderAdapterHealthUrl(config),
-                        providerAdapterProcess);
-
-                    if (!providerAdapterRuntimeReady)
-                    {
-                        if (providerAdapterProcess.HasExited)
-                        {
-                            WriteWithColoredPrefix("[Server:WARN]", "ProviderAdapter 进程启动后立即退出，LiteLLM 下游适配将不可用", ConsoleColor.DarkYellow);
-                            providerAdapterProcess = null;
-                        }
-                        else
-                        {
-                            WriteWithColoredPrefix("[Server:WARN]", "ProviderAdapter 进程已启动，但在等待窗口内未就绪", ConsoleColor.DarkYellow);
-                        }
-                    }
-                }
-            }
-        }
-        else
-        {
-            WriteWithColoredPrefix("[Server]", "ProviderAdapter 自动启动已禁用，默认依赖外部手工启动", ConsoleColor.DarkYellow);
-            providerAdapterRuntimeReady = await WaitForHttpServiceReadyAsync(BuildProviderAdapterHealthUrl(config));
-            if (!providerAdapterRuntimeReady)
-            {
-                WriteWithColoredPrefix("[Server:WARN]", "ProviderAdapter 未就绪，LiteLLM 自动启动将被跳过", ConsoleColor.DarkYellow);
-            }
-        }
-    }
-
-    // 2. 启动 LiteLLM（如果启用，且非 CCR 接管）
-    if (config.LiteLlm.Enabled && !ccrTakeover)
-    {
-        if (config.LiteLlm.AutoStart && liteLlmReady && (!providerAdapterRequired || providerAdapterRuntimeReady))
-        {
-            if (IsPortOccupied(config.LiteLlm.Port, out var occupyingPid))
-            {
-                if (IsLiteLlmProcess(occupyingPid))
-                {
-                    WriteWithColoredPrefix("[Server]", $"清理残留 LiteLLM 进程 (PID: {occupyingPid})...", ConsoleColor.White);
-                    KillProcess(occupyingPid);
-                    Thread.Sleep(500);
-                }
-                else
-                {
-                    WriteWithColoredPrefix("[Server:WARN]", $"LiteLLM 端口 {config.LiteLlm.Port} 被其他进程占用 (PID: {occupyingPid})", ConsoleColor.DarkYellow);
-                    WriteWithColoredPrefix("[Server:WARN]", "LiteLLM 将尝试继续启动，若失败请手动处理端口占用", ConsoleColor.DarkYellow);
-                }
-            }
-
-            WriteWithColoredPrefix("[Server]", "LiteLLM 服务启动中...", ConsoleColor.White);
-            liteLlmProcess = StartLiteLlmProcess(config, liteLlmConfigPath, pythonCommand);
-            if (liteLlmProcess != null)
-            {
-                liteLlmRuntimeReady = await WaitForLiteLlmServiceReadyAsync(liteLlmProcess, config);
-                if (!liteLlmRuntimeReady)
-                {
-                    if (liteLlmProcess.HasExited)
-                    {
-                        WriteWithColoredPrefix("[Server:WARN]", "LiteLLM 进程启动后立即退出，AI 请求后续将失败", ConsoleColor.DarkYellow);
-                        liteLlmProcess = null;
-                    }
-                    else
-                    {
-                        WriteWithColoredPrefix("[Server:WARN]", "LiteLLM 进程已启动，但在等待窗口内未就绪；AI 功能可能暂不可用", ConsoleColor.DarkYellow);
-                    }
-                }
-            }
-        }
-        else if (!config.LiteLlm.AutoStart)
-        {
-            WriteWithColoredPrefix("[Server]", "LiteLLM 自动启动已禁用，默认依赖外部手工启动", ConsoleColor.DarkYellow);
-        }
-        else if (providerAdapterRequired && !providerAdapterRuntimeReady)
-        {
-            WriteWithColoredPrefix("[Server:WARN]", "ProviderAdapter 未就绪，跳过 LiteLLM 自动启动", ConsoleColor.DarkYellow);
-        }
-        else
-        {
-            WriteWithColoredPrefix("[Server:WARN]", "LiteLLM 未就绪，跳过自动启动", ConsoleColor.DarkYellow);
-        }
-    }
-
-    if (config.LiteLlm.Enabled && !ccrTakeover && (!config.LiteLlm.AutoStart || liteLlmProcess == null))
-    {
-        WriteWithColoredPrefix("[Server:WARN]", "Agent 仍将指向 LiteLLM 网关，若网关不可用，后续 AI 请求会明确失败", ConsoleColor.DarkYellow);
-    }
-
-    // 2.5 启动 CCR（如果启用，替代 LiteLLM 用于 Gemini 供应商）
+    // 1. 启动 CCR（唯一 API 网关）
     Process? ccrProcess = null;
     bool ccrRuntimeReady = false;
     if (config.Ccr.Enabled && config.Ccr.AutoStart)
@@ -443,7 +257,7 @@ var liteLlmReady = !config.LiteLlm.Enabled;
         }
     }
 
-    // 3. 启动 Agent 服务（不等待，后台运行）
+    // 2. 启动 Agent 服务（不等待，后台运行）
     if (agentReady)
     {
         // 读取 Agent 端口配置
@@ -487,62 +301,26 @@ var liteLlmReady = !config.LiteLlm.Enabled;
             };
             // 设置环境变量确保 Python 输出 UTF-8
             agentProcess.StartInfo.Environment["PYTHONIOENCODING"] = "utf-8";
-            if (config.LiteLlm.Enabled)
-            {
-                var activeProvider = NormalizeProviderName(config.LiteLlm.ActiveProvider);
-                // LiteLLM 模式下，默认模型真源来自 server_config.json > liteLlm.defaultModelFamily。
-                var defaultModelFamily = NormalizeModelFamily(config.LiteLlm.DefaultModelFamily);
 
-                // 判断当前供应商是否走 CCR（Gemini 供应商 + CCR 已启用并就绪）
-                bool useCcr = config.Ccr.Enabled && ccrRuntimeReady
-                              && activeProvider.StartsWith("gemini_");
+            // Always use CCR as the API gateway
+            var activeProvider = NormalizeProviderName(config.Ccr.ActiveProvider);
+            var defaultModelFamily = NormalizeModelFamily(config.Ccr.DefaultModelFamily);
+            var ccrGatewayUrl = $"http://{config.Ccr.Host}:{config.Ccr.Port}";
+            agentProcess.StartInfo.Environment["AGENT_SDK_API_KEY"] = "bimcanvas-ccr";
+            agentProcess.StartInfo.Environment["AGENT_SDK_BASE_URL"] = ccrGatewayUrl;
+            agentProcess.StartInfo.Environment["MODEL_NAME"] = defaultModelFamily;
 
-                if (useCcr)
-                {
-                    // CCR 模式：指向 CCR 端口，使用 CCR 格式的模型名（provider,model）
-                    var ccrGatewayUrl = $"http://{config.Ccr.Host}:{config.Ccr.Port}";
-                    agentProcess.StartInfo.Environment["AGENT_SDK_API_KEY"] = "bimcanvas-ccr";
-                    agentProcess.StartInfo.Environment["AGENT_SDK_BASE_URL"] = ccrGatewayUrl;
-                    agentProcess.StartInfo.Environment["MODEL_NAME"] = defaultModelFamily;
+            var ccrProvider = activeProvider.Replace("_", "-"); // gemini_yescode → gemini-yescode
+            var opusModel = "gemini-3.1-pro-preview";
+            var defaultModel = "gemini-3-flash-preview";
 
-                    var ccrProvider = activeProvider.Replace("_", "-"); // gemini_yescode → gemini-yescode
-                    var opusModel = "gemini-3.1-pro-preview";
-                    var defaultModel = "gemini-3-flash-preview";
+            agentProcess.StartInfo.Environment["ANTHROPIC_DEFAULT_OPUS_MODEL"] = $"{ccrProvider},{opusModel}";
+            agentProcess.StartInfo.Environment["ANTHROPIC_DEFAULT_SONNET_MODEL"] = $"{ccrProvider},{defaultModel}";
+            agentProcess.StartInfo.Environment["ANTHROPIC_DEFAULT_HAIKU_MODEL"] = $"{ccrProvider},{defaultModel}";
+            agentProcess.StartInfo.Environment["CLAUDE_CODE_SUBAGENT_MODEL"] = $"{ccrProvider},{defaultModel}";
 
-                    agentProcess.StartInfo.Environment["ANTHROPIC_DEFAULT_OPUS_MODEL"] = $"{ccrProvider},{opusModel}";
-                    agentProcess.StartInfo.Environment["ANTHROPIC_DEFAULT_SONNET_MODEL"] = $"{ccrProvider},{defaultModel}";
-                    agentProcess.StartInfo.Environment["ANTHROPIC_DEFAULT_HAIKU_MODEL"] = $"{ccrProvider},{defaultModel}";
-                    agentProcess.StartInfo.Environment["CLAUDE_CODE_SUBAGENT_MODEL"] = $"{ccrProvider},{defaultModel}";
+            WriteWithColoredPrefix("[Server]", $"Agent 网关: CCR ({ccrGatewayUrl}), 模型: {ccrProvider},{defaultModel}", ConsoleColor.White);
 
-                    WriteWithColoredPrefix("[Server]", $"Agent 网关: CCR ({ccrGatewayUrl}), 模型: {ccrProvider},{defaultModel}", ConsoleColor.White);
-                }
-                else
-                {
-                    // LiteLLM 模式（保持不变）
-                    var gatewayUrl = $"http://{config.LiteLlm.Host}:{config.LiteLlm.Port}";
-                    if (!agentProcess.StartInfo.Environment.TryGetValue("AGENT_SDK_API_KEY", out var existingAgentSdkApiKey)
-                        || string.IsNullOrWhiteSpace(existingAgentSdkApiKey))
-                    {
-                        agentProcess.StartInfo.Environment["AGENT_SDK_API_KEY"] = "bimcanvas-local-gateway";
-                    }
-                    agentProcess.StartInfo.Environment["AGENT_SDK_BASE_URL"] = gatewayUrl;
-                    agentProcess.StartInfo.Environment["MODEL_NAME"] = defaultModelFamily;
-                    agentProcess.StartInfo.Environment["ANTHROPIC_DEFAULT_OPUS_MODEL"] = $"bc-{activeProvider}-opus";
-                    agentProcess.StartInfo.Environment["ANTHROPIC_DEFAULT_SONNET_MODEL"] = $"bc-{activeProvider}-sonnet";
-                    agentProcess.StartInfo.Environment["ANTHROPIC_DEFAULT_HAIKU_MODEL"] = $"bc-{activeProvider}-haiku";
-                    agentProcess.StartInfo.Environment["CLAUDE_CODE_SUBAGENT_MODEL"] = $"bc-{activeProvider}-subagent";
-                }
-            }
-            else
-            {
-                agentProcess.StartInfo.Environment.Remove("AGENT_SDK_BASE_URL");
-                agentProcess.StartInfo.Environment.Remove("AGENT_SDK_API_KEY");
-                agentProcess.StartInfo.Environment.Remove("MODEL_NAME");
-                agentProcess.StartInfo.Environment.Remove("ANTHROPIC_DEFAULT_OPUS_MODEL");
-                agentProcess.StartInfo.Environment.Remove("ANTHROPIC_DEFAULT_SONNET_MODEL");
-                agentProcess.StartInfo.Environment.Remove("ANTHROPIC_DEFAULT_HAIKU_MODEL");
-                agentProcess.StartInfo.Environment.Remove("CLAUDE_CODE_SUBAGENT_MODEL");
-            }
             agentProcess.Start();
 
             // 后台读取 Agent 输出（避免缓冲区阻塞）
@@ -572,7 +350,7 @@ var liteLlmReady = !config.LiteLlm.Enabled;
         }
     }
 
-    // 4. 启动 Web 服务（不等待，后台运行）
+    // 3. 启动 Web 服务（不等待，后台运行）
     if (Directory.Exists(webProjectPath))
     {
         WriteWithColoredPrefix("[Server]", "Web 开发服务器启动中...", ConsoleColor.White);
@@ -638,10 +416,6 @@ var liteLlmReady = !config.LiteLlm.Enabled;
                     {
                         WriteWithColoredPrefix("[Server:WARN]", "Web 已就绪，但 Agent 未启动；Agent 功能暂不可用", ConsoleColor.DarkYellow);
                     }
-                    else if (config.LiteLlm.Enabled && config.LiteLlm.AutoStart && !liteLlmRuntimeReady)
-                    {
-                        WriteWithColoredPrefix("[Server:WARN]", "Web 已就绪，但 LiteLLM 未就绪；AI 功能暂不可用", ConsoleColor.DarkYellow);
-                    }
                     else
                     {
                         WriteWithColoredPrefix("[Server]", "所有服务已就绪", ConsoleColor.White);
@@ -704,14 +478,7 @@ var liteLlmReady = !config.LiteLlm.Enabled;
             WriteWithColoredPrefix("[Server:ERR]", $"Worktree 清理失败: {ex.Message}", ConsoleColor.DarkGray);
         }
 
-        // ③ 关闭 LiteLLM
-        if (liteLlmProcess != null && !liteLlmProcess.HasExited)
-        {
-            WriteWithColoredPrefix("[Server]", "正在关闭 LiteLLM 服务...", ConsoleColor.White);
-            liteLlmProcess.Kill(true);
-        }
-
-        // ③.5 关闭 CCR
+        // ③ 关闭 CCR
         if (ccrProcess != null && !ccrProcess.HasExited)
         {
             WriteWithColoredPrefix("[Server]", "正在关闭 CCR 服务...", ConsoleColor.White);
@@ -885,369 +652,55 @@ static bool TryInstallAgentDependencies(string agentProjectPath, string pythonCo
     }
 }
 
-// 辅助函数：检测 LiteLLM 是否可用
-static bool IsLiteLlmReady(string pythonCommand)
+// 辅助函数：检测 Playwright Chromium 是否已安装
+static bool IsPlaywrightChromiumInstalled()
 {
-    try
-    {
-        var locatorCommand = RuntimeInformation.IsOSPlatform(OSPlatform.Windows) ? "where.exe" : "which";
-        var psi = new ProcessStartInfo
-        {
-            FileName = locatorCommand,
-            Arguments = GetLiteLlmCommand(),
-            RedirectStandardOutput = true,
-            RedirectStandardError = true,
-            UseShellExecute = false,
-            CreateNoWindow = true
-        };
-
-        using var process = Process.Start(psi);
-        if (process == null) return false;
-        if (!process.WaitForExit(5000))
-            return false;
-        return process.ExitCode == 0;
-    }
-    catch
-    {
+    var msPlaywrightDir = Path.Combine(
+        Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+        "ms-playwright");
+    if (!Directory.Exists(msPlaywrightDir))
         return false;
-    }
+    return Directory.GetDirectories(msPlaywrightDir, "chromium-*").Length > 0;
 }
 
-// 辅助函数：检测 Python 模块是否可用
-static bool IsPythonModuleAvailable(string pythonCommand, string moduleName)
+// 辅助函数：交互式安装 Playwright Chromium
+static void TryInstallPlaywrightChromium()
 {
-    try
-    {
-        var escapedModuleName = moduleName.Replace("'", "\\'");
-        var psi = new ProcessStartInfo
-        {
-            FileName = pythonCommand,
-            Arguments = $"-c \"import importlib.util, sys; sys.exit(0 if importlib.util.find_spec('{escapedModuleName}') else 1)\"",
-            RedirectStandardOutput = true,
-            RedirectStandardError = true,
-            UseShellExecute = false,
-            CreateNoWindow = true
-        };
-
-        using var process = Process.Start(psi);
-        if (process == null) return false;
-        if (!process.WaitForExit(5000))
-            return false;
-        return process.ExitCode == 0;
-    }
-    catch
-    {
-        return false;
-    }
-}
-
-// 辅助函数：检测 LiteLLM 配置是否使用 Gemini provider
-static bool LiteLlmConfigUsesGemini(string configPath)
-{
-    try
-    {
-        if (!File.Exists(configPath))
-            return false;
-
-        var content = File.ReadAllText(configPath);
-        return content.Contains("model: gemini/", StringComparison.OrdinalIgnoreCase);
-    }
-    catch
-    {
-        return false;
-    }
-}
-
-// 辅助函数：交互式安装 LiteLLM 依赖（返回 true = 安装成功）
-static bool TryInstallLiteLlmDependencies(string pythonCommand)
-{
-    WriteWithColoredPrefix("[Server]", "检测到 LiteLLM 依赖缺失", ConsoleColor.DarkYellow);
+    WriteWithColoredPrefix("[Server]", "Playwright Chromium 未安装，后台截图功能不可用", ConsoleColor.DarkYellow);
     Console.Write($"[{DateTime.Now:HH:mm:ss}] ");
     Console.ForegroundColor = ConsoleColor.DarkYellow;
     Console.Write("[Server]");
     Console.ResetColor();
-    Console.Write(" 是否自动安装 LiteLLM 依赖？(Y/n): ");
+    Console.Write(" 是否自动安装 Playwright Chromium？(Y/n): ");
     var input = Console.ReadLine()?.Trim().ToLower();
 
+    // 默认 Y（直接回车 = 同意）
     if (!string.IsNullOrEmpty(input) && input != "y" && input != "yes")
     {
-        WriteWithColoredPrefix("[Server]", "跳过安装，LiteLLM 将不可用", ConsoleColor.DarkYellow);
-        return false;
+        WriteWithColoredPrefix("[Server]", "跳过安装，后台截图功能将不可用", ConsoleColor.DarkYellow);
+        return;
     }
 
-    WriteWithColoredPrefix("[Server]", "正在安装 LiteLLM 依赖 (pip install \"litellm[proxy]\" google-genai)...", ConsoleColor.White);
+    WriteWithColoredPrefix("[Server]", "正在安装 Playwright Chromium...", ConsoleColor.White);
 
     try
     {
-        var psi = new ProcessStartInfo
+        var exitCode = Microsoft.Playwright.Program.Main(new[] { "install", "chromium" });
+        if (exitCode == 0)
         {
-            FileName = pythonCommand,
-            Arguments = "-m pip install \"litellm[proxy]\" google-genai",
-            UseShellExecute = false,
-            CreateNoWindow = true,
-            RedirectStandardOutput = true,
-            RedirectStandardError = true,
-            StandardOutputEncoding = Encoding.UTF8,
-            StandardErrorEncoding = Encoding.UTF8
-        };
-
-        using var process = Process.Start(psi);
-        if (process == null)
-        {
-            WriteWithColoredPrefix("[Server:ERR]", "无法启动 LiteLLM pip 进程", ConsoleColor.DarkGray);
-            return false;
+            WriteWithColoredPrefix("[Server]", "Playwright Chromium 安装成功", ConsoleColor.White);
         }
-
-        var cts = new CancellationTokenSource();
-        _ = Task.Run(async () =>
+        else
         {
-            try
-            {
-                while (!cts.Token.IsCancellationRequested)
-                {
-                    var line = await process.StandardOutput.ReadLineAsync();
-                    if (line == null) break;
-                    if (!string.IsNullOrEmpty(line))
-                        WriteWithColoredPrefix("[pip]", line, ConsoleColor.DarkMagenta);
-                }
-            }
-            catch { }
-        });
-        _ = Task.Run(async () =>
-        {
-            try
-            {
-                while (!cts.Token.IsCancellationRequested)
-                {
-                    var line = await process.StandardError.ReadLineAsync();
-                    if (line == null) break;
-                    if (!string.IsNullOrEmpty(line))
-                        WriteWithColoredPrefix("[pip]", line, ConsoleColor.DarkMagenta);
-                }
-            }
-            catch { }
-        });
-
-        var completed = process.WaitForExit(600_000);
-        if (!completed)
-        {
-            WriteWithColoredPrefix("[Server:ERR]", "LiteLLM 依赖安装超时（10分钟）", ConsoleColor.DarkGray);
-            cts.Cancel();
-            process.Kill(true);
-            return false;
+            WriteWithColoredPrefix("[Server:ERR]", $"Playwright Chromium 安装失败 (exit code: {exitCode})", ConsoleColor.DarkGray);
         }
-
-        if (process.ExitCode == 0)
-        {
-            WriteWithColoredPrefix("[Server]", "LiteLLM 依赖安装成功", ConsoleColor.White);
-            return true;
-        }
-
-        WriteWithColoredPrefix("[Server:ERR]", $"LiteLLM 依赖安装失败 (exit code: {process.ExitCode})", ConsoleColor.DarkGray);
-        return false;
     }
     catch (Exception ex)
     {
-        WriteWithColoredPrefix("[Server:ERR]", $"LiteLLM 依赖安装异常: {ex.Message}", ConsoleColor.DarkGray);
-        return false;
+        WriteWithColoredPrefix("[Server:ERR]", $"Playwright Chromium 安装异常: {ex.Message}", ConsoleColor.DarkGray);
     }
 }
 
-// 辅助函数：构建 ProviderAdapter 健康检查地址
-static string BuildProviderAdapterHealthUrl(ServerConfig config)
-{
-    return $"http://{config.ProviderAdapter.Host}:{config.ProviderAdapter.Port}/health";
-}
-
-// 辅助函数：启动 ProviderAdapter 进程
-static Process? StartProviderAdapterProcess(ServerConfig config, string projectPath, string runtimeConfigPath)
-{
-    try
-    {
-        var startInfo = new ProcessStartInfo
-        {
-            FileName = "dotnet",
-            Arguments =
-                $"run -v quiet --no-launch-profile --project \"{Path.Combine(projectPath, "BIMCanvas.ProviderAdapter.csproj")}\" -- --config \"{runtimeConfigPath}\" --host {config.ProviderAdapter.Host} --port {config.ProviderAdapter.Port}",
-            WorkingDirectory = projectPath,
-            UseShellExecute = false,
-            CreateNoWindow = true,
-            RedirectStandardOutput = true,
-            RedirectStandardError = true,
-            StandardOutputEncoding = Encoding.UTF8,
-            StandardErrorEncoding = Encoding.UTF8
-        };
-        startInfo.Environment["DOTNET_CLI_TELEMETRY_OPTOUT"] = "1";
-        startInfo.Environment["DOTNET_NOLOGO"] = "1";
-
-        var process = new Process { StartInfo = startInfo };
-        process.Start();
-
-        _ = Task.Run(async () =>
-        {
-            while (true)
-            {
-                var line = await process.StandardOutput.ReadLineAsync();
-                if (line == null)
-                    break;
-
-                if (!string.IsNullOrWhiteSpace(line))
-                    WriteWithColoredPrefix("[ProviderAdapter]", line, ConsoleColor.Magenta);
-            }
-        });
-        _ = Task.Run(async () =>
-        {
-            while (true)
-            {
-                var line = await process.StandardError.ReadLineAsync();
-                if (line == null)
-                    break;
-
-                if (!string.IsNullOrWhiteSpace(line))
-                    WriteWithColoredPrefix("[ProviderAdapter:ERR]", line, ConsoleColor.DarkMagenta);
-            }
-        });
-
-        return process;
-    }
-    catch (Exception ex)
-    {
-        WriteWithColoredPrefix("[Server:ERR]", $"ProviderAdapter 服务启动失败: {ex.Message}", ConsoleColor.DarkGray);
-        return null;
-    }
-}
-
-// 辅助函数：等待 HTTP 服务健康检查通过
-static async Task<bool> WaitForHttpServiceReadyAsync(string healthUrl, Process? process = null, int timeoutMs = 20000)
-{
-    using var httpClient = new HttpClient
-    {
-        Timeout = TimeSpan.FromSeconds(2)
-    };
-
-    var deadline = DateTime.UtcNow.AddMilliseconds(timeoutMs);
-    while (DateTime.UtcNow < deadline)
-    {
-        if (process?.HasExited == true)
-            return false;
-
-        try
-        {
-            using var response = await httpClient.GetAsync(healthUrl);
-            if (response.IsSuccessStatusCode)
-                return true;
-        }
-        catch
-        {
-            // 服务尚未就绪，继续等待
-        }
-
-        await Task.Delay(300);
-    }
-
-    return false;
-}
-
-// 辅助函数：启动 LiteLLM 进程
-static Process? StartLiteLlmProcess(ServerConfig config, string configPath, string pythonCommand)
-{
-    try
-    {
-        var startInfo = BuildLiteLlmStartInfo(config, configPath, pythonCommand);
-        var process = new Process { StartInfo = startInfo };
-        var stderrFilter = new LiteLlmStderrFilter(message =>
-            WriteWithColoredPrefix("[LiteLLM]", message, ConsoleColor.Yellow));
-        process.Start();
-
-        _ = Task.Run(async () =>
-        {
-            while (true)
-            {
-                var line = await process.StandardOutput.ReadLineAsync();
-                if (line == null)
-                    break;
-
-                if (!string.IsNullOrWhiteSpace(line))
-                    WriteWithColoredPrefix("[LiteLLM]", line, ConsoleColor.Yellow);
-            }
-        });
-        _ = Task.Run(async () =>
-        {
-            while (true)
-            {
-                var line = await process.StandardError.ReadLineAsync();
-                if (line == null)
-                    break;
-
-                stderrFilter.ProcessLine(line);
-            }
-
-            stderrFilter.Flush();
-        });
-
-        return process;
-    }
-    catch (Exception ex)
-    {
-        WriteWithColoredPrefix("[Server:ERR]", $"LiteLLM 服务启动失败: {ex.Message}", ConsoleColor.DarkGray);
-        return null;
-    }
-}
-
-// 辅助函数：等待 LiteLLM 端口就绪
-static async Task<bool> WaitForLiteLlmServiceReadyAsync(Process process, ServerConfig config, int timeoutMs = 20000)
-{
-    var deadline = DateTime.UtcNow.AddMilliseconds(timeoutMs);
-    while (DateTime.UtcNow < deadline)
-    {
-        if (process.HasExited)
-            return false;
-
-        try
-        {
-            using var client = new TcpClient();
-            var connectTask = client.ConnectAsync(config.LiteLlm.Host, config.LiteLlm.Port);
-            var completedTask = await Task.WhenAny(connectTask, Task.Delay(500));
-            if (completedTask == connectTask && client.Connected)
-                return true;
-        }
-        catch
-        {
-            // 端口尚未就绪，继续等待
-        }
-
-        await Task.Delay(300);
-    }
-
-    return false;
-}
-
-// 辅助函数：构建 LiteLLM 启动参数
-static ProcessStartInfo BuildLiteLlmStartInfo(ServerConfig config, string configPath, string pythonCommand)
-{
-    var psi = new ProcessStartInfo
-    {
-        FileName = GetLiteLlmCommand(),
-        Arguments = $"--config \"{configPath}\" --host {config.LiteLlm.Host} --port {config.LiteLlm.Port}",
-        UseShellExecute = false,
-        CreateNoWindow = true,
-        RedirectStandardOutput = true,
-        RedirectStandardError = true,
-        StandardOutputEncoding = Encoding.UTF8,
-        StandardErrorEncoding = Encoding.UTF8
-    };
-    psi.Environment["PYTHONIOENCODING"] = "utf-8";
-    psi.Environment["DEBUG"] = "false";
-    return psi;
-}
-
-// 辅助函数：获取 LiteLLM CLI 命令
-static string GetLiteLlmCommand()
-{
-    return RuntimeInformation.IsOSPlatform(OSPlatform.Windows) ? "litellm.exe" : "litellm";
-}
-
-// 辅助函数：验证进程是否为 LiteLLM
 // 辅助函数：启动 CCR 子进程
 static Process? StartCcrProcess(ServerConfig config, string configPath)
 {
@@ -1326,64 +779,6 @@ static async Task<bool> WaitForServiceReadyAsync(string host, int port, int time
     return false;
 }
 
-static bool IsLiteLlmProcess(int pid)
-{
-    try
-    {
-        var process = Process.GetProcessById(pid);
-        var processName = process.ProcessName.ToLowerInvariant();
-        if (!processName.Contains("python"))
-            return false;
-
-        string cmdLine;
-        if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
-        {
-            cmdLine = GetCommandLineWindows(pid);
-        }
-        else
-        {
-            cmdLine = GetCommandLineUnix(pid);
-        }
-
-        return cmdLine.Contains("-m litellm", StringComparison.OrdinalIgnoreCase)
-            || cmdLine.Contains("litellm", StringComparison.OrdinalIgnoreCase);
-    }
-    catch (Exception ex)
-    {
-        WriteWithColoredPrefix("[Server:WARN]", $"LiteLLM 进程验证失败: {ex.Message}", ConsoleColor.DarkYellow);
-        return false;
-    }
-}
-
-// 辅助函数：验证进程是否为 ProviderAdapter
-static bool IsProviderAdapterProcess(int pid)
-{
-    try
-    {
-        var process = Process.GetProcessById(pid);
-        var processName = process.ProcessName.ToLowerInvariant();
-        if (!processName.Contains("dotnet") && !processName.Contains("provideradapter"))
-            return false;
-
-        string cmdLine;
-        if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
-        {
-            cmdLine = GetCommandLineWindows(pid);
-        }
-        else
-        {
-            cmdLine = GetCommandLineUnix(pid);
-        }
-
-        return cmdLine.Contains("BIMCanvas.ProviderAdapter", StringComparison.OrdinalIgnoreCase);
-    }
-    catch (Exception ex)
-    {
-        WriteWithColoredPrefix("[Server:WARN]", $"ProviderAdapter 进程验证失败: {ex.Message}", ConsoleColor.DarkYellow);
-        return false;
-    }
-}
-
 // 辅助函数：归一化 provider 名称
 static string NormalizeProviderName(string? provider)
 {
@@ -1406,55 +801,6 @@ static string NormalizeModelFamily(string? modelFamily)
         "haiku" => "haiku",
         _ => "sonnet"
     };
-}
-
-// 辅助函数：检测 Playwright Chromium 是否已安装
-static bool IsPlaywrightChromiumInstalled()
-{
-    var msPlaywrightDir = Path.Combine(
-        Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-        "ms-playwright");
-    if (!Directory.Exists(msPlaywrightDir))
-        return false;
-    return Directory.GetDirectories(msPlaywrightDir, "chromium-*").Length > 0;
-}
-
-// 辅助函数：交互式安装 Playwright Chromium
-static void TryInstallPlaywrightChromium()
-{
-    WriteWithColoredPrefix("[Server]", "Playwright Chromium 未安装，后台截图功能不可用", ConsoleColor.DarkYellow);
-    Console.Write($"[{DateTime.Now:HH:mm:ss}] ");
-    Console.ForegroundColor = ConsoleColor.DarkYellow;
-    Console.Write("[Server]");
-    Console.ResetColor();
-    Console.Write(" 是否自动安装 Playwright Chromium？(Y/n): ");
-    var input = Console.ReadLine()?.Trim().ToLower();
-
-    // 默认 Y（直接回车 = 同意）
-    if (!string.IsNullOrEmpty(input) && input != "y" && input != "yes")
-    {
-        WriteWithColoredPrefix("[Server]", "跳过安装，后台截图功能将不可用", ConsoleColor.DarkYellow);
-        return;
-    }
-
-    WriteWithColoredPrefix("[Server]", "正在安装 Playwright Chromium...", ConsoleColor.White);
-
-    try
-    {
-        var exitCode = Microsoft.Playwright.Program.Main(new[] { "install", "chromium" });
-        if (exitCode == 0)
-        {
-            WriteWithColoredPrefix("[Server]", "Playwright Chromium 安装成功", ConsoleColor.White);
-        }
-        else
-        {
-            WriteWithColoredPrefix("[Server:ERR]", $"Playwright Chromium 安装失败 (exit code: {exitCode})", ConsoleColor.DarkGray);
-        }
-    }
-    catch (Exception ex)
-    {
-        WriteWithColoredPrefix("[Server:ERR]", $"Playwright Chromium 安装异常: {ex.Message}", ConsoleColor.DarkGray);
-    }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -1499,24 +845,6 @@ static string FindAgentProjectPath(string startDir)
 
     // 兜底：返回相对路径（兼容 dotnet run）
     return Path.GetFullPath(Path.Combine(Directory.GetCurrentDirectory(), "..", "BIMCanvas.Agent"));
-}
-
-// 辅助函数：向上查找 BIMCanvas.ProviderAdapter 目录
-static string FindProviderAdapterProjectPath(string startDir)
-{
-    var dir = new DirectoryInfo(startDir);
-
-    for (int i = 0; i < 5 && dir != null; i++)
-    {
-        var adapterPath = Path.Combine(dir.FullName, "BIMCanvas.ProviderAdapter");
-        if (Directory.Exists(adapterPath))
-        {
-            return adapterPath;
-        }
-        dir = dir.Parent;
-    }
-
-    return Path.GetFullPath(Path.Combine(Directory.GetCurrentDirectory(), "..", "BIMCanvas.ProviderAdapter"));
 }
 
 // 辅助函数：检测端口是否被占用（跨平台）
@@ -1727,197 +1055,4 @@ static void KillProcess(int pid)
     {
         WriteWithColoredPrefix("[Server:ERR]", $"清理进程失败: {ex.Message}", ConsoleColor.DarkGray);
     }
-}
-
-file sealed class LiteLlmStderrFilter
-{
-    private static readonly TimeSpan DedupWindow = TimeSpan.FromSeconds(30);
-    private static readonly Regex JsonErrorRegex = new(
-        "\"code\"\\s*:\\s*(?<code>\\d+)\\s*,\\s*\"message\"\\s*:\\s*\"(?<message>[^\"]+)\"",
-        RegexOptions.Compiled | RegexOptions.CultureInvariant | RegexOptions.IgnoreCase);
-    private static readonly Regex ApiErrorRegex = new(
-        "API error:\\s*(?<code>\\d{3})\\s*-\\s*(?<message>.+)$",
-        RegexOptions.Compiled | RegexOptions.CultureInvariant | RegexOptions.IgnoreCase);
-    private static readonly Regex HttpStatusRegex = new(
-        "HTTPStatusError:\\s*(?:Client|Server) error '\\s*(?<code>\\d{3})\\s+(?<message>[^']+)'",
-        RegexOptions.Compiled | RegexOptions.CultureInvariant | RegexOptions.IgnoreCase);
-    private static readonly Regex RequestAccessLogRegex = new(
-        "\"(?:POST|GET)\\s+/v1/messages(?:/count_tokens)?[^\\\"]*\\s+HTTP/1\\.1\"\\s+\\d{3}",
-        RegexOptions.Compiled | RegexOptions.CultureInvariant | RegexOptions.IgnoreCase);
-
-    private readonly Action<string> _writeMessage;
-    private readonly Dictionary<string, DateTime> _lastEmittedAtUtc = new(StringComparer.Ordinal);
-
-    private PendingSummary? _pendingSummary;
-    private bool _inErrorBlock;
-
-    public LiteLlmStderrFilter(Action<string> writeMessage)
-    {
-        _writeMessage = writeMessage;
-    }
-
-    public void ProcessLine(string line)
-    {
-        if (string.IsNullOrWhiteSpace(line))
-            return;
-
-        var trimmed = line.Trim();
-
-        if (IsRequestAccessLog(trimmed))
-        {
-            FinalizePendingBlock();
-            return;
-        }
-
-        if (IsTopLevelLiteLlmError(trimmed))
-        {
-            FinalizePendingBlock();
-            _inErrorBlock = true;
-
-            if (TryExtractSummary(trimmed, out var topLevelSummary))
-                UpdatePendingSummary(topLevelSummary);
-
-            return;
-        }
-
-        if (TryExtractSummary(trimmed, out var summary))
-        {
-            _inErrorBlock = true;
-            UpdatePendingSummary(summary);
-            return;
-        }
-
-        if (IsErrorMarker(trimmed))
-        {
-            _inErrorBlock = true;
-        }
-    }
-
-    public void Flush()
-    {
-        FinalizePendingBlock();
-    }
-
-    private void FinalizePendingBlock()
-    {
-        if (!_inErrorBlock)
-            return;
-
-        if (_pendingSummary is { } pendingSummary)
-        {
-            EmitDeduped($"下游供应商错误: {pendingSummary.Code} {pendingSummary.Message}");
-        }
-        else
-        {
-            EmitDeduped("LiteLLM 请求失败，未提取到下游错误摘要");
-        }
-
-        _pendingSummary = null;
-        _inErrorBlock = false;
-    }
-
-    private void UpdatePendingSummary(PendingSummary candidate)
-    {
-        if (_pendingSummary == null || candidate.Priority > _pendingSummary.Value.Priority)
-        {
-            _pendingSummary = candidate;
-        }
-    }
-
-    private void EmitDeduped(string message)
-    {
-        var now = DateTime.UtcNow;
-        TrimExpiredEntries(now);
-
-        if (_lastEmittedAtUtc.TryGetValue(message, out var lastEmittedAtUtc)
-            && now - lastEmittedAtUtc < DedupWindow)
-        {
-            return;
-        }
-
-        _lastEmittedAtUtc[message] = now;
-        _writeMessage(message);
-    }
-
-    private void TrimExpiredEntries(DateTime now)
-    {
-        if (_lastEmittedAtUtc.Count == 0)
-            return;
-
-        var expiredKeys = _lastEmittedAtUtc
-            .Where(kvp => now - kvp.Value >= DedupWindow)
-            .Select(kvp => kvp.Key)
-            .ToList();
-
-        foreach (var key in expiredKeys)
-        {
-            _lastEmittedAtUtc.Remove(key);
-        }
-    }
-
-    private static bool TryExtractSummary(string line, out PendingSummary summary)
-    {
-        if (TryMatchSummary(JsonErrorRegex, line, priority: 3, out summary))
-            return true;
-
-        if (TryMatchSummary(ApiErrorRegex, line, priority: 2, out summary))
-            return true;
-
-        if (TryMatchSummary(HttpStatusRegex, line, priority: 1, out summary))
-            return true;
-
-        summary = default;
-        return false;
-    }
-
-    private static bool TryMatchSummary(Regex regex, string line, int priority, out PendingSummary summary)
-    {
-        var match = regex.Match(line);
-        if (!match.Success)
-        {
-            summary = default;
-            return false;
-        }
-
-        var code = match.Groups["code"].Value.Trim();
-        var message = NormalizeWhitespace(match.Groups["message"].Value);
-        if (string.IsNullOrWhiteSpace(code) || string.IsNullOrWhiteSpace(message))
-        {
-            summary = default;
-            return false;
-        }
-
-        summary = new PendingSummary(code, message, priority);
-        return true;
-    }
-
-    private static bool IsTopLevelLiteLlmError(string line)
-    {
-        return line.Contains("LiteLLM Proxy:ERROR:", StringComparison.OrdinalIgnoreCase);
-    }
-
-    private static bool IsRequestAccessLog(string line)
-    {
-        return RequestAccessLogRegex.IsMatch(line);
-    }
-
-    private static bool IsErrorMarker(string line)
-    {
-        return line.Contains("Traceback (most recent call last):", StringComparison.OrdinalIgnoreCase)
-            || line.Contains("The above exception was the direct cause", StringComparison.OrdinalIgnoreCase)
-            || line.Contains("During handling of the above exception", StringComparison.OrdinalIgnoreCase)
-            || line.Contains("ServiceUnavailableError", StringComparison.OrdinalIgnoreCase)
-            || line.Contains("APIError", StringComparison.OrdinalIgnoreCase)
-            || line.Contains("HTTPStatusError", StringComparison.OrdinalIgnoreCase)
-            || line.Contains("VertexAIError", StringComparison.OrdinalIgnoreCase)
-            || line.Contains("GeminiException", StringComparison.OrdinalIgnoreCase)
-            || line.Contains("count_tokens()", StringComparison.OrdinalIgnoreCase);
-    }
-
-    private static string NormalizeWhitespace(string value)
-    {
-        return Regex.Replace(value, "\\s+", " ").Trim().TrimEnd('.');
-    }
-
-    private readonly record struct PendingSummary(string Code, string Message, int Priority);
 }
