@@ -412,6 +412,33 @@ var liteLlmReady = !config.LiteLlm.Enabled;
         WriteWithColoredPrefix("[Server:WARN]", "Agent 仍将指向 LiteLLM 网关，若网关不可用，后续 AI 请求会明确失败", ConsoleColor.DarkYellow);
     }
 
+    // 2.5 启动 CCR（如果启用，替代 LiteLLM 用于 Gemini 供应商）
+    Process? ccrProcess = null;
+    bool ccrRuntimeReady = false;
+    if (config.Ccr.Enabled && config.Ccr.AutoStart)
+    {
+        // CCR 配置文件由 EnsureDefaultConfigs() 从 Templates 复制到 configDir
+        var ccrConfigPath = Path.Combine(configDir, config.Ccr.ConfigFileName);
+
+        if (IsPortOccupied(config.Ccr.Port, out var ccrOccupyingPid))
+        {
+            WriteWithColoredPrefix("[Server]", $"清理残留 CCR 进程 (PID: {ccrOccupyingPid})...", ConsoleColor.White);
+            KillProcess(ccrOccupyingPid);
+            Thread.Sleep(500);
+        }
+
+        WriteWithColoredPrefix("[Server]", "CCR 服务启动中...", ConsoleColor.White);
+        ccrProcess = StartCcrProcess(config, ccrConfigPath);
+        if (ccrProcess != null)
+        {
+            ccrRuntimeReady = await WaitForServiceReadyAsync(config.Ccr.Host, config.Ccr.Port, timeoutMs: 15000);
+            if (ccrRuntimeReady)
+                WriteWithColoredPrefix("[CCR]", $"CCR 已就绪: http://{config.Ccr.Host}:{config.Ccr.Port}", ConsoleColor.Magenta);
+            else
+                WriteWithColoredPrefix("[Server:WARN]", "CCR 未在预期时间内就绪", ConsoleColor.DarkYellow);
+        }
+    }
+
     // 3. 启动 Agent 服务（不等待，后台运行）
     if (agentReady)
     {
@@ -461,18 +488,46 @@ var liteLlmReady = !config.LiteLlm.Enabled;
                 var activeProvider = NormalizeProviderName(config.LiteLlm.ActiveProvider);
                 // LiteLLM 模式下，默认模型真源来自 server_config.json > liteLlm.defaultModelFamily。
                 var defaultModelFamily = NormalizeModelFamily(config.LiteLlm.DefaultModelFamily);
-                var gatewayUrl = $"http://{config.LiteLlm.Host}:{config.LiteLlm.Port}";
-                if (!agentProcess.StartInfo.Environment.TryGetValue("AGENT_SDK_API_KEY", out var existingAgentSdkApiKey)
-                    || string.IsNullOrWhiteSpace(existingAgentSdkApiKey))
+
+                // 判断当前供应商是否走 CCR（Gemini 供应商 + CCR 已启用并就绪）
+                bool useCcr = config.Ccr.Enabled && ccrRuntimeReady
+                              && activeProvider.StartsWith("gemini_");
+
+                if (useCcr)
                 {
-                    agentProcess.StartInfo.Environment["AGENT_SDK_API_KEY"] = "bimcanvas-local-gateway";
+                    // CCR 模式：指向 CCR 端口，使用 CCR 格式的模型名（provider,model）
+                    var ccrGatewayUrl = $"http://{config.Ccr.Host}:{config.Ccr.Port}";
+                    agentProcess.StartInfo.Environment["AGENT_SDK_API_KEY"] = "bimcanvas-ccr";
+                    agentProcess.StartInfo.Environment["AGENT_SDK_BASE_URL"] = ccrGatewayUrl;
+                    agentProcess.StartInfo.Environment["MODEL_NAME"] = defaultModelFamily;
+
+                    var ccrProvider = activeProvider.Replace("_", "-"); // gemini_yescode → gemini-yescode
+                    var opusModel = "gemini-3.1-pro-preview";
+                    var defaultModel = "gemini-3-flash-preview";
+
+                    agentProcess.StartInfo.Environment["ANTHROPIC_DEFAULT_OPUS_MODEL"] = $"{ccrProvider},{opusModel}";
+                    agentProcess.StartInfo.Environment["ANTHROPIC_DEFAULT_SONNET_MODEL"] = $"{ccrProvider},{defaultModel}";
+                    agentProcess.StartInfo.Environment["ANTHROPIC_DEFAULT_HAIKU_MODEL"] = $"{ccrProvider},{defaultModel}";
+                    agentProcess.StartInfo.Environment["CLAUDE_CODE_SUBAGENT_MODEL"] = $"{ccrProvider},{defaultModel}";
+
+                    WriteWithColoredPrefix("[Server]", $"Agent 网关: CCR ({ccrGatewayUrl}), 模型: {ccrProvider},{defaultModel}", ConsoleColor.White);
                 }
-                agentProcess.StartInfo.Environment["AGENT_SDK_BASE_URL"] = gatewayUrl;
-                agentProcess.StartInfo.Environment["MODEL_NAME"] = defaultModelFamily;
-                agentProcess.StartInfo.Environment["ANTHROPIC_DEFAULT_OPUS_MODEL"] = $"bc-{activeProvider}-opus";
-                agentProcess.StartInfo.Environment["ANTHROPIC_DEFAULT_SONNET_MODEL"] = $"bc-{activeProvider}-sonnet";
-                agentProcess.StartInfo.Environment["ANTHROPIC_DEFAULT_HAIKU_MODEL"] = $"bc-{activeProvider}-haiku";
-                agentProcess.StartInfo.Environment["CLAUDE_CODE_SUBAGENT_MODEL"] = $"bc-{activeProvider}-subagent";
+                else
+                {
+                    // LiteLLM 模式（保持不变）
+                    var gatewayUrl = $"http://{config.LiteLlm.Host}:{config.LiteLlm.Port}";
+                    if (!agentProcess.StartInfo.Environment.TryGetValue("AGENT_SDK_API_KEY", out var existingAgentSdkApiKey)
+                        || string.IsNullOrWhiteSpace(existingAgentSdkApiKey))
+                    {
+                        agentProcess.StartInfo.Environment["AGENT_SDK_API_KEY"] = "bimcanvas-local-gateway";
+                    }
+                    agentProcess.StartInfo.Environment["AGENT_SDK_BASE_URL"] = gatewayUrl;
+                    agentProcess.StartInfo.Environment["MODEL_NAME"] = defaultModelFamily;
+                    agentProcess.StartInfo.Environment["ANTHROPIC_DEFAULT_OPUS_MODEL"] = $"bc-{activeProvider}-opus";
+                    agentProcess.StartInfo.Environment["ANTHROPIC_DEFAULT_SONNET_MODEL"] = $"bc-{activeProvider}-sonnet";
+                    agentProcess.StartInfo.Environment["ANTHROPIC_DEFAULT_HAIKU_MODEL"] = $"bc-{activeProvider}-haiku";
+                    agentProcess.StartInfo.Environment["CLAUDE_CODE_SUBAGENT_MODEL"] = $"bc-{activeProvider}-subagent";
+                }
             }
             else
             {
@@ -650,6 +705,13 @@ var liteLlmReady = !config.LiteLlm.Enabled;
         {
             WriteWithColoredPrefix("[Server]", "正在关闭 LiteLLM 服务...", ConsoleColor.White);
             liteLlmProcess.Kill(true);
+        }
+
+        // ③.5 关闭 CCR
+        if (ccrProcess != null && !ccrProcess.HasExited)
+        {
+            WriteWithColoredPrefix("[Server]", "正在关闭 CCR 服务...", ConsoleColor.White);
+            ccrProcess.Kill(true);
         }
 
         // ④ 最后关闭 Web
@@ -1182,6 +1244,83 @@ static string GetLiteLlmCommand()
 }
 
 // 辅助函数：验证进程是否为 LiteLLM
+// 辅助函数：启动 CCR 子进程
+static Process? StartCcrProcess(ServerConfig config, string configPath)
+{
+    try
+    {
+        var process = new Process
+        {
+            StartInfo = new ProcessStartInfo
+            {
+                FileName = "ccr",
+                Arguments = "start",
+                UseShellExecute = false,
+                CreateNoWindow = true,
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+                StandardOutputEncoding = Encoding.UTF8,
+                StandardErrorEncoding = Encoding.UTF8
+            }
+        };
+        // CCR 通过环境变量 SERVICE_PORT 指定端口
+        process.StartInfo.Environment["SERVICE_PORT"] = config.Ccr.Port.ToString();
+        process.Start();
+
+        // 后台读取 CCR 输出
+        _ = Task.Run(async () =>
+        {
+            while (true)
+            {
+                var line = await process.StandardOutput.ReadLineAsync();
+                if (line == null) break;
+                if (!string.IsNullOrWhiteSpace(line))
+                    WriteWithColoredPrefix("[CCR]", line, ConsoleColor.Magenta);
+            }
+        });
+        _ = Task.Run(async () =>
+        {
+            while (true)
+            {
+                var line = await process.StandardError.ReadLineAsync();
+                if (line == null) break;
+                if (!string.IsNullOrWhiteSpace(line))
+                    WriteWithColoredPrefix("[CCR:ERR]", line, ConsoleColor.DarkMagenta);
+            }
+        });
+
+        return process;
+    }
+    catch (Exception ex)
+    {
+        WriteWithColoredPrefix("[Server:ERR]", $"CCR 服务启动失败: {ex.Message}", ConsoleColor.DarkGray);
+        return null;
+    }
+}
+
+// 辅助函数：通用端口就绪检测
+static async Task<bool> WaitForServiceReadyAsync(string host, int port, int timeoutMs = 15000)
+{
+    var deadline = DateTime.UtcNow.AddMilliseconds(timeoutMs);
+    while (DateTime.UtcNow < deadline)
+    {
+        try
+        {
+            using var client = new TcpClient();
+            var connectTask = client.ConnectAsync(host, port);
+            var completedTask = await Task.WhenAny(connectTask, Task.Delay(500));
+            if (completedTask == connectTask && client.Connected)
+                return true;
+        }
+        catch
+        {
+            // 端口尚未就绪，继续等待
+        }
+        await Task.Delay(300);
+    }
+    return false;
+}
+
 static bool IsLiteLlmProcess(int pid)
 {
     try

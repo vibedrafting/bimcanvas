@@ -21,6 +21,13 @@
       "type": "template",
       "enabled": true,
       "description": "LiteLLM 网关配置（provider model_list 模板）"
+    },
+    {
+      "name": "ccr_config.json",
+      "target": "ccr_config.json",
+      "type": "template",
+      "enabled": true,
+      "description": "Claude Code Router 配置（替代 LiteLLM 用于 Gemini 供应商）"
     }
   ]
 }

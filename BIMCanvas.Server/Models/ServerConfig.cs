@@ -9,6 +9,7 @@ public class ServerConfig
     public StartupSection Startup { get; set; } = new();
     public LiteLlmSection LiteLlm { get; set; } = new();
     public ProviderAdapterSection ProviderAdapter { get; set; } = new();
+    public CcrSection Ccr { get; set; } = new();
 }
 
 /// <summary>
@@ -82,6 +83,37 @@ public class LiteLlmSection
     /// LiteLLM 配置文件名（位于 Documents/BIMCanvas 下）
     /// </summary>
     public string ConfigFileName { get; set; } = "litellm_config.yaml";
+}
+
+/// <summary>
+/// Claude Code Router (CCR) 配置，替代 LiteLLM 用于 Gemini 供应商
+/// </summary>
+public class CcrSection
+{
+    /// <summary>
+    /// 是否启用 CCR 网关
+    /// </summary>
+    public bool Enabled { get; set; } = false;
+
+    /// <summary>
+    /// 是否由 Server 自动启动 CCR
+    /// </summary>
+    public bool AutoStart { get; set; } = true;
+
+    /// <summary>
+    /// CCR 监听主机
+    /// </summary>
+    public string Host { get; set; } = "127.0.0.1";
+
+    /// <summary>
+    /// CCR 监听端口
+    /// </summary>
+    public int Port { get; set; } = 3456;
+
+    /// <summary>
+    /// CCR 配置文件名（位于 Documents/BIMCanvas 下）
+    /// </summary>
+    public string ConfigFileName { get; set; } = "ccr_config.json";
 }
 
 /// <summary>

@@ -16,6 +16,13 @@
     "defaultModelFamily": "sonnet",
     "configFileName": "litellm_config.yaml"
   },
+  "ccr": {
+    "enabled": false,
+    "autoStart": true,
+    "host": "127.0.0.1",
+    "port": 3456,
+    "configFileName": "ccr_config.json"
+  },
   "providerAdapter": {
     "enabled": true,
     "autoStart": true,

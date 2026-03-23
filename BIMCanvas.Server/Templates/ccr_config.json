@@ -1,0 +1,38 @@
+{
+  "PORT": 3456,
+  "HOST": "127.0.0.1",
+  "LOG": true,
+  "LOG_LEVEL": "info",
+  "API_TIMEOUT_MS": 300000,
+  "Providers": [
+    {
+      "name": "gemini-yescode",
+      "api_base_url": "https://co.yes.vg/gemini/v1beta/models/",
+      "api_key": "cr_2bee0f94e10f9a1857c94b8ee2c98ccc1ff815658d8ac673de87716af012ac09",
+      "models": [
+        "gemini-3-flash-preview",
+        "gemini-3.1-pro-preview"
+      ],
+      "transformer": {
+        "use": ["gemini", "enhancetool"]
+      }
+    },
+    {
+      "name": "gemini-sub2api",
+      "api_base_url": "https://css.youngala.com/v1beta/models/",
+      "api_key": "sk-715fca35f0d602ed381e2a43e48797ba257dd0b0114cc78af0fad63124d8e499",
+      "models": [
+        "gemini-3-flash-preview",
+        "gemini-3.1-pro-preview"
+      ],
+      "transformer": {
+        "use": ["gemini", "enhancetool"]
+      }
+    }
+  ],
+  "Router": {
+    "default": "gemini-yescode,gemini-3-flash-preview",
+    "think": "gemini-yescode,gemini-3.1-pro-preview",
+    "background": "gemini-yescode,gemini-3-flash-preview"
+  }
+}
