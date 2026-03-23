@@ -284,8 +284,12 @@ var liteLlmReady = !config.LiteLlm.Enabled;
     Process? agentProcess = null;
     Process? webProcess = null;
 
-    // 1. 启动 ProviderAdapter（如果 LiteLLM 运行时配置需要）
-    if (config.LiteLlm.Enabled && providerAdapterRequired)
+    // 判断是否由 CCR 接管（CCR 启用 + activeProvider 是 Gemini 系列）
+    var activeProviderForRouting = NormalizeProviderName(config.LiteLlm.ActiveProvider);
+    var ccrTakeover = config.Ccr.Enabled && activeProviderForRouting.StartsWith("gemini_");
+
+    // 1. 启动 ProviderAdapter（如果 LiteLLM 运行时配置需要，且非 CCR 接管）
+    if (config.LiteLlm.Enabled && providerAdapterRequired && !ccrTakeover)
     {
         if (!config.ProviderAdapter.Enabled)
         {
@@ -354,8 +358,8 @@ var liteLlmReady = !config.LiteLlm.Enabled;
         }
     }
 
-    // 2. 启动 LiteLLM（如果启用）
-    if (config.LiteLlm.Enabled)
+    // 2. 启动 LiteLLM（如果启用，且非 CCR 接管）
+    if (config.LiteLlm.Enabled && !ccrTakeover)
     {
         if (config.LiteLlm.AutoStart && liteLlmReady && (!providerAdapterRequired || providerAdapterRuntimeReady))
         {
@@ -407,7 +411,7 @@ var liteLlmReady = !config.LiteLlm.Enabled;
         }
     }
 
-    if (config.LiteLlm.Enabled && (!config.LiteLlm.AutoStart || liteLlmProcess == null))
+    if (config.LiteLlm.Enabled && !ccrTakeover && (!config.LiteLlm.AutoStart || liteLlmProcess == null))
     {
         WriteWithColoredPrefix("[Server:WARN]", "Agent 仍将指向 LiteLLM 网关，若网关不可用，后续 AI 请求会明确失败", ConsoleColor.DarkYellow);
     }
@@ -1253,8 +1257,9 @@ static Process? StartCcrProcess(ServerConfig config, string configPath)
         {
             StartInfo = new ProcessStartInfo
             {
-                FileName = "ccr",
-                Arguments = "start",
+                // Windows 下 ccr 是 .cmd 脚本，必须通过 cmd.exe /c 调用
+                FileName = RuntimeInformation.IsOSPlatform(OSPlatform.Windows) ? "cmd.exe" : "ccr",
+                Arguments = RuntimeInformation.IsOSPlatform(OSPlatform.Windows) ? "/c ccr start" : "start",
                 UseShellExecute = false,
                 CreateNoWindow = true,
                 RedirectStandardOutput = true,
