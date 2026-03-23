@@ -28,11 +28,6 @@ public class ServerSection
 public class StartupSection
 {
     /// <summary>
-    /// 默认加载的 .bcp 文件路径，null 则使用 demo_1
-    /// </summary>
-    public string? DefaultProject { get; set; }
-
-    /// <summary>
     /// 是否自动打开浏览器（默认 true）
     /// </summary>
     public bool OpenBrowser { get; set; } = true;

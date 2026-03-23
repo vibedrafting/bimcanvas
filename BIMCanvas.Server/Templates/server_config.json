@@ -3,7 +3,6 @@
     "port": 8865
   },
   "startup": {
-    "defaultProject": "demos/金凤143.bcp",
     "openBrowser": true,
     "browserPath": null
   },
