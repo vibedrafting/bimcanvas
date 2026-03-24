@@ -238,6 +238,15 @@ var agentReady = true;
         // CCR 配置文件由 EnsureDefaultConfigs() 从 Templates 复制到 configDir
         var ccrConfigPath = Path.Combine(configDir, config.Ccr.ConfigFileName);
 
+        // CCR 默认从 ~/.claude-code-router/config.json 读取配置，需要将我们的配置同步过去
+        var ccrHomeDir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".claude-code-router");
+        Directory.CreateDirectory(ccrHomeDir);
+        var ccrHomeConfigPath = Path.Combine(ccrHomeDir, "config.json");
+        if (File.Exists(ccrConfigPath))
+        {
+            File.Copy(ccrConfigPath, ccrHomeConfigPath, overwrite: true);
+        }
+
         if (IsPortOccupied(config.Ccr.Port, out var ccrOccupyingPid))
         {
             WriteWithColoredPrefix("[Server]", $"清理残留 CCR 进程 (PID: {ccrOccupyingPid})...", ConsoleColor.White);
