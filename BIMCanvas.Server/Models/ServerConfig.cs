@@ -73,11 +73,6 @@ public class CcrSection
     public string ConfigFileName { get; set; } = "ccr_config.json";
 
     /// <summary>
-    /// 当前激活的下游供应商
-    /// </summary>
-    public string ActiveProvider { get; set; } = "gemini_yescode";
-
-    /// <summary>
     /// 默认模型家族（opus/sonnet/haiku）
     /// </summary>
     public string DefaultModelFamily { get; set; } = "sonnet";

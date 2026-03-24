@@ -34,20 +34,18 @@ dotnet run --project BIMCanvas.Server
 | API 端口 | `launchSettings.json` | `5000` | REST API 服务端口 |
 | Web 端口 | 自动检测 | `5173` | Vite 开发服务器端口 |
 | 项目目录 | 用户文档 | `Documents/BIMCanvas/Projects/` | v3.0 项目解压目录 |
-| LiteLLM 配置 | `Documents/BIMCanvas/server_config.json` | `enabled=true` | 网关启用、端口、当前供应商 |
-| LiteLLM model_list 模板 | `Documents/BIMCanvas/litellm_config.yaml` | 自动初始化 | 下游 provider / alias 映射 |
+| CCR 配置 | `Documents/BIMCanvas/server_config.json` | `enabled=true` | 网关启用、端口、模型家族 |
+| CCR Router 配置 | `Documents/BIMCanvas/ccr_config.json` | 自动初始化 | 供应商 / 模型路由映射 |
 
-### LiteLLM 网关
+### CCR 网关
 
-Server 默认托管 LiteLLM，用于给 Claude Code / Agent SDK 提供统一的 Anthropic 风格入口，再转发到真实下游 provider。
+Server 默认托管 CCR (Claude Code Router)，用于给 Agent SDK 提供统一的 Anthropic 风格入口，再转发到真实下游 provider。
 
-- 启动命令由 Server 自动执行：`python -m litellm --config Documents/BIMCanvas/litellm_config.yaml --host 127.0.0.1 --port 4000`
-- 当前供应商通过 `Documents/BIMCanvas/server_config.json > liteLlm.activeProvider` 切换
-- LiteLLM 模式下的默认模型家族通过 `Documents/BIMCanvas/server_config.json > liteLlm.defaultModelFamily` 指定，并由 Server 注入 Agent 的 `MODEL_NAME`
-- 当 `liteLlm.enabled=false` 时，不启动 LiteLLM / ProviderAdapter，Agent 默认模型回退到 `~/.bimcanvas/config.json > model`
-- 切换供应商后需要重启 Server，LiteLLM 与 Agent 会一起重建
-- `Documents/BIMCanvas/litellm_config.yaml` 只提供模板，不会覆盖已存在的用户配置
-- 如果 LiteLLM 不可用，Server 与 Web 仍会启动，但 AI 请求会在运行时失败并输出明确日志
+- 模型路由由 `Documents/BIMCanvas/ccr_config.json` 的 `Router` 字段配置（`default` / `think` / `background` / `longContext` 分别控制不同类型请求的供应商和模型）
+- 默认模型家族通过 `Documents/BIMCanvas/server_config.json > ccr.defaultModelFamily` 指定，由 Server 注入 Agent 的 `MODEL_NAME`
+- 当 `ccr.enabled=false` 时，不启动 CCR，Agent 走直连模式（使用 `~/.bimcanvas/config.json`）
+- 切换供应商后需要重启 Server
+- 如果 CCR 不可用，Server 与 Web 仍会启动，但 AI 请求会在运行时失败并输出明确日志
 
 ### JSON 序列化
 

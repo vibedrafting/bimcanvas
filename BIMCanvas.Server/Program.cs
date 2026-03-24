@@ -789,15 +789,6 @@ static async Task<bool> WaitForServiceReadyAsync(string host, int port, int time
     return false;
 }
 
-// 辅助函数：归一化 provider 名称
-static string NormalizeProviderName(string? provider)
-{
-    if (string.IsNullOrWhiteSpace(provider))
-        return "anthropic";
-
-    return provider.Trim().ToLowerInvariant();
-}
-
 // 辅助函数：归一化模型家族名称
 static string NormalizeModelFamily(string? modelFamily)
 {
