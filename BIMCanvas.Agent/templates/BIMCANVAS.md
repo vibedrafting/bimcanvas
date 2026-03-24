@@ -22,6 +22,8 @@
 
 **【必须】**执行前读取项目 README.md — WHY：README 包含项目上下文（空间描述、用户偏好），避免基于默认假设做决策。
 
+**【必须】**Skill 中引用的 `references/` 文件位于**该 Skill 自身目录**下（即 `~/.bimcanvas/skills/{skill-name}/references/`），不在项目工作目录下。
+
 系统根据任务类型自动加载工作流 Skill（见任务路由表），加载后**【必须】**严格遵守其步骤和约束。
 
 ---
