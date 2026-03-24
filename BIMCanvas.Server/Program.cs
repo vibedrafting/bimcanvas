@@ -311,24 +311,18 @@ var agentReady = true;
             // 设置环境变量确保 Python 输出 UTF-8
             agentProcess.StartInfo.Environment["PYTHONIOENCODING"] = "utf-8";
 
-            // Always use CCR as the API gateway
-            var activeProvider = NormalizeProviderName(config.Ccr.ActiveProvider);
+            // CCR 网关配置
             var defaultModelFamily = NormalizeModelFamily(config.Ccr.DefaultModelFamily);
             var ccrGatewayUrl = $"http://{config.Ccr.Host}:{config.Ccr.Port}";
             agentProcess.StartInfo.Environment["AGENT_SDK_API_KEY"] = "bimcanvas-ccr";
             agentProcess.StartInfo.Environment["AGENT_SDK_BASE_URL"] = ccrGatewayUrl;
             agentProcess.StartInfo.Environment["MODEL_NAME"] = defaultModelFamily;
 
-            var ccrProvider = activeProvider.Replace("_", "-"); // gemini_yescode → gemini-yescode
-            var opusModel = "gemini-3.1-pro-preview";
-            var defaultModel = "gemini-3-flash-preview";
+            // 模型映射交给 CCR Router，不注入 ANTHROPIC_DEFAULT_*_MODEL
+            // 仅设置 SubAgent 模型名，让 CCR 的 background 路由生效
+            agentProcess.StartInfo.Environment["CLAUDE_CODE_SUBAGENT_MODEL"] = "claude-haiku";
 
-            agentProcess.StartInfo.Environment["ANTHROPIC_DEFAULT_OPUS_MODEL"] = $"{ccrProvider},{opusModel}";
-            agentProcess.StartInfo.Environment["ANTHROPIC_DEFAULT_SONNET_MODEL"] = $"{ccrProvider},{defaultModel}";
-            agentProcess.StartInfo.Environment["ANTHROPIC_DEFAULT_HAIKU_MODEL"] = $"{ccrProvider},{defaultModel}";
-            agentProcess.StartInfo.Environment["CLAUDE_CODE_SUBAGENT_MODEL"] = $"{ccrProvider},{defaultModel}";
-
-            WriteWithColoredPrefix("[Server]", $"Agent 网关: CCR ({ccrGatewayUrl}), 模型: {ccrProvider},{defaultModel}", ConsoleColor.White);
+            WriteWithColoredPrefix("[Server]", $"Agent 网关: CCR ({ccrGatewayUrl}), 默认家族: {defaultModelFamily}", ConsoleColor.White);
 
             agentProcess.Start();
 

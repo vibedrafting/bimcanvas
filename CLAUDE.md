@@ -159,6 +159,7 @@ BIMCanvas.Revit.*    → 仅 Revit 插件内部使用
 - 新建 `.cs` 文件后必须在 `.csproj` 中添加引用
 - Edit 工具可能导致中文乱码，批量替换前先存档
 - 优先编辑现有文件，不创建新文件
+- **Agent 提示词/工作流修改必须改模板文件**（`BIMCanvas.Agent/templates/`），不要修改用户目录下初始化出来的文件（`~/.bimcanvas/`）——后者由 Server 启动时从模板生成，直接改会被覆盖
 
 ### 调试代码规范
 
