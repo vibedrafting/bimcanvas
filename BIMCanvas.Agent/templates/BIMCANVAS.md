@@ -40,10 +40,10 @@ generate-workflow 内部按需加载所需的房间策略文件和能力 Skill�
 
 ---
 
-## 多房间派发（generate 任务）
+## generate 执行策略
 
 1. 读取 schemes/zones.json，匹配目标分区
-2. **1 个分区** → 你直接执行 generate-workflow
+2. **【必须】1 个分区** → 你直接执行 generate-workflow，不派发 layout-agent — WHY：单房间无并行收益，派发反而丧失与用户直接对话的能力
 3. **≥2 个分区** → 并行派发 layout-agent
 
 > WHY：多分区顺序执行导致上下文膨胀，且耗时与分区数成正比。并行让每个 layout-agent 在隔离上下文中独立工作。

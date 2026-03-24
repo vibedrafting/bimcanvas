@@ -44,6 +44,7 @@ interface ChatStreamOptions {
 
 // 用于中止请求的 AbortController 管理
 let currentAbortController: AbortController | null = null;
+const PLACEHOLDER_ASSISTANT_TEXTS = new Set(['(no content)', '[no content]']);
 
 export const useChatStream = (options: ChatStreamOptions) => {
   const agentStatus = ref<'connecting' | 'connected' | 'disconnected'>('disconnected');
@@ -51,7 +52,25 @@ export const useChatStream = (options: ChatStreamOptions) => {
   const isPollingBackground = ref(false);
 
   const getRandomWaitingVerb = (): string =>
-    WAITING_VERBS[Math.floor(Math.random() * WAITING_VERBS.length)];
+    WAITING_VERBS[Math.floor(Math.random() * WAITING_VERBS.length)] ?? 'Processing';
+
+  const isSuppressedAssistantText = (content?: string | null): boolean => {
+    const trimmed = (content || '').trim();
+    return trimmed.length === 0 || PLACEHOLDER_ASSISTANT_TEXTS.has(trimmed.toLowerCase());
+  };
+
+  const pruneSuppressedTextBubbles = (bubbles: ChatBubble[]) => {
+    for (let i = bubbles.length - 1; i >= 0; i--) {
+      const bubble = bubbles[i];
+      if (!bubble) continue;
+      if (bubble.childBubbles) {
+        pruneSuppressedTextBubbles(bubble.childBubbles);
+      }
+      if (bubble.type === 'text' && isSuppressedAssistantText(bubble.content)) {
+        bubbles.splice(i, 1);
+      }
+    }
+  };
 
   const streamWelcomeMessage = async () => {
     const win = options.activeWindow.value;
@@ -78,13 +97,19 @@ export const useChatStream = (options: ChatStreamOptions) => {
         return;
       }
 
+      const firstBubble = msg.bubbles[0];
+      if (!firstBubble) {
+        clearInterval(interval);
+        return;
+      }
+
       if (i < welcomeText.length) {
-        msg.bubbles[0].content += welcomeText[i];
+        firstBubble.content += welcomeText[i] ?? '';
         i++;
         options.scrollToBottom({ windowId: targetWindowId });
       } else {
         clearInterval(interval);
-        msg.bubbles[0].status = 'completed';
+        firstBubble.status = 'completed';
         msg.isStreaming = false;
       }
     }, 30);
@@ -315,10 +340,6 @@ export const useChatStream = (options: ChatStreamOptions) => {
                 }
                 completeThinkingBubble(activeThinking);
               } else if (parsed.type === 'text') {
-                exitWaitingState(currentMsg.waitingState);
-                // 自动折叠最后一个 thinking 气泡
-                collapseLastThinkingBubble(currentMsg.bubbles);
-
                 if (parsed.errorType === 'recoverable') {
                   if (import.meta.env.DEV) {
                     console.log('[Recoverable error (hidden)]', parsed.errorContent || parsed.content);
@@ -334,6 +355,13 @@ export const useChatStream = (options: ChatStreamOptions) => {
                 }
 
                 // sdk_error 和 api_error 需要用户知晓 → 不跳过，走正常文本追加逻辑
+                if (isSuppressedAssistantText(parsed.content)) {
+                  continue;
+                }
+
+                exitWaitingState(currentMsg.waitingState);
+                // 自动折叠最后一个 thinking 气泡
+                collapseLastThinkingBubble(currentMsg.bubbles);
 
                 const lastTextBubble = getLastStreamingTextBubble(currentMsg.bubbles);
 
@@ -351,8 +379,15 @@ export const useChatStream = (options: ChatStreamOptions) => {
                 const lastTextBubble = getLastStreamingTextBubble(currentMsg.bubbles);
 
                 if (lastTextBubble) {
-                  completeBubble(lastTextBubble);
-                } else if (parsed.content) {
+                  if (isSuppressedAssistantText(lastTextBubble.content)) {
+                    const bubbleIndex = currentMsg.bubbles.lastIndexOf(lastTextBubble);
+                    if (bubbleIndex >= 0) {
+                      currentMsg.bubbles.splice(bubbleIndex, 1);
+                    }
+                  } else {
+                    completeBubble(lastTextBubble);
+                  }
+                } else if (parsed.content && !isSuppressedAssistantText(parsed.content)) {
                   const newTextBubble = createTextBubble(parsed.content);
                   newTextBubble.status = 'completed';
                   currentMsg.bubbles.push(newTextBubble);
@@ -470,6 +505,7 @@ export const useChatStream = (options: ChatStreamOptions) => {
 
         // 兜底清理：递归完成所有残留的 streaming 气泡（包括 tool_call、subagent、text、thinking）
         cleanupAllStreamingBubbles(finalMsg.bubbles);
+        pruneSuppressedTextBubbles(finalMsg.bubbles);
       }
 
       agentStatus.value = 'connected';
@@ -484,6 +520,7 @@ export const useChatStream = (options: ChatStreamOptions) => {
           currentMsg.waitingState.isWaiting = false;
           // 兜底清理所有残留的 streaming 气泡
           cleanupAllStreamingBubbles(currentMsg.bubbles);
+          pruneSuppressedTextBubbles(currentMsg.bubbles);
         }
         return;  // 提前返回，跳过错误处理
       }
@@ -499,6 +536,7 @@ export const useChatStream = (options: ChatStreamOptions) => {
         }
         currentMsg.isStreaming = false;
         currentMsg.waitingState.isWaiting = false;
+        pruneSuppressedTextBubbles(currentMsg.bubbles);
       }
       agentStatus.value = 'disconnected';
     } finally {
@@ -524,7 +562,6 @@ export const useChatStream = (options: ChatStreamOptions) => {
       return;
     }
 
-    const targetWindowId = win.id;
     const effectiveWindowId = options.activeWindowId.value || 'window-main';
 
     console.log('[interruptMessage] Interrupting conversation:', { windowId: effectiveWindowId });

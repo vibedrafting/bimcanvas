@@ -127,6 +127,7 @@ class MainAgent:
         self._in_response = False
         self._streamed_text = False  # 标记是否已通过流式事件输出文本，避免重复
         self._current_tool_name = None
+        self._placeholder_text_suppressed_logged = False
 
         # SubAgent/ToolCall 状态跟踪（用于 SSE 事件）
         # 支持多个并行 SubAgent：task_tool_use_id → subagent_id
@@ -276,6 +277,10 @@ class MainAgent:
         r"add_item.*failed.*errno",   # Git Bash 内部错误
         r"EBUSY.*resource busy",      # 文件锁定
     ]
+    _PLACEHOLDER_ASSISTANT_TEXTS = {
+        "(no content)",
+        "[no content]",
+    }
 
     def _classify_tool_error(self, error_message: str) -> str:
         """分类工具错误：recoverable（已知可忽略）或 blocking（需通知前端）。"""
@@ -290,6 +295,36 @@ class MainAgent:
         错误分类由 tool_result 事件的 is_error 字段处理。
         """
         return re.sub(r'<tool_use_error>[\s\S]*?</tool_use_error>', '', text)
+
+    @classmethod
+    def _is_placeholder_assistant_text(cls, text: str | None) -> bool:
+        """判断 assistant 文本是否为应抑制的占位内容。"""
+        if text is None:
+            return True
+
+        trimmed = text.strip()
+        if not trimmed:
+            return True
+
+        return trimmed.lower() in cls._PLACEHOLDER_ASSISTANT_TEXTS
+
+    @classmethod
+    def _normalize_assistant_text(cls, text: str) -> str | None:
+        """归一化 assistant 文本，过滤占位内容，保留真实正文。"""
+        cleaned = re.sub(r'<tool_use_error>[\s\S]*?</tool_use_error>', '', text)
+        if cls._is_placeholder_assistant_text(cleaned):
+            return None
+        return cleaned
+
+    def _filter_assistant_text(self, text: str) -> str | None:
+        """实例级过滤，附带一次性兼容日志。"""
+        normalized = self._normalize_assistant_text(text)
+        if normalized is None:
+            cleaned = self._strip_tool_error_tags(text).strip()
+            if cleaned and not self._placeholder_text_suppressed_logged and self.verbose:
+                self._agent_logger.log_info("兼容层已抑制占位 assistant 文本")
+                self._placeholder_text_suppressed_logged = True
+        return normalized
 
     # ─────────────────────────────────────────────────────
     # Connection Management
@@ -432,15 +467,17 @@ class MainAgent:
                         self._in_thinking = False
 
                 elif isinstance(block, TextBlock):
-                    text_content += block.text
-                    if self.verbose:
-                        if self._in_thinking:
-                            self._agent_logger.log_thinking_end()
-                            self._in_thinking = False
-                        if not self._in_response:
-                            self._agent_logger.log_response_start()
-                            self._in_response = True
-                        self._agent_logger.log_response(block.text)
+                    normalized_text = self._filter_assistant_text(block.text)
+                    if normalized_text:
+                        text_content += normalized_text
+                        if self.verbose:
+                            if self._in_thinking:
+                                self._agent_logger.log_thinking_end()
+                                self._in_thinking = False
+                            if not self._in_response:
+                                self._agent_logger.log_response_start()
+                                self._in_response = True
+                            self._agent_logger.log_response(normalized_text)
 
                 elif isinstance(block, ToolUseBlock):
                     if self.verbose:
@@ -487,10 +524,6 @@ class MainAgent:
                 if not self._in_thinking:
                     self._agent_logger.log_thinking_start()
                     self._in_thinking = True
-            elif block_type == "text" and self.verbose:
-                if not self._in_response:
-                    self._agent_logger.log_response_start()
-                    self._in_response = True
             elif block_type == "tool_use" and self.verbose:
                 tool_name = event.get("content_block", {}).get("name", "")
                 self._current_tool_name = tool_name
@@ -503,9 +536,12 @@ class MainAgent:
                 if thinking:
                     self._agent_logger.log_thinking(thinking, is_delta=True)
             elif delta_type == "text_delta" and self.verbose:
-                text = delta.get("text", "")
-                if text:
-                    self._agent_logger.log_response(text, is_delta=True)
+                normalized_text = self._filter_assistant_text(delta.get("text", ""))
+                if normalized_text:
+                    if not self._in_response:
+                        self._agent_logger.log_response_start()
+                        self._in_response = True
+                    self._agent_logger.log_response(normalized_text, is_delta=True)
 
         elif event_type == "content_block_stop":
             if self._in_thinking and self.verbose:
@@ -571,6 +607,7 @@ class MainAgent:
         self._in_thinking = False
         self._in_response = False
         self._current_tool_name = None
+        self._placeholder_text_suppressed_logged = False
 
         await self._client.query(user_message)
 
@@ -706,6 +743,7 @@ class MainAgent:
         self._in_response = False
         self._streamed_text = False  # 重置流式文本标记
         self._current_tool_name = None
+        self._placeholder_text_suppressed_logged = False
         # 重置 SubAgent/ToolCall 状态
         self._active_subagents.clear()
         self._tool_call_counter = 0
@@ -766,13 +804,10 @@ class MainAgent:
                     delta = event.get("delta", {})
                     delta_type = delta.get("type", "")
                     if delta_type == "text_delta":
-                        text = delta.get("text", "")
-                        if text:
-                            # 剥离 <tool_use_error> XML 标签（错误分类由 tool_result 处理）
-                            cleaned = self._strip_tool_error_tags(text)
-                            if cleaned:
-                                self._streamed_text = True
-                                yield StreamChunk(type="text", content=cleaned)
+                        normalized_text = self._filter_assistant_text(delta.get("text", ""))
+                        if normalized_text:
+                            self._streamed_text = True
+                            yield StreamChunk(type="text", content=normalized_text)
                     elif delta_type == "thinking_delta":
                         thinking = delta.get("thinking", "")
                         if thinking:
@@ -872,13 +907,15 @@ class MainAgent:
                             self._agent_logger.log_thinking_end()
                         yield StreamChunk(type="thinking_complete", content=block.thinking)
                     elif isinstance(block, TextBlock):
-                        if self.verbose and not self._in_response:
-                            self._agent_logger.log_response_start()
-                            self._agent_logger.log_response(block.text)
-                            self._agent_logger.log_response_end()
-                        # 如果已通过流式事件输出，跳过完整块输出（避免重复）
-                        if not self._streamed_text:
-                            yield StreamChunk(type="text_complete", content=block.text)
+                        normalized_text = self._filter_assistant_text(block.text)
+                        if normalized_text:
+                            if self.verbose and not self._in_response:
+                                self._agent_logger.log_response_start()
+                                self._agent_logger.log_response(normalized_text)
+                                self._agent_logger.log_response_end()
+                            # 如果已通过流式事件输出，跳过完整块输出（避免重复）
+                            if not self._streamed_text:
+                                yield StreamChunk(type="text_complete", content=normalized_text)
                         self._streamed_text = False  # 重置标记，准备下一轮
                     elif isinstance(block, ToolUseBlock):
                         self._current_tool_name = block.name
