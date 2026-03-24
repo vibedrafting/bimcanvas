@@ -153,15 +153,30 @@ async def config_handler(request: web.Request) -> web.Response:
 
     Response:
         {
-            "model": "claude-sonnet-4-20250514",
+            "model": "sonnet",
+            "models": [
+                {"id": "opus", "label": "Opus"},
+                {"id": "sonnet", "label": "Sonnet"},
+                {"id": "haiku", "label": "Haiku"}
+            ],
             "defaultEffort": "medium",
             "defaultThinking": "off"
         }
     """
     settings = get_settings()
 
+    # 从 modelMapping 生成下拉菜单选项
+    models = []
+    for alias, entry in settings.model_mapping.items():
+        if isinstance(entry, dict):
+            label = entry.get('label', alias.capitalize())
+        else:
+            label = alias.capitalize()
+        models.append({"id": alias, "label": label})
+
     return web.json_response({
         "model": settings.model_name,
+        "models": models,
         "defaultEffort": settings.default_effort,
         "defaultThinking": settings.default_thinking,
     })

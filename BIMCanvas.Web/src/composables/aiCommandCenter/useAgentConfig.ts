@@ -99,7 +99,14 @@ export const useAgentConfig = (agentApiBase: string, serverApiBase: string) => {
 
       if (configRes.ok) {
         const config = await configRes.json();
-        const { model: defaultModel, defaultEffort: cfgEffort, defaultThinking: cfgThinking } = config;
+        const { model: defaultModel, models: agentModels, defaultEffort: cfgEffort, defaultThinking: cfgThinking } = config;
+
+        // Agent 返回了 models → 用作主模型列表（优先于 web_config 的 customModels）
+        if (agentModels && agentModels.length > 0) {
+          const agentModelIds = new Set(agentModels.map((m: { id: string }) => m.id));
+          const extraModels = models.value.filter(m => !agentModelIds.has(m.id));
+          models.value = [...agentModels, ...extraModels];
+        }
 
         if (defaultModel) {
           let found = models.value.find(m => m.id === defaultModel);

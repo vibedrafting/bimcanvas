@@ -2,7 +2,7 @@
 
 import logging
 import os
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from functools import lru_cache
 from dotenv import load_dotenv
 
@@ -20,9 +20,10 @@ class Settings:
     Application settings
 
     配置来源：
-    - 直连模式：base_url / api_key / model 来自 config.json
-    - LiteLLM 模式：base_url / api_key 来自 Server 注入的网关环境变量，
-      默认模型来自 Server 注入的 MODEL_NAME
+    - 直连模式：base_url / api_key / model 来自 config.json，
+      模型映射通过 modelMapping 设置 ANTHROPIC_DEFAULT_*_MODEL 环境变量
+    - CCR 模式：base_url / api_key 来自 Server 注入的网关环境变量，
+      默认模型来自 Server 注入的 MODEL_NAME，模型路由由 CCR 处理
 
     环境变量说明（与 Claude Code 隔离）：
     - AGENT_SDK_API_KEY: Agent SDK 专用 API Key
@@ -39,6 +40,8 @@ class Settings:
     server_host: str
     server_port: int
     default_project_path: str
+    model_mapping: dict = field(default_factory=dict)   # {"opus": {"id": "...", "label": "..."}, ...}
+    subagent_model: str | None = None                   # 别名 key，如 "haiku"
 
     @classmethod
     def load(cls) -> "Settings":
@@ -59,6 +62,10 @@ class Settings:
         host = server.get('host', '127.0.0.1')
         port = server.get('port', 8865)
         lite_llm_managed = _is_litellm_managed_mode()
+
+        # 模型映射（两种模式都加载，用于 /api/config 返回下拉菜单）
+        model_mapping = config.get('modelMapping', {})
+        subagent_model = config.get('subagentModel', None)
 
         if lite_llm_managed:
             api_key = os.getenv('AGENT_SDK_API_KEY', '').strip()
@@ -83,10 +90,14 @@ class Settings:
                 model = env_model
             else:
                 logger.info(f"使用配置模型: {model}")
+            # CCR 模式：不设置 ANTHROPIC_DEFAULT_*_MODEL（CCR 路由处理）
         else:
             api_key = direct_api_key
             base_url = direct_base_url
             logger.info(f"使用配置模型: {model}")
+
+            # 直连模式：从 modelMapping 设置 Claude Code CLI 模型映射环境变量
+            _apply_model_mapping(model_mapping, subagent_model)
 
         env_thinking_tokens = os.getenv('MAX_THINKING_TOKENS')
         if env_thinking_tokens is not None:
@@ -106,6 +117,8 @@ class Settings:
             server_host=host,
             server_port=port,
             default_project_path=project_path,
+            model_mapping=model_mapping,
+            subagent_model=subagent_model,
         )
 
 
@@ -120,3 +133,26 @@ def _is_litellm_managed_mode() -> bool:
     api_key = os.getenv('AGENT_SDK_API_KEY', '').strip()
     base_url = os.getenv('AGENT_SDK_BASE_URL', '').strip()
     return bool(api_key or base_url)
+
+
+def _apply_model_mapping(model_mapping: dict, subagent_model: str | None) -> None:
+    """直连模式下，将 config.json 的 modelMapping 转换为 Claude Code CLI 环境变量。"""
+    family_env_map = {
+        'opus':   'ANTHROPIC_DEFAULT_OPUS_MODEL',
+        'sonnet': 'ANTHROPIC_DEFAULT_SONNET_MODEL',
+        'haiku':  'ANTHROPIC_DEFAULT_HAIKU_MODEL',
+    }
+    for family, env_name in family_env_map.items():
+        entry = model_mapping.get(family, {})
+        model_id = entry.get('id') if isinstance(entry, dict) else entry
+        if model_id:
+            os.environ[env_name] = model_id
+            logger.info(f"模型映射: {family} → {model_id}")
+
+    # SubAgent 模型：解析别名引用
+    if subagent_model:
+        sub_entry = model_mapping.get(subagent_model, {})
+        sub_id = sub_entry.get('id') if isinstance(sub_entry, dict) else subagent_model
+        if sub_id:
+            os.environ['CLAUDE_CODE_SUBAGENT_MODEL'] = sub_id
+            logger.info(f"SubAgent 模型: {subagent_model} → {sub_id}")

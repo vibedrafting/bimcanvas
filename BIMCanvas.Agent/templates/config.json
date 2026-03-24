@@ -1,10 +1,16 @@
 {
     "baseUrl": "https://aitoll.net/api/gateway/cli/cc",
     "apiKey": "pass_06a049bbe109012abf061d82504606a739c2e3c17baa7bd01e9a89acfafebac2",
-    "model": "claude-opus-4-6",
+    "model": "opus",
+    "modelMapping": {
+        "opus":   { "id": "claude-opus-4-6",          "label": "Opus" },
+        "sonnet": { "id": "claude-sonnet-4-20250514",  "label": "Sonnet" },
+        "haiku":  { "id": "claude-haiku-4-5-20251001", "label": "Haiku" }
+    },
+    "subagentModel": "haiku",
     "defaultEffort": "low",
     "defaultThinking": "adaptive",
-    "maxThinkingTokens": 16000,
+    "maxThinkingTokens": 8000,
     "permissions": {
         "allow": ["Read", "Glob", "Grep", "Task", "AskUserQuestion"],
         "deny": []
