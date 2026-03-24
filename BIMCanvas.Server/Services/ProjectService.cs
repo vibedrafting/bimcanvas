@@ -598,6 +598,32 @@ namespace BIMCanvas.Server.Services
             }
         }
 
+        /// <summary>
+        /// 增量合并模板目录：仅复制目标中不存在的文件，不覆盖已有文件
+        /// </summary>
+        private void MergeDirectory(string sourceDir, string targetDir)
+        {
+            if (!Directory.Exists(sourceDir)) return;
+            Directory.CreateDirectory(targetDir);
+
+            foreach (var file in Directory.GetFiles(sourceDir))
+            {
+                var fileName = Path.GetFileName(file);
+                var destFile = Path.Combine(targetDir, fileName);
+                if (!File.Exists(destFile))
+                {
+                    File.Copy(file, destFile);
+                    _logger.LogInformation("同步新模板文件: {File}", fileName);
+                }
+            }
+
+            foreach (var subDir in Directory.GetDirectories(sourceDir))
+            {
+                var subDirName = Path.GetFileName(subDir);
+                MergeDirectory(subDir, Path.Combine(targetDir, subDirName));
+            }
+        }
+
         #region 统一模板初始化
 
         /// <summary>
@@ -673,15 +699,17 @@ namespace BIMCanvas.Server.Services
                 {
                     if (item.Type == "directory")
                     {
-                        if (Directory.Exists(targetPath))
-                        {
-                            _logger.LogDebug("{Target} 已存在，跳过", item.Target);
-                            continue;
-                        }
-
                         if (!Directory.Exists(sourcePath))
                         {
                             _logger.LogWarning("模板源目录不存在: {Path}", sourcePath);
+                            continue;
+                        }
+
+                        if (Directory.Exists(targetPath))
+                        {
+                            // 增量合并：仅复制目标中缺失的文件，不覆盖已有文件
+                            MergeDirectory(sourcePath, targetPath);
+                            _logger.LogDebug("增量合并目录: {Target}", item.Target);
                             continue;
                         }
 
