@@ -514,7 +514,6 @@ model: inherit
 | `ANTHROPIC_DEFAULT_OPUS_MODEL` | 覆盖 Claude Code 的 `opus` 家族映射 |
 | `ANTHROPIC_DEFAULT_SONNET_MODEL` | 覆盖 Claude Code 的 `sonnet` 家族映射 |
 | `ANTHROPIC_DEFAULT_HAIKU_MODEL` | 覆盖 Claude Code 的 `haiku` / background 映射 |
-| `CLAUDE_CODE_SUBAGENT_MODEL` | 覆盖 Claude Code 的 SubAgent 模型映射 |
 | `SERVER_HOST` | 覆盖服务地址 |
 | `SERVER_PORT` | 覆盖服务端口 |
 

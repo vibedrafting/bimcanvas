@@ -321,8 +321,6 @@ var agentReady = true;
                 agentProcess.StartInfo.Environment["MODEL_NAME"] = defaultModelFamily;
 
                 // 模型映射交给 CCR Router，不注入 ANTHROPIC_DEFAULT_*_MODEL
-                // 仅设置 SubAgent 模型名，让 CCR 的 background 路由生效
-                agentProcess.StartInfo.Environment["CLAUDE_CODE_SUBAGENT_MODEL"] = "claude-haiku";
 
                 WriteWithColoredPrefix("[Server]", $"Agent 网关: CCR ({ccrGatewayUrl}), 默认家族: {defaultModelFamily}", ConsoleColor.White);
             }

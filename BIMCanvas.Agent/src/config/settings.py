@@ -41,7 +41,6 @@ class Settings:
     server_port: int
     default_project_path: str
     model_mapping: dict = field(default_factory=dict)   # {"opus": {"id": "...", "label": "..."}, ...}
-    subagent_model: str | None = None                   # 别名 key，如 "haiku"
 
     @classmethod
     def load(cls) -> "Settings":
@@ -65,7 +64,6 @@ class Settings:
 
         # 模型映射（两种模式都加载，用于 /api/config 返回下拉菜单）
         model_mapping = config.get('modelMapping', {})
-        subagent_model = config.get('subagentModel', None)
 
         if lite_llm_managed:
             api_key = os.getenv('AGENT_SDK_API_KEY', '').strip()
@@ -97,7 +95,7 @@ class Settings:
             logger.info(f"使用配置模型: {model}")
 
             # 直连模式：从 modelMapping 设置 Claude Code CLI 模型映射环境变量
-            _apply_model_mapping(model_mapping, subagent_model)
+            _apply_model_mapping(model_mapping)
 
         env_thinking_tokens = os.getenv('MAX_THINKING_TOKENS')
         if env_thinking_tokens is not None:
@@ -118,7 +116,6 @@ class Settings:
             server_port=port,
             default_project_path=project_path,
             model_mapping=model_mapping,
-            subagent_model=subagent_model,
         )
 
 
@@ -135,7 +132,7 @@ def _is_litellm_managed_mode() -> bool:
     return bool(api_key or base_url)
 
 
-def _apply_model_mapping(model_mapping: dict, subagent_model: str | None) -> None:
+def _apply_model_mapping(model_mapping: dict) -> None:
     """直连模式下，将 config.json 的 modelMapping 转换为 Claude Code CLI 环境变量。"""
     family_env_map = {
         'opus':   'ANTHROPIC_DEFAULT_OPUS_MODEL',
@@ -148,11 +145,3 @@ def _apply_model_mapping(model_mapping: dict, subagent_model: str | None) -> Non
         if model_id:
             os.environ[env_name] = model_id
             logger.info(f"模型映射: {family} → {model_id}")
-
-    # SubAgent 模型：解析别名引用
-    if subagent_model:
-        sub_entry = model_mapping.get(subagent_model, {})
-        sub_id = sub_entry.get('id') if isinstance(sub_entry, dict) else subagent_model
-        if sub_id:
-            os.environ['CLAUDE_CODE_SUBAGENT_MODEL'] = sub_id
-            logger.info(f"SubAgent 模型: {subagent_model} → {sub_id}")

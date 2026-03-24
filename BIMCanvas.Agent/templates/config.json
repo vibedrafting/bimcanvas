@@ -7,7 +7,6 @@
         "sonnet": { "id": "claude-sonnet-4-20250514",  "label": "Sonnet" },
         "haiku":  { "id": "claude-haiku-4-5-20251001", "label": "Haiku" }
     },
-    "subagentModel": "haiku",
     "defaultEffort": "low",
     "defaultThinking": "adaptive",
     "maxThinkingTokens": 8000,
