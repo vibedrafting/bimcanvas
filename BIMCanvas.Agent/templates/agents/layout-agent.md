@@ -45,7 +45,7 @@ IMPORTANT: 必须使用工具调用 API（function calling）调用 MCP 工具�
 
 ### 【必须】单房间验证
 
-调用 validate_layout 时传入 `zoneIds=[自己负责的 zoneId]`，仅验证自己的分区。validate_layout 可能报告其他分区的错误——只关注你负责的分区。
+调用 validate_layout 时传入 `zoneIds=[自己负责的 zoneId]`，仅验证自己的分区。服务端会只读取目标分区的文件，不会被其他分区的数据影响。
 
 > WHY：layout-agent 的作用域限定为单房间。全局验证是主控 Agent 的收尾职责。
 

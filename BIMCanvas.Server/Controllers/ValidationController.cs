@@ -82,20 +82,18 @@ namespace BIMCanvas.Server.Controllers
                 // 2. 读取 computed 数据（设计区、禁区）
                 var (designZones, exclusionZones) = LoadZoneData(projectPath);
 
-                // 3. 读取当前方案的所有模块
-                var modules = LoadAllModules(projectPath);
+                // 3. 按 zoneIds 选择性读取模块（先选文件，再反序列化，不读取无关 zone）
+                var targetSet = request?.ZoneIds is { Count: > 0 }
+                    ? new HashSet<string>(request.ZoneIds)
+                    : null;
+                var modules = LoadAllModules(projectPath, targetSet);
 
                 // 3.5 持久化模块（确保 [OnDeserialized] 自动生成的 Id 写回文件）
                 PersistModules(projectPath, modules);
 
-                // 3.6 按 zoneIds 过滤（可选）
-                if (request?.ZoneIds is { Count: > 0 } filterIds)
-                {
-                    var filterSet = new HashSet<string>(filterIds);
-                    modules = modules.Where(m => filterSet.Contains(m.ZoneId ?? "_unzoned")).ToList();
-                    _logger.LogInformation("[Validation] 按分区过滤: {ZoneIds} → {Count} 个模块",
-                        string.Join(", ", filterIds), modules.Count);
-                }
+                if (targetSet != null)
+                    _logger.LogInformation("[Validation] 按分区加载: {ZoneIds} → {Count} 个模块",
+                        string.Join(", ", targetSet), modules.Count);
 
                 // 4. 调用 Core 层验证
                 var report = SchemeValidator.Validate(
@@ -170,9 +168,10 @@ namespace BIMCanvas.Server.Controllers
         }
 
         /// <summary>
-        /// 读取所有模块（支持分区子目录格式）
+        /// 读取模块（支持分区子目录格式）
+        /// 当 targetZoneIds 不为 null 时，只读取目标 zone 的文件，跳过其他 zone
         /// </summary>
-        private List<Module> LoadAllModules(string projectPath)
+        private List<Module> LoadAllModules(string projectPath, HashSet<string>? targetZoneIds = null)
         {
             var schemesPath = Path.Combine(projectPath, "schemes");
             var allModules = new List<Module>();
@@ -182,21 +181,50 @@ namespace BIMCanvas.Server.Controllers
                 return allModules;
             }
 
-            // 递归查找所有 zone 子目录中的 modules.json（支持嵌套分区）
-            var moduleFiles = Directory.GetFiles(schemesPath, "modules.json", SearchOption.AllDirectories)
-                .Where(f =>
-                {
-                    // 提取相对于 schemes/ 的路径，取最近的目录名作为 zone 标识
-                    var dir = Path.GetFileName(Path.GetDirectoryName(f) ?? "");
-                    return dir.StartsWith("rz_") || dir.StartsWith("dz_") || dir == "_unzoned";
-                })
-                .ToList();
+            IEnumerable<string> moduleFiles;
 
-            if (moduleFiles.Count > 0)
+            if (targetZoneIds is { Count: > 0 })
             {
-                foreach (var modulesPath in moduleFiles)
+                // 精确定位目标 zone 的文件，跳过无关 zone 的反序列化
+                var targeted = new List<string>();
+                foreach (var zoneId in targetZoneIds)
                 {
-                    var zoneId = Path.GetFileName(Path.GetDirectoryName(modulesPath)!);
+                    var zoneDir = ResolveZoneDirectory(schemesPath, zoneId);
+                    var path = Path.Combine(zoneDir, "modules.json");
+                    if (System.IO.File.Exists(path)) targeted.Add(path);
+                }
+                moduleFiles = targeted;
+            }
+            else
+            {
+                // 全量加载：递归查找所有 zone 子目录中的 modules.json
+                var zoneFiles = Directory.GetFiles(schemesPath, "modules.json", SearchOption.AllDirectories)
+                    .Where(f =>
+                    {
+                        var dir = Path.GetFileName(Path.GetDirectoryName(f) ?? "");
+                        return dir.StartsWith("rz_") || dir.StartsWith("dz_") || dir == "_unzoned";
+                    })
+                    .ToList();
+
+                if (zoneFiles.Count > 0)
+                {
+                    moduleFiles = zoneFiles;
+                }
+                else
+                {
+                    // 旧格式：单一 schemes/modules.json
+                    var legacyPath = Path.Combine(schemesPath, "modules.json");
+                    moduleFiles = System.IO.File.Exists(legacyPath)
+                        ? new[] { legacyPath }
+                        : Enumerable.Empty<string>();
+                }
+            }
+
+            foreach (var modulesPath in moduleFiles)
+            {
+                var zoneId = Path.GetFileName(Path.GetDirectoryName(modulesPath)!);
+                try
+                {
                     var modules = ReadJson<List<Module>>(modulesPath) ?? new List<Module>();
                     foreach (var module in modules)
                     {
@@ -204,14 +232,12 @@ namespace BIMCanvas.Server.Controllers
                     }
                     allModules.AddRange(modules);
                 }
-            }
-            else
-            {
-                // 旧格式：单一 modules.json
-                var modulesPath = Path.Combine(schemesPath, "modules.json");
-                if (System.IO.File.Exists(modulesPath))
+                catch (Exception ex)
                 {
-                    allModules = ReadJson<List<Module>>(modulesPath) ?? new List<Module>();
+                    throw new InvalidOperationException(
+                        $"模块数据解析失败 | 文件: {modulesPath} | Zone: {zoneId} | " +
+                        $"facing 合法值: north/south/east/west/northeast/northwest/southeast/southwest | " +
+                        $"原始错误: {ex.Message}", ex);
                 }
             }
 

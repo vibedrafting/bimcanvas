@@ -7,7 +7,9 @@ using BIMCanvas.Core.Models.Geometry;
 namespace BIMCanvas.Core.Converters.Json
 {
     /// <summary>
-    /// Facing ↔ "north" | [dx, dy] 格式转换
+    /// Facing ↔ JSON 格式转换。
+    /// 反序列化：只接受 8 个小写英文全称字符串（north/south/east/west/...）
+    /// 序列化：语义类型输出字符串，向量类型输出 [dx, dy]（Web端修复前的过渡）
     /// </summary>
     public class FacingConverter : JsonConverter
     {
@@ -28,18 +30,9 @@ namespace BIMCanvas.Core.Converters.Json
                 return new Facing(direction);
             }
 
-            // 向量格式：[dx, dy]
-            if (token.Type == JTokenType.Array)
-            {
-                var array = (JArray)token;
-                if (array.Count != 2)
-                    throw new JsonException("Facing vector must be an array of 2 numbers");
-
-                var vector = new Vec2D(array[0].Value<double>(), array[1].Value<double>());
-                return new Facing(vector);
-            }
-
-            throw new JsonException($"Facing must be a string or array, got {token.Type}");
+            throw new JsonException(
+                $"facing 必须是字符串，不接受 {token.Type} 格式。" +
+                $"合法值：north / south / east / west / northeast / northwest / southeast / southwest");
         }
 
         public override void WriteJson(JsonWriter writer, object? value, JsonSerializer serializer)

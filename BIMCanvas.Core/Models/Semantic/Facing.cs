@@ -135,7 +135,10 @@ namespace BIMCanvas.Core.Models.Semantic
                 "northwest" => FacingDirection.Northwest,
                 "southeast" => FacingDirection.Southeast,
                 "southwest" => FacingDirection.Southwest,
-                _ => throw new ArgumentException($"Invalid semantic facing: {semantic}")
+                _ => throw new ArgumentException(
+                    $"facing 值 '{semantic}' 无效。" +
+                    $"合法值（小写英文全称）：north / south / east / west / " +
+                    $"northeast / northwest / southeast / southwest")
             };
         }
 

@@ -313,6 +313,9 @@ Write modules.json（床靠西墙，衣柜靠北墙，按语义方案逐件定�
 Write `schemes/{zoneId}/modules.json`，每个模块包含 moduleId、bounds（四点坐标）、facing、items。
 分区场景写入路径：`schemes/{parentZoneId}/{childZoneId}/modules.json`（如 `schemes/rz_3/dz_1/modules.json`）。
 
+**facing 必须是以下 8 个小写英文全称之一**：`north` / `south` / `east` / `west` / `northeast` / `northwest` / `southeast` / `southwest`。
+禁止中文（南/北/东/西）、缩写（n/s/e/w）、数组（[0,-1]）。示例：`"facing": "south"`
+
 ### 验证闭环
 
 **【必须】**每次 Write 后调用 `mcp__canvas__validate_layout(zoneIds=[...])`。分区场景传入子 zone 列表（如 `zoneIds=["dz_1", "dz_2"]`）。
