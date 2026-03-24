@@ -49,7 +49,7 @@ generate-workflow 内部按需加载所需的房间策略文件和能力 Skill�
 > WHY：多分区顺序执行导致上下文膨胀，且耗时与分区数成正比。并行让每个 layout-agent 在隔离上下文中独立工作。
 
 **派发**：
-- **【必须】**所有 layout-agent Task 在同一轮并行发起
+- **【必须】**所有 layout-agent Task 在同一轮并行发起，禁止 run_in_background — WHY：前台 Task 由 SDK 自动并行执行并等待全部完成，后台模式导致无法收集结果做收尾验证
 - Task 描述中包含：分区 ID、分区标签（tags）、用户原始需求
 - 每个 layout-agent 自主加载各自的房间 Skill
 
