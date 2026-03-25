@@ -290,7 +290,8 @@
         ],
         "relation_rules": [
           "【必须】面向桌子",
-          "【建议】与桌子中心对齐"
+          "【建议】与桌子中心对齐",
+          "【必须】与餐桌配套时，仅布置在餐桌长边侧，不布置在短边侧——短边进出空间不足"
         ]
       },
       "description": "标准书椅/餐椅",
@@ -465,14 +466,14 @@
       "svgPath": "assets/mod_shower_head.svg"
     },
     {
-      "id": "mod_dining_table_2000",
-      "name": "餐桌",
+      "id": "mod_dining_table_1300",
+      "name": "4人餐桌",
       "tags": [
         "dining"
       ],
       "size": {
-        "width": 2000,
-        "depth": 1600
+        "width": 1300,
+        "depth": 800
       },
       "agent_config": {
         "morphology": {
@@ -481,10 +482,92 @@
         "topology_rules": [
           "【必须】岛式布置（四周留出动线）"
         ],
-        "relation_rules": []
+        "relation_rules": [
+          "【必须】餐椅仅布置在长边侧（width 方向两侧），短边不放椅子——短边进出空间不足，拉椅会阻碍通道",
+          "【建议】紧凑餐厅可一侧靠墙布置（三面就餐）——省出走道空间",
+          "【建议】适用于面积 ≤ 8㎡ 的独立餐厅或客餐一体的小户型"
+        ]
       },
-      "description": "2000x1600餐桌",
+      "description": "1300×800 四人餐桌",
+      "svgPath": "assets/mod_dining_table_1300.svg"
+    },
+    {
+      "id": "mod_dining_table_1600",
+      "name": "6人餐桌",
+      "tags": [
+        "dining"
+      ],
+      "size": {
+        "width": 1600,
+        "depth": 800
+      },
+      "agent_config": {
+        "morphology": {
+          "strategy": "fixed"
+        },
+        "topology_rules": [
+          "【必须】岛式布置（四周留出动线）"
+        ],
+        "relation_rules": [
+          "【必须】餐椅仅布置在长边侧（width 方向两侧），短边不放椅子——短边进出空间不足，拉椅会阻碍通道",
+          "【建议】标准户型首选——兼顾日常与待客"
+        ]
+      },
+      "description": "1600×800 六人餐桌",
+      "svgPath": "assets/mod_dining_table_1600.svg"
+    },
+    {
+      "id": "mod_dining_table_2000",
+      "name": "8人餐桌",
+      "tags": [
+        "dining"
+      ],
+      "size": {
+        "width": 2000,
+        "depth": 1000
+      },
+      "agent_config": {
+        "morphology": {
+          "strategy": "fixed"
+        },
+        "topology_rules": [
+          "【必须】岛式布置（四周留出动线）"
+        ],
+        "relation_rules": [
+          "【必须】餐椅仅布置在长边侧（width 方向两侧），短边不放椅子——短边进出空间不足，拉椅会阻碍通道",
+          "【建议】长边平行于餐厅长轴——大桌占据空间大，沿长轴布置最大化两侧通道宽度"
+        ]
+      },
+      "description": "2000×1000 八人餐桌",
       "svgPath": "assets/mod_dining_table_2000.svg"
+    },
+    {
+      "id": "mod_sofa_straight",
+      "name": "直排沙发",
+      "tags": [
+        "rest",
+        "tvMedia"
+      ],
+      "size": {
+        "width": 2400,
+        "depth": 900
+      },
+      "agent_config": {
+        "morphology": {
+          "strategy": "fixed"
+        },
+        "topology_rules": [
+          "【建议】靠墙放置",
+          "【必须】严格避让门的开启扇区域"
+        ],
+        "relation_rules": [
+          "【必须】面向电视背景墙",
+          "【建议】客厅空间不足以放置 L 形沙发时使用——直排沙发占地更小，适合中小客厅",
+          "【建议】与 L 形沙发互斥（同一客厅选其一）"
+        ]
+      },
+      "description": "2400×900 直排沙发",
+      "svgPath": "assets/mod_sofa_straight.svg"
     },
     {
       "id": "mod_sofa_l_shape",
