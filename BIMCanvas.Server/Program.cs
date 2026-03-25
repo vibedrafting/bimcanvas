@@ -190,9 +190,11 @@ WriteWithColoredPrefix("[Server]", "空启动模式，等待用户选择项目",
 
 // ─── 环境检测阶段 ───
 var agentReady = true;
+var webReady = true;
 {
     var baseDir = AppContext.BaseDirectory;
     var agentDir = FindAgentProjectPath(baseDir);
+    var webDir = FindWebProjectPath(baseDir);
 
     WriteWithColoredPrefix("[Server]", "环境检测中...", ConsoleColor.White);
 
@@ -218,8 +220,17 @@ var agentReady = true;
         TryInstallPlaywrightChromium();
     }
 
-    // 未来扩展点：
-    // if (!IsNodeAvailable()) { webReady = false; }
+    // Web 环境检测：Node.js 可用性
+    if (!IsNodeAvailable())
+    {
+        WriteWithColoredPrefix("[Server:WARN]", "未检测到 Node.js，Web 服务将不启动", ConsoleColor.DarkYellow);
+        WriteWithColoredPrefix("[Server:WARN]", "提示: 请安装 Node.js 18+ 并添加到 PATH", ConsoleColor.DarkYellow);
+        webReady = false;
+    }
+    else if (!Directory.Exists(Path.Combine(webDir, "node_modules")))
+    {
+        webReady = TryInstallWebDependencies(webDir);
+    }
 }
 
 // ─── 自动启动 Agent 和 Web 服务 ───
@@ -359,48 +370,59 @@ var agentReady = true;
     }
 
     // 3. 启动 Web 服务（不等待，后台运行）
-    if (Directory.Exists(webProjectPath))
+    if (webReady && Directory.Exists(webProjectPath))
     {
         WriteWithColoredPrefix("[Server]", "Web 开发服务器启动中...", ConsoleColor.White);
-        webProcess = new Process
+        try
         {
-            StartInfo = new ProcessStartInfo
+            webProcess = new Process
             {
-                FileName = "cmd.exe",
-                Arguments = "/c npm run dev",
-                WorkingDirectory = webProjectPath,
-                UseShellExecute = false,
-                CreateNoWindow = true,
-                RedirectStandardOutput = true,
-                RedirectStandardError = true
-            }
-        };
-        webProcess.Start();
-
-        // 后台读取 Web 输出（避免缓冲区阻塞）
-        _ = Task.Run(async () =>
-        {
-            while (!webProcess.HasExited)
-            {
-                var line = await webProcess.StandardOutput.ReadLineAsync();
-                if (!string.IsNullOrEmpty(line))
+                StartInfo = new ProcessStartInfo
                 {
-                    // 过滤 Vite 冗余输出（多网卡地址、help 提示）
-                    if (line.Contains("Network:") || line.Contains("press h + enter"))
-                        continue;
-                    WriteWithColoredPrefix("[Web]", line, ConsoleColor.Green);
+                    FileName = "cmd.exe",
+                    Arguments = "/c npm run dev",
+                    WorkingDirectory = webProjectPath,
+                    UseShellExecute = false,
+                    CreateNoWindow = true,
+                    RedirectStandardOutput = true,
+                    RedirectStandardError = true
                 }
-            }
-        });
-        _ = Task.Run(async () =>
-        {
-            while (!webProcess.HasExited)
+            };
+            webProcess.Start();
+
+            // 后台读取 Web 输出（避免缓冲区阻塞）
+            _ = Task.Run(async () =>
             {
-                var line = await webProcess.StandardError.ReadLineAsync();
-                if (!string.IsNullOrEmpty(line))
-                    WriteWithColoredPrefix("[Web:ERR]", line, ConsoleColor.DarkGreen);
-            }
-        });
+                while (!webProcess.HasExited)
+                {
+                    var line = await webProcess.StandardOutput.ReadLineAsync();
+                    if (!string.IsNullOrEmpty(line))
+                    {
+                        // 过滤 Vite 冗余输出（多网卡地址、help 提示）
+                        if (line.Contains("Network:") || line.Contains("press h + enter"))
+                            continue;
+                        WriteWithColoredPrefix("[Web]", line, ConsoleColor.Green);
+                    }
+                }
+            });
+            _ = Task.Run(async () =>
+            {
+                while (!webProcess.HasExited)
+                {
+                    var line = await webProcess.StandardError.ReadLineAsync();
+                    if (!string.IsNullOrEmpty(line))
+                        WriteWithColoredPrefix("[Web:ERR]", line, ConsoleColor.DarkGreen);
+                }
+            });
+        }
+        catch (Exception ex)
+        {
+            WriteWithColoredPrefix("[Server:ERR]", $"Web 服务启动失败: {ex.Message}", ConsoleColor.DarkGray);
+        }
+    }
+    else if (!webReady)
+    {
+        WriteWithColoredPrefix("[Server:WARN]", "Web 服务跳过启动（环境未就绪）", ConsoleColor.DarkYellow);
     }
     else
     {
@@ -656,6 +678,133 @@ static bool TryInstallAgentDependencies(string agentProjectPath, string pythonCo
     catch (Exception ex)
     {
         WriteWithColoredPrefix("[Server:ERR]", $"依赖安装异常: {ex.Message}", ConsoleColor.DarkGray);
+        return false;
+    }
+}
+
+// 辅助函数：检测 Node.js 是否可用
+static bool IsNodeAvailable()
+{
+    try
+    {
+        var psi = new ProcessStartInfo
+        {
+            FileName = "node",
+            Arguments = "--version",
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+            UseShellExecute = false,
+            CreateNoWindow = true
+        };
+        using var process = Process.Start(psi);
+        if (process == null) return false;
+        process.WaitForExit(5000);
+        return process.ExitCode == 0;
+    }
+    catch
+    {
+        return false;
+    }
+}
+
+// 辅助函数：交互式安装 Web 依赖（返回 true = 安装成功）
+static bool TryInstallWebDependencies(string webProjectPath)
+{
+    WriteWithColoredPrefix("[Server]", "检测到 Web 依赖缺失 (node_modules 不存在)", ConsoleColor.DarkYellow);
+    Console.Write($"[{DateTime.Now:HH:mm:ss}] ");
+    Console.ForegroundColor = ConsoleColor.DarkYellow;
+    Console.Write("[Server]");
+    Console.ResetColor();
+    Console.Write(" 是否自动安装 Web 依赖？(Y/n): ");
+    var input = Console.ReadLine()?.Trim().ToLower();
+
+    // 默认 Y（直接回车 = 同意）
+    if (!string.IsNullOrEmpty(input) && input != "y" && input != "yes")
+    {
+        WriteWithColoredPrefix("[Server:WARN]", "跳过安装，Web 服务将不启动", ConsoleColor.DarkYellow);
+        return false;
+    }
+
+    WriteWithColoredPrefix("[Server]", "正在安装 Web 依赖 (npm install)...", ConsoleColor.White);
+
+    try
+    {
+        var psi = new ProcessStartInfo
+        {
+            FileName = "cmd.exe",
+            Arguments = "/c npm install",
+            WorkingDirectory = webProjectPath,
+            UseShellExecute = false,
+            CreateNoWindow = true,
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+            StandardOutputEncoding = Encoding.UTF8,
+            StandardErrorEncoding = Encoding.UTF8
+        };
+
+        using var process = Process.Start(psi);
+        if (process == null)
+        {
+            WriteWithColoredPrefix("[Server:ERR]", "无法启动 npm 进程", ConsoleColor.DarkGray);
+            return false;
+        }
+
+        // 实时输出安装过程
+        var cts = new CancellationTokenSource();
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                while (!cts.Token.IsCancellationRequested)
+                {
+                    var line = await process.StandardOutput.ReadLineAsync();
+                    if (line == null) break;
+                    if (!string.IsNullOrEmpty(line))
+                        WriteWithColoredPrefix("[npm]", line, ConsoleColor.DarkMagenta);
+                }
+            }
+            catch { }
+        });
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                while (!cts.Token.IsCancellationRequested)
+                {
+                    var line = await process.StandardError.ReadLineAsync();
+                    if (line == null) break;
+                    if (!string.IsNullOrEmpty(line))
+                        WriteWithColoredPrefix("[npm]", line, ConsoleColor.DarkMagenta);
+                }
+            }
+            catch { }
+        });
+
+        // 同步等待安装完成（超时 5 分钟）
+        var completed = process.WaitForExit(300_000);
+
+        if (!completed)
+        {
+            WriteWithColoredPrefix("[Server:ERR]", "Web 依赖安装超时（5分钟），跳过 Web 启动", ConsoleColor.DarkGray);
+            cts.Cancel();
+            process.Kill(true);
+            return false;
+        }
+
+        if (process.ExitCode == 0)
+        {
+            WriteWithColoredPrefix("[Server]", "Web 依赖安装成功", ConsoleColor.White);
+            return true;
+        }
+        else
+        {
+            WriteWithColoredPrefix("[Server:ERR]", $"Web 依赖安装失败 (exit code: {process.ExitCode})", ConsoleColor.DarkGray);
+            return false;
+        }
+    }
+    catch (Exception ex)
+    {
+        WriteWithColoredPrefix("[Server:ERR]", $"Web 依赖安装异常: {ex.Message}", ConsoleColor.DarkGray);
         return false;
     }
 }
