@@ -270,7 +270,7 @@ export class MirrorTool implements Tool {
             const vy = facingVector[1];
             // Reflected vector v' = v - 2(v.n)n where n is (a, b)
             const dot = vx * a + vy * b;
-            const newFacing = [
+            const newFacing: [number, number] = [
                 vx - 2 * a * dot,
                 vy - 2 * b * dot
             ];
@@ -332,10 +332,13 @@ export class MirrorTool implements Tool {
 
     private updateMirrorLine(start: THREE.Vector3, end: THREE.Vector3) {
         if (this.mirrorLine) {
-            const positions = this.mirrorLine.geometry.attributes.position.array as Float32Array;
-            positions[0] = start.x; positions[1] = start.y; positions[2] = start.z;
-            positions[3] = end.x; positions[4] = end.y; positions[5] = end.z;
-            this.mirrorLine.geometry.attributes.position.needsUpdate = true;
+            const positionAttribute = this.mirrorLine.geometry.getAttribute('position');
+            if (!(positionAttribute instanceof THREE.BufferAttribute)) {
+                return;
+            }
+            positionAttribute.setXYZ(0, start.x, start.y, start.z);
+            positionAttribute.setXYZ(1, end.x, end.y, end.z);
+            positionAttribute.needsUpdate = true;
             this.mirrorLine.computeLineDistances();
         }
     }

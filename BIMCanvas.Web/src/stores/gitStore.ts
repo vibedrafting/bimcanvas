@@ -2,8 +2,7 @@ import { defineStore } from 'pinia';
 import { ref, computed } from 'vue';
 import { ChangeSource } from '../types/history';
 import { useCanvasStore } from './canvasStore';
-
-const SERVER_API_BASE = 'http://localhost:5000';
+import { SERVER_API } from '../config/api';
 
 // Git分支信息接口
 export interface GitBranch {
@@ -86,7 +85,7 @@ export const useGitStore = defineStore('git', () => {
       error.value = null;
 
       // 先检查项目状态
-      const statusResponse = await fetch(`${SERVER_API_BASE}/api/project/status`);
+      const statusResponse = await fetch(`${SERVER_API}/project/status`);
       if (statusResponse.ok) {
         const status = await statusResponse.json();
         if (!status.isLoaded) {
@@ -97,7 +96,7 @@ export const useGitStore = defineStore('git', () => {
         }
       }
 
-      const response = await fetch(`${SERVER_API_BASE}/api/git/branches`);
+      const response = await fetch(`${SERVER_API}/git/branches`);
       if (response.ok) {
         const branchList = await response.json();
 
@@ -134,7 +133,7 @@ export const useGitStore = defineStore('git', () => {
    */
   const checkStatus = async (): Promise<GitStatus | null> => {
     try {
-      const response = await fetch(`${SERVER_API_BASE}/api/git/status`);
+      const response = await fetch(`${SERVER_API}/git/status`);
       if (response.ok) {
         const status = await response.json();
         hasUncommittedChanges.value = status.hasUncommittedChanges;
@@ -153,7 +152,7 @@ export const useGitStore = defineStore('git', () => {
   const commit = async (message?: string): Promise<{ success: boolean; message?: string }> => {
     try {
       isLoading.value = true;
-      const response = await fetch(`${SERVER_API_BASE}/api/git/commit`, {
+      const response = await fetch(`${SERVER_API}/git/commit`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ message })
@@ -182,7 +181,7 @@ export const useGitStore = defineStore('git', () => {
   const discardChanges = async (): Promise<{ success: boolean; message?: string }> => {
     try {
       isLoading.value = true;
-      const response = await fetch(`${SERVER_API_BASE}/api/git/discard`, {
+      const response = await fetch(`${SERVER_API}/git/discard`, {
         method: 'POST'
       });
 
@@ -247,7 +246,7 @@ export const useGitStore = defineStore('git', () => {
       };
       console.log('[GitStore] checkout 请求体:', JSON.stringify(requestBody, null, 2));
 
-      const response = await fetch(`${SERVER_API_BASE}/api/git/checkout`, {
+      const response = await fetch(`${SERVER_API}/git/checkout`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(requestBody)
@@ -267,7 +266,7 @@ export const useGitStore = defineStore('git', () => {
         // 切换成功后的正常流程
         // 通知 Server 激活主窗口
         try {
-          await fetch('http://localhost:5000/api/windows/activate', {
+          await fetch(`${SERVER_API}/windows/activate`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
@@ -327,7 +326,7 @@ export const useGitStore = defineStore('git', () => {
    */
   const fetchBranchLocks = async (): Promise<BranchLock[]> => {
     try {
-      const response = await fetch(`${SERVER_API_BASE}/api/windows/locks`);
+      const response = await fetch(`${SERVER_API}/windows/locks`);
       if (response.ok) {
         return await response.json();
       }

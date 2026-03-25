@@ -13,6 +13,7 @@ import html2canvas from 'html2canvas'
 import { LabelRenderer } from './screenshot/LabelRenderer'
 import { getThreeSceneService } from './three/ThreeSceneService'
 import { LayerManager } from './three/LayerManager'
+import { AGENT_API } from '../config/api'
 
 export interface ClipRect {
   x: number
@@ -25,7 +26,7 @@ export class ScreenshotService {
   private serverUrl: string
   private eventSource: EventSource | null = null
 
-  constructor(serverUrl: string = 'http://localhost:8865') {
+  constructor(serverUrl: string = AGENT_API) {
     this.serverUrl = serverUrl
   }
 

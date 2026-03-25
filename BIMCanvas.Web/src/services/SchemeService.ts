@@ -1,6 +1,7 @@
 import axios from 'axios';
+import { SERVER_API } from '../config/api';
 
-const API_BASE = 'http://localhost:5000/api/scheme';
+const API_BASE = `${SERVER_API}/scheme`;
 
 /**
  * 模块数据响应

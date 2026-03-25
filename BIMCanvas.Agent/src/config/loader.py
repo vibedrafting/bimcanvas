@@ -13,6 +13,20 @@ from functools import lru_cache
 logger = logging.getLogger(__name__)
 
 
+def resolve_bimcanvas_home() -> Path:
+    """解析统一的 BIMCanvas 配置根目录。"""
+    configured_home = os.getenv("BIMCANVAS_HOME", "").strip()
+    if configured_home:
+        return Path(
+            os.path.expandvars(os.path.expanduser(configured_home))
+        ).resolve()
+
+    if os.name == "nt":
+        return (Path.home() / "Documents" / "BIMCanvas").resolve()
+
+    return (Path.home() / ".bimcanvas").resolve()
+
+
 @dataclass
 class AgentConfig:
     """子 Agent 配置"""
@@ -35,14 +49,14 @@ class ConfigLoader:
     """
 
     TEMPLATES_DIR = Path(__file__).parent.parent.parent / "templates"
-    DEFAULT_CONFIG_DIR = Path.home() / ".bimcanvas"
+    DEFAULT_CONFIG_DIR = resolve_bimcanvas_home()
 
     def __init__(self, config_dir: Path | str = None):
         """
         初始化配置加载器
 
         Args:
-            config_dir: 配置目录路径，默认为 ~/.bimcanvas
+            config_dir: 配置目录路径，默认为 BIMCANVAS_HOME
         """
         if config_dir is None:
             self.config_dir = self.DEFAULT_CONFIG_DIR

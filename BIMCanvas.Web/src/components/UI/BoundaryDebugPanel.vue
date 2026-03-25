@@ -13,17 +13,17 @@ const selectedSegment = ref<BoundarySegment | null>(null);
 const selectedZoneId = ref<string>('');
 
 // 拖拽浮窗
-const panelRef = ref<HTMLDivElement>();
+const panelRef = ref<HTMLDivElement | null>(null);
 const isDraggingPanel = ref(false);
 const panelPos = ref<{ x: number; y: number } | null>(null);
 const dragOffset = ref({ x: 0, y: 0 });
 
 // Three.js
-const canvasRef = ref<HTMLCanvasElement>();
+const canvasRef = ref<HTMLCanvasElement | null>(null);
 let scene: THREE.Scene | null = null;
 let camera: THREE.OrthographicCamera | null = null;
 let renderer: THREE.WebGLRenderer | null = null;
-let animationId: number;
+let animationId = 0;
 const meshMap = new Map<THREE.Mesh, { segment: BoundarySegment; zoneId: string }>();
 const zoneMeshMap = new Map<THREE.Mesh, string>();  // zone fill mesh → zoneId
 let selectionOutline: THREE.LineSegments | null = null;
@@ -230,6 +230,7 @@ function buildScene() {
   // 清空旧内容
   while (scene.children.length > 0) {
     const child = scene.children[0];
+    if (!child) break;
     scene.remove(child);
   }
   meshMap.clear();
@@ -339,10 +340,10 @@ function createSegmentMesh(seg: BoundarySegment, outwardSign: number): THREE.Mes
   const t = WALL_THICKNESS;
 
   // 4 个角点：内侧沿线段，外侧偏移 thickness
-  const p0 = [sx, sy];           // 内侧起点
-  const p1 = [ex, ey];           // 内侧终点
-  const p2 = [ex + nx * t, ey + ny * t]; // 外侧终点
-  const p3 = [sx + nx * t, sy + ny * t]; // 外侧起点
+  const p0: [number, number] = [sx, sy];           // 内侧起点
+  const p1: [number, number] = [ex, ey];           // 内侧终点
+  const p2: [number, number] = [ex + nx * t, ey + ny * t]; // 外侧终点
+  const p3: [number, number] = [sx + nx * t, sy + ny * t]; // 外侧起点
 
   const color = SEGMENT_COLORS[seg.type as BoundarySegmentType] ?? 0x888888;
   const yPos = seg.type === 'wall' ? 1 : 2;
@@ -382,11 +383,15 @@ function createSegmentMesh(seg: BoundarySegment, outwardSign: number): THREE.Mes
 /** 从闭合边界段创建 Zone 填充 Mesh */
 function createZoneFillMesh(segments: BoundarySegment[]): THREE.Mesh | null {
   if (segments.length < 3) return null;
+  const firstSegment = segments[0];
+  if (!firstSegment) return null;
 
   const shape = new THREE.Shape();
-  shape.moveTo(segments[0].start[0], segments[0].start[1]);
+  shape.moveTo(firstSegment.start[0], firstSegment.start[1]);
   for (let i = 1; i < segments.length; i++) {
-    shape.lineTo(segments[i].start[0], segments[i].start[1]);
+    const segment = segments[i];
+    if (!segment) continue;
+    shape.lineTo(segment.start[0], segment.start[1]);
   }
   shape.closePath();
 
@@ -414,7 +419,9 @@ function createZoneOutline(segments: BoundarySegment[]): THREE.Line | null {
   for (const seg of segments) {
     points.push(new THREE.Vector3(seg.start[0], seg.start[1], 0));
   }
-  points.push(points[0].clone()); // 闭合
+  const firstPoint = points[0];
+  if (!firstPoint) return null;
+  points.push(firstPoint.clone()); // 闭合
 
   const geometry = new THREE.BufferGeometry().setFromPoints(points);
   const material = new THREE.LineDashedMaterial({
@@ -460,7 +467,9 @@ function onCanvasClick(event: MouseEvent) {
   const segHits = raycaster.intersectObjects(segMeshes);
 
   if (segHits.length > 0) {
-    const hit = segHits[0].object as THREE.Mesh;
+    const firstHit = segHits[0];
+    if (!firstHit) return;
+    const hit = firstHit.object as THREE.Mesh;
     const data = meshMap.get(hit);
     if (data) {
       selectedSegment.value = data.segment;
@@ -484,7 +493,9 @@ function onCanvasClick(event: MouseEvent) {
   const zoneHits = raycaster.intersectObjects(zoneMeshes);
 
   if (zoneHits.length > 0) {
-    const hit = zoneHits[0].object as THREE.Mesh;
+    const firstHit = zoneHits[0];
+    if (!firstHit) return;
+    const hit = firstHit.object as THREE.Mesh;
     const zoneId = zoneMeshMap.get(hit);
     if (zoneId) {
       selectedSegment.value = null;
@@ -501,6 +512,7 @@ function onCanvasClick(event: MouseEvent) {
 // ==================== 交互：Pan (中键/右键拖拽) ====================
 
 function onCanvasMouseDown(event: MouseEvent) {
+  if (!camera) return;
   if (event.button === 1 || event.button === 2) {
     event.preventDefault();
     isPanning.value = true;
@@ -564,11 +576,12 @@ function onCanvasContextMenu(event: MouseEvent) {
 
 function onHeaderMouseDown(event: MouseEvent) {
   if (event.button !== 0) return;
+  const panel = panelRef.value;
+  if (!panel) return;
   isDraggingPanel.value = true;
-  const panel = panelRef.value!;
   const rect = panel.getBoundingClientRect();
-  dragOffset.x = event.clientX - rect.left;
-  dragOffset.y = event.clientY - rect.top;
+  dragOffset.value.x = event.clientX - rect.left;
+  dragOffset.value.y = event.clientY - rect.top;
   window.addEventListener('mousemove', onPanelDrag);
   window.addEventListener('mouseup', onPanelDragEnd);
 }
@@ -576,8 +589,8 @@ function onHeaderMouseDown(event: MouseEvent) {
 function onPanelDrag(event: MouseEvent) {
   if (!isDraggingPanel.value) return;
   panelPos.value = {
-    x: event.clientX - dragOffset.x,
-    y: event.clientY - dragOffset.y,
+    x: event.clientX - dragOffset.value.x,
+    y: event.clientY - dragOffset.value.y,
   };
 }
 
@@ -591,13 +604,14 @@ function onPanelDragEnd() {
 
 /** 仅更新 renderer 尺寸和相机 aspect，保持视口中心和缩放级别不变 */
 function updateRendererSize() {
-  if (!renderer || !canvasRef.value) return;
-  const rect = canvasRef.value.parentElement!.getBoundingClientRect();
+  if (!renderer || !canvasRef.value || !camera) return;
+  const parent = canvasRef.value.parentElement;
+  if (!parent) return;
+  const rect = parent.getBoundingClientRect();
   renderer.setSize(rect.width, rect.height);
 
   const newAspect = rect.width / rect.height;
   const cx = (camera.left + camera.right) / 2;
-  const cy = (camera.top + camera.bottom) / 2;
   const halfH = (camera.top - camera.bottom) / 2;
   const newHalfW = halfH * newAspect;
 

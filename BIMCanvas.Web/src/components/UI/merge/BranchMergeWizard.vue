@@ -16,7 +16,7 @@ const canvasStore = useCanvasStore();
 
 const {
   isVisible, currentStep, targetBranch, sourceBranch, isMerging, error, canProceed,
-  worktreeNames, selectedWorktree, worktreeMetadata, branchesToCleanup,
+  worktreeMetadata, branchesToCleanup,
   isWorktreeMode, worktreeOptions
 } = storeToRefs(mergeStore);
 const { branches, currentBranch } = storeToRefs(gitStore);
@@ -27,7 +27,8 @@ const branchOptions = computed(() => {
   return branches.value.map(b => ({
     value: b.name,
     label: b.name,
-    isCurrent: b.isCurrent
+    isCurrent: b.isCurrent,
+    commit: b.commit
   }));
 });
 

@@ -1,13 +1,12 @@
 <script setup lang="ts">
 import { ref, onMounted, onUnmounted } from 'vue';
 import { LayerManager } from '../../services/three/LayerManager';
-import GlassButton from './base/GlassButton.vue';
 
 const isOpen = ref(false);
 const managerRef = ref<HTMLElement | null>(null);
 
 // Layer States
-const layers = ref({
+const layers = ref<Record<number, boolean>>({
   [LayerManager.LAYER_GRID]: true, // Default to true for User mode
   [LayerManager.LAYER_ARCHITECTURE]: true, // 建筑图层默认启用
   [LayerManager.LAYER_FURNITURE]: true, // 模块图层默认启用

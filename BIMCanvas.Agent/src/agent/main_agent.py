@@ -207,9 +207,9 @@ class MainAgent:
         all_allowed = (allowed_tools or []) + mcp_tools + ["Skill"]
 
         # === Plugin 机制加载 Skills ===
-        # ~/.bimcanvas/ 本身就是 Plugin 目录，独立于 setting_sources，彻底避免 CLAUDE.md 污染
+        # BIMCANVAS_HOME 本身就是 Plugin 目录，独立于 setting_sources，彻底避免 CLAUDE.md 污染
         plugins = []
-        plugin_path = self._config_loader.config_dir  # ~/.bimcanvas/
+        plugin_path = self._config_loader.config_dir  # <BIMCANVAS_HOME>/
         if (plugin_path / ".claude-plugin").exists():
             plugins.append({"type": "local", "path": str(plugin_path)})
             self._agent_logger._print(f"[Plugin] BIMCanvas Plugin 已注册: {plugin_path}")

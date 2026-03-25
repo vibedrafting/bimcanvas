@@ -109,12 +109,7 @@ export class DragManager {
 
                 // Apply Snapping
                 // Filter out drag object and ghosts
-                const snapObjects = this.scene.children.filter(c =>
-                    c !== this.dragObject &&
-                    !c.userData.isGhost
-                );
-
-                const snapResult = this.snappingEngine.snap(newPos, snapObjects);
+                const snapResult = this.snappingEngine.snap(newPos);
                 if (snapResult.snapped) {
                     newPos = snapResult.position;
                 }
@@ -138,12 +133,7 @@ export class DragManager {
                 if (this.raycaster.ray.intersectPlane(this.plane, this.intersection)) {
                     let newPos = this.intersection.sub(this.offset);
 
-                    const snapObjects = this.scene.children.filter(c =>
-                        c !== this.dragObject &&
-                        !c.userData.isGhost
-                    );
-
-                    const snapResult = this.snappingEngine.snap(newPos, snapObjects);
+                    const snapResult = this.snappingEngine.snap(newPos);
                     if (snapResult.snapped) {
                         newPos = snapResult.position;
                     }

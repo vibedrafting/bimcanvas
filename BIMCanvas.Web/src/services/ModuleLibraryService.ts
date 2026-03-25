@@ -2,9 +2,10 @@
  * 模块库服务
  * 负责从后端 API 加载模块库，提供模块元数据查询和 SVG URL 获取
  */
+import { SERVER_API } from '../config/api';
 
 // 后端 API 基地址
-const API_BASE = 'http://localhost:5000/api/modules';
+const API_BASE = `${SERVER_API}/modules`;
 
 export interface ModuleDefinition {
   id: string;

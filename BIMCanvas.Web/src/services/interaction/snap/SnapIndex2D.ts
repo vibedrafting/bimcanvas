@@ -96,13 +96,19 @@ export class SnapIndex2D {
 
         const points = polygon.map(p => new THREE.Vector2(p[0], -p[1]));
         const lastIndex = points.length - 1;
-        const isClosed = points.length > 2 && points[0].distanceTo(points[lastIndex]) < 0.001;
+        const firstPoint = points[0];
+        const lastPoint = points[lastIndex];
+        const isClosed = points.length > 2
+            && firstPoint !== undefined
+            && lastPoint !== undefined
+            && firstPoint.distanceTo(lastPoint) < 0.001;
         const max = isClosed ? lastIndex : points.length;
 
         for (let i = 0; i < max; i++) {
             const next = (i + 1) % max;
             const a = points[i];
             const b = points[next];
+            if (!a || !b) continue;
             if (a.distanceToSquared(b) < 0.0001) continue;
             this.addEdge(a, b, sourceId);
         }

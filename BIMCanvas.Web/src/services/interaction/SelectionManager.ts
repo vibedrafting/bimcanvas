@@ -1,6 +1,5 @@
 import * as THREE from 'three';
 import { useCanvasStore } from '../../stores/canvasStore';
-import { useDebugStore } from '../../stores/debugStore';
 import { watch } from 'vue';
 import { storeToRefs } from 'pinia';
 
@@ -12,7 +11,6 @@ export class SelectionManager {
     private selectionCrossLines: Map<string, THREE.LineSegments> = new Map();
     private scene: THREE.Scene;
     private store = useCanvasStore();
-    private debug = useDebugStore();
 
     // 精确轮廓线材质（depthTest: false 确保不被遮挡）
     private selectionMaterial = new THREE.LineBasicMaterial({
@@ -183,6 +181,7 @@ export class SelectionManager {
         for (let i = 0; i < polygon.length; i++) {
             const a = polygon[i];
             const b = polygon[(i + 1) % polygon.length];
+            if (!a || !b) continue;
             const t = this.lineLineIntersectT(origin, farPoint, a, b);
             if (t !== null && t > 1e-9 && t < minT) {
                 minT = t;
@@ -268,31 +267,6 @@ export class SelectionManager {
     }
 
     /**
-     * 清除本地视觉（内部使用，不影响 Store）
-     */
-    private clearAllVisuals() {
-        // 清理轮廓线
-        for (const [_id, line] of this.selectionOutlines) {
-            this.scene.remove(line);
-            line.geometry?.dispose();
-        }
-        this.selectionOutlines.clear();
-        // 清理 BoxHelper
-        for (const [_id, box] of this.selectionBoxes) {
-            this.scene.remove(box);
-            box.geometry?.dispose();
-        }
-        this.selectionBoxes.clear();
-        // 清理 X 对角线
-        for (const [_id, cross] of this.selectionCrossLines) {
-            this.scene.remove(cross);
-            cross.geometry?.dispose();
-        }
-        this.selectionCrossLines.clear();
-        this.selectedObjects.clear();
-    }
-
-    /**
      * 获取当前选中的第一个对象（兼容旧代码）
      */
     public getSelected(): THREE.Object3D | null {
@@ -327,56 +301,6 @@ export class SelectionManager {
     // ── 线段-多边形裁剪算法 ──
 
     /**
-     * 将线段 p1→p2 裁剪到多边形内部，返回在多边形内的线段片段
-     */
-    private clipLineToPolygon(
-        p1: [number, number], p2: [number, number],
-        polygon: [number, number][]
-    ): [[number, number], [number, number]][] {
-        // 收集线段与多边形各边的交点参数 t (0~1)
-        // 始终包含端点 t=0 和 t=1，靠中点检测决定是否保留
-        const tValues: number[] = [0, 1];
-
-        for (let i = 0; i < polygon.length; i++) {
-            const a = polygon[i];
-            const b = polygon[(i + 1) % polygon.length];
-            const t = this.lineLineIntersectT(p1, p2, a, b);
-            if (t !== null && t > 1e-9 && t < 1 - 1e-9) {
-                tValues.push(t);
-            }
-        }
-
-        tValues.sort((a, b) => a - b);
-
-        // 去重
-        const unique: number[] = [];
-        for (const t of tValues) {
-            if (unique.length === 0 || t - unique[unique.length - 1] > 1e-9) {
-                unique.push(t);
-            }
-        }
-
-        // 每对相邻 t 值的中点如在多边形内，则该段保留
-        const result: [[number, number], [number, number]][] = [];
-        const dx = p2[0] - p1[0], dy = p2[1] - p1[1];
-
-        for (let i = 0; i < unique.length - 1; i++) {
-            const t1 = unique[i], t2 = unique[i + 1];
-            const mid: [number, number] = [
-                p1[0] + (t1 + t2) / 2 * dx,
-                p1[1] + (t1 + t2) / 2 * dy
-            ];
-            if (this.pointInPolygon(mid, polygon)) {
-                result.push([
-                    [p1[0] + t1 * dx, p1[1] + t1 * dy],
-                    [p1[0] + t2 * dx, p1[1] + t2 * dy]
-                ]);
-            }
-        }
-        return result;
-    }
-
-    /**
      * 求线段 p1→p2 上与线段 p3→p4 的交点参数 t（仅当 p3→p4 的 u 在 [0,1] 内时返回）
      */
     private lineLineIntersectT(
@@ -394,17 +318,4 @@ export class SelectionManager {
         return (u >= 0 && u <= 1) ? t : null;
     }
 
-    /** 射线法点在多边形内测试 */
-    private pointInPolygon(pt: [number, number], poly: [number, number][]): boolean {
-        let inside = false;
-        const x = pt[0], y = pt[1];
-        for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
-            const xi = poly[i][0], yi = poly[i][1];
-            const xj = poly[j][0], yj = poly[j][1];
-            if (((yi > y) !== (yj > y)) && (x < (xj - xi) * (y - yi) / (yj - yi) + xi)) {
-                inside = !inside;
-            }
-        }
-        return inside;
-    }
 }

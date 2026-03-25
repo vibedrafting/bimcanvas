@@ -9,13 +9,14 @@
  * - POST 回调 /api/question/answer
  */
 import type { QuestionRequestEvent } from '../types/agent'
+import { AGENT_API } from '../config/api'
 
 export class QuestionService {
   private serverUrl: string
   private eventSource: EventSource | null = null
   private onQuestionRequest: ((event: QuestionRequestEvent) => void) | null = null
 
-  constructor(serverUrl: string = 'http://localhost:8865') {
+  constructor(serverUrl: string = AGENT_API) {
     this.serverUrl = serverUrl
   }
 

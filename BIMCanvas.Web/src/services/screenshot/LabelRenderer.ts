@@ -142,7 +142,7 @@ export class LabelRenderer {
     // text-shadow 格式: "-1px -1px 0 #000, 1px -1px 0 #000, ..."
     // 提取第一个颜色值
     const match = textShadow.match(/(#[0-9a-fA-F]{3,6}|rgb\([^)]+\)|rgba\([^)]+\))/)
-    return match ? match[1] : null
+    return match?.[1] ?? null
   }
 
   /**
@@ -154,13 +154,18 @@ export class LabelRenderer {
     if (!shadowPart) return null
 
     const colorMatch = shadowPart.match(/(#[0-9a-fA-F]{3,6}|rgb\([^)]+\)|rgba\([^)]+\))/)
-    const color = colorMatch ? colorMatch[1] : 'rgba(0,0,0,0.5)'
+    const color = colorMatch?.[1] ?? 'rgba(0,0,0,0.5)'
     const numberMatches = shadowPart.match(/-?\d*\.?\d+px/g) || []
     if (numberMatches.length < 2) return null
 
-    const offsetX = parseFloat(numberMatches[0])
-    const offsetY = parseFloat(numberMatches[1])
-    const blur = numberMatches.length >= 3 ? parseFloat(numberMatches[2]) : 0
+    const offsetXValue = numberMatches[0]
+    const offsetYValue = numberMatches[1]
+    if (!offsetXValue || !offsetYValue) return null
+    const blurValue = numberMatches.length >= 3 ? numberMatches[2] : undefined
+
+    const offsetX = parseFloat(offsetXValue)
+    const offsetY = parseFloat(offsetYValue)
+    const blur = blurValue ? parseFloat(blurValue) : 0
     return { offsetX, offsetY, blur, color }
   }
 }

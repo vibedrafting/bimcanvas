@@ -8,6 +8,9 @@ interface BranchOption {
   value: string;
   label: string;
   isCurrent: boolean;
+  commit?: {
+    message: string;
+  };
 }
 
 interface WorktreeOption {

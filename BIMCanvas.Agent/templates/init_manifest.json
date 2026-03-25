@@ -27,7 +27,7 @@
       "target": ".claude-plugin",
       "type": "directory",
       "enabled": true,
-      "description": "Plugin 清单（使 ~/.bimcanvas 成为合法 Plugin 目录）"
+      "description": "Plugin 清单（使 BIMCANVAS_HOME 成为合法 Plugin 目录）"
     },
     {
       "name": "skills",

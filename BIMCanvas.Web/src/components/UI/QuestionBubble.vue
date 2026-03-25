@@ -32,7 +32,7 @@ const isSubmittable = computed(() => {
   if (!props.bubble.questions) return false
   return props.bubble.questions.every(q => {
     const set = selections[q.question]
-    const hasOther = otherExpanded[q.question] && otherText[q.question].trim()
+    const hasOther = Boolean(otherExpanded[q.question]) && (otherText[q.question] ?? '').trim().length > 0
     return (set?.size ?? 0) > 0 || hasOther
   })
 })
@@ -56,23 +56,10 @@ const toggleOption = (question: UserQuestion, label: string) => {
   console.log(`[QuestionBubble] toggleOption: "${label}", set size: ${set.size}, isSubmittable: ${isSubmittable.value}`)
 }
 
-const toggleOther = (question: UserQuestion) => {
-  if (isSubmitted.value) return
-  const key = question.question
-  if (!question.multiSelect) {
-    // 单选：选 Other 时清除其他
-    selections[key].clear()
-  }
-  otherExpanded[key] = !otherExpanded[key]
-  if (!otherExpanded[key]) {
-    otherText[key] = ''
-  }
-}
-
 const otherInputRefs = ref<HTMLInputElement[]>([])
 
 const isOtherActive = (question: UserQuestion) => {
-  return otherExpanded[question.question] && otherText[question.question].trim()
+  return Boolean(otherExpanded[question.question]) && (otherText[question.question] ?? '').trim().length > 0
 }
 
 const handleOtherRowClick = (question: UserQuestion) => {
@@ -81,7 +68,7 @@ const handleOtherRowClick = (question: UserQuestion) => {
   if (!otherExpanded[key]) {
     // 首次展开
     if (!question.multiSelect) {
-      selections[key].clear()
+      selections[key]?.clear()
     }
     otherExpanded[key] = true
     nextTick(() => {

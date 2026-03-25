@@ -67,7 +67,6 @@ export class ThreeSceneService {
     private viewportService: ViewportService;
     private selectionManager: SelectionManager;
     private dragManager: DragManager;
-    private ghostManager: GhostManager;
 
     private ambientLight: THREE.AmbientLight | null = null;
     private directionalLight: THREE.DirectionalLight | null = null;
@@ -130,7 +129,7 @@ export class ThreeSceneService {
         this.selectionManager = new SelectionManager(this._scene);
         this.interactionService = new InteractionService(this.camera, this.renderer.domElement, this._scene, this.selectionManager);
         this.dragManager = new DragManager(this.camera, this.renderer.domElement, this._scene, this.selectionManager);
-        this.ghostManager = GhostManager.getInstance(this._scene);
+        GhostManager.getInstance(this._scene);
 
         // 5. Lighting
         this.setupLighting();

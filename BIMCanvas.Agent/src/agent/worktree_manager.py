@@ -6,6 +6,7 @@
 
 import asyncio
 import logging
+import os
 from dataclasses import dataclass
 from typing import Optional
 import aiohttp
@@ -13,7 +14,7 @@ import aiohttp
 logger = logging.getLogger(__name__)
 
 # Server REST API URL
-SERVER_URL = "http://localhost:5000"
+SERVER_URL = os.getenv("BIMCANVAS_SERVER_URL", "http://localhost:5000").rstrip("/")
 
 
 @dataclass

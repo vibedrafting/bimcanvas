@@ -19,7 +19,6 @@ export class GhostManager {
     private ghostGroups: Map<string, THREE.Group> = new Map();
     private originalMaterials: Map<string, THREE.Material | THREE.Material[]> = new Map();
     private originalObjects: Map<string, THREE.Object3D> = new Map();
-    private sharedPivot: THREE.Vector3 | null = null;
 
     private constructor(scene: THREE.Scene) {
         this.scene = scene;
@@ -158,8 +157,6 @@ export class GhostManager {
      * - clone.position = -pivot 时，几何体世界位置 = pivot + (-pivot) + 顶点 = 顶点 ✓
      */
     public setPivot(pivot: THREE.Vector3) {
-        this.sharedPivot = pivot.clone();
-
         for (const [_id, ghostGroup] of this.ghostGroups) {
             // 使用存储的几何中心（而非 original.position，后者始终是 0,0,0）
             const geometryCenter = ghostGroup.userData.geometryCenter as THREE.Vector3;
@@ -212,7 +209,6 @@ export class GhostManager {
         this.ghostGroups.clear();
         this.originalObjects.clear();
         this.originalMaterials.clear();
-        this.sharedPivot = null;
     }
 
     /**

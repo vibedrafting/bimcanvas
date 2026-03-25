@@ -4,7 +4,7 @@ using BIMCanvas.Server.Models;
 namespace BIMCanvas.Server.Services;
 
 /// <summary>
-/// 程序配置服务（Documents/BIMCanvas/）
+/// 程序配置服务（BIMCANVAS_HOME）
 /// 管理 server_config.json 和 web_config.json
 /// 由 Templates/program_manifest.json 驱动初始化
 /// </summary>
@@ -12,10 +12,7 @@ public static class ConfigService
 {
     private const string ManifestFileName = "program_manifest.json";
 
-    private static readonly string ConfigDir = Path.Combine(
-        Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments),
-        "BIMCanvas"
-    );
+    private static readonly string ConfigDir = ResolveConfigDir();
 
     private static readonly string ServerConfigPath = Path.Combine(ConfigDir, "server_config.json");
     private static readonly string WebConfigPath = Path.Combine(ConfigDir, "web_config.json");
@@ -162,6 +159,27 @@ public static class ConfigService
     /// 获取最近项目记录文件路径
     /// </summary>
     public static string GetRecentProjectsPath() => Path.Combine(ConfigDir, "recent_projects.json");
+
+    private static string ResolveConfigDir()
+    {
+        var configuredHome = Environment.GetEnvironmentVariable("BIMCANVAS_HOME");
+        if (!string.IsNullOrWhiteSpace(configuredHome))
+        {
+            return Path.GetFullPath(
+                Environment.ExpandEnvironmentVariables(configuredHome.Trim()));
+        }
+
+        if (OperatingSystem.IsWindows())
+        {
+            return Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments),
+                "BIMCanvas");
+        }
+
+        return Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
+            ".bimcanvas");
+    }
 
     /// <summary>
     /// 查找 Templates 目录

@@ -30,7 +30,7 @@
 import * as THREE from 'three';
 import { SVGLoader } from 'three/examples/jsm/loaders/SVGLoader.js';
 import type { Module, Point2D } from '../../types/canvas';
-import { moduleLibraryService, type ModuleDefinition } from '../ModuleLibraryService';
+import { moduleLibraryService } from '../ModuleLibraryService';
 import { LayerManager } from '../three/LayerManager';
 import { canvasStyleService } from '../canvas/CanvasStyleService';
 
@@ -63,8 +63,6 @@ export class SVGModuleRenderer {
       }
 
       // 2. 加载或获取缓存的SVG
-      const svgUrl = moduleLibraryService.getSvgUrl(module.moduleId);
-
       const svgGroup = await this.loadSVG(module.moduleId);
       if (!svgGroup) {
         console.warn(`[SVGModuleRenderer] Failed to load SVG for: ${module.moduleId}`);
@@ -159,6 +157,7 @@ export class SVGModuleRenderer {
           // 遍历SVG路径并创建几何体
           for (let i = 0; i < paths.length; i++) {
             const path = paths[i];
+            if (!path) continue;
 
             // 获取填充颜色
             const fillColor = path.userData?.style?.fill;
@@ -167,6 +166,7 @@ export class SVGModuleRenderer {
 
               for (let j = 0; j < shapes.length; j++) {
                 const shape = shapes[j];
+                if (!shape) continue;
                 const geometry = new THREE.ShapeGeometry(shape);
                 // 如果是黑色填充，替换为白色（在深色背景下可见）
                 const displayFillColor = (fillColor === '#000000' || fillColor === '#000' || fillColor === 'black')
@@ -434,7 +434,7 @@ export class SVGModuleRenderer {
    * 清除所有SVG
    */
   clear(): void {
-    this.moduleGroups.forEach((group, moduleId) => {
+    this.moduleGroups.forEach((_, moduleId) => {
       this.removeModuleSVG(moduleId);
     });
     this.moduleGroups.clear();

@@ -11,7 +11,6 @@ import { MirrorTool } from './tools/MirrorTool';
 import { CopyTool } from './tools/CopyTool';
 import { MeasurementTool } from './tools/MeasurementTool';
 import { PlaceTool } from './tools/PlaceTool';
-import { LayerManager } from '../three/LayerManager';
 import type { ModuleDefinition } from '../ModuleLibraryService';
 
 export class InteractionService {
@@ -20,7 +19,6 @@ export class InteractionService {
     private camera: THREE.Camera;
     private domElement: HTMLElement;
     private scene: THREE.Scene;
-    private selectionManager: SelectionManager;
     private shortcutManager: ShortcutManager;
     private store: ReturnType<typeof useCanvasStore>;
     private activeTool: Tool | null = null;
@@ -46,7 +44,7 @@ export class InteractionService {
     private boundToolCancelled: () => void;
     private boundToolCompleted: () => void;
 
-    constructor(camera: THREE.Camera, domElement: HTMLElement, scene: THREE.Scene, selectionManager: SelectionManager) {
+    constructor(camera: THREE.Camera, domElement: HTMLElement, scene: THREE.Scene, _selectionManager: SelectionManager) {
         this.domElement = domElement;
         this.camera = camera;
         this.scene = scene;
@@ -54,7 +52,6 @@ export class InteractionService {
         // 启用所有层以支持 LAYER_ZONES 中的禁区和分区点击
         this.raycaster.layers.enableAll();
         this.mouse = new THREE.Vector2();
-        this.selectionManager = selectionManager;
         this.store = useCanvasStore();
         this.shortcutManager = new ShortcutManager();
         this.ghostManager = GhostManager.getInstance(scene);
@@ -607,7 +604,7 @@ export class InteractionService {
             // 选择目标
             let target: THREE.Object3D | null = null;
             if (validTargets.length > 0) {
-                target = validTargets[0];
+                target = validTargets[0] ?? null;
             }
 
             if (target && target.userData?.id) {

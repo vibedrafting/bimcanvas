@@ -15,8 +15,10 @@ export interface LayerPresetsConfig {
 export const useAgentConfig = (agentApiBase: string, serverApiBase: string) => {
   const models = ref<ModelOption[]>([]);
   const currentModel = ref<ModelOption | null>(null);
-  const currentThinking = ref<ThinkingLevel>(thinkingLevels[0]);
-  const currentEffort = ref<EffortLevel>(effortLevels[2]); // 默认 "medium"
+  const defaultThinking: ThinkingLevel = thinkingLevels[0] ?? { id: 'off', label: 'Off' };
+  const defaultEffort: EffortLevel = effortLevels[2] ?? { id: 'medium', label: 'Medium' };
+  const currentThinking = ref<ThinkingLevel>(defaultThinking);
+  const currentEffort = ref<EffortLevel>(defaultEffort); // 默认 "medium"
   const isModelMenuOpen = ref(false);
   const isThinkingMenuOpen = ref(false);
   const isEffortMenuOpen = ref(false);
@@ -116,7 +118,7 @@ export const useAgentConfig = (agentApiBase: string, serverApiBase: string) => {
           }
           currentModel.value = found;
         } else if (models.value.length > 0) {
-          currentModel.value = models.value[0];
+          currentModel.value = models.value[0] ?? null;
         }
 
         if (cfgEffort) {

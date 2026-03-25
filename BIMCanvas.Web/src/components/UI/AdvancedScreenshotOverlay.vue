@@ -258,9 +258,12 @@ const sanitizePenPoints = (points: PenPoint[]) => {
     return trimmed
 }
 
+const getAnnotationAt = (index: number): Annotation | null => annotations.value[index] ?? null
+
 const getHitAnnotation = (x: number, y: number): number => {
     for (let i = annotations.value.length - 1; i >= 0; i--) {
-        const ann = annotations.value[i]
+        const ann = getAnnotationAt(i)
+        if (!ann) continue
         if (ann.type === 'rect') {
             if (isPointInRect(x, y, ann.x - 5, ann.y - 5, ann.w + 10, ann.h + 10)) return i
         } else if (ann.type === 'arrow') {
@@ -419,17 +422,19 @@ const drawPen = (
 
     const renderSegment = (segment: { x: number; y: number }[]) => {
         if (!segment.length) return
+        const firstPoint = segment[0]
+        if (!firstPoint) return
         if (segment.length === 1) {
-            const p = segment[0]
             ctx.beginPath()
-            ctx.arc((p.x - offsetX) * dpr, (p.y - offsetY) * dpr, lineWidth / 2, 0, Math.PI * 2)
+            ctx.arc((firstPoint.x - offsetX) * dpr, (firstPoint.y - offsetY) * dpr, lineWidth / 2, 0, Math.PI * 2)
             ctx.fill()
             return
         }
         ctx.beginPath()
-        ctx.moveTo((segment[0].x - offsetX) * dpr, (segment[0].y - offsetY) * dpr)
+        ctx.moveTo((firstPoint.x - offsetX) * dpr, (firstPoint.y - offsetY) * dpr)
         for (let i = 1; i < segment.length; i++) {
             const p = segment[i]
+            if (!p) continue
             ctx.lineTo((p.x - offsetX) * dpr, (p.y - offsetY) * dpr)
         }
         ctx.stroke()
@@ -496,7 +501,8 @@ const handleMouseDown = (e: MouseEvent) => {
 
     // 检查标注控制点
     if (selectedAnnotationIndex.value !== -1) {
-        const ann = annotations.value[selectedAnnotationIndex.value]
+        const ann = getAnnotationAt(selectedAnnotationIndex.value)
+        if (!ann) return
         const handle = getAnnotationResizeHandle(x, y, ann)
         if (handle) {
             interactionMode.value = 'resizing_annotation'
@@ -528,7 +534,8 @@ const handleMouseDown = (e: MouseEvent) => {
     // 选中/移动标注 (优先级高于移动选区)
     const hitIndex = getHitAnnotation(x, y)
     if (hitIndex !== -1) {
-        const ann = annotations.value[hitIndex]
+        const ann = getAnnotationAt(hitIndex)
+        if (!ann) return
         // 如果已选中同一个文字标注，进入编辑模式
         if (ann.type === 'text' && selectedAnnotationIndex.value === hitIndex) {
             startTextInput(ann.x, ann.y - 10, hitIndex)
@@ -584,7 +591,8 @@ const handleGlobalMouseMove = (e: MouseEvent) => {
     } else if (interactionMode.value === 'moving_annotation') {
         if (selectedAnnotationIndex.value !== -1 && initialAnnotationState.value) {
             const dx = x - dragStartX.value, dy = y - dragStartY.value
-            const ann = annotations.value[selectedAnnotationIndex.value]
+            const ann = getAnnotationAt(selectedAnnotationIndex.value)
+            if (!ann) return
             const init = initialAnnotationState.value
             
             if (ann.type === 'rect' && init.type === 'rect') {
@@ -713,7 +721,8 @@ const getAnnotationResizeHandle = (x: number, y: number, ann: Annotation): Annot
 
 const handleAnnotationResize = (x: number, y: number) => {
     if (selectedAnnotationIndex.value === -1 || !currentAnnotationResizeHandle.value) return
-    const ann = annotations.value[selectedAnnotationIndex.value]
+    const ann = getAnnotationAt(selectedAnnotationIndex.value)
+    if (!ann) return
     const h = currentAnnotationResizeHandle.value
 
     if (ann.type === 'rect') {
@@ -866,7 +875,8 @@ const handleKeyDown = (e: KeyboardEvent) => {
 
 watch([currentColor, currentSize], ([newColor, newSize]) => {
     if (selectedAnnotationIndex.value !== -1 && !isTextInputVisible.value) {
-        const ann = annotations.value[selectedAnnotationIndex.value]
+        const ann = getAnnotationAt(selectedAnnotationIndex.value)
+        if (!ann) return
         ann.color = newColor; ann.size = newSize
         draw()
     }
@@ -936,7 +946,11 @@ const updateCursor = (x: number, y: number) => {
     
     // 2. 检查是否在已选中标注的 resize 手柄上
     if (selectedAnnotationIndex.value !== -1) {
-        const ann = annotations.value[selectedAnnotationIndex.value]
+        const ann = getAnnotationAt(selectedAnnotationIndex.value)
+        if (!ann) {
+            setBodyCursor('move')
+            return
+        }
         const handle = getAnnotationResizeHandle(x, y, ann)
         if (handle) {
             if (ann.type === 'rect') {

@@ -156,7 +156,7 @@ export class MeasurementTool implements Tool {
         }
     }
 
-    onMouseUp(event: MouseEvent) { }
+    onMouseUp() { }
 
     onKeyDown(event: KeyboardEvent) {
         if (event.key === 'Escape') {
@@ -203,47 +203,14 @@ export class MeasurementTool implements Tool {
 
     private updateRubberBand(end: THREE.Vector3) {
         if (this.rubberBand && this.startPoint) {
-            const positions = this.rubberBand.geometry.attributes.position.array as Float32Array;
-            positions[3] = end.x;
-            positions[4] = end.y;
-            positions[5] = end.z;
-            this.rubberBand.geometry.attributes.position.needsUpdate = true;
+            const positionAttribute = this.rubberBand.geometry.getAttribute('position');
+            if (!(positionAttribute instanceof THREE.BufferAttribute)) {
+                return;
+            }
+            positionAttribute.setXYZ(1, end.x, end.y, end.z);
+            positionAttribute.needsUpdate = true;
             this.rubberBand.computeLineDistances();
         }
-    }
-
-    private createEndMarker(position: THREE.Vector3) {
-        if (this.endMarker) {
-            this.scene.remove(this.endMarker);
-            this.endMarker.geometry.dispose();
-        }
-
-        // Small Cross 'X'
-        const size = 50;
-        const geometry = new THREE.BufferGeometry();
-        const vertices = new Float32Array([
-            -size, 0, -size, size, 0, size,
-            -size, 0, size, size, 0, -size
-        ]);
-        geometry.setAttribute('position', new THREE.BufferAttribute(vertices, 3));
-
-        const material = new THREE.LineBasicMaterial({
-            color: 0xffa500,
-            depthTest: false
-        });
-
-        // Use LineSegments for the X
-        // We cast to Mesh because my visuals logic might expect Object3D, but LineSegments is fine.
-        // Actually, let's just make it a simple mesh sphere for simplicity or lines.
-        // Let's stick to X using Lines.
-        const lines = new THREE.LineSegments(geometry, material);
-        lines.position.copy(position);
-        lines.position.y = 2; // Slightly higher
-        lines.renderOrder = 999;
-
-        this.scene.add(lines);
-        // Track it as endMarker
-        this.endMarker = lines as any;
     }
 
     private createDistanceLabel() {
@@ -278,7 +245,6 @@ export class MeasurementTool implements Tool {
 
         if (this.state === 'measuring') {
             // Dynamic Input Style: Follow the cursor/end point
-            const offset = new THREE.Vector3(20, 20, 0); // Offset in screen space logic? 
             // CSS2D object position is World Position.
             // We want it near 'end' point.
             this.distanceLabel!.position.copy(end);

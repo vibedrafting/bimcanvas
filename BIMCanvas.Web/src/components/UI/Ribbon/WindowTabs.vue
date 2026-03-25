@@ -13,9 +13,6 @@ const canvasStore = useCanvasStore();
 // 是否显示新窗口下拉菜单
 const showNewWindowMenu = ref(false);
 
-// 当前窗口
-const activeWindow = computed(() => windowStore.activeWindow);
-
 // 所有窗口
 const windows = computed(() => windowStore.windows);
 

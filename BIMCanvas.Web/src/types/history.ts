@@ -8,8 +8,6 @@
  * - 定义加载选项（LoadOptions）
  */
 
-import type { ProjectData } from './';
-
 // ========== 变更源枚举 ==========
 
 /**
@@ -18,51 +16,53 @@ import type { ProjectData } from './';
  * 用于标识状态变更的触发源，TimelineManager 根据此枚举
  * 智能决策是否清空历史、保留视图等策略。
  */
-export enum ChangeSource {
+export const ChangeSource = {
   // ========== 用户主动操作 ==========
 
   /** 用户手动编辑（拖动、旋转、修改属性等） */
-  UserEdit = 'user_edit',
+  UserEdit: 'user_edit',
 
   /** 用户上传新项目文件 */
-  UserUpload = 'user_upload',
+  UserUpload: 'user_upload',
 
   /** 用户撤销操作 */
-  UserUndo = 'user_undo',
+  UserUndo: 'user_undo',
 
   /** 用户重做操作 */
-  UserRedo = 'user_redo',
+  UserRedo: 'user_redo',
 
   // ========== Git 操作 ==========
 
   /** Git 分支切换 */
-  GitCheckout = 'git_checkout',
+  GitCheckout: 'git_checkout',
 
   /** Git 放弃更改 */
-  GitDiscard = 'git_discard',
+  GitDiscard: 'git_discard',
 
   /** Git 初始化项目 */
-  GitInit = 'git_init',
+  GitInit: 'git_init',
 
   // ========== 远程同步 ==========
 
   /** AI Agent 修改 */
-  AgentModify = 'agent_modify',
+  AgentModify: 'agent_modify',
 
   /** Server 端文件变化推送 */
-  ServerSync = 'server_sync',
+  ServerSync: 'server_sync',
 
   /** 协作者修改（未来扩展） */
-  CollabSync = 'collab_sync',
+  CollabSync: 'collab_sync',
 
   // ========== 系统操作 ==========
 
   /** 系统初始化（应用启动时加载） */
-  SystemInit = 'system_init',
+  SystemInit: 'system_init',
 
   /** 系统恢复（异常处理、冲突解决） */
-  SystemRestore = 'system_restore',
-}
+  SystemRestore: 'system_restore',
+} as const
+
+export type ChangeSource = typeof ChangeSource[keyof typeof ChangeSource]
 
 // ========== 变更类型枚举 ==========
 
@@ -72,25 +72,27 @@ export enum ChangeSource {
  * 用于描述本次变更的具体操作类型，便于历史面板
  * 展示和未来的操作回放功能。
  */
-export enum ChangeType {
+export const ChangeType = {
   /** 创建新对象 */
-  Create = 'create',
+  Create: 'create',
 
   /** 更新对象属性 */
-  Update = 'update',
+  Update: 'update',
 
   /** 删除对象 */
-  Delete = 'delete',
+  Delete: 'delete',
 
   /** 移动对象 */
-  Move = 'move',
+  Move: 'move',
 
   /** 旋转对象 */
-  Rotate = 'rotate',
+  Rotate: 'rotate',
 
   /** 批量操作 */
-  Batch = 'batch',
-}
+  Batch: 'batch',
+} as const
+
+export type ChangeType = typeof ChangeType[keyof typeof ChangeType]
 
 // ========== 历史快照接口 ==========
 
@@ -148,7 +150,7 @@ export interface HistorySnapshot {
     userSessionId?: string;
 
     /** 其他扩展字段 */
-    [key: string]: any;
+    [key: string]: unknown;
   };
 }
 
@@ -186,7 +188,7 @@ export interface LoadOptions {
   description?: string;
 
   /** 元数据 */
-  metadata?: Record<string, any>;
+  metadata?: Record<string, unknown>;
 }
 
 // ========== 历史统计接口（可选，用于调试） ==========

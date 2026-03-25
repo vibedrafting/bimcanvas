@@ -2,8 +2,10 @@ import { computed, nextTick, ref, watch } from 'vue';
 import type { Ref } from 'vue';
 import type { GitBranch } from '../../stores/gitStore';
 import type { ChatMessage, ChatWindow, DropdownPosition } from '../../types/aiCommandCenter';
+import { ChangeSource, type LoadOptions } from '../../types/history';
 import { GitWorktreeService } from '../../services/GitWorktreeService';
 import { SignalRService } from '../../services/SignalRService';
+import { SERVER_API } from '../../config/api';
 
 interface WindowManagerOptions {
   branches: Ref<GitBranch[]>;
@@ -13,7 +15,7 @@ interface WindowManagerOptions {
     fetchBranches: () => Promise<void>;
   };
   store: {
-    loadProject: (options: { source: string; preserveView: boolean }) => Promise<void>;
+    loadProject: (options: LoadOptions | ChangeSource) => Promise<boolean>;
     saveToServer: () => Promise<boolean>;
   };
   agentApiBase: string;
@@ -112,7 +114,7 @@ export const useWindowManager = (options: WindowManagerOptions) => {
     options.branches.value.forEach(b => b.isCurrent = b.id === win.branchId);
 
     try {
-      await fetch('http://localhost:5000/api/windows/activate', {
+      await fetch(`${SERVER_API}/windows/activate`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ windowId: id })
@@ -122,7 +124,7 @@ export const useWindowManager = (options: WindowManagerOptions) => {
       console.warn('[Window] 通知 Server 激活窗口失败:', error);
     }
 
-    await options.store.loadProject({ source: 'git_checkout', preserveView: true });
+    await options.store.loadProject({ source: ChangeSource.GitCheckout, preserveView: true });
     console.log('[Window] 重新加载项目数据完成');
 
     nextTick(() => {
@@ -292,6 +294,8 @@ export const useWindowManager = (options: WindowManagerOptions) => {
     if (index === -1) return;
 
     const win = windows.value[index];
+    if (!win) return;
+
     if (win.isPrimary) {
       console.warn('[Window] Cannot close primary window');
       return;
@@ -329,7 +333,7 @@ export const useWindowManager = (options: WindowManagerOptions) => {
 
     // ③ 注销映射
     try {
-      await fetch(`http://localhost:5000/api/windows/worktree/${id}`, {
+      await fetch(`${SERVER_API}/windows/worktree/${id}`, {
         method: 'DELETE'
       });
       console.log(`[Window] 注销 Worktree 映射: ${id}`);
@@ -346,7 +350,7 @@ export const useWindowManager = (options: WindowManagerOptions) => {
       if (newActiveWin) {
         activeWindowId.value = newActiveWin.id;
         options.branches.value.forEach(b => b.isCurrent = b.id === newActiveWin.branchId);
-        await options.store.loadProject({ source: 'git_checkout', preserveView: true });
+        await options.store.loadProject({ source: ChangeSource.GitCheckout, preserveView: true });
       }
     }
   };
@@ -439,15 +443,16 @@ export const useWindowManager = (options: WindowManagerOptions) => {
       });
 
       const idx = windows.value.findIndex(w => w.id === newId);
-      if (idx !== -1) {
-        windows.value[idx].isLoading = false;
+      const createdWindow = idx !== -1 ? windows.value[idx] : undefined;
+      if (createdWindow) {
+        createdWindow.isLoading = false;
         console.log(`[Window] Created successfully: ${newWindow.name}`);
       }
 
       const worktreeInfo = await GitWorktreeService.getWorktrees();
       const createdWorktree = worktreeInfo.find(w => w.name === worktreeName);
       if (createdWorktree) {
-        await fetch('http://localhost:5000/api/windows/register-worktree', {
+        await fetch(`${SERVER_API}/windows/register-worktree`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
@@ -458,11 +463,12 @@ export const useWindowManager = (options: WindowManagerOptions) => {
         console.log(`[Window] 注册 Worktree 映射: ${newId} -> ${createdWorktree.path}`);
 
         const pathIdx = windows.value.findIndex(w => w.id === newId);
-        if (pathIdx !== -1) {
-          windows.value[pathIdx].worktreePath = createdWorktree.path;
+        const pathWindow = pathIdx !== -1 ? windows.value[pathIdx] : undefined;
+        if (pathWindow) {
+          pathWindow.worktreePath = createdWorktree.path;
         }
 
-        await options.store.loadProject({ source: 'git_checkout', preserveView: true });
+        await options.store.loadProject({ source: ChangeSource.GitCheckout, preserveView: true });
         console.log('[Window] 重新加载项目数据完成');
       }
 
@@ -473,14 +479,16 @@ export const useWindowManager = (options: WindowManagerOptions) => {
       }
     } catch (error: any) {
       const idx = windows.value.findIndex(w => w.id === newId);
-      if (idx !== -1) {
-        windows.value[idx].isLoading = false;
-        windows.value[idx].error = error.message || '创建失败';
+      const errorWindow = idx !== -1 ? windows.value[idx] : undefined;
+      if (errorWindow) {
+        errorWindow.isLoading = false;
+        errorWindow.error = error.message || '创建失败';
         console.error(`[Window] Create failed: ${error.message}`);
       }
       setTimeout(() => {
         const idx = windows.value.findIndex(w => w.id === newId);
-        if (idx !== -1 && windows.value[idx].error) {
+        const pendingWindow = idx !== -1 ? windows.value[idx] : undefined;
+        if (pendingWindow?.error) {
           windows.value.splice(idx, 1);
           const primary = windows.value.find(w => w.isPrimary);
           if (primary) switchWindow(primary.id);

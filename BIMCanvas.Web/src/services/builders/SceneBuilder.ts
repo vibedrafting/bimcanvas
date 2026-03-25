@@ -3,7 +3,6 @@ import type { ProjectData, Wall, Column, Module, Point2D, Opening } from '../../
 import { LayerManager } from '../three/LayerManager';
 import { canvasStyleService } from '../canvas/CanvasStyleService';
 import { SVGModuleRenderer } from './SVGModuleRenderer';
-import { moduleLibraryService } from '../ModuleLibraryService';
 
 export class SceneBuilder {
     private scene: THREE.Scene;
@@ -276,11 +275,6 @@ export class SceneBuilder {
         this.updateAllHelpers();
     }
 
-    private enableLayers(object: THREE.Object3D) {
-        // Enable Default and Model layers
-        object.layers.enable(LayerManager.LAYER_MODEL);
-    }
-
     private enableArchitectureLayer(object: THREE.Object3D) {
         // 设置建筑图层（墙柱门窗）
         object.layers.set(LayerManager.LAYER_ARCHITECTURE);
@@ -498,7 +492,6 @@ export class SceneBuilder {
         const frameDepth = 120;
         const panelThickness = 40;
         const leafWidth = width / 2;
-        const lineVec = new THREE.Vector2(Math.cos(angle), Math.sin(angle));
         const normalVec = new THREE.Vector2(-Math.sin(angle), Math.cos(angle));
 
         // === Frame (same as single door) ===
@@ -562,7 +555,7 @@ export class SceneBuilder {
         const panelMat = this.materials.get('doorPanel');
 
         // Helper: create one leaf (architecture + AI) and return arc geometry
-        const createLeaf = (isLeftLeaf: boolean, handDir: [number, number]) => {
+        const createLeaf = (isLeftLeaf: boolean) => {
             const panelGroup = new THREE.Group();
             panelGroup.position.set(center.x, center.y, 0);
             panelGroup.rotation.z = angle;
@@ -636,9 +629,8 @@ export class SceneBuilder {
         };
 
         // Create both leaves
-        const hands = originalOp?.handDirections ?? [[1, 0], [-1, 0]];
-        createLeaf(true, hands[0] as [number, number]);
-        createLeaf(false, hands[1] as [number, number]);
+        createLeaf(true);
+        createLeaf(false);
     }
 
     private createSlidingDoor(center: THREE.Vector2, width: number, height: number, angle: number, originalOp?: Opening) {
@@ -850,7 +842,11 @@ export class SceneBuilder {
 
         let isHingeAtStart = true; // Default Left Pivot
         if (originalOp && originalOp.handDirections && originalOp.handDirections.length > 0) {
-            const handVec = new THREE.Vector2(originalOp.handDirections[0][0], originalOp.handDirections[0][1]);
+            const firstHandDirection = originalOp.handDirections[0];
+            if (!firstHandDirection) {
+                return;
+            }
+            const handVec = new THREE.Vector2(firstHandDirection[0], firstHandDirection[1]);
             // Line vector in local coords is (1, 0) relative to rotation? 
             // No, we need to check alignment in world coords or pre-rotation.
             // But here we are inside createDoor which is already rotated.

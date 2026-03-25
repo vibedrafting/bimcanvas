@@ -9,8 +9,9 @@ import type {
   CreateWorktreeResponse,
   DeleteWorktreeResponse
 } from '../types/worktree';
+import { SERVER_API } from '../config/api';
 
-const API_BASE = 'http://localhost:5000/api/git';
+const API_BASE = `${SERVER_API}/git`;
 
 /**
  * Git Worktree 服务类

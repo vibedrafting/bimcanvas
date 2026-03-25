@@ -5,6 +5,7 @@ import GlassButton from './base/GlassButton.vue';
 import { themeService } from '../../services/theme/ThemeService';
 import ConflictDialog from './ConflictDialog.vue';
 import { ProjectService } from '../../services/ProjectService';
+import { ChangeSource } from '../../types/history';
 
 import { storeToRefs } from 'pinia';
 
@@ -72,7 +73,7 @@ const handleLoad = async () => {
           showConflictDialog.value = true;
         } else if (result.status === 'Success') {
           // 重新加载项目数据
-          await store.loadProject();
+          await store.loadProject(ChangeSource.UserUpload);
         } else {
           // 错误
           alert(`打开项目失败：${result.message}`);
@@ -112,7 +113,7 @@ const handleConflictResolve = async (resolution: 'Overwrite' | 'UseExisting' | '
 
     if (result.status === 'Success') {
       // 重新加载项目数据
-      await store.loadProject();
+      await store.loadProject(ChangeSource.UserUpload);
     } else {
       alert(`解决冲突失败：${result.message}`);
     }

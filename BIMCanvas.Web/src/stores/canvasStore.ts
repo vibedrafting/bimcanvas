@@ -6,6 +6,7 @@ import { TimelineManager } from '../services/state/TimelineManager';
 import { SignalRService } from '../services/SignalRService';
 import { useDebugStore } from './debugStore';
 import { ChangeSource, ChangeType, type LoadOptions } from '../types/history';
+import { SERVER_API } from '../config/api';
 export const useCanvasStore = defineStore('canvas', () => {
     // === 核心状态 ===
     const projectData = ref<ProjectData | null>(null);
@@ -214,14 +215,14 @@ export const useCanvasStore = defineStore('canvas', () => {
         preserveViewOnLoad.value = preserveView;
 
         try {
-            debugStore.log('[Store] Loading project...', {
+            debugStore.log(`[Store] Loading project... ${JSON.stringify({
                 source: opts.source,
                 preserveHistory,
                 preserveView
-            });
+            })}`);
 
             // 从 Server 获取数据
-            const response = await axios.get<ProjectData>('http://localhost:5000/api/project');
+            const response = await axios.get<ProjectData>(`${SERVER_API}/project`);
             projectData.value = response.data;
             isDirty.value = false;
             sceneDataCache.clear(); // 数据已刷新，清理 Scene 降级缓存
@@ -404,7 +405,9 @@ export const useCanvasStore = defineStore('canvas', () => {
         if (!projectData.value?.activeScheme?.modules) return;
         const moduleIndex = projectData.value.activeScheme.modules.findIndex(m => m.id === moduleId);
         if (moduleIndex !== -1) {
-            const updatedModule = { ...projectData.value.activeScheme.modules[moduleIndex], ...updates };
+            const existingModule = projectData.value.activeScheme.modules[moduleIndex];
+            if (!existingModule) return;
+            const updatedModule = { ...existingModule, ...updates };
             projectData.value.activeScheme.modules[moduleIndex] = updatedModule;
             isDirty.value = true;  // 标记数据已修改
             if (!batchUpdateMode.value) {
@@ -418,7 +421,9 @@ export const useCanvasStore = defineStore('canvas', () => {
         if (!projectData.value?.baseline?.walls) return;
         const index = projectData.value.baseline.walls.findIndex(w => w.id === wallId);
         if (index !== -1) {
-            const updated = { ...projectData.value.baseline.walls[index], ...updates };
+            const existingWall = projectData.value.baseline.walls[index];
+            if (!existingWall) return;
+            const updated = { ...existingWall, ...updates };
             projectData.value.baseline.walls[index] = updated;
             isDirty.value = true;  // 标记数据已修改
             nextTick(() => saveState());
@@ -429,7 +434,9 @@ export const useCanvasStore = defineStore('canvas', () => {
         if (!projectData.value?.baseline?.columns) return;
         const index = projectData.value.baseline.columns.findIndex(c => c.id === colId);
         if (index !== -1) {
-            const updated = { ...projectData.value.baseline.columns[index], ...updates };
+            const existingColumn = projectData.value.baseline.columns[index];
+            if (!existingColumn) return;
+            const updated = { ...existingColumn, ...updates };
             projectData.value.baseline.columns[index] = updated;
             isDirty.value = true;  // 标记数据已修改
             nextTick(() => saveState());
@@ -440,7 +447,9 @@ export const useCanvasStore = defineStore('canvas', () => {
         if (!projectData.value?.baseline?.openings) return;
         const index = projectData.value.baseline.openings.findIndex(o => o.id === opId);
         if (index !== -1) {
-            const updated = { ...projectData.value.baseline.openings[index], ...updates };
+            const existingOpening = projectData.value.baseline.openings[index];
+            if (!existingOpening) return;
+            const updated = { ...existingOpening, ...updates };
             projectData.value.baseline.openings[index] = updated;
             isDirty.value = true;  // 标记数据已修改
             nextTick(() => saveState());
@@ -582,7 +591,7 @@ export const useCanvasStore = defineStore('canvas', () => {
         }
 
         try {
-            const response = await axios.post('http://localhost:5000/api/project/save', {
+            const response = await axios.post(`${SERVER_API}/project/save`, {
                 modules: projectData.value.activeScheme.modules
                 // Server 根据 bounds 位置自动计算分区
             });

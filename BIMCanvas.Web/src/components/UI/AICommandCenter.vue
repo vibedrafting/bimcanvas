@@ -25,6 +25,7 @@ import TaskSummaryWidget from './TaskSummaryWidget.vue';
 import MarkdownText from './base/MarkdownText.vue';
 import AdvancedScreenshotOverlay from './AdvancedScreenshotOverlay.vue';
 import ImageLightbox from './ImageLightbox.vue';
+import { AGENT_API, SERVER_BASE } from '../../config/api';
 
 // === Lightbox 状态 ===
 const lightbox = ref({ visible: false, src: '' });
@@ -39,10 +40,12 @@ const props = defineProps<{
   panelReady?: boolean;
 }>();
 
-const AGENT_API_BASE = 'http://127.0.0.1:8865';
-const SERVER_API_BASE = 'http://localhost:5000';
+const AGENT_API_BASE = AGENT_API;
+const SERVER_API_BASE = SERVER_BASE;
 
 const { panelWidth, windowTabsRef, carouselTrackRef, startResize, handleTabsWheel, handleWheel } = usePanelUI();
+void windowTabsRef;
+void carouselTrackRef;
 
 const mode = ref<'chat' | 'tasks'>('chat');
 
@@ -52,7 +55,6 @@ const { branches, currentBranch } = storeToRefs(gitStore);
 const store = useCanvasStore();
 
 const {
-  selectedModuleCount,
   selectedCount,
   selectionDisplayText,
   scopeDisplayText,
@@ -146,6 +148,7 @@ const {
   selectThinking,
   selectEffort
 } = useAgentConfig(AGENT_API_BASE, SERVER_API_BASE);
+void newModelInputRef;
 
 const {
   chatScrollRefs,
@@ -318,7 +321,6 @@ const {
 const {
   showScreenshotOverlay,
   startListening,
-  stopListening,
   handleScreenshotCapture,
   handleScreenshotCancel,
   removePendingImage
@@ -330,7 +332,6 @@ const {
 
 const {
   startListening: startQuestionListening,
-  stopListening: stopQuestionListening,
   submitAnswer,
   cancelQuestion
 } = useQuestion({
@@ -406,6 +407,9 @@ const activeSubAgents = computed(() => {
 
   for (let i = chatMessages.value.length - 1; i >= 0; i--) {
     const msg = chatMessages.value[i];
+    if (!msg) {
+      continue;
+    }
     if (msg.role === 'ai' && msg.bubbles) {
       const subAgentBubbles = msg.bubbles.filter(b => b.type === 'subagent');
       if (subAgentBubbles.length > 0) {

@@ -7,6 +7,7 @@ using BIMCanvas.Server.Logging;
 using BIMCanvas.Server.Models;
 using BIMCanvas.Server.Services;
 using BIMCanvas.Server.Services.Git;
+using Microsoft.Extensions.FileProviders;
 using Newtonsoft.Json.Serialization;
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -78,6 +79,7 @@ if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
 }
 
 var builder = WebApplication.CreateBuilder(args);
+var isProduction = builder.Environment.IsProduction();
 
 // 配置统一日志格式（替换默认 Console Logger 格式）
 builder.Logging.ClearProviders();
@@ -90,6 +92,13 @@ var pythonCommand = string.IsNullOrWhiteSpace(config.Server.PythonCommand)
     ? "python"
     : config.Server.PythonCommand.Trim();
 var configDir = ConfigService.GetConfigDir();
+var serverBaseUrl = builder.Configuration["Web:BaseUrl"] ?? "http://localhost:5000";
+var startupErrors = new List<string>();
+var productionWebDistPath = isProduction ? ResolveWebDistPath(AppContext.BaseDirectory) : null;
+if (isProduction && productionWebDistPath == null)
+{
+    startupErrors.Add("生产模式未找到可用的 Web dist 目录，请设置 BIMCANVAS_WEB_DIST 或先构建 BIMCanvas.Web。");
+}
 
 // 注册配置 + Agent HTTP 客户端
 builder.Services.AddSingleton(config);
@@ -144,33 +153,61 @@ builder.Services.AddSignalR()
     });
 builder.Services.AddHostedService<ProjectWatcherService>();
 
-// 配置 Swagger
-builder.Services.AddEndpointsApiExplorer();
-builder.Services.AddSwaggerGen();
+var configuredCorsOrigins = builder.Configuration
+    .GetSection("Cors:AllowedOrigins")
+    .Get<string[]>()?
+    .Where(origin => !string.IsNullOrWhiteSpace(origin))
+    .Select(origin => origin.Trim())
+    .Distinct(StringComparer.OrdinalIgnoreCase)
+    .ToArray()
+    ?? Array.Empty<string>();
+
+var developmentCorsOrigins = new[]
+{
+    "http://localhost:5173",
+    "http://localhost:3000"
+};
+
+var effectiveCorsOrigins = configuredCorsOrigins.Length > 0
+    ? configuredCorsOrigins
+    : (!isProduction ? developmentCorsOrigins : Array.Empty<string>());
 
 // 配置 CORS - 允许 Web 前端跨域访问
 builder.Services.AddCors(options =>
 {
     options.AddPolicy("AllowWebClient", policy =>
     {
-        policy.WithOrigins("http://localhost:5173", "http://localhost:3000") // Vite 默认端口
-              .AllowAnyHeader()
-              .AllowAnyMethod()
-              .AllowCredentials();
+        if (effectiveCorsOrigins.Length > 0)
+        {
+            policy.WithOrigins(effectiveCorsOrigins)
+                  .AllowAnyHeader()
+                  .AllowAnyMethod()
+                  .AllowCredentials();
+            return;
+        }
+
+        policy.AllowAnyHeader()
+              .AllowAnyMethod();
     });
 });
 
 var app = builder.Build();
 
-// 配置中间件
-if (app.Environment.IsDevelopment())
-{
-    app.UseSwagger();
-    app.UseSwaggerUI();
-}
-
 // 启用 CORS
 app.UseCors("AllowWebClient");
+
+if (isProduction && productionWebDistPath != null)
+{
+    var webDistProvider = new PhysicalFileProvider(productionWebDistPath);
+    app.UseDefaultFiles(new DefaultFilesOptions
+    {
+        FileProvider = webDistProvider
+    });
+    app.UseStaticFiles(new StaticFileOptions
+    {
+        FileProvider = webDistProvider
+    });
+}
 
 // 启用控制器路由
 app.MapControllers();
@@ -181,9 +218,18 @@ app.MapHub<CanvasHub>("/hubs/canvas");
 // 健康检查端点
 app.MapGet("/health", () => new { status = "healthy", timestamp = DateTime.UtcNow });
 
+if (isProduction && productionWebDistPath != null)
+{
+    app.MapFallbackToFile(
+        "index.html",
+        new StaticFileOptions
+        {
+            FileProvider = new PhysicalFileProvider(productionWebDistPath)
+        });
+}
+
 // config 已在 DI 注册阶段加载（line 85 附近）
 WriteWithColoredPrefix("[Server]", "BIMCanvas.Server 启动中...", ConsoleColor.White);
-WriteWithColoredPrefix("[Server]", "Swagger: http://localhost:5000/swagger", ConsoleColor.White);
 
 // 空启动模式：不自动加载项目，等待用户通过首页选择
 WriteWithColoredPrefix("[Server]", "空启动模式，等待用户选择项目", ConsoleColor.White);
@@ -191,6 +237,7 @@ WriteWithColoredPrefix("[Server]", "空启动模式，等待用户选择项目",
 // ─── 环境检测阶段 ───
 var agentReady = true;
 var webReady = true;
+var playwrightReady = true;
 {
     var baseDir = AppContext.BaseDirectory;
     var agentDir = FindAgentProjectPath(baseDir);
@@ -202,32 +249,55 @@ var webReady = true;
     {
         WriteWithColoredPrefix("[Server:WARN]", $"Agent 项目目录不存在: {agentDir}", ConsoleColor.DarkYellow);
         agentReady = false;
+        if (isProduction)
+        {
+            startupErrors.Add($"生产模式缺少 Agent 项目目录: {agentDir}");
+        }
     }
     else if (!IsPythonAvailable(pythonCommand))
     {
         WriteWithColoredPrefix("[Server:WARN]", "未检测到 Python，Agent 服务将不启动", ConsoleColor.DarkYellow);
         WriteWithColoredPrefix("[Server:WARN]", "提示: 请安装 Python 3.10+ 并添加到 PATH", ConsoleColor.DarkYellow);
         agentReady = false;
+        if (isProduction)
+        {
+            startupErrors.Add("生产模式未检测到 Python，无法启动 Agent。");
+        }
     }
     else if (!IsAgentDependencyReady(pythonCommand))
     {
-        agentReady = TryInstallAgentDependencies(agentDir, pythonCommand);
+        if (isProduction)
+        {
+            agentReady = false;
+            startupErrors.Add("生产模式检测到 Agent 依赖缺失，请先完成 Agent 依赖安装。");
+        }
+        else
+        {
+            agentReady = TryInstallAgentDependencies(agentDir, pythonCommand);
+        }
     }
 
-    // 检测 Playwright Chromium（Server 自身依赖，不影响启动）
-    if (!IsPlaywrightChromiumInstalled())
+    playwrightReady = IsPlaywrightChromiumInstalled();
+    if (!playwrightReady)
     {
-        TryInstallPlaywrightChromium();
+        if (isProduction)
+        {
+            startupErrors.Add("生产模式未检测到 Playwright Chromium，后台截图功能不可用，启动已终止。");
+        }
+        else
+        {
+            TryInstallPlaywrightChromium();
+        }
     }
 
-    // Web 环境检测：Node.js 可用性
-    if (!IsNodeAvailable())
+    // Web 环境检测：开发模式依赖 Node/Vite，生产模式依赖 dist 静态产物
+    if (!isProduction && !IsNodeAvailable())
     {
         WriteWithColoredPrefix("[Server:WARN]", "未检测到 Node.js，Web 服务将不启动", ConsoleColor.DarkYellow);
         WriteWithColoredPrefix("[Server:WARN]", "提示: 请安装 Node.js 18+ 并添加到 PATH", ConsoleColor.DarkYellow);
         webReady = false;
     }
-    else if (!Directory.Exists(Path.Combine(webDir, "node_modules")))
+    else if (!isProduction && !Directory.Exists(Path.Combine(webDir, "node_modules")))
     {
         webReady = TryInstallWebDependencies(webDir);
     }
@@ -249,6 +319,11 @@ var webReady = true;
         // CCR 依赖检查：检测 ccr 命令是否可用
         if (!IsCcrAvailable())
         {
+            if (isProduction)
+            {
+                startupErrors.Add("生产模式未检测到 CCR (claude-code-router)，启动已终止。");
+                goto CcrSkipped;
+            }
             if (!IsNodeAvailable())
             {
                 WriteWithColoredPrefix("[Server:WARN]", "未检测到 CCR 且 Node.js 不可用，CCR 服务将不启动", ConsoleColor.DarkYellow);
@@ -288,7 +363,17 @@ var webReady = true;
             if (ccrRuntimeReady)
                 WriteWithColoredPrefix("[CCR]", $"CCR 已就绪: http://{config.Ccr.Host}:{config.Ccr.Port}", ConsoleColor.Magenta);
             else
+            {
                 WriteWithColoredPrefix("[Server:WARN]", "CCR 未在预期时间内就绪", ConsoleColor.DarkYellow);
+                if (isProduction)
+                {
+                    startupErrors.Add("生产模式下 CCR 未在预期时间内就绪。");
+                }
+            }
+        }
+        else if (isProduction)
+        {
+            startupErrors.Add("生产模式下 CCR 启动失败。");
         }
     }
     CcrSkipped:
@@ -337,6 +422,9 @@ var webReady = true;
             };
             // 设置环境变量确保 Python 输出 UTF-8
             agentProcess.StartInfo.Environment["PYTHONIOENCODING"] = "utf-8";
+            agentProcess.StartInfo.Environment["BIMCANVAS_HOME"] = configDir;
+            agentProcess.StartInfo.Environment["BIMCANVAS_SERVER_URL"] = serverBaseUrl;
+            agentProcess.StartInfo.Environment["SERVER_PORT"] = agentPort.ToString();
 
             // API 网关配置：CCR 启用时走网关，禁用时 Agent 直连 config.json 中的供应商
             if (config.Ccr.Enabled)
@@ -353,7 +441,7 @@ var webReady = true;
             }
             else
             {
-                WriteWithColoredPrefix("[Server]", "Agent 网关: 直连模式 (使用 ~/.bimcanvas/config.json)", ConsoleColor.White);
+                WriteWithColoredPrefix("[Server]", "Agent 网关: 直连模式 (使用 <BIMCANVAS_HOME>/config.json)", ConsoleColor.White);
             }
 
             agentProcess.Start();
@@ -382,27 +470,22 @@ var webReady = true;
         catch (Exception ex)
         {
             WriteWithColoredPrefix("[Server:ERR]", $"Agent 服务启动失败: {ex.Message}", ConsoleColor.DarkGray);
+            if (isProduction)
+            {
+                startupErrors.Add($"生产模式下 Agent 服务启动失败: {ex.Message}");
+            }
         }
     }
 
     // 3. 启动 Web 服务（不等待，后台运行）
-    if (webReady && Directory.Exists(webProjectPath))
+    if (!isProduction && webReady && Directory.Exists(webProjectPath))
     {
         WriteWithColoredPrefix("[Server]", "Web 开发服务器启动中...", ConsoleColor.White);
         try
         {
             webProcess = new Process
             {
-                StartInfo = new ProcessStartInfo
-                {
-                    FileName = "cmd.exe",
-                    Arguments = "/c npm run dev",
-                    WorkingDirectory = webProjectPath,
-                    UseShellExecute = false,
-                    CreateNoWindow = true,
-                    RedirectStandardOutput = true,
-                    RedirectStandardError = true
-                }
+                StartInfo = CreateShellProcessStartInfo("npm run dev", webProjectPath)
             };
             webProcess.Start();
 
@@ -436,17 +519,21 @@ var webReady = true;
             WriteWithColoredPrefix("[Server:ERR]", $"Web 服务启动失败: {ex.Message}", ConsoleColor.DarkGray);
         }
     }
-    else if (!webReady)
+    else if (!isProduction && !webReady)
     {
         WriteWithColoredPrefix("[Server:WARN]", "Web 服务跳过启动（环境未就绪）", ConsoleColor.DarkYellow);
     }
-    else
+    else if (!isProduction)
     {
         WriteWithColoredPrefix("[Server:ERR]", $"Web 项目目录不存在: {webProjectPath}", ConsoleColor.DarkGray);
     }
+    else if (productionWebDistPath != null)
+    {
+        WriteWithColoredPrefix("[Server]", $"生产静态资源目录: {productionWebDistPath}", ConsoleColor.White);
+    }
 
     // 4. 等待 Web 服务就绪后打开浏览器（Agent 在后台继续启动，Web 端通过 health 检查感知状态）
-    if (webProcess != null)
+    if (!isProduction && webProcess != null)
     {
         WriteWithColoredPrefix("[Server]", "等待 Web 服务启动...", ConsoleColor.White);
         var webBaseUrl = "http://localhost:5173";
@@ -538,6 +625,16 @@ var webReady = true;
             webProcess.Kill(true);
         }
     };
+}
+
+if (isProduction && startupErrors.Count > 0)
+{
+    foreach (var error in startupErrors.Distinct())
+    {
+        WriteWithColoredPrefix("[Server:ERR]", error, ConsoleColor.DarkGray);
+    }
+
+    throw new InvalidOperationException("生产模式依赖未就绪，Server 已终止启动。");
 }
 
 app.Run();
@@ -728,15 +825,7 @@ static bool IsCcrAvailable()
 {
     try
     {
-        var psi = new ProcessStartInfo
-        {
-            FileName = RuntimeInformation.IsOSPlatform(OSPlatform.Windows) ? "cmd.exe" : "ccr",
-            Arguments = RuntimeInformation.IsOSPlatform(OSPlatform.Windows) ? "/c ccr --version" : "--version",
-            RedirectStandardOutput = true,
-            RedirectStandardError = true,
-            UseShellExecute = false,
-            CreateNoWindow = true
-        };
+        var psi = CreateShellProcessStartInfo("ccr version");
         using var process = Process.Start(psi);
         if (process == null) return false;
         process.WaitForExit(5000);
@@ -770,17 +859,7 @@ static bool TryInstallCcr()
 
     try
     {
-        var psi = new ProcessStartInfo
-        {
-            FileName = "cmd.exe",
-            Arguments = "/c npm install -g claude-code-router",
-            UseShellExecute = false,
-            CreateNoWindow = true,
-            RedirectStandardOutput = true,
-            RedirectStandardError = true,
-            StandardOutputEncoding = Encoding.UTF8,
-            StandardErrorEncoding = Encoding.UTF8
-        };
+        var psi = CreateShellProcessStartInfo("npm install -g claude-code-router");
 
         using var process = Process.Start(psi);
         if (process == null)
@@ -878,18 +957,7 @@ static bool TryInstallWebDependencies(string webProjectPath)
 
     try
     {
-        var psi = new ProcessStartInfo
-        {
-            FileName = "cmd.exe",
-            Arguments = "/c npm install",
-            WorkingDirectory = webProjectPath,
-            UseShellExecute = false,
-            CreateNoWindow = true,
-            RedirectStandardOutput = true,
-            RedirectStandardError = true,
-            StandardOutputEncoding = Encoding.UTF8,
-            StandardErrorEncoding = Encoding.UTF8
-        };
+        var psi = CreateShellProcessStartInfo("npm install", webProjectPath);
 
         using var process = Process.Start(psi);
         if (process == null)
@@ -1098,6 +1166,60 @@ static string NormalizeModelFamily(string? modelFamily)
         "haiku" => "haiku",
         _ => "sonnet"
     };
+}
+
+static ProcessStartInfo CreateShellProcessStartInfo(string command, string? workingDirectory = null)
+{
+    var isWindows = RuntimeInformation.IsOSPlatform(OSPlatform.Windows);
+    var psi = new ProcessStartInfo
+    {
+        FileName = isWindows ? "cmd.exe" : "/bin/bash",
+        Arguments = isWindows
+            ? $"/c {command}"
+            : $"-c \"{command.Replace("\"", "\\\"")}\"",
+        UseShellExecute = false,
+        CreateNoWindow = true,
+        RedirectStandardOutput = true,
+        RedirectStandardError = true,
+        StandardOutputEncoding = Encoding.UTF8,
+        StandardErrorEncoding = Encoding.UTF8
+    };
+
+    if (!string.IsNullOrWhiteSpace(workingDirectory))
+    {
+        psi.WorkingDirectory = workingDirectory;
+    }
+
+    return psi;
+}
+
+static string? ResolveWebDistPath(string startDir)
+{
+    var configuredDist = Environment.GetEnvironmentVariable("BIMCANVAS_WEB_DIST");
+    if (!string.IsNullOrWhiteSpace(configuredDist))
+    {
+        var configuredPath = Path.GetFullPath(
+            Environment.ExpandEnvironmentVariables(configuredDist.Trim()));
+        return File.Exists(Path.Combine(configuredPath, "index.html"))
+            ? configuredPath
+            : null;
+    }
+
+    var dir = new DirectoryInfo(startDir);
+    for (int i = 0; i < 8 && dir != null; i++)
+    {
+        var candidate = Path.Combine(dir.FullName, "BIMCanvas.Web", "dist");
+        if (File.Exists(Path.Combine(candidate, "index.html")))
+        {
+            return candidate;
+        }
+        dir = dir.Parent;
+    }
+
+    var fallback = Path.Combine(FindWebProjectPath(startDir), "dist");
+    return File.Exists(Path.Combine(fallback, "index.html"))
+        ? fallback
+        : null;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

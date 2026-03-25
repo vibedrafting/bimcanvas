@@ -177,7 +177,8 @@ export function getLastBubbleOfType(
   type: ChatBubble['type']
 ): ChatBubble | undefined {
   for (let i = bubbles.length - 1; i >= 0; i--) {
-    if (bubbles[i].type === type) return bubbles[i];
+    const bubble = bubbles[i];
+    if (bubble?.type === type) return bubble;
   }
   return undefined;
 }
@@ -190,7 +191,7 @@ export function getLastStreamingThinkingBubble(
 ): ChatBubble | undefined {
   for (let i = bubbles.length - 1; i >= 0; i--) {
     const bubble = bubbles[i];
-    if (bubble.type === 'thinking' && bubble.status === 'streaming') {
+    if (bubble?.type === 'thinking' && bubble.status === 'streaming') {
       return bubble;
     }
   }
@@ -205,7 +206,7 @@ export function getLastStreamingTextBubble(
 ): ChatBubble | undefined {
   for (let i = bubbles.length - 1; i >= 0; i--) {
     const bubble = bubbles[i];
-    if (bubble.type === 'text' && bubble.status === 'streaming') {
+    if (bubble?.type === 'text' && bubble.status === 'streaming') {
       return bubble;
     }
   }
@@ -259,7 +260,7 @@ export function completeThinkingBubble(bubble: ChatBubble): void {
 export function collapseLastThinkingBubble(bubbles: ChatBubble[]): void {
   for (let i = bubbles.length - 1; i >= 0; i--) {
     const bubble = bubbles[i];
-    if (bubble.type === 'thinking' && bubble.isExpanded) {
+    if (bubble?.type === 'thinking' && bubble.isExpanded) {
       bubble.isExpanded = false;
       return;
     }

@@ -306,7 +306,8 @@ export function findLastBubbleByType(
   type: BubbleType
 ): ChatBubble | undefined {
   for (let i = bubbles.length - 1; i >= 0; i--) {
-    if (bubbles[i].type === type) return bubbles[i];
+    const bubble = bubbles[i];
+    if (bubble?.type === type) return bubble;
   }
   return undefined;
 }

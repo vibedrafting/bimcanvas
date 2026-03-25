@@ -266,7 +266,10 @@ export class ZoneBuilder {
 
         const points = boundary.map(p => new THREE.Vector3(p[0], 0, -p[1]));
         if (points.length > 0) {
-            points.push(points[0].clone());
+            const firstPoint = points[0];
+            if (firstPoint) {
+                points.push(firstPoint.clone());
+            }
         }
 
         const geometry = new THREE.BufferGeometry().setFromPoints(points);

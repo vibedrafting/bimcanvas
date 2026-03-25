@@ -98,14 +98,13 @@ export class SnapSolver {
 
     private buildCandidates(
         edges: SnapEdge[],
-        worldPoint: THREE.Vector3,
+        _worldPoint: THREE.Vector3,
         screenPoint: { x: number; y: number },
         snapInPx: number,
         enabled: Record<SnapType, boolean>,
         referencePoint?: THREE.Vector3 | null
     ): SnapCandidate[] {
         const candidates: SnapCandidate[] = [];
-        const mouse2 = new THREE.Vector2(worldPoint.x, worldPoint.z);
 
         const addCandidate = (type: SnapType, point2: THREE.Vector2) => {
             if (!enabled[type]) return;
@@ -151,7 +150,10 @@ export class SnapSolver {
             const dedupe = new Set<string>();
             for (let i = 0; i < edges.length; i++) {
                 for (let j = i + 1; j < edges.length; j++) {
-                    const p = this.lineIntersection(edges[i].a, edges[i].b, edges[j].a, edges[j].b);
+                    const edgeA = edges[i];
+                    const edgeB = edges[j];
+                    if (!edgeA || !edgeB) continue;
+                    const p = this.lineIntersection(edgeA.a, edgeA.b, edgeB.a, edgeB.b);
                     if (!p) continue;
                     const key = `${Math.round(p.x * 10)}_${Math.round(p.y * 10)}`;
                     if (dedupe.has(key)) continue;

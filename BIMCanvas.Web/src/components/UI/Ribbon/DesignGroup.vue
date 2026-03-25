@@ -17,7 +17,7 @@ import { useMergeStore } from '../../../stores/mergeStore';
 const gitStore = useGitStore();
 const canvasStore = useCanvasStore();
 const mergeStore = useMergeStore();
-const { branches, currentBranch, currentBranchId, isLoading, isOffline } = storeToRefs(gitStore);
+const { branches, currentBranch, currentBranchId, isLoading } = storeToRefs(gitStore);
 
 // 组件挂载时获取分支列表
 onMounted(() => {

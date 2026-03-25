@@ -1,4 +1,4 @@
-import { computed, ref } from 'vue';
+import { ref } from 'vue';
 import type { ComputedRef, Ref } from 'vue';
 import { contextOptions } from '../../constants/aiCommandCenter';
 

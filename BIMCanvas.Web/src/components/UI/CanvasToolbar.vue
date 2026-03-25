@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, watch } from 'vue';
+import { ref } from 'vue';
 import { useCanvasStore } from '../../stores/canvasStore';
 import GlassButton from './base/GlassButton.vue';
 import IconBadge from './base/IconBadge.vue';
@@ -10,12 +10,12 @@ const currentView = ref<'User' | 'Agent'>('User');
 const showLayerMenu = ref(false);
 
 // Layer States
-const layers = ref({
+const layers = ref<Record<number, boolean>>({
   [LayerManager.LAYER_GRID]: false,
   [LayerManager.LAYER_LABELS]: false,
   [LayerManager.LAYER_BOUNDS]: false,
   [LayerManager.LAYER_SEMANTIC]: false,
-  [LayerManager.LAYER_AXES]: false,
+  [LayerManager.LAYER_OUTLINE]: false,
 });
 
 const toggleView = (mode: 'User' | 'Agent') => {
@@ -108,9 +108,9 @@ const dispatchAction = (action: 'rotate' | 'delete' | 'move') => {
               <input type="checkbox" :checked="layers[LayerManager.LAYER_SEMANTIC]" />
               <span>Semantic</span>
             </div>
-            <div class="layer-item" @click="toggleLayer(LayerManager.LAYER_AXES)">
-              <input type="checkbox" :checked="layers[LayerManager.LAYER_AXES]" />
-              <span>Axes</span>
+            <div class="layer-item" @click="toggleLayer(LayerManager.LAYER_OUTLINE)">
+              <input type="checkbox" :checked="layers[LayerManager.LAYER_OUTLINE]" />
+              <span>Outline</span>
             </div>
           </div>
         </div>
@@ -197,7 +197,7 @@ const dispatchAction = (action: 'rotate' | 'delete' | 'move') => {
         border: 1px solid var(--border-subtle);
 <content>
   [LayerManager.LAYER_SEMANTIC]: false,
-  [LayerManager.LAYER_AXES]: false,
+  [LayerManager.LAYER_OUTLINE]: false,
 });
 
 const toggleView = (mode: 'User' | 'Agent') => {
@@ -290,9 +290,9 @@ const dispatchAction = (action: 'rotate' | 'delete' | 'move' | 'copy') => {
               <input type="checkbox" :checked="layers[LayerManager.LAYER_SEMANTIC]" />
               <span>Semantic</span>
             </div>
-            <div class="layer-item" @click="toggleLayer(LayerManager.LAYER_AXES)">
-              <input type="checkbox" :checked="layers[LayerManager.LAYER_AXES]" />
-              <span>Axes</span>
+            <div class="layer-item" @click="toggleLayer(LayerManager.LAYER_OUTLINE)">
+              <input type="checkbox" :checked="layers[LayerManager.LAYER_OUTLINE]" />
+              <span>Outline</span>
             </div>
           </div>
         </div>

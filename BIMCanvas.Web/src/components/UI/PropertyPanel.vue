@@ -42,7 +42,7 @@ watch(isFullHeight, (newValue) => {
     localStorage.setItem(STORAGE_KEY, String(newValue));
 });
 
-watch(selectedIds, (newIds) => {
+watch(selectedIds, () => {
     // Only reset to card mode if it was NOT user-expanded preference? 
     // Actually user requirement says "remember state before closing". 
     // If we reset here, we lose the persistence across selections if that's what "closing" means.

@@ -42,7 +42,7 @@ const handleMouseMove = (e: MouseEvent) => {
   endY.value = e.clientY
 }
 
-const handleMouseUp = async (e: MouseEvent) => {
+const handleMouseUp = async () => {
   if (!isSelecting.value) return
   isSelecting.value = false
 

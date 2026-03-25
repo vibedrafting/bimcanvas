@@ -1,7 +1,8 @@
 import axios from 'axios';
 import type { ProjectSummary, RecentProjectEntry, CloseProjectResult } from '../types/homepage';
+import { SERVER_API } from '../config/api';
 
-const API_BASE = 'http://localhost:5000/api/project';
+const API_BASE = `${SERVER_API}/project`;
 
 /**
  * 项目加载结果

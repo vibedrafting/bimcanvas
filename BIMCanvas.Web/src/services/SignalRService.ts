@@ -1,4 +1,5 @@
 import * as signalR from '@microsoft/signalr';
+import { SIGNALR_HUB } from '../config/api';
 
 export interface AgentNotification {
     title: string;
@@ -13,7 +14,7 @@ export class SignalRService {
 
     private constructor() {
         this.connection = new signalR.HubConnectionBuilder()
-            .withUrl("http://localhost:5000/hubs/canvas") // Adjust URL as needed
+            .withUrl(SIGNALR_HUB)
             .withAutomaticReconnect()
             .build();
 

@@ -4,6 +4,7 @@
 """
 
 from datetime import datetime
+import os
 from pathlib import Path
 from typing import Any
 import base64
@@ -12,7 +13,7 @@ import re
 import aiohttp
 from claude_agent_sdk import tool, create_sdk_mcp_server
 
-SERVER_URL = "http://localhost:5000"
+SERVER_URL = os.getenv("BIMCANVAS_SERVER_URL", "http://localhost:5000").rstrip("/")
 SCREENSHOT_LAYER_PRESET = "Agent"
 SCREENSHOT_SCALE = 2
 SCREENSHOT_AUTO_FIT = True

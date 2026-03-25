@@ -1,8 +1,7 @@
 import { defineStore } from 'pinia';
 import { ref, computed } from 'vue';
 import type { WorktreeMetadataEntry } from '../types/worktree';
-
-const SERVER_API_BASE = 'http://localhost:5000';
+import { SERVER_API } from '../config/api';
 
 /**
  * 覆盖合并结果
@@ -87,7 +86,7 @@ export const useMergeStore = defineStore('merge', () => {
         return selectedWorktree.value !== '' && targetBranch.value !== '';
       }
       // 传统模式
-      return targetBranch.value && sourceBranch.value && targetBranch.value !== sourceBranch.value;
+      return targetBranch.value !== '' && sourceBranch.value !== '' && targetBranch.value !== sourceBranch.value;
     }
     return true;
   });
@@ -132,7 +131,7 @@ export const useMergeStore = defineStore('merge', () => {
 
     // 获取完整元数据
     try {
-      const metaResp = await fetch(`${SERVER_API_BASE}/api/worktree/metadata`);
+      const metaResp = await fetch(`${SERVER_API}/worktree/metadata`);
       const metaResult = await metaResp.json();
 
       console.log('[MergeStore] metadata 响应:', metaResult);
@@ -159,7 +158,7 @@ export const useMergeStore = defineStore('merge', () => {
 
     // 批量解析 worktree 到 branch 映射
     try {
-      const response = await fetch(`${SERVER_API_BASE}/api/worktree/batch-resolve`, {
+      const response = await fetch(`${SERVER_API}/worktree/batch-resolve`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ names })
@@ -242,7 +241,7 @@ export const useMergeStore = defineStore('merge', () => {
       };
       console.log('[MergeStore] 发送合并请求:', requestBody);
 
-      const response = await fetch(`${SERVER_API_BASE}/api/merge/overwrite`, {
+      const response = await fetch(`${SERVER_API}/merge/overwrite`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(requestBody)

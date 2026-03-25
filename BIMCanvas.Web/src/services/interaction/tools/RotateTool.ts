@@ -731,41 +731,6 @@ export class RotateTool implements Tool {
         }
     }
 
-    // Phase 3: 更新锁定角度辅助线
-    private updateSnapAngleLine(center: THREE.Vector3, angle: number): void {
-        const lineLength = 3000; // 3m 辅助线长度
-        const end = new THREE.Vector3(
-            center.x + Math.cos(angle) * lineLength,
-            center.y + 1, // 略高于地面
-            center.z + Math.sin(angle) * lineLength
-        );
-        const start = center.clone();
-        start.y += 1;
-
-        if (!this.snapAngleLine) {
-            const geometry = new THREE.BufferGeometry().setFromPoints([start, end]);
-            const material = new THREE.LineDashedMaterial({
-                color: 0x00ff00,  // 绿色表示锁定
-                dashSize: 100,
-                gapSize: 50,
-                depthTest: false
-            });
-            this.snapAngleLine = new THREE.Line(geometry, material);
-            this.snapAngleLine.computeLineDistances();
-            this.snapAngleLine.renderOrder = 998;
-            this.scene.add(this.snapAngleLine);
-        } else {
-            const positionAttribute = this.snapAngleLine.geometry.attributes.position;
-            if (positionAttribute) {
-                const positions = positionAttribute.array as Float32Array;
-                positions[0] = start.x; positions[1] = start.y; positions[2] = start.z;
-                positions[3] = end.x; positions[4] = end.y; positions[5] = end.z;
-                positionAttribute.needsUpdate = true;
-                this.snapAngleLine.computeLineDistances();
-            }
-        }
-    }
-
     // Phase 3: 移除锁定角度辅助线
     private removeSnapAngleLine(): void {
         if (this.snapAngleLine) {

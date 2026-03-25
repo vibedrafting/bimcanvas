@@ -53,11 +53,10 @@ namespace BIMCanvas.Server.Services
         private readonly JsonSerializerSettings _jsonSettings;
 
         /// <summary>
-        /// 默认项目根目录：用户文档/BIMCanvas/Projects
+        /// 默认项目根目录：<BIMCANVAS_HOME>/Projects
         /// </summary>
         public static string DefaultProjectsRoot => Path.Combine(
-            Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments),
-            "BIMCanvas",
+            ConfigService.GetConfigDir(),
             "Projects");
 
         public ProjectService(

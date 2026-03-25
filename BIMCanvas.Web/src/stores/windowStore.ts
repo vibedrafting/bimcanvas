@@ -1,7 +1,6 @@
 import { defineStore } from 'pinia';
 import { ref, computed } from 'vue';
-
-const SERVER_API_BASE = 'http://localhost:5000';
+import { SERVER_API } from '../config/api';
 
 /**
  * 虚拟窗口状态
@@ -185,8 +184,9 @@ export const useWindowStore = defineStore('window', () => {
 
       // 如果关闭的是当前窗口，切换到其他窗口
       if (activeWindowId.value === windowId) {
+        const lastWindow = windows.value[windows.value.length - 1];
         activeWindowId.value = windows.value.length > 0
-          ? windows.value[windows.value.length - 1].id
+          ? (lastWindow?.id ?? null)
           : null;
       }
 
@@ -234,7 +234,7 @@ export const useWindowStore = defineStore('window', () => {
     windowId: string
   ): Promise<boolean> => {
     try {
-      const response = await fetch(`${SERVER_API_BASE}/api/windows/lock`, {
+      const response = await fetch(`${SERVER_API}/windows/lock`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ branchName, windowId })
@@ -263,7 +263,7 @@ export const useWindowStore = defineStore('window', () => {
     windowId: string
   ): Promise<boolean> => {
     try {
-      const response = await fetch(`${SERVER_API_BASE}/api/windows/lock`, {
+      const response = await fetch(`${SERVER_API}/windows/lock`, {
         method: 'DELETE',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ branchName, windowId })
@@ -281,7 +281,7 @@ export const useWindowStore = defineStore('window', () => {
    */
   const refreshBranchLocks = async (): Promise<void> => {
     try {
-      const response = await fetch(`${SERVER_API_BASE}/api/windows/locks`);
+      const response = await fetch(`${SERVER_API}/windows/locks`);
       if (response.ok) {
         branchLocks.value = await response.json();
       }

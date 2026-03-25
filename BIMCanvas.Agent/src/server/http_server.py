@@ -14,7 +14,7 @@ import aiohttp_cors
 
 from ..agent.main_agent import MainAgent
 from ..config.settings import get_settings
-from ..config.loader import ConfigLoader
+from ..config.loader import ConfigLoader, resolve_bimcanvas_home
 
 # Configure logging
 logger = logging.getLogger(__name__)
@@ -786,14 +786,13 @@ async def screenshot_save_handler(request: web.Request) -> web.Response:
     project_path = data.get("projectPath")
 
     # 动态构建保存路径
-    import os
     if project_path:
         # 项目路径格式: C:\Users\xxx\Documents\BIMCanvas\Projects\demo_1
         docs_dir = Path(project_path) / "screenshots"
         logger.info(f"Using project screenshots dir: {docs_dir}")
     else:
         # 降级：使用全局路径
-        docs_dir = Path(os.path.expanduser("~/Documents/BIMCanvas/Screenshots"))
+        docs_dir = resolve_bimcanvas_home() / "Screenshots"
         logger.info(f"Using global screenshots dir: {docs_dir}")
 
     docs_dir.mkdir(parents=True, exist_ok=True)

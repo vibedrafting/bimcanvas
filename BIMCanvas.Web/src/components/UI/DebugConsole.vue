@@ -1,9 +1,7 @@
 <script setup lang="ts">
 import { useDebugStore } from '../../stores/debugStore';
-import { computed, nextTick, ref, watch } from 'vue';
 
 const store = useDebugStore();
-const logContainer = ref<HTMLElement | null>(null);
 
 // Auto-scroll to top when new logs arrive (since we prepend)
 // Actually, prepending means top is newest, so we stay at top.
@@ -27,7 +25,7 @@ const logClass = (type: string) => {
         <button @click="store.toggle()">Close</button>
       </div>
     </header>
-    <div class="logs" ref="logContainer">
+    <div class="logs">
       <div v-if="store.logs.length === 0" class="empty">No logs</div>
       <div v-for="log in store.logs" :key="log.id" class="log-entry">
         <span class="time">[{{ log.timestamp }}]</span>

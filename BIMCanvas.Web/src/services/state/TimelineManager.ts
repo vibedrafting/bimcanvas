@@ -142,6 +142,10 @@ export class TimelineManager {
 
     this.currentIndex--;
     const snapshot = this.snapshots[this.currentIndex];
+    if (!snapshot) {
+      console.warn('[Timeline] Undo target snapshot missing');
+      return null;
+    }
 
     console.log(`[Timeline] Undo to snapshot: ${snapshot.source}`, {
       index: this.currentIndex,
@@ -165,6 +169,10 @@ export class TimelineManager {
 
     this.currentIndex++;
     const snapshot = this.snapshots[this.currentIndex];
+    if (!snapshot) {
+      console.warn('[Timeline] Redo target snapshot missing');
+      return null;
+    }
 
     console.log(`[Timeline] Redo to snapshot: ${snapshot.source}`, {
       index: this.currentIndex,

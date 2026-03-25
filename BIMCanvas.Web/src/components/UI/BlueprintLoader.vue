@@ -23,7 +23,6 @@ let GRID_ROWS = 0;
 let GRID_COLS = 0;
 
 // Colors
-let COLOR_BG = '#0a0a0f';
 let COLOR_GRID = '#27272a';
 let COLOR_PARTICLE = '#6b7280';
 
@@ -41,7 +40,7 @@ class Particle {
   
   // Linear Points
   p0x: number; p0y: number; // Start
-  p2x: number; p2y: number; // End (Target)
+  p2x: number = 0; p2y: number = 0; // End (Target)
   
   row: number;
   col: number;
@@ -89,9 +88,6 @@ class Particle {
   calculateTarget(width: number, height: number) {
     // If target props are present, use them
     if (props.targetSpacing && props.targetOffsetX !== undefined && props.targetOffsetY !== undefined) {
-        const phaseX = props.targetOffsetX % GRID_SPACING;
-        const phaseY = props.targetOffsetY % GRID_SPACING;
-        
         const centerX = width / 2;
         const centerY = height / 2;
         
@@ -225,7 +221,6 @@ const initParticles = () => {
 
 const updateColors = () => {
     const theme = themeService.currentTheme.value;
-    COLOR_BG = '#' + theme.background.toString(16).padStart(6, '0');
     COLOR_GRID = '#' + theme.grid.gridLine.toString(16).padStart(6, '0');
     COLOR_PARTICLE = '#' + theme.grid.centerLine.toString(16).padStart(6, '0');
 }
