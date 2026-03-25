@@ -4,7 +4,7 @@ namespace BIMCanvas.Server.Services;
 
 /// <summary>
 /// 最近打开项目记录服务
-/// 管理 ~/Documents/BIMCanvas/recent_projects.json
+/// 管理 <BIMCANVAS_HOME>/recent_projects.json
 /// </summary>
 public class RecentProjectsService
 {

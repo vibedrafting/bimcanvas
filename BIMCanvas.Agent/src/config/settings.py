@@ -60,12 +60,12 @@ class Settings:
         tools = config.get('tools', ['Read', 'Glob', 'Grep', 'Task'])
         host = server.get('host', '127.0.0.1')
         port = server.get('port', 8865)
-        lite_llm_managed = _is_litellm_managed_mode()
+        ccr_managed = _is_ccr_managed_mode()
 
         # 模型映射（两种模式都加载，用于 /api/config 返回下拉菜单）
         model_mapping = config.get('modelMapping', {})
 
-        if lite_llm_managed:
+        if ccr_managed:
             api_key = os.getenv('AGENT_SDK_API_KEY', '').strip()
             base_url = os.getenv('AGENT_SDK_BASE_URL', '').strip()
 
@@ -78,7 +78,7 @@ class Settings:
             if missing_vars:
                 missing_vars_display = ', '.join(missing_vars)
                 raise ValueError(
-                    "检测到 LiteLLM 托管环境变量，但缺少必需项: "
+                    "检测到 CCR 托管环境变量，但缺少必需项: "
                     f"{missing_vars_display}"
                 )
 
@@ -125,8 +125,8 @@ def get_settings() -> Settings:
     return Settings.load()
 
 
-def _is_litellm_managed_mode() -> bool:
-    """通过 Server 注入的网关环境变量判断是否处于 LiteLLM 托管模式。"""
+def _is_ccr_managed_mode() -> bool:
+    """通过 Server 注入的网关环境变量判断是否处于 CCR 托管模式。"""
     api_key = os.getenv('AGENT_SDK_API_KEY', '').strip()
     base_url = os.getenv('AGENT_SDK_BASE_URL', '').strip()
     return bool(api_key or base_url)

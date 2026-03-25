@@ -1,9 +1,8 @@
-"""Configuration loader with auto-initialization from templates."""
+"""Configuration loader for BIMCanvas Agent."""
 
 import os
 import re
 import json
-import shutil
 import logging
 from pathlib import Path
 from dataclasses import dataclass
@@ -42,13 +41,12 @@ class ConfigLoader:
     统一配置加载器
 
     职责：
-    1. 检查配置目录是否存在，不存在则从模板初始化
+    1. 校验 Server 已完成 BIMCANVAS_HOME 初始化
     2. 加载 config.json 并展开环境变量
     3. 加载 BIMCANVAS.md 作为系统提示词
     4. 加载 agents/*.md 作为子 Agent 配置
     """
 
-    TEMPLATES_DIR = Path(__file__).parent.parent.parent / "templates"
     DEFAULT_CONFIG_DIR = resolve_bimcanvas_home()
 
     def __init__(self, config_dir: Path | str = None):
@@ -71,66 +69,39 @@ class ConfigLoader:
         self._system_prompt: Optional[str] = None
         self._agents: Optional[dict[str, AgentConfig]] = None
 
-        # 确保配置存在
-        self._ensure_config_exists()
-        self._cleanup_legacy_config_fields()
+        # Agent 不允许独立初始化配置，必须由 Server 先完成根目录初始化
+        self._validate_bootstrap_layout()
 
-    def _ensure_config_exists(self) -> None:
-        """确保配置目录和文件存在，不存在则从 init_manifest.json 初始化"""
-        manifest_path = self.TEMPLATES_DIR / "init_manifest.json"
-        if not manifest_path.exists():
-            raise FileNotFoundError(
-                f"模板清单不存在: {manifest_path}\n"
-                "请确保项目安装正确"
-            )
+    def _validate_bootstrap_layout(self) -> None:
+        """校验 BIMCANVAS_HOME 是否已由 Server 初始化完成。"""
+        required_paths = [
+            ("config.json", "file"),
+            ("BIMCANVAS.md", "file"),
+            ("agents/layout-agent.md", "file"),
+            (".claude-plugin/plugin.json", "file"),
+            ("skills", "directory"),
+        ]
 
-        with open(manifest_path, 'r', encoding='utf-8') as f:
-            manifest = json.load(f)
+        missing: list[str] = []
 
-        # 创建配置目录
-        self.config_dir.mkdir(parents=True, exist_ok=True)
+        if not self.config_dir.exists():
+            missing.append(str(self.config_dir))
+        else:
+            for relative_path, path_type in required_paths:
+                target_path = self.config_dir / relative_path
+                exists = target_path.is_file() if path_type == "file" else target_path.is_dir()
+                if not exists:
+                    missing.append(relative_path)
 
-        # 按清单初始化模板文件（目录由 target 路径自动创建）
-        for item in manifest.get("items", []):
-            if not item.get("enabled", True):
-                logger.debug(f"跳过禁用项: {item['name']}")
-                continue
-
-            source_path = self.TEMPLATES_DIR / item["name"]
-            target_path = self.config_dir / item["target"]
-
-            if target_path.exists():
-                continue
-
-            if not source_path.exists():
-                logger.warning(f"模板源文件不存在: {source_path}")
-                continue
-
-            target_path.parent.mkdir(parents=True, exist_ok=True)
-            if item.get("type") == "directory":
-                shutil.copytree(source_path, target_path)
-            else:
-                shutil.copy(source_path, target_path)
-            logger.info(f"已创建配置文件: {target_path}")
-
-    def _cleanup_legacy_config_fields(self) -> None:
-        """清理已废弃的历史配置字段，保持用户配置文件干净。"""
-        config_path = self.config_dir / "config.json"
-        if not config_path.exists():
+        if not missing:
             return
 
-        with open(config_path, 'r', encoding='utf-8') as f:
-            config = json.load(f)
-
-        if "liteLlmEnabled" not in config:
-            return
-
-        config.pop("liteLlmEnabled", None)
-        with open(config_path, 'w', encoding='utf-8') as f:
-            json.dump(config, f, ensure_ascii=False, indent=4)
-            f.write('\n')
-
-        logger.info(f"已清理过时配置字段: {config_path}.liteLlmEnabled")
+        missing_display = ", ".join(missing)
+        raise FileNotFoundError(
+            "BIMCanvas Agent 配置未初始化，缺少: "
+            f"{missing_display}。请先启动 BIMCanvas.Server 完成 <BIMCANVAS_HOME> 初始化。"
+            f" 当前配置根目录: {self.config_dir}"
+        )
 
     def load_config(self) -> dict:
         """
@@ -146,7 +117,7 @@ class ConfigLoader:
         if not config_path.exists():
             raise FileNotFoundError(f"配置文件不存在: {config_path}")
 
-        with open(config_path, 'r', encoding='utf-8') as f:
+        with open(config_path, 'r', encoding='utf-8-sig') as f:
             self._config = json.load(f)
 
         self._expand_env_vars(self._config)
@@ -166,7 +137,7 @@ class ConfigLoader:
         if not prompt_path.exists():
             raise FileNotFoundError(f"系统提示词文件不存在: {prompt_path}")
 
-        with open(prompt_path, 'r', encoding='utf-8') as f:
+        with open(prompt_path, 'r', encoding='utf-8-sig') as f:
             self._system_prompt = f.read()
 
         return self._system_prompt
@@ -259,7 +230,7 @@ class ConfigLoader:
 
         （提示词内容）
         """
-        with open(file_path, 'r', encoding='utf-8') as f:
+        with open(file_path, 'r', encoding='utf-8-sig') as f:
             content = f.read()
 
         # 匹配 YAML frontmatter

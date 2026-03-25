@@ -24,7 +24,8 @@
   <!-- Agent 模板/资源文件：复制到输出目录 -->
   <ItemGroup>
     <Content Update="Templates\**\*" CopyToOutputDirectory="PreserveNewest" />
-    <Content Include="Templates\.gitignore" CopyToOutputDirectory="PreserveNewest" />
+    <Content Include="Templates\**\.gitignore" CopyToOutputDirectory="PreserveNewest" />
+    <Content Include="Templates\**\.claude-plugin\**\*" CopyToOutputDirectory="PreserveNewest" />
     <None Include="Templates\**\*.md" CopyToOutputDirectory="PreserveNewest" />
     <None Include="Templates\**\*.svg" CopyToOutputDirectory="PreserveNewest" />
     <None Include="Templates\**\*.yaml" CopyToOutputDirectory="PreserveNewest" />

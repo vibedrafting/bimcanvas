@@ -1,0 +1,26 @@
+{
+  "version": "1.0",
+  "items": [
+    {
+      "name": "README.md",
+      "target": "README.md",
+      "type": "template",
+      "enabled": true,
+      "description": "项目说明文档（支持占位符替换）"
+    },
+    {
+      "name": ".gitignore",
+      "target": ".gitignore",
+      "type": "template",
+      "enabled": true,
+      "description": "Git 忽略规则（项目级）"
+    },
+    {
+      "name": "modules",
+      "target": "modules",
+      "type": "directory",
+      "enabled": true,
+      "description": "家具模块库（module_library.json + SVG）"
+    }
+  ]
+}

@@ -1,0 +1,61 @@
+{
+  "version": "1.0",
+  "items": [
+    {
+      "name": "server/server_config.json",
+      "target": "server_config.json",
+      "type": "template",
+      "enabled": true,
+      "description": "Server 启动配置（端口、默认项目、浏览器）"
+    },
+    {
+      "name": "server/web_config.json",
+      "target": "web_config.json",
+      "type": "template",
+      "enabled": true,
+      "description": "Web 客户端配置（自定义模型列表、图层预设）"
+    },
+    {
+      "name": "server/ccr_config.json",
+      "target": "ccr_config.json",
+      "type": "template",
+      "enabled": true,
+      "description": "Claude Code Router 配置（唯一 API 网关）"
+    },
+    {
+      "name": "agent/config.json",
+      "target": "config.json",
+      "type": "template",
+      "enabled": true,
+      "description": "Agent 配置文件（API Key、模型、权限、思考参数）"
+    },
+    {
+      "name": "agent/BIMCANVAS.md",
+      "target": "BIMCANVAS.md",
+      "type": "template",
+      "enabled": true,
+      "description": "MainAgent 系统提示词"
+    },
+    {
+      "name": "agent/agents",
+      "target": "agents",
+      "type": "directory",
+      "enabled": true,
+      "description": "SubAgent 配置目录"
+    },
+    {
+      "name": "agent/skills",
+      "target": "skills",
+      "type": "directory",
+      "enabled": true,
+      "description": "Agent Skills"
+    },
+    {
+      "name": "agent/.claude-plugin",
+      "target": ".claude-plugin",
+      "type": "directory",
+      "enabled": true,
+      "description": "Plugin 清单（使 BIMCANVAS_HOME 成为合法 Plugin 目录）"
+    }
+  ]
+}

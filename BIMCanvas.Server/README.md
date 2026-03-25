@@ -20,9 +20,9 @@ dotnet run --project BIMCanvas.Server
 ### 启动行为
 
 1. 启动 HTTP 服务器（http://localhost:5000）
-2. 检测 Python / Agent / LiteLLM 依赖并按需安装
-3. 自动初始化 `Documents/BIMCanvas/` 下的配置模板（含 LiteLLM）
-4. 自动启动 LiteLLM 网关与 Agent 服务
+2. 检测 Python / Agent / CCR 依赖并按需安装
+3. 自动初始化 `<BIMCANVAS_HOME>/` 下的全局配置模板（Server + Agent）
+4. 自动启动 CCR 网关与 Agent 服务
 5. 自动查找并启动 Web 开发服务器（BIMCanvas.Web）
 6. 等待 Web 服务就绪后打开浏览器
 7. **v3.0**：通过 URL 参数 `?project={项目路径}` 加载项目
@@ -33,17 +33,17 @@ dotnet run --project BIMCanvas.Server
 |------|------|--------|------|
 | API 端口 | `launchSettings.json` | `5000` | REST API 服务端口 |
 | Web 端口 | 自动检测 | `5173` | Vite 开发服务器端口 |
-| 项目目录 | 用户文档 | `Documents/BIMCanvas/Projects/` | v3.0 项目解压目录 |
-| CCR 配置 | `Documents/BIMCanvas/server_config.json` | `enabled=true` | 网关启用、端口、模型家族 |
-| CCR Router 配置 | `Documents/BIMCanvas/ccr_config.json` | 自动初始化 | 供应商 / 模型路由映射 |
+| 项目目录 | `<BIMCANVAS_HOME>/Projects/` | Windows: `Documents/BIMCanvas/Projects/` | 项目解压目录 |
+| CCR 配置 | `<BIMCANVAS_HOME>/server_config.json` | `enabled=true` | 网关启用、端口、模型家族 |
+| CCR Router 配置 | `<BIMCANVAS_HOME>/ccr_config.json` | 自动初始化 | 供应商 / 模型路由映射 |
 
 ### CCR 网关
 
 Server 默认托管 CCR (Claude Code Router)，用于给 Agent SDK 提供统一的 Anthropic 风格入口，再转发到真实下游 provider。
 
-- 模型路由由 `Documents/BIMCanvas/ccr_config.json` 的 `Router` 字段配置（`default` / `think` / `background` / `longContext` 分别控制不同类型请求的供应商和模型）
-- 默认模型家族通过 `Documents/BIMCanvas/server_config.json > ccr.defaultModelFamily` 指定，由 Server 注入 Agent 的 `MODEL_NAME`
-- 当 `ccr.enabled=false` 时，不启动 CCR，Agent 走直连模式（使用 `~/.bimcanvas/config.json`）
+- 模型路由由 `<BIMCANVAS_HOME>/ccr_config.json` 的 `Router` 字段配置（`default` / `think` / `background` / `longContext` 分别控制不同类型请求的供应商和模型）
+- 默认模型家族通过 `<BIMCANVAS_HOME>/server_config.json > ccr.defaultModelFamily` 指定，由 Server 注入 Agent 的 `MODEL_NAME`
+- 当 `ccr.enabled=false` 时，不启动 CCR，Agent 走直连模式（使用 `<BIMCANVAS_HOME>/config.json`）
 - 切换供应商后需要重启 Server
 - 如果 CCR 不可用，Server 与 Web 仍会启动，但 AI 请求会在运行时失败并输出明确日志
 

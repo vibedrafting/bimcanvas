@@ -3,9 +3,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.IO.Compression;
 using System.Text;
-using BIMCanvas.Core.Models.Computed;
 using BIMCanvas.Core.Models.Project;
-using BIMCanvas.Core.Services;
 using Microsoft.Extensions.Logging;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Serialization;
@@ -36,20 +34,12 @@ namespace BIMCanvas.Server.Services
             public List<string> Warnings { get; } = new List<string>();
         }
 
-        internal sealed class ComputedDataEnsureResult
-        {
-            public bool WasRegenerated { get; init; }
-            public bool WasRegeneratedBecauseBaselineChanged { get; init; }
-        }
-
         internal const string ZonesBaselineChangedWarning =
             "已保留现有分区设计；baseline 已更新，分区可能与最新房间数据不一致，请检查。";
 
         private readonly ILogger<ProjectService> _logger;
-        private readonly ManifestService _manifestService;
-        private readonly StrategyService _strategyService;
-        private readonly ComputedDataService _computedDataService;
-        private readonly GitWorktreeService _gitService;
+        private readonly ProjectFixedFilesBootstrapService _projectFixedFilesBootstrapService;
+        private readonly ProjectDerivedBootstrapService _projectDerivedBootstrapService;
         private readonly JsonSerializerSettings _jsonSettings;
 
         /// <summary>
@@ -61,16 +51,12 @@ namespace BIMCanvas.Server.Services
 
         public ProjectService(
             ILogger<ProjectService> logger,
-            ManifestService manifestService,
-            StrategyService strategyService,
-            ComputedDataService computedDataService,
-            GitWorktreeService gitService)
+            ProjectFixedFilesBootstrapService projectFixedFilesBootstrapService,
+            ProjectDerivedBootstrapService projectDerivedBootstrapService)
         {
             _logger = logger;
-            _manifestService = manifestService;
-            _strategyService = strategyService;
-            _computedDataService = computedDataService;
-            _gitService = gitService;
+            _projectFixedFilesBootstrapService = projectFixedFilesBootstrapService;
+            _projectDerivedBootstrapService = projectDerivedBootstrapService;
             _jsonSettings = new JsonSerializerSettings
             {
                 ContractResolver = new CamelCasePropertyNamesContractResolver(),
@@ -113,34 +99,16 @@ namespace BIMCanvas.Server.Services
             // 1. 解压 .bcp 到工作目录
             var projectPath = ExtractBcpFile(bcpFilePath, overwrite);
 
-            // 2. 计算 baseline 哈希并写入 baseline.manifest
-            var baselineHash = EnsureBaselineManifest(projectPath);
+            // 2. 补齐项目固定模板文件
+            _projectFixedFilesBootstrapService.EnsureInitialized(projectPath);
 
-            // 3. 创建 schemes/ 和默认策略
-            var defaultStrategyId = EnsureSchemesDirectory(projectPath, baselineHash);
-            var schemesZonesPath = Path.Combine(projectPath, "schemes", "zones.json");
-            var zonesExistedBeforeBootstrap = File.Exists(schemesZonesPath);
-
-            // 4. 更新 project.json
-            UpdateProjectJson(projectPath, defaultStrategyId);
-
-            // 5. 验证并生成 computed 数据
-            var computedResult = EnsureComputedData(projectPath);
-
-            // 6. 缺失时用 computed/room_zones.json 初始化 schemes/zones.json
-            EnsureZonesInitializedFromComputed(projectPath);
-
-            // 7. 基于 schemes/zones.json 创建分区子目录
-            CreateZoneDirectories(projectPath);
-
-            // 8. 从 Templates 统一初始化资源文件（modules、knowledge、README、.gitignore 等）
-            InitializeFromTemplates(projectPath);
-
-            // 9. 初始化 Git 仓库（单仓库 + 多分支架构）
-            InitializeGitRepository(projectPath);
+            // 3. 补齐条件派生产物（baseline/schemes/computed/zones/git 等）
+            var bootstrapResult = _projectDerivedBootstrapService.EnsureInitialized(
+                projectPath,
+                refreshProjectMetadata: true);
 
             var result = new ProjectLoadExecutionResult(projectPath);
-            AddZoneBaselineWarningIfNeeded(result.Warnings, computedResult, zonesExistedBeforeBootstrap);
+            AddZoneBaselineWarningIfNeeded(result.Warnings, bootstrapResult);
 
             _logger.LogInformation("项目加载完成: {Path}", projectPath);
             return result;
@@ -158,11 +126,7 @@ namespace BIMCanvas.Server.Services
                 return;
             }
 
-            // 从 Templates 统一初始化资源文件
-            InitializeFromTemplates(projectPath);
-
-            // 确保 Git 仓库状态完整（修复无 commit 的僵死状态）
-            InitializeGitRepository(projectPath);
+            _projectFixedFilesBootstrapService.EnsureInitialized(projectPath);
         }
 
         /// <summary>
@@ -171,34 +135,7 @@ namespace BIMCanvas.Server.Services
         /// </summary>
         internal void EnsureZonesInitializedFromComputed(string projectPath)
         {
-            var roomZonesPath = Path.Combine(projectPath, "computed", "room_zones.json");
-            var zonesPath = Path.Combine(projectPath, "schemes", "zones.json");
-            var zonesDir = Path.GetDirectoryName(zonesPath);
-
-            if (!string.IsNullOrEmpty(zonesDir))
-            {
-                Directory.CreateDirectory(zonesDir);
-            }
-
-            if (File.Exists(zonesPath))
-            {
-                _logger.LogDebug("schemes/zones.json 已存在，保留现有分区设计，跳过初始分区初始化");
-                return;
-            }
-
-            if (!File.Exists(roomZonesPath))
-            {
-                // 如果没有 room_zones，创建空数组作为初始分区文件
-                File.WriteAllText(zonesPath, "[]", Encoding.UTF8);
-                _logger.LogWarning("computed/room_zones.json 不存在，创建空的 schemes/zones.json");
-                return;
-            }
-
-            // 初始 bootstrap：复制 room_zones.json → zones.json
-            var roomZonesJson = File.ReadAllText(roomZonesPath, Encoding.UTF8);
-            File.WriteAllText(zonesPath, roomZonesJson, Encoding.UTF8);
-
-            _logger.LogInformation("schemes/zones.json 缺失，已从 computed/room_zones.json 初始化");
+            _projectDerivedBootstrapService.EnsureZonesInitializedFromComputed(projectPath);
         }
 
         /// <summary>
@@ -208,78 +145,7 @@ namespace BIMCanvas.Server.Services
         /// </summary>
         internal void CreateZoneDirectories(string projectPath)
         {
-            var zonesPath = Path.Combine(projectPath, "schemes", "zones.json");
-            var schemesPath = Path.Combine(projectPath, "schemes");
-
-            if (!File.Exists(zonesPath))
-            {
-                _logger.LogWarning("schemes/zones.json 不存在，跳过分区目录创建");
-                return;
-            }
-
-            try
-            {
-                var zonesJson = File.ReadAllText(zonesPath, Encoding.UTF8);
-                var zones = JsonConvert.DeserializeObject<List<Zone>>(zonesJson) ?? new List<Zone>();
-
-                var createdCount = 0;
-                foreach (var zone in zones)
-                {
-                    if (string.IsNullOrEmpty(zone.Id))
-                        continue;
-
-                    createdCount += CreateZoneDirectory(schemesPath, zone.Id, zone);
-                }
-
-                _logger.LogInformation("创建/刷新了 {Count} 个分区目录", createdCount);
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "创建分区目录失败");
-            }
-        }
-
-        /// <summary>
-        /// 为单个 zone 创建目录（递归处理 SubZones）
-        /// </summary>
-        private int CreateZoneDirectory(string parentDir, string zoneId, Zone zone)
-        {
-            var zoneDir = Path.Combine(parentDir, zoneId);
-            var count = 0;
-
-            if (zone.SubZones != null && zone.SubZones.Count > 0)
-            {
-                // 容器 zone：创建目录但不创建 modules.json
-                Directory.CreateDirectory(zoneDir);
-                _logger.LogDebug("创建容器分区目录: {ZoneId}", zoneId);
-
-                foreach (var subZone in zone.SubZones)
-                {
-                    if (!string.IsNullOrEmpty(subZone.Id))
-                    {
-                        count += CreateZoneDirectory(zoneDir, subZone.Id, subZone);
-                    }
-                }
-            }
-            else
-            {
-                // 叶子 zone：创建目录 + modules.json
-                if (!Directory.Exists(zoneDir))
-                {
-                    Directory.CreateDirectory(zoneDir);
-                }
-
-                var modulesPath = Path.Combine(zoneDir, "modules.json");
-                if (!File.Exists(modulesPath))
-                {
-                    File.WriteAllText(modulesPath, "[]", Encoding.UTF8);
-                }
-
-                count++;
-                _logger.LogDebug("创建叶子分区目录: {ZoneId}", zoneId);
-            }
-
-            return count;
+            _projectDerivedBootstrapService.RefreshZoneDirectories(projectPath);
         }
 
         /// <summary>
@@ -354,27 +220,6 @@ namespace BIMCanvas.Server.Services
                         File.SetAttributes(f, attrs & ~FileAttributes.ReadOnly);
                     File.Delete(f);
                 }
-            }
-        }
-
-        /// <summary>
-        /// 初始化项目 Git 仓库
-        /// v3.1 架构：单仓库 + 多分支，支持 Worktree 并行任务
-        /// </summary>
-        private void InitializeGitRepository(string projectPath)
-        {
-            try
-            {
-                var initialized = _gitService.InitializeRepository(projectPath);
-                if (initialized)
-                {
-                    _logger.LogInformation("Git 仓库初始化完成（单仓库 + 多分支架构）");
-                }
-            }
-            catch (Exception ex)
-            {
-                // Git 初始化失败不阻塞项目加载
-                _logger.LogWarning(ex, "Git 仓库初始化失败（非致命错误）");
             }
         }
 
@@ -495,338 +340,6 @@ namespace BIMCanvas.Server.Services
             }
 
             return null;
-        }
-
-        /// <summary>
-        /// 确保 baseline.manifest 存在并包含哈希值
-        /// </summary>
-        /// <returns>baseline 哈希值</returns>
-        private string EnsureBaselineManifest(string projectPath)
-        {
-            var baselinePath = Path.Combine(projectPath, "baseline");
-
-            if (!Directory.Exists(baselinePath))
-            {
-                throw new DirectoryNotFoundException($"baseline 目录不存在: {baselinePath}");
-            }
-
-            // 检查是否已存在有效的 manifest
-            var existingHash = _manifestService.GetBaselineHash(baselinePath);
-            if (!string.IsNullOrEmpty(existingHash))
-            {
-                _logger.LogDebug("baseline.manifest 已存在，hash = {Hash}", existingHash);
-                return existingHash;
-            }
-
-            // 计算 baseline 哈希
-            _logger.LogInformation("计算 baseline 哈希...");
-            var hash = BaselineHashService.ComputeBaselineHash(baselinePath);
-            _logger.LogInformation("Baseline Hash: {Hash}", hash);
-
-            // 写入 manifest
-            _manifestService.WriteBaselineManifest(baselinePath, hash);
-
-            return hash;
-        }
-
-        /// <summary>
-        /// 确保 schemes/ 目录和默认策略存在
-        /// v3.2: 策略文件直接存放在 schemes/ 目录下（无子目录）
-        /// </summary>
-        /// <returns>默认策略 ID</returns>
-        private string EnsureSchemesDirectory(string projectPath, string baselineHash)
-        {
-            var schemesPath = Path.Combine(projectPath, "schemes");
-
-            // 确保目录存在
-            if (!Directory.Exists(schemesPath))
-            {
-                Directory.CreateDirectory(schemesPath);
-                _logger.LogInformation("创建 schemes/ 目录");
-            }
-
-            // 检查是否已有策略
-            var existingStrategies = _strategyService.GetAllStrategyIds(schemesPath);
-            if (existingStrategies.Count > 0)
-            {
-                _logger.LogDebug("已存在 {Count} 个策略，跳过默认策略创建", existingStrategies.Count);
-                return existingStrategies[0]; // 返回第一个作为默认
-            }
-
-            // 创建默认策略
-            return _strategyService.CreateDefaultStrategy(schemesPath, baselineHash);
-        }
-
-        /// <summary>
-        /// 更新 project.json
-        /// </summary>
-        private void UpdateProjectJson(string projectPath, string activeStrategyId)
-        {
-            var projectJsonPath = Path.Combine(projectPath, "project.json");
-
-            Project project;
-            if (File.Exists(projectJsonPath))
-            {
-                // 读取现有 project.json
-                var json = File.ReadAllText(projectJsonPath, Encoding.UTF8);
-                project = JsonConvert.DeserializeObject<Project>(json) ?? new Project();
-            }
-            else
-            {
-                // 创建新的 project
-                project = new Project
-                {
-                    Id = $"proj_{Path.GetFileName(projectPath)}",
-                    Name = Path.GetFileName(projectPath),
-                    Version = "3.0",
-                    CreatedAt = DateTime.Now,
-                    CoordinateSystem = "cartesian_mm_yUp"
-                };
-            }
-
-            // 更新策略列表
-            var schemesPath = Path.Combine(projectPath, "schemes");
-            var strategyIds = _strategyService.GetAllStrategyIds(schemesPath);
-
-            // v3.2: 策略文件直接存放在 schemes/ 目录下，所有策略共用同一路径
-            project.Schemes = new List<SchemeRef>();
-            foreach (var id in strategyIds)
-            {
-                project.Schemes.Add(new SchemeRef
-                {
-                    Id = id,
-                    Path = "./schemes",  // v3.2: 统一路径
-                    Name = id.Contains("_") ? id.Substring(id.IndexOf('_') + 1) : id
-                });
-            }
-
-            // 设置激活的策略
-            project.ActiveSchemeId = activeStrategyId;
-            project.UpdatedAt = DateTime.Now;
-
-            // 写入 project.json
-            var updatedJson = JsonConvert.SerializeObject(project, _jsonSettings);
-            File.WriteAllText(projectJsonPath, updatedJson, Encoding.UTF8);
-            _logger.LogInformation("更新 project.json: ActiveSchemeId = {Id}, Schemes.Count = {Count}",
-                activeStrategyId, project.Schemes.Count);
-        }
-
-        /// <summary>
-        /// 递归复制目录
-        /// </summary>
-        private void CopyDirectory(string sourceDir, string targetDir)
-        {
-            Directory.CreateDirectory(targetDir);
-
-            // 复制文件
-            foreach (var file in Directory.GetFiles(sourceDir))
-            {
-                var fileName = Path.GetFileName(file);
-                var destFile = Path.Combine(targetDir, fileName);
-                File.Copy(file, destFile, overwrite: true);
-            }
-
-            // 递归复制子目录
-            foreach (var subDir in Directory.GetDirectories(sourceDir))
-            {
-                var subDirName = Path.GetFileName(subDir);
-                CopyDirectory(subDir, Path.Combine(targetDir, subDirName));
-            }
-        }
-
-        /// <summary>
-        /// 增量合并模板目录：仅复制目标中不存在的文件，不覆盖已有文件
-        /// </summary>
-        private void MergeDirectory(string sourceDir, string targetDir)
-        {
-            if (!Directory.Exists(sourceDir)) return;
-            Directory.CreateDirectory(targetDir);
-
-            foreach (var file in Directory.GetFiles(sourceDir))
-            {
-                var fileName = Path.GetFileName(file);
-                var destFile = Path.Combine(targetDir, fileName);
-                if (!File.Exists(destFile))
-                {
-                    File.Copy(file, destFile);
-                    _logger.LogInformation("同步新模板文件: {File}", fileName);
-                }
-            }
-
-            foreach (var subDir in Directory.GetDirectories(sourceDir))
-            {
-                var subDirName = Path.GetFileName(subDir);
-                MergeDirectory(subDir, Path.Combine(targetDir, subDirName));
-            }
-        }
-
-        #region 统一模板初始化
-
-        /// <summary>
-        /// 查找 Templates 根目录
-        /// 优先查编译输出目录，再向上 8 级查开发目录
-        /// </summary>
-        private string? FindTemplatesRoot()
-        {
-            var baseDir = AppDomain.CurrentDomain.BaseDirectory;
-
-            // 方法1：编译输出目录（bin/Debug/net8.0/Templates/）
-            var directPath = Path.Combine(baseDir, "Templates");
-            if (Directory.Exists(directPath) &&
-                File.Exists(Path.Combine(directPath, "init_manifest.json")))
-            {
-                return directPath;
-            }
-
-            // 方法2：向上查找 BIMCanvas.Server/Templates（开发目录）
-            var dir = new DirectoryInfo(baseDir);
-            for (int i = 0; i < 8 && dir != null; i++)
-            {
-                var tryPath = Path.Combine(dir.FullName, "BIMCanvas.Server", "Templates");
-                if (Directory.Exists(tryPath) &&
-                    File.Exists(Path.Combine(tryPath, "init_manifest.json")))
-                {
-                    return tryPath;
-                }
-                dir = dir.Parent;
-            }
-
-            return null;
-        }
-
-        /// <summary>
-        /// 统一从 Templates 目录初始化项目资源
-        /// 读取 init_manifest.json，按配置逐项初始化
-        /// </summary>
-        private void InitializeFromTemplates(string projectPath)
-        {
-            var templatesRoot = FindTemplatesRoot();
-            if (string.IsNullOrEmpty(templatesRoot))
-            {
-                _logger.LogWarning("未找到 Templates 目录，跳过模板初始化");
-                return;
-            }
-
-            // 读取 init_manifest.json
-            var manifestPath = Path.Combine(templatesRoot, "init_manifest.json");
-            var manifestJson = File.ReadAllText(manifestPath, Encoding.UTF8);
-            var manifest = JsonConvert.DeserializeObject<InitManifest>(manifestJson);
-
-            if (manifest?.Items == null || manifest.Items.Count == 0)
-            {
-                _logger.LogWarning("init_manifest.json 为空或无效，跳过模板初始化");
-                return;
-            }
-
-            var projectName = Path.GetFileName(projectPath);
-
-            foreach (var item in manifest.Items)
-            {
-                if (!item.Enabled)
-                {
-                    _logger.LogDebug("跳过禁用项: {Name}", item.Name);
-                    continue;
-                }
-
-                var sourcePath = Path.Combine(templatesRoot, item.Name);
-                var targetPath = Path.Combine(projectPath, item.Target);
-
-                try
-                {
-                    if (item.Type == "directory")
-                    {
-                        if (!Directory.Exists(sourcePath))
-                        {
-                            _logger.LogWarning("模板源目录不存在: {Path}", sourcePath);
-                            continue;
-                        }
-
-                        if (Directory.Exists(targetPath))
-                        {
-                            // 增量合并：仅复制目标中缺失的文件，不覆盖已有文件
-                            MergeDirectory(sourcePath, targetPath);
-                            _logger.LogDebug("增量合并目录: {Target}", item.Target);
-                            continue;
-                        }
-
-                        CopyDirectory(sourcePath, targetPath);
-                        _logger.LogInformation("初始化目录: {Target}", item.Target);
-                    }
-                    else if (item.Type == "template")
-                    {
-                        if (File.Exists(targetPath))
-                        {
-                            _logger.LogDebug("{Target} 已存在，跳过", item.Target);
-                            continue;
-                        }
-
-                        if (!File.Exists(sourcePath))
-                        {
-                            _logger.LogWarning("模板源文件不存在: {Path}", sourcePath);
-                            continue;
-                        }
-
-                        // 读取并替换占位符
-                        var content = File.ReadAllText(sourcePath, Encoding.UTF8);
-                        content = content.Replace("{PROJECT_NAME}", projectName);
-                        content = content.Replace("{EXPORT_DATE}", DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss"));
-                        content = content.Replace("{PROJECT_FOLDER}", projectName);
-
-                        // 确保目标目录存在
-                        var targetDir = Path.GetDirectoryName(targetPath);
-                        if (!string.IsNullOrEmpty(targetDir) && !Directory.Exists(targetDir))
-                        {
-                            Directory.CreateDirectory(targetDir);
-                        }
-
-                        File.WriteAllText(targetPath, content, Encoding.UTF8);
-                        _logger.LogInformation("初始化模板: {Target}", item.Target);
-                    }
-                }
-                catch (Exception ex)
-                {
-                    _logger.LogError(ex, "初始化模板项失败: {Name}", item.Name);
-                }
-            }
-        }
-
-        /// <summary>初始化清单</summary>
-        private class InitManifest
-        {
-            public string Version { get; set; } = "1.0";
-            public List<InitItem> Items { get; set; } = new();
-        }
-
-        /// <summary>初始化清单项</summary>
-        private class InitItem
-        {
-            public string Name { get; set; } = "";
-            public string Target { get; set; } = "";
-            public string Type { get; set; } = "directory";
-            public bool Enabled { get; set; } = true;
-            public string? Description { get; set; }
-        }
-
-        #endregion
-
-        /// <summary>
-        /// 确保 computed 数据有效，并返回本次是否重算以及原因。
-        /// </summary>
-        internal ComputedDataEnsureResult EnsureComputedData(string projectPath)
-        {
-            var validation = _computedDataService.AnalyzeComputedData(projectPath);
-            if (validation.IsValid)
-            {
-                _logger.LogDebug("computed 数据有效，跳过生成");
-                return new ComputedDataEnsureResult();
-            }
-
-            _computedDataService.GenerateComputedData(projectPath);
-            return new ComputedDataEnsureResult
-            {
-                WasRegenerated = true,
-                WasRegeneratedBecauseBaselineChanged = validation.BaselineHashChanged
-            };
         }
 
         /// <summary>
@@ -968,17 +481,13 @@ namespace BIMCanvas.Server.Services
                 throw new DirectoryNotFoundException($"baseline 目录不存在: {baselinePath}");
             }
 
-            var schemesZonesPath = Path.Combine(folderPath, "schemes", "zones.json");
-            var zonesExistedBeforeBootstrap = File.Exists(schemesZonesPath);
-
-            // 复用链
             EnsureProjectAssets(folderPath);
-            var computedResult = EnsureComputedData(folderPath);
-            EnsureZonesInitializedFromComputed(folderPath);
-            CreateZoneDirectories(folderPath);
+            var bootstrapResult = _projectDerivedBootstrapService.EnsureInitialized(
+                folderPath,
+                refreshProjectMetadata: false);
 
             var result = new ProjectLoadExecutionResult(folderPath);
-            AddZoneBaselineWarningIfNeeded(result.Warnings, computedResult, zonesExistedBeforeBootstrap);
+            AddZoneBaselineWarningIfNeeded(result.Warnings, bootstrapResult);
 
             _logger.LogInformation("项目文件夹打开完成: {Path}", folderPath);
             return result;
@@ -986,12 +495,11 @@ namespace BIMCanvas.Server.Services
 
         private void AddZoneBaselineWarningIfNeeded(
             List<string> warnings,
-            ComputedDataEnsureResult computedResult,
-            bool zonesExistedBeforeBootstrap)
+            ProjectDerivedBootstrapService.BootstrapResult bootstrapResult)
         {
-            if (!computedResult.WasRegenerated ||
-                !computedResult.WasRegeneratedBecauseBaselineChanged ||
-                !zonesExistedBeforeBootstrap)
+            if (!bootstrapResult.WasComputedRegenerated ||
+                !bootstrapResult.WasComputedRegeneratedBecauseBaselineChanged ||
+                !bootstrapResult.ZonesExistedBeforeBootstrap)
             {
                 return;
             }

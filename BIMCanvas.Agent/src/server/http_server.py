@@ -14,7 +14,7 @@ import aiohttp_cors
 
 from ..agent.main_agent import MainAgent
 from ..config.settings import get_settings
-from ..config.loader import ConfigLoader, resolve_bimcanvas_home
+from ..config.loader import resolve_bimcanvas_home
 
 # Configure logging
 logger = logging.getLogger(__name__)

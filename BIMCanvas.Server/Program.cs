@@ -1,7 +1,9 @@
 using System.Diagnostics;
+using System.Net;
 using System.Net.Sockets;
 using System.Runtime.InteropServices;
 using System.Text;
+using System.Text.RegularExpressions;
 using BIMCanvas.Server.Hubs;
 using BIMCanvas.Server.Logging;
 using BIMCanvas.Server.Models;
@@ -85,8 +87,12 @@ var isProduction = builder.Environment.IsProduction();
 builder.Logging.ClearProviders();
 builder.Logging.AddServerConsoleFormatter();
 
+// 统一初始化 BIMCANVAS_HOME 下的全局配置资产（Server + Agent）
+var templateBootstrapService = new BootstrapTemplateService();
+var globalConfigBootstrapService = new GlobalConfigBootstrapService(templateBootstrapService);
+globalConfigBootstrapService.EnsureInitialized();
+
 // 加载用户配置（提前到 DI 注册前，供 AgentClientService 等服务使用）
-ConfigService.EnsureDefaultConfigs();
 var config = ConfigService.Load();
 var pythonCommand = string.IsNullOrWhiteSpace(config.Server.PythonCommand)
     ? "python"
@@ -101,6 +107,8 @@ if (isProduction && productionWebDistPath == null)
 }
 
 // 注册配置 + Agent HTTP 客户端
+builder.Services.AddSingleton(templateBootstrapService);
+builder.Services.AddSingleton(globalConfigBootstrapService);
 builder.Services.AddSingleton(config);
 builder.Services.AddSingleton<AgentClientService>();
 
@@ -123,6 +131,8 @@ builder.Services.AddSingleton<RoomTypeTagMappingService>();
 builder.Services.AddSingleton<ComputedDataService>();
 builder.Services.AddSingleton<PlacementService>();
 builder.Services.AddSingleton<ZoneBoundaryService>();
+builder.Services.AddSingleton<ProjectFixedFilesBootstrapService>();
+builder.Services.AddSingleton<ProjectDerivedBootstrapService>();
 
 // v3.1 Git Worktree 架构服务（单仓库 + 多分支 + Worktree 并行）
 builder.Services.AddSingleton<GitWorktreeService>();
@@ -162,24 +172,23 @@ var configuredCorsOrigins = builder.Configuration
     .ToArray()
     ?? Array.Empty<string>();
 
-var developmentCorsOrigins = new[]
-{
-    "http://localhost:5173",
-    "http://localhost:3000"
-};
-
-var effectiveCorsOrigins = configuredCorsOrigins.Length > 0
-    ? configuredCorsOrigins
-    : (!isProduction ? developmentCorsOrigins : Array.Empty<string>());
-
 // 配置 CORS - 允许 Web 前端跨域访问
 builder.Services.AddCors(options =>
 {
     options.AddPolicy("AllowWebClient", policy =>
     {
-        if (effectiveCorsOrigins.Length > 0)
+        if (configuredCorsOrigins.Length > 0)
         {
-            policy.WithOrigins(effectiveCorsOrigins)
+            policy.WithOrigins(configuredCorsOrigins)
+                  .AllowAnyHeader()
+                  .AllowAnyMethod()
+                  .AllowCredentials();
+            return;
+        }
+
+        if (!isProduction)
+        {
+            policy.SetIsOriginAllowed(IsLocalDevelopmentOrigin)
                   .AllowAnyHeader()
                   .AllowAnyMethod()
                   .AllowCredentials();
@@ -310,6 +319,7 @@ var playwrightReady = true;
     var webProjectPath = FindWebProjectPath(baseDir);
     Process? agentProcess = null;
     Process? webProcess = null;
+    TaskCompletionSource<string>? webReadyUrlSource = null;
 
     // 1. 启动 CCR（唯一 API 网关）
     Process? ccrProcess = null;
@@ -336,7 +346,7 @@ var playwrightReady = true;
             }
         }
 
-        // CCR 配置文件由 EnsureDefaultConfigs() 从 Templates 复制到 configDir
+        // CCR 配置文件由 GlobalConfigBootstrapService 提前初始化到 BIMCANVAS_HOME
         var ccrConfigPath = Path.Combine(configDir, config.Ccr.ConfigFileName);
 
         // CCR 默认从 ~/.claude-code-router/config.json 读取配置，需要将我们的配置同步过去
@@ -423,6 +433,7 @@ var playwrightReady = true;
             // 设置环境变量确保 Python 输出 UTF-8
             agentProcess.StartInfo.Environment["PYTHONIOENCODING"] = "utf-8";
             agentProcess.StartInfo.Environment["BIMCANVAS_HOME"] = configDir;
+            agentProcess.StartInfo.Environment["BIMCANVAS_AGENT_MANAGED_BY_SERVER"] = "1";
             agentProcess.StartInfo.Environment["BIMCANVAS_SERVER_URL"] = serverBaseUrl;
             agentProcess.StartInfo.Environment["SERVER_PORT"] = agentPort.ToString();
 
@@ -483,6 +494,9 @@ var playwrightReady = true;
         WriteWithColoredPrefix("[Server]", "Web 开发服务器启动中...", ConsoleColor.White);
         try
         {
+            webReadyUrlSource = new TaskCompletionSource<string>(
+                TaskCreationOptions.RunContinuationsAsynchronously);
+
             webProcess = new Process
             {
                 StartInfo = CreateShellProcessStartInfo("npm run dev", webProjectPath)
@@ -497,11 +511,23 @@ var playwrightReady = true;
                     var line = await webProcess.StandardOutput.ReadLineAsync();
                     if (!string.IsNullOrEmpty(line))
                     {
+                        var viteLocalUrl = TryExtractViteLocalUrl(line);
+                        if (!string.IsNullOrEmpty(viteLocalUrl))
+                        {
+                            webReadyUrlSource.TrySetResult(viteLocalUrl);
+                        }
+
                         // 过滤 Vite 冗余输出（多网卡地址、help 提示）
                         if (line.Contains("Network:") || line.Contains("press h + enter"))
                             continue;
                         WriteWithColoredPrefix("[Web]", line, ConsoleColor.Green);
                     }
+                }
+
+                if (!webReadyUrlSource.Task.IsCompleted)
+                {
+                    webReadyUrlSource.TrySetException(
+                        new InvalidOperationException("Web 开发服务器在输出 Local 地址前已退出。"));
                 }
             });
             _ = Task.Run(async () =>
@@ -533,53 +559,56 @@ var playwrightReady = true;
     }
 
     // 4. 等待 Web 服务就绪后打开浏览器（Agent 在后台继续启动，Web 端通过 health 检查感知状态）
-    if (!isProduction && webProcess != null)
+    if (!isProduction && webProcess != null && webReadyUrlSource != null)
     {
         WriteWithColoredPrefix("[Server]", "等待 Web 服务启动...", ConsoleColor.White);
-        var webBaseUrl = "http://localhost:5173";
-        using var httpClient = new HttpClient { Timeout = TimeSpan.FromMilliseconds(500) };
-        for (int i = 0; i < 50; i++)
+
+        string? webBaseUrl = null;
+        try
         {
-            try
-            {
-                var response = await httpClient.GetAsync(webBaseUrl);
-                if (response.IsSuccessStatusCode)
-                {
-                    if (agentReady && agentProcess == null)
-                    {
-                        WriteWithColoredPrefix("[Server:WARN]", "Web 已就绪，但 Agent 未启动；Agent 功能暂不可用", ConsoleColor.DarkYellow);
-                    }
-                    else
-                    {
-                        WriteWithColoredPrefix("[Server]", "所有服务已就绪", ConsoleColor.White);
-                    }
-                    break;
-                }
-            }
-            catch { /* 服务未就绪，继续等待 */ }
-            await Task.Delay(200);
+            webBaseUrl = await webReadyUrlSource.Task.WaitAsync(TimeSpan.FromSeconds(15));
+        }
+        catch (TimeoutException)
+        {
+            WriteWithColoredPrefix("[Server:WARN]", "未在预期时间内获取到 Web 开发服务器地址", ConsoleColor.DarkYellow);
+        }
+        catch (Exception ex)
+        {
+            WriteWithColoredPrefix("[Server:ERR]", $"Web 服务未能正常就绪: {ex.Message}", ConsoleColor.DarkGray);
         }
 
         // 打开浏览器（根据配置）
-        if (config.Startup.OpenBrowser)
+        if (!string.IsNullOrWhiteSpace(webBaseUrl))
         {
-            WriteWithColoredPrefix("[Server]", $"打开浏览器: {webBaseUrl}", ConsoleColor.White);
-            try
+            if (agentReady && agentProcess == null)
             {
-                if (!string.IsNullOrEmpty(config.Startup.BrowserPath))
-                {
-                    // 使用指定浏览器
-                    Process.Start(config.Startup.BrowserPath, webBaseUrl);
-                }
-                else
-                {
-                    // 使用系统默认浏览器
-                    Process.Start(new ProcessStartInfo(webBaseUrl) { UseShellExecute = true });
-                }
+                WriteWithColoredPrefix("[Server:WARN]", "Web 已就绪，但 Agent 未启动；Agent 功能暂不可用", ConsoleColor.DarkYellow);
             }
-            catch (Exception ex)
+            else
             {
-                WriteWithColoredPrefix("[Server:ERR]", $"无法自动打开浏览器: {ex.Message}", ConsoleColor.DarkGray);
+                WriteWithColoredPrefix("[Server]", "所有服务已就绪", ConsoleColor.White);
+            }
+
+            if (config.Startup.OpenBrowser)
+            {
+                WriteWithColoredPrefix("[Server]", $"打开浏览器: {webBaseUrl}", ConsoleColor.White);
+                try
+                {
+                    if (!string.IsNullOrEmpty(config.Startup.BrowserPath))
+                    {
+                        // 使用指定浏览器
+                        Process.Start(config.Startup.BrowserPath, webBaseUrl);
+                    }
+                    else
+                    {
+                        // 使用系统默认浏览器
+                        Process.Start(new ProcessStartInfo(webBaseUrl) { UseShellExecute = true });
+                    }
+                }
+                catch (Exception ex)
+                {
+                    WriteWithColoredPrefix("[Server:ERR]", $"无法自动打开浏览器: {ex.Message}", ConsoleColor.DarkGray);
+                }
             }
         }
     }
@@ -1220,6 +1249,48 @@ static string? ResolveWebDistPath(string startDir)
     return File.Exists(Path.Combine(fallback, "index.html"))
         ? fallback
         : null;
+}
+
+static string? TryExtractViteLocalUrl(string line)
+{
+    if (string.IsNullOrWhiteSpace(line))
+    {
+        return null;
+    }
+
+    var normalizedLine = Regex.Replace(line, @"\x1B\[[0-9;]*[A-Za-z]", string.Empty);
+    if (!normalizedLine.Contains("Local:", StringComparison.Ordinal))
+    {
+        return null;
+    }
+
+    var match = Regex.Match(
+        normalizedLine,
+        @"https?://(?:localhost|127\.0\.0\.1):\d+/?",
+        RegexOptions.IgnoreCase);
+    return match.Success ? match.Value : null;
+}
+
+static bool IsLocalDevelopmentOrigin(string origin)
+{
+    if (string.IsNullOrWhiteSpace(origin) ||
+        !Uri.TryCreate(origin, UriKind.Absolute, out var uri))
+    {
+        return false;
+    }
+
+    if (!string.Equals(uri.Scheme, Uri.UriSchemeHttp, StringComparison.OrdinalIgnoreCase) &&
+        !string.Equals(uri.Scheme, Uri.UriSchemeHttps, StringComparison.OrdinalIgnoreCase))
+    {
+        return false;
+    }
+
+    if (string.Equals(uri.Host, "localhost", StringComparison.OrdinalIgnoreCase))
+    {
+        return true;
+    }
+
+    return IPAddress.TryParse(uri.Host, out var ipAddress) && IPAddress.IsLoopback(ipAddress);
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

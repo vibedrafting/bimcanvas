@@ -22,9 +22,6 @@
 │   ├── room_zones.json             房间分区（从房间派生，分区方案的依据）
 │   └── exclusions.json             禁区（门扇开启区等）
 │
-├── context/                        设计上下文
-│   └── requirements.md             [读写] 用户设计需求
-│
 ├── modules/                        家具库
 │   └── module_library.json         可选家具模块定义
 │

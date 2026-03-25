@@ -1,7 +1,7 @@
 namespace BIMCanvas.Server.Models;
 
 /// <summary>
-/// Server 启动配置（Documents/BIMCanvas/server_config.json）
+/// Server 启动配置（<BIMCANVAS_HOME>/server_config.json）
 /// </summary>
 public class ServerConfig
 {
@@ -68,7 +68,7 @@ public class CcrSection
     public int Port { get; set; } = 3456;
 
     /// <summary>
-    /// CCR 配置文件名（位于 Documents/BIMCanvas 下）
+    /// CCR 配置文件名（位于 <BIMCANVAS_HOME> 下）
     /// </summary>
     public string ConfigFileName { get; set; } = "ccr_config.json";
 

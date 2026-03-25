@@ -4,14 +4,11 @@ using BIMCanvas.Server.Models;
 namespace BIMCanvas.Server.Services;
 
 /// <summary>
-/// 程序配置服务（BIMCANVAS_HOME）
-/// 管理 server_config.json 和 web_config.json
-/// 由 Templates/program_manifest.json 驱动初始化
+/// 程序配置服务（BIMCANVAS_HOME）。
+/// 仅负责统一路径解析与配置读写，不负责模板初始化。
 /// </summary>
 public static class ConfigService
 {
-    private const string ManifestFileName = "program_manifest.json";
-
     private static readonly string ConfigDir = ResolveConfigDir();
 
     private static readonly string ServerConfigPath = Path.Combine(ConfigDir, "server_config.json");
@@ -29,45 +26,6 @@ public static class ConfigService
         PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
         WriteIndented = true
     };
-
-    /// <summary>
-    /// 确保配置目录和默认配置文件存在（Server 启动时调用）
-    /// 读取 program_manifest.json，按清单从 Templates/ 复制模板
-    /// </summary>
-    public static void EnsureDefaultConfigs()
-    {
-        Directory.CreateDirectory(ConfigDir);
-
-        var templatesRoot = FindTemplatesRoot();
-        if (templatesRoot == null)
-            return;
-
-        var manifestPath = Path.Combine(templatesRoot, ManifestFileName);
-        if (!File.Exists(manifestPath))
-            return;
-
-        var manifestJson = File.ReadAllText(manifestPath);
-        var manifest = JsonSerializer.Deserialize<ProgramManifest>(manifestJson, ReadOptions);
-        if (manifest?.Items == null)
-            return;
-
-        foreach (var item in manifest.Items)
-        {
-            if (!item.Enabled)
-                continue;
-
-            var sourcePath = Path.Combine(templatesRoot, item.Name);
-            var targetPath = Path.Combine(ConfigDir, item.Target);
-
-            if (File.Exists(targetPath))
-                continue;
-
-            if (!File.Exists(sourcePath))
-                continue;
-
-            File.Copy(sourcePath, targetPath);
-        }
-    }
 
     /// <summary>
     /// 加载 Server 启动配置，不存在时返回默认配置
@@ -181,46 +139,4 @@ public static class ConfigService
             ".bimcanvas");
     }
 
-    /// <summary>
-    /// 查找 Templates 目录
-    /// </summary>
-    private static string? FindTemplatesRoot()
-    {
-        var baseDir = AppDomain.CurrentDomain.BaseDirectory;
-
-        // 方法1：编译输出目录（bin/Debug/net8.0/Templates/）
-        var directPath = Path.Combine(baseDir, "Templates");
-        if (Directory.Exists(directPath))
-            return directPath;
-
-        // 方法2：向上查找 BIMCanvas.Server/Templates（开发目录）
-        var dir = new DirectoryInfo(baseDir);
-        for (int i = 0; i < 8 && dir != null; i++)
-        {
-            var tryPath = Path.Combine(dir.FullName, "BIMCanvas.Server", "Templates");
-            if (Directory.Exists(tryPath))
-                return tryPath;
-            dir = dir.Parent;
-        }
-
-        return null;
-    }
-
-    /// <summary>
-    /// 程序配置清单
-    /// </summary>
-    private class ProgramManifest
-    {
-        public string Version { get; set; } = "1.0";
-        public List<ProgramManifestItem> Items { get; set; } = new();
-    }
-
-    private class ProgramManifestItem
-    {
-        public string Name { get; set; } = "";
-        public string Target { get; set; } = "";
-        public string Type { get; set; } = "template";
-        public bool Enabled { get; set; } = true;
-        public string? Description { get; set; }
-    }
 }

@@ -1,7 +1,7 @@
 namespace BIMCanvas.Server.Models;
 
 /// <summary>
-/// Web 客户端配置（Documents/BIMCanvas/web_config.json）
+/// Web 客户端配置（<BIMCANVAS_HOME>/web_config.json）
 /// </summary>
 public class WebConfig
 {

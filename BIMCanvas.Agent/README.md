@@ -49,26 +49,12 @@ cp .env.example .env
 
 ### 4. 启动服务
 
-**方式一：随 Server 自动启动（推荐）**
+Agent 只能由 `BIMCanvas.Server` 托管启动，不支持脱离 Server 独立运行。
 
 Agent 会在 BIMCanvas.Server 启动时自动启动，无需手动操作。
-当 `Documents/BIMCanvas/server_config.json > liteLlm.enabled=true` 时，Server 会注入
+当 `<BIMCANVAS_HOME>/server_config.json > ccr.enabled=true` 时，Server 会注入
 `AGENT_SDK_BASE_URL`、`AGENT_SDK_API_KEY`、`MODEL_NAME` 以及 Claude Code 家族模型映射环境变量，
-默认把主模型、background requests、subagent 请求都指向 LiteLLM 网关。
-
-**方式二：HTTP 服务模式（独立运行）**
-
-```bash
-python -m src.main --serve
-```
-
-服务地址：`http://127.0.0.1:8765`
-
-**方式三：交互式命令行模式（调试用）**
-
-```bash
-python -m src.main
-```
+默认把主模型、background requests、subagent 请求都指向 CCR 网关。
 
 ## API 接口
 
@@ -375,22 +361,6 @@ BIMCanvas.Agent/
 │       ├── settings.py         # 配置管理（从 loader 加载）
 │       └── loader.py           # 统一配置加载器
 │
-├── templates/                  # 配置模板（首次运行自动复制到 ~/.bimcanvas/）
-│   ├── BIMCANVAS.md
-│   ├── config.json
-│   ├── init_manifest.json
-│   ├── .claude-plugin/         # Plugin 清单（使 ~/.bimcanvas 成为 Plugin 目录）
-│   │   └── plugin.json
-│   ├── skills/                 # Agent Skills 模板（三种工作流）
-│   │   ├── query-workflow/     # 只读查询工作流
-│   │   │   └── SKILL.md
-│   │   ├── edit-workflow/      # 单一修改工作流
-│   │   │   └── SKILL.md
-│   │   └── generate-workflow/  # 完整布置工作流
-│   │       └── SKILL.md
-│   └── agents/
-│       └── layout-agent.md
-│
 ├── MOSS/                       # 历史代码（仅供参考）
 └── AgentSDK-Quickstart.md      # Agent SDK 快速入门文档
 ```
@@ -417,7 +387,7 @@ BIMCanvas.Agent/
 
 ### SubAgents (`agent/subagents.py`)
 
-从 `~/.bimcanvas/agents/*.md` 配置文件加载 SubAgent 定义：
+从 `<BIMCANVAS_HOME>/agents/*.md` 配置文件加载 SubAgent 定义：
 
 - **layout-agent** - 家具布置专家，负责空间规划和家具摆放
 
@@ -431,10 +401,10 @@ BIMCanvas.Agent/
 
 ### 配置系统 (`config/`)
 
-**配置文件驱动架构**：首次运行时自动在 `~/.bimcanvas/` 创建配置文件。
+**配置文件驱动架构**：全局配置由 Server 启动早期统一初始化到 `<BIMCANVAS_HOME>/`。
 
 ```
-~/.bimcanvas/                  ← 同时作为 Agent 配置目录和 Claude Plugin 目录
+<BIMCANVAS_HOME>/             ← 同时作为 Agent 配置目录和 Claude Plugin 目录
 ├── .claude-plugin/
 │   └── plugin.json        # Plugin 清单（使该目录成为合法 Plugin）
 ├── skills/                # Agent Skills（通过 Plugin 机制加载，避免 CLAUDE.md 污染）
@@ -446,11 +416,15 @@ BIMCanvas.Agent/
     └── layout-agent.md    # SubAgent 配置（YAML frontmatter + 提示词）
 ```
 
+默认路径规则：
+- Windows：`Documents/BIMCanvas`
+- 非 Windows：`~/.bimcanvas`
+
 **配置原则**：
 
-- 直连模式：`~/.bimcanvas/config.json` 是连接参数和默认模型的真源。
-- LiteLLM 模式：连接参数来自 Server 注入的 `AGENT_SDK_BASE_URL` / `AGENT_SDK_API_KEY`，
-  默认模型来自 `Documents/BIMCanvas/server_config.json > liteLlm.defaultModelFamily`
+- 直连模式：`<BIMCANVAS_HOME>/config.json` 是连接参数和默认模型的真源。
+- CCR 模式：连接参数来自 Server 注入的 `AGENT_SDK_BASE_URL` / `AGENT_SDK_API_KEY`，
+  默认模型来自 `<BIMCANVAS_HOME>/server_config.json > ccr.defaultModelFamily`
   并通过 `MODEL_NAME` 注入给 Agent。
 
 #### config.json 格式
@@ -471,11 +445,11 @@ BIMCanvas.Agent/
 }
 ```
 
-#### 直连模式与 LiteLLM 托管模式
+#### 直连模式与 CCR 托管模式
 
 - 直连模式：Agent 使用 `config.json` 中的 `baseUrl`、`apiKey`、`model` 直连下游。
-- LiteLLM 模式：`config.json` 中的 `baseUrl` 和 `apiKey` 仅保留，不参与当前请求链路；实际连接参数由 Server 注入的 LiteLLM 网关环境变量托管。
-- LiteLLM 模式下的默认模型真源不是 `config.json.model`，而是 `server_config.json > liteLlm.defaultModelFamily`。
+- CCR 模式：`config.json` 中的 `baseUrl` 和 `apiKey` 仅保留，不参与当前请求链路；实际连接参数由 Server 注入的 CCR 网关环境变量托管。
+- CCR 模式下的默认模型真源不是 `config.json.model`，而是 `server_config.json > ccr.defaultModelFamily`。
 
 #### permissions 字段说明
 
@@ -488,8 +462,7 @@ BIMCanvas.Agent/
 
 **注意**：
 
-- `baseUrl` / `apiKey` 是“直连模式”配置；启用 LiteLLM 托管后，它们不会被覆盖删除，但会暂时失效。
-- 旧版 `config.json` 中若仍存在 `liteLlmEnabled`，Agent 启动时会自动清理该过时字段。
+- `baseUrl` / `apiKey` 是“直连模式”配置；启用 CCR 托管后，它们不会被覆盖删除，但会暂时失效。
 
 #### SubAgent 配置格式 (agents/*.md)
 
@@ -508,16 +481,16 @@ model: inherit
 
 | 环境变量 | 说明 |
 |----------|------|
-| `AGENT_SDK_API_KEY` | LiteLLM 模式下的 Agent SDK API Key |
-| `AGENT_SDK_BASE_URL` | LiteLLM 模式下的 Agent SDK Base URL |
-| `MODEL_NAME` | LiteLLM 模式下覆盖默认模型家族（由 Server 注入） |
+| `AGENT_SDK_API_KEY` | CCR 模式下的 Agent SDK API Key |
+| `AGENT_SDK_BASE_URL` | CCR 模式下的 Agent SDK Base URL |
+| `MODEL_NAME` | CCR 模式下覆盖默认模型家族（由 Server 注入） |
 | `ANTHROPIC_DEFAULT_OPUS_MODEL` | 覆盖 Claude Code 的 `opus` 家族映射 |
 | `ANTHROPIC_DEFAULT_SONNET_MODEL` | 覆盖 Claude Code 的 `sonnet` 家族映射 |
 | `ANTHROPIC_DEFAULT_HAIKU_MODEL` | 覆盖 Claude Code 的 `haiku` / background 映射 |
 | `SERVER_HOST` | 覆盖服务地址 |
 | `SERVER_PORT` | 覆盖服务端口 |
 
-**说明**：当 Agent 由 BIMCanvas.Server 托管启动且 `liteLlm.enabled=true` 时，上述 LiteLLM 模式相关环境变量通常都由 Server 注入，无需手工写入 `.env`。直连模式下，Agent 会忽略 `MODEL_NAME`，默认模型以 `config.json.model` 为准。
+**说明**：当 Agent 由 BIMCanvas.Server 托管启动且 `ccr.enabled=true` 时，上述 CCR 模式相关环境变量通常都由 Server 注入，无需手工写入 `.env`。直连模式下，Agent 会忽略 `MODEL_NAME`，默认模型以 `config.json.model` 为准。
 
 ## 开发状态
 
@@ -606,12 +579,12 @@ elif not msg_parent_id:
 |------|------|
 | **现象** | 使用 `setting_sources=["project"]` 加载 Skills 时，CLI 同时注入了 `~/.claude/CLAUDE.md` 全局配置（Git 存档规则、MSBuild 路径等），导致 Agent 行为异常 |
 | **根因** | SDK 的 `setting_sources` 是粗粒度开关，无法单独加载 Skills 而不加载其他配置。即使只设 `"project"`，CLI 仍扫描全局 CLAUDE.md |
-| **方案** | **Plugin 旁路策略**：`setting_sources=None`（不加载任何配置）+ `plugins=[{"type": "local", "path": "~/.bimcanvas"}]`（通过 Plugin 机制独立加载 Skills） |
+| **方案** | **Plugin 旁路策略**：`setting_sources=None`（不加载任何配置）+ `plugins=[{"type": "local", "path": "<BIMCANVAS_HOME>"}]`（通过 Plugin 机制独立加载 Skills） |
 | **状态** | ✅ 已解决（HTTP 抓包验证零污染） |
 
 **技术细节**：
 
-- `~/.bimcanvas/` 同时作为 Agent 配置目录和 Claude Plugin 目录
+- `<BIMCANVAS_HOME>/` 同时作为 Agent 配置目录和 Claude Plugin 目录
 - 需要 `.claude-plugin/plugin.json` 清单文件使目录成为合法 Plugin
 - Skills 通过 `system-reminder` 注入，AI 通过 `Skill` 工具按需调用
 - 详细研究报告见 `reports/Skill/Agent_SDK_Skill最终实践报告.md`
@@ -655,7 +628,7 @@ curl -X POST http://127.0.0.1:8765/api/chat \
 - **用途**：调用后台截图 API，保存到 `projectPath/screenshots`，返回保存后的完整路径。
 - **参数**：仅开放 `projectPath` + `viewport`（单张）或 `shots`（批量）。
 - **默认**：`layerPreset=Agent`、`autoFitViewport=true`、`scale=2`。
-- **权限**：需在 `~/.bimcanvas/agents/layout-agent.md` 的 `tools` 中显式加入该工具。
+- **权限**：需在 `<BIMCANVAS_HOME>/agents/layout-agent.md` 的 `tools` 中显式加入该工具。
 
 单张示例：
 ```json
@@ -833,7 +806,7 @@ async def tool_func(args: dict[str, Any]) -> dict[str, Any]:
 
 1. 在 `src/mcp/` 下创建或修改工具模块（使用 `@tool` 装饰器）
 2. 在 `create_sdk_mcp_server(...)` 中注册工具并更新 `CANVAS_ALLOWED_TOOLS`
-3. 若仅限子代理使用，在 `~/.bimcanvas/agents/*.md` 的 `tools` 中显式添加
+3. 若仅限子代理使用，在 `<BIMCANVAS_HOME>/agents/*.md` 的 `tools` 中显式添加
 4. 更新 README 文档
 
 ## 常见问题

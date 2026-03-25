@@ -21,7 +21,6 @@ import logging
 
 from .agent.main_agent import MainAgent
 from .server.http_server import run_server
-from .config.settings import get_settings
 
 # Configure logging - 简化格式，时间戳由 Server 统一添加
 class SimpleFormatter(logging.Formatter):
@@ -37,6 +36,21 @@ logging.basicConfig(level=logging.INFO, handlers=[handler])
 logging.getLogger("aiohttp.access").setLevel(logging.WARNING)
 
 logger = logging.getLogger(__name__)
+
+
+def ensure_server_managed_startup() -> None:
+    """Agent 只能由 Server 托管启动，禁止手工独立运行。"""
+    if (
+        os.getenv("BIMCANVAS_AGENT_MANAGED_BY_SERVER") == "1" and
+        os.getenv("BIMCANVAS_SERVER_URL", "").strip()
+    ):
+        return
+
+    raise RuntimeError(
+        "BIMCanvas.Agent 不支持脱离 BIMCanvas.Server 独立启动。"
+        " Agent 运行依赖 Server 提供的 MCP 与辅助服务。"
+        " 请先启动 BIMCanvas.Server，由 Server 完成初始化并托管拉起 Agent。"
+    )
 
 
 async def interactive_mode(project_path: str = None) -> None:
@@ -138,14 +152,20 @@ def main() -> None:
 
     args = parser.parse_args()
 
-    if args.serve:
-        # Run as HTTP server
-        logger.info("启动 HTTP 服务模式...")
-        run_server(host=args.host, port=args.port)
-    else:
-        # Run in interactive CLI mode
-        logger.info("启动交互模式...")
-        asyncio.run(interactive_mode(args.project))
+    try:
+        ensure_server_managed_startup()
+
+        if args.serve:
+            # Run as HTTP server
+            logger.info("启动 HTTP 服务模式...")
+            run_server(host=args.host, port=args.port)
+        else:
+            # Run in interactive CLI mode
+            logger.info("启动交互模式...")
+            asyncio.run(interactive_mode(args.project))
+    except (FileNotFoundError, RuntimeError) as ex:
+        logger.error(str(ex))
+        sys.exit(1)
 
 
 if __name__ == "__main__":
