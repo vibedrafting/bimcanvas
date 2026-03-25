@@ -16,6 +16,7 @@ export const useAppStore = defineStore('app', () => {
     const recentProjects = ref<RecentProjectEntry[]>([]);
     const isLoadingList = ref(false);
     const listError = ref<string | null>(null);
+    const pendingProjectWarnings = ref<string[]>([]);
 
     // === Actions ===
 
@@ -51,13 +52,16 @@ export const useAppStore = defineStore('app', () => {
         try {
             const result = await ProjectService.openFolder(folderPath);
             if (result.status === 'Success') {
+                stageProjectWarnings(result.warnings);
                 currentView.value = 'workspace';
                 return true;
             } else {
+                clearPendingProjectWarnings();
                 debugStore.error(`[AppStore] Open failed: ${result.message}`);
                 return false;
             }
         } catch (err: any) {
+            clearPendingProjectWarnings();
             debugStore.error(`[AppStore] Open error: ${err}`);
             return false;
         }
@@ -81,6 +85,7 @@ export const useAppStore = defineStore('app', () => {
             const canvasStore = useCanvasStore();
             canvasStore.resetProject();
 
+            clearPendingProjectWarnings();
             currentView.value = 'homepage';
             return { success: true };
         } catch (err: any) {
@@ -89,6 +94,7 @@ export const useAppStore = defineStore('app', () => {
             const canvasStore = useCanvasStore();
             canvasStore.resetProject();
 
+            clearPendingProjectWarnings();
             currentView.value = 'homepage';
             return { success: true };
         }
@@ -113,6 +119,7 @@ export const useAppStore = defineStore('app', () => {
 
     /** 导航到首页 */
     const goToHomepage = () => {
+        clearPendingProjectWarnings();
         currentView.value = 'homepage';
     };
 
@@ -121,17 +128,39 @@ export const useAppStore = defineStore('app', () => {
         currentView.value = 'workspace';
     };
 
+    const stageProjectWarnings = (warnings?: string[]) => {
+        pendingProjectWarnings.value = warnings ? [...warnings] : [];
+    };
+
+    const applyPendingProjectWarning = () => {
+        if (pendingProjectWarnings.value.length === 0) {
+            return;
+        }
+
+        const canvasStore = useCanvasStore();
+        canvasStore.setPrompt(pendingProjectWarnings.value[0] ?? null);
+        pendingProjectWarnings.value = [];
+    };
+
+    const clearPendingProjectWarnings = () => {
+        pendingProjectWarnings.value = [];
+    };
+
     return {
         currentView,
         projectList,
         recentProjects,
         isLoadingList,
         listError,
+        pendingProjectWarnings,
         fetchProjectList,
         openProject,
         closeProject,
         deleteProject,
         goToHomepage,
-        goToWorkspace
+        goToWorkspace,
+        stageProjectWarnings,
+        applyPendingProjectWarning,
+        clearPendingProjectWarnings
     };
 });

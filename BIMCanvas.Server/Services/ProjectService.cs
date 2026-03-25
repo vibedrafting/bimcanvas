@@ -25,6 +25,26 @@ namespace BIMCanvas.Server.Services
     /// </summary>
     public class ProjectService
     {
+        internal sealed class ProjectLoadExecutionResult
+        {
+            public ProjectLoadExecutionResult(string projectPath)
+            {
+                ProjectPath = projectPath;
+            }
+
+            public string ProjectPath { get; }
+            public List<string> Warnings { get; } = new List<string>();
+        }
+
+        internal sealed class ComputedDataEnsureResult
+        {
+            public bool WasRegenerated { get; init; }
+            public bool WasRegeneratedBecauseBaselineChanged { get; init; }
+        }
+
+        internal const string ZonesBaselineChangedWarning =
+            "已保留现有分区设计；baseline 已更新，分区可能与最新房间数据不一致，请检查。";
+
         private readonly ILogger<ProjectService> _logger;
         private readonly ManifestService _manifestService;
         private readonly StrategyService _strategyService;
@@ -81,8 +101,8 @@ namespace BIMCanvas.Server.Services
         /// </summary>
         /// <param name="bcpFilePath">.bcp 文件路径</param>
         /// <param name="overwrite">是否覆盖已存在的目录</param>
-        /// <returns>解压后的项目文件夹路径</returns>
-        public string LoadProject(string bcpFilePath, bool overwrite = false)
+        /// <returns>解压后的项目上下文（含 warning）</returns>
+        internal ProjectLoadExecutionResult LoadProject(string bcpFilePath, bool overwrite = false)
         {
             if (!File.Exists(bcpFilePath))
             {
@@ -99,15 +119,17 @@ namespace BIMCanvas.Server.Services
 
             // 3. 创建 schemes/ 和默认策略
             var defaultStrategyId = EnsureSchemesDirectory(projectPath, baselineHash);
+            var schemesZonesPath = Path.Combine(projectPath, "schemes", "zones.json");
+            var zonesExistedBeforeBootstrap = File.Exists(schemesZonesPath);
 
             // 4. 更新 project.json
             UpdateProjectJson(projectPath, defaultStrategyId);
 
             // 5. 验证并生成 computed 数据
-            EnsureComputedData(projectPath);
+            var computedResult = EnsureComputedData(projectPath);
 
-            // 6. 从 computed/room_zones.json 初始化 schemes/zones.json（MVP简化）
-            InitializeZonesFromComputed(projectPath);
+            // 6. 缺失时用 computed/room_zones.json 初始化 schemes/zones.json
+            EnsureZonesInitializedFromComputed(projectPath);
 
             // 7. 基于 schemes/zones.json 创建分区子目录
             CreateZoneDirectories(projectPath);
@@ -118,8 +140,11 @@ namespace BIMCanvas.Server.Services
             // 9. 初始化 Git 仓库（单仓库 + 多分支架构）
             InitializeGitRepository(projectPath);
 
+            var result = new ProjectLoadExecutionResult(projectPath);
+            AddZoneBaselineWarningIfNeeded(result.Warnings, computedResult, zonesExistedBeforeBootstrap);
+
             _logger.LogInformation("项目加载完成: {Path}", projectPath);
-            return projectPath;
+            return result;
         }
 
         /// <summary>
@@ -142,27 +167,39 @@ namespace BIMCanvas.Server.Services
         }
 
         /// <summary>
-        /// 从 computed/room_zones.json 初始化 schemes/zones.json
-        /// MVP 阶段：直接复制，跳过分区设计流程
+        /// 缺失时从 computed/room_zones.json 初始化 schemes/zones.json。
+        /// 一旦 schemes/zones.json 已存在，就保留现有分区设计，不再覆盖。
         /// </summary>
-        internal void InitializeZonesFromComputed(string projectPath)
+        internal void EnsureZonesInitializedFromComputed(string projectPath)
         {
             var roomZonesPath = Path.Combine(projectPath, "computed", "room_zones.json");
             var zonesPath = Path.Combine(projectPath, "schemes", "zones.json");
+            var zonesDir = Path.GetDirectoryName(zonesPath);
+
+            if (!string.IsNullOrEmpty(zonesDir))
+            {
+                Directory.CreateDirectory(zonesDir);
+            }
+
+            if (File.Exists(zonesPath))
+            {
+                _logger.LogDebug("schemes/zones.json 已存在，保留现有分区设计，跳过初始分区初始化");
+                return;
+            }
 
             if (!File.Exists(roomZonesPath))
             {
-                // 如果没有 room_zones，创建空数组
+                // 如果没有 room_zones，创建空数组作为初始分区文件
                 File.WriteAllText(zonesPath, "[]", Encoding.UTF8);
                 _logger.LogWarning("computed/room_zones.json 不存在，创建空的 schemes/zones.json");
                 return;
             }
 
-            // MVP: 直接复制 room_zones.json → zones.json
+            // 初始 bootstrap：复制 room_zones.json → zones.json
             var roomZonesJson = File.ReadAllText(roomZonesPath, Encoding.UTF8);
             File.WriteAllText(zonesPath, roomZonesJson, Encoding.UTF8);
 
-            _logger.LogInformation("从 computed/room_zones.json 初始化 schemes/zones.json");
+            _logger.LogInformation("schemes/zones.json 缺失，已从 computed/room_zones.json 初始化");
         }
 
         /// <summary>
@@ -774,17 +811,23 @@ namespace BIMCanvas.Server.Services
         #endregion
 
         /// <summary>
-        /// 确保 computed 数据有效
+        /// 确保 computed 数据有效，并返回本次是否重算以及原因。
         /// </summary>
-        internal void EnsureComputedData(string projectPath)
+        internal ComputedDataEnsureResult EnsureComputedData(string projectPath)
         {
-            if (_computedDataService.ValidateComputedData(projectPath))
+            var validation = _computedDataService.AnalyzeComputedData(projectPath);
+            if (validation.IsValid)
             {
                 _logger.LogDebug("computed 数据有效，跳过生成");
-                return;
+                return new ComputedDataEnsureResult();
             }
 
             _computedDataService.GenerateComputedData(projectPath);
+            return new ComputedDataEnsureResult
+            {
+                WasRegenerated = true,
+                WasRegeneratedBecauseBaselineChanged = validation.BaselineHashChanged
+            };
         }
 
         /// <summary>
@@ -899,7 +942,7 @@ namespace BIMCanvas.Server.Services
         /// <summary>
         /// 打开已存在的项目文件夹（验证 + 初始化链路）
         /// </summary>
-        public void OpenFolder(string folderPath)
+        internal ProjectLoadExecutionResult OpenFolder(string folderPath)
         {
             // 路径穿越检查
             var normalizedFolder = Path.GetFullPath(folderPath);
@@ -926,13 +969,36 @@ namespace BIMCanvas.Server.Services
                 throw new DirectoryNotFoundException($"baseline 目录不存在: {baselinePath}");
             }
 
+            var schemesZonesPath = Path.Combine(folderPath, "schemes", "zones.json");
+            var zonesExistedBeforeBootstrap = File.Exists(schemesZonesPath);
+
             // 复用链
             EnsureProjectAssets(folderPath);
-            EnsureComputedData(folderPath);
-            InitializeZonesFromComputed(folderPath);
+            var computedResult = EnsureComputedData(folderPath);
+            EnsureZonesInitializedFromComputed(folderPath);
             CreateZoneDirectories(folderPath);
 
+            var result = new ProjectLoadExecutionResult(folderPath);
+            AddZoneBaselineWarningIfNeeded(result.Warnings, computedResult, zonesExistedBeforeBootstrap);
+
             _logger.LogInformation("项目文件夹打开完成: {Path}", folderPath);
+            return result;
+        }
+
+        private void AddZoneBaselineWarningIfNeeded(
+            List<string> warnings,
+            ComputedDataEnsureResult computedResult,
+            bool zonesExistedBeforeBootstrap)
+        {
+            if (!computedResult.WasRegenerated ||
+                !computedResult.WasRegeneratedBecauseBaselineChanged ||
+                !zonesExistedBeforeBootstrap)
+            {
+                return;
+            }
+
+            warnings.Add(ZonesBaselineChangedWarning);
+            _logger.LogWarning("{Warning}", ZonesBaselineChangedWarning);
         }
 
         /// <summary>

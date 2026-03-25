@@ -93,7 +93,7 @@ namespace BIMCanvas.Server.Services
             // 创建空的 finishes.json
             WriteJsonFile(Path.Combine(schemesPath, "finishes.json"), new List<object>());
 
-            // 注意: zones.json 由 InitializeZonesFromComputed() 从 computed/room_zones.json 复制生成
+            // 注意: zones.json 由 EnsureZonesInitializedFromComputed() 在缺失时从 computed/room_zones.json 初始化
             // 注意: modules.json 由 CreateZoneDirectories() 在各分区子目录中创建
 
             _logger.LogInformation("默认策略创建完成: {Id}", strategyId);

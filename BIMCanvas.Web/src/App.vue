@@ -58,7 +58,12 @@ const enterWorkspace = async () => {
     // 统一加载：无论数据是否已存在，都清空后重新从 Server 加载
     // 确保 ThreeSceneService 的 watch 能检测到 null → data 变化并触发 fitToScreen
     store.projectData = null;
-    await store.loadProject(ChangeSource.SystemInit);
+    const loaded = await store.loadProject(ChangeSource.SystemInit);
+    if (loaded) {
+      appStore.applyPendingProjectWarning();
+    } else {
+      appStore.clearPendingProjectWarnings();
+    }
 
     // 计算目标视图
     if (store.projectData) {

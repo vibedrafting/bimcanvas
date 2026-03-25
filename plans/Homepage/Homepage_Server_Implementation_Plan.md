@@ -13,7 +13,7 @@
 | `ProjectService.DefaultProjectsRoot` | `Services/ProjectService.cs:38` | 默认项目目录常量，ScanProjects 直接使用 |
 | `ProjectService.EnsureProjectAssets()` | `Services/ProjectService.cs:129` | 打开已有文件夹时修复缺失资源（templates、git） |
 | `ProjectService.EnsureComputedData()` | `Services/ProjectService.cs` | 打开文件夹时确保 computed 数据有效 |
-| `ProjectService.InitializeZonesFromComputed()` | `Services/ProjectService.cs:148` | 缺失 zones.json 时初始化 |
+| `ProjectService.EnsureZonesInitializedFromComputed()` | `Services/ProjectService.cs:148` | 缺失 zones.json 时初始化 |
 | `ProjectService.CreateZoneDirectories()` | `Services/ProjectService.cs:173` | 确保分区目录结构完整 |
 | `ProjectContext.Clear()` | `Services/ProjectContext.cs:59` | 关闭项目时清理状态 |
 | `ProjectContext.SetProject()` | `Services/ProjectContext.cs:50` | 打开项目时设置状态 |
@@ -72,7 +72,7 @@
 
 ### `ProjectService.OpenFolder(folderPath)`
 
-复用链：验证 → `EnsureProjectAssets()` → `EnsureComputedData()` → `InitializeZonesFromComputed()`（如缺失）→ `CreateZoneDirectories()`
+复用链：验证 → `EnsureProjectAssets()` → `EnsureComputedData()` → `EnsureZonesInitializedFromComputed()`（如缺失）→ `CreateZoneDirectories()`
 
 需新增的验证：
 - 路径必须在 `DefaultProjectsRoot` 下（防路径穿越）

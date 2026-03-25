@@ -1,6 +1,7 @@
 import { ref } from 'vue';
 import { ChangeSource } from '../types/history';
 import { useCanvasStore } from '../stores/canvasStore';
+import { useAppStore } from '../stores/appStore';
 import { ProjectService } from '../services/ProjectService';
 
 // Global state for the conflict dialog (singleton pattern to share state)
@@ -11,6 +12,7 @@ const pendingFile = ref<File | null>(null);
 
 export function useProjectFile() {
   const store = useCanvasStore();
+  const appStore = useAppStore();
 
   // Load Data (only .bcp format)
   const handleLoad = async () => {
@@ -55,15 +57,23 @@ export function useProjectFile() {
     const result = await ProjectService.uploadProject(file);
 
     if (result.status === 'Conflict') {
+      appStore.clearPendingProjectWarnings();
       // Show conflict dialog
       pendingFile.value = file;
       conflictProjectName.value = result.projectName || '';
       conflictExistingPath.value = result.existingPath || '';
       showConflictDialog.value = true;
     } else if (result.status === 'Success') {
+      appStore.stageProjectWarnings(result.warnings);
       // Reload project data
-      await store.loadProject(ChangeSource.UserUpload);
+      const loaded = await store.loadProject(ChangeSource.UserUpload);
+      if (loaded) {
+        appStore.applyPendingProjectWarning();
+      } else {
+        appStore.clearPendingProjectWarnings();
+      }
     } else {
+      appStore.clearPendingProjectWarnings();
       alert(`Failed to open project: ${result.message}`);
     }
   };
@@ -86,11 +96,19 @@ export function useProjectFile() {
       const result = await ProjectService.uploadResolveConflict(pendingFile.value, resolution);
 
       if (result.status === 'Success') {
-        await store.loadProject(ChangeSource.SystemRestore);
+        appStore.stageProjectWarnings(result.warnings);
+        const loaded = await store.loadProject(ChangeSource.SystemRestore);
+        if (loaded) {
+          appStore.applyPendingProjectWarning();
+        } else {
+          appStore.clearPendingProjectWarnings();
+        }
       } else {
+        appStore.clearPendingProjectWarnings();
         alert(`Failed to resolve conflict: ${result.message}`);
       }
     } catch (err: any) {
+      appStore.clearPendingProjectWarnings();
       console.error('Failed to resolve conflict:', err);
       alert(`Failed to resolve conflict: ${err.message}`);
     } finally {

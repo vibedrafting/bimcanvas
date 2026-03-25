@@ -12,6 +12,7 @@ export interface ProjectLoadResult {
     existingPath?: string;
     projectName?: string;
     message?: string;
+    warnings?: string[];
 }
 
 /**

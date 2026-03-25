@@ -20,6 +20,12 @@ namespace BIMCanvas.Server.Services
     /// </summary>
     public class ComputedDataService
     {
+        internal sealed class ComputedDataValidationResult
+        {
+            public bool IsValid { get; init; }
+            public bool BaselineHashChanged { get; init; }
+        }
+
         private readonly ILogger<ComputedDataService> _logger;
         private readonly ManifestService _manifestService;
         private readonly RoomTypeTagMappingService _tagMappingService;
@@ -54,6 +60,14 @@ namespace BIMCanvas.Server.Services
         /// <returns>true = 有效，无需重新计算</returns>
         public bool ValidateComputedData(string projectPath)
         {
+            return AnalyzeComputedData(projectPath).IsValid;
+        }
+
+        /// <summary>
+        /// 分析 computed 数据状态，判断是否需要重新生成。
+        /// </summary>
+        internal ComputedDataValidationResult AnalyzeComputedData(string projectPath)
+        {
             var baselinePath = Path.Combine(projectPath, "baseline");
             var computedPath = Path.Combine(projectPath, "computed");
 
@@ -61,7 +75,7 @@ namespace BIMCanvas.Server.Services
             if (!Directory.Exists(computedPath))
             {
                 _logger.LogInformation("computed/ 目录不存在，需要生成");
-                return false;
+                return new ComputedDataValidationResult { IsValid = false };
             }
 
             // 2. 检查 exclusions.json 是否存在
@@ -69,7 +83,7 @@ namespace BIMCanvas.Server.Services
             if (!File.Exists(exclusionsPath))
             {
                 _logger.LogInformation("exclusions.json 不存在，需要生成");
-                return false;
+                return new ComputedDataValidationResult { IsValid = false };
             }
 
             // 3. 检查 room_zones.json 是否存在
@@ -77,7 +91,7 @@ namespace BIMCanvas.Server.Services
             if (!File.Exists(zonesPath))
             {
                 _logger.LogInformation("room_zones.json 不存在，需要生成");
-                return false;
+                return new ComputedDataValidationResult { IsValid = false };
             }
 
             // 3. 获取 baseline 和 computed 的哈希值
@@ -87,13 +101,13 @@ namespace BIMCanvas.Server.Services
             if (string.IsNullOrEmpty(baselineHash))
             {
                 _logger.LogInformation("baseline.manifest 不存在或无 baselineHash，需要重新计算");
-                return false;
+                return new ComputedDataValidationResult { IsValid = false };
             }
 
             if (string.IsNullOrEmpty(computedBaselineHash))
             {
                 _logger.LogInformation("computed.manifest 不存在或无 baselineHash，需要重新计算");
-                return false;
+                return new ComputedDataValidationResult { IsValid = false };
             }
 
             // 4. 比较 baselineHash
@@ -102,11 +116,15 @@ namespace BIMCanvas.Server.Services
                 _logger.LogInformation("baselineHash 不一致，需要重新计算");
                 _logger.LogDebug("  baseline.manifest.baselineHash = {Hash1}", baselineHash);
                 _logger.LogDebug("  computed.manifest.baselineHash = {Hash2}", computedBaselineHash);
-                return false;
+                return new ComputedDataValidationResult
+                {
+                    IsValid = false,
+                    BaselineHashChanged = true
+                };
             }
 
             _logger.LogInformation("computed 数据验证通过，无需重新计算");
-            return true;
+            return new ComputedDataValidationResult { IsValid = true };
         }
 
         /// <summary>

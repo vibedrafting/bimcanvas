@@ -137,15 +137,15 @@ namespace BIMCanvas.Server.Controllers
 
             try
             {
-                _projectService.OpenFolder(request.FolderPath);
-                _projectContext.SetProject(request.FolderPath);
+                var loadResult = _projectService.OpenFolder(request.FolderPath);
+                _projectContext.SetProject(loadResult.ProjectPath);
 
                 // 记录最近打开
-                var projectName = Path.GetFileName(request.FolderPath);
-                _recentProjectsService.RecordOpen(projectName, request.FolderPath);
+                var projectName = Path.GetFileName(loadResult.ProjectPath);
+                _recentProjectsService.RecordOpen(projectName, loadResult.ProjectPath);
 
                 // 初始化对话日志
-                BIMCanvas.Server.Logging.ConversationLogger.Initialize(request.FolderPath);
+                BIMCanvas.Server.Logging.ConversationLogger.Initialize(loadResult.ProjectPath);
 
                 // 关闭虚拟窗口的 Agent 进程（释放 CWD 文件锁，必须在删除 Worktree 之前）
                 foreach (var wid in _projectContext.GetRegisteredWindowIds().ToList())
@@ -154,13 +154,9 @@ namespace BIMCanvas.Server.Controllers
                 }
 
                 // 清空 Worktree（切换项目后旧 Worktree 无效）
-                _gitService.CleanupAllWorktrees(request.FolderPath);
+                _gitService.CleanupAllWorktrees(loadResult.ProjectPath);
 
-                return Ok(new ProjectLoadResult
-                {
-                    Status = "Success",
-                    ProjectPath = request.FolderPath
-                });
+                return Ok(CreateSuccessProjectLoadResult(loadResult.ProjectPath, loadResult.Warnings));
             }
             catch (Exception ex)
             {
@@ -320,23 +316,19 @@ namespace BIMCanvas.Server.Controllers
                 }
 
                 // 无冲突，直接加载
-                var projectPath = _projectService.LoadProject(tempFilePath);
-                _projectContext.SetProject(projectPath, tempFilePath);
+                var loadResult = _projectService.LoadProject(tempFilePath);
+                _projectContext.SetProject(loadResult.ProjectPath, tempFilePath);
 
                 // 记录最近打开
-                _recentProjectsService.RecordOpen(Path.GetFileNameWithoutExtension(file.FileName), projectPath);
+                _recentProjectsService.RecordOpen(Path.GetFileNameWithoutExtension(file.FileName), loadResult.ProjectPath);
 
                 // 初始化对话日志
-                BIMCanvas.Server.Logging.ConversationLogger.Initialize(projectPath);
+                BIMCanvas.Server.Logging.ConversationLogger.Initialize(loadResult.ProjectPath);
 
                 // 清理临时文件
                 try { System.IO.File.Delete(tempFilePath); } catch { }
 
-                return Ok(new ProjectLoadResult
-                {
-                    Status = "Success",
-                    ProjectPath = projectPath
-                });
+                return Ok(CreateSuccessProjectLoadResult(loadResult.ProjectPath, loadResult.Warnings));
             }
             catch (Exception ex)
             {
@@ -379,6 +371,7 @@ namespace BIMCanvas.Server.Controllers
             try
             {
                 string projectPath;
+                List<string> warnings;
 
                 if (resolution == "UseExisting")
                 {
@@ -395,8 +388,9 @@ namespace BIMCanvas.Server.Controllers
                         });
                     }
 
-                    // 确保项目资源文件存在（modules、README.md 等）
-                    _projectService.EnsureProjectAssets(projectPath);
+                    var openResult = _projectService.OpenFolder(projectPath);
+                    projectPath = openResult.ProjectPath;
+                    warnings = openResult.Warnings;
 
                     _projectContext.SetProject(projectPath, null);
 
@@ -416,7 +410,9 @@ namespace BIMCanvas.Server.Controllers
                     }
 
                     // 覆盖加载
-                    projectPath = _projectService.LoadProject(tempFilePath, overwrite: true);
+                    var loadResult = _projectService.LoadProject(tempFilePath, overwrite: true);
+                    projectPath = loadResult.ProjectPath;
+                    warnings = loadResult.Warnings;
                     _projectContext.SetProject(projectPath, tempFilePath);
 
                     // 初始化对话日志
@@ -426,11 +422,7 @@ namespace BIMCanvas.Server.Controllers
                     try { System.IO.File.Delete(tempFilePath); } catch { }
                 }
 
-                return Ok(new ProjectLoadResult
-                {
-                    Status = "Success",
-                    ProjectPath = projectPath
-                });
+                return Ok(CreateSuccessProjectLoadResult(projectPath, warnings));
             }
             catch (Exception ex)
             {
@@ -483,14 +475,10 @@ namespace BIMCanvas.Server.Controllers
             // 无冲突，直接加载
             try
             {
-                var projectPath = _projectService.LoadProject(request.BcpFilePath);
-                _projectContext.SetProject(projectPath, request.BcpFilePath);
+                var loadResult = _projectService.LoadProject(request.BcpFilePath);
+                _projectContext.SetProject(loadResult.ProjectPath, request.BcpFilePath);
 
-                return Ok(new ProjectLoadResult
-                {
-                    Status = "Success",
-                    ProjectPath = projectPath
-                });
+                return Ok(CreateSuccessProjectLoadResult(loadResult.ProjectPath, loadResult.Warnings));
             }
             catch (Exception ex)
             {
@@ -521,6 +509,7 @@ namespace BIMCanvas.Server.Controllers
             try
             {
                 string projectPath;
+                List<string> warnings;
 
                 if (request.Resolution == "UseExisting")
                 {
@@ -537,22 +526,21 @@ namespace BIMCanvas.Server.Controllers
                         });
                     }
 
-                    // 确保项目资源文件存在（modules、README.md 等）
-                    _projectService.EnsureProjectAssets(projectPath);
+                    var openResult = _projectService.OpenFolder(projectPath);
+                    projectPath = openResult.ProjectPath;
+                    warnings = openResult.Warnings;
                 }
                 else // Overwrite
                 {
                     // 覆盖：删除旧目录并重新解压
-                    projectPath = _projectService.LoadProject(request.BcpFilePath, overwrite: true);
+                    var loadResult = _projectService.LoadProject(request.BcpFilePath, overwrite: true);
+                    projectPath = loadResult.ProjectPath;
+                    warnings = loadResult.Warnings;
                 }
 
                 _projectContext.SetProject(projectPath, request.BcpFilePath);
 
-                return Ok(new ProjectLoadResult
-                {
-                    Status = "Success",
-                    ProjectPath = projectPath
-                });
+                return Ok(CreateSuccessProjectLoadResult(projectPath, warnings));
             }
             catch (Exception ex)
             {
@@ -964,6 +952,16 @@ namespace BIMCanvas.Server.Controllers
             {
                 System.IO.File.SetAttributes(path, attributes & ~FileAttributes.ReadOnly);
             }
+        }
+
+        private static ProjectLoadResult CreateSuccessProjectLoadResult(string projectPath, List<string> warnings)
+        {
+            return new ProjectLoadResult
+            {
+                Status = "Success",
+                ProjectPath = projectPath,
+                Warnings = warnings.Count > 0 ? warnings : null
+            };
         }
     }
 }

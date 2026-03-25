@@ -31,6 +31,11 @@ namespace BIMCanvas.Server.Dtos
         /// 错误或提示信息
         /// </summary>
         public string? Message { get; set; }
+
+        /// <summary>
+        /// 成功时返回的 warning 列表
+        /// </summary>
+        public List<string>? Warnings { get; set; }
     }
 
     /// <summary>
