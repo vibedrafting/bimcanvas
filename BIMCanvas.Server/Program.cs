@@ -246,6 +246,21 @@ var webReady = true;
     bool ccrRuntimeReady = false;
     if (config.Ccr.Enabled && config.Ccr.AutoStart)
     {
+        // CCR 依赖检查：检测 ccr 命令是否可用
+        if (!IsCcrAvailable())
+        {
+            if (!IsNodeAvailable())
+            {
+                WriteWithColoredPrefix("[Server:WARN]", "未检测到 CCR 且 Node.js 不可用，CCR 服务将不启动", ConsoleColor.DarkYellow);
+                WriteWithColoredPrefix("[Server:WARN]", "提示: 请先安装 Node.js 18+ 并添加到 PATH，再运行 npm install -g claude-code-router", ConsoleColor.DarkYellow);
+                goto CcrSkipped;
+            }
+            if (!TryInstallCcr())
+            {
+                goto CcrSkipped;
+            }
+        }
+
         // CCR 配置文件由 EnsureDefaultConfigs() 从 Templates 复制到 configDir
         var ccrConfigPath = Path.Combine(configDir, config.Ccr.ConfigFileName);
 
@@ -276,6 +291,7 @@ var webReady = true;
                 WriteWithColoredPrefix("[Server:WARN]", "CCR 未在预期时间内就绪", ConsoleColor.DarkYellow);
         }
     }
+    CcrSkipped:
 
     // 2. 启动 Agent 服务（不等待，后台运行）
     if (agentReady)
@@ -703,6 +719,139 @@ static bool IsNodeAvailable()
     }
     catch
     {
+        return false;
+    }
+}
+
+// 辅助函数：检测 CCR (claude-code-router) 是否可用
+static bool IsCcrAvailable()
+{
+    try
+    {
+        var psi = new ProcessStartInfo
+        {
+            FileName = RuntimeInformation.IsOSPlatform(OSPlatform.Windows) ? "cmd.exe" : "ccr",
+            Arguments = RuntimeInformation.IsOSPlatform(OSPlatform.Windows) ? "/c ccr --version" : "--version",
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+            UseShellExecute = false,
+            CreateNoWindow = true
+        };
+        using var process = Process.Start(psi);
+        if (process == null) return false;
+        process.WaitForExit(5000);
+        return process.ExitCode == 0;
+    }
+    catch
+    {
+        return false;
+    }
+}
+
+// 辅助函数：交互式安装 CCR（返回 true = 安装成功）
+static bool TryInstallCcr()
+{
+    WriteWithColoredPrefix("[Server]", "未检测到 CCR (claude-code-router)", ConsoleColor.DarkYellow);
+    Console.Write($"[{DateTime.Now:HH:mm:ss}] ");
+    Console.ForegroundColor = ConsoleColor.DarkYellow;
+    Console.Write("[Server]");
+    Console.ResetColor();
+    Console.Write(" 是否自动安装 CCR？(Y/n): ");
+    var input = Console.ReadLine()?.Trim().ToLower();
+
+    // 默认 Y（直接回车 = 同意）
+    if (!string.IsNullOrEmpty(input) && input != "y" && input != "yes")
+    {
+        WriteWithColoredPrefix("[Server:WARN]", "跳过安装，CCR 服务将不启动", ConsoleColor.DarkYellow);
+        return false;
+    }
+
+    WriteWithColoredPrefix("[Server]", "正在安装 CCR (npm install -g claude-code-router)...", ConsoleColor.White);
+
+    try
+    {
+        var psi = new ProcessStartInfo
+        {
+            FileName = "cmd.exe",
+            Arguments = "/c npm install -g claude-code-router",
+            UseShellExecute = false,
+            CreateNoWindow = true,
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+            StandardOutputEncoding = Encoding.UTF8,
+            StandardErrorEncoding = Encoding.UTF8
+        };
+
+        using var process = Process.Start(psi);
+        if (process == null)
+        {
+            WriteWithColoredPrefix("[Server:ERR]", "无法启动 npm 进程", ConsoleColor.DarkGray);
+            return false;
+        }
+
+        // 实时输出安装过程
+        var cts = new CancellationTokenSource();
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                while (!cts.Token.IsCancellationRequested)
+                {
+                    var line = await process.StandardOutput.ReadLineAsync();
+                    if (line == null) break;
+                    if (!string.IsNullOrEmpty(line))
+                        WriteWithColoredPrefix("[npm]", line, ConsoleColor.DarkMagenta);
+                }
+            }
+            catch { }
+        });
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                while (!cts.Token.IsCancellationRequested)
+                {
+                    var line = await process.StandardError.ReadLineAsync();
+                    if (line == null) break;
+                    if (!string.IsNullOrEmpty(line))
+                        WriteWithColoredPrefix("[npm]", line, ConsoleColor.DarkMagenta);
+                }
+            }
+            catch { }
+        });
+
+        // 同步等待安装完成（超时 3 分钟）
+        var completed = process.WaitForExit(180_000);
+
+        if (!completed)
+        {
+            WriteWithColoredPrefix("[Server:ERR]", "CCR 安装超时（3分钟），跳过 CCR 启动", ConsoleColor.DarkGray);
+            cts.Cancel();
+            process.Kill(true);
+            return false;
+        }
+
+        if (process.ExitCode != 0)
+        {
+            WriteWithColoredPrefix("[Server:ERR]", $"CCR 安装失败 (exit code: {process.ExitCode})", ConsoleColor.DarkGray);
+            return false;
+        }
+
+        // 验证安装结果
+        if (IsCcrAvailable())
+        {
+            WriteWithColoredPrefix("[Server]", "CCR 安装成功", ConsoleColor.White);
+            return true;
+        }
+        else
+        {
+            WriteWithColoredPrefix("[Server:ERR]", "CCR 安装后验证失败，请检查 npm 全局路径是否在 PATH 中", ConsoleColor.DarkGray);
+            return false;
+        }
+    }
+    catch (Exception ex)
+    {
+        WriteWithColoredPrefix("[Server:ERR]", $"CCR 安装异常: {ex.Message}", ConsoleColor.DarkGray);
         return false;
     }
 }
