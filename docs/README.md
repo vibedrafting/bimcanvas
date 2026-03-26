@@ -2,8 +2,8 @@
 
 > 本文档索引 `docs/` 根目录下的技术文档。
 >
-> **最后更新**: 2026-03-01
-> **文档版本**: v2.1
+> **最后更新**: 2026-03-26
+> **文档版本**: v2.2
 
 ---
 
@@ -25,6 +25,7 @@
 | [Agent_Spatial.md](Agent_Spatial.md) | Agent 设计 | AI 空间理解能力增强 |
 | [Agent_Workflows.md](Agent_Workflows.md) | Agent 设计 | Agent 运行时工作流（query/edit/generate） |
 | [Web_Frontend.md](Web_Frontend.md) | Web 前端 | Web 前端技术 |
+| [Doc_Docker_Deployment_Framework.md](Doc_Docker_Deployment_Framework.md) | 部署与运维 | Docker 打包、运行与部署框架 |
 
 ---
 
@@ -73,6 +74,12 @@
 | 文档 | 核心内容 |
 |------|----------|
 | [Web_Frontend.md](Web_Frontend.md) | 启动流程、SVG 渲染系统、坐标变换 |
+
+### 7. 部署与运维
+
+| 文档 | 核心内容 |
+|------|----------|
+| [Doc_Docker_Deployment_Framework.md](Doc_Docker_Deployment_Framework.md) | Docker 运行依赖分层、镜像打包流程、容器启动流程、`deploy/` 目录职责 |
 
 ---
 
