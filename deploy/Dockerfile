@@ -103,8 +103,9 @@ RUN cd BIMCanvas.Agent \
     && ./venv/bin/pip install --no-cache-dir -e . \
     && python -c "import claude_agent_sdk"
 
-RUN dotnet tool install --global Microsoft.Playwright.CLI --version 1.42.0 \
-    && playwright install --with-deps chromium
+RUN PLAYWRIGHT_CLI=/app/BIMCanvas.Server/bin/Release/net8.0/.playwright/package/cli.js \
+    && test -f "$PLAYWRIGHT_CLI" \
+    && node "$PLAYWRIGHT_CLI" install chromium
 
 RUN chmod +x /app/deploy/start.sh \
     && mkdir -p /data "$PLAYWRIGHT_BROWSERS_PATH"
