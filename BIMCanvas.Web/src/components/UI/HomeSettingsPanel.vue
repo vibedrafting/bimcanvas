@@ -385,19 +385,42 @@ onMounted(() => {
               <span class="mode-note">{{ runtime.restartHint }}</span>
             </div>
             <h2>{{ pageTitle }}</h2>
-            <p>
-              当前生效默认模型：<strong>{{ effectiveDefaultModel || '未设置' }}</strong>
-              <span class="path-hint">真源字段：{{ displayEffectiveModelPath }}</span>
-            </p>
+            <p>{{ effectiveModelDescription }}</p>
           </div>
+        </div>
+
+        <div class="hero-metrics">
+          <article class="metric-card">
+            <span class="metric-label">当前默认</span>
+            <div class="metric-value">{{ effectiveDefaultModel || '未设置' }}</div>
+          </article>
+          <article class="metric-card">
+            <span class="metric-label">真源字段</span>
+            <div class="metric-value"><code>{{ displayEffectiveModelPath }}</code></div>
+          </article>
+          <article class="metric-card">
+            <span class="metric-label">重启方式</span>
+            <div class="metric-value">{{ runtime.restartBehavior === 'docker-auto' ? 'Docker 自动拉起' : '手动重启服务' }}</div>
+          </article>
+          <article class="metric-card" :class="restartPendingGroups.length > 0 ? 'status-pending' : 'status-ready'">
+            <span class="metric-label">当前状态</span>
+            <div class="metric-value">
+              {{ restartPendingGroups.length > 0 ? `待重启 ${restartPendingGroups.length} 组配置` : '已同步到当前实例' }}
+            </div>
+          </article>
         </div>
       </header>
 
-      <div v-if="loadError" class="notice error">{{ loadError }}</div>
-      <div v-if="saveError" class="notice error">{{ saveError }}</div>
-      <div v-if="saveMessage" class="notice info">{{ saveMessage }}</div>
-      <div v-if="restartPendingGroups.length > 0" class="notice warn">
-        已修改高影响配置：{{ restartPendingGroups.join(' / ') }}。保存后请完成一次实例重启。
+      <div
+        v-if="loadError || saveError || saveMessage || restartPendingGroups.length > 0"
+        class="notice-stack"
+      >
+        <div v-if="loadError" class="notice error">{{ loadError }}</div>
+        <div v-if="saveError" class="notice error">{{ saveError }}</div>
+        <div v-if="saveMessage" class="notice info">{{ saveMessage }}</div>
+        <div v-if="restartPendingGroups.length > 0" class="notice warn">
+          已修改高影响配置：{{ restartPendingGroups.join(' / ') }}。保存后请完成一次实例重启。
+        </div>
       </div>
 
       <div v-if="isLoading" class="loading-state">正在加载实例配置...</div>
@@ -409,7 +432,7 @@ onMounted(() => {
               <h3>运行方式</h3>
               <p>决定默认模型由哪一组配置控制，并影响重启后的真实行为。</p>
             </div>
-            <label class="toggle-line">
+            <label class="toggle-line" :class="{ enabled: drafts.server.values.ccr.enabled }">
               <span>启用 CCR</span>
               <input v-model="drafts.server.values.ccr.enabled" type="checkbox">
             </label>
@@ -612,7 +635,7 @@ onMounted(() => {
               <span>API_TIMEOUT_MS</span>
               <input v-model.number="drafts.ccr.values.API_TIMEOUT_MS" type="number">
             </label>
-            <label class="field toggle-line field-inline-toggle">
+            <label class="field toggle-line field-inline-toggle" :class="{ enabled: drafts.ccr.values.LOG }">
               <span>LOG</span>
               <input v-model="drafts.ccr.values.LOG" type="checkbox">
             </label>
@@ -701,51 +724,117 @@ onMounted(() => {
 
 <style scoped>
 .settings-page {
-  --page-bg: #f5f1e8;
-  --page-surface: #ffffff;
-  --page-surface-soft: #f8f6f1;
-  --page-border: #e7dfd2;
-  --page-text: #23262e;
-  --page-text-secondary: #7a746a;
-  --page-accent: #2f6df6;
-  --page-accent-soft: rgba(47, 109, 246, 0.08);
-  --page-success: #2b8a5a;
-  --page-warn: #c68a1d;
-  --page-danger: #c45f43;
-  color: var(--page-text);
+  --page-surface: rgba(17, 20, 31, 0.78);
+  --page-surface-strong: rgba(11, 14, 22, 0.92);
+  --page-surface-soft: rgba(255, 255, 255, 0.03);
+  --page-surface-soft-hover: rgba(255, 255, 255, 0.05);
+  --page-border: rgba(255, 255, 255, 0.1);
+  --page-border-strong: rgba(255, 255, 255, 0.16);
+  --page-text: var(--text-primary);
+  --page-text-secondary: var(--text-secondary);
+  --page-text-tertiary: var(--text-tertiary);
+  --page-accent: var(--accent-blue);
+  --page-accent-soft: rgba(59, 130, 246, 0.14);
+  --page-accent-strong: rgba(59, 130, 246, 0.26);
+  --page-success: var(--accent-green);
+  --page-warn: var(--accent-yellow);
+  --page-danger: var(--accent-danger);
+  position: relative;
   min-height: 100%;
-  padding: 12px 0 96px;
+  padding: 8px 0 132px;
+  color: var(--page-text);
+}
+
+.settings-page::before,
+.settings-page::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+
+.settings-page::before {
+  background:
+    radial-gradient(circle at 14% 0%, rgba(59, 130, 246, 0.22), transparent 30%),
+    radial-gradient(circle at 86% 6%, rgba(52, 199, 89, 0.12), transparent 24%),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.04), transparent 24%);
+  opacity: 0.95;
+}
+
+.settings-page::after {
+  background-image:
+    linear-gradient(rgba(255, 255, 255, 0.024) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255, 255, 255, 0.024) 1px, transparent 1px);
+  background-size: 48px 48px;
+  mask-image: linear-gradient(180deg, rgba(255, 255, 255, 0.18), transparent 55%);
 }
 
 .settings-shell {
+  position: relative;
+  z-index: 1;
   display: flex;
   flex-direction: column;
   gap: 18px;
+  max-width: 1380px;
+  margin: 0 auto;
 }
 
 .hero-card,
 .form-card {
-  background: var(--page-surface);
+  position: relative;
+  overflow: hidden;
+  background:
+    linear-gradient(180deg, rgba(22, 26, 38, 0.9), rgba(12, 14, 22, 0.82)),
+    var(--page-surface);
+  backdrop-filter: var(--glass-blur);
+  -webkit-backdrop-filter: var(--glass-blur);
   border: 1px solid var(--page-border);
-  border-radius: 28px;
-  box-shadow: 0 18px 50px rgba(52, 42, 25, 0.06);
+  border-radius: 24px;
+  box-shadow:
+    var(--shadow-panel),
+    inset 0 1px 0 rgba(255, 255, 255, 0.08);
+}
+
+.hero-card::before,
+.form-card::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.08), transparent 26%);
+}
+
+.hero-card > *,
+.form-card > * {
+  position: relative;
+  z-index: 1;
 }
 
 .hero-card {
-  padding: 18px 22px 24px;
+  padding: 18px 22px 22px;
+  box-shadow:
+    0 22px 52px rgba(0, 0, 0, 0.34),
+    inset 0 1px 0 rgba(255, 255, 255, 0.1),
+    0 0 0 1px rgba(59, 130, 246, 0.08);
 }
 
 .back-chip {
-  border: none;
-  background: var(--page-surface-soft);
+  border: 1px solid var(--page-border);
+  background: rgba(255, 255, 255, 0.04);
   color: var(--page-text);
-  height: 42px;
-  padding: 0 16px;
+  height: 44px;
+  padding: 0 18px;
   border-radius: 999px;
   display: inline-flex;
   align-items: center;
   gap: 8px;
   cursor: pointer;
+  transition: background-color 0.18s ease, border-color 0.18s ease, color 0.18s ease;
+}
+
+.back-chip:hover {
+  background: rgba(255, 255, 255, 0.08);
+  border-color: var(--page-border-strong);
 }
 
 .back-chip svg {
@@ -755,23 +844,30 @@ onMounted(() => {
 
 .hero-main {
   display: grid;
-  grid-template-columns: 92px 1fr;
-  gap: 20px;
-  align-items: center;
+  grid-template-columns: 108px minmax(0, 1fr);
+  gap: 22px;
+  align-items: start;
   margin-top: 18px;
 }
 
 .hero-avatar {
-  width: 92px;
-  height: 92px;
+  width: 108px;
+  height: 108px;
   border-radius: 28px;
   display: grid;
   place-items: center;
-  background: linear-gradient(180deg, #fbfaf6, #f1ece2);
-  border: 1px solid var(--page-border);
-  font-size: 2rem;
+  background:
+    radial-gradient(circle at 28% 24%, rgba(59, 130, 246, 0.28), transparent 42%),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.08), rgba(255, 255, 255, 0.01)),
+    rgba(7, 10, 16, 0.84);
+  border: 1px solid rgba(59, 130, 246, 0.24);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.12),
+    0 18px 28px rgba(59, 130, 246, 0.08);
+  font-size: 2.4rem;
   font-weight: 700;
-  color: #6d6b64;
+  letter-spacing: 0.08em;
+  color: #dbe9ff;
 }
 
 .hero-topline {
@@ -793,12 +889,14 @@ onMounted(() => {
 
 .mode-pill {
   background: var(--page-accent-soft);
-  color: var(--page-accent);
+  border: 1px solid var(--page-accent-strong);
+  color: #d7e7ff;
 }
 
 .provider-badge,
 .effective-path {
-  background: #f2eee5;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.08);
   color: var(--page-text-secondary);
 }
 
@@ -815,46 +913,108 @@ onMounted(() => {
 
 .hero-copy h2 {
   margin: 10px 0 8px;
-  font-size: 2rem;
-  line-height: 1.1;
+  font-size: clamp(2rem, 4vw, 2.75rem);
+  line-height: 1;
+  letter-spacing: -0.03em;
 }
 
-.path-hint {
-  margin-left: 12px;
+.hero-copy p {
+  margin: 0;
+  max-width: 880px;
+  font-size: 1rem;
+}
+
+.hero-metrics {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12px;
+  margin-top: 22px;
+}
+
+.metric-card {
+  border-radius: 18px;
+  padding: 14px 16px;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04);
+}
+
+.metric-label {
+  display: block;
+  margin-bottom: 8px;
+  font-size: 0.74rem;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--page-text-tertiary);
+}
+
+.metric-value {
+  font-size: 1rem;
+  font-weight: 600;
+  line-height: 1.45;
+  word-break: break-word;
+}
+
+.metric-value code {
+  display: inline-block;
+  padding: 4px 9px;
+  border-radius: 999px;
+  background: rgba(59, 130, 246, 0.12);
+  color: #d7e7ff;
+  font-family: var(--font-mono);
+  font-size: 0.86rem;
+}
+
+.metric-card.status-ready .metric-value {
+  color: #bce8ca;
+}
+
+.metric-card.status-pending .metric-value {
+  color: #ffe29f;
+}
+
+.notice-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
 }
 
 .notice {
-  border-radius: 18px;
+  border-radius: 16px;
   padding: 14px 16px;
   border: 1px solid var(--page-border);
-  background: var(--page-surface);
+  background: rgba(255, 255, 255, 0.04);
 }
 
 .notice.error {
-  color: var(--page-danger);
-  border-color: rgba(196, 95, 67, 0.22);
-  background: rgba(196, 95, 67, 0.08);
+  color: #ffc0c0;
+  border-color: rgba(255, 107, 107, 0.24);
+  background: rgba(255, 107, 107, 0.1);
 }
 
 .notice.info {
-  color: var(--page-accent);
-  border-color: rgba(47, 109, 246, 0.22);
-  background: rgba(47, 109, 246, 0.08);
+  color: #cfe1ff;
+  border-color: rgba(59, 130, 246, 0.24);
+  background: rgba(59, 130, 246, 0.1);
 }
 
 .notice.warn {
-  color: var(--page-warn);
-  border-color: rgba(198, 138, 29, 0.22);
-  background: rgba(198, 138, 29, 0.08);
+  color: #ffe29f;
+  border-color: rgba(255, 204, 0, 0.22);
+  background: rgba(255, 204, 0, 0.08);
 }
 
 .loading-state {
-  padding: 72px 0;
+  padding: 84px 24px;
   text-align: center;
+  border-radius: 24px;
+  border: 1px dashed rgba(255, 255, 255, 0.12);
+  background: rgba(255, 255, 255, 0.03);
 }
 
 .form-card {
-  padding: 22px;
+  padding: 22px 22px 24px;
 }
 
 .section-head,
@@ -876,6 +1036,7 @@ onMounted(() => {
 .section-head h3,
 .provider-head h4 {
   margin: 0;
+  letter-spacing: -0.02em;
 }
 
 .section-head p,
@@ -895,11 +1056,33 @@ onMounted(() => {
   grid-template-columns: repeat(3, minmax(0, 1fr));
 }
 
-.field,
-.toggle-line {
+.field {
   display: flex;
   flex-direction: column;
   gap: 8px;
+}
+
+.toggle-line {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  min-height: 56px;
+  padding: 12px 14px;
+  border-radius: 18px;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.03);
+  transition: background-color 0.18s ease, border-color 0.18s ease, box-shadow 0.18s ease;
+}
+
+.toggle-line.enabled {
+  background: rgba(59, 130, 246, 0.1);
+  border-color: rgba(59, 130, 246, 0.26);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.05),
+    0 0 0 1px rgba(59, 130, 246, 0.08);
 }
 
 .field-span-2 {
@@ -907,7 +1090,7 @@ onMounted(() => {
 }
 
 .field-inline-toggle {
-  justify-content: flex-end;
+  align-self: stretch;
 }
 
 .field span,
@@ -923,12 +1106,18 @@ textarea {
   box-sizing: border-box;
   border: 1px solid var(--page-border);
   border-radius: 14px;
-  background: #fff;
+  background: rgba(9, 11, 18, 0.74);
   color: var(--page-text);
   padding: 14px 16px;
   font-size: 0.95rem;
   outline: none;
-  transition: border-color 0.18s ease, box-shadow 0.18s ease;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.03);
+  transition: border-color 0.18s ease, box-shadow 0.18s ease, background-color 0.18s ease;
+}
+
+input::placeholder,
+textarea::placeholder {
+  color: var(--page-text-tertiary);
 }
 
 textarea {
@@ -940,51 +1129,118 @@ textarea {
 input:focus,
 select:focus,
 textarea:focus {
-  border-color: rgba(47, 109, 246, 0.4);
-  box-shadow: 0 0 0 3px rgba(47, 109, 246, 0.12);
+  border-color: rgba(59, 130, 246, 0.42);
+  box-shadow:
+    0 0 0 3px rgba(59, 130, 246, 0.16),
+    inset 0 1px 0 rgba(255, 255, 255, 0.04);
+}
+
+input:disabled,
+select:disabled,
+textarea:disabled {
+  opacity: 0.48;
+  cursor: not-allowed;
+  background: rgba(255, 255, 255, 0.02);
+  color: var(--page-text-tertiary);
 }
 
 input[type='checkbox'] {
-  width: 44px;
-  height: 24px;
+  appearance: none;
+  -webkit-appearance: none;
+  width: 52px;
+  height: 30px;
   padding: 0;
-  accent-color: var(--page-accent);
+  margin: 0;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  background: rgba(255, 255, 255, 0.12);
+  position: relative;
+  cursor: pointer;
+  transition: background-color 0.18s ease, border-color 0.18s ease;
+}
+
+input[type='checkbox']::before {
+  content: '';
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: #f3f8ff;
+  box-shadow: 0 3px 10px rgba(0, 0, 0, 0.28);
+  transition: transform 0.18s ease, background-color 0.18s ease;
+}
+
+input[type='checkbox']:checked {
+  background: rgba(59, 130, 246, 0.4);
+  border-color: rgba(59, 130, 246, 0.5);
+}
+
+input[type='checkbox']:checked::before {
+  transform: translateX(22px);
+  background: #dcedff;
 }
 
 .text-button,
 .primary-button,
 .secondary-button,
 .danger-button {
-  border: none;
+  border: 1px solid transparent;
   border-radius: 999px;
   padding: 12px 18px;
   cursor: pointer;
   font-weight: 600;
+  transition:
+    background-color 0.18s ease,
+    border-color 0.18s ease,
+    color 0.18s ease,
+    box-shadow 0.18s ease;
 }
 
 .text-button {
-  background: #f2eee5;
+  background: rgba(255, 255, 255, 0.04);
+  border-color: rgba(255, 255, 255, 0.08);
   color: var(--page-text);
 }
 
 .primary-button {
-  background: linear-gradient(135deg, #2f6df6, #4a8bff);
+  background: linear-gradient(135deg, rgba(59, 130, 246, 0.96), rgba(37, 99, 235, 0.76));
+  border-color: rgba(147, 197, 253, 0.24);
+  box-shadow: 0 10px 22px rgba(59, 130, 246, 0.22);
   color: #fff;
 }
 
 .secondary-button {
-  background: #ece7db;
+  background: rgba(255, 255, 255, 0.04);
+  border-color: rgba(255, 255, 255, 0.08);
   color: var(--page-text);
 }
 
 .danger-button {
-  background: #ffe5df;
-  color: var(--page-danger);
+  background: rgba(255, 107, 107, 0.12);
+  border-color: rgba(255, 107, 107, 0.24);
+  color: #ffc6c6;
+}
+
+.text-button:hover,
+.secondary-button:hover {
+  background: rgba(255, 255, 255, 0.08);
+  border-color: rgba(255, 255, 255, 0.12);
+}
+
+.primary-button:hover {
+  box-shadow: 0 14px 28px rgba(59, 130, 246, 0.28);
+}
+
+.danger-button:hover {
+  background: rgba(255, 107, 107, 0.18);
 }
 
 .primary-button:disabled,
 .secondary-button:disabled,
-.danger-button:disabled {
+.danger-button:disabled,
+.text-button:disabled {
   opacity: 0.5;
   cursor: not-allowed;
 }
@@ -998,11 +1254,12 @@ input[type='checkbox'] {
 .provider-card {
   border: 1px solid var(--page-border);
   border-radius: 20px;
-  background: var(--page-surface-soft);
+  background: rgba(255, 255, 255, 0.03);
   padding: 18px;
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 14px 16px;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.03);
 }
 
 .provider-head {
@@ -1013,8 +1270,9 @@ input[type='checkbox'] {
   margin-top: 16px;
   border-radius: 14px;
   padding: 12px 14px;
-  background: rgba(198, 138, 29, 0.08);
-  color: var(--page-warn);
+  background: rgba(255, 204, 0, 0.08);
+  border: 1px solid rgba(255, 204, 0, 0.12);
+  color: #ffe29f;
 }
 
 .json-list {
@@ -1026,7 +1284,7 @@ input[type='checkbox'] {
 .json-item {
   border: 1px solid var(--page-border);
   border-radius: 18px;
-  background: var(--page-surface-soft);
+  background: rgba(255, 255, 255, 0.03);
   overflow: hidden;
 }
 
@@ -1038,6 +1296,11 @@ input[type='checkbox'] {
   justify-content: space-between;
   gap: 12px;
   align-items: center;
+  transition: background-color 0.18s ease;
+}
+
+.json-item summary:hover {
+  background: rgba(255, 255, 255, 0.03);
 }
 
 .json-item summary::-webkit-details-marker {
@@ -1050,18 +1313,24 @@ input[type='checkbox'] {
 
 .json-error {
   margin: 8px 0 0;
-  color: var(--page-danger);
+  color: #ffc0c0;
 }
 
 .sticky-footer {
   position: fixed;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  padding: 14px 24px;
-  background: rgba(247, 243, 235, 0.94);
-  border-top: 1px solid rgba(220, 212, 199, 0.95);
-  backdrop-filter: blur(14px);
+  left: 50%;
+  bottom: 18px;
+  transform: translateX(-50%);
+  width: min(1320px, calc(100vw - 48px));
+  padding: 16px 20px;
+  background: rgba(10, 12, 20, 0.86);
+  border: 1px solid var(--page-border-strong);
+  border-radius: 22px;
+  backdrop-filter: blur(18px) saturate(160%);
+  -webkit-backdrop-filter: blur(18px) saturate(160%);
+  box-shadow:
+    0 20px 40px rgba(0, 0, 0, 0.38),
+    inset 0 1px 0 rgba(255, 255, 255, 0.08);
   z-index: 30;
 }
 
@@ -1071,8 +1340,13 @@ input[type='checkbox'] {
   gap: 2px;
 }
 
+.footer-copy strong {
+  font-size: 0.98rem;
+}
+
 @media (max-width: 1100px) {
   .hero-main,
+  .hero-metrics,
   .form-grid,
   .mapping-grid,
   .provider-card {
@@ -1086,13 +1360,46 @@ input[type='checkbox'] {
     align-items: stretch;
   }
 
+  .hero-main {
+    grid-template-columns: 1fr;
+  }
+
+  .hero-avatar {
+    width: 92px;
+    height: 92px;
+  }
+
   .footer-actions {
     width: 100%;
     justify-content: stretch;
+    flex-wrap: wrap;
   }
 
   .footer-actions button {
     flex: 1;
+  }
+}
+
+@media (max-width: 720px) {
+  .settings-page {
+    padding-bottom: 152px;
+  }
+
+  .hero-card,
+  .form-card {
+    border-radius: 20px;
+  }
+
+  .hero-card,
+  .form-card,
+  .sticky-footer {
+    width: 100%;
+  }
+
+  .sticky-footer {
+    width: calc(100vw - 24px);
+    bottom: 12px;
+    padding: 14px 16px;
   }
 }
 </style>
