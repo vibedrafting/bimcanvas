@@ -3,6 +3,7 @@
 **/.env
 **/.git
 **/.gitignore
+!BIMCanvas.Server/Templates/**/.gitignore
 **/.project
 **/.settings
 **/.toolstarget

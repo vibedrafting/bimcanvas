@@ -105,6 +105,7 @@
 - **子任务可视化**: SubAgent/ToolCall 气泡模型 + Waiting 提示。
 - **截图附件**: 框选截图、保存到本地、加入待发送附件队列。
 - **模型/思考强度**: 从 `/api/config` 与 `/api/web_config` 加载模型列表与默认配置。
+- **接口基址兜底**: 未显式配置 `VITE_SERVER_URL` / `VITE_AGENT_URL` 时，开发态默认使用当前主机的 `5000/8865`，生产静态托管时 Server 默认同源、Agent 默认同主机 `8865`。
 
 **代码拆分**（核心文件）:
 - `src/components/UI/AICommandCenter.vue`: 组装层，负责 UI 绑定与模块协作。

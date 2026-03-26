@@ -175,4 +175,4 @@ PY
 
 log "Starting BIMCanvas Server in Production mode"
 cd /app
-exec dotnet run --project BIMCanvas.Server --configuration Release --no-build
+exec dotnet /app/BIMCanvas.Server/bin/Release/net8.0/BIMCanvas.Server.dll
