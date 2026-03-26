@@ -2,13 +2,25 @@
 
 > 基于 `reviews/DockerDeployment_Review.md` 讨论共识
 > 分支：`feature/docker-deployment`
-> 日期：2026-03-25
+> 初版日期：2026-03-25
+> 最近更新：2026-03-26
+
+## 当前状态（2026-03-26）
+
+- 阶段一核心改造：已完成，Windows 开发态与 Docker 生产态已具备分叉运行能力。
+- 阶段二单实例 Docker：已完成并通过人工烟测。
+- 已验证链路：镜像构建、容器启动、`/health`、生产静态页面加载、`.bcp` 上传导入、AI 对话、后台截图。
+- 已补充的实现性修复：模板 `.gitignore` 保留、`.bcp` 压缩包 Windows 反斜杠路径兼容、Playwright 安装链路调整。
+- 未完成：双实例编排回归、Nginx 同源 `/agent` 代理、统一配置 UI、远程服务器部署。
+- 待回归：最新 CORS 本机来源回退修复已落地，需基于新镜像再确认日志噪音是否消失。
+
+> 说明：本文后续“计划段落”仍保留决策背景；凡涉及 Docker 启动脚本、镜像构建和生产启动行为，以仓库当前实现为准。
 
 ## Context
 
 BIMCanvas 当前仅在 Windows 本机运行，单用户使用。目标是将其部署到远程 Linux 服务器的 Docker 容器中，支持多用户并行使用（每用户一个容器实例）。
 
-当前代码存在以下阻塞部署的问题：
+原始代码存在以下阻塞部署的问题（其中大部分已在当前分支解决）：
 - 16+ 个 Web 文件硬编码 `localhost:5000` / `localhost:8865`
 - Server 启动流程依赖 `cmd.exe`、`Console.ReadLine()` 交互、Vite dev server
 - 配置目录硬编码 `MyDocuments`，Linux 下不可用
@@ -23,6 +35,7 @@ BIMCanvas 当前仅在 Windows 本机运行，单用户使用。目标是将其�
 ## 阶段一：本地代码改造
 
 > 目标：在不破坏 Windows 本地开发体验的前提下，使代码具备在 Linux Docker 生产环境中运行的能力。
+> 当前状态：改动 0~10 主体已落地；本节保留原始拆解，用于追溯设计过程。
 
 ### Phase 1a：地基（优先级最高）
 
@@ -350,225 +363,72 @@ else
 ## 阶段二：Docker 打包
 
 > 目标：构建可用的 Docker 镜像，实现单实例和双实例运行。
+> 当前状态：单实例链路已完成并验证通过；多实例编排文件已提供，但尚未做完整回归。
 
-### Phase 1b：Dockerfile + 启动脚本
+### Phase 1b：Dockerfile + 启动脚本（已完成）
 
 #### 部署文件 A：`deploy/start.sh`
 
-```bash
-#!/bin/bash
-set -e
+当前实现已不再使用本文初稿中的 `dotnet run --no-build` 方案，关键行为如下：
 
-# === 统一状态根目录 ===
-BIMCANVAS_HOME="${BIMCANVAS_HOME:-/data}"
-export BIMCANVAS_HOME
-
-echo "[start.sh] BIMCANVAS_HOME=$BIMCANVAS_HOME"
-
-# === 初始化用户状态目录 ===
-mkdir -p "$BIMCANVAS_HOME/Projects"
-
-TEMPLATES_DIR="/app/BIMCanvas.Server/Templates"
-MANIFEST="$TEMPLATES_DIR/program_manifest.json"
-
-# 从模板初始化配置（仅首次）
-if [ -f "$MANIFEST" ]; then
-    # 读取 manifest 中的文件列表，逐个检查并复制
-    for f in server_config.json web_config.json config.json; do
-        if [ ! -f "$BIMCANVAS_HOME/$f" ] && [ -f "$TEMPLATES_DIR/$f" ]; then
-            cp "$TEMPLATES_DIR/$f" "$BIMCANVAS_HOME/$f"
-            echo "[start.sh] Initialized $f from template"
-        fi
-    done
-fi
-
-# === CCR 运行时配置生成（仅 CCR 启用时）===
-if [ "${CCR_ENABLED}" = "true" ]; then
-    CCR_TEMPLATE="$BIMCANVAS_HOME/ccr_config.json"
-    if [ ! -f "$CCR_TEMPLATE" ]; then
-        CCR_TEMPLATE="$TEMPLATES_DIR/ccr_config.json"
-    fi
-
-    if [ -f "$CCR_TEMPLATE" ]; then
-        # 用环境变量 patch secrets，生成到临时路径
-        python3 -c "
-import json, os, sys
-with open('$CCR_TEMPLATE') as f:
-    cfg = json.load(f)
-key = os.environ.get('CCR_API_KEY', '')
-base = os.environ.get('CCR_API_BASE', '')
-if key:
-    for p in cfg.get('Providers', []):
-        p['api_key'] = key
-if base:
-    for p in cfg.get('Providers', []):
-        p['api_base_url'] = base
-with open('/tmp/ccr_runtime.json', 'w') as f:
-    json.dump(cfg, f, indent=2)
-print('[start.sh] Generated /tmp/ccr_runtime.json')
-"
-    fi
-fi
-
-# === 设置生产环境变量 ===
-export ASPNETCORE_ENVIRONMENT=Production
-export ASPNETCORE_URLS="http://0.0.0.0:5000"
-export SERVER_HOST=0.0.0.0
-
-# 截图服务指向 Server 自身（生产模式 Server 托管 Web 静态文件）
-export BIMCANVAS_WEB_URL="http://localhost:5000"
-
-# === 启动 Server（Server 内部会拉起 Agent 和 CCR）===
-echo "[start.sh] Starting BIMCanvas Server in Production mode..."
-cd /app
-exec dotnet run --project BIMCanvas.Server --configuration Release --no-build
-```
+- 默认 `BIMCANVAS_HOME=/data`
+- 默认 `ASPNETCORE_ENVIRONMENT=Production`
+- 默认 `ASPNETCORE_URLS=http://0.0.0.0:5000`
+- 默认 `BIMCANVAS_WEB_DIST=/app/BIMCanvas.Web/dist`
+- 默认 `BIMCANVAS_PYTHON_COMMAND=/app/BIMCanvas.Agent/venv/bin/python`
+- 将 Agent venv 与 `/root/.dotnet/tools` 前置到 `PATH`
+- 首次启动时，把全局模板初始化到 `/data`
+- 支持命令透传；`docker run --rm bimcanvas:local which python` 这类命令不会被 entrypoint 吃掉
+- 最终直接执行已构建的 `BIMCanvas.Server.dll`，避免容器内回退到开发态 / Vite 模式
 
 #### 部署文件 B：`deploy/Dockerfile`
 
-```dockerfile
-FROM ubuntu:22.04
+当前实现基于 `ubuntu:22.04`，并已补齐以下真实落地细节：
 
-ENV DEBIAN_FRONTEND=noninteractive
-ENV DOTNET_CLI_TELEMETRY_OPTOUT=1
+- 安装 .NET 8、Node 20、Python 3、Playwright 依赖和中文字体
+- 基础 `apt` 安装与 Node 安装均加入重试，降低 Ubuntu 源偶发 `503` 导致的构建失败
+- 全局安装 `@anthropic-ai/claude-code` 与 `claude-code-router`
+- 构建期校验 `claude --version` 与 `ccr --version`
+- 构建 Server Release、构建 Web `dist`、创建 Agent venv 并安装本地包
+- Playwright 改为使用项目输出目录中的 CLI 安装 Chromium，不再依赖失效的 NuGet tool 版本锁定方案
+- 暴露 `5000`、`8865`，并声明 `/data` 为数据卷
 
-# === 系统依赖 ===
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    curl wget git ca-certificates gnupg \
-    # Python
-    python3 python3-venv python3-pip \
-    # Playwright 系统依赖
-    libgbm1 libnss3 libxss1 libxrandr2 libxdamage1 libxshmfence1 \
-    libatk1.0-0 libatk-bridge2.0-0 libcups2 libdrm2 libxcomposite1 \
-    libxfixes3 libpango-1.0-0 libcairo2 libasound2 \
-    # 中文字体（截图需要）
-    fonts-noto-cjk fonts-noto-color-emoji fonts-liberation \
-    && rm -rf /var/lib/apt/lists/*
+#### 部署文件 C：`.dockerignore`
 
-# === .NET 8 SDK ===
-RUN wget https://dot.net/v1/dotnet-install.sh -O /tmp/dotnet-install.sh \
-    && chmod +x /tmp/dotnet-install.sh \
-    && /tmp/dotnet-install.sh --channel 8.0 --install-dir /usr/share/dotnet \
-    && ln -s /usr/share/dotnet/dotnet /usr/bin/dotnet \
-    && rm /tmp/dotnet-install.sh
+实际使用的是仓库根目录 `.dockerignore`，不是 `deploy/.dockerignore`。本轮实现中最重要的补充是：
 
-# === Node.js 20 ===
-RUN curl -fsSL https://deb.nodesource.com/setup_20.x | bash - \
-    && apt-get install -y nodejs \
-    && rm -rf /var/lib/apt/lists/*
-
-# === CCR (Claude Code Router) ===
-RUN npm install -g claude-code-router
-
-# === 复制项目代码 ===
-COPY . /app
-WORKDIR /app
-
-# === 编译 Server + Core ===
-RUN dotnet restore BIMCanvas.Server \
-    && dotnet build BIMCanvas.Server -c Release --no-restore
-
-# === 构建 Web 前端 ===
-RUN cd BIMCanvas.Web && npm ci && npm run build
-
-# === 安装 Agent 依赖 ===
-RUN cd BIMCanvas.Agent \
-    && python3 -m venv venv \
-    && venv/bin/pip install --no-cache-dir -e .
-
-# === 安装 Playwright Chromium ===
-RUN cd BIMCanvas.Server \
-    && dotnet tool install --global Microsoft.Playwright.CLI || true \
-    && /root/.dotnet/tools/playwright install chromium --with-deps || \
-       dotnet exec /app/BIMCanvas.Server/bin/Release/net8.0/Microsoft.Playwright.dll install chromium --with-deps || \
-       echo "Playwright install via alternative method needed"
-
-# === 启动脚本 ===
-COPY deploy/start.sh /app/deploy/start.sh
-RUN chmod +x /app/deploy/start.sh
-
-# === 默认数据目录 ===
-RUN mkdir -p /data
-
-EXPOSE 5000 8865
-VOLUME ["/data"]
-
-ENTRYPOINT ["/app/deploy/start.sh"]
-```
-
-#### 部署文件 C：`deploy/.dockerignore`
-
-```
-# Git
-.git
-.gitignore
-
-# IDE
-.vs
-.vscode
-.idea
-*.user
-*.suo
-
-# 构建产物（Docker 内重新构建）
-**/bin/
-**/obj/
-**/node_modules/
-BIMCanvas.Web/dist/
-BIMCanvas.Agent/venv/
-BIMCanvas.Agent/__pycache__/
-
-# 文档和计划
-docs/
-plans/
-reviews/
-*.md
-!README.md
-
-# Revit（Docker 中不需要）
-BIMCanvas.Revit/
-
-# 敏感文件
-**/.env.local
-**/secrets/
-```
+- 保留 `BIMCanvas.Server/Templates/**/.gitignore`
+- 避免模板初始化时因为 Docker build context 过滤而丢失占位文件
 
 #### 部署文件 D：`deploy/instance.env.example`
 
-```bash
-# ===================================================
-# BIMCanvas 实例环境变量模板
-# 复制此文件为 instance-{用户名}.env 并填入实际值
-# ===================================================
+该文件已存在，可作为服务器侧实例 bootstrap 模板继续沿用。当前定位仍然是：
 
-# --- Secrets（必填其一）---
-# 直连 Anthropic 模式：
-ANTHROPIC_API_KEY=sk-ant-your-key-here
+- 初始化实例密钥与运行参数
+- 首次启动时为 `/data` 下的 JSON 配置提供缺省值
+- 后续长期配置真源仍以持久化 JSON 为主
 
-# CCR 网关模式（如使用第三方代理）：
-# CCR_ENABLED=true
-# CCR_API_KEY=your-provider-key
-# CCR_API_BASE=https://your-provider-base-url
+**Phase 1b 当前验证结果**：
+1. `docker build -t bimcanvas:local -f deploy/Dockerfile .` 已成功
+2. `docker run --rm bimcanvas:local which python` 已验证输出 `/app/BIMCanvas.Agent/venv/bin/python`
+3. `docker run --rm bimcanvas:local python -c "import claude_agent_sdk; print('ok')"` 已成功
+4. `docker run --rm bimcanvas:local claude --version` 已成功
+5. `docker run --rm bimcanvas:local ccr --version` 已成功
+6. `docker run --rm -p 5000:5000 -p 8865:8865 bimcanvas:local` 已成功启动生产模式
+7. `http://localhost:5000/health` 与 `http://localhost:8865/health` 已成功
+8. 浏览器访问 `http://localhost:5000` 已可加载生产静态页面
+9. `.bcp` 上传导入、AI 对话、后台截图链路已成功
 
-# --- 路径（通常不需要修改）---
-# BIMCANVAS_HOME=/data
+**当前补充说明**：
 
-# --- 以下变量由 start.sh 自动设置，通常不需要手动指定 ---
-# ASPNETCORE_ENVIRONMENT=Production
-# ASPNETCORE_URLS=http://0.0.0.0:5000
-# SERVER_HOST=0.0.0.0
-# BIMCANVAS_WEB_URL=http://localhost:5000
-```
-
-**Phase 1b 验证点**：
-1. `docker build -t bimcanvas:latest -f deploy/Dockerfile .` 构建成功
-2. `docker run -d --name test -p 6001:5000 -v /tmp/bimtest:/data -e ANTHROPIC_API_KEY=sk-test bimcanvas:latest` 启动成功
-3. 浏览器访问 `http://localhost:6001` 能看到前端页面
-4. `docker logs test` 无致命错误
+- 目前单实例 smoke test 仍采用浏览器直接访问 `5000` 与 `8865` 的模式，尚未收敛到 Nginx 同源 `/agent` 代理
+- `CORS policy execution failed` 日志噪音已在代码中追加本机来源回退修复，需基于最新镜像再回归一次
 
 ---
 
-### Phase 1d：多实例编排
+### Phase 1d：多实例编排（进行中）
+
+当前仓库已提供 `deploy/docker-compose.yml`、`deploy/nginx.conf`、`deploy/instance.env.example` 初版，但尚未完成双实例端到端验证。
 
 #### 部署文件 E：`deploy/docker-compose.yml`
 
@@ -928,12 +788,12 @@ docker compose up -d
 - [ ] 项目能保存和加载
 - [ ] 截图功能正常
 
-### 第二关：单实例 Docker
+### 第二关：单实例 Docker（已通过）
 
-- [ ] `docker build` 成功完成
-- [ ] `docker run` 单实例，容器日志无致命错误
-- [ ] 浏览器访问容器端口，前端页面正常加载
-- [ ] 完整工作流可用（创建项目 → 保存 → AI 调用 → 截图）
+- [x] `docker build` 成功完成
+- [x] `docker run` 单实例，容器日志无致命错误
+- [x] 浏览器访问容器端口，前端页面正常加载
+- [x] 完整工作流可用（上传 / 加载 `.bcp` → AI 调用 → 截图）
 
 ### 第三关：双实例烟测
 
@@ -956,10 +816,10 @@ docker compose up -d
 - [ ] (n) 重启后不会被 `instance.env` 覆盖回旧值
 - [ ] (o) 两个实例各自的配置页互不影响
 
-### 第五关：生产链路完整性
+### 第五关：生产链路完整性（部分通过）
 
 - [ ] (p) 浏览器网络面板无 `localhost` / `127.0.0.1` / `:5173` / `:8865` 的直接外部请求
-- [ ] (q) 容器内后台截图访问 `http://localhost:5000/screenshot-render` 正常产出
+- [x] (q) 容器内后台截图访问 `http://localhost:5000/screenshot-render` 正常产出
 
 ---
 
