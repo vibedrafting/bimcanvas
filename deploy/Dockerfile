@@ -11,8 +11,7 @@ ENV DEBIAN_FRONTEND=noninteractive \
     AGENT_VENV_BIN=/app/BIMCanvas.Agent/venv/bin \
     PATH=/app/BIMCanvas.Agent/venv/bin:/root/.dotnet/tools:/usr/share/dotnet:${PATH}
 
-RUN apt-get update -o Acquire::Retries=5 \
-    && apt-get install -y --no-install-recommends \
+RUN packages='\
     ca-certificates \
     curl \
     git \
@@ -24,6 +23,7 @@ RUN apt-get update -o Acquire::Retries=5 \
     python-is-python3 \
     wget \
     fonts-liberation \
+    fonts-noto-cjk \
     fonts-noto-color-emoji \
     libasound2 \
     libatk-bridge2.0-0 \
@@ -51,16 +51,19 @@ RUN apt-get update -o Acquire::Retries=5 \
     libxrandr2 \
     libxshmfence1 \
     tzdata \
-    zlib1g \
-    && for attempt in 1 2 3; do \
-        apt-get install -y --no-install-recommends fonts-noto-cjk && break; \
+    zlib1g'; \
+    for attempt in 1 2 3; do \
+        apt-get update -o Acquire::Retries=5 \
+        && apt-get install -y --fix-missing --no-install-recommends $packages \
+        && break; \
         if [ "$attempt" -eq 3 ]; then exit 1; fi; \
-        echo "Retrying fonts-noto-cjk install ($attempt/3)"; \
-        apt-get update -o Acquire::Retries=5; \
+        echo "Retrying base apt install ($attempt/3)"; \
+        apt-get clean; \
+        rm -rf /var/lib/apt/lists/*; \
         sleep 5; \
-    done \
-    && dpkg -s fonts-noto-cjk >/dev/null 2>&1 \
-    && rm -rf /var/lib/apt/lists/*
+    done; \
+    apt-get clean; \
+    rm -rf /var/lib/apt/lists/*
 
 RUN wget https://dot.net/v1/dotnet-install.sh -O /tmp/dotnet-install.sh \
     && chmod +x /tmp/dotnet-install.sh \
@@ -69,13 +72,22 @@ RUN wget https://dot.net/v1/dotnet-install.sh -O /tmp/dotnet-install.sh \
     && rm /tmp/dotnet-install.sh
 
 RUN curl -fsSL https://deb.nodesource.com/setup_20.x | bash - \
-    && apt-get update -o Acquire::Retries=5 \
-    && apt-get install -y --no-install-recommends nodejs \
+    && for attempt in 1 2 3; do \
+        apt-get update -o Acquire::Retries=5 \
+        && apt-get install -y --fix-missing --no-install-recommends nodejs \
+        && break; \
+        if [ "$attempt" -eq 3 ]; then exit 1; fi; \
+        echo "Retrying nodejs apt install ($attempt/3)"; \
+        apt-get clean; \
+        rm -rf /var/lib/apt/lists/*; \
+        sleep 5; \
+    done \
+    && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
 
 RUN npm install -g @anthropic-ai/claude-code claude-code-router \
     && claude --version \
-    && ccr version
+    && ccr --version
 
 WORKDIR /app
 COPY . /app
