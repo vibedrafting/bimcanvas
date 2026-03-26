@@ -8,6 +8,17 @@ public sealed class SettingsSnapshotDto
     public SettingsGroupDto Web { get; set; } = new();
     public SettingsGroupDto Agent { get; set; } = new();
     public SettingsGroupDto Ccr { get; set; } = new();
+    public SettingsRuntimeDto Runtime { get; set; } = new();
+}
+
+public sealed class SettingsRuntimeDto
+{
+    public string Mode { get; set; } = "direct";
+    public string EffectiveDefaultModelPath { get; set; } = "agent.model";
+    public string EffectiveDefaultModelValue { get; set; } = "";
+    public bool DockerManagedRestart { get; set; }
+    public string RestartBehavior { get; set; } = "manual";
+    public string RestartHint { get; set; } = "";
 }
 
 public sealed class SettingsGroupDto

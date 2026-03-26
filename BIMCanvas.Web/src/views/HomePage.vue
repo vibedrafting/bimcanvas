@@ -13,7 +13,7 @@ const canvasStore = useCanvasStore();
 
 // Tab 状态
 const activeTab = ref<'all' | 'recent'>('all');
-const showSettingsPanel = ref(false);
+const homeMode = ref<'projects' | 'settings'>('projects');
 
 // 删除确认
 const showDeleteDialog = ref(false);
@@ -138,38 +138,61 @@ onMounted(() => {
 <template>
   <div class="homepage">
     <!-- 顶部 Header -->
-    <header class="homepage-header">
-      <div class="header-left">
-        <span class="brand-text">BIMCanvas</span>
-      </div>
-      <div class="header-right">
-        <GlassButton variant="ghost" @click="showSettingsPanel = true">
-          <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="margin-right: 6px;">
-            <circle cx="12" cy="12" r="3"></circle>
-            <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06A1.65 1.65 0 0 0 15 19.4a1.65 1.65 0 0 0-1 .6 1.65 1.65 0 0 0-.33 1V21a2 2 0 1 1-4 0v-.09a1.65 1.65 0 0 0-.33-1A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.6 15a1.65 1.65 0 0 0-.6-1 1.65 1.65 0 0 0-1-.33H3a2 2 0 1 1 0-4h.09a1.65 1.65 0 0 0 1-.33A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.6a1.65 1.65 0 0 0 1-.6 1.65 1.65 0 0 0 .33-1V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 .33 1 1.65 1.65 0 0 0 1 .6 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9c0 .38.14.74.4 1 .26.26.62.4 1 .4H21a2 2 0 1 1 0 4h-.09c-.38 0-.74.14-1 .4-.26.26-.4.62-.4 1z"></path>
-          </svg>
-          实例设置
-        </GlassButton>
-        <GlassButton variant="primary" @click="handleImport">
-          <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="margin-right: 6px;">
-            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
-            <polyline points="7 10 12 15 17 10"></polyline>
-            <line x1="12" y1="15" x2="12" y2="3"></line>
-          </svg>
-          导入 .bcp
-        </GlassButton>
-        <input
-          ref="fileInputRef"
-          type="file"
-          accept=".bcp"
-          style="display: none"
-          @change="onFileSelected"
-        />
-      </div>
+    <header class="homepage-header" :class="{ compact: homeMode === 'settings' }">
+      <template v-if="homeMode === 'projects'">
+        <div class="header-left">
+          <span class="brand-text">BIMCanvas</span>
+        </div>
+        <div class="header-right">
+          <GlassButton variant="ghost" @click="homeMode = 'settings'">
+            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="margin-right: 6px;">
+              <circle cx="12" cy="12" r="3"></circle>
+              <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06A1.65 1.65 0 0 0 15 19.4a1.65 1.65 0 0 0-1 .6 1.65 1.65 0 0 0-.33 1V21a2 2 0 1 1-4 0v-.09a1.65 1.65 0 0 0-.33-1A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.6 15a1.65 1.65 0 0 0-.6-1 1.65 1.65 0 0 0-1-.33H3a2 2 0 1 1 0-4h.09a1.65 1.65 0 0 0 1-.33A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.6a1.65 1.65 0 0 0 1-.6 1.65 1.65 0 0 0 .33-1V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 .33 1 1.65 1.65 0 0 0 1 .6 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9c0 .38.14.74.4 1 .26.26.62.4 1 .4H21a2 2 0 1 1 0 4h-.09c-.38 0-.74.14-1 .4-.26.26-.4.62-.4 1z"></path>
+            </svg>
+            实例设置
+          </GlassButton>
+          <GlassButton variant="primary" @click="handleImport">
+            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="margin-right: 6px;">
+              <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+              <polyline points="7 10 12 15 17 10"></polyline>
+              <line x1="12" y1="15" x2="12" y2="3"></line>
+            </svg>
+            导入 .bcp
+          </GlassButton>
+          <input
+            ref="fileInputRef"
+            type="file"
+            accept=".bcp"
+            style="display: none"
+            @change="onFileSelected"
+          />
+        </div>
+      </template>
+
+      <template v-else>
+        <div class="settings-header-left">
+          <button class="back-button" type="button" @click="homeMode = 'projects'">
+            <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M15 18l-6-6 6-6" />
+            </svg>
+          </button>
+          <div class="settings-header-copy">
+            <span class="brand-text">实例设置</span>
+            <span class="settings-subtitle">首页内配置台</span>
+          </div>
+        </div>
+        <div class="settings-header-note">离开首页后不显示入口</div>
+      </template>
     </header>
 
     <!-- 主内容 -->
-    <main class="homepage-content">
+    <main class="homepage-content" :class="{ 'settings-mode': homeMode === 'settings' }">
+      <HomeSettingsPanel
+        v-if="homeMode === 'settings'"
+        @close="homeMode = 'projects'"
+      />
+
+      <template v-else>
       <!-- Tab 栏 -->
       <div class="tab-bar">
         <button
@@ -269,6 +292,7 @@ onMounted(() => {
           </div>
         </div>
       </div>
+      </template>
 
     </main>
 
@@ -303,11 +327,6 @@ onMounted(() => {
       :existing-path="conflictExistingPath"
       @resolve="handleConflictResolve"
     />
-
-    <HomeSettingsPanel
-      :visible="showSettingsPanel"
-      @close="showSettingsPanel = false"
-    />
   </div>
 </template>
 
@@ -315,7 +334,9 @@ onMounted(() => {
 .homepage {
   width: 100vw;
   height: 100vh;
-  background: var(--bg-canvas);
+  background:
+    radial-gradient(circle at top center, rgba(255, 244, 214, 0.08), transparent 26%),
+    var(--bg-canvas);
   display: flex;
   flex-direction: column;
   color: var(--text-primary);
@@ -331,6 +352,10 @@ onMounted(() => {
   border-bottom: 1px solid var(--border-subtle);
 }
 
+.homepage-header.compact {
+  padding: 18px 32px 12px;
+}
+
 .brand-text {
   font-size: 1.2rem;
   font-weight: 700;
@@ -343,6 +368,37 @@ onMounted(() => {
   gap: 8px;
 }
 
+.settings-header-left {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
+.settings-header-copy {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.settings-subtitle,
+.settings-header-note {
+  color: var(--text-secondary);
+  font-size: 0.82rem;
+}
+
+.back-button {
+  width: 38px;
+  height: 38px;
+  border-radius: 50%;
+  border: 1px solid var(--border-subtle);
+  background: rgba(255, 255, 255, 0.04);
+  color: var(--text-primary);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+}
+
 /* Content */
 .homepage-content {
   flex: 1;
@@ -351,6 +407,12 @@ onMounted(() => {
   max-width: 960px;
   width: 100%;
   margin: 0 auto;
+}
+
+.homepage-content.settings-mode {
+  max-width: 1400px;
+  padding-top: 12px;
+  padding-bottom: 0;
 }
 
 /* Tabs */

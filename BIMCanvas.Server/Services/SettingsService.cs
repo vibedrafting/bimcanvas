@@ -70,6 +70,11 @@ public sealed class SettingsService
 
     public SettingsSnapshotDto GetSettings()
     {
+        var serverValues = LoadServerValues();
+        var webValues = LoadWebValues();
+        var agentValues = LoadAgentValues();
+        var ccrValues = LoadCcrValues();
+
         return new SettingsSnapshotDto
         {
             Server = CreateGroup(
@@ -78,7 +83,7 @@ public sealed class SettingsService
                 Path.GetFileName(ConfigService.GetServerConfigPath()),
                 applyMode: "restart",
                 requiresRestart: true,
-                LoadServerValues(),
+                serverValues,
                 ServerFields),
             Web = CreateGroup(
                 "web",
@@ -86,7 +91,7 @@ public sealed class SettingsService
                 Path.GetFileName(ConfigService.GetWebConfigPath()),
                 applyMode: "immediate",
                 requiresRestart: false,
-                LoadWebValues(),
+                webValues,
                 WebFields),
             Agent = CreateGroup(
                 "agent",
@@ -94,7 +99,7 @@ public sealed class SettingsService
                 Path.GetFileName(ConfigService.GetAgentConfigPath()),
                 applyMode: "restart",
                 requiresRestart: true,
-                LoadAgentValues(),
+                agentValues,
                 AgentFields),
             Ccr = CreateGroup(
                 "ccr",
@@ -102,8 +107,9 @@ public sealed class SettingsService
                 Path.GetFileName(ConfigService.GetCcrConfigPath()),
                 applyMode: "restart",
                 requiresRestart: true,
-                LoadCcrValues(),
-                CcrFields)
+                ccrValues,
+                CcrFields),
+            Runtime = BuildRuntime(serverValues, agentValues)
         };
     }
 
@@ -177,6 +183,35 @@ public sealed class SettingsService
             RequiresRestart = requiresRestart,
             Values = values,
             Fields = fields.Select(CloneField).ToList()
+        };
+    }
+
+    private static SettingsRuntimeDto BuildRuntime(JObject serverValues, JObject agentValues)
+    {
+        var isCcrEnabled = serverValues.SelectToken("ccr.enabled")?.Value<bool>() ?? false;
+        var dockerManagedRestart = string.Equals(
+            Environment.GetEnvironmentVariable("DOTNET_RUNNING_IN_CONTAINER"),
+            "true",
+            StringComparison.OrdinalIgnoreCase);
+
+        var effectivePath = isCcrEnabled
+            ? "server.ccr.defaultModelFamily"
+            : "agent.model";
+
+        var effectiveValue = isCcrEnabled
+            ? serverValues.SelectToken("ccr.defaultModelFamily")?.Value<string>() ?? ""
+            : agentValues.SelectToken("model")?.Value<string>() ?? "";
+
+        return new SettingsRuntimeDto
+        {
+            Mode = isCcrEnabled ? "ccr" : "direct",
+            EffectiveDefaultModelPath = effectivePath,
+            EffectiveDefaultModelValue = effectiveValue,
+            DockerManagedRestart = dockerManagedRestart,
+            RestartBehavior = dockerManagedRestart ? "docker-auto" : "manual",
+            RestartHint = dockerManagedRestart
+                ? "当前实例运行在 Docker 容器内，点击重启后会由 restart policy 自动拉起。"
+                : "当前环境未检测到 Docker 自动重启，点击重启后需要手动重新启动服务。"
         };
     }
 

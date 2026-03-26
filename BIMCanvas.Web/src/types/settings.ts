@@ -23,6 +23,16 @@ export interface SettingsSnapshot {
   web: SettingsGroup
   agent: SettingsGroup
   ccr: SettingsGroup
+  runtime: SettingsRuntime
+}
+
+export interface SettingsRuntime {
+  mode: 'direct' | 'ccr'
+  effectiveDefaultModelPath: string
+  effectiveDefaultModelValue: string
+  dockerManagedRestart: boolean
+  restartBehavior: 'docker-auto' | 'manual'
+  restartHint: string
 }
 
 export interface UpdateSettingsRequest {
