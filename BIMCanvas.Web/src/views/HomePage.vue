@@ -4,6 +4,7 @@ import { useAppStore } from '../stores/appStore';
 import { useCanvasStore } from '../stores/canvasStore';
 import GlassButton from '../components/UI/base/GlassButton.vue';
 import ConflictDialog from '../components/UI/ConflictDialog.vue';
+import HomeSettingsPanel from '../components/UI/HomeSettingsPanel.vue';
 import { useProjectFile } from '../composables/useProjectFile';
 import type { ProjectSummary } from '../types/homepage';
 
@@ -12,6 +13,7 @@ const canvasStore = useCanvasStore();
 
 // Tab 状态
 const activeTab = ref<'all' | 'recent'>('all');
+const showSettingsPanel = ref(false);
 
 // 删除确认
 const showDeleteDialog = ref(false);
@@ -141,6 +143,13 @@ onMounted(() => {
         <span class="brand-text">BIMCanvas</span>
       </div>
       <div class="header-right">
+        <GlassButton variant="ghost" @click="showSettingsPanel = true">
+          <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="margin-right: 6px;">
+            <circle cx="12" cy="12" r="3"></circle>
+            <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06A1.65 1.65 0 0 0 15 19.4a1.65 1.65 0 0 0-1 .6 1.65 1.65 0 0 0-.33 1V21a2 2 0 1 1-4 0v-.09a1.65 1.65 0 0 0-.33-1A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.6 15a1.65 1.65 0 0 0-.6-1 1.65 1.65 0 0 0-1-.33H3a2 2 0 1 1 0-4h.09a1.65 1.65 0 0 0 1-.33A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.6a1.65 1.65 0 0 0 1-.6 1.65 1.65 0 0 0 .33-1V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 .33 1 1.65 1.65 0 0 0 1 .6 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9c0 .38.14.74.4 1 .26.26.62.4 1 .4H21a2 2 0 1 1 0 4h-.09c-.38 0-.74.14-1 .4-.26.26-.4.62-.4 1z"></path>
+          </svg>
+          实例设置
+        </GlassButton>
         <GlassButton variant="primary" @click="handleImport">
           <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="margin-right: 6px;">
             <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
@@ -293,6 +302,11 @@ onMounted(() => {
       :project-name="conflictProjectName"
       :existing-path="conflictExistingPath"
       @resolve="handleConflictResolve"
+    />
+
+    <HomeSettingsPanel
+      :visible="showSettingsPanel"
+      @close="showSettingsPanel = false"
     />
   </div>
 </template>

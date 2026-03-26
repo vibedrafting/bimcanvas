@@ -54,11 +54,25 @@ WEB_CONFIG_PATH="$CONFIG_ROOT/web_config.json"
 AGENT_CONFIG_PATH="$CONFIG_ROOT/config.json"
 CCR_CONFIG_PATH="$CONFIG_ROOT/ccr_config.json"
 
+BOOTSTRAPPED_SERVER_CONFIG=0
+BOOTSTRAPPED_WEB_CONFIG=0
 BOOTSTRAPPED_AGENT_CONFIG=0
+BOOTSTRAPPED_CCR_CONFIG=0
 
-copy_if_missing "$SERVER_TEMPLATE_ROOT/server_config.json" "$SERVER_CONFIG_PATH"
-copy_if_missing "$SERVER_TEMPLATE_ROOT/web_config.json" "$WEB_CONFIG_PATH"
-copy_if_missing "$SERVER_TEMPLATE_ROOT/ccr_config.json" "$CCR_CONFIG_PATH"
+if [ ! -f "$SERVER_CONFIG_PATH" ] && [ -f "$SERVER_TEMPLATE_ROOT/server_config.json" ]; then
+    copy_if_missing "$SERVER_TEMPLATE_ROOT/server_config.json" "$SERVER_CONFIG_PATH"
+    BOOTSTRAPPED_SERVER_CONFIG=1
+fi
+
+if [ ! -f "$WEB_CONFIG_PATH" ] && [ -f "$SERVER_TEMPLATE_ROOT/web_config.json" ]; then
+    copy_if_missing "$SERVER_TEMPLATE_ROOT/web_config.json" "$WEB_CONFIG_PATH"
+    BOOTSTRAPPED_WEB_CONFIG=1
+fi
+
+if [ ! -f "$CCR_CONFIG_PATH" ] && [ -f "$SERVER_TEMPLATE_ROOT/ccr_config.json" ]; then
+    copy_if_missing "$SERVER_TEMPLATE_ROOT/ccr_config.json" "$CCR_CONFIG_PATH"
+    BOOTSTRAPPED_CCR_CONFIG=1
+fi
 
 if [ ! -f "$AGENT_CONFIG_PATH" ] && [ -f "$AGENT_TEMPLATE_ROOT/config.json" ]; then
     copy_if_missing "$AGENT_TEMPLATE_ROOT/config.json" "$AGENT_CONFIG_PATH"
@@ -70,7 +84,10 @@ copy_if_missing "$AGENT_TEMPLATE_ROOT/agents" "$CONFIG_ROOT/agents"
 copy_if_missing "$AGENT_TEMPLATE_ROOT/skills" "$CONFIG_ROOT/skills"
 copy_if_missing "$AGENT_TEMPLATE_ROOT/.claude-plugin" "$CONFIG_ROOT/.claude-plugin"
 
+export BOOTSTRAPPED_SERVER_CONFIG
+export BOOTSTRAPPED_WEB_CONFIG
 export BOOTSTRAPPED_AGENT_CONFIG
+export BOOTSTRAPPED_CCR_CONFIG
 
 python3 <<'PY'
 import json
@@ -103,7 +120,6 @@ home = Path(os.environ["BIMCANVAS_HOME"])
 server_config_path = home / "server_config.json"
 agent_config_path = home / "config.json"
 ccr_user_config_path = home / "ccr_config.json"
-ccr_runtime_path = Path("/tmp/ccr_runtime.json")
 ccr_template_path = Path("/app/BIMCanvas.Server/Templates/global-config/server/ccr_config.json")
 
 server_config = load_json(server_config_path)
@@ -111,25 +127,31 @@ server_section = server_config.setdefault("server", {})
 startup_section = server_config.setdefault("startup", {})
 ccr_section = server_config.setdefault("ccr", {})
 
-startup_section["openBrowser"] = False
+bootstrapped_server = os.getenv("BOOTSTRAPPED_SERVER_CONFIG") == "1"
+bootstrapped_agent = os.getenv("BOOTSTRAPPED_AGENT_CONFIG") == "1"
+bootstrapped_ccr = os.getenv("BOOTSTRAPPED_CCR_CONFIG") == "1"
 
-python_command = os.getenv("BIMCANVAS_PYTHON_COMMAND", "").strip()
-if python_command:
-    server_section["pythonCommand"] = python_command
+if bootstrapped_server:
+    startup_section["openBrowser"] = False
 
-ccr_enabled_override = parse_optional_bool(os.getenv("CCR_ENABLED"))
-ccr_enabled = ccr_enabled_override if ccr_enabled_override is not None else bool(ccr_section.get("enabled", False))
-ccr_section["enabled"] = ccr_enabled
+    python_command = os.getenv("BIMCANVAS_PYTHON_COMMAND", "").strip()
+    if python_command:
+        server_section["pythonCommand"] = python_command
 
-ccr_model_family = os.getenv("CCR_MODEL_FAMILY", "").strip()
-if ccr_model_family:
-    ccr_section["defaultModelFamily"] = ccr_model_family
+    ccr_enabled_override = parse_optional_bool(os.getenv("CCR_ENABLED"))
+    if ccr_enabled_override is not None:
+        ccr_section["enabled"] = ccr_enabled_override
+        if ccr_enabled_override:
+            ccr_section["autoStart"] = True
 
-if ccr_enabled_override is True:
-    ccr_section["autoStart"] = True
+    ccr_model_family = os.getenv("CCR_MODEL_FAMILY", "").strip()
+    if ccr_model_family:
+        ccr_section["defaultModelFamily"] = ccr_model_family
+
+ccr_enabled = bool(ccr_section.get("enabled", False))
 
 agent_config = load_json(agent_config_path)
-if not ccr_enabled:
+if bootstrapped_agent and not ccr_enabled:
     anthropic_api_key = os.getenv("ANTHROPIC_API_KEY", "").strip()
     anthropic_base_url = os.getenv("ANTHROPIC_BASE_URL", "").strip()
     anthropic_model = os.getenv("ANTHROPIC_MODEL", "").strip()
@@ -145,7 +167,8 @@ if not ccr_enabled:
     if anthropic_model:
         agent_config["model"] = anthropic_model
 
-save_json(agent_config_path, agent_config)
+if bootstrapped_agent:
+    save_json(agent_config_path, agent_config)
 
 if ccr_enabled:
     ccr_source_path = ccr_user_config_path if ccr_user_config_path.exists() else ccr_template_path
@@ -153,24 +176,21 @@ if ccr_enabled:
         raise FileNotFoundError(f"CCR config template not found: {ccr_source_path}")
 
     ccr_runtime = load_json(ccr_source_path)
-    providers = ccr_runtime.get("Providers") or []
-    ccr_api_key = os.getenv("CCR_API_KEY", "").strip()
-    ccr_api_base = os.getenv("CCR_API_BASE", "").strip()
+    if bootstrapped_ccr:
+        providers = ccr_runtime.get("Providers") or []
+        ccr_api_key = os.getenv("CCR_API_KEY", "").strip()
+        ccr_api_base = os.getenv("CCR_API_BASE", "").strip()
 
-    for provider in providers:
-        if ccr_api_key:
-            provider["api_key"] = ccr_api_key
-        if ccr_api_base:
-            provider["api_base_url"] = ccr_api_base
+        for provider in providers:
+            if ccr_api_key:
+                provider["api_key"] = ccr_api_key
+            if ccr_api_base:
+                provider["api_base_url"] = ccr_api_base
 
-    save_json(ccr_runtime_path, ccr_runtime)
-    ccr_section["configFileName"] = str(ccr_runtime_path)
-else:
-    if ccr_runtime_path.exists():
-        ccr_runtime_path.unlink()
-    ccr_section["configFileName"] = "ccr_config.json"
+        save_json(ccr_user_config_path, ccr_runtime)
 
-save_json(server_config_path, server_config)
+if bootstrapped_server:
+    save_json(server_config_path, server_config)
 PY
 
 log "Starting BIMCanvas Server in Production mode"

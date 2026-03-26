@@ -40,6 +40,10 @@
 ### 3. 数据与协作 (Data & Sync)
 - 🔶 **AI 实时同步**: SignalR 基础连接已实现（事件监听 + 重连机制），集成收尾中。
 - ✅ **撤销/重做 (Undo/Redo)**: TimelineManager 已完成（快照、历史策略、变更来源检测）。
+- ✅ **首页实例设置台 (Homepage Instance Settings)**:
+    - 首页右上角新增“实例设置”入口，离开首页后入口自动消失。
+    - 统一读取/编辑 `server/web/agent/ccr` 四组配置，保存后区分“即时生效”与“需重启”。
+    - `web_config` 通过事件热更新，需重启配置通过 `/api/settings/restart` 触发实例重启。
 - ⬜ **补丁审查 (Patch Review)**: 可视化审查 AI 提出的修改建议 (Diff)。
 
 ### 4. 调试与辅助 (Debug & Tools)
@@ -109,6 +113,7 @@
 
 **代码拆分**（核心文件）:
 - `src/components/UI/AICommandCenter.vue`: 组装层，负责 UI 绑定与模块协作。
+- `src/components/UI/HomeSettingsPanel.vue`: 首页实例设置台，统一管理四份实例级配置。
 - `src/composables/aiCommandCenter/useWindowManager.ts`: 窗口/分支/Worktree 管理。
 - `src/composables/aiCommandCenter/useChatStream.ts`: SSE 流处理与消息发送。
 - `src/composables/aiCommandCenter/useAgentConfig.ts`: 模型与思考强度配置。
@@ -116,6 +121,7 @@
 - `src/composables/aiCommandCenter/usePanelUI.ts`: 面板尺寸、Tab 横向滚动、轮播滚动。
 - `src/composables/aiCommandCenter/useScreenshot.ts`: 截图监听与附件管理。
 - `src/composables/aiCommandCenter/useContextMenu.ts`: Context/Attachment 菜单逻辑。
+- `src/services/SettingsService.ts`: 实例设置聚合 API 访问层。
 - `src/constants/aiCommandCenter.ts`: WAITING_VERBS / thinkingLevels / contextOptions / proposalMocks。
 - `src/types/aiCommandCenter.ts`: ChatWindow/ChatMessage/Proposal 等类型。
 

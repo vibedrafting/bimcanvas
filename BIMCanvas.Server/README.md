@@ -507,6 +507,9 @@ computed/*.json        → computed
 |------|------|------|------|
 | `/api/notification/agent` | POST | Agent 通知推送（通过 SignalR 转发给 Web） | ✅ |
 | `/api/notification/data-changed` | POST | 数据变更通知 | ✅ |
+| `/api/settings` | GET | 聚合读取 `server/web/agent/ccr` 四组实例配置 | ✅ |
+| `/api/settings` | PUT | 聚合写回四份实例配置 JSON，并返回重启提示 | ✅ |
+| `/api/settings/restart` | POST | 触发实例优雅停机，由 Docker restart policy 接管重启 | ✅ |
 | `/api/web_config` | GET | 获取 Web 配置 | ✅ |
 | `/api/web_config` | POST | 更新 Web 配置 | ✅ |
 | `/api/modules/library` | GET | 获取模块库列表 | ✅ |

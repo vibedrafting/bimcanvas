@@ -1,4 +1,4 @@
-import { nextTick, ref } from 'vue';
+import { nextTick, onMounted, onUnmounted, ref } from 'vue';
 import type { EffortLevel, ModelOption, ThinkingLevel } from '../../types/aiCommandCenter';
 import { effortLevels, thinkingLevels } from '../../constants/aiCommandCenter';
 
@@ -26,6 +26,24 @@ export const useAgentConfig = (agentApiBase: string, serverApiBase: string) => {
   const newModelId = ref('');
   const newModelInputRef = ref<HTMLInputElement | null>(null);
   const layerPresets = ref<LayerPresetsConfig>({});
+
+  const applyWebConfig = (webConfig: any, mode: 'replace' | 'merge' = 'replace') => {
+    const incomingModels = webConfig.customModels || [];
+    if (mode === 'replace') {
+      models.value = incomingModels;
+    } else {
+      const merged = new Map(models.value.map(model => [model.id, model]));
+      for (const model of incomingModels) {
+        merged.set(model.id, model);
+      }
+      models.value = Array.from(merged.values());
+    }
+    layerPresets.value = webConfig.layerPresets || {};
+
+    window.dispatchEvent(new CustomEvent('bimcanvas:layer-presets-loaded', {
+      detail: layerPresets.value
+    }));
+  };
 
   const saveCustomModels = async () => {
     try {
@@ -88,15 +106,8 @@ export const useAgentConfig = (agentApiBase: string, serverApiBase: string) => {
 
       if (webConfigRes.ok) {
         const webConfig = await webConfigRes.json();
-        models.value = webConfig.customModels || [];
-        // 解析图层预设配置
-        layerPresets.value = webConfig.layerPresets || {};
+        applyWebConfig(webConfig, 'replace');
         console.log('图层预设配置已加载:', layerPresets.value);
-
-        // 派发事件通知 LayerManager 更新配置
-        window.dispatchEvent(new CustomEvent('bimcanvas:layer-presets-loaded', {
-          detail: layerPresets.value
-        }));
       }
 
       if (configRes.ok) {
@@ -145,6 +156,21 @@ export const useAgentConfig = (agentApiBase: string, serverApiBase: string) => {
       console.warn('获取 Agent 配置失败:', error);
     }
   };
+
+  const handleWebConfigUpdated = (event: Event) => {
+    const customEvent = event as CustomEvent;
+    if (customEvent.detail) {
+      applyWebConfig(customEvent.detail, 'merge');
+    }
+  };
+
+  onMounted(() => {
+    window.addEventListener('bimcanvas:web-config-updated', handleWebConfigUpdated as EventListener);
+  });
+
+  onUnmounted(() => {
+    window.removeEventListener('bimcanvas:web-config-updated', handleWebConfigUpdated as EventListener);
+  });
 
   return {
     models,
