@@ -186,17 +186,10 @@ builder.Services.AddCors(options =>
             return;
         }
 
-        if (!isProduction)
-        {
-            policy.SetIsOriginAllowed(IsLocalDevelopmentOrigin)
-                  .AllowAnyHeader()
-                  .AllowAnyMethod()
-                  .AllowCredentials();
-            return;
-        }
-
-        policy.AllowAnyHeader()
-              .AllowAnyMethod();
+        policy.SetIsOriginAllowed(IsLocalDevelopmentOrigin)
+              .AllowAnyHeader()
+              .AllowAnyMethod()
+              .AllowCredentials();
     });
 });
 
@@ -1286,6 +1279,11 @@ static bool IsLocalDevelopmentOrigin(string origin)
     }
 
     if (string.Equals(uri.Host, "localhost", StringComparison.OrdinalIgnoreCase))
+    {
+        return true;
+    }
+
+    if (string.Equals(uri.Host, "0.0.0.0", StringComparison.OrdinalIgnoreCase))
     {
         return true;
     }
