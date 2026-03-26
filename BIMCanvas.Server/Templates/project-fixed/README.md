@@ -136,7 +136,9 @@
 - `zoneId`: 由 Server 根据 bounds 位置自动计算
 - `items`: 子项（可为空数组）
 
-**常用 moduleId**: mod_bed_001, mod_bed_002, mod_sofa_001, mod_cabinet_006, mod_table_001
+**常用 moduleId**: mod_bed_001(1800床), mod_bed_002(1500床), mod_sofa_001, mod_cabinet_006, mod_table_001
+
+**卧室床模块说明**：`mod_bed_001` 为 `1800×2100`，`mod_bed_002` 为 `1500×2100`。睡眠组空间充足时优先选 `mod_bed_001 + 双床头柜`；空间不足时先切换到 `mod_bed_002 + 双床头柜`，仅在仍不成立时才允许 `mod_bed_002 + 单床头柜`。
 
 ---
 
