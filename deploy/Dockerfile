@@ -8,9 +8,11 @@ ENV DEBIAN_FRONTEND=noninteractive \
     NPM_CONFIG_UPDATE_NOTIFIER=false \
     PYTHONUNBUFFERED=1 \
     PLAYWRIGHT_BROWSERS_PATH=/root/.local/share/ms-playwright \
-    PATH=/root/.dotnet/tools:/usr/share/dotnet:${PATH}
+    AGENT_VENV_BIN=/app/BIMCanvas.Agent/venv/bin \
+    PATH=/app/BIMCanvas.Agent/venv/bin:/root/.dotnet/tools:/usr/share/dotnet:${PATH}
 
-RUN apt-get update && apt-get install -y --no-install-recommends \
+RUN apt-get update -o Acquire::Retries=5 \
+    && apt-get install -y --no-install-recommends \
     ca-certificates \
     curl \
     git \
@@ -22,7 +24,6 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     python-is-python3 \
     wget \
     fonts-liberation \
-    fonts-noto-cjk \
     fonts-noto-color-emoji \
     libasound2 \
     libatk-bridge2.0-0 \
@@ -51,6 +52,14 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libxshmfence1 \
     tzdata \
     zlib1g \
+    && for attempt in 1 2 3; do \
+        apt-get install -y --no-install-recommends fonts-noto-cjk && break; \
+        if [ "$attempt" -eq 3 ]; then exit 1; fi; \
+        echo "Retrying fonts-noto-cjk install ($attempt/3)"; \
+        apt-get update -o Acquire::Retries=5; \
+        sleep 5; \
+    done \
+    && dpkg -s fonts-noto-cjk >/dev/null 2>&1 \
     && rm -rf /var/lib/apt/lists/*
 
 RUN wget https://dot.net/v1/dotnet-install.sh -O /tmp/dotnet-install.sh \
@@ -60,10 +69,13 @@ RUN wget https://dot.net/v1/dotnet-install.sh -O /tmp/dotnet-install.sh \
     && rm /tmp/dotnet-install.sh
 
 RUN curl -fsSL https://deb.nodesource.com/setup_20.x | bash - \
-    && apt-get update && apt-get install -y --no-install-recommends nodejs \
+    && apt-get update -o Acquire::Retries=5 \
+    && apt-get install -y --no-install-recommends nodejs \
     && rm -rf /var/lib/apt/lists/*
 
-RUN npm install -g claude-code-router
+RUN npm install -g @anthropic-ai/claude-code claude-code-router \
+    && claude --version \
+    && ccr version
 
 WORKDIR /app
 COPY . /app
@@ -76,7 +88,8 @@ RUN cd BIMCanvas.Web && npm ci && npm run build
 RUN cd BIMCanvas.Agent \
     && python -m venv venv \
     && ./venv/bin/pip install --no-cache-dir --upgrade pip \
-    && ./venv/bin/pip install --no-cache-dir -e .
+    && ./venv/bin/pip install --no-cache-dir -e . \
+    && python -c "import claude_agent_sdk"
 
 RUN dotnet tool install --global Microsoft.Playwright.CLI --version 1.42.0 \
     && playwright install --with-deps chromium

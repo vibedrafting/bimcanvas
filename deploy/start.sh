@@ -23,6 +23,8 @@ copy_if_missing() {
 }
 
 BIMCANVAS_HOME="${BIMCANVAS_HOME:-/data}"
+AGENT_VENV_BIN="/app/BIMCanvas.Agent/venv/bin"
+AGENT_VENV_PYTHON="$AGENT_VENV_BIN/python"
 export BIMCANVAS_HOME
 export ASPNETCORE_ENVIRONMENT="${ASPNETCORE_ENVIRONMENT:-Production}"
 export ASPNETCORE_URLS="${ASPNETCORE_URLS:-http://0.0.0.0:5000}"
@@ -30,9 +32,11 @@ export SERVER_HOST="${SERVER_HOST:-0.0.0.0}"
 export BIMCANVAS_WEB_URL="${BIMCANVAS_WEB_URL:-http://localhost:5000}"
 export BIMCANVAS_WEB_DIST="${BIMCANVAS_WEB_DIST:-/app/BIMCanvas.Web/dist}"
 export PLAYWRIGHT_BROWSERS_PATH="${PLAYWRIGHT_BROWSERS_PATH:-/root/.local/share/ms-playwright}"
-export PATH="/root/.dotnet/tools:${PATH}"
+export BIMCANVAS_PYTHON_COMMAND="${BIMCANVAS_PYTHON_COMMAND:-$AGENT_VENV_PYTHON}"
+export PATH="${AGENT_VENV_BIN}:/root/.dotnet/tools:${PATH}"
 
 log "BIMCANVAS_HOME=$BIMCANVAS_HOME"
+log "BIMCANVAS_PYTHON_COMMAND=$BIMCANVAS_PYTHON_COMMAND"
 
 CONFIG_ROOT="$BIMCANVAS_HOME"
 TEMPLATE_ROOT="/app/BIMCanvas.Server/Templates/global-config"
