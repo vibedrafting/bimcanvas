@@ -189,10 +189,11 @@ onMounted(() => {
     <main class="homepage-content" :class="{ 'settings-mode': homeMode === 'settings' }">
       <HomeSettingsPanel
         v-if="homeMode === 'settings'"
+        key="settings"
         @close="homeMode = 'projects'"
       />
 
-      <template v-else>
+      <div v-else key="projects" class="projects-view">
       <!-- Tab 栏 -->
       <div class="tab-bar">
         <button
@@ -292,7 +293,7 @@ onMounted(() => {
           </div>
         </div>
       </div>
-      </template>
+      </div>
 
     </main>
 
@@ -413,6 +414,10 @@ onMounted(() => {
   max-width: 1400px;
   padding-top: 12px;
   padding-bottom: 0;
+}
+
+.projects-view {
+  min-height: 100%;
 }
 
 /* Tabs */

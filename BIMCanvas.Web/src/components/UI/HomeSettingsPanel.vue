@@ -30,23 +30,27 @@ const defaultRuntime: SettingsRuntime = {
   restartHint: '当前环境未检测到 Docker 自动重启，点击重启后需要手动重新启动服务。'
 }
 
-const createDraft = (): GroupDraft => ({
-  title: '',
-  sourceFile: '',
-  values: {},
-  jsonText: '{}',
-  jsonError: null
-})
+const createDraft = (key: SettingsGroupKey): GroupDraft => {
+  const values = normalize(key, {})
+
+  return {
+    title: '',
+    sourceFile: '',
+    values,
+    jsonText: formatJson(values),
+    jsonError: null
+  }
+}
 
 const drafts = reactive<Record<SettingsGroupKey, GroupDraft>>({
-  server: createDraft(),
-  web: createDraft(),
-  agent: createDraft(),
-  ccr: createDraft()
+  server: createDraft('server'),
+  web: createDraft('web'),
+  agent: createDraft('agent'),
+  ccr: createDraft('ccr')
 })
 
 const runtime = ref<SettingsRuntime>({ ...defaultRuntime })
-const isLoading = ref(false)
+const isLoading = ref(true)
 const isSaving = ref(false)
 const isRestarting = ref(false)
 const showSecrets = ref(false)
@@ -221,7 +225,10 @@ function applySnapshot(snapshot: SettingsSnapshot) {
   applyGroup('web', snapshot.web)
   applyGroup('agent', snapshot.agent)
   applyGroup('ccr', snapshot.ccr)
-  runtime.value = snapshot.runtime ?? { ...defaultRuntime }
+  runtime.value = {
+    ...defaultRuntime,
+    ...(snapshot.runtime ?? {})
+  }
 }
 
 async function loadSettings() {
@@ -549,7 +556,7 @@ onMounted(() => {
                 <div class="provider-head">
                   <div>
                     <h4>{{ provider.name || `Provider ${index + 1}` }}</h4>
-                    <p>{{ provider.transformer?.use?.join(', ') || '未配置 transformer' }}</p>
+                    <p>{{ Array.isArray(provider.transformer?.use) ? provider.transformer.use.join(', ') : '未配置 transformer' }}</p>
                   </div>
                   <span class="provider-badge">{{ provider.models?.length || 0 }} 个模型</span>
                 </div>
