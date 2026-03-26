@@ -278,8 +278,9 @@ namespace BIMCanvas.Server.Services
                 foreach (var entry in entries)
                 {
                     // 计算目标路径，跳过顶层目录
-                    var entryPath = entry.Key ?? string.Empty;
-                    if (!string.IsNullOrEmpty(topLevelPrefix) && entryPath.StartsWith(topLevelPrefix))
+                    var entryPath = NormalizeArchiveEntryPath(entry.Key);
+                    if (!string.IsNullOrEmpty(topLevelPrefix) &&
+                        entryPath.StartsWith(topLevelPrefix, StringComparison.Ordinal))
                     {
                         entryPath = entryPath.Substring(topLevelPrefix.Length);
                     }
@@ -287,7 +288,7 @@ namespace BIMCanvas.Server.Services
                     if (string.IsNullOrEmpty(entryPath))
                         continue;
 
-                    var destPath = Path.Combine(projectPath, entryPath.Replace('/', Path.DirectorySeparatorChar));
+                    var destPath = ResolveArchiveDestinationPath(projectPath, entryPath);
                     var destDir = Path.GetDirectoryName(destPath);
 
                     if (!string.IsNullOrEmpty(destDir) && !Directory.Exists(destDir))
@@ -320,8 +321,8 @@ namespace BIMCanvas.Server.Services
             var topLevelDirs = new HashSet<string>();
             foreach (var entry in entries)
             {
-                var key = entry.Key ?? string.Empty;
-                var slashIndex = key.IndexOfAny(new[] { '/', '\\' });
+                var key = NormalizeArchiveEntryPath(entry.Key);
+                var slashIndex = key.IndexOf('/');
                 if (slashIndex > 0)
                 {
                     topLevelDirs.Add(key.Substring(0, slashIndex + 1));
@@ -340,6 +341,33 @@ namespace BIMCanvas.Server.Services
             }
 
             return null;
+        }
+
+        private static string NormalizeArchiveEntryPath(string? path)
+        {
+            if (string.IsNullOrWhiteSpace(path))
+            {
+                return string.Empty;
+            }
+
+            return path
+                .Replace('\\', '/')
+                .TrimStart('/');
+        }
+
+        private static string ResolveArchiveDestinationPath(string projectPath, string entryPath)
+        {
+            var normalizedRelativePath = entryPath.Replace('/', Path.DirectorySeparatorChar);
+            var combinedPath = Path.Combine(projectPath, normalizedRelativePath);
+            var fullDestinationPath = Path.GetFullPath(combinedPath);
+            var fullProjectPath = Path.GetFullPath(projectPath);
+
+            if (!fullDestinationPath.StartsWith(fullProjectPath, StringComparison.OrdinalIgnoreCase))
+            {
+                throw new InvalidOperationException($"压缩包条目路径非法: {entryPath}");
+            }
+
+            return fullDestinationPath;
         }
 
         /// <summary>

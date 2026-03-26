@@ -260,6 +260,7 @@ var result = strategyService.AcceptParallelStrategy(projectPath, "动线优先")
 
 1. 解压 .bcp
    └─ 目标：用户文档/BIMCanvas/Projects/{名称}_{时间戳}/
+   └─ 兼容 ZIP 条目中的 Windows `\` 路径分隔符，导入时统一规范化为目录结构
 
 2. 计算 Baseline 哈希
    └─ 读取 architecture.json + rooms.json + openings.json
