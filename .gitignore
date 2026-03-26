@@ -38,3 +38,7 @@ venv/
 .agent/
 .agents/
 tmpclaude-*
+
+# Docker deployment
+deploy/instance-*.env
+!deploy/instance.env.example

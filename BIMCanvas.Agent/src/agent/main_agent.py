@@ -301,12 +301,22 @@ class MainAgent:
         return trimmed.lower() in cls._PLACEHOLDER_ASSISTANT_TEXTS
 
     @classmethod
-    def _normalize_assistant_text(cls, text: str) -> str | None:
-        """归一化 assistant 文本，过滤占位内容，保留真实正文。"""
-        cleaned = re.sub(r'<tool_use_error>[\s\S]*?</tool_use_error>', '', text)
-        if cls._is_placeholder_assistant_text(cleaned):
+    def _normalize_visible_content(cls, text: str | None) -> str | None:
+        """归一化所有可见的 assistant 内容（text + thinking），过滤占位内容。"""
+        if text is None:
             return None
-        return cleaned
+        trimmed = text.strip()
+        if not trimmed:
+            return None
+        if trimmed.lower() in cls._PLACEHOLDER_ASSISTANT_TEXTS:
+            return None
+        return text
+
+    @classmethod
+    def _normalize_assistant_text(cls, text: str) -> str | None:
+        """归一化 assistant 文本，过滤占位内容，保留真实正文。剥离 tool_use_error 标签后判断。"""
+        cleaned = re.sub(r'<tool_use_error>[\s\S]*?</tool_use_error>', '', text)
+        return cls._normalize_visible_content(cleaned)
 
     def _filter_assistant_text(self, text: str) -> str | None:
         """实例级过滤，附带一次性兼容日志。"""
@@ -450,11 +460,12 @@ class MainAgent:
 
             for block in message.content:
                 if isinstance(block, ThinkingBlock):
-                    if self.verbose:
+                    normalized_thinking = self._normalize_visible_content(block.thinking)
+                    if normalized_thinking and self.verbose:
                         if not self._in_thinking:
                             self._agent_logger.log_thinking_start()
                             self._in_thinking = True
-                        self._agent_logger.log_thinking(block.thinking)
+                        self._agent_logger.log_thinking(normalized_thinking)
                         self._agent_logger.log_thinking_end()
                         self._in_thinking = False
 
@@ -524,7 +535,7 @@ class MainAgent:
             delta = event.get("delta", {})
             delta_type = delta.get("type", "")
             if delta_type == "thinking_delta" and self.verbose:
-                thinking = delta.get("thinking", "")
+                thinking = self._normalize_visible_content(delta.get("thinking", ""))
                 if thinking:
                     self._agent_logger.log_thinking(thinking, is_delta=True)
             elif delta_type == "text_delta" and self.verbose:
@@ -801,7 +812,7 @@ class MainAgent:
                             self._streamed_text = True
                             yield StreamChunk(type="text", content=normalized_text)
                     elif delta_type == "thinking_delta":
-                        thinking = delta.get("thinking", "")
+                        thinking = self._normalize_visible_content(delta.get("thinking", ""))
                         if thinking:
                             yield StreamChunk(type="thinking", content=thinking)
 
@@ -893,11 +904,13 @@ class MainAgent:
 
                 for block in message.content:
                     if isinstance(block, ThinkingBlock):
-                        if self.verbose and not self._in_thinking:
-                            self._agent_logger.log_thinking_start()
-                            self._agent_logger.log_thinking(block.thinking)
-                            self._agent_logger.log_thinking_end()
-                        yield StreamChunk(type="thinking_complete", content=block.thinking)
+                        normalized_thinking = self._normalize_visible_content(block.thinking)
+                        if normalized_thinking:
+                            if self.verbose and not self._in_thinking:
+                                self._agent_logger.log_thinking_start()
+                                self._agent_logger.log_thinking(normalized_thinking)
+                                self._agent_logger.log_thinking_end()
+                            yield StreamChunk(type="thinking_complete", content=normalized_thinking)
                     elif isinstance(block, TextBlock):
                         normalized_text = self._filter_assistant_text(block.text)
                         if normalized_text:

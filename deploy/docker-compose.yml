@@ -1,0 +1,53 @@
+x-bimcanvas-service: &bimcanvas-service
+  build:
+    context: ..
+    dockerfile: deploy/Dockerfile
+  image: bimcanvas:latest
+  restart: unless-stopped
+  networks:
+    - bimcanvas
+
+services:
+  alice:
+    <<: *bimcanvas-service
+    container_name: bimcanvas-alice
+    env_file:
+      - ./instance-alice.env
+    expose:
+      - "5000"
+      - "8865"
+    volumes:
+      - /data/alice:/data
+    ports:
+      - "6001:5000"
+
+  bob:
+    <<: *bimcanvas-service
+    container_name: bimcanvas-bob
+    env_file:
+      - ./instance-bob.env
+    expose:
+      - "5000"
+      - "8865"
+    volumes:
+      - /data/bob:/data
+    ports:
+      - "6002:5000"
+
+  nginx:
+    image: nginx:alpine
+    container_name: bimcanvas-nginx
+    depends_on:
+      - alice
+      - bob
+    ports:
+      - "80:80"
+    volumes:
+      - ./nginx.conf:/etc/nginx/nginx.conf:ro
+    restart: unless-stopped
+    networks:
+      - bimcanvas
+
+networks:
+  bimcanvas:
+    driver: bridge

@@ -1,0 +1,52 @@
+# Git
+.git
+.gitignore
+
+# IDE
+.vs/
+.vscode/
+.idea/
+*.user
+*.suo
+
+# Build outputs
+**/bin/
+**/obj/
+publish/
+BIMCanvas.Web/dist/
+
+# Dependencies
+**/node_modules/
+**/__pycache__/
+**/*.egg-info/
+.venv/
+venv/
+BIMCanvas.Agent/venv/
+
+# Local agent/workbench data
+.agent/
+.agents/
+.claude/
+.tmp/
+tmpclaude-*
+
+# Docs and auxiliary material not needed in image
+docs/
+plans/
+reviews/
+references/
+reports/
+test/
+
+# Revit is not used in Docker deployment
+BIMCanvas.Revit/
+
+# Generated or local-only files
+deploy/instance-*.env
+!deploy/instance.env.example
+**/.env.local
+*.log
+nul
+nul_
+Thumbs.db
+.DS_Store

@@ -20,7 +20,7 @@
 - **【建议】**= 默认遵守，可说明理由后偏离
 - **【提示】**= 偏好性指导，鼓励灵活处理
 
-**【必须】**执行前读取项目 README.md — WHY：README 包含项目上下文（空间描述、用户偏好），避免基于默认假设做决策。
+**【必须】**执行任务（query/edit/generate）前读取项目 README.md — WHY：README 包含项目上下文（空间描述、用户偏好），避免基于默认假设做决策。
 
 **【必须】**Skill 中引用的 `references/` 文件位于**该 Skill 自身目录**下（即 `<BIMCANVAS_HOME>/skills/{skill-name}/references/`），不在项目工作目录下。
 
@@ -32,9 +32,12 @@
 
 | 类型 | 关键词 | 说明 |
 |------|--------|------|
+| **chat** | hi、你好、谢谢、你能做什么 | 直接简短回应，不进入项目工作流 |
 | **query** | 有多少、统计、查看、列出 | 加载 query-workflow，只读 |
 | **edit** | 移动、删除、旋转、调整 | 加载 edit-workflow，单一修改 |
 | **generate** | 布置、设计、创建、生成、规划 | 加载 generate-workflow，完整布置 |
+
+> 示例：用户说 "hi" → chat，直接简短回应 | 用户说 "查看客厅家具" → query
 
 generate-workflow 内部按需加载所需的房间策略文件和能力 Skill。
 

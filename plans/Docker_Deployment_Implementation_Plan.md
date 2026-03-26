@@ -16,7 +16,7 @@ BIMCanvas 当前仅在 Windows 本机运行，单用户使用。目标是将其�
 - CORS 仅允许 localhost 源
 - Agent 端 `SERVER_URL` 硬编码
 
-本计划分三个阶段实施：本地代码改造 → Docker 打包 → 服务器部署。
+本计划分四个阶段实施：本地代码改造 → Docker 打包 → 统一配置 UI → 服务器部署。
 
 ---
 
@@ -719,9 +719,106 @@ http {
 
 ---
 
-## 阶段三：服务器部署
+## 阶段三：统一配置 UI
 
-> 目标：在远程 Linux 服务器上完成 Docker 部署，验证多用户隔离。
+> 目标：建立实例级配置控制台，让 Docker 部署后的实例内部应用配置统一通过 Web UI 管理，并继续落到现有 JSON 文件中持久化。
+
+### 阶段三边界（先写清）
+
+- **UI 管理范围**：仅管理实例内部应用配置，即 `server_config.json`、`web_config.json`、`config.json`、`ccr_config.json`
+- **不纳入本阶段**：Docker 端口映射、Compose 编排、Nginx 域名 / 路由、宿主机卷挂载
+- **配置持久化落点**：继续写回现有四份 JSON，不新增统一 `settings.json`
+- **Secrets 策略（v1）**：UI 中可读可改，但属于高风险能力，默认应遮罩显示并提供显式查看动作
+- **权限边界（v1）**：暂不做权限控制，谁能进入实例配置页，谁就能修改实例配置
+
+### Phase 3a：配置聚合后端
+
+#### 改动目标
+
+新增统一配置聚合层，把目前分散的配置读写入口收敛为实例配置 API。
+
+- 新增统一聚合 API：
+  - `GET /api/settings`：聚合返回 `server/web/agent/ccr` 四组配置
+  - `PUT /api/settings`：按分组写回现有 JSON，并返回哪些改动需要重启
+  - `POST /api/settings/restart`：触发实例重启
+- 保留现有 `/api/web_config` 兼容入口，避免破坏现有前端逻辑
+- 为 `server_config.json`、`config.json`、`ccr_config.json` 补齐与 `web_config.json` 对等的读写和基础校验服务
+- 聚合 API 的返回结构需明确区分：
+  - 配置分组（Web / Agent / Server / CCR）
+  - 字段值
+  - 生效方式（即时生效 / 需重启）
+
+### Phase 3b：配置 UI 页面
+
+#### 改动目标
+
+在 Web 端新增统一配置页，作为 Docker 实例运行后的主配置入口。
+
+- 新增统一配置页，按分组展示：
+  - Web
+  - Agent
+  - Server
+  - CCR
+- 编辑方式采用**混合模式**：
+  - 常用项使用结构化表单
+  - 高级项提供 JSON 编辑器
+- 配置页需明确展示每项配置的生效方式：
+  - 即时生效
+  - 保存后需重启实例
+- Secrets 默认遮罩显示，但支持显式切换为可见并修改
+
+### Phase 3c：生效与重启机制
+
+#### 改动目标
+
+建立“热更新 + 重启生效”并存的实例配置生效模型。
+
+- `web_config.json` 默认按热更新处理，保存后立即生效
+- `config.json`、`server_config.json`、`ccr_config.json` 默认按“保存后需重启实例”处理
+- UI 保存后：
+  - 对热更新项立即反馈成功
+  - 对需重启项显示全局提示和“重启实例”按钮
+- 对修改内部端口等高影响项，需提示重启后当前连接可能中断
+- 重启机制采用：
+  - Server 接收 `POST /api/settings/restart`
+  - 配置先落盘
+  - Server 主动退出
+  - Docker `restart: unless-stopped` 自动拉起实例
+
+### Phase 3d：启动时优先级修正
+
+#### 改动目标
+
+把 `instance.env` 从长期配置入口退化为 bootstrap 输入，避免 UI 改动在重启后被回写覆盖。
+
+- 首次部署或目标文件缺失时，`instance.env` 负责初始化 `server/web/agent/ccr` 配置文件
+- 一旦持久化 JSON 已存在，后续以 JSON 为长期真源
+- 阶段三需补一项实现：`start.sh` 不再在每次重启时常规覆盖已有 JSON
+- `instance.env` 在阶段三之后仅承担：
+  - 首次实例创建
+  - 缺省值补齐
+  - 部署引导
+
+**阶段三验证点**：
+
+- [ ] 配置页能读取四类配置
+- [ ] `web_config.json` 修改后立即生效
+- [ ] `config/server/ccr` 修改后被标记为“需重启实例”
+- [ ] 点击“重启实例”后配置生效
+- [ ] UI 修改后的 JSON 在容器重启后保留
+- [ ] 重启后不会被 `instance.env` 覆盖回旧值
+- [ ] 不同实例的配置页互不影响
+
+---
+
+## 阶段四：服务器部署
+
+> 目标：在远程 Linux 服务器上完成 Docker 部署，并基于阶段三的统一配置 UI 维护实例配置，验证多用户隔离。
+
+**前置条件**：
+
+- 阶段二已完成镜像、`docker-compose.yml`、`nginx.conf` 等部署产物
+- 阶段三已完成统一配置 UI，实例内部配置可在 Web 端维护
 
 ### 步骤 1：服务器环境准备
 
@@ -750,19 +847,25 @@ git checkout feature/docker-deployment
 scp -r ./BIMCanvas user@server:/opt/bimcanvas
 ```
 
-### 步骤 3：配置用户实例
+### 步骤 3：初始化用户实例
 
 ```bash
 cd /opt/bimcanvas/deploy
 
-# 为 Alice 创建环境文件
+# 首次为 Alice 创建 bootstrap 环境文件
 cp instance.env.example instance-alice.env
-# 编辑 instance-alice.env，填入 Alice 的 API Key
+# 编辑 instance-alice.env，填入 Alice 的 API Key 和初始值
 
-# 为 Bob 创建环境文件
+# 首次为 Bob 创建 bootstrap 环境文件
 cp instance.env.example instance-bob.env
-# 编辑 instance-bob.env，填入 Bob 的 API Key
+# 编辑 instance-bob.env，填入 Bob 的 API Key 和初始值
 ```
+
+说明：
+
+- `instance.env` 在此阶段的定位是**首次部署 / 缺省补齐 / 实例引导**
+- 首次启动完成后，实例内部的常规配置修改默认通过统一配置 UI 完成
+- 后续不再把 `instance.env` 作为长期配置入口使用
 
 ### 步骤 4：构建镜像并启动
 
@@ -796,9 +899,9 @@ docker compose logs -f bob
 # 1. 创建数据目录
 sudo mkdir -p /data/charlie && sudo chown $USER:$USER /data/charlie
 
-# 2. 创建环境文件
+# 2. 首次创建 bootstrap 环境文件
 cp instance.env.example instance-charlie.env
-# 编辑填入 Charlie 的 API Key
+# 编辑填入 Charlie 的 API Key 和初始值
 
 # 3. 在 docker-compose.yml 中添加 charlie 服务（复制 alice 段，改名称/端口/卷）
 
@@ -807,6 +910,11 @@ cp instance.env.example instance-charlie.env
 # 5. 重启
 docker compose up -d
 ```
+
+说明：
+
+- 新用户首次接入仍需创建 `instance.env`
+- 但实例创建完成后的常规内部配置维护，统一通过 Web UI 进行，而不是继续手动编辑 JSON
 
 ---
 
@@ -838,16 +946,28 @@ docker compose up -d
 - [ ] (g) 两个实例提供不同的 `web_config.json`，前端配置独立
 - [ ] (h) 两个实例提供不同的 AI 连接参数，不交叉污染
 
-### 第四关：生产链路完整性
+### 第四关：统一配置 UI
 
-- [ ] (i) 浏览器网络面板无 `localhost` / `127.0.0.1` / `:5173` / `:8865` 的直接外部请求
-- [ ] (j) 容器内后台截图访问 `http://localhost:5000/screenshot-render` 正常产出
+- [ ] (i) 能从 UI 读取 `server/web/agent/ccr` 四类配置
+- [ ] (j) `web_config` 修改后可立即生效
+- [ ] (k) `config/server/ccr` 修改后会被标记为“需重启”
+- [ ] (l) 点击“重启实例”后配置生效
+- [ ] (m) UI 修改的 JSON 在容器重启后保留
+- [ ] (n) 重启后不会被 `instance.env` 覆盖回旧值
+- [ ] (o) 两个实例各自的配置页互不影响
+
+### 第五关：生产链路完整性
+
+- [ ] (p) 浏览器网络面板无 `localhost` / `127.0.0.1` / `:5173` / `:8865` 的直接外部请求
+- [ ] (q) 容器内后台截图访问 `http://localhost:5000/screenshot-render` 正常产出
 
 ---
 
-## 明确延后事项（阶段 2+）
+## 明确延后事项（阶段 5+）
 
-- 高级用户自定义 CCR 路由结构
+- 配置页权限控制与审计日志
+- 高级用户自定义 CCR 路由可视化编辑
+- Docker / Nginx 编排控制台
 - `/userA/` 子路径部署模式
 - Server 内嵌 Agent 反代（消除 Agent 独立端口）
 - 多阶段 Docker 构建优化（缩减镜像体积）

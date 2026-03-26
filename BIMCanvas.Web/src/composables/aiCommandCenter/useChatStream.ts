@@ -316,6 +316,8 @@ export const useChatStream = (options: ChatStreamOptions) => {
               if (!targetWin) continue;
 
               if (parsed.type === 'thinking') {
+                // 过滤占位思考内容（如 Gemini 模型返回的 "(no content)"）
+                if (isSuppressedAssistantText(parsed.content)) continue;
                 // 查找当前正在 streaming 的 thinking 气泡
                 let activeThinking = getLastStreamingThinkingBubble(currentMsg.bubbles);
                 if (!activeThinking) {
@@ -328,6 +330,12 @@ export const useChatStream = (options: ChatStreamOptions) => {
                 }
                 exitWaitingState(currentMsg.waitingState);
               } else if (parsed.type === 'thinking_complete') {
+                if (isSuppressedAssistantText(parsed.content)) {
+                  // 占位内容：若已有活跃 thinking bubble 则仅完成/清理，不写入占位文本
+                  const active = getLastStreamingThinkingBubble(currentMsg.bubbles);
+                  if (active) completeThinkingBubble(active);
+                  continue;
+                }
                 let activeThinking = getLastStreamingThinkingBubble(currentMsg.bubbles);
                 if (!activeThinking) {
                   // 边界情况：没有活跃的 thinking 气泡
