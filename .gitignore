@@ -23,9 +23,6 @@ nul
 # Logs
 *.log
 
-# Chats
-/chats/
-
 # Python
 __pycache__/
 *.egg-info/
@@ -42,3 +39,6 @@ tmpclaude-*
 # Docker deployment
 deploy/instance-*.env
 !deploy/instance.env.example
+
+# Tests
+test/
