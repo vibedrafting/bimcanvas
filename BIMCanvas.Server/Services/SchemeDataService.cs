@@ -7,6 +7,7 @@ using BIMCanvas.Core.Algorithms.Spatial;
 using BIMCanvas.Core.Converters.Json;
 using BIMCanvas.Core.Models.Computed;
 using BIMCanvas.Core.Models.Layout;
+using BIMCanvas.Core.Models.Semantic;
 using BIMCanvas.Core.Models.Shared;
 using BIMCanvas.Server.Dtos;
 using Microsoft.Extensions.Logging;
@@ -174,6 +175,11 @@ namespace BIMCanvas.Server.Services
         public int SaveAllModules(string basePath, List<Module> modules)
         {
             var schemesPath = Path.Combine(basePath, "schemes");
+            var facingErrors = ValidateFacingForServerWrite(modules);
+            if (facingErrors.Count > 0)
+            {
+                throw new InvalidOperationException(string.Join("；", facingErrors));
+            }
 
             // 确保 schemes 目录存在
             if (!Directory.Exists(schemesPath))
@@ -283,6 +289,36 @@ namespace BIMCanvas.Server.Services
             }
 
             return null;
+        }
+
+        private List<string> ValidateFacingForServerWrite(List<Module> modules)
+        {
+            var errors = new List<string>();
+
+            foreach (var module in modules)
+            {
+                if (module.Facing.HasSemantic)
+                {
+                    errors.Add($"模块 {module.Id} 的 facing.semantic 必须为 null");
+                    continue;
+                }
+
+                if (!module.Facing.Value.HasValue)
+                {
+                    errors.Add($"模块 {module.Id} 缺少 facing.value");
+                    continue;
+                }
+
+                if (!module.Facing.HasFiniteValue() || module.Facing.HasZeroValue() || !module.Facing.TryGetNormalizedValue(out var normalizedValue))
+                {
+                    errors.Add($"模块 {module.Id} 的 facing.value 不是有效单位向量");
+                    continue;
+                }
+
+                module.Facing = new Facing(normalizedValue, null);
+            }
+
+            return errors;
         }
 
         /// <summary>

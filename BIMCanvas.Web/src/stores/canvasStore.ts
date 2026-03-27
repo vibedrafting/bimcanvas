@@ -613,7 +613,8 @@ export const useCanvasStore = defineStore('canvas', () => {
             debugStore.error('[CanvasStore] 保存失败: 非200响应');
             return false;
         } catch (err: any) {
-            debugStore.error(`[CanvasStore] 保存失败: ${err.message || err}`);
+            const errorMessage = err.response?.data?.message || err.message || err;
+            debugStore.error(`[CanvasStore] 保存失败: ${errorMessage}`);
             return false;
         }
     };

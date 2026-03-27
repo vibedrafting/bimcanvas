@@ -13,18 +13,47 @@ namespace BIMCanvas.Core.Algorithms.Spatial
         /// </summary>
         public static Vec2D SemanticToVector(string semantic)
         {
-            return semantic.ToLowerInvariant() switch
+            if (!TrySemanticToVector(semantic, out var vector))
+                throw new ArgumentException($"Unknown semantic facing: {semantic}");
+
+            return vector;
+        }
+
+        /// <summary>
+        /// 尝试将语义方向解析为单位向量
+        /// </summary>
+        public static bool TrySemanticToVector(string? semantic, out Vec2D vector)
+        {
+            switch (semantic?.ToLowerInvariant())
             {
-                "north" => new Vec2D(0, 1),
-                "south" => new Vec2D(0, -1),
-                "east" => new Vec2D(1, 0),
-                "west" => new Vec2D(-1, 0),
-                "northeast" => new Vec2D(1, 1).Normalize(),
-                "northwest" => new Vec2D(-1, 1).Normalize(),
-                "southeast" => new Vec2D(1, -1).Normalize(),
-                "southwest" => new Vec2D(-1, -1).Normalize(),
-                _ => throw new ArgumentException($"Unknown semantic facing: {semantic}")
-            };
+                case "north":
+                    vector = new Vec2D(0, 1);
+                    return true;
+                case "south":
+                    vector = new Vec2D(0, -1);
+                    return true;
+                case "east":
+                    vector = new Vec2D(1, 0);
+                    return true;
+                case "west":
+                    vector = new Vec2D(-1, 0);
+                    return true;
+                case "northeast":
+                    vector = new Vec2D(1, 1).Normalize();
+                    return true;
+                case "northwest":
+                    vector = new Vec2D(-1, 1).Normalize();
+                    return true;
+                case "southeast":
+                    vector = new Vec2D(1, -1).Normalize();
+                    return true;
+                case "southwest":
+                    vector = new Vec2D(-1, -1).Normalize();
+                    return true;
+                default:
+                    vector = default;
+                    return false;
+            }
         }
 
         /// <summary>

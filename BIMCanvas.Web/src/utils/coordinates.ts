@@ -18,7 +18,7 @@
  */
 
 import * as THREE from 'three';
-import type { Point2D, Polygon2D, Line2D } from '../types/canvas';
+import type { FacingData, Point2D, Polygon2D, Line2D } from '../types/canvas';
 
 // ============================================================
 // 基础坐标转换
@@ -239,6 +239,8 @@ export const FACING_DIRECTIONS: Record<string, number> = {
     northwest: (7 * Math.PI) / 4
 };
 
+export const DEFAULT_FACING_VALUE: Point2D = [0, 1];
+
 /**
  * 语义朝向转换为单位向量
  * @param semantic 语义字符串，如 "north", "east" 等
@@ -255,23 +257,65 @@ export function semanticToVector(semantic: string): Point2D {
         case 'northwest': return [-Math.SQRT1_2, Math.SQRT1_2];
         case 'southeast': return [Math.SQRT1_2, -Math.SQRT1_2];
         case 'southwest': return [-Math.SQRT1_2, -Math.SQRT1_2];
-        default: return [0, 1]; // 默认朝北
+        default: return DEFAULT_FACING_VALUE;
     }
 }
 
 /**
- * 将 Facing（语义字符串或向量）转换为弧度角度
- * @param facing 朝向，可以是 "north"/"south"/... 或 [vx, vy]
+ * 归一化方向向量
+ */
+export function normalizeFacingValue(facing: Point2D): Point2D {
+    const length = Math.hypot(facing[0], facing[1]);
+    if (!Number.isFinite(length) || length < 1e-6) {
+        return DEFAULT_FACING_VALUE;
+    }
+
+    return [facing[0] / length, facing[1] / length];
+}
+
+/**
+ * 判断 facing.value 是否有效
+ */
+export function isValidFacingValue(value: Point2D | null | undefined): value is Point2D {
+    if (!value || value.length < 2) return false;
+    return Number.isFinite(value[0]) &&
+        Number.isFinite(value[1]) &&
+        Math.hypot(value[0], value[1]) >= 1e-6;
+}
+
+/**
+ * 获取可渲染/可编辑的方向向量。
+ * 读取阶段只消费 value，semantic 不参与常规逻辑。
+ */
+export function getFacingValue(facing: FacingData | null | undefined, context?: string): Point2D {
+    if (isValidFacingValue(facing?.value)) {
+        return normalizeFacingValue(facing.value);
+    }
+
+    if (context) {
+        console.warn(`[Facing] Invalid facing.value, fallback to north (${context})`);
+    }
+
+    return DEFAULT_FACING_VALUE;
+}
+
+/**
+ * 构造规范 FacingData。
+ */
+export function createFacingData(value: Point2D | null, semantic: FacingData['semantic'] = null): FacingData {
+    return {
+        value: value ? normalizeFacingValue(value) : null,
+        semantic
+    };
+}
+
+/**
+ * 将 FacingData 转换为弧度角度
  * @returns 弧度角度（以 north=0 为基准，逆时针为正）
  */
-export function facingToAngle(facing: string | Point2D): number {
-    if (typeof facing === 'string') {
-        return FACING_DIRECTIONS[facing.toLowerCase()] ?? 0;
-    }
-    // 向量转角度：atan2(y, x)，但 north=[0,1] 应该是 0°
-    // 标准 atan2 中 [0,1] = 90°，需要调整
-    // north=[0,1] -> 0°, east=[1,0] -> 90°
-    return Math.atan2(facing[0], facing[1]);
+export function facingToAngle(facing: FacingData | null | undefined, context?: string): number {
+    const value = getFacingValue(facing, context);
+    return Math.atan2(value[0], value[1]);
 }
 
 /**

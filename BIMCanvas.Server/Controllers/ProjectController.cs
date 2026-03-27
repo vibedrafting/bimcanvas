@@ -9,12 +9,14 @@ using BIMCanvas.Core.Models.Computed;
 using BIMCanvas.Core.Models.Layout;
 using BIMCanvas.Core.Models.Project;
 using BIMCanvas.Core.Models.Revit;
+using BIMCanvas.Core.Models.Semantic;
 using BIMCanvas.Server.Dtos;
 using BIMCanvas.Server.Services;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Logging;
 using Newtonsoft.Json;
+using Newtonsoft.Json.Linq;
 using Newtonsoft.Json.Serialization;
 
 namespace BIMCanvas.Server.Controllers
@@ -600,7 +602,7 @@ namespace BIMCanvas.Server.Controllers
         /// v3.4: 移除 zoneId 依赖，Server 根据模块 bounds 位置自动计算分区
         /// </summary>
         [HttpPost("save")]
-        public ActionResult SaveModules([FromBody] SaveModulesRequest request)
+        public ActionResult SaveModules([FromBody] JObject requestBody)
         {
             if (!_projectContext.IsLoaded)
             {
@@ -614,6 +616,21 @@ namespace BIMCanvas.Server.Controllers
 
             try
             {
+                var rawFacingErrors = ValidateFacingPayloadForProjectSave(requestBody);
+                if (rawFacingErrors.Count > 0)
+                {
+                    return BadRequest(new
+                    {
+                        message = string.Join("；", rawFacingErrors)
+                    });
+                }
+
+                var request = requestBody.ToObject<SaveModulesRequest>(JsonSerializer.Create(_jsonSettings));
+                if (request == null)
+                {
+                    return BadRequest(new { message = "保存请求体无效" });
+                }
+
                 // 确保 schemes 目录存在
                 if (!Directory.Exists(schemesPath))
                 {
@@ -621,6 +638,14 @@ namespace BIMCanvas.Server.Controllers
                 }
 
                 var modules = request.Modules ?? new List<Module>();
+                var facingErrors = ValidateFacingForProjectSave(modules);
+                if (facingErrors.Count > 0)
+                {
+                    return BadRequest(new
+                    {
+                        message = string.Join("；", facingErrors)
+                    });
+                }
 
                 // Step 1: 读取分区边界
                 var computedData = LoadComputedData(projectPath);
@@ -720,6 +745,115 @@ namespace BIMCanvas.Server.Controllers
             }
 
             return null;
+        }
+
+        /// <summary>
+        /// API 层的原始请求预检。
+        /// Web 保存链路必须显式传递 facing: { value, semantic:null }，
+        /// 不接受旧的顶层字符串/顶层数组，也不接受缺失 semantic 字段。
+        /// </summary>
+        private List<string> ValidateFacingPayloadForProjectSave(JObject requestBody)
+        {
+            var errors = new List<string>();
+            var modulesToken = requestBody["modules"];
+
+            if (modulesToken == null)
+            {
+                errors.Add("请求体缺少 modules 数组");
+                return errors;
+            }
+
+            if (modulesToken.Type != JTokenType.Array)
+            {
+                errors.Add("请求体中的 modules 必须是数组");
+                return errors;
+            }
+
+            var index = 0;
+            foreach (var moduleToken in modulesToken.Children())
+            {
+                var moduleLabel = $"module[{index}]";
+
+                if (moduleToken.Type != JTokenType.Object)
+                {
+                    errors.Add($"{moduleLabel} 必须是对象");
+                    index++;
+                    continue;
+                }
+
+                var moduleObj = (JObject)moduleToken;
+                moduleLabel = moduleObj["id"]?.Value<string>() ?? moduleLabel;
+
+                var facingToken = moduleObj["facing"];
+                if (facingToken == null || facingToken.Type != JTokenType.Object)
+                {
+                    errors.Add($"模块 {moduleLabel} 的 facing 必须是对象 {{ value, semantic }}");
+                    index++;
+                    continue;
+                }
+
+                var facingObj = (JObject)facingToken;
+
+                if (!facingObj.TryGetValue("value", out var valueToken))
+                {
+                    errors.Add($"模块 {moduleLabel} 的 facing.value 不能为空");
+                }
+                else if (valueToken.Type != JTokenType.Array || ((JArray)valueToken).Count != 2 || !((JArray)valueToken).All(IsNumericToken))
+                {
+                    errors.Add($"模块 {moduleLabel} 的 facing.value 必须是 [x, y] 数值数组");
+                }
+
+                if (!facingObj.TryGetValue("semantic", out var semanticToken))
+                {
+                    errors.Add($"模块 {moduleLabel} 的 facing.semantic 必须显式传 null");
+                }
+                else if (semanticToken.Type != JTokenType.Null)
+                {
+                    errors.Add($"模块 {moduleLabel} 的 facing.semantic 必须为 null");
+                }
+
+                index++;
+            }
+
+            return errors;
+        }
+
+        /// <summary>
+        /// Web 保存链路只接受规范 facing.value，禁止携带 semantic。
+        /// </summary>
+        private List<string> ValidateFacingForProjectSave(List<Module> modules)
+        {
+            var errors = new List<string>();
+
+            foreach (var module in modules)
+            {
+                if (module.Facing.HasSemantic)
+                {
+                    errors.Add($"模块 {module.Id} 的 facing.semantic 必须为 null");
+                    continue;
+                }
+
+                if (!module.Facing.Value.HasValue)
+                {
+                    errors.Add($"模块 {module.Id} 缺少 facing.value");
+                    continue;
+                }
+
+                if (!module.Facing.HasFiniteValue() || module.Facing.HasZeroValue() || !module.Facing.TryGetNormalizedValue(out var normalizedValue))
+                {
+                    errors.Add($"模块 {module.Id} 的 facing.value 不是有效单位向量");
+                    continue;
+                }
+
+                module.Facing = new Facing(normalizedValue, null);
+            }
+
+            return errors;
+        }
+
+        private static bool IsNumericToken(JToken token)
+        {
+            return token.Type == JTokenType.Integer || token.Type == JTokenType.Float;
         }
 
         /// <summary>

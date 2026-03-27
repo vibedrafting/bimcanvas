@@ -29,10 +29,11 @@
 
 import * as THREE from 'three';
 import { SVGLoader } from 'three/examples/jsm/loaders/SVGLoader.js';
-import type { Module, Point2D } from '../../types/canvas';
+import type { FacingData, Module, Point2D } from '../../types/canvas';
 import { moduleLibraryService } from '../ModuleLibraryService';
 import { LayerManager } from '../three/LayerManager';
 import { canvasStyleService } from '../canvas/CanvasStyleService';
+import { facingToAngle } from '../../utils/coordinates';
 
 export class SVGModuleRenderer {
   private scene: THREE.Scene;
@@ -277,7 +278,7 @@ export class SVGModuleRenderer {
     const center = this.calculatePolygonCenter(module.bounds);
 
     // 2. 解析朝向角度
-    const rotation = this.parseFacingAngle(module.facing);
+    const rotation = this.parseFacingAngle(module.facing, module.id);
 
     // 3. 获取 SVG 实际尺寸（关键修复：使用 SVG viewBox 尺寸而非 moduleDef.size）
     const svgSize = this.svgSizeCache.get(moduleId);
@@ -336,26 +337,8 @@ export class SVGModuleRenderer {
   /**
    * 解析朝向为角度（弧度）
    */
-  private parseFacingAngle(facing: string | Point2D): number {
-    if (typeof facing === 'string') {
-      // 语义方向转角度
-      const directionMap: { [key: string]: number } = {
-        'north': 0,
-        'northeast': 45,
-        'east': 90,
-        'southeast': 135,
-        'south': 180,
-        'southwest': 225,
-        'west': 270,
-        'northwest': 315
-      };
-      const degrees = directionMap[facing.toLowerCase()] || 0;
-      return -degrees * Math.PI / 180; // 负号因为Three.js的旋转方向
-    } else if (Array.isArray(facing) && facing.length >= 2) {
-      // 向量转角度
-      return -Math.atan2(facing[0], facing[1]);
-    }
-    return 0;
+  private parseFacingAngle(facing: FacingData, moduleId?: string): number {
+    return -facingToAngle(facing, moduleId ? `SVGModuleRenderer:${moduleId}` : 'SVGModuleRenderer');
   }
 
   /**

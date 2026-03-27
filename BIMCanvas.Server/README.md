@@ -349,6 +349,14 @@ schemes/{activeId}/*.json → activeScheme
 computed/*.json        → computed
 ```
 
+#### modules.json 的 `facing` 规范
+
+- Server 对外统一返回对象形态：`{ "value": [x, y] | null, "semantic": string | null }`
+- `GET /api/project`、截图、快照、Merge 等常规读取路径只消费 `facing.value`
+- `POST /api/project/save` 只接受 Web 规范输入：`facing.value` 必须有效，`facing.semantic` 必须显式为 `null`
+- `validate_layout(zoneIds?)` 是唯一会消费 `facing.semantic` 的入口：它会先把有效语义方向转换成 `value`，再把 `semantic` 清空为 `null`，然后回写目标 `modules.json`
+- 方向归一化仍沿用 `FileSystemWatcher + SignalR` 被动刷新机制，因此 AI 直写文件后可能出现两次 reload：第一次来自 AI 写入，第二次来自 `validate_layout` 归一化回写
+
 ### 5.2 Git 分支管理 API
 
 | 端点 | 方法 | 功能 | 状态 |

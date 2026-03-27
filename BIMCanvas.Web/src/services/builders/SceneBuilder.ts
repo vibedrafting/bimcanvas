@@ -3,6 +3,7 @@ import type { ProjectData, Wall, Column, Module, Point2D, Opening } from '../../
 import { LayerManager } from '../three/LayerManager';
 import { canvasStyleService } from '../canvas/CanvasStyleService';
 import { SVGModuleRenderer } from './SVGModuleRenderer';
+import { facingToAngle } from '../../utils/coordinates';
 
 export class SceneBuilder {
     private scene: THREE.Scene;
@@ -1165,25 +1166,8 @@ export class SceneBuilder {
         cx /= mod.bounds.length;
         cy /= mod.bounds.length;
 
-        // 解析朝向角度
-        let angle = 0; // 默认朝北 (Y 正方向)
-        if (typeof mod.facing === 'string') {
-            // 语义方向转角度 (平面坐标系，Y 正方向为 0°)
-            const directionMap: { [key: string]: number } = {
-                'north': 0,
-                'northeast': 45,
-                'east': 90,
-                'southeast': 135,
-                'south': 180,
-                'southwest': 225,
-                'west': 270,
-                'northwest': 315
-            };
-            angle = (directionMap[mod.facing.toLowerCase()] || 0) * Math.PI / 180;
-        } else if (Array.isArray(mod.facing) && mod.facing.length >= 2) {
-            // 向量转角度
-            angle = Math.atan2(mod.facing[0], mod.facing[1]);
-        }
+        // 解析朝向角度（读取期只认 facing.value）
+        const angle = facingToAngle(mod.facing, `SceneBuilder:${mod.id}`);
 
         // 创建箭头组
         const arrowGroup = new THREE.Group();

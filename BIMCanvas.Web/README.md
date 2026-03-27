@@ -372,6 +372,20 @@ interface CanvasDocument {
 }
 ```
 
+其中 `Module.facing` 已统一为：
+
+```typescript
+type FacingData = {
+  value: [number, number] | null
+  semantic: 'north' | 'south' | 'east' | 'west' | 'northeast' | 'northwest' | 'southeast' | 'southwest' | null
+}
+```
+
+- `bounds` 仍是模块轮廓真理，`facing.value` 是方向真理
+- Web 渲染、箭头、旋转、镜像、保存只读取和写回 `facing.value`
+- Web 不会根据 `semantic` 实时推导方向
+- 如果读取到 `facing.value = null` 或非法值，前端仅在渲染时临时 fallback 为北向 `[0, 1]` 并记录 warning，不会改写文件
+
 ## 🧠 开发经验 (Lessons Learned)
 
 ### Ghost 预览系统：为何不用 BoxHelper

@@ -33,7 +33,7 @@ namespace BIMCanvas.Core.Models.Layout
         public Polygon2D? Bounds { get; set; }
 
         /// <summary>
-        /// 朝向（语义字符串或向量）
+        /// 朝向对象（value 为单位向量真理，semantic 为 AI 临时输入槽）
         /// </summary>
         public Facing Facing { get; set; }
 

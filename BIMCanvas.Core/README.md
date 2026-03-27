@@ -58,8 +58,8 @@ BIMCanvas.Core/
 │   │   └── ModuleItem.cs           模块内家具
 │   │
 │   ├── Semantic/                语义类型
-│   │   ├── Facing.cs               朝向（联合类型）
-│   │   └── FacingDirection.cs      朝向枚举
+│   │   ├── Facing.cs               朝向（value + semantic 值对象）
+│   │   └── FacingDirection.cs      朝向兼容枚举
 │   │
 │   └── Shared/                  共享枚举
 │       ├── RoomType.cs             房间类型
@@ -277,12 +277,27 @@ public class FinishSegment
 
 ### 朝向系统 (Facing)
 
-支持两种格式：
+`bounds` 只表示模块轮廓；`Facing` 只表示布置方向。规范形态统一为对象：
 
-| 格式 | 示例 | 说明 |
+```json
+{
+  "value": [0, 1],
+  "semantic": null
+}
+```
+
+其中：
+
+| 字段 | 示例 | 说明 |
 |------|------|------|
-| 语义字符串 | `"north"` | 8 个标准方向 |
-| Vec2D | `[0.707, 0.707]` | 任意角度单位向量 |
+| `value` | `[0.707, 0.707]` | 唯一方向真理，必须是单位向量 |
+| `semantic` | `"north"` | AI 临时输入槽，仅允许 8 个标准方向 |
+
+**兼容规则**：
+
+- 读取旧项目时，旧字符串 `"north"` / 旧数组 `[x, y]` 会立即兼容归一化为 `Facing { value=..., semantic=null }`
+- 常规读取阶段只消费 `value`
+- 只有 `validate_layout` 会消费有效的 `semantic`，把它收敛成 `value` 并将 `semantic` 清空为 `null`
 
 **语义方向映射**：
 
@@ -452,8 +467,7 @@ v3.0 枚举使用 snake_case 格式：
 | Line2D | `[[0, 0], [100, 100]]` |
 | Polygon2D | `[[0, 0], [100, 0], [100, 100], [0, 100]]` |
 | AABB | `[0, 0, 100, 100]` |
-| Facing (语义) | `"north"` |
-| Facing (向量) | `[0.707, 0.707]` |
+| Facing | `{ "value": [0.707, 0.707], "semantic": null }` |
 
 ---
 
@@ -625,11 +639,11 @@ v3.0 采用多文件结构替代单一 JSON 的原因：
 - 支持精确的碰撞检测、包含判断
 - NtsAdapter 隔离依赖，便于替换
 
-### 为什么 Facing 支持双格式
+### 为什么 Facing 拆成 value + semantic
 
-- **语义格式**：可读性强，适合 AI 理解
-- **向量格式**：精确控制任意角度
-- **自动转换**：Core 层内部统一处理
+- **`value` 是唯一真理**：所有常规读取、几何计算、Web 渲染都只依赖单位向量
+- **`semantic` 只做 AI 过渡输入**：允许 AI 先写语义方向，再由 `validate_layout` 统一归一化
+- **懒迁移兼容旧项目**：旧字符串/旧数组读取仍可用，但下一次保存或验证后会自动落盘为对象形态
 
 ---
 

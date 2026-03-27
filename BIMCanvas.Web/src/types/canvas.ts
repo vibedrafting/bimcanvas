@@ -213,12 +213,27 @@ export interface ModuleItem {
   rotation: number;
 }
 
+export type FacingSemantic =
+  | 'north'
+  | 'south'
+  | 'east'
+  | 'west'
+  | 'northeast'
+  | 'northwest'
+  | 'southeast'
+  | 'southwest';
+
+export interface FacingData {
+  value: Point2D | null;
+  semantic: FacingSemantic | null;
+}
+
 export interface Module {
   id: string;
   moduleId: string;
   moduleName?: string;
   bounds: Polygon2D;
-  facing: string | Point2D;
+  facing: FacingData;
   /** 所属分区 ID（由 Server 加载时自动填充） */
   zoneId?: string;
   items: ModuleItem[];

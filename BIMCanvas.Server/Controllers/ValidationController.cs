@@ -9,6 +9,7 @@ using BIMCanvas.Core.Converters.Json;
 using BIMCanvas.Core.Models.Computed;
 using BIMCanvas.Core.Models.Layout;
 using BIMCanvas.Core.Models.Revit;
+using BIMCanvas.Core.Models.Semantic;
 using BIMCanvas.Core.Validation;
 using BIMCanvas.Server.Hubs;
 using BIMCanvas.Server.Services;
@@ -88,7 +89,22 @@ namespace BIMCanvas.Server.Controllers
                     : null;
                 var modules = LoadAllModules(projectPath, targetSet);
 
-                // 3.5 持久化模块（确保 [OnDeserialized] 自动生成的 Id 写回文件）
+                // 3.5 预处理 facing：仅 validate_layout 消费 semantic 并回写规范 value
+                var facingDiagnostics = NormalizeModuleFacings(modules);
+                if (facingDiagnostics.Count > 0)
+                {
+                    _logger.LogWarning("[Validation] facing 预检失败: {Count} 个诊断", facingDiagnostics.Count);
+                    return Ok(new SchemeValidationReport
+                    {
+                        TotalModules = modules.Count,
+                        ErrorCount = facingDiagnostics.Count(d => d.Severity == "error"),
+                        WarningCount = facingDiagnostics.Count(d => d.Severity == "warning"),
+                        Diagnostics = facingDiagnostics,
+                        ElapsedMs = 0
+                    });
+                }
+
+                // 3.6 持久化模块（确保自动生成的 Id 和 facing 规范化结果写回文件）
                 PersistModules(projectPath, modules);
 
                 if (targetSet != null)
@@ -236,13 +252,71 @@ namespace BIMCanvas.Server.Controllers
                 {
                     throw new InvalidOperationException(
                         $"模块数据解析失败 | 文件: {modulesPath} | Zone: {zoneId} | " +
-                        $"facing 合法值: north/south/east/west/northeast/northwest/southeast/southwest | " +
+                        $"facing 需为对象 {{ value, semantic }}，兼容旧字符串/旧数组 | " +
                         $"原始错误: {ex.Message}", ex);
                 }
             }
 
             _logger.LogDebug("[Validation] 加载 {Count} 个模块", allModules.Count);
             return allModules;
+        }
+
+        /// <summary>
+        /// 归一化模块 facing 数据。
+        /// 规则：
+        /// 1. semantic 有效时优先覆盖 value
+        /// 2. semantic 归一化后必须清空
+        /// 3. 常规阶段只接受有效 value
+        /// </summary>
+        private List<Diagnostic> NormalizeModuleFacings(List<Module> modules)
+        {
+            var diagnostics = new List<Diagnostic>();
+
+            foreach (var module in modules)
+            {
+                if (module.Facing.TryResolveSemanticValue(out var semanticValue))
+                {
+                    module.Facing = new Facing(semanticValue.Normalize(), null);
+                    continue;
+                }
+
+                if (module.Facing.HasSemantic)
+                {
+                    diagnostics.Add(new Diagnostic(
+                        DiagnosticCodes.InvalidFacingSemantic,
+                        "error",
+                        $"模块 {module.Id} ({module.ModuleName ?? "未命名"}) 的 facing.semantic '{module.Facing.Semantic}' 无效",
+                        module.Id,
+                        module.ModuleName));
+                    continue;
+                }
+
+                if (!module.Facing.Value.HasValue)
+                {
+                    diagnostics.Add(new Diagnostic(
+                        DiagnosticCodes.MissingFacingValue,
+                        "error",
+                        $"模块 {module.Id} ({module.ModuleName ?? "未命名"}) 缺少 facing.value",
+                        module.Id,
+                        module.ModuleName));
+                    continue;
+                }
+
+                if (!module.Facing.HasFiniteValue() || module.Facing.HasZeroValue() || !module.Facing.TryGetNormalizedValue(out var normalizedValue))
+                {
+                    diagnostics.Add(new Diagnostic(
+                        DiagnosticCodes.InvalidFacingValue,
+                        "error",
+                        $"模块 {module.Id} ({module.ModuleName ?? "未命名"}) 的 facing.value 不是有效单位向量",
+                        module.Id,
+                        module.ModuleName));
+                    continue;
+                }
+
+                module.Facing = new Facing(normalizedValue, null);
+            }
+
+            return diagnostics;
         }
 
         /// <summary>

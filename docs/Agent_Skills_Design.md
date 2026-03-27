@@ -591,7 +591,10 @@ Write schemes/modules.json
     "moduleId": "mod_bed_001",
     "zoneId": "rz_3",
     "bounds": [[x1,y1], [x2,y2], [x3,y3], [x4,y4]],
-    "facing": "north",
+    "facing": {
+      "value": [0, 1],
+      "semantic": null
+    },
     "items": []
   }
 ]

@@ -102,5 +102,14 @@ namespace BIMCanvas.Core.Validation
 
         /// <summary>模块缺少 Bounds 定义</summary>
         public const string MissingBounds = "E006_MISSING_BOUNDS";
+
+        /// <summary>模块 facing.semantic 非法</summary>
+        public const string InvalidFacingSemantic = "E007_INVALID_FACING_SEMANTIC";
+
+        /// <summary>模块缺少有效 facing.value</summary>
+        public const string MissingFacingValue = "E008_MISSING_FACING_VALUE";
+
+        /// <summary>模块 facing.value 为零向量或非法向量</summary>
+        public const string InvalidFacingValue = "E009_INVALID_FACING_VALUE";
     }
 }

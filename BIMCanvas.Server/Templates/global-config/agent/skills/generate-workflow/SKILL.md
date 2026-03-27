@@ -313,8 +313,11 @@ Write modules.json（床靠西墙，衣柜靠北墙，按语义方案逐件定�
 Write `schemes/{zoneId}/modules.json`，每个模块包含 moduleId、bounds（四点坐标）、facing、items。
 分区场景写入路径：`schemes/{parentZoneId}/{childZoneId}/modules.json`（如 `schemes/rz_3/dz_1/modules.json`）。
 
-**facing 必须是以下 8 个小写英文全称之一**：`north` / `south` / `east` / `west` / `northeast` / `northwest` / `southeast` / `southwest`。
-禁止中文（南/北/东/西）、缩写（n/s/e/w）、数组（[0,-1]）。示例：`"facing": "south"`
+**facing 规则**：
+- `facing` 写成对象：`{ "value": [x, y] | null, "semantic": string | null }`
+- `value` 是常规读取阶段的方向真理；`semantic` 是 AI 语义输入槽，只接受 8 个标准方向词
+- **推荐**AI 默认修改 `semantic`。示例：`"facing": { "value": null, "semantic": "south" }`
+- 若 `value` 与 `semantic` 同时存在：常规读取只认 `value`；`validate_layout` 会用有效 `semantic` 覆盖 `value`，再把 `semantic` 清空为 `null`
 
 ### 验证闭环
 

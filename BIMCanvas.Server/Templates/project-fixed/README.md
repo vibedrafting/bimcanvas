@@ -83,7 +83,10 @@
     "moduleId": "mod_bed_001",
     "moduleName": "双人床",
     "bounds": [[9100, 1750], [11100, 1750], [11100, 3750], [9100, 3750]],
-    "facing": "east",
+    "facing": {
+      "value": [1, 0],
+      "semantic": null
+    },
     "items": []
   }
 ]
@@ -121,7 +124,10 @@
     "moduleId": "mod_bed_001",
     "moduleName": "双人床",
     "bounds": [[9100, 1750], [11100, 1750], [11100, 3750], [9100, 3750]],
-    "facing": "east",
+    "facing": {
+      "value": [1, 0],
+      "semantic": null
+    },
     "zoneId": "rz_3",
     "items": []
   }
@@ -132,7 +138,8 @@
 - `id`: 由 Server 自动生成（格式 `m_xxxxxxxx`），Agent 无需填写
 - `moduleId`: 模块类型（来自 module_library.json）
 - `bounds`: 矩形 4 顶点（左下→右下→右上→左上）
-- `facing`: 朝向（north/south/east/west）
+- `facing.value`: 布置方向真理，单位向量 `[x, y]`
+- `facing.semantic`: AI 临时输入槽，允许先写 `"north"` 等语义方向，随后由 `validate_layout` 转成 `value` 并清空为 `null`
 - `zoneId`: 由 Server 根据 bounds 位置自动计算
 - `items`: 子项（可为空数组）
 
@@ -150,6 +157,7 @@
 | 模块应该写入哪个文件？ | `schemes/{zoneId}/modules.json`，zoneId 与 room_zones 中的 id 对应 |
 | 如何避免与禁区冲突？ | 读取 `computed/exclusions.json`，确保 bounds 不重叠 |
 | bounds 顶点顺序？ | 矩形连续顺序：左下→右下→右上→左上 |
+| `facing` 应该怎么写？ | 规范格式是 `{ "value": [x, y], "semantic": null }`；AI 也可临时写 `{ "value": null, "semantic": "north" }`，随后必须调用 `validate_layout` 归一化 |
 | items 可以为空？ | 是，`items: []` 有效，后续由 Server 填充 |
 | `_unzoned` 目录是什么？ | Server 保存时，bounds 中心不在任何分区内的模块自动归入此目录，避免数据丢失 |
 

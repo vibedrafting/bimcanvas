@@ -3,7 +3,7 @@ import type { Tool } from './Tool';
 import type { ModuleDefinition } from '../../ModuleLibraryService';
 import { useCanvasStore } from '../../../stores/canvasStore';
 import { useDebugStore } from '../../../stores/debugStore';
-import { toModel } from '../../../utils/coordinates';
+import { angleToFacing, createFacingData, toModel } from '../../../utils/coordinates';
 import type { Module, Point2D } from '../../../types/canvas';
 import { LayerManager } from '../../three/LayerManager';
 import { generateModuleId } from '../../../utils/shortId';
@@ -221,8 +221,8 @@ export class PlaceTool implements Tool {
         // 2. 计算 bounds（基于 size + rotation）
         const bounds = this.calculateBounds(center, this.moduleDef.size, this.currentRotation);
 
-        // 3. 旋转角 → 语义 facing
-        const facing = this.rotationToFacing(this.currentRotation);
+        // 3. 旋转角 → facing.value
+        const facingValue = angleToFacing(this.currentRotation);
 
         // 4. 构造 Module 对象
         const newModule: Module = {
@@ -230,7 +230,7 @@ export class PlaceTool implements Tool {
             moduleId: this.moduleDef.id,
             moduleName: this.moduleDef.name,
             bounds: bounds,
-            facing: facing,
+            facing: createFacingData(facingValue, null),
             items: []
         };
 
@@ -239,7 +239,7 @@ export class PlaceTool implements Tool {
         store.addModule(newModule);
         void store.endBatchUpdate();
 
-        debug.log(`[PlaceTool] Placed "${this.moduleDef.name}" at (${center[0].toFixed(0)}, ${center[1].toFixed(0)}), facing: ${facing}`);
+        debug.log(`[PlaceTool] Placed "${this.moduleDef.name}" at (${center[0].toFixed(0)}, ${center[1].toFixed(0)}), facing.value=(${facingValue[0].toFixed(3)}, ${facingValue[1].toFixed(3)})`);
 
         // 6. 继续放置（不退出工具）
         // previewGroup 标记为 isGhost，clearScene() 会跳过它，无需重建
@@ -270,20 +270,6 @@ export class PlaceTool implements Tool {
             const ry = lx * sin + ly * cos;
             return [center[0] + rx, center[1] + ry] as Point2D;
         });
-    }
-
-    /**
-     * 旋转角度 → 语义 facing 字符串（量化到 8 方向）
-     */
-    private rotationToFacing(rotation: number): string {
-        // 归一化到 [0, 2PI)
-        let angle = rotation % (2 * Math.PI);
-        if (angle < 0) angle += 2 * Math.PI;
-
-        const deg = angle * 180 / Math.PI;
-        const directions = ['north', 'northeast', 'east', 'southeast', 'south', 'southwest', 'west', 'northwest'];
-        const index = Math.round(deg / 45) % 8;
-        return directions[index] ?? 'north';
     }
 
     private getRayIntersection(event: MouseEvent): THREE.Vector3 | null {

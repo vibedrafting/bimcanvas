@@ -635,7 +635,11 @@ Worktree
   // 用户约束（人为边界）
   "userConstraints": [
     { "type": "tv_wall", "zoneId": "rz_living", "wall": "north" },
-    { "type": "bed_orientation", "zoneId": "rz_master", "facing": "south" }
+    {
+      "type": "bed_orientation",
+      "zoneId": "rz_master",
+      "facing": { "value": null, "semantic": "south" }
+    }
   ],
 
   // AI 提示词（设计倾向指导）
@@ -814,7 +818,10 @@ class LayoutAgent:
         "size": [1800, 2000],
         "rotation": 0
       },
-      "facing": "north",
+      "facing": {
+        "value": [0, 1],
+        "semantic": null
+      },
       "placementReason": "床头靠北墙居中",
       "items": []
     }
@@ -824,10 +831,16 @@ class LayoutAgent:
 
 ### 10.3 Facing 类型
 
-| 格式 | 示例 | 说明 |
+规范形态：
+
+```json
+{ "value": [0.707, 0.707], "semantic": null }
+```
+
+| 字段 | 示例 | 说明 |
 |------|------|------|
-| 语义字符串 | `"north"` | 标准 8 方向 |
-| Vec2D | `[0.707, 0.707]` | 任意角度单位向量 |
+| `value` | `[0.707, 0.707]` | 唯一方向真理，单位向量 |
+| `semantic` | `"north"` | AI 临时输入槽，仅在 `validate_layout` 中被消费 |
 
 **语义字符串 → 角度转换**：
 
@@ -853,7 +866,7 @@ AI 视角：
 ┌─────────────┐
 │   bounds    │  ← AI 操作的是矩形包围盒
 │  [4 顶点]   │
-│   facing    │  ← 语义朝向（north/south/east/west）
+│   facing    │  ← { value, semantic }，其中 value 是方向真理
 └─────────────┘
 
 Core 层转换：

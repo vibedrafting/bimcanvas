@@ -735,7 +735,7 @@ Agent 通过 MCP 查询 → Server 实时响应 → Agent 决策 → Server 即�
 │  │     "moduleId": "mod_bed_001",                              │
 │  │     "zoneId": "z1",                                         │
 │  │     "center": [3000, 3250],                                 │
-│  │     "facing": "north"                                       │
+│  │     "facing": { "value": null, "semantic": "north" }        │
 │  │   })                                                         │
 │  │                                                              │
 │  │ 成功返回：                                                    │
@@ -801,7 +801,10 @@ Agent 通过 MCP 查询 → Server 实时响应 → Agent 决策 → Server 即�
         "size": [1800, 2000],
         "rotation": 0
       },
-      "facing": "north",
+      "facing": {
+        "value": [0, 1],
+        "semantic": null
+      },
       "items": []
     }
   ]
@@ -1212,7 +1215,10 @@ Web 前端                                                        Server
         "size": [1800, 2000],
         "rotation": 0
       },
-      "facing": "north",
+      "facing": {
+        "value": [0, 1],
+        "semantic": null
+      },
       "items": []
     }
   ]

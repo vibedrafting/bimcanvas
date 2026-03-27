@@ -635,7 +635,10 @@
       "moduleName": "现代双人床 1.8m",
       "zoneId": "z1",
       "bounds": [[600, 400], [2400, 400], [2400, 2400], [600, 2400]],
-      "facing": "north",
+      "facing": {
+        "value": [0, 1],
+        "semantic": null
+      },
       "items": [
         {
           "familyId": "fam_bed_001",
@@ -665,15 +668,26 @@
 | `moduleName` | string | 否 | 可读名称 |
 | `zoneId` | string | 是 | 所属区域 ID |
 | `bounds` | Polygon2D | 是 | 边界多边形（4 顶点矩形） |
-| `facing` | Facing | 是 | 朝向（语义或向量） |
+| `facing` | Facing | 是 | 朝向对象 `{ value, semantic }` |
 | `items` | array | 否 | 内部家具清单 |
 | `placementReason` | string | 否 | 布置原因 |
 
 #### Facing 类型
 
-支持两种格式：
+规范形态：
 
-**语义字符串**（标准场景）：
+```json
+{ "value": [0, 1], "semantic": null }
+```
+
+其中：
+
+| 字段 | 说明 |
+|------|------|
+| `value` | 唯一方向真理，必须是单位向量 |
+| `semantic` | AI 临时输入槽，合法值仅限 8 个小写英文方向词 |
+
+语义方向映射：
 
 | 语义 | 对应向量 | 说明 |
 |------|----------|------|
@@ -686,11 +700,13 @@
 | `southeast` | `[0.707, -0.707]` | 东南 |
 | `southwest` | `[-0.707, -0.707]` | 西南 |
 
-**Vec2D 向量**（任意角度）：
+AI 允许写入的过渡态：
 
 ```json
-{ "facing": [0.866, 0.5] }  // 30° 方向
+{ "facing": { "value": null, "semantic": "south" } }
 ```
+
+> 常规读取阶段只认 `value`；只有 `validate_layout` 会把有效 `semantic` 转成 `value` 并清空 `semantic`。
 
 #### ModuleItem 字段
 

@@ -368,1038 +368,861 @@ onMounted(() => {
 
 <template>
   <div class="settings-page">
-    <div class="settings-shell">
-      <header class="hero-card">
-        <button class="back-chip" type="button" @click="emit('close')">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-            <path d="M15 18l-6-6 6-6" />
-          </svg>
-          返回项目列表
-        </button>
-
-        <div class="hero-main">
-          <div class="hero-avatar">{{ isCcrMode ? 'C' : 'D' }}</div>
-          <div class="hero-copy">
-            <div class="hero-topline">
-              <span class="mode-pill">{{ modeLabel }}</span>
-              <span class="mode-note">{{ runtime.restartHint }}</span>
-            </div>
-            <h2>{{ pageTitle }}</h2>
-            <p>{{ effectiveModelDescription }}</p>
-          </div>
-        </div>
-
-        <div class="hero-metrics">
-          <article class="metric-card">
-            <span class="metric-label">当前默认</span>
-            <div class="metric-value">{{ effectiveDefaultModel || '未设置' }}</div>
-          </article>
-          <article class="metric-card">
-            <span class="metric-label">真源字段</span>
-            <div class="metric-value"><code>{{ displayEffectiveModelPath }}</code></div>
-          </article>
-          <article class="metric-card">
-            <span class="metric-label">重启方式</span>
-            <div class="metric-value">{{ runtime.restartBehavior === 'docker-auto' ? 'Docker 自动拉起' : '手动重启服务' }}</div>
-          </article>
-          <article class="metric-card" :class="restartPendingGroups.length > 0 ? 'status-pending' : 'status-ready'">
-            <span class="metric-label">当前状态</span>
-            <div class="metric-value">
-              {{ restartPendingGroups.length > 0 ? `待重启 ${restartPendingGroups.length} 组配置` : '已同步到当前实例' }}
-            </div>
-          </article>
-        </div>
-      </header>
-
-      <div
-        v-if="loadError || saveError || saveMessage || restartPendingGroups.length > 0"
-        class="notice-stack"
-      >
-        <div v-if="loadError" class="notice error">{{ loadError }}</div>
-        <div v-if="saveError" class="notice error">{{ saveError }}</div>
-        <div v-if="saveMessage" class="notice info">{{ saveMessage }}</div>
-        <div v-if="restartPendingGroups.length > 0" class="notice warn">
-          已修改高影响配置：{{ restartPendingGroups.join(' / ') }}。保存后请完成一次实例重启。
+    
+    <!-- 问题5和问题1改进：独立的顶部吸顶操作栏，不再提供冗余返回按钮，只承载核心交互 -->
+    <header class="sticky-top-bar">
+      <div class="header-left">
+        <h2>{{ pageTitle }}</h2>
+        <div class="header-badges">
+          <span class="mode-pill">{{ modeLabel }}</span>
+          <span class="status-pill" :class="restartPendingGroups.length > 0 ? 'status-pending' : 'status-ready'">
+            <i class="dot"></i>
+            {{ restartPendingGroups.length > 0 ? `待重启 ${restartPendingGroups.length} 组配置` : '已同步当前实例' }}
+          </span>
         </div>
       </div>
-
-      <div v-if="isLoading" class="loading-state">正在加载实例配置...</div>
-
-      <template v-else>
-        <section class="form-card">
-          <div class="section-head">
-            <div>
-              <h3>运行方式</h3>
-              <p>决定默认模型由哪一组配置控制，并影响重启后的真实行为。</p>
-            </div>
-            <label class="toggle-line" :class="{ enabled: drafts.server.values.ccr.enabled }">
-              <span>启用 CCR</span>
-              <input v-model="drafts.server.values.ccr.enabled" type="checkbox">
-            </label>
-          </div>
-
-          <div class="form-grid">
-            <label class="field">
-              <span>Agent 端口</span>
-              <input v-model.number="drafts.server.values.server.port" type="number">
-            </label>
-            <label class="field">
-              <span>Python 命令</span>
-              <input v-model="drafts.server.values.server.pythonCommand" type="text">
-            </label>
-            <label class="field">
-              <span>CCR Host</span>
-              <input v-model="drafts.server.values.ccr.host" type="text" :disabled="!isCcrMode">
-            </label>
-            <label class="field">
-              <span>CCR Port</span>
-              <input v-model.number="drafts.server.values.ccr.port" type="number" :disabled="!isCcrMode">
-            </label>
-          </div>
-        </section>
-
-        <section class="form-card">
-          <div class="section-head">
-            <div>
-              <h3>默认模型与推理行为</h3>
-              <p>{{ effectiveModelDescription }}</p>
-            </div>
-            <span class="effective-path">{{ displayEffectiveModelPath }}</span>
-          </div>
-
-          <div class="form-grid">
-            <label class="field">
-              <span>默认模型</span>
-              <select v-model="effectiveDefaultModel">
-                <option v-for="option in modelOptions" :key="option.value" :value="option.value">
-                  {{ option.label }}
-                </option>
-              </select>
-            </label>
-            <label class="field">
-              <span>默认 Effort</span>
-              <select v-model="drafts.agent.values.defaultEffort">
-                <option v-for="option in effortOptions" :key="option.value" :value="option.value">
-                  {{ option.label }}
-                </option>
-              </select>
-            </label>
-            <label class="field">
-              <span>默认 Thinking</span>
-              <select v-model="drafts.agent.values.defaultThinking">
-                <option v-for="option in thinkingOptions" :key="option.value" :value="option.value">
-                  {{ option.label }}
-                </option>
-              </select>
-            </label>
-            <label class="field">
-              <span>最大 Thinking Tokens</span>
-              <input v-model.number="drafts.agent.values.maxThinkingTokens" type="number">
-            </label>
-          </div>
-
-          <div class="mapping-grid">
-            <label class="field">
-              <span>Opus 映射</span>
-              <input
-                :value="modelMappingValue('opus')"
-                type="text"
-                placeholder="claude-opus-4-6"
-                @input="setModelMappingValue('opus', ($event.target as HTMLInputElement).value)"
-              >
-            </label>
-            <label class="field">
-              <span>Sonnet 映射</span>
-              <input
-                :value="modelMappingValue('sonnet')"
-                type="text"
-                placeholder="claude-sonnet-4-20250514"
-                @input="setModelMappingValue('sonnet', ($event.target as HTMLInputElement).value)"
-              >
-            </label>
-            <label class="field">
-              <span>Haiku 映射</span>
-              <input
-                :value="modelMappingValue('haiku')"
-                type="text"
-                placeholder="claude-haiku-4-5-20251001"
-                @input="setModelMappingValue('haiku', ($event.target as HTMLInputElement).value)"
-              >
-            </label>
-          </div>
-        </section>
-
-        <section class="form-card">
-          <div class="section-head">
-            <div>
-              <h3>连接与鉴权</h3>
-              <p>根据当前运行模式展示真正参与运行的连接配置。</p>
-            </div>
-            <button class="text-button" type="button" @click="showSecrets = !showSecrets">
-              {{ showSecrets ? '隐藏密钥' : '显示密钥' }}
-            </button>
-          </div>
-
-          <template v-if="!isCcrMode">
-            <div class="form-grid">
-              <label class="field field-span-2">
-                <span>请求地址</span>
-                <input v-model="drafts.agent.values.baseUrl" type="text">
-              </label>
-              <label class="field field-span-2">
-                <span>API Key</span>
-                <input
-                  v-model="drafts.agent.values.apiKey"
-                  :type="showSecrets ? 'text' : 'password'"
-                  placeholder="未设置"
-                >
-                <small>{{ showSecrets ? '当前显示明文' : maskSecret(drafts.agent.values.apiKey) }}</small>
-              </label>
-            </div>
-          </template>
-
-          <template v-else>
-            <div class="form-grid">
-              <label class="field">
-                <span>本地 CCR Host</span>
-                <input v-model="drafts.ccr.values.HOST" type="text">
-              </label>
-              <label class="field">
-                <span>本地 CCR Port</span>
-                <input v-model.number="drafts.ccr.values.PORT" type="number">
-              </label>
-            </div>
-
-            <div class="providers-shell">
-              <article
-                v-for="(provider, index) in drafts.ccr.values.Providers"
-                :key="provider.name || index"
-                class="provider-card"
-              >
-                <div class="provider-head">
-                  <div>
-                    <h4>{{ provider.name || `Provider ${index + 1}` }}</h4>
-                    <p>{{ Array.isArray(provider.transformer?.use) ? provider.transformer.use.join(', ') : '未配置 transformer' }}</p>
-                  </div>
-                  <span class="provider-badge">{{ provider.models?.length || 0 }} 个模型</span>
-                </div>
-
-                <label class="field field-span-2">
-                  <span>请求地址</span>
-                  <input v-model="provider.api_base_url" type="text">
-                </label>
-                <label class="field field-span-2">
-                  <span>API Key</span>
-                  <input v-model="provider.api_key" :type="showSecrets ? 'text' : 'password'">
-                  <small>{{ showSecrets ? '当前显示明文' : maskSecret(provider.api_key || '') }}</small>
-                </label>
-                <label class="field field-span-2">
-                  <span>模型列表</span>
-                  <input :value="providerModels(provider)" type="text" @input="updateProviderModels(provider, $event)">
-                </label>
-              </article>
-            </div>
-          </template>
-
-          <div v-if="primaryProvider && isCcrMode" class="tip-strip">
-            当前主要 Provider：{{ primaryProvider.name }}，默认路由：{{ drafts.ccr.values.Router.default || '未设置' }}
-          </div>
-        </section>
-
-        <section v-if="isCcrMode" class="form-card">
-          <div class="section-head">
-            <div>
-              <h3>CCR 路由</h3>
-              <p>这些字段仅在 CCR 模式下参与默认模型的最终路由。</p>
-            </div>
-          </div>
-
-          <div class="form-grid">
-            <label class="field">
-              <span>Router.default</span>
-              <input v-model="drafts.ccr.values.Router.default" type="text">
-            </label>
-            <label class="field">
-              <span>Router.think</span>
-              <input v-model="drafts.ccr.values.Router.think" type="text">
-            </label>
-            <label class="field">
-              <span>Router.background</span>
-              <input v-model="drafts.ccr.values.Router.background" type="text">
-            </label>
-            <label class="field">
-              <span>Router.longContext</span>
-              <input v-model="drafts.ccr.values.Router.longContext" type="text">
-            </label>
-            <label class="field">
-              <span>API_TIMEOUT_MS</span>
-              <input v-model.number="drafts.ccr.values.API_TIMEOUT_MS" type="number">
-            </label>
-            <label class="field toggle-line field-inline-toggle" :class="{ enabled: drafts.ccr.values.LOG }">
-              <span>LOG</span>
-              <input v-model="drafts.ccr.values.LOG" type="checkbox">
-            </label>
-          </div>
-        </section>
-
-        <section class="form-card">
-          <div class="section-head">
-            <div>
-              <h3>Web 展示配置</h3>
-              <p>这些配置保存后可直接热更新，无需重启实例。</p>
-            </div>
-          </div>
-
-          <div class="form-grid">
-            <label class="field field-span-2">
-              <span>自定义模型列表</span>
-              <textarea :value="modelLines()" rows="4" @input="handleModelLinesInput" />
-            </label>
-            <label class="field">
-              <span>User 图层预设</span>
-              <textarea
-                :value="drafts.web.values.layerPresets.User.enabledLayers.join('\n')"
-                rows="4"
-                @input="handleLayerPresetInput(drafts.web.values.layerPresets.User.enabledLayers, $event)"
-              />
-            </label>
-            <label class="field">
-              <span>Agent 图层预设</span>
-              <textarea
-                :value="drafts.web.values.layerPresets.Agent.enabledLayers.join('\n')"
-                rows="4"
-                @input="handleLayerPresetInput(drafts.web.values.layerPresets.Agent.enabledLayers, $event)"
-              />
-            </label>
-          </div>
-        </section>
-
-        <section class="form-card">
-          <div class="section-head">
-            <div>
-              <h3>高级 JSON</h3>
-              <p>保留原始配置编辑能力，便于核对与迁移。</p>
-            </div>
-          </div>
-
-          <div class="json-list">
-            <details v-for="key in groupKeys" :key="key" class="json-item">
-              <summary>
-                <span>{{ drafts[key].title }}</span>
-                <small>{{ drafts[key].sourceFile }}</small>
-              </summary>
-              <div class="json-body">
-                <textarea v-model="drafts[key].jsonText" rows="12" spellcheck="false" @blur="parseJson(key)" />
-                <p v-if="drafts[key].jsonError" class="json-error">{{ drafts[key].jsonError }}</p>
-              </div>
-            </details>
-          </div>
-        </section>
-      </template>
-    </div>
-
-    <footer class="sticky-footer">
-      <div class="footer-copy">
-        <strong>{{ modeLabel }}</strong>
-        <span>{{ runtime.restartHint }}</span>
-      </div>
-      <div class="footer-actions">
-        <button class="secondary-button" type="button" :disabled="isLoading" @click="loadSettings">刷新</button>
+      
+      <div class="header-actions">
+        <button class="text-button" type="button" :disabled="isLoading" @click="loadSettings">取消并重置</button>
         <button
           v-if="restartPendingGroups.length > 0"
-          class="danger-button"
+          class="danger-button outlined"
           type="button"
           :disabled="isRestarting"
           @click="handleRestart"
         >
-          {{ isRestarting ? '重启中...' : '重启实例' }}
+          {{ isRestarting ? '重启中...' : '重启实例生效' }}
         </button>
-        <button class="primary-button" type="button" :disabled="isSaving || isLoading" @click="handleSave">
-          {{ isSaving ? '保存中...' : '保存配置' }}
+        <button class="primary-button glass-btn" type="button" :disabled="isSaving || isLoading" @click="handleSave">
+          {{ isSaving ? '保存中...' : '保存更改' }}
         </button>
       </div>
-    </footer>
+    </header>
+
+    <div class="settings-content-scroll">
+      <div class="settings-shell">
+        
+        <div v-if="loadError || saveError || saveMessage || restartPendingGroups.length > 0" class="notice-stack">
+          <div v-if="loadError" class="notice error">{{ loadError }}</div>
+          <div v-if="saveError" class="notice error">{{ saveError }}</div>
+          <div v-if="saveMessage" class="notice info">{{ saveMessage }}</div>
+          <div v-if="restartPendingGroups.length > 0" class="notice warn">
+            已修改高影响配置：{{ restartPendingGroups.join(' / ') }}。保存后请完成一次实例重启。
+            ({{ runtime.restartBehavior === 'docker-auto' ? 'Docker 将自动拉起' : '需要手动重启服务' }})
+          </div>
+        </div>
+
+        <div v-if="isLoading" class="loading-state">正在拉取实例配置及节点状态...</div>
+
+        <template v-else>
+          <div class="main-settings-card">
+            
+            <!-- 问题2改进：运行模式切换改为视觉冲击力更强的大卡片 -->
+            <section class="config-section mode-section">
+              <div class="section-title">
+                <h3>运行架构模式</h3>
+                <p>决定 Agent 对接哪个链路。不同的模式下，网络和默认推理策略将完全分离。</p>
+              </div>
+              
+              <div class="mode-cards">
+                <!-- 直连模式卡片 -->
+                <button
+                  type="button"
+                  class="mode-card"
+                  :class="{ active: !drafts.server.values.ccr.enabled }"
+                  @click="drafts.server.values.ccr.enabled = false"
+                >
+                  <div class="mode-icon">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12H3m0 0l6-6m-6 6l6 6"/></svg>
+                  </div>
+                  <div class="mode-info">
+                    <h4>本地直连模式</h4>
+                    <p>Agent 直接连接各个提供商。适合单机部署、轻量化任务开发与直接调用云端大模型 API。</p>
+                  </div>
+                  <div class="mode-radio">
+                    <div class="radio-inner" v-if="!drafts.server.values.ccr.enabled"></div>
+                  </div>
+                </button>
+
+                <!-- CCR 网关模式卡片 -->
+                <button
+                  type="button"
+                  class="mode-card"
+                  :class="{ active: drafts.server.values.ccr.enabled }"
+                  @click="drafts.server.values.ccr.enabled = true"
+                >
+                  <div class="mode-icon">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+                  </div>
+                  <div class="mode-info">
+                    <h4>挂载大模型路由网关 (CCR)</h4>
+                    <p>将 Agent 流量定向至中央网关，支持复杂的路由控制、长上下文无缝切换与日志拦截溯源。</p>
+                  </div>
+                  <div class="mode-radio">
+                    <div class="radio-inner" v-if="drafts.server.values.ccr.enabled"></div>
+                  </div>
+                </button>
+              </div>
+
+              <!-- 基础服务配置 (不受模式影响) -->
+              <div class="form-row col-2 mt-4">
+                <label class="field highlight-box">
+                  <span>Agent 服务监听端口</span>
+                  <input v-model.number="drafts.server.values.server.port" type="number">
+                </label>
+                <label class="field highlight-box">
+                  <span>Python 启动命令环境</span>
+                  <input v-model="drafts.server.values.server.pythonCommand" type="text" placeholder="python 或 python3">
+                </label>
+              </div>
+              <div class="form-row col-2">
+                <label class="field highlight-box" :class="{ disabled: !isCcrMode }">
+                  <span>向代理注册的独立 CCR Host</span>
+                  <input v-model="drafts.server.values.ccr.host" type="text" :disabled="!isCcrMode">
+                </label>
+                <label class="field highlight-box" :class="{ disabled: !isCcrMode }">
+                  <span>向代理注册的独立 CCR Port</span>
+                  <input v-model.number="drafts.server.values.ccr.port" type="number" :disabled="!isCcrMode">
+                </label>
+              </div>
+            </section>
+
+            <div class="section-divider"></div>
+
+            <!-- 问题3改进：每个分类专属的高级 JSON 查询挂载在其区块最下方 -->
+            
+            <section class="config-section">
+              <div class="section-title">
+                <h3>默认模型族与推理行为策略</h3>
+                <p>
+                  {{ effectiveModelDescription }}
+                  <span class="path-badge">{{ displayEffectiveModelPath }}</span>
+                </p>
+              </div>
+              
+              <div class="section-content">
+                <div class="form-row col-2">
+                  <label class="field">
+                    <span>基准默认模型</span>
+                    <select v-model="effectiveDefaultModel">
+                      <option v-for="option in modelOptions" :key="option.value" :value="option.value">
+                        {{ option.label }}
+                      </option>
+                    </select>
+                  </label>
+                  <label class="field">
+                    <span>全局保底 Effort (投入资源)</span>
+                    <select v-model="drafts.agent.values.defaultEffort" :disabled="isCcrMode && !drafts.ccr.values.Router?.default">
+                      <option v-for="option in effortOptions" :key="option.value" :value="option.value">
+                        {{ option.label }}
+                      </option>
+                    </select>
+                  </label>
+                </div>
+                <div class="form-row col-2">
+                  <label class="field">
+                    <span>扩展思考模式 (Extended Thinking)</span>
+                    <select v-model="drafts.agent.values.defaultThinking">
+                      <option v-for="option in thinkingOptions" :key="option.value" :value="option.value">
+                        {{ option.label }}
+                      </option>
+                    </select>
+                  </label>
+                  <label class="field">
+                    <span>最大 Thinking Tokens 容量</span>
+                    <input v-model.number="drafts.agent.values.maxThinkingTokens" type="number">
+                  </label>
+                </div>
+
+                <div class="sub-section-title">基座模型硬链接映射规则 (Model Mapping)</div>
+                <div class="form-row col-3">
+                  <label class="field">
+                    <span>全能型推演映射 (Opus)</span>
+                    <input
+                      :value="modelMappingValue('opus')"
+                      type="text"
+                      placeholder="claude-opus-4"
+                      @input="setModelMappingValue('opus', ($event.target as HTMLInputElement).value)"
+                    >
+                  </label>
+                  <label class="field">
+                    <span>高效均衡型映射 (Sonnet)</span>
+                    <input
+                      :value="modelMappingValue('sonnet')"
+                      type="text"
+                      placeholder="claude-sonnet-4-20250514"
+                      @input="setModelMappingValue('sonnet', ($event.target as HTMLInputElement).value)"
+                    >
+                  </label>
+                  <label class="field">
+                    <span>高速轻量型映射 (Haiku)</span>
+                    <input
+                      :value="modelMappingValue('haiku')"
+                      type="text"
+                      placeholder="claude-haiku-4-5-20251001"
+                      @input="setModelMappingValue('haiku', ($event.target as HTMLInputElement).value)"
+                    >
+                  </label>
+                </div>
+              </div>
+              
+              <!-- 属于这里的独立高级 JSON 视图 -->
+              <details class="local-json-accordion">
+                <summary>
+                  <div class="json-acc-title">
+                    <svg viewBox="0 0 24 24" fill="none" class="code-icon" stroke="currentColor" stroke-width="2"><path d="M16 18l6-6-6-6M8 6l-6 6 6 6"/></svg>
+                    <span>排查底层 Agent 原始配置源</span>
+                  </div>
+                  <span class="path-badge">{{ drafts.agent.sourceFile }}</span>
+                </summary>
+                <div class="json-acc-body">
+                  <textarea v-model="drafts.agent.jsonText" rows="8" spellcheck="false" @blur="parseJson('agent')" />
+                  <p v-if="drafts.agent.jsonError" class="json-error">{{ drafts.agent.jsonError }}</p>
+                </div>
+              </details>
+            </section>
+
+            <div class="section-divider"></div>
+
+            <!-- 连接与鉴权区块 -->
+            <section class="config-section">
+              <div class="section-title split-title">
+                <div class="title-left">
+                  <h3>链路连接与鉴权信道</h3>
+                  <p>根据当前左侧选择的运行模式，这里将动态激活对应的下沉参数。</p>
+                </div>
+                <button class="text-button small-btn" type="button" @click="showSecrets = !showSecrets">
+                  {{ showSecrets ? '隐藏明文密钥保护' : '暴露敏感密钥字段' }}
+                </button>
+              </div>
+              
+              <div class="section-content">
+                <!-- 直连模式选项 -->
+                <transition name="fade-slide" mode="out-in">
+                  <div v-if="!isCcrMode" class="config-branch" key="direct">
+                    <div class="form-row col-2">
+                      <label class="field">
+                        <span>提供商通信地址 (Base URL)</span>
+                        <input v-model="drafts.agent.values.baseUrl" type="text" placeholder="https://api.anthropic.com">
+                      </label>
+                      <label class="field">
+                        <span>顶级访问令牌 (API Key)</span>
+                        <input
+                          v-model="drafts.agent.values.apiKey"
+                          :type="showSecrets ? 'text' : 'password'"
+                          placeholder="未配置或留空"
+                        >
+                        <small class="helper-text highlight-text">{{ showSecrets ? '当前已解除马赛克，防止围观' : maskSecret(drafts.agent.values.apiKey) }}</small>
+                      </label>
+                    </div>
+                  </div>
+
+                  <!-- CCR模式选项 -->
+                  <div v-else class="config-branch ccr-branch" key="ccr">
+                    <div class="form-row col-2">
+                      <label class="field">
+                        <span>本地 CCR 网关暴露 Host</span>
+                        <input v-model="drafts.ccr.values.HOST" type="text">
+                      </label>
+                      <label class="field">
+                        <span>本地 CCR 网关核心 Port</span>
+                        <input v-model.number="drafts.ccr.values.PORT" type="number">
+                      </label>
+                    </div>
+
+                    <div class="sub-section-title">Providers 集群负载及路由控制组</div>
+                    <div class="providers-list">
+                      <article
+                        v-for="(provider, index) in drafts.ccr.values.Providers"
+                        :key="provider.name || index"
+                        class="provider-box"
+                      >
+                        <div class="provider-header">
+                          <div class="provider-name">{{ provider.name || `节点集群 ${index + 1}` }}</div>
+                          <span class="provider-badge pulse-badge">{{ provider.models?.length || 0 }} 个注册模型</span>
+                        </div>
+                        
+                        <div class="form-row col-2">
+                          <label class="field">
+                            <span>该层级请求转发地址</span>
+                            <input v-model="provider.api_base_url" type="text">
+                          </label>
+                          <label class="field">
+                            <span>该层级通道秘钥 (Key)</span>
+                            <input v-model="provider.api_key" :type="showSecrets ? 'text' : 'password'">
+                            <small class="helper-text highlight-text">{{ showSecrets ? '已解除显示限制' : maskSecret(provider.api_key || '') }}</small>
+                          </label>
+                        </div>
+                        <div class="form-row">
+                          <label class="field">
+                            <span>承接模型白名单列表 (使用英文逗号隔离)</span>
+                            <input :value="providerModels(provider)" type="text" @input="updateProviderModels(provider, $event)">
+                          </label>
+                        </div>
+                      </article>
+                    </div>
+                    
+                    <div v-if="primaryProvider" class="info-strip outline-glass highlight">
+                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4m0-4h.01"/></svg>
+                      <div>
+                        发现可用首选集群边界：<strong>{{ primaryProvider.name }}</strong><br/>
+                        目前网关兜底备用路由规则为：<strong>{{ drafts.ccr.values.Router.default || '未识别配置' }}</strong>
+                      </div>
+                    </div>
+
+                    <!-- CCR 特有的路由子参数 -->
+                    <div class="accordion-embedded mt-4">
+                      <div class="form-row col-2">
+                        <label class="field">
+                          <span>精确拦截规则: Default 分支</span>
+                          <input v-model="drafts.ccr.values.Router.default" type="text">
+                        </label>
+                        <label class="field">
+                          <span>精确拦截规则: Think 定向分支</span>
+                          <input v-model="drafts.ccr.values.Router.think" type="text">
+                        </label>
+                      </div>
+                      <div class="form-row col-2">
+                        <label class="field">
+                          <span>精确拦截规则: 纯后台队列</span>
+                          <input v-model="drafts.ccr.values.Router.background" type="text">
+                        </label>
+                        <label class="field">
+                          <span>精确拦截规则: 超长文脉路段</span>
+                          <input v-model="drafts.ccr.values.Router.longContext" type="text">
+                        </label>
+                      </div>
+                      <div class="form-row col-2 align-end">
+                        <label class="field">
+                          <span>全局路由中断超时 (Timeout Ms)</span>
+                          <input v-model.number="drafts.ccr.values.API_TIMEOUT_MS" type="number">
+                        </label>
+                        <label class="field switch-field glass-switch">
+                          <div class="switch-meta">
+                            <span class="switch-label">挂载级联 Debug 日志</span>
+                            <span class="switch-desc">追踪每一笔进入网关的流量和延迟响应面</span>
+                          </div>
+                          <div class="switch">
+                            <input v-model="drafts.ccr.values.LOG" type="checkbox">
+                            <span class="slider"></span>
+                          </div>
+                        </label>
+                      </div>
+                    </div>
+                  </div>
+                </transition>
+              </div>
+
+              <!-- 属于这里的独立高级 JSON 视图 -->
+              <div class="json-acc-group">
+                <details class="local-json-accordion">
+                  <summary>
+                    <div class="json-acc-title">
+                      <svg viewBox="0 0 24 24" fill="none" class="code-icon" stroke="currentColor" stroke-width="2"><path d="M16 18l6-6-6-6M8 6l-6 6 6 6"/></svg>
+                      <span>排查底层 Server 桥接配置源</span>
+                    </div>
+                    <span class="path-badge">{{ drafts.server.sourceFile }}</span>
+                  </summary>
+                  <div class="json-acc-body">
+                    <textarea v-model="drafts.server.jsonText" rows="6" spellcheck="false" @blur="parseJson('server')" />
+                    <p v-if="drafts.server.jsonError" class="json-error">{{ drafts.server.jsonError }}</p>
+                  </div>
+                </details>
+                
+                <details v-if="isCcrMode" class="local-json-accordion">
+                  <summary>
+                    <div class="json-acc-title">
+                      <svg viewBox="0 0 24 24" fill="none" class="code-icon" stroke="currentColor" stroke-width="2"><path d="M16 18l6-6-6-6M8 6l-6 6 6 6"/></svg>
+                      <span>排查 CCR 网关核心路由与集群配置源</span>
+                    </div>
+                    <span class="path-badge">{{ drafts.ccr.sourceFile }}</span>
+                  </summary>
+                  <div class="json-acc-body">
+                    <textarea v-model="drafts.ccr.jsonText" rows="10" spellcheck="false" @blur="parseJson('ccr')" />
+                    <p v-if="drafts.ccr.jsonError" class="json-error">{{ drafts.ccr.jsonError }}</p>
+                  </div>
+                </details>
+              </div>
+            </section>
+
+            <div class="section-divider"></div>
+
+            <!-- 可折叠区块：Web 展示配置 -->
+            <section class="config-section">
+              <div class="section-title">
+                <h3>视图化 Web 客户端渲染预设</h3>
+                <p>此类配置修改直接作用于内存刷新周期，无需依赖服务级硬重启。</p>
+              </div>
+              
+              <div class="section-content">
+                <div class="form-row">
+                  <label class="field">
+                    <span>外部强制模型列表重写 (每行一条将压制系统枚举)</span>
+                    <textarea :value="modelLines()" rows="3" class="mono-font" @input="handleModelLinesInput" />
+                  </label>
+                </div>
+                <div class="form-row col-2">
+                  <label class="field">
+                    <span>User 图层硬性绑定组 (每行定义一套预设组)</span>
+                    <textarea
+                      :value="drafts.web.values.layerPresets.User.enabledLayers.join('\n')"
+                      rows="4" class="mono-font"
+                      @input="handleLayerPresetInput(drafts.web.values.layerPresets.User.enabledLayers, $event)"
+                    />
+                  </label>
+                  <label class="field">
+                    <span>Agent 动态映射层级预设组 (按行隔离)</span>
+                    <textarea
+                      :value="drafts.web.values.layerPresets.Agent.enabledLayers.join('\n')"
+                      rows="4" class="mono-font"
+                      @input="handleLayerPresetInput(drafts.web.values.layerPresets.Agent.enabledLayers, $event)"
+                    />
+                  </label>
+                </div>
+              </div>
+
+              <!-- 属于这里的独立高级 JSON 视图 -->
+              <details class="local-json-accordion mt-4">
+                <summary>
+                  <div class="json-acc-title">
+                    <svg viewBox="0 0 24 24" fill="none" class="code-icon" stroke="currentColor" stroke-width="2"><path d="M16 18l6-6-6-6M8 6l-6 6 6 6"/></svg>
+                    <span>排查 Web 渲染系统原始配置边界</span>
+                  </div>
+                  <span class="path-badge">{{ drafts.web.sourceFile }}</span>
+                </summary>
+                <div class="json-acc-body">
+                  <textarea v-model="drafts.web.jsonText" rows="6" spellcheck="false" @blur="parseJson('web')" />
+                  <p v-if="drafts.web.jsonError" class="json-error">{{ drafts.web.jsonError }}</p>
+                </div>
+              </details>
+            </section>
+
+          </div>
+        </template>
+      </div>
+    </div>
   </div>
 </template>
 
 <style scoped>
+/* 核心架构样式 */
 .settings-page {
-  --page-surface: rgba(17, 20, 31, 0.78);
-  --page-surface-strong: rgba(11, 14, 22, 0.92);
-  --page-surface-soft: rgba(255, 255, 255, 0.03);
-  --page-surface-soft-hover: rgba(255, 255, 255, 0.05);
-  --page-border: rgba(255, 255, 255, 0.1);
-  --page-border-strong: rgba(255, 255, 255, 0.16);
-  --page-text: var(--text-primary);
-  --page-text-secondary: var(--text-secondary);
-  --page-text-tertiary: var(--text-tertiary);
-  --page-accent: var(--accent-blue);
-  --page-accent-soft: rgba(59, 130, 246, 0.14);
-  --page-accent-strong: rgba(59, 130, 246, 0.26);
-  --page-success: var(--accent-green);
-  --page-warn: var(--accent-yellow);
-  --page-danger: var(--accent-danger);
-  position: relative;
-  min-height: 100%;
-  padding: 8px 0 132px;
-  color: var(--page-text);
-}
-
-.settings-page::before,
-.settings-page::after {
-  content: '';
-  position: absolute;
-  inset: 0;
-  pointer-events: none;
-}
-
-.settings-page::before {
-  background:
-    radial-gradient(circle at 14% 0%, rgba(59, 130, 246, 0.22), transparent 30%),
-    radial-gradient(circle at 86% 6%, rgba(52, 199, 89, 0.12), transparent 24%),
-    linear-gradient(180deg, rgba(255, 255, 255, 0.04), transparent 24%);
-  opacity: 0.95;
-}
-
-.settings-page::after {
-  background-image:
-    linear-gradient(rgba(255, 255, 255, 0.024) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(255, 255, 255, 0.024) 1px, transparent 1px);
-  background-size: 48px 48px;
-  mask-image: linear-gradient(180deg, rgba(255, 255, 255, 0.18), transparent 55%);
-}
-
-.settings-shell {
-  position: relative;
-  z-index: 1;
+  --page-surface: #0a0c10;
+  --glass-bg: rgba(22, 26, 35, 0.7);
+  --glass-solid: #151821;
+  --glass-border: rgba(255, 255, 255, 0.08);
+  --glass-border-strong: rgba(255, 255, 255, 0.16);
+  --text-main: rgba(255, 255, 255, 0.95);
+  --text-sub: rgba(255, 255, 255, 0.65);
+  --text-mute: rgba(255, 255, 255, 0.4);
+  --accent-base: #3b82f6;
+  --accent-hover: #4f91fb;
+  --accent-soft: rgba(59, 130, 246, 0.15);
+  --danger-color: #fca5a5;
+  --danger-soft: rgba(248, 113, 113, 0.12);
+  
   display: flex;
   flex-direction: column;
-  gap: 18px;
-  max-width: 1380px;
-  margin: 0 auto;
-}
-
-.hero-card,
-.form-card {
+  height: 100%;
+  color: var(--text-main);
+  background: var(--page-surface);
   position: relative;
+  font-family: 'Inter', system-ui, -apple-system, sans-serif;
   overflow: hidden;
-  background:
-    linear-gradient(180deg, rgba(22, 26, 38, 0.9), rgba(12, 14, 22, 0.82)),
-    var(--page-surface);
-  backdrop-filter: var(--glass-blur);
-  -webkit-backdrop-filter: var(--glass-blur);
-  border: 1px solid var(--page-border);
-  border-radius: 24px;
-  box-shadow:
-    var(--shadow-panel),
-    inset 0 1px 0 rgba(255, 255, 255, 0.08);
 }
 
-.hero-card::before,
-.form-card::before {
+/* 环境光晕 */
+.settings-page::before {
   content: '';
   position: absolute;
-  inset: 0;
+  top: -100px;
+  left: 20%;
+  width: 60%;
+  height: 400px;
+  background: radial-gradient(ellipse at top, rgba(59, 130, 246, 0.15) 0%, transparent 70%);
   pointer-events: none;
-  background: linear-gradient(180deg, rgba(255, 255, 255, 0.08), transparent 26%);
+  z-index: 0;
 }
 
-.hero-card > *,
-.form-card > * {
-  position: relative;
-  z-index: 1;
-}
-
-.hero-card {
-  padding: 18px 22px 22px;
-  box-shadow:
-    0 22px 52px rgba(0, 0, 0, 0.34),
-    inset 0 1px 0 rgba(255, 255, 255, 0.1),
-    0 0 0 1px rgba(59, 130, 246, 0.08);
-}
-
-.back-chip {
-  border: 1px solid var(--page-border);
-  background: rgba(255, 255, 255, 0.04);
-  color: var(--page-text);
-  height: 44px;
-  padding: 0 18px;
-  border-radius: 999px;
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  cursor: pointer;
-  transition: background-color 0.18s ease, border-color 0.18s ease, color 0.18s ease;
-}
-
-.back-chip:hover {
-  background: rgba(255, 255, 255, 0.08);
-  border-color: var(--page-border-strong);
-}
-
-.back-chip svg {
-  width: 16px;
-  height: 16px;
-}
-
-.hero-main {
-  display: grid;
-  grid-template-columns: 108px minmax(0, 1fr);
-  gap: 22px;
-  align-items: start;
-  margin-top: 18px;
-}
-
-.hero-avatar {
-  width: 108px;
-  height: 108px;
-  border-radius: 28px;
-  display: grid;
-  place-items: center;
-  background:
-    radial-gradient(circle at 28% 24%, rgba(59, 130, 246, 0.28), transparent 42%),
-    linear-gradient(180deg, rgba(255, 255, 255, 0.08), rgba(255, 255, 255, 0.01)),
-    rgba(7, 10, 16, 0.84);
-  border: 1px solid rgba(59, 130, 246, 0.24);
-  box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.12),
-    0 18px 28px rgba(59, 130, 246, 0.08);
-  font-size: 2.4rem;
-  font-weight: 700;
-  letter-spacing: 0.08em;
-  color: #dbe9ff;
-}
-
-.hero-topline {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  flex-wrap: wrap;
-}
-
-.mode-pill,
-.provider-badge,
-.effective-path {
-  display: inline-flex;
-  align-items: center;
-  border-radius: 999px;
-  padding: 6px 10px;
-  font-size: 0.78rem;
-}
-
-.mode-pill {
-  background: var(--page-accent-soft);
-  border: 1px solid var(--page-accent-strong);
-  color: #d7e7ff;
-}
-
-.provider-badge,
-.effective-path {
-  background: rgba(255, 255, 255, 0.05);
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  color: var(--page-text-secondary);
-}
-
-.mode-note,
-.section-head p,
-.hero-copy p,
-.field small,
-.json-item summary small,
-.provider-head p,
-.footer-copy span,
-.loading-state {
-  color: var(--page-text-secondary);
-}
-
-.hero-copy h2 {
-  margin: 10px 0 8px;
-  font-size: clamp(2rem, 4vw, 2.75rem);
-  line-height: 1;
-  letter-spacing: -0.03em;
-}
-
-.hero-copy p {
-  margin: 0;
-  max-width: 880px;
-  font-size: 1rem;
-}
-
-.hero-metrics {
-  display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 12px;
-  margin-top: 22px;
-}
-
-.metric-card {
-  border-radius: 18px;
-  padding: 14px 16px;
-  background: rgba(255, 255, 255, 0.03);
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04);
-}
-
-.metric-label {
-  display: block;
-  margin-bottom: 8px;
-  font-size: 0.74rem;
-  font-weight: 600;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  color: var(--page-text-tertiary);
-}
-
-.metric-value {
-  font-size: 1rem;
-  font-weight: 600;
-  line-height: 1.45;
-  word-break: break-word;
-}
-
-.metric-value code {
-  display: inline-block;
-  padding: 4px 9px;
-  border-radius: 999px;
-  background: rgba(59, 130, 246, 0.12);
-  color: #d7e7ff;
-  font-family: var(--font-mono);
-  font-size: 0.86rem;
-}
-
-.metric-card.status-ready .metric-value {
-  color: #bce8ca;
-}
-
-.metric-card.status-pending .metric-value {
-  color: #ffe29f;
-}
-
-.notice-stack {
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-}
-
-.notice {
-  border-radius: 16px;
-  padding: 14px 16px;
-  border: 1px solid var(--page-border);
-  background: rgba(255, 255, 255, 0.04);
-}
-
-.notice.error {
-  color: #ffc0c0;
-  border-color: rgba(255, 107, 107, 0.24);
-  background: rgba(255, 107, 107, 0.1);
-}
-
-.notice.info {
-  color: #cfe1ff;
-  border-color: rgba(59, 130, 246, 0.24);
-  background: rgba(59, 130, 246, 0.1);
-}
-
-.notice.warn {
-  color: #ffe29f;
-  border-color: rgba(255, 204, 0, 0.22);
-  background: rgba(255, 204, 0, 0.08);
-}
-
-.loading-state {
-  padding: 84px 24px;
-  text-align: center;
-  border-radius: 24px;
-  border: 1px dashed rgba(255, 255, 255, 0.12);
-  background: rgba(255, 255, 255, 0.03);
-}
-
-.form-card {
-  padding: 22px 22px 24px;
-}
-
-.section-head,
-.toggle-line,
-.provider-head,
-.sticky-footer,
-.footer-actions {
+/* 独立且吸顶的头部操作栏 */
+.sticky-top-bar {
+  position: sticky;
+  top: 0;
+  z-index: 50;
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 14px;
+  padding: 18px 32px;
+  background: rgba(14, 16, 22, 0.85);
+  backdrop-filter: blur(24px) saturate(180%);
+  border-bottom: 1px solid var(--glass-border);
+  box-shadow: 0 4px 24px rgba(0, 0, 0, 0.2);
 }
 
-.section-head {
-  align-items: flex-start;
-  margin-bottom: 18px;
-}
-
-.section-head h3,
-.provider-head h4 {
-  margin: 0;
-  letter-spacing: -0.02em;
-}
-
-.section-head p,
-.provider-head p {
-  margin: 8px 0 0;
-}
-
-.form-grid,
-.mapping-grid {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+.header-left {
+  display: flex;
+  align-items: center;
   gap: 16px;
 }
 
-.mapping-grid {
-  margin-top: 16px;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+.header-left h2 {
+  margin: 0;
+  font-size: 1.35rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
 }
 
-.field {
+.header-badges {
+  display: flex;
+  gap: 10px;
+}
+
+.mode-pill, .status-pill, .path-badge, .provider-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 12px;
+  border-radius: 999px;
+  font-size: 0.82rem;
+  font-weight: 500;
+  border: 1px solid var(--glass-border);
+}
+
+.mode-pill { background: var(--accent-soft); color: #93c5fd; border-color: rgba(59, 130, 246, 0.3); }
+.status-pill { background: rgba(255, 255, 255, 0.04); }
+.status-ready { color: #86efac; }
+.status-ready .dot { width: 6px; height: 6px; border-radius: 50%; background: #86efac; }
+.status-pending { color: #fdf08a; background: rgba(253, 224, 71, 0.08); border-color: rgba(253, 224, 71, 0.2); }
+.status-pending .dot { width: 6px; height: 6px; border-radius: 50%; background: #fdf08a; box-shadow: 0 0 6px #fdf08a; animation: pulse 2s infinite; }
+.path-badge { background: rgba(0, 0, 0, 0.4); font-family: monospace; letter-spacing: 0.05em; color: var(--text-sub); }
+
+.header-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.glass-btn, .text-button, .danger-button.outlined {
+  padding: 8px 18px;
+  border-radius: 12px;
+  font-size: 0.95rem;
+  font-weight: 500;
+  cursor: pointer;
+  outline: none;
+  font-family: inherit;
+  transition: all 0.2s ease;
+}
+
+.glass-btn.primary-button {
+  background: var(--accent-base);
+  color: #fff;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  box-shadow: 0 0 12px rgba(59, 130, 246, 0.4), inset 0 1px 0 rgba(255, 255, 255, 0.2);
+}
+.glass-btn.primary-button:hover:not(:disabled) {
+  background: var(--accent-hover);
+  transform: translateY(-1px);
+}
+
+.text-button {
+  background: transparent;
+  color: var(--text-sub);
+  border: 1px solid transparent;
+}
+.text-button:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.05);
+  color: var(--text-main);
+}
+.text-button.small-btn {
+  padding: 6px 12px;
+  font-size: 0.85rem;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 999px;
+}
+
+.danger-button.outlined {
+  background: transparent;
+  color: var(--danger-color);
+  border: 1px solid var(--danger-soft);
+}
+.danger-button.outlined:hover:not(:disabled) {
+  background: var(--danger-soft);
+}
+
+button:disabled { opacity: 0.5; cursor: not-allowed; transform: none !important; }
+
+/* 页面滚动区域 */
+.settings-content-scroll {
+  flex: 1;
+  overflow-y: auto;
+  padding: 32px 20px 80px;
+}
+
+.settings-shell {
+  max-width: 1024px;
+  margin: 0 auto;
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 20px;
 }
 
-.toggle-line {
+.main-settings-card {
+  background: var(--glass-bg);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px solid var(--glass-border);
+  border-radius: 24px;
+  box-shadow: 0 20px 48px rgba(0, 0, 0, 0.4), inset 0 1px 0 rgba(255, 255, 255, 0.04);
+}
+
+.config-section {
+  padding: 36px 44px;
+}
+
+.section-divider {
+  border-top: 1px solid rgba(255, 255, 255, 0.06);
+  margin: 0 44px;
+}
+
+.split-title { display: flex; justify-content: space-between; align-items: flex-start; }
+.section-title h3 { margin: 0 0 8px; font-size: 1.15rem; font-weight: 600; color: var(--text-main); }
+.section-title p { margin: 0; font-size: 0.9rem; color: var(--text-sub); line-height: 1.5; }
+
+/* 独特的模式选择巨无霸卡片 */
+.mode-cards {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 20px;
+  margin-top: 24px;
+}
+
+.mode-card {
+  position: relative;
+  display: flex;
+  align-items: flex-start;
+  gap: 16px;
+  background: var(--glass-solid);
+  border: 1px solid var(--glass-border-strong);
+  border-radius: 20px;
+  padding: 24px;
+  cursor: pointer;
+  text-align: left;
+  transition: all 0.25s cubic-bezier(0.2, 0.8, 0.2, 1);
+  overflow: hidden;
+}
+
+.mode-card::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+  background: linear-gradient(135deg, rgba(59, 130, 246, 0.1), transparent);
+  transition: opacity 0.25s ease;
+}
+
+.mode-card:hover {  border-color: rgba(59, 130, 246, 0.4); transform: translateY(-2px); box-shadow: 0 8px 24px rgba(0, 0, 0, 0.2); }
+.mode-card.active { border-color: var(--accent-base); background: rgba(59, 130, 246, 0.05); box-shadow: 0 0 0 1px var(--accent-base), 0 12px 32px rgba(59, 130, 246, 0.15); }
+.mode-card.active::before { opacity: 1; }
+
+.mode-icon {
+  width: 48px;
+  height: 48px;
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.05);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-main);
+  flex-shrink: 0;
+  transition: all 0.25s ease;
+}
+
+.mode-card.active .mode-icon {
+  background: var(--accent-base);
+  color: #fff;
+  box-shadow: 0 4px 16px rgba(59, 130, 246, 0.4);
+}
+
+.mode-icon svg { width: 24px; height: 24px; }
+.mode-info h4 { margin: 0 0 6px; font-size: 1.05rem; font-weight: 600; }
+.mode-info p { margin: 0; font-size: 0.85rem; color: var(--text-sub); line-height: 1.5; }
+.mode-radio {
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  border: 2px solid rgba(255, 255, 255, 0.2);
+  margin-left: auto;
+  position: relative;
+  flex-shrink: 0;
+}
+.mode-card.active .mode-radio { border-color: var(--accent-base); }
+.radio-inner {
+  position: absolute;
+  top: 50%; left: 50%;
+  transform: translate(-50%, -50%);
+  width: 10px; height: 10px;
+  border-radius: 50%;
+  background: var(--accent-base);
+}
+
+.mt-4 { margin-top: 1.5rem; }
+
+/* 基础表单组件 */
+.form-row { display: flex; gap: 24px; margin-bottom: 20px; }
+.form-row.col-2 > .field { flex: 1; }
+.form-row.col-3 > .field { flex: 1; }
+.form-row:last-child { margin-bottom: 0; }
+.align-end { align-items: flex-end; }
+
+.sub-section-title {
+  margin: 32px 0 16px;
+  font-size: 0.95rem;
+  font-weight: 600;
+  color: var(--text-main);
+  padding-bottom: 8px;
+  border-bottom: 1px dashed rgba(255, 255, 255, 0.1);
+}
+
+.field { display: flex; flex-direction: column; justify-content: center; gap: 8px; }
+.field.disabled { opacity: 0.5; filter: grayscale(1); }
+.field > span { font-size: 0.9rem; font-weight: 500; color: var(--text-sub); }
+
+.highlight-box {
+  background: rgba(255, 255, 255, 0.02);
+  padding: 16px;
+  border-radius: 16px;
+  border: 1px solid rgba(255, 255, 255, 0.04);
+}
+
+input, select, textarea {
+  width: 100%;
+  background: rgba(0, 0, 0, 0.2);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  color: var(--text-main);
+  border-radius: 12px;
+  padding: 12px 16px;
+  font-size: 0.95rem;
+  font-family: inherit;
+  outline: none;
+  transition: all 0.2s;
+  box-shadow: inset 0 2px 4px rgba(0,0,0,0.1);
+}
+textarea { resize: vertical; min-height: 80px; }
+.mono-font { font-family: monospace; font-size: 0.88rem; }
+input:focus, select:focus, textarea:focus { border-color: var(--accent-hover); box-shadow: 0 0 0 3px var(--accent-soft), inset 0 2px 4px rgba(0,0,0,0.1); }
+input:disabled, select:disabled { opacity: 0.5; background: rgba(0, 0, 0, 0.3); cursor: not-allowed; }
+.helper-text { font-size: 0.8rem; color: var(--text-mute); margin-top: 4px; }
+.highlight-text { color: #fdf08a; }
+
+/* 细化的 Switch 开关 */
+.switch-field.glass-switch {
   display: flex;
   flex-direction: row;
   align-items: center;
   justify-content: space-between;
-  gap: 16px;
-  min-height: 56px;
-  padding: 12px 14px;
-  border-radius: 18px;
-  background: rgba(255, 255, 255, 0.03);
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.03);
-  transition: background-color 0.18s ease, border-color 0.18s ease, box-shadow 0.18s ease;
-}
-
-.toggle-line.enabled {
-  background: rgba(59, 130, 246, 0.1);
-  border-color: rgba(59, 130, 246, 0.26);
-  box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.05),
-    0 0 0 1px rgba(59, 130, 246, 0.08);
-}
-
-.field-span-2 {
-  grid-column: 1 / -1;
-}
-
-.field-inline-toggle {
-  align-self: stretch;
-}
-
-.field span,
-.toggle-line span {
-  font-size: 0.92rem;
-  font-weight: 600;
-}
-
-input,
-select,
-textarea {
   width: 100%;
-  box-sizing: border-box;
-  border: 1px solid var(--page-border);
-  border-radius: 14px;
-  background: rgba(9, 11, 18, 0.74);
-  color: var(--page-text);
-  padding: 14px 16px;
-  font-size: 0.95rem;
-  outline: none;
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.03);
-  transition: border-color 0.18s ease, box-shadow 0.18s ease, background-color 0.18s ease;
-}
-
-input::placeholder,
-textarea::placeholder {
-  color: var(--page-text-tertiary);
-}
-
-textarea {
-  resize: vertical;
-  min-height: 112px;
-  font-family: var(--font-mono);
-}
-
-input:focus,
-select:focus,
-textarea:focus {
-  border-color: rgba(59, 130, 246, 0.42);
-  box-shadow:
-    0 0 0 3px rgba(59, 130, 246, 0.16),
-    inset 0 1px 0 rgba(255, 255, 255, 0.04);
-}
-
-input:disabled,
-select:disabled,
-textarea:disabled {
-  opacity: 0.48;
-  cursor: not-allowed;
-  background: rgba(255, 255, 255, 0.02);
-  color: var(--page-text-tertiary);
-}
-
-input[type='checkbox'] {
-  appearance: none;
-  -webkit-appearance: none;
-  width: 52px;
-  height: 30px;
-  padding: 0;
-  margin: 0;
-  border-radius: 999px;
-  border: 1px solid rgba(255, 255, 255, 0.14);
-  background: rgba(255, 255, 255, 0.12);
-  position: relative;
-  cursor: pointer;
-  transition: background-color 0.18s ease, border-color 0.18s ease;
-}
-
-input[type='checkbox']::before {
-  content: '';
-  position: absolute;
-  top: 3px;
-  left: 3px;
-  width: 22px;
-  height: 22px;
-  border-radius: 50%;
-  background: #f3f8ff;
-  box-shadow: 0 3px 10px rgba(0, 0, 0, 0.28);
-  transition: transform 0.18s ease, background-color 0.18s ease;
-}
-
-input[type='checkbox']:checked {
-  background: rgba(59, 130, 246, 0.4);
-  border-color: rgba(59, 130, 246, 0.5);
-}
-
-input[type='checkbox']:checked::before {
-  transform: translateX(22px);
-  background: #dcedff;
-}
-
-.text-button,
-.primary-button,
-.secondary-button,
-.danger-button {
-  border: 1px solid transparent;
-  border-radius: 999px;
-  padding: 12px 18px;
-  cursor: pointer;
-  font-weight: 600;
-  transition:
-    background-color 0.18s ease,
-    border-color 0.18s ease,
-    color 0.18s ease,
-    box-shadow 0.18s ease;
-}
-
-.text-button {
-  background: rgba(255, 255, 255, 0.04);
-  border-color: rgba(255, 255, 255, 0.08);
-  color: var(--page-text);
-}
-
-.primary-button {
-  background: linear-gradient(135deg, rgba(59, 130, 246, 0.96), rgba(37, 99, 235, 0.76));
-  border-color: rgba(147, 197, 253, 0.24);
-  box-shadow: 0 10px 22px rgba(59, 130, 246, 0.22);
-  color: #fff;
-}
-
-.secondary-button {
-  background: rgba(255, 255, 255, 0.04);
-  border-color: rgba(255, 255, 255, 0.08);
-  color: var(--page-text);
-}
-
-.danger-button {
-  background: rgba(255, 107, 107, 0.12);
-  border-color: rgba(255, 107, 107, 0.24);
-  color: #ffc6c6;
-}
-
-.text-button:hover,
-.secondary-button:hover {
-  background: rgba(255, 255, 255, 0.08);
-  border-color: rgba(255, 255, 255, 0.12);
-}
-
-.primary-button:hover {
-  box-shadow: 0 14px 28px rgba(59, 130, 246, 0.28);
-}
-
-.danger-button:hover {
-  background: rgba(255, 107, 107, 0.18);
-}
-
-.primary-button:disabled,
-.secondary-button:disabled,
-.danger-button:disabled,
-.text-button:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
-}
-
-.providers-shell {
-  display: flex;
-  flex-direction: column;
-  gap: 14px;
-}
-
-.provider-card {
-  border: 1px solid var(--page-border);
-  border-radius: 20px;
   background: rgba(255, 255, 255, 0.03);
-  padding: 18px;
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 14px 16px;
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.03);
+  padding: 12px 16px;
+  border-radius: 16px;
+  border: 1px solid rgba(255, 255, 255, 0.06);
 }
+.switch-meta { display: flex; flex-direction: column; gap: 4px; }
+.switch-label { font-size: 0.95rem; font-weight: 500; color: var(--text-main); }
+.switch-desc { font-size: 0.8rem; color: var(--text-sub); }
 
-.provider-head {
-  grid-column: 1 / -1;
+.switch { position: relative; width: 48px; height: 26px; flex-shrink: 0; }
+.switch input { opacity: 0; width: 0; height: 0; }
+.slider { position: absolute; cursor: pointer; inset: 0; background: rgba(255, 255, 255, 0.15); border-radius: 34px; transition: 0.3s; box-shadow: inset 0 2px 4px rgba(0,0,0,0.2); }
+.slider:before { content: ""; position: absolute; height: 20px; width: 20px; left: 3px; bottom: 3px; background-color: #fff; border-radius: 50%; box-shadow: 0 2px 4px rgba(0,0,0,0.3); transition: 0.3s cubic-bezier(0.2, 0.8, 0.2, 1); }
+input:checked + .slider { background-color: var(--accent-base); }
+input:checked + .slider:before { transform: translateX(22px); }
+
+/* Providers 列表 */
+.providers-list { display: flex; flex-direction: column; gap: 16px; margin-bottom: 20px; }
+.provider-box { background: rgba(0, 0, 0, 0.15); border: 1px solid var(--glass-border); border-radius: 16px; padding: 20px 24px; position: relative; }
+.provider-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; }
+.provider-name { font-size: 1.05rem; font-weight: 600; color: #93c5fd; }
+.provider-badge { background: rgba(59, 130, 246, 0.1); border-color: rgba(59, 130, 246, 0.3); color: #93c5fd; }
+.pulse-badge { position: relative; }
+.pulse-badge::before { content:''; position: absolute; left: 8px; width: 6px; height: 6px; border-radius: 50%; background: #60a5fa; box-shadow: 0 0 6px #60a5fa; }
+.provider-badge.pulse-badge { padding-left: 20px; }
+
+.info-strip { display: flex; align-items: flex-start; gap: 12px; border-radius: 14px; padding: 14px 18px; line-height: 1.6; }
+.info-strip svg { width: 20px; height: 20px; flex-shrink: 0; color: var(--accent-base); margin-top: 2px;}
+.info-strip.highlight { background: var(--accent-soft); border: 1px solid rgba(59, 130, 246, 0.2); }
+
+/* 就近分布的局部 JSON Accordion */
+.json-acc-group { display: flex; flex-direction: column; gap: 12px; margin-top: 24px; }
+.local-json-accordion {
+  background: transparent;
+  border-top: 1px dashed rgba(255, 255, 255, 0.1);
+  margin-top: 24px;
 }
+.json-acc-group .local-json-accordion { border-top: none; background: rgba(0, 0, 0, 0.2); border: 1px solid rgba(255, 255, 255, 0.06); border-radius: 12px; margin-top: 0; }
 
-.tip-strip {
-  margin-top: 16px;
-  border-radius: 14px;
-  padding: 12px 14px;
-  background: rgba(255, 204, 0, 0.08);
-  border: 1px solid rgba(255, 204, 0, 0.12);
-  color: #ffe29f;
-}
-
-.json-list {
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-}
-
-.json-item {
-  border: 1px solid var(--page-border);
-  border-radius: 18px;
-  background: rgba(255, 255, 255, 0.03);
-  overflow: hidden;
-}
-
-.json-item summary {
+.local-json-accordion summary {
   list-style: none;
   cursor: pointer;
-  padding: 16px 18px;
+  padding: 16px 0;
   display: flex;
   justify-content: space-between;
-  gap: 12px;
   align-items: center;
-  transition: background-color 0.18s ease;
+  user-select: none;
 }
+.json-acc-group .local-json-accordion summary { padding: 16px; }
+.local-json-accordion summary::-webkit-details-marker { display: none; }
+.local-json-accordion summary:hover { opacity: 0.8; }
 
-.json-item summary:hover {
-  background: rgba(255, 255, 255, 0.03);
-}
-
-.json-item summary::-webkit-details-marker {
-  display: none;
-}
-
-.json-body {
-  padding: 0 18px 18px;
-}
-
-.json-error {
-  margin: 8px 0 0;
-  color: #ffc0c0;
-}
-
-.sticky-footer {
-  position: fixed;
-  left: 50%;
-  bottom: 18px;
-  transform: translateX(-50%);
-  width: min(1320px, calc(100vw - 48px));
-  padding: 16px 20px;
-  background: rgba(10, 12, 20, 0.86);
-  border: 1px solid var(--page-border-strong);
-  border-radius: 22px;
-  backdrop-filter: blur(18px) saturate(160%);
-  -webkit-backdrop-filter: blur(18px) saturate(160%);
-  box-shadow:
-    0 20px 40px rgba(0, 0, 0, 0.38),
-    inset 0 1px 0 rgba(255, 255, 255, 0.08);
-  z-index: 30;
-}
-
-.footer-copy {
+.json-acc-title {
   display: flex;
-  flex-direction: column;
-  gap: 2px;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.9rem;
+  color: var(--text-sub);
+}
+.json-acc-title .code-icon { width: 16px; height: 16px; opacity: 0.7; }
+
+.local-json-accordion[open] .json-acc-title { color: var(--accent-base); }
+
+.json-acc-body {
+  padding: 0 0 16px;
+  animation: slideFadeIn 0.3s ease-out forwards;
+}
+.json-acc-group .json-acc-body { padding: 0 16px 16px; }
+
+.json-acc-body textarea {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 0.82rem;
+  line-height: 1.5;
+  background: #000;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  box-shadow: inset 0 4px 12px rgba(0, 0, 0, 0.5);
+  border-radius: 12px;
+}
+.json-error { padding: 12px; background: rgba(239, 68, 68, 0.15); color: #fca5a5; font-size: 0.85rem; border-radius: 8px; margin-top: 12px; }
+
+@keyframes slideFadeIn {
+  from { opacity: 0; transform: translateY(-4px); }
+  to { opacity: 1; transform: translateY(0); }
 }
 
-.footer-copy strong {
-  font-size: 0.98rem;
-}
+/* 通知条 */
+.notice-stack { display: flex; flex-direction: column; gap: 12px; margin-bottom: 20px; }
+.notice { padding: 14px 20px; border-radius: 14px; font-size: 0.9rem; line-height: 1.5; border: 1px solid transparent; }
+.notice.error { background: var(--danger-soft); border-color: rgba(239, 68, 68, 0.2); color: #fca5a5; }
+.notice.warn { background: rgba(234, 179, 8, 0.1); border-color: rgba(234, 179, 8, 0.2); color: #fde047; }
+.notice.info { background: var(--accent-soft); border-color: rgba(59, 130, 246, 0.2); color: #93c5fd; }
+.loading-state { padding: 60px 0; text-align: center; color: var(--text-sub); }
 
-@media (max-width: 1100px) {
-  .hero-main,
-  .hero-metrics,
-  .form-grid,
-  .mapping-grid,
-  .provider-card {
-    grid-template-columns: 1fr;
-  }
+/* 过渡动画 */
+.fade-slide-enter-active, .fade-slide-leave-active { transition: all 0.3s ease; }
+.fade-slide-enter-from { opacity: 0; transform: translateY(-10px); }
+.fade-slide-leave-to { opacity: 0; transform: translateY(10px); }
 
-  .sticky-footer,
-  .section-head,
-  .provider-head {
-    flex-direction: column;
-    align-items: stretch;
-  }
-
-  .hero-main {
-    grid-template-columns: 1fr;
-  }
-
-  .hero-avatar {
-    width: 92px;
-    height: 92px;
-  }
-
-  .footer-actions {
-    width: 100%;
-    justify-content: stretch;
-    flex-wrap: wrap;
-  }
-
-  .footer-actions button {
-    flex: 1;
-  }
-}
-
-@media (max-width: 720px) {
-  .settings-page {
-    padding-bottom: 152px;
-  }
-
-  .hero-card,
-  .form-card {
-    border-radius: 20px;
-  }
-
-  .hero-card,
-  .form-card,
-  .sticky-footer {
-    width: 100%;
-  }
-
-  .sticky-footer {
-    width: calc(100vw - 24px);
-    bottom: 12px;
-    padding: 14px 16px;
-  }
+@keyframes pulse {
+  0% { box-shadow: 0 0 0 0 rgba(253, 224, 71, 0.4); }
+  70% { box-shadow: 0 0 0 6px rgba(253, 224, 71, 0); }
+  100% { box-shadow: 0 0 0 0 rgba(253, 224, 71, 0); }
 }
 </style>

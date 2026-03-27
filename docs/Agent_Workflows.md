@@ -298,7 +298,7 @@ validate_layout 错误代码及返回格式详见 [§7.2](#72-validate_layout)�
 |----------|----------|
 | "移动沙发到靠窗位置" | Read → 修改 bounds → Write → validate_layout |
 | "删除茶几" | Read → 移除对应项 → Write → validate_layout |
-| "旋转床 90 度" | Read → 修改 facing 和 bounds → Write → validate_layout |
+| "旋转床 90 度" | Read → 修改 bounds + `facing.semantic`（或直接写 `facing.value`）→ Write → validate_layout |
 
 ---
 
@@ -397,7 +397,10 @@ Write schemes/{zoneId}/modules.json
   {
     "moduleId": "mod_bed_001",
     "bounds": [[x1,y1], [x2,y2], [x3,y3], [x4,y4]],
-    "facing": "north",
+    "facing": {
+      "value": null,
+      "semantic": "north"
+    },
     "items": []
   }
 ]
@@ -516,9 +519,13 @@ mcp__canvas__validate_layout()
 
 **调用名**：`mcp__canvas__validate_layout`
 
-**功能**：验证当前方案的布局合法性（布局编译器）。检查三类错误：越界、与建筑元素重叠、模块间重叠。
+**功能**：验证当前方案的布局合法性（布局编译器）。检查三类错误：越界、与建筑元素重叠、模块间重叠；同时它还是 `facing.semantic` 的唯一归一化入口。
 
-**参数**：无（自动验证当前项目）。
+**参数**：
+
+| 参数 | 类型 | 必填 | 说明 |
+|------|------|------|------|
+| zoneIds | string[] | 否 | 仅归一化并验证指定分区的 `modules.json`；省略时处理全部分区 |
 
 **返回**：格式化的验证报告文本。
 
@@ -527,8 +534,13 @@ mcp__canvas__validate_layout()
 1. 读取 baseline 数据（walls, columns）
 2. 读取 computed 数据（designZones, exclusionZones）
 3. 读取所有模块（支持 `schemes/{zoneId}/modules.json` 分区格式）
-4. 调用 Core 层 `SchemeValidator.Validate()`
-5. 自动持久化模块的自动生成 ID
+4. 预处理目标模块的 `facing`
+   - 有效 `semantic` → 覆盖/生成 `value`，并将 `semantic` 清空为 `null`
+   - `semantic=null` + `value` 有效 → 单位化 `value`
+   - 非法 `semantic` / 无效 `value` → 返回结构化诊断，不写回文件
+5. 先回写规范化后的 `modules.json`
+6. 调用 Core 层 `SchemeValidator.Validate()`
+7. 自动持久化模块的自动生成 ID
 
 **错误代码表**：
 
@@ -539,6 +551,9 @@ mcp__canvas__validate_layout()
 | E003 | error | 与柱子重叠 | 反方向移动穿透深度 |
 | E004 | error | 与禁区重叠 | 反方向移动穿透深度 |
 | E005 | error | 模块间互相重叠 | 沿穿透方向反向移动 |
+| E007 | error | `facing.semantic` 非法 | 改成 8 个合法方向词之一 |
+| E008 | error | 缺少有效 `facing.value` | 提供单位向量，或先写合法 `semantic` |
+| E009 | error | `facing.value` 非法/零向量 | 改成有限非零向量，Server 会自动单位化 |
 
 **返回格式示例**：
 
@@ -549,7 +564,7 @@ mcp__canvas__validate_layout()
 
 验证失败时返回错误明细（错误代码 + 模块名 + 修正建议）。
 
-**调用时机**：每次 Write modules.json 后必须调用。
+**调用时机**：每次 Write modules.json 后必须调用。尤其当你刚写入了 `facing.semantic` 时，必须立刻调用它完成方向归一化。
 
 ---
 
@@ -632,7 +647,7 @@ MainAgent 判断分区数量
 ### 8.3 并发安全
 
 - 各 SubAgent 写入不同的 `schemes/{zoneId}/modules.json`，无文件冲突
-- validate_layout 是只读操作，并发安全
+- `validate_layout(zoneIds=[当前分区])` 只会归一化并回写目标分区文件；只要各 SubAgent 验证自己的分区，就不会互相覆盖
 - 截图请求由 Server 串行处理，SubAgent 自然排队
 
 ### 8.4 SSE 事件
@@ -681,7 +696,10 @@ project/
     "id": "auto_generated_by_server",
     "moduleId": "mod_bed_001",
     "bounds": [[x1,y1], [x2,y2], [x3,y3], [x4,y4]],
-    "facing": "north",
+    "facing": {
+      "value": [0, 1],
+      "semantic": null
+    },
     "items": []
   }
 ]
@@ -692,7 +710,7 @@ project/
 | id | Server 在 validate_layout 时自动生成，**禁止手动填写** |
 | moduleId | 家具模块 ID，必须在 module_library.json 中存在 |
 | bounds | OBB 四角坐标 [[x1,y1], [x2,y2], [x3,y3], [x4,y4]] |
-| facing | 语义朝向（"north"/"south"/"east"/"west" 等）或 Vec2D |
+| facing | 对象 `{ value, semantic }`；常规规范值应为 `{ "value": [x, y], "semantic": null }` |
 | items | 子物件列表（通常为空数组） |
 
 ### 9.3 Facing 朝向对照
@@ -703,6 +721,13 @@ project/
 | east | 90° | west | 270° |
 | northeast | 45° | southwest | 225° |
 | southeast | 135° | northwest | 315° |
+
+**写入规则**：
+
+- 推荐 AI 写法：`"facing": { "value": null, "semantic": "south" }`
+- 也允许直接写最终值：`"facing": { "value": [0, -1], "semantic": null }`
+- 禁止继续写旧格式：`"facing": "south"`、`"facing": [0, -1]`
+- 常规读取阶段只认 `value`；`semantic` 只会在 `validate_layout` 中被消费
 
 ---
 

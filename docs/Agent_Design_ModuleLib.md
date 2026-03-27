@@ -178,7 +178,10 @@ def get_module_info(module_id: str) -> dict:
   "moduleId": "mod_bed_001",
   "moduleName": "主卧双人床",
   "bounds": [[600, 400], [2400, 400], [2400, 2400], [600, 2400]],
-  "facing": "north",
+  "facing": {
+    "value": [0, 1],
+    "semantic": null
+  },
   "zoneId": "dz_1",
   "placementReason": "床头靠北墙居中，与窗户保持距离"
 }

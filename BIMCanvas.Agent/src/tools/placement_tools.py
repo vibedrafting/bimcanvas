@@ -9,6 +9,30 @@ from pathlib import Path
 from typing import Any
 from .file_tools import read_json, write_json
 
+VALID_FACING_DIRECTIONS = [
+    "north", "south", "east", "west",
+    "northeast", "northwest", "southeast", "southwest"
+]
+
+
+def _resolve_facing_semantic(facing: dict[str, Any] | None) -> str:
+    """从 facing 对象中推断正交语义方向，供简化辅助函数使用。"""
+    if isinstance(facing, dict):
+        semantic = facing.get("semantic")
+        if isinstance(semantic, str):
+            lowered = semantic.lower()
+            if lowered in VALID_FACING_DIRECTIONS:
+                return lowered
+
+        value = facing.get("value")
+        if isinstance(value, list) and len(value) == 2 and all(isinstance(v, (int, float)) for v in value):
+            vx, vy = float(value[0]), float(value[1])
+            if abs(vx) >= abs(vy):
+                return "east" if vx >= 0 else "west"
+            return "north" if vy >= 0 else "south"
+
+    return "north"
+
 
 def _resolve_module_path(project_path: str, zone_id: str) -> str:
     """解析 zone_id 到正确的 modules.json 相对路径（支持嵌套分区）"""
@@ -37,7 +61,7 @@ class PlacedModule:
         module_id: str,
         module_name: str,
         bounds: list[list[float]],
-        facing: str | list[float],
+        facing: dict[str, Any],
         zone_id: str,
         placement_reason: str = "",
         dependency_group: str | None = None
@@ -194,20 +218,26 @@ def validate_module_data(modules: list[dict | PlacedModule]) -> list[str]:
         # 检查 facing 格式
         facing = m.get("facing")
         if facing is not None:
-            valid_directions = [
-                "north", "south", "east", "west",
-                "northeast", "northwest", "southeast", "southwest"
-            ]
-            if isinstance(facing, str):
-                if facing.lower() not in valid_directions:
-                    errors.append(
-                        f"模块 {module_id}: facing '{facing}' 不是有效的方向"
-                    )
-            elif isinstance(facing, list):
-                if len(facing) != 2:
-                    errors.append(f"模块 {module_id}: facing 向量必须是 [x, y] 格式")
+            if not isinstance(facing, dict):
+                errors.append(f"模块 {module_id}: facing 必须是 {{value, semantic}} 对象")
             else:
-                errors.append(f"模块 {module_id}: facing 必须是方向字符串或向量")
+                value = facing.get("value")
+                semantic = facing.get("semantic")
+
+                if value is not None:
+                    if not isinstance(value, list) or len(value) != 2:
+                        errors.append(f"模块 {module_id}: facing.value 必须是 [x, y] 或 null")
+                    elif not all(isinstance(v, (int, float)) for v in value):
+                        errors.append(f"模块 {module_id}: facing.value 必须包含数值")
+
+                if semantic is not None:
+                    if not isinstance(semantic, str):
+                        errors.append(f"模块 {module_id}: facing.semantic 必须是字符串或 null")
+                    elif semantic.lower() not in VALID_FACING_DIRECTIONS:
+                        errors.append(f"模块 {module_id}: facing.semantic '{semantic}' 不是有效方向")
+
+                if value is None and semantic is None:
+                    errors.append(f"模块 {module_id}: facing.value 和 facing.semantic 不能同时为 null")
 
     return errors
 
@@ -268,16 +298,17 @@ def create_module_bounds(
     center: list[float],
     width: float,
     depth: float,
-    facing: str = "north"
+    facing: dict[str, Any] | None = None
 ) -> list[list[float]]:
     """
-    根据中心点、尺寸和朝向创建包围盒
+    根据中心点、尺寸和 facing 对象创建包围盒。
+    这是一个简化辅助函数，只处理正交朝向；最终项目文件仍应以 bounds 为几何真理。
 
     Args:
         center: 中心点 [x, y]
         width: 宽度 (mm)
         depth: 深度 (mm)
-        facing: 朝向（north/south/east/west）
+        facing: {value, semantic}；优先读取 semantic，否则从 value 推断最近正交方向
 
     Returns:
         4 个顶点的包围盒 [[x1,y1], [x2,y2], [x3,y3], [x4,y4]]
@@ -286,8 +317,10 @@ def create_module_bounds(
     half_w = width / 2
     half_d = depth / 2
 
-    # 根据朝向调整宽深
-    if facing.lower() in ["east", "west"]:
+    facing_semantic = _resolve_facing_semantic(facing)
+
+    # 根据正交朝向调整宽深
+    if facing_semantic in ["east", "west"]:
         # 旋转 90 度，宽深交换
         half_w, half_d = half_d, half_w
 

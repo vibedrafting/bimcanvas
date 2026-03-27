@@ -6,7 +6,7 @@ import { SnapSolver } from '../snap/SnapSolver';
 import { SnapVisual } from '../snap/SnapVisual';
 import { useCanvasStore } from '../../../stores/canvasStore';
 import { useDebugStore } from '../../../stores/debugStore';
-import { semanticToVector } from '../../../utils/coordinates';
+import { createFacingData, getFacingValue } from '../../../utils/coordinates';
 
 export class MirrorTool implements Tool {
     name = 'Mirror';
@@ -257,14 +257,7 @@ export class MirrorTool implements Tool {
             });
 
             // 2. Reflect Facing
-            let facingVector: [number, number];
-            if (typeof obj.facing === 'string') {
-                facingVector = semanticToVector(obj.facing);
-            } else if (Array.isArray(obj.facing)) {
-                facingVector = obj.facing as [number, number];
-            } else {
-                facingVector = [0, 1]; // Default North
-            }
+            const facingVector = getFacingValue(obj.facing, `MirrorTool:${obj.id}`);
 
             const vx = facingVector[0];
             const vy = facingVector[1];
@@ -277,7 +270,7 @@ export class MirrorTool implements Tool {
 
             store.updateModule(obj.id, {
                 bounds: newBounds,
-                facing: newFacing
+                facing: createFacingData(newFacing, null)
             });
         }
 

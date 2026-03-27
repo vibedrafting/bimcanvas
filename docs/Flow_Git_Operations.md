@@ -140,7 +140,11 @@ SubAgent 工作 → commit → 合并回 scheme/极致收纳
   // 用户约束（人为边界）
   "userConstraints": [
     { "type": "tv_wall", "zoneId": "rz_living", "wall": "north" },
-    { "type": "bed_orientation", "zoneId": "rz_master", "facing": "south" }
+    {
+      "type": "bed_orientation",
+      "zoneId": "rz_master",
+      "facing": { "value": null, "semantic": "south" }
+    }
   ],
 
   // AI 提示词（设计倾向指导）

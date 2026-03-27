@@ -7,7 +7,7 @@ import { SnapSolver } from '../snap/SnapSolver';
 import { SnapVisual } from '../snap/SnapVisual';
 import { useCanvasStore } from '../../../stores/canvasStore';
 import { useDebugStore } from '../../../stores/debugStore';
-import { boundsCenterToWorld, toModel, rotatePoint2D, rotateFacing2D, semanticToVector } from '../../../utils/coordinates';
+import { boundsCenterToWorld, createFacingData, getFacingValue, toModel, rotatePoint2D, rotateFacing2D } from '../../../utils/coordinates';
 import { LayerManager } from '../../three/LayerManager';
 import { NumericInputManager } from '../NumericInputManager';
 
@@ -493,19 +493,12 @@ export class RotateTool implements Tool {
             );
 
             // 旋转朝向
-            let facingVector: [number, number];
-            if (typeof obj.facing === 'string') {
-                facingVector = semanticToVector(obj.facing);
-            } else if (Array.isArray(obj.facing)) {
-                facingVector = obj.facing as [number, number];
-            } else {
-                facingVector = [0, 1]; // Default North
-            }
+            const facingVector = getFacingValue(obj.facing, `RotateTool:${obj.id}`);
             const newFacing = rotateFacing2D(facingVector, deltaRotation);
 
             store.updateModule(obj.id, {
                 bounds: newBounds,
-                facing: newFacing
+                facing: createFacingData(newFacing, null)
             });
         }
 
