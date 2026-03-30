@@ -38,6 +38,7 @@ tmpclaude-*
 
 # Docker deployment
 deploy/instance-*.env
+deploy/.env
 !deploy/instance.env.example
 
 # Tests

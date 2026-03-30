@@ -17,7 +17,7 @@ services:
       - "5000"
       - "8865"
     volumes:
-      - /data/alice:/data
+      - ${BIMCANVAS_DATA_ROOT:-/data}/alice:/data
     ports:
       - "6001:5000"
 
@@ -30,7 +30,7 @@ services:
       - "5000"
       - "8865"
     volumes:
-      - /data/bob:/data
+      - ${BIMCANVAS_DATA_ROOT:-/data}/bob:/data
     ports:
       - "6002:5000"
 
