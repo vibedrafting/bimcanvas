@@ -6,6 +6,32 @@
 
 本项目是一个基于 **Vue 3** 和 **Three.js** 的单页应用 (SPA)，主要职责是加载、解析并渲染 BIMCanvas 的标准 JSON 数据格式 (`CanvasDocument`)。它不仅是一个查看器，更是未来 AI 辅助设计 (Copilot) 的交互界面。
 
+## 🔌 运行模式与接口寻址
+
+### Development
+
+- 开发服务器默认由 Vite 提供：`http://localhost:5173`
+- 若显式配置：
+  - `VITE_SERVER_URL` → 指向 Server 基址
+  - `VITE_AGENT_URL` → 指向 Agent 基址
+- 若未显式配置，前端会回退到“当前主机 + `5000/8865`”的开发态寻址策略
+
+### Production / Docker
+
+- 生产静态资源由 Server 直接托管，页面基址默认与 Server 同源
+- `VITE_SERVER_URL` 为空时，Server API 与 SignalR 默认走同源路径
+- `VITE_AGENT_URL` 为空时，优先走同主机 `8865`；在 Nginx 同源部署下应通过 `/agent` 代理收口
+- 这意味着阶段四服务器部署时，Web 不再假设 Vite dev server 存在
+
+### 首页实例设置台
+
+首页“实例设置”已经是 Docker 部署链路中的正式实例配置入口：
+
+- 统一读取/编辑 `server/web/agent/ccr` 四组配置
+- `web_config` 保存后可立即生效
+- `config/server/ccr` 的改动会被标记为“需重启实例”
+- 点击重启后，通过 `/api/settings/restart` 交给 Docker restart policy 接管重启
+
 ## ✨ 核心功能与开发状态 (Feature Status)
 
 > 状态图例: ✅ 已完成 | 🔶 进行中 | ⬜ 待开发
@@ -42,8 +68,8 @@
 - ✅ **撤销/重做 (Undo/Redo)**: TimelineManager 已完成（快照、历史策略、变更来源检测）。
 - ✅ **首页实例设置台 (Homepage Instance Settings)**:
     - 首页右上角新增“实例设置”入口，离开首页后入口自动消失。
-    - 统一读取/编辑 `server/web/agent/ccr` 四组配置，保存后区分“即时生效”与“需重启”。
-    - `web_config` 通过事件热更新，需重启配置通过 `/api/settings/restart` 触发实例重启。
+    - 已作为实例内部应用配置的正式入口，统一读取/编辑 `server/web/agent/ccr` 四组配置。
+    - `web_config` 通过事件热更新即时生效，需重启配置通过 `/api/settings/restart` 触发实例重启。
 - ⬜ **补丁审查 (Patch Review)**: 可视化审查 AI 提出的修改建议 (Diff)。
 
 ### 4. 调试与辅助 (Debug & Tools)
@@ -109,7 +135,7 @@
 - **子任务可视化**: SubAgent/ToolCall 气泡模型 + Waiting 提示。
 - **截图附件**: 框选截图、保存到本地、加入待发送附件队列。
 - **模型/思考强度**: 从 `/api/config` 与 `/api/web_config` 加载模型列表与默认配置。
-- **接口基址兜底**: 未显式配置 `VITE_SERVER_URL` / `VITE_AGENT_URL` 时，开发态默认使用当前主机的 `5000/8865`，生产静态托管时 Server 默认同源、Agent 默认同主机 `8865`。
+- **接口基址兜底**: 未显式配置 `VITE_SERVER_URL` / `VITE_AGENT_URL` 时，开发态默认使用当前主机的 `5000/8865`；生产静态托管时 Server 默认同源，阶段四目标是通过 Nginx 将 Agent 收口到同源 `/agent`。
 
 **代码拆分**（核心文件）:
 - `src/components/UI/AICommandCenter.vue`: 组装层，负责 UI 绑定与模块协作。
@@ -242,6 +268,14 @@ Claude API messages.content: [
     ```bash
     npm run build
     ```
+
+### 环境变量
+
+- `.env.development`
+  - `VITE_SERVER_URL=http://localhost:5000`
+  - `VITE_AGENT_URL=http://localhost:8865`
+- `.env.production`
+  - 两者可留空，表示由生产环境同源入口或外层反向代理决定
 
 ## 📂 项目结构 (Project Structure)
 

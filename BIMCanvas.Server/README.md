@@ -10,14 +10,14 @@
 
 ## 0. 快速启动
 
-### 启动命令
+### Development（Windows / 本机开发态）
 
 ```bash
 cd BIMCanvas
 dotnet run --project BIMCanvas.Server
 ```
 
-### 启动行为
+#### 启动行为
 
 1. 启动 HTTP 服务器（http://localhost:5000）
 2. 检测 Python / Agent / CCR 依赖并按需安装
@@ -27,15 +27,50 @@ dotnet run --project BIMCanvas.Server
 6. 等待 Web 服务就绪后打开浏览器
 7. **v3.0**：通过 URL 参数 `?project={项目路径}` 加载项目
 
-### 配置项
+### Production / Docker
+
+典型运行方式：
+
+```bash
+docker build -t bimcanvas:local -f deploy/Dockerfile .
+docker run --rm -p 5000:5000 -p 8865:8865 bimcanvas:local
+```
+
+#### 启动行为
+
+1. 以 `ASPNETCORE_ENVIRONMENT=Production` 启动发布版 `BIMCanvas.Server.dll`
+2. Server 直接托管 `BIMCanvas.Web/dist`，对外提供 `http://localhost:5000`
+3. 自动启动 Agent 服务，但不会启动 Vite dev server
+4. 不自动打开浏览器
+5. 全局配置与项目数据统一落到 `BIMCANVAS_HOME`（容器默认 `/data`）
+
+### 关键配置项
 
 | 配置 | 位置 | 默认值 | 说明 |
 |------|------|--------|------|
 | API 端口 | `launchSettings.json` | `5000` | REST API 服务端口 |
-| Web 端口 | 自动检测 | `5173` | Vite 开发服务器端口 |
+| Web 开发端口 | 自动检测 | `5173` | 仅 Development 模式下用于 Vite dev server |
 | 项目目录 | `<BIMCANVAS_HOME>/Projects/` | Windows: `Documents/BIMCanvas/Projects/` | 项目解压目录 |
 | CCR 配置 | `<BIMCANVAS_HOME>/server_config.json` | `enabled=true` | 网关启用、端口、模型家族 |
 | CCR Router 配置 | `<BIMCANVAS_HOME>/ccr_config.json` | 自动初始化 | 供应商 / 模型路由映射 |
+| `BIMCANVAS_HOME` | 环境变量 | Windows: `Documents/BIMCanvas`；Docker: `/data` | 全局配置、项目、截图的根目录 |
+| `BIMCANVAS_WEB_DIST` | 环境变量 | Docker: `/app/BIMCanvas.Web/dist` | Production 模式静态托管目录 |
+| `BIMCANVAS_PYTHON_COMMAND` | 环境变量 | Docker: `/app/BIMCanvas.Agent/venv/bin/python` | Server 拉起 Agent 时使用的 Python |
+| `ASPNETCORE_ENVIRONMENT` | 环境变量 | `Development` / `Production` | 控制是否启动 dev server、是否自动打开浏览器 |
+
+### 实例配置
+
+阶段三完成后，Server 已把统一配置能力视为正式功能：
+
+- `GET /api/settings`：聚合读取 `server/web/agent/ccr` 四组实例配置
+- `PUT /api/settings`：聚合写回四份实例配置 JSON，并返回哪些改动需要重启
+- `POST /api/settings/restart`：触发实例优雅停机，由 Docker restart policy 接管重启
+- `GET /api/web_config` / `POST /api/web_config`：保留兼容入口
+
+其中：
+
+- `web_config.json` 默认按热更新处理
+- `config.json`、`server_config.json`、`ccr_config.json` 默认按“保存后需重启实例”处理
 
 ### CCR 网关
 

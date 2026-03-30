@@ -16,8 +16,26 @@ BIMCanvas 是一款连接 AI 与 Revit 的室内设计辅助工具。它通过�
 - [Node.js](https://nodejs.org/)（用于 Web 前端）
 - [Git](https://git-scm.com/)（用于项目版本管理）
 - [Python 3.10+](https://www.python.org/)（用于 Agent 服务，可选）
+- [Docker Desktop / Docker Engine](https://www.docker.com/)（用于本地生产态烟测与后续服务器部署，可选）
 
-### 编译 & 发布
+### 启动模式
+
+#### 1. Windows 开发态
+
+推荐命令：
+
+```bash
+dotnet run --project BIMCanvas.Server
+```
+
+默认行为：
+
+- 启动 Server API：`http://localhost:5000`
+- 自动拉起 Web 开发服务器：`http://localhost:5173`
+- 自动启动 Agent 服务
+- 自动打开浏览器
+
+#### 2. Windows 本机发布态
 
 在项目根目录执行：
 
@@ -25,9 +43,7 @@ BIMCanvas 是一款连接 AI 与 Revit 的室内设计辅助工具。它通过�
 dotnet publish BIMCanvas.Server -c Release -o publish
 ```
 
-> 发布路径必须为项目根目录下的 `publish/` 文件夹（`-o publish`）。项目绝对路径因电脑而异，命令中无需写绝对路径，在项目根目录执行即可。
-
-### 启动
+然后运行：
 
 双击 `publish/BIMCanvas.Server.exe` 即可一键拉起所有服务：
 
@@ -37,13 +53,46 @@ dotnet publish BIMCanvas.Server -c Release -o publish
 | Web 前端 | http://localhost:5173 | 自动启动并打开浏览器 |
 | Agent 服务 | 后台进程 | 自动启动（需 Python 环境） |
 
-### 开发调试
+> 发布路径必须为项目根目录下的 `publish/` 文件夹（`-o publish`）。项目绝对路径因电脑而异，命令中无需写绝对路径，在项目根目录执行即可。
 
-如果需要开发调试，可用以下命令替代，效果相同：
+#### 3. Docker 生产态
 
 ```bash
-dotnet run --project BIMCanvas.Server
+docker build -t bimcanvas:local -f deploy/Dockerfile .
+docker run --rm -p 5000:5000 -p 8865:8865 bimcanvas:local
 ```
+
+默认行为：
+
+- Server 在 `http://localhost:5000` 直接托管 Web `dist/`
+- Agent 对外监听 `http://localhost:8865`
+- 不启动 Vite dev server
+- 不自动打开浏览器
+- 配置与项目数据默认写入容器内 `/data`（正式持久化需挂卷）
+
+#### 4. 远程服务器部署
+
+当前代码与文档基线已经完成到“阶段三”，即：
+
+- Windows 开发态与 Docker 生产态已分叉稳定
+- 单实例 Docker 已可用
+- 实例级统一配置 UI 已落地
+
+阶段四将继续基于现有 `deploy/Dockerfile`、`deploy/start.sh`、`deploy/docker-compose.yml`、`deploy/nginx.conf` 在远程 Linux 服务器上完成正式部署。
+
+相关文档：
+
+- [plans/Docker_Deployment_Implementation_Plan.md](plans/Docker_Deployment_Implementation_Plan.md)
+- [docs/Doc_Docker_Deployment_Framework.md](docs/Doc_Docker_Deployment_Framework.md)
+
+### 当前部署进展
+
+截至 2026-03-30，Docker 相关工作已完成阶段一到三，当前基线是：
+
+- 生产模式由 Server 直接托管 Web 静态资源，不再依赖 Vite dev server
+- `deploy/start.sh` 负责实例 bootstrap，`instance.env` 只用于首次初始化与缺省值补齐
+- 首页“实例设置”已成为实例内部应用配置的正式入口
+- 阶段四待实施内容集中在远程 Linux 服务器部署、多实例回归和同源 `/agent` 代理复核
 
 ---
 

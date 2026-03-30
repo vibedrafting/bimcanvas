@@ -3,15 +3,17 @@
 > 基于 `reviews/DockerDeployment_Review.md` 讨论共识
 > 分支：`feature/docker-deployment`
 > 初版日期：2026-03-25
-> 最近更新：2026-03-26
+> 最近更新：2026-03-30
 
-## 当前状态（2026-03-26）
+## 当前状态（2026-03-30）
 
 - 阶段一核心改造：已完成，Windows 开发态与 Docker 生产态已具备分叉运行能力。
 - 阶段二单实例 Docker：已完成并通过人工烟测。
+- 阶段三统一配置 UI：已完成，实例内部配置已可通过首页“实例设置”统一管理。
 - 已验证链路：镜像构建、容器启动、`/health`、生产静态页面加载、`.bcp` 上传导入、AI 对话、后台截图。
-- 已补充的实现性修复：模板 `.gitignore` 保留、`.bcp` 压缩包 Windows 反斜杠路径兼容、Playwright 安装链路调整。
-- 未完成：双实例编排回归、Nginx 同源 `/agent` 代理、统一配置 UI、远程服务器部署。
+- 已补充的实现性修复：模板 `.gitignore` 保留、`.bcp` 压缩包 Windows 反斜杠路径兼容、Playwright 安装链路调整、`instance.env` bootstrap 仅在配置缺失时生效。
+- 阶段四待实施：远程 Linux 服务器正式部署。
+- 阶段四前建议复核：双实例编排、Nginx 同源 `/agent` 代理、最新镜像下的生产日志噪音。
 - 待回归：最新 CORS 本机来源回退修复已落地，需基于新镜像再确认日志噪音是否消失。
 
 > 说明：本文后续“计划段落”仍保留决策背景；凡涉及 Docker 启动脚本、镜像构建和生产启动行为，以仓库当前实现为准。
@@ -363,7 +365,7 @@ else
 ## 阶段二：Docker 打包
 
 > 目标：构建可用的 Docker 镜像，实现单实例和双实例运行。
-> 当前状态：单实例链路已完成并验证通过；多实例编排文件已提供，但尚未做完整回归。
+> 当前状态：单实例链路已完成并验证通过；多实例编排与 Nginx 同源代理基础稿已落地，待阶段四服务器环境回归。
 
 ### Phase 1b：Dockerfile + 启动脚本（已完成）
 
@@ -428,7 +430,7 @@ else
 
 ### Phase 1d：多实例编排（进行中）
 
-当前仓库已提供 `deploy/docker-compose.yml`、`deploy/nginx.conf`、`deploy/instance.env.example` 初版，但尚未完成双实例端到端验证。
+当前仓库已提供 `deploy/docker-compose.yml`、`deploy/nginx.conf`、`deploy/instance.env.example` 作为阶段四实施基础，但尚未完成双实例端到端验证。
 
 #### 部署文件 E：`deploy/docker-compose.yml`
 
@@ -582,6 +584,7 @@ http {
 ## 阶段三：统一配置 UI
 
 > 目标：建立实例级配置控制台，让 Docker 部署后的实例内部应用配置统一通过 Web UI 管理，并继续落到现有 JSON 文件中持久化。
+> 当前状态：Phase 3a ~ 3d 已落地；本节保留设计边界与验收口径，供阶段四部署前复核。
 
 ### 阶段三边界（先写清）
 
@@ -591,7 +594,7 @@ http {
 - **Secrets 策略（v1）**：UI 中可读可改，但属于高风险能力，默认应遮罩显示并提供显式查看动作
 - **权限边界（v1）**：暂不做权限控制，谁能进入实例配置页，谁就能修改实例配置
 
-### Phase 3a：配置聚合后端
+### Phase 3a：配置聚合后端（已完成）
 
 #### 改动目标
 
@@ -608,7 +611,7 @@ http {
   - 字段值
   - 生效方式（即时生效 / 需重启）
 
-### Phase 3b：配置 UI 页面
+### Phase 3b：配置 UI 页面（已完成）
 
 #### 改动目标
 
@@ -627,7 +630,7 @@ http {
   - 保存后需重启实例
 - Secrets 默认遮罩显示，但支持显式切换为可见并修改
 
-### Phase 3c：生效与重启机制
+### Phase 3c：生效与重启机制（已完成）
 
 #### 改动目标
 
@@ -645,21 +648,21 @@ http {
   - Server 主动退出
   - Docker `restart: unless-stopped` 自动拉起实例
 
-### Phase 3d：启动时优先级修正
+### Phase 3d：启动时优先级修正（已完成）
 
 #### 改动目标
 
-把 `instance.env` 从长期配置入口退化为 bootstrap 输入，避免 UI 改动在重启后被回写覆盖。
+把 `instance.env` 从长期配置入口退化为 bootstrap 输入，避免 UI 改动在重启后被回写覆盖。当前实现已完成该语义修正。
 
 - 首次部署或目标文件缺失时，`instance.env` 负责初始化 `server/web/agent/ccr` 配置文件
 - 一旦持久化 JSON 已存在，后续以 JSON 为长期真源
-- 阶段三需补一项实现：`start.sh` 不再在每次重启时常规覆盖已有 JSON
+- 当前实现：`start.sh` 仅在目标 JSON 缺失时执行 bootstrap，不会在每次重启时常规覆盖已有 JSON
 - `instance.env` 在阶段三之后仅承担：
   - 首次实例创建
   - 缺省值补齐
   - 部署引导
 
-**阶段三验证点**：
+**阶段三验证点**（能力已落地，建议阶段四前复核）：
 
 - [ ] 配置页能读取四类配置
 - [ ] `web_config.json` 修改后立即生效
@@ -677,7 +680,7 @@ http {
 
 **前置条件**：
 
-- 阶段二已完成镜像、`docker-compose.yml`、`nginx.conf` 等部署产物
+- 阶段二已完成镜像、`docker-compose.yml`、`nginx.conf`、`start.sh` 等部署产物
 - 阶段三已完成统一配置 UI，实例内部配置可在 Web 端维护
 
 ### 步骤 1：服务器环境准备
@@ -747,11 +750,11 @@ docker compose logs -f bob
 
 如果有域名，将 `alice.example.com` 和 `bob.example.com` DNS 解析到服务器 IP，然后修改 `nginx.conf` 中的 `server_name`。
 
-如果没有域名，可以暂时使用端口直接访问：
+如果没有域名，可以先使用端口直接访问实例做临时回归：
 - Alice: `http://服务器IP:6001`
 - Bob: `http://服务器IP:6002`
 
-此时需要修改前端构建为带端口的绝对 URL，或调整 Nginx 为按端口区分（而非按域名）。
+但正式的同源 `/agent` 收口仍建议通过 Nginx 域名或统一入口完成，而不是长期依赖端口直连。
 
 ### 步骤 6：新增用户
 
@@ -795,7 +798,7 @@ docker compose up -d
 - [x] 浏览器访问容器端口，前端页面正常加载
 - [x] 完整工作流可用（上传 / 加载 `.bcp` → AI 调用 → 截图）
 
-### 第三关：双实例烟测
+### 第三关：双实例烟测（阶段四前复核）
 
 - [ ] (a) 同一镜像启动 alice:6001 和 bob:6002
 - [ ] (b) 两个实例的 `server_config.json` 互不影响
@@ -806,7 +809,7 @@ docker compose up -d
 - [ ] (g) 两个实例提供不同的 `web_config.json`，前端配置独立
 - [ ] (h) 两个实例提供不同的 AI 连接参数，不交叉污染
 
-### 第四关：统一配置 UI
+### 第四关：统一配置 UI（能力已落地，阶段四前复核）
 
 - [ ] (i) 能从 UI 读取 `server/web/agent/ccr` 四类配置
 - [ ] (j) `web_config` 修改后可立即生效
