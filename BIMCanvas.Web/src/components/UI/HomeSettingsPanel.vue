@@ -2,6 +2,7 @@
 import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { SettingsService } from '../../services/SettingsService'
 import GlassButton from './base/GlassButton.vue'
+import GlassSelect from './base/GlassSelect.vue'
 import type {
   SettingsGroup,
   SettingsGroupKey,
@@ -71,6 +72,13 @@ const effortOptions = [
 const thinkingOptions = [
   { value: 'off', label: 'Off' },
   { value: 'adaptive', label: 'Adaptive' }
+]
+
+const logLevelOptions = [
+  { value: 'debug', label: 'Debug' },
+  { value: 'info', label: 'Info' },
+  { value: 'warn', label: 'Warn' },
+  { value: 'error', label: 'Error' }
 ]
 
 for (const key of groupKeys) {
@@ -529,30 +537,37 @@ onMounted(() => {
               <div class="form-grid">
                 <div class="field">
                   <label>默认模型</label>
-                  <select v-model="effectiveDefaultModel">
-                    <option v-for="option in modelOptions" :key="option.value" :value="option.value">
-                      {{ option.label }}
-                    </option>
-                  </select>
+                  <GlassSelect
+                    v-model="effectiveDefaultModel"
+                    class="settings-select"
+                    width="100%"
+                    :options="modelOptions"
+                    placeholder="选择默认模型"
+                  />
                 </div>
                 <div class="field">
                   <label>Effort</label>
-                  <select v-model="drafts.agent.values.defaultEffort" :disabled="isCcrMode && !drafts.ccr.values.Router?.default">
-                    <option v-for="option in effortOptions" :key="option.value" :value="option.value">
-                      {{ option.label }}
-                    </option>
-                  </select>
+                  <GlassSelect
+                    v-model="drafts.agent.values.defaultEffort"
+                    class="settings-select"
+                    width="100%"
+                    :options="effortOptions"
+                    :disabled="isCcrMode && !drafts.ccr.values.Router?.default"
+                    placeholder="选择 Effort"
+                  />
                 </div>
               </div>
               
               <div class="form-grid mt-md">
                 <div class="field">
                   <label>Extended Thinking</label>
-                  <select v-model="drafts.agent.values.defaultThinking">
-                    <option v-for="option in thinkingOptions" :key="option.value" :value="option.value">
-                      {{ option.label }}
-                    </option>
-                  </select>
+                  <GlassSelect
+                    v-model="drafts.agent.values.defaultThinking"
+                    class="settings-select"
+                    width="100%"
+                    :options="thinkingOptions"
+                    placeholder="选择 Thinking"
+                  />
                 </div>
                 <div class="field">
                   <label>最大 Thinking Tokens</label>
@@ -728,12 +743,13 @@ onMounted(() => {
                 <div class="form-grid mt-md" v-if="drafts.ccr.values.LOG">
                   <div class="field">
                     <label>日志级别</label>
-                    <select v-model="drafts.ccr.values.LOG_LEVEL">
-                      <option value="debug">Debug</option>
-                      <option value="info">Info</option>
-                      <option value="warn">Warn</option>
-                      <option value="error">Error</option>
-                    </select>
+                    <GlassSelect
+                      v-model="drafts.ccr.values.LOG_LEVEL"
+                      class="settings-select"
+                      width="100%"
+                      :options="logLevelOptions"
+                      placeholder="选择日志级别"
+                    />
                   </div>
                 </div>
               </div>
@@ -979,7 +995,84 @@ hr { border: none; }
 .field.opacity-muted { opacity: 0.5; transition: opacity 0.2s; }
 .field label { font-size: 13px; font-weight: 500; color: var(--zinc-300); }
 
-input[type="text"], input[type="number"], input[type="password"], select, textarea {
+.settings-select {
+  width: 100%;
+}
+
+.settings-select :deep(.glass-select-container) {
+  width: 100%;
+  display: block;
+}
+
+.settings-select :deep(.select-trigger) {
+  width: 100%;
+  height: 36px;
+  padding: 0 12px;
+  font-size: 13px;
+  box-sizing: border-box;
+  background-color: rgba(0, 0, 0, 0.45);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  border-radius: var(--radius-sm);
+  color: var(--text-main);
+  box-shadow: inset 0 2px 4px rgba(0,0,0,0.5), 0 1px 0 rgba(255,255,255,0.03);
+}
+
+.settings-select :deep(.select-trigger:hover:not(.disabled)) {
+  background-color: rgba(0, 0, 0, 0.55);
+  border-color: rgba(255, 255, 255, 0.1);
+}
+
+.settings-select :deep(.select-trigger.active) {
+  background-color: rgba(0, 0, 0, 0.6);
+  border-color: rgba(59, 130, 246, 0.5);
+  box-shadow: 0 0 0 1px rgba(59, 130, 246, 0.5), inset 0 2px 4px rgba(0,0,0,0.6);
+}
+
+.settings-select :deep(.select-trigger.disabled) {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.settings-select :deep(.selected-text) {
+  color: var(--text-main);
+}
+
+.settings-select :deep(.selected-text.placeholder),
+.settings-select :deep(.chevron) {
+  color: var(--text-muted);
+}
+
+.settings-select :deep(.select-dropdown) {
+  top: calc(100% + 6px);
+  box-sizing: border-box;
+  width: 100%;
+  min-width: 100%;
+  max-width: none;
+  background: var(--zinc-900);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: var(--radius-sm);
+  padding: 6px;
+  box-shadow: 0 16px 32px rgba(0, 0, 0, 0.45);
+  z-index: 220;
+}
+
+.settings-select :deep(.select-option) {
+  padding: 8px 12px;
+  font-size: 13px;
+  color: var(--text-muted);
+}
+
+.settings-select :deep(.select-option:hover) {
+  background: rgba(255, 255, 255, 0.05);
+  color: var(--text-main);
+}
+
+.settings-select :deep(.select-option.selected) {
+  background: rgba(59, 130, 246, 0.18);
+  color: #93c5fd;
+}
+
+input[type="text"], input[type="number"], input[type="password"], textarea {
   width: 100%; height: 36px; padding: 0 12px; font-size: 13px; box-sizing: border-box;
   background-color: rgba(0, 0, 0, 0.45); border: 1px solid rgba(255, 255, 255, 0.06); border-radius: var(--radius-sm);
   color: var(--text-main); font-family: inherit; outline: none; transition: 0.15s;
@@ -987,15 +1080,9 @@ input[type="text"], input[type="number"], input[type="password"], select, textar
   color-scheme: dark;
 }
 textarea { height: auto; padding: 8px 12px; line-height: 1.5; resize: vertical; }
-input:focus, select:focus, textarea:focus { border-color: rgba(59, 130, 246, 0.5); box-shadow: 0 0 0 1px rgba(59, 130, 246, 0.5), inset 0 2px 4px rgba(0,0,0,0.6); background-color: rgba(0,0,0,0.6); }
-input:disabled, select:disabled { opacity: 0.5; cursor: not-allowed; }
+input:focus, textarea:focus { border-color: rgba(59, 130, 246, 0.5); box-shadow: 0 0 0 1px rgba(59, 130, 246, 0.5), inset 0 2px 4px rgba(0,0,0,0.6); background-color: rgba(0,0,0,0.6); }
+input:disabled { opacity: 0.5; cursor: not-allowed; }
 .mono-font { font-family: ui-monospace, SFMono-Regular, Consolas, monospace; }
-
-select option {
-  background-color: var(--zinc-900);
-  color: var(--text-main);
-  padding: 8px; /* Some browsers support basic padding on options */
-}
 
 .input-wrapper { position: relative; display: flex; align-items: center; width: 100%; }
 .pr-icon { padding-right: 36px !important; }
