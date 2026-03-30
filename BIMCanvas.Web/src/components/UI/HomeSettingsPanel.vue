@@ -80,13 +80,13 @@ for (const key of groupKeys) {
 }
 
 const isCcrMode = computed(() => Boolean(drafts.server.values.ccr?.enabled))
-const pageTitle = '系统全局实例设置'
+const pageTitle = '全局设置'
 const displayEffectiveModelPath = computed(() => isCcrMode.value
   ? 'server.ccr.defaultModelFamily'
   : 'agent.model')
 const effectiveModelDescription = computed(() => isCcrMode.value
-  ? '当前生效底层参数源: server > ccr.defaultModelFamily'
-  : '当前生效底层参数源: agent > model')
+  ? '当前生效参数源: server > ccr.defaultModelFamily'
+  : '当前生效参数源: agent > model')
 
 const modelOptions = computed(() => {
   const modelMapping = drafts.agent.values.modelMapping ?? {}
@@ -405,12 +405,12 @@ onMounted(() => {
           <div v-if="saveError" class="alert alert-error">{{ saveError }}</div>
           <div v-if="saveMessage" class="alert alert-success">{{ saveMessage }}</div>
           <div v-if="restartPendingGroups.length > 0" class="alert alert-warning">
-            您修改了内核级参数（{{ restartPendingGroups.join(', ') }}），该修改已落盘，需重启服务句柄才能载入。
-            ({{ runtime.restartBehavior === 'docker-auto' ? '由 Docker 管理自动重启' : '目前配置为手动维护重启' }})
+            您修改了以下配置（{{ restartPendingGroups.join(', ') }}），已保存到磁盘，需重启服务生效。
+            ({{ runtime.restartBehavior === 'docker-auto' ? 'Docker 管理自动重启' : '需手动重启' }})
           </div>
         </div>
 
-        <div v-if="isLoading" class="loading-state">载入系统级配置实例...</div>
+        <div v-if="isLoading" class="loading-state">加载配置...</div>
 
         <template v-else>
           
@@ -420,17 +420,17 @@ onMounted(() => {
               <div class="heading-left">
                 <svg class="heading-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor"><rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8m-4-4v4"/></svg>
                 <div class="heading-text">
-                  <h3>运行架构与通道拓扑 (Architecture)</h3>
-                  <p>在此直接决断所有 Agent 模型请求的出站路由隧道方案。</p>
+                  <h3>服务与连接</h3>
+                  <p>Server 端口、Python 环境及 API 请求路由模式。</p>
                 </div>
               </div>
               <div class="heading-right">
                 <div class="segment-group">
                   <label class="segment" :class="{ 'segment-active': !drafts.server.values.ccr.enabled }">
-                    <input type="radio" :value="false" v-model="drafts.server.values.ccr.enabled"> 直连通道 (Direct)
+                    <input type="radio" :value="false" v-model="drafts.server.values.ccr.enabled"> 直连 (Direct)
                   </label>
                   <label class="segment" :class="{ 'segment-active': drafts.server.values.ccr.enabled }">
-                    <input type="radio" :value="true" v-model="drafts.server.values.ccr.enabled"> CCR 路由网关 (Gateway)
+                    <input type="radio" :value="true" v-model="drafts.server.values.ccr.enabled"> CCR 网关
                   </label>
                 </div>
               </div>
@@ -439,28 +439,70 @@ onMounted(() => {
             <div class="card-body">
               <div class="inline-alert warm mb-lg">
                 <svg class="alert-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
-                <span>{{ drafts.server.values.ccr.enabled ? '所有出站基座 API 请求将被劫持并压入私有中央网关，享有集群负载转移与流量重放（Traffic Trace）能力' : '以最纯粹的形态进行请求出站，Agent 完全独立持有各家模型渠道的顶级访问 Key，无任何中间件阻塞风险（建议开发测试环境选用）。' }}</span>
+                <span>{{ drafts.server.values.ccr.enabled ? '所有模型请求经由 CCR 网关转发，支持多 Provider 负载均衡。' : 'Agent 直接调用模型 API，适合开发测试环境。' }}</span>
               </div>
 
               <div class="form-grid">
                 <div class="field">
-                  <label>Agent 侦听端口 (Daemon Port)</label>
+                  <label>Server 端口</label>
                   <input v-model.number="drafts.server.values.server.port" type="number">
                 </div>
                 <div class="field">
-                  <label>Python 执行沙箱路径 / 指令 (Execution Command)</label>
+                  <label>Python 命令</label>
                   <input v-model="drafts.server.values.server.pythonCommand" type="text" placeholder="python 或 python3">
                 </div>
               </div>
               
               <div class="form-grid mt-md">
                 <div class="field" :class="{ 'opacity-muted': !isCcrMode }">
-                  <label>CCR 网关 Host 控制面定位点</label>
+                  <label>CCR Host</label>
                   <input v-model="drafts.server.values.ccr.host" type="text" :disabled="!isCcrMode">
                 </div>
                 <div class="field" :class="{ 'opacity-muted': !isCcrMode }">
-                  <label>CCR 网关 Port 控制面隧道</label>
+                  <label>CCR Port</label>
                   <input v-model.number="drafts.server.values.ccr.port" type="number" :disabled="!isCcrMode">
+                </div>
+              </div>
+
+              <div class="form-grid mt-md" :class="{ 'opacity-muted': !isCcrMode }">
+                <div class="field field-checkbox">
+                  <label class="checkbox-label">
+                    <input type="checkbox" v-model="drafts.server.values.ccr.autoStart" class="checkbox-input" :disabled="!isCcrMode">
+                    <span class="custom-checkbox"></span>
+                    <div class="checkbox-texts">
+                      <span class="primary">自动启动 CCR</span>
+                      <span class="secondary">Server 启动时自动拉起 CCR 网关进程</span>
+                    </div>
+                  </label>
+                </div>
+              </div>
+
+              <div class="divider mt-xl mb-md"><span>Agent 回连地址</span></div>
+              <div class="form-grid">
+                <div class="field">
+                  <label>Agent → Server Host</label>
+                  <input v-model="drafts.agent.values.server.host" type="text" placeholder="127.0.0.1">
+                </div>
+                <div class="field">
+                  <label>Agent → Server Port</label>
+                  <input v-model.number="drafts.agent.values.server.port" type="number">
+                </div>
+              </div>
+
+              <div class="divider mt-xl mb-md"><span>启动选项</span></div>
+              <div class="form-grid">
+                <div class="field field-checkbox">
+                  <label class="checkbox-label">
+                    <input type="checkbox" v-model="drafts.server.values.startup.openBrowser" class="checkbox-input">
+                    <span class="custom-checkbox"></span>
+                    <div class="checkbox-texts">
+                      <span class="primary">启动时打开浏览器</span>
+                    </div>
+                  </label>
+                </div>
+                <div class="field" :class="{ 'opacity-muted': !drafts.server.values.startup.openBrowser }">
+                  <label>浏览器路径</label>
+                  <input v-model="drafts.server.values.startup.browserPath" type="text" placeholder="留空使用系统默认" :disabled="!drafts.server.values.startup.openBrowser">
                 </div>
               </div>
             </div>
@@ -472,8 +514,8 @@ onMounted(() => {
               <div class="heading-left">
                 <svg class="heading-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/><polyline points="3.27 6.96 12 12.01 20.73 6.96"/><line x1="12" y1="22.08" x2="12" y2="12"/></svg>
                 <div class="heading-text">
-                  <h3>推理调度集群选项 (Inference Pipeline)</h3>
-                  <p>分配默认基座模型代系，并为特殊任务（思考或海量 Token）绑定覆盖簇。</p>
+                  <h3>模型与推理</h3>
+                  <p>默认模型选择、推理参数及模型 ID 映射。</p>
                 </div>
               </div>
               <div class="heading-right">
@@ -484,7 +526,7 @@ onMounted(() => {
             <div class="card-body">
               <div class="form-grid">
                 <div class="field">
-                  <label>预设环境默认基座 (Base Pipeline Default)</label>
+                  <label>默认模型</label>
                   <select v-model="effectiveDefaultModel">
                     <option v-for="option in modelOptions" :key="option.value" :value="option.value">
                       {{ option.label }}
@@ -492,7 +534,7 @@ onMounted(() => {
                   </select>
                 </div>
                 <div class="field">
-                  <label>底层调度深度边界 (Global Effort Cap)</label>
+                  <label>Effort</label>
                   <select v-model="drafts.agent.values.defaultEffort" :disabled="isCcrMode && !drafts.ccr.values.Router?.default">
                     <option v-for="option in effortOptions" :key="option.value" :value="option.value">
                       {{ option.label }}
@@ -503,7 +545,7 @@ onMounted(() => {
               
               <div class="form-grid mt-md">
                 <div class="field">
-                  <label>链式思维强化覆盖策略 (Extended Thinking Override)</label>
+                  <label>Extended Thinking</label>
                   <select v-model="drafts.agent.values.defaultThinking">
                     <option v-for="option in thinkingOptions" :key="option.value" :value="option.value">
                       {{ option.label }}
@@ -511,25 +553,25 @@ onMounted(() => {
                   </select>
                 </div>
                 <div class="field">
-                  <label>思考周期上限控制阀 (Thinking Tokens Maximum Limit)</label>
+                  <label>最大 Thinking Tokens</label>
                   <input v-model.number="drafts.agent.values.maxThinkingTokens" type="number">
                 </div>
               </div>
 
               <div class="divider mt-xl mb-md">
-                <span>基座代号静态链接绑定库 (Family Static Mappings)</span>
+                <span>模型 ID 映射</span>
               </div>
               <div class="form-grid">
                 <div class="field">
-                  <label>Opus 层级 (全能且厚重)</label>
+                  <label>Opus</label>
                   <input :value="modelMappingValue('opus')" type="text" placeholder="claude-opus-4" @input="setModelMappingValue('opus', ($event.target as HTMLInputElement).value)">
                 </div>
                 <div class="field">
-                  <label>Sonnet 层级 (万金油)</label>
+                  <label>Sonnet</label>
                   <input :value="modelMappingValue('sonnet')" type="text" placeholder="claude-sonnet-3-5" @input="setModelMappingValue('sonnet', ($event.target as HTMLInputElement).value)">
                 </div>
                 <div class="field">
-                  <label>Haiku 层级 (敏捷执行)</label>
+                  <label>Haiku</label>
                   <input :value="modelMappingValue('haiku')" type="text" placeholder="claude-haiku-4" @input="setModelMappingValue('haiku', ($event.target as HTMLInputElement).value)">
                 </div>
               </div>
@@ -537,7 +579,7 @@ onMounted(() => {
               <!-- Editor block -->
               <details class="code-editor-block mt-xl">
                 <summary class="editor-summary">
-                  配置源代码溯源 (Source Editor)
+                  JSON 编辑器 — agent config
                 </summary>
                 <div class="editor-container">
                   <div class="editor-toolbar">
@@ -565,8 +607,8 @@ onMounted(() => {
               <div class="heading-left">
                 <svg class="heading-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
                 <div class="heading-text">
-                  <h3>出网身份凭证及集群配给 (Authorization & Clusters)</h3>
-                  <p>用于在跨边界握手时验证鉴身标识 (API-Keys)。</p>
+                  <h3>API 密钥与 Provider</h3>
+                  <p>模型 API 的连接地址和鉴权配置。</p>
                 </div>
               </div>
             </header>
@@ -575,11 +617,11 @@ onMounted(() => {
               <div v-if="!isCcrMode" class="inner-subcard">
                 <div class="form-grid">
                   <div class="field">
-                    <label>公网 Base HTTP URL</label>
+                    <label>Base URL</label>
                     <input v-model="drafts.agent.values.baseUrl" type="text" placeholder="https://api.anthropic.com">
                   </div>
                   <div class="field">
-                    <label>核心权限出站秘钥 (Top API Key)</label>
+                    <label>API Key</label>
                     <div class="input-wrapper">
                       <input v-model="drafts.agent.values.apiKey" :type="showSecrets ? 'text' : 'password'" placeholder="空" class="pr-icon">
                       <button type="button" class="eye-btn" @click="showSecrets = !showSecrets" title="切换密码可视化">
@@ -594,16 +636,16 @@ onMounted(() => {
               <div v-else class="ccr-branch">
                 <div class="form-grid mb-md">
                   <div class="field">
-                    <label>自身暴露层 Host</label>
+                    <label>CCR 监听 Host</label>
                     <input v-model="drafts.ccr.values.HOST" type="text">
                   </div>
                   <div class="field">
-                    <label>自身暴露层 Port</label>
+                    <label>CCR 监听 Port</label>
                     <input v-model.number="drafts.ccr.values.PORT" type="number">
                   </div>
                 </div>
 
-                <div class="divider mt-xl mb-md"><span>出海集群池列表 (CCR Clusters Pool)</span></div>
+                <div class="divider mt-xl mb-md"><span>Provider 列表</span></div>
                 <div class="cluster-pool">
                   <div v-for="(provider, index) in drafts.ccr.values.Providers" :key="index" class="inner-subcard cluster-card">
                     <div class="cluster-header">
@@ -612,11 +654,11 @@ onMounted(() => {
                     </div>
                     <div class="form-grid mt-sm">
                       <div class="field">
-                        <label>网关下游分发地址 (Proxy Gateway URL)</label>
+                        <label>Base URL</label>
                         <input v-model="provider.api_base_url" type="text">
                       </div>
                       <div class="field">
-                        <label>分支隧道握手秘钥 (Provider API Key)</label>
+                        <label>API Key</label>
                         <div class="input-wrapper">
                           <input v-model="provider.api_key" :type="showSecrets ? 'text' : 'password'" class="pr-icon">
                           <button type="button" class="eye-btn" @click="showSecrets = !showSecrets" title="切换密码可视化">
@@ -627,7 +669,7 @@ onMounted(() => {
                       </div>
                     </div>
                     <div class="field mt-sm">
-                      <label>允许下沉分派的模型清单 (用半角逗号间隔白名单策略)</label>
+                      <label>可用模型 (逗号分隔)</label>
                       <input :value="providerModels(provider)" type="text" class="mono-font" @input="updateProviderModels(provider, $event)">
                     </div>
                   </div>
@@ -635,33 +677,39 @@ onMounted(() => {
 
                 <div class="inline-alert warm mt-md mb-lg">
                   <svg class="alert-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>
-                  <span>首选集群主导器 (Primary Resolver): <strong class="text-white">{{ primaryProvider?.name || 'Null' }}</strong> | 无模型匹配时强制转移至: <strong class="text-white">{{ drafts.ccr.values.Router.default || 'Null' }}</strong></span>
+                  <span>首选 Provider: <strong class="text-white">{{ primaryProvider?.name || 'Null' }}</strong> | 无模型匹配时兜底: <strong class="text-white">{{ drafts.ccr.values.Router.default || 'Null' }}</strong></span>
                 </div>
 
-                <div class="divider mt-xl mb-md"><span>异常/特权拦截网守 (Router Sub-Guards)</span></div>
+                <div class="divider mt-xl mb-md"><span>路由规则</span></div>
                 <div class="form-grid">
                   <div class="field">
-                    <label>Default Failover (脱靶备选)</label>
+                    <label>Default (兜底)</label>
                     <input v-model="drafts.ccr.values.Router.default" type="text" class="mono-font">
                   </div>
                   <div class="field">
-                    <label>Thinking Block (烧卡拦截)</label>
+                    <label>Think (深度思考)</label>
                     <input v-model="drafts.ccr.values.Router.think" type="text" class="mono-font">
                   </div>
                 </div>
                 <div class="form-grid mt-md">
                   <div class="field">
-                    <label>Background Sync (低优先级驻留队列)</label>
+                    <label>Background (后台任务)</label>
                     <input v-model="drafts.ccr.values.Router.background" type="text" class="mono-font">
                   </div>
                   <div class="field">
-                    <label>Long Context Branch (长线文脉高额路由)</label>
+                    <label>Long Context (长上下文)</label>
                     <input v-model="drafts.ccr.values.Router.longContext" type="text" class="mono-font">
+                  </div>
+                </div>
+                <div class="form-grid mt-md">
+                  <div class="field">
+                    <label>长上下文阈值 (tokens)</label>
+                    <input v-model.number="drafts.ccr.values.Router.longContextThreshold" type="number">
                   </div>
                 </div>
                 <div class="form-grid form-grid-bottom mt-md">
                   <div class="field">
-                    <label>网关级 API 发送超限切断阀值 (Timeout ms)</label>
+                    <label>API 超时 (ms)</label>
                     <input v-model.number="drafts.ccr.values.API_TIMEOUT_MS" type="number">
                   </div>
                   <div class="field field-checkbox">
@@ -669,17 +717,28 @@ onMounted(() => {
                       <input type="checkbox" v-model="drafts.ccr.values.LOG" class="checkbox-input">
                       <span class="custom-checkbox"></span>
                       <div class="checkbox-texts">
-                        <span class="primary">网关全埋点级深度日志脱壳记录 (LOG)</span>
-                        <span class="secondary">于服务端底层终端控制台打出入站流向与报文</span>
+                        <span class="primary">启用请求日志</span>
+                        <span class="secondary">在控制台输出请求和响应信息</span>
                       </div>
                     </label>
+                  </div>
+                </div>
+                <div class="form-grid mt-md" v-if="drafts.ccr.values.LOG">
+                  <div class="field">
+                    <label>日志级别</label>
+                    <select v-model="drafts.ccr.values.LOG_LEVEL">
+                      <option value="debug">Debug</option>
+                      <option value="info">Info</option>
+                      <option value="warn">Warn</option>
+                      <option value="error">Error</option>
+                    </select>
                   </div>
                 </div>
               </div>
               
               <div class="json-group mt-xl">
                 <details class="code-editor-block">
-                  <summary class="editor-summary">配置源代码溯源 (Source Editor) - server_config</summary>
+                  <summary class="editor-summary">JSON 编辑器 — server_config</summary>
                   <div class="editor-container">
                     <div class="editor-toolbar">
                       <div class="toolbar-left"><svg class="file-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg><span class="file-name">server_bridge_config.json</span></div>
@@ -691,7 +750,7 @@ onMounted(() => {
                 </details>
 
                 <details class="code-editor-block mt-md" v-if="isCcrMode">
-                  <summary class="editor-summary">配置源代码溯源 (Source Editor) - ccr_config</summary>
+                  <summary class="editor-summary">JSON 编辑器 — ccr_config</summary>
                   <div class="editor-container">
                     <div class="editor-toolbar">
                       <div class="toolbar-left"><svg class="file-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg><span class="file-name">ccr_gateway_config.json</span></div>
@@ -711,32 +770,32 @@ onMounted(() => {
               <div class="heading-left">
                 <svg class="heading-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor"><rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>
                 <div class="heading-text">
-                  <h3>全栈 Web 绘图界面呈现指令集 (Presentation UI)</h3>
-                  <p>这些参数下发到前端组件的深层结构中（无需进程硬重启）。</p>
+                  <h3>Web 前端</h3>
+                  <p>前端显示配置，修改后立即生效，无需重启。</p>
                 </div>
               </div>
             </header>
             
             <div class="card-body">
               <div class="field mb-lg">
-                <label>显式压制：强制枚举可用基座（每行截断作为一条）</label>
+                <label>自定义模型列表 (每行一个)</label>
                 <textarea :value="modelLines()" rows="3" class="mono-font" @input="handleModelLinesInput" placeholder="留下空白即使用自动检测..." />
               </div>
 
-              <div class="divider mt-xl mb-md"><span>底层视图结构化渲染强制绑定簇 (Layer Rendering Enforcements)</span></div>
+              <div class="divider mt-xl mb-md"><span>图层预设</span></div>
               <div class="form-grid">
                 <div class="field">
-                  <label>普通用户行为树可见性：锁定显示级 (User Space Sets)</label>
+                  <label>用户默认图层</label>
                   <textarea :value="drafts.web.values.layerPresets.User.enabledLayers.join('\n')" rows="5" class="mono-font" @input="handleLayerPresetInput(drafts.web.values.layerPresets.User.enabledLayers, $event)" />
                 </div>
                 <div class="field">
-                  <label>人工智能规划干预树：权限赋予池 (Agent Overrides)</label>
+                  <label>Agent 默认图层</label>
                   <textarea :value="drafts.web.values.layerPresets.Agent.enabledLayers.join('\n')" rows="5" class="mono-font" @input="handleLayerPresetInput(drafts.web.values.layerPresets.Agent.enabledLayers, $event)" />
                 </div>
               </div>
 
               <details class="code-editor-block mt-xl">
-                <summary class="editor-summary">配置源代码溯源 (Source Editor) - web_config</summary>
+                <summary class="editor-summary">JSON 编辑器 — web_config</summary>
                 <div class="editor-container">
                   <div class="editor-toolbar">
                     <div class="toolbar-left"><svg class="file-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg><span class="file-name">web_presentation_config.json</span></div>
