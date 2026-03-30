@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { SettingsService } from '../../services/SettingsService'
+import GlassButton from './base/GlassButton.vue'
 import type {
   SettingsGroup,
   SettingsGroupKey,
@@ -58,6 +59,7 @@ const saveMessage = ref<string | null>(null)
 const saveError = ref<string | null>(null)
 const loadError = ref<string | null>(null)
 const restartPendingGroups = ref<string[]>([])
+const isMounted = ref(false)
 
 const effortOptions = [
   { value: 'low', label: 'Low' },
@@ -369,37 +371,37 @@ async function handleRestart() {
 }
 
 onMounted(() => {
+  isMounted.value = true
   loadSettings()
 })
 </script>
 
 <template>
   <div class="settings-page">
-    <header class="settings-header">
-      <div class="header-content layout-bound">
-        <div class="header-title">
-          <h2 class="title">{{ pageTitle }}</h2>
-          <span class="badge" :class="restartPendingGroups.length > 0 ? 'badge-warning' : 'badge-success'">
-            <span class="dot"></span>
-            {{ restartPendingGroups.length > 0 ? `待重启 (${restartPendingGroups.length})` : '已同步' }}
-          </span>
-        </div>
-        
-        <div class="header-actions">
-          <button class="btn btn-ghost" type="button" :disabled="isLoading" @click="loadSettings">取消并重置</button>
-          <button v-if="restartPendingGroups.length > 0" class="btn btn-danger" type="button" :disabled="isRestarting" @click="handleRestart">
-            {{ isRestarting ? '重启中...' : '重启服务生效' }}
-          </button>
-          <button class="btn btn-accent" type="button" :disabled="isSaving || isLoading" @click="handleSave">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width: 14px; height: 14px; margin-right: 6px; margin-top: -1px; vertical-align: middle;"><polyline points="20 6 9 17 4 12"></polyline></svg>
-            {{ isSaving ? '保存中...' : '提交更改' }}
-          </button>
-        </div>
+    <Teleport to="#settings-header-actions" v-if="isMounted">
+      <div class="teleported-actions">
+        <span class="badge" :class="restartPendingGroups.length > 0 ? 'badge-warning' : 'badge-success'">
+          <span class="dot"></span>
+          {{ restartPendingGroups.length > 0 ? `待重启 (${restartPendingGroups.length})` : '已同步' }}
+        </span>
+        <GlassButton variant="ghost" :disabled="isLoading" @click="loadSettings">取消并重置</GlassButton>
+        <GlassButton v-if="restartPendingGroups.length > 0" variant="danger" :disabled="isRestarting" @click="handleRestart">
+          {{ isRestarting ? '重启中...' : '重启服务生效' }}
+        </GlassButton>
+        <GlassButton variant="primary" :disabled="isSaving || isLoading" @click="handleSave" style="display: flex; align-items: center; justify-content: center; gap: 6px;">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width: 14px; height: 14px;"><polyline points="20 6 9 17 4 12"></polyline></svg>
+          {{ isSaving ? '保存中...' : '提交更改' }}
+        </GlassButton>
       </div>
-    </header>
+    </Teleport>
 
     <div class="settings-main">
       <div class="layout-bound wrapper-pad">
+        <div class="page-intro mb-lg">
+          <h1 class="page-title">全局配置</h1>
+          <p class="page-desc">配置下一次应用启动或重载时的环境变量与底层偏好。修改涉及重型组态时需重启实例。</p>
+        </div>
+
         <div v-if="loadError || saveError || saveMessage || restartPendingGroups.length > 0" class="alerts mb-md">
           <div v-if="loadError" class="alert alert-error">{{ loadError }}</div>
           <div v-if="saveError" class="alert alert-error">{{ saveError }}</div>
@@ -860,23 +862,23 @@ onMounted(() => {
 hr { border: none; }
 .layout-bound { max-width: 860px; margin: 0 auto; width: 100%; }
 
-/* Header & Scaffolding */
-.settings-header {
-  position: sticky; top: 24px; z-index: 50;
-  padding: 0 24px; margin-bottom: 32px;
+/* Page Intro */
+.page-intro { margin-bottom: 24px; padding-left: 8px; }
+.page-title {
+  font-size: 1.6rem; font-weight: 600; color: var(--zinc-50);
+  margin: 0 0 8px 0; letter-spacing: -0.02em;
 }
-.header-content { 
-  display: flex; justify-content: space-between; align-items: center; 
-  background-color: var(--glass-bg);
-  backdrop-filter: var(--glass-blur);
-  -webkit-backdrop-filter: var(--glass-blur);
-  border: 1px solid rgba(255,255,255,0.06);
-  border-radius: var(--radius-lg, 12px);
-  padding: 18px 32px;
-  box-shadow: inset 0 1px 1px rgba(255, 255, 255, 0.08), 0 8px 32px rgba(0, 0, 0, 0.4);
+.page-desc {
+  font-size: 0.95rem; color: var(--zinc-400);
+  margin: 0; line-height: 1.5;
 }
-.header-title { display: flex; align-items: center; gap: 12px; }
-.header-title .title { margin: 0; font-size: 1.15rem; font-weight: 600; color: var(--text-main); letter-spacing: -0.01em; }
+
+/* Actions Teleported to Header */
+.teleported-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
 
 .settings-main { flex: 1; overflow-y: auto; overflow-x: hidden; }
 .wrapper-pad { padding: 32px 24px 80px; }

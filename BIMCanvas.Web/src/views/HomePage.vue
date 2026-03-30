@@ -181,7 +181,7 @@ onMounted(() => {
             <span class="settings-subtitle">首页内配置台</span>
           </div>
         </div>
-        <div class="settings-header-note">离开首页后不显示入口</div>
+        <div id="settings-header-actions" class="settings-header-actions"></div>
       </template>
     </header>
 
@@ -405,6 +405,13 @@ onMounted(() => {
   font-size: 0.82rem;
 }
 
+.settings-header-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 16px;
+}
+
 .back-button {
   width: 38px;
   height: 38px;
@@ -430,7 +437,7 @@ onMounted(() => {
 
 .homepage-content.settings-mode {
   max-width: 1400px;
-  padding-top: 24px;
+  padding-top: 16px;
   padding-bottom: 0;
 }
 
