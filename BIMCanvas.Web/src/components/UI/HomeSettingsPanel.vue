@@ -60,7 +60,8 @@ const showSecrets = ref(false)
 const saveMessage = ref<string | null>(null)
 const saveError = ref<string | null>(null)
 const loadError = ref<string | null>(null)
-const restartPendingGroups = ref<string[]>([])
+const showRestartDialog = ref(false)
+const pendingRestartGroups = ref<string[]>([])
 const isMounted = ref(false)
 
 const effortOptions = [
@@ -252,7 +253,6 @@ async function loadSettings() {
 
   try {
     applySnapshot(await SettingsService.getSettings())
-    restartPendingGroups.value = []
   } catch (error: any) {
     loadError.value = error.response?.data?.message || error.message || '加载设置失败'
   } finally {
@@ -341,10 +341,12 @@ async function handleSave() {
     })
 
     applySnapshot(result.settings)
-    restartPendingGroups.value = result.restartRequiredGroups
-    saveMessage.value = result.restartRequiredGroups.length > 0
-      ? `保存成功: ${result.restartRequiredGroups.join(', ')} 需重启生效。`
-      : '保存成功。'
+    saveMessage.value = '保存成功。'
+
+    if (result.restartRequiredGroups.length > 0) {
+      pendingRestartGroups.value = result.restartRequiredGroups
+      showRestartDialog.value = true
+    }
 
     window.dispatchEvent(new CustomEvent('bimcanvas:web-config-updated', {
       detail: clone(result.settings.web.values)
@@ -363,7 +365,6 @@ async function handleRestart() {
   try {
     await SettingsService.restartInstance()
     saveMessage.value = '服务正在重启，请稍候...'
-    restartPendingGroups.value = []
 
     // 等待旧服务关闭（800ms 延迟 + 余量）
     await new Promise(r => setTimeout(r, 2000))
@@ -414,6 +415,11 @@ async function handleRestart() {
   }
 }
 
+function confirmRestart() {
+  showRestartDialog.value = false
+  handleRestart()
+}
+
 onMounted(() => {
   isMounted.value = true
   loadSettings()
@@ -424,17 +430,10 @@ onMounted(() => {
   <div class="settings-page">
     <Teleport to="#settings-header-actions" v-if="isMounted">
       <div class="teleported-actions">
-        <span class="badge" :class="restartPendingGroups.length > 0 ? 'badge-warning' : 'badge-success'">
-          <span class="dot"></span>
-          {{ restartPendingGroups.length > 0 ? `待重启 (${restartPendingGroups.length})` : '已同步' }}
-        </span>
-        <GlassButton variant="ghost" :disabled="isLoading" @click="loadSettings">取消并重置</GlassButton>
-        <GlassButton v-if="restartPendingGroups.length > 0" variant="danger" :disabled="isRestarting" @click="handleRestart">
-          {{ isRestarting ? '重启中...' : '重启服务生效' }}
-        </GlassButton>
+        <GlassButton variant="ghost" :disabled="isLoading" @click="loadSettings">取消</GlassButton>
         <GlassButton variant="primary" :disabled="isSaving || isLoading" @click="handleSave" style="display: flex; align-items: center; justify-content: center; gap: 6px;">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width: 14px; height: 14px;"><polyline points="20 6 9 17 4 12"></polyline></svg>
-          {{ isSaving ? '保存中...' : '提交更改' }}
+          {{ isSaving ? '保存中...' : '保存' }}
         </GlassButton>
       </div>
     </Teleport>
@@ -446,14 +445,10 @@ onMounted(() => {
           <p class="page-desc">配置下一次应用启动或重载时的环境变量与底层偏好。修改涉及重型组态时需重启实例。</p>
         </div>
 
-        <div v-if="loadError || saveError || saveMessage || restartPendingGroups.length > 0" class="alerts mb-md">
+        <div v-if="loadError || saveError || saveMessage" class="alerts mb-md">
           <div v-if="loadError" class="alert alert-error">{{ loadError }}</div>
           <div v-if="saveError" class="alert alert-error">{{ saveError }}</div>
           <div v-if="saveMessage" class="alert alert-success">{{ saveMessage }}</div>
-          <div v-if="restartPendingGroups.length > 0" class="alert alert-warning">
-            您修改了以下配置（{{ restartPendingGroups.join(', ') }}），已保存到磁盘，需重启服务生效。
-            ({{ runtime.restartBehavior === 'docker-auto' ? 'Docker 管理自动重启' : '需手动重启' }})
-          </div>
         </div>
 
         <div v-if="isLoading" class="loading-state">加载配置...</div>
@@ -865,6 +860,41 @@ onMounted(() => {
         </template>
       </div>
     </div>
+
+    <!-- 重启确认弹窗 -->
+    <Teleport to="body">
+      <Transition name="dialog">
+        <div v-if="showRestartDialog" class="dialog-overlay" @click.self="showRestartDialog = false">
+          <div class="dialog-card">
+            <div class="dialog-header">
+              <div class="header-icon restart">
+                <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2">
+                  <polyline points="23 4 23 10 17 10"></polyline>
+                  <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"></path>
+                </svg>
+              </div>
+              <h3>需要重启</h3>
+              <button class="close-btn" @click="showRestartDialog = false">
+                <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2">
+                  <line x1="18" y1="6" x2="6" y2="18"></line>
+                  <line x1="6" y1="6" x2="18" y2="18"></line>
+                </svg>
+              </button>
+            </div>
+            <div class="dialog-body">
+              <p class="message">以下配置已保存，需重启服务后生效：</p>
+              <div class="restart-groups">
+                <span v-for="g in pendingRestartGroups" :key="g" class="restart-group-tag">{{ g }}</span>
+              </div>
+            </div>
+            <div class="dialog-footer">
+              <GlassButton variant="ghost" @click="showRestartDialog = false">稍后重启</GlassButton>
+              <GlassButton variant="primary" @click="confirmRestart">立即重启</GlassButton>
+            </div>
+          </div>
+        </div>
+      </Transition>
+    </Teleport>
   </div>
 </template>
 
@@ -968,10 +998,7 @@ hr { border: none; }
 .badge { display: inline-flex; height: 22px; padding: 0 8px; border-radius: var(--radius-xs); font-size: 12px; font-weight: 500; align-items: center; gap: 6px; }
 .badge-mono { font-family: ui-monospace, SFMono-Regular, Consolas, monospace; }
 .badge-normal { background: var(--zinc-800); color: var(--zinc-300); }
-.badge-success { background: rgba(34, 197, 94, 0.08); color: #4ade80; border: 1px solid rgba(34, 197, 94, 0.15); }
-.badge-warning { background: rgba(234, 179, 8, 0.08); color: #fde047; border: 1px solid rgba(234, 179, 8, 0.15); }
 .subtle-badge { font-size: 11px; color: var(--zinc-500); background: transparent; border: 1px solid var(--border-muted); }
-.dot { width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
 
 /* Inline Alerts & Blocks */
 .alerts { display: flex; flex-direction: column; gap: 12px; }
@@ -1188,4 +1215,150 @@ input:disabled { opacity: 0.5; cursor: not-allowed; }
 .mt-xl { margin-top: 32px; }
 .mb-md { margin-bottom: 20px; }
 .mb-lg { margin-bottom: 24px; }
+
+/* 重启确认弹窗 */
+.dialog-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.4);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 2000;
+}
+
+.dialog-card {
+  background: #18181b;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 12px;
+  width: 380px;
+  box-shadow:
+    0 8px 32px rgba(0, 0, 0, 0.4),
+    0 0 0 1px rgba(0, 0, 0, 0.2),
+    0 0 0 1px rgba(255, 255, 255, 0.05) inset;
+  display: flex;
+  flex-direction: column;
+}
+
+.dialog-header {
+  padding: 16px 20px 12px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.dialog-header .header-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 8px;
+  flex-shrink: 0;
+}
+
+.dialog-header .header-icon.restart {
+  background: rgba(234, 179, 8, 0.15);
+  color: #fde047;
+}
+
+.dialog-header h3 {
+  margin: 0;
+  font-size: 1rem;
+  font-weight: 600;
+  color: var(--text-primary);
+  flex: 1;
+}
+
+.dialog-header .close-btn {
+  background: none;
+  border: none;
+  color: var(--text-secondary);
+  cursor: pointer;
+  padding: 6px;
+  border-radius: 50%;
+  transition: all 0.2s;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.dialog-header .close-btn:hover {
+  background: rgba(255, 255, 255, 0.1);
+  color: var(--text-primary);
+}
+
+.dialog-body {
+  padding: 0 20px 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.dialog-body .message {
+  margin: 0;
+  font-size: 0.9rem;
+  color: var(--text-secondary);
+  line-height: 1.5;
+}
+
+.restart-groups {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.restart-group-tag {
+  display: inline-flex;
+  height: 22px;
+  padding: 0 8px;
+  border-radius: var(--radius-xs, 4px);
+  font-size: 12px;
+  font-weight: 500;
+  align-items: center;
+  background: rgba(234, 179, 8, 0.08);
+  color: #fde047;
+  border: 1px solid rgba(234, 179, 8, 0.15);
+}
+
+.dialog-footer {
+  padding: 16px 20px;
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  background: rgba(0, 0, 0, 0.1);
+  border-radius: 0 0 12px 12px;
+}
+
+.dialog-footer :deep(button) {
+  min-width: 88px;
+  height: 32px;
+  border-radius: 6px;
+  justify-content: center;
+  font-size: 0.85rem;
+  padding: 0 12px;
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.05) inset;
+}
+
+/* 弹窗动画 */
+.dialog-enter-active,
+.dialog-leave-active {
+  transition: opacity 0.3s ease;
+}
+
+.dialog-enter-active .dialog-card,
+.dialog-leave-active .dialog-card {
+  transition: transform 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.dialog-enter-from,
+.dialog-leave-to {
+  opacity: 0;
+}
+
+.dialog-enter-from .dialog-card,
+.dialog-leave-to .dialog-card {
+  transform: scale(0.9) translateY(20px);
+}
 </style>
