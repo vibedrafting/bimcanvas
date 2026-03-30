@@ -24,3 +24,29 @@
 **/values.dev.yaml
 LICENSE
 README.md
+
+# local AI / temp
+.agent
+.agents
+.claude
+.tmp
+**/.pytest_cache
+
+# docs / plans / reports
+docs
+plans
+references
+reports
+reviews
+tuning
+
+# non-runtime outputs / assets
+publish
+libs
+BIMCanvas.Revit
+test
+
+# non-runtime docs
+AGENTS.md
+CLAUDE.md
+GEMINI.md

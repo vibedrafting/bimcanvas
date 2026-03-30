@@ -58,17 +58,38 @@ dotnet publish BIMCanvas.Server -c Release -o publish
 #### 3. Docker 生产态
 
 ```bash
+# 构建镜像
 docker build -t bimcanvas:local -f deploy/Dockerfile .
+
+# 启动单实例（临时，退出即删除容器）
 docker run --rm -p 5000:5000 -p 8865:8865 bimcanvas:local
+
+# 持久化数据（挂载宿主机目录到 /data）
+docker run --rm -p 5000:5000 -p 8865:8865 -v /path/to/data:/data bimcanvas:local
 ```
 
 默认行为：
 
 - Server 在 `http://localhost:5000` 直接托管 Web `dist/`
 - Agent 对外监听 `http://localhost:8865`
-- 不启动 Vite dev server
-- 不自动打开浏览器
+- 不启动 Vite dev server，不自动打开浏览器
 - 配置与项目数据默认写入容器内 `/data`（正式持久化需挂卷）
+
+**构建后快速验证**：
+
+```bash
+# 健康检查
+curl http://localhost:5000/health
+curl http://localhost:8865/health
+
+# 验证内部工具链
+docker run --rm bimcanvas:local which python
+docker run --rm bimcanvas:local python -c "import claude_agent_sdk; print('ok')"
+docker run --rm bimcanvas:local claude --version
+docker run --rm bimcanvas:local ccr --version
+```
+
+浏览器访问 `http://localhost:5000`，可完成：上传 `.bcp` → AI 对话 → 后台截图 完整链路验证。
 
 #### 4. 远程服务器部署
 
