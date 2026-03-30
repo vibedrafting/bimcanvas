@@ -464,9 +464,9 @@ onMounted(() => {
                 </div>
               </div>
 
-              <div class="form-grid mt-md" :class="{ 'opacity-muted': !isCcrMode }">
-                <div class="field field-checkbox">
-                  <label class="checkbox-label">
+              <div class="form-grid mt-md">
+                <div class="field field-checkbox" :class="{ 'opacity-muted': !isCcrMode }">
+                  <label class="checkbox-label" :style="!isCcrMode ? 'cursor: not-allowed;' : ''">
                     <input type="checkbox" v-model="drafts.server.values.ccr.autoStart" class="checkbox-input" :disabled="!isCcrMode">
                     <span class="custom-checkbox"></span>
                     <div class="checkbox-texts">
@@ -854,6 +854,7 @@ onMounted(() => {
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif;
   overflow: hidden;
   font-size: 14px;
+  color-scheme: dark;
 }
 
 hr { border: none; }
@@ -981,11 +982,18 @@ input[type="text"], input[type="number"], input[type="password"], select, textar
   background-color: rgba(0, 0, 0, 0.45); border: 1px solid rgba(255, 255, 255, 0.06); border-radius: var(--radius-sm);
   color: var(--text-main); font-family: inherit; outline: none; transition: 0.15s;
   box-shadow: inset 0 2px 4px rgba(0,0,0,0.5), 0 1px 0 rgba(255,255,255,0.03);
+  color-scheme: dark;
 }
 textarea { height: auto; padding: 8px 12px; line-height: 1.5; resize: vertical; }
 input:focus, select:focus, textarea:focus { border-color: rgba(59, 130, 246, 0.5); box-shadow: 0 0 0 1px rgba(59, 130, 246, 0.5), inset 0 2px 4px rgba(0,0,0,0.6); background-color: rgba(0,0,0,0.6); }
 input:disabled, select:disabled { opacity: 0.5; cursor: not-allowed; }
 .mono-font { font-family: ui-monospace, SFMono-Regular, Consolas, monospace; }
+
+select option {
+  background-color: var(--zinc-900);
+  color: var(--text-main);
+  padding: 8px; /* Some browsers support basic padding on options */
+}
 
 .input-wrapper { position: relative; display: flex; align-items: center; width: 100%; }
 .pr-icon { padding-right: 36px !important; }
