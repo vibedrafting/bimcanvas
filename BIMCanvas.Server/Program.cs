@@ -584,7 +584,8 @@ var playwrightReady = true;
                 WriteWithColoredPrefix("[Server]", "所有服务已就绪", ConsoleColor.White);
             }
 
-            if (config.Startup.OpenBrowser)
+            var isRestart = Environment.GetEnvironmentVariable("BIMCANVAS_RESTART") == "1";
+            if (config.Startup.OpenBrowser && !isRestart)
             {
                 WriteWithColoredPrefix("[Server]", $"打开浏览器: {webBaseUrl}", ConsoleColor.White);
                 try
@@ -608,7 +609,11 @@ var playwrightReady = true;
         }
     }
 
-    // 5. 注册退出时清理进程和 Worktree
+    // 5. 提前捕获 DI 服务引用（ProcessExit 时 DI 容器已 Dispose，不能再 GetRequiredService）
+    var projectContextRef = app.Services.GetRequiredService<ProjectContext>();
+    var gitWorktreeServiceRef = app.Services.GetRequiredService<GitWorktreeService>();
+
+    // 6. 注册退出时清理进程和 Worktree
     AppDomain.CurrentDomain.ProcessExit += (s, e) =>
     {
         // ① 先关闭 Agent（释放 CWD 文件锁）
@@ -622,12 +627,10 @@ var playwrightReady = true;
         // ② 再清理 Worktree（Agent 已退出，目录不再被占用）
         try
         {
-            var projectContext = app.Services.GetRequiredService<ProjectContext>();
-            if (!string.IsNullOrEmpty(projectContext.CurrentProjectPath))
+            if (!string.IsNullOrEmpty(projectContextRef.CurrentProjectPath))
             {
                 WriteWithColoredPrefix("[Server]", "正在清理 Worktree...", ConsoleColor.White);
-                var gitWorktreeService = app.Services.GetRequiredService<GitWorktreeService>();
-                gitWorktreeService.CleanupAllWorktrees(projectContext.CurrentProjectPath);
+                gitWorktreeServiceRef.CleanupAllWorktrees(projectContextRef.CurrentProjectPath);
             }
         }
         catch (Exception ex)
@@ -693,12 +696,16 @@ app.Run();
 
             try
             {
-                Process.Start(new ProcessStartInfo
+                var psi = new ProcessStartInfo
                 {
                     FileName = exePath!,
                     Arguments = arguments,
-                    UseShellExecute = true
-                });
+                    UseShellExecute = false
+                };
+                psi.Environment["BIMCANVAS_RESTART"] = "1";
+                // 清除 VS 调试注入的 Hosting Startup 程序集，新进程不在 VS 下运行会加载失败
+                psi.Environment.Remove("ASPNETCORE_HOSTINGSTARTUPASSEMBLIES");
+                Process.Start(psi);
                 WriteWithColoredPrefix("[Server]", "新实例已启动，当前进程退出。", ConsoleColor.White);
             }
             catch (Exception ex)
