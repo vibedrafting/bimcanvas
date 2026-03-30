@@ -90,13 +90,9 @@ for (const key of groupKeys) {
 }
 
 const isCcrMode = computed(() => Boolean(drafts.server.values.ccr?.enabled))
-const pageTitle = '全局设置'
 const displayEffectiveModelPath = computed(() => isCcrMode.value
   ? 'server.ccr.defaultModelFamily'
   : 'agent.model')
-const effectiveModelDescription = computed(() => isCcrMode.value
-  ? '当前生效参数源: server > ccr.defaultModelFamily'
-  : '当前生效参数源: agent > model')
 
 const modelOptions = computed(() => {
   const modelMapping = drafts.agent.values.modelMapping ?? {}
@@ -322,11 +318,6 @@ function updateProviderModels(provider: any, event: Event) {
     .filter(Boolean)
 }
 
-function maskSecret(value: string) {
-  if (!value) return ''
-  if (value.length <= 8) return '********'
-  return `${value.slice(0, 3)}••••${value.slice(-3)}`
-}
 
 async function handleSave() {
   saveError.value = null
