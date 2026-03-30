@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { SettingsService } from '../../services/SettingsService'
+import { SERVER_BASE } from '../../config/api'
 import GlassButton from './base/GlassButton.vue'
 import GlassSelect from './base/GlassSelect.vue'
 import type {
@@ -360,10 +361,54 @@ async function handleRestart() {
   saveError.value = null
 
   try {
-    const result = await SettingsService.restartInstance()
-    saveMessage.value = result.message
+    await SettingsService.restartInstance()
+    saveMessage.value = '服务正在重启，请稍候...'
+    restartPendingGroups.value = []
+
+    // 等待旧服务关闭（800ms 延迟 + 余量）
+    await new Promise(r => setTimeout(r, 2000))
+
+    // 轮询健康检查，等待新实例就绪
+    const maxRetries = 20
+    const retryInterval = 1500
+    for (let i = 0; i < maxRetries; i++) {
+      try {
+        const resp = await fetch(`${SERVER_BASE}/health`, { cache: 'no-store' })
+        if (resp.ok) {
+          saveMessage.value = '服务已恢复，正在刷新页面...'
+          await new Promise(r => setTimeout(r, 500))
+          window.location.reload()
+          return
+        }
+      } catch {
+        // 服务还未就绪，继续轮询
+      }
+      await new Promise(r => setTimeout(r, retryInterval))
+    }
+
+    // 超时提示
+    saveError.value = '服务重启超时（30秒），请手动刷新页面或检查服务状态。'
   } catch (error: any) {
-    saveError.value = error.response?.data?.message || error.message || '触发重启失败'
+    // 请求发出后连接断开是正常的（服务正在关闭）
+    if (error.code === 'ECONNABORTED' || error.message?.includes('Network Error')) {
+      saveMessage.value = '服务正在重启，请稍候...'
+      // 同样开始轮询
+      await new Promise(r => setTimeout(r, 2000))
+      const maxRetries = 20
+      for (let i = 0; i < maxRetries; i++) {
+        try {
+          const resp = await fetch(`${SERVER_BASE}/health`, { cache: 'no-store' })
+          if (resp.ok) {
+            window.location.reload()
+            return
+          }
+        } catch { /* continue */ }
+        await new Promise(r => setTimeout(r, 1500))
+      }
+      saveError.value = '服务重启超时，请手动刷新页面。'
+    } else {
+      saveError.value = error.response?.data?.message || error.message || '触发重启失败'
+    }
   } finally {
     isRestarting.value = false
   }

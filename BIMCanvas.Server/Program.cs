@@ -664,6 +664,53 @@ if (isProduction && startupErrors.Count > 0)
 app.Run();
 
 // ─────────────────────────────────────────────────────────────────────────────
+// 重启检查：app.Run() 返回后（进程已停止监听），检测重启标志文件
+// ─────────────────────────────────────────────────────────────────────────────
+{
+    var restartFlagPath = SettingsRestartService.RestartFlagPath;
+    if (File.Exists(restartFlagPath))
+    {
+        File.Delete(restartFlagPath);
+
+        var isDocker = string.Equals(
+            Environment.GetEnvironmentVariable("DOTNET_RUNNING_IN_CONTAINER"),
+            "true",
+            StringComparison.OrdinalIgnoreCase);
+
+        if (!isDocker)
+        {
+            WriteWithColoredPrefix("[Server]", "检测到重启标志，正在启动新实例...", ConsoleColor.White);
+
+            // 获取当前进程的启动方式并重新启动
+            var exePath = Environment.ProcessPath;
+            var cmdArgs = Environment.GetCommandLineArgs();
+
+            // dotnet run 场景：ProcessPath 是 dotnet.exe，参数包含 run --project ...
+            // 编译后直接运行场景：ProcessPath 是 BIMCanvas.Server.exe
+            var arguments = cmdArgs.Length > 1
+                ? string.Join(" ", cmdArgs.Skip(1))
+                : "";
+
+            try
+            {
+                Process.Start(new ProcessStartInfo
+                {
+                    FileName = exePath!,
+                    Arguments = arguments,
+                    UseShellExecute = true
+                });
+                WriteWithColoredPrefix("[Server]", "新实例已启动，当前进程退出。", ConsoleColor.White);
+            }
+            catch (Exception ex)
+            {
+                WriteWithColoredPrefix("[Server:ERR]", $"启动新实例失败: {ex.Message}", ConsoleColor.DarkGray);
+            }
+        }
+        // Docker 环境：不需要手动启动新实例，restart policy 会接管
+    }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // 环境检测辅助函数
 // ─────────────────────────────────────────────────────────────────────────────
 
