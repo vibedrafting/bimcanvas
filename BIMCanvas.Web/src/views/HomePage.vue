@@ -335,9 +335,24 @@ onMounted(() => {
 .homepage {
   width: 100vw;
   height: 100vh;
-  background:
-    radial-gradient(circle at top center, rgba(255, 244, 214, 0.08), transparent 26%),
-    var(--bg-canvas);
+  background-color: var(--bg-canvas);
+  background-image:
+    /* Glow */
+    radial-gradient(circle at 50% -20%, rgba(59, 130, 246, 0.1) 0%, transparent 50%),
+    /* Major grid (100px) */
+    linear-gradient(rgba(60, 75, 95, 0.25) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(60, 75, 95, 0.25) 1px, transparent 1px),
+    /* Minor grid (20px) */
+    linear-gradient(rgba(60, 75, 95, 0.1) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(60, 75, 95, 0.1) 1px, transparent 1px);
+  background-size:
+    100% 100%,
+    100px 100px, 100px 100px,
+    20px 20px, 20px 20px;
+  background-position:
+    center top,
+    center center, center center,
+    center center, center center;
   display: flex;
   flex-direction: column;
   color: var(--text-primary);
@@ -349,12 +364,15 @@ onMounted(() => {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 16px 32px;
-  border-bottom: 1px solid var(--border-subtle);
-}
-
-.homepage-header.compact {
-  padding: 18px 32px 12px;
+  padding: 0 32px;
+  height: 72px;
+  box-sizing: border-box;
+  border-bottom: var(--glass-border);
+  background: var(--surface-glass);
+  backdrop-filter: var(--glass-blur);
+  -webkit-backdrop-filter: var(--glass-blur);
+  z-index: 10;
+  flex-shrink: 0;
 }
 
 .brand-text {
@@ -404,7 +422,7 @@ onMounted(() => {
 .homepage-content {
   flex: 1;
   overflow-y: auto;
-  padding: 24px 32px;
+  padding: 48px 32px 32px;
   max-width: 960px;
   width: 100%;
   margin: 0 auto;
@@ -412,7 +430,7 @@ onMounted(() => {
 
 .homepage-content.settings-mode {
   max-width: 1400px;
-  padding-top: 12px;
+  padding-top: 24px;
   padding-bottom: 0;
 }
 
@@ -516,33 +534,42 @@ onMounted(() => {
 .project-grid {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 12px;
 }
 
 .project-card {
   display: flex;
   align-items: center;
   gap: 16px;
-  padding: 14px 18px;
-  background: var(--surface-card);
-  border: var(--glass-border);
-  border-radius: var(--radius-md);
+  padding: 18px 24px;
+  background: var(--glass-bg);
+  backdrop-filter: var(--glass-blur);
+  -webkit-backdrop-filter: var(--glass-blur);
+  border: 1px solid rgba(255,255,255,0.06);
+  border-radius: var(--radius-lg, 12px);
+  box-shadow: inset 0 1px 1px rgba(255, 255, 255, 0.08), 0 8px 24px rgba(0, 0, 0, 0.5);
   cursor: pointer;
-  transition: background-color 0.15s;
+  transition: all 0.25s var(--ease-spring);
 }
 
 .project-card:hover:not(.invalid):not(.opening) {
-  background: var(--surface-highlight-hover);
+  background: var(--surface-glass-hover);
+  border-color: rgba(59, 130, 246, 0.4);
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4), 0 0 0 1px rgba(59, 130, 246, 0.1) inset;
+  transform: translateY(-2px);
 }
 
 .project-card.invalid {
   opacity: 0.5;
   cursor: not-allowed;
+  filter: grayscale(100%);
 }
 
 .project-card.opening {
   opacity: 0.7;
   pointer-events: none;
+  border-color: var(--accent-blue);
+  box-shadow: 0 0 0 1px var(--accent-blue) inset;
 }
 
 /* Card Icon */
