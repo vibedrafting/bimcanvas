@@ -652,27 +652,53 @@ onMounted(() => {
             </header>
             
             <div class="card-body">
-              <div v-if="!isCcrMode" class="inner-subcard">
-                <div class="form-grid">
-                  <div class="field">
-                    <label>Base URL</label>
-                    <input v-model="drafts.agent.values.baseUrl" type="text" placeholder="https://api.anthropic.com">
-                  </div>
-                  <div class="field">
-                    <label>API Key</label>
-                    <div class="input-wrapper">
-                      <input v-model="drafts.agent.values.apiKey" :type="showSecrets ? 'text' : 'password'" placeholder="空" class="pr-icon">
-                      <button type="button" class="eye-btn" @click="showSecrets = !showSecrets" title="切换密码可视化">
-                        <svg v-if="!showSecrets" viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path><circle cx="12" cy="12" r="3"></circle></svg>
-                        <svg v-else viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M17.94 17.94A10.07 10.07 0 0112 20c-7 0-11-8-11-8a18.45 18.45 0 015.06-5.94M9.9 4.24A9.12 9.12 0 0112 4c7 0 11 8 11 8a18.5 18.5 0 01-2.16 3.19m-6.72-1.07a3 3 0 11-4.24-4.24M1 1l22 22"></path></svg>
-                      </button>
-                    </div>
-                  </div>
-                </div>
+              <div class="inline-alert warm mb-lg">
+                <svg class="alert-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+                <span>{{ isCcrMode ? '当前生效路径：CCR 网关。直连与 CCR 配置都会保留，你可以提前维护两套连接参数。' : '当前生效路径：直连 Agent。CCR 配置仍保持可见，方便预先维护并随时切换。' }}</span>
               </div>
 
-              <div v-else class="ccr-branch">
-                <div class="form-grid mb-md">
+              <div class="config-section-stack">
+                <section class="inner-subcard config-section" :class="{ 'config-section-inactive': isCcrMode }">
+                  <div class="section-header">
+                    <div>
+                      <h4>直连 Agent</h4>
+                      <p>Agent 直接访问模型 API，适合开发快测或不经过 CCR 的场景。</p>
+                    </div>
+                    <span class="badge badge-mono" :class="isCcrMode ? 'subtle-badge' : 'badge-normal'">
+                      {{ isCcrMode ? '当前未生效' : '当前生效' }}
+                    </span>
+                  </div>
+
+                  <div class="form-grid">
+                    <div class="field">
+                      <label>Base URL</label>
+                      <input v-model="drafts.agent.values.baseUrl" type="text" placeholder="https://api.anthropic.com">
+                    </div>
+                    <div class="field">
+                      <label>API Key</label>
+                      <div class="input-wrapper">
+                        <input v-model="drafts.agent.values.apiKey" :type="showSecrets ? 'text' : 'password'" placeholder="空" class="pr-icon">
+                        <button type="button" class="eye-btn" @click="showSecrets = !showSecrets" title="切换密码可视化">
+                          <svg v-if="!showSecrets" viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path><circle cx="12" cy="12" r="3"></circle></svg>
+                          <svg v-else viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M17.94 17.94A10.07 10.07 0 0112 20c-7 0-11-8-11-8a18.45 18.45 0 015.06-5.94M9.9 4.24A9.12 9.12 0 0112 4c7 0 11 8 11 8a18.5 18.5 0 01-2.16 3.19m-6.72-1.07a3 3 0 11-4.24-4.24M1 1l22 22"></path></svg>
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                </section>
+
+                <section class="ccr-branch config-section" :class="{ 'config-section-inactive': !isCcrMode }">
+                  <div class="section-header mb-md">
+                    <div>
+                      <h4>CCR 网关</h4>
+                      <p>通过 Provider 列表和路由规则统一转发模型请求，适合多供应商和路由治理。</p>
+                    </div>
+                    <span class="badge badge-mono" :class="isCcrMode ? 'badge-normal' : 'subtle-badge'">
+                      {{ isCcrMode ? '当前生效' : '当前未生效' }}
+                    </span>
+                  </div>
+
+                  <div class="form-grid mb-md">
                   <div class="field">
                     <label>CCR 监听 Host</label>
                     <input v-model="drafts.ccr.values.HOST" type="text">
@@ -683,96 +709,97 @@ onMounted(() => {
                   </div>
                 </div>
 
-                <div class="divider mt-xl mb-md"><span>Provider 列表</span></div>
-                <div class="cluster-pool">
-                  <div v-for="(provider, index) in drafts.ccr.values.Providers" :key="index" class="inner-subcard cluster-card">
-                    <div class="cluster-header">
-                      <span class="cluster-title">{{ provider.name || `Provider Nodes [${index}]` }}</span>
-                      <span class="badge badge-normal badge-mono">{{ provider.models?.length || 0 }} Models Listed</span>
-                    </div>
-                    <div class="form-grid mt-sm">
-                      <div class="field">
-                        <label>Base URL</label>
-                        <input v-model="provider.api_base_url" type="text">
+                  <div class="divider mt-xl mb-md"><span>Provider 列表</span></div>
+                  <div class="cluster-pool">
+                    <div v-for="(provider, index) in drafts.ccr.values.Providers" :key="index" class="inner-subcard cluster-card">
+                      <div class="cluster-header">
+                        <span class="cluster-title">{{ provider.name || `Provider Nodes [${index}]` }}</span>
+                        <span class="badge badge-normal badge-mono">{{ provider.models?.length || 0 }} Models Listed</span>
                       </div>
-                      <div class="field">
-                        <label>API Key</label>
-                        <div class="input-wrapper">
-                          <input v-model="provider.api_key" :type="showSecrets ? 'text' : 'password'" class="pr-icon">
-                          <button type="button" class="eye-btn" @click="showSecrets = !showSecrets" title="切换密码可视化">
-                            <svg v-if="!showSecrets" viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path><circle cx="12" cy="12" r="3"></circle></svg>
-                            <svg v-else viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M17.94 17.94A10.07 10.07 0 0112 20c-7 0-11-8-11-8a18.45 18.45 0 015.06-5.94M9.9 4.24A9.12 9.12 0 0112 4c7 0 11 8 11 8a18.5 18.5 0 01-2.16 3.19m-6.72-1.07a3 3 0 11-4.24-4.24M1 1l22 22"></path></svg>
-                          </button>
+                      <div class="form-grid mt-sm">
+                        <div class="field">
+                          <label>Base URL</label>
+                          <input v-model="provider.api_base_url" type="text">
+                        </div>
+                        <div class="field">
+                          <label>API Key</label>
+                          <div class="input-wrapper">
+                            <input v-model="provider.api_key" :type="showSecrets ? 'text' : 'password'" class="pr-icon">
+                            <button type="button" class="eye-btn" @click="showSecrets = !showSecrets" title="切换密码可视化">
+                              <svg v-if="!showSecrets" viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path><circle cx="12" cy="12" r="3"></circle></svg>
+                              <svg v-else viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M17.94 17.94A10.07 10.07 0 0112 20c-7 0-11-8-11-8a18.45 18.45 0 015.06-5.94M9.9 4.24A9.12 9.12 0 0112 4c7 0 11 8 11 8a18.5 18.5 0 01-2.16 3.19m-6.72-1.07a3 3 0 11-4.24-4.24M1 1l22 22"></path></svg>
+                            </button>
+                          </div>
                         </div>
                       </div>
-                    </div>
-                    <div class="field mt-sm">
-                      <label>可用模型 (逗号分隔)</label>
-                      <input :value="providerModels(provider)" type="text" class="mono-font" @input="updateProviderModels(provider, $event)">
-                    </div>
-                  </div>
-                </div>
-
-                <div class="inline-alert warm mt-md mb-lg">
-                  <svg class="alert-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>
-                  <span>首选 Provider: <strong class="text-white">{{ primaryProvider?.name || 'Null' }}</strong> | 无模型匹配时兜底: <strong class="text-white">{{ drafts.ccr.values.Router.default || 'Null' }}</strong></span>
-                </div>
-
-                <div class="divider mt-xl mb-md"><span>路由规则</span></div>
-                <div class="form-grid">
-                  <div class="field">
-                    <label>Default (兜底)</label>
-                    <input v-model="drafts.ccr.values.Router.default" type="text" class="mono-font">
-                  </div>
-                  <div class="field">
-                    <label>Think (深度思考)</label>
-                    <input v-model="drafts.ccr.values.Router.think" type="text" class="mono-font">
-                  </div>
-                </div>
-                <div class="form-grid mt-md">
-                  <div class="field">
-                    <label>Background (后台任务)</label>
-                    <input v-model="drafts.ccr.values.Router.background" type="text" class="mono-font">
-                  </div>
-                  <div class="field">
-                    <label>Long Context (长上下文)</label>
-                    <input v-model="drafts.ccr.values.Router.longContext" type="text" class="mono-font">
-                  </div>
-                </div>
-                <div class="form-grid mt-md">
-                  <div class="field">
-                    <label>长上下文阈值 (tokens)</label>
-                    <input v-model.number="drafts.ccr.values.Router.longContextThreshold" type="number">
-                  </div>
-                </div>
-                <div class="form-grid form-grid-bottom mt-md">
-                  <div class="field">
-                    <label>API 超时 (ms)</label>
-                    <input v-model.number="drafts.ccr.values.API_TIMEOUT_MS" type="number">
-                  </div>
-                  <div class="field field-checkbox">
-                    <label class="checkbox-label">
-                      <input type="checkbox" v-model="drafts.ccr.values.LOG" class="checkbox-input">
-                      <span class="custom-checkbox"></span>
-                      <div class="checkbox-texts">
-                        <span class="primary">启用请求日志</span>
-                        <span class="secondary">在控制台输出请求和响应信息</span>
+                      <div class="field mt-sm">
+                        <label>可用模型 (逗号分隔)</label>
+                        <input :value="providerModels(provider)" type="text" class="mono-font" @input="updateProviderModels(provider, $event)">
                       </div>
-                    </label>
+                    </div>
                   </div>
-                </div>
-                <div class="form-grid mt-md" v-if="drafts.ccr.values.LOG">
-                  <div class="field">
-                    <label>日志级别</label>
-                    <GlassSelect
-                      v-model="drafts.ccr.values.LOG_LEVEL"
-                      class="settings-select"
-                      width="100%"
-                      :options="logLevelOptions"
-                      placeholder="选择日志级别"
-                    />
+
+                  <div class="inline-alert warm mt-md mb-lg">
+                    <svg class="alert-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>
+                    <span>首选 Provider: <strong class="text-white">{{ primaryProvider?.name || 'Null' }}</strong> | 无模型匹配时兜底: <strong class="text-white">{{ drafts.ccr.values.Router.default || 'Null' }}</strong></span>
                   </div>
-                </div>
+
+                  <div class="divider mt-xl mb-md"><span>路由规则</span></div>
+                  <div class="form-grid">
+                    <div class="field">
+                      <label>Default (兜底)</label>
+                      <input v-model="drafts.ccr.values.Router.default" type="text" class="mono-font">
+                    </div>
+                    <div class="field">
+                      <label>Think (深度思考)</label>
+                      <input v-model="drafts.ccr.values.Router.think" type="text" class="mono-font">
+                    </div>
+                  </div>
+                  <div class="form-grid mt-md">
+                    <div class="field">
+                      <label>Background (后台任务)</label>
+                      <input v-model="drafts.ccr.values.Router.background" type="text" class="mono-font">
+                    </div>
+                    <div class="field">
+                      <label>Long Context (长上下文)</label>
+                      <input v-model="drafts.ccr.values.Router.longContext" type="text" class="mono-font">
+                    </div>
+                  </div>
+                  <div class="form-grid mt-md">
+                    <div class="field">
+                      <label>长上下文阈值 (tokens)</label>
+                      <input v-model.number="drafts.ccr.values.Router.longContextThreshold" type="number">
+                    </div>
+                  </div>
+                  <div class="form-grid form-grid-bottom mt-md">
+                    <div class="field">
+                      <label>API 超时 (ms)</label>
+                      <input v-model.number="drafts.ccr.values.API_TIMEOUT_MS" type="number">
+                    </div>
+                    <div class="field field-checkbox">
+                      <label class="checkbox-label">
+                        <input type="checkbox" v-model="drafts.ccr.values.LOG" class="checkbox-input">
+                        <span class="custom-checkbox"></span>
+                        <div class="checkbox-texts">
+                          <span class="primary">启用请求日志</span>
+                          <span class="secondary">在控制台输出请求和响应信息</span>
+                        </div>
+                      </label>
+                    </div>
+                  </div>
+                  <div class="form-grid mt-md" v-if="drafts.ccr.values.LOG">
+                    <div class="field">
+                      <label>日志级别</label>
+                      <GlassSelect
+                        v-model="drafts.ccr.values.LOG_LEVEL"
+                        class="settings-select"
+                        width="100%"
+                        :options="logLevelOptions"
+                        placeholder="选择日志级别"
+                      />
+                    </div>
+                  </div>
+                </section>
               </div>
               
               <div class="json-group mt-xl">
@@ -788,7 +815,7 @@ onMounted(() => {
                   <div v-if="drafts.server.jsonError" class="code-error">{{ drafts.server.jsonError }}</div>
                 </details>
 
-                <details class="code-editor-block mt-md" v-if="isCcrMode">
+                <details class="code-editor-block mt-md">
                   <summary class="editor-summary">JSON 编辑器 — ccr_config</summary>
                   <div class="editor-container">
                     <div class="editor-toolbar">
@@ -1035,6 +1062,37 @@ hr { border: none; }
 .inner-subcard {
   background: var(--bg-subcard); border: 1px solid var(--border-card);
   border-radius: var(--radius-md); padding: 24px;
+}
+.config-section-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+.config-section {
+  transition: border-color 0.2s ease, background-color 0.2s ease, opacity 0.2s ease;
+}
+.config-section-inactive {
+  opacity: 0.72;
+  border-color: rgba(255, 255, 255, 0.05);
+}
+.section-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 16px;
+  margin-bottom: 20px;
+}
+.section-header h4 {
+  margin: 0 0 6px 0;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-main);
+}
+.section-header p {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--text-muted);
 }
 .cluster-card { padding: 20px; }
 .cluster-header { display: flex; justify-content: space-between; padding-bottom: 12px; margin-bottom: 16px; border-bottom: 1px solid var(--border-muted); }
