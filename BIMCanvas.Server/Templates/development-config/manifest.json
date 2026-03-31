@@ -1,0 +1,19 @@
+{
+  "version": "1.0",
+  "items": [
+    {
+      "name": "config.dev.local.json",
+      "target": "config.dev.local.json",
+      "type": "template",
+      "enabled": true,
+      "description": "Development 模式下的直连私有补齐配置"
+    },
+    {
+      "name": "ccr_config.dev.local.json",
+      "target": "ccr_config.dev.local.json",
+      "type": "template",
+      "enabled": true,
+      "description": "Development 模式下的 CCR 私有补齐配置"
+    }
+  ]
+}

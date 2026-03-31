@@ -1,7 +1,7 @@
 # 请求详情
 Proxy: Sub2API测试 (Port: 9999)
 Method: POST
-URL: https://css.youngala.com/v1/messages?beta=true
+URL: https://your-provider-base-url/v1/messages?beta=true
 Path: /v1/messages?beta=true
 
 Query Parameters:
@@ -21,7 +21,7 @@ Headers:
   anthropic-version: 2023-06-01
   x-app: cli
   User-Agent: claude-cli/2.1.71 (external, cli)
-  Authorization: Bearer sk-2f7ac54586d132b49b98d494dae38cc9e155044aac4e8c06d581d63a8c227370
+  Authorization: Bearer sk-your-provider-key
   content-type: application/json
   anthropic-beta: claude-code-20250219,adaptive-thinking-2026-01-28,prompt-caching-scope-2026-01-05,effort-2025-11-24
   accept-language: *

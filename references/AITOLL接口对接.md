@@ -16,7 +16,7 @@ AITOLL 是一个第三方大模型接口聚合服务平台，提供统一的 Ope
 
 | 配置项       | 值                                                    |
 | ------------ | ----------------------------------------------------- |
-| Base URL     | `https://aitoll.net/api/gateway/api/chat/completions` |
+| Base URL     | `https://your-provider-base-url/api/chat/completions` |
 | 请求方式     | POST                                                  |
 | Content-Type | application/json                                      |
 
@@ -340,7 +340,7 @@ import requests
 import base64
 
 API_KEY = os.environ.get("AITOLL_API_KEY")
-BASE_URL = "https://aitoll.net/api/gateway/api/chat/completions"
+BASE_URL = "https://your-provider-base-url/api/chat/completions"
 
 headers = {
     "Authorization": f"Bearer {API_KEY}",
@@ -390,7 +390,7 @@ def edit_image(prompt: str, image_path: str):
 ### cURL
 
 ```bash
-curl -X POST "https://aitoll.net/api/gateway/api/chat/completions" \
+curl -X POST "https://your-provider-base-url/api/chat/completions" \
   -H "Authorization: Bearer $AITOLL_API_KEY" \
   -H "Content-Type: application/json" \
   -d '{

@@ -122,8 +122,8 @@ pnpm build
   "Providers": [
     {
       "name": "gemini-yescode",
-      "api_base_url": "https://co.yes.vg/gemini/v1beta/models/",
-      "api_key": "cr_2bee0f94e10f9a1857c94b8ee2c98ccc1ff815658d8ac673de87716af012ac09",
+      "api_base_url": "https://your-gemini-provider.example.com/v1beta/models/",
+      "api_key": "cr_your_provider_key",
       "models": [
         "gemini-3-flash-preview",
         "gemini-3.1-pro-preview"
@@ -134,8 +134,8 @@ pnpm build
     },
     {
       "name": "gemini-sub2api",
-      "api_base_url": "https://css.youngala.com/v1beta/models/",
-      "api_key": "sk-715fca35f0d602ed381e2a43e48797ba257dd0b0114cc78af0fad63124d8e499",
+      "api_base_url": "https://your-secondary-provider.example.com/v1beta/models/",
+      "api_key": "sk_your_provider_key",
       "models": [
         "gemini-3-flash-preview",
         "gemini-3.1-pro-preview"
@@ -434,7 +434,7 @@ CCR 格式要求：`{provider_name},{model_name}`，逗号分隔，provider_name
 | LiteLLM 配置项 | CCR 对应配置 | 说明 |
 |---------------|-------------|------|
 | `model: gemini/gemini-3-flash-preview` | `Providers[].models: ["gemini-3-flash-preview"]` | 模型名不带前缀 |
-| `api_base: https://co.yes.vg/gemini` | `Providers[].api_base_url: "https://co.yes.vg/gemini/v1beta/models/"` | CCR 需要完整路径到 models/ |
+| `api_base: https://your-gemini-provider.example.com` | `Providers[].api_base_url: "https://your-gemini-provider.example.com/v1beta/models/"` | CCR 需要完整路径到 models/ |
 | `api_key: cr_xxx` | `Providers[].api_key: "cr_xxx"` | 直接对应 |
 | `stream: false` | `transformer.use: ["enhancetool"]` | enhancetool 缓冲完整响应 |
 | `litellm_settings.drop_params` | Gemini transformer 内置 schema 清理 | CCR 自动处理 |

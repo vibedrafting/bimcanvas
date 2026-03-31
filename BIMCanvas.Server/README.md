@@ -22,10 +22,11 @@ dotnet run --project BIMCanvas.Server
 1. 启动 HTTP 服务器（http://localhost:5000）
 2. 检测 Python / Agent / CCR 依赖并按需安装
 3. 自动初始化 `<BIMCANVAS_HOME>/` 下的全局配置模板（Server + Agent）
-4. 自动启动 CCR 网关与 Agent 服务
-5. 自动查找并启动 Web 开发服务器（BIMCanvas.Web）
-6. 等待 Web 服务就绪后打开浏览器
-7. **v3.0**：通过 URL 参数 `?project={项目路径}` 加载项目
+4. Development 模式下额外初始化 `config.dev.local.json` / `ccr_config.dev.local.json`，并按白名单补齐运行时空字段
+5. 自动启动 Agent 服务；若启用 CCR，则同时启动 CCR 网关
+6. 自动查找并启动 Web 开发服务器（BIMCanvas.Web）
+7. 等待 Web 服务就绪后打开浏览器
+8. **v3.0**：通过 URL 参数 `?project={项目路径}` 加载项目
 
 ### Production / Docker
 
@@ -51,8 +52,10 @@ docker run --rm -p 5000:5000 -p 8865:8865 bimcanvas:local
 | API 端口 | `launchSettings.json` | `5000` | REST API 服务端口 |
 | Web 开发端口 | 自动检测 | `5173` | 仅 Development 模式下用于 Vite dev server |
 | 项目目录 | `<BIMCANVAS_HOME>/Projects/` | Windows: `Documents/BIMCanvas/Projects/` | 项目解压目录 |
-| CCR 配置 | `<BIMCANVAS_HOME>/server_config.json` | `enabled=true` | 网关启用、端口 |
+| CCR 配置 | `<BIMCANVAS_HOME>/server_config.json` | `enabled=false` | 网关启用、端口 |
 | CCR Router 配置 | `<BIMCANVAS_HOME>/ccr_config.json` | 自动初始化 | 供应商 / 模型路由映射 |
+| 开发态直连补齐 | `<BIMCANVAS_HOME>/config.dev.local.json` | Development 自动生成 | 本地私有 `baseUrl/apiKey` bootstrap |
+| 开发态 CCR 补齐 | `<BIMCANVAS_HOME>/ccr_config.dev.local.json` | Development 自动生成 | 本地私有 `Providers/Router` bootstrap |
 | `BIMCANVAS_HOME` | 环境变量 | Windows: `Documents/BIMCanvas`；Docker: `/data` | 全局配置、项目、截图的根目录 |
 | `BIMCANVAS_WEB_DIST` | 环境变量 | Docker: `/app/BIMCanvas.Web/dist` | Production 模式静态托管目录 |
 | `BIMCANVAS_PYTHON_COMMAND` | 环境变量 | Docker: `/app/BIMCanvas.Agent/venv/bin/python` | Server 拉起 Agent 时使用的 Python |
@@ -71,6 +74,8 @@ docker run --rm -p 5000:5000 -p 8865:8865 bimcanvas:local
 
 - `web_config.json` 默认按热更新处理
 - `config.json`、`server_config.json`、`ccr_config.json` 默认按“保存后需重启实例”处理
+- `*.dev.local.json` 仅用于 Development 启动早期补齐，不属于设置 UI 的回写目标
+- `ccr_config.dev.local.json` 只负责补齐 provider/router；是否启用 CCR 仍由 `server_config.json > ccr.enabled` 决定
 
 ### CCR 网关
 
@@ -81,8 +86,8 @@ Server 默认托管 CCR (Claude Code Router)，用于给 Agent SDK 提供统一�
 - 当 `ccr.enabled=false` 时，不启动 CCR，Agent 走直连模式（使用 `<BIMCANVAS_HOME>/config.json`）
 - 切换供应商后需要重启 Server
 - 如果 CCR 不可用，Server 与 Web 仍会启动，但 AI 请求会在运行时失败并输出明确日志
-- 当前模板默认将 `default / think / longContext` 路由到 `openai-aitoll,gpt-5.4`，将 `background` 路由到 `openai-aitoll,gpt-5.4-mini`；Agent 模板默认关闭 `thinking`，以绕开 AIToll Responses 在多轮历史回放时对 `input[n].thinking` 的兼容问题。保留 `openai-aitoll-think` provider 与 Gemini provider 作为后续兼容实验或回切缓冲
-- Docker 启动时，`CCR_API_KEY` / `CCR_API_BASE` 只会在单 provider 配置或显式设置 `CCR_PROVIDER_NAME` 时自动覆盖；多 provider 配置应直接维护 `<BIMCANVAS_HOME>/ccr_config.json`
+- 仓库模板中的 `ccr_config.json` 默认是安全空壳；Development 可通过 `ccr_config.dev.local.json` 补齐空字段，Production/Docker 应通过 `/data/ccr_config.json` 或设置 UI 维护正式 provider/router
+- Docker 启动时，`CCR_API_KEY` / `CCR_API_BASE` 只会覆盖已存在 provider 条目；若模板仍为空，需要先通过 UI 或预置 `/data/ccr_config.json` 提供 provider 结构
 
 ### JSON 序列化
 

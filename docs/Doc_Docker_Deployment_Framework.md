@@ -100,6 +100,7 @@
 - Revit 子系统
 
 这也是为什么镜像只承诺“应用能力”，不承诺“业务数据持久化”。
+仓库模板中的 `config.json` / `ccr_config.json` 默认会保持安全空壳，不再内置测试地址、测试 key 或测试路由。
 
 ---
 
@@ -244,6 +245,7 @@ docker run --rm bimcanvas:local which python
 
 - `instance.env` 只承担首次部署与缺省值补齐
 - UI 已保存的配置在后续容器重启时不会被覆盖回旧值
+- 安全模板不会因为容器首次启动而恢复出测试地址或测试 key
 
 #### 第四层：整理运行期配置
 
@@ -252,9 +254,9 @@ docker run --rm bimcanvas:local which python
 当前真实语义是：
 
 - 只有在对应 JSON 首次 bootstrap 时，才根据环境变量补齐默认值
-- `server_config.json` 会写入 `pythonCommand`，并按 `CCR_ENABLED`、`CCR_MODEL_FAMILY` 补齐 CCR 相关默认配置
+- `server_config.json` 会写入 `pythonCommand`，并按 `CCR_ENABLED`、`CCR_MODEL_FAMILY` 补齐运行期默认项
 - 直连模式下，会在 `config.json` 中补齐 `ANTHROPIC_API_KEY`、`ANTHROPIC_BASE_URL`、`ANTHROPIC_MODEL`
-- CCR 模式下，会在 `ccr_config.json` 首次 bootstrap 时补齐 provider 密钥与 base URL
+- CCR 模式下，`CCR_API_KEY` / `CCR_API_BASE` 只会覆盖已有 provider 条目；若模板仍为空，需要先通过设置 UI 或预置 `/data/ccr_config.json` 提供 provider 结构
 
 因此，运行期配置真源分成两层：
 
@@ -336,6 +338,11 @@ dotnet /app/BIMCanvas.Server/bin/Release/net8.0/BIMCanvas.Server.dll
 
 它不是长期配置真源。实例创建完成后，日常配置维护应以 `/data/*.json` 和首页“实例设置”UI 为主。
 
+当前约束补充：
+
+- 示例文件只能保留占位值
+- 不允许把测试地址、测试 key、测试路由直接提交进 `instance.env.example`
+
 ### 6.4 `deploy/docker-compose.yml`
 
 作用：
@@ -343,6 +350,17 @@ dotnet /app/BIMCanvas.Server/bin/Release/net8.0/BIMCanvas.Server.dll
 - 提供多实例编排基础稿
 - 当前示例中定义了 `alice`、`bob` 和 `nginx`
 - 让每个实例拥有独立的 `/data`
+
+当前默认约定：
+
+- Linux 正式宿主机：`BIMCANVAS_DATA_ROOT=/srv/bimcanvas-data`
+- Windows 本机 Docker：通过 `deploy/.env` 或命令行显式设置 `BIMCANVAS_DATA_ROOT=C:\Users\<user>\Documents\bimcanvas-data`
+- 无论宿主机路径是什么，容器内路径始终固定为 `/data`
+
+配套文件：
+
+- `deploy/.env.example` 提供 `BIMCANVAS_DATA_ROOT` 的推荐写法
+- 实际部署时复制为 `deploy/.env`，由 Compose 自动读取
 
 它当前代表“阶段四服务器部署的基础输入”，而不是已经完整回归通过的最终方案。
 
@@ -382,6 +400,13 @@ dotnet /app/BIMCanvas.Server/bin/Release/net8.0/BIMCanvas.Server.dll
 - `/data/web_config.json`
 - `/data/config.json`
 - `/data/ccr_config.json`
+
+Development 模式下另有两份仅供本机快测的私有补齐文件：
+
+- `<BIMCANVAS_HOME>/config.dev.local.json`
+- `<BIMCANVAS_HOME>/ccr_config.dev.local.json`
+
+它们不属于 Docker / Production 语义，也不是长期真源。
 
 ### 7.2 统一配置接口
 

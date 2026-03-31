@@ -1,10 +1,10 @@
-# BIMCanvas 三套初始化系统说明
+# BIMCanvas 三套初始化系统与开发态本地覆盖说明
 
 ## 1. 文档目的
 
-本文说明当前仓库中已经落地的三套初始化系统，重点回答以下问题：
+本文说明当前仓库中已经落地的三套初始化系统，以及 Development 模式下额外存在的一层本地私有配置覆盖，重点回答以下问题：
 
-- 为什么要拆成三套系统
+- 为什么要拆成三套系统，并额外保留一层开发态本地覆盖
 - 每套系统各自负责什么
 - 运行时由谁触发
 - 模板文件放在哪里
@@ -24,11 +24,12 @@
 4. 让 Agent 不再负责模板初始化，只负责读取和校验。
 5. 让 Server 成为唯一初始化入口。
 
-重构后，初始化系统被固定为 3 套：
+重构后，运行时职责被固定为“3 套初始化系统 + 1 层 Development-only 本地覆盖”：
 
 1. 全局配置初始化系统
 2. 项目固定文件初始化系统
 3. 项目条件派生初始化系统
+4. 开发态本地私有配置覆盖层
 
 ---
 
@@ -57,7 +58,7 @@
 
 ## 4. 总体分层
 
-### 4.1 三套系统的边界
+### 4.1 三套系统与一层覆盖的边界
 
 #### A. 全局配置初始化系统
 
@@ -90,6 +91,18 @@
 - 不按“缺失即复制”工作
 - 依据项目状态、baseline 状态、computed 状态、zones 状态、git 状态决定是否生成或刷新
 
+#### D. 开发态本地私有配置覆盖层
+
+作用范围：`<BIMCANVAS_HOME>/`
+
+特点：
+
+- 仅在 `ASPNETCORE_ENVIRONMENT=Development` 时启用
+- 先补齐 `*.dev.local.json` 占位文件
+- 再按白名单将本地私有值补齐到运行时 JSON 的空字段
+- 不覆盖非空运行时值
+- 不参与 Production / Docker
+
 ---
 
 ## 5. 模板目录结构
@@ -110,6 +123,10 @@ BIMCanvas.Server/Templates/
       agents/
       skills/
       .claude-plugin/
+  development-config/
+    manifest.json
+    config.dev.local.json
+    ccr_config.dev.local.json
   project-fixed/
     manifest.json
     README.md
@@ -123,6 +140,7 @@ BIMCanvas.Server/Templates/
 约束如下：
 
 - `global-config/` 只服务全局配置初始化系统
+- `development-config/` 只服务 Development 模式下的本地私有配置占位初始化
 - `project-fixed/` 只服务项目固定文件初始化系统
 - `legacy/` 不参与运行时初始化
 - `BIMCanvas.Agent/templates/` 已退出运行时主流程
@@ -131,7 +149,7 @@ BIMCanvas.Server/Templates/
 
 ## 6. 共享底层服务
 
-三套系统里，前两套共用一个底层模板服务：
+前三层模板/初始化能力共用一个底层模板服务：
 
 - `BIMCanvas.Server/Services/BootstrapTemplateService.cs`
 
@@ -218,11 +236,13 @@ manifest 当前统一使用一套结构：
 1. 创建 `BootstrapTemplateService`
 2. 创建 `GlobalConfigBootstrapService`
 3. 调用 `EnsureInitialized()`
-4. 然后才执行 `ConfigService.Load()`
+4. 若当前为 `Development`，执行 `DevelopmentLocalConfigBootstrapService.EnsureInitialized()`
+5. 然后才执行 `ConfigService.Load()`
 
 这个顺序的意义是：
 
 - 先保证配置文件存在
+- 再按 Development 规则补齐本地私有值
 - 再读配置
 - 避免 `ConfigService` 再承担模板复制职责
 
@@ -241,6 +261,29 @@ Agent 现在只做两件事：
 - `BIMCanvas.Agent/src/main.py`
 
 如果缺少关键文件，Agent 会直接报错退出。
+
+### 7.5 Development 本地私有配置覆盖
+
+服务：
+
+- `BIMCanvas.Server/Services/DevelopmentLocalConfigBootstrapService.cs`
+
+职责：
+
+- 使用 `Templates/development-config/manifest.json`
+- 在 `<BIMCANVAS_HOME>/` 下补齐：
+  - `config.dev.local.json`
+  - `ccr_config.dev.local.json`
+- 仅按白名单补齐运行时空字段：
+  - `config.json > baseUrl/apiKey`
+  - `ccr_config.json > Providers`
+  - `ccr_config.json > Router.default/think/background/longContext`
+
+约束：
+
+- `*.dev.local.json` 不是长期真源
+- `*.dev.local.json` 不会被设置 UI 直接写回
+- Production / Docker 完全不读取这两份文件
 
 ---
 
@@ -431,6 +474,9 @@ BootstrapTemplateService
 GlobalConfigBootstrapService
   负责全局配置模板初始化
 
+DevelopmentLocalConfigBootstrapService
+  负责 Development 模式下的本地私有配置补齐
+
 ProjectFixedFilesBootstrapService
   负责项目固定文件模板初始化
 
@@ -446,6 +492,7 @@ ProjectService
 以下做法现在应视为错误做法：
 
 - 在 `ConfigService` 里重新加模板复制逻辑
+- 在 `ConfigService` 里塞 Development 私有补齐逻辑
 - 在 `ProjectService` 里重新写 manifest 解析和模板复制细节
 - 让 Agent 再次承担模板初始化
 - 把条件派生产物塞回 `Templates/`
@@ -507,7 +554,20 @@ Agent 会直接拒绝启动。
 1. `BIMCanvas.Server/Templates/project-fixed/`
 2. `BIMCanvas.Server/Templates/project-fixed/manifest.json`
 
-### 12.3 新增项目条件派生产物
+### 12.3 新增 Development 本地私有补齐模板
+
+应修改：
+
+1. `BIMCanvas.Server/Templates/development-config/`
+2. `BIMCanvas.Server/Services/DevelopmentLocalConfigBootstrapService.cs`
+
+不应该修改：
+
+- Docker `start.sh`
+- Agent 配置读取逻辑
+- 设置 UI 的回写目标
+
+### 12.4 新增项目条件派生产物
 
 应修改：
 
@@ -521,7 +581,7 @@ Agent 会直接拒绝启动。
 
 因为第三套系统不是模板系统。
 
-### 12.4 历史资源怎么处理
+### 12.5 历史资源怎么处理
 
 历史模板和旧 manifest 统一放在：
 
@@ -536,6 +596,7 @@ Agent 会直接拒绝启动。
 一句话概括现在的状态：
 
 - 全局配置：Server 启动时一次性补齐
+- Development 本地覆盖：只补齐 `*.dev.local.json` 白名单字段
 - 项目固定文件：项目导入/打开时只补缺失项
 - 项目派生文件：按项目状态条件生成或刷新
 - Agent：只读、校验、执行，不再自初始化

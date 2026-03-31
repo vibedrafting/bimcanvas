@@ -35,6 +35,18 @@ dotnet run --project BIMCanvas.Server
 - 自动启动 Agent 服务
 - 自动打开浏览器
 
+首次启动会在 `%USERPROFILE%\Documents\BIMCanvas\` 下自动创建一组安全模板，并额外生成两个开发态私有补齐文件：
+
+- `config.dev.local.json`
+- `ccr_config.dev.local.json`
+
+使用约定：
+
+- 直连快测：把测试 `baseUrl`、`apiKey` 写入 `config.dev.local.json`
+- CCR 快测：把测试 `Providers`、`Router` 写入 `ccr_config.dev.local.json`，并在设置 UI 或 `server_config.json` 中启用 `ccr.enabled=true`
+- 这两份文件只在 `Development` 模式读取，用于补齐 `config.json` / `ccr_config.json` 的空字段
+- 它们不进仓库，也不是设置 UI 的长期真源
+
 #### 2. Windows 本机发布态
 
 在项目根目录执行：
@@ -64,8 +76,11 @@ docker build -t bimcanvas:local -f deploy/Dockerfile .
 # 启动单实例（临时，退出即删除容器）
 docker run --rm -p 5000:5000 -p 8865:8865 bimcanvas:local
 
-# 持久化数据（挂载宿主机目录到 /data）
+# 持久化数据（Linux 宿主机示例）
 docker run --rm -p 5000:5000 -p 8865:8865 -v /path/to/data:/data bimcanvas:local
+
+# 持久化数据（Windows 宿主机示例）
+docker run --rm -p 5000:5000 -p 8865:8865 -v C:\Users\<user>\Documents\bimcanvas-data:/data bimcanvas:local
 ```
 
 默认行为：
@@ -74,6 +89,12 @@ docker run --rm -p 5000:5000 -p 8865:8865 -v /path/to/data:/data bimcanvas:local
 - Agent 对外监听 `http://localhost:8865`
 - 不启动 Vite dev server，不自动打开浏览器
 - 配置与项目数据默认写入容器内 `/data`（正式持久化需挂卷）
+
+路径语义说明：
+
+- 容器内路径始终是 `/data`
+- Windows 本机 Docker 看到的 `C:\Users\...\bimcanvas-data` 是宿主机挂载路径，不是容器内路径
+- 正式 Linux 服务器推荐将 `BIMCANVAS_DATA_ROOT` 固定为 `/srv/bimcanvas-data`
 
 **构建后快速验证**：
 

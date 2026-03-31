@@ -82,6 +82,7 @@ if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
 
 var builder = WebApplication.CreateBuilder(args);
 var isProduction = builder.Environment.IsProduction();
+var isDevelopment = builder.Environment.IsDevelopment();
 
 // 配置统一日志格式（替换默认 Console Logger 格式）
 builder.Logging.ClearProviders();
@@ -91,6 +92,13 @@ builder.Logging.AddServerConsoleFormatter();
 var templateBootstrapService = new BootstrapTemplateService();
 var globalConfigBootstrapService = new GlobalConfigBootstrapService(templateBootstrapService);
 globalConfigBootstrapService.EnsureInitialized();
+
+DevelopmentLocalConfigBootstrapService? developmentLocalConfigBootstrapService = null;
+if (isDevelopment)
+{
+    developmentLocalConfigBootstrapService = new DevelopmentLocalConfigBootstrapService(templateBootstrapService);
+    developmentLocalConfigBootstrapService.EnsureInitialized();
+}
 
 // 加载用户配置（提前到 DI 注册前，供 AgentClientService 等服务使用）
 var config = ConfigService.Load();
@@ -109,6 +117,10 @@ if (isProduction && productionWebDistPath == null)
 // 注册配置 + Agent HTTP 客户端
 builder.Services.AddSingleton(templateBootstrapService);
 builder.Services.AddSingleton(globalConfigBootstrapService);
+if (developmentLocalConfigBootstrapService != null)
+{
+    builder.Services.AddSingleton(developmentLocalConfigBootstrapService);
+}
 builder.Services.AddSingleton(config);
 builder.Services.AddSingleton<AgentClientService>();
 

@@ -4,87 +4,12 @@
   "LOG": true,
   "LOG_LEVEL": "info",
   "API_TIMEOUT_MS": 300000,
-  "Providers": [
-    {
-      "name": "gemini-yescode",
-      "api_base_url": "https://co.yes.vg/gemini/v1beta/models/",
-      "api_key": "cr_2bee0f94e10f9a1857c94b8ee2c98ccc1ff815658d8ac673de87716af012ac09",
-      "models": [
-        "gemini-3-flash-preview",
-        "gemini-3.1-pro-preview"
-      ],
-      "transformer": {
-        "use": ["gemini", "enhancetool"]
-      }
-    },
-    {
-      "name": "gemini-sub2api",
-      "api_base_url": "https://css.youngala.com/v1beta/models/",
-      "api_key": "sk-715fca35f0d602ed381e2a43e48797ba257dd0b0114cc78af0fad63124d8e499",
-      "models": [
-        "gemini-3-flash-preview",
-        "gemini-3.1-pro-preview"
-      ],
-      "transformer": {
-        "use": ["gemini", "enhancetool"]
-      }
-    },
-    {
-      "name": "openai-aitoll",
-      "api_base_url": "https://aitoll.net/api/gateway/cli/codex/v1/chat/completions",
-      "api_key": "pass_06a049bbe109012abf061d82504606a739c2e3c17baa7bd01e9a89acfafebac2",
-      "models": [
-        "gpt-5.4",
-        "gpt-5.4-mini",
-        "gpt-5.4-nano",
-        "gpt-5.3-codex",
-        "gpt-5.3-codex-spark",
-        "gpt-5.2",
-        "gpt-5.2-codex",
-        "gpt-5.1-codex-max",
-        "gpt-5.1-codex",
-        "gpt-5.1",
-        "gpt-5.1-codex-mini",
-        "gpt-5"
-      ]
-    },
-    {
-      "name": "openai-aitoll-think",
-      "api_base_url": "https://aitoll.net/api/gateway/cli/codex/v1/responses",
-      "api_key": "pass_06a049bbe109012abf061d82504606a739c2e3c17baa7bd01e9a89acfafebac2",
-      "models": [
-        "gpt-5.4"
-      ],
-      "transformer": {
-        "use": ["openai-responses"]
-      }
-    },
-    {
-      "name": "openai-sub2api",
-      "api_base_url": "https://css.youngala.com/v1/chat/completions",
-      "api_key": "sk-e4113118a941aaf45a76373fa1e7c5cd6673413ce9678bd31e14b09907a01009",
-      "models": [
-        "gpt-5",
-        "gpt-5-codex",
-        "gpt-5.1",
-        "gpt-5.1-codex",
-        "gpt-5.1-codex-max",
-        "gpt-5.1-codex-mini",
-        "gpt-5.2",
-        "gpt-5.2-codex",
-        "gpt-5.3-codex",
-        "gpt-5.3-codex-spark",
-        "gpt-5.4",
-        "gpt-5.4-mini",
-        "gpt-5.4-nano"
-      ]
-    }
-  ],
+  "Providers": [],
   "Router": {
-    "default": "gemini-yescode,gemini-3.1-pro-preview",
-    "think": "gemini-yescode,gemini-3.1-pro-preview",
-    "background": "gemini-yescode,gemini-3-flash-preview",
-    "longContext": "gemini-yescode,gemini-3.1-pro-preview",
+    "default": "",
+    "think": "",
+    "background": "",
+    "longContext": "",
     "longContextThreshold": 60000
   }
 }

@@ -56,7 +56,7 @@
 {
   "env": {
     "ANTHROPIC_AUTH_TOKEN": "sk-78a60040...",
-    "ANTHROPIC_BASE_URL": "https://css.youngala.com/antigravity"
+    "ANTHROPIC_BASE_URL": "https://your-provider-base-url/antigravity"
   }
 }
 ```

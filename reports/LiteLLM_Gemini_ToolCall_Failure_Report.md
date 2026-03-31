@@ -259,7 +259,7 @@ Codex 专家给出了一份多层诊断分析，核心论点为"模型太弱 + �
    - model_name: bc-gemini_yescode-sonnet
      litellm_params:
        model: gemini/gemini-3-flash-preview
-       api_base: https://co.yes.vg/gemini
+       api_base: https://your-gemini-provider.example.com
        api_key: ...
        stream: false             # 禁用流式，避免参数丢失
    ```

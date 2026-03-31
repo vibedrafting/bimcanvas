@@ -15,6 +15,8 @@ public static class ConfigService
     private static readonly string WebConfigPath = Path.Combine(ConfigDir, "web_config.json");
     private static readonly string AgentConfigPath = Path.Combine(ConfigDir, "config.json");
     private static readonly string CcrConfigPath = Path.Combine(ConfigDir, "ccr_config.json");
+    private static readonly string DevLocalAgentConfigPath = Path.Combine(ConfigDir, "config.dev.local.json");
+    private static readonly string DevLocalCcrConfigPath = Path.Combine(ConfigDir, "ccr_config.dev.local.json");
 
     private static readonly JsonSerializerOptions ReadOptions = new()
     {
@@ -132,6 +134,16 @@ public static class ConfigService
     /// 获取 CCR 配置文件路径
     /// </summary>
     public static string GetCcrConfigPath() => CcrConfigPath;
+
+    /// <summary>
+    /// 获取开发态 Agent 本地补齐配置路径
+    /// </summary>
+    public static string GetDevLocalAgentConfigPath() => DevLocalAgentConfigPath;
+
+    /// <summary>
+    /// 获取开发态 CCR 本地补齐配置路径
+    /// </summary>
+    public static string GetDevLocalCcrConfigPath() => DevLocalCcrConfigPath;
 
     /// <summary>
     /// 获取配置目录路径
