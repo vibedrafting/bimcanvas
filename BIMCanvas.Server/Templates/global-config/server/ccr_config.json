@@ -58,13 +58,33 @@
       "transformer": {
         "use": ["openai-responses"]
       }
+    },
+    {
+      "name": "openai-sub2api",
+      "api_base_url": "https://css.youngala.com/v1/chat/completions",
+      "api_key": "sk-e4113118a941aaf45a76373fa1e7c5cd6673413ce9678bd31e14b09907a01009",
+      "models": [
+        "gpt-5",
+        "gpt-5-codex",
+        "gpt-5.1",
+        "gpt-5.1-codex",
+        "gpt-5.1-codex-max",
+        "gpt-5.1-codex-mini",
+        "gpt-5.2",
+        "gpt-5.2-codex",
+        "gpt-5.3-codex",
+        "gpt-5.3-codex-spark",
+        "gpt-5.4",
+        "gpt-5.4-mini",
+        "gpt-5.4-nano"
+      ]
     }
   ],
   "Router": {
-    "default": "openai-aitoll,gpt-5.4",
-    "think": "openai-aitoll,gpt-5.4",
-    "background": "openai-aitoll,gpt-5.4-mini",
-    "longContext": "openai-aitoll,gpt-5.4",
+    "default": "gemini-yescode,gemini-3.1-pro-preview",
+    "think": "gemini-yescode,gemini-3.1-pro-preview",
+    "background": "gemini-yescode,gemini-3-flash-preview",
+    "longContext": "gemini-yescode,gemini-3.1-pro-preview",
     "longContextThreshold": 60000
   }
 }
