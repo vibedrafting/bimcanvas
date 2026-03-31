@@ -8,7 +8,7 @@
         "haiku":  { "id": "claude-haiku-4-5-20251001", "label": "Haiku" }
     },
     "defaultEffort": "low",
-    "defaultThinking": "adaptive",
+    "defaultThinking": "off",
     "maxThinkingTokens": 8000,
     "permissions": {
         "allow": ["Read", "Glob", "Grep", "Task", "AskUserQuestion"],

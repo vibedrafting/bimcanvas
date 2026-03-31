@@ -62,7 +62,7 @@
   ],
   "Router": {
     "default": "openai-aitoll,gpt-5.4",
-    "think": "openai-aitoll-think,gpt-5.4",
+    "think": "openai-aitoll,gpt-5.4",
     "background": "openai-aitoll,gpt-5.4-mini",
     "longContext": "openai-aitoll,gpt-5.4",
     "longContextThreshold": 60000

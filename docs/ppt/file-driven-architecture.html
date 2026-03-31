@@ -769,6 +769,16 @@
   const d=document.querySelectorAll('.nav a'),s=document.querySelectorAll('.slide');
   function u(){let c=0;s.forEach((e,i)=>{if(e.getBoundingClientRect().top<=innerHeight/2)c=i});d.forEach((e,i)=>e.classList.toggle('active',i===c))}
   addEventListener('scroll',u,{passive:true});u();
+
+  addEventListener('keydown', (e) => {
+    let current = 0;
+    s.forEach((e, i) => { if (e.getBoundingClientRect().top <= innerHeight / 2) current = i; });
+    if (e.key === 'ArrowDown' || e.key === 'PageDown' || e.key === ' ') {
+      if (current < s.length - 1) { e.preventDefault(); s[current + 1].scrollIntoView({ behavior: 'smooth' }); }
+    } else if (e.key === 'ArrowUp' || e.key === 'PageUp') {
+      if (current > 0) { e.preventDefault(); s[current - 1].scrollIntoView({ behavior: 'smooth' }); }
+    }
+  });
 })();
 </script>
 </body>

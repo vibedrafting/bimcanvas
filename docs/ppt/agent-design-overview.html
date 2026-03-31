@@ -881,6 +881,16 @@ skills/
   }
   window.addEventListener('scroll', updateNav, { passive: true });
   updateNav();
+
+  document.addEventListener('keydown', (e) => {
+    let current = 0;
+    slides.forEach((s, i) => { if (s.getBoundingClientRect().top <= window.innerHeight / 2) current = i; });
+    if (e.key === 'ArrowDown' || e.key === 'PageDown' || e.key === ' ') {
+      if (current < slides.length - 1) { e.preventDefault(); slides[current + 1].scrollIntoView({ behavior: 'smooth' }); }
+    } else if (e.key === 'ArrowUp' || e.key === 'PageUp') {
+      if (current > 0) { e.preventDefault(); slides[current - 1].scrollIntoView({ behavior: 'smooth' }); }
+    }
+  });
 })();
 </script>
 

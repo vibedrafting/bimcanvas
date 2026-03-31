@@ -81,7 +81,7 @@ Server 默认托管 CCR (Claude Code Router)，用于给 Agent SDK 提供统一�
 - 当 `ccr.enabled=false` 时，不启动 CCR，Agent 走直连模式（使用 `<BIMCANVAS_HOME>/config.json`）
 - 切换供应商后需要重启 Server
 - 如果 CCR 不可用，Server 与 Web 仍会启动，但 AI 请求会在运行时失败并输出明确日志
-- 当前模板默认将 `default / longContext` 路由到 `openai-aitoll,gpt-5.4`，将 `background` 路由到 `openai-aitoll,gpt-5.4-mini`，并将 `think` 单独路由到 `openai-aitoll-think,gpt-5.4`（Responses API）；保留 Gemini provider 作为回切缓冲
+- 当前模板默认将 `default / think / longContext` 路由到 `openai-aitoll,gpt-5.4`，将 `background` 路由到 `openai-aitoll,gpt-5.4-mini`；Agent 模板默认关闭 `thinking`，以绕开 AIToll Responses 在多轮历史回放时对 `input[n].thinking` 的兼容问题。保留 `openai-aitoll-think` provider 与 Gemini provider 作为后续兼容实验或回切缓冲
 - Docker 启动时，`CCR_API_KEY` / `CCR_API_BASE` 只会在单 provider 配置或显式设置 `CCR_PROVIDER_NAME` 时自动覆盖；多 provider 配置应直接维护 `<BIMCANVAS_HOME>/ccr_config.json`
 
 ### JSON 序列化
