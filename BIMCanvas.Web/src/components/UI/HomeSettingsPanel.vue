@@ -130,11 +130,6 @@ const effectiveDefaultModel = computed({
   }
 })
 
-const primaryProvider = computed(() => {
-  const providers = Array.isArray(drafts.ccr.values.Providers) ? drafts.ccr.values.Providers : []
-  return providers[0] ?? null
-})
-
 function clone<T>(value: T): T {
   return JSON.parse(JSON.stringify(value))
 }
@@ -737,11 +732,6 @@ onMounted(() => {
                         <input :value="providerModels(provider)" type="text" class="mono-font" @input="updateProviderModels(provider, $event)">
                       </div>
                     </div>
-                  </div>
-
-                  <div class="inline-alert warm mt-md mb-lg">
-                    <svg class="alert-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>
-                    <span>首选 Provider: <strong class="text-white">{{ primaryProvider?.name || 'Null' }}</strong> | 无模型匹配时兜底: <strong class="text-white">{{ drafts.ccr.values.Router.default || 'Null' }}</strong></span>
                   </div>
 
                   <div class="divider mt-xl mb-md"><span>路由规则</span></div>
