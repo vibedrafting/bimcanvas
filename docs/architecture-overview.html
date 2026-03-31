@@ -1,0 +1,804 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>BIMCanvas 架构概览</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  :root {
+    --bg: #0f172a;
+    --surface: #1e293b;
+    --card: #334155;
+    --accent: #38bdf8;
+    --accent2: #a78bfa;
+    --accent3: #34d399;
+    --accent4: #fb923c;
+    --accent5: #f472b6;
+    --text: #f1f5f9;
+    --text-muted: #94a3b8;
+    --border: #475569;
+  }
+
+  html { scroll-behavior: smooth; }
+
+  body {
+    font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    overflow-x: hidden;
+  }
+
+  /* ---- Slide Container ---- */
+  .slide {
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    align-items: center;
+    padding: 60px 80px;
+    position: relative;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .slide-number {
+    position: absolute;
+    top: 30px;
+    right: 40px;
+    font-size: 14px;
+    color: var(--text-muted);
+    font-weight: 600;
+    letter-spacing: 2px;
+  }
+
+  /* ---- Typography ---- */
+  h1 {
+    font-size: 3.5rem;
+    font-weight: 800;
+    background: linear-gradient(135deg, var(--accent), var(--accent2));
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+    margin-bottom: 16px;
+  }
+
+  h2 {
+    font-size: 2.4rem;
+    font-weight: 700;
+    margin-bottom: 40px;
+    color: var(--text);
+    text-align: center;
+  }
+
+  h2 .highlight { color: var(--accent); }
+
+  h3 {
+    font-size: 1.3rem;
+    font-weight: 600;
+    margin-bottom: 12px;
+    color: var(--accent);
+  }
+
+  .subtitle {
+    font-size: 1.4rem;
+    color: var(--text-muted);
+    max-width: 700px;
+    text-align: center;
+    line-height: 1.8;
+  }
+
+  .tagline {
+    margin-top: 30px;
+    padding: 12px 28px;
+    border: 1px solid var(--accent);
+    border-radius: 999px;
+    font-size: 1rem;
+    color: var(--accent);
+    letter-spacing: 1px;
+  }
+
+  /* ---- Cards Grid ---- */
+  .cards {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+    gap: 28px;
+    max-width: 1200px;
+    width: 100%;
+  }
+
+  .card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    padding: 32px;
+    transition: transform .2s, box-shadow .2s;
+    position: relative;
+    overflow: hidden;
+  }
+
+  .card:hover {
+    transform: translateY(-4px);
+    box-shadow: 0 12px 40px rgba(0,0,0,.3);
+  }
+
+  .card::before {
+    content: '';
+    position: absolute;
+    top: 0; left: 0;
+    width: 100%; height: 4px;
+  }
+
+  .card.core::before    { background: var(--accent); }
+  .card.revit::before   { background: var(--accent4); }
+  .card.server::before  { background: var(--accent3); }
+  .card.agent::before   { background: var(--accent2); }
+  .card.web::before     { background: var(--accent5); }
+
+  .card-icon {
+    font-size: 2.2rem;
+    margin-bottom: 16px;
+  }
+
+  .card-title {
+    font-size: 1.25rem;
+    font-weight: 700;
+    margin-bottom: 6px;
+  }
+
+  .card-meta {
+    font-size: 0.8rem;
+    color: var(--text-muted);
+    margin-bottom: 14px;
+    font-family: 'Consolas', monospace;
+  }
+
+  .card-desc {
+    color: var(--text-muted);
+    line-height: 1.7;
+    font-size: 0.95rem;
+  }
+
+  .card-desc li {
+    margin-bottom: 6px;
+    list-style: none;
+    padding-left: 18px;
+    position: relative;
+  }
+
+  .card-desc li::before {
+    content: '>';
+    position: absolute;
+    left: 0;
+    color: var(--accent);
+    font-weight: 700;
+  }
+
+  .card.revit .card-desc li::before { color: var(--accent4); }
+  .card.server .card-desc li::before { color: var(--accent3); }
+  .card.agent .card-desc li::before { color: var(--accent2); }
+  .card.web .card-desc li::before { color: var(--accent5); }
+
+  /* ---- Architecture Diagram ---- */
+  .arch-diagram {
+    max-width: 1000px;
+    width: 100%;
+    display: flex;
+    flex-direction: column;
+    gap: 20px;
+    align-items: center;
+  }
+
+  .arch-row {
+    display: flex;
+    gap: 20px;
+    justify-content: center;
+    flex-wrap: wrap;
+    width: 100%;
+  }
+
+  .arch-box {
+    border-radius: 14px;
+    padding: 24px 32px;
+    text-align: center;
+    min-width: 200px;
+    flex: 1;
+    max-width: 460px;
+    position: relative;
+  }
+
+  .arch-box.full { max-width: 960px; }
+
+  .arch-box-title {
+    font-weight: 700;
+    font-size: 1.1rem;
+    margin-bottom: 4px;
+  }
+
+  .arch-box-sub {
+    font-size: 0.85rem;
+    opacity: .7;
+  }
+
+  .arch-arrow {
+    font-size: 1.8rem;
+    color: var(--text-muted);
+    text-align: center;
+    line-height: 1;
+  }
+
+  .bg-core   { background: rgba(56,189,248,.12); border: 1px solid rgba(56,189,248,.3); color: var(--accent); }
+  .bg-revit  { background: rgba(251,146,60,.12); border: 1px solid rgba(251,146,60,.3); color: var(--accent4); }
+  .bg-server { background: rgba(52,211,153,.12); border: 1px solid rgba(52,211,153,.3); color: var(--accent3); }
+  .bg-agent  { background: rgba(167,139,250,.12); border: 1px solid rgba(167,139,250,.3); color: var(--accent2); }
+  .bg-web    { background: rgba(244,114,182,.12); border: 1px solid rgba(244,114,182,.3); color: var(--accent5); }
+
+  /* ---- Data Flow ---- */
+  .flow-container {
+    max-width: 1000px;
+    width: 100%;
+    display: flex;
+    flex-direction: column;
+    gap: 32px;
+  }
+
+  .flow-item {
+    display: flex;
+    align-items: flex-start;
+    gap: 24px;
+    background: var(--surface);
+    border-radius: 14px;
+    padding: 28px 32px;
+    border-left: 4px solid var(--accent);
+  }
+
+  .flow-item:nth-child(2) { border-left-color: var(--accent3); }
+  .flow-item:nth-child(3) { border-left-color: var(--accent2); }
+
+  .flow-icon {
+    font-size: 2rem;
+    flex-shrink: 0;
+    width: 50px;
+    text-align: center;
+  }
+
+  .flow-title {
+    font-weight: 700;
+    font-size: 1.1rem;
+    margin-bottom: 8px;
+  }
+
+  .flow-path {
+    font-family: 'Consolas', monospace;
+    font-size: 0.9rem;
+    color: var(--accent);
+    margin-bottom: 8px;
+  }
+
+  .flow-item:nth-child(2) .flow-path { color: var(--accent3); }
+  .flow-item:nth-child(3) .flow-path { color: var(--accent2); }
+
+  .flow-detail {
+    color: var(--text-muted);
+    line-height: 1.7;
+    font-size: 0.92rem;
+  }
+
+  /* ---- Phase Table ---- */
+  .phase-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 20px;
+    max-width: 1000px;
+    width: 100%;
+  }
+
+  .phase-box {
+    background: var(--surface);
+    border-radius: 14px;
+    padding: 28px;
+    text-align: center;
+    border: 1px solid var(--border);
+    position: relative;
+  }
+
+  .phase-num {
+    font-size: 3rem;
+    font-weight: 800;
+    opacity: .12;
+    position: absolute;
+    top: 10px;
+    right: 18px;
+  }
+
+  .phase-title {
+    font-weight: 700;
+    font-size: 1.05rem;
+    margin-bottom: 6px;
+    color: var(--accent);
+  }
+
+  .phase-actor {
+    font-size: 0.82rem;
+    color: var(--text-muted);
+    margin-bottom: 10px;
+  }
+
+  .phase-output {
+    font-size: 0.88rem;
+    color: var(--text);
+    line-height: 1.6;
+  }
+
+  /* ---- Principle Cards ---- */
+  .principles {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 24px;
+    max-width: 1050px;
+    width: 100%;
+  }
+
+  .principle {
+    background: var(--surface);
+    border-radius: 14px;
+    padding: 30px;
+    text-align: center;
+    border: 1px solid var(--border);
+  }
+
+  .principle-icon {
+    font-size: 2.5rem;
+    margin-bottom: 14px;
+  }
+
+  .principle-title {
+    font-weight: 700;
+    font-size: 1.05rem;
+    margin-bottom: 10px;
+    color: var(--text);
+  }
+
+  .principle-desc {
+    color: var(--text-muted);
+    font-size: 0.9rem;
+    line-height: 1.7;
+  }
+
+  /* ---- Role Table ---- */
+  .role-table {
+    max-width: 1000px;
+    width: 100%;
+    border-collapse: separate;
+    border-spacing: 0;
+    overflow: hidden;
+    border-radius: 14px;
+    border: 1px solid var(--border);
+  }
+
+  .role-table th {
+    background: var(--card);
+    padding: 16px 24px;
+    text-align: left;
+    font-size: 0.85rem;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    color: var(--text-muted);
+  }
+
+  .role-table td {
+    padding: 16px 24px;
+    border-top: 1px solid var(--border);
+    background: var(--surface);
+    font-size: 0.95rem;
+    line-height: 1.5;
+  }
+
+  .role-table tr:hover td { background: var(--card); }
+
+  .badge {
+    display: inline-block;
+    padding: 2px 10px;
+    border-radius: 6px;
+    font-size: 0.78rem;
+    font-weight: 600;
+  }
+
+  .badge-core   { background: rgba(56,189,248,.15); color: var(--accent); }
+  .badge-revit  { background: rgba(251,146,60,.15); color: var(--accent4); }
+  .badge-server { background: rgba(52,211,153,.15); color: var(--accent3); }
+  .badge-agent  { background: rgba(167,139,250,.15); color: var(--accent2); }
+  .badge-web    { background: rgba(244,114,182,.15); color: var(--accent5); }
+
+  /* ---- Navigation ---- */
+  .nav {
+    position: fixed;
+    right: 30px;
+    top: 50%;
+    transform: translateY(-50%);
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    z-index: 100;
+  }
+
+  .nav a {
+    width: 12px;
+    height: 12px;
+    border-radius: 50%;
+    background: var(--border);
+    transition: background .2s, transform .2s;
+    display: block;
+  }
+
+  .nav a:hover, .nav a.active {
+    background: var(--accent);
+    transform: scale(1.3);
+  }
+
+  /* ---- Footer ---- */
+  .footer {
+    text-align: center;
+    padding: 40px;
+    color: var(--text-muted);
+    font-size: 0.85rem;
+  }
+
+  /* ---- Responsive ---- */
+  @media (max-width: 768px) {
+    .slide { padding: 40px 24px; }
+    h1 { font-size: 2.2rem; }
+    h2 { font-size: 1.6rem; }
+    .cards { grid-template-columns: 1fr; }
+    .phase-grid { grid-template-columns: 1fr; }
+    .principles { grid-template-columns: 1fr; }
+    .nav { display: none; }
+  }
+</style>
+</head>
+<body>
+
+<!-- Navigation Dots -->
+<nav class="nav">
+  <a href="#slide-1" title="封面"></a>
+  <a href="#slide-2" title="项目定位"></a>
+  <a href="#slide-3" title="设计理念"></a>
+  <a href="#slide-4" title="系统架构"></a>
+  <a href="#slide-5" title="子系统详解"></a>
+  <a href="#slide-6" title="职责边界"></a>
+  <a href="#slide-7" title="数据流"></a>
+  <a href="#slide-8" title="工作阶段"></a>
+</nav>
+
+<!-- ==================== Slide 1: Cover ==================== -->
+<section class="slide" id="slide-1">
+  <div class="slide-number">01 / 08</div>
+  <h1>BIMCanvas</h1>
+  <p class="subtitle">
+    在用户提供的建筑平面内<br>布置符合设计逻辑的家具组合
+  </p>
+  <div class="tagline">Architecture v3.4 &mdash; File-Driven Architecture</div>
+</section>
+
+<!-- ==================== Slide 2: What It Does ==================== -->
+<section class="slide" id="slide-2">
+  <div class="slide-number">02 / 08</div>
+  <h2>BIMCanvas 做<span class="highlight">一件事</span></h2>
+  <div class="principles">
+    <div class="principle">
+      <div class="principle-icon">&#x1F3D7;</div>
+      <div class="principle-title">从 Revit 提取建筑</div>
+      <div class="principle-desc">导出墙体、门窗、房间等建筑结构数据，转换为标准 JSON 格式</div>
+    </div>
+    <div class="principle">
+      <div class="principle-icon">&#x1F916;</div>
+      <div class="principle-title">AI 智能布置</div>
+      <div class="principle-desc">AI Agent 在 JSON 数据模型上进行家具布置规划，生成设计方案</div>
+    </div>
+    <div class="principle">
+      <div class="principle-icon">&#x1F5A5;</div>
+      <div class="principle-title">Web 实时协作</div>
+      <div class="principle-desc">用户在 Web 画布上查看、编辑方案，与 AI 实时协作</div>
+    </div>
+  </div>
+</section>
+
+<!-- ==================== Slide 3: Design Principles ==================== -->
+<section class="slide" id="slide-3">
+  <div class="slide-number">03 / 08</div>
+  <h2>三大<span class="highlight">设计理念</span></h2>
+  <div class="principles">
+    <div class="principle">
+      <div class="principle-icon">&#x1F4C1;</div>
+      <div class="principle-title">File-Driven</div>
+      <div class="principle-desc">文件是唯一真理源。Server 是"文件播放器"，不是数据库。所有状态以 JSON 文件持久化，天然支持 Git 版本控制。</div>
+    </div>
+    <div class="principle">
+      <div class="principle-icon">&#x1F4D0;</div>
+      <div class="principle-title">AI = OBB 规划师</div>
+      <div class="principle-desc">AI 只操作矩形包围盒（bounds + facing），不计算精确几何。几何验证、禁区计算均由 Server 负责。</div>
+    </div>
+    <div class="principle">
+      <div class="principle-icon">&#x1F9E0;</div>
+      <div class="principle-title">Agent 只做决策</div>
+      <div class="principle-desc">Agent 负责"放什么、放哪里"的决策。几何计算、状态管理、数据验证全部交给 Server。</div>
+    </div>
+  </div>
+</section>
+
+<!-- ==================== Slide 4: Architecture Diagram ==================== -->
+<section class="slide" id="slide-4">
+  <div class="slide-number">04 / 08</div>
+  <h2>系统<span class="highlight">架构全景</span></h2>
+  <div class="arch-diagram">
+
+    <div class="arch-row">
+      <div class="arch-box bg-revit full">
+        <div class="arch-box-title">BIMCanvas.Revit</div>
+        <div class="arch-box-sub">.NET FW 4.7.2 &mdash; Revit 数据提取 / 回写</div>
+      </div>
+    </div>
+
+    <div class="arch-arrow">&#x25BC;</div>
+
+    <div class="arch-row">
+      <div class="arch-box bg-core full">
+        <div class="arch-box-title">BIMCanvas.Core</div>
+        <div class="arch-box-sub">.NET Standard 2.0 &mdash; 数据模型 + 空间算法（所有 .NET 项目共享）</div>
+      </div>
+    </div>
+
+    <div class="arch-arrow">&#x25BC;</div>
+
+    <div class="arch-row">
+      <div class="arch-box bg-agent">
+        <div class="arch-box-title">BIMCanvas.Agent</div>
+        <div class="arch-box-sub">Python 3.10+ &mdash; AI 大脑</div>
+      </div>
+      <div class="arch-box bg-server">
+        <div class="arch-box-title">BIMCanvas.Server</div>
+        <div class="arch-box-sub">.NET 8.0 &mdash; 指挥中心</div>
+      </div>
+    </div>
+
+    <div class="arch-arrow">&#x25BC;</div>
+
+    <div class="arch-row">
+      <div class="arch-box bg-web full">
+        <div class="arch-box-title">BIMCanvas.Web</div>
+        <div class="arch-box-sub">Vue 3 + TypeScript &mdash; 渲染 + 交互</div>
+      </div>
+    </div>
+
+  </div>
+</section>
+
+<!-- ==================== Slide 5: Subsystems Detail ==================== -->
+<section class="slide" id="slide-5">
+  <div class="slide-number">05 / 08</div>
+  <h2>五大<span class="highlight">子系统</span></h2>
+  <div class="cards">
+
+    <div class="card core">
+      <div class="card-icon">&#x1F9B4;</div>
+      <div class="card-title">BIMCanvas.Core</div>
+      <div class="card-meta">.NET Standard 2.0 &nbsp;|&nbsp; 骨骼</div>
+      <ul class="card-desc">
+        <li>几何基元：Point2D, Polygon2D, AABB, Facing</li>
+        <li>空间算法：碰撞检测、布置验证、方向转换</li>
+        <li>数据转换：Revit 数据 &harr; JSON &harr; NTS</li>
+        <li>跨框架兼容：同时支持 .NET FW 和 .NET 8</li>
+      </ul>
+    </div>
+
+    <div class="card revit">
+      <div class="card-icon">&#x1F4AA;</div>
+      <div class="card-title">BIMCanvas.Revit</div>
+      <div class="card-meta">.NET FW 4.7.2 &nbsp;|&nbsp; 手臂</div>
+      <ul class="card-desc">
+        <li>6 阶段导出流程：墙体 &rarr; 门窗 &rarr; 房间</li>
+        <li>坐标转换：Revit feet &harr; 标准 mm</li>
+        <li>房间类型推断与边界提取</li>
+        <li>Phase 2 回写 Revit（待开发）</li>
+      </ul>
+    </div>
+
+    <div class="card server">
+      <div class="card-icon">&#x2764;</div>
+      <div class="card-title">BIMCanvas.Server</div>
+      <div class="card-meta">.NET 8.0 &nbsp;|&nbsp; 心脏 + 神经系统</div>
+      <ul class="card-desc">
+        <li>状态管理：项目上下文、文件监听（500ms 防抖）</li>
+        <li>通信中枢：REST API + SignalR + SSE + MCP</li>
+        <li>几何计算：Zone 生成、禁区计算、碰撞检测</li>
+        <li>Git Worktree：多方案并行隔离</li>
+      </ul>
+    </div>
+
+    <div class="card agent">
+      <div class="card-icon">&#x1F9E0;</div>
+      <div class="card-title">BIMCanvas.Agent</div>
+      <div class="card-meta">Python 3.10+ &nbsp;|&nbsp; 大脑</div>
+      <ul class="card-desc">
+        <li>基于 Anthropic Agent SDK 构建</li>
+        <li>MainAgent + SubAgent 分层架构</li>
+        <li>三种工作流：query / edit / generate</li>
+        <li>Skills 驱动，插件式旁路加载</li>
+      </ul>
+    </div>
+
+    <div class="card web">
+      <div class="card-icon">&#x1F441;</div>
+      <div class="card-title">BIMCanvas.Web</div>
+      <div class="card-meta">Vue 3 + TypeScript &nbsp;|&nbsp; 皮肤 + 眼睛</div>
+      <ul class="card-desc">
+        <li>JSON &rarr; SVG 动态渲染画布</li>
+        <li>元素拖拽、旋转、缩放交互</li>
+        <li>SignalR 实时状态同步</li>
+        <li>撤销/重做 + AI 指挥中心</li>
+      </ul>
+    </div>
+
+  </div>
+</section>
+
+<!-- ==================== Slide 6: Responsibility Boundary ==================== -->
+<section class="slide" id="slide-6">
+  <div class="slide-number">06 / 08</div>
+  <h2>Server vs Agent <span class="highlight">职责边界</span></h2>
+  <table class="role-table">
+    <thead>
+      <tr>
+        <th style="width:18%">维度</th>
+        <th style="width:41%"><span class="badge badge-server">Server</span> 指挥中心</th>
+        <th style="width:41%"><span class="badge badge-agent">Agent</span> 设计师</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>状态管理</td>
+        <td>&#x2705; 管理项目文件夹、内存状态</td>
+        <td>&#x274C; 无状态，只发指令</td>
+      </tr>
+      <tr>
+        <td>几何计算</td>
+        <td>&#x2705; Zone 生成 / 禁区 / innerBoundary</td>
+        <td>&#x274C; 不做几何计算</td>
+      </tr>
+      <tr>
+        <td>智能决策</td>
+        <td>&#x274C; 不决定"放哪里"</td>
+        <td>&#x2705; 规划布置方案、理解意图</td>
+      </tr>
+      <tr>
+        <td>约束验证</td>
+        <td>&#x2705; 边界 / 碰撞 / 禁区检查</td>
+        <td>&#x274C; 依赖 Server 验证结果</td>
+      </tr>
+      <tr>
+        <td>Git 操作</td>
+        <td>&#x2705; Worktree 创建 / 合并</td>
+        <td>&#x2705; 在 Worktree 中读写文件</td>
+      </tr>
+      <tr>
+        <td>通信</td>
+        <td>&#x2705; REST / WebSocket / SSE / MCP</td>
+        <td>&#x274C; 只通过 MCP / SSE 交互</td>
+      </tr>
+    </tbody>
+  </table>
+</section>
+
+<!-- ==================== Slide 7: Data Flow ==================== -->
+<section class="slide" id="slide-7">
+  <div class="slide-number">07 / 08</div>
+  <h2>三条核心<span class="highlight">数据流</span></h2>
+  <div class="flow-container">
+
+    <div class="flow-item">
+      <div class="flow-icon">&#x270F;</div>
+      <div>
+        <div class="flow-title">用户编辑流</div>
+        <div class="flow-path">Web &rarr; Server &rarr; File</div>
+        <div class="flow-detail">用户在 Web 画布上拖动/修改模块，通过 REST API 发送到 Server，Server 写入 JSON 文件并广播更新。</div>
+      </div>
+    </div>
+
+    <div class="flow-item">
+      <div class="flow-icon">&#x1F504;</div>
+      <div>
+        <div class="flow-title">文件同步流</div>
+        <div class="flow-path">File &rarr; Server &rarr; Web</div>
+        <div class="flow-detail">Agent 或外部编辑器修改了 JSON 文件后，FileWatcher 感知变化，通过 SignalR 实时推送到 Web 前端重新渲染。</div>
+      </div>
+    </div>
+
+    <div class="flow-item">
+      <div class="flow-icon">&#x1F4C2;</div>
+      <div>
+        <div class="flow-title">项目加载流</div>
+        <div class="flow-path">File &rarr; Server &rarr; Web</div>
+        <div class="flow-detail">用户上传 .bcp 项目文件或切换项目时，Server 解析文件结构，计算派生数据，一次性推送完整状态到 Web。</div>
+      </div>
+    </div>
+
+  </div>
+</section>
+
+<!-- ==================== Slide 8: Phases ==================== -->
+<section class="slide" id="slide-8">
+  <div class="slide-number">08 / 08</div>
+  <h2>六个<span class="highlight">工作阶段</span></h2>
+  <div class="phase-grid">
+
+    <div class="phase-box">
+      <div class="phase-num">1</div>
+      <div class="phase-title">数据准备</div>
+      <div class="phase-actor">BIMCanvas.Revit</div>
+      <div class="phase-output">从 Revit 提取墙体、门窗、房间，生成精简版项目结构</div>
+    </div>
+
+    <div class="phase-box">
+      <div class="phase-num">2</div>
+      <div class="phase-title">数据处理</div>
+      <div class="phase-actor">BIMCanvas.Server</div>
+      <div class="phase-output">计算房间区域 (Zones)、门扇禁区 (Exclusions) 等派生数据</div>
+    </div>
+
+    <div class="phase-box">
+      <div class="phase-num">3</div>
+      <div class="phase-title">区域确认</div>
+      <div class="phase-actor">用户 + AI</div>
+      <div class="phase-output">确认各区域功能标签 (tags)、墙面完成面材质</div>
+    </div>
+
+    <div class="phase-box">
+      <div class="phase-num">4</div>
+      <div class="phase-title">方案生成</div>
+      <div class="phase-actor">BIMCanvas.Agent</div>
+      <div class="phase-output">AI 理解需求，规划家具布置，输出 modules[]</div>
+    </div>
+
+    <div class="phase-box">
+      <div class="phase-num">5</div>
+      <div class="phase-title">交互修改</div>
+      <div class="phase-actor">用户 + AI</div>
+      <div class="phase-output">用户在 Web 画布上调整，AI 可感知变化并协助</div>
+    </div>
+
+    <div class="phase-box">
+      <div class="phase-num">6</div>
+      <div class="phase-title">回写 Revit</div>
+      <div class="phase-actor">Revit-MCP</div>
+      <div class="phase-output">将最终方案同步回 Revit，创建实际家具实例</div>
+    </div>
+
+  </div>
+</section>
+
+<div class="footer">
+  BIMCanvas Architecture Overview &mdash; v3.4 File-Driven Architecture
+</div>
+
+<!-- Navigation highlight script -->
+<script>
+(function() {
+  const dots = document.querySelectorAll('.nav a');
+  const slides = document.querySelectorAll('.slide');
+
+  function updateNav() {
+    let current = 0;
+    slides.forEach((s, i) => {
+      const rect = s.getBoundingClientRect();
+      if (rect.top <= window.innerHeight / 2) current = i;
+    });
+    dots.forEach((d, i) => d.classList.toggle('active', i === current));
+  }
+
+  window.addEventListener('scroll', updateNav, { passive: true });
+  updateNav();
+})();
+</script>
+
+</body>
+</html>

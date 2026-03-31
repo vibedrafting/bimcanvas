@@ -1,0 +1,514 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>BIMCanvas Agent 标准工作流</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  :root {
+    --bg: #0f172a;
+    --surface: #1e293b;
+    --card: #334155;
+    --accent: #38bdf8;
+    --accent2: #a78bfa;
+    --accent3: #34d399;
+    --accent4: #fb923c;
+    --accent5: #f472b6;
+    --text: #f1f5f9;
+    --text-muted: #94a3b8;
+    --border: #475569;
+  }
+
+  html { scroll-behavior: smooth; }
+
+  body {
+    font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    overflow-x: hidden;
+  }
+
+  /* ---- Slide Container ---- */
+  .slide {
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    align-items: center;
+    padding: 60px 80px;
+    position: relative;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .slide-number {
+    position: absolute;
+    top: 30px;
+    right: 40px;
+    font-size: 14px;
+    color: var(--text-muted);
+    font-weight: 600;
+    letter-spacing: 2px;
+  }
+
+  /* ---- Typography ---- */
+  h1 {
+    font-size: 3.5rem;
+    font-weight: 800;
+    background: linear-gradient(135deg, var(--accent2), var(--accent));
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+    margin-bottom: 16px;
+    text-align: center;
+  }
+
+  h2 {
+    font-size: 2.4rem;
+    font-weight: 700;
+    margin-bottom: 40px;
+    color: var(--text);
+    text-align: center;
+  }
+
+  h2 .highlight { color: var(--accent2); }
+
+  h3 {
+    font-size: 1.3rem;
+    font-weight: 600;
+    margin-bottom: 12px;
+    color: var(--accent2);
+  }
+
+  .subtitle {
+    font-size: 1.4rem;
+    color: var(--text-muted);
+    max-width: 800px;
+    text-align: center;
+    line-height: 1.8;
+  }
+
+  .tagline {
+    margin-top: 30px;
+    padding: 12px 28px;
+    border: 1px solid var(--accent2);
+    border-radius: 999px;
+    font-size: 1rem;
+    color: var(--accent2);
+    letter-spacing: 1px;
+  }
+
+  /* ---- Architecture Diagram ---- */
+  .arch-diagram {
+    max-width: 1000px;
+    width: 100%;
+    display: flex;
+    flex-direction: column;
+    gap: 20px;
+    align-items: center;
+  }
+
+  .arch-row {
+    display: flex;
+    gap: 20px;
+    justify-content: center;
+    flex-wrap: wrap;
+    width: 100%;
+  }
+
+  .arch-box {
+    border-radius: 14px;
+    padding: 24px 32px;
+    text-align: center;
+    min-width: 200px;
+    flex: 1;
+    max-width: 460px;
+    position: relative;
+  }
+
+  .arch-box.full { max-width: 960px; }
+
+  .arch-box-title {
+    font-weight: 700;
+    font-size: 1.1rem;
+    margin-bottom: 4px;
+  }
+
+  .arch-box-sub {
+    font-size: 0.85rem;
+    opacity: .7;
+  }
+
+  .arch-arrow {
+    font-size: 1.8rem;
+    color: var(--text-muted);
+    text-align: center;
+    line-height: 1;
+  }
+
+  .bg-core   { background: rgba(56,189,248,.12); border: 1px solid rgba(56,189,248,.3); color: var(--accent); }
+  .bg-server { background: rgba(52,211,153,.12); border: 1px solid rgba(52,211,153,.3); color: var(--accent3); }
+  .bg-agent  { background: rgba(167,139,250,.12); border: 1px solid rgba(167,139,250,.3); color: var(--accent2); }
+  .bg-skill  { background: rgba(244,114,182,.12); border: 1px solid rgba(244,114,182,.3); color: var(--accent5); }
+
+  /* ---- Component Cards Grid ---- */
+  .cards {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+    gap: 28px;
+    max-width: 1200px;
+    width: 100%;
+  }
+
+  .card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    padding: 32px;
+    transition: transform .2s, box-shadow .2s;
+    position: relative;
+    overflow: hidden;
+  }
+
+  .card:hover {
+    transform: translateY(-4px);
+    box-shadow: 0 12px 40px rgba(0,0,0,.3);
+  }
+
+  .card-icon {
+    font-size: 2.2rem;
+    margin-bottom: 16px;
+  }
+
+  .card-title {
+    font-size: 1.25rem;
+    font-weight: 700;
+    margin-bottom: 6px;
+    color: var(--accent2);
+  }
+
+  .card-desc {
+    color: var(--text-muted);
+    line-height: 1.7;
+    font-size: 0.95rem;
+  }
+
+  /* ---- Flow List / Tree ---- */
+  .tree-view {
+    font-family: 'Consolas', monospace;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-left: 4px solid var(--accent5);
+    border-radius: 12px;
+    padding: 24px 32px;
+    width: 100%;
+    max-width: 900px;
+    color: var(--accent);
+    font-size: 1.1rem;
+    line-height: 2;
+  }
+
+  .tree-folder { color: var(--accent2); font-weight: bold; }
+  .tree-file { color: var(--accent3); }
+  .tree-comment { color: var(--text-muted); font-size: 0.95rem; margin-left: 10px; font-family: 'Segoe UI', sans-serif;}
+
+  /* ---- Data Flow ---- */
+  .flow-container {
+    max-width: 1000px;
+    width: 100%;
+    display: flex;
+    flex-direction: column;
+    gap: 32px;
+  }
+
+  .flow-item {
+    display: flex;
+    align-items: flex-start;
+    gap: 24px;
+    background: var(--surface);
+    border-radius: 14px;
+    padding: 28px 32px;
+    border-left: 4px solid var(--accent2);
+  }
+  
+  .flow-item:nth-child(2) { border-left-color: var(--accent); }
+  .flow-item:nth-child(3) { border-left-color: var(--accent3); }
+  .flow-item:nth-child(4) { border-left-color: var(--accent5); }
+
+  .flow-icon {
+    font-size: 2rem;
+    flex-shrink: 0;
+    width: 50px;
+    text-align: center;
+  }
+
+  .flow-title {
+    font-weight: 700;
+    font-size: 1.1rem;
+    margin-bottom: 12px;
+    color: var(--text);
+  }
+
+  .flow-detail {
+    color: var(--text-muted);
+    line-height: 1.7;
+    font-size: 0.95rem;
+  }
+
+  /* ---- Navigation ---- */
+  .nav {
+    position: fixed;
+    right: 30px;
+    top: 50%;
+    transform: translateY(-50%);
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    z-index: 100;
+  }
+
+  .nav a {
+    width: 12px;
+    height: 12px;
+    border-radius: 50%;
+    background: var(--border);
+    transition: background .2s, transform .2s;
+    display: block;
+  }
+
+  .nav a:hover, .nav a.active {
+    background: var(--accent2);
+    transform: scale(1.3);
+  }
+
+</style>
+</head>
+<body>
+
+<!-- Navigation Dots -->
+<nav class="nav">
+  <a href="#slide-1" title="封面"></a>
+  <a href="#slide-2" title="分层架构"></a>
+  <a href="#slide-3" title="工作流分类"></a>
+  <a href="#slide-4" title="并行机制"></a>
+  <a href="#slide-5" title="工作流剖析"></a>
+  <a href="#slide-6" title="生命周期"></a>
+</nav>
+
+<!-- ==================== Slide 1: Cover ==================== -->
+<section class="slide" id="slide-1">
+  <div class="slide-number">01 / 06</div>
+  <h1>Agent 端设计与标准工作流</h1>
+  <p class="subtitle">
+    揭秘 BIMCanvas 的智能大脑：从任务调度、并行工作流到基于 Skill 的标准技能扩展
+  </p>
+  <div class="tagline">Agent Architecture &mdash; Workflow & Skills Driven</div>
+</section>
+
+<!-- ==================== Slide 2: Architecture ==================== -->
+<section class="slide" id="slide-2">
+  <div class="slide-number">02 / 06</div>
+  <h2>Agent <span class="highlight">分层架构设计</span></h2>
+  <div class="arch-diagram">
+
+    <div class="arch-row">
+      <div class="arch-box bg-agent full">
+        <div class="arch-box-title">Main Agent (主控)</div>
+        <div class="arch-box-sub">协调者：分析用户意图、判断任务类型、路由分发</div>
+      </div>
+    </div>
+
+    <div class="arch-arrow">&#x25BC; 分发任务</div>
+
+    <div class="arch-row">
+      <div class="arch-box bg-server">
+        <div class="arch-box-title">SubAgent (专家)</div>
+        <div class="arch-box-sub">如: Layout-Agent（专注执行单房间/区域设计）</div>
+      </div>
+      <div class="arch-box bg-server">
+        <div class="arch-box-title">SubAgent (专家)</div>
+        <div class="arch-box-sub">如: Zone-Agent（空间规划划分）</div>
+      </div>
+    </div>
+
+    <div class="arch-arrow">&#x25BC; 旁路加载</div>
+
+    <div class="arch-row">
+      <div class="arch-box bg-skill full">
+        <div class="arch-box-title">Skills & MCP 工具层</div>
+        <div class="arch-box-sub">插件式工作流引擎（如：rule-review, generate-workflow 等）</div>
+      </div>
+    </div>
+
+  </div>
+</section>
+
+<!-- ==================== Slide 3: Workflow Types ==================== -->
+<section class="slide" id="slide-3">
+  <div class="slide-number">03 / 06</div>
+  <h2>三种核心<span class="highlight">作业模式</span></h2>
+  <div class="cards">
+
+    <div class="card">
+      <div class="card-icon">&#x1F50D;</div>
+      <div class="card-title">Query (只读检索)</div>
+      <div class="card-desc">
+        <strong>特征：</strong>数据查询、盘点、检查。<br><br>
+        <strong>工具权限限制：</strong>仅开启 <code>Read</code>、<code>Glob</code>、<code>Grep</code> 等只读工具。<br>
+        <strong>禁止行为：</strong>绝对禁止修改或幻想任何数据内容。
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-icon">&#x270F;&#xFE0F;</div>
+      <div class="card-title">Edit (单一修改)</div>
+      <div class="card-desc">
+        <strong>特征：</strong>指点式局部修改（如布置单一模块、调整特定家具）。<br><br>
+        <strong>工具权限限制：</strong>具备读写权限。<br>
+        <strong>工作流：</strong>执行单一或少数原子步骤，修改后快速验证。
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-icon">&#x1F680;</div>
+      <div class="card-title">Generate (完整布局)</div>
+      <div class="card-desc">
+        <strong>特征：</strong>全房生成、A/B 分支策略并行设计。<br><br>
+        <strong>工作流：</strong>长链路工作流，结合 <code>Worktree</code> 进行环境隔离，并在最后提供完整方案包供用户合并或决断。
+      </div>
+    </div>
+
+  </div>
+</section>
+
+<!-- ==================== Slide 4: Git Worktree ==================== -->
+<section class="slide" id="slide-4">
+  <div class="slide-number">04 / 06</div>
+  <h2>Git Worktree <span class="highlight">独立并行机制</span></h2>
+  <div class="flow-container">
+
+    <div class="flow-item">
+      <div class="flow-icon">&#x1F3AF;</div>
+      <div>
+        <div class="flow-title">策略层 (Strategy)</div>
+        <div class="flow-detail">设计理念的顶层定义，例如“极致收纳”、“动线优先”。它们是长期的配置分支，指导全屋规划的数据倾向。</div>
+      </div>
+    </div>
+
+    <div class="flow-item">
+      <div class="flow-icon">&#x2387;&#xFE0F;</div>
+      <div>
+        <div class="flow-title">变体层 (Variant)</div>
+        <div class="flow-detail">在具体策略下派生的不同尝试分支（如：策略A-方案1，策略A-方案2），便于用户在UI中并行预览设计差异。</div>
+      </div>
+    </div>
+
+    <div class="flow-item">
+      <div class="flow-icon">&#x1F4C2;</div>
+      <div>
+        <div class="flow-title">隔离层 (Worktree)</div>
+        <div class="flow-detail">Agent 在接管 Generate 任务时，Server 自动切出物理隔离的 Git Worktree 供 AI 进行安全读写。完成方案后即可发起 Commit，即使验证失败也<strong>不会污染主干状态</strong>。</div>
+      </div>
+    </div>
+
+  </div>
+</section>
+
+<!-- ==================== Slide 5: Standard Flow Example ==================== -->
+<section class="slide" id="slide-5">
+  <div class="slide-number">05 / 06</div>
+  <h2>标准工作流实例剖析：<span class="highlight">rule-review</span></h2>
+  <p class="subtitle" style="margin-bottom: 30px;">
+    BIMCanvas 中 Agent 的能力被高度插件化，封装为一个个独立的 <strong>Skill 工作流</strong>。<br>
+    以下是 `rule-review` 工作流的标准目录结构与实现范式：
+  </p>
+
+  <div class="tree-view">
+    <div>.claude/skills/<span class="tree-folder">rule-review/</span></div>
+    <div style="padding-left: 20px;">
+      &#x251C;&#x2500; <span class="tree-file">SKILL.md</span>
+      <span class="tree-comment">// 核心入口。包含 YAML 元数据定义（名/描述）和具体 Markdown 工作流指令步骤</span>
+    </div>
+    <div style="padding-left: 20px;">
+      &#x2514;&#x2500; <span class="tree-folder">references/</span>
+      <span class="tree-comment">// 知识库文件夹。存放执行该工作流所必需的上下文或校验工具</span>
+    </div>
+    <div style="padding-left: 50px;">
+      &#x251C;&#x2500; <span class="tree-file">prompt-file-map.md</span>
+      <span class="tree-comment">// 索引地图：Agent在审查时参考的代码与文档映照表</span>
+    </div>
+    <div style="padding-left: 50px;">
+      &#x2514;&#x2500; <span class="tree-file">review-checklist.md</span>
+      <span class="tree-comment">// 检查清单：具体执行评判时依赖的标准化标准列表</span>
+    </div>
+  </div>
+  
+  <p class="subtitle" style="margin-top: 30px; font-size: 1rem;">
+    <strong>机制解说：</strong> 主控 Agent 获取到任务后，会加载对应的 <code>SKILL.md</code>，并根据其引导自主去 <code>references/</code> 内使用 <code>view_file</code> 阅读清单，从而在 <strong>零代码污染</strong> 前提下完成极其复杂的规范审查。
+  </p>
+
+</section>
+
+<!-- ==================== Slide 6: Lifecycle ==================== -->
+<section class="slide" id="slide-6">
+  <div class="slide-number">06 / 06</div>
+  <h2>单一任务的<span class="highlight">生命周期</span></h2>
+  <div class="flow-container" style="max-width: 900px;">
+
+    <div class="flow-item">
+      <div class="flow-icon">1</div>
+      <div>
+        <div class="flow-title">理解感知 (Perception)</div>
+        <div class="flow-detail">主控节点解析指令 ➔ 匹配具体子 Agent/Skill ➔ 读取指定的项目配置与知识库（如 SKILL.md 中的 references）。</div>
+      </div>
+    </div>
+
+    <div class="flow-item">
+      <div class="flow-icon">2</div>
+      <div>
+        <div class="flow-title">规划执行 (Execution)</div>
+        <div class="flow-detail">基于获取的 Checklist 与规范 ➔ Server 切出 Worktree ➔ Agent 在内部沙盒进行高频分析、文件读写、冲突处理。</div>
+      </div>
+    </div>
+
+    <div class="flow-item">
+      <div class="flow-icon">3</div>
+      <div>
+        <div class="flow-title">闭环验证 (Validation)</div>
+        <div class="flow-detail">数据落盘后触发验证流 ➔ 如遇门窗包围盒碰撞 / 间距非法则发起修订 ➔ 状态无误后，<code>Commit</code> 封版。</div>
+      </div>
+    </div>
+
+    <div class="flow-item">
+      <div class="flow-icon">4</div>
+      <div>
+        <div class="flow-title">决策反馈 (Review & Merge)</div>
+        <div class="flow-detail">提交生成的多线方案 ➔ 前端画板以三联屏呈现设计图 ➔ 用户可基于局部（Zone）或者全局进行 Cherry-pick 合并到 Main 分支。</div>
+      </div>
+    </div>
+
+  </div>
+</section>
+
+<!-- Navigation script -->
+<script>
+(function() {
+  const dots = document.querySelectorAll('.nav a');
+  const slides = document.querySelectorAll('.slide');
+
+  function updateNav() {
+    let current = 0;
+    slides.forEach((s, i) => {
+      const rect = s.getBoundingClientRect();
+      if (rect.top <= window.innerHeight / 2) current = i;
+    });
+    dots.forEach((d, i) => d.classList.toggle('active', i === current));
+  }
+
+  window.addEventListener('scroll', updateNav, { passive: true });
+  updateNav();
+})();
+</script>
+</body>
+</html>

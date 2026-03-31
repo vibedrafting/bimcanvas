@@ -92,7 +92,14 @@ RUN npm install -g @anthropic-ai/claude-code claude-code-router \
 WORKDIR /app
 COPY . /app
 
-RUN dotnet restore BIMCanvas.Server \
+RUN for attempt in 1 2 3; do \
+        dotnet restore BIMCanvas.Server \
+            --disable-parallel \
+            -p:RestoreTimeout=600 \
+        && break; \
+        echo "dotnet restore failed (attempt $attempt/3), retrying..."; \
+        sleep 5; \
+    done \
     && dotnet build BIMCanvas.Server -c Release --no-restore
 
 RUN cd BIMCanvas.Web && npm ci && npm run build
