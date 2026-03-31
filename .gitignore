@@ -5,6 +5,25 @@
 *.user
 *.suo
 
+# Root-only workspace files
+/.agent/
+/.agents/
+/.claude/
+/.tmp/
+/.vs/
+/.vscode/
+/docs/
+/plans/
+/publish/
+/references/
+/reports/
+/reviews/
+/test/
+/tuning/
+/AGENTS.md
+/CLAUDE.md
+/GEMINI.md
+
 # Build
 bin/
 obj/
