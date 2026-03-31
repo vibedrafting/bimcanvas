@@ -20,7 +20,7 @@
   .slide-number { position: absolute; top: 30px; right: 40px; font-size: 14px; color: var(--text-muted); font-weight: 600; letter-spacing: 2px; }
   .slide-inner { max-width: 1100px; width: 100%; }
 
-  h1 { font-size: 3.2rem; font-weight: 800; background: linear-gradient(135deg, var(--accent), var(--accent5)); -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text; margin-bottom: 16px; text-align: center; }
+  h1 { font-size: 5rem; font-weight: 900; letter-spacing: -0.02em; background: linear-gradient(135deg, var(--accent), var(--accent5)); -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text; margin-bottom: 24px; text-align: center; line-height: 1.2; text-shadow: 0 10px 30px rgba(167,139,250,0.2); }
   h2 { font-size: 2.2rem; font-weight: 700; margin-bottom: 36px; color: var(--text); text-align: center; }
   h2 .hl { color: var(--accent); }
   h2 .hl2 { color: var(--accent2); }
@@ -28,8 +28,8 @@
   h2 .hl4 { color: var(--accent4); }
   h2 .hl5 { color: var(--accent5); }
   h3 { font-size: 1.2rem; font-weight: 600; color: var(--accent); margin-bottom: 12px; }
-  .subtitle { font-size: 1.3rem; color: var(--text-muted); text-align: center; line-height: 1.8; max-width: 700px; }
-  .tagline { margin-top: 28px; padding: 10px 26px; border: 1px solid var(--accent); border-radius: 999px; font-size: 0.95rem; color: var(--accent); letter-spacing: 1px; }
+  .subtitle { font-size: 1.6rem; color: var(--text-muted); text-align: center; line-height: 1.6; max-width: 800px; font-weight: 400; }
+  .tagline { margin-top: 40px; padding: 12px 36px; border: 1px solid rgba(167,139,250,0.5); background: rgba(167,139,250,0.1); border-radius: 999px; font-size: 1.15rem; font-weight: 600; color: var(--accent); letter-spacing: 1.5px; box-shadow: 0 8px 24px rgba(0,0,0,0.2); }
   .note { font-size: 0.85rem; color: var(--text-muted); font-style: italic; margin-top: 8px; }
 
   /* Pipeline */
@@ -129,7 +129,8 @@
 
   @media (max-width: 768px) {
     .slide { padding: 40px 20px; }
-    h1 { font-size: 2rem; } h2 { font-size: 1.5rem; }
+    h1 { font-size: 2.8rem; line-height: 1.1; } h2 { font-size: 1.5rem; }
+    .subtitle { font-size: 1.2rem; } .tagline { font-size: 0.95rem; padding: 10px 24px; }
     .pipeline { flex-direction: column; } .pipe-arrow { transform: rotate(90deg); }
     .cards { grid-template-columns: 1fr; }
     .layer-row { flex-direction: column; }
@@ -145,17 +146,20 @@
   <a href="#s3" title="任务路由"></a>
   <a href="#s4" title="五阶段总览"></a>
   <a href="#s5" title="提示词体系"></a>
-  <a href="#s6" title="示例：感知"></a>
-  <a href="#s7" title="示例：规划"></a>
-  <a href="#s8" title="示例：执行"></a>
-  <a href="#s9" title="示例：优化+汇报"></a>
-  <a href="#s10" title="Git Worktree"></a>
-  <a href="#s11" title="设计哲学"></a>
+  <a href="#s6" title="分区设计的本质"></a>
+  <a href="#s7" title="分层评价体系"></a>
+  <a href="#s8" title="语义方案驱动"></a>
+  <a href="#s9" title="示例：感知"></a>
+  <a href="#s10" title="示例：规划"></a>
+  <a href="#s11" title="示例：执行"></a>
+  <a href="#s12" title="示例：优化+汇报"></a>
+  <a href="#s13" title="Git Worktree"></a>
+  <a href="#s14" title="设计哲学"></a>
 </nav>
 
 <!-- ===================== 1. Cover ===================== -->
 <section class="slide" id="s1">
-  <div class="slide-number">01 / 11</div>
+  <div class="slide-number">01 / 14</div>
   <h1>BIMCanvas Agent</h1>
   <p class="subtitle">
     基于 Anthropic Agent SDK 的 AI 室内布置助手<br>
@@ -166,7 +170,7 @@
 
 <!-- ===================== 2. Architecture ===================== -->
 <section class="slide" id="s2">
-  <div class="slide-number">02 / 11</div>
+  <div class="slide-number">02 / 14</div>
   <h2>Agent <span class="hl">架构全景</span></h2>
   <div class="layers">
     <div class="layer-row">
@@ -212,7 +216,7 @@
 
 <!-- ===================== 3. Task Routing ===================== -->
 <section class="slide" id="s3">
-  <div class="slide-number">03 / 11</div>
+  <div class="slide-number">03 / 14</div>
   <h2>任务<span class="hl2">路由</span>机制</h2>
   <div class="slide-inner">
     <div class="cards" style="max-width:1000px; margin:0 auto;">
@@ -243,7 +247,7 @@
 
 <!-- ===================== 4. 5-Stage Overview ===================== -->
 <section class="slide" id="s4">
-  <div class="slide-number">04 / 11</div>
+  <div class="slide-number">04 / 14</div>
   <h2>generate-workflow <span class="hl">五阶段</span>总览</h2>
   <div class="slide-inner" style="display:flex; flex-direction:column; align-items:center;">
     <div class="pipeline">
@@ -275,7 +279,7 @@
 
 <!-- ===================== 5. Prompt Architecture ===================== -->
 <section class="slide" id="s5">
-  <div class="slide-number">05 / 11</div>
+  <div class="slide-number">05 / 14</div>
   <h2>提示词<span class="hl5">体系架构</span></h2>
   <div class="slide-inner" style="display:flex; flex-direction:column; align-items:center;">
     <div class="wt-diagram"><span class="wt-comment"># Agent 配置目录（&lt;BIMCANVAS_HOME&gt;/）</span>
@@ -319,9 +323,187 @@ skills/
   </div>
 </section>
 
-<!-- ===================== 6. Example: Stage 1 ===================== -->
+<!-- ===================== 6. Zoning Design ===================== -->
 <section class="slide" id="s6">
-  <div class="slide-number">06 / 11</div>
+  <div class="slide-number">06 / 14</div>
+  <h2><span class="hl3">分区设计</span>的本质</h2>
+  <div class="slide-inner" style="display:flex; flex-direction:column; align-items:center;">
+
+    <p style="color:var(--text-muted); margin-bottom:28px; text-align:center; max-width:800px;">
+      分区不只是"空间太复杂，先切小再处理"。它有三层递进的价值，每一层都不可或缺。
+    </p>
+
+    <div class="cards" style="max-width:1050px;">
+      <div class="card" style="border-top:3px solid var(--accent2)">
+        <div class="card-icon">&#x2699;</div>
+        <div class="card-title" style="color:var(--accent2)">工程价值：约束解耦</div>
+        <div class="card-desc">
+          25&#13217; 卧室中，床/衣柜/书桌/梳妆台的约束互相耦合，是高维优化问题。<br>
+          分区后每个子空间聚焦单一功能，约束大幅解耦。<br><br>
+          <em style="color:var(--text-muted)">这是最容易被看见的价值，但也是最浅的。</em>
+        </div>
+      </div>
+      <div class="card" style="border-top:3px solid var(--accent3)">
+        <div class="card-icon">&#x2728;</div>
+        <div class="card-title" style="color:var(--accent3)">质量价值：创造设计语言</div>
+        <div class="card-desc">
+          <li><strong>分区赋予空间以意图</strong> &mdash; "更衣区"三个字激活关于这类空间的全部设计常识</li>
+          <li><strong>家具属于功能叙事</strong> &mdash; 家具间关系有了上下文，不再是散落的独立对象</li>
+          <li><strong>留白是有意识的节奏</strong> &mdash; 区域间的留白不是"剩余空间"，而是呼吸感</li>
+          <br>
+          <em style="color:var(--text-muted)">"有设计感"和"只是塞满了"的区别，就在于空间是否有意图。</em>
+        </div>
+      </div>
+      <div class="card" style="border-top:3px solid var(--accent5)">
+        <div class="card-icon">&#x1F91D;</div>
+        <div class="card-title" style="color:var(--accent5)">过程价值：最早的对齐点</div>
+        <div class="card-desc">
+          分区图本身就是交付物 &mdash; 用户几秒内判断设计方向是否正确。<br>
+          调整分区方案的成本，远小于推翻整套家具布置。<br><br>
+          <em style="color:var(--text-muted)">分区让"我理解你的需求了吗？"有了具体、可评估的载体。</em>
+        </div>
+      </div>
+    </div>
+
+    <div style="height:32px"></div>
+
+    <h3 style="color:var(--accent4);margin-bottom:16px;">核心认知：分区、过道、家具预布置 &mdash; 一体三面</h3>
+    <div class="wt-diagram" style="max-width:900px;"><span class="wt-comment"># 设计师脑中的真实思维过程（三件事同时发生）</span>
+
+<span class="wt-hl3">家具预布置</span>  "这里需要多大的空间？"       &rarr; 空间需求
+<span class="wt-hl3">过道设计</span>    "人怎么在家具之间移动？"     &rarr; 空间连接
+<span class="wt-hl3">分区</span>        前两者叠加后浮现的空间结构   &rarr; 空间组织
+
+<span class="wt-hl">家具是岛屿，过道是河流，分区是看着岛屿和河流之后画出的地图。</span>
+<span class="wt-comment">你不能先画地图再造岛屿。分区线是结论，不是前提。</span>
+
+<span class="wt-comment"># 双向锁定</span>
+预布置（粗略想象）&rarr; 浮现分区结构 &rarr; <span class="wt-hl2">分区锁定空间策略</span> &rarr; 指导精确布置
+       &uarr;                                                    |
+       &larr;&mdash;&mdash;&mdash;&mdash; 如果放不下，回来调整 &larr;&mdash;&mdash;&mdash;&mdash;&mdash;&mdash;&mdash;&mdash;&mdash;&mdash;&mdash;&mdash;&mdash;</div>
+
+    <p class="note" style="margin-top:16px; max-width:800px; text-align:center;">
+      分区前是发散的探索 &mdash; "床放这里行不行？那里呢？" <br>
+      分区后是收敛的执行 &mdash; "睡眠区已定，在这个范围内把床放好。"
+    </p>
+  </div>
+</section>
+
+<!-- ===================== 7. Design Evaluation ===================== -->
+<section class="slide" id="s7">
+  <div class="slide-number">07 / 14</div>
+  <h2><span class="hl4">分层评价</span>体系</h2>
+  <div class="slide-inner" style="display:flex; flex-direction:column; align-items:center;">
+
+    <p style="color:var(--text-muted); margin-bottom:20px; text-align:center; max-width:800px;">
+      从一个卫生间选墙错误中发现的系统性缺失：我们定义了"什么不能做"，但没有定义"什么是做得好"。
+    </p>
+
+    <div class="wt-diagram" style="max-width:800px; margin-bottom:28px;"><span class="wt-hl">Layer 1  工程合规</span>    "这个布局有没有错？"          以不出错为<span class="wt-hl3">底线</span>
+<span class="wt-hl">Layer 2  设计品质</span>    "这个布局好不好？"            以好设计为<span class="wt-hl3">目标</span>
+<span class="wt-comment">Layer 3  设计倾向    "这个布局符不符合业主喜好？"    （未来）</span>
+<span class="wt-comment">Layer 4  经济指标    "这个布局花多少钱？"           （未来）</span>
+
+<span class="wt-hl2">每层是上一层的前提 &mdash; 有错误的布局谈不上品质，层次之间不可跳跃。</span></div>
+
+    <div class="cards" style="max-width:1050px;">
+      <div class="card" style="border-left:3px solid var(--accent2)">
+        <div class="card-title" style="color:var(--accent2)">Layer 1：工程合规（二元判断）</div>
+        <div class="card-desc">
+          <li><strong>几何合法</strong> &mdash; 不越界/不穿墙/不占柱/不侵禁区/不重合</li>
+          <li><strong>通行可达</strong> &mdash; 主通道&#8805;900mm，所有功能点从入口可达</li>
+          <li><strong>功能完整</strong> &mdash; zone.tags 每个功能至少有一个对应模块</li>
+          <br>
+          <em>由 validate_layout 自动检查 + Agent 功能完整性比对</em>
+        </div>
+      </div>
+      <div class="card" style="border-left:3px solid var(--accent4)">
+        <div class="card-title" style="color:var(--accent4)">Layer 2：设计品质（连续光谱）</div>
+        <div class="card-desc">
+          <li><strong>动线设计</strong> &mdash; 入门流线直觉、功能序列递进、无折返</li>
+          <li><strong>空间意图</strong> &mdash; 每个区域有明确的功能主题，无无意图死角</li>
+          <li><strong>功能叙事</strong> &mdash; 同面墙的家具讲述连贯故事，群组协调</li>
+          <li><strong>空间节奏</strong> &mdash; 入口到深处隐私梯度、密度渐变、有意识留白</li>
+          <li><strong>采光通风</strong> &mdash; 光路通畅、功能-光匹配、通风不被阻断</li>
+        </div>
+      </div>
+    </div>
+
+    <div style="height:24px"></div>
+
+    <div class="cards" style="max-width:1050px; grid-template-columns: 1fr;">
+      <div class="card" style="border-top:3px solid var(--accent)">
+        <div class="card-title" style="color:var(--accent)">核心认知：品质标准就是设计目标</div>
+        <div class="card-desc" style="line-height:1.9">
+          好的设计不是碰巧的 &mdash; 人类设计师画卫生间时，不会先随便选一面墙放台盆、画完再检查动线自然不自然。<br>
+          <strong>品质标准贯穿全流程</strong>：理解阶段是空间阅读的透镜 &rarr; 策略阶段是显式声明的设计目标 &rarr; 执行阶段是每个决策的判据 &rarr; 审查阶段是目标达成的验证。<br>
+          <strong>从"规则驱动"到"目标驱动"</strong>：规则告诉 Agent"不要做什么"（护栏），目标告诉 Agent"要追求什么"（驱动力）。两者缺一不可，但目标是方向，规则是边界。
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ===================== 8. Semantic Plan ===================== -->
+<section class="slide" id="s8">
+  <div class="slide-number">08 / 14</div>
+  <h2><span class="hl">语义方案</span>驱动的渐进式工作流</h2>
+  <div class="slide-inner" style="display:flex; flex-direction:column; align-items:center;">
+
+    <p style="color:var(--text-muted); margin-bottom:20px; text-align:center; max-width:800px;">
+      设计过程的本质是<strong>熵减</strong> &mdash; 每做一个决定，可能性空间就缩小一些。<br>
+      语义方案让熵减过程<strong>可见、可锚定、不可逆转</strong>。
+    </p>
+
+    <div class="wt-diagram" style="max-width:900px; margin-bottom:28px;"><span class="wt-comment"># 熵减过程</span>
+高熵（无穷可能）                                        低熵（唯一方案）
+<span class="wt-hl">"空房间"</span>    &rarr;  <span class="wt-hl3">"床靠西墙"</span>   &rarr;  <span class="wt-hl3">"衣柜北墙"</span>  &rarr;  <span class="wt-hl3">"梳妆台延伸区"</span>  &rarr;  <span class="wt-hl2">精确坐标</span>
+                  &darr; 可能性骤降     &darr; 进一步收窄     &darr; 接近确定          &darr; 完全确定
+
+<span class="wt-comment"># 当前问题：熵减在 thinking block 内部 &mdash; 不可见、不可恢复、不可锚定</span>
+<span class="wt-comment"># 新方案：每做一个决定就写入语义方案 &mdash; 可见即不可逆转，决策链条清晰可见</span></div>
+
+    <div class="cards" style="max-width:1050px;">
+      <div class="card" style="border-top:3px solid var(--accent)">
+        <div class="card-icon">&#x1F4DD;</div>
+        <div class="card-title" style="color:var(--accent)">渐进外化：v0.1 &rarr; v0.2 &rarr; v0.3</div>
+        <div class="card-desc">
+          <li><strong>v0.1 空间骨架</strong> &mdash; 动线+纵深+采光+初步意图（不涉及家具）</li>
+          <li><strong>v0.2 主体框架</strong> &mdash; 主要家具墙面归属+分区结论+设计目标</li>
+          <li><strong>v0.3 完整方案</strong> &mdash; 可选家具+设计目标细化+全部确认</li>
+          <br>
+          <em>每次更新仅 5-10 行增量，物理上不可能触发 32K 截断。</em>
+        </div>
+      </div>
+      <div class="card" style="border-top:3px solid var(--accent4)">
+        <div class="card-icon">&#x1F504;</div>
+        <div class="card-title" style="color:var(--accent4)">关键决策：家具先于分区</div>
+        <div class="card-desc">
+          <li>家具位置由<strong>物理约束</strong>决定（墙面长度、门窗位置）</li>
+          <li>物理事实不因概念分区而改变 &mdash; 西墙永远是最长实墙</li>
+          <li>用家具位置反向<strong>过滤</strong>分区方案，而非在分区内布置家具</li>
+          <li>约束方向：物理空间 &rarr; 家具位置 &rarr; 过滤分区（单向，无循环）</li>
+        </div>
+      </div>
+      <div class="card" style="border-top:3px solid var(--accent3)">
+        <div class="card-icon">&#x26A1;</div>
+        <div class="card-title" style="color:var(--accent3)">结构性提速</div>
+        <div class="card-desc">
+          <li><strong>语义方案拆分输出</strong> &mdash; 消除 32K 截断重来（~5 min）</li>
+          <li><strong>顺序反转</strong> &mdash; 搜索空间从"评估所有分区"降为"过滤不兼容的"（~5 min）</li>
+          <li><strong>预处理墙面数据</strong> &mdash; 消除重复空间分析 3&rarr;1 次（~8 min）</li>
+          <li><strong>Layer 分离</strong> &mdash; Stage 3 只管合规，Stage 4 只管品质</li>
+          <br>
+          <em>目标：27 min &rarr; 10-14 min（首次写入从第 25 分钟提前到第 7-9 分钟）</em>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ===================== 9. Example: Stage 1 ===================== -->
+<section class="slide" id="s9">
+  <div class="slide-number">09 / 14</div>
   <h2><span class="hl2">示例</span>：Stage 1 &mdash; 感知</h2>
   <div class="slide-inner" style="display:flex; flex-direction:column; align-items:center;">
     <p style="color:var(--text-muted); margin-bottom:28px; text-align:center;">
@@ -364,8 +546,8 @@ skills/
 </section>
 
 <!-- ===================== 7. Example: Stage 2 ===================== -->
-<section class="slide" id="s7">
-  <div class="slide-number">07 / 11</div>
+<section class="slide" id="s10">
+  <div class="slide-number">10 / 14</div>
   <h2><span class="hl">示例</span>：Stage 2 &mdash; 规划（语义方案演进）</h2>
   <div class="slide-inner" style="display:flex; flex-direction:column; align-items:center;">
 
@@ -435,8 +617,8 @@ skills/
 </section>
 
 <!-- ===================== 8. Example: Stage 3 ===================== -->
-<section class="slide" id="s8">
-  <div class="slide-number">08 / 11</div>
+<section class="slide" id="s11">
+  <div class="slide-number">11 / 14</div>
   <h2><span class="hl4">示例</span>：Stage 3 &mdash; 尝试 &harr; 修改</h2>
   <div class="slide-inner" style="display:flex; flex-direction:column; align-items:center;">
 
@@ -500,8 +682,8 @@ skills/
 </section>
 
 <!-- ===================== 9. Example: Stage 4+5 ===================== -->
-<section class="slide" id="s9">
-  <div class="slide-number">09 / 11</div>
+<section class="slide" id="s12">
+  <div class="slide-number">12 / 14</div>
   <h2><span class="hl3">示例</span>：Stage 4 优化 + Stage 5 汇报</h2>
   <div class="slide-inner" style="display:flex; flex-direction:column; align-items:center;">
 
@@ -547,8 +729,8 @@ skills/
 </section>
 
 <!-- ===================== 10. Git Worktree ===================== -->
-<section class="slide" id="s10">
-  <div class="slide-number">10 / 11</div>
+<section class="slide" id="s13">
+  <div class="slide-number">13 / 14</div>
   <h2>Git Worktree <span class="hl4">并行隔离</span></h2>
   <div class="slide-inner" style="display:flex; flex-direction:column; align-items:center;">
 
@@ -608,8 +790,8 @@ skills/
 </section>
 
 <!-- ===================== 11. Design Philosophy ===================== -->
-<section class="slide" id="s11">
-  <div class="slide-number">11 / 11</div>
+<section class="slide" id="s14">
+  <div class="slide-number">14 / 14</div>
   <h2>Agent <span class="hl">设计哲学</span></h2>
   <div class="slide-inner" style="display:flex; flex-direction:column; align-items:center;">
     <div class="cards" style="max-width:1050px;">
