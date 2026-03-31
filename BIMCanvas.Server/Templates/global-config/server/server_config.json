@@ -8,7 +8,7 @@
     "browserPath": null
   },
   "ccr": {
-    "enabled": false,
+    "enabled": true,
     "autoStart": true,
     "host": "127.0.0.1",
     "port": 3456,

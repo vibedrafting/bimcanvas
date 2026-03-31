@@ -28,13 +28,43 @@
       "transformer": {
         "use": ["gemini", "enhancetool"]
       }
+    },
+    {
+      "name": "openai-aitoll",
+      "api_base_url": "https://aitoll.net/api/gateway/cli/codex/v1/chat/completions",
+      "api_key": "pass_06a049bbe109012abf061d82504606a739c2e3c17baa7bd01e9a89acfafebac2",
+      "models": [
+        "gpt-5.4",
+        "gpt-5.4-mini",
+        "gpt-5.4-nano",
+        "gpt-5.3-codex",
+        "gpt-5.3-codex-spark",
+        "gpt-5.2",
+        "gpt-5.2-codex",
+        "gpt-5.1-codex-max",
+        "gpt-5.1-codex",
+        "gpt-5.1",
+        "gpt-5.1-codex-mini",
+        "gpt-5"
+      ]
+    },
+    {
+      "name": "openai-aitoll-think",
+      "api_base_url": "https://aitoll.net/api/gateway/cli/codex/v1/responses",
+      "api_key": "pass_06a049bbe109012abf061d82504606a739c2e3c17baa7bd01e9a89acfafebac2",
+      "models": [
+        "gpt-5.4"
+      ],
+      "transformer": {
+        "use": ["openai-responses"]
+      }
     }
   ],
   "Router": {
-    "default": "gemini-yescode,gemini-3-flash-preview",
-    "think": "gemini-yescode,gemini-3.1-pro-preview",
-    "background": "gemini-yescode,gemini-3-flash-preview",
-    "longContext": "gemini-yescode,gemini-3.1-pro-preview",
+    "default": "openai-aitoll,gpt-5.4",
+    "think": "openai-aitoll-think,gpt-5.4",
+    "background": "openai-aitoll,gpt-5.4-mini",
+    "longContext": "openai-aitoll,gpt-5.4",
     "longContextThreshold": 60000
   }
 }

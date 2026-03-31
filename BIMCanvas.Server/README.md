@@ -77,10 +77,12 @@ docker run --rm -p 5000:5000 -p 8865:8865 bimcanvas:local
 Server 默认托管 CCR (Claude Code Router)，用于给 Agent SDK 提供统一的 Anthropic 风格入口，再转发到真实下游 provider。
 
 - 模型路由由 `<BIMCANVAS_HOME>/ccr_config.json` 的 `Router` 字段配置（`default` / `think` / `background` / `longContext` 分别控制不同类型请求的供应商和模型）
-- 默认模型家族通过 `<BIMCANVAS_HOME>/server_config.json > ccr.defaultModelFamily` 指定，由 Server 注入 Agent 的 `MODEL_NAME`
+- 默认模型家族通过 `<BIMCANVAS_HOME>/server_config.json > ccr.defaultModelFamily` 指定，由 Server 注入 Agent 的 `MODEL_NAME`；这里仍只表示 Claude 家族语义（`opus / sonnet / haiku`），真实下游模型由 `ccr_config.json > Router` 决定
 - 当 `ccr.enabled=false` 时，不启动 CCR，Agent 走直连模式（使用 `<BIMCANVAS_HOME>/config.json`）
 - 切换供应商后需要重启 Server
 - 如果 CCR 不可用，Server 与 Web 仍会启动，但 AI 请求会在运行时失败并输出明确日志
+- 当前模板默认将 `default / longContext` 路由到 `openai-aitoll,gpt-5.4`，将 `background` 路由到 `openai-aitoll,gpt-5.4-mini`，并将 `think` 单独路由到 `openai-aitoll-think,gpt-5.4`（Responses API）；保留 Gemini provider 作为回切缓冲
+- Docker 启动时，`CCR_API_KEY` / `CCR_API_BASE` 只会在单 provider 配置或显式设置 `CCR_PROVIDER_NAME` 时自动覆盖；多 provider 配置应直接维护 `<BIMCANVAS_HOME>/ccr_config.json`
 
 ### JSON 序列化
 

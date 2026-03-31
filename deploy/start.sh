@@ -180,8 +180,28 @@ if ccr_enabled:
         providers = ccr_runtime.get("Providers") or []
         ccr_api_key = os.getenv("CCR_API_KEY", "").strip()
         ccr_api_base = os.getenv("CCR_API_BASE", "").strip()
+        ccr_provider_name = os.getenv("CCR_PROVIDER_NAME", "").strip()
+        target_providers = []
 
-        for provider in providers:
+        if ccr_api_key or ccr_api_base:
+            if ccr_provider_name:
+                target_providers = [
+                    provider for provider in providers if provider.get("name") == ccr_provider_name
+                ]
+                if not target_providers:
+                    print(
+                        f"[start.sh] CCR_PROVIDER_NAME '{ccr_provider_name}' was not found; "
+                        "skipping CCR_API_* overrides"
+                    )
+            elif len(providers) == 1:
+                target_providers = providers
+            else:
+                print(
+                    "[start.sh] Skipping CCR_API_* overrides because ccr_config.json contains "
+                    "multiple providers; edit ccr_config.json directly or set CCR_PROVIDER_NAME"
+                )
+
+        for provider in target_providers:
             if ccr_api_key:
                 provider["api_key"] = ccr_api_key
             if ccr_api_base:
