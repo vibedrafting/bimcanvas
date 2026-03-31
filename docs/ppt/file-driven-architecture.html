@@ -1,0 +1,775 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>BIMCanvas 文件驱动架构详解</title>
+<style>
+  *{margin:0;padding:0;box-sizing:border-box}
+  :root{--bg:#0f172a;--surface:#1e293b;--card:#334155;--accent:#38bdf8;--accent2:#a78bfa;--accent3:#34d399;--accent4:#fb923c;--accent5:#f472b6;--accent6:#facc15;--text:#f1f5f9;--muted:#94a3b8;--border:#475569;--code:#0d1117;--red:#f87171}
+  html{scroll-behavior:smooth}
+  body{font-family:'Segoe UI',system-ui,sans-serif;background:var(--bg);color:var(--text);overflow-x:hidden}
+
+  .slide{min-height:100vh;display:flex;flex-direction:column;justify-content:center;align-items:center;padding:60px 80px;position:relative;border-bottom:1px solid var(--border)}
+  .sn{position:absolute;top:30px;right:40px;font-size:14px;color:var(--muted);font-weight:600;letter-spacing:2px}
+  .inner{max-width:1100px;width:100%}
+
+  h1{font-size:3.2rem;font-weight:800;background:linear-gradient(135deg,var(--accent),var(--accent3));-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text;margin-bottom:16px;text-align:center}
+  h2{font-size:2.2rem;font-weight:700;margin-bottom:36px;color:var(--text);text-align:center}
+  h2 .hl{color:var(--accent)} h2 .hl2{color:var(--accent2)} h2 .hl3{color:var(--accent3)} h2 .hl4{color:var(--accent4)} h2 .hl5{color:var(--accent5)}
+  h3{font-size:1.15rem;font-weight:600;color:var(--accent);margin-bottom:10px}
+  .subtitle{font-size:1.3rem;color:var(--muted);text-align:center;line-height:1.8;max-width:720px}
+  .tagline{margin-top:28px;padding:10px 26px;border:1px solid var(--accent);border-radius:999px;font-size:.95rem;color:var(--accent);letter-spacing:1px}
+  .note{font-size:.85rem;color:var(--muted);font-style:italic;margin-top:10px}
+  .center{display:flex;flex-direction:column;align-items:center}
+
+  /* comparison table */
+  .cmp{display:grid;grid-template-columns:1fr 1fr;gap:0;max-width:900px;width:100%;border-radius:14px;overflow:hidden;border:1px solid var(--border)}
+  .cmp-head{background:var(--card);padding:16px 24px;font-weight:700;font-size:.95rem;text-align:center}
+  .cmp-head.old{color:var(--red)} .cmp-head.new{color:var(--accent3)}
+  .cmp-cell{padding:14px 24px;background:var(--surface);border-top:1px solid var(--border);font-size:.92rem;color:var(--muted);line-height:1.6}
+  .cmp-cell.old{border-right:1px solid var(--border)}
+
+  /* cards */
+  .cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:24px;width:100%}
+  .card{background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:28px;transition:transform .2s}
+  .card:hover{transform:translateY(-3px)}
+  .card-icon{font-size:1.8rem;margin-bottom:12px}
+  .card-title{font-weight:700;font-size:1.1rem;margin-bottom:8px}
+  .card-desc{color:var(--muted);line-height:1.7;font-size:.92rem}
+  .card-desc li{margin-bottom:5px;list-style:none;padding-left:16px;position:relative}
+  .card-desc li::before{content:'›';position:absolute;left:0;color:var(--accent);font-weight:700}
+
+  /* code/diagram block */
+  .diagram{background:var(--code);border:1px solid var(--border);border-radius:14px;padding:28px;font-family:'Consolas','Courier New',monospace;font-size:.86rem;line-height:1.8;color:var(--muted);max-width:960px;width:100%;overflow-x:auto;white-space:pre}
+  .diagram .hl{color:var(--accent);font-weight:700} .diagram .hl2{color:var(--accent2);font-weight:700}
+  .diagram .hl3{color:var(--accent3);font-weight:700} .diagram .hl4{color:var(--accent4);font-weight:700}
+  .diagram .hl5{color:var(--accent5);font-weight:700} .diagram .cm{color:#6b7280}
+
+  /* layer boxes */
+  .layers{display:flex;flex-direction:column;gap:0;max-width:900px;width:100%}
+  .layer{border:1px solid var(--border);padding:22px 28px;position:relative}
+  .layer:first-child{border-radius:14px 14px 0 0}
+  .layer:last-child{border-radius:0 0 14px 14px}
+  .layer+.layer{border-top:none}
+  .layer-tag{position:absolute;top:12px;right:16px;font-size:.72rem;font-weight:700;padding:2px 10px;border-radius:5px}
+  .tag-ro{background:rgba(248,113,113,.12);color:var(--red)} .tag-rw{background:rgba(52,211,153,.12);color:var(--accent3)} .tag-auto{background:rgba(167,139,250,.12);color:var(--accent2)} .tag-ref{background:rgba(251,146,60,.12);color:var(--accent4)}
+  .layer-title{font-weight:700;font-size:1.05rem;margin-bottom:4px}
+  .layer-desc{font-size:.88rem;color:var(--muted);line-height:1.6}
+  .layer-files{font-size:.8rem;color:var(--muted);opacity:.7;margin-top:6px;font-family:monospace}
+
+  /* flow arrows */
+  .flow-h{display:flex;align-items:center;justify-content:center;gap:0;flex-wrap:wrap;margin-bottom:20px}
+  .flow-box{background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:14px 20px;text-align:center;min-width:130px}
+  .flow-box .fb-t{font-weight:700;font-size:.92rem;margin-bottom:3px}
+  .flow-box .fb-s{font-size:.78rem;color:var(--muted)}
+  .flow-arr{font-size:1.4rem;color:var(--muted);padding:0 6px;flex-shrink:0}
+  .flow-box.active{border-color:var(--accent);background:rgba(56,189,248,.06)}
+
+  /* role table */
+  .rtable{max-width:960px;width:100%;border-collapse:separate;border-spacing:0;border-radius:14px;border:1px solid var(--border);overflow:hidden}
+  .rtable th{background:var(--card);padding:14px 20px;text-align:left;font-size:.82rem;text-transform:uppercase;letter-spacing:1px;color:var(--muted)}
+  .rtable td{padding:14px 20px;border-top:1px solid var(--border);background:var(--surface);font-size:.92rem;line-height:1.5}
+  .rtable tr:hover td{background:var(--card)}
+
+  /* scenario blocks */
+  .scenario{background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:24px 28px;margin-bottom:20px;max-width:900px;width:100%}
+  .scenario-title{font-weight:700;font-size:1rem;margin-bottom:8px;display:flex;align-items:center;gap:10px}
+  .scenario-num{background:var(--accent);color:var(--bg);width:28px;height:28px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:.82rem;font-weight:700;flex-shrink:0}
+  .scenario-body{font-size:.9rem;color:var(--muted);line-height:1.7}
+  .scenario-body code{background:var(--code);padding:2px 6px;border-radius:4px;font-size:.83rem;color:var(--accent)}
+
+  /* nav */
+  .nav{position:fixed;right:28px;top:50%;transform:translateY(-50%);display:flex;flex-direction:column;gap:9px;z-index:100}
+  .nav a{width:11px;height:11px;border-radius:50%;background:var(--border);transition:.2s;display:block}
+  .nav a:hover,.nav a.active{background:var(--accent);transform:scale(1.3)}
+  .footer{text-align:center;padding:40px;color:var(--muted);font-size:.85rem}
+  @media(max-width:768px){.slide{padding:40px 20px}h1{font-size:2rem}h2{font-size:1.5rem}.cards{grid-template-columns:1fr}.cmp{grid-template-columns:1fr}.nav{display:none}}
+</style>
+</head>
+<body>
+
+<nav class="nav">
+  <a href="#s1"></a><a href="#s2"></a><a href="#s3"></a><a href="#s4"></a>
+  <a href="#s5"></a><a href="#s6"></a><a href="#s7"></a><a href="#s8"></a>
+  <a href="#s9"></a><a href="#s10"></a><a href="#s11"></a><a href="#s12"></a>
+  <a href="#s13"></a><a href="#s14"></a><a href="#s15"></a>
+</nav>
+
+<!-- ========== 1. Cover ========== -->
+<section class="slide" id="s1">
+  <div class="sn">01 / 15</div>
+  <h1>File-Driven Architecture</h1>
+  <p class="subtitle">文件是唯一真理源，Server 是"文件播放器"而非"内存数据库"<br>所有业务数据以 JSON 文件形式存储在磁盘</p>
+  <div class="tagline">BIMCanvas v3.4 &mdash; 核心架构设计</div>
+</section>
+
+<!-- ========== 2. Why File-Driven ========== -->
+<section class="slide" id="s2">
+  <div class="sn">02 / 15</div>
+  <h2>为什么选择<span class="hl">文件驱动</span>？</h2>
+  <div class="center">
+    <div class="cmp">
+      <div class="cmp-head old">传统数据库架构</div>
+      <div class="cmp-head new">文件驱动架构 ✓</div>
+      <div class="cmp-cell old">数据库是真理源</div><div class="cmp-cell">文件是真理源</div>
+      <div class="cmp-cell old">需要数据迁移方案</div><div class="cmp-cell">直接操作 JSON</div>
+      <div class="cmp-cell old">Agent 需要 API 接口才能读写</div><div class="cmp-cell">Agent 直接写文件</div>
+      <div class="cmp-cell old">版本控制需要额外方案</div><div class="cmp-cell">天然支持 Git</div>
+      <div class="cmp-cell old">调试需要查数据库</div><div class="cmp-cell">调试直接看文件</div>
+      <div class="cmp-cell old">多方案需要复杂数据结构</div><div class="cmp-cell">Git 分支 = 多方案</div>
+    </div>
+    <div class="cards" style="margin-top:32px;max-width:900px;">
+      <div class="card" style="border-top:3px solid var(--accent)">
+        <div class="card-icon">&#x1F4C2;</div>
+        <div class="card-title" style="color:var(--accent)">Git 原生集成</div>
+        <div class="card-desc">项目文件即 Git 仓库。分支/回滚/协作开箱即用。<br>多方案 = 多分支，对比 = git diff。</div>
+      </div>
+      <div class="card" style="border-top:3px solid var(--accent3)">
+        <div class="card-icon">&#x1F916;</div>
+        <div class="card-title" style="color:var(--accent3)">Agent 友好</div>
+        <div class="card-desc">AI Agent 无需 API 即可直接修改 JSON 文件。<br>FileWatcher 自动感知变化并同步到 Web。</div>
+      </div>
+      <div class="card" style="border-top:3px solid var(--accent4)">
+        <div class="card-icon">&#x1F50D;</div>
+        <div class="card-title" style="color:var(--accent4)">调试透明</div>
+        <div class="card-desc">所有状态可直接通过文件系统查看。<br>VS Code 编辑 JSON → 画布实时更新。</div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ========== 3. Three-Layer Hamburger ========== -->
+<section class="slide" id="s3">
+  <div class="sn">03 / 15</div>
+  <h2>三层<span class="hl2">汉堡模型</span> + 辅助层</h2>
+  <div class="center">
+    <div class="layers">
+      <div class="layer" style="background:rgba(167,139,250,.06)">
+        <span class="layer-tag tag-auto">Server 自动生成</span>
+        <div class="layer-title" style="color:var(--accent2)">顶层 &mdash; Computed（计算派生层）</div>
+        <div class="layer-desc">完全从 baseline 派生，可随时重建。Server 启动时自动计算。</div>
+        <div class="layer-files">computed/room_zones.json &middot; computed/exclusions.json</div>
+      </div>
+      <div class="layer" style="background:rgba(52,211,153,.06)">
+        <span class="layer-tag tag-rw">AI / Web 可读写</span>
+        <div class="layer-title" style="color:var(--accent3)">中层 &mdash; Schemes（方案设计层）</div>
+        <div class="layer-desc">设计方案数据。AI Agent 和 Web 用户均可修改。多策略通过 Git 分支隔离。</div>
+        <div class="layer-files">schemes/strategy.json &middot; schemes/zones.json &middot; schemes/finishes.json &middot; schemes/{zoneId}/modules.json</div>
+      </div>
+      <div class="layer" style="background:rgba(248,113,113,.06)">
+        <span class="layer-tag tag-ro">只读</span>
+        <div class="layer-title" style="color:var(--red)">底层 &mdash; Baseline（建筑基础层）</div>
+        <div class="layer-desc">来自 Revit 导出的建筑结构数据。导入后不可修改，是一切计算的基础。</div>
+        <div class="layer-files">baseline/metadata.json &middot; architecture.json &middot; openings.json &middot; rooms.json &middot; location_lines.json</div>
+      </div>
+      <div class="layer" style="background:rgba(251,146,60,.06)">
+        <span class="layer-tag tag-ref">Agent 参考</span>
+        <div class="layer-title" style="color:var(--accent4)">辅助层 &mdash; Agent 工作资源</div>
+        <div class="layer-desc">Agent 执行布置任务时的参考资源：用户需求、设计原则、模块素材库。</div>
+        <div class="layer-files">context/requirements.md &middot; knowledge/design_principles.md &middot; modules/module_library.json</div>
+      </div>
+    </div>
+
+    <table class="rtable" style="margin-top:28px;">
+      <thead><tr><th>层级</th><th>读取方</th><th>写入方</th><th>核心规则</th></tr></thead>
+      <tbody>
+        <tr><td style="color:var(--red)">Baseline</td><td>Server, Web, Agent</td><td>Revit 导出（只读）</td><td>导入后永不修改</td></tr>
+        <tr><td style="color:var(--accent3)">Schemes</td><td>Server, Web, Agent</td><td>AI / Web / Server</td><td>双向同步：文件变动 ↔ Web 渲染</td></tr>
+        <tr><td style="color:var(--accent2)">Computed</td><td>Server, Web, Agent</td><td>Server（自动）</td><td>纯派生，可随时从 baseline 重建</td></tr>
+        <tr><td style="color:var(--accent4)">辅助层</td><td>Agent</td><td>预置 / 用户编辑</td><td>Agent 布置决策时参考</td></tr>
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<!-- ========== 4. .bcp Format ========== -->
+<section class="slide" id="s4">
+  <div class="sn">04 / 15</div>
+  <h2><span class="hl4">.bcp</span> 项目格式</h2>
+  <div class="center">
+    <p style="color:var(--muted);margin-bottom:24px;max-width:700px;text-align:center;">
+      .bcp 是项目的标准交换格式，本质是包含标准目录结构的 ZIP 文件。上传后解压为项目目录，即刻成为 Git 仓库。
+    </p>
+    <div class="diagram"><span class="hl">project.bcp</span> (ZIP)
+├── <span class="hl4">project.json</span>            <span class="cm">项目元数据 + 方案列表</span>
+│
+├── <span class="hl5">baseline/</span>               <span class="cm">建筑基础数据（只读 ← Revit 导出）</span>
+│   ├── metadata.json       <span class="cm">坐标转换参数</span>
+│   ├── architecture.json   <span class="cm">墙体 + 柱子轮廓多边形</span>
+│   ├── openings.json       <span class="cm">门窗位置 + 开启方向</span>
+│   ├── rooms.json          <span class="cm">房间边界 + 类型</span>
+│   └── location_lines.json <span class="cm">完成面定位线</span>
+│
+├── <span class="hl2">computed/</span>               <span class="cm">计算派生数据（Server 自动生成）</span>
+│   ├── room_zones.json     <span class="cm">房间 → 可设计区域 + innerBoundary</span>
+│   └── exclusions.json     <span class="cm">门扇扫过区域 → 矩形禁区</span>
+│
+├── <span class="hl3">schemes/</span>                <span class="cm">方案设计数据（AI / Web 可读写）</span>
+│   ├── strategy.json       <span class="cm">策略元数据（权重、约束、提示）</span>
+│   ├── zones.json          <span class="cm">设计区域划分</span>
+│   ├── finishes.json       <span class="cm">完成面定义</span>
+│   └── {zoneId}/
+│       └── modules.json    <span class="cm">★ 家具模块布置 ← Agent 核心输出</span>
+│
+├── context/                <span class="cm">用户需求描述</span>
+├── knowledge/              <span class="cm">设计原则</span>
+└── modules/                <span class="cm">模块素材库 + SVG 资源</span></div>
+    <p class="note">多策略通过 Git 分支隔离，而非 schemes/ 子目录。每个分支的 schemes/ 目录结构相同。</p>
+  </div>
+</section>
+
+<!-- ========== 5. Three Data Flows ========== -->
+<section class="slide" id="s5">
+  <div class="sn">05 / 15</div>
+  <h2>三条核心<span class="hl">数据流</span></h2>
+  <div class="center">
+
+    <div class="scenario">
+      <div class="scenario-title"><div class="scenario-num" style="background:var(--accent5)">1</div><span style="color:var(--accent5)">用户编辑流</span> &mdash; Web → Server → File</div>
+      <div class="scenario-body">
+        用户在 Web 画布上拖动家具 → <code>canvasStore</code> 更新内存状态 → <code>endBatchUpdate()</code> 触发 → REST API <code>POST /api/project/save</code> → Server 写入 <code>schemes/{zoneId}/modules.json</code> → FileWatcher 检测到变化 → SignalR 广播给其他客户端。
+        <br><br><strong>关键机制</strong>：批量更新模式（拖动过程不逐帧保存）、脏数据追踪（isDirty）、磁盘即时同步。
+      </div>
+    </div>
+
+    <div class="scenario">
+      <div class="scenario-title"><div class="scenario-num" style="background:var(--accent3)">2</div><span style="color:var(--accent3)">文件同步流</span> &mdash; File → Server → Web</div>
+      <div class="scenario-body">
+        Agent 直接写入 <code>modules.json</code>（或用户用 VS Code 编辑）→ <code>FileSystemWatcher</code> 检测变化 → 500ms 防抖 → 检查 Git 操作锁 → <code>BroadcastUpdate()</code> → SignalR 推送 <code>ReceiveUpdate</code> → Web 端 <code>syncFromServer()</code> 重新加载并渲染。
+        <br><br><strong>关键机制</strong>：500ms 防抖（避免连续写入的中间状态）、Git 感知（Git 操作期间跳过广播）、历史栈保留（Agent 修改可 Ctrl+Z 撤回）。
+      </div>
+    </div>
+
+    <div class="scenario">
+      <div class="scenario-title"><div class="scenario-num" style="background:var(--accent2)">3</div><span style="color:var(--accent2)">项目加载流</span> &mdash; File → Server → Web</div>
+      <div class="scenario-body">
+        用户上传 <code>.bcp</code> 文件 → Server 解压到项目目录 → 初始化 Git 仓库 → 计算 computed 层（room_zones + exclusions）→ REST API 返回完整 <code>ProjectData</code> → Web 端 <code>loadProject()</code> 一次性加载全部数据。
+        <br><br><strong>关键机制</strong>：ChangeSource 标记为 <code>UserUpload</code>（清空历史栈）、Computed 层按需重建。
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ========== 6. Server as File Player ========== -->
+<section class="slide" id="s6">
+  <div class="sn">06 / 15</div>
+  <h2>Server = <span class="hl3">文件播放器</span></h2>
+  <div class="center">
+    <p style="color:var(--muted);margin-bottom:24px;max-width:750px;text-align:center;">
+      Server 不"拥有"数据。它读取文件、聚合、分发——任何外部进程修改了文件，系统自动感知并同步。
+    </p>
+    <div class="diagram"><span class="cm">┌─────────────────────────────────────────────────────────────────┐</span>
+<span class="cm">│</span>                     <span class="hl3">Server 核心组件</span>                             <span class="cm">│</span>
+<span class="cm">├─────────────────────────────────────────────────────────────────┤</span>
+<span class="cm">│</span>                                                                 <span class="cm">│</span>
+<span class="cm">│</span>  <span class="hl">ProjectContext</span>              <span class="cm">项目上下文（单项目模式）</span>         <span class="cm">│</span>
+<span class="cm">│</span>  ├── CurrentProjectPath       <span class="cm">当前项目路径</span>                   <span class="cm">│</span>
+<span class="cm">│</span>  └── IsGitOperationInProgress  <span class="cm">Git 操作锁 🔒</span>                 <span class="cm">│</span>
+<span class="cm">│</span>                                                                 <span class="cm">│</span>
+<span class="cm">│</span>  <span class="hl4">ProjectWatcherService</span>        <span class="cm">文件监听服务</span>                  <span class="cm">│</span>
+<span class="cm">│</span>  ├── FileSystemWatcher         <span class="cm">监听 schemes/*.json</span>           <span class="cm">│</span>
+<span class="cm">│</span>  ├── 500ms 防抖               <span class="cm">避免连续写入的中间状态广播</span>     <span class="cm">│</span>
+<span class="cm">│</span>  └── Git 感知                 <span class="cm">Git 操作期间跳过文件变化事件</span>   <span class="cm">│</span>
+<span class="cm">│</span>                                                                 <span class="cm">│</span>
+<span class="cm">│</span>  <span class="hl2">CanvasHub</span> (SignalR)          <span class="cm">实时通信中枢</span>                  <span class="cm">│</span>
+<span class="cm">│</span>  ├── ReceiveUpdate             <span class="cm">Server → Web（文件变化通知）</span>   <span class="cm">│</span>
+<span class="cm">│</span>  └── ReceiveGhostPatch         <span class="cm">Server → Web（Agent 实时预览）</span> <span class="cm">│</span>
+<span class="cm">│</span>                                                                 <span class="cm">│</span>
+<span class="cm">│</span>  <span class="hl5">ProjectController</span> (REST)     <span class="cm">项目管理接口</span>                  <span class="cm">│</span>
+<span class="cm">│</span>  ├── GET  /api/project          <span class="cm">读取完整项目数据</span>              <span class="cm">│</span>
+<span class="cm">│</span>  ├── POST /api/project/upload   <span class="cm">上传 .bcp 文件</span>               <span class="cm">│</span>
+<span class="cm">│</span>  └── POST /api/project/save     <span class="cm">保存 modules</span>                 <span class="cm">│</span>
+<span class="cm">│</span>                                                                 <span class="cm">│</span>
+<span class="cm">└─────────────────────────────────────────────────────────────────┘</span></div>
+
+    <div class="cards" style="margin-top:24px;max-width:900px;">
+      <div class="card" style="border-left:3px solid var(--accent4)">
+        <div class="card-title" style="color:var(--accent4)">防抖机制 (500ms)</div>
+        <div class="card-desc">Agent 短时间内连续写入多个文件时，只在最后一次写入后 500ms 才触发同步广播，避免 Web 端收到中间状态。</div>
+      </div>
+      <div class="card" style="border-left:3px solid var(--accent2)">
+        <div class="card-title" style="color:var(--accent2)">Git 感知机制</div>
+        <div class="card-desc">Git checkout/merge 操作同时修改多个文件。设置 <code>IsGitOperationInProgress=true</code> 阻止 FileWatcher 触发更新，操作完成后手动调用 <code>loadProject()</code>。</div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ========== 7. Scenarios ========== -->
+<section class="slide" id="s7">
+  <div class="sn">07 / 15</div>
+  <h2>五大典型<span class="hl4">数据流场景</span></h2>
+  <div class="center">
+
+    <div class="scenario">
+      <div class="scenario-title"><div class="scenario-num">A</div>Web 端拖动模块</div>
+      <div class="scenario-body">
+        <code>DragManager.onMouseUp()</code> → <code>beginBatchUpdate()</code> → <code>updateModule()</code>（多次，不触发保存）→ <code>endBatchUpdate()</code> → <code>saveToServer()</code> → Server 写入文件<br>
+        <strong>价值</strong>：Web 是文件系统的可视化编辑器。拖动结束才一次性写入，不污染历史栈。
+      </div>
+    </div>
+
+    <div class="scenario">
+      <div class="scenario-title"><div class="scenario-num" style="background:var(--accent3)">B</div>Agent 修改布置</div>
+      <div class="scenario-body">
+        Agent 直接写 <code>modules.json</code> → FileWatcher → 500ms 防抖 → SignalR <code>ReceiveUpdate</code> → Web <code>syncFromServer()</code><br>
+        <strong>价值</strong>：历史栈保留（标记为 <code>AgentModify</code>），用户可用 <strong>Ctrl+Z 撤回</strong> Agent 的修改！
+      </div>
+    </div>
+
+    <div class="scenario">
+      <div class="scenario-title"><div class="scenario-num" style="background:var(--accent4)">C</div>外部编辑器修改 JSON</div>
+      <div class="scenario-body">
+        用户在 VS Code 中编辑 <code>modules.json</code> 修改坐标并保存 → FileWatcher 检测 → Server 重新解析 → SignalR 广播 → Web 端动画过渡到新位置<br>
+        <strong>价值</strong>：实现"热重载"般的开发体验。但外部修改会触发 <strong>Undo 栈清空</strong>（外部干扰规则）。
+      </div>
+    </div>
+
+    <div class="scenario">
+      <div class="scenario-title"><div class="scenario-num" style="background:var(--accent2)">D</div>Git 分支切换</div>
+      <div class="scenario-body">
+        <code>IsGitOperationInProgress = true</code> → 执行 <code>git checkout</code> → 多文件同时变化，FileWatcher 全部跳过 → 操作完成 → <code>loadProject(GitCheckout)</code> → 清空历史栈，保持视图<br>
+        <strong>价值</strong>：分支切换 = 方案切换。Git 操作锁防止中间状态广播。
+      </div>
+    </div>
+
+    <div class="scenario">
+      <div class="scenario-title"><div class="scenario-num" style="background:var(--accent5)">E</div>上传新项目</div>
+      <div class="scenario-body">
+        <code>POST .bcp</code> → 解压 → Git init → 计算 computed → 返回 ProjectData → <code>loadProject(UserUpload)</code> → 清空历史栈<br>
+        <strong>价值</strong>：新项目从零开始，旧历史不干扰。
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ========== 8. ChangeSource + Undo ========== -->
+<section class="slide" id="s8">
+  <div class="sn">08 / 15</div>
+  <h2>变更源追踪 + <span class="hl5">Undo/Redo</span></h2>
+  <div class="center">
+    <p style="color:var(--muted);margin-bottom:24px;max-width:750px;text-align:center;">
+      不同场景需要不同的历史管理策略。ChangeSource 枚举标记每次变更的来源，驱动策略分支。
+    </p>
+
+    <table class="rtable" style="margin-bottom:28px;">
+      <thead><tr><th>ChangeSource</th><th>典型触发</th><th>清空历史</th><th>保留历史</th><th>保持视图</th></tr></thead>
+      <tbody>
+        <tr><td><code>SystemInit</code></td><td>系统启动</td><td style="color:var(--accent3)">&#x2705;</td><td>&#x274C;</td><td>&#x274C;</td></tr>
+        <tr><td><code>UserUpload</code></td><td>上传新项目</td><td style="color:var(--accent3)">&#x2705;</td><td>&#x274C;</td><td>&#x274C;</td></tr>
+        <tr><td><code>GitCheckout</code></td><td>切换分支</td><td style="color:var(--accent3)">&#x2705;</td><td>&#x274C;</td><td style="color:var(--accent3)">&#x2705;</td></tr>
+        <tr><td><code>GitDiscard</code></td><td>放弃修改</td><td style="color:var(--accent3)">&#x2705;</td><td>&#x274C;</td><td style="color:var(--accent3)">&#x2705;</td></tr>
+        <tr><td style="color:var(--accent3)"><code>AgentModify</code></td><td>AI 修改家具</td><td>&#x274C;</td><td style="color:var(--accent3)">&#x2705;</td><td style="color:var(--accent3)">&#x2705;</td></tr>
+        <tr><td><code>ServerSync</code></td><td>文件同步推送</td><td>&#x274C;</td><td style="color:var(--accent3)">&#x2705;</td><td style="color:var(--accent3)">&#x2705;</td></tr>
+        <tr><td><code>UserEdit</code></td><td>用户编辑</td><td>&#x274C;</td><td style="color:var(--accent3)">&#x2705;</td><td>&mdash;</td></tr>
+      </tbody>
+    </table>
+
+    <div class="cards" style="max-width:900px;">
+      <div class="card" style="border-top:3px solid var(--accent5)">
+        <div class="card-icon">&#x21A9;</div>
+        <div class="card-title" style="color:var(--accent5)">Undo/Redo 机制</div>
+        <div class="card-desc">
+          <li>用户移动 A→B → Server 记录逆向操作入栈</li>
+          <li>点击 Undo → 执行逆向操作 → <strong>写入文件</strong></li>
+          <li>Undo 本质是"逆向写入文件"，不是内存回滚</li>
+        </div>
+      </div>
+      <div class="card" style="border-top:3px solid var(--red)">
+        <div class="card-icon">&#x26A0;</div>
+        <div class="card-title" style="color:var(--red)">外部干扰规则</div>
+        <div class="card-desc">
+          <li>检测到非 Web 端发起的文件变更（VS Code 手动编辑）</li>
+          <li>立即清空 Undo 栈</li>
+          <li>原因：外部修改切断了 Undo 链条，强行回滚会导致状态不一致</li>
+          <li>Agent 修改不触发（标记为 AgentModify，保留历史）</li>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ========== 9. Dual Persistence ========== -->
+<section class="slide" id="s9">
+  <div class="sn">09 / 15</div>
+  <h2>持久化<span class="hl2">双层策略</span></h2>
+  <div class="center">
+    <p style="color:var(--muted);margin-bottom:28px;max-width:700px;text-align:center;">
+      "磁盘即时同步 + Git 周期存档"——既保证实时一致性，又提供完整版本历史。
+    </p>
+
+    <div class="layers" style="max-width:800px;">
+      <div class="layer" style="background:rgba(56,189,248,.06);border-radius:14px 14px 0 0">
+        <div class="layer-title" style="color:var(--accent)">第一层：磁盘即时同步</div>
+        <div class="layer-desc">
+          <strong>触发</strong>：用户交互结束时（MouseUp）<br>
+          <strong>动作</strong>：立即写入 JSON 文件<br>
+          <strong>效果</strong>：VS Code 等工具能实时看到修改<br>
+          <strong>去抖动</strong>：禁用。采用阻塞式立即写入，确保文件与内存毫秒级一致
+        </div>
+      </div>
+      <div class="layer" style="background:rgba(167,139,250,.06);border-radius:0 0 14px 14px">
+        <div class="layer-title" style="color:var(--accent2)">第二层：Git 版本存档</div>
+        <div class="layer-desc">
+          <strong>触发</strong>：显式保存 / 自动存档时机<br>
+          <strong>动作</strong>：<code>git add . && git commit</code><br>
+          <strong>效果</strong>：生成 Git 历史节点，支持版本回溯<br>
+          <strong>自动存档时机</strong>：创建 Worktree 前、阶段性成果完成后
+        </div>
+      </div>
+    </div>
+
+    <div style="height:28px"></div>
+
+    <div class="diagram" style="max-width:800px;"><span class="cm"># 文件驱动 + Git 版本控制的完整闭环</span>
+
+<span class="hl5">用户拖动家具</span>
+    │
+    ▼
+<span class="hl">第一层</span>：MouseUp → 立即写入 modules.json     <span class="cm">← 毫秒级同步</span>
+    │
+    │  <span class="cm">VS Code 实时可见 ✓</span>
+    │  <span class="cm">FileWatcher 感知 ✓</span>
+    │  <span class="cm">Web 端同步 ✓</span>
+    │
+    ▼
+<span class="hl2">第二层</span>：git add . && git commit              <span class="cm">← 周期性存档</span>
+    │
+    │  <span class="cm">版本回溯 ✓</span>
+    │  <span class="cm">分支对比 ✓</span>
+    │  <span class="cm">方案合并 ✓</span>
+    │
+    ▼
+<span class="hl3">Git Worktree</span>：多方案并行隔离               <span class="cm">← Agent 并行工作</span></div>
+  </div>
+</section>
+
+<!-- ========== 10. Everything Connects ========== -->
+<section class="slide" id="s10">
+  <div class="sn">10 / 15</div>
+  <h2>一切<span class="hl">围绕文件</span>运转</h2>
+  <div class="center">
+    <div class="diagram" style="max-width:900px;"><span class="cm">┌────────────────────────────────────────────────────────────────────────┐</span>
+<span class="cm">│</span>                  <span class="hl">所有参与者都通过文件交互</span>                             <span class="cm">│</span>
+<span class="cm">│</span>                                                                        <span class="cm">│</span>
+<span class="cm">│</span>   <span class="hl5">Web 前端</span>                                                          <span class="cm">│</span>
+<span class="cm">│</span>   ├─ 拖动家具 ──→ REST API ──→ <span class="hl3">Server 写文件</span>                         <span class="cm">│</span>
+<span class="cm">│</span>   └─ SignalR ←── FileWatcher ←── <span class="hl3">文件变化</span>                             <span class="cm">│</span>
+<span class="cm">│</span>                                                                        <span class="cm">│</span>
+<span class="cm">│</span>   <span class="hl2">AI Agent</span>                                                           <span class="cm">│</span>
+<span class="cm">│</span>   ├─ Read modules.json ──→ <span class="hl3">直接读文件</span>                                <span class="cm">│</span>
+<span class="cm">│</span>   └─ Write modules.json ──→ <span class="hl3">直接写文件</span> ──→ FileWatcher ──→ Web 同步   <span class="cm">│</span>
+<span class="cm">│</span>                                                                        <span class="cm">│</span>
+<span class="cm">│</span>   <span class="hl4">VS Code / 外部编辑器</span>                                               <span class="cm">│</span>
+<span class="cm">│</span>   └─ 手动编辑 JSON ──→ <span class="hl3">直接改文件</span> ──→ FileWatcher ──→ Web 实时更新    <span class="cm">│</span>
+<span class="cm">│</span>                                                                        <span class="cm">│</span>
+<span class="cm">│</span>   <span class="hl5">Git 操作</span>                                                           <span class="cm">│</span>
+<span class="cm">│</span>   ├─ checkout ──→ <span class="hl3">切换分支 = 切换方案</span>                                <span class="cm">│</span>
+<span class="cm">│</span>   ├─ worktree ──→ <span class="hl3">并行方案 = 并行目录</span>                                <span class="cm">│</span>
+<span class="cm">│</span>   └─ merge ──→ <span class="hl3">合并方案 = 合并文件</span>                                   <span class="cm">│</span>
+<span class="cm">│</span>                                                                        <span class="cm">│</span>
+<span class="cm">│</span>              ┌──────────────────────────────────┐                       <span class="cm">│</span>
+<span class="cm">│</span>              │      <span class="hl">JSON 文件 = 唯一真理源</span>       │                       <span class="cm">│</span>
+<span class="cm">│</span>              │   baseline/ + schemes/ + computed/ │                       <span class="cm">│</span>
+<span class="cm">│</span>              └──────────────────────────────────┘                       <span class="cm">│</span>
+<span class="cm">│</span>                                                                        <span class="cm">│</span>
+<span class="cm">└────────────────────────────────────────────────────────────────────────┘</span></div>
+
+    <div class="cards" style="margin-top:28px;max-width:1000px;">
+      <div class="card" style="border-top:3px solid var(--accent)">
+        <div class="card-icon">&#x1F4C1;</div>
+        <div class="card-title">File = 真理源</div>
+        <div class="card-desc">所有状态持久化在文件中。Server 重启后从文件恢复，零数据丢失。</div>
+      </div>
+      <div class="card" style="border-top:3px solid var(--accent3)">
+        <div class="card-icon">&#x1F500;</div>
+        <div class="card-title">Git = 版本控制</div>
+        <div class="card-desc">分支 = 方案。Worktree = 并行。Cherry-pick = 按区域合并。</div>
+      </div>
+      <div class="card" style="border-top:3px solid var(--accent4)">
+        <div class="card-icon">&#x1F4E1;</div>
+        <div class="card-title">FileWatcher = 感知</div>
+        <div class="card-desc">任何外部进程修改了文件，500ms 后自动同步到所有 Web 客户端。</div>
+      </div>
+      <div class="card" style="border-top:3px solid var(--accent2)">
+        <div class="card-icon">&#x1F6E1;</div>
+        <div class="card-title">Server = 无状态</div>
+        <div class="card-desc">不拥有数据，只负责读取、聚合、分发。文件播放器，不是数据库。</div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ========== 11. Git Deep Integration - Why ========== -->
+<section class="slide" id="s11">
+  <div class="sn">11 / 15</div>
+  <h2>深度集成 Git：<span class="hl">为什么</span>？</h2>
+  <div class="center">
+    <p style="color:var(--muted);margin-bottom:28px;max-width:750px;text-align:center;">
+      文件驱动解决了"数据放哪"，但没解决三个关键问题：<br>AI 写坏了怎么办？多个 AI 同时写怎么办？多方案怎么管？
+    </p>
+
+    <div class="cards" style="max-width:1000px;">
+      <div class="card" style="border-top:3px solid var(--red)">
+        <div class="card-icon">&#x1F6E1;</div>
+        <div class="card-title" style="color:var(--red)">问题 1：AI 写坏了怎么办？</div>
+        <div class="card-desc">
+          AI 直接写文件 = 直接修改生产数据。<br>
+          没有隔离机制，一次失误就污染用户当前方案。<br><br>
+          <strong style="color:var(--accent3)">Git 方案</strong>：Worktree 隔离 &mdash; AI 永远在"草稿纸"上工作，<br>用户审查后才合并到"正式稿"。
+        </div>
+      </div>
+      <div class="card" style="border-top:3px solid var(--accent4)">
+        <div class="card-icon">&#x26A1;</div>
+        <div class="card-title" style="color:var(--accent4)">问题 2：多 AI 并发写怎么办？</div>
+        <div class="card-desc">
+          3 个 AI 同时生成方案，共用一个文件夹？<br>
+          文件会互相覆盖，状态混乱。<br><br>
+          <strong style="color:var(--accent3)">Git 方案</strong>：每个 AI 一个 Worktree &mdash; 物理隔离的目录，<br>共享 .git 历史，互不干扰。
+        </div>
+      </div>
+      <div class="card" style="border-top:3px solid var(--accent2)">
+        <div class="card-icon">&#x1F500;</div>
+        <div class="card-title" style="color:var(--accent2)">问题 3：多方案怎么管理？</div>
+        <div class="card-desc">
+          用户想要"极致收纳"和"动线优先"两套方案并存。<br>
+          复制文件夹？命名 v1、v2、v3？<br><br>
+          <strong style="color:var(--accent3)">Git 方案</strong>：分支 = 方案 &mdash; 天然的版本管理，<br>diff 对比、merge 合并、log 追溯，全部开箱即用。
+        </div>
+      </div>
+    </div>
+
+    <div style="margin-top:28px;padding:14px 28px;background:var(--surface);border:1px solid var(--accent);border-radius:14px;max-width:800px;">
+      <p style="color:var(--accent);font-weight:700;margin-bottom:6px;">核心洞察</p>
+      <p style="color:var(--muted);font-size:.92rem;line-height:1.7;">文件驱动 + Git 不是两个独立设计，而是同一个架构哲学的两面：<br><strong style="color:var(--text)">文件是数据载体，Git 是操作协议</strong>。选择文件驱动的那一刻，就天然获得了 Git 的全部能力。</p>
+    </div>
+  </div>
+</section>
+
+<!-- ========== 12. Git Worktree - Parallel Universe ========== -->
+<section class="slide" id="s12">
+  <div class="sn">12 / 15</div>
+  <h2>Git Worktree：<span class="hl3">平行宇宙</span>引擎</h2>
+  <div class="center">
+    <p style="color:var(--muted);margin-bottom:24px;max-width:750px;text-align:center;">
+      传统认知：1 个 Git 仓库 = 1 个文件夹 = 1 个当前分支<br>
+      <strong style="color:var(--text)">实际上：1 个 Git 仓库 = N 个文件夹 = N 个并行分支</strong>
+    </p>
+
+    <div class="diagram" style="max-width:920px;"><span class="cm"># Git Worktree 物理结构</span>
+
+<span class="hl">项目根目录/</span>                         <span class="cm">← 主仓库（真窗口）</span>
+├── .git/                             <span class="cm">← 共享的 Git 历史（只有这一份）</span>
+├── baseline/  schemes/  computed/    <span class="cm">← 当前分支的文件</span>
+│
+└── <span class="hl3">.worktrees/</span>                       <span class="cm">← 平行宇宙入口</span>
+    │
+    ├── <span class="hl4">ai-job-storage/</span>              <span class="cm">← AI-1 的隔离环境</span>
+    │   ├── .git → ../../.git         <span class="cm">← 符号链接，共享历史</span>
+    │   ├── baseline/                 <span class="cm">← 继承主仓库的基础数据</span>
+    │   └── <span class="hl4">schemes/</span>                 <span class="cm">← AI-1 独立修改，不影响其他人</span>
+    │
+    ├── <span class="hl2">ai-job-flow/</span>                 <span class="cm">← AI-2 的隔离环境</span>
+    │   └── <span class="hl2">schemes/</span>                 <span class="cm">← AI-2 独立修改</span>
+    │
+    └── <span class="hl5">window-2/</span>                    <span class="cm">← 用户虚拟窗口</span>
+        └── <span class="hl5">schemes/</span>                 <span class="cm">← 用户在另一个方案上编辑</span></div>
+
+    <div class="cards" style="margin-top:24px;max-width:920px;">
+      <div class="card" style="border-left:3px solid var(--accent3)">
+        <div class="card-title" style="color:var(--accent3)">空间高效</div>
+        <div class="card-desc">.git 历史只存一份（通常占项目 80% 体积）。<br>Worktree 只包含工作文件的副本，创建和销毁都是毫秒级。</div>
+      </div>
+      <div class="card" style="border-left:3px solid var(--accent)">
+        <div class="card-title" style="color:var(--accent)">完全隔离</div>
+        <div class="card-desc">每个 Worktree 是独立的物理目录，文件系统级别隔离。<br>AI-1 写文件不会影响 AI-2，也不会影响用户的主目录。</div>
+      </div>
+      <div class="card" style="border-left:3px solid var(--accent4)">
+        <div class="card-title" style="color:var(--accent4)">合并便捷</div>
+        <div class="card-desc">共享同一个 .git 历史，分支之间可以直接 merge/diff。<br>不需要复制文件、不需要"另存为"，Git 原生支持。</div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ========== 13. Agent Git Workflow ========== -->
+<section class="slide" id="s13">
+  <div class="sn">13 / 15</div>
+  <h2>Agent <span class="hl4">Git 工作流</span>：只需两个工具</h2>
+  <div class="center">
+    <p style="color:var(--muted);margin-bottom:24px;max-width:750px;text-align:center;">
+      设计原则：<strong style="color:var(--text)">Agent 只做决策，Server 处理复杂性</strong>。<br>
+      Agent 只需 2 个 MCP 工具，所有 Git 细节由 Server 内部完成。
+    </p>
+
+    <div class="diagram" style="max-width:920px;"><span class="cm"># Agent 视角：极简的工作流</span>
+
+<span class="hl5">用户</span>："给客厅出三个方案"
+    │
+    ▼
+<span class="hl2">MainAgent</span> 解析意图，规划 3 个并行任务
+    │
+    ├─── <span class="hl">ai_job_create</span>("storage")  ──→  <span class="cm">Server 内部自动完成：</span>
+    │         │                              <span class="cm">  1. 获取当前分支</span>
+    │         │                              <span class="cm">  2. 检测未提交更改 → 自动存档</span>
+    │         │                              <span class="cm">  3. 创建临时分支 + Worktree</span>
+    │         ▼
+    │    返回 <span class="hl3">{ worktreePath, branchName }</span>
+    │         │
+    │         ▼
+    │    <span class="hl4">SubAgent</span> 在 worktreePath 中工作
+    │    读取数据 → 布置决策 → 写入 JSON
+    │
+    ├─── <span class="hl">ai_job_create</span>("flow")     ──→  <span class="cm">同上，并行执行</span>
+    │         ▼
+    │    <span class="hl4">SubAgent</span> 独立工作...
+    │
+    └─── <span class="hl">ai_job_create</span>("minimal")  ──→  <span class="cm">同上，并行执行</span>
+              ▼
+         <span class="hl4">SubAgent</span> 独立工作...
+
+<span class="cm"># 所有 SubAgent 完成后</span>
+    │
+    ▼
+<span class="hl">ai_job_complete</span>(["storage", "flow", "minimal"])
+    │
+    │   <span class="cm">Server 内部：git add . && git commit（每个 Worktree）</span>
+    │   <span class="cm">Server 通知 Web 端：3 个方案已就绪</span>
+    │
+    ▼
+<span class="hl5">Web 端</span>展示三联屏 → <span class="hl5">用户</span>选择合并/丢弃  <span class="cm">← Agent 不参与</span></div>
+
+    <table class="rtable" style="margin-top:24px;max-width:800px;">
+      <thead><tr><th>MCP 工具</th><th>调用时机</th><th>Server 内部动作</th></tr></thead>
+      <tbody>
+        <tr><td style="color:var(--accent)"><code>ai_job_create</code></td><td>execute 任务开始时</td><td>自动存档 &rarr; 创建分支 &rarr; 创建 Worktree</td></tr>
+        <tr><td style="color:var(--accent)"><code>ai_job_complete</code></td><td>SubAgent 完成后</td><td>git commit &rarr; 通知 Web 展示 diff</td></tr>
+      </tbody>
+    </table>
+
+    <div style="margin-top:20px;padding:12px 24px;background:rgba(52,211,153,.08);border:1px solid var(--accent3);border-radius:10px;max-width:800px;">
+      <p style="color:var(--accent3);font-size:.9rem;line-height:1.6;"><strong>Agent 不负责的操作</strong>：获取当前分支（Server 自动获取）、自动存档（Server 自动执行）、合并/清理（用户通过 Web UI 决定）。<br>用户始终拥有最终决策权。</p>
+    </div>
+  </div>
+</section>
+
+<!-- ========== 14. Seven Scenarios ========== -->
+<section class="slide" id="s14">
+  <div class="sn">14 / 15</div>
+  <h2>七大 <span class="hl2">Git 业务场景</span></h2>
+  <div class="center">
+    <p style="color:var(--muted);margin-bottom:20px;max-width:750px;text-align:center;">
+      Git 操作不是技术细节，而是业务能力。每个场景都对应用户的真实需求。
+    </p>
+
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;max-width:920px;width:100%;">
+      <div class="scenario" style="margin-bottom:0">
+        <div class="scenario-title"><div class="scenario-num">1</div><span>Query 只读查询</span></div>
+        <div class="scenario-body">"主卧有多少家具？"<br><code>无 Git 操作</code> &mdash; Agent 直接读取当前目录文件</div>
+      </div>
+      <div class="scenario" style="margin-bottom:0">
+        <div class="scenario-title"><div class="scenario-num" style="background:var(--accent3)">2</div><span>简单编辑</span></div>
+        <div class="scenario-body">"把床向右移 50cm"<br><code>ai_job_create</code> &rarr; 编辑 &rarr; <code>ai_job_complete</code> &rarr; 用户审查合并</div>
+      </div>
+      <div class="scenario" style="margin-bottom:0">
+        <div class="scenario-title"><div class="scenario-num" style="background:var(--accent2)">3</div><span>策略分叉（多方案）</span></div>
+        <div class="scenario-body">"出三个方案"<br>并行创建 3 个 <code>ai_job</code> &rarr; 3 个 SubAgent 隔离工作 &rarr; 三联屏对比</div>
+      </div>
+      <div class="scenario" style="margin-bottom:0">
+        <div class="scenario-title"><div class="scenario-num" style="background:var(--accent4)">4</div><span>布局求解器</span></div>
+        <div class="scenario-body">"能塞进浴缸和淋浴房吗？"<br>沙盒模式迭代尝试，只有成功方案才提交，99 次失败对用户透明</div>
+      </div>
+      <div class="scenario" style="margin-bottom:0">
+        <div class="scenario-title"><div class="scenario-num" style="background:var(--accent5)">5</div><span>主编式合并</span></div>
+        <div class="scenario-body">用户在三联屏勾选：A 方案的客厅 + B 方案的主卧<br><code>cherry-pick-regions</code> &mdash; JSON 级别的区域合并</div>
+      </div>
+      <div class="scenario" style="margin-bottom:0">
+        <div class="scenario-title"><div class="scenario-num" style="background:var(--accent)">6</div><span>多窗口独立任务</span></div>
+        <div class="scenario-body">3 个窗口操作不同策略，各自独立<br>每个窗口 = 一个 Worktree，Agent 不需要知道自己在哪个窗口</div>
+      </div>
+    </div>
+
+    <div class="scenario" style="max-width:920px;margin-top:16px;">
+      <div class="scenario-title"><div class="scenario-num" style="background:var(--red)">7</div><span>虚拟窗口关闭</span></div>
+      <div class="scenario-body" style="display:flex;gap:20px;flex-wrap:wrap;">
+        <span>检测未合并更改 &rarr;</span>
+        <span style="color:var(--accent3)">有更改？弹窗确认 &rarr;</span>
+        <span><code>[合并后关闭]</code> <code>[丢弃并关闭]</code> <code>[取消]</code></span>
+        <span style="color:var(--muted)">&rarr; 清理 Worktree + 更新 UI</span>
+      </div>
+    </div>
+
+    <div style="margin-top:20px;padding:12px 24px;background:var(--surface);border:1px solid var(--border);border-radius:10px;max-width:920px;">
+      <p style="color:var(--muted);font-size:.88rem;line-height:1.6;">
+        <strong style="color:var(--accent5)">真窗口 vs 虚拟窗口</strong>：
+        真窗口操作主仓库目录，可自由切换分支；虚拟窗口操作 Worktree，绑定固定分支。
+        <strong style="color:var(--text)">Agent 不需要区分</strong> &mdash; Server 已设置好工作目录上下文，<code>ai_job_create</code> 不传 baseBranch 时自动获取。
+      </p>
+    </div>
+  </div>
+</section>
+
+<!-- ========== 15. Branch = Design Strategy ========== -->
+<section class="slide" id="s15">
+  <div class="sn">15 / 15</div>
+  <h2>分支即方案，<span class="hl5">Git 即设计记忆</span></h2>
+  <div class="center">
+    <div class="diagram" style="max-width:920px;margin-bottom:24px;"><span class="cm"># 分支层级 = 设计方案层级</span>
+
+<span class="hl">main</span>                                    <span class="cm">← 用户当前接受的状态</span>
+│
+├── <span class="hl2">scheme/极致收纳</span>                    <span class="cm">← 策略分支（长期保留）</span>
+│   ├── scheme/极致收纳-方案A             <span class="cm">← 变体（局部差异尝试）</span>
+│   └── scheme/极致收纳-方案B
+│
+├── <span class="hl4">scheme/动线优先</span>
+│   └── scheme/动线优先-变体1
+│
+└── <span class="hl5">scheme/极简留白</span>
+
+<span class="cm"># 临时分支（AI 工作完成后清理）</span>
+    feat/ai-job-storage-20260120-143052   <span class="cm">← Agent 创建，用完即删</span>
+    feat/ai-job-flow-20260120-143055</div>
+
+    <div class="cmp" style="max-width:920px;">
+      <div class="cmp-head old">传统设计文件管理</div>
+      <div class="cmp-head new">Git 分支管理 &#x2713;</div>
+      <div class="cmp-cell old">方案A_v1_final_最终版(2).json</div><div class="cmp-cell"><code>scheme/极致收纳</code> 分支，每个 commit 是一个版本</div>
+      <div class="cmp-cell old">对比两个方案？打开两个文件肉眼看</div><div class="cmp-cell"><code>git diff scheme/A..scheme/B</code> 精确到每个字段</div>
+      <div class="cmp-cell old">合并 A 的客厅 + B 的卧室？手动复制粘贴</div><div class="cmp-cell">JSON 级 cherry-pick，Server 自动处理</div>
+      <div class="cmp-cell old">回到上周二的版本？祈祷你存了备份</div><div class="cmp-cell"><code>git log</code> + <code>checkout</code>，任意时间点回溯</div>
+      <div class="cmp-cell old">AI 改坏了？ctrl+z 或者哭</div><div class="cmp-cell">Worktree 隔离，合并前可丢弃，合并后可回滚</div>
+    </div>
+
+    <div class="cards" style="margin-top:28px;max-width:1000px;">
+      <div class="card" style="border-top:3px solid var(--accent)">
+        <div class="card-icon">&#x1F9E0;</div>
+        <div class="card-title">Git = AI 的记忆</div>
+        <div class="card-desc">AI 不需要维护复杂上下文窗口。<br>Commit History = 思考轨迹，Branch = 不同思路。<br>每个分支是完整的状态快照，随时可恢复。</div>
+      </div>
+      <div class="card" style="border-top:3px solid var(--accent3)">
+        <div class="card-icon">&#x1F464;</div>
+        <div class="card-title">用户 = 总设计师</div>
+        <div class="card-desc">AI 在后台并行探索，用户审查后决定。<br>合并/丢弃/混搭，最终决策权始终在人。<br>Git 让"后悔"的成本趋近于零。</div>
+      </div>
+      <div class="card" style="border-top:3px solid var(--accent5)">
+        <div class="card-icon">&#x1F680;</div>
+        <div class="card-title">算力换广度</div>
+        <div class="card-desc">3 个 AI 并行 = 同时探索 3 种可能性。<br>Worktree 物理隔离让并发零冲突。<br>从"单线程设计师"到"并发设计团队"。</div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<div class="footer">BIMCanvas File-Driven Architecture &mdash; v3.4</div>
+
+<script>
+(function(){
+  const d=document.querySelectorAll('.nav a'),s=document.querySelectorAll('.slide');
+  function u(){let c=0;s.forEach((e,i)=>{if(e.getBoundingClientRect().top<=innerHeight/2)c=i});d.forEach((e,i)=>e.classList.toggle('active',i===c))}
+  addEventListener('scroll',u,{passive:true});u();
+})();
+</script>
+</body>
+</html>
