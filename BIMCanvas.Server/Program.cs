@@ -83,6 +83,9 @@ if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
 var builder = WebApplication.CreateBuilder(args);
 var isProduction = builder.Environment.IsProduction();
 var isDevelopment = builder.Environment.IsDevelopment();
+var configDir = ConfigService.GetConfigDir();
+var agentConfigExistsBeforeBootstrap = File.Exists(ConfigService.GetAgentConfigPath());
+var ccrConfigExistsBeforeBootstrap = File.Exists(ConfigService.GetCcrConfigPath());
 
 // 配置统一日志格式（替换默认 Console Logger 格式）
 builder.Logging.ClearProviders();
@@ -97,7 +100,9 @@ DevelopmentLocalConfigBootstrapService? developmentLocalConfigBootstrapService =
 if (isDevelopment)
 {
     developmentLocalConfigBootstrapService = new DevelopmentLocalConfigBootstrapService(templateBootstrapService);
-    developmentLocalConfigBootstrapService.EnsureInitialized();
+    developmentLocalConfigBootstrapService.EnsureInitialized(
+        initializeAgentRuntime: !agentConfigExistsBeforeBootstrap,
+        initializeCcrRuntime: !ccrConfigExistsBeforeBootstrap);
 }
 
 // 加载用户配置（提前到 DI 注册前，供 AgentClientService 等服务使用）
@@ -105,7 +110,6 @@ var config = ConfigService.Load();
 var pythonCommand = string.IsNullOrWhiteSpace(config.Server.PythonCommand)
     ? "python"
     : config.Server.PythonCommand.Trim();
-var configDir = ConfigService.GetConfigDir();
 var serverBaseUrl = builder.Configuration["Web:BaseUrl"] ?? "http://localhost:5000";
 var startupErrors = new List<string>();
 var productionWebDistPath = isProduction ? ResolveWebDistPath(AppContext.BaseDirectory) : null;

@@ -401,7 +401,7 @@ dotnet /app/BIMCanvas.Server/bin/Release/net8.0/BIMCanvas.Server.dll
 - `/data/config.json`
 - `/data/ccr_config.json`
 
-Development 模式下另有两份仅供本机快测的私有补齐文件：
+Development 模式下另有两份仅供本机快测的私有初始化种子文件：
 
 - `<BIMCANVAS_HOME>/config.dev.local.json`
 - `<BIMCANVAS_HOME>/ccr_config.dev.local.json`

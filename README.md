@@ -44,7 +44,8 @@ dotnet run --project BIMCanvas.Server
 
 - 直连快测：把测试 `baseUrl`、`apiKey` 写入 `config.dev.local.json`
 - CCR 快测：把测试 `Providers`、`Router` 写入 `ccr_config.dev.local.json`，并在设置 UI 或 `server_config.json` 中启用 `ccr.enabled=true`
-- 这两份文件只在 `Development` 模式读取，用于补齐 `config.json` / `ccr_config.json` 的空字段
+- 这两份文件只在对应运行时配置文件首次创建时作为初始化种子读取一次
+- 只要 `config.json` / `ccr_config.json` 已存在，后续启动一律以运行时文件本身为准
 - 它们不进仓库，也不是设置 UI 的长期真源
 
 #### 2. Windows 本机发布态

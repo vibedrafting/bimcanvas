@@ -4,10 +4,10 @@ using Newtonsoft.Json.Linq;
 namespace BIMCanvas.Server.Services;
 
 /// <summary>
-/// Development 模式下的本地私有配置补齐。
+/// Development 模式下的本地私有配置种子初始化。
 /// 仅负责：
 /// 1. 初始化 *.dev.local.json 占位文件
-/// 2. 将本地私有配置按白名单补齐到运行时 JSON 空字段
+/// 2. 仅在运行时配置首次创建时，将本地私有配置作为初始化种子写入运行时 JSON
 /// </summary>
 public sealed class DevelopmentLocalConfigBootstrapService
 {
@@ -22,13 +22,20 @@ public sealed class DevelopmentLocalConfigBootstrapService
         _templateService = templateService;
     }
 
-    public void EnsureInitialized()
+    public void EnsureInitialized(bool initializeAgentRuntime, bool initializeCcrRuntime)
     {
         var configDir = ConfigService.GetConfigDir();
         _templateService.EnsureInitializedFromManifest(ManifestRelativePath, configDir);
 
-        ApplyAgentBootstrap();
-        ApplyCcrBootstrap();
+        if (initializeAgentRuntime)
+        {
+            ApplyAgentBootstrap();
+        }
+
+        if (initializeCcrRuntime)
+        {
+            ApplyCcrBootstrap();
+        }
     }
 
     private static void ApplyAgentBootstrap()
@@ -37,8 +44,8 @@ public sealed class DevelopmentLocalConfigBootstrapService
         var local = LoadJsonObject(ConfigService.GetDevLocalAgentConfigPath());
         var changed = false;
 
-        changed |= CopyStringIfMissing(runtime, local, "baseUrl");
-        changed |= CopyStringIfMissing(runtime, local, "apiKey");
+        changed |= CopyStringIfPresent(runtime, local, "baseUrl");
+        changed |= CopyStringIfPresent(runtime, local, "apiKey");
 
         if (changed)
         {
@@ -52,7 +59,7 @@ public sealed class DevelopmentLocalConfigBootstrapService
         var local = LoadJsonObject(ConfigService.GetDevLocalCcrConfigPath());
         var changed = false;
 
-        if (ShouldCopyProviders(runtime, local))
+        if (ShouldCopyProviders(local))
         {
             runtime["Providers"] = local["Providers"]!.DeepClone();
             changed = true;
@@ -61,10 +68,17 @@ public sealed class DevelopmentLocalConfigBootstrapService
         var localRouter = local["Router"] as JObject;
         if (localRouter != null)
         {
-            var runtimeRouter = EnsureObject(runtime, "Router");
+            var runtimeRouter = runtime["Router"] as JObject ?? new JObject();
+            var routerChanged = false;
             foreach (var field in RoutedFields)
             {
-                changed |= CopyNestedStringIfMissing(runtimeRouter, localRouter, field);
+                routerChanged |= CopyStringIfPresent(runtimeRouter, localRouter, field);
+            }
+
+            if (routerChanged)
+            {
+                runtime["Router"] = runtimeRouter;
+                changed = true;
             }
         }
 
@@ -74,24 +88,13 @@ public sealed class DevelopmentLocalConfigBootstrapService
         }
     }
 
-    private static bool ShouldCopyProviders(JObject runtime, JObject local)
+    private static bool ShouldCopyProviders(JObject local)
     {
         var localProviders = local["Providers"] as JArray;
-        if (localProviders is not { Count: > 0 })
-        {
-            return false;
-        }
-
-        var runtimeProviders = runtime["Providers"] as JArray;
-        return runtimeProviders == null || runtimeProviders.Count == 0;
+        return localProviders is { Count: > 0 };
     }
 
-    private static bool CopyStringIfMissing(JObject target, JObject source, string propertyName)
-    {
-        return CopyNestedStringIfMissing(target, source, propertyName);
-    }
-
-    private static bool CopyNestedStringIfMissing(JObject target, JObject source, string propertyName)
+    private static bool CopyStringIfPresent(JObject target, JObject source, string propertyName)
     {
         var sourceToken = source[propertyName];
         if (IsNullOrWhiteSpace(sourceToken))
@@ -99,25 +102,8 @@ public sealed class DevelopmentLocalConfigBootstrapService
             return false;
         }
 
-        if (!IsNullOrWhiteSpace(target[propertyName]))
-        {
-            return false;
-        }
-
         target[propertyName] = sourceToken!.DeepClone();
         return true;
-    }
-
-    private static JObject EnsureObject(JObject target, string propertyName)
-    {
-        if (target[propertyName] is JObject obj)
-        {
-            return obj;
-        }
-
-        obj = new JObject();
-        target[propertyName] = obj;
-        return obj;
     }
 
     private static bool IsNullOrWhiteSpace(JToken? token)

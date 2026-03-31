@@ -99,8 +99,8 @@
 
 - 仅在 `ASPNETCORE_ENVIRONMENT=Development` 时启用
 - 先补齐 `*.dev.local.json` 占位文件
-- 再按白名单将本地私有值补齐到运行时 JSON 的空字段
-- 不覆盖非空运行时值
+- 仅在运行时 JSON 首次创建时，将本地私有值作为初始化种子写入运行时文件
+- 运行时文件一旦存在，后续启动不再读取 `*.dev.local.json`
 - 不参与 Production / Docker
 
 ---
@@ -236,13 +236,13 @@ manifest 当前统一使用一套结构：
 1. 创建 `BootstrapTemplateService`
 2. 创建 `GlobalConfigBootstrapService`
 3. 调用 `EnsureInitialized()`
-4. 若当前为 `Development`，执行 `DevelopmentLocalConfigBootstrapService.EnsureInitialized()`
+4. 若当前为 `Development`，仅对启动前不存在的运行时配置执行 `DevelopmentLocalConfigBootstrapService.EnsureInitialized(...)`
 5. 然后才执行 `ConfigService.Load()`
 
 这个顺序的意义是：
 
 - 先保证配置文件存在
-- 再按 Development 规则补齐本地私有值
+- 再按 Development 规则仅对首次创建的运行时配置注入本地私有种子
 - 再读配置
 - 避免 `ConfigService` 再承担模板复制职责
 
@@ -274,7 +274,7 @@ Agent 现在只做两件事：
 - 在 `<BIMCANVAS_HOME>/` 下补齐：
   - `config.dev.local.json`
   - `ccr_config.dev.local.json`
-- 仅按白名单补齐运行时空字段：
+- 仅在运行时配置首次创建时导入白名单种子字段：
   - `config.json > baseUrl/apiKey`
   - `ccr_config.json > Providers`
   - `ccr_config.json > Router.default/think/background/longContext`
@@ -283,6 +283,7 @@ Agent 现在只做两件事：
 
 - `*.dev.local.json` 不是长期真源
 - `*.dev.local.json` 不会被设置 UI 直接写回
+- 只要对应运行时文件已存在，后续启动不再从 `*.dev.local.json` 重新导入
 - Production / Docker 完全不读取这两份文件
 
 ---
@@ -596,7 +597,7 @@ Agent 会直接拒绝启动。
 一句话概括现在的状态：
 
 - 全局配置：Server 启动时一次性补齐
-- Development 本地覆盖：只补齐 `*.dev.local.json` 白名单字段
+- Development 本地覆盖：只在运行时配置首次创建时导入 `*.dev.local.json` 白名单字段
 - 项目固定文件：项目导入/打开时只补缺失项
 - 项目派生文件：按项目状态条件生成或刷新
 - Agent：只读、校验、执行，不再自初始化
