@@ -14,7 +14,7 @@ public sealed class SettingsSnapshotDto
 public sealed class SettingsRuntimeDto
 {
     public string Mode { get; set; } = "direct";
-    public string EffectiveDefaultModelPath { get; set; } = "agent.model";
+    public string EffectiveDefaultModelPath { get; set; } = "web.defaultModel";
     public string EffectiveDefaultModelValue { get; set; } = "";
     public bool DockerManagedRestart { get; set; }
     public string RestartBehavior { get; set; } = "manual";

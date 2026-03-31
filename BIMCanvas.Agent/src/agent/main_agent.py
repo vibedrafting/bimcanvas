@@ -156,8 +156,11 @@ class MainAgent:
         Args:
             effort: 推理深度 ("low"/"medium"/"high"/"max")，None 使用默认配置
             thinking: 扩展思考开关 ("off"/"adaptive")，None 使用默认配置
-            model: 模型名称，None 使用默认配置
+            model: 模型名称
         """
+        if not model:
+            raise ValueError("Model is required")
+
         settings = get_settings()
 
         # 从配置加载系统提示词和工具权限
@@ -220,7 +223,7 @@ class MainAgent:
             system_prompt=system_prompt,
             cwd=self.working_directory,
             max_turns=30,
-            model=model or settings.model_name,
+            model=model,
             allowed_tools=all_allowed,             # 包含 MCP 工具
             disallowed_tools=disallowed_tools,     # 工具黑名单
             agents=self._subagents,
@@ -339,12 +342,16 @@ class MainAgent:
         Args:
             effort: 推理深度 ("low"/"medium"/"high"/"max")，None 使用默认配置
             thinking: 扩展思考开关 ("off"/"adaptive")，None 使用默认配置
-            model: 模型名称，None 使用默认配置
+            model: 模型名称；首次连接必须提供，后续可复用当前模型
         """
         async with self._lock:
             if self._connected:
                 return
-            options = self._create_options(effort, thinking, model)
+            resolved_model = model or self._current_model
+            if not resolved_model:
+                raise ValueError("Model is required before establishing the first connection")
+
+            options = self._create_options(effort, thinking, resolved_model)
 
             # 调试日志：打印实际使用的配置（使用 _agent_logger 确保带窗口前缀）
             tools_display = options.allowed_tools if options.allowed_tools else "默认全开"
@@ -376,6 +383,7 @@ class MainAgent:
             self._client = ClaudeSDKClient(options)
             await self._client.connect()
             self._connected = True
+            self._current_model = resolved_model
             if self.verbose:
                 self._agent_logger.log_info(f"Connected to project: {self.project_path or 'default'}")
 
@@ -599,10 +607,12 @@ class MainAgent:
     # Chat Methods (Unified Entry Point)
     # ─────────────────────────────────────────────────────
 
-    async def chat(self, user_message: str) -> str:
+    async def chat(self, user_message: str, model: str | None = None) -> str:
         """Unified chat interface."""
         if not self._connected:
-            await self.connect()
+            await self.connect(model=model)
+        elif model and model != self._current_model:
+            await self.set_model(model)
 
         if self.verbose:
             self._agent_logger.log_user_message(user_message)
@@ -1206,7 +1216,7 @@ class MainAgent:
 
                     # 注意：这里应该使用专门的 SubAgent，但为了简化先用 chat
                     # 实际实现应该派发到 layout-agent SubAgent
-                    response = await self.chat(layout_prompt)
+                    response = await self.chat(layout_prompt, model=self._current_model)
 
                     if self.verbose:
                         self._agent_logger.log_info(f"分区 {zone_id} 布置完成")

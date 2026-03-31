@@ -134,7 +134,7 @@
 - **SSE 流式对话**: `/api/chat/stream` 逐行推送，支持思考过程与分段输出。
 - **子任务可视化**: SubAgent/ToolCall 气泡模型 + Waiting 提示。
 - **截图附件**: 框选截图、保存到本地、加入待发送附件队列。
-- **模型/思考强度**: 从 `/api/config` 与 `/api/web_config` 加载模型列表与默认配置。
+- **模型/思考强度**: 模型列表来自 `/api/config` 与 `/api/web_config`，默认模型来自 `/api/web_config.defaultModel`，思考强度来自 `/api/config`。
 - **接口基址兜底**: 未显式配置 `VITE_SERVER_URL` / `VITE_AGENT_URL` 时，开发态默认使用当前主机的 `5000/8865`；生产静态托管时 Server 默认同源，阶段四目标是通过 Nginx 将 Agent 收口到同源 `/agent`。
 
 **代码拆分**（核心文件）:

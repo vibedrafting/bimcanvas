@@ -1,4 +1,5 @@
 {
+  "defaultModel": "sonnet",
   "customModels": [
     { "id": "opus", "label": "Opus" },
     { "id": "sonnet", "label": "Sonnet" },

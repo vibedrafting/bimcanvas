@@ -20,10 +20,9 @@ class Settings:
     Application settings
 
     配置来源：
-    - 直连模式：base_url / api_key / model 来自 config.json，
+    - 直连模式：base_url / api_key 来自 config.json，
       模型映射通过 modelMapping 设置 ANTHROPIC_DEFAULT_*_MODEL 环境变量
-    - CCR 模式：base_url / api_key 来自 Server 注入的网关环境变量，
-      默认模型来自 Server 注入的 MODEL_NAME，模型路由由 CCR 处理
+    - CCR 模式：base_url / api_key 来自 Server 注入的网关环境变量
 
     环境变量说明（与 Claude Code 隔离）：
     - AGENT_SDK_API_KEY: Agent SDK 专用 API Key
@@ -32,7 +31,6 @@ class Settings:
 
     anthropic_api_key: str
     base_url: str
-    model_name: str
     default_effort: str              # "low"/"medium"/"high"/"max", 默认 "medium"
     default_thinking: str            # "off"/"adaptive", 默认 "off"
     max_thinking_tokens: int | None  # thinking token 预算上限，None/-1/空 = 不限制
@@ -52,7 +50,6 @@ class Settings:
         # 从配置文件读取
         direct_api_key = config.get('apiKey', '')
         direct_base_url = config.get('baseUrl', '')
-        model = config.get('model', 'claude-sonnet-4-20250514')
         default_effort = config.get('defaultEffort', 'medium')
         default_thinking = config.get('defaultThinking', 'off')
         raw_thinking_tokens = config.get('maxThinkingTokens', None)
@@ -82,17 +79,10 @@ class Settings:
                     f"{missing_vars_display}"
                 )
 
-            env_model = os.getenv('MODEL_NAME', '').strip()
-            if env_model:
-                logger.info(f"环境变量覆盖模型: {env_model}")
-                model = env_model
-            else:
-                logger.info(f"使用配置模型: {model}")
-            # CCR 模式：不设置 ANTHROPIC_DEFAULT_*_MODEL（CCR 路由处理）
+            logger.info("使用 CCR 网关连接 Agent SDK")
         else:
             api_key = direct_api_key
             base_url = direct_base_url
-            logger.info(f"使用配置模型: {model}")
 
             # 直连模式：从 modelMapping 设置 Claude Code CLI 模型映射环境变量
             _apply_model_mapping(model_mapping)
@@ -107,7 +97,6 @@ class Settings:
         return cls(
             anthropic_api_key=api_key,
             base_url=base_url,
-            model_name=model,
             max_thinking_tokens=max_thinking_tokens,
             default_effort=default_effort,
             default_thinking=default_thinking,

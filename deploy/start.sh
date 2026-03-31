@@ -118,11 +118,13 @@ def parse_optional_bool(raw: str | None) -> bool | None:
 
 home = Path(os.environ["BIMCANVAS_HOME"])
 server_config_path = home / "server_config.json"
+web_config_path = home / "web_config.json"
 agent_config_path = home / "config.json"
 ccr_user_config_path = home / "ccr_config.json"
 ccr_template_path = Path("/app/BIMCanvas.Server/Templates/global-config/server/ccr_config.json")
 
 server_config = load_json(server_config_path)
+web_config = load_json(web_config_path)
 server_section = server_config.setdefault("server", {})
 startup_section = server_config.setdefault("startup", {})
 ccr_section = server_config.setdefault("ccr", {})
@@ -144,17 +146,20 @@ if bootstrapped_server:
         if ccr_enabled_override:
             ccr_section["autoStart"] = True
 
-    ccr_model_family = os.getenv("CCR_MODEL_FAMILY", "").strip()
-    if ccr_model_family:
-        ccr_section["defaultModelFamily"] = ccr_model_family
-
 ccr_enabled = bool(ccr_section.get("enabled", False))
 
 agent_config = load_json(agent_config_path)
+anthropic_model = os.getenv("ANTHROPIC_MODEL", "").strip()
+ccr_model_family = os.getenv("CCR_MODEL_FAMILY", "").strip()
+
+if anthropic_model:
+    web_config["defaultModel"] = anthropic_model
+elif ccr_model_family:
+    web_config["defaultModel"] = ccr_model_family
+
 if bootstrapped_agent and not ccr_enabled:
     anthropic_api_key = os.getenv("ANTHROPIC_API_KEY", "").strip()
     anthropic_base_url = os.getenv("ANTHROPIC_BASE_URL", "").strip()
-    anthropic_model = os.getenv("ANTHROPIC_MODEL", "").strip()
 
     if anthropic_api_key:
         agent_config["apiKey"] = anthropic_api_key
@@ -164,11 +169,11 @@ if bootstrapped_agent and not ccr_enabled:
     elif anthropic_api_key and os.getenv("BOOTSTRAPPED_AGENT_CONFIG") == "1":
         agent_config["baseUrl"] = ""
 
-    if anthropic_model:
-        agent_config["model"] = anthropic_model
-
 if bootstrapped_agent:
     save_json(agent_config_path, agent_config)
+
+if anthropic_model or ccr_model_family:
+    save_json(web_config_path, web_config)
 
 if ccr_enabled:
     ccr_source_path = ccr_user_config_path if ccr_user_config_path.exists() else ccr_template_path

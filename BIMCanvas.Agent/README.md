@@ -53,7 +53,7 @@ Agent 只能由 `BIMCanvas.Server` 托管启动，不支持脱离 Server 独立�
 
 Agent 会在 BIMCanvas.Server 启动时自动启动，无需手动操作。
 当 `<BIMCANVAS_HOME>/server_config.json > ccr.enabled=true` 时，Server 会注入
-`AGENT_SDK_BASE_URL`、`AGENT_SDK_API_KEY`、`MODEL_NAME` 以及 Claude Code 家族模型映射环境变量，
+`AGENT_SDK_BASE_URL`、`AGENT_SDK_API_KEY` 以及 Claude Code 家族模型映射环境变量，
 默认把主模型、background requests、subagent 请求都指向 CCR 网关。
 
 ## API 接口
@@ -81,6 +81,7 @@ Content-Type: application/json
 
 {
   "projectPath": "C:/Users/.../Projects/demo_1",
+  "model": "sonnet",
   "message": "帮我设计客厅的布置方案"
 }
 ```
@@ -102,6 +103,7 @@ Content-Type: application/json
 
 {
   "projectPath": "...",
+  "model": "sonnet",
   "message": "..."
 }
 ```
@@ -422,10 +424,9 @@ BIMCanvas.Agent/
 
 **配置原则**：
 
-- 直连模式：`<BIMCANVAS_HOME>/config.json` 是连接参数和默认模型的真源。
-- CCR 模式：连接参数来自 Server 注入的 `AGENT_SDK_BASE_URL` / `AGENT_SDK_API_KEY`，
-  默认模型来自 `<BIMCANVAS_HOME>/server_config.json > ccr.defaultModelFamily`
-  并通过 `MODEL_NAME` 注入给 Agent。
+- Agent 只从 `<BIMCANVAS_HOME>/config.json` 读取连接参数与推理参数。
+- Web 对话默认模型统一存放在 `<BIMCANVAS_HOME>/web_config.json > defaultModel`，
+  并由 Web 在聊天请求中显式传给 Agent。
 
 #### config.json 格式
 
@@ -433,7 +434,6 @@ BIMCanvas.Agent/
 {
   "baseUrl": "https://your-direct-provider.example/v1",
   "apiKey": "your-direct-api-key",
-  "model": "claude-opus-4-6",
   "defaultEffort": "medium",
   "defaultThinking": "adaptive",
   "maxThinkingTokens": 16000,
@@ -447,9 +447,9 @@ BIMCanvas.Agent/
 
 #### 直连模式与 CCR 托管模式
 
-- 直连模式：Agent 使用 `config.json` 中的 `baseUrl`、`apiKey`、`model` 直连下游。
+- 直连模式：Agent 使用 `config.json` 中的 `baseUrl`、`apiKey` 直连下游。
 - CCR 模式：`config.json` 中的 `baseUrl` 和 `apiKey` 仅保留，不参与当前请求链路；实际连接参数由 Server 注入的 CCR 网关环境变量托管。
-- CCR 模式下的默认模型真源不是 `config.json.model`，而是 `server_config.json > ccr.defaultModelFamily`。
+- 默认模型不再由 Agent 配置保存，所有 Web 对话请求都必须显式携带 `model`。
 
 #### permissions 字段说明
 
@@ -483,14 +483,13 @@ model: inherit
 |----------|------|
 | `AGENT_SDK_API_KEY` | CCR 模式下的 Agent SDK API Key |
 | `AGENT_SDK_BASE_URL` | CCR 模式下的 Agent SDK Base URL |
-| `MODEL_NAME` | CCR 模式下覆盖默认模型家族（由 Server 注入） |
 | `ANTHROPIC_DEFAULT_OPUS_MODEL` | 覆盖 Claude Code 的 `opus` 家族映射 |
 | `ANTHROPIC_DEFAULT_SONNET_MODEL` | 覆盖 Claude Code 的 `sonnet` 家族映射 |
 | `ANTHROPIC_DEFAULT_HAIKU_MODEL` | 覆盖 Claude Code 的 `haiku` / background 映射 |
 | `SERVER_HOST` | 覆盖服务地址 |
 | `SERVER_PORT` | 覆盖服务端口 |
 
-**说明**：当 Agent 由 BIMCanvas.Server 托管启动且 `ccr.enabled=true` 时，上述 CCR 模式相关环境变量通常都由 Server 注入，无需手工写入 `.env`。直连模式下，Agent 会忽略 `MODEL_NAME`，默认模型以 `config.json.model` 为准。
+**说明**：当 Agent 由 BIMCanvas.Server 托管启动且 `ccr.enabled=true` 时，上述 CCR 模式相关环境变量通常都由 Server 注入，无需手工写入 `.env`。
 
 ## 开发状态
 

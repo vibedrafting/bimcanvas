@@ -29,12 +29,12 @@ public sealed class SettingsService
         new() { Path = "ccr.enabled", Label = "启用 CCR", ApplyMode = "restart" },
         new() { Path = "ccr.autoStart", Label = "自动启动 CCR", ApplyMode = "restart" },
         new() { Path = "ccr.host", Label = "CCR 主机", ApplyMode = "restart" },
-        new() { Path = "ccr.port", Label = "CCR 端口", ApplyMode = "restart" },
-        new() { Path = "ccr.defaultModelFamily", Label = "默认模型家族", ApplyMode = "restart" }
+        new() { Path = "ccr.port", Label = "CCR 端口", ApplyMode = "restart" }
     ];
 
     private static readonly IReadOnlyList<SettingsFieldDto> WebFields =
     [
+        new() { Path = "defaultModel", Label = "默认模型", ApplyMode = "immediate" },
         new() { Path = "customModels", Label = "自定义模型列表", ApplyMode = "immediate" },
         new() { Path = "layerPresets.User.enabledLayers", Label = "用户图层预设", ApplyMode = "immediate" },
         new() { Path = "layerPresets.Agent.enabledLayers", Label = "Agent 图层预设", ApplyMode = "immediate" }
@@ -44,7 +44,6 @@ public sealed class SettingsService
     [
         new() { Path = "baseUrl", Label = "网关地址", ApplyMode = "restart" },
         new() { Path = "apiKey", Label = "API Key", ApplyMode = "restart", Sensitive = true },
-        new() { Path = "model", Label = "默认模型", ApplyMode = "restart" },
         new() { Path = "defaultEffort", Label = "默认 Effort", ApplyMode = "restart" },
         new() { Path = "defaultThinking", Label = "默认 Thinking", ApplyMode = "restart" },
         new() { Path = "maxThinkingTokens", Label = "最大 Thinking Tokens", ApplyMode = "restart" },
@@ -109,7 +108,7 @@ public sealed class SettingsService
                 requiresRestart: true,
                 ccrValues,
                 CcrFields),
-            Runtime = BuildRuntime(serverValues, agentValues)
+            Runtime = BuildRuntime(serverValues, webValues)
         };
     }
 
@@ -186,7 +185,7 @@ public sealed class SettingsService
         };
     }
 
-    private static SettingsRuntimeDto BuildRuntime(JObject serverValues, JObject agentValues)
+    private static SettingsRuntimeDto BuildRuntime(JObject serverValues, JObject webValues)
     {
         var isCcrEnabled = serverValues.SelectToken("ccr.enabled")?.Value<bool>() ?? false;
         var dockerManagedRestart = string.Equals(
@@ -194,19 +193,11 @@ public sealed class SettingsService
             "true",
             StringComparison.OrdinalIgnoreCase);
 
-        var effectivePath = isCcrEnabled
-            ? "server.ccr.defaultModelFamily"
-            : "agent.model";
-
-        var effectiveValue = isCcrEnabled
-            ? serverValues.SelectToken("ccr.defaultModelFamily")?.Value<string>() ?? ""
-            : agentValues.SelectToken("model")?.Value<string>() ?? "";
-
         return new SettingsRuntimeDto
         {
             Mode = isCcrEnabled ? "ccr" : "direct",
-            EffectiveDefaultModelPath = effectivePath,
-            EffectiveDefaultModelValue = effectiveValue,
+            EffectiveDefaultModelPath = "web.defaultModel",
+            EffectiveDefaultModelValue = webValues.SelectToken("defaultModel")?.Value<string>() ?? "",
             DockerManagedRestart = dockerManagedRestart,
             RestartBehavior = dockerManagedRestart ? "docker-auto" : "manual",
             RestartHint = dockerManagedRestart

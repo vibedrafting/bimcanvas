@@ -26,7 +26,7 @@ const emit = defineEmits<{
 const groupKeys: SettingsGroupKey[] = ['server', 'web', 'agent', 'ccr']
 const defaultRuntime: SettingsRuntime = {
   mode: 'direct',
-  effectiveDefaultModelPath: 'agent.model',
+  effectiveDefaultModelPath: 'web.defaultModel',
   effectiveDefaultModelValue: '',
   dockerManagedRestart: false,
   restartBehavior: 'manual',
@@ -92,9 +92,7 @@ for (const key of groupKeys) {
 }
 
 const isCcrMode = computed(() => Boolean(drafts.server.values.ccr?.enabled))
-const displayEffectiveModelPath = computed(() => isCcrMode.value
-  ? 'server.ccr.defaultModelFamily'
-  : 'agent.model')
+const displayEffectiveModelPath = computed(() => 'web.defaultModel')
 
 const modelOptions = computed(() => {
   const modelMapping = drafts.agent.values.modelMapping ?? {}
@@ -124,17 +122,10 @@ const modelOptions = computed(() => {
 })
 
 const effectiveDefaultModel = computed({
-  get: () => isCcrMode.value
-    ? drafts.server.values.ccr?.defaultModelFamily ?? ''
-    : drafts.agent.values.model ?? '',
+  get: () => drafts.web.values.defaultModel ?? '',
   set: (value: string) => {
-    if (isCcrMode.value) {
-      drafts.server.values.ccr.defaultModelFamily = value
-      runtime.value.effectiveDefaultModelPath = 'server.ccr.defaultModelFamily'
-    } else {
-      drafts.agent.values.model = value
-      runtime.value.effectiveDefaultModelPath = 'agent.model'
-    }
+    drafts.web.values.defaultModel = value
+    runtime.value.effectiveDefaultModelPath = 'web.defaultModel'
     runtime.value.effectiveDefaultModelValue = value
   }
 })
@@ -179,10 +170,10 @@ function normalize(group: SettingsGroupKey, raw: Record<string, any>) {
     value.ccr.autoStart ??= true
     value.ccr.host ??= '127.0.0.1'
     value.ccr.port ??= 3456
-    value.ccr.defaultModelFamily ??= 'sonnet'
   }
 
   if (group === 'web') {
+    value.defaultModel ??= 'sonnet'
     value.customModels = Array.isArray(value.customModels) ? value.customModels : []
     value.layerPresets ??= {}
     value.layerPresets.User ??= { enabledLayers: [] }
@@ -198,7 +189,6 @@ function normalize(group: SettingsGroupKey, raw: Record<string, any>) {
   if (group === 'agent') {
     value.baseUrl ??= ''
     value.apiKey ??= ''
-    value.model ??= 'sonnet'
     value.defaultEffort ??= 'medium'
     value.defaultThinking ??= 'adaptive'
     value.maxThinkingTokens ??= 8000

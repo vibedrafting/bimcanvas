@@ -71,9 +71,4 @@ public class CcrSection
     /// CCR 配置文件名（位于 <BIMCANVAS_HOME> 下）
     /// </summary>
     public string ConfigFileName { get; set; } = "ccr_config.json";
-
-    /// <summary>
-    /// 默认模型家族（opus/sonnet/haiku）
-    /// </summary>
-    public string DefaultModelFamily { get; set; } = "sonnet";
 }

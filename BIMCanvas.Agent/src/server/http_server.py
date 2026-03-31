@@ -153,7 +153,6 @@ async def config_handler(request: web.Request) -> web.Response:
 
     Response:
         {
-            "model": "sonnet",
             "models": [
                 {"id": "opus", "label": "Opus"},
                 {"id": "sonnet", "label": "Sonnet"},
@@ -175,7 +174,6 @@ async def config_handler(request: web.Request) -> web.Response:
         models.append({"id": alias, "label": label})
 
     return web.json_response({
-        "model": settings.model_name,
         "models": models,
         "defaultEffort": settings.default_effort,
         "defaultThinking": settings.default_thinking,
@@ -212,6 +210,7 @@ async def chat_handler(request: web.Request) -> web.Response:
     window_id = data.get("windowId", "primary")
     worktree_path = data.get("worktreePath")
     message = data.get("message", "")
+    model = data.get("model")
 
     if not message:
         return web.json_response(
@@ -219,9 +218,15 @@ async def chat_handler(request: web.Request) -> web.Response:
             status=400
         )
 
+    if not model:
+        return web.json_response(
+            {"error": "Model is required"},
+            status=400
+        )
+
     try:
         agent = await get_agent(window_id, project_path, worktree_path)  # 按窗口获取
-        reply = await agent.chat(message)
+        reply = await agent.chat(message, model=model)
 
         return web.json_response({
             "reply": reply,
@@ -247,7 +252,7 @@ async def chat_stream_handler(request: web.Request) -> web.StreamResponse:
             "worktreePath": null,                 // optional, 工作目录（虚拟窗口的 Worktree 路径）
             "message": "user message",
             "images": ["base64..."],              // optional, 图片附件列表
-            "model": "claude-sonnet-4-20250514",  // optional, 动态切换模型
+            "model": "claude-sonnet-4-20250514",  // 必填，当前会话模型
             "effort": "high",                     // optional, 推理深度 (low/medium/high/max)
             "thinking": "adaptive"                // optional, 扩展思考 (off/adaptive)
         }
@@ -283,6 +288,12 @@ async def chat_stream_handler(request: web.Request) -> web.StreamResponse:
     if not message:
         return web.json_response(
             {"error": "Message cannot be empty"},
+            status=400
+        )
+
+    if not model:
+        return web.json_response(
+            {"error": "Model is required"},
             status=400
         )
 

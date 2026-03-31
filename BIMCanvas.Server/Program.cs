@@ -435,15 +435,13 @@ var playwrightReady = true;
             // API 网关配置：CCR 启用时走网关，禁用时 Agent 直连 config.json 中的供应商
             if (config.Ccr.Enabled)
             {
-                var defaultModelFamily = NormalizeModelFamily(config.Ccr.DefaultModelFamily);
                 var ccrGatewayUrl = $"http://{config.Ccr.Host}:{config.Ccr.Port}";
                 agentProcess.StartInfo.Environment["AGENT_SDK_API_KEY"] = "bimcanvas-ccr";
                 agentProcess.StartInfo.Environment["AGENT_SDK_BASE_URL"] = ccrGatewayUrl;
-                agentProcess.StartInfo.Environment["MODEL_NAME"] = defaultModelFamily;
 
                 // 模型映射交给 CCR Router，不注入 ANTHROPIC_DEFAULT_*_MODEL
 
-                WriteWithColoredPrefix("[Server]", $"Agent 网关: CCR ({ccrGatewayUrl}), 默认家族: {defaultModelFamily}", ConsoleColor.White);
+                WriteWithColoredPrefix("[Server]", $"Agent 网关: CCR ({ccrGatewayUrl})", ConsoleColor.White);
             }
             else
             {
@@ -1229,21 +1227,6 @@ static async Task<bool> WaitForServiceReadyAsync(string host, int port, int time
         await Task.Delay(300);
     }
     return false;
-}
-
-// 辅助函数：归一化模型家族名称
-static string NormalizeModelFamily(string? modelFamily)
-{
-    var normalized = string.IsNullOrWhiteSpace(modelFamily)
-        ? "sonnet"
-        : modelFamily.Trim().ToLowerInvariant();
-
-    return normalized switch
-    {
-        "opus" => "opus",
-        "haiku" => "haiku",
-        _ => "sonnet"
-    };
 }
 
 static ProcessStartInfo CreateShellProcessStartInfo(string command, string? workingDirectory = null)

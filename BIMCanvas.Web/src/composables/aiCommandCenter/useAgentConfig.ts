@@ -45,6 +45,23 @@ export const useAgentConfig = (agentApiBase: string, serverApiBase: string) => {
     }));
   };
 
+  const applyDefaultModel = (defaultModelId?: string) => {
+    const normalized = defaultModelId?.trim();
+    if (normalized) {
+      let found = models.value.find(model => model.id === normalized);
+      if (!found) {
+        found = { id: normalized, label: normalized };
+        models.value.push(found);
+      }
+      currentModel.value = found;
+      return;
+    }
+
+    if (!currentModel.value && models.value.length > 0) {
+      currentModel.value = models.value[0] ?? null;
+    }
+  };
+
   const saveCustomModels = async () => {
     try {
       await fetch(`${serverApiBase}/api/web_config`, {
@@ -99,6 +116,7 @@ export const useAgentConfig = (agentApiBase: string, serverApiBase: string) => {
 
   const fetchAgentConfig = async () => {
     try {
+      let webDefaultModel = '';
       const [configRes, webConfigRes] = await Promise.all([
         fetch(`${agentApiBase}/api/config`),
         fetch(`${serverApiBase}/api/web_config`)
@@ -106,30 +124,20 @@ export const useAgentConfig = (agentApiBase: string, serverApiBase: string) => {
 
       if (webConfigRes.ok) {
         const webConfig = await webConfigRes.json();
+        webDefaultModel = typeof webConfig.defaultModel === 'string' ? webConfig.defaultModel : '';
         applyWebConfig(webConfig, 'replace');
         console.log('图层预设配置已加载:', layerPresets.value);
       }
 
       if (configRes.ok) {
         const config = await configRes.json();
-        const { model: defaultModel, models: agentModels, defaultEffort: cfgEffort, defaultThinking: cfgThinking } = config;
+        const { models: agentModels, defaultEffort: cfgEffort, defaultThinking: cfgThinking } = config;
 
         // Agent 返回了 models → 用作主模型列表（优先于 web_config 的 customModels）
         if (agentModels && agentModels.length > 0) {
           const agentModelIds = new Set(agentModels.map((m: { id: string }) => m.id));
           const extraModels = models.value.filter(m => !agentModelIds.has(m.id));
           models.value = [...agentModels, ...extraModels];
-        }
-
-        if (defaultModel) {
-          let found = models.value.find(m => m.id === defaultModel);
-          if (!found) {
-            found = { id: defaultModel, label: defaultModel };
-            models.value.push(found);
-          }
-          currentModel.value = found;
-        } else if (models.value.length > 0) {
-          currentModel.value = models.value[0] ?? null;
         }
 
         if (cfgEffort) {
@@ -146,6 +154,8 @@ export const useAgentConfig = (agentApiBase: string, serverApiBase: string) => {
           }
         }
       }
+
+      applyDefaultModel(webDefaultModel);
 
       console.log('Agent 配置已加载:', {
         model: currentModel.value?.id,

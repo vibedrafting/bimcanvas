@@ -51,7 +51,7 @@ docker run --rm -p 5000:5000 -p 8865:8865 bimcanvas:local
 | API 端口 | `launchSettings.json` | `5000` | REST API 服务端口 |
 | Web 开发端口 | 自动检测 | `5173` | 仅 Development 模式下用于 Vite dev server |
 | 项目目录 | `<BIMCANVAS_HOME>/Projects/` | Windows: `Documents/BIMCanvas/Projects/` | 项目解压目录 |
-| CCR 配置 | `<BIMCANVAS_HOME>/server_config.json` | `enabled=true` | 网关启用、端口、模型家族 |
+| CCR 配置 | `<BIMCANVAS_HOME>/server_config.json` | `enabled=true` | 网关启用、端口 |
 | CCR Router 配置 | `<BIMCANVAS_HOME>/ccr_config.json` | 自动初始化 | 供应商 / 模型路由映射 |
 | `BIMCANVAS_HOME` | 环境变量 | Windows: `Documents/BIMCanvas`；Docker: `/data` | 全局配置、项目、截图的根目录 |
 | `BIMCANVAS_WEB_DIST` | 环境变量 | Docker: `/app/BIMCanvas.Web/dist` | Production 模式静态托管目录 |
@@ -77,7 +77,7 @@ docker run --rm -p 5000:5000 -p 8865:8865 bimcanvas:local
 Server 默认托管 CCR (Claude Code Router)，用于给 Agent SDK 提供统一的 Anthropic 风格入口，再转发到真实下游 provider。
 
 - 模型路由由 `<BIMCANVAS_HOME>/ccr_config.json` 的 `Router` 字段配置（`default` / `think` / `background` / `longContext` 分别控制不同类型请求的供应商和模型）
-- 默认模型家族通过 `<BIMCANVAS_HOME>/server_config.json > ccr.defaultModelFamily` 指定，由 Server 注入 Agent 的 `MODEL_NAME`；这里仍只表示 Claude 家族语义（`opus / sonnet / haiku`），真实下游模型由 `ccr_config.json > Router` 决定
+- Web 对话默认模型统一由 `<BIMCANVAS_HOME>/web_config.json > defaultModel` 管理；Server 只负责网关连接与路由，不再持有默认模型
 - 当 `ccr.enabled=false` 时，不启动 CCR，Agent 走直连模式（使用 `<BIMCANVAS_HOME>/config.json`）
 - 切换供应商后需要重启 Server
 - 如果 CCR 不可用，Server 与 Web 仍会启动，但 AI 请求会在运行时失败并输出明确日志

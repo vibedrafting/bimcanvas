@@ -5,6 +5,7 @@ namespace BIMCanvas.Server.Models;
 /// </summary>
 public class WebConfig
 {
+    public string DefaultModel { get; set; } = "sonnet";
     public List<CustomModel> CustomModels { get; set; } = new();
     public Dictionary<string, LayerPreset>? LayerPresets { get; set; }
 }
