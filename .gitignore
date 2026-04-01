@@ -12,7 +12,7 @@
 /.tmp/
 /.vs/
 /.vscode/
-/docs/*
+/docs/
 /plans/
 /publish/
 /references/
