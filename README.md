@@ -68,74 +68,17 @@ dotnet publish BIMCanvas.Server -c Release -o publish
 
 > 发布路径必须为项目根目录下的 `publish/` 文件夹（`-o publish`）。项目绝对路径因电脑而异，命令中无需写绝对路径，在项目根目录执行即可。
 
-#### 3. Docker 生产态
+#### 3. Linux 服务器 Docker 部署
 
-```bash
-# 构建镜像
-docker build -t bimcanvas:local -f deploy/Dockerfile .
+Linux 服务器部署统一入口见 [docs/Doc_Docker_Linux_Deployment.md](docs/Doc_Docker_Linux_Deployment.md)。
 
-# 启动单实例（临时，退出即删除容器）
-docker run --rm -p 5000:5000 -p 8865:8865 bimcanvas:local
+当前 Docker 基线是：
 
-# 持久化数据（Linux 宿主机示例）
-docker run --rm -p 5000:5000 -p 8865:8865 -v /path/to/data:/data bimcanvas:local
-
-# 持久化数据（Windows 宿主机示例）
-docker run --rm -p 5000:5000 -p 8865:8865 -v C:\Users\<user>\Documents\bimcanvas-data:/data bimcanvas:local
-```
-
-默认行为：
-
-- Server 在 `http://localhost:5000` 直接托管 Web `dist/`
-- Agent 对外监听 `http://localhost:8865`
-- 不启动 Vite dev server，不自动打开浏览器
-- 配置与项目数据默认写入容器内 `/data`（正式持久化需挂卷）
-
-路径语义说明：
-
-- 容器内路径始终是 `/data`
-- Windows 本机 Docker 看到的 `C:\Users\...\bimcanvas-data` 是宿主机挂载路径，不是容器内路径
-- 正式 Linux 服务器推荐将 `BIMCANVAS_DATA_ROOT` 固定为 `/srv/bimcanvas-data`
-
-**构建后快速验证**：
-
-```bash
-# 健康检查
-curl http://localhost:5000/health
-curl http://localhost:8865/health
-
-# 验证内部工具链
-docker run --rm bimcanvas:local which python
-docker run --rm bimcanvas:local python -c "import claude_agent_sdk; print('ok')"
-docker run --rm bimcanvas:local claude --version
-docker run --rm bimcanvas:local ccr --version
-```
-
-浏览器访问 `http://localhost:5000`，可完成：上传 `.bcp` → AI 对话 → 后台截图 完整链路验证。
-
-#### 4. 远程服务器部署
-
-当前代码与文档基线已经完成到“阶段三”，即：
-
-- Windows 开发态与 Docker 生产态已分叉稳定
-- 单实例 Docker 已可用
-- 实例级统一配置 UI 已落地
-
-阶段四将继续基于现有 `deploy/Dockerfile`、`deploy/start.sh`、`deploy/docker-compose.yml`、`deploy/nginx.conf` 在远程 Linux 服务器上完成正式部署。
-
-相关文档：
-
-- [plans/Docker_Deployment_Implementation_Plan.md](plans/Docker_Deployment_Implementation_Plan.md)
-- [docs/Doc_Docker_Deployment_Framework.md](docs/Doc_Docker_Deployment_Framework.md)
-
-### 当前部署进展
-
-截至 2026-03-30，Docker 相关工作已完成阶段一到三，当前基线是：
-
-- 生产模式由 Server 直接托管 Web 静态资源，不再依赖 Vite dev server
-- `deploy/start.sh` 负责实例 bootstrap，`instance.env` 只用于首次初始化与缺省值补齐
-- 首页“实例设置”已成为实例内部应用配置的正式入口
-- 阶段四待实施内容集中在远程 Linux 服务器部署、多实例回归和同源 `/agent` 代理复核
+- `deploy/docker-compose.yml` + `deploy/nginx.conf` 作为服务器编排入口
+- `deploy/start.sh` 负责实例 bootstrap
+- `instance.env` 只用于首次初始化与缺省值补齐
+- 首页“实例设置”是实例内部应用配置的正式入口
+- 设计与运行原理见 [docs/Doc_Docker_Deployment_Framework.md](docs/Doc_Docker_Deployment_Framework.md)
 
 ---
 

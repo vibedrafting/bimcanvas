@@ -84,6 +84,12 @@ copy_if_missing "$AGENT_TEMPLATE_ROOT/agents" "$CONFIG_ROOT/agents"
 copy_if_missing "$AGENT_TEMPLATE_ROOT/skills" "$CONFIG_ROOT/skills"
 copy_if_missing "$AGENT_TEMPLATE_ROOT/.claude-plugin" "$CONFIG_ROOT/.claude-plugin"
 
+if [ "$BOOTSTRAPPED_SERVER_CONFIG" = "1" ] || [ "$BOOTSTRAPPED_WEB_CONFIG" = "1" ] || [ "$BOOTSTRAPPED_AGENT_CONFIG" = "1" ] || [ "$BOOTSTRAPPED_CCR_CONFIG" = "1" ]; then
+    log "Bootstrap mode: initialized one or more missing runtime config files under $CONFIG_ROOT"
+else
+    log "Bootstrap mode: reusing existing runtime config files under $CONFIG_ROOT"
+fi
+
 export BOOTSTRAPPED_SERVER_CONFIG
 export BOOTSTRAPPED_WEB_CONFIG
 export BOOTSTRAPPED_AGENT_CONFIG
@@ -132,6 +138,14 @@ ccr_section = server_config.setdefault("ccr", {})
 bootstrapped_server = os.getenv("BOOTSTRAPPED_SERVER_CONFIG") == "1"
 bootstrapped_agent = os.getenv("BOOTSTRAPPED_AGENT_CONFIG") == "1"
 bootstrapped_ccr = os.getenv("BOOTSTRAPPED_CCR_CONFIG") == "1"
+bootstrapped_web = os.getenv("BOOTSTRAPPED_WEB_CONFIG") == "1"
+
+bootstrap_summary = {
+    "server_config.json": bootstrapped_server,
+    "web_config.json": bootstrapped_web,
+    "config.json": bootstrapped_agent,
+    "ccr_config.json": bootstrapped_ccr,
+}
 
 if bootstrapped_server:
     startup_section["openBrowser"] = False
@@ -151,6 +165,8 @@ ccr_enabled = bool(ccr_section.get("enabled", False))
 agent_config = load_json(agent_config_path)
 anthropic_model = os.getenv("ANTHROPIC_MODEL", "").strip()
 ccr_model_family = os.getenv("CCR_MODEL_FAMILY", "").strip()
+anthropic_api_key = os.getenv("ANTHROPIC_API_KEY", "").strip()
+anthropic_base_url = os.getenv("ANTHROPIC_BASE_URL", "").strip()
 
 if anthropic_model:
     web_config["defaultModel"] = anthropic_model
@@ -158,9 +174,6 @@ elif ccr_model_family:
     web_config["defaultModel"] = ccr_model_family
 
 if bootstrapped_agent and not ccr_enabled:
-    anthropic_api_key = os.getenv("ANTHROPIC_API_KEY", "").strip()
-    anthropic_base_url = os.getenv("ANTHROPIC_BASE_URL", "").strip()
-
     if anthropic_api_key:
         agent_config["apiKey"] = anthropic_api_key
 
@@ -216,6 +229,32 @@ if ccr_enabled:
 
 if bootstrapped_server:
     save_json(server_config_path, server_config)
+
+created_files = [name for name, created in bootstrap_summary.items() if created]
+if created_files:
+    print(f"[start.sh] Bootstrap summary: created {', '.join(created_files)}")
+else:
+    print("[start.sh] Bootstrap summary: no new runtime config files were created")
+
+print("[start.sh] Runtime config source: /data/*.json and the settings UI are the long-term source")
+
+if ccr_enabled:
+    print("[start.sh] AI mode: CCR gateway")
+    providers = (load_json(ccr_user_config_path).get("Providers") or []) if ccr_user_config_path.exists() else []
+    if not providers:
+        print(
+            "[start.sh] CCR is enabled but /data/ccr_config.json has no provider entries. "
+            "Seed providers before first start via instance-*.env + prebuilt config, or edit "
+            "/data/ccr_config.json / settings UI now."
+        )
+else:
+    print("[start.sh] AI mode: direct Anthropic-compatible endpoint")
+    has_runtime_api_key = bool(str(agent_config.get("apiKey") or "").strip())
+    if not has_runtime_api_key and not anthropic_api_key:
+        print(
+            "[start.sh] Direct mode has no API key. Set ANTHROPIC_API_KEY in instance-*.env "
+            "before first start, or update /data/config.json / settings UI after bootstrap."
+        )
 PY
 
 log "Starting BIMCanvas Server in Production mode"
