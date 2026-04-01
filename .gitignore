@@ -13,7 +13,6 @@
 /.vs/
 /.vscode/
 /docs/*
-!/docs/Doc_Docker_Linux_Deployment.md
 /plans/
 /publish/
 /references/
