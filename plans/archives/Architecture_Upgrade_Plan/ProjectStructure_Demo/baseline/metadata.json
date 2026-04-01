@@ -1,9 +1,0 @@
-{
-  "exportDate": "2025-12-24T09:00:00Z",
-  "revitVersion": "2024",
-  "placementElevation": 3000,
-  "origin": [0, 0, 0],
-  "rotation": 0,
-  "transformMethod": "projectBasePoint",
-  "unitSystem": "metric_mm"
-}
