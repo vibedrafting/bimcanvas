@@ -70,15 +70,12 @@ dotnet publish BIMCanvas.Server -c Release -o publish
 
 #### 3. Linux 服务器 Docker 部署
 
-Linux 服务器部署统一入口见 [docs/Doc_Docker_Linux_Deployment.md](docs/Doc_Docker_Linux_Deployment.md)。
-
 当前 Docker 基线是：
 
 - `deploy/docker-compose.yml` + `deploy/nginx.conf` 作为服务器编排入口
 - `deploy/start.sh` 负责实例 bootstrap
 - `instance.env` 只用于首次初始化与缺省值补齐
 - 首页“实例设置”是实例内部应用配置的正式入口
-- 设计与运行原理见 [docs/Doc_Docker_Deployment_Framework.md](docs/Doc_Docker_Deployment_Framework.md)
 
 ---
 
@@ -131,28 +128,28 @@ Linux 服务器部署统一入口见 [docs/Doc_Docker_Linux_Deployment.md](docs/
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
-│                      用户交互层                                    │
-│         Web UI (Vue 3)  /  Claude Code (AI CLI)                   │
-└──────────┬──────────────────────────────┬────────────────────────┘
+│                      用户交互层                                   │
+│         Web UI (Vue 3)  /  Claude Code (AI CLI)                 │
+└──────────┬──────────────────────────────┬───────────────────────┘
            │ REST / SignalR               │ HTTP / SSE
            ▼                              ▼
 ┌───────────────────────┐      ┌───────────────────────┐
 │  BIMCanvas.Server     │      │  BIMCanvas.Agent      │
 │  (.NET 8.0)           │◄────►│  (Python 3.10+)       │
-│  状态管理+通信中枢     │ HTTP │  MainAgent+SubAgent   │
-│  Canvas-MCP 工具      │      │  AI 决策+工具调用      │
+│  状态管理+通信中枢       │ HTTP │  MainAgent+SubAgent   │
+│  Canvas-MCP 工具       │      │  AI 决策+工具调用       │
 └───────────┬───────────┘      └───────────────────────┘
             │ 引用
 ┌───────────┴───────────┐
 │  BIMCanvas.Core       │
 │  (.NET Std 2.0)       │
-│  数据模型+空间算法     │
+│  数据模型+空间算法       │
 └───────────────────────┘
             │ 引用
 ┌───────────┴───────────┐
 │  BIMCanvas.Revit      │
 │  (.NET FW 4.7.2)      │
-│  Revit 导出+回写       │
+│  Revit 导出+回写        │
 └───────────────────────┘
 ```
 
@@ -349,19 +346,3 @@ project.bcp (ZIP) → 解压为 Git 仓库
 - ✅ 实现 Revit → JSON 导出（6 阶段导出流程）
 - ✅ 实现 .bcp 格式导出
 - ⬜ 实现 JSON → Revit 同步（回写家具）
-
----
-
-## 相关文档
-
-| 文档 | 说明 |
-|------|------|
-| [Architecture.md](./docs/Architecture.md) | 系统架构设计 |
-| [Schema.md](./docs/Schema.md) | JSON 数据模型规范 |
-| [Agent_Design.md](./docs/Agent_Design.md) | Agent 架构与提示词设计 |
-| [PRD.md](./docs/PRD.md) | 产品需求文档 |
-| [Flow_Workflows.md](./docs/Flow_Workflows.md) | 端到端业务流程 |
-| [Arch_Agent_Git_Workflow.md](./docs/Arch_Agent_Git_Workflow.md) | Agent Git 工具体系 |
-| [BIMCanvas.Agent/README.md](./BIMCanvas.Agent/README.md) | Agent 实现文档 |
-| [BIMCanvas.Server/README.md](./BIMCanvas.Server/README.md) | Server 实现文档 |
-| [BIMCanvas.Web/README.md](./BIMCanvas.Web/README.md) | Web 前端文档 |
