@@ -123,6 +123,25 @@ def is_blank(value: object) -> bool:
     return value is None or (isinstance(value, str) and not value.strip())
 
 
+def normalize_url(value: object) -> str:
+    return str(value or "").strip().rstrip("/")
+
+
+def is_local_agent_base_url(value: object) -> bool:
+    normalized = normalize_url(value)
+    if not normalized:
+        return True
+
+    try:
+        from urllib.parse import urlparse
+
+        parsed = urlparse(normalized)
+        host = (parsed.hostname or "").strip().lower()
+        return host in {"localhost", "127.0.0.1", "0.0.0.0"}
+    except Exception:
+        return False
+
+
 home = Path(os.environ["BIMCANVAS_HOME"])
 server_config_path = home / "server_config.json"
 web_config_path = home / "web_config.json"
@@ -166,16 +185,36 @@ if "autoStart" not in agent_section:
 if "baseUrl" not in agent_section:
     agent_section["baseUrl"] = ""
 
+current_agent_base_url = normalize_url(agent_section.get("baseUrl"))
+current_agent_autostart = bool(agent_section.get("autoStart", True))
 agent_autostart_override = parse_optional_bool(os.getenv("BIMCANVAS_AGENT_AUTOSTART"))
-if agent_autostart_override is not None and (bootstrapped_server or "autoStart" not in agent_section):
+agent_base_url = os.getenv("BIMCANVAS_AGENT_BASE_URL", "").strip()
+topology_matches_env = bool(agent_base_url) and current_agent_base_url == agent_base_url.rstrip("/")
+legacy_embedded_topology = current_agent_autostart and is_local_agent_base_url(current_agent_base_url)
+
+if agent_autostart_override is not None and (
+    bootstrapped_server or
+    "autoStart" not in agent_section or
+    legacy_embedded_topology or
+    topology_matches_env
+):
     agent_section["autoStart"] = agent_autostart_override
 
-agent_base_url = os.getenv("BIMCANVAS_AGENT_BASE_URL", "").strip()
-if agent_base_url and (bootstrapped_server or is_blank(agent_section.get("baseUrl"))):
+if agent_base_url and (
+    bootstrapped_server or
+    is_blank(agent_section.get("baseUrl")) or
+    legacy_embedded_topology or
+    topology_matches_env
+):
     agent_section["baseUrl"] = agent_base_url
 
 agent_health_path = os.getenv("BIMCANVAS_AGENT_HEALTH_PATH", "").strip()
-if agent_health_path and (bootstrapped_server or is_blank(agent_section.get("healthPath"))):
+if agent_health_path and (
+    bootstrapped_server or
+    is_blank(agent_section.get("healthPath")) or
+    legacy_embedded_topology or
+    topology_matches_env
+):
     agent_section["healthPath"] = agent_health_path
 
 python_command = os.getenv("BIMCANVAS_PYTHON_COMMAND", "").strip()

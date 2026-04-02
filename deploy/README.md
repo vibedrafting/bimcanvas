@@ -135,6 +135,7 @@ docker compose -f deploy/docker-compose.yml -f deploy/docker-compose.server.yml 
 
 - `.env`、`instance-1.env`、`instance-2.env` 是实际运行文件，不是共享模板
 - 长期应用配置真源是容器挂载目录 `/data/*.json`，不是 `instance-*.env`
+- 容器启动时会对旧版 `/data/server_config.json` 做兼容迁移；若检测到历史“Server 内嵌 Agent”拓扑，会自动收敛到当前 Compose 指定的外部 Agent 地址
 - 修改 Linux shell 脚本时必须保持 `LF` 换行，避免容器启动失败
 - 端口、本地路径这类“宿主机差异”优先放进 `.env` 和 compose overlay，不要塞进应用配置
 

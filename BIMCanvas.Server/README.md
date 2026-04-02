@@ -43,6 +43,7 @@ docker compose -f deploy/docker-compose.yml -f deploy/docker-compose.local.yml u
 3. Docker 推荐通过内部网络连接独立 Agent 容器；Development 模式下仍可自动拉起本地 Agent
 4. 不自动打开浏览器
 5. 全局配置与项目数据统一落到 `BIMCANVAS_HOME`（容器默认 `/data`）
+6. 若挂载目录里仍是旧版“Server 内嵌 Agent”配置，容器启动时会自动迁移为 Compose 指定的外部 Agent 拓扑
 
 ### 关键配置项
 

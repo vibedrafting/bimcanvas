@@ -133,6 +133,7 @@ var config = ConfigService.Load();
 var agentAutoStart = config.Agent.AutoStart;
 var agentPort = config.Agent.GetResolvedPort(config.Server.Port);
 var agentBaseUrl = config.Agent.GetResolvedBaseUrl(config.Server.Port);
+var agentManagedByServer = agentAutoStart && IsLocalDevelopmentOrigin(agentBaseUrl);
 var pythonCommand = config.Agent.GetResolvedPythonCommand(config.Server.PythonCommand);
 var serverBaseUrl = builder.Configuration["Web:BaseUrl"] ?? "http://localhost:5000";
 var startupErrors = new List<string>();
@@ -319,8 +320,16 @@ var playwrightReady = true;
 
     WriteWithColoredPrefix("[Server]", "环境检测中...", ConsoleColor.White);
 
-    if (!agentAutoStart)
+    if (!agentManagedByServer)
     {
+        if (agentAutoStart)
+        {
+            WriteWithColoredPrefix(
+                "[Server:WARN]",
+                $"检测到 Agent 配置冲突：autoStart=true 但 baseUrl 指向外部地址，已按外部依赖模式处理 ({agentBaseUrl})",
+                ConsoleColor.DarkYellow);
+        }
+
         WriteWithColoredPrefix("[Server]", $"Agent 服务模式: 外部依赖 ({agentBaseUrl})", ConsoleColor.White);
     }
     else if (!Directory.Exists(agentDir))
@@ -458,7 +467,7 @@ var playwrightReady = true;
     CcrSkipped:
 
     // 2. 启动 Agent 服务（仅托管模式）
-    if (agentReady && agentAutoStart)
+    if (agentReady && agentManagedByServer)
     {
         // 检测并清理端口占用
         if (IsPortOccupied(agentPort, out var occupyingPid))
@@ -551,7 +560,7 @@ var playwrightReady = true;
             }
         }
     }
-    else if (!agentAutoStart)
+    else if (!agentManagedByServer)
     {
         WriteWithColoredPrefix("[Server]", $"Agent 服务由外部容器提供: {agentBaseUrl}", ConsoleColor.White);
     }
