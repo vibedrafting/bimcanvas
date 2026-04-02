@@ -72,7 +72,7 @@ dotnet publish BIMCanvas.Server -c Release -o publish
 
 当前 Docker 基线是：
 
-- `deploy/docker-compose.yml` + `deploy/nginx.conf` 作为服务器编排入口
+- `deploy/docker-compose.yml` + `deploy/docker-compose.server.yml` + `deploy/nginx.server.conf` 作为服务器编排入口
 - `deploy/start.sh` 负责实例 bootstrap
 - `instance.env` 只用于首次初始化与缺省值补齐
 - 首页“实例设置”是实例内部应用配置的正式入口

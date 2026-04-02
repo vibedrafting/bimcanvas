@@ -30,18 +30,17 @@ dotnet run --project BIMCanvas.Server
 
 ### Production / Docker
 
-典型运行方式：
+当前推荐运行方式：
 
 ```bash
-docker build -t bimcanvas:local -f deploy/Dockerfile .
-docker run --rm -p 5000:5000 -p 8865:8865 bimcanvas:local
+docker compose -f deploy/docker-compose.yml -f deploy/docker-compose.local.yml up -d --build instance1
 ```
 
 #### 启动行为
 
 1. 以 `ASPNETCORE_ENVIRONMENT=Production` 启动发布版 `BIMCanvas.Server.dll`
 2. Server 直接托管 `BIMCanvas.Web/dist`，对外提供 `http://localhost:5000`
-3. 自动启动 Agent 服务，但不会启动 Vite dev server
+3. Docker 推荐通过内部网络连接独立 Agent 容器；Development 模式下仍可自动拉起本地 Agent
 4. 不自动打开浏览器
 5. 全局配置与项目数据统一落到 `BIMCANVAS_HOME`（容器默认 `/data`）
 
@@ -58,7 +57,7 @@ docker run --rm -p 5000:5000 -p 8865:8865 bimcanvas:local
 | 开发态 CCR 种子 | `<BIMCANVAS_HOME>/ccr_config.dev.local.json` | Development 自动生成 | 本地私有 `Providers/Router` 初始化种子 |
 | `BIMCANVAS_HOME` | 环境变量 | Windows: `Documents/BIMCanvas`；Docker: `/data` | 全局配置、项目、截图的根目录 |
 | `BIMCANVAS_WEB_DIST` | 环境变量 | Docker: `/app/BIMCanvas.Web/dist` | Production 模式静态托管目录 |
-| `BIMCANVAS_PYTHON_COMMAND` | 环境变量 | Docker: `/app/BIMCanvas.Agent/venv/bin/python` | Server 拉起 Agent 时使用的 Python |
+| `BIMCANVAS_PYTHON_COMMAND` | 环境变量 | Docker: `python3` | Server 拉起本地 Agent 时使用的 Python |
 | `ASPNETCORE_ENVIRONMENT` | 环境变量 | `Development` / `Production` | 控制是否启动 dev server、是否自动打开浏览器 |
 
 ### 实例配置

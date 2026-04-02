@@ -1,0 +1,22 @@
+services:
+  instance1:
+    ports:
+      - "6001:5000"
+
+  instance2:
+    ports:
+      - "6002:5000"
+
+  gateway:
+    image: nginx:alpine
+    container_name: bimcanvas-gateway
+    depends_on:
+      - instance1
+      - instance2
+    ports:
+      - "80:80"
+    volumes:
+      - ./nginx.server.conf:/etc/nginx/nginx.conf:ro
+    restart: unless-stopped
+    networks:
+      - bimcanvas

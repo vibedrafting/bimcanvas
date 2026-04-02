@@ -154,11 +154,15 @@ function normalize(group: SettingsGroupKey, raw: Record<string, any>) {
   const value = clone(raw ?? {})
 
   if (group === 'server') {
-    value.server ??= {}
+    const legacyServer = value.server ?? {}
+    value.agent ??= {}
     value.startup ??= {}
     value.ccr ??= {}
-    value.server.port ??= 8865
-    value.server.pythonCommand ??= 'python'
+    value.agent.autoStart ??= true
+    value.agent.baseUrl ??= ''
+    value.agent.healthPath ??= '/health'
+    value.agent.port ??= legacyServer.port ?? 8865
+    value.agent.pythonCommand ??= legacyServer.pythonCommand ?? 'python'
     value.startup.openBrowser ??= false
     value.startup.browserPath ??= ''
     value.ccr.enabled ??= false
@@ -470,15 +474,39 @@ onMounted(() => {
 
               <div class="form-grid">
                 <div class="field">
-                  <label>Server 端口</label>
-                  <input v-model.number="drafts.server.values.server.port" type="number">
+                  <label>Agent 基址</label>
+                  <input v-model="drafts.server.values.agent.baseUrl" type="text" placeholder="留空时回退到本地托管 Agent">
+                </div>
+                <div class="field">
+                  <label>健康检查路径</label>
+                  <input v-model="drafts.server.values.agent.healthPath" type="text" placeholder="/health">
+                </div>
+              </div>
+
+              <div class="form-grid mt-md">
+                <div class="field">
+                  <label>Agent 监听端口</label>
+                  <input v-model.number="drafts.server.values.agent.port" type="number">
                 </div>
                 <div class="field">
                   <label>Python 命令</label>
-                  <input v-model="drafts.server.values.server.pythonCommand" type="text" placeholder="python 或 python3">
+                  <input v-model="drafts.server.values.agent.pythonCommand" type="text" placeholder="python 或 python3">
                 </div>
               </div>
-              
+
+              <div class="form-grid mt-md">
+                <div class="field field-checkbox">
+                  <label class="checkbox-label">
+                    <input type="checkbox" v-model="drafts.server.values.agent.autoStart" class="checkbox-input">
+                    <span class="custom-checkbox"></span>
+                    <div class="checkbox-texts">
+                      <span class="primary">自动启动内置 Agent</span>
+                      <span class="secondary">关闭后，Server 将通过 Agent 基址连接外部 Agent 服务</span>
+                    </div>
+                  </label>
+                </div>
+              </div>
+
               <div class="form-grid mt-md">
                 <div class="field" :class="{ 'opacity-muted': !isCcrMode }">
                   <label>CCR Host</label>

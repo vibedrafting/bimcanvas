@@ -20,7 +20,7 @@
 
 - 生产静态资源由 Server 直接托管，页面基址默认与 Server 同源
 - `VITE_SERVER_URL` 为空时，Server API 与 SignalR 默认走同源路径
-- `VITE_AGENT_URL` 为空时，优先走同主机 `8865`；在 Nginx 同源部署下应通过 `/agent` 代理收口
+- `VITE_AGENT_URL` 为空时，生产态默认走同源 `/agent`
 - 这意味着阶段四服务器部署时，Web 不再假设 Vite dev server 存在
 
 ### 首页实例设置台
@@ -135,7 +135,7 @@
 - **子任务可视化**: SubAgent/ToolCall 气泡模型 + Waiting 提示。
 - **截图附件**: 框选截图、保存到本地、加入待发送附件队列。
 - **模型/思考强度**: 模型列表来自 `/api/config` 与 `/api/web_config`，默认模型来自 `/api/web_config.defaultModel`，思考强度来自 `/api/config`。
-- **接口基址兜底**: 未显式配置 `VITE_SERVER_URL` / `VITE_AGENT_URL` 时，开发态默认使用当前主机的 `5000/8865`；生产静态托管时 Server 默认同源，阶段四目标是通过 Nginx 将 Agent 收口到同源 `/agent`。
+- **接口基址兜底**: 未显式配置 `VITE_SERVER_URL` / `VITE_AGENT_URL` 时，开发态默认使用当前主机的 `5000/8865`；生产静态托管时，Server 与 Agent 默认统一收口到同源入口，其中 Agent 走 `/agent`。
 
 **代码拆分**（核心文件）:
 - `src/components/UI/AICommandCenter.vue`: 组装层，负责 UI 绑定与模块协作。

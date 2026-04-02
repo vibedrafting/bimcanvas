@@ -23,8 +23,6 @@ copy_if_missing() {
 }
 
 BIMCANVAS_HOME="${BIMCANVAS_HOME:-/data}"
-AGENT_VENV_BIN="/app/BIMCanvas.Agent/venv/bin"
-AGENT_VENV_PYTHON="$AGENT_VENV_BIN/python"
 export BIMCANVAS_HOME
 export ASPNETCORE_ENVIRONMENT="${ASPNETCORE_ENVIRONMENT:-Production}"
 export ASPNETCORE_URLS="${ASPNETCORE_URLS:-http://0.0.0.0:5000}"
@@ -32,18 +30,17 @@ export SERVER_HOST="${SERVER_HOST:-0.0.0.0}"
 export BIMCANVAS_WEB_URL="${BIMCANVAS_WEB_URL:-http://localhost:5000}"
 export BIMCANVAS_WEB_DIST="${BIMCANVAS_WEB_DIST:-/app/BIMCanvas.Web/dist}"
 export PLAYWRIGHT_BROWSERS_PATH="${PLAYWRIGHT_BROWSERS_PATH:-/root/.local/share/ms-playwright}"
-export BIMCANVAS_PYTHON_COMMAND="${BIMCANVAS_PYTHON_COMMAND:-$AGENT_VENV_PYTHON}"
-export PATH="${AGENT_VENV_BIN}:/root/.dotnet/tools:${PATH}"
+export BIMCANVAS_PYTHON_COMMAND="${BIMCANVAS_PYTHON_COMMAND:-python3}"
 
 if [ "$#" -gt 0 ]; then
     exec "$@"
 fi
 
 log "BIMCANVAS_HOME=$BIMCANVAS_HOME"
-log "BIMCANVAS_PYTHON_COMMAND=$BIMCANVAS_PYTHON_COMMAND"
+log "BIMCANVAS_WEB_DIST=$BIMCANVAS_WEB_DIST"
 
 CONFIG_ROOT="$BIMCANVAS_HOME"
-TEMPLATE_ROOT="/app/BIMCanvas.Server/Templates/global-config"
+TEMPLATE_ROOT="/app/server/Templates/global-config"
 SERVER_TEMPLATE_ROOT="$TEMPLATE_ROOT/server"
 AGENT_TEMPLATE_ROOT="$TEMPLATE_ROOT/agent"
 
@@ -122,16 +119,21 @@ def parse_optional_bool(raw: str | None) -> bool | None:
     return value in {"1", "true", "yes", "on"}
 
 
+def is_blank(value: object) -> bool:
+    return value is None or (isinstance(value, str) and not value.strip())
+
+
 home = Path(os.environ["BIMCANVAS_HOME"])
 server_config_path = home / "server_config.json"
 web_config_path = home / "web_config.json"
 agent_config_path = home / "config.json"
 ccr_user_config_path = home / "ccr_config.json"
-ccr_template_path = Path("/app/BIMCanvas.Server/Templates/global-config/server/ccr_config.json")
+ccr_template_path = Path("/app/server/Templates/global-config/server/ccr_config.json")
 
 server_config = load_json(server_config_path)
 web_config = load_json(web_config_path)
 server_section = server_config.setdefault("server", {})
+agent_section = server_config.setdefault("agent", {})
 startup_section = server_config.setdefault("startup", {})
 ccr_section = server_config.setdefault("ccr", {})
 
@@ -150,15 +152,41 @@ bootstrap_summary = {
 if bootstrapped_server:
     startup_section["openBrowser"] = False
 
-    python_command = os.getenv("BIMCANVAS_PYTHON_COMMAND", "").strip()
-    if python_command:
-        server_section["pythonCommand"] = python_command
+legacy_port = server_section.get("port", 8865)
+legacy_python = server_section.get("pythonCommand", "python")
 
-    ccr_enabled_override = parse_optional_bool(os.getenv("CCR_ENABLED"))
-    if ccr_enabled_override is not None:
-        ccr_section["enabled"] = ccr_enabled_override
-        if ccr_enabled_override:
-            ccr_section["autoStart"] = True
+if is_blank(agent_section.get("port")):
+    agent_section["port"] = legacy_port
+if is_blank(agent_section.get("pythonCommand")):
+    agent_section["pythonCommand"] = legacy_python
+if is_blank(agent_section.get("healthPath")):
+    agent_section["healthPath"] = "/health"
+if "autoStart" not in agent_section:
+    agent_section["autoStart"] = True
+if "baseUrl" not in agent_section:
+    agent_section["baseUrl"] = ""
+
+agent_autostart_override = parse_optional_bool(os.getenv("BIMCANVAS_AGENT_AUTOSTART"))
+if agent_autostart_override is not None and (bootstrapped_server or "autoStart" not in agent_section):
+    agent_section["autoStart"] = agent_autostart_override
+
+agent_base_url = os.getenv("BIMCANVAS_AGENT_BASE_URL", "").strip()
+if agent_base_url and (bootstrapped_server or is_blank(agent_section.get("baseUrl"))):
+    agent_section["baseUrl"] = agent_base_url
+
+agent_health_path = os.getenv("BIMCANVAS_AGENT_HEALTH_PATH", "").strip()
+if agent_health_path and (bootstrapped_server or is_blank(agent_section.get("healthPath"))):
+    agent_section["healthPath"] = agent_health_path
+
+python_command = os.getenv("BIMCANVAS_PYTHON_COMMAND", "").strip()
+if python_command and (bootstrapped_server or is_blank(agent_section.get("pythonCommand"))):
+    agent_section["pythonCommand"] = python_command
+
+ccr_enabled_override = parse_optional_bool(os.getenv("CCR_ENABLED"))
+if ccr_enabled_override is not None and (bootstrapped_server or "enabled" not in ccr_section):
+    ccr_section["enabled"] = ccr_enabled_override
+    if ccr_enabled_override:
+        ccr_section["autoStart"] = True
 
 ccr_enabled = bool(ccr_section.get("enabled", False))
 
@@ -179,7 +207,7 @@ if bootstrapped_agent and not ccr_enabled:
 
     if anthropic_base_url:
         agent_config["baseUrl"] = anthropic_base_url
-    elif anthropic_api_key and os.getenv("BOOTSTRAPPED_AGENT_CONFIG") == "1":
+    elif anthropic_api_key:
         agent_config["baseUrl"] = ""
 
 if bootstrapped_agent:
@@ -227,8 +255,7 @@ if ccr_enabled:
 
         save_json(ccr_user_config_path, ccr_runtime)
 
-if bootstrapped_server:
-    save_json(server_config_path, server_config)
+save_json(server_config_path, server_config)
 
 created_files = [name for name, created in bootstrap_summary.items() if created]
 if created_files:
@@ -258,5 +285,4 @@ else:
 PY
 
 log "Starting BIMCanvas Server in Production mode"
-cd /app
-exec dotnet /app/BIMCanvas.Server/bin/Release/net8.0/BIMCanvas.Server.dll
+exec dotnet /app/server/BIMCanvas.Server.dll

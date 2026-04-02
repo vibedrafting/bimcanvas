@@ -1,5 +1,8 @@
 {
-  "server": {
+  "agent": {
+    "autoStart": true,
+    "baseUrl": "",
+    "healthPath": "/health",
     "port": 8865,
     "pythonCommand": "python"
   },

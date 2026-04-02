@@ -22,8 +22,11 @@ public sealed class SettingsService
 
     private static readonly IReadOnlyList<SettingsFieldDto> ServerFields =
     [
-        new() { Path = "server.port", Label = "Agent 端口", ApplyMode = "restart" },
-        new() { Path = "server.pythonCommand", Label = "Python 命令", ApplyMode = "restart" },
+        new() { Path = "agent.autoStart", Label = "自动启动内置 Agent", ApplyMode = "restart" },
+        new() { Path = "agent.baseUrl", Label = "Agent 基址", ApplyMode = "restart" },
+        new() { Path = "agent.healthPath", Label = "Agent 健康检查路径", ApplyMode = "restart" },
+        new() { Path = "agent.port", Label = "Agent 监听端口", ApplyMode = "restart" },
+        new() { Path = "agent.pythonCommand", Label = "Python 命令", ApplyMode = "restart" },
         new() { Path = "startup.openBrowser", Label = "自动打开浏览器", ApplyMode = "restart" },
         new() { Path = "startup.browserPath", Label = "浏览器路径", ApplyMode = "restart" },
         new() { Path = "ccr.enabled", Label = "启用 CCR", ApplyMode = "restart" },

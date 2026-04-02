@@ -1,52 +1,103 @@
-x-bimcanvas-service: &bimcanvas-service
+x-bimcanvas-server: &bimcanvas-server
   build:
     context: ..
     dockerfile: deploy/Dockerfile
-  image: bimcanvas:latest
+    target: server-runtime
+  image: bimcanvas-server:latest
   restart: unless-stopped
   networks:
     - bimcanvas
+  healthcheck:
+    test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:5000/health >/dev/null || exit 1"]
+    interval: 15s
+    timeout: 5s
+    retries: 8
+    start_period: 30s
+
+x-bimcanvas-agent: &bimcanvas-agent
+  build:
+    context: ..
+    dockerfile: deploy/Dockerfile
+    target: agent-runtime
+  image: bimcanvas-agent:latest
+  restart: unless-stopped
+  networks:
+    - bimcanvas
+  healthcheck:
+    test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:8865/health >/dev/null || exit 1"]
+    interval: 15s
+    timeout: 5s
+    retries: 8
+    start_period: 30s
 
 services:
-  alice:
-    <<: *bimcanvas-service
-    container_name: bimcanvas-alice
-    env_file:
-      - ./instance-alice.env
-    expose:
-      - "5000"
-      - "8865"
-    volumes:
-      - ${BIMCANVAS_DATA_ROOT:-/srv/bimcanvas-data}/alice:/data
-    ports:
-      - "6001:5000"
-
-  bob:
-    <<: *bimcanvas-service
-    container_name: bimcanvas-bob
-    env_file:
-      - ./instance-bob.env
-    expose:
-      - "5000"
-      - "8865"
-    volumes:
-      - ${BIMCANVAS_DATA_ROOT:-/srv/bimcanvas-data}/bob:/data
-    ports:
-      - "6002:5000"
-
-  nginx:
-    image: nginx:alpine
-    container_name: bimcanvas-nginx
+  instance1:
+    <<: *bimcanvas-server
+    container_name: bimcanvas-instance1
     depends_on:
-      - alice
-      - bob
-    ports:
-      - "80:80"
+      instance1-agent:
+        condition: service_started
+    env_file:
+      - ./instance-1.env
+    environment:
+      BIMCANVAS_AGENT_AUTOSTART: "false"
+      BIMCANVAS_AGENT_BASE_URL: http://instance1-agent:8865
+      BIMCANVAS_AGENT_HEALTH_PATH: /health
+    expose:
+      - "5000"
+      - "3456"
     volumes:
-      - ./nginx.conf:/etc/nginx/nginx.conf:ro
-    restart: unless-stopped
-    networks:
-      - bimcanvas
+      - ${BIMCANVAS_DATA_ROOT:-/srv/bimcanvas-data}/instance1:/data
+
+  instance1-agent:
+    <<: *bimcanvas-agent
+    container_name: bimcanvas-instance1-agent
+    env_file:
+      - ./instance-1.env
+    environment:
+      BIMCANVAS_SERVER_URL: http://instance1:5000
+      BIMCANVAS_CCR_BASE_URL: http://instance1:3456
+      BIMCANVAS_AGENT_MANAGED_BY_SERVER: "1"
+      SERVER_HOST: 0.0.0.0
+      SERVER_PORT: 8865
+    expose:
+      - "8865"
+    volumes:
+      - ${BIMCANVAS_DATA_ROOT:-/srv/bimcanvas-data}/instance1:/data
+
+  instance2:
+    <<: *bimcanvas-server
+    container_name: bimcanvas-instance2
+    depends_on:
+      instance2-agent:
+        condition: service_started
+    env_file:
+      - ./instance-2.env
+    environment:
+      BIMCANVAS_AGENT_AUTOSTART: "false"
+      BIMCANVAS_AGENT_BASE_URL: http://instance2-agent:8865
+      BIMCANVAS_AGENT_HEALTH_PATH: /health
+    expose:
+      - "5000"
+      - "3456"
+    volumes:
+      - ${BIMCANVAS_DATA_ROOT:-/srv/bimcanvas-data}/instance2:/data
+
+  instance2-agent:
+    <<: *bimcanvas-agent
+    container_name: bimcanvas-instance2-agent
+    env_file:
+      - ./instance-2.env
+    environment:
+      BIMCANVAS_SERVER_URL: http://instance2:5000
+      BIMCANVAS_CCR_BASE_URL: http://instance2:3456
+      BIMCANVAS_AGENT_MANAGED_BY_SERVER: "1"
+      SERVER_HOST: 0.0.0.0
+      SERVER_PORT: 8865
+    expose:
+      - "8865"
+    volumes:
+      - ${BIMCANVAS_DATA_ROOT:-/srv/bimcanvas-data}/instance2:/data
 
 networks:
   bimcanvas:

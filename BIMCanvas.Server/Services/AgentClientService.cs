@@ -13,13 +13,36 @@ namespace BIMCanvas.Server.Services
     public class AgentClientService
     {
         private readonly ILogger<AgentClientService> _logger;
-        private readonly int _agentPort;
-        private static readonly HttpClient _httpClient = new() { Timeout = TimeSpan.FromSeconds(5) };
+        private readonly string _agentBaseUrl;
+        private readonly string _agentHealthPath;
+        private static readonly HttpClient _httpClient = new() { Timeout = Timeout.InfiniteTimeSpan };
 
         public AgentClientService(ILogger<AgentClientService> logger, ServerConfig config)
         {
             _logger = logger;
-            _agentPort = config.Server.Port;
+            _agentBaseUrl = config.Agent.GetResolvedBaseUrl(config.Server.Port);
+            _agentHealthPath = config.Agent.GetResolvedHealthPath();
+        }
+
+        public string AgentBaseUrl => _agentBaseUrl;
+
+        public async Task<bool> CheckHealthAsync(CancellationToken cancellationToken = default)
+        {
+            try
+            {
+                using var request = new HttpRequestMessage(HttpMethod.Get, $"{_agentBaseUrl}{_agentHealthPath}");
+                using var response = await _httpClient.SendAsync(
+                    request,
+                    HttpCompletionOption.ResponseHeadersRead,
+                    cancellationToken);
+
+                return response.IsSuccessStatusCode;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogDebug("Agent 健康检查失败: {Message}", ex.Message);
+                return false;
+            }
         }
 
         /// <summary>
@@ -32,7 +55,7 @@ namespace BIMCanvas.Server.Services
         {
             try
             {
-                var url = $"http://127.0.0.1:{_agentPort}/api/agent/close";
+                var url = $"{_agentBaseUrl}/api/agent/close";
                 var json = JsonSerializer.Serialize(new { windowId });
                 var content = new StringContent(json, Encoding.UTF8, "application/json");
 

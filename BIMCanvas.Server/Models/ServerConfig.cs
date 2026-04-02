@@ -6,6 +6,7 @@ namespace BIMCanvas.Server.Models;
 public class ServerConfig
 {
     public ServerSection Server { get; set; } = new();
+    public AgentSection Agent { get; set; } = new();
     public StartupSection Startup { get; set; } = new();
     public CcrSection Ccr { get; set; } = new();
 }
@@ -16,14 +17,86 @@ public class ServerConfig
 public class ServerSection
 {
     /// <summary>
-    /// Agent 服务端口（默认 8865）
+    /// 历史字段：旧版 Agent 服务端口（默认 8865）
+    /// 新配置应改用 agent.port
     /// </summary>
     public int Port { get; set; } = 8865;
 
     /// <summary>
-    /// Python 命令（默认 python）
+    /// 历史字段：旧版 Agent 启动 Python 命令（默认 python）
+    /// 新配置应改用 agent.pythonCommand
     /// </summary>
     public string PythonCommand { get; set; } = "python";
+}
+
+/// <summary>
+/// Agent 连接与托管配置
+/// </summary>
+public class AgentSection
+{
+    /// <summary>
+    /// 是否由 Server 自动启动本地 Agent 进程
+    /// </summary>
+    public bool AutoStart { get; set; } = true;
+
+    /// <summary>
+    /// Agent 基址。为空时回退到 http://127.0.0.1:{Port}
+    /// </summary>
+    public string BaseUrl { get; set; } = "";
+
+    /// <summary>
+    /// Agent 健康检查路径
+    /// </summary>
+    public string HealthPath { get; set; } = "/health";
+
+    /// <summary>
+    /// 托管启动 Agent 时使用的监听端口
+    /// </summary>
+    public int Port { get; set; } = 8865;
+
+    /// <summary>
+    /// 托管启动 Agent 时使用的 Python 命令
+    /// </summary>
+    public string PythonCommand { get; set; } = "python";
+
+    public string GetResolvedBaseUrl(int? legacyPort = null)
+    {
+        var normalized = (BaseUrl ?? string.Empty).Trim().TrimEnd('/');
+        if (!string.IsNullOrWhiteSpace(normalized))
+        {
+            return normalized;
+        }
+
+        var port = Port > 0 ? Port : (legacyPort.GetValueOrDefault() > 0 ? legacyPort!.Value : 8865);
+        return $"http://127.0.0.1:{port}";
+    }
+
+    public string GetResolvedHealthPath()
+    {
+        var path = (HealthPath ?? string.Empty).Trim();
+        if (string.IsNullOrWhiteSpace(path))
+        {
+            return "/health";
+        }
+
+        return path.StartsWith('/') ? path : $"/{path}";
+    }
+
+    public int GetResolvedPort(int? legacyPort = null)
+    {
+        return Port > 0 ? Port : (legacyPort.GetValueOrDefault() > 0 ? legacyPort!.Value : 8865);
+    }
+
+    public string GetResolvedPythonCommand(string? legacyPythonCommand = null)
+    {
+        var pythonCommand = (PythonCommand ?? string.Empty).Trim();
+        if (!string.IsNullOrWhiteSpace(pythonCommand))
+        {
+            return pythonCommand;
+        }
+
+        return string.IsNullOrWhiteSpace(legacyPythonCommand) ? "python" : legacyPythonCommand.Trim();
+    }
 }
 
 /// <summary>

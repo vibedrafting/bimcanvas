@@ -1,0 +1,4 @@
+services:
+  instance1:
+    ports:
+      - "${BIMCANVAS_HTTP_PORT:-16001}:5000"

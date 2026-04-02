@@ -1,27 +1,73 @@
-FROM ubuntu:22.04
+FROM node:20-bullseye-slim AS web-build
+WORKDIR /src/BIMCanvas.Web
 
+COPY BIMCanvas.Web/package.json BIMCanvas.Web/package-lock.json ./
+RUN npm ci
+
+COPY BIMCanvas.Web/ ./
+RUN npm run build
+
+
+FROM mcr.microsoft.com/dotnet/sdk:8.0-jammy AS server-build
+WORKDIR /src
+
+COPY BIMCanvas.sln ./
+COPY BIMCanvas.Core/BIMCanvas.Core.csproj BIMCanvas.Core/
+COPY BIMCanvas.Server/BIMCanvas.Server.csproj BIMCanvas.Server/
+
+RUN dotnet restore BIMCanvas.Server/BIMCanvas.Server.csproj \
+    --disable-parallel \
+    -p:RestoreTimeout=600
+
+COPY BIMCanvas.Core/ BIMCanvas.Core/
+COPY BIMCanvas.Server/ BIMCanvas.Server/
+COPY demos/ demos/
+
+RUN dotnet publish BIMCanvas.Server/BIMCanvas.Server.csproj \
+    -c Release \
+    -o /out/server \
+    --no-restore
+
+
+FROM node:20-bullseye-slim AS playwright-build
+ENV PLAYWRIGHT_BROWSERS_PATH=/ms-playwright
+WORKDIR /out/server
+
+COPY --from=server-build /out/server/ ./
+RUN test -f .playwright/package/cli.js \
+    && node .playwright/package/cli.js install chromium
+
+
+FROM python:3.10-slim AS agent-build
+ENV PIP_NO_CACHE_DIR=1 \
+    PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1
+
+WORKDIR /src/BIMCanvas.Agent
+COPY BIMCanvas.Agent/pyproject.toml BIMCanvas.Agent/README.md ./
+COPY BIMCanvas.Agent/src ./src
+
+RUN python -m venv /opt/venv \
+    && /opt/venv/bin/pip install --upgrade pip setuptools wheel \
+    && /opt/venv/bin/pip install .
+
+
+FROM mcr.microsoft.com/dotnet/aspnet:8.0-jammy AS server-runtime
 SHELL ["/bin/bash", "-o", "pipefail", "-c"]
 
 ENV DEBIAN_FRONTEND=noninteractive \
     DOTNET_CLI_TELEMETRY_OPTOUT=1 \
     DOTNET_NOLOGO=1 \
-    NPM_CONFIG_UPDATE_NOTIFIER=false \
-    PYTHONUNBUFFERED=1 \
     PLAYWRIGHT_BROWSERS_PATH=/root/.local/share/ms-playwright \
-    AGENT_VENV_BIN=/app/BIMCanvas.Agent/venv/bin \
-    PATH=/app/BIMCanvas.Agent/venv/bin:/root/.dotnet/tools:/usr/share/dotnet:${PATH}
+    BIMCANVAS_WEB_DIST=/app/BIMCanvas.Web/dist
 
 RUN packages='\
+    bash \
     ca-certificates \
     curl \
     git \
-    gnupg \
     lsof \
     python3 \
-    python3-pip \
-    python3-venv \
-    python-is-python3 \
-    wget \
     fonts-liberation \
     fonts-noto-cjk \
     fonts-noto-color-emoji \
@@ -52,72 +98,50 @@ RUN packages='\
     libxshmfence1 \
     tzdata \
     zlib1g'; \
-    for attempt in 1 2 3; do \
-        apt-get update -o Acquire::Retries=5 \
-        && apt-get install -y --fix-missing --no-install-recommends $packages \
-        && break; \
-        if [ "$attempt" -eq 3 ]; then exit 1; fi; \
-        echo "Retrying base apt install ($attempt/3)"; \
-        apt-get clean; \
-        rm -rf /var/lib/apt/lists/*; \
-        sleep 5; \
-    done; \
-    apt-get clean; \
-    rm -rf /var/lib/apt/lists/*
-
-RUN wget https://dot.net/v1/dotnet-install.sh -O /tmp/dotnet-install.sh \
-    && chmod +x /tmp/dotnet-install.sh \
-    && /tmp/dotnet-install.sh --channel 8.0 --install-dir /usr/share/dotnet \
-    && ln -s /usr/share/dotnet/dotnet /usr/bin/dotnet \
-    && rm /tmp/dotnet-install.sh
-
-RUN curl -fsSL https://deb.nodesource.com/setup_20.x | bash - \
-    && for attempt in 1 2 3; do \
-        apt-get update -o Acquire::Retries=5 \
-        && apt-get install -y --fix-missing --no-install-recommends nodejs \
-        && break; \
-        if [ "$attempt" -eq 3 ]; then exit 1; fi; \
-        echo "Retrying nodejs apt install ($attempt/3)"; \
-        apt-get clean; \
-        rm -rf /var/lib/apt/lists/*; \
-        sleep 5; \
-    done \
+    apt-get update -o Acquire::Retries=5 \
+    && apt-get install -y --no-install-recommends $packages \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
 
-RUN npm install -g @anthropic-ai/claude-code claude-code-router \
-    && claude --version \
-    && ccr --version
-
 WORKDIR /app
-COPY . /app
-
-RUN for attempt in 1 2 3; do \
-        dotnet restore BIMCanvas.Server \
-            --disable-parallel \
-            -p:RestoreTimeout=600 \
-        && break; \
-        echo "dotnet restore failed (attempt $attempt/3), retrying..."; \
-        sleep 5; \
-    done \
-    && dotnet build BIMCanvas.Server -c Release --no-restore
-
-RUN cd BIMCanvas.Web && npm ci && npm run build
-
-RUN cd BIMCanvas.Agent \
-    && python -m venv venv \
-    && ./venv/bin/pip install --no-cache-dir --upgrade pip \
-    && ./venv/bin/pip install --no-cache-dir -e . \
-    && python -c "import claude_agent_sdk"
-
-RUN PLAYWRIGHT_CLI=/app/BIMCanvas.Server/bin/Release/net8.0/.playwright/package/cli.js \
-    && test -f "$PLAYWRIGHT_CLI" \
-    && node "$PLAYWRIGHT_CLI" install chromium
+COPY --from=server-build /out/server/ /app/server/
+COPY --from=web-build /src/BIMCanvas.Web/dist/ /app/BIMCanvas.Web/dist/
+COPY --from=playwright-build /ms-playwright/ /root/.local/share/ms-playwright/
+COPY deploy/start.sh /app/deploy/start.sh
 
 RUN chmod +x /app/deploy/start.sh \
     && mkdir -p /data "$PLAYWRIGHT_BROWSERS_PATH"
 
-EXPOSE 5000 8865
+EXPOSE 5000 3456
 VOLUME ["/data"]
-
 ENTRYPOINT ["/app/deploy/start.sh"]
+
+
+FROM python:3.10-slim AS agent-runtime
+SHELL ["/bin/bash", "-o", "pipefail", "-c"]
+
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    BIMCANVAS_HOME=/data \
+    PATH=/opt/venv/bin:${PATH}
+
+RUN apt-get update -o Acquire::Retries=5 \
+    && apt-get install -y --no-install-recommends \
+        bash \
+        ca-certificates \
+        curl \
+        git \
+        ripgrep \
+    && apt-get clean \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+COPY --from=agent-build /opt/venv/ /opt/venv/
+COPY deploy/start-agent.sh /app/deploy/start-agent.sh
+
+RUN chmod +x /app/deploy/start-agent.sh \
+    && mkdir -p /data
+
+EXPOSE 8865
+VOLUME ["/data"]
+ENTRYPOINT ["/app/deploy/start-agent.sh"]

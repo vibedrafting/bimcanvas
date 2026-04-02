@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using System.Net;
 using System.Net.Sockets;
+using System.Net.Http.Headers;
 using System.Runtime.InteropServices;
 using System.Text;
 using System.Text.RegularExpressions;
@@ -80,6 +81,28 @@ if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
     EnableVirtualTerminalProcessing();
 }
 
+var agentProxyHttpClient = new HttpClient(new SocketsHttpHandler
+{
+    UseProxy = false,
+    AllowAutoRedirect = false
+})
+{
+    Timeout = Timeout.InfiniteTimeSpan
+};
+
+var hopByHopHeaders = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+{
+    "Connection",
+    "Keep-Alive",
+    "Proxy-Authenticate",
+    "Proxy-Authorization",
+    "TE",
+    "Trailer",
+    "Transfer-Encoding",
+    "Upgrade",
+    "Host"
+};
+
 var builder = WebApplication.CreateBuilder(args);
 var isProduction = builder.Environment.IsProduction();
 var isDevelopment = builder.Environment.IsDevelopment();
@@ -107,9 +130,10 @@ if (isDevelopment)
 
 // 加载用户配置（提前到 DI 注册前，供 AgentClientService 等服务使用）
 var config = ConfigService.Load();
-var pythonCommand = string.IsNullOrWhiteSpace(config.Server.PythonCommand)
-    ? "python"
-    : config.Server.PythonCommand.Trim();
+var agentAutoStart = config.Agent.AutoStart;
+var agentPort = config.Agent.GetResolvedPort(config.Server.Port);
+var agentBaseUrl = config.Agent.GetResolvedBaseUrl(config.Server.Port);
+var pythonCommand = config.Agent.GetResolvedPythonCommand(config.Server.PythonCommand);
 var serverBaseUrl = builder.Configuration["Web:BaseUrl"] ?? "http://localhost:5000";
 var startupErrors = new List<string>();
 var productionWebDistPath = isProduction ? ResolveWebDistPath(AppContext.BaseDirectory) : null;
@@ -236,7 +260,37 @@ app.MapControllers();
 app.MapHub<CanvasHub>("/hubs/canvas");
 
 // 健康检查端点
-app.MapGet("/health", () => new { status = "healthy", timestamp = DateTime.UtcNow });
+app.MapGet("/health", async (AgentClientService agentClient, CancellationToken cancellationToken) =>
+{
+    var agentHealthy = await agentClient.CheckHealthAsync(cancellationToken);
+    if (agentHealthy)
+    {
+        return Results.Ok(new
+        {
+            status = "healthy",
+            agent = "healthy",
+            timestamp = DateTime.UtcNow
+        });
+    }
+
+    return Results.Json(
+        new
+        {
+            status = "degraded",
+            agent = "unavailable",
+            timestamp = DateTime.UtcNow
+        },
+        statusCode: StatusCodes.Status503ServiceUnavailable);
+});
+
+app.Map("/agent", agentApp =>
+{
+    agentApp.Run(async context =>
+    {
+        var agentClient = context.RequestServices.GetRequiredService<AgentClientService>();
+        await ProxyToAgentAsync(context, agentClient.AgentBaseUrl);
+    });
+});
 
 if (isProduction && productionWebDistPath != null)
 {
@@ -265,7 +319,11 @@ var playwrightReady = true;
 
     WriteWithColoredPrefix("[Server]", "环境检测中...", ConsoleColor.White);
 
-    if (!Directory.Exists(agentDir))
+    if (!agentAutoStart)
+    {
+        WriteWithColoredPrefix("[Server]", $"Agent 服务模式: 外部依赖 ({agentBaseUrl})", ConsoleColor.White);
+    }
+    else if (!Directory.Exists(agentDir))
     {
         WriteWithColoredPrefix("[Server:WARN]", $"Agent 项目目录不存在: {agentDir}", ConsoleColor.DarkYellow);
         agentReady = false;
@@ -399,12 +457,9 @@ var playwrightReady = true;
     }
     CcrSkipped:
 
-    // 2. 启动 Agent 服务（不等待，后台运行）
-    if (agentReady)
+    // 2. 启动 Agent 服务（仅托管模式）
+    if (agentReady && agentAutoStart)
     {
-        // 读取 Agent 端口配置
-        var agentPort = config.Server.Port;
-
         // 检测并清理端口占用
         if (IsPortOccupied(agentPort, out var occupyingPid))
         {
@@ -451,7 +506,7 @@ var playwrightReady = true;
             // API 网关配置：CCR 启用时走网关，禁用时 Agent 直连 config.json 中的供应商
             if (config.Ccr.Enabled)
             {
-                var ccrGatewayUrl = $"http://{config.Ccr.Host}:{config.Ccr.Port}";
+                var ccrGatewayUrl = $"http://127.0.0.1:{config.Ccr.Port}";
                 agentProcess.StartInfo.Environment["AGENT_SDK_API_KEY"] = "bimcanvas-ccr";
                 agentProcess.StartInfo.Environment["AGENT_SDK_BASE_URL"] = ccrGatewayUrl;
 
@@ -495,6 +550,10 @@ var playwrightReady = true;
                 startupErrors.Add($"生产模式下 Agent 服务启动失败: {ex.Message}");
             }
         }
+    }
+    else if (!agentAutoStart)
+    {
+        WriteWithColoredPrefix("[Server]", $"Agent 服务由外部容器提供: {agentBaseUrl}", ConsoleColor.White);
     }
 
     // 3. 启动 Web 服务（不等待，后台运行）
@@ -1597,5 +1656,114 @@ static void KillProcess(int pid)
     catch (Exception ex)
     {
         WriteWithColoredPrefix("[Server:ERR]", $"清理进程失败: {ex.Message}", ConsoleColor.DarkGray);
+    }
+}
+
+async Task ProxyToAgentAsync(HttpContext context, string agentBaseUrl)
+{
+    var targetBase = (agentBaseUrl ?? string.Empty).Trim().TrimEnd('/');
+    if (string.IsNullOrWhiteSpace(targetBase))
+    {
+        context.Response.StatusCode = StatusCodes.Status503ServiceUnavailable;
+        await context.Response.WriteAsJsonAsync(new { error = "Agent base URL is not configured." });
+        return;
+    }
+
+    var targetUri = $"{targetBase}{context.Request.Path}{context.Request.QueryString}";
+    using var requestMessage = new HttpRequestMessage(new HttpMethod(context.Request.Method), targetUri);
+
+    if (RequestHasBody(context.Request))
+    {
+        requestMessage.Content = new StreamContent(context.Request.Body);
+        CopyContentHeaders(context.Request.Headers, requestMessage.Content.Headers);
+    }
+
+    CopyRequestHeaders(context.Request.Headers, requestMessage.Headers);
+
+    try
+    {
+        using var responseMessage = await agentProxyHttpClient.SendAsync(
+            requestMessage,
+            HttpCompletionOption.ResponseHeadersRead,
+            context.RequestAborted);
+
+        context.Response.StatusCode = (int)responseMessage.StatusCode;
+        CopyResponseHeaders(responseMessage, context.Response.Headers);
+        context.Response.Headers.Remove("transfer-encoding");
+
+        await using var responseStream = await responseMessage.Content.ReadAsStreamAsync(context.RequestAborted);
+        await responseStream.CopyToAsync(context.Response.Body, context.RequestAborted);
+    }
+    catch (OperationCanceledException) when (context.RequestAborted.IsCancellationRequested)
+    {
+        // 客户端主动断开时不再写回错误
+    }
+    catch (Exception ex)
+    {
+        context.Response.StatusCode = StatusCodes.Status503ServiceUnavailable;
+        await context.Response.WriteAsJsonAsync(new
+        {
+            error = "Agent service is unavailable.",
+            detail = ex.Message
+        });
+    }
+}
+
+bool RequestHasBody(HttpRequest request)
+{
+    if (request.ContentLength is > 0)
+    {
+        return true;
+    }
+
+    return request.Headers.ContainsKey("Transfer-Encoding");
+}
+
+void CopyRequestHeaders(IHeaderDictionary source, HttpHeaders destination)
+{
+    foreach (var header in source)
+    {
+        if (hopByHopHeaders.Contains(header.Key))
+        {
+            continue;
+        }
+
+        destination.TryAddWithoutValidation(header.Key, header.Value.ToArray());
+    }
+}
+
+void CopyContentHeaders(IHeaderDictionary source, HttpContentHeaders destination)
+{
+    foreach (var header in source)
+    {
+        if (hopByHopHeaders.Contains(header.Key))
+        {
+            continue;
+        }
+
+        destination.TryAddWithoutValidation(header.Key, header.Value.ToArray());
+    }
+}
+
+void CopyResponseHeaders(HttpResponseMessage source, IHeaderDictionary destination)
+{
+    foreach (var header in source.Headers)
+    {
+        if (hopByHopHeaders.Contains(header.Key))
+        {
+            continue;
+        }
+
+        destination[header.Key] = header.Value.ToArray();
+    }
+
+    foreach (var header in source.Content.Headers)
+    {
+        if (hopByHopHeaders.Contains(header.Key))
+        {
+            continue;
+        }
+
+        destination[header.Key] = header.Value.ToArray();
     }
 }
