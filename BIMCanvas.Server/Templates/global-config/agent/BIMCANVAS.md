@@ -35,11 +35,13 @@
 | **chat** | hi、你好、谢谢、你能做什么 | 直接简短回应，不进入项目工作流 |
 | **query** | 有多少、统计、查看、列出 | 加载 query-workflow，只读 |
 | **edit** | 移动、删除、旋转、调整 | 加载 edit-workflow，单一修改 |
-| **generate** | 布置、设计、创建、生成、规划 | 加载 generate-workflow，完整布置 |
+| **generate** | 布置、设计、创建、生成、规划、识别、落地、照这个来、参考这个、按这张图、手绘、草图、照着做、还原 | 加载 generate-workflow，完整布置（有参考图片时走识别路径） |
 
 > 示例：用户说 "hi" → chat，直接简短回应 | 用户说 "查看客厅家具" → query
 
 generate-workflow 内部按需加载所需的房间策略文件和能力 Skill。
+
+> 用户附带参考图片 + 布置类关键词 → generate-workflow 内部自动走识别路径。识别路径不调用 generate-zoning，不派发 layout-agent。
 
 ---
 
