@@ -1,7 +1,7 @@
 ---
 name: generate-derived-planning
 description: |
-  Generate 推导规划 Skill。用于 derived 与 reference-informed-derived 路径的 Stage 1 + Stage 2。
+  Generate 推导规划 Skill。用于主动设计（derived）与参考启发式设计（reference-informed-derived）路径的 Stage 1 + Stage 2。
   当主控 Agent 已判定为“主动设计”或“图片只作参考”时加载。
 ---
 
@@ -38,7 +38,7 @@ description: |
    - 卫生间：`references/bathroom.md`
    - 客餐厅：`references/livingroom.md`
 
-**reference-informed-derived 规则**：
+**参考启发式设计（reference-informed-derived）规则**：
 - 如果用户附带图片但未要求忠实还原，只把图片当作补充上下文
 - 图片可用于理解风格、家具偏好、功能需求
 - 图片不是图纸原文，不可直接绑定墙面归属
@@ -109,7 +109,7 @@ save_semantic_plan({ zoneId, version: "v0.3", planType: "derived", content })
 ## 3. 约束
 
 - `v0.2` 之后，主要家具墙面归属不可在本 Skill 内被推翻
-- 本 Skill 可参考图片，但 reference-informed-derived 仍然是主动设计，不是照图翻译
+- 本 Skill 可参考图片，但参考启发式设计（`reference-informed-derived`）仍然是主动设计，不是照图翻译
 - 不在本 Skill 内写 `modules.json`
 - 不在本 Skill 内调用 `load_semantic_plan`
 

@@ -1,7 +1,7 @@
 ---
 name: generate-reference-translation
 description: |
-  Generate 参考图翻译 Skill。用于 reference-translation 路径的 Stage 1 + Stage 2。
+  Generate 参考图翻译 Skill。用于参考图翻译（reference-translation）路径的 Stage 1 + Stage 2。
   当用户明确要求“照这个来”“按这张图还原”“忠实落地参考图”时加载。
 ---
 

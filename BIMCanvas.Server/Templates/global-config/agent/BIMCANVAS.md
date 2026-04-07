@@ -39,28 +39,28 @@
 
 Generate 在主控层先判定任务语义，再加载对应 planning Skill。三类语义必须互斥：
 
-1. **derived**
+1. **主动设计（derived）**
    - 无参考图
    - 或用户要系统主动设计
    - 或图片只提供现场信息、户型补充，不承担设计参考作用
    - 加载 `generate-derived-planning`
 
-2. **reference-informed-derived**
+2. **参考启发式设计（reference-informed-derived）**
    - 用户给了图，但只想参考感觉/思路
    - 或图片承担参考/灵感/风格/布局启发作用，但用户未明确要求逐墙还原
    - 实现上仍走 `generate-derived-planning`
    - 图片只作补充上下文，不作图纸原文
 
-3. **reference-translation**
+3. **参考图翻译（reference-translation）**
    - 用户明确要求忠实还原、照这个来、按这张图做、按这张图还原
    - 且图片中存在可执行的家具墙面、朝向、空间关系信息
    - 加载 `generate-reference-translation`
 
-**【必须】**不得仅因用户附图就进入 `reference-translation`。
+**【必须】**不得仅因用户附图就进入参考图翻译（`reference-translation`）。
 
-**【必须】**用户原话未明确要求照图落地时，默认不进入 `reference-translation`；一般模糊语句优先归入 `reference-informed-derived`。
+**【必须】**用户原话未明确要求照图落地时，默认不进入参考图翻译（`reference-translation`）；一般模糊语句优先归入参考启发式设计（`reference-informed-derived`）。
 
-**【必须】**若用户明确要求照图落地，但图片本身不具备可执行布局信息，主控 Agent 必须补图或确认；在补图/确认完成前，不得进入 `reference-translation`，也不得静默猜测施工。
+**【必须】**若用户明确要求照图落地，但图片本身不具备可执行布局信息，主控 Agent 必须补图或确认；在补图/确认完成前，不得进入参考图翻译（`reference-translation`），也不得静默猜测施工。
 
 ---
 
@@ -69,9 +69,9 @@ Generate 在主控层先判定任务语义，再加载对应 planning Skill。�
 ### 单分区
 
 - 你直接执行：
-  - `derived` -> `generate-derived-planning` -> `generate-placement`
-  - `reference-informed-derived` -> 语义上保留该标签，但实现上仍走 `generate-derived-planning` -> `generate-placement`
-  - `reference-translation` -> `generate-reference-translation` -> `generate-placement`
+  - 主动设计（`derived`）-> `generate-derived-planning` -> `generate-placement`
+  - 参考启发式设计（`reference-informed-derived`）-> 语义上保留该标签，但实现上仍走 `generate-derived-planning` -> `generate-placement`
+  - 参考图翻译（`reference-translation`）-> `generate-reference-translation` -> `generate-placement`
 
 ### 多分区
 
@@ -80,9 +80,9 @@ Generate 在主控层先判定任务语义，再加载对应 planning Skill。�
   - 分区 ID
   - 分区 tags
   - 用户原始需求
-  - 当前 generate 语义（derived / reference-translation / reference-informed-derived）
+  - 当前 generate 语义（主动设计 `derived` / 参考图翻译 `reference-translation` / 参考启发式设计 `reference-informed-derived`）
   - 图片是“图纸原文”还是“仅供参考”
-- `reference` 多分区任务可派发 `layout-agent`；主控 Agent 保留用户交互能力，`layout-agent` 按既定自动链路执行，不使用 `AskUserQuestion`
+- 参考图翻译类多分区任务可派发 `layout-agent`；主控 Agent 保留用户交互能力，`layout-agent` 按既定自动链路执行，不使用 `AskUserQuestion`
 
 **【必须】**所有 layout-agent Task 在同一轮并行发起，禁止后台派发。
 
@@ -104,9 +104,9 @@ layout-agent 完成后，你负责：
 
 主控 Agent 可以使用 `AskUserQuestion`，典型场景：
 
-- derived 路径中的战略选择
-- reference 主控模式中的关键锚点歧义
-- reference 主控模式中 `v0.2` 与 `v0.1` 视觉原文不一致
+- 主动设计（`derived`）路径中的战略选择
+- 参考图翻译主控模式中的关键锚点歧义
+- 参考图翻译主控模式中 `v0.2` 与 `v0.1` 视觉原文不一致
 - placement 阶段需要改图纸
 
 **禁止**在 query / edit 任务中提问。
