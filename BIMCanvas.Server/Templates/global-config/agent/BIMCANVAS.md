@@ -41,25 +41,30 @@
 
 ### generate 语义判定
 
-Generate 在主控层先判定任务语义，再加载对应 planning Skill：
+Generate 在主控层先判定任务语义，再加载对应 planning Skill。三类语义必须互斥：
 
 1. **derived**
-   - 用户要系统主动设计
-   - 或没有参考图
-   - 或图片只是现场信息/灵感补充
+   - 无参考图
+   - 或用户要系统主动设计
+   - 或图片只提供现场信息、户型补充，不承担设计参考作用
    - 加载 `generate-derived-planning`
 
-2. **reference-translation**
-   - 用户明确要求忠实还原布局
-   - 图片中存在可执行的家具墙面/朝向/空间关系信息
-   - 加载 `generate-reference-translation`
-
-3. **reference-informed-derived**
+2. **reference-informed-derived**
    - 用户给了图，但只想参考感觉/思路
+   - 或图片承担参考/灵感/风格/布局启发作用，但用户未明确要求逐墙还原
    - 实现上仍走 `generate-derived-planning`
    - 图片只作补充上下文，不作图纸原文
 
-**【必须】**如果 reference fidelity 不明确，先根据用户原话判断图片角色，而不是简单按“有图/无图”二分。
+3. **reference-translation**
+   - 用户明确要求忠实还原、照这个来、按这张图做、按这张图还原
+   - 且图片中存在可执行的家具墙面、朝向、空间关系信息
+   - 加载 `generate-reference-translation`
+
+**【必须】**不得仅因用户附图就进入 `reference-translation`。
+
+**【必须】**用户原话未明确要求照图落地时，默认不进入 `reference-translation`；一般模糊语句优先归入 `reference-informed-derived`。
+
+**【必须】**若用户明确要求照图落地，但图片本身不具备可执行布局信息，主控 Agent 必须补图或确认；在补图/确认完成前，不得进入 `reference-translation`，也不得静默猜测施工。
 
 ---
 
@@ -68,8 +73,9 @@ Generate 在主控层先判定任务语义，再加载对应 planning Skill：
 ### 单分区
 
 - 你直接执行：
-  - `generate-derived-planning` 或 `generate-reference-translation`
-  - 然后统一进入 `generate-placement`
+  - `derived` -> `generate-derived-planning` -> `generate-placement`
+  - `reference-informed-derived` -> 语义上保留该标签，但实现上仍走 `generate-derived-planning` -> `generate-placement`
+  - `reference-translation` -> `generate-reference-translation` -> `generate-placement`
 
 ### 多分区
 
@@ -99,12 +105,10 @@ reference 多分区任务允许派发 `layout-agent`。
 layout-agent 完成后，你负责：
 
 1. 调用 `validate_layout()` 做全局几何验证
-2. **【必须】**独立可达性验证：基于最终 `modules.json` 逐段计算通道，不信赖子代理自述
-3. **【必须】**功能完整性验证：每个 zone.tags 至少有一个对应模块
-4. **【建议】**截图抽检空间关系与品质目标
+2. **【必须】**基于最终 `modules.json` 与 `zones.json` 做功能完整性复核：每个 zone 的核心功能标签必须有对应模块，或在最终汇报中明确说明为何缺失
+3. **【建议】**截图抽检空间关系与品质目标
+4. **【必须】**汇总子代理上报的“自动适配”与“自动改图纸”，不要在最终汇报中省略
 5. 汇总所有分区结果，统一向用户报告
-
-若子代理报告了“自动适配”或“自动改图纸”，你必须在最终汇报中显式说明。
 
 ---
 
@@ -113,6 +117,7 @@ layout-agent 完成后，你负责：
 主控 Agent 可以使用 `AskUserQuestion`，典型场景：
 
 - derived 路径中的战略选择
+- 用户明确要求照图落地，但图片信息不足以支持 `reference-translation`
 - reference 主控模式中的关键锚点歧义
 - reference 主控模式中 `v0.2` 与 `v0.1` 视觉原文不一致
 - placement 阶段需要改图纸
