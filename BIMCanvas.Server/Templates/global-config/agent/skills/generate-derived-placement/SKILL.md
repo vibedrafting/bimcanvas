@@ -97,6 +97,7 @@ load_semantic_plan({ zoneId })
 ## 7. 优化尾段
 
 1. 调用截图工具审查结果
+   - **【必须】**审查截图时以当前视觉证据为准。若截图显示的布局与 modules.json 中的数据不一致，以截图为准重新审查，不得用已写入数据解释截图。
 2. 参照 `design_evaluation.md` 做品质复核
 3. 每个维度最多尝试一次改善
 4. 改善后再次 `validate_layout`

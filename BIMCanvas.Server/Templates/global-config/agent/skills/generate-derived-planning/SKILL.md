@@ -26,6 +26,7 @@ description: |
 ## 1. 感知
 
 1. **单独调用截图**：`mcp__canvas__request_background_screenshot`
+   - 截图返回后，先确认截图方位：在截图中定位门窗，与 zone boundaries 交叉验证方向，再继续后续读取
 2. 并行读取：
    - `references/design_principles.md`
    - `references/design_evaluation.md`
