@@ -91,12 +91,7 @@ Generate 在主控层先判定任务语义，再加载对应 planning Skill。�
 
 ### 多分区 reference
 
-reference 多分区任务允许派发 `layout-agent`。
-
-- 主控 Agent 模式：优先忠实翻译，关键歧义可 `AskUserQuestion`
-- layout-agent 模式：优先后台全自动落地；不使用 `AskUserQuestion`，必要时执行工程兜底
-
-这是一条显式产品取舍：**reference 子代理链路优先自动化，不以最高准确性为第一目标。**
+reference 多分区任务可派发 `layout-agent`。主控 Agent 仍保留用户交互能力；`layout-agent` 按既定自动链路执行，不使用 `AskUserQuestion`。
 
 ---
 
