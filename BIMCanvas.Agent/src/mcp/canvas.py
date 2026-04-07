@@ -836,12 +836,17 @@ async def get_zone_boundaries(args: dict[str, Any]) -> dict[str, Any]:
                 "enum": ["v0.1", "v0.2", "v0.3"],
                 "description": "语义方案版本：v0.1=空间骨架, v0.2=主体框架, v0.3=完整方案"
             },
+            "planType": {
+                "type": "string",
+                "enum": ["derived", "reference"],
+                "description": "图纸类型：derived=主动推导设计，reference=参考图翻译"
+            },
             "content": {
                 "type": "string",
                 "description": "语义方案文本内容（markdown 格式）"
             }
         },
-        "required": ["zoneId", "version", "content"],
+        "required": ["zoneId", "version", "planType", "content"],
         "additionalProperties": False
     }
 )
@@ -849,11 +854,13 @@ async def save_semantic_plan(args: dict[str, Any]) -> dict[str, Any]:
     """保存语义方案版本"""
     zone_id = args["zoneId"]
     version = args["version"]
+    plan_type = args["planType"]
     content = args["content"]
 
     body = {
         "zoneId": zone_id,
         "version": version,
+        "planType": plan_type,
         "content": content
     }
 
@@ -867,7 +874,7 @@ async def save_semantic_plan(args: dict[str, Any]) -> dict[str, Any]:
                     return {
                         "content": [{
                             "type": "text",
-                            "text": f"语义方案 {version} 已保存。继续下一阶段。"
+                            "text": f"语义方案 {plan_type} {version} 已保存。继续下一阶段。"
                         }]
                     }
                 else:
@@ -876,6 +883,70 @@ async def save_semantic_plan(args: dict[str, Any]) -> dict[str, Any]:
                         "content": [{"type": "text", "text": f"保存失败: {error_text}"}],
                         "is_error": True
                     }
+    except aiohttp.ClientError as e:
+        return {
+            "content": [{"type": "text", "text": f"无法连接 Server: {str(e)}"}],
+            "is_error": True
+        }
+
+
+@tool(
+    "load_semantic_plan",
+    "加载当前设计区的生效语义方案。返回当前可施工图纸，而不是完整历史。",
+    {
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "type": "object",
+        "properties": {
+            "zoneId": {
+                "type": "string",
+                "description": "目标 Zone ID，如 'rz_3'"
+            }
+        },
+        "required": ["zoneId"],
+        "additionalProperties": False
+    }
+)
+async def load_semantic_plan(args: dict[str, Any]) -> dict[str, Any]:
+    """加载语义方案当前生效版本"""
+    zone_id = args["zoneId"]
+
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.get(
+                f"{SERVER_URL}/api/semantic-plan/{zone_id}"
+            ) as resp:
+                if resp.status == 200:
+                    data = await resp.json()
+                    text = (
+                        f"status: {data['status']}\n"
+                        f"zoneId: {data['zoneId']}\n"
+                        f"planType: {data['planType']}\n"
+                        f"effectiveVersion: {data['effectiveVersion']}\n"
+                        f"timestamp: {data['timestamp']}\n\n"
+                        f"{data['content']}"
+                    )
+                    return {
+                        "content": [{
+                            "type": "text",
+                            "text": text
+                        }],
+                        "structuredContent": data
+                    }
+
+                if resp.status in (400, 404, 409):
+                    data = await resp.json()
+                    message = data.get("message", "加载语义方案失败")
+                    return {
+                        "content": [{"type": "text", "text": message}],
+                        "structuredContent": data,
+                        "is_error": True
+                    }
+
+                error_text = await resp.text()
+                return {
+                    "content": [{"type": "text", "text": f"加载失败: {error_text}"}],
+                    "is_error": True
+                }
     except aiohttp.ClientError as e:
         return {
             "content": [{"type": "text", "text": f"无法连接 Server: {str(e)}"}],
@@ -894,6 +965,7 @@ canvas_mcp = create_sdk_mcp_server(
         validate_layout,
         get_zone_boundaries,
         save_semantic_plan,  # 新增：语义方案提交（turn 边界）
+        load_semantic_plan,  # 新增：加载当前生效图纸
     ],
 )
 
@@ -905,4 +977,5 @@ CANVAS_ALLOWED_TOOLS = [
     "mcp__canvas__validate_layout",
     "mcp__canvas__get_zone_boundaries",
     "mcp__canvas__save_semantic_plan",
+    "mcp__canvas__load_semantic_plan",
 ]

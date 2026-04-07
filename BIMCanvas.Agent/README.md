@@ -391,7 +391,7 @@ BIMCanvas.Agent/
 
 从 `<BIMCANVAS_HOME>/agents/*.md` 配置文件加载 SubAgent 定义：
 
-- **layout-agent** - 家具布置专家，负责空间规划和家具摆放
+- **layout-agent** - 单房间设计专家，负责单区 generate 链路自动执行
 
 ### HTTP Server (`server/http_server.py`)
 
@@ -410,8 +410,12 @@ BIMCanvas.Agent/
 ├── .claude-plugin/
 │   └── plugin.json        # Plugin 清单（使该目录成为合法 Plugin）
 ├── skills/                # Agent Skills（通过 Plugin 机制加载，避免 CLAUDE.md 污染）
-│   └── test-echo/
-│       └── SKILL.md
+│   ├── query-workflow/
+│   ├── edit-workflow/
+│   ├── generate-derived-planning/
+│   ├── generate-reference-translation/
+│   ├── generate-placement/
+│   └── generate-zoning/
 ├── BIMCANVAS.md           # 主 Agent 系统提示词（可编辑）
 ├── config.json            # 应用配置（API、模型、工具）
 └── agents/
@@ -438,8 +442,8 @@ BIMCanvas.Agent/
   "defaultThinking": "adaptive",
   "maxThinkingTokens": 16000,
   "permissions": {
-    "allow": ["Read", "Glob", "Grep", "Task"],
-    "deny": ["AskUserQuestion"]
+    "allow": ["Read", "Glob", "Grep", "Task", "AskUserQuestion"],
+    "deny": []
   },
   "server": { "host": "127.0.0.1", "port": 8865 }
 }
@@ -617,10 +621,11 @@ curl -X POST http://127.0.0.1:8765/api/chat \
 
 #### 已集成 MCP 工具（canvas）
 
-- `mcp__canvas__create_job`：创建 AI Job（Git Worktree）
-- `mcp__canvas__complete_job`：通知 Web 端 AI Job 已完成
-- ~~`mcp__canvas__get_workflow_guide`~~：已迁移到 Skills（query-workflow / edit-workflow / generate-workflow）
+- `mcp__canvas__validate_layout`：布局编译检查
 - `mcp__canvas__request_background_screenshot`：后台截图
+- `mcp__canvas__get_zone_boundaries`：读取设计区边界语义
+- `mcp__canvas__save_semantic_plan`：提交语义方案阶段图纸
+- `mcp__canvas__load_semantic_plan`：读取当前生效图纸
 
 #### 后台截图 MCP 工具（request_background_screenshot）
 

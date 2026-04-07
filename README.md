@@ -174,12 +174,15 @@ dotnet publish BIMCanvas.Server -c Release -o publish
 | **MCP 工具** | 工具箱 | 能力扩展、数据接口 |
 
 **SubAgent 清单**：
-- `layout-agent`：家具布置专家
+- `layout-agent`：单房间设计专家（支持 derived / reference 两类 generate 链路）
 
 **Skill 工作流**：
 - `query-workflow`：查询统计（查看布置状态、房间信息）
 - `edit-workflow`：编辑操作（移动、删除、旋转家具）
-- `generate-workflow`：生成任务（完整布置方案生成）
+- `generate-derived-planning`：主动设计规划
+- `generate-reference-translation`：参考图翻译
+- `generate-placement`：按图施工 + 验证 + 汇报
+- `generate-zoning`：推导路径分区 helper
 
 **关键设计原则**：
 - Agent 只做决策，不做计算
@@ -280,13 +283,13 @@ project.bcp (ZIP) → 解压为 Git 仓库
 │   └── modules.json          家具模块布置
 ├── context/                  上下文信息
 │   └── requirements.md       用户需求描述
-├── knowledge/                知识库
-│   └── design_principles.md  跨房间设计原则
 ├── modules/                  模块素材库
 │   ├── module_library.json   模块元数据
 │   └── assets/               SVG 资源
 └── .git/                     Git 仓库（v3.1 多策略通过分支隔离）
 ```
+
+> 运行时设计规则不再放在项目目录 `knowledge/` 下，而是由 `<BIMCANVAS_HOME>/skills/*/references/` 中的 Skill 私有模板提供。
 
 详细 Schema 见：[docs/Schema.md](./docs/Schema.md)
 

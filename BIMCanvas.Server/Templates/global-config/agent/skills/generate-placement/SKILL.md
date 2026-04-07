@@ -1,0 +1,123 @@
+---
+name: generate-placement
+description: |
+  Generate 布置 Skill。负责把语义方案图纸转成 modules.json，并执行验证、优化尾段和最终汇报。
+---
+
+# Generate 布置
+
+> 你在本 Skill 中是施工方。第一职责不是重新设计，而是先读取图纸，再按图施工。
+
+## 1. 入场动作
+
+**【必须】**进入本 Skill 后第一步调用：
+
+```text
+load_semantic_plan({ zoneId })
+```
+
+只接受以下状态：
+
+- `status = ok` -> 继续
+- `status = missing` -> 停止，说明未找到图纸
+- `status = ambiguous_legacy` -> 停止，说明旧图纸不可自动判定
+
+读取后必须显式复述：
+
+- `planType`
+- `effectiveVersion`
+- 关键家具墙面归属
+- 若有“自动适配”或“自动改图纸”，也必须复述
+
+---
+
+## 2. 施工前读取
+
+读取以下施工规范与数据：
+
+- `references/design_principles.md`
+- `references/design_evaluation.md`
+- `modules/module_library.json`
+- `schemes/zones.json`
+- 当前 `modules.json`（若已存在）
+- 对应房间策略文件：
+  - `references/bedroom.md`
+  - `references/bathroom.md`
+  - `references/livingroom.md`
+
+如果当前设计区含 `subZones`：
+
+- 图纸仍从父设计区 `zoneId` 读取
+- 实际写入目标是子分区的 `modules.json`
+- `validate_layout` 使用子分区 `zoneIds`
+
+---
+
+## 3. Stage 3 布置与验证
+
+### 3.1 按图施工
+
+- 图纸决定：哪面墙、朝哪个方向、需要哪些家具
+- 施工规范决定：在该墙面上如何选模块、如何计算坐标、如何修正
+
+**【必须】**一次性写入完整结果，再调用 `mcp__canvas__validate_layout`。
+
+### 3.2 修正循环
+
+验证失败时按优先级修正：
+
+`平移 -> 旋转 -> 缩小 -> 拆除附属件 -> 替换 -> 移除`
+
+跨墙面迁移等于修改图纸：
+
+- 当前执行者具备 `AskUserQuestion`：必须先询问用户
+- 当前执行者不具备 `AskUserQuestion`：选择“最可施工”的替代墙面或更小组合继续落地，并在汇报中显式标记“自动改图纸”
+
+### 3.3 Layer 1
+
+`validate_layout` 通过后，继续做：
+
+- 可达性验证
+- 功能完整性验证
+
+任何一项失败，都要继续修正并重新验证。
+
+---
+
+## 4. 优化尾段
+
+### derived
+
+若 `planType = derived`：
+
+1. 调用截图工具审查结果
+2. 参照 `design_evaluation.md` 做品质复核
+3. 每个维度最多尝试一次改善
+4. 改善后再次 `validate_layout`
+
+### reference
+
+若 `planType = reference`：
+
+- 默认跳过优化尾段
+- 只有当前执行者具备 `AskUserQuestion` 且用户明确允许偏离参考意图，才可做优化性调整
+- 若当前执行者不具备 `AskUserQuestion`，一律不因“更美观”而主动偏离参考图纸
+
+---
+
+## 5. 汇报
+
+最终汇报必须包含：
+
+- 施工依据：`planType + effectiveVersion`
+- 放置结果：家具、墙面、朝向
+- 验证结果：布局验证 + 可达性 + 功能完整性
+- 若发生自动兜底：
+  - `自动适配`（reference translation 阶段）
+  - `自动改图纸`（placement 阶段）
+
+reference 路径额外汇报：
+
+- 识别摘要
+- 适配说明
+- 与原参考图存在的偏离点
