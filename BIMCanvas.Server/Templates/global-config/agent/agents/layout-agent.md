@@ -69,9 +69,8 @@ IMPORTANT: 必须使用工具调用 API（function calling）调用 MCP 工具�
 
 收到任务后，先读取任务描述中的 generate 语义，再选择 Skill：
 
-1. 主动设计（`derived`）或参考启发式设计（`reference-informed-derived`）-> 加载 `generate-derived-planning`
-2. 参考图翻译（`reference-translation`）-> 加载 `generate-reference-translation`
-3. 规划完成后统一进入 `generate-placement`
+1. 主动设计（`derived`）或参考启发式设计（`reference-informed-derived`）-> `generate-derived-planning` -> `generate-derived-placement`
+2. 参考图翻译（`reference-translation`）-> `generate-reference-translation` -> `generate-reference-placement`
 
 `generate-zoning` 只允许由 `generate-derived-planning` 内部调用。
 

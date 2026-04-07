@@ -414,7 +414,8 @@ BIMCanvas.Agent/
 │   ├── edit-workflow/
 │   ├── generate-derived-planning/
 │   ├── generate-reference-translation/
-│   ├── generate-placement/
+│   ├── generate-reference-placement/
+│   ├── generate-derived-placement/
 │   └── generate-zoning/
 ├── BIMCANVAS.md           # 主 Agent 系统提示词（可编辑）
 ├── config.json            # 应用配置（API、模型、工具）

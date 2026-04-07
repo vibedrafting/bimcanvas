@@ -181,7 +181,8 @@ dotnet publish BIMCanvas.Server -c Release -o publish
 - `edit-workflow`：编辑操作（移动、删除、旋转家具）
 - `generate-derived-planning`：主动设计规划
 - `generate-reference-translation`：参考图翻译
-- `generate-placement`：按图施工 + 验证 + 汇报
+- `generate-reference-placement`：参考布置（按图施工 + 用户授权制优化）
+- `generate-derived-placement`：推导布置（按图施工 + 自主优化）
 - `generate-zoning`：推导路径分区 helper
 
 **关键设计原则**：

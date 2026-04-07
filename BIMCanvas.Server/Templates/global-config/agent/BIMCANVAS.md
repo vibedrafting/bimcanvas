@@ -87,9 +87,9 @@ Generate 在主控层先判定任务语义，再加载对应 planning Skill。�
 ### 单分区
 
 - 你直接执行：
-  - 主动设计（`derived`）-> `generate-derived-planning` -> `generate-placement`
-  - 参考启发式设计（`reference-informed-derived`）-> 语义上保留该标签，但实现上仍走 `generate-derived-planning` -> `generate-placement`
-  - 参考图翻译（`reference-translation`）-> `generate-reference-translation` -> `generate-placement`
+  - 主动设计（`derived`）-> `generate-derived-planning` -> `generate-derived-placement`
+  - 参考启发式设计（`reference-informed-derived`）-> 语义上保留该标签，但实现上仍走 `generate-derived-planning` -> `generate-derived-placement`
+  - 参考图翻译（`reference-translation`）-> `generate-reference-translation` -> `generate-reference-placement`
 
 ### 多分区
 

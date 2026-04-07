@@ -65,11 +65,18 @@
       "description": "Generate 参考图翻译 Skill"
     },
     {
-      "name": "agent/skills/generate-placement",
-      "target": "skills/generate-placement",
+      "name": "agent/skills/generate-reference-placement",
+      "target": "skills/generate-reference-placement",
       "type": "directory",
       "enabled": true,
-      "description": "Generate 布置 Skill"
+      "description": "Generate 参考布置 Skill"
+    },
+    {
+      "name": "agent/skills/generate-derived-placement",
+      "target": "skills/generate-derived-placement",
+      "type": "directory",
+      "enabled": true,
+      "description": "Generate 推导布置 Skill"
     },
     {
       "name": "agent/reference-templates/design_principles.md",
@@ -115,38 +122,73 @@
     },
     {
       "name": "agent/reference-templates/design_principles.md",
-      "target": "skills/generate-placement/references/design_principles.md",
+      "target": "skills/generate-reference-placement/references/design_principles.md",
       "type": "template",
       "enabled": true,
-      "description": "布置：通用设计原则"
+      "description": "参考布置：通用设计原则"
     },
     {
       "name": "agent/reference-templates/design_evaluation.md",
-      "target": "skills/generate-placement/references/design_evaluation.md",
+      "target": "skills/generate-reference-placement/references/design_evaluation.md",
       "type": "template",
       "enabled": true,
-      "description": "布置：设计评价框架"
+      "description": "参考布置：设计评价框架"
     },
     {
       "name": "agent/reference-templates/bedroom.md",
-      "target": "skills/generate-placement/references/bedroom.md",
+      "target": "skills/generate-reference-placement/references/bedroom.md",
       "type": "template",
       "enabled": true,
-      "description": "布置：卧室策略"
+      "description": "参考布置：卧室策略"
     },
     {
       "name": "agent/reference-templates/bathroom.md",
-      "target": "skills/generate-placement/references/bathroom.md",
+      "target": "skills/generate-reference-placement/references/bathroom.md",
       "type": "template",
       "enabled": true,
-      "description": "布置：卫生间策略"
+      "description": "参考布置：卫生间策略"
     },
     {
       "name": "agent/reference-templates/livingroom.md",
-      "target": "skills/generate-placement/references/livingroom.md",
+      "target": "skills/generate-reference-placement/references/livingroom.md",
       "type": "template",
       "enabled": true,
-      "description": "布置：客餐厅策略"
+      "description": "参考布置：客餐厅策略"
+    },
+    {
+      "name": "agent/reference-templates/design_principles.md",
+      "target": "skills/generate-derived-placement/references/design_principles.md",
+      "type": "template",
+      "enabled": true,
+      "description": "推导布置：通用设计原则"
+    },
+    {
+      "name": "agent/reference-templates/design_evaluation.md",
+      "target": "skills/generate-derived-placement/references/design_evaluation.md",
+      "type": "template",
+      "enabled": true,
+      "description": "推导布置：设计评价框架"
+    },
+    {
+      "name": "agent/reference-templates/bedroom.md",
+      "target": "skills/generate-derived-placement/references/bedroom.md",
+      "type": "template",
+      "enabled": true,
+      "description": "推导布置：卧室策略"
+    },
+    {
+      "name": "agent/reference-templates/bathroom.md",
+      "target": "skills/generate-derived-placement/references/bathroom.md",
+      "type": "template",
+      "enabled": true,
+      "description": "推导布置：卫生间策略"
+    },
+    {
+      "name": "agent/reference-templates/livingroom.md",
+      "target": "skills/generate-derived-placement/references/livingroom.md",
+      "type": "template",
+      "enabled": true,
+      "description": "推导布置：客餐厅策略"
     },
     {
       "name": "agent/.claude-plugin",

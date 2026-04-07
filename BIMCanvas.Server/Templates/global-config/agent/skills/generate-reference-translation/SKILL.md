@@ -11,6 +11,17 @@ description: |
 > 你在本 Skill 中是翻译官。你的职责是把参考图中的布局意图翻译成语义方案图纸，而不是主动重设计。
 > 主控选择本 Skill 的前提是：用户要参考图片里的布局关系进行落地，而不是只参考感觉或风格。
 
+## 执行模式
+
+进入本 Skill 后，先确认执行模式：
+
+- **交互模式**：当前可用工具包含 `AskUserQuestion`（主控 Agent 直接执行）
+- **自主模式**：当前可用工具不包含 `AskUserQuestion`（layout-agent 执行）
+
+后续歧义处理节点统一按当前模式执行。
+
+---
+
 ## 输入白名单
 
 在 `save_semantic_plan(v0.2)` 之前，只允许使用以下输入：
@@ -121,8 +132,8 @@ WHY：留白不是“未布置区域”，而是布局本身；若不写进图�
 **【必须】**关键锚点和关键留白必须明确到具体墙面或角部，不允许只写“偏左”“偏南”“门旁留一点”。
 
 **歧义处理**：
-- 当前执行者具备 `AskUserQuestion`：若墙面映射缺少建筑锚点支撑、家具只定位到大墙面而未定位到角部/邻接关系、或门侧留白仍不确定在门的哪一侧，必须列出候选 + 视觉依据，向用户确认；用户仍不确定则要求补图，并停止在 v0.1
-- 当前执行者不具备 `AskUserQuestion`：保留歧义记录，进入 v0.2 的工程兜底
+- 交互模式：若墙面映射缺少建筑锚点支撑、家具只定位到大墙面而未定位到角部/邻接关系、或门侧留白仍不确定在门的哪一侧，必须列出候选 + 视觉依据，向用户确认；用户仍不确定则要求补图，并停止在 v0.1
+- 自主模式：保留歧义记录，进入 v0.2 的工程兜底
 
 **【必须】**调用：
 
@@ -182,15 +193,15 @@ save_semantic_plan({ zoneId, version: "v0.1", planType: "reference", content })
 - 图中包含床、北墙衣柜、转角梳妆台、门侧留白
 - 正确 `v0.2`：床 / 衣柜 / 梳妆台分别映射为具体模块，门侧留白落为不可侵占的保留空段
 
-### 主控 Agent 模式
+### 交互模式
 
-- 若关键锚点歧义仍存在，必须 `AskUserQuestion`
-- 若 `v0.2` 与 `v0.1` 视觉原文发生墙面不一致，也必须 `AskUserQuestion`
+- 若关键锚点歧义仍存在，必须提问确认
+- 若 `v0.2` 与 `v0.1` 视觉原文发生墙面不一致，也必须提问确认
 - 用户仍无法确认时：要求补图，停止，不提交 `v0.2`
 
-### layout-agent 模式
+### 自主模式
 
-当前执行者若不具备 `AskUserQuestion`，进入工程兜底：
+进入工程兜底：
 
 1. 优先保留 `v0.1` 视觉原文中的家具项、墙面归属与保留空段
 2. 若该墙面不可施工，避开窗墙
@@ -207,6 +218,14 @@ save_semantic_plan({ zoneId, version: "v0.1", planType: "reference", content })
 save_semantic_plan({ zoneId, version: "v0.2", planType: "reference", content })
 ```
 
+### 自由区域
+
+以下内容不属于 v0.2 图纸约束，施工阶段可自由决定：
+
+- 家具间精确间距（在满足通道要求前提下）
+- 附属件精确位置（椅子、镜柜等）
+- 模块参数化尺寸的精确值（在 limits 范围内）
+
 ---
 
 ## 4. 约束
@@ -214,16 +233,10 @@ save_semantic_plan({ zoneId, version: "v0.2", planType: "reference", content })
 - 本 Skill 不写 `modules.json`
 - 本 Skill 不读取任何外部设计 references
 - 本 Skill 不进入 `generate-zoning`
-- 本 Skill 完成后由 `generate-placement` 负责落地
+- 本 Skill 完成后由 `generate-reference-placement` 负责落地
 
 ---
 
 ## 5. 交接
 
-本 Skill 完成后，下一步应进入 `generate-placement`。
-
-`generate-placement` 会：
-
-1. 显式调用 `load_semantic_plan`
-2. 把当前生效图纸转成坐标
-3. 在 validate 闭环中落地
+本 Skill 完成后，由编排层路由到 `generate-reference-placement` 进行施工。
