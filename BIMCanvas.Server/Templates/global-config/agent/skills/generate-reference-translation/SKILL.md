@@ -2,12 +2,14 @@
 name: generate-reference-translation
 description: |
   Generate 参考图翻译 Skill。用于参考图翻译（reference-translation）路径的 Stage 1 + Stage 2。
-  当用户明确要求“照这个来”“按这张图还原”“忠实落地参考图”时加载。
+  当用户要求参考图中的布局、摆位、墙面关系或朝向进行落地时加载；
+  不要求必须出现“忠实还原”或“1:1”字样。
 ---
 
 # Generate 参考图翻译
 
 > 你在本 Skill 中是翻译官。你的职责是把参考图中的布局意图翻译成语义方案图纸，而不是主动重设计。
+> 主控选择本 Skill 的前提是：用户要参考图片里的布局关系进行落地，而不是只参考感觉或风格。
 
 ## 输入白名单
 
