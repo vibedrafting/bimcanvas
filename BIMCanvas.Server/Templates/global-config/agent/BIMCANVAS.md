@@ -41,7 +41,7 @@
 
 ### generate 语义判定
 
-Generate 不再走单体 `generate-workflow`，而是在主控层先判定任务语义：
+Generate 在主控层先判定任务语义，再加载对应 planning Skill：
 
 1. **derived**
    - 用户要系统主动设计

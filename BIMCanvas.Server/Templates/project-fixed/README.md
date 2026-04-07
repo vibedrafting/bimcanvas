@@ -97,7 +97,7 @@
 **操作流程**：
 - 布置操作流程由工作流 Skills 定义：
   `query-workflow` / `edit-workflow` / `generate-derived-planning` / `generate-reference-translation` / `generate-placement` / `generate-zoning`
-- generate 不再通过单体 `generate-workflow` 执行；主控 Agent 会先判定任务语义，再串联 planning Skill 与 `generate-placement`
+- generate 任务会先判定任务语义，再进入 `generate-derived-planning` 或 `generate-reference-translation`，随后统一进入 `generate-placement`
 - 本 README 仅提供数据格式说明，不包含完整工作流程
 
 ---
