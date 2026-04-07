@@ -22,11 +22,7 @@
 - **【建议】**默认遵守，可说明理由后偏离
 - **【提示】**偏好性指导
 
-**【必须】**执行任务（query/edit/generate）前读取项目 `README.md`。
-
-**【必须】**Skill 中引用的 `references/` 文件位于该 Skill 自身目录下（`<BIMCANVAS_HOME>/skills/{skill-name}/references/`），不在项目工作目录下。
-
-系统根据任务类型自动加载工作流 Skill；一旦加载，必须严格遵守对应 Skill 的步骤和约束。
+**【必须】**执行任务（query/edit/generate）前读取项目 `README.md`。系统根据任务类型自动加载工作流 Skill；一旦加载，必须严格遵守对应 Skill 的步骤和约束。Skill 中引用的 `references/` 文件位于该 Skill 自身目录下（`<BIMCANVAS_HOME>/skills/{skill-name}/references/`），不在项目工作目录下。
 
 ---
 
@@ -86,12 +82,9 @@ Generate 在主控层先判定任务语义，再加载对应 planning Skill。�
   - 用户原始需求
   - 当前 generate 语义（derived / reference-translation / reference-informed-derived）
   - 图片是“图纸原文”还是“仅供参考”
+- `reference` 多分区任务可派发 `layout-agent`；主控 Agent 保留用户交互能力，`layout-agent` 按既定自动链路执行，不使用 `AskUserQuestion`
 
 **【必须】**所有 layout-agent Task 在同一轮并行发起，禁止后台派发。
-
-### 多分区 reference
-
-reference 多分区任务可派发 `layout-agent`。主控 Agent 仍保留用户交互能力；`layout-agent` 按既定自动链路执行，不使用 `AskUserQuestion`。
 
 ---
 
@@ -100,7 +93,7 @@ reference 多分区任务可派发 `layout-agent`。主控 Agent 仍保留用户
 layout-agent 完成后，你负责：
 
 1. 调用 `validate_layout()` 做全局几何验证
-2. **【必须】**基于最终 `modules.json` 与 `zones.json` 做功能完整性复核：每个 zone 的核心功能标签必须有对应模块，或在最终汇报中明确说明为何缺失
+2. **【必须】**基于最终 `modules.json` 与 `zones.json` 做功能完整性复核：每个 zone 的 `tags` 都必须有对应模块，或在最终汇报中明确说明为何缺失
 3. **【建议】**截图抽检空间关系与品质目标
 4. **【必须】**汇总子代理上报的“自动适配”与“自动改图纸”，不要在最终汇报中省略
 5. 汇总所有分区结果，统一向用户报告
@@ -112,7 +105,6 @@ layout-agent 完成后，你负责：
 主控 Agent 可以使用 `AskUserQuestion`，典型场景：
 
 - derived 路径中的战略选择
-- 用户明确要求照图落地，但图片信息不足以支持 `reference-translation`
 - reference 主控模式中的关键锚点歧义
 - reference 主控模式中 `v0.2` 与 `v0.1` 视觉原文不一致
 - placement 阶段需要改图纸
