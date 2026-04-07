@@ -95,8 +95,10 @@
 > **注意**：`id` 由 Server 在 `validate_layout` 时自动生成（格式 `m_xxxxxxxx`），Agent 写入时无需填写。`zoneId` 由 Server 根据 bounds 位置自动计算。
 
 **操作流程**：
-- 布置操作流程由工作流 Skills（query-workflow / edit-workflow / generate-workflow）定义
-- 本 README 仅提供数据格式说明，不包含工作流程
+- 布置操作流程由工作流 Skills 定义：
+  `query-workflow` / `edit-workflow` / `generate-derived-planning` / `generate-reference-translation` / `generate-placement` / `generate-zoning`
+- generate 不再通过单体 `generate-workflow` 执行；主控 Agent 会先判定任务语义，再串联 planning Skill 与 `generate-placement`
+- 本 README 仅提供数据格式说明，不包含完整工作流程
 
 ---
 
