@@ -618,6 +618,24 @@ curl -X POST http://127.0.0.1:8765/api/chat \
   -d '{"message": "你好"}'
 ```
 
+### 独立图片生成调试
+
+第一阶段新增了一个独立的图片处理客户端，不依赖 Agent/Server/Web 运行时，可直接用两张本地图测试 API：
+
+```bash
+cd BIMCanvas.Agent
+python -m src.image_generation.cli ^
+  --api-key "你自己填写" ^
+  --source "E:\工作文档\开发类\MyCode\BIMCanvas\references\凤栖湖127主卧.png" ^
+  --style "E:\工作文档\开发类\MyCode\BIMCanvas\references\参考图.png" ^
+  --output "E:\工作文档\开发类\MyCode\BIMCanvas\references\outputs\phase1_result.png"
+```
+
+核心实现位于：
+
+- `src/image_generation/nano_banana_client.py`
+- `src/image_generation/cli.py`
+
 ### MCP 工具开发指南
 
 #### 已集成 MCP 工具（canvas）
