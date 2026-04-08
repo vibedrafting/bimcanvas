@@ -31,6 +31,10 @@ SUPPORTED_ASPECT_RATIOS = {
     "21:9",
 }
 SUPPORTED_INPUT_MIME_TYPES = {"image/png", "image/jpeg"}
+OUTPUT_SUFFIX_BY_MIME_TYPE = {
+    "image/png": ".png",
+    "image/jpeg": ".jpg",
+}
 
 
 class ImageInputError(ValueError):
@@ -286,9 +290,11 @@ class NanoBananaImageClient:
         raise ImageResponseError("响应中未找到生成图片数据")
 
     def _save_output_image(self, output_path: Path, mime_type: str, image_base64: str) -> Path:
+        expected_suffix = OUTPUT_SUFFIX_BY_MIME_TYPE.get(mime_type)
         normalized_path = output_path
-        if normalized_path.suffix == "" and mime_type == "image/png":
-            normalized_path = normalized_path.with_suffix(".png")
+        if expected_suffix:
+            if normalized_path.suffix.lower() != expected_suffix:
+                normalized_path = normalized_path.with_suffix(expected_suffix)
 
         try:
             normalized_path.parent.mkdir(parents=True, exist_ok=True)
