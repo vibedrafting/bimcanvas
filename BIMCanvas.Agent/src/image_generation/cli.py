@@ -14,6 +14,7 @@ from src.image_generation.nano_banana_client import (
 )
 
 
+DEFAULT_API_KEY = "sk-UlHrU9kQxlBSmLXADfB6A8B0611946Ce8fAfFc0771C6066a"
 DEFAULT_PROMPT = """请基于第一张输入图的空间轮廓、门窗开口和房间结构，生成一张二维俯视平面布局图。
 严格保留原始建筑结构，不要改动墙体、门、窗的位置与整体户型。
 视觉风格请参考第二张图片：深色背景、绿色墙体线、橙色家具块、清晰中文标签、工程平面图表达。
@@ -24,7 +25,11 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description="Standalone Nano Banana 2 image generation client"
     )
-    parser.add_argument("--api-key", required=True, help="API易 API Key")
+    parser.add_argument(
+        "--api-key",
+        default=DEFAULT_API_KEY,
+        help="API易 API Key；不传则使用 cli.py 中的默认值",
+    )
     parser.add_argument("--source", required=True, help="待处理原图路径")
     parser.add_argument("--style", required=True, help="风格参考图路径")
     parser.add_argument("--output", required=True, help="输出图片路径")

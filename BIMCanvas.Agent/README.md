@@ -625,11 +625,12 @@ curl -X POST http://127.0.0.1:8765/api/chat \
 ```bash
 cd BIMCanvas.Agent
 python -m src.image_generation.cli ^
-  --api-key "你自己填写" ^
   --source "E:\工作文档\开发类\MyCode\BIMCanvas\references\凤栖湖127主卧.png" ^
   --style "E:\工作文档\开发类\MyCode\BIMCanvas\references\参考图.png" ^
   --output "E:\工作文档\开发类\MyCode\BIMCanvas\references\outputs\phase1_result.png"
 ```
+
+如需临时覆盖默认 Key，可额外传入 `--api-key "..."`
 
 核心实现位于：
 
