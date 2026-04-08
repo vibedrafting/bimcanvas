@@ -632,6 +632,8 @@ python -m src.image_generation.cli ^
 
 如需临时覆盖默认 Key，可额外传入 `--api-key "..."`
 
+当前 CLI 默认 prompt 已收敛为“结构保真 + 家具矩形化 + 家具标签保留 + 家具方向箭头按需添加（方向不明确则省略）”。
+
 核心实现位于：
 
 - `src/image_generation/nano_banana_client.py`
