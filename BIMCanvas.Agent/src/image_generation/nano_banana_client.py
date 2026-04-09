@@ -99,8 +99,8 @@ class NanoBananaImageClient:
     async def generate_from_paths(
         self,
         source_image_path: str | Path,
-        style_image_path: str | Path,
         prompt: str,
+        style_image_path: str | Path | None = None,
         output_path: str | Path | None = None,
         image_size: str = "2K",
         aspect_ratio: str | None = None,
@@ -113,19 +113,16 @@ class NanoBananaImageClient:
         normalized_aspect_ratio = self._validate_aspect_ratio(aspect_ratio)
 
         source_path = self._validate_input_image_path(source_image_path, "原图")
-        style_path = self._validate_input_image_path(style_image_path, "风格参考图")
         resolved_output_path = self._resolve_output_path(output_path, source_path)
 
+        parts: list[dict[str, Any]] = [self._build_inline_image_part(source_path)]
+        if style_image_path is not None:
+            style_path = self._validate_input_image_path(style_image_path, "风格参考图")
+            parts.append(self._build_inline_image_part(style_path))
+        parts.append({"text": prompt})
+
         payload = {
-            "contents": [
-                {
-                    "parts": [
-                        {"text": prompt},
-                        self._build_inline_image_part(source_path),
-                        self._build_inline_image_part(style_path),
-                    ]
-                }
-            ],
+            "contents": [{"parts": parts}],
             "generationConfig": {
                 "responseModalities": ["IMAGE"],
                 "imageConfig": {
@@ -177,8 +174,8 @@ class NanoBananaImageClient:
     def generate_from_paths_sync(
         self,
         source_image_path: str | Path,
-        style_image_path: str | Path,
         prompt: str,
+        style_image_path: str | Path | None = None,
         output_path: str | Path | None = None,
         image_size: str = "2K",
         aspect_ratio: str | None = None,
