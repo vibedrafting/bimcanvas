@@ -3,6 +3,8 @@
 // SubAgent/Task 渲染相关类型
 // ==========================================
 
+import type { ChatAttachmentRef } from './chatAttachment';
+
 // ========== 状态类型 ==========
 
 export type ToolCallStatus = 'pending' | 'running' | 'completed' | 'failed';
@@ -162,6 +164,8 @@ export interface ChatBubble {
   content?: string;
   /** 附带的图片（Base64 格式，用户消息专有） */
   images?: string[];
+  /** 资源化附件引用（用户消息专有） */
+  attachments?: ChatAttachmentRef[];
 
   // ===== ToolCallBubble 专有 =====
   /** 工具名称 */

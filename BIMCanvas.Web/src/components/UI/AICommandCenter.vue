@@ -4,6 +4,7 @@ import { storeToRefs } from 'pinia';
 import { useCanvasStore } from '../../stores/canvasStore';
 import { useGitStore } from '../../stores/gitStore';
 import type { SubAgent, ToolCall, ChatBubble } from '../../types/agent';
+import type { ChatAttachmentRef, ChatAttachmentSourceKind } from '../../types/chatAttachment';
 import { proposalMocks } from '../../constants/aiCommandCenter';
 import { useAgentConfig } from '../../composables/aiCommandCenter/useAgentConfig';
 import { useChatScroll } from '../../composables/aiCommandCenter/useChatScroll';
@@ -26,6 +27,7 @@ import MarkdownText from './base/MarkdownText.vue';
 import AdvancedScreenshotOverlay from './AdvancedScreenshotOverlay.vue';
 import ImageLightbox from './ImageLightbox.vue';
 import { AGENT_API, SERVER_BASE } from '../../config/api';
+import { ChatAttachmentService, getImageDimensions } from '../../services/ChatAttachmentService';
 
 // === Lightbox 状态 ===
 const lightbox = ref({ visible: false, src: '' });
@@ -110,9 +112,9 @@ const inputMessage = computed({
   set: (val) => { if (activeWindow.value) activeWindow.value.inputMessage = val; }
 });
 
-const pendingImages = computed({
-  get: () => activeWindow.value?.pendingImages || [],
-  set: (val) => { if (activeWindow.value) activeWindow.value.pendingImages = val; }
+const pendingAttachments = computed({
+  get: () => activeWindow.value?.pendingAttachments || [],
+  set: (val) => { if (activeWindow.value) activeWindow.value.pendingAttachments = val; }
 });
 
 const isLoading = computed({
@@ -185,22 +187,48 @@ const {
 const imageUploadInputRef = ref<HTMLInputElement | null>(null);
 const imageExtPattern = /\.(png|jpe?g|gif|webp|bmp|tiff)$/i;
 
-const readFileAsDataUrl = (file: File) =>
-  new Promise<string>((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => resolve(reader.result as string);
-    reader.onerror = () => reject(reader.error || new Error('Failed to read file'));
-    reader.readAsDataURL(file);
-  });
+const ensureAttachmentUploadContext = async () => {
+  if (!currentProjectPath.value) {
+    await fetchProjectPath();
+  }
 
-const appendImageFiles = async (files: File[]) => {
+  const projectPath = currentProjectPath.value;
+  const windowState = activeWindow.value;
+  if (!projectPath || !windowState) {
+    throw new Error('项目路径或当前窗口不存在，无法上传图片附件');
+  }
+
+  return {
+    projectPath,
+    windowId: windowState.id,
+    clientMessageId: windowState.draftMessageId
+  };
+};
+
+const appendImageFiles = async (files: File[], sourceKind: ChatAttachmentSourceKind = 'upload') => {
   const imageFiles = files.filter(file =>
     file.type.startsWith('image/') || imageExtPattern.test(file.name)
   );
   if (imageFiles.length === 0) return;
 
-  const images = await Promise.all(imageFiles.map(readFileAsDataUrl));
-  pendingImages.value.push(...images);
+  const { projectPath, windowId, clientMessageId } = await ensureAttachmentUploadContext();
+  const uploadedAttachments: ChatAttachmentRef[] = [];
+
+  for (const file of imageFiles) {
+    const dimensions = await getImageDimensions(file).catch(() => undefined);
+    const attachment = await ChatAttachmentService.uploadAttachment({
+      projectPath,
+      windowId,
+      clientMessageId,
+      sourceKind,
+      file,
+      width: dimensions?.width,
+      height: dimensions?.height
+    });
+    uploadedAttachments.push(attachment);
+  }
+
+  pendingAttachments.value.push(...uploadedAttachments);
 };
 
 const openImagePicker = async () => {
@@ -226,7 +254,7 @@ const openImagePicker = async () => {
         ]
       });
       const files = await Promise.all(handles.map(handle => handle.getFile()));
-      await appendImageFiles(files);
+      await appendImageFiles(files, 'upload');
       return;
     } catch (error) {
       const err = error as DOMException;
@@ -244,7 +272,7 @@ const handleImageInputChange = async (event: Event) => {
   const files = input.files ? Array.from(input.files) : [];
   input.value = '';
   if (files.length === 0) return;
-  await appendImageFiles(files);
+  await appendImageFiles(files, 'upload');
 };
 
 const handleImagePaste = async (event: ClipboardEvent) => {
@@ -260,7 +288,7 @@ const handleImagePaste = async (event: ClipboardEvent) => {
   if (imageFiles.length === 0) return;
 
   event.preventDefault();
-  await appendImageFiles(imageFiles);
+  await appendImageFiles(imageFiles, 'paste');
 
   const text = clipboard.getData('text/plain');
   if (text) {
@@ -309,7 +337,7 @@ const {
   addMessage,
   addMessageToWindow,
   getWindowMessage,
-  pendingImages,
+  pendingAttachments,
   currentModel,
   currentEffort,
   currentThinking,
@@ -323,11 +351,13 @@ const {
   startListening,
   handleScreenshotCapture,
   handleScreenshotCancel,
-  removePendingImage
+  removePendingAttachment
 } = useScreenshot({
   agentApiBase: AGENT_API_BASE,
-  pendingImages,
-  currentProjectPath
+  pendingAttachments,
+  currentProjectPath,
+  activeWindow,
+  ensureProjectPath: fetchProjectPath
 });
 
 const {
@@ -728,12 +758,12 @@ watch(chatScrollRef, (newEl, oldEl) => {
                             />
 
                             <!-- 文本气泡 - 用户消息用纯文本，AI 消息用 Markdown -->
-                            <div class="bubble" v-else-if="bubble.type === 'text' && (bubble.content || bubble.images?.length)">
+                            <div class="bubble" v-else-if="bubble.type === 'text' && (bubble.content || bubble.attachments?.length)">
                                 <!-- 图片显示区域（用户消息专有） -->
-                                <div class="bubble-images" v-if="bubble.images && bubble.images.length > 0">
-                                    <img v-for="(img, idx) in bubble.images" :key="idx"
-                                         :src="img" class="bubble-image" alt="attached image"
-                                         @click="openLightbox(img)" />
+                                <div class="bubble-images" v-if="bubble.attachments && bubble.attachments.length > 0">
+                                    <img v-for="attachment in bubble.attachments" :key="attachment.attachmentId"
+                                         :src="attachment.contentUrl" class="bubble-image" alt="attached image"
+                                         @click="openLightbox(attachment.contentUrl)" />
                                 </div>
                                 <!-- 文本内容 -->
                                 <template v-if="msg.role === 'user'">{{ bubble.content }}</template>
@@ -1018,10 +1048,10 @@ watch(chatScrollRef, (newEl, oldEl) => {
         <!-- Antigravity Input Box -->
         <div class="antigravity-input-box">
             <!-- Pending Attachments Preview -->
-            <div class="pending-attachments" v-if="pendingImages.length > 0">
-              <div class="attachment-item" v-for="(img, idx) in pendingImages" :key="idx">
-                <img :src="img" class="attachment-thumbnail" alt="attachment" @click="openLightbox(img)" />
-                <button class="remove-attachment" @click.stop="removePendingImage(idx)">
+            <div class="pending-attachments" v-if="pendingAttachments.length > 0">
+              <div class="attachment-item" v-for="(attachment, idx) in pendingAttachments" :key="attachment.attachmentId">
+                <img :src="attachment.contentUrl" class="attachment-thumbnail" alt="attachment" @click="openLightbox(attachment.contentUrl)" />
+                <button class="remove-attachment" @click.stop="removePendingAttachment(idx)">
                   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                     <line x1="18" y1="6" x2="6" y2="18"></line>
                     <line x1="6" y1="6" x2="18" y2="18"></line>

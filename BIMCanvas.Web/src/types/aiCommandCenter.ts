@@ -1,4 +1,5 @@
 import type { ChatBubble, WaitingState } from './agent';
+import type { ChatAttachmentRef } from './chatAttachment';
 
 export interface ChatMessage {
   role: 'user' | 'ai';
@@ -24,8 +25,9 @@ export interface ChatWindow {
   isLoading?: boolean;
   error?: string | null;
   inputMessage: string;
+  draftMessageId: string;
   isStreaming: boolean;
-  pendingImages: string[];
+  pendingAttachments: ChatAttachmentRef[];
   scrollPosition: number;
   expandedThinking: Record<number, boolean>;
   shouldAutoScroll: boolean;

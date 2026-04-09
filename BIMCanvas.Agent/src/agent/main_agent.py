@@ -728,6 +728,8 @@ class MainAgent:
         self,
         user_message: str,
         images: list[str] = None,
+        image_blocks: list[dict] = None,
+        client_message_id: str | None = None,
         effort: str = None,
         thinking: str = None,
         model: str = None,
@@ -739,6 +741,8 @@ class MainAgent:
         Args:
             user_message: 用户消息
             images: 图片附件列表（base64 编码，可带 data:image/png;base64, 前缀）
+            image_blocks: 资源化附件转换后的 image block 列表
+            client_message_id: 前端草稿消息 ID（用于日志与恢复）
             effort: 推理深度 ("low"/"medium"/"high"/"max")，None 使用默认配置
             thinking: 扩展思考开关 ("off"/"adaptive")，None 使用默认配置
             model: 模型名称，None 使用默认配置
@@ -751,6 +755,8 @@ class MainAgent:
 
         if self.verbose:
             self._agent_logger.log_user_message(user_message)
+            if client_message_id:
+                self._agent_logger.log_info(f"[Attachment] clientMessageId={client_message_id}")
 
         self._in_thinking = False
         self._in_response = False
@@ -766,29 +772,33 @@ class MainAgent:
         # 构建画布上下文 content block（独立于用户消息，对齐 Claude Code 的 <ide_selection> 模式）
         context_block = self._build_context_block(context)
 
-        # 构建消息内容（images 或 context 存在时走多 content block 路径）
-        if images or context_block:
+        inline_image_blocks = list(image_blocks or [])
+        if images:
+            for img_base64 in images:
+                pure_base64 = img_base64
+                if "," in img_base64:
+                    pure_base64 = img_base64.split(",", 1)[1]
+                inline_image_blocks.append({
+                    "type": "image",
+                    "source": {
+                        "type": "base64",
+                        "media_type": "image/png",
+                        "data": pure_base64
+                    }
+                })
+
+        # 构建消息内容（images / image_blocks / context 存在时走多 content block 路径）
+        if inline_image_blocks or context_block or user_message:
             content = []
             # 1. 图片附件（如有）
-            if images:
-                for img_base64 in images:
-                    # 移除 data:image/png;base64, 前缀
-                    pure_base64 = img_base64
-                    if "," in img_base64:
-                        pure_base64 = img_base64.split(",", 1)[1]
-                    content.append({
-                        "type": "image",
-                        "source": {
-                            "type": "base64",
-                            "media_type": "image/png",
-                            "data": pure_base64
-                        }
-                    })
+            if inline_image_blocks:
+                content.extend(inline_image_blocks)
             # 2. 画布上下文（独立 block）
             if context_block:
                 content.append({"type": "text", "text": context_block})
             # 3. 用户消息（独立 block）
-            content.append({"type": "text", "text": user_message})
+            if user_message:
+                content.append({"type": "text", "text": user_message})
 
             # 构建完整消息并以异步迭代器形式发送
             # query() 接受 str 或 AsyncIterable，不接受 list
@@ -802,7 +812,7 @@ class MainAgent:
 
             await self._client.query(message_stream())
         else:
-            await self._client.query(user_message)
+            raise ValueError("Message or attachments cannot be empty")
 
         async for message in self._client.receive_response():
             # 获取当前消息的 parent_tool_use_id（用于关联工具调用到 SubAgent）

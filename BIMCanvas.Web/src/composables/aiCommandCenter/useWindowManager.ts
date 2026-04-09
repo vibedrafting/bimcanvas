@@ -5,6 +5,7 @@ import type { ChatMessage, ChatWindow, DropdownPosition } from '../../types/aiCo
 import { ChangeSource, type LoadOptions } from '../../types/history';
 import { GitWorktreeService } from '../../services/GitWorktreeService';
 import { SignalRService } from '../../services/SignalRService';
+import { createDraftMessageId } from '../../services/ChatAttachmentService';
 import { SERVER_API } from '../../config/api';
 
 interface WindowManagerOptions {
@@ -58,8 +59,9 @@ export const useWindowManager = (options: WindowManagerOptions) => {
       messages: [],
       isPrimary: true,
       inputMessage: '',
+      draftMessageId: createDraftMessageId(),
       isStreaming: false,
-      pendingImages: [],
+      pendingAttachments: [],
       scrollPosition: 0,
       expandedThinking: {},
       shouldAutoScroll: true
@@ -424,8 +426,9 @@ export const useWindowManager = (options: WindowManagerOptions) => {
       isLoading: true,
       error: null,
       inputMessage: '',
+      draftMessageId: createDraftMessageId(),
       isStreaming: false,
-      pendingImages: [],
+      pendingAttachments: [],
       scrollPosition: 0,
       expandedThinking: {},
       shouldAutoScroll: true

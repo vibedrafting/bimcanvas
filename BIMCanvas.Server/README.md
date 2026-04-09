@@ -132,6 +132,7 @@ v3.0 采用"文件驱动架构"，Server 从"内存数据库"模式转型为"文
 | `WorktreeMetadataService` | `Services/WorktreeMetadataService.cs` | v3.3 | Worktree 元数据读写（intent / baseBranch） |
 | `BackgroundScreenshotService` | `Services/BackgroundScreenshotService.cs` | v3.3 | Playwright 无头截图（支持批量 + 视口自适应） |
 | `ProjectSnapshotService` | `Services/ProjectSnapshotService.cs` | v3.3 | 项目数据快照读取（供截图服务使用） |
+| `ChatAttachmentService` | `Services/ChatAttachmentService.cs` | v3.4 | 对话图片资源化落盘 + `_chat_attachments.json` manifest 管理 |
 | `SchemeDataService` | `Services/SchemeDataService.cs` | v3.4 | 跨分支/Worktree 模块数据读写 |
 | `MergeService` | `Services/MergeService.cs` | v3.4 | 分区级差异计算 + 选择性/覆盖合并 |
 | `ProjectController` | `Controllers/ProjectController.cs` | v3.0 | `/api/project` 端点 |
@@ -165,6 +166,7 @@ BIMCanvas.Server/
 │   ├── WindowsController.cs      ✅【v3.3】多窗口分支锁 + Worktree 隔离
 │   ├── WorktreeController.cs     ✅【v3.3】Worktree 元数据查询 API
 │   ├── BackgroundScreenshotController.cs ✅ 后台截图 API（Playwright）
+│   ├── ChatAttachmentsController.cs ✅ 对话附件上传 / 预览 / 删除 / 提交
 │   ├── MergeController.cs        ✅【v3.4】分区级差异对比 + 选择性合并
 │   ├── ModulesController.cs      ✅ 跨分支模块数据读写 API
 │   ├── SchemeController.cs       ✅ 方案管理 API
@@ -185,6 +187,7 @@ BIMCanvas.Server/
 │   ├── ProjectContext.cs         ✅ 单项目模式上下文（含多窗口 Worktree 映射）
 │   ├── ProjectWatcherService.cs  ✅【v3.2】文件监听 + SignalR 推送
 │   ├── ProjectSnapshotService.cs ✅ 项目快照读取（供截图服务使用）
+│   ├── ChatAttachmentService.cs  ✅ 对话附件资源化 + manifest 管理
 │   ├── SchemeDataService.cs      ✅ 跨分支/Worktree 模块数据读写
 │   ├── BackgroundScreenshotService.cs ✅ 后台截图（Playwright 无头浏览器）
 │   ├── MergeService.cs           ✅【v3.4】分区级差异计算 + 选择性/覆盖合并
@@ -204,6 +207,27 @@ BIMCanvas.Server/
 │
 └── （MCP 工具由 BIMCanvas.Agent 端提供，Server 通过 REST API 响应 Agent 的工具调用）
 ```
+
+### 对话附件资源化
+
+阶段 2 起，AI Command Center 的图片输入不再直接把 base64 转发给 Agent，而是统一先落到当前项目目录：
+
+```text
+{projectPath}/screenshots/
+    chat_{windowId}_{attachmentId}.png|jpg|webp
+    _chat_attachments.json
+```
+
+关键约定：
+
+- 普通截图与聊天附件混放在 `screenshots/` 根目录
+- 聊天附件通过 `chat_` 文件名前缀和 `_chat_attachments.json` 区分
+- Server 负责上传、预览、删除、提交四个动作：
+  - `POST /api/chat/attachments`
+  - `GET /api/chat/attachments/{attachmentId}/content`
+  - `DELETE /api/chat/attachments/{attachmentId}`
+  - `POST /api/chat/attachments/commit`
+- Agent 只接收 `attachmentIds`，再按 manifest 解析稳定本地路径
 
 ---
 

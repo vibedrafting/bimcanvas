@@ -133,7 +133,11 @@
 - **多窗口隔离**: 基于 Worktree 的虚拟窗口，窗口间聊天、分支、滚动状态互不干扰。
 - **SSE 流式对话**: `/api/chat/stream` 逐行推送，支持思考过程与分段输出。
 - **子任务可视化**: SubAgent/ToolCall 气泡模型 + Waiting 提示。
-- **截图附件**: 框选截图、保存到本地、加入待发送附件队列。
+- **截图附件资源化**:
+    - 上传/粘贴/框选截图统一先上传到 `BIMCanvas.Server`
+    - 前端输入区持有 `pendingAttachments: ChatAttachmentRef[]`，不再持有 `base64[]`
+    - 聊天发送只传 `clientMessageId + attachmentIds`，不再把整张图片塞进 `/api/chat/stream`
+    - 失败或中止时恢复附件草稿，避免重新截图
 - **模型/思考强度**: 模型列表来自 `/api/config` 与 `/api/web_config`，默认模型来自 `/api/web_config.defaultModel`，思考强度来自 `/api/config`。
 - **接口基址兜底**: 未显式配置 `VITE_SERVER_URL` / `VITE_AGENT_URL` 时，开发态默认使用当前主机的 `5000/8865`；生产静态托管时，Server 与 Agent 默认统一收口到同源入口，其中 Agent 走 `/agent`。
 
@@ -145,11 +149,13 @@
 - `src/composables/aiCommandCenter/useAgentConfig.ts`: 模型与思考强度配置。
 - `src/composables/aiCommandCenter/useChatScroll.ts`: 滚动与自动滚动策略。
 - `src/composables/aiCommandCenter/usePanelUI.ts`: 面板尺寸、Tab 横向滚动、轮播滚动。
-- `src/composables/aiCommandCenter/useScreenshot.ts`: 截图监听与附件管理。
+- `src/composables/aiCommandCenter/useScreenshot.ts`: 截图监听与附件资源化上传。
 - `src/composables/aiCommandCenter/useContextMenu.ts`: Context/Attachment 菜单逻辑。
+- `src/services/ChatAttachmentService.ts`: 对话附件上传 / 删除 / 提交接口。
 - `src/services/SettingsService.ts`: 实例设置聚合 API 访问层。
 - `src/constants/aiCommandCenter.ts`: WAITING_VERBS / thinkingLevels / contextOptions / proposalMocks。
 - `src/types/aiCommandCenter.ts`: ChatWindow/ChatMessage/Proposal 等类型。
+- `src/types/chatAttachment.ts`: `ChatAttachmentRef` / `sourceKind` / `status`。
 
 #### 6.4 上下文绑定 (Context Binding)
 

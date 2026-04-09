@@ -1,8 +1,10 @@
 import { nextTick, ref } from 'vue';
 import type { Ref } from 'vue';
 import type { ChatMessage, ChatWindow, EffortLevel, ModelOption, ThinkingLevel } from '../../types/aiCommandCenter';
+import type { ChatAttachmentRef } from '../../types/chatAttachment';
 import type { WaitingState, ChatBubble } from '../../types/agent';
 import { ProjectService } from '../../services/ProjectService';
+import { ChatAttachmentService, createDraftMessageId } from '../../services/ChatAttachmentService';
 import {
   createTextBubble,
   createToolCallBubble,
@@ -33,7 +35,7 @@ interface ChatStreamOptions {
   addMessage: (message: ChatMessage) => number;
   addMessageToWindow: (windowId: string, message: ChatMessage) => number;
   getWindowMessage: (windowId: string, msgIndex: number) => ChatMessage | undefined;
-  pendingImages: Ref<string[]>;
+  pendingAttachments: Ref<ChatAttachmentRef[]>;
   currentModel: Ref<ModelOption | null>;
   currentEffort: Ref<EffortLevel>;
   currentThinking: Ref<ThinkingLevel>;
@@ -45,6 +47,28 @@ interface ChatStreamOptions {
 // 用于中止请求的 AbortController 管理
 let currentAbortController: AbortController | null = null;
 const PLACEHOLDER_ASSISTANT_TEXTS = new Set(['(no content)', '[no content]']);
+
+class ChatHttpError extends Error {
+  status: number;
+  errorType?: string;
+  rawMessage?: string;
+  shouldMarkDisconnected: boolean;
+
+  constructor(
+    message: string,
+    status: number,
+    errorType?: string,
+    rawMessage?: string,
+    shouldMarkDisconnected: boolean = false
+  ) {
+    super(message);
+    this.name = 'ChatHttpError';
+    this.status = status;
+    this.errorType = errorType;
+    this.rawMessage = rawMessage;
+    this.shouldMarkDisconnected = shouldMarkDisconnected;
+  }
+}
 
 export const useChatStream = (options: ChatStreamOptions) => {
   const agentStatus = ref<'connecting' | 'connected' | 'disconnected'>('disconnected');
@@ -187,24 +211,27 @@ export const useChatStream = (options: ChatStreamOptions) => {
     if (!win) return;
 
     const message = win.inputMessage.trim();
-    if (!message || win.isStreaming) return;
+    if ((!message && options.pendingAttachments.value.length === 0) || win.isStreaming) return;
 
     // 每次发消息前刷新项目路径，确保项目切换后携带最新路径
     await fetchProjectPath();
 
     const targetWindowId = win.id;
+    const effectiveWindowId = options.activeWindowId.value || 'window-main';
+    const clientMessageId = win.draftMessageId || createDraftMessageId();
 
     // 先提取待发送图片，再清空
-    const imagesToSend = [...options.pendingImages.value];
-    options.pendingImages.value = [];
+    const attachmentsToSend = [...options.pendingAttachments.value];
+    const attachmentIds = attachmentsToSend.map(item => item.attachmentId);
+    options.pendingAttachments.value = [];
+    win.draftMessageId = createDraftMessageId();
 
     const userTextBubble = createTextBubble(message);
     userTextBubble.status = 'completed';
-    // 如果有图片，存储到气泡中
-    if (imagesToSend.length > 0) {
-      userTextBubble.images = imagesToSend;
+    if (attachmentsToSend.length > 0) {
+      userTextBubble.attachments = attachmentsToSend;
     }
-    options.addMessageToWindow(targetWindowId, {
+    const userMessageIndex = options.addMessageToWindow(targetWindowId, {
       role: 'user',
       bubbles: [userTextBubble],
       waitingState: { isWaiting: false, waitingVerb: '', waitingSince: 0 }
@@ -246,14 +273,48 @@ export const useChatStream = (options: ChatStreamOptions) => {
       }
     }, 1000);
 
-    try {
-      const effectiveWindowId = options.activeWindowId.value || 'window-main';
+    let shouldCommitAttachments = false;
+    let didReceiveAssistantEvent = false;
 
+    const restoreDraftState = (errorMessage?: string) => {
+      const targetWin = options.windows.value.find(w => w.id === targetWindowId);
+      if (!targetWin) return;
+
+      targetWin.inputMessage = message;
+      targetWin.pendingAttachments = attachmentsToSend;
+      targetWin.draftMessageId = clientMessageId;
+
+      if (aiMessageIndex >= 0 && aiMessageIndex < targetWin.messages.length) {
+        const aiMessage = targetWin.messages[aiMessageIndex];
+        if (aiMessage?.role === 'ai') {
+          targetWin.messages.splice(aiMessageIndex, 1);
+        }
+      }
+
+      if (userMessageIndex >= 0 && userMessageIndex < targetWin.messages.length) {
+        const userMessage = targetWin.messages[userMessageIndex];
+        if (userMessage?.role === 'user') {
+          targetWin.messages.splice(userMessageIndex, 1);
+        }
+      }
+
+      if (errorMessage) {
+        const errorBubble = createTextBubble(errorMessage);
+        errorBubble.status = 'failed';
+        options.addMessageToWindow(targetWindowId, {
+          role: 'ai',
+          bubbles: [errorBubble],
+          waitingState: { isWaiting: false, waitingVerb: '', waitingSince: 0 }
+        });
+      }
+    };
+
+    try {
       console.log('[sendMessage] Request:', {
         projectPath: currentProjectPath.value,
         windowId: effectiveWindowId,
         message: message.substring(0, 50) + (message.length > 50 ? '...' : ''),
-        imagesCount: imagesToSend.length,
+        attachmentCount: attachmentIds.length,
         model: options.currentModel.value?.id,
         effort: options.currentEffort.value.id,
         thinking: options.currentThinking.value.id
@@ -270,8 +331,9 @@ export const useChatStream = (options: ChatStreamOptions) => {
           projectPath: currentProjectPath.value,
           windowId: effectiveWindowId,
           worktreePath: options.activeWindow.value?.worktreePath,
+          clientMessageId,
           message,
-          images: imagesToSend,
+          attachmentIds,
           model: options.currentModel.value?.id,
           effort: options.currentEffort.value.id,
           thinking: options.currentThinking.value.id,
@@ -281,7 +343,7 @@ export const useChatStream = (options: ChatStreamOptions) => {
       });
 
       if (!response.ok) {
-        throw new Error(`HTTP error: ${response.status}`);
+        throw await createChatHttpError(response);
       }
 
       const reader = response.body?.getReader();
@@ -308,6 +370,9 @@ export const useChatStream = (options: ChatStreamOptions) => {
             }
             try {
               const parsed = JSON.parse(data);
+              if (parsed?.type) {
+                didReceiveAssistantEvent = true;
+              }
 
               const currentMsg = options.getWindowMessage(targetWindowId, aiMessageIndex);
               if (!currentMsg) continue;
@@ -517,10 +582,14 @@ export const useChatStream = (options: ChatStreamOptions) => {
       }
 
       agentStatus.value = 'connected';
+      shouldCommitAttachments = true;
     } catch (error) {
       // AbortError 是用户主动中止，不是真正的错误
       if (error instanceof Error && error.name === 'AbortError') {
         console.log('[sendMessage] Request aborted by user');
+        if (!didReceiveAssistantEvent) {
+          restoreDraftState();
+        }
         // 正常结束，不显示错误
         const currentMsg = options.getWindowMessage(targetWindowId, aiMessageIndex);
         if (currentMsg) {
@@ -535,10 +604,18 @@ export const useChatStream = (options: ChatStreamOptions) => {
 
       // 其他错误正常处理
       console.error('Chat error:', error);
+      const errorInfo = normalizeChatError(error);
+
+      if (!didReceiveAssistantEvent) {
+        restoreDraftState(errorInfo.userMessage);
+        agentStatus.value = errorInfo.shouldMarkDisconnected ? 'disconnected' : 'connected';
+        return;
+      }
+
       const currentMsg = options.getWindowMessage(targetWindowId, aiMessageIndex);
       if (currentMsg) {
         if (currentMsg.bubbles.length === 0) {
-          const errorBubble = createTextBubble('Sorry, I encountered an error. Please check if the Agent server is running.');
+          const errorBubble = createTextBubble(errorInfo.userMessage);
           errorBubble.status = 'failed';
           currentMsg.bubbles.push(errorBubble);
         }
@@ -546,8 +623,21 @@ export const useChatStream = (options: ChatStreamOptions) => {
         currentMsg.waitingState.isWaiting = false;
         pruneSuppressedTextBubbles(currentMsg.bubbles);
       }
-      agentStatus.value = 'disconnected';
+      agentStatus.value = errorInfo.shouldMarkDisconnected ? 'disconnected' : 'connected';
     } finally {
+      if (shouldCommitAttachments && attachmentIds.length > 0 && currentProjectPath.value) {
+        try {
+          await ChatAttachmentService.commitAttachments({
+            projectPath: currentProjectPath.value,
+            windowId: effectiveWindowId,
+            clientMessageId,
+            attachmentIds
+          });
+        } catch (commitError) {
+          console.warn('[sendMessage] Commit attachments failed:', commitError);
+        }
+      }
+
       const targetWin = options.windows.value.find(w => w.id === targetWindowId);
       if (targetWin) {
         targetWin.isStreaming = false;
@@ -557,6 +647,103 @@ export const useChatStream = (options: ChatStreamOptions) => {
       await nextTick();
       options.scrollToBottom({ windowId: targetWindowId });
     }
+  };
+
+  const createChatHttpError = async (response: Response): Promise<ChatHttpError> => {
+    const payload = await readErrorPayload(response);
+    const errorType = payload.errorType || inferErrorType(response.status, payload.message);
+    const info = mapChatError(response.status, errorType, payload.message);
+    return new ChatHttpError(
+      info.userMessage,
+      response.status,
+      errorType,
+      payload.message,
+      info.shouldMarkDisconnected
+    );
+  };
+
+  const normalizeChatError = (error: unknown): { userMessage: string; shouldMarkDisconnected: boolean } => {
+    if (error instanceof ChatHttpError) {
+      return {
+        userMessage: error.message,
+        shouldMarkDisconnected: error.shouldMarkDisconnected
+      };
+    }
+
+    if (error instanceof TypeError) {
+      return {
+        userMessage: '无法连接到 Agent 服务，请检查本地服务是否可用。',
+        shouldMarkDisconnected: true
+      };
+    }
+
+    return {
+      userMessage: '发送消息失败，请稍后重试。',
+      shouldMarkDisconnected: false
+    };
+  };
+
+  const readErrorPayload = async (response: Response): Promise<{ message?: string; errorType?: string }> => {
+    try {
+      const payload = await response.json();
+      return {
+        message: payload?.message || payload?.error,
+        errorType: payload?.errorType
+      };
+    } catch {
+      return {};
+    }
+  };
+
+  const inferErrorType = (status: number, message?: string): string | undefined => {
+    if (status === 413) {
+      return 'request_too_large';
+    }
+
+    const normalizedMessage = (message || '').toLowerCase();
+    if (normalizedMessage.includes('attachment_missing')) return 'attachment_missing';
+    if (normalizedMessage.includes('attachment_invalid')) return 'attachment_invalid';
+    if (normalizedMessage.includes('attachment_too_large')) return 'attachment_too_large';
+    if (normalizedMessage.includes('request_too_large')) return 'request_too_large';
+    return undefined;
+  };
+
+  const mapChatError = (
+    status: number,
+    errorType?: string,
+    rawMessage?: string
+  ): { userMessage: string; shouldMarkDisconnected: boolean } => {
+    switch (errorType) {
+      case 'attachment_missing':
+        return { userMessage: '附件文件不存在，请重新添加图片后再试。', shouldMarkDisconnected: false };
+      case 'attachment_invalid':
+        return { userMessage: '附件无效，无法读取。请重新添加图片后再试。', shouldMarkDisconnected: false };
+      case 'attachment_too_large':
+        return { userMessage: '图片过大，超出可发送限制。请重新截图或压缩后再试。', shouldMarkDisconnected: false };
+      case 'request_too_large':
+        return { userMessage: '附件过大，无法发送。请减少图片数量或缩小图片后再试。', shouldMarkDisconnected: false };
+      default:
+        break;
+    }
+
+    if (status === 503) {
+      return {
+        userMessage: 'Agent 服务不可用，请检查本地 Agent 是否已启动。',
+        shouldMarkDisconnected: true
+      };
+    }
+
+    if (status >= 500) {
+      return {
+        userMessage: rawMessage || `请求失败（HTTP ${status}），请稍后重试。`,
+        shouldMarkDisconnected: false
+      };
+    }
+
+    return {
+      userMessage: rawMessage || `请求失败（HTTP ${status}）。`,
+      shouldMarkDisconnected: false
+    };
   };
 
   /**

@@ -8,6 +8,7 @@ dependencies = [
     "claude-agent-sdk>=0.1.43",  # Agent SDK (ThinkingConfig + effort + 未知消息类型兼容)
     "aiohttp>=3.9.0",           # HTTP server
     "aiohttp-cors>=0.7.0",      # CORS support for Web access
+    "Pillow>=10.4.0",           # 图片标准化（缩放 / 降采样 / 格式兜底）
     "python-dotenv>=1.0.0",     # Environment variables
 ]
 

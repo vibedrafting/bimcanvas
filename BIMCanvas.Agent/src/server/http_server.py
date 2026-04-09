@@ -13,6 +13,7 @@ from aiohttp import web
 import aiohttp_cors
 
 from ..agent.main_agent import MainAgent
+from ..attachments.chat_attachments import AttachmentResolutionError, resolve_attachment_image_blocks
 from ..config.settings import get_settings
 from ..config.loader import resolve_bimcanvas_home
 
@@ -261,6 +262,14 @@ async def chat_stream_handler(request: web.Request) -> web.StreamResponse:
     """
     try:
         data = await request.json()
+    except web.HTTPRequestEntityTooLarge:
+        return web.json_response(
+            {
+                "error": "request_too_large: request body exceeds server limit",
+                "errorType": "request_too_large",
+            },
+            status=413,
+        )
     except json.JSONDecodeError:
         return web.json_response(
             {"error": "Invalid JSON"},
@@ -270,8 +279,10 @@ async def chat_stream_handler(request: web.Request) -> web.StreamResponse:
     project_path = data.get("projectPath", "")
     window_id = data.get("windowId", "primary")       # 窗口ID，默认 primary
     worktree_path = data.get("worktreePath")          # 工作目录
+    client_message_id = data.get("clientMessageId")
     message = data.get("message", "")
     images = data.get("images", [])        # 图片附件列表
+    attachment_ids = data.get("attachmentIds", [])
     model = data.get("model")              # 模型名称
     effort = data.get("effort")            # 推理深度
     thinking = data.get("thinking")        # 扩展思考
@@ -285,9 +296,9 @@ async def chat_stream_handler(request: web.Request) -> web.StreamResponse:
         window_id = "primary"
         logger.warning("[chat_stream] Empty windowId received, using default 'primary'")
 
-    if not message:
+    if not message and not images and not attachment_ids:
         return web.json_response(
-            {"error": "Message cannot be empty"},
+            {"error": "Message or attachments cannot be empty"},
             status=400
         )
 
@@ -295,6 +306,20 @@ async def chat_stream_handler(request: web.Request) -> web.StreamResponse:
         return web.json_response(
             {"error": "Model is required"},
             status=400
+        )
+
+    if not isinstance(attachment_ids, list):
+        return web.json_response(
+            {"error": "attachmentIds must be a list", "errorType": "attachment_invalid"},
+            status=400,
+        )
+
+    try:
+        attachment_image_blocks = resolve_attachment_image_blocks(project_path, attachment_ids)
+    except AttachmentResolutionError as exc:
+        return web.json_response(
+            {"error": exc.message, "errorType": exc.error_type},
+            status=exc.status,
         )
 
     # Set up SSE response
@@ -315,7 +340,16 @@ async def chat_stream_handler(request: web.Request) -> web.StreamResponse:
         if agent._connected and model and model != agent.get_current_model():
             await agent.set_model(model)
 
-        async for chunk in agent.chat_stream(message, images=images, effort=effort, thinking=thinking, model=model, context=context):
+        async for chunk in agent.chat_stream(
+            message,
+            images=images,
+            image_blocks=attachment_image_blocks,
+            client_message_id=client_message_id,
+            effort=effort,
+            thinking=thinking,
+            model=model,
+            context=context,
+        ):
             # 构建 SSE 事件数据
             event_data = {"type": chunk.type}
 
@@ -838,7 +872,7 @@ def create_app() -> web.Application:
     Returns:
         Configured web.Application
     """
-    app = web.Application()
+    app = web.Application(client_max_size=12 * 1024**2)
 
     # 注册清理回调
     app.on_shutdown.append(on_shutdown)

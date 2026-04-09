@@ -103,10 +103,19 @@ Content-Type: application/json
 
 {
   "projectPath": "...",
+  "clientMessageId": "msg_xxx",
+  "attachmentIds": ["att_xxx", "att_yyy"],
   "model": "sonnet",
   "message": "..."
 }
 ```
+
+说明：
+
+- Web 端不再把整张截图 base64 直接放进 `/api/chat/stream`
+- Agent 会根据 `projectPath/screenshots/_chat_attachments.json` 解析 `attachmentIds`
+- 发送给模型前，Agent 会先做缩放 / 降采样 / 格式兜底，避免再次触发超限
+- 兼容期内仍支持旧字段 `images: string[]`，但 Web 已切换到 `attachmentIds`
 
 响应格式（Server-Sent Events）：
 ```
