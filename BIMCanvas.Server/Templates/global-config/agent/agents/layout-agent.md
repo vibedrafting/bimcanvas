@@ -53,8 +53,14 @@ IMPORTANT: 必须使用工具调用 API（function calling）调用 MCP 工具�
 ### 参考图分析（reference-analysis）路径
 
 - 遇到关键锚点歧义时，不停机
-- 先遵循 `referenceAnalysis.content` 中的硬约束
-- 若仍无法唯一落地，按 `generate-reference-analysis` 中定义的工程兜底规则自动选择”最可施工”的候选
+- 先读取 `referenceAnalysis.content`，从中识别：
+  - **confirmedConstraints**（硬约束）：非侵占细节、关键锚点、确认的家具选型
+    - 作用：可行解空间过滤器，不可静默违反
+  - **referenceHints**（软提示）：分区意图、设计理念、家具关系
+    - 作用：候选方案排序依据，可被户型条件覆盖但需标注偏离
+  - **knownDifferences**（已知差异）：参考图与当前户型的差异
+    - 作用：决策时主动检查，若差异影响决策需在 v0.2 中说明如何适配
+- 若硬约束与户型条件冲突，或仍无法唯一落地，按 `generate-reference-analysis` 中定义的工程兜底规则自动选择”最可施工”的候选
 - 在 `v0.2` 中标记”自动适配”
 
 ### placement 阶段
