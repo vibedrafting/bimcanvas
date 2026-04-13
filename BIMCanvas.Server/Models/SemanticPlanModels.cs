@@ -16,49 +16,12 @@ namespace BIMCanvas.Server.Models
     }
 
     /// <summary>
-    /// 参考约束（硬约束）
-    /// </summary>
-    public class ReferenceConstraint
-    {
-        /// <summary>
-        /// 约束类型：negativeSpace（非侵占细节）、furnitureSelection（家具选型）、anchorPoint（关键锚点）
-        /// </summary>
-        public string Type { get; set; }
-
-        /// <summary>
-        /// 约束描述
-        /// </summary>
-        public string Description { get; set; }
-
-        /// <summary>
-        /// 约束来源：用户确认、几何验证
-        /// </summary>
-        public string Source { get; set; }
-    }
-
-    /// <summary>
-    /// 参考提示（软提示）
-    /// </summary>
-    public class ReferenceHint
-    {
-        /// <summary>
-        /// 提示类型：zoningIntent（分区意图）、designPrinciple（设计理念）、furnitureRelation（家具关系）
-        /// </summary>
-        public string Type { get; set; }
-
-        /// <summary>
-        /// 提示描述
-        /// </summary>
-        public string Description { get; set; }
-    }
-
-    /// <summary>
-    /// 参考分析结果
+    /// 参考分析结果（AI 友好设计）
     /// </summary>
     public class ReferenceAnalysis
     {
         /// <summary>
-        /// 参考图附件 ID
+        /// 参考图附件 ID（可选）
         /// </summary>
         public string SourceImageId { get; set; }
 
@@ -68,24 +31,10 @@ namespace BIMCanvas.Server.Models
         public string Relevance { get; set; }
 
         /// <summary>
-        /// 确认的约束（硬约束）
+        /// 参考分析内容（Markdown 格式）
+        /// AI 在此自由组织 confirmedConstraints（硬约束）和 referenceHints（软提示）
         /// </summary>
-        public List<ReferenceConstraint> ConfirmedConstraints { get; set; }
-
-        /// <summary>
-        /// 参考提示（软提示）
-        /// </summary>
-        public List<ReferenceHint> ReferenceHints { get; set; }
-
-        /// <summary>
-        /// 已知差异
-        /// </summary>
-        public List<string> KnownDifferences { get; set; }
-
-        /// <summary>
-        /// 用户确认记录
-        /// </summary>
-        public List<string> UserConfirmations { get; set; }
+        public string Content { get; set; }
 
         /// <summary>
         /// 时间戳

@@ -933,8 +933,9 @@ async def load_semantic_plan(args: dict[str, Any]) -> dict[str, Any]:
                         text_parts.append(f"\nreferenceAnalysis:")
                         text_parts.append(f"  relevance: {ref_analysis.get('relevance', 'N/A')}")
                         text_parts.append(f"  sourceImageId: {ref_analysis.get('sourceImageId', 'N/A')}")
-                        text_parts.append(f"  confirmedConstraints: {len(ref_analysis.get('confirmedConstraints', []))} 条")
-                        text_parts.append(f"  referenceHints: {len(ref_analysis.get('referenceHints', []))} 条")
+                        text_parts.append(f"\n--- 参考分析内容 ---")
+                        text_parts.append(ref_analysis.get('content', ''))
+                        text_parts.append("--- 参考分析内容结束 ---")
 
                     text_parts.append(f"\n{data['content']}")
                     text = "\n".join(text_parts)
@@ -970,7 +971,7 @@ async def load_semantic_plan(args: dict[str, Any]) -> dict[str, Any]:
 
 @tool(
     "save_reference_analysis",
-    "保存参考分析结果到语义方案。在参考图分析完成后调用，提交约束包（confirmedConstraints + referenceHints）。",
+    "保存参考分析结果到语义方案。在参考图分析完成后调用，提交约束包（AI 自由组织的 Markdown 内容）。",
     {
         "$schema": "http://json-schema.org/draft-07/schema#",
         "type": "object",
@@ -981,67 +982,19 @@ async def load_semantic_plan(args: dict[str, Any]) -> dict[str, Any]:
             },
             "sourceImageId": {
                 "type": "string",
-                "description": "参考图附件 ID"
+                "description": "参考图附件 ID（可选）"
             },
             "relevance": {
                 "type": "string",
                 "enum": ["partially_related", "structurally_related"],
                 "description": "关联性等级：partially_related=部分相关, structurally_related=结构相关"
             },
-            "confirmedConstraints": {
-                "type": "array",
-                "description": "确认的约束（硬约束）",
-                "items": {
-                    "type": "object",
-                    "properties": {
-                        "type": {
-                            "type": "string",
-                            "enum": ["negativeSpace", "furnitureSelection", "anchorPoint"],
-                            "description": "约束类型"
-                        },
-                        "description": {
-                            "type": "string",
-                            "description": "约束描述"
-                        },
-                        "source": {
-                            "type": "string",
-                            "description": "约束来源：用户确认、几何验证"
-                        }
-                    },
-                    "required": ["type", "description", "source"]
-                }
-            },
-            "referenceHints": {
-                "type": "array",
-                "description": "参考提示（软提示）",
-                "items": {
-                    "type": "object",
-                    "properties": {
-                        "type": {
-                            "type": "string",
-                            "enum": ["zoningIntent", "designPrinciple", "furnitureRelation"],
-                            "description": "提示类型"
-                        },
-                        "description": {
-                            "type": "string",
-                            "description": "提示描述"
-                        }
-                    },
-                    "required": ["type", "description"]
-                }
-            },
-            "knownDifferences": {
-                "type": "array",
-                "description": "已知差异列表",
-                "items": {"type": "string"}
-            },
-            "userConfirmations": {
-                "type": "array",
-                "description": "用户确认记录",
-                "items": {"type": "string"}
+            "content": {
+                "type": "string",
+                "description": "参考分析内容（Markdown 格式），AI 自由组织 confirmedConstraints（硬约束）和 referenceHints（软提示）"
             }
         },
-        "required": ["zoneId", "relevance", "confirmedConstraints", "referenceHints"],
+        "required": ["zoneId", "relevance", "content"],
         "additionalProperties": False
     }
 )
@@ -1049,15 +1002,13 @@ async def save_reference_analysis(args: dict[str, Any]) -> dict[str, Any]:
     """保存参考分析结果"""
     zone_id = args["zoneId"]
     relevance = args["relevance"]
+    content = args["content"]
 
     body = {
         "zoneId": zone_id,
         "sourceImageId": args.get("sourceImageId", ""),
         "relevance": relevance,
-        "confirmedConstraints": args.get("confirmedConstraints", []),
-        "referenceHints": args.get("referenceHints", []),
-        "knownDifferences": args.get("knownDifferences", []),
-        "userConfirmations": args.get("userConfirmations", [])
+        "content": content
     }
 
     try:

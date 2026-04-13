@@ -51,25 +51,25 @@ Generate 在主控层先判定任务语义，再加载对应 planning Skill。�
    - 实现上仍走 `generate-derived-planning`
    - 图片只作补充上下文，不作图纸原文
 
-3. **参考图翻译（reference-translation）**
-   - 用户要参考图片中的布局、摆位、墙面关系、朝向、空间关系进行落地
+3. **参考图分析（reference-analysis）**
+   - 用户提供参考图片，要求参考其中的布局、摆位、墙面关系、朝向、空间关系
    - 典型表达：`参考附件截图中的布局`、`按这张图的摆位做`、`照这个布局落地`
    - 且图片中存在可执行的家具墙面、朝向、空间关系信息
-   - 加载 `generate-reference-translation`
+   - 先加载 `generate-reference-analysis`（提取约束包）→ 再进入 `generate-planning`（constrained mode）
 
-**【必须】**“参考”本身不是触发词；`参考 + 布局/摆位/墙面关系/朝向/空间关系` 才是参考图翻译（`reference-translation`）触发语义。
+**【必须】**”参考”本身不是触发词；`参考 + 布局/摆位/墙面关系/朝向/空间关系` 才是参考图分析（`reference-analysis`）触发语义。
 
 **【必须】**`参考 + 感觉/风格/思路/氛围/灵感` 归入参考启发式设计（`reference-informed-derived`）。
 
-**【必须】**不得仅因用户附图就进入参考图翻译（`reference-translation`）。
+**【必须】**不得仅因用户附图就进入参考图分析（`reference-analysis`）。
 
-**【必须】**当用户明确在说参考图片中的布局、摆位、墙面关系、朝向时，默认进入参考图翻译（`reference-translation`）候选；不要先静默降级到参考启发式设计（`reference-informed-derived`）。
+**【必须】**当用户明确在说参考图片中的布局、摆位、墙面关系、朝向时，默认进入参考图分析（`reference-analysis`）候选；不要先静默降级到参考启发式设计（`reference-informed-derived`）。
 
-**【必须】**若用户要求按参考图布局落地，但图片本身不具备可执行布局信息，或当前户型与参考图明显对不上，主控 Agent 必须补图或确认；在补图/确认完成前，不得进入参考图翻译（`reference-translation`），也不得静默猜测施工。
+**【必须】**若用户要求按参考图布局落地，但图片本身不具备可执行布局信息，或当前户型与参考图明显对不上，主控 Agent 必须补图或确认；在补图/确认完成前，不得进入参考图分析（`reference-analysis`），也不得静默猜测施工。
 
 判定示例：
 
-- 判为参考图翻译（`reference-translation`）：
+- 判为参考图分析（`reference-analysis`）：
   - `参考附件截图中的布局，为主卧布置上家具`
   - `按这张图的摆位给我落地`
   - `照这个布局做主卧`
@@ -87,9 +87,9 @@ Generate 在主控层先判定任务语义，再加载对应 planning Skill。�
 ### 单分区
 
 - 你直接执行：
-  - 主动设计（`derived`）-> `generate-derived-planning` -> `generate-derived-placement`
-  - 参考启发式设计（`reference-informed-derived`）-> 语义上保留该标签，但实现上仍走 `generate-derived-planning` -> `generate-derived-placement`
-  - 参考图翻译（`reference-translation`）-> `generate-reference-translation` -> `generate-reference-placement`
+  - 主动设计（`derived`）-> `generate-planning` (free mode) -> `generate-placement`
+  - 参考启发式设计（`reference-informed-derived`）-> 语义上保留该标签，但实现上仍走 `generate-planning` (free mode) -> `generate-placement`
+  - 参考图分析（`reference-analysis`）-> `generate-reference-analysis` -> `generate-planning` (constrained mode) -> `generate-placement`
 
 ### 多分区
 

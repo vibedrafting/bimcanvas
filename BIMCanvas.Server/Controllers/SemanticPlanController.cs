@@ -104,12 +104,9 @@ namespace BIMCanvas.Server.Controllers
 
             document.ReferenceAnalysis = new ReferenceAnalysis
             {
-                SourceImageId = request.SourceImageId,
+                SourceImageId = request.SourceImageId ?? "",
                 Relevance = request.Relevance,
-                ConfirmedConstraints = request.ConfirmedConstraints ?? new List<ReferenceConstraint>(),
-                ReferenceHints = request.ReferenceHints ?? new List<ReferenceHint>(),
-                KnownDifferences = request.KnownDifferences ?? new List<string>(),
-                UserConfirmations = request.UserConfirmations ?? new List<string>(),
+                Content = request.Content,
                 Timestamp = DateTime.UtcNow.ToString("o")
             };
 
@@ -325,9 +322,6 @@ namespace BIMCanvas.Server.Controllers
         public string ZoneId { get; set; }
         public string SourceImageId { get; set; }
         public string Relevance { get; set; }
-        public List<ReferenceConstraint> ConfirmedConstraints { get; set; }
-        public List<ReferenceHint> ReferenceHints { get; set; }
-        public List<string> KnownDifferences { get; set; }
-        public List<string> UserConfirmations { get; set; }
+        public string Content { get; set; }
     }
 }
