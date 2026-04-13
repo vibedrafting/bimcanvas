@@ -17,12 +17,7 @@
 
 **执行模式判断**：
 - **free mode**（无参考图）：按下述完整流程执行
-- **constrained mode**（有参考图）：
-  - 从 `referenceAnalysis.content` 中提取硬约束（confirmedConstraints）和软提示（referenceHints）
-  - 硬约束作为可行解空间过滤器（如：电视墙在西墙、沙发面向西墙、餐桌靠东侧）
-  - 软提示作为候选方案排序依据（如：客厅在南侧采光区、餐厅靠近入口）
-  - 若硬约束与房间策略冲突 → 优先硬约束，但需标注偏离
-  - 若软提示与户型条件冲突 → 可放弃，但需在 v0.2 中标注偏离原因
+- **constrained mode**（有参考图）：约束消费逻辑由 generate-planning 管理，本策略提供房间特有评估规则
 
 ### 电视墙选择优先级
 
