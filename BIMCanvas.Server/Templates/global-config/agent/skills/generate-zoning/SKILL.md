@@ -2,15 +2,15 @@
 name: generate-zoning
 description: |
   分区能力 Skill：为空间制定布局策略——决定空间如何被组织和体验。
-  由 generate-derived-planning 在规划阶段(2.2)必须加载。跨房间类型的通用能力。
+  由 generate-planning 在规划阶段(2.2)必须加载。跨房间类型的通用能力。
 ---
 
 # 分区 Skill
 
-> 为空间制定布局策略：决定这个空间应该有几种不同的体验，它们之间是什么关系。
+> 为空间制定布局策略：决定这个空间应该有几种不同的体验,它们之间是什么关系。
 > 分区是"规划"的组成部分——空间功能定义后，后续房间策略在此框架内精确布置。
 
-**与 generate-derived-planning 的协调**：本 Skill 在 Stage 2.2（分区设计）被加载。此时 generate-derived-planning 已通过 `save_semantic_plan(v0.1)` 提交了：
+**与 generate-planning 的协调**：本 Skill 在 Stage 2.2（分区设计）被加载。此时 generate-planning 已通过 `save_semantic_plan(v0.1)` 提交了：
 - 语义方案 v0.1（空间骨架：动线/纵深/采光/初步意图）
 - 基于物理约束确定的主要家具最优墙面位置
 
@@ -173,7 +173,7 @@ WHY：功能驱动产出"有使用场景的空间"；几何驱动产出"零散�
 
 步骤 2 — 功能定义：整体空间 = 睡眠+收纳区，功能单一，不需要子空间标签
 
-→ 不产出 subZones，直接继续 generate-derived-planning
+→ 不产出 subZones，直接继续 generate-planning
 
 WHY：矩形 + 单功能 = 快速路径。详细评估留给确实需要分割的空间。
 

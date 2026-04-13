@@ -6,7 +6,7 @@
 
 ## 空间理解补充
 
-在 generate-derived-planning 产出的通用空间画像基础上，补充卧室特有分析：
+在 generate-planning 产出的通用空间画像基础上，补充卧室特有分析：
 
 从 `get_zone_boundaries` 返回的墙面清单构建候选（数据驱动，不需手动推断）：
 

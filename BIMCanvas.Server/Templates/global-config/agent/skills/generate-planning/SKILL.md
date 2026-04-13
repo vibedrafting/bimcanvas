@@ -356,4 +356,4 @@ save_semantic_plan({ zoneId, version: “v0.3”, planType: “derived” | “r
 
 ## 4. 交接
 
-本 Skill 完成后，由编排层路由到 `generate-derived-placement` 进行施工。
+本 Skill 完成后，由编排层路由到 `generate-placement` 进行施工。

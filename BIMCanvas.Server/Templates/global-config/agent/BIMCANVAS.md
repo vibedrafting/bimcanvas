@@ -43,12 +43,12 @@ Generate 在主控层先判定任务语义，再加载对应 planning Skill。�
    - 无参考图
    - 或用户要系统主动设计
    - 或图片只提供现场信息、户型补充、测量补充，不承担设计参考作用
-   - 加载 `generate-derived-planning`
+   - 加载 `generate-planning`（free mode）
 
 2. **参考启发式设计（reference-informed-derived）**
    - 用户要参考感觉、风格、思路、氛围、灵感
    - 典型表达：`参考这个感觉`、`参考这个风格`、`借鉴一下思路`
-   - 实现上仍走 `generate-derived-planning`
+   - 实现上仍走 `generate-planning`（free mode）
    - 图片只作补充上下文，不作图纸原文
 
 3. **参考图分析（reference-analysis）**
@@ -93,14 +93,27 @@ Generate 在主控层先判定任务语义，再加载对应 planning Skill。�
 
 ### 多分区
 
+**参考图分析（reference-analysis）路径的特殊处理**：
+
+**串行阶段**（主控独占）：
+- 对所有目标设计区逐一调用 `generate-reference-analysis`
+- 集中处理 AskUserQuestion
+- 为每个设计区保存独立的 referenceAnalysis
+
+**并行阶段**（layout-agent 分发）：
+- 约束包冻结后，按分区并行派发 layout-agent
+- 每个 layout-agent 执行 `generate-planning` (constrained mode) + `generate-placement`
+- 每个 layout-agent 只读自己分区的 referenceAnalysis
+
+**其他路径（derived / reference-informed-derived）**：
+- 可以更早并行（主控做完路由后就派发）
 - 并行派发 `layout-agent`
 - 每个任务描述必须包含：
   - 分区 ID
   - 分区 tags
   - 用户原始需求
-  - 当前 generate 语义（主动设计 `derived` / 参考图翻译 `reference-translation` / 参考启发式设计 `reference-informed-derived`）
-  - 图片是“图纸原文”还是“仅供参考”
-- 参考图翻译类多分区任务可派发 `layout-agent`；主控 Agent 保留用户交互能力，`layout-agent` 按既定自动链路执行，不使用 `AskUserQuestion`
+  - 当前 generate 语义（主动设计 `derived` / 参考图分析 `reference-analysis` / 参考启发式设计 `reference-informed-derived`）
+  - 图片是”图纸原文”还是”仅供参考”
 
 **【必须】**所有 layout-agent Task 在同一轮并行发起，禁止后台派发。
 
@@ -123,9 +136,9 @@ layout-agent 完成后，你负责：
 主控 Agent 可以使用 `AskUserQuestion`，典型场景：
 
 - 主动设计（`derived`）路径中的战略选择
-- 参考图翻译主控模式中的关键锚点歧义
+- 参考图分析（`reference-analysis`）中的关键锚点歧义
 - 用户要求按参考图布局落地，但图片不可执行，或当前户型与参考图明显对不上
-- 参考图翻译主控模式中 `v0.2` 与 `v0.1` 视觉原文不一致
+- constrained mode 中硬约束与户型条件冲突
 - placement 阶段需要改图纸
 
 **禁止**在 query / edit 任务中提问。
