@@ -917,14 +917,28 @@ async def load_semantic_plan(args: dict[str, Any]) -> dict[str, Any]:
             ) as resp:
                 if resp.status == 200:
                     data = await resp.json()
-                    text = (
-                        f"status: {data['status']}\n"
-                        f"zoneId: {data['zoneId']}\n"
-                        f"planType: {data['planType']}\n"
-                        f"effectiveVersion: {data['effectiveVersion']}\n"
-                        f"timestamp: {data['timestamp']}\n\n"
-                        f"{data['content']}"
-                    )
+
+                    # 构建基础文本
+                    text_parts = [
+                        f"status: {data['status']}",
+                        f"zoneId: {data['zoneId']}",
+                        f"planType: {data['planType']}",
+                        f"effectiveVersion: {data['effectiveVersion']}",
+                        f"timestamp: {data['timestamp']}"
+                    ]
+
+                    # 如果有 referenceAnalysis，添加到文本中
+                    if data.get('referenceAnalysis'):
+                        ref_analysis = data['referenceAnalysis']
+                        text_parts.append(f"\nreferenceAnalysis:")
+                        text_parts.append(f"  relevance: {ref_analysis.get('relevance', 'N/A')}")
+                        text_parts.append(f"  sourceImageId: {ref_analysis.get('sourceImageId', 'N/A')}")
+                        text_parts.append(f"  confirmedConstraints: {len(ref_analysis.get('confirmedConstraints', []))} 条")
+                        text_parts.append(f"  referenceHints: {len(ref_analysis.get('referenceHints', []))} 条")
+
+                    text_parts.append(f"\n{data['content']}")
+                    text = "\n".join(text_parts)
+
                     return {
                         "content": [{
                             "type": "text",
@@ -954,6 +968,124 @@ async def load_semantic_plan(args: dict[str, Any]) -> dict[str, Any]:
         }
 
 
+@tool(
+    "save_reference_analysis",
+    "保存参考分析结果到语义方案。在参考图分析完成后调用，提交约束包（confirmedConstraints + referenceHints）。",
+    {
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "type": "object",
+        "properties": {
+            "zoneId": {
+                "type": "string",
+                "description": "目标 Zone ID，如 'rz_3'"
+            },
+            "sourceImageId": {
+                "type": "string",
+                "description": "参考图附件 ID"
+            },
+            "relevance": {
+                "type": "string",
+                "enum": ["partially_related", "structurally_related"],
+                "description": "关联性等级：partially_related=部分相关, structurally_related=结构相关"
+            },
+            "confirmedConstraints": {
+                "type": "array",
+                "description": "确认的约束（硬约束）",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "type": {
+                            "type": "string",
+                            "enum": ["negativeSpace", "furnitureSelection", "anchorPoint"],
+                            "description": "约束类型"
+                        },
+                        "description": {
+                            "type": "string",
+                            "description": "约束描述"
+                        },
+                        "source": {
+                            "type": "string",
+                            "description": "约束来源：用户确认、几何验证"
+                        }
+                    },
+                    "required": ["type", "description", "source"]
+                }
+            },
+            "referenceHints": {
+                "type": "array",
+                "description": "参考提示（软提示）",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "type": {
+                            "type": "string",
+                            "enum": ["zoningIntent", "designPrinciple", "furnitureRelation"],
+                            "description": "提示类型"
+                        },
+                        "description": {
+                            "type": "string",
+                            "description": "提示描述"
+                        }
+                    },
+                    "required": ["type", "description"]
+                }
+            },
+            "knownDifferences": {
+                "type": "array",
+                "description": "已知差异列表",
+                "items": {"type": "string"}
+            },
+            "userConfirmations": {
+                "type": "array",
+                "description": "用户确认记录",
+                "items": {"type": "string"}
+            }
+        },
+        "required": ["zoneId", "relevance", "confirmedConstraints", "referenceHints"],
+        "additionalProperties": False
+    }
+)
+async def save_reference_analysis(args: dict[str, Any]) -> dict[str, Any]:
+    """保存参考分析结果"""
+    zone_id = args["zoneId"]
+    relevance = args["relevance"]
+
+    body = {
+        "zoneId": zone_id,
+        "sourceImageId": args.get("sourceImageId", ""),
+        "relevance": relevance,
+        "confirmedConstraints": args.get("confirmedConstraints", []),
+        "referenceHints": args.get("referenceHints", []),
+        "knownDifferences": args.get("knownDifferences", []),
+        "userConfirmations": args.get("userConfirmations", [])
+    }
+
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.post(
+                f"{SERVER_URL}/api/semantic-plan/save-reference-analysis",
+                json=body
+            ) as resp:
+                if resp.status == 200:
+                    return {
+                        "content": [{
+                            "type": "text",
+                            "text": f"参考分析结果已保存（关联性：{relevance}）。继续规划阶段。"
+                        }]
+                    }
+                else:
+                    error_text = await resp.text()
+                    return {
+                        "content": [{"type": "text", "text": f"保存失败: {error_text}"}],
+                        "is_error": True
+                    }
+    except aiohttp.ClientError as e:
+        return {
+            "content": [{"type": "text", "text": f"无法连接 Server: {str(e)}"}],
+            "is_error": True
+        }
+
+
 # 创建 Canvas MCP Server
 canvas_mcp = create_sdk_mcp_server(
     name="canvas",
@@ -964,8 +1096,9 @@ canvas_mcp = create_sdk_mcp_server(
         request_background_screenshot,
         validate_layout,
         get_zone_boundaries,
-        save_semantic_plan,  # 新增：语义方案提交（turn 边界）
-        load_semantic_plan,  # 新增：加载当前生效图纸
+        save_semantic_plan,  # 语义方案提交（turn 边界）
+        load_semantic_plan,  # 加载当前生效图纸
+        save_reference_analysis,  # 新增：保存参考分析结果
     ],
 )
 

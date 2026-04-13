@@ -4,6 +4,7 @@ using System.IO;
 using System.Linq;
 using System.Threading.Tasks;
 using BIMCanvas.Server.Hubs;
+using BIMCanvas.Server.Models;
 using BIMCanvas.Server.Services;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.SignalR;
@@ -48,7 +49,7 @@ namespace BIMCanvas.Server.Controllers
 
             var filePath = GetSemanticPlanPath(request.ZoneId);
             Directory.CreateDirectory(Path.GetDirectoryName(filePath)!);
-            var versions = ReadSemanticPlanVersions(filePath);
+            var document = ReadSemanticPlanDocument(filePath);
 
             var entry = new SemanticPlanVersion
             {
@@ -59,11 +60,11 @@ namespace BIMCanvas.Server.Controllers
                 Timestamp = DateTime.UtcNow.ToString("o")
             };
 
-            versions.RemoveAll(v => v.Version == request.Version);
-            versions.Add(entry);
-            versions.Sort((a, b) => string.Compare(a.Version, b.Version, StringComparison.Ordinal));
+            document.Versions.RemoveAll(v => v.Version == request.Version);
+            document.Versions.Add(entry);
+            document.Versions.Sort((a, b) => string.Compare(a.Version, b.Version, StringComparison.Ordinal));
 
-            var json = JsonConvert.SerializeObject(versions, Formatting.Indented);
+            var json = JsonConvert.SerializeObject(document, Formatting.Indented);
             await System.IO.File.WriteAllTextAsync(filePath, json);
 
             await _hubContext.Clients.All.SendAsync("SemanticPlanUpdated", new
@@ -88,6 +89,52 @@ namespace BIMCanvas.Server.Controllers
             });
         }
 
+        [HttpPost("save-reference-analysis")]
+        public async Task<ActionResult> SaveReferenceAnalysis([FromBody] SaveReferenceAnalysisRequest request)
+        {
+            if (!_projectContext.IsLoaded)
+                return BadRequest(new { message = "没有加载的项目" });
+
+            if (!IsDesignZoneId(request.ZoneId))
+                return BadRequest(new { message = "referenceAnalysis 只归属于设计区，不归属于子分区。请传入父设计区 zoneId。" });
+
+            var filePath = GetSemanticPlanPath(request.ZoneId);
+            Directory.CreateDirectory(Path.GetDirectoryName(filePath)!);
+            var document = ReadSemanticPlanDocument(filePath);
+
+            document.ReferenceAnalysis = new ReferenceAnalysis
+            {
+                SourceImageId = request.SourceImageId,
+                Relevance = request.Relevance,
+                ConfirmedConstraints = request.ConfirmedConstraints ?? new List<ReferenceConstraint>(),
+                ReferenceHints = request.ReferenceHints ?? new List<ReferenceHint>(),
+                KnownDifferences = request.KnownDifferences ?? new List<string>(),
+                UserConfirmations = request.UserConfirmations ?? new List<string>(),
+                Timestamp = DateTime.UtcNow.ToString("o")
+            };
+
+            var json = JsonConvert.SerializeObject(document, Formatting.Indented);
+            await System.IO.File.WriteAllTextAsync(filePath, json);
+
+            await _hubContext.Clients.All.SendAsync("ReferenceAnalysisUpdated", new
+            {
+                zoneId = request.ZoneId,
+                relevance = request.Relevance,
+                timestamp = document.ReferenceAnalysis.Timestamp
+            });
+
+            _logger.LogInformation(
+                "[ReferenceAnalysis] 已保存 {ZoneId} {Relevance}",
+                request.ZoneId, request.Relevance);
+
+            return Ok(new
+            {
+                saved = true,
+                zoneId = request.ZoneId,
+                relevance = request.Relevance
+            });
+        }
+
         [HttpGet("{zoneId}")]
         public ActionResult LoadSemanticPlan(string zoneId)
         {
@@ -101,11 +148,11 @@ namespace BIMCanvas.Server.Controllers
             if (!System.IO.File.Exists(filePath))
                 return NotFound(new { status = "missing", message = $"未找到 {zoneId} 的语义方案" });
 
-            var versions = ReadSemanticPlanVersions(filePath);
-            if (versions.Count == 0)
+            var document = ReadSemanticPlanDocument(filePath);
+            if (document.Versions.Count == 0)
                 return NotFound(new { status = "missing", message = $"{zoneId} 的语义方案为空" });
 
-            if (!TryResolvePlanType(versions, out var planType))
+            if (!TryResolvePlanType(document.Versions, out var planType))
             {
                 return Conflict(new
                 {
@@ -116,7 +163,7 @@ namespace BIMCanvas.Server.Controllers
             }
 
             var effectiveVersion = GetEffectiveVersion(planType!);
-            var target = versions.LastOrDefault(v => string.Equals(v.Version, effectiveVersion, StringComparison.Ordinal));
+            var target = document.Versions.LastOrDefault(v => string.Equals(v.Version, effectiveVersion, StringComparison.Ordinal));
             if (target == null)
             {
                 return NotFound(new
@@ -134,7 +181,8 @@ namespace BIMCanvas.Server.Controllers
                 planType,
                 effectiveVersion = target.Version,
                 content = target.Content,
-                timestamp = target.Timestamp
+                timestamp = target.Timestamp,
+                referenceAnalysis = document.ReferenceAnalysis
             });
         }
 
@@ -145,14 +193,44 @@ namespace BIMCanvas.Server.Controllers
             return Path.Combine(projectPath, "schemes", zoneId, "semantic_plan.json");
         }
 
-        private static List<SemanticPlanVersion> ReadSemanticPlanVersions(string filePath)
+        private static SemanticPlanDocument ReadSemanticPlanDocument(string filePath)
         {
             if (!System.IO.File.Exists(filePath))
-                return new List<SemanticPlanVersion>();
+                return new SemanticPlanDocument { Versions = new List<SemanticPlanVersion>() };
 
             var existing = System.IO.File.ReadAllText(filePath);
-            return JsonConvert.DeserializeObject<List<SemanticPlanVersion>>(existing)
-                   ?? new List<SemanticPlanVersion>();
+
+            // 尝试解析新格式（SemanticPlanDocument）
+            try
+            {
+                var doc = JsonConvert.DeserializeObject<SemanticPlanDocument>(existing);
+                if (doc?.Versions != null)
+                    return doc;
+            }
+            catch
+            {
+                // 忽略解析错误，尝试旧格式
+            }
+
+            // 向后兼容：尝试解析旧格式（List<SemanticPlanVersion>）
+            try
+            {
+                var versions = JsonConvert.DeserializeObject<List<SemanticPlanVersion>>(existing);
+                if (versions != null)
+                {
+                    return new SemanticPlanDocument
+                    {
+                        Versions = versions,
+                        ReferenceAnalysis = null
+                    };
+                }
+            }
+            catch
+            {
+                // 忽略解析错误
+            }
+
+            return new SemanticPlanDocument { Versions = new List<SemanticPlanVersion>() };
         }
 
         private static bool IsDesignZoneId(string zoneId)
@@ -242,12 +320,14 @@ namespace BIMCanvas.Server.Controllers
         public string Content { get; set; }
     }
 
-    public class SemanticPlanVersion
+    public class SaveReferenceAnalysisRequest
     {
         public string ZoneId { get; set; }
-        public string Version { get; set; }
-        public string PlanType { get; set; }
-        public string Content { get; set; }
-        public string Timestamp { get; set; }
+        public string SourceImageId { get; set; }
+        public string Relevance { get; set; }
+        public List<ReferenceConstraint> ConfirmedConstraints { get; set; }
+        public List<ReferenceHint> ReferenceHints { get; set; }
+        public List<string> KnownDifferences { get; set; }
+        public List<string> UserConfirmations { get; set; }
     }
 }
