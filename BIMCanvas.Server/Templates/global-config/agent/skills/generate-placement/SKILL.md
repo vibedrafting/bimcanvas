@@ -41,7 +41,7 @@ load_semantic_plan({ zoneId })
 
 读取后必须显式复述：
 
-- `planType` 与 `effectiveVersion`
+- `planType` 与 `effectiveVersion`（effectiveVersion 通常为 v0.3，但 reference 模式的施工约束基于 v0.2）
 - 关键家具墙面归属
 - 若有 `referenceAnalysis`，复述关联性等级
 - 若有"自动代决"标记，也必须复述
@@ -149,10 +149,10 @@ load_semantic_plan({ zoneId })
 
 **四条硬约束**（仅 reference 模式）：
 
-1. 不得添加 v0.3 中没有的家具或附属件
-2. 不得删除 v0.3 中已有家具
-3. 不得侵占 v0.3 中记录的保留空段
-4. 不得改变 v0.3 指定的角部或邻接关系
+1. 不得添加 v0.2 中没有的家具或附属件
+2. 不得删除 v0.2 中已有家具
+3. 不得侵占 v0.2 中记录的保留空段
+4. 不得改变 v0.2 指定的角部或邻接关系
 
 **检查时机**：
 - 修正循环中的每个操作前
@@ -161,28 +161,28 @@ load_semantic_plan({ zoneId })
 **检查函数**（伪代码）：
 
 ```python
-def check_reference_constraints(operation, semantic_plan_v03):
+def check_reference_constraints(operation, semantic_plan_v02):
     """检查操作是否违反 reference 核心禁令"""
     
-    # 提取 v0.3 中的家具清单和保留空段
-    furniture_list = extract_furniture_from_v03(semantic_plan_v03)
-    reserved_spaces = extract_reserved_spaces_from_v03(semantic_plan_v03)
+    # 提取 v0.2 中的家具清单和保留空段
+    furniture_list = extract_furniture_from_v02(semantic_plan_v02)
+    reserved_spaces = extract_reserved_spaces_from_v02(semantic_plan_v02)
     
     # 检查四条禁令
     if operation.type == "add_furniture":
         if operation.furniture not in furniture_list:
-            return "违反禁令1：不得添加 v0.3 中没有的家具"
+            return "违反禁令1：不得添加 v0.2 中没有的家具"
     
     if operation.type == "remove_furniture":
         if operation.furniture in furniture_list:
-            return "违反禁令2：不得删除 v0.3 中已有家具"
+            return "违反禁令2：不得删除 v0.2 中已有家具"
     
     if operation.type == "place_furniture":
         if overlaps_with_reserved_space(operation.bounds, reserved_spaces):
             return "违反禁令3：不得侵占保留空段"
     
     if operation.type == "change_position":
-        if changes_corner_or_adjacency(operation, semantic_plan_v03):
+        if changes_corner_or_adjacency(operation, semantic_plan_v02):
             return "违反禁令4：不得改变角部或邻接关系"
     
     return None  # 无违反
