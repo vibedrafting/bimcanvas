@@ -1,27 +1,25 @@
 ---
 name: generate-placement
 description: |
-  Generate 布置 Skill。负责把规划产出的语义方案图纸转成 modules.json，
-  并执行验证、品质优化和最终汇报。根据 planType 切换施工策略。
+  Generate 布置 Skill。负责把 `v0.3` 语义合同转成 modules.json，
+  并执行验证、必要修正、品质复核和最终汇报。
 ---
 
 # Generate 布置
 
-> 你在本 Skill 中是施工方兼品质把关人。根据图纸类型（derived/reference）采用不同的施工策略和优化权限。
-
----
+> 你在本 Skill 中是施工方兼品质把关人。你只读取自包含的 `v0.3` 语义合同，不读取 raw reference_analysis。
 
 ## 1. 执行模式
 
 进入本 Skill 后，先确认执行模式：
 
-- **交互模式**：当前可用工具包含 `AskUserQuestion`（主控 Agent 直接执行）
-- **自主模式**：当前可用工具不包含 `AskUserQuestion`（layout-agent 执行）
+- **交互模式**：当前可用工具包含 `AskUserQuestion`（主控 Agent）
+- **自主模式**：当前可用工具不包含 `AskUserQuestion`（layout-agent）
 
 后续所有需要用户确认的节点，统一按当前模式处理：
 
-- 交互模式 → 提问确认
-- 自主模式 → 选择当前推荐方案继续，标记"自动代决"
+- 交互模式 → AskUserQuestion
+- 自主模式 → 不能改图，只能上报“自动改图建议”
 
 ---
 
@@ -36,32 +34,24 @@ load_semantic_plan({ zoneId })
 检查返回值：
 
 - `status = ok` → 继续
-- `status = missing` → 停止，说明未找到图纸
+- `status = missing` → 停止，说明未找到可施工图纸
 - `status = ambiguous_legacy` → 停止，说明旧图纸不可自动判定
+- `status = legacy_reference_requires_replan` → 停止，说明当前仍是旧版 reference 工作流，必须先重新规划
 
 读取后必须显式复述：
 
-- `planType` 与 `effectiveVersion`（effectiveVersion 通常为 v0.3，但 reference 模式的施工约束基于 v0.2）
+- `effectiveVersion`（必须是 `v0.3`）
 - 关键家具墙面归属
-- 若有 `referenceAnalysis`，复述关联性等级
-- 若有"自动代决"标记，也必须复述
+- 若存在 `referenceAnalysisVersion`，只把它当作审计元数据复述，不得把它当运行时输入
+- 若有“自动代决”“自动适配”标记，也必须复述
 
-**根据 planType 设置策略标志**：
-
-- `planType=derived` → 完全施工自由度 + 自动优化
-- `planType=reference` → 受限施工自由度 + 授权优化
-
-如果当前设计区含 `subZones`：
-
-- 图纸仍从父设计区 `zoneId` 读取
-- 实际写入目标是子分区的 `modules.json`
-- `validate_layout` 使用子分区 `zoneIds`
+**【必须】**placement 只读取 `v0.3.content`。不得调用 `load_reference_analysis`，也不得根据历史 reference 文件补充理解。
 
 ---
 
 ## 3. 施工前读取
 
-**必读文件**（两种模式相同）：
+**必读文件**：
 
 - `references/design_principles.md`
 - `references/design_evaluation.md`
@@ -71,7 +61,8 @@ load_semantic_plan({ zoneId })
 - 对应房间策略文件：`references/bedroom.md` / `references/bathroom.md` / `references/livingroom.md`
 
 **读取顺序**：
-1. 先读 semantic_plan（已在入场动作完成）
+
+1. 先读 `load_semantic_plan` 返回的 `v0.3`
 2. 再读 zone boundaries
 3. 最后读施工规则和模块库
 
@@ -79,191 +70,138 @@ load_semantic_plan({ zoneId })
 
 ## 4. 按图施工
 
-### Step 1: 解析语义方案
+### Step 1：解析语义合同
 
-从 semantic_plan 的 effectiveVersion 中提取：
+从 `v0.3.content` 中提取：
 
 - 家具清单（主家具 + 可选家具 + 附属家具）
 - 墙面归属
 - 朝向
-- 保留空段（reference 模式特有）
+- 关键留白 / 保留空段
+- 关键邻接关系
 
-### Step 2: 按图施工
+### Step 2：按图施工
 
 **施工顺序**：
-1. 主家具（床、衣柜等）
-2. 可选家具（梳妆台、书桌等）
-3. 附属家具（床头柜、窗帘等）
+
+1. 主家具
+2. 可选家具
+3. 附属家具
 
 **坐标计算**：
+
 - 根据墙面归属和 zone boundaries 计算精确坐标
 - 根据朝向计算 facing
 - 根据模块尺寸计算 bounds
 
 **冲突处理**：
+
 - 若发生冲突 → 进入修正循环
 
-### Step 3: 修正循环
+### Step 3：修正循环
 
 **触发条件**：`validate_layout` 返回错误
 
-**修正优先级**（两种模式相同）：
-1. 平移（沿墙面微调位置）
-2. 旋转（调整朝向）
-3. 缩小（换更小的模块）
-4. 拆除附属件（如床头柜）
-5. 替换（换其他模块）
-6. 移除（删除该家具）
+#### 几何级修正（可自动执行）
 
-**planType 差异**：
+以下操作不改变语义合同，可自动执行：
 
-#### derived 模式
-- 所有修正操作自动执行
-- 跨墙面迁移：允许
-- 删除图纸家具：允许
+1. 同一墙面内微调
+2. 旋转但不改变语义朝向
+3. 在合同允许范围内缩小模块
+4. 收缩或删除附属件
+5. 同类模块的小幅替换（不改变合同含义）
 
-#### reference 模式
-- 以下操作需要授权：
-  - 跨墙面迁移
-  - 删除图纸家具
-  - 侵占图纸保留空段
-  - 改变角部/邻接位置
-- 交互模式：AskUserQuestion 征求授权
-- 自主模式：标记偏离 + 记录建议
+#### 语义级改图（不能静默执行）
 
-### Step 4: Layer 1 验证
+以下操作会改写语义合同，必须升级：
 
-**验证内容**（两种模式相同）：
-- 可达性验证（所有房间可达）
-- 功能完整性验证（必要家具已放置）
+- 跨墙面迁移
+- 增加合同中没有的家具
+- 删除合同中明确存在的家具
+- 侵占合同中写明的保留空段
+- 改变关键邻接关系、角部关系或核心分区意图
+
+**交互模式**：
+- AskUserQuestion 征求授权
+
+**自主模式**：
+- 停止自动改图
+- 输出“自动改图建议”
+- 不得静默继续落地
+
+### Step 4：Layer 1 验证
+
+**验证内容**：
+
+- 可达性验证
+- 功能完整性验证
 
 **处理方式**：
-- 若验证失败 → 回到修正循环
+
+- 若验证失败且仍能通过几何级修正解决 → 回到修正循环
+- 若验证失败且需要语义级改图 → 升级处理
 - 若多次失败 → 汇报失败原因
 
 **【必须】**一次性写入完整结果，再调用 `mcp__canvas__validate_layout`。
 
 ---
 
-## 5. reference 核心禁令
+## 5. 优化阶段
 
-**为什么检查 v0.2 而非 v0.3？**
+优化也必须遵守“几何级可自动，语义级需升级”的边界。
 
-v0.2 是用户确认的语义基准（记录了用户意图），v0.3 是待修正的几何实现（可能有错误）。四条禁令确保修正过程不偏离用户意图，只修正几何错误，不改变语义决策。
+### 自动可执行的优化
 
-**四条硬约束**（仅 reference 模式）：
+- 不改变墙面归属的细微平移
+- 不改变合同含义的附属件整理
+- 不破坏留白的局部间距优化
 
-1. 不得添加 v0.2 中没有的家具或附属件
-2. 不得删除 v0.2 中已有家具
-3. 不得侵占 v0.2 中记录的保留空段
-4. 不得改变 v0.2 指定的角部或邻接关系
+### 不可静默执行的优化
 
-**检查时机**：
-- 修正循环中的每个操作前
-- 优化阶段的每个改善前
-
-**检查函数**（伪代码）：
-
-```python
-def check_reference_constraints(operation, semantic_plan_v02):
-    """检查操作是否违反 reference 核心禁令"""
-    
-    # 提取 v0.2 中的家具清单和保留空段
-    furniture_list = extract_furniture_from_v02(semantic_plan_v02)
-    reserved_spaces = extract_reserved_spaces_from_v02(semantic_plan_v02)
-    
-    # 检查四条禁令
-    if operation.type == "add_furniture":
-        if operation.furniture not in furniture_list:
-            return "违反禁令1：不得添加 v0.2 中没有的家具"
-    
-    if operation.type == "remove_furniture":
-        if operation.furniture in furniture_list:
-            return "违反禁令2：不得删除 v0.2 中已有家具"
-    
-    if operation.type == "place_furniture":
-        if overlaps_with_reserved_space(operation.bounds, reserved_spaces):
-            return "违反禁令3：不得侵占保留空段"
-    
-    if operation.type == "change_position":
-        if changes_corner_or_adjacency(operation, semantic_plan_v02):
-            return "违反禁令4：不得改变角部或邻接关系"
-    
-    return None  # 无违反
-```
-
-**违反处理**：
-- 交互模式：AskUserQuestion 征求授权
-- 自主模式：跳过该操作 + 标记偏离
-
----
-
-## 6. 优化阶段
-
-### derived 模式（自动优化）
-
-**流程**：
-1. 调用截图工具审查结果
-   - **【必须】**审查截图时以当前视觉证据为准。若截图显示的布局与 modules.json 中的数据不一致，以截图为准重新审查，不得用已写入数据解释截图。
-2. 参照 `design_evaluation.md` 做品质复核
-3. 每个维度最多尝试一次改善
-4. 改善后再次 `validate_layout`
-
-**自动执行**：无需用户授权
-
----
-
-### reference 模式（授权优化）
-
-**流程**：
+- 会导致跨墙面迁移
+- 会新增或删除家具
+- 会改变关键留白、邻接或分区意图
 
 #### 交互模式
+
 1. 调用截图工具审查结果
-2. 品质复核
+2. 按 `design_evaluation.md` 做品质复核
 3. 识别优化建议
-4. 汇报建议 + AskUserQuestion 征求授权
-5. 若授权 → 执行优化 → 重新验证
-6. 若不授权 → 跳过优化
+4. 仅当优化不改写合同才自动执行；否则 AskUserQuestion 征求授权
 
 #### 自主模式
-1. 调用截图工具审查结果
-2. 品质复核
-3. 识别优化建议
-4. 记录建议（不执行）
-5. 在汇报中上报建议
 
-**优化建议格式**：
-```
-[优化建议]
-- 维度：动线流畅度
-- 问题：床头柜阻挡通行
-- 建议：将床头柜向内侧移动 200mm
-- 影响：不改变墙面归属，不侵占保留空段
-```
+1. 调用截图工具审查结果
+2. 做品质复核
+3. 不改合同的优化可执行一次
+4. 改合同的优化只记录为“自动改图建议”
+
+**【必须】**审查截图时以当前视觉证据为准。若截图显示布局与 `modules.json` 不一致，以截图为准重新审查，不得用已写入数据解释截图。
 
 ---
 
-## 7. 汇报
+## 6. 汇报
 
 最终汇报必须包含：
 
-**基础信息**：
-- 施工依据：`planType` + `effectiveVersion`
-- 若 `planType=reference`，说明关联性等级
+**基础信息**
+- 施工依据：`effectiveVersion=v0.3`
+- 若存在 `referenceAnalysisVersion`，说明它只是溯源字段
 
-**放置结果**：
+**放置结果**
 - 家具、墙面、朝向
 - 验证结果：布局验证 + 可达性 + 功能完整性
 
-**优化结果**：
-- derived 模式：哪些维度做了改善，哪些跳过
-- reference 模式（交互）：哪些优化已授权执行
-- reference 模式（自主）：记录的优化建议
+**修正与优化**
+- 自动执行了哪些几何级修正
+- 执行了哪些不改合同的优化
+- 哪些建议因会改合同而未执行
 
-**偏离标注**（若有）：
+**偏离标注**
 - 自动代决项
 - 自动适配项
-- 违反核心禁令项（需授权）
+- 自动改图建议
 
 ---
 
@@ -272,21 +210,20 @@ def check_reference_constraints(operation, semantic_plan_v02):
 **【硬约束】**
 
 - 入场必须 `load_semantic_plan`
+- 只读取 `v0.3` 自包含合同
 - 一次性写入后必须 `validate_layout`
 - 不编造家具尺寸
-- reference 模式：四条核心禁令不可静默违反
+- 不得静默执行语义级改图
 
 **【软指导】**
 
-- 修正优先级：平移 → 旋转 → 缩小 → 拆除附属件 → 替换 → 移除
-- 优化尾段每维度最多一次改善
-- 战略选择交互模式下应询问用户
-- reference 模式：优化需授权
+- 修正优先级：同墙微调 → 旋转 → 缩小 → 附属件收缩 → 同类替换
+- 优化阶段每个维度最多一次改善
+- 战略级改图在交互模式下应询问用户
 
 **【自由区域】**
 
 - 家具间精确间距
 - 附属件精确位置
-- 模块参数化尺寸的精确值（在 limits 范围内）
+- limits 范围内的参数化尺寸
 - 坐标计算方式
-- derived 模式的优化策略选择

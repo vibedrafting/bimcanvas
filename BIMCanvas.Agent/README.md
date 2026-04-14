@@ -421,10 +421,9 @@ BIMCanvas.Agent/
 ├── skills/                # Agent Skills（通过 Plugin 机制加载，避免 CLAUDE.md 污染）
 │   ├── query-workflow/
 │   ├── edit-workflow/
-│   ├── generate-derived-planning/
-│   ├── generate-reference-translation/
-│   ├── generate-reference-placement/
-│   ├── generate-derived-placement/
+│   ├── generate-reference-analysis/
+│   ├── generate-planning/
+│   ├── generate-placement/
 │   └── generate-zoning/
 ├── BIMCANVAS.md           # 主 Agent 系统提示词（可编辑）
 ├── config.json            # 应用配置（API、模型、工具）
@@ -657,6 +656,8 @@ python -m src.image_generation.cli ^
 - `mcp__canvas__get_zone_boundaries`：读取设计区边界语义
 - `mcp__canvas__save_semantic_plan`：提交语义方案阶段图纸
 - `mcp__canvas__load_semantic_plan`：读取当前生效图纸
+- `mcp__canvas__save_reference_analysis`：保存独立 `reference_analysis.json` 版本快照
+- `mcp__canvas__load_reference_analysis`：读取最新或指定版本的参考分析
 
 #### 后台截图 MCP 工具（request_background_screenshot）
 

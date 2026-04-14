@@ -1,5 +1,5 @@
-using System;
 using System.Collections.Generic;
+using Newtonsoft.Json;
 
 namespace BIMCanvas.Server.Models
 {
@@ -13,48 +13,39 @@ namespace BIMCanvas.Server.Models
         public string PlanType { get; set; }
         public string Content { get; set; }
         public string Timestamp { get; set; }
+        public string ReferenceAnalysisVersion { get; set; }
     }
 
     /// <summary>
-    /// 参考分析结果（AI 友好设计）
+    /// 旧版嵌入式参考分析（仅用于向后兼容读取）
     /// </summary>
-    public class ReferenceAnalysis
+    public class LegacyEmbeddedReferenceAnalysis
     {
-        /// <summary>
-        /// 参考图附件 ID（可选）
-        /// </summary>
         public string SourceImageId { get; set; }
-
-        /// <summary>
-        /// 关联性等级：partially_related（部分相关）、structurally_related（结构相关）
-        /// </summary>
         public string Relevance { get; set; }
-
-        /// <summary>
-        /// 参考分析内容（Markdown 格式）
-        /// AI 在此自由组织 confirmedConstraints（硬约束）和 referenceHints（软提示）
-        /// </summary>
         public string Content { get; set; }
-
-        /// <summary>
-        /// 时间戳
-        /// </summary>
         public string Timestamp { get; set; }
     }
 
     /// <summary>
-    /// 语义方案文档（新结构）
+    /// 参考分析版本条目
+    /// </summary>
+    public class ReferenceAnalysisVersionEntry
+    {
+        public string Version { get; set; }
+        public string SourceImageId { get; set; }
+        public string Content { get; set; }
+        public string Timestamp { get; set; }
+    }
+
+    /// <summary>
+    /// 语义方案文档
     /// </summary>
     public class SemanticPlanDocument
     {
-        /// <summary>
-        /// 版本历史
-        /// </summary>
         public List<SemanticPlanVersion> Versions { get; set; }
 
-        /// <summary>
-        /// 参考分析结果（可选）
-        /// </summary>
-        public ReferenceAnalysis ReferenceAnalysis { get; set; }
+        [JsonProperty("referenceAnalysis", NullValueHandling = NullValueHandling.Ignore)]
+        public LegacyEmbeddedReferenceAnalysis LegacyEmbeddedReferenceAnalysis { get; set; }
     }
 }

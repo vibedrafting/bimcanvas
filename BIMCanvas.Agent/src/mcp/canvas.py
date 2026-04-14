@@ -838,12 +838,16 @@ async def get_zone_boundaries(args: dict[str, Any]) -> dict[str, Any]:
             },
             "planType": {
                 "type": "string",
-                "enum": ["derived", "reference"],
-                "description": "图纸类型：derived=主动推导设计，reference=参考图翻译"
+                "enum": ["derived"],
+                "description": "图纸类型：当前正式流程统一为 derived；旧的 reference 仅用于识别历史数据。"
             },
             "content": {
                 "type": "string",
                 "description": "语义方案文本内容（markdown 格式）"
+            },
+            "referenceAnalysisVersion": {
+                "type": "string",
+                "description": "可选。若当前方案消费了参考分析，记录对应的 reference_analysis 版本（如 v1）。"
             }
         },
         "required": ["zoneId", "version", "planType", "content"],
@@ -863,6 +867,8 @@ async def save_semantic_plan(args: dict[str, Any]) -> dict[str, Any]:
         "planType": plan_type,
         "content": content
     }
+    if args.get("referenceAnalysisVersion"):
+        body["referenceAnalysisVersion"] = args["referenceAnalysisVersion"]
 
     try:
         async with aiohttp.ClientSession() as session:
@@ -871,10 +877,13 @@ async def save_semantic_plan(args: dict[str, Any]) -> dict[str, Any]:
                 json=body
             ) as resp:
                 if resp.status == 200:
+                    data = await resp.json()
+                    ref_version = data.get("referenceAnalysisVersion")
+                    suffix = f"（reference={ref_version}）" if ref_version else ""
                     return {
                         "content": [{
                             "type": "text",
-                            "text": f"语义方案 {plan_type} {version} 已保存。继续下一阶段。"
+                            "text": f"语义方案 {plan_type} {version} 已保存{suffix}。继续下一阶段。"
                         }]
                     }
                 else:
@@ -918,7 +927,6 @@ async def load_semantic_plan(args: dict[str, Any]) -> dict[str, Any]:
                 if resp.status == 200:
                     data = await resp.json()
 
-                    # 构建基础文本
                     text_parts = [
                         f"status: {data['status']}",
                         f"zoneId: {data['zoneId']}",
@@ -927,15 +935,10 @@ async def load_semantic_plan(args: dict[str, Any]) -> dict[str, Any]:
                         f"timestamp: {data['timestamp']}"
                     ]
 
-                    # 如果有 referenceAnalysis，添加到文本中
-                    if data.get('referenceAnalysis'):
-                        ref_analysis = data['referenceAnalysis']
-                        text_parts.append(f"\nreferenceAnalysis:")
-                        text_parts.append(f"  relevance: {ref_analysis.get('relevance', 'N/A')}")
-                        text_parts.append(f"  sourceImageId: {ref_analysis.get('sourceImageId', 'N/A')}")
-                        text_parts.append(f"\n--- 参考分析内容 ---")
-                        text_parts.append(ref_analysis.get('content', ''))
-                        text_parts.append("--- 参考分析内容结束 ---")
+                    if data.get("referenceAnalysisVersion"):
+                        text_parts.append(
+                            f"referenceAnalysisVersion: {data['referenceAnalysisVersion']}"
+                        )
 
                     text_parts.append(f"\n{data['content']}")
                     text = "\n".join(text_parts)
@@ -951,6 +954,77 @@ async def load_semantic_plan(args: dict[str, Any]) -> dict[str, Any]:
                 if resp.status in (400, 404, 409):
                     data = await resp.json()
                     message = data.get("message", "加载语义方案失败")
+                    return {
+                        "content": [{"type": "text", "text": message}],
+                        "structuredContent": data,
+                        "is_error": True
+                    }
+
+                error_text = await resp.text()
+                return {
+                    "content": [{"type": "text", "text": f"加载失败: {error_text}"}],
+                    "is_error": True
+                }
+    except aiohttp.ClientError as e:
+        return {
+            "content": [{"type": "text", "text": f"无法连接 Server: {str(e)}"}],
+            "is_error": True
+        }
+
+
+@tool(
+    "load_reference_analysis",
+    "加载当前设计区的参考分析。默认返回最新版本；可选 version 参数读取指定版本。",
+    {
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "type": "object",
+        "properties": {
+            "zoneId": {
+                "type": "string",
+                "description": "目标 Zone ID，如 'rz_3'"
+            },
+            "version": {
+                "type": "string",
+                "description": "可选。指定参考分析版本，如 'v1'；不传则返回最新版本。"
+            }
+        },
+        "required": ["zoneId"],
+        "additionalProperties": False
+    }
+)
+async def load_reference_analysis(args: dict[str, Any]) -> dict[str, Any]:
+    """加载参考分析版本"""
+    zone_id = args["zoneId"]
+    version = args.get("version")
+
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.get(
+                f"{SERVER_URL}/api/semantic-plan/{zone_id}/reference-analysis",
+                params={"version": version} if version else None
+            ) as resp:
+                if resp.status == 200:
+                    data = await resp.json()
+                    text_parts = [
+                        f"status: {data['status']}",
+                        f"zoneId: {data['zoneId']}",
+                        f"version: {data['version']}",
+                        f"sourceImageId: {data.get('sourceImageId', '')}",
+                        f"timestamp: {data['timestamp']}",
+                        "",
+                        data["content"]
+                    ]
+                    return {
+                        "content": [{
+                            "type": "text",
+                            "text": "\n".join(text_parts)
+                        }],
+                        "structuredContent": data
+                    }
+
+                if resp.status in (400, 404):
+                    data = await resp.json()
+                    message = data.get("message", "加载参考分析失败")
                     return {
                         "content": [{"type": "text", "text": message}],
                         "structuredContent": data,
@@ -1018,11 +1092,14 @@ async def save_reference_analysis(args: dict[str, Any]) -> dict[str, Any]:
                 json=body
             ) as resp:
                 if resp.status == 200:
+                    data = await resp.json()
+                    version_text = data.get("version", "N/A")
                     return {
                         "content": [{
                             "type": "text",
-                            "text": f"参考分析结果已保存（关联性：{relevance}）。继续规划阶段。"
-                        }]
+                            "text": f"参考分析结果已保存为 {version_text}（关联性：{relevance}）。继续规划阶段。"
+                        }],
+                        "structuredContent": data
                     }
                 else:
                     error_text = await resp.text()
@@ -1049,6 +1126,7 @@ canvas_mcp = create_sdk_mcp_server(
         get_zone_boundaries,
         save_semantic_plan,  # 语义方案提交（turn 边界）
         load_semantic_plan,  # 加载当前生效图纸
+        load_reference_analysis,  # 加载参考分析（planning 输入）
         save_reference_analysis,  # 新增：保存参考分析结果
     ],
 )
@@ -1062,4 +1140,6 @@ CANVAS_ALLOWED_TOOLS = [
     "mcp__canvas__get_zone_boundaries",
     "mcp__canvas__save_semantic_plan",
     "mcp__canvas__load_semantic_plan",
+    "mcp__canvas__load_reference_analysis",
+    "mcp__canvas__save_reference_analysis",
 ]

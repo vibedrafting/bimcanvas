@@ -96,8 +96,10 @@
 
 **操作流程**：
 - 布置操作流程由工作流 Skills 定义：
-  `query-workflow` / `edit-workflow` / `generate-derived-planning` / `generate-reference-translation` / `generate-reference-placement` / `generate-derived-placement` / `generate-zoning`
-- generate 任务会先判定任务语义，再进入 `generate-derived-planning` 或 `generate-reference-translation`，随后分别进入 `generate-derived-placement` 或 `generate-reference-placement`
+  `query-workflow` / `edit-workflow` / `generate-reference-analysis` / `generate-planning` / `generate-placement` / `generate-zoning`
+- generate 任务会先判定任务语义：
+  - `derived` / `reference-informed-derived` → `generate-planning` → `generate-placement`
+  - `reference-analysis` → `generate-reference-analysis` → `generate-planning` → `generate-placement`
 - 本 README 仅提供数据格式说明，不包含完整工作流程
 
 ---
