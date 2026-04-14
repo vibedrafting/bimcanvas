@@ -37,58 +37,65 @@
       "description": "MainAgent 系统提示词"
     },
     {
-      "name": "agent/agents",
+      "name": "",
       "target": "agents",
-      "type": "directory",
+      "type": "empty-directory",
       "enabled": true,
       "description": "SubAgent 配置目录"
     },
     {
-      "name": "agent/skills",
-      "target": "skills",
-      "type": "directory",
+      "name": "agent/agents/layout-agent.md",
+      "target": "agents/layout-agent.md",
+      "type": "template",
       "enabled": true,
-      "description": "Agent Skills"
+      "description": "Layout SubAgent 配置"
     },
     {
-      "name": "agent/skills/query-workflow",
-      "target": "skills/query-workflow",
-      "type": "directory",
+      "name": "",
+      "target": "skills",
+      "type": "empty-directory",
+      "enabled": true,
+      "description": "Agent Skills 根目录"
+    },
+    {
+      "name": "agent/skills/query-workflow/SKILL.md",
+      "target": "skills/query-workflow/SKILL.md",
+      "type": "template",
       "enabled": true,
       "description": "Query 工作流 Skill"
     },
     {
-      "name": "agent/skills/edit-workflow",
-      "target": "skills/edit-workflow",
-      "type": "directory",
+      "name": "agent/skills/edit-workflow/SKILL.md",
+      "target": "skills/edit-workflow/SKILL.md",
+      "type": "template",
       "enabled": true,
       "description": "Edit 工作流 Skill"
     },
     {
-      "name": "agent/skills/generate-reference-analysis",
-      "target": "skills/generate-reference-analysis",
-      "type": "directory",
+      "name": "agent/skills/generate-reference-analysis/SKILL.md",
+      "target": "skills/generate-reference-analysis/SKILL.md",
+      "type": "template",
       "enabled": true,
       "description": "Generate 参考分析 Skill"
     },
     {
-      "name": "agent/skills/generate-planning",
-      "target": "skills/generate-planning",
-      "type": "directory",
+      "name": "agent/skills/generate-planning/SKILL.md",
+      "target": "skills/generate-planning/SKILL.md",
+      "type": "template",
       "enabled": true,
       "description": "Generate 规划 Skill"
     },
     {
-      "name": "agent/skills/generate-placement",
-      "target": "skills/generate-placement",
-      "type": "directory",
+      "name": "agent/skills/generate-placement/SKILL.md",
+      "target": "skills/generate-placement/SKILL.md",
+      "type": "template",
       "enabled": true,
       "description": "Generate 布置 Skill"
     },
     {
-      "name": "agent/skills/generate-zoning",
-      "target": "skills/generate-zoning",
-      "type": "directory",
+      "name": "agent/skills/generate-zoning/SKILL.md",
+      "target": "skills/generate-zoning/SKILL.md",
+      "type": "template",
       "enabled": true,
       "description": "Generate 分区 Skill"
     },

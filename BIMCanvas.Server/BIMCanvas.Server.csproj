@@ -23,12 +23,14 @@
 
   <!-- Agent 模板/资源文件：复制到输出目录 -->
   <ItemGroup>
-    <Content Update="Templates\**\*" CopyToOutputDirectory="PreserveNewest" />
-    <Content Include="Templates\**\.gitignore" CopyToOutputDirectory="PreserveNewest" />
-    <Content Include="Templates\**\.claude-plugin\**\*" CopyToOutputDirectory="PreserveNewest" />
-    <None Include="Templates\**\*.md" CopyToOutputDirectory="PreserveNewest" />
-    <None Include="Templates\**\*.svg" CopyToOutputDirectory="PreserveNewest" />
-    <None Include="Templates\**\*.yaml" CopyToOutputDirectory="PreserveNewest" />
+    <Content Remove="Templates\**\*" />
+    <None Remove="Templates\**\*" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Content Include="Templates\**\*"
+             CopyToOutputDirectory="PreserveNewest"
+             CopyToPublishDirectory="PreserveNewest" />
   </ItemGroup>
 
   <!-- 示例项目文件：发布时复制到 publish/demos -->

@@ -79,22 +79,45 @@ namespace BIMCanvas.Server.Services
             BootstrapManifestItem item,
             IReadOnlyDictionary<string, string>? replacements)
         {
-            var sourcePath = Path.Combine(manifestRoot, NormalizeRelativePath(item.Name));
             var targetPath = Path.Combine(targetRoot, NormalizeRelativePath(item.Target));
             var itemType = item.Type?.Trim().ToLowerInvariant() ?? "template";
 
             switch (itemType)
             {
+                case "empty-directory":
+                    EnsureEmptyDirectoryItem(targetPath);
+                    return;
                 case "directory":
+                {
+                    var sourcePath = Path.Combine(manifestRoot, NormalizeRelativePath(item.Name));
                     EnsureDirectoryItem(sourcePath, targetPath);
                     return;
+                }
                 case "template":
+                {
+                    var sourcePath = Path.Combine(manifestRoot, NormalizeRelativePath(item.Name));
                     EnsureTemplateItem(sourcePath, targetPath, replacements);
                     return;
+                }
                 default:
                     throw new InvalidOperationException(
                         $"不支持的模板项类型: {item.Type} (name={item.Name}, target={item.Target})");
             }
+        }
+
+        private static void EnsureEmptyDirectoryItem(string targetPath)
+        {
+            if (File.Exists(targetPath))
+            {
+                throw new InvalidOperationException($"目标路径已存在同名文件，无法初始化目录: {targetPath}");
+            }
+
+            if (Directory.Exists(targetPath))
+            {
+                return;
+            }
+
+            Directory.CreateDirectory(targetPath);
         }
 
         private static void EnsureDirectoryItem(string sourcePath, string targetPath)
@@ -176,12 +199,6 @@ namespace BIMCanvas.Server.Services
         {
             var baseDir = AppDomain.CurrentDomain.BaseDirectory;
 
-            var directPath = Path.Combine(baseDir, "Templates");
-            if (Directory.Exists(directPath))
-            {
-                return directPath;
-            }
-
             var dir = new DirectoryInfo(baseDir);
             for (int i = 0; i < 8 && dir != null; i++)
             {
@@ -191,6 +208,12 @@ namespace BIMCanvas.Server.Services
                     return tryPath;
                 }
                 dir = dir.Parent;
+            }
+
+            var directPath = Path.Combine(baseDir, "Templates");
+            if (Directory.Exists(directPath))
+            {
+                return directPath;
             }
 
             throw new DirectoryNotFoundException("未找到 BIMCanvas.Server/Templates 目录。");
