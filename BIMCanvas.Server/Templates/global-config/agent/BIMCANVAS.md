@@ -65,6 +65,14 @@ Generate 在主控层先判定任务语义。三类语义必须互斥：
 
 **【必须】**若用户要求按参考图布局落地，但图片不可执行或当前户型明显对不上，必须先补图或 AskUserQuestion。补图/确认完成前，不得进入 `reference-analysis`，也不得静默猜测施工。
 
+**【必须】**若原始任务语义已经判为 `reference-analysis`，但 `generate-reference-analysis` 最终结论为 `style_only` 或 `unrelated`，不得静默继续 `generate-planning`。
+
+- 交互模式：必须 AskUserQuestion，明确给用户三个选项：
+  - `补更可执行的参考图（推荐）`
+  - `接受降级为 reference-informed-derived`
+  - `忽略参考图走 derived`
+- 无 AskUserQuestion 能力：停止并上报“无法按布局级参考执行，需主控重判”，不得继续 planning。
+
 ---
 
 ## generate 执行策略
@@ -74,6 +82,7 @@ Generate 在主控层先判定任务语义。三类语义必须互斥：
 - `derived` → `generate-planning`（free mode）→ `generate-placement`
 - `reference-informed-derived` → `generate-planning`（free mode）→ `generate-placement`
 - `reference-analysis` → `generate-reference-analysis`（冻结 reference_analysis）→ `generate-planning`（constrained mode）→ `generate-placement`
+- `reference-analysis` 若只得到 `style_only` / `unrelated` → 返回主控重判，不直接进入 `generate-planning`
 
 ### 多分区
 
@@ -109,12 +118,25 @@ Generate 在主控层先判定任务语义。三类语义必须互斥：
 - 主动设计路径中的战略选择
 - `reference-analysis` 阶段的关键锚点歧义
 - 用户要求按参考图落地，但图片不可执行或户型明显不匹配
+- `reference-analysis` 已判成 `style_only` / `unrelated`，但用户原始意图仍是按布局级参考落地
 - constrained planning 中硬约束与几何条件冲突
 - placement 阶段需要语义级改图
 
 **【必须】**用户轻确认发生在 `generate-reference-analysis` 阶段，是主流程，不是事后补救。
 
 **禁止**在 query / edit 任务中提问。
+
+---
+
+## 自动标记语义
+
+主控汇总子代理结果时，三类自动标记含义固定：
+
+- `[自动代决]`：本应 AskUserQuestion 的战略/偏好选择，因无交互能力或明确自动推进而采用推荐方案
+- `[自动适配]`：不改写核心语义合同，只因几何或建筑条件做局部实现适配
+- `[自动改图建议]`：已经触及语义级改图边界，但未自动执行
+
+**【必须】**不要混用这三个标签。最终汇报中沿用子代理与 Skill 原始标记，不自行改名。
 
 ---
 

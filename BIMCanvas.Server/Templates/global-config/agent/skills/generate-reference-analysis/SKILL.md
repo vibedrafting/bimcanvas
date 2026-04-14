@@ -82,8 +82,8 @@ description: |
 
 | 等级 | 含义 | 后续行为 |
 |------|------|---------|
-| `unrelated` | 完全无关 | 直接返回，不保存 reference_analysis |
-| `style_only` | 仅能提取风格/氛围 | 直接返回，不保存 reference_analysis |
+| `unrelated` | 完全无关 | 返回主控重判，不保存 reference_analysis |
+| `style_only` | 仅能提取风格/氛围 | 返回主控重判，不保存 reference_analysis |
 | `partially_related` | 局部相关，可提取约束 | 进入确认与保存 |
 | `structurally_related` | 结构相关，可稳定提取约束 | 进入确认与保存 |
 
@@ -117,6 +117,7 @@ description: |
 - 保留歧义记录
 - 不能确认的条目降为软提示
 - 若关键锚点无法稳定理解，则降级为 `style_only`
+- 若最终只能得到 `style_only` / `unrelated`，停止保存并上报主控重判，不得隐式宣布进入 free mode
 
 ---
 
@@ -216,6 +217,13 @@ save_reference_analysis(
 - 主要硬约束与设计建议
 - 接下来进入规划阶段
 
+当关联性为 `style_only` 或 `unrelated` 时：
+
+- 不保存 `reference_analysis`
+- 明确说明“未冻结 reference_analysis，不能直接进入 constrained planning”
+- 明确说明“主控需重新确认是补图、降级为 `reference-informed-derived`，还是转 pure `derived`”
+- 不得承诺“将自动进入 free mode 规划”
+
 ---
 
 ## 硬约束
@@ -256,9 +264,9 @@ save_reference_analysis(
 
 ### 降级策略
 
-- `unrelated` → 直接返回，不保存
-- `style_only` → 直接返回，不保存
-- `partially_related` + 关键锚点无法确认 → 降级为 `style_only`
+- `unrelated` → 返回主控重判，不保存
+- `style_only` → 返回主控重判，不保存
+- `partially_related` + 关键锚点无法确认 → 降级为 `style_only`，并返回主控重判
 
 ### 自洽性检查
 
@@ -308,6 +316,6 @@ save_reference_analysis(
 
 ```text
 参考图与当前户型空间形态差异较大，无法建立稳定的墙面映射。
-建议仅作为风格参考，不提取具体约束。
-将进入 free mode 规划。
+未冻结 reference_analysis，不能直接进入 constrained planning。
+主控需重新确认：补更可执行的参考图、降级为 reference-informed-derived，或转 pure derived。
 ```

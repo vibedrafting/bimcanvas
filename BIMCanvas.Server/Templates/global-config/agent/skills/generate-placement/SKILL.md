@@ -47,12 +47,19 @@ load_semantic_plan({ zoneId })
 
 **【必须】**placement 只读取 `v0.3.content`。不得调用 `load_reference_analysis`，也不得根据历史 reference 文件补充理解。
 
+**【必须】**`load_semantic_plan` 之后，立刻调用 `mcp__canvas__get_zone_boundaries({ zoneId })`，并读取 `computed/exclusions.json`。
+
+**【必须】**`zone boundaries`、`passage`、`exclusions` 与 `v0.3` 合同并列为施工前事实，不得等 `validate_layout` 报错后才第一次考虑。
+
 ---
 
 ## 3. 施工前读取
 
-**必读文件**：
+**必读输入**：
 
+- `load_semantic_plan` 返回的 `v0.3`
+- `mcp__canvas__get_zone_boundaries({ zoneId })`
+- `computed/exclusions.json`
 - `references/design_principles.md`
 - `references/design_evaluation.md`
 - `modules/module_library.json`
@@ -63,8 +70,9 @@ load_semantic_plan({ zoneId })
 **读取顺序**：
 
 1. 先读 `load_semantic_plan` 返回的 `v0.3`
-2. 再读 zone boundaries
-3. 最后读施工规则和模块库
+2. 再读 `mcp__canvas__get_zone_boundaries({ zoneId })`
+3. 再读 `computed/exclusions.json`
+4. 最后读模块库、房间策略、当前 `modules.json`、设计原则与评估规则
 
 ---
 
@@ -72,7 +80,18 @@ load_semantic_plan({ zoneId })
 
 ### Step 1：解析语义合同
 
-从 `v0.3.content` 中提取：
+按以下 canonical 章节顺序解析 `v0.3.content`：
+
+- `## 主要家具`
+- `## 可选/附属家具`
+- `## 保留空段与关键留白`
+- `## 关键关系与分区意图`
+- `## 偏离参考 / 未采纳项`
+- `## 自动标记`
+
+若 `## 主要家具` 缺失，或任一主家具条目缺少墙面归属或朝向语义，停止并上报“`v0.3` 合同不完整”，不得靠自由推断继续施工。
+
+从合同中提取：
 
 - 家具清单（主家具 + 可选家具 + 附属家具）
 - 墙面归属
@@ -90,9 +109,12 @@ load_semantic_plan({ zoneId })
 
 **坐标计算**：
 
+- 写入前先根据 `zone boundaries`、`passage`、`exclusions` 过滤候选坐标
 - 根据墙面归属和 zone boundaries 计算精确坐标
 - 根据朝向计算 facing
 - 根据模块尺寸计算 bounds
+
+**【必须】**`validate_layout` 只做编译验证与修正触发，不承担第一次发现几何事实的职责。
 
 **冲突处理**：
 
@@ -112,6 +134,8 @@ load_semantic_plan({ zoneId })
 4. 收缩或删除附属件
 5. 同类模块的小幅替换（不改变合同含义）
 
+执行后统一记为 `[自动适配]`。
+
 #### 语义级改图（不能静默执行）
 
 以下操作会改写语义合同，必须升级：
@@ -121,6 +145,8 @@ load_semantic_plan({ zoneId })
 - 删除合同中明确存在的家具
 - 侵占合同中写明的保留空段
 - 改变关键邻接关系、角部关系或核心分区意图
+
+以上情况统一记为 `[自动改图建议]`，不得降格为 `[自动适配]`。
 
 **交互模式**：
 - AskUserQuestion 征求授权
@@ -157,11 +183,15 @@ load_semantic_plan({ zoneId })
 - 不改变合同含义的附属件整理
 - 不破坏留白的局部间距优化
 
+执行后统一记为 `[自动适配]`。
+
 ### 不可静默执行的优化
 
 - 会导致跨墙面迁移
 - 会新增或删除家具
 - 会改变关键留白、邻接或分区意图
+
+以上情况统一记为 `[自动改图建议]`。
 
 #### 交互模式
 
