@@ -34,6 +34,40 @@ description: |
 
 ---
 
+## 硬约束
+
+### 输入白名单
+
+**允许读取**：
+- 用户文字和参考图片
+- `schemes/zones.json`
+- `computed/exclusions.json`
+- `mcp__canvas__get_zone_boundaries`
+- `modules/module_library.json` 的契约层字段（id/tags/size/limits）
+
+**禁止读取**：
+- `references/design_principles.md`
+- `references/design_evaluation.md`
+- 房间策略文件（bedroom.md / bathroom.md / livingroom.md）
+- `module_library.json` 的 `agent_config`
+- `generate-zoning`
+
+**WHY**：这里只有眼睛和尺子，没有设计教科书。避免设计常识污染 reference 提取。
+
+### 视觉事实优先
+
+- 视觉证据 > 设计常识
+- 即使参考图"看起来不合理"，也必须如实提取
+- 不得用"更美观""更合理"改写视觉事实
+
+### 不增不减原则
+
+- 只提取参考图中可明确支持的位置关系与设计意图
+- 不凭经验新增参考图中没有的特殊细节
+- 不把不确定内容包装成确定锚点
+
+---
+
 ## 工作流
 
 ### Step 0：独立观察参考图
@@ -165,31 +199,39 @@ description: |
 
 把结果组织为 AI 友好的 Markdown。不要追求固定字段；要追求清晰分层。
 
-**推荐结构**：
+**【必须】**无论 `partially_related` 还是 `structurally_related`，content 都采用同一套 canonical Markdown 结构：
 
 ```markdown
 # 参考分析结果
 
 ## 关联性判定
-- 等级：partially_related
+- 等级：[partially_related / structurally_related]
 - 理由：...
 
 ## 硬约束（用户确认 / 几何验证）
-- 床必须靠东墙
-- 门侧留白 >= 600mm
+- [具体约束条目]
 
 ## 设计建议（优先参考）
-- 睡眠区在房间深处
-- 梳妆区靠窗
+- [具体建议条目]
 
 ## 已知差异
-- ...
+- [差异描述] / `- 无`
 
 ## 用户确认记录
-- ...
+- [确认内容] / `- 无`
 ```
 
+**各章节最小要求**：
+
+- `## 关联性判定`：必须写等级和理由
+- `## 硬约束（用户确认 / 几何验证）`：每条必须注明来源（用户确认 / 几何验证）；没有则写 `- 无`
+- `## 设计建议（优先参考）`：每条必须是可传递的设计意图；没有则写 `- 无`
+- `## 已知差异`：必须覆盖关键差异；没有则写 `- 无`
+- `## 用户确认记录`：记录 AskUserQuestion 的确认结果；没有则写 `- 无`
+
 **【必须】**关联性等级必须在 content 中显式写出。持久化文件本身只保存 `version/sourceImageId/content/timestamp`，关联性等结构化信息由 content 承载。
+
+**【必须】**标题结构必须严格遵守上述 canonical 格式，不得使用 `## 确认约束`、`## 必须遵守` 等变体标题。
 
 ---
 
@@ -220,9 +262,11 @@ save_reference_analysis(
 当关联性为 `style_only` 或 `unrelated` 时：
 
 - 不保存 `reference_analysis`
-- 明确说明“未冻结 reference_analysis，不能直接进入 constrained planning”
-- 明确说明“主控需重新确认是补图、降级为 `reference-informed-derived`，还是转 pure `derived`”
-- 不得承诺“将自动进入 free mode 规划”
+- 明确说明”未冻结 reference_analysis，不能直接进入 constrained planning”
+- 明确说明”主控需重新确认是补图、降级为 `reference-informed-derived`，还是转 pure `derived`”
+- 不得承诺”将自动进入 free mode 规划”
+
+**【必须】**降级为 `style_only` 或 `unrelated` 后，必须停止执行并返回主控，不得自动进入 free mode planning。
 
 ---
 
@@ -312,7 +356,34 @@ save_reference_analysis(
 - 已确认门侧留白 >= 600mm
 ```
 
-### 示例 2：style_only
+### 示例 2：partially_related
+
+```markdown
+# 参考分析结果
+
+## 关联性判定
+- 等级：partially_related
+- 理由：空间形态基本匹配，但窗户位置不同（参考图窗在东墙，当前户型窗在南墙）
+
+## 硬约束（用户确认 / 几何验证）
+- 床必须靠东墙，床头朝东（用户确认）
+- 衣柜沿北墙展开，面向南（用户确认）
+- 门侧留白 >= 600mm（几何验证）
+
+## 设计建议（优先参考）
+- 梳妆台靠窗使用自然采光
+- 睡眠区与收纳区分处静区与前场
+
+## 已知差异
+- 参考图窗在东墙，当前户型窗在南墙，梳妆台位置需调整
+- 当前户型略窄，家具间距可能需压缩
+
+## 用户确认记录
+- 已确认床和衣柜的墙面归属
+- 已确认按镜像理解入口方向
+```
+
+### 示例 3：style_only
 
 ```text
 参考图与当前户型空间形态差异较大，无法建立稳定的墙面映射。
