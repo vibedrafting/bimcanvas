@@ -1,8 +1,8 @@
 ---
 name: generate-planning
 description: |
-  Generate 规划 Skill。用于主动设计（derived）、参考启发式设计（reference-informed-derived）
-  以及消费已冻结 reference_analysis 的 constrained planning。
+  Generate 规划 Skill。用于统一的 free mode / constrained mode planning，
+  以及把参考输入压缩成自包含的 semantic_plan。
 ---
 
 # Generate 规划
@@ -30,20 +30,18 @@ description: |
 
 ## 入场动作
 
-先根据当前任务语义判断执行模式：
+**【必须】**执行模式只由“当前任务是否携带已冻结的 `reference_analysis`”决定，不由用户措辞、图片名称或路由标签决定。
 
 ### free mode
 
 适用于：
-- `derived`
-- `reference-informed-derived`
-- 或当前任务没有冻结的 reference_analysis
+- 当前任务没有已冻结的 `reference_analysis`
+- 图片若存在但未形成正式 `reference_analysis`，只作普通上下文参与规划
 
 ### constrained mode
 
 适用于：
-- 主控已先执行 `generate-reference-analysis`
-- 当前任务明确要求消费已冻结的 reference_analysis
+- 当前任务已经冻结正式 `reference_analysis`
 
 **constrained mode 入场动作**：
 
@@ -53,8 +51,13 @@ description: |
 
 **free mode 禁止事项**：
 
-- 不得因为历史目录里碰巧存在 `reference_analysis.json` 就自动切到 constrained mode
-- `reference-informed-derived` 的图片只作上下文，不作图纸原文
+- 不得因为用户说了“参考这个感觉”或“按这张图”就自行切换模式
+- 不得把普通图片上下文当作 raw reference 合同消费
+
+**说明**：
+
+- 文档中若出现 `reference-informed-derived`，指的是“图片仍保留在上下文中，但没有形成正式 `reference_analysis` 的 free mode planning”
+- 只有当前任务明确携带已冻结的 `reference_analysis`，才算 constrained mode
 
 ---
 

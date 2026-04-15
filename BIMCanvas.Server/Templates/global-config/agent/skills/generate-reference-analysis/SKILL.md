@@ -34,6 +34,24 @@ description: |
 
 ---
 
+## 调用边界
+
+调用方不需要先做“布局参考 / 风格参考”的词面裁决。
+
+**【必须】**只要图片可能影响布局理解，或其角色仍不确定，就可以进入本 Skill 做取证。
+
+本 Skill 自己决定三种结果：
+
+1. 丢弃为 reference 输入：`unrelated`
+2. 保留为普通上下文：`style_only`
+3. 冻结为正式约束：`partially_related` / `structurally_related`
+
+**【必须】**只有 `partially_related` / `structurally_related` 才能保存正式 `reference_analysis` 并供后续 constrained planning 消费。
+
+**【必须】**`style_only` / `unrelated` 只返回主控重判，不保存 `reference_analysis`，也不在本 Skill 内自动进入 planning。
+
+---
+
 ## 硬约束
 
 ### 输入白名单
