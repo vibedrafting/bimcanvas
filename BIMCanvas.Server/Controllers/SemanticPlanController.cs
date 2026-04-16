@@ -104,9 +104,6 @@ namespace BIMCanvas.Server.Controllers
             if (!IsDesignZoneId(request.ZoneId))
                 return BadRequest(new { message = "reference_analysis 只归属于设计区，不归属于子分区。请传入父设计区 zoneId。" });
 
-            if (!IsSupportedRelevance(request.Relevance))
-                return BadRequest(new { message = "relevance 必须是 partially_related 或 structurally_related" });
-
             var filePath = GetReferenceAnalysisPath(request.ZoneId);
             Directory.CreateDirectory(Path.GetDirectoryName(filePath)!);
 
@@ -130,20 +127,18 @@ namespace BIMCanvas.Server.Controllers
             {
                 zoneId = request.ZoneId,
                 version = entry.Version,
-                relevance = request.Relevance,
                 timestamp = entry.Timestamp
             });
 
             _logger.LogInformation(
-                "[ReferenceAnalysis] 已保存 {ZoneId} {Version}（{Relevance}）",
-                request.ZoneId, entry.Version, request.Relevance);
+                "[ReferenceAnalysis] 已保存 {ZoneId} {Version}",
+                request.ZoneId, entry.Version);
 
             return Ok(new
             {
                 saved = true,
                 zoneId = request.ZoneId,
-                version = entry.Version,
-                relevance = request.Relevance
+                version = entry.Version
             });
         }
 
@@ -459,12 +454,6 @@ namespace BIMCanvas.Server.Controllers
             return false;
         }
 
-        private static bool IsSupportedRelevance(string relevance)
-        {
-            return string.Equals(relevance, "partially_related", StringComparison.OrdinalIgnoreCase)
-                   || string.Equals(relevance, "structurally_related", StringComparison.OrdinalIgnoreCase);
-        }
-
         private static string GetNextReferenceAnalysisVersion(IEnumerable<ReferenceAnalysisVersionEntry> versions)
         {
             var maxNumber = versions
@@ -517,7 +506,6 @@ namespace BIMCanvas.Server.Controllers
     {
         public string ZoneId { get; set; }
         public string SourceImageId { get; set; }
-        public string Relevance { get; set; }
         public string Content { get; set; }
     }
 }

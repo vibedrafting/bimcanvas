@@ -847,7 +847,7 @@ async def get_zone_boundaries(args: dict[str, Any]) -> dict[str, Any]:
             },
             "referenceAnalysisVersion": {
                 "type": "string",
-                "description": "可选。若当前方案消费了参考分析，记录对应的 reference_analysis 版本（如 v1）。"
+                "description": "可选。若当前方案消费了定稿 reference_analysis，记录对应的版本（如 v3 / v4）。"
             }
         },
         "required": ["zoneId", "version", "planType", "content"],
@@ -1045,7 +1045,7 @@ async def load_reference_analysis(args: dict[str, Any]) -> dict[str, Any]:
 
 @tool(
     "save_reference_analysis",
-    "保存参考分析结果到语义方案。在参考图分析完成后调用，提交约束包（AI 自由组织的 Markdown 内容）。",
+    "保存完整参考分析快照。在参考图分析各阶段完成后调用，提交当前版本的完整 Markdown 分析内容。",
     {
         "$schema": "http://json-schema.org/draft-07/schema#",
         "type": "object",
@@ -1058,30 +1058,23 @@ async def load_reference_analysis(args: dict[str, Any]) -> dict[str, Any]:
                 "type": "string",
                 "description": "参考图附件 ID（可选）"
             },
-            "relevance": {
-                "type": "string",
-                "enum": ["partially_related", "structurally_related"],
-                "description": "关联性等级：partially_related=部分相关, structurally_related=结构相关"
-            },
             "content": {
                 "type": "string",
-                "description": "参考分析内容（Markdown 格式），AI 自由组织 confirmedConstraints（硬约束）和 referenceHints（软提示）"
+                "description": "参考分析内容（Markdown 格式），必须是当前阶段的完整、自包含快照"
             }
         },
-        "required": ["zoneId", "relevance", "content"],
+        "required": ["zoneId", "content"],
         "additionalProperties": False
     }
 )
 async def save_reference_analysis(args: dict[str, Any]) -> dict[str, Any]:
     """保存参考分析结果"""
     zone_id = args["zoneId"]
-    relevance = args["relevance"]
     content = args["content"]
 
     body = {
         "zoneId": zone_id,
         "sourceImageId": args.get("sourceImageId", ""),
-        "relevance": relevance,
         "content": content
     }
 
@@ -1097,7 +1090,7 @@ async def save_reference_analysis(args: dict[str, Any]) -> dict[str, Any]:
                     return {
                         "content": [{
                             "type": "text",
-                            "text": f"参考分析结果已保存为 {version_text}（关联性：{relevance}）。继续规划阶段。"
+                            "text": f"参考分析结果已保存为 {version_text}。"
                         }],
                         "structuredContent": data
                     }

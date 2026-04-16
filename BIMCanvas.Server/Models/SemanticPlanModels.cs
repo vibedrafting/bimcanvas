@@ -34,6 +34,9 @@ namespace BIMCanvas.Server.Models
     {
         public string Version { get; set; }
         public string SourceImageId { get; set; }
+        /// <summary>
+        /// 完整、自包含、可单独阅读的参考分析快照内容。
+        /// </summary>
         public string Content { get; set; }
         public string Timestamp { get; set; }
     }

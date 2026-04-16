@@ -13,7 +13,6 @@ namespace BIMCanvas.Server.Services
         private static readonly string[] ObsoleteSkillDirectories =
         [
             "generate-derived-planning",
-            "generate-reference-translation",
             "generate-reference-placement",
             "generate-derived-placement"
         ];

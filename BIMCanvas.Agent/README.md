@@ -656,7 +656,7 @@ python -m src.image_generation.cli ^
 - `mcp__canvas__get_zone_boundaries`：读取设计区边界语义
 - `mcp__canvas__save_semantic_plan`：提交语义方案阶段图纸
 - `mcp__canvas__load_semantic_plan`：读取当前生效图纸
-- `mcp__canvas__save_reference_analysis`：保存独立 `reference_analysis.json` 版本快照
+- `mcp__canvas__save_reference_analysis`：保存独立 `reference_analysis.json` 完整版本快照
 - `mcp__canvas__load_reference_analysis`：读取最新或指定版本的参考分析
 
 #### 后台截图 MCP 工具（request_background_screenshot）

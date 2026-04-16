@@ -42,7 +42,7 @@ load_semantic_plan({ zoneId })
 
 - `effectiveVersion`（必须是 `v0.3`）
 - 关键家具墙面归属
-- 若存在 `referenceAnalysisVersion`，只把它当作审计元数据复述，不得把它当运行时输入
+- 若存在 `referenceAnalysisVersion`，只把它当作“本合同消费自哪版定稿参考分析”的审计元数据复述，不得把它当运行时输入
 - 若有“自动代决”“自动适配”标记，也必须复述
 
 **【必须】**placement 只读取 `v0.3.content`。不得调用 `load_reference_analysis`，也不得根据历史 reference 文件补充理解。
@@ -86,7 +86,7 @@ load_semantic_plan({ zoneId })
 - `## 可选/附属家具`
 - `## 保留空段与关键留白`
 - `## 关键关系与分区意图`
-- `## 偏离参考 / 未采纳项`
+- `## 参考采纳与偏离摘要`
 - `## 自动标记`
 
 若 `## 主要家具` 缺失，或任一主家具条目缺少墙面归属或朝向语义，停止并上报“`v0.3` 合同不完整”，不得靠自由推断继续施工。

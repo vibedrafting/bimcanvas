@@ -174,15 +174,14 @@ dotnet publish BIMCanvas.Server -c Release -o publish
 | **MCP 工具** | 工具箱 | 能力扩展、数据接口 |
 
 **SubAgent 清单**：
-- `layout-agent`：单房间设计专家（支持 derived / reference 两类 generate 链路）
+- `layout-agent`：单房间设计专家（负责单房间 planning + placement，按是否携带定稿参考分析决定消费方式）
 
 **Skill 工作流**：
 - `query-workflow`：查询统计（查看布置状态、房间信息）
 - `edit-workflow`：编辑操作（移动、删除、旋转家具）
-- `generate-derived-planning`：主动设计规划
-- `generate-reference-translation`：参考图翻译
-- `generate-reference-placement`：参考布置（按图施工 + 用户授权制优化）
-- `generate-derived-placement`：推导布置（按图施工 + 自主优化）
+- `generate-reference-analysis`：参考分析（`v1` 客观分析 → `v2` 差异分析 → `v3` 用户确认版）
+- `generate-planning`：统一规划（`v0.1` 纯空间骨架 → `v0.2` 战略层方案 → `v0.3` 完整施工简报）
+- `generate-placement`：按 `v0.3` 施工与验证
 - `generate-zoning`：推导路径分区 helper
 
 **关键设计原则**：

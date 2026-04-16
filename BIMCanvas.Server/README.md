@@ -430,13 +430,14 @@ computed/*.json        → computed
 |------|------|------|
 | `/api/semantic-plan/save` | POST | 保存 `v0.1/v0.2/v0.3` 语义方案，支持可选 `referenceAnalysisVersion` |
 | `/api/semantic-plan/{zoneId}` | GET | 读取当前生效的 `v0.3` 语义合同 |
-| `/api/semantic-plan/save-reference-analysis` | POST | 追加保存独立的 `reference_analysis.json` 版本快照 |
+| `/api/semantic-plan/save-reference-analysis` | POST | 追加保存独立的 `reference_analysis.json` 完整版本快照 |
 | `/api/semantic-plan/{zoneId}/reference-analysis` | GET | 读取最新或指定版本的参考分析 |
 
 关键约定：
 
 - `semantic_plan.json` 只保存语义方案版本数组
 - `reference_analysis.json` 独立保存参考分析版本数组
+- `reference_analysis` 的每个版本都是完整快照，planning 默认读取最新定稿版本
 - 新流程统一写 `planType="derived"`
 - 旧 `planType=reference` 且缺少 `v0.3` 的数据会被视为 legacy，需要重新规划
 
