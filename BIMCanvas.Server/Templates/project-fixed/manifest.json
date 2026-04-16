@@ -21,6 +21,55 @@
       "type": "directory",
       "enabled": true,
       "description": "家具模块库（module_library.json + SVG）"
+    },
+    {
+      "name": "",
+      "target": "references",
+      "type": "empty-directory",
+      "enabled": true,
+      "description": "项目级运行时参考规则目录"
+    },
+    {
+      "name": "../global-config/agent/reference-templates/design_principles.md",
+      "target": "references/design_principles.md",
+      "type": "template",
+      "enabled": true,
+      "description": "项目级：通用设计原则"
+    },
+    {
+      "name": "../global-config/agent/reference-templates/design_evaluation.md",
+      "target": "references/design_evaluation.md",
+      "type": "template",
+      "enabled": true,
+      "description": "项目级：设计评价框架"
+    },
+    {
+      "name": "../global-config/agent/reference-templates/bedroom.md",
+      "target": "references/bedroom.md",
+      "type": "template",
+      "enabled": true,
+      "description": "项目级：卧室策略"
+    },
+    {
+      "name": "../global-config/agent/reference-templates/bathroom.md",
+      "target": "references/bathroom.md",
+      "type": "template",
+      "enabled": true,
+      "description": "项目级：卫生间策略"
+    },
+    {
+      "name": "../global-config/agent/reference-templates/livingroom.md",
+      "target": "references/livingroom.md",
+      "type": "template",
+      "enabled": true,
+      "description": "项目级：客餐厅策略"
+    },
+    {
+      "name": "../global-config/agent/reference-templates/optional-furniture-rules.md",
+      "target": "references/optional-furniture-rules.md",
+      "type": "template",
+      "enabled": true,
+      "description": "项目级：可选家具规则"
     }
   ]
 }

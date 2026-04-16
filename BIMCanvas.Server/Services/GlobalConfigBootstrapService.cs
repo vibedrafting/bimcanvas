@@ -1,3 +1,4 @@
+using System;
 using System.IO;
 using System.Linq;
 
@@ -16,6 +17,11 @@ namespace BIMCanvas.Server.Services
             "generate-reference-placement",
             "generate-derived-placement"
         ];
+        private static readonly string[] ObsoleteSkillReferenceOwners =
+        [
+            "generate-planning",
+            "generate-placement"
+        ];
 
         private readonly BootstrapTemplateService _templateService;
 
@@ -33,6 +39,7 @@ namespace BIMCanvas.Server.Services
                 configDir);
 
             RemoveObsoleteEmptySkillDirectories(configDir);
+            RemoveObsoleteSkillReferenceDirectories(configDir);
         }
 
         private static void RemoveObsoleteEmptySkillDirectories(string configDir)
@@ -57,6 +64,40 @@ namespace BIMCanvas.Server.Services
                 }
 
                 Directory.Delete(skillPath, recursive: false);
+            }
+        }
+
+        private static void RemoveObsoleteSkillReferenceDirectories(string configDir)
+        {
+            var skillsRoot = Path.Combine(configDir, "skills");
+            if (!Directory.Exists(skillsRoot))
+            {
+                return;
+            }
+
+            var fullSkillsRoot = Path.GetFullPath(skillsRoot)
+                .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+
+            foreach (var skillName in ObsoleteSkillReferenceOwners)
+            {
+                var referencesPath = Path.Combine(skillsRoot, skillName, "references");
+                if (!Directory.Exists(referencesPath))
+                {
+                    continue;
+                }
+
+                var fullReferencesPath = Path.GetFullPath(referencesPath)
+                    .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+
+                if (!fullReferencesPath.StartsWith(
+                    fullSkillsRoot + Path.DirectorySeparatorChar,
+                    StringComparison.OrdinalIgnoreCase))
+                {
+                    throw new InvalidOperationException(
+                        $"拒绝删除 skills 根目录之外的 references 目录: {fullReferencesPath}");
+                }
+
+                Directory.Delete(fullReferencesPath, recursive: true);
             }
         }
     }

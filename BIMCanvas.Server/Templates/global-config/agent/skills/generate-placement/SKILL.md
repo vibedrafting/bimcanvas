@@ -9,6 +9,12 @@ description: |
 
 > 你在本 Skill 中是施工方兼品质把关人。你只读取自包含的 `v0.3` 语义合同，不读取 raw reference_analysis。
 
+## 路径约定
+
+- 本 Skill 中出现的 `references/*.md` 均指**项目目录**下的 `references/*.md`
+- 不要从 `<BIMCANVAS_HOME>/skills/.../references/` 读取运行时设计规则
+- `modules/`、`computed/`、`schemes/` 也都相对当前项目目录读取
+
 ## 1. 执行模式
 
 进入本 Skill 后，先确认执行模式：

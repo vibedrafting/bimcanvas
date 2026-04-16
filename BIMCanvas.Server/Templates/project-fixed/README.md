@@ -22,6 +22,11 @@
 │   ├── room_zones.json             房间分区（从房间派生，分区方案的依据）
 │   └── exclusions.json             禁区（门扇开启区等）
 │
+├── references/                     项目级运行时参考规则
+│   ├── design_principles.md        通用设计原则
+│   ├── design_evaluation.md        设计评价框架
+│   └── *.md                        房间策略 / 可选家具规则
+│
 ├── modules/                        家具库
 │   └── module_library.json         可选家具模块定义
 │
@@ -100,6 +105,7 @@
 - generate 任务的主链统一为：
   - 无参考图或未形成定稿参考分析 → `generate-planning` → `generate-placement`
   - 有参考图且需要参考消费 → `generate-reference-analysis` → `generate-planning` → `generate-placement`
+- 项目级运行时参考规则统一位于 `references/*.md`
 - 本 README 仅提供数据格式说明，不包含完整工作流程
 
 ---
@@ -112,6 +118,7 @@
 | 房间区域 | `computed/room_zones.json` | 读 |
 | 门窗数据 | `baseline/openings.json` | 读 |
 | 禁区信息 | `computed/exclusions.json` | 读 |
+| 设计规则 | `references/*.md` | 读 |
 | 家具库 | `modules/module_library.json` | 读 |
 | **布置结果** | `schemes/{zoneId}/modules.json` | **写** |
 

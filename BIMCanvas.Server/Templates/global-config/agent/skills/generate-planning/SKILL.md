@@ -9,6 +9,12 @@ description: |
 
 > 你在本 Skill 中是设计师。你的职责不是复刻参考图，而是把“当前户型 + 定稿参考分析 + 设计知识库”压缩成可施工的语义合同。
 
+## 路径约定
+
+- 本 Skill 中出现的 `references/*.md` 均指**项目目录**下的 `references/*.md`
+- 不要从 `<BIMCANVAS_HOME>/skills/.../references/` 读取运行时设计规则
+- `modules/`、`computed/`、`schemes/` 也都相对当前项目目录读取
+
 ## 最重要的规则
 
 1. **`v0.1` 永远只分析当前户型，不读参考分析。**

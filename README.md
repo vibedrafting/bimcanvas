@@ -283,13 +283,17 @@ project.bcp (ZIP) → 解压为 Git 仓库
 │   └── modules.json          家具模块布置
 ├── context/                  上下文信息
 │   └── requirements.md       用户需求描述
+├── references/               项目级运行时参考规则
+│   ├── design_principles.md  通用设计原则
+│   ├── design_evaluation.md  设计评价框架
+│   └── *.md                  房间策略 / 可选家具规则
 ├── modules/                  模块素材库
 │   ├── module_library.json   模块元数据
 │   └── assets/               SVG 资源
 └── .git/                     Git 仓库（v3.1 多策略通过分支隔离）
 ```
 
-> 运行时设计规则不再放在项目目录 `knowledge/` 下，而是由 `<BIMCANVAS_HOME>/skills/*/references/` 中的 Skill 私有模板提供。
+> 运行时设计规则不再放在项目目录 `knowledge/` 下，而是统一放在项目目录 `references/` 下，随项目一起初始化与归档。
 
 详细 Schema 见：[docs/Schema.md](./docs/Schema.md)
 
