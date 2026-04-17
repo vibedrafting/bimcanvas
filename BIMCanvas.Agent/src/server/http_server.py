@@ -1,21 +1,24 @@
-"""HTTP Server for Web integration using aiohttp"""
+"""HTTP Server for Web integration using aiohttp."""
+
+from __future__ import annotations
 
 import asyncio
 import base64
 import json
 import logging
 import uuid
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any
 
-from aiohttp import web
 import aiohttp_cors
+from aiohttp import web
 
 from ..agent.main_agent import MainAgent
 from ..attachments.chat_attachments import AttachmentResolutionError, resolve_attachment_image_blocks
-from ..config.settings import get_settings
 from ..config.loader import resolve_bimcanvas_home
+from ..config.settings import get_settings
+from ..runtime import RuntimeStateStore
 
 # Configure logging
 logger = logging.getLogger(__name__)
@@ -23,6 +26,7 @@ logger = logging.getLogger(__name__)
 # Global agent instances (cached by window ID for multi-window parallel support)
 agents: dict[str, MainAgent] = {}  # windowId → Agent
 _agents_lock = asyncio.Lock()
+runtime_store = RuntimeStateStore()
 
 # 窗口序号管理（日志前缀用）
 _window_counter = 1  # 从 1 开始，primary 不占用（序号 0）
@@ -33,25 +37,122 @@ def _get_window_prefix(window_seq: int) -> str:
     """获取窗口日志前缀"""
     if window_seq == 0:
         return "[Agent]"
-    else:
-        return f"[Agent#{window_seq}]"
+    return f"[Agent#{window_seq}]"
 
-# Screenshot request management
-_screenshot_requests: dict[str, asyncio.Future] = {}
-_screenshot_sse_queues: list[asyncio.Queue] = []
 
-# Question request management (AskUserQuestion 侧信道，复用截图模式)
-_question_requests: dict[str, asyncio.Future] = {}
-_question_sse_queues: list[asyncio.Queue] = []
+def _build_runtime_context(window_id: str, session_id: str, turn_id: str) -> dict[str, str]:
+    return {
+        "windowId": window_id,
+        "sessionId": session_id,
+        "turnId": turn_id,
+    }
+
+
+def _build_chunk_event_data(chunk: Any) -> dict[str, Any]:
+    event_data = {"type": chunk.type}
+
+    if chunk.content:
+        event_data["content"] = chunk.content
+
+    if chunk.subagent_id:
+        event_data["subAgentId"] = chunk.subagent_id
+    if chunk.subagent_name:
+        event_data["subAgentName"] = chunk.subagent_name
+    if chunk.subagent_type:
+        event_data["subAgentType"] = chunk.subagent_type
+
+    if chunk.tool_call_id:
+        event_data["toolCallId"] = chunk.tool_call_id
+    if chunk.tool_name:
+        event_data["toolName"] = chunk.tool_name
+    if chunk.tool_description:
+        event_data["toolDescription"] = chunk.tool_description
+    if chunk.tool_params:
+        event_data["toolParams"] = chunk.tool_params
+    if chunk.tool_output:
+        event_data["toolOutput"] = chunk.tool_output
+
+    if chunk.success is not None:
+        event_data["success"] = chunk.success
+    if chunk.error:
+        event_data["error"] = chunk.error
+
+    if chunk.error_type:
+        event_data["errorType"] = chunk.error_type
+    if chunk.error_content:
+        event_data["errorContent"] = chunk.error_content
+    if chunk.hidden_content:
+        event_data["hiddenContent"] = chunk.hidden_content
+
+    if chunk.task_id:
+        event_data["taskId"] = chunk.task_id
+    if chunk.timeout is not None:
+        event_data["timeout"] = chunk.timeout
+
+    return event_data
+
+
+def _build_session_ready_event(session_snapshot: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "type": "session_ready",
+        "sessionId": session_snapshot["sessionId"],
+        "windowId": session_snapshot["windowId"],
+        "runtimeId": session_snapshot["runtimeId"],
+        "status": session_snapshot["status"],
+    }
+
+
+async def _write_sse_data(response: web.StreamResponse, data: dict[str, Any]) -> None:
+    await response.write(f"data: {json.dumps(data, ensure_ascii=False)}\n\n".encode("utf-8"))
+
+
+async def _disconnect_agent(agent: MainAgent) -> None:
+    try:
+        await agent.disconnect()
+    except Exception as exc:
+        logger.warning(f"Error disconnecting agent: {exc}")
+        try:
+            agent._connected = False
+            agent._client = None
+        except Exception:
+            pass
+
+
+async def _teardown_window_locked(
+    window_id: str,
+    *,
+    cancel_reason: str,
+    drop_window_seq: bool,
+    sleep_after_disconnect: bool,
+) -> RuntimeSessionRecord | None:
+    session = await runtime_store.get_active_session(window_id)
+    if session:
+        await runtime_store.cancel_session_interactions(
+            session.session_id,
+            cancel_reason=cancel_reason,
+        )
+        await runtime_store.close_session(session.session_id, remove_window_binding=True)
+
+    agent = agents.pop(window_id, None)
+    if agent is not None:
+        agent.clear_runtime_context()
+        await _disconnect_agent(agent)
+        if sleep_after_disconnect:
+            await asyncio.sleep(1.5)
+
+    if drop_window_seq:
+        _window_seq_map.pop(window_id, None)
+
+    return session
 
 
 async def get_agent(
     window_id: str,
     project_path: str,
-    worktree_path: str = None
-) -> MainAgent:
+    worktree_path: str = None,
+) -> tuple[MainAgent, RuntimeSessionRecord]:
     """
-    获取或创建窗口专属的 Agent 实例
+    获取或创建窗口专属的 Agent 实例和 session。
 
     Args:
         window_id: 窗口唯一标识
@@ -59,54 +160,62 @@ async def get_agent(
         worktree_path: 实际工作目录（虚拟窗口的 Worktree 路径）
 
     Returns:
-        MainAgent instance
+        (MainAgent, RuntimeSessionRecord)
     """
     global _window_counter
 
+    working_dir = worktree_path or project_path
+
     async with _agents_lock:
-        # 检测项目切换：路径变更时销毁旧 Agent，重建新实例
-        if window_id in agents:
-            agent = agents[window_id]
-            working_dir = worktree_path or project_path
-            if agent.working_directory != working_dir:
-                seq = _window_seq_map.get(window_id, 0)
-                prefix = _get_window_prefix(seq)
-                print(f"{prefix} [Server] ========== 项目切换 ==========")
-                print(f"{prefix} [Server] 旧路径: {agent.working_directory}")
-                print(f"{prefix} [Server] 新路径: {working_dir}")
-                print(f"{prefix} [Server] ===================================")
-                del agents[window_id]  # 先从缓存中移除，避免后续请求复用
-                try:
-                    await agent.disconnect()
-                except Exception as e:
-                    logger.warning(f"Error disconnecting agent during project switch: {e}")
-                    # 强制清理：即使 SDK disconnect 失败，也确保状态重置
-                    try:
-                        agent._connected = False
-                        agent._client = None
-                    except Exception:
-                        pass
-                logger.info(f"Project switched for window {window_id}, recreating agent")
-            else:
-                return agent
+        agent = agents.get(window_id)
+        session = await runtime_store.get_active_session(window_id)
 
-        if window_id not in agents:
-            # 先用临时序号创建 Agent，成功后再写入全局状态
-            if window_id == "primary":
-                seq = 0
-            else:
+        if agent and session:
+            same_project = session.project_path == project_path
+            same_worktree = (session.worktree_path or session.project_path) == working_dir
+            if same_project and same_worktree and agent.working_directory == working_dir:
+                await runtime_store.touch_session(session.session_id)
+                return agent, session
+
+            seq = _window_seq_map.get(window_id, 0)
+            prefix = _get_window_prefix(seq)
+            print(f"{prefix} [Server] ========== 项目切换 ==========")
+            print(f"{prefix} [Server] 旧路径: {agent.working_directory}")
+            print(f"{prefix} [Server] 新路径: {working_dir}")
+            print(f"{prefix} [Server] ===================================")
+
+            await _teardown_window_locked(
+                window_id,
+                cancel_reason="project_switched",
+                drop_window_seq=False,
+                sleep_after_disconnect=False,
+            )
+            logger.info(f"Project switched for window {window_id}, recreating agent")
+            agent = None
+            session = None
+        elif agent and not session:
+            await _teardown_window_locked(
+                window_id,
+                cancel_reason="session_rebuilt",
+                drop_window_seq=False,
+                sleep_after_disconnect=False,
+            )
+            agent = None
+
+        if window_id == "primary":
+            seq = 0
+            _window_seq_map.setdefault(window_id, seq)
+        else:
+            seq = _window_seq_map.get(window_id)
+            if seq is None:
                 seq = _window_counter
-
-            working_dir = worktree_path or project_path
-            agent = MainAgent(project_path, working_directory=working_dir, window_seq=seq)
-
-            # Agent 创建成功，提交全局状态
-            if window_id != "primary":
                 _window_counter += 1
-            _window_seq_map[window_id] = seq
+                _window_seq_map[window_id] = seq
+
+        if agent is None:
+            agent = MainAgent(project_path, working_directory=working_dir, window_seq=seq)
             agents[window_id] = agent
 
-            # 醒目的控制台输出（带窗口前缀）
             prefix = _get_window_prefix(seq)
             print(f"{prefix} [Server] ========== Agent 实例创建 ==========")
             print(f"{prefix} [Server] 窗口ID: {window_id}")
@@ -117,26 +226,40 @@ async def get_agent(
             print(f"{prefix} [Server] =====================================")
             logger.info(f"Created agent for window: {window_id} (seq={seq}), working_dir: {working_dir}")
 
-        return agents[window_id]
+        session = await runtime_store.create_session(
+            window_id=window_id,
+            project_path=project_path,
+            worktree_path=worktree_path,
+        )
+        return agent, session
 
 
 async def cleanup_agents() -> None:
     """清理所有 Agent 连接（shutdown 时调用）"""
     async with _agents_lock:
         if agents:
-            print(f"[Server] ========== 清理所有 Agent ==========")
+            print("[Server] ========== 清理所有 Agent ==========")
             print(f"[Server] 待清理实例数: {len(agents)}")
-        for cache_key, agent in agents.items():
+
+        for window_id in list(agents.keys()):
             try:
-                await agent.disconnect()
-                print(f"[Server] 已断开: {cache_key}")
-                logger.info(f"Disconnected agent: {cache_key}")
-            except Exception as e:
-                print(f"[Server] 断开失败: {cache_key} - {e}")
-                logger.error(f"Error disconnecting agent {cache_key}: {e}")
+                await _teardown_window_locked(
+                    window_id,
+                    cancel_reason="shutdown",
+                    drop_window_seq=False,
+                    sleep_after_disconnect=False,
+                )
+                print(f"[Server] 已断开: {window_id}")
+                logger.info(f"Disconnected agent: {window_id}")
+            except Exception as exc:
+                print(f"[Server] 断开失败: {window_id} - {exc}")
+                logger.error(f"Error disconnecting agent {window_id}: {exc}")
+
         if agents:
-            print(f"[Server] =====================================")
+            print("[Server] =====================================")
+
         agents.clear()
+        _window_seq_map.clear()
 
 
 async def health_handler(request: web.Request) -> web.Response:
@@ -144,7 +267,7 @@ async def health_handler(request: web.Request) -> web.Response:
     return web.json_response({
         "status": "ok",
         "service": "bimcanvas-agent",
-        "version": "0.1.0"
+        "version": "0.1.0",
     })
 
 
@@ -165,11 +288,10 @@ async def config_handler(request: web.Request) -> web.Response:
     """
     settings = get_settings()
 
-    # 从 modelMapping 生成下拉菜单选项
     models = []
     for alias, entry in settings.model_mapping.items():
         if isinstance(entry, dict):
-            label = entry.get('label', alias.capitalize())
+            label = entry.get("label", alias.capitalize())
         else:
             label = alias.capitalize()
         models.append({"id": alias, "label": label})
@@ -187,78 +309,55 @@ async def chat_handler(request: web.Request) -> web.Response:
 
     Request body:
         {
-            "projectPath": "path/to/project",  // optional
-            "windowId": "window-1",            // 窗口唯一标识
-            "worktreePath": null,              // optional, 工作目录
+            "projectPath": "path/to/project",
+            "windowId": "window-1",
+            "worktreePath": null,
             "message": "user message"
-        }
-
-    Response:
-        {
-            "reply": "AI response",
-            "projectPath": "path/to/project"
         }
     """
     try:
         data = await request.json()
     except json.JSONDecodeError:
-        return web.json_response(
-            {"error": "Invalid JSON"},
-            status=400
-        )
+        return web.json_response({"error": "Invalid JSON"}, status=400)
 
     project_path = data.get("projectPath", "")
-    window_id = data.get("windowId", "primary")
+    window_id = data.get("windowId", "primary") or "primary"
     worktree_path = data.get("worktreePath")
     message = data.get("message", "")
     model = data.get("model")
 
     if not message:
-        return web.json_response(
-            {"error": "Message cannot be empty"},
-            status=400
-        )
+        return web.json_response({"error": "Message cannot be empty"}, status=400)
 
     if not model:
-        return web.json_response(
-            {"error": "Model is required"},
-            status=400
-        )
+        return web.json_response({"error": "Model is required"}, status=400)
+
+    turn_id = str(uuid.uuid4())
 
     try:
-        agent = await get_agent(window_id, project_path, worktree_path)  # 按窗口获取
-        reply = await agent.chat(message, model=model)
+        agent, session = await get_agent(window_id, project_path, worktree_path)
+        runtime_context = _build_runtime_context(window_id, session.session_id, turn_id)
+
+        await runtime_store.mark_session_running(session.session_id, turn_id)
+        try:
+            reply = await agent.chat(message, model=model, runtime_context=runtime_context)
+        finally:
+            agent.clear_runtime_context()
+            await runtime_store.mark_session_idle(session.session_id, turn_id)
 
         return web.json_response({
             "reply": reply,
-            "projectPath": project_path
+            "projectPath": project_path,
         })
 
-    except Exception as e:
-        logger.exception(f"Chat error: {e}")
-        return web.json_response(
-            {"error": str(e)},
-            status=500
-        )
+    except Exception as exc:
+        logger.exception(f"Chat error: {exc}")
+        return web.json_response({"error": str(exc)}, status=500)
 
 
 async def chat_stream_handler(request: web.Request) -> web.StreamResponse:
     """
     Handle streaming chat requests using Server-Sent Events.
-
-    Request body:
-        {
-            "projectPath": "path/to/project",
-            "windowId": "window-1",               // 窗口唯一标识（必填）
-            "worktreePath": null,                 // optional, 工作目录（虚拟窗口的 Worktree 路径）
-            "message": "user message",
-            "images": ["base64..."],              // optional, 图片附件列表
-            "model": "claude-sonnet-4-20250514",  // 必填，当前会话模型
-            "effort": "high",                     // optional, 推理深度 (low/medium/high/max)
-            "thinking": "adaptive"                // optional, 扩展思考 (off/adaptive)
-        }
-
-    Response: SSE stream with chunks
     """
     try:
         data = await request.json()
@@ -271,42 +370,30 @@ async def chat_stream_handler(request: web.Request) -> web.StreamResponse:
             status=413,
         )
     except json.JSONDecodeError:
-        return web.json_response(
-            {"error": "Invalid JSON"},
-            status=400
-        )
+        return web.json_response({"error": "Invalid JSON"}, status=400)
 
     project_path = data.get("projectPath", "")
-    window_id = data.get("windowId", "primary")       # 窗口ID，默认 primary
-    worktree_path = data.get("worktreePath")          # 工作目录
+    window_id = data.get("windowId", "primary") or "primary"
+    worktree_path = data.get("worktreePath")
     client_message_id = data.get("clientMessageId")
     message = data.get("message", "")
-    images = data.get("images", [])        # 图片附件列表
+    images = data.get("images", [])
     attachment_ids = data.get("attachmentIds", [])
-    model = data.get("model")              # 模型名称
-    effort = data.get("effort")            # 推理深度
-    thinking = data.get("thinking")        # 扩展思考
-    context = data.get("context")                # 画布上下文（选中模块/区域）
+    model = data.get("model")
+    effort = data.get("effort")
+    thinking = data.get("thinking")
+    context = data.get("context")
 
-    # 调试日志：记录收到的请求
-    logger.info(f"[chat_stream] Received request: windowId={window_id}, projectPath={project_path[:50] if project_path else 'None'}")
-
-    # 空字符串保护
-    if not window_id:
-        window_id = "primary"
-        logger.warning("[chat_stream] Empty windowId received, using default 'primary'")
+    logger.info(
+        f"[chat_stream] Received request: windowId={window_id}, "
+        f"projectPath={project_path[:50] if project_path else 'None'}"
+    )
 
     if not message and not images and not attachment_ids:
-        return web.json_response(
-            {"error": "Message or attachments cannot be empty"},
-            status=400
-        )
+        return web.json_response({"error": "Message or attachments cannot be empty"}, status=400)
 
     if not model:
-        return web.json_response(
-            {"error": "Model is required"},
-            status=400
-        )
+        return web.json_response({"error": "Model is required"}, status=400)
 
     if not isinstance(attachment_ids, list):
         return web.json_response(
@@ -322,23 +409,40 @@ async def chat_stream_handler(request: web.Request) -> web.StreamResponse:
             status=exc.status,
         )
 
-    # Set up SSE response
+    turn_id = str(uuid.uuid4())
+
+    try:
+        agent, session = await get_agent(window_id, project_path, worktree_path)
+
+        if not agent._connected:
+            await agent.connect(effort=effort, thinking=thinking, model=model)
+        elif model and model != agent.get_current_model():
+            await agent.set_model(model)
+    except Exception as exc:
+        logger.exception(f"Stream bootstrap error: {exc}")
+        return web.json_response({"error": str(exc)}, status=500)
+
     response = web.StreamResponse(
         status=200,
         headers={
             "Content-Type": "text/event-stream",
             "Cache-Control": "no-cache",
             "Connection": "keep-alive",
-        }
+            "X-Session-Id": session.session_id,
+        },
     )
     await response.prepare(request)
 
-    try:
-        agent = await get_agent(window_id, project_path, worktree_path)  # 按窗口获取
+    runtime_context = _build_runtime_context(window_id, session.session_id, turn_id)
 
-        # 动态切换模型（仅已连接时生效，未连接时由 chat_stream→connect 处理）
-        if agent._connected and model and model != agent.get_current_model():
-            await agent.set_model(model)
+    try:
+        if not session.ready_announced:
+            session_snapshot = await runtime_store.get_session_snapshot(session.session_id)
+            if session_snapshot is not None:
+                await _write_sse_data(response, _build_session_ready_event(session_snapshot))
+            await runtime_store.mark_session_ready_announced(session.session_id)
+
+        await runtime_store.mark_session_running(session.session_id, turn_id)
 
         async for chunk in agent.chat_stream(
             message,
@@ -349,63 +453,18 @@ async def chat_stream_handler(request: web.Request) -> web.StreamResponse:
             thinking=thinking,
             model=model,
             context=context,
+            runtime_context=runtime_context,
         ):
-            # 构建 SSE 事件数据
-            event_data = {"type": chunk.type}
+            await _write_sse_data(response, _build_chunk_event_data(chunk))
 
-            # 添加基础内容字段
-            if chunk.content:
-                event_data["content"] = chunk.content
-
-            # SubAgent 事件字段
-            if chunk.subagent_id:
-                event_data["subAgentId"] = chunk.subagent_id
-            if chunk.subagent_name:
-                event_data["subAgentName"] = chunk.subagent_name
-            if chunk.subagent_type:
-                event_data["subAgentType"] = chunk.subagent_type
-
-            # ToolCall 事件字段
-            if chunk.tool_call_id:
-                event_data["toolCallId"] = chunk.tool_call_id
-            if chunk.tool_name:
-                event_data["toolName"] = chunk.tool_name
-            if chunk.tool_description:
-                event_data["toolDescription"] = chunk.tool_description
-            if chunk.tool_params:
-                event_data["toolParams"] = chunk.tool_params
-            if chunk.tool_output:
-                event_data["toolOutput"] = chunk.tool_output
-
-            # 状态字段
-            if chunk.success is not None:
-                event_data["success"] = chunk.success
-            if chunk.error:
-                event_data["error"] = chunk.error
-
-            # 错误分类字段
-            if chunk.error_type:
-                event_data["errorType"] = chunk.error_type
-            if chunk.error_content:
-                event_data["errorContent"] = chunk.error_content
-            if chunk.hidden_content:
-                event_data["hiddenContent"] = chunk.hidden_content
-
-            # TaskOutput 事件字段
-            if chunk.task_id:
-                event_data["taskId"] = chunk.task_id
-            if chunk.timeout is not None:
-                event_data["timeout"] = chunk.timeout
-
-            await response.write(f"data: {json.dumps(event_data, ensure_ascii=False)}\n\n".encode("utf-8"))
-
-        # Send done event
         await response.write(b"data: [DONE]\n\n")
 
-    except Exception as e:
-        logger.exception(f"Stream error: {e}")
-        error_data = json.dumps({"error": str(e)}, ensure_ascii=False)
-        await response.write(f"data: {error_data}\n\n".encode("utf-8"))
+    except Exception as exc:
+        logger.exception(f"Stream error: {exc}")
+        await _write_sse_data(response, {"error": str(exc)})
+    finally:
+        agent.clear_runtime_context()
+        await runtime_store.mark_session_idle(session.session_id, turn_id)
 
     return response
 
@@ -413,98 +472,6 @@ async def chat_stream_handler(request: web.Request) -> web.StreamResponse:
 async def clear_history_handler(request: web.Request) -> web.Response:
     """
     Clear conversation history for a window.
-
-    Request body:
-        {
-            "windowId": "window-1"
-        }
-    """
-    try:
-        data = await request.json()
-    except json.JSONDecodeError:
-        return web.json_response(
-            {"error": "Invalid JSON"},
-            status=400
-        )
-
-    window_id = data.get("windowId")
-    if not window_id:
-        return web.json_response({"error": "windowId required"}, status=400)
-
-    if window_id in agents:
-        agents[window_id].clear_history()
-        logger.info(f"Cleared history for window: {window_id}")
-
-    return web.json_response({"success": True})
-
-
-async def get_history_handler(request: web.Request) -> web.Response:
-    """
-    Get conversation history for a window.
-
-    Query params:
-        windowId: window identifier
-    """
-    window_id = request.query.get("windowId", "primary")
-
-    if window_id not in agents:
-        return web.json_response({
-            "history": [],
-            "windowId": window_id
-        })
-
-    history = agents[window_id].get_history()
-
-    return web.json_response({
-        "history": history,
-        "windowId": window_id
-    })
-
-
-async def interrupt_handler(request: web.Request) -> web.Response:
-    """
-    中断当前任务
-
-    Request body:
-        {
-            "windowId": "window-1"
-        }
-    """
-    try:
-        data = await request.json()
-    except json.JSONDecodeError:
-        return web.json_response(
-            {"error": "Invalid JSON"},
-            status=400
-        )
-
-    window_id = data.get("windowId")
-    if not window_id:
-        return web.json_response({"error": "windowId required"}, status=400)
-
-    async with _agents_lock:
-        if window_id in agents:
-            await agents[window_id].interrupt()
-            print(f"[Server] 任务中断: 窗口 {window_id}")
-            logger.info(f"Interrupted task for window: {window_id}")
-            # 清理未完成的问题请求（避免 Future 永远挂起）
-            for req_id, future in list(_question_requests.items()):
-                if not future.done():
-                    future.set_result({"answers": {}})
-                    _question_requests.pop(req_id, None)
-            return web.json_response({"success": True})
-
-    return web.json_response({"error": "Agent not found"}, status=404)
-
-
-async def close_agent_handler(request: web.Request) -> web.Response:
-    """
-    关闭指定窗口的 Agent（窗口关闭时调用）
-
-    Request body:
-        {
-            "windowId": "window-1"
-        }
     """
     try:
         data = await request.json()
@@ -516,20 +483,96 @@ async def close_agent_handler(request: web.Request) -> web.Response:
         return web.json_response({"error": "windowId required"}, status=400)
 
     async with _agents_lock:
-        if window_id in agents:
-            # 获取窗口序号（用于日志前缀）
+        if window_id in agents or await runtime_store.get_active_session(window_id):
+            await _teardown_window_locked(
+                window_id,
+                cancel_reason="clear_history",
+                drop_window_seq=False,
+                sleep_after_disconnect=False,
+            )
+            logger.info(f"Cleared history for window: {window_id}")
+
+    return web.json_response({"success": True})
+
+
+async def get_history_handler(request: web.Request) -> web.Response:
+    """
+    Get conversation history for a window.
+    """
+    window_id = request.query.get("windowId", "primary")
+
+    if window_id not in agents:
+        return web.json_response({
+            "history": [],
+            "windowId": window_id,
+        })
+
+    history = agents[window_id].get_history()
+    return web.json_response({
+        "history": history,
+        "windowId": window_id,
+    })
+
+
+async def interrupt_handler(request: web.Request) -> web.Response:
+    """
+    中断当前任务
+    """
+    try:
+        data = await request.json()
+    except json.JSONDecodeError:
+        return web.json_response({"error": "Invalid JSON"}, status=400)
+
+    window_id = data.get("windowId")
+    if not window_id:
+        return web.json_response({"error": "windowId required"}, status=400)
+
+    async with _agents_lock:
+        session = await runtime_store.get_active_session(window_id)
+        agent = agents.get(window_id)
+
+        if not agent:
+            return web.json_response({"error": "Agent not found"}, status=404)
+
+        if session:
+            await runtime_store.cancel_session_interactions(
+                session.session_id,
+                cancel_reason="interrupted",
+            )
+            await runtime_store.mark_session_idle(session.session_id, session.active_turn_id)
+
+        agent.clear_runtime_context()
+        await agent.interrupt()
+        print(f"[Server] 任务中断: 窗口 {window_id}")
+        logger.info(f"Interrupted task for window: {window_id}")
+        return web.json_response({"success": True})
+
+
+async def close_agent_handler(request: web.Request) -> web.Response:
+    """
+    关闭指定窗口的 Agent（窗口关闭时调用）
+    """
+    try:
+        data = await request.json()
+    except json.JSONDecodeError:
+        return web.json_response({"error": "Invalid JSON"}, status=400)
+
+    window_id = data.get("windowId")
+    if not window_id:
+        return web.json_response({"error": "windowId required"}, status=400)
+
+    async with _agents_lock:
+        if window_id in agents or await runtime_store.get_active_session(window_id):
             seq = _window_seq_map.get(window_id, 0)
             prefix = _get_window_prefix(seq)
 
-            await agents[window_id].disconnect()
-            del agents[window_id]
-            # 清理序号映射（但不回收序号）
-            _window_seq_map.pop(window_id, None)
+            await _teardown_window_locked(
+                window_id,
+                cancel_reason="agent_closed",
+                drop_window_seq=True,
+                sleep_after_disconnect=True,
+            )
 
-            # 等待 claude.exe 子进程完全退出，释放 CWD 文件锁（Windows 需要）
-            await asyncio.sleep(1.5)
-
-            # 醒目的控制台输出（带窗口前缀）
             print(f"{prefix} [Server] ========== Agent 实例关闭 ==========")
             print(f"{prefix} [Server] 窗口ID: {window_id}")
             print(f"{prefix} [Server] 窗口序号: {seq}")
@@ -541,68 +584,164 @@ async def close_agent_handler(request: web.Request) -> web.Response:
     return web.json_response({"error": "Agent not found"}, status=404)
 
 
-# ============== Question API (AskUserQuestion) ==============
-
-async def request_user_question(questions: list[dict]) -> dict:
-    """
-    发送问题给 Web 端并等待用户回答（供 MainAgent._auto_approve_tool 调用）。
-    完全复用截图模式的 Future 等待架构。
-    无超时限制，永远等待用户操作（用户可通过"忽略"跳过或中断对话取消）。
-
-    Args:
-        questions: AskUserQuestion 的 questions 数组
-
-    Returns:
-        answers: dict，key=问题文本，value=选中label
-    """
-    if not _question_sse_queues:
-        logger.warning("No Web client connected for user question, returning empty answers")
-        return {}
-
-    request_id = str(uuid.uuid4())
-    loop = asyncio.get_event_loop()
-    future: asyncio.Future = loop.create_future()
-    _question_requests[request_id] = future
-
-    event = {"requestId": request_id, "questions": questions}
-    for queue in _question_sse_queues:
-        await queue.put(event)
-
-    logger.info(f"Question request sent: {request_id}, {len(questions)} questions")
-
-    try:
-        result = await future
-        return result.get("answers", {})
-    finally:
-        _question_requests.pop(request_id, None)
-
-
-async def question_events_handler(request: web.Request) -> web.StreamResponse:
-    """SSE 端点：Web 端监听 Agent 用户问题请求（AskUserQuestion）"""
+async def interaction_events_handler(request: web.Request) -> web.StreamResponse:
+    """统一 InteractionChannel SSE 端点。"""
     response = web.StreamResponse(
         status=200,
         headers={
             "Content-Type": "text/event-stream",
             "Cache-Control": "no-cache",
             "Connection": "keep-alive",
-        }
+        },
     )
     await response.prepare(request)
 
-    queue: asyncio.Queue = asyncio.Queue()
-    _question_sse_queues.append(queue)
-    logger.info(f"Question SSE client connected, total: {len(_question_sse_queues)}")
+    queue = await runtime_store.subscribe_interactions()
+    logger.info("Interaction SSE client connected")
 
     try:
         while True:
-            event = await queue.get()
-            event_str = json.dumps(event, ensure_ascii=False)
-            await response.write(f"event: question_request\ndata: {event_str}\n\n".encode("utf-8"))
-    except asyncio.CancelledError:
+            payload = await queue.get()
+            await response.write(
+                f"event: {payload['event']}\ndata: {json.dumps(payload['record'], ensure_ascii=False)}\n\n".encode("utf-8")
+            )
+    except (asyncio.CancelledError, ConnectionResetError):
         pass
     finally:
-        _question_sse_queues.remove(queue)
-        logger.info(f"Question SSE client disconnected, remaining: {len(_question_sse_queues)}")
+        await runtime_store.unsubscribe_interactions(queue)
+        logger.info("Interaction SSE client disconnected")
+
+    return response
+
+
+async def interaction_query_handler(request: web.Request) -> web.Response:
+    """查询当前窗口活跃 session 下的 unresolved interactions。"""
+    window_id = request.query.get("windowId", "primary")
+    session_id, interactions = await runtime_store.get_pending_interactions_for_window(window_id)
+    return web.json_response({
+        "windowId": window_id,
+        "sessionId": session_id,
+        "interactions": interactions,
+    })
+
+
+async def interaction_submit_handler(request: web.Request) -> web.Response:
+    """提交 interaction resolution。"""
+    interaction_id = request.match_info["id"]
+
+    try:
+        data = await request.json()
+    except json.JSONDecodeError:
+        return web.json_response({"error": "Invalid JSON"}, status=400)
+
+    resolution_payload = data.get("resolutionPayload")
+    if resolution_payload is None:
+        resolution_payload = {}
+    if not isinstance(resolution_payload, dict):
+        return web.json_response({"error": "resolutionPayload must be an object"}, status=400)
+
+    interaction = await runtime_store.submit_interaction(interaction_id, resolution_payload)
+    if interaction is None:
+        return web.json_response({"error": "Unknown interaction ID"}, status=404)
+
+    return web.json_response({
+        "success": True,
+        "interaction": interaction.to_public_dict(),
+    })
+
+
+async def interaction_cancel_handler(request: web.Request) -> web.Response:
+    """取消 interaction。"""
+    interaction_id = request.match_info["id"]
+
+    try:
+        data = await request.json()
+    except json.JSONDecodeError:
+        data = {}
+
+    interaction = await runtime_store.cancel_interaction(
+        interaction_id,
+        cancel_reason=data.get("cancelReason"),
+    )
+    if interaction is None:
+        return web.json_response({"error": "Unknown interaction ID"}, status=404)
+
+    return web.json_response({
+        "success": True,
+        "interaction": interaction.to_public_dict(),
+    })
+
+
+# ============== Question API (AskUserQuestion facade) ==============
+
+async def request_user_question(
+    questions: list[dict],
+    runtime_context: dict[str, str] | None = None,
+) -> dict:
+    """
+    发送问题给 Web 端并等待用户回答（供 MainAgent._auto_approve_tool 调用）。
+    """
+    context = runtime_context or {}
+    window_id = context.get("windowId")
+    session_id = context.get("sessionId")
+    turn_id = context.get("turnId")
+
+    if not window_id or not session_id or not turn_id:
+        raise RuntimeError("AskUserQuestion requires runtime context with windowId/sessionId/turnId")
+
+    interaction = await runtime_store.create_interaction(
+        session_id=session_id,
+        turn_id=turn_id,
+        window_id=window_id,
+        kind="question",
+        blocking=True,
+        resume_token=f"resume:{uuid.uuid4()}",
+        request_payload={"questions": questions},
+    )
+
+    logger.info(f"Question request sent: {interaction.interaction_id}, {len(questions)} questions")
+
+    result = await runtime_store.wait_for_interaction(interaction.interaction_id)
+    if result.get("status") == "resolved":
+        resolution_payload = result.get("resolutionPayload") or {}
+        return resolution_payload.get("answers", {})
+    return {}
+
+
+async def question_events_handler(request: web.Request) -> web.StreamResponse:
+    """兼容 SSE 端点：Web 端监听 Agent 用户问题请求（AskUserQuestion）"""
+    response = web.StreamResponse(
+        status=200,
+        headers={
+            "Content-Type": "text/event-stream",
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+        },
+    )
+    await response.prepare(request)
+
+    queue = await runtime_store.subscribe_interactions()
+    logger.info("Question SSE client connected")
+
+    try:
+        while True:
+            payload = await queue.get()
+            record = payload["record"]
+            if payload["event"] != "interaction.pushed" or record.get("kind") != "question":
+                continue
+
+            event = {
+                "requestId": record["interactionId"],
+                "questions": record["requestPayload"].get("questions", []),
+            }
+            await response.write(
+                f"event: question_request\ndata: {json.dumps(event, ensure_ascii=False)}\n\n".encode("utf-8")
+            )
+    except (asyncio.CancelledError, ConnectionResetError):
+        pass
+    finally:
+        await runtime_store.unsubscribe_interactions(queue)
+        logger.info("Question SSE client disconnected")
 
     return response
 
@@ -610,13 +749,6 @@ async def question_events_handler(request: web.Request) -> web.StreamResponse:
 async def question_answer_handler(request: web.Request) -> web.Response:
     """
     Web 端提交用户答案（AskUserQuestion）
-
-    Request body:
-        {
-            "requestId": "uuid",
-            "answers": {"问题文本": "选项A"},
-            "cancelled": false
-        }
     """
     try:
         data = await request.json()
@@ -624,27 +756,30 @@ async def question_answer_handler(request: web.Request) -> web.Response:
         return web.json_response({"error": "Invalid JSON"}, status=400)
 
     request_id = data.get("requestId")
-    if not request_id or request_id not in _question_requests:
+    if not request_id:
+        return web.json_response({"error": "requestId required"}, status=400)
+
+    interaction = await runtime_store.get_interaction(request_id)
+    if interaction is None or interaction.kind != "question":
         return web.json_response({"error": "Unknown request ID"}, status=404)
 
-    future = _question_requests[request_id]
     if data.get("cancelled"):
-        future.set_result({"answers": {}})
+        await runtime_store.cancel_interaction(request_id, cancel_reason="question_cancelled")
     else:
-        future.set_result({"answers": data.get("answers", {})})
+        await runtime_store.submit_interaction(
+            request_id,
+            {"answers": data.get("answers", {})},
+        )
 
     logger.info(f"Question answer received: {request_id}")
     return web.json_response({"success": True})
 
 
-# ============== Screenshot API ==============
+# ============== Screenshot API facade ==============
 
 async def screenshot_events_handler(request: web.Request) -> web.StreamResponse:
     """
     SSE 端点：Web 端监听 Agent 截图请求
-
-    Web 端连接此端点后，当 Agent 调用截图 MCP 工具时，
-    会收到 screenshot_request 事件，需要执行截图并提交结果。
     """
     response = web.StreamResponse(
         status=200,
@@ -652,24 +787,32 @@ async def screenshot_events_handler(request: web.Request) -> web.StreamResponse:
             "Content-Type": "text/event-stream",
             "Cache-Control": "no-cache",
             "Connection": "keep-alive",
-        }
+        },
     )
     await response.prepare(request)
 
-    queue: asyncio.Queue = asyncio.Queue()
-    _screenshot_sse_queues.append(queue)
-    logger.info(f"Screenshot SSE client connected, total: {len(_screenshot_sse_queues)}")
+    queue = await runtime_store.subscribe_interactions()
+    logger.info("Screenshot SSE client connected")
 
     try:
         while True:
-            event = await queue.get()
-            event_str = json.dumps(event, ensure_ascii=False)
-            await response.write(f"event: screenshot_request\ndata: {event_str}\n\n".encode("utf-8"))
-    except asyncio.CancelledError:
+            payload = await queue.get()
+            record = payload["record"]
+            if payload["event"] != "interaction.pushed" or record.get("kind") != "screenshot":
+                continue
+
+            event = {
+                "requestId": record["interactionId"],
+                "roomId": record["requestPayload"].get("roomId"),
+            }
+            await response.write(
+                f"event: screenshot_request\ndata: {json.dumps(event, ensure_ascii=False)}\n\n".encode("utf-8")
+            )
+    except (asyncio.CancelledError, ConnectionResetError):
         pass
     finally:
-        _screenshot_sse_queues.remove(queue)
-        logger.info(f"Screenshot SSE client disconnected, remaining: {len(_screenshot_sse_queues)}")
+        await runtime_store.unsubscribe_interactions(queue)
+        logger.info("Screenshot SSE client disconnected")
 
     return response
 
@@ -677,81 +820,75 @@ async def screenshot_events_handler(request: web.Request) -> web.StreamResponse:
 async def screenshot_request_handler(request: web.Request) -> web.Response:
     """
     Agent 请求截图 → 通知 Web 端
-
-    Request body:
-        {
-            "projectPath": "path/to/project",
-            "roomId": "room_001"  // optional, 不传则截取整个画布
-        }
-
-    Response:
-        {
-            "path": "screenshots/canvas_20260113_150000.png",
-            "base64": "iVBORw0KGgo..."  // 纯 base64 数据
-        }
     """
     try:
         data = await request.json()
     except json.JSONDecodeError:
         data = {}
 
+    window_id = data.get("windowId", "primary") or "primary"
     room_id = data.get("roomId")
-    project_path = data.get("projectPath", ".")
-    request_id = str(uuid.uuid4())
 
-    # 检查是否有 Web 客户端连接
-    if not _screenshot_sse_queues:
+    session, turn_id = await runtime_store.get_active_turn_id(window_id)
+    if session is None or not turn_id:
         return web.json_response(
-            {"error": "No Web client connected for screenshot"},
-            status=503
+            {"error": "No active turn available for screenshot request"},
+            status=409,
         )
 
-    # 创建等待 Future
-    loop = asyncio.get_event_loop()
-    future: asyncio.Future = loop.create_future()
-    _screenshot_requests[request_id] = future
+    project_path = data.get("projectPath") or session.project_path or "."
 
-    # 广播给所有 SSE 客户端
-    event = {"requestId": request_id, "roomId": room_id}
-    for queue in _screenshot_sse_queues:
-        await queue.put(event)
+    interaction = await runtime_store.create_interaction(
+        session_id=session.session_id,
+        turn_id=turn_id,
+        window_id=window_id,
+        kind="screenshot",
+        blocking=False,
+        resume_token="resume:none",
+        request_payload={"roomId": room_id},
+        expires_at=datetime.utcnow() + timedelta(seconds=10),
+    )
 
-    logger.info(f"Screenshot request sent: {request_id}, roomId={room_id}")
+    logger.info(f"Screenshot request sent: {interaction.interaction_id}, roomId={room_id}")
 
     try:
-        # 等待 Web 端返回（10秒超时）
-        result = await asyncio.wait_for(future, timeout=10.0)
-
-        if result.get("error"):
-            return web.json_response({"error": result["error"]}, status=400)
-
-        # 保存图片并返回 path + base64
-        image_data = result["imageData"]
-        filepath, pure_base64 = _save_screenshot(image_data, project_path, room_id)
-
-        logger.info(f"Screenshot saved: {filepath}")
-        return web.json_response({
-            "path": filepath,
-            "base64": pure_base64
-        })
-
+        result = await asyncio.wait_for(
+            runtime_store.wait_for_interaction(interaction.interaction_id),
+            timeout=10.0,
+        )
     except asyncio.TimeoutError:
-        logger.warning(f"Screenshot request timeout: {request_id}")
+        logger.warning(f"Screenshot request timeout: {interaction.interaction_id}")
+        await runtime_store.cancel_interaction(
+            interaction.interaction_id,
+            cancel_reason="screenshot_timeout",
+            final_status="expired",
+        )
         return web.json_response({"error": "Screenshot request timeout"}, status=504)
-    finally:
-        _screenshot_requests.pop(request_id, None)
+
+    status = result.get("status")
+    if status != "resolved":
+        return web.json_response({"error": "Screenshot request cancelled"}, status=409)
+
+    resolution_payload = result.get("resolutionPayload") or {}
+    if resolution_payload.get("error"):
+        return web.json_response({"error": resolution_payload["error"]}, status=400)
+
+    image_data = resolution_payload.get("imageData")
+    if not image_data:
+        return web.json_response({"error": "Screenshot imageData is required"}, status=400)
+
+    filepath, pure_base64 = _save_screenshot(image_data, project_path, room_id)
+
+    logger.info(f"Screenshot saved: {filepath}")
+    return web.json_response({
+        "path": filepath,
+        "base64": pure_base64,
+    })
 
 
 async def screenshot_result_handler(request: web.Request) -> web.Response:
     """
     Web 端返回截图结果
-
-    Request body:
-        {
-            "requestId": "uuid",
-            "imageData": "data:image/png;base64,...",  // 或纯 base64
-            "error": "error message"  // optional
-        }
     """
     try:
         data = await request.json()
@@ -759,14 +896,20 @@ async def screenshot_result_handler(request: web.Request) -> web.Response:
         return web.json_response({"error": "Invalid JSON"}, status=400)
 
     request_id = data.get("requestId")
-    if not request_id or request_id not in _screenshot_requests:
+    if not request_id:
+        return web.json_response({"error": "requestId required"}, status=400)
+
+    interaction = await runtime_store.get_interaction(request_id)
+    if interaction is None or interaction.kind != "screenshot":
         return web.json_response({"error": "Unknown request ID"}, status=404)
 
-    future = _screenshot_requests[request_id]
-    future.set_result({
-        "imageData": data.get("imageData"),
-        "error": data.get("error")
-    })
+    await runtime_store.submit_interaction(
+        request_id,
+        {
+            "imageData": data.get("imageData"),
+            "error": data.get("error"),
+        },
+    )
 
     logger.info(f"Screenshot result received: {request_id}")
     return web.json_response({"success": True})
@@ -775,16 +918,7 @@ async def screenshot_result_handler(request: web.Request) -> web.Response:
 def _save_screenshot(base64_data: str, project_path: str, room_id: str = None) -> tuple[str, str]:
     """
     保存 Base64 图片到文件
-
-    Args:
-        base64_data: Base64 编码的图片数据（可带 data:image/png;base64, 前缀）
-        project_path: 项目路径
-        room_id: 房间 ID（可选）
-
-    Returns:
-        (filepath, pure_base64) - 文件路径和纯 base64 数据
     """
-    # 移除 data:image/png;base64, 前缀
     pure_base64 = base64_data
     if "," in base64_data:
         pure_base64 = base64_data.split(",", 1)[1]
@@ -806,18 +940,6 @@ def _save_screenshot(base64_data: str, project_path: str, room_id: str = None) -
 async def screenshot_save_handler(request: web.Request) -> web.Response:
     """
     保存截图到本地临时目录
-
-    Request body:
-        {
-            "imageData": "data:image/png;base64,...",
-            "filename": "screenshot_001.png",  // optional
-            "projectPath": "C:\\Users\\xxx\\Documents\\BIMCanvas\\Projects\\demo_1"  // optional
-        }
-
-    Response:
-        {
-            "path": "C:\\Users\\...\\BIMCanvas\\screenshots\\screenshot_20260113_150000.png"
-        }
     """
     try:
         data = await request.json()
@@ -830,24 +952,19 @@ async def screenshot_save_handler(request: web.Request) -> web.Response:
 
     project_path = data.get("projectPath")
 
-    # 动态构建保存路径
     if project_path:
-        # 项目路径格式: C:\Users\xxx\Documents\BIMCanvas\Projects\demo_1
         docs_dir = Path(project_path) / "screenshots"
         logger.info(f"Using project screenshots dir: {docs_dir}")
     else:
-        # 降级：使用全局路径
         docs_dir = resolve_bimcanvas_home() / "Screenshots"
         logger.info(f"Using global screenshots dir: {docs_dir}")
 
     docs_dir.mkdir(parents=True, exist_ok=True)
 
-    # 生成文件名
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     filename = data.get("filename") or f"screenshot_{timestamp}.png"
     filepath = docs_dir / filename
 
-    # 移除 data:image/png;base64, 前缀
     pure_base64 = image_data
     if "," in image_data:
         pure_base64 = image_data.split(",", 1)[1]
@@ -874,22 +991,17 @@ def create_app() -> web.Application:
     """
     app = web.Application(client_max_size=12 * 1024**2)
 
-    # 注册清理回调
     app.on_shutdown.append(on_shutdown)
 
-    # Configure CORS for Web access
     cors = aiohttp_cors.setup(app, defaults={
         "*": aiohttp_cors.ResourceOptions(
             allow_credentials=True,
             expose_headers="*",
             allow_headers="*",
-            allow_methods=["GET", "POST", "OPTIONS"]
+            allow_methods=["GET", "POST", "OPTIONS"],
         )
     })
 
-    # Add routes
-    # Note: Layout tasks are now handled through /api/chat - MainAgent
-    # autonomously decides when to dispatch layout-agent SubAgent
     routes = [
         web.get("/health", health_handler),
         web.get("/api/config", config_handler),
@@ -899,24 +1011,24 @@ def create_app() -> web.Application:
         web.post("/api/agent/close", close_agent_handler),
         web.get("/api/history", get_history_handler),
         web.post("/api/interrupt", interrupt_handler),
-        # Screenshot API
+        web.get("/api/interaction/events", interaction_events_handler),
+        web.get("/api/interaction", interaction_query_handler),
+        web.post("/api/interaction/{id}/submit", interaction_submit_handler),
+        web.post("/api/interaction/{id}/cancel", interaction_cancel_handler),
         web.get("/api/screenshot/events", screenshot_events_handler),
         web.post("/api/screenshot/request", screenshot_request_handler),
         web.post("/api/screenshot/result", screenshot_result_handler),
         web.post("/api/screenshot/save", screenshot_save_handler),
-        # Question API (AskUserQuestion)
         web.get("/api/question/events", question_events_handler),
         web.post("/api/question/answer", question_answer_handler),
     ]
 
-    # 按路径分组路由（避免同一路径重复创建 resource 导致 CORS 冲突）
     routes_by_path: dict[str, list] = {}
     for route in routes:
         if route.path not in routes_by_path:
             routes_by_path[route.path] = []
         routes_by_path[route.path].append(route)
 
-    # 注册路由
     for path, path_routes in routes_by_path.items():
         resource = cors.add(app.router.add_resource(path))
         for route in path_routes:
@@ -938,13 +1050,13 @@ def run_server(host: str = None, port: int = None) -> None:
     host = host or settings.server_host
     port = port or settings.server_port
 
-    # 端口可用性检查（最多重试 3 次，每次等 2 秒）
     import socket
     import time
+
     for attempt in range(3):
         try:
-            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-                s.bind((host, port))
+            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+                sock.bind((host, port))
             break
         except OSError:
             if attempt < 2:

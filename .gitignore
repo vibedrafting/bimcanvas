@@ -18,7 +18,9 @@
 /publish/
 /references/
 /reports/
-/reviews/
+/reviews/*
+!/reviews/baselines/
+!/reviews/baselines/**
 /test/
 /tuning/
 /AGENTS.md

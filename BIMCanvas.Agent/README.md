@@ -68,9 +68,15 @@ Agent 会在 BIMCanvas.Server 启动时自动启动，无需手动操作。
 | `/api/config` | GET | 获取 Agent 配置（模型、思考强度等） |
 | `/api/agent/close` | POST | 关闭指定窗口的 Agent 实例 |
 | `/api/interrupt` | POST | 中断当前 Agent 执行 |
+| `/api/interaction/events` | GET | 统一 InteractionChannel SSE 事件流 |
+| `/api/interaction` | GET | 查询当前窗口活跃 session 的 unresolved interactions |
+| `/api/interaction/{id}/submit` | POST | 提交 interaction 结果 |
+| `/api/interaction/{id}/cancel` | POST | 取消 interaction |
+| `/api/question/events` | GET | 兼容问题 SSE 通道（底层复用统一 interaction store） |
+| `/api/question/answer` | POST | 兼容问题回答端点（底层复用统一 interaction store） |
 | `/api/screenshot/events` | GET | 截图 SSE 事件流（Web→Agent 截图通道） |
-| `/api/screenshot/request` | POST | 发起截图请求 |
-| `/api/screenshot/result` | POST | 提交截图结果 |
+| `/api/screenshot/request` | POST | 兼容截图请求端点（底层复用统一 interaction store） |
+| `/api/screenshot/result` | POST | 兼容截图结果端点（底层复用统一 interaction store） |
 | `/api/screenshot/save` | POST | 保存截图到项目目录 |
 
 ### 请求示例
@@ -356,6 +362,11 @@ BIMCanvas.Agent/
 │   │   ├── __init__.py
 │   │   └── http_server.py      # HTTP 服务（aiohttp + CORS）
 │   │
+│   ├── runtime/
+│   │   ├── __init__.py
+│   │   ├── records.py          # RuntimeSessionRecord / PendingInteractionRecord
+│   │   └── store.py            # Host 侧 session / interaction 真相源
+│   │
 │   ├── tools/
 │   │   ├── __init__.py
 │   │   ├── file_tools.py       # JSON 文件读写工具
@@ -407,8 +418,17 @@ BIMCanvas.Agent/
 基于 aiohttp 的 HTTP 服务：
 
 - 支持 CORS 跨域（Web 前端调用）
-- 按 projectPath 缓存 Agent 实例
-- SSE 流式响应支持
+- 按 `windowId` 复用 Agent 实例，并由 Host 颁发 `sessionId`
+- `POST /api/chat/stream` 每次响应头都会返回 `X-Session-Id`
+- 主流仍保持现有 flat SSE，新增统一 `/api/interaction*` 通道
+
+### Runtime Store (`runtime/`)
+
+Host 进程内的运行时真相源：
+
+- `RuntimeSessionRecord`：记录 `sessionId`、window 绑定、项目路径、活跃 turn 等 session 元数据
+- `PendingInteractionRecord`：统一承载 `question` / `screenshot` 等 interaction 状态
+- `RuntimeStateStore`：维护 `windowId -> sessionId`、`sessionId -> pending interactions` 与统一 interaction SSE 发布
 
 ### 配置系统 (`config/`)
 

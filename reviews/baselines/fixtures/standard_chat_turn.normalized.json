@@ -1,0 +1,14 @@
+{
+  "scenario": "standard_chat_turn",
+  "events": [
+    {
+      "eventType": "text.completed",
+      "turnId": "turn-standard-001"
+    },
+    {
+      "eventType": "turn.completed",
+      "turnId": "turn-standard-001",
+      "stopReason": "completed"
+    }
+  ]
+}

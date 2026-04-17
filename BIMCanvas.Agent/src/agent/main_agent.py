@@ -144,6 +144,15 @@ class MainAgent:
 
         # Worktree 管理器（用于并行布置）
         self._worktree_manager: WorktreeManager | None = None
+        self._runtime_context: dict[str, str] | None = None
+
+    def set_runtime_context(self, runtime_context: dict[str, str] | None) -> None:
+        """Set host-provided runtime context for the current turn."""
+        self._runtime_context = dict(runtime_context) if runtime_context else None
+
+    def clear_runtime_context(self) -> None:
+        """Clear host-provided runtime context after the current turn."""
+        self._runtime_context = None
 
     # ─────────────────────────────────────────────────────
     # Configuration
@@ -252,7 +261,10 @@ class MainAgent:
                 self._agent_logger.log_info(
                     f"[Permission] AskUserQuestion: {len(questions)} questions, forwarding to Web"
                 )
-            answers = await request_user_question(questions)
+            answers = await request_user_question(
+                questions,
+                runtime_context=dict(self._runtime_context or {}),
+            )
             return PermissionResultAllow(updated_input={
                 **tool_input,
                 "answers": answers
@@ -607,34 +619,43 @@ class MainAgent:
     # Chat Methods (Unified Entry Point)
     # ─────────────────────────────────────────────────────
 
-    async def chat(self, user_message: str, model: str | None = None) -> str:
+    async def chat(
+        self,
+        user_message: str,
+        model: str | None = None,
+        runtime_context: dict[str, str] | None = None,
+    ) -> str:
         """Unified chat interface."""
-        if not self._connected:
-            await self.connect(model=model)
-        elif model and model != self._current_model:
-            await self.set_model(model)
+        self.set_runtime_context(runtime_context)
+        try:
+            if not self._connected:
+                await self.connect(model=model)
+            elif model and model != self._current_model:
+                await self.set_model(model)
 
-        if self.verbose:
-            self._agent_logger.log_user_message(user_message)
+            if self.verbose:
+                self._agent_logger.log_user_message(user_message)
 
-        self._in_thinking = False
-        self._in_response = False
-        self._current_tool_name = None
-        self._placeholder_text_suppressed_logged = False
+            self._in_thinking = False
+            self._in_response = False
+            self._current_tool_name = None
+            self._placeholder_text_suppressed_logged = False
 
-        await self._client.query(user_message)
+            await self._client.query(user_message)
 
-        full_response = ""
-        async for message in self._client.receive_response():
-            text = self._process_message(message)
-            full_response += text
+            full_response = ""
+            async for message in self._client.receive_response():
+                text = self._process_message(message)
+                full_response += text
 
-        if self.verbose:
-            if self._in_response:
-                self._agent_logger.log_response_end()
-            self._agent_logger.log_complete(model=self._response_model)
+            if self.verbose:
+                if self._in_response:
+                    self._agent_logger.log_response_end()
+                self._agent_logger.log_complete(model=self._response_model)
 
-        return full_response
+            return full_response
+        finally:
+            self.clear_runtime_context()
 
     @staticmethod
     def _build_context_block(context: dict) -> str | None:
@@ -733,7 +754,8 @@ class MainAgent:
         effort: str = None,
         thinking: str = None,
         model: str = None,
-        context: dict = None
+        context: dict = None,
+        runtime_context: dict[str, str] | None = None,
     ) -> AsyncIterator[StreamChunk]:
         """
         Streaming chat interface with thinking support.
@@ -748,6 +770,8 @@ class MainAgent:
             model: 模型名称，None 使用默认配置
             context: 画布上下文（选中模块/区域），由前端 buildContextPayload() 构建
         """
+        self.set_runtime_context(runtime_context)
+
         if not self._connected:
             await self.connect(effort=effort, thinking=thinking, model=model)
         # 注意：effort/thinking 仅在 connect() 时配置，不支持动态调整
@@ -1111,6 +1135,7 @@ class MainAgent:
 
         if self.verbose:
             self._agent_logger.log_complete(model=self._response_model)
+        self.clear_runtime_context()
 
     # ─────────────────────────────────────────────────────
     # Control Methods
