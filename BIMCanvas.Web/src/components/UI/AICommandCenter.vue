@@ -136,6 +136,8 @@ const {
   currentEffort,
   thinkingLevels,
   effortLevels,
+  supportsThinking,
+  supportsSubtaskCausality,
   isModelMenuOpen,
   isThinkingMenuOpen,
   isEffortMenuOpen,
@@ -354,6 +356,7 @@ const {
   removePendingAttachment
 } = useScreenshot({
   agentApiBase: AGENT_API_BASE,
+  windows,
   pendingAttachments,
   currentProjectPath,
   activeWindow,
@@ -367,7 +370,6 @@ const {
 } = useQuestion({
   agentApiBase: AGENT_API_BASE,
   windows,
-  activeWindowId,
   scrollToBottom
 });
 
@@ -476,8 +478,10 @@ onMounted(async () => {
   await checkAgentHealth();
   await gitStore.fetchBranches();
   await fetchProjectPath();
-  startListening();
-  startQuestionListening();
+  await Promise.all([
+    startListening(),
+    startQuestionListening()
+  ]);
 });
 
 watch(() => props.panelReady, (newVal) => {
@@ -809,6 +813,7 @@ watch(chatScrollRef, (newEl, oldEl) => {
         <div v-show="mode === 'tasks'" class="view-tasks">
             <!-- Agent Activity Monitor (SubAgent tracking) -->
             <TaskSummaryWidget 
+                v-if="supportsSubtaskCausality"
                 :sub-agents="activeSubAgents"
                 v-model:expanded="taskWidgetExpanded"
             />
@@ -1218,7 +1223,7 @@ watch(chatScrollRef, (newEl, oldEl) => {
                     </div>
 
                     <!-- Thinking Pill -->
-                    <div class="control-pill-wrapper thinking" :class="{ open: isThinkingMenuOpen, disabled: isConfigLocked }">
+                    <div v-if="supportsThinking" class="control-pill-wrapper thinking" :class="{ open: isThinkingMenuOpen, disabled: isConfigLocked }">
                         <button class="control-pill" @click="!isConfigLocked && (isThinkingMenuOpen = !isThinkingMenuOpen)" :disabled="isConfigLocked">
                             <span class="text">{{ currentThinking.label }}</span>
                         </button>

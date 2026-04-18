@@ -1,21 +1,136 @@
 import type { Ref } from 'vue'
-import type { ChatBubble, QuestionRequestEvent } from '../../types/agent'
-import type { ChatWindow } from '../../types/aiCommandCenter'
+import type { ChatBubble, InteractionRecord } from '../../types/agent'
+import type { ChatMessage, ChatWindow } from '../../types/aiCommandCenter'
 import { getQuestionService } from '../../services/QuestionService'
 import { createQuestionBubble, completeBubble } from '../../utils/bubbleManager'
 
 interface QuestionOptions {
   agentApiBase: string
   windows: Ref<ChatWindow[]>
-  activeWindowId: Ref<string>
   scrollToBottom: (options?: { windowId?: string }) => void
 }
 
-export const useQuestion = (options: QuestionOptions) => {
+const createQuestionHostMessage = (): ChatMessage => ({
+  role: 'ai',
+  bubbles: [],
+  waitingState: { isWaiting: false, waitingVerb: '', waitingSince: 0 },
+  isStreaming: false,
+  startTime: Date.now()
+})
 
-  const startListening = () => {
+const findQuestionBubble = (bubbleList: ChatBubble[], interactionId: string): ChatBubble | undefined => {
+  for (const bubble of bubbleList) {
+    if (bubble.questionRequestId === interactionId) {
+      return bubble
+    }
+    if (bubble.childBubbles) {
+      const nested = findQuestionBubble(bubble.childBubbles, interactionId)
+      if (nested) {
+        return nested
+      }
+    }
+  }
+  return undefined
+}
+
+export const useQuestion = (options: QuestionOptions) => {
+  const findTargetWindow = (windowId: string): ChatWindow | undefined => {
+    return options.windows.value.find(w => w.id === windowId)
+  }
+
+  const ensureTargetMessage = (window: ChatWindow): ChatMessage => {
+    const lastAiMsg = [...window.messages].reverse().find(message => message.role === 'ai')
+    if (lastAiMsg) {
+      return lastAiMsg
+    }
+
+    const hostMessage = createQuestionHostMessage()
+    window.messages.push(hostMessage)
+    return hostMessage
+  }
+
+  const applyResolvedQuestion = (
+    bubble: ChatBubble,
+    answers?: Record<string, string>
+  ) => {
+    bubble.questionSubmitted = true
+    bubble.questionAnswers = answers || {}
+    completeBubble(bubble)
+  }
+
+  const handleQuestionPushed = (record: InteractionRecord) => {
+    const win = findTargetWindow(record.windowId)
+    if (!win) {
+      console.warn(`[useQuestion] Pending question points to missing window: ${record.windowId}`)
+      return
+    }
+
+    const existingBubble = win.messages
+      .flatMap(message => message.bubbles)
+      .map(bubble => findQuestionBubble([bubble], record.interactionId))
+      .find(Boolean)
+
+    if (existingBubble) {
+      existingBubble.questions = record.requestPayload?.questions || existingBubble.questions
+      options.scrollToBottom({ windowId: win.id })
+      return
+    }
+
+    const targetMessage = ensureTargetMessage(win)
+    const bubble = createQuestionBubble(
+      record.interactionId,
+      Array.isArray(record.requestPayload?.questions) ? record.requestPayload.questions : []
+    )
+    targetMessage.bubbles.push(bubble)
+    targetMessage.waitingState.isWaiting = false
+    targetMessage.isStreaming = false
+
+    options.scrollToBottom({ windowId: win.id })
+  }
+
+  const handleQuestionTerminal = (record: InteractionRecord) => {
+    const win = findTargetWindow(record.windowId)
+    if (!win) {
+      console.warn(`[useQuestion] Terminal question points to missing window: ${record.windowId}`)
+      return
+    }
+
+    const bubble = win.messages
+      .flatMap(message => message.bubbles)
+      .map(item => findQuestionBubble([item], record.interactionId))
+      .find(Boolean)
+
+    if (!bubble) {
+      return
+    }
+
+    const answers = record.status === 'resolved'
+      ? (record.resolutionPayload?.answers as Record<string, string> | undefined)
+      : {}
+
+    applyResolvedQuestion(bubble, answers)
+    options.scrollToBottom({ windowId: win.id })
+  }
+
+  const startListening = async () => {
     const service = getQuestionService(options.agentApiBase)
-    service.startListening(handleQuestionRequest)
+    service.startListening({
+      onPushed: handleQuestionPushed,
+      onResolved: handleQuestionTerminal,
+      onCancelled: handleQuestionTerminal,
+      onExpired: handleQuestionTerminal
+    })
+
+    const windowIds = options.windows.value.map(window => window.id)
+    if (windowIds.length === 0) {
+      return
+    }
+
+    try {
+      await service.restorePending(windowIds)
+    } catch (error) {
+      console.warn('[useQuestion] Restore pending questions failed:', error)
+    }
   }
 
   const stopListening = () => {
@@ -23,38 +138,18 @@ export const useQuestion = (options: QuestionOptions) => {
     service.stopListening()
   }
 
-  /** 收到 Agent 问题请求 -> 在最后一条 AI 消息中插入问题气泡 */
-  const handleQuestionRequest = (event: QuestionRequestEvent) => {
-    const win = options.windows.value.find(w => w.id === options.activeWindowId.value)
-    if (!win) return
-
-    const lastAiMsg = [...win.messages].reverse().find(m => m.role === 'ai')
-    if (!lastAiMsg) return
-
-    const bubble = createQuestionBubble(event.requestId, event.questions)
-    lastAiMsg.bubbles.push(bubble)
-    lastAiMsg.waitingState.isWaiting = false
-
-    options.scrollToBottom({ windowId: win.id })
-  }
-
-  /** 用户提交答案 */
   const submitAnswer = async (bubble: ChatBubble) => {
     if (!bubble.questionRequestId || bubble.questionSubmitted) return
     const service = getQuestionService(options.agentApiBase)
     await service.submitAnswer(bubble.questionRequestId, bubble.questionAnswers || {})
-    bubble.questionSubmitted = true
-    completeBubble(bubble)
+    applyResolvedQuestion(bubble, bubble.questionAnswers || {})
   }
 
-  /** 用户点跳过 */
   const cancelQuestion = async (bubble: ChatBubble) => {
     if (!bubble.questionRequestId || bubble.questionSubmitted) return
     const service = getQuestionService(options.agentApiBase)
-    await service.submitAnswer(bubble.questionRequestId, {}, true)
-    bubble.questionSubmitted = true
-    bubble.questionAnswers = {}
-    completeBubble(bubble)
+    await service.cancelQuestion(bubble.questionRequestId)
+    applyResolvedQuestion(bubble, {})
   }
 
   return { startListening, stopListening, submitAnswer, cancelQuestion }

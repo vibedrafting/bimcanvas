@@ -1,82 +1,100 @@
-/**
- * AskUserQuestion 服务
- *
- * 监听 Agent 的用户问题请求（通过独立 SSE 通道），
- * 收到请求后通过回调通知 UI 层渲染问题气泡。
- *
- * 架构与 ScreenshotService 一致：
- * - SSE 监听 /api/question/events
- * - POST 回调 /api/question/answer
- */
-import type { QuestionRequestEvent } from '../types/agent'
-import { AGENT_API } from '../config/api'
+import { AGENT_API } from '../config/api';
+import type { InteractionEventListener, InteractionRecord } from '../types/agent';
+import { getInteractionChannelService } from './InteractionChannelService';
+
+export interface QuestionInteractionHandlers {
+  onPushed?: (record: InteractionRecord) => void;
+  onResolved?: (record: InteractionRecord) => void;
+  onCancelled?: (record: InteractionRecord) => void;
+  onExpired?: (record: InteractionRecord) => void;
+}
 
 export class QuestionService {
-  private serverUrl: string
-  private eventSource: EventSource | null = null
-  private onQuestionRequest: ((event: QuestionRequestEvent) => void) | null = null
+  private serverUrl: string;
+  private handlers: QuestionInteractionHandlers = {};
+  private listener: InteractionEventListener | null = null;
 
   constructor(serverUrl: string = AGENT_API) {
-    this.serverUrl = serverUrl
+    this.serverUrl = serverUrl;
   }
 
-  /**
-   * 开始监听 Agent 问题请求（通过 SSE）
-   */
-  startListening(callback: (event: QuestionRequestEvent) => void): void {
-    this.onQuestionRequest = callback  // 始终更新回调，即使 SSE 连接已存在
-    if (this.eventSource) {
-      return  // SSE 连接已建立，仅更新回调
-    }
-    this.eventSource = new EventSource(`${this.serverUrl}/api/question/events`)
-
-    this.eventSource.addEventListener('question_request', (event) => {
-      const data: QuestionRequestEvent = JSON.parse((event as MessageEvent).data)
-      console.log(`[QuestionService] Question request: ${data.requestId}, ${data.questions.length} questions`)
-      this.onQuestionRequest?.(data)
-    })
-
-    this.eventSource.onerror = () => {
-      console.error('[QuestionService] SSE connection error')
+  startListening(handlers: QuestionInteractionHandlers): void {
+    this.handlers = handlers;
+    if (this.listener) {
+      return;
     }
 
-    this.eventSource.onopen = () => {
-      console.log('[QuestionService] SSE connection opened')
-    }
+    this.listener = ({ event, record }) => {
+      if (record.kind !== 'question') {
+        return;
+      }
+
+      switch (event) {
+        case 'interaction.pushed':
+          this.handlers.onPushed?.(record);
+          break;
+        case 'interaction.resolved':
+          this.handlers.onResolved?.(record);
+          break;
+        case 'interaction.cancelled':
+          this.handlers.onCancelled?.(record);
+          break;
+        case 'interaction.expired':
+          this.handlers.onExpired?.(record);
+          break;
+      }
+    };
+
+    getInteractionChannelService(this.serverUrl).startListening(this.listener);
   }
 
-  /**
-   * 停止监听
-   */
   stopListening(): void {
-    if (this.eventSource) {
-      this.eventSource.close()
-      this.eventSource = null
-      console.log('[QuestionService] SSE connection closed')
+    if (!this.listener) {
+      return;
     }
+
+    getInteractionChannelService(this.serverUrl).stopListening(this.listener);
+    this.listener = null;
   }
 
-  /**
-   * 提交用户答案
-   */
+  async restorePending(windowIds: string[]): Promise<InteractionRecord[]> {
+    const channel = getInteractionChannelService(this.serverUrl);
+    const restored: InteractionRecord[] = [];
+
+    for (const windowId of windowIds) {
+      const interactions = await channel.queryPending(windowId);
+      for (const record of interactions) {
+        if (record.kind !== 'question') {
+          continue;
+        }
+        restored.push(record);
+        this.handlers.onPushed?.(record);
+      }
+    }
+
+    return restored;
+  }
+
   async submitAnswer(
     requestId: string,
-    answers: Record<string, string>,
-    cancelled: boolean = false
-  ): Promise<void> {
-    await fetch(`${this.serverUrl}/api/question/answer`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ requestId, answers, cancelled })
-    })
+    answers: Record<string, string>
+  ): Promise<InteractionRecord> {
+    return getInteractionChannelService(this.serverUrl).submitInteraction(requestId, { answers });
+  }
+
+  async cancelQuestion(
+    requestId: string,
+    cancelReason: string = 'question_cancelled'
+  ): Promise<InteractionRecord> {
+    return getInteractionChannelService(this.serverUrl).cancelInteraction(requestId, cancelReason);
   }
 }
 
-// 单例
-let instance: QuestionService | null = null
+let instance: QuestionService | null = null;
+
 export function getQuestionService(serverUrl?: string): QuestionService {
   if (!instance) {
-    instance = new QuestionService(serverUrl)
+    instance = new QuestionService(serverUrl);
   }
-  return instance
+  return instance;
 }

@@ -73,6 +73,77 @@ export interface SubAgent {
 
 // 错误分类类型
 export type ErrorType = 'recoverable' | 'blocking' | 'api_error' | 'sdk_error';
+export type MainStreamEventType =
+  | 'thinking.delta'
+  | 'thinking.completed'
+  | 'text.delta'
+  | 'text.completed'
+  | 'subtask.started'
+  | 'subtask.completed'
+  | 'tool.started'
+  | 'tool.output'
+  | 'tool.completed'
+  | 'turn.completed'
+  | 'turn.failed';
+
+export interface MainStreamEnvelope<TPayload = Record<string, unknown>> {
+  eventId: string;
+  sessionId: string;
+  turnId: string;
+  eventType: MainStreamEventType | string;
+  payload: TPayload;
+  timestamp?: string;
+  subtaskId?: string;
+  toolCallId?: string;
+}
+
+export type CapabilityLevel = 'required' | 'optional' | 'unsupported';
+
+export interface RuntimeCapabilityMatrixRow {
+  capabilityKey: string;
+  level: CapabilityLevel;
+  providerMapping?: string | null;
+  frontendFallback?: string | null;
+  notes?: string | null;
+}
+
+export type RuntimeCapabilityMap = Record<string, RuntimeCapabilityMatrixRow | undefined>;
+
+export type InteractionKind = 'question' | 'screenshot' | 'permission' | string;
+export type InteractionStatus = 'pending' | 'resolved' | 'cancelled' | 'expired';
+export type InteractionEventName =
+  | 'interaction.pushed'
+  | 'interaction.resolved'
+  | 'interaction.cancelled'
+  | 'interaction.expired';
+
+export interface InteractionRecord {
+  interactionId: string;
+  sessionId: string;
+  turnId: string;
+  windowId: string;
+  kind: InteractionKind;
+  blocking: boolean;
+  status: InteractionStatus;
+  resumeToken: string;
+  requestPayload: Record<string, any>;
+  resolutionPayload?: Record<string, any> | null;
+  createdAt?: string | null;
+  updatedAt?: string | null;
+  expiresAt?: string | null;
+  cancelReason?: string | null;
+}
+
+export interface InteractionEventEnvelope {
+  event: InteractionEventName;
+  record: InteractionRecord;
+}
+
+export interface InteractionQueryResponse {
+  windowId: string;
+  sessionId?: string | null;
+  interactions: InteractionRecord[];
+}
 
 export interface TextStreamEvent {
   type: 'text' | 'text_complete';
@@ -129,13 +200,15 @@ export interface TaskOutputPollingEvent {
   timeout: number;
 }
 
-export type AgentSSEEvent =
+export type LegacyAgentSSEEvent =
   | SubAgentStartEvent
   | SubAgentCompleteEvent
   | ToolCallStartEvent
   | ToolCallOutputEvent
   | ToolCallCompleteEvent
   | TaskOutputPollingEvent;
+
+export type AgentSSEEvent = LegacyAgentSSEEvent | MainStreamEnvelope;
 
 // ========== 时间线气泡模型（Timeline Bubble Model）==========
 
@@ -237,7 +310,7 @@ export interface UserQuestion {
   multiSelect: boolean;
 }
 
-/** Agent SSE 问题请求事件（独立 SSE 通道） */
+/** Agent SSE 问题请求事件（兼容别名，内部实际对应 question interaction） */
 export interface QuestionRequestEvent {
   requestId: string;
   questions: UserQuestion[];

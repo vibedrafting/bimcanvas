@@ -1,6 +1,7 @@
 import { nextTick, onMounted, onUnmounted, ref } from 'vue';
 import type { EffortLevel, ModelOption, ThinkingLevel } from '../../types/aiCommandCenter';
 import { effortLevels, thinkingLevels } from '../../constants/aiCommandCenter';
+import type { RuntimeCapabilityMap, RuntimeCapabilityMatrixRow } from '../../types/agent';
 
 // 图层预设配置类型
 export interface LayerPresetConfig {
@@ -26,6 +27,38 @@ export const useAgentConfig = (agentApiBase: string, serverApiBase: string) => {
   const newModelId = ref('');
   const newModelInputRef = ref<HTMLInputElement | null>(null);
   const layerPresets = ref<LayerPresetsConfig>({});
+  const capabilityMatrix = ref<RuntimeCapabilityMatrixRow[]>([]);
+  const capabilityMap = ref<RuntimeCapabilityMap>({});
+  const supportsThinking = ref(true);
+  const supportsSubtaskCausality = ref(true);
+  const supportsTrace = ref(false);
+  const supportsUsage = ref(false);
+  const supportsPermissionPauseResume = ref(false);
+
+  const isCapabilityEnabled = (capabilityKey: string): boolean => {
+    const capability = capabilityMap.value[capabilityKey];
+    return capability?.level === 'required' || capability?.level === 'optional';
+  };
+
+  const applyCapabilityMatrix = (rows: RuntimeCapabilityMatrixRow[] | undefined) => {
+    const normalizedRows = Array.isArray(rows) ? rows : [];
+    capabilityMatrix.value = normalizedRows;
+    capabilityMap.value = normalizedRows.reduce<RuntimeCapabilityMap>((map, row) => {
+      map[row.capabilityKey] = row;
+      return map;
+    }, {});
+
+    supportsThinking.value = isCapabilityEnabled('thinking');
+    supportsSubtaskCausality.value = isCapabilityEnabled('subtask_causality');
+    supportsTrace.value = isCapabilityEnabled('trace');
+    supportsUsage.value = isCapabilityEnabled('usage');
+    supportsPermissionPauseResume.value = isCapabilityEnabled('permission_pause_resume');
+
+    if (!supportsThinking.value) {
+      currentThinking.value = defaultThinking;
+      isThinkingMenuOpen.value = false;
+    }
+  };
 
   const applyWebConfig = (webConfig: any, mode: 'replace' | 'merge' = 'replace') => {
     const incomingModels = webConfig.customModels || [];
@@ -105,6 +138,11 @@ export const useAgentConfig = (agentApiBase: string, serverApiBase: string) => {
   };
 
   const selectThinking = (level: ThinkingLevel) => {
+    if (!supportsThinking.value) {
+      currentThinking.value = defaultThinking;
+      isThinkingMenuOpen.value = false;
+      return;
+    }
     currentThinking.value = level;
     isThinkingMenuOpen.value = false;
   };
@@ -131,7 +169,12 @@ export const useAgentConfig = (agentApiBase: string, serverApiBase: string) => {
 
       if (configRes.ok) {
         const config = await configRes.json();
-        const { models: agentModels, defaultEffort: cfgEffort, defaultThinking: cfgThinking } = config;
+        const {
+          models: agentModels,
+          defaultEffort: cfgEffort,
+          defaultThinking: cfgThinking,
+          capabilityMatrix: cfgCapabilityMatrix
+        } = config;
 
         // Agent 返回了 models → 用作主模型列表（优先于 web_config 的 customModels）
         if (agentModels && agentModels.length > 0) {
@@ -140,6 +183,8 @@ export const useAgentConfig = (agentApiBase: string, serverApiBase: string) => {
           models.value = [...agentModels, ...extraModels];
         }
 
+        applyCapabilityMatrix(cfgCapabilityMatrix);
+
         if (cfgEffort) {
           const foundEffort = effortLevels.find(e => e.id === cfgEffort);
           if (foundEffort) {
@@ -147,7 +192,7 @@ export const useAgentConfig = (agentApiBase: string, serverApiBase: string) => {
           }
         }
 
-        if (cfgThinking) {
+        if (cfgThinking && supportsThinking.value) {
           const foundThinking = thinkingLevels.find(t => t.id === cfgThinking);
           if (foundThinking) {
             currentThinking.value = foundThinking;
@@ -196,6 +241,13 @@ export const useAgentConfig = (agentApiBase: string, serverApiBase: string) => {
     newModelId,
     newModelInputRef,
     layerPresets,
+    capabilityMatrix,
+    capabilityMap,
+    supportsThinking,
+    supportsSubtaskCausality,
+    supportsTrace,
+    supportsUsage,
+    supportsPermissionPauseResume,
     fetchAgentConfig,
     selectModel,
     startAddModel,

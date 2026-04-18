@@ -47,6 +47,39 @@ interface ChatStreamOptions {
 // 用于中止请求的 AbortController 管理
 let currentAbortController: AbortController | null = null;
 const PLACEHOLDER_ASSISTANT_TEXTS = new Set(['(no content)', '[no content]']);
+const LEGACY_EVENT_TYPE_MAP: Record<string, string> = {
+  thinking: 'thinking.delta',
+  thinking_complete: 'thinking.completed',
+  text: 'text.delta',
+  text_complete: 'text.completed',
+  subagent_start: 'subtask.started',
+  subagent_complete: 'subtask.completed',
+  tool_call_start: 'tool.started',
+  tool_call_output: 'tool.output',
+  tool_call_complete: 'tool.completed'
+};
+const TERMINAL_EVENT_TYPES = new Set(['turn.completed', 'turn.failed']);
+const ASSISTANT_EVENT_TYPES = new Set([
+  'thinking.delta',
+  'thinking.completed',
+  'text.delta',
+  'text.completed',
+  'subtask.started',
+  'subtask.completed',
+  'tool.started',
+  'tool.output',
+  'tool.completed',
+  'turn.completed',
+  'turn.failed'
+]);
+
+type StreamPayload = Record<string, any>;
+
+interface NormalizedStreamEvent {
+  eventType: string;
+  payload: StreamPayload;
+  raw: Record<string, any>;
+}
 
 class ChatHttpError extends Error {
   status: number;
@@ -69,6 +102,84 @@ class ChatHttpError extends Error {
     this.shouldMarkDisconnected = shouldMarkDisconnected;
   }
 }
+
+const isRecord = (value: unknown): value is Record<string, any> =>
+  typeof value === 'object' && value !== null;
+
+const getString = (value: unknown): string | undefined =>
+  typeof value === 'string' ? value : undefined;
+
+const getBoolean = (value: unknown): boolean | undefined =>
+  typeof value === 'boolean' ? value : undefined;
+
+const getObject = (value: unknown): Record<string, any> | undefined =>
+  isRecord(value) ? value : undefined;
+
+const buildLegacyPayload = (raw: Record<string, any>, eventType: string): StreamPayload => {
+  switch (eventType) {
+    case 'thinking.delta':
+    case 'thinking.completed':
+    case 'text.delta':
+    case 'text.completed':
+      return { content: raw.content };
+    case 'subtask.started':
+      return {
+        name: raw.subAgentName,
+        type: raw.subAgentType
+      };
+    case 'subtask.completed':
+      return {
+        success: raw.success,
+        error: raw.error,
+        summary: raw.content
+      };
+    case 'tool.started':
+      return {
+        toolName: raw.toolName,
+        toolDescription: raw.toolDescription,
+        params: raw.toolParams
+      };
+    case 'tool.output':
+      return {
+        output: raw.toolOutput
+      };
+    case 'tool.completed':
+      return {
+        output: raw.toolOutput,
+        success: raw.success,
+        errorType: raw.errorType,
+        error: raw.error
+      };
+    default:
+      return {};
+  }
+};
+
+const normalizeStreamEvent = (value: unknown): NormalizedStreamEvent | null => {
+  if (!isRecord(value)) {
+    return null;
+  }
+
+  const legacyType = getString(value.type);
+  const eventType = getString(value.eventType) ?? (legacyType ? LEGACY_EVENT_TYPE_MAP[legacyType] : undefined);
+  if (!eventType && legacyType !== 'session_ready' && legacyType !== 'task_output_polling') {
+    return null;
+  }
+
+  if (legacyType === 'session_ready') {
+    return { eventType: 'session_ready', payload: value, raw: value };
+  }
+
+  if (legacyType === 'task_output_polling' && !eventType) {
+    return { eventType: 'task_output_polling', payload: value, raw: value };
+  }
+
+  return {
+    eventType: eventType || legacyType || '',
+    payload: getObject(value.payload) ?? buildLegacyPayload(value, eventType || ''),
+    raw: value
+  };
+};
 
 export const useChatStream = (options: ChatStreamOptions) => {
   const agentStatus = ref<'connecting' | 'connected' | 'disconnected'>('disconnected');
@@ -206,6 +317,36 @@ export const useChatStream = (options: ChatStreamOptions) => {
     }
   };
 
+  const hasFailedTextBubble = (bubbles: ChatBubble[]): boolean => {
+    for (const bubble of bubbles) {
+      if (bubble.type === 'text' && bubble.status === 'failed' && !isSuppressedAssistantText(bubble.content)) {
+        return true;
+      }
+      if (bubble.childBubbles && hasFailedTextBubble(bubble.childBubbles)) {
+        return true;
+      }
+    }
+    return false;
+  };
+
+  const finalizeStreamingMessage = (message: ChatMessage) => {
+    message.isStreaming = false;
+    exitWaitingState(message.waitingState);
+    cleanupAllStreamingBubbles(message.bubbles);
+    pruneSuppressedTextBubbles(message.bubbles);
+  };
+
+  const appendTerminalFailure = (message: ChatMessage, errorMessage?: string) => {
+    const normalizedError = (errorMessage || '').trim();
+    if (!normalizedError || hasFailedTextBubble(message.bubbles)) {
+      return;
+    }
+
+    const errorBubble = createTextBubble(normalizedError);
+    errorBubble.status = 'failed';
+    message.bubbles.push(errorBubble);
+  };
+
   const sendMessage = async () => {
     const win = options.activeWindow.value;
     if (!win) return;
@@ -217,7 +358,7 @@ export const useChatStream = (options: ChatStreamOptions) => {
     await fetchProjectPath();
 
     const targetWindowId = win.id;
-    const effectiveWindowId = options.activeWindowId.value || 'window-main';
+    const effectiveWindowId = targetWindowId || 'window-main';
     const clientMessageId = win.draftMessageId || createDraftMessageId();
 
     // 先提取待发送图片，再清空
@@ -354,6 +495,7 @@ export const useChatStream = (options: ChatStreamOptions) => {
       }
 
       let buffer = '';
+      let receivedTerminalEvent = false;
       while (true) {
         const { done, value } = await reader.read();
         if (done) break;
@@ -363,92 +505,123 @@ export const useChatStream = (options: ChatStreamOptions) => {
         buffer = lines.pop() || '';
 
         for (const line of lines) {
-          if (line.startsWith('data: ')) {
-            const data = line.slice(6);
-            if (data === '[DONE]') {
-              break;
-            }
-            try {
-              const parsed = JSON.parse(data);
-              if (parsed?.type) {
-                didReceiveAssistantEvent = true;
-              }
+          if (!line.startsWith('data: ')) {
+            continue;
+          }
 
+          const data = line.slice(6);
+          if (data === '[DONE]') {
+            if (!receivedTerminalEvent) {
               const currentMsg = options.getWindowMessage(targetWindowId, aiMessageIndex);
-              if (!currentMsg) continue;
+              if (currentMsg) {
+                finalizeStreamingMessage(currentMsg);
+              }
+            }
+            continue;
+          }
 
-              const targetWin = options.windows.value.find(w => w.id === targetWindowId);
-              if (!targetWin) continue;
+          try {
+            const parsed = JSON.parse(data);
+            const normalizedEvent = normalizeStreamEvent(parsed);
 
-              if (parsed.type === 'thinking') {
-                // 过滤占位思考内容（如 Gemini 模型返回的 "(no content)"）
-                if (isSuppressedAssistantText(parsed.content)) continue;
-                // 查找当前正在 streaming 的 thinking 气泡
+            if (!normalizedEvent) {
+              if (parsed?.error) {
+                console.error('[SSE Error]', parsed.error);
+              }
+              continue;
+            }
+
+            if (ASSISTANT_EVENT_TYPES.has(normalizedEvent.eventType)) {
+              didReceiveAssistantEvent = true;
+            }
+
+            if (normalizedEvent.eventType === 'session_ready') {
+              agentStatus.value = 'connected';
+              continue;
+            }
+
+            const currentMsg = options.getWindowMessage(targetWindowId, aiMessageIndex);
+            if (!currentMsg) continue;
+
+            const payload = normalizedEvent.payload;
+            const raw = normalizedEvent.raw;
+
+            switch (normalizedEvent.eventType) {
+              case 'thinking.delta': {
+                const content = getString(payload.content) ?? getString(raw.content) ?? '';
+                if (isSuppressedAssistantText(content)) {
+                  break;
+                }
+
                 let activeThinking = getLastStreamingThinkingBubble(currentMsg.bubbles);
                 if (!activeThinking) {
-                  // 创建新的 thinking 气泡
-                  activeThinking = createThinkingBubble(parsed.content || '');
+                  activeThinking = createThinkingBubble(content);
                   currentMsg.bubbles.push(activeThinking);
                 } else {
-                  // 追加到现有 thinking 气泡
-                  activeThinking.content = (activeThinking.content || '') + (parsed.content || '');
+                  activeThinking.content = (activeThinking.content || '') + content;
                 }
                 exitWaitingState(currentMsg.waitingState);
-              } else if (parsed.type === 'thinking_complete') {
-                if (isSuppressedAssistantText(parsed.content)) {
-                  // 占位内容：若已有活跃 thinking bubble 则仅完成/清理，不写入占位文本
-                  const active = getLastStreamingThinkingBubble(currentMsg.bubbles);
-                  if (active) completeThinkingBubble(active);
-                  continue;
+                break;
+              }
+              case 'thinking.completed': {
+                const content = getString(payload.content) ?? getString(raw.content) ?? '';
+                if (isSuppressedAssistantText(content)) {
+                  const activeThinking = getLastStreamingThinkingBubble(currentMsg.bubbles);
+                  if (activeThinking) {
+                    completeThinkingBubble(activeThinking);
+                  }
+                  break;
                 }
+
                 let activeThinking = getLastStreamingThinkingBubble(currentMsg.bubbles);
                 if (!activeThinking) {
-                  // 边界情况：没有活跃的 thinking 气泡
-                  activeThinking = createThinkingBubble(parsed.content || '');
+                  activeThinking = createThinkingBubble(content);
                   currentMsg.bubbles.push(activeThinking);
-                }
-                // 用完整内容覆盖并标记完成
-                if (parsed.content) {
-                  activeThinking.content = parsed.content;
+                } else if (content) {
+                  activeThinking.content = content;
                 }
                 completeThinkingBubble(activeThinking);
-              } else if (parsed.type === 'text') {
-                if (parsed.errorType === 'recoverable') {
+                break;
+              }
+              case 'text.delta': {
+                const errorType = getString(raw.errorType);
+                const content = getString(payload.content) ?? getString(raw.content) ?? '';
+
+                if (errorType === 'recoverable') {
                   if (import.meta.env.DEV) {
-                    console.log('[Recoverable error (hidden)]', parsed.errorContent || parsed.content);
+                    console.log('[Recoverable error (hidden)]', raw.errorContent || content);
                   }
-                  continue;
+                  break;
                 }
 
-                if (parsed.errorType === 'blocking') {
+                if (errorType === 'blocking') {
                   if (import.meta.env.DEV) {
-                    console.warn('[Blocking error (hidden from chat)]', parsed.errorContent || parsed.content);
+                    console.warn('[Blocking error (hidden from chat)]', raw.errorContent || content);
                   }
-                  continue;
+                  break;
                 }
 
-                // sdk_error 和 api_error 需要用户知晓 → 不跳过，走正常文本追加逻辑
-                if (isSuppressedAssistantText(parsed.content)) {
-                  continue;
+                if (isSuppressedAssistantText(content)) {
+                  break;
                 }
 
                 exitWaitingState(currentMsg.waitingState);
-                // 自动折叠最后一个 thinking 气泡
                 collapseLastThinkingBubble(currentMsg.bubbles);
 
                 const lastTextBubble = getLastStreamingTextBubble(currentMsg.bubbles);
-
                 if (lastTextBubble) {
-                  lastTextBubble.content = (lastTextBubble.content || '') + (parsed.content || '');
+                  lastTextBubble.content = (lastTextBubble.content || '') + content;
                 } else {
-                  const newTextBubble = createTextBubble(parsed.content || '');
-                  currentMsg.bubbles.push(newTextBubble);
+                  currentMsg.bubbles.push(createTextBubble(content));
                 }
 
-                if (parsed.hiddenContent && import.meta.env.DEV) {
-                  console.debug('[Hidden recoverable error]', parsed.hiddenContent);
+                if (raw.hiddenContent && import.meta.env.DEV) {
+                  console.debug('[Hidden recoverable error]', raw.hiddenContent);
                 }
-              } else if (parsed.type === 'text_complete') {
+                break;
+              }
+              case 'text.completed': {
+                const content = getString(payload.content) ?? getString(raw.content) ?? '';
                 const lastTextBubble = getLastStreamingTextBubble(currentMsg.bubbles);
 
                 if (lastTextBubble) {
@@ -460,8 +633,8 @@ export const useChatStream = (options: ChatStreamOptions) => {
                   } else {
                     completeBubble(lastTextBubble);
                   }
-                } else if (parsed.content && !isSuppressedAssistantText(parsed.content)) {
-                  const newTextBubble = createTextBubble(parsed.content);
+                } else if (content && !isSuppressedAssistantText(content)) {
+                  const newTextBubble = createTextBubble(content);
                   newTextBubble.status = 'completed';
                   currentMsg.bubbles.push(newTextBubble);
                 }
@@ -469,9 +642,9 @@ export const useChatStream = (options: ChatStreamOptions) => {
                 if (!hasStreamingSubAgent(currentMsg.bubbles)) {
                   enterWaitingState(currentMsg.waitingState, getRandomWaitingVerb);
                 }
-              } else if (parsed.error) {
-                console.error('[SSE Error]', parsed.error);
-              } else if (parsed.type === 'subagent_start') {
+                break;
+              }
+              case 'subtask.started': {
                 exitWaitingState(currentMsg.waitingState);
                 collapseLastThinkingBubble(currentMsg.bubbles);
 
@@ -480,28 +653,45 @@ export const useChatStream = (options: ChatStreamOptions) => {
                   completeBubble(lastTextBubble);
                 }
 
-                const subAgentBubble = createSubAgentBubble(
-                  parsed.subAgentId,
-                  parsed.subAgentName,
-                  parsed.subAgentType
-                );
-                currentMsg.bubbles.push(subAgentBubble);
-              } else if (parsed.type === 'subagent_complete') {
-                const subAgentBubble = findBubbleByIdDeep(currentMsg.bubbles, parsed.subAgentId);
+                const subtaskId = getString(raw.subtaskId) ?? getString(raw.subAgentId);
+                if (!subtaskId || findBubbleByIdDeep(currentMsg.bubbles, subtaskId)) {
+                  break;
+                }
+
+                currentMsg.bubbles.push(createSubAgentBubble(
+                  subtaskId,
+                  getString(payload.name) ?? getString(raw.subAgentName) ?? 'Subtask',
+                  getString(payload.type) ?? getString(raw.subAgentType) ?? 'general-purpose'
+                ));
+                break;
+              }
+              case 'subtask.completed': {
+                const subtaskId = getString(raw.subtaskId) ?? getString(raw.subAgentId);
+                if (!subtaskId) {
+                  break;
+                }
+
+                const subAgentBubble = findBubbleByIdDeep(currentMsg.bubbles, subtaskId);
                 if (subAgentBubble) {
-                  if (parsed.success === false) {
-                    failBubble(subAgentBubble, parsed.error);
+                  const success = getBoolean(payload.success) ?? getBoolean(raw.success);
+                  if (success === false) {
+                    failBubble(subAgentBubble, getString(payload.error) ?? getString(raw.error));
                   } else {
                     completeBubble(subAgentBubble);
                   }
-                  if (parsed.content) {
-                    updateSubAgentResult(subAgentBubble, parsed.content);
+
+                  const summary = getString(payload.summary) ?? getString(raw.content);
+                  if (summary) {
+                    updateSubAgentResult(subAgentBubble, summary);
                   }
                 }
+
                 if (!hasStreamingSubAgent(currentMsg.bubbles)) {
                   enterWaitingState(currentMsg.waitingState, getRandomWaitingVerb);
                 }
-              } else if (parsed.type === 'tool_call_start') {
+                break;
+              }
+              case 'tool.started': {
                 exitWaitingState(currentMsg.waitingState);
                 collapseLastThinkingBubble(currentMsg.bubbles);
 
@@ -510,75 +700,123 @@ export const useChatStream = (options: ChatStreamOptions) => {
                   completeBubble(lastTextBubble);
                 }
 
+                const toolCallId = getString(raw.toolCallId);
+                if (!toolCallId) {
+                  break;
+                }
+
+                const existingBubble = findBubbleByIdDeep(currentMsg.bubbles, toolCallId);
+                if (existingBubble) {
+                  break;
+                }
+
                 const toolBubble = createToolCallBubble(
-                  parsed.toolCallId,
-                  parsed.toolName,
-                  parsed.toolDescription,
-                  parsed.toolParams
+                  toolCallId,
+                  getString(payload.toolName) ?? getString(raw.toolName) ?? 'Tool',
+                  getString(payload.toolDescription) ?? getString(raw.toolDescription),
+                  getObject(payload.params) ?? getObject(raw.toolParams)
                 );
 
-                if (parsed.subAgentId) {
-                  const subAgentBubble = findBubbleByIdDeep(currentMsg.bubbles, parsed.subAgentId);
+                const subtaskId = getString(raw.subtaskId) ?? getString(raw.subAgentId);
+                if (subtaskId) {
+                  const subAgentBubble = findBubbleByIdDeep(currentMsg.bubbles, subtaskId);
                   if (subAgentBubble && subAgentBubble.type === 'subagent') {
                     if (!subAgentBubble.childBubbles) {
                       subAgentBubble.childBubbles = [];
                     }
                     subAgentBubble.childBubbles.push(toolBubble);
+                  } else {
+                    currentMsg.bubbles.push(toolBubble);
                   }
                 } else {
                   currentMsg.bubbles.push(toolBubble);
                 }
 
-                // 工具开始执行，进入等待状态（与 tool_call_complete 后 enter 对称）
-                // 快速工具：等待指示器闪现即消失；异步工具（如 AskUserQuestion）：持续到内容到达
                 enterWaitingState(currentMsg.waitingState, getRandomWaitingVerb);
-              } else if (parsed.type === 'tool_call_output') {
-                const toolBubble = findBubbleByIdDeep(currentMsg.bubbles, parsed.toolCallId);
-                if (toolBubble && toolBubble.type === 'tool_call') {
-                  appendToolCallOutput(toolBubble, parsed.toolOutput);
+                break;
+              }
+              case 'tool.output': {
+                const toolCallId = getString(raw.toolCallId);
+                const output = getString(payload.output) ?? getString(raw.toolOutput);
+                if (!toolCallId || !output) {
+                  break;
                 }
-              } else if (parsed.type === 'tool_call_complete') {
-                const toolBubble = findBubbleByIdDeep(currentMsg.bubbles, parsed.toolCallId);
+
+                const toolBubble = findBubbleByIdDeep(currentMsg.bubbles, toolCallId);
                 if (toolBubble && toolBubble.type === 'tool_call') {
-                  // 保存工具返回结果到 bubble
-                  if (parsed.toolOutput) {
-                    appendToolCallOutput(toolBubble, parsed.toolOutput);
+                  appendToolCallOutput(toolBubble, output);
+                }
+                break;
+              }
+              case 'tool.completed': {
+                const toolCallId = getString(raw.toolCallId);
+                if (!toolCallId) {
+                  break;
+                }
+
+                const toolBubble = findBubbleByIdDeep(currentMsg.bubbles, toolCallId);
+                if (toolBubble && toolBubble.type === 'tool_call') {
+                  const output = getString(payload.output) ?? getString(raw.toolOutput);
+                  if (output && !toolBubble.toolOutput) {
+                    appendToolCallOutput(toolBubble, output);
                   }
-                  if (parsed.success) {
-                    completeBubble(toolBubble);
+
+                  const success = getBoolean(payload.success) ?? getBoolean(raw.success);
+                  if (success === false) {
+                    failBubble(toolBubble, getString(payload.error) ?? getString(raw.error));
                   } else {
-                    failBubble(toolBubble, parsed.error);
+                    completeBubble(toolBubble);
                   }
                 }
+
                 if (!hasStreamingSubAgent(currentMsg.bubbles)) {
                   enterWaitingState(currentMsg.waitingState, getRandomWaitingVerb);
                 }
-              } else if (parsed.type === 'task_output_polling') {
+                break;
+              }
+              case 'task_output_polling': {
                 isPollingBackground.value = true;
+                const timeout = Number(raw.timeout ?? payload.timeout ?? 0);
                 const streamingSubAgents = findStreamingSubAgents(currentMsg.bubbles);
                 for (const bubble of streamingSubAgents) {
                   markAsBackground(bubble);
-                  bubble.subAgentResult = `正在获取结果... (timeout: ${parsed.timeout / 1000}s)`;
+                  bubble.subAgentResult = `正在获取结果... (timeout: ${timeout / 1000}s)`;
                 }
+                break;
               }
-
-              await nextTick();
-              options.scrollToBottom({ windowId: targetWindowId });
-            } catch (error) {
-              console.error('Parse error:', error, data);
+              case 'turn.completed': {
+                receivedTerminalEvent = true;
+                finalizeStreamingMessage(currentMsg);
+                break;
+              }
+              case 'turn.failed': {
+                receivedTerminalEvent = true;
+                finalizeStreamingMessage(currentMsg);
+                appendTerminalFailure(
+                  currentMsg,
+                  getString(payload.error?.message) ?? getString(raw.error) ?? '本轮对话失败，请稍后重试。'
+                );
+                break;
+              }
+              default: {
+                if (raw.error) {
+                  console.error('[SSE Error]', raw.error);
+                }
+                break;
+              }
             }
+
+            await nextTick();
+            options.scrollToBottom({ windowId: targetWindowId });
+          } catch (error) {
+            console.error('Parse error:', error, data);
           }
         }
       }
 
       const finalMsg = options.getWindowMessage(targetWindowId, aiMessageIndex);
-      if (finalMsg) {
-        finalMsg.isStreaming = false;
-        finalMsg.waitingState.isWaiting = false;
-
-        // 兜底清理：递归完成所有残留的 streaming 气泡（包括 tool_call、subagent、text、thinking）
-        cleanupAllStreamingBubbles(finalMsg.bubbles);
-        pruneSuppressedTextBubbles(finalMsg.bubbles);
+      if (finalMsg && !receivedTerminalEvent) {
+        finalizeStreamingMessage(finalMsg);
       }
 
       agentStatus.value = 'connected';

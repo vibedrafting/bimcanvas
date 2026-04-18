@@ -4,9 +4,11 @@ import { getScreenshotService } from '../../services/ScreenshotService';
 import { ChatAttachmentService, dataUrlToFile, getImageDimensions } from '../../services/ChatAttachmentService';
 import type { ChatWindow } from '../../types/aiCommandCenter';
 import type { ChatAttachmentRef } from '../../types/chatAttachment';
+import type { InteractionRecord } from '../../types/agent';
 
 interface ScreenshotOptions {
   agentApiBase: string;
+  windows: Ref<ChatWindow[]>;
   pendingAttachments: Ref<ChatAttachmentRef[]>;
   currentProjectPath: Ref<string>;  // 当前项目路径，用于动态确定截图保存位置
   activeWindow: Ref<ChatWindow | undefined>;
@@ -15,10 +17,84 @@ interface ScreenshotOptions {
 
 export const useScreenshot = (options: ScreenshotOptions) => {
   const showScreenshotOverlay = ref(false);
+  const processingInteractionIds = new Set<string>();
 
-  const startListening = () => {
+  const findTargetWindow = (windowId: string): ChatWindow | undefined => {
+    return options.windows.value.find(window => window.id === windowId);
+  };
+
+  const handleScreenshotInteraction = async (record: InteractionRecord) => {
+    if (record.status !== 'pending') {
+      return;
+    }
+
+    const win = findTargetWindow(record.windowId);
+    if (!win) {
+      console.warn(`[useScreenshot] Pending screenshot points to missing window: ${record.windowId}`);
+      return;
+    }
+
+    if (processingInteractionIds.has(record.interactionId)) {
+      return;
+    }
+
+    processingInteractionIds.add(record.interactionId);
+    let submitted = false;
+
+    try {
+      const roomId = typeof record.requestPayload?.roomId === 'string'
+        ? record.requestPayload.roomId
+        : undefined;
+
+      const screenshotService = getScreenshotService(options.agentApiBase);
+      const imageData = roomId
+        ? await screenshotService.captureRoom(roomId)
+        : await screenshotService.captureCanvas();
+
+      await screenshotService.submitResult(record.interactionId, imageData);
+      submitted = true;
+      console.log(`[useScreenshot] Screenshot interaction submitted: ${record.interactionId}`);
+    } catch (error) {
+      console.error(`[useScreenshot] Screenshot interaction failed: ${record.interactionId}`, error);
+      try {
+        const screenshotService = getScreenshotService(options.agentApiBase);
+        await screenshotService.submitResult(record.interactionId, null, String(error));
+        submitted = true;
+      } catch (submitError) {
+        console.error(`[useScreenshot] Submit screenshot error failed: ${record.interactionId}`, submitError);
+      }
+    } finally {
+      if (!submitted) {
+        processingInteractionIds.delete(record.interactionId);
+      }
+    }
+  };
+
+  const handleScreenshotTerminal = (record: InteractionRecord) => {
+    processingInteractionIds.delete(record.interactionId);
+  };
+
+  const startListening = async () => {
     const screenshotService = getScreenshotService(options.agentApiBase);
-    screenshotService.startListening();
+    screenshotService.startListening({
+      onPushed: (record) => {
+        void handleScreenshotInteraction(record);
+      },
+      onResolved: handleScreenshotTerminal,
+      onCancelled: handleScreenshotTerminal,
+      onExpired: handleScreenshotTerminal
+    });
+
+    const windowIds = options.windows.value.map(window => window.id);
+    if (windowIds.length === 0) {
+      return;
+    }
+
+    try {
+      await screenshotService.restorePending(windowIds);
+    } catch (error) {
+      console.warn('[useScreenshot] Restore pending screenshots failed:', error);
+    }
   };
 
   const stopListening = () => {

@@ -14,6 +14,8 @@ import { LabelRenderer } from './screenshot/LabelRenderer'
 import { getThreeSceneService } from './three/ThreeSceneService'
 import { LayerManager } from './three/LayerManager'
 import { AGENT_API } from '../config/api'
+import type { InteractionEventListener, InteractionRecord } from '../types/agent'
+import { getInteractionChannelService } from './InteractionChannelService'
 
 export interface ClipRect {
   x: number
@@ -22,9 +24,17 @@ export interface ClipRect {
   height: number
 }
 
+export interface ScreenshotInteractionHandlers {
+  onPushed?: (record: InteractionRecord) => void
+  onResolved?: (record: InteractionRecord) => void
+  onCancelled?: (record: InteractionRecord) => void
+  onExpired?: (record: InteractionRecord) => void
+}
+
 export class ScreenshotService {
   private serverUrl: string
-  private eventSource: EventSource | null = null
+  private handlers: ScreenshotInteractionHandlers = {}
+  private listener: InteractionEventListener | null = null
 
   constructor(serverUrl: string = AGENT_API) {
     this.serverUrl = serverUrl
@@ -174,63 +184,85 @@ export class ScreenshotService {
    * 当 Agent 调用 request_screenshot MCP 工具时，Server 会通过 SSE 通知 Web 端，
    * Web 端执行截图后将结果提交给 Server。
    */
-  startListening(): void {
-    if (this.eventSource) {
-      return  // 单例连接已存在，无需重建
+  startListening(handlers: ScreenshotInteractionHandlers): void {
+    this.handlers = handlers
+    if (this.listener) {
+      return
     }
 
-    this.eventSource = new EventSource(`${this.serverUrl}/api/screenshot/events`)
-
-    this.eventSource.addEventListener('screenshot_request', async (event) => {
-      const { requestId, roomId } = JSON.parse(event.data)
-      console.log(`[ScreenshotService] Screenshot request received: ${requestId}, roomId=${roomId}`)
-
-      try {
-        const imageData = roomId
-          ? await this.captureRoom(roomId)
-          : await this.captureCanvas()
-
-        await this.submitResult(requestId, imageData)
-        console.log(`[ScreenshotService] Screenshot submitted: ${requestId}`)
-      } catch (e) {
-        console.error(`[ScreenshotService] Screenshot failed:`, e)
-        await this.submitResult(requestId, null, String(e))
+    this.listener = ({ event, record }) => {
+      if (record.kind !== 'screenshot') {
+        return
       }
-    })
 
-    this.eventSource.onerror = (error) => {
-      console.error('[ScreenshotService] SSE connection error:', error)
+      switch (event) {
+        case 'interaction.pushed':
+          this.handlers.onPushed?.(record)
+          break
+        case 'interaction.resolved':
+          this.handlers.onResolved?.(record)
+          break
+        case 'interaction.cancelled':
+          this.handlers.onCancelled?.(record)
+          break
+        case 'interaction.expired':
+          this.handlers.onExpired?.(record)
+          break
+      }
     }
 
-    this.eventSource.onopen = () => {
-      console.log('[ScreenshotService] SSE connection opened')
-    }
+    getInteractionChannelService(this.serverUrl).startListening(this.listener)
   }
 
   /**
    * 停止监听
    */
   stopListening(): void {
-    if (this.eventSource) {
-      this.eventSource.close()
-      this.eventSource = null
-      console.log('[ScreenshotService] SSE connection closed')
-    }
+    if (!this.listener) return
+    getInteractionChannelService(this.serverUrl).stopListening(this.listener)
+    this.listener = null
   }
 
   /**
-   * 提交截图结果给 Server
+   * 恢复当前页面已存在窗口的 pending screenshot interactions
    */
-  private async submitResult(
-    requestId: string,
+  async restorePending(windowIds: string[]): Promise<InteractionRecord[]> {
+    const channel = getInteractionChannelService(this.serverUrl)
+    const restored: InteractionRecord[] = []
+
+    for (const windowId of windowIds) {
+      const interactions = await channel.queryPending(windowId)
+      for (const record of interactions) {
+        if (record.kind !== 'screenshot') {
+          continue
+        }
+        restored.push(record)
+        this.handlers.onPushed?.(record)
+      }
+    }
+
+    return restored
+  }
+
+  /**
+   * 提交截图结果给统一 InteractionChannel
+   */
+  async submitResult(
+    interactionId: string,
     imageData: string | null,
     error?: string
-  ): Promise<void> {
-    await fetch(`${this.serverUrl}/api/screenshot/result`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ requestId, imageData, error })
+  ): Promise<InteractionRecord> {
+    return getInteractionChannelService(this.serverUrl).submitInteraction(interactionId, {
+      imageData,
+      ...(error ? { error } : {})
     })
+  }
+
+  async cancelRequest(
+    interactionId: string,
+    cancelReason: string = 'screenshot_cancelled'
+  ): Promise<InteractionRecord> {
+    return getInteractionChannelService(this.serverUrl).cancelInteraction(interactionId, cancelReason)
   }
 
   /**
