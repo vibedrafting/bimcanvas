@@ -278,6 +278,73 @@ def test_history_endpoint_returns_session_transcript_and_terminal_interactions(
     asyncio.run(_test())
 
 
+def test_chat_stream_continues_recording_history_after_client_stream_disconnect(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    async def _test() -> None:
+        runtime_store = RuntimeStateStore()
+        session = await runtime_store.create_session(window_id="primary", project_path="C:/demo", worktree_path=None)
+
+        class _FakeAgent:
+            _connected = True
+
+            def get_current_model(self) -> str:
+                return "sonnet"
+
+            async def set_model(self, model: str) -> None:
+                return None
+
+            def clear_runtime_context(self) -> None:
+                return None
+
+            async def chat_stream(self, *args, **kwargs):
+                yield StreamChunk(type="text", content="断线后继续")
+                yield StreamChunk(type="text_complete", content="断线后继续")
+
+        fake_agent = _FakeAgent()
+
+        async def _fake_get_agent(window_id: str, project_path: str, worktree_path: str | None = None):
+            return fake_agent, session
+
+        monkeypatch.setattr(http_server, "get_agent", _fake_get_agent)
+
+        write_attempts = {"count": 0}
+
+        async def _fake_try_write_sse_data(response, data):
+            write_attempts["count"] += 1
+            return False
+
+        monkeypatch.setattr(http_server, "_try_write_sse_data", _fake_try_write_sse_data)
+
+        client = await _build_client(monkeypatch, runtime_store)
+        try:
+            response = await client.post(
+                "/api/chat/stream",
+                json={"projectPath": "C:/demo", "windowId": "primary", "message": "hello", "model": "sonnet"},
+            )
+            assert response.status == 200
+            await response.text()
+
+            session_snapshot, history, interactions = await runtime_store.get_history_for_window("primary")
+            assert session_snapshot is not None
+            assert session_snapshot["status"] == "idle"
+            assert interactions == []
+            assert [entry["kind"] for entry in history] == [
+                "user_message",
+                "assistant_event",
+                "assistant_event",
+                "assistant_event",
+            ]
+            assert history[1]["event"]["eventType"] == "text.delta"
+            assert history[2]["event"]["eventType"] == "text.completed"
+            assert history[3]["event"]["eventType"] == "turn.completed"
+            assert write_attempts["count"] >= 1
+        finally:
+            await client.close()
+
+    asyncio.run(_test())
+
+
 @pytest.mark.parametrize("endpoint", ["/api/clear-history", "/api/agent/close"])
 def test_control_plane_shutdown_endpoints_remove_active_session(
     monkeypatch: pytest.MonkeyPatch,

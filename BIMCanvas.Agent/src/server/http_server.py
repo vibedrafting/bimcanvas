@@ -174,8 +174,12 @@ async def _finalize_turn_state(
         await runtime_store.mark_session_idle(session_id, turn_id)
 
 
-async def _write_sse_data(response: web.StreamResponse, data: dict[str, Any]) -> None:
-    await response.write(f"data: {json.dumps(data, ensure_ascii=False)}\n\n".encode("utf-8"))
+async def _try_write_sse_data(response: web.StreamResponse, data: dict[str, Any]) -> bool:
+    try:
+        await response.write(f"data: {json.dumps(data, ensure_ascii=False)}\n\n".encode("utf-8"))
+        return True
+    except (ConnectionResetError, RuntimeError):
+        return False
 
 
 def _sanitize_history_attachments(raw_value: Any) -> list[dict[str, Any]]:
@@ -603,12 +607,16 @@ async def chat_stream_handler(request: web.Request) -> web.StreamResponse:
     runtime_context = _build_runtime_context(window_id, session.session_id, turn_id)
     stream_mapper = MainStreamMapper(session_id=session.session_id, turn_id=turn_id)
     terminal_event: dict[str, Any] | None = None
+    client_stream_connected = True
 
     try:
         if not session.ready_announced:
             session_snapshot = await runtime_store.get_session_snapshot(session.session_id)
             if session_snapshot is not None:
-                await _write_sse_data(response, _build_session_ready_event(session_snapshot))
+                client_stream_connected = await _try_write_sse_data(
+                    response,
+                    _build_session_ready_event(session_snapshot),
+                )
             await runtime_store.mark_session_ready_announced(session.session_id)
 
         await runtime_store.mark_session_running(session.session_id, turn_id)
@@ -639,7 +647,16 @@ async def chat_stream_handler(request: web.Request) -> web.StreamResponse:
                     window_id=window_id,
                     event_payload=event_data,
                 )
-                await _write_sse_data(response, event_data)
+                if client_stream_connected:
+                    client_stream_connected = await _try_write_sse_data(response, event_data)
+                    if not client_stream_connected:
+                        logger.info(
+                            "Client stream disconnected; continue turn in transcript-only mode. "
+                            "windowId=%s sessionId=%s turnId=%s",
+                            window_id,
+                            session.session_id,
+                            turn_id,
+                        )
 
         terminal_event = stream_mapper.build_success_terminal_event()
         await runtime_store.append_event_history(
@@ -648,11 +665,11 @@ async def chat_stream_handler(request: web.Request) -> web.StreamResponse:
             window_id=window_id,
             event_payload=terminal_event,
         )
-        await _write_sse_data(response, terminal_event)
+        if client_stream_connected:
+            client_stream_connected = await _try_write_sse_data(response, terminal_event)
 
     except Exception as exc:
         logger.exception(f"Stream error: {exc}")
-        await _write_sse_data(response, {"error": str(exc)})
         terminal_event = stream_mapper.build_exception_terminal_event(exc)
         await runtime_store.append_event_history(
             session_id=session.session_id,
@@ -660,12 +677,16 @@ async def chat_stream_handler(request: web.Request) -> web.StreamResponse:
             window_id=window_id,
             event_payload=terminal_event,
         )
-        await _write_sse_data(response, terminal_event)
+        if client_stream_connected:
+            client_stream_connected = await _try_write_sse_data(response, {"error": str(exc)})
+            if client_stream_connected:
+                client_stream_connected = await _try_write_sse_data(response, terminal_event)
     finally:
-        try:
-            await response.write(b"data: [DONE]\n\n")
-        except (ConnectionResetError, RuntimeError):
-            pass
+        if client_stream_connected:
+            try:
+                await response.write(b"data: [DONE]\n\n")
+            except (ConnectionResetError, RuntimeError):
+                pass
         agent.clear_runtime_context()
         await _finalize_turn_state(session.session_id, turn_id, terminal_event)
 

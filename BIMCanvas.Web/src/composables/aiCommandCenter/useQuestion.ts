@@ -8,6 +8,7 @@ interface QuestionOptions {
   agentApiBase: string
   windows: Ref<ChatWindow[]>
   scrollToBottom: (options?: { windowId?: string }) => void
+  waitForInteractionContinuation?: (windowId: string) => Promise<void>
 }
 
 const createQuestionHostMessage = (): ChatMessage => ({
@@ -141,15 +142,23 @@ export const useQuestion = (options: QuestionOptions) => {
   const submitAnswer = async (bubble: ChatBubble) => {
     if (!bubble.questionRequestId || bubble.questionSubmitted) return
     const service = getQuestionService(options.agentApiBase)
-    await service.submitAnswer(bubble.questionRequestId, bubble.questionAnswers || {})
+    const resolved = await service.submitAnswer(bubble.questionRequestId, bubble.questionAnswers || {})
     applyResolvedQuestion(bubble, bubble.questionAnswers || {})
+    const targetWindow = resolved.windowId ? findTargetWindow(resolved.windowId) : undefined
+    if (resolved.windowId && !targetWindow?.isStreaming) {
+      await options.waitForInteractionContinuation?.(resolved.windowId)
+    }
   }
 
   const cancelQuestion = async (bubble: ChatBubble) => {
     if (!bubble.questionRequestId || bubble.questionSubmitted) return
     const service = getQuestionService(options.agentApiBase)
-    await service.cancelQuestion(bubble.questionRequestId)
+    const resolved = await service.cancelQuestion(bubble.questionRequestId)
     applyResolvedQuestion(bubble, {})
+    const targetWindow = resolved.windowId ? findTargetWindow(resolved.windowId) : undefined
+    if (resolved.windowId && !targetWindow?.isStreaming) {
+      await options.waitForInteractionContinuation?.(resolved.windowId)
+    }
   }
 
   return { startListening, stopListening, submitAnswer, cancelQuestion }

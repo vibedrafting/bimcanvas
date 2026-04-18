@@ -1082,22 +1082,52 @@ export const useChatStream = (options: ChatStreamOptions) => {
     }
   };
 
+  const syncHistoryForWindow = async (windowId: string): Promise<string | null> => {
+    const windowState = options.windows.value.find(item => item.id === windowId);
+    if (!windowState) {
+      return null;
+    }
+
+    const historyService = getChatHistoryService(options.agentApiBase);
+    const response = await historyService.getHistory(windowId);
+    restoreHistoryForWindow(windowState, response);
+    await nextTick();
+    options.scrollToBottom({ windowId });
+    return response.sessionStatus ?? response.session?.status ?? null;
+  };
+
+  const waitForInteractionContinuation = async (windowId: string) => {
+    const maxAttempts = 30;
+    const intervalMs = 800;
+    const windowState = options.windows.value.find(item => item.id === windowId);
+    if (windowState) {
+      windowState.isStreaming = true;
+    }
+
+    try {
+      for (let attempt = 0; attempt < maxAttempts; attempt++) {
+        const status = await syncHistoryForWindow(windowId);
+        if (status !== 'running' && status !== 'paused') {
+          return;
+        }
+
+        await new Promise(resolve => setTimeout(resolve, intervalMs));
+      }
+    } finally {
+      if (windowState) {
+        windowState.isStreaming = false;
+      }
+    }
+  };
+
   const restoreHistory = async (windowIds: string[]) => {
     if (windowIds.length === 0) {
       return;
     }
 
-    const historyService = getChatHistoryService(options.agentApiBase);
-
     await Promise.all(windowIds.map(async windowId => {
-      const windowState = options.windows.value.find(item => item.id === windowId);
-      if (!windowState) {
-        return;
-      }
-
       try {
-        const response = await historyService.getHistory(windowId);
-        restoreHistoryForWindow(windowState, response);
+        await syncHistoryForWindow(windowId);
       } catch (error) {
         console.warn(`[useChatStream] Restore history failed for window ${windowId}:`, error);
       }
@@ -1274,6 +1304,7 @@ export const useChatStream = (options: ChatStreamOptions) => {
     streamWelcomeMessage,
     sendMessage,
     restoreHistory,
+    waitForInteractionContinuation,
     interruptMessage,
     checkAgentHealth,
     fetchProjectPath,

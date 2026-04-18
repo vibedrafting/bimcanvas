@@ -330,6 +330,7 @@ const {
   streamWelcomeMessage,
   sendMessage,
   restoreHistory,
+  waitForInteractionContinuation,
   interruptMessage,
   checkAgentHealth,
   fetchProjectPath,
@@ -375,7 +376,8 @@ const {
 } = useQuestion({
   agentApiBase: AGENT_API_BASE,
   windows,
-  scrollToBottom
+  scrollToBottom,
+  waitForInteractionContinuation
 });
 
 setStreamWelcomeMessage(streamWelcomeMessage);
