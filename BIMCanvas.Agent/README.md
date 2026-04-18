@@ -171,7 +171,8 @@ data: [DONE]
 当前矩阵的关键能力声明：
 
 - `text_stream` / `tool_call_lifecycle` / `interaction_query` / `interaction_submit` / `interaction_cancel` / `question_pause_resume` / `screenshot_async`：`required`
-- `thinking` / `subtask_causality`：`optional`
+- `thinking`：`optional`
+- `subtask_causality`：Claude 为 `optional`；OpenAI phase 1 为 `unsupported`
 - `usage` / `trace` / `permission_pause_resume`：`unsupported`
 
 ### Runtime 选择
@@ -213,14 +214,18 @@ OpenAI 首版适配走原生 `FunctionTool(needs_approval=True) + RunState` 路�
 - Web 端提交 `/api/interaction/{id}/submit` 或兼容 `/api/question/answer` 后，Host 会恢复 `Runner.run_streamed()` 继续同一 turn
 - `resumeToken` 支持跨 SSE 断线 / 页面 reload；但 v0.1 不保证 Agent Host 进程重启后仍可恢复
 
-### OpenAI SubAgent
+### OpenAI 阶段一范围
 
-OpenAI 侧的 Claude `Task` 等价实现不是 `Handoff`，而是 `Agent.as_tool(..., on_stream=...)`：
+OpenAI runtime 第一阶段只提供稳定基础 Runtime，不追求与 Claude 工作流等价：
 
-- 根 Agent 会把 `<BIMCANVAS_HOME>/agents/*.md` 中的子代理配置投影为 agent-tools
-- 外层 `tool_called(tool_origin=agent_as_tool)` 会映射为 `subtask.started`
-- 子 run 的文本 / thinking / 工具事件通过 `on_stream` 转发，并复用同一个 `subtaskId`
-- `Handoff` 当前仍只保留在适配器内部，不进入 v0.1 主流协议
+- 支持文本对话
+- 支持图片输入
+- 支持 `AskUserQuestion -> PendingInteractionRecord -> RunState resume`
+- 只注册本地 function tools：`Read / Write / Edit / Glob / Grep / Bash / AskUserQuestion`
+- 不注册 `Task`
+- 不注册 `Skill / Plugin`
+- 不注册任何 `mcp__canvas__*`
+- 不把 `<BIMCANVAS_HOME>/agents/*.md` 投影为 `Agent.as_tool()`，因此不会产生 `subtask.*`
 
 ### ControlPlane 错误语义
 
@@ -517,7 +522,7 @@ BIMCanvas.Agent/
 当前有两套 Host-facing adapter：
 
 - `MainAgent`：Claude 专属实现，保留原有 `Task` / `can_use_tool` 路径
-- `OpenAIAgent`：OpenAI Agents SDK 适配器，负责 `RunState` pause/resume、`Agent.as_tool()` 子任务投影
+- `OpenAIAgent`：OpenAI Agents SDK 适配器，阶段一只负责本地 function tools、图片输入与 `RunState` pause/resume
 
 它们都实现同一个 `HostAgentProtocol`，并通过 `agent/factory.py` 由 `http_server.py` 统一创建。
 
@@ -595,6 +600,9 @@ Host 进程内的运行时真相源：
 - Agent 只从 `<BIMCANVAS_HOME>/config.json` 读取连接参数与推理参数。
 - Web 对话默认模型统一存放在 `<BIMCANVAS_HOME>/web_config.json > defaultModel`，
   并由 Web 在聊天请求中显式传给 Agent。
+- 当 `runtimeProvider=openai-agents` 时，不再支持 `opus / sonnet / haiku` 这类 Claude alias。
+  `config.json > modelMapping` 的 key 必须就是实际 OpenAI model id，且 entry.id 必须与 key 相同；
+  `web_config.json > defaultModel` 也必须直接写实际 OpenAI model id。
 
 #### config.json 格式
 
@@ -632,6 +640,8 @@ Host 进程内的运行时真相源：
 **注意**：
 
 - `baseUrl` / `apiKey` 是“直连模式”配置；启用 CCR 托管后，它们不会被覆盖删除，但会暂时失效。
+- OpenAI phase 1 会对 `permissions.allow/deny` 执行“配置权限 ∩ 本地工具支持集”裁剪。
+  `Task`、`Skill`、`mcp__canvas__*` 等不在阶段一支持集内的工具会被忽略，并在启动日志中提示。
 
 #### SubAgent 配置格式 (agents/*.md)
 

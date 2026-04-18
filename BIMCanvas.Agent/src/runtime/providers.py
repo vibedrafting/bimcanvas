@@ -172,10 +172,10 @@ _OPENAI_CAPABILITY_MATRIX: tuple[dict[str, Any], ...] = (
     },
     {
         "capabilityKey": "subtask_causality",
-        "level": "optional",
-        "providerMapping": "Agent.as_tool(..., on_stream=...) + host subtask projection",
+        "level": "unsupported",
+        "providerMapping": None,
         "frontendFallback": "hide-subtask-activity-panel",
-        "notes": "Handoff remains internal-only in v0.1; subtask causality is carried by agent-as-tool calls.",
+        "notes": "OpenAI phase 1 only exposes local function tools and AskUserQuestion; SubAgent/Handoff stays out of scope.",
     },
     {
         "capabilityKey": "trace",

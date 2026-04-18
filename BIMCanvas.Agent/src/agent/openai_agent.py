@@ -21,6 +21,18 @@ from .errors import TurnPausedError
 
 logger = logging.getLogger(__name__)
 
+_OPENAI_PHASE_ONE_LOCAL_TOOL_ORDER = (
+    "Read",
+    "Write",
+    "Edit",
+    "Glob",
+    "Grep",
+    "Bash",
+    "AskUserQuestion",
+)
+_OPENAI_PHASE_ONE_LOCAL_TOOL_SET = frozenset(_OPENAI_PHASE_ONE_LOCAL_TOOL_ORDER)
+_CLAUDE_MODEL_ALIASES = frozenset({"opus", "sonnet", "haiku"})
+
 
 class QuestionOption(TypedDict, total=False):
     label: str
@@ -83,11 +95,11 @@ class OpenAIAgent:
         self.window_seq = window_seq
         self.verbose = verbose
         self._config_loader = get_config_loader()
-        self._subagent_configs = self._config_loader.load_agents()
         self._connected = False
         self._current_model: str | None = None
         self._runtime_context: dict[str, str] | None = None
         self._active_stream_result: Any | None = None
+        self._phase_one_scope_logged = False
 
     @property
     def is_connected(self) -> bool:
@@ -112,7 +124,9 @@ class OpenAIAgent:
             os.environ["OPENAI_BASE_URL"] = settings.base_url
         _load_openai_agents_module()
         if model:
+            self._validate_requested_model(model)
             self._current_model = model
+        self._log_phase_one_scope()
         self._connected = True
 
     async def disconnect(self) -> None:
@@ -125,6 +139,7 @@ class OpenAIAgent:
         self._connected = False
 
     async def set_model(self, model: str) -> bool:
+        self._validate_requested_model(model)
         self._current_model = model
         self._connected = True
         return True
@@ -187,16 +202,11 @@ class OpenAIAgent:
                 for chunk in translator.translate(event, forced_subtask_id=forced_subtask_id):
                     await stream_queue.put(chunk)
 
-            async def _on_nested_stream(payload: dict[str, Any]) -> None:
-                provider_call_id = _resolve_provider_call_id(payload.get("tool_call"))
-                forced_subtask_id = translator.ensure_subtask_id_for_provider_call(provider_call_id)
-                await _emit_translated_event(payload.get("event"), forced_subtask_id=forced_subtask_id)
-
             run_context = self._build_run_context(runtime_context=runtime_context, canvas_context=context)
             starting_agent = self._build_root_agent(
                 agents,
                 model=model,
-                nested_stream_handler=_on_nested_stream,
+                nested_stream_handler=None,
             )
             input_items = self._build_input_items(
                 user_message=user_message,
@@ -299,17 +309,6 @@ class OpenAIAgent:
         ) -> None:
             for chunk in translator.translate(event, forced_subtask_id=forced_subtask_id):
                 await stream_queue.put(chunk)
-
-        async def _on_nested_stream(payload: dict[str, Any]) -> None:
-            provider_call_id = _resolve_provider_call_id(payload.get("tool_call"))
-            forced_subtask_id = translator.ensure_subtask_id_for_provider_call(provider_call_id)
-            await _emit_translated_event(payload.get("event"), forced_subtask_id=forced_subtask_id)
-
-        starting_agent = self._build_root_agent(
-            agents,
-            model=self._current_model,
-            nested_stream_handler=_on_nested_stream,
-        )
         state = await agents.RunState.from_json(
             starting_agent,
             state_payload,
@@ -490,8 +489,7 @@ class OpenAIAgent:
                 return stdout_text.strip() or "(no output)"
             return f"exit={process.returncode}\nSTDOUT:\n{stdout_text}\nSTDERR:\n{stderr_text}".strip()
 
-        @function_tool(name_override="AskUserQuestion", needs_approval=True)
-        async def ask_user_question(ctx: tool_context_type, questions: list[QuestionDef]) -> dict[str, Any]:
+        async def ask_user_question(ctx: Any, questions: list[QuestionDef]) -> dict[str, Any]:
             """Ask the user one or more structured questions and resume after the answer arrives."""
             answers_by_call_id = {}
             context_mapping = getattr(ctx, "context", None)
@@ -501,16 +499,12 @@ class OpenAIAgent:
             if not isinstance(answers, dict):
                 answers = {}
             return {"answers": answers}
+        ask_user_question.__annotations__["ctx"] = tool_context_type
+        ask_user_question = function_tool(
+            name_override="AskUserQuestion",
+            needs_approval=True,
+        )(ask_user_question)
 
-        local_tools = [
-            read_file,
-            write_file,
-            edit_file,
-            glob_files,
-            grep_files,
-            run_shell,
-            ask_user_question,
-        ]
         tool_by_name = {
             "Read": read_file,
             "Write": write_file,
@@ -520,32 +514,8 @@ class OpenAIAgent:
             "Bash": run_shell,
             "AskUserQuestion": ask_user_question,
         }
-
-        agent_tools: list[Any] = list(local_tools)
-        if nested_stream_handler is None:
-            return agent_tools
-
-        for config in self._subagent_configs.values():
-            selected_tools = [
-                tool_by_name[name]
-                for name in config.tools
-                if name in tool_by_name
-            ]
-            subagent = agents.Agent(
-                name=config.name,
-                instructions=config.prompt + f"\n\n工作目录: {self.working_directory}",
-                tools=selected_tools,
-                model=self._resolve_subagent_model(config.model, model),
-            )
-            agent_tools.append(
-                subagent.as_tool(
-                    tool_name=config.name,
-                    tool_description=config.description,
-                    on_stream=nested_stream_handler,
-                )
-            )
-
-        return agent_tools
+        enabled_tool_names = self._resolve_phase_one_tool_names()
+        return [tool_by_name[name] for name in enabled_tool_names]
 
     def _build_input_items(
         self,
@@ -608,10 +578,58 @@ class OpenAIAgent:
 
         return MainAgent._build_context_block(context)
 
-    def _resolve_subagent_model(self, configured_model: str | None, requested_model: str | None) -> str | None:
-        if not configured_model or configured_model == "inherit":
-            return requested_model or self._current_model
-        return configured_model
+    def _resolve_phase_one_tool_names(self) -> list[str]:
+        allowed_tools, denied_tools = self._config_loader.load_permissions()
+
+        if allowed_tools is None:
+            enabled_names = set(_OPENAI_PHASE_ONE_LOCAL_TOOL_SET)
+        else:
+            enabled_names = {
+                name
+                for name in allowed_tools
+                if name in _OPENAI_PHASE_ONE_LOCAL_TOOL_SET
+            }
+
+        enabled_names -= {
+            name
+            for name in denied_tools
+            if name in _OPENAI_PHASE_ONE_LOCAL_TOOL_SET
+        }
+
+        unsupported_requested = sorted({
+            name
+            for name in [*(allowed_tools or []), *denied_tools]
+            if name not in _OPENAI_PHASE_ONE_LOCAL_TOOL_SET
+        })
+        if unsupported_requested:
+            logger.warning(
+                "OpenAI phase 1 ignored unsupported tools from permissions: %s",
+                ", ".join(unsupported_requested),
+            )
+
+        return [name for name in _OPENAI_PHASE_ONE_LOCAL_TOOL_ORDER if name in enabled_names]
+
+    def _validate_requested_model(self, model: str | None) -> None:
+        normalized_model = (model or "").strip()
+        if not normalized_model:
+            raise ValueError(
+                "OpenAI runtime requires a concrete model id in the request; empty model is not allowed."
+            )
+        if normalized_model.lower() in _CLAUDE_MODEL_ALIASES:
+            raise ValueError(
+                "OpenAI runtime does not accept Claude model aliases like "
+                f"'{normalized_model}'. Update <BIMCANVAS_HOME>/config.json modelMapping keys "
+                "and <BIMCANVAS_HOME>/web_config.json defaultModel/customModels to real OpenAI model ids."
+            )
+
+    def _log_phase_one_scope(self) -> None:
+        if self._phase_one_scope_logged:
+            return
+        logger.info(
+            "OpenAI phase 1 enabled: local function tools only (%s); SubAgent/Task/Skill/MCP disabled.",
+            ", ".join(_OPENAI_PHASE_ONE_LOCAL_TOOL_ORDER),
+        )
+        self._phase_one_scope_logged = True
 
     async def _push_pending_question_interaction(
         self,

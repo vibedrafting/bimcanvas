@@ -2,6 +2,7 @@
 
 import logging
 import os
+from pathlib import Path
 from dataclasses import dataclass, field
 from functools import lru_cache
 from dotenv import load_dotenv
@@ -10,6 +11,7 @@ from .loader import get_config_loader
 from ..runtime.providers import DEFAULT_RUNTIME_PROVIDER, OPENAI_RUNTIME_ID, normalize_runtime_provider
 
 logger = logging.getLogger(__name__)
+_CLAUDE_MODEL_ALIASES = frozenset({"opus", "sonnet", "haiku"})
 
 # Load environment variables from .env file
 load_dotenv()
@@ -73,6 +75,7 @@ class Settings:
             base_url = os.getenv('OPENAI_BASE_URL', '').strip() or direct_base_url
             if not api_key:
                 raise ValueError("OpenAI runtime requires OPENAI_API_KEY or config.json apiKey")
+            _validate_openai_model_configuration(loader.config_dir, model_mapping)
             logger.info("使用 OpenAI Agents Runtime")
         elif ccr_managed:
             api_key = os.getenv('AGENT_SDK_API_KEY', '').strip()
@@ -148,3 +151,45 @@ def _apply_model_mapping(model_mapping: dict) -> None:
         if model_id:
             os.environ[env_name] = model_id
             logger.info(f"模型映射: {family} → {model_id}")
+
+
+def _validate_openai_model_configuration(config_dir: Path, model_mapping: dict) -> None:
+    for model_key, entry in model_mapping.items():
+        normalized_key = str(model_key).strip()
+        if normalized_key.lower() in _CLAUDE_MODEL_ALIASES:
+            raise ValueError(
+                "OpenAI runtime requires config.json modelMapping keys to be real OpenAI model ids; "
+                f"found Claude alias '{normalized_key}'."
+            )
+
+        configured_id = ""
+        if isinstance(entry, dict):
+            configured_id = str(entry.get("id", "")).strip()
+        elif isinstance(entry, str):
+            configured_id = entry.strip()
+
+        if configured_id and configured_id != normalized_key:
+            raise ValueError(
+                "OpenAI runtime requires config.json modelMapping key and id to match the real model id; "
+                f"found key '{normalized_key}' with id '{configured_id}'."
+            )
+
+    web_config_path = config_dir / "web_config.json"
+    if not web_config_path.exists():
+        raise ValueError(
+            f"OpenAI runtime requires <BIMCANVAS_HOME>/web_config.json, but it was not found: {web_config_path}"
+        )
+
+    import json
+
+    with web_config_path.open("r", encoding="utf-8-sig") as handle:
+        web_config = json.load(handle)
+
+    default_model = str(web_config.get("defaultModel", "")).strip()
+    if not default_model:
+        raise ValueError("OpenAI runtime requires web_config.json defaultModel to be set to a real OpenAI model id.")
+    if default_model.lower() in _CLAUDE_MODEL_ALIASES:
+        raise ValueError(
+            "OpenAI runtime does not accept Claude aliases in web_config.json defaultModel; "
+            f"found '{default_model}'."
+        )
