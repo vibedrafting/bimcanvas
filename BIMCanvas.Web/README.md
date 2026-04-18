@@ -133,13 +133,18 @@
 **已实现能力**:
 - **多窗口隔离**: 基于 Worktree 的虚拟窗口，窗口间聊天、分支、滚动状态互不干扰。
 - **SSE 流式对话**: `/api/chat/stream` 逐行推送，支持思考过程与分段输出。
+    - 主消费协议已切换到 `eventType + payload` envelope；`turn.completed / turn.failed` 是对话终态，`[DONE]` 仅保留兼容兜底。
 - **子任务可视化**: SubAgent/ToolCall 气泡模型 + Waiting 提示。
+- **统一 InteractionChannel**:
+    - Question / Screenshot 共用 `/api/interaction/events` SSE，并统一通过 `/api/interaction/{id}/submit|cancel` 完成交互。
+    - Reload 时仅对“当前页面已存在的窗口”执行 `GET /api/interaction?windowId=...` 恢复；question bubble 按 interaction record 的 `windowId` 路由，不再猜测当前激活窗口。
 - **截图附件资源化**:
     - 上传/粘贴/框选截图统一先上传到 `BIMCanvas.Server`
     - 前端输入区持有 `pendingAttachments: ChatAttachmentRef[]`，不再持有 `base64[]`
     - 聊天发送只传 `clientMessageId + attachmentIds`，不再把整张图片塞进 `/api/chat/stream`
     - 失败或中止时恢复附件草稿，避免重新截图
 - **模型/思考强度**: 模型列表来自 `/api/config` 与 `/api/web_config`，默认模型来自 `/api/web_config.defaultModel`，思考强度来自 `/api/config`。
+- **运行时能力降级**: `/api/config.capabilityMatrix` 会驱动 Thinking 开关、Tasks 视图等前端降级；当 `thinking` 或 `subtask_causality` 不受支持时，相关入口会自动隐藏或禁用。
 - **接口基址兜底**: 未显式配置 `VITE_SERVER_URL` / `VITE_AGENT_URL` 时，开发态默认使用当前主机的 `5000`，并统一通过 `/agent` 代理访问 Agent；生产静态托管时，Server 与 Agent 默认统一收口到同源入口，其中 Agent 走 `/agent`。
 
 **代码拆分**（核心文件）:

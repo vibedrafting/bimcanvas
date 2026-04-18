@@ -139,6 +139,8 @@ export interface InteractionEventEnvelope {
   record: InteractionRecord;
 }
 
+export type InteractionEventListener = (event: InteractionEventEnvelope) => void;
+
 export interface InteractionQueryResponse {
   windowId: string;
   sessionId?: string | null;

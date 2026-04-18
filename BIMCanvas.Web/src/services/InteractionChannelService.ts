@@ -2,6 +2,7 @@ import { AGENT_API } from '../config/api';
 import type {
   InteractionEventEnvelope,
   InteractionEventName,
+  InteractionEventListener,
   InteractionQueryResponse,
   InteractionRecord
 } from '../types/agent';
@@ -12,8 +13,6 @@ const INTERACTION_EVENT_NAMES: InteractionEventName[] = [
   'interaction.cancelled',
   'interaction.expired'
 ];
-
-export type InteractionEventListener = (event: InteractionEventEnvelope) => void;
 
 export class InteractionChannelService {
   private serverUrl: string;

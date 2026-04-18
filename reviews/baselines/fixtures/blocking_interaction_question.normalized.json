@@ -1,0 +1,268 @@
+{
+  "scenario": "blocking_interaction_question",
+  "recordedAt": "2026-04-18T08:44:51.018654Z",
+  "windowId": "primary",
+  "sessionId": "5320560d-7302-401e-83e3-d3b3e20ec47b",
+  "doneReceived": true,
+  "events": [
+    {
+      "eventId": "eeb70629-99dc-46a6-a68f-b30d7757d427",
+      "sessionId": "5320560d-7302-401e-83e3-d3b3e20ec47b",
+      "turnId": "11b8bb96-de4e-4e8b-be0c-b3de62e3f072",
+      "eventType": "tool.started",
+      "timestamp": "2026-04-18T08:44:51.015Z",
+      "payload": {
+        "toolName": "AskUserQuestion",
+        "toolDescription": "Ask the user a blocking question",
+        "params": {
+          "questions": [
+            {
+              "header": "Color",
+              "question": "Pick one color",
+              "options": [
+                {
+                  "label": "Blue",
+                  "description": "Use blue"
+                },
+                {
+                  "label": "Green",
+                  "description": "Use green"
+                }
+              ],
+              "multiSelect": false
+            }
+          ]
+        },
+        "origin": "root"
+      },
+      "subtaskId": "st-root-11b8bb96-de4e-4e8b-be0c-b3de62e3f072",
+      "toolCallId": "tool-ask-1",
+      "type": "tool_call_start",
+      "toolName": "AskUserQuestion",
+      "toolDescription": "Ask the user a blocking question",
+      "toolParams": {
+        "questions": [
+          {
+            "header": "Color",
+            "question": "Pick one color",
+            "options": [
+              {
+                "label": "Blue",
+                "description": "Use blue"
+              },
+              {
+                "label": "Green",
+                "description": "Use green"
+              }
+            ],
+            "multiSelect": false
+          }
+        ]
+      }
+    },
+    {
+      "eventId": "5d96b103-0d35-4616-b4c5-d1b9775d7a86",
+      "sessionId": "5320560d-7302-401e-83e3-d3b3e20ec47b",
+      "turnId": "11b8bb96-de4e-4e8b-be0c-b3de62e3f072",
+      "eventType": "tool.completed",
+      "timestamp": "2026-04-18T08:44:51.018Z",
+      "payload": {
+        "success": true
+      },
+      "subtaskId": "st-root-11b8bb96-de4e-4e8b-be0c-b3de62e3f072",
+      "toolCallId": "tool-ask-1",
+      "type": "tool_call_complete",
+      "toolName": "AskUserQuestion",
+      "success": true
+    },
+    {
+      "eventId": "0deb6a01-4668-449c-ba55-58795b7d67b2",
+      "sessionId": "5320560d-7302-401e-83e3-d3b3e20ec47b",
+      "turnId": "11b8bb96-de4e-4e8b-be0c-b3de62e3f072",
+      "eventType": "turn.completed",
+      "timestamp": "2026-04-18T08:44:51.018Z",
+      "payload": {
+        "stopReason": "completed"
+      }
+    }
+  ],
+  "interactionEvents": [
+    {
+      "event": "interaction.pushed",
+      "record": {
+        "interactionId": "ba1e2a5c-e6a9-4aab-9335-771d5c58fe50",
+        "sessionId": "5320560d-7302-401e-83e3-d3b3e20ec47b",
+        "turnId": "11b8bb96-de4e-4e8b-be0c-b3de62e3f072",
+        "windowId": "primary",
+        "kind": "question",
+        "blocking": true,
+        "status": "pending",
+        "resumeToken": "resume:6a7cc451-2b72-4d60-b88d-06023fce56dd",
+        "requestPayload": {
+          "questions": [
+            {
+              "header": "Color",
+              "question": "Pick one color",
+              "options": [
+                {
+                  "label": "Blue",
+                  "description": "Use blue"
+                },
+                {
+                  "label": "Green",
+                  "description": "Use green"
+                }
+              ],
+              "multiSelect": false
+            }
+          ]
+        },
+        "resolutionPayload": null,
+        "createdAt": "2026-04-18T08:44:51.015217Z",
+        "updatedAt": "2026-04-18T08:44:51.015219Z",
+        "expiresAt": null,
+        "cancelReason": null
+      }
+    },
+    {
+      "event": "interaction.resolved",
+      "record": {
+        "interactionId": "ba1e2a5c-e6a9-4aab-9335-771d5c58fe50",
+        "sessionId": "5320560d-7302-401e-83e3-d3b3e20ec47b",
+        "turnId": "11b8bb96-de4e-4e8b-be0c-b3de62e3f072",
+        "windowId": "primary",
+        "kind": "question",
+        "blocking": true,
+        "status": "resolved",
+        "resumeToken": "resume:6a7cc451-2b72-4d60-b88d-06023fce56dd",
+        "requestPayload": {
+          "questions": [
+            {
+              "header": "Color",
+              "question": "Pick one color",
+              "options": [
+                {
+                  "label": "Blue",
+                  "description": "Use blue"
+                },
+                {
+                  "label": "Green",
+                  "description": "Use green"
+                }
+              ],
+              "multiSelect": false
+            }
+          ]
+        },
+        "resolutionPayload": {
+          "answers": {
+            "Pick one color": "Blue"
+          }
+        },
+        "createdAt": "2026-04-18T08:44:51.015217Z",
+        "updatedAt": "2026-04-18T08:44:51.017928Z",
+        "expiresAt": null,
+        "cancelReason": null
+      }
+    }
+  ],
+  "interactionQueries": [
+    {
+      "windowId": "primary",
+      "sessionId": "5320560d-7302-401e-83e3-d3b3e20ec47b",
+      "interactions": [
+        {
+          "interactionId": "ba1e2a5c-e6a9-4aab-9335-771d5c58fe50",
+          "sessionId": "5320560d-7302-401e-83e3-d3b3e20ec47b",
+          "turnId": "11b8bb96-de4e-4e8b-be0c-b3de62e3f072",
+          "windowId": "primary",
+          "kind": "question",
+          "blocking": true,
+          "status": "pending",
+          "resumeToken": "resume:6a7cc451-2b72-4d60-b88d-06023fce56dd",
+          "requestPayload": {
+            "questions": [
+              {
+                "header": "Color",
+                "question": "Pick one color",
+                "options": [
+                  {
+                    "label": "Blue",
+                    "description": "Use blue"
+                  },
+                  {
+                    "label": "Green",
+                    "description": "Use green"
+                  }
+                ],
+                "multiSelect": false
+              }
+            ]
+          },
+          "resolutionPayload": null,
+          "createdAt": "2026-04-18T08:44:51.015217Z",
+          "updatedAt": "2026-04-18T08:44:51.015219Z",
+          "expiresAt": null,
+          "cancelReason": null
+        }
+      ]
+    }
+  ],
+  "timeline": [
+    {
+      "sequence": 1,
+      "stream": "chat",
+      "eventType": "tool.started",
+      "turnId": "11b8bb96-de4e-4e8b-be0c-b3de62e3f072",
+      "toolCallId": "tool-ask-1",
+      "subtaskId": "st-root-11b8bb96-de4e-4e8b-be0c-b3de62e3f072",
+      "toolName": "AskUserQuestion",
+      "stopReason": null
+    },
+    {
+      "sequence": 2,
+      "stream": "interaction",
+      "event": "interaction.pushed",
+      "interactionId": "ba1e2a5c-e6a9-4aab-9335-771d5c58fe50",
+      "turnId": "11b8bb96-de4e-4e8b-be0c-b3de62e3f072",
+      "kind": "question",
+      "blocking": true,
+      "status": "pending"
+    },
+    {
+      "sequence": 3,
+      "stream": "interaction",
+      "event": "interaction.resolved",
+      "interactionId": "ba1e2a5c-e6a9-4aab-9335-771d5c58fe50",
+      "turnId": "11b8bb96-de4e-4e8b-be0c-b3de62e3f072",
+      "kind": "question",
+      "blocking": true,
+      "status": "resolved"
+    },
+    {
+      "sequence": 4,
+      "stream": "chat",
+      "eventType": "tool.completed",
+      "turnId": "11b8bb96-de4e-4e8b-be0c-b3de62e3f072",
+      "toolCallId": "tool-ask-1",
+      "subtaskId": "st-root-11b8bb96-de4e-4e8b-be0c-b3de62e3f072",
+      "toolName": "AskUserQuestion",
+      "stopReason": null
+    },
+    {
+      "sequence": 5,
+      "stream": "chat",
+      "eventType": "turn.completed",
+      "turnId": "11b8bb96-de4e-4e8b-be0c-b3de62e3f072",
+      "toolCallId": null,
+      "subtaskId": null,
+      "toolName": null,
+      "stopReason": "completed"
+    },
+    {
+      "sequence": 6,
+      "stream": "chat",
+      "done": true
+    }
+  ]
+}

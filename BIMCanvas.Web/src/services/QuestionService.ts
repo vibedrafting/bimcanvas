@@ -90,11 +90,14 @@ export class QuestionService {
   }
 }
 
-let instance: QuestionService | null = null;
+const instances = new Map<string, QuestionService>();
 
 export function getQuestionService(serverUrl?: string): QuestionService {
+  const normalizedUrl = serverUrl || AGENT_API;
+  let instance = instances.get(normalizedUrl);
   if (!instance) {
-    instance = new QuestionService(serverUrl);
+    instance = new QuestionService(normalizedUrl);
+    instances.set(normalizedUrl, instance);
   }
   return instance;
 }

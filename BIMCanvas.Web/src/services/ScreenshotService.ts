@@ -287,11 +287,14 @@ export class ScreenshotService {
 }
 
 // 单例实例
-let instance: ScreenshotService | null = null
+const instances = new Map<string, ScreenshotService>()
 
 export function getScreenshotService(serverUrl?: string): ScreenshotService {
+  const normalizedUrl = serverUrl || AGENT_API
+  let instance = instances.get(normalizedUrl)
   if (!instance) {
-    instance = new ScreenshotService(serverUrl)
+    instance = new ScreenshotService(normalizedUrl)
+    instances.set(normalizedUrl, instance)
   }
   return instance
 }

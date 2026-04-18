@@ -58,7 +58,6 @@ const LEGACY_EVENT_TYPE_MAP: Record<string, string> = {
   tool_call_output: 'tool.output',
   tool_call_complete: 'tool.completed'
 };
-const TERMINAL_EVENT_TYPES = new Set(['turn.completed', 'turn.failed']);
 const ASSISTANT_EVENT_TYPES = new Set([
   'thinking.delta',
   'thinking.completed',
@@ -535,6 +534,10 @@ export const useChatStream = (options: ChatStreamOptions) => {
               didReceiveAssistantEvent = true;
             }
 
+            if (normalizedEvent.eventType === 'turn.completed' || normalizedEvent.eventType === 'turn.failed') {
+              receivedTerminalEvent = true;
+            }
+
             if (normalizedEvent.eventType === 'session_ready') {
               agentStatus.value = 'connected';
               continue;
@@ -781,16 +784,14 @@ export const useChatStream = (options: ChatStreamOptions) => {
                 for (const bubble of streamingSubAgents) {
                   markAsBackground(bubble);
                   bubble.subAgentResult = `正在获取结果... (timeout: ${timeout / 1000}s)`;
-                }
-                break;
               }
-              case 'turn.completed': {
-                receivedTerminalEvent = true;
+              break;
+            }
+            case 'turn.completed': {
                 finalizeStreamingMessage(currentMsg);
                 break;
               }
               case 'turn.failed': {
-                receivedTerminalEvent = true;
                 finalizeStreamingMessage(currentMsg);
                 appendTerminalFailure(
                   currentMsg,

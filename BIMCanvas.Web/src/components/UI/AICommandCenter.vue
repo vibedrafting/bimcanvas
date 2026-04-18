@@ -351,6 +351,7 @@ const {
 const {
   showScreenshotOverlay,
   startListening,
+  stopListening: stopScreenshotListening,
   handleScreenshotCapture,
   handleScreenshotCancel,
   removePendingAttachment
@@ -365,6 +366,7 @@ const {
 
 const {
   startListening: startQuestionListening,
+  stopListening: stopQuestionListening,
   submitAnswer,
   cancelQuestion
 } = useQuestion({
@@ -541,8 +543,8 @@ onMounted(() => {
 
 onUnmounted(() => {
   window.removeEventListener('click', handleGlobalClick);
-  // SSE 连接由 singleton 服务管理，不随组件卸载关闭
-  // stopListening() / stopQuestionListening() 已移除
+  stopScreenshotListening();
+  stopQuestionListening();
   cleanupHealthCheck();
 });
 

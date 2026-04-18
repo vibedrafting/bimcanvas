@@ -1,0 +1,121 @@
+{
+  "scenario": "single_tool_call",
+  "recordedAt": "2026-04-18T08:44:51.009258Z",
+  "windowId": "primary",
+  "sessionId": "848d5153-45c7-43db-8856-9c53e07e3f86",
+  "doneReceived": true,
+  "events": [
+    {
+      "eventId": "36fce0f9-3b4a-484b-a7f2-8e60ab6c7498",
+      "sessionId": "848d5153-45c7-43db-8856-9c53e07e3f86",
+      "turnId": "fa300470-cdf0-440c-a4dc-dbf446a4c03b",
+      "eventType": "tool.started",
+      "timestamp": "2026-04-18T08:44:51.008Z",
+      "payload": {
+        "toolName": "Read",
+        "toolDescription": "Read file",
+        "params": {
+          "path": "README.md"
+        },
+        "origin": "root"
+      },
+      "subtaskId": "st-root-fa300470-cdf0-440c-a4dc-dbf446a4c03b",
+      "toolCallId": "tool-read-1",
+      "type": "tool_call_start",
+      "toolName": "Read",
+      "toolDescription": "Read file",
+      "toolParams": {
+        "path": "README.md"
+      }
+    },
+    {
+      "eventId": "98a999cb-3c47-4326-88eb-4b9ff2d1d78e",
+      "sessionId": "848d5153-45c7-43db-8856-9c53e07e3f86",
+      "turnId": "fa300470-cdf0-440c-a4dc-dbf446a4c03b",
+      "eventType": "tool.output",
+      "timestamp": "2026-04-18T08:44:51.008Z",
+      "payload": {
+        "output": "file contents"
+      },
+      "subtaskId": "st-root-fa300470-cdf0-440c-a4dc-dbf446a4c03b",
+      "toolCallId": "tool-read-1",
+      "type": "tool_call_output",
+      "toolOutput": "file contents"
+    },
+    {
+      "eventId": "94f8d8e2-8960-4657-885f-417ac2ac8fdb",
+      "sessionId": "848d5153-45c7-43db-8856-9c53e07e3f86",
+      "turnId": "fa300470-cdf0-440c-a4dc-dbf446a4c03b",
+      "eventType": "tool.completed",
+      "timestamp": "2026-04-18T08:44:51.008Z",
+      "payload": {
+        "output": "file contents",
+        "success": true
+      },
+      "subtaskId": "st-root-fa300470-cdf0-440c-a4dc-dbf446a4c03b",
+      "toolCallId": "tool-read-1",
+      "type": "tool_call_complete",
+      "toolName": "Read",
+      "success": true
+    },
+    {
+      "eventId": "89de36bd-bbb5-455c-84c5-d6a039fba991",
+      "sessionId": "848d5153-45c7-43db-8856-9c53e07e3f86",
+      "turnId": "fa300470-cdf0-440c-a4dc-dbf446a4c03b",
+      "eventType": "turn.completed",
+      "timestamp": "2026-04-18T08:44:51.008Z",
+      "payload": {
+        "stopReason": "completed"
+      }
+    }
+  ],
+  "interactionEvents": [],
+  "interactionQueries": [],
+  "timeline": [
+    {
+      "sequence": 2,
+      "stream": "chat",
+      "eventType": "tool.started",
+      "turnId": "fa300470-cdf0-440c-a4dc-dbf446a4c03b",
+      "toolCallId": "tool-read-1",
+      "subtaskId": "st-root-fa300470-cdf0-440c-a4dc-dbf446a4c03b",
+      "toolName": "Read",
+      "stopReason": null
+    },
+    {
+      "sequence": 3,
+      "stream": "chat",
+      "eventType": "tool.output",
+      "turnId": "fa300470-cdf0-440c-a4dc-dbf446a4c03b",
+      "toolCallId": "tool-read-1",
+      "subtaskId": "st-root-fa300470-cdf0-440c-a4dc-dbf446a4c03b",
+      "toolName": null,
+      "stopReason": null
+    },
+    {
+      "sequence": 4,
+      "stream": "chat",
+      "eventType": "tool.completed",
+      "turnId": "fa300470-cdf0-440c-a4dc-dbf446a4c03b",
+      "toolCallId": "tool-read-1",
+      "subtaskId": "st-root-fa300470-cdf0-440c-a4dc-dbf446a4c03b",
+      "toolName": "Read",
+      "stopReason": null
+    },
+    {
+      "sequence": 5,
+      "stream": "chat",
+      "eventType": "turn.completed",
+      "turnId": "fa300470-cdf0-440c-a4dc-dbf446a4c03b",
+      "toolCallId": null,
+      "subtaskId": null,
+      "toolName": null,
+      "stopReason": "completed"
+    },
+    {
+      "sequence": 6,
+      "stream": "chat",
+      "done": true
+    }
+  ]
+}
