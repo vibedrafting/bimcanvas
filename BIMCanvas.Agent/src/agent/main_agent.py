@@ -5,7 +5,6 @@ import logging
 import os
 import re
 from typing import Any, AsyncIterator
-from dataclasses import dataclass
 
 from claude_agent_sdk import (
     ClaudeSDKClient,
@@ -30,43 +29,9 @@ from .agent_logger import get_agent_logger
 from .worktree_manager import WorktreeManager, WorktreeContext
 # MCP 服务器（业务工具）
 from ..mcp import canvas_mcp, CANVAS_ALLOWED_TOOLS
+from ..runtime import StreamChunk
 
 logger = logging.getLogger(__name__)
-
-
-@dataclass
-class StreamChunk:
-    """
-    流式响应块 - 支持 SubAgent/ToolCall 事件
-
-    事件类型：
-    - thinking / thinking_complete: 思考内容
-    - text / text_complete: 文本内容
-    - subagent_start / subagent_complete: SubAgent 生命周期
-    - tool_call_start / tool_call_output / tool_call_complete: 工具调用生命周期
-    - task_output_polling: TaskOutput 工具轮询事件
-    """
-    type: str
-    content: str = ""
-    # SubAgent 事件字段
-    subagent_id: str = None
-    subagent_name: str = None
-    subagent_type: str = None
-    # ToolCall 事件字段
-    tool_call_id: str = None
-    tool_name: str = None
-    tool_description: str = None
-    tool_params: dict = None
-    tool_output: str = None
-    success: bool = None
-    error: str = None
-    # 错误分类字段
-    error_type: str = None       # "recoverable" | "blocking" | None
-    error_content: str = None    # 提取的错误内容（不含 XML 标签，blocking 类型）
-    hidden_content: str = None   # 被过滤的内容（调试用，recoverable 类型）
-    # TaskOutput 事件字段
-    task_id: str = None          # 后台任务 ID
-    timeout: int = None          # 轮询超时时间 (ms)
 
 
 class MainAgent:
@@ -85,6 +50,9 @@ class MainAgent:
     - 启用 Task 工具，AI 自主决定何时派发 SubAgent
     - 详细日志输出所有 Agent 活动
     """
+
+    runtime_id = "claude-sdk"
+    runtime_version = "0.1.0"
 
     def __init__(
         self,
@@ -146,6 +114,10 @@ class MainAgent:
         self._worktree_manager: WorktreeManager | None = None
         self._runtime_context: dict[str, str] | None = None
 
+    @property
+    def is_connected(self) -> bool:
+        return self._connected
+
     def set_runtime_context(self, runtime_context: dict[str, str] | None) -> None:
         """Set host-provided runtime context for the current turn."""
         self._runtime_context = dict(runtime_context) if runtime_context else None
@@ -153,6 +125,9 @@ class MainAgent:
     def clear_runtime_context(self) -> None:
         """Clear host-provided runtime context after the current turn."""
         self._runtime_context = None
+
+    async def resume_interaction(self, *args, **kwargs) -> list[dict[str, Any]]:
+        raise NotImplementedError("Claude runtime does not support host-driven interaction resume.")
 
     # ─────────────────────────────────────────────────────
     # Configuration

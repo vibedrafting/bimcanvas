@@ -7,6 +7,7 @@ from functools import lru_cache
 from dotenv import load_dotenv
 
 from .loader import get_config_loader
+from ..runtime.providers import DEFAULT_RUNTIME_PROVIDER, OPENAI_RUNTIME_ID, normalize_runtime_provider
 
 logger = logging.getLogger(__name__)
 
@@ -29,7 +30,9 @@ class Settings:
     - AGENT_SDK_BASE_URL: Agent SDK 专用 Base URL
     """
 
+    runtime_provider: str
     anthropic_api_key: str
+    openai_api_key: str
     base_url: str
     default_effort: str              # "low"/"medium"/"high"/"max", 默认 "medium"
     default_thinking: str            # "off"/"adaptive", 默认 "off"
@@ -50,6 +53,9 @@ class Settings:
         # 从配置文件读取
         direct_api_key = config.get('apiKey', '')
         direct_base_url = config.get('baseUrl', '')
+        runtime_provider = normalize_runtime_provider(
+            os.getenv('AGENT_RUNTIME_PROVIDER') or config.get('runtimeProvider') or DEFAULT_RUNTIME_PROVIDER
+        )
         default_effort = config.get('defaultEffort', 'medium')
         default_thinking = config.get('defaultThinking', 'off')
         raw_thinking_tokens = config.get('maxThinkingTokens', None)
@@ -57,12 +63,18 @@ class Settings:
         tools = config.get('tools', ['Read', 'Glob', 'Grep', 'Task'])
         host = server.get('host', '127.0.0.1')
         port = server.get('port', 8865)
-        ccr_managed = _is_ccr_managed_mode()
+        ccr_managed = runtime_provider != OPENAI_RUNTIME_ID and _is_ccr_managed_mode()
 
         # 模型映射（两种模式都加载，用于 /api/config 返回下拉菜单）
         model_mapping = config.get('modelMapping', {})
 
-        if ccr_managed:
+        if runtime_provider == OPENAI_RUNTIME_ID:
+            api_key = os.getenv('OPENAI_API_KEY', '').strip() or direct_api_key
+            base_url = os.getenv('OPENAI_BASE_URL', '').strip() or direct_base_url
+            if not api_key:
+                raise ValueError("OpenAI runtime requires OPENAI_API_KEY or config.json apiKey")
+            logger.info("使用 OpenAI Agents Runtime")
+        elif ccr_managed:
             api_key = os.getenv('AGENT_SDK_API_KEY', '').strip()
             base_url = os.getenv('AGENT_SDK_BASE_URL', '').strip()
 
@@ -95,7 +107,9 @@ class Settings:
         project_path = os.getenv('DEFAULT_PROJECT_PATH', '')
 
         return cls(
+            runtime_provider=runtime_provider,
             anthropic_api_key=api_key,
+            openai_api_key=api_key,
             base_url=base_url,
             max_thinking_tokens=max_thinking_tokens,
             default_effort=default_effort,

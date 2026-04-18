@@ -3,11 +3,10 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
-from typing import TYPE_CHECKING, Any
+from typing import Any
 import uuid
 
-if TYPE_CHECKING:
-    from ..agent.main_agent import StreamChunk
+from .chunks import StreamChunk
 
 
 EVENT_TYPE_MAP: dict[str, str] = {
@@ -175,9 +174,9 @@ class MainStreamMapper:
         subtask_id = self._resolve_subtask_id(chunk)
         output_value = self._resolve_tool_output(chunk)
 
-        if output_value:
+        if output_value and not chunk.suppress_public_tool_output:
             legacy_output = None
-            if chunk.tool_output:
+            if chunk.tool_output and not chunk.suppress_public_tool_output:
                 legacy_output = {
                     "type": "tool_call_output",
                     "toolCallId": chunk.tool_call_id,
@@ -206,7 +205,7 @@ class MainStreamMapper:
                 ),
                 legacy=build_legacy_chunk_event_data(
                     chunk,
-                    include_tool_output=not bool(chunk.tool_output),
+                    include_tool_output=not bool(chunk.tool_output) or chunk.suppress_public_tool_output,
                 ),
                 subtask_id=subtask_id,
                 tool_call_id=chunk.tool_call_id,
@@ -223,8 +222,8 @@ class MainStreamMapper:
                 {
                     "name": chunk.subagent_name,
                     "type": chunk.subagent_type,
-                    "parentSubtaskId": self.root_subtask_id,
-                    "origin": "tool",
+                    "parentSubtaskId": chunk.parent_subtask_id or self.root_subtask_id,
+                    "origin": chunk.origin or "tool",
                 }
             )
 
@@ -234,8 +233,8 @@ class MainStreamMapper:
                     "success": chunk.success,
                     "error": chunk.error,
                     "summary": chunk.content,
-                    "parentSubtaskId": self.root_subtask_id,
-                    "origin": "tool",
+                    "parentSubtaskId": chunk.parent_subtask_id or self.root_subtask_id,
+                    "origin": chunk.origin or "tool",
                 }
             )
 
@@ -245,7 +244,7 @@ class MainStreamMapper:
                     "toolName": chunk.tool_name,
                     "toolDescription": chunk.tool_description,
                     "params": chunk.tool_params or {},
-                    "origin": "tool" if chunk.subagent_id else "root",
+                    "origin": chunk.origin or ("tool" if chunk.subagent_id else "root"),
                 }
             )
 

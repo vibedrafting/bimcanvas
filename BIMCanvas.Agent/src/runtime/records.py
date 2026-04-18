@@ -96,6 +96,29 @@ class PendingInteractionRecord:
 
 
 @dataclass(slots=True)
+class PendingInteractionRuntimeBinding:
+    """Host-private runtime binding for pause/resume capable interactions."""
+
+    interaction_id: str
+    resume_token: str
+    runtime_id: str
+    session_id: str
+    turn_id: str
+    window_id: str
+    run_state_json: str | None = None
+    approval_call_id: str | None = None
+    public_tool_call_id: str | None = None
+    projection_state: dict[str, Any] | None = None
+    agent_identity: str | None = None
+    status: str = "pending"
+    created_at: datetime = field(default_factory=_utcnow)
+    updated_at: datetime = field(default_factory=_utcnow)
+
+    def touch(self) -> None:
+        self.updated_at = _utcnow()
+
+
+@dataclass(slots=True)
 class SessionHistoryEntry:
     """Host-owned session transcript entry for refresh restore."""
 

@@ -1,17 +1,35 @@
 """Runtime store exports."""
 
-from .capabilities import RUNTIME_ID, RUNTIME_VERSION, build_capability_matrix
+from .chunks import StreamChunk
 from .main_stream import MainStreamMapper, build_legacy_chunk_event_data
-from .records import PendingInteractionRecord, RuntimeSessionRecord
+from .providers import (
+    CLAUDE_RUNTIME_ID,
+    DEFAULT_RUNTIME_PROVIDER,
+    OPENAI_RUNTIME_ID,
+    RUNTIME_VERSION,
+    build_capability_matrix,
+    get_runtime_descriptor,
+    normalize_runtime_provider,
+)
+from .records import PendingInteractionRecord, PendingInteractionRuntimeBinding, RuntimeSessionRecord
 from .store import RuntimeStateStore
+
+RUNTIME_ID = CLAUDE_RUNTIME_ID
 
 __all__ = [
     "RUNTIME_ID",
     "RUNTIME_VERSION",
+    "CLAUDE_RUNTIME_ID",
+    "OPENAI_RUNTIME_ID",
+    "DEFAULT_RUNTIME_PROVIDER",
     "MainStreamMapper",
+    "PendingInteractionRuntimeBinding",
     "PendingInteractionRecord",
     "RuntimeSessionRecord",
     "RuntimeStateStore",
+    "StreamChunk",
     "build_capability_matrix",
     "build_legacy_chunk_event_data",
+    "get_runtime_descriptor",
+    "normalize_runtime_provider",
 ]

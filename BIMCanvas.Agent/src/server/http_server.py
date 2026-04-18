@@ -14,17 +14,27 @@ from typing import Any
 import aiohttp_cors
 from aiohttp import web
 
-from ..agent.main_agent import MainAgent
+from ..agent.errors import TurnPausedError
+from ..agent.factory import create_agent
+from ..agent.protocol import HostAgentProtocol
 from ..attachments.chat_attachments import AttachmentResolutionError, resolve_attachment_image_blocks
 from ..config.loader import resolve_bimcanvas_home
 from ..config.settings import get_settings
-from ..runtime import MainStreamMapper, RUNTIME_ID, RUNTIME_VERSION, RuntimeStateStore, build_capability_matrix
+from ..runtime import (
+    MainStreamMapper,
+    PendingInteractionRuntimeBinding,
+    RuntimeSessionRecord,
+    RuntimeStateStore,
+    StreamChunk,
+    build_capability_matrix,
+    get_runtime_descriptor,
+)
 
 # Configure logging
 logger = logging.getLogger(__name__)
 
 # Global agent instances (cached by window ID for multi-window parallel support)
-agents: dict[str, MainAgent] = {}  # windowId → Agent
+agents: dict[str, HostAgentProtocol] = {}  # windowId → Agent
 _agents_lock = asyncio.Lock()
 runtime_store = RuntimeStateStore()
 
@@ -144,7 +154,12 @@ async def _finalize_turn_state(
     session_id: str,
     turn_id: str,
     terminal_event: dict[str, Any] | None,
+    *,
+    paused: bool = False,
 ) -> None:
+    if paused:
+        return
+
     if terminal_event is None:
         await runtime_store.cancel_turn_interactions(
             session_id,
@@ -216,16 +231,38 @@ def _sanitize_history_attachments(raw_value: Any) -> list[dict[str, Any]]:
     return sanitized
 
 
-async def _disconnect_agent(agent: MainAgent) -> None:
+async def _append_chunk_events(
+    *,
+    stream_mapper: MainStreamMapper,
+    chunk: StreamChunk,
+    session_id: str,
+    turn_id: str,
+    window_id: str,
+    response: web.StreamResponse | None = None,
+    client_stream_connected: bool = False,
+) -> tuple[list[dict[str, Any]], bool]:
+    emitted: list[dict[str, Any]] = []
+    is_connected = client_stream_connected
+
+    for event_data in stream_mapper.map_chunk(chunk):
+        emitted.append(event_data)
+        await runtime_store.append_event_history(
+            session_id=session_id,
+            turn_id=turn_id,
+            window_id=window_id,
+            event_payload=event_data,
+        )
+        if response is not None and is_connected:
+            is_connected = await _try_write_sse_data(response, event_data)
+
+    return emitted, is_connected
+
+
+async def _disconnect_agent(agent: HostAgentProtocol) -> None:
     try:
         await agent.disconnect()
     except Exception as exc:
         logger.warning(f"Error disconnecting agent: {exc}")
-        try:
-            agent._connected = False
-            agent._client = None
-        except Exception:
-            pass
 
 
 async def _teardown_window_locked(
@@ -260,7 +297,7 @@ async def get_agent(
     window_id: str,
     project_path: str,
     worktree_path: str = None,
-) -> tuple[MainAgent, RuntimeSessionRecord]:
+) -> tuple[HostAgentProtocol, RuntimeSessionRecord]:
     """
     获取或创建窗口专属的 Agent 实例和 session。
 
@@ -270,11 +307,13 @@ async def get_agent(
         worktree_path: 实际工作目录（虚拟窗口的 Worktree 路径）
 
     Returns:
-        (MainAgent, RuntimeSessionRecord)
+        (HostAgentProtocol, RuntimeSessionRecord)
     """
     global _window_counter
 
     working_dir = worktree_path or project_path
+    settings = get_settings()
+    runtime_descriptor = get_runtime_descriptor(settings.runtime_provider)
 
     async with _agents_lock:
         agent = agents.get(window_id)
@@ -283,7 +322,8 @@ async def get_agent(
         if agent and session:
             same_project = session.project_path == project_path
             same_worktree = (session.worktree_path or session.project_path) == working_dir
-            if same_project and same_worktree and agent.working_directory == working_dir:
+            same_runtime = session.runtime_id == runtime_descriptor.runtime_id
+            if same_project and same_worktree and same_runtime and agent.working_directory == working_dir:
                 await runtime_store.touch_session(session.session_id)
                 return agent, session
 
@@ -323,7 +363,12 @@ async def get_agent(
                 _window_seq_map[window_id] = seq
 
         if agent is None:
-            agent = MainAgent(project_path, working_directory=working_dir, window_seq=seq)
+            agent = create_agent(
+                settings.runtime_provider,
+                project_path=project_path,
+                working_directory=working_dir,
+                window_seq=seq,
+            )
             agents[window_id] = agent
 
             prefix = _get_window_prefix(seq)
@@ -340,6 +385,8 @@ async def get_agent(
             window_id=window_id,
             project_path=project_path,
             worktree_path=worktree_path,
+            runtime_id=agent.runtime_id,
+            runtime_version=agent.runtime_version,
         )
         return agent, session
 
@@ -406,13 +453,15 @@ async def config_handler(request: web.Request) -> web.Response:
             label = alias.capitalize()
         models.append({"id": alias, "label": label})
 
+    runtime_descriptor = get_runtime_descriptor(settings.runtime_provider)
+
     return web.json_response({
-        "runtime": RUNTIME_ID,
-        "runtimeVersion": RUNTIME_VERSION,
+        "runtime": runtime_descriptor.runtime_id,
+        "runtimeVersion": runtime_descriptor.runtime_version,
         "models": models,
         "defaultEffort": settings.default_effort,
         "defaultThinking": settings.default_thinking,
-        "capabilityMatrix": build_capability_matrix(),
+        "capabilityMatrix": build_capability_matrix(settings.runtime_provider),
     })
 
 
@@ -456,7 +505,7 @@ async def chat_handler(request: web.Request) -> web.Response:
 
     turn_id = str(uuid.uuid4())
     session: RuntimeSessionRecord | None = None
-    agent: MainAgent | None = None
+    agent: HostAgentProtocol | None = None
 
     try:
         agent, session = await get_agent(window_id, project_path, worktree_path)
@@ -487,6 +536,16 @@ async def chat_handler(request: web.Request) -> web.Response:
             "projectPath": project_path,
         })
 
+    except TurnPausedError:
+        if session is not None:
+            session_status = await runtime_store.derive_session_status(session.session_id)
+            return _control_plane_error_response(
+                error_type="SESSION_PAUSED",
+                message="The active session is paused by a pending blocking interaction.",
+                session=session,
+                session_status=session_status,
+            )
+        return web.json_response({"error": "Session paused"}, status=409)
     except Exception as exc:
         logger.exception(f"Chat error: {exc}")
         if session is not None:
@@ -583,7 +642,7 @@ async def chat_stream_handler(request: web.Request) -> web.StreamResponse:
                 session_status=session_status,
             )
 
-        if not agent._connected:
+        if not agent.is_connected:
             await agent.connect(effort=effort, thinking=thinking, model=model)
         elif model and model != agent.get_current_model():
             await agent.set_model(model)
@@ -608,6 +667,7 @@ async def chat_stream_handler(request: web.Request) -> web.StreamResponse:
     stream_mapper = MainStreamMapper(session_id=session.session_id, turn_id=turn_id)
     terminal_event: dict[str, Any] | None = None
     client_stream_connected = True
+    turn_paused = False
 
     try:
         if not session.ready_announced:
@@ -640,23 +700,23 @@ async def chat_stream_handler(request: web.Request) -> web.StreamResponse:
             context=context,
             runtime_context=runtime_context,
         ):
-            for event_data in stream_mapper.map_chunk(chunk):
-                await runtime_store.append_event_history(
-                    session_id=session.session_id,
-                    turn_id=turn_id,
-                    window_id=window_id,
-                    event_payload=event_data,
+            _, client_stream_connected = await _append_chunk_events(
+                stream_mapper=stream_mapper,
+                chunk=chunk,
+                session_id=session.session_id,
+                turn_id=turn_id,
+                window_id=window_id,
+                response=response,
+                client_stream_connected=client_stream_connected,
+            )
+            if not client_stream_connected:
+                logger.info(
+                    "Client stream disconnected; continue turn in transcript-only mode. "
+                    "windowId=%s sessionId=%s turnId=%s",
+                    window_id,
+                    session.session_id,
+                    turn_id,
                 )
-                if client_stream_connected:
-                    client_stream_connected = await _try_write_sse_data(response, event_data)
-                    if not client_stream_connected:
-                        logger.info(
-                            "Client stream disconnected; continue turn in transcript-only mode. "
-                            "windowId=%s sessionId=%s turnId=%s",
-                            window_id,
-                            session.session_id,
-                            turn_id,
-                        )
 
         terminal_event = stream_mapper.build_success_terminal_event()
         await runtime_store.append_event_history(
@@ -668,6 +728,15 @@ async def chat_stream_handler(request: web.Request) -> web.StreamResponse:
         if client_stream_connected:
             client_stream_connected = await _try_write_sse_data(response, terminal_event)
 
+    except TurnPausedError as exc:
+        turn_paused = True
+        logger.info(
+            "Stream paused by interaction. windowId=%s sessionId=%s turnId=%s interactionId=%s",
+            window_id,
+            session.session_id,
+            turn_id,
+            exc.interaction_id,
+        )
     except Exception as exc:
         logger.exception(f"Stream error: {exc}")
         terminal_event = stream_mapper.build_exception_terminal_event(exc)
@@ -688,7 +757,7 @@ async def chat_stream_handler(request: web.Request) -> web.StreamResponse:
             except (ConnectionResetError, RuntimeError):
                 pass
         agent.clear_runtime_context()
-        await _finalize_turn_state(session.session_id, turn_id, terminal_event)
+        await _finalize_turn_state(session.session_id, turn_id, terminal_event, paused=turn_paused)
 
     return response
 
@@ -874,6 +943,10 @@ async def interaction_submit_handler(request: web.Request) -> web.Response:
     if interaction is None:
         return web.json_response({"error": "Unknown interaction ID"}, status=404)
 
+    resume_error = await _resume_openai_interaction_if_needed(interaction, resolution_payload)
+    if resume_error is not None:
+        return resume_error
+
     return web.json_response({
         "success": True,
         "interaction": interaction.to_public_dict(),
@@ -938,6 +1011,118 @@ async def request_user_question(
     return {}
 
 
+async def _resume_openai_interaction_if_needed(
+    interaction,
+    resolution_payload: dict[str, Any],
+) -> web.Response | None:
+    interaction_id = interaction.interaction_id
+    binding = await runtime_store.get_runtime_binding(interaction_id)
+    if (
+        binding is None
+        or interaction.status != "resolved"
+        or binding.status != "pending"
+        or binding.runtime_id != "openai-agents"
+    ):
+        return None
+
+    session = await runtime_store.get_session(interaction.session_id)
+    agent = agents.get(interaction.window_id)
+    if session is None or agent is None:
+        return web.json_response(
+            {
+                "error": "Paused runtime context is no longer available in this host process",
+                "errorType": "RESUME_CONTEXT_UNAVAILABLE",
+            },
+            status=409,
+        )
+
+    await runtime_store.mark_runtime_binding_status(interaction_id, "resuming")
+    stream_mapper = MainStreamMapper(session_id=interaction.session_id, turn_id=interaction.turn_id)
+    terminal_event: dict[str, Any] | None = None
+    turn_paused = False
+
+    async def _append_event(chunk: StreamChunk) -> list[dict[str, Any]]:
+        emitted, _ = await _append_chunk_events(
+            stream_mapper=stream_mapper,
+            chunk=chunk,
+            session_id=interaction.session_id,
+            turn_id=interaction.turn_id,
+            window_id=interaction.window_id,
+        )
+        return emitted
+
+    try:
+        await agent.resume_interaction(
+            interaction_id=interaction_id,
+            binding=binding,
+            resolution_payload=resolution_payload,
+            session=session,
+            append_event=_append_event,
+        )
+        session_status = await runtime_store.derive_session_status(interaction.session_id)
+        if session_status != "paused":
+            terminal_event = stream_mapper.build_success_terminal_event()
+            await runtime_store.append_event_history(
+                session_id=interaction.session_id,
+                turn_id=interaction.turn_id,
+                window_id=interaction.window_id,
+                event_payload=terminal_event,
+            )
+        else:
+            turn_paused = True
+    except Exception as exc:
+        logger.exception("Failed to resume interaction %s: %s", interaction_id, exc)
+        terminal_event = stream_mapper.build_exception_terminal_event(exc)
+        await runtime_store.append_event_history(
+            session_id=interaction.session_id,
+            turn_id=interaction.turn_id,
+            window_id=interaction.window_id,
+            event_payload=terminal_event,
+        )
+    finally:
+        await runtime_store.clear_runtime_binding(interaction_id)
+        await _finalize_turn_state(
+            interaction.session_id,
+            interaction.turn_id,
+            terminal_event,
+            paused=turn_paused,
+        )
+
+    return None
+
+
+async def push_openai_question_interaction(
+    *,
+    questions: list[dict],
+    runtime_context: dict[str, str] | None,
+    runtime_binding: PendingInteractionRuntimeBinding,
+):
+    context = runtime_context or {}
+    window_id = context.get("windowId")
+    session_id = context.get("sessionId")
+    turn_id = context.get("turnId")
+
+    if not window_id or not session_id or not turn_id:
+        raise RuntimeError("OpenAI question pause requires runtime context with windowId/sessionId/turnId")
+
+    interaction = await runtime_store.create_interaction(
+        session_id=session_id,
+        turn_id=turn_id,
+        window_id=window_id,
+        kind="question",
+        blocking=True,
+        resume_token=f"resume:{uuid.uuid4()}",
+        request_payload={"questions": questions},
+        runtime_binding=runtime_binding,
+    )
+    logger.info(
+        "OpenAI question interaction pushed: %s, %s questions",
+        interaction.interaction_id,
+        len(questions),
+    )
+    return interaction
+
+
 async def question_events_handler(request: web.Request) -> web.StreamResponse:
     """兼容 SSE 端点：Web 端监听 Agent 用户问题请求（AskUserQuestion）"""
     response = web.StreamResponse(
@@ -996,10 +1181,17 @@ async def question_answer_handler(request: web.Request) -> web.Response:
     if data.get("cancelled"):
         await runtime_store.cancel_interaction(request_id, cancel_reason="question_cancelled")
     else:
-        await runtime_store.submit_interaction(
+        interaction = await runtime_store.submit_interaction(
             request_id,
             {"answers": data.get("answers", {})},
         )
+        if interaction is not None:
+            resume_error = await _resume_openai_interaction_if_needed(
+                interaction,
+                {"answers": data.get("answers", {})},
+            )
+            if resume_error is not None:
+                return resume_error
 
     logger.info(f"Question answer received: {request_id}")
     return web.json_response({"success": True})

@@ -7,7 +7,12 @@ import uuid
 from datetime import datetime, timezone
 from typing import Any
 
-from .records import PendingInteractionRecord, RuntimeSessionRecord, SessionHistoryEntry
+from .records import (
+    PendingInteractionRecord,
+    PendingInteractionRuntimeBinding,
+    RuntimeSessionRecord,
+    SessionHistoryEntry,
+)
 
 
 class RuntimeStateStore:
@@ -28,6 +33,8 @@ class RuntimeStateStore:
         self._session_terminal: dict[str, list[str]] = {}
         self._session_history: dict[str, list[SessionHistoryEntry]] = {}
         self._interactions: dict[str, PendingInteractionRecord] = {}
+        self._runtime_bindings_by_interaction: dict[str, PendingInteractionRuntimeBinding] = {}
+        self._runtime_bindings_by_token: dict[str, str] = {}
         self._interaction_subscribers: list[asyncio.Queue] = []
         self._terminal_retention_limit = terminal_retention_limit or self.TERMINAL_RETENTION_LIMIT
         self._history_retention_limit = history_retention_limit or self.HISTORY_RETENTION_LIMIT
@@ -49,12 +56,16 @@ class RuntimeStateStore:
         window_id: str,
         project_path: str,
         worktree_path: str | None,
+        runtime_id: str = "claude-sdk",
+        runtime_version: str = "0.1.0",
     ) -> RuntimeSessionRecord:
         session = RuntimeSessionRecord(
             session_id=str(uuid.uuid4()),
             window_id=window_id,
             project_path=project_path,
             worktree_path=worktree_path,
+            runtime_id=runtime_id,
+            runtime_version=runtime_version,
         )
         async with self._lock:
             self._sessions[session.session_id] = session
@@ -154,6 +165,7 @@ class RuntimeStateStore:
 
             for interaction_id in purge_ids:
                 self._interactions.pop(interaction_id, None)
+                self._drop_runtime_binding_locked(interaction_id)
 
         for waiter in waiters_to_resolve:
             waiter.set_result(
@@ -193,6 +205,7 @@ class RuntimeStateStore:
         resume_token: str,
         request_payload: dict[str, Any],
         expires_at: datetime | None = None,
+        runtime_binding: PendingInteractionRuntimeBinding | None = None,
     ) -> PendingInteractionRecord:
         loop = asyncio.get_running_loop()
         interaction = PendingInteractionRecord(
@@ -211,12 +224,62 @@ class RuntimeStateStore:
         async with self._lock:
             self._interactions[interaction.interaction_id] = interaction
             self._session_pending.setdefault(session_id, set()).add(interaction.interaction_id)
+            if runtime_binding is not None:
+                binding = runtime_binding
+                binding.interaction_id = interaction.interaction_id
+                binding.resume_token = interaction.resume_token
+                binding.session_id = session_id
+                binding.turn_id = turn_id
+                binding.window_id = window_id
+                self._runtime_bindings_by_interaction[interaction.interaction_id] = binding
+                self._runtime_bindings_by_token[interaction.resume_token] = interaction.interaction_id
             session = self._sessions.get(session_id)
             if session:
                 session.touch()
             subscribers = list(self._interaction_subscribers)
         self._publish(subscribers, "interaction.pushed", interaction.to_public_dict())
         return interaction
+
+    async def get_runtime_binding(
+        self,
+        interaction_id: str,
+    ) -> PendingInteractionRuntimeBinding | None:
+        async with self._lock:
+            return self._runtime_bindings_by_interaction.get(interaction_id)
+
+    async def get_runtime_binding_by_token(
+        self,
+        resume_token: str,
+    ) -> PendingInteractionRuntimeBinding | None:
+        async with self._lock:
+            interaction_id = self._runtime_bindings_by_token.get(resume_token)
+            if not interaction_id:
+                return None
+            return self._runtime_bindings_by_interaction.get(interaction_id)
+
+    async def mark_runtime_binding_status(
+        self,
+        interaction_id: str,
+        status: str,
+    ) -> PendingInteractionRuntimeBinding | None:
+        async with self._lock:
+            binding = self._runtime_bindings_by_interaction.get(interaction_id)
+            if binding is None:
+                return None
+            binding.status = status
+            binding.touch()
+            return binding
+
+    async def clear_runtime_binding(
+        self,
+        interaction_id: str,
+    ) -> PendingInteractionRuntimeBinding | None:
+        async with self._lock:
+            binding = self._runtime_bindings_by_interaction.get(interaction_id)
+            if binding is None:
+                return None
+            self._drop_runtime_binding_locked(interaction_id)
+            return binding
 
     async def append_user_history(
         self,
@@ -475,6 +538,8 @@ class RuntimeStateStore:
                 waiter = interaction._waiter
 
             self._trim_terminal_interactions_locked(interaction.session_id)
+            if final_status != "resolved":
+                self._drop_runtime_binding_locked(interaction_id)
             public_payload = interaction.to_public_dict()
             subscribers = list(self._interaction_subscribers)
 
@@ -518,6 +583,7 @@ class RuntimeStateStore:
         while len(terminal_ids) > self._terminal_retention_limit:
             interaction_id = terminal_ids.pop(0)
             self._interactions.pop(interaction_id, None)
+            self._drop_runtime_binding_locked(interaction_id)
 
     def _trim_history_locked(self, session_id: str) -> None:
         history_entries = self._session_history.setdefault(session_id, [])
@@ -529,3 +595,9 @@ class RuntimeStateStore:
         payload = {"event": event_name, "record": record}
         for queue in subscribers:
             queue.put_nowait(payload)
+
+    def _drop_runtime_binding_locked(self, interaction_id: str) -> None:
+        binding = self._runtime_bindings_by_interaction.pop(interaction_id, None)
+        if binding is None:
+            return
+        self._runtime_bindings_by_token.pop(binding.resume_token, None)
