@@ -5,6 +5,7 @@ import os
 from pathlib import Path
 from dataclasses import dataclass, field
 from functools import lru_cache
+from urllib.parse import urlparse
 from dotenv import load_dotenv
 
 from .loader import get_config_loader
@@ -36,6 +37,8 @@ class Settings:
     anthropic_api_key: str
     openai_api_key: str
     base_url: str
+    openai_api: str
+    openai_disable_tracing: bool
     default_effort: str              # "low"/"medium"/"high"/"max", 默认 "medium"
     default_thinking: str            # "off"/"adaptive", 默认 "off"
     max_thinking_tokens: int | None  # thinking token 预算上限，None/-1/空 = 不限制
@@ -58,6 +61,8 @@ class Settings:
         runtime_provider = normalize_runtime_provider(
             os.getenv('AGENT_RUNTIME_PROVIDER') or config.get('runtimeProvider') or DEFAULT_RUNTIME_PROVIDER
         )
+        openai_api = "responses"
+        openai_disable_tracing = False
         default_effort = config.get('defaultEffort', 'medium')
         default_thinking = config.get('defaultThinking', 'off')
         raw_thinking_tokens = config.get('maxThinkingTokens', None)
@@ -76,7 +81,19 @@ class Settings:
             if not api_key:
                 raise ValueError("OpenAI runtime requires OPENAI_API_KEY or config.json apiKey")
             _validate_openai_model_configuration(loader.config_dir, model_mapping)
-            logger.info("使用 OpenAI Agents Runtime")
+            openai_api = _resolve_openai_api_mode(
+                os.getenv("OPENAI_API_MODE", "").strip() or config.get("openaiApi"),
+                base_url,
+            )
+            openai_disable_tracing = _resolve_openai_disable_tracing(
+                os.getenv("OPENAI_TRACING_DISABLED", "").strip() or config.get("openaiDisableTracing"),
+                base_url,
+            )
+            logger.info(
+                "使用 OpenAI Agents Runtime (api=%s, tracing=%s)",
+                openai_api,
+                "disabled" if openai_disable_tracing else "enabled",
+            )
         elif ccr_managed:
             api_key = os.getenv('AGENT_SDK_API_KEY', '').strip()
             base_url = os.getenv('AGENT_SDK_BASE_URL', '').strip()
@@ -114,6 +131,8 @@ class Settings:
             anthropic_api_key=api_key,
             openai_api_key=api_key,
             base_url=base_url,
+            openai_api=openai_api,
+            openai_disable_tracing=openai_disable_tracing,
             max_thinking_tokens=max_thinking_tokens,
             default_effort=default_effort,
             default_thinking=default_thinking,
@@ -151,6 +170,52 @@ def _apply_model_mapping(model_mapping: dict) -> None:
         if model_id:
             os.environ[env_name] = model_id
             logger.info(f"模型映射: {family} → {model_id}")
+
+
+def _is_official_openai_base_url(base_url: str | None) -> bool:
+    normalized = (base_url or "").strip()
+    if not normalized:
+        return True
+
+    parsed = urlparse(normalized)
+    host = (parsed.netloc or parsed.path).strip().lower()
+    if host.endswith("/v1"):
+        host = host[:-3]
+    return host in {"api.openai.com", "api.openai.com:443"}
+
+
+def _parse_optional_bool(value: object) -> bool | None:
+    if value is None or value == "":
+        return None
+    if isinstance(value, bool):
+        return value
+
+    normalized = str(value).strip().lower()
+    if normalized in {"1", "true", "yes", "on"}:
+        return True
+    if normalized in {"0", "false", "no", "off"}:
+        return False
+    raise ValueError(
+        "OpenAI runtime openaiDisableTracing/OPENAI_TRACING_DISABLED must be a boolean value."
+    )
+
+
+def _resolve_openai_api_mode(raw_value: object, base_url: str) -> str:
+    normalized = str(raw_value or "").strip().lower().replace("-", "_")
+    if not normalized:
+        return "responses"
+    if normalized not in {"responses", "chat_completions"}:
+        raise ValueError(
+            "OpenAI runtime openaiApi/OPENAI_API_MODE must be 'responses' or 'chat_completions'."
+        )
+    return normalized
+
+
+def _resolve_openai_disable_tracing(raw_value: object, base_url: str) -> bool:
+    parsed = _parse_optional_bool(raw_value)
+    if parsed is not None:
+        return parsed
+    return not _is_official_openai_base_url(base_url)
 
 
 def _validate_openai_model_configuration(config_dir: Path, model_mapping: dict) -> None:

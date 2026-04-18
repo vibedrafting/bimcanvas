@@ -17,6 +17,7 @@ from ..config.loader import get_config_loader
 from ..config.settings import get_settings
 from ..runtime import PendingInteractionRuntimeBinding, RuntimeSessionRecord, StreamChunk
 from ..runtime.openai_stream import OpenAIStreamTranslator
+from .agent_logger import get_agent_logger
 from .errors import TurnPausedError
 
 logger = logging.getLogger(__name__)
@@ -100,6 +101,7 @@ class OpenAIAgent:
         self._runtime_context: dict[str, str] | None = None
         self._active_stream_result: Any | None = None
         self._phase_one_scope_logged = False
+        self._agent_logger = get_agent_logger("OpenAIAgent", window_seq=self.window_seq)
 
     @property
     def is_connected(self) -> bool:
@@ -122,7 +124,16 @@ class OpenAIAgent:
             os.environ["OPENAI_API_KEY"] = settings.openai_api_key
         if settings.base_url:
             os.environ["OPENAI_BASE_URL"] = settings.base_url
-        _load_openai_agents_module()
+        agents = _load_openai_agents_module()
+        openai_module = importlib.import_module("openai")
+        async_openai = openai_module.AsyncOpenAI
+        client_kwargs: dict[str, Any] = {"api_key": settings.openai_api_key}
+        if settings.base_url:
+            client_kwargs["base_url"] = settings.base_url
+        client = async_openai(**client_kwargs)
+        agents.set_default_openai_client(client=client, use_for_tracing=False)
+        agents.set_default_openai_api(settings.openai_api)
+        agents.set_tracing_disabled(settings.openai_disable_tracing)
         if model:
             self._validate_requested_model(model)
             self._current_model = model
@@ -185,6 +196,13 @@ class OpenAIAgent:
         self.set_runtime_context(runtime_context)
         consumer_task: asyncio.Task[Any] | None = None
         try:
+            if user_message:
+                self._agent_logger.log_user_message(user_message)
+            elif images or image_blocks:
+                self._agent_logger.log_user_message("[attachment-only message]")
+            if client_message_id:
+                self._agent_logger.log_info(f"[Attachment] clientMessageId={client_message_id}")
+
             if not self.is_connected:
                 await self.connect(effort=effort, thinking=thinking, model=model)
             elif model and model != self._current_model:
@@ -251,7 +269,10 @@ class OpenAIAgent:
                     raise item
                 if isinstance(item, Exception):
                     raise item
+                self._log_chunk_for_console(item)
                 yield item
+
+            self._agent_logger.log_complete(model=model or self._current_model)
         finally:
             if consumer_task is not None and not consumer_task.done():
                 consumer_task.cancel()
@@ -621,6 +642,36 @@ class OpenAIAgent:
                 f"'{normalized_model}'. Update <BIMCANVAS_HOME>/config.json modelMapping keys "
                 "and <BIMCANVAS_HOME>/web_config.json defaultModel/customModels to real OpenAI model ids."
             )
+
+    def _log_chunk_for_console(self, chunk: StreamChunk) -> None:
+        if chunk.type == "thinking_complete" and chunk.content:
+            self._agent_logger.log_thinking_start()
+            self._agent_logger.log_thinking(chunk.content)
+            self._agent_logger.log_thinking_end()
+            return
+
+        if chunk.type == "tool_call_start":
+            self._agent_logger.log_tool_use(chunk.tool_name or chunk.tool_call_id or "Tool", chunk.tool_params or {})
+            return
+
+        if chunk.type == "tool_call_complete":
+            tool_label = chunk.tool_name or chunk.tool_call_id or "Tool"
+            tool_result = chunk.tool_output or chunk.error or "(no output)"
+            self._agent_logger.log_tool_result(tool_label, tool_result, is_error=bool(chunk.error))
+            return
+
+        if chunk.type == "text_complete" and chunk.content:
+            self._agent_logger.log_response_start()
+            self._agent_logger.log_response(chunk.content)
+            self._agent_logger.log_response_end()
+            return
+
+        if chunk.type == "subagent_start":
+            self._agent_logger.log_info(f"Subtask started: {chunk.subagent_name or chunk.subagent_id or 'subtask'}")
+            return
+
+        if chunk.type == "subagent_complete":
+            self._agent_logger.log_info(f"Subtask completed: {chunk.subagent_id or 'subtask'}")
 
     def _log_phase_one_scope(self) -> None:
         if self._phase_one_scope_logged:

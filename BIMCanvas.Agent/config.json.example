@@ -1,11 +1,20 @@
 {
-    "apiKey": "$ANTHROPIC_API_KEY",
-    "model": "claude-sonnet-4-20250514",
-    "maxTokens": 4096,
+    "runtimeProvider": "claude-sdk",
+    "baseUrl": "",
+    "apiKey": "",
+    "openaiApi": "responses",
+    "openaiDisableTracing": false,
+    "modelMapping": {
+        "opus": { "id": "claude-opus-4-6", "label": "Opus" },
+        "sonnet": { "id": "claude-sonnet-4-20250514", "label": "Sonnet" },
+        "haiku": { "id": "claude-haiku-4-5-20251001", "label": "Haiku" }
+    },
+    "defaultEffort": "low",
+    "defaultThinking": "adaptive",
+    "maxThinkingTokens": 8000,
     "permissions": {
-        "deny": [
-            "Read"
-        ]
+        "allow": ["Read", "Glob", "Grep", "Task", "AskUserQuestion"],
+        "deny": []
     },
     "server": {
         "host": "127.0.0.1",

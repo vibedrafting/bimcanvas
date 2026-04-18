@@ -611,6 +611,8 @@ Host 进程内的运行时真相源：
   "runtimeProvider": "claude-sdk",
   "baseUrl": "https://your-direct-provider.example/v1",
   "apiKey": "your-direct-api-key",
+  "openaiApi": "responses",
+  "openaiDisableTracing": false,
   "defaultEffort": "medium",
   "defaultThinking": "adaptive",
   "maxThinkingTokens": 16000,
@@ -640,6 +642,10 @@ Host 进程内的运行时真相源：
 **注意**：
 
 - `baseUrl` / `apiKey` 是“直连模式”配置；启用 CCR 托管后，它们不会被覆盖删除，但会暂时失效。
+- `openaiApi` 仅在 `runtimeProvider=openai-agents` 时生效，取值只能是 `responses` 或 `chat_completions`。
+- OpenAI Agents SDK 官方主路径是 `responses`；BIMCanvas 现在也默认走 `responses`。
+- 使用第三方 OpenAI-compatible 网关时，建议先测试 `responses`；若网关在工具续跑或多轮状态上不兼容，再手动把 `openaiApi` 切回 `chat_completions` 作为兼容模式。
+- `openaiDisableTracing` 仅在 `runtimeProvider=openai-agents` 时生效；第三方网关默认会关闭 tracing，避免把第三方 key 误发到 OpenAI traces 接口。
 - OpenAI phase 1 会对 `permissions.allow/deny` 执行“配置权限 ∩ 本地工具支持集”裁剪。
   `Task`、`Skill`、`mcp__canvas__*` 等不在阶段一支持集内的工具会被忽略，并在启动日志中提示。
 

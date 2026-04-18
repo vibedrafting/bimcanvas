@@ -21,6 +21,7 @@ if str(AGENT_ROOT) not in sys.path:
 from src.agent.openai_agent import OpenAIAgent
 from src.config.loader import ConfigLoader, get_config_loader
 from src.config.settings import get_settings
+from src.runtime import StreamChunk
 from src.runtime.providers import OPENAI_RUNTIME_ID, build_capability_matrix
 
 
@@ -58,6 +59,9 @@ def _set_openai_runtime_config(
     home: Path,
     *,
     api_key: str = "test-openai-key",
+    base_url: str = "https://api.openai.com/v1",
+    openai_api: str | None = None,
+    openai_disable_tracing: bool | None = None,
     model_mapping: dict | None = None,
     permissions: dict | None = None,
 ) -> None:
@@ -65,7 +69,15 @@ def _set_openai_runtime_config(
     config = _read_json(config_path)
     config["runtimeProvider"] = OPENAI_RUNTIME_ID
     config["apiKey"] = api_key
-    config["baseUrl"] = "https://api.openai.com/v1"
+    config["baseUrl"] = base_url
+    if openai_api is not None:
+        config["openaiApi"] = openai_api
+    else:
+        config.pop("openaiApi", None)
+    if openai_disable_tracing is not None:
+        config["openaiDisableTracing"] = openai_disable_tracing
+    else:
+        config.pop("openaiDisableTracing", None)
     if model_mapping is not None:
         config["modelMapping"] = model_mapping
     if permissions is not None:
@@ -250,3 +262,136 @@ def test_openai_capability_matrix_marks_subtask_as_unsupported() -> None:
     )
     assert subtask_row["level"] == "unsupported"
     assert subtask_row["providerMapping"] is None
+
+
+def test_openai_settings_default_to_responses_for_custom_base_url(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    home = _prepare_bimcanvas_home(tmp_path)
+    _configure_test_home(monkeypatch, home)
+    _set_openai_runtime_config(
+        home,
+        base_url="https://gateway.example.com/v1",
+        model_mapping={"gpt-4.1": {"id": "gpt-4.1", "label": "GPT-4.1"}},
+    )
+    _set_web_default_model(home, "gpt-4.1")
+    _reset_config_caches()
+
+    settings = get_settings()
+
+    assert settings.openai_api == "responses"
+    assert settings.openai_disable_tracing is True
+
+
+def test_openai_agent_connect_configures_chat_completions_for_custom_endpoint(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    home = _prepare_bimcanvas_home(tmp_path)
+    _configure_test_home(monkeypatch, home)
+    _set_openai_runtime_config(
+        home,
+        base_url="https://gateway.example.com/v1",
+        openai_api="chat_completions",
+        openai_disable_tracing=True,
+        model_mapping={"gpt-4.1": {"id": "gpt-4.1", "label": "GPT-4.1"}},
+    )
+    _set_web_default_model(home, "gpt-4.1")
+    _reset_config_caches()
+
+    fake_agents = ModuleType("agents")
+    calls: dict[str, object] = {}
+
+    def set_default_openai_client(*, client, use_for_tracing: bool) -> None:
+        calls["client"] = client
+        calls["use_for_tracing"] = use_for_tracing
+
+    def set_default_openai_api(api: str) -> None:
+        calls["openai_api"] = api
+
+    def set_tracing_disabled(disabled: bool) -> None:
+        calls["tracing_disabled"] = disabled
+
+    fake_agents.set_default_openai_client = set_default_openai_client
+    fake_agents.set_default_openai_api = set_default_openai_api
+    fake_agents.set_tracing_disabled = set_tracing_disabled
+    monkeypatch.setitem(sys.modules, "agents", fake_agents)
+
+    fake_openai = ModuleType("openai")
+
+    class AsyncOpenAI:
+        def __init__(self, **kwargs) -> None:
+            self.kwargs = kwargs
+
+    fake_openai.AsyncOpenAI = AsyncOpenAI
+    monkeypatch.setitem(sys.modules, "openai", fake_openai)
+
+    agent = OpenAIAgent(project_path=str(tmp_path), working_directory=str(tmp_path))
+    asyncio.run(agent.connect(model="gpt-4.1"))
+
+    assert calls["openai_api"] == "chat_completions"
+    assert calls["tracing_disabled"] is True
+    assert calls["use_for_tracing"] is False
+    assert calls["client"].kwargs["base_url"] == "https://gateway.example.com/v1"
+
+
+def test_openai_agent_logs_completed_text_and_tool_chunks(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    home = _prepare_bimcanvas_home(tmp_path)
+    _configure_test_home(monkeypatch, home)
+    _set_openai_runtime_config(
+        home,
+        model_mapping={"gpt-4.1": {"id": "gpt-4.1", "label": "GPT-4.1"}},
+    )
+    _set_web_default_model(home, "gpt-4.1")
+    _reset_config_caches()
+
+    class FakeLogger:
+        def __init__(self) -> None:
+            self.calls: list[tuple[str, object]] = []
+
+        def log_thinking_start(self) -> None:
+            self.calls.append(("thinking_start", None))
+
+        def log_thinking(self, content: str) -> None:
+            self.calls.append(("thinking", content))
+
+        def log_thinking_end(self) -> None:
+            self.calls.append(("thinking_end", None))
+
+        def log_tool_use(self, tool_name: str, tool_input: dict) -> None:
+            self.calls.append(("tool_use", (tool_name, tool_input)))
+
+        def log_tool_result(self, tool_name: str, result: str, is_error: bool = False) -> None:
+            self.calls.append(("tool_result", (tool_name, result, is_error)))
+
+        def log_response_start(self) -> None:
+            self.calls.append(("response_start", None))
+
+        def log_response(self, content: str) -> None:
+            self.calls.append(("response", content))
+
+        def log_response_end(self) -> None:
+            self.calls.append(("response_end", None))
+
+        def log_info(self, info: str) -> None:
+            self.calls.append(("info", info))
+
+    agent = OpenAIAgent(project_path=str(tmp_path), working_directory=str(tmp_path))
+    fake_logger = FakeLogger()
+    agent._agent_logger = fake_logger
+
+    agent._log_chunk_for_console(
+        StreamChunk(type="tool_call_start", tool_name="Read", tool_params={"file_path": "README.md"})
+    )
+    agent._log_chunk_for_console(
+        StreamChunk(type="tool_call_complete", tool_name="Read", tool_output="read ok")
+    )
+    agent._log_chunk_for_console(StreamChunk(type="text_complete", content="你好"))
+
+    assert ("tool_use", ("Read", {"file_path": "README.md"})) in fake_logger.calls
+    assert ("tool_result", ("Read", "read ok", False)) in fake_logger.calls
+    assert ("response", "你好") in fake_logger.calls
