@@ -13,24 +13,36 @@ namespace BIMCanvas.Server.Services
     public class AgentClientService
     {
         private readonly ILogger<AgentClientService> _logger;
-        private readonly string _agentBaseUrl;
         private readonly string _agentHealthPath;
+        private readonly RuntimeEndpointState _runtimeEndpointState;
+        private readonly string _configuredAgentBaseUrl;
         private static readonly HttpClient _httpClient = new() { Timeout = Timeout.InfiniteTimeSpan };
 
-        public AgentClientService(ILogger<AgentClientService> logger, ServerConfig config)
+        public AgentClientService(
+            ILogger<AgentClientService> logger,
+            ServerConfig config,
+            RuntimeEndpointState runtimeEndpointState)
         {
             _logger = logger;
-            _agentBaseUrl = config.Agent.GetResolvedBaseUrl(config.Server.Port);
+            _runtimeEndpointState = runtimeEndpointState;
+            _configuredAgentBaseUrl = config.Agent.GetResolvedBaseUrl(config.Server.Port);
             _agentHealthPath = config.Agent.GetResolvedHealthPath();
         }
 
-        public string AgentBaseUrl => _agentBaseUrl;
+        public string AgentBaseUrl
+        {
+            get
+            {
+                var runtimeBaseUrl = _runtimeEndpointState.GetSnapshot().Agent.ActualUrl;
+                return string.IsNullOrWhiteSpace(runtimeBaseUrl) ? _configuredAgentBaseUrl : runtimeBaseUrl;
+            }
+        }
 
         public async Task<bool> CheckHealthAsync(CancellationToken cancellationToken = default)
         {
             try
             {
-                using var request = new HttpRequestMessage(HttpMethod.Get, $"{_agentBaseUrl}{_agentHealthPath}");
+                using var request = new HttpRequestMessage(HttpMethod.Get, $"{AgentBaseUrl}{_agentHealthPath}");
                 using var response = await _httpClient.SendAsync(
                     request,
                     HttpCompletionOption.ResponseHeadersRead,
@@ -55,7 +67,7 @@ namespace BIMCanvas.Server.Services
         {
             try
             {
-                var url = $"{_agentBaseUrl}/api/agent/close";
+                var url = $"{AgentBaseUrl}/api/agent/close";
                 var json = JsonSerializer.Serialize(new { windowId });
                 var content = new StringContent(json, Encoding.UTF8, "application/json");
 

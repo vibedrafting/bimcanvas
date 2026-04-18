@@ -24,4 +24,4 @@ export const SERVER_API = `${SERVER_BASE}/api`
 export const SIGNALR_HUB = `${SERVER_BASE}/hubs/canvas`
 export const AGENT_API =
   agentBaseFromEnv ||
-  (import.meta.env.DEV ? getBrowserBase('8865') : normalizeBase(`${SERVER_BASE}/agent`))
+  normalizeBase(`${SERVER_BASE}/agent`)

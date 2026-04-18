@@ -19,7 +19,7 @@ dotnet run --project BIMCanvas.Server
 
 #### 启动行为
 
-1. 启动 HTTP 服务器（http://localhost:5000）
+1. 启动 HTTP 服务器（默认首选 `http://localhost:5000`，若端口被外部进程占用则顺序避让）
 2. 检测 Python / Agent / CCR 依赖并按需安装
 3. 自动初始化 `<BIMCANVAS_HOME>/` 下的全局配置模板（Server + Agent）
 4. Development 模式下额外初始化 `config.dev.local.json` / `ccr_config.dev.local.json`，并仅在运行时配置首次创建时将其作为初始化种子导入
@@ -39,7 +39,7 @@ docker compose -f deploy/docker-compose.yml -f deploy/docker-compose.local.yml u
 #### 启动行为
 
 1. 以 `ASPNETCORE_ENVIRONMENT=Production` 启动发布版 `BIMCanvas.Server.dll`
-2. Server 直接托管 `BIMCanvas.Web/dist`，对外提供 `http://localhost:5000`
+2. Server 直接托管 `BIMCanvas.Web/dist`，默认首选对外提供 `http://localhost:5000`，若端口被外部进程占用则顺序避让
 3. Docker 推荐通过内部网络连接独立 Agent 容器；Development 模式下仍可自动拉起本地 Agent
 4. 不自动打开浏览器
 5. 全局配置与项目数据统一落到 `BIMCANVAS_HOME`（容器默认 `/data`）
@@ -49,8 +49,8 @@ docker compose -f deploy/docker-compose.yml -f deploy/docker-compose.local.yml u
 
 | 配置 | 位置 | 默认值 | 说明 |
 |------|------|--------|------|
-| API 端口 | `launchSettings.json` | `5000` | REST API 服务端口 |
-| Web 开发端口 | 自动检测 | `5173` | 仅 Development 模式下用于 Vite dev server |
+| API 端口 | `launchSettings.json` | `5000` | REST API 首选端口，运行时若被外部进程占用会顺序避让 |
+| Web 开发端口 | 自动检测 | `5173` | Development 模式下 Vite dev server 首选端口，运行时会顺序避让 |
 | 项目目录 | `<BIMCANVAS_HOME>/Projects/` | Windows: `Documents/BIMCanvas/Projects/` | 项目解压目录 |
 | CCR 配置 | `<BIMCANVAS_HOME>/server_config.json` | `enabled=false` | 网关启用、端口 |
 | CCR Router 配置 | `<BIMCANVAS_HOME>/ccr_config.json` | 自动初始化 | 供应商 / 模型路由映射 |

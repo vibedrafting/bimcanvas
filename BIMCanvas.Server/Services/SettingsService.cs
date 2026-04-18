@@ -69,6 +69,12 @@ public sealed class SettingsService
     ];
 
     private readonly object _syncRoot = new();
+    private readonly RuntimeEndpointState _runtimeEndpointState;
+
+    public SettingsService(RuntimeEndpointState runtimeEndpointState)
+    {
+        _runtimeEndpointState = runtimeEndpointState;
+    }
 
     public SettingsSnapshotDto GetSettings()
     {
@@ -188,13 +194,14 @@ public sealed class SettingsService
         };
     }
 
-    private static SettingsRuntimeDto BuildRuntime(JObject serverValues, JObject webValues)
+    private SettingsRuntimeDto BuildRuntime(JObject serverValues, JObject webValues)
     {
         var isCcrEnabled = serverValues.SelectToken("ccr.enabled")?.Value<bool>() ?? false;
         var dockerManagedRestart = string.Equals(
             Environment.GetEnvironmentVariable("DOTNET_RUNNING_IN_CONTAINER"),
             "true",
             StringComparison.OrdinalIgnoreCase);
+        var runtimeSnapshot = _runtimeEndpointState.GetSnapshot();
 
         return new SettingsRuntimeDto
         {
@@ -205,7 +212,11 @@ public sealed class SettingsService
             RestartBehavior = dockerManagedRestart ? "docker-auto" : "manual",
             RestartHint = dockerManagedRestart
                 ? "当前实例运行在 Docker 容器内，点击重启后会由 restart policy 自动拉起。"
-                : "当前环境未检测到 Docker 自动重启，点击重启后需要手动重新启动服务。"
+                : "当前环境未检测到 Docker 自动重启，点击重启后需要手动重新启动服务。",
+            Server = runtimeSnapshot.Server,
+            Web = runtimeSnapshot.Web,
+            Agent = runtimeSnapshot.Agent,
+            Ccr = runtimeSnapshot.Ccr
         };
     }
 
@@ -361,4 +372,96 @@ public sealed class SettingsService
     {
         return (JObject)value.DeepClone();
     }
+}
+
+public sealed class RuntimeEndpointState
+{
+    private readonly object _syncRoot = new();
+    private RuntimeServiceEndpointDto _server = CreateEmpty("server", "Server");
+    private RuntimeServiceEndpointDto _web = CreateEmpty("web", "Web");
+    private RuntimeServiceEndpointDto _agent = CreateEmpty("agent", "Agent");
+    private RuntimeServiceEndpointDto _ccr = CreateEmpty("ccr", "CCR");
+
+    public void SetServer(RuntimeServiceEndpointDto value) => SetServerInternal(value, "server", "Server");
+    public void SetWeb(RuntimeServiceEndpointDto value) => SetWebInternal(value, "web", "Web");
+    public void SetAgent(RuntimeServiceEndpointDto value) => SetAgentInternal(value, "agent", "Agent");
+    public void SetCcr(RuntimeServiceEndpointDto value) => SetCcrInternal(value, "ccr", "CCR");
+
+    public RuntimeEndpointSnapshot GetSnapshot()
+    {
+        lock (_syncRoot)
+        {
+            return new RuntimeEndpointSnapshot
+            {
+                Server = Clone(_server, "server", "Server"),
+                Web = Clone(_web, "web", "Web"),
+                Agent = Clone(_agent, "agent", "Agent"),
+                Ccr = Clone(_ccr, "ccr", "CCR")
+            };
+        }
+    }
+
+    private void SetServerInternal(RuntimeServiceEndpointDto? value, string key, string title)
+    {
+        lock (_syncRoot)
+        {
+            _server = Clone(value ?? CreateEmpty(key, title), key, title);
+        }
+    }
+
+    private void SetWebInternal(RuntimeServiceEndpointDto? value, string key, string title)
+    {
+        lock (_syncRoot)
+        {
+            _web = Clone(value ?? CreateEmpty(key, title), key, title);
+        }
+    }
+
+    private void SetAgentInternal(RuntimeServiceEndpointDto? value, string key, string title)
+    {
+        lock (_syncRoot)
+        {
+            _agent = Clone(value ?? CreateEmpty(key, title), key, title);
+        }
+    }
+
+    private void SetCcrInternal(RuntimeServiceEndpointDto? value, string key, string title)
+    {
+        lock (_syncRoot)
+        {
+            _ccr = Clone(value ?? CreateEmpty(key, title), key, title);
+        }
+    }
+
+    private static RuntimeServiceEndpointDto Clone(RuntimeServiceEndpointDto value, string key, string title)
+    {
+        return new RuntimeServiceEndpointDto
+        {
+            Key = string.IsNullOrWhiteSpace(value.Key) ? key : value.Key,
+            Title = string.IsNullOrWhiteSpace(value.Title) ? title : value.Title,
+            ManagedByServer = value.ManagedByServer,
+            AutoShifted = value.AutoShifted,
+            ConfiguredUrl = value.ConfiguredUrl ?? string.Empty,
+            ActualUrl = value.ActualUrl ?? string.Empty,
+            ConfiguredPort = value.ConfiguredPort,
+            ActualPort = value.ActualPort
+        };
+    }
+
+    private static RuntimeServiceEndpointDto CreateEmpty(string key, string title)
+    {
+        return new RuntimeServiceEndpointDto
+        {
+            Key = key,
+            Title = title
+        };
+    }
+}
+
+public sealed class RuntimeEndpointSnapshot
+{
+    public RuntimeServiceEndpointDto Server { get; set; } = new();
+    public RuntimeServiceEndpointDto Web { get; set; } = new();
+    public RuntimeServiceEndpointDto Agent { get; set; } = new();
+    public RuntimeServiceEndpointDto Ccr { get; set; } = new();
 }

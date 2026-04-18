@@ -14,7 +14,8 @@
 - 若显式配置：
   - `VITE_SERVER_URL` → 指向 Server 基址
   - `VITE_AGENT_URL` → 指向 Agent 基址
-- 若未显式配置，前端会回退到“当前主机 + `5000/8865`”的开发态寻址策略
+- 若未显式配置，前端会回退到“当前主机 + `5000`”的开发态寻址策略
+- 开发态下 Agent API 默认统一走 `Server /agent` 代理，不再要求前端固定直连 `8865`
 
 ### Production / Docker
 
@@ -139,7 +140,7 @@
     - 聊天发送只传 `clientMessageId + attachmentIds`，不再把整张图片塞进 `/api/chat/stream`
     - 失败或中止时恢复附件草稿，避免重新截图
 - **模型/思考强度**: 模型列表来自 `/api/config` 与 `/api/web_config`，默认模型来自 `/api/web_config.defaultModel`，思考强度来自 `/api/config`。
-- **接口基址兜底**: 未显式配置 `VITE_SERVER_URL` / `VITE_AGENT_URL` 时，开发态默认使用当前主机的 `5000/8865`；生产静态托管时，Server 与 Agent 默认统一收口到同源入口，其中 Agent 走 `/agent`。
+- **接口基址兜底**: 未显式配置 `VITE_SERVER_URL` / `VITE_AGENT_URL` 时，开发态默认使用当前主机的 `5000`，并统一通过 `/agent` 代理访问 Agent；生产静态托管时，Server 与 Agent 默认统一收口到同源入口，其中 Agent 走 `/agent`。
 
 **代码拆分**（核心文件）:
 - `src/components/UI/AICommandCenter.vue`: 组装层，负责 UI 绑定与模块协作。
@@ -278,8 +279,8 @@ Claude API messages.content: [
 ### 环境变量
 
 - `.env.development`
-  - `VITE_SERVER_URL=http://localhost:5000`
-  - `VITE_AGENT_URL=http://localhost:8865`
+  - `VITE_SERVER_URL=`（留空时回退到当前主机的 `5000`）
+  - `VITE_AGENT_URL=`（留空时统一使用 `${VITE_SERVER_URL}/agent` 或同源 `/agent`）
 - `.env.production`
   - 两者可留空，表示由生产环境同源入口或外层反向代理决定
 

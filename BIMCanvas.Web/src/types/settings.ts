@@ -26,6 +26,17 @@ export interface SettingsSnapshot {
   runtime: SettingsRuntime
 }
 
+export interface RuntimeServiceEndpoint {
+  key: string
+  title: string
+  managedByServer: boolean
+  autoShifted: boolean
+  configuredUrl: string
+  actualUrl: string
+  configuredPort: number | null
+  actualPort: number | null
+}
+
 export interface SettingsRuntime {
   mode: 'direct' | 'ccr'
   effectiveDefaultModelPath: string
@@ -33,6 +44,10 @@ export interface SettingsRuntime {
   dockerManagedRestart: boolean
   restartBehavior: 'docker-auto' | 'manual'
   restartHint: string
+  server: RuntimeServiceEndpoint
+  web: RuntimeServiceEndpoint
+  agent: RuntimeServiceEndpoint
+  ccr: RuntimeServiceEndpoint
 }
 
 export interface UpdateSettingsRequest {

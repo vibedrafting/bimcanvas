@@ -30,9 +30,10 @@ dotnet run --project BIMCanvas.Server
 
 默认行为：
 
-- 启动 Server API：`http://localhost:5000`
-- 自动拉起 Web 开发服务器：`http://localhost:5173`
+- 启动 Server API：默认首选 `http://localhost:5000`，若端口被外部进程占用会顺序避让到下一个可用端口
+- 自动拉起 Web 开发服务器：默认首选 `http://localhost:5173`，若端口被外部进程占用会顺序避让到下一个可用端口
 - 自动启动 Agent 服务
+- Agent 开发态请求统一经由 `Server /agent` 代理转发，不再要求前端固定直连 `8865`
 - 自动打开浏览器
 
 首次启动会在 `%USERPROFILE%\Documents\BIMCanvas\` 下自动创建一组安全模板，并额外生成两个开发态私有补齐文件：
@@ -62,8 +63,8 @@ dotnet publish BIMCanvas.Server -c Release -o publish
 
 | 服务 | 地址 | 说明 |
 |------|------|------|
-| Server API | http://localhost:5000 | REST + SignalR 后端 |
-| Web 前端 | http://localhost:5173 | 自动启动并打开浏览器 |
+| Server API | 默认首选 http://localhost:5000 | REST + SignalR 后端，冲突时自动顺序避让 |
+| Web 前端 | 默认首选 http://localhost:5173 | 自动启动并打开浏览器，冲突时自动顺序避让 |
 | Agent 服务 | 后台进程 | 自动启动（需 Python 环境） |
 
 > 发布路径必须为项目根目录下的 `publish/` 文件夹（`-o publish`）。项目绝对路径因电脑而异，命令中无需写绝对路径，在项目根目录执行即可。

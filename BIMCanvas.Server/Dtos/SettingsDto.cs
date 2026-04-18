@@ -19,6 +19,22 @@ public sealed class SettingsRuntimeDto
     public bool DockerManagedRestart { get; set; }
     public string RestartBehavior { get; set; } = "manual";
     public string RestartHint { get; set; } = "";
+    public RuntimeServiceEndpointDto Server { get; set; } = new();
+    public RuntimeServiceEndpointDto Web { get; set; } = new();
+    public RuntimeServiceEndpointDto Agent { get; set; } = new();
+    public RuntimeServiceEndpointDto Ccr { get; set; } = new();
+}
+
+public sealed class RuntimeServiceEndpointDto
+{
+    public string Key { get; set; } = "";
+    public string Title { get; set; } = "";
+    public bool ManagedByServer { get; set; }
+    public bool AutoShifted { get; set; }
+    public string ConfiguredUrl { get; set; } = "";
+    public string ActualUrl { get; set; } = "";
+    public int? ConfiguredPort { get; set; }
+    public int? ActualPort { get; set; }
 }
 
 public sealed class SettingsGroupDto

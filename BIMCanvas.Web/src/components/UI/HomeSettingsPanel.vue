@@ -7,6 +7,7 @@ import GlassSelect from './base/GlassSelect.vue'
 import type {
   SettingsGroup,
   SettingsGroupKey,
+  RuntimeServiceEndpoint,
   SettingsRuntime,
   SettingsSnapshot
 } from '../../types/settings'
@@ -24,13 +25,28 @@ const emit = defineEmits<{
 }>()
 
 const groupKeys: SettingsGroupKey[] = ['server', 'web', 'agent', 'ccr']
+const createRuntimeEndpoint = (key: string, title: string): RuntimeServiceEndpoint => ({
+  key,
+  title,
+  managedByServer: false,
+  autoShifted: false,
+  configuredUrl: '',
+  actualUrl: '',
+  configuredPort: null,
+  actualPort: null
+})
+
 const defaultRuntime: SettingsRuntime = {
   mode: 'direct',
   effectiveDefaultModelPath: 'web.defaultModel',
   effectiveDefaultModelValue: '',
   dockerManagedRestart: false,
   restartBehavior: 'manual',
-  restartHint: '当前环境未检测到 Docker 自动重启，点击重启后需要手动重新启动服务。'
+  restartHint: '当前环境未检测到 Docker 自动重启，点击重启后需要手动重新启动服务。',
+  server: createRuntimeEndpoint('server', 'Server'),
+  web: createRuntimeEndpoint('web', 'Web'),
+  agent: createRuntimeEndpoint('agent', 'Agent'),
+  ccr: createRuntimeEndpoint('ccr', 'CCR')
 }
 
 const createDraft = (key: SettingsGroupKey): GroupDraft => {
@@ -93,6 +109,12 @@ for (const key of groupKeys) {
 
 const isCcrMode = computed(() => Boolean(drafts.server.values.ccr?.enabled))
 const displayEffectiveModelPath = computed(() => 'web.defaultModel')
+const runtimeEndpoints = computed(() => [
+  runtime.value.server,
+  runtime.value.web,
+  runtime.value.agent,
+  runtime.value.ccr
+])
 
 const modelOptions = computed(() => {
   const modelMapping = drafts.agent.values.modelMapping ?? {}
@@ -288,6 +310,24 @@ function textToLines(text: string) {
   return text.split(/\r?\n/).map(item => item.trim()).filter(Boolean)
 }
 
+function runtimeActualLabel(endpoint: RuntimeServiceEndpoint) {
+  return endpoint.actualUrl || '未就绪'
+}
+
+function runtimeSummary(endpoint: RuntimeServiceEndpoint) {
+  const parts = [
+    `首选 ${endpoint.configuredPort ?? '—'}`,
+    `实际 ${endpoint.actualPort ?? '—'}`
+  ]
+
+  if (endpoint.autoShifted) {
+    parts.push('已自动避让')
+  }
+
+  parts.push(endpoint.managedByServer ? 'Server 托管' : '外部依赖')
+  return parts.join(' · ')
+}
+
 function handleModelLinesInput(event: Event) {
   drafts.web.values.customModels = textToLines((event.target as HTMLTextAreaElement).value)
     .map(id => ({ id, label: capitalize(id) }))
@@ -350,6 +390,7 @@ async function handleSave() {
 async function handleRestart() {
   isRestarting.value = true
   saveError.value = null
+  const runtimeServerBase = runtime.value.server.actualUrl || SERVER_BASE
 
   try {
     await SettingsService.restartInstance()
@@ -363,7 +404,7 @@ async function handleRestart() {
     const retryInterval = 1500
     for (let i = 0; i < maxRetries; i++) {
       try {
-        const resp = await fetch(`${SERVER_BASE}/health`, { cache: 'no-store' })
+        const resp = await fetch(`${runtimeServerBase}/health`, { cache: 'no-store' })
         if (resp.ok) {
           saveMessage.value = '服务已恢复，正在刷新页面...'
           await new Promise(r => setTimeout(r, 500))
@@ -387,7 +428,7 @@ async function handleRestart() {
       const maxRetries = 20
       for (let i = 0; i < maxRetries; i++) {
         try {
-          const resp = await fetch(`${SERVER_BASE}/health`, { cache: 'no-store' })
+          const resp = await fetch(`${runtimeServerBase}/health`, { cache: 'no-store' })
           if (resp.ok) {
             window.location.reload()
             return
@@ -443,6 +484,29 @@ onMounted(() => {
         <div v-if="isLoading" class="loading-state">加载配置...</div>
 
         <template v-else>
+          <article class="config-card">
+            <header class="card-header">
+              <div class="heading-left">
+                <svg class="heading-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M3 12h18"/><path d="M12 3v18"/><circle cx="12" cy="12" r="9"/></svg>
+                <div class="heading-text">
+                  <h3>运行时端点</h3>
+                  <p>展示当前实例本次启动实际使用的地址与端口，不会回写配置文件。</p>
+                </div>
+              </div>
+            </header>
+
+            <div class="card-body">
+              <div class="runtime-grid">
+                <div v-for="endpoint in runtimeEndpoints" :key="endpoint.key" class="runtime-card">
+                  <div class="runtime-card-title">{{ endpoint.title }}</div>
+                  <div class="runtime-card-url mono-font">{{ runtimeActualLabel(endpoint) }}</div>
+                  <div class="runtime-card-meta">{{ runtimeSummary(endpoint) }}</div>
+                  <div class="runtime-card-meta mono-font">配置 {{ endpoint.configuredUrl || '—' }}</div>
+                </div>
+              </div>
+            </div>
+          </article>
+
           
           <!-- Card 1: 运行架构 -->
           <article class="config-card">
@@ -1123,6 +1187,35 @@ hr { border: none; }
 .field { display: flex; flex-direction: column; gap: 8px; }
 .field.opacity-muted { opacity: 0.5; transition: opacity 0.2s; }
 .field label { font-size: 13px; font-weight: 500; color: var(--zinc-300); }
+.runtime-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+}
+.runtime-card {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 16px;
+  border-radius: var(--radius-md);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  background: rgba(255, 255, 255, 0.03);
+}
+.runtime-card-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-main);
+}
+.runtime-card-url {
+  font-size: 13px;
+  color: #93c5fd;
+  word-break: break-all;
+}
+.runtime-card-meta {
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--text-muted);
+}
 
 .settings-select {
   width: 100%;

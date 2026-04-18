@@ -4,7 +4,9 @@ using System.Net.Sockets;
 using System.Net.Http.Headers;
 using System.Runtime.InteropServices;
 using System.Text;
+using System.Text.Json;
 using System.Text.RegularExpressions;
+using BIMCanvas.Server.Dtos;
 using BIMCanvas.Server.Hubs;
 using BIMCanvas.Server.Logging;
 using BIMCanvas.Server.Models;
@@ -130,14 +132,38 @@ if (isDevelopment)
 
 // 加载用户配置（提前到 DI 注册前，供 AgentClientService 等服务使用）
 var config = ConfigService.Load();
+var baseDir = AppContext.BaseDirectory;
+var agentProjectPath = FindAgentProjectPath(baseDir);
+var webProjectPath = FindWebProjectPath(baseDir);
 var agentAutoStart = config.Agent.AutoStart;
 var agentPort = config.Agent.GetResolvedPort(config.Server.Port);
 var agentBaseUrl = config.Agent.GetResolvedBaseUrl(config.Server.Port);
 var agentManagedByServer = agentAutoStart && IsLocalDevelopmentOrigin(agentBaseUrl);
 var pythonCommand = config.Agent.GetResolvedPythonCommand(config.Server.PythonCommand);
-var serverBaseUrl = builder.Configuration["Web:BaseUrl"] ?? "http://localhost:5000";
+var runtimeEndpointState = new RuntimeEndpointState();
+var configuredServerBinding = ResolveConfiguredServerBinding(builder.Configuration);
+var resolvedServerPort = ResolveManagedPort(
+    "Server",
+    configuredServerBinding.ListenHost,
+    configuredServerBinding.PreferredPort,
+    pid => IsBIMCanvasServerProcess(pid));
+var serverListenUrl = BuildUrl(configuredServerBinding.Scheme, configuredServerBinding.ListenHost, resolvedServerPort.ActualPort);
+var serverBaseUrl = BuildUrl(configuredServerBinding.Scheme, configuredServerBinding.BrowserHost, resolvedServerPort.ActualPort);
+builder.Configuration["urls"] = serverListenUrl;
+builder.Configuration["Kestrel:Endpoints:Http:Url"] = serverListenUrl;
+builder.Configuration["Web:BaseUrl"] = serverBaseUrl;
+builder.WebHost.UseUrls(serverListenUrl);
+runtimeEndpointState.SetServer(CreateRuntimeEndpoint(
+    "server",
+    "Server",
+    managedByServer: true,
+    autoShifted: resolvedServerPort.AutoShifted,
+    configuredUrl: configuredServerBinding.DisplayUrl,
+    actualUrl: serverBaseUrl,
+    configuredPort: configuredServerBinding.PreferredPort,
+    actualPort: resolvedServerPort.ActualPort));
 var startupErrors = new List<string>();
-var productionWebDistPath = isProduction ? ResolveWebDistPath(AppContext.BaseDirectory) : null;
+var productionWebDistPath = isProduction ? ResolveWebDistPath(baseDir) : null;
 if (isProduction && productionWebDistPath == null)
 {
     startupErrors.Add("生产模式未找到可用的 Web dist 目录，请设置 BIMCANVAS_WEB_DIST 或先构建 BIMCanvas.Web。");
@@ -151,6 +177,7 @@ if (developmentLocalConfigBootstrapService != null)
     builder.Services.AddSingleton(developmentLocalConfigBootstrapService);
 }
 builder.Services.AddSingleton(config);
+builder.Services.AddSingleton(runtimeEndpointState);
 builder.Services.AddSingleton<AgentClientService>();
 
 // 配置 JSON 序列化选项（使用 Newtonsoft.Json，与 BIMCanvas.Core 保持一致）
@@ -306,6 +333,10 @@ if (isProduction && productionWebDistPath != null)
 
 // config 已在 DI 注册阶段加载（line 85 附近）
 WriteWithColoredPrefix("[Server]", "BIMCanvas.Server 启动中...", ConsoleColor.White);
+WriteWithColoredPrefix(
+    "[Server]",
+    $"Server 监听端口: {configuredServerBinding.PreferredPort} → {resolvedServerPort.ActualPort}",
+    ConsoleColor.White);
 
 // 空启动模式：不自动加载项目，等待用户通过首页选择
 WriteWithColoredPrefix("[Server]", "空启动模式，等待用户选择项目", ConsoleColor.White);
@@ -315,10 +346,6 @@ var agentReady = true;
 var webReady = true;
 var playwrightReady = true;
 {
-    var baseDir = AppContext.BaseDirectory;
-    var agentDir = FindAgentProjectPath(baseDir);
-    var webDir = FindWebProjectPath(baseDir);
-
     WriteWithColoredPrefix("[Server]", "环境检测中...", ConsoleColor.White);
 
     if (!agentManagedByServer)
@@ -333,13 +360,13 @@ var playwrightReady = true;
 
         WriteWithColoredPrefix("[Server]", $"Agent 服务模式: 外部依赖 ({agentBaseUrl})", ConsoleColor.White);
     }
-    else if (!Directory.Exists(agentDir))
+    else if (!Directory.Exists(agentProjectPath))
     {
-        WriteWithColoredPrefix("[Server:WARN]", $"Agent 项目目录不存在: {agentDir}", ConsoleColor.DarkYellow);
+        WriteWithColoredPrefix("[Server:WARN]", $"Agent 项目目录不存在: {agentProjectPath}", ConsoleColor.DarkYellow);
         agentReady = false;
         if (isProduction)
         {
-            startupErrors.Add($"生产模式缺少 Agent 项目目录: {agentDir}");
+            startupErrors.Add($"生产模式缺少 Agent 项目目录: {agentProjectPath}");
         }
     }
     else if (!IsPythonAvailable(pythonCommand))
@@ -361,7 +388,7 @@ var playwrightReady = true;
         }
         else
         {
-            agentReady = TryInstallAgentDependencies(agentDir, pythonCommand);
+            agentReady = TryInstallAgentDependencies(agentProjectPath, pythonCommand);
         }
     }
 
@@ -385,24 +412,31 @@ var playwrightReady = true;
         WriteWithColoredPrefix("[Server:WARN]", "提示: 请安装 Node.js 18+ 并添加到 PATH", ConsoleColor.DarkYellow);
         webReady = false;
     }
-    else if (!isProduction && !Directory.Exists(Path.Combine(webDir, "node_modules")))
+    else if (!isProduction && !Directory.Exists(Path.Combine(webProjectPath, "node_modules")))
     {
-        webReady = TryInstallWebDependencies(webDir);
+        webReady = TryInstallWebDependencies(webProjectPath);
     }
 }
 
 // ─── 自动启动 Agent 和 Web 服务 ───
+Process? agentProcess = null;
+Process? webProcess = null;
+TaskCompletionSource<string>? webReadyUrlSource = null;
+string? webBaseUrl = null;
+Process? ccrProcess = null;
 {
-    var baseDir = AppContext.BaseDirectory;
-    var agentProjectPath = FindAgentProjectPath(baseDir);
-    var webProjectPath = FindWebProjectPath(baseDir);
-    Process? agentProcess = null;
-    Process? webProcess = null;
-    TaskCompletionSource<string>? webReadyUrlSource = null;
-
     // 1. 启动 CCR（唯一 API 网关）
-    Process? ccrProcess = null;
     bool ccrRuntimeReady = false;
+    var configuredCcrUrl = BuildUrl(Uri.UriSchemeHttp, GetReachableLocalHost(config.Ccr.Host), config.Ccr.Port);
+    runtimeEndpointState.SetCcr(CreateRuntimeEndpoint(
+        "ccr",
+        "CCR",
+        managedByServer: false,
+        autoShifted: false,
+        configuredUrl: configuredCcrUrl,
+        actualUrl: config.Ccr.Enabled && !config.Ccr.AutoStart ? configuredCcrUrl : string.Empty,
+        configuredPort: config.Ccr.Port,
+        actualPort: config.Ccr.Enabled && !config.Ccr.AutoStart ? config.Ccr.Port : null));
     if (config.Ccr.Enabled && config.Ccr.AutoStart)
     {
         // CCR 依赖检查：检测 ccr 命令是否可用
@@ -437,20 +471,34 @@ var playwrightReady = true;
             File.Copy(ccrConfigPath, ccrHomeConfigPath, overwrite: true);
         }
 
-        if (IsPortOccupied(config.Ccr.Port, out var ccrOccupyingPid))
-        {
-            WriteWithColoredPrefix("[Server]", $"清理残留 CCR 进程 (PID: {ccrOccupyingPid})...", ConsoleColor.White);
-            KillProcess(ccrOccupyingPid);
-            Thread.Sleep(500);
-        }
+        var resolvedCcrPort = ResolveManagedPort(
+            "CCR",
+            config.Ccr.Host,
+            config.Ccr.Port,
+            IsBIMCanvasCcrProcess);
+        config.Ccr.Port = resolvedCcrPort.ActualPort;
+        var ccrRuntimeBaseUrl = BuildUrl(Uri.UriSchemeHttp, GetReachableLocalHost(config.Ccr.Host), config.Ccr.Port);
+        runtimeEndpointState.SetCcr(CreateRuntimeEndpoint(
+            "ccr",
+            "CCR",
+            managedByServer: true,
+            autoShifted: resolvedCcrPort.AutoShifted,
+            configuredUrl: configuredCcrUrl,
+            actualUrl: ccrRuntimeBaseUrl,
+            configuredPort: resolvedCcrPort.PreferredPort,
+            actualPort: resolvedCcrPort.ActualPort));
+        WriteWithColoredPrefix(
+            "[Server]",
+            $"CCR 监听端口: {resolvedCcrPort.PreferredPort} → {resolvedCcrPort.ActualPort}",
+            ConsoleColor.White);
 
         WriteWithColoredPrefix("[Server]", "CCR 服务启动中...", ConsoleColor.White);
         ccrProcess = StartCcrProcess(config, ccrConfigPath);
         if (ccrProcess != null)
         {
-            ccrRuntimeReady = await WaitForServiceReadyAsync(config.Ccr.Host, config.Ccr.Port, timeoutMs: 15000);
+            ccrRuntimeReady = await WaitForServiceReadyAsync(GetReachableLocalHost(config.Ccr.Host), config.Ccr.Port, timeoutMs: 15000);
             if (ccrRuntimeReady)
-                WriteWithColoredPrefix("[CCR]", $"CCR 已就绪: http://{config.Ccr.Host}:{config.Ccr.Port}", ConsoleColor.Magenta);
+                WriteWithColoredPrefix("[CCR]", $"CCR 已就绪: {ccrRuntimeBaseUrl}", ConsoleColor.Magenta);
             else
             {
                 WriteWithColoredPrefix("[Server:WARN]", "CCR 未在预期时间内就绪", ConsoleColor.DarkYellow);
@@ -470,23 +518,26 @@ var playwrightReady = true;
     // 2. 启动 Agent 服务（仅托管模式）
     if (agentReady && agentManagedByServer)
     {
-        // 检测并清理端口占用
-        if (IsPortOccupied(agentPort, out var occupyingPid))
-        {
-            // 验证进程身份
-            if (IsBIMCanvasAgentProcess(occupyingPid, agentProjectPath))
-            {
-                WriteWithColoredPrefix("[Server]", $"清理残留 Agent 进程 (PID: {occupyingPid})...", ConsoleColor.White);
-                KillProcess(occupyingPid);
-                Thread.Sleep(500); // 等待端口释放
-            }
-            else
-            {
-                WriteWithColoredPrefix("[Server:WARN]", $"端口 {agentPort} 被其他进程占用 (PID: {occupyingPid})", ConsoleColor.DarkYellow);
-                WriteWithColoredPrefix("[Server:WARN]", $"提示: 可使用 'tasklist /FI \"PID eq {occupyingPid}\"' 查看进程详情", ConsoleColor.DarkYellow);
-                // 继续尝试启动（可能端口已释放或验证失败）
-            }
-        }
+        var resolvedAgentPort = ResolveManagedPort(
+            "Agent",
+            "127.0.0.1",
+            agentPort,
+            pid => IsBIMCanvasAgentProcess(pid, agentProjectPath));
+        agentPort = resolvedAgentPort.ActualPort;
+        agentBaseUrl = BuildUrl(Uri.UriSchemeHttp, "127.0.0.1", agentPort);
+        runtimeEndpointState.SetAgent(CreateRuntimeEndpoint(
+            "agent",
+            "Agent",
+            managedByServer: true,
+            autoShifted: resolvedAgentPort.AutoShifted,
+            configuredUrl: config.Agent.GetResolvedBaseUrl(config.Server.Port),
+            actualUrl: agentBaseUrl,
+            configuredPort: resolvedAgentPort.PreferredPort,
+            actualPort: resolvedAgentPort.ActualPort));
+        WriteWithColoredPrefix(
+            "[Server]",
+            $"Agent 监听端口: {resolvedAgentPort.PreferredPort} → {resolvedAgentPort.ActualPort}",
+            ConsoleColor.White);
 
         WriteWithColoredPrefix("[Server]", "Agent 服务启动中...", ConsoleColor.White);
         try
@@ -511,12 +562,13 @@ var playwrightReady = true;
             agentProcess.StartInfo.Environment["BIMCANVAS_HOME"] = configDir;
             agentProcess.StartInfo.Environment["BIMCANVAS_AGENT_MANAGED_BY_SERVER"] = "1";
             agentProcess.StartInfo.Environment["BIMCANVAS_SERVER_URL"] = serverBaseUrl;
+            agentProcess.StartInfo.Environment["SERVER_HOST"] = "127.0.0.1";
             agentProcess.StartInfo.Environment["SERVER_PORT"] = agentPort.ToString();
 
             // API 网关配置：CCR 启用时走网关，禁用时 Agent 直连 config.json 中的供应商
             if (config.Ccr.Enabled)
             {
-                var ccrGatewayUrl = $"http://127.0.0.1:{config.Ccr.Port}";
+                var ccrGatewayUrl = runtimeEndpointState.GetSnapshot().Ccr.ActualUrl;
                 agentProcess.StartInfo.Environment["AGENT_SDK_API_KEY"] = "bimcanvas-ccr";
                 agentProcess.StartInfo.Environment["AGENT_SDK_BASE_URL"] = ccrGatewayUrl;
 
@@ -554,6 +606,15 @@ var playwrightReady = true;
         }
         catch (Exception ex)
         {
+            runtimeEndpointState.SetAgent(CreateRuntimeEndpoint(
+                "agent",
+                "Agent",
+                managedByServer: true,
+                autoShifted: resolvedAgentPort.AutoShifted,
+                configuredUrl: config.Agent.GetResolvedBaseUrl(config.Server.Port),
+                actualUrl: string.Empty,
+                configuredPort: resolvedAgentPort.PreferredPort,
+                actualPort: null));
             WriteWithColoredPrefix("[Server:ERR]", $"Agent 服务启动失败: {ex.Message}", ConsoleColor.DarkGray);
             if (isProduction)
             {
@@ -563,22 +624,82 @@ var playwrightReady = true;
     }
     else if (!agentManagedByServer)
     {
+        runtimeEndpointState.SetAgent(CreateRuntimeEndpoint(
+            "agent",
+            "Agent",
+            managedByServer: false,
+            autoShifted: false,
+            configuredUrl: agentBaseUrl,
+            actualUrl: agentBaseUrl,
+            configuredPort: agentPort,
+            actualPort: TryGetPortFromUrl(agentBaseUrl)));
         WriteWithColoredPrefix("[Server]", $"Agent 服务由外部容器提供: {agentBaseUrl}", ConsoleColor.White);
+    }
+    else
+    {
+        runtimeEndpointState.SetAgent(CreateRuntimeEndpoint(
+            "agent",
+            "Agent",
+            managedByServer: true,
+            autoShifted: false,
+            configuredUrl: config.Agent.GetResolvedBaseUrl(config.Server.Port),
+            actualUrl: string.Empty,
+            configuredPort: agentPort,
+            actualPort: null));
     }
 
     // 3. 启动 Web 服务（不等待，后台运行）
     if (!isProduction && webReady && Directory.Exists(webProjectPath))
     {
+        var configuredWebUrl = BuildUrl(Uri.UriSchemeHttp, "localhost", 5173);
+        var resolvedWebPort = ResolveManagedPort(
+            "Web",
+            "0.0.0.0",
+            5173,
+            pid => IsBIMCanvasWebProcess(pid, webProjectPath));
+        var plannedWebBaseUrl = BuildUrl(Uri.UriSchemeHttp, "localhost", resolvedWebPort.ActualPort);
+        runtimeEndpointState.SetWeb(CreateRuntimeEndpoint(
+            "web",
+            "Web",
+            managedByServer: true,
+            autoShifted: resolvedWebPort.AutoShifted,
+            configuredUrl: configuredWebUrl,
+            actualUrl: plannedWebBaseUrl,
+            configuredPort: resolvedWebPort.PreferredPort,
+            actualPort: resolvedWebPort.ActualPort));
+        WriteWithColoredPrefix(
+            "[Server]",
+            $"Web 开发端口: {resolvedWebPort.PreferredPort} → {resolvedWebPort.ActualPort}",
+            ConsoleColor.White);
+
         WriteWithColoredPrefix("[Server]", "Web 开发服务器启动中...", ConsoleColor.White);
         try
         {
             webReadyUrlSource = new TaskCompletionSource<string>(
                 TaskCreationOptions.RunContinuationsAsynchronously);
+            var viteCliPath = Path.Combine(webProjectPath, "node_modules", "vite", "bin", "vite.js");
+            if (!File.Exists(viteCliPath))
+            {
+                throw new FileNotFoundException($"未找到 Vite CLI: {viteCliPath}");
+            }
 
             webProcess = new Process
             {
-                StartInfo = CreateShellProcessStartInfo("npm run dev", webProjectPath)
+                StartInfo = new ProcessStartInfo
+                {
+                    FileName = "node",
+                    Arguments = $"\"{viteCliPath}\" --host 0.0.0.0 --port {resolvedWebPort.ActualPort} --strictPort",
+                    WorkingDirectory = webProjectPath,
+                    UseShellExecute = false,
+                    CreateNoWindow = true,
+                    RedirectStandardOutput = true,
+                    RedirectStandardError = true,
+                    StandardOutputEncoding = Encoding.UTF8,
+                    StandardErrorEncoding = Encoding.UTF8
+                }
             };
+            webProcess.StartInfo.Environment["VITE_SERVER_URL"] = serverBaseUrl;
+            webProcess.StartInfo.Environment["VITE_AGENT_URL"] = $"{serverBaseUrl.TrimEnd('/')}/agent";
             webProcess.Start();
 
             // 后台读取 Web 输出（避免缓冲区阻塞）
@@ -592,6 +713,16 @@ var playwrightReady = true;
                         var viteLocalUrl = TryExtractViteLocalUrl(line);
                         if (!string.IsNullOrEmpty(viteLocalUrl))
                         {
+                            webBaseUrl = viteLocalUrl;
+                            runtimeEndpointState.SetWeb(CreateRuntimeEndpoint(
+                                "web",
+                                "Web",
+                                managedByServer: true,
+                                autoShifted: resolvedWebPort.AutoShifted,
+                                configuredUrl: configuredWebUrl,
+                                actualUrl: viteLocalUrl,
+                                configuredPort: resolvedWebPort.PreferredPort,
+                                actualPort: resolvedWebPort.ActualPort));
                             webReadyUrlSource.TrySetResult(viteLocalUrl);
                         }
 
@@ -620,76 +751,56 @@ var playwrightReady = true;
         }
         catch (Exception ex)
         {
+            runtimeEndpointState.SetWeb(CreateRuntimeEndpoint(
+                "web",
+                "Web",
+                managedByServer: true,
+                autoShifted: false,
+                configuredUrl: BuildUrl(Uri.UriSchemeHttp, "localhost", 5173),
+                actualUrl: string.Empty,
+                configuredPort: 5173,
+                actualPort: null));
             WriteWithColoredPrefix("[Server:ERR]", $"Web 服务启动失败: {ex.Message}", ConsoleColor.DarkGray);
         }
     }
     else if (!isProduction && !webReady)
     {
+        runtimeEndpointState.SetWeb(CreateRuntimeEndpoint(
+            "web",
+            "Web",
+            managedByServer: true,
+            autoShifted: false,
+            configuredUrl: BuildUrl(Uri.UriSchemeHttp, "localhost", 5173),
+            actualUrl: string.Empty,
+            configuredPort: 5173,
+            actualPort: null));
         WriteWithColoredPrefix("[Server:WARN]", "Web 服务跳过启动（环境未就绪）", ConsoleColor.DarkYellow);
     }
     else if (!isProduction)
     {
+        runtimeEndpointState.SetWeb(CreateRuntimeEndpoint(
+            "web",
+            "Web",
+            managedByServer: true,
+            autoShifted: false,
+            configuredUrl: BuildUrl(Uri.UriSchemeHttp, "localhost", 5173),
+            actualUrl: string.Empty,
+            configuredPort: 5173,
+            actualPort: null));
         WriteWithColoredPrefix("[Server:ERR]", $"Web 项目目录不存在: {webProjectPath}", ConsoleColor.DarkGray);
     }
     else if (productionWebDistPath != null)
     {
+        runtimeEndpointState.SetWeb(CreateRuntimeEndpoint(
+            "web",
+            "Web",
+            managedByServer: true,
+            autoShifted: resolvedServerPort.AutoShifted,
+            configuredUrl: configuredServerBinding.DisplayUrl,
+            actualUrl: serverBaseUrl,
+            configuredPort: configuredServerBinding.PreferredPort,
+            actualPort: resolvedServerPort.ActualPort));
         WriteWithColoredPrefix("[Server]", $"生产静态资源目录: {productionWebDistPath}", ConsoleColor.White);
-    }
-
-    // 4. 等待 Web 服务就绪后打开浏览器（Agent 在后台继续启动，Web 端通过 health 检查感知状态）
-    if (!isProduction && webProcess != null && webReadyUrlSource != null)
-    {
-        WriteWithColoredPrefix("[Server]", "等待 Web 服务启动...", ConsoleColor.White);
-
-        string? webBaseUrl = null;
-        try
-        {
-            webBaseUrl = await webReadyUrlSource.Task.WaitAsync(TimeSpan.FromSeconds(15));
-        }
-        catch (TimeoutException)
-        {
-            WriteWithColoredPrefix("[Server:WARN]", "未在预期时间内获取到 Web 开发服务器地址", ConsoleColor.DarkYellow);
-        }
-        catch (Exception ex)
-        {
-            WriteWithColoredPrefix("[Server:ERR]", $"Web 服务未能正常就绪: {ex.Message}", ConsoleColor.DarkGray);
-        }
-
-        // 打开浏览器（根据配置）
-        if (!string.IsNullOrWhiteSpace(webBaseUrl))
-        {
-            if (agentReady && agentProcess == null)
-            {
-                WriteWithColoredPrefix("[Server:WARN]", "Web 已就绪，但 Agent 未启动；Agent 功能暂不可用", ConsoleColor.DarkYellow);
-            }
-            else
-            {
-                WriteWithColoredPrefix("[Server]", "所有服务已就绪", ConsoleColor.White);
-            }
-
-            var isRestart = Environment.GetEnvironmentVariable("BIMCANVAS_RESTART") == "1";
-            if (config.Startup.OpenBrowser && !isRestart)
-            {
-                WriteWithColoredPrefix("[Server]", $"打开浏览器: {webBaseUrl}", ConsoleColor.White);
-                try
-                {
-                    if (!string.IsNullOrEmpty(config.Startup.BrowserPath))
-                    {
-                        // 使用指定浏览器
-                        Process.Start(config.Startup.BrowserPath, webBaseUrl);
-                    }
-                    else
-                    {
-                        // 使用系统默认浏览器
-                        Process.Start(new ProcessStartInfo(webBaseUrl) { UseShellExecute = true });
-                    }
-                }
-                catch (Exception ex)
-                {
-                    WriteWithColoredPrefix("[Server:ERR]", $"无法自动打开浏览器: {ex.Message}", ConsoleColor.DarkGray);
-                }
-            }
-        }
     }
 
     // 5. 提前捕获 DI 服务引用（ProcessExit 时 DI 容器已 Dispose，不能再 GetRequiredService）
@@ -747,7 +858,73 @@ if (isProduction && startupErrors.Count > 0)
     throw new InvalidOperationException("生产模式依赖未就绪，Server 已终止启动。");
 }
 
-app.Run();
+await app.StartAsync();
+WriteWithColoredPrefix("[Server]", $"HTTP 服务已就绪: {serverBaseUrl}", ConsoleColor.White);
+
+if (!isProduction && webProcess != null && webReadyUrlSource != null)
+{
+    WriteWithColoredPrefix("[Server]", "等待 Web 服务启动...", ConsoleColor.White);
+
+    try
+    {
+        webBaseUrl = await webReadyUrlSource.Task.WaitAsync(TimeSpan.FromSeconds(15));
+    }
+    catch (TimeoutException)
+    {
+        WriteWithColoredPrefix("[Server:WARN]", "未在预期时间内获取到 Web 开发服务器地址", ConsoleColor.DarkYellow);
+    }
+    catch (Exception ex)
+    {
+        WriteWithColoredPrefix("[Server:ERR]", $"Web 服务未能正常就绪: {ex.Message}", ConsoleColor.DarkGray);
+    }
+}
+
+var launchUrl = !string.IsNullOrWhiteSpace(webBaseUrl) ? webBaseUrl : serverBaseUrl;
+if (string.IsNullOrWhiteSpace(webBaseUrl))
+{
+    if (agentReady && agentProcess == null)
+    {
+        WriteWithColoredPrefix("[Server:WARN]", "Server 已就绪，但 Agent 未启动；Agent 功能暂不可用", ConsoleColor.DarkYellow);
+    }
+    else
+    {
+        WriteWithColoredPrefix("[Server]", "所有服务已就绪", ConsoleColor.White);
+    }
+}
+else
+{
+    if (agentReady && agentProcess == null)
+    {
+        WriteWithColoredPrefix("[Server:WARN]", "Web 已就绪，但 Agent 未启动；Agent 功能暂不可用", ConsoleColor.DarkYellow);
+    }
+    else
+    {
+        WriteWithColoredPrefix("[Server]", "所有服务已就绪", ConsoleColor.White);
+    }
+}
+
+var isRestart = Environment.GetEnvironmentVariable("BIMCANVAS_RESTART") == "1";
+if (config.Startup.OpenBrowser && !isRestart)
+{
+    WriteWithColoredPrefix("[Server]", $"打开浏览器: {launchUrl}", ConsoleColor.White);
+    try
+    {
+        if (!string.IsNullOrEmpty(config.Startup.BrowserPath))
+        {
+            Process.Start(config.Startup.BrowserPath, launchUrl);
+        }
+        else
+        {
+            Process.Start(new ProcessStartInfo(launchUrl) { UseShellExecute = true });
+        }
+    }
+    catch (Exception ex)
+    {
+        WriteWithColoredPrefix("[Server:ERR]", $"无法自动打开浏览器: {ex.Message}", ConsoleColor.DarkGray);
+    }
+}
+
+await app.WaitForShutdownAsync();
 
 // ─────────────────────────────────────────────────────────────────────────────
 // 重启检查：app.Run() 返回后（进程已停止监听），检测重启标志文件
@@ -1415,6 +1592,408 @@ static bool IsLocalDevelopmentOrigin(string origin)
     return IPAddress.TryParse(uri.Host, out var ipAddress) && IPAddress.IsLoopback(ipAddress);
 }
 
+static ServerBindingInfo ResolveConfiguredServerBinding(IConfiguration configuration)
+{
+    var configuredUrl = ExtractPrimaryHttpUrl(
+        configuration["urls"],
+        Environment.GetEnvironmentVariable("ASPNETCORE_URLS"),
+        configuration["ASPNETCORE_URLS"],
+        configuration["Kestrel:Endpoints:Http:Url"],
+        configuration["Kestrel:Endpoints:Https:Url"])
+        ?? "http://localhost:5000";
+
+    if (!TryParseHttpBinding(configuredUrl, out var parsedBinding))
+    {
+        parsedBinding = new ParsedHttpBinding(Uri.UriSchemeHttp, "localhost", 5000);
+    }
+
+    var listenHost = NormalizeListenHost(parsedBinding.Host);
+    var browserHost = GetReachableLocalHost(listenHost);
+    return new ServerBindingInfo(
+        parsedBinding.Scheme,
+        listenHost,
+        browserHost,
+        parsedBinding.Port,
+        BuildUrl(parsedBinding.Scheme, browserHost, parsedBinding.Port));
+}
+
+static ResolvedPortReservation ResolveManagedPort(
+    string serviceName,
+    string host,
+    int preferredPort,
+    Func<int, bool> isOwnedProcess)
+{
+    const int maxPortOffset = 20;
+    var normalizedHost = NormalizeListenHost(host);
+    var currentProcessId = Environment.ProcessId;
+
+    for (var offset = 0; offset <= maxPortOffset; offset++)
+    {
+        var candidatePort = preferredPort + offset;
+        var occupants = GetPortOccupants(candidatePort)
+            .Where(item => item.ProcessId != currentProcessId)
+            .ToList();
+
+        if (occupants.Count == 0 && CanBindTcpPort(normalizedHost, candidatePort))
+        {
+            if (offset > 0)
+            {
+                WriteWithColoredPrefix(
+                    "[Server]",
+                    $"{serviceName} 端口已自动避让: {preferredPort} → {candidatePort}",
+                    ConsoleColor.White);
+            }
+
+            return new ResolvedPortReservation(preferredPort, candidatePort, offset > 0);
+        }
+
+        var ownedOccupants = occupants
+            .Where(item => isOwnedProcess(item.ProcessId))
+            .ToList();
+        if (ownedOccupants.Count > 0)
+        {
+            foreach (var ownedOccupant in ownedOccupants)
+            {
+                WriteWithColoredPrefix(
+                    "[Server]",
+                    $"清理残留 {serviceName} 进程 (PID: {ownedOccupant.ProcessId})，准备复用端口 {candidatePort}",
+                    ConsoleColor.White);
+                KillProcess(ownedOccupant.ProcessId);
+                Thread.Sleep(500);
+            }
+
+            var remainingOccupants = GetPortOccupants(candidatePort)
+                .Where(item => item.ProcessId != currentProcessId)
+                .ToList();
+            if (remainingOccupants.Count == 0 && CanBindTcpPort(normalizedHost, candidatePort))
+            {
+                return new ResolvedPortReservation(preferredPort, candidatePort, offset > 0);
+            }
+
+            occupants = remainingOccupants;
+        }
+
+        if (offset == maxPortOffset)
+        {
+            break;
+        }
+
+        if (occupants.Count > 0)
+        {
+            var occupant = occupants[0];
+            WriteWithColoredPrefix(
+                "[Server:WARN]",
+                $"端口 {candidatePort} 被外部进程占用 (PID: {occupant.ProcessId}, 状态: {occupant.State})，{serviceName} 将尝试 {candidatePort + 1}",
+                ConsoleColor.DarkYellow);
+        }
+        else
+        {
+            WriteWithColoredPrefix(
+                "[Server:WARN]",
+                $"端口 {candidatePort} 当前不可绑定，{serviceName} 将尝试 {candidatePort + 1}",
+                ConsoleColor.DarkYellow);
+        }
+    }
+
+    throw new InvalidOperationException(
+        $"{serviceName} 在端口 {preferredPort}-{preferredPort + maxPortOffset} 范围内未找到可用端口。");
+}
+
+static RuntimeServiceEndpointDto CreateRuntimeEndpoint(
+    string key,
+    string title,
+    bool managedByServer,
+    bool autoShifted,
+    string configuredUrl,
+    string actualUrl,
+    int? configuredPort,
+    int? actualPort)
+{
+    return new RuntimeServiceEndpointDto
+    {
+        Key = key,
+        Title = title,
+        ManagedByServer = managedByServer,
+        AutoShifted = autoShifted,
+        ConfiguredUrl = configuredUrl,
+        ActualUrl = actualUrl,
+        ConfiguredPort = configuredPort,
+        ActualPort = actualPort
+    };
+}
+
+static string BuildUrl(string scheme, string host, int port)
+{
+    var normalizedHost = host.Trim();
+    if (normalizedHost.Contains(':') &&
+        !normalizedHost.StartsWith("[", StringComparison.Ordinal))
+    {
+        normalizedHost = $"[{normalizedHost}]";
+    }
+
+    return $"{scheme}://{normalizedHost}:{port}";
+}
+
+static int? TryGetPortFromUrl(string url)
+{
+    if (Uri.TryCreate(url, UriKind.Absolute, out var uri))
+    {
+        return uri.Port;
+    }
+
+    return null;
+}
+
+static string GetReachableLocalHost(string host)
+{
+    return IsWildcardHost(host) ? "localhost" : NormalizeListenHost(host);
+}
+
+static string NormalizeListenHost(string host)
+{
+    var normalized = (host ?? string.Empty).Trim();
+    if (string.IsNullOrWhiteSpace(normalized))
+    {
+        return "127.0.0.1";
+    }
+
+    if (normalized.StartsWith("[", StringComparison.Ordinal) &&
+        normalized.EndsWith("]", StringComparison.Ordinal) &&
+        normalized.Length > 2)
+    {
+        normalized = normalized[1..^1];
+    }
+
+    return normalized;
+}
+
+static bool IsWildcardHost(string host)
+{
+    var normalized = NormalizeListenHost(host);
+    return string.Equals(normalized, "0.0.0.0", StringComparison.OrdinalIgnoreCase)
+           || string.Equals(normalized, "::", StringComparison.OrdinalIgnoreCase)
+           || string.Equals(normalized, "*", StringComparison.OrdinalIgnoreCase)
+           || string.Equals(normalized, "+", StringComparison.OrdinalIgnoreCase);
+}
+
+static string? ExtractPrimaryHttpUrl(params string?[] candidates)
+{
+    foreach (var candidate in candidates)
+    {
+        if (string.IsNullOrWhiteSpace(candidate))
+        {
+            continue;
+        }
+
+        foreach (var part in candidate.Split(';', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+        {
+            if (part.StartsWith("http://", StringComparison.OrdinalIgnoreCase) ||
+                part.StartsWith("https://", StringComparison.OrdinalIgnoreCase))
+            {
+                return part;
+            }
+        }
+    }
+
+    return null;
+}
+
+static bool TryParseHttpBinding(string rawUrl, out ParsedHttpBinding binding)
+{
+    binding = new ParsedHttpBinding(Uri.UriSchemeHttp, "localhost", 5000);
+    if (string.IsNullOrWhiteSpace(rawUrl))
+    {
+        return false;
+    }
+
+    if (Uri.TryCreate(rawUrl, UriKind.Absolute, out var uri))
+    {
+        binding = new ParsedHttpBinding(uri.Scheme, uri.Host, uri.Port);
+        return true;
+    }
+
+    var match = Regex.Match(
+        rawUrl.Trim(),
+        @"^(?<scheme>https?)://(?<host>\[[^\]]+\]|[^:/]+):(?<port>\d+)",
+        RegexOptions.IgnoreCase);
+    if (!match.Success)
+    {
+        return false;
+    }
+
+    var host = match.Groups["host"].Value;
+    if (host.StartsWith("[", StringComparison.Ordinal) &&
+        host.EndsWith("]", StringComparison.Ordinal) &&
+        host.Length > 2)
+    {
+        host = host[1..^1];
+    }
+
+    binding = new ParsedHttpBinding(
+        match.Groups["scheme"].Value.ToLowerInvariant(),
+        host,
+        int.Parse(match.Groups["port"].Value));
+    return true;
+}
+
+static bool CanBindTcpPort(string host, int port)
+{
+    try
+    {
+        var bindAddress = ResolveBindAddress(host);
+        using var socket = new Socket(bindAddress.AddressFamily, SocketType.Stream, ProtocolType.Tcp);
+        if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
+        {
+            socket.ExclusiveAddressUse = true;
+        }
+
+        socket.Bind(new IPEndPoint(bindAddress, port));
+        return true;
+    }
+    catch
+    {
+        return false;
+    }
+}
+
+static IPAddress ResolveBindAddress(string host)
+{
+    var normalizedHost = NormalizeListenHost(host);
+    if (string.Equals(normalizedHost, "localhost", StringComparison.OrdinalIgnoreCase))
+    {
+        return IPAddress.Loopback;
+    }
+
+    if (string.Equals(normalizedHost, "0.0.0.0", StringComparison.OrdinalIgnoreCase) ||
+        string.Equals(normalizedHost, "*", StringComparison.OrdinalIgnoreCase) ||
+        string.Equals(normalizedHost, "+", StringComparison.OrdinalIgnoreCase))
+    {
+        return IPAddress.Any;
+    }
+
+    if (string.Equals(normalizedHost, "::", StringComparison.OrdinalIgnoreCase))
+    {
+        return IPAddress.IPv6Any;
+    }
+
+    if (IPAddress.TryParse(normalizedHost, out var parsedAddress))
+    {
+        return parsedAddress;
+    }
+
+    return Dns.GetHostAddresses(normalizedHost)
+        .FirstOrDefault(address => address.AddressFamily == AddressFamily.InterNetwork)
+        ?? IPAddress.Loopback;
+}
+
+static List<PortOccupantInfo> GetPortOccupants(int port)
+{
+    try
+    {
+        if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
+        {
+            return GetWindowsPortOccupants(port);
+        }
+
+        return GetUnixPortOccupants(port);
+    }
+    catch (Exception ex)
+    {
+        WriteWithColoredPrefix("[Server:WARN]", $"端口检测失败: {ex.Message}，将退化为直接尝试绑定", ConsoleColor.DarkYellow);
+        return [];
+    }
+}
+
+static List<PortOccupantInfo> GetWindowsPortOccupants(int port)
+{
+    var psi = new ProcessStartInfo
+    {
+        FileName = "powershell",
+        Arguments = $"-NoProfile -Command \"$items = Get-NetTCPConnection -LocalPort {port} -ErrorAction SilentlyContinue | Select-Object OwningProcess, State -Unique; if ($items) {{ $items | ConvertTo-Json -Compress }}\"",
+        RedirectStandardOutput = true,
+        RedirectStandardError = true,
+        UseShellExecute = false,
+        CreateNoWindow = true,
+        StandardOutputEncoding = Encoding.UTF8,
+        StandardErrorEncoding = Encoding.UTF8
+    };
+
+    using var process = Process.Start(psi);
+    if (process == null)
+    {
+        return [];
+    }
+
+    var output = process.StandardOutput.ReadToEnd().Trim();
+    process.WaitForExit(5000);
+    if (string.IsNullOrWhiteSpace(output))
+    {
+        return [];
+    }
+
+    var result = new List<PortOccupantInfo>();
+    using var json = JsonDocument.Parse(output);
+    if (json.RootElement.ValueKind == JsonValueKind.Object)
+    {
+        AddPortOccupant(result, json.RootElement);
+    }
+    else if (json.RootElement.ValueKind == JsonValueKind.Array)
+    {
+        foreach (var item in json.RootElement.EnumerateArray())
+        {
+            AddPortOccupant(result, item);
+        }
+    }
+
+    return result
+        .GroupBy(item => item.ProcessId)
+        .Select(group => group.First())
+        .ToList();
+}
+
+static void AddPortOccupant(List<PortOccupantInfo> target, JsonElement element)
+{
+    if (!element.TryGetProperty("OwningProcess", out var pidProperty) ||
+        !pidProperty.TryGetInt32(out var pid) ||
+        pid <= 0)
+    {
+        return;
+    }
+
+    var state = element.TryGetProperty("State", out var stateProperty)
+        ? stateProperty.ToString() ?? "Unknown"
+        : "Unknown";
+    target.Add(new PortOccupantInfo(pid, state));
+}
+
+static List<PortOccupantInfo> GetUnixPortOccupants(int port)
+{
+    var psi = new ProcessStartInfo
+    {
+        FileName = "/bin/bash",
+        Arguments = $"-c \"lsof -nP -iTCP:{port} -t\"",
+        RedirectStandardOutput = true,
+        UseShellExecute = false,
+        CreateNoWindow = true
+    };
+
+    using var process = Process.Start(psi);
+    if (process == null)
+    {
+        return [];
+    }
+
+    var output = process.StandardOutput.ReadToEnd();
+    process.WaitForExit(5000);
+    return output.Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+        .Select(line => int.TryParse(line, out var pid) ? new PortOccupantInfo(pid, "Bound") : null)
+        .Where(item => item != null)
+        .Select(item => item!)
+        .GroupBy(item => item.ProcessId)
+        .Select(group => group.First())
+        .ToList();
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // 路径查找辅助函数
 // ─────────────────────────────────────────────────────────────────────────────
@@ -1459,73 +2038,6 @@ static string FindAgentProjectPath(string startDir)
     return Path.GetFullPath(Path.Combine(Directory.GetCurrentDirectory(), "..", "BIMCanvas.Agent"));
 }
 
-// 辅助函数：检测端口是否被占用（跨平台）
-static bool IsPortOccupied(int port, out int pid)
-{
-    pid = 0;
-
-    try
-    {
-        if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
-        {
-            // Windows: netstat -ano | findstr :端口
-            var psi = new ProcessStartInfo
-            {
-                FileName = "cmd.exe",
-                Arguments = $"/c netstat -ano | findstr :{port}",
-                RedirectStandardOutput = true,
-                UseShellExecute = false,
-                CreateNoWindow = true
-            };
-
-            using var process = Process.Start(psi);
-            if (process == null) return false;
-
-            var output = process.StandardOutput.ReadToEnd();
-            process.WaitForExit();
-
-            // 解析输出（示例）：TCP    127.0.0.1:8765    0.0.0.0:0    LISTENING    12345
-            var lines = output.Split('\n', StringSplitOptions.RemoveEmptyEntries);
-            foreach (var line in lines)
-            {
-                var parts = line.Split(new[] { ' ' }, StringSplitOptions.RemoveEmptyEntries);
-                if (parts.Length >= 5 && parts[3] == "LISTENING")
-                {
-                    if (int.TryParse(parts[4], out pid))
-                        return true;
-                }
-            }
-        }
-        else if (RuntimeInformation.IsOSPlatform(OSPlatform.Linux) || RuntimeInformation.IsOSPlatform(OSPlatform.OSX))
-        {
-            // Linux/macOS: lsof -ti:端口
-            var psi = new ProcessStartInfo
-            {
-                FileName = "/bin/bash",
-                Arguments = $"-c \"lsof -ti:{port}\"",
-                RedirectStandardOutput = true,
-                UseShellExecute = false,
-                CreateNoWindow = true
-            };
-
-            using var process = Process.Start(psi);
-            if (process == null) return false;
-
-            var output = process.StandardOutput.ReadToEnd().Trim();
-            process.WaitForExit();
-
-            if (!string.IsNullOrEmpty(output) && int.TryParse(output, out pid))
-                return true;
-        }
-    }
-    catch (Exception ex)
-    {
-        WriteWithColoredPrefix("[Server:WARN]", $"端口检测失败: {ex.Message}，跳过检查", ConsoleColor.DarkYellow);
-    }
-
-    return false;
-}
-
 // 辅助函数：验证进程是否为 BIMCanvas Agent（通过进程名 + 命令行参数）
 static bool IsBIMCanvasAgentProcess(int pid, string agentProjectPath)
 {
@@ -1533,23 +2045,13 @@ static bool IsBIMCanvasAgentProcess(int pid, string agentProjectPath)
     {
         var process = Process.GetProcessById(pid);
 
-        // 检查 1: 进程名必须是 python/python.exe
-        var processName = process.ProcessName.ToLower();
-        if (!processName.Contains("python"))
+        if (!process.ProcessName.Contains("python", StringComparison.OrdinalIgnoreCase))
             return false;
 
-        // 检查 2: 命令行参数包含 BIMCanvas.Agent 或 src.main
-        string cmdLine;
-        if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
-        {
-            cmdLine = GetCommandLineWindows(pid);
-        }
-        else
-        {
-            cmdLine = GetCommandLineUnix(pid);
-        }
-
-        return cmdLine.Contains("BIMCanvas.Agent") || cmdLine.Contains("src.main");
+        var cmdLine = GetProcessCommandLine(pid);
+        return cmdLine.Contains("BIMCanvas.Agent", StringComparison.OrdinalIgnoreCase)
+               || (cmdLine.Contains("src.main", StringComparison.OrdinalIgnoreCase)
+                   && cmdLine.Contains(NormalizePathForMatch(agentProjectPath), StringComparison.OrdinalIgnoreCase));
     }
     catch (Exception ex)
     {
@@ -1558,7 +2060,96 @@ static bool IsBIMCanvasAgentProcess(int pid, string agentProjectPath)
     }
 }
 
-// Windows WMIC 查询命令行（使用命令行工具而非 WMI API）
+static bool IsBIMCanvasWebProcess(int pid, string webProjectPath)
+{
+    try
+    {
+        var process = Process.GetProcessById(pid);
+        if (!process.ProcessName.Contains("node", StringComparison.OrdinalIgnoreCase))
+        {
+            return false;
+        }
+
+        var cmdLine = GetProcessCommandLine(pid);
+        return cmdLine.Contains("vite", StringComparison.OrdinalIgnoreCase)
+               && cmdLine.Contains(NormalizePathForMatch(webProjectPath), StringComparison.OrdinalIgnoreCase);
+    }
+    catch (Exception ex)
+    {
+        WriteWithColoredPrefix("[Server:WARN]", $"Web 进程验证失败: {ex.Message}", ConsoleColor.DarkYellow);
+        return false;
+    }
+}
+
+static bool IsBIMCanvasCcrProcess(int pid)
+{
+    try
+    {
+        var process = Process.GetProcessById(pid);
+        if (!process.ProcessName.Contains("node", StringComparison.OrdinalIgnoreCase) &&
+            !process.ProcessName.Contains("ccr", StringComparison.OrdinalIgnoreCase) &&
+            !process.ProcessName.Contains("cmd", StringComparison.OrdinalIgnoreCase))
+        {
+            return false;
+        }
+
+        var cmdLine = GetProcessCommandLine(pid);
+        return cmdLine.Contains("claude-code-router", StringComparison.OrdinalIgnoreCase)
+               || cmdLine.Contains("ccr start", StringComparison.OrdinalIgnoreCase)
+               || cmdLine.Contains("\\ccr.cmd", StringComparison.OrdinalIgnoreCase);
+    }
+    catch (Exception ex)
+    {
+        WriteWithColoredPrefix("[Server:WARN]", $"CCR 进程验证失败: {ex.Message}", ConsoleColor.DarkYellow);
+        return false;
+    }
+}
+
+static bool IsBIMCanvasServerProcess(int pid)
+{
+    try
+    {
+        if (pid == Environment.ProcessId)
+        {
+            return false;
+        }
+
+        var process = Process.GetProcessById(pid);
+        if (process.ProcessName.Contains("BIMCanvas.Server", StringComparison.OrdinalIgnoreCase))
+        {
+            return true;
+        }
+
+        if (!process.ProcessName.Contains("dotnet", StringComparison.OrdinalIgnoreCase))
+        {
+            return false;
+        }
+
+        var cmdLine = GetProcessCommandLine(pid);
+        return cmdLine.Contains("BIMCanvas.Server", StringComparison.OrdinalIgnoreCase);
+    }
+    catch (Exception ex)
+    {
+        WriteWithColoredPrefix("[Server:WARN]", $"Server 进程验证失败: {ex.Message}", ConsoleColor.DarkYellow);
+        return false;
+    }
+}
+
+static string GetProcessCommandLine(int pid)
+{
+    return RuntimeInformation.IsOSPlatform(OSPlatform.Windows)
+        ? GetCommandLineWindows(pid)
+        : GetCommandLineUnix(pid);
+}
+
+static string NormalizePathForMatch(string path)
+{
+    return (path ?? string.Empty)
+        .Replace("/", "\\")
+        .Trim()
+        .TrimEnd('\\');
+}
+
 static string GetCommandLineWindows(int pid)
 {
     if (!RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
@@ -1568,32 +2159,26 @@ static string GetCommandLineWindows(int pid)
     {
         var psi = new ProcessStartInfo
         {
-            FileName = "wmic",
-            Arguments = $"process where \"ProcessId={pid}\" get CommandLine /format:list",
+            FileName = "powershell",
+            Arguments = $"-NoProfile -Command \"(Get-CimInstance Win32_Process -Filter 'ProcessId={pid}' -ErrorAction SilentlyContinue).CommandLine\"",
             RedirectStandardOutput = true,
+            RedirectStandardError = true,
             UseShellExecute = false,
-            CreateNoWindow = true
+            CreateNoWindow = true,
+            StandardOutputEncoding = Encoding.UTF8,
+            StandardErrorEncoding = Encoding.UTF8
         };
 
         using var process = Process.Start(psi);
         if (process == null) return "";
 
         var output = process.StandardOutput.ReadToEnd();
-        process.WaitForExit();
-
-        // 解析输出：CommandLine=python -m src.main --serve
-        foreach (var line in output.Split('\n'))
-        {
-            var trimmed = line.Trim();
-            if (trimmed.StartsWith("CommandLine="))
-            {
-                return trimmed.Substring("CommandLine=".Length);
-            }
-        }
+        process.WaitForExit(5000);
+        return output.Trim();
     }
     catch (Exception ex)
     {
-        WriteWithColoredPrefix("[Server:WARN]", $"WMIC 查询失败: {ex.Message}，仅验证进程名", ConsoleColor.DarkYellow);
+        WriteWithColoredPrefix("[Server:WARN]", $"命令行查询失败: {ex.Message}，仅验证进程名", ConsoleColor.DarkYellow);
     }
     return "";
 }
@@ -1777,3 +2362,16 @@ void CopyResponseHeaders(HttpResponseMessage source, IHeaderDictionary destinati
         destination[header.Key] = header.Value.ToArray();
     }
 }
+
+file sealed record ParsedHttpBinding(string Scheme, string Host, int Port);
+
+file sealed record ServerBindingInfo(
+    string Scheme,
+    string ListenHost,
+    string BrowserHost,
+    int PreferredPort,
+    string DisplayUrl);
+
+file sealed record ResolvedPortReservation(int PreferredPort, int ActualPort, bool AutoShifted);
+
+file sealed record PortOccupantInfo(int ProcessId, string State);

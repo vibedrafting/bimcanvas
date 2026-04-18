@@ -41,15 +41,18 @@ namespace BIMCanvas.Server.Services
         private string? _pageProjectKey;
         private string? _cachedProjectKey;
         private ProjectData? _cachedProjectData;
-        private readonly string _webBaseUrl;
+        private readonly RuntimeEndpointState _runtimeEndpointState;
+        private readonly string _configuredWebBaseUrl;
 
         public BackgroundScreenshotService(
             ProjectSnapshotService snapshotService,
             IConfiguration configuration,
+            RuntimeEndpointState runtimeEndpointState,
             ILogger<BackgroundScreenshotService> logger)
         {
             _snapshotService = snapshotService;
             _logger = logger;
+            _runtimeEndpointState = runtimeEndpointState;
             _semaphore = new SemaphoreSlim(1, 1);
             _playwright = new Lazy<Task<IPlaywright>>(Playwright.CreateAsync);
 
@@ -60,9 +63,9 @@ namespace BIMCanvas.Server.Services
                 Formatting = Formatting.None
             };
 
-            _webBaseUrl = configuration["Web:BaseUrl"]
-                          ?? configuration["BIMCANVAS_WEB_URL"]
-                          ?? "http://localhost:5173";
+            _configuredWebBaseUrl = configuration["Web:BaseUrl"]
+                                    ?? configuration["BIMCANVAS_WEB_URL"]
+                                    ?? "http://localhost:5173";
         }
 
         public async Task<string> CaptureAsync(BackgroundScreenshotRequest request, CancellationToken cancellationToken)
@@ -370,7 +373,7 @@ namespace BIMCanvas.Server.Services
 
             if (!_pageInitialized)
             {
-                var url = $"{_webBaseUrl.TrimEnd('/')}/screenshot-render";
+                var url = $"{GetWebBaseUrl().TrimEnd('/')}/screenshot-render";
                 await _page.GotoAsync(url, new PageGotoOptions
                 {
                     WaitUntil = WaitUntilState.Load,
@@ -503,6 +506,12 @@ namespace BIMCanvas.Server.Services
             var lastWrite = Directory.GetLastWriteTimeUtc(projectPath).Ticks;
             var schemeId = string.IsNullOrWhiteSpace(strategyId) ? "default" : strategyId.Trim();
             return $"{projectPath}|{schemeId}|{lastWrite}";
+        }
+
+        private string GetWebBaseUrl()
+        {
+            var runtimeBaseUrl = _runtimeEndpointState.GetSnapshot().Web.ActualUrl;
+            return string.IsNullOrWhiteSpace(runtimeBaseUrl) ? _configuredWebBaseUrl : runtimeBaseUrl;
         }
 
         private static ViewportSize ResolveViewportSize(ProjectData projectData, ViewportConfig? viewport)
@@ -670,7 +679,7 @@ namespace BIMCanvas.Server.Services
 
             if (!session.Initialized)
             {
-                var url = $"{_webBaseUrl.TrimEnd('/')}/screenshot-render";
+                var url = $"{GetWebBaseUrl().TrimEnd('/')}/screenshot-render";
                 await session.Page.GotoAsync(url, new PageGotoOptions
                 {
                     WaitUntil = WaitUntilState.Load,
