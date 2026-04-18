@@ -353,9 +353,40 @@ export const useChatStream = (options: ChatStreamOptions) => {
     message.bubbles.push(errorBubble);
   };
 
-  const cleanupRestoredStreamingBubbles = (bubbles: ChatBubble[]) => {
+  const hasPendingQuestionBubble = (bubbles: ChatBubble[]): boolean => {
     for (const bubble of bubbles) {
-      if (bubble.status === 'streaming' && bubble.type !== 'question') {
+      if (bubble.type === 'question' && !bubble.questionSubmitted) {
+        return true;
+      }
+
+      if (bubble.childBubbles && hasPendingQuestionBubble(bubble.childBubbles)) {
+        return true;
+      }
+    }
+
+    return false;
+  };
+
+  const shouldPreservePendingInteractionTool = (
+    bubble: ChatBubble,
+    preservePendingQuestionTools: boolean
+  ): boolean => {
+    return preservePendingQuestionTools
+      && bubble.type === 'tool_call'
+      && bubble.toolName === 'AskUserQuestion'
+      && bubble.status === 'streaming';
+  };
+
+  const cleanupRestoredStreamingBubbles = (
+    bubbles: ChatBubble[],
+    preservePendingQuestionTools: boolean = false
+  ) => {
+    for (const bubble of bubbles) {
+      if (
+        bubble.status === 'streaming'
+        && bubble.type !== 'question'
+        && !shouldPreservePendingInteractionTool(bubble, preservePendingQuestionTools)
+      ) {
         if (bubble.type === 'thinking') {
           completeThinkingBubble(bubble);
           bubble.isExpanded = false;
@@ -365,7 +396,7 @@ export const useChatStream = (options: ChatStreamOptions) => {
       }
 
       if (bubble.childBubbles) {
-        cleanupRestoredStreamingBubbles(bubble.childBubbles);
+        cleanupRestoredStreamingBubbles(bubble.childBubbles, preservePendingQuestionTools);
       }
     }
   };
@@ -1077,7 +1108,7 @@ export const useChatStream = (options: ChatStreamOptions) => {
 
       message.isStreaming = false;
       exitWaitingState(message.waitingState);
-      cleanupRestoredStreamingBubbles(message.bubbles);
+      cleanupRestoredStreamingBubbles(message.bubbles, hasPendingQuestionBubble(message.bubbles));
       pruneSuppressedTextBubbles(message.bubbles);
     }
   };
