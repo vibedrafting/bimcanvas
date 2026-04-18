@@ -343,6 +343,7 @@ WriteWithColoredPrefix("[Server]", "空启动模式，等待用户选择项目",
 
 // ─── 环境检测阶段 ───
 var agentReady = true;
+var agentRuntimeReady = false;
 var webReady = true;
 var playwrightReady = true;
 {
@@ -421,6 +422,7 @@ var playwrightReady = true;
 // ─── 自动启动 Agent 和 Web 服务 ───
 Process? agentProcess = null;
 Process? webProcess = null;
+Task<bool>? agentReadyTask = null;
 TaskCompletionSource<string>? webReadyUrlSource = null;
 string? webBaseUrl = null;
 Process? ccrProcess = null;
@@ -603,6 +605,12 @@ Process? ccrProcess = null;
                         WriteWithColoredPrefix("[Agent:ERR]", line, ConsoleColor.DarkCyan);
                 }
             });
+
+            agentReadyTask = WaitForServiceReadyAsync(
+                "127.0.0.1",
+                agentPort,
+                timeoutMs: 15000,
+                monitoredProcess: agentProcess);
         }
         catch (Exception ex)
         {
@@ -624,6 +632,7 @@ Process? ccrProcess = null;
     }
     else if (!agentManagedByServer)
     {
+        agentRuntimeReady = !string.IsNullOrWhiteSpace(agentBaseUrl);
         runtimeEndpointState.SetAgent(CreateRuntimeEndpoint(
             "agent",
             "Agent",
@@ -861,6 +870,31 @@ if (isProduction && startupErrors.Count > 0)
 await app.StartAsync();
 WriteWithColoredPrefix("[Server]", $"HTTP 服务已就绪: {serverBaseUrl}", ConsoleColor.White);
 
+if (agentReadyTask != null)
+{
+    WriteWithColoredPrefix("[Server]", "等待 Agent 服务启动...", ConsoleColor.White);
+    agentRuntimeReady = await agentReadyTask;
+
+    if (agentRuntimeReady)
+    {
+        WriteWithColoredPrefix("[Server]", $"Agent 服务已就绪: {agentBaseUrl}", ConsoleColor.White);
+    }
+    else if (agentProcess?.HasExited == true)
+    {
+        WriteWithColoredPrefix(
+            "[Server:WARN]",
+            $"Agent 进程在监听端口 {agentPort} 前已退出；Agent 功能暂不可用",
+            ConsoleColor.DarkYellow);
+    }
+    else
+    {
+        WriteWithColoredPrefix(
+            "[Server:WARN]",
+            $"Agent 未在预期时间内就绪: {agentBaseUrl}；Agent 功能暂不可用",
+            ConsoleColor.DarkYellow);
+    }
+}
+
 if (!isProduction && webProcess != null && webReadyUrlSource != null)
 {
     WriteWithColoredPrefix("[Server]", "等待 Web 服务启动...", ConsoleColor.White);
@@ -882,9 +916,9 @@ if (!isProduction && webProcess != null && webReadyUrlSource != null)
 var launchUrl = !string.IsNullOrWhiteSpace(webBaseUrl) ? webBaseUrl : serverBaseUrl;
 if (string.IsNullOrWhiteSpace(webBaseUrl))
 {
-    if (agentReady && agentProcess == null)
+    if (!agentRuntimeReady)
     {
-        WriteWithColoredPrefix("[Server:WARN]", "Server 已就绪，但 Agent 未启动；Agent 功能暂不可用", ConsoleColor.DarkYellow);
+        WriteWithColoredPrefix("[Server:WARN]", "Server 已就绪，但 Agent 未就绪；Agent 功能暂不可用", ConsoleColor.DarkYellow);
     }
     else
     {
@@ -893,9 +927,9 @@ if (string.IsNullOrWhiteSpace(webBaseUrl))
 }
 else
 {
-    if (agentReady && agentProcess == null)
+    if (!agentRuntimeReady)
     {
-        WriteWithColoredPrefix("[Server:WARN]", "Web 已就绪，但 Agent 未启动；Agent 功能暂不可用", ConsoleColor.DarkYellow);
+        WriteWithColoredPrefix("[Server:WARN]", "Web 已就绪，但 Agent 未就绪；Agent 功能暂不可用", ConsoleColor.DarkYellow);
     }
     else
     {
@@ -1469,11 +1503,16 @@ static Process? StartCcrProcess(ServerConfig config, string configPath)
 }
 
 // 辅助函数：通用端口就绪检测
-static async Task<bool> WaitForServiceReadyAsync(string host, int port, int timeoutMs = 15000)
+static async Task<bool> WaitForServiceReadyAsync(string host, int port, int timeoutMs = 15000, Process? monitoredProcess = null)
 {
     var deadline = DateTime.UtcNow.AddMilliseconds(timeoutMs);
     while (DateTime.UtcNow < deadline)
     {
+        if (monitoredProcess?.HasExited == true)
+        {
+            return false;
+        }
+
         try
         {
             using var client = new TcpClient();

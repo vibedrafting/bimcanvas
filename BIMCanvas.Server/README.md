@@ -25,7 +25,7 @@ dotnet run --project BIMCanvas.Server
 4. Development 模式下额外初始化 `config.dev.local.json` / `ccr_config.dev.local.json`，并仅在运行时配置首次创建时将其作为初始化种子导入
 5. 自动启动 Agent 服务；若启用 CCR，则同时启动 CCR 网关
 6. 自动查找并启动 Web 开发服务器（BIMCanvas.Web）
-7. 等待 Web 服务就绪后打开浏览器
+7. 等待托管 Agent / Web 服务就绪后再宣布启动完成；若 Agent 未在预期时间内就绪，则按降级状态继续运行并输出明确告警
 8. **v3.0**：通过 URL 参数 `?project={项目路径}` 加载项目
 
 ### Production / Docker
