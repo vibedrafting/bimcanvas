@@ -144,6 +144,53 @@ export type InteractionEventListener = (event: InteractionEventEnvelope) => void
 export interface InteractionQueryResponse {
   windowId: string;
   sessionId?: string | null;
+  includeTerminal?: boolean;
+  interactions: InteractionRecord[];
+}
+
+export interface ChatHistorySessionSnapshot {
+  sessionId: string;
+  runtimeId: string;
+  runtimeVersion: string;
+  windowId: string;
+  projectPath: string;
+  worktreePath?: string | null;
+  status: string;
+  createdAt?: string | null;
+  lastActiveAt?: string | null;
+  closedAt?: string | null;
+}
+
+export interface UserMessageHistoryEntry {
+  entryId: string;
+  sessionId: string;
+  turnId: string;
+  windowId: string;
+  kind: 'user_message';
+  createdAt?: string | null;
+  clientMessageId?: string | null;
+  message?: string | null;
+  attachments?: ChatAttachmentRef[];
+}
+
+export interface AssistantEventHistoryEntry {
+  entryId: string;
+  sessionId: string;
+  turnId: string;
+  windowId: string;
+  kind: 'assistant_event';
+  createdAt?: string | null;
+  event: Record<string, any>;
+}
+
+export type ChatHistoryEntry = UserMessageHistoryEntry | AssistantEventHistoryEntry;
+
+export interface ChatHistoryResponse {
+  windowId: string;
+  session?: ChatHistorySessionSnapshot | null;
+  sessionId?: string | null;
+  sessionStatus?: string | null;
+  history: ChatHistoryEntry[];
   interactions: InteractionRecord[];
 }
 

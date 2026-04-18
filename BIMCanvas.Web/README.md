@@ -138,6 +138,9 @@
 - **统一 InteractionChannel**:
     - Question / Screenshot 共用 `/api/interaction/events` SSE，并统一通过 `/api/interaction/{id}/submit|cancel` 完成交互。
     - Reload 时仅对“当前页面已存在的窗口”执行 `GET /api/interaction?windowId=...` 恢复；question bubble 按 interaction record 的 `windowId` 路由，不再猜测当前激活窗口。
+- **刷新聊天历史恢复**:
+    - 当前页面级窗口集合会通过浏览器 `sessionStorage` 恢复，范围仅限“同一页面刷新”，不扩展到项目级持久化聊天记录。
+    - 聊天消息本体通过 Agent `GET /api/history?windowId=...` 的 session transcript 回放，能恢复用户消息、AI 消息、thinking/tool/subtask/AskUserQuestion 卡片，以及用户消息里的图片附件缩略图。
 - **截图附件资源化**:
     - 上传/粘贴/框选截图统一先上传到 `BIMCanvas.Server`
     - 前端输入区持有 `pendingAttachments: ChatAttachmentRef[]`，不再持有 `base64[]`

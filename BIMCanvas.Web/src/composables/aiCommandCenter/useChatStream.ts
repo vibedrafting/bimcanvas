@@ -2,14 +2,16 @@ import { nextTick, ref } from 'vue';
 import type { Ref } from 'vue';
 import type { ChatMessage, ChatWindow, EffortLevel, ModelOption, ThinkingLevel } from '../../types/aiCommandCenter';
 import type { ChatAttachmentRef } from '../../types/chatAttachment';
-import type { WaitingState, ChatBubble } from '../../types/agent';
+import type { WaitingState, ChatBubble, ChatHistoryEntry, ChatHistoryResponse, InteractionRecord } from '../../types/agent';
 import { ProjectService } from '../../services/ProjectService';
 import { ChatAttachmentService, createDraftMessageId } from '../../services/ChatAttachmentService';
+import { getChatHistoryService } from '../../services/ChatHistoryService';
 import {
   createTextBubble,
   createToolCallBubble,
   createSubAgentBubble,
   createThinkingBubble,
+  createQuestionBubble,
   getLastStreamingThinkingBubble,
   completeThinkingBubble,
   collapseLastThinkingBubble,
@@ -79,6 +81,11 @@ interface NormalizedStreamEvent {
   payload: StreamPayload;
   raw: Record<string, any>;
 }
+
+type HistoryTimelineItem =
+  | { kind: 'history'; entry: ChatHistoryEntry; timestamp: number }
+  | { kind: 'question_pushed'; record: InteractionRecord; timestamp: number }
+  | { kind: 'question_terminal'; record: InteractionRecord; timestamp: number };
 
 class ChatHttpError extends Error {
   status: number;
@@ -346,6 +353,272 @@ export const useChatStream = (options: ChatStreamOptions) => {
     message.bubbles.push(errorBubble);
   };
 
+  const cleanupRestoredStreamingBubbles = (bubbles: ChatBubble[]) => {
+    for (const bubble of bubbles) {
+      if (bubble.status === 'streaming' && bubble.type !== 'question') {
+        if (bubble.type === 'thinking') {
+          completeThinkingBubble(bubble);
+          bubble.isExpanded = false;
+        } else {
+          completeBubble(bubble);
+        }
+      }
+
+      if (bubble.childBubbles) {
+        cleanupRestoredStreamingBubbles(bubble.childBubbles);
+      }
+    }
+  };
+
+  const applyNormalizedEventToMessage = (currentMsg: ChatMessage, normalizedEvent: NormalizedStreamEvent) => {
+    const payload = normalizedEvent.payload;
+    const raw = normalizedEvent.raw;
+
+    switch (normalizedEvent.eventType) {
+      case 'thinking.delta': {
+        const content = getString(payload.content) ?? getString(raw.content) ?? '';
+        if (isSuppressedAssistantText(content)) {
+          break;
+        }
+
+        let activeThinking = getLastStreamingThinkingBubble(currentMsg.bubbles);
+        if (!activeThinking) {
+          activeThinking = createThinkingBubble(content);
+          currentMsg.bubbles.push(activeThinking);
+        } else {
+          activeThinking.content = (activeThinking.content || '') + content;
+        }
+        exitWaitingState(currentMsg.waitingState);
+        break;
+      }
+      case 'thinking.completed': {
+        const content = getString(payload.content) ?? getString(raw.content) ?? '';
+        if (isSuppressedAssistantText(content)) {
+          const activeThinking = getLastStreamingThinkingBubble(currentMsg.bubbles);
+          if (activeThinking) {
+            completeThinkingBubble(activeThinking);
+          }
+          break;
+        }
+
+        let activeThinking = getLastStreamingThinkingBubble(currentMsg.bubbles);
+        if (!activeThinking) {
+          activeThinking = createThinkingBubble(content);
+          currentMsg.bubbles.push(activeThinking);
+        } else if (content) {
+          activeThinking.content = content;
+        }
+        completeThinkingBubble(activeThinking);
+        break;
+      }
+      case 'text.delta': {
+        const errorType = getString(raw.errorType);
+        const content = getString(payload.content) ?? getString(raw.content) ?? '';
+
+        if (errorType === 'recoverable' || errorType === 'blocking') {
+          break;
+        }
+
+        if (isSuppressedAssistantText(content)) {
+          break;
+        }
+
+        exitWaitingState(currentMsg.waitingState);
+        collapseLastThinkingBubble(currentMsg.bubbles);
+
+        const lastTextBubble = getLastStreamingTextBubble(currentMsg.bubbles);
+        if (lastTextBubble) {
+          lastTextBubble.content = (lastTextBubble.content || '') + content;
+        } else {
+          currentMsg.bubbles.push(createTextBubble(content));
+        }
+        break;
+      }
+      case 'text.completed': {
+        const content = getString(payload.content) ?? getString(raw.content) ?? '';
+        const lastTextBubble = getLastStreamingTextBubble(currentMsg.bubbles);
+
+        if (lastTextBubble) {
+          if (isSuppressedAssistantText(lastTextBubble.content)) {
+            const bubbleIndex = currentMsg.bubbles.lastIndexOf(lastTextBubble);
+            if (bubbleIndex >= 0) {
+              currentMsg.bubbles.splice(bubbleIndex, 1);
+            }
+          } else {
+            completeBubble(lastTextBubble);
+          }
+        } else if (content && !isSuppressedAssistantText(content)) {
+          const newTextBubble = createTextBubble(content);
+          newTextBubble.status = 'completed';
+          currentMsg.bubbles.push(newTextBubble);
+        }
+
+        if (!hasStreamingSubAgent(currentMsg.bubbles)) {
+          enterWaitingState(currentMsg.waitingState, getRandomWaitingVerb);
+        }
+        break;
+      }
+      case 'subtask.started': {
+        exitWaitingState(currentMsg.waitingState);
+        collapseLastThinkingBubble(currentMsg.bubbles);
+
+        const lastTextBubble = getLastStreamingTextBubble(currentMsg.bubbles);
+        if (lastTextBubble) {
+          completeBubble(lastTextBubble);
+        }
+
+        const subtaskId = getString(raw.subtaskId) ?? getString(raw.subAgentId);
+        if (!subtaskId || findBubbleByIdDeep(currentMsg.bubbles, subtaskId)) {
+          break;
+        }
+
+        currentMsg.bubbles.push(createSubAgentBubble(
+          subtaskId,
+          getString(payload.name) ?? getString(raw.subAgentName) ?? 'Subtask',
+          getString(payload.type) ?? getString(raw.subAgentType) ?? 'general-purpose'
+        ));
+        break;
+      }
+      case 'subtask.completed': {
+        const subtaskId = getString(raw.subtaskId) ?? getString(raw.subAgentId);
+        if (!subtaskId) {
+          break;
+        }
+
+        const subAgentBubble = findBubbleByIdDeep(currentMsg.bubbles, subtaskId);
+        if (subAgentBubble) {
+          const success = getBoolean(payload.success) ?? getBoolean(raw.success);
+          if (success === false) {
+            failBubble(subAgentBubble, getString(payload.error) ?? getString(raw.error));
+          } else {
+            completeBubble(subAgentBubble);
+          }
+
+          const summary = getString(payload.summary) ?? getString(raw.content);
+          if (summary) {
+            updateSubAgentResult(subAgentBubble, summary);
+          }
+        }
+
+        if (!hasStreamingSubAgent(currentMsg.bubbles)) {
+          enterWaitingState(currentMsg.waitingState, getRandomWaitingVerb);
+        }
+        break;
+      }
+      case 'tool.started': {
+        exitWaitingState(currentMsg.waitingState);
+        collapseLastThinkingBubble(currentMsg.bubbles);
+
+        const lastTextBubble = getLastStreamingTextBubble(currentMsg.bubbles);
+        if (lastTextBubble) {
+          completeBubble(lastTextBubble);
+        }
+
+        const toolCallId = getString(raw.toolCallId);
+        if (!toolCallId) {
+          break;
+        }
+
+        const existingBubble = findBubbleByIdDeep(currentMsg.bubbles, toolCallId);
+        if (existingBubble) {
+          break;
+        }
+
+        const toolBubble = createToolCallBubble(
+          toolCallId,
+          getString(payload.toolName) ?? getString(raw.toolName) ?? 'Tool',
+          getString(payload.toolDescription) ?? getString(raw.toolDescription),
+          getObject(payload.params) ?? getObject(raw.toolParams)
+        );
+
+        const subtaskId = getString(raw.subtaskId) ?? getString(raw.subAgentId);
+        if (subtaskId) {
+          const subAgentBubble = findBubbleByIdDeep(currentMsg.bubbles, subtaskId);
+          if (subAgentBubble && subAgentBubble.type === 'subagent') {
+            if (!subAgentBubble.childBubbles) {
+              subAgentBubble.childBubbles = [];
+            }
+            subAgentBubble.childBubbles.push(toolBubble);
+          } else {
+            currentMsg.bubbles.push(toolBubble);
+          }
+        } else {
+          currentMsg.bubbles.push(toolBubble);
+        }
+
+        enterWaitingState(currentMsg.waitingState, getRandomWaitingVerb);
+        break;
+      }
+      case 'tool.output': {
+        const toolCallId = getString(raw.toolCallId);
+        const output = getString(payload.output) ?? getString(raw.toolOutput);
+        if (!toolCallId || !output) {
+          break;
+        }
+
+        const toolBubble = findBubbleByIdDeep(currentMsg.bubbles, toolCallId);
+        if (toolBubble && toolBubble.type === 'tool_call') {
+          appendToolCallOutput(toolBubble, output);
+        }
+        break;
+      }
+      case 'tool.completed': {
+        const toolCallId = getString(raw.toolCallId);
+        if (!toolCallId) {
+          break;
+        }
+
+        const toolBubble = findBubbleByIdDeep(currentMsg.bubbles, toolCallId);
+        if (toolBubble && toolBubble.type === 'tool_call') {
+          const output = getString(payload.output) ?? getString(raw.toolOutput);
+          if (output && !toolBubble.toolOutput) {
+            appendToolCallOutput(toolBubble, output);
+          }
+
+          const success = getBoolean(payload.success) ?? getBoolean(raw.success);
+          if (success === false) {
+            failBubble(toolBubble, getString(payload.error) ?? getString(raw.error));
+          } else {
+            completeBubble(toolBubble);
+          }
+        }
+
+        if (!hasStreamingSubAgent(currentMsg.bubbles)) {
+          enterWaitingState(currentMsg.waitingState, getRandomWaitingVerb);
+        }
+        break;
+      }
+      case 'task_output_polling': {
+        isPollingBackground.value = true;
+        const timeout = Number(raw.timeout ?? payload.timeout ?? 0);
+        const streamingSubAgents = findStreamingSubAgents(currentMsg.bubbles);
+        for (const bubble of streamingSubAgents) {
+          markAsBackground(bubble);
+          bubble.subAgentResult = `正在获取结果... (timeout: ${timeout / 1000}s)`;
+        }
+        break;
+      }
+      case 'turn.completed': {
+        finalizeStreamingMessage(currentMsg);
+        break;
+      }
+      case 'turn.failed': {
+        finalizeStreamingMessage(currentMsg);
+        appendTerminalFailure(
+          currentMsg,
+          getString(payload.error?.message) ?? getString(raw.error) ?? '本轮对话失败，请稍后重试。'
+        );
+        break;
+      }
+      default: {
+        if (raw.error) {
+          console.error('[SSE Error]', raw.error);
+        }
+        break;
+      }
+    }
+  };
+
   const sendMessage = async () => {
     const win = options.activeWindow.value;
     if (!win) return;
@@ -474,6 +747,7 @@ export const useChatStream = (options: ChatStreamOptions) => {
           clientMessageId,
           message,
           attachmentIds,
+          attachments: attachmentsToSend,
           model: options.currentModel.value?.id,
           effort: options.currentEffort.value.id,
           thinking: options.currentThinking.value.id,
@@ -545,267 +819,7 @@ export const useChatStream = (options: ChatStreamOptions) => {
 
             const currentMsg = options.getWindowMessage(targetWindowId, aiMessageIndex);
             if (!currentMsg) continue;
-
-            const payload = normalizedEvent.payload;
-            const raw = normalizedEvent.raw;
-
-            switch (normalizedEvent.eventType) {
-              case 'thinking.delta': {
-                const content = getString(payload.content) ?? getString(raw.content) ?? '';
-                if (isSuppressedAssistantText(content)) {
-                  break;
-                }
-
-                let activeThinking = getLastStreamingThinkingBubble(currentMsg.bubbles);
-                if (!activeThinking) {
-                  activeThinking = createThinkingBubble(content);
-                  currentMsg.bubbles.push(activeThinking);
-                } else {
-                  activeThinking.content = (activeThinking.content || '') + content;
-                }
-                exitWaitingState(currentMsg.waitingState);
-                break;
-              }
-              case 'thinking.completed': {
-                const content = getString(payload.content) ?? getString(raw.content) ?? '';
-                if (isSuppressedAssistantText(content)) {
-                  const activeThinking = getLastStreamingThinkingBubble(currentMsg.bubbles);
-                  if (activeThinking) {
-                    completeThinkingBubble(activeThinking);
-                  }
-                  break;
-                }
-
-                let activeThinking = getLastStreamingThinkingBubble(currentMsg.bubbles);
-                if (!activeThinking) {
-                  activeThinking = createThinkingBubble(content);
-                  currentMsg.bubbles.push(activeThinking);
-                } else if (content) {
-                  activeThinking.content = content;
-                }
-                completeThinkingBubble(activeThinking);
-                break;
-              }
-              case 'text.delta': {
-                const errorType = getString(raw.errorType);
-                const content = getString(payload.content) ?? getString(raw.content) ?? '';
-
-                if (errorType === 'recoverable') {
-                  if (import.meta.env.DEV) {
-                    console.log('[Recoverable error (hidden)]', raw.errorContent || content);
-                  }
-                  break;
-                }
-
-                if (errorType === 'blocking') {
-                  if (import.meta.env.DEV) {
-                    console.warn('[Blocking error (hidden from chat)]', raw.errorContent || content);
-                  }
-                  break;
-                }
-
-                if (isSuppressedAssistantText(content)) {
-                  break;
-                }
-
-                exitWaitingState(currentMsg.waitingState);
-                collapseLastThinkingBubble(currentMsg.bubbles);
-
-                const lastTextBubble = getLastStreamingTextBubble(currentMsg.bubbles);
-                if (lastTextBubble) {
-                  lastTextBubble.content = (lastTextBubble.content || '') + content;
-                } else {
-                  currentMsg.bubbles.push(createTextBubble(content));
-                }
-
-                if (raw.hiddenContent && import.meta.env.DEV) {
-                  console.debug('[Hidden recoverable error]', raw.hiddenContent);
-                }
-                break;
-              }
-              case 'text.completed': {
-                const content = getString(payload.content) ?? getString(raw.content) ?? '';
-                const lastTextBubble = getLastStreamingTextBubble(currentMsg.bubbles);
-
-                if (lastTextBubble) {
-                  if (isSuppressedAssistantText(lastTextBubble.content)) {
-                    const bubbleIndex = currentMsg.bubbles.lastIndexOf(lastTextBubble);
-                    if (bubbleIndex >= 0) {
-                      currentMsg.bubbles.splice(bubbleIndex, 1);
-                    }
-                  } else {
-                    completeBubble(lastTextBubble);
-                  }
-                } else if (content && !isSuppressedAssistantText(content)) {
-                  const newTextBubble = createTextBubble(content);
-                  newTextBubble.status = 'completed';
-                  currentMsg.bubbles.push(newTextBubble);
-                }
-
-                if (!hasStreamingSubAgent(currentMsg.bubbles)) {
-                  enterWaitingState(currentMsg.waitingState, getRandomWaitingVerb);
-                }
-                break;
-              }
-              case 'subtask.started': {
-                exitWaitingState(currentMsg.waitingState);
-                collapseLastThinkingBubble(currentMsg.bubbles);
-
-                const lastTextBubble = getLastStreamingTextBubble(currentMsg.bubbles);
-                if (lastTextBubble) {
-                  completeBubble(lastTextBubble);
-                }
-
-                const subtaskId = getString(raw.subtaskId) ?? getString(raw.subAgentId);
-                if (!subtaskId || findBubbleByIdDeep(currentMsg.bubbles, subtaskId)) {
-                  break;
-                }
-
-                currentMsg.bubbles.push(createSubAgentBubble(
-                  subtaskId,
-                  getString(payload.name) ?? getString(raw.subAgentName) ?? 'Subtask',
-                  getString(payload.type) ?? getString(raw.subAgentType) ?? 'general-purpose'
-                ));
-                break;
-              }
-              case 'subtask.completed': {
-                const subtaskId = getString(raw.subtaskId) ?? getString(raw.subAgentId);
-                if (!subtaskId) {
-                  break;
-                }
-
-                const subAgentBubble = findBubbleByIdDeep(currentMsg.bubbles, subtaskId);
-                if (subAgentBubble) {
-                  const success = getBoolean(payload.success) ?? getBoolean(raw.success);
-                  if (success === false) {
-                    failBubble(subAgentBubble, getString(payload.error) ?? getString(raw.error));
-                  } else {
-                    completeBubble(subAgentBubble);
-                  }
-
-                  const summary = getString(payload.summary) ?? getString(raw.content);
-                  if (summary) {
-                    updateSubAgentResult(subAgentBubble, summary);
-                  }
-                }
-
-                if (!hasStreamingSubAgent(currentMsg.bubbles)) {
-                  enterWaitingState(currentMsg.waitingState, getRandomWaitingVerb);
-                }
-                break;
-              }
-              case 'tool.started': {
-                exitWaitingState(currentMsg.waitingState);
-                collapseLastThinkingBubble(currentMsg.bubbles);
-
-                const lastTextBubble = getLastStreamingTextBubble(currentMsg.bubbles);
-                if (lastTextBubble) {
-                  completeBubble(lastTextBubble);
-                }
-
-                const toolCallId = getString(raw.toolCallId);
-                if (!toolCallId) {
-                  break;
-                }
-
-                const existingBubble = findBubbleByIdDeep(currentMsg.bubbles, toolCallId);
-                if (existingBubble) {
-                  break;
-                }
-
-                const toolBubble = createToolCallBubble(
-                  toolCallId,
-                  getString(payload.toolName) ?? getString(raw.toolName) ?? 'Tool',
-                  getString(payload.toolDescription) ?? getString(raw.toolDescription),
-                  getObject(payload.params) ?? getObject(raw.toolParams)
-                );
-
-                const subtaskId = getString(raw.subtaskId) ?? getString(raw.subAgentId);
-                if (subtaskId) {
-                  const subAgentBubble = findBubbleByIdDeep(currentMsg.bubbles, subtaskId);
-                  if (subAgentBubble && subAgentBubble.type === 'subagent') {
-                    if (!subAgentBubble.childBubbles) {
-                      subAgentBubble.childBubbles = [];
-                    }
-                    subAgentBubble.childBubbles.push(toolBubble);
-                  } else {
-                    currentMsg.bubbles.push(toolBubble);
-                  }
-                } else {
-                  currentMsg.bubbles.push(toolBubble);
-                }
-
-                enterWaitingState(currentMsg.waitingState, getRandomWaitingVerb);
-                break;
-              }
-              case 'tool.output': {
-                const toolCallId = getString(raw.toolCallId);
-                const output = getString(payload.output) ?? getString(raw.toolOutput);
-                if (!toolCallId || !output) {
-                  break;
-                }
-
-                const toolBubble = findBubbleByIdDeep(currentMsg.bubbles, toolCallId);
-                if (toolBubble && toolBubble.type === 'tool_call') {
-                  appendToolCallOutput(toolBubble, output);
-                }
-                break;
-              }
-              case 'tool.completed': {
-                const toolCallId = getString(raw.toolCallId);
-                if (!toolCallId) {
-                  break;
-                }
-
-                const toolBubble = findBubbleByIdDeep(currentMsg.bubbles, toolCallId);
-                if (toolBubble && toolBubble.type === 'tool_call') {
-                  const output = getString(payload.output) ?? getString(raw.toolOutput);
-                  if (output && !toolBubble.toolOutput) {
-                    appendToolCallOutput(toolBubble, output);
-                  }
-
-                  const success = getBoolean(payload.success) ?? getBoolean(raw.success);
-                  if (success === false) {
-                    failBubble(toolBubble, getString(payload.error) ?? getString(raw.error));
-                  } else {
-                    completeBubble(toolBubble);
-                  }
-                }
-
-                if (!hasStreamingSubAgent(currentMsg.bubbles)) {
-                  enterWaitingState(currentMsg.waitingState, getRandomWaitingVerb);
-                }
-                break;
-              }
-              case 'task_output_polling': {
-                isPollingBackground.value = true;
-                const timeout = Number(raw.timeout ?? payload.timeout ?? 0);
-                const streamingSubAgents = findStreamingSubAgents(currentMsg.bubbles);
-                for (const bubble of streamingSubAgents) {
-                  markAsBackground(bubble);
-                  bubble.subAgentResult = `正在获取结果... (timeout: ${timeout / 1000}s)`;
-              }
-              break;
-            }
-            case 'turn.completed': {
-                finalizeStreamingMessage(currentMsg);
-                break;
-              }
-              case 'turn.failed': {
-                finalizeStreamingMessage(currentMsg);
-                appendTerminalFailure(
-                  currentMsg,
-                  getString(payload.error?.message) ?? getString(raw.error) ?? '本轮对话失败，请稍后重试。'
-                );
-                break;
-              }
-              default: {
-                if (raw.error) {
-                  console.error('[SSE Error]', raw.error);
-                }
-                break;
-              }
-            }
+            applyNormalizedEventToMessage(currentMsg, normalizedEvent);
 
             await nextTick();
             options.scrollToBottom({ windowId: targetWindowId });
@@ -886,6 +900,208 @@ export const useChatStream = (options: ChatStreamOptions) => {
       await nextTick();
       options.scrollToBottom({ windowId: targetWindowId });
     }
+  };
+
+  const parseHistoryTimestamp = (value?: string | null): number => {
+    if (!value) {
+      return Date.now();
+    }
+
+    const parsed = Date.parse(value);
+    return Number.isNaN(parsed) ? Date.now() : parsed;
+  };
+
+  const findQuestionBubbleByInteractionId = (
+    bubbleList: ChatBubble[],
+    interactionId: string
+  ): ChatBubble | undefined => {
+    for (const bubble of bubbleList) {
+      if (bubble.questionRequestId === interactionId) {
+        return bubble;
+      }
+      if (bubble.childBubbles) {
+        const nested = findQuestionBubbleByInteractionId(bubble.childBubbles, interactionId);
+        if (nested) {
+          return nested;
+        }
+      }
+    }
+    return undefined;
+  };
+
+  const createRestoredUserMessage = (
+    message: string,
+    attachments: ChatAttachmentRef[] | undefined,
+    timestamp: number
+  ): ChatMessage => {
+    const bubble = createTextBubble(message);
+    bubble.status = 'completed';
+    bubble.timestamp = timestamp;
+    if (attachments && attachments.length > 0) {
+      bubble.attachments = attachments;
+    }
+
+    return {
+      role: 'user',
+      bubbles: [bubble],
+      waitingState: { isWaiting: false, waitingVerb: '', waitingSince: 0 },
+      isStreaming: false,
+      startTime: timestamp,
+      endTime: timestamp
+    };
+  };
+
+  const createRestoredAiMessage = (timestamp: number): ChatMessage => ({
+    role: 'ai',
+    bubbles: [],
+    waitingState: { isWaiting: false, waitingVerb: '', waitingSince: 0 },
+    isStreaming: true,
+    startTime: timestamp
+  });
+
+  const createHistoryTimeline = (response: ChatHistoryResponse): HistoryTimelineItem[] => {
+    const timeline: HistoryTimelineItem[] = response.history.map(entry => ({
+      kind: 'history',
+      entry,
+      timestamp: parseHistoryTimestamp(entry.createdAt)
+    }));
+
+    for (const record of response.interactions || []) {
+      if (record.kind !== 'question') {
+        continue;
+      }
+
+      timeline.push({
+        kind: 'question_pushed',
+        record,
+        timestamp: parseHistoryTimestamp(record.createdAt)
+      });
+
+      if (record.status !== 'pending') {
+        timeline.push({
+          kind: 'question_terminal',
+          record,
+          timestamp: parseHistoryTimestamp(record.updatedAt || record.createdAt)
+        });
+      }
+    }
+
+    const kindPriority: Record<HistoryTimelineItem['kind'], number> = {
+      history: 0,
+      question_pushed: 1,
+      question_terminal: 2
+    };
+
+    timeline.sort((left, right) => {
+      if (left.timestamp !== right.timestamp) {
+        return left.timestamp - right.timestamp;
+      }
+      return kindPriority[left.kind] - kindPriority[right.kind];
+    });
+
+    return timeline;
+  };
+
+  const restoreHistoryForWindow = (windowState: ChatWindow, response: ChatHistoryResponse) => {
+    const turnMessages = new Map<string, { user?: ChatMessage; ai?: ChatMessage }>();
+    windowState.messages = [];
+    windowState.isStreaming = false;
+
+    const ensureAiMessageForTurn = (turnId: string, timestamp: number): ChatMessage => {
+      const existing = turnMessages.get(turnId);
+      if (existing?.ai) {
+        return existing.ai;
+      }
+
+      const aiMessage = createRestoredAiMessage(timestamp);
+      windowState.messages.push(aiMessage);
+      turnMessages.set(turnId, { ...(existing || {}), ai: aiMessage });
+      return aiMessage;
+    };
+
+    const applyQuestionResolvedState = (bubble: ChatBubble, record: InteractionRecord) => {
+      bubble.questionSubmitted = true;
+      bubble.questionAnswers = record.status === 'resolved'
+        ? (record.resolutionPayload?.answers as Record<string, string> | undefined) || {}
+        : {};
+      completeBubble(bubble);
+    };
+
+    for (const item of createHistoryTimeline(response)) {
+      if (item.kind === 'history') {
+        const entry = item.entry;
+        if (entry.kind === 'user_message') {
+          const userMessage = createRestoredUserMessage(
+            entry.message || '',
+            entry.attachments,
+            item.timestamp
+          );
+          windowState.messages.push(userMessage);
+          turnMessages.set(entry.turnId, { ...(turnMessages.get(entry.turnId) || {}), user: userMessage });
+          continue;
+        }
+
+        const aiMessage = ensureAiMessageForTurn(entry.turnId, item.timestamp);
+        const normalizedEvent = normalizeStreamEvent(entry.event);
+        if (!normalizedEvent) {
+          continue;
+        }
+        applyNormalizedEventToMessage(aiMessage, normalizedEvent);
+        continue;
+      }
+
+      const record = item.record;
+      const aiMessage = ensureAiMessageForTurn(record.turnId, item.timestamp);
+      let bubble = findQuestionBubbleByInteractionId(aiMessage.bubbles, record.interactionId);
+
+      if (!bubble) {
+        bubble = createQuestionBubble(
+          record.interactionId,
+          Array.isArray(record.requestPayload?.questions) ? record.requestPayload.questions : []
+        );
+        bubble.timestamp = item.timestamp;
+        aiMessage.bubbles.push(bubble);
+      } else if (Array.isArray(record.requestPayload?.questions)) {
+        bubble.questions = record.requestPayload.questions;
+      }
+
+      if (item.kind === 'question_terminal') {
+        applyQuestionResolvedState(bubble, record);
+      }
+    }
+
+    for (const message of windowState.messages) {
+      if (message.role !== 'ai') {
+        continue;
+      }
+
+      message.isStreaming = false;
+      exitWaitingState(message.waitingState);
+      cleanupRestoredStreamingBubbles(message.bubbles);
+      pruneSuppressedTextBubbles(message.bubbles);
+    }
+  };
+
+  const restoreHistory = async (windowIds: string[]) => {
+    if (windowIds.length === 0) {
+      return;
+    }
+
+    const historyService = getChatHistoryService(options.agentApiBase);
+
+    await Promise.all(windowIds.map(async windowId => {
+      const windowState = options.windows.value.find(item => item.id === windowId);
+      if (!windowState) {
+        return;
+      }
+
+      try {
+        const response = await historyService.getHistory(windowId);
+        restoreHistoryForWindow(windowState, response);
+      } catch (error) {
+        console.warn(`[useChatStream] Restore history failed for window ${windowId}:`, error);
+      }
+    }));
   };
 
   const createChatHttpError = async (response: Response): Promise<ChatHttpError> => {
@@ -1057,6 +1273,7 @@ export const useChatStream = (options: ChatStreamOptions) => {
     isPollingBackground,
     streamWelcomeMessage,
     sendMessage,
+    restoreHistory,
     interruptMessage,
     checkAgentHealth,
     fetchProjectPath,

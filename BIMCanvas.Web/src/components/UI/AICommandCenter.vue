@@ -77,6 +77,8 @@ const {
   newWindowDropdownPosition,
   branchOptionsForDialog,
   initDefaultWindow,
+  restoreWindowSession,
+  syncWindowActivation,
   addMessage,
   addMessageToWindow,
   getWindowMessage,
@@ -327,6 +329,7 @@ const {
   isPollingBackground,
   streamWelcomeMessage,
   sendMessage,
+  restoreHistory,
   interruptMessage,
   checkAgentHealth,
   fetchProjectPath,
@@ -476,10 +479,20 @@ const clearSelection = () => {
 };
 
 onMounted(async () => {
-  initDefaultWindow();
   await checkAgentHealth();
   await gitStore.fetchBranches();
   await fetchProjectPath();
+  const restoredWindowSession = await restoreWindowSession();
+  if (!restoredWindowSession) {
+    initDefaultWindow();
+  }
+
+  await restoreHistory(windows.value.map(window => window.id));
+
+  if (restoredWindowSession && activeWindowId.value) {
+    await syncWindowActivation(activeWindowId.value);
+  }
+
   await Promise.all([
     startListening(),
     startQuestionListening()

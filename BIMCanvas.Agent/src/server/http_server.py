@@ -178,6 +178,40 @@ async def _write_sse_data(response: web.StreamResponse, data: dict[str, Any]) ->
     await response.write(f"data: {json.dumps(data, ensure_ascii=False)}\n\n".encode("utf-8"))
 
 
+def _sanitize_history_attachments(raw_value: Any) -> list[dict[str, Any]]:
+    if not isinstance(raw_value, list):
+        return []
+
+    allowed_keys = {
+        "attachmentId",
+        "clientMessageId",
+        "sourceKind",
+        "originalFileName",
+        "mimeType",
+        "sizeBytes",
+        "width",
+        "height",
+        "status",
+        "contentUrl",
+    }
+
+    sanitized: list[dict[str, Any]] = []
+    for item in raw_value:
+        if not isinstance(item, dict):
+            continue
+
+        record = {key: item.get(key) for key in allowed_keys if key in item}
+        attachment_id = record.get("attachmentId")
+        content_url = record.get("contentUrl")
+        if not isinstance(attachment_id, str) or not attachment_id.strip():
+            continue
+        if not isinstance(content_url, str) or not content_url.strip():
+            continue
+        sanitized.append(record)
+
+    return sanitized
+
+
 async def _disconnect_agent(agent: MainAgent) -> None:
     try:
         await agent.disconnect()
@@ -488,6 +522,7 @@ async def chat_stream_handler(request: web.Request) -> web.StreamResponse:
     message = data.get("message", "")
     images = data.get("images", [])
     attachment_ids = data.get("attachmentIds", [])
+    attachments = _sanitize_history_attachments(data.get("attachments"))
     model = data.get("model")
     effort = data.get("effort")
     thinking = data.get("thinking")
@@ -577,6 +612,14 @@ async def chat_stream_handler(request: web.Request) -> web.StreamResponse:
             await runtime_store.mark_session_ready_announced(session.session_id)
 
         await runtime_store.mark_session_running(session.session_id, turn_id)
+        await runtime_store.append_user_history(
+            session_id=session.session_id,
+            turn_id=turn_id,
+            window_id=window_id,
+            client_message_id=client_message_id,
+            message=message,
+            attachments=attachments,
+        )
 
         async for chunk in agent.chat_stream(
             message,
@@ -590,15 +633,33 @@ async def chat_stream_handler(request: web.Request) -> web.StreamResponse:
             runtime_context=runtime_context,
         ):
             for event_data in stream_mapper.map_chunk(chunk):
+                await runtime_store.append_event_history(
+                    session_id=session.session_id,
+                    turn_id=turn_id,
+                    window_id=window_id,
+                    event_payload=event_data,
+                )
                 await _write_sse_data(response, event_data)
 
         terminal_event = stream_mapper.build_success_terminal_event()
+        await runtime_store.append_event_history(
+            session_id=session.session_id,
+            turn_id=turn_id,
+            window_id=window_id,
+            event_payload=terminal_event,
+        )
         await _write_sse_data(response, terminal_event)
 
     except Exception as exc:
         logger.exception(f"Stream error: {exc}")
         await _write_sse_data(response, {"error": str(exc)})
         terminal_event = stream_mapper.build_exception_terminal_event(exc)
+        await runtime_store.append_event_history(
+            session_id=session.session_id,
+            turn_id=turn_id,
+            window_id=window_id,
+            event_payload=terminal_event,
+        )
         await _write_sse_data(response, terminal_event)
     finally:
         try:
@@ -642,17 +703,14 @@ async def get_history_handler(request: web.Request) -> web.Response:
     Get conversation history for a window.
     """
     window_id = request.query.get("windowId", "primary")
-
-    if window_id not in agents:
-        return web.json_response({
-            "history": [],
-            "windowId": window_id,
-        })
-
-    history = agents[window_id].get_history()
+    session, history, interactions = await runtime_store.get_history_for_window(window_id)
     return web.json_response({
         "history": history,
+        "interactions": interactions,
         "windowId": window_id,
+        "session": session,
+        "sessionId": session["sessionId"] if session else None,
+        "sessionStatus": session["status"] if session else None,
     })
 
 
@@ -760,10 +818,18 @@ async def interaction_events_handler(request: web.Request) -> web.StreamResponse
 async def interaction_query_handler(request: web.Request) -> web.Response:
     """查询当前窗口活跃 session 下的 unresolved interactions。"""
     window_id = request.query.get("windowId", "primary")
-    session_id, interactions = await runtime_store.get_pending_interactions_for_window(window_id)
+    include_terminal = request.query.get("includeTerminal", "").strip().lower() == "true"
+    if include_terminal:
+        session_id, interactions = await runtime_store.get_interactions_for_window(
+            window_id,
+            include_terminal=True,
+        )
+    else:
+        session_id, interactions = await runtime_store.get_pending_interactions_for_window(window_id)
     return web.json_response({
         "windowId": window_id,
         "sessionId": session_id,
+        "includeTerminal": include_terminal,
         "interactions": interactions,
     })
 

@@ -8,6 +8,24 @@ import { SignalRService } from '../../services/SignalRService';
 import { createDraftMessageId } from '../../services/ChatAttachmentService';
 import { SERVER_API } from '../../config/api';
 
+const WINDOW_SESSION_STORAGE_KEY = 'bimcanvas.ai-command-center.window-session.v1';
+
+interface PersistedChatWindow {
+  id: string;
+  name: string;
+  branchId: string;
+  isPrimary: boolean;
+  worktreeName?: string;
+  worktreePath?: string;
+  scrollPosition?: number;
+}
+
+interface WindowSessionSnapshot {
+  version: 1;
+  activeWindowId: string;
+  windows: PersistedChatWindow[];
+}
+
 interface WindowManagerOptions {
   branches: Ref<GitBranch[]>;
   currentBranch: Ref<string | null>;
@@ -49,6 +67,56 @@ export const useWindowManager = (options: WindowManagerOptions) => {
     windows.value.find(w => w.id === activeWindowId.value) || windows.value[0]
   );
 
+  const buildPersistedWindow = (window: ChatWindow): PersistedChatWindow => ({
+    id: window.id,
+    name: window.name,
+    branchId: window.branchId,
+    isPrimary: window.isPrimary,
+    worktreeName: window.worktreeName,
+    worktreePath: window.worktreePath,
+    scrollPosition: window.scrollPosition
+  });
+
+  const persistWindowSession = () => {
+    if (typeof window === 'undefined') {
+      return;
+    }
+
+    if (windows.value.length === 0) {
+      window.sessionStorage.removeItem(WINDOW_SESSION_STORAGE_KEY);
+      return;
+    }
+
+    const snapshot: WindowSessionSnapshot = {
+      version: 1,
+      activeWindowId: activeWindowId.value,
+      windows: windows.value.map(buildPersistedWindow)
+    };
+
+    window.sessionStorage.setItem(WINDOW_SESSION_STORAGE_KEY, JSON.stringify(snapshot));
+  };
+
+  const syncWindowActivation = async (windowId: string) => {
+    const win = windows.value.find(w => w.id === windowId);
+    if (!win) return;
+
+    options.branches.value.forEach(b => b.isCurrent = b.id === win.branchId);
+
+    try {
+      await fetch(`${SERVER_API}/windows/activate`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ windowId })
+      });
+      console.log(`[Window] 激活窗口: ${win.name} (${windowId})`);
+    } catch (error) {
+      console.warn('[Window] 通知 Server 激活窗口失败:', error);
+    }
+
+    await options.store.loadProject({ source: ChangeSource.GitCheckout, preserveView: true });
+    console.log('[Window] 重新加载项目数据完成');
+  };
+
   const initDefaultWindow = () => {
     if (windows.value.length > 0) return;
     const defaultId = 'window-main';
@@ -67,6 +135,79 @@ export const useWindowManager = (options: WindowManagerOptions) => {
       shouldAutoScroll: true
     }];
     activeWindowId.value = defaultId;
+  };
+
+  const restoreWindowSession = async (): Promise<boolean> => {
+    if (typeof window === 'undefined') {
+      return false;
+    }
+
+    const raw = window.sessionStorage.getItem(WINDOW_SESSION_STORAGE_KEY);
+    if (!raw) {
+      return false;
+    }
+
+    let snapshot: WindowSessionSnapshot | null = null;
+    try {
+      snapshot = JSON.parse(raw) as WindowSessionSnapshot;
+    } catch (error) {
+      console.warn('[Window] 解析窗口快照失败，已忽略:', error);
+      window.sessionStorage.removeItem(WINDOW_SESSION_STORAGE_KEY);
+      return false;
+    }
+
+    if (snapshot?.version !== 1 || !Array.isArray(snapshot.windows) || snapshot.windows.length === 0) {
+      window.sessionStorage.removeItem(WINDOW_SESSION_STORAGE_KEY);
+      return false;
+    }
+
+    windows.value = snapshot.windows.map(saved => ({
+      id: saved.id,
+      name: saved.name,
+      branchId: saved.branchId,
+      messages: [],
+      isPrimary: saved.isPrimary,
+      worktreeName: saved.worktreeName,
+      worktreePath: saved.worktreePath,
+      isLoading: false,
+      error: null,
+      inputMessage: '',
+      draftMessageId: createDraftMessageId(),
+      isStreaming: false,
+      pendingAttachments: [],
+      scrollPosition: saved.scrollPosition ?? 0,
+      expandedThinking: {},
+      shouldAutoScroll: true
+    }));
+
+    const fallbackWindow = windows.value[0];
+    activeWindowId.value = windows.value.some(w => w.id === snapshot?.activeWindowId)
+      ? snapshot!.activeWindowId
+      : (fallbackWindow?.id || '');
+
+    for (const restoredWindow of windows.value) {
+      if (!restoredWindow.worktreePath) {
+        continue;
+      }
+
+      try {
+        await fetch(`${SERVER_API}/windows/register-worktree`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            windowId: restoredWindow.id,
+            worktreePath: restoredWindow.worktreePath
+          })
+        });
+      } catch (error) {
+        console.warn(`[Window] 恢复 Worktree 映射失败: ${restoredWindow.id}`, error);
+      }
+
+      void SignalRService.getInstance().registerWindow(restoredWindow.id, restoredWindow.branchId);
+    }
+
+    console.log(`[Window] 已恢复 ${windows.value.length} 个窗口快照`);
+    return true;
   };
 
   watch(options.currentBranch, (newBranch) => {
@@ -113,21 +254,7 @@ export const useWindowManager = (options: WindowManagerOptions) => {
     }
 
     activeWindowId.value = id;
-    options.branches.value.forEach(b => b.isCurrent = b.id === win.branchId);
-
-    try {
-      await fetch(`${SERVER_API}/windows/activate`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ windowId: id })
-      });
-      console.log(`[Window] 激活窗口: ${win.name} (${id})`);
-    } catch (error) {
-      console.warn('[Window] 通知 Server 激活窗口失败:', error);
-    }
-
-    await options.store.loadProject({ source: ChangeSource.GitCheckout, preserveView: true });
-    console.log('[Window] 重新加载项目数据完成');
+    await syncWindowActivation(id);
 
     nextTick(() => {
       const targetScrollRef = chatScrollRefs.value[id];
@@ -500,6 +627,17 @@ export const useWindowManager = (options: WindowManagerOptions) => {
     }
   };
 
+  watch(
+    () => ({
+      activeWindowId: activeWindowId.value,
+      windows: windows.value.map(buildPersistedWindow)
+    }),
+    () => {
+      persistWindowSession();
+    },
+    { deep: true }
+  );
+
   return {
     windows,
     activeWindowId,
@@ -515,6 +653,8 @@ export const useWindowManager = (options: WindowManagerOptions) => {
     newWindowDropdownPosition,
     branchOptionsForDialog,
     initDefaultWindow,
+    restoreWindowSession,
+    syncWindowActivation,
     addMessage,
     addMessageToWindow,
     getWindowMessage,

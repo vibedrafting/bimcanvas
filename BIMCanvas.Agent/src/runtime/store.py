@@ -7,23 +7,30 @@ import uuid
 from datetime import datetime, timezone
 from typing import Any
 
-from .records import PendingInteractionRecord, RuntimeSessionRecord
+from .records import PendingInteractionRecord, RuntimeSessionRecord, SessionHistoryEntry
 
 
 class RuntimeStateStore:
     """Host-owned truth source for sessions and pending interactions."""
 
     TERMINAL_RETENTION_LIMIT = 64
+    HISTORY_RETENTION_LIMIT = 2048
 
-    def __init__(self, terminal_retention_limit: int | None = None) -> None:
+    def __init__(
+        self,
+        terminal_retention_limit: int | None = None,
+        history_retention_limit: int | None = None,
+    ) -> None:
         self._lock = asyncio.Lock()
         self._window_sessions: dict[str, str] = {}
         self._sessions: dict[str, RuntimeSessionRecord] = {}
         self._session_pending: dict[str, set[str]] = {}
         self._session_terminal: dict[str, list[str]] = {}
+        self._session_history: dict[str, list[SessionHistoryEntry]] = {}
         self._interactions: dict[str, PendingInteractionRecord] = {}
         self._interaction_subscribers: list[asyncio.Queue] = []
         self._terminal_retention_limit = terminal_retention_limit or self.TERMINAL_RETENTION_LIMIT
+        self._history_retention_limit = history_retention_limit or self.HISTORY_RETENTION_LIMIT
 
     async def subscribe_interactions(self) -> asyncio.Queue:
         queue: asyncio.Queue = asyncio.Queue()
@@ -54,6 +61,7 @@ class RuntimeStateStore:
             self._window_sessions[window_id] = session.session_id
             self._session_pending.setdefault(session.session_id, set())
             self._session_terminal.setdefault(session.session_id, [])
+            self._session_history.setdefault(session.session_id, [])
         return session
 
     async def get_active_session(self, window_id: str) -> RuntimeSessionRecord | None:
@@ -132,6 +140,7 @@ class RuntimeStateStore:
                 self._window_sessions.pop(session.window_id, None)
             pending_ids = list(self._session_pending.pop(session_id, set()))
             terminal_ids = list(self._session_terminal.pop(session_id, []))
+            self._session_history.pop(session_id, None)
 
             purge_ids = list(dict.fromkeys([*pending_ids, *terminal_ids]))
             for interaction_id in pending_ids:
@@ -209,22 +218,128 @@ class RuntimeStateStore:
         self._publish(subscribers, "interaction.pushed", interaction.to_public_dict())
         return interaction
 
+    async def append_user_history(
+        self,
+        *,
+        session_id: str,
+        turn_id: str,
+        window_id: str,
+        client_message_id: str | None,
+        message: str | None,
+        attachments: list[dict[str, Any]] | None = None,
+    ) -> SessionHistoryEntry:
+        entry = SessionHistoryEntry(
+            entry_id=str(uuid.uuid4()),
+            session_id=session_id,
+            turn_id=turn_id,
+            window_id=window_id,
+            kind="user_message",
+            client_message_id=client_message_id,
+            message=message,
+            attachments=[dict(item) for item in attachments] if attachments is not None else [],
+        )
+
+        async with self._lock:
+            self._session_history.setdefault(session_id, []).append(entry)
+            self._trim_history_locked(session_id)
+            session = self._sessions.get(session_id)
+            if session:
+                session.touch()
+
+        return entry
+
+    async def append_event_history(
+        self,
+        *,
+        session_id: str,
+        turn_id: str,
+        window_id: str,
+        event_payload: dict[str, Any],
+    ) -> SessionHistoryEntry:
+        entry = SessionHistoryEntry(
+            entry_id=str(uuid.uuid4()),
+            session_id=session_id,
+            turn_id=turn_id,
+            window_id=window_id,
+            kind="assistant_event",
+            event_payload=dict(event_payload),
+        )
+
+        async with self._lock:
+            self._session_history.setdefault(session_id, []).append(entry)
+            self._trim_history_locked(session_id)
+            session = self._sessions.get(session_id)
+            if session:
+                session.touch()
+
+        return entry
+
     async def get_interaction(self, interaction_id: str) -> PendingInteractionRecord | None:
         async with self._lock:
             return self._interactions.get(interaction_id)
 
-    async def get_pending_interactions_for_window(self, window_id: str) -> tuple[str | None, list[dict[str, Any]]]:
+    async def get_interactions_for_window(
+        self,
+        window_id: str,
+        *,
+        include_terminal: bool = False,
+    ) -> tuple[str | None, list[dict[str, Any]]]:
         async with self._lock:
             session_id = self._window_sessions.get(window_id)
             if not session_id:
                 return None, []
-            pending_ids = self._session_pending.get(session_id, set())
+
+            pending_ids = list(self._session_pending.get(session_id, set()))
+            interaction_ids = pending_ids
+            if include_terminal:
+                interaction_ids = list(dict.fromkeys([
+                    *pending_ids,
+                    *self._session_terminal.get(session_id, []),
+                ]))
+
             interactions = [
                 self._interactions[interaction_id].to_public_dict()
-                for interaction_id in pending_ids
-                if interaction_id in self._interactions and self._interactions[interaction_id].status == "pending"
+                for interaction_id in interaction_ids
+                if interaction_id in self._interactions
             ]
+            interactions.sort(key=lambda item: (item.get("createdAt") or "", item.get("updatedAt") or ""))
             return session_id, interactions
+
+    async def get_pending_interactions_for_window(self, window_id: str) -> tuple[str | None, list[dict[str, Any]]]:
+        session_id, interactions = await self.get_interactions_for_window(window_id, include_terminal=False)
+        pending_only = [item for item in interactions if item.get("status") == "pending"]
+        return session_id, pending_only
+
+    async def get_history_for_window(
+        self,
+        window_id: str,
+    ) -> tuple[dict[str, Any] | None, list[dict[str, Any]], list[dict[str, Any]]]:
+        async with self._lock:
+            session_id = self._window_sessions.get(window_id)
+            if not session_id:
+                return None, [], []
+
+            session = self._sessions.get(session_id)
+            if not session:
+                return None, [], []
+
+            session_snapshot = self._serialize_session_locked(session)
+            history = [
+                entry.to_public_dict()
+                for entry in self._session_history.get(session_id, [])
+            ]
+
+            interaction_ids = list(dict.fromkeys([
+                *self._session_pending.get(session_id, set()),
+                *self._session_terminal.get(session_id, []),
+            ]))
+            interactions = [
+                self._interactions[interaction_id].to_public_dict()
+                for interaction_id in interaction_ids
+                if interaction_id in self._interactions
+            ]
+            interactions.sort(key=lambda item: (item.get("createdAt") or "", item.get("updatedAt") or ""))
+            return session_snapshot, history, interactions
 
     async def wait_for_interaction(self, interaction_id: str) -> dict[str, Any]:
         async with self._lock:
@@ -403,6 +518,11 @@ class RuntimeStateStore:
         while len(terminal_ids) > self._terminal_retention_limit:
             interaction_id = terminal_ids.pop(0)
             self._interactions.pop(interaction_id, None)
+
+    def _trim_history_locked(self, session_id: str) -> None:
+        history_entries = self._session_history.setdefault(session_id, [])
+        while len(history_entries) > self._history_retention_limit:
+            history_entries.pop(0)
 
     @staticmethod
     def _publish(subscribers: list[asyncio.Queue], event_name: str, record: dict[str, Any]) -> None:

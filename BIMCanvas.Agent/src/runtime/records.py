@@ -93,3 +93,43 @@ class PendingInteractionRecord:
             "expiresAt": _serialize_datetime(self.expires_at),
             "cancelReason": self.cancel_reason,
         }
+
+
+@dataclass(slots=True)
+class SessionHistoryEntry:
+    """Host-owned session transcript entry for refresh restore."""
+
+    entry_id: str
+    session_id: str
+    turn_id: str
+    window_id: str
+    kind: str
+    created_at: datetime = field(default_factory=_utcnow)
+    client_message_id: str | None = None
+    message: str | None = None
+    attachments: list[dict[str, Any]] | None = None
+    event_payload: dict[str, Any] | None = None
+
+    def to_public_dict(self) -> dict[str, Any]:
+        payload: dict[str, Any] = {
+            "entryId": self.entry_id,
+            "sessionId": self.session_id,
+            "turnId": self.turn_id,
+            "windowId": self.window_id,
+            "kind": self.kind,
+            "createdAt": _serialize_datetime(self.created_at),
+        }
+
+        if self.client_message_id is not None:
+            payload["clientMessageId"] = self.client_message_id
+
+        if self.message is not None:
+            payload["message"] = self.message
+
+        if self.attachments is not None:
+            payload["attachments"] = self.attachments
+
+        if self.event_payload is not None:
+            payload["event"] = self.event_payload
+
+        return payload

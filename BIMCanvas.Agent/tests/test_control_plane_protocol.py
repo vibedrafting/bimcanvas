@@ -209,6 +209,75 @@ def test_interrupt_cleans_pending_interactions_without_agent(monkeypatch: pytest
     asyncio.run(_test())
 
 
+def test_history_endpoint_returns_session_transcript_and_terminal_interactions(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    async def _test() -> None:
+        runtime_store = RuntimeStateStore()
+        session = await runtime_store.create_session(window_id="primary", project_path="C:/demo", worktree_path=None)
+        await runtime_store.append_user_history(
+            session_id=session.session_id,
+            turn_id="turn-1",
+            window_id="primary",
+            client_message_id="msg-1",
+            message="请分析客厅",
+            attachments=[
+                {
+                    "attachmentId": "att-1",
+                    "contentUrl": "http://localhost:5000/api/chat/attachments/att-1/content",
+                    "status": "submitted",
+                }
+            ],
+        )
+        await runtime_store.append_event_history(
+            session_id=session.session_id,
+            turn_id="turn-1",
+            window_id="primary",
+            event_payload={
+                "eventType": "text.completed",
+                "payload": {"content": "先看一下空间。"},
+            },
+        )
+        interaction = await runtime_store.create_interaction(
+            session_id=session.session_id,
+            turn_id="turn-1",
+            window_id="primary",
+            kind="question",
+            blocking=True,
+            resume_token="resume:question",
+            request_payload={"questions": [{"question": "需要保留电视墙吗？", "header": "电视墙", "options": []}]},
+        )
+        await runtime_store.submit_interaction(
+            interaction.interaction_id,
+            {"answers": {"需要保留电视墙吗？": "保留"}},
+        )
+
+        client = await _build_client(monkeypatch, runtime_store)
+        try:
+          history_response = await client.get("/api/history?windowId=primary")
+          assert history_response.status == 200
+          history_payload = await history_response.json()
+          assert history_payload["sessionId"] == session.session_id
+          assert history_payload["sessionStatus"] == "idle"
+          assert len(history_payload["history"]) == 2
+          assert history_payload["history"][0]["kind"] == "user_message"
+          assert history_payload["history"][0]["attachments"][0]["attachmentId"] == "att-1"
+          assert history_payload["history"][1]["event"]["eventType"] == "text.completed"
+          assert len(history_payload["interactions"]) == 1
+          assert history_payload["interactions"][0]["status"] == "resolved"
+
+          interaction_response = await client.get("/api/interaction?windowId=primary&includeTerminal=true")
+          assert interaction_response.status == 200
+          interaction_payload = await interaction_response.json()
+          assert interaction_payload["includeTerminal"] is True
+          assert len(interaction_payload["interactions"]) == 1
+          assert interaction_payload["interactions"][0]["interactionId"] == interaction.interaction_id
+        finally:
+            await client.close()
+
+    asyncio.run(_test())
+
+
 @pytest.mark.parametrize("endpoint", ["/api/clear-history", "/api/agent/close"])
 def test_control_plane_shutdown_endpoints_remove_active_session(
     monkeypatch: pytest.MonkeyPatch,
