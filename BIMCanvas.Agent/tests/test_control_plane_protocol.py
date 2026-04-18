@@ -299,3 +299,56 @@ def test_stream_runtime_error_marks_session_error_and_cancels_turn_interactions(
             await client.close()
 
     asyncio.run(_test())
+
+
+def test_chat_handler_failure_cancels_turn_interactions_as_turn_failed(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    async def _test() -> None:
+        runtime_store = RuntimeStateStore()
+        session = await runtime_store.create_session(window_id="primary", project_path="C:/demo", worktree_path=None)
+
+        class _FakeAgent:
+            def __init__(self) -> None:
+                self.created_interaction_id: str | None = None
+
+            def clear_runtime_context(self) -> None:
+                return None
+
+            async def chat(self, message: str, model: str | None = None, runtime_context: dict[str, str] | None = None):
+                interaction = await runtime_store.create_interaction(
+                    session_id=runtime_context["sessionId"],
+                    turn_id=runtime_context["turnId"],
+                    window_id=runtime_context["windowId"],
+                    kind="screenshot",
+                    blocking=False,
+                    resume_token="resume:none",
+                    request_payload={"roomId": "r-2"},
+                )
+                self.created_interaction_id = interaction.interaction_id
+                raise RuntimeError("sync chat failed")
+
+        fake_agent = _FakeAgent()
+
+        async def _fake_get_agent(window_id: str, project_path: str, worktree_path: str | None = None):
+            return fake_agent, session
+
+        monkeypatch.setattr(http_server, "get_agent", _fake_get_agent)
+        client = await _build_client(monkeypatch, runtime_store)
+        try:
+            response = await client.post(
+                "/api/chat",
+                json={"projectPath": "C:/demo", "windowId": "primary", "message": "hello", "model": "sonnet"},
+            )
+            payload = await response.json()
+            assert response.status == 500
+            assert payload["error"] == "sync chat failed"
+
+            interaction = await runtime_store.get_interaction(fake_agent.created_interaction_id or "")
+            assert interaction is not None
+            assert interaction.status == "cancelled"
+            assert interaction.cancel_reason == "turn_failed"
+        finally:
+            await client.close()
+
+    asyncio.run(_test())

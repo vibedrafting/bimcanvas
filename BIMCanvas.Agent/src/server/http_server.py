@@ -418,6 +418,7 @@ async def chat_handler(request: web.Request) -> web.Response:
 
     turn_id = str(uuid.uuid4())
     session: RuntimeSessionRecord | None = None
+    agent: MainAgent | None = None
 
     try:
         agent, session = await get_agent(window_id, project_path, worktree_path)
@@ -435,16 +436,13 @@ async def chat_handler(request: web.Request) -> web.Response:
         runtime_context = _build_runtime_context(window_id, session.session_id, turn_id)
 
         await runtime_store.mark_session_running(session.session_id, turn_id)
-        try:
-            reply = await agent.chat(message, model=model, runtime_context=runtime_context)
-        finally:
-            agent.clear_runtime_context()
-            await runtime_store.cancel_turn_interactions(
-                session.session_id,
-                turn_id,
-                cancel_reason="turn_completed",
-            )
-            await runtime_store.mark_session_idle(session.session_id, turn_id)
+        reply = await agent.chat(message, model=model, runtime_context=runtime_context)
+        await runtime_store.cancel_turn_interactions(
+            session.session_id,
+            turn_id,
+            cancel_reason="turn_completed",
+        )
+        await runtime_store.mark_session_idle(session.session_id, turn_id)
 
         return web.json_response({
             "reply": reply,
@@ -461,6 +459,9 @@ async def chat_handler(request: web.Request) -> web.Response:
             )
             await runtime_store.mark_session_idle(session.session_id, turn_id)
         return web.json_response({"error": str(exc)}, status=500)
+    finally:
+        if agent is not None:
+            agent.clear_runtime_context()
 
 
 async def chat_stream_handler(request: web.Request) -> web.StreamResponse:
