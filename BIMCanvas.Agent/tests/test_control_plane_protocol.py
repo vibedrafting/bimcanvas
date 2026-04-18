@@ -14,8 +14,7 @@ AGENT_ROOT = Path(__file__).resolve().parents[1]
 if str(AGENT_ROOT) not in sys.path:
     sys.path.insert(0, str(AGENT_ROOT))
 
-from src.agent.main_agent import StreamChunk
-from src.runtime import RuntimeStateStore
+from src.runtime import PendingInteractionRuntimeBinding, RuntimeStateStore, StreamChunk
 from src.server import http_server
 
 
@@ -484,6 +483,202 @@ def test_chat_handler_failure_cancels_turn_interactions_as_turn_failed(
             assert interaction is not None
             assert interaction.status == "cancelled"
             assert interaction.cancel_reason == "turn_failed"
+        finally:
+            await client.close()
+
+    asyncio.run(_test())
+
+
+@pytest.mark.parametrize(
+    ("endpoint", "payload_builder"),
+    [
+        (
+            "interaction_submit",
+            lambda interaction_id: (
+                f"/api/interaction/{interaction_id}/submit",
+                {"resolutionPayload": {"answers": {"保留电视墙吗？": "保留"}}},
+            ),
+        ),
+        (
+            "question_answer",
+            lambda interaction_id: (
+                "/api/question/answer",
+                {"requestId": interaction_id, "answers": {"保留电视墙吗？": "保留"}},
+            ),
+        ),
+    ],
+)
+def test_question_resolution_endpoints_resume_openai_runtime_binding(
+    monkeypatch: pytest.MonkeyPatch,
+    endpoint: str,
+    payload_builder,
+) -> None:
+    async def _test() -> None:
+        runtime_store = RuntimeStateStore()
+        session = await runtime_store.create_session(
+            window_id="primary",
+            project_path="C:/demo",
+            worktree_path=None,
+            runtime_id="openai-agents",
+            runtime_version="0.1.0",
+        )
+        await runtime_store.mark_session_running(session.session_id, "turn-1")
+
+        binding = PendingInteractionRuntimeBinding(
+            interaction_id="",
+            resume_token="",
+            runtime_id="openai-agents",
+            session_id=session.session_id,
+            turn_id="turn-1",
+            window_id="primary",
+            run_state_json=json.dumps({"context": {"questionAnswersByCallId": {}}}),
+            approval_call_id="call-1",
+            public_tool_call_id="tc-1",
+            projection_state={"toolCallsByProvider": {"call-1": "tc-1"}},
+            agent_identity="BIMCanvas",
+        )
+        interaction = await runtime_store.create_interaction(
+            session_id=session.session_id,
+            turn_id="turn-1",
+            window_id="primary",
+            kind="question",
+            blocking=True,
+            resume_token="resume:test",
+            request_payload={"questions": [{"question": "保留电视墙吗？", "header": "电视墙", "options": []}]},
+            runtime_binding=binding,
+        )
+
+        class _FakeResumeAgent:
+            def __init__(self) -> None:
+                self.resume_calls: list[dict[str, object]] = []
+
+            def clear_runtime_context(self) -> None:
+                return None
+
+            async def resume_interaction(self, **kwargs):
+                self.resume_calls.append(kwargs)
+                append_event = kwargs["append_event"]
+                await append_event(
+                    StreamChunk(
+                        type="tool_call_complete",
+                        tool_call_id="tc-1",
+                        tool_output="duplicate-answer",
+                        success=True,
+                        suppress_public_tool_output=True,
+                    )
+                )
+                return []
+
+        fake_agent = _FakeResumeAgent()
+
+        client = await _build_client(monkeypatch, runtime_store)
+        http_server.agents["primary"] = fake_agent
+        try:
+            path, payload = payload_builder(interaction.interaction_id)
+            response = await client.post(path, json=payload)
+            assert response.status == 200
+
+            if endpoint == "interaction_submit":
+                body = await response.json()
+                assert body["interaction"]["status"] == "resolved"
+            else:
+                assert await response.json() == {"success": True}
+
+            assert len(fake_agent.resume_calls) == 1
+            assert fake_agent.resume_calls[0]["interaction_id"] == interaction.interaction_id
+            assert fake_agent.resume_calls[0]["resolution_payload"] == {"answers": {"保留电视墙吗？": "保留"}}
+
+            assert await runtime_store.get_runtime_binding(interaction.interaction_id) is None
+            assert await runtime_store.derive_session_status(session.session_id) == "idle"
+
+            _, history, interactions = await runtime_store.get_history_for_window("primary")
+            event_types = [
+                entry["event"]["eventType"]
+                for entry in history
+                if entry["kind"] == "assistant_event"
+            ]
+            assert event_types == ["tool.completed", "turn.completed"]
+            assert interactions[0]["status"] == "resolved"
+        finally:
+            await client.close()
+
+    asyncio.run(_test())
+
+
+def test_duplicate_interaction_submit_is_idempotent_for_openai_resume(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    async def _test() -> None:
+        runtime_store = RuntimeStateStore()
+        session = await runtime_store.create_session(
+            window_id="primary",
+            project_path="C:/demo",
+            worktree_path=None,
+            runtime_id="openai-agents",
+            runtime_version="0.1.0",
+        )
+        await runtime_store.mark_session_running(session.session_id, "turn-1")
+
+        binding = PendingInteractionRuntimeBinding(
+            interaction_id="",
+            resume_token="",
+            runtime_id="openai-agents",
+            session_id=session.session_id,
+            turn_id="turn-1",
+            window_id="primary",
+            run_state_json=json.dumps({"context": {"questionAnswersByCallId": {}}}),
+            approval_call_id="call-1",
+            public_tool_call_id="tc-1",
+            projection_state={"toolCallsByProvider": {"call-1": "tc-1"}},
+            agent_identity="BIMCanvas",
+        )
+        interaction = await runtime_store.create_interaction(
+            session_id=session.session_id,
+            turn_id="turn-1",
+            window_id="primary",
+            kind="question",
+            blocking=True,
+            resume_token="resume:test",
+            request_payload={"questions": [{"question": "保留电视墙吗？", "header": "电视墙", "options": []}]},
+            runtime_binding=binding,
+        )
+
+        class _FakeResumeAgent:
+            def __init__(self) -> None:
+                self.resume_count = 0
+
+            def clear_runtime_context(self) -> None:
+                return None
+
+            async def resume_interaction(self, **kwargs):
+                self.resume_count += 1
+                append_event = kwargs["append_event"]
+                await append_event(
+                    StreamChunk(
+                        type="tool_call_complete",
+                        tool_call_id="tc-1",
+                        success=True,
+                        suppress_public_tool_output=True,
+                    )
+                )
+                return []
+
+        fake_agent = _FakeResumeAgent()
+
+        client = await _build_client(monkeypatch, runtime_store)
+        http_server.agents["primary"] = fake_agent
+        try:
+            path = f"/api/interaction/{interaction.interaction_id}/submit"
+            payload = {"resolutionPayload": {"answers": {"保留电视墙吗？": "保留"}}}
+
+            first = await client.post(path, json=payload)
+            assert first.status == 200
+
+            second = await client.post(path, json=payload)
+            assert second.status == 200
+
+            assert fake_agent.resume_count == 1
+            assert await runtime_store.get_runtime_binding(interaction.interaction_id) is None
         finally:
             await client.close()
 

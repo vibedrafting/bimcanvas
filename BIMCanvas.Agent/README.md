@@ -1,6 +1,6 @@
 # BIMCanvas Agent
 
-基于 Anthropic Agent SDK 的 AI 室内布置助手。
+基于多 Runtime 适配层的 AI 室内布置助手。当前 Host 可在 `claude-sdk` 与 `openai-agents` 之间按进程级配置切换。
 
 ## 架构定位
 
@@ -15,7 +15,7 @@
 
 **Agent 角色**：系统的"大脑"，负责理解用户意图、规划布置方案、发出操作指令。
 
-**协议阶段**：当前处于 ClaudeRuntime v0.1 的 Slice C 收尾阶段。MainStream 已升级为 envelope + legacy 双写，ControlPlane 通过 `/api/config` 提供静态 capability matrix，并固定 `SESSION_EXPIRED` / `SESSION_PAUSED` / `SESSION_ERROR` 错误语义。
+**协议阶段**：当前处于 Runtime v0.1 收尾阶段。Host 已抽出 runtime-neutral `StreamChunk + MainStreamMapper`，Claude 与 OpenAI 都经由统一 ControlPlane 暴露 capability matrix，并固定 `SESSION_EXPIRED` / `SESSION_PAUSED` / `SESSION_ERROR` 错误语义。
 
 ## 快速开始
 
@@ -45,8 +45,13 @@ pip install -e .
 # 复制配置模板
 cp .env.example .env
 
-# 编辑 .env 文件，填入 Anthropic API Key
+# Claude Runtime
 # ANTHROPIC_API_KEY=your-api-key-here
+
+# OpenAI Runtime
+# AGENT_RUNTIME_PROVIDER=openai-agents
+# OPENAI_API_KEY=your-openai-api-key
+# OPENAI_BASE_URL=https://api.openai.com/v1
 ```
 
 ### 4. 启动服务
@@ -168,6 +173,54 @@ data: [DONE]
 - `text_stream` / `tool_call_lifecycle` / `interaction_query` / `interaction_submit` / `interaction_cancel` / `question_pause_resume` / `screenshot_async`：`required`
 - `thinking` / `subtask_causality`：`optional`
 - `usage` / `trace` / `permission_pause_resume`：`unsupported`
+
+### Runtime 选择
+
+Host 通过 `runtimeProvider` 决定使用哪套适配器：
+
+```json
+{
+  "runtimeProvider": "claude-sdk"
+}
+```
+
+或：
+
+```json
+{
+  "runtimeProvider": "openai-agents"
+}
+```
+
+也可由环境变量覆盖：
+
+```bash
+set AGENT_RUNTIME_PROVIDER=openai-agents
+```
+
+当前约束：
+
+- 单个 Agent Host 进程只运行一种 Runtime
+- `http_server.py` 通过工厂创建 `HostAgentProtocol`，不再直接依赖 Claude `MainAgent`
+- 会话内不支持热切换 Runtime；切换 provider 需要重建该窗口的 Agent/session
+
+### OpenAI Pause/Resume
+
+OpenAI 首版适配走原生 `FunctionTool(needs_approval=True) + RunState` 路径：
+
+- `AskUserQuestion` 会被投影为 `PendingInteractionRecord(kind=question, blocking=true)`
+- Host 私下保存 `PendingInteractionRuntimeBinding`，其中包含 `runStateJson`、`approvalCallId`、`projectionState`
+- Web 端提交 `/api/interaction/{id}/submit` 或兼容 `/api/question/answer` 后，Host 会恢复 `Runner.run_streamed()` 继续同一 turn
+- `resumeToken` 支持跨 SSE 断线 / 页面 reload；但 v0.1 不保证 Agent Host 进程重启后仍可恢复
+
+### OpenAI SubAgent
+
+OpenAI 侧的 Claude `Task` 等价实现不是 `Handoff`，而是 `Agent.as_tool(..., on_stream=...)`：
+
+- 根 Agent 会把 `<BIMCANVAS_HOME>/agents/*.md` 中的子代理配置投影为 agent-tools
+- 外层 `tool_called(tool_origin=agent_as_tool)` 会映射为 `subtask.started`
+- 子 run 的文本 / thinking / 工具事件通过 `on_stream` 转发，并复用同一个 `subtaskId`
+- `Handoff` 当前仍只保留在适配器内部，不进入 v0.1 主流协议
 
 ### ControlPlane 错误语义
 
@@ -459,6 +512,15 @@ BIMCanvas.Agent/
 
 ## 核心模块说明
 
+### Runtime Adapters (`agent/`)
+
+当前有两套 Host-facing adapter：
+
+- `MainAgent`：Claude 专属实现，保留原有 `Task` / `can_use_tool` 路径
+- `OpenAIAgent`：OpenAI Agents SDK 适配器，负责 `RunState` pause/resume、`Agent.as_tool()` 子任务投影
+
+它们都实现同一个 `HostAgentProtocol`，并通过 `agent/factory.py` 由 `http_server.py` 统一创建。
+
 ### MainAgent (`agent/main_agent.py`)
 
 基于 Claude Agent SDK 的主控 Agent，采用 MainAgent + SubAgent 架构：
@@ -491,6 +553,8 @@ BIMCanvas.Agent/
 - 按 `windowId` 复用 Agent 实例，并由 Host 颁发 `sessionId`
 - `POST /api/chat/stream` 每次响应头都会返回 `X-Session-Id`
 - 主流仍保持现有 flat SSE，新增统一 `/api/interaction*` 通道
+- `get_agent()` 已通过工厂模式切换 Claude / OpenAI adapter
+- OpenAI question resume 在 Host 侧完成，不新增 `/api/chat/resume` 流接口
 
 ### Runtime Store (`runtime/`)
 
@@ -498,6 +562,7 @@ Host 进程内的运行时真相源：
 
 - `RuntimeSessionRecord`：记录 `sessionId`、window 绑定、项目路径、活跃 turn 等 session 元数据
 - `PendingInteractionRecord`：统一承载 `question` / `screenshot` 等 interaction 状态
+- `PendingInteractionRuntimeBinding`：OpenAI pause/resume 私有绑定，保存 `RunStateJson + projectionState`
 - `RuntimeStateStore`：维护 `windowId -> sessionId`、`sessionId -> pending interactions` 与统一 interaction SSE 发布
 
 ### 配置系统 (`config/`)
@@ -535,6 +600,7 @@ Host 进程内的运行时真相源：
 
 ```json
 {
+  "runtimeProvider": "claude-sdk",
   "baseUrl": "https://your-direct-provider.example/v1",
   "apiKey": "your-direct-api-key",
   "defaultEffort": "medium",

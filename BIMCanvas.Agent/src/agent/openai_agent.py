@@ -6,8 +6,8 @@ import asyncio
 import importlib
 import json
 import logging
+import os
 import sys
-import uuid
 from pathlib import Path
 from typing import Any
 
@@ -28,6 +28,7 @@ class QuestionOption(TypedDict, total=False):
 
 
 class QuestionDef(TypedDict, total=False):
+    id: str
     header: str
     question: str
     options: list[QuestionOption]
@@ -53,6 +54,17 @@ def _load_openai_agents_module() -> Any:
             ) from exc
 
 
+def _get_attr(value: Any, name: str, default: Any = None) -> Any:
+    if isinstance(value, dict):
+        return value.get(name, default)
+    return getattr(value, name, default)
+
+
+def _resolve_provider_call_id(value: Any) -> str | None:
+    raw_value = _get_attr(value, "raw_item", value)
+    return _get_attr(raw_value, "call_id") or _get_attr(raw_value, "id")
+
+
 class OpenAIAgent:
     """Host-facing adapter built on top of the OpenAI Agents SDK."""
 
@@ -71,6 +83,7 @@ class OpenAIAgent:
         self.window_seq = window_seq
         self.verbose = verbose
         self._config_loader = get_config_loader()
+        self._subagent_configs = self._config_loader.load_agents()
         self._connected = False
         self._current_model: str | None = None
         self._runtime_context: dict[str, str] | None = None
@@ -92,6 +105,11 @@ class OpenAIAgent:
         thinking: str | None = None,
         model: str | None = None,
     ) -> None:
+        settings = get_settings()
+        if settings.openai_api_key:
+            os.environ["OPENAI_API_KEY"] = settings.openai_api_key
+        if settings.base_url:
+            os.environ["OPENAI_BASE_URL"] = settings.base_url
         _load_openai_agents_module()
         if model:
             self._current_model = model
@@ -124,15 +142,18 @@ class OpenAIAgent:
         model: str | None = None,
         runtime_context: dict[str, str] | None = None,
     ) -> str:
-        parts: list[str] = []
+        delta_parts: list[str] = []
+        completed_parts: list[str] = []
         async for chunk in self.chat_stream(
             user_message,
             model=model,
             runtime_context=runtime_context,
         ):
-            if chunk.type in {"text", "text_complete"} and chunk.content:
-                parts.append(chunk.content)
-        return "".join(parts)
+            if chunk.type == "text" and chunk.content:
+                delta_parts.append(chunk.content)
+            elif chunk.type == "text_complete" and chunk.content:
+                completed_parts.append(chunk.content)
+        return "".join(completed_parts) if completed_parts else "".join(delta_parts)
 
     async def chat_stream(
         self,
@@ -147,6 +168,7 @@ class OpenAIAgent:
         runtime_context: dict[str, str] | None = None,
     ):
         self.set_runtime_context(runtime_context)
+        consumer_task: asyncio.Task[Any] | None = None
         try:
             if not self.is_connected:
                 await self.connect(effort=effort, thinking=thinking, model=model)
@@ -155,8 +177,27 @@ class OpenAIAgent:
 
             agents = _load_openai_agents_module()
             translator = OpenAIStreamTranslator(turn_id=(runtime_context or {}).get("turnId", "turn"))
+            stream_queue: asyncio.Queue[StreamChunk | Exception | None] = asyncio.Queue()
+
+            async def _emit_translated_event(
+                event: Any,
+                *,
+                forced_subtask_id: str | None = None,
+            ) -> None:
+                for chunk in translator.translate(event, forced_subtask_id=forced_subtask_id):
+                    await stream_queue.put(chunk)
+
+            async def _on_nested_stream(payload: dict[str, Any]) -> None:
+                provider_call_id = _resolve_provider_call_id(payload.get("tool_call"))
+                forced_subtask_id = translator.ensure_subtask_id_for_provider_call(provider_call_id)
+                await _emit_translated_event(payload.get("event"), forced_subtask_id=forced_subtask_id)
+
             run_context = self._build_run_context(runtime_context=runtime_context, canvas_context=context)
-            starting_agent = self._build_root_agent(agents, model=model)
+            starting_agent = self._build_root_agent(
+                agents,
+                model=model,
+                nested_stream_handler=_on_nested_stream,
+            )
             input_items = self._build_input_items(
                 user_message=user_message,
                 images=images or [],
@@ -171,19 +212,43 @@ class OpenAIAgent:
                 max_turns=30,
             )
             self._active_stream_result = result
+            self._current_model = model or self._current_model
 
-            async for event in result.stream_events():
-                for chunk in translator.translate(event):
-                    yield chunk
+            async def _consume_result() -> None:
+                try:
+                    async for event in result.stream_events():
+                        await _emit_translated_event(event)
 
-            if getattr(result, "interruptions", None):
-                interaction_id = await self._push_pending_question_interaction(
-                    result=result,
-                    translator=translator,
-                    runtime_context=runtime_context,
-                )
-                raise TurnPausedError(interaction_id)
+                    if getattr(result, "interruptions", None):
+                        interaction_id = await self._push_pending_question_interaction(
+                            result=result,
+                            translator=translator,
+                            runtime_context=runtime_context,
+                        )
+                        await stream_queue.put(TurnPausedError(interaction_id))
+                except Exception as exc:
+                    await stream_queue.put(exc)
+                finally:
+                    await stream_queue.put(None)
+
+            consumer_task = asyncio.create_task(_consume_result())
+
+            while True:
+                item = await stream_queue.get()
+                if item is None:
+                    break
+                if isinstance(item, TurnPausedError):
+                    raise item
+                if isinstance(item, Exception):
+                    raise item
+                yield item
         finally:
+            if consumer_task is not None and not consumer_task.done():
+                consumer_task.cancel()
+                try:
+                    await consumer_task
+                except asyncio.CancelledError:
+                    pass
             self._active_stream_result = None
             self.clear_runtime_context()
 
@@ -211,8 +276,42 @@ class OpenAIAgent:
         answers_by_call_id[binding.approval_call_id] = answers
         resume_context = dict(resume_context)
         resume_context["questionAnswersByCallId"] = answers_by_call_id
+        stream_queue: asyncio.Queue[StreamChunk | Exception | None] = asyncio.Queue()
+        translator = OpenAIStreamTranslator(
+            turn_id=session.active_turn_id or binding.turn_id,
+            projection_state=binding.projection_state,
+        )
+        approved_tool_call_id = (
+            binding.public_tool_call_id
+            or translator.ensure_public_tool_call_id(binding.approval_call_id)
+        )
+        consumer_task: asyncio.Task[Any] | None = None
+        starting_agent = self._build_root_agent(
+            agents,
+            model=self._current_model,
+            nested_stream_handler=None,
+        )
+
+        async def _emit_translated_event(
+            event: Any,
+            *,
+            forced_subtask_id: str | None = None,
+        ) -> None:
+            for chunk in translator.translate(event, forced_subtask_id=forced_subtask_id):
+                await stream_queue.put(chunk)
+
+        async def _on_nested_stream(payload: dict[str, Any]) -> None:
+            provider_call_id = _resolve_provider_call_id(payload.get("tool_call"))
+            forced_subtask_id = translator.ensure_subtask_id_for_provider_call(provider_call_id)
+            await _emit_translated_event(payload.get("event"), forced_subtask_id=forced_subtask_id)
+
+        starting_agent = self._build_root_agent(
+            agents,
+            model=self._current_model,
+            nested_stream_handler=_on_nested_stream,
+        )
         state = await agents.RunState.from_json(
-            self._build_root_agent(agents, model=self._current_model),
+            starting_agent,
             state_payload,
             context_override=resume_context,
         )
@@ -228,13 +327,8 @@ class OpenAIAgent:
 
         state.approve(approval_item)
 
-        translator = OpenAIStreamTranslator(
-            turn_id=session.active_turn_id or binding.turn_id,
-            projection_state=binding.projection_state,
-        )
-
         result = agents.Runner.run_streamed(
-            self._build_root_agent(agents, model=self._current_model),
+            starting_agent,
             state,
             context=resume_context,
         )
@@ -242,43 +336,84 @@ class OpenAIAgent:
 
         appended_events: list[dict[str, Any]] = []
         try:
-            async for event in result.stream_events():
-                for chunk in translator.translate(event):
-                    if chunk.tool_call_id == binding.public_tool_call_id:
-                        chunk.tool_output = None
-                        chunk.suppress_public_tool_output = True
-                    event_data = await append_event(chunk)
-                    appended_events.extend(event_data)
+            async def _consume_result() -> None:
+                try:
+                    async for event in result.stream_events():
+                        await _emit_translated_event(event)
 
-            if getattr(result, "interruptions", None):
-                await self._push_pending_question_interaction(
-                    result=result,
-                    translator=translator,
-                    runtime_context={
-                        "windowId": session.window_id,
-                        "sessionId": session.session_id,
-                        "turnId": binding.turn_id,
-                    },
-                )
-                return appended_events
+                    if getattr(result, "interruptions", None):
+                        interaction_id = await self._push_pending_question_interaction(
+                            result=result,
+                            translator=translator,
+                            runtime_context={
+                                "windowId": session.window_id,
+                                "sessionId": session.session_id,
+                                "turnId": binding.turn_id,
+                            },
+                        )
+                        await stream_queue.put(TurnPausedError(interaction_id))
+                except Exception as exc:
+                    await stream_queue.put(exc)
+                finally:
+                    await stream_queue.put(None)
+
+            consumer_task = asyncio.create_task(_consume_result())
+
+            while True:
+                item = await stream_queue.get()
+                if item is None:
+                    break
+                if isinstance(item, TurnPausedError):
+                    return appended_events
+                if isinstance(item, Exception):
+                    raise item
+                chunk = item
+                if approved_tool_call_id and chunk.tool_call_id == approved_tool_call_id:
+                    chunk.tool_output = None
+                    chunk.suppress_public_tool_output = True
+                event_data = await append_event(chunk)
+                appended_events.extend(event_data)
 
             return appended_events
         finally:
+            if consumer_task is not None and not consumer_task.done():
+                consumer_task.cancel()
+                try:
+                    await consumer_task
+                except asyncio.CancelledError:
+                    pass
             self._active_stream_result = None
 
-    def _build_root_agent(self, agents: Any, *, model: str | None) -> Any:
+    def _build_root_agent(
+        self,
+        agents: Any,
+        *,
+        model: str | None,
+        nested_stream_handler: Any | None,
+    ) -> Any:
         system_prompt = self._config_loader.load_system_prompt()
         system_prompt = system_prompt + f"\n\n工作目录: {self.working_directory}"
         return agents.Agent(
             name="BIMCanvas",
             instructions=system_prompt,
-            tools=self._build_tools(agents),
+            tools=self._build_tools(
+                agents,
+                model=model,
+                nested_stream_handler=nested_stream_handler,
+            ),
             model=model or self._current_model,
         )
 
-    def _build_tools(self, agents: Any) -> list[Any]:
+    def _build_tools(
+        self,
+        agents: Any,
+        *,
+        model: str | None,
+        nested_stream_handler: Any | None,
+    ) -> list[Any]:
         function_tool = agents.function_tool
         working_directory = Path(self.working_directory or self.project_path or ".").resolve()
+        tool_context_type = importlib.import_module("agents.tool_context").ToolContext
 
         def resolve_path(file_path: str) -> Path:
             candidate = Path(file_path)
@@ -356,7 +491,7 @@ class OpenAIAgent:
             return f"exit={process.returncode}\nSTDOUT:\n{stdout_text}\nSTDERR:\n{stderr_text}".strip()
 
         @function_tool(name_override="AskUserQuestion", needs_approval=True)
-        async def ask_user_question(ctx: Any, questions: list[QuestionDef]) -> dict[str, Any]:
+        async def ask_user_question(ctx: tool_context_type, questions: list[QuestionDef]) -> dict[str, Any]:
             """Ask the user one or more structured questions and resume after the answer arrives."""
             answers_by_call_id = {}
             context_mapping = getattr(ctx, "context", None)
@@ -367,7 +502,7 @@ class OpenAIAgent:
                 answers = {}
             return {"answers": answers}
 
-        return [
+        local_tools = [
             read_file,
             write_file,
             edit_file,
@@ -376,6 +511,41 @@ class OpenAIAgent:
             run_shell,
             ask_user_question,
         ]
+        tool_by_name = {
+            "Read": read_file,
+            "Write": write_file,
+            "Edit": edit_file,
+            "Glob": glob_files,
+            "Grep": grep_files,
+            "Bash": run_shell,
+            "AskUserQuestion": ask_user_question,
+        }
+
+        agent_tools: list[Any] = list(local_tools)
+        if nested_stream_handler is None:
+            return agent_tools
+
+        for config in self._subagent_configs.values():
+            selected_tools = [
+                tool_by_name[name]
+                for name in config.tools
+                if name in tool_by_name
+            ]
+            subagent = agents.Agent(
+                name=config.name,
+                instructions=config.prompt + f"\n\n工作目录: {self.working_directory}",
+                tools=selected_tools,
+                model=self._resolve_subagent_model(config.model, model),
+            )
+            agent_tools.append(
+                subagent.as_tool(
+                    tool_name=config.name,
+                    tool_description=config.description,
+                    on_stream=nested_stream_handler,
+                )
+            )
+
+        return agent_tools
 
     def _build_input_items(
         self,
@@ -438,6 +608,11 @@ class OpenAIAgent:
 
         return MainAgent._build_context_block(context)
 
+    def _resolve_subagent_model(self, configured_model: str | None, requested_model: str | None) -> str | None:
+        if not configured_model or configured_model == "inherit":
+            return requested_model or self._current_model
+        return configured_model
+
     async def _push_pending_question_interaction(
         self,
         *,
@@ -447,13 +622,24 @@ class OpenAIAgent:
     ) -> str:
         from ..server.http_server import push_openai_question_interaction
 
-        interruption = next(iter(getattr(result, "interruptions", [])), None)
+        interruptions = list(getattr(result, "interruptions", []))
+        interruption = next(
+            (
+                item
+                for item in interruptions
+                if getattr(item, "tool_name", None) == "AskUserQuestion"
+            ),
+            None,
+        )
         if interruption is None:
-            raise RuntimeError("Expected OpenAI interruption but none was present")
+            raise RuntimeError("Expected AskUserQuestion interruption but none was present")
 
         questions = self._extract_questions_from_interruption(interruption)
         approval_call_id = getattr(interruption, "call_id", None)
-        public_tool_call_id = translator.get_public_tool_call_id(approval_call_id)
+        public_tool_call_id = (
+            translator.get_public_tool_call_id(approval_call_id)
+            or translator.ensure_public_tool_call_id(approval_call_id)
+        )
         run_state = result.to_state()
         binding = PendingInteractionRuntimeBinding(
             interaction_id="",
@@ -478,11 +664,14 @@ class OpenAIAgent:
     @staticmethod
     def _extract_questions_from_interruption(interruption: Any) -> list[QuestionDef]:
         arguments = getattr(interruption, "arguments", None)
-        if not isinstance(arguments, str) or not arguments:
-            return []
-        try:
-            payload = json.loads(arguments)
-        except json.JSONDecodeError:
+        if isinstance(arguments, str) and arguments:
+            try:
+                payload = json.loads(arguments)
+            except json.JSONDecodeError:
+                return []
+        elif isinstance(arguments, dict):
+            payload = arguments
+        else:
             return []
         questions = payload.get("questions", [])
         return questions if isinstance(questions, list) else []

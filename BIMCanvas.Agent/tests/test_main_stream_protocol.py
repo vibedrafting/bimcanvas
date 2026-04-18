@@ -14,8 +14,8 @@ AGENT_ROOT = Path(__file__).resolve().parents[1]
 if str(AGENT_ROOT) not in sys.path:
     sys.path.insert(0, str(AGENT_ROOT))
 
-from src.agent.main_agent import MainAgent, StreamChunk
-from src.runtime import MainStreamMapper, RuntimeStateStore
+from src.agent.main_agent import MainAgent
+from src.runtime import MainStreamMapper, RuntimeStateStore, StreamChunk
 from src.server import http_server
 
 

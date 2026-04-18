@@ -6,6 +6,7 @@ readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
     "claude-agent-sdk>=0.1.43",  # Agent SDK (ThinkingConfig + effort + 未知消息类型兼容)
+    "openai-agents>=0.14.1,<1",  # OpenAI Agents SDK（RunState + ToolApprovalItem 暂停恢复）
     "aiohttp>=3.9.0",           # HTTP server
     "aiohttp-cors>=0.7.0",      # CORS support for Web access
     "Pillow>=10.4.0",           # 图片标准化（缩放 / 降采样 / 格式兜底）

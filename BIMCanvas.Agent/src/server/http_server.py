@@ -21,6 +21,7 @@ from ..attachments.chat_attachments import AttachmentResolutionError, resolve_at
 from ..config.loader import resolve_bimcanvas_home
 from ..config.settings import get_settings
 from ..runtime import (
+    DEFAULT_RUNTIME_PROVIDER,
     MainStreamMapper,
     PendingInteractionRuntimeBinding,
     RuntimeSessionRecord,
@@ -28,6 +29,7 @@ from ..runtime import (
     StreamChunk,
     build_capability_matrix,
     get_runtime_descriptor,
+    normalize_runtime_provider,
 )
 
 # Configure logging
@@ -66,6 +68,16 @@ def _build_session_ready_event(session_snapshot: dict[str, Any]) -> dict[str, An
         "runtimeId": session_snapshot["runtimeId"],
         "status": session_snapshot["status"],
     }
+
+
+def _resolve_runtime_provider_from_settings(settings: Any) -> str:
+    return normalize_runtime_provider(getattr(settings, "runtime_provider", DEFAULT_RUNTIME_PROVIDER))
+
+
+def _agent_is_connected(agent: Any) -> bool:
+    if hasattr(agent, "is_connected"):
+        return bool(getattr(agent, "is_connected"))
+    return bool(getattr(agent, "_connected", False))
 
 
 def _get_requested_session_id(request: web.Request) -> str | None:
@@ -313,7 +325,8 @@ async def get_agent(
 
     working_dir = worktree_path or project_path
     settings = get_settings()
-    runtime_descriptor = get_runtime_descriptor(settings.runtime_provider)
+    runtime_provider = _resolve_runtime_provider_from_settings(settings)
+    runtime_descriptor = get_runtime_descriptor(runtime_provider)
 
     async with _agents_lock:
         agent = agents.get(window_id)
@@ -364,7 +377,7 @@ async def get_agent(
 
         if agent is None:
             agent = create_agent(
-                settings.runtime_provider,
+                runtime_provider,
                 project_path=project_path,
                 working_directory=working_dir,
                 window_seq=seq,
@@ -453,7 +466,8 @@ async def config_handler(request: web.Request) -> web.Response:
             label = alias.capitalize()
         models.append({"id": alias, "label": label})
 
-    runtime_descriptor = get_runtime_descriptor(settings.runtime_provider)
+    runtime_provider = _resolve_runtime_provider_from_settings(settings)
+    runtime_descriptor = get_runtime_descriptor(runtime_provider)
 
     return web.json_response({
         "runtime": runtime_descriptor.runtime_id,
@@ -461,7 +475,7 @@ async def config_handler(request: web.Request) -> web.Response:
         "models": models,
         "defaultEffort": settings.default_effort,
         "defaultThinking": settings.default_thinking,
-        "capabilityMatrix": build_capability_matrix(settings.runtime_provider),
+        "capabilityMatrix": build_capability_matrix(runtime_provider),
     })
 
 
@@ -642,7 +656,7 @@ async def chat_stream_handler(request: web.Request) -> web.StreamResponse:
                 session_status=session_status,
             )
 
-        if not agent.is_connected:
+        if not _agent_is_connected(agent):
             await agent.connect(effort=effort, thinking=thinking, model=model)
         elif model and model != agent.get_current_model():
             await agent.set_model(model)

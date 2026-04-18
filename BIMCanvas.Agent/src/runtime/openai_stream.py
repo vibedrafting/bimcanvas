@@ -264,6 +264,17 @@ class OpenAIStreamTranslator:
             return None
         return self._tool_calls_by_provider.get(provider_call_id)
 
+    def ensure_public_tool_call_id(self, provider_call_id: str | None) -> str | None:
+        if not provider_call_id:
+            return None
+        return self._ensure_public_tool_call_id(provider_call_id)
+
+    def ensure_subtask_id_for_provider_call(self, provider_call_id: str | None) -> str | None:
+        if not provider_call_id:
+            return None
+        public_tool_call_id = self._ensure_public_tool_call_id(provider_call_id)
+        return self._ensure_subtask_id(provider_call_id, public_tool_call_id)
+
     def _active_subtask_id(self) -> str | None:
         if self._current_subtask_id:
             return self._current_subtask_id
