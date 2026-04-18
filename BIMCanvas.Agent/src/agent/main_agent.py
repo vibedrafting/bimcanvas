@@ -4,7 +4,7 @@ import asyncio
 import logging
 import os
 import re
-from typing import AsyncIterator
+from typing import Any, AsyncIterator
 from dataclasses import dataclass
 
 from claude_agent_sdk import (
@@ -342,6 +342,96 @@ class MainAgent:
                 self._agent_logger.log_info("兼容层已抑制占位 assistant 文本")
                 self._placeholder_text_suppressed_logged = True
         return normalized
+
+    def _pop_tool_tracking(self, tool_use_id: str | None) -> tuple[str | None, str | None]:
+        """Pop tool tracking state and return (toolCallId, subAgentId)."""
+        if not tool_use_id:
+            return None, None
+        tool_call_id = self._pending_tool_calls.pop(tool_use_id, None)
+        subagent_id = self._tool_to_subagent.pop(tool_use_id, None)
+        return tool_call_id, subagent_id
+
+    def _resolve_tool_result_state(
+        self,
+        *,
+        tool_name: str,
+        result: Any,
+        is_error: bool,
+        output_limit: int,
+    ) -> tuple[bool, str, str | None, str | None, str | None]:
+        """Normalize tool/subagent result payloads across all completion paths."""
+        result_text = str(result) if result is not None else ""
+        output_text = result_text[:output_limit] if result_text and not is_error else ""
+        error_message = None
+        error_type = None
+        hidden_message = None
+
+        if is_error:
+            classified = self._classify_tool_error(result_text) if result_text else "blocking"
+            error_type = classified
+            if classified == "recoverable":
+                hidden_message = result_text or "Tool execution failed."
+                output_text = ""
+                is_error = False
+                if self.verbose:
+                    self._agent_logger.log_warning(f"工具调用可恢复错误: {hidden_message[:200]}")
+            else:
+                error_message = result_text or "Tool execution failed."
+                output_text = ""
+                if self.verbose:
+                    self._agent_logger.log_error(f"工具调用失败 ({tool_name}): {error_message[:200]}")
+
+        return (not is_error), output_text, error_message, error_type, hidden_message
+
+    def _build_tool_completion_chunk(
+        self,
+        *,
+        tool_use_id: str | None,
+        tool_name: str,
+        result: Any,
+        is_error: bool,
+    ) -> StreamChunk:
+        success, output_text, error_message, error_type, hidden_message = self._resolve_tool_result_state(
+            tool_name=tool_name,
+            result=result,
+            is_error=is_error,
+            output_limit=1000,
+        )
+        tool_call_id, subagent_id = self._pop_tool_tracking(tool_use_id)
+        return StreamChunk(
+            type="tool_call_complete",
+            subagent_id=subagent_id,
+            tool_call_id=tool_call_id or f"tc-{self._tool_call_counter}",
+            tool_output=output_text,
+            success=success,
+            error=error_message,
+            error_type=error_type,
+            hidden_content=hidden_message,
+        )
+
+    def _build_subagent_completion_chunk(
+        self,
+        *,
+        subagent_id: str,
+        tool_name: str,
+        result: Any,
+        is_error: bool,
+    ) -> StreamChunk:
+        success, summary_text, error_message, error_type, hidden_message = self._resolve_tool_result_state(
+            tool_name=tool_name,
+            result=result,
+            is_error=is_error,
+            output_limit=500,
+        )
+        return StreamChunk(
+            type="subagent_complete",
+            subagent_id=subagent_id,
+            content=summary_text,
+            success=success,
+            error=error_message,
+            error_type=error_type,
+            hidden_content=hidden_message,
+        )
 
     # ─────────────────────────────────────────────────────
     # Connection Management
@@ -867,59 +957,28 @@ class MainAgent:
                     is_error = event.get("is_error", False)
                     tool_use_id = event.get("tool_use_id")
 
-                    # 对错误进行分类
-                    error_type = None
-                    error_message = None
-                    hidden_message = None
-
                     if self.verbose:
                         self._agent_logger.log_tool_result(tool_name, result, is_error)
-
-                    if is_error and result:
-                        err_type = self._classify_tool_error(str(result))
-
-                        if err_type == "recoverable":
-                            # 可恢复错误：隐藏，不影响用户
-                            hidden_message = str(result)
-                            is_error = False  # 标记为成功（前端不显示错误）
-                            if self.verbose:
-                                self._agent_logger.log_warning(f"工具调用可恢复错误: {str(result)[:200]}")
-                        else:  # blocking
-                            # 阻塞错误：传递给前端
-                            error_type = "blocking"
-                            error_message = str(result)
-                            if self.verbose:
-                                self._agent_logger.log_error(f"工具调用失败 ({tool_name}): {str(result)[:200]}")
                     # 判断是否是 Task（SubAgent）的结果
                     if tool_name == "Task" and tool_use_id and tool_use_id in self._active_subagents:
                         # SubAgent 完成 - 从映射中获取并清理
                         subagent_id = self._active_subagents.pop(tool_use_id)
                         if self.verbose:
                             self._agent_logger.exit_subagent(subagent_id=subagent_id)
-                        yield StreamChunk(
-                            type="subagent_complete",
+                        yield self._build_subagent_completion_chunk(
                             subagent_id=subagent_id,
-                            content=str(result)[:500] if result and not is_error else "",
-                            success=not is_error,
-                            error=error_message,
-                            error_type=error_type,
-                            hidden_content=hidden_message
+                            tool_name=tool_name,
+                            result=result,
+                            is_error=is_error,
                         )
                         # 重置标记，准备接收 MainAgent 后续输出（修复 SubAgent 完成后最终结论不显示的 bug）
                         self._streamed_text = False
                     else:
-                        # 普通工具调用完成 - 查找关联的 SubAgent
-                        tool_call_id = self._pending_tool_calls.get(tool_use_id) if tool_use_id else None
-                        subagent_id = self._tool_to_subagent.get(tool_use_id) if tool_use_id else None
-                        yield StreamChunk(
-                            type="tool_call_complete",
-                            subagent_id=subagent_id,
-                            tool_call_id=tool_call_id or f"tc-{self._tool_call_counter}",
-                            tool_output=str(result)[:1000] if result and not is_error else "",
-                            success=not is_error,
-                            error=error_message,
-                            error_type=error_type,
-                            hidden_content=hidden_message
+                        yield self._build_tool_completion_chunk(
+                            tool_use_id=tool_use_id,
+                            tool_name=tool_name,
+                            result=result,
+                            is_error=is_error,
                         )
                     self._current_tool_name = None
 
@@ -1033,33 +1092,21 @@ class MainAgent:
                             subagent_id = self._active_subagents.pop(block_tool_use_id)
                             if self.verbose:
                                 self._agent_logger.exit_subagent(subagent_id=subagent_id)
-                            result_str = str(block.content)[:500] if block.content else ""
-                            yield StreamChunk(
-                                type="subagent_complete",
+                            yield self._build_subagent_completion_chunk(
                                 subagent_id=subagent_id,
-                                content=result_str,
-                                success=not is_error,
-                                error=str(block.content) if is_error else None
+                                tool_name=tool_name,
+                                result=block.content,
+                                is_error=is_error,
                             )
                             # 重置标记，准备接收 MainAgent 后续输出（修复 SubAgent 完成后最终结论不显示的 bug）
                             self._streamed_text = False
                         else:
-                            # 普通工具调用完成 - 查找关联信息
-                            tool_call_id = self._pending_tool_calls.get(block_tool_use_id)
-                            subagent_id = self._tool_to_subagent.get(block_tool_use_id)
-                            output_str = str(block.content)[:1000] if block.content else ""
-                            yield StreamChunk(
-                                type="tool_call_complete",
-                                subagent_id=subagent_id,
-                                tool_call_id=tool_call_id or f"tc-{self._tool_call_counter}",
-                                tool_output=output_str,
-                                success=not is_error,
-                                error=str(block.content) if is_error else None
+                            yield self._build_tool_completion_chunk(
+                                tool_use_id=block_tool_use_id,
+                                tool_name=tool_name,
+                                result=block.content,
+                                is_error=is_error,
                             )
-                            # 清理映射
-                            if block_tool_use_id:
-                                self._pending_tool_calls.pop(block_tool_use_id, None)
-                                self._tool_to_subagent.pop(block_tool_use_id, None)
 
                         self._current_tool_name = None
 
@@ -1067,11 +1114,11 @@ class MainAgent:
             elif isinstance(message, UserMessage):
                 for block in message.content:
                     if isinstance(block, ToolResultBlock):
+                        tool_name = self._current_tool_name or "unknown"
                         is_error = getattr(block, 'is_error', False)
                         block_tool_use_id = getattr(block, 'tool_use_id', None)
                         # 日志：输出工具结果
                         if self.verbose:
-                            tool_name = self._current_tool_name or "unknown"
                             self._agent_logger.log_tool_result(tool_name, block.content, is_error)
 
                         if block_tool_use_id and block_tool_use_id in self._active_subagents:
@@ -1079,33 +1126,22 @@ class MainAgent:
                             subagent_id = self._active_subagents.pop(block_tool_use_id)
                             if self.verbose:
                                 self._agent_logger.exit_subagent(subagent_id=subagent_id)
-                            result_str = str(block.content)[:500] if block.content else ""
-                            yield StreamChunk(
-                                type="subagent_complete",
+                            yield self._build_subagent_completion_chunk(
                                 subagent_id=subagent_id,
-                                content=result_str,
-                                success=not is_error,
-                                error=str(block.content) if is_error else None
+                                tool_name=tool_name,
+                                result=block.content,
+                                is_error=is_error,
                             )
                             # 重置标记，准备接收 MainAgent 后续输出（修复 SubAgent 完成后最终结论不显示的 bug）
                             self._streamed_text = False
                         else:
-                            # 普通工具调用完成 - 查找关联信息
-                            tool_call_id = self._pending_tool_calls.get(block_tool_use_id)
-                            subagent_id = self._tool_to_subagent.get(block_tool_use_id)
-                            output_str = str(block.content)[:1000] if block.content else ""
-                            yield StreamChunk(
-                                type="tool_call_complete",
-                                subagent_id=subagent_id,
-                                tool_call_id=tool_call_id or f"tc-{self._tool_call_counter}",
-                                tool_output=output_str,
-                                success=not is_error,
-                                error=str(block.content) if is_error else None
+                            yield self._build_tool_completion_chunk(
+                                tool_use_id=block_tool_use_id,
+                                tool_name=tool_name,
+                                result=block.content,
+                                is_error=is_error,
                             )
-                            # 清理映射
-                            if block_tool_use_id:
-                                self._pending_tool_calls.pop(block_tool_use_id, None)
-                                self._tool_to_subagent.pop(block_tool_use_id, None)
+                        self._current_tool_name = None
 
             elif isinstance(message, ResultMessage):
                 # SDK 级结果消息（超轮、超预算、执行错误、正常完成）

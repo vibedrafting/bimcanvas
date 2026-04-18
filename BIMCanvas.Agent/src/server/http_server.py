@@ -18,7 +18,7 @@ from ..agent.main_agent import MainAgent
 from ..attachments.chat_attachments import AttachmentResolutionError, resolve_attachment_image_blocks
 from ..config.loader import resolve_bimcanvas_home
 from ..config.settings import get_settings
-from ..runtime import RuntimeStateStore
+from ..runtime import MainStreamMapper, RuntimeStateStore
 
 # Configure logging
 logger = logging.getLogger(__name__)
@@ -46,50 +46,6 @@ def _build_runtime_context(window_id: str, session_id: str, turn_id: str) -> dic
         "sessionId": session_id,
         "turnId": turn_id,
     }
-
-
-def _build_chunk_event_data(chunk: Any) -> dict[str, Any]:
-    event_data = {"type": chunk.type}
-
-    if chunk.content:
-        event_data["content"] = chunk.content
-
-    if chunk.subagent_id:
-        event_data["subAgentId"] = chunk.subagent_id
-    if chunk.subagent_name:
-        event_data["subAgentName"] = chunk.subagent_name
-    if chunk.subagent_type:
-        event_data["subAgentType"] = chunk.subagent_type
-
-    if chunk.tool_call_id:
-        event_data["toolCallId"] = chunk.tool_call_id
-    if chunk.tool_name:
-        event_data["toolName"] = chunk.tool_name
-    if chunk.tool_description:
-        event_data["toolDescription"] = chunk.tool_description
-    if chunk.tool_params:
-        event_data["toolParams"] = chunk.tool_params
-    if chunk.tool_output:
-        event_data["toolOutput"] = chunk.tool_output
-
-    if chunk.success is not None:
-        event_data["success"] = chunk.success
-    if chunk.error:
-        event_data["error"] = chunk.error
-
-    if chunk.error_type:
-        event_data["errorType"] = chunk.error_type
-    if chunk.error_content:
-        event_data["errorContent"] = chunk.error_content
-    if chunk.hidden_content:
-        event_data["hiddenContent"] = chunk.hidden_content
-
-    if chunk.task_id:
-        event_data["taskId"] = chunk.task_id
-    if chunk.timeout is not None:
-        event_data["timeout"] = chunk.timeout
-
-    return event_data
 
 
 def _build_session_ready_event(session_snapshot: dict[str, Any]) -> dict[str, Any]:
@@ -434,6 +390,7 @@ async def chat_stream_handler(request: web.Request) -> web.StreamResponse:
     await response.prepare(request)
 
     runtime_context = _build_runtime_context(window_id, session.session_id, turn_id)
+    stream_mapper = MainStreamMapper(session_id=session.session_id, turn_id=turn_id)
 
     try:
         if not session.ready_announced:
@@ -455,14 +412,20 @@ async def chat_stream_handler(request: web.Request) -> web.StreamResponse:
             context=context,
             runtime_context=runtime_context,
         ):
-            await _write_sse_data(response, _build_chunk_event_data(chunk))
+            for event_data in stream_mapper.map_chunk(chunk):
+                await _write_sse_data(response, event_data)
 
-        await response.write(b"data: [DONE]\n\n")
+        await _write_sse_data(response, stream_mapper.build_success_terminal_event())
 
     except Exception as exc:
         logger.exception(f"Stream error: {exc}")
         await _write_sse_data(response, {"error": str(exc)})
+        await _write_sse_data(response, stream_mapper.build_exception_terminal_event(exc))
     finally:
+        try:
+            await response.write(b"data: [DONE]\n\n")
+        except (ConnectionResetError, RuntimeError):
+            pass
         agent.clear_runtime_context()
         await runtime_store.mark_session_idle(session.session_id, turn_id)
 

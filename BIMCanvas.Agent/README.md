@@ -125,30 +125,46 @@ Content-Type: application/json
 
 响应格式（Server-Sent Events）：
 ```
-data: {"type": "thinking", "content": "让我分析一下..."}
-data: {"type": "text", "content": "好的"}
-data: {"type": "text", "content": "，我来帮您"}
+data: {"eventId":"...","sessionId":"...","turnId":"...","eventType":"thinking.delta","payload":{"content":"让我分析一下..."},"type":"thinking","content":"让我分析一下..."}
+data: {"eventId":"...","sessionId":"...","turnId":"...","eventType":"text.delta","payload":{"content":"好的"},"type":"text","content":"好的"}
+data: {"eventId":"...","sessionId":"...","turnId":"...","eventType":"turn.completed","payload":{"stopReason":"completed"}}
 ...
 data: [DONE]
 ```
 
+说明：
+
+- Slice B/C 兼容期内，主流事件采用“双写”模式：同一条 `data:` 同时带 v0.1 envelope 字段和 legacy flat 字段
+- envelope 最小字段：`eventId`、`sessionId`、`turnId`、`eventType`、`payload`
+- 当前前端仍消费 legacy `type` / flat fields / `[DONE]`，因此这些字段继续保留
+- `session_ready` 保持旧特例格式，不升级为 envelope
+- `task_output_polling` 保持 ClaudeRuntime 私有 legacy flat 事件，不进入 envelope
+- `turn.completed` / `turn.failed` 由 Host 显式合成；legacy `[DONE]` 继续保留
+
 ## SSE 事件协议
 
-Agent 通过 SSE（Server-Sent Events）推送实时事件，支持以下事件类型：
+Agent 通过 SSE（Server-Sent Events）推送实时事件。Slice B/C 期间同时存在两层协议：
+
+- 标准 envelope：`eventType` + `payload`
+- legacy 兼容层：`type` + flat fields + `[DONE]`
 
 ### 事件类型一览
 
-| 事件类型 | 说明 | 关键字段 |
+| 标准 `eventType` | legacy `type` | 说明 |
 |----------|------|----------|
-| `thinking` | 思考内容（流式） | `content` |
-| `thinking_complete` | 思考完成 | `content` |
-| `text` | 文本响应（流式） | `content` |
-| `text_complete` | 文本完成 | `content` |
-| `subagent_start` | SubAgent 启动 | `subAgentId`, `subAgentName`, `subAgentType` |
-| `subagent_complete` | SubAgent 完成 | `subAgentId`, `success`, `error` |
-| `tool_call_start` | 工具调用开始 | `subAgentId`, `toolCallId`, `toolName`, `toolParams` |
-| `tool_call_output` | 工具输出（流式） | `toolCallId`, `toolOutput` |
-| `tool_call_complete` | 工具调用完成 | `toolCallId`, `success`, `error` |
+| `thinking.delta` | `thinking` | 思考内容（流式） |
+| `thinking.completed` | `thinking_complete` | 思考完成 |
+| `text.delta` | `text` | 文本响应（流式） |
+| `text.completed` | `text_complete` | 文本完成 |
+| `subtask.started` | `subagent_start` | SubAgent 启动 |
+| `subtask.completed` | `subagent_complete` | SubAgent 完成 |
+| `tool.started` | `tool_call_start` | 工具调用开始 |
+| `tool.output` | `tool_call_output` | 工具输出；仅原始 `toolOutput` 非空时补发 legacy 事件 |
+| `tool.completed` | `tool_call_complete` | 工具调用完成 |
+| `turn.completed` | 无，对应 legacy `[DONE]` | 本轮正常完成，`payload.stopReason='completed'` |
+| `turn.failed` | 无，异常路径仍附带 flat `{"error": ...}` | 本轮失败终态 |
+| 无 | `session_ready` | 会话 bootstrap 特例，不进入 envelope |
+| 无 | `task_output_polling` | ClaudeRuntime 私有 legacy 事件，不进入 envelope |
 
 ### SubAgent 事件
 
@@ -216,15 +232,26 @@ SubAgent 内部执行工具时，会产生以下事件：
 **2. 工具输出（可选，流式）**
 ```json
 {
+  "eventType": "tool.output",
+  "payload": {
+    "output": "文件内容..."
+  },
   "type": "tool_call_output",
   "toolCallId": "tc-1",
   "toolOutput": "文件内容..."
 }
 ```
 
+说明：当 `tool.output` 已经输出原始内容时，紧随其后的 legacy `tool_call_complete` 不再重复携带 `toolOutput`，避免当前前端重复追加同一份输出。
+
 **3. 工具调用完成**
 ```json
 {
+  "eventType": "tool.completed",
+  "payload": {
+    "output": "文件内容...",
+    "success": true
+  },
   "type": "tool_call_complete",
   "toolCallId": "tc-1",
   "success": true
@@ -265,7 +292,10 @@ data: {"type": "subagent_complete", "subAgentId": "sa-toolu_01X", "content": "�
 data: {"type": "text", "content": "根据分析，当前户型共有3个卧室..."}
 data: {"type": "text_complete", "content": "...完整内容"}
 
-# 8. 流结束
+# 8. Host 显式发送 turn 终态
+data: {"eventType": "turn.completed", "payload": {"stopReason": "completed"}}
+
+# 9. legacy 结束标记
 data: [DONE]
 ```
 
