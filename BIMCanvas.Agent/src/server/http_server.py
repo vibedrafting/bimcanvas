@@ -18,7 +18,7 @@ from ..agent.main_agent import MainAgent
 from ..attachments.chat_attachments import AttachmentResolutionError, resolve_attachment_image_blocks
 from ..config.loader import resolve_bimcanvas_home
 from ..config.settings import get_settings
-from ..runtime import MainStreamMapper, RuntimeStateStore
+from ..runtime import MainStreamMapper, RUNTIME_ID, RUNTIME_VERSION, RuntimeStateStore, build_capability_matrix
 
 # Configure logging
 logger = logging.getLogger(__name__)
@@ -56,6 +56,122 @@ def _build_session_ready_event(session_snapshot: dict[str, Any]) -> dict[str, An
         "runtimeId": session_snapshot["runtimeId"],
         "status": session_snapshot["status"],
     }
+
+
+def _get_requested_session_id(request: web.Request) -> str | None:
+    session_id = request.headers.get("X-Session-Id")
+    if session_id:
+        session_id = session_id.strip()
+    return session_id or None
+
+
+def _session_matches_request(session: RuntimeSessionRecord, project_path: str, worktree_path: str | None) -> bool:
+    working_dir = worktree_path or project_path
+    session_working_dir = session.worktree_path or session.project_path
+    return session.project_path == project_path and session_working_dir == working_dir
+
+
+def _control_plane_error_response(
+    *,
+    error_type: str,
+    message: str,
+    session: RuntimeSessionRecord | None = None,
+    session_status: str | None = None,
+    status: int = 409,
+) -> web.Response:
+    payload: dict[str, Any] = {
+        "error": message,
+        "errorType": error_type,
+    }
+    headers: dict[str, str] = {}
+    if session is not None:
+        payload["sessionId"] = session.session_id
+        headers["X-Session-Id"] = session.session_id
+    if session_status:
+        payload["sessionStatus"] = session_status
+    return web.json_response(payload, status=status, headers=headers)
+
+
+async def _check_chat_request_control_plane(
+    request: web.Request,
+    *,
+    window_id: str,
+    project_path: str,
+    worktree_path: str | None,
+) -> web.Response | None:
+    active_session = await runtime_store.get_active_session(window_id)
+    if active_session is None or not _session_matches_request(active_session, project_path, worktree_path):
+        return None
+
+    requested_session_id = _get_requested_session_id(request)
+    derived_status = await runtime_store.derive_session_status(active_session.session_id)
+
+    if requested_session_id and requested_session_id != active_session.session_id:
+        return _control_plane_error_response(
+            error_type="SESSION_EXPIRED",
+            message="Requested session is no longer active for this window.",
+            session=active_session,
+            session_status=derived_status,
+        )
+
+    if derived_status == "paused":
+        return _control_plane_error_response(
+            error_type="SESSION_PAUSED",
+            message="The active session is paused by a pending blocking interaction.",
+            session=active_session,
+            session_status=derived_status,
+        )
+
+    if derived_status == "error":
+        return _control_plane_error_response(
+            error_type="SESSION_ERROR",
+            message="The active session is in an unrecoverable error state and must be rebuilt.",
+            session=active_session,
+            session_status=derived_status,
+        )
+
+    return None
+
+
+def _is_runtime_session_failure(terminal_event: dict[str, Any]) -> bool:
+    return (
+        terminal_event.get("eventType") == "turn.failed"
+        and terminal_event.get("payload", {}).get("stopReason") == "runtime_error"
+    )
+
+
+async def _finalize_turn_state(
+    session_id: str,
+    turn_id: str,
+    terminal_event: dict[str, Any] | None,
+) -> None:
+    if terminal_event is None:
+        await runtime_store.cancel_turn_interactions(
+            session_id,
+            turn_id,
+            cancel_reason="turn_aborted",
+        )
+        await runtime_store.mark_session_idle(session_id, turn_id)
+        return
+
+    stop_reason = terminal_event.get("payload", {}).get("stopReason")
+    if stop_reason == "completed":
+        cancel_reason = "turn_completed"
+    elif stop_reason == "interrupted":
+        cancel_reason = "turn_interrupted"
+    else:
+        cancel_reason = "turn_failed"
+
+    await runtime_store.cancel_turn_interactions(
+        session_id,
+        turn_id,
+        cancel_reason=cancel_reason,
+    )
+
+    if _is_runtime_session_failure(terminal_event):
+        await runtime_store.mark_session_error(session_id)
+    else:
+        await runtime_store.mark_session_idle(session_id, turn_id)
 
 
 async def _write_sse_data(response: web.StreamResponse, data: dict[str, Any]) -> None:
@@ -253,9 +369,12 @@ async def config_handler(request: web.Request) -> web.Response:
         models.append({"id": alias, "label": label})
 
     return web.json_response({
+        "runtime": RUNTIME_ID,
+        "runtimeVersion": RUNTIME_VERSION,
         "models": models,
         "defaultEffort": settings.default_effort,
         "defaultThinking": settings.default_thinking,
+        "capabilityMatrix": build_capability_matrix(),
     })
 
 
@@ -288,10 +407,31 @@ async def chat_handler(request: web.Request) -> web.Response:
     if not model:
         return web.json_response({"error": "Model is required"}, status=400)
 
+    control_plane_error = await _check_chat_request_control_plane(
+        request,
+        window_id=window_id,
+        project_path=project_path,
+        worktree_path=worktree_path,
+    )
+    if control_plane_error is not None:
+        return control_plane_error
+
     turn_id = str(uuid.uuid4())
+    session: RuntimeSessionRecord | None = None
 
     try:
         agent, session = await get_agent(window_id, project_path, worktree_path)
+
+        requested_session_id = _get_requested_session_id(request)
+        if requested_session_id and requested_session_id != session.session_id:
+            session_status = await runtime_store.derive_session_status(session.session_id)
+            return _control_plane_error_response(
+                error_type="SESSION_EXPIRED",
+                message="Requested session is no longer active for this window.",
+                session=session,
+                session_status=session_status,
+            )
+
         runtime_context = _build_runtime_context(window_id, session.session_id, turn_id)
 
         await runtime_store.mark_session_running(session.session_id, turn_id)
@@ -299,6 +439,11 @@ async def chat_handler(request: web.Request) -> web.Response:
             reply = await agent.chat(message, model=model, runtime_context=runtime_context)
         finally:
             agent.clear_runtime_context()
+            await runtime_store.cancel_turn_interactions(
+                session.session_id,
+                turn_id,
+                cancel_reason="turn_completed",
+            )
             await runtime_store.mark_session_idle(session.session_id, turn_id)
 
         return web.json_response({
@@ -308,6 +453,13 @@ async def chat_handler(request: web.Request) -> web.Response:
 
     except Exception as exc:
         logger.exception(f"Chat error: {exc}")
+        if session is not None:
+            await runtime_store.cancel_turn_interactions(
+                session.session_id,
+                turn_id,
+                cancel_reason="turn_failed",
+            )
+            await runtime_store.mark_session_idle(session.session_id, turn_id)
         return web.json_response({"error": str(exc)}, status=500)
 
 
@@ -365,10 +517,31 @@ async def chat_stream_handler(request: web.Request) -> web.StreamResponse:
             status=exc.status,
         )
 
+    control_plane_error = await _check_chat_request_control_plane(
+        request,
+        window_id=window_id,
+        project_path=project_path,
+        worktree_path=worktree_path,
+    )
+    if control_plane_error is not None:
+        return control_plane_error
+
     turn_id = str(uuid.uuid4())
+    requested_session_id = _get_requested_session_id(request)
+
+    session: RuntimeSessionRecord | None = None
 
     try:
         agent, session = await get_agent(window_id, project_path, worktree_path)
+
+        if requested_session_id and requested_session_id != session.session_id:
+            session_status = await runtime_store.derive_session_status(session.session_id)
+            return _control_plane_error_response(
+                error_type="SESSION_EXPIRED",
+                message="Requested session is no longer active for this window.",
+                session=session,
+                session_status=session_status,
+            )
 
         if not agent._connected:
             await agent.connect(effort=effort, thinking=thinking, model=model)
@@ -376,6 +549,8 @@ async def chat_stream_handler(request: web.Request) -> web.StreamResponse:
             await agent.set_model(model)
     except Exception as exc:
         logger.exception(f"Stream bootstrap error: {exc}")
+        if session is not None:
+            await runtime_store.mark_session_error(session.session_id)
         return web.json_response({"error": str(exc)}, status=500)
 
     response = web.StreamResponse(
@@ -391,6 +566,7 @@ async def chat_stream_handler(request: web.Request) -> web.StreamResponse:
 
     runtime_context = _build_runtime_context(window_id, session.session_id, turn_id)
     stream_mapper = MainStreamMapper(session_id=session.session_id, turn_id=turn_id)
+    terminal_event: dict[str, Any] | None = None
 
     try:
         if not session.ready_announced:
@@ -415,19 +591,21 @@ async def chat_stream_handler(request: web.Request) -> web.StreamResponse:
             for event_data in stream_mapper.map_chunk(chunk):
                 await _write_sse_data(response, event_data)
 
-        await _write_sse_data(response, stream_mapper.build_success_terminal_event())
+        terminal_event = stream_mapper.build_success_terminal_event()
+        await _write_sse_data(response, terminal_event)
 
     except Exception as exc:
         logger.exception(f"Stream error: {exc}")
         await _write_sse_data(response, {"error": str(exc)})
-        await _write_sse_data(response, stream_mapper.build_exception_terminal_event(exc))
+        terminal_event = stream_mapper.build_exception_terminal_event(exc)
+        await _write_sse_data(response, terminal_event)
     finally:
         try:
             await response.write(b"data: [DONE]\n\n")
         except (ConnectionResetError, RuntimeError):
             pass
         agent.clear_runtime_context()
-        await runtime_store.mark_session_idle(session.session_id, turn_id)
+        await _finalize_turn_state(session.session_id, turn_id, terminal_event)
 
     return response
 
@@ -494,7 +672,7 @@ async def interrupt_handler(request: web.Request) -> web.Response:
         session = await runtime_store.get_active_session(window_id)
         agent = agents.get(window_id)
 
-        if not agent:
+        if not agent and not session:
             return web.json_response({"error": "Agent not found"}, status=404)
 
         if session:
@@ -504,8 +682,9 @@ async def interrupt_handler(request: web.Request) -> web.Response:
             )
             await runtime_store.mark_session_idle(session.session_id, session.active_turn_id)
 
-        agent.clear_runtime_context()
-        await agent.interrupt()
+        if agent:
+            agent.clear_runtime_context()
+            await agent.interrupt()
         print(f"[Server] 任务中断: 窗口 {window_id}")
         logger.info(f"Interrupted task for window: {window_id}")
         return web.json_response({"success": True})

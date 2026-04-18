@@ -4,18 +4,18 @@ from __future__ import annotations
 
 import asyncio
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any
 
 
 def _utcnow() -> datetime:
-    return datetime.utcnow()
+    return datetime.now(timezone.utc)
 
 
 def _serialize_datetime(value: datetime | None) -> str | None:
     if value is None:
         return None
-    return value.isoformat() + "Z"
+    return value.isoformat().replace("+00:00", "Z")
 
 
 @dataclass(slots=True)

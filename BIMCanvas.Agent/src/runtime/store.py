@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any
 
 from .records import PendingInteractionRecord, RuntimeSessionRecord
@@ -126,7 +126,7 @@ class RuntimeStateStore:
                 return None
             session.base_status = "closed"
             session.active_turn_id = None
-            session.closed_at = datetime.utcnow()
+            session.closed_at = datetime.now(timezone.utc)
             session.touch()
             if remove_window_binding and self._window_sessions.get(session.window_id) == session_id:
                 self._window_sessions.pop(session.window_id, None)
@@ -281,6 +281,36 @@ class RuntimeStateStore:
     ) -> list[PendingInteractionRecord]:
         async with self._lock:
             pending_ids = list(self._session_pending.get(session_id, set()))
+        finalized: list[PendingInteractionRecord] = []
+        for interaction_id in pending_ids:
+            interaction = await self._finalize_interaction(
+                interaction_id,
+                final_status=final_status,
+                resolution_payload=None,
+                cancel_reason=cancel_reason,
+            )
+            if interaction is not None:
+                finalized.append(interaction)
+        return finalized
+
+    async def cancel_turn_interactions(
+        self,
+        session_id: str,
+        turn_id: str,
+        *,
+        cancel_reason: str,
+        final_status: str = "cancelled",
+    ) -> list[PendingInteractionRecord]:
+        async with self._lock:
+            pending_ids = [
+                interaction_id
+                for interaction_id in self._session_pending.get(session_id, set())
+                if (
+                    interaction_id in self._interactions
+                    and self._interactions[interaction_id].status == "pending"
+                    and self._interactions[interaction_id].turn_id == turn_id
+                )
+            ]
         finalized: list[PendingInteractionRecord] = []
         for interaction_id in pending_ids:
             interaction = await self._finalize_interaction(

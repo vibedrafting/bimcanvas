@@ -15,6 +15,8 @@
 
 **Agent 角色**：系统的"大脑"，负责理解用户意图、规划布置方案、发出操作指令。
 
+**协议阶段**：当前处于 ClaudeRuntime v0.1 的 Slice C 收尾阶段。MainStream 已升级为 envelope + legacy 双写，ControlPlane 通过 `/api/config` 提供静态 capability matrix，并固定 `SESSION_EXPIRED` / `SESSION_PAUSED` / `SESSION_ERROR` 错误语义。
+
 ## 快速开始
 
 ### 1. 前置条件
@@ -65,7 +67,7 @@ Agent 会在 BIMCanvas.Server 启动时自动启动，无需手动操作。
 | `/api/chat/stream` | POST | 发送聊天消息（SSE 流式响应） |
 | `/api/clear-history` | POST | 清空对话历史 |
 | `/api/history` | GET | 获取对话历史 |
-| `/api/config` | GET | 获取 Agent 配置（模型、思考强度等） |
+| `/api/config` | GET | 获取 Agent 配置（模型、思考强度、Runtime capability matrix） |
 | `/api/agent/close` | POST | 关闭指定窗口的 Agent 实例 |
 | `/api/interrupt` | POST | 中断当前 Agent 执行 |
 | `/api/interaction/events` | GET | 统一 InteractionChannel SSE 事件流 |
@@ -140,6 +142,44 @@ data: [DONE]
 - `session_ready` 保持旧特例格式，不升级为 envelope
 - `task_output_polling` 保持 ClaudeRuntime 私有 legacy flat 事件，不进入 envelope
 - `turn.completed` / `turn.failed` 由 Host 显式合成；legacy `[DONE]` 继续保留
+
+### ControlPlane 配置
+
+`GET /api/config` 在保留现有 `models` / `defaultEffort` / `defaultThinking` 字段的同时，额外返回：
+
+```json
+{
+  "runtime": "claude-sdk",
+  "runtimeVersion": "0.1.0",
+  "capabilityMatrix": [
+    {
+      "capabilityKey": "text_stream",
+      "level": "required",
+      "providerMapping": "content_block_delta.text_delta + text.completed",
+      "frontendFallback": null,
+      "notes": "..."
+    }
+  ]
+}
+```
+
+当前矩阵的关键能力声明：
+
+- `text_stream` / `tool_call_lifecycle` / `interaction_query` / `interaction_submit` / `interaction_cancel` / `question_pause_resume` / `screenshot_async`：`required`
+- `thinking` / `subtask_causality`：`optional`
+- `usage` / `trace` / `permission_pause_resume`：`unsupported`
+
+### ControlPlane 错误语义
+
+对 `POST /api/chat` / `POST /api/chat/stream`，Host 固定以下控制面错误码：
+
+- `SESSION_EXPIRED`：请求携带的 `X-Session-Id` 与当前窗口活跃 session 不一致
+- `SESSION_PAUSED`：当前 session 仍有 `blocking=true && status=pending` 的 interaction
+- `SESSION_ERROR`：当前 session 已进入不可恢复错误状态，需要重建
+
+这些错误继续返回 JSON，并在可用时附带当前 `X-Session-Id` 响应头，供客户端重新同步 session。
+
+补充说明：`turn.failed.payload.error.code` 中若出现 `PROVIDER_*` 前缀，表示 ClaudeRuntime 私有扩展码，不属于 v0.1 最小错误枚举；前端和联调脚本不得依赖这些扩展码做渲染分支决策。
 
 ## SSE 事件协议
 
