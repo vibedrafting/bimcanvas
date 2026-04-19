@@ -277,8 +277,9 @@ def test_build_tools_respects_permissions_and_warns_for_unsupported_entries(
     with caplog.at_level(logging.WARNING):
         tools = agent._build_tools(_FakeAgentsModule(), model="gpt-4.1-mini", nested_stream_handler=None)
 
-    assert [tool.name for tool in tools] == ["Read", "delegate_query_task", "delegate_edit_task", "layout-agent"]
+    assert [tool.name for tool in tools] == ["Read", "delegate_query_task", "delegate_edit_task"]
     assert "OpenAI runtime ignored unsupported tools from permissions: UnknownTool" in caplog.text
+    assert "layout-agent (permission-gated: Skill" in caplog.text
 
 
 def test_build_tools_registers_supported_configured_agent_tools(
@@ -317,16 +318,16 @@ def test_build_tools_registers_supported_configured_agent_tools(
     assert "你负责检查项目文件" in inspect_tool.nested_agent.instructions
     assert "当前可用工具：Read / Glob" in inspect_tool.nested_agent.instructions
     assert [tool.name for tool in layout_tool.nested_agent.tools] == [
-        "Read",
-        "Write",
-        "Glob",
-        "Grep",
         "mcp__canvas__validate_layout",
         "mcp__canvas__request_background_screenshot",
         "mcp__canvas__get_zone_boundaries",
         "mcp__canvas__save_semantic_plan",
         "mcp__canvas__load_semantic_plan",
         "mcp__canvas__load_reference_analysis",
+        "Read",
+        "Write",
+        "Glob",
+        "Grep",
     ]
     assert "`Skill` 不再作为工具暴露" in layout_tool.nested_agent.instructions
     assert "当前项目路径：" in layout_tool.nested_agent.instructions
@@ -380,8 +381,8 @@ def test_build_tools_blocks_configured_agents_with_permission_gaps_or_disabled_c
     assert "question-agent" not in tool_names
     assert "layout-agent" not in tool_names
     assert "OpenAI runtime keeps some configured agents disabled until later phases:" in caplog.text
-    assert "editor-agent (permission-gated: Write)" in caplog.text
-    assert "question-agent (AskUserQuestion)" in caplog.text
+    assert "editor-agent (permission-gated: Task, permission-gated: Write)" in caplog.text
+    assert "question-agent (permission-gated: Task, permission-gated: AskUserQuestion)" in caplog.text
     assert "layout-agent (" in caplog.text
     assert "permission-gated: Task" in caplog.text
     assert "permission-gated: Write" in caplog.text
@@ -420,7 +421,7 @@ def test_build_tools_keeps_non_layout_skill_agents_blocked(
     assert "render-agent (Skill, mcp__canvas__validate_layout)" in caplog.text
 
 
-def test_openai_stage_two_keeps_layout_agent_enabled_under_default_claude_permissions(
+def test_openai_stage_two_keeps_layout_agent_enabled_under_recommended_shared_permissions(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
@@ -441,17 +442,98 @@ def test_openai_stage_two_keeps_layout_agent_enabled_under_default_claude_permis
     assert "layout-agent" in tool_names
     layout_tool = next(tool for tool in tools if tool.name == "layout-agent")
     assert [tool.name for tool in layout_tool.nested_agent.tools] == [
-        "Read",
-        "Write",
-        "Glob",
-        "Grep",
         "mcp__canvas__validate_layout",
         "mcp__canvas__request_background_screenshot",
         "mcp__canvas__get_zone_boundaries",
         "mcp__canvas__save_semantic_plan",
         "mcp__canvas__load_semantic_plan",
         "mcp__canvas__load_reference_analysis",
+        "Read",
+        "Write",
+        "Glob",
+        "Grep",
     ]
+
+
+def test_build_root_agent_prioritizes_explicit_layout_agent_request(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    home = _prepare_bimcanvas_home(tmp_path)
+    _configure_test_home(monkeypatch, home)
+    _install_fake_tool_context(monkeypatch)
+    _set_openai_runtime_config(
+        home,
+        model_mapping={"gpt-4.1": {"id": "gpt-4.1", "label": "GPT-4.1"}},
+    )
+    _set_web_default_model(home, "gpt-4.1")
+    _reset_config_caches()
+
+    agent = OpenAIAgent(project_path=str(tmp_path), working_directory=str(tmp_path))
+    enabled_permission_tool_names = agent._resolve_enabled_permission_tool_names()
+    configured_specs, blocked_specs = agent._resolve_configured_agent_tool_specs(
+        enabled_tool_names=enabled_permission_tool_names,
+        inherited_model="gpt-4.1",
+    )
+    explicit_request = agent._resolve_explicit_configured_agent_request(
+        "请主控必须调用 layout-agent 完成这个单区 generate 子任务。",
+        enabled_specs=configured_specs,
+        blocked_specs=blocked_specs,
+    )
+
+    root_agent = agent._build_root_agent(
+        _FakeAgentsModule(),
+        model="gpt-4.1",
+        nested_stream_handler=None,
+        user_message="请主控必须调用 layout-agent 完成这个单区 generate 子任务。",
+        enabled_permission_tool_names=enabled_permission_tool_names,
+        configured_specs=configured_specs,
+        explicit_request=explicit_request,
+    )
+
+    assert explicit_request is not None
+    assert explicit_request.name == "layout-agent"
+    tool_names = [tool.name for tool in root_agent.tools]
+    assert tool_names.index("layout-agent") < tool_names.index("delegate_query_task")
+    assert tool_names.index("layout-agent") < tool_names.index("delegate_edit_task")
+    assert tool_names[-2:] == ["delegate_query_task", "delegate_edit_task"]
+    assert "用户本轮显式点名了配置型 agent `layout-agent`" in root_agent.instructions
+    assert "必须把 `layout-agent` 作为主子任务目标" in root_agent.instructions
+
+
+def test_build_explicit_layout_agent_unavailable_message_is_honest(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    home = _prepare_bimcanvas_home(tmp_path)
+    _configure_test_home(monkeypatch, home)
+    _install_fake_tool_context(monkeypatch)
+    _set_openai_runtime_config(
+        home,
+        model_mapping={"gpt-4.1-mini": {"id": "gpt-4.1-mini", "label": "GPT-4.1 mini"}},
+        permissions={"allow": ["Read", "Task"], "deny": []},
+    )
+    _set_web_default_model(home, "gpt-4.1-mini")
+    _reset_config_caches()
+
+    agent = OpenAIAgent(project_path=str(tmp_path), working_directory=str(tmp_path))
+    enabled_permission_tool_names = agent._resolve_enabled_permission_tool_names()
+    configured_specs, blocked_specs = agent._resolve_configured_agent_tool_specs(
+        enabled_tool_names=enabled_permission_tool_names,
+        inherited_model="gpt-4.1-mini",
+    )
+    explicit_request = agent._resolve_explicit_configured_agent_request(
+        "请必须调用 layout-agent。",
+        enabled_specs=configured_specs,
+        blocked_specs=blocked_specs,
+    )
+
+    assert explicit_request is not None
+    assert explicit_request.blocked_spec is not None
+    message = agent._build_explicit_configured_agent_unavailable_message(explicit_request)
+    assert "当前无法调用 `layout-agent`" in message
+    assert "不会用通用 helper worker 冒充" in message
+    assert "permissions.allow" in message
 
 
 def test_openai_canvas_wrappers_translate_runtime_context_and_shortcuts(
@@ -1001,7 +1083,7 @@ def test_openai_stream_translator_projects_agent_as_tool_failure() -> None:
     assert failure_chunks[0].content == ""
 
 
-def test_openai_stream_translator_recovers_nested_summary_and_tool_completion_for_browser_flow() -> None:
+def test_openai_stream_translator_fails_when_nested_tools_never_complete() -> None:
     translator = OpenAIStreamTranslator(turn_id="turn-1")
     start_chunks, subtask_id = translator.ensure_subtask_started_for_tool_call(
         SimpleNamespace(
@@ -1048,11 +1130,8 @@ def test_openai_stream_translator_recovers_nested_summary_and_tool_completion_fo
     assert [(chunk.type, chunk.subagent_id, chunk.content) for chunk in nested_summary_chunks] == [
         ("text_complete", subtask_id, "第一行\n第二行\n第三行")
     ]
-    assert [(chunk.type, chunk.subagent_id, chunk.tool_call_id, chunk.success) for chunk in completion_chunks[:-1]] == [
-        ("tool_call_complete", subtask_id, "tc-2", True)
-    ]
-    assert [(chunk.type, chunk.subagent_id, chunk.content, chunk.success) for chunk in completion_chunks[-1:]] == [
-        ("subagent_complete", subtask_id, "第一行\n第二行\n第三行", True)
+    assert [(chunk.type, chunk.subagent_id, chunk.content, chunk.success, chunk.error) for chunk in completion_chunks] == [
+        ("subagent_complete", subtask_id, "", False, "子任务在以下工具完成前提前结束：Read")
     ]
 
 
@@ -1083,6 +1162,149 @@ def test_openai_stream_translator_reads_agent_tool_summary_from_raw_item_output(
 
     assert [(chunk.type, chunk.subagent_id, chunk.content, chunk.success) for chunk in completion_chunks] == [
         ("subagent_complete", subtask_id, "第一行\n第二行\n第三行", True)
+    ]
+
+
+def test_openai_stream_translator_marks_empty_agent_summary_as_failure() -> None:
+    translator = OpenAIStreamTranslator(turn_id="turn-1")
+    _, subtask_id = translator.ensure_subtask_started_for_tool_call(
+        SimpleNamespace(
+            call_id="delegate-call-1",
+            name="delegate_query_task",
+            arguments='{"task_title":"读取 README 并总结","task_prompt":"读取 README.md，并输出三行中文总结"}',
+        )
+    )
+
+    completion_chunks = translator.translate_result_item(
+        SimpleNamespace(
+            type="tool_call_output_item",
+            raw_item={"call_id": "delegate-call-1", "type": "function_call_output"},
+            output="",
+            tool_origin=SimpleNamespace(type="agent_as_tool"),
+        )
+    )
+
+    assert [(chunk.type, chunk.subagent_id, chunk.content, chunk.success, chunk.error) for chunk in completion_chunks] == [
+        ("subagent_complete", subtask_id, "", False, "子任务未返回最终摘要。")
+    ]
+
+
+def test_openai_stream_translator_marks_layout_agent_without_write_and_validate_as_failure() -> None:
+    translator = OpenAIStreamTranslator(turn_id="turn-1")
+    _, subtask_id = translator.ensure_subtask_started_for_tool_call(
+        SimpleNamespace(
+            call_id="layout-call-1",
+            name="layout-agent",
+            arguments='{"task_title":"执行单区 generate","task_prompt":"完成 rz_1 的单区 generate"}',
+        )
+    )
+
+    translator.translate_result_item(
+        SimpleNamespace(
+            type="tool_call_item",
+            raw_item=SimpleNamespace(
+                call_id="call-2",
+                name="Read",
+                arguments='{"file_path":"README.md"}',
+            ),
+            tool_origin=SimpleNamespace(type="function"),
+        ),
+        forced_subtask_id=subtask_id,
+    )
+    translator.translate_result_item(
+        SimpleNamespace(
+            type="tool_call_output_item",
+            raw_item={"call_id": "call-2", "type": "function_call_output"},
+            output="README contents",
+            tool_origin=SimpleNamespace(type="function"),
+        ),
+        forced_subtask_id=subtask_id,
+    )
+    translator.translate_result_item(
+        SimpleNamespace(
+            type="message_output_item",
+            raw_item=SimpleNamespace(
+                content=[SimpleNamespace(type="output_text", text="已读取上下文，但未真正落地。")],
+            ),
+        ),
+        forced_subtask_id=subtask_id,
+    )
+    completion_chunks = translator.translate_result_item(
+        SimpleNamespace(
+            type="tool_call_output_item",
+            raw_item={"call_id": "layout-call-1", "type": "function_call_output"},
+            output="",
+            tool_origin=SimpleNamespace(type="agent_as_tool"),
+        )
+    )
+
+    assert [(chunk.type, chunk.subagent_id, chunk.content, chunk.success, chunk.error) for chunk in completion_chunks] == [
+        (
+            "subagent_complete",
+            subtask_id,
+            "",
+            False,
+            "layout-agent 执行链不完整，缺少：Write 或 mcp__canvas__save_semantic_plan、mcp__canvas__validate_layout",
+        )
+    ]
+
+
+def test_openai_stream_translator_accepts_layout_agent_with_write_validate_and_summary() -> None:
+    translator = OpenAIStreamTranslator(turn_id="turn-1")
+    _, subtask_id = translator.ensure_subtask_started_for_tool_call(
+        SimpleNamespace(
+            call_id="layout-call-1",
+            name="layout-agent",
+            arguments='{"task_title":"执行单区 generate","task_prompt":"完成 rz_1 的单区 generate"}',
+        )
+    )
+
+    for provider_call_id, tool_name, arguments, output in [
+        ("call-2", "Write", '{"file_path":"schemes/rz_1/modules.json","content":"[]"}', "Wrote modules"),
+        ("call-3", "mcp__canvas__validate_layout", '{"zoneId":"rz_1"}', "validated"),
+    ]:
+        translator.translate_result_item(
+            SimpleNamespace(
+                type="tool_call_item",
+                raw_item=SimpleNamespace(
+                    call_id=provider_call_id,
+                    name=tool_name,
+                    arguments=arguments,
+                ),
+                tool_origin=SimpleNamespace(type="function"),
+            ),
+            forced_subtask_id=subtask_id,
+        )
+        translator.translate_result_item(
+            SimpleNamespace(
+                type="tool_call_output_item",
+                raw_item={"call_id": provider_call_id, "type": "function_call_output"},
+                output=output,
+                tool_origin=SimpleNamespace(type="function"),
+            ),
+            forced_subtask_id=subtask_id,
+        )
+
+    translator.translate_result_item(
+        SimpleNamespace(
+            type="message_output_item",
+            raw_item=SimpleNamespace(
+                content=[SimpleNamespace(type="output_text", text="已完成单区 generate 并通过校验。")],
+            ),
+        ),
+        forced_subtask_id=subtask_id,
+    )
+    completion_chunks = translator.translate_result_item(
+        SimpleNamespace(
+            type="tool_call_output_item",
+            raw_item={"call_id": "layout-call-1", "type": "function_call_output"},
+            output="",
+            tool_origin=SimpleNamespace(type="agent_as_tool"),
+        )
+    )
+
+    assert [(chunk.type, chunk.subagent_id, chunk.content, chunk.success, chunk.error) for chunk in completion_chunks] == [
+        ("subagent_complete", subtask_id, "已完成单区 generate 并通过校验。", True, None)
     ]
 
 

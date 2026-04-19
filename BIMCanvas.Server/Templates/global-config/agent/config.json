@@ -13,7 +13,21 @@
     "defaultThinking": "adaptive",
     "maxThinkingTokens": 8000,
     "permissions": {
-        "allow": ["Read", "Glob", "Grep", "Task", "AskUserQuestion"],
+        "allow": [
+            "Read",
+            "Write",
+            "Glob",
+            "Grep",
+            "Task",
+            "Skill",
+            "AskUserQuestion",
+            "mcp__canvas__request_background_screenshot",
+            "mcp__canvas__get_zone_boundaries",
+            "mcp__canvas__save_semantic_plan",
+            "mcp__canvas__load_semantic_plan",
+            "mcp__canvas__validate_layout",
+            "mcp__canvas__load_reference_analysis"
+        ],
         "deny": []
     },
     "server": {

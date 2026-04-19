@@ -162,15 +162,27 @@ class OpenAIStreamTranslator:
         self._started_subtasks_by_provider: set[str] = set(snapshot.get("startedSubtasksByProvider", []))
         self._subtask_stack: list[str] = list(snapshot.get("subtaskStack", []))
         self._subtask_messages_by_id: dict[str, str] = dict(snapshot.get("subtaskMessagesById", {}))
-        self._active_tool_calls_by_subtask: dict[str, list[str]] = {
-            subtask_id: [
-                tool_call_id
-                for tool_call_id in tool_call_ids
+        self._subtask_names_by_id: dict[str, str] = dict(snapshot.get("subtaskNamesById", {}))
+        self._subtask_types_by_id: dict[str, str] = dict(snapshot.get("subtaskTypesById", {}))
+        self._active_tool_calls_by_subtask: dict[str, dict[str, str | None]] = {
+            subtask_id: {
+                tool_call_id: tool_name if isinstance(tool_name, str) and tool_name else None
+                for tool_call_id, tool_name in tool_calls.items()
                 if isinstance(tool_call_id, str) and tool_call_id
-            ]
-            for subtask_id, tool_call_ids in dict(snapshot.get("activeToolCallsBySubtask", {})).items()
-            if isinstance(subtask_id, str) and isinstance(tool_call_ids, list)
+            }
+            for subtask_id, tool_calls in dict(snapshot.get("activeToolCallsBySubtask", {})).items()
+            if isinstance(subtask_id, str) and isinstance(tool_calls, dict)
         }
+        self._invoked_tool_names_by_subtask: dict[str, list[str]] = {
+            subtask_id: [
+                tool_name
+                for tool_name in tool_names
+                if isinstance(tool_name, str) and tool_name
+            ]
+            for subtask_id, tool_names in dict(snapshot.get("invokedToolNamesBySubtask", {})).items()
+            if isinstance(subtask_id, str) and isinstance(tool_names, list)
+        }
+        self._failed_subtasks_by_id: dict[str, str] = dict(snapshot.get("failedSubtasksById", {}))
         self._tool_counter: int = int(snapshot.get("toolCounter", 0))
         self._current_subtask_id = current_subtask_id
 
@@ -181,10 +193,17 @@ class OpenAIStreamTranslator:
             "startedSubtasksByProvider": sorted(self._started_subtasks_by_provider),
             "subtaskStack": list(self._subtask_stack),
             "subtaskMessagesById": dict(self._subtask_messages_by_id),
+            "subtaskNamesById": dict(self._subtask_names_by_id),
+            "subtaskTypesById": dict(self._subtask_types_by_id),
             "activeToolCallsBySubtask": {
-                subtask_id: list(tool_call_ids)
-                for subtask_id, tool_call_ids in self._active_tool_calls_by_subtask.items()
+                subtask_id: dict(tool_calls)
+                for subtask_id, tool_calls in self._active_tool_calls_by_subtask.items()
             },
+            "invokedToolNamesBySubtask": {
+                subtask_id: list(tool_names)
+                for subtask_id, tool_names in self._invoked_tool_names_by_subtask.items()
+            },
+            "failedSubtasksById": dict(self._failed_subtasks_by_id),
             "toolCounter": self._tool_counter,
         }
 
@@ -277,17 +296,22 @@ class OpenAIStreamTranslator:
         public_tool_call_id = self._ensure_public_tool_call_id(provider_call_id)
         tool_origin_type = _resolve_tool_origin_type(item)
         resolved_subtask_id = forced_subtask_id or self._active_subtask_id()
+        tool_name = _resolve_tool_name(item)
 
         if tool_origin_type == "agent_as_tool":
             return self._ensure_agent_as_tool_started(item, provider_call_id=provider_call_id)
 
-        self._track_active_tool_call(resolved_subtask_id, public_tool_call_id)
+        self._track_active_tool_call(
+            resolved_subtask_id,
+            public_tool_call_id,
+            tool_name=tool_name,
+        )
         return [
             StreamChunk(
                 type="tool_call_start",
                 subagent_id=resolved_subtask_id,
                 tool_call_id=public_tool_call_id,
-                tool_name=_resolve_tool_name(item),
+                tool_name=tool_name,
                 tool_params=_resolve_tool_arguments(item),
                 origin="tool" if resolved_subtask_id else "root",
             )
@@ -305,31 +329,37 @@ class OpenAIStreamTranslator:
 
         if tool_origin_type == "agent_as_tool":
             subtask_id = self._ensure_subtask_id(provider_call_id, public_tool_call_id)
+            parent_subtask_id = forced_subtask_id or self._active_parent_subtask_id(subtask_id)
             if self._subtask_stack and self._subtask_stack[-1] == subtask_id:
                 self._subtask_stack.pop()
             success, summary, error = _parse_agent_as_tool_output(output_text)
             summary = summary or self._consume_subtask_message(subtask_id)
-            completion_chunks = self._build_synthetic_tool_completions(subtask_id)
-            completion_chunks.append(
+            success, summary, error = self._finalize_subtask_outcome(
+                subtask_id=subtask_id,
+                success=success,
+                summary=summary,
+                error=error,
+            )
+            return [
                 StreamChunk(
                     type="subagent_complete",
                     subagent_id=subtask_id,
-                    content=summary or "",
+                    content=summary if success else "",
                     success=success,
                     error=error,
-                    parent_subtask_id=forced_subtask_id or self._active_subtask_id(),
+                    parent_subtask_id=parent_subtask_id,
                     origin="tool",
                 )
-            )
-            return completion_chunks
+            ]
 
-        self._complete_active_tool_call(resolved_subtask_id, public_tool_call_id)
+        completed_tool_name = self._complete_active_tool_call(resolved_subtask_id, public_tool_call_id)
 
         return [
             StreamChunk(
                 type="tool_call_complete",
                 subagent_id=resolved_subtask_id,
                 tool_call_id=public_tool_call_id,
+                tool_name=completed_tool_name,
                 tool_output=output_text or None,
                 success=True,
             )
@@ -391,6 +421,10 @@ class OpenAIStreamTranslator:
             self._subtask_stack.append(subtask_id)
 
         subtask_name, subtask_type = _resolve_agent_as_tool_metadata(item)
+        if subtask_name:
+            self._subtask_names_by_id[subtask_id] = subtask_name
+        if subtask_type:
+            self._subtask_types_by_id[subtask_id] = subtask_type
         return [
             StreamChunk(
                 type="subagent_start",
@@ -401,6 +435,18 @@ class OpenAIStreamTranslator:
                 origin="tool",
             )
         ]
+
+    def has_root_failure_override(self) -> bool:
+        return bool(self._failed_subtasks_by_id)
+
+    def build_root_failure_summary(self) -> str | None:
+        if not self._failed_subtasks_by_id:
+            return None
+        lines = ["以下子任务未完成，主控不会把它们视为成功委派："]
+        for subtask_id, error in self._failed_subtasks_by_id.items():
+            display_name = self._subtask_names_by_id.get(subtask_id) or self._subtask_types_by_id.get(subtask_id) or subtask_id
+            lines.append(f"- {display_name}：{error}")
+        return "\n".join(lines)
 
     def _active_subtask_id(self) -> str | None:
         if self._current_subtask_id:
@@ -435,40 +481,91 @@ class OpenAIStreamTranslator:
             message = message.strip()
         return message or None
 
-    def _track_active_tool_call(self, subtask_id: str | None, tool_call_id: str) -> None:
+    def _track_active_tool_call(
+        self,
+        subtask_id: str | None,
+        tool_call_id: str,
+        *,
+        tool_name: str | None,
+    ) -> None:
         normalized_subtask_id = (subtask_id or "").strip()
         if not normalized_subtask_id:
             return
-        active_tool_calls = self._active_tool_calls_by_subtask.setdefault(normalized_subtask_id, [])
-        if tool_call_id not in active_tool_calls:
-            active_tool_calls.append(tool_call_id)
+        active_tool_calls = self._active_tool_calls_by_subtask.setdefault(normalized_subtask_id, {})
+        active_tool_calls[tool_call_id] = tool_name
+        if tool_name:
+            invoked_tool_names = self._invoked_tool_names_by_subtask.setdefault(normalized_subtask_id, [])
+            if tool_name not in invoked_tool_names:
+                invoked_tool_names.append(tool_name)
 
-    def _complete_active_tool_call(self, subtask_id: str | None, tool_call_id: str | None) -> None:
+    def _complete_active_tool_call(self, subtask_id: str | None, tool_call_id: str | None) -> str | None:
         normalized_subtask_id = (subtask_id or "").strip()
         normalized_tool_call_id = (tool_call_id or "").strip()
         if not normalized_subtask_id or not normalized_tool_call_id:
-            return
+            return None
         active_tool_calls = self._active_tool_calls_by_subtask.get(normalized_subtask_id)
         if not active_tool_calls:
-            return
-        try:
-            active_tool_calls.remove(normalized_tool_call_id)
-        except ValueError:
-            return
+            return None
+        tool_name = active_tool_calls.pop(normalized_tool_call_id, None)
         if not active_tool_calls:
             self._active_tool_calls_by_subtask.pop(normalized_subtask_id, None)
+        return tool_name
 
-    def _build_synthetic_tool_completions(self, subtask_id: str | None) -> list[StreamChunk]:
+    def _finalize_subtask_outcome(
+        self,
+        *,
+        subtask_id: str,
+        success: bool,
+        summary: str | None,
+        error: str | None,
+    ) -> tuple[bool, str | None, str | None]:
         normalized_subtask_id = (subtask_id or "").strip()
         if not normalized_subtask_id:
-            return []
-        active_tool_calls = self._active_tool_calls_by_subtask.pop(normalized_subtask_id, [])
-        return [
-            StreamChunk(
-                type="tool_call_complete",
-                subagent_id=normalized_subtask_id,
-                tool_call_id=tool_call_id,
-                success=True,
-            )
-            for tool_call_id in active_tool_calls
+            return success, summary, error
+
+        normalized_summary = (summary or "").strip()
+        normalized_error = (error or "").strip()
+        active_tool_calls = self._active_tool_calls_by_subtask.get(normalized_subtask_id, {})
+        active_tool_names = [
+            tool_name or tool_call_id
+            for tool_call_id, tool_name in active_tool_calls.items()
         ]
+        if success and active_tool_names:
+            success = False
+            normalized_error = "子任务在以下工具完成前提前结束：" + "、".join(active_tool_names)
+        if success and not normalized_summary:
+            success = False
+            normalized_error = "子任务未返回最终摘要。"
+        if success:
+            layout_error = self._validate_layout_agent_completion(normalized_subtask_id)
+            if layout_error:
+                success = False
+                normalized_error = layout_error
+
+        if success:
+            self._failed_subtasks_by_id.pop(normalized_subtask_id, None)
+        else:
+            self._failed_subtasks_by_id[normalized_subtask_id] = normalized_error or "子任务执行失败。"
+
+        self._active_tool_calls_by_subtask.pop(normalized_subtask_id, None)
+        return success, normalized_summary or None, normalized_error or None
+
+    def _validate_layout_agent_completion(self, subtask_id: str) -> str | None:
+        subtask_type = self._subtask_types_by_id.get(subtask_id)
+        if subtask_type != "layout-agent":
+            return None
+        invoked_tool_names = self._invoked_tool_names_by_subtask.get(subtask_id, [])
+        has_write_step = any(
+            tool_name in {"Write", "mcp__canvas__save_semantic_plan"}
+            for tool_name in invoked_tool_names
+        )
+        has_validate_step = "mcp__canvas__validate_layout" in invoked_tool_names
+        if has_write_step and has_validate_step:
+            return None
+
+        missing_steps: list[str] = []
+        if not has_write_step:
+            missing_steps.append("Write 或 mcp__canvas__save_semantic_plan")
+        if not has_validate_step:
+            missing_steps.append("mcp__canvas__validate_layout")
+        return "layout-agent 执行链不完整，缺少：" + "、".join(missing_steps)

@@ -15,6 +15,7 @@ from urllib.parse import urlparse
 
 from typing_extensions import TypedDict
 
+from ..config.configured_agents import parse_configured_agent_requirements
 from ..config.loader import AgentConfig, get_config_loader
 from ..config.settings import get_settings
 from ..runtime import PendingInteractionRuntimeBinding, RuntimeSessionRecord, StreamChunk
@@ -87,12 +88,20 @@ class _ConfiguredAgentToolSpec:
     tool_names: tuple[str, ...]
     model: str | None
     skill_names: tuple[str, ...] = ()
+    required_permission_names: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
 class _BlockedConfiguredAgentSpec:
     name: str
     reasons: tuple[str, ...]
+
+
+@dataclass(frozen=True)
+class _ExplicitConfiguredAgentRequest:
+    name: str
+    enabled_spec: _ConfiguredAgentToolSpec | None = None
+    blocked_spec: _BlockedConfiguredAgentSpec | None = None
 
 
 def _project_root() -> Path:
@@ -267,6 +276,32 @@ class OpenAIAgent:
             stream_queue: asyncio.Queue[StreamChunk | Exception | None] = asyncio.Queue()
             buffered_nested_chunks: list[StreamChunk] = []
             use_fallback = self._should_use_responses_run_fallback(settings)
+            enabled_permission_tool_names = self._resolve_enabled_permission_tool_names()
+            configured_specs, blocked_specs = self._resolve_configured_agent_tool_specs(
+                enabled_tool_names=enabled_permission_tool_names,
+                inherited_model=model,
+            )
+            self._log_configured_subagent_availability(
+                enabled_specs=configured_specs,
+                blocked_specs=blocked_specs,
+            )
+            explicit_request = self._resolve_explicit_configured_agent_request(
+                user_message,
+                enabled_specs=configured_specs,
+                blocked_specs=blocked_specs,
+            )
+            if explicit_request and explicit_request.blocked_spec is not None:
+                unavailable_message = self._build_explicit_configured_agent_unavailable_message(explicit_request)
+                logger.warning(
+                    "OpenAI runtime refused to substitute helper workers for explicitly requested configured agent `%s`: %s",
+                    explicit_request.name,
+                    ", ".join(explicit_request.blocked_spec.reasons),
+                )
+                unavailable_chunk = StreamChunk(type="text_complete", content=unavailable_message)
+                self._log_chunk_for_console(unavailable_chunk)
+                yield unavailable_chunk
+                self._agent_logger.log_complete(model=model or self._current_model)
+                return
 
             async def _emit_translated_event(
                 event: Any,
@@ -291,6 +326,10 @@ class OpenAIAgent:
                 agents,
                 model=model,
                 nested_stream_handler=_nested_stream_handler,
+                user_message=user_message,
+                enabled_permission_tool_names=enabled_permission_tool_names,
+                configured_specs=configured_specs,
+                explicit_request=explicit_request,
             )
             sdk_session = self._get_or_create_sdk_session(
                 agents,
@@ -373,8 +412,15 @@ class OpenAIAgent:
                     raise item
                 if isinstance(item, Exception):
                     raise item
+                if self._should_suppress_root_text_chunk(item, translator=translator):
+                    continue
                 self._log_chunk_for_console(item)
                 yield item
+
+            root_failure_chunk = self._maybe_build_root_failure_summary_chunk(translator=translator)
+            if root_failure_chunk is not None:
+                self._log_chunk_for_console(root_failure_chunk)
+                yield root_failure_chunk
 
             self._agent_logger.log_complete(model=model or self._current_model)
         finally:
@@ -554,7 +600,14 @@ class OpenAIAgent:
                 if approved_tool_call_id and chunk.tool_call_id == approved_tool_call_id:
                     chunk.tool_output = None
                     chunk.suppress_public_tool_output = True
+                if self._should_suppress_root_text_chunk(chunk, translator=translator):
+                    continue
                 event_data = await append_event(chunk)
+                appended_events.extend(event_data)
+
+            root_failure_chunk = self._maybe_build_root_failure_summary_chunk(translator=translator)
+            if root_failure_chunk is not None:
+                event_data = await append_event(root_failure_chunk)
                 appended_events.extend(event_data)
 
             return appended_events
@@ -573,10 +626,31 @@ class OpenAIAgent:
         *,
         model: str | None,
         nested_stream_handler: Any | None,
+        user_message: str | None = None,
+        enabled_permission_tool_names: list[str] | None = None,
+        configured_specs: list[_ConfiguredAgentToolSpec] | None = None,
+        explicit_request: _ExplicitConfiguredAgentRequest | None = None,
     ) -> Any:
+        resolved_enabled_permission_tool_names = (
+            enabled_permission_tool_names
+            if enabled_permission_tool_names is not None
+            else self._resolve_enabled_permission_tool_names()
+        )
+        if configured_specs is None:
+            configured_specs, blocked_specs = self._resolve_configured_agent_tool_specs(
+                enabled_tool_names=resolved_enabled_permission_tool_names,
+                inherited_model=model,
+            )
+            self._log_configured_subagent_availability(
+                enabled_specs=configured_specs,
+                blocked_specs=blocked_specs,
+            )
+        tool_by_name = self._build_local_function_tool_map(agents)
         system_prompt = self._config_loader.load_system_prompt()
         system_prompt = system_prompt + f"\n\n工作目录: {self.working_directory}"
-        system_prompt = system_prompt + self._build_openai_root_appendix()
+        system_prompt = system_prompt + self._build_openai_root_appendix(
+            explicit_request=explicit_request,
+        )
         return agents.Agent(
             name="BIMCanvas",
             instructions=system_prompt,
@@ -584,6 +658,10 @@ class OpenAIAgent:
                 agents,
                 model=model,
                 nested_stream_handler=nested_stream_handler,
+                tool_by_name=tool_by_name,
+                enabled_permission_tool_names=resolved_enabled_permission_tool_names,
+                configured_specs=configured_specs,
+                explicit_request=explicit_request,
             ),
             model=model or self._current_model,
         )
@@ -594,21 +672,51 @@ class OpenAIAgent:
         *,
         model: str | None,
         nested_stream_handler: Any | None,
+        tool_by_name: dict[str, Any] | None = None,
+        enabled_permission_tool_names: list[str] | None = None,
+        configured_specs: list[_ConfiguredAgentToolSpec] | None = None,
+        explicit_request: _ExplicitConfiguredAgentRequest | None = None,
     ) -> list[Any]:
-        tool_by_name = self._build_local_function_tool_map(agents)
-        enabled_permission_tool_names = self._resolve_enabled_permission_tool_names()
+        resolved_tool_by_name = tool_by_name or self._build_local_function_tool_map(agents)
+        resolved_enabled_permission_tool_names = (
+            enabled_permission_tool_names
+            if enabled_permission_tool_names is not None
+            else self._resolve_enabled_permission_tool_names()
+        )
+        if configured_specs is None:
+            configured_specs, blocked_specs = self._resolve_configured_agent_tool_specs(
+                enabled_tool_names=resolved_enabled_permission_tool_names,
+                inherited_model=model,
+            )
+            self._log_configured_subagent_availability(
+                enabled_specs=configured_specs,
+                blocked_specs=blocked_specs,
+            )
         local_tool_names = [
-            name for name in _OPENAI_PHASE_ONE_LOCAL_TOOL_ORDER if name in enabled_permission_tool_names
+            name for name in _OPENAI_PHASE_ONE_LOCAL_TOOL_ORDER if name in resolved_enabled_permission_tool_names
         ]
-        local_tools = [tool_by_name[name] for name in local_tool_names]
+        local_tools = [resolved_tool_by_name[name] for name in local_tool_names]
+        configured_tools = [
+            self._build_configured_agent_tool(
+                agents,
+                spec=spec,
+                nested_stream_handler=nested_stream_handler,
+                tool_by_name=resolved_tool_by_name,
+            )
+            for spec in self._order_configured_specs_for_root(
+                configured_specs=configured_specs,
+                explicit_request=explicit_request,
+            )
+        ]
         return [
             *local_tools,
+            *configured_tools,
             *self._build_helper_agent_tools(
                 agents,
                 model=model,
                 nested_stream_handler=nested_stream_handler,
-                tool_by_name=tool_by_name,
-                enabled_tool_names=enabled_permission_tool_names,
+                tool_by_name=resolved_tool_by_name,
+                explicit_request=explicit_request,
             ),
         ]
 
@@ -841,8 +949,20 @@ class OpenAIAgent:
         model: str | None,
         nested_stream_handler: Any | None,
         tool_by_name: dict[str, Any],
-        enabled_tool_names: list[str],
+        explicit_request: _ExplicitConfiguredAgentRequest | None = None,
     ) -> list[Any]:
+        explicit_target_name = explicit_request.name if explicit_request and explicit_request.enabled_spec else None
+        query_description = "委派一个通用只读子任务。仅用于补充检索、统计与上下文准备，不得替代用户显式点名的配置型 agent。"
+        edit_description = "委派一个通用单一编辑子任务。仅用于局部文件修改，不得调用 MCP、Skill 或用户交互，也不得替代用户显式点名的配置型 agent。"
+        if explicit_target_name:
+            query_description = (
+                f"{query_description} 当前用户已显式点名 `{explicit_target_name}`，"
+                "该 helper 只能做辅助取证。"
+            )
+            edit_description = (
+                f"{edit_description} 当前用户已显式点名 `{explicit_target_name}`，"
+                "不得把本 helper 当作主子任务。"
+            )
         helper_tools = [
             self._build_helper_agent_tool(
                 agents,
@@ -852,7 +972,7 @@ class OpenAIAgent:
                 delegate_tool_name=_OPENAI_DELEGATE_QUERY_TOOL_NAME,
                 worker_type="query-worker",
                 child_tool_names=_OPENAI_QUERY_DELEGATE_TOOL_ORDER,
-                description="委派一个只读子任务。用于查找、统计、只读分析，不得修改文件。",
+                description=query_description,
             ),
             self._build_helper_agent_tool(
                 agents,
@@ -862,30 +982,29 @@ class OpenAIAgent:
                 delegate_tool_name=_OPENAI_DELEGATE_EDIT_TOOL_NAME,
                 worker_type="edit-worker",
                 child_tool_names=_OPENAI_EDIT_DELEGATE_TOOL_ORDER,
-                description="委派一个单一编辑子任务。仅用于局部文件修改，不得调用 MCP、Skill 或用户交互。",
+                description=edit_description,
             ),
         ]
-        configured_specs, blocked_specs = self._resolve_configured_agent_tool_specs(
-            enabled_tool_names=enabled_tool_names,
-            inherited_model=model,
-        )
-        self._log_configured_subagent_availability(
-            enabled_specs=configured_specs,
-            blocked_specs=blocked_specs,
-        )
-        configured_tools = [
-            self._build_configured_agent_tool(
-                agents,
-                spec=spec,
-                nested_stream_handler=nested_stream_handler,
-                tool_by_name=tool_by_name,
-            )
-            for spec in configured_specs
+        return helper_tools
+
+    @staticmethod
+    def _order_configured_specs_for_root(
+        *,
+        configured_specs: list[_ConfiguredAgentToolSpec],
+        explicit_request: _ExplicitConfiguredAgentRequest | None,
+    ) -> list[_ConfiguredAgentToolSpec]:
+        if explicit_request is None or explicit_request.enabled_spec is None:
+            return list(configured_specs)
+        explicit_name = explicit_request.enabled_spec.config.name
+        prioritized = [
+            spec for spec in configured_specs
+            if spec.config.name == explicit_name
         ]
-        return [
-            *helper_tools,
-            *configured_tools,
+        remainder = [
+            spec for spec in configured_specs
+            if spec.config.name != explicit_name
         ]
+        return [*prioritized, *remainder]
 
     def _build_helper_agent_tool(
         self,
@@ -1122,15 +1241,28 @@ class OpenAIAgent:
         }
         return f"{SUBTASK_ERROR_MARKER}{json.dumps(payload, ensure_ascii=False)}"
 
-    def _build_openai_root_appendix(self) -> str:
+    def _build_openai_root_appendix(
+        self,
+        *,
+        explicit_request: _ExplicitConfiguredAgentRequest | None = None,
+    ) -> str:
+        explicit_lines = ""
+        if explicit_request and explicit_request.enabled_spec is not None:
+            explicit_lines = (
+                f"- 用户本轮显式点名了配置型 agent `{explicit_request.name}`。\n"
+                f"- 若需要 agent delegation，必须把 `{explicit_request.name}` 作为主子任务目标；"
+                "helper agents 只能做辅助取证，不能替代它。\n"
+            )
         return (
             "\n\n## OpenAI Runtime Appendix\n"
             "- 当前子任务委派使用原生 `Agent.as_tool()`，不是 Claude `Task`。\n"
             f"- 如需只读分析、统计或检索，优先调用 `{_OPENAI_DELEGATE_QUERY_TOOL_NAME}`。\n"
             f"- 如需单一局部修改，调用 `{_OPENAI_DELEGATE_EDIT_TOOL_NAME}`。\n"
-            f"- `{_OPENAI_LAYOUT_AGENT_NAME}` 已通过运行时 Skill 装配 + 原生 MCP function tools 定向启用，用于显式单区 generate 子任务。\n"
+            f"- 当共享权限允许时，`{_OPENAI_LAYOUT_AGENT_NAME}` 会通过运行时 Skill 装配 + 原生 MCP function tools 定向启用，用于显式单区 generate 子任务。\n"
+            "- 若某个配置型 agent 因 `permissions.allow/deny` 或当前 Runtime 能力边界未启用，主控不得用 helper sub-agent 冒充它。\n"
             "- 其他依赖 `Skill`、`mcp__canvas__*`、`AskUserQuestion` 或二级委派的配置型 agents 暂不启用。\n"
             "- helper sub-agent 只执行一个明确子任务，并返回简洁中文摘要供主控汇总。\n"
+            f"{explicit_lines}"
         )
 
     @staticmethod
@@ -1295,7 +1427,48 @@ class OpenAIAgent:
         chunks: list[StreamChunk] = []
         for item in getattr(result, "new_items", []):
             chunks.extend(translator.translate_result_item(item))
-        return chunks
+        return self._finalize_root_response_chunks(chunks, translator=translator)
+
+    @staticmethod
+    def _should_suppress_root_text_chunk(
+        chunk: StreamChunk,
+        *,
+        translator: OpenAIStreamTranslator,
+    ) -> bool:
+        if chunk.subagent_id:
+            return False
+        if chunk.type not in {"text", "text_complete"}:
+            return False
+        return translator.has_root_failure_override()
+
+    def _maybe_build_root_failure_summary_chunk(
+        self,
+        *,
+        translator: OpenAIStreamTranslator,
+    ) -> StreamChunk | None:
+        summary = translator.build_root_failure_summary()
+        if not summary:
+            return None
+        return StreamChunk(type="text_complete", content=summary)
+
+    def _finalize_root_response_chunks(
+        self,
+        chunks: list[StreamChunk],
+        *,
+        translator: OpenAIStreamTranslator,
+    ) -> list[StreamChunk]:
+        if not translator.has_root_failure_override():
+            return chunks
+
+        filtered_chunks = [
+            chunk
+            for chunk in chunks
+            if not self._should_suppress_root_text_chunk(chunk, translator=translator)
+        ]
+        root_failure_chunk = self._maybe_build_root_failure_summary_chunk(translator=translator)
+        if root_failure_chunk is not None:
+            filtered_chunks.append(root_failure_chunk)
+        return filtered_chunks
 
     def _resolve_configured_agent_tool_specs(
         self,
@@ -1303,8 +1476,6 @@ class OpenAIAgent:
         enabled_tool_names: list[str],
         inherited_model: str | None,
     ) -> tuple[list[_ConfiguredAgentToolSpec], list[_BlockedConfiguredAgentSpec]]:
-        _, denied_tools = self._config_loader.load_permissions()
-        denied_tool_names = set(denied_tools)
         available_tool_names = set(enabled_tool_names) - {"AskUserQuestion"}
         enabled_specs: list[_ConfiguredAgentToolSpec] = []
         blocked_specs: list[_BlockedConfiguredAgentSpec] = []
@@ -1315,7 +1486,16 @@ class OpenAIAgent:
             permission_reasons: list[str] = []
             resolved_tool_names: list[str] = []
             resolved_skill_names: list[str] = []
+            required_permission_names: list[str] = []
             uses_runtime_adapted_layout_agent = name == _OPENAI_LAYOUT_AGENT_NAME
+            parsed_requirements = parse_configured_agent_requirements(
+                cfg,
+                known_local_tool_names=set(_OPENAI_PHASE_ONE_LOCAL_TOOL_ORDER),
+                reserved_tool_names={
+                    _OPENAI_DELEGATE_QUERY_TOOL_NAME,
+                    _OPENAI_DELEGATE_EDIT_TOOL_NAME,
+                },
+            )
 
             if name in seen_agent_names or name in _OPENAI_RESERVED_AGENT_TOOL_NAMES:
                 intrinsic_reasons.append("tool name collision")
@@ -1326,63 +1506,59 @@ class OpenAIAgent:
             if normalized_model and normalized_model.lower() in _CLAUDE_MODEL_ALIASES:
                 intrinsic_reasons.append(f"unsupported model alias: {normalized_model}")
 
-            if uses_runtime_adapted_layout_agent and "Task" not in available_tool_names:
+            if "Task" not in available_tool_names:
                 permission_reasons.append("permission-gated: Task")
+            else:
+                required_permission_names.append("Task")
 
-            for tool_name in cfg.tools:
-                if tool_name == "Skill":
-                    if not uses_runtime_adapted_layout_agent:
-                        intrinsic_reasons.append("Skill")
-                        continue
-                    if tool_name in denied_tool_names:
-                        permission_reasons.append("permission-gated: Skill")
-                        continue
+            if parsed_requirements.requires_skill:
+                if not uses_runtime_adapted_layout_agent:
+                    intrinsic_reasons.append("Skill")
+                elif "Skill" not in available_tool_names:
+                    permission_reasons.append("permission-gated: Skill")
+                else:
+                    required_permission_names.append("Skill")
                     for skill_name in _OPENAI_LAYOUT_AGENT_SKILL_NAMES:
                         skill_path = self._config_loader.config_dir / "skills" / skill_name / "SKILL.md"
                         if not skill_path.exists():
                             intrinsic_reasons.append(f"missing skill: {skill_name}")
                         elif skill_name not in resolved_skill_names:
                             resolved_skill_names.append(skill_name)
-                    continue
-                if tool_name == "AskUserQuestion":
-                    intrinsic_reasons.append("AskUserQuestion")
-                    continue
-                if tool_name == "Task":
-                    intrinsic_reasons.append("Task")
-                    continue
-                if tool_name in {
-                    _OPENAI_DELEGATE_QUERY_TOOL_NAME,
-                    _OPENAI_DELEGATE_EDIT_TOOL_NAME,
-                }:
+
+            for tool_name in parsed_requirements.special_tool_names:
+                intrinsic_reasons.append(tool_name)
+
+            for tool_name in parsed_requirements.unsupported_tool_names:
+                intrinsic_reasons.append(f"unsupported tool: {tool_name}")
+
+            for tool_name in parsed_requirements.mcp_tool_names:
+                if not uses_runtime_adapted_layout_agent or tool_name not in _OPENAI_LAYOUT_AGENT_MCP_TOOL_ORDER:
                     intrinsic_reasons.append(tool_name)
                     continue
-                if tool_name.startswith("mcp__"):
-                    if not uses_runtime_adapted_layout_agent or tool_name not in _OPENAI_LAYOUT_AGENT_MCP_TOOL_ORDER:
-                        intrinsic_reasons.append(tool_name)
-                        continue
-                    if tool_name in denied_tool_names:
-                        permission_reasons.append(f"permission-gated: {tool_name}")
-                        continue
-                    resolved_tool_names.append(tool_name)
+                if tool_name not in available_tool_names:
+                    permission_reasons.append(f"permission-gated: {tool_name}")
                     continue
+                if tool_name not in required_permission_names:
+                    required_permission_names.append(tool_name)
+                resolved_tool_names.append(tool_name)
+
+            for tool_name in parsed_requirements.local_tool_names:
                 if tool_name not in _OPENAI_PHASE_ONE_LOCAL_TOOL_SET:
                     intrinsic_reasons.append(f"unsupported tool: {tool_name}")
                     continue
-                if uses_runtime_adapted_layout_agent:
-                    if tool_name in denied_tool_names:
-                        permission_reasons.append(f"permission-gated: {tool_name}")
-                        continue
-                elif tool_name not in available_tool_names:
+                if tool_name not in available_tool_names:
                     permission_reasons.append(f"permission-gated: {tool_name}")
                     continue
+                if tool_name not in required_permission_names:
+                    required_permission_names.append(tool_name)
                 resolved_tool_names.append(tool_name)
 
-            reasons = intrinsic_reasons or permission_reasons
+            reasons = list(dict.fromkeys([*intrinsic_reasons, *permission_reasons]))
             if reasons:
                 blocked_specs.append(
                     _BlockedConfiguredAgentSpec(
                         name=name,
-                        reasons=tuple(dict.fromkeys(reasons)),
+                        reasons=tuple(reasons),
                     )
                 )
                 continue
@@ -1393,10 +1569,55 @@ class OpenAIAgent:
                     tool_names=tuple(resolved_tool_names),
                     model=resolved_model,
                     skill_names=tuple(resolved_skill_names),
+                    required_permission_names=tuple(required_permission_names),
                 )
             )
 
         return enabled_specs, blocked_specs
+
+    @staticmethod
+    def _resolve_explicit_configured_agent_request(
+        user_message: str,
+        *,
+        enabled_specs: list[_ConfiguredAgentToolSpec],
+        blocked_specs: list[_BlockedConfiguredAgentSpec],
+    ) -> _ExplicitConfiguredAgentRequest | None:
+        normalized_message = (user_message or "").strip().lower()
+        if not normalized_message:
+            return None
+
+        enabled_by_name = {spec.config.name: spec for spec in enabled_specs}
+        blocked_by_name = {spec.name: spec for spec in blocked_specs}
+        candidate_names = sorted(
+            set(enabled_by_name) | set(blocked_by_name),
+            key=len,
+            reverse=True,
+        )
+        matches = [
+            name
+            for name in candidate_names
+            if name.lower() in normalized_message
+        ]
+        if len(matches) != 1:
+            return None
+
+        requested_name = matches[0]
+        return _ExplicitConfiguredAgentRequest(
+            name=requested_name,
+            enabled_spec=enabled_by_name.get(requested_name),
+            blocked_spec=blocked_by_name.get(requested_name),
+        )
+
+    @staticmethod
+    def _build_explicit_configured_agent_unavailable_message(
+        request: _ExplicitConfiguredAgentRequest,
+    ) -> str:
+        reasons = "、".join(request.blocked_spec.reasons) if request.blocked_spec else "unknown"
+        return (
+            f"当前无法调用 `{request.name}`，因为它在共享权限/能力检查下未启用：{reasons}。\n"
+            "OpenAI runtime 不会用通用 helper worker 冒充这个配置型 agent。\n"
+            "如需继续浏览器验收，请先手动更新 `<BIMCANVAS_HOME>/config.json` 的 `permissions.allow` 后重试。"
+        )
 
     def _log_configured_subagent_availability(
         self,
@@ -1425,6 +1646,17 @@ class OpenAIAgent:
                     for spec in blocked_specs
                 ),
             )
+            for spec in blocked_specs:
+                if spec.name != _OPENAI_LAYOUT_AGENT_NAME:
+                    continue
+                if not any(reason.startswith("permission-gated:") for reason in spec.reasons):
+                    continue
+                logger.warning(
+                    "OpenAI runtime requires manual permission sync for `%s`: update "
+                    "<BIMCANVAS_HOME>/config.json permissions.allow to include the shared layout-agent baseline.",
+                    spec.name,
+                )
+                break
 
         self._configured_subagents_logged = True
 
@@ -1506,8 +1738,8 @@ class OpenAIAgent:
         if self._phase_one_scope_logged:
             return
         logger.info(
-            "OpenAI stage 2 enabled: local function tools (%s) plus helper agent tools (%s, %s); "
-            "runtime-adapted layout-agent is enabled via Skill assembly + MCP wrappers, while other Skill/MCP/handoff agents remain disabled.",
+            "OpenAI stage 2 available: local function tools (%s) plus helper agent tools (%s, %s); "
+            "runtime-adapted layout-agent can be enabled when shared permissions allow Skill + MCP wrappers, while other Skill/MCP/handoff agents remain disabled.",
             ", ".join(_OPENAI_PHASE_ONE_LOCAL_TOOL_ORDER),
             _OPENAI_DELEGATE_QUERY_TOOL_NAME,
             _OPENAI_DELEGATE_EDIT_TOOL_NAME,
