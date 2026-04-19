@@ -448,6 +448,19 @@ class OpenAIStreamTranslator:
             lines.append(f"- {display_name}：{error}")
         return "\n".join(lines)
 
+    def has_active_tool_calls(self, subtask_id: str | None) -> bool:
+        normalized_subtask_id = (subtask_id or "").strip()
+        if not normalized_subtask_id:
+            return False
+        return bool(self._active_tool_calls_by_subtask.get(normalized_subtask_id))
+
+    def has_subtask_message(self, subtask_id: str | None) -> bool:
+        normalized_subtask_id = (subtask_id or "").strip()
+        if not normalized_subtask_id:
+            return False
+        message = self._subtask_messages_by_id.get(normalized_subtask_id)
+        return isinstance(message, str) and bool(message.strip())
+
     def _active_subtask_id(self) -> str | None:
         if self._current_subtask_id:
             return self._current_subtask_id

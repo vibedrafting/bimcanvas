@@ -1425,9 +1425,127 @@ class OpenAIAgent:
         translator: OpenAIStreamTranslator,
     ) -> list[StreamChunk]:
         chunks: list[StreamChunk] = []
+        pending_agent_completion_items: list[Any] = []
         for item in getattr(result, "new_items", []):
-            chunks.extend(translator.translate_result_item(item))
+            if self._is_agent_as_tool_completion_item(item):
+                pending_agent_completion_items.append(item)
+                continue
+
+            forced_subtask_id: str | None = None
+            if self._is_result_message_item(item):
+                pending_subtask_id = self._get_latest_pending_agent_completion_subtask_id(
+                    pending_agent_completion_items,
+                    translator=translator,
+                )
+                if pending_subtask_id:
+                    if self._should_flush_pending_agent_completion_before_message(
+                        pending_agent_completion_items[-1],
+                        subtask_id=pending_subtask_id,
+                        translator=translator,
+                    ):
+                        chunks.extend(
+                            self._flush_pending_agent_completion_items(
+                                pending_agent_completion_items,
+                                translator=translator,
+                            )
+                        )
+                    else:
+                        forced_subtask_id = pending_subtask_id
+
+            chunks.extend(translator.translate_result_item(item, forced_subtask_id=forced_subtask_id))
+
+        chunks.extend(
+            self._flush_pending_agent_completion_items(
+                pending_agent_completion_items,
+                translator=translator,
+            )
+        )
         return self._finalize_root_response_chunks(chunks, translator=translator)
+
+    @staticmethod
+    def _is_agent_as_tool_completion_item(item: Any) -> bool:
+        item_type = getattr(item, "type", None)
+        if item_type != "tool_call_output_item":
+            return False
+
+        tool_origin = getattr(item, "tool_origin", None)
+        origin_type = getattr(tool_origin, "type", None)
+        if isinstance(origin_type, str):
+            return origin_type == "agent_as_tool"
+
+        origin_value = getattr(origin_type, "value", None)
+        return isinstance(origin_value, str) and origin_value == "agent_as_tool"
+
+    @staticmethod
+    def _is_result_message_item(item: Any) -> bool:
+        return getattr(item, "type", None) == "message_output_item"
+
+    @staticmethod
+    def _resolve_result_item_call_id(item: Any) -> str | None:
+        raw_item = getattr(item, "raw_item", item)
+        call_id = getattr(raw_item, "call_id", None)
+        if isinstance(call_id, str) and call_id.strip():
+            return call_id.strip()
+        if isinstance(raw_item, dict):
+            raw_call_id = raw_item.get("call_id")
+            if isinstance(raw_call_id, str) and raw_call_id.strip():
+                return raw_call_id.strip()
+        return None
+
+    def _get_latest_pending_agent_completion_subtask_id(
+        self,
+        pending_items: list[Any],
+        *,
+        translator: OpenAIStreamTranslator,
+    ) -> str | None:
+        if not pending_items:
+            return None
+        provider_call_id = self._resolve_result_item_call_id(pending_items[-1])
+        return translator.ensure_subtask_id_for_provider_call(provider_call_id)
+
+    @staticmethod
+    def _extract_pending_agent_completion_output(item: Any) -> str:
+        output = getattr(item, "output", None)
+        if isinstance(output, str) and output.strip():
+            return output.strip()
+
+        raw_item = getattr(item, "raw_item", item)
+        if isinstance(raw_item, dict):
+            raw_output = raw_item.get("output")
+            if isinstance(raw_output, str) and raw_output.strip():
+                return raw_output.strip()
+        else:
+            raw_output = getattr(raw_item, "output", None)
+            if isinstance(raw_output, str) and raw_output.strip():
+                return raw_output.strip()
+        return ""
+
+    def _should_flush_pending_agent_completion_before_message(
+        self,
+        pending_item: Any,
+        *,
+        subtask_id: str,
+        translator: OpenAIStreamTranslator,
+    ) -> bool:
+        if translator.has_active_tool_calls(subtask_id):
+            return False
+        if translator.has_subtask_message(subtask_id):
+            return True
+        return bool(self._extract_pending_agent_completion_output(pending_item))
+
+    @staticmethod
+    def _flush_pending_agent_completion_items(
+        pending_items: list[Any],
+        *,
+        translator: OpenAIStreamTranslator,
+    ) -> list[StreamChunk]:
+        if not pending_items:
+            return []
+
+        flushed_chunks: list[StreamChunk] = []
+        while pending_items:
+            flushed_chunks.extend(translator.translate_result_item(pending_items.pop(0)))
+        return flushed_chunks
 
     @staticmethod
     def _should_suppress_root_text_chunk(

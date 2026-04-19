@@ -1310,6 +1310,76 @@ def test_openai_stream_translator_accepts_layout_agent_with_write_validate_and_s
     ]
 
 
+def test_openai_fallback_projection_defers_agent_completion_until_nested_outputs_finish(
+    tmp_path: Path,
+) -> None:
+    agent = OpenAIAgent(project_path=str(tmp_path), working_directory=str(tmp_path))
+    translator = OpenAIStreamTranslator(turn_id="turn-1")
+    _, subtask_id = translator.ensure_subtask_started_for_tool_call(
+        SimpleNamespace(
+            call_id="layout-call-1",
+            name="layout-agent",
+            arguments='{"task_title":"单区 generate：rz_1 次卧一","task_prompt":"完成 rz_1 的单区 generate"}',
+        )
+    )
+
+    for provider_call_id, tool_name, arguments in [
+        ("call-2", "Write", '{"file_path":"schemes/rz_1/modules.json","content":"[]"}'),
+        ("call-3", "mcp__canvas__validate_layout", '{"zoneId":"rz_1"}'),
+    ]:
+        translator.translate_result_item(
+            SimpleNamespace(
+                type="tool_call_item",
+                raw_item=SimpleNamespace(
+                    call_id=provider_call_id,
+                    name=tool_name,
+                    arguments=arguments,
+                ),
+                tool_origin=SimpleNamespace(type="function"),
+            ),
+            forced_subtask_id=subtask_id,
+        )
+
+    result = SimpleNamespace(
+        new_items=[
+            SimpleNamespace(
+                type="tool_call_output_item",
+                raw_item={"call_id": "layout-call-1", "type": "function_call_output"},
+                output="",
+                tool_origin=SimpleNamespace(type="agent_as_tool"),
+            ),
+            SimpleNamespace(
+                type="tool_call_output_item",
+                raw_item={"call_id": "call-2", "type": "function_call_output"},
+                output="Wrote modules",
+                tool_origin=SimpleNamespace(type="function"),
+            ),
+            SimpleNamespace(
+                type="tool_call_output_item",
+                raw_item={"call_id": "call-3", "type": "function_call_output"},
+                output="validated",
+                tool_origin=SimpleNamespace(type="function"),
+            ),
+            SimpleNamespace(
+                type="message_output_item",
+                raw_item=SimpleNamespace(
+                    content=[SimpleNamespace(type="output_text", text="已完成单区 generate 并通过校验。")],
+                ),
+            ),
+        ]
+    )
+
+    chunks = agent._translate_result_chunks(result=result, translator=translator)
+
+    assert [(chunk.type, chunk.subagent_id, chunk.tool_name, chunk.success) for chunk in chunks[:2]] == [
+        ("tool_call_complete", subtask_id, "Write", True),
+        ("tool_call_complete", subtask_id, "mcp__canvas__validate_layout", True),
+    ]
+    assert [(chunk.type, chunk.subagent_id, chunk.content, chunk.success, chunk.error) for chunk in chunks[-1:]] == [
+        ("subagent_complete", subtask_id, "已完成单区 generate 并通过校验。", True, None)
+    ]
+
+
 def test_openai_agent_connect_configures_chat_completions_for_custom_endpoint(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
