@@ -50,6 +50,7 @@ _OPENAI_LAYOUT_AGENT_MCP_TOOL_ORDER = (
 )
 _OPENAI_SUPPORTED_PERMISSION_TOOL_NAMES = frozenset({
     *_OPENAI_PHASE_ONE_LOCAL_TOOL_ORDER,
+    "Task",
     "Skill",
     *_OPENAI_LAYOUT_AGENT_MCP_TOOL_ORDER,
 })
@@ -1302,6 +1303,8 @@ class OpenAIAgent:
         enabled_tool_names: list[str],
         inherited_model: str | None,
     ) -> tuple[list[_ConfiguredAgentToolSpec], list[_BlockedConfiguredAgentSpec]]:
+        _, denied_tools = self._config_loader.load_permissions()
+        denied_tool_names = set(denied_tools)
         available_tool_names = set(enabled_tool_names) - {"AskUserQuestion"}
         enabled_specs: list[_ConfiguredAgentToolSpec] = []
         blocked_specs: list[_BlockedConfiguredAgentSpec] = []
@@ -1312,6 +1315,7 @@ class OpenAIAgent:
             permission_reasons: list[str] = []
             resolved_tool_names: list[str] = []
             resolved_skill_names: list[str] = []
+            uses_runtime_adapted_layout_agent = name == _OPENAI_LAYOUT_AGENT_NAME
 
             if name in seen_agent_names or name in _OPENAI_RESERVED_AGENT_TOOL_NAMES:
                 intrinsic_reasons.append("tool name collision")
@@ -1322,12 +1326,15 @@ class OpenAIAgent:
             if normalized_model and normalized_model.lower() in _CLAUDE_MODEL_ALIASES:
                 intrinsic_reasons.append(f"unsupported model alias: {normalized_model}")
 
+            if uses_runtime_adapted_layout_agent and "Task" not in available_tool_names:
+                permission_reasons.append("permission-gated: Task")
+
             for tool_name in cfg.tools:
                 if tool_name == "Skill":
-                    if name != _OPENAI_LAYOUT_AGENT_NAME:
+                    if not uses_runtime_adapted_layout_agent:
                         intrinsic_reasons.append("Skill")
                         continue
-                    if "Skill" not in available_tool_names:
+                    if tool_name in denied_tool_names:
                         permission_reasons.append("permission-gated: Skill")
                         continue
                     for skill_name in _OPENAI_LAYOUT_AGENT_SKILL_NAMES:
@@ -1350,10 +1357,10 @@ class OpenAIAgent:
                     intrinsic_reasons.append(tool_name)
                     continue
                 if tool_name.startswith("mcp__"):
-                    if name != _OPENAI_LAYOUT_AGENT_NAME or tool_name not in _OPENAI_LAYOUT_AGENT_MCP_TOOL_ORDER:
+                    if not uses_runtime_adapted_layout_agent or tool_name not in _OPENAI_LAYOUT_AGENT_MCP_TOOL_ORDER:
                         intrinsic_reasons.append(tool_name)
                         continue
-                    if tool_name not in available_tool_names:
+                    if tool_name in denied_tool_names:
                         permission_reasons.append(f"permission-gated: {tool_name}")
                         continue
                     resolved_tool_names.append(tool_name)
@@ -1361,7 +1368,11 @@ class OpenAIAgent:
                 if tool_name not in _OPENAI_PHASE_ONE_LOCAL_TOOL_SET:
                     intrinsic_reasons.append(f"unsupported tool: {tool_name}")
                     continue
-                if tool_name not in available_tool_names:
+                if uses_runtime_adapted_layout_agent:
+                    if tool_name in denied_tool_names:
+                        permission_reasons.append(f"permission-gated: {tool_name}")
+                        continue
+                elif tool_name not in available_tool_names:
                     permission_reasons.append(f"permission-gated: {tool_name}")
                     continue
                 resolved_tool_names.append(tool_name)

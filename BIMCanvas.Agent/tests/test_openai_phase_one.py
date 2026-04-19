@@ -266,8 +266,8 @@ def test_build_tools_respects_permissions_and_warns_for_unsupported_entries(
         home,
         model_mapping={"gpt-4.1-mini": {"id": "gpt-4.1-mini", "label": "GPT-4.1 mini"}},
         permissions={
-            "allow": ["Read", "Bash", "Task", "Skill", "mcp__canvas__validate_layout"],
-            "deny": ["Bash", "Task"],
+            "allow": ["Read", "Bash", "Task", "UnknownTool"],
+            "deny": ["Bash"],
         },
     )
     _set_web_default_model(home, "gpt-4.1-mini")
@@ -277,8 +277,8 @@ def test_build_tools_respects_permissions_and_warns_for_unsupported_entries(
     with caplog.at_level(logging.WARNING):
         tools = agent._build_tools(_FakeAgentsModule(), model="gpt-4.1-mini", nested_stream_handler=None)
 
-    assert [tool.name for tool in tools] == ["Read", "delegate_query_task", "delegate_edit_task"]
-    assert "OpenAI runtime ignored unsupported tools from permissions: Task" in caplog.text
+    assert [tool.name for tool in tools] == ["Read", "delegate_query_task", "delegate_edit_task", "layout-agent"]
+    assert "OpenAI runtime ignored unsupported tools from permissions: UnknownTool" in caplog.text
 
 
 def test_build_tools_registers_supported_configured_agent_tools(
@@ -299,7 +299,7 @@ def test_build_tools_registers_supported_configured_agent_tools(
     _set_openai_runtime_config(
         home,
         model_mapping={"gpt-4.1": {"id": "gpt-4.1", "label": "GPT-4.1"}},
-        permissions={"allow": None, "deny": ["Task"]},
+        permissions={"allow": None, "deny": []},
     )
     _set_web_default_model(home, "gpt-4.1")
     _reset_config_caches()
@@ -383,9 +383,8 @@ def test_build_tools_blocks_configured_agents_with_permission_gaps_or_disabled_c
     assert "editor-agent (permission-gated: Write)" in caplog.text
     assert "question-agent (AskUserQuestion)" in caplog.text
     assert "layout-agent (" in caplog.text
-    assert "permission-gated: Skill" in caplog.text
-    assert "permission-gated: mcp__canvas__validate_layout" in caplog.text
-    assert "permission-gated: mcp__canvas__load_semantic_plan" in caplog.text
+    assert "permission-gated: Task" in caplog.text
+    assert "permission-gated: Write" in caplog.text
 
 
 def test_build_tools_keeps_non_layout_skill_agents_blocked(
@@ -406,7 +405,7 @@ def test_build_tools_keeps_non_layout_skill_agents_blocked(
     _set_openai_runtime_config(
         home,
         model_mapping={"gpt-4.1": {"id": "gpt-4.1", "label": "GPT-4.1"}},
-        permissions={"allow": None, "deny": ["Task"]},
+        permissions={"allow": None, "deny": []},
     )
     _set_web_default_model(home, "gpt-4.1")
     _reset_config_caches()
@@ -419,6 +418,40 @@ def test_build_tools_keeps_non_layout_skill_agents_blocked(
     assert "layout-agent" in tool_names
     assert "render-agent" not in tool_names
     assert "render-agent (Skill, mcp__canvas__validate_layout)" in caplog.text
+
+
+def test_openai_stage_two_keeps_layout_agent_enabled_under_default_claude_permissions(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    home = _prepare_bimcanvas_home(tmp_path)
+    _configure_test_home(monkeypatch, home)
+    _install_fake_tool_context(monkeypatch)
+    _set_openai_runtime_config(
+        home,
+        model_mapping={"gpt-4.1": {"id": "gpt-4.1", "label": "GPT-4.1"}},
+    )
+    _set_web_default_model(home, "gpt-4.1")
+    _reset_config_caches()
+
+    agent = OpenAIAgent(project_path=str(tmp_path), working_directory=str(tmp_path))
+    tools = agent._build_tools(_FakeAgentsModule(), model="gpt-4.1", nested_stream_handler=None)
+
+    tool_names = [tool.name for tool in tools]
+    assert "layout-agent" in tool_names
+    layout_tool = next(tool for tool in tools if tool.name == "layout-agent")
+    assert [tool.name for tool in layout_tool.nested_agent.tools] == [
+        "Read",
+        "Write",
+        "Glob",
+        "Grep",
+        "mcp__canvas__validate_layout",
+        "mcp__canvas__request_background_screenshot",
+        "mcp__canvas__get_zone_boundaries",
+        "mcp__canvas__save_semantic_plan",
+        "mcp__canvas__load_semantic_plan",
+        "mcp__canvas__load_reference_analysis",
+    ]
 
 
 def test_openai_canvas_wrappers_translate_runtime_context_and_shortcuts(
