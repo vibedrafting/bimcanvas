@@ -7,6 +7,13 @@ from typing import Any
 
 from .chunks import StreamChunk
 
+SUBTASK_ERROR_MARKER = "__bimcanvas_subtask_error__:"
+
+_AGENT_TOOL_SUBTASK_TYPE_MAP = {
+    "delegate_query_task": "query-worker",
+    "delegate_edit_task": "edit-worker",
+}
+
 
 def _get_attr(value: Any, name: str, default: Any = None) -> Any:
     if isinstance(value, dict):
@@ -96,6 +103,32 @@ def _resolve_tool_origin_type(item: Any) -> str | None:
     return value if isinstance(value, str) else None
 
 
+def _resolve_agent_as_tool_metadata(item: Any) -> tuple[str | None, str | None]:
+    tool_name = _resolve_tool_name(item)
+    arguments = _resolve_tool_arguments(item)
+    task_title = arguments.get("task_title")
+    if not isinstance(task_title, str) or not task_title.strip():
+        task_title = tool_name or "SubAgent"
+    return task_title.strip(), _AGENT_TOOL_SUBTASK_TYPE_MAP.get(tool_name or "", "agent_as_tool")
+
+
+def _parse_agent_as_tool_output(output_text: str) -> tuple[bool, str | None, str | None]:
+    normalized = (output_text or "").strip()
+    if not normalized.startswith(SUBTASK_ERROR_MARKER):
+        return True, normalized or None, None
+
+    payload = normalized[len(SUBTASK_ERROR_MARKER):].strip()
+    try:
+        parsed = json.loads(payload) if payload else {}
+    except json.JSONDecodeError:
+        parsed = {}
+
+    error = parsed.get("error") if isinstance(parsed, dict) else None
+    if not isinstance(error, str) or not error.strip():
+        error = normalized
+    return False, None, error.strip()
+
+
 class OpenAIStreamTranslator:
     """Translate OpenAI stream events into the shared StreamChunk shape."""
 
@@ -110,6 +143,7 @@ class OpenAIStreamTranslator:
         snapshot = projection_state or {}
         self._tool_calls_by_provider: dict[str, str] = dict(snapshot.get("toolCallsByProvider", {}))
         self._subtasks_by_provider: dict[str, str] = dict(snapshot.get("subtasksByProvider", {}))
+        self._started_subtasks_by_provider: set[str] = set(snapshot.get("startedSubtasksByProvider", []))
         self._subtask_stack: list[str] = list(snapshot.get("subtaskStack", []))
         self._tool_counter: int = int(snapshot.get("toolCounter", 0))
         self._current_subtask_id = current_subtask_id
@@ -118,6 +152,7 @@ class OpenAIStreamTranslator:
         return {
             "toolCallsByProvider": dict(self._tool_calls_by_provider),
             "subtasksByProvider": dict(self._subtasks_by_provider),
+            "startedSubtasksByProvider": sorted(self._started_subtasks_by_provider),
             "subtaskStack": list(self._subtask_stack),
             "toolCounter": self._tool_counter,
         }
@@ -207,30 +242,17 @@ class OpenAIStreamTranslator:
             return []
 
         public_tool_call_id = self._ensure_public_tool_call_id(provider_call_id)
-        tool_name = _resolve_tool_name(item)
         tool_origin_type = _resolve_tool_origin_type(item)
 
         if tool_origin_type == "agent_as_tool":
-            parent_subtask_id = forced_subtask_id or self._active_subtask_id()
-            subtask_id = self._ensure_subtask_id(provider_call_id, public_tool_call_id)
-            self._subtask_stack.append(subtask_id)
-            return [
-                StreamChunk(
-                    type="subagent_start",
-                    subagent_id=subtask_id,
-                    subagent_name=tool_name or "SubAgent",
-                    subagent_type="agent_as_tool",
-                    parent_subtask_id=parent_subtask_id,
-                    origin="tool",
-                )
-            ]
+            return self._ensure_agent_as_tool_started(item, provider_call_id=provider_call_id)
 
         return [
             StreamChunk(
                 type="tool_call_start",
                 subagent_id=forced_subtask_id or self._active_subtask_id(),
                 tool_call_id=public_tool_call_id,
-                tool_name=tool_name,
+                tool_name=_resolve_tool_name(item),
                 tool_params=_resolve_tool_arguments(item),
                 origin="tool" if (forced_subtask_id or self._active_subtask_id()) else "root",
             )
@@ -249,12 +271,14 @@ class OpenAIStreamTranslator:
             subtask_id = self._ensure_subtask_id(provider_call_id, public_tool_call_id)
             if self._subtask_stack and self._subtask_stack[-1] == subtask_id:
                 self._subtask_stack.pop()
+            success, summary, error = _parse_agent_as_tool_output(output_text)
             return [
                 StreamChunk(
                     type="subagent_complete",
                     subagent_id=subtask_id,
-                    content=output_text,
-                    success=True,
+                    content=summary or "",
+                    success=success,
+                    error=error,
                     parent_subtask_id=forced_subtask_id or self._active_subtask_id(),
                     origin="tool",
                 )
@@ -303,9 +327,52 @@ class OpenAIStreamTranslator:
         public_tool_call_id = self._ensure_public_tool_call_id(provider_call_id)
         return self._ensure_subtask_id(provider_call_id, public_tool_call_id)
 
+    def ensure_subtask_started_for_tool_call(self, tool_call: Any) -> tuple[list[StreamChunk], str | None]:
+        provider_call_id = _resolve_call_id(tool_call)
+        if not provider_call_id:
+            return [], None
+        chunks = self._ensure_agent_as_tool_started(tool_call, provider_call_id=provider_call_id)
+        return chunks, self._subtasks_by_provider.get(provider_call_id)
+
+    def _ensure_agent_as_tool_started(
+        self,
+        item: Any,
+        *,
+        provider_call_id: str,
+    ) -> list[StreamChunk]:
+        public_tool_call_id = self._ensure_public_tool_call_id(provider_call_id)
+        subtask_id = self._ensure_subtask_id(provider_call_id, public_tool_call_id)
+        if provider_call_id in self._started_subtasks_by_provider:
+            return []
+
+        self._started_subtasks_by_provider.add(provider_call_id)
+        if subtask_id not in self._subtask_stack:
+            self._subtask_stack.append(subtask_id)
+
+        subtask_name, subtask_type = _resolve_agent_as_tool_metadata(item)
+        return [
+            StreamChunk(
+                type="subagent_start",
+                subagent_id=subtask_id,
+                subagent_name=subtask_name,
+                subagent_type=subtask_type,
+                parent_subtask_id=self._active_parent_subtask_id(subtask_id),
+                origin="tool",
+            )
+        ]
+
     def _active_subtask_id(self) -> str | None:
         if self._current_subtask_id:
             return self._current_subtask_id
         if self._subtask_stack:
+            return self._subtask_stack[-1]
+        return None
+
+    def _active_parent_subtask_id(self, subtask_id: str) -> str | None:
+        if self._current_subtask_id and self._current_subtask_id != subtask_id:
+            return self._current_subtask_id
+        if len(self._subtask_stack) >= 2 and self._subtask_stack[-1] == subtask_id:
+            return self._subtask_stack[-2]
+        if self._subtask_stack and self._subtask_stack[-1] != subtask_id:
             return self._subtask_stack[-1]
         return None

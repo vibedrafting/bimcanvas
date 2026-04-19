@@ -172,10 +172,10 @@ _OPENAI_CAPABILITY_MATRIX: tuple[dict[str, Any], ...] = (
     },
     {
         "capabilityKey": "subtask_causality",
-        "level": "unsupported",
-        "providerMapping": None,
+        "level": "optional",
+        "providerMapping": "Agent.as_tool() + RunItemStreamEvent(tool_called/tool_output) -> subtask.started/subtask.completed",
         "frontendFallback": "hide-subtask-activity-panel",
-        "notes": "OpenAI phase 1 only exposes local function tools and AskUserQuestion; SubAgent/Handoff stays out of scope.",
+        "notes": "OpenAI stage 1 exposes helper sub-agents through native Agent.as_tool() while Skill/MCP-backed agents stay disabled.",
     },
     {
         "capabilityKey": "trace",

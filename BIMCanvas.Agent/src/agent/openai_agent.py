@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+from dataclasses import dataclass
 import importlib
 import json
 import logging
@@ -17,7 +18,7 @@ from typing_extensions import TypedDict
 from ..config.loader import get_config_loader
 from ..config.settings import get_settings
 from ..runtime import PendingInteractionRuntimeBinding, RuntimeSessionRecord, StreamChunk
-from ..runtime.openai_stream import OpenAIStreamTranslator
+from ..runtime.openai_stream import OpenAIStreamTranslator, SUBTASK_ERROR_MARKER
 from .agent_logger import get_agent_logger
 from .errors import TurnPausedError
 
@@ -33,6 +34,11 @@ _OPENAI_PHASE_ONE_LOCAL_TOOL_ORDER = (
     "AskUserQuestion",
 )
 _OPENAI_PHASE_ONE_LOCAL_TOOL_SET = frozenset(_OPENAI_PHASE_ONE_LOCAL_TOOL_ORDER)
+_OPENAI_QUERY_DELEGATE_TOOL_ORDER = ("Read", "Glob", "Grep")
+_OPENAI_EDIT_DELEGATE_TOOL_ORDER = ("Read", "Write", "Edit", "Glob", "Grep")
+_OPENAI_DELEGATE_QUERY_TOOL_NAME = "delegate_query_task"
+_OPENAI_DELEGATE_EDIT_TOOL_NAME = "delegate_edit_task"
+_OPENAI_UNSUPPORTED_AGENT_TOOL_NAMES = frozenset({"Skill", "AskUserQuestion"})
 _CLAUDE_MODEL_ALIASES = frozenset({"opus", "sonnet", "haiku"})
 
 
@@ -46,6 +52,12 @@ class QuestionDef(TypedDict, total=False):
     header: str
     question: str
     options: list[QuestionOption]
+
+
+@dataclass
+class DelegationTaskInput:
+    task_title: str
+    task_prompt: str
 
 
 def _project_root() -> Path:
@@ -105,6 +117,7 @@ class OpenAIAgent:
         self._sdk_session_id: str | None = None
         self._phase_one_scope_logged = False
         self._responses_run_fallback_logged = False
+        self._configured_subagents_logged = False
         self._agent_logger = get_agent_logger("OpenAIAgent", window_seq=self.window_seq)
 
     @property
@@ -217,6 +230,8 @@ class OpenAIAgent:
             settings = get_settings()
             translator = OpenAIStreamTranslator(turn_id=(runtime_context or {}).get("turnId", "turn"))
             stream_queue: asyncio.Queue[StreamChunk | Exception | None] = asyncio.Queue()
+            buffered_nested_chunks: list[StreamChunk] = []
+            use_fallback = self._should_use_responses_run_fallback(settings)
 
             async def _emit_translated_event(
                 event: Any,
@@ -226,11 +241,21 @@ class OpenAIAgent:
                 for chunk in translator.translate(event, forced_subtask_id=forced_subtask_id):
                     await stream_queue.put(chunk)
 
+            async def _buffer_chunk(chunk: StreamChunk) -> None:
+                buffered_nested_chunks.append(chunk)
+
+            async def _nested_stream_handler(payload: Any) -> None:
+                await self._emit_nested_agent_stream_event(
+                    payload=payload,
+                    translator=translator,
+                    emit_chunk=_buffer_chunk if use_fallback else stream_queue.put,
+                )
+
             run_context = self._build_run_context(runtime_context=runtime_context, canvas_context=context)
             starting_agent = self._build_root_agent(
                 agents,
                 model=model,
-                nested_stream_handler=None,
+                nested_stream_handler=_nested_stream_handler,
             )
             sdk_session = self._get_or_create_sdk_session(
                 agents,
@@ -243,7 +268,7 @@ class OpenAIAgent:
                 canvas_context=context or {},
             )
 
-            if self._should_use_responses_run_fallback(settings):
+            if use_fallback:
                 self._log_responses_run_fallback()
                 result_task = asyncio.create_task(
                     agents.Runner.run(
@@ -258,6 +283,9 @@ class OpenAIAgent:
                 self._current_model = model or self._current_model
                 result = await result_task
 
+                for chunk in buffered_nested_chunks:
+                    self._log_chunk_for_console(chunk)
+                    yield chunk
                 for chunk in self._translate_result_chunks(result=result, translator=translator):
                     self._log_chunk_for_console(chunk)
                     yield chunk
@@ -350,19 +378,32 @@ class OpenAIAgent:
         resume_context = dict(resume_context)
         resume_context["questionAnswersByCallId"] = answers_by_call_id
         stream_queue: asyncio.Queue[StreamChunk | Exception | None] = asyncio.Queue()
+        buffered_nested_chunks: list[StreamChunk] = []
         translator = OpenAIStreamTranslator(
             turn_id=session.active_turn_id or binding.turn_id,
             projection_state=binding.projection_state,
         )
+        use_fallback = self._should_use_responses_run_fallback(settings)
         approved_tool_call_id = (
             binding.public_tool_call_id
             or translator.ensure_public_tool_call_id(binding.approval_call_id)
         )
         consumer_task: asyncio.Task[Any] | None = None
+
+        async def _buffer_chunk(chunk: StreamChunk) -> None:
+            buffered_nested_chunks.append(chunk)
+
+        async def _nested_stream_handler(payload: Any) -> None:
+            await self._emit_nested_agent_stream_event(
+                payload=payload,
+                translator=translator,
+                emit_chunk=_buffer_chunk if use_fallback else stream_queue.put,
+            )
+
         starting_agent = self._build_root_agent(
             agents,
             model=self._current_model,
-            nested_stream_handler=None,
+            nested_stream_handler=_nested_stream_handler,
         )
         sdk_session = self._get_or_create_sdk_session(
             agents,
@@ -393,7 +434,7 @@ class OpenAIAgent:
 
         state.approve(approval_item)
 
-        if self._should_use_responses_run_fallback(settings):
+        if use_fallback:
             self._log_responses_run_fallback()
             result_task = asyncio.create_task(
                 agents.Runner.run(
@@ -408,6 +449,9 @@ class OpenAIAgent:
 
             appended_events: list[dict[str, Any]] = []
             try:
+                for chunk in buffered_nested_chunks:
+                    event_data = await append_event(chunk)
+                    appended_events.extend(event_data)
                 for chunk in self._translate_result_chunks(result=result, translator=translator):
                     if approved_tool_call_id and chunk.tool_call_id == approved_tool_call_id:
                         chunk.tool_output = None
@@ -497,6 +541,8 @@ class OpenAIAgent:
     ) -> Any:
         system_prompt = self._config_loader.load_system_prompt()
         system_prompt = system_prompt + f"\n\n工作目录: {self.working_directory}"
+        system_prompt = system_prompt + self._build_openai_root_appendix()
+        self._log_ignored_configured_subagents()
         return agents.Agent(
             name="BIMCanvas",
             instructions=system_prompt,
@@ -515,6 +561,20 @@ class OpenAIAgent:
         model: str | None,
         nested_stream_handler: Any | None,
     ) -> list[Any]:
+        tool_by_name = self._build_local_function_tool_map(agents)
+        enabled_tool_names = self._resolve_phase_one_tool_names()
+        local_tools = [tool_by_name[name] for name in enabled_tool_names]
+        return [
+            *local_tools,
+            *self._build_helper_agent_tools(
+                agents,
+                model=model,
+                nested_stream_handler=nested_stream_handler,
+                tool_by_name=tool_by_name,
+            ),
+        ]
+
+    def _build_local_function_tool_map(self, agents: Any) -> dict[str, Any]:
         function_tool = agents.function_tool
         working_directory = Path(self.working_directory or self.project_path or ".").resolve()
         tool_context_type = importlib.import_module("agents.tool_context").ToolContext
@@ -610,7 +670,7 @@ class OpenAIAgent:
             needs_approval=True,
         )(ask_user_question)
 
-        tool_by_name = {
+        return {
             "Read": read_file,
             "Write": write_file,
             "Edit": edit_file,
@@ -619,8 +679,85 @@ class OpenAIAgent:
             "Bash": run_shell,
             "AskUserQuestion": ask_user_question,
         }
-        enabled_tool_names = self._resolve_phase_one_tool_names()
-        return [tool_by_name[name] for name in enabled_tool_names]
+
+    def _build_helper_agent_tools(
+        self,
+        agents: Any,
+        *,
+        model: str | None,
+        nested_stream_handler: Any | None,
+        tool_by_name: dict[str, Any],
+    ) -> list[Any]:
+        return [
+            self._build_helper_agent_tool(
+                agents,
+                model=model,
+                nested_stream_handler=nested_stream_handler,
+                tool_by_name=tool_by_name,
+                delegate_tool_name=_OPENAI_DELEGATE_QUERY_TOOL_NAME,
+                worker_type="query-worker",
+                child_tool_names=_OPENAI_QUERY_DELEGATE_TOOL_ORDER,
+                description="委派一个只读子任务。用于查找、统计、只读分析，不得修改文件。",
+            ),
+            self._build_helper_agent_tool(
+                agents,
+                model=model,
+                nested_stream_handler=nested_stream_handler,
+                tool_by_name=tool_by_name,
+                delegate_tool_name=_OPENAI_DELEGATE_EDIT_TOOL_NAME,
+                worker_type="edit-worker",
+                child_tool_names=_OPENAI_EDIT_DELEGATE_TOOL_ORDER,
+                description="委派一个单一编辑子任务。仅用于局部文件修改，不得调用 MCP、Skill 或用户交互。",
+            ),
+        ]
+
+    def _build_helper_agent_tool(
+        self,
+        agents: Any,
+        *,
+        model: str | None,
+        nested_stream_handler: Any | None,
+        tool_by_name: dict[str, Any],
+        delegate_tool_name: str,
+        worker_type: str,
+        child_tool_names: tuple[str, ...],
+        description: str,
+    ) -> Any:
+        child_agent = self._build_child_agent(
+            agents,
+            model=model,
+            tool_by_name=tool_by_name,
+            worker_type=worker_type,
+            child_tool_names=child_tool_names,
+        )
+        return child_agent.as_tool(
+            tool_name=delegate_tool_name,
+            tool_description=description,
+            parameters=DelegationTaskInput,
+            input_builder=self._build_delegated_task_input,
+            on_stream=nested_stream_handler,
+            max_turns=20,
+            failure_error_function=self._build_delegate_tool_failure_output,
+            session=None,
+        )
+
+    def _build_child_agent(
+        self,
+        agents: Any,
+        *,
+        model: str | None,
+        tool_by_name: dict[str, Any],
+        worker_type: str,
+        child_tool_names: tuple[str, ...],
+    ) -> Any:
+        child_tools = [tool_by_name[name] for name in child_tool_names]
+        worker_label = "QueryWorker" if worker_type == "query-worker" else "EditWorker"
+        return agents.Agent(
+            name=f"BIMCanvas{worker_label}",
+            instructions=self._build_child_agent_instructions(worker_type),
+            tools=child_tools,
+            model=model or self._current_model,
+        )
 
     def _build_input_items(
         self,
@@ -676,12 +813,81 @@ class OpenAIAgent:
             "workingDirectory": self.working_directory,
         }
 
+    @staticmethod
+    def _build_delegated_task_input(options: dict[str, Any]) -> str:
+        params = options.get("params", {})
+        task_title = params.get("task_title") if isinstance(params, dict) else ""
+        task_prompt = params.get("task_prompt") if isinstance(params, dict) else ""
+
+        normalized_title = task_title.strip() if isinstance(task_title, str) else "未命名子任务"
+        normalized_prompt = task_prompt.strip() if isinstance(task_prompt, str) else ""
+
+        sections = [
+            "你正在执行主控 Agent 下发的单一子任务。",
+            f"任务标题：{normalized_title}",
+            "任务要求：",
+            normalized_prompt or "请根据任务标题完成该单一任务，并返回简洁摘要。",
+        ]
+        return "\n\n".join(sections)
+
+    @staticmethod
+    def _build_delegate_tool_failure_output(_context: Any, error: Exception) -> str:
+        payload = {
+            "error": str(error) or error.__class__.__name__,
+        }
+        return f"{SUBTASK_ERROR_MARKER}{json.dumps(payload, ensure_ascii=False)}"
+
+    def _build_openai_root_appendix(self) -> str:
+        return (
+            "\n\n## OpenAI Runtime Appendix\n"
+            "- 当前子任务委派使用原生 `Agent.as_tool()`，不是 Claude `Task`。\n"
+            f"- 如需只读分析、统计或检索，优先调用 `{_OPENAI_DELEGATE_QUERY_TOOL_NAME}`。\n"
+            f"- 如需单一局部修改，调用 `{_OPENAI_DELEGATE_EDIT_TOOL_NAME}`。\n"
+            "- 本阶段禁止尝试委派 `layout-agent`、`Skill`、`mcp__canvas__*`、`AskUserQuestion`。\n"
+            "- helper sub-agent 只执行一个明确子任务，并返回简洁中文摘要供主控汇总。\n"
+        )
+
+    @staticmethod
+    def _build_child_agent_instructions(worker_type: str) -> str:
+        if worker_type == "query-worker":
+            allowed_tools = "Read / Glob / Grep"
+            worker_goal = "只读检索、统计与分析"
+        else:
+            allowed_tools = "Read / Write / Edit / Glob / Grep"
+            worker_goal = "单一局部编辑"
+
+        return (
+            f"你是 BIMCanvas 的 {worker_type}，只负责父代理下发的单一子任务。\n"
+            f"你的目标是完成 {worker_goal}，并输出简洁中文摘要。\n"
+            f"你只可使用这些工具：{allowed_tools}。\n"
+            "禁止与用户交互，禁止 AskUserQuestion，禁止调用 Skill，禁止调用 MCP，禁止再次委派子任务。\n"
+            "不要解释自己是工具，不要输出过程闲聊，只保留完成任务所需的最小文字。"
+        )
+
     def _build_context_block(self, context: dict[str, Any] | None) -> str | None:
         if not context:
             return None
         from .main_agent import MainAgent
 
         return MainAgent._build_context_block(context)
+
+    async def _emit_nested_agent_stream_event(
+        self,
+        *,
+        payload: Any,
+        translator: OpenAIStreamTranslator,
+        emit_chunk: Any,
+    ) -> None:
+        tool_call = _get_attr(payload, "tool_call")
+        start_chunks, forced_subtask_id = translator.ensure_subtask_started_for_tool_call(tool_call)
+        for chunk in start_chunks:
+            await emit_chunk(chunk)
+
+        event = _get_attr(payload, "event")
+        if event is None:
+            return
+        for chunk in translator.translate(event, forced_subtask_id=forced_subtask_id):
+            await emit_chunk(chunk)
 
     def _resolve_sdk_session_id(self, session_id: str | None = None) -> str | None:
         normalized = (session_id or "").strip()
@@ -767,6 +973,27 @@ class OpenAIAgent:
             chunks.extend(translator.translate_result_item(item))
         return chunks
 
+    def _log_ignored_configured_subagents(self) -> None:
+        if self._configured_subagents_logged:
+            return
+
+        unsupported_agents: list[str] = []
+        for name, cfg in self._config_loader.load_agents().items():
+            blocked_tools = [
+                tool_name
+                for tool_name in cfg.tools
+                if tool_name in _OPENAI_UNSUPPORTED_AGENT_TOOL_NAMES or tool_name.startswith("mcp__")
+            ]
+            if blocked_tools:
+                unsupported_agents.append(f"{name} ({', '.join(blocked_tools)})")
+
+        if unsupported_agents:
+            logger.warning(
+                "OpenAI stage 1 keeps configured agents disabled until Skill/MCP support lands: %s",
+                "; ".join(unsupported_agents),
+            )
+        self._configured_subagents_logged = True
+
     def _resolve_phase_one_tool_names(self) -> list[str]:
         allowed_tools, denied_tools = self._config_loader.load_permissions()
 
@@ -845,8 +1072,11 @@ class OpenAIAgent:
         if self._phase_one_scope_logged:
             return
         logger.info(
-            "OpenAI phase 1 enabled: local function tools only (%s); SubAgent/Task/Skill/MCP disabled.",
+            "OpenAI stage 1 enabled: local function tools (%s) plus helper agent tools (%s, %s); "
+            "configured agents/Skill/MCP/handoff remain disabled.",
             ", ".join(_OPENAI_PHASE_ONE_LOCAL_TOOL_ORDER),
+            _OPENAI_DELEGATE_QUERY_TOOL_NAME,
+            _OPENAI_DELEGATE_EDIT_TOOL_NAME,
         )
         self._phase_one_scope_logged = True
 

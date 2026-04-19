@@ -22,7 +22,7 @@ from src.agent.openai_agent import OpenAIAgent
 from src.config.loader import ConfigLoader, get_config_loader
 from src.config.settings import get_settings
 from src.runtime import PendingInteractionRuntimeBinding, RuntimeSessionRecord, StreamChunk
-from src.runtime.openai_stream import OpenAIStreamTranslator
+from src.runtime.openai_stream import OpenAIStreamTranslator, SUBTASK_ERROR_MARKER
 from src.runtime.providers import OPENAI_RUNTIME_ID, build_capability_matrix
 
 
@@ -120,6 +120,38 @@ class _FakeTool(SimpleNamespace):
 
 
 class _FakeAgentsModule:
+    class Agent:
+        def __init__(self, *, name: str, instructions: str, tools: list[object], model: str | None = None) -> None:
+            self.name = name
+            self.instructions = instructions
+            self.tools = tools
+            self.model = model
+            self.handoffs: list[object] = []
+
+        def as_tool(
+            self,
+            *,
+            tool_name: str | None,
+            tool_description: str | None,
+            parameters=None,
+            input_builder=None,
+            on_stream=None,
+            max_turns: int | None = None,
+            failure_error_function=None,
+            session=None,
+        ):
+            return _FakeTool(
+                name=tool_name or self.name,
+                description=tool_description,
+                nested_agent=self,
+                parameters=parameters,
+                input_builder=input_builder,
+                on_stream=on_stream,
+                max_turns=max_turns,
+                failure_error_function=failure_error_function,
+                session=session,
+            )
+
     @staticmethod
     def function_tool(*, name_override: str | None = None, needs_approval: bool = False):
         def decorator(fn):
@@ -160,9 +192,28 @@ def test_build_tools_registers_phase_one_local_tools_without_name_error(
         "Grep",
         "Bash",
         "AskUserQuestion",
+        "delegate_query_task",
+        "delegate_edit_task",
     ]
     assert "Task" not in tool_names
     assert not any(name.startswith("mcp__canvas__") for name in tool_names)
+
+    delegate_query_tool = next(tool for tool in tools if tool.name == "delegate_query_task")
+    delegate_edit_tool = next(tool for tool in tools if tool.name == "delegate_edit_task")
+
+    assert [tool.name for tool in delegate_query_tool.nested_agent.tools] == ["Read", "Glob", "Grep"]
+    assert [tool.name for tool in delegate_edit_tool.nested_agent.tools] == [
+        "Read",
+        "Write",
+        "Edit",
+        "Glob",
+        "Grep",
+    ]
+    assert "AskUserQuestion" not in [tool.name for tool in delegate_edit_tool.nested_agent.tools]
+    assert "Skill" not in [tool.name for tool in delegate_edit_tool.nested_agent.tools]
+    assert not any(tool.name.startswith("mcp__") for tool in delegate_edit_tool.nested_agent.tools)
+    assert delegate_query_tool.nested_agent.handoffs == []
+    assert delegate_edit_tool.nested_agent.handoffs == []
 
 
 def test_build_tools_respects_permissions_and_warns_for_unsupported_entries(
@@ -188,7 +239,7 @@ def test_build_tools_respects_permissions_and_warns_for_unsupported_entries(
     with caplog.at_level(logging.WARNING):
         tools = agent._build_tools(_FakeAgentsModule(), model="gpt-4.1-mini", nested_stream_handler=None)
 
-    assert [tool.name for tool in tools] == ["Read"]
+    assert [tool.name for tool in tools] == ["Read", "delegate_query_task", "delegate_edit_task"]
     assert "OpenAI phase 1 ignored unsupported tools from permissions: Skill, Task, mcp__canvas__validate_layout" in caplog.text
 
 
@@ -262,14 +313,14 @@ def test_openai_agent_rejects_claude_alias_requested_model(
         asyncio.run(agent.set_model("sonnet"))
 
 
-def test_openai_capability_matrix_marks_subtask_as_unsupported() -> None:
+def test_openai_capability_matrix_marks_subtask_as_optional() -> None:
     subtask_row = next(
         row
         for row in build_capability_matrix(OPENAI_RUNTIME_ID)
         if row["capabilityKey"] == "subtask_causality"
     )
-    assert subtask_row["level"] == "unsupported"
-    assert subtask_row["providerMapping"] is None
+    assert subtask_row["level"] == "optional"
+    assert "Agent.as_tool()" in subtask_row["providerMapping"]
 
 
 def test_openai_settings_default_to_responses_for_custom_base_url(
@@ -541,6 +592,92 @@ def test_openai_stream_translator_translates_run_result_items() -> None:
     assert [(chunk.type, chunk.content) for chunk in text_chunks] == [
         ("text_complete", "Hi!")
     ]
+
+
+def test_openai_stream_translator_projects_agent_as_tool_subtask_lifecycle() -> None:
+    translator = OpenAIStreamTranslator(turn_id="turn-1")
+    delegate_tool_call = SimpleNamespace(
+        call_id="delegate-call-1",
+        name="delegate_query_task",
+        arguments='{"task_title":"检查 README","task_prompt":"读取 README 并总结"}',
+    )
+    nested_tool_call_item = SimpleNamespace(
+        type="tool_call_item",
+        raw_item=SimpleNamespace(
+            call_id="call-2",
+            name="Read",
+            arguments='{"file_path":"README.md"}',
+        ),
+        tool_origin=SimpleNamespace(type="function"),
+    )
+    nested_tool_output_item = SimpleNamespace(
+        type="tool_call_output_item",
+        raw_item={"call_id": "call-2", "type": "function_call_output"},
+        output="README contents",
+        tool_origin=SimpleNamespace(type="function"),
+    )
+    delegate_tool_output_item = SimpleNamespace(
+        type="tool_call_output_item",
+        raw_item={"call_id": "delegate-call-1", "type": "function_call_output"},
+        output="README 摘要",
+        tool_origin=SimpleNamespace(type="agent_as_tool"),
+    )
+
+    start_chunks, subtask_id = translator.ensure_subtask_started_for_tool_call(delegate_tool_call)
+    nested_tool_start = translator.translate_result_item(nested_tool_call_item, forced_subtask_id=subtask_id)
+    nested_tool_complete = translator.translate_result_item(nested_tool_output_item, forced_subtask_id=subtask_id)
+    completion_chunks = translator.translate_result_item(delegate_tool_output_item)
+
+    assert [(chunk.type, chunk.subagent_name, chunk.subagent_type) for chunk in start_chunks] == [
+        ("subagent_start", "检查 README", "query-worker")
+    ]
+    assert subtask_id == "st-tc-1"
+    assert [(chunk.type, chunk.subagent_id, chunk.tool_name) for chunk in nested_tool_start] == [
+        ("tool_call_start", subtask_id, "Read")
+    ]
+    assert [(chunk.type, chunk.subagent_id, chunk.tool_output) for chunk in nested_tool_complete] == [
+        ("tool_call_complete", subtask_id, "README contents")
+    ]
+    assert [(chunk.type, chunk.subagent_id, chunk.content, chunk.success) for chunk in completion_chunks] == [
+        ("subagent_complete", subtask_id, "README 摘要", True)
+    ]
+    assert translator.translate_result_item(
+        SimpleNamespace(
+            type="tool_call_item",
+            raw_item=SimpleNamespace(
+                call_id="delegate-call-1",
+                name="delegate_query_task",
+                arguments='{"task_title":"检查 README","task_prompt":"读取 README 并总结"}',
+            ),
+            tool_origin=SimpleNamespace(type="agent_as_tool"),
+        )
+    ) == []
+
+
+def test_openai_stream_translator_projects_agent_as_tool_failure() -> None:
+    translator = OpenAIStreamTranslator(turn_id="turn-1")
+    start_chunks, subtask_id = translator.ensure_subtask_started_for_tool_call(
+        SimpleNamespace(
+            call_id="delegate-call-1",
+            name="delegate_edit_task",
+            arguments='{"task_title":"修复配置","task_prompt":"修改配置文件"}',
+        )
+    )
+    assert start_chunks[0].subagent_type == "edit-worker"
+
+    failure_chunks = translator.translate_result_item(
+        SimpleNamespace(
+            type="tool_call_output_item",
+            raw_item={"call_id": "delegate-call-1", "type": "function_call_output"},
+            output=f'{SUBTASK_ERROR_MARKER}{{"error":"nested edit failed"}}',
+            tool_origin=SimpleNamespace(type="agent_as_tool"),
+        )
+    )
+
+    assert [(chunk.type, chunk.subagent_id, chunk.success, chunk.error) for chunk in failure_chunks] == [
+        ("subagent_complete", subtask_id, False, "nested edit failed")
+    ]
+    assert failure_chunks[0].content == ""
 
 
 def test_openai_agent_connect_configures_chat_completions_for_custom_endpoint(
