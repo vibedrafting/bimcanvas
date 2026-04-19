@@ -50,7 +50,7 @@ Claude 与 OpenAI 是挂接在这个容器上的两套 Runtime Adapter，地位�
 
 - BIMCanvas Host 向外暴露稳定的三平面 API（MainStream / InteractionChannel / ControlPlane），不因 Runtime 差异而漂移。
 - 提示词体系、SubAgent 配置、Skills、MCP 工具、权限配置只有一份来源，两个 Runtime 都读同一套文件，装配方式可以不同，但源文件不分叉。
-- 前端、Server、MCP 工具不感知 Runtime 切换；关键链路与降级行为应稳定、可预期。
+- 前端、Server、MCP 工具不需要为不同 Runtime 维护专属分支逻辑；能力差异通过 Host 契约和 capability matrix 做通用降级处理，不在消费侧硬编码 provider 判断。
 
 ---
 
@@ -131,7 +131,7 @@ OpenAI Runtime 的目标不是复制 Claude Runtime 的内部形态，而是在�
 
 ## 6. 设计原则
 
-后续所有多 Runtime 适配工作，统一遵循以下四条设计原则。
+后续所有多 Runtime 适配工作，统一遵循以下四条设计原则。第 5 节的共享配置资产体系，是本节四条原则成立的前提。
 
 ### 6.1 保留各自 SDK 的原生语义
 
@@ -198,7 +198,7 @@ Shell 脚本、单元测试、协议推演都只是辅助信号。最终是否�
 
 ## 9. 验收方式
 
-字段级 API shape、事件序列门禁、capability matrix 合规明细，以 `docs/Agent_API_Contract.md` 和 `reviews/BIMCanvasRuntimeContract_v0.1_Review.md` 为权威来源。
+字段级 API shape、事件序列门禁、capability matrix 合规明细，以 `docs/Agent_API_Contract.md` 和 `reviews/BIMCanvasRuntimeContract_v0.1_Review.md` 为权威来源。若本文与正式契约出现冲突，以正式契约为准。
 
 本文层面的验收，每轮适配检查以下四件事：
 
