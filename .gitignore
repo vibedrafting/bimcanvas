@@ -14,7 +14,8 @@
 /.vs/
 /.vscode/
 /docs/
-/plans/
+/plans/*
+!/plans/MultiAgentRuntime_Requirements.md
 /publish/
 /references/
 /reports/
