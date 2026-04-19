@@ -21,7 +21,8 @@ if str(AGENT_ROOT) not in sys.path:
 from src.agent.openai_agent import OpenAIAgent
 from src.config.loader import ConfigLoader, get_config_loader
 from src.config.settings import get_settings
-from src.runtime import StreamChunk
+from src.runtime import PendingInteractionRuntimeBinding, RuntimeSessionRecord, StreamChunk
+from src.runtime.openai_stream import OpenAIStreamTranslator
 from src.runtime.providers import OPENAI_RUNTIME_ID, build_capability_matrix
 
 
@@ -105,6 +106,13 @@ def _install_fake_tool_context(monkeypatch: pytest.MonkeyPatch) -> None:
     tool_context_module.ToolContext = ToolContext
     monkeypatch.setitem(sys.modules, "agents", agents_module)
     monkeypatch.setitem(sys.modules, "agents.tool_context", tool_context_module)
+
+
+async def _collect_chunks(stream) -> list[StreamChunk]:
+    chunks: list[StreamChunk] = []
+    async for chunk in stream:
+        chunks.append(chunk)
+    return chunks
 
 
 class _FakeTool(SimpleNamespace):
@@ -282,6 +290,257 @@ def test_openai_settings_default_to_responses_for_custom_base_url(
 
     assert settings.openai_api == "responses"
     assert settings.openai_disable_tracing is True
+
+
+def test_openai_agent_uses_responses_run_fallback_for_custom_endpoint(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    home = _prepare_bimcanvas_home(tmp_path)
+    _configure_test_home(monkeypatch, home)
+    _set_openai_runtime_config(
+        home,
+        base_url="https://gateway.example.com/v1",
+        openai_api="responses",
+        model_mapping={"gpt-4.1": {"id": "gpt-4.1", "label": "GPT-4.1"}},
+    )
+    _set_web_default_model(home, "gpt-4.1")
+    _reset_config_caches()
+
+    agent = OpenAIAgent(project_path=str(tmp_path), working_directory=str(tmp_path))
+    assert agent._should_use_responses_run_fallback(get_settings()) is True
+
+
+def test_openai_agent_reuses_sdk_session_for_same_host_session(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    home = _prepare_bimcanvas_home(tmp_path)
+    _configure_test_home(monkeypatch, home)
+    _set_openai_runtime_config(
+        home,
+        base_url="https://gateway.example.com/v1",
+        openai_api="responses",
+        model_mapping={"gpt-4.1": {"id": "gpt-4.1", "label": "GPT-4.1"}},
+    )
+    _set_web_default_model(home, "gpt-4.1")
+    _reset_config_caches()
+
+    session_instances: list[object] = []
+    run_calls: list[dict[str, object]] = []
+
+    class FakeSQLiteSession:
+        def __init__(self, session_id: str, db_path=":memory:") -> None:
+            self.session_id = session_id
+            self.db_path = Path(db_path)
+            session_instances.append(self)
+
+        def close(self) -> None:
+            return None
+
+    async def fake_run(*args, **kwargs):
+        run_calls.append({"args": args, "kwargs": kwargs})
+        return SimpleNamespace(new_items=[], interruptions=[])
+
+    fake_agents = ModuleType("agents")
+    fake_agents.SQLiteSession = FakeSQLiteSession
+    fake_agents.Runner = SimpleNamespace(run=fake_run)
+    monkeypatch.setitem(sys.modules, "agents", fake_agents)
+
+    agent = OpenAIAgent(project_path=str(tmp_path), working_directory=str(tmp_path))
+    agent._connected = True
+    agent._current_model = "gpt-4.1"
+    monkeypatch.setattr(agent, "_build_root_agent", lambda *args, **kwargs: object())
+    monkeypatch.setattr(agent, "_build_run_context", lambda **kwargs: {"runtimeContext": kwargs.get("runtime_context") or {}})
+    monkeypatch.setattr(
+        agent,
+        "_build_input_items",
+        lambda **kwargs: [{"role": "user", "content": [{"type": "input_text", "text": kwargs["user_message"]}]}],
+    )
+    monkeypatch.setattr(
+        agent,
+        "_translate_result_chunks",
+        lambda **kwargs: [StreamChunk(type="text_complete", content="ok")],
+    )
+
+    asyncio.run(
+        _collect_chunks(
+            agent.chat_stream(
+                "first",
+                model="gpt-4.1",
+                runtime_context={"windowId": "window-main", "sessionId": "session-1", "turnId": "turn-1"},
+            )
+        )
+    )
+    asyncio.run(
+        _collect_chunks(
+            agent.chat_stream(
+                "second",
+                model="gpt-4.1",
+                runtime_context={"windowId": "window-main", "sessionId": "session-1", "turnId": "turn-2"},
+            )
+        )
+    )
+
+    assert len(session_instances) == 1
+    assert len(run_calls) == 2
+    assert run_calls[0]["kwargs"]["session"] is session_instances[0]
+    assert run_calls[1]["kwargs"]["session"] is session_instances[0]
+    assert session_instances[0].db_path == home / ".runtime" / "openai_agent_sessions.sqlite3"
+
+
+def test_openai_agent_resume_interaction_passes_sdk_session(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    home = _prepare_bimcanvas_home(tmp_path)
+    _configure_test_home(monkeypatch, home)
+    _set_openai_runtime_config(
+        home,
+        base_url="https://gateway.example.com/v1",
+        openai_api="responses",
+        model_mapping={"gpt-4.1": {"id": "gpt-4.1", "label": "GPT-4.1"}},
+    )
+    _set_web_default_model(home, "gpt-4.1")
+    _reset_config_caches()
+
+    session_instances: list[object] = []
+    run_calls: list[dict[str, object]] = []
+    restored_states: list[object] = []
+
+    class FakeSQLiteSession:
+        def __init__(self, session_id: str, db_path=":memory:") -> None:
+            self.session_id = session_id
+            self.db_path = Path(db_path)
+            session_instances.append(self)
+
+        def close(self) -> None:
+            return None
+
+    class FakeState:
+        def __init__(self) -> None:
+            self._interruptions = [SimpleNamespace(call_id="call-1")]
+            self.approved_call_id: str | None = None
+
+        def get_interruptions(self) -> list[SimpleNamespace]:
+            return self._interruptions
+
+        def approve(self, item: SimpleNamespace) -> None:
+            self.approved_call_id = item.call_id
+
+    class FakeRunState:
+        @staticmethod
+        async def from_json(starting_agent, state_payload, context_override=None):
+            state = FakeState()
+            state.context_override = context_override
+            restored_states.append(state)
+            return state
+
+    async def fake_run(*args, **kwargs):
+        run_calls.append({"args": args, "kwargs": kwargs})
+        return SimpleNamespace(new_items=[], interruptions=[])
+
+    fake_agents = ModuleType("agents")
+    fake_agents.SQLiteSession = FakeSQLiteSession
+    fake_agents.Runner = SimpleNamespace(run=fake_run)
+    fake_agents.RunState = FakeRunState
+    monkeypatch.setitem(sys.modules, "agents", fake_agents)
+
+    agent = OpenAIAgent(project_path=str(tmp_path), working_directory=str(tmp_path))
+    agent._current_model = "gpt-4.1"
+
+    async def fake_connect(*args, **kwargs) -> None:
+        agent._connected = True
+
+    monkeypatch.setattr(agent, "connect", fake_connect)
+    monkeypatch.setattr(agent, "_build_root_agent", lambda *args, **kwargs: object())
+    monkeypatch.setattr(
+        agent,
+        "_translate_result_chunks",
+        lambda **kwargs: [StreamChunk(type="text_complete", content="resumed")],
+    )
+
+    binding = PendingInteractionRuntimeBinding(
+        interaction_id="interaction-1",
+        resume_token="resume-1",
+        runtime_id="openai-agents",
+        session_id="session-42",
+        turn_id="turn-42",
+        window_id="window-main",
+        run_state_json=json.dumps({"context": {}}),
+        approval_call_id="call-1",
+        public_tool_call_id="tc-approved",
+        projection_state=None,
+        agent_identity="BIMCanvas",
+    )
+    session = RuntimeSessionRecord(
+        session_id="session-42",
+        window_id="window-main",
+        project_path=str(tmp_path),
+        worktree_path=None,
+        runtime_id="openai-agents",
+    )
+
+    appended_chunks: list[StreamChunk] = []
+
+    async def append_event(chunk: StreamChunk) -> list[dict[str, str]]:
+        appended_chunks.append(chunk)
+        return [{"eventType": chunk.type}]
+
+    result = asyncio.run(
+        agent.resume_interaction(
+            interaction_id="interaction-1",
+            binding=binding,
+            resolution_payload={"answers": {"intent": "continue"}},
+            session=session,
+            append_event=append_event,
+        )
+    )
+
+    assert len(session_instances) == 1
+    assert run_calls[0]["kwargs"]["session"] is session_instances[0]
+    assert restored_states[0].approved_call_id == "call-1"
+    assert appended_chunks[0].content == "resumed"
+    assert result == [{"eventType": "text_complete"}]
+
+
+def test_openai_stream_translator_translates_run_result_items() -> None:
+    translator = OpenAIStreamTranslator(turn_id="turn-1")
+    tool_call_item = SimpleNamespace(
+        type="tool_call_item",
+        raw_item=SimpleNamespace(
+            call_id="call-1",
+            name="Read",
+            arguments='{"file_path":"README.md"}',
+        ),
+        tool_origin=SimpleNamespace(type="function"),
+    )
+    tool_output_item = SimpleNamespace(
+        type="tool_call_output_item",
+        raw_item={"call_id": "call-1", "type": "function_call_output"},
+        output="README contents",
+        tool_origin=SimpleNamespace(type="function"),
+    )
+    message_item = SimpleNamespace(
+        type="message_output_item",
+        raw_item=SimpleNamespace(
+            content=[SimpleNamespace(type="output_text", text="Hi!")],
+        ),
+    )
+
+    tool_start_chunks = translator.translate_result_item(tool_call_item)
+    tool_complete_chunks = translator.translate_result_item(tool_output_item)
+    text_chunks = translator.translate_result_item(message_item)
+
+    assert [(chunk.type, chunk.tool_name, chunk.tool_call_id) for chunk in tool_start_chunks] == [
+        ("tool_call_start", "Read", "tc-1")
+    ]
+    assert [(chunk.type, chunk.tool_output, chunk.tool_call_id) for chunk in tool_complete_chunks] == [
+        ("tool_call_complete", "README contents", "tc-1")
+    ]
+    assert [(chunk.type, chunk.content) for chunk in text_chunks] == [
+        ("text_complete", "Hi!")
+    ]
 
 
 def test_openai_agent_connect_configures_chat_completions_for_custom_endpoint(

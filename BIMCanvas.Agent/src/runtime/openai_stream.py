@@ -134,6 +134,34 @@ class OpenAIStreamTranslator:
             )
         return []
 
+    def translate_result_item(
+        self,
+        item: Any,
+        *,
+        forced_subtask_id: str | None = None,
+    ) -> list[StreamChunk]:
+        item_type = _get_attr(item, "type")
+
+        if item_type == "message_output_item":
+            content = _extract_message_text(item)
+            if content:
+                return [StreamChunk(type="text_complete", content=content, subagent_id=forced_subtask_id)]
+            return []
+
+        if item_type == "reasoning_item":
+            content = _extract_reasoning_text(item)
+            if content:
+                return [StreamChunk(type="thinking_complete", content=content, subagent_id=forced_subtask_id)]
+            return []
+
+        if item_type == "tool_call_item":
+            return self._translate_tool_called(item, forced_subtask_id=forced_subtask_id)
+
+        if item_type == "tool_call_output_item":
+            return self._translate_tool_output(item, forced_subtask_id=forced_subtask_id)
+
+        return []
+
     def _translate_raw_event(self, raw_event: Any, *, forced_subtask_id: str | None = None) -> list[StreamChunk]:
         raw_type = _get_attr(raw_event, "type")
         if raw_type == "response.output_text.delta":

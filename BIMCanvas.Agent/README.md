@@ -209,6 +209,7 @@ set AGENT_RUNTIME_PROVIDER=openai-agents
 
 OpenAI 首版适配走原生 `FunctionTool(needs_approval=True) + RunState` 路径：
 
+- 普通多轮对话使用 OpenAI SDK `SQLiteSession`，并绑定到 Host `sessionId`，由应用侧持久维护历史
 - `AskUserQuestion` 会被投影为 `PendingInteractionRecord(kind=question, blocking=true)`
 - Host 私下保存 `PendingInteractionRuntimeBinding`，其中包含 `runStateJson`、`approvalCallId`、`projectionState`
 - Web 端提交 `/api/interaction/{id}/submit` 或兼容 `/api/question/answer` 后，Host 会恢复 `Runner.run_streamed()` 继续同一 turn
@@ -645,6 +646,7 @@ Host 进程内的运行时真相源：
 - `openaiApi` 仅在 `runtimeProvider=openai-agents` 时生效，取值只能是 `responses` 或 `chat_completions`。
 - OpenAI Agents SDK 官方主路径是 `responses`；BIMCanvas 现在也默认走 `responses`。
 - 使用第三方 OpenAI-compatible 网关时，建议先测试 `responses`；若网关在工具续跑或多轮状态上不兼容，再手动把 `openaiApi` 切回 `chat_completions` 作为兼容模式。
+- 当前对“三方网关 + responses”增加了 Host 侧回退：若 SDK 的 `run_streamed()` 无法稳定完成工具续跑，BIMCanvas 会改用 `Runner.run()` 并把 `RunResult.new_items` 投影成事件流。这样能保住工具与暂停恢复，但文本会退化为完成态输出，不再是 token 级增量。
 - `openaiDisableTracing` 仅在 `runtimeProvider=openai-agents` 时生效；第三方网关默认会关闭 tracing，避免把第三方 key 误发到 OpenAI traces 接口。
 - OpenAI phase 1 会对 `permissions.allow/deny` 执行“配置权限 ∩ 本地工具支持集”裁剪。
   `Task`、`Skill`、`mcp__canvas__*` 等不在阶段一支持集内的工具会被忽略，并在启动日志中提示。

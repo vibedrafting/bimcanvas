@@ -10,6 +10,7 @@ import os
 import sys
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlparse
 
 from typing_extensions import TypedDict
 
@@ -100,7 +101,10 @@ class OpenAIAgent:
         self._current_model: str | None = None
         self._runtime_context: dict[str, str] | None = None
         self._active_stream_result: Any | None = None
+        self._sdk_session: Any | None = None
+        self._sdk_session_id: str | None = None
         self._phase_one_scope_logged = False
+        self._responses_run_fallback_logged = False
         self._agent_logger = get_agent_logger("OpenAIAgent", window_seq=self.window_seq)
 
     @property
@@ -147,6 +151,7 @@ class OpenAIAgent:
             except Exception:
                 pass
         self._active_stream_result = None
+        self._close_sdk_session()
         self._connected = False
 
     async def set_model(self, model: str) -> bool:
@@ -209,6 +214,7 @@ class OpenAIAgent:
                 await self.set_model(model)
 
             agents = _load_openai_agents_module()
+            settings = get_settings()
             translator = OpenAIStreamTranslator(turn_id=(runtime_context or {}).get("turnId", "turn"))
             stream_queue: asyncio.Queue[StreamChunk | Exception | None] = asyncio.Queue()
 
@@ -226,6 +232,10 @@ class OpenAIAgent:
                 model=model,
                 nested_stream_handler=None,
             )
+            sdk_session = self._get_or_create_sdk_session(
+                agents,
+                session_id=(runtime_context or {}).get("sessionId"),
+            )
             input_items = self._build_input_items(
                 user_message=user_message,
                 images=images or [],
@@ -233,11 +243,42 @@ class OpenAIAgent:
                 canvas_context=context or {},
             )
 
+            if self._should_use_responses_run_fallback(settings):
+                self._log_responses_run_fallback()
+                result_task = asyncio.create_task(
+                    agents.Runner.run(
+                        starting_agent=starting_agent,
+                        input=input_items,
+                        context=run_context,
+                        max_turns=30,
+                        session=sdk_session,
+                    )
+                )
+                self._active_stream_result = result_task
+                self._current_model = model or self._current_model
+                result = await result_task
+
+                for chunk in self._translate_result_chunks(result=result, translator=translator):
+                    self._log_chunk_for_console(chunk)
+                    yield chunk
+
+                if getattr(result, "interruptions", None):
+                    interaction_id = await self._push_pending_question_interaction(
+                        result=result,
+                        translator=translator,
+                        runtime_context=runtime_context,
+                    )
+                    raise TurnPausedError(interaction_id)
+
+                self._agent_logger.log_complete(model=model or self._current_model)
+                return
+
             result = agents.Runner.run_streamed(
                 starting_agent=starting_agent,
                 input=input_items,
                 context=run_context,
                 max_turns=30,
+                session=sdk_session,
             )
             self._active_stream_result = result
             self._current_model = model or self._current_model
@@ -293,6 +334,7 @@ class OpenAIAgent:
         append_event: Any,
     ) -> list[dict[str, Any]]:
         agents = _load_openai_agents_module()
+        settings = get_settings()
         await self.connect(model=self._current_model)
 
         answers = resolution_payload.get("answers", {})
@@ -322,6 +364,10 @@ class OpenAIAgent:
             model=self._current_model,
             nested_stream_handler=None,
         )
+        sdk_session = self._get_or_create_sdk_session(
+            agents,
+            session_id=session.session_id,
+        )
 
         async def _emit_translated_event(
             event: Any,
@@ -347,10 +393,48 @@ class OpenAIAgent:
 
         state.approve(approval_item)
 
+        if self._should_use_responses_run_fallback(settings):
+            self._log_responses_run_fallback()
+            result_task = asyncio.create_task(
+                agents.Runner.run(
+                    starting_agent,
+                    state,
+                    context=resume_context,
+                    session=sdk_session,
+                )
+            )
+            self._active_stream_result = result_task
+            result = await result_task
+
+            appended_events: list[dict[str, Any]] = []
+            try:
+                for chunk in self._translate_result_chunks(result=result, translator=translator):
+                    if approved_tool_call_id and chunk.tool_call_id == approved_tool_call_id:
+                        chunk.tool_output = None
+                        chunk.suppress_public_tool_output = True
+                    event_data = await append_event(chunk)
+                    appended_events.extend(event_data)
+
+                if getattr(result, "interruptions", None):
+                    await self._push_pending_question_interaction(
+                        result=result,
+                        translator=translator,
+                        runtime_context={
+                            "windowId": session.window_id,
+                            "sessionId": session.session_id,
+                            "turnId": binding.turn_id,
+                        },
+                    )
+
+                return appended_events
+            finally:
+                self._active_stream_result = None
+
         result = agents.Runner.run_streamed(
             starting_agent,
             state,
             context=resume_context,
+            session=sdk_session,
         )
         self._active_stream_result = result
 
@@ -599,6 +683,90 @@ class OpenAIAgent:
 
         return MainAgent._build_context_block(context)
 
+    def _resolve_sdk_session_id(self, session_id: str | None = None) -> str | None:
+        normalized = (session_id or "").strip()
+        if normalized:
+            return normalized
+        runtime_context = self._runtime_context or {}
+        runtime_session_id = (runtime_context.get("sessionId") or "").strip()
+        return runtime_session_id or None
+
+    def _resolve_sdk_session_db_path(self) -> Path:
+        runtime_dir = self._config_loader.config_dir / ".runtime"
+        runtime_dir.mkdir(parents=True, exist_ok=True)
+        return runtime_dir / "openai_agent_sessions.sqlite3"
+
+    def _close_sdk_session(self) -> None:
+        session = self._sdk_session
+        self._sdk_session = None
+        self._sdk_session_id = None
+        if session is None:
+            return
+
+        close = getattr(session, "close", None)
+        if callable(close):
+            try:
+                close()
+            except Exception:
+                logger.debug("Failed to close OpenAI SDK session cleanly.", exc_info=True)
+
+    def _get_or_create_sdk_session(
+        self,
+        agents: Any,
+        *,
+        session_id: str | None = None,
+    ) -> Any | None:
+        resolved_session_id = self._resolve_sdk_session_id(session_id)
+        if not resolved_session_id:
+            return None
+
+        if self._sdk_session is not None and self._sdk_session_id == resolved_session_id:
+            return self._sdk_session
+
+        self._close_sdk_session()
+
+        sqlite_session_type = getattr(agents, "SQLiteSession", None)
+        if sqlite_session_type is None:
+            sqlite_session_module = importlib.import_module("agents.memory.sqlite_session")
+            sqlite_session_type = sqlite_session_module.SQLiteSession
+
+        self._sdk_session = sqlite_session_type(
+            resolved_session_id,
+            db_path=self._resolve_sdk_session_db_path(),
+        )
+        self._sdk_session_id = resolved_session_id
+        return self._sdk_session
+
+    @staticmethod
+    def _is_official_openai_base_url(base_url: str | None) -> bool:
+        normalized = (base_url or "").strip()
+        if not normalized:
+            return True
+
+        parsed = urlparse(normalized)
+        host = (parsed.netloc or parsed.path).strip().lower()
+        if host.endswith("/v1"):
+            host = host[:-3]
+        return host in {"api.openai.com", "api.openai.com:443"}
+
+    def _should_use_responses_run_fallback(self, settings: Any | None = None) -> bool:
+        current_settings = settings or get_settings()
+        return (
+            current_settings.openai_api == "responses"
+            and not self._is_official_openai_base_url(current_settings.base_url)
+        )
+
+    def _translate_result_chunks(
+        self,
+        *,
+        result: Any,
+        translator: OpenAIStreamTranslator,
+    ) -> list[StreamChunk]:
+        chunks: list[StreamChunk] = []
+        for item in getattr(result, "new_items", []):
+            chunks.extend(translator.translate_result_item(item))
+        return chunks
+
     def _resolve_phase_one_tool_names(self) -> list[str]:
         allowed_tools, denied_tools = self._config_loader.load_permissions()
 
@@ -681,6 +849,15 @@ class OpenAIAgent:
             ", ".join(_OPENAI_PHASE_ONE_LOCAL_TOOL_ORDER),
         )
         self._phase_one_scope_logged = True
+
+    def _log_responses_run_fallback(self) -> None:
+        if self._responses_run_fallback_logged:
+            return
+        logger.warning(
+            "OpenAI responses streaming fallback enabled for custom endpoint; "
+            "BIMCanvas will project events from Runner.run() results instead of token streaming."
+        )
+        self._responses_run_fallback_logged = True
 
     async def _push_pending_question_interaction(
         self,
