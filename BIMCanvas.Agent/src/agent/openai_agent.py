@@ -718,28 +718,22 @@ class OpenAIAgent:
         async def canvas_request_background_screenshot(
             ctx: Any,
             projectPath: str | None = None,
-            zoneId: str | None = None,
-            viewport: dict[str, Any] | None = None,
-            shots: list[dict[str, Any]] | None = None,
+            zoneId: str = "",
         ) -> Any:
             """Render a background screenshot for the current project or a specific zone.
 
             Args:
                 projectPath: Optional BIMCanvas project path. Defaults to the current runtime project.
-                zoneId: Optional shortcut for single-zone screenshots; converted into viewport.id.
-                viewport: Optional explicit viewport definition.
-                shots: Optional batch screenshot definitions.
+                zoneId: Target zone id for the current single-zone task.
             """
             args: dict[str, Any] = {}
             resolved_project_path = self._resolve_canvas_project_path(ctx, projectPath)
             if resolved_project_path:
                 args["projectPath"] = resolved_project_path
-            if shots:
-                args["shots"] = shots
-            elif viewport:
-                args["viewport"] = viewport
-            elif zoneId:
-                args["viewport"] = {"id": zoneId}
+            normalized_zone_id = zoneId.strip() if isinstance(zoneId, str) else ""
+            if not normalized_zone_id:
+                raise ValueError("zoneId is required for mcp__canvas__request_background_screenshot")
+            args["viewport"] = {"id": normalized_zone_id}
             return await self._invoke_canvas_tool_impl("request_background_screenshot", args)
 
         @with_tool_context(tool_name="mcp__canvas__get_zone_boundaries")

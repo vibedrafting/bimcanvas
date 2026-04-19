@@ -18,7 +18,7 @@ TEMPLATE_ROOT = REPO_ROOT / "BIMCanvas.Server" / "Templates" / "global-config"
 if str(AGENT_ROOT) not in sys.path:
     sys.path.insert(0, str(AGENT_ROOT))
 
-from src.agent.openai_agent import OpenAIAgent
+from src.agent.openai_agent import OpenAIAgent, _load_openai_agents_module
 from src.config.loader import ConfigLoader, get_config_loader
 from src.config.settings import get_settings
 from src.runtime import PendingInteractionRuntimeBinding, RuntimeSessionRecord, StreamChunk
@@ -189,6 +189,18 @@ class _FakeAgentsModule:
             )
 
         return decorator
+
+
+def _assert_no_true_additional_properties(value) -> None:
+    if isinstance(value, dict):
+        if value.get("type") == "object":
+            assert value.get("additionalProperties") is not True
+        for nested in value.values():
+            _assert_no_true_additional_properties(nested)
+        return
+    if isinstance(value, list):
+        for nested in value:
+            _assert_no_true_additional_properties(nested)
 
 
 def test_build_tools_registers_phase_one_local_tools_without_name_error(
@@ -462,6 +474,31 @@ def test_openai_canvas_wrappers_translate_runtime_context_and_shortcuts(
             {"zoneIds": ["rz_1"]},
         ),
     ]
+
+
+def test_openai_canvas_screenshot_wrapper_schema_is_strict_compatible(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    home = _prepare_bimcanvas_home(tmp_path)
+    _configure_test_home(monkeypatch, home)
+    _set_openai_runtime_config(
+        home,
+        model_mapping={"gpt-4.1": {"id": "gpt-4.1", "label": "GPT-4.1"}},
+        permissions={"allow": None, "deny": ["Task"]},
+    )
+    _set_web_default_model(home, "gpt-4.1")
+    _reset_config_caches()
+
+    agent = OpenAIAgent(project_path=str(tmp_path), working_directory=str(tmp_path))
+    tool_map = agent._build_local_function_tool_map(_load_openai_agents_module())
+    screenshot_tool = tool_map["mcp__canvas__request_background_screenshot"]
+    schema = screenshot_tool.params_json_schema
+
+    assert "zoneId" in schema["properties"]
+    assert "viewport" not in schema["properties"]
+    assert "shots" not in schema["properties"]
+    _assert_no_true_additional_properties(schema)
 
 
 def test_openai_canvas_output_normalization_preserves_images_for_vision() -> None:
