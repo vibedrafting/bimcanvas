@@ -69,6 +69,19 @@ def _serialize_tool_output(output: Any) -> str:
         return str(output)
 
 
+def _extract_tool_output(item: Any) -> Any:
+    output = _get_attr(item, "output")
+    if output not in (None, ""):
+        return output
+
+    raw_item = _get_attr(item, "raw_item", item)
+    raw_output = _get_attr(raw_item, "output")
+    if raw_output not in (None, ""):
+        return raw_output
+
+    return output
+
+
 def _resolve_call_id(item: Any) -> str | None:
     raw_item = _get_attr(item, "raw_item", item)
     return _get_attr(raw_item, "call_id") or _get_attr(raw_item, "id")
@@ -284,7 +297,7 @@ class OpenAIStreamTranslator:
 
         public_tool_call_id = self._ensure_public_tool_call_id(provider_call_id)
         tool_origin_type = _resolve_tool_origin_type(item)
-        output_text = _serialize_tool_output(_get_attr(item, "output"))
+        output_text = _serialize_tool_output(_extract_tool_output(item))
         resolved_subtask_id = forced_subtask_id or self._active_subtask_id()
 
         if tool_origin_type == "agent_as_tool":

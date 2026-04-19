@@ -8,10 +8,28 @@ const props = defineProps<{
 
 // Default: Expanded if running, collapsed if done
 const isExpanded = ref(props.bubble.status === 'streaming');
+let collapseTimer: ReturnType<typeof setTimeout> | null = null;
 
-watch(() => props.bubble.status, (newStatus) => {
+const clearCollapseTimer = () => {
+  if (collapseTimer) {
+    clearTimeout(collapseTimer);
+    collapseTimer = null;
+  }
+};
+
+const shouldKeepExpandedAfterCompletion = computed(() => {
+  return Boolean(props.bubble.subAgentResult) || (props.bubble.childBubbles?.length || 0) > 0;
+});
+
+watch([() => props.bubble.status, shouldKeepExpandedAfterCompletion], ([newStatus, keepExpanded]) => {
+  clearCollapseTimer();
+
   if (newStatus === 'completed' || newStatus === 'failed') {
-    setTimeout(() => { isExpanded.value = false; }, 2000);
+    if (keepExpanded) {
+      isExpanded.value = true;
+    } else {
+      collapseTimer = setTimeout(() => { isExpanded.value = false; }, 2000);
+    }
   } else if (newStatus === 'streaming' || newStatus === 'background') {
     isExpanded.value = true;
   }
@@ -22,6 +40,14 @@ const toggleExpand = () => { isExpanded.value = !isExpanded.value; };
 // 结果折叠状态（默认折叠）
 const isResultExpanded = ref(false);
 const toggleResult = () => { isResultExpanded.value = !isResultExpanded.value; };
+
+watch(() => props.bubble.subAgentResult, (result) => {
+  if (result) {
+    clearCollapseTimer();
+    isExpanded.value = true;
+    isResultExpanded.value = true;
+  }
+}, { immediate: true });
 
 // === 实时计时器逻辑 ===
 const elapsedSeconds = ref(0);
@@ -57,7 +83,10 @@ watch(() => props.bubble.status, (newStatus, oldStatus) => {
   }
 }, { immediate: true });
 
-onUnmounted(() => stopTimer());
+onUnmounted(() => {
+  clearCollapseTimer();
+  stopTimer();
+});
 
 // 显示时间
 const durationDisplay = computed(() => {

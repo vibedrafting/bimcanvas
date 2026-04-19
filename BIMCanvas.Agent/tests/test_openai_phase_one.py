@@ -735,6 +735,36 @@ def test_openai_stream_translator_recovers_nested_summary_and_tool_completion_fo
     ]
 
 
+def test_openai_stream_translator_reads_agent_tool_summary_from_raw_item_output() -> None:
+    translator = OpenAIStreamTranslator(turn_id="turn-1")
+    start_chunks, subtask_id = translator.ensure_subtask_started_for_tool_call(
+        SimpleNamespace(
+            call_id="delegate-call-1",
+            name="delegate_query_task",
+            arguments='{"task_title":"读取 README 并总结","task_prompt":"读取 README.md，并输出三行中文总结"}',
+        )
+    )
+
+    assert start_chunks[0].subagent_type == "query-worker"
+
+    completion_chunks = translator.translate_result_item(
+        SimpleNamespace(
+            type="tool_call_output_item",
+            raw_item={
+                "call_id": "delegate-call-1",
+                "type": "function_call_output",
+                "output": "第一行\n第二行\n第三行",
+            },
+            output="",
+            tool_origin=SimpleNamespace(type="agent_as_tool"),
+        )
+    )
+
+    assert [(chunk.type, chunk.subagent_id, chunk.content, chunk.success) for chunk in completion_chunks] == [
+        ("subagent_complete", subtask_id, "第一行\n第二行\n第三行", True)
+    ]
+
+
 def test_openai_agent_connect_configures_chat_completions_for_custom_endpoint(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
