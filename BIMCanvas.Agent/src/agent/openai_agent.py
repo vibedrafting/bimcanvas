@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 from dataclasses import dataclass
 import importlib
+import inspect
 import json
 import logging
 import os
@@ -19,7 +20,11 @@ from ..config.configured_agents import parse_configured_agent_requirements
 from ..config.loader import AgentConfig, get_config_loader
 from ..config.settings import get_settings
 from ..runtime import PendingInteractionRuntimeBinding, RuntimeSessionRecord, StreamChunk
-from ..runtime.openai_stream import OpenAIStreamTranslator, SUBTASK_ERROR_MARKER
+from ..runtime.openai_stream import (
+    AGENT_TOOL_RESULT_MARKER,
+    OpenAIStreamTranslator,
+    SUBTASK_ERROR_MARKER,
+)
 from .agent_logger import get_agent_logger
 from .errors import TurnPausedError
 
@@ -1025,7 +1030,8 @@ class OpenAIAgent:
             worker_type=worker_type,
             child_tool_names=child_tool_names,
         )
-        return child_agent.as_tool(
+        return self._call_agent_as_tool(
+            child_agent,
             tool_name=delegate_tool_name,
             tool_description=description,
             parameters=DelegationTaskInput,
@@ -1073,7 +1079,8 @@ class OpenAIAgent:
             tools=child_tools,
             model=spec.model or self._current_model,
         )
-        return child_agent.as_tool(
+        return self._call_agent_as_tool(
+            child_agent,
             tool_name=spec.config.name,
             tool_description=spec.config.description,
             parameters=DelegationTaskInput,
@@ -1083,6 +1090,22 @@ class OpenAIAgent:
             failure_error_function=self._build_delegate_tool_failure_output,
             session=None,
         )
+
+    def _call_agent_as_tool(
+        self,
+        child_agent: Any,
+        **kwargs: Any,
+    ) -> Any:
+        as_tool = child_agent.as_tool
+        try:
+            supported_params = set(inspect.signature(as_tool).parameters.keys())
+        except (TypeError, ValueError):
+            supported_params = set()
+
+        if "custom_output_extractor" in supported_params:
+            kwargs["custom_output_extractor"] = self._extract_agent_tool_output
+
+        return as_tool(**kwargs)
 
     def _build_input_items(
         self,
@@ -1240,6 +1263,97 @@ class OpenAIAgent:
             "error": str(error) or error.__class__.__name__,
         }
         return f"{SUBTASK_ERROR_MARKER}{json.dumps(payload, ensure_ascii=False)}"
+
+    @staticmethod
+    async def _extract_agent_tool_output(run_result: Any) -> str:
+        summary = OpenAIAgent._extract_agent_tool_summary(run_result)
+        completed_tool_calls = OpenAIAgent._extract_agent_tool_completed_tool_calls(run_result)
+        payload = {
+            "summary": summary,
+            "completedToolCalls": completed_tool_calls,
+        }
+        return f"{AGENT_TOOL_RESULT_MARKER}{json.dumps(payload, ensure_ascii=False)}"
+
+    @staticmethod
+    def _extract_agent_tool_summary(run_result: Any) -> str | None:
+        final_output = getattr(run_result, "final_output", None)
+        if isinstance(final_output, str) and final_output.strip():
+            return final_output.strip()
+        if final_output is not None and str(final_output).strip():
+            return str(final_output).strip()
+
+        last_tool_output: str | None = None
+        for item in getattr(run_result, "new_items", []):
+            item_type = getattr(item, "type", None)
+            if item_type == "message_output_item":
+                raw_item = getattr(item, "raw_item", item)
+                content = getattr(raw_item, "content", None)
+                if isinstance(content, list):
+                    text_parts: list[str] = []
+                    for part in content:
+                        part_type = getattr(part, "type", None)
+                        if part_type == "output_text":
+                            text = getattr(part, "text", None)
+                            if isinstance(text, str) and text.strip():
+                                text_parts.append(text.strip())
+                    if text_parts:
+                        return "\n".join(text_parts).strip()
+            if item_type == "tool_call_output_item":
+                output = getattr(item, "output", None)
+                if isinstance(output, str) and output.strip():
+                    last_tool_output = output.strip()
+                elif output is not None and str(output).strip():
+                    last_tool_output = str(output).strip()
+
+        return last_tool_output
+
+    @staticmethod
+    def _extract_agent_tool_completed_tool_calls(run_result: Any) -> list[dict[str, str | None]]:
+        tool_names_by_call_id: dict[str, str] = {}
+        completed_tool_calls: list[dict[str, str | None]] = []
+
+        for item in getattr(run_result, "new_items", []):
+            item_type = getattr(item, "type", None)
+            raw_item = getattr(item, "raw_item", item)
+
+            if item_type == "tool_call_item":
+                provider_call_id = getattr(raw_item, "call_id", None)
+                tool_name = getattr(raw_item, "name", None)
+                if isinstance(provider_call_id, str) and provider_call_id.strip() and isinstance(tool_name, str) and tool_name.strip():
+                    tool_names_by_call_id[provider_call_id.strip()] = tool_name.strip()
+                continue
+
+            if item_type != "tool_call_output_item":
+                continue
+
+            provider_call_id: str | None = None
+            if isinstance(raw_item, dict):
+                raw_call_id = raw_item.get("call_id")
+                if isinstance(raw_call_id, str) and raw_call_id.strip():
+                    provider_call_id = raw_call_id.strip()
+            else:
+                raw_call_id = getattr(raw_item, "call_id", None)
+                if isinstance(raw_call_id, str) and raw_call_id.strip():
+                    provider_call_id = raw_call_id.strip()
+
+            if not provider_call_id:
+                continue
+
+            output = getattr(item, "output", None)
+            if isinstance(output, str):
+                normalized_output = output
+            elif output is None:
+                normalized_output = None
+            else:
+                normalized_output = str(output)
+
+            completed_tool_calls.append({
+                "providerCallId": provider_call_id,
+                "toolName": tool_names_by_call_id.get(provider_call_id),
+                "output": normalized_output,
+            })
+
+        return completed_tool_calls
 
     def _build_openai_root_appendix(
         self,

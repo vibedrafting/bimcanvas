@@ -8,6 +8,7 @@ from typing import Any
 from .chunks import StreamChunk
 
 SUBTASK_ERROR_MARKER = "__bimcanvas_subtask_error__:"
+AGENT_TOOL_RESULT_MARKER = "__bimcanvas_agent_tool_result__:"
 
 _AGENT_TOOL_SUBTASK_TYPE_MAP = {
     "delegate_query_task": "query-worker",
@@ -128,10 +129,40 @@ def _resolve_agent_as_tool_metadata(item: Any) -> tuple[str | None, str | None]:
     return task_title.strip(), resolved_subtask_type
 
 
-def _parse_agent_as_tool_output(output_text: str) -> tuple[bool, str | None, str | None]:
+def _parse_agent_as_tool_output(
+    output_text: str,
+) -> tuple[bool, str | None, str | None, list[dict[str, str | None]]]:
     normalized = (output_text or "").strip()
     if not normalized.startswith(SUBTASK_ERROR_MARKER):
-        return True, normalized or None, None
+        if normalized.startswith(AGENT_TOOL_RESULT_MARKER):
+            payload = normalized[len(AGENT_TOOL_RESULT_MARKER):].strip()
+            try:
+                parsed = json.loads(payload) if payload else {}
+            except json.JSONDecodeError:
+                parsed = {}
+
+            summary = parsed.get("summary") if isinstance(parsed, dict) else None
+            if not isinstance(summary, str) or not summary.strip():
+                summary = None
+
+            completed_tool_calls: list[dict[str, str | None]] = []
+            if isinstance(parsed, dict):
+                raw_completed_tool_calls = parsed.get("completedToolCalls")
+                if isinstance(raw_completed_tool_calls, list):
+                    for item in raw_completed_tool_calls:
+                        if not isinstance(item, dict):
+                            continue
+                        provider_call_id = item.get("providerCallId")
+                        tool_name = item.get("toolName")
+                        tool_output = item.get("output")
+                        completed_tool_calls.append({
+                            "providerCallId": provider_call_id.strip() if isinstance(provider_call_id, str) and provider_call_id.strip() else None,
+                            "toolName": tool_name.strip() if isinstance(tool_name, str) and tool_name.strip() else None,
+                            "output": tool_output if isinstance(tool_output, str) else None,
+                        })
+            return True, summary, None, completed_tool_calls
+
+        return True, normalized or None, None, []
 
     payload = normalized[len(SUBTASK_ERROR_MARKER):].strip()
     try:
@@ -142,7 +173,7 @@ def _parse_agent_as_tool_output(output_text: str) -> tuple[bool, str | None, str
     error = parsed.get("error") if isinstance(parsed, dict) else None
     if not isinstance(error, str) or not error.strip():
         error = normalized
-    return False, None, error.strip()
+    return False, None, error.strip(), []
 
 
 class OpenAIStreamTranslator:
@@ -332,7 +363,11 @@ class OpenAIStreamTranslator:
             parent_subtask_id = forced_subtask_id or self._active_parent_subtask_id(subtask_id)
             if self._subtask_stack and self._subtask_stack[-1] == subtask_id:
                 self._subtask_stack.pop()
-            success, summary, error = _parse_agent_as_tool_output(output_text)
+            success, summary, error, completed_tool_calls = _parse_agent_as_tool_output(output_text)
+            backfilled_chunks = self._backfill_completed_tool_calls(
+                subtask_id=subtask_id,
+                completed_tool_calls=completed_tool_calls,
+            )
             summary = summary or self._consume_subtask_message(subtask_id)
             success, summary, error = self._finalize_subtask_outcome(
                 subtask_id=subtask_id,
@@ -341,6 +376,7 @@ class OpenAIStreamTranslator:
                 error=error,
             )
             return [
+                *backfilled_chunks,
                 StreamChunk(
                     type="subagent_complete",
                     subagent_id=subtask_id,
@@ -364,6 +400,38 @@ class OpenAIStreamTranslator:
                 success=True,
             )
         ]
+
+    def _backfill_completed_tool_calls(
+        self,
+        *,
+        subtask_id: str,
+        completed_tool_calls: list[dict[str, str | None]],
+    ) -> list[StreamChunk]:
+        if not completed_tool_calls:
+            return []
+
+        chunks: list[StreamChunk] = []
+        for item in completed_tool_calls:
+            provider_call_id = item.get("providerCallId")
+            if not isinstance(provider_call_id, str) or not provider_call_id.strip():
+                continue
+            public_tool_call_id = self._tool_calls_by_provider.get(provider_call_id)
+            if not public_tool_call_id:
+                continue
+            completed_tool_name = self._complete_active_tool_call(subtask_id, public_tool_call_id)
+            if completed_tool_name is None and not self.has_active_tool_call(subtask_id, public_tool_call_id):
+                continue
+            chunks.append(
+                StreamChunk(
+                    type="tool_call_complete",
+                    subagent_id=subtask_id,
+                    tool_call_id=public_tool_call_id,
+                    tool_name=completed_tool_name or item.get("toolName"),
+                    tool_output=item.get("output"),
+                    success=True,
+                )
+            )
+        return chunks
 
     def _ensure_public_tool_call_id(self, provider_call_id: str) -> str:
         existing = self._tool_calls_by_provider.get(provider_call_id)
@@ -453,6 +521,14 @@ class OpenAIStreamTranslator:
         if not normalized_subtask_id:
             return False
         return bool(self._active_tool_calls_by_subtask.get(normalized_subtask_id))
+
+    def has_active_tool_call(self, subtask_id: str | None, tool_call_id: str | None) -> bool:
+        normalized_subtask_id = (subtask_id or "").strip()
+        normalized_tool_call_id = (tool_call_id or "").strip()
+        if not normalized_subtask_id or not normalized_tool_call_id:
+            return False
+        active_tool_calls = self._active_tool_calls_by_subtask.get(normalized_subtask_id, {})
+        return normalized_tool_call_id in active_tool_calls
 
     def has_subtask_message(self, subtask_id: str | None) -> bool:
         normalized_subtask_id = (subtask_id or "").strip()
