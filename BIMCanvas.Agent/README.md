@@ -229,6 +229,7 @@ OpenAI runtime 当前已完成“阶段一基础 Runtime + 阶段二定向启用
 - 支持把 `<BIMCANVAS_HOME>/agents/*.md` 中“纯 prompt + 本地工具”的配置型 agents 投影为原生 OpenAI agent tools
 - `layout-agent` 已在 OpenAI 中定向启用：
   - 仍通过原生 `Agent.as_tool()` 挂到 root
+  - 只有共享 `permissions.allow/deny` 真实允许，且当前 OpenAI adapter 已支持其所需 Skill/MCP 子集时，才会注册到 root
   - `generate-planning` / `generate-placement` 以运行时装配方式注入 child agent instructions
   - 仅注入最小 MCP wrapper 子集：
     - `mcp__canvas__request_background_screenshot`
@@ -238,11 +239,17 @@ OpenAI runtime 当前已完成“阶段一基础 Runtime + 阶段二定向启用
     - `mcp__canvas__validate_layout`
     - `mcp__canvas__load_reference_analysis`
   - 当前浏览器主验收场景为“显式指定 `layout-agent` 的单区 generate happy path”
+  - 若用户显式点名 `layout-agent`，但当前共享权限或当前阶段能力不足，OpenAI runtime 会直接返回不可用原因，不会退回 `delegate_query_task` / `delegate_edit_task` 冒充
 - Subtask 事件通过 OpenAI 原生 `Agent.as_tool()` 投影为 `subtask.started / subtask.completed`
+- 子代理只有在真实闭环完成时才会投影 `subtask.completed(success=true)`：
+  - child 必须返回非空最终摘要
+  - child 不能残留未结束的内部 tool call
+  - `layout-agent` 还必须至少出现一次 `Write` 或 `mcp__canvas__save_semantic_plan`，并且至少出现一次 `mcp__canvas__validate_layout`
 - 不注册 Claude 风格 `Task` 兼容壳
 - 不暴露独立 `Skill / Plugin` 工具；Skill 仅在 `layout-agent` 内以运行时装配方式接入
 - 不暴露 root 级 `mcp__canvas__*`；MCP 仅在 `layout-agent` child agent 内以原生 function tools 方式注入
 - 除 `layout-agent` 外，依赖 `Skill / mcp__canvas__* / AskUserQuestion / Task` 的其它配置型 agents 仍暂不注册
+- 现有用户机器上的 `<BIMCANVAS_HOME>/config.json` 不会被自动迁移；如果要在浏览器里验收 `layout-agent`，需要先手动把共享权限同步到当前推荐基线
 
 ### ControlPlane 错误语义
 
@@ -667,6 +674,8 @@ Host 进程内的运行时真相源：
 - OpenAI runtime 会对 `permissions.allow/deny` 执行“配置权限 ∩ 当前适配支持集”裁剪。
   当前支持集包含本地 function tools，以及 `layout-agent` 所需的 `Skill` 装配入口和最小 `mcp__canvas__*` 子集；
   `Task` 和其它未适配工具仍会被忽略，并在启动日志中提示。
+- 已存在的 `<BIMCANVAS_HOME>/config.json` 不会被自动迁移到新的推荐权限基线。
+  如果浏览器验收要跑 `layout-agent`，需要手动同步共享权限，否则它会按真实权限状态继续被禁用。
 
 #### SubAgent 配置格式 (agents/*.md)
 

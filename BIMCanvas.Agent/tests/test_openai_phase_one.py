@@ -708,6 +708,8 @@ def test_openai_capability_matrix_marks_subtask_as_optional() -> None:
     )
     assert subtask_row["level"] == "optional"
     assert "Agent.as_tool()" in subtask_row["providerMapping"]
+    assert "layout-agent" in subtask_row["notes"]
+    assert "shared permissions" in subtask_row["notes"]
 
 
 def test_openai_settings_default_to_responses_for_custom_base_url(

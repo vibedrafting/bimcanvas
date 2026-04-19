@@ -175,7 +175,7 @@ _OPENAI_CAPABILITY_MATRIX: tuple[dict[str, Any], ...] = (
         "level": "optional",
         "providerMapping": "Agent.as_tool() + RunItemStreamEvent(tool_called/tool_output) -> subtask.started/subtask.completed",
         "frontendFallback": "hide-subtask-activity-panel",
-        "notes": "OpenAI stage 1 exposes helper sub-agents through native Agent.as_tool() while Skill/MCP-backed agents stay disabled.",
+        "notes": "OpenAI stage 2 exposes helper sub-agents through native Agent.as_tool() and can conditionally enable layout-agent through shared permissions plus runtime Skill assembly and MCP wrappers; blocked configured agents fail honestly instead of being substituted.",
     },
     {
         "capabilityKey": "trace",

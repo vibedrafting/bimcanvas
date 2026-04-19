@@ -583,6 +583,7 @@ Host 里的 `/api/history` 能看到多轮消息，只说明：
 
 - 仅对 `layout-agent` 开放 Skill / MCP 适配
 - `layout-agent` 继续使用原生 `Agent.as_tool()`，不引入 Claude `Task`
+- `layout-agent` 现在受共享 `permissions.allow/deny` 真实约束，不再为了浏览器 happy path 绕过 `allow`
 - `generate-planning` / `generate-placement` 不再伪装成 `Skill` 工具，而是在 OpenAI child agent 构建时按原文装配进运行时 instructions
 - `mcp__canvas__*` 不走 Claude `mcp_servers` 兼容壳，而是改为 OpenAI 原生 function tools wrapper
 - 当前只开放单区 generate happy path 需要的最小 MCP 子集：
@@ -593,6 +594,9 @@ Host 里的 `/api/history` 能看到多轮消息，只说明：
   - `mcp__canvas__validate_layout`
   - `mcp__canvas__load_reference_analysis`
 - 浏览器主验收入口固定为：用户在消息中显式要求主控调用 `layout-agent`，先验证单区 generate，而不把自然路由一起塞进同一轮
+- 若用户显式点名 `layout-agent`，但共享权限或当前阶段能力不足，root 会诚实返回不可用原因，不再退回 helper worker 冒充
+- OpenAI 子任务投影已改为“诚实完成”：空摘要、未闭合 tool call、或 `layout-agent` 缺少落地动作/校验时，都按失败处理
+- 现有用户机器上的 `<BIMCANVAS_HOME>/config.json` 不自动迁移；浏览器要验收 `layout-agent`，必须先手动同步共享权限基线
 
 这里的关键不是“OpenAI 也有了 Skill / MCP”，而是：
 
