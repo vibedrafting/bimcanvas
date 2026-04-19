@@ -226,11 +226,12 @@ OpenAI runtime 第一阶段只提供稳定基础 Runtime，不追求与 Claude �
 - Root Agent 额外挂载两个 native helper sub-agents：
   - `delegate_query_task`：只读子任务，子代理工具限定为 `Read / Glob / Grep`
   - `delegate_edit_task`：单一编辑子任务，子代理工具限定为 `Read / Write / Edit / Glob / Grep`
+- 支持把 `<BIMCANVAS_HOME>/agents/*.md` 中“纯 prompt + 本地工具”的配置型 agents 投影为原生 OpenAI agent tools
 - Subtask 事件通过 OpenAI 原生 `Agent.as_tool()` 投影为 `subtask.started / subtask.completed`
 - 不注册 Claude 风格 `Task` 兼容壳
 - 不注册 `Skill / Plugin`
 - 不注册任何 `mcp__canvas__*`
-- 不把 `<BIMCANVAS_HOME>/agents/*.md` 直接投影为 OpenAI 子代理；当前 `layout-agent` 继续后移到 Skill/MCP 阶段
+- 依赖 `Skill / mcp__canvas__* / AskUserQuestion / Task` 的配置型 agents 暂不注册；当前 `layout-agent` 继续后移到 Skill/MCP 阶段
 
 ### ControlPlane 错误语义
 

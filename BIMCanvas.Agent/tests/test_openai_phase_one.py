@@ -94,6 +94,32 @@ def _set_web_default_model(home: Path, model_id: str) -> None:
     _write_json(web_config_path, web_config)
 
 
+def _write_agent_md(
+    home: Path,
+    *,
+    name: str,
+    description: str,
+    tools: list[str],
+    prompt: str,
+    model: str = "inherit",
+) -> None:
+    agent_path = home / "agents" / f"{name}.md"
+    tools_value = ", ".join(tools)
+    agent_path.write_text(
+        "\n".join([
+            "---",
+            f"name: {name}",
+            f"description: {description}",
+            f"tools: {tools_value}",
+            f"model: {model}",
+            "---",
+            prompt,
+            "",
+        ]),
+        encoding="utf-8",
+    )
+
+
 def _install_fake_tool_context(monkeypatch: pytest.MonkeyPatch) -> None:
     agents_module = ModuleType("agents")
     tool_context_module = ModuleType("agents.tool_context")
@@ -241,6 +267,90 @@ def test_build_tools_respects_permissions_and_warns_for_unsupported_entries(
 
     assert [tool.name for tool in tools] == ["Read", "delegate_query_task", "delegate_edit_task"]
     assert "OpenAI phase 1 ignored unsupported tools from permissions: Skill, Task, mcp__canvas__validate_layout" in caplog.text
+
+
+def test_build_tools_registers_supported_configured_agent_tools(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    home = _prepare_bimcanvas_home(tmp_path)
+    _write_agent_md(
+        home,
+        name="inspect-agent",
+        description="只读检查项目文件的配置型 agent",
+        tools=["Read", "Glob"],
+        prompt="你负责检查项目文件，并向主控返回简洁结论。",
+    )
+    _configure_test_home(monkeypatch, home)
+    _install_fake_tool_context(monkeypatch)
+    _set_openai_runtime_config(
+        home,
+        model_mapping={"gpt-4.1": {"id": "gpt-4.1", "label": "GPT-4.1"}},
+        permissions={"allow": None, "deny": ["Task"]},
+    )
+    _set_web_default_model(home, "gpt-4.1")
+    _reset_config_caches()
+
+    agent = OpenAIAgent(project_path=str(tmp_path), working_directory=str(tmp_path))
+    with caplog.at_level(logging.INFO):
+        tools = agent._build_tools(_FakeAgentsModule(), model="gpt-4.1", nested_stream_handler=None)
+
+    tool_names = [tool.name for tool in tools]
+    assert "inspect-agent" in tool_names
+    inspect_tool = next(tool for tool in tools if tool.name == "inspect-agent")
+    assert [tool.name for tool in inspect_tool.nested_agent.tools] == ["Read", "Glob"]
+    assert "你负责检查项目文件" in inspect_tool.nested_agent.instructions
+    assert "当前可用工具：Read / Glob" in inspect_tool.nested_agent.instructions
+    assert "OpenAI stage 1 registered configured agent tools: inspect-agent (Read, Glob)" in caplog.text
+    assert "layout-agent" in caplog.text
+
+
+def test_build_tools_blocks_configured_agents_with_permission_gaps_or_disabled_capabilities(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    home = _prepare_bimcanvas_home(tmp_path)
+    _write_agent_md(
+        home,
+        name="editor-agent",
+        description="需要写入权限的配置型 agent",
+        tools=["Read", "Write"],
+        prompt="你负责修改项目文件。",
+    )
+    _write_agent_md(
+        home,
+        name="question-agent",
+        description="依赖用户追问的配置型 agent",
+        tools=["Read", "AskUserQuestion"],
+        prompt="你需要向用户提问后再继续。",
+    )
+    _configure_test_home(monkeypatch, home)
+    _install_fake_tool_context(monkeypatch)
+    _set_openai_runtime_config(
+        home,
+        model_mapping={"gpt-4.1-mini": {"id": "gpt-4.1-mini", "label": "GPT-4.1 mini"}},
+        permissions={"allow": ["Read"], "deny": ["Write"]},
+    )
+    _set_web_default_model(home, "gpt-4.1-mini")
+    _reset_config_caches()
+
+    agent = OpenAIAgent(project_path=str(tmp_path), working_directory=str(tmp_path))
+    with caplog.at_level(logging.WARNING):
+        tools = agent._build_tools(_FakeAgentsModule(), model="gpt-4.1-mini", nested_stream_handler=None)
+
+    tool_names = [tool.name for tool in tools]
+    assert "editor-agent" not in tool_names
+    assert "question-agent" not in tool_names
+    assert "OpenAI stage 1 keeps some configured agents disabled until later phases:" in caplog.text
+    assert "editor-agent (permission-gated: Write)" in caplog.text
+    assert "question-agent (AskUserQuestion)" in caplog.text
+    assert (
+        "layout-agent (Skill, mcp__canvas__validate_layout, mcp__canvas__request_background_screenshot, "
+        "mcp__canvas__get_zone_boundaries, mcp__canvas__save_semantic_plan, "
+        "mcp__canvas__load_semantic_plan, mcp__canvas__load_reference_analysis)"
+    ) in caplog.text
 
 
 def test_openai_settings_require_api_key(
@@ -652,6 +762,22 @@ def test_openai_stream_translator_projects_agent_as_tool_subtask_lifecycle() -> 
             tool_origin=SimpleNamespace(type="agent_as_tool"),
         )
     ) == []
+
+
+def test_openai_stream_translator_uses_configured_agent_tool_name_as_subtask_type() -> None:
+    translator = OpenAIStreamTranslator(turn_id="turn-1")
+    start_chunks, subtask_id = translator.ensure_subtask_started_for_tool_call(
+        SimpleNamespace(
+            call_id="delegate-call-1",
+            name="inspect-agent",
+            arguments='{"task_title":"检查 BIMCANVAS.md","task_prompt":"读取 BIMCANVAS.md 并总结"}',
+        )
+    )
+
+    assert subtask_id == "st-tc-1"
+    assert [(chunk.type, chunk.subagent_name, chunk.subagent_type) for chunk in start_chunks] == [
+        ("subagent_start", "检查 BIMCANVAS.md", "inspect-agent")
+    ]
 
 
 def test_openai_stream_translator_projects_agent_as_tool_failure() -> None:

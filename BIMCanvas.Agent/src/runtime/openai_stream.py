@@ -122,7 +122,10 @@ def _resolve_agent_as_tool_metadata(item: Any) -> tuple[str | None, str | None]:
     task_title = arguments.get("task_title")
     if not isinstance(task_title, str) or not task_title.strip():
         task_title = tool_name or "SubAgent"
-    return task_title.strip(), _AGENT_TOOL_SUBTASK_TYPE_MAP.get(tool_name or "", "agent_as_tool")
+    resolved_subtask_type = _AGENT_TOOL_SUBTASK_TYPE_MAP.get(tool_name or "")
+    if not resolved_subtask_type:
+        resolved_subtask_type = tool_name or "agent_as_tool"
+    return task_title.strip(), resolved_subtask_type
 
 
 def _parse_agent_as_tool_output(output_text: str) -> tuple[bool, str | None, str | None]:

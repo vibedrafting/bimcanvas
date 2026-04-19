@@ -15,7 +15,7 @@ from urllib.parse import urlparse
 
 from typing_extensions import TypedDict
 
-from ..config.loader import get_config_loader
+from ..config.loader import AgentConfig, get_config_loader
 from ..config.settings import get_settings
 from ..runtime import PendingInteractionRuntimeBinding, RuntimeSessionRecord, StreamChunk
 from ..runtime.openai_stream import OpenAIStreamTranslator, SUBTASK_ERROR_MARKER
@@ -39,6 +39,11 @@ _OPENAI_EDIT_DELEGATE_TOOL_ORDER = ("Read", "Write", "Edit", "Glob", "Grep")
 _OPENAI_DELEGATE_QUERY_TOOL_NAME = "delegate_query_task"
 _OPENAI_DELEGATE_EDIT_TOOL_NAME = "delegate_edit_task"
 _OPENAI_UNSUPPORTED_AGENT_TOOL_NAMES = frozenset({"Skill", "AskUserQuestion"})
+_OPENAI_RESERVED_AGENT_TOOL_NAMES = frozenset({
+    *_OPENAI_PHASE_ONE_LOCAL_TOOL_ORDER,
+    _OPENAI_DELEGATE_QUERY_TOOL_NAME,
+    _OPENAI_DELEGATE_EDIT_TOOL_NAME,
+})
 _CLAUDE_MODEL_ALIASES = frozenset({"opus", "sonnet", "haiku"})
 
 
@@ -58,6 +63,19 @@ class QuestionDef(TypedDict, total=False):
 class DelegationTaskInput:
     task_title: str
     task_prompt: str
+
+
+@dataclass(frozen=True)
+class _ConfiguredAgentToolSpec:
+    config: AgentConfig
+    tool_names: tuple[str, ...]
+    model: str | None
+
+
+@dataclass(frozen=True)
+class _BlockedConfiguredAgentSpec:
+    name: str
+    reasons: tuple[str, ...]
 
 
 def _project_root() -> Path:
@@ -542,7 +560,6 @@ class OpenAIAgent:
         system_prompt = self._config_loader.load_system_prompt()
         system_prompt = system_prompt + f"\n\n工作目录: {self.working_directory}"
         system_prompt = system_prompt + self._build_openai_root_appendix()
-        self._log_ignored_configured_subagents()
         return agents.Agent(
             name="BIMCanvas",
             instructions=system_prompt,
@@ -571,6 +588,7 @@ class OpenAIAgent:
                 model=model,
                 nested_stream_handler=nested_stream_handler,
                 tool_by_name=tool_by_name,
+                enabled_tool_names=enabled_tool_names,
             ),
         ]
 
@@ -687,8 +705,9 @@ class OpenAIAgent:
         model: str | None,
         nested_stream_handler: Any | None,
         tool_by_name: dict[str, Any],
+        enabled_tool_names: list[str],
     ) -> list[Any]:
-        return [
+        helper_tools = [
             self._build_helper_agent_tool(
                 agents,
                 model=model,
@@ -709,6 +728,29 @@ class OpenAIAgent:
                 child_tool_names=_OPENAI_EDIT_DELEGATE_TOOL_ORDER,
                 description="委派一个单一编辑子任务。仅用于局部文件修改，不得调用 MCP、Skill 或用户交互。",
             ),
+        ]
+        configured_specs, blocked_specs = self._resolve_configured_agent_tool_specs(
+            enabled_tool_names=enabled_tool_names,
+            inherited_model=model,
+        )
+        self._log_configured_subagent_availability(
+            enabled_specs=configured_specs,
+            blocked_specs=blocked_specs,
+        )
+        configured_tools = [
+            self._build_configured_agent_tool(
+                agents,
+                config=spec.config,
+                tool_names=spec.tool_names,
+                resolved_model=spec.model,
+                nested_stream_handler=nested_stream_handler,
+                tool_by_name=tool_by_name,
+            )
+            for spec in configured_specs
+        ]
+        return [
+            *helper_tools,
+            *configured_tools,
         ]
 
     def _build_helper_agent_tool(
@@ -757,6 +799,37 @@ class OpenAIAgent:
             instructions=self._build_child_agent_instructions(worker_type),
             tools=child_tools,
             model=model or self._current_model,
+        )
+
+    def _build_configured_agent_tool(
+        self,
+        agents: Any,
+        *,
+        config: AgentConfig,
+        tool_names: tuple[str, ...],
+        resolved_model: str | None,
+        nested_stream_handler: Any | None,
+        tool_by_name: dict[str, Any],
+    ) -> Any:
+        child_tools = [tool_by_name[name] for name in tool_names]
+        child_agent = agents.Agent(
+            name=config.name,
+            instructions=self._build_configured_agent_instructions(
+                config=config,
+                tool_names=tool_names,
+            ),
+            tools=child_tools,
+            model=resolved_model or self._current_model,
+        )
+        return child_agent.as_tool(
+            tool_name=config.name,
+            tool_description=config.description,
+            parameters=DelegationTaskInput,
+            input_builder=self._build_delegated_task_input,
+            on_stream=nested_stream_handler,
+            max_turns=30,
+            failure_error_function=self._build_delegate_tool_failure_output,
+            session=None,
         )
 
     def _build_input_items(
@@ -843,7 +916,8 @@ class OpenAIAgent:
             "- 当前子任务委派使用原生 `Agent.as_tool()`，不是 Claude `Task`。\n"
             f"- 如需只读分析、统计或检索，优先调用 `{_OPENAI_DELEGATE_QUERY_TOOL_NAME}`。\n"
             f"- 如需单一局部修改，调用 `{_OPENAI_DELEGATE_EDIT_TOOL_NAME}`。\n"
-            "- 本阶段禁止尝试委派 `layout-agent`、`Skill`、`mcp__canvas__*`、`AskUserQuestion`。\n"
+            "- 本阶段只开放 helper agents 与纯 prompt + 本地工具的配置型 agents。\n"
+            "- 依赖 `Skill`、`mcp__canvas__*`、`AskUserQuestion` 或二级委派的配置型 agents 暂不启用。\n"
             "- helper sub-agent 只执行一个明确子任务，并返回简洁中文摘要供主控汇总。\n"
         )
 
@@ -862,6 +936,23 @@ class OpenAIAgent:
             f"你只可使用这些工具：{allowed_tools}。\n"
             "禁止与用户交互，禁止 AskUserQuestion，禁止调用 Skill，禁止调用 MCP，禁止再次委派子任务。\n"
             "不要解释自己是工具，不要输出过程闲聊，只保留完成任务所需的最小文字。"
+        )
+
+    @staticmethod
+    def _build_configured_agent_instructions(
+        *,
+        config: AgentConfig,
+        tool_names: tuple[str, ...],
+    ) -> str:
+        allowed_tools = " / ".join(tool_names) if tool_names else "（无工具，仅基于上下文作答）"
+        return (
+            f"{config.prompt}\n\n"
+            "## OpenAI Runtime Adapter Appendix\n"
+            f"- 你是配置型子代理 `{config.name}`，通过原生 Agent.as_tool() 被主控调用。\n"
+            "- 你只执行主控下发的单一子任务，不自行改写路由。\n"
+            f"- 当前可用工具：{allowed_tools}\n"
+            "- 禁止与用户交互，禁止 AskUserQuestion，禁止调用 Skill，禁止调用 MCP，禁止再次委派子代理。\n"
+            "- 若任务合同不完整或超出职责，直接简洁上报，不要自行补猜。"
         )
 
     def _build_context_block(self, context: dict[str, Any] | None) -> str | None:
@@ -973,25 +1064,105 @@ class OpenAIAgent:
             chunks.extend(translator.translate_result_item(item))
         return chunks
 
-    def _log_ignored_configured_subagents(self) -> None:
+    def _resolve_configured_agent_tool_specs(
+        self,
+        *,
+        enabled_tool_names: list[str],
+        inherited_model: str | None,
+    ) -> tuple[list[_ConfiguredAgentToolSpec], list[_BlockedConfiguredAgentSpec]]:
+        available_local_tool_names = set(enabled_tool_names) - {"AskUserQuestion"}
+        enabled_specs: list[_ConfiguredAgentToolSpec] = []
+        blocked_specs: list[_BlockedConfiguredAgentSpec] = []
+        seen_agent_names: set[str] = set()
+
+        for name, cfg in self._config_loader.load_agents().items():
+            intrinsic_reasons: list[str] = []
+            permission_reasons: list[str] = []
+            resolved_tool_names: list[str] = []
+
+            if name in seen_agent_names or name in _OPENAI_RESERVED_AGENT_TOOL_NAMES:
+                intrinsic_reasons.append("tool name collision")
+            seen_agent_names.add(name)
+
+            resolved_model = inherited_model if cfg.model == "inherit" else cfg.model
+            normalized_model = (resolved_model or "").strip()
+            if normalized_model and normalized_model.lower() in _CLAUDE_MODEL_ALIASES:
+                intrinsic_reasons.append(f"unsupported model alias: {normalized_model}")
+
+            for tool_name in cfg.tools:
+                if tool_name == "Skill":
+                    intrinsic_reasons.append("Skill")
+                    continue
+                if tool_name == "AskUserQuestion":
+                    intrinsic_reasons.append("AskUserQuestion")
+                    continue
+                if tool_name == "Task":
+                    intrinsic_reasons.append("Task")
+                    continue
+                if tool_name in {
+                    _OPENAI_DELEGATE_QUERY_TOOL_NAME,
+                    _OPENAI_DELEGATE_EDIT_TOOL_NAME,
+                }:
+                    intrinsic_reasons.append(tool_name)
+                    continue
+                if tool_name.startswith("mcp__"):
+                    intrinsic_reasons.append(tool_name)
+                    continue
+                if tool_name not in _OPENAI_PHASE_ONE_LOCAL_TOOL_SET:
+                    intrinsic_reasons.append(f"unsupported tool: {tool_name}")
+                    continue
+                if tool_name not in available_local_tool_names:
+                    permission_reasons.append(f"permission-gated: {tool_name}")
+                    continue
+                resolved_tool_names.append(tool_name)
+
+            reasons = intrinsic_reasons or permission_reasons
+            if reasons:
+                blocked_specs.append(
+                    _BlockedConfiguredAgentSpec(
+                        name=name,
+                        reasons=tuple(dict.fromkeys(reasons)),
+                    )
+                )
+                continue
+
+            enabled_specs.append(
+                _ConfiguredAgentToolSpec(
+                    config=cfg,
+                    tool_names=tuple(resolved_tool_names),
+                    model=resolved_model,
+                )
+            )
+
+        return enabled_specs, blocked_specs
+
+    def _log_configured_subagent_availability(
+        self,
+        *,
+        enabled_specs: list[_ConfiguredAgentToolSpec],
+        blocked_specs: list[_BlockedConfiguredAgentSpec],
+    ) -> None:
         if self._configured_subagents_logged:
             return
 
-        unsupported_agents: list[str] = []
-        for name, cfg in self._config_loader.load_agents().items():
-            blocked_tools = [
-                tool_name
-                for tool_name in cfg.tools
-                if tool_name in _OPENAI_UNSUPPORTED_AGENT_TOOL_NAMES or tool_name.startswith("mcp__")
-            ]
-            if blocked_tools:
-                unsupported_agents.append(f"{name} ({', '.join(blocked_tools)})")
-
-        if unsupported_agents:
-            logger.warning(
-                "OpenAI stage 1 keeps configured agents disabled until Skill/MCP support lands: %s",
-                "; ".join(unsupported_agents),
+        if enabled_specs:
+            logger.info(
+                "OpenAI stage 1 registered configured agent tools: %s",
+                "; ".join(
+                    f"{spec.config.name} ({', '.join(spec.tool_names) or 'no tools'})"
+                    for spec in enabled_specs
+                ),
             )
+
+        if blocked_specs:
+            logger.warning(
+                "OpenAI stage 1 keeps some configured agents disabled until later phases: %s",
+                "; ".join(
+                    f"{spec.name} ({', '.join(spec.reasons)})"
+                    for spec in blocked_specs
+                ),
+            )
+
         self._configured_subagents_logged = True
 
     def _resolve_phase_one_tool_names(self) -> list[str]:
