@@ -172,7 +172,7 @@ data: [DONE]
 
 - `text_stream` / `tool_call_lifecycle` / `interaction_query` / `interaction_submit` / `interaction_cancel` / `question_pause_resume` / `screenshot_async`：`required`
 - `thinking`：`optional`
-- `subtask_causality`：Claude 为 `optional`；OpenAI phase 1 为 `unsupported`
+- `subtask_causality`：Claude 与 OpenAI 均为 `optional`
 - `usage` / `trace` / `permission_pause_resume`：`unsupported`
 
 ### Runtime 选择
@@ -215,9 +215,9 @@ OpenAI 首版适配走原生 `FunctionTool(needs_approval=True) + RunState` 路�
 - Web 端提交 `/api/interaction/{id}/submit` 或兼容 `/api/question/answer` 后，Host 会恢复 `Runner.run_streamed()` 继续同一 turn
 - `resumeToken` 支持跨 SSE 断线 / 页面 reload；但 v0.1 不保证 Agent Host 进程重启后仍可恢复
 
-### OpenAI 阶段一范围
+### OpenAI 当前范围
 
-OpenAI runtime 第一阶段只提供稳定基础 Runtime，不追求与 Claude 工作流等价：
+OpenAI runtime 当前已完成“阶段一基础 Runtime + 阶段二定向启用 layout-agent”的组合状态：
 
 - 支持文本对话
 - 支持图片输入
@@ -227,11 +227,22 @@ OpenAI runtime 第一阶段只提供稳定基础 Runtime，不追求与 Claude �
   - `delegate_query_task`：只读子任务，子代理工具限定为 `Read / Glob / Grep`
   - `delegate_edit_task`：单一编辑子任务，子代理工具限定为 `Read / Write / Edit / Glob / Grep`
 - 支持把 `<BIMCANVAS_HOME>/agents/*.md` 中“纯 prompt + 本地工具”的配置型 agents 投影为原生 OpenAI agent tools
+- `layout-agent` 已在 OpenAI 中定向启用：
+  - 仍通过原生 `Agent.as_tool()` 挂到 root
+  - `generate-planning` / `generate-placement` 以运行时装配方式注入 child agent instructions
+  - 仅注入最小 MCP wrapper 子集：
+    - `mcp__canvas__request_background_screenshot`
+    - `mcp__canvas__get_zone_boundaries`
+    - `mcp__canvas__save_semantic_plan`
+    - `mcp__canvas__load_semantic_plan`
+    - `mcp__canvas__validate_layout`
+    - `mcp__canvas__load_reference_analysis`
+  - 当前浏览器主验收场景为“显式指定 `layout-agent` 的单区 generate happy path”
 - Subtask 事件通过 OpenAI 原生 `Agent.as_tool()` 投影为 `subtask.started / subtask.completed`
 - 不注册 Claude 风格 `Task` 兼容壳
-- 不注册 `Skill / Plugin`
-- 不注册任何 `mcp__canvas__*`
-- 依赖 `Skill / mcp__canvas__* / AskUserQuestion / Task` 的配置型 agents 暂不注册；当前 `layout-agent` 继续后移到 Skill/MCP 阶段
+- 不暴露独立 `Skill / Plugin` 工具；Skill 仅在 `layout-agent` 内以运行时装配方式接入
+- 不暴露 root 级 `mcp__canvas__*`；MCP 仅在 `layout-agent` child agent 内以原生 function tools 方式注入
+- 除 `layout-agent` 外，依赖 `Skill / mcp__canvas__* / AskUserQuestion / Task` 的其它配置型 agents 仍暂不注册
 
 ### ControlPlane 错误语义
 
@@ -653,8 +664,9 @@ Host 进程内的运行时真相源：
 - 使用第三方 OpenAI-compatible 网关时，建议先测试 `responses`；若网关在工具续跑或多轮状态上不兼容，再手动把 `openaiApi` 切回 `chat_completions` 作为兼容模式。
 - 当前对“三方网关 + responses”增加了 Host 侧回退：若 SDK 的 `run_streamed()` 无法稳定完成工具续跑，BIMCanvas 会改用 `Runner.run()` 并把 `RunResult.new_items` 投影成事件流。这样能保住工具与暂停恢复，但文本会退化为完成态输出，不再是 token 级增量。
 - `openaiDisableTracing` 仅在 `runtimeProvider=openai-agents` 时生效；第三方网关默认会关闭 tracing，避免把第三方 key 误发到 OpenAI traces 接口。
-- OpenAI phase 1 会对 `permissions.allow/deny` 执行“配置权限 ∩ 本地工具支持集”裁剪。
-  `Task`、`Skill`、`mcp__canvas__*` 等不在阶段一支持集内的工具会被忽略，并在启动日志中提示。
+- OpenAI runtime 会对 `permissions.allow/deny` 执行“配置权限 ∩ 当前适配支持集”裁剪。
+  当前支持集包含本地 function tools，以及 `layout-agent` 所需的 `Skill` 装配入口和最小 `mcp__canvas__*` 子集；
+  `Task` 和其它未适配工具仍会被忽略，并在启动日志中提示。
 
 #### SubAgent 配置格式 (agents/*.md)
 

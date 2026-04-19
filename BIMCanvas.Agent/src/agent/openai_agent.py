@@ -38,11 +38,26 @@ _OPENAI_QUERY_DELEGATE_TOOL_ORDER = ("Read", "Glob", "Grep")
 _OPENAI_EDIT_DELEGATE_TOOL_ORDER = ("Read", "Write", "Edit", "Glob", "Grep")
 _OPENAI_DELEGATE_QUERY_TOOL_NAME = "delegate_query_task"
 _OPENAI_DELEGATE_EDIT_TOOL_NAME = "delegate_edit_task"
-_OPENAI_UNSUPPORTED_AGENT_TOOL_NAMES = frozenset({"Skill", "AskUserQuestion"})
+_OPENAI_LAYOUT_AGENT_NAME = "layout-agent"
+_OPENAI_LAYOUT_AGENT_SKILL_NAMES = ("generate-planning", "generate-placement")
+_OPENAI_LAYOUT_AGENT_MCP_TOOL_ORDER = (
+    "mcp__canvas__request_background_screenshot",
+    "mcp__canvas__get_zone_boundaries",
+    "mcp__canvas__save_semantic_plan",
+    "mcp__canvas__load_semantic_plan",
+    "mcp__canvas__validate_layout",
+    "mcp__canvas__load_reference_analysis",
+)
+_OPENAI_SUPPORTED_PERMISSION_TOOL_NAMES = frozenset({
+    *_OPENAI_PHASE_ONE_LOCAL_TOOL_ORDER,
+    "Skill",
+    *_OPENAI_LAYOUT_AGENT_MCP_TOOL_ORDER,
+})
 _OPENAI_RESERVED_AGENT_TOOL_NAMES = frozenset({
     *_OPENAI_PHASE_ONE_LOCAL_TOOL_ORDER,
     _OPENAI_DELEGATE_QUERY_TOOL_NAME,
     _OPENAI_DELEGATE_EDIT_TOOL_NAME,
+    *_OPENAI_LAYOUT_AGENT_MCP_TOOL_ORDER,
 })
 _CLAUDE_MODEL_ALIASES = frozenset({"opus", "sonnet", "haiku"})
 
@@ -70,6 +85,7 @@ class _ConfiguredAgentToolSpec:
     config: AgentConfig
     tool_names: tuple[str, ...]
     model: str | None
+    skill_names: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -579,8 +595,11 @@ class OpenAIAgent:
         nested_stream_handler: Any | None,
     ) -> list[Any]:
         tool_by_name = self._build_local_function_tool_map(agents)
-        enabled_tool_names = self._resolve_phase_one_tool_names()
-        local_tools = [tool_by_name[name] for name in enabled_tool_names]
+        enabled_permission_tool_names = self._resolve_enabled_permission_tool_names()
+        local_tool_names = [
+            name for name in _OPENAI_PHASE_ONE_LOCAL_TOOL_ORDER if name in enabled_permission_tool_names
+        ]
+        local_tools = [tool_by_name[name] for name in local_tool_names]
         return [
             *local_tools,
             *self._build_helper_agent_tools(
@@ -588,7 +607,7 @@ class OpenAIAgent:
                 model=model,
                 nested_stream_handler=nested_stream_handler,
                 tool_by_name=tool_by_name,
-                enabled_tool_names=enabled_tool_names,
+                enabled_tool_names=enabled_permission_tool_names,
             ),
         ]
 
@@ -596,6 +615,13 @@ class OpenAIAgent:
         function_tool = agents.function_tool
         working_directory = Path(self.working_directory or self.project_path or ".").resolve()
         tool_context_type = importlib.import_module("agents.tool_context").ToolContext
+
+        def with_tool_context(*, tool_name: str):
+            def decorator(fn: Any) -> Any:
+                fn.__annotations__["ctx"] = tool_context_type
+                return function_tool(name_override=tool_name)(fn)
+
+            return decorator
 
         def resolve_path(file_path: str) -> Path:
             candidate = Path(file_path)
@@ -688,6 +714,115 @@ class OpenAIAgent:
             needs_approval=True,
         )(ask_user_question)
 
+        @with_tool_context(tool_name="mcp__canvas__request_background_screenshot")
+        async def canvas_request_background_screenshot(
+            ctx: Any,
+            projectPath: str | None = None,
+            zoneId: str | None = None,
+            viewport: dict[str, Any] | None = None,
+            shots: list[dict[str, Any]] | None = None,
+        ) -> Any:
+            """Render a background screenshot for the current project or a specific zone.
+
+            Args:
+                projectPath: Optional BIMCanvas project path. Defaults to the current runtime project.
+                zoneId: Optional shortcut for single-zone screenshots; converted into viewport.id.
+                viewport: Optional explicit viewport definition.
+                shots: Optional batch screenshot definitions.
+            """
+            args: dict[str, Any] = {}
+            resolved_project_path = self._resolve_canvas_project_path(ctx, projectPath)
+            if resolved_project_path:
+                args["projectPath"] = resolved_project_path
+            if shots:
+                args["shots"] = shots
+            elif viewport:
+                args["viewport"] = viewport
+            elif zoneId:
+                args["viewport"] = {"id": zoneId}
+            return await self._invoke_canvas_tool_impl("request_background_screenshot", args)
+
+        @with_tool_context(tool_name="mcp__canvas__get_zone_boundaries")
+        async def canvas_get_zone_boundaries(
+            ctx: Any,
+            zoneId: str | None = None,
+            zoneIds: list[str] | None = None,
+            debug: bool = False,
+        ) -> Any:
+            """Read semantic boundary segments for one or more zones.
+
+            Args:
+                zoneId: Optional single zone shortcut.
+                zoneIds: Optional list of zone IDs.
+                debug: Whether to also push debug visuals to the browser.
+            """
+            del ctx
+            args: dict[str, Any] = {}
+            resolved_zone_ids = list(zoneIds or [])
+            if zoneId:
+                resolved_zone_ids = [zoneId, *[value for value in resolved_zone_ids if value != zoneId]]
+            if resolved_zone_ids:
+                args["zoneIds"] = resolved_zone_ids
+            if debug:
+                args["debug"] = True
+            return await self._invoke_canvas_tool_impl("get_zone_boundaries", args)
+
+        @with_tool_context(tool_name="mcp__canvas__save_semantic_plan")
+        async def canvas_save_semantic_plan(
+            ctx: Any,
+            zoneId: str,
+            version: str,
+            planType: str,
+            content: str,
+            referenceAnalysisVersion: str | None = None,
+        ) -> Any:
+            """Save a semantic plan snapshot for the current zone."""
+            del ctx
+            args = {
+                "zoneId": zoneId,
+                "version": version,
+                "planType": planType,
+                "content": content,
+            }
+            if referenceAnalysisVersion:
+                args["referenceAnalysisVersion"] = referenceAnalysisVersion
+            return await self._invoke_canvas_tool_impl("save_semantic_plan", args)
+
+        @with_tool_context(tool_name="mcp__canvas__load_semantic_plan")
+        async def canvas_load_semantic_plan(ctx: Any, zoneId: str) -> Any:
+            """Load the effective semantic plan for the current zone."""
+            del ctx
+            return await self._invoke_canvas_tool_impl("load_semantic_plan", {"zoneId": zoneId})
+
+        @with_tool_context(tool_name="mcp__canvas__validate_layout")
+        async def canvas_validate_layout(
+            ctx: Any,
+            zoneId: str | None = None,
+            zoneIds: list[str] | None = None,
+        ) -> Any:
+            """Validate layout legality for one zone or for the whole project."""
+            del ctx
+            args: dict[str, Any] = {}
+            resolved_zone_ids = list(zoneIds or [])
+            if zoneId:
+                resolved_zone_ids = [zoneId, *[value for value in resolved_zone_ids if value != zoneId]]
+            if resolved_zone_ids:
+                args["zoneIds"] = resolved_zone_ids
+            return await self._invoke_canvas_tool_impl("validate_layout", args)
+
+        @with_tool_context(tool_name="mcp__canvas__load_reference_analysis")
+        async def canvas_load_reference_analysis(
+            ctx: Any,
+            zoneId: str,
+            version: str | None = None,
+        ) -> Any:
+            """Load the latest or a fixed reference-analysis snapshot for the current zone."""
+            del ctx
+            args = {"zoneId": zoneId}
+            if version:
+                args["version"] = version
+            return await self._invoke_canvas_tool_impl("load_reference_analysis", args)
+
         return {
             "Read": read_file,
             "Write": write_file,
@@ -696,6 +831,12 @@ class OpenAIAgent:
             "Grep": grep_files,
             "Bash": run_shell,
             "AskUserQuestion": ask_user_question,
+            "mcp__canvas__request_background_screenshot": canvas_request_background_screenshot,
+            "mcp__canvas__get_zone_boundaries": canvas_get_zone_boundaries,
+            "mcp__canvas__save_semantic_plan": canvas_save_semantic_plan,
+            "mcp__canvas__load_semantic_plan": canvas_load_semantic_plan,
+            "mcp__canvas__validate_layout": canvas_validate_layout,
+            "mcp__canvas__load_reference_analysis": canvas_load_reference_analysis,
         }
 
     def _build_helper_agent_tools(
@@ -740,9 +881,7 @@ class OpenAIAgent:
         configured_tools = [
             self._build_configured_agent_tool(
                 agents,
-                config=spec.config,
-                tool_names=spec.tool_names,
-                resolved_model=spec.model,
+                spec=spec,
                 nested_stream_handler=nested_stream_handler,
                 tool_by_name=tool_by_name,
             )
@@ -805,25 +944,24 @@ class OpenAIAgent:
         self,
         agents: Any,
         *,
-        config: AgentConfig,
-        tool_names: tuple[str, ...],
-        resolved_model: str | None,
+        spec: _ConfiguredAgentToolSpec,
         nested_stream_handler: Any | None,
         tool_by_name: dict[str, Any],
     ) -> Any:
-        child_tools = [tool_by_name[name] for name in tool_names]
+        child_tools = [tool_by_name[name] for name in spec.tool_names]
         child_agent = agents.Agent(
-            name=config.name,
+            name=spec.config.name,
             instructions=self._build_configured_agent_instructions(
-                config=config,
-                tool_names=tool_names,
+                config=spec.config,
+                tool_names=spec.tool_names,
+                skill_names=spec.skill_names,
             ),
             tools=child_tools,
-            model=resolved_model or self._current_model,
+            model=spec.model or self._current_model,
         )
         return child_agent.as_tool(
-            tool_name=config.name,
-            tool_description=config.description,
+            tool_name=spec.config.name,
+            tool_description=spec.config.description,
             parameters=DelegationTaskInput,
             input_builder=self._build_delegated_task_input,
             on_stream=nested_stream_handler,
@@ -887,6 +1025,85 @@ class OpenAIAgent:
         }
 
     @staticmethod
+    def _resolve_canvas_project_path(ctx: Any, project_path: str | None) -> str | None:
+        normalized_project_path = (project_path or "").strip()
+        if normalized_project_path:
+            return normalized_project_path
+
+        context_mapping = getattr(ctx, "context", None)
+        if not isinstance(context_mapping, dict):
+            return None
+
+        for key in ("projectPath", "workingDirectory"):
+            value = context_mapping.get(key)
+            if isinstance(value, str) and value.strip():
+                return value.strip()
+        return None
+
+    async def _invoke_canvas_tool_impl(self, tool_name: str, args: dict[str, Any]) -> Any:
+        canvas_module = importlib.import_module("..mcp.canvas", package=__package__)
+        impl = getattr(canvas_module, tool_name)
+        result = await impl(args)
+        return self._normalize_canvas_tool_output(result)
+
+    @staticmethod
+    def _normalize_canvas_tool_output(result: Any) -> Any:
+        if not isinstance(result, dict):
+            return result
+
+        content = result.get("content")
+        if not isinstance(content, list):
+            return result
+
+        output_blocks: list[dict[str, str]] = []
+        saw_non_text = False
+        collected_texts: list[str] = []
+
+        for block in content:
+            if not isinstance(block, dict):
+                continue
+            block_type = str(block.get("type") or "").strip().lower()
+            if block_type == "text":
+                text = str(block.get("text") or "").strip()
+                if text:
+                    collected_texts.append(text)
+                    output_blocks.append({"type": "text", "text": text})
+                continue
+            if block_type == "image":
+                image_data = str(block.get("data") or "").strip()
+                if not image_data:
+                    continue
+                mime_type = str(block.get("mimeType") or "image/png").strip() or "image/png"
+                output_blocks.append({
+                    "type": "image",
+                    "image_url": f"data:{mime_type};base64,{image_data}",
+                })
+                saw_non_text = True
+
+        if saw_non_text:
+            return output_blocks or result
+        if collected_texts:
+            return "\n\n".join(collected_texts)
+        return result
+
+    def _resolve_skill_markdown(self, skill_name: str) -> str:
+        skill_path = self._config_loader.config_dir / "skills" / skill_name / "SKILL.md"
+        if not skill_path.exists():
+            raise FileNotFoundError(f"Missing skill file: {skill_path}")
+        return skill_path.read_text(encoding="utf-8-sig").strip()
+
+    def _build_runtime_skill_sections(self, skill_names: tuple[str, ...]) -> str:
+        sections: list[str] = []
+        for skill_name in skill_names:
+            sections.append(
+                "\n\n".join([
+                    f"## Runtime-Assembled Skill: {skill_name}",
+                    self._resolve_skill_markdown(skill_name),
+                ])
+            )
+        return "\n\n".join(sections)
+
+    @staticmethod
     def _build_delegated_task_input(options: dict[str, Any]) -> str:
         params = options.get("params", {})
         task_title = params.get("task_title") if isinstance(params, dict) else ""
@@ -916,8 +1133,8 @@ class OpenAIAgent:
             "- 当前子任务委派使用原生 `Agent.as_tool()`，不是 Claude `Task`。\n"
             f"- 如需只读分析、统计或检索，优先调用 `{_OPENAI_DELEGATE_QUERY_TOOL_NAME}`。\n"
             f"- 如需单一局部修改，调用 `{_OPENAI_DELEGATE_EDIT_TOOL_NAME}`。\n"
-            "- 本阶段只开放 helper agents 与纯 prompt + 本地工具的配置型 agents。\n"
-            "- 依赖 `Skill`、`mcp__canvas__*`、`AskUserQuestion` 或二级委派的配置型 agents 暂不启用。\n"
+            f"- `{_OPENAI_LAYOUT_AGENT_NAME}` 已通过运行时 Skill 装配 + 原生 MCP function tools 定向启用，用于显式单区 generate 子任务。\n"
+            "- 其他依赖 `Skill`、`mcp__canvas__*`、`AskUserQuestion` 或二级委派的配置型 agents 暂不启用。\n"
             "- helper sub-agent 只执行一个明确子任务，并返回简洁中文摘要供主控汇总。\n"
         )
 
@@ -938,18 +1155,39 @@ class OpenAIAgent:
             "不要解释自己是工具，不要输出过程闲聊，只保留完成任务所需的最小文字。"
         )
 
-    @staticmethod
     def _build_configured_agent_instructions(
+        self,
         *,
         config: AgentConfig,
         tool_names: tuple[str, ...],
+        skill_names: tuple[str, ...] = (),
     ) -> str:
         allowed_tools = " / ".join(tool_names) if tool_names else "（无工具，仅基于上下文作答）"
+        project_path = self.project_path or self.working_directory or "（unknown）"
+        working_directory = self.working_directory or self.project_path or "（unknown）"
+        if config.name == _OPENAI_LAYOUT_AGENT_NAME:
+            runtime_skills = " / ".join(skill_names) if skill_names else "（无）"
+            skill_sections = self._build_runtime_skill_sections(skill_names)
+            return (
+                f"{config.prompt}\n\n"
+                "## OpenAI Runtime Adapter Appendix\n"
+                f"- 你是配置型子代理 `{config.name}`，通过原生 Agent.as_tool() 被主控调用。\n"
+                f"- 当前项目路径：{project_path}\n"
+                f"- 当前工作目录：{working_directory}\n"
+                f"- `Skill` 不再作为工具暴露；以下 Skill 原文已装配进你的运行时指令：{runtime_skills}\n"
+                f"- 当前可用工具：{allowed_tools}\n"
+                "- 你可以直接调用上面列出的 `mcp__canvas__*` 原生工具完成单区 planning + placement。\n"
+                "- 禁止与用户交互，禁止 AskUserQuestion，禁止再次委派子代理。\n"
+                "- 若任务合同缺失、事实不一致、或需要语义级改图，直接简洁上报，不要自行改路由。\n\n"
+                f"{skill_sections}"
+            )
         return (
             f"{config.prompt}\n\n"
             "## OpenAI Runtime Adapter Appendix\n"
             f"- 你是配置型子代理 `{config.name}`，通过原生 Agent.as_tool() 被主控调用。\n"
             "- 你只执行主控下发的单一子任务，不自行改写路由。\n"
+            f"- 当前项目路径：{project_path}\n"
+            f"- 当前工作目录：{working_directory}\n"
             f"- 当前可用工具：{allowed_tools}\n"
             "- 禁止与用户交互，禁止 AskUserQuestion，禁止调用 Skill，禁止调用 MCP，禁止再次委派子代理。\n"
             "- 若任务合同不完整或超出职责，直接简洁上报，不要自行补猜。"
@@ -1070,7 +1308,7 @@ class OpenAIAgent:
         enabled_tool_names: list[str],
         inherited_model: str | None,
     ) -> tuple[list[_ConfiguredAgentToolSpec], list[_BlockedConfiguredAgentSpec]]:
-        available_local_tool_names = set(enabled_tool_names) - {"AskUserQuestion"}
+        available_tool_names = set(enabled_tool_names) - {"AskUserQuestion"}
         enabled_specs: list[_ConfiguredAgentToolSpec] = []
         blocked_specs: list[_BlockedConfiguredAgentSpec] = []
         seen_agent_names: set[str] = set()
@@ -1079,6 +1317,7 @@ class OpenAIAgent:
             intrinsic_reasons: list[str] = []
             permission_reasons: list[str] = []
             resolved_tool_names: list[str] = []
+            resolved_skill_names: list[str] = []
 
             if name in seen_agent_names or name in _OPENAI_RESERVED_AGENT_TOOL_NAMES:
                 intrinsic_reasons.append("tool name collision")
@@ -1091,7 +1330,18 @@ class OpenAIAgent:
 
             for tool_name in cfg.tools:
                 if tool_name == "Skill":
-                    intrinsic_reasons.append("Skill")
+                    if name != _OPENAI_LAYOUT_AGENT_NAME:
+                        intrinsic_reasons.append("Skill")
+                        continue
+                    if "Skill" not in available_tool_names:
+                        permission_reasons.append("permission-gated: Skill")
+                        continue
+                    for skill_name in _OPENAI_LAYOUT_AGENT_SKILL_NAMES:
+                        skill_path = self._config_loader.config_dir / "skills" / skill_name / "SKILL.md"
+                        if not skill_path.exists():
+                            intrinsic_reasons.append(f"missing skill: {skill_name}")
+                        elif skill_name not in resolved_skill_names:
+                            resolved_skill_names.append(skill_name)
                     continue
                 if tool_name == "AskUserQuestion":
                     intrinsic_reasons.append("AskUserQuestion")
@@ -1106,12 +1356,18 @@ class OpenAIAgent:
                     intrinsic_reasons.append(tool_name)
                     continue
                 if tool_name.startswith("mcp__"):
-                    intrinsic_reasons.append(tool_name)
+                    if name != _OPENAI_LAYOUT_AGENT_NAME or tool_name not in _OPENAI_LAYOUT_AGENT_MCP_TOOL_ORDER:
+                        intrinsic_reasons.append(tool_name)
+                        continue
+                    if tool_name not in available_tool_names:
+                        permission_reasons.append(f"permission-gated: {tool_name}")
+                        continue
+                    resolved_tool_names.append(tool_name)
                     continue
                 if tool_name not in _OPENAI_PHASE_ONE_LOCAL_TOOL_SET:
                     intrinsic_reasons.append(f"unsupported tool: {tool_name}")
                     continue
-                if tool_name not in available_local_tool_names:
+                if tool_name not in available_tool_names:
                     permission_reasons.append(f"permission-gated: {tool_name}")
                     continue
                 resolved_tool_names.append(tool_name)
@@ -1131,6 +1387,7 @@ class OpenAIAgent:
                     config=cfg,
                     tool_names=tuple(resolved_tool_names),
                     model=resolved_model,
+                    skill_names=tuple(resolved_skill_names),
                 )
             )
 
@@ -1147,16 +1404,17 @@ class OpenAIAgent:
 
         if enabled_specs:
             logger.info(
-                "OpenAI stage 1 registered configured agent tools: %s",
+                "OpenAI runtime registered configured agent tools: %s",
                 "; ".join(
                     f"{spec.config.name} ({', '.join(spec.tool_names) or 'no tools'})"
+                    + (f" + skills[{', '.join(spec.skill_names)}]" if spec.skill_names else "")
                     for spec in enabled_specs
                 ),
             )
 
         if blocked_specs:
             logger.warning(
-                "OpenAI stage 1 keeps some configured agents disabled until later phases: %s",
+                "OpenAI runtime keeps some configured agents disabled until later phases: %s",
                 "; ".join(
                     f"{spec.name} ({', '.join(spec.reasons)})"
                     for spec in blocked_specs
@@ -1165,36 +1423,36 @@ class OpenAIAgent:
 
         self._configured_subagents_logged = True
 
-    def _resolve_phase_one_tool_names(self) -> list[str]:
+    def _resolve_enabled_permission_tool_names(self) -> list[str]:
         allowed_tools, denied_tools = self._config_loader.load_permissions()
 
         if allowed_tools is None:
-            enabled_names = set(_OPENAI_PHASE_ONE_LOCAL_TOOL_SET)
+            enabled_names = set(_OPENAI_SUPPORTED_PERMISSION_TOOL_NAMES)
         else:
             enabled_names = {
                 name
                 for name in allowed_tools
-                if name in _OPENAI_PHASE_ONE_LOCAL_TOOL_SET
+                if name in _OPENAI_SUPPORTED_PERMISSION_TOOL_NAMES
             }
 
         enabled_names -= {
             name
             for name in denied_tools
-            if name in _OPENAI_PHASE_ONE_LOCAL_TOOL_SET
+            if name in _OPENAI_SUPPORTED_PERMISSION_TOOL_NAMES
         }
 
         unsupported_requested = sorted({
             name
             for name in [*(allowed_tools or []), *denied_tools]
-            if name not in _OPENAI_PHASE_ONE_LOCAL_TOOL_SET
+            if name not in _OPENAI_SUPPORTED_PERMISSION_TOOL_NAMES
         })
         if unsupported_requested:
             logger.warning(
-                "OpenAI phase 1 ignored unsupported tools from permissions: %s",
+                "OpenAI runtime ignored unsupported tools from permissions: %s",
                 ", ".join(unsupported_requested),
             )
 
-        return [name for name in _OPENAI_PHASE_ONE_LOCAL_TOOL_ORDER if name in enabled_names]
+        return sorted(enabled_names)
 
     def _validate_requested_model(self, model: str | None) -> None:
         normalized_model = (model or "").strip()
@@ -1243,8 +1501,8 @@ class OpenAIAgent:
         if self._phase_one_scope_logged:
             return
         logger.info(
-            "OpenAI stage 1 enabled: local function tools (%s) plus helper agent tools (%s, %s); "
-            "configured agents/Skill/MCP/handoff remain disabled.",
+            "OpenAI stage 2 enabled: local function tools (%s) plus helper agent tools (%s, %s); "
+            "runtime-adapted layout-agent is enabled via Skill assembly + MCP wrappers, while other Skill/MCP/handoff agents remain disabled.",
             ", ".join(_OPENAI_PHASE_ONE_LOCAL_TOOL_ORDER),
             _OPENAI_DELEGATE_QUERY_TOOL_NAME,
             _OPENAI_DELEGATE_EDIT_TOOL_NAME,

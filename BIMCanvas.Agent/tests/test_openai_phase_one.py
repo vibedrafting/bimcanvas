@@ -266,7 +266,7 @@ def test_build_tools_respects_permissions_and_warns_for_unsupported_entries(
         tools = agent._build_tools(_FakeAgentsModule(), model="gpt-4.1-mini", nested_stream_handler=None)
 
     assert [tool.name for tool in tools] == ["Read", "delegate_query_task", "delegate_edit_task"]
-    assert "OpenAI phase 1 ignored unsupported tools from permissions: Skill, Task, mcp__canvas__validate_layout" in caplog.text
+    assert "OpenAI runtime ignored unsupported tools from permissions: Task" in caplog.text
 
 
 def test_build_tools_registers_supported_configured_agent_tools(
@@ -298,12 +298,35 @@ def test_build_tools_registers_supported_configured_agent_tools(
 
     tool_names = [tool.name for tool in tools]
     assert "inspect-agent" in tool_names
+    assert "layout-agent" in tool_names
     inspect_tool = next(tool for tool in tools if tool.name == "inspect-agent")
+    layout_tool = next(tool for tool in tools if tool.name == "layout-agent")
     assert [tool.name for tool in inspect_tool.nested_agent.tools] == ["Read", "Glob"]
     assert "你负责检查项目文件" in inspect_tool.nested_agent.instructions
     assert "当前可用工具：Read / Glob" in inspect_tool.nested_agent.instructions
-    assert "OpenAI stage 1 registered configured agent tools: inspect-agent (Read, Glob)" in caplog.text
-    assert "layout-agent" in caplog.text
+    assert [tool.name for tool in layout_tool.nested_agent.tools] == [
+        "Read",
+        "Write",
+        "Glob",
+        "Grep",
+        "mcp__canvas__validate_layout",
+        "mcp__canvas__request_background_screenshot",
+        "mcp__canvas__get_zone_boundaries",
+        "mcp__canvas__save_semantic_plan",
+        "mcp__canvas__load_semantic_plan",
+        "mcp__canvas__load_reference_analysis",
+    ]
+    assert "`Skill` 不再作为工具暴露" in layout_tool.nested_agent.instructions
+    assert "当前项目路径：" in layout_tool.nested_agent.instructions
+    assert "Runtime-Assembled Skill: generate-planning" in layout_tool.nested_agent.instructions
+    assert "Runtime-Assembled Skill: generate-placement" in layout_tool.nested_agent.instructions
+    assert "`v0.1` 永远只分析当前户型" in layout_tool.nested_agent.instructions
+    assert "placement 只读取 `v0.3.content`" in layout_tool.nested_agent.instructions
+    assert "AskUserQuestion" not in [tool.name for tool in layout_tool.nested_agent.tools]
+    assert "OpenAI runtime registered configured agent tools:" in caplog.text
+    assert "inspect-agent (Read, Glob)" in caplog.text
+    assert "layout-agent (" in caplog.text
+    assert "skills[generate-planning, generate-placement]" in caplog.text
 
 
 def test_build_tools_blocks_configured_agents_with_permission_gaps_or_disabled_capabilities(
@@ -343,14 +366,116 @@ def test_build_tools_blocks_configured_agents_with_permission_gaps_or_disabled_c
     tool_names = [tool.name for tool in tools]
     assert "editor-agent" not in tool_names
     assert "question-agent" not in tool_names
-    assert "OpenAI stage 1 keeps some configured agents disabled until later phases:" in caplog.text
+    assert "layout-agent" not in tool_names
+    assert "OpenAI runtime keeps some configured agents disabled until later phases:" in caplog.text
     assert "editor-agent (permission-gated: Write)" in caplog.text
     assert "question-agent (AskUserQuestion)" in caplog.text
-    assert (
-        "layout-agent (Skill, mcp__canvas__validate_layout, mcp__canvas__request_background_screenshot, "
-        "mcp__canvas__get_zone_boundaries, mcp__canvas__save_semantic_plan, "
-        "mcp__canvas__load_semantic_plan, mcp__canvas__load_reference_analysis)"
-    ) in caplog.text
+    assert "layout-agent (" in caplog.text
+    assert "permission-gated: Skill" in caplog.text
+    assert "permission-gated: mcp__canvas__validate_layout" in caplog.text
+    assert "permission-gated: mcp__canvas__load_semantic_plan" in caplog.text
+
+
+def test_build_tools_keeps_non_layout_skill_agents_blocked(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    home = _prepare_bimcanvas_home(tmp_path)
+    _write_agent_md(
+        home,
+        name="render-agent",
+        description="尝试依赖 Skill 与 MCP 的其他 agent",
+        tools=["Read", "Skill", "mcp__canvas__validate_layout"],
+        prompt="你负责渲染检查。",
+    )
+    _configure_test_home(monkeypatch, home)
+    _install_fake_tool_context(monkeypatch)
+    _set_openai_runtime_config(
+        home,
+        model_mapping={"gpt-4.1": {"id": "gpt-4.1", "label": "GPT-4.1"}},
+        permissions={"allow": None, "deny": ["Task"]},
+    )
+    _set_web_default_model(home, "gpt-4.1")
+    _reset_config_caches()
+
+    agent = OpenAIAgent(project_path=str(tmp_path), working_directory=str(tmp_path))
+    with caplog.at_level(logging.WARNING):
+        tools = agent._build_tools(_FakeAgentsModule(), model="gpt-4.1", nested_stream_handler=None)
+
+    tool_names = [tool.name for tool in tools]
+    assert "layout-agent" in tool_names
+    assert "render-agent" not in tool_names
+    assert "render-agent (Skill, mcp__canvas__validate_layout)" in caplog.text
+
+
+def test_openai_canvas_wrappers_translate_runtime_context_and_shortcuts(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    home = _prepare_bimcanvas_home(tmp_path)
+    _configure_test_home(monkeypatch, home)
+    _install_fake_tool_context(monkeypatch)
+    _set_openai_runtime_config(
+        home,
+        model_mapping={"gpt-4.1": {"id": "gpt-4.1", "label": "GPT-4.1"}},
+        permissions={"allow": None, "deny": ["Task"]},
+    )
+    _set_web_default_model(home, "gpt-4.1")
+    _reset_config_caches()
+
+    captured_calls: list[tuple[str, dict[str, object]]] = []
+
+    async def fake_invoke(tool_name: str, args: dict[str, object]) -> str:
+        captured_calls.append((tool_name, args))
+        return "ok"
+
+    agent = OpenAIAgent(project_path=str(tmp_path), working_directory=str(tmp_path))
+    monkeypatch.setattr(agent, "_invoke_canvas_tool_impl", fake_invoke)
+    tool_map = agent._build_local_function_tool_map(_FakeAgentsModule())
+
+    screenshot_tool = tool_map["mcp__canvas__request_background_screenshot"]
+    validate_tool = tool_map["mcp__canvas__validate_layout"]
+
+    screenshot_result = asyncio.run(
+        screenshot_tool.fn(
+            SimpleNamespace(context={"projectPath": "C:/demo/project"}),
+            zoneId="rz_1",
+        )
+    )
+    validate_result = asyncio.run(
+        validate_tool.fn(
+            SimpleNamespace(context={}),
+            zoneId="rz_1",
+        )
+    )
+
+    assert screenshot_result == "ok"
+    assert validate_result == "ok"
+    assert captured_calls == [
+        (
+            "request_background_screenshot",
+            {"projectPath": "C:/demo/project", "viewport": {"id": "rz_1"}},
+        ),
+        (
+            "validate_layout",
+            {"zoneIds": ["rz_1"]},
+        ),
+    ]
+
+
+def test_openai_canvas_output_normalization_preserves_images_for_vision() -> None:
+    normalized = OpenAIAgent._normalize_canvas_tool_output({
+        "content": [
+            {"type": "image", "data": "YWJj", "mimeType": "image/png"},
+            {"type": "text", "text": "截图已完成"},
+        ]
+    })
+
+    assert normalized == [
+        {"type": "image", "image_url": "data:image/png;base64,YWJj"},
+        {"type": "text", "text": "截图已完成"},
+    ]
 
 
 def test_openai_settings_require_api_key(
