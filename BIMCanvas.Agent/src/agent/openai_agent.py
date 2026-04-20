@@ -1713,12 +1713,6 @@ class OpenAIAgent:
         blocked_specs: list[_BlockedConfiguredAgentSpec] = []
         seen_agent_names: set[str] = set()
 
-        # BIMCanvas OpenAI Runtime v0.1 收口：chat_completions 是主路径，configured subagents
-        # （含 layout-agent）在该模式下不注册为 Agent.as_tool，诚实返回"不可用原因"而非用
-        # helper worker 冒充。responses + 官方 OpenAI endpoint 下保留原有实验性 opt-in 行为。
-        current_settings = get_settings()
-        chat_completions_main_path = current_settings.openai_api == "chat_completions"
-
         for name, cfg in self._config_loader.load_agents().items():
             intrinsic_reasons: list[str] = []
             permission_reasons: list[str] = []
@@ -1726,10 +1720,6 @@ class OpenAIAgent:
             resolved_skill_names: list[str] = []
             required_permission_names: list[str] = []
             uses_runtime_adapted_layout_agent = name == _OPENAI_LAYOUT_AGENT_NAME
-            if uses_runtime_adapted_layout_agent and chat_completions_main_path:
-                intrinsic_reasons.append(
-                    "layout-agent unsupported under openai chat_completions main path (BIMCanvas v0.1)"
-                )
             parsed_requirements = parse_configured_agent_requirements(
                 cfg,
                 known_local_tool_names=set(_OPENAI_PHASE_ONE_LOCAL_TOOL_ORDER),

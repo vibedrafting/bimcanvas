@@ -10,15 +10,18 @@
 
 **本文档的方向已收口。** 后续章节中关于"as_tool 语义站稳 / 继续深化 nested child / 把 responses 作为默认主路"等叙述是 v0.1 之前的阶段性设计，**不再作为当前实施方向**。如果上下文相互冲突，以本节为准。
 
+**收口哲学（重要）**：**Runtime 不预判、不拦截、不秒回**。BIMCanvas 层不在 chat_completions 下预先把 `layout-agent` 等 configured subagent 踢出注册名单，也不在用户显式请求时用预制文案冒充真实执行。是否跑通由底层 OpenAI Agents SDK + provider 的真实行为决定——跑通就跑通，跑不通就让错误自然冒泡，不做掩盖，也不做掩饰。
+
 **收口后的 OpenAI Runtime**（面向第三方 OpenAI-compatible provider 友好的轻量 Runtime）：
 
 - **主路径**：`chat_completions` + streaming + root agent + 普通本地 tools（这是 `config.json > openaiApi` 的新默认值）。
-- **不承诺**：`layout-agent` 与任何 configured subagent 的稳定性。chat_completions 主路下 `layout-agent` 不注册（`_resolve_configured_agent_tool_specs` 入口直接将其加入 `blocked_specs`），显式请求时走现有"blocked + honest unavailable reason"路径，不会用 helper worker 冒充。
-- **降级声明**：`providers.py` 中 OpenAI 的 `subtask_causality` 由 `optional` 降为 `unsupported`，前端按 `hide-subtask-activity-panel` 降级。
-- **实验性 opt-in**：`responses` 模式保留，但只允许与 **官方 OpenAI endpoint**（`api.openai.com/v1`）搭配；第三方 endpoint + `responses` 在 `Settings.load()` 阶段直接 `ValueError`，不再静默降级为 `Runner.run()` 非流式缓冲。
-- **不做的事**：不改 Host 主契约（`docs/Agent_API_Contract.md` 的 `MainStreamEvent` / `subtask.*` / `/api/interaction` shape 冻结）；不拆共享配置资产（`agents/*.md`、`skills/*/SKILL.md`、MCP 定义保留单一来源）；不新增"Host 接管 child/subtask 执行"机制。
+- **稳定承诺的能力**：文本对话、图片输入、`AskUserQuestion → PendingInteraction → RunState resume`、本地 function tools。
+- **保留但不作稳定承诺**：`layout-agent` 与所有 configured subagent、helper workers 仍按共享权限 + SDK 原生 `Agent.as_tool()` 注册路径挂载。v0.1 不承诺它们在第三方 provider 下的稳定性（`nested child + on_stream + summary 提取`的已知脆弱性见 `reports/...`），但也不做任何预先阻止——真实结果由 SDK + provider 决定。
+- **降级声明**：`providers.py` 中 OpenAI 的 `subtask_causality` 由 `optional` 降为 `unsupported`，前端按 `hide-subtask-activity-panel` 降级，不预期 subtask 气泡端到端完整可见。
+- **启动时事实性校验（非运行时拦截）**：`openaiApi = "responses"` + 非官方 OpenAI endpoint 的组合在 `Settings.load()` 直接 `ValueError`——给用户明确的配置错误提示，避免静默降级成非流式 fallback。
+- **不做的事**：不改 Host 主契约（`docs/Agent_API_Contract.md` 的 `MainStreamEvent` / `subtask.*` / `/api/interaction` shape 冻结）；不拆共享配置资产（保留单一来源）；不新增"Host 接管 child/subtask 执行"机制；**不在 `_resolve_configured_agent_tool_specs` 等运行时决策点加入 provider/模式敏感的硬编码拦截**。
 
-**为什么这样收口**：`reports/OpenAI_Runtime_ThirdParty_LayoutAgent_Compatibility_Report.md` §4.1-4.4 与上游 issues（#864、#601、#1179、#1575、#2257）都指向——`responses + nested child + on_stream + summary 提取`在第三方 provider 下是高风险组合。本轮不压在"让 layout-agent 在 OpenAI Runtime 下稳定跑通"这个目标上，而是把 OpenAI Runtime 收口为一套边界清楚、能诚实兑现的 Runtime。详见 `plans/MultiAgentRuntime_Requirements.md §5.2 / §6.4 / §10` 与 `C:\Users\huhaonan\.claude\plans\bimcanvas-openai-lexical-dream.md`。
+**为什么这样收口**：`reports/OpenAI_Runtime_ThirdParty_LayoutAgent_Compatibility_Report.md` §4.1-4.4 与上游 issues（#864、#601、#1179、#1575、#2257）都指向——`responses + nested child + on_stream + summary 提取`在第三方 provider 下是高风险组合。但 v0.1 选择"诚实声明 + 不预判拦截"而不是"预先把 subagent 踢出"——后者是另一种隐形硬编码，会掩盖真实运行时行为的演进。本轮把 OpenAI Runtime 收口为一套"默认配置安全、capability 诚实、真实失败可见"的 Runtime。详见 `plans/MultiAgentRuntime_Requirements.md §5.2 / §6.4 / §10` 与 `C:\Users\huhaonan\.claude\plans\bimcanvas-openai-lexical-dream.md`。
 
 ---
 

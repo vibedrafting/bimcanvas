@@ -175,7 +175,7 @@ _OPENAI_CAPABILITY_MATRIX: tuple[dict[str, Any], ...] = (
         "level": "unsupported",
         "providerMapping": None,
         "frontendFallback": "hide-subtask-activity-panel",
-        "notes": "BIMCanvas OpenAI Runtime v0.1 收口为 chat_completions + streaming 主路径。configured subagents（含 layout-agent）在 chat_completions 下不注册；helper workers（delegate_query_task/delegate_edit_task）保留 SDK 原生 Agent.as_tool() 机制，但其 subtask 事件链在第三方 OpenAI-compatible provider 下不作完整可见性承诺，前端走 hide-subtask-activity-panel 降级。responses + 官方 OpenAI endpoint 下保留 layout-agent 作为实验性 opt-in，不作稳定承诺。",
+        "notes": "BIMCanvas OpenAI Runtime v0.1 收口为 chat_completions + streaming 主路径。configured subagents（含 layout-agent）与 helper workers 仍按 SDK 原生 Agent.as_tool() 机制注册，Runtime 不预判、不拦截、不秒回——是否跑通取决于底层 SDK + provider 的真实行为。第三方 OpenAI-compatible provider 下 nested child + on_stream + summary 提取的已知脆弱性不作稳定性承诺；若失败则错误自然冒泡到前端，不做掩盖。前端按 hide-subtask-activity-panel 降级。",
     },
     {
         "capabilityKey": "trace",

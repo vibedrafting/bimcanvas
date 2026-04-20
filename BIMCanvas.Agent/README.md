@@ -174,7 +174,7 @@ data: [DONE]
 
 - `text_stream` / `tool_call_lifecycle` / `interaction_query` / `interaction_submit` / `interaction_cancel` / `question_pause_resume` / `screenshot_async`：`required`
 - `thinking`：`optional`
-- `subtask_causality`：Claude 为 `optional`；OpenAI v0.1 收口后为 `unsupported`（chat_completions 主路下 configured subagents 不注册，helper workers 保留但不承诺完整 subtask 可见性，前端按 `hide-subtask-activity-panel` 降级）
+- `subtask_causality`：Claude 为 `optional`；OpenAI v0.1 收口后为 `unsupported`（Runtime 不预判、不拦截 subagent 调用，但也不承诺稳定性——真实结果由底层 SDK + provider 决定；前端按 `hide-subtask-activity-panel` 降级）
 - `usage` / `trace` / `permission_pause_resume`：`unsupported`
 
 ### Runtime 选择
@@ -219,32 +219,27 @@ OpenAI 首版适配走原生 `FunctionTool(needs_approval=True) + RunState` 路�
 
 ### OpenAI 当前范围（v0.1 收口）
 
-**主路径**：`chat_completions` + streaming + root agent + 普通本地 tools。这是 OpenAI Runtime 当前唯一对外承诺的路径，面向第三方 OpenAI-compatible provider 也能稳定跑起来。
+**主路径**：`chat_completions` + streaming + root agent + 普通本地 tools。这是 OpenAI Runtime 当前唯一对外作稳定承诺的路径，面向第三方 OpenAI-compatible provider 也能跑起来。
 
-**支持的能力**：
+**收口哲学（重要）**：**Runtime 不预判、不拦截、不秒回**。BIMCanvas 层不会在 `chat_completions` 下预先把 `layout-agent` 等 configured subagent 踢出注册名单，也不会在用户显式请求时用预制文案替代真实运行。是否能跑通，由底层 OpenAI Agents SDK + provider 的真实行为决定——跑通就跑通，跑不通就让错误自然冒泡到前端，不做掩盖，也不做掩饰。
 
-- 支持文本对话（流式 `response.output_text.delta` 实时投影）
-- 支持图片输入
-- 支持 `AskUserQuestion -> PendingInteractionRecord -> RunState resume`
+**稳定承诺的能力**：
+
+- 文本对话（流式 `response.output_text.delta` 实时投影）
+- 图片输入
+- `AskUserQuestion -> PendingInteractionRecord -> RunState resume`
 - Root Agent 注册本地 function tools：`Read / Write / Edit / Glob / Grep / Bash / AskUserQuestion`
-- Root Agent 额外挂载两个 native helper sub-agents（保留 SDK 原生 `Agent.as_tool()` 语义，`MultiAgentRuntime_Requirements §6.1`）：
-  - `delegate_query_task`：只读子任务
-  - `delegate_edit_task`：单一编辑子任务
-  - 注意：helper workers 的 subtask 事件链在第三方 provider 下**不作完整可见性承诺**，前端按 `hide-subtask-activity-panel` 降级
 
-**不承诺的能力（v0.1 诚实声明）**：
+**保留但不作稳定承诺的能力**（按 SDK 原生机制注册，真实跑起来的结果由 provider 决定）：
 
-- **`layout-agent` 在 `chat_completions` 主路下不注册**。底层依赖 `Agent.as_tool(on_stream=...) + nested child + summary 提取`这一组合在第三方 OpenAI-compatible provider 下已知不稳（详见 `reports/OpenAI_Runtime_ThirdParty_LayoutAgent_Compatibility_Report.md`）。
-  - 用户显式点名 `layout-agent` 时，OpenAI runtime **直接返回不可用原因**，不会用 `delegate_query_task` / `delegate_edit_task` 冒充。
-  - 共享配置资产（`agents/layout-agent.md`、`skills/*/SKILL.md`、MCP 定义）仍单一来源保留（`§5.1`）；变化的只是 OpenAI Runtime 在 v0.1 对这份资产的**消费策略**。
-- `Task` 兼容壳：不注册。
-- root 级 `mcp__canvas__*` / 独立 `Skill / Plugin` 工具：不暴露。
-- 完整 subtask causality（`subtask.*` 事件链的端到端可见性）：在 `providers.py` capability matrix 中声明为 `unsupported`。
+- helper sub-agents（`delegate_query_task` / `delegate_edit_task`）—— SDK 原生 `Agent.as_tool()`，`MultiAgentRuntime_Requirements §6.1`。
+- configured subagents（包括 `layout-agent`）—— 仍按共享权限 + 运行时 Skill 装配 + MCP wrapper 注入的原有路径注册。第三方 OpenAI-compatible provider 下 `nested child + on_stream + summary 提取`的已知脆弱性见 `reports/OpenAI_Runtime_ThirdParty_LayoutAgent_Compatibility_Report.md`。前端 `subtask_causality` 已降为 `unsupported` 并按 `hide-subtask-activity-panel` 降级，不预期 subtask 气泡的端到端完整可见性。
+- 共享配置资产（`agents/layout-agent.md`、`skills/*/SKILL.md`、MCP 定义）—— 保留单一来源（`§5.1`）。
 
-**可选实验路径**：
+**仍保留的启动时事实性校验**（只发生在 `Settings.load()`，不是运行时拦截）：
 
-- 显式设置 `config.json > openaiApi = "responses"` + `baseUrl` 指向 **官方 OpenAI endpoint**（`api.openai.com/v1`）时，保留原有的 `Agent.as_tool()` 注册逻辑，包括 `layout-agent` 的运行时 Skill 装配与 MCP wrapper 注入，作为**实验性 opt-in**，不作稳定承诺。
-- **第三方 endpoint + `responses`** 组合：Agent 启动时会直接 `ValueError`，引导切回 `chat_completions`（默认）或官方 endpoint——不再静默降级为非流式缓冲模式，避免"看起来能跑但实际不可靠"。
+- `openaiApi = "responses"` + `baseUrl` 非官方 OpenAI endpoint 的组合 → 启动 `ValueError`。这是给用户一个明确的配置错误提示，而不是静默降级成非流式 fallback。要么切 `chat_completions`（默认），要么把 `baseUrl` 指向官方 OpenAI endpoint。
+- 其它启动校验（Claude 模型别名、model id 一致性等）维持不变。
 
 ### ControlPlane 错误语义
 
@@ -666,7 +661,7 @@ Host 进程内的运行时真相源：
 - `openaiDisableTracing` 仅在 `runtimeProvider=openai-agents` 时生效；第三方 endpoint 默认关闭 tracing，避免把第三方 key 误发到 OpenAI traces 接口。
 - OpenAI runtime 会对 `permissions.allow/deny` 执行“配置权限 ∩ 当前适配支持集”裁剪。
   当前支持集包含本地 function tools（`Read / Write / Edit / Glob / Grep / Bash / AskUserQuestion`）；`Task` 与其它未适配工具仍会被忽略，并在启动日志中提示。
-- `chat_completions` 主路下：`layout-agent` 不注册（显式请求会诚实返回不可用原因），共享配置资产保留单一来源；实验性 `responses + 官方 endpoint` 路径下仍保留原有 `layout-agent` 运行时装配逻辑，不作稳定承诺。
+- `configured subagents`（含 `layout-agent`）在任何 `openaiApi` 值下都按原有共享权限 + 运行时装配逻辑注册，Runtime 不做预判拦截。但 v0.1 对它们不作稳定承诺——第三方 provider + `Agent.as_tool(on_stream=...)` 的已知脆弱性会让调用有较高失败概率，失败时错误自然冒泡到前端。
 
 #### SubAgent 配置格式 (agents/*.md)
 
