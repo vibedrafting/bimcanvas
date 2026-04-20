@@ -25,7 +25,7 @@ namespace BIMCanvas.Server.Services
         {
             _logger = logger;
             _runtimeEndpointState = runtimeEndpointState;
-            _configuredAgentBaseUrl = config.Agent.GetResolvedBaseUrl(config.Server.Port);
+            _configuredAgentBaseUrl = config.Agent.GetResolvedBaseUrl();
             _agentHealthPath = config.Agent.GetResolvedHealthPath();
         }
 

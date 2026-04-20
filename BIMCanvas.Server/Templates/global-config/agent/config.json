@@ -29,9 +29,5 @@
             "mcp__canvas__load_reference_analysis"
         ],
         "deny": []
-    },
-    "server": {
-        "host": "127.0.0.1",
-        "port": 8865
     }
 }

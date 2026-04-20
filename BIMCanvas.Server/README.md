@@ -50,8 +50,9 @@ docker compose -f deploy/docker-compose.yml -f deploy/docker-compose.local.yml u
 
 | 配置 | 位置 | 默认值 | 说明 |
 |------|------|--------|------|
-| API 端口 | `launchSettings.json` | `5000` | REST API 首选端口，运行时若被外部进程占用会顺序避让 |
-| Web 开发端口 | 自动检测 | `5173` | Development 模式下 Vite dev server 首选端口，运行时会顺序避让 |
+| API 端口 | `<BIMCANVAS_HOME>/server_config.json > server.port` | `5000` | REST API 首选端口，运行时若被外部进程占用会顺序避让 |
+| Web 开发端口 | `<BIMCANVAS_HOME>/server_config.json > web.port` | `5173` | Development 模式下 Vite dev server 首选端口，运行时会顺序避让 |
+| Agent 端口 | `<BIMCANVAS_HOME>/server_config.json > agent.port` | `8865` | 托管启动 Agent 时使用的监听端口 |
 | 项目目录 | `<BIMCANVAS_HOME>/Projects/` | Windows: `Documents/BIMCanvas/Projects/` | 项目解压目录 |
 | CCR 配置 | `<BIMCANVAS_HOME>/server_config.json` | `enabled=false` | 网关启用、端口 |
 | CCR Router 配置 | `<BIMCANVAS_HOME>/ccr_config.json` | 自动初始化 | 供应商 / 模型路由映射 |
@@ -73,8 +74,10 @@ docker compose -f deploy/docker-compose.yml -f deploy/docker-compose.local.yml u
 
 其中：
 
+- `server_config.json` 统一管理 `server/web/agent/ccr` 四类运行端口与启动行为
 - `web_config.json` 默认按热更新处理
 - `config.json`、`server_config.json`、`ccr_config.json` 默认按“保存后需重启实例”处理
+- `config.json` 不再包含 Agent 监听地址；Agent 监听端口由 `server_config.json > agent.port` 管理，运行时仍由 Server 通过环境变量注入
 - `*.dev.local.json` 仅用于 Development 启动早期的首次初始化种子，不属于设置 UI 的回写目标
 - `ccr_config.dev.local.json` 只负责在 `ccr_config.json` 首次创建时提供 provider/router 种子；是否启用 CCR 仍由 `server_config.json > ccr.enabled` 决定
 
@@ -158,7 +161,7 @@ v3.0 采用"文件驱动架构"，Server 从"内存数据库"模式转型为"文
 BIMCanvas.Server/
 ├── Program.cs                    ✅ 入口（REST Host + 自动启动 Web）
 ├── Properties/
-│   └── launchSettings.json       ✅ 启动配置（端口 5000）
+│   └── launchSettings.json       ✅ 开发态启动 Profile（host/环境变量）
 │
 ├── Controllers/                  【REST API】
 │   ├── ProjectController.cs      ✅【v3.0】项目数据聚合 API

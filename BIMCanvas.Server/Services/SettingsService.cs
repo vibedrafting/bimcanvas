@@ -22,6 +22,8 @@ public sealed class SettingsService
 
     private static readonly IReadOnlyList<SettingsFieldDto> ServerFields =
     [
+        new() { Path = "server.port", Label = "Server 监听端口", ApplyMode = "restart" },
+        new() { Path = "web.port", Label = "Web 开发端口", ApplyMode = "restart" },
         new() { Path = "agent.autoStart", Label = "自动启动内置 Agent", ApplyMode = "restart" },
         new() { Path = "agent.baseUrl", Label = "Agent 基址", ApplyMode = "restart" },
         new() { Path = "agent.healthPath", Label = "Agent 健康检查路径", ApplyMode = "restart" },
@@ -49,9 +51,7 @@ public sealed class SettingsService
         new() { Path = "apiKey", Label = "API Key", ApplyMode = "restart", Sensitive = true },
         new() { Path = "defaultEffort", Label = "默认 Effort", ApplyMode = "restart" },
         new() { Path = "defaultThinking", Label = "默认 Thinking", ApplyMode = "restart" },
-        new() { Path = "maxThinkingTokens", Label = "最大 Thinking Tokens", ApplyMode = "restart" },
-        new() { Path = "server.host", Label = "监听主机", ApplyMode = "restart" },
-        new() { Path = "server.port", Label = "监听端口", ApplyMode = "restart" }
+        new() { Path = "maxThinkingTokens", Label = "最大 Thinking Tokens", ApplyMode = "restart" }
     ];
 
     private static readonly IReadOnlyList<SettingsFieldDto> CcrFields =
@@ -271,7 +271,9 @@ public sealed class SettingsService
     private static JObject ValidateAgent(JObject input)
     {
         EnsureObject(input, "config.json");
-        return Clone(input);
+        var clone = Clone(input);
+        clone.Remove("server");
+        return clone;
     }
 
     private static JObject ValidateCcr(JObject input)
@@ -310,9 +312,11 @@ public sealed class SettingsService
 
     private static JObject LoadAgentValues()
     {
-        return LoadJsonObject(
+        var values = LoadJsonObject(
             ConfigService.GetAgentConfigPath(),
             () => new JObject());
+        values.Remove("server");
+        return values;
     }
 
     private static JObject LoadCcrValues()

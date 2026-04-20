@@ -53,7 +53,6 @@ class Settings:
         """从配置文件加载运行时设置。"""
         loader = get_config_loader()
         config = loader.load_config()
-        server = config.get('server', {})
 
         # 从配置文件读取
         direct_api_key = config.get('apiKey', '')
@@ -68,8 +67,8 @@ class Settings:
         raw_thinking_tokens = config.get('maxThinkingTokens', None)
         max_thinking_tokens = None if raw_thinking_tokens in (None, '', -1) else int(raw_thinking_tokens)
         tools = config.get('tools', ['Read', 'Glob', 'Grep', 'Task'])
-        host = server.get('host', '127.0.0.1')
-        port = server.get('port', 8865)
+        host = '127.0.0.1'
+        port = 8865
         ccr_managed = runtime_provider != OPENAI_RUNTIME_ID and _is_ccr_managed_mode()
 
         # 模型映射（两种模式都加载，用于 /api/config 返回下拉菜单）

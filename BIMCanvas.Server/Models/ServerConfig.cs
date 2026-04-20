@@ -6,6 +6,7 @@ namespace BIMCanvas.Server.Models;
 public class ServerConfig
 {
     public ServerSection Server { get; set; } = new();
+    public WebSection Web { get; set; } = new();
     public AgentSection Agent { get; set; } = new();
     public StartupSection Startup { get; set; } = new();
     public CcrSection Ccr { get; set; } = new();
@@ -17,16 +18,20 @@ public class ServerConfig
 public class ServerSection
 {
     /// <summary>
-    /// 历史字段：旧版 Agent 服务端口（默认 8865）
-    /// 新配置应改用 agent.port
+    /// BIMCanvas.Server HTTP 监听端口
     /// </summary>
-    public int Port { get; set; } = 8865;
+    public int Port { get; set; } = 5000;
+}
 
+/// <summary>
+/// Web 开发服务器配置
+/// </summary>
+public class WebSection
+{
     /// <summary>
-    /// 历史字段：旧版 Agent 启动 Python 命令（默认 python）
-    /// 新配置应改用 agent.pythonCommand
+    /// Development 模式下 Vite dev server 首选端口
     /// </summary>
-    public string PythonCommand { get; set; } = "python";
+    public int Port { get; set; } = 5173;
 }
 
 /// <summary>
@@ -59,7 +64,7 @@ public class AgentSection
     /// </summary>
     public string PythonCommand { get; set; } = "python";
 
-    public string GetResolvedBaseUrl(int? legacyPort = null)
+    public string GetResolvedBaseUrl()
     {
         var normalized = (BaseUrl ?? string.Empty).Trim().TrimEnd('/');
         if (!string.IsNullOrWhiteSpace(normalized))
@@ -67,7 +72,7 @@ public class AgentSection
             return normalized;
         }
 
-        var port = Port > 0 ? Port : (legacyPort.GetValueOrDefault() > 0 ? legacyPort!.Value : 8865);
+        var port = Port > 0 ? Port : 8865;
         return $"http://127.0.0.1:{port}";
     }
 
@@ -82,12 +87,12 @@ public class AgentSection
         return path.StartsWith('/') ? path : $"/{path}";
     }
 
-    public int GetResolvedPort(int? legacyPort = null)
+    public int GetResolvedPort()
     {
-        return Port > 0 ? Port : (legacyPort.GetValueOrDefault() > 0 ? legacyPort!.Value : 8865);
+        return Port > 0 ? Port : 8865;
     }
 
-    public string GetResolvedPythonCommand(string? legacyPythonCommand = null)
+    public string GetResolvedPythonCommand()
     {
         var pythonCommand = (PythonCommand ?? string.Empty).Trim();
         if (!string.IsNullOrWhiteSpace(pythonCommand))
@@ -95,7 +100,7 @@ public class AgentSection
             return pythonCommand;
         }
 
-        return string.IsNullOrWhiteSpace(legacyPythonCommand) ? "python" : legacyPythonCommand.Trim();
+        return "python";
     }
 }
 

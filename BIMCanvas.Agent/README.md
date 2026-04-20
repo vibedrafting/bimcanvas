@@ -645,8 +645,7 @@ Host 进程内的运行时真相源：
   "permissions": {
     "allow": ["Read", "Glob", "Grep", "Task", "AskUserQuestion"],
     "deny": []
-  },
-  "server": { "host": "127.0.0.1", "port": 8865 }
+  }
 }
 ```
 
@@ -704,7 +703,7 @@ model: inherit
 | `SERVER_HOST` | 覆盖服务地址 |
 | `SERVER_PORT` | 覆盖服务端口 |
 
-**说明**：当 Agent 由 BIMCanvas.Server 托管启动且 `ccr.enabled=true` 时，上述 CCR 模式相关环境变量通常都由 Server 注入，无需手工写入 `.env`。
+**说明**：当 Agent 由 BIMCanvas.Server 托管启动时，`SERVER_HOST` / `SERVER_PORT` 由 Server 注入，无需再在 `config.json` 中声明监听地址；CCR 模式下的网关环境变量也通常由 Server 注入，无需手工写入 `.env`。
 
 ## 开发状态
 

@@ -30,8 +30,8 @@ dotnet run --project BIMCanvas.Server
 
 默认行为：
 
-- 启动 Server API：默认首选 `http://localhost:5000`，若端口被外部进程占用会顺序避让到下一个可用端口
-- 自动拉起 Web 开发服务器：默认首选 `http://localhost:5173`，若端口被外部进程占用会顺序避让到下一个可用端口
+- 启动 Server API：默认首选 `http://localhost:5000`（由 `<BIMCANVAS_HOME>/server_config.json > server.port` 管理），若端口被外部进程占用会顺序避让到下一个可用端口
+- 自动拉起 Web 开发服务器：默认首选 `http://localhost:5173`（由 `<BIMCANVAS_HOME>/server_config.json > web.port` 管理），若端口被外部进程占用会顺序避让到下一个可用端口
 - 自动启动 Agent 服务
 - Agent 开发态请求统一经由 `Server /agent` 代理转发，不再要求前端固定直连 `8865`
 - 自动打开浏览器
@@ -45,6 +45,7 @@ dotnet run --project BIMCanvas.Server
 
 - 直连快测：把测试 `baseUrl`、`apiKey` 写入 `config.dev.local.json`
 - CCR 快测：把测试 `Providers`、`Router` 写入 `ccr_config.dev.local.json`，并在设置 UI 或 `server_config.json` 中启用 `ccr.enabled=true`
+- Agent 监听端口统一由 `server_config.json > agent.port` 管理，`config.json` 不再声明 `server.host/server.port`
 - 这两份文件只在对应运行时配置文件首次创建时作为初始化种子读取一次
 - 只要 `config.json` / `ccr_config.json` 已存在，后续启动一律以运行时文件本身为准
 - 它们不进仓库，也不是设置 UI 的长期真源
@@ -63,8 +64,8 @@ dotnet publish BIMCanvas.Server -c Release -o publish
 
 | 服务 | 地址 | 说明 |
 |------|------|------|
-| Server API | 默认首选 http://localhost:5000 | REST + SignalR 后端，冲突时自动顺序避让 |
-| Web 前端 | 默认首选 http://localhost:5173 | 自动启动并打开浏览器，冲突时自动顺序避让 |
+| Server API | 默认首选 http://localhost:5000 | 由 `server_config.json > server.port` 管理，冲突时自动顺序避让 |
+| Web 前端 | 默认首选 http://localhost:5173 | 由 `server_config.json > web.port` 管理，自动启动并打开浏览器，冲突时自动顺序避让 |
 | Agent 服务 | 后台进程 | 自动启动（需 Python 环境） |
 
 > 发布路径必须为项目根目录下的 `publish/` 文件夹（`-o publish`）。项目绝对路径因电脑而异，命令中无需写绝对路径，在项目根目录执行即可。

@@ -136,12 +136,14 @@ var baseDir = AppContext.BaseDirectory;
 var agentProjectPath = FindAgentProjectPath(baseDir);
 var webProjectPath = FindWebProjectPath(baseDir);
 var agentAutoStart = config.Agent.AutoStart;
-var agentPort = config.Agent.GetResolvedPort(config.Server.Port);
-var agentBaseUrl = config.Agent.GetResolvedBaseUrl(config.Server.Port);
+var configuredWebPort = config.Web.Port > 0 ? config.Web.Port : 5173;
+var agentPort = config.Agent.GetResolvedPort();
+var agentBaseUrl = config.Agent.GetResolvedBaseUrl();
 var agentManagedByServer = agentAutoStart && IsLocalDevelopmentOrigin(agentBaseUrl);
-var pythonCommand = config.Agent.GetResolvedPythonCommand(config.Server.PythonCommand);
+var pythonCommand = config.Agent.GetResolvedPythonCommand();
 var runtimeEndpointState = new RuntimeEndpointState();
-var configuredServerBinding = ResolveConfiguredServerBinding(builder.Configuration);
+var configuredServerBinding = ResolveConfiguredServerBinding(builder.Configuration, config.Server.Port);
+builder.Configuration["BIMCANVAS_WEB_URL"] = BuildUrl(Uri.UriSchemeHttp, "localhost", configuredWebPort);
 var resolvedServerPort = ResolveManagedPort(
     "Server",
     configuredServerBinding.ListenHost,
@@ -540,7 +542,7 @@ Process? ccrProcess = null;
             "Agent",
             managedByServer: true,
             autoShifted: resolvedAgentPort.AutoShifted,
-            configuredUrl: config.Agent.GetResolvedBaseUrl(config.Server.Port),
+            configuredUrl: config.Agent.GetResolvedBaseUrl(),
             actualUrl: agentBaseUrl,
             configuredPort: resolvedAgentPort.PreferredPort,
             actualPort: resolvedAgentPort.ActualPort));
@@ -634,7 +636,7 @@ Process? ccrProcess = null;
                 "Agent",
                 managedByServer: true,
                 autoShifted: resolvedAgentPort.AutoShifted,
-                configuredUrl: config.Agent.GetResolvedBaseUrl(config.Server.Port),
+                configuredUrl: config.Agent.GetResolvedBaseUrl(),
                 actualUrl: string.Empty,
                 configuredPort: resolvedAgentPort.PreferredPort,
                 actualPort: null));
@@ -666,7 +668,7 @@ Process? ccrProcess = null;
             "Agent",
             managedByServer: true,
             autoShifted: false,
-            configuredUrl: config.Agent.GetResolvedBaseUrl(config.Server.Port),
+            configuredUrl: config.Agent.GetResolvedBaseUrl(),
             actualUrl: string.Empty,
             configuredPort: agentPort,
             actualPort: null));
@@ -675,11 +677,11 @@ Process? ccrProcess = null;
     // 3. 启动 Web 服务（不等待，后台运行）
     if (!isProduction && webReady && Directory.Exists(webProjectPath))
     {
-        var configuredWebUrl = BuildUrl(Uri.UriSchemeHttp, "localhost", 5173);
+        var configuredWebUrl = BuildUrl(Uri.UriSchemeHttp, "localhost", configuredWebPort);
         var resolvedWebPort = ResolveManagedPort(
             "Web",
             "0.0.0.0",
-            5173,
+            configuredWebPort,
             (_, occupant) => IsBIMCanvasWebProcess(occupant.ProcessId, webProjectPath)
                 ? PortOccupantOwnership.OwnedManaged
                 : PortOccupantOwnership.ExternalProcess);
@@ -782,9 +784,9 @@ Process? ccrProcess = null;
                 "Web",
                 managedByServer: true,
                 autoShifted: false,
-                configuredUrl: BuildUrl(Uri.UriSchemeHttp, "localhost", 5173),
+                configuredUrl: BuildUrl(Uri.UriSchemeHttp, "localhost", configuredWebPort),
                 actualUrl: string.Empty,
-                configuredPort: 5173,
+                configuredPort: configuredWebPort,
                 actualPort: null));
             WriteWithColoredPrefix("[Server:ERR]", $"Web 服务启动失败: {ex.Message}", ConsoleColor.DarkGray);
         }
@@ -796,9 +798,9 @@ Process? ccrProcess = null;
             "Web",
             managedByServer: true,
             autoShifted: false,
-            configuredUrl: BuildUrl(Uri.UriSchemeHttp, "localhost", 5173),
+            configuredUrl: BuildUrl(Uri.UriSchemeHttp, "localhost", configuredWebPort),
             actualUrl: string.Empty,
-            configuredPort: 5173,
+            configuredPort: configuredWebPort,
             actualPort: null));
         WriteWithColoredPrefix("[Server:WARN]", "Web 服务跳过启动（环境未就绪）", ConsoleColor.DarkYellow);
     }
@@ -809,9 +811,9 @@ Process? ccrProcess = null;
             "Web",
             managedByServer: true,
             autoShifted: false,
-            configuredUrl: BuildUrl(Uri.UriSchemeHttp, "localhost", 5173),
+            configuredUrl: BuildUrl(Uri.UriSchemeHttp, "localhost", configuredWebPort),
             actualUrl: string.Empty,
-            configuredPort: 5173,
+            configuredPort: configuredWebPort,
             actualPort: null));
         WriteWithColoredPrefix("[Server:ERR]", $"Web 项目目录不存在: {webProjectPath}", ConsoleColor.DarkGray);
     }
@@ -1648,7 +1650,7 @@ static bool IsLocalDevelopmentOrigin(string origin)
     return IPAddress.TryParse(uri.Host, out var ipAddress) && IPAddress.IsLoopback(ipAddress);
 }
 
-static ServerBindingInfo ResolveConfiguredServerBinding(IConfiguration configuration)
+static ServerBindingInfo ResolveConfiguredServerBinding(IConfiguration configuration, int configuredPort)
 {
     var configuredUrl = ExtractPrimaryHttpUrl(
         configuration["urls"],
@@ -1663,14 +1665,15 @@ static ServerBindingInfo ResolveConfiguredServerBinding(IConfiguration configura
         parsedBinding = new ParsedHttpBinding(Uri.UriSchemeHttp, "localhost", 5000);
     }
 
+    var effectivePort = configuredPort > 0 ? configuredPort : parsedBinding.Port;
     var listenHost = NormalizeListenHost(parsedBinding.Host);
     var browserHost = GetReachableLocalHost(listenHost);
     return new ServerBindingInfo(
         parsedBinding.Scheme,
         listenHost,
         browserHost,
-        parsedBinding.Port,
-        BuildUrl(parsedBinding.Scheme, browserHost, parsedBinding.Port));
+        effectivePort,
+        BuildUrl(parsedBinding.Scheme, browserHost, effectivePort));
 }
 
 static ResolvedPortReservation ResolveManagedPort(
