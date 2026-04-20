@@ -1645,3 +1645,89 @@ def test_openai_agent_logs_completed_text_and_tool_chunks(
     assert ("tool_use", ("Read", {"file_path": "README.md"})) in fake_logger.calls
     assert ("tool_result", ("Read", "read ok", False)) in fake_logger.calls
     assert ("response", "你好") in fake_logger.calls
+
+
+def test_invoke_canvas_tool_impl_calls_sdkmcptool_handler(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """Integration guard: canvas MCP 工具必须通过 SdkMcpTool.handler 调用。
+
+    历史 bug：`_invoke_canvas_tool_impl` 曾直接 `await impl(args)`，但 `impl` 是
+    claude_agent_sdk 的 `SdkMcpTool` dataclass 实例（无 __call__），导致浏览器端
+    所有 mcp__canvas__* 调用抛 `'SdkMcpTool' object is not callable`。本测试用真实
+    `SdkMcpTool` 实例覆盖这条调用链，下次若 SDK 字段名变更或 impl 方式改动，立刻暴露。
+    """
+    from claude_agent_sdk import SdkMcpTool
+
+    home = _prepare_bimcanvas_home(tmp_path)
+    _configure_test_home(monkeypatch, home)
+    _set_openai_runtime_config(
+        home,
+        model_mapping={"gpt-4.1": {"id": "gpt-4.1", "label": "GPT-4.1"}},
+    )
+    _set_web_default_model(home, "gpt-4.1")
+    _reset_config_caches()
+
+    captured: dict[str, Any] = {}
+
+    async def fake_handler(args: dict[str, Any]) -> dict[str, Any]:
+        captured["args"] = args
+        return {"ok": True, "zoneId": args.get("zoneId")}
+
+    fake_tool = SdkMcpTool(
+        name="validate_layout",
+        description="test stub",
+        input_schema={"type": "object"},
+        handler=fake_handler,
+    )
+
+    fake_canvas_module = ModuleType("src.mcp.canvas")
+    fake_canvas_module.mcp__canvas__validate_layout = fake_tool
+    monkeypatch.setitem(sys.modules, "src.mcp.canvas", fake_canvas_module)
+
+    agent = OpenAIAgent(project_path=str(tmp_path), working_directory=str(tmp_path))
+    result = asyncio.run(
+        agent._invoke_canvas_tool_impl(
+            "mcp__canvas__validate_layout",
+            {"zoneId": "rz_1"},
+        )
+    )
+
+    # handler 被真实执行，参数原样透传
+    assert captured["args"] == {"zoneId": "rz_1"}
+    # _normalize_canvas_tool_output 保留 dict 原结构
+    assert result["ok"] is True
+    assert result["zoneId"] == "rz_1"
+
+
+def test_invoke_canvas_tool_impl_raises_when_handler_missing(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """如果未来 SdkMcpTool 的 .handler 字段被重命名，要在这里立刻爆。"""
+    home = _prepare_bimcanvas_home(tmp_path)
+    _configure_test_home(monkeypatch, home)
+    _set_openai_runtime_config(
+        home,
+        model_mapping={"gpt-4.1": {"id": "gpt-4.1", "label": "GPT-4.1"}},
+    )
+    _set_web_default_model(home, "gpt-4.1")
+    _reset_config_caches()
+
+    # 一个没有 .handler 属性的占位对象——模拟 SDK 字段变更
+    class _NoHandlerStub:
+        name = "validate_layout"
+
+    fake_canvas_module = ModuleType("src.mcp.canvas")
+    fake_canvas_module.mcp__canvas__validate_layout = _NoHandlerStub()
+    monkeypatch.setitem(sys.modules, "src.mcp.canvas", fake_canvas_module)
+
+    agent = OpenAIAgent(project_path=str(tmp_path), working_directory=str(tmp_path))
+    with pytest.raises(AttributeError):
+        asyncio.run(
+            agent._invoke_canvas_tool_impl(
+                "mcp__canvas__validate_layout",
+                {"zoneId": "rz_1"},
+            )
+        )

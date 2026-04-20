@@ -1180,7 +1180,11 @@ class OpenAIAgent:
     async def _invoke_canvas_tool_impl(self, tool_name: str, args: dict[str, Any]) -> Any:
         canvas_module = importlib.import_module("..mcp.canvas", package=__package__)
         impl = getattr(canvas_module, tool_name)
-        result = await impl(args)
+        # canvas 工具被 claude_agent_sdk 的 @tool(...) 装饰后，module 顶层绑定的是
+        # SdkMcpTool dataclass 实例（无 __call__），原始 async handler 在 .handler 属性上。
+        # 见 claude_agent_sdk/__init__.py:130。Claude Runtime 走 MCP server 自动解包；
+        # OpenAI Runtime 这条手工路径必须显式走 .handler。
+        result = await impl.handler(args)
         return self._normalize_canvas_tool_output(result)
 
     @staticmethod
