@@ -268,6 +268,10 @@ def test_build_tools_respects_permissions_and_warns_for_unsupported_entries(
     _install_fake_tool_context(monkeypatch)
     _set_openai_runtime_config(
         home,
+        # v0.1 收口：本测试用 responses（官方 endpoint 默认）opt-in 到实验性路径，
+        # 以便验证 layout-agent 的权限门禁 reason；chat_completions 主路下 layout-agent
+        # 会被另一道"unsupported under chat_completions"门禁优先拦截。
+        openai_api="responses",
         model_mapping={"gpt-4.1-mini": {"id": "gpt-4.1-mini", "label": "GPT-4.1 mini"}},
         permissions={
             "allow": ["Read", "Bash", "Task", "UnknownTool"],
@@ -303,6 +307,9 @@ def test_build_tools_registers_supported_configured_agent_tools(
     _install_fake_tool_context(monkeypatch)
     _set_openai_runtime_config(
         home,
+        # v0.1 收口：layout-agent 的原生注册路径仅在 responses + 官方 endpoint 下保留为
+        # 实验性 opt-in；chat_completions 主路下 layout-agent 不注册。
+        openai_api="responses",
         model_mapping={"gpt-4.1": {"id": "gpt-4.1", "label": "GPT-4.1"}},
         permissions={"allow": None, "deny": []},
     )
@@ -409,6 +416,9 @@ def test_build_tools_keeps_non_layout_skill_agents_blocked(
     _install_fake_tool_context(monkeypatch)
     _set_openai_runtime_config(
         home,
+        # v0.1 收口：验证非 layout-agent 的 Skill 依赖型 agent 在实验性 responses
+        # 路径下仍按 intrinsic Skill 门禁拦截；该行为独立于 chat_completions 主路。
+        openai_api="responses",
         model_mapping={"gpt-4.1": {"id": "gpt-4.1", "label": "GPT-4.1"}},
         permissions={"allow": None, "deny": []},
     )
@@ -429,11 +439,14 @@ def test_openai_stage_two_keeps_layout_agent_enabled_under_recommended_shared_pe
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
+    # v0.1 收口：layout-agent 仅在 responses + 官方 endpoint 的实验性 opt-in 路径下
+    # 保留原生 Agent.as_tool 注册；本测试锁定该实验路径的回归基线。
     home = _prepare_bimcanvas_home(tmp_path)
     _configure_test_home(monkeypatch, home)
     _install_fake_tool_context(monkeypatch)
     _set_openai_runtime_config(
         home,
+        openai_api="responses",
         model_mapping={"gpt-4.1": {"id": "gpt-4.1", "label": "GPT-4.1"}},
     )
     _set_web_default_model(home, "gpt-4.1")
@@ -459,15 +472,86 @@ def test_openai_stage_two_keeps_layout_agent_enabled_under_recommended_shared_pe
     ]
 
 
-def test_build_root_agent_prioritizes_explicit_layout_agent_request(
+def test_layout_agent_is_blocked_under_chat_completions_main_path(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
+    caplog: pytest.LogCaptureFixture,
 ) -> None:
+    # v0.1 收口核心锚点：即使权限全开（allow=None），chat_completions 主路下
+    # layout-agent 也必须被 blocked，以兑现"不假装支持 subagent"的承诺。
     home = _prepare_bimcanvas_home(tmp_path)
     _configure_test_home(monkeypatch, home)
     _install_fake_tool_context(monkeypatch)
     _set_openai_runtime_config(
         home,
+        openai_api="chat_completions",
+        model_mapping={"gpt-4.1": {"id": "gpt-4.1", "label": "GPT-4.1"}},
+    )
+    _set_web_default_model(home, "gpt-4.1")
+    _reset_config_caches()
+
+    agent = OpenAIAgent(project_path=str(tmp_path), working_directory=str(tmp_path))
+    with caplog.at_level(logging.WARNING):
+        tools = agent._build_tools(_FakeAgentsModule(), model="gpt-4.1", nested_stream_handler=None)
+
+    tool_names = [tool.name for tool in tools]
+    assert "layout-agent" not in tool_names
+    # helper workers 仍保留（SDK 原生 Agent.as_tool，§6.1）
+    assert "delegate_query_task" in tool_names
+    assert "delegate_edit_task" in tool_names
+    assert "layout-agent (layout-agent unsupported under openai chat_completions main path" in caplog.text
+
+
+def test_explicit_layout_agent_request_returns_honest_unavailable_under_chat_completions(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    # v0.1 收口：用户显式点名 layout-agent 时，chat_completions 主路返回明确不可用
+    # 原因；不能用 helper worker 冒充。
+    home = _prepare_bimcanvas_home(tmp_path)
+    _configure_test_home(monkeypatch, home)
+    _install_fake_tool_context(monkeypatch)
+    _set_openai_runtime_config(
+        home,
+        openai_api="chat_completions",
+        model_mapping={"gpt-4.1": {"id": "gpt-4.1", "label": "GPT-4.1"}},
+    )
+    _set_web_default_model(home, "gpt-4.1")
+    _reset_config_caches()
+
+    agent = OpenAIAgent(project_path=str(tmp_path), working_directory=str(tmp_path))
+    enabled_permission_tool_names = agent._resolve_enabled_permission_tool_names()
+    configured_specs, blocked_specs = agent._resolve_configured_agent_tool_specs(
+        enabled_tool_names=enabled_permission_tool_names,
+        inherited_model="gpt-4.1",
+    )
+    explicit_request = agent._resolve_explicit_configured_agent_request(
+        "请必须调用 layout-agent 完成布置。",
+        enabled_specs=configured_specs,
+        blocked_specs=blocked_specs,
+    )
+
+    assert explicit_request is not None
+    assert explicit_request.blocked_spec is not None
+    assert explicit_request.name == "layout-agent"
+    message = agent._build_explicit_configured_agent_unavailable_message(explicit_request)
+    assert "当前无法调用 `layout-agent`" in message
+    assert "不会用通用 helper worker 冒充" in message
+    assert "chat_completions" in message
+
+
+def test_build_root_agent_prioritizes_explicit_layout_agent_request(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    # v0.1 收口：显式点名 layout-agent 的 prompt prioritization 行为只在实验性
+    # responses 路径下有意义；chat_completions 主路下 layout-agent 不注册。
+    home = _prepare_bimcanvas_home(tmp_path)
+    _configure_test_home(monkeypatch, home)
+    _install_fake_tool_context(monkeypatch)
+    _set_openai_runtime_config(
+        home,
+        openai_api="responses",
         model_mapping={"gpt-4.1": {"id": "gpt-4.1", "label": "GPT-4.1"}},
     )
     _set_web_default_model(home, "gpt-4.1")
@@ -509,11 +593,14 @@ def test_build_explicit_layout_agent_unavailable_message_is_honest(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
+    # v0.1 收口：本测试在实验性 responses 路径下验证"权限不足 → 诚实不可用 message"
+    # 的格式。chat_completions 主路下另有专门测试锁定"收口 reason → 诚实 message"。
     home = _prepare_bimcanvas_home(tmp_path)
     _configure_test_home(monkeypatch, home)
     _install_fake_tool_context(monkeypatch)
     _set_openai_runtime_config(
         home,
+        openai_api="responses",
         model_mapping={"gpt-4.1-mini": {"id": "gpt-4.1-mini", "label": "GPT-4.1 mini"}},
         permissions={"allow": ["Read", "Task"], "deny": []},
     )
@@ -704,22 +791,25 @@ def test_openai_agent_rejects_claude_alias_requested_model(
         asyncio.run(agent.set_model("sonnet"))
 
 
-def test_openai_capability_matrix_marks_subtask_as_optional() -> None:
+def test_openai_capability_matrix_marks_subtask_as_unsupported_after_v0_1_收口() -> None:
     subtask_row = next(
         row
         for row in build_capability_matrix(OPENAI_RUNTIME_ID)
         if row["capabilityKey"] == "subtask_causality"
     )
-    assert subtask_row["level"] == "optional"
-    assert "Agent.as_tool()" in subtask_row["providerMapping"]
+    assert subtask_row["level"] == "unsupported"
+    assert subtask_row["providerMapping"] is None
+    assert subtask_row["frontendFallback"] == "hide-subtask-activity-panel"
+    assert "chat_completions" in subtask_row["notes"]
     assert "layout-agent" in subtask_row["notes"]
-    assert "shared permissions" in subtask_row["notes"]
 
 
-def test_openai_settings_default_to_responses_for_custom_base_url(
+def test_openai_settings_default_to_chat_completions_for_custom_base_url(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
+    # BIMCanvas OpenAI Runtime v0.1 收口：默认主路径是 chat_completions + streaming，
+    # 即使在第三方 endpoint 下也一样（这是"对第三方 provider 友好"的核心承诺）。
     home = _prepare_bimcanvas_home(tmp_path)
     _configure_test_home(monkeypatch, home)
     _set_openai_runtime_config(
@@ -732,14 +822,16 @@ def test_openai_settings_default_to_responses_for_custom_base_url(
 
     settings = get_settings()
 
-    assert settings.openai_api == "responses"
+    assert settings.openai_api == "chat_completions"
     assert settings.openai_disable_tracing is True
 
 
-def test_openai_agent_uses_responses_run_fallback_for_custom_endpoint(
+def test_openai_settings_reject_responses_with_third_party_endpoint(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
+    # v0.1 收口：第三方 OpenAI-compatible endpoint + responses 组合不再静默降级为
+    # 非流式缓冲 fallback；必须在 Settings.load() 阶段诚实拒绝。
     home = _prepare_bimcanvas_home(tmp_path)
     _configure_test_home(monkeypatch, home)
     _set_openai_runtime_config(
@@ -751,20 +843,42 @@ def test_openai_agent_uses_responses_run_fallback_for_custom_endpoint(
     _set_web_default_model(home, "gpt-4.1")
     _reset_config_caches()
 
+    with pytest.raises(ValueError, match="third-party OpenAI-compatible endpoints"):
+        get_settings()
+
+
+def test_openai_agent_responses_run_fallback_is_disabled_after_v0_1_收口(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    # _should_use_responses_run_fallback 保留签名供历史测试平滑过渡，
+    # 但语义固定为 False（主路径永远走 run_streamed）。
+    home = _prepare_bimcanvas_home(tmp_path)
+    _configure_test_home(monkeypatch, home)
+    _set_openai_runtime_config(
+        home,
+        openai_api="responses",
+        model_mapping={"gpt-4.1": {"id": "gpt-4.1", "label": "GPT-4.1"}},
+    )
+    _set_web_default_model(home, "gpt-4.1")
+    _reset_config_caches()
+
     agent = OpenAIAgent(project_path=str(tmp_path), working_directory=str(tmp_path))
-    assert agent._should_use_responses_run_fallback(get_settings()) is True
+    assert agent._should_use_responses_run_fallback(get_settings()) is False
 
 
 def test_openai_agent_reuses_sdk_session_for_same_host_session(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
+    # v0.1 收口：OpenAI Runtime 主路径为 chat_completions + run_streamed。
+    # 本测试验证同一 host sessionId 下两次 chat_stream 复用同一个 SDK session。
     home = _prepare_bimcanvas_home(tmp_path)
     _configure_test_home(monkeypatch, home)
     _set_openai_runtime_config(
         home,
         base_url="https://gateway.example.com/v1",
-        openai_api="responses",
+        openai_api="chat_completions",
         model_mapping={"gpt-4.1": {"id": "gpt-4.1", "label": "GPT-4.1"}},
     )
     _set_web_default_model(home, "gpt-4.1")
@@ -782,13 +896,24 @@ def test_openai_agent_reuses_sdk_session_for_same_host_session(
         def close(self) -> None:
             return None
 
-    async def fake_run(*args, **kwargs):
+    class _FakeStreamResult:
+        def __init__(self) -> None:
+            self.interruptions: list[object] = []
+
+        async def stream_events(self):
+            for _ in ():
+                yield _
+
+        def cancel(self) -> None:
+            return None
+
+    def fake_run_streamed(*args, **kwargs):
         run_calls.append({"args": args, "kwargs": kwargs})
-        return SimpleNamespace(new_items=[], interruptions=[])
+        return _FakeStreamResult()
 
     fake_agents = ModuleType("agents")
     fake_agents.SQLiteSession = FakeSQLiteSession
-    fake_agents.Runner = SimpleNamespace(run=fake_run)
+    fake_agents.Runner = SimpleNamespace(run_streamed=fake_run_streamed)
     monkeypatch.setitem(sys.modules, "agents", fake_agents)
 
     agent = OpenAIAgent(project_path=str(tmp_path), working_directory=str(tmp_path))
@@ -800,11 +925,6 @@ def test_openai_agent_reuses_sdk_session_for_same_host_session(
         agent,
         "_build_input_items",
         lambda **kwargs: [{"role": "user", "content": [{"type": "input_text", "text": kwargs["user_message"]}]}],
-    )
-    monkeypatch.setattr(
-        agent,
-        "_translate_result_chunks",
-        lambda **kwargs: [StreamChunk(type="text_complete", content="ok")],
     )
 
     asyncio.run(
@@ -837,12 +957,14 @@ def test_openai_agent_resume_interaction_passes_sdk_session(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
+    # v0.1 收口：resume_interaction 也走 chat_completions + run_streamed 主路径，
+    # fallback 分支在新架构下永远不触发。
     home = _prepare_bimcanvas_home(tmp_path)
     _configure_test_home(monkeypatch, home)
     _set_openai_runtime_config(
         home,
         base_url="https://gateway.example.com/v1",
-        openai_api="responses",
+        openai_api="chat_completions",
         model_mapping={"gpt-4.1": {"id": "gpt-4.1", "label": "GPT-4.1"}},
     )
     _set_web_default_model(home, "gpt-4.1")
@@ -880,13 +1002,24 @@ def test_openai_agent_resume_interaction_passes_sdk_session(
             restored_states.append(state)
             return state
 
-    async def fake_run(*args, **kwargs):
+    class _FakeStreamResult:
+        def __init__(self) -> None:
+            self.interruptions: list[object] = []
+
+        async def stream_events(self):
+            for _ in ():
+                yield _
+
+        def cancel(self) -> None:
+            return None
+
+    def fake_run_streamed(*args, **kwargs):
         run_calls.append({"args": args, "kwargs": kwargs})
-        return SimpleNamespace(new_items=[], interruptions=[])
+        return _FakeStreamResult()
 
     fake_agents = ModuleType("agents")
     fake_agents.SQLiteSession = FakeSQLiteSession
-    fake_agents.Runner = SimpleNamespace(run=fake_run)
+    fake_agents.Runner = SimpleNamespace(run_streamed=fake_run_streamed)
     fake_agents.RunState = FakeRunState
     monkeypatch.setitem(sys.modules, "agents", fake_agents)
 
@@ -898,11 +1031,6 @@ def test_openai_agent_resume_interaction_passes_sdk_session(
 
     monkeypatch.setattr(agent, "connect", fake_connect)
     monkeypatch.setattr(agent, "_build_root_agent", lambda *args, **kwargs: object())
-    monkeypatch.setattr(
-        agent,
-        "_translate_result_chunks",
-        lambda **kwargs: [StreamChunk(type="text_complete", content="resumed")],
-    )
 
     binding = PendingInteractionRuntimeBinding(
         interaction_id="interaction-1",
@@ -944,8 +1072,10 @@ def test_openai_agent_resume_interaction_passes_sdk_session(
     assert len(session_instances) == 1
     assert run_calls[0]["kwargs"]["session"] is session_instances[0]
     assert restored_states[0].approved_call_id == "call-1"
-    assert appended_chunks[0].content == "resumed"
-    assert result == [{"eventType": "text_complete"}]
+    # run_streamed 主路径下 _FakeStreamResult 不产出事件，resume 的核心验证点是
+    # session/approval 绑定正确、SDK session 被正确透传，而不是具体 chunk 内容。
+    assert appended_chunks == []
+    assert result == []
 
 
 def test_openai_stream_translator_translates_run_result_items() -> None:

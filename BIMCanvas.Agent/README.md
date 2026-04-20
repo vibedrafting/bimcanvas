@@ -174,7 +174,7 @@ data: [DONE]
 
 - `text_stream` / `tool_call_lifecycle` / `interaction_query` / `interaction_submit` / `interaction_cancel` / `question_pause_resume` / `screenshot_async`：`required`
 - `thinking`：`optional`
-- `subtask_causality`：Claude 与 OpenAI 均为 `optional`
+- `subtask_causality`：Claude 为 `optional`；OpenAI v0.1 收口后为 `unsupported`（chat_completions 主路下 configured subagents 不注册，helper workers 保留但不承诺完整 subtask 可见性，前端按 `hide-subtask-activity-panel` 降级）
 - `usage` / `trace` / `permission_pause_resume`：`unsupported`
 
 ### Runtime 选择
@@ -217,41 +217,34 @@ OpenAI 首版适配走原生 `FunctionTool(needs_approval=True) + RunState` 路�
 - Web 端提交 `/api/interaction/{id}/submit` 或兼容 `/api/question/answer` 后，Host 会恢复 `Runner.run_streamed()` 继续同一 turn
 - `resumeToken` 支持跨 SSE 断线 / 页面 reload；但 v0.1 不保证 Agent Host 进程重启后仍可恢复
 
-### OpenAI 当前范围
+### OpenAI 当前范围（v0.1 收口）
 
-OpenAI runtime 当前已完成“阶段一基础 Runtime + 阶段二定向启用 layout-agent”的组合状态：
+**主路径**：`chat_completions` + streaming + root agent + 普通本地 tools。这是 OpenAI Runtime 当前唯一对外承诺的路径，面向第三方 OpenAI-compatible provider 也能稳定跑起来。
 
-- 支持文本对话
+**支持的能力**：
+
+- 支持文本对话（流式 `response.output_text.delta` 实时投影）
 - 支持图片输入
 - 支持 `AskUserQuestion -> PendingInteractionRecord -> RunState resume`
 - Root Agent 注册本地 function tools：`Read / Write / Edit / Glob / Grep / Bash / AskUserQuestion`
-- Root Agent 额外挂载两个 native helper sub-agents：
-  - `delegate_query_task`：只读子任务，子代理工具限定为 `Read / Glob / Grep`
-  - `delegate_edit_task`：单一编辑子任务，子代理工具限定为 `Read / Write / Edit / Glob / Grep`
-- 支持把 `<BIMCANVAS_HOME>/agents/*.md` 中“纯 prompt + 本地工具”的配置型 agents 投影为原生 OpenAI agent tools
-- `layout-agent` 已在 OpenAI 中定向启用：
-  - 仍通过原生 `Agent.as_tool()` 挂到 root
-  - 只有共享 `permissions.allow/deny` 真实允许，且当前 OpenAI adapter 已支持其所需 Skill/MCP 子集时，才会注册到 root
-  - `generate-planning` / `generate-placement` 以运行时装配方式注入 child agent instructions
-  - 仅注入最小 MCP wrapper 子集：
-    - `mcp__canvas__request_background_screenshot`
-    - `mcp__canvas__get_zone_boundaries`
-    - `mcp__canvas__save_semantic_plan`
-    - `mcp__canvas__load_semantic_plan`
-    - `mcp__canvas__validate_layout`
-    - `mcp__canvas__load_reference_analysis`
-  - 当前浏览器主验收场景为“显式指定 `layout-agent` 的单区 generate happy path”
-  - 若用户显式点名 `layout-agent`，但当前共享权限或当前阶段能力不足，OpenAI runtime 会直接返回不可用原因，不会退回 `delegate_query_task` / `delegate_edit_task` 冒充
-- Subtask 事件通过 OpenAI 原生 `Agent.as_tool()` 投影为 `subtask.started / subtask.completed`
-- 子代理只有在真实闭环完成时才会投影 `subtask.completed(success=true)`：
-  - child 必须返回非空最终摘要
-  - child 不能残留未结束的内部 tool call
-  - `layout-agent` 还必须至少出现一次 `Write` 或 `mcp__canvas__save_semantic_plan`，并且至少出现一次 `mcp__canvas__validate_layout`
-- 不注册 Claude 风格 `Task` 兼容壳
-- 不暴露独立 `Skill / Plugin` 工具；Skill 仅在 `layout-agent` 内以运行时装配方式接入
-- 不暴露 root 级 `mcp__canvas__*`；MCP 仅在 `layout-agent` child agent 内以原生 function tools 方式注入
-- 除 `layout-agent` 外，依赖 `Skill / mcp__canvas__* / AskUserQuestion / Task` 的其它配置型 agents 仍暂不注册
-- 现有用户机器上的 `<BIMCANVAS_HOME>/config.json` 不会被自动迁移；如果要在浏览器里验收 `layout-agent`，需要先手动把共享权限同步到当前推荐基线
+- Root Agent 额外挂载两个 native helper sub-agents（保留 SDK 原生 `Agent.as_tool()` 语义，`MultiAgentRuntime_Requirements §6.1`）：
+  - `delegate_query_task`：只读子任务
+  - `delegate_edit_task`：单一编辑子任务
+  - 注意：helper workers 的 subtask 事件链在第三方 provider 下**不作完整可见性承诺**，前端按 `hide-subtask-activity-panel` 降级
+
+**不承诺的能力（v0.1 诚实声明）**：
+
+- **`layout-agent` 在 `chat_completions` 主路下不注册**。底层依赖 `Agent.as_tool(on_stream=...) + nested child + summary 提取`这一组合在第三方 OpenAI-compatible provider 下已知不稳（详见 `reports/OpenAI_Runtime_ThirdParty_LayoutAgent_Compatibility_Report.md`）。
+  - 用户显式点名 `layout-agent` 时，OpenAI runtime **直接返回不可用原因**，不会用 `delegate_query_task` / `delegate_edit_task` 冒充。
+  - 共享配置资产（`agents/layout-agent.md`、`skills/*/SKILL.md`、MCP 定义）仍单一来源保留（`§5.1`）；变化的只是 OpenAI Runtime 在 v0.1 对这份资产的**消费策略**。
+- `Task` 兼容壳：不注册。
+- root 级 `mcp__canvas__*` / 独立 `Skill / Plugin` 工具：不暴露。
+- 完整 subtask causality（`subtask.*` 事件链的端到端可见性）：在 `providers.py` capability matrix 中声明为 `unsupported`。
+
+**可选实验路径**：
+
+- 显式设置 `config.json > openaiApi = "responses"` + `baseUrl` 指向 **官方 OpenAI endpoint**（`api.openai.com/v1`）时，保留原有的 `Agent.as_tool()` 注册逻辑，包括 `layout-agent` 的运行时 Skill 装配与 MCP wrapper 注入，作为**实验性 opt-in**，不作稳定承诺。
+- **第三方 endpoint + `responses`** 组合：Agent 启动时会直接 `ValueError`，引导切回 `chat_completions`（默认）或官方 endpoint——不再静默降级为非流式缓冲模式，避免"看起来能跑但实际不可靠"。
 
 ### ControlPlane 错误语义
 
@@ -637,7 +630,7 @@ Host 进程内的运行时真相源：
   "runtimeProvider": "claude-sdk",
   "baseUrl": "https://your-direct-provider.example/v1",
   "apiKey": "your-direct-api-key",
-  "openaiApi": "responses",
+  "openaiApi": "chat_completions",
   "openaiDisableTracing": false,
   "defaultEffort": "medium",
   "defaultThinking": "adaptive",
@@ -667,16 +660,13 @@ Host 进程内的运行时真相源：
 **注意**：
 
 - `baseUrl` / `apiKey` 是“直连模式”配置；启用 CCR 托管后，它们不会被覆盖删除，但会暂时失效。
-- `openaiApi` 仅在 `runtimeProvider=openai-agents` 时生效，取值只能是 `responses` 或 `chat_completions`。
-- OpenAI Agents SDK 官方主路径是 `responses`；BIMCanvas 现在也默认走 `responses`。
-- 使用第三方 OpenAI-compatible 网关时，建议先测试 `responses`；若网关在工具续跑或多轮状态上不兼容，再手动把 `openaiApi` 切回 `chat_completions` 作为兼容模式。
-- 当前对“三方网关 + responses”增加了 Host 侧回退：若 SDK 的 `run_streamed()` 无法稳定完成工具续跑，BIMCanvas 会改用 `Runner.run()` 并把 `RunResult.new_items` 投影成事件流。这样能保住工具与暂停恢复，但文本会退化为完成态输出，不再是 token 级增量。
-- `openaiDisableTracing` 仅在 `runtimeProvider=openai-agents` 时生效；第三方网关默认会关闭 tracing，避免把第三方 key 误发到 OpenAI traces 接口。
+- `openaiApi` 仅在 `runtimeProvider=openai-agents` 时生效，取值只能是 `chat_completions` 或 `responses`。
+- **v0.1 默认 `chat_completions`**，面向第三方 OpenAI-compatible provider 的稳定主路径（root agent + streaming + 普通工具）。
+- **`responses` 已降级为实验性 opt-in**：只允许与 **官方 OpenAI endpoint**（`api.openai.com/v1`）搭配使用；第三方 endpoint + `responses` 的组合在 Agent 启动时会直接 `ValueError`，引导切回 `chat_completions` 或官方 endpoint——不再静默降级。
+- `openaiDisableTracing` 仅在 `runtimeProvider=openai-agents` 时生效；第三方 endpoint 默认关闭 tracing，避免把第三方 key 误发到 OpenAI traces 接口。
 - OpenAI runtime 会对 `permissions.allow/deny` 执行“配置权限 ∩ 当前适配支持集”裁剪。
-  当前支持集包含本地 function tools，以及 `layout-agent` 所需的 `Skill` 装配入口和最小 `mcp__canvas__*` 子集；
-  `Task` 和其它未适配工具仍会被忽略，并在启动日志中提示。
-- 已存在的 `<BIMCANVAS_HOME>/config.json` 不会被自动迁移到新的推荐权限基线。
-  如果浏览器验收要跑 `layout-agent`，需要手动同步共享权限，否则它会按真实权限状态继续被禁用。
+  当前支持集包含本地 function tools（`Read / Write / Edit / Glob / Grep / Bash / AskUserQuestion`）；`Task` 与其它未适配工具仍会被忽略，并在启动日志中提示。
+- `chat_completions` 主路下：`layout-agent` 不注册（显式请求会诚实返回不可用原因），共享配置资产保留单一来源；实验性 `responses + 官方 endpoint` 路径下仍保留原有 `layout-agent` 运行时装配逻辑，不作稳定承诺。
 
 #### SubAgent 配置格式 (agents/*.md)
 

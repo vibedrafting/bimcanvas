@@ -2,7 +2,7 @@
     "runtimeProvider": "claude-sdk",
     "baseUrl": "",
     "apiKey": "",
-    "openaiApi": "responses",
+    "openaiApi": "chat_completions",
     "openaiDisableTracing": false,
     "modelMapping": {
         "opus":   { "id": "claude-opus-4-6",          "label": "Opus" },

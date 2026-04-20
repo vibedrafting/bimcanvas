@@ -60,7 +60,7 @@ class Settings:
         runtime_provider = normalize_runtime_provider(
             os.getenv('AGENT_RUNTIME_PROVIDER') or config.get('runtimeProvider') or DEFAULT_RUNTIME_PROVIDER
         )
-        openai_api = "responses"
+        openai_api = "chat_completions"
         openai_disable_tracing = False
         default_effort = config.get('defaultEffort', 'medium')
         default_thinking = config.get('defaultThinking', 'off')
@@ -202,10 +202,16 @@ def _parse_optional_bool(value: object) -> bool | None:
 def _resolve_openai_api_mode(raw_value: object, base_url: str) -> str:
     normalized = str(raw_value or "").strip().lower().replace("-", "_")
     if not normalized:
-        return "responses"
+        return "chat_completions"
     if normalized not in {"responses", "chat_completions"}:
         raise ValueError(
             "OpenAI runtime openaiApi/OPENAI_API_MODE must be 'responses' or 'chat_completions'."
+        )
+    if normalized == "responses" and not _is_official_openai_base_url(base_url):
+        raise ValueError(
+            "OpenAI runtime 'responses' API is not supported with third-party OpenAI-compatible endpoints "
+            "in BIMCanvas v0.1. Please set openaiApi='chat_completions' (default), or point baseUrl back to "
+            "the official OpenAI endpoint if you intend to opt into the experimental 'responses' path."
         )
     return normalized
 
