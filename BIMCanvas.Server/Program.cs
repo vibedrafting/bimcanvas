@@ -146,7 +146,9 @@ var resolvedServerPort = ResolveManagedPort(
     "Server",
     configuredServerBinding.ListenHost,
     configuredServerBinding.PreferredPort,
-    pid => IsBIMCanvasServerProcess(pid));
+    (_, occupant) => IsBIMCanvasServerProcess(occupant.ProcessId)
+        ? PortOccupantOwnership.OwnedManaged
+        : PortOccupantOwnership.ExternalProcess);
 var serverListenUrl = BuildUrl(configuredServerBinding.Scheme, configuredServerBinding.ListenHost, resolvedServerPort.ActualPort);
 var serverBaseUrl = BuildUrl(configuredServerBinding.Scheme, configuredServerBinding.BrowserHost, resolvedServerPort.ActualPort);
 builder.Configuration["urls"] = serverListenUrl;
@@ -477,7 +479,9 @@ Process? ccrProcess = null;
             "CCR",
             config.Ccr.Host,
             config.Ccr.Port,
-            IsBIMCanvasCcrProcess);
+            (_, occupant) => IsBIMCanvasCcrProcess(occupant.ProcessId)
+                ? PortOccupantOwnership.OwnedManaged
+                : PortOccupantOwnership.ExternalProcess);
         config.Ccr.Port = resolvedCcrPort.ActualPort;
         var ccrRuntimeBaseUrl = BuildUrl(Uri.UriSchemeHttp, GetReachableLocalHost(config.Ccr.Host), config.Ccr.Port);
         runtimeEndpointState.SetCcr(CreateRuntimeEndpoint(
@@ -524,7 +528,11 @@ Process? ccrProcess = null;
             "Agent",
             "127.0.0.1",
             agentPort,
-            pid => IsBIMCanvasAgentProcess(pid, agentProjectPath));
+            (port, occupant) => ClassifyBIMCanvasAgentOccupant(
+                port,
+                occupant.ProcessId,
+                agentProjectPath,
+                configDir));
         agentPort = resolvedAgentPort.ActualPort;
         agentBaseUrl = BuildUrl(Uri.UriSchemeHttp, "127.0.0.1", agentPort);
         runtimeEndpointState.SetAgent(CreateRuntimeEndpoint(
@@ -549,7 +557,6 @@ Process? ccrProcess = null;
                 StartInfo = new ProcessStartInfo
                 {
                     FileName = pythonCommand,
-                    Arguments = "-m src.main --serve",
                     WorkingDirectory = agentProjectPath,
                     UseShellExecute = false,
                     CreateNoWindow = true,
@@ -559,6 +566,14 @@ Process? ccrProcess = null;
                     StandardErrorEncoding = Encoding.UTF8
                 }
             };
+            agentProcess.StartInfo.ArgumentList.Add("-m");
+            agentProcess.StartInfo.ArgumentList.Add("src.main");
+            agentProcess.StartInfo.ArgumentList.Add("--serve");
+            agentProcess.StartInfo.ArgumentList.Add("--managed-by-server");
+            agentProcess.StartInfo.ArgumentList.Add("--managed-agent-root");
+            agentProcess.StartInfo.ArgumentList.Add(agentProjectPath);
+            agentProcess.StartInfo.ArgumentList.Add("--managed-home");
+            agentProcess.StartInfo.ArgumentList.Add(configDir);
             // 设置环境变量确保 Python 输出 UTF-8
             agentProcess.StartInfo.Environment["PYTHONIOENCODING"] = "utf-8";
             agentProcess.StartInfo.Environment["BIMCANVAS_HOME"] = configDir;
@@ -665,7 +680,9 @@ Process? ccrProcess = null;
             "Web",
             "0.0.0.0",
             5173,
-            pid => IsBIMCanvasWebProcess(pid, webProjectPath));
+            (_, occupant) => IsBIMCanvasWebProcess(occupant.ProcessId, webProjectPath)
+                ? PortOccupantOwnership.OwnedManaged
+                : PortOccupantOwnership.ExternalProcess);
         var plannedWebBaseUrl = BuildUrl(Uri.UriSchemeHttp, "localhost", resolvedWebPort.ActualPort);
         runtimeEndpointState.SetWeb(CreateRuntimeEndpoint(
             "web",
@@ -1660,7 +1677,7 @@ static ResolvedPortReservation ResolveManagedPort(
     string serviceName,
     string host,
     int preferredPort,
-    Func<int, bool> isOwnedProcess)
+    Func<int, PortOccupantInfo, PortOccupantOwnership> classifyOccupant)
 {
     const int maxPortOffset = 20;
     var normalizedHost = NormalizeListenHost(host);
@@ -1686,8 +1703,15 @@ static ResolvedPortReservation ResolveManagedPort(
             return new ResolvedPortReservation(preferredPort, candidatePort, offset > 0);
         }
 
-        var ownedOccupants = occupants
-            .Where(item => isOwnedProcess(item.ProcessId))
+        var classifiedOccupants = occupants
+            .Select(item => new ClassifiedPortOccupantInfo(
+                item.ProcessId,
+                item.State,
+                classifyOccupant(candidatePort, item)))
+            .ToList();
+
+        var ownedOccupants = classifiedOccupants
+            .Where(item => item.Ownership is PortOccupantOwnership.OwnedManaged or PortOccupantOwnership.OwnedLegacy)
             .ToList();
         if (ownedOccupants.Count > 0)
         {
@@ -1709,7 +1733,12 @@ static ResolvedPortReservation ResolveManagedPort(
                 return new ResolvedPortReservation(preferredPort, candidatePort, offset > 0);
             }
 
-            occupants = remainingOccupants;
+            classifiedOccupants = remainingOccupants
+                .Select(item => new ClassifiedPortOccupantInfo(
+                    item.ProcessId,
+                    item.State,
+                    classifyOccupant(candidatePort, item)))
+                .ToList();
         }
 
         if (offset == maxPortOffset)
@@ -1717,13 +1746,31 @@ static ResolvedPortReservation ResolveManagedPort(
             break;
         }
 
-        if (occupants.Count > 0)
+        if (classifiedOccupants.Count > 0)
         {
-            var occupant = occupants[0];
-            WriteWithColoredPrefix(
-                "[Server:WARN]",
-                $"端口 {candidatePort} 被外部进程占用 (PID: {occupant.ProcessId}, 状态: {occupant.State})，{serviceName} 将尝试 {candidatePort + 1}",
-                ConsoleColor.DarkYellow);
+            var occupant = SelectOccupantForLogging(classifiedOccupants);
+            switch (occupant.Ownership)
+            {
+                case PortOccupantOwnership.ForeignBimCanvasAgent:
+                    WriteWithColoredPrefix(
+                        "[Server:WARN]",
+                        $"端口 {candidatePort} 被其他 BIMCanvas Agent 实例占用 (PID: {occupant.ProcessId}, 状态: {occupant.State})，{serviceName} 将尝试 {candidatePort + 1}",
+                        ConsoleColor.DarkYellow);
+                    break;
+                case PortOccupantOwnership.OwnedManaged:
+                case PortOccupantOwnership.OwnedLegacy:
+                    WriteWithColoredPrefix(
+                        "[Server:WARN]",
+                        $"端口 {candidatePort} 的残留 {serviceName} 进程未能及时退出 (PID: {occupant.ProcessId}, 状态: {occupant.State})，{serviceName} 将尝试 {candidatePort + 1}",
+                        ConsoleColor.DarkYellow);
+                    break;
+                default:
+                    WriteWithColoredPrefix(
+                        "[Server:WARN]",
+                        $"端口 {candidatePort} 被外部进程占用 (PID: {occupant.ProcessId}, 状态: {occupant.State})，{serviceName} 将尝试 {candidatePort + 1}",
+                        ConsoleColor.DarkYellow);
+                    break;
+            }
         }
         else
         {
@@ -2077,26 +2124,189 @@ static string FindAgentProjectPath(string startDir)
     return Path.GetFullPath(Path.Combine(Directory.GetCurrentDirectory(), "..", "BIMCanvas.Agent"));
 }
 
-// 辅助函数：验证进程是否为 BIMCanvas Agent（通过进程名 + 命令行参数）
-static bool IsBIMCanvasAgentProcess(int pid, string agentProjectPath)
+static PortOccupantOwnership ClassifyBIMCanvasAgentOccupant(
+    int port,
+    int pid,
+    string agentProjectPath,
+    string managedHome)
 {
     try
     {
         var process = Process.GetProcessById(pid);
-
-        if (!process.ProcessName.Contains("python", StringComparison.OrdinalIgnoreCase))
-            return false;
-
         var cmdLine = GetProcessCommandLine(pid);
-        return cmdLine.Contains("BIMCanvas.Agent", StringComparison.OrdinalIgnoreCase)
-               || (cmdLine.Contains("src.main", StringComparison.OrdinalIgnoreCase)
-                   && cmdLine.Contains(NormalizePathForMatch(agentProjectPath), StringComparison.OrdinalIgnoreCase));
+        if (!LooksLikeBIMCanvasAgentCommand(process.ProcessName, cmdLine))
+        {
+            return PortOccupantOwnership.ExternalProcess;
+        }
+
+        var commandArgs = TokenizeCommandLine(cmdLine);
+        if (ContainsCommandLineArgument(commandArgs, "--managed-by-server"))
+        {
+            var normalizedAgentRoot = NormalizePathForMatch(
+                GetCommandLineArgumentValue(commandArgs, "--managed-agent-root") ?? string.Empty);
+            var normalizedCurrentRoot = NormalizePathForMatch(agentProjectPath);
+            var normalizedManagedHome = NormalizePathForMatch(
+                GetCommandLineArgumentValue(commandArgs, "--managed-home") ?? string.Empty);
+            var normalizedCurrentHome = NormalizePathForMatch(managedHome);
+
+            if (!string.IsNullOrWhiteSpace(normalizedAgentRoot) &&
+                normalizedAgentRoot.Equals(normalizedCurrentRoot, StringComparison.OrdinalIgnoreCase) &&
+                (!string.IsNullOrWhiteSpace(normalizedManagedHome)
+                    ? normalizedManagedHome.Equals(normalizedCurrentHome, StringComparison.OrdinalIgnoreCase)
+                    : true))
+            {
+                return PortOccupantOwnership.OwnedManaged;
+            }
+
+            return PortOccupantOwnership.ForeignBimCanvasAgent;
+        }
+
+        return ProbeBIMCanvasAgentHealth(port)
+            ? PortOccupantOwnership.OwnedLegacy
+            : PortOccupantOwnership.ExternalProcess;
     }
     catch (Exception ex)
     {
-        WriteWithColoredPrefix("[Server:WARN]", $"进程验证失败: {ex.Message}", ConsoleColor.DarkYellow);
-        return false; // 无法确认时，保守拒绝
+        WriteWithColoredPrefix("[Server:WARN]", $"Agent 进程验证失败: {ex.Message}", ConsoleColor.DarkYellow);
+        return PortOccupantOwnership.ExternalProcess;
     }
+}
+
+static bool LooksLikeBIMCanvasAgentCommand(string processName, string commandLine)
+{
+    if (string.IsNullOrWhiteSpace(commandLine) || !IsPythonHostProcess(processName))
+    {
+        return false;
+    }
+
+    var commandArgs = TokenizeCommandLine(commandLine);
+    return HasModuleLaunchArgument(commandArgs, "src.main")
+           && ContainsCommandLineArgument(commandArgs, "--serve");
+}
+
+static bool IsPythonHostProcess(string processName)
+{
+    if (string.IsNullOrWhiteSpace(processName))
+    {
+        return false;
+    }
+
+    return processName.Contains("python", StringComparison.OrdinalIgnoreCase)
+           || processName.Equals("py", StringComparison.OrdinalIgnoreCase);
+}
+
+static bool HasModuleLaunchArgument(IReadOnlyList<string> args, string moduleName)
+{
+    for (var i = 0; i < args.Count - 1; i++)
+    {
+        if (args[i].Equals("-m", StringComparison.OrdinalIgnoreCase) &&
+            args[i + 1].Equals(moduleName, StringComparison.OrdinalIgnoreCase))
+        {
+            return true;
+        }
+    }
+
+    return false;
+}
+
+static bool ContainsCommandLineArgument(IReadOnlyList<string> args, string argumentName)
+{
+    return args.Any(arg => arg.Equals(argumentName, StringComparison.OrdinalIgnoreCase));
+}
+
+static string? GetCommandLineArgumentValue(IReadOnlyList<string> args, string argumentName)
+{
+    for (var i = 0; i < args.Count - 1; i++)
+    {
+        if (args[i].Equals(argumentName, StringComparison.OrdinalIgnoreCase))
+        {
+            return args[i + 1];
+        }
+    }
+
+    return null;
+}
+
+static List<string> TokenizeCommandLine(string commandLine)
+{
+    var tokens = new List<string>();
+    if (string.IsNullOrWhiteSpace(commandLine))
+    {
+        return tokens;
+    }
+
+    var current = new StringBuilder();
+    var inQuotes = false;
+
+    foreach (var ch in commandLine)
+    {
+        if (ch == '"')
+        {
+            inQuotes = !inQuotes;
+            continue;
+        }
+
+        if (char.IsWhiteSpace(ch) && !inQuotes)
+        {
+            if (current.Length > 0)
+            {
+                tokens.Add(current.ToString());
+                current.Clear();
+            }
+
+            continue;
+        }
+
+        current.Append(ch);
+    }
+
+    if (current.Length > 0)
+    {
+        tokens.Add(current.ToString());
+    }
+
+    return tokens;
+}
+
+static bool ProbeBIMCanvasAgentHealth(int port)
+{
+    try
+    {
+        using var handler = new SocketsHttpHandler
+        {
+            UseProxy = false,
+            AllowAutoRedirect = false
+        };
+        using var client = new HttpClient(handler)
+        {
+            Timeout = TimeSpan.FromMilliseconds(1500)
+        };
+        using var response = client.GetAsync(BuildUrl(Uri.UriSchemeHttp, "127.0.0.1", port) + "/health")
+            .GetAwaiter()
+            .GetResult();
+        if (!response.IsSuccessStatusCode)
+        {
+            return false;
+        }
+
+        using var stream = response.Content.ReadAsStreamAsync().GetAwaiter().GetResult();
+        using var document = JsonDocument.Parse(stream);
+        return document.RootElement.TryGetProperty("service", out var serviceProperty)
+               && serviceProperty.ValueKind == JsonValueKind.String
+               && serviceProperty.GetString()?.Equals("bimcanvas-agent", StringComparison.OrdinalIgnoreCase) == true;
+    }
+    catch
+    {
+        return false;
+    }
+}
+
+static ClassifiedPortOccupantInfo SelectOccupantForLogging(IReadOnlyList<ClassifiedPortOccupantInfo> occupants)
+{
+    return occupants
+        .OrderByDescending(item => item.Ownership == PortOccupantOwnership.ForeignBimCanvasAgent)
+        .ThenByDescending(item => item.Ownership is PortOccupantOwnership.OwnedManaged or PortOccupantOwnership.OwnedLegacy)
+        .First();
 }
 
 static bool IsBIMCanvasWebProcess(int pid, string webProjectPath)
@@ -2411,6 +2621,16 @@ file sealed record ServerBindingInfo(
     int PreferredPort,
     string DisplayUrl);
 
+file enum PortOccupantOwnership
+{
+    OwnedManaged,
+    OwnedLegacy,
+    ForeignBimCanvasAgent,
+    ExternalProcess
+}
+
 file sealed record ResolvedPortReservation(int PreferredPort, int ActualPort, bool AutoShifted);
 
 file sealed record PortOccupantInfo(int ProcessId, string State);
+
+file sealed record ClassifiedPortOccupantInfo(int ProcessId, string State, PortOccupantOwnership Ownership);

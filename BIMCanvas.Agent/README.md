@@ -62,6 +62,8 @@ Agent 会在 BIMCanvas.Server 启动时自动启动，无需手动操作。
 当 `<BIMCANVAS_HOME>/server_config.json > ccr.enabled=true` 时，Server 会注入
 `AGENT_SDK_BASE_URL`、`AGENT_SDK_API_KEY` 以及 Claude Code 家族模型映射环境变量，
 默认把主模型、background requests、subagent 请求都指向 CCR 网关。
+Server 还会额外注入内部托管参数 `--managed-by-server`、`--managed-agent-root`、
+`--managed-home`，仅用于残留进程识别与端口回收，不属于对外 CLI 能力。
 
 ## API 接口
 

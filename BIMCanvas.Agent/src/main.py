@@ -117,8 +117,8 @@ async def interactive_mode(project_path: str = None) -> None:
         await agent.disconnect()
 
 
-def main() -> None:
-    """Main entry point"""
+def build_parser() -> argparse.ArgumentParser:
+    """Build the CLI parser used by the server-managed host."""
     parser = argparse.ArgumentParser(
         description="BIMCanvas MainAgent - AI coordinator with SubAgent support"
     )
@@ -150,7 +150,33 @@ def main() -> None:
         help="Path to the project directory"
     )
 
-    args = parser.parse_args()
+    parser.add_argument(
+        "--managed-by-server",
+        action="store_true",
+        help=argparse.SUPPRESS,
+    )
+
+    parser.add_argument(
+        "--managed-agent-root",
+        type=str,
+        default=None,
+        help=argparse.SUPPRESS,
+    )
+
+    parser.add_argument(
+        "--managed-home",
+        type=str,
+        default=None,
+        help=argparse.SUPPRESS,
+    )
+
+    return parser
+
+
+def main(argv: list[str] | None = None) -> None:
+    """Main entry point"""
+    parser = build_parser()
+    args = parser.parse_args(argv)
 
     try:
         ensure_server_managed_startup()
