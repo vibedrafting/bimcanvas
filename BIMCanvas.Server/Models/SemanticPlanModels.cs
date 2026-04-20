@@ -13,7 +13,8 @@ namespace BIMCanvas.Server.Models
         public string PlanType { get; set; }
         public string Content { get; set; }
         public string Timestamp { get; set; }
-        public string ReferenceAnalysisVersion { get; set; }
+        // Nullable：无参考图流程下该字段语义上缺省（derived 流程不消费 reference analysis）。
+        public string? ReferenceAnalysisVersion { get; set; }
     }
 
     /// <summary>

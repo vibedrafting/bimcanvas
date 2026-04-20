@@ -384,7 +384,7 @@ namespace BIMCanvas.Server.Controllers
                    && !zoneId.StartsWith("dz_", StringComparison.OrdinalIgnoreCase);
         }
 
-        private static string NormalizeReferenceAnalysisVersion(string version)
+        private static string? NormalizeReferenceAnalysisVersion(string? version)
         {
             return string.IsNullOrWhiteSpace(version) ? null : version.Trim();
         }
@@ -499,7 +499,10 @@ namespace BIMCanvas.Server.Controllers
         public string Version { get; set; }
         public string PlanType { get; set; }
         public string Content { get; set; }
-        public string ReferenceAnalysisVersion { get; set; }
+        // Nullable：NRT 启用下 ASP.NET Core 会把裸 string 视为 required；但"无参考图"
+        // 流程下此字段语义上就该缺省（见 skills/generate-planning/SKILL.md:145
+        // "`v0.1` 不写 `referenceAnalysisVersion`"，及 Server README.md:435 声明"支持可选"）。
+        public string? ReferenceAnalysisVersion { get; set; }
     }
 
     public class SaveReferenceAnalysisRequest
