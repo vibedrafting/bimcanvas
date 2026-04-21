@@ -36,16 +36,9 @@ from .errors import TurnPausedError
 
 logger = logging.getLogger(__name__)
 
-_OPENAI_PHASE_ONE_LOCAL_TOOL_ORDER = (
-    "Read",
-    "Write",
-    "Edit",
-    "Glob",
-    "Grep",
-    "Bash",
-    "AskUserQuestion",
-)
-_OPENAI_PHASE_ONE_LOCAL_TOOL_SET = frozenset(_OPENAI_PHASE_ONE_LOCAL_TOOL_ORDER)
+_OPENAI_LOCAL_TOOL_NAMES = frozenset({
+    "Read", "Write", "Edit", "Glob", "Grep", "Bash", "AskUserQuestion", "Skill",
+})
 _OPENAI_QUERY_DELEGATE_TOOL_ORDER = ("Read", "Glob", "Grep")
 _OPENAI_EDIT_DELEGATE_TOOL_ORDER = ("Read", "Write", "Edit", "Glob", "Grep")
 _OPENAI_DELEGATE_QUERY_TOOL_NAME = "delegate_query_task"
@@ -61,13 +54,12 @@ _OPENAI_LAYOUT_AGENT_MCP_TOOL_ORDER = (
     "mcp__canvas__load_reference_analysis",
 )
 _OPENAI_SUPPORTED_PERMISSION_TOOL_NAMES = frozenset({
-    *_OPENAI_PHASE_ONE_LOCAL_TOOL_ORDER,
-    "Task",
-    "Skill",
+    "Read", "Write", "Edit", "Glob", "Grep", "Bash",
+    "AskUserQuestion", "Task", "Skill",
     *_OPENAI_LAYOUT_AGENT_MCP_TOOL_ORDER,
 })
 _OPENAI_RESERVED_AGENT_TOOL_NAMES = frozenset({
-    *_OPENAI_PHASE_ONE_LOCAL_TOOL_ORDER,
+    *_OPENAI_LOCAL_TOOL_NAMES,
     _OPENAI_DELEGATE_QUERY_TOOL_NAME,
     _OPENAI_DELEGATE_EDIT_TOOL_NAME,
     *_OPENAI_LAYOUT_AGENT_MCP_TOOL_ORDER,
@@ -723,7 +715,7 @@ class OpenAIAgent:
                 blocked_specs=blocked_specs,
             )
         local_tool_names = [
-            name for name in _OPENAI_PHASE_ONE_LOCAL_TOOL_ORDER if name in resolved_enabled_permission_tool_names
+            name for name in resolved_tool_by_name if name in resolved_enabled_permission_tool_names
         ]
         local_tools = [resolved_tool_by_name[name] for name in local_tool_names]
         configured_tools = [
@@ -1411,7 +1403,6 @@ class OpenAIAgent:
             f"- 如需单一局部修改，调用 `{_OPENAI_DELEGATE_EDIT_TOOL_NAME}`。\n"
             f"- 当共享权限允许时，`{_OPENAI_LAYOUT_AGENT_NAME}` 会通过运行时 Skill 装配 + 原生 MCP function tools 定向启用，用于显式单区 generate 子任务。\n"
             "- 若某个配置型 agent 因 `openai.permissions.allow/deny` 或当前 Runtime 能力边界未启用，主控不得用 helper sub-agent 冒充它。\n"
-            "- 其他依赖 `Skill`、`mcp__canvas__*`、`AskUserQuestion` 或二级委派的配置型 agents 暂不启用。\n"
             "- helper sub-agent 只执行一个明确子任务，并返回简洁中文摘要供主控汇总。\n"
             f"{explicit_lines}"
         )
@@ -1769,7 +1760,7 @@ class OpenAIAgent:
             uses_runtime_adapted_layout_agent = name == _OPENAI_LAYOUT_AGENT_NAME
             parsed_requirements = parse_configured_agent_requirements(
                 cfg,
-                known_local_tool_names=set(_OPENAI_PHASE_ONE_LOCAL_TOOL_ORDER),
+                known_local_tool_names=_OPENAI_LOCAL_TOOL_NAMES,
                 reserved_tool_names={
                     _OPENAI_DELEGATE_QUERY_TOOL_NAME,
                     _OPENAI_DELEGATE_EDIT_TOOL_NAME,
@@ -1820,7 +1811,7 @@ class OpenAIAgent:
                 resolved_tool_names.append(tool_name)
 
             for tool_name in parsed_requirements.local_tool_names:
-                if tool_name not in _OPENAI_PHASE_ONE_LOCAL_TOOL_SET:
+                if tool_name not in _OPENAI_LOCAL_TOOL_NAMES:
                     intrinsic_reasons.append(f"unsupported tool: {tool_name}")
                     continue
                 if tool_name not in available_tool_names:
@@ -2015,9 +2006,11 @@ class OpenAIAgent:
         if self._phase_one_scope_logged:
             return
         logger.info(
-            "OpenAI stage 2 available: local function tools (%s) plus helper agent tools (%s, %s); "
-            "runtime-adapted layout-agent can be enabled when shared permissions allow Skill + MCP wrappers, while other Skill/MCP/handoff agents remain disabled.",
-            ", ".join(_OPENAI_PHASE_ONE_LOCAL_TOOL_ORDER),
+            "OpenAI runtime available: implemented local tools (%s), "
+            "MCP wrappers (%s), helper agents (%s, %s); "
+            "actual tool availability driven by config.json permissions.",
+            ", ".join(sorted(_OPENAI_LOCAL_TOOL_NAMES)),
+            ", ".join(_OPENAI_LAYOUT_AGENT_MCP_TOOL_ORDER),
             _OPENAI_DELEGATE_QUERY_TOOL_NAME,
             _OPENAI_DELEGATE_EDIT_TOOL_NAME,
         )
