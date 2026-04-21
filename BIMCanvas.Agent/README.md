@@ -1,6 +1,6 @@
 # BIMCanvas Agent
 
-基于多 Runtime 适配层的 AI 室内布置助手。当前 Host 可在 `claude-sdk` 与 `openai-agents` 之间按进程级配置切换。
+基于多 Runtime 适配层的 AI 室内布置助手。当前 Host 可在 `claude` 与 `openai` 之间按进程级配置切换。
 
 ## 架构定位
 
@@ -49,7 +49,7 @@ cp .env.example .env
 # ANTHROPIC_API_KEY=your-api-key-here
 
 # OpenAI Runtime
-# AGENT_RUNTIME_PROVIDER=openai-agents
+# AGENT_RUNTIME_PROVIDER=openai
 # OPENAI_API_KEY=your-openai-api-key
 # OPENAI_BASE_URL=https://api.openai.com/v1
 ```
@@ -156,7 +156,7 @@ data: [DONE]
 
 ```json
 {
-  "runtime": "claude-sdk",
+  "runtime": "claude",
   "runtimeVersion": "0.1.0",
   "capabilityMatrix": [
     {
@@ -182,23 +182,19 @@ data: [DONE]
 Host 通过 `runtimeProvider` 决定使用哪套适配器：
 
 ```json
-{
-  "runtimeProvider": "claude-sdk"
-}
+{ "runtimeProvider": "claude" }
 ```
 
 或：
 
 ```json
-{
-  "runtimeProvider": "openai-agents"
-}
+{ "runtimeProvider": "openai" }
 ```
 
 也可由环境变量覆盖：
 
 ```bash
-set AGENT_RUNTIME_PROVIDER=openai-agents
+set AGENT_RUNTIME_PROVIDER=openai
 ```
 
 当前约束：
@@ -238,7 +234,7 @@ OpenAI 首版适配走原生 `FunctionTool(needs_approval=True) + RunState` 路�
 
 **仍保留的启动时事实性校验**（只发生在 `Settings.load()`，不是运行时拦截）：
 
-- `openaiApi = "responses"` + `baseUrl` 非官方 OpenAI endpoint 的组合 → 启动 `ValueError`。这是给用户一个明确的配置错误提示，而不是静默降级成非流式 fallback。要么切 `chat_completions`（默认），要么把 `baseUrl` 指向官方 OpenAI endpoint。
+- `openai.apiMode = "responses"` + `openai.baseUrl` 非官方 OpenAI endpoint 的组合 → 启动 `ValueError`。这是给用户一个明确的配置错误提示，而不是静默降级成非流式 fallback。要么切 `chat_completions`（默认），要么把 `openai.baseUrl` 指向官方 OpenAI endpoint。
 - 其它启动校验（Claude 模型别名、model id 一致性等）维持不变。
 
 任何 OpenAI 相关 PR 合并前，必须完成 `docs/OpenAIRuntime_BrowserAcceptance.md` 中定义的 8 条浏览器验收，并留存实际结果。
@@ -614,40 +610,50 @@ Host 进程内的运行时真相源：
 **配置原则**：
 
 - Agent 只从 `<BIMCANVAS_HOME>/config.json` 读取连接参数与推理参数。
-- Web 对话默认模型统一存放在 `<BIMCANVAS_HOME>/web_config.json > defaultModel`，
+- Web 对话默认模型统一存放在 `<BIMCANVAS_HOME>/config.json > {runtimeProvider}.defaultModel`，
   并由 Web 在聊天请求中显式传给 Agent。
-- 当 `runtimeProvider=openai-agents` 时，不再支持 `opus / sonnet / haiku` 这类 Claude alias。
-  `config.json > modelMapping` 的 key 必须就是实际 OpenAI model id，且 entry.id 必须与 key 相同；
-  `web_config.json > defaultModel` 也必须直接写实际 OpenAI model id。
+- 当 `runtimeProvider=openai` 时，不再支持 `opus / sonnet / haiku` 这类 Claude alias。
+  `config.json > openai.modelMapping` 的 key 必须就是实际 OpenAI model id，且 entry.id 必须与 key 相同；
+  `config.json > openai.defaultModel` 也必须直接写实际 OpenAI model id。
 
 #### config.json 格式
 
 ```json
 {
-  "runtimeProvider": "claude-sdk",
-  "baseUrl": "https://your-direct-provider.example/v1",
-  "apiKey": "your-direct-api-key",
-  "openaiApi": "chat_completions",
-  "openaiDisableTracing": false,
-  "defaultEffort": "medium",
-  "defaultThinking": "adaptive",
-  "maxThinkingTokens": 16000,
-  "permissions": {
-    "allow": ["Read", "Glob", "Grep", "Task", "AskUserQuestion"],
-    "deny": []
+  "runtimeProvider": "claude",
+  "claude": {
+    "baseUrl": "https://your-direct-provider.example/v1",
+    "apiKey": "your-direct-api-key",
+    "defaultEffort": "low",
+    "defaultThinking": "adaptive",
+    "maxThinkingTokens": 8000,
+    "permissions": {
+      "allow": ["Read", "Glob", "Grep", "Task", "AskUserQuestion"],
+      "deny": []
+    }
+  },
+  "openai": {
+    "baseUrl": "",
+    "apiKey": "",
+    "apiMode": "chat_completions",
+    "disableTracing": null,
+    "permissions": {
+      "allow": [],
+      "deny": []
+    }
   }
 }
 ```
 
 #### 直连模式与 CCR 托管模式
 
-- 直连模式：Agent 使用 `config.json` 中的 `baseUrl`、`apiKey` 直连下游。
-- CCR 模式：`config.json` 中的 `baseUrl` 和 `apiKey` 仅保留，不参与当前请求链路；实际连接参数由 Server 注入的 CCR 网关环境变量托管。
+- 直连模式：Claude 读取 `claude.baseUrl / claude.apiKey`，OpenAI 读取 `openai.baseUrl / openai.apiKey`。
+- CCR 模式：仅在 `runtimeProvider=claude` 时生效；`claude.baseUrl / claude.apiKey` 仅保留，不参与当前请求链路，实际连接参数由 Server 注入的 CCR 网关环境变量托管。
 - 默认模型不再由 Agent 配置保存，所有 Web 对话请求都必须显式携带 `model`。
 
 #### permissions 字段说明
 
-`permissions` 字段通过 allow/deny 列表控制 Agent 可用工具权限：
+`permissions` 字段通过 allow/deny 列表控制当前 provider 可用工具权限：
 
 | 字段 | 效果 |
 |------|------|
@@ -656,14 +662,14 @@ Host 进程内的运行时真相源：
 
 **注意**：
 
-- `baseUrl` / `apiKey` 是“直连模式”配置；启用 CCR 托管后，它们不会被覆盖删除，但会暂时失效。
-- `openaiApi` 仅在 `runtimeProvider=openai-agents` 时生效，取值只能是 `chat_completions` 或 `responses`。
+- `claude.baseUrl / claude.apiKey`、`openai.baseUrl / openai.apiKey` 都是“直连模式”配置；隐藏 provider 的值会继续保留。
+- `openai.apiMode` 仅在 `runtimeProvider=openai` 时生效，取值只能是 `chat_completions` 或 `responses`。
 - **v0.1 默认 `chat_completions`**，面向第三方 OpenAI-compatible provider 的稳定主路径（root agent + streaming + 普通工具）。
 - **`responses` 已降级为实验性 opt-in**：只允许与 **官方 OpenAI endpoint**（`api.openai.com/v1`）搭配使用；第三方 endpoint + `responses` 的组合在 Agent 启动时会直接 `ValueError`，引导切回 `chat_completions` 或官方 endpoint——不再静默降级。
-- `openaiDisableTracing` 仅在 `runtimeProvider=openai-agents` 时生效；第三方 endpoint 默认关闭 tracing，避免把第三方 key 误发到 OpenAI traces 接口。
-- OpenAI runtime 会对 `permissions.allow/deny` 执行“配置权限 ∩ 当前适配支持集”裁剪。
+- `openai.disableTracing` 仅在 `runtimeProvider=openai` 时生效；支持 `null / true / false` 三态，其中第三方 endpoint 默认会落到自动关闭 tracing。
+- OpenAI runtime 会对 `openai.permissions.allow/deny` 执行“配置权限 ∩ 当前适配支持集”裁剪。
   当前支持集包含本地 function tools（`Read / Write / Edit / Glob / Grep / Bash / AskUserQuestion`）；`Task` 与其它未适配工具仍会被忽略，并在启动日志中提示。
-- `configured subagents`（含 `layout-agent`）在任何 `openaiApi` 值下都按原有共享权限 + 运行时装配逻辑注册，Runtime 不做预判拦截。但 v0.1 对它们不作稳定承诺——第三方 provider + `Agent.as_tool(on_stream=...)` 的已知脆弱性会让调用有较高失败概率，失败时错误自然冒泡到前端。
+- `configured subagents`（含 `layout-agent`）在任何 `openai.apiMode` 值下都按原有共享权限 + 运行时装配逻辑注册，Runtime 不做预判拦截。但 v0.1 对它们不作稳定承诺——第三方 provider + `Agent.as_tool(on_stream=...)` 的已知脆弱性会让调用有较高失败概率，失败时错误自然冒泡到前端。
 
 #### SubAgent 配置格式 (agents/*.md)
 

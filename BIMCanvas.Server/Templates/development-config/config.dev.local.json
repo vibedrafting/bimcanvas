@@ -1,4 +1,13 @@
 {
-  "baseUrl": "",
-  "apiKey": ""
+  "runtimeProvider": "claude",
+  "claude": {
+    "baseUrl": "",
+    "apiKey": "",
+    "defaultModel": "opus"
+  },
+  "openai": {
+    "baseUrl": "",
+    "apiKey": "",
+    "defaultModel": "gpt-5"
+  }
 }

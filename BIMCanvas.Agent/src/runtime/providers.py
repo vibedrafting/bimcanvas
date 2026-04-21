@@ -6,10 +6,15 @@ from dataclasses import dataclass
 from typing import Any
 
 
-CLAUDE_RUNTIME_ID = "claude-sdk"
-OPENAI_RUNTIME_ID = "openai-agents"
+CLAUDE_RUNTIME_ID = "claude"
+OPENAI_RUNTIME_ID = "openai"
 DEFAULT_RUNTIME_PROVIDER = CLAUDE_RUNTIME_ID
 RUNTIME_VERSION = "0.1.0"
+_SUPPORTED_RUNTIME_PROVIDERS = frozenset({CLAUDE_RUNTIME_ID, OPENAI_RUNTIME_ID})
+_LEGACY_RUNTIME_PROVIDERS = {
+    "claude-sdk": CLAUDE_RUNTIME_ID,
+    "openai-agents": OPENAI_RUNTIME_ID,
+}
 
 
 @dataclass(frozen=True)
@@ -208,13 +213,26 @@ _DESCRIPTORS: dict[str, RuntimeDescriptor] = {
 }
 
 
-def normalize_runtime_provider(value: str | None) -> str:
-    normalized = (value or DEFAULT_RUNTIME_PROVIDER).strip().lower()
-    if normalized in {"claude", "claude-sdk"}:
-        return CLAUDE_RUNTIME_ID
-    if normalized in {"openai", "openai-agents"}:
-        return OPENAI_RUNTIME_ID
-    return normalized or DEFAULT_RUNTIME_PROVIDER
+def normalize_runtime_provider(
+    value: str | None,
+    *,
+    default: str = DEFAULT_RUNTIME_PROVIDER,
+    source: str = "runtimeProvider",
+) -> str:
+    normalized = str(value or "").strip().lower()
+    if not normalized:
+        return default
+    if normalized in _SUPPORTED_RUNTIME_PROVIDERS:
+        return normalized
+    if normalized in _LEGACY_RUNTIME_PROVIDERS:
+        upgraded = _LEGACY_RUNTIME_PROVIDERS[normalized]
+        raise ValueError(
+            f"{source} 不再接受旧值 '{value}'。"
+            f" 现在只允许 'claude' 或 'openai'，请改为 '{upgraded}'。"
+        )
+    raise ValueError(
+        f"不支持的 {source}: {value!r}。现在只允许 'claude' 或 'openai'。"
+    )
 
 
 def get_runtime_descriptor(runtime_provider: str | None = None) -> RuntimeDescriptor:

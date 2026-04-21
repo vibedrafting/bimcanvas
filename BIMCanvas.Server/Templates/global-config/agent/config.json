@@ -1,33 +1,64 @@
 {
-    "runtimeProvider": "claude-sdk",
+  "runtimeProvider": "claude",
+  "claude": {
     "baseUrl": "",
     "apiKey": "",
-    "openaiApi": "chat_completions",
-    "openaiDisableTracing": false,
-    "modelMapping": {
-        "opus":   { "id": "claude-opus-4-6",          "label": "Opus" },
-        "sonnet": { "id": "claude-sonnet-4-20250514",  "label": "Sonnet" },
-        "haiku":  { "id": "claude-haiku-4-5-20251001", "label": "Haiku" }
-    },
+    "defaultModel": "opus",
     "defaultEffort": "low",
     "defaultThinking": "adaptive",
     "maxThinkingTokens": 8000,
     "permissions": {
-        "allow": [
-            "Read",
-            "Write",
-            "Glob",
-            "Grep",
-            "Task",
-            "Skill",
-            "AskUserQuestion",
-            "mcp__canvas__request_background_screenshot",
-            "mcp__canvas__get_zone_boundaries",
-            "mcp__canvas__save_semantic_plan",
-            "mcp__canvas__load_semantic_plan",
-            "mcp__canvas__validate_layout",
-            "mcp__canvas__load_reference_analysis"
-        ],
-        "deny": []
+      "allow": [
+        "Read",
+        "Write",
+        "Glob",
+        "Grep",
+        "Task",
+        "Skill",
+        "AskUserQuestion",
+        "mcp__canvas__request_background_screenshot",
+        "mcp__canvas__get_zone_boundaries",
+        "mcp__canvas__save_semantic_plan",
+        "mcp__canvas__load_semantic_plan",
+        "mcp__canvas__validate_layout",
+        "mcp__canvas__load_reference_analysis"
+      ],
+      "deny": []
+    },
+    "modelMapping": {
+      "opus": { "id": "claude-opus-4-6", "label": "Opus" },
+      "sonnet": { "id": "claude-sonnet-4-20250514", "label": "Sonnet" },
+      "haiku": { "id": "claude-haiku-4-5-20251001", "label": "Haiku" }
     }
+  },
+  "openai": {
+    "baseUrl": "",
+    "apiKey": "",
+    "defaultModel": "gpt-5",
+    "apiMode": "chat_completions",
+    "disableTracing": null,
+    "permissions": {
+      "allow": [
+        "Read",
+        "Write",
+        "Edit",
+        "Glob",
+        "Grep",
+        "Bash",
+        "AskUserQuestion",
+        "Task",
+        "Skill",
+        "mcp__canvas__request_background_screenshot",
+        "mcp__canvas__get_zone_boundaries",
+        "mcp__canvas__save_semantic_plan",
+        "mcp__canvas__load_semantic_plan",
+        "mcp__canvas__validate_layout",
+        "mcp__canvas__load_reference_analysis"
+      ],
+      "deny": []
+    },
+    "modelMapping": {
+      "gpt-5": { "id": "gpt-5", "label": "GPT-5" }
+    }
+  }
 }

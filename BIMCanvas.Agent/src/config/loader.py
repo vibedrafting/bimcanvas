@@ -10,6 +10,22 @@ from typing import Optional
 from functools import lru_cache
 
 logger = logging.getLogger(__name__)
+CLAUDE_RUNTIME_ID = "claude"
+OPENAI_RUNTIME_ID = "openai"
+_LEGACY_AGENT_ROOT_FIELDS = frozenset(
+    {
+        "baseUrl",
+        "apiKey",
+        "defaultEffort",
+        "defaultThinking",
+        "maxThinkingTokens",
+        "modelMapping",
+        "permissions",
+        "openaiApi",
+        "openaiDisableTracing",
+        "tools",
+    }
+)
 
 
 def resolve_bimcanvas_home() -> Path:
@@ -34,6 +50,76 @@ class AgentConfig:
     tools: list[str]
     model: str
     prompt: str
+
+
+def ensure_agent_config_schema(config: dict) -> None:
+    """校验 Agent config.json 已切换到新的 provider 分域结构。"""
+    if not isinstance(config, dict):
+        raise ValueError("config.json 顶层必须是 JSON 对象。")
+
+    legacy_fields = sorted(field for field in _LEGACY_AGENT_ROOT_FIELDS if field in config)
+    if legacy_fields:
+        fields_display = ", ".join(legacy_fields)
+        raise ValueError(
+            "检测到已废弃的旧版 Agent config.json 顶层字段: "
+            f"{fields_display}。BIMCanvas 现在只接受新 schema："
+            "{ runtimeProvider, claude, openai }，不会自动迁移旧结构。"
+        )
+
+    if "runtimeProvider" not in config:
+        raise ValueError(
+            "config.json 缺少 runtimeProvider。BIMCanvas 现在只接受新 schema："
+            "{ runtimeProvider, claude, openai }。"
+        )
+
+    _normalize_runtime_provider(
+        str(config.get("runtimeProvider", "")),
+        source="config.json runtimeProvider",
+    )
+
+    for provider in (CLAUDE_RUNTIME_ID, OPENAI_RUNTIME_ID):
+        section = config.get(provider)
+        if not isinstance(section, dict):
+            raise ValueError(
+                f"config.json 必须包含对象类型的 `{provider}` 分域。"
+            )
+
+
+def resolve_runtime_provider(config: dict) -> str:
+    """解析当前生效的 runtimeProvider（支持环境变量覆盖）。"""
+    ensure_agent_config_schema(config)
+
+    configured_provider = _normalize_runtime_provider(
+        str(config.get("runtimeProvider", "")),
+        source="config.json runtimeProvider",
+    )
+    override = os.getenv("AGENT_RUNTIME_PROVIDER", "").strip()
+    if not override:
+        return configured_provider
+
+    return _normalize_runtime_provider(
+        override,
+        source="AGENT_RUNTIME_PROVIDER",
+    )
+
+
+def _normalize_runtime_provider(value: str, *, source: str) -> str:
+    from ..runtime.providers import normalize_runtime_provider
+
+    return normalize_runtime_provider(
+        value,
+        source=source,
+    )
+
+
+def get_provider_config(config: dict, provider: str | None = None) -> dict:
+    """返回指定 provider 的配置分域。"""
+    ensure_agent_config_schema(config)
+    resolved_provider = provider or resolve_runtime_provider(config)
+    section = config.get(resolved_provider)
+    if not isinstance(section, dict):
+        raise ValueError(f"config.json `{resolved_provider}` 必须是对象。")
+    return section
 
 
 class ConfigLoader:
@@ -144,7 +230,7 @@ class ConfigLoader:
 
     def load_tools(self) -> list[str] | None:
         """
-        加载主 Agent 工具列表（向后兼容方法）
+        加载主 Agent 工具白名单（向后兼容方法）
 
         Returns:
             工具名称列表，或 None（表示默认全开）
@@ -154,11 +240,7 @@ class ConfigLoader:
 
     def load_permissions(self) -> tuple[list[str] | None, list[str]]:
         """
-        加载工具权限配置
-
-        支持两种格式：
-        1. 新格式：permissions: { allow: [...], deny: [...] }
-        2. 旧格式：tools: [...]（向后兼容）
+        加载当前 provider 的工具权限配置。
 
         Returns:
             (allowed_tools, disallowed_tools) 元组
@@ -166,22 +248,26 @@ class ConfigLoader:
             - disallowed_tools: 禁止的工具列表
         """
         config = self.load_config()
-        permissions = config.get('permissions', {})
+        provider = resolve_runtime_provider(config)
+        provider_config = get_provider_config(config, provider)
+        permissions = provider_config.get("permissions", {})
 
-        # 新格式：permissions 结构
-        if permissions:
-            allow = permissions.get('allow')
-            deny = permissions.get('deny', [])
-            # 空数组或 null 都返回 None，表示默认全开
-            if not allow:
-                allow = None
-            return allow, deny
-
-        # 兼容旧格式：tools 字段
-        tools = config.get('tools')
-        if not tools:
+        if permissions in (None, {}):
             return None, []
-        return tools, []
+        if not isinstance(permissions, dict):
+            raise ValueError(f"config.json `{provider}.permissions` 必须是对象。")
+
+        allow = permissions.get("allow")
+        deny = permissions.get("deny", [])
+
+        if allow == []:
+            allow = None
+        if allow is not None and not isinstance(allow, list):
+            raise ValueError(f"config.json `{provider}.permissions.allow` 必须是数组或 null。")
+        if not isinstance(deny, list):
+            raise ValueError(f"config.json `{provider}.permissions.deny` 必须是数组。")
+
+        return allow, deny
 
 
     def load_agents(self) -> dict[str, AgentConfig]:

@@ -39,19 +39,26 @@ public sealed class SettingsService
 
     private static readonly IReadOnlyList<SettingsFieldDto> WebFields =
     [
-        new() { Path = "defaultModel", Label = "默认模型", ApplyMode = "immediate" },
-        new() { Path = "customModels", Label = "自定义模型列表", ApplyMode = "immediate" },
         new() { Path = "layerPresets.User.enabledLayers", Label = "用户图层预设", ApplyMode = "immediate" },
         new() { Path = "layerPresets.Agent.enabledLayers", Label = "Agent 图层预设", ApplyMode = "immediate" }
     ];
 
     private static readonly IReadOnlyList<SettingsFieldDto> AgentFields =
     [
-        new() { Path = "baseUrl", Label = "网关地址", ApplyMode = "restart" },
-        new() { Path = "apiKey", Label = "API Key", ApplyMode = "restart", Sensitive = true },
-        new() { Path = "defaultEffort", Label = "默认 Effort", ApplyMode = "restart" },
-        new() { Path = "defaultThinking", Label = "默认 Thinking", ApplyMode = "restart" },
-        new() { Path = "maxThinkingTokens", Label = "最大 Thinking Tokens", ApplyMode = "restart" }
+        new() { Path = "runtimeProvider", Label = "当前 Runtime", ApplyMode = "restart" },
+        new() { Path = "claude.baseUrl", Label = "Claude Base URL", ApplyMode = "restart" },
+        new() { Path = "claude.apiKey", Label = "Claude API Key", ApplyMode = "restart", Sensitive = true },
+        new() { Path = "claude.defaultModel", Label = "Claude 默认模型", ApplyMode = "restart" },
+        new() { Path = "claude.defaultEffort", Label = "Claude 默认 Effort", ApplyMode = "restart" },
+        new() { Path = "claude.defaultThinking", Label = "Claude 默认 Thinking", ApplyMode = "restart" },
+        new() { Path = "claude.maxThinkingTokens", Label = "Claude 最大 Thinking Tokens", ApplyMode = "restart" },
+        new() { Path = "claude.modelMapping", Label = "Claude 模型映射", ApplyMode = "restart" },
+        new() { Path = "openai.baseUrl", Label = "OpenAI Base URL", ApplyMode = "restart" },
+        new() { Path = "openai.apiKey", Label = "OpenAI API Key", ApplyMode = "restart", Sensitive = true },
+        new() { Path = "openai.defaultModel", Label = "OpenAI 默认模型", ApplyMode = "restart" },
+        new() { Path = "openai.apiMode", Label = "OpenAI API 模式", ApplyMode = "restart" },
+        new() { Path = "openai.disableTracing", Label = "OpenAI Tracing", ApplyMode = "restart" },
+        new() { Path = "openai.modelMapping", Label = "OpenAI 模型映射", ApplyMode = "restart" }
     ];
 
     private static readonly IReadOnlyList<SettingsFieldDto> CcrFields =
@@ -117,7 +124,7 @@ public sealed class SettingsService
                 requiresRestart: true,
                 ccrValues,
                 CcrFields),
-            Runtime = BuildRuntime(serverValues, webValues)
+            Runtime = BuildRuntime(serverValues, agentValues)
         };
     }
 
@@ -194,20 +201,25 @@ public sealed class SettingsService
         };
     }
 
-    private SettingsRuntimeDto BuildRuntime(JObject serverValues, JObject webValues)
+    private SettingsRuntimeDto BuildRuntime(JObject serverValues, JObject agentValues)
     {
         var isCcrEnabled = serverValues.SelectToken("ccr.enabled")?.Value<bool>() ?? false;
+        var runtimeProvider = NormalizeRuntimeProvider(
+            agentValues.SelectToken("runtimeProvider")?.Value<string>());
+        var isClaudeRuntime = string.Equals(runtimeProvider, "claude", StringComparison.OrdinalIgnoreCase);
         var dockerManagedRestart = string.Equals(
             Environment.GetEnvironmentVariable("DOTNET_RUNNING_IN_CONTAINER"),
             "true",
             StringComparison.OrdinalIgnoreCase);
         var runtimeSnapshot = _runtimeEndpointState.GetSnapshot();
+        var effectiveDefaultModelPath = GetEffectiveDefaultModelPath(runtimeProvider);
 
         return new SettingsRuntimeDto
         {
-            Mode = isCcrEnabled ? "ccr" : "direct",
-            EffectiveDefaultModelPath = "web.defaultModel",
-            EffectiveDefaultModelValue = webValues.SelectToken("defaultModel")?.Value<string>() ?? "",
+            Mode = isCcrEnabled && isClaudeRuntime ? "ccr" : "direct",
+            EffectiveDefaultModelPath = effectiveDefaultModelPath,
+            EffectiveDefaultModelValue = agentValues.SelectToken(effectiveDefaultModelPath.Replace("agent.", ""))
+                ?.Value<string>() ?? "",
             DockerManagedRestart = dockerManagedRestart,
             RestartBehavior = dockerManagedRestart ? "docker-auto" : "manual",
             RestartHint = dockerManagedRestart
@@ -253,14 +265,23 @@ public sealed class SettingsService
     {
         try
         {
-            _ = JsonSerializer.Deserialize<WebConfig>(
+            var config = JsonSerializer.Deserialize<WebConfig>(
                 input.ToString(),
                 new JsonSerializerOptions
                 {
                     PropertyNameCaseInsensitive = true,
                     PropertyNamingPolicy = JsonNamingPolicy.CamelCase
                 }) ?? throw new InvalidOperationException("web_config.json 内容不能为空对象。");
-            return Clone(input);
+
+            config.LayerPresets ??= new Dictionary<string, LayerPreset>();
+            config.LayerPresets["User"] = config.LayerPresets.TryGetValue("User", out var userPreset)
+                ? userPreset ?? new LayerPreset()
+                : new LayerPreset();
+            config.LayerPresets["Agent"] = config.LayerPresets.TryGetValue("Agent", out var agentPreset)
+                ? agentPreset ?? new LayerPreset()
+                : new LayerPreset();
+
+            return ToJObject(config);
         }
         catch (Exception ex) when (ex is not InvalidOperationException)
         {
@@ -272,7 +293,60 @@ public sealed class SettingsService
     {
         EnsureObject(input, "config.json");
         var clone = Clone(input);
-        clone.Remove("server");
+
+        var legacyFields = new[]
+        {
+            "server",
+            "baseUrl",
+            "apiKey",
+            "defaultEffort",
+            "defaultThinking",
+            "maxThinkingTokens",
+            "modelMapping",
+            "permissions",
+            "openaiApi",
+            "openaiDisableTracing",
+            "tools"
+        }
+        .Where(clone.ContainsKey)
+        .ToArray();
+
+        if (legacyFields.Length > 0)
+        {
+            throw new InvalidOperationException(
+                "config.json 检测到旧版顶层字段："
+                + string.Join(", ", legacyFields)
+                + "。当前只接受新 schema：{ runtimeProvider, claude, openai }。");
+        }
+
+        var runtimeProvider = clone["runtimeProvider"]?.Value<string>()?.Trim();
+        if (string.IsNullOrWhiteSpace(runtimeProvider))
+        {
+            throw new InvalidOperationException("config.json.runtimeProvider 必须为 claude 或 openai。");
+        }
+
+        runtimeProvider = runtimeProvider.ToLowerInvariant();
+        if (runtimeProvider is "claude-sdk" or "openai-agents")
+        {
+            throw new InvalidOperationException(
+                $"config.json.runtimeProvider 不再接受旧值 `{runtimeProvider}`，请改为 claude 或 openai。");
+        }
+
+        if (runtimeProvider is not ("claude" or "openai"))
+        {
+            throw new InvalidOperationException(
+                $"config.json.runtimeProvider 不支持 `{runtimeProvider}`，只允许 claude 或 openai。");
+        }
+
+        clone["runtimeProvider"] = runtimeProvider;
+
+        var claude = clone["claude"] as JObject
+            ?? throw new InvalidOperationException("config.json.claude 必须是对象。");
+        var openai = clone["openai"] as JObject
+            ?? throw new InvalidOperationException("config.json.openai 必须是对象。");
+
+        ValidateClaudeSection(claude);
+        ValidateOpenAiSection(openai);
         return clone;
     }
 
@@ -305,18 +379,17 @@ public sealed class SettingsService
 
     private static JObject LoadWebValues()
     {
-        return LoadJsonObject(
+        return ValidateWeb(LoadJsonObject(
             ConfigService.GetWebConfigPath(),
-            () => ToJObject(new WebConfig()));
+            () => ToJObject(new WebConfig())));
     }
 
     private static JObject LoadAgentValues()
     {
         var values = LoadJsonObject(
             ConfigService.GetAgentConfigPath(),
-            () => new JObject());
-        values.Remove("server");
-        return values;
+            CreateDefaultAgentValues);
+        return ValidateAgent(values);
     }
 
     private static JObject LoadCcrValues()
@@ -375,6 +448,215 @@ public sealed class SettingsService
     private static JObject Clone(JObject value)
     {
         return (JObject)value.DeepClone();
+    }
+
+    private static JObject CreateDefaultAgentValues()
+    {
+        return JObject.Parse(
+            """
+            {
+              "runtimeProvider": "claude",
+              "claude": {
+                "baseUrl": "",
+                "apiKey": "",
+                "defaultModel": "opus",
+                "defaultEffort": "low",
+                "defaultThinking": "adaptive",
+                "maxThinkingTokens": 8000,
+                "permissions": {
+                  "allow": [],
+                  "deny": []
+                },
+                "modelMapping": {
+                  "opus": { "id": "claude-opus-4-6", "label": "Opus" },
+                  "sonnet": { "id": "claude-sonnet-4-20250514", "label": "Sonnet" },
+                  "haiku": { "id": "claude-haiku-4-5-20251001", "label": "Haiku" }
+                }
+              },
+              "openai": {
+                "baseUrl": "",
+                "apiKey": "",
+                "defaultModel": "gpt-5",
+                "apiMode": "chat_completions",
+                "disableTracing": null,
+                "permissions": {
+                  "allow": [],
+                  "deny": []
+                },
+                "modelMapping": {
+                  "gpt-5": { "id": "gpt-5", "label": "GPT-5" }
+                }
+              }
+            }
+            """);
+    }
+
+    private static void ValidateClaudeSection(JObject section)
+    {
+        ValidatePermissions(section, "claude.permissions");
+
+        var defaultModel = section["defaultModel"]?.Value<string>()?.Trim();
+        if (string.IsNullOrWhiteSpace(defaultModel))
+        {
+            throw new InvalidOperationException("config.json.claude.defaultModel 必须为 opus / sonnet / haiku。");
+        }
+
+        defaultModel = defaultModel.ToLowerInvariant();
+        if (defaultModel is not ("opus" or "sonnet" or "haiku"))
+        {
+            throw new InvalidOperationException("config.json.claude.defaultModel 只允许 opus / sonnet / haiku。");
+        }
+
+        section["defaultModel"] = defaultModel;
+
+        var defaultEffort = section["defaultEffort"]?.Value<string>()?.Trim();
+        if (!string.IsNullOrWhiteSpace(defaultEffort))
+        {
+            var normalized = defaultEffort.ToLowerInvariant();
+            if (normalized is not ("low" or "medium" or "high" or "max"))
+            {
+                throw new InvalidOperationException("config.json.claude.defaultEffort 只允许 low / medium / high / max。");
+            }
+
+            section["defaultEffort"] = normalized;
+        }
+
+        var defaultThinking = section["defaultThinking"]?.Value<string>()?.Trim();
+        if (!string.IsNullOrWhiteSpace(defaultThinking))
+        {
+            var normalized = defaultThinking.ToLowerInvariant();
+            if (normalized is not ("off" or "adaptive"))
+            {
+                throw new InvalidOperationException("config.json.claude.defaultThinking 只允许 off / adaptive。");
+            }
+
+            section["defaultThinking"] = normalized;
+        }
+
+        if (section["modelMapping"] is JObject modelMapping)
+        {
+            var invalidKeys = modelMapping.Properties()
+                .Select(property => property.Name)
+                .Where(name => name is not ("opus" or "sonnet" or "haiku"))
+                .ToArray();
+
+            if (invalidKeys.Length > 0)
+            {
+                throw new InvalidOperationException(
+                    "config.json.claude.modelMapping 只允许 opus / sonnet / haiku；检测到："
+                    + string.Join(", ", invalidKeys));
+            }
+
+            if (modelMapping.Property(defaultModel) == null)
+            {
+                throw new InvalidOperationException(
+                    $"config.json.claude.defaultModel=`{defaultModel}` 必须存在于 claude.modelMapping 中。");
+            }
+        }
+    }
+
+    private static void ValidateOpenAiSection(JObject section)
+    {
+        ValidatePermissions(section, "openai.permissions");
+
+        var defaultModel = section["defaultModel"]?.Value<string>()?.Trim();
+        if (string.IsNullOrWhiteSpace(defaultModel))
+        {
+            throw new InvalidOperationException("config.json.openai.defaultModel 必须填写真实 OpenAI model id。");
+        }
+
+        if (defaultModel.ToLowerInvariant() is "opus" or "sonnet" or "haiku")
+        {
+            throw new InvalidOperationException(
+                "config.json.openai.defaultModel 不允许 Claude alias，必须使用真实 OpenAI model id。");
+        }
+
+        section["defaultModel"] = defaultModel;
+
+        var apiMode = section["apiMode"]?.Value<string>()?.Trim();
+        if (!string.IsNullOrWhiteSpace(apiMode))
+        {
+            var normalized = apiMode.ToLowerInvariant().Replace('-', '_');
+            if (normalized is not ("chat_completions" or "responses"))
+            {
+                throw new InvalidOperationException(
+                    "config.json.openai.apiMode 只允许 chat_completions / responses。");
+            }
+
+            section["apiMode"] = normalized;
+        }
+
+        var disableTracing = section["disableTracing"];
+        if (disableTracing != null
+            && disableTracing.Type != JTokenType.Null
+            && disableTracing.Type != JTokenType.Boolean)
+        {
+            throw new InvalidOperationException(
+                "config.json.openai.disableTracing 只允许 null / true / false。");
+        }
+
+        if (section["modelMapping"] is JObject modelMapping)
+        {
+            foreach (var property in modelMapping.Properties())
+            {
+                if (property.Name is "opus" or "sonnet" or "haiku")
+                {
+                    throw new InvalidOperationException(
+                        $"config.json.openai.modelMapping 不允许 Claude alias `{property.Name}`，必须使用真实 model id。");
+                }
+
+                if (property.Value is JObject entry)
+                {
+                    var configuredId = entry["id"]?.Value<string>()?.Trim();
+                    if (!string.IsNullOrWhiteSpace(configuredId)
+                        && !string.Equals(configuredId, property.Name, StringComparison.Ordinal))
+                    {
+                        throw new InvalidOperationException(
+                        $"config.json.openai.modelMapping 要求 key 和 id 一致；检测到 key=`{property.Name}`、id=`{configuredId}`。");
+                    }
+                }
+            }
+
+            if (modelMapping.Count > 0 && modelMapping.Property(defaultModel) == null)
+            {
+                throw new InvalidOperationException(
+                    $"config.json.openai.defaultModel=`{defaultModel}` 必须存在于 openai.modelMapping 中。");
+            }
+        }
+    }
+
+    private static void ValidatePermissions(JObject section, string path)
+    {
+        if (section["permissions"] is not JObject permissions)
+        {
+            return;
+        }
+
+        var allow = permissions["allow"];
+        if (allow != null && allow.Type != JTokenType.Null && allow.Type != JTokenType.Array)
+        {
+            throw new InvalidOperationException($"{path}.allow 只允许数组或 null。");
+        }
+
+        var deny = permissions["deny"];
+        if (deny != null && deny.Type != JTokenType.Array)
+        {
+            throw new InvalidOperationException($"{path}.deny 只允许数组。");
+        }
+    }
+
+    private static string NormalizeRuntimeProvider(string? runtimeProvider)
+    {
+        return string.Equals(runtimeProvider?.Trim(), "openai", StringComparison.OrdinalIgnoreCase)
+            ? "openai"
+            : "claude";
+    }
+
+    private static string GetEffectiveDefaultModelPath(string runtimeProvider)
+    {
+        return NormalizeRuntimeProvider(runtimeProvider) == "openai"
+            ? "agent.openai.defaultModel"
+            : "agent.claude.defaultModel";
     }
 }
 

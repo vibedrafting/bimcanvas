@@ -73,29 +73,30 @@ def _set_openai_runtime_config(
     config_path = home / "config.json"
     config = _read_json(config_path)
     config["runtimeProvider"] = OPENAI_RUNTIME_ID
-    config["apiKey"] = api_key
-    config["baseUrl"] = base_url
+    config.setdefault("openai", {})
+    config["openai"]["apiKey"] = api_key
+    config["openai"]["baseUrl"] = base_url
     if openai_api is not None:
-        config["openaiApi"] = openai_api
+        config["openai"]["apiMode"] = openai_api
     else:
-        config.pop("openaiApi", None)
+        config["openai"].pop("apiMode", None)
     if openai_disable_tracing is not None:
-        config["openaiDisableTracing"] = openai_disable_tracing
+        config["openai"]["disableTracing"] = openai_disable_tracing
     else:
-        config.pop("openaiDisableTracing", None)
+        config["openai"].pop("disableTracing", None)
     if model_mapping is not None:
-        config["modelMapping"] = model_mapping
+        config["openai"]["modelMapping"] = model_mapping
     if permissions is not None:
-        config["permissions"] = permissions
+        config["openai"]["permissions"] = permissions
     _write_json(config_path, config)
 
 
 def _set_web_default_model(home: Path, model_id: str) -> None:
-    web_config_path = home / "web_config.json"
-    web_config = _read_json(web_config_path)
-    web_config["defaultModel"] = model_id
-    web_config["customModels"] = [{"id": model_id, "label": model_id}]
-    _write_json(web_config_path, web_config)
+    config_path = home / "config.json"
+    config = _read_json(config_path)
+    config.setdefault("openai", {})
+    config["openai"]["defaultModel"] = model_id
+    _write_json(config_path, config)
 
 
 def _write_agent_md(
@@ -537,7 +538,7 @@ def test_build_explicit_layout_agent_unavailable_message_is_honest(
     message = agent._build_explicit_configured_agent_unavailable_message(explicit_request)
     assert "当前无法调用 `layout-agent`" in message
     assert "不会用通用 helper worker 冒充" in message
-    assert "permissions.allow" in message
+    assert "openai.permissions.allow" in message
 
 
 def test_openai_canvas_wrappers_translate_runtime_context_and_shortcuts(
@@ -648,7 +649,7 @@ def test_openai_settings_require_api_key(
     _set_web_default_model(home, "gpt-4.1")
     _reset_config_caches()
 
-    with pytest.raises(ValueError, match="OpenAI runtime requires OPENAI_API_KEY or config.json apiKey"):
+    with pytest.raises(ValueError, match="OpenAI runtime requires OPENAI_API_KEY or config.json openai.apiKey"):
         get_settings()
 
 
@@ -665,7 +666,7 @@ def test_openai_settings_reject_claude_alias_model_mapping_keys(
     _set_web_default_model(home, "gpt-4.1")
     _reset_config_caches()
 
-    with pytest.raises(ValueError, match="modelMapping keys to be real OpenAI model ids"):
+    with pytest.raises(ValueError, match="key 必须是真实 model id"):
         get_settings()
 
 
@@ -682,7 +683,7 @@ def test_openai_settings_reject_claude_alias_default_model(
     _set_web_default_model(home, "opus")
     _reset_config_caches()
 
-    with pytest.raises(ValueError, match="web_config.json defaultModel"):
+    with pytest.raises(ValueError, match="config.json openai.defaultModel"):
         get_settings()
 
 
@@ -758,7 +759,7 @@ def test_openai_settings_reject_responses_with_third_party_endpoint(
     _set_web_default_model(home, "gpt-4.1")
     _reset_config_caches()
 
-    with pytest.raises(ValueError, match="third-party OpenAI-compatible endpoints"):
+    with pytest.raises(ValueError, match="第三方 OpenAI-compatible endpoint"):
         get_settings()
 
 
@@ -950,7 +951,7 @@ def test_openai_agent_resume_interaction_passes_sdk_session(
     binding = PendingInteractionRuntimeBinding(
         interaction_id="interaction-1",
         resume_token="resume-1",
-        runtime_id="openai-agents",
+        runtime_id="openai",
         session_id="session-42",
         turn_id="turn-42",
         window_id="window-main",
@@ -965,7 +966,7 @@ def test_openai_agent_resume_interaction_passes_sdk_session(
         window_id="window-main",
         project_path=str(tmp_path),
         worktree_path=None,
-        runtime_id="openai-agents",
+        runtime_id="openai",
     )
 
     appended_chunks: list[StreamChunk] = []

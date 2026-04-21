@@ -78,13 +78,13 @@ def test_factory_injects_bundle_into_runtime_instances(
     _configure_test_home(monkeypatch, home)
 
     claude_agent = create_agent(
-        "claude-sdk",
+        "claude",
         project_path=str(tmp_path),
         working_directory=str(tmp_path),
         window_seq=1,
     )
     openai_agent = create_agent(
-        "openai-agents",
+        "openai",
         project_path=str(tmp_path),
         working_directory=str(tmp_path),
         window_seq=2,

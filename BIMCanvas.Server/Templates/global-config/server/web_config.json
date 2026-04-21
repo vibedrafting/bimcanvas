@@ -1,10 +1,4 @@
 {
-  "defaultModel": "opus",
-  "customModels": [
-    { "id": "opus", "label": "Opus" },
-    { "id": "sonnet", "label": "Sonnet" },
-    { "id": "haiku", "label": "Haiku" }
-  ],
   "layerPresets": {
     "User": {
       "enabledLayers": ["Grid", "Architecture", "Furniture"]

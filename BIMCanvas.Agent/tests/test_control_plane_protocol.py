@@ -56,6 +56,7 @@ def test_config_handler_returns_capability_matrix(monkeypatch: pytest.MonkeyPatc
                     "sonnet": {"label": "Sonnet"},
                     "opus": {"label": "Opus"},
                 },
+                default_model="sonnet",
                 default_effort="medium",
                 default_thinking="off",
             ),
@@ -65,8 +66,9 @@ def test_config_handler_returns_capability_matrix(monkeypatch: pytest.MonkeyPatc
             response = await client.get("/api/config")
             assert response.status == 200
             payload = await response.json()
-            assert payload["runtime"] == "claude-sdk"
+            assert payload["runtime"] == "claude"
             assert payload["runtimeVersion"] == "0.1.0"
+            assert payload["defaultModel"] == "sonnet"
             assert payload["defaultEffort"] == "medium"
             assert payload["defaultThinking"] == "off"
             assert [item["id"] for item in payload["models"]] == ["sonnet", "opus"]
@@ -519,7 +521,7 @@ def test_question_resolution_endpoints_resume_openai_runtime_binding(
             window_id="primary",
             project_path="C:/demo",
             worktree_path=None,
-            runtime_id="openai-agents",
+            runtime_id="openai",
             runtime_version="0.1.0",
         )
         await runtime_store.mark_session_running(session.session_id, "turn-1")
@@ -527,7 +529,7 @@ def test_question_resolution_endpoints_resume_openai_runtime_binding(
         binding = PendingInteractionRuntimeBinding(
             interaction_id="",
             resume_token="",
-            runtime_id="openai-agents",
+            runtime_id="openai",
             session_id=session.session_id,
             turn_id="turn-1",
             window_id="primary",
@@ -614,7 +616,7 @@ def test_duplicate_interaction_submit_is_idempotent_for_openai_resume(
             window_id="primary",
             project_path="C:/demo",
             worktree_path=None,
-            runtime_id="openai-agents",
+            runtime_id="openai",
             runtime_version="0.1.0",
         )
         await runtime_store.mark_session_running(session.session_id, "turn-1")
@@ -622,7 +624,7 @@ def test_duplicate_interaction_submit_is_idempotent_for_openai_resume(
         binding = PendingInteractionRuntimeBinding(
             interaction_id="",
             resume_token="",
-            runtime_id="openai-agents",
+            runtime_id="openai",
             session_id=session.session_id,
             turn_id="turn-1",
             window_id="primary",

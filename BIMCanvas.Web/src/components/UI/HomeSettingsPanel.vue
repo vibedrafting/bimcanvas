@@ -12,6 +12,10 @@ import type {
   SettingsSnapshot
 } from '../../types/settings'
 
+type ProviderKey = 'claude' | 'openai'
+type ClaudeAlias = 'opus' | 'sonnet' | 'haiku'
+type ModelMappingEntry = { id: string; label: string }
+
 interface GroupDraft {
   title: string
   sourceFile: string
@@ -23,6 +27,16 @@ interface GroupDraft {
 const emit = defineEmits<{
   (e: 'close'): void
 }>()
+
+const CLAUDE_ALIAS_ORDER: ClaudeAlias[] = ['opus', 'sonnet', 'haiku']
+const CLAUDE_MODEL_DEFAULTS: Record<ClaudeAlias, { id: string; label: string }> = {
+  opus: { id: 'claude-opus-4-6', label: 'Opus' },
+  sonnet: { id: 'claude-sonnet-4-20250514', label: 'Sonnet' },
+  haiku: { id: 'claude-haiku-4-5-20251001', label: 'Haiku' }
+}
+const OPENAI_MODEL_DEFAULTS: Record<string, { id: string; label: string }> = {
+  'gpt-5': { id: 'gpt-5', label: 'GPT-5' }
+}
 
 const groupKeys: SettingsGroupKey[] = ['server', 'web', 'agent', 'ccr']
 const createRuntimeEndpoint = (key: string, title: string): RuntimeServiceEndpoint => ({
@@ -38,7 +52,7 @@ const createRuntimeEndpoint = (key: string, title: string): RuntimeServiceEndpoi
 
 const defaultRuntime: SettingsRuntime = {
   mode: 'direct',
-  effectiveDefaultModelPath: 'web.defaultModel',
+  effectiveDefaultModelPath: 'agent.claude.defaultModel',
   effectiveDefaultModelValue: '',
   dockerManagedRestart: false,
   restartBehavior: 'manual',
@@ -49,36 +63,10 @@ const defaultRuntime: SettingsRuntime = {
   ccr: createRuntimeEndpoint('ccr', 'CCR')
 }
 
-const createDraft = (key: SettingsGroupKey): GroupDraft => {
-  const values = normalize(key, {})
-
-  return {
-    title: '',
-    sourceFile: '',
-    values,
-    jsonText: formatJson(values),
-    jsonError: null
-  }
-}
-
-const drafts = reactive<Record<SettingsGroupKey, GroupDraft>>({
-  server: createDraft('server'),
-  web: createDraft('web'),
-  agent: createDraft('agent'),
-  ccr: createDraft('ccr')
-})
-
-const runtime = ref<SettingsRuntime>({ ...defaultRuntime })
-const isLoading = ref(true)
-const isSaving = ref(false)
-const isRestarting = ref(false)
-const showSecrets = ref(false)
-const saveMessage = ref<string | null>(null)
-const saveError = ref<string | null>(null)
-const loadError = ref<string | null>(null)
-const showRestartDialog = ref(false)
-const pendingRestartGroups = ref<string[]>([])
-const isMounted = ref(false)
+const runtimeProviderOptions = [
+  { value: 'claude', label: 'Claude' },
+  { value: 'openai', label: 'OpenAI' }
+]
 
 const effortOptions = [
   { value: 'low', label: 'Low' },
@@ -92,6 +80,17 @@ const thinkingOptions = [
   { value: 'adaptive', label: 'Adaptive' }
 ]
 
+const openAiApiModeOptions = [
+  { value: 'chat_completions', label: 'Chat Completions' },
+  { value: 'responses', label: 'Responses' }
+]
+
+const openAiTracingOptions = [
+  { value: 'auto', label: 'Auto' },
+  { value: 'disabled', label: 'Disabled' },
+  { value: 'enabled', label: 'Enabled' }
+]
+
 const logLevelOptions = [
   { value: 'debug', label: 'Debug' },
   { value: 'info', label: 'Info' },
@@ -99,58 +98,17 @@ const logLevelOptions = [
   { value: 'error', label: 'Error' }
 ]
 
-for (const key of groupKeys) {
-  watch(() => drafts[key].values, value => {
-    if (!drafts[key].jsonError) {
-      drafts[key].jsonText = formatJson(value)
-    }
-  }, { deep: true })
-}
-
-const isCcrMode = computed(() => Boolean(drafts.server.values.ccr?.enabled))
-const displayEffectiveModelPath = computed(() => 'web.defaultModel')
-const runtimeEndpoints = computed(() => [
-  runtime.value.server,
-  runtime.value.web,
-  runtime.value.agent,
-  runtime.value.ccr
-])
-
-const modelOptions = computed(() => {
-  const modelMapping = drafts.agent.values.modelMapping ?? {}
-  const mapped = Object.entries(modelMapping)
-    .map(([family, entry]) => {
-      const record = entry as Record<string, unknown> | null
-      return {
-        value: family,
-        label: record?.label ? String(record.label) : capitalize(family),
-        helper: record?.id ? String(record.id) : ''
-      }
-    })
-
-  if (mapped.length > 0) {
-    return mapped
-  }
-
-  const customModels = Array.isArray(drafts.web.values.customModels)
-    ? drafts.web.values.customModels
-    : []
-
-  return customModels.map((item: any) => ({
-    value: item.id,
-    label: item.label || item.id,
-    helper: ''
-  }))
-})
-
-const effectiveDefaultModel = computed({
-  get: () => drafts.web.values.defaultModel ?? '',
-  set: (value: string) => {
-    drafts.web.values.defaultModel = value
-    runtime.value.effectiveDefaultModelPath = 'web.defaultModel'
-    runtime.value.effectiveDefaultModelValue = value
-  }
-})
+const runtime = ref<SettingsRuntime>({ ...defaultRuntime })
+const isLoading = ref(true)
+const isSaving = ref(false)
+const isRestarting = ref(false)
+const showSecrets = ref(false)
+const saveMessage = ref<string | null>(null)
+const saveError = ref<string | null>(null)
+const loadError = ref<string | null>(null)
+const showRestartDialog = ref(false)
+const pendingRestartGroups = ref<string[]>([])
+const isMounted = ref(false)
 
 function clone<T>(value: T): T {
   return JSON.parse(JSON.stringify(value))
@@ -160,31 +118,130 @@ function formatJson(value: unknown) {
   return JSON.stringify(value, null, 2)
 }
 
-function formatJsonString(group: SettingsGroupKey) {
-  try {
-    const parsed = JSON.parse(drafts[group].jsonText);
-    drafts[group].jsonText = JSON.stringify(parsed, null, 2);
-    parseJson(group);
-  } catch(e) { /* ignore invalid JSON formats, user must fix manually */ }
-}
-
 function capitalize(value: string) {
   return value.charAt(0).toUpperCase() + value.slice(1)
+}
+
+function isPlainObject(value: unknown): value is Record<string, any> {
+  return Boolean(value) && typeof value === 'object' && !Array.isArray(value)
+}
+
+function normalizeProvider(value: unknown): ProviderKey {
+  return String(value ?? '').trim().toLowerCase() === 'openai' ? 'openai' : 'claude'
+}
+
+function normalizePermissions(raw: unknown) {
+  const value = isPlainObject(raw) ? clone(raw) : {}
+  return {
+    allow: value.allow === null ? null : Array.isArray(value.allow) ? value.allow : [],
+    deny: Array.isArray(value.deny) ? value.deny : []
+  }
+}
+
+function createClaudeDefaults() {
+  return {
+    baseUrl: '',
+    apiKey: '',
+    defaultModel: 'opus',
+    defaultEffort: 'low',
+    defaultThinking: 'adaptive',
+    maxThinkingTokens: 8000,
+    permissions: { allow: [], deny: [] },
+    modelMapping: clone(CLAUDE_MODEL_DEFAULTS)
+  }
+}
+
+function createOpenAiDefaults() {
+  return {
+    baseUrl: '',
+    apiKey: '',
+    defaultModel: 'gpt-5',
+    apiMode: 'chat_completions',
+    disableTracing: null as boolean | null,
+    permissions: { allow: [], deny: [] },
+    modelMapping: clone(OPENAI_MODEL_DEFAULTS)
+  }
+}
+
+function normalizeClaudeModelMapping(raw: unknown) {
+  const base = clone(CLAUDE_MODEL_DEFAULTS)
+  if (!isPlainObject(raw)) {
+    return base
+  }
+
+  for (const alias of CLAUDE_ALIAS_ORDER) {
+    const entry = raw[alias]
+    if (isPlainObject(entry)) {
+      if (typeof entry.id === 'string') {
+        base[alias].id = entry.id
+      }
+      if (typeof entry.label === 'string' && entry.label.trim()) {
+        base[alias].label = entry.label
+      }
+    }
+  }
+
+  return base
+}
+
+function normalizeOpenAiModelMapping(raw: unknown) {
+  const source = isPlainObject(raw) ? raw : OPENAI_MODEL_DEFAULTS
+  const result: Record<string, { id: string; label: string }> = {}
+
+  for (const [key, entry] of Object.entries(source)) {
+    const normalizedKey = String(key).trim()
+    if (!normalizedKey) {
+      continue
+    }
+
+    if (isPlainObject(entry)) {
+      result[normalizedKey] = {
+        id: typeof entry.id === 'string' && entry.id.trim() ? entry.id : normalizedKey,
+        label: typeof entry.label === 'string' && entry.label.trim() ? entry.label : normalizedKey
+      }
+      continue
+    }
+
+    result[normalizedKey] = {
+      id: normalizedKey,
+      label: normalizedKey
+    }
+  }
+
+  return Object.keys(result).length > 0 ? result : clone(OPENAI_MODEL_DEFAULTS)
+}
+
+function normalizeOpenAiApiMode(value: unknown) {
+  const normalized = String(value ?? '').trim().toLowerCase().replace(/-/g, '_')
+  return normalized === 'responses' ? 'responses' : 'chat_completions'
+}
+
+function normalizeDisableTracing(value: unknown): boolean | null {
+  if (value === null) {
+    return null
+  }
+  if (typeof value === 'boolean') {
+    return value
+  }
+  return null
 }
 
 function normalize(group: SettingsGroupKey, raw: Record<string, any>) {
   const value = clone(raw ?? {})
 
   if (group === 'server') {
-    const legacyServer = value.server ?? {}
     value.agent ??= {}
     value.startup ??= {}
     value.ccr ??= {}
+    value.server ??= {}
+    value.server.port ??= 5000
+    value.web ??= {}
+    value.web.port ??= 5173
     value.agent.autoStart ??= true
     value.agent.baseUrl ??= ''
     value.agent.healthPath ??= '/health'
-    value.agent.port ??= legacyServer.port ?? 8865
-    value.agent.pythonCommand ??= legacyServer.pythonCommand ?? 'python'
+    value.agent.port ??= 8865
+    value.agent.pythonCommand ??= 'python'
     value.startup.openBrowser ??= false
     value.startup.browserPath ??= ''
     value.ccr.enabled ??= false
@@ -194,8 +251,6 @@ function normalize(group: SettingsGroupKey, raw: Record<string, any>) {
   }
 
   if (group === 'web') {
-    value.defaultModel ??= 'sonnet'
-    value.customModels = Array.isArray(value.customModels) ? value.customModels : []
     value.layerPresets ??= {}
     value.layerPresets.User ??= { enabledLayers: [] }
     value.layerPresets.Agent ??= { enabledLayers: [] }
@@ -208,16 +263,27 @@ function normalize(group: SettingsGroupKey, raw: Record<string, any>) {
   }
 
   if (group === 'agent') {
-    value.baseUrl ??= ''
-    value.apiKey ??= ''
-    value.defaultEffort ??= 'medium'
-    value.defaultThinking ??= 'adaptive'
-    value.maxThinkingTokens ??= 8000
-    value.modelMapping ??= {}
-    value.permissions ??= { allow: [], deny: [] }
-    value.server ??= {}
-    value.server.host ??= '127.0.0.1'
-    value.server.port ??= 8865
+    const claude = isPlainObject(value.claude) ? value.claude : {}
+    const openai = isPlainObject(value.openai) ? value.openai : {}
+
+    return {
+      ...value,
+      runtimeProvider: normalizeProvider(value.runtimeProvider),
+      claude: {
+        ...createClaudeDefaults(),
+        ...claude,
+        permissions: normalizePermissions(claude.permissions),
+        modelMapping: normalizeClaudeModelMapping(claude.modelMapping)
+      },
+      openai: {
+        ...createOpenAiDefaults(),
+        ...openai,
+        apiMode: normalizeOpenAiApiMode(openai.apiMode),
+        disableTracing: normalizeDisableTracing(openai.disableTracing),
+        permissions: normalizePermissions(openai.permissions),
+        modelMapping: normalizeOpenAiModelMapping(openai.modelMapping)
+      }
+    }
   }
 
   if (group === 'ccr') {
@@ -238,12 +304,160 @@ function normalize(group: SettingsGroupKey, raw: Record<string, any>) {
   return value
 }
 
+const createDraft = (key: SettingsGroupKey): GroupDraft => {
+  const values = normalize(key, {})
+  return {
+    title: '',
+    sourceFile: '',
+    values,
+    jsonText: formatJson(values),
+    jsonError: null
+  }
+}
+
+const drafts = reactive<Record<SettingsGroupKey, GroupDraft>>({
+  server: createDraft('server'),
+  web: createDraft('web'),
+  agent: createDraft('agent'),
+  ccr: createDraft('ccr')
+})
+
+for (const key of groupKeys) {
+  watch(() => drafts[key].values, value => {
+    if (!drafts[key].jsonError) {
+      drafts[key].jsonText = formatJson(value)
+    }
+  }, { deep: true })
+}
+
+const agentRuntimeProvider = computed<ProviderKey>({
+  get: () => normalizeProvider(drafts.agent.values.runtimeProvider),
+  set: (value) => {
+    drafts.agent.values.runtimeProvider = normalizeProvider(value)
+    ensureDefaultModelForCurrentProvider()
+  }
+})
+
+const isOpenAiProvider = computed(() => agentRuntimeProvider.value === 'openai')
+const currentProviderLabel = computed(() => isOpenAiProvider.value ? 'OpenAI' : 'Claude')
+const displayEffectiveModelPath = computed(
+  () => runtime.value.effectiveDefaultModelPath || currentDefaultModelPath()
+)
+const runtimeEndpoints = computed(() => [
+  runtime.value.server,
+  runtime.value.web,
+  runtime.value.agent,
+  runtime.value.ccr
+])
+const isCcrConfigured = computed(() => Boolean(drafts.server.values.ccr?.enabled))
+const isCcrEffective = computed(() => isCcrConfigured.value && agentRuntimeProvider.value === 'claude')
+const openAiModelEntries = computed<[string, ModelMappingEntry][]>(() => (
+  Object.entries(drafts.agent.values.openai?.modelMapping ?? {}) as [string, ModelMappingEntry][]
+))
+
+const modelOptions = computed(() => {
+  const modelMapping = isOpenAiProvider.value
+    ? drafts.agent.values.openai?.modelMapping ?? {}
+    : drafts.agent.values.claude?.modelMapping ?? {}
+
+  return Object.entries(modelMapping).map(([key, entry]) => {
+    const record = isPlainObject(entry) ? entry : {}
+    return {
+      value: key,
+      label: typeof record.label === 'string' && record.label.trim() ? record.label : capitalize(key),
+      helper: isOpenAiProvider.value ? '' : typeof record.id === 'string' ? record.id : ''
+    }
+  })
+})
+
+function currentDefaultModelPath(provider: ProviderKey = agentRuntimeProvider.value) {
+  return provider === 'openai' ? 'agent.openai.defaultModel' : 'agent.claude.defaultModel'
+}
+
+function readDefaultModel(provider: ProviderKey = agentRuntimeProvider.value) {
+  return provider === 'openai'
+    ? drafts.agent.values.openai?.defaultModel ?? ''
+    : drafts.agent.values.claude?.defaultModel ?? ''
+}
+
+function writeDefaultModel(value: string, provider: ProviderKey = agentRuntimeProvider.value) {
+  if (provider === 'openai') {
+    drafts.agent.values.openai.defaultModel = value
+  } else {
+    drafts.agent.values.claude.defaultModel = value
+  }
+  runtime.value.effectiveDefaultModelPath = currentDefaultModelPath(provider)
+  runtime.value.effectiveDefaultModelValue = value
+}
+
+const effectiveDefaultModel = computed({
+  get: () => readDefaultModel(),
+  set: (value: string) => {
+    writeDefaultModel(value)
+  }
+})
+
+const openAiTracingMode = computed({
+  get: () => {
+    const value = drafts.agent.values.openai?.disableTracing
+    if (value === true) {
+      return 'disabled'
+    }
+    if (value === false) {
+      return 'enabled'
+    }
+    return 'auto'
+  },
+  set: (value: string) => {
+    if (value === 'disabled') {
+      drafts.agent.values.openai.disableTracing = true
+      return
+    }
+    if (value === 'enabled') {
+      drafts.agent.values.openai.disableTracing = false
+      return
+    }
+    drafts.agent.values.openai.disableTracing = null
+  }
+})
+
+function formatJsonString(group: SettingsGroupKey) {
+  try {
+    const parsed = JSON.parse(drafts[group].jsonText)
+    drafts[group].jsonText = JSON.stringify(parsed, null, 2)
+    parseJson(group)
+  } catch {
+    // ignore invalid JSON formats, user must fix manually
+  }
+}
+
 function applyGroup(key: SettingsGroupKey, group: SettingsGroup) {
   drafts[key].title = group.title
   drafts[key].sourceFile = group.sourceFile
   drafts[key].values = normalize(key, group.values)
   drafts[key].jsonError = null
   drafts[key].jsonText = formatJson(drafts[key].values)
+}
+
+function ensureDefaultModelForCurrentProvider() {
+  const provider = agentRuntimeProvider.value
+  const options = provider === 'openai'
+    ? Object.keys(drafts.agent.values.openai?.modelMapping ?? {})
+    : Object.keys(drafts.agent.values.claude?.modelMapping ?? {})
+  const current = String(readDefaultModel(provider)).trim()
+  if (options.length === 0) {
+    runtime.value.effectiveDefaultModelPath = currentDefaultModelPath(provider)
+    runtime.value.effectiveDefaultModelValue = current
+    return
+  }
+
+  if (!options.includes(current)) {
+    writeDefaultModel(options[0] ?? '', provider)
+    return
+  }
+
+  runtime.value.effectiveDefaultModelPath = currentDefaultModelPath(provider)
+  runtime.value.effectiveDefaultModelValue = current
 }
 
 function applySnapshot(snapshot: SettingsSnapshot) {
@@ -255,6 +469,7 @@ function applySnapshot(snapshot: SettingsSnapshot) {
     ...defaultRuntime,
     ...(snapshot.runtime ?? {})
   }
+  ensureDefaultModelForCurrentProvider()
 }
 
 async function loadSettings() {
@@ -278,9 +493,15 @@ function parseJson(group: SettingsGroupKey) {
       drafts[group].jsonError = '顶层必须是 JSON 对象'
       return false
     }
+
     drafts[group].values = normalize(group, parsed)
     drafts[group].jsonError = null
     drafts[group].jsonText = formatJson(drafts[group].values)
+
+    if (group === 'agent') {
+      ensureDefaultModelForCurrentProvider()
+    }
+
     return true
   } catch (error: any) {
     drafts[group].jsonError = error.message || 'JSON 解析失败'
@@ -288,22 +509,57 @@ function parseJson(group: SettingsGroupKey) {
   }
 }
 
-function modelMappingValue(family: string) {
-  return drafts.agent.values.modelMapping?.[family]?.id ?? ''
+function claudeModelMappingValue(alias: ClaudeAlias, field: 'id' | 'label' = 'id') {
+  return drafts.agent.values.claude?.modelMapping?.[alias]?.[field] ?? ''
 }
 
-function setModelMappingValue(family: string, value: string) {
-  drafts.agent.values.modelMapping ??= {}
-  drafts.agent.values.modelMapping[family] ??= { id: '', label: capitalize(family) }
-  drafts.agent.values.modelMapping[family].id = value
-  drafts.agent.values.modelMapping[family].label ||= capitalize(family)
+function setClaudeModelMappingValue(alias: ClaudeAlias, field: 'id' | 'label', value: string) {
+  drafts.agent.values.claude.modelMapping ??= clone(CLAUDE_MODEL_DEFAULTS)
+  drafts.agent.values.claude.modelMapping[alias] ??= clone(CLAUDE_MODEL_DEFAULTS[alias])
+  drafts.agent.values.claude.modelMapping[alias][field] = value
 }
 
-function modelLines() {
-  const customModels = Array.isArray(drafts.web.values.customModels)
-    ? drafts.web.values.customModels
-    : []
-  return customModels.map((item: { id?: string }) => item.id ?? '').join('\n')
+function addOpenAiModelMappingEntry() {
+  drafts.agent.values.openai.modelMapping ??= clone(OPENAI_MODEL_DEFAULTS)
+  let index = Object.keys(drafts.agent.values.openai.modelMapping).length + 1
+  let nextId = 'gpt-5'
+  while (drafts.agent.values.openai.modelMapping[nextId]) {
+    nextId = `model-${index}`
+    index += 1
+  }
+
+  drafts.agent.values.openai.modelMapping[nextId] = {
+    id: nextId,
+    label: nextId.toUpperCase()
+  }
+}
+
+function renameOpenAiModelId(previousId: string, nextValue: string) {
+  const nextId = nextValue.trim()
+  if (!nextId || nextId === previousId || drafts.agent.values.openai.modelMapping[nextId]) {
+    return
+  }
+
+  const entry = clone(drafts.agent.values.openai.modelMapping[previousId] ?? { id: previousId, label: previousId })
+  delete drafts.agent.values.openai.modelMapping[previousId]
+  drafts.agent.values.openai.modelMapping[nextId] = {
+    ...entry,
+    id: nextId
+  }
+
+  if (drafts.agent.values.openai.defaultModel === previousId) {
+    writeDefaultModel(nextId, 'openai')
+  }
+}
+
+function setOpenAiModelLabel(modelId: string, value: string) {
+  drafts.agent.values.openai.modelMapping[modelId] ??= { id: modelId, label: modelId }
+  drafts.agent.values.openai.modelMapping[modelId].label = value
+}
+
+function removeOpenAiModelMappingEntry(modelId: string) {
+  delete drafts.agent.values.openai.modelMapping[modelId]
+  ensureDefaultModelForCurrentProvider()
 }
 
 function textToLines(text: string) {
@@ -328,11 +584,6 @@ function runtimeSummary(endpoint: RuntimeServiceEndpoint) {
   return parts.join(' · ')
 }
 
-function handleModelLinesInput(event: Event) {
-  drafts.web.values.customModels = textToLines((event.target as HTMLTextAreaElement).value)
-    .map(id => ({ id, label: capitalize(id) }))
-}
-
 function handleLayerPresetInput(target: string[], event: Event) {
   target.splice(0, target.length, ...textToLines((event.target as HTMLTextAreaElement).value))
 }
@@ -347,7 +598,6 @@ function updateProviderModels(provider: any, event: Event) {
     .map(item => item.trim())
     .filter(Boolean)
 }
-
 
 async function handleSave() {
   saveError.value = null
@@ -395,11 +645,8 @@ async function handleRestart() {
   try {
     await SettingsService.restartInstance()
     saveMessage.value = '服务正在重启，请稍候...'
-
-    // 等待旧服务关闭（800ms 延迟 + 余量）
     await new Promise(r => setTimeout(r, 2000))
 
-    // 轮询健康检查，等待新实例就绪
     const maxRetries = 20
     const retryInterval = 1500
     for (let i = 0; i < maxRetries; i++) {
@@ -412,30 +659,30 @@ async function handleRestart() {
           return
         }
       } catch {
-        // 服务还未就绪，继续轮询
+        // continue polling
       }
       await new Promise(r => setTimeout(r, retryInterval))
     }
 
-    // 超时提示
     saveError.value = '服务重启超时（30秒），请手动刷新页面或检查服务状态。'
   } catch (error: any) {
-    // 请求发出后连接断开是正常的（服务正在关闭）
     if (error.code === 'ECONNABORTED' || error.message?.includes('Network Error')) {
       saveMessage.value = '服务正在重启，请稍候...'
-      // 同样开始轮询
       await new Promise(r => setTimeout(r, 2000))
-      const maxRetries = 20
-      for (let i = 0; i < maxRetries; i++) {
+
+      for (let i = 0; i < 20; i++) {
         try {
           const resp = await fetch(`${runtimeServerBase}/health`, { cache: 'no-store' })
           if (resp.ok) {
             window.location.reload()
             return
           }
-        } catch { /* continue */ }
+        } catch {
+          // continue polling
+        }
         await new Promise(r => setTimeout(r, 1500))
       }
+
       saveError.value = '服务重启超时，请手动刷新页面。'
     } else {
       saveError.value = error.response?.data?.message || error.message || '触发重启失败'
@@ -572,20 +819,20 @@ onMounted(() => {
               </div>
 
               <div class="form-grid mt-md">
-                <div class="field" :class="{ 'opacity-muted': !isCcrMode }">
+                <div class="field" :class="{ 'opacity-muted': !isCcrConfigured }">
                   <label>CCR Host</label>
-                  <input v-model="drafts.server.values.ccr.host" type="text" :disabled="!isCcrMode">
+                  <input v-model="drafts.server.values.ccr.host" type="text" :disabled="!isCcrConfigured">
                 </div>
-                <div class="field" :class="{ 'opacity-muted': !isCcrMode }">
+                <div class="field" :class="{ 'opacity-muted': !isCcrConfigured }">
                   <label>CCR Port</label>
-                  <input v-model.number="drafts.server.values.ccr.port" type="number" :disabled="!isCcrMode">
+                  <input v-model.number="drafts.server.values.ccr.port" type="number" :disabled="!isCcrConfigured">
                 </div>
               </div>
 
               <div class="form-grid mt-md">
-                <div class="field field-checkbox" :class="{ 'opacity-muted': !isCcrMode }">
-                  <label class="checkbox-label" :style="!isCcrMode ? 'cursor: not-allowed;' : ''">
-                    <input type="checkbox" v-model="drafts.server.values.ccr.autoStart" class="checkbox-input" :disabled="!isCcrMode">
+                <div class="field field-checkbox" :class="{ 'opacity-muted': !isCcrConfigured }">
+                  <label class="checkbox-label" :style="!isCcrConfigured ? 'cursor: not-allowed;' : ''">
+                    <input type="checkbox" v-model="drafts.server.values.ccr.autoStart" class="checkbox-input" :disabled="!isCcrConfigured">
                     <span class="custom-checkbox"></span>
                     <div class="checkbox-texts">
                       <span class="primary">自动启动 CCR</span>
@@ -595,15 +842,15 @@ onMounted(() => {
                 </div>
               </div>
 
-              <div class="divider mt-xl mb-md"><span>Agent 回连地址</span></div>
+              <div class="divider mt-xl mb-md"><span>实例端口</span></div>
               <div class="form-grid">
                 <div class="field">
-                  <label>Agent → Server Host</label>
-                  <input v-model="drafts.agent.values.server.host" type="text" placeholder="127.0.0.1">
+                  <label>Server 端口</label>
+                  <input v-model.number="drafts.server.values.server.port" type="number">
                 </div>
                 <div class="field">
-                  <label>Agent → Server Port</label>
-                  <input v-model.number="drafts.agent.values.server.port" type="number">
+                  <label>Web 端口</label>
+                  <input v-model.number="drafts.server.values.web.port" type="number">
                 </div>
               </div>
 
@@ -623,89 +870,247 @@ onMounted(() => {
                   <input v-model="drafts.server.values.startup.browserPath" type="text" placeholder="留空使用系统默认" :disabled="!drafts.server.values.startup.openBrowser">
                 </div>
               </div>
+
+              <details class="code-editor-block mt-xl">
+                <summary class="editor-summary">JSON 编辑器 — server_config</summary>
+                <div class="editor-container">
+                  <div class="editor-toolbar">
+                    <div class="toolbar-left"><svg class="file-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg><span class="file-name">server_bridge_config.json</span></div>
+                    <div class="toolbar-right"><button class="btn-tool" @click="formatJsonString('server')" type="button"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg>Format</button></div>
+                  </div>
+                  <textarea class="editor-textarea" v-model="drafts.server.jsonText" rows="8" spellcheck="false" @blur="parseJson('server')" />
+                </div>
+                <div v-if="drafts.server.jsonError" class="code-error">{{ drafts.server.jsonError }}</div>
+              </details>
             </div>
           </article>
 
-          <!-- Card 2: 推理调度群 -->
+          <!-- Card 2: Agent -->
           <article class="config-card">
             <header class="card-header">
               <div class="heading-left">
-                <svg class="heading-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/><polyline points="3.27 6.96 12 12.01 20.73 6.96"/><line x1="12" y1="22.08" x2="12" y2="12"/></svg>
+                <svg class="heading-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M12 2l8 4v6c0 5.25-3.438 9.938-8 11-4.562-1.062-8-5.75-8-11V6l8-4z"/><path d="M9 12l2 2 4-4"/></svg>
                 <div class="heading-text">
-                  <h3>模型与推理</h3>
-                  <p>默认模型选择、推理参数及模型 ID 映射。</p>
+                  <h3>Agent</h3>
+                  <p>Runtime 选择与当前 provider 配置。表单只显示当前 provider，另一套配置会保留并随保存一起回写。</p>
                 </div>
               </div>
-              <div class="heading-right">
-                <span class="badge badge-mono subtle-badge">{{ displayEffectiveModelPath }}</span>
+              <div class="heading-right heading-right-wide">
+                <div class="field compact-field">
+                  <label>Runtime Provider</label>
+                  <GlassSelect
+                    v-model="agentRuntimeProvider"
+                    class="settings-select"
+                    width="220px"
+                    :options="runtimeProviderOptions"
+                    placeholder="选择 Runtime"
+                  />
+                </div>
               </div>
             </header>
-            
+
             <div class="card-body">
-              <div class="form-grid">
-                <div class="field">
-                  <label>默认模型</label>
-                  <GlassSelect
-                    v-model="effectiveDefaultModel"
-                    class="settings-select"
-                    width="100%"
-                    :options="modelOptions"
-                    placeholder="选择默认模型"
-                  />
-                </div>
-                <div class="field">
-                  <label>Effort</label>
-                  <GlassSelect
-                    v-model="drafts.agent.values.defaultEffort"
-                    class="settings-select"
-                    width="100%"
-                    :options="effortOptions"
-                    :disabled="isCcrMode && !drafts.ccr.values.Router?.default"
-                    placeholder="选择 Effort"
-                  />
-                </div>
-              </div>
-              
-              <div class="form-grid mt-md">
-                <div class="field">
-                  <label>Extended Thinking</label>
-                  <GlassSelect
-                    v-model="drafts.agent.values.defaultThinking"
-                    class="settings-select"
-                    width="100%"
-                    :options="thinkingOptions"
-                    placeholder="选择 Thinking"
-                  />
-                </div>
-                <div class="field">
-                  <label>最大 Thinking Tokens</label>
-                  <input v-model.number="drafts.agent.values.maxThinkingTokens" type="number">
-                </div>
+              <div class="inline-alert warm mb-lg">
+                <svg class="alert-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+                <span>
+                  当前表单正在编辑 {{ currentProviderLabel }}。
+                  {{ isOpenAiProvider ? 'Claude 分域会保留但不会显示。' : 'OpenAI 分域会保留但不会显示。' }}
+                  `permissions` 继续只通过下方 JSON 编辑器维护。
+                </span>
               </div>
 
-              <div class="divider mt-xl mb-md">
-                <span>模型 ID 映射</span>
+              <div v-if="!isOpenAiProvider" class="config-section-stack">
+                <section class="inner-subcard">
+                  <div class="section-header">
+                    <div>
+                      <h4>Claude 连接</h4>
+                      <p>直连参数写入 `claude.baseUrl / claude.apiKey`。当 Server 启用了 CCR 且 runtimeProvider=claude 时，CCR 会接管实际请求路径。</p>
+                    </div>
+                    <span class="badge badge-mono" :class="isCcrEffective ? 'badge-normal' : 'subtle-badge'">
+                      {{ isCcrEffective ? '当前经由 CCR' : '当前直连 / 待切换' }}
+                    </span>
+                  </div>
+
+                  <div class="form-grid">
+                    <div class="field">
+                      <label>Base URL</label>
+                      <input v-model="drafts.agent.values.claude.baseUrl" type="text" placeholder="https://api.anthropic.com">
+                    </div>
+                    <div class="field">
+                      <label>API Key</label>
+                      <div class="input-wrapper">
+                        <input v-model="drafts.agent.values.claude.apiKey" :type="showSecrets ? 'text' : 'password'" placeholder="空" class="pr-icon">
+                        <button type="button" class="eye-btn" @click="showSecrets = !showSecrets" title="切换密码可视化">
+                          <svg v-if="!showSecrets" viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path><circle cx="12" cy="12" r="3"></circle></svg>
+                          <svg v-else viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M17.94 17.94A10.07 10.07 0 0112 20c-7 0-11-8-11-8a18.45 18.45 0 015.06-5.94M9.9 4.24A9.12 9.12 0 0112 4c7 0 11 8 11 8a18.5 18.5 0 01-2.16 3.19m-6.72-1.07a3 3 0 11-4.24-4.24M1 1l22 22"></path></svg>
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                </section>
+
+                <section class="inner-subcard">
+                  <div class="section-header">
+                    <div>
+                      <h4>Claude 推理参数</h4>
+                      <p>`defaultModel / defaultEffort / defaultThinking / maxThinkingTokens` 只属于 Claude runtime。</p>
+                    </div>
+                    <span class="badge badge-mono subtle-badge">{{ displayEffectiveModelPath }}</span>
+                  </div>
+
+                  <div class="form-grid">
+                    <div class="field">
+                      <label>默认模型</label>
+                      <GlassSelect
+                        v-model="effectiveDefaultModel"
+                        class="settings-select"
+                        width="100%"
+                        :options="modelOptions"
+                        placeholder="选择默认模型"
+                      />
+                    </div>
+                    <div class="field">
+                      <label>当前路径</label>
+                      <div class="static-note mono-font">{{ displayEffectiveModelPath }}</div>
+                    </div>
+                  </div>
+
+                  <div class="form-grid mt-md">
+                    <div class="field">
+                      <label>Effort</label>
+                      <GlassSelect
+                        v-model="drafts.agent.values.claude.defaultEffort"
+                        class="settings-select"
+                        width="100%"
+                        :options="effortOptions"
+                        placeholder="选择 Effort"
+                      />
+                    </div>
+                    <div class="field">
+                      <label>Thinking</label>
+                      <GlassSelect
+                        v-model="drafts.agent.values.claude.defaultThinking"
+                        class="settings-select"
+                        width="100%"
+                        :options="thinkingOptions"
+                        placeholder="选择 Thinking"
+                      />
+                    </div>
+                  </div>
+
+                  <div class="form-grid mt-md">
+                    <div class="field">
+                      <label>最大 Thinking Tokens</label>
+                      <input v-model.number="drafts.agent.values.claude.maxThinkingTokens" type="number">
+                    </div>
+                  </div>
+
+                  <div class="divider mt-xl mb-md"><span>模型 ID 映射</span></div>
+                  <div class="form-grid">
+                    <div class="field" v-for="alias in CLAUDE_ALIAS_ORDER" :key="alias">
+                      <label>{{ capitalize(alias) }}</label>
+                      <input :value="claudeModelMappingValue(alias)" type="text" :placeholder="CLAUDE_MODEL_DEFAULTS[alias].id" @input="setClaudeModelMappingValue(alias, 'id', ($event.target as HTMLInputElement).value)">
+                    </div>
+                  </div>
+                </section>
               </div>
-              <div class="form-grid">
-                <div class="field">
-                  <label>Opus</label>
-                  <input :value="modelMappingValue('opus')" type="text" placeholder="claude-opus-4" @input="setModelMappingValue('opus', ($event.target as HTMLInputElement).value)">
-                </div>
-                <div class="field">
-                  <label>Sonnet</label>
-                  <input :value="modelMappingValue('sonnet')" type="text" placeholder="claude-sonnet-3-5" @input="setModelMappingValue('sonnet', ($event.target as HTMLInputElement).value)">
-                </div>
-                <div class="field">
-                  <label>Haiku</label>
-                  <input :value="modelMappingValue('haiku')" type="text" placeholder="claude-haiku-4" @input="setModelMappingValue('haiku', ($event.target as HTMLInputElement).value)">
-                </div>
+
+              <div v-else class="config-section-stack">
+                <section class="inner-subcard">
+                  <div class="section-header">
+                    <div>
+                      <h4>OpenAI 连接</h4>
+                      <p>直连参数写入 `openai.baseUrl / openai.apiKey`。OpenAI runtime 不消费 CCR 配置。</p>
+                    </div>
+                    <span class="badge badge-mono subtle-badge">CCR 不生效</span>
+                  </div>
+
+                  <div class="form-grid">
+                    <div class="field">
+                      <label>Base URL</label>
+                      <input v-model="drafts.agent.values.openai.baseUrl" type="text" placeholder="https://api.openai.com/v1">
+                    </div>
+                    <div class="field">
+                      <label>API Key</label>
+                      <div class="input-wrapper">
+                        <input v-model="drafts.agent.values.openai.apiKey" :type="showSecrets ? 'text' : 'password'" placeholder="空" class="pr-icon">
+                        <button type="button" class="eye-btn" @click="showSecrets = !showSecrets" title="切换密码可视化">
+                          <svg v-if="!showSecrets" viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path><circle cx="12" cy="12" r="3"></circle></svg>
+                          <svg v-else viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M17.94 17.94A10.07 10.07 0 0112 20c-7 0-11-8-11-8a18.45 18.45 0 015.06-5.94M9.9 4.24A9.12 9.12 0 0112 4c7 0 11 8 11 8a18.5 18.5 0 01-2.16 3.19m-6.72-1.07a3 3 0 11-4.24-4.24M1 1l22 22"></path></svg>
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div class="form-grid mt-md">
+                    <div class="field">
+                      <label>API Mode</label>
+                      <GlassSelect
+                        v-model="drafts.agent.values.openai.apiMode"
+                        class="settings-select"
+                        width="100%"
+                        :options="openAiApiModeOptions"
+                        placeholder="选择 API 模式"
+                      />
+                    </div>
+                    <div class="field">
+                      <label>Tracing</label>
+                      <GlassSelect
+                        v-model="openAiTracingMode"
+                        class="settings-select"
+                        width="100%"
+                        :options="openAiTracingOptions"
+                        placeholder="选择 Tracing 策略"
+                      />
+                    </div>
+                  </div>
+
+                  <div class="form-grid mt-md">
+                    <div class="field">
+                      <label>说明</label>
+                      <div class="static-note">`null = Auto`，`true = Disabled`，`false = Enabled`。</div>
+                    </div>
+                  </div>
+
+                  <div class="form-grid mt-md">
+                    <div class="field">
+                      <label>默认模型</label>
+                      <GlassSelect
+                        v-model="effectiveDefaultModel"
+                        class="settings-select"
+                        width="100%"
+                        :options="modelOptions"
+                        placeholder="选择默认模型"
+                      />
+                    </div>
+                    <div class="field">
+                      <label>当前路径</label>
+                      <div class="static-note mono-font">{{ displayEffectiveModelPath }}</div>
+                    </div>
+                  </div>
+
+                  <div class="divider mt-xl mb-md"><span>模型 ID 映射</span></div>
+                  <div class="mapping-list">
+                    <div v-for="[modelId, entry] in openAiModelEntries" :key="modelId" class="mapping-row">
+                      <div class="field">
+                        <label>Model ID</label>
+                        <input :value="modelId" type="text" placeholder="gpt-5" @change="renameOpenAiModelId(modelId, ($event.target as HTMLInputElement).value)">
+                      </div>
+                      <div class="field">
+                        <label>Label</label>
+                        <input :value="entry.label" type="text" placeholder="GPT-5" @input="setOpenAiModelLabel(modelId, ($event.target as HTMLInputElement).value)">
+                      </div>
+                      <button type="button" class="btn btn-danger mapping-remove" @click="removeOpenAiModelMappingEntry(modelId)">移除</button>
+                    </div>
+                  </div>
+                  <div class="mapping-toolbar mt-md">
+                    <button type="button" class="btn btn-ghost" @click="addOpenAiModelMappingEntry">添加模型</button>
+                  </div>
+                </section>
               </div>
-              
-              <!-- Editor block -->
+
               <details class="code-editor-block mt-xl">
-                <summary class="editor-summary">
-                  JSON 编辑器 — agent config
-                </summary>
+                <summary class="editor-summary">JSON 编辑器 — agent config</summary>
                 <div class="editor-container">
                   <div class="editor-toolbar">
                     <div class="toolbar-left">
@@ -719,52 +1124,67 @@ onMounted(() => {
                       </button>
                     </div>
                   </div>
-                  <textarea class="editor-textarea" v-model="drafts.agent.jsonText" rows="6" spellcheck="false" @blur="parseJson('agent')" />
+                  <textarea class="editor-textarea" v-model="drafts.agent.jsonText" rows="12" spellcheck="false" @blur="parseJson('agent')" />
                 </div>
                 <div v-if="drafts.agent.jsonError" class="code-error">{{ drafts.agent.jsonError }}</div>
               </details>
             </div>
           </article>
 
-          <!-- Card 3: 授权信道 -->
+          <!-- Card 3: CCR -->
           <article class="config-card">
             <header class="card-header">
               <div class="heading-left">
                 <svg class="heading-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
                 <div class="heading-text">
-                  <h3>API 密钥与 Provider</h3>
-                  <p>模型 API 的连接地址和鉴权配置。</p>
+                  <h3>CCR</h3>
+                  <p>Claude Code Router 配置。即使当前 runtime 是 OpenAI，这里的配置也会保留。</p>
                 </div>
               </div>
+              <div class="heading-right">
+                <span class="badge badge-mono" :class="isCcrEffective ? 'badge-normal' : 'subtle-badge'">
+                  {{ isCcrEffective ? '当前生效' : '当前保留' }}
+                </span>
+              </div>
             </header>
-            
+
             <div class="card-body">
               <div class="inline-alert warm mb-lg">
                 <svg class="alert-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
-                <span>{{ isCcrMode ? '当前生效路径：CCR 网关。直连与 CCR 配置都会保留，你可以提前维护两套连接参数。' : '当前生效路径：直连 Agent。CCR 配置仍保持可见，方便预先维护并随时切换。' }}</span>
+                <span>
+                  {{ isOpenAiProvider
+                    ? '当前 runtimeProvider=openai。CCR 配置会继续保存，但当前运行时不会消费它。'
+                    : (isCcrConfigured ? '当前 runtimeProvider=claude 且已启用 CCR。以下配置会参与实际请求转发。' : '当前 runtimeProvider=claude，但 CCR 尚未启用。以下配置会保留，随时可切换启用。') }}
+                </span>
               </div>
 
-              <div class="config-section-stack">
-                <section class="inner-subcard config-section" :class="{ 'config-section-inactive': isCcrMode }">
-                  <div class="section-header">
-                    <div>
-                      <h4>直连 Agent</h4>
-                      <p>Agent 直接访问模型 API，适合开发快测或不经过 CCR 的场景。</p>
-                    </div>
-                    <span class="badge badge-mono" :class="isCcrMode ? 'subtle-badge' : 'badge-normal'">
-                      {{ isCcrMode ? '当前未生效' : '当前生效' }}
-                    </span>
-                  </div>
+              <div class="form-grid mb-md">
+                <div class="field">
+                  <label>CCR 监听 Host</label>
+                  <input v-model="drafts.ccr.values.HOST" type="text">
+                </div>
+                <div class="field">
+                  <label>CCR 监听 Port</label>
+                  <input v-model.number="drafts.ccr.values.PORT" type="number">
+                </div>
+              </div>
 
-                  <div class="form-grid">
+              <div class="divider mt-xl mb-md"><span>Provider 列表</span></div>
+              <div class="cluster-pool">
+                <div v-for="(provider, index) in drafts.ccr.values.Providers" :key="index" class="inner-subcard cluster-card">
+                  <div class="cluster-header">
+                    <span class="cluster-title">{{ provider.name || `Provider Nodes [${index}]` }}</span>
+                    <span class="badge badge-normal badge-mono">{{ provider.models?.length || 0 }} Models Listed</span>
+                  </div>
+                  <div class="form-grid mt-sm">
                     <div class="field">
                       <label>Base URL</label>
-                      <input v-model="drafts.agent.values.baseUrl" type="text" placeholder="https://api.anthropic.com">
+                      <input v-model="provider.api_base_url" type="text">
                     </div>
                     <div class="field">
                       <label>API Key</label>
                       <div class="input-wrapper">
-                        <input v-model="drafts.agent.values.apiKey" :type="showSecrets ? 'text' : 'password'" placeholder="空" class="pr-icon">
+                        <input v-model="provider.api_key" :type="showSecrets ? 'text' : 'password'" class="pr-icon">
                         <button type="button" class="eye-btn" @click="showSecrets = !showSecrets" title="切换密码可视化">
                           <svg v-if="!showSecrets" viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path><circle cx="12" cy="12" r="3"></circle></svg>
                           <svg v-else viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M17.94 17.94A10.07 10.07 0 0112 20c-7 0-11-8-11-8a18.45 18.45 0 015.06-5.94M9.9 4.24A9.12 9.12 0 0112 4c7 0 11 8 11 8a18.5 18.5 0 01-2.16 3.19m-6.72-1.07a3 3 0 11-4.24-4.24M1 1l22 22"></path></svg>
@@ -772,143 +1192,80 @@ onMounted(() => {
                       </div>
                     </div>
                   </div>
-                </section>
-
-                <section class="ccr-branch config-section" :class="{ 'config-section-inactive': !isCcrMode }">
-                  <div class="section-header mb-md">
-                    <div>
-                      <h4>CCR 网关</h4>
-                      <p>通过 Provider 列表和路由规则统一转发模型请求，适合多供应商和路由治理。</p>
-                    </div>
-                    <span class="badge badge-mono" :class="isCcrMode ? 'badge-normal' : 'subtle-badge'">
-                      {{ isCcrMode ? '当前生效' : '当前未生效' }}
-                    </span>
-                  </div>
-
-                  <div class="form-grid mb-md">
-                  <div class="field">
-                    <label>CCR 监听 Host</label>
-                    <input v-model="drafts.ccr.values.HOST" type="text">
-                  </div>
-                  <div class="field">
-                    <label>CCR 监听 Port</label>
-                    <input v-model.number="drafts.ccr.values.PORT" type="number">
+                  <div class="field mt-sm">
+                    <label>可用模型 (逗号分隔)</label>
+                    <input :value="providerModels(provider)" type="text" class="mono-font" @input="updateProviderModels(provider, $event)">
                   </div>
                 </div>
-
-                  <div class="divider mt-xl mb-md"><span>Provider 列表</span></div>
-                  <div class="cluster-pool">
-                    <div v-for="(provider, index) in drafts.ccr.values.Providers" :key="index" class="inner-subcard cluster-card">
-                      <div class="cluster-header">
-                        <span class="cluster-title">{{ provider.name || `Provider Nodes [${index}]` }}</span>
-                        <span class="badge badge-normal badge-mono">{{ provider.models?.length || 0 }} Models Listed</span>
-                      </div>
-                      <div class="form-grid mt-sm">
-                        <div class="field">
-                          <label>Base URL</label>
-                          <input v-model="provider.api_base_url" type="text">
-                        </div>
-                        <div class="field">
-                          <label>API Key</label>
-                          <div class="input-wrapper">
-                            <input v-model="provider.api_key" :type="showSecrets ? 'text' : 'password'" class="pr-icon">
-                            <button type="button" class="eye-btn" @click="showSecrets = !showSecrets" title="切换密码可视化">
-                              <svg v-if="!showSecrets" viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path><circle cx="12" cy="12" r="3"></circle></svg>
-                              <svg v-else viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M17.94 17.94A10.07 10.07 0 0112 20c-7 0-11-8-11-8a18.45 18.45 0 015.06-5.94M9.9 4.24A9.12 9.12 0 0112 4c7 0 11 8 11 8a18.5 18.5 0 01-2.16 3.19m-6.72-1.07a3 3 0 11-4.24-4.24M1 1l22 22"></path></svg>
-                            </button>
-                          </div>
-                        </div>
-                      </div>
-                      <div class="field mt-sm">
-                        <label>可用模型 (逗号分隔)</label>
-                        <input :value="providerModels(provider)" type="text" class="mono-font" @input="updateProviderModels(provider, $event)">
-                      </div>
-                    </div>
-                  </div>
-
-                  <div class="divider mt-xl mb-md"><span>路由规则</span></div>
-                  <div class="form-grid">
-                    <div class="field">
-                      <label>Default (兜底)</label>
-                      <input v-model="drafts.ccr.values.Router.default" type="text" class="mono-font">
-                    </div>
-                    <div class="field">
-                      <label>Think (深度思考)</label>
-                      <input v-model="drafts.ccr.values.Router.think" type="text" class="mono-font">
-                    </div>
-                  </div>
-                  <div class="form-grid mt-md">
-                    <div class="field">
-                      <label>Background (后台任务)</label>
-                      <input v-model="drafts.ccr.values.Router.background" type="text" class="mono-font">
-                    </div>
-                    <div class="field">
-                      <label>Long Context (长上下文)</label>
-                      <input v-model="drafts.ccr.values.Router.longContext" type="text" class="mono-font">
-                    </div>
-                  </div>
-                  <div class="form-grid mt-md">
-                    <div class="field">
-                      <label>长上下文阈值 (tokens)</label>
-                      <input v-model.number="drafts.ccr.values.Router.longContextThreshold" type="number">
-                    </div>
-                  </div>
-                  <div class="form-grid form-grid-bottom mt-md">
-                    <div class="field">
-                      <label>API 超时 (ms)</label>
-                      <input v-model.number="drafts.ccr.values.API_TIMEOUT_MS" type="number">
-                    </div>
-                    <div class="field field-checkbox">
-                      <label class="checkbox-label">
-                        <input type="checkbox" v-model="drafts.ccr.values.LOG" class="checkbox-input">
-                        <span class="custom-checkbox"></span>
-                        <div class="checkbox-texts">
-                          <span class="primary">启用请求日志</span>
-                          <span class="secondary">在控制台输出请求和响应信息</span>
-                        </div>
-                      </label>
-                    </div>
-                  </div>
-                  <div class="form-grid mt-md" v-if="drafts.ccr.values.LOG">
-                    <div class="field">
-                      <label>日志级别</label>
-                      <GlassSelect
-                        v-model="drafts.ccr.values.LOG_LEVEL"
-                        class="settings-select"
-                        width="100%"
-                        :options="logLevelOptions"
-                        placeholder="选择日志级别"
-                      />
-                    </div>
-                  </div>
-                </section>
               </div>
-              
-              <div class="json-group mt-xl">
-                <details class="code-editor-block">
-                  <summary class="editor-summary">JSON 编辑器 — server_config</summary>
-                  <div class="editor-container">
-                    <div class="editor-toolbar">
-                      <div class="toolbar-left"><svg class="file-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg><span class="file-name">server_bridge_config.json</span></div>
-                      <div class="toolbar-right"><button class="btn-tool" @click="formatJsonString('server')" type="button"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg>Format</button></div>
-                    </div>
-                    <textarea class="editor-textarea" v-model="drafts.server.jsonText" rows="6" spellcheck="false" @blur="parseJson('server')" />
-                  </div>
-                  <div v-if="drafts.server.jsonError" class="code-error">{{ drafts.server.jsonError }}</div>
-                </details>
 
-                <details class="code-editor-block mt-md">
-                  <summary class="editor-summary">JSON 编辑器 — ccr_config</summary>
-                  <div class="editor-container">
-                    <div class="editor-toolbar">
-                      <div class="toolbar-left"><svg class="file-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg><span class="file-name">ccr_gateway_config.json</span></div>
-                      <div class="toolbar-right"><button class="btn-tool" @click="formatJsonString('ccr')" type="button"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg>Format</button></div>
-                    </div>
-                    <textarea class="editor-textarea" v-model="drafts.ccr.jsonText" rows="8" spellcheck="false" @blur="parseJson('ccr')" />
-                  </div>
-                  <div v-if="drafts.ccr.jsonError" class="code-error">{{ drafts.ccr.jsonError }}</div>
-                </details>
+              <div class="divider mt-xl mb-md"><span>路由规则</span></div>
+              <div class="form-grid">
+                <div class="field">
+                  <label>Default (兜底)</label>
+                  <input v-model="drafts.ccr.values.Router.default" type="text" class="mono-font">
+                </div>
+                <div class="field">
+                  <label>Think (深度思考)</label>
+                  <input v-model="drafts.ccr.values.Router.think" type="text" class="mono-font">
+                </div>
               </div>
+              <div class="form-grid mt-md">
+                <div class="field">
+                  <label>Background (后台任务)</label>
+                  <input v-model="drafts.ccr.values.Router.background" type="text" class="mono-font">
+                </div>
+                <div class="field">
+                  <label>Long Context (长上下文)</label>
+                  <input v-model="drafts.ccr.values.Router.longContext" type="text" class="mono-font">
+                </div>
+              </div>
+              <div class="form-grid mt-md">
+                <div class="field">
+                  <label>长上下文阈值 (tokens)</label>
+                  <input v-model.number="drafts.ccr.values.Router.longContextThreshold" type="number">
+                </div>
+              </div>
+              <div class="form-grid form-grid-bottom mt-md">
+                <div class="field">
+                  <label>API 超时 (ms)</label>
+                  <input v-model.number="drafts.ccr.values.API_TIMEOUT_MS" type="number">
+                </div>
+                <div class="field field-checkbox">
+                  <label class="checkbox-label">
+                    <input type="checkbox" v-model="drafts.ccr.values.LOG" class="checkbox-input">
+                    <span class="custom-checkbox"></span>
+                    <div class="checkbox-texts">
+                      <span class="primary">启用请求日志</span>
+                      <span class="secondary">在控制台输出请求和响应信息</span>
+                    </div>
+                  </label>
+                </div>
+              </div>
+              <div class="form-grid mt-md" v-if="drafts.ccr.values.LOG">
+                <div class="field">
+                  <label>日志级别</label>
+                  <GlassSelect
+                    v-model="drafts.ccr.values.LOG_LEVEL"
+                    class="settings-select"
+                    width="100%"
+                    :options="logLevelOptions"
+                    placeholder="选择日志级别"
+                  />
+                </div>
+              </div>
+
+              <details class="code-editor-block mt-xl">
+                <summary class="editor-summary">JSON 编辑器 — ccr_config</summary>
+                <div class="editor-container">
+                  <div class="editor-toolbar">
+                    <div class="toolbar-left"><svg class="file-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg><span class="file-name">ccr_gateway_config.json</span></div>
+                    <div class="toolbar-right"><button class="btn-tool" @click="formatJsonString('ccr')" type="button"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg>Format</button></div>
+                  </div>
+                  <textarea class="editor-textarea" v-model="drafts.ccr.jsonText" rows="10" spellcheck="false" @blur="parseJson('ccr')" />
+                </div>
+                <div v-if="drafts.ccr.jsonError" class="code-error">{{ drafts.ccr.jsonError }}</div>
+              </details>
             </div>
           </article>
 
@@ -919,15 +1276,18 @@ onMounted(() => {
                 <svg class="heading-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor"><rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>
                 <div class="heading-text">
                   <h3>Web 前端</h3>
-                  <p>前端显示配置，修改后立即生效，无需重启。</p>
+                  <p>前端显示配置，当前仅管理图层预设；修改后立即生效，无需重启。</p>
                 </div>
               </div>
             </header>
             
             <div class="card-body">
-              <div class="field mb-lg">
-                <label>自定义模型列表 (每行一个)</label>
-                <textarea :value="modelLines()" rows="3" class="mono-font" @input="handleModelLinesInput" placeholder="留下空白即使用自动检测..." />
+              <div class="inline-alert warm mb-lg">
+                <svg class="alert-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+                <span>
+                  模型列表与默认模型已迁移到 `config.json` 的 Agent 分域；
+                  `web_config.json` 现在只负责 Web 展示层配置。
+                </span>
               </div>
 
               <div class="divider mt-xl mb-md"><span>图层预设</span></div>
@@ -1138,6 +1498,7 @@ hr { border: none; }
 .heading-text h3 { margin: 0 0 4px 0; font-size: 15px; font-weight: 500; color: var(--text-main); }
 .heading-text p { margin: 0; font-size: 13px; color: var(--text-muted); }
 .heading-right { display: flex; align-items: center; }
+.heading-right-wide { min-width: 220px; justify-content: flex-end; }
 
 .card-body { padding: 24px 32px 32px; flex: 1; }
 
@@ -1185,6 +1546,7 @@ hr { border: none; }
 .form-grid > .field { flex: 1; min-width: 0; }
 .form-grid-bottom { margin-bottom: 0; align-items: flex-end; }
 .field { display: flex; flex-direction: column; gap: 8px; }
+.compact-field { min-width: 220px; }
 .field.opacity-muted { opacity: 0.5; transition: opacity 0.2s; }
 .field label { font-size: 13px; font-weight: 500; color: var(--zinc-300); }
 .runtime-grid {
@@ -1305,6 +1667,40 @@ textarea { height: auto; padding: 8px 12px; line-height: 1.5; resize: vertical; 
 input:focus, textarea:focus { border-color: rgba(59, 130, 246, 0.5); box-shadow: 0 0 0 1px rgba(59, 130, 246, 0.5), inset 0 2px 4px rgba(0,0,0,0.6); background-color: rgba(0,0,0,0.6); }
 input:disabled { opacity: 0.5; cursor: not-allowed; }
 .mono-font { font-family: ui-monospace, SFMono-Regular, Consolas, monospace; }
+.static-note {
+  min-height: 36px;
+  display: flex;
+  align-items: center;
+  padding: 0 12px;
+  border-radius: var(--radius-sm);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  background-color: rgba(255, 255, 255, 0.04);
+  color: var(--text-muted);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.mapping-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.mapping-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto;
+  gap: 16px;
+  align-items: end;
+}
+
+.mapping-remove {
+  height: 36px;
+}
+
+.mapping-toolbar {
+  display: flex;
+  justify-content: flex-start;
+}
 
 .input-wrapper { position: relative; display: flex; align-items: center; width: 100%; }
 .pr-icon { padding-right: 36px !important; }
@@ -1519,5 +1915,27 @@ input:disabled { opacity: 0.5; cursor: not-allowed; }
 .dialog-enter-from .dialog-card,
 .dialog-leave-to .dialog-card {
   transform: scale(0.9) translateY(20px);
+}
+
+@media (max-width: 840px) {
+  .card-header {
+    flex-direction: column;
+    gap: 16px;
+  }
+
+  .heading-right,
+  .heading-right-wide,
+  .compact-field {
+    width: 100%;
+  }
+
+  .runtime-grid,
+  .mapping-row {
+    grid-template-columns: 1fr;
+  }
+
+  .form-grid {
+    flex-direction: column;
+  }
 }
 </style>

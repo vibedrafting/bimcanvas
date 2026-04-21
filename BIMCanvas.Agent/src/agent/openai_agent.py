@@ -149,7 +149,7 @@ def _resolve_provider_call_id(value: Any) -> str | None:
 class OpenAIAgent:
     """Host-facing adapter built on top of the OpenAI Agents SDK."""
 
-    runtime_id = "openai-agents"
+    runtime_id = "openai"
     runtime_version = "0.1.0"
 
     def __init__(
@@ -1404,7 +1404,7 @@ class OpenAIAgent:
             f"- 如需只读分析、统计或检索，优先调用 `{_OPENAI_DELEGATE_QUERY_TOOL_NAME}`。\n"
             f"- 如需单一局部修改，调用 `{_OPENAI_DELEGATE_EDIT_TOOL_NAME}`。\n"
             f"- 当共享权限允许时，`{_OPENAI_LAYOUT_AGENT_NAME}` 会通过运行时 Skill 装配 + 原生 MCP function tools 定向启用，用于显式单区 generate 子任务。\n"
-            "- 若某个配置型 agent 因 `permissions.allow/deny` 或当前 Runtime 能力边界未启用，主控不得用 helper sub-agent 冒充它。\n"
+            "- 若某个配置型 agent 因 `openai.permissions.allow/deny` 或当前 Runtime 能力边界未启用，主控不得用 helper sub-agent 冒充它。\n"
             "- 其他依赖 `Skill`、`mcp__canvas__*`、`AskUserQuestion` 或二级委派的配置型 agents 暂不启用。\n"
             "- helper sub-agent 只执行一个明确子任务，并返回简洁中文摘要供主控汇总。\n"
             f"{explicit_lines}"
@@ -1897,7 +1897,7 @@ class OpenAIAgent:
         return (
             f"当前无法调用 `{request.name}`，因为它在共享权限/能力检查下未启用：{reasons}。\n"
             "OpenAI runtime 不会用通用 helper worker 冒充这个配置型 agent。\n"
-            "如需继续浏览器验收，请先手动更新 `<BIMCANVAS_HOME>/config.json` 的 `permissions.allow` 后重试。"
+            "如需继续浏览器验收，请先手动更新 `<BIMCANVAS_HOME>/config.json` 的 `openai.permissions.allow` 后重试。"
         )
 
     def _log_configured_subagent_availability(
@@ -1934,7 +1934,7 @@ class OpenAIAgent:
                     continue
                 logger.warning(
                     "OpenAI runtime requires manual permission sync for `%s`: update "
-                    "<BIMCANVAS_HOME>/config.json permissions.allow to include the shared layout-agent baseline.",
+                    "<BIMCANVAS_HOME>/config.json openai.permissions.allow to include the shared layout-agent baseline.",
                     spec.name,
                 )
                 break
@@ -1984,7 +1984,7 @@ class OpenAIAgent:
             raise ValueError(
                 "OpenAI runtime does not accept Claude model aliases like "
                 f"'{normalized_model}'. Update <BIMCANVAS_HOME>/config.json modelMapping keys "
-                "and <BIMCANVAS_HOME>/web_config.json defaultModel/customModels to real OpenAI model ids."
+                "and <BIMCANVAS_HOME>/config.json openai.defaultModel to real OpenAI model ids."
             )
 
     def _log_chunk_for_console(self, chunk: StreamChunk) -> None:

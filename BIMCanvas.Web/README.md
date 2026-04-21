@@ -146,7 +146,7 @@
     - 前端输入区持有 `pendingAttachments: ChatAttachmentRef[]`，不再持有 `base64[]`
     - 聊天发送只传 `clientMessageId + attachmentIds`，不再把整张图片塞进 `/api/chat/stream`
     - 失败或中止时恢复附件草稿，避免重新截图
-- **模型/思考强度**: 模型列表来自 `/api/config` 与 `/api/web_config`，默认模型来自 `/api/web_config.defaultModel`，思考强度来自 `/api/config`。
+- **模型/思考强度**: 模型列表、默认模型与思考强度统一来自 `/api/config`；`/api/web_config` 只负责图层预设等 Web 展示配置。
 - **运行时能力降级**: `/api/config.capabilityMatrix` 会驱动 Thinking 开关、Tasks 视图等前端降级；当 `thinking` 或 `subtask_causality` 不受支持时，相关入口会自动隐藏或禁用。
 - **接口基址兜底**: 未显式配置 `VITE_SERVER_URL` / `VITE_AGENT_URL` 时，开发态默认使用当前主机的 `5000`，并统一通过 `/agent` 代理访问 Agent；生产静态托管时，Server 与 Agent 默认统一收口到同源入口，其中 Agent 走 `/agent`。
 

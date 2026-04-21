@@ -1,4 +1,4 @@
-import { computed, nextTick, onMounted, onUnmounted, ref } from 'vue';
+import { computed, onMounted, onUnmounted, ref } from 'vue';
 import type { EffortLevel, ModelOption, ThinkingLevel } from '../../types/aiCommandCenter';
 import { effortLevels, thinkingLevels } from '../../constants/aiCommandCenter';
 import type { RuntimeCapabilityMap, RuntimeCapabilityMatrixRow } from '../../types/agent';
@@ -26,9 +26,6 @@ export const useAgentConfig = (agentApiBase: string, serverApiBase: string) => {
   const isModelMenuOpen = ref(false);
   const isThinkingMenuOpen = ref(false);
   const isEffortMenuOpen = ref(false);
-  const isAddingModel = ref(false);
-  const newModelId = ref('');
-  const newModelInputRef = ref<HTMLInputElement | null>(null);
   const layerPresets = ref<LayerPresetsConfig>({});
   const capabilityMatrix = ref<RuntimeCapabilityMatrixRow[]>([]);
   const capabilityMap = ref<RuntimeCapabilityMap>({});
@@ -37,6 +34,7 @@ export const useAgentConfig = (agentApiBase: string, serverApiBase: string) => {
   const supportsTrace = ref(false);
   const supportsUsage = ref(false);
   const supportsPermissionPauseResume = ref(false);
+  const currentRuntime = ref<'claude' | 'openai'>('claude');
   const fallbackSet = computed(() => new Set(
     capabilityMatrix.value
       .map(row => row.frontendFallback)
@@ -70,17 +68,7 @@ export const useAgentConfig = (agentApiBase: string, serverApiBase: string) => {
     }
   };
 
-  const applyWebConfig = (webConfig: any, mode: 'replace' | 'merge' = 'replace') => {
-    const incomingModels = webConfig.customModels || [];
-    if (mode === 'replace') {
-      models.value = incomingModels;
-    } else {
-      const merged = new Map(models.value.map(model => [model.id, model]));
-      for (const model of incomingModels) {
-        merged.set(model.id, model);
-      }
-      models.value = Array.from(merged.values());
-    }
+  const applyWebConfig = (webConfig: any) => {
     layerPresets.value = webConfig.layerPresets || {};
 
     window.dispatchEvent(new CustomEvent('bimcanvas:layer-presets-loaded', {
@@ -105,46 +93,9 @@ export const useAgentConfig = (agentApiBase: string, serverApiBase: string) => {
     }
   };
 
-  const saveCustomModels = async () => {
-    try {
-      await fetch(`${serverApiBase}/api/web_config`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ customModels: models.value })
-      });
-    } catch (error) {
-      console.warn('保存模型列表失败:', error);
-    }
-  };
-
   const selectModel = (model: ModelOption) => {
     currentModel.value = model;
     isModelMenuOpen.value = false;
-    isAddingModel.value = false;
-  };
-
-  const startAddModel = () => {
-    isAddingModel.value = true;
-    newModelId.value = '';
-    nextTick(() => {
-      newModelInputRef.value?.focus();
-    });
-  };
-
-  const confirmAddModel = async () => {
-    const id = newModelId.value.trim();
-    if (id && !models.value.some(m => m.id === id)) {
-      const newModel = { id, label: id };
-      models.value.push(newModel);
-      selectModel(newModel);
-      await saveCustomModels();
-    }
-    cancelAddModel();
-  };
-
-  const cancelAddModel = () => {
-    isAddingModel.value = false;
-    newModelId.value = '';
   };
 
   const selectThinking = (level: ThinkingLevel) => {
@@ -164,7 +115,7 @@ export const useAgentConfig = (agentApiBase: string, serverApiBase: string) => {
 
   const fetchAgentConfig = async () => {
     try {
-      let webDefaultModel = '';
+      let agentDefaultModel = '';
       const [configRes, webConfigRes] = await Promise.all([
         fetch(`${agentApiBase}/api/config`),
         fetch(`${serverApiBase}/api/web_config`)
@@ -172,47 +123,50 @@ export const useAgentConfig = (agentApiBase: string, serverApiBase: string) => {
 
       if (webConfigRes.ok) {
         const webConfig = await webConfigRes.json();
-        webDefaultModel = typeof webConfig.defaultModel === 'string' ? webConfig.defaultModel : '';
-        applyWebConfig(webConfig, 'replace');
+        applyWebConfig(webConfig);
         console.log('图层预设配置已加载:', layerPresets.value);
       }
 
       if (configRes.ok) {
         const config = await configRes.json();
+        const runtimeId = config.runtime === 'openai' ? 'openai' : 'claude';
         const {
           models: agentModels,
+          defaultModel: cfgDefaultModel,
           defaultEffort: cfgEffort,
           defaultThinking: cfgThinking,
           capabilityMatrix: cfgCapabilityMatrix
         } = config;
+        currentRuntime.value = runtimeId;
+        agentDefaultModel = typeof cfgDefaultModel === 'string' ? cfgDefaultModel : '';
 
-        // Agent 返回了 models → 用作主模型列表（优先于 web_config 的 customModels）
-        if (agentModels && agentModels.length > 0) {
-          const agentModelIds = new Set(agentModels.map((m: { id: string }) => m.id));
-          const extraModels = models.value.filter(m => !agentModelIds.has(m.id));
-          models.value = [...agentModels, ...extraModels];
-        }
+        models.value = Array.isArray(agentModels) ? agentModels : [];
 
         applyCapabilityMatrix(cfgCapabilityMatrix);
 
-        if (cfgEffort) {
+        if (runtimeId === 'claude' && cfgEffort) {
           const foundEffort = effortLevels.find(e => e.id === cfgEffort);
           if (foundEffort) {
             currentEffort.value = foundEffort;
           }
+        } else if (runtimeId === 'openai') {
+          currentEffort.value = defaultEffort;
         }
 
-        if (cfgThinking && supportsThinking.value) {
+        if (runtimeId === 'claude' && cfgThinking && supportsThinking.value) {
           const foundThinking = thinkingLevels.find(t => t.id === cfgThinking);
           if (foundThinking) {
             currentThinking.value = foundThinking;
           }
+        } else if (runtimeId === 'openai') {
+          currentThinking.value = defaultThinking;
         }
       }
 
-      applyDefaultModel(webDefaultModel);
+      applyDefaultModel(agentDefaultModel);
 
       console.log('Agent 配置已加载:', {
+        runtime: currentRuntime.value,
         model: currentModel.value?.id,
         effort: currentEffort.value.id,
         thinking: currentThinking.value.id
@@ -225,7 +179,7 @@ export const useAgentConfig = (agentApiBase: string, serverApiBase: string) => {
   const handleWebConfigUpdated = (event: Event) => {
     const customEvent = event as CustomEvent;
     if (customEvent.detail) {
-      applyWebConfig(customEvent.detail, 'merge');
+      applyWebConfig(customEvent.detail);
     }
   };
 
@@ -247,9 +201,6 @@ export const useAgentConfig = (agentApiBase: string, serverApiBase: string) => {
     isModelMenuOpen,
     isThinkingMenuOpen,
     isEffortMenuOpen,
-    isAddingModel,
-    newModelId,
-    newModelInputRef,
     layerPresets,
     capabilityMatrix,
     capabilityMap,
@@ -259,13 +210,10 @@ export const useAgentConfig = (agentApiBase: string, serverApiBase: string) => {
     supportsTrace,
     supportsUsage,
     supportsPermissionPauseResume,
+    currentRuntime,
     fetchAgentConfig,
     selectModel,
-    startAddModel,
-    confirmAddModel,
-    cancelAddModel,
     selectThinking,
-    selectEffort,
-    saveCustomModels
+    selectEffort
   };
 };

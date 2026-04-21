@@ -56,7 +56,7 @@ docker compose -f deploy/docker-compose.yml -f deploy/docker-compose.local.yml u
 | 项目目录 | `<BIMCANVAS_HOME>/Projects/` | Windows: `Documents/BIMCanvas/Projects/` | 项目解压目录 |
 | CCR 配置 | `<BIMCANVAS_HOME>/server_config.json` | `enabled=false` | 网关启用、端口 |
 | CCR Router 配置 | `<BIMCANVAS_HOME>/ccr_config.json` | 自动初始化 | 供应商 / 模型路由映射 |
-| 开发态直连种子 | `<BIMCANVAS_HOME>/config.dev.local.json` | Development 自动生成 | 本地私有 `baseUrl/apiKey` 初始化种子 |
+| 开发态直连种子 | `<BIMCANVAS_HOME>/config.dev.local.json` | Development 自动生成 | 本地私有 `runtimeProvider`、`claude.baseUrl/apiKey/defaultModel` 与 `openai.baseUrl/apiKey/defaultModel` 初始化种子 |
 | 开发态 CCR 种子 | `<BIMCANVAS_HOME>/ccr_config.dev.local.json` | Development 自动生成 | 本地私有 `Providers/Router` 初始化种子 |
 | `BIMCANVAS_HOME` | 环境变量 | Windows: `Documents/BIMCanvas`；Docker: `/data` | 全局配置、项目、截图的根目录 |
 | `BIMCANVAS_WEB_DIST` | 环境变量 | Docker: `/app/BIMCanvas.Web/dist` | Production 模式静态托管目录 |
@@ -78,6 +78,7 @@ docker compose -f deploy/docker-compose.yml -f deploy/docker-compose.local.yml u
 - `web_config.json` 默认按热更新处理
 - `config.json`、`server_config.json`、`ccr_config.json` 默认按“保存后需重启实例”处理
 - `config.json` 不再包含 Agent 监听地址；Agent 监听端口由 `server_config.json > agent.port` 管理，运行时仍由 Server 通过环境变量注入
+- `config.dev.local.json` 仅负责 `runtimeProvider` 与两套 provider 的直连参数 / 默认模型种子（`claude.baseUrl/apiKey/defaultModel`、`openai.baseUrl/apiKey/defaultModel`），不会导入 permissions、thinking 或 modelMapping
 - `*.dev.local.json` 仅用于 Development 启动早期的首次初始化种子，不属于设置 UI 的回写目标
 - `ccr_config.dev.local.json` 只负责在 `ccr_config.json` 首次创建时提供 provider/router 种子；是否启用 CCR 仍由 `server_config.json > ccr.enabled` 决定
 
@@ -86,7 +87,7 @@ docker compose -f deploy/docker-compose.yml -f deploy/docker-compose.local.yml u
 Server 默认托管 CCR (Claude Code Router)，用于给 Agent SDK 提供统一的 Anthropic 风格入口，再转发到真实下游 provider。
 
 - 模型路由由 `<BIMCANVAS_HOME>/ccr_config.json` 的 `Router` 字段配置（`default` / `think` / `background` / `longContext` 分别控制不同类型请求的供应商和模型）
-- Web 对话默认模型统一由 `<BIMCANVAS_HOME>/web_config.json > defaultModel` 管理；Server 只负责网关连接与路由，不再持有默认模型
+- Web 对话默认模型统一由 `<BIMCANVAS_HOME>/config.json > {runtimeProvider}.defaultModel` 管理；`web_config.json` 不再持有模型配置，Server 只负责网关连接与路由
 - 当 `ccr.enabled=false` 时，不启动 CCR，Agent 走直连模式（使用 `<BIMCANVAS_HOME>/config.json`）
 - 切换供应商后需要重启 Server
 - 如果 CCR 不可用，Server 与 Web 仍会启动，但 AI 请求会在运行时失败并输出明确日志

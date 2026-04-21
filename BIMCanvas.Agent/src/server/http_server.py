@@ -23,6 +23,7 @@ from ..config.settings import get_settings
 from ..runtime import (
     DEFAULT_RUNTIME_PROVIDER,
     MainStreamMapper,
+    OPENAI_RUNTIME_ID,
     PendingInteractionRuntimeBinding,
     RuntimeSessionRecord,
     RuntimeStateStore,
@@ -468,13 +469,15 @@ async def config_handler(request: web.Request) -> web.Response:
 
     runtime_provider = _resolve_runtime_provider_from_settings(settings)
     runtime_descriptor = get_runtime_descriptor(runtime_provider)
+    is_openai_runtime = runtime_descriptor.runtime_id == OPENAI_RUNTIME_ID
 
     return web.json_response({
         "runtime": runtime_descriptor.runtime_id,
         "runtimeVersion": runtime_descriptor.runtime_version,
         "models": models,
-        "defaultEffort": settings.default_effort,
-        "defaultThinking": settings.default_thinking,
+        "defaultModel": settings.default_model,
+        "defaultEffort": None if is_openai_runtime else settings.default_effort,
+        "defaultThinking": None if is_openai_runtime else settings.default_thinking,
         "capabilityMatrix": build_capability_matrix(runtime_provider),
     })
 
@@ -1035,7 +1038,7 @@ async def _resume_openai_interaction_if_needed(
         binding is None
         or interaction.status != "resolved"
         or binding.status != "pending"
-        or binding.runtime_id != "openai-agents"
+        or binding.runtime_id != OPENAI_RUNTIME_ID
     ):
         return None
 

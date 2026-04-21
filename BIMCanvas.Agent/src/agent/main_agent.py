@@ -50,7 +50,7 @@ class MainAgent:
     - 详细日志输出所有 Agent 活动
     """
 
-    runtime_id = "claude-sdk"
+    runtime_id = "claude"
     runtime_version = "0.1.0"
 
     def __init__(

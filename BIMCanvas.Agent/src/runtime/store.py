@@ -56,7 +56,7 @@ class RuntimeStateStore:
         window_id: str,
         project_path: str,
         worktree_path: str | None,
-        runtime_id: str = "claude-sdk",
+        runtime_id: str = "claude",
         runtime_version: str = "0.1.0",
     ) -> RuntimeSessionRecord:
         session = RuntimeSessionRecord(

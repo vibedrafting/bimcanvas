@@ -142,18 +142,11 @@ const {
   isModelMenuOpen,
   isThinkingMenuOpen,
   isEffortMenuOpen,
-  isAddingModel,
-  newModelId,
-  newModelInputRef,
   fetchAgentConfig,
   selectModel,
-  startAddModel,
-  confirmAddModel,
-  cancelAddModel,
   selectThinking,
   selectEffort
 } = useAgentConfig(AGENT_API_BASE, SERVER_API_BASE);
-void newModelInputRef;
 
 const {
   chatScrollRefs,
@@ -1177,39 +1170,6 @@ watch(chatScrollRef, (newEl, oldEl) => {
                                     <svg v-if="currentModel?.id === m.id" class="check-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                                         <polyline points="20 6 9 17 4 12"></polyline>
                                     </svg>
-                                </div>
-                                <!-- 分隔线 -->
-                                <div class="menu-divider"></div>
-                                <!-- 添加模型按钮或输入框 -->
-                                <div v-if="!isAddingModel" class="menu-item add-model" @click.stop="startAddModel">
-                                    <svg class="add-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                                        <line x1="12" y1="5" x2="12" y2="19"></line>
-                                        <line x1="5" y1="12" x2="19" y2="12"></line>
-                                    </svg>
-                                    <span class="item-text">Add Model...</span>
-                                </div>
-                                <div v-else class="add-model-input" @click.stop>
-                                    <input
-                                        ref="newModelInputRef"
-                                        v-model="newModelId"
-                                        type="text"
-                                        placeholder="Model ID"
-                                        @keyup.enter="confirmAddModel"
-                                        @keyup.escape="cancelAddModel"
-                                    />
-                                    <div class="input-actions">
-                                        <button class="confirm-btn" @click="confirmAddModel" :disabled="!newModelId.trim()">
-                                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                                                <polyline points="20 6 9 17 4 12"></polyline>
-                                            </svg>
-                                        </button>
-                                        <button class="cancel-btn" @click="cancelAddModel">
-                                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                                                <line x1="18" y1="6" x2="6" y2="18"></line>
-                                                <line x1="6" y1="6" x2="18" y2="18"></line>
-                                            </svg>
-                                        </button>
-                                    </div>
                                 </div>
                             </div>
                         </transition>

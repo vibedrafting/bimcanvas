@@ -44,8 +44,13 @@ public sealed class DevelopmentLocalConfigBootstrapService
         var local = LoadJsonObject(ConfigService.GetDevLocalAgentConfigPath());
         var changed = false;
 
-        changed |= CopyStringIfPresent(runtime, local, "baseUrl");
-        changed |= CopyStringIfPresent(runtime, local, "apiKey");
+        changed |= CopyStringIfPresent(runtime, local, "runtimeProvider");
+        changed |= CopyStringIfPresent(runtime, local, "claude.baseUrl");
+        changed |= CopyStringIfPresent(runtime, local, "claude.apiKey");
+        changed |= CopyStringIfPresent(runtime, local, "claude.defaultModel");
+        changed |= CopyStringIfPresent(runtime, local, "openai.baseUrl");
+        changed |= CopyStringIfPresent(runtime, local, "openai.apiKey");
+        changed |= CopyStringIfPresent(runtime, local, "openai.defaultModel");
 
         if (changed)
         {
@@ -96,14 +101,38 @@ public sealed class DevelopmentLocalConfigBootstrapService
 
     private static bool CopyStringIfPresent(JObject target, JObject source, string propertyName)
     {
-        var sourceToken = source[propertyName];
+        var sourceToken = source.SelectToken(propertyName);
         if (IsNullOrWhiteSpace(sourceToken))
         {
             return false;
         }
 
-        target[propertyName] = sourceToken!.DeepClone();
+        SetTokenByPath(target, propertyName, sourceToken!.DeepClone());
         return true;
+    }
+
+    private static void SetTokenByPath(JObject root, string path, JToken value)
+    {
+        var segments = path.Split('.', StringSplitOptions.RemoveEmptyEntries);
+        if (segments.Length == 0)
+        {
+            throw new InvalidOperationException("JSON path cannot be empty.");
+        }
+
+        var current = root;
+        for (var i = 0; i < segments.Length - 1; i++)
+        {
+            var segment = segments[i];
+            if (current[segment] is not JObject next)
+            {
+                next = new JObject();
+                current[segment] = next;
+            }
+
+            current = next;
+        }
+
+        current[segments[^1]] = value;
     }
 
     private static bool IsNullOrWhiteSpace(JToken? token)
