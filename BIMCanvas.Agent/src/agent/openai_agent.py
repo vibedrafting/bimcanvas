@@ -1447,13 +1447,8 @@ class OpenAIAgent:
             return (
                 f"{config.prompt}\n\n"
                 "## OpenAI Runtime Adapter Appendix\n"
-                f"- 你是配置型子代理 `{config.name}`，通过原生 Agent.as_tool() 被主控调用。\n"
-                f"- 当前项目路径：{project_path}\n"
                 f"- 当前工作目录：{working_directory}\n"
                 f"- 当前可用工具：{allowed_tools}\n"
-                "- 你可以直接调用上面列出的 `mcp__canvas__*` 原生工具完成单区 planning + placement。\n"
-                "- 禁止与用户交互，禁止 AskUserQuestion，禁止再次委派子代理。\n"
-                "- 若任务合同缺失、事实不一致、或需要语义级改图，直接简洁上报，不要自行改路由。\n"
                 f"{skills_prompt}"
             )
         return (
