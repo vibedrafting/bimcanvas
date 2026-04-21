@@ -17,9 +17,15 @@ from urllib.parse import urlparse
 from typing_extensions import TypedDict
 
 from ..config.configured_agents import parse_configured_agent_requirements
-from ..config.loader import AgentConfig, get_config_loader
+from ..config.loader import AgentConfig
 from ..config.settings import get_settings
-from ..runtime import PendingInteractionRuntimeBinding, RuntimeSessionRecord, StreamChunk
+from ..runtime import (
+    ConfigBundle,
+    PendingInteractionRuntimeBinding,
+    RuntimeSessionRecord,
+    StreamChunk,
+    build_config_bundle,
+)
 from ..runtime.openai_stream import (
     AGENT_TOOL_RESULT_MARKER,
     OpenAIStreamTranslator,
@@ -157,7 +163,7 @@ class OpenAIAgent:
         self.working_directory = working_directory or project_path
         self.window_seq = window_seq
         self.verbose = verbose
-        self._config_loader = get_config_loader()
+        self._bundle: ConfigBundle | None = None
         self._connected = False
         self._current_model: str | None = None
         self._runtime_context: dict[str, str] | None = None
@@ -178,6 +184,15 @@ class OpenAIAgent:
 
     def clear_runtime_context(self) -> None:
         self._runtime_context = None
+
+    def configure(self, bundle: ConfigBundle) -> None:
+        self._bundle = bundle
+
+    def _require_bundle(self) -> ConfigBundle:
+        if self._bundle is None:
+            self.configure(build_config_bundle())
+        assert self._bundle is not None
+        return self._bundle
 
     async def connect(
         self,
@@ -320,11 +335,16 @@ class OpenAIAgent:
                 buffered_nested_chunks.append(chunk)
 
             async def _nested_stream_handler(payload: Any) -> None:
-                await self._emit_nested_agent_stream_event(
-                    payload=payload,
-                    translator=translator,
-                    emit_chunk=_buffer_chunk if use_fallback else stream_queue.put,
-                )
+                emit_chunk = _buffer_chunk if use_fallback else stream_queue.put
+                try:
+                    await self._emit_nested_agent_stream_event(
+                        payload=payload,
+                        translator=translator,
+                        emit_chunk=emit_chunk,
+                    )
+                except Exception as exc:
+                    await emit_chunk(self._build_sdk_error_chunk(exc, error_content="nested_stream_handler"))
+                    raise
 
             run_context = self._build_run_context(runtime_context=runtime_context, canvas_context=context)
             starting_agent = self._build_root_agent(
@@ -480,11 +500,16 @@ class OpenAIAgent:
             buffered_nested_chunks.append(chunk)
 
         async def _nested_stream_handler(payload: Any) -> None:
-            await self._emit_nested_agent_stream_event(
-                payload=payload,
-                translator=translator,
-                emit_chunk=_buffer_chunk if use_fallback else stream_queue.put,
-            )
+            emit_chunk = _buffer_chunk if use_fallback else stream_queue.put
+            try:
+                await self._emit_nested_agent_stream_event(
+                    payload=payload,
+                    translator=translator,
+                    emit_chunk=emit_chunk,
+                )
+            except Exception as exc:
+                await emit_chunk(self._build_sdk_error_chunk(exc, error_content="nested_stream_handler"))
+                raise
 
         starting_agent = self._build_root_agent(
             agents,
@@ -651,7 +676,8 @@ class OpenAIAgent:
                 blocked_specs=blocked_specs,
             )
         tool_by_name = self._build_local_function_tool_map(agents)
-        system_prompt = self._config_loader.load_system_prompt()
+        bundle = self._require_bundle()
+        system_prompt = bundle.system_prompt
         system_prompt = system_prompt + f"\n\n工作目录: {self.working_directory}"
         system_prompt = system_prompt + self._build_openai_root_appendix(
             explicit_request=explicit_request,
@@ -1228,9 +1254,10 @@ class OpenAIAgent:
         return result
 
     def _resolve_skill_markdown(self, skill_name: str) -> str:
-        skill_path = self._config_loader.config_dir / "skills" / skill_name / "SKILL.md"
-        if not skill_path.exists():
-            raise FileNotFoundError(f"Missing skill file: {skill_path}")
+        bundle = self._require_bundle()
+        skill_path = bundle.skill_index.get(skill_name)
+        if skill_path is None:
+            raise FileNotFoundError(f"Missing skill file: {bundle.bimcanvas_home / 'skills' / skill_name / 'SKILL.md'}")
         return skill_path.read_text(encoding="utf-8-sig").strip()
 
     def _build_runtime_skill_sections(self, skill_names: tuple[str, ...]) -> str:
@@ -1445,6 +1472,17 @@ class OpenAIAgent:
 
         return MainAgent._build_context_block(context)
 
+    @staticmethod
+    def _build_sdk_error_chunk(exc: Exception, *, error_content: str) -> StreamChunk:
+        message = str(exc) or exc.__class__.__name__ or "Provider SDK error."
+        return StreamChunk(
+            type="text_complete",
+            content=message,
+            error=message,
+            error_type="sdk_error",
+            error_content=error_content,
+        )
+
     async def _emit_nested_agent_stream_event(
         self,
         *,
@@ -1459,8 +1497,15 @@ class OpenAIAgent:
 
         event = _get_attr(payload, "event")
         if event is None:
+            self._agent_logger.log_warning("nested_stream_handler: event is None")
             return
-        for chunk in translator.translate(event, forced_subtask_id=forced_subtask_id):
+        translated_chunks = translator.translate(event, forced_subtask_id=forced_subtask_id)
+        if not translated_chunks:
+            logger.debug(
+                "OpenAI nested stream event produced no translated chunks. event_type=%s",
+                _get_attr(event, "type"),
+            )
+        for chunk in translated_chunks:
             await emit_chunk(chunk)
 
     def _resolve_sdk_session_id(self, session_id: str | None = None) -> str | None:
@@ -1472,7 +1517,7 @@ class OpenAIAgent:
         return runtime_session_id or None
 
     def _resolve_sdk_session_db_path(self) -> Path:
-        runtime_dir = self._config_loader.config_dir / ".runtime"
+        runtime_dir = self._require_bundle().bimcanvas_home / ".runtime"
         runtime_dir.mkdir(parents=True, exist_ok=True)
         return runtime_dir / "openai_agent_sessions.sqlite3"
 
@@ -1712,12 +1757,13 @@ class OpenAIAgent:
         enabled_tool_names: list[str],
         inherited_model: str | None,
     ) -> tuple[list[_ConfiguredAgentToolSpec], list[_BlockedConfiguredAgentSpec]]:
+        bundle = self._require_bundle()
         available_tool_names = set(enabled_tool_names) - {"AskUserQuestion"}
         enabled_specs: list[_ConfiguredAgentToolSpec] = []
         blocked_specs: list[_BlockedConfiguredAgentSpec] = []
         seen_agent_names: set[str] = set()
 
-        for name, cfg in self._config_loader.load_agents().items():
+        for name, cfg in bundle.shared_agents.items():
             intrinsic_reasons: list[str] = []
             permission_reasons: list[str] = []
             resolved_tool_names: list[str] = []
@@ -1755,8 +1801,7 @@ class OpenAIAgent:
                 else:
                     required_permission_names.append("Skill")
                     for skill_name in _OPENAI_LAYOUT_AGENT_SKILL_NAMES:
-                        skill_path = self._config_loader.config_dir / "skills" / skill_name / "SKILL.md"
-                        if not skill_path.exists():
+                        if skill_name not in bundle.skill_index:
                             intrinsic_reasons.append(f"missing skill: {skill_name}")
                         elif skill_name not in resolved_skill_names:
                             resolved_skill_names.append(skill_name)
@@ -1897,7 +1942,9 @@ class OpenAIAgent:
         self._configured_subagents_logged = True
 
     def _resolve_enabled_permission_tool_names(self) -> list[str]:
-        allowed_tools, denied_tools = self._config_loader.load_permissions()
+        bundle = self._require_bundle()
+        allowed_tools = bundle.permissions_allow
+        denied_tools = bundle.permissions_deny
 
         if allowed_tools is None:
             enabled_names = set(_OPENAI_SUPPORTED_PERMISSION_TOOL_NAMES)

@@ -21,7 +21,7 @@ if str(AGENT_ROOT) not in sys.path:
 from src.agent.openai_agent import OpenAIAgent, _load_openai_agents_module
 from src.config.loader import ConfigLoader, get_config_loader
 from src.config.settings import get_settings
-from src.runtime import PendingInteractionRuntimeBinding, RuntimeSessionRecord, StreamChunk
+from src.runtime import MainStreamMapper, PendingInteractionRuntimeBinding, RuntimeSessionRecord, StreamChunk
 from src.runtime.openai_stream import (
     AGENT_TOOL_RESULT_MARKER,
     OpenAIStreamTranslator,
@@ -1030,6 +1030,50 @@ def test_openai_stream_translator_translates_run_result_items() -> None:
     assert [(chunk.type, chunk.content) for chunk in text_chunks] == [
         ("text_complete", "Hi!")
     ]
+
+
+def test_openai_stream_translator_maps_sdk_run_error_event() -> None:
+    translator = OpenAIStreamTranslator(turn_id="turn-1")
+
+    chunks = translator.translate(
+        SimpleNamespace(
+            type="run_error_event",
+            error=SimpleNamespace(message="nested sdk exploded"),
+        ),
+        forced_subtask_id="st-tc-1",
+    )
+
+    assert [(chunk.type, chunk.subagent_id, chunk.error_type, chunk.error_content, chunk.content) for chunk in chunks] == [
+        ("text_complete", "st-tc-1", "sdk_error", "run_error_event", "nested sdk exploded")
+    ]
+
+
+def test_openai_stream_translator_warns_on_unknown_event_type(caplog: pytest.LogCaptureFixture) -> None:
+    translator = OpenAIStreamTranslator(turn_id="turn-1")
+
+    with caplog.at_level(logging.WARNING):
+        chunks = translator.translate(SimpleNamespace(type="unknown_event"))
+
+    assert chunks == []
+    assert "unrecognized event type 'unknown_event'" in caplog.text
+
+
+def test_main_stream_mapper_uses_provider_sdk_error_after_sdk_error_chunk() -> None:
+    mapper = MainStreamMapper(session_id="session-1", turn_id="turn-1")
+    mapper.map_chunk(
+        StreamChunk(
+            type="text_complete",
+            content="nested sdk exploded",
+            error="nested sdk exploded",
+            error_type="sdk_error",
+        )
+    )
+
+    terminal_event = mapper.build_exception_terminal_event(RuntimeError("outer stream failure"))
+
+    assert terminal_event["eventType"] == "turn.failed"
+    assert terminal_event["payload"]["error"]["code"] == "PROVIDER_SDK_ERROR"
+    assert terminal_event["payload"]["error"]["message"] == "nested sdk exploded"
 
 
 def test_openai_stream_translator_projects_agent_as_tool_subtask_lifecycle() -> None:

@@ -3,12 +3,12 @@
 import logging
 from claude_agent_sdk import AgentDefinition
 
-from ..config.loader import get_config_loader
+from ..config.loader import AgentConfig
 
 logger = logging.getLogger(__name__)
 
 
-def create_subagents() -> dict[str, AgentDefinition]:
+def create_subagents(agents_config: dict[str, AgentConfig]) -> dict[str, AgentDefinition]:
     """
     从配置文件加载 SubAgent 定义
 
@@ -20,9 +20,6 @@ def create_subagents() -> dict[str, AgentDefinition]:
     Returns:
         Dictionary mapping agent names to their definitions
     """
-    loader = get_config_loader()
-    agents_config = loader.load_agents()
-
     if not agents_config:
         logger.warning("无可用的 SubAgent 配置，跳过 SubAgent 创建")
         return {}

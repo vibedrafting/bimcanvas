@@ -138,8 +138,7 @@ const {
   currentEffort,
   thinkingLevels,
   effortLevels,
-  supportsThinking,
-  supportsSubtaskCausality,
+  hasFallback,
   isModelMenuOpen,
   isThinkingMenuOpen,
   isEffortMenuOpen,
@@ -349,6 +348,7 @@ const {
   currentThinking,
   scrollToBottom,
   fetchAgentConfig,
+  hasFallback,
   buildContextPayload
 });
 
@@ -774,7 +774,7 @@ watch(chatScrollRef, (newEl, oldEl) => {
                         <template v-for="bubble in msg.bubbles" :key="bubble.id">
                             <!-- Thinking 气泡 -->
                             <ThinkingBubble
-                                v-if="bubble.type === 'thinking'"
+                                v-if="bubble.type === 'thinking' && !hasFallback('hide-thinking-panel')"
                                 :bubble="bubble"
                             />
 
@@ -830,7 +830,7 @@ watch(chatScrollRef, (newEl, oldEl) => {
         <div v-show="mode === 'tasks'" class="view-tasks">
             <!-- Agent Activity Monitor (SubAgent tracking) -->
             <TaskSummaryWidget 
-                v-if="supportsSubtaskCausality"
+                v-if="!hasFallback('hide-subtask-activity-panel')"
                 :sub-agents="activeSubAgents"
                 v-model:expanded="taskWidgetExpanded"
             />
@@ -1240,7 +1240,7 @@ watch(chatScrollRef, (newEl, oldEl) => {
                     </div>
 
                     <!-- Thinking Pill -->
-                    <div v-if="supportsThinking" class="control-pill-wrapper thinking" :class="{ open: isThinkingMenuOpen, disabled: isConfigLocked }">
+                    <div v-if="!hasFallback('hide-thinking-panel')" class="control-pill-wrapper thinking" :class="{ open: isThinkingMenuOpen, disabled: isConfigLocked }">
                         <button class="control-pill" @click="!isConfigLocked && (isThinkingMenuOpen = !isThinkingMenuOpen)" :disabled="isConfigLocked">
                             <span class="text">{{ currentThinking.label }}</span>
                         </button>

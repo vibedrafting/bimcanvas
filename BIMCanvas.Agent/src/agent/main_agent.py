@@ -23,13 +23,12 @@ from claude_agent_sdk import (
 from claude_agent_sdk.types import ThinkingConfigAdaptive, ThinkingConfigDisabled
 
 from ..config.settings import get_settings
-from ..config.loader import get_config_loader
 from .subagents import create_subagents
 from .agent_logger import get_agent_logger
 from .worktree_manager import WorktreeManager, WorktreeContext
 # MCP 服务器（业务工具）
-from ..mcp import canvas_mcp, CANVAS_ALLOWED_TOOLS
-from ..runtime import StreamChunk
+from ..mcp import canvas_mcp
+from ..runtime import ConfigBundle, StreamChunk, build_config_bundle
 
 logger = logging.getLogger(__name__)
 
@@ -76,11 +75,9 @@ class MainAgent:
         self.window_seq = window_seq
         self.verbose = verbose
 
-        # Configuration loader
-        self._config_loader = get_config_loader()
-
-        # SubAgent definitions (loaded from config)
-        self._subagents = create_subagents()
+        # Host-injected shared configuration bundle
+        self._bundle: ConfigBundle | None = None
+        self._subagents = {}
 
         # Agent logger for console output (with window_seq for multi-window prefix)
         self._agent_logger = get_agent_logger("MainAgent", window_seq=self.window_seq)
@@ -126,8 +123,18 @@ class MainAgent:
         """Clear host-provided runtime context after the current turn."""
         self._runtime_context = None
 
+    def configure(self, bundle: ConfigBundle) -> None:
+        self._bundle = bundle
+        self._subagents = create_subagents(bundle.shared_agents)
+
     async def resume_interaction(self, *args, **kwargs) -> list[dict[str, Any]]:
         raise NotImplementedError("Claude runtime does not support host-driven interaction resume.")
+
+    def _require_bundle(self) -> ConfigBundle:
+        if self._bundle is None:
+            self.configure(build_config_bundle())
+        assert self._bundle is not None
+        return self._bundle
 
     # ─────────────────────────────────────────────────────
     # Configuration
@@ -146,14 +153,16 @@ class MainAgent:
             raise ValueError("Model is required")
 
         settings = get_settings()
+        bundle = self._require_bundle()
 
         # 从配置加载系统提示词和工具权限
-        system_prompt = self._config_loader.load_system_prompt()
+        system_prompt = bundle.system_prompt
 
         # 追加工作目录到 system prompt，让 AI 知道自己的工作路径
         system_prompt = system_prompt + f"\n\n工作目录: {self.working_directory}"
 
-        allowed_tools, disallowed_tools = self._config_loader.load_permissions()
+        allowed_tools = bundle.permissions_allow
+        disallowed_tools = bundle.permissions_deny
 
         # 构建自定义环境变量（用于 Agent SDK 独立配置）
         custom_env = {}
@@ -187,16 +196,18 @@ class MainAgent:
         #     self._agent_logger.log_error(f"MCP 服务器创建异常: {e}")
 
         # === MCP 服务器配置 ===
-        mcp_tools = CANVAS_ALLOWED_TOOLS
+        mcp_tools = list(bundle.mcp_tool_names)
         self._agent_logger._print(f"[MCP] Canvas MCP 已注册，工具: {mcp_tools}")
 
         # 合并工具权限
-        all_allowed = (allowed_tools or []) + mcp_tools + ["Skill"]
+        all_allowed = None
+        if allowed_tools is not None:
+            all_allowed = list(dict.fromkeys([*allowed_tools, *mcp_tools, "Skill"]))
 
         # === Plugin 机制加载 Skills ===
         # BIMCANVAS_HOME 本身就是 Plugin 目录，独立于 setting_sources，彻底避免 CLAUDE.md 污染
         plugins = []
-        plugin_path = self._config_loader.config_dir  # <BIMCANVAS_HOME>/
+        plugin_path = bundle.bimcanvas_home  # <BIMCANVAS_HOME>/
         if (plugin_path / ".claude-plugin").exists():
             plugins.append({"type": "local", "path": str(plugin_path)})
             self._agent_logger._print(f"[Plugin] BIMCanvas Plugin 已注册: {plugin_path}")

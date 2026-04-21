@@ -241,6 +241,8 @@ OpenAI 首版适配走原生 `FunctionTool(needs_approval=True) + RunState` 路�
 - `openaiApi = "responses"` + `baseUrl` 非官方 OpenAI endpoint 的组合 → 启动 `ValueError`。这是给用户一个明确的配置错误提示，而不是静默降级成非流式 fallback。要么切 `chat_completions`（默认），要么把 `baseUrl` 指向官方 OpenAI endpoint。
 - 其它启动校验（Claude 模型别名、model id 一致性等）维持不变。
 
+任何 OpenAI 相关 PR 合并前，必须完成 `docs/OpenAIRuntime_BrowserAcceptance.md` 中定义的 8 条浏览器验收，并留存实际结果。
+
 ### ControlPlane 错误语义
 
 对 `POST /api/chat` / `POST /api/chat/stream`，Host 固定以下控制面错误码：

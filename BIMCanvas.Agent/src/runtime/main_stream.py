@@ -80,6 +80,7 @@ class MainStreamMapper:
         self.turn_id = turn_id
         self.root_subtask_id = build_root_subtask_id(turn_id)
         self._blocking_tool_failure: dict[str, Any] | None = None
+        self._recent_chunk_had_sdk_error = False
         self._sdk_error_subtype: str | None = None
         self._sdk_error_message: str | None = None
         self._api_error_code: str | None = None
@@ -156,6 +157,17 @@ class MainStreamMapper:
                     layer="turn",
                     message=str(exc) or "Turn interrupted.",
                     retryable=True,
+                ),
+            )
+
+        if self._recent_chunk_had_sdk_error:
+            return self._build_turn_failed(
+                stop_reason="runtime_error",
+                error=self._build_error(
+                    code="PROVIDER_SDK_ERROR",
+                    layer="turn",
+                    message=self._sdk_error_message or str(exc) or "Provider SDK error.",
+                    retryable=False,
                 ),
             )
 
@@ -328,8 +340,13 @@ class MainStreamMapper:
             }
 
         if chunk.error_type == "sdk_error":
-            self._sdk_error_subtype = chunk.error_content
-            self._sdk_error_message = (chunk.content or "").strip() or "Provider SDK error."
+            self._recent_chunk_had_sdk_error = True
+            self._sdk_error_subtype = chunk.error_content or self._sdk_error_subtype or "sdk_error"
+            self._sdk_error_message = (
+                (chunk.error or chunk.content or "").strip()
+                or self._sdk_error_message
+                or "Provider SDK error."
+            )
 
         if chunk.error_type == "api_error":
             self._api_error_code = chunk.error_content

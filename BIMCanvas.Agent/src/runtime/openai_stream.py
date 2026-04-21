@@ -3,9 +3,12 @@
 from __future__ import annotations
 
 import json
+import logging
 from typing import Any
 
 from .chunks import StreamChunk
+
+logger = logging.getLogger(__name__)
 
 SUBTASK_ERROR_MARKER = "__bimcanvas_subtask_error__:"
 AGENT_TOOL_RESULT_MARKER = "__bimcanvas_agent_tool_result__:"
@@ -81,6 +84,31 @@ def _extract_tool_output(item: Any) -> Any:
         return raw_output
 
     return output
+
+
+def _extract_error_message(value: Any) -> str:
+    raw_value = _get_attr(value, "raw_item", value)
+    candidates = [
+        _get_attr(value, "message"),
+        _get_attr(raw_value, "message"),
+        _get_attr(value, "error"),
+        _get_attr(raw_value, "error"),
+    ]
+
+    for candidate in candidates:
+        if isinstance(candidate, str) and candidate.strip():
+            return candidate.strip()
+
+        nested_message = _get_attr(candidate, "message")
+        if isinstance(nested_message, str) and nested_message.strip():
+            return nested_message.strip()
+
+        nested_code = _get_attr(candidate, "code")
+        if isinstance(nested_code, str) and nested_code.strip():
+            return nested_code.strip()
+
+    fallback = str(raw_value).strip()
+    return fallback or "Provider SDK error."
 
 
 def _resolve_call_id(item: Any) -> str | None:
@@ -240,6 +268,18 @@ class OpenAIStreamTranslator:
 
     def translate(self, event: Any, *, forced_subtask_id: str | None = None) -> list[StreamChunk]:
         event_type = _get_attr(event, "type")
+        if event_type in {"run_error_event", "agent_error_event"}:
+            error_message = _extract_error_message(event)
+            return [
+                StreamChunk(
+                    type="text_complete",
+                    content=error_message,
+                    subagent_id=forced_subtask_id,
+                    error=error_message,
+                    error_type="sdk_error",
+                    error_content=event_type,
+                )
+            ]
         if event_type == "raw_response_event":
             return self._translate_raw_event(_get_attr(event, "data"), forced_subtask_id=forced_subtask_id)
         if event_type == "run_item_stream_event":
@@ -248,6 +288,7 @@ class OpenAIStreamTranslator:
                 _get_attr(event, "item"),
                 forced_subtask_id=forced_subtask_id,
             )
+        logger.warning("OpenAIStreamTranslator: unrecognized event type '%s'", event_type)
         return []
 
     def translate_result_item(

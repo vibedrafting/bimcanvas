@@ -43,6 +43,7 @@ interface ChatStreamOptions {
   currentThinking: Ref<ThinkingLevel>;
   scrollToBottom: (options?: { force?: boolean; windowId?: string }) => void;
   fetchAgentConfig: () => Promise<void>;
+  hasFallback?: (key: string) => boolean;
   buildContextPayload?: () => Record<string, any> | undefined;
 }
 
@@ -407,6 +408,9 @@ export const useChatStream = (options: ChatStreamOptions) => {
 
     switch (normalizedEvent.eventType) {
       case 'thinking.delta': {
+        if (options.hasFallback?.('hide-thinking-panel')) {
+          break;
+        }
         const content = getString(payload.content) ?? getString(raw.content) ?? '';
         if (isSuppressedAssistantText(content)) {
           break;
@@ -423,6 +427,9 @@ export const useChatStream = (options: ChatStreamOptions) => {
         break;
       }
       case 'thinking.completed': {
+        if (options.hasFallback?.('hide-thinking-panel')) {
+          break;
+        }
         const content = getString(payload.content) ?? getString(raw.content) ?? '';
         if (isSuppressedAssistantText(content)) {
           const activeThinking = getLastStreamingThinkingBubble(currentMsg.bubbles);

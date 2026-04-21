@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections.abc import AsyncIterator
 from typing import Any, Protocol
 
-from ..runtime import PendingInteractionRuntimeBinding, RuntimeSessionRecord, StreamChunk
+from ..runtime import ConfigBundle, PendingInteractionRuntimeBinding, RuntimeSessionRecord, StreamChunk
 
 
 class HostAgentProtocol(Protocol):
@@ -38,6 +38,9 @@ class HostAgentProtocol(Protocol):
         ...
 
     def clear_runtime_context(self) -> None:
+        ...
+
+    def configure(self, bundle: ConfigBundle) -> None:
         ...
 
     async def chat(

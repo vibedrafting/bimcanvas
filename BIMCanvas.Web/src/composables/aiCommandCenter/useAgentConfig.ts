@@ -1,4 +1,4 @@
-import { nextTick, onMounted, onUnmounted, ref } from 'vue';
+import { computed, nextTick, onMounted, onUnmounted, ref } from 'vue';
 import type { EffortLevel, ModelOption, ThinkingLevel } from '../../types/aiCommandCenter';
 import { effortLevels, thinkingLevels } from '../../constants/aiCommandCenter';
 import type { RuntimeCapabilityMap, RuntimeCapabilityMatrixRow } from '../../types/agent';
@@ -14,6 +14,9 @@ export interface LayerPresetsConfig {
 }
 
 export const useAgentConfig = (agentApiBase: string, serverApiBase: string) => {
+  // 这三项当前前端没有对应 UI，因此天然满足 fallback：
+  // hide-token-usage / disable-trace-export / keep-approval-ui-disabled
+  // 若未来新增相关 UI，请统一走 hasFallback() 接入。
   const models = ref<ModelOption[]>([]);
   const currentModel = ref<ModelOption | null>(null);
   const defaultThinking: ThinkingLevel = thinkingLevels[0] ?? { id: 'off', label: 'Off' };
@@ -34,11 +37,18 @@ export const useAgentConfig = (agentApiBase: string, serverApiBase: string) => {
   const supportsTrace = ref(false);
   const supportsUsage = ref(false);
   const supportsPermissionPauseResume = ref(false);
+  const fallbackSet = computed(() => new Set(
+    capabilityMatrix.value
+      .map(row => row.frontendFallback)
+      .filter((key): key is string => typeof key === 'string' && key.trim().length > 0)
+  ));
 
   const isCapabilityEnabled = (capabilityKey: string): boolean => {
     const capability = capabilityMap.value[capabilityKey];
     return capability?.level === 'required' || capability?.level === 'optional';
   };
+
+  const hasFallback = (key: string): boolean => fallbackSet.value.has(key);
 
   const applyCapabilityMatrix = (rows: RuntimeCapabilityMatrixRow[] | undefined) => {
     const normalizedRows = Array.isArray(rows) ? rows : [];
@@ -243,6 +253,7 @@ export const useAgentConfig = (agentApiBase: string, serverApiBase: string) => {
     layerPresets,
     capabilityMatrix,
     capabilityMap,
+    hasFallback,
     supportsThinking,
     supportsSubtaskCausality,
     supportsTrace,

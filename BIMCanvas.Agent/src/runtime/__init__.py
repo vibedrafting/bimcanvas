@@ -1,6 +1,7 @@
 """Runtime store exports."""
 
 from .chunks import StreamChunk
+from .config_bundle import ConfigBundle, build_config_bundle
 from .main_stream import MainStreamMapper, build_legacy_chunk_event_data
 from .providers import (
     CLAUDE_RUNTIME_ID,
@@ -22,6 +23,7 @@ __all__ = [
     "CLAUDE_RUNTIME_ID",
     "OPENAI_RUNTIME_ID",
     "DEFAULT_RUNTIME_PROVIDER",
+    "ConfigBundle",
     "MainStreamMapper",
     "PendingInteractionRuntimeBinding",
     "PendingInteractionRecord",
@@ -29,6 +31,7 @@ __all__ = [
     "RuntimeStateStore",
     "StreamChunk",
     "build_capability_matrix",
+    "build_config_bundle",
     "build_legacy_chunk_event_data",
     "get_runtime_descriptor",
     "normalize_runtime_provider",
