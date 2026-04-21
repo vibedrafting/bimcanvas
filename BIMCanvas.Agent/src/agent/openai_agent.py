@@ -98,7 +98,6 @@ class _ConfiguredAgentToolSpec:
     config: AgentConfig
     tool_names: tuple[str, ...]
     model: str | None
-    skill_names: tuple[str, ...] = ()
     required_permission_names: tuple[str, ...] = ()
 
 
@@ -957,6 +956,18 @@ class OpenAIAgent:
                 args["version"] = version
             return await self._invoke_canvas_tool_impl("load_reference_analysis", args)
 
+        @function_tool(name_override="Skill")
+        async def skill_tool(skill: str) -> str:
+            """加载指定 Skill 的工作流指令。在进入 planning 或 placement 阶段时调用。"""
+            bundle = self._require_bundle()
+            meta = bundle.skill_metas.get(skill)
+            if meta is None:
+                available = ", ".join(sorted(bundle.skill_metas.keys()))
+                return f"Skill '{skill}' 不存在。可用 Skill：{available}"
+            content = meta.path.read_text(encoding="utf-8-sig")
+            from ..runtime.config_bundle import strip_skill_frontmatter
+            return strip_skill_frontmatter(content)
+
         return {
             "Read": read_file,
             "Write": write_file,
@@ -965,6 +976,7 @@ class OpenAIAgent:
             "Grep": grep_files,
             "Bash": run_shell,
             "AskUserQuestion": ask_user_question,
+            "Skill": skill_tool,
             "mcp__canvas__request_background_screenshot": canvas_request_background_screenshot,
             "mcp__canvas__get_zone_boundaries": canvas_get_zone_boundaries,
             "mcp__canvas__save_semantic_plan": canvas_save_semantic_plan,
@@ -1100,7 +1112,6 @@ class OpenAIAgent:
             instructions=self._build_configured_agent_instructions(
                 config=spec.config,
                 tool_names=spec.tool_names,
-                skill_names=spec.skill_names,
             ),
             tools=child_tools,
             model=spec.model or self._current_model,
@@ -1253,23 +1264,18 @@ class OpenAIAgent:
             return "\n\n".join(collected_texts)
         return result
 
-    def _resolve_skill_markdown(self, skill_name: str) -> str:
-        bundle = self._require_bundle()
-        skill_path = bundle.skill_index.get(skill_name)
-        if skill_path is None:
-            raise FileNotFoundError(f"Missing skill file: {bundle.bimcanvas_home / 'skills' / skill_name / 'SKILL.md'}")
-        return skill_path.read_text(encoding="utf-8-sig").strip()
-
-    def _build_runtime_skill_sections(self, skill_names: tuple[str, ...]) -> str:
-        sections: list[str] = []
-        for skill_name in skill_names:
-            sections.append(
-                "\n\n".join([
-                    f"## Runtime-Assembled Skill: {skill_name}",
-                    self._resolve_skill_markdown(skill_name),
-                ])
-            )
-        return "\n\n".join(sections)
+    @staticmethod
+    def _build_skills_prompt(bundle: Any) -> str:
+        if not bundle.skill_metas:
+            return ""
+        lines = [f"- {m.name}: {m.description}" for m in bundle.skill_metas.values()]
+        return (
+            "\n## Skills\n\n"
+            "使用 `Skill` 工具按需加载工作流指令。\n\n"
+            "可用 Skills：\n"
+            + "\n".join(lines)
+            + "\n"
+        )
 
     @staticmethod
     def _build_delegated_task_input(options: dict[str, Any]) -> str:
@@ -1432,26 +1438,23 @@ class OpenAIAgent:
         *,
         config: AgentConfig,
         tool_names: tuple[str, ...],
-        skill_names: tuple[str, ...] = (),
     ) -> str:
         allowed_tools = " / ".join(tool_names) if tool_names else "（无工具，仅基于上下文作答）"
         project_path = self.project_path or self.working_directory or "（unknown）"
         working_directory = self.working_directory or self.project_path or "（unknown）"
         if config.name == _OPENAI_LAYOUT_AGENT_NAME:
-            runtime_skills = " / ".join(skill_names) if skill_names else "（无）"
-            skill_sections = self._build_runtime_skill_sections(skill_names)
+            skills_prompt = self._build_skills_prompt(self._require_bundle())
             return (
                 f"{config.prompt}\n\n"
                 "## OpenAI Runtime Adapter Appendix\n"
                 f"- 你是配置型子代理 `{config.name}`，通过原生 Agent.as_tool() 被主控调用。\n"
                 f"- 当前项目路径：{project_path}\n"
                 f"- 当前工作目录：{working_directory}\n"
-                f"- `Skill` 不再作为工具暴露；以下 Skill 原文已装配进你的运行时指令：{runtime_skills}\n"
                 f"- 当前可用工具：{allowed_tools}\n"
                 "- 你可以直接调用上面列出的 `mcp__canvas__*` 原生工具完成单区 planning + placement。\n"
                 "- 禁止与用户交互，禁止 AskUserQuestion，禁止再次委派子代理。\n"
-                "- 若任务合同缺失、事实不一致、或需要语义级改图，直接简洁上报，不要自行改路由。\n\n"
-                f"{skill_sections}"
+                "- 若任务合同缺失、事实不一致、或需要语义级改图，直接简洁上报，不要自行改路由。\n"
+                f"{skills_prompt}"
             )
         return (
             f"{config.prompt}\n\n"
@@ -1767,7 +1770,6 @@ class OpenAIAgent:
             intrinsic_reasons: list[str] = []
             permission_reasons: list[str] = []
             resolved_tool_names: list[str] = []
-            resolved_skill_names: list[str] = []
             required_permission_names: list[str] = []
             uses_runtime_adapted_layout_agent = name == _OPENAI_LAYOUT_AGENT_NAME
             parsed_requirements = parse_configured_agent_requirements(
@@ -1803,8 +1805,7 @@ class OpenAIAgent:
                     for skill_name in _OPENAI_LAYOUT_AGENT_SKILL_NAMES:
                         if skill_name not in bundle.skill_index:
                             intrinsic_reasons.append(f"missing skill: {skill_name}")
-                        elif skill_name not in resolved_skill_names:
-                            resolved_skill_names.append(skill_name)
+                    resolved_tool_names.append("Skill")
 
             for tool_name in parsed_requirements.special_tool_names:
                 intrinsic_reasons.append(tool_name)
@@ -1849,7 +1850,6 @@ class OpenAIAgent:
                     config=cfg,
                     tool_names=tuple(resolved_tool_names),
                     model=resolved_model,
-                    skill_names=tuple(resolved_skill_names),
                     required_permission_names=tuple(required_permission_names),
                 )
             )
@@ -1914,7 +1914,6 @@ class OpenAIAgent:
                 "OpenAI runtime registered configured agent tools: %s",
                 "; ".join(
                     f"{spec.config.name} ({', '.join(spec.tool_names) or 'no tools'})"
-                    + (f" + skills[{', '.join(spec.skill_names)}]" if spec.skill_names else "")
                     for spec in enabled_specs
                 ),
             )
