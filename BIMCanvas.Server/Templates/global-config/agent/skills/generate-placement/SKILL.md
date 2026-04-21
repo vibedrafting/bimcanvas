@@ -120,6 +120,31 @@ load_semantic_plan({ zoneId })
 - 根据朝向计算 facing
 - 根据模块尺寸计算 bounds
 
+**modules.json 写入格式**：
+
+```json
+[
+  {
+    "moduleId": "mod_bed_001",
+    "moduleName": "双人床",
+    "bounds": [[9100, 1750], [11100, 1750], [11100, 3750], [9100, 3750]],
+    "facing": { "value": null, "semantic": "south" },
+    "items": []
+  }
+]
+```
+
+- `bounds`：矩形 4 顶点，顺序 左下→右下→右上→左上，单位 mm
+- `moduleName`：必填，与 `module_library.json` 一致
+- `items`：必填，无子项时写 `[]`
+
+**facing 规则**：
+
+- `facing` 写成对象：`{ "value": [x, y] | null, "semantic": string | null }`
+- `value` 是常规读取阶段的方向真理；`semantic` 是 AI 语义输入槽，只接受 8 个标准方向词
+- **推荐**默认写 `semantic`，`value` 留 `null`。示例：`"facing": { "value": null, "semantic": "south" }`
+- 若 `value` 与 `semantic` 同时存在：常规读取只认 `value`；`validate_layout` 会用有效 `semantic` 覆盖 `value`，再把 `semantic` 清空为 `null`
+
 **【必须】**`validate_layout` 只做编译验证与修正触发，不承担第一次发现几何事实的职责。
 
 **冲突处理**：
