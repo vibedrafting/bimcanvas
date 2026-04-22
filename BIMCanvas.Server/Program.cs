@@ -410,6 +410,12 @@ var playwrightReady = true;
         }
     }
 
+    if (!IsRipgrepAvailable())
+    {
+        WriteWithColoredPrefix("[Server:WARN]", "未检测到 ripgrep (rg)，OpenAI Runtime 的 Glob/Grep 工具将不可用", ConsoleColor.DarkYellow);
+        WriteWithColoredPrefix("[Server:WARN]", "提示: winget install BurntSushi.ripgrep.MSVC 或 scoop install ripgrep", ConsoleColor.DarkYellow);
+    }
+
     // Web 环境检测：开发模式依赖 Node/Vite，生产模式依赖 dist 静态产物
     if (!isProduction && !IsNodeAvailable())
     {
@@ -1194,6 +1200,31 @@ static bool IsNodeAvailable()
         var psi = new ProcessStartInfo
         {
             FileName = "node",
+            Arguments = "--version",
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+            UseShellExecute = false,
+            CreateNoWindow = true
+        };
+        using var process = Process.Start(psi);
+        if (process == null) return false;
+        process.WaitForExit(5000);
+        return process.ExitCode == 0;
+    }
+    catch
+    {
+        return false;
+    }
+}
+
+// 辅助函数：检测 ripgrep 是否可用（OpenAI Runtime 的 Glob/Grep 工具依赖）
+static bool IsRipgrepAvailable()
+{
+    try
+    {
+        var psi = new ProcessStartInfo
+        {
+            FileName = "rg",
             Arguments = "--version",
             RedirectStandardOutput = true,
             RedirectStandardError = true,
