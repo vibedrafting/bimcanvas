@@ -14,6 +14,7 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import urlparse
 
+from pydantic import BaseModel, Field
 from typing_extensions import TypedDict
 
 from ..config.configured_agents import parse_configured_agent_requirements
@@ -79,10 +80,30 @@ class QuestionDef(TypedDict, total=False):
     options: list[QuestionOption]
 
 
-@dataclass
-class DelegationTaskInput:
-    task_title: str
-    task_prompt: str
+class DelegationTaskInput(BaseModel):
+    """委派子任务给配置型子代理（如 layout-agent）或 helper agent 的结构化输入。"""
+
+    task_title: str = Field(
+        description=(
+            "子任务的简短标题，5-15 字，仅用于 UI 气泡和日志追溯。"
+            "示例：'为 rz_1 执行施工落位'、'查询公卫家具清单'。"
+            "不要把任务的详细上下文塞进这里。"
+        )
+    )
+    task_prompt: str = Field(
+        description=(
+            "子任务的完整上下文和执行要求。子代理只能看到这个字段里的内容来理解任务。"
+            "必须包含以下要素（按任务类型适配）：\n"
+            "1) 目标对象标识（如分区 ID rz_1、文件路径）；\n"
+            "2) 用户原始需求的关键信息（用户说了什么、要做什么）；\n"
+            "3) 上游已完成的工作状态（例如'v0.3 语义方案已保存'、'已读取 xxx.json'），"
+            "以便子代理知道从哪一步开始；\n"
+            "4) 预期产出（要写入的文件、要返回的信息）；\n"
+            "5) 相关约束或注意事项。\n"
+            "写得像在对一个只看到这段文字、不知道前文的同事交代工作——"
+            "子代理确实看不到主控的对话历史。"
+        )
+    )
 
 
 @dataclass(frozen=True)
@@ -1259,11 +1280,20 @@ class OpenAIAgent:
         normalized_title = task_title.strip() if isinstance(task_title, str) else "未命名子任务"
         normalized_prompt = task_prompt.strip() if isinstance(task_prompt, str) else ""
 
+        if not normalized_prompt:
+            fallback_prompt = (
+                "主控没有提供 task_prompt 字段（这是主控的调用错误）。"
+                f"请尽量基于任务标题'{normalized_title}'执行实际工作——"
+                "调用你可用的工具（文件写入、MCP 调用等）完成任务，"
+                "不要仅输出文字摘要就结束。"
+                "如果信息不足以继续，用 1-2 句话说明缺什么后停止。"
+            )
+            normalized_prompt = fallback_prompt
         sections = [
             "你正在执行主控 Agent 下发的单一子任务。",
             f"任务标题：{normalized_title}",
             "任务要求：",
-            normalized_prompt or "请根据任务标题完成该单一任务，并返回简洁摘要。",
+            normalized_prompt,
         ]
         return "\n\n".join(sections)
 
