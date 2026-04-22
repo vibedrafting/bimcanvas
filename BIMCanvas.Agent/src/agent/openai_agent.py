@@ -743,6 +743,8 @@ class OpenAIAgent:
         ]
 
     def _build_local_function_tool_map(self, agents: Any) -> dict[str, Any]:
+        from .openai_tools import file_read, file_write, file_edit, glob_tool, grep_tool, bash_tool
+
         function_tool = agents.function_tool
         working_directory = Path(self.working_directory or self.project_path or ".").resolve()
         tool_context_type = importlib.import_module("agents.tool_context").ToolContext
@@ -754,80 +756,59 @@ class OpenAIAgent:
 
             return decorator
 
-        def resolve_path(file_path: str) -> Path:
-            candidate = Path(file_path)
-            if not candidate.is_absolute():
-                candidate = working_directory / candidate
-            resolved = candidate.resolve()
-            if working_directory not in (resolved, *resolved.parents):
-                raise ValueError(f"Path escapes working directory: {file_path}")
-            return resolved
-
         @function_tool(name_override="Read")
-        async def read_file(file_path: str) -> str:
-            """Read a UTF-8 text file from the working directory."""
-            return resolve_path(file_path).read_text(encoding="utf-8-sig")
+        async def read_file(file_path: str, offset: int | None = None, limit: int | None = None) -> str:
+            """Read a text file. Returns cat -n formatted output. Use offset/limit for large files."""
+            return file_read.read(working_directory, file_path, offset=offset, limit=limit)
 
         @function_tool(name_override="Write")
         async def write_file(file_path: str, content: str) -> str:
-            """Write a UTF-8 text file under the working directory."""
-            target = resolve_path(file_path)
-            target.parent.mkdir(parents=True, exist_ok=True)
-            target.write_text(content, encoding="utf-8")
-            return f"Wrote {target}"
+            """Write content to a file. Atomic write preserves encoding and line endings."""
+            return file_write.write(working_directory, file_path, content)
 
         @function_tool(name_override="Edit")
-        async def edit_file(file_path: str, old_string: str, new_string: str) -> str:
-            """Replace one text fragment in a file."""
-            target = resolve_path(file_path)
-            content = target.read_text(encoding="utf-8-sig")
-            if old_string not in content:
-                raise ValueError("old_string not found")
-            target.write_text(content.replace(old_string, new_string, 1), encoding="utf-8")
-            return f"Edited {target}"
+        async def edit_file(file_path: str, old_string: str, new_string: str, replace_all: bool = False) -> str:
+            """Replace text in a file. old_string must be unique unless replace_all is True."""
+            return file_edit.edit(working_directory, file_path, old_string, new_string, replace_all)
 
         @function_tool(name_override="Glob")
-        async def glob_files(pattern: str) -> list[str]:
-            """Return matching relative file paths."""
-            return [
-                str(path.relative_to(working_directory))
-                for path in working_directory.rglob(pattern)
-                if path.is_file()
-            ]
+        async def glob_files(pattern: str, path: str | None = None) -> str:
+            """Find files by glob pattern. Results sorted by modification time (newest first)."""
+            return await glob_tool.glob(working_directory, pattern, path=path)
 
         @function_tool(name_override="Grep")
-        async def grep_files(pattern: str) -> list[str]:
-            """Return matching lines with file and line number."""
-            matches: list[str] = []
-            for path in working_directory.rglob("*"):
-                if not path.is_file():
-                    continue
-                try:
-                    content = path.read_text(encoding="utf-8-sig")
-                except Exception:
-                    continue
-                for line_no, line in enumerate(content.splitlines(), start=1):
-                    if pattern in line:
-                        matches.append(f"{path.relative_to(working_directory)}:{line_no}:{line}")
-                        if len(matches) >= 200:
-                            return matches
-            return matches
+        async def grep_files(
+            pattern: str,
+            path: str | None = None,
+            include_glob: str | None = None,
+            file_type: str | None = None,
+            output_mode: str = "files_with_matches",
+            case_insensitive: bool = False,
+            line_numbers: bool = True,
+            before_context: int | None = None,
+            after_context: int | None = None,
+            context: int | None = None,
+            head_limit: int = 250,
+            offset: int = 0,
+            multiline: bool = False,
+        ) -> str:
+            """Search file contents with regex. Modes: files_with_matches, content, count."""
+            return await grep_tool.grep(
+                working_directory, pattern,
+                path=path, include_glob=include_glob, file_type=file_type,
+                output_mode=output_mode, case_insensitive=case_insensitive,
+                line_numbers=line_numbers, before_context=before_context,
+                after_context=after_context, context=context,
+                head_limit=head_limit, offset=offset, multiline=multiline,
+            )
 
         @function_tool(name_override="Bash")
-        async def run_shell(command: str) -> str:
-            """Run a shell command inside the working directory."""
-            process = await asyncio.create_subprocess_shell(
-                command,
-                cwd=str(working_directory),
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE,
+        async def run_shell(command: str, timeout: int | None = None) -> str:
+            """Run a shell command. Default timeout 120s."""
+            return await bash_tool.run_shell(
+                working_directory, command,
+                timeout=float(timeout) if timeout else None,
             )
-            stdout, stderr = await process.communicate()
-            stdout_text = stdout.decode("utf-8", errors="replace")
-            stderr_text = stderr.decode("utf-8", errors="replace")
-            if process.returncode == 0:
-                return stdout_text.strip() or "(no output)"
-            return f"exit={process.returncode}\nSTDOUT:\n{stdout_text}\nSTDERR:\n{stderr_text}".strip()
 
         async def ask_user_question(ctx: Any, questions: list[QuestionDef]) -> dict[str, Any]:
             """Ask the user one or more structured questions and resume after the answer arrives."""
