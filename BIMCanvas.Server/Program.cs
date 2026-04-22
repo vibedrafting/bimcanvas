@@ -412,8 +412,14 @@ var playwrightReady = true;
 
     if (!IsRipgrepAvailable())
     {
-        WriteWithColoredPrefix("[Server:WARN]", "未检测到 ripgrep (rg)，OpenAI Runtime 的 Glob/Grep 工具将不可用", ConsoleColor.DarkYellow);
-        WriteWithColoredPrefix("[Server:WARN]", "提示: winget install BurntSushi.ripgrep.MSVC 或 scoop install ripgrep", ConsoleColor.DarkYellow);
+        if (isProduction)
+        {
+            WriteWithColoredPrefix("[Server:WARN]", "未检测到 ripgrep (rg)，OpenAI Runtime 的 Glob/Grep 工具将不可用", ConsoleColor.DarkYellow);
+        }
+        else
+        {
+            TryInstallRipgrep();
+        }
     }
 
     // Web 环境检测：开发模式依赖 Node/Vite，生产模式依赖 dist 静态产物
@@ -1238,6 +1244,122 @@ static bool IsRipgrepAvailable()
     }
     catch
     {
+        return false;
+    }
+}
+
+// 辅助函数：交互式安装 ripgrep（返回 true = 安装成功）
+static bool TryInstallRipgrep()
+{
+    var isWindows = RuntimeInformation.IsOSPlatform(OSPlatform.Windows);
+    string installCommand;
+    string commandLabel;
+
+    if (isWindows)
+    {
+        installCommand = "winget install BurntSushi.ripgrep.MSVC --accept-package-agreements --accept-source-agreements";
+        commandLabel = "winget";
+    }
+    else if (RuntimeInformation.IsOSPlatform(OSPlatform.OSX))
+    {
+        installCommand = "brew install ripgrep";
+        commandLabel = "brew";
+    }
+    else
+    {
+        WriteWithColoredPrefix("[Server:WARN]", "未检测到 ripgrep (rg)，OpenAI Runtime 的 Glob/Grep 工具将不可用", ConsoleColor.DarkYellow);
+        WriteWithColoredPrefix("[Server:WARN]", "提示: 请通过系统包管理器安装 ripgrep (apt/dnf/pacman install ripgrep)", ConsoleColor.DarkYellow);
+        return false;
+    }
+
+    WriteWithColoredPrefix("[Server]", "未检测到 ripgrep (rg)，OpenAI Runtime 的 Glob/Grep 工具依赖它", ConsoleColor.DarkYellow);
+    Console.Write($"[{DateTime.Now:HH:mm:ss}] ");
+    Console.ForegroundColor = ConsoleColor.DarkYellow;
+    Console.Write("[Server]");
+    Console.ResetColor();
+    Console.Write($" 是否自动安装 ripgrep？(Y/n): ");
+    var input = Console.ReadLine()?.Trim().ToLower();
+
+    if (!string.IsNullOrEmpty(input) && input != "y" && input != "yes")
+    {
+        WriteWithColoredPrefix("[Server:WARN]", "跳过安装，OpenAI Runtime 的 Glob/Grep 工具将不可用", ConsoleColor.DarkYellow);
+        return false;
+    }
+
+    WriteWithColoredPrefix("[Server]", $"正在安装 ripgrep ({installCommand})...", ConsoleColor.White);
+
+    try
+    {
+        var psi = CreateShellProcessStartInfo(installCommand);
+
+        using var process = Process.Start(psi);
+        if (process == null)
+        {
+            WriteWithColoredPrefix("[Server:ERR]", $"无法启动 {commandLabel} 进程", ConsoleColor.DarkGray);
+            return false;
+        }
+
+        var cts = new CancellationTokenSource();
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                while (!cts.Token.IsCancellationRequested)
+                {
+                    var line = await process.StandardOutput.ReadLineAsync();
+                    if (line == null) break;
+                    if (!string.IsNullOrEmpty(line))
+                        WriteWithColoredPrefix($"[{commandLabel}]", line, ConsoleColor.DarkMagenta);
+                }
+            }
+            catch { }
+        });
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                while (!cts.Token.IsCancellationRequested)
+                {
+                    var line = await process.StandardError.ReadLineAsync();
+                    if (line == null) break;
+                    if (!string.IsNullOrEmpty(line))
+                        WriteWithColoredPrefix($"[{commandLabel}]", line, ConsoleColor.DarkMagenta);
+                }
+            }
+            catch { }
+        });
+
+        var completed = process.WaitForExit(180_000);
+
+        if (!completed)
+        {
+            WriteWithColoredPrefix("[Server:ERR]", "ripgrep 安装超时（3分钟）", ConsoleColor.DarkGray);
+            cts.Cancel();
+            process.Kill(true);
+            return false;
+        }
+
+        if (process.ExitCode != 0)
+        {
+            WriteWithColoredPrefix("[Server:ERR]", $"ripgrep 安装失败 (exit code: {process.ExitCode})", ConsoleColor.DarkGray);
+            return false;
+        }
+
+        // 重置缓存，让 IsRipgrepAvailable 重新检测
+        if (IsRipgrepAvailable())
+        {
+            WriteWithColoredPrefix("[Server]", "ripgrep 安装成功", ConsoleColor.White);
+            return true;
+        }
+        else
+        {
+            WriteWithColoredPrefix("[Server:WARN]", "ripgrep 安装后未能在 PATH 中检测到，可能需要重启终端生效", ConsoleColor.DarkYellow);
+            return false;
+        }
+    }
+    catch (Exception ex)
+    {
+        WriteWithColoredPrefix("[Server:ERR]", $"ripgrep 安装异常: {ex.Message}", ConsoleColor.DarkGray);
         return false;
     }
 }
