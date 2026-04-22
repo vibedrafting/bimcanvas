@@ -470,15 +470,19 @@ class OpenAIAgent:
             self._active_stream_result = None
             self.clear_runtime_context()
 
-    async def resume_interaction(
+    async def resume_interaction_stream(
         self,
         *,
         interaction_id: str,
         binding: PendingInteractionRuntimeBinding,
         resolution_payload: dict[str, Any],
         session: RuntimeSessionRecord,
-        append_event: Any,
-    ) -> list[dict[str, Any]]:
+    ):
+        """恢复 OpenAI Runtime 的 pause 检查点，流式产出 StreamChunk。
+
+        遇到新的 pause（连续 AskUserQuestion）时抛 TurnPausedError，由调用方
+        （chat_stream_handler）接住后重新进入 wait-resume 循环。
+        """
         agents = _load_openai_agents_module()
         settings = get_settings()
         await self.connect(model=self._current_model)
@@ -557,6 +561,12 @@ class OpenAIAgent:
 
         state.approve(approval_item)
 
+        runtime_context_for_new_pause = {
+            "windowId": session.window_id,
+            "sessionId": session.session_id,
+            "turnId": binding.turn_id,
+        }
+
         if use_fallback:
             self._log_responses_run_fallback()
             result_task = asyncio.create_task(
@@ -568,34 +578,27 @@ class OpenAIAgent:
                 )
             )
             self._active_stream_result = result_task
-            result = await result_task
-
-            appended_events: list[dict[str, Any]] = []
             try:
+                result = await result_task
+
                 for chunk in buffered_nested_chunks:
-                    event_data = await append_event(chunk)
-                    appended_events.extend(event_data)
+                    yield chunk
                 for chunk in self._translate_result_chunks(result=result, translator=translator):
                     if approved_tool_call_id and chunk.tool_call_id == approved_tool_call_id:
                         chunk.tool_output = None
                         chunk.suppress_public_tool_output = True
-                    event_data = await append_event(chunk)
-                    appended_events.extend(event_data)
+                    yield chunk
 
                 if getattr(result, "interruptions", None):
-                    await self._push_pending_question_interaction(
+                    new_interaction_id = await self._push_pending_question_interaction(
                         result=result,
                         translator=translator,
-                        runtime_context={
-                            "windowId": session.window_id,
-                            "sessionId": session.session_id,
-                            "turnId": binding.turn_id,
-                        },
+                        runtime_context=runtime_context_for_new_pause,
                     )
-
-                return appended_events
+                    raise TurnPausedError(new_interaction_id)
             finally:
                 self._active_stream_result = None
+            return
 
         result = agents.Runner.run_streamed(
             starting_agent,
@@ -605,7 +608,6 @@ class OpenAIAgent:
         )
         self._active_stream_result = result
 
-        appended_events: list[dict[str, Any]] = []
         try:
             async def _consume_result() -> None:
                 try:
@@ -613,16 +615,12 @@ class OpenAIAgent:
                         await _emit_translated_event(event)
 
                     if getattr(result, "interruptions", None):
-                        interaction_id = await self._push_pending_question_interaction(
+                        new_interaction_id = await self._push_pending_question_interaction(
                             result=result,
                             translator=translator,
-                            runtime_context={
-                                "windowId": session.window_id,
-                                "sessionId": session.session_id,
-                                "turnId": binding.turn_id,
-                            },
+                            runtime_context=runtime_context_for_new_pause,
                         )
-                        await stream_queue.put(TurnPausedError(interaction_id))
+                        await stream_queue.put(TurnPausedError(new_interaction_id))
                 except Exception as exc:
                     await stream_queue.put(exc)
                 finally:
@@ -635,7 +633,7 @@ class OpenAIAgent:
                 if item is None:
                     break
                 if isinstance(item, TurnPausedError):
-                    return appended_events
+                    raise item
                 if isinstance(item, Exception):
                     raise item
                 chunk = item
@@ -644,15 +642,11 @@ class OpenAIAgent:
                     chunk.suppress_public_tool_output = True
                 if self._should_suppress_root_text_chunk(chunk, translator=translator):
                     continue
-                event_data = await append_event(chunk)
-                appended_events.extend(event_data)
+                yield chunk
 
             root_failure_chunk = self._maybe_build_root_failure_summary_chunk(translator=translator)
             if root_failure_chunk is not None:
-                event_data = await append_event(root_failure_chunk)
-                appended_events.extend(event_data)
-
-            return appended_events
+                yield root_failure_chunk
         finally:
             if consumer_task is not None and not consumer_task.done():
                 consumer_task.cancel()
