@@ -8,6 +8,6 @@
   "openai": {
     "baseUrl": "",
     "apiKey": "",
-    "defaultModel": "gpt-5"
+    "defaultModel": "gpt-5.4"
   }
 }
