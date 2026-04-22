@@ -873,7 +873,7 @@ def test_openai_agent_resume_interaction_passes_sdk_session(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
-    # v0.1 收口：resume_interaction 也走 chat_completions + run_streamed 主路径，
+    # v0.1 收口：resume_interaction_stream 走 chat_completions + run_streamed 主路径，
     # fallback 分支在新架构下永远不触发。
     home = _prepare_bimcanvas_home(tmp_path)
     _configure_test_home(monkeypatch, home)
@@ -969,29 +969,25 @@ def test_openai_agent_resume_interaction_passes_sdk_session(
         runtime_id="openai",
     )
 
-    appended_chunks: list[StreamChunk] = []
-
-    async def append_event(chunk: StreamChunk) -> list[dict[str, str]]:
-        appended_chunks.append(chunk)
-        return [{"eventType": chunk.type}]
-
-    result = asyncio.run(
-        agent.resume_interaction(
+    async def _collect() -> list[StreamChunk]:
+        chunks: list[StreamChunk] = []
+        async for chunk in agent.resume_interaction_stream(
             interaction_id="interaction-1",
             binding=binding,
             resolution_payload={"answers": {"intent": "continue"}},
             session=session,
-            append_event=append_event,
-        )
-    )
+        ):
+            chunks.append(chunk)
+        return chunks
+
+    emitted_chunks = asyncio.run(_collect())
 
     assert len(session_instances) == 1
     assert run_calls[0]["kwargs"]["session"] is session_instances[0]
     assert restored_states[0].approved_call_id == "call-1"
     # run_streamed 主路径下 _FakeStreamResult 不产出事件，resume 的核心验证点是
     # session/approval 绑定正确、SDK session 被正确透传，而不是具体 chunk 内容。
-    assert appended_chunks == []
-    assert result == []
+    assert emitted_chunks == []
 
 
 def test_openai_stream_translator_translates_run_result_items() -> None:

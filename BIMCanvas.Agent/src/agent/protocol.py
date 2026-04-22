@@ -58,13 +58,12 @@ class HostAgentProtocol(Protocol):
     ) -> AsyncIterator[StreamChunk]:
         ...
 
-    async def resume_interaction(
+    async def resume_interaction_stream(
         self,
         *,
         interaction_id: str,
         binding: PendingInteractionRuntimeBinding,
         resolution_payload: dict[str, Any],
         session: RuntimeSessionRecord,
-        append_event: Any,
-    ) -> list[dict[str, Any]]:
+    ) -> AsyncIterator[StreamChunk]:
         ...

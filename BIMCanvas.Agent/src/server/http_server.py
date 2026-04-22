@@ -746,14 +746,87 @@ async def chat_stream_handler(request: web.Request) -> web.StreamResponse:
             client_stream_connected = await _try_write_sse_data(response, terminal_event)
 
     except TurnPausedError as exc:
-        turn_paused = True
-        logger.info(
-            "Stream paused by interaction. windowId=%s sessionId=%s turnId=%s interactionId=%s",
-            window_id,
-            session.session_id,
-            turn_id,
-            exc.interaction_id,
-        )
+        pending_interaction_id = exc.interaction_id
+        while True:
+            logger.info(
+                "Stream paused by interaction. windowId=%s sessionId=%s turnId=%s interactionId=%s",
+                window_id,
+                session.session_id,
+                turn_id,
+                pending_interaction_id,
+            )
+
+            try:
+                interaction_result = await runtime_store.wait_for_interaction(pending_interaction_id)
+            except KeyError:
+                turn_paused = True
+                break
+
+            if interaction_result.get("status") != "resolved":
+                # cancelled / expired → 正常收尾为 turn 结束
+                turn_paused = False
+                break
+
+            binding = await runtime_store.get_runtime_binding(pending_interaction_id)
+            if binding is None or binding.runtime_id != OPENAI_RUNTIME_ID:
+                # 非 OpenAI Runtime（Claude 不走此分支，其 pause 靠 can_use_tool 内 await）
+                # 或 binding 已被清理（理论上不应发生）
+                turn_paused = True
+                break
+
+            await runtime_store.clear_runtime_binding(pending_interaction_id)
+            resolution_payload = interaction_result.get("resolutionPayload") or {}
+
+            try:
+                async for chunk in agent.resume_interaction_stream(
+                    interaction_id=pending_interaction_id,
+                    binding=binding,
+                    resolution_payload=resolution_payload,
+                    session=session,
+                ):
+                    _, client_stream_connected = await _append_chunk_events(
+                        stream_mapper=stream_mapper,
+                        chunk=chunk,
+                        session_id=session.session_id,
+                        turn_id=turn_id,
+                        window_id=window_id,
+                        response=response,
+                        client_stream_connected=client_stream_connected,
+                    )
+            except TurnPausedError as new_exc:
+                # 连续 pause（Agent 又问了新问题），进入下一轮等待
+                pending_interaction_id = new_exc.interaction_id
+                continue
+            except Exception as resume_exc:
+                logger.exception(f"Resume stream error: {resume_exc}")
+                terminal_event = stream_mapper.build_exception_terminal_event(resume_exc)
+                await runtime_store.append_event_history(
+                    session_id=session.session_id,
+                    turn_id=turn_id,
+                    window_id=window_id,
+                    event_payload=terminal_event,
+                )
+                if client_stream_connected:
+                    client_stream_connected = await _try_write_sse_data(
+                        response, {"error": str(resume_exc)}
+                    )
+                    if client_stream_connected:
+                        client_stream_connected = await _try_write_sse_data(response, terminal_event)
+                turn_paused = False
+                break
+
+            # Resume 顺利跑完（未抛 TurnPausedError）→ turn 正常完成
+            terminal_event = stream_mapper.build_success_terminal_event()
+            await runtime_store.append_event_history(
+                session_id=session.session_id,
+                turn_id=turn_id,
+                window_id=window_id,
+                event_payload=terminal_event,
+            )
+            if client_stream_connected:
+                client_stream_connected = await _try_write_sse_data(response, terminal_event)
+            turn_paused = False
+            break
     except Exception as exc:
         logger.exception(f"Stream error: {exc}")
         terminal_event = stream_mapper.build_exception_terminal_event(exc)
@@ -942,7 +1015,11 @@ async def interaction_query_handler(request: web.Request) -> web.Response:
 
 
 async def interaction_submit_handler(request: web.Request) -> web.Response:
-    """提交 interaction resolution。"""
+    """提交 interaction resolution。
+
+    只做状态标记，不驱动 runtime resume。Runtime 侧（chat_stream_handler）通过
+    runtime_store.wait_for_interaction 的 waiter 被唤醒后继续流式推送。
+    """
     interaction_id = request.match_info["id"]
 
     try:
@@ -959,10 +1036,6 @@ async def interaction_submit_handler(request: web.Request) -> web.Response:
     interaction = await runtime_store.submit_interaction(interaction_id, resolution_payload)
     if interaction is None:
         return web.json_response({"error": "Unknown interaction ID"}, status=404)
-
-    resume_error = await _resume_openai_interaction_if_needed(interaction, resolution_payload)
-    if resume_error is not None:
-        return resume_error
 
     return web.json_response({
         "success": True,
@@ -1026,86 +1099,6 @@ async def request_user_question(
         resolution_payload = result.get("resolutionPayload") or {}
         return resolution_payload.get("answers", {})
     return {}
-
-
-async def _resume_openai_interaction_if_needed(
-    interaction,
-    resolution_payload: dict[str, Any],
-) -> web.Response | None:
-    interaction_id = interaction.interaction_id
-    binding = await runtime_store.get_runtime_binding(interaction_id)
-    if (
-        binding is None
-        or interaction.status != "resolved"
-        or binding.status != "pending"
-        or binding.runtime_id != OPENAI_RUNTIME_ID
-    ):
-        return None
-
-    session = await runtime_store.get_session(interaction.session_id)
-    agent = agents.get(interaction.window_id)
-    if session is None or agent is None:
-        return web.json_response(
-            {
-                "error": "Paused runtime context is no longer available in this host process",
-                "errorType": "RESUME_CONTEXT_UNAVAILABLE",
-            },
-            status=409,
-        )
-
-    await runtime_store.mark_runtime_binding_status(interaction_id, "resuming")
-    stream_mapper = MainStreamMapper(session_id=interaction.session_id, turn_id=interaction.turn_id)
-    terminal_event: dict[str, Any] | None = None
-    turn_paused = False
-
-    async def _append_event(chunk: StreamChunk) -> list[dict[str, Any]]:
-        emitted, _ = await _append_chunk_events(
-            stream_mapper=stream_mapper,
-            chunk=chunk,
-            session_id=interaction.session_id,
-            turn_id=interaction.turn_id,
-            window_id=interaction.window_id,
-        )
-        return emitted
-
-    try:
-        await agent.resume_interaction(
-            interaction_id=interaction_id,
-            binding=binding,
-            resolution_payload=resolution_payload,
-            session=session,
-            append_event=_append_event,
-        )
-        session_status = await runtime_store.derive_session_status(interaction.session_id)
-        if session_status != "paused":
-            terminal_event = stream_mapper.build_success_terminal_event()
-            await runtime_store.append_event_history(
-                session_id=interaction.session_id,
-                turn_id=interaction.turn_id,
-                window_id=interaction.window_id,
-                event_payload=terminal_event,
-            )
-        else:
-            turn_paused = True
-    except Exception as exc:
-        logger.exception("Failed to resume interaction %s: %s", interaction_id, exc)
-        terminal_event = stream_mapper.build_exception_terminal_event(exc)
-        await runtime_store.append_event_history(
-            session_id=interaction.session_id,
-            turn_id=interaction.turn_id,
-            window_id=interaction.window_id,
-            event_payload=terminal_event,
-        )
-    finally:
-        await runtime_store.clear_runtime_binding(interaction_id)
-        await _finalize_turn_state(
-            interaction.session_id,
-            interaction.turn_id,
-            terminal_event,
-            paused=turn_paused,
-        )
-
-    return None
 
 
 async def push_openai_question_interaction(
@@ -1198,17 +1191,10 @@ async def question_answer_handler(request: web.Request) -> web.Response:
     if data.get("cancelled"):
         await runtime_store.cancel_interaction(request_id, cancel_reason="question_cancelled")
     else:
-        interaction = await runtime_store.submit_interaction(
+        await runtime_store.submit_interaction(
             request_id,
             {"answers": data.get("answers", {})},
         )
-        if interaction is not None:
-            resume_error = await _resume_openai_interaction_if_needed(
-                interaction,
-                {"answers": data.get("answers", {})},
-            )
-            if resume_error is not None:
-                return resume_error
 
     logger.info(f"Question answer received: {request_id}")
     return web.json_response({"success": True})

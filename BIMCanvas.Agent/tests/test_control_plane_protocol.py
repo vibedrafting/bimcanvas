@@ -510,11 +510,13 @@ def test_chat_handler_failure_cancels_turn_interactions_as_turn_failed(
         ),
     ],
 )
-def test_question_resolution_endpoints_resume_openai_runtime_binding(
+def test_question_resolution_endpoints_mark_interaction_resolved_and_notify_waiter(
     monkeypatch: pytest.MonkeyPatch,
     endpoint: str,
     payload_builder,
 ) -> None:
+    """Submit endpoint 只做状态标记并唤醒 waiter；resume 由 chat_stream 协程负责。"""
+
     async def _test() -> None:
         runtime_store = RuntimeStateStore()
         session = await runtime_store.create_session(
@@ -550,31 +552,11 @@ def test_question_resolution_endpoints_resume_openai_runtime_binding(
             runtime_binding=binding,
         )
 
-        class _FakeResumeAgent:
-            def __init__(self) -> None:
-                self.resume_calls: list[dict[str, object]] = []
-
-            def clear_runtime_context(self) -> None:
-                return None
-
-            async def resume_interaction(self, **kwargs):
-                self.resume_calls.append(kwargs)
-                append_event = kwargs["append_event"]
-                await append_event(
-                    StreamChunk(
-                        type="tool_call_complete",
-                        tool_call_id="tc-1",
-                        tool_output="duplicate-answer",
-                        success=True,
-                        suppress_public_tool_output=True,
-                    )
-                )
-                return []
-
-        fake_agent = _FakeResumeAgent()
+        waiter_task = asyncio.create_task(
+            runtime_store.wait_for_interaction(interaction.interaction_id)
+        )
 
         client = await _build_client(monkeypatch, runtime_store)
-        http_server.agents["primary"] = fake_agent
         try:
             path, payload = payload_builder(interaction.interaction_id)
             response = await client.post(path, json=payload)
@@ -586,20 +568,14 @@ def test_question_resolution_endpoints_resume_openai_runtime_binding(
             else:
                 assert await response.json() == {"success": True}
 
-            assert len(fake_agent.resume_calls) == 1
-            assert fake_agent.resume_calls[0]["interaction_id"] == interaction.interaction_id
-            assert fake_agent.resume_calls[0]["resolution_payload"] == {"answers": {"保留电视墙吗？": "保留"}}
+            waiter_result = await asyncio.wait_for(waiter_task, timeout=1.0)
+            assert waiter_result["status"] == "resolved"
+            assert waiter_result["resolutionPayload"] == {"answers": {"保留电视墙吗？": "保留"}}
 
-            assert await runtime_store.get_runtime_binding(interaction.interaction_id) is None
-            assert await runtime_store.derive_session_status(session.session_id) == "idle"
+            # binding 保留给 chat_stream 协程自行消费+清理
+            assert await runtime_store.get_runtime_binding(interaction.interaction_id) is not None
 
-            _, history, interactions = await runtime_store.get_history_for_window("primary")
-            event_types = [
-                entry["event"]["eventType"]
-                for entry in history
-                if entry["kind"] == "assistant_event"
-            ]
-            assert event_types == ["tool.completed", "turn.completed"]
+            _, _, interactions = await runtime_store.get_history_for_window("primary")
             assert interactions[0]["status"] == "resolved"
         finally:
             await client.close()
@@ -607,9 +583,11 @@ def test_question_resolution_endpoints_resume_openai_runtime_binding(
     asyncio.run(_test())
 
 
-def test_duplicate_interaction_submit_is_idempotent_for_openai_resume(
+def test_duplicate_interaction_submit_is_idempotent(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    """重复 submit 幂等：第二次调用不改写 resolution_payload，不重发事件。"""
+
     async def _test() -> None:
         runtime_store = RuntimeStateStore()
         session = await runtime_store.create_session(
@@ -621,19 +599,6 @@ def test_duplicate_interaction_submit_is_idempotent_for_openai_resume(
         )
         await runtime_store.mark_session_running(session.session_id, "turn-1")
 
-        binding = PendingInteractionRuntimeBinding(
-            interaction_id="",
-            resume_token="",
-            runtime_id="openai",
-            session_id=session.session_id,
-            turn_id="turn-1",
-            window_id="primary",
-            run_state_json=json.dumps({"context": {"questionAnswersByCallId": {}}}),
-            approval_call_id="call-1",
-            public_tool_call_id="tc-1",
-            projection_state={"toolCallsByProvider": {"call-1": "tc-1"}},
-            agent_identity="BIMCanvas",
-        )
         interaction = await runtime_store.create_interaction(
             session_id=session.session_id,
             turn_id="turn-1",
@@ -642,45 +607,26 @@ def test_duplicate_interaction_submit_is_idempotent_for_openai_resume(
             blocking=True,
             resume_token="resume:test",
             request_payload={"questions": [{"question": "保留电视墙吗？", "header": "电视墙", "options": []}]},
-            runtime_binding=binding,
         )
 
-        class _FakeResumeAgent:
-            def __init__(self) -> None:
-                self.resume_count = 0
-
-            def clear_runtime_context(self) -> None:
-                return None
-
-            async def resume_interaction(self, **kwargs):
-                self.resume_count += 1
-                append_event = kwargs["append_event"]
-                await append_event(
-                    StreamChunk(
-                        type="tool_call_complete",
-                        tool_call_id="tc-1",
-                        success=True,
-                        suppress_public_tool_output=True,
-                    )
-                )
-                return []
-
-        fake_agent = _FakeResumeAgent()
-
         client = await _build_client(monkeypatch, runtime_store)
-        http_server.agents["primary"] = fake_agent
         try:
             path = f"/api/interaction/{interaction.interaction_id}/submit"
             payload = {"resolutionPayload": {"answers": {"保留电视墙吗？": "保留"}}}
+            conflicting_payload = {"resolutionPayload": {"answers": {"保留电视墙吗？": "拆掉"}}}
 
             first = await client.post(path, json=payload)
             assert first.status == 200
+            first_body = await first.json()
+            assert first_body["interaction"]["status"] == "resolved"
 
-            second = await client.post(path, json=payload)
+            second = await client.post(path, json=conflicting_payload)
             assert second.status == 200
-
-            assert fake_agent.resume_count == 1
-            assert await runtime_store.get_runtime_binding(interaction.interaction_id) is None
+            second_body = await second.json()
+            # 第二次提交不会覆盖首次的 resolution_payload
+            assert second_body["interaction"]["resolutionPayload"] == {
+                "answers": {"保留电视墙吗？": "保留"}
+            }
         finally:
             await client.close()
 

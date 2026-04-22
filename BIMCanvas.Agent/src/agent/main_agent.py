@@ -127,8 +127,13 @@ class MainAgent:
         self._bundle = bundle
         self._subagents = create_subagents(bundle.shared_agents)
 
-    async def resume_interaction(self, *args, **kwargs) -> list[dict[str, Any]]:
-        raise NotImplementedError("Claude runtime does not support host-driven interaction resume.")
+    async def resume_interaction_stream(self, *args, **kwargs):
+        raise NotImplementedError(
+            "Claude runtime does not support host-driven interaction resume; "
+            "pause/resume happens inside can_use_tool within the original chat_stream coroutine."
+        )
+        if False:  # pragma: no cover — keep function an async generator for typing
+            yield
 
     def _require_bundle(self) -> ConfigBundle:
         if self._bundle is None:
