@@ -247,6 +247,22 @@ export const useCanvasStore = defineStore('canvas', () => {
             debugStore.log(`  - Zones: ${response.data.activeScheme?.zones?.length || 0}`);
             debugStore.log(`  - Modules: ${response.data.activeScheme?.modules?.length || 0}`);
 
+            // 第二道防线：Load 质检闸门发现坏数据时，通知用户
+            const zoneErrors = response.data.activeScheme?.zoneErrors
+            if (zoneErrors && zoneErrors.length > 0) {
+              const summary = zoneErrors.map(e =>
+                `${e.zoneId}（${e.failedModuleIds.length > 0 ? e.failedModuleIds.length + ' 个模块' : e.errorType}）`
+              ).join('、')
+              window.dispatchEvent(new CustomEvent('bimcanvas:agent-notification', {
+                detail: {
+                  type: 'warning',
+                  title: '部分分区数据损坏',
+                  message: `以下分区数据不合法，已从渲染中隔离（文件未被修改）：${summary}`
+                }
+              }))
+              debugStore.warn(`[Store] ZoneErrors: ${JSON.stringify(zoneErrors)}`)
+            }
+
             return true;
 
         } catch (err: any) {

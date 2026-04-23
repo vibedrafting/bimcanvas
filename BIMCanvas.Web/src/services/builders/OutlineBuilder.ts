@@ -83,6 +83,7 @@ export class OutlineBuilder {
         // 3. Module Boundaries
         if (data.activeScheme?.modules) {
             data.activeScheme.modules.forEach(mod => {
+                if (!mod.bounds) return  // 兜底：Load 质检应已隔离，此处防止意外崩溃
                 const points = mod.bounds.map(p => new THREE.Vector3(p[0], p[1], 0));
                 if (points.length > 0) points.push(points[0]!);
                 const geometry = new THREE.BufferGeometry().setFromPoints(points);

@@ -245,6 +245,17 @@ export interface SchemeData {
   zones: Zone[];
   finishes: FinishSegment[];
   modules: Module[];
+  /** Load 质检闸门：加载时发现的分区数据质检错误，存在时说明部分模块已被隔离 */
+  zoneErrors?: ZoneLoadError[];
+}
+
+/** Load 质检闸门：分区数据加载错误描述符 */
+export interface ZoneLoadError {
+  zoneId: string;
+  /** ParseError: 文件无法解析 | StructureError: 字段结构不合法 */
+  errorType: 'ParseError' | 'StructureError';
+  message: string;
+  failedModuleIds: string[];
 }
 
 // ========== Computed 层 (computed/*.json) ==========
