@@ -26,9 +26,9 @@
       "deny": []
     },
     "modelMapping": {
-      "opus": { "id": "claude-opus-4-6", "label": "Opus" },
-      "sonnet": { "id": "claude-sonnet-4-20250514", "label": "Sonnet" },
-      "haiku": { "id": "claude-haiku-4-5-20251001", "label": "Haiku" }
+      "opus": { "id": "claude-opus-4-7[1m]", "label": "Opus" },
+      "sonnet": { "id": "claude-sonnet-4-6", "label": "Sonnet" },
+      "haiku": { "id": "claude-haiku-4-5", "label": "Haiku" }
     }
   },
   "openai": {
@@ -58,7 +58,14 @@
       "deny": []
     },
     "modelMapping": {
-      "gpt-5": { "id": "gpt-5", "label": "GPT-5" }
+      "gpt-5.4": {
+        "id": "gpt-5.4",
+        "label": "GPT-5.4"
+      },
+      "gpt-5.4-mini": {
+        "id": "gpt-5.4-mini",
+        "label": "GPT-5.4 Mini"
+      }
     }
   }
 }
