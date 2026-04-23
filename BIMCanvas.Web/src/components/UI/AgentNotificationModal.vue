@@ -242,8 +242,8 @@ onUnmounted(() => {
 .toast-stack {
   position: fixed;
   bottom: 24px;
-  left: 24px;
-  width: 340px;
+  left: 84px; /* 图层按钮占 left:24px + width:48px + 间距12px，Toast 紧接其右 */
+  width: 320px;
   display: flex;
   flex-direction: column;
   gap: 8px;
