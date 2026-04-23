@@ -90,10 +90,10 @@ namespace BIMCanvas.Server.Controllers
                 var targetSet = request?.ZoneIds is { Count: > 0 }
                     ? new HashSet<string>(request.ZoneIds)
                     : null;
-                var modules = LoadAllModules(projectPath, targetSet);
+                var (modules, structureDiagnostics) = LoadAllModules(projectPath, targetSet);
 
                 // 3.5 预处理 facing：仅 validate_layout 消费 semantic 并回写规范 value
-                var allDiagnostics = new List<Diagnostic>();
+                var allDiagnostics = new List<Diagnostic>(structureDiagnostics);
                 var facingDiagnostics = NormalizeModuleFacings(modules);
                 allDiagnostics.AddRange(facingDiagnostics);
                 if (facingDiagnostics.Count > 0)
@@ -197,14 +197,15 @@ namespace BIMCanvas.Server.Controllers
         /// 读取模块（支持分区子目录格式）
         /// 当 targetZoneIds 不为 null 时，只读取目标 zone 的文件，跳过其他 zone
         /// </summary>
-        private List<Module> LoadAllModules(string projectPath, HashSet<string>? targetZoneIds = null)
+        private (List<Module> modules, List<Diagnostic> structureDiagnostics) LoadAllModules(string projectPath, HashSet<string>? targetZoneIds = null)
         {
             var schemesPath = Path.Combine(projectPath, "schemes");
             var allModules = new List<Module>();
+            var allStructureDiagnostics = new List<Diagnostic>();
 
             if (!Directory.Exists(schemesPath))
             {
-                return allModules;
+                return (allModules, allStructureDiagnostics);
             }
 
             IEnumerable<string> moduleFiles;
@@ -256,7 +257,12 @@ namespace BIMCanvas.Server.Controllers
                     {
                         module.ZoneId ??= zoneId;
                     }
-                    allModules.AddRange(modules);
+
+                    // validate_layout 的 bounds 结构预检：顶点不足的模块直接报 E006，跳过几何验证
+                    // 避免退化多边形流入 SchemeValidator 产生误诊（如把 2 顶点模块误报为 E001_OUT_OF_BOUNDS）
+                    var (validModules, structDiagnostics) = FilterInvalidBounds(modules);
+                    allStructureDiagnostics.AddRange(structDiagnostics);
+                    allModules.AddRange(validModules);
                 }
                 catch (Exception ex)
                 {
@@ -265,8 +271,39 @@ namespace BIMCanvas.Server.Controllers
                 }
             }
 
-            _logger.LogDebug("[Validation] 加载 {Count} 个模块", allModules.Count);
-            return allModules;
+            _logger.LogDebug("[Validation] 加载 {Count} 个模块（结构预检后）", allModules.Count);
+            return (allModules, allStructureDiagnostics);
+        }
+
+        /// <summary>
+        /// validate_layout bounds 结构预检。
+        /// 顶点不足（&lt;3）或 bounds 为 null 的模块直接报 E006_MISSING_BOUNDS，不进入 SchemeValidator，
+        /// 防止退化多边形在几何计算中产生误诊（如把 2 顶点模块误报为 E001_OUT_OF_BOUNDS）。
+        /// </summary>
+        private static (List<Module> valid, List<Diagnostic> diagnostics) FilterInvalidBounds(List<Module> modules)
+        {
+            var valid = new List<Module>();
+            var diagnostics = new List<Diagnostic>();
+
+            foreach (var module in modules)
+            {
+                if (module.Bounds == null || module.Bounds.Vertices.Length < 3)
+                {
+                    var vertCount = module.Bounds?.Vertices.Length ?? 0;
+                    diagnostics.Add(new Diagnostic(
+                        DiagnosticCodes.MissingBounds,
+                        "error",
+                        $"模块 {module.Id} ({module.ModuleName ?? "未命名"}) 的 bounds 顶点数不足（{vertCount} 个，需要至少 3 个）",
+                        module.Id,
+                        module.ModuleName));
+                }
+                else
+                {
+                    valid.Add(module);
+                }
+            }
+
+            return (valid, diagnostics);
         }
 
         /// <summary>
