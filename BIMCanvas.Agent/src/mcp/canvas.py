@@ -551,6 +551,11 @@ def _format_validation_report(report: dict[str, Any]) -> str:
             else:
                 base_line = f"  {prefix} {module_id}{name_part}"
 
+            # 追加诊断消息（E006 等结构错误的具体原因）
+            msg = d.get("message")
+            if msg:
+                base_line += f"\n    → {msg}"
+
             # 追加穿透修正指引
             penetration = d.get("penetrationDepthMm")
             direction = d.get("penetrationDirection")

@@ -114,11 +114,12 @@ namespace BIMCanvas.Server.Controllers
                 var report = SchemeValidator.Validate(
                     modules, designZones, exclusionZones, walls, columns);
 
-                // 合并所有诊断
+                // 合并所有诊断，TotalModules 包含结构预检过滤掉的模块数
                 allDiagnostics.AddRange(report.Diagnostics);
+                var totalModules = report.TotalModules + structureDiagnostics.Count;
                 report = new SchemeValidationReport
                 {
-                    TotalModules = report.TotalModules,
+                    TotalModules = totalModules,
                     ErrorCount = allDiagnostics.Count(d => d.Severity == "error"),
                     WarningCount = allDiagnostics.Count(d => d.Severity == "warning"),
                     Diagnostics = allDiagnostics,
