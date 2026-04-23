@@ -152,7 +152,9 @@ def build_parser() -> argparse.ArgumentParser:
 
     parser.add_argument(
         "--managed-by-server",
-        action="store_true",
+        nargs="?",
+        const="",
+        default=None,
         help=argparse.SUPPRESS,
     )
 
