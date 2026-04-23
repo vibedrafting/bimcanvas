@@ -231,12 +231,12 @@ onUnmounted(() => {
   bottom: 24px;
   left: 24px;
   width: 340px;
-  background: rgba(22, 28, 36, 0.92);
-  backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  border-radius: 8px;
-  box-shadow: 0 4px 24px rgba(0, 0, 0, 0.5), 0 1px 0 rgba(255, 255, 255, 0.04) inset;
+  background: var(--glass-bg, rgba(20, 20, 30, 0.65));
+  backdrop-filter: var(--glass-blur, blur(24px) saturate(180%));
+  -webkit-backdrop-filter: var(--glass-blur, blur(24px) saturate(180%));
+  border: var(--glass-border, 1px solid rgba(255, 255, 255, 0.12));
+  border-radius: var(--radius-md, 8px);
+  box-shadow: var(--shadow-panel, 0 4px 30px rgba(0, 0, 0, 0.2));
   display: flex;
   align-items: flex-start;
   gap: 10px;
@@ -244,16 +244,16 @@ onUnmounted(() => {
   z-index: 10000;
 }
 
-.agent-toast.warning { border-left: 3px solid rgba(234, 179, 8, 0.8); }
-.agent-toast.success { border-left: 3px solid rgba(34, 197, 94, 0.8); }
-.agent-toast.error   { border-left: 3px solid rgba(239, 68, 68, 0.8); }
-.agent-toast.info    { border-left: 3px solid rgba(59, 130, 246, 0.8); }
+.agent-toast.warning { border-left: 2px solid var(--accent-yellow, #ffcc00); }
+.agent-toast.success { border-left: 2px solid var(--accent-green, #34c759); }
+.agent-toast.error   { border-left: 2px solid var(--accent-danger, #ff6b6b); }
+.agent-toast.info    { border-left: 2px solid var(--accent-blue, #3b82f6); }
 
 .toast-icon {
-  font-size: 15px;
+  font-size: 14px;
   flex-shrink: 0;
   margin-top: 2px;
-  opacity: 0.9;
+  opacity: 0.85;
 }
 
 .toast-content {
@@ -264,14 +264,14 @@ onUnmounted(() => {
 .toast-title {
   font-size: 13px;
   font-weight: 600;
-  color: rgba(255, 255, 255, 0.9);
+  color: var(--text-primary, #e0e0e0);
   margin-bottom: 3px;
   letter-spacing: 0.01em;
 }
 
 .toast-message {
   font-size: 12px;
-  color: rgba(255, 255, 255, 0.5);
+  color: var(--text-secondary, rgba(255, 255, 255, 0.5));
   line-height: 1.5;
   word-break: break-word;
 }
@@ -279,7 +279,7 @@ onUnmounted(() => {
 .toast-close {
   background: none;
   border: none;
-  color: rgba(255, 255, 255, 0.3);
+  color: var(--text-tertiary, rgba(255, 255, 255, 0.3));
   font-size: 16px;
   cursor: pointer;
   padding: 0;
