@@ -1,7 +1,8 @@
 <template>
   <Teleport to="body">
+    <!-- Worktree 列表：保持全屏 Modal 模式，需要用户主动操作 -->
     <Transition name="fade">
-      <div v-if="visible" class="agent-notification-overlay">
+      <div v-if="visible && isWorktreeList" class="agent-notification-overlay">
         <div class="agent-notification-modal" :class="notification?.type">
           <div class="modal-header">
             <span class="icon">{{ icon }}</span>
@@ -9,24 +10,30 @@
             <button class="close-btn" @click="close">&times;</button>
           </div>
           <div class="modal-body">
-            <!-- Worktree 列表模式 -->
-            <div v-if="isWorktreeList" class="worktree-message">
+            <div class="worktree-message">
               <p>Agent 已完成以下任务:</p>
               <ul>
                 <li v-for="name in worktreeNames" :key="name"><code>{{ name }}</code></li>
               </ul>
             </div>
-            <!-- 普通消息 -->
-            <pre v-else>{{ notification?.message }}</pre>
           </div>
           <div class="modal-footer">
-            <template v-if="isWorktreeList">
-              <button class="secondary-btn" @click="close">稍后处理</button>
-              <button class="confirm-btn" @click="openMergeWizard">打开合并向导</button>
-            </template>
-            <button v-else class="confirm-btn" @click="close">确定</button>
+            <button class="secondary-btn" @click="close">稍后处理</button>
+            <button class="confirm-btn" @click="openMergeWizard">打开合并向导</button>
           </div>
         </div>
+      </div>
+    </Transition>
+
+    <!-- 普通通知：左下角 Toast 横幅，用户手动关闭 -->
+    <Transition name="toast-slide">
+      <div v-if="visible && !isWorktreeList" class="agent-toast" :class="notification?.type">
+        <span class="toast-icon">{{ icon }}</span>
+        <div class="toast-content">
+          <div class="toast-title">{{ notification?.title }}</div>
+          <div class="toast-message">{{ notification?.message }}</div>
+        </div>
+        <button class="toast-close" @click="close">&times;</button>
       </div>
     </Transition>
   </Teleport>
@@ -36,7 +43,6 @@
 import { ref, computed, onMounted, onUnmounted } from 'vue';
 import { useMergeStore } from '../../stores/mergeStore';
 
-// 简化的通知接口（移除 metadata）
 interface AgentNotification {
   title: string;
   message: string;
@@ -57,7 +63,6 @@ const icon = computed(() => {
   }
 });
 
-// 判断 message 是否为 worktree 列表
 const isWorktreeList = computed(() => {
   try {
     const parsed = JSON.parse(notification.value?.message || '');
@@ -67,7 +72,6 @@ const isWorktreeList = computed(() => {
   }
 });
 
-// 解析 worktree 名称列表
 const worktreeNames = computed(() => {
   if (!isWorktreeList.value) return [];
   return JSON.parse(notification.value!.message);
@@ -98,6 +102,7 @@ onUnmounted(() => {
 </script>
 
 <style scoped>
+/* ========== 全屏 Modal（worktree 列表模式）========== */
 .agent-notification-overlay {
   position: fixed;
   top: 0;
@@ -124,21 +129,10 @@ onUnmounted(() => {
   box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
 }
 
-.agent-notification-modal.success {
-  border-color: rgba(34, 197, 94, 0.5);
-}
-
-.agent-notification-modal.warning {
-  border-color: rgba(234, 179, 8, 0.5);
-}
-
-.agent-notification-modal.error {
-  border-color: rgba(239, 68, 68, 0.5);
-}
-
-.agent-notification-modal.info {
-  border-color: rgba(59, 130, 246, 0.5);
-}
+.agent-notification-modal.warning { border-color: rgba(234, 179, 8, 0.5); }
+.agent-notification-modal.success { border-color: rgba(34, 197, 94, 0.5); }
+.agent-notification-modal.error   { border-color: rgba(239, 68, 68, 0.5); }
+.agent-notification-modal.info    { border-color: rgba(59, 130, 246, 0.5); }
 
 .modal-header {
   display: flex;
@@ -148,9 +142,7 @@ onUnmounted(() => {
   border-bottom: 1px solid var(--glass-border, rgba(255, 255, 255, 0.1));
 }
 
-.modal-header .icon {
-  font-size: 24px;
-}
+.modal-header .icon { font-size: 24px; }
 
 .modal-header h3 {
   flex: 1;
@@ -187,31 +179,9 @@ onUnmounted(() => {
   flex: 1;
 }
 
-.modal-body pre {
-  margin: 0;
-  font-family: inherit;
-  font-size: 14px;
-  line-height: 1.6;
-  color: var(--text-primary, #fff);
-  white-space: pre-wrap;
-  word-wrap: break-word;
-}
-
-.worktree-message p {
-  margin: 0 0 12px 0;
-  color: var(--text-primary, #fff);
-}
-
-.worktree-message ul {
-  list-style: disc;
-  padding-left: 24px;
-  margin: 0;
-}
-
-.worktree-message li {
-  margin: 8px 0;
-}
-
+.worktree-message p { margin: 0 0 12px 0; color: var(--text-primary, #fff); }
+.worktree-message ul { list-style: disc; padding-left: 24px; margin: 0; }
+.worktree-message li { margin: 8px 0; }
 .worktree-message code {
   font-family: 'Consolas', monospace;
   background: rgba(255, 255, 255, 0.1);
@@ -239,10 +209,7 @@ onUnmounted(() => {
   cursor: pointer;
   transition: all 0.2s;
 }
-
-.secondary-btn:hover {
-  background: rgba(255, 255, 255, 0.15);
-}
+.secondary-btn:hover { background: rgba(255, 255, 255, 0.15); }
 
 .confirm-btn {
   background: var(--accent-color, #3b82f6);
@@ -255,34 +222,92 @@ onUnmounted(() => {
   cursor: pointer;
   transition: all 0.2s;
 }
+.confirm-btn:hover { background: var(--accent-hover, #2563eb); transform: translateY(-1px); }
+.confirm-btn:active { transform: translateY(0); }
 
-.confirm-btn:hover {
-  background: var(--accent-hover, #2563eb);
-  transform: translateY(-1px);
+/* ========== 左下角 Toast 横幅（普通通知模式）========== */
+.agent-toast {
+  position: fixed;
+  bottom: 24px;
+  left: 24px;
+  width: 340px;
+  background: rgba(22, 28, 36, 0.92);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 8px;
+  box-shadow: 0 4px 24px rgba(0, 0, 0, 0.5), 0 1px 0 rgba(255, 255, 255, 0.04) inset;
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 12px 14px;
+  z-index: 10000;
 }
 
-.confirm-btn:active {
-  transform: translateY(0);
+.agent-toast.warning { border-left: 3px solid rgba(234, 179, 8, 0.8); }
+.agent-toast.success { border-left: 3px solid rgba(34, 197, 94, 0.8); }
+.agent-toast.error   { border-left: 3px solid rgba(239, 68, 68, 0.8); }
+.agent-toast.info    { border-left: 3px solid rgba(59, 130, 246, 0.8); }
+
+.toast-icon {
+  font-size: 15px;
+  flex-shrink: 0;
+  margin-top: 2px;
+  opacity: 0.9;
 }
 
-/* Transition */
-.fade-enter-active,
-.fade-leave-active {
-  transition: opacity 0.2s ease;
+.toast-content {
+  flex: 1;
+  min-width: 0;
 }
 
-.fade-enter-from,
-.fade-leave-to {
-  opacity: 0;
+.toast-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: rgba(255, 255, 255, 0.9);
+  margin-bottom: 3px;
+  letter-spacing: 0.01em;
 }
 
+.toast-message {
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.5);
+  line-height: 1.5;
+  word-break: break-word;
+}
+
+.toast-close {
+  background: none;
+  border: none;
+  color: rgba(255, 255, 255, 0.3);
+  font-size: 16px;
+  cursor: pointer;
+  padding: 0;
+  width: 20px;
+  height: 20px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 4px;
+  flex-shrink: 0;
+  transition: all 0.15s;
+  line-height: 1;
+}
+.toast-close:hover {
+  background: rgba(255, 255, 255, 0.08);
+  color: rgba(255, 255, 255, 0.7);
+}
+
+/* ========== Transition 动画 ========== */
+.fade-enter-active, .fade-leave-active { transition: opacity 0.2s ease; }
+.fade-enter-from, .fade-leave-to { opacity: 0; }
 .fade-enter-active .agent-notification-modal,
-.fade-leave-active .agent-notification-modal {
-  transition: transform 0.2s ease;
-}
-
+.fade-leave-active .agent-notification-modal { transition: transform 0.2s ease; }
 .fade-enter-from .agent-notification-modal,
-.fade-leave-to .agent-notification-modal {
-  transform: scale(0.95);
-}
+.fade-leave-to .agent-notification-modal { transform: scale(0.95); }
+
+.toast-slide-enter-active { transition: transform 0.25s ease, opacity 0.25s ease; }
+.toast-slide-leave-active { transition: transform 0.2s ease, opacity 0.2s ease; }
+.toast-slide-enter-from   { transform: translateY(16px); opacity: 0; }
+.toast-slide-leave-to     { transform: translateY(8px); opacity: 0; }
 </style>
