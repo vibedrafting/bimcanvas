@@ -241,8 +241,8 @@ onUnmounted(() => {
 /* ========== Toast 堆叠容器 ========== */
 .toast-stack {
   position: fixed;
-  bottom: 24px;
-  left: 84px; /* 图层按钮占 left:24px + width:48px + 间距12px，Toast 紧接其右 */
+  bottom: 120px; /* 图层按钮 bottom:60px + 按钮高度 48px + 间距 12px，Toast 位于其正上方 */
+  left: 24px;    /* 与图层按钮左对齐 */
   width: 320px;
   display: flex;
   flex-direction: column;
