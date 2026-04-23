@@ -111,5 +111,11 @@ namespace BIMCanvas.Core.Validation
 
         /// <summary>模块 facing.value 为零向量或非法向量</summary>
         public const string InvalidFacingValue = "E009_INVALID_FACING_VALUE";
+
+        /// <summary>模块 facing 字段整体为 null（缺失整个 facing 对象）</summary>
+        public const string MissingFacing = "E010_MISSING_FACING";
+
+        /// <summary>模块 moduleId 不在模块库中</summary>
+        public const string InvalidModuleId = "E011_INVALID_MODULE_ID";
     }
 }

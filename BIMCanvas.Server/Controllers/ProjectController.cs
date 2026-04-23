@@ -979,10 +979,12 @@ namespace BIMCanvas.Server.Controllers
             }
 
             // modules: 优先从分区子目录读取，向后兼容单一文件
-            data.Modules = LoadAllZoneModules(schemePath);
+            var (modules, zoneErrors) = LoadAllZoneModules(schemePath);
+            data.Modules = modules;
+            data.ZoneErrors = zoneErrors;
 
-            _logger.LogDebug("策略数据加载完成: SchemeId={Id}, Zones={Zones}, Modules={Modules}",
-                schemeId, data.Zones.Count, data.Modules.Count);
+            _logger.LogDebug("策略数据加载完成: SchemeId={Id}, Zones={Zones}, Modules={Modules}, ZoneErrors={Errors}",
+                schemeId, data.Zones.Count, data.Modules.Count, data.ZoneErrors.Count);
 
             return data;
         }
@@ -993,10 +995,12 @@ namespace BIMCanvas.Server.Controllers
         /// 支持两种格式：
         /// - 新格式: schemes/{zoneId}/modules.json (分区子目录)
         /// - 旧格式: schemes/modules.json (单一文件，向后兼容)
+        /// Load 质检闸门：L1 per-zone 反序列化失败隔离，L2 per-module 结构完整性质检
         /// </summary>
-        private List<Module> LoadAllZoneModules(string schemePath)
+        private (List<Module> modules, List<ZoneLoadError> errors) LoadAllZoneModules(string schemePath)
         {
             var allModules = new List<Module>();
+            var allErrors = new List<ZoneLoadError>();
 
             // 递归查找所有叶子 zone 的 modules.json（支持嵌套分区 schemes/rz_3/dz_1/modules.json）
             var leafFiles = ProjectService.FindAllLeafModuleFiles(schemePath);
@@ -1005,16 +1009,63 @@ namespace BIMCanvas.Server.Controllers
             {
                 foreach (var (filePath, zoneId) in leafFiles)
                 {
-                    var modules = ReadJson<List<Module>>(filePath) ?? new List<Module>();
+                    List<Module> zoneModules;
 
-                    foreach (var module in modules)
+                    // L1：per-zone 反序列化失败处理
+                    try
                     {
-                        module.ZoneId ??= zoneId;                       // 确保ZoneId填充
+                        zoneModules = ReadJson<List<Module>>(filePath) ?? new List<Module>();
+                    }
+                    catch (Exception ex)
+                    {
+                        System.Diagnostics.Trace.WriteLine(
+                            $"[LoadAllZoneModules] 文件解析失败 | Zone: {zoneId} | 文件: {filePath} | 原因: {ex.Message}");
+                        _logger.LogError("[LoadAllZoneModules] 文件解析失败 | Zone: {ZoneId} | 原因: {Message}", zoneId, ex.Message);
+                        allErrors.Add(new ZoneLoadError
+                        {
+                            ZoneId = zoneId,
+                            ErrorType = "ParseError",
+                            Message = $"modules.json 解析失败：{ex.Message}"
+                        });
+                        continue;
                     }
 
-                    allModules.AddRange(modules);
+                    // L2：per-module 结构完整性质检
+                    var failedIds = new List<string>();
+                    var validModules = new List<Module>();
+                    foreach (var module in zoneModules)
+                    {
+                        module.ZoneId ??= zoneId;
+                        var reason = GetModuleStructureError(module);
+                        if (reason != null)
+                        {
+                            failedIds.Add(module.Id ?? module.ModuleId ?? "(无ID)");
+                        }
+                        else
+                        {
+                            validModules.Add(module);
+                        }
+                    }
+
+                    if (failedIds.Count > 0)
+                    {
+                        var msg = $"跳过 {failedIds.Count} 个结构不合法的模块";
+                        System.Diagnostics.Trace.WriteLine(
+                            $"[LoadAllZoneModules] 数据质检失败 | Zone: {zoneId} | 跳过模块数: {failedIds.Count} | IDs: {string.Join(",", failedIds)}");
+                        _logger.LogWarning("[LoadAllZoneModules] 数据质检失败 | Zone: {ZoneId} | 跳过: {Count} 个模块 | IDs: {Ids}",
+                            zoneId, failedIds.Count, string.Join(",", failedIds));
+                        allErrors.Add(new ZoneLoadError
+                        {
+                            ZoneId = zoneId,
+                            ErrorType = "StructureError",
+                            Message = msg,
+                            FailedModuleIds = failedIds
+                        });
+                    }
+
+                    allModules.AddRange(validModules);
                 }
-                _logger.LogDebug("从 {Count} 个叶子分区加载模块，共 {Total} 个", leafFiles.Count, allModules.Count);
+                _logger.LogDebug("从 {Count} 个叶子分区加载模块，共 {Total} 个（质检后）", leafFiles.Count, allModules.Count);
             }
             else
             {
@@ -1022,12 +1073,69 @@ namespace BIMCanvas.Server.Controllers
                 var modulesPath = Path.Combine(schemePath, "modules.json");
                 if (System.IO.File.Exists(modulesPath))
                 {
-                    allModules = ReadJson<List<Module>>(modulesPath) ?? new List<Module>();
+                    List<Module> legacyModules;
+                    try
+                    {
+                        legacyModules = ReadJson<List<Module>>(modulesPath) ?? new List<Module>();
+                    }
+                    catch (Exception ex)
+                    {
+                        System.Diagnostics.Trace.WriteLine(
+                            $"[LoadAllZoneModules] 文件解析失败 | Zone: legacy | 文件: {modulesPath} | 原因: {ex.Message}");
+                        _logger.LogError("[LoadAllZoneModules] 旧格式文件解析失败 | 原因: {Message}", ex.Message);
+                        allErrors.Add(new ZoneLoadError
+                        {
+                            ZoneId = "legacy",
+                            ErrorType = "ParseError",
+                            Message = $"modules.json 解析失败：{ex.Message}"
+                        });
+                        return (allModules, allErrors);
+                    }
+
+                    var failedIds = new List<string>();
+                    foreach (var module in legacyModules)
+                    {
+                        var reason = GetModuleStructureError(module);
+                        if (reason != null)
+                            failedIds.Add(module.Id ?? module.ModuleId ?? "(无ID)");
+                        else
+                            allModules.Add(module);
+                    }
+
+                    if (failedIds.Count > 0)
+                    {
+                        allErrors.Add(new ZoneLoadError
+                        {
+                            ZoneId = "legacy",
+                            ErrorType = "StructureError",
+                            Message = $"跳过 {failedIds.Count} 个结构不合法的模块",
+                            FailedModuleIds = failedIds
+                        });
+                    }
+
                     _logger.LogDebug("从单一 modules.json 加载 {Count} 个模块（向后兼容模式）", allModules.Count);
                 }
             }
 
-            return allModules;
+            return (allModules, allErrors);
+        }
+
+        /// <summary>
+        /// L2 结构完整性质检：检查单个模块是否满足 Web 渲染的最低要求。
+        /// 返回 null 表示合格，返回错误描述字符串表示不合格。
+        /// </summary>
+        private static string? GetModuleStructureError(Module module)
+        {
+            if (module.Bounds == null)
+                return "bounds 字段缺失";
+            if (module.Bounds.Vertices.Length < 3)
+                return "bounds 顶点不足";
+            if (module.Bounds.Vertices.Any(v => double.IsNaN(v.X) || double.IsNaN(v.Y) ||
+                                                double.IsInfinity(v.X) || double.IsInfinity(v.Y)))
+                return "bounds 含非法坐标值（NaN 或 Infinity）";
+            if (string.IsNullOrEmpty(module.ModuleId))
+                return "moduleId 字段缺失";
+            return null;
         }
 
         /// <summary>

@@ -29,18 +29,21 @@ namespace BIMCanvas.Server.Controllers
         private readonly ProjectContext _projectContext;
         private readonly ZoneBoundaryService _zoneBoundaryService;
         private readonly IHubContext<CanvasHub> _hubContext;
+        private readonly ModuleLibraryService _moduleLibraryService;
         private readonly JsonSerializerSettings _jsonSettings;
 
         public ValidationController(
             ILogger<ValidationController> logger,
             ProjectContext projectContext,
             ZoneBoundaryService zoneBoundaryService,
-            IHubContext<CanvasHub> hubContext)
+            IHubContext<CanvasHub> hubContext,
+            ModuleLibraryService moduleLibraryService)
         {
             _logger = logger;
             _projectContext = projectContext;
             _zoneBoundaryService = zoneBoundaryService;
             _hubContext = hubContext;
+            _moduleLibraryService = moduleLibraryService;
             _jsonSettings = new JsonSerializerSettings
             {
                 ContractResolver = new CamelCasePropertyNamesContractResolver(),
@@ -90,21 +93,17 @@ namespace BIMCanvas.Server.Controllers
                 var modules = LoadAllModules(projectPath, targetSet);
 
                 // 3.5 预处理 facing：仅 validate_layout 消费 semantic 并回写规范 value
+                var allDiagnostics = new List<Diagnostic>();
                 var facingDiagnostics = NormalizeModuleFacings(modules);
+                allDiagnostics.AddRange(facingDiagnostics);
                 if (facingDiagnostics.Count > 0)
-                {
-                    _logger.LogWarning("[Validation] facing 预检失败: {Count} 个诊断", facingDiagnostics.Count);
-                    return Ok(new SchemeValidationReport
-                    {
-                        TotalModules = modules.Count,
-                        ErrorCount = facingDiagnostics.Count(d => d.Severity == "error"),
-                        WarningCount = facingDiagnostics.Count(d => d.Severity == "warning"),
-                        Diagnostics = facingDiagnostics,
-                        ElapsedMs = 0
-                    });
-                }
+                    _logger.LogWarning("[Validation] facing 预检发现 {Count} 个诊断，继续执行后续检查", facingDiagnostics.Count);
 
-                // 3.6 持久化模块（确保自动生成的 Id 和 facing 规范化结果写回文件）
+                // 3.6 校验 moduleId 是否在模块库中
+                var moduleIdDiagnostics = ValidateModuleIds(modules);
+                allDiagnostics.AddRange(moduleIdDiagnostics);
+
+                // 3.7 持久化模块（确保自动生成的 Id 和 facing 规范化结果写回文件）
                 PersistModules(projectPath, modules);
 
                 if (targetSet != null)
@@ -114,6 +113,17 @@ namespace BIMCanvas.Server.Controllers
                 // 4. 调用 Core 层验证
                 var report = SchemeValidator.Validate(
                     modules, designZones, exclusionZones, walls, columns);
+
+                // 合并所有诊断
+                allDiagnostics.AddRange(report.Diagnostics);
+                report = new SchemeValidationReport
+                {
+                    TotalModules = report.TotalModules,
+                    ErrorCount = allDiagnostics.Count(d => d.Severity == "error"),
+                    WarningCount = allDiagnostics.Count(d => d.Severity == "warning"),
+                    Diagnostics = allDiagnostics,
+                    ElapsedMs = report.ElapsedMs
+                };
 
                 _logger.LogInformation(
                     "[Validation] 验证完成: {Total} 个模块, {Errors} 个错误, {ElapsedMs}ms",
@@ -251,9 +261,7 @@ namespace BIMCanvas.Server.Controllers
                 catch (Exception ex)
                 {
                     throw new InvalidOperationException(
-                        $"模块数据解析失败 | 文件: {modulesPath} | Zone: {zoneId} | " +
-                        $"facing 需为对象 {{ value, semantic }}，兼容旧字符串/旧数组 | " +
-                        $"原始错误: {ex.Message}", ex);
+                        $"模块数据解析失败 | 文件: {modulesPath} | Zone: {zoneId} | 原始错误: {ex.Message}", ex);
                 }
             }
 
@@ -314,6 +322,39 @@ namespace BIMCanvas.Server.Controllers
                 }
 
                 module.Facing = new Facing(normalizedValue, null);
+            }
+
+            return diagnostics;
+        }
+
+        /// <summary>
+        /// 校验模块 moduleId 是否存在于模块库中。
+        /// 若模块库文件不存在则跳过（降级，不报错）。
+        /// </summary>
+        private List<Diagnostic> ValidateModuleIds(List<Module> modules)
+        {
+            var diagnostics = new List<Diagnostic>();
+
+            var library = _moduleLibraryService.GetModuleLibrary();
+            if (library?.Modules == null)
+                return diagnostics;
+
+            var validIds = new HashSet<string>(library.Modules.Select(m => m.Id), StringComparer.OrdinalIgnoreCase);
+
+            foreach (var module in modules)
+            {
+                if (string.IsNullOrEmpty(module.ModuleId))
+                    continue; // 缺失 moduleId 由 Load 质检闸门处理，这里跳过
+
+                if (!validIds.Contains(module.ModuleId))
+                {
+                    diagnostics.Add(new Diagnostic(
+                        DiagnosticCodes.InvalidModuleId,
+                        "warning",
+                        $"模块 {module.Id} ({module.ModuleName ?? "未命名"}) 的 moduleId '{module.ModuleId}' 不在模块库中",
+                        module.Id,
+                        module.ModuleName));
+                }
             }
 
             return diagnostics;

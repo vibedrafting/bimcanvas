@@ -93,6 +93,12 @@ namespace BIMCanvas.Server.Dtos
         /// 家具模块（来自 schemes/{s}/modules.json）
         /// </summary>
         public List<Module> Modules { get; set; } = new List<Module>();
+
+        /// <summary>
+        /// 加载时发现的分区数据质检错误（Load 质检闸门）
+        /// 存在此字段说明部分分区的模块已被隔离，文件未被修改
+        /// </summary>
+        public List<ZoneLoadError> ZoneErrors { get; set; } = new List<ZoneLoadError>();
     }
 
     /// <summary>
@@ -112,5 +118,24 @@ namespace BIMCanvas.Server.Dtos
         /// 使用 Zone 类型，Type = ZoneType.Exclusion
         /// </summary>
         public List<Zone> Exclusions { get; set; } = new List<Zone>();
+    }
+
+    /// <summary>
+    /// Load 质检闸门：分区数据加载错误描述符
+    /// Server 加载 modules.json 时发现不可渲染的坏数据，生成此描述符并隔离问题模块
+    /// </summary>
+    public class ZoneLoadError
+    {
+        /// <summary>发生错误的分区 ID</summary>
+        public string ZoneId { get; set; } = string.Empty;
+
+        /// <summary>错误类型：ParseError（文件无法解析）| StructureError（字段结构不合法）</summary>
+        public string ErrorType { get; set; } = string.Empty;
+
+        /// <summary>错误描述</summary>
+        public string Message { get; set; } = string.Empty;
+
+        /// <summary>被隔离的模块 ID 列表（ParseError 时为空）</summary>
+        public List<string> FailedModuleIds { get; set; } = new List<string>();
     }
 }
