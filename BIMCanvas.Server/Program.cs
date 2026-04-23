@@ -584,6 +584,7 @@ Process? ccrProcess = null;
             agentProcess.StartInfo.ArgumentList.Add("src.main");
             agentProcess.StartInfo.ArgumentList.Add("--serve");
             agentProcess.StartInfo.ArgumentList.Add("--managed-by-server");
+            agentProcess.StartInfo.ArgumentList.Add(Process.GetCurrentProcess().Id.ToString(System.Globalization.CultureInfo.InvariantCulture));
             agentProcess.StartInfo.ArgumentList.Add("--managed-agent-root");
             agentProcess.StartInfo.ArgumentList.Add(agentProjectPath);
             agentProcess.StartInfo.ArgumentList.Add("--managed-home");
@@ -2298,6 +2299,17 @@ static PortOccupantOwnership ClassifyBIMCanvasAgentOccupant(
         var commandArgs = TokenizeCommandLine(cmdLine);
         if (ContainsCommandLineArgument(commandArgs, "--managed-by-server"))
         {
+            // 若 --managed-by-server 带父 Server PID，且该 Server 已不存在，则视为孤儿，
+            // 沿用 OwnedLegacy 清理路径回收端口。老版本无 PID 时跳过该检查。
+            var parentServerPidRaw = GetCommandLineArgumentValue(commandArgs, "--managed-by-server");
+            if (!string.IsNullOrWhiteSpace(parentServerPidRaw)
+                && !parentServerPidRaw.StartsWith("-", StringComparison.Ordinal)
+                && int.TryParse(parentServerPidRaw, System.Globalization.NumberStyles.Integer, System.Globalization.CultureInfo.InvariantCulture, out var parentServerPid)
+                && !IsProcessAlive(parentServerPid))
+            {
+                return PortOccupantOwnership.OwnedLegacy;
+            }
+
             var normalizedAgentRoot = NormalizePathForMatch(
                 GetCommandLineArgumentValue(commandArgs, "--managed-agent-root") ?? string.Empty);
             var normalizedCurrentRoot = NormalizePathForMatch(agentProjectPath);
@@ -2611,6 +2623,35 @@ static string GetCommandLineUnix(int pid)
     catch
     {
         return "";
+    }
+}
+
+// 辅助函数：检查进程是否仍然存活
+static bool IsProcessAlive(int pid)
+{
+    if (pid <= 0)
+    {
+        return false;
+    }
+
+    try
+    {
+        using var process = Process.GetProcessById(pid);
+        return !process.HasExited;
+    }
+    catch (ArgumentException)
+    {
+        // 进程不存在
+        return false;
+    }
+    catch (InvalidOperationException)
+    {
+        return false;
+    }
+    catch
+    {
+        // 权限等异常时保守认为进程仍存活，避免误杀
+        return true;
     }
 }
 
