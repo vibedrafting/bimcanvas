@@ -1,13 +1,13 @@
 <template>
   <Teleport to="body">
-    <!-- Worktree 列表：保持全屏 Modal 模式，需要用户主动操作 -->
+    <!-- Worktree 列表：全屏 Modal，需要用户主动操作 -->
     <Transition name="fade">
-      <div v-if="visible && isWorktreeList" class="agent-notification-overlay">
-        <div class="agent-notification-modal" :class="notification?.type">
+      <div v-if="modalVisible" class="agent-notification-overlay">
+        <div class="agent-notification-modal" :class="modalNotification?.type">
           <div class="modal-header">
-            <span class="icon">{{ icon }}</span>
-            <h3>{{ notification?.title }}</h3>
-            <button class="close-btn" @click="close">&times;</button>
+            <span class="icon">{{ modalIcon }}</span>
+            <h3>{{ modalNotification?.title }}</h3>
+            <button class="close-btn" @click="closeModal">&times;</button>
           </div>
           <div class="modal-body">
             <div class="worktree-message">
@@ -18,24 +18,39 @@
             </div>
           </div>
           <div class="modal-footer">
-            <button class="secondary-btn" @click="close">稍后处理</button>
+            <button class="secondary-btn" @click="closeModal">稍后处理</button>
             <button class="confirm-btn" @click="openMergeWizard">打开合并向导</button>
           </div>
         </div>
       </div>
     </Transition>
 
-    <!-- 普通通知：左下角 Toast 横幅，用户手动关闭 -->
-    <Transition name="toast-slide">
-      <div v-if="visible && !isWorktreeList" class="agent-toast" :class="notification?.type">
-        <span class="toast-icon">{{ icon }}</span>
-        <div class="toast-content">
-          <div class="toast-title">{{ notification?.title }}</div>
-          <div class="toast-message">{{ notification?.message }}</div>
+    <!-- Toast 堆叠容器：左下角，从下往上堆叠 -->
+    <div class="toast-stack">
+      <!-- 溢出提示：超出最大显示数时，在顶部显示 "+N 更多" -->
+      <Transition name="toast-slide">
+        <div v-if="hiddenCount > 0" class="toast-overflow-badge">
+          +{{ hiddenCount }} 条更多
         </div>
-        <button class="toast-close" @click="close">&times;</button>
-      </div>
-    </Transition>
+      </Transition>
+
+      <!-- 可见 Toast 列表 -->
+      <TransitionGroup name="toast-slide" tag="div" class="toast-list">
+        <div
+          v-for="toast in visibleToasts"
+          :key="toast.id"
+          class="agent-toast"
+          :class="toast.type"
+        >
+          <span class="toast-icon">{{ toastIcon(toast.type) }}</span>
+          <div class="toast-content">
+            <div class="toast-title">{{ toast.title }}</div>
+            <div class="toast-message">{{ toast.message }}</div>
+          </div>
+          <button class="toast-close" @click="removeToast(toast.id)">&times;</button>
+        </div>
+      </TransitionGroup>
+    </div>
   </Teleport>
 </template>
 
@@ -50,12 +65,30 @@ interface AgentNotification {
   timestamp: string;
 }
 
-const visible = ref(false);
-const notification = ref<AgentNotification | null>(null);
+interface ToastItem {
+  id: number;
+  title: string;
+  message: string;
+  type: 'info' | 'success' | 'warning' | 'error';
+}
+
+const MAX_VISIBLE = 3;
+let nextId = 0;
+
+// Toast 队列（全部，包含隐藏的）
+const toasts = ref<ToastItem[]>([]);
+
+// 全屏 Modal（worktree 列表）
+const modalVisible = ref(false);
+const modalNotification = ref<AgentNotification | null>(null);
 const mergeStore = useMergeStore();
 
-const icon = computed(() => {
-  switch (notification.value?.type) {
+// 最多显示 MAX_VISIBLE 条，从队尾取（最新的）
+const visibleToasts = computed(() => toasts.value.slice(-MAX_VISIBLE));
+const hiddenCount = computed(() => Math.max(0, toasts.value.length - MAX_VISIBLE));
+
+const modalIcon = computed(() => {
+  switch (modalNotification.value?.type) {
     case 'success': return '✅';
     case 'warning': return '⚠️';
     case 'error': return '❌';
@@ -63,33 +96,59 @@ const icon = computed(() => {
   }
 });
 
-const isWorktreeList = computed(() => {
-  try {
-    const parsed = JSON.parse(notification.value?.message || '');
-    return Array.isArray(parsed) && parsed.length > 0;
-  } catch {
-    return false;
+function toastIcon(type: string) {
+  switch (type) {
+    case 'success': return '✅';
+    case 'warning': return '⚠️';
+    case 'error': return '❌';
+    default: return 'ℹ️';
   }
-});
+}
 
 const worktreeNames = computed(() => {
-  if (!isWorktreeList.value) return [];
-  return JSON.parse(notification.value!.message);
+  try {
+    const parsed = JSON.parse(modalNotification.value?.message || '');
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
 });
 
 function handleNotification(event: Event) {
   const customEvent = event as CustomEvent<AgentNotification>;
-  notification.value = customEvent.detail;
-  visible.value = true;
+  const detail = customEvent.detail;
+
+  // 判断是否为 worktree 列表 → 全屏 Modal
+  try {
+    const parsed = JSON.parse(detail?.message || '');
+    if (Array.isArray(parsed) && parsed.length > 0) {
+      modalNotification.value = detail;
+      modalVisible.value = true;
+      return;
+    }
+  } catch { /* 普通文本 */ }
+
+  // 普通通知 → 加入 Toast 队列
+  toasts.value.push({
+    id: nextId++,
+    title: detail.title,
+    message: detail.message,
+    type: detail.type ?? 'info',
+  });
 }
 
-function close() {
-  visible.value = false;
+function removeToast(id: number) {
+  const idx = toasts.value.findIndex(t => t.id === id);
+  if (idx !== -1) toasts.value.splice(idx, 1);
+}
+
+function closeModal() {
+  modalVisible.value = false;
 }
 
 function openMergeWizard() {
   mergeStore.openWizardWithWorktrees(worktreeNames.value);
-  close();
+  closeModal();
 }
 
 onMounted(() => {
@@ -105,10 +164,7 @@ onUnmounted(() => {
 /* ========== 全屏 Modal（worktree 列表模式）========== */
 .agent-notification-overlay {
   position: fixed;
-  top: 0;
-  left: 0;
-  right: 0;
-  bottom: 0;
+  top: 0; left: 0; right: 0; bottom: 0;
   background: rgba(0, 0, 0, 0.5);
   display: flex;
   align-items: center;
@@ -141,96 +197,81 @@ onUnmounted(() => {
   padding: 16px 20px;
   border-bottom: 1px solid var(--glass-border, rgba(255, 255, 255, 0.1));
 }
-
 .modal-header .icon { font-size: 24px; }
-
-.modal-header h3 {
-  flex: 1;
-  margin: 0;
-  font-size: 18px;
-  font-weight: 600;
-  color: var(--text-primary, #fff);
-}
+.modal-header h3 { flex: 1; margin: 0; font-size: 18px; font-weight: 600; color: var(--text-primary, #fff); }
 
 .close-btn {
-  background: none;
-  border: none;
-  color: var(--text-secondary, #888);
-  font-size: 24px;
-  cursor: pointer;
-  padding: 0;
-  width: 32px;
-  height: 32px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  border-radius: 6px;
-  transition: all 0.2s;
+  background: none; border: none;
+  color: var(--text-secondary, #888); font-size: 24px; cursor: pointer;
+  padding: 0; width: 32px; height: 32px;
+  display: flex; align-items: center; justify-content: center;
+  border-radius: 6px; transition: all 0.2s;
 }
+.close-btn:hover { background: rgba(255, 255, 255, 0.1); color: var(--text-primary, #fff); }
 
-.close-btn:hover {
-  background: rgba(255, 255, 255, 0.1);
-  color: var(--text-primary, #fff);
-}
-
-.modal-body {
-  padding: 20px;
-  overflow-y: auto;
-  flex: 1;
-}
-
+.modal-body { padding: 20px; overflow-y: auto; flex: 1; }
 .worktree-message p { margin: 0 0 12px 0; color: var(--text-primary, #fff); }
 .worktree-message ul { list-style: disc; padding-left: 24px; margin: 0; }
 .worktree-message li { margin: 8px 0; }
 .worktree-message code {
   font-family: 'Consolas', monospace;
   background: rgba(255, 255, 255, 0.1);
-  padding: 2px 8px;
-  border-radius: 4px;
-  color: #3b82f6;
+  padding: 2px 8px; border-radius: 4px; color: #3b82f6;
 }
 
 .modal-footer {
   padding: 16px 20px;
   border-top: 1px solid var(--glass-border, rgba(255, 255, 255, 0.1));
-  display: flex;
-  gap: 12px;
-  justify-content: flex-end;
+  display: flex; gap: 12px; justify-content: flex-end;
 }
-
 .secondary-btn {
-  background: rgba(255, 255, 255, 0.1);
-  border: 1px solid rgba(255, 255, 255, 0.2);
-  color: var(--text-primary, #fff);
-  padding: 10px 24px;
-  border-radius: 8px;
-  font-size: 14px;
-  font-weight: 500;
-  cursor: pointer;
-  transition: all 0.2s;
+  background: rgba(255, 255, 255, 0.1); border: 1px solid rgba(255, 255, 255, 0.2);
+  color: var(--text-primary, #fff); padding: 10px 24px; border-radius: 8px;
+  font-size: 14px; font-weight: 500; cursor: pointer; transition: all 0.2s;
 }
 .secondary-btn:hover { background: rgba(255, 255, 255, 0.15); }
-
 .confirm-btn {
-  background: var(--accent-color, #3b82f6);
-  color: white;
-  border: none;
-  padding: 10px 24px;
-  border-radius: 8px;
-  font-size: 14px;
-  font-weight: 500;
-  cursor: pointer;
-  transition: all 0.2s;
+  background: var(--accent-color, #3b82f6); color: white; border: none;
+  padding: 10px 24px; border-radius: 8px; font-size: 14px; font-weight: 500;
+  cursor: pointer; transition: all 0.2s;
 }
 .confirm-btn:hover { background: var(--accent-hover, #2563eb); transform: translateY(-1px); }
 .confirm-btn:active { transform: translateY(0); }
 
-/* ========== 左下角 Toast 横幅（普通通知模式）========== */
-.agent-toast {
+/* ========== Toast 堆叠容器 ========== */
+.toast-stack {
   position: fixed;
   bottom: 24px;
   left: 24px;
   width: 340px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  z-index: 10000;
+}
+
+/* 溢出提示标签 */
+.toast-overflow-badge {
+  align-self: flex-start;
+  background: var(--surface-highlight, rgba(255, 255, 255, 0.08));
+  border: 1px solid var(--border-subtle, rgba(255, 255, 255, 0.08));
+  border-radius: 20px;
+  padding: 3px 10px;
+  font-size: 11px;
+  color: var(--text-secondary, rgba(255, 255, 255, 0.5));
+  cursor: default;
+}
+
+/* TransitionGroup 容器 */
+.toast-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+/* ========== 单条 Toast ========== */
+.agent-toast {
+  width: 100%;
   background: var(--glass-bg, rgba(20, 20, 30, 0.65));
   backdrop-filter: var(--glass-blur, blur(24px) saturate(180%));
   -webkit-backdrop-filter: var(--glass-blur, blur(24px) saturate(180%));
@@ -241,7 +282,7 @@ onUnmounted(() => {
   align-items: flex-start;
   gap: 10px;
   padding: 12px 14px;
-  z-index: 10000;
+  box-sizing: border-box;
 }
 
 .agent-toast.warning { border-left: 2px solid var(--accent-yellow, #ffcc00); }
@@ -249,54 +290,32 @@ onUnmounted(() => {
 .agent-toast.error   { border-left: 2px solid var(--accent-danger, #ff6b6b); }
 .agent-toast.info    { border-left: 2px solid var(--accent-blue, #3b82f6); }
 
-.toast-icon {
-  font-size: 14px;
-  flex-shrink: 0;
-  margin-top: 2px;
-  opacity: 0.85;
-}
+.toast-icon { font-size: 14px; flex-shrink: 0; margin-top: 2px; opacity: 0.85; }
 
-.toast-content {
-  flex: 1;
-  min-width: 0;
-}
+.toast-content { flex: 1; min-width: 0; }
 
 .toast-title {
-  font-size: 13px;
-  font-weight: 600;
+  font-size: 13px; font-weight: 600;
   color: var(--text-primary, #e0e0e0);
-  margin-bottom: 3px;
-  letter-spacing: 0.01em;
+  margin-bottom: 3px; letter-spacing: 0.01em;
 }
 
 .toast-message {
   font-size: 12px;
   color: var(--text-secondary, rgba(255, 255, 255, 0.5));
-  line-height: 1.5;
-  word-break: break-word;
+  line-height: 1.5; word-break: break-word;
 }
 
 .toast-close {
-  background: none;
-  border: none;
+  background: none; border: none;
   color: var(--text-tertiary, rgba(255, 255, 255, 0.3));
-  font-size: 16px;
-  cursor: pointer;
-  padding: 0;
-  width: 20px;
-  height: 20px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  border-radius: 4px;
-  flex-shrink: 0;
-  transition: all 0.15s;
-  line-height: 1;
+  font-size: 16px; cursor: pointer;
+  padding: 0; width: 20px; height: 20px;
+  display: flex; align-items: center; justify-content: center;
+  border-radius: 4px; flex-shrink: 0;
+  transition: all 0.15s; line-height: 1;
 }
-.toast-close:hover {
-  background: rgba(255, 255, 255, 0.08);
-  color: rgba(255, 255, 255, 0.7);
-}
+.toast-close:hover { background: rgba(255, 255, 255, 0.08); color: rgba(255, 255, 255, 0.7); }
 
 /* ========== Transition 动画 ========== */
 .fade-enter-active, .fade-leave-active { transition: opacity 0.2s ease; }
@@ -308,6 +327,9 @@ onUnmounted(() => {
 
 .toast-slide-enter-active { transition: transform 0.25s ease, opacity 0.25s ease; }
 .toast-slide-leave-active { transition: transform 0.2s ease, opacity 0.2s ease; }
-.toast-slide-enter-from   { transform: translateY(16px); opacity: 0; }
-.toast-slide-leave-to     { transform: translateY(8px); opacity: 0; }
+.toast-slide-enter-from   { transform: translateY(12px); opacity: 0; }
+.toast-slide-leave-to     { transform: translateY(6px); opacity: 0; }
+
+/* TransitionGroup move 动画 */
+.toast-slide-move { transition: transform 0.25s ease; }
 </style>

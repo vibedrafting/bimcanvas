@@ -247,20 +247,18 @@ export const useCanvasStore = defineStore('canvas', () => {
             debugStore.log(`  - Zones: ${response.data.activeScheme?.zones?.length || 0}`);
             debugStore.log(`  - Modules: ${response.data.activeScheme?.modules?.length || 0}`);
 
-            // 第二道防线：Load 质检闸门发现坏数据时，通知用户
+            // 第二道防线：每个 zone error 触发一条独立 Toast
             const zoneErrors = response.data.activeScheme?.zoneErrors
             if (zoneErrors && zoneErrors.length > 0) {
-              const summary = zoneErrors.map(e =>
-                `${e.zoneId}（${e.failedModuleIds.length > 0 ? e.failedModuleIds.length + ' 个模块' : e.errorType}）`
-              ).join('、')
-              window.dispatchEvent(new CustomEvent('bimcanvas:agent-notification', {
-                detail: {
-                  type: 'warning',
-                  title: '部分分区数据损坏',
-                  message: `以下分区数据不合法，已从渲染中隔离（文件未被修改）：${summary}`
-                }
-              }))
               debugStore.warn(`[Store] ZoneErrors: ${JSON.stringify(zoneErrors)}`)
+              zoneErrors.forEach(e => {
+                const detail = e.errorType === 'ParseError'
+                  ? `文件解析失败，该分区所有模块已隔离（文件未被修改）`
+                  : `${e.failedModuleIds.length} 个模块 bounds 缺失，已从渲染中隔离（文件未被修改）`
+                window.dispatchEvent(new CustomEvent('bimcanvas:agent-notification', {
+                  detail: { type: 'warning', title: `分区 ${e.zoneId} 数据损坏`, message: detail }
+                }))
+              })
             }
 
             return true;
