@@ -1032,6 +1032,7 @@ namespace BIMCanvas.Server.Controllers
 
                     // L2：per-module 结构完整性质检
                     var failedIds = new List<string>();
+                    var failedReasons = new List<string>();
                     var validModules = new List<Module>();
                     foreach (var module in zoneModules)
                     {
@@ -1039,7 +1040,9 @@ namespace BIMCanvas.Server.Controllers
                         var reason = GetModuleStructureError(module);
                         if (reason != null)
                         {
-                            failedIds.Add(module.Id ?? module.ModuleId ?? "(无ID)");
+                            var moduleLabel = module.Id ?? module.ModuleId ?? "(无ID)";
+                            failedIds.Add(moduleLabel);
+                            failedReasons.Add($"{moduleLabel}：{reason}");
                         }
                         else
                         {
@@ -1049,7 +1052,7 @@ namespace BIMCanvas.Server.Controllers
 
                     if (failedIds.Count > 0)
                     {
-                        var msg = $"跳过 {failedIds.Count} 个结构不合法的模块";
+                        var msg = string.Join("；", failedReasons);
                         System.Diagnostics.Trace.WriteLine(
                             $"[LoadAllZoneModules] 数据质检失败 | Zone: {zoneId} | 跳过模块数: {failedIds.Count} | IDs: {string.Join(",", failedIds)}");
                         _logger.LogWarning("[LoadAllZoneModules] 数据质检失败 | Zone: {ZoneId} | 跳过: {Count} 个模块 | IDs: {Ids}",
@@ -1093,11 +1096,16 @@ namespace BIMCanvas.Server.Controllers
                     }
 
                     var failedIds = new List<string>();
+                    var failedReasons = new List<string>();
                     foreach (var module in legacyModules)
                     {
                         var reason = GetModuleStructureError(module);
                         if (reason != null)
-                            failedIds.Add(module.Id ?? module.ModuleId ?? "(无ID)");
+                        {
+                            var moduleLabel = module.Id ?? module.ModuleId ?? "(无ID)";
+                            failedIds.Add(moduleLabel);
+                            failedReasons.Add($"{moduleLabel}：{reason}");
+                        }
                         else
                             allModules.Add(module);
                     }
@@ -1108,7 +1116,7 @@ namespace BIMCanvas.Server.Controllers
                         {
                             ZoneId = "legacy",
                             ErrorType = "StructureError",
-                            Message = $"跳过 {failedIds.Count} 个结构不合法的模块",
+                            Message = string.Join("；", failedReasons),
                             FailedModuleIds = failedIds
                         });
                     }

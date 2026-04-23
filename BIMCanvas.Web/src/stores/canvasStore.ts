@@ -252,11 +252,8 @@ export const useCanvasStore = defineStore('canvas', () => {
             if (zoneErrors && zoneErrors.length > 0) {
               debugStore.warn(`[Store] ZoneErrors: ${JSON.stringify(zoneErrors)}`)
               zoneErrors.forEach(e => {
-                const detail = e.errorType === 'ParseError'
-                  ? `文件解析失败，该分区所有模块已隔离（文件未被修改）`
-                  : `${e.failedModuleIds.length} 个模块 bounds 缺失，已从渲染中隔离（文件未被修改）`
                 window.dispatchEvent(new CustomEvent('bimcanvas:agent-notification', {
-                  detail: { type: 'warning', title: `分区 ${e.zoneId} 数据损坏`, message: detail }
+                  detail: { type: 'warning', title: `分区 ${e.zoneId} 数据损坏`, message: e.message }
                 }))
               })
             }
