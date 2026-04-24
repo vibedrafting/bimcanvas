@@ -660,7 +660,7 @@ async def chat_stream_handler(request: web.Request) -> web.StreamResponse:
 
     logger.info(
         f"[chat_stream] Received request: windowId={window_id}, "
-        f"projectPath={project_path[:50] if project_path else 'None'}"
+        f"projectPath={project_path if project_path else 'None'}"
     )
 
     if not message and not images and not attachment_ids:
