@@ -538,6 +538,8 @@ Process? ccrProcess = null;
     // 2. 启动 Agent 服务（仅托管模式）
     if (agentReady && agentManagedByServer)
     {
+        CleanupOrphanedManagedAgentProcesses(agentProjectPath, configDir);
+
         var resolvedAgentPort = ResolveManagedPort(
             "Agent",
             "127.0.0.1",
@@ -2337,6 +2339,87 @@ static PortOccupantOwnership ClassifyBIMCanvasAgentOccupant(
     {
         WriteWithColoredPrefix("[Server:WARN]", $"Agent 进程验证失败: {ex.Message}", ConsoleColor.DarkYellow);
         return PortOccupantOwnership.ExternalProcess;
+    }
+}
+
+static void CleanupOrphanedManagedAgentProcesses(string agentProjectPath, string managedHome)
+{
+    var currentProcessId = Environment.ProcessId;
+    var normalizedCurrentRoot = NormalizePathForMatch(agentProjectPath);
+    var normalizedCurrentHome = NormalizePathForMatch(managedHome);
+    var orphanPids = new List<int>();
+
+    foreach (var process in Process.GetProcesses())
+    {
+        using (process)
+        {
+            try
+            {
+                if (process.Id == currentProcessId || !IsPythonHostProcess(process.ProcessName))
+                {
+                    continue;
+                }
+
+                var commandLine = GetProcessCommandLine(process.Id);
+                if (!LooksLikeBIMCanvasAgentCommand(process.ProcessName, commandLine))
+                {
+                    continue;
+                }
+
+                var commandArgs = TokenizeCommandLine(commandLine);
+                if (!ContainsCommandLineArgument(commandArgs, "--managed-by-server"))
+                {
+                    continue;
+                }
+
+                var normalizedAgentRoot = NormalizePathForMatch(
+                    GetCommandLineArgumentValue(commandArgs, "--managed-agent-root") ?? string.Empty);
+                var normalizedManagedHome = NormalizePathForMatch(
+                    GetCommandLineArgumentValue(commandArgs, "--managed-home") ?? string.Empty);
+                var matchesCurrentAgentRoot = !string.IsNullOrWhiteSpace(normalizedAgentRoot)
+                    && normalizedAgentRoot.Equals(normalizedCurrentRoot, StringComparison.OrdinalIgnoreCase);
+                var matchesCurrentHome = !string.IsNullOrWhiteSpace(normalizedManagedHome)
+                    && normalizedManagedHome.Equals(normalizedCurrentHome, StringComparison.OrdinalIgnoreCase);
+
+                if (!matchesCurrentAgentRoot && !matchesCurrentHome)
+                {
+                    continue;
+                }
+
+                var parentServerPidRaw = GetCommandLineArgumentValue(commandArgs, "--managed-by-server");
+                var hasLiveOwner = !string.IsNullOrWhiteSpace(parentServerPidRaw)
+                    && !parentServerPidRaw.StartsWith("-", StringComparison.Ordinal)
+                    && int.TryParse(
+                        parentServerPidRaw,
+                        System.Globalization.NumberStyles.Integer,
+                        System.Globalization.CultureInfo.InvariantCulture,
+                        out var parentServerPid)
+                    && IsProcessAlive(parentServerPid);
+                if (hasLiveOwner)
+                {
+                    continue;
+                }
+
+                orphanPids.Add(process.Id);
+            }
+            catch (Exception ex)
+            {
+                WriteWithColoredPrefix(
+                    "[Server:WARN]",
+                    $"Agent 残留进程扫描跳过 PID {process.Id}: {ex.Message}",
+                    ConsoleColor.DarkYellow);
+            }
+        }
+    }
+
+    foreach (var orphanPid in orphanPids.Distinct())
+    {
+        WriteWithColoredPrefix(
+            "[Server]",
+            $"清理残留 Agent 进程 (PID: {orphanPid})，释放运行时资源",
+            ConsoleColor.White);
+        KillProcess(orphanPid);
+        Thread.Sleep(500);
     }
 }
 

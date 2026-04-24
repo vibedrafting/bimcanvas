@@ -1154,11 +1154,6 @@ async def save_reference_analysis(args: dict[str, Any]) -> dict[str, Any]:
             },
         },
         "required": ["projectPath"],
-        "oneOf": [
-            {"required": ["attachmentId"]},
-            {"required": ["path"]},
-            {"required": ["base64"]},
-        ],
         "additionalProperties": False,
     },
 )
