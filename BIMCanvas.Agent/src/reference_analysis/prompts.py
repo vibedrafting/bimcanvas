@@ -1,14 +1,10 @@
-"""参考分析 prompt 管理。
+"""参考分析 prompt。
 
-优先级：
-1. 工具入参 promptOverride（由调用方注入，不在本模块处理）
-2. <BIMCANVAS_HOME>/reference_analysis/prompt.md 存在且非空
-3. 本文件内的 REFERENCE_ANALYSIS_PROMPT_V1 常量（权威 fallback）
+硬编码在代码中，不暴露为外部文件。
+工具入参 promptOverride 非空时可覆盖。
 """
 
 from __future__ import annotations
-
-from pathlib import Path
 
 
 REFERENCE_ANALYSIS_PROMPT_V1 = """这是一个纯文本图片分析任务，不是图片生成或编辑任务。请只输出中文文字结果，禁止返回任何图片、图片链接、markdown图片、代码、工具调用过程或分析过程说明。即使你具备图像生成能力，也不要生成图片。请基于我提供的图片，直接输出一份"室内布局理解分析"。你的目标只有一个：让一个看不到图片的人，仅凭你的文字，就能大致想象出这个空间的结构，以及所有"带文字注释家具"的具体位置、相对关系和设计意图。请注意，这不是风格点评、装修建议、卖点总结，也不是泛泛描述图片内容。你的重点是：先建立空间坐标感，再准确定位带文字注释的家具。
@@ -35,29 +31,6 @@ C. 逐个家具分析
 补充提醒：这类任务中，最常见的错误是：1. 把空间名称误写进家具清单；2. 把床的朝向和贴墙关系写错；3. 看见窗却没有明确指出位置；4. 用"居中、旁边、附近"这类模糊词代替精确定位；5. 只写设计意图，不写具体位置。请避免以上错误。"""
 
 
-PROMPT_OVERRIDE_FILENAME = "prompt.md"
-PROMPT_OVERRIDE_DIRNAME = "reference_analysis"
-
-
-def load_reference_analysis_prompt(home: Path | None = None) -> str:
-    """按优先级返回参考分析 prompt。
-
-    home 未传入时，从 config.loader 推断 BIMCANVAS_HOME。
-    """
-    if home is None:
-        try:
-            from ..config.loader import resolve_bimcanvas_home
-            home = resolve_bimcanvas_home()
-        except Exception:
-            return REFERENCE_ANALYSIS_PROMPT_V1
-
-    override_path = home / PROMPT_OVERRIDE_DIRNAME / PROMPT_OVERRIDE_FILENAME
-    if override_path.is_file():
-        try:
-            text = override_path.read_text(encoding="utf-8").strip()
-            if text:
-                return text
-        except OSError:
-            pass
-
+def load_reference_analysis_prompt() -> str:
+    """返回硬编码的参考分析 prompt。"""
     return REFERENCE_ANALYSIS_PROMPT_V1

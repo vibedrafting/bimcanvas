@@ -1,11 +1,5 @@
 {
   "runtimeProvider": "claude",
-  "chatgptBackend": {
-    "accessToken": "",
-    "baseUrl": "https://chatgpt.com/backend-api/codex/responses",
-    "model": "gpt-5.4",
-    "timeoutSeconds": 600
-  },
   "claude": {
     "baseUrl": "",
     "apiKey": "",
@@ -76,5 +70,11 @@
         "label": "GPT-5.4 Mini"
       }
     }
+  },
+  "chatgptBackend": {
+    "accessToken": "",
+    "baseUrl": "https://chatgpt.com/backend-api/codex/responses",
+    "model": "gpt-5.4",
+    "timeoutSeconds": 600
   }
 }
