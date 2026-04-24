@@ -960,23 +960,22 @@ class OpenAIAgent:
         @with_tool_context(tool_name="mcp__canvas__analyze_reference_image")
         async def canvas_analyze_reference_image(
             ctx: Any,
-            attachmentId: str,
             projectPath: str | None = None,
-            imageMode: str = "path",
-            promptOverride: str | None = None,
-            timeoutSeconds: int | None = None,
+            attachmentId: str | None = None,
+            path: str | None = None,
+            base64: str | None = None,
         ) -> Any:
             """Analyze a reference image attachment into structured design guidance."""
-            args: dict[str, Any] = {"attachmentId": attachmentId}
+            args: dict[str, Any] = {}
             resolved_project_path = self._resolve_canvas_project_path(ctx, projectPath)
             if resolved_project_path:
                 args["projectPath"] = resolved_project_path
-            if imageMode:
-                args["imageMode"] = imageMode
-            if promptOverride:
-                args["promptOverride"] = promptOverride
-            if timeoutSeconds is not None:
-                args["timeoutSeconds"] = timeoutSeconds
+            if attachmentId:
+                args["attachmentId"] = attachmentId
+            if path:
+                args["path"] = path
+            if base64:
+                args["base64"] = base64
             return await self._invoke_canvas_tool_impl("analyze_reference_image", args)
 
         @function_tool(name_override="Skill")

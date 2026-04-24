@@ -71,10 +71,11 @@ def build_request_payload(
         raise ValueError("模型名不能为空")
 
     image_url = normalize_reference_source(reference)
+    image_block: dict[str, str] = {"type": "input_image", "image_url": image_url}
 
     content: list[dict[str, str]] = [
         {"type": "input_text", "text": prompt_text},
-        {"type": "input_image", "image_url": image_url},
+        image_block,
     ]
 
     return {
@@ -85,14 +86,7 @@ def build_request_payload(
                 "content": content,
             }
         ],
-        "tools": [
-            {
-                "type": "image_generation",
-                "output_format": "png",
-            }
-        ],
         "instructions": instructions or "you are a helpful assistant",
-        "tool_choice": "auto",
         "stream": True,
         "store": False,
     }

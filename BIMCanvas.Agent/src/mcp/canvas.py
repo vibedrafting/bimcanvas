@@ -10,13 +10,13 @@ from pathlib import Path
 from typing import Any
 import base64
 import json
+import mimetypes
 import re
 import aiohttp
 from claude_agent_sdk import tool, create_sdk_mcp_server
 
 from ..attachments.chat_attachments import (
     AttachmentResolutionError,
-    resolve_attachment_image_blocks,
     resolve_attachment_local_path,
     resolve_attachment_mime_type,
 )
@@ -1142,60 +1142,47 @@ async def save_reference_analysis(args: dict[str, Any]) -> dict[str, Any]:
             },
             "attachmentId": {
                 "type": "string",
-                "description": "待分析的参考图 attachmentId，必须已存在于 _chat_attachments.json",
+                "description": "Reference image attachmentId; provide exactly one of attachmentId/path/base64",
             },
-            "imageMode": {
+            "path": {
                 "type": "string",
-                "enum": ["path", "base64"],
-                "default": "path",
-                "description": "path=直接用磁盘原图（推荐）；base64=复用现有 PIL 压缩管线（适配 3.75MB 限制）",
+                "description": "Local image path; provide exactly one of attachmentId/path/base64",
             },
-            "promptOverride": {
+            "base64": {
                 "type": "string",
-                "description": "可选：覆盖默认 A/B/C 分析 prompt；为空则按优先级回落到 prompt.md / 内置 V1 常量",
-            },
-            "timeoutSeconds": {
-                "type": "integer",
-                "minimum": 30,
-                "maximum": 1200,
-                "default": 600,
-                "description": "请求超时秒数；超过会触发 timeout 错误",
+                "description": "Image base64 or data URL; provide exactly one of attachmentId/path/base64",
             },
         },
-        "required": ["projectPath", "attachmentId"],
+        "required": ["projectPath"],
+        "oneOf": [
+            {"required": ["attachmentId"]},
+            {"required": ["path"]},
+            {"required": ["base64"]},
+        ],
         "additionalProperties": False,
     },
 )
 async def analyze_reference_image(args: dict[str, Any]) -> dict[str, Any]:
     project_path = str(args.get("projectPath") or "").strip()
     attachment_id = str(args.get("attachmentId") or "").strip()
-    image_mode = str(args.get("imageMode") or "path").strip().lower()
-    prompt_override = args.get("promptOverride")
-    timeout_raw = args.get("timeoutSeconds")
+    image_path = str(args.get("path") or "").strip()
+    image_base64 = str(args.get("base64") or "").strip()
 
     if not project_path:
         return {
-            "content": [{"type": "text", "text": "错误: projectPath 必填"}],
+            "content": [{"type": "text", "text": "error: projectPath is required"}],
             "is_error": True,
         }
-    if not attachment_id:
+
+    source_count = sum(1 for value in (attachment_id, image_path, image_base64) if value)
+    if source_count != 1:
         return {
-            "content": [{"type": "text", "text": "错误: attachmentId 必填"}],
+            "content": [{"type": "text", "text": "error: provide exactly one of attachmentId/path/base64"}],
             "is_error": True,
         }
-    if image_mode not in ("path", "base64"):
-        image_mode = "path"
 
-    timeout_seconds: int | None = None
-    if timeout_raw is not None:
-        try:
-            timeout_seconds = int(timeout_raw)
-        except (TypeError, ValueError):
-            timeout_seconds = None
-
-    # 1. 解析参考图来源
     try:
-        if image_mode == "path":
+        if attachment_id:
             local_path = resolve_attachment_local_path(project_path, attachment_id)
             mime_type = resolve_attachment_mime_type(project_path, attachment_id)
             reference = ReferenceSource(
@@ -1203,26 +1190,42 @@ async def analyze_reference_image(args: dict[str, Any]) -> dict[str, Any]:
                 value=str(local_path),
                 mime=mime_type,
             )
-        else:
-            blocks = resolve_attachment_image_blocks(project_path, [attachment_id])
-            if not blocks:
+            source_kind = "attachmentId"
+            source_id = attachment_id
+        elif image_path:
+            local_path = Path(image_path).expanduser()
+            if not local_path.is_file():
                 return {
-                    "content": [{"type": "text", "text": f"attachment_missing: {attachment_id}"}],
+                    "content": [{"type": "text", "text": f"path_missing: {image_path}"}],
                     "is_error": True,
                 }
-            block_source = blocks[0].get("source") or {}
+            mime_type = mimetypes.guess_type(local_path.name)[0] or "image/png"
+            if not mime_type.startswith("image/"):
+                return {
+                    "content": [{"type": "text", "text": f"path_invalid: not an image ({image_path})"}],
+                    "is_error": True,
+                }
+            reference = ReferenceSource(
+                mode="path",
+                value=str(local_path),
+                mime=mime_type,
+            )
+            source_kind = "path"
+            source_id = str(local_path)
+        else:
             reference = ReferenceSource(
                 mode="base64",
-                value=str(block_source.get("data") or ""),
-                mime=str(block_source.get("media_type") or "image/png"),
+                value=image_base64,
+                mime="image/png",
             )
+            source_kind = "base64"
+            source_id = "inline"
     except AttachmentResolutionError as exc:
         return {
             "content": [{"type": "text", "text": exc.message}],
             "is_error": True,
         }
 
-    # 2. 加载配置 + prompt
     try:
         config = load_chatgpt_backend_config()
     except ReferenceAnalysisError as exc:
@@ -1231,26 +1234,21 @@ async def analyze_reference_image(args: dict[str, Any]) -> dict[str, Any]:
             "is_error": True,
         }
 
-    if isinstance(prompt_override, str) and prompt_override.strip():
-        prompt_text = prompt_override
-    else:
-        prompt_text = load_reference_analysis_prompt()
+    prompt_text = load_reference_analysis_prompt()
 
-    # 3. 调用同步客户端（用 to_thread 桥接到事件循环）
     client = ReferenceAnalysisClient(config)
     try:
         result = await asyncio.to_thread(
             client.analyze,
             reference,
             prompt_text,
-            timeout_seconds=timeout_seconds,
         )
     except ReferenceAnalysisError as exc:
         return {
             "content": [{"type": "text", "text": exc.message}],
             "is_error": True,
         }
-    except Exception as exc:  # pragma: no cover - 兜底
+    except Exception as exc:  # pragma: no cover
         return {
             "content": [{"type": "text", "text": f"reference_analysis_unexpected: {exc}"}],
             "is_error": True,
@@ -1259,7 +1257,7 @@ async def analyze_reference_image(args: dict[str, Any]) -> dict[str, Any]:
     raw_text = result.raw_text or ""
     if not raw_text:
         return {
-            "content": [{"type": "text", "text": "reference_analysis_empty: 模型未返回任何文本（response_id=" + result.response_id + ")"}],
+            "content": [{"type": "text", "text": "reference_analysis_empty: model returned no text (response_id=" + result.response_id + ")"}],
             "is_error": True,
         }
 
@@ -1268,14 +1266,15 @@ async def analyze_reference_image(args: dict[str, Any]) -> dict[str, Any]:
         "structuredContent": {
             "responseId": result.response_id,
             "model": result.model,
-            "attachmentId": attachment_id,
-            "imageMode": image_mode,
+            "sourceKind": source_kind,
+            "sourceId": source_id,
             "sectionA": result.section_a,
             "sectionB": result.section_b,
             "sectionC": result.section_c,
             "rawText": raw_text,
         },
     }
+
 
 
 # 创建 Canvas MCP Server
