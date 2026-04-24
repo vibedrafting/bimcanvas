@@ -280,3 +280,79 @@ def _guess_media_type(path: Path) -> str:
     if suffix == ".gif":
         return "image/gif"
     return "image/png"
+
+
+def resolve_attachment_local_path(project_path: str, attachment_id: str) -> Path:
+    """返回附件的磁盘路径（不读字节、不压缩）。
+
+    复用 _load_manifest_records 的 manifest 读取逻辑，
+    但跳过 PIL 压缩管线——给需要拿原图的调用方（如 reference analysis）使用。
+
+    Raises:
+        AttachmentResolutionError:
+          - attachment_missing (404): 记录不存在 / status=deleted / 文件不存在
+          - attachment_invalid (400): storedPath 缺失 / MIME 非 image/*
+    """
+    if not attachment_id:
+        raise AttachmentResolutionError(
+            "attachment_invalid",
+            "attachment_invalid: attachmentId 为空",
+            400,
+        )
+
+    records_by_id = _load_manifest_records(project_path)
+    record = records_by_id.get(attachment_id)
+    if not record:
+        raise AttachmentResolutionError(
+            "attachment_missing",
+            f"attachment_missing: {attachment_id}",
+            404,
+        )
+
+    status = str(record.get("status") or "").lower()
+    if status == "deleted":
+        raise AttachmentResolutionError(
+            "attachment_missing",
+            f"attachment_missing: {attachment_id}",
+            404,
+        )
+
+    stored_path = record.get("storedPath")
+    if not stored_path:
+        raise AttachmentResolutionError(
+            "attachment_invalid",
+            f"attachment_invalid: {attachment_id}",
+            400,
+        )
+
+    image_path = Path(stored_path)
+    if not image_path.is_file():
+        raise AttachmentResolutionError(
+            "attachment_missing",
+            f"attachment_missing: {attachment_id}",
+            404,
+        )
+
+    mime_type = str(record.get("mimeType") or _guess_media_type(image_path)).lower()
+    if not mime_type.startswith("image/"):
+        raise AttachmentResolutionError(
+            "attachment_invalid",
+            f"attachment_invalid: {attachment_id}",
+            400,
+        )
+
+    return image_path
+
+
+def resolve_attachment_mime_type(project_path: str, attachment_id: str) -> str:
+    """辅助函数：从 manifest 读出指定附件的 MIME type（容错回落到文件后缀推断）。"""
+    records_by_id = _load_manifest_records(project_path)
+    record = records_by_id.get(attachment_id) or {}
+    mime_type = str(record.get("mimeType") or "").strip().lower()
+    if mime_type.startswith("image/"):
+        return mime_type
+
+    stored_path = record.get("storedPath")
+    if stored_path:
+        return _guess_media_type(Path(stored_path))
+    return "image/png"

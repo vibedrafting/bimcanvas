@@ -852,6 +852,7 @@ python -m src.image_generation.cli ^
 - `mcp__canvas__load_semantic_plan`：读取当前生效图纸
 - `mcp__canvas__save_reference_analysis`：保存独立 `reference_analysis.json` 完整版本快照
 - `mcp__canvas__load_reference_analysis`：读取最新或指定版本的参考分析
+- `mcp__canvas__analyze_reference_image`：对参考图做结构化布局分析（ChatGPT 后端，A/B/C 三段输出；OpenAI runtime 下默认 deny）
 
 #### 后台截图 MCP 工具（request_background_screenshot）
 

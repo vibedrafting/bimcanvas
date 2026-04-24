@@ -4,6 +4,7 @@
 """
 
 from datetime import datetime
+import asyncio
 import os
 from pathlib import Path
 from typing import Any
@@ -12,6 +13,20 @@ import json
 import re
 import aiohttp
 from claude_agent_sdk import tool, create_sdk_mcp_server
+
+from ..attachments.chat_attachments import (
+    AttachmentResolutionError,
+    resolve_attachment_image_blocks,
+    resolve_attachment_local_path,
+    resolve_attachment_mime_type,
+)
+from ..reference_analysis import (
+    ReferenceAnalysisClient,
+    ReferenceAnalysisError,
+    ReferenceSource,
+    load_chatgpt_backend_config,
+    load_reference_analysis_prompt,
+)
 
 SERVER_URL = os.getenv("BIMCANVAS_SERVER_URL", "http://localhost:5000").rstrip("/")
 SCREENSHOT_LAYER_PRESET = "Agent"
@@ -1112,6 +1127,157 @@ async def save_reference_analysis(args: dict[str, Any]) -> dict[str, Any]:
         }
 
 
+@tool(
+    "analyze_reference_image",
+    "对用户上传的参考图做结构化布局分析，返回 A/B/C 三段：A 空间整体描述 / B 带文字注释家具清单 / C 逐个家具分析。"
+    "底层走 ChatGPT codex/responses 后端，受 <BIMCANVAS_HOME>/config.json 的 chatgptBackend 节驱动。"
+    "用于 generate-reference-analysis Skill 的 Stage A，给 Agent 提供高质量原始素材。",
+    {
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "type": "object",
+        "properties": {
+            "projectPath": {
+                "type": "string",
+                "description": "项目绝对路径（attachment manifest 所在目录）",
+            },
+            "attachmentId": {
+                "type": "string",
+                "description": "待分析的参考图 attachmentId，必须已存在于 _chat_attachments.json",
+            },
+            "imageMode": {
+                "type": "string",
+                "enum": ["path", "base64"],
+                "default": "path",
+                "description": "path=直接用磁盘原图（推荐）；base64=复用现有 PIL 压缩管线（适配 3.75MB 限制）",
+            },
+            "promptOverride": {
+                "type": "string",
+                "description": "可选：覆盖默认 A/B/C 分析 prompt；为空则按优先级回落到 prompt.md / 内置 V1 常量",
+            },
+            "timeoutSeconds": {
+                "type": "integer",
+                "minimum": 30,
+                "maximum": 1200,
+                "default": 600,
+                "description": "请求超时秒数；超过会触发 timeout 错误",
+            },
+        },
+        "required": ["projectPath", "attachmentId"],
+        "additionalProperties": False,
+    },
+)
+async def analyze_reference_image(args: dict[str, Any]) -> dict[str, Any]:
+    project_path = str(args.get("projectPath") or "").strip()
+    attachment_id = str(args.get("attachmentId") or "").strip()
+    image_mode = str(args.get("imageMode") or "path").strip().lower()
+    prompt_override = args.get("promptOverride")
+    timeout_raw = args.get("timeoutSeconds")
+
+    if not project_path:
+        return {
+            "content": [{"type": "text", "text": "错误: projectPath 必填"}],
+            "is_error": True,
+        }
+    if not attachment_id:
+        return {
+            "content": [{"type": "text", "text": "错误: attachmentId 必填"}],
+            "is_error": True,
+        }
+    if image_mode not in ("path", "base64"):
+        image_mode = "path"
+
+    timeout_seconds: int | None = None
+    if timeout_raw is not None:
+        try:
+            timeout_seconds = int(timeout_raw)
+        except (TypeError, ValueError):
+            timeout_seconds = None
+
+    # 1. 解析参考图来源
+    try:
+        if image_mode == "path":
+            local_path = resolve_attachment_local_path(project_path, attachment_id)
+            mime_type = resolve_attachment_mime_type(project_path, attachment_id)
+            reference = ReferenceSource(
+                mode="path",
+                value=str(local_path),
+                mime=mime_type,
+            )
+        else:
+            blocks = resolve_attachment_image_blocks(project_path, [attachment_id])
+            if not blocks:
+                return {
+                    "content": [{"type": "text", "text": f"attachment_missing: {attachment_id}"}],
+                    "is_error": True,
+                }
+            block_source = blocks[0].get("source") or {}
+            reference = ReferenceSource(
+                mode="base64",
+                value=str(block_source.get("data") or ""),
+                mime=str(block_source.get("media_type") or "image/png"),
+            )
+    except AttachmentResolutionError as exc:
+        return {
+            "content": [{"type": "text", "text": exc.message}],
+            "is_error": True,
+        }
+
+    # 2. 加载配置 + prompt
+    try:
+        config = load_chatgpt_backend_config()
+    except ReferenceAnalysisError as exc:
+        return {
+            "content": [{"type": "text", "text": f"reference_analysis_config_missing: {exc.message}"}],
+            "is_error": True,
+        }
+
+    if isinstance(prompt_override, str) and prompt_override.strip():
+        prompt_text = prompt_override
+    else:
+        prompt_text = load_reference_analysis_prompt()
+
+    # 3. 调用同步客户端（用 to_thread 桥接到事件循环）
+    client = ReferenceAnalysisClient(config)
+    try:
+        result = await asyncio.to_thread(
+            client.analyze,
+            reference,
+            prompt_text,
+            timeout_seconds=timeout_seconds,
+        )
+    except ReferenceAnalysisError as exc:
+        return {
+            "content": [{"type": "text", "text": exc.message}],
+            "is_error": True,
+        }
+    except Exception as exc:  # pragma: no cover - 兜底
+        return {
+            "content": [{"type": "text", "text": f"reference_analysis_unexpected: {exc}"}],
+            "is_error": True,
+        }
+
+    raw_text = result.raw_text or ""
+    if not raw_text:
+        return {
+            "content": [{"type": "text", "text": "reference_analysis_empty: 模型未返回任何文本（response_id=" + result.response_id + ")"}],
+            "is_error": True,
+        }
+
+    return {
+        "content": [{"type": "text", "text": raw_text}],
+        "structuredContent": {
+            "responseId": result.response_id,
+            "model": result.model,
+            "attachmentId": attachment_id,
+            "imageMode": image_mode,
+            "sectionA": result.section_a,
+            "sectionB": result.section_b,
+            "sectionC": result.section_c,
+            "rawText": raw_text,
+        },
+    }
+
+
 # 创建 Canvas MCP Server
 canvas_mcp = create_sdk_mcp_server(
     name="canvas",
@@ -1126,6 +1292,7 @@ canvas_mcp = create_sdk_mcp_server(
         load_semantic_plan,  # 加载当前生效图纸
         load_reference_analysis,  # 加载参考分析（planning 输入）
         save_reference_analysis,  # 新增：保存参考分析结果
+        analyze_reference_image,  # 新增：ChatGPT 后端结构化参考图分析
     ],
 )
 
@@ -1140,4 +1307,5 @@ CANVAS_ALLOWED_TOOLS = [
     "mcp__canvas__load_semantic_plan",
     "mcp__canvas__load_reference_analysis",
     "mcp__canvas__save_reference_analysis",
+    "mcp__canvas__analyze_reference_image",
 ]

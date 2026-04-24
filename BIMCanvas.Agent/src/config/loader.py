@@ -84,6 +84,12 @@ def ensure_agent_config_schema(config: dict) -> None:
                 f"config.json 必须包含对象类型的 `{provider}` 分域。"
             )
 
+    chatgpt_backend = config.get("chatgptBackend")
+    if chatgpt_backend is not None and not isinstance(chatgpt_backend, dict):
+        raise ValueError(
+            "config.json `chatgptBackend` 必须是对象（或整节缺失）。"
+        )
+
 
 def resolve_runtime_provider(config: dict) -> str:
     """解析当前生效的 runtimeProvider（支持环境变量覆盖）。"""

@@ -79,6 +79,7 @@ description: |
 - `computed/exclusions.json`
 - `mcp__canvas__request_background_screenshot`
 - `mcp__canvas__get_zone_boundaries`
+- `mcp__canvas__analyze_reference_image`（Stage A 必备，用于获取 A/B/C 原始素材）
 - `mcp__canvas__load_reference_analysis`（仅当用户要求修订既有分析时）
 - `modules/module_library.json` 的契约层字段（如尺寸、标签、限制）
 
@@ -151,10 +152,13 @@ description: |
 
 ### Stage A：`v1` 客观参考布局分析
 
-**目标**：只回答“参考布局本身是什么”。
+**目标**：只回答”参考布局本身是什么”。
+
+**【必须】** v1 阶段先调用 `mcp__canvas__analyze_reference_image({projectPath, attachmentId})` 拿到 A/B/C 原始素材，再用自然语言按下方推荐结构的四类内容整理。若工具返回 `is_error`，在 v1 的「当前不确定点」记录降级原因，再改用纯视觉观察完成 v1（不阻塞流程）。
 
 **这一步允许看什么**：
 - 参考图本身
+- `mcp__canvas__analyze_reference_image`（获取 A/B/C 原始素材）
 
 **这一步不要做什么**：
 - 不讨论当前项目能不能照搬
