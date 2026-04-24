@@ -214,10 +214,6 @@ class OpenAIAgent:
         model: str | None = None,
     ) -> None:
         settings = get_settings()
-        if settings.openai_api_key:
-            os.environ["OPENAI_API_KEY"] = settings.openai_api_key
-        if settings.base_url:
-            os.environ["OPENAI_BASE_URL"] = settings.base_url
         agents = _load_openai_agents_module()
         openai_module = importlib.import_module("openai")
         async_openai = openai_module.AsyncOpenAI

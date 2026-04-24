@@ -33,7 +33,7 @@ class Settings:
     配置来源：
     - Claude 直连：来自 config.json claude.*
     - Claude CCR 托管：base_url / api_key 来自 Server 注入的网关环境变量
-    - OpenAI 直连：来自 config.json openai.*，可被 OPENAI_* 环境变量覆盖
+    - OpenAI 直连：来自 config.json openai.*
     """
 
     runtime_provider: str
@@ -156,12 +156,12 @@ def _load_claude_settings(claude_config: dict) -> dict[str, object]:
 def _load_openai_settings(openai_config: dict) -> dict[str, object]:
     direct_api_key = _read_string(openai_config.get("apiKey"))
     direct_base_url = _read_string(openai_config.get("baseUrl"))
-    api_key = os.getenv("OPENAI_API_KEY", "").strip() or direct_api_key
-    base_url = os.getenv("OPENAI_BASE_URL", "").strip() or direct_base_url
+    api_key = direct_api_key
+    base_url = direct_base_url
 
     if not api_key:
         raise ValueError(
-            "OpenAI runtime requires OPENAI_API_KEY or config.json openai.apiKey."
+            "OpenAI runtime requires config.json openai.apiKey."
         )
 
     model_mapping = _sanitize_openai_model_mapping(

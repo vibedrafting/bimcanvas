@@ -652,7 +652,7 @@ def test_openai_settings_require_api_key(
     _set_web_default_model(home, "gpt-4.1")
     _reset_config_caches()
 
-    with pytest.raises(ValueError, match="OpenAI runtime requires OPENAI_API_KEY or config.json openai.apiKey"):
+    with pytest.raises(ValueError, match="OpenAI runtime requires config.json openai.apiKey"):
         get_settings()
 
 

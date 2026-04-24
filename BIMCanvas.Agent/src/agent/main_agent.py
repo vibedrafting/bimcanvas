@@ -170,11 +170,11 @@ class MainAgent:
         disallowed_tools = bundle.permissions_deny
 
         # 构建自定义环境变量（用于 Agent SDK 独立配置）
-        custom_env = {}
-        if settings.base_url:
-            custom_env["ANTHROPIC_BASE_URL"] = settings.base_url
-        if settings.anthropic_api_key:
-            custom_env["ANTHROPIC_API_KEY"] = settings.anthropic_api_key
+        custom_env = {
+            "ANTHROPIC_BASE_URL": settings.base_url or "",
+            "ANTHROPIC_API_KEY": settings.anthropic_api_key or "",
+            "ANTHROPIC_AUTH_TOKEN": "",
+        }
         # ANTHROPIC_DEFAULT_*_MODEL 由 _apply_model_mapping() 设置到 os.environ，
         # Agent SDK 的 env 参数是合并模式（{**os.environ, **custom_env}），自动继承。
 
