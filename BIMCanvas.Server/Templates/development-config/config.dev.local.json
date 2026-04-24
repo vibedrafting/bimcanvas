@@ -9,5 +9,10 @@
     "baseUrl": "",
     "apiKey": "",
     "defaultModel": "gpt-5.4"
+  },
+  "chatgptBackend": {
+    "accessToken": "",
+    "baseUrl": "https://chatgpt.com/backend-api/codex/responses",
+    "model": "gpt-5.4"
   }
 }
