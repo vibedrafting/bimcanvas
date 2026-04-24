@@ -235,6 +235,7 @@ def test_build_tools_registers_phase_one_local_tools_without_name_error(
         "Grep",
         "Bash",
         "AskUserQuestion",
+        "Skill",
         "delegate_query_task",
         "delegate_edit_task",
     ]
@@ -323,23 +324,22 @@ def test_build_tools_registers_supported_configured_agent_tools(
     assert "你负责检查项目文件" in inspect_tool.nested_agent.instructions
     assert "当前可用工具：Read / Glob" in inspect_tool.nested_agent.instructions
     assert [tool.name for tool in layout_tool.nested_agent.tools] == [
+        "Skill",
         "mcp__canvas__validate_layout",
         "mcp__canvas__request_background_screenshot",
         "mcp__canvas__get_zone_boundaries",
         "mcp__canvas__save_semantic_plan",
         "mcp__canvas__load_semantic_plan",
         "mcp__canvas__load_reference_analysis",
+        "mcp__canvas__save_reference_analysis",
+        "mcp__canvas__analyze_reference_image",
         "Read",
         "Write",
         "Glob",
         "Grep",
     ]
-    assert "`Skill` 不再作为工具暴露" in layout_tool.nested_agent.instructions
+    assert "Skill" in [tool.name for tool in layout_tool.nested_agent.tools]
     assert "当前项目路径：" in layout_tool.nested_agent.instructions
-    assert "Runtime-Assembled Skill: generate-planning" in layout_tool.nested_agent.instructions
-    assert "Runtime-Assembled Skill: generate-placement" in layout_tool.nested_agent.instructions
-    assert "`v0.1` 永远只分析当前户型" in layout_tool.nested_agent.instructions
-    assert "placement 只读取 `v0.3.content`" in layout_tool.nested_agent.instructions
     assert "AskUserQuestion" not in [tool.name for tool in layout_tool.nested_agent.tools]
     assert "OpenAI runtime registered configured agent tools:" in caplog.text
     assert "inspect-agent (Read, Glob)" in caplog.text
@@ -447,12 +447,15 @@ def test_openai_stage_two_keeps_layout_agent_enabled_under_recommended_shared_pe
     assert "layout-agent" in tool_names
     layout_tool = next(tool for tool in tools if tool.name == "layout-agent")
     assert [tool.name for tool in layout_tool.nested_agent.tools] == [
+        "Skill",
         "mcp__canvas__validate_layout",
         "mcp__canvas__request_background_screenshot",
         "mcp__canvas__get_zone_boundaries",
         "mcp__canvas__save_semantic_plan",
         "mcp__canvas__load_semantic_plan",
         "mcp__canvas__load_reference_analysis",
+        "mcp__canvas__save_reference_analysis",
+        "mcp__canvas__analyze_reference_image",
         "Read",
         "Write",
         "Glob",

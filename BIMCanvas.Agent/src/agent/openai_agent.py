@@ -20,6 +20,7 @@ from typing_extensions import TypedDict
 from ..config.configured_agents import parse_configured_agent_requirements
 from ..config.loader import AgentConfig
 from ..config.settings import get_settings
+from ..mcp.canvas import CANVAS_ALLOWED_TOOLS
 from ..runtime import (
     ConfigBundle,
     PendingInteractionRuntimeBinding,
@@ -47,14 +48,9 @@ _OPENAI_DELEGATE_EDIT_TOOL_NAME = "delegate_edit_task"
 _OPENAI_LAYOUT_AGENT_NAME = "layout-agent"
 _OPENAI_LAYOUT_AGENT_SKILL_NAMES = ("generate-planning", "generate-placement")
 _OPENAI_LAYOUT_AGENT_MCP_TOOL_ORDER = (
-    "mcp__canvas__request_background_screenshot",
-    "mcp__canvas__get_zone_boundaries",
-    "mcp__canvas__save_semantic_plan",
-    "mcp__canvas__load_semantic_plan",
-    "mcp__canvas__validate_layout",
-    "mcp__canvas__load_reference_analysis",
+    *CANVAS_ALLOWED_TOOLS,
 )
-_OPENAI_SUPPORTED_PERMISSION_TOOL_NAMES = frozenset({
+_OPENAI_DEFAULT_PERMISSION_TOOL_NAMES = frozenset({
     "Read", "Write", "Edit", "Glob", "Grep", "Bash",
     "AskUserQuestion", "Task", "Skill",
     *_OPENAI_LAYOUT_AGENT_MCP_TOOL_ORDER,
@@ -63,6 +59,11 @@ _OPENAI_RESERVED_AGENT_TOOL_NAMES = frozenset({
     *_OPENAI_LOCAL_TOOL_NAMES,
     _OPENAI_DELEGATE_QUERY_TOOL_NAME,
     _OPENAI_DELEGATE_EDIT_TOOL_NAME,
+    *_OPENAI_LAYOUT_AGENT_MCP_TOOL_ORDER,
+})
+_OPENAI_CONFIGURABLE_PERMISSION_TOOL_NAMES = frozenset({
+    *_OPENAI_LOCAL_TOOL_NAMES,
+    "Task",
     *_OPENAI_LAYOUT_AGENT_MCP_TOOL_ORDER,
 })
 _CLAUDE_MODEL_ALIASES = frozenset({"opus", "sonnet", "haiku"})
@@ -730,7 +731,9 @@ class OpenAIAgent:
                 blocked_specs=blocked_specs,
             )
         local_tool_names = [
-            name for name in resolved_tool_by_name if name in resolved_enabled_permission_tool_names
+            name
+            for name in resolved_tool_by_name
+            if name in _OPENAI_LOCAL_TOOL_NAMES and name in resolved_enabled_permission_tool_names
         ]
         local_tools = [resolved_tool_by_name[name] for name in local_tool_names]
         configured_tools = [
@@ -944,6 +947,42 @@ class OpenAIAgent:
                 args["version"] = version
             return await self._invoke_canvas_tool_impl("load_reference_analysis", args)
 
+        @with_tool_context(tool_name="mcp__canvas__save_reference_analysis")
+        async def canvas_save_reference_analysis(
+            ctx: Any,
+            zoneId: str,
+            content: str,
+            sourceImageId: str | None = None,
+        ) -> Any:
+            """Save a structured reference-analysis snapshot for the current zone."""
+            del ctx
+            args = {"zoneId": zoneId, "content": content}
+            if sourceImageId:
+                args["sourceImageId"] = sourceImageId
+            return await self._invoke_canvas_tool_impl("save_reference_analysis", args)
+
+        @with_tool_context(tool_name="mcp__canvas__analyze_reference_image")
+        async def canvas_analyze_reference_image(
+            ctx: Any,
+            attachmentId: str,
+            projectPath: str | None = None,
+            imageMode: str = "path",
+            promptOverride: str | None = None,
+            timeoutSeconds: int | None = None,
+        ) -> Any:
+            """Analyze a reference image attachment into structured design guidance."""
+            args: dict[str, Any] = {"attachmentId": attachmentId}
+            resolved_project_path = self._resolve_canvas_project_path(ctx, projectPath)
+            if resolved_project_path:
+                args["projectPath"] = resolved_project_path
+            if imageMode:
+                args["imageMode"] = imageMode
+            if promptOverride:
+                args["promptOverride"] = promptOverride
+            if timeoutSeconds is not None:
+                args["timeoutSeconds"] = timeoutSeconds
+            return await self._invoke_canvas_tool_impl("analyze_reference_image", args)
+
         @function_tool(name_override="Skill")
         async def skill_tool(skill: str) -> str:
             """加载指定 Skill 的工作流指令。在进入 planning 或 placement 阶段时调用。"""
@@ -971,6 +1010,8 @@ class OpenAIAgent:
             "mcp__canvas__load_semantic_plan": canvas_load_semantic_plan,
             "mcp__canvas__validate_layout": canvas_validate_layout,
             "mcp__canvas__load_reference_analysis": canvas_load_reference_analysis,
+            "mcp__canvas__save_reference_analysis": canvas_save_reference_analysis,
+            "mcp__canvas__analyze_reference_image": canvas_analyze_reference_image,
         }
 
     def _build_helper_agent_tools(
@@ -1443,6 +1484,7 @@ class OpenAIAgent:
             return (
                 f"{config.prompt}\n\n"
                 "## OpenAI Runtime Adapter Appendix\n"
+                f"- 当前项目路径：{project_path}\n"
                 f"- 当前工作目录：{working_directory}\n"
                 f"- 当前可用工具：{allowed_tools}\n"
                 f"{skills_prompt}"
@@ -1937,24 +1979,19 @@ class OpenAIAgent:
         denied_tools = bundle.permissions_deny
 
         if allowed_tools is None:
-            enabled_names = set(_OPENAI_SUPPORTED_PERMISSION_TOOL_NAMES)
+            enabled_names = set(_OPENAI_DEFAULT_PERMISSION_TOOL_NAMES)
         else:
-            enabled_names = {
-                name
-                for name in allowed_tools
-                if name in _OPENAI_SUPPORTED_PERMISSION_TOOL_NAMES
-            }
+            enabled_names = set(allowed_tools)
 
         enabled_names -= {
             name
             for name in denied_tools
-            if name in _OPENAI_SUPPORTED_PERMISSION_TOOL_NAMES
         }
 
         unsupported_requested = sorted({
             name
             for name in [*(allowed_tools or []), *denied_tools]
-            if name not in _OPENAI_SUPPORTED_PERMISSION_TOOL_NAMES
+            if name not in _OPENAI_CONFIGURABLE_PERMISSION_TOOL_NAMES
         })
         if unsupported_requested:
             logger.warning(

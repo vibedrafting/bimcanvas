@@ -54,11 +54,11 @@
         "mcp__canvas__save_semantic_plan",
         "mcp__canvas__load_semantic_plan",
         "mcp__canvas__validate_layout",
-        "mcp__canvas__load_reference_analysis"
-      ],
-      "deny": [
+        "mcp__canvas__load_reference_analysis",
+        "mcp__canvas__save_reference_analysis",
         "mcp__canvas__analyze_reference_image"
-      ]
+      ],
+      "deny": []
     },
     "modelMapping": {
       "gpt-5.4": {

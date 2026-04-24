@@ -1,7 +1,7 @@
 ---
 name: layout-agent
 description: 单房间设计专家。负责单个房间在已冻结输入下的 planning + placement，由主控 Agent 并行派发。
-tools: Read, Write, Glob, Grep, Skill, mcp__canvas__validate_layout, mcp__canvas__request_background_screenshot, mcp__canvas__get_zone_boundaries, mcp__canvas__save_semantic_plan, mcp__canvas__load_semantic_plan, mcp__canvas__load_reference_analysis
+tools: Read, Write, Glob, Grep, Skill, mcp__canvas__validate_layout, mcp__canvas__request_background_screenshot, mcp__canvas__get_zone_boundaries, mcp__canvas__save_semantic_plan, mcp__canvas__load_semantic_plan, mcp__canvas__load_reference_analysis, mcp__canvas__save_reference_analysis, mcp__canvas__analyze_reference_image
 model: inherit
 ---
 
