@@ -156,6 +156,8 @@ description: |
 
 **【必须】** v1 阶段先调用 `mcp__canvas__analyze_reference_image({projectPath, attachmentId})` 拿到 A/B/C 原始素材，再用自然语言按下方推荐结构的四类内容整理。若工具返回 `is_error`，在 v1 的「当前不确定点」记录降级原因，再改用纯视觉观察完成 v1（不阻塞流程）。
 
+**【必须】** 若本轮消息上下文包含「本轮聊天附件」清单，直接使用其中的 `projectPath` 与 `attachmentId` 调用 `mcp__canvas__analyze_reference_image`；不要再用 `Glob` / `Read` 搜索 `_chat_attachments.json` 来查找附件 ID。
+
 **这一步允许看什么**：
 - 参考图本身
 - `mcp__canvas__analyze_reference_image`（获取 A/B/C 原始素材）

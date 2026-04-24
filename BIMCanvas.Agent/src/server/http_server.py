@@ -244,6 +244,56 @@ def _sanitize_history_attachments(raw_value: Any) -> list[dict[str, Any]]:
     return sanitized
 
 
+def _build_context_with_chat_attachments(
+    context: Any,
+    *,
+    project_path: str,
+    client_message_id: str | None,
+    attachments: list[dict[str, Any]],
+    attachment_ids: list[Any],
+) -> dict[str, Any]:
+    base_context = dict(context) if isinstance(context, dict) else {}
+    attachment_items: list[dict[str, Any]] = []
+    seen_ids: set[str] = set()
+
+    for item in attachments:
+        attachment_id = str(item.get("attachmentId") or "").strip()
+        if not attachment_id or attachment_id in seen_ids:
+            continue
+        seen_ids.add(attachment_id)
+        attachment_items.append({
+            key: item.get(key)
+            for key in (
+                "attachmentId",
+                "clientMessageId",
+                "sourceKind",
+                "originalFileName",
+                "mimeType",
+                "sizeBytes",
+                "width",
+                "height",
+                "status",
+            )
+            if item.get(key) is not None
+        })
+
+    for raw_id in attachment_ids:
+        attachment_id = str(raw_id or "").strip()
+        if not attachment_id or attachment_id in seen_ids:
+            continue
+        seen_ids.add(attachment_id)
+        attachment_items.append({"attachmentId": attachment_id})
+
+    if attachment_items:
+        base_context["chatAttachments"] = {
+            "projectPath": project_path,
+            "clientMessageId": client_message_id,
+            "items": attachment_items,
+        }
+
+    return base_context
+
+
 async def _append_chunk_events(
     *,
     stream_mapper: MainStreamMapper,
@@ -681,6 +731,13 @@ async def chat_stream_handler(request: web.Request) -> web.StreamResponse:
     await response.prepare(request)
 
     runtime_context = _build_runtime_context(window_id, session.session_id, turn_id)
+    message_context = _build_context_with_chat_attachments(
+        context,
+        project_path=project_path,
+        client_message_id=client_message_id,
+        attachments=attachments,
+        attachment_ids=attachment_ids,
+    )
     stream_mapper = MainStreamMapper(session_id=session.session_id, turn_id=turn_id)
     terminal_event: dict[str, Any] | None = None
     client_stream_connected = True
@@ -714,7 +771,7 @@ async def chat_stream_handler(request: web.Request) -> web.StreamResponse:
             effort=effort,
             thinking=thinking,
             model=model,
-            context=context,
+            context=message_context,
             runtime_context=runtime_context,
         ):
             _, client_stream_connected = await _append_chunk_events(

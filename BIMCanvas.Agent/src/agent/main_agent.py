@@ -817,6 +817,36 @@ class MainAgent:
             )
             parts.append(f"分区：{zone_list}")
 
+        # ── 本轮聊天附件（由 _chat_attachments.json 持久化索引） ──
+        chat_attachments = context.get("chatAttachments")
+        if isinstance(chat_attachments, dict):
+            attachment_items = chat_attachments.get("items")
+            if isinstance(attachment_items, list) and attachment_items:
+                project_path = chat_attachments.get("projectPath") or "?"
+                client_message_id = chat_attachments.get("clientMessageId") or "?"
+                item_strs = []
+                for item in attachment_items:
+                    if not isinstance(item, dict):
+                        continue
+                    attachment_id = item.get("attachmentId") or "?"
+                    file_name = item.get("originalFileName") or "?"
+                    mime_type = item.get("mimeType") or "?"
+                    width = item.get("width") or "?"
+                    height = item.get("height") or "?"
+                    item_strs.append(
+                        f"attachmentId={attachment_id}, originalFileName={file_name}, "
+                        f"mimeType={mime_type}, size={width}x{height}"
+                    )
+                if item_strs:
+                    parts.append(
+                        "本轮聊天附件："
+                        f"projectPath={project_path}；clientMessageId={client_message_id}；"
+                        f"{'；'.join(item_strs)}。"
+                        "如需分析参考图，直接使用上述 attachmentId 调用 "
+                        "mcp__canvas__analyze_reference_image，"
+                        "不要再通过 Glob/Read 搜索 _chat_attachments.json。"
+                    )
+
         if not parts:
             return None
         detail = "\n".join(parts)

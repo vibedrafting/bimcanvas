@@ -16,6 +16,9 @@ namespace BIMCanvas.Server.Services
     {
         private const string ManifestFileName = "_chat_attachments.json";
         private const string ScreenshotsDirectoryName = "screenshots";
+        private static readonly Regex ShortAttachmentIdRegex = new(
+            @"^att_(\d+)$",
+            RegexOptions.Compiled | RegexOptions.IgnoreCase);
         private static readonly Regex InvalidFileNameCharsRegex = new(
             $"[{Regex.Escape(new string(Path.GetInvalidFileNameChars()))}]",
             RegexOptions.Compiled);
@@ -61,53 +64,59 @@ namespace BIMCanvas.Server.Services
             sourceKind = NormalizeSourceKind(sourceKind);
 
             var screenshotsDir = EnsureScreenshotsDirectory(projectPath);
-            var attachmentId = $"att_{Guid.NewGuid():N}";
             var extension = ResolveExtension(file.FileName, file.ContentType);
-            var storedFileName = $"chat_{SanitizeFileName(windowId)}_{attachmentId}{extension}";
-            var storedPath = Path.Combine(screenshotsDir, storedFileName);
-
-            await using (var output = new FileStream(
-                storedPath,
-                FileMode.CreateNew,
-                FileAccess.Write,
-                FileShare.Read,
-                bufferSize: 81920,
-                useAsync: true))
-            {
-                await file.CopyToAsync(output, cancellationToken);
-            }
-
             var now = DateTime.UtcNow;
-            var record = new ChatAttachmentRecord
-            {
-                AttachmentId = attachmentId,
-                ProjectPath = projectPath,
-                WindowId = windowId,
-                ClientMessageId = clientMessageId,
-                SourceKind = sourceKind,
-                OriginalFileName = string.IsNullOrWhiteSpace(file.FileName) ? storedFileName : file.FileName,
-                StoredFileName = storedFileName,
-                StoredPath = storedPath,
-                MimeType = string.IsNullOrWhiteSpace(file.ContentType) ? "application/octet-stream" : file.ContentType,
-                SizeBytes = file.Length,
-                Width = width,
-                Height = height,
-                Status = "draft",
-                CreatedAt = now,
-                LastUsedAt = now
-            };
+            ChatAttachmentRecord record;
+            string? storedPath = null;
 
             await _gate.WaitAsync(cancellationToken);
             try
             {
                 var manifest = await LoadManifestAsync(projectPath, cancellationToken);
+                var attachmentId = GenerateNextAttachmentId(manifest);
+                var storedFileName = $"chat_{SanitizeFileName(windowId)}_{attachmentId}{extension}";
+                storedPath = Path.Combine(screenshotsDir, storedFileName);
+
+                await using (var output = new FileStream(
+                    storedPath,
+                    FileMode.CreateNew,
+                    FileAccess.Write,
+                    FileShare.Read,
+                    bufferSize: 81920,
+                    useAsync: true))
+                {
+                    await file.CopyToAsync(output, cancellationToken);
+                }
+
+                record = new ChatAttachmentRecord
+                {
+                    AttachmentId = attachmentId,
+                    ProjectPath = projectPath,
+                    WindowId = windowId,
+                    ClientMessageId = clientMessageId,
+                    SourceKind = sourceKind,
+                    OriginalFileName = string.IsNullOrWhiteSpace(file.FileName) ? storedFileName : file.FileName,
+                    StoredFileName = storedFileName,
+                    StoredPath = storedPath,
+                    MimeType = string.IsNullOrWhiteSpace(file.ContentType) ? "application/octet-stream" : file.ContentType,
+                    SizeBytes = file.Length,
+                    Width = width,
+                    Height = height,
+                    Status = "draft",
+                    CreatedAt = now,
+                    LastUsedAt = now
+                };
+
                 manifest.GeneratedAt = now;
                 manifest.Attachments.Add(record);
                 await SaveManifestAsync(projectPath, manifest, cancellationToken);
             }
             catch
             {
-                SafeDeleteFile(storedPath);
+                if (!string.IsNullOrWhiteSpace(storedPath))
+                {
+                    SafeDeleteFile(storedPath);
+                }
                 throw;
             }
             finally
@@ -121,6 +130,36 @@ namespace BIMCanvas.Server.Services
                 record.StoredPath);
 
             return record;
+        }
+
+        private static string GenerateNextAttachmentId(ChatAttachmentManifest manifest)
+        {
+            var maxNumber = 0;
+            foreach (var record in manifest.Attachments)
+            {
+                var attachmentId = record.AttachmentId;
+                if (string.IsNullOrWhiteSpace(attachmentId))
+                {
+                    continue;
+                }
+
+                var match = ShortAttachmentIdRegex.Match(attachmentId.Trim());
+                if (!match.Success || !int.TryParse(match.Groups[1].Value, out var number))
+                {
+                    continue;
+                }
+
+                if (number > maxNumber)
+                {
+                    maxNumber = number;
+                }
+            }
+
+            var nextNumber = maxNumber + 1;
+            var padded = nextNumber < 1000
+                ? nextNumber.ToString("D3")
+                : nextNumber.ToString();
+            return $"att_{padded}";
         }
 
         public async Task<ChatAttachmentRecord> GetAsync(
