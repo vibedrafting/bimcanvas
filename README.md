@@ -30,8 +30,8 @@ dotnet run --project BIMCanvas.Server
 
 默认行为：
 
-- 启动 Server API：默认首选 `http://localhost:5000`（由 `<BIMCANVAS_HOME>/server_config.json > server.port` 管理），若端口被本项目历史 Server 进程占用会清理复用；其他仍运行的 BIMCanvas 实例或外部进程会顺序避让到下一个可用端口
-- 自动拉起 Web 开发服务器：默认首选 `http://localhost:5173`（由 `<BIMCANVAS_HOME>/server_config.json > web.port` 管理），若端口被同项目历史 Vite 进程占用会清理复用；其他占用会顺序避让到下一个可用端口
+- 启动 Server API：默认首选 `http://localhost:5000`（由 `<BIMCANVAS_HOME>/server_config.json > server.port` 管理），仅当前候选端口上的本项目历史 Server 进程会被清理复用；其他仍运行的 BIMCanvas 实例或外部进程会顺序避让到下一个可用端口
+- 自动拉起 Web 开发服务器：默认首选 `http://localhost:5173`（由 `<BIMCANVAS_HOME>/server_config.json > web.port` 管理），仅当前候选端口上的同项目历史 Vite 进程会被清理复用；其他占用会顺序避让到下一个可用端口
 - 自动启动 Agent 服务
 - Agent 开发态请求统一经由 `Server /agent` 代理转发，不再要求前端固定直连 `8865`
 - 自动打开浏览器

@@ -144,7 +144,6 @@ var pythonCommand = config.Agent.GetResolvedPythonCommand();
 var runtimeEndpointState = new RuntimeEndpointState();
 var configuredServerBinding = ResolveConfiguredServerBinding(builder.Configuration, config.Server.Port);
 builder.Configuration["BIMCANVAS_WEB_URL"] = BuildUrl(Uri.UriSchemeHttp, "localhost", configuredWebPort);
-CleanupOrphanedBIMCanvasServerProcesses(baseDir);
 var resolvedServerPort = ResolveManagedPort(
     "Server",
     configuredServerBinding.ListenHost,
@@ -537,8 +536,6 @@ Process? ccrProcess = null;
     // 2. 启动 Agent 服务（仅托管模式）
     if (agentReady && agentManagedByServer)
     {
-        CleanupOrphanedManagedAgentProcesses(agentProjectPath, configDir);
-
         var resolvedAgentPort = ResolveManagedPort(
             "Agent",
             "127.0.0.1",
@@ -691,7 +688,6 @@ Process? ccrProcess = null;
     // 3. 启动 Web 服务（不等待，后台运行）
     if (!isProduction && webReady && Directory.Exists(webProjectPath))
     {
-        CleanupOrphanedManagedWebProcesses(webProjectPath);
         var configuredWebUrl = BuildUrl(Uri.UriSchemeHttp, "localhost", configuredWebPort);
         var resolvedWebPort = ResolveManagedPort(
             "Web",
@@ -2368,174 +2364,6 @@ static PortOccupantOwnership ClassifyBIMCanvasAgentOccupant(
     {
         WriteWithColoredPrefix("[Server:WARN]", $"Agent 进程验证失败: {ex.Message}", ConsoleColor.DarkYellow);
         return PortOccupantOwnership.ExternalProcess;
-    }
-}
-
-static void CleanupOrphanedManagedAgentProcesses(string agentProjectPath, string managedHome)
-{
-    var currentProcessId = Environment.ProcessId;
-    var normalizedCurrentRoot = NormalizePathForMatch(agentProjectPath);
-    var normalizedCurrentHome = NormalizePathForMatch(managedHome);
-    var orphanPids = new List<int>();
-
-    foreach (var process in Process.GetProcesses())
-    {
-        using (process)
-        {
-            try
-            {
-                if (process.Id == currentProcessId || !IsPythonHostProcess(process.ProcessName))
-                {
-                    continue;
-                }
-
-                var commandLine = GetProcessCommandLine(process.Id);
-                if (!LooksLikeBIMCanvasAgentCommand(process.ProcessName, commandLine))
-                {
-                    continue;
-                }
-
-                var commandArgs = TokenizeCommandLine(commandLine);
-                if (!ContainsCommandLineArgument(commandArgs, "--managed-by-server"))
-                {
-                    continue;
-                }
-
-                var normalizedAgentRoot = NormalizePathForMatch(
-                    GetCommandLineArgumentValue(commandArgs, "--managed-agent-root") ?? string.Empty);
-                var normalizedManagedHome = NormalizePathForMatch(
-                    GetCommandLineArgumentValue(commandArgs, "--managed-home") ?? string.Empty);
-                var matchesCurrentAgentRoot = !string.IsNullOrWhiteSpace(normalizedAgentRoot)
-                    && normalizedAgentRoot.Equals(normalizedCurrentRoot, StringComparison.OrdinalIgnoreCase);
-                var matchesCurrentHome = !string.IsNullOrWhiteSpace(normalizedManagedHome)
-                    && normalizedManagedHome.Equals(normalizedCurrentHome, StringComparison.OrdinalIgnoreCase);
-
-                if (!matchesCurrentAgentRoot && !matchesCurrentHome)
-                {
-                    continue;
-                }
-
-                var parentServerPidRaw = GetCommandLineArgumentValue(commandArgs, "--managed-by-server");
-                var hasLiveOwner = !string.IsNullOrWhiteSpace(parentServerPidRaw)
-                    && !parentServerPidRaw.StartsWith("-", StringComparison.Ordinal)
-                    && int.TryParse(
-                        parentServerPidRaw,
-                        System.Globalization.NumberStyles.Integer,
-                        System.Globalization.CultureInfo.InvariantCulture,
-                        out var parentServerPid)
-                    && IsProcessAlive(parentServerPid);
-                if (hasLiveOwner)
-                {
-                    continue;
-                }
-
-                orphanPids.Add(process.Id);
-            }
-            catch (Exception ex)
-            {
-                WriteWithColoredPrefix(
-                    "[Server:WARN]",
-                    $"Agent 残留进程扫描跳过 PID {process.Id}: {ex.Message}",
-                    ConsoleColor.DarkYellow);
-            }
-        }
-    }
-
-    foreach (var orphanPid in orphanPids.Distinct())
-    {
-        WriteWithColoredPrefix(
-            "[Server]",
-            $"清理残留 Agent 进程 (PID: {orphanPid})，释放运行时资源",
-            ConsoleColor.White);
-        KillProcess(orphanPid);
-        Thread.Sleep(500);
-    }
-}
-
-static void CleanupOrphanedManagedWebProcesses(string webProjectPath)
-{
-    var currentProcessId = Environment.ProcessId;
-    var orphanPids = new List<int>();
-
-    foreach (var process in Process.GetProcesses())
-    {
-        using (process)
-        {
-            try
-            {
-                if (process.Id == currentProcessId ||
-                    !process.ProcessName.Contains("node", StringComparison.OrdinalIgnoreCase))
-                {
-                    continue;
-                }
-
-                if (ClassifyBIMCanvasWebOccupant(process.Id, webProjectPath) == PortOccupantOwnership.OwnedLegacy)
-                {
-                    orphanPids.Add(process.Id);
-                }
-            }
-            catch (Exception ex)
-            {
-                WriteWithColoredPrefix(
-                    "[Server:WARN]",
-                    $"Web 残留进程扫描跳过 PID {process.Id}: {ex.Message}",
-                    ConsoleColor.DarkYellow);
-            }
-        }
-    }
-
-    foreach (var orphanPid in orphanPids.Distinct())
-    {
-        WriteWithColoredPrefix(
-            "[Server]",
-            $"清理残留 Web 进程 (PID: {orphanPid})，释放端口资源",
-            ConsoleColor.White);
-        KillProcess(orphanPid);
-        Thread.Sleep(500);
-    }
-}
-
-static void CleanupOrphanedBIMCanvasServerProcesses(string serverBaseDir)
-{
-    var currentProcessId = Environment.ProcessId;
-    var orphanPids = new List<int>();
-
-    foreach (var process in Process.GetProcesses())
-    {
-        using (process)
-        {
-            try
-            {
-                if (process.Id == currentProcessId ||
-                    (!process.ProcessName.Contains("BIMCanvas.Server", StringComparison.OrdinalIgnoreCase) &&
-                     !process.ProcessName.Contains("dotnet", StringComparison.OrdinalIgnoreCase)))
-                {
-                    continue;
-                }
-
-                if (ClassifyBIMCanvasServerOccupant(process.Id, serverBaseDir) == PortOccupantOwnership.OwnedLegacy)
-                {
-                    orphanPids.Add(process.Id);
-                }
-            }
-            catch (Exception ex)
-            {
-                WriteWithColoredPrefix(
-                    "[Server:WARN]",
-                    $"Server 残留进程扫描跳过 PID {process.Id}: {ex.Message}",
-                    ConsoleColor.DarkYellow);
-            }
-        }
-    }
-
-    foreach (var orphanPid in orphanPids.Distinct())
-    {
-        WriteWithColoredPrefix(
-            "[Server]",
-            $"清理残留 Server 进程 (PID: {orphanPid})，释放端口资源",
-            ConsoleColor.White);
-        KillProcess(orphanPid);
-        Thread.Sleep(500);
     }
 }
 

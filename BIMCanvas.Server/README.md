@@ -24,8 +24,8 @@ dotnet run --project BIMCanvas.Server
 3. 自动初始化 `<BIMCANVAS_HOME>/` 下的全局配置模板（Server + Agent）
 4. Development 模式下额外初始化 `config.dev.local.json` / `ccr_config.dev.local.json`，并仅在运行时配置首次创建时将其作为初始化种子导入
 5. 自动启动 Agent 服务；若启用 CCR，则同时启动 CCR 网关
-   托管 Agent 启动前会先扫描并清理同一 `<BIMCANVAS_HOME>` / Agent 根目录下的孤儿托管 Agent，释放 `.runtime` SQLite 会话文件；端口扫描窗口内仍会回收可识别的残留进程，其他 BIMCanvas Agent 实例只避让不清理
-6. 自动查找并启动 Web 开发服务器（BIMCanvas.Web）；启动前会扫描并清理同项目、父 Server 已退出的历史 Vite 进程，端口扫描窗口内也会按同一规则回收可识别残留
+   托管 Agent 的端口解析与 Server / Web 保持一致：仅检查当前候选端口；若该端口被同一 `<BIMCANVAS_HOME>` / Agent 根目录下的历史托管进程占用则清理复用，其他占用则顺序避让
+6. 自动查找并启动 Web 开发服务器（BIMCanvas.Web）；仅在当前候选端口被同项目、父 Server 已退出的历史 Vite 进程占用时清理复用，不扫描其他端口
 7. 等待托管 Agent / Web 服务就绪后再宣布启动完成；若 Agent 未在预期时间内就绪，则按降级状态继续运行并输出明确告警
 8. **v3.0**：通过 URL 参数 `?project={项目路径}` 加载项目
 
@@ -50,9 +50,9 @@ docker compose -f deploy/docker-compose.yml -f deploy/docker-compose.local.yml u
 
 | 配置 | 位置 | 默认值 | 说明 |
 |------|------|--------|------|
-| API 端口 | `<BIMCANVAS_HOME>/server_config.json > server.port` | `5000` | REST API 首选端口；同项目历史 Server 进程会清理复用，其他占用会顺序避让 |
-| Web 开发端口 | `<BIMCANVAS_HOME>/server_config.json > web.port` | `5173` | Development 模式下 Vite dev server 首选端口；同项目历史 Vite 进程会清理复用，其他占用会顺序避让 |
-| Agent 端口 | `<BIMCANVAS_HOME>/server_config.json > agent.port` | `8865` | 托管启动 Agent 时使用的监听端口；同 `<BIMCANVAS_HOME>` / Agent 根目录的历史托管进程会清理复用 |
+| API 端口 | `<BIMCANVAS_HOME>/server_config.json > server.port` | `5000` | REST API 首选端口；仅当前候选端口上的同项目历史 Server 进程会清理复用，其他占用会顺序避让 |
+| Web 开发端口 | `<BIMCANVAS_HOME>/server_config.json > web.port` | `5173` | Development 模式下 Vite dev server 首选端口；仅当前候选端口上的同项目历史 Vite 进程会清理复用，其他占用会顺序避让 |
+| Agent 端口 | `<BIMCANVAS_HOME>/server_config.json > agent.port` | `8865` | 托管启动 Agent 时使用的监听端口；仅当前候选端口上的同 `<BIMCANVAS_HOME>` / Agent 根目录历史托管进程会清理复用 |
 | 项目目录 | `<BIMCANVAS_HOME>/Projects/` | Windows: `Documents/BIMCanvas/Projects/` | 项目解压目录 |
 | CCR 配置 | `<BIMCANVAS_HOME>/server_config.json` | `enabled=false` | 网关启用、端口 |
 | CCR Router 配置 | `<BIMCANVAS_HOME>/ccr_config.json` | 自动初始化 | 供应商 / 模型路由映射 |
