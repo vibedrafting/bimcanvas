@@ -25,8 +25,8 @@
 **【必须】**执行任务（query/edit/generate）前读取当前项目 `README.md`。系统根据任务类型自动加载工作流 Skill；一旦加载，必须严格遵守对应 Skill 的步骤和约束。Skill 文件本体由系统加载，但 Skill 中出现的相对业务路径均以当前项目目录为根目录解析。项目级运行时参考规则位于当前项目 `references/*.md`，是否读取以具体 Skill 的输入边界为准。
 
 **【必须】Read 调用模板：**
-- 文本/JSON：`{"file_path":"绝对路径","offset":1,"limit":2000}`
-- 图片：`{"file_path":"绝对路径"}`
+- 默认：`{"file_path":"绝对路径"}`
+- 仅分段读取长文本时加：`{"file_path":"绝对路径","offset":1,"limit":2000}`
 
 **【禁止】**给文本、JSON、图片传 `pages`，尤其禁止 `pages: ""`。遇到 `Invalid pages parameter` 时，下一次调用必须删除 `pages`，禁止原样重试。
 

@@ -24,8 +24,8 @@ IMPORTANT: 必须使用工具调用 API（function calling）调用 MCP 工具�
 **先读后写**：修改 `modules.json` 前先 Read 当前内容，不凭猜测写入。
 
 **【必须】Read 调用模板：**
-- 文本/JSON：`{"file_path":"绝对路径","offset":1,"limit":2000}`
-- 图片：`{"file_path":"绝对路径"}`
+- 默认：`{"file_path":"绝对路径"}`
+- 仅分段读取长文本时加：`{"file_path":"绝对路径","offset":1,"limit":2000}`
 
 **【禁止】**给文本、JSON、图片传 `pages`，尤其禁止 `pages: ""`。遇到 `Invalid pages parameter` 时，下一次调用必须删除 `pages`，禁止原样重试。
 
