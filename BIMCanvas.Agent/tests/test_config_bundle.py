@@ -93,3 +93,31 @@ def test_factory_injects_bundle_into_runtime_instances(
     assert getattr(claude_agent, "_bundle", None) is not None
     assert getattr(openai_agent, "_bundle", None) is not None
     assert getattr(claude_agent, "_subagents", {})
+
+
+def test_claude_runtime_prompts_include_project_and_working_directory(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    home = _prepare_bimcanvas_home(tmp_path)
+    _configure_test_home(monkeypatch, home)
+
+    project_path = tmp_path / "project"
+    worktree_path = tmp_path / "project-worktree"
+    project_path.mkdir()
+    worktree_path.mkdir()
+
+    claude_agent = create_agent(
+        "claude",
+        project_path=str(project_path),
+        working_directory=str(worktree_path),
+        window_seq=1,
+    )
+
+    options = claude_agent._create_options(model="sonnet")
+    layout_prompt = claude_agent._subagents["layout-agent"].prompt
+
+    assert f"项目路径: {project_path}" in options.system_prompt
+    assert f"工作目录: {worktree_path}" in options.system_prompt
+    assert f"当前项目路径：{project_path}" in layout_prompt
+    assert f"当前工作目录：{worktree_path}" in layout_prompt

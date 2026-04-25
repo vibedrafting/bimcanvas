@@ -154,7 +154,11 @@ class MainAgent:
 
     def configure(self, bundle: ConfigBundle) -> None:
         self._bundle = bundle
-        self._subagents = create_subagents(bundle.shared_agents)
+        self._subagents = create_subagents(
+            bundle.shared_agents,
+            project_path=self.project_path,
+            working_directory=self.working_directory,
+        )
 
     async def resume_interaction_stream(self, *args, **kwargs):
         raise NotImplementedError(
@@ -192,8 +196,10 @@ class MainAgent:
         # 从配置加载系统提示词和工具权限
         system_prompt = bundle.system_prompt
 
-        # 追加工作目录到 system prompt，让 AI 知道自己的工作路径
-        system_prompt = system_prompt + f"\n\n工作目录: {self.working_directory}"
+        # 追加项目路径和工作目录到 system prompt，让 AI 知道 MCP 参数和文件操作基准。
+        project_path = self.project_path or self.working_directory or "（unknown）"
+        working_directory = self.working_directory or self.project_path or "（unknown）"
+        system_prompt = system_prompt + f"\n\n项目路径: {project_path}\n工作目录: {working_directory}"
 
         allowed_tools = bundle.permissions_allow
         disallowed_tools = bundle.permissions_deny

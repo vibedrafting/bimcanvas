@@ -857,10 +857,18 @@ python -m src.image_generation.cli ^
 #### 后台截图 MCP 工具（request_background_screenshot）
 
 - **用途**：调用后台截图 API，保存到 `projectPath/screenshots`，返回保存后的完整路径。
-- **参数**：常用入口为 `projectPath`、`targetId`、`targetIds`；高级入口继续支持 `viewport`（单张）和 `shots`（批量）。
+- **必填**：`projectPath` 必须传入，且必须是当前 BIMCanvas 项目目录（包含 `project.json` 的目录）；禁止传空字符串、`null`、skill/plugin 目录、源码仓库目录或 `BIMCANVAS_HOME`。
+- **参数**：常用入口为 `projectPath`、`targetId`、`targetIds`；高级入口继续支持 `viewport`（单张）和 `shots`（批量）。`targetId`、`targetIds`、`viewport`、`shots` 都必须与 `projectPath` 一起传。
 - **默认**：`layerPreset=Agent`、`autoFitViewport=true`、`scale=2`。
 - **兜底**：只传 `projectPath` 时默认截全图；若同时提供单张和批量参数，按单张参数优先生效（`targetId > viewport > targetIds > shots`）。
 - **权限**：需在 `<BIMCANVAS_HOME>/agents/layout-agent.md` 的 `tools` 中显式加入该工具。
+
+最小合法调用：
+```json
+{
+  "projectPath": "C:\\Users\\...\\Projects\\demo_1"
+}
+```
 
 全图示例：
 ```json

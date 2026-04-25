@@ -343,27 +343,32 @@ async def ai_job_complete(args: dict[str, Any]) -> dict[str, Any]:
 
 @tool(
     "request_background_screenshot",
-    "后台截图：调用 Server 截图 API，直接返回截图图片（同时保存到 screenshots 目录备查）",
+    "后台截图。调用时必须传入 projectPath，且 projectPath 不可省略、不可为空、不可为 null。"
+    "projectPath 必须是当前 BIMCanvas 项目目录（包含 project.json 的目录），"
+    "必须使用系统提示词中的「项目路径」；禁止使用 skill/plugin 目录、源码仓库目录或 BIMCANVAS_HOME。"
+    "最小合法调用示例：{\"projectPath\":\"<当前项目路径>\"}。"
+    "需要局部截图时，在 projectPath 之外再追加 targetId、targetIds、viewport 或 shots。"
+    "工具会调用 Server 截图 API，直接返回截图图片（同时保存到 screenshots 目录备查）。",
     {
         "$schema": "http://json-schema.org/draft-07/schema#",
         "type": "object",
         "properties": {
             "projectPath": {
                 "type": "string",
-                "description": "BIMCanvas 项目目录（包含 project.json 的目录）。必须使用系统提示词中的「项目路径」或「工作目录」，不要使用 skill/plugin 目录。"
+                "description": "BIMCanvas 项目目录绝对路径，必填。必须逐字使用系统提示词中的「项目路径」；如果只有「工作目录」且该目录包含 project.json，才可使用工作目录。禁止省略、传空字符串、传 null，禁止使用 BIMCANVAS_HOME、skill/plugin 目录或源码仓库目录。"
             },
             "targetId": {
                 "type": "string",
-                "description": "常用单张截图目标 ID（推荐）：如 rz_1/r_1/dz_1。传入后会截取对应房间/计算区域/设计分区；优先级高于 viewport/targetIds/shots。"
+                "description": "常用单张截图目标 ID（推荐）：如 rz_1/r_1/dz_1。必须与 projectPath 一起传，例如 {\"projectPath\":\"...\",\"targetId\":\"rz_1\"}。传入后会截取对应房间/计算区域/设计分区；优先级高于 viewport/targetIds/shots。"
             },
             "targetIds": {
                 "type": "array",
-                "description": "常用批量截图目标 ID 列表（推荐）：如 [\"rz_1\", \"rz_2\"]。仅在未提供 targetId/viewport 时生效。",
+                "description": "常用批量截图目标 ID 列表（推荐）：如 [\"rz_1\", \"rz_2\"]。必须与 projectPath 一起传，例如 {\"projectPath\":\"...\",\"targetIds\":[\"rz_1\",\"rz_2\"]}。仅在未提供 targetId/viewport 时生效。",
                 "items": {"type": "string"}
             },
             "viewport": {
                 "type": "object",
-                "description": "高级单张截图范围。常用局部截图优先用 targetId；留空对象则全屏。也兼容旧格式 mode+roomId/zoneId。",
+                "description": "高级单张截图范围。必须与 projectPath 一起传。常用局部截图优先用 targetId；留空对象则全屏。也兼容旧格式 mode+roomId/zoneId。",
                 "properties": {
                     "id": {
                         "type": "string",
@@ -391,7 +396,7 @@ async def ai_job_complete(args: dict[str, Any]) -> dict[str, Any]:
             },
             "shots": {
                 "type": "array",
-                "description": "高级批量截图列表。每项可包含 targetId 或 viewport；targetId 优先。仅在未提供 targetId/viewport/targetIds 时生效。",
+                "description": "高级批量截图列表，必须与 projectPath 一起传。每项可包含 targetId 或 viewport；targetId 优先。仅在未提供 targetId/viewport/targetIds 时生效。",
                 "items": {
                     "type": "object",
                     "properties": {

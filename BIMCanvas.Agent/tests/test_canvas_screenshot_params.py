@@ -8,7 +8,7 @@ AGENT_ROOT = Path(__file__).resolve().parents[1]
 if str(AGENT_ROOT) not in sys.path:
     sys.path.insert(0, str(AGENT_ROOT))
 
-from src.mcp.canvas import _resolve_screenshot_viewports
+from src.mcp.canvas import _resolve_screenshot_viewports, request_background_screenshot
 
 
 def _resolved(args: dict) -> list[dict]:
@@ -16,6 +16,26 @@ def _resolved(args: dict) -> list[dict]:
     assert err is None
     assert viewports is not None
     return viewports
+
+
+def test_screenshot_tool_schema_keeps_project_path_required() -> None:
+    schema = request_background_screenshot.input_schema
+
+    assert schema["required"] == ["projectPath"]
+    assert schema["additionalProperties"] is False
+
+
+def test_screenshot_tool_descriptions_emphasize_required_project_path() -> None:
+    schema = request_background_screenshot.input_schema
+    tool_description = request_background_screenshot.description
+    project_path_description = schema["properties"]["projectPath"]["description"]
+
+    assert "projectPath" in tool_description
+    assert "必须传入" in tool_description
+    assert "不可省略" in tool_description
+    assert "项目路径" in project_path_description
+    assert "禁止使用 BIMCANVAS_HOME" in project_path_description
+    assert "skill/plugin 目录" in project_path_description
 
 
 def test_screenshot_params_default_to_full_project_shot() -> None:
