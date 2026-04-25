@@ -392,6 +392,14 @@ const needsRebuild = (current: BuildOptions, required: BuildOptions) => (
 );
 
 const applyViewport = (sceneService: NonNullable<ReturnType<typeof getThreeSceneService>>, projectData: ProjectData, viewport?: ViewportConfig): Bounds2D | null => {
+  if (viewport?.bounds) {
+    const mode = viewport.mode && viewport.mode !== 'full' ? viewport.mode : 'bounds';
+    const padding = computePadding(viewport.bounds, mode);
+    const targetBounds = expandBounds(viewport.bounds, padding);
+    sceneService.fitToBounds(targetBounds);
+    return targetBounds;
+  }
+
   // 新格式：id 字段 — 依次在三个数据集合中查找，不依赖前缀约定
   if (viewport?.id) {
     const targetId = viewport.id.toLowerCase();
@@ -440,13 +448,7 @@ const applyViewport = (sceneService: NonNullable<ReturnType<typeof getThreeScene
   }
 
   if (mode === 'bounds') {
-    if (!viewport?.bounds) {
-      throw new Error('Viewport bounds missing');
-    }
-    const padding = computePadding(viewport.bounds, mode);
-    const targetBounds = expandBounds(viewport.bounds, padding);
-    sceneService.fitToBounds(targetBounds);
-    return targetBounds;
+    throw new Error('Viewport bounds missing');
   }
 
   if (mode === 'room') {
@@ -603,8 +605,13 @@ const renderWithConfig = async (config: RenderConfig) => {
 
     const screenshotService = new ScreenshotService();
     const mode = config.viewport?.mode ?? 'full';
+    const shouldClipViewport = Boolean(
+      config.viewport?.id ||
+      config.viewport?.bounds ||
+      mode !== 'full'
+    );
     let clipRect: ClipRect | null = null;
-    if (mode !== 'full' && targetBounds) {
+    if (shouldClipViewport && targetBounds) {
       const canvas = sceneService.getCanvasElement();
       const scale = window.devicePixelRatio || 1;
       const canvasWidth = canvas.width / scale;

@@ -589,6 +589,8 @@ computed/*.json        → computed
 | `/api/screenshot/render` | POST | 后台截图（Playwright 无头渲染） | ✅ |
 | `/api/screenshot/render-batch` | POST | 批量截图（多视口并行） | ✅ |
 
+截图视口支持 `viewport.id`，按 `baseline.rooms` → `computed.roomZones` → `activeScheme.zones` 解析并自动聚焦；`viewport.bounds` 优先于 ID。截图快照会递归读取 `schemes/**/modules.json`，支持 `schemes/rz_3/dz_1/modules.json` 这类嵌套分区家具。
+
 ### 5.7 合并 API
 
 | 端点 | 方法 | 功能 | 状态 |

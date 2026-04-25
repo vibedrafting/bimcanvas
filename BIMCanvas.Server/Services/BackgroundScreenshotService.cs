@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
+using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using BIMCanvas.Core.Converters.Json;
@@ -98,6 +99,7 @@ namespace BIMCanvas.Server.Services
             {
                 viewport = new ViewportConfig
                 {
+                    Id = request.Viewport.Id,
                     Mode = string.IsNullOrWhiteSpace(request.Viewport.Mode)
                         ? "full"
                         : request.Viewport.Mode.ToLowerInvariant(),
@@ -503,9 +505,39 @@ namespace BIMCanvas.Server.Services
 
         private static string BuildProjectKey(string projectPath, string? strategyId)
         {
-            var lastWrite = Directory.GetLastWriteTimeUtc(projectPath).Ticks;
             var schemeId = string.IsNullOrWhiteSpace(strategyId) ? "default" : strategyId.Trim();
-            return $"{projectPath}|{schemeId}|{lastWrite}";
+            return $"{projectPath}|{schemeId}|{BuildProjectJsonFingerprint(projectPath)}";
+        }
+
+        private static string BuildProjectJsonFingerprint(string projectPath)
+        {
+            var files = new List<string>();
+            var projectJson = Path.Combine(projectPath, "project.json");
+            if (File.Exists(projectJson))
+            {
+                files.Add(projectJson);
+            }
+
+            foreach (var dirName in new[] { "baseline", "computed", "schemes" })
+            {
+                var dir = Path.Combine(projectPath, dirName);
+                if (Directory.Exists(dir))
+                {
+                    files.AddRange(Directory.EnumerateFiles(dir, "*.json", SearchOption.AllDirectories));
+                }
+            }
+
+            var parts = files
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .OrderBy(path => path, StringComparer.OrdinalIgnoreCase)
+                .Select(path =>
+                {
+                    var info = new FileInfo(path);
+                    var relativePath = Path.GetRelativePath(projectPath, path);
+                    return $"{relativePath}:{info.LastWriteTimeUtc.Ticks}:{info.Length}";
+                });
+
+            return string.Join("|", parts);
         }
 
         private string GetWebBaseUrl()
@@ -522,7 +554,7 @@ namespace BIMCanvas.Server.Services
                 return new ViewportSize { Width = DefaultViewportWidth, Height = DefaultViewportHeight };
             }
 
-            var mode = viewport?.Mode ?? "full";
+            var mode = ResolvePaddingMode(viewport);
             var padded = ExpandBounds(bounds, ComputePadding(bounds, mode));
             var width = padded.MaxX - padded.MinX;
             var height = padded.MaxY - padded.MinY;
@@ -575,6 +607,21 @@ namespace BIMCanvas.Server.Services
             return ResolveViewportSize(projectData, viewport);
         }
 
+        private static string ResolvePaddingMode(ViewportConfig? viewport)
+        {
+            if (viewport?.Bounds != null)
+            {
+                return "bounds";
+            }
+
+            if (!string.IsNullOrWhiteSpace(viewport?.Id))
+            {
+                return "zone";
+            }
+
+            return viewport?.Mode ?? "full";
+        }
+
         private static ViewportConfig? NormalizeViewport(ViewportConfig? viewport)
         {
             if (viewport == null)
@@ -584,6 +631,7 @@ namespace BIMCanvas.Server.Services
 
             return new ViewportConfig
             {
+                Id = viewport.Id,
                 Mode = string.IsNullOrWhiteSpace(viewport.Mode)
                     ? "full"
                     : viewport.Mode.ToLowerInvariant(),
@@ -699,6 +747,16 @@ namespace BIMCanvas.Server.Services
 
         private static Bounds2D? ComputeTargetBounds(ProjectData projectData, ViewportConfig? viewport)
         {
+            if (viewport?.Bounds != null)
+            {
+                return viewport.Bounds;
+            }
+
+            if (!string.IsNullOrWhiteSpace(viewport?.Id))
+            {
+                return ComputeBoundsById(projectData, viewport.Id);
+            }
+
             var mode = viewport?.Mode ?? "full";
             switch (mode)
             {
@@ -711,6 +769,36 @@ namespace BIMCanvas.Server.Services
                 default:
                     return ComputeProjectBounds(projectData);
             }
+        }
+
+        private static Bounds2D? ComputeBoundsById(ProjectData projectData, string id)
+        {
+            if (string.IsNullOrWhiteSpace(id))
+            {
+                return null;
+            }
+
+            var targetId = id.Trim();
+
+            var room = projectData.Baseline.Rooms
+                .Find(r => string.Equals(r.Id, targetId, StringComparison.OrdinalIgnoreCase));
+            var roomBounds = ToBounds(room?.Boundary);
+            if (roomBounds != null)
+            {
+                return roomBounds;
+            }
+
+            var roomZone = projectData.Computed.RoomZones
+                .Find(z => string.Equals(z.Id, targetId, StringComparison.OrdinalIgnoreCase));
+            var roomZoneBounds = ToBounds(roomZone?.ComputedBoundary ?? roomZone?.RawBoundary);
+            if (roomZoneBounds != null)
+            {
+                return roomZoneBounds;
+            }
+
+            var zone = projectData.ActiveScheme.Zones
+                .Find(z => string.Equals(z.Id, targetId, StringComparison.OrdinalIgnoreCase));
+            return ToBounds(zone?.ComputedBoundary ?? zone?.RawBoundary);
         }
 
         private static Bounds2D? ComputeRoomBounds(ProjectData projectData, string? roomId)

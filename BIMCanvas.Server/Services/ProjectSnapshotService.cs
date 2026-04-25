@@ -1,7 +1,6 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
-using System.Linq;
 using System.Text;
 using BIMCanvas.Core.Converters.Json;
 using BIMCanvas.Core.Models.Computed;
@@ -154,23 +153,24 @@ namespace BIMCanvas.Server.Services
         {
             var allModules = new List<Module>();
 
-            var zoneDirs = Directory.GetDirectories(schemePath)
-                .Where(d =>
-                {
-                    var name = Path.GetFileName(d);
-                    return name.StartsWith("rz_") || name.StartsWith("dz_") || name == "_unzoned";
-                })
-                .ToList();
+            var leafFiles = ProjectService.FindAllLeafModuleFiles(schemePath);
 
-            if (zoneDirs.Count > 0)
+            if (leafFiles.Count > 0)
             {
-                foreach (var zoneDir in zoneDirs)
+                foreach (var (filePath, zoneId) in leafFiles)
                 {
-                    var modulesPath = Path.Combine(zoneDir, "modules.json");
-                    if (File.Exists(modulesPath))
+                    try
                     {
-                        var modules = ReadJson<List<Module>>(modulesPath) ?? new List<Module>();
+                        var modules = ReadJson<List<Module>>(filePath) ?? new List<Module>();
+                        foreach (var module in modules)
+                        {
+                            module.ZoneId ??= zoneId;
+                        }
                         allModules.AddRange(modules);
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogWarning(ex, "读取截图模块文件失败: {Path}", filePath);
                     }
                 }
             }
