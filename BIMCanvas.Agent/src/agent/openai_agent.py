@@ -867,14 +867,12 @@ class OpenAIAgent:
             ctx: Any,
             zoneId: str | None = None,
             zoneIds: list[str] | None = None,
-            debug: bool = False,
         ) -> Any:
             """Read semantic boundary segments for one or more zones.
 
             Args:
                 zoneId: Optional single zone shortcut.
                 zoneIds: Optional list of zone IDs.
-                debug: Whether to also push debug visuals to the browser.
             """
             del ctx
             args: dict[str, Any] = {}
@@ -883,8 +881,6 @@ class OpenAIAgent:
                 resolved_zone_ids = [zoneId, *[value for value in resolved_zone_ids if value != zoneId]]
             if resolved_zone_ids:
                 args["zoneIds"] = resolved_zone_ids
-            if debug:
-                args["debug"] = True
             return await self._invoke_canvas_tool_impl("get_zone_boundaries", args)
 
         @with_tool_context(tool_name="mcp__canvas__save_semantic_plan")
