@@ -72,9 +72,9 @@ IMPORTANT: 必须使用工具调用 API（function calling）调用 MCP 工具�
 
 ## 范围约束
 
-- **【必须】**只写入当前负责分区对应的 `schemes/{zoneId}/modules.json` 或其子分区文件
+- **【必须】**只写入当前负责范围内的叶子分区 `modules.json`；若当前负责分区是容器 zone，必须按子分区拆写
 - **【必须】**不修改其他分区文件
-- **【必须】**调用 `validate_layout` 时仅验证自己负责的分区
+- **【必须】**调用 `validate_layout` 时仅验证自己负责范围内的叶子分区
 - **【必须】**不派发其他子任务
 
 ---

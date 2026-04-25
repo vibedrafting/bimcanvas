@@ -104,6 +104,7 @@ WHY：功能驱动产出"有使用场景的空间"；几何驱动产出"零散�
 - 每个子 zone：`type = "designable"`，`id = "dz_{n}"`
 - 子 zone 的 `roomId` 继承父 zone，`tags ⊆ 父 zone tags + optionalTags`
 - 写入后 Server 自动创建子目录
+- **【必须】**一旦父 zone 产生 `subZones`，父 zone 只作为容器；后续模块读写以叶子 zone 为目标
 - 写入后调用 `get_zone_boundaries(zoneIds=[新子zone列表])` — 返回子 zone 边界中的 passage 段（通向相邻分区的开放连通），后续房间 Skill 据此避免在通道处放大型家具
 
 > WHY：子分区的 rawBoundary 不区分墙和通道。passage 段解决了"这条边到底是实墙还是通向 dz_2 的通道"的关键问题。

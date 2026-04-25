@@ -38,6 +38,11 @@
     │   └── modules.json            该分区的家具布置
     ├── rz_2/                       ⭐ 分区 2 的布置数据
     │   └── modules.json
+    ├── rz_3/                       容器分区（当存在 subZones 时）
+    │   ├── dz_1/
+    │   │   └── modules.json        叶子子分区 dz_1 的家具布置
+    │   └── dz_2/
+    │       └── modules.json        叶子子分区 dz_2 的家具布置
     ├── _unzoned/                   未分区模块（bounds 不在任何分区内）
     │   └── modules.json
     └── ...                         其他分区
@@ -67,20 +72,22 @@
 **数据模型版本**：v3.4（分区文件 + _unzoned）
 
 **正确路径**：
-- ✅ `schemes/rz_1/modules.json`（分区 1 的家具布置）
-- ✅ `schemes/rz_2/modules.json`（分区 2 的家具布置）
-- ✅ `schemes/rz_3/modules.json`（分区 3 的家具布置）
+- ✅ `schemes/rz_1/modules.json`（rz_1 无 `subZones` 时的家具布置）
+- ✅ `schemes/rz_3/dz_1/modules.json`（rz_3 有子分区时，dz_1 的家具布置）
+- ✅ `schemes/rz_3/dz_2/modules.json`（rz_3 有子分区时，dz_2 的家具布置）
 - ✅ `schemes/_unzoned/modules.json`（不在任何分区内的模块，Server 自动归类）
 
 **错误路径**：
 - ❌ `schemes/modules.json`（此路径不存在，已废弃）
+- ❌ `schemes/rz_3/modules.json`（当 rz_3 有 `subZones` 时，rz_3 是容器分区，不承载家具）
 
 **查找分区**：
 1. 读取 `schemes/zones.json` 获取所有分区 ID（如 rz_1, rz_2, rz_3...）
-2. 根据分区 ID 定位对应的 `schemes/{zoneId}/modules.json`
-3. `_unzoned` 目录由 Server 自动管理，存放 bounds 中心点不在任何 Room Zone 内的模块
+2. 若分区无 `subZones`，定位 `schemes/{zoneId}/modules.json`
+3. 若分区有 `subZones`，模块写入对应叶子子分区：`schemes/{parentZoneId}/{childZoneId}/modules.json`
+4. `_unzoned` 目录由 Server 自动管理，存放 bounds 中心点不在任何 Room Zone 内的模块
 
-**文件格式示例** (`schemes/rz_3/modules.json`)：
+**文件格式示例** (`schemes/rz_3/dz_2/modules.json`)：
 
 ```json
 [
@@ -120,13 +127,13 @@
 | 禁区信息 | `computed/exclusions.json` | 读 |
 | 设计规则 | `references/*.md` | 读 |
 | 家具库 | `modules/module_library.json` | 读 |
-| **布置结果** | `schemes/{zoneId}/modules.json` | **写** |
+| **布置结果** | 叶子分区 `modules.json` | **写** |
 
 ---
 
 ## 6. 添加布置模块示例
 
-在 `schemes/rz_3/modules.json` 中添加模块：
+在叶子分区 `schemes/rz_3/dz_2/modules.json` 中添加模块：
 
 ```json
 [
@@ -165,7 +172,7 @@
 | 问题 | 答案 |
 |------|------|
 | 如何找到分区 ID？ | 读取 `schemes/zones.json`，每个 zone 的 `id` 字段即分区 ID |
-| 模块应该写入哪个文件？ | `schemes/{zoneId}/modules.json`，zoneId 与 room_zones 中的 id 对应 |
+| 模块应该写入哪个文件？ | 写入目标叶子分区的 `modules.json`；父 zone 有 `subZones` 时，写入 `schemes/{parentZoneId}/{childZoneId}/modules.json` |
 | 如何避免与禁区冲突？ | 读取 `computed/exclusions.json`，确保 bounds 不重叠 |
 | bounds 顶点顺序？ | 矩形连续顺序：左下→右下→右上→左上 |
 | `facing` 应该怎么写？ | 规范格式是 `{ "value": [x, y], "semantic": null }`；AI 也可临时写 `{ "value": null, "semantic": "north" }`，随后必须调用 `validate_layout` 归一化 |

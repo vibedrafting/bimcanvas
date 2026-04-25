@@ -15,6 +15,16 @@ description: |
 - 不要从 `<BIMCANVAS_HOME>/skills/.../references/` 读取运行时设计规则
 - `modules/`、`computed/`、`schemes/` 也都相对当前项目目录读取
 
+**【必须】**模块布置只写入目标叶子分区的 `modules.json`。
+**【禁止】**写入 `schemes/modules.json`、`modules/modules.json`，或有 `subZones` 的容器分区 `modules.json`。
+
+示例：`rz_3` 有 `subZones=[dz_1,dz_2]` 时：
+- 衣帽/梳妆家具 → `schemes/rz_3/dz_1/modules.json`
+- 睡眠家具 → `schemes/rz_3/dz_2/modules.json`
+- 禁止 → `schemes/modules.json` 或 `schemes/rz_3/modules.json`
+
+WHY：Server 和验证器按叶子分区加载模块。写到根级或容器分区会导致“0 个模块，0 个错误”的假成功。
+
 ## 1. 执行模式
 
 进入本 Skill 后，先确认执行模式：
@@ -70,7 +80,7 @@ load_semantic_plan({ zoneId })
 - `references/design_evaluation.md`
 - `modules/module_library.json`
 - `schemes/zones.json`
-- 当前 `modules.json`（若已存在）
+- 当前目标叶子分区的 `modules.json`（若已存在）；若目标 zone 是容器，读取其所有叶子子分区的 `modules.json`
 - 对应房间策略文件：`references/bedroom.md` / `references/bathroom.md` / `references/livingroom.md`
 
 **读取顺序**：
@@ -78,7 +88,7 @@ load_semantic_plan({ zoneId })
 1. 先读 `load_semantic_plan` 返回的 `v0.3`
 2. 再读 `mcp__canvas__get_zone_boundaries({ zoneId })`
 3. 再读 `computed/exclusions.json`
-4. 最后读模块库、房间策略、当前 `modules.json`、设计原则与评估规则
+4. 最后读模块库、房间策略、当前目标叶子分区的 `modules.json`、设计原则与评估规则
 
 ---
 
@@ -204,7 +214,12 @@ load_semantic_plan({ zoneId })
 - 若验证失败且需要语义级改图 → 升级处理
 - 若多次失败 → 汇报失败原因
 
-**【必须】**一次性写入完整结果，再调用 `mcp__canvas__validate_layout`。
+**【必须】**一次性写入完整结果，再调用 `mcp__canvas__validate_layout({ zoneIds: [目标叶子zoneIds] })`。
+
+**验证闸门**：
+- 验证报告中的模块总数必须与本轮目标叶子文件中的模块总数一致
+- 若本轮写入了模块但验证显示 `0 个模块`，这是路径错误，不是验证通过
+- 必须重新解析叶子分区路径并写入正确文件，禁止汇报成功
 
 ---
 
