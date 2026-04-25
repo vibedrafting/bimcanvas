@@ -37,6 +37,7 @@ export const useAgentConfig = (agentApiBase: string, serverApiBase: string) => {
   const currentRuntime = ref<'claude' | 'openai'>('claude');
   const fallbackSet = computed(() => new Set(
     capabilityMatrix.value
+      .filter(row => row.level === 'unsupported')
       .map(row => row.frontendFallback)
       .filter((key): key is string => typeof key === 'string' && key.trim().length > 0)
   ));
