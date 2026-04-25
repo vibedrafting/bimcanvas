@@ -11,6 +11,7 @@ interface ChatScrollOptions {
 export const useChatScroll = (options: ChatScrollOptions) => {
   const chatScrollRefs = ref<Record<string, HTMLElement | null>>({});
   const chatBottomRefs = ref<Record<string, HTMLElement | null>>({});
+  const pendingScrollFrames = new Map<string, number>();
 
   const chatScrollRef = computed(() => chatScrollRefs.value[options.activeWindowId.value] || null);
   const chatBottomRef = computed(() => chatBottomRefs.value[options.activeWindowId.value] || null);
@@ -43,14 +44,7 @@ export const useChatScroll = (options: ChatScrollOptions) => {
     }
   };
 
-  const scrollToBottom = (scrollOptions?: { force?: boolean; windowId?: string }) => {
-    if (!scrollOptions?.force && options.mode.value !== 'chat') return;
-
-    const targetWindowId = scrollOptions?.windowId || options.activeWindowId.value;
-    const targetWin = options.windows.value.find(w => w.id === targetWindowId);
-
-    if (!scrollOptions?.force && targetWin && !targetWin.shouldAutoScroll) return;
-
+  const performScrollToBottom = (targetWindowId: string) => {
     const bottomRef = chatBottomRefs.value[targetWindowId];
     if (bottomRef) {
       bottomRef.scrollIntoView({ block: 'end' });
@@ -61,6 +55,35 @@ export const useChatScroll = (options: ChatScrollOptions) => {
     if (el) {
       el.scrollTop = el.scrollHeight;
     }
+  };
+
+  const scrollToBottom = (scrollOptions?: { force?: boolean; windowId?: string }) => {
+    if (!scrollOptions?.force && options.mode.value !== 'chat') return;
+
+    const targetWindowId = scrollOptions?.windowId || options.activeWindowId.value;
+    const targetWin = options.windows.value.find(w => w.id === targetWindowId);
+
+    if (!scrollOptions?.force && targetWin && !targetWin.shouldAutoScroll) return;
+
+    const pendingFrame = pendingScrollFrames.get(targetWindowId);
+    if (scrollOptions?.force) {
+      if (pendingFrame !== undefined) {
+        cancelAnimationFrame(pendingFrame);
+        pendingScrollFrames.delete(targetWindowId);
+      }
+      performScrollToBottom(targetWindowId);
+      return;
+    }
+
+    if (pendingFrame !== undefined) return;
+
+    const frame = requestAnimationFrame(() => {
+      pendingScrollFrames.delete(targetWindowId);
+      const latestTargetWin = options.windows.value.find(w => w.id === targetWindowId);
+      if (latestTargetWin && !latestTargetWin.shouldAutoScroll) return;
+      performScrollToBottom(targetWindowId);
+    });
+    pendingScrollFrames.set(targetWindowId, frame);
   };
 
   const handleTableWheel = (event: WheelEvent) => {

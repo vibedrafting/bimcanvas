@@ -6,6 +6,7 @@ import asyncio
 import base64
 import json
 import logging
+import time
 import uuid
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -41,6 +42,10 @@ agents: dict[str, HostAgentProtocol] = {}  # windowId → Agent
 _agents_lock = asyncio.Lock()
 runtime_store = RuntimeStateStore()
 
+STREAM_DELTA_FLUSH_INTERVAL_SECONDS = 0.08
+STREAM_DELTA_FLUSH_MAX_CHARS = 512
+_COALESCIBLE_DELTA_CHUNK_TYPES = {"text", "thinking"}
+
 # 窗口序号管理（日志前缀用）
 _window_counter = 1  # 从 1 开始，primary 不占用（序号 0）
 _window_seq_map: dict[str, int] = {}  # windowId → 序号
@@ -69,6 +74,146 @@ def _build_session_ready_event(session_snapshot: dict[str, Any]) -> dict[str, An
         "runtimeId": session_snapshot["runtimeId"],
         "status": session_snapshot["status"],
     }
+
+
+class _StreamDeltaCoalescer:
+    """Coalesce high-frequency text/thinking deltas before SSE/history emission."""
+
+    def __init__(
+        self,
+        *,
+        flush_interval_seconds: float = STREAM_DELTA_FLUSH_INTERVAL_SECONDS,
+        max_chars: int = STREAM_DELTA_FLUSH_MAX_CHARS,
+    ) -> None:
+        self.flush_interval_seconds = flush_interval_seconds
+        self.max_chars = max_chars
+        self._chunk_type: str | None = None
+        self._content_parts: list[str] = []
+        self._content_length = 0
+        self._buffer_started_at = 0.0
+        self._chunk_attrs: dict[str, Any] = {}
+        self._flush_task: asyncio.Task[None] | None = None
+        self._lock = asyncio.Lock()
+
+    async def process(
+        self,
+        chunk: StreamChunk,
+        emit_chunk: Any,
+    ) -> None:
+        async with self._lock:
+            if not self._can_coalesce(chunk):
+                await self._flush_locked(emit_chunk, cancel_timer=True)
+                await emit_chunk(chunk)
+                return
+
+            chunk_key = self._coalesce_key(chunk)
+            if self._content_parts and chunk_key != self._coalesce_key_from_buffer():
+                await self._flush_locked(emit_chunk, cancel_timer=True)
+
+            now = time.monotonic()
+            if not self._content_parts:
+                self._chunk_type = chunk.type
+                self._buffer_started_at = now
+                self._chunk_attrs = self._extract_chunk_attrs(chunk)
+                self._schedule_flush(emit_chunk)
+
+            self._content_parts.append(chunk.content)
+            self._content_length += len(chunk.content)
+
+            if (
+                self._content_length >= self.max_chars
+                or now - self._buffer_started_at >= self.flush_interval_seconds
+            ):
+                await self._flush_locked(emit_chunk, cancel_timer=True)
+
+    async def flush(self, emit_chunk: Any) -> None:
+        async with self._lock:
+            await self._flush_locked(emit_chunk, cancel_timer=True)
+
+    async def _flush_locked(self, emit_chunk: Any, *, cancel_timer: bool) -> None:
+        if not self._content_parts or self._chunk_type is None:
+            if cancel_timer:
+                self._cancel_flush_task()
+            return
+
+        if cancel_timer:
+            self._cancel_flush_task()
+
+        content = "".join(self._content_parts)
+        chunk = StreamChunk(
+            type=self._chunk_type,
+            content=content,
+            **self._chunk_attrs,
+        )
+        self._clear()
+        await emit_chunk(chunk)
+
+    def _schedule_flush(self, emit_chunk: Any) -> None:
+        self._cancel_flush_task()
+        self._flush_task = asyncio.create_task(self._flush_later(emit_chunk))
+
+    def _cancel_flush_task(self) -> None:
+        task = self._flush_task
+        if task is None:
+            return
+        self._flush_task = None
+        if task is not asyncio.current_task() and not task.done():
+            task.cancel()
+
+    async def _flush_later(self, emit_chunk: Any) -> None:
+        try:
+            await asyncio.sleep(self.flush_interval_seconds)
+            async with self._lock:
+                self._flush_task = None
+                await self._flush_locked(emit_chunk, cancel_timer=False)
+        except asyncio.CancelledError:
+            return
+
+    def _clear(self) -> None:
+        self._chunk_type = None
+        self._content_parts = []
+        self._content_length = 0
+        self._buffer_started_at = 0.0
+        self._chunk_attrs = {}
+
+    def _can_coalesce(self, chunk: StreamChunk) -> bool:
+        return (
+            chunk.type in _COALESCIBLE_DELTA_CHUNK_TYPES
+            and bool(chunk.content)
+            and not chunk.error
+            and not chunk.error_type
+            and not chunk.error_content
+            and not chunk.hidden_content
+        )
+
+    def _coalesce_key_from_buffer(self) -> tuple[Any, ...]:
+        return (
+            self._chunk_type,
+            self._chunk_attrs.get("subagent_id"),
+            self._chunk_attrs.get("subagent_name"),
+            self._chunk_attrs.get("subagent_type"),
+            self._chunk_attrs.get("parent_subtask_id"),
+            self._chunk_attrs.get("origin"),
+        )
+
+    def _coalesce_key(self, chunk: StreamChunk) -> tuple[Any, ...]:
+        return (
+            chunk.type,
+            chunk.subagent_id,
+            chunk.subagent_name,
+            chunk.subagent_type,
+            chunk.parent_subtask_id,
+            chunk.origin,
+        )
+
+    def _extract_chunk_attrs(self, chunk: StreamChunk) -> dict[str, Any]:
+        return {
+            "subagent_id": chunk.subagent_id,
+            "subagent_name": chunk.subagent_name,
+            "subagent_type": chunk.subagent_type,
+            "parent_subtask_id": chunk.parent_subtask_id,
+            "origin": chunk.origin,
+        }
 
 
 def _resolve_runtime_provider_from_settings(settings: Any) -> str:
@@ -206,7 +351,7 @@ async def _try_write_sse_data(response: web.StreamResponse, data: dict[str, Any]
     try:
         await response.write(f"data: {json.dumps(data, ensure_ascii=False)}\n\n".encode("utf-8"))
         return True
-    except (ConnectionResetError, RuntimeError):
+    except (BrokenPipeError, ConnectionResetError, RuntimeError):
         return False
 
 
@@ -741,7 +886,36 @@ async def chat_stream_handler(request: web.Request) -> web.StreamResponse:
     stream_mapper = MainStreamMapper(session_id=session.session_id, turn_id=turn_id)
     terminal_event: dict[str, Any] | None = None
     client_stream_connected = True
+    client_disconnect_logged = False
     turn_paused = False
+    delta_coalescer = _StreamDeltaCoalescer()
+
+    def _log_client_stream_disconnected_once() -> None:
+        nonlocal client_disconnect_logged
+        if client_disconnect_logged:
+            return
+        client_disconnect_logged = True
+        logger.info(
+            "Client stream disconnected; continue turn in transcript-only mode. "
+            "windowId=%s sessionId=%s turnId=%s",
+            window_id,
+            session.session_id,
+            turn_id,
+        )
+
+    async def _emit_stream_chunk(chunk: StreamChunk) -> None:
+        nonlocal client_stream_connected
+        _, client_stream_connected = await _append_chunk_events(
+            stream_mapper=stream_mapper,
+            chunk=chunk,
+            session_id=session.session_id,
+            turn_id=turn_id,
+            window_id=window_id,
+            response=response,
+            client_stream_connected=client_stream_connected,
+        )
+        if not client_stream_connected:
+            _log_client_stream_disconnected_once()
 
     try:
         if not session.ready_announced:
@@ -751,6 +925,8 @@ async def chat_stream_handler(request: web.Request) -> web.StreamResponse:
                     response,
                     _build_session_ready_event(session_snapshot),
                 )
+                if not client_stream_connected:
+                    _log_client_stream_disconnected_once()
             await runtime_store.mark_session_ready_announced(session.session_id)
 
         await runtime_store.mark_session_running(session.session_id, turn_id)
@@ -774,24 +950,9 @@ async def chat_stream_handler(request: web.Request) -> web.StreamResponse:
             context=message_context,
             runtime_context=runtime_context,
         ):
-            _, client_stream_connected = await _append_chunk_events(
-                stream_mapper=stream_mapper,
-                chunk=chunk,
-                session_id=session.session_id,
-                turn_id=turn_id,
-                window_id=window_id,
-                response=response,
-                client_stream_connected=client_stream_connected,
-            )
-            if not client_stream_connected:
-                logger.info(
-                    "Client stream disconnected; continue turn in transcript-only mode. "
-                    "windowId=%s sessionId=%s turnId=%s",
-                    window_id,
-                    session.session_id,
-                    turn_id,
-                )
+            await delta_coalescer.process(chunk, _emit_stream_chunk)
 
+        await delta_coalescer.flush(_emit_stream_chunk)
         terminal_event = stream_mapper.build_success_terminal_event()
         await runtime_store.append_event_history(
             session_id=session.session_id,
@@ -803,6 +964,7 @@ async def chat_stream_handler(request: web.Request) -> web.StreamResponse:
             client_stream_connected = await _try_write_sse_data(response, terminal_event)
 
     except TurnPausedError as exc:
+        await delta_coalescer.flush(_emit_stream_chunk)
         pending_interaction_id = exc.interaction_id
         while True:
             logger.info(
@@ -841,20 +1003,15 @@ async def chat_stream_handler(request: web.Request) -> web.StreamResponse:
                     resolution_payload=resolution_payload,
                     session=session,
                 ):
-                    _, client_stream_connected = await _append_chunk_events(
-                        stream_mapper=stream_mapper,
-                        chunk=chunk,
-                        session_id=session.session_id,
-                        turn_id=turn_id,
-                        window_id=window_id,
-                        response=response,
-                        client_stream_connected=client_stream_connected,
-                    )
+                    await delta_coalescer.process(chunk, _emit_stream_chunk)
+                await delta_coalescer.flush(_emit_stream_chunk)
             except TurnPausedError as new_exc:
+                await delta_coalescer.flush(_emit_stream_chunk)
                 # 连续 pause（Agent 又问了新问题），进入下一轮等待
                 pending_interaction_id = new_exc.interaction_id
                 continue
             except Exception as resume_exc:
+                await delta_coalescer.flush(_emit_stream_chunk)
                 logger.exception(f"Resume stream error: {resume_exc}")
                 terminal_event = stream_mapper.build_exception_terminal_event(resume_exc)
                 await runtime_store.append_event_history(
@@ -873,6 +1030,7 @@ async def chat_stream_handler(request: web.Request) -> web.StreamResponse:
                 break
 
             # Resume 顺利跑完（未抛 TurnPausedError）→ turn 正常完成
+            await delta_coalescer.flush(_emit_stream_chunk)
             terminal_event = stream_mapper.build_success_terminal_event()
             await runtime_store.append_event_history(
                 session_id=session.session_id,
@@ -885,6 +1043,7 @@ async def chat_stream_handler(request: web.Request) -> web.StreamResponse:
             turn_paused = False
             break
     except Exception as exc:
+        await delta_coalescer.flush(_emit_stream_chunk)
         logger.exception(f"Stream error: {exc}")
         terminal_event = stream_mapper.build_exception_terminal_event(exc)
         await runtime_store.append_event_history(
@@ -901,7 +1060,7 @@ async def chat_stream_handler(request: web.Request) -> web.StreamResponse:
         if client_stream_connected:
             try:
                 await response.write(b"data: [DONE]\n\n")
-            except (ConnectionResetError, RuntimeError):
+            except (BrokenPipeError, ConnectionResetError, RuntimeError):
                 pass
         agent.clear_runtime_context()
         await _finalize_turn_state(session.session_id, turn_id, terminal_event, paused=turn_paused)

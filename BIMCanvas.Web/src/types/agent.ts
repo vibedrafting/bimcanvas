@@ -156,6 +156,7 @@ export interface ChatHistorySessionSnapshot {
   projectPath: string;
   worktreePath?: string | null;
   status: string;
+  activeTurnId?: string | null;
   createdAt?: string | null;
   lastActiveAt?: string | null;
   closedAt?: string | null;

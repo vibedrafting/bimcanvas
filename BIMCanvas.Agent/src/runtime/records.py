@@ -47,6 +47,7 @@ class RuntimeSessionRecord:
             "projectPath": self.project_path,
             "worktreePath": self.worktree_path,
             "status": self.base_status,
+            "activeTurnId": self.active_turn_id,
             "createdAt": _serialize_datetime(self.created_at),
             "lastActiveAt": _serialize_datetime(self.last_active_at),
             "closedAt": _serialize_datetime(self.closed_at),

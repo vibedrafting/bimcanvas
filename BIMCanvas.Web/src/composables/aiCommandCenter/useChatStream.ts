@@ -74,6 +74,9 @@ const ASSISTANT_EVENT_TYPES = new Set([
   'turn.completed',
   'turn.failed'
 ]);
+const STREAM_DELTA_EVENT_TYPES = new Set(['text.delta', 'thinking.delta']);
+const HISTORY_POLL_INTERVAL_MS = 1000;
+const HISTORY_POLL_MAX_ATTEMPTS = 30 * 60;
 
 type StreamPayload = Record<string, any>;
 
@@ -192,9 +195,13 @@ export const useChatStream = (options: ChatStreamOptions) => {
   const agentStatus = ref<'connecting' | 'connected' | 'disconnected'>('disconnected');
   const currentProjectPath = ref('');
   const isPollingBackground = ref(false);
+  const activeHistoryPollingWindows = new Set<string>();
 
   const getRandomWaitingVerb = (): string =>
     WAITING_VERBS[Math.floor(Math.random() * WAITING_VERBS.length)] ?? 'Processing';
+
+  const isLiveSessionStatus = (status?: string | null): boolean =>
+    status === 'running' || status === 'paused';
 
   const isSuppressedAssistantText = (content?: string | null): boolean => {
     const trimmed = (content || '').trim();
@@ -726,6 +733,58 @@ export const useChatStream = (options: ChatStreamOptions) => {
 
     let shouldCommitAttachments = false;
     let didReceiveAssistantEvent = false;
+    let pendingDeltaEvent: NormalizedStreamEvent | null = null;
+    let pendingDeltaFrame: number | null = null;
+
+    const getDeltaEventKey = (event: NormalizedStreamEvent): string =>
+      [
+        event.eventType,
+        getString(event.raw.subtaskId) ?? getString(event.raw.subAgentId) ?? ''
+      ].join(':');
+
+    const getDeltaEventContent = (event: NormalizedStreamEvent): string =>
+      getString(event.payload.content) ?? getString(event.raw.content) ?? '';
+
+    const applyEventToCurrentMessage = (event: NormalizedStreamEvent) => {
+      const currentMsg = options.getWindowMessage(targetWindowId, aiMessageIndex);
+      if (!currentMsg) return;
+      applyNormalizedEventToMessage(currentMsg, event);
+      options.scrollToBottom({ windowId: targetWindowId });
+    };
+
+    const flushPendingDeltaEvent = () => {
+      if (pendingDeltaFrame !== null) {
+        cancelAnimationFrame(pendingDeltaFrame);
+        pendingDeltaFrame = null;
+      }
+
+      const eventToApply = pendingDeltaEvent;
+      pendingDeltaEvent = null;
+      if (eventToApply) {
+        applyEventToCurrentMessage(eventToApply);
+      }
+    };
+
+    const enqueueDeltaEvent = (event: NormalizedStreamEvent) => {
+      if (pendingDeltaEvent && getDeltaEventKey(pendingDeltaEvent) === getDeltaEventKey(event)) {
+        const content = getDeltaEventContent(pendingDeltaEvent) + getDeltaEventContent(event);
+        pendingDeltaEvent = {
+          eventType: event.eventType,
+          payload: { ...event.payload, content },
+          raw: { ...event.raw, content }
+        };
+      } else {
+        flushPendingDeltaEvent();
+        pendingDeltaEvent = event;
+      }
+
+      if (pendingDeltaFrame === null) {
+        pendingDeltaFrame = requestAnimationFrame(() => {
+          pendingDeltaFrame = null;
+          flushPendingDeltaEvent();
+        });
+      }
+    };
 
     const restoreDraftState = (errorMessage?: string) => {
       const targetWin = options.windows.value.find(w => w.id === targetWindowId);
@@ -822,6 +881,7 @@ export const useChatStream = (options: ChatStreamOptions) => {
 
           const data = line.slice(6);
           if (data === '[DONE]') {
+            flushPendingDeltaEvent();
             if (!receivedTerminalEvent) {
               const currentMsg = options.getWindowMessage(targetWindowId, aiMessageIndex);
               if (currentMsg) {
@@ -855,18 +915,20 @@ export const useChatStream = (options: ChatStreamOptions) => {
               continue;
             }
 
-            const currentMsg = options.getWindowMessage(targetWindowId, aiMessageIndex);
-            if (!currentMsg) continue;
-            applyNormalizedEventToMessage(currentMsg, normalizedEvent);
+            if (STREAM_DELTA_EVENT_TYPES.has(normalizedEvent.eventType)) {
+              enqueueDeltaEvent(normalizedEvent);
+              continue;
+            }
 
-            await nextTick();
-            options.scrollToBottom({ windowId: targetWindowId });
+            flushPendingDeltaEvent();
+            applyEventToCurrentMessage(normalizedEvent);
           } catch (error) {
             console.error('Parse error:', error, data);
           }
         }
       }
 
+      flushPendingDeltaEvent();
       const finalMsg = options.getWindowMessage(targetWindowId, aiMessageIndex);
       if (finalMsg && !receivedTerminalEvent) {
         finalizeStreamingMessage(finalMsg);
@@ -875,6 +937,7 @@ export const useChatStream = (options: ChatStreamOptions) => {
       agentStatus.value = 'connected';
       shouldCommitAttachments = true;
     } catch (error) {
+      flushPendingDeltaEvent();
       // AbortError 是用户主动中止，不是真正的错误
       if (error instanceof Error && error.name === 'AbortError') {
         console.log('[sendMessage] Request aborted by user');
@@ -916,6 +979,7 @@ export const useChatStream = (options: ChatStreamOptions) => {
       }
       agentStatus.value = errorInfo.shouldMarkDisconnected ? 'disconnected' : 'connected';
     } finally {
+      flushPendingDeltaEvent();
       if (shouldCommitAttachments && attachmentIds.length > 0 && currentProjectPath.value) {
         try {
           await ChatAttachmentService.commitAttachments({
@@ -1042,8 +1106,11 @@ export const useChatStream = (options: ChatStreamOptions) => {
 
   const restoreHistoryForWindow = (windowState: ChatWindow, response: ChatHistoryResponse) => {
     const turnMessages = new Map<string, { user?: ChatMessage; ai?: ChatMessage }>();
+    const sessionStatus = response.sessionStatus ?? response.session?.status ?? null;
+    const activeTurnId = response.session?.activeTurnId ?? null;
+    const shouldKeepActiveTurnStreaming = isLiveSessionStatus(sessionStatus) && !!activeTurnId;
     windowState.messages = [];
-    windowState.isStreaming = false;
+    windowState.isStreaming = shouldKeepActiveTurnStreaming;
 
     const ensureAiMessageForTurn = (turnId: string, timestamp: number): ChatMessage => {
       const existing = turnMessages.get(turnId);
@@ -1108,14 +1175,20 @@ export const useChatStream = (options: ChatStreamOptions) => {
       }
     }
 
+    const activeAiMessage = activeTurnId ? turnMessages.get(activeTurnId)?.ai : undefined;
+    windowState.isStreaming = shouldKeepActiveTurnStreaming && !!activeAiMessage;
+
     for (const message of windowState.messages) {
       if (message.role !== 'ai') {
         continue;
       }
 
-      message.isStreaming = false;
-      exitWaitingState(message.waitingState);
-      cleanupRestoredStreamingBubbles(message.bubbles, hasPendingQuestionBubble(message.bubbles));
+      const keepStreaming = shouldKeepActiveTurnStreaming && message === activeAiMessage;
+      message.isStreaming = keepStreaming;
+      if (!keepStreaming) {
+        exitWaitingState(message.waitingState);
+        cleanupRestoredStreamingBubbles(message.bubbles, hasPendingQuestionBubble(message.bubbles));
+      }
       pruneSuppressedTextBubbles(message.bubbles);
     }
   };
@@ -1132,6 +1205,55 @@ export const useChatStream = (options: ChatStreamOptions) => {
     await nextTick();
     options.scrollToBottom({ windowId });
     return response.sessionStatus ?? response.session?.status ?? null;
+  };
+
+  const wait = (ms: number): Promise<void> =>
+    new Promise(resolve => setTimeout(resolve, ms));
+
+  const pollHistoryForWindow = async (windowId: string) => {
+    if (activeHistoryPollingWindows.has(windowId)) {
+      return;
+    }
+
+    activeHistoryPollingWindows.add(windowId);
+    try {
+      for (let attempt = 0; attempt < HISTORY_POLL_MAX_ATTEMPTS; attempt++) {
+        if (!activeHistoryPollingWindows.has(windowId)) {
+          return;
+        }
+
+        if (!options.windows.value.some(item => item.id === windowId)) {
+          return;
+        }
+
+        await wait(HISTORY_POLL_INTERVAL_MS);
+
+        if (!activeHistoryPollingWindows.has(windowId)) {
+          return;
+        }
+
+        const status = await syncHistoryForWindow(windowId);
+        if (!isLiveSessionStatus(status)) {
+          return;
+        }
+      }
+    } catch (error) {
+      console.warn(`[useChatStream] History polling failed for window ${windowId}:`, error);
+    } finally {
+      activeHistoryPollingWindows.delete(windowId);
+    }
+  };
+
+  const startHistoryPollingForWindow = (windowId: string, status?: string | null) => {
+    if (!isLiveSessionStatus(status) || activeHistoryPollingWindows.has(windowId)) {
+      return;
+    }
+
+    void pollHistoryForWindow(windowId);
+  };
+
+  const cleanupHistoryPolling = () => {
+    activeHistoryPollingWindows.clear();
   };
 
   const waitForInteractionContinuation = async (windowId: string) => {
@@ -1165,7 +1287,8 @@ export const useChatStream = (options: ChatStreamOptions) => {
 
     await Promise.all(windowIds.map(async windowId => {
       try {
-        await syncHistoryForWindow(windowId);
+        const status = await syncHistoryForWindow(windowId);
+        startHistoryPollingForWindow(windowId, status);
       } catch (error) {
         console.warn(`[useChatStream] Restore history failed for window ${windowId}:`, error);
       }
@@ -1346,6 +1469,7 @@ export const useChatStream = (options: ChatStreamOptions) => {
     interruptMessage,
     checkAgentHealth,
     fetchProjectPath,
-    cleanupHealthCheck
+    cleanupHealthCheck,
+    cleanupHistoryPolling
   };
 };

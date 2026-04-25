@@ -1937,7 +1937,7 @@ class OpenAIAgent:
             logger.info(
                 "OpenAI runtime registered configured agent tools: %s",
                 "; ".join(
-                    f"{spec.config.name} ({', '.join(spec.tool_names) or 'no tools'})"
+                    self._format_configured_agent_log_entry(spec)
                     for spec in enabled_specs
                 ),
             )
@@ -1963,6 +1963,13 @@ class OpenAIAgent:
                 break
 
         self._configured_subagents_logged = True
+
+    def _format_configured_agent_log_entry(self, spec: _ConfiguredAgentToolSpec) -> str:
+        tool_summary = ", ".join(spec.tool_names) or "no tools"
+        if spec.config.name == _OPENAI_LAYOUT_AGENT_NAME and "Skill" in spec.tool_names:
+            skill_summary = ", ".join(_OPENAI_LAYOUT_AGENT_SKILL_NAMES)
+            tool_summary = f"{tool_summary}; skills[{skill_summary}]"
+        return f"{spec.config.name} ({tool_summary})"
 
     def _resolve_enabled_permission_tool_names(self) -> list[str]:
         bundle = self._require_bundle()

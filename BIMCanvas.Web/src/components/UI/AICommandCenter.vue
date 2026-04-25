@@ -326,7 +326,8 @@ const {
   interruptMessage,
   checkAgentHealth,
   fetchProjectPath,
-  cleanupHealthCheck
+  cleanupHealthCheck,
+  cleanupHistoryPolling
 } = useChatStream({
   agentApiBase: AGENT_API_BASE,
   windows,
@@ -500,13 +501,13 @@ watch(() => props.panelReady, (newVal) => {
   }
 });
 
-watch(() => chatMessages.value, () => {
+watch([activeWindowId, () => chatMessages.value.length], () => {
   if (shouldAutoScroll.value) {
     nextTick(() => {
       scrollToBottom();
     });
   }
-}, { deep: true });
+});
 
 const handleKeydown = (event: KeyboardEvent) => {
   if (event.key === 'Enter' && !event.shiftKey) {
@@ -554,6 +555,7 @@ onUnmounted(() => {
   stopScreenshotListening();
   stopQuestionListening();
   cleanupHealthCheck();
+  cleanupHistoryPolling();
 });
 
 // 用 watch 代替 onMounted 注册 wheel 监听器

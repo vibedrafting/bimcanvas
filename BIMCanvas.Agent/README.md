@@ -149,6 +149,8 @@ data: [DONE]
 - `session_ready` 保持旧特例格式，不升级为 envelope
 - `task_output_polling` 保持 ClaudeRuntime 私有 legacy flat 事件，不进入 envelope
 - `turn.completed` / `turn.failed` 由 Host 显式合成；legacy `[DONE]` 继续保留
+- Host 会在输出边界合并高频 `text.delta` / `thinking.delta`，默认约 80ms 或 512 字符 flush 一次；事件协议不变，仅单条 delta 的内容更长
+- Web 刷新或 SSE 断开后，当前 turn 不会被取消；Host 继续写 transcript-only history，并且每个 turn 只记录一次断线日志
 
 ### ControlPlane 配置
 

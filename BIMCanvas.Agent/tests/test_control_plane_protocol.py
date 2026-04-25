@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 import sys
 from pathlib import Path
 from types import SimpleNamespace
@@ -43,6 +44,48 @@ def _parse_sse_payloads(raw_text: str) -> list[dict | str]:
         data = line[6:]
         payloads.append(data if data == "[DONE]" else json.loads(data))
     return payloads
+
+
+def test_stream_delta_coalescer_batches_text_and_flushes_on_boundary() -> None:
+    async def _test() -> None:
+        emitted: list[StreamChunk] = []
+
+        async def _emit(chunk: StreamChunk) -> None:
+            emitted.append(chunk)
+
+        coalescer = http_server._StreamDeltaCoalescer(
+            flush_interval_seconds=999,
+            max_chars=50,
+        )
+
+        for _ in range(100):
+            await coalescer.process(StreamChunk(type="text", content="x"), _emit)
+        await coalescer.flush(_emit)
+
+        assert len(emitted) < 100
+        assert "".join(chunk.content for chunk in emitted) == "x" * 100
+        assert all(chunk.type == "text" for chunk in emitted)
+
+        emitted.clear()
+        coalescer = http_server._StreamDeltaCoalescer(
+            flush_interval_seconds=999,
+            max_chars=999,
+        )
+        await coalescer.process(StreamChunk(type="text", content="a"), _emit)
+        await coalescer.process(StreamChunk(type="text", content="b"), _emit)
+        await coalescer.process(
+            StreamChunk(type="tool_call_start", tool_call_id="tc-1", tool_name="Read"),
+            _emit,
+        )
+        await coalescer.process(StreamChunk(type="text", content="c"), _emit)
+        await coalescer.flush(_emit)
+
+        assert [chunk.type for chunk in emitted] == ["text", "tool_call_start", "text"]
+        assert emitted[0].content == "ab"
+        assert emitted[1].tool_call_id == "tc-1"
+        assert emitted[2].content == "c"
+
+    asyncio.run(_test())
 
 
 def test_config_handler_returns_capability_matrix(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -279,10 +322,31 @@ def test_history_endpoint_returns_session_transcript_and_terminal_interactions(
     asyncio.run(_test())
 
 
+def test_history_endpoint_exposes_active_turn_id(monkeypatch: pytest.MonkeyPatch) -> None:
+    async def _test() -> None:
+        runtime_store = RuntimeStateStore()
+        session = await runtime_store.create_session(window_id="primary", project_path="C:/demo", worktree_path=None)
+        await runtime_store.mark_session_running(session.session_id, "turn-active")
+
+        client = await _build_client(monkeypatch, runtime_store)
+        try:
+            history_response = await client.get("/api/history?windowId=primary")
+            assert history_response.status == 200
+            history_payload = await history_response.json()
+            assert history_payload["sessionStatus"] == "running"
+            assert history_payload["session"]["activeTurnId"] == "turn-active"
+        finally:
+            await client.close()
+
+    asyncio.run(_test())
+
+
 def test_chat_stream_continues_recording_history_after_client_stream_disconnect(
     monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
 ) -> None:
     async def _test() -> None:
+        caplog.set_level(logging.INFO, logger=http_server.logger.name)
         runtime_store = RuntimeStateStore()
         session = await runtime_store.create_session(window_id="primary", project_path="C:/demo", worktree_path=None)
 
@@ -340,6 +404,12 @@ def test_chat_stream_continues_recording_history_after_client_stream_disconnect(
             assert history[2]["event"]["eventType"] == "text.completed"
             assert history[3]["event"]["eventType"] == "turn.completed"
             assert write_attempts["count"] >= 1
+            disconnect_logs = [
+                record
+                for record in caplog.records
+                if "Client stream disconnected; continue turn in transcript-only mode" in record.getMessage()
+            ]
+            assert len(disconnect_logs) == 1
         finally:
             await client.close()
 

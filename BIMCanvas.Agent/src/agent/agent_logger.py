@@ -2,6 +2,7 @@
 
 import json
 import logging
+import os
 import sys
 import time
 from datetime import datetime
@@ -90,6 +91,10 @@ class AgentLogger:
         self._active_subagents: dict[str, dict] = {}  # subagent_id → {seq, name, short_name, type, start_time}
         # 流式输出状态：当前行是否已输出前缀
         self._streaming_line_has_prefix = False
+        self._suppress_model_content_logs = (
+            os.environ.get("BIMCANVAS_AGENT_MANAGED_BY_SERVER") == "1"
+            and os.environ.get("BIMCANVAS_AGENT_STREAM_LOGS") != "1"
+        )
 
     def _timestamp(self) -> str:
         """Get formatted timestamp."""
@@ -167,6 +172,14 @@ class AgentLogger:
             return text
         return text[:max_len] + ".."
 
+    def _log_suppressed_model_content(self, label: str, content: str) -> None:
+        """Log a compact placeholder for model content suppressed in managed mode."""
+        self._print(
+            f"{self._indent()}{Colors.TERTIARY}"
+            f"{label} content suppressed in managed mode (chars={len(content or '')})"
+            f"{Colors.RESET}"
+        )
+
     def _get_subagent_label(self, subagent_id: str = None) -> str:
         """Get formatted label for SubAgent (e.g., '[#1 客厅家具]')."""
         if subagent_id and subagent_id in self._active_subagents:
@@ -213,6 +226,11 @@ class AgentLogger:
 
     def log_thinking(self, content: str, is_delta: bool = False) -> None:
         """Log thinking content."""
+        if self._suppress_model_content_logs:
+            if not is_delta:
+                self._log_suppressed_model_content("thinking", content)
+            return
+
         if is_delta:
             # For streaming: ensure each line has window prefix (暗灰，退居背景)
             self._print_streaming(content, Colors.SECONDARY)
@@ -240,6 +258,11 @@ class AgentLogger:
 
     def log_response(self, content: str, is_delta: bool = False) -> None:
         """Log response content."""
+        if self._suppress_model_content_logs:
+            if not is_delta:
+                self._log_suppressed_model_content("assistant", content)
+            return
+
         if is_delta:
             # For streaming: ensure each line has window prefix (白色，主要信息)
             self._print_streaming(content, Colors.PRIMARY)

@@ -134,6 +134,7 @@
 - **多窗口隔离**: 基于 Worktree 的虚拟窗口，窗口间聊天、分支、滚动状态互不干扰。
 - **SSE 流式对话**: `/api/chat/stream` 逐行推送，支持思考过程与分段输出。
     - 主消费协议已切换到 `eventType + payload` envelope；`turn.completed / turn.failed` 是对话终态，`[DONE]` 仅保留兼容兜底。
+    - 前端对 `text.delta` / `thinking.delta` 做帧级合并渲染，滚动请求也按帧合并，避免 token 级更新拖慢主线程。
 - **子任务可视化**: SubAgent/ToolCall 气泡模型 + Waiting 提示。
 - **统一 InteractionChannel**:
     - Question / Screenshot 共用 `/api/interaction/events` SSE，并统一通过 `/api/interaction/{id}/submit|cancel` 完成交互。
@@ -141,6 +142,7 @@
 - **刷新聊天历史恢复**:
     - 当前页面级窗口集合会通过浏览器 `sessionStorage` 恢复，范围仅限“同一页面刷新”，不扩展到项目级持久化聊天记录。
     - 聊天消息本体通过 Agent `GET /api/history?windowId=...` 的 session transcript 回放，能恢复用户消息、AI 消息、thinking/tool/subtask/AskUserQuestion 卡片，以及用户消息里的图片附件缩略图。
+    - 若刷新时 Agent turn 仍处于 `running` / `paused`，Web 会继续轻量轮询 history，直到当前 turn 收尾或进入终态。
 - **截图附件资源化**:
     - 上传/粘贴/框选截图统一先上传到 `BIMCanvas.Server`
     - 前端输入区持有 `pendingAttachments: ChatAttachmentRef[]`，不再持有 `base64[]`
