@@ -24,6 +24,10 @@ export interface ClipRect {
   height: number
 }
 
+export interface CaptureCanvasOptions {
+  labelScale?: number
+}
+
 export interface ScreenshotInteractionHandlers {
   onPushed?: (record: InteractionRecord) => void
   onResolved?: (record: InteractionRecord) => void
@@ -50,7 +54,7 @@ export class ScreenshotService {
    *    - 通过投影计算获取屏幕坐标
    *    - Canvas 2D API 绘制文字（含旋转）
    */
-  async captureCanvas(clipRect?: ClipRect): Promise<string> {
+  async captureCanvas(clipRect?: ClipRect, options: CaptureCanvasOptions = {}): Promise<string> {
     // 1. 获取 WebGL canvas
     const glCanvas = document.querySelector('.three-canvas canvas') as HTMLCanvasElement
     if (!glCanvas) {
@@ -146,9 +150,11 @@ export class ScreenshotService {
           }
 
           // 在 Canvas 上绘制标签（含旋转）
-          LabelRenderer.renderToCanvas(ctx, labels, scale)
+          LabelRenderer.renderToCanvas(ctx, labels, scale, {
+            labelScale: options.labelScale
+          })
 
-          console.log(`[ScreenshotService] Rendered ${labels.length} labels manually`)
+          console.log(`[ScreenshotService] Rendered ${labels.length} labels manually (labelScale=${options.labelScale ?? 1})`)
         } catch (e) {
           console.warn('[ScreenshotService] Failed to render labels:', e)
         }

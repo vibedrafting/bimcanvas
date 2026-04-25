@@ -39,6 +39,7 @@ interface RenderConfig {
   layerDisable?: string[];
   viewport?: ViewportConfig;
   theme?: 'dark' | 'light';
+  labelScale?: number;
 }
 
 interface BuildOptions {
@@ -87,6 +88,7 @@ const ALL_LAYERS = [
 const DEFAULT_FULL_PADDING = 1000;
 const DEFAULT_VIEW_PADDING = 500;
 const PADDING_RATIO = 0.05;
+const DEFAULT_SCREENSHOT_LABEL_SCALE = 1.8;
 let lastProjectKey: string | null = null;
 let lastBuildOptions: BuildOptions | null = null;
 
@@ -618,7 +620,11 @@ const renderWithConfig = async (config: RenderConfig) => {
       const canvasHeight = canvas.height / scale;
       clipRect = computeClipRect(targetBounds, sceneService.camera, canvasWidth, canvasHeight);
     }
-    window.__capture = async () => screenshotService.captureCanvas(clipRect ?? undefined);
+    const configuredLabelScale = config.labelScale ?? DEFAULT_SCREENSHOT_LABEL_SCALE;
+    const labelScale = Number.isFinite(configuredLabelScale) && configuredLabelScale > 0
+      ? configuredLabelScale
+      : DEFAULT_SCREENSHOT_LABEL_SCALE;
+    window.__capture = async () => screenshotService.captureCanvas(clipRect ?? undefined, { labelScale });
     window.__renderReady = true;
   } catch (error: any) {
     const message = error?.message ?? String(error);

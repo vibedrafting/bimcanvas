@@ -20,6 +20,10 @@ export interface LabelData {
   labelType: 'component' | 'grid'
 }
 
+export interface LabelRenderOptions {
+  labelScale?: number
+}
+
 export class LabelRenderer {
   /**
    * 从场景中提取所有 Label 数据
@@ -86,8 +90,15 @@ export class LabelRenderer {
   static renderToCanvas(
     ctx: CanvasRenderingContext2D,
     labels: LabelData[],
-    scale: number = 1
+    scale: number = 1,
+    options: LabelRenderOptions = {}
   ): void {
+    const configuredLabelScale = options.labelScale ?? 1
+    const labelScale = Number.isFinite(configuredLabelScale) && configuredLabelScale > 0
+      ? configuredLabelScale
+      : 1
+    const fontScale = scale * labelScale
+
     labels.forEach(label => {
       ctx.save()
 
@@ -100,7 +111,7 @@ export class LabelRenderer {
       }
 
       // 设置字体
-      ctx.font = `${label.fontWeight} ${label.fontSize * scale}px ${label.fontFamily}`
+      ctx.font = `${label.fontWeight} ${label.fontSize * fontScale}px ${label.fontFamily}`
       ctx.textAlign = 'center'
       ctx.textBaseline = 'middle'
 
@@ -110,9 +121,9 @@ export class LabelRenderer {
           const shadow = this.parseShadow(label.textShadow)
           if (shadow) {
             ctx.shadowColor = shadow.color
-            ctx.shadowBlur = shadow.blur * scale
-            ctx.shadowOffsetX = shadow.offsetX * scale
-            ctx.shadowOffsetY = shadow.offsetY * scale
+            ctx.shadowBlur = shadow.blur * fontScale
+            ctx.shadowOffsetX = shadow.offsetX * fontScale
+            ctx.shadowOffsetY = shadow.offsetY * fontScale
           }
         } else {
           // 解析 text-shadow 获取描边颜色
@@ -120,7 +131,7 @@ export class LabelRenderer {
           const shadowColor = this.parseShadowColor(label.textShadow)
           if (shadowColor) {
             ctx.strokeStyle = shadowColor
-            ctx.lineWidth = 2 * scale
+            ctx.lineWidth = 2 * fontScale
             ctx.lineJoin = 'round'
             ctx.strokeText(label.text, 0, 0)
           }
