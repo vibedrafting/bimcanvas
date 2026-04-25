@@ -293,3 +293,47 @@ def test_main_agent_tool_result_clears_pending_tool_tracking() -> None:
         assert agent._tool_to_subagent == {}
 
     asyncio.run(_test())
+
+
+def test_main_agent_completion_model_ignores_unknown_and_falls_back_to_requested() -> None:
+    agent = MainAgent(
+        project_path=str(AGENT_ROOT),
+        working_directory=str(AGENT_ROOT),
+        verbose=False,
+    )
+    agent._current_model = "opus"
+
+    agent._capture_response_model("unknown", "assistant.message.model")
+
+    assert agent._response_model is None
+    assert agent._completion_model_stamp() == "requested:opus"
+
+
+def test_main_agent_completion_model_prefers_real_response_model() -> None:
+    agent = MainAgent(
+        project_path=str(AGENT_ROOT),
+        working_directory=str(AGENT_ROOT),
+        verbose=False,
+    )
+    agent._current_model = "opus"
+
+    agent._capture_response_model("provider-model-id", "assistant.message.model")
+    agent._capture_response_model("unknown", "assistant.message.model")
+
+    assert agent._response_model == "provider-model-id"
+    assert agent._completion_model_stamp() == "provider-model-id"
+
+
+def test_main_agent_captures_model_from_stream_message_start_event() -> None:
+    agent = MainAgent(
+        project_path=str(AGENT_ROOT),
+        working_directory=str(AGENT_ROOT),
+        verbose=False,
+    )
+
+    agent._process_streaming_event(
+        "message_start",
+        {"message": {"model": "provider-model-id"}},
+    )
+
+    assert agent._completion_model_stamp() == "provider-model-id"

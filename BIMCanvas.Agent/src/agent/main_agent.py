@@ -1,9 +1,11 @@
 """MainAgent - BIMCanvas coordinator using Agent SDK with SubAgent support."""
 
 import asyncio
+import json
 import logging
 import os
 import re
+from dataclasses import asdict, is_dataclass
 from typing import Any, AsyncIterator
 
 from claude_agent_sdk import (
@@ -31,6 +33,15 @@ from ..mcp import canvas_mcp
 from ..runtime import ConfigBundle, StreamChunk, build_config_bundle
 
 logger = logging.getLogger(__name__)
+
+_UNKNOWN_MODEL_VALUES = {"", "unknown"}
+_DEBUG_SDK_MESSAGES_ENV = "BIMCANVAS_DEBUG_SDK_MESSAGES"
+_DEBUG_SDK_MESSAGES_MAX_CHARS_ENV = "BIMCANVAS_DEBUG_SDK_MESSAGES_MAX_CHARS"
+_DEBUG_SDK_MESSAGES_DEFAULT_MAX_CHARS = 12000
+_SENSITIVE_DEBUG_KEY_RE = re.compile(
+    r"(api[_-]?key|authorization|token|secret|password)",
+    re.IGNORECASE,
+)
 
 
 class MainAgent:
@@ -122,6 +133,108 @@ class MainAgent:
     def clear_runtime_context(self) -> None:
         """Clear host-provided runtime context after the current turn."""
         self._runtime_context = None
+
+    @staticmethod
+    def _is_truthy_env(value: str | None) -> bool:
+        return (value or "").strip().lower() in {"1", "true", "yes", "on"}
+
+    @classmethod
+    def _is_sdk_message_debug_enabled(cls) -> bool:
+        return cls._is_truthy_env(os.getenv(_DEBUG_SDK_MESSAGES_ENV))
+
+    @staticmethod
+    def _sdk_message_debug_max_chars() -> int:
+        raw_value = (os.getenv(_DEBUG_SDK_MESSAGES_MAX_CHARS_ENV) or "").strip()
+        if not raw_value:
+            return _DEBUG_SDK_MESSAGES_DEFAULT_MAX_CHARS
+        try:
+            parsed = int(raw_value)
+        except ValueError:
+            return _DEBUG_SDK_MESSAGES_DEFAULT_MAX_CHARS
+        return max(1000, parsed)
+
+    @staticmethod
+    def _normalize_response_model(model: Any) -> str | None:
+        normalized = str(model or "").strip()
+        if normalized.lower() in _UNKNOWN_MODEL_VALUES:
+            return None
+        return normalized
+
+    def _capture_response_model(self, model: Any, source: str) -> None:
+        normalized = self._normalize_response_model(model)
+        if normalized:
+            self._response_model = normalized
+        elif model is not None and self.verbose and self._is_sdk_message_debug_enabled():
+            self._agent_logger.log_info(
+                f"[SDK Debug] 忽略无效模型字段: source={source}, value={model!r}"
+            )
+
+    def _capture_stream_event_model(self, event_type: str, event: dict) -> None:
+        event_message = event.get("message")
+        if isinstance(event_message, dict):
+            self._capture_response_model(
+                event_message.get("model"),
+                f"stream_event.{event_type}.message.model",
+            )
+
+    def _completion_model_stamp(self) -> str | None:
+        response_model = self._normalize_response_model(self._response_model)
+        if response_model:
+            return response_model
+
+        current_model = self._normalize_response_model(self._current_model)
+        if current_model:
+            return f"requested:{current_model}"
+        return None
+
+    def _log_sdk_message_debug(self, message: Any, context: str) -> None:
+        if not self.verbose or not self._is_sdk_message_debug_enabled():
+            return
+
+        payload = self._redact_debug_value(self._to_debug_payload(message))
+        text = json.dumps(payload, ensure_ascii=False, default=str)
+        max_chars = self._sdk_message_debug_max_chars()
+        if len(text) > max_chars:
+            text = f"{text[:max_chars]}... <truncated {len(text) - max_chars} chars>"
+        self._agent_logger.log_info(f"[SDK Debug] {context}: {text}")
+
+    @staticmethod
+    def _to_debug_payload(message: Any) -> dict[str, Any]:
+        if is_dataclass(message):
+            payload: Any = asdict(message)
+        elif isinstance(message, dict):
+            payload = message
+        elif hasattr(message, "__dict__"):
+            payload = vars(message)
+        else:
+            payload = repr(message)
+
+        return {
+            "class": f"{type(message).__module__}.{type(message).__name__}",
+            "payload": payload,
+        }
+
+    @classmethod
+    def _redact_debug_value(cls, value: Any) -> Any:
+        if isinstance(value, dict):
+            result = {}
+            for key, item in value.items():
+                key_text = str(key)
+                if _SENSITIVE_DEBUG_KEY_RE.search(key_text):
+                    result[key_text] = "<redacted>"
+                else:
+                    result[key_text] = cls._redact_debug_value(item)
+            return result
+
+        if isinstance(value, list):
+            return [cls._redact_debug_value(item) for item in value]
+
+        if isinstance(value, str):
+            if len(value) > 2000:
+                return f"{value[:2000]}... <truncated {len(value) - 2000} chars>"
+            return value
+
+        return value
 
     def configure(self, bundle: ConfigBundle) -> None:
         self._bundle = bundle
@@ -557,7 +670,10 @@ class MainAgent:
 
         if isinstance(message, AssistantMessage):
             # 存储 API 响应的模型值，用于日志显示（不覆盖 _current_model）
-            self._response_model = getattr(message, 'model', None)
+            self._capture_response_model(
+                getattr(message, 'model', None),
+                "assistant.message.model",
+            )
 
             for block in message.content:
                 if isinstance(block, ThinkingBlock):
@@ -622,6 +738,8 @@ class MainAgent:
 
     def _process_streaming_event(self, event_type: str, event: dict) -> None:
         """Process streaming events from the SDK."""
+        self._capture_stream_event_model(event_type, event)
+
         if event_type == "content_block_start":
             block_type = event.get("content_block", {}).get("type", "")
             if block_type == "thinking" and self.verbose:
@@ -721,18 +839,20 @@ class MainAgent:
             self._in_response = False
             self._current_tool_name = None
             self._placeholder_text_suppressed_logged = False
+            self._response_model = None
 
             await self._client.query(user_message)
 
             full_response = ""
             async for message in self._client.receive_response():
+                self._log_sdk_message_debug(message, "chat.receive_response")
                 text = self._process_message(message)
                 full_response += text
 
             if self.verbose:
                 if self._in_response:
                     self._agent_logger.log_response_end()
-                self._agent_logger.log_complete(model=self._response_model)
+                self._agent_logger.log_complete(model=self._completion_model_stamp())
 
             return full_response
         finally:
@@ -898,6 +1018,7 @@ class MainAgent:
         self._streamed_text = False  # 重置流式文本标记
         self._current_tool_name = None
         self._placeholder_text_suppressed_logged = False
+        self._response_model = None
         # 重置 SubAgent/ToolCall 状态
         self._active_subagents.clear()
         self._tool_call_counter = 0
@@ -950,6 +1071,8 @@ class MainAgent:
             raise ValueError("Message or attachments cannot be empty")
 
         async for message in self._client.receive_response():
+            self._log_sdk_message_debug(message, "chat_stream.receive_response")
+
             # 获取当前消息的 parent_tool_use_id（用于关联工具调用到 SubAgent）
             current_parent_id = getattr(message, 'parent_tool_use_id', None)
 
@@ -1005,7 +1128,10 @@ class MainAgent:
 
             elif isinstance(message, AssistantMessage):
                 # 存储 API 响应的模型值，用于日志显示（不覆盖 _current_model）
-                self._response_model = getattr(message, 'model', None)
+                self._capture_response_model(
+                    getattr(message, 'model', None),
+                    "assistant.message.model",
+                )
 
                 # 检查 API 级错误（0.1.28 修复了 error 字段填充 bug）
                 api_error = getattr(message, 'error', None)
@@ -1191,7 +1317,7 @@ class MainAgent:
                     self._agent_logger.log_info(f"[System] subtype={message.subtype}")
 
         if self.verbose:
-            self._agent_logger.log_complete(model=self._response_model)
+            self._agent_logger.log_complete(model=self._completion_model_stamp())
         self.clear_runtime_context()
 
     # ─────────────────────────────────────────────────────
