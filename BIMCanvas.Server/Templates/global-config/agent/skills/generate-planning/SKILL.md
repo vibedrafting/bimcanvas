@@ -11,9 +11,9 @@ description: |
 
 ## 路径约定
 
-- 本 Skill 中出现的 `references/*.md` 均指**项目目录**下的 `references/*.md`
-- 不要从 `<BIMCANVAS_HOME>/skills/.../references/` 读取运行时设计规则
-- `modules/`、`computed/`、`schemes/` 也都相对当前项目目录读取
+- Skill 文件本体不决定业务文件根目录；以下相对路径均以当前项目目录为根目录
+- `references/*.md` 是项目级运行时参考规则
+- `modules/`、`computed/`、`schemes/` 也都是当前项目目录下的业务数据
 
 ## 最重要的规则
 

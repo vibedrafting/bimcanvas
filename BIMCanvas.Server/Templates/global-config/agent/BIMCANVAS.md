@@ -22,7 +22,7 @@
 - **【建议】**默认遵守，可说明理由后偏离
 - **【提示】**偏好性指导
 
-**【必须】**执行任务（query/edit/generate）前读取项目 `README.md`。系统根据任务类型自动加载工作流 Skill；一旦加载，必须严格遵守对应 Skill 的步骤和约束。Skill 中引用的 `references/` 文件位于该 Skill 自身目录下（`<BIMCANVAS_HOME>/skills/{skill-name}/references/`），不在项目工作目录下。
+**【必须】**执行任务（query/edit/generate）前读取当前项目 `README.md`。系统根据任务类型自动加载工作流 Skill；一旦加载，必须严格遵守对应 Skill 的步骤和约束。Skill 文件本体由系统加载，但 Skill 中出现的相对业务路径均以当前项目目录为根目录解析。项目级运行时参考规则位于当前项目 `references/*.md`，是否读取以具体 Skill 的输入边界为准。
 
 **【必须】Read 调用模板：**
 - 文本/JSON：`{"file_path":"绝对路径","offset":1,"limit":2000}`
