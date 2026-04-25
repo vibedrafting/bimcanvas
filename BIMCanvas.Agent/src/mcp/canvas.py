@@ -30,6 +30,7 @@ from ..reference_analysis import (
 
 SERVER_URL = os.getenv("BIMCANVAS_SERVER_URL", "http://localhost:5000").rstrip("/")
 SCREENSHOT_LAYER_PRESET = "Agent"
+SCREENSHOT_LAYER_DISABLE = ["svg"]
 SCREENSHOT_SCALE = 2
 SCREENSHOT_AUTO_FIT = True
 SCREENSHOT_DIR_NAME = "screenshots"
@@ -415,6 +416,7 @@ async def request_background_screenshot(args: dict[str, Any]) -> dict[str, Any]:
                 payload = {
                     "projectPath": str(project_dir),
                     "layerPreset": SCREENSHOT_LAYER_PRESET,
+                    "layerDisable": SCREENSHOT_LAYER_DISABLE,
                     "viewport": viewports[0],
                     "autoFitViewport": SCREENSHOT_AUTO_FIT,
                     "scale": SCREENSHOT_SCALE
@@ -447,6 +449,7 @@ async def request_background_screenshot(args: dict[str, Any]) -> dict[str, Any]:
                 items.append({
                     "name": label,
                     "layerPreset": SCREENSHOT_LAYER_PRESET,
+                    "layerDisable": SCREENSHOT_LAYER_DISABLE,
                     "viewport": viewport
                 })
             payload = {
