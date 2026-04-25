@@ -144,6 +144,7 @@ var pythonCommand = config.Agent.GetResolvedPythonCommand();
 var runtimeEndpointState = new RuntimeEndpointState();
 var configuredServerBinding = ResolveConfiguredServerBinding(builder.Configuration, config.Server.Port);
 builder.Configuration["BIMCANVAS_WEB_URL"] = BuildUrl(Uri.UriSchemeHttp, "localhost", configuredWebPort);
+CleanupOrphanedBIMCanvasServerProcesses(baseDir);
 var resolvedServerPort = ResolveManagedPort(
     "Server",
     configuredServerBinding.ListenHost,
@@ -690,6 +691,7 @@ Process? ccrProcess = null;
     // 3. 启动 Web 服务（不等待，后台运行）
     if (!isProduction && webReady && Directory.Exists(webProjectPath))
     {
+        CleanupOrphanedManagedWebProcesses(webProjectPath);
         var configuredWebUrl = BuildUrl(Uri.UriSchemeHttp, "localhost", configuredWebPort);
         var resolvedWebPort = ResolveManagedPort(
             "Web",
@@ -2279,6 +2281,26 @@ static string FindAgentProjectPath(string startDir)
     return Path.GetFullPath(Path.Combine(Directory.GetCurrentDirectory(), "..", "BIMCanvas.Agent"));
 }
 
+// 辅助函数：向上查找 BIMCanvas.Server 目录
+static string FindServerProjectPath(string startDir)
+{
+    var dir = new DirectoryInfo(startDir);
+
+    // 向上最多查找 5 层
+    for (int i = 0; i < 5 && dir != null; i++)
+    {
+        var serverPath = Path.Combine(dir.FullName, "BIMCanvas.Server");
+        if (Directory.Exists(serverPath))
+        {
+            return serverPath;
+        }
+        dir = dir.Parent;
+    }
+
+    // 兜底：返回相对路径（兼容 dotnet run）
+    return Path.GetFullPath(Path.Combine(Directory.GetCurrentDirectory(), "..", "BIMCanvas.Server"));
+}
+
 static PortOccupantOwnership ClassifyBIMCanvasAgentOccupant(
     int port,
     int pid,
@@ -2300,13 +2322,14 @@ static PortOccupantOwnership ClassifyBIMCanvasAgentOccupant(
             // 若 --managed-by-server 带父 Server PID，且该 Server 已不存在，则视为孤儿，
             // 沿用 OwnedLegacy 清理路径回收端口。老版本无 PID 时跳过该检查。
             var parentServerPidRaw = GetCommandLineArgumentValue(commandArgs, "--managed-by-server");
+            var parentServerPid = 0;
             var hasParentServerPid = !string.IsNullOrWhiteSpace(parentServerPidRaw)
                 && !parentServerPidRaw.StartsWith("-", StringComparison.Ordinal)
                 && int.TryParse(
                     parentServerPidRaw,
                     System.Globalization.NumberStyles.Integer,
                     System.Globalization.CultureInfo.InvariantCulture,
-                    out var parentServerPid);
+                    out parentServerPid);
             var parentServerAlive = hasParentServerPid && IsProcessAlive(parentServerPid);
             if (hasParentServerPid && !parentServerAlive)
             {
@@ -2423,6 +2446,93 @@ static void CleanupOrphanedManagedAgentProcesses(string agentProjectPath, string
         WriteWithColoredPrefix(
             "[Server]",
             $"清理残留 Agent 进程 (PID: {orphanPid})，释放运行时资源",
+            ConsoleColor.White);
+        KillProcess(orphanPid);
+        Thread.Sleep(500);
+    }
+}
+
+static void CleanupOrphanedManagedWebProcesses(string webProjectPath)
+{
+    var currentProcessId = Environment.ProcessId;
+    var orphanPids = new List<int>();
+
+    foreach (var process in Process.GetProcesses())
+    {
+        using (process)
+        {
+            try
+            {
+                if (process.Id == currentProcessId ||
+                    !process.ProcessName.Contains("node", StringComparison.OrdinalIgnoreCase))
+                {
+                    continue;
+                }
+
+                if (ClassifyBIMCanvasWebOccupant(process.Id, webProjectPath) == PortOccupantOwnership.OwnedLegacy)
+                {
+                    orphanPids.Add(process.Id);
+                }
+            }
+            catch (Exception ex)
+            {
+                WriteWithColoredPrefix(
+                    "[Server:WARN]",
+                    $"Web 残留进程扫描跳过 PID {process.Id}: {ex.Message}",
+                    ConsoleColor.DarkYellow);
+            }
+        }
+    }
+
+    foreach (var orphanPid in orphanPids.Distinct())
+    {
+        WriteWithColoredPrefix(
+            "[Server]",
+            $"清理残留 Web 进程 (PID: {orphanPid})，释放端口资源",
+            ConsoleColor.White);
+        KillProcess(orphanPid);
+        Thread.Sleep(500);
+    }
+}
+
+static void CleanupOrphanedBIMCanvasServerProcesses(string serverBaseDir)
+{
+    var currentProcessId = Environment.ProcessId;
+    var orphanPids = new List<int>();
+
+    foreach (var process in Process.GetProcesses())
+    {
+        using (process)
+        {
+            try
+            {
+                if (process.Id == currentProcessId ||
+                    (!process.ProcessName.Contains("BIMCanvas.Server", StringComparison.OrdinalIgnoreCase) &&
+                     !process.ProcessName.Contains("dotnet", StringComparison.OrdinalIgnoreCase)))
+                {
+                    continue;
+                }
+
+                if (ClassifyBIMCanvasServerOccupant(process.Id, serverBaseDir) == PortOccupantOwnership.OwnedLegacy)
+                {
+                    orphanPids.Add(process.Id);
+                }
+            }
+            catch (Exception ex)
+            {
+                WriteWithColoredPrefix(
+                    "[Server:WARN]",
+                    $"Server 残留进程扫描跳过 PID {process.Id}: {ex.Message}",
+                    ConsoleColor.DarkYellow);
+            }
+        }
+    }
+
+    foreach (var orphanPid in orphanPids.Distinct())
+    {
+        WriteWithColoredPrefix(
+            "[Server]",
+            $"清理残留 Server 进程 (PID: {orphanPid})，释放端口资源",
             ConsoleColor.White);
         KillProcess(orphanPid);
         Thread.Sleep(500);
@@ -2609,6 +2719,61 @@ static bool LooksLikeManagedBIMCanvasWebCommand(string processName, string comma
            && normalizedCommandLine.Contains("--strictPort", StringComparison.OrdinalIgnoreCase);
 }
 
+static PortOccupantOwnership ClassifyManagedChildOccupantByParent(
+    int pid,
+    Func<string, string, bool> parentCommandMatcher,
+    PortOccupantOwnership liveParentOwnership)
+{
+    if (!TryGetParentProcessId(pid, out var parentPid))
+    {
+        return PortOccupantOwnership.ExternalProcess;
+    }
+
+    if (parentPid == Environment.ProcessId)
+    {
+        return PortOccupantOwnership.OwnedManaged;
+    }
+
+    if (!IsProcessAlive(parentPid))
+    {
+        return PortOccupantOwnership.OwnedLegacy;
+    }
+
+    try
+    {
+        using var parentProcess = Process.GetProcessById(parentPid);
+        var parentCommandLine = GetProcessCommandLine(parentPid);
+        return parentCommandMatcher(parentProcess.ProcessName, parentCommandLine)
+            ? liveParentOwnership
+            : PortOccupantOwnership.ExternalProcess;
+    }
+    catch
+    {
+        return PortOccupantOwnership.ExternalProcess;
+    }
+}
+
+static bool CommandLineReferencesDirectory(string commandLine, string directoryPath)
+{
+    if (string.IsNullOrWhiteSpace(commandLine) || string.IsNullOrWhiteSpace(directoryPath))
+    {
+        return false;
+    }
+
+    var normalizedCommandLine = NormalizeCommandLineForMatch(commandLine);
+    var normalizedDirectory = NormalizePathForMatch(directoryPath);
+    if (!string.IsNullOrWhiteSpace(normalizedDirectory) &&
+        normalizedCommandLine.Contains(normalizedDirectory, StringComparison.OrdinalIgnoreCase))
+    {
+        return true;
+    }
+
+    var directoryName = Path.GetFileName(normalizedDirectory);
+    return !string.IsNullOrWhiteSpace(directoryName) &&
+           (normalizedCommandLine.Contains($"\\{directoryName}\\", StringComparison.OrdinalIgnoreCase) ||
+            normalizedCommandLine.Contains($"\\{directoryName}\"", StringComparison.OrdinalIgnoreCase));
+}
+
 static bool IsBIMCanvasCcrProcess(int pid)
 {
     try
@@ -2692,12 +2857,53 @@ static string GetProcessCommandLine(int pid)
         : GetCommandLineUnix(pid);
 }
 
+static bool TryGetParentProcessId(int pid, out int parentPid)
+{
+    parentPid = 0;
+    try
+    {
+        if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
+        {
+            return TryGetParentProcessIdWindows(pid, out parentPid);
+        }
+
+        return TryGetParentProcessIdUnix(pid, out parentPid);
+    }
+    catch
+    {
+        parentPid = 0;
+        return false;
+    }
+}
+
 static string NormalizePathForMatch(string path)
 {
-    return (path ?? string.Empty)
-        .Replace("/", "\\")
+    if (string.IsNullOrWhiteSpace(path))
+    {
+        return string.Empty;
+    }
+
+    var normalized = Environment.ExpandEnvironmentVariables(path)
         .Trim()
-        .TrimEnd('\\');
+        .Trim('"')
+        .Replace('/', '\\');
+    try
+    {
+        normalized = Path.GetFullPath(normalized);
+    }
+    catch
+    {
+        // command line fragments are not always valid filesystem paths; keep best-effort text.
+    }
+
+    return normalized.TrimEnd('\\');
+}
+
+static string NormalizeCommandLineForMatch(string commandLine)
+{
+    return (commandLine ?? string.Empty)
+        .Replace('/', '\\')
+        .Trim();
 }
 
 static string GetCommandLineWindows(int pid)
@@ -2710,7 +2916,7 @@ static string GetCommandLineWindows(int pid)
         var psi = new ProcessStartInfo
         {
             FileName = "powershell",
-            Arguments = $"-NoProfile -Command \"(Get-CimInstance Win32_Process -Filter 'ProcessId={pid}' -ErrorAction SilentlyContinue).CommandLine\"",
+            Arguments = $"-NoProfile -Command \"[Console]::OutputEncoding=[System.Text.Encoding]::UTF8; $p = Get-CimInstance Win32_Process -Filter 'ProcessId={pid}' -ErrorAction SilentlyContinue; if ($null -ne $p) {{ $p.CommandLine }}\"",
             RedirectStandardOutput = true,
             RedirectStandardError = true,
             UseShellExecute = false,
@@ -2731,6 +2937,45 @@ static string GetCommandLineWindows(int pid)
         WriteWithColoredPrefix("[Server:WARN]", $"命令行查询失败: {ex.Message}，仅验证进程名", ConsoleColor.DarkYellow);
     }
     return "";
+}
+
+static bool TryGetParentProcessIdWindows(int pid, out int parentPid)
+{
+    parentPid = 0;
+    if (!RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
+    {
+        return false;
+    }
+
+    try
+    {
+        var psi = new ProcessStartInfo
+        {
+            FileName = "powershell",
+            Arguments = $"-NoProfile -Command \"$p = Get-CimInstance Win32_Process -Filter 'ProcessId={pid}' -ErrorAction SilentlyContinue; if ($null -ne $p) {{ $p.ParentProcessId }}\"",
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+            UseShellExecute = false,
+            CreateNoWindow = true,
+            StandardOutputEncoding = Encoding.UTF8,
+            StandardErrorEncoding = Encoding.UTF8
+        };
+
+        using var process = Process.Start(psi);
+        if (process == null)
+        {
+            return false;
+        }
+
+        var output = process.StandardOutput.ReadToEnd().Trim();
+        process.WaitForExit(5000);
+        return int.TryParse(output, out parentPid) && parentPid > 0;
+    }
+    catch
+    {
+        parentPid = 0;
+        return false;
+    }
 }
 
 // Unix 查询命令行
@@ -2756,6 +3001,36 @@ static string GetCommandLineUnix(int pid)
     catch
     {
         return "";
+    }
+}
+
+static bool TryGetParentProcessIdUnix(int pid, out int parentPid)
+{
+    parentPid = 0;
+    try
+    {
+        var psi = new ProcessStartInfo
+        {
+            FileName = "/bin/bash",
+            Arguments = $"-c \"ps -p {pid} -o ppid=\"",
+            RedirectStandardOutput = true,
+            UseShellExecute = false,
+            CreateNoWindow = true
+        };
+        using var process = Process.Start(psi);
+        if (process == null)
+        {
+            return false;
+        }
+
+        var output = process.StandardOutput.ReadToEnd().Trim();
+        process.WaitForExit();
+        return int.TryParse(output, out parentPid) && parentPid > 0;
+    }
+    catch
+    {
+        parentPid = 0;
+        return false;
     }
 }
 
@@ -2955,7 +3230,7 @@ file enum PortOccupantOwnership
 {
     OwnedManaged,
     OwnedLegacy,
-    ForeignBimCanvasAgent,
+    ForeignBimCanvasInstance,
     ExternalProcess
 }
 

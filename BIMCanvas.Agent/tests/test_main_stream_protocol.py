@@ -303,7 +303,7 @@ def test_main_agent_completion_model_ignores_unknown_and_falls_back_to_requested
     )
     agent._current_model = "opus"
 
-    agent._capture_response_model("unknown", "assistant.message.model")
+    agent._capture_response_model("unknown")
 
     assert agent._response_model is None
     assert agent._completion_model_stamp() == "requested:opus"
@@ -317,8 +317,8 @@ def test_main_agent_completion_model_prefers_real_response_model() -> None:
     )
     agent._current_model = "opus"
 
-    agent._capture_response_model("provider-model-id", "assistant.message.model")
-    agent._capture_response_model("unknown", "assistant.message.model")
+    agent._capture_response_model("provider-model-id")
+    agent._capture_response_model("unknown")
 
     assert agent._response_model == "provider-model-id"
     assert agent._completion_model_stamp() == "provider-model-id"

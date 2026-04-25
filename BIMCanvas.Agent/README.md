@@ -693,8 +693,6 @@ model: inherit
 | `ANTHROPIC_DEFAULT_OPUS_MODEL` | 覆盖 Claude Code 的 `opus` 家族映射 |
 | `ANTHROPIC_DEFAULT_SONNET_MODEL` | 覆盖 Claude Code 的 `sonnet` 家族映射 |
 | `ANTHROPIC_DEFAULT_HAIKU_MODEL` | 覆盖 Claude Code 的 `haiku` / background 映射 |
-| `BIMCANVAS_DEBUG_SDK_MESSAGES` | 设为 `1` 时打印 Claude Agent SDK 消息结构，用于排查 CCR / 第三方 provider 字段转换 |
-| `BIMCANVAS_DEBUG_SDK_MESSAGES_MAX_CHARS` | 限制单条 SDK 调试日志长度，默认 `12000` |
 | `SERVER_HOST` | 覆盖服务地址 |
 | `SERVER_PORT` | 覆盖服务端口 |
 
