@@ -1641,14 +1641,25 @@ static Process? StartCcrProcess(ServerConfig config, string configPath)
         process.Start();
 
         // 后台读取 CCR 输出
+        var ccrStdoutLogFilter = new CcrStdoutLogFilter();
         _ = Task.Run(async () =>
         {
             while (true)
             {
                 var line = await process.StandardOutput.ReadLineAsync();
                 if (line == null) break;
-                if (!string.IsNullOrWhiteSpace(line))
-                    WriteWithColoredPrefix("[CCR]", line, ConsoleColor.Magenta);
+                if (string.IsNullOrWhiteSpace(line))
+                    continue;
+
+                foreach (var filteredLine in ccrStdoutLogFilter.ProcessLine(line))
+                {
+                    WriteWithColoredPrefix("[CCR]", filteredLine, ConsoleColor.Magenta);
+                }
+            }
+
+            foreach (var filteredLine in ccrStdoutLogFilter.Flush())
+            {
+                WriteWithColoredPrefix("[CCR]", filteredLine, ConsoleColor.Magenta);
             }
         });
         _ = Task.Run(async () =>
@@ -3067,3 +3078,241 @@ file sealed record ResolvedPortReservation(int PreferredPort, int ActualPort, bo
 file sealed record PortOccupantInfo(int ProcessId, string State);
 
 file sealed record ClassifiedPortOccupantInfo(int ProcessId, string State, PortOccupantOwnership Ownership);
+
+file sealed class CcrStdoutLogFilter
+{
+    private const int MaxBufferedLines = 80;
+    private const int MaxBufferedChars = 16 * 1024;
+
+    private static readonly Regex ImageUrlTypePattern = new(
+        "(?:\"type\"\\s*:\\s*\"image_url\"|type\\s*:\\s*['\"]image_url['\"])",
+        RegexOptions.Compiled | RegexOptions.CultureInvariant);
+
+    private readonly List<string> _buffer = new();
+    private int _bufferedChars;
+    private int _braceDepth;
+    private bool _bufferingObject;
+    private bool _suppressingImageObject;
+    private bool _passthroughObject;
+
+    public IEnumerable<string> ProcessLine(string line)
+    {
+        if (_suppressingImageObject)
+        {
+            TrackBraceDepth(line);
+            if (_braceDepth <= 0)
+            {
+                ResetObjectState();
+            }
+
+            return Array.Empty<string>();
+        }
+
+        if (_passthroughObject)
+        {
+            if (LooksLikeImageUrlLog(line))
+            {
+                _suppressingImageObject = true;
+                _passthroughObject = false;
+                TrackBraceDepth(line);
+                if (_braceDepth <= 0)
+                {
+                    ResetObjectState();
+                }
+
+                return Array.Empty<string>();
+            }
+
+            TrackBraceDepth(line);
+            if (_braceDepth <= 0)
+            {
+                ResetObjectState();
+            }
+
+            return new[] { line };
+        }
+
+        if (_bufferingObject)
+        {
+            BufferLine(line);
+            TrackBraceDepth(line);
+
+            if (LooksLikeImageUrlLog(line))
+            {
+                _buffer.Clear();
+                _bufferedChars = 0;
+                _suppressingImageObject = true;
+                _bufferingObject = false;
+                if (_braceDepth <= 0)
+                {
+                    ResetObjectState();
+                }
+
+                return Array.Empty<string>();
+            }
+
+            if (_braceDepth <= 0)
+            {
+                return FlushBufferAndReset();
+            }
+
+            if (_buffer.Count >= MaxBufferedLines || _bufferedChars >= MaxBufferedChars)
+            {
+                var output = FlushBuffer();
+                _bufferingObject = false;
+                _passthroughObject = true;
+                return output;
+            }
+
+            return Array.Empty<string>();
+        }
+
+        if (line.TrimStart().StartsWith("{", StringComparison.Ordinal))
+        {
+            StartBufferingObject(line);
+
+            if (LooksLikeImageUrlLog(line))
+            {
+                _buffer.Clear();
+                _bufferedChars = 0;
+                _suppressingImageObject = true;
+                _bufferingObject = false;
+                if (_braceDepth <= 0)
+                {
+                    ResetObjectState();
+                }
+
+                return Array.Empty<string>();
+            }
+
+            if (_braceDepth <= 0)
+            {
+                return FlushBufferAndReset();
+            }
+
+            return Array.Empty<string>();
+        }
+
+        return new[] { line };
+    }
+
+    public IEnumerable<string> Flush()
+    {
+        if (_suppressingImageObject)
+        {
+            ResetObjectState();
+            return Array.Empty<string>();
+        }
+
+        return FlushBufferAndReset();
+    }
+
+    private void StartBufferingObject(string line)
+    {
+        _bufferingObject = true;
+        _passthroughObject = false;
+        _suppressingImageObject = false;
+        _braceDepth = CountBraceDelta(line);
+        _buffer.Clear();
+        _bufferedChars = 0;
+        BufferLine(line);
+    }
+
+    private void TrackBraceDepth(string line)
+    {
+        _braceDepth += CountBraceDelta(line);
+    }
+
+    private void BufferLine(string line)
+    {
+        _buffer.Add(line);
+        _bufferedChars += line.Length;
+    }
+
+    private string[] FlushBuffer()
+    {
+        if (_buffer.Count == 0)
+        {
+            return Array.Empty<string>();
+        }
+
+        var output = _buffer.ToArray();
+        _buffer.Clear();
+        _bufferedChars = 0;
+        return output;
+    }
+
+    private string[] FlushBufferAndReset()
+    {
+        var output = FlushBuffer();
+        ResetObjectState();
+        return output;
+    }
+
+    private void ResetObjectState()
+    {
+        _buffer.Clear();
+        _bufferedChars = 0;
+        _braceDepth = 0;
+        _bufferingObject = false;
+        _suppressingImageObject = false;
+        _passthroughObject = false;
+    }
+
+    private static bool LooksLikeImageUrlLog(string line)
+    {
+        return ImageUrlTypePattern.IsMatch(line)
+            || line.Contains("data:image/", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static int CountBraceDelta(string line)
+    {
+        var delta = 0;
+        var inSingleQuote = false;
+        var inDoubleQuote = false;
+        var escaped = false;
+
+        foreach (var ch in line)
+        {
+            if (escaped)
+            {
+                escaped = false;
+                continue;
+            }
+
+            if ((inSingleQuote || inDoubleQuote) && ch == '\\')
+            {
+                escaped = true;
+                continue;
+            }
+
+            if (!inDoubleQuote && ch == '\'')
+            {
+                inSingleQuote = !inSingleQuote;
+                continue;
+            }
+
+            if (!inSingleQuote && ch == '"')
+            {
+                inDoubleQuote = !inDoubleQuote;
+                continue;
+            }
+
+            if (inSingleQuote || inDoubleQuote)
+            {
+                continue;
+            }
+
+            if (ch == '{')
+            {
+                delta++;
+            }
+            else if (ch == '}')
+            {
+                delta--;
+            }
+        }
+
+        return delta;
+    }
+}

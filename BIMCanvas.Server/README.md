@@ -93,6 +93,7 @@ Server 默认托管 CCR (Claude Code Router)，用于给 Agent SDK 提供统一�
 - 如果 CCR 不可用，Server 与 Web 仍会启动，但 AI 请求会在运行时失败并输出明确日志
 - 仓库模板中的 `ccr_config.json` 默认是安全空壳；Development 仅在 `ccr_config.json` 首次创建时通过 `ccr_config.dev.local.json` 注入 provider/router 种子，Production/Docker 应通过 `/data/ccr_config.json` 或设置 UI 维护正式 provider/router
 - Docker 启动时，`CCR_API_KEY` / `CCR_API_BASE` 只会覆盖已存在 provider 条目；若模板仍为空，需要先通过 UI 或预置 `/data/ccr_config.json` 提供 provider 结构
+- Server 会过滤 CCR stdout 中由 `openai-responses` transformer 输出的 `image_url` 调试对象，避免附件图片的 base64 内容进入控制台日志；CCR stderr 不做过滤
 
 ### JSON 序列化
 
