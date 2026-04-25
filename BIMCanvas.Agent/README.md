@@ -857,15 +857,23 @@ python -m src.image_generation.cli ^
 #### 后台截图 MCP 工具（request_background_screenshot）
 
 - **用途**：调用后台截图 API，保存到 `projectPath/screenshots`，返回保存后的完整路径。
-- **参数**：仅开放 `projectPath` + `viewport`（单张）或 `shots`（批量）。
+- **参数**：常用入口为 `projectPath`、`targetId`、`targetIds`；高级入口继续支持 `viewport`（单张）和 `shots`（批量）。
 - **默认**：`layerPreset=Agent`、`autoFitViewport=true`、`scale=2`。
+- **兜底**：只传 `projectPath` 时默认截全图；若同时提供单张和批量参数，按单张参数优先生效（`targetId > viewport > targetIds > shots`）。
 - **权限**：需在 `<BIMCANVAS_HOME>/agents/layout-agent.md` 的 `tools` 中显式加入该工具。
 
-单张示例：
+全图示例：
+```json
+{
+  "projectPath": "C:\\Users\\...\\Projects\\demo_1"
+}
+```
+
+单区示例：
 ```json
 {
   "projectPath": "C:\\Users\\...\\Projects\\demo_1",
-  "viewport": { "mode": "full" }
+  "targetId": "rz_1"
 }
 ```
 
@@ -873,8 +881,24 @@ python -m src.image_generation.cli ^
 ```json
 {
   "projectPath": "C:\\Users\\...\\Projects\\demo_1",
+  "targetIds": ["rz_1", "rz_2"]
+}
+```
+
+高级单张示例：
+```json
+{
+  "projectPath": "C:\\Users\\...\\Projects\\demo_1",
+  "viewport": { "mode": "bounds", "bounds": { "minX": 0, "minY": 0, "maxX": 1000, "maxY": 1000 } }
+}
+```
+
+高级批量示例：
+```json
+{
+  "projectPath": "C:\\Users\\...\\Projects\\demo_1",
   "shots": [
-    { "viewport": { "mode": "full" } },
+    { "targetId": "rz_1" },
     { "viewport": { "mode": "zone", "zoneId": "rz_1" } }
   ]
 }

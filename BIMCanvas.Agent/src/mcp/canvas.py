@@ -36,6 +36,15 @@ SCREENSHOT_AUTO_FIT = True
 SCREENSHOT_DIR_NAME = "screenshots"
 
 
+def _normalize_bounds(bounds: Any) -> tuple[dict[str, Any] | None, str | None]:
+    if not isinstance(bounds, dict):
+        return None, "viewport.bounds 必须是对象"
+    required_keys = {"minX", "minY", "maxX", "maxY"}
+    if not required_keys.issubset(bounds.keys()):
+        return None, "viewport.bounds 需要 minX/minY/maxX/maxY"
+    return bounds, None
+
+
 def _sanitize_filename(value: str) -> str:
     cleaned = re.sub(r"[^A-Za-z0-9._-]+", "_", value or "")
     cleaned = cleaned.strip("._-")
@@ -52,13 +61,20 @@ def _normalize_viewport(viewport: dict[str, Any]) -> tuple[dict[str, Any] | None
         normalized: dict[str, Any] = {"id": target_id}
         bounds = viewport.get("bounds")
         if isinstance(bounds, dict):
-            required_keys = {"minX", "minY", "maxX", "maxY"}
-            if not required_keys.issubset(bounds.keys()):
-                return None, "viewport.bounds 需要 minX/minY/maxX/maxY"
-            normalized["bounds"] = bounds
+            normalized_bounds, err = _normalize_bounds(bounds)
+            if err:
+                return None, err
+            normalized["bounds"] = normalized_bounds
         return normalized, None
 
     # 旧格式：mode + roomId/zoneId/bounds（向后兼容）
+    bounds = viewport.get("bounds")
+    if isinstance(bounds, dict) and not viewport.get("mode"):
+        normalized_bounds, err = _normalize_bounds(bounds)
+        if err:
+            return None, err
+        return {"mode": "bounds", "bounds": normalized_bounds}, None
+
     mode = str(viewport.get("mode") or "full").strip().lower()
     if mode not in {"full", "room", "zone", "bounds"}:
         return None, "viewport.mode 必须是 full/room/zone/bounds"
@@ -76,14 +92,71 @@ def _normalize_viewport(viewport: dict[str, Any]) -> tuple[dict[str, Any] | None
         normalized["zoneId"] = zone_id
     elif mode == "bounds":
         bounds = viewport.get("bounds")
-        if not isinstance(bounds, dict):
-            return None, "viewport.mode=bounds 时必须提供 bounds"
-        required_keys = {"minX", "minY", "maxX", "maxY"}
-        if not required_keys.issubset(bounds.keys()):
-            return None, "viewport.bounds 需要 minX/minY/maxX/maxY"
-        normalized["bounds"] = bounds
+        normalized_bounds, err = _normalize_bounds(bounds)
+        if err:
+            return None, "viewport.mode=bounds 时必须提供 bounds" if bounds is None else err
+        normalized["bounds"] = normalized_bounds
 
     return normalized, None
+
+
+def _clean_target_id(value: Any) -> str:
+    return str(value).strip() if value is not None else ""
+
+
+def _full_screenshot_viewports() -> list[dict[str, Any]]:
+    return [{"mode": "full"}]
+
+
+def _resolve_screenshot_viewports(args: dict[str, Any]) -> tuple[list[dict[str, Any]] | None, str | None]:
+    target_id = _clean_target_id(args.get("targetId"))
+    if target_id:
+        return [{"id": target_id}], None
+
+    viewport_arg = args.get("viewport")
+    if viewport_arg is not None:
+        normalized, err = _normalize_viewport(viewport_arg)
+        if err:
+            return None, err
+        return [normalized], None
+
+    target_ids_arg = args.get("targetIds")
+    if target_ids_arg is not None:
+        if not isinstance(target_ids_arg, list):
+            return None, "targetIds 必须是数组"
+        viewports = [
+            {"id": target}
+            for target in (_clean_target_id(value) for value in target_ids_arg)
+            if target
+        ]
+        return viewports or _full_screenshot_viewports(), None
+
+    shots_arg = args.get("shots")
+    if shots_arg is not None:
+        if not isinstance(shots_arg, list):
+            return None, "shots 必须是数组"
+
+        viewports: list[dict[str, Any]] = []
+        for idx, shot in enumerate(shots_arg):
+            if not isinstance(shot, dict):
+                return None, f"shots[{idx}] 必须是对象"
+
+            shot_target_id = _clean_target_id(shot.get("targetId"))
+            if shot_target_id:
+                viewports.append({"id": shot_target_id})
+                continue
+
+            if "viewport" not in shot:
+                continue
+
+            normalized, err = _normalize_viewport(shot.get("viewport"))
+            if err:
+                return None, f"shots[{idx}] {err}"
+            viewports.append(normalized)
+
+        return viewports or _full_screenshot_viewports(), None
+
+    return _full_screenshot_viewports(), None
 
 
 def _build_shot_label(viewport: dict[str, Any], index: int) -> str:
@@ -279,9 +352,18 @@ async def ai_job_complete(args: dict[str, Any]) -> dict[str, Any]:
                 "type": "string",
                 "description": "BIMCanvas 项目目录（包含 project.json 的目录）。必须使用系统提示词中的「项目路径」或「工作目录」，不要使用 skill/plugin 目录。"
             },
+            "targetId": {
+                "type": "string",
+                "description": "常用单张截图目标 ID（推荐）：如 rz_1/r_1/dz_1。传入后会截取对应房间/计算区域/设计分区；优先级高于 viewport/targetIds/shots。"
+            },
+            "targetIds": {
+                "type": "array",
+                "description": "常用批量截图目标 ID 列表（推荐）：如 [\"rz_1\", \"rz_2\"]。仅在未提供 targetId/viewport 时生效。",
+                "items": {"type": "string"}
+            },
             "viewport": {
                 "type": "object",
-                "description": "单张截图范围。推荐用 id 字段（如 rz_1/r_1/dz_1），前端自动查找；留空则全屏。也兼容旧格式 mode+roomId/zoneId。",
+                "description": "高级单张截图范围。常用局部截图优先用 targetId；留空对象则全屏。也兼容旧格式 mode+roomId/zoneId。",
                 "properties": {
                     "id": {
                         "type": "string",
@@ -309,10 +391,14 @@ async def ai_job_complete(args: dict[str, Any]) -> dict[str, Any]:
             },
             "shots": {
                 "type": "array",
-                "description": "批量截图列表（每项仅包含 viewport）",
+                "description": "高级批量截图列表。每项可包含 targetId 或 viewport；targetId 优先。仅在未提供 targetId/viewport/targetIds 时生效。",
                 "items": {
                     "type": "object",
                     "properties": {
+                        "targetId": {
+                            "type": "string",
+                            "description": "当前截图目标 ID（推荐）：如 rz_1/r_1/dz_1。优先级高于本项 viewport。"
+                        },
                         "viewport": {
                             "type": "object",
                             "description": "截图范围，同单张截图的 viewport",
@@ -334,7 +420,6 @@ async def ai_job_complete(args: dict[str, Any]) -> dict[str, Any]:
                             }
                         }
                     },
-                    "required": ["viewport"],
                     "additionalProperties": False
                 }
             }
@@ -364,48 +449,14 @@ async def request_background_screenshot(args: dict[str, Any]) -> dict[str, Any]:
             "is_error": True
         }
 
-    viewport_arg = args.get("viewport")
-    shots_arg = args.get("shots")
-    if viewport_arg and shots_arg:
+    resolved_viewports, err = _resolve_screenshot_viewports(args)
+    if err:
         return {
-            "content": [{"type": "text", "text": "错误: viewport 与 shots 不能同时提供"}],
+            "content": [{"type": "text", "text": f"错误: {err}"}],
             "is_error": True
         }
 
-    if shots_arg is None:
-        if viewport_arg is None:
-            return {
-                "content": [{"type": "text", "text": "错误: 必须提供 viewport 或 shots"}],
-                "is_error": True
-            }
-        shots_arg = [{"viewport": viewport_arg}]
-
-    if not isinstance(shots_arg, list) or not shots_arg:
-        return {
-            "content": [{"type": "text", "text": "错误: shots 必须是非空数组"}],
-            "is_error": True
-        }
-
-    viewports: list[dict[str, Any]] = []
-    for idx, shot in enumerate(shots_arg):
-        if not isinstance(shot, dict):
-            return {
-                "content": [{"type": "text", "text": f"错误: shots[{idx}] 必须是对象"}],
-                "is_error": True
-            }
-        viewport_data = shot.get("viewport")
-        if viewport_data is None:
-            return {
-                "content": [{"type": "text", "text": f"错误: shots[{idx}].viewport 必须提供"}],
-                "is_error": True
-            }
-        normalized, err = _normalize_viewport(viewport_data)
-        if err:
-            return {
-                "content": [{"type": "text", "text": f"错误: shots[{idx}] {err}"}],
-                "is_error": True
-            }
-        viewports.append(normalized)
+    viewports = resolved_viewports or _full_screenshot_viewports()
 
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     timeout = aiohttp.ClientTimeout(total=90)
