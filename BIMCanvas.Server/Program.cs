@@ -148,9 +148,7 @@ var resolvedServerPort = ResolveManagedPort(
     "Server",
     configuredServerBinding.ListenHost,
     configuredServerBinding.PreferredPort,
-    (_, occupant) => IsBIMCanvasServerProcess(occupant.ProcessId)
-        ? PortOccupantOwnership.OwnedManaged
-        : PortOccupantOwnership.ExternalProcess);
+    (_, occupant) => ClassifyBIMCanvasServerOccupant(occupant.ProcessId, baseDir));
 var serverListenUrl = BuildUrl(configuredServerBinding.Scheme, configuredServerBinding.ListenHost, resolvedServerPort.ActualPort);
 var serverBaseUrl = BuildUrl(configuredServerBinding.Scheme, configuredServerBinding.BrowserHost, resolvedServerPort.ActualPort);
 builder.Configuration["urls"] = serverListenUrl;
@@ -697,9 +695,7 @@ Process? ccrProcess = null;
             "Web",
             "0.0.0.0",
             configuredWebPort,
-            (_, occupant) => IsBIMCanvasWebProcess(occupant.ProcessId, webProjectPath)
-                ? PortOccupantOwnership.OwnedManaged
-                : PortOccupantOwnership.ExternalProcess);
+            (_, occupant) => ClassifyBIMCanvasWebOccupant(occupant.ProcessId, webProjectPath));
         var plannedWebBaseUrl = BuildUrl(Uri.UriSchemeHttp, "localhost", resolvedWebPort.ActualPort);
         runtimeEndpointState.SetWeb(CreateRuntimeEndpoint(
             "web",
@@ -1910,10 +1906,10 @@ static ResolvedPortReservation ResolveManagedPort(
             var occupant = SelectOccupantForLogging(classifiedOccupants);
             switch (occupant.Ownership)
             {
-                case PortOccupantOwnership.ForeignBimCanvasAgent:
+                case PortOccupantOwnership.ForeignBimCanvasInstance:
                     WriteWithColoredPrefix(
                         "[Server:WARN]",
-                        $"端口 {candidatePort} 被其他 BIMCanvas Agent 实例占用 (PID: {occupant.ProcessId}, 状态: {occupant.State})，{serviceName} 将尝试 {candidatePort + 1}",
+                        $"端口 {candidatePort} 被其他 BIMCanvas {serviceName} 实例占用 (PID: {occupant.ProcessId}, 状态: {occupant.State})，{serviceName} 将尝试 {candidatePort + 1}",
                         ConsoleColor.DarkYellow);
                     break;
                 case PortOccupantOwnership.OwnedManaged:
@@ -2304,10 +2300,15 @@ static PortOccupantOwnership ClassifyBIMCanvasAgentOccupant(
             // 若 --managed-by-server 带父 Server PID，且该 Server 已不存在，则视为孤儿，
             // 沿用 OwnedLegacy 清理路径回收端口。老版本无 PID 时跳过该检查。
             var parentServerPidRaw = GetCommandLineArgumentValue(commandArgs, "--managed-by-server");
-            if (!string.IsNullOrWhiteSpace(parentServerPidRaw)
+            var hasParentServerPid = !string.IsNullOrWhiteSpace(parentServerPidRaw)
                 && !parentServerPidRaw.StartsWith("-", StringComparison.Ordinal)
-                && int.TryParse(parentServerPidRaw, System.Globalization.NumberStyles.Integer, System.Globalization.CultureInfo.InvariantCulture, out var parentServerPid)
-                && !IsProcessAlive(parentServerPid))
+                && int.TryParse(
+                    parentServerPidRaw,
+                    System.Globalization.NumberStyles.Integer,
+                    System.Globalization.CultureInfo.InvariantCulture,
+                    out var parentServerPid);
+            var parentServerAlive = hasParentServerPid && IsProcessAlive(parentServerPid);
+            if (hasParentServerPid && !parentServerAlive)
             {
                 return PortOccupantOwnership.OwnedLegacy;
             }
@@ -2325,10 +2326,15 @@ static PortOccupantOwnership ClassifyBIMCanvasAgentOccupant(
                     ? normalizedManagedHome.Equals(normalizedCurrentHome, StringComparison.OrdinalIgnoreCase)
                     : true))
             {
+                if (hasParentServerPid && parentServerPid != Environment.ProcessId && parentServerAlive)
+                {
+                    return PortOccupantOwnership.ForeignBimCanvasInstance;
+                }
+
                 return PortOccupantOwnership.OwnedManaged;
             }
 
-            return PortOccupantOwnership.ForeignBimCanvasAgent;
+            return PortOccupantOwnership.ForeignBimCanvasInstance;
         }
 
         return ProbeBIMCanvasAgentHealth(port)
@@ -2555,30 +2561,52 @@ static bool ProbeBIMCanvasAgentHealth(int port)
 static ClassifiedPortOccupantInfo SelectOccupantForLogging(IReadOnlyList<ClassifiedPortOccupantInfo> occupants)
 {
     return occupants
-        .OrderByDescending(item => item.Ownership == PortOccupantOwnership.ForeignBimCanvasAgent)
+        .OrderByDescending(item => item.Ownership == PortOccupantOwnership.ForeignBimCanvasInstance)
         .ThenByDescending(item => item.Ownership is PortOccupantOwnership.OwnedManaged or PortOccupantOwnership.OwnedLegacy)
         .First();
 }
 
-static bool IsBIMCanvasWebProcess(int pid, string webProjectPath)
+static PortOccupantOwnership ClassifyBIMCanvasWebOccupant(int pid, string webProjectPath)
 {
     try
     {
-        var process = Process.GetProcessById(pid);
-        if (!process.ProcessName.Contains("node", StringComparison.OrdinalIgnoreCase))
+        using var process = Process.GetProcessById(pid);
+        var cmdLine = GetProcessCommandLine(pid);
+        if (!LooksLikeManagedBIMCanvasWebCommand(process.ProcessName, cmdLine))
         {
-            return false;
+            return PortOccupantOwnership.ExternalProcess;
         }
 
-        var cmdLine = GetProcessCommandLine(pid);
-        return cmdLine.Contains("vite", StringComparison.OrdinalIgnoreCase)
-               && cmdLine.Contains(NormalizePathForMatch(webProjectPath), StringComparison.OrdinalIgnoreCase);
+        if (!CommandLineReferencesDirectory(cmdLine, webProjectPath))
+        {
+            return PortOccupantOwnership.ForeignBimCanvasInstance;
+        }
+
+        return ClassifyManagedChildOccupantByParent(
+            pid,
+            parentCommandMatcher: LooksLikeBIMCanvasServerCommand,
+            liveParentOwnership: PortOccupantOwnership.ForeignBimCanvasInstance);
     }
     catch (Exception ex)
     {
         WriteWithColoredPrefix("[Server:WARN]", $"Web 进程验证失败: {ex.Message}", ConsoleColor.DarkYellow);
+        return PortOccupantOwnership.ExternalProcess;
+    }
+}
+
+static bool LooksLikeManagedBIMCanvasWebCommand(string processName, string commandLine)
+{
+    if (string.IsNullOrWhiteSpace(commandLine) ||
+        !processName.Contains("node", StringComparison.OrdinalIgnoreCase))
+    {
         return false;
     }
+
+    var normalizedCommandLine = NormalizeCommandLineForMatch(commandLine);
+    return normalizedCommandLine.Contains("vite", StringComparison.OrdinalIgnoreCase)
+           && normalizedCommandLine.Contains("node_modules\\vite\\bin\\vite.js", StringComparison.OrdinalIgnoreCase)
+           && normalizedCommandLine.Contains("--port", StringComparison.OrdinalIgnoreCase)
+           && normalizedCommandLine.Contains("--strictPort", StringComparison.OrdinalIgnoreCase);
 }
 
 static bool IsBIMCanvasCcrProcess(int pid)
@@ -2605,34 +2633,56 @@ static bool IsBIMCanvasCcrProcess(int pid)
     }
 }
 
-static bool IsBIMCanvasServerProcess(int pid)
+static PortOccupantOwnership ClassifyBIMCanvasServerOccupant(int pid, string serverBaseDir)
 {
     try
     {
         if (pid == Environment.ProcessId)
         {
-            return false;
+            return PortOccupantOwnership.ExternalProcess;
         }
 
-        var process = Process.GetProcessById(pid);
-        if (process.ProcessName.Contains("BIMCanvas.Server", StringComparison.OrdinalIgnoreCase))
-        {
-            return true;
-        }
-
-        if (!process.ProcessName.Contains("dotnet", StringComparison.OrdinalIgnoreCase))
-        {
-            return false;
-        }
-
+        using var process = Process.GetProcessById(pid);
         var cmdLine = GetProcessCommandLine(pid);
-        return cmdLine.Contains("BIMCanvas.Server", StringComparison.OrdinalIgnoreCase);
+        if (!LooksLikeBIMCanvasServerCommand(process.ProcessName, cmdLine))
+        {
+            return PortOccupantOwnership.ExternalProcess;
+        }
+
+        if (!CommandLineReferencesDirectory(cmdLine, serverBaseDir) &&
+            !CommandLineReferencesDirectory(cmdLine, FindServerProjectPath(serverBaseDir)))
+        {
+            return PortOccupantOwnership.ForeignBimCanvasInstance;
+        }
+
+        if (TryGetParentProcessId(pid, out var parentPid) && IsProcessAlive(parentPid))
+        {
+            return PortOccupantOwnership.ForeignBimCanvasInstance;
+        }
+
+        return PortOccupantOwnership.OwnedLegacy;
     }
     catch (Exception ex)
     {
         WriteWithColoredPrefix("[Server:WARN]", $"Server 进程验证失败: {ex.Message}", ConsoleColor.DarkYellow);
+        return PortOccupantOwnership.ExternalProcess;
+    }
+}
+
+static bool LooksLikeBIMCanvasServerCommand(string processName, string commandLine)
+{
+    if (string.IsNullOrWhiteSpace(processName))
+    {
         return false;
     }
+
+    if (processName.Contains("BIMCanvas.Server", StringComparison.OrdinalIgnoreCase))
+    {
+        return true;
+    }
+
+    return processName.Contains("dotnet", StringComparison.OrdinalIgnoreCase)
+           && commandLine.Contains("BIMCanvas.Server", StringComparison.OrdinalIgnoreCase);
 }
 
 static string GetProcessCommandLine(int pid)
