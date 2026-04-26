@@ -126,6 +126,35 @@ const isLoading = computed({
 });
 
 const activeTodoProgress = computed(() => activeWindow.value?.todoProgress ?? null);
+const todoProgressOverlayRef = ref<HTMLElement | null>(null);
+const todoProgressOverlayHeight = ref(0);
+const todoProgressSpace = computed(() =>
+  activeTodoProgress.value ? `${todoProgressOverlayHeight.value + 12}px` : '0px'
+);
+
+let todoProgressResizeObserver: ResizeObserver | null = null;
+
+const setTodoProgressOverlayRef = (el: HTMLElement | null) => {
+  todoProgressResizeObserver?.disconnect();
+  todoProgressResizeObserver = null;
+  todoProgressOverlayRef.value = el;
+
+  if (!el) {
+    todoProgressOverlayHeight.value = 0;
+    return;
+  }
+
+  const updateHeight = () => {
+    todoProgressOverlayHeight.value = Math.ceil(el.getBoundingClientRect().height);
+  };
+
+  updateHeight();
+
+  if (typeof ResizeObserver !== 'undefined') {
+    todoProgressResizeObserver = new ResizeObserver(updateHeight);
+    todoProgressResizeObserver.observe(el);
+  }
+};
 
 const toggleTodoProgressCollapsed = () => {
   const progress = activeWindow.value?.todoProgress;
@@ -519,6 +548,22 @@ watch([activeWindowId, () => chatMessages.value.length], () => {
   }
 });
 
+watch(
+  () => [
+    activeTodoProgress.value?.updatedAt,
+    activeTodoProgress.value?.isCollapsed,
+    activeTodoProgress.value?.todos.length
+  ],
+  () => {
+    nextTick(() => {
+      const overlay = todoProgressOverlayRef.value;
+      todoProgressOverlayHeight.value = overlay
+        ? Math.ceil(overlay.getBoundingClientRect().height)
+        : 0;
+    });
+  }
+);
+
 const handleKeydown = (event: KeyboardEvent) => {
   if (event.key === 'Enter' && !event.shiftKey) {
     event.preventDefault();
@@ -562,6 +607,8 @@ onMounted(() => {
 
 onUnmounted(() => {
   window.removeEventListener('click', handleGlobalClick);
+  todoProgressResizeObserver?.disconnect();
+  todoProgressResizeObserver = null;
   stopScreenshotListening();
   stopQuestionListening();
   cleanupHealthCheck();
@@ -760,7 +807,11 @@ watch(chatScrollRef, (newEl, oldEl) => {
       <div class="layer-stream">
 
          <!-- View: Chat - Phase 2: 多窗口 v-show 架构 -->
-        <div v-show="mode === 'chat'" class="view-chat-container">
+        <div
+          v-show="mode === 'chat'"
+          class="view-chat-container"
+          :style="{ '--todo-progress-space': todoProgressSpace }"
+        >
           <!-- 每个窗口独立的聊天容器 -->
           <div
             v-for="win in windows"
@@ -835,6 +886,7 @@ watch(chatScrollRef, (newEl, oldEl) => {
             <div
               v-if="activeTodoProgress"
               class="todo-progress-overlay"
+              :ref="el => setTodoProgressOverlayRef(el as HTMLElement | null)"
             >
               <TodoProgressPanel
                 :progress="activeTodoProgress"
@@ -2197,6 +2249,7 @@ watch(chatScrollRef, (newEl, oldEl) => {
 
 /* Phase 2: 多窗口聊天容器 */
 .view-chat-container {
+    --todo-progress-space: 0px;
     position: relative;
     flex: 1;
     width: 100%;
@@ -2210,12 +2263,13 @@ watch(chatScrollRef, (newEl, oldEl) => {
     top: 0;
     left: 0;
     right: 0;
-    bottom: 0;
+    bottom: var(--todo-progress-space);
     overflow-y: auto;
     overflow-x: hidden;
+    transition: bottom 0.18s ease;
 
     &.has-todo-progress {
-        padding-bottom: 124px;
+        padding-bottom: 8px;
     }
 }
 
