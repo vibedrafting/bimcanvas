@@ -767,6 +767,7 @@ watch(chatScrollRef, (newEl, oldEl) => {
             :key="win.id"
             v-show="activeWindowId === win.id"
             class="view-chat window-chat-container"
+            :class="{ 'has-todo-progress': !!activeTodoProgress }"
             :ref="el => setChatScrollRef(win.id, el as HTMLElement)"
             @scroll="handleChatScroll(win.id)"
           >
@@ -829,6 +830,18 @@ watch(chatScrollRef, (newEl, oldEl) => {
             <!-- Note: Loading state now handled within streaming messages -->
             <div :ref="el => setChatBottomRef(win.id, el as HTMLElement)" class="chat-bottom-anchor"></div>
           </div>
+
+          <transition name="todo-panel-fade">
+            <div
+              v-if="activeTodoProgress"
+              class="todo-progress-overlay"
+            >
+              <TodoProgressPanel
+                :progress="activeTodoProgress"
+                @toggle="toggleTodoProgressCollapsed"
+              />
+            </div>
+          </transition>
         </div>
 
         <!-- View: Tasks (formerly Review) -->
@@ -909,14 +922,6 @@ watch(chatScrollRef, (newEl, oldEl) => {
 
       <!-- Layer 3: Command Footer -->
       <div class="layer-footer" v-if="mode === 'chat'">
-        <transition name="todo-panel-fade">
-          <TodoProgressPanel
-            v-if="activeTodoProgress"
-            :progress="activeTodoProgress"
-            @toggle="toggleTodoProgressCollapsed"
-          />
-        </transition>
-        
         <!-- Context Bar (Replaces Selection Status Bar) -->
         <div class="context-bar">
             <!-- 1. Scope Chip (Always visible, defaults to 全局) -->
@@ -2193,8 +2198,10 @@ watch(chatScrollRef, (newEl, oldEl) => {
 /* Phase 2: 多窗口聊天容器 */
 .view-chat-container {
     position: relative;
+    flex: 1;
     width: 100%;
     height: 100%;
+    min-height: 0;
     overflow: hidden;
 }
 
@@ -2206,6 +2213,24 @@ watch(chatScrollRef, (newEl, oldEl) => {
     bottom: 0;
     overflow-y: auto;
     overflow-x: hidden;
+
+    &.has-todo-progress {
+        padding-bottom: 124px;
+    }
+}
+
+.todo-progress-overlay {
+    position: absolute;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 8;
+    pointer-events: none;
+
+    :deep(.todo-progress-panel) {
+        margin: 0;
+        pointer-events: auto;
+    }
 }
 
 .view-chat {
