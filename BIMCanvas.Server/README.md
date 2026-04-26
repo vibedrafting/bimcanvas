@@ -29,6 +29,10 @@ dotnet run --project BIMCanvas.Server
 7. 等待托管 Agent / Web 服务就绪后再宣布启动完成；若 Agent 未在预期时间内就绪，则按降级状态继续运行并输出明确告警
 8. **v3.0**：通过 URL 参数 `?project={项目路径}` 加载项目
 
+#### Agent stdout 日志
+
+Development 托管 Agent 时，Server 以字符块读取 Agent stdout，只在物理行开头补时间戳。这样 Agent 的流式思考/回答可以继续追加到当前行，不会因为内部 flush 被拆成大量带重复前缀的日志；完整物理行结束后再同步交给 `ConversationLogger` 做对话日志持久化。
+
 ### Production / Docker
 
 当前推荐运行方式：

@@ -69,7 +69,7 @@ Server 还会额外注入内部托管参数 `--managed-by-server`、`--managed-a
 
 Server 托管启动时会注入 `BIMCANVAS_AGENT_MANAGED_BY_SERVER=1`。此模式下：
 
-- 模型 `thinking` / `response` 仍会在 Server 控制台实时显示，但由 AgentLogger 按约 200ms 或 400 字符合并为单行输出，避免逐 token stdout 拖慢控制台。
+- 模型 `thinking` / `response` 仍会在 Server 控制台实时显示，但由 AgentLogger 按约 200ms 或 400 字符节流 flush；flush 不会额外制造日志行，Server 会把内容追加到当前物理行，避免重复前缀。
 - 工具结果默认只输出单行摘要；`Read` 文件正文、结构化 JSON、截图 base64 等大 payload 不会直接写入 Server 控制台。
 - 临时排查模型流可设置 `BIMCANVAS_AGENT_STREAM_LOGS=1`，恢复 token 级 stdout。
 - 临时排查工具结果可设置 `BIMCANVAS_AGENT_TOOL_RESULT_LOGS=1`，恢复完整工具结果 stdout。

@@ -232,16 +232,9 @@ class AgentLogger:
         if not self._model_stream_parts:
             return
 
-        content = self._compact_log_text("".join(self._model_stream_parts))
+        content = "".join(self._model_stream_parts)
         if content:
-            prefix = self._get_window_prefix()
-            label = self._model_stream_log_label(self._model_stream_kind)
-            reset = Colors.RESET if self._model_stream_color else ""
-            self._safe_print(
-                f"{prefix} {self._indent()}{Colors.SECONDARY}"
-                f"{self._model_stream_agent_label} {label} "
-                f"{self._model_stream_color}{content}{reset}"
-            )
+            self._print_streaming(content, self._model_stream_color)
 
         self._model_stream_kind = None
         self._model_stream_color = ""
@@ -344,6 +337,14 @@ class AgentLogger:
         stripped = text.lstrip()
         return stripped.startswith("{") or stripped.startswith("[")
 
+    def _looks_like_line_numbered_text(self, text: str) -> bool:
+        lines = [line for line in text.splitlines() if line.strip()]
+        if len(lines) < 3:
+            return False
+        sample = lines[:8]
+        matched = sum(1 for line in sample if "→" in line[:12] or "->" in line[:12])
+        return matched >= max(2, len(sample) // 2)
+
     def _summarize_structured_result(self, result: Any, result_str: str) -> str:
         if isinstance(result, dict):
             keys = list(result.keys())
@@ -381,6 +382,12 @@ class AgentLogger:
 
         if tool_key == "glob":
             return self._summarize_glob_result(result)
+
+        if self._looks_like_line_numbered_text(result_str) or self._count_lines(result_str) >= 8:
+            return (
+                "text result suppressed "
+                f"(lines={self._count_lines(result_str)}, chars={len(result_str)})"
+            )
 
         if (
             tool_key == "mcp__canvas__get_zone_boundaries"
@@ -457,8 +464,7 @@ class AgentLogger:
     def log_thinking_end(self) -> None:
         """Log end of thinking process."""
         self._flush_managed_streaming()
-        if not self._coalesce_model_content_logs:
-            print()  # New line after streaming thinking
+        print()  # New line after streaming thinking
         self._streaming_line_has_prefix = False  # 重置流式状态
         self._print(f"{self._indent()}{Colors.TERTIARY}─ thinking complete ─{Colors.RESET}")
 
@@ -493,8 +499,7 @@ class AgentLogger:
     def log_response_end(self) -> None:
         """Log end of AI response."""
         self._flush_managed_streaming()
-        if not self._coalesce_model_content_logs:
-            print()  # New line after streaming response
+        print()  # New line after streaming response
         self._streaming_line_has_prefix = False  # 重置流式状态
 
     # ─────────────────────────────────────────────────────
