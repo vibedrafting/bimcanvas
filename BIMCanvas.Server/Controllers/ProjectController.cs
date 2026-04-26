@@ -70,6 +70,11 @@ namespace BIMCanvas.Server.Controllers
                 return BadRequest(new { message = "没有加载的项目" });
             }
 
+            if (ClearProjectContextIfMissing())
+            {
+                return NotFound(new { message = "当前项目目录不存在，已关闭项目" });
+            }
+
             // 优先使用活跃窗口的 Worktree 路径，否则回退到主仓库路径
             var loadPath = _projectContext.GetActiveWorktreePath()
                            ?? _projectContext.CurrentProjectPath!;
@@ -99,11 +104,14 @@ namespace BIMCanvas.Server.Controllers
         [HttpGet("status")]
         public ActionResult GetProjectStatus()
         {
+            var projectMissing = ClearProjectContextIfMissing();
+
             return Ok(new
             {
                 isLoaded = _projectContext.IsLoaded,
                 projectPath = _projectContext.CurrentProjectPath,
-                sourceBcpPath = _projectContext.SourceBcpPath
+                sourceBcpPath = _projectContext.SourceBcpPath,
+                projectMissing
             });
         }
 
@@ -330,6 +338,29 @@ namespace BIMCanvas.Server.Controllers
                 Path.GetFullPath(left).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar),
                 Path.GetFullPath(right).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar),
                 StringComparison.OrdinalIgnoreCase);
+        }
+
+        private bool ClearProjectContextIfMissing()
+        {
+            if (!_projectContext.IsLoaded || string.IsNullOrWhiteSpace(_projectContext.CurrentProjectPath))
+            {
+                return false;
+            }
+
+            var projectPath = _projectContext.CurrentProjectPath;
+            if (Directory.Exists(projectPath))
+            {
+                return false;
+            }
+
+            var registeredWindowIds = _projectContext.GetRegisteredWindowIds().ToList();
+            ReleaseProjectRuntimeResources(
+                projectPath,
+                registeredWindowIds,
+                closeDefaultWindowFallback: true);
+            _projectContext.Clear();
+            _logger.LogWarning("当前项目目录不存在，已自动关闭项目: {ProjectPath}", projectPath);
+            return true;
         }
 
         /// <summary>

@@ -260,6 +260,83 @@ def _control_plane_error_response(
     return web.json_response(payload, status=status, headers=headers)
 
 
+def _resolve_chat_directory(path_value: str | None) -> Path | None:
+    normalized = str(path_value or "").strip()
+    if not normalized:
+        return None
+
+    try:
+        return Path(normalized).expanduser().resolve(strict=False)
+    except Exception:
+        try:
+            return Path(normalized).expanduser().absolute()
+        except Exception:
+            return None
+
+
+async def _teardown_matching_request_session(
+    window_id: str,
+    project_path: str,
+    worktree_path: str | None,
+    *,
+    cancel_reason: str,
+) -> None:
+    async with _agents_lock:
+        active_session = await runtime_store.get_active_session(window_id)
+        if active_session is not None and _session_matches_request(active_session, project_path, worktree_path):
+            await _teardown_window_locked(
+                window_id,
+                cancel_reason=cancel_reason,
+                drop_window_seq=True,
+                sleep_after_disconnect=False,
+            )
+
+
+async def _validate_chat_directories(
+    *,
+    window_id: str,
+    project_path: str,
+    worktree_path: str | None,
+) -> web.Response | None:
+    project_dir = _resolve_chat_directory(project_path)
+    if project_dir is None:
+        return _control_plane_error_response(
+            error_type="PROJECT_PATH_REQUIRED",
+            message="projectPath is required.",
+            status=400,
+        )
+
+    if not project_dir.is_dir():
+        await _teardown_matching_request_session(
+            window_id,
+            project_path,
+            worktree_path,
+            cancel_reason="project_path_missing",
+        )
+        return _control_plane_error_response(
+            error_type="PROJECT_PATH_NOT_FOUND",
+            message="Project directory no longer exists. Return to homepage and reopen a valid project.",
+            status=404,
+        )
+
+    if worktree_path:
+        worktree_dir = _resolve_chat_directory(worktree_path)
+        if worktree_dir is None or not worktree_dir.is_dir():
+            await _teardown_matching_request_session(
+                window_id,
+                project_path,
+                worktree_path,
+                cancel_reason="worktree_path_missing",
+            )
+            return _control_plane_error_response(
+                error_type="WORKTREE_PATH_NOT_FOUND",
+                message="Worktree directory no longer exists. Close this window or reopen the project.",
+                status=404,
+            )
+
+    return None
+
+
 async def _check_chat_request_control_plane(
     request: web.Request,
     *,
@@ -706,6 +783,14 @@ async def chat_handler(request: web.Request) -> web.Response:
     if not model:
         return web.json_response({"error": "Model is required"}, status=400)
 
+    directory_error = await _validate_chat_directories(
+        window_id=window_id,
+        project_path=project_path,
+        worktree_path=worktree_path,
+    )
+    if directory_error is not None:
+        return directory_error
+
     control_plane_error = await _check_chat_request_control_plane(
         request,
         window_id=window_id,
@@ -819,6 +904,14 @@ async def chat_stream_handler(request: web.Request) -> web.StreamResponse:
             {"error": "attachmentIds must be a list", "errorType": "attachment_invalid"},
             status=400,
         )
+
+    directory_error = await _validate_chat_directories(
+        window_id=window_id,
+        project_path=project_path,
+        worktree_path=worktree_path,
+    )
+    if directory_error is not None:
+        return directory_error
 
     try:
         attachment_image_blocks = resolve_attachment_image_blocks(project_path, attachment_ids)
