@@ -129,7 +129,7 @@ const activeTodoProgress = computed(() => activeWindow.value?.todoProgress ?? nu
 const todoProgressOverlayRef = ref<HTMLElement | null>(null);
 const todoProgressOverlayHeight = ref(0);
 const todoProgressSpace = computed(() =>
-  activeTodoProgress.value ? `${todoProgressOverlayHeight.value}px` : '0px'
+  todoProgressOverlayHeight.value > 0 ? `${todoProgressOverlayHeight.value}px` : '0px'
 );
 
 let todoProgressResizeObserver: ResizeObserver | null = null;
@@ -384,6 +384,8 @@ const {
   hasFallback,
   buildContextPayload
 });
+
+const hasProgressOverlay = computed(() => !!activeTodoProgress.value || isPollingBackground.value);
 
 const {
   showScreenshotOverlay,
@@ -818,7 +820,7 @@ watch(chatScrollRef, (newEl, oldEl) => {
             :key="win.id"
             v-show="activeWindowId === win.id"
             class="view-chat window-chat-container"
-            :class="{ 'has-todo-progress': !!activeTodoProgress }"
+            :class="{ 'has-todo-progress': hasProgressOverlay }"
             :ref="el => setChatScrollRef(win.id, el as HTMLElement)"
             @scroll="handleChatScroll(win.id)"
           >
@@ -884,14 +886,21 @@ watch(chatScrollRef, (newEl, oldEl) => {
 
           <transition name="todo-panel-fade">
             <div
-              v-if="activeTodoProgress"
+              v-if="hasProgressOverlay"
               class="todo-progress-overlay"
               :ref="el => setTodoProgressOverlayRef(el as HTMLElement | null)"
             >
               <TodoProgressPanel
+                v-if="activeTodoProgress"
                 :progress="activeTodoProgress"
                 @toggle="toggleTodoProgressCollapsed"
               />
+              <transition name="slide-down">
+                <div v-if="isPollingBackground" class="polling-indicator">
+                  <span class="polling-dot"></span>
+                  <span class="polling-text">正在等待后台任务...</span>
+                </div>
+              </transition>
             </div>
           </transition>
         </div>
@@ -1118,14 +1127,6 @@ watch(chatScrollRef, (newEl, oldEl) => {
                 </transition>
             </div>
         </div>
-
-        <!-- Polling Background Status Indicator -->
-        <transition name="slide-down">
-        <div v-if="isPollingBackground" class="polling-indicator">
-            <span class="polling-dot"></span>
-            <span class="polling-text">正在等待后台任务...</span>
-          </div>
-        </transition>
 
         <input
           ref="imageUploadInputRef"
@@ -2280,6 +2281,9 @@ watch(chatScrollRef, (newEl, oldEl) => {
     bottom: 0;
     z-index: 8;
     pointer-events: none;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
 
     :deep(.todo-progress-panel) {
         margin: 0;
@@ -2810,12 +2814,13 @@ watch(chatScrollRef, (newEl, oldEl) => {
     align-items: center;
     gap: 8px;
     padding: 8px 16px;
-    margin: 0 4px 8px;
+    margin: 0;
     background: rgba(251, 191, 36, 0.1);  /* amber/warning color */
     border-radius: 8px;
     border: 1px solid rgba(251, 191, 36, 0.3);
     color: rgba(251, 191, 36, 0.9);
     font-size: 0.8rem;
+    pointer-events: auto;
 
     .polling-dot {
         width: 6px;
