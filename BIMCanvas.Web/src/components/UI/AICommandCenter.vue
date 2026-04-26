@@ -2222,7 +2222,7 @@ watch(chatScrollRef, (newEl, oldEl) => {
 .todo-progress-overlay {
     position: absolute;
     left: 0;
-    right: 0;
+    right: 18px;
     bottom: 0;
     z-index: 8;
     pointer-events: none;

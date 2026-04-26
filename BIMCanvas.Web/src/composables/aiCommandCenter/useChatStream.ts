@@ -133,6 +133,27 @@ const getBoolean = (value: unknown): boolean | undefined =>
 const getObject = (value: unknown): Record<string, any> | undefined =>
   isRecord(value) ? value : undefined;
 
+const getEventTurnId = (event: NormalizedStreamEvent): string | undefined =>
+  getString(event.payload.turnId) ?? getString(event.raw.turnId);
+
+const withFallbackTurnId = (event: NormalizedStreamEvent, fallbackTurnId: string): NormalizedStreamEvent => {
+  if (getEventTurnId(event)) {
+    return event;
+  }
+
+  return {
+    ...event,
+    payload: {
+      ...event.payload,
+      turnId: fallbackTurnId
+    },
+    raw: {
+      ...event.raw,
+      turnId: fallbackTurnId
+    }
+  };
+};
+
 const parseTodoProgressItems = (value: unknown): TodoProgressItem[] | null => {
   if (!Array.isArray(value)) {
     return null;
@@ -293,7 +314,7 @@ export const useChatStream = (options: ChatStreamOptions) => {
     }
 
     clearTodoDismissTimer(windowState.id);
-    const turnId = getString(event.raw.turnId);
+    const turnId = getEventTurnId(event);
     const previous = windowState.todoProgress;
     const sameTurn = !!previous && !!turnId && previous.turnId === turnId;
     const allCompleted = todos.length > 0 && todos.every(todo => todo.status === 'completed');
@@ -787,7 +808,13 @@ export const useChatStream = (options: ChatStreamOptions) => {
       }
       case 'turn.completed': {
         finalizeStreamingMessage(currentMsg);
-        if (windowState?.todoProgress?.status === 'running') {
+        const eventTurnId = getEventTurnId(normalizedEvent);
+        const todoTurnId = windowState?.todoProgress?.turnId;
+        if (
+          windowState?.todoProgress?.status === 'running'
+          && !!eventTurnId
+          && todoTurnId === eventTurnId
+        ) {
           const allCompleted = windowState.todoProgress.todos.length > 0
             && windowState.todoProgress.todos.every(todo => todo.status === 'completed');
           if (allCompleted) {
@@ -798,12 +825,16 @@ export const useChatStream = (options: ChatStreamOptions) => {
       }
       case 'turn.failed': {
         finalizeStreamingMessage(currentMsg);
-        finishTodoProgress(
-          windowState,
-          'failed',
-          getString(payload.error?.message) ?? getString(raw.error) ?? '本轮对话失败',
-          3000
-        );
+        const eventTurnId = getEventTurnId(normalizedEvent);
+        const todoTurnId = windowState?.todoProgress?.turnId;
+        if (!!eventTurnId && todoTurnId === eventTurnId) {
+          finishTodoProgress(
+            windowState,
+            'failed',
+            getString(payload.error?.message) ?? getString(raw.error) ?? '本轮对话失败',
+            3000
+          );
+        }
         appendTerminalFailure(
           currentMsg,
           getString(payload.error?.message) ?? getString(raw.error) ?? '本轮对话失败，请稍后重试。'
@@ -832,8 +863,6 @@ export const useChatStream = (options: ChatStreamOptions) => {
     const targetWindowId = win.id;
     const effectiveWindowId = targetWindowId || 'window-main';
     const clientMessageId = win.draftMessageId || createDraftMessageId();
-    clearTodoDismissTimer(targetWindowId);
-    win.todoProgress = null;
 
     // 先提取待发送图片，再清空
     const attachmentsToSend = [...options.pendingAttachments.value];
@@ -1051,14 +1080,16 @@ export const useChatStream = (options: ChatStreamOptions) => {
 
           try {
             const parsed = JSON.parse(data);
-            const normalizedEvent = normalizeStreamEvent(parsed);
+            const parsedEvent = normalizeStreamEvent(parsed);
 
-            if (!normalizedEvent) {
+            if (!parsedEvent) {
               if (parsed?.error) {
                 console.error('[SSE Error]', parsed.error);
               }
               continue;
             }
+
+            const normalizedEvent = withFallbackTurnId(parsedEvent, clientMessageId);
 
             if (ASSISTANT_EVENT_TYPES.has(normalizedEvent.eventType)) {
               didReceiveAssistantEvent = true;
