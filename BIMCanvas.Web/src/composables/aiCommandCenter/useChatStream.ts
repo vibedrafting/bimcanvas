@@ -343,9 +343,14 @@ export const useChatStream = (options: ChatStreamOptions) => {
   const isLiveSessionStatus = (status?: string | null): boolean =>
     status === 'running' || status === 'paused';
 
+  const isPlaceholderAssistantText = (content?: string | null): boolean => {
+    const trimmed = (content || '').trim();
+    return PLACEHOLDER_ASSISTANT_TEXTS.has(trimmed.toLowerCase());
+  };
+
   const isSuppressedAssistantText = (content?: string | null): boolean => {
     const trimmed = (content || '').trim();
-    return trimmed.length === 0 || PLACEHOLDER_ASSISTANT_TEXTS.has(trimmed.toLowerCase());
+    return trimmed.length === 0 || isPlaceholderAssistantText(content);
   };
 
   const pruneSuppressedTextBubbles = (bubbles: ChatBubble[]) => {
@@ -563,7 +568,7 @@ export const useChatStream = (options: ChatStreamOptions) => {
           break;
         }
         const content = getString(payload.content) ?? getString(raw.content) ?? '';
-        if (isSuppressedAssistantText(content)) {
+        if (isPlaceholderAssistantText(content)) {
           break;
         }
 
@@ -608,7 +613,7 @@ export const useChatStream = (options: ChatStreamOptions) => {
           break;
         }
 
-        if (isSuppressedAssistantText(content)) {
+        if (isPlaceholderAssistantText(content)) {
           break;
         }
 

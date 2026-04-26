@@ -337,3 +337,18 @@ def test_main_agent_captures_model_from_stream_message_start_event() -> None:
     )
 
     assert agent._completion_model_stamp() == "provider-model-id"
+
+
+def test_main_agent_preserves_blank_markdown_delta_content() -> None:
+    agent = MainAgent(
+        project_path=str(AGENT_ROOT),
+        working_directory=str(AGENT_ROOT),
+        verbose=False,
+    )
+
+    assert MainAgent._normalize_visible_content(" ", preserve_blank=True) == " "
+    assert MainAgent._normalize_visible_content("\n\n", preserve_blank=True) == "\n\n"
+    assert MainAgent._normalize_visible_content(" ") is None
+    assert MainAgent._normalize_visible_content("(no content)", preserve_blank=True) is None
+    assert agent._filter_assistant_text(" ", preserve_blank=True) == " "
+    assert agent._filter_assistant_text("\n", preserve_blank=True) == "\n"

@@ -342,26 +342,43 @@ class MainAgent:
         return trimmed.lower() in cls._PLACEHOLDER_ASSISTANT_TEXTS
 
     @classmethod
-    def _normalize_visible_content(cls, text: str | None) -> str | None:
-        """归一化所有可见的 assistant 内容（text + thinking），过滤占位内容。"""
+    def _normalize_visible_content(
+        cls,
+        text: str | None,
+        *,
+        preserve_blank: bool = False,
+    ) -> str | None:
+        """归一化 assistant 可见内容，过滤占位内容。
+
+        流式 delta 中的单独空格或换行是 Markdown 语义的一部分，不能当作空内容丢弃。
+        """
         if text is None:
+            return None
+        if text == "":
             return None
         trimmed = text.strip()
         if not trimmed:
-            return None
+            return text if preserve_blank else None
         if trimmed.lower() in cls._PLACEHOLDER_ASSISTANT_TEXTS:
             return None
         return text
 
     @classmethod
-    def _normalize_assistant_text(cls, text: str) -> str | None:
+    def _normalize_assistant_text(
+        cls,
+        text: str,
+        *,
+        preserve_blank: bool = False,
+    ) -> str | None:
         """归一化 assistant 文本，过滤占位内容，保留真实正文。剥离 tool_use_error 标签后判断。"""
         cleaned = re.sub(r'<tool_use_error>[\s\S]*?</tool_use_error>', '', text)
-        return cls._normalize_visible_content(cleaned)
+        if cleaned != text and not cleaned.strip():
+            return None
+        return cls._normalize_visible_content(cleaned, preserve_blank=preserve_blank)
 
-    def _filter_assistant_text(self, text: str) -> str | None:
+    def _filter_assistant_text(self, text: str, *, preserve_blank: bool = False) -> str | None:
         """实例级过滤，附带一次性兼容日志。"""
-        normalized = self._normalize_assistant_text(text)
+        normalized = self._normalize_assistant_text(text, preserve_blank=preserve_blank)
         if normalized is None:
             cleaned = self._strip_tool_error_tags(text).strip()
             if cleaned and not self._placeholder_text_suppressed_logged and self.verbose:
@@ -673,11 +690,11 @@ class MainAgent:
             delta = event.get("delta", {})
             delta_type = delta.get("type", "")
             if delta_type == "thinking_delta" and self.verbose:
-                thinking = self._normalize_visible_content(delta.get("thinking", ""))
+                thinking = self._normalize_visible_content(delta.get("thinking", ""), preserve_blank=True)
                 if thinking:
                     self._agent_logger.log_thinking(thinking, is_delta=True)
             elif delta_type == "text_delta" and self.verbose:
-                normalized_text = self._filter_assistant_text(delta.get("text", ""))
+                normalized_text = self._filter_assistant_text(delta.get("text", ""), preserve_blank=True)
                 if normalized_text:
                     if not self._in_response:
                         self._agent_logger.log_response_start()
@@ -1001,12 +1018,12 @@ class MainAgent:
                     delta = event.get("delta", {})
                     delta_type = delta.get("type", "")
                     if delta_type == "text_delta":
-                        normalized_text = self._filter_assistant_text(delta.get("text", ""))
+                        normalized_text = self._filter_assistant_text(delta.get("text", ""), preserve_blank=True)
                         if normalized_text:
                             self._streamed_text = True
                             yield StreamChunk(type="text", content=normalized_text)
                     elif delta_type == "thinking_delta":
-                        thinking = self._normalize_visible_content(delta.get("thinking", ""))
+                        thinking = self._normalize_visible_content(delta.get("thinking", ""), preserve_blank=True)
                         if thinking:
                             yield StreamChunk(type="thinking", content=thinking)
 
