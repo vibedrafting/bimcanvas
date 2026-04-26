@@ -8,6 +8,12 @@ import time
 from datetime import datetime
 from typing import Any
 
+MANAGED_STREAM_LOG_FLUSH_INTERVAL_SECONDS = 0.2
+MANAGED_STREAM_LOG_FLUSH_MAX_CHARS = 400
+MANAGED_MODEL_COMPLETE_PREVIEW_CHARS = 800
+MANAGED_TOOL_RESULT_PREVIEW_CHARS = 500
+MANAGED_TOOL_ERROR_PREVIEW_CHARS = 1000
+
 
 def _can_encode_unicode() -> bool:
     """Check if terminal supports extended Unicode characters."""
@@ -91,10 +97,16 @@ class AgentLogger:
         self._active_subagents: dict[str, dict] = {}  # subagent_id → {seq, name, short_name, type, start_time}
         # 流式输出状态：当前行是否已输出前缀
         self._streaming_line_has_prefix = False
-        self._suppress_model_content_logs = (
-            os.environ.get("BIMCANVAS_AGENT_MANAGED_BY_SERVER") == "1"
-            and os.environ.get("BIMCANVAS_AGENT_STREAM_LOGS") != "1"
-        )
+        self._managed_by_server = os.environ.get("BIMCANVAS_AGENT_MANAGED_BY_SERVER") == "1"
+        self._raw_stream_logs = os.environ.get("BIMCANVAS_AGENT_STREAM_LOGS") == "1"
+        self._full_tool_result_logs = os.environ.get("BIMCANVAS_AGENT_TOOL_RESULT_LOGS") == "1"
+        self._coalesce_model_content_logs = self._managed_by_server and not self._raw_stream_logs
+        self._model_stream_kind: str | None = None
+        self._model_stream_color = ""
+        self._model_stream_parts: list[str] = []
+        self._model_stream_chars = 0
+        self._model_stream_started_at = 0.0
+        self._model_stream_agent_label = "[MainAgent]"
 
     def _timestamp(self) -> str:
         """Get formatted timestamp."""
@@ -113,15 +125,20 @@ class AgentLogger:
 
     def _print(self, text: str) -> None:
         """Print to console with window prefix and proper encoding safety."""
+        self._flush_managed_streaming()
         prefix = self._get_window_prefix()
         output = f"{prefix} {text}"
+        self._safe_print(output)
+
+    def _safe_print(self, output: str, *, end: str = "\n") -> None:
+        """Print encoded text without routing through AgentLogger formatting again."""
         try:
-            print(output, flush=True)
+            print(output, end=end, flush=True)
         except UnicodeEncodeError:
             # Fallback: replace unencodable characters
             encoding = sys.stdout.encoding or 'utf-8'
             safe_text = output.encode(encoding, errors='replace').decode(encoding)
-            print(safe_text, flush=True)
+            print(safe_text, end=end, flush=True)
 
     def _print_streaming(self, text: str, color: str = "") -> None:
         """Print streaming content with window prefix on each line.
@@ -172,12 +189,209 @@ class AgentLogger:
             return text
         return text[:max_len] + ".."
 
-    def _log_suppressed_model_content(self, label: str, content: str) -> None:
-        """Log a compact placeholder for model content suppressed in managed mode."""
-        self._print(
-            f"{self._indent()}{Colors.TERTIARY}"
-            f"{label} content suppressed in managed mode (chars={len(content or '')})"
-            f"{Colors.RESET}"
+    def _truncate_with_marker(self, text: str, max_len: int) -> str:
+        if len(text) <= max_len:
+            return text
+        return f"{text[:max_len]}... (chars={len(text)})"
+
+    def _compact_log_text(self, value: Any) -> str:
+        """Collapse multiline or high-whitespace payloads into one console line."""
+        return " ".join(str(value).replace("\r", " ").split())
+
+    def _model_stream_log_label(self, kind: str | None) -> str:
+        if kind == "thinking":
+            return "[THINK]"
+        if kind == "response":
+            return "[AI]"
+        return "[AI]"
+
+    def _buffer_managed_streaming(self, kind: str, content: str, color: str) -> None:
+        if not content:
+            return
+
+        if self._model_stream_parts and self._model_stream_kind != kind:
+            self._flush_managed_streaming()
+
+        now = time.monotonic()
+        if not self._model_stream_parts:
+            self._model_stream_kind = kind
+            self._model_stream_color = color
+            self._model_stream_started_at = now
+            self._model_stream_agent_label = self._get_subagent_label()
+
+        self._model_stream_parts.append(content)
+        self._model_stream_chars += len(content)
+
+        if (
+            self._model_stream_chars >= MANAGED_STREAM_LOG_FLUSH_MAX_CHARS
+            or now - self._model_stream_started_at >= MANAGED_STREAM_LOG_FLUSH_INTERVAL_SECONDS
+        ):
+            self._flush_managed_streaming()
+
+    def _flush_managed_streaming(self) -> None:
+        if not self._model_stream_parts:
+            return
+
+        content = self._compact_log_text("".join(self._model_stream_parts))
+        if content:
+            prefix = self._get_window_prefix()
+            label = self._model_stream_log_label(self._model_stream_kind)
+            reset = Colors.RESET if self._model_stream_color else ""
+            self._safe_print(
+                f"{prefix} {self._indent()}{Colors.SECONDARY}"
+                f"{self._model_stream_agent_label} {label} "
+                f"{self._model_stream_color}{content}{reset}"
+            )
+
+        self._model_stream_kind = None
+        self._model_stream_color = ""
+        self._model_stream_parts = []
+        self._model_stream_chars = 0
+        self._model_stream_started_at = 0.0
+        self._model_stream_agent_label = "[MainAgent]"
+
+    def _log_managed_model_content(self, kind: str, content: str, color: str) -> None:
+        """Log a non-delta model block as a bounded single-line preview."""
+        self._flush_managed_streaming()
+        compact = self._compact_log_text(content or "")
+        if not compact:
+            return
+        prefix = self._get_window_prefix()
+        label = self._model_stream_log_label(kind)
+        agent_label = self._get_subagent_label()
+        preview = self._truncate_with_marker(compact, MANAGED_MODEL_COMPLETE_PREVIEW_CHARS)
+        reset = Colors.RESET if color else ""
+        self._safe_print(
+            f"{prefix} {self._indent()}{Colors.SECONDARY}"
+            f"{agent_label} {label} {color}{preview}{reset}"
+        )
+
+    def _is_debug_full_tool_result_enabled(self) -> bool:
+        return self._full_tool_result_logs
+
+    def _count_lines(self, text: str) -> int:
+        if not text:
+            return 0
+        return text.count("\n") + 1
+
+    def _summarize_read_result(self, result: Any) -> str:
+        result_str = str(result) if result is not None else ""
+        return (
+            "file content suppressed "
+            f"(lines={self._count_lines(result_str)}, chars={len(result_str)})"
+        )
+
+    def _summarize_glob_result(self, result: Any) -> str:
+        entries: list[str]
+        if isinstance(result, (list, tuple, set)):
+            entries = [self._compact_log_text(item) for item in result if str(item).strip()]
+        else:
+            result_str = str(result) if result is not None else ""
+            entries = [
+                self._compact_log_text(line)
+                for line in result_str.splitlines()
+                if line.strip()
+            ]
+
+        sample = ", ".join(entries[:3])
+        if len(entries) > 3:
+            sample = f"{sample}, ..."
+        if sample:
+            return f"matches={len(entries)} sample=[{sample}]"
+        return "matches=0"
+
+    def _estimate_base64_bytes(self, data: str) -> int:
+        stripped = data.strip()
+        padding = stripped.count("=")
+        return max(0, (len(stripped) * 3) // 4 - padding)
+
+    def _looks_like_base64(self, value: str) -> bool:
+        if len(value) < 128:
+            return False
+        allowed = set("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/=\r\n")
+        return all(ch in allowed for ch in value[:1024])
+
+    def _find_image_payload_bytes(self, value: Any, *, depth: int = 0) -> int | None:
+        if depth > 6:
+            return None
+
+        if isinstance(value, dict):
+            source = value.get("source")
+            if isinstance(source, dict):
+                data = source.get("data")
+                if isinstance(data, str) and self._looks_like_base64(data):
+                    return self._estimate_base64_bytes(data)
+
+            data = value.get("data")
+            if isinstance(data, str) and value.get("type") == "image" and self._looks_like_base64(data):
+                return self._estimate_base64_bytes(data)
+
+            for child in value.values():
+                found = self._find_image_payload_bytes(child, depth=depth + 1)
+                if found is not None:
+                    return found
+            return None
+
+        if isinstance(value, (list, tuple)):
+            for child in value:
+                found = self._find_image_payload_bytes(child, depth=depth + 1)
+                if found is not None:
+                    return found
+
+        return None
+
+    def _is_json_like_text(self, text: str) -> bool:
+        stripped = text.lstrip()
+        return stripped.startswith("{") or stripped.startswith("[")
+
+    def _summarize_structured_result(self, result: Any, result_str: str) -> str:
+        if isinstance(result, dict):
+            keys = list(result.keys())
+            preview_keys = ", ".join(str(key) for key in keys[:5])
+            if len(keys) > 5:
+                preview_keys = f"{preview_keys}, ..."
+            return f"structured result suppressed (type=dict, keys=[{preview_keys}], chars={len(result_str)})"
+        if isinstance(result, (list, tuple, set)):
+            return (
+                "structured result suppressed "
+                f"(type={type(result).__name__}, items={len(result)}, chars={len(result_str)})"
+            )
+        return f"structured result suppressed (chars={len(result_str)})"
+
+    def _format_tool_result_summary(self, tool_name: str, result: Any, *, is_error: bool) -> str:
+        result_str = str(result) if result is not None else ""
+
+        if is_error:
+            preview = self._truncate_with_marker(
+                self._compact_log_text(result_str),
+                MANAGED_TOOL_ERROR_PREVIEW_CHARS,
+            )
+            return preview or "(empty error)"
+
+        tool_key = (tool_name or "").lower()
+
+        image_bytes = self._find_image_payload_bytes(result)
+        if image_bytes is not None or tool_key == "mcp__canvas__request_background_screenshot":
+            if image_bytes is None:
+                image_bytes = self._estimate_base64_bytes(result_str) if self._looks_like_base64(result_str) else 0
+            return f"image result suppressed (bytes≈{image_bytes}, chars={len(result_str)})"
+
+        if tool_key == "read":
+            return self._summarize_read_result(result)
+
+        if tool_key == "glob":
+            return self._summarize_glob_result(result)
+
+        if (
+            tool_key == "mcp__canvas__get_zone_boundaries"
+            or isinstance(result, (dict, list, tuple, set))
+            or self._is_json_like_text(result_str)
+        ):
+            return self._summarize_structured_result(result, result_str)
+
+        return self._truncate_with_marker(
+            self._compact_log_text(result_str),
+            MANAGED_TOOL_RESULT_PREVIEW_CHARS,
         )
 
     def _get_subagent_label(self, subagent_id: str = None) -> str:
@@ -226,9 +440,11 @@ class AgentLogger:
 
     def log_thinking(self, content: str, is_delta: bool = False) -> None:
         """Log thinking content."""
-        if self._suppress_model_content_logs:
-            if not is_delta:
-                self._log_suppressed_model_content("thinking", content)
+        if self._coalesce_model_content_logs:
+            if is_delta:
+                self._buffer_managed_streaming("thinking", content, Colors.SECONDARY)
+            else:
+                self._log_managed_model_content("thinking", content, Colors.SECONDARY)
             return
 
         if is_delta:
@@ -240,7 +456,9 @@ class AgentLogger:
 
     def log_thinking_end(self) -> None:
         """Log end of thinking process."""
-        print()  # New line after streaming thinking
+        self._flush_managed_streaming()
+        if not self._coalesce_model_content_logs:
+            print()  # New line after streaming thinking
         self._streaming_line_has_prefix = False  # 重置流式状态
         self._print(f"{self._indent()}{Colors.TERTIARY}─ thinking complete ─{Colors.RESET}")
 
@@ -258,9 +476,11 @@ class AgentLogger:
 
     def log_response(self, content: str, is_delta: bool = False) -> None:
         """Log response content."""
-        if self._suppress_model_content_logs:
-            if not is_delta:
-                self._log_suppressed_model_content("assistant", content)
+        if self._coalesce_model_content_logs:
+            if is_delta:
+                self._buffer_managed_streaming("response", content, Colors.PRIMARY)
+            else:
+                self._log_managed_model_content("response", content, Colors.PRIMARY)
             return
 
         if is_delta:
@@ -272,7 +492,9 @@ class AgentLogger:
 
     def log_response_end(self) -> None:
         """Log end of AI response."""
-        print()  # New line after streaming response
+        self._flush_managed_streaming()
+        if not self._coalesce_model_content_logs:
+            print()  # New line after streaming response
         self._streaming_line_has_prefix = False  # 重置流式状态
 
     # ─────────────────────────────────────────────────────
@@ -304,15 +526,23 @@ class AgentLogger:
         agent_label = f"[{self._current_subagent}]" if self._in_subagent else "[MainAgent]"
 
         if is_error:
+            result_str = str(result) if result is not None else ""
+            if self._managed_by_server and not self._is_debug_full_tool_result_enabled():
+                result_str = self._format_tool_result_summary(tool_name, result, is_error=True)
             self._print(
                 f"{self._indent()}{Colors.ERROR}{agent_label} "
-                f"Tool Error ({tool_name}): {Colors.ERROR_DIM}{result}{Colors.RESET}"
+                f"Tool Error ({tool_name}): {Colors.ERROR_DIM}{result_str}{Colors.RESET}"
             )
         else:
-            # Truncate long results (次要信息，暗淡)
-            result_str = str(result)
-            if len(result_str) > 300:
-                result_str = result_str[:300] + "..."
+            if self._is_debug_full_tool_result_enabled():
+                result_str = str(result) if result is not None else ""
+            elif self._managed_by_server:
+                result_str = self._format_tool_result_summary(tool_name, result, is_error=False)
+            else:
+                # Truncate long results (次要信息，暗淡)
+                result_str = str(result) if result is not None else ""
+                if len(result_str) > 300:
+                    result_str = result_str[:300] + "..."
             self._print(
                 f"{self._indent()}{Colors.SECONDARY}{agent_label} "
                 f"Result ({tool_name}): {result_str}{Colors.RESET}"
