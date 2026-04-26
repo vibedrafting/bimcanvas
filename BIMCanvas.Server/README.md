@@ -137,7 +137,7 @@ v3.0 采用"文件驱动架构"，Server 从"内存数据库"模式转型为"文
 | `GitWorktreeService` | `Services/GitWorktreeService.cs` | v3.1 | Git 仓库 + 分支 + Worktree 管理 |
 | `StrategyService` | `Services/StrategyService.cs` | v3.1 | 策略管理（分支模式） |
 | `ProjectService` | `Services/ProjectService.cs` | v3.1 | 项目加载（含 Git 初始化） |
-| `ProjectWatcherService` | `Services/ProjectWatcherService.cs` | v3.2 | 文件监听 + SignalR 推送（防抖 500ms） |
+| `ProjectWatcherService` | `Services/ProjectWatcherService.cs` | v3.2 | 文件监听 + SignalR 推送（防抖 500ms），支持项目关闭/删除前显式释放目录句柄 |
 | `BranchLockManager` | `Services/Git/BranchLockManager.cs` | v3.3 | 分支互斥锁（多窗口并行） |
 | `WorktreeMetadataService` | `Services/WorktreeMetadataService.cs` | v3.3 | Worktree 元数据读写（intent / baseBranch） |
 | `BackgroundScreenshotService` | `Services/BackgroundScreenshotService.cs` | v3.3 | Playwright 无头截图（支持批量 + 视口自适应） |
@@ -146,6 +146,8 @@ v3.0 采用"文件驱动架构"，Server 从"内存数据库"模式转型为"文
 | `SchemeDataService` | `Services/SchemeDataService.cs` | v3.4 | 跨分支/Worktree 模块数据读写 |
 | `MergeService` | `Services/MergeService.cs` | v3.4 | 分区级差异计算 + 选择性/覆盖合并 |
 | `ProjectController` | `Controllers/ProjectController.cs` | v3.0 | `/api/project` 端点 |
+
+项目关闭/删除生命周期：返回首页、切换项目或删除项目时，Server 只释放当前项目级资源，包括停止 `ProjectWatcherService` 对项目目录的监听，并通知 Agent 关闭对应项目的窗口会话。Server/Web/Agent Host/CCR 这些基础服务进程保持运行，不作为项目关闭动作的一部分被杀死。
 
 ### 1.3 遗留服务（待迁移）
 

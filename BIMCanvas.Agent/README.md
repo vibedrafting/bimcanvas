@@ -85,6 +85,7 @@ Server 托管启动时会注入 `BIMCANVAS_AGENT_MANAGED_BY_SERVER=1`。此模�
 | `/api/history` | GET | 获取对话历史 |
 | `/api/config` | GET | 获取 Agent 配置（模型、思考强度、Runtime capability matrix） |
 | `/api/agent/close` | POST | 关闭指定窗口的 Agent 实例 |
+| `/api/agent/close-project` | POST | 关闭指定项目目录下的所有 Agent 实例，释放项目根目录和 Worktree 的 CWD 文件锁 |
 | `/api/interrupt` | POST | 中断当前 Agent 执行 |
 | `/api/interaction/events` | GET | 统一 InteractionChannel SSE 事件流 |
 | `/api/interaction` | GET | 查询当前窗口活跃 session 的 unresolved interactions |

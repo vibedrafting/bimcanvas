@@ -86,6 +86,10 @@ class RuntimeStateStore:
         async with self._lock:
             return self._sessions.get(session_id)
 
+    async def list_sessions(self) -> list[RuntimeSessionRecord]:
+        async with self._lock:
+            return list(self._sessions.values())
+
     async def get_session_snapshot(self, session_id: str) -> dict[str, Any] | None:
         async with self._lock:
             session = self._sessions.get(session_id)

@@ -1181,6 +1181,85 @@ async def close_agent_handler(request: web.Request) -> web.Response:
     return web.json_response({"error": "Agent not found"}, status=404)
 
 
+def _resolve_for_project_match(path_value: str | None) -> Path | None:
+    if not path_value:
+        return None
+
+    try:
+        return Path(path_value).expanduser().resolve(strict=False)
+    except Exception:
+        try:
+            return Path(path_value).expanduser().absolute()
+        except Exception:
+            return None
+
+
+def _is_same_or_child_path(candidate: Path | None, root: Path) -> bool:
+    if candidate is None:
+        return False
+
+    try:
+        candidate.relative_to(root)
+        return True
+    except ValueError:
+        candidate_text = str(candidate).rstrip("\\/").casefold()
+        root_text = str(root).rstrip("\\/").casefold()
+        return candidate_text == root_text or candidate_text.startswith(root_text + "\\") or candidate_text.startswith(root_text + "/")
+
+
+async def close_project_agents_handler(request: web.Request) -> web.Response:
+    """
+    关闭指定项目目录下的所有 Agent 实例。
+    Server 删除/关闭项目时调用，用来释放项目根目录和 worktree 的 CWD 文件锁。
+    """
+    try:
+        data = await request.json()
+    except json.JSONDecodeError:
+        return web.json_response({"error": "Invalid JSON"}, status=400)
+
+    project_path = data.get("projectPath")
+    project_root = _resolve_for_project_match(project_path)
+    if project_root is None:
+        return web.json_response({"error": "projectPath required"}, status=400)
+
+    async with _agents_lock:
+        matched_window_ids: set[str] = set()
+
+        for window_id, agent in agents.items():
+            agent_project = _resolve_for_project_match(getattr(agent, "project_path", None))
+            agent_working_dir = _resolve_for_project_match(agent.working_directory)
+            if _is_same_or_child_path(agent_project, project_root) or _is_same_or_child_path(agent_working_dir, project_root):
+                matched_window_ids.add(window_id)
+
+        for session in await runtime_store.list_sessions():
+            if session.base_status in {"closed", "error"}:
+                continue
+
+            session_project = _resolve_for_project_match(session.project_path)
+            session_worktree = _resolve_for_project_match(session.worktree_path)
+            if _is_same_or_child_path(session_project, project_root) or _is_same_or_child_path(session_worktree, project_root):
+                matched_window_ids.add(session.window_id)
+
+        if not matched_window_ids:
+            return web.json_response({"error": "Agent not found"}, status=404)
+
+        closed_window_ids: list[str] = []
+        for window_id in sorted(matched_window_ids):
+            await _teardown_window_locked(
+                window_id,
+                cancel_reason="project_closed",
+                drop_window_seq=True,
+                sleep_after_disconnect=False,
+            )
+            closed_window_ids.append(window_id)
+
+        await asyncio.sleep(0.5)
+
+    print(f"[Server] 已关闭项目 Agent 实例: {project_root} ({len(closed_window_ids)} windows)")
+    logger.info("Closed project agents: %s windows=%s", project_root, closed_window_ids)
+    return web.json_response({"success": True, "closedWindowIds": closed_window_ids})
+
+
 async def interaction_events_handler(request: web.Request) -> web.StreamResponse:
     """统一 InteractionChannel SSE 端点。"""
     response = web.StreamResponse(
@@ -1650,6 +1729,7 @@ def create_app() -> web.Application:
         web.post("/api/chat/stream", chat_stream_handler),
         web.post("/api/clear-history", clear_history_handler),
         web.post("/api/agent/close", close_agent_handler),
+        web.post("/api/agent/close-project", close_project_agents_handler),
         web.get("/api/history", get_history_handler),
         web.post("/api/interrupt", interrupt_handler),
         web.get("/api/interaction/events", interaction_events_handler),

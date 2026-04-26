@@ -103,6 +103,45 @@ namespace BIMCanvas.Server.Services
         }
 
         /// <summary>
+        /// 通知 Agent 关闭指定项目下的所有窗口实例，释放项目目录及 Worktree 的 CWD 锁。
+        /// </summary>
+        public async Task<bool> CloseProjectAgentsAsync(string projectPath, int waitMs = 1000)
+        {
+            try
+            {
+                var url = $"{AgentBaseUrl}/api/agent/close-project";
+                var json = JsonSerializer.Serialize(new { projectPath });
+                using var content = new StringContent(json, Encoding.UTF8, "application/json");
+
+                var response = await _httpClient.PostAsync(url, content);
+
+                if (response.IsSuccessStatusCode)
+                {
+                    _logger.LogInformation("Agent 已关闭项目会话: {ProjectPath}", projectPath);
+                    await Task.Delay(waitMs);
+                    return true;
+                }
+
+                if (response.StatusCode == System.Net.HttpStatusCode.NotFound)
+                {
+                    _logger.LogDebug("Agent 项目会话不存在或端点不可用: {ProjectPath}", projectPath);
+                    await Task.Delay(waitMs);
+                    return false;
+                }
+
+                _logger.LogWarning("关闭 Agent 项目会话失败: {ProjectPath}, 状态码: {StatusCode}", projectPath, response.StatusCode);
+                return false;
+            }
+            catch (Exception ex)
+            {
+                // Agent 服务不可达（已退出），视为项目目录锁已释放
+                _logger.LogDebug("Agent 服务不可达（已退出）: {Message}", ex.Message);
+                await Task.Delay(waitMs);
+                return true;
+            }
+        }
+
+        /// <summary>
         /// 同步版本（用于 ProcessExit 等无法 async 的场景）
         /// </summary>
         public bool CloseAgentSync(string windowId, int waitMs = 1000)
@@ -110,6 +149,18 @@ namespace BIMCanvas.Server.Services
             try
             {
                 return CloseAgentAsync(windowId, waitMs).GetAwaiter().GetResult();
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
+        public bool CloseProjectAgentsSync(string projectPath, int waitMs = 1000)
+        {
+            try
+            {
+                return CloseProjectAgentsAsync(projectPath, waitMs).GetAwaiter().GetResult();
             }
             catch
             {

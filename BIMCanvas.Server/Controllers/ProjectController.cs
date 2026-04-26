@@ -31,6 +31,7 @@ namespace BIMCanvas.Server.Controllers
         private readonly RecentProjectsService _recentProjectsService;
         private readonly GitWorktreeService _gitService;
         private readonly AgentClientService _agentClientService;
+        private readonly ProjectWatcherService _projectWatcherService;
         private readonly JsonSerializerSettings _jsonSettings;
 
         public ProjectController(
@@ -39,7 +40,8 @@ namespace BIMCanvas.Server.Controllers
             ProjectService projectService,
             RecentProjectsService recentProjectsService,
             GitWorktreeService gitService,
-            AgentClientService agentClientService)
+            AgentClientService agentClientService,
+            ProjectWatcherService projectWatcherService)
         {
             _logger = logger;
             _projectContext = projectContext;
@@ -47,6 +49,7 @@ namespace BIMCanvas.Server.Controllers
             _recentProjectsService = recentProjectsService;
             _gitService = gitService;
             _agentClientService = agentClientService;
+            _projectWatcherService = projectWatcherService;
             _jsonSettings = new JsonSerializerSettings
             {
                 ContractResolver = new CamelCasePropertyNamesContractResolver(),
@@ -139,7 +142,26 @@ namespace BIMCanvas.Server.Controllers
 
             try
             {
+                var previousProjectPath = _projectContext.CurrentProjectPath;
+                var previousWindowIds = _projectContext.GetRegisteredWindowIds().ToList();
+
                 var loadResult = _projectService.OpenFolder(request.FolderPath);
+
+                if (!string.IsNullOrWhiteSpace(previousProjectPath) &&
+                    !IsSamePath(previousProjectPath, loadResult.ProjectPath))
+                {
+                    ReleaseProjectRuntimeResources(
+                        previousProjectPath,
+                        previousWindowIds,
+                        closeDefaultWindowFallback: true);
+                }
+
+                ReleaseProjectRuntimeResources(
+                    loadResult.ProjectPath,
+                    previousWindowIds,
+                    closeDefaultWindowFallback: true);
+
+                _projectContext.Clear();
                 _projectContext.SetProject(loadResult.ProjectPath);
 
                 // 记录最近打开
@@ -149,14 +171,9 @@ namespace BIMCanvas.Server.Controllers
                 // 初始化对话日志
                 BIMCanvas.Server.Logging.ConversationLogger.Initialize(loadResult.ProjectPath);
 
-                // 关闭虚拟窗口的 Agent 进程（释放 CWD 文件锁，必须在删除 Worktree 之前）
-                foreach (var wid in _projectContext.GetRegisteredWindowIds().ToList())
-                {
-                    _agentClientService.CloseAgentSync(wid, waitMs: 500);
-                }
-
                 // 清空 Worktree（切换项目后旧 Worktree 无效）
                 _gitService.CleanupAllWorktrees(loadResult.ProjectPath);
+                _projectWatcherService.RestartWatching(loadResult.ProjectPath);
 
                 return Ok(CreateSuccessProjectLoadResult(loadResult.ProjectPath, loadResult.Warnings));
             }
@@ -183,6 +200,7 @@ namespace BIMCanvas.Server.Controllers
             }
 
             var projectPath = _projectContext.CurrentProjectPath!;
+            var registeredWindowIds = _projectContext.GetRegisteredWindowIds().ToList();
 
             // 检测未保存变更
             if (request?.Force != true)
@@ -204,6 +222,11 @@ namespace BIMCanvas.Server.Controllers
                     _logger.LogWarning(ex, "检测未保存变更失败，继续关闭");
                 }
             }
+
+            ReleaseProjectRuntimeResources(
+                projectPath,
+                registeredWindowIds,
+                closeDefaultWindowFallback: true);
 
             _projectContext.Clear();
             _logger.LogInformation("项目已关闭");
@@ -230,6 +253,10 @@ namespace BIMCanvas.Server.Controllers
             try
             {
                 var folderPath = Path.Combine(ProjectService.DefaultProjectsRoot, name);
+                ReleaseProjectRuntimeResources(
+                    folderPath,
+                    windowIds: null,
+                    closeDefaultWindowFallback: false);
                 _projectService.DeleteProject(name);
                 _recentProjectsService.Remove(folderPath);
 
@@ -239,11 +266,70 @@ namespace BIMCanvas.Server.Controllers
             {
                 return NotFound(new { message = $"项目不存在: {name}" });
             }
+            catch (IOException ex)
+            {
+                _logger.LogError(ex, "删除项目失败，目录仍被占用: {Name}", name);
+                return Conflict(new
+                {
+                    message = $"删除项目失败: 项目目录仍被进程占用，请先关闭项目窗口或等待 Agent 任务结束后重试。原始错误: {ex.Message}"
+                });
+            }
             catch (Exception ex)
             {
                 _logger.LogError(ex, "删除项目失败: {Name}", name);
                 return StatusCode(500, new { message = $"删除项目失败: {ex.Message}" });
             }
+        }
+
+        private void ReleaseProjectRuntimeResources(
+            string projectPath,
+            IEnumerable<string>? windowIds,
+            bool closeDefaultWindowFallback)
+        {
+            if (string.IsNullOrWhiteSpace(projectPath))
+            {
+                return;
+            }
+
+            var normalizedProjectPath = Path.GetFullPath(projectPath);
+            _projectWatcherService.StopWatchingProject(normalizedProjectPath);
+
+            var closedByProject = _agentClientService.CloseProjectAgentsSync(normalizedProjectPath, waitMs: 500);
+            if (closedByProject)
+            {
+                return;
+            }
+
+            var fallbackWindowIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            if (closeDefaultWindowFallback)
+            {
+                fallbackWindowIds.Add("window-main");
+                fallbackWindowIds.Add("primary");
+            }
+
+            if (windowIds != null)
+            {
+                foreach (var windowId in windowIds)
+                {
+                    if (!string.IsNullOrWhiteSpace(windowId))
+                    {
+                        fallbackWindowIds.Add(windowId);
+                    }
+                }
+            }
+
+            foreach (var windowId in fallbackWindowIds)
+            {
+                _agentClientService.CloseAgentSync(windowId, waitMs: 250);
+            }
+        }
+
+        private static bool IsSamePath(string left, string right)
+        {
+            return string.Equals(
+                Path.GetFullPath(left).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar),
+                Path.GetFullPath(right).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar),
+                StringComparison.OrdinalIgnoreCase);
         }
 
         /// <summary>

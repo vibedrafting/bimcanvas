@@ -17,6 +17,7 @@ namespace BIMCanvas.Server.Services
 
         private FileSystemWatcher? _watcher;
         private FileSystemWatcher? _projectWatcher; // 监控整个项目目录的 Git 状态变化
+        private string? _watchedProjectPath;
         private readonly object _lock = new();
         private CancellationTokenSource? _debounceCts;
         private CancellationTokenSource? _serviceCts;
@@ -59,13 +60,16 @@ namespace BIMCanvas.Server.Services
             {
                 while (!_serviceCts.Token.IsCancellationRequested)
                 {
-                    if (_projectContext.IsLoaded && _watcher == null)
+                    var currentProjectPath = _projectContext.CurrentProjectPath;
+                    if (_projectContext.IsLoaded &&
+                        !string.IsNullOrWhiteSpace(currentProjectPath) &&
+                        !IsWatchingProject(currentProjectPath))
                     {
-                        StartWatching(_projectContext.CurrentProjectPath!);
+                        RestartWatching(currentProjectPath!);
                     }
                     else if (!_projectContext.IsLoaded && _watcher != null)
                     {
-                        StopWatching();
+                        StopWatchingCurrentProject();
                     }
                     await Task.Delay(1000, _serviceCts.Token);
                 }
@@ -83,50 +87,70 @@ namespace BIMCanvas.Server.Services
         }
 
         /// <summary>
+        /// 切换到指定项目目录的监听。用于项目打开/切换时主动释放旧目录句柄。
+        /// </summary>
+        public void RestartWatching(string projectPath)
+        {
+            lock (_lock)
+            {
+                if (IsWatchingProject(projectPath))
+                {
+                    return;
+                }
+
+                StopWatchingLocked();
+                StartWatchingLocked(projectPath);
+            }
+        }
+
+        /// <summary>
+        /// 停止当前项目监听，立即释放 FileSystemWatcher 持有的目录句柄。
+        /// </summary>
+        public void StopWatchingCurrentProject()
+        {
+            lock (_lock)
+            {
+                StopWatchingLocked();
+            }
+        }
+
+        /// <summary>
+        /// 如果正在监听指定项目，则停止监听。
+        /// </summary>
+        public bool StopWatchingProject(string projectPath)
+        {
+            lock (_lock)
+            {
+                if (!IsWatchingProject(projectPath))
+                {
+                    return false;
+                }
+
+                StopWatchingLocked();
+                return true;
+            }
+        }
+
+        public bool IsWatchingProject(string projectPath)
+        {
+            lock (_lock)
+            {
+                return !string.IsNullOrWhiteSpace(_watchedProjectPath) &&
+                    string.Equals(
+                        Path.GetFullPath(_watchedProjectPath),
+                        Path.GetFullPath(projectPath),
+                        StringComparison.OrdinalIgnoreCase);
+            }
+        }
+
+        /// <summary>
         /// 开始监听项目目录
         /// </summary>
         private void StartWatching(string projectPath)
         {
             lock (_lock)
             {
-                if (_watcher != null) return;
-
-                var schemesPath = Path.Combine(projectPath, "schemes");
-                if (!Directory.Exists(schemesPath))
-                {
-                    _logger.LogWarning("schemes 目录不存在: {Path}", schemesPath);
-                    return;
-                }
-
-                // 监控 schemes 目录的 JSON 文件（用于 Canvas 数据刷新）
-                _watcher = new FileSystemWatcher(schemesPath)
-                {
-                    NotifyFilter = NotifyFilters.LastWrite | NotifyFilters.FileName,
-                    Filter = "*.json",
-                    IncludeSubdirectories = true,  // 包含子目录（zones 等）
-                    EnableRaisingEvents = true
-                };
-
-                _watcher.Changed += OnFileChanged;
-                _watcher.Created += OnFileChanged;
-                _watcher.Renamed += OnFileRenamed;
-
-                _logger.LogInformation("开始监听项目文件: {Path}", schemesPath);
-
-                // 监控整个项目目录（用于 Git 状态变化推送）
-                _projectWatcher = new FileSystemWatcher(projectPath)
-                {
-                    NotifyFilter = NotifyFilters.LastWrite | NotifyFilters.FileName | NotifyFilters.DirectoryName,
-                    Filter = "*.*",
-                    IncludeSubdirectories = true,
-                    EnableRaisingEvents = true
-                };
-
-                _projectWatcher.Changed += OnProjectFileChanged;
-                _projectWatcher.Created += OnProjectFileChanged;
-                _projectWatcher.Deleted += OnProjectFileChanged;
-
-                _logger.LogInformation("开始监听项目目录（Git 状态）: {Path}", projectPath);
+                StartWatchingLocked(projectPath);
             }
         }
 
@@ -137,27 +161,90 @@ namespace BIMCanvas.Server.Services
         {
             lock (_lock)
             {
-                if (_watcher != null)
-                {
-                    _watcher.EnableRaisingEvents = false;
-                    _watcher.Changed -= OnFileChanged;
-                    _watcher.Created -= OnFileChanged;
-                    _watcher.Renamed -= OnFileRenamed;
-                    _watcher.Dispose();
-                    _watcher = null;
-                    _logger.LogInformation("停止监听项目文件");
-                }
+                StopWatchingLocked();
+            }
+        }
 
-                if (_projectWatcher != null)
-                {
-                    _projectWatcher.EnableRaisingEvents = false;
-                    _projectWatcher.Changed -= OnProjectFileChanged;
-                    _projectWatcher.Created -= OnProjectFileChanged;
-                    _projectWatcher.Deleted -= OnProjectFileChanged;
-                    _projectWatcher.Dispose();
-                    _projectWatcher = null;
-                    _logger.LogInformation("停止监听项目目录（Git 状态）");
-                }
+        private void StartWatchingLocked(string projectPath)
+        {
+            if (_watcher != null || _projectWatcher != null)
+            {
+                return;
+            }
+
+            var normalizedProjectPath = Path.GetFullPath(projectPath);
+            var schemesPath = Path.Combine(normalizedProjectPath, "schemes");
+            if (!Directory.Exists(schemesPath))
+            {
+                _logger.LogWarning("schemes 目录不存在: {Path}", schemesPath);
+                return;
+            }
+
+            // 监控 schemes 目录的 JSON 文件（用于 Canvas 数据刷新）
+            _watcher = new FileSystemWatcher(schemesPath)
+            {
+                NotifyFilter = NotifyFilters.LastWrite | NotifyFilters.FileName,
+                Filter = "*.json",
+                IncludeSubdirectories = true,  // 包含子目录（zones 等）
+                EnableRaisingEvents = true
+            };
+
+            _watcher.Changed += OnFileChanged;
+            _watcher.Created += OnFileChanged;
+            _watcher.Renamed += OnFileRenamed;
+
+            _logger.LogInformation("开始监听项目文件: {Path}", schemesPath);
+
+            // 监控整个项目目录（用于 Git 状态变化推送）
+            _projectWatcher = new FileSystemWatcher(normalizedProjectPath)
+            {
+                NotifyFilter = NotifyFilters.LastWrite | NotifyFilters.FileName | NotifyFilters.DirectoryName,
+                Filter = "*.*",
+                IncludeSubdirectories = true,
+                EnableRaisingEvents = true
+            };
+
+            _projectWatcher.Changed += OnProjectFileChanged;
+            _projectWatcher.Created += OnProjectFileChanged;
+            _projectWatcher.Deleted += OnProjectFileChanged;
+            _watchedProjectPath = normalizedProjectPath;
+
+            _logger.LogInformation("开始监听项目目录（Git 状态）: {Path}", normalizedProjectPath);
+        }
+
+        private void StopWatchingLocked()
+        {
+            var stoppedPath = _watchedProjectPath;
+
+            _debounceCts?.Cancel();
+            _gitDebounceCts?.Cancel();
+
+            if (_watcher != null)
+            {
+                _watcher.EnableRaisingEvents = false;
+                _watcher.Changed -= OnFileChanged;
+                _watcher.Created -= OnFileChanged;
+                _watcher.Renamed -= OnFileRenamed;
+                _watcher.Dispose();
+                _watcher = null;
+                _logger.LogInformation("停止监听项目文件");
+            }
+
+            if (_projectWatcher != null)
+            {
+                _projectWatcher.EnableRaisingEvents = false;
+                _projectWatcher.Changed -= OnProjectFileChanged;
+                _projectWatcher.Created -= OnProjectFileChanged;
+                _projectWatcher.Deleted -= OnProjectFileChanged;
+                _projectWatcher.Dispose();
+                _projectWatcher = null;
+                _logger.LogInformation("停止监听项目目录（Git 状态）");
+            }
+
+            _watchedProjectPath = null;
+            if (!string.IsNullOrWhiteSpace(stoppedPath))
+            {
+                _logger.LogInformation("项目目录监听已释放: {Path}", stoppedPath);
             }
         }
 

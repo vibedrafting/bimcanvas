@@ -234,7 +234,8 @@ builder.Services.AddSignalR()
         options.PayloadSerializerSettings.ContractResolver = new CamelCasePropertyNamesContractResolver();
         options.PayloadSerializerSettings.NullValueHandling = Newtonsoft.Json.NullValueHandling.Ignore;
     });
-builder.Services.AddHostedService<ProjectWatcherService>();
+builder.Services.AddSingleton<ProjectWatcherService>();
+builder.Services.AddHostedService(sp => sp.GetRequiredService<ProjectWatcherService>());
 
 var configuredCorsOrigins = builder.Configuration
     .GetSection("Cors:AllowedOrigins")
