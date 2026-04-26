@@ -57,6 +57,24 @@ static void WriteWithColoredPrefix(string prefix, string message, ConsoleColor p
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Console output helper: timestamp only (for Agent stdout where prefix comes from Python)
+// ─────────────────────────────────────────────────────────────────────────────
+static void WriteWithTimestampOnly(string message, ConsoleColor messageColor)
+{
+    var originalColor = Console.ForegroundColor;
+    // 时间戳（灰色）
+    Console.ForegroundColor = ConsoleColor.DarkGray;
+    Console.Write($"[{DateTime.Now:HH:mm:ss}] ");
+    // 消息（指定颜色，保留 ANSI 序列）
+    Console.ForegroundColor = messageColor;
+    Console.WriteLine(message);
+    Console.ForegroundColor = originalColor;
+
+    // 对话日志持久化
+    BIMCanvas.Server.Logging.ConversationLogger.ProcessLine(message);
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Initialize console: UTF-8 encoding + ANSI support
 // ─────────────────────────────────────────────────────────────────────────────
 Console.OutputEncoding = Encoding.UTF8;
@@ -64,23 +82,6 @@ if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
 {
     EnableVirtualTerminalProcessing();
 }
-
-var agentStdoutWriter = new TimestampedLineStreamWriter(
-    writeTimestamp: timestamp =>
-    {
-        var originalColor = Console.ForegroundColor;
-        Console.ForegroundColor = ConsoleColor.DarkGray;
-        Console.Write(timestamp);
-        Console.ForegroundColor = originalColor;
-    },
-    writeMessage: message =>
-    {
-        var originalColor = Console.ForegroundColor;
-        Console.ForegroundColor = ConsoleColor.Cyan;
-        Console.Write(message);
-        Console.ForegroundColor = originalColor;
-    },
-    completedLineHandler: BIMCanvas.Server.Logging.ConversationLogger.ProcessLine);
 
 var agentProxyHttpClient = new HttpClient(new SocketsHttpHandler
 {
@@ -613,24 +614,14 @@ Process? ccrProcess = null;
             agentProcess.Start();
 
             // 后台读取 Agent 输出（避免缓冲区阻塞）
-            // 注意：stdout 使用分块读取，前缀 [Agent] 或 [Agent#n] 由 Python 输出；
-            // Server 只在物理行开头补时间戳，避免流式内容被反复拆成新日志行。
+            // 注意：stdout 使用 WriteWithTimestampOnly，前缀 [Agent] 或 [Agent#n] 由 Python 输出
             _ = Task.Run(async () =>
             {
-                var buffer = new char[1024];
-                try
+                while (!agentProcess.HasExited)
                 {
-                    while (true)
-                    {
-                        var read = await agentProcess.StandardOutput.ReadAsync(buffer, 0, buffer.Length);
-                        if (read <= 0)
-                            break;
-                        agentStdoutWriter.Write(new string(buffer, 0, read));
-                    }
-                }
-                finally
-                {
-                    agentStdoutWriter.CompletePendingLine();
+                    var line = await agentProcess.StandardOutput.ReadLineAsync();
+                    if (!string.IsNullOrEmpty(line))
+                        WriteWithTimestampOnly(line, ConsoleColor.Cyan);
                 }
             });
             _ = Task.Run(async () =>
