@@ -909,6 +909,13 @@ watch(chatScrollRef, (newEl, oldEl) => {
 
       <!-- Layer 3: Command Footer -->
       <div class="layer-footer" v-if="mode === 'chat'">
+        <transition name="todo-panel-fade">
+          <TodoProgressPanel
+            v-if="activeTodoProgress"
+            :progress="activeTodoProgress"
+            @toggle="toggleTodoProgressCollapsed"
+          />
+        </transition>
         
         <!-- Context Bar (Replaces Selection Status Bar) -->
         <div class="context-bar">
@@ -1061,14 +1068,6 @@ watch(chatScrollRef, (newEl, oldEl) => {
             <span class="polling-dot"></span>
             <span class="polling-text">正在等待后台任务...</span>
           </div>
-        </transition>
-
-        <transition name="todo-panel-fade">
-          <TodoProgressPanel
-            v-if="activeTodoProgress"
-            :progress="activeTodoProgress"
-            @toggle="toggleTodoProgressCollapsed"
-          />
         </transition>
 
         <input
