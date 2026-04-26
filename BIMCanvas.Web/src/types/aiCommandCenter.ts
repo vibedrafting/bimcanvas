@@ -14,6 +14,25 @@ export interface ChatMessage {
   waitingState: WaitingState;
 }
 
+export type TodoProgressItemStatus = 'pending' | 'in_progress' | 'completed';
+export type TodoProgressPanelStatus = 'running' | 'completed' | 'failed' | 'interrupted' | 'ended';
+
+export interface TodoProgressItem {
+  content: string;
+  status: TodoProgressItemStatus;
+  activeForm?: string;
+}
+
+export interface TodoProgressState {
+  toolCallId?: string;
+  turnId?: string;
+  todos: TodoProgressItem[];
+  status: TodoProgressPanelStatus;
+  isCollapsed: boolean;
+  updatedAt: number;
+  message?: string;
+}
+
 export interface ChatWindow {
   id: string;
   name: string;
@@ -27,6 +46,7 @@ export interface ChatWindow {
   inputMessage: string;
   draftMessageId: string;
   isStreaming: boolean;
+  todoProgress?: TodoProgressState | null;
   pendingAttachments: ChatAttachmentRef[];
   scrollPosition: number;
   expandedThinking: Record<number, boolean>;

@@ -1,6 +1,14 @@
 import { nextTick, ref } from 'vue';
 import type { Ref } from 'vue';
-import type { ChatMessage, ChatWindow, EffortLevel, ModelOption, ThinkingLevel } from '../../types/aiCommandCenter';
+import type {
+  ChatMessage,
+  ChatWindow,
+  EffortLevel,
+  ModelOption,
+  ThinkingLevel,
+  TodoProgressItem,
+  TodoProgressPanelStatus
+} from '../../types/aiCommandCenter';
 import type { ChatAttachmentRef } from '../../types/chatAttachment';
 import type { WaitingState, ChatBubble, ChatHistoryEntry, ChatHistoryResponse, InteractionRecord } from '../../types/agent';
 import { ProjectService } from '../../services/ProjectService';
@@ -125,6 +133,38 @@ const getBoolean = (value: unknown): boolean | undefined =>
 const getObject = (value: unknown): Record<string, any> | undefined =>
   isRecord(value) ? value : undefined;
 
+const parseTodoProgressItems = (value: unknown): TodoProgressItem[] | null => {
+  if (!Array.isArray(value)) {
+    return null;
+  }
+
+  const todos: TodoProgressItem[] = [];
+  for (const item of value) {
+    if (!isRecord(item)) {
+      return null;
+    }
+
+    const content = getString(item.content)?.trim();
+    const rawStatus = getString(item.status);
+    if (!content || !rawStatus) {
+      return null;
+    }
+
+    if (rawStatus !== 'pending' && rawStatus !== 'in_progress' && rawStatus !== 'completed') {
+      return null;
+    }
+
+    const activeForm = getString(item.activeForm)?.trim();
+    todos.push({
+      content,
+      status: rawStatus,
+      ...(activeForm ? { activeForm } : {})
+    });
+  }
+
+  return todos;
+};
+
 const buildLegacyPayload = (raw: Record<string, any>, eventType: string): StreamPayload => {
   switch (eventType) {
     case 'thinking.delta':
@@ -196,6 +236,84 @@ export const useChatStream = (options: ChatStreamOptions) => {
   const currentProjectPath = ref('');
   const isPollingBackground = ref(false);
   const activeHistoryPollingWindows = new Set<string>();
+  const todoDismissTimers = new Map<string, ReturnType<typeof setTimeout>>();
+
+  const clearTodoDismissTimer = (windowId: string) => {
+    const timer = todoDismissTimers.get(windowId);
+    if (timer) {
+      clearTimeout(timer);
+      todoDismissTimers.delete(windowId);
+    }
+  };
+
+  const scheduleTodoDismiss = (windowState: ChatWindow, delayMs: number) => {
+    clearTodoDismissTimer(windowState.id);
+    const updatedAt = windowState.todoProgress?.updatedAt;
+    const timer = setTimeout(() => {
+      if (windowState.todoProgress?.updatedAt === updatedAt) {
+        windowState.todoProgress = null;
+      }
+      todoDismissTimers.delete(windowState.id);
+    }, delayMs);
+    todoDismissTimers.set(windowState.id, timer);
+  };
+
+  const finishTodoProgress = (
+    windowState: ChatWindow | undefined,
+    status: TodoProgressPanelStatus,
+    message: string,
+    delayMs: number
+  ) => {
+    if (!windowState?.todoProgress) {
+      return;
+    }
+
+    windowState.todoProgress = {
+      ...windowState.todoProgress,
+      status,
+      message,
+      updatedAt: Date.now()
+    };
+    scheduleTodoDismiss(windowState, delayMs);
+  };
+
+  const updateTodoProgress = (
+    windowState: ChatWindow | undefined,
+    event: NormalizedStreamEvent,
+    toolCallId: string,
+    params: Record<string, any> | undefined
+  ): boolean => {
+    const todos = parseTodoProgressItems(params?.todos);
+    if (!todos) {
+      return false;
+    }
+
+    if (!windowState) {
+      return true;
+    }
+
+    clearTodoDismissTimer(windowState.id);
+    const turnId = getString(event.raw.turnId);
+    const previous = windowState.todoProgress;
+    const sameTurn = !!previous && !!turnId && previous.turnId === turnId;
+    const allCompleted = todos.length > 0 && todos.every(todo => todo.status === 'completed');
+
+    windowState.todoProgress = {
+      toolCallId,
+      todos,
+      status: allCompleted ? 'completed' : 'running',
+      isCollapsed: sameTurn ? previous.isCollapsed : false,
+      updatedAt: Date.now(),
+      ...(turnId ? { turnId } : {}),
+      ...(allCompleted ? { message: '全部完成' } : {})
+    };
+
+    if (allCompleted) {
+      scheduleTodoDismiss(windowState, 1500);
+    }
+
+    return true;
+  };
 
   const getRandomWaitingVerb = (): string =>
     WAITING_VERBS[Math.floor(Math.random() * WAITING_VERBS.length)] ?? 'Processing';
@@ -409,7 +527,11 @@ export const useChatStream = (options: ChatStreamOptions) => {
     }
   };
 
-  const applyNormalizedEventToMessage = (currentMsg: ChatMessage, normalizedEvent: NormalizedStreamEvent) => {
+  const applyNormalizedEventToMessage = (
+    currentMsg: ChatMessage,
+    normalizedEvent: NormalizedStreamEvent,
+    windowState?: ChatWindow
+  ) => {
     const payload = normalizedEvent.payload;
     const raw = normalizedEvent.raw;
 
@@ -564,6 +686,13 @@ export const useChatStream = (options: ChatStreamOptions) => {
           break;
         }
 
+        const toolName = getString(payload.toolName) ?? getString(raw.toolName) ?? 'Tool';
+        const toolParams = getObject(payload.params) ?? getObject(raw.toolParams);
+        if (toolName === 'TodoWrite' && updateTodoProgress(windowState, normalizedEvent, toolCallId, toolParams)) {
+          enterWaitingState(currentMsg.waitingState, getRandomWaitingVerb);
+          break;
+        }
+
         const existingBubble = findBubbleByIdDeep(currentMsg.bubbles, toolCallId);
         if (existingBubble) {
           break;
@@ -571,9 +700,9 @@ export const useChatStream = (options: ChatStreamOptions) => {
 
         const toolBubble = createToolCallBubble(
           toolCallId,
-          getString(payload.toolName) ?? getString(raw.toolName) ?? 'Tool',
+          toolName,
           getString(payload.toolDescription) ?? getString(raw.toolDescription),
-          getObject(payload.params) ?? getObject(raw.toolParams)
+          toolParams
         );
 
         const subtaskId = getString(raw.subtaskId) ?? getString(raw.subAgentId);
@@ -613,6 +742,19 @@ export const useChatStream = (options: ChatStreamOptions) => {
           break;
         }
 
+        if (windowState?.todoProgress?.toolCallId === toolCallId) {
+          const success = getBoolean(payload.success) ?? getBoolean(raw.success);
+          if (success === false) {
+            finishTodoProgress(
+              windowState,
+              'failed',
+              getString(payload.error) ?? getString(raw.error) ?? 'TodoWrite 更新失败',
+              3000
+            );
+          }
+          break;
+        }
+
         const toolBubble = findBubbleByIdDeep(currentMsg.bubbles, toolCallId);
         if (toolBubble && toolBubble.type === 'tool_call') {
           const output = getString(payload.output) ?? getString(raw.toolOutput);
@@ -645,10 +787,25 @@ export const useChatStream = (options: ChatStreamOptions) => {
       }
       case 'turn.completed': {
         finalizeStreamingMessage(currentMsg);
+        if (windowState?.todoProgress?.status === 'running') {
+          const allCompleted = windowState.todoProgress.todos.every(todo => todo.status === 'completed');
+          finishTodoProgress(
+            windowState,
+            allCompleted ? 'completed' : 'ended',
+            allCompleted ? '全部完成' : '本轮已结束',
+            allCompleted ? 1500 : 3000
+          );
+        }
         break;
       }
       case 'turn.failed': {
         finalizeStreamingMessage(currentMsg);
+        finishTodoProgress(
+          windowState,
+          'failed',
+          getString(payload.error?.message) ?? getString(raw.error) ?? '本轮对话失败',
+          3000
+        );
         appendTerminalFailure(
           currentMsg,
           getString(payload.error?.message) ?? getString(raw.error) ?? '本轮对话失败，请稍后重试。'
@@ -677,6 +834,8 @@ export const useChatStream = (options: ChatStreamOptions) => {
     const targetWindowId = win.id;
     const effectiveWindowId = targetWindowId || 'window-main';
     const clientMessageId = win.draftMessageId || createDraftMessageId();
+    clearTodoDismissTimer(targetWindowId);
+    win.todoProgress = null;
 
     // 先提取待发送图片，再清空
     const attachmentsToSend = [...options.pendingAttachments.value];
@@ -748,7 +907,8 @@ export const useChatStream = (options: ChatStreamOptions) => {
     const applyEventToCurrentMessage = (event: NormalizedStreamEvent) => {
       const currentMsg = options.getWindowMessage(targetWindowId, aiMessageIndex);
       if (!currentMsg) return;
-      applyNormalizedEventToMessage(currentMsg, event);
+      const targetWin = options.windows.value.find(w => w.id === targetWindowId);
+      applyNormalizedEventToMessage(currentMsg, event, targetWin);
       options.scrollToBottom({ windowId: targetWindowId });
     };
 
@@ -1109,6 +1269,8 @@ export const useChatStream = (options: ChatStreamOptions) => {
     const sessionStatus = response.sessionStatus ?? response.session?.status ?? null;
     const activeTurnId = response.session?.activeTurnId ?? null;
     const shouldKeepActiveTurnStreaming = isLiveSessionStatus(sessionStatus) && !!activeTurnId;
+    clearTodoDismissTimer(windowState.id);
+    windowState.todoProgress = null;
     windowState.messages = [];
     windowState.isStreaming = shouldKeepActiveTurnStreaming;
 
@@ -1151,7 +1313,11 @@ export const useChatStream = (options: ChatStreamOptions) => {
         if (!normalizedEvent) {
           continue;
         }
-        applyNormalizedEventToMessage(aiMessage, normalizedEvent);
+        applyNormalizedEventToMessage(
+          aiMessage,
+          normalizedEvent,
+          shouldKeepActiveTurnStreaming && entry.turnId === activeTurnId ? windowState : undefined
+        );
         continue;
       }
 
@@ -1254,6 +1420,10 @@ export const useChatStream = (options: ChatStreamOptions) => {
 
   const cleanupHistoryPolling = () => {
     activeHistoryPollingWindows.clear();
+    for (const timer of todoDismissTimers.values()) {
+      clearTimeout(timer);
+    }
+    todoDismissTimers.clear();
   };
 
   const waitForInteractionContinuation = async (windowId: string) => {
@@ -1431,6 +1601,7 @@ export const useChatStream = (options: ChatStreamOptions) => {
 
       // 3. 更新前端状态
       win.isStreaming = false;
+      finishTodoProgress(win, 'interrupted', '已中止', 3000);
 
       // 4. 找到最后一条 AI 消息并标记为中止
       const lastAiMsgIndex = win.messages.length - 1;

@@ -136,6 +136,7 @@
     - 主消费协议已切换到 `eventType + payload` envelope；`turn.completed / turn.failed` 是对话终态，`[DONE]` 仅保留兼容兜底。
     - 前端对 `text.delta` / `thinking.delta` 做帧级合并渲染，滚动请求也按帧合并，避免 token 级更新拖慢主线程。
 - **子任务可视化**: SubAgent/ToolCall 气泡模型 + Waiting 提示。
+- **TodoWrite 进度控件**: `TodoWrite` 工具调用会在输入框上方显示 Codex 风格临时进度面板，支持折叠，并在完成 / 失败 / 中止后自动关闭。
 - **统一 InteractionChannel**:
     - Question / Screenshot 共用 `/api/interaction/events` SSE，并统一通过 `/api/interaction/{id}/submit|cancel` 完成交互。
     - Reload 时仅对“当前页面已存在的窗口”执行 `GET /api/interaction?windowId=...` 恢复；question bubble 按 interaction record 的 `windowId` 路由，不再猜测当前激活窗口。

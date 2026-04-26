@@ -19,6 +19,7 @@ import BranchCheckoutConfirmDialog from './Ribbon/BranchCheckoutConfirmDialog.vu
 import BranchCreationDialog from './Ribbon/BranchCreationDialog.vue';
 import ThinkingBubble from './ThinkingBubble.vue';
 import ToolCallBubble from './ToolCallBubble.vue';
+import TodoProgressPanel from './TodoProgressPanel.vue';
 import SubAgentBubble from './SubAgentBubble.vue';
 import QuestionBubble from './QuestionBubble.vue';
 import WaitingIndicator from './WaitingIndicator.vue';
@@ -123,6 +124,15 @@ const isLoading = computed({
   get: () => activeWindow.value?.isStreaming || false,
   set: (val) => { if (activeWindow.value) activeWindow.value.isStreaming = val; }
 });
+
+const activeTodoProgress = computed(() => activeWindow.value?.todoProgress ?? null);
+
+const toggleTodoProgressCollapsed = () => {
+  const progress = activeWindow.value?.todoProgress;
+  if (progress) {
+    progress.isCollapsed = !progress.isCollapsed;
+  }
+};
 
 const shouldAutoScroll = computed({
   get: () => activeWindow.value?.shouldAutoScroll ?? true,
@@ -1051,6 +1061,14 @@ watch(chatScrollRef, (newEl, oldEl) => {
             <span class="polling-dot"></span>
             <span class="polling-text">正在等待后台任务...</span>
           </div>
+        </transition>
+
+        <transition name="todo-panel-fade">
+          <TodoProgressPanel
+            v-if="activeTodoProgress"
+            :progress="activeTodoProgress"
+            @toggle="toggleTodoProgressCollapsed"
+          />
         </transition>
 
         <input
@@ -2574,6 +2592,17 @@ watch(chatScrollRef, (newEl, oldEl) => {
     padding: 16px 20px;
     background: transparent; /* Force transparent to let glass bg show through */
     border-top: 1px solid var(--border-dim);
+}
+
+.todo-panel-fade-enter-active,
+.todo-panel-fade-leave-active {
+    transition: opacity 0.18s ease, transform 0.18s ease;
+}
+
+.todo-panel-fade-enter-from,
+.todo-panel-fade-leave-to {
+    opacity: 0;
+    transform: translateY(6px);
 }
 
 .context-bar {
