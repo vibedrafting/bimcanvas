@@ -40,7 +40,7 @@ namespace BIMCanvas.Core.Validation
         /// </summary>
         public string? ConflictType { get; }
 
-        /// <summary>重叠面积 mm²（E002-E005 有效，E001/E006 为 null）</summary>
+        /// <summary>重叠面积 mm²（E002-E005 有效，E001/E006/E012 为 null）</summary>
         public double? OverlapAreaMm2 { get; }
 
         /// <summary>穿透深度 mm，模块应朝反方向移动此距离</summary>
@@ -117,5 +117,8 @@ namespace BIMCanvas.Core.Validation
 
         /// <summary>模块 moduleId 不在模块库中</summary>
         public const string InvalidModuleId = "E011_INVALID_MODULE_ID";
+
+        /// <summary>模块 bounds 结构非法</summary>
+        public const string InvalidBounds = "E012_INVALID_BOUNDS";
     }
 }

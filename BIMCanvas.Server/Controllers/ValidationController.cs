@@ -7,6 +7,7 @@ using System.Threading.Tasks;
 using BIMCanvas.Core.Algorithms.Spatial;
 using BIMCanvas.Core.Converters.Json;
 using BIMCanvas.Core.Models.Computed;
+using BIMCanvas.Core.Models.Geometry;
 using BIMCanvas.Core.Models.Layout;
 using BIMCanvas.Core.Models.Revit;
 using BIMCanvas.Core.Models.Semantic;
@@ -25,6 +26,8 @@ namespace BIMCanvas.Server.Controllers
     [Route("api/[controller]")]
     public class ValidationController : ControllerBase
     {
+        private const double BoundsCoordinateToleranceMm = 0.001;
+
         private readonly ILogger<ValidationController> _logger;
         private readonly ProjectContext _projectContext;
         private readonly ZoneBoundaryService _zoneBoundaryService;
@@ -259,8 +262,8 @@ namespace BIMCanvas.Server.Controllers
                         module.ZoneId ??= zoneId;
                     }
 
-                    // validate_layout 的 bounds 结构预检：顶点不足的模块直接报 E006，跳过几何验证
-                    // 避免退化多边形流入 SchemeValidator 产生误诊（如把 2 顶点模块误报为 E001_OUT_OF_BOUNDS）
+                    // validate_layout 的 bounds 结构预检：非法模块直接报结构错误，跳过几何验证。
+                    // 避免退化多边形流入 SchemeValidator 产生误诊（如把三角形误报为 E001_OUT_OF_BOUNDS）。
                     var (validModules, structDiagnostics) = FilterInvalidBounds(modules);
                     allStructureDiagnostics.AddRange(structDiagnostics);
                     allModules.AddRange(validModules);
@@ -278,8 +281,8 @@ namespace BIMCanvas.Server.Controllers
 
         /// <summary>
         /// validate_layout bounds 结构预检。
-        /// 顶点不足（&lt;3）或 bounds 为 null 的模块直接报 E006_MISSING_BOUNDS，不进入 SchemeValidator，
-        /// 防止退化多边形在几何计算中产生误诊（如把 2 顶点模块误报为 E001_OUT_OF_BOUNDS）。
+        /// bounds 为 null 的模块报 E006_MISSING_BOUNDS；非 4 顶点、重复顶点、非法坐标或零面积报 E012_INVALID_BOUNDS。
+        /// 结构非法模块不进入 SchemeValidator，防止退化多边形在几何计算中产生误诊。
         /// </summary>
         private static (List<Module> valid, List<Diagnostic> diagnostics) FilterInvalidBounds(List<Module> modules)
         {
@@ -288,13 +291,14 @@ namespace BIMCanvas.Server.Controllers
 
             foreach (var module in modules)
             {
-                if (module.Bounds == null || module.Bounds.Vertices.Length < 3)
+                var boundsError = GetBoundsStructureError(module);
+                if (boundsError != null)
                 {
-                    var vertCount = module.Bounds?.Vertices.Length ?? 0;
+                    var error = boundsError.Value;
                     diagnostics.Add(new Diagnostic(
-                        DiagnosticCodes.MissingBounds,
+                        error.Code,
                         "error",
-                        $"模块 {module.Id} ({module.ModuleName ?? "未命名"}) 的 bounds 顶点数不足（{vertCount} 个，需要至少 3 个）",
+                        $"模块 {module.Id} ({module.ModuleName ?? "未命名"}) 的 bounds 结构非法：{error.Message}",
                         module.Id,
                         module.ModuleName));
                 }
@@ -305,6 +309,61 @@ namespace BIMCanvas.Server.Controllers
             }
 
             return (valid, diagnostics);
+        }
+
+        private static (string Code, string Message)? GetBoundsStructureError(Module module)
+        {
+            if (module.Bounds == null)
+                return (DiagnosticCodes.MissingBounds, "缺少 bounds 定义");
+
+            var vertices = module.Bounds.Vertices;
+            if (vertices.Length != 4)
+                return (DiagnosticCodes.InvalidBounds, $"顶点数不符合模块规范（{vertices.Length} 个，需要 4 个矩形顶点）");
+
+            if (vertices.Any(v => double.IsNaN(v.X) || double.IsNaN(v.Y) ||
+                                  double.IsInfinity(v.X) || double.IsInfinity(v.Y)))
+                return (DiagnosticCodes.InvalidBounds, "包含非法坐标值（NaN 或 Infinity）");
+
+            var distinctCount = CountDistinctVertices(vertices);
+            if (distinctCount != 4)
+                return (DiagnosticCodes.InvalidBounds, $"包含重复顶点，实际有效顶点数 {distinctCount} 个，需要 4 个互不重复的矩形顶点");
+
+            var area = Math.Abs(ComputeSignedArea(vertices));
+            if (area <= BoundsCoordinateToleranceMm)
+                return (DiagnosticCodes.InvalidBounds, "面积为 0，无法形成有效模块轮廓");
+
+            return null;
+        }
+
+        private static int CountDistinctVertices(Point2D[] vertices)
+        {
+            var distinct = new List<Point2D>();
+            foreach (var vertex in vertices)
+            {
+                if (!distinct.Any(existing => AreSamePoint(existing, vertex)))
+                    distinct.Add(vertex);
+            }
+
+            return distinct.Count;
+        }
+
+        private static bool AreSamePoint(Point2D a, Point2D b)
+        {
+            return Math.Abs(a.X - b.X) <= BoundsCoordinateToleranceMm &&
+                   Math.Abs(a.Y - b.Y) <= BoundsCoordinateToleranceMm;
+        }
+
+        private static double ComputeSignedArea(Point2D[] vertices)
+        {
+            var sum = 0.0;
+            for (var i = 0; i < vertices.Length; i++)
+            {
+                var current = vertices[i];
+                var next = vertices[(i + 1) % vertices.Length];
+                sum += current.X * next.Y - next.X * current.Y;
+            }
+
+            return sum / 2.0;
         }
 
         /// <summary>

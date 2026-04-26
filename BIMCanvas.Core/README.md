@@ -370,7 +370,7 @@ if (!report.IsValid)
 }
 ```
 
-**检查项（6 种错误代码）**：
+**检查项（12 种错误代码）**：
 
 | 错误代码 | 说明 | ConflictType |
 |---------|------|-------------|
@@ -380,6 +380,12 @@ if (!report.IsValid)
 | `E004_EXCLUSION_OVERLAP` | 模块与禁区重叠（门扇等） | `exclusion` |
 | `E005_MODULE_OVERLAP` | 模块之间互相重叠 | `module` |
 | `E006_MISSING_BOUNDS` | 模块缺少 Bounds 定义 | — |
+| `E007_INVALID_FACING_SEMANTIC` | 模块 `facing.semantic` 非法 | — |
+| `E008_MISSING_FACING_VALUE` | 模块缺少有效 `facing.value` | — |
+| `E009_INVALID_FACING_VALUE` | 模块 `facing.value` 为零向量或非法向量 | — |
+| `E010_MISSING_FACING` | 模块缺少整个 `facing` 对象 | — |
+| `E011_INVALID_MODULE_ID` | 模块 `moduleId` 不在模块库中 | — |
+| `E012_INVALID_BOUNDS` | 模块 `bounds` 结构非法，例如非 4 顶点、重复顶点、非法坐标或零面积 | — |
 
 **算法流程**：3 阶段，全程 AABB 预检加速
 1. Phase 1: 预计算所有几何体的 AABB

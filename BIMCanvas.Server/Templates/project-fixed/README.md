@@ -63,6 +63,7 @@
 1. bounds 必须完全在对应 zone 的 rawBoundary 内
 2. bounds 不能与任何 exclusions[].rawBoundary 重叠
 3. bounds 不能与同分区内其他已放置 modules[] 重叠
+4. bounds 必须是 4 个互不重复的矩形顶点；不要用首尾重复点显式闭合
 ```
 
 ---
@@ -174,7 +175,7 @@
 | 如何找到分区 ID？ | 读取 `schemes/zones.json`，每个 zone 的 `id` 字段即分区 ID |
 | 模块应该写入哪个文件？ | 写入目标叶子分区的 `modules.json`；父 zone 有 `subZones` 时，写入 `schemes/{parentZoneId}/{childZoneId}/modules.json` |
 | 如何避免与禁区冲突？ | 读取 `computed/exclusions.json`，确保 bounds 不重叠 |
-| bounds 顶点顺序？ | 矩形连续顺序：左下→右下→右上→左上 |
+| bounds 顶点顺序？ | 矩形连续顺序：左下→右下→右上→左上；只写 4 个互不重复顶点，不要重复第一个点做闭合 |
 | `facing` 应该怎么写？ | 规范格式是 `{ "value": [x, y], "semantic": null }`；AI 也可临时写 `{ "value": null, "semantic": "north" }`，随后必须调用 `validate_layout` 归一化 |
 | items 可以为空？ | 是，`items: []` 有效，后续由 Server 填充 |
 | `_unzoned` 目录是什么？ | Server 保存时，bounds 中心不在任何分区内的模块自动归入此目录，避免数据丢失 |
