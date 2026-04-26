@@ -129,7 +129,7 @@ const activeTodoProgress = computed(() => activeWindow.value?.todoProgress ?? nu
 const todoProgressOverlayRef = ref<HTMLElement | null>(null);
 const todoProgressOverlayHeight = ref(0);
 const todoProgressSpace = computed(() =>
-  activeTodoProgress.value ? `${todoProgressOverlayHeight.value + 12}px` : '0px'
+  activeTodoProgress.value ? `${todoProgressOverlayHeight.value}px` : '0px'
 );
 
 let todoProgressResizeObserver: ResizeObserver | null = null;
