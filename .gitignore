@@ -9,6 +9,7 @@
 /.agent/
 /.agents/
 /.claude/
+/.codex/
 /.tmp/
 .tmp/
 /.vs/
