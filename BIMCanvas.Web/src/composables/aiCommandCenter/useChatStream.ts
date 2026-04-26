@@ -7,7 +7,8 @@ import type {
   ModelOption,
   ThinkingLevel,
   TodoProgressItem,
-  TodoProgressPanelStatus
+  TodoProgressPanelStatus,
+  TodoProgressState
 } from '../../types/aiCommandCenter';
 import type { ChatAttachmentRef } from '../../types/chatAttachment';
 import type { WaitingState, ChatBubble, ChatHistoryEntry, ChatHistoryResponse, InteractionRecord } from '../../types/agent';
@@ -1293,6 +1294,73 @@ export const useChatStream = (options: ChatStreamOptions) => {
     return timeline;
   };
 
+  const restoreTodoProgressFromHistory = (response: ChatHistoryResponse): TodoProgressState | null => {
+    let restored: TodoProgressState | null = null;
+
+    for (const item of createHistoryTimeline(response)) {
+      if (item.kind !== 'history' || item.entry.kind !== 'assistant_event') {
+        continue;
+      }
+
+      const normalizedEvent = normalizeStreamEvent(item.entry.event);
+      if (!normalizedEvent) {
+        continue;
+      }
+
+      const payload = normalizedEvent.payload;
+      const raw = normalizedEvent.raw;
+      const eventTurnId = getEventTurnId(normalizedEvent) ?? item.entry.turnId;
+
+      if (normalizedEvent.eventType === 'tool.started') {
+        const toolName = getString(payload.toolName) ?? getString(raw.toolName);
+        if (toolName !== 'TodoWrite') {
+          continue;
+        }
+
+        const toolParams = getObject(payload.params) ?? getObject(raw.toolParams);
+        const todos = parseTodoProgressItems(toolParams?.todos);
+        if (!todos) {
+          continue;
+        }
+
+        const allCompleted = todos.length > 0 && todos.every(todo => todo.status === 'completed');
+        if (allCompleted) {
+          restored = null;
+          continue;
+        }
+
+        restored = {
+          toolCallId: getString(raw.toolCallId),
+          turnId: eventTurnId,
+          todos,
+          status: 'running',
+          isCollapsed: false,
+          updatedAt: item.timestamp
+        };
+        continue;
+      }
+
+      if (!restored) {
+        continue;
+      }
+
+      if (normalizedEvent.eventType === 'tool.completed') {
+        const toolCallId = getString(raw.toolCallId);
+        const success = getBoolean(payload.success) ?? getBoolean(raw.success);
+        if (toolCallId && restored.toolCallId === toolCallId && success === false) {
+          restored = null;
+        }
+        continue;
+      }
+
+      if (normalizedEvent.eventType === 'turn.failed' && restored.turnId === eventTurnId) {
+        restored = null;
+      }
+    }
+
+    return restored;
+  };
+
   const restoreHistoryForWindow = (windowState: ChatWindow, response: ChatHistoryResponse) => {
     const turnMessages = new Map<string, { user?: ChatMessage; ai?: ChatMessage }>();
     const sessionStatus = response.sessionStatus ?? response.session?.status ?? null;
@@ -1386,6 +1454,8 @@ export const useChatStream = (options: ChatStreamOptions) => {
       }
       pruneSuppressedTextBubbles(message.bubbles);
     }
+
+    windowState.todoProgress = restoreTodoProgressFromHistory(response);
   };
 
   const syncHistoryForWindow = async (windowId: string): Promise<string | null> => {
