@@ -788,13 +788,11 @@ export const useChatStream = (options: ChatStreamOptions) => {
       case 'turn.completed': {
         finalizeStreamingMessage(currentMsg);
         if (windowState?.todoProgress?.status === 'running') {
-          const allCompleted = windowState.todoProgress.todos.every(todo => todo.status === 'completed');
-          finishTodoProgress(
-            windowState,
-            allCompleted ? 'completed' : 'ended',
-            allCompleted ? '全部完成' : '本轮已结束',
-            allCompleted ? 1500 : 3000
-          );
+          const allCompleted = windowState.todoProgress.todos.length > 0
+            && windowState.todoProgress.todos.every(todo => todo.status === 'completed');
+          if (allCompleted) {
+            finishTodoProgress(windowState, 'completed', '全部完成', 1500);
+          }
         }
         break;
       }

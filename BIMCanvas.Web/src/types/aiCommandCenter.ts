@@ -15,7 +15,7 @@ export interface ChatMessage {
 }
 
 export type TodoProgressItemStatus = 'pending' | 'in_progress' | 'completed';
-export type TodoProgressPanelStatus = 'running' | 'completed' | 'failed' | 'interrupted' | 'ended';
+export type TodoProgressPanelStatus = 'running' | 'completed' | 'failed' | 'interrupted';
 
 export interface TodoProgressItem {
   content: string;

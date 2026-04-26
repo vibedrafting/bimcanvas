@@ -47,8 +47,6 @@ const statusLabel = computed(() => {
       return '任务失败';
     case 'interrupted':
       return '已中止';
-    case 'ended':
-      return '本轮已结束';
     default:
       return currentText.value;
   }
