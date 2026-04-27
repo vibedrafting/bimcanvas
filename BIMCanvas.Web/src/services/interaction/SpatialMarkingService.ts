@@ -22,6 +22,13 @@ interface Aabb {
     maxY: number;
 }
 
+interface CellRange {
+    minCol: number;
+    maxCol: number;
+    minRow: number;
+    maxRow: number;
+}
+
 export class SpatialMarkingService {
     private camera: THREE.Camera;
     private domElement: HTMLElement;
@@ -33,6 +40,8 @@ export class SpatialMarkingService {
     private hoverCell: GridSelectionCell | null = null;
     private mouseDownPoint: THREE.Vector2 | null = null;
     private mouseDownCell: GridSelectionCell | null = null;
+    private previewRange: CellRange | null = null;
+    private previewRemoveMode = false;
     private suppressNextClick = false;
 
     private boundModeChange: (event: Event) => void;
@@ -59,15 +68,42 @@ export class SpatialMarkingService {
 
         this.mouseDownPoint = new THREE.Vector2(event.clientX, event.clientY);
         this.mouseDownCell = this.getCellFromEvent(event);
+        this.previewRange = this.mouseDownCell ? this.getCellRange([this.mouseDownCell]) : null;
+        this.previewRemoveMode = !!(event.shiftKey || (this.mouseDownCell && this.isCellSelected(this.mouseDownCell)));
+        this.renderOverlay();
         return true;
     }
 
     public handleMouseMove(event: MouseEvent): boolean {
         if (!this.isActive) return false;
 
+        let shouldRender = false;
         const nextHover = this.getCellFromEvent(event);
         if (!this.areSameCell(this.hoverCell, nextHover)) {
             this.hoverCell = nextHover;
+            shouldRender = true;
+        }
+
+        if (this.mouseDownPoint) {
+            const dragDistanceSq =
+                Math.pow(event.clientX - this.mouseDownPoint.x, 2) +
+                Math.pow(event.clientY - this.mouseDownPoint.y, 2);
+
+            const nextRange = dragDistanceSq > 25
+                ? this.getCellRangeFromScreenBox(this.mouseDownPoint.x, this.mouseDownPoint.y, event.clientX, event.clientY)
+                : (this.mouseDownCell ? this.getCellRange([this.mouseDownCell]) : null);
+            const nextRemoveMode = dragDistanceSq > 25
+                ? event.shiftKey
+                : !!(event.shiftKey || (this.mouseDownCell && this.isCellSelected(this.mouseDownCell)));
+
+            if (!this.areSameRange(this.previewRange, nextRange) || this.previewRemoveMode !== nextRemoveMode) {
+                this.previewRange = nextRange;
+                this.previewRemoveMode = nextRemoveMode;
+                shouldRender = true;
+            }
+        }
+
+        if (shouldRender) {
             this.renderOverlay();
         }
 
@@ -79,7 +115,14 @@ export class SpatialMarkingService {
 
         const startPoint = this.mouseDownPoint;
         const state = this.state;
-        if (!startPoint || !state) return true;
+        if (!startPoint || !state) {
+            this.mouseDownPoint = null;
+            this.mouseDownCell = null;
+            this.previewRange = null;
+            this.previewRemoveMode = false;
+            this.renderOverlay();
+            return true;
+        }
 
         const dragDistanceSq =
             Math.pow(event.clientX - startPoint.x, 2) +
@@ -100,7 +143,7 @@ export class SpatialMarkingService {
             this.suppressNextClick = true;
         } else if (this.mouseDownCell) {
             const key = this.cellKey(this.mouseDownCell);
-            if (removeMode) {
+            if (removeMode || nextCells.has(key)) {
                 nextCells.delete(key);
             } else {
                 nextCells.set(key, this.mouseDownCell);
@@ -111,6 +154,8 @@ export class SpatialMarkingService {
             .sort((a, b) => a.row === b.row ? a.col - b.col : a.row - b.row);
         this.mouseDownPoint = null;
         this.mouseDownCell = null;
+        this.previewRange = null;
+        this.previewRemoveMode = false;
         this.emitSelectionChange();
         this.renderOverlay();
         return true;
@@ -134,6 +179,10 @@ export class SpatialMarkingService {
         if (!detail.active || !detail.cellSize) {
             this.state = null;
             this.hoverCell = null;
+            this.mouseDownPoint = null;
+            this.mouseDownCell = null;
+            this.previewRange = null;
+            this.previewRemoveMode = false;
             this.clearOverlay();
             return;
         }
@@ -143,6 +192,10 @@ export class SpatialMarkingService {
             cellSize: detail.cellSize,
             selectedCells: detail.selectedCells || []
         };
+        this.mouseDownPoint = null;
+        this.mouseDownCell = null;
+        this.previewRange = null;
+        this.previewRemoveMode = false;
         this.renderOverlay();
     }
 
@@ -188,6 +241,16 @@ export class SpatialMarkingService {
 
         if (this.hoverCell && this.isCellSelectable(this.hoverCell, state.cellSize, selectableShells)) {
             this.addSelectedCells(group, state.cellSize, [this.hoverCell], 0xffffff, 0.16);
+        }
+
+        if (this.previewRange) {
+            this.addCellRangeFrame(
+                group,
+                state.cellSize,
+                this.previewRange,
+                this.previewRemoveMode ? 0xff453a : 0xffffff,
+                0.95
+            );
         }
 
         this.overlayGroup = group;
@@ -269,6 +332,35 @@ export class SpatialMarkingService {
         }
     }
 
+    private addCellRangeFrame(
+        group: THREE.Group,
+        cellSize: number,
+        range: CellRange,
+        color: number,
+        opacity: number
+    ): void {
+        const minX = range.minCol * cellSize;
+        const maxX = (range.maxCol + 1) * cellSize;
+        const minY = range.minRow * cellSize;
+        const maxY = (range.maxRow + 1) * cellSize;
+        const points = [
+            new THREE.Vector3(minX, 11, -minY),
+            new THREE.Vector3(maxX, 11, -minY),
+            new THREE.Vector3(maxX, 11, -maxY),
+            new THREE.Vector3(minX, 11, -maxY)
+        ];
+        const geometry = new THREE.BufferGeometry().setFromPoints(points);
+        const material = new THREE.LineBasicMaterial({
+            color,
+            transparent: true,
+            opacity,
+            depthTest: false
+        });
+        const line = new THREE.LineLoop(geometry, material);
+        line.userData.type = 'spatial-mark-range-frame';
+        group.add(line);
+    }
+
     private clearOverlay(): void {
         const group = this.overlayGroup;
         this.overlayGroup = null;
@@ -339,6 +431,41 @@ export class SpatialMarkingService {
         }
 
         return cells;
+    }
+
+    private getCellRangeFromScreenBox(startX: number, startY: number, endX: number, endY: number): CellRange | null {
+        const startPoint = this.getModelPointFromScreen(startX, startY);
+        const endPoint = this.getModelPointFromScreen(endX, endY);
+        const state = this.state;
+        if (!startPoint || !endPoint || !state) return null;
+
+        const minX = Math.min(startPoint[0], endPoint[0]);
+        const maxX = Math.max(startPoint[0], endPoint[0]);
+        const minY = Math.min(startPoint[1], endPoint[1]);
+        const maxY = Math.max(startPoint[1], endPoint[1]);
+
+        return {
+            minCol: Math.floor(minX / state.cellSize),
+            maxCol: Math.floor(maxX / state.cellSize),
+            minRow: Math.floor(minY / state.cellSize),
+            maxRow: Math.floor(maxY / state.cellSize)
+        };
+    }
+
+    private getCellRange(cells: GridSelectionCell[]): CellRange | null {
+        if (cells.length === 0) return null;
+
+        return cells.reduce<CellRange>((range, cell) => ({
+            minCol: Math.min(range.minCol, cell.col),
+            maxCol: Math.max(range.maxCol, cell.col),
+            minRow: Math.min(range.minRow, cell.row),
+            maxRow: Math.max(range.maxRow, cell.row)
+        }), {
+            minCol: cells[0]!.col,
+            maxCol: cells[0]!.col,
+            minRow: cells[0]!.row,
+            maxRow: cells[0]!.row
+        });
     }
 
     private getModelPointFromEvent(event: MouseEvent): Point2D | null {
@@ -446,9 +573,22 @@ export class SpatialMarkingService {
         return `${cell.col}:${cell.row}`;
     }
 
+    private isCellSelected(cell: GridSelectionCell): boolean {
+        return this.state?.selectedCells.some(selected => this.areSameCell(selected, cell)) === true;
+    }
+
     private areSameCell(left: GridSelectionCell | null, right: GridSelectionCell | null): boolean {
         if (!left && !right) return true;
         if (!left || !right) return false;
         return left.col === right.col && left.row === right.row;
+    }
+
+    private areSameRange(left: CellRange | null, right: CellRange | null): boolean {
+        if (!left && !right) return true;
+        if (!left || !right) return false;
+        return left.minCol === right.minCol &&
+            left.maxCol === right.maxCol &&
+            left.minRow === right.minRow &&
+            left.maxRow === right.maxRow;
     }
 }

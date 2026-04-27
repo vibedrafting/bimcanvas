@@ -1473,7 +1473,6 @@ watch(chatScrollRef, (newEl, oldEl) => {
     <aside
       v-if="activeDraft && props.panelReady && !showScreenshotOverlay"
       class="spatial-property-panel"
-      :style="{ right: (panelWidth + 24) + 'px' }"
     >
       <div class="panel-header">
         <button class="icon-btn back-btn" @click.stop="cancelSpatialMarking" title="Close Space Mark" :disabled="activeWindow?.isStreaming">
@@ -3047,9 +3046,10 @@ watch(chatScrollRef, (newEl, oldEl) => {
 
 .spatial-property-panel {
     position: fixed;
-    bottom: 24px;
+    left: 24px;
+    top: 120px;
     width: 320px;
-    max-height: 50vh;
+    max-height: calc(100vh - 144px);
 
     background: var(--glass-bg);
     backdrop-filter: var(--glass-blur);
