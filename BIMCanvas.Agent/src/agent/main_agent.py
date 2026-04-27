@@ -873,13 +873,10 @@ class MainAgent:
             )
             parts.append(f"分区：{zone_list}")
 
-        # ── 用户空间标记（完成后的临时意图批次） ──
+        # ── 用户标注区域（完成后的临时意图批次） ──
         spatial_marks = context.get("spatialMarks")
         if isinstance(spatial_marks, list) and spatial_marks:
-            mark_lines = [
-                "用户空间标记（坐标均为相对对应顶层设计区左下角的 mm；这是用户强意图，应优先遵守。"
-                "若因尺寸、通行、禁区、边界、门窗或碰撞必须偏离，应在回复中说明原因）："
-            ]
+            mark_lines = ["用户标注区域："]
             for mark in spatial_marks:
                 if not isinstance(mark, dict):
                     continue
@@ -894,7 +891,7 @@ class MainAgent:
                     ensure_ascii=False,
                     separators=(",", ":")
                 )
-                mark_lines.append(f"- {mark_id} zoneId={zone_id} label={label}")
+                mark_lines.append(f"- id={mark_id} zoneId={zone_id} label={label}")
                 mark_lines.append(f"  description={description}")
                 mark_lines.append(f"  geometry={geometry_text}")
 
