@@ -289,7 +289,7 @@ export class InteractionService {
 
     private onKeyDown(event: KeyboardEvent) {
         if (this.spatialMarkingService.isActive) {
-            if (event.key === 'Delete' || event.key === 'Backspace') {
+            if ((event.key === 'Delete' || event.key === 'Backspace') && !this.isTextEditingTarget(event.target)) {
                 event.preventDefault();
             }
             return;
@@ -313,6 +313,17 @@ export class InteractionService {
             const minusCursor = `url('data:image/svg+xml;utf8,<svg width="32" height="32" viewBox="0 0 32 32" xmlns="http://www.w3.org/2000/svg">${arrowPath}<path d="M8 8h8" stroke="black" stroke-width="2" fill="none"/><path d="M8 8h8" stroke="white" stroke-width="0.5" fill="none"/></svg>') 0 0, auto`;
             this.domElement.style.cursor = minusCursor;
         }
+    }
+
+    private isTextEditingTarget(target: EventTarget | null): boolean {
+        if (!(target instanceof HTMLElement)) return false;
+
+        const tagName = target.tagName.toLowerCase();
+        return tagName === 'input' ||
+            tagName === 'textarea' ||
+            tagName === 'select' ||
+            target.isContentEditable ||
+            target.closest('[contenteditable="true"]') !== null;
     }
 
     private onKeyUp(event: KeyboardEvent) {
