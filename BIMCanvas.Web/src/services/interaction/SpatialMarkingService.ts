@@ -5,14 +5,12 @@ import type { Point2D, Polygon2D, ProjectData } from '../../types/canvas';
 
 interface SpatialMarkModeDetail {
     active: boolean;
-    zoneId?: string;
     cellSize?: number;
     selectedCells?: GridSelectionCell[];
 }
 
 interface SpatialState {
     active: boolean;
-    zoneId: string;
     cellSize: number;
     selectedCells: GridSelectionCell[];
 }
@@ -133,7 +131,7 @@ export class SpatialMarkingService {
 
     private handleModeChange(event: Event): void {
         const detail = ((event as CustomEvent).detail || {}) as SpatialMarkModeDetail;
-        if (!detail.active || !detail.zoneId || !detail.cellSize) {
+        if (!detail.active || !detail.cellSize) {
             this.state = null;
             this.hoverCell = null;
             this.clearOverlay();
@@ -142,7 +140,6 @@ export class SpatialMarkingService {
 
         this.state = {
             active: true,
-            zoneId: detail.zoneId,
             cellSize: detail.cellSize,
             selectedCells: detail.selectedCells || []
         };
@@ -164,28 +161,33 @@ export class SpatialMarkingService {
         const data = this.store.projectData;
         if (!state?.active || !data) return;
 
-        const zone = data.activeScheme?.zones?.find(item => item.id === state.zoneId);
-        const boundary = this.getZoneBoundary(zone);
-        if (!boundary) return;
+        const selectableShells = this.getSelectableZoneShells(data);
+        if (selectableShells.length === 0) return;
 
-        const shell = this.getBoundaryShell(boundary);
-        if (shell.length < 3) return;
+        const aabb = this.computeProjectAabb(data, selectableShells);
+        if (!this.isFiniteAabb(aabb)) return;
 
-        const aabb = this.computeAabb(shell);
-        const cols = Math.ceil((aabb.maxX - aabb.minX) / state.cellSize);
-        const rows = Math.ceil((aabb.maxY - aabb.minY) / state.cellSize);
-        if (cols <= 0 || rows <= 0 || cols * rows > 12000) return;
+        const minCol = Math.floor(aabb.minX / state.cellSize);
+        const maxCol = Math.ceil(aabb.maxX / state.cellSize);
+        const minRow = Math.floor(aabb.minY / state.cellSize);
+        const maxRow = Math.ceil(aabb.maxY / state.cellSize);
+        const cols = maxCol - minCol;
+        const rows = maxRow - minRow;
+        if (cols <= 0 || rows <= 0 || cols * rows > 30000) return;
 
         const group = new THREE.Group();
         group.userData.type = 'spatial-mark-grid';
         group.userData.isSpatialMarkGrid = true;
 
-        this.addZoneOutline(group, shell);
-        this.addGridLines(group, aabb, cols, rows, state.cellSize);
-        this.addSelectedCells(group, aabb, state.cellSize, state.selectedCells, 0x0a84ff, 0.28);
+        for (const shell of selectableShells) {
+            this.addZoneOutline(group, shell);
+        }
 
-        if (this.hoverCell && this.isCellInsideBoundary(this.hoverCell, aabb, state.cellSize, shell)) {
-            this.addSelectedCells(group, aabb, state.cellSize, [this.hoverCell], 0xffffff, 0.16);
+        this.addGridLines(group, minCol, maxCol, minRow, maxRow, state.cellSize);
+        this.addSelectedCells(group, state.cellSize, state.selectedCells, 0x0a84ff, 0.28);
+
+        if (this.hoverCell && this.isCellSelectable(this.hoverCell, state.cellSize, selectableShells)) {
+            this.addSelectedCells(group, state.cellSize, [this.hoverCell], 0xffffff, 0.16);
         }
 
         this.overlayGroup = group;
@@ -204,19 +206,28 @@ export class SpatialMarkingService {
         group.add(line);
     }
 
-    private addGridLines(group: THREE.Group, aabb: Aabb, cols: number, rows: number, cellSize: number): void {
+    private addGridLines(
+        group: THREE.Group,
+        minCol: number,
+        maxCol: number,
+        minRow: number,
+        maxRow: number,
+        cellSize: number
+    ): void {
         const positions: number[] = [];
-        const maxX = aabb.minX + cols * cellSize;
-        const maxY = aabb.minY + rows * cellSize;
+        const minX = minCol * cellSize;
+        const maxX = maxCol * cellSize;
+        const minY = minRow * cellSize;
+        const maxY = maxRow * cellSize;
 
-        for (let col = 0; col <= cols; col += 1) {
-            const x = aabb.minX + col * cellSize;
-            positions.push(x, 8, -aabb.minY, x, 8, -maxY);
+        for (let col = minCol; col <= maxCol; col += 1) {
+            const x = col * cellSize;
+            positions.push(x, 8, -minY, x, 8, -maxY);
         }
 
-        for (let row = 0; row <= rows; row += 1) {
-            const y = aabb.minY + row * cellSize;
-            positions.push(aabb.minX, 8, -y, maxX, 8, -y);
+        for (let row = minRow; row <= maxRow; row += 1) {
+            const y = row * cellSize;
+            positions.push(minX, 8, -y, maxX, 8, -y);
         }
 
         const geometry = new THREE.BufferGeometry();
@@ -231,7 +242,6 @@ export class SpatialMarkingService {
 
     private addSelectedCells(
         group: THREE.Group,
-        aabb: Aabb,
         cellSize: number,
         cells: GridSelectionCell[],
         color: number,
@@ -250,8 +260,8 @@ export class SpatialMarkingService {
         });
 
         for (const cell of cells) {
-            const centerX = aabb.minX + (cell.col + 0.5) * cellSize;
-            const centerY = aabb.minY + (cell.row + 0.5) * cellSize;
+            const centerX = (cell.col + 0.5) * cellSize;
+            const centerY = (cell.row + 0.5) * cellSize;
             const mesh = new THREE.Mesh(geometry, material);
             mesh.position.set(centerX, 9, -centerY);
             mesh.userData.type = 'spatial-mark-grid';
@@ -287,18 +297,14 @@ export class SpatialMarkingService {
         const data = this.store.projectData;
         if (!point || !state || !data) return null;
 
-        const zone = data.activeScheme?.zones?.find(item => item.id === state.zoneId);
-        const boundary = this.getZoneBoundary(zone);
-        if (!boundary) return null;
+        const selectableShells = this.getSelectableZoneShells(data);
+        if (selectableShells.length === 0) return null;
 
-        const shell = this.getBoundaryShell(boundary);
-        const aabb = this.computeAabb(shell);
-        const col = Math.floor((point[0] - aabb.minX) / state.cellSize);
-        const row = Math.floor((point[1] - aabb.minY) / state.cellSize);
+        const col = Math.floor(point[0] / state.cellSize);
+        const row = Math.floor(point[1] / state.cellSize);
         const cell = { col, row };
 
-        if (col < 0 || row < 0) return null;
-        if (!this.isCellInsideBoundary(cell, aabb, state.cellSize, shell)) return null;
+        if (!this.isCellSelectable(cell, state.cellSize, selectableShells)) return null;
         return cell;
     }
 
@@ -309,27 +315,24 @@ export class SpatialMarkingService {
         const data = this.store.projectData;
         if (!startPoint || !endPoint || !state || !data) return [];
 
-        const zone = data.activeScheme?.zones?.find(item => item.id === state.zoneId);
-        const boundary = this.getZoneBoundary(zone);
-        if (!boundary) return [];
+        const selectableShells = this.getSelectableZoneShells(data);
+        if (selectableShells.length === 0) return [];
 
-        const shell = this.getBoundaryShell(boundary);
-        const aabb = this.computeAabb(shell);
         const minX = Math.min(startPoint[0], endPoint[0]);
         const maxX = Math.max(startPoint[0], endPoint[0]);
         const minY = Math.min(startPoint[1], endPoint[1]);
         const maxY = Math.max(startPoint[1], endPoint[1]);
 
-        const minCol = Math.max(0, Math.floor((minX - aabb.minX) / state.cellSize));
-        const maxCol = Math.max(0, Math.floor((maxX - aabb.minX) / state.cellSize));
-        const minRow = Math.max(0, Math.floor((minY - aabb.minY) / state.cellSize));
-        const maxRow = Math.max(0, Math.floor((maxY - aabb.minY) / state.cellSize));
+        const minCol = Math.floor(minX / state.cellSize);
+        const maxCol = Math.floor(maxX / state.cellSize);
+        const minRow = Math.floor(minY / state.cellSize);
+        const maxRow = Math.floor(maxY / state.cellSize);
 
         const cells: GridSelectionCell[] = [];
         for (let row = minRow; row <= maxRow; row += 1) {
             for (let col = minCol; col <= maxCol; col += 1) {
                 const cell = { col, row };
-                if (this.isCellInsideBoundary(cell, aabb, state.cellSize, shell)) {
+                if (this.isCellSelectable(cell, state.cellSize, selectableShells)) {
                     cells.push(cell);
                 }
             }
@@ -364,6 +367,37 @@ export class SpatialMarkingService {
         return Array.isArray(boundary) ? boundary : (boundary.shell || []);
     }
 
+    private getSelectableZoneShells(data: ProjectData): Point2D[][] {
+        return (data.activeScheme?.zones || [])
+            .map(zone => this.getZoneBoundary(zone))
+            .map(boundary => boundary ? this.getBoundaryShell(boundary) : [])
+            .filter(shell => shell.length >= 3);
+    }
+
+    private computeProjectAabb(data: ProjectData, fallbackShells: Point2D[][]): Aabb {
+        const points: Point2D[] = [];
+
+        for (const wall of data.baseline?.walls || []) {
+            points.push(...(wall.polygon || []));
+        }
+
+        for (const column of data.baseline?.columns || []) {
+            points.push(...(column.polygon || []));
+        }
+
+        for (const opening of data.baseline?.openings || []) {
+            if (opening.line) {
+                points.push(...opening.line);
+            }
+        }
+
+        for (const shell of fallbackShells) {
+            points.push(...shell);
+        }
+
+        return this.computeAabb(points);
+    }
+
     private computeAabb(points: Point2D[]): Aabb {
         return points.reduce<Aabb>((box, [x, y]) => ({
             minX: Math.min(box.minX, x),
@@ -378,12 +412,21 @@ export class SpatialMarkingService {
         });
     }
 
-    private isCellInsideBoundary(cell: GridSelectionCell, aabb: Aabb, cellSize: number, shell: Point2D[]): boolean {
+    private isFiniteAabb(aabb: Aabb): boolean {
+        return Number.isFinite(aabb.minX) &&
+            Number.isFinite(aabb.minY) &&
+            Number.isFinite(aabb.maxX) &&
+            Number.isFinite(aabb.maxY) &&
+            aabb.maxX > aabb.minX &&
+            aabb.maxY > aabb.minY;
+    }
+
+    private isCellSelectable(cell: GridSelectionCell, cellSize: number, shells: Point2D[][]): boolean {
         const center: Point2D = [
-            aabb.minX + (cell.col + 0.5) * cellSize,
-            aabb.minY + (cell.row + 0.5) * cellSize
+            (cell.col + 0.5) * cellSize,
+            (cell.row + 0.5) * cellSize
         ];
-        return this.isPointInsidePolygon(center, shell);
+        return shells.some(shell => this.isPointInsidePolygon(center, shell));
     }
 
     private isPointInsidePolygon(point: Point2D, polygon: Point2D[]): boolean {

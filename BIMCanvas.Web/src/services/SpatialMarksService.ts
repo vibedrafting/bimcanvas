@@ -7,6 +7,8 @@ const API_BASE = `${SERVER_API}/spatial-marks`;
 export interface MergeGridSelectionRequest {
   zoneId: string;
   cellSize: number;
+  gridOriginX?: number;
+  gridOriginY?: number;
   cells: GridSelectionCell[];
 }
 

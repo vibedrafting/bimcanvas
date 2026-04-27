@@ -42,18 +42,11 @@ export function useSpatialMarking(options: SpatialMarkingOptions) {
   const pendingSpatialMarks = computed(() => options.activeWindow.value?.pendingSpatialMarks ?? []);
   const isSpatialMarking = computed(() => !!activeDraft.value);
 
-  const findZoneName = (zoneId: string): string => {
-    const zone = topLevelZones.value.find(item => item.id === zoneId);
-    return zone?.label || zoneId;
-  };
-
-  const createDraft = (zoneId?: string, cellSize?: number): SpatialMarkDraft | null => {
-    const targetZoneId = zoneId || topLevelZones.value[0]?.id;
-    if (!targetZoneId) return null;
-
+  const createDraft = (cellSize?: number): SpatialMarkDraft | null => {
+    if (topLevelZones.value.length === 0) return null;
     return {
-      zoneId: targetZoneId,
-      zoneName: findZoneName(targetZoneId),
+      zoneId: '__all__',
+      zoneName: 'All spaces',
       cellSize: normalizeCellSize(cellSize ?? DEFAULT_CELL_SIZE),
       selectedCells: [],
       label: '',
@@ -69,7 +62,6 @@ export function useSpatialMarking(options: SpatialMarkingOptions) {
       detail: draft
         ? {
             active: true,
-            zoneId: draft.zoneId,
             cellSize: draft.cellSize,
             selectedCells: cloneCells(draft.selectedCells)
           }
@@ -77,11 +69,11 @@ export function useSpatialMarking(options: SpatialMarkingOptions) {
     }));
   };
 
-  const startSpatialMarking = (zoneId?: string) => {
+  const startSpatialMarking = () => {
     const win = options.activeWindow.value;
     if (!win) return;
 
-    const draft = createDraft(zoneId, win.spatialMarkDraft?.cellSize);
+    const draft = createDraft(win.spatialMarkDraft?.cellSize);
     if (!draft) return;
 
     win.spatialMarkDraft = draft;
@@ -92,16 +84,6 @@ export function useSpatialMarking(options: SpatialMarkingOptions) {
     const win = options.activeWindow.value;
     if (!win) return;
     win.spatialMarkDraft = null;
-    dispatchModeChange();
-  };
-
-  const setDraftZone = (zoneId: string) => {
-    const draft = activeDraft.value;
-    if (!draft) return;
-    draft.zoneId = zoneId;
-    draft.zoneName = findZoneName(zoneId);
-    draft.selectedCells = [];
-    draft.error = null;
     dispatchModeChange();
   };
 
@@ -165,26 +147,36 @@ export function useSpatialMarking(options: SpatialMarkingOptions) {
     draft.error = null;
 
     try {
-      const response = await SpatialMarksService.mergeGridSelection({
-        zoneId: draft.zoneId,
-        cellSize: draft.cellSize,
-        cells: cloneCells(draft.selectedCells)
-      });
+      const createdMarks: SpatialMark[] = [];
+      for (const zone of topLevelZones.value) {
+        const response = await SpatialMarksService.mergeGridSelection({
+          zoneId: zone.id,
+          cellSize: draft.cellSize,
+          gridOriginX: 0,
+          gridOriginY: 0,
+          cells: cloneCells(draft.selectedCells)
+        });
 
-      if (!response.geometry || response.geometry.length === 0) {
+        if (!response.geometry || response.geometry.length === 0) {
+          continue;
+        }
+
+        createdMarks.push({
+          id: generateSpatialMarkId([...win.pendingSpatialMarks, ...createdMarks]),
+          zoneId: zone.id,
+          label: draft.label.trim(),
+          description: draft.description.trim(),
+          geometry: response.geometry
+        });
+      }
+
+      if (createdMarks.length === 0) {
         draft.error = '标记区域为空或完全在设计区外';
         return;
       }
 
-      win.pendingSpatialMarks.push({
-        id: generateSpatialMarkId(win.pendingSpatialMarks),
-        zoneId: draft.zoneId,
-        label: draft.label.trim(),
-        description: draft.description.trim(),
-        geometry: response.geometry
-      });
-
-      win.spatialMarkDraft = createDraft(draft.zoneId, draft.cellSize);
+      win.pendingSpatialMarks.push(...createdMarks);
+      win.spatialMarkDraft = createDraft(draft.cellSize);
       dispatchModeChange();
     } catch (error: any) {
       draft.error = error?.response?.data?.message || error?.message || '空间标记合并失败';
@@ -245,13 +237,12 @@ export function useSpatialMarking(options: SpatialMarkingOptions) {
       return;
     }
 
-    const zone = topLevelZones.value.find(item => item.id === draft.zoneId);
-    if (!zone) {
+    if (topLevelZones.value.length === 0) {
       cancelSpatialMarking();
       return;
     }
 
-    draft.zoneName = zone.label;
+    draft.zoneName = 'All spaces';
     dispatchModeChange();
   });
 
@@ -269,7 +260,6 @@ export function useSpatialMarking(options: SpatialMarkingOptions) {
     isSpatialMarking,
     startSpatialMarking,
     cancelSpatialMarking,
-    setDraftZone,
     setDraftCellSize,
     setDraftLabel,
     setDraftDescription,

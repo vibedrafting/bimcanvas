@@ -22,7 +22,9 @@ namespace BIMCanvas.Core.Algorithms.Spatial
             double originX,
             double originY,
             double cellSize,
-            IEnumerable<(int Col, int Row)> cells)
+            IEnumerable<(int Col, int Row)> cells,
+            double? outputOriginX = null,
+            double? outputOriginY = null)
         {
             if (zoneBoundary == null)
                 throw new ArgumentNullException(nameof(zoneBoundary));
@@ -39,9 +41,6 @@ namespace BIMCanvas.Core.Algorithms.Spatial
 
             if (uniqueCells.Count == 0)
                 return new List<SpatialGeometry>();
-
-            if (uniqueCells.Any(c => c.Col < 0 || c.Row < 0))
-                throw new ArgumentException("Cell col/row must be non-negative.", nameof(cells));
 
             var cellPolygons = uniqueCells
                 .Select(cell => CreateCellPolygon(originX, originY, cellSize, cell.Col, cell.Row))
@@ -65,7 +64,10 @@ namespace BIMCanvas.Core.Algorithms.Spatial
 
             return polygons
                 .Where(p => !p.IsEmpty && p.Area > AreaTolerance)
-                .Select(p => ToSpatialGeometry(p, originX, originY))
+                .Select(p => ToSpatialGeometry(
+                    p,
+                    outputOriginX ?? originX,
+                    outputOriginY ?? originY))
                 .Where(g => g != null)
                 .Cast<SpatialGeometry>()
                 .ToList();

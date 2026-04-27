@@ -225,7 +225,6 @@ const {
   topLevelZones,
   startSpatialMarking,
   cancelSpatialMarking,
-  setDraftZone,
   setDraftCellSize,
   setDraftLabel,
   setDraftDescription,
@@ -1104,7 +1103,11 @@ watch(chatScrollRef, (newEl, oldEl) => {
                         <div class="menu-section">
                             <div class="menu-header">Add Context</div>
 
-                            <div class="menu-item" @click="startSpaceMarkFromMenu">
+                            <div
+                                class="menu-item"
+                                @mouseenter="activeSubmenu = null"
+                                @click="startSpaceMarkFromMenu"
+                            >
                                 <span class="item-text">Space Mark</span>
                             </div>
                             
@@ -1220,16 +1223,7 @@ watch(chatScrollRef, (newEl, oldEl) => {
                 </button>
               </div>
               <div class="spatial-mark-row">
-                <select
-                  class="spatial-input"
-                  :value="activeDraft.zoneId"
-                  :disabled="activeDraft.isCompleting || activeWindow?.isStreaming"
-                  @change="setDraftZone(getEventValue($event))"
-                >
-                  <option v-for="zone in topLevelZones" :key="zone.id" :value="zone.id">
-                    {{ zone.label }}
-                  </option>
-                </select>
+                <div class="spatial-scope-label">All spaces</div>
                 <input
                   class="spatial-input spatial-size-input"
                   type="number"
@@ -3088,6 +3082,17 @@ watch(chatScrollRef, (newEl, oldEl) => {
             opacity: 0.55;
             cursor: not-allowed;
         }
+    }
+
+    .spatial-scope-label {
+        min-width: 0;
+        border: 1px solid rgba(255, 255, 255, 0.12);
+        border-radius: 6px;
+        background: rgba(0, 0, 0, 0.16);
+        color: var(--text-primary);
+        font-size: 0.78rem;
+        line-height: 1.35;
+        padding: 7px 8px;
     }
 
     .spatial-description {

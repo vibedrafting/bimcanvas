@@ -77,13 +77,17 @@ namespace BIMCanvas.Server.Controllers
 
                 var zoneAabb = boundary.ComputeAABB();
                 var cells = request!.Cells.Select(c => (c.Col, c.Row));
+                var gridOriginX = request.GridOriginX ?? zoneAabb.MinX;
+                var gridOriginY = request.GridOriginY ?? zoneAabb.MinY;
 
                 var geometry = GridSelectionMerger.MergeGridCells(
                     boundary,
-                    zoneAabb.MinX,
-                    zoneAabb.MinY,
+                    gridOriginX,
+                    gridOriginY,
                     request.CellSize,
-                    cells);
+                    cells,
+                    zoneAabb.MinX,
+                    zoneAabb.MinY);
 
                 _logger.LogInformation(
                     "[SpatialMarks] 合并网格选择: Zone={ZoneId}, Cells={CellCount}, Geometry={GeometryCount}, Path={Path}",
@@ -122,9 +126,6 @@ namespace BIMCanvas.Server.Controllers
                 return "cells 不能为空";
             if (request.Cells.Count > MaxCells)
                 return $"cells 数量不能超过 {MaxCells}，请调大网格尺寸";
-            if (request.Cells.Any(c => c.Col < 0 || c.Row < 0))
-                return "col/row 不能为负数";
-
             return null;
         }
 

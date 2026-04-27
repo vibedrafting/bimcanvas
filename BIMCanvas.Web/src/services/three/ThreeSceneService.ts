@@ -67,6 +67,7 @@ export class ThreeSceneService {
     private viewportService: ViewportService;
     private selectionManager: SelectionManager;
     private dragManager: DragManager;
+    private spatialMarkWasGridVisible: boolean | null = null;
 
     private ambientLight: THREE.AmbientLight | null = null;
     private directionalLight: THREE.DirectionalLight | null = null;
@@ -313,6 +314,7 @@ export class ThreeSceneService {
         // 全局业务事件 - 保存引用到 Map
         const viewModeHandler = ((e: CustomEvent) => {
             this.toggleViewMode(e.detail);
+            this.applySpatialMarkGridSuppression();
 
             // Update Zone Label Visibility after preset application
             const labelsOn = this._camera.layers.isEnabled(LayerManager.LAYER_LABELS);
@@ -324,6 +326,7 @@ export class ThreeSceneService {
 
         const layerToggleHandler = ((e: CustomEvent) => {
             this.toggleLayer(e.detail.layerId, e.detail.visible);
+            this.applySpatialMarkGridSuppression();
 
             // Update Zone Label Visibility (Requires both LABELS and ZONES layers)
             const labelsOn = this._camera.layers.isEnabled(LayerManager.LAYER_LABELS);
@@ -332,6 +335,25 @@ export class ThreeSceneService {
         }) as EventListener;
         this.boundEventHandlers.set('bimcanvas:layer-toggle', layerToggleHandler);
         window.addEventListener('bimcanvas:layer-toggle', layerToggleHandler);
+
+        const spatialMarkModeHandler = ((e: CustomEvent) => {
+            const active = !!e.detail?.active;
+            if (active) {
+                if (this.spatialMarkWasGridVisible === null) {
+                    this.spatialMarkWasGridVisible = this._camera.layers.isEnabled(LayerManager.LAYER_GRID);
+                }
+                this.applySpatialMarkGridSuppression();
+                return;
+            }
+
+            if (this.spatialMarkWasGridVisible === true) {
+                this.layerManager.toggleLayer(LayerManager.LAYER_GRID, true);
+                this.dispatchGridLayerState(true);
+            }
+            this.spatialMarkWasGridVisible = null;
+        }) as EventListener;
+        this.boundEventHandlers.set('bimcanvas:spatial-mark-mode-change', spatialMarkModeHandler);
+        window.addEventListener('bimcanvas:spatial-mark-mode-change', spatialMarkModeHandler);
 
         const rotateHandler = () => this.interactionService.rotateSelection();
         this.boundEventHandlers.set('bimcanvas:action-rotate', rotateHandler);
@@ -412,6 +434,28 @@ export class ThreeSceneService {
 
     public toggleLayer(layerId: number, visible: boolean) {
         this.layerManager.toggleLayer(layerId, visible);
+    }
+
+    private applySpatialMarkGridSuppression(): void {
+        if (this.spatialMarkWasGridVisible === null) {
+            return;
+        }
+
+        if (this._camera.layers.isEnabled(LayerManager.LAYER_GRID)) {
+            this.layerManager.toggleLayer(LayerManager.LAYER_GRID, false);
+            this.dispatchGridLayerState(false);
+        }
+    }
+
+    private dispatchGridLayerState(visible: boolean): void {
+        window.dispatchEvent(new CustomEvent('bimcanvas:layer-state-change', {
+            detail: {
+                preset: 'User',
+                layerStates: {
+                    [LayerManager.LAYER_GRID]: visible
+                }
+            }
+        }));
     }
     /**
      * 重建网格（规格变更后调用）
