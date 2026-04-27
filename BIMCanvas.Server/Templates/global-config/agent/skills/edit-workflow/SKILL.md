@@ -39,7 +39,7 @@ WHY：用户已做完决策时，Agent 只需"执行 + 兜住领域硬约束"；
 | 删除 | `zones.json` + 目标 `modules.json` | 永不需要 |
 | 旋转 N 度 | `zones.json` + 目标 `modules.json` | 永不需要 |
 | 移动（非 parametric 模块） | `zones.json` + 目标 `modules.json` + `module_library[moduleId].agent_config` | 用户位置语义模糊（"靠右上"等）时 |
-| 移动（parametric 模块） | 上述三项 + `references/{room}.md` 中本模块对应段落 | 始终读，**用于尺寸算法骨架** |
+| 移动（parametric 模块） | 上述三项；尺寸算法 + 强先验已内置 SKILL.md Step 2，**不读 `references/{room}.md`** | 只在复杂路径读 |
 
 **跳过**：`README.md`、`computed/exclusions.json`、修改前后截图。
 WHY：决策面已被"用户输入 + 模块规则 + 房间策略"覆盖。`exclusions` 由 `validate_layout` 兜底。
@@ -89,13 +89,17 @@ WHY：edit 的本质是"小范围设计决策"，不是"机械搬运"。`agent_c
 - "居中" → 取 AABB 几何中心；朝向参考相邻锚点。
 - "成组" → 锚定 `relation_rules` 主件后推导。
 
-**Step 2 — 尺寸（仅 parametric 模块）**
+**Step 2 — 尺寸（仅 parametric 模块；强默认：尺寸最大化）**
 
-复用 `references/{room}.md` 的"尺寸最大化"骨架（房间内若已定义即直接用；未定义则按下述兜底）：
+⚠️ **不要回到 default size。** `module_library[moduleId].size` 只是占位值，不是设计答案——Edit parametric 模块时必须执行"尺寸最大化"路径。
 
-1. 计算贴墙后该墙段的有效长度（扣除门侧净空、相邻家具占用）。
+WHY：parametric 模块的 default size 是 `limits.min`（最小合法值），Agent 容易把它当"标准答案"凭感觉用——但 default 是占位，不是设计。让模块由空间决定尺寸而非直觉，是 parametric 字段存在的全部意义。
+
+算法（3 步）：
+
+1. 计算贴墙后该墙段的有效长度（扣除相邻家具占用）。
 2. 取 `min(有效长度, limits.max)` 作为目标 `width`/`depth`。
-3. 顶角规则：若取值后另一侧距相邻锚点（墙/家具）< 600mm 且非门口/通道侧 → 在 `limits` 内继续扩展消除窄缝。
+3. 顶角规则：若另一侧距相邻锚点（墙/家具）< 600mm 且非门口/通道侧 → 在 `limits` 内扩展消除窄缝。
 
 非 parametric 模块跳过 Step 2，保持原 `size`。
 
@@ -105,6 +109,37 @@ WHY：edit 的本质是"小范围设计决策"，不是"机械搬运"。`agent_c
 - 不主动检查 `exclusions`；交给 `validate_layout` 兜底（失败再回补救）。
 
 WHY：用户标注表达"我希望 X 在这一带"，落位语义表达"X 应该如何使用"，尺寸语义表达"占满有效段而非默认值"。三者结合才是合理的位姿；任一缺位都退化为合规式居中或机械平移。
+
+---
+
+### Worked example：parametric 模块 + AABB（流程决策范本）
+
+输入：
+
+- `moduleId` = `mod_vanity_custom_001`（parametric: width [800, 2000], depth enum [400, 600], 【必须】靠墙）
+- AABB = `[13650, 4200, 14100, 5100]`
+- 邻居：右墙 X≈14100（实墙），上方柜体底 Y≈5150
+
+❌ **陷阱推理**（不要这么做）：
+
+```
+"width 默认 800 → 居中放 AABB 内 Y=4250–5050"
+→ 上方距柜体底 100mm 窄缝、下方距墙拐角 50mm 窄缝；未触发顶角规则；落到 default 的合规式居中
+```
+
+✅ **正确决策链**：
+
+```
+1. 找墙 → 右墙 X=14100，模块右边对齐 14100，朝向 west
+2. 算有效段 → 上下锚点：下=4200（墙拐角）、上=5150（柜体底）→ 有效段 = 950mm
+3. width = min(950, limits.max=2000) = 950
+4. depth 取 400（贴近 AABB 暗示的 450mm 深度，enum 内较小值）→ X = [13700, 14100]
+5. bounds = [[13700, 4200], [14100, 4200], [14100, 5150], [13700, 5150]]
+   facing.semantic = "west"
+6. 顶角已自动消除（两端贴齐）
+```
+
+**关键直觉**：见 parametric + AABB → 立刻走"尺寸最大化"路径；不要先看 default size 再考虑要不要扩。
 
 ---
 
