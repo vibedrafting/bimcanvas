@@ -374,7 +374,7 @@ export function useSpatialMarking(options: SpatialMarkingOptions) {
       }
 
       win.pendingSpatialMarks.push(...createdMarks);
-      win.spatialMarkDraft = createDraft(draft.cellSize);
+      win.spatialMarkDraft = null;
       dispatchModeChange();
     } catch (error: any) {
       draft.error = error?.response?.data?.message || error?.message || '空间标记合并失败';
