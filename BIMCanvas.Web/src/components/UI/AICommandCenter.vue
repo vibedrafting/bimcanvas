@@ -1212,55 +1212,6 @@ watch(chatScrollRef, (newEl, oldEl) => {
 
         <!-- Antigravity Input Box -->
         <div class="antigravity-input-box">
-            <div class="spatial-mark-panel" v-if="activeDraft">
-              <div class="spatial-mark-header">
-                <span>Space Mark</span>
-                <button class="spatial-icon-btn" @click.stop="cancelSpatialMarking" :disabled="activeWindow?.isStreaming">
-                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                    <line x1="18" y1="6" x2="6" y2="18"></line>
-                    <line x1="6" y1="6" x2="18" y2="18"></line>
-                  </svg>
-                </button>
-              </div>
-              <div class="spatial-mark-row">
-                <div class="spatial-scope-label">All spaces</div>
-                <input
-                  class="spatial-input spatial-size-input"
-                  type="number"
-                  min="50"
-                  step="50"
-                  :value="activeDraft.cellSize"
-                  :disabled="activeDraft.isCompleting || activeWindow?.isStreaming"
-                  @change="setDraftCellSize(Number(getEventValue($event)))"
-                />
-              </div>
-              <input
-                class="spatial-input"
-                :value="activeDraft.label"
-                placeholder="Label"
-                :disabled="activeDraft.isCompleting || activeWindow?.isStreaming"
-                @input="setDraftLabel(getEventValue($event))"
-              />
-              <textarea
-                class="spatial-input spatial-description"
-                :value="activeDraft.description"
-                placeholder="Description"
-                rows="2"
-                :disabled="activeDraft.isCompleting || activeWindow?.isStreaming"
-                @input="setDraftDescription(getEventValue($event))"
-              ></textarea>
-              <div class="spatial-mark-footer">
-                <span>{{ activeDraft.selectedCells.length }} cells selected</span>
-                <div class="spatial-actions">
-                  <button @click.stop="clearDraftSelection" :disabled="activeDraft.isCompleting || activeWindow?.isStreaming">Clear</button>
-                  <button class="primary" @click.stop="completeDraft" :disabled="activeDraft.isCompleting || activeWindow?.isStreaming">
-                    {{ activeDraft.isCompleting ? 'Merging...' : 'Done' }}
-                  </button>
-                </div>
-              </div>
-              <div class="spatial-error" v-if="activeDraft.error">{{ activeDraft.error }}</div>
-            </div>
-
             <div class="pending-spatial-marks" v-if="pendingSpatialMarks.length > 0">
               <div class="pending-spatial-mark" v-for="mark in pendingSpatialMarks" :key="mark.id">
                 <div class="pending-spatial-main">
@@ -1516,6 +1467,89 @@ watch(chatScrollRef, (newEl, oldEl) => {
       @close="closeLightbox"
     />
   </aside>
+  </transition>
+
+  <transition name="spatial-panel-fade">
+    <aside
+      v-if="activeDraft && props.panelReady && !showScreenshotOverlay"
+      class="spatial-property-panel"
+      :style="{ right: (panelWidth + 24) + 'px' }"
+    >
+      <div class="panel-header">
+        <button class="icon-btn back-btn" @click.stop="cancelSpatialMarking" title="Close Space Mark" :disabled="activeWindow?.isStreaming">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <line x1="19" y1="12" x2="5" y2="12"></line>
+            <polyline points="12 19 5 12 12 5"></polyline>
+          </svg>
+        </button>
+
+        <div class="title">SPACE MARK</div>
+
+        <span class="header-spacer" aria-hidden="true"></span>
+      </div>
+
+      <div class="panel-content">
+        <div class="prop-list">
+          <div class="prop-row">
+            <span class="label">Scope</span>
+            <span class="value readonly-value">All spaces</span>
+          </div>
+
+          <div class="prop-row">
+            <label class="label" for="spatial-cell-size">Cell</label>
+            <input
+              id="spatial-cell-size"
+              class="value spatial-input compact"
+              type="number"
+              min="50"
+              step="50"
+              :value="activeDraft.cellSize"
+              :disabled="activeDraft.isCompleting || activeWindow?.isStreaming"
+              @change="setDraftCellSize(Number(getEventValue($event)))"
+            />
+          </div>
+
+          <div class="prop-row">
+            <label class="label" for="spatial-label">Label</label>
+            <input
+              id="spatial-label"
+              class="value spatial-input"
+              :value="activeDraft.label"
+              placeholder="Label"
+              :disabled="activeDraft.isCompleting || activeWindow?.isStreaming"
+              @input="setDraftLabel(getEventValue($event))"
+            />
+          </div>
+
+          <div class="prop-row textarea-row">
+            <label class="label" for="spatial-description">Description</label>
+            <textarea
+              id="spatial-description"
+              class="value spatial-input spatial-description"
+              :value="activeDraft.description"
+              placeholder="Description"
+              rows="3"
+              :disabled="activeDraft.isCompleting || activeWindow?.isStreaming"
+              @input="setDraftDescription(getEventValue($event))"
+            ></textarea>
+          </div>
+
+          <div class="prop-row">
+            <span class="label">Selected</span>
+            <span class="value readonly-value">{{ activeDraft.selectedCells.length }} cells</span>
+          </div>
+        </div>
+
+        <div class="spatial-error" v-if="activeDraft.error">{{ activeDraft.error }}</div>
+
+        <div class="panel-actions">
+          <button @click.stop="clearDraftSelection" :disabled="activeDraft.isCompleting || activeWindow?.isStreaming">Clear</button>
+          <button class="primary" @click.stop="completeDraft" :disabled="activeDraft.isCompleting || activeWindow?.isStreaming">
+            {{ activeDraft.isCompleting ? 'Merging...' : 'Done' }}
+          </button>
+        </div>
+      </div>
+    </aside>
   </transition>
   </Teleport>
 </template>
@@ -2998,6 +3032,227 @@ watch(chatScrollRef, (newEl, oldEl) => {
 .slide-down-leave-to {
     opacity: 0;
     transform: translateY(-10px);
+}
+
+.spatial-panel-fade-enter-active,
+.spatial-panel-fade-leave-active {
+    transition: opacity 0.3s ease, transform 0.3s ease;
+}
+
+.spatial-panel-fade-enter-from,
+.spatial-panel-fade-leave-to {
+    opacity: 0;
+    transform: translateY(20px) scale(0.95);
+}
+
+.spatial-property-panel {
+    position: fixed;
+    bottom: 24px;
+    width: 320px;
+    max-height: 50vh;
+
+    background: var(--glass-bg);
+    backdrop-filter: var(--glass-blur);
+    -webkit-backdrop-filter: var(--glass-blur);
+
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    border-radius: 20px;
+
+    background-image: var(--glass-glare), linear-gradient(to bottom, var(--glass-bg), var(--glass-bg));
+    box-shadow:
+        0 12px 40px rgba(0, 0, 0, 0.4),
+        0 0 0 1px rgba(255, 255, 255, 0.1) inset,
+        0 0 20px rgba(255, 255, 255, 0.15);
+
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    z-index: 150;
+
+    .panel-header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 12px 16px;
+        border-bottom: 1px solid var(--border-subtle);
+        flex-shrink: 0;
+
+        .title {
+            font-weight: 600;
+            font-size: 0.9rem;
+            color: var(--text-primary);
+            letter-spacing: 0.5px;
+        }
+
+        .icon-btn,
+        .header-spacer {
+            width: 26px;
+            height: 26px;
+            flex-shrink: 0;
+        }
+
+        .icon-btn {
+            background: transparent;
+            border: none;
+            color: var(--text-secondary);
+            cursor: pointer;
+            padding: 4px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: all 0.2s ease;
+
+            svg {
+                width: 18px;
+                height: 18px;
+            }
+
+            &:hover:not(:disabled) {
+                background: var(--surface-hover);
+                color: var(--text-primary);
+            }
+
+            &:disabled {
+                opacity: 0.45;
+                cursor: not-allowed;
+            }
+        }
+    }
+
+    .panel-content {
+        flex: 1;
+        overflow-y: auto;
+        padding: 12px 16px 14px;
+
+        &::-webkit-scrollbar {
+            width: 4px;
+        }
+
+        &::-webkit-scrollbar-track {
+            background: transparent;
+        }
+
+        &::-webkit-scrollbar-thumb {
+            background: var(--border-strong);
+            border-radius: 2px;
+        }
+    }
+
+    .prop-list {
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+    }
+
+    .prop-row {
+        display: flex;
+        justify-content: space-between;
+        align-items: baseline;
+        gap: 12px;
+        font-size: 0.85rem;
+        line-height: 1.4;
+
+        &.textarea-row {
+            align-items: flex-start;
+        }
+
+        .label {
+            color: var(--text-secondary);
+            flex-shrink: 0;
+            max-width: 40%;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+
+        .value {
+            color: var(--text-primary);
+            text-align: right;
+            flex: 1;
+            min-width: 0;
+            word-break: break-word;
+            white-space: pre-wrap;
+            font-family: var(--font-mono);
+        }
+    }
+
+    .readonly-value {
+        opacity: 0.95;
+    }
+
+    .spatial-input {
+        width: 100%;
+        box-sizing: border-box;
+        border: 1px solid rgba(255, 255, 255, 0.12);
+        border-radius: 6px;
+        background: rgba(0, 0, 0, 0.16);
+        color: var(--text-primary);
+        font: inherit;
+        font-size: 0.8rem;
+        line-height: 1.35;
+        padding: 6px 8px;
+        outline: none;
+
+        &.compact {
+            max-width: 96px;
+        }
+
+        &:focus {
+            border-color: rgba(10, 132, 255, 0.55);
+            background: rgba(0, 0, 0, 0.22);
+        }
+
+        &:disabled {
+            opacity: 0.55;
+            cursor: not-allowed;
+        }
+    }
+
+    .spatial-description {
+        min-height: 68px;
+        resize: vertical;
+        text-align: left;
+    }
+
+    .spatial-error {
+        color: #ffb4a8;
+        font-size: 0.74rem;
+        margin-top: 10px;
+    }
+
+    .panel-actions {
+        display: flex;
+        justify-content: flex-end;
+        gap: 8px;
+        margin-top: 12px;
+
+        button {
+            border: 1px solid rgba(255, 255, 255, 0.14);
+            border-radius: 6px;
+            background: rgba(255, 255, 255, 0.06);
+            color: var(--text-secondary);
+            cursor: pointer;
+            font-size: 0.78rem;
+            padding: 6px 10px;
+
+            &.primary {
+                background: rgba(10, 132, 255, 0.18);
+                border-color: rgba(10, 132, 255, 0.42);
+                color: var(--accent-blue);
+            }
+
+            &:hover:not(:disabled) {
+                background: rgba(255, 255, 255, 0.1);
+                color: var(--text-primary);
+            }
+
+            &:disabled {
+                opacity: 0.55;
+                cursor: not-allowed;
+            }
+        }
+    }
 }
 
 /* --- Antigravity Input Box --- */
