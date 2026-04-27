@@ -3214,8 +3214,9 @@ watch(chatScrollRef, (newEl, oldEl) => {
         text-align: left;
     }
 
-    .cell-size-input {
-        width: 88px;
+    .cell-row .cell-size-input {
+        width: 92px;
+        max-width: 92px;
         justify-self: start;
     }
 
