@@ -1497,16 +1497,30 @@ watch(chatScrollRef, (newEl, oldEl) => {
 
           <div class="prop-row cell-row">
             <label class="label" for="spatial-cell-size">Cell</label>
-            <input
-              id="spatial-cell-size"
-              class="value spatial-input cell-size-input"
-              type="number"
-              min="50"
-              step="50"
-              :value="activeDraft.cellSize"
-              :disabled="activeDraft.isCompleting || activeWindow?.isStreaming"
-              @change="setDraftCellSize(Number(getEventValue($event)))"
-            />
+            <div class="value cell-stepper">
+              <button
+                class="stepper-btn"
+                title="Decrease cell size"
+                :disabled="activeDraft.isCompleting || activeWindow?.isStreaming || activeDraft.cellSize <= 50"
+                @click.stop="setDraftCellSize(activeDraft.cellSize - 50)"
+              >-</button>
+              <input
+                id="spatial-cell-size"
+                class="cell-stepper-input"
+                type="number"
+                min="50"
+                step="50"
+                :value="activeDraft.cellSize"
+                :disabled="activeDraft.isCompleting || activeWindow?.isStreaming"
+                @change="setDraftCellSize(Number(getEventValue($event)))"
+              />
+              <button
+                class="stepper-btn"
+                title="Increase cell size"
+                :disabled="activeDraft.isCompleting || activeWindow?.isStreaming"
+                @click.stop="setDraftCellSize(activeDraft.cellSize + 50)"
+              >+</button>
+            </div>
           </div>
 
           <div class="prop-row">
@@ -3214,10 +3228,74 @@ watch(chatScrollRef, (newEl, oldEl) => {
         text-align: left;
     }
 
-    .cell-row .cell-size-input {
-        width: 92px;
-        max-width: 92px;
+    .cell-stepper {
+        width: 116px;
+        height: 28px;
         justify-self: start;
+        display: inline-flex;
+        align-items: center;
+        overflow: hidden;
+        border: 1px solid rgba(255, 255, 255, 0.12);
+        border-radius: 6px;
+        background: rgba(0, 0, 0, 0.16);
+        font-family: var(--font-mono);
+
+        &:focus-within {
+            border-color: rgba(10, 132, 255, 0.55);
+            background: rgba(0, 0, 0, 0.22);
+        }
+    }
+
+    .stepper-btn {
+        width: 28px;
+        height: 100%;
+        border: none;
+        background: transparent;
+        color: var(--text-secondary);
+        cursor: pointer;
+        font: inherit;
+        font-size: 0.85rem;
+        line-height: 1;
+        padding: 0;
+
+        &:hover:not(:disabled) {
+            background: rgba(255, 255, 255, 0.08);
+            color: var(--text-primary);
+        }
+
+        &:disabled {
+            opacity: 0.35;
+            cursor: not-allowed;
+        }
+    }
+
+    .cell-stepper-input {
+        width: 60px;
+        height: 100%;
+        min-width: 0;
+        border: none;
+        border-left: 1px solid rgba(255, 255, 255, 0.08);
+        border-right: 1px solid rgba(255, 255, 255, 0.08);
+        background: transparent;
+        color: var(--text-primary);
+        font: inherit;
+        font-size: 0.78rem;
+        font-weight: 600;
+        text-align: center;
+        outline: none;
+        padding: 0 4px;
+        appearance: textfield;
+
+        &::-webkit-outer-spin-button,
+        &::-webkit-inner-spin-button {
+            margin: 0;
+            appearance: none;
+        }
+
+        &:disabled {
+            opacity: 0.55;
+            cursor: not-allowed;
+        }
     }
 
     input[type='number'].spatial-input {
