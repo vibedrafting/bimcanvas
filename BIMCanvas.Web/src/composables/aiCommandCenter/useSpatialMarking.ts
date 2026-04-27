@@ -280,6 +280,45 @@ export function useSpatialMarking(options: SpatialMarkingOptions) {
     return id;
   };
 
+  const buildMarksByZone = async (
+    draft: SpatialMarkDraft,
+    existingMarks: SpatialMark[],
+    preferredIdByZone = new Map<string, string>()
+  ): Promise<SpatialMark[]> => {
+    const createdMarks: SpatialMark[] = [];
+
+    for (const zone of topLevelZones.value) {
+      const zoneCells = getCellsForZone(draft.selectedCells, draft.cellSize, zone.id);
+      if (zoneCells.length === 0) {
+        continue;
+      }
+
+      const response = await SpatialMarksService.mergeGridSelection({
+        zoneId: zone.id,
+        cellSize: draft.cellSize,
+        gridOriginX: 0,
+        gridOriginY: 0,
+        cells: cloneCells(zoneCells)
+      });
+
+      if (!response.geometry || response.geometry.length === 0) {
+        continue;
+      }
+
+      createdMarks.push({
+        id: preferredIdByZone.get(zone.id) || generateSpatialMarkId([...existingMarks, ...createdMarks]),
+        zoneId: zone.id,
+        label: draft.label.trim(),
+        description: draft.description.trim(),
+        geometry: response.geometry,
+        cellSize: draft.cellSize,
+        cells: cloneCells(zoneCells)
+      });
+    }
+
+    return createdMarks;
+  };
+
   const completeDraft = async () => {
     const win = options.activeWindow.value;
     const draft = activeDraft.value;
@@ -305,68 +344,30 @@ export function useSpatialMarking(options: SpatialMarkingOptions) {
           return;
         }
 
-        const zoneCells = getCellsForZone(draft.selectedCells, draft.cellSize, draft.zoneId);
-        if (zoneCells.length === 0) {
+        const existingMark = win.pendingSpatialMarks[markIndex]!;
+        const otherMarks = win.pendingSpatialMarks.filter(mark => mark.id !== draft.editingMarkId);
+        const updatedMarks = await buildMarksByZone(
+          draft,
+          otherMarks,
+          new Map([[existingMark.zoneId, existingMark.id]])
+        );
+
+        if (updatedMarks.length === 0) {
           draft.error = '标记区域为空或完全在设计区外';
           return;
         }
 
-        const response = await SpatialMarksService.mergeGridSelection({
-          zoneId: draft.zoneId,
-          cellSize: draft.cellSize,
-          gridOriginX: 0,
-          gridOriginY: 0,
-          cells: cloneCells(zoneCells)
-        });
-
-        if (!response.geometry || response.geometry.length === 0) {
-          draft.error = '标记区域为空或完全在设计区外';
-          return;
-        }
-
-        win.pendingSpatialMarks[markIndex] = {
-          ...win.pendingSpatialMarks[markIndex]!,
-          zoneId: draft.zoneId,
-          label: draft.label.trim(),
-          description: draft.description.trim(),
-          geometry: response.geometry,
-          cellSize: draft.cellSize,
-          cells: cloneCells(zoneCells)
-        };
+        win.pendingSpatialMarks = [
+          ...win.pendingSpatialMarks.slice(0, markIndex),
+          ...updatedMarks,
+          ...win.pendingSpatialMarks.slice(markIndex + 1)
+        ];
         win.spatialMarkDraft = null;
         dispatchModeChange();
         return;
       }
 
-      const createdMarks: SpatialMark[] = [];
-      for (const zone of topLevelZones.value) {
-        const zoneCells = getCellsForZone(draft.selectedCells, draft.cellSize, zone.id);
-        if (zoneCells.length === 0) {
-          continue;
-        }
-
-        const response = await SpatialMarksService.mergeGridSelection({
-          zoneId: zone.id,
-          cellSize: draft.cellSize,
-          gridOriginX: 0,
-          gridOriginY: 0,
-          cells: cloneCells(zoneCells)
-        });
-
-        if (!response.geometry || response.geometry.length === 0) {
-          continue;
-        }
-
-        createdMarks.push({
-          id: generateSpatialMarkId([...win.pendingSpatialMarks, ...createdMarks]),
-          zoneId: zone.id,
-          label: draft.label.trim(),
-          description: draft.description.trim(),
-          geometry: response.geometry,
-          cellSize: draft.cellSize,
-          cells: cloneCells(zoneCells)
-        });
-      }
+      const createdMarks = await buildMarksByZone(draft, win.pendingSpatialMarks);
 
       if (createdMarks.length === 0) {
         draft.error = '标记区域为空或完全在设计区外';
