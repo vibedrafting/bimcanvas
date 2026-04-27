@@ -1182,16 +1182,9 @@ async def save_reference_analysis(args: dict[str, Any]) -> dict[str, Any]:
 
 @tool(
     "analyze_image",
-    "大模型图像理解工具，包含 custom 与 reference_layout 两种模式。"
-    "analysisMode=reference_layout 只允许在主控已进入 `参考图分析 + 设计` 工作流时调用，"
-    "即 `generate-reference-analysis` 的 Stage A，为后续 constrained planning 冻结正式 reference_analysis；"
-    "禁止在 chat/query/edit、普通看图、风格灵感参考、free mode planning 或临时图片理解中调用。"
-    "analysisMode=custom 是 Read 看图失败后的兜底工具，不是常规看图入口；"
-    "只有已经对同一图片路径调用 Read，且 Read 返回类似 `image result suppressed (bytes≈..., chars=...)` 后仍无法直接加载图片"
-    "（例如判断为 `The image couldn't be loaded from that path`）时，才允许调用 custom。"
-    "如果图片已在当前消息视觉上下文中可见，或 Read 能直接查看图片，禁止调用 custom，以避免重复耗时。"
-    "底层走 ChatGPT codex/responses 后端，受 <BIMCANVAS_HOME>/config.json 的 chatgptBackend 节驱动。"
-    "用于给 Agent 提供高质量视觉语义素材。",
+    "按需调用的识图工具。reference_layout 仅限 generate-reference-analysis Stage A，用于参考图分析 + 设计链路。"
+    "custom 仅限已对同一图片调用 Read，且出现 image result suppressed 后仍无法看图时兜底。"
+    "chat/query/edit、普通看图、风格参考、free mode planning 不要调用。",
     {
         "$schema": "http://json-schema.org/draft-07/schema#",
         "type": "object",
