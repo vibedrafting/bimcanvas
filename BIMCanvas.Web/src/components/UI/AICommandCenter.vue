@@ -1248,20 +1248,24 @@ watch(chatScrollRef, (newEl, oldEl) => {
                 </div>
                 <input
                   class="pending-spatial-description"
+                  v-if="mark.description"
                   :value="mark.description"
-                  placeholder="Description"
                   :disabled="activeWindow?.isStreaming"
                   @input="updatePendingSpatialDescription(mark.id, getEventValue($event))"
                 />
                 <div class="pending-spatial-actions">
                   <button
                     class="edit-spatial-mark"
+                    title="查看/修改"
                     @click.stop="editPendingMark(mark.id)"
                     :disabled="activeWindow?.isStreaming"
                   >
-                    查看/修改
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                      <path d="M12 20h9"></path>
+                      <path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4 12.5-12.5z"></path>
+                    </svg>
                   </button>
-                  <button class="remove-spatial-mark" @click.stop="removePendingMark(mark.id)" :disabled="activeWindow?.isStreaming">
+                  <button class="remove-spatial-mark" title="移除" @click.stop="removePendingMark(mark.id)" :disabled="activeWindow?.isStreaming">
                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                       <line x1="18" y1="6" x2="6" y2="18"></line>
                       <line x1="6" y1="6" x2="18" y2="18"></line>
@@ -3697,27 +3701,29 @@ watch(chatScrollRef, (newEl, oldEl) => {
     .pending-spatial-marks {
         display: flex;
         flex-direction: column;
-        gap: 6px;
-        padding: 10px 10px 6px;
+        gap: 4px;
+        padding: 8px 10px 4px;
     }
 
     .pending-spatial-mark {
         position: relative;
         display: grid;
         grid-template-columns: minmax(0, 1fr) auto;
-        gap: 6px;
-        padding: 8px;
-        border-radius: 8px;
+        column-gap: 6px;
+        row-gap: 2px;
+        padding: 6px 7px;
+        border-radius: 7px;
         background: rgba(52, 199, 89, 0.08);
         border: 1px solid rgba(52, 199, 89, 0.22);
     }
 
     .pending-spatial-main {
         grid-column: 1;
+        min-width: 0;
 
         span {
             color: var(--text-tertiary);
-            font-size: 0.7rem;
+            font-size: 0.66rem;
             white-space: nowrap;
         }
     }
@@ -3733,14 +3739,15 @@ watch(chatScrollRef, (newEl, oldEl) => {
     }
 
     .pending-spatial-label {
-        font-size: 0.78rem;
+        font-size: 0.76rem;
         font-weight: 600;
     }
 
     .pending-spatial-description {
         grid-column: 1;
         color: var(--text-secondary);
-        font-size: 0.72rem;
+        font-size: 0.68rem;
+        line-height: 1.2;
     }
 
     .pending-spatial-actions {
@@ -3750,20 +3757,26 @@ watch(chatScrollRef, (newEl, oldEl) => {
         justify-self: end;
         display: flex;
         align-items: center;
-        gap: 6px;
+        gap: 4px;
     }
 
     .edit-spatial-mark {
+        width: 22px;
         height: 22px;
         border: 1px solid rgba(52, 199, 89, 0.28);
         border-radius: 6px;
         background: rgba(52, 199, 89, 0.08);
         color: rgba(210, 255, 222, 0.78);
+        display: flex;
+        align-items: center;
+        justify-content: center;
         cursor: pointer;
-        font-size: 0.68rem;
-        line-height: 1;
-        padding: 0 7px;
-        white-space: nowrap;
+        padding: 0;
+
+        svg {
+            width: 12px;
+            height: 12px;
+        }
 
         &:hover:not(:disabled) {
             background: rgba(52, 199, 89, 0.14);
