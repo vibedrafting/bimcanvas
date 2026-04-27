@@ -196,6 +196,7 @@ export class ThreeSceneService {
                     this.zoneBuilder.buildZones(newData);
                     this.exclusionBuilder.buildExclusions(newData);
                     this.gridBuilder.buildGrid();
+                    this.interactionService.refreshSpatialMarkingOverlay();
                 }
             }
         }, { deep: true });
@@ -229,6 +230,7 @@ export class ThreeSceneService {
                 this.labelBuilder.buildLabels(this.store.projectData);
                 this.zoneBuilder.buildZones(this.store.projectData);
                 this.exclusionBuilder.buildExclusions(this.store.projectData);
+                this.interactionService.refreshSpatialMarkingOverlay();
             }
         }) as EventListener;
         this.boundEventHandlers.set('bimcanvas:play-build-sequence', playBuildSequenceHandler);
@@ -287,6 +289,7 @@ export class ThreeSceneService {
                     this.gridBuilder.cleanup();
                 }
 
+                this.interactionService.refreshSpatialMarkingOverlay();
                 window.dispatchEvent(new CustomEvent('bimcanvas:build-complete'));
             }
         }) as EventListener;
@@ -527,6 +530,7 @@ export class ThreeSceneService {
             this.zoneBuilder.buildZones(data);
             this.exclusionBuilder.buildExclusions(data);
             this.gridBuilder.buildGrid();
+            this.interactionService.refreshSpatialMarkingOverlay();
         } else {
             this.gridBuilder.buildGrid();
         }

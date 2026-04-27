@@ -12,6 +12,7 @@ import { CopyTool } from './tools/CopyTool';
 import { MeasurementTool } from './tools/MeasurementTool';
 import { PlaceTool } from './tools/PlaceTool';
 import type { ModuleDefinition } from '../ModuleLibraryService';
+import { SpatialMarkingService } from './SpatialMarkingService';
 
 export class InteractionService {
     private raycaster: THREE.Raycaster;
@@ -23,6 +24,7 @@ export class InteractionService {
     private store: ReturnType<typeof useCanvasStore>;
     private activeTool: Tool | null = null;
     private ghostManager: GhostManager;
+    private spatialMarkingService: SpatialMarkingService;
 
     // Box Selection State
     private isMouseDown = false;
@@ -43,6 +45,7 @@ export class InteractionService {
     private boundOnKeyUp: (event: KeyboardEvent) => void;
     private boundToolCancelled: () => void;
     private boundToolCompleted: () => void;
+    private boundSpatialMarkModeChange: (event: Event) => void;
 
     constructor(camera: THREE.Camera, domElement: HTMLElement, scene: THREE.Scene, _selectionManager: SelectionManager) {
         this.domElement = domElement;
@@ -55,6 +58,7 @@ export class InteractionService {
         this.store = useCanvasStore();
         this.shortcutManager = new ShortcutManager();
         this.ghostManager = GhostManager.getInstance(scene);
+        this.spatialMarkingService = new SpatialMarkingService(camera, domElement, scene);
 
         // Create Selection Box Element
         this.selectionBoxElement = document.createElement('div');
@@ -74,10 +78,18 @@ export class InteractionService {
         this.boundOnKeyUp = this.onKeyUp.bind(this);
         this.boundToolCancelled = () => this.cancelTool();
         this.boundToolCompleted = () => this.cancelTool();
+        this.boundSpatialMarkModeChange = (event: Event) => {
+            const active = !!((event as CustomEvent).detail?.active);
+            if (active && this.activeTool) {
+                this.cancelTool();
+            }
+            this.shortcutManager.setEnabled(!active);
+        };
 
         this.setupEvents();
         this.setupShortcuts();
         this.setupToolEvents();
+        window.addEventListener('bimcanvas:spatial-mark-mode-change', this.boundSpatialMarkModeChange);
     }
 
     private setupToolEvents() {
@@ -276,6 +288,13 @@ export class InteractionService {
     }
 
     private onKeyDown(event: KeyboardEvent) {
+        if (this.spatialMarkingService.isActive) {
+            if (event.key === 'Delete' || event.key === 'Backspace') {
+                event.preventDefault();
+            }
+            return;
+        }
+
         if (this.activeTool) {
             this.activeTool.onKeyDown(event);
             return;
@@ -303,6 +322,11 @@ export class InteractionService {
     }
 
     private onMouseDown(event: MouseEvent) {
+        if (this.spatialMarkingService.handleMouseDown(event)) {
+            event.preventDefault();
+            return;
+        }
+
         if (this.activeTool) {
             // 如果工具处于选择阶段，不拦截事件，让选择逻辑继续
             if (this.activeTool.isInSelectionPhase?.()) {
@@ -322,6 +346,10 @@ export class InteractionService {
     }
 
     private onMouseMove(event: MouseEvent) {
+        if (this.spatialMarkingService.handleMouseMove(event)) {
+            return;
+        }
+
         if (this.activeTool) {
             // 如果工具处于选择阶段，不拦截事件
             if (this.activeTool.isInSelectionPhase?.()) {
@@ -353,6 +381,18 @@ export class InteractionService {
     }
 
     private onMouseUp(event: MouseEvent) {
+        if (this.spatialMarkingService.handleMouseUp(event)) {
+            event.preventDefault();
+            this.isMouseDown = false;
+            this.cachedDomRect = null;
+            this.pendingSelectionBoxPoint = null;
+            if (this.selectionBoxRafId) {
+                cancelAnimationFrame(this.selectionBoxRafId);
+                this.selectionBoxRafId = 0;
+            }
+            return;
+        }
+
         if (this.activeTool) {
             // 如果工具处于选择阶段，不拦截事件
             if (this.activeTool.isInSelectionPhase?.()) {
@@ -531,6 +571,11 @@ export class InteractionService {
     }
 
     private onClick(event: MouseEvent) {
+        if (this.spatialMarkingService.handleClick()) {
+            event.preventDefault();
+            return;
+        }
+
         if (this.preventNextClick) {
             this.preventNextClick = false;
             return;
@@ -631,6 +676,10 @@ export class InteractionService {
         // Hover effects can go here
     }
 
+    public refreshSpatialMarkingOverlay() {
+        this.spatialMarkingService.refreshOverlay();
+    }
+
     public dispose() {
         this.domElement.removeEventListener('mousemove', this.boundOnMouseMove);
         this.domElement.removeEventListener('mousedown', this.boundOnMouseDown);
@@ -640,7 +689,9 @@ export class InteractionService {
         window.removeEventListener('keyup', this.boundOnKeyUp);
         window.removeEventListener('bimcanvas:tool-cancelled', this.boundToolCancelled);
         window.removeEventListener('bimcanvas:tool-completed', this.boundToolCompleted);
+        window.removeEventListener('bimcanvas:spatial-mark-mode-change', this.boundSpatialMarkModeChange);
         this.shortcutManager.dispose();
+        this.spatialMarkingService.dispose();
 
         if (this.selectionBoxElement && this.selectionBoxElement.parentNode) {
             this.selectionBoxElement.parentNode.removeChild(this.selectionBoxElement);

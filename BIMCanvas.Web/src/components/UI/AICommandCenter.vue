@@ -242,6 +242,18 @@ const {
 const getSpatialMarkZoneName = (zoneId: string) =>
   topLevelZones.value.find(zone => zone.id === zoneId)?.label || zoneId;
 
+const getEventValue = (event: Event) => (event.target as HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement).value;
+
+const updatePendingSpatialLabel = (markId: string, value: string) => {
+  const mark = pendingSpatialMarks.value.find(item => item.id === markId);
+  if (mark) mark.label = value;
+};
+
+const updatePendingSpatialDescription = (markId: string, value: string) => {
+  const mark = pendingSpatialMarks.value.find(item => item.id === markId);
+  if (mark) mark.description = value;
+};
+
 const startSpaceMarkFromMenu = () => {
   startSpatialMarking();
   isContextMenuOpen.value = false;
@@ -1197,6 +1209,91 @@ watch(chatScrollRef, (newEl, oldEl) => {
 
         <!-- Antigravity Input Box -->
         <div class="antigravity-input-box">
+            <div class="spatial-mark-panel" v-if="activeDraft">
+              <div class="spatial-mark-header">
+                <span>Space Mark</span>
+                <button class="spatial-icon-btn" @click.stop="cancelSpatialMarking" :disabled="activeWindow?.isStreaming">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <line x1="18" y1="6" x2="6" y2="18"></line>
+                    <line x1="6" y1="6" x2="18" y2="18"></line>
+                  </svg>
+                </button>
+              </div>
+              <div class="spatial-mark-row">
+                <select
+                  class="spatial-input"
+                  :value="activeDraft.zoneId"
+                  :disabled="activeDraft.isCompleting || activeWindow?.isStreaming"
+                  @change="setDraftZone(getEventValue($event))"
+                >
+                  <option v-for="zone in topLevelZones" :key="zone.id" :value="zone.id">
+                    {{ zone.label }}
+                  </option>
+                </select>
+                <input
+                  class="spatial-input spatial-size-input"
+                  type="number"
+                  min="50"
+                  step="50"
+                  :value="activeDraft.cellSize"
+                  :disabled="activeDraft.isCompleting || activeWindow?.isStreaming"
+                  @change="setDraftCellSize(Number(getEventValue($event)))"
+                />
+              </div>
+              <input
+                class="spatial-input"
+                :value="activeDraft.label"
+                placeholder="Label"
+                :disabled="activeDraft.isCompleting || activeWindow?.isStreaming"
+                @input="setDraftLabel(getEventValue($event))"
+              />
+              <textarea
+                class="spatial-input spatial-description"
+                :value="activeDraft.description"
+                placeholder="Description"
+                rows="2"
+                :disabled="activeDraft.isCompleting || activeWindow?.isStreaming"
+                @input="setDraftDescription(getEventValue($event))"
+              ></textarea>
+              <div class="spatial-mark-footer">
+                <span>{{ activeDraft.selectedCells.length }} cells selected</span>
+                <div class="spatial-actions">
+                  <button @click.stop="clearDraftSelection" :disabled="activeDraft.isCompleting || activeWindow?.isStreaming">Clear</button>
+                  <button class="primary" @click.stop="completeDraft" :disabled="activeDraft.isCompleting || activeWindow?.isStreaming">
+                    {{ activeDraft.isCompleting ? 'Merging...' : 'Done' }}
+                  </button>
+                </div>
+              </div>
+              <div class="spatial-error" v-if="activeDraft.error">{{ activeDraft.error }}</div>
+            </div>
+
+            <div class="pending-spatial-marks" v-if="pendingSpatialMarks.length > 0">
+              <div class="pending-spatial-mark" v-for="mark in pendingSpatialMarks" :key="mark.id">
+                <div class="pending-spatial-main">
+                  <input
+                    class="pending-spatial-label"
+                    :value="mark.label"
+                    :disabled="activeWindow?.isStreaming"
+                    @input="updatePendingSpatialLabel(mark.id, getEventValue($event))"
+                  />
+                  <span>{{ getSpatialMarkZoneName(mark.zoneId) }} · {{ mark.geometry.length }} geometry</span>
+                </div>
+                <input
+                  class="pending-spatial-description"
+                  :value="mark.description"
+                  placeholder="Description"
+                  :disabled="activeWindow?.isStreaming"
+                  @input="updatePendingSpatialDescription(mark.id, getEventValue($event))"
+                />
+                <button class="remove-spatial-mark" @click.stop="removePendingMark(mark.id)" :disabled="activeWindow?.isStreaming">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <line x1="18" y1="6" x2="6" y2="18"></line>
+                    <line x1="6" y1="6" x2="18" y2="18"></line>
+                  </svg>
+                </button>
+              </div>
+            </div>
+
             <!-- Pending Attachments Preview -->
             <div class="pending-attachments" v-if="pendingAttachments.length > 0">
               <div class="attachment-item" v-for="(attachment, idx) in pendingAttachments" :key="attachment.attachmentId">
@@ -2934,6 +3031,195 @@ watch(chatScrollRef, (newEl, oldEl) => {
             inset 0 0 0 0.5px rgba(255, 255, 255, 0.2), /* Brighter border */
             inset 0 1px 0 rgba(255, 255, 255, 0.1),
             0 8px 32px rgba(0, 0, 0, 0.4);
+    }
+
+    .spatial-mark-panel {
+        margin: 10px 10px 6px;
+        padding: 10px;
+        border-radius: 8px;
+        border: 1px solid rgba(10, 132, 255, 0.28);
+        background: rgba(10, 132, 255, 0.08);
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+    }
+
+    .spatial-mark-header,
+    .spatial-mark-footer,
+    .pending-spatial-main {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 8px;
+    }
+
+    .spatial-mark-header {
+        color: var(--text-primary);
+        font-size: 0.78rem;
+        font-weight: 600;
+    }
+
+    .spatial-mark-row {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) 88px;
+        gap: 8px;
+    }
+
+    .spatial-input {
+        min-width: 0;
+        width: 100%;
+        box-sizing: border-box;
+        border: 1px solid rgba(255, 255, 255, 0.12);
+        border-radius: 6px;
+        background: rgba(0, 0, 0, 0.16);
+        color: var(--text-primary);
+        font: inherit;
+        font-size: 0.78rem;
+        line-height: 1.35;
+        padding: 7px 8px;
+        outline: none;
+
+        &:focus {
+            border-color: rgba(10, 132, 255, 0.55);
+            background: rgba(0, 0, 0, 0.22);
+        }
+
+        &:disabled {
+            opacity: 0.55;
+            cursor: not-allowed;
+        }
+    }
+
+    .spatial-description {
+        max-height: 72px;
+        resize: vertical;
+        padding: 7px 8px;
+        background: rgba(0, 0, 0, 0.16);
+        border: 1px solid rgba(255, 255, 255, 0.12);
+        border-radius: 6px;
+        color: var(--text-primary);
+    }
+
+    .spatial-mark-footer {
+        color: var(--text-secondary);
+        font-size: 0.74rem;
+    }
+
+    .spatial-actions {
+        display: flex;
+        gap: 6px;
+
+        button {
+            border: 1px solid rgba(255, 255, 255, 0.14);
+            border-radius: 6px;
+            background: rgba(255, 255, 255, 0.06);
+            color: var(--text-secondary);
+            cursor: pointer;
+            font-size: 0.74rem;
+            padding: 5px 8px;
+
+            &.primary {
+                background: rgba(10, 132, 255, 0.18);
+                border-color: rgba(10, 132, 255, 0.42);
+                color: var(--accent-blue);
+            }
+
+            &:disabled {
+                opacity: 0.55;
+                cursor: not-allowed;
+            }
+        }
+    }
+
+    .spatial-icon-btn,
+    .remove-spatial-mark {
+        width: 22px;
+        height: 22px;
+        border: none;
+        border-radius: 6px;
+        background: rgba(255, 255, 255, 0.06);
+        color: var(--text-tertiary);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        cursor: pointer;
+        padding: 0;
+
+        svg {
+            width: 13px;
+            height: 13px;
+        }
+
+        &:hover:not(:disabled) {
+            background: rgba(255, 255, 255, 0.1);
+            color: var(--text-primary);
+        }
+
+        &:disabled {
+            opacity: 0.45;
+            cursor: not-allowed;
+        }
+    }
+
+    .spatial-error {
+        color: #ffb4a8;
+        font-size: 0.74rem;
+    }
+
+    .pending-spatial-marks {
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+        padding: 10px 10px 6px;
+    }
+
+    .pending-spatial-mark {
+        position: relative;
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) 24px;
+        gap: 6px;
+        padding: 8px;
+        border-radius: 8px;
+        background: rgba(52, 199, 89, 0.08);
+        border: 1px solid rgba(52, 199, 89, 0.22);
+    }
+
+    .pending-spatial-main {
+        grid-column: 1;
+
+        span {
+            color: var(--text-tertiary);
+            font-size: 0.7rem;
+            white-space: nowrap;
+        }
+    }
+
+    .pending-spatial-label,
+    .pending-spatial-description {
+        min-width: 0;
+        border: none;
+        outline: none;
+        background: transparent;
+        color: var(--text-primary);
+        font: inherit;
+    }
+
+    .pending-spatial-label {
+        font-size: 0.78rem;
+        font-weight: 600;
+    }
+
+    .pending-spatial-description {
+        grid-column: 1;
+        color: var(--text-secondary);
+        font-size: 0.72rem;
+    }
+
+    .remove-spatial-mark {
+        grid-column: 2;
+        grid-row: 1 / span 2;
+        align-self: center;
+        justify-self: end;
     }
 
     .pending-attachments {
