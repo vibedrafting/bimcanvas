@@ -151,8 +151,8 @@ WHY：用户标注表达"我希望 X 在这一带"，落位语义表达"X 应该
 
 ```
 判定：简单（有 AABB + 单模块单动作）
-读 zones / modules / module_library[moduleId] / references/{room}.md（本模块段落）
-Step 1 找墙边贴齐 → Step 2 计算有效段 + limits 内扩展 → Step 3 碰撞规避
+读 zones / modules / module_library[moduleId]（不读 references/{room}.md）
+Step 1 找墙边贴齐 → Step 2 尺寸最大化（min(有效段, limits.max) + 顶角）→ Step 3 碰撞规避
 Write → validate_layout
 ```
 
