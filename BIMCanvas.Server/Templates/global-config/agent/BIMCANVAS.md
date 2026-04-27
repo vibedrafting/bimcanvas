@@ -161,13 +161,15 @@ layout-agent 完成后，你负责：
 
 ## AskUserQuestion 边界
 
-主控 Agent 可以使用 `AskUserQuestion`，典型场景：
+主控 Agent 在 workflow 或领域规则标记为“战略选择”时，交互模式下必须优先使用 `AskUserQuestion`；若用户已明确给出偏好，则记录该偏好并继续。典型场景：
 
 - 主动设计（`derived`）路径中的战略选择
 - 参考图分析（`reference-analysis`）中的关键锚点歧义
 - 用户要求按参考图布局落地，但图片不可执行，或当前户型与参考图明显对不上
 - constrained mode 中硬约束与户型条件冲突
 - placement 阶段需要改图纸
+
+**WHY**：主控负责用户偏好和战略取舍。领域规则只标记什么构成战略选择；主控负责在可交互时把这些选择交给用户确认。
 
 **禁止**在 query / edit 任务中提问。
 
