@@ -54,7 +54,7 @@ interface ChatStreamOptions {
   fetchAgentConfig: () => Promise<void>;
   hasFallback?: (key: string) => boolean;
   buildContextPayload?: () => Record<string, any> | undefined;
-  onMessageDelivered?: (windowId: string) => void;
+  onMessageDelivered?: (windowId: string) => void | (() => void);
 }
 
 // 用于中止请求的 AbortController 管理
@@ -928,6 +928,7 @@ export const useChatStream = (options: ChatStreamOptions) => {
     let didReceiveAssistantEvent = false;
     let pendingDeltaEvent: NormalizedStreamEvent | null = null;
     let pendingDeltaFrame: number | null = null;
+    let restoreDeliveredState: (() => void) | undefined;
 
     const getDeltaEventKey = (event: NormalizedStreamEvent): string =>
       [
@@ -1013,6 +1014,12 @@ export const useChatStream = (options: ChatStreamOptions) => {
       }
     };
 
+    const restoreDeliveredStateIfNeeded = () => {
+      if (!restoreDeliveredState) return;
+      restoreDeliveredState();
+      restoreDeliveredState = undefined;
+    };
+
     try {
       console.log('[sendMessage] Request:', {
         projectPath: currentProjectPath.value,
@@ -1028,6 +1035,9 @@ export const useChatStream = (options: ChatStreamOptions) => {
       currentAbortController = new AbortController();
 
       const context = options.buildContextPayload?.();
+      const restore = options.onMessageDelivered?.(targetWindowId);
+      restoreDeliveredState = typeof restore === 'function' ? restore : undefined;
+
       const response = await fetch(`${options.agentApiBase}/api/chat/stream`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -1050,8 +1060,6 @@ export const useChatStream = (options: ChatStreamOptions) => {
       if (!response.ok) {
         throw await createChatHttpError(response);
       }
-
-      options.onMessageDelivered?.(targetWindowId);
 
       const reader = response.body?.getReader();
       const decoder = new TextDecoder();
@@ -1141,6 +1149,7 @@ export const useChatStream = (options: ChatStreamOptions) => {
         console.log('[sendMessage] Request aborted by user');
         if (!didReceiveAssistantEvent) {
           restoreDraftState();
+          restoreDeliveredStateIfNeeded();
         }
         // 正常结束，不显示错误
         const currentMsg = options.getWindowMessage(targetWindowId, aiMessageIndex);
@@ -1160,6 +1169,7 @@ export const useChatStream = (options: ChatStreamOptions) => {
 
       if (!didReceiveAssistantEvent) {
         restoreDraftState(errorInfo.userMessage);
+        restoreDeliveredStateIfNeeded();
         agentStatus.value = errorInfo.shouldMarkDisconnected ? 'disconnected' : 'connected';
         return;
       }

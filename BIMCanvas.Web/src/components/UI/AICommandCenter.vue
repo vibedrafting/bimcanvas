@@ -257,6 +257,22 @@ const updatePendingSpatialDescription = (markId: string, value: string) => {
   if (mark) mark.description = value;
 };
 
+const clearPendingSpatialMarksForSend = (windowId: string) => {
+  const targetWindow = windows.value.find(item => item.id === windowId);
+  const snapshot = targetWindow
+    ? JSON.parse(JSON.stringify(targetWindow.pendingSpatialMarks))
+    : [];
+
+  clearPendingSpatialMarks(windowId);
+
+  return () => {
+    const restoreWindow = windows.value.find(item => item.id === windowId);
+    if (restoreWindow && restoreWindow.pendingSpatialMarks.length === 0 && snapshot.length > 0) {
+      restoreWindow.pendingSpatialMarks = snapshot;
+    }
+  };
+};
+
 const selectSpatialIntent = (intent: string) => {
   setDraftLabel(intent);
   isSpatialIntentMenuOpen.value = false;
@@ -437,7 +453,7 @@ const {
   fetchAgentConfig,
   hasFallback,
   buildContextPayload: () => buildContextPayload(pendingSpatialMarks.value),
-  onMessageDelivered: clearPendingSpatialMarks
+  onMessageDelivered: clearPendingSpatialMarksForSend
 });
 
 const hasProgressOverlay = computed(() => !!activeTodoProgress.value || isPollingBackground.value);
