@@ -1,0 +1,283 @@
+import { computed, onUnmounted, watch } from 'vue';
+import type { Ref } from 'vue';
+import { storeToRefs } from 'pinia';
+import { useCanvasStore } from '../../stores/canvasStore';
+import { SpatialMarksService } from '../../services/SpatialMarksService';
+import type {
+  ChatWindow,
+  GridSelectionCell,
+  SpatialMark,
+  SpatialMarkDraft
+} from '../../types/aiCommandCenter';
+
+interface SpatialMarkingOptions {
+  windows: Ref<ChatWindow[]>;
+  activeWindowId: Ref<string>;
+  activeWindow: Ref<ChatWindow | undefined>;
+}
+
+const DEFAULT_CELL_SIZE = 200;
+const MIN_CELL_SIZE = 50;
+
+const cloneCells = (cells: GridSelectionCell[]): GridSelectionCell[] =>
+  cells.map(cell => ({ col: cell.col, row: cell.row }));
+
+const normalizeCellSize = (value: number): number => {
+  if (!Number.isFinite(value)) return DEFAULT_CELL_SIZE;
+  return Math.max(MIN_CELL_SIZE, Math.round(value));
+};
+
+export function useSpatialMarking(options: SpatialMarkingOptions) {
+  const store = useCanvasStore();
+  const { projectData } = storeToRefs(store);
+
+  const topLevelZones = computed(() =>
+    (projectData.value?.activeScheme?.zones || []).map(zone => ({
+      id: zone.id,
+      label: zone.name || zone.id
+    }))
+  );
+
+  const activeDraft = computed(() => options.activeWindow.value?.spatialMarkDraft ?? null);
+  const pendingSpatialMarks = computed(() => options.activeWindow.value?.pendingSpatialMarks ?? []);
+  const isSpatialMarking = computed(() => !!activeDraft.value);
+
+  const findZoneName = (zoneId: string): string => {
+    const zone = topLevelZones.value.find(item => item.id === zoneId);
+    return zone?.label || zoneId;
+  };
+
+  const createDraft = (zoneId?: string, cellSize?: number): SpatialMarkDraft | null => {
+    const targetZoneId = zoneId || topLevelZones.value[0]?.id;
+    if (!targetZoneId) return null;
+
+    return {
+      zoneId: targetZoneId,
+      zoneName: findZoneName(targetZoneId),
+      cellSize: normalizeCellSize(cellSize ?? DEFAULT_CELL_SIZE),
+      selectedCells: [],
+      label: '',
+      description: '',
+      isCompleting: false,
+      error: null
+    };
+  };
+
+  const dispatchModeChange = () => {
+    const draft = activeDraft.value;
+    window.dispatchEvent(new CustomEvent('bimcanvas:spatial-mark-mode-change', {
+      detail: draft
+        ? {
+            active: true,
+            zoneId: draft.zoneId,
+            cellSize: draft.cellSize,
+            selectedCells: cloneCells(draft.selectedCells)
+          }
+        : { active: false }
+    }));
+  };
+
+  const startSpatialMarking = (zoneId?: string) => {
+    const win = options.activeWindow.value;
+    if (!win) return;
+
+    const draft = createDraft(zoneId, win.spatialMarkDraft?.cellSize);
+    if (!draft) return;
+
+    win.spatialMarkDraft = draft;
+    dispatchModeChange();
+  };
+
+  const cancelSpatialMarking = () => {
+    const win = options.activeWindow.value;
+    if (!win) return;
+    win.spatialMarkDraft = null;
+    dispatchModeChange();
+  };
+
+  const setDraftZone = (zoneId: string) => {
+    const draft = activeDraft.value;
+    if (!draft) return;
+    draft.zoneId = zoneId;
+    draft.zoneName = findZoneName(zoneId);
+    draft.selectedCells = [];
+    draft.error = null;
+    dispatchModeChange();
+  };
+
+  const setDraftCellSize = (cellSize: number) => {
+    const draft = activeDraft.value;
+    if (!draft) return;
+    draft.cellSize = normalizeCellSize(cellSize);
+    draft.selectedCells = [];
+    draft.error = null;
+    dispatchModeChange();
+  };
+
+  const setDraftLabel = (label: string) => {
+    const draft = activeDraft.value;
+    if (draft) draft.label = label;
+  };
+
+  const setDraftDescription = (description: string) => {
+    const draft = activeDraft.value;
+    if (draft) draft.description = description;
+  };
+
+  const setSelectedCells = (cells: GridSelectionCell[]) => {
+    const draft = activeDraft.value;
+    if (!draft) return;
+    draft.selectedCells = cloneCells(cells);
+    draft.error = null;
+    dispatchModeChange();
+  };
+
+  const clearDraftSelection = () => {
+    setSelectedCells([]);
+  };
+
+  const generateSpatialMarkId = (marks: SpatialMark[]): string => {
+    let index = marks.length + 1;
+    let id = `sm_${String(index).padStart(2, '0')}`;
+    const usedIds = new Set(marks.map(mark => mark.id));
+    while (usedIds.has(id)) {
+      index += 1;
+      id = `sm_${String(index).padStart(2, '0')}`;
+    }
+    return id;
+  };
+
+  const completeDraft = async () => {
+    const win = options.activeWindow.value;
+    const draft = activeDraft.value;
+    if (!win || !draft || draft.isCompleting) return;
+
+    if (!draft.label.trim()) {
+      draft.error = '请输入空间标记标签';
+      return;
+    }
+    if (draft.selectedCells.length === 0) {
+      draft.error = '请先在画布中选择标记区域';
+      return;
+    }
+
+    draft.isCompleting = true;
+    draft.error = null;
+
+    try {
+      const response = await SpatialMarksService.mergeGridSelection({
+        zoneId: draft.zoneId,
+        cellSize: draft.cellSize,
+        cells: cloneCells(draft.selectedCells)
+      });
+
+      if (!response.geometry || response.geometry.length === 0) {
+        draft.error = '标记区域为空或完全在设计区外';
+        return;
+      }
+
+      win.pendingSpatialMarks.push({
+        id: generateSpatialMarkId(win.pendingSpatialMarks),
+        zoneId: draft.zoneId,
+        label: draft.label.trim(),
+        description: draft.description.trim(),
+        geometry: response.geometry
+      });
+
+      win.spatialMarkDraft = createDraft(draft.zoneId, draft.cellSize);
+      dispatchModeChange();
+    } catch (error: any) {
+      draft.error = error?.response?.data?.message || error?.message || '空间标记合并失败';
+    } finally {
+      if (draft) {
+        draft.isCompleting = false;
+      }
+    }
+  };
+
+  const removePendingMark = (markId: string) => {
+    const win = options.activeWindow.value;
+    if (!win) return;
+    win.pendingSpatialMarks = win.pendingSpatialMarks.filter(mark => mark.id !== markId);
+  };
+
+  const updatePendingMark = (markId: string, updates: Pick<SpatialMark, 'label' | 'description'>) => {
+    const mark = pendingSpatialMarks.value.find(item => item.id === markId);
+    if (!mark) return;
+    mark.label = updates.label.trim();
+    mark.description = updates.description.trim();
+  };
+
+  const clearPendingSpatialMarks = (windowId?: string) => {
+    const targetId = windowId || options.activeWindowId.value;
+    const win = options.windows.value.find(item => item.id === targetId);
+    if (!win) return;
+    win.pendingSpatialMarks = [];
+  };
+
+  const handleSelectionChange = (event: Event) => {
+    const draft = activeDraft.value;
+    if (!draft) return;
+
+    const detail = (event as CustomEvent).detail || {};
+    if (!Array.isArray(detail.selectedCells)) return;
+
+    draft.selectedCells = cloneCells(detail.selectedCells);
+    draft.error = null;
+  };
+
+  window.addEventListener('bimcanvas:spatial-mark-selection-change', handleSelectionChange as EventListener);
+
+  watch(
+    () => [
+      options.activeWindowId.value,
+      activeDraft.value?.zoneId,
+      activeDraft.value?.cellSize,
+      activeDraft.value?.selectedCells.map(cell => `${cell.col}:${cell.row}`).join(',')
+    ],
+    () => dispatchModeChange()
+  );
+
+  watch(topLevelZones, () => {
+    const draft = activeDraft.value;
+    if (!draft) {
+      dispatchModeChange();
+      return;
+    }
+
+    const zone = topLevelZones.value.find(item => item.id === draft.zoneId);
+    if (!zone) {
+      cancelSpatialMarking();
+      return;
+    }
+
+    draft.zoneName = zone.label;
+    dispatchModeChange();
+  });
+
+  onUnmounted(() => {
+    window.removeEventListener('bimcanvas:spatial-mark-selection-change', handleSelectionChange as EventListener);
+    window.dispatchEvent(new CustomEvent('bimcanvas:spatial-mark-mode-change', {
+      detail: { active: false }
+    }));
+  });
+
+  return {
+    activeDraft,
+    pendingSpatialMarks,
+    topLevelZones,
+    isSpatialMarking,
+    startSpatialMarking,
+    cancelSpatialMarking,
+    setDraftZone,
+    setDraftCellSize,
+    setDraftLabel,
+    setDraftDescription,
+    setSelectedCells,
+    clearDraftSelection,
+    completeDraft,
+    removePendingMark,
+    updatePendingMark,
+    clearPendingSpatialMarks
+  };
+}

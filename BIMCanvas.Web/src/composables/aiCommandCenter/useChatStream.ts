@@ -54,6 +54,7 @@ interface ChatStreamOptions {
   fetchAgentConfig: () => Promise<void>;
   hasFallback?: (key: string) => boolean;
   buildContextPayload?: () => Record<string, any> | undefined;
+  onMessageDelivered?: (windowId: string) => void;
 }
 
 // 用于中止请求的 AbortController 管理
@@ -1131,6 +1132,7 @@ export const useChatStream = (options: ChatStreamOptions) => {
 
       agentStatus.value = 'connected';
       shouldCommitAttachments = true;
+      options.onMessageDelivered?.(targetWindowId);
     } catch (error) {
       flushPendingDeltaEvent();
       // AbortError 是用户主动中止，不是真正的错误

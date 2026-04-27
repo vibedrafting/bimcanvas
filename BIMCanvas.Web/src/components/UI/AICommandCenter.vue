@@ -14,6 +14,7 @@ import { usePanelUI } from '../../composables/aiCommandCenter/usePanelUI';
 import { useScreenshot } from '../../composables/aiCommandCenter/useScreenshot';
 import { useQuestion } from '../../composables/aiCommandCenter/useQuestion';
 import { useSelectionContext } from '../../composables/aiCommandCenter/useSelectionContext';
+import { useSpatialMarking } from '../../composables/aiCommandCenter/useSpatialMarking';
 import { useWindowManager } from '../../composables/aiCommandCenter/useWindowManager';
 import BranchCheckoutConfirmDialog from './Ribbon/BranchCheckoutConfirmDialog.vue';
 import BranchCreationDialog from './Ribbon/BranchCreationDialog.vue';
@@ -218,6 +219,35 @@ const {
   availableZones
 });
 
+const {
+  activeDraft,
+  pendingSpatialMarks,
+  topLevelZones,
+  startSpatialMarking,
+  cancelSpatialMarking,
+  setDraftZone,
+  setDraftCellSize,
+  setDraftLabel,
+  setDraftDescription,
+  clearDraftSelection,
+  completeDraft,
+  removePendingMark,
+  clearPendingSpatialMarks
+} = useSpatialMarking({
+  windows,
+  activeWindowId,
+  activeWindow
+});
+
+const getSpatialMarkZoneName = (zoneId: string) =>
+  topLevelZones.value.find(zone => zone.id === zoneId)?.label || zoneId;
+
+const startSpaceMarkFromMenu = () => {
+  startSpatialMarking();
+  isContextMenuOpen.value = false;
+  activeSubmenu.value = null;
+};
+
 // === Image Upload ===
 const imageUploadInputRef = ref<HTMLInputElement | null>(null);
 const imageExtPattern = /\.(png|jpe?g|gif|webp|bmp|tiff)$/i;
@@ -382,7 +412,8 @@ const {
   scrollToBottom,
   fetchAgentConfig,
   hasFallback,
-  buildContextPayload
+  buildContextPayload: () => buildContextPayload(pendingSpatialMarks.value),
+  onMessageDelivered: clearPendingSpatialMarks
 });
 
 const hasProgressOverlay = computed(() => !!activeTodoProgress.value || isPollingBackground.value);
@@ -573,6 +604,27 @@ const handleKeydown = (event: KeyboardEvent) => {
   }
 };
 
+const handleSpatialMarkKeydown = (event: KeyboardEvent) => {
+  if (!activeDraft.value) return;
+
+  if (event.key === 'Escape') {
+    event.preventDefault();
+    cancelSpatialMarking();
+    return;
+  }
+
+  if (event.key === 'Enter') {
+    const target = event.target as HTMLElement | null;
+    const tagName = target?.tagName?.toLowerCase();
+    if (tagName === 'input' || tagName === 'textarea' || target?.isContentEditable) {
+      return;
+    }
+
+    event.preventDefault();
+    void completeDraft();
+  }
+};
+
 const handleGlobalClick = (event: MouseEvent) => {
   const target = event.target as HTMLElement;
 
@@ -605,10 +657,12 @@ const handleGlobalClick = (event: MouseEvent) => {
 
 onMounted(() => {
   window.addEventListener('click', handleGlobalClick);
+  window.addEventListener('keydown', handleSpatialMarkKeydown);
 });
 
 onUnmounted(() => {
   window.removeEventListener('click', handleGlobalClick);
+  window.removeEventListener('keydown', handleSpatialMarkKeydown);
   todoProgressResizeObserver?.disconnect();
   todoProgressResizeObserver = null;
   stopScreenshotListening();
@@ -1037,6 +1091,10 @@ watch(chatScrollRef, (newEl, oldEl) => {
                         <!-- Main Menu -->
                         <div class="menu-section">
                             <div class="menu-header">Add Context</div>
+
+                            <div class="menu-item" @click="startSpaceMarkFromMenu">
+                                <span class="item-text">Space Mark</span>
+                            </div>
                             
                             <!-- Zones Item (Expandable) -->
                             <div 

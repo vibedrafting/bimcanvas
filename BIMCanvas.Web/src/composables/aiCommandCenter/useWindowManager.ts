@@ -131,6 +131,8 @@ export const useWindowManager = (options: WindowManagerOptions) => {
       isStreaming: false,
       todoProgress: null,
       pendingAttachments: [],
+      pendingSpatialMarks: [],
+      spatialMarkDraft: null,
       scrollPosition: 0,
       expandedThinking: {},
       shouldAutoScroll: true
@@ -177,6 +179,8 @@ export const useWindowManager = (options: WindowManagerOptions) => {
       isStreaming: false,
       todoProgress: null,
       pendingAttachments: [],
+      pendingSpatialMarks: [],
+      spatialMarkDraft: null,
       scrollPosition: saved.scrollPosition ?? 0,
       expandedThinking: {},
       shouldAutoScroll: true
@@ -559,6 +563,8 @@ export const useWindowManager = (options: WindowManagerOptions) => {
       isStreaming: false,
       todoProgress: null,
       pendingAttachments: [],
+      pendingSpatialMarks: [],
+      spatialMarkDraft: null,
       scrollPosition: 0,
       expandedThinking: {},
       shouldAutoScroll: true

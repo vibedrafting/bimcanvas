@@ -1,6 +1,7 @@
 import { computed } from 'vue';
 import { storeToRefs } from 'pinia';
 import { useCanvasStore } from '../../stores/canvasStore';
+import type { SpatialMark } from '../../types/aiCommandCenter';
 
 // 对象类型中文标签
 const TYPE_LABELS: Record<string, string> = {
@@ -110,8 +111,8 @@ export function useSelectionContext() {
   });
 
   // 6. 构建上下文 payload（智能：无选择时返回 undefined）
-  const buildContextPayload = () => {
-    if (selectedObjects.value.length === 0) return undefined;
+  const buildContextPayload = (spatialMarks: SpatialMark[] = []) => {
+    if (selectedObjects.value.length === 0 && spatialMarks.length === 0) return undefined;
 
     const ctx: Record<string, any> = {};
     const modules = selectedModules.value;
@@ -162,6 +163,15 @@ export function useSelectionContext() {
     }
     if (exclusions.length > 0) {
       ctx.exclusions = exclusions.map((e: any) => ({ id: e.id, name: e.name ?? null }));
+    }
+    if (spatialMarks.length > 0) {
+      ctx.spatialMarks = spatialMarks.map(mark => ({
+        id: mark.id,
+        zoneId: mark.zoneId,
+        label: mark.label,
+        description: mark.description,
+        geometry: mark.geometry
+      }));
     }
 
     return Object.keys(ctx).length > 0 ? ctx : undefined;
