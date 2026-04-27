@@ -66,6 +66,8 @@ const {
   buildContextPayload
 } = useSelectionContext();
 const isSelectionExpanded = ref(false);
+const spatialIntentOptions = ['通行区', '布置区', '功能区', '禁布区'] as const;
+const isSpatialIntentMenuOpen = ref(false);
 
 const {
   windows,
@@ -252,6 +254,11 @@ const updatePendingSpatialLabel = (markId: string, value: string) => {
 const updatePendingSpatialDescription = (markId: string, value: string) => {
   const mark = pendingSpatialMarks.value.find(item => item.id === markId);
   if (mark) mark.description = value;
+};
+
+const selectSpatialIntent = (intent: string) => {
+  setDraftLabel(intent);
+  isSpatialIntentMenuOpen.value = false;
 };
 
 const startSpaceMarkFromMenu = () => {
@@ -664,6 +671,10 @@ const handleGlobalClick = (event: MouseEvent) => {
 
   if (!target.closest('.control-pill-wrapper.effort')) {
     isEffortMenuOpen.value = false;
+  }
+
+  if (!target.closest('.intent-combo')) {
+    isSpatialIntentMenuOpen.value = false;
   }
 };
 
@@ -1523,16 +1534,39 @@ watch(chatScrollRef, (newEl, oldEl) => {
             </div>
           </div>
 
-          <div class="prop-row">
-            <label class="label" for="spatial-label">Label</label>
-            <input
-              id="spatial-label"
-              class="value spatial-input"
-              :value="activeDraft.label"
-              placeholder="Label"
-              :disabled="activeDraft.isCompleting || activeWindow?.isStreaming"
-              @input="setDraftLabel(getEventValue($event))"
-            />
+          <div class="prop-row intent-row">
+            <label class="label" for="spatial-label">Intent</label>
+            <div class="intent-combo">
+              <input
+                id="spatial-label"
+                class="intent-input"
+                :value="activeDraft.label"
+                placeholder="Intent"
+                :disabled="activeDraft.isCompleting || activeWindow?.isStreaming"
+                @input="setDraftLabel(getEventValue($event))"
+              />
+              <button
+                class="intent-menu-btn"
+                title="Select preset intent"
+                :class="{ open: isSpatialIntentMenuOpen }"
+                :disabled="activeDraft.isCompleting || activeWindow?.isStreaming"
+                @click.stop="isSpatialIntentMenuOpen = !isSpatialIntentMenuOpen"
+              >
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <polyline points="6 9 12 15 18 9"></polyline>
+                </svg>
+              </button>
+              <div class="intent-menu" v-if="isSpatialIntentMenuOpen">
+                <button
+                  v-for="intent in spatialIntentOptions"
+                  :key="intent"
+                  :class="{ active: activeDraft.label === intent }"
+                  @click.stop="selectSpatialIntent(intent)"
+                >
+                  {{ intent }}
+                </button>
+              </div>
+            </div>
           </div>
 
           <div class="prop-row textarea-row">
@@ -3226,6 +3260,117 @@ watch(chatScrollRef, (newEl, oldEl) => {
         min-height: 54px;
         resize: vertical;
         text-align: left;
+    }
+
+    .intent-combo {
+        position: relative;
+        width: 164px;
+        min-width: 164px;
+        max-width: 164px;
+        height: 30px;
+        justify-self: start;
+        display: inline-flex;
+        align-items: stretch;
+        border: 1px solid rgba(255, 255, 255, 0.12);
+        border-radius: 6px;
+        background: rgba(0, 0, 0, 0.16);
+        font-family: var(--font-mono);
+
+        &:focus-within {
+            border-color: rgba(10, 132, 255, 0.55);
+            background: rgba(0, 0, 0, 0.22);
+        }
+    }
+
+    .intent-input {
+        width: 132px;
+        min-width: 0;
+        height: 100%;
+        border: none;
+        background: transparent;
+        color: var(--text-primary);
+        font: inherit;
+        font-size: 0.78rem;
+        line-height: 1.35;
+        outline: none;
+        padding: 0 8px;
+
+        &::placeholder {
+            color: var(--text-tertiary);
+        }
+
+        &:disabled {
+            opacity: 0.55;
+            cursor: not-allowed;
+        }
+    }
+
+    .intent-menu-btn {
+        width: 30px;
+        height: 100%;
+        border: none;
+        border-left: 1px solid rgba(255, 255, 255, 0.08);
+        background: transparent;
+        color: var(--text-secondary);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        cursor: pointer;
+        padding: 0;
+
+        svg {
+            width: 14px;
+            height: 14px;
+            transition: transform 0.2s ease;
+        }
+
+        &.open svg {
+            transform: rotate(180deg);
+        }
+
+        &:hover:not(:disabled) {
+            background: rgba(255, 255, 255, 0.08);
+            color: var(--text-primary);
+        }
+
+        &:disabled {
+            opacity: 0.45;
+            cursor: not-allowed;
+        }
+    }
+
+    .intent-menu {
+        position: absolute;
+        left: 0;
+        top: calc(100% + 4px);
+        width: 100%;
+        z-index: 20;
+        padding: 4px;
+        display: flex;
+        flex-direction: column;
+        gap: 2px;
+        border: 1px solid rgba(255, 255, 255, 0.12);
+        border-radius: 8px;
+        background: rgba(20, 20, 20, 0.96);
+        box-shadow: 0 10px 28px rgba(0, 0, 0, 0.45);
+
+        button {
+            border: none;
+            border-radius: 5px;
+            background: transparent;
+            color: var(--text-secondary);
+            cursor: pointer;
+            font: inherit;
+            font-size: 0.76rem;
+            text-align: left;
+            padding: 5px 7px;
+
+            &:hover,
+            &.active {
+                background: rgba(255, 255, 255, 0.08);
+                color: var(--text-primary);
+            }
+        }
     }
 
     .cell-stepper {
