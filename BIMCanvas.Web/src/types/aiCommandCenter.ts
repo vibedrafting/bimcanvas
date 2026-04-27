@@ -24,6 +24,8 @@ export interface SpatialMark {
   label: string;
   description: string;
   geometry: SpatialGeometry[];
+  cellSize?: number;
+  cells?: GridSelectionCell[];
 }
 
 export interface SpatialMarkDraft {
@@ -35,6 +37,7 @@ export interface SpatialMarkDraft {
   description: string;
   isCompleting: boolean;
   error?: string | null;
+  editingMarkId?: string | null;
 }
 
 export interface ChatMessage {

@@ -233,6 +233,7 @@ const {
   setDraftDescription,
   clearDraftSelection,
   completeDraft,
+  editPendingMark,
   removePendingMark,
   clearPendingSpatialMarks
 } = useSpatialMarking({
@@ -1252,12 +1253,21 @@ watch(chatScrollRef, (newEl, oldEl) => {
                   :disabled="activeWindow?.isStreaming"
                   @input="updatePendingSpatialDescription(mark.id, getEventValue($event))"
                 />
-                <button class="remove-spatial-mark" @click.stop="removePendingMark(mark.id)" :disabled="activeWindow?.isStreaming">
-                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                    <line x1="18" y1="6" x2="6" y2="18"></line>
-                    <line x1="6" y1="6" x2="18" y2="18"></line>
-                  </svg>
-                </button>
+                <div class="pending-spatial-actions">
+                  <button
+                    class="edit-spatial-mark"
+                    @click.stop="editPendingMark(mark.id)"
+                    :disabled="activeWindow?.isStreaming"
+                  >
+                    查看/修改
+                  </button>
+                  <button class="remove-spatial-mark" @click.stop="removePendingMark(mark.id)" :disabled="activeWindow?.isStreaming">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                      <line x1="18" y1="6" x2="6" y2="18"></line>
+                      <line x1="6" y1="6" x2="18" y2="18"></line>
+                    </svg>
+                  </button>
+                </div>
               </div>
             </div>
 
@@ -1603,7 +1613,7 @@ watch(chatScrollRef, (newEl, oldEl) => {
         <div class="panel-actions">
           <button @click.stop="clearDraftSelection" :disabled="activeDraft.isCompleting || activeWindow?.isStreaming">Clear</button>
           <button class="primary" @click.stop="completeDraft" :disabled="activeDraft.isCompleting || activeWindow?.isStreaming">
-            {{ activeDraft.isCompleting ? 'Merging...' : 'Done' }}
+            {{ activeDraft.isCompleting ? (activeDraft.editingMarkId ? 'Updating...' : 'Merging...') : (activeDraft.editingMarkId ? 'Update' : 'Done') }}
           </button>
         </div>
       </div>
@@ -3694,7 +3704,7 @@ watch(chatScrollRef, (newEl, oldEl) => {
     .pending-spatial-mark {
         position: relative;
         display: grid;
-        grid-template-columns: minmax(0, 1fr) 24px;
+        grid-template-columns: minmax(0, 1fr) auto;
         gap: 6px;
         padding: 8px;
         border-radius: 8px;
@@ -3733,11 +3743,38 @@ watch(chatScrollRef, (newEl, oldEl) => {
         font-size: 0.72rem;
     }
 
-    .remove-spatial-mark {
+    .pending-spatial-actions {
         grid-column: 2;
         grid-row: 1 / span 2;
         align-self: center;
         justify-self: end;
+        display: flex;
+        align-items: center;
+        gap: 6px;
+    }
+
+    .edit-spatial-mark {
+        height: 22px;
+        border: 1px solid rgba(52, 199, 89, 0.28);
+        border-radius: 6px;
+        background: rgba(52, 199, 89, 0.08);
+        color: rgba(210, 255, 222, 0.78);
+        cursor: pointer;
+        font-size: 0.68rem;
+        line-height: 1;
+        padding: 0 7px;
+        white-space: nowrap;
+
+        &:hover:not(:disabled) {
+            background: rgba(52, 199, 89, 0.14);
+            border-color: rgba(52, 199, 89, 0.4);
+            color: var(--text-primary);
+        }
+
+        &:disabled {
+            opacity: 0.45;
+            cursor: not-allowed;
+        }
     }
 
     .pending-attachments {

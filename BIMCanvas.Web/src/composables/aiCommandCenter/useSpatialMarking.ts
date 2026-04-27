@@ -7,6 +7,7 @@ import type {
   ChatWindow,
   GridSelectionCell,
   SpatialMark,
+  SpatialGeometry,
   SpatialMarkDraft
 } from '../../types/aiCommandCenter';
 import type { Point2D, Polygon2D } from '../../types/canvas';
@@ -44,6 +45,49 @@ const isPointInsidePolygon = (point: Point2D, polygon: Point2D[]): boolean => {
     if (intersects) inside = !inside;
   }
   return inside;
+};
+
+const computeAabb = (points: Point2D[]) => {
+  return points.reduce((box, [x, y]) => ({
+    minX: Math.min(box.minX, x),
+    minY: Math.min(box.minY, y),
+    maxX: Math.max(box.maxX, x),
+    maxY: Math.max(box.maxY, y)
+  }), {
+    minX: Infinity,
+    minY: Infinity,
+    maxX: -Infinity,
+    maxY: -Infinity
+  });
+};
+
+const getGeometryAabb = (geometry: SpatialGeometry) => {
+  if ('aabb' in geometry && geometry.aabb) {
+    const [minX, minY, maxX, maxY] = geometry.aabb;
+    return { minX, minY, maxX, maxY };
+  }
+
+  if ('polygon' in geometry && geometry.polygon) {
+    const shell = getBoundaryShell(geometry.polygon);
+    return computeAabb(shell);
+  }
+
+  return null;
+};
+
+const isPointInsideGeometry = (point: Point2D, geometry: SpatialGeometry): boolean => {
+  if ('aabb' in geometry && geometry.aabb) {
+    const [minX, minY, maxX, maxY] = geometry.aabb;
+    return point[0] >= minX && point[0] <= maxX && point[1] >= minY && point[1] <= maxY;
+  }
+
+  if (!('polygon' in geometry) || !geometry.polygon) return false;
+
+  const shell = getBoundaryShell(geometry.polygon);
+  if (shell.length < 3 || !isPointInsidePolygon(point, shell)) return false;
+
+  const holes = Array.isArray(geometry.polygon) ? [] : (geometry.polygon.holes || []);
+  return !holes.some(hole => hole.length >= 3 && isPointInsidePolygon(point, hole));
 };
 
 export function useSpatialMarking(options: SpatialMarkingOptions) {
@@ -103,6 +147,64 @@ export function useSpatialMarking(options: SpatialMarkingOptions) {
       isCompleting: false,
       error: null
     };
+  };
+
+  const getTopLevelZoneName = (zoneId: string): string => {
+    return topLevelZones.value.find(zone => zone.id === zoneId)?.label || zoneId;
+  };
+
+  const getCellsForZone = (cells: GridSelectionCell[], cellSize: number, zoneId: string): GridSelectionCell[] => {
+    const zone = projectData.value?.activeScheme?.zones?.find(item => item.id === zoneId);
+    const shell = getBoundaryShell(zone?.computedBoundary || zone?.rawBoundary);
+    if (shell.length < 3) return cloneCells(cells);
+
+    return cells.filter(cell => {
+      const center: Point2D = [
+        (cell.col + 0.5) * cellSize,
+        (cell.row + 0.5) * cellSize
+      ];
+      return isPointInsidePolygon(center, shell);
+    });
+  };
+
+  const getCellsFromGeometry = (geometry: SpatialGeometry[], cellSize: number): GridSelectionCell[] => {
+    const cells = new Map<string, GridSelectionCell>();
+
+    for (const item of geometry) {
+      const box = getGeometryAabb(item);
+      if (!box || !Number.isFinite(box.minX) || !Number.isFinite(box.minY) ||
+        !Number.isFinite(box.maxX) || !Number.isFinite(box.maxY)) {
+        continue;
+      }
+
+      const minCol = Math.floor(box.minX / cellSize);
+      const maxCol = Math.floor(box.maxX / cellSize);
+      const minRow = Math.floor(box.minY / cellSize);
+      const maxRow = Math.floor(box.maxY / cellSize);
+
+      for (let row = minRow; row <= maxRow; row += 1) {
+        for (let col = minCol; col <= maxCol; col += 1) {
+          const center: Point2D = [
+            (col + 0.5) * cellSize,
+            (row + 0.5) * cellSize
+          ];
+          if (isPointInsideGeometry(center, item)) {
+            cells.set(`${col}:${row}`, { col, row });
+          }
+        }
+      }
+    }
+
+    return Array.from(cells.values())
+      .sort((a, b) => a.row === b.row ? a.col - b.col : a.row - b.row);
+  };
+
+  const getMarkCells = (mark: SpatialMark): GridSelectionCell[] => {
+    if (mark.cells && mark.cells.length > 0) {
+      return cloneCells(mark.cells);
+    }
+
+    return getCellsFromGeometry(mark.geometry, normalizeCellSize(mark.cellSize ?? DEFAULT_CELL_SIZE));
   };
 
   const dispatchModeChange = () => {
@@ -196,14 +298,59 @@ export function useSpatialMarking(options: SpatialMarkingOptions) {
     draft.error = null;
 
     try {
+      if (draft.editingMarkId) {
+        const markIndex = win.pendingSpatialMarks.findIndex(mark => mark.id === draft.editingMarkId);
+        if (markIndex < 0) {
+          draft.error = '未找到要修改的空间标记';
+          return;
+        }
+
+        const zoneCells = getCellsForZone(draft.selectedCells, draft.cellSize, draft.zoneId);
+        if (zoneCells.length === 0) {
+          draft.error = '标记区域为空或完全在设计区外';
+          return;
+        }
+
+        const response = await SpatialMarksService.mergeGridSelection({
+          zoneId: draft.zoneId,
+          cellSize: draft.cellSize,
+          gridOriginX: 0,
+          gridOriginY: 0,
+          cells: cloneCells(zoneCells)
+        });
+
+        if (!response.geometry || response.geometry.length === 0) {
+          draft.error = '标记区域为空或完全在设计区外';
+          return;
+        }
+
+        win.pendingSpatialMarks[markIndex] = {
+          ...win.pendingSpatialMarks[markIndex]!,
+          zoneId: draft.zoneId,
+          label: draft.label.trim(),
+          description: draft.description.trim(),
+          geometry: response.geometry,
+          cellSize: draft.cellSize,
+          cells: cloneCells(zoneCells)
+        };
+        win.spatialMarkDraft = null;
+        dispatchModeChange();
+        return;
+      }
+
       const createdMarks: SpatialMark[] = [];
       for (const zone of topLevelZones.value) {
+        const zoneCells = getCellsForZone(draft.selectedCells, draft.cellSize, zone.id);
+        if (zoneCells.length === 0) {
+          continue;
+        }
+
         const response = await SpatialMarksService.mergeGridSelection({
           zoneId: zone.id,
           cellSize: draft.cellSize,
           gridOriginX: 0,
           gridOriginY: 0,
-          cells: cloneCells(draft.selectedCells)
+          cells: cloneCells(zoneCells)
         });
 
         if (!response.geometry || response.geometry.length === 0) {
@@ -215,7 +362,9 @@ export function useSpatialMarking(options: SpatialMarkingOptions) {
           zoneId: zone.id,
           label: draft.label.trim(),
           description: draft.description.trim(),
-          geometry: response.geometry
+          geometry: response.geometry,
+          cellSize: draft.cellSize,
+          cells: cloneCells(zoneCells)
         });
       }
 
@@ -236,10 +385,40 @@ export function useSpatialMarking(options: SpatialMarkingOptions) {
     }
   };
 
+  const editPendingMark = (markId: string) => {
+    const win = options.activeWindow.value;
+    if (!win) return;
+
+    const mark = win.pendingSpatialMarks.find(item => item.id === markId);
+    if (!mark) return;
+
+    const cellSize = normalizeCellSize(mark.cellSize ?? DEFAULT_CELL_SIZE);
+    const selectedCells = getMarkCells(mark);
+    const draft = createDraft(cellSize);
+    if (!draft) return;
+
+    win.spatialMarkDraft = {
+      ...draft,
+      zoneId: mark.zoneId,
+      zoneName: getTopLevelZoneName(mark.zoneId),
+      cellSize,
+      selectedCells,
+      label: mark.label,
+      description: mark.description,
+      editingMarkId: mark.id,
+      error: selectedCells.length === 0 ? '该标记缺少可恢复的网格数据' : null
+    };
+    dispatchModeChange();
+  };
+
   const removePendingMark = (markId: string) => {
     const win = options.activeWindow.value;
     if (!win) return;
     win.pendingSpatialMarks = win.pendingSpatialMarks.filter(mark => mark.id !== markId);
+    if (win.spatialMarkDraft?.editingMarkId === markId) {
+      win.spatialMarkDraft = null;
+      dispatchModeChange();
+    }
   };
 
   const updatePendingMark = (markId: string, updates: Pick<SpatialMark, 'label' | 'description'>) => {
@@ -273,6 +452,7 @@ export function useSpatialMarking(options: SpatialMarkingOptions) {
     () => [
       options.activeWindowId.value,
       activeDraft.value?.zoneId,
+      activeDraft.value?.editingMarkId,
       activeDraft.value?.cellSize,
       activeDraft.value?.selectedCells.map(cell => `${cell.col}:${cell.row}`).join(',')
     ],
@@ -316,6 +496,7 @@ export function useSpatialMarking(options: SpatialMarkingOptions) {
     setSelectedCells,
     clearDraftSelection,
     completeDraft,
+    editPendingMark,
     removePendingMark,
     updatePendingMark,
     clearPendingSpatialMarks
