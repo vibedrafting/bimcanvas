@@ -78,7 +78,7 @@ description: |
 - `computed/exclusions.json`
 - `mcp__canvas__request_background_screenshot`
 - `mcp__canvas__get_zone_boundaries`
-- `mcp__canvas__analyze_image`（Stage A 必备，必须显式使用 `analysisMode: "reference_layout"` 获取 A/B/C 原始素材）
+- `mcp__canvas__analyze_image`（仅本 Skill 的 Stage A 可用，必须显式使用 `analysisMode: "reference_layout"` 获取 A/B/C 原始素材）
 - `mcp__canvas__load_reference_analysis`（仅当用户要求修订既有分析时）
 - `modules/module_library.json` 的契约层字段（如尺寸、标签、限制）
 
@@ -156,6 +156,8 @@ description: |
 **【必须】** v1 阶段先调用 `mcp__canvas__analyze_image({projectPath, attachmentId, analysisMode: "reference_layout"})` 拿到 A/B/C 原始素材，再用自然语言按下方推荐结构的四类内容整理。若工具返回 `is_error`，在 v1 的「当前不确定点」记录降级原因，再改用纯视觉观察完成 v1（不阻塞流程）。
 
 **【必须】** 若本轮消息上下文包含「本轮聊天附件」清单，直接使用其中的 `projectPath` 与 `attachmentId` 调用 `mcp__canvas__analyze_image`，并显式传入 `analysisMode: "reference_layout"`；不要再用 `Glob` / `Read` 搜索 `_chat_attachments.json` 来查找附件 ID。
+
+**【必须】** `analysisMode: "reference_layout"` 只服务当前“参考图分析 + 设计”工作流，用于形成正式 `reference_analysis` 后进入 constrained planning；不得在普通看图、query/edit、风格灵感参考、free mode planning 或临时图片理解中调用。
 
 **【提示】** `mcp__canvas__analyze_image` 默认是 `custom` 自定义识图模式，但 custom 不是常规看图入口；只有已经对同一图片路径调用 `Read`，且日志出现类似 `image result suppressed (bytes≈..., chars=...)` 后仍无法直接加载图片（如判断为 `The image couldn't be loaded from that path`）时，才允许作为兜底视觉澄清工具调用。图片已在消息视觉上下文中可见，或 `Read` 能直接查看图片时，禁止调用 custom。Stage A 固定参考图布局分析必须使用 `analysisMode: "reference_layout"`，不得用 custom 模式绕过 `v1/v2/v3` 版本流程。
 

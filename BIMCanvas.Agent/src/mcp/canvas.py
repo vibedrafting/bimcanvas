@@ -1183,7 +1183,9 @@ async def save_reference_analysis(args: dict[str, Any]) -> dict[str, Any]:
 @tool(
     "analyze_image",
     "大模型图像理解工具，包含 custom 与 reference_layout 两种模式。"
-    "analysisMode=reference_layout 用于固定参考图布局分析并返回 A/B/C 三段。"
+    "analysisMode=reference_layout 只允许在主控已进入 `参考图分析 + 设计` 工作流时调用，"
+    "即 `generate-reference-analysis` 的 Stage A，为后续 constrained planning 冻结正式 reference_analysis；"
+    "禁止在 chat/query/edit、普通看图、风格灵感参考、free mode planning 或临时图片理解中调用。"
     "analysisMode=custom 是 Read 看图失败后的兜底工具，不是常规看图入口；"
     "只有已经对同一图片路径调用 Read，且 Read 返回类似 `image result suppressed (bytes≈..., chars=...)` 后仍无法直接加载图片"
     "（例如判断为 `The image couldn't be loaded from that path`）时，才允许调用 custom。"
@@ -1213,7 +1215,7 @@ async def save_reference_analysis(args: dict[str, Any]) -> dict[str, Any]:
             "analysisMode": {
                 "type": "string",
                 "enum": ["custom", "reference_layout"],
-                "description": "识图模式。默认 custom；custom 只允许在 Read 同一图片失败后兜底使用；固定参考图布局分析必须显式传 reference_layout",
+                "description": "识图模式。默认 custom；reference_layout 只允许在 generate-reference-analysis Stage A 中使用；custom 只允许在 Read 同一图片失败后兜底使用",
             },
             "task": {
                 "type": "string",

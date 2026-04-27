@@ -162,3 +162,16 @@ def test_analyze_image_description_limits_custom_to_read_failure_fallback() -> N
     assert "禁止调用 custom" in description
     assert "Read 同一图片失败后兜底使用" in analysis_mode_description
     assert "Read 看图失败后的兜底识图" in task_description
+
+
+def test_analyze_image_description_limits_reference_layout_to_reference_workflow() -> None:
+    description = analyze_image.description
+    analysis_mode_description = analyze_image.input_schema["properties"]["analysisMode"]["description"]
+
+    assert "参考图分析 + 设计" in description
+    assert "generate-reference-analysis" in description
+    assert "Stage A" in description
+    assert "constrained planning" in description
+    assert "禁止在 chat/query/edit" in description
+    assert "free mode planning" in description
+    assert "reference_layout 只允许在 generate-reference-analysis Stage A 中使用" in analysis_mode_description

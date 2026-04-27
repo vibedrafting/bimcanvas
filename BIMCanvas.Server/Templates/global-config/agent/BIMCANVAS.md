@@ -62,6 +62,7 @@ Generate 在主控层先判定是否需要正式 `reference_analysis`。没有�
 3. **参考图分析（reference-analysis）**
    - 用户提供参考图片，要求参考其中的布局、摆位、墙面关系、朝向、空间关系
    - 且图片中存在可执行的家具墙面、朝向、空间关系信息
+   - 只有进入这条“参考图分析 + 设计”工作流后，才允许在 `generate-reference-analysis` Stage A 调用 `mcp__canvas__analyze_image` 的 `analysisMode: "reference_layout"`；普通看图、query/edit、风格灵感参考、free mode planning 不得调用该模式
    - 先加载 `generate-reference-analysis`（提取约束包）→ 根据关联性等级决定后续路径：
      - `relevance = unrelated` → 丢弃参考信息，走纯 derived 路径
      - `relevance = style_only` → 图片留在上下文，走 derived 路径（图片作风格参考）
