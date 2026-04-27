@@ -390,8 +390,8 @@ export class SpatialMarkingService {
         let inside = false;
         const [x, y] = point;
         for (let i = 0, j = polygon.length - 1; i < polygon.length; j = i, i += 1) {
-            const [xi, yi] = polygon[i];
-            const [xj, yj] = polygon[j];
+            const [xi, yi] = polygon[i]!;
+            const [xj, yj] = polygon[j]!;
             const intersects = ((yi > y) !== (yj > y)) &&
                 (x < ((xj - xi) * (y - yi)) / ((yj - yi) || Number.EPSILON) + xi);
             if (intersects) inside = !inside;
