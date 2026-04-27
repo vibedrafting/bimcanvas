@@ -1535,13 +1535,13 @@ watch(chatScrollRef, (newEl, oldEl) => {
           </div>
 
           <div class="prop-row intent-row">
-            <label class="label" for="spatial-label">Intent</label>
+            <label class="label" for="spatial-label">Tag</label>
             <div class="intent-combo">
               <input
                 id="spatial-label"
                 class="intent-input"
                 :value="activeDraft.label"
-                placeholder="Intent"
+                placeholder="Tag"
                 :disabled="activeDraft.isCompleting || activeWindow?.isStreaming"
                 @input="setDraftLabel(getEventValue($event))"
               />
@@ -3264,9 +3264,9 @@ watch(chatScrollRef, (newEl, oldEl) => {
 
     .intent-combo {
         position: relative;
-        width: 164px;
-        min-width: 164px;
-        max-width: 164px;
+        width: 128px;
+        min-width: 128px;
+        max-width: 128px;
         height: 30px;
         justify-self: start;
         display: inline-flex;
@@ -3283,7 +3283,7 @@ watch(chatScrollRef, (newEl, oldEl) => {
     }
 
     .intent-input {
-        width: 132px;
+        width: 98px;
         min-width: 0;
         height: 100%;
         border: none;
