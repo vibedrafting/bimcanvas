@@ -261,8 +261,12 @@ const selectSpatialIntent = (intent: string) => {
   isSpatialIntentMenuOpen.value = false;
 };
 
-const startSpaceMarkFromMenu = () => {
-  startSpatialMarking();
+const toggleSpaceMarkFromButton = () => {
+  if (activeDraft.value) {
+    cancelSpatialMarking();
+  } else {
+    startSpatialMarking();
+  }
   isContextMenuOpen.value = false;
   activeSubmenu.value = null;
 };
@@ -1093,7 +1097,21 @@ watch(chatScrollRef, (newEl, oldEl) => {
                 </div>
             </transition>
 
-            <!-- 3. Add Context Button -->
+            <!-- 3. Space Mark Button -->
+            <button
+                class="space-mark-context-btn"
+                title="Space Mark"
+                :class="{ active: !!activeDraft }"
+                @click.stop="toggleSpaceMarkFromButton"
+                :disabled="activeWindow?.isStreaming"
+            >
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M4 4l7.5 16 2.4-6.1L20 11.5 4 4z"></path>
+                    <path d="M13.5 13.5L19 19"></path>
+                </svg>
+            </button>
+
+            <!-- 4. Add Context Button -->
             <div class="add-context-wrapper">
                 <button 
                     class="add-context-btn" 
@@ -1114,14 +1132,6 @@ watch(chatScrollRef, (newEl, oldEl) => {
                         <!-- Main Menu -->
                         <div class="menu-section">
                             <div class="menu-header">Add Context</div>
-
-                            <div
-                                class="menu-item"
-                                @mouseenter="activeSubmenu = null"
-                                @click="startSpaceMarkFromMenu"
-                            >
-                                <span class="item-text">Space Mark</span>
-                            </div>
                             
                             <!-- Zones Item (Expandable) -->
                             <div 
@@ -2994,6 +3004,7 @@ watch(chatScrollRef, (newEl, oldEl) => {
         }
     }
 
+    .space-mark-context-btn,
     .add-context-btn {
         display: flex;
         align-items: center;
@@ -3009,11 +3020,23 @@ watch(chatScrollRef, (newEl, oldEl) => {
 
         svg { width: 14px; height: 14px; }
 
-        &:hover {
+        &:hover:not(:disabled) {
             border-color: var(--text-secondary);
             color: var(--text-secondary);
             background: var(--surface-dim);
         }
+
+        &:disabled {
+            opacity: 0.45;
+            cursor: not-allowed;
+        }
+    }
+
+    .space-mark-context-btn.active {
+        border-style: solid;
+        border-color: rgba(10, 132, 255, 0.45);
+        background: rgba(10, 132, 255, 0.12);
+        color: var(--accent-blue);
     }
 }
 
