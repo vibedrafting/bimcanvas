@@ -1182,8 +1182,12 @@ async def save_reference_analysis(args: dict[str, Any]) -> dict[str, Any]:
 
 @tool(
     "analyze_image",
-    "通用大模型图像理解工具。默认执行自定义识图任务；当 analysisMode=reference_layout 时，"
-    "对用户上传的参考图做固定结构化布局分析并返回 A/B/C 三段。"
+    "大模型图像理解工具，包含 custom 与 reference_layout 两种模式。"
+    "analysisMode=reference_layout 用于固定参考图布局分析并返回 A/B/C 三段。"
+    "analysisMode=custom 是 Read 看图失败后的兜底工具，不是常规看图入口；"
+    "只有已经对同一图片路径调用 Read，且 Read 返回类似 `image result suppressed (bytes≈..., chars=...)` 后仍无法直接加载图片"
+    "（例如判断为 `The image couldn't be loaded from that path`）时，才允许调用 custom。"
+    "如果图片已在当前消息视觉上下文中可见，或 Read 能直接查看图片，禁止调用 custom，以避免重复耗时。"
     "底层走 ChatGPT codex/responses 后端，受 <BIMCANVAS_HOME>/config.json 的 chatgptBackend 节驱动。"
     "用于给 Agent 提供高质量视觉语义素材。",
     {
@@ -1209,11 +1213,11 @@ async def save_reference_analysis(args: dict[str, Any]) -> dict[str, Any]:
             "analysisMode": {
                 "type": "string",
                 "enum": ["custom", "reference_layout"],
-                "description": "识图模式。默认 custom；固定参考图布局分析必须显式传 reference_layout",
+                "description": "识图模式。默认 custom；custom 只允许在 Read 同一图片失败后兜底使用；固定参考图布局分析必须显式传 reference_layout",
             },
             "task": {
                 "type": "string",
-                "description": "自定义识图目标。analysisMode=custom 时必填；reference_layout 时禁止传入",
+                "description": "自定义识图目标。analysisMode=custom 时必填且仅用于 Read 看图失败后的兜底识图；reference_layout 时禁止传入",
             },
         },
         "required": ["projectPath"],

@@ -149,3 +149,16 @@ def test_analyze_image_schema_exposes_modes_and_task() -> None:
     assert schema["additionalProperties"] is False
     assert schema["properties"]["analysisMode"]["enum"] == ["custom", "reference_layout"]
     assert "task" in schema["properties"]
+
+
+def test_analyze_image_description_limits_custom_to_read_failure_fallback() -> None:
+    description = analyze_image.description
+    analysis_mode_description = analyze_image.input_schema["properties"]["analysisMode"]["description"]
+    task_description = analyze_image.input_schema["properties"]["task"]["description"]
+
+    assert "Read 看图失败后的兜底工具" in description
+    assert "image result suppressed" in description
+    assert "The image couldn't be loaded from that path" in description
+    assert "禁止调用 custom" in description
+    assert "Read 同一图片失败后兜底使用" in analysis_mode_description
+    assert "Read 看图失败后的兜底识图" in task_description

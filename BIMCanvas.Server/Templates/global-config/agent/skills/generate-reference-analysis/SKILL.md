@@ -157,7 +157,7 @@ description: |
 
 **【必须】** 若本轮消息上下文包含「本轮聊天附件」清单，直接使用其中的 `projectPath` 与 `attachmentId` 调用 `mcp__canvas__analyze_image`，并显式传入 `analysisMode: "reference_layout"`；不要再用 `Glob` / `Read` 搜索 `_chat_attachments.json` 来查找附件 ID。
 
-**【提示】** `mcp__canvas__analyze_image` 默认是 `custom` 自定义识图模式，只能用于额外视觉澄清；本 Skill 的 Stage A 固定参考图布局分析必须使用 `analysisMode: "reference_layout"`，不得用 custom 模式绕过 `v1/v2/v3` 版本流程。
+**【提示】** `mcp__canvas__analyze_image` 默认是 `custom` 自定义识图模式，但 custom 不是常规看图入口；只有已经对同一图片路径调用 `Read`，且日志出现类似 `image result suppressed (bytes≈..., chars=...)` 后仍无法直接加载图片（如判断为 `The image couldn't be loaded from that path`）时，才允许作为兜底视觉澄清工具调用。图片已在消息视觉上下文中可见，或 `Read` 能直接查看图片时，禁止调用 custom。Stage A 固定参考图布局分析必须使用 `analysisMode: "reference_layout"`，不得用 custom 模式绕过 `v1/v2/v3` 版本流程。
 
 **这一步允许看什么**：
 - 参考图本身
