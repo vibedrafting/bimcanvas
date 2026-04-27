@@ -669,7 +669,9 @@ def _format_validation_report(report: dict[str, Any]) -> str:
 async def validate_layout(args: dict[str, Any]) -> dict[str, Any]:
     """验证当前方案的布局合法性（布局编译器）"""
     zone_ids = args.get("zoneIds")
-    body = {"zoneIds": zone_ids} if zone_ids else None
+    # 注意：必须传空 dict 而非 None。aiohttp 在 json=None 时不发 body 也不带 Content-Type，
+    # ASP.NET Core [FromBody] 会返回 415；Server 端 ValidateLayoutRequest 已支持空 body 全局验证。
+    body = {"zoneIds": zone_ids} if zone_ids else {}
 
     try:
         async with aiohttp.ClientSession() as session:

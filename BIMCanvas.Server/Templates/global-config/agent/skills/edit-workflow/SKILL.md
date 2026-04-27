@@ -8,8 +8,7 @@ allowed-tools: Read, Write, Edit, Glob, Grep, mcp__canvas__validate_layout, mcp_
 
 # Edit 工作流（小范围设计决策）
 
-> Edit 是 placement 在已有布置上的局部小型版——同样要落位贴墙、参数化适配、避让禁区。差别只是触发范围（单一/少数模块）。
-> 知识入口与 placement 同源：`module_library.json[moduleId].agent_config` 与 `references/{room}.md`。
+> Edit 是 placement 在已有布置上的局部小型版——**决策依据与 placement 同源**：模块自身规则（`module_library.json[moduleId].agent_config`）+ 房间策略（`references/{room}.md`）。差别只是触发范围（单一/少数模块）。
 
 **触发条件**：关键词"移动 / 删除 / 旋转 / 调整"。
 
@@ -23,42 +22,43 @@ allowed-tools: Read, Write, Edit, Glob, Grep, mcp__canvas__validate_layout, mcp_
 | 用户给精确位置语义："靠 X 墙"/"X 旁边"/"X 上面" | 没给目标位置 / 方向 |
 | 单模块 + 单动作（移动/删除/旋转 N 度） | 多模块协同 / 涉及战略取舍 |
 
-走简单路径还是复杂路径，由以上信号决定。**两条路径共享相同的领域硬约束**——区别只在读多少上下文、是否截图、是否触发 `AskUserQuestion`。
+WHY：用户已做完决策时，Agent 只需"执行 + 兜住领域硬约束"；用户期望 Agent 帮忙决策时，才需要更多上下文。
 
-WHY：用户已做完决策时，Agent 只需要"执行 + 兜住领域硬约束"；用户期望 Agent 帮忙决策时，才需要更多上下文。一个流程同时覆盖两者会让简单任务变重，让复杂任务变浅。
+**两条路径共享同一套领域规则**——区别只在读多少上下文、是否截图、是否触发 `AskUserQuestion`。
 
 ---
 
 ## 简单路径（fast path）
 
-【必读最小集】
+### 必读集
 
-1. `schemes/zones.json` — 定位目标叶子分区
-2. `schemes/{leaf}/modules.json` — 目标模块 + 相邻家具
-3. `modules/module_library.json[moduleId].agent_config` — `topology_rules` / `morphology` / `relation_rules`
+按动作类型最小化读取，**不要读全部**：
 
-【明确跳过】`README.md`、`references/{room}.md`、`computed/exclusions.json`、修改前后截图。
+| 动作 | 必读 | 何时再加 `references/{room}.md` |
+|------|------|------------------------------|
+| 删除 | `zones.json` + 目标 `modules.json` | 永不需要 |
+| 旋转 N 度 | `zones.json` + 目标 `modules.json` | 永不需要 |
+| 移动（非 parametric 模块） | `zones.json` + 目标 `modules.json` + `module_library[moduleId].agent_config` | 用户位置语义模糊（"靠右上"等）时 |
+| 移动（parametric 模块） | 上述三项 + `references/{room}.md` 中本模块对应段落 | 始终读，**用于尺寸算法骨架** |
 
-WHY：简单任务的决策面已被"用户输入 + 模块自身规则"完全覆盖。`exclusions` 由 `validate_layout` 兜底；截图在没有视觉反馈链路时不影响决策。
+**跳过**：`README.md`、`computed/exclusions.json`、修改前后截图。
+WHY：决策面已被"用户输入 + 模块规则 + 房间策略"覆盖。`exclusions` 由 `validate_layout` 兜底。
 
-【质量硬约束（不因简化而豁免）】
+### 核心约束（一条）
 
-- **必须**执行 `module_library[moduleId].agent_config.topology_rules` 中的【必须】项（如"靠墙"）。
-- **必须**对 `morphology.strategy = "parametric"` 的模块按 §AABB 落位算法 决定 `size`，不得保留 default size 上画布。
-- **必须**执行 `relation_rules` 中的"顶角规则"（剩余 < 600mm 非门口/通道侧 → `limits` 内扩宽或贴齐）。
+**Edit 落位与尺寸决策由"模块自身规则 + 房间策略"共同决定，与 placement 同源；不要绕开领域规则自己发明算法。**
 
-WHY：edit 是"小范围设计决策"，不是"机械搬运"。质量底线由模块自身规则决定，与流程长短无关。
+WHY：edit 的本质是"小范围设计决策"，不是"机械搬运"。`agent_config.topology_rules`（如"靠墙"）+ `relation_rules`（如顶角规则）+ `references/{room}.md` 的尺寸算法已经覆盖 90% 决策；自己重新推导既慢又易遗漏。
 
-【流程】
+### 流程
 
-1. 读最小集。
-2. 按 §AABB 落位算法 或精确位置语义重算 `bounds`。
-3. parametric 模块在 `limits` 内取 `min(可用墙段, limits.width.max)`，执行顶角规则。
-4. 写 `facing.semantic`（推荐）或 `facing.value`，不同时写两个有效值。
-5. Write → `validate_layout`。
+1. 读必读集（按上表）。
+2. 调 §AABB 落位 + 尺寸决策。
+3. 写 `facing.semantic`（推荐，由 validate 归一化为 `value`）。
+4. Write → `validate_layout()`。
    - 通过 → 完成。
-   - 失败 → **此时**才按需读 `computed/exclusions.json`，做几何级修正（同墙微调 / `limits` 内收缩 / 收缩附属件），重新 Write → validate。
-6. 不主动截图；用户后续可在画布观察。
+   - 失败 → 此时才按需读 `computed/exclusions.json`，做几何级修正（同墙微调 / `limits` 内收缩 / 收缩附属件），重新 Write → validate。
+5. 不主动截图。
 
 ---
 
@@ -66,65 +66,83 @@ WHY：edit 是"小范围设计决策"，不是"机械搬运"。质量底线由�
 
 【追加读取】
 
-- `references/{room}.md` — 房间级战略规则（如卧室 L 形组合、采光偏好）
+- `references/{room}.md` 全文（不只是单模块段落）
 - 按需 `mcp__canvas__request_background_screenshot` 看相邻关系
 
 【追加机制】
 
-- 领域规则标记为"战略选择"时 → `AskUserQuestion`（与 placement 一致的边界）。
+- 领域规则标记为"战略选择"时 → `AskUserQuestion`（与 placement 一致）。
 - 修正循环可做"几何级"，**不做语义级重设计**——edit 范围始终限于用户提到的模块及其直接邻接关系。
 
 【流程】简单路径流程 + 上述追加项。
 
 ---
 
-## AABB 落位算法（机制）
+## AABB 落位 + 尺寸决策
 
-输入：`AABB` / `moduleId` / 目标 zone 几何（来自 `zones.json`）。
+输入：`AABB`（或精确位置语义）/ `moduleId` / 目标 zone 几何（来自 `zones.json`）。
 
-1. 读 `module_library[moduleId].agent_config.topology_rules`，识别使用方式（靠墙 / 居中 / 成组）。
-2. 在 AABB 邻域（向外扩 ≤ 200mm）内查找匹配几何特征：
-   - "【必须】靠墙" → 找最近实墙边对齐到 mm 级；朝向取墙的内法向。
-   - "居中" → 取 AABB 几何中心。
-   - "成组" → 锚定 `relation_rules` 主件后推导。
-3. 与相邻模块碰撞检查；冲突 → 沿"贴墙方向 90°"平移最小距离至无冲突。
-4. parametric + 贴齐后另一侧距相邻锚点（墙/家具）< 600mm 且非门口/通道侧 → 执行顶角规则，在 `limits` 内**扩展尺寸**消除窄缝。
+**Step 1 — 落位（找墙边）**
 
-WHY：用户标注表达"我希望 X 在这一带"，落位语义表达"X 应该如何使用"。两者结合才是合理的位姿；缺任一侧都退化为合规式居中。
+- 读 `module_library[moduleId].agent_config.topology_rules`。
+- "【必须】靠墙" → 在 AABB 邻域（向外扩 ≤ 200mm）找最近实墙边，模块对应边对齐到 mm 级；朝向取墙的内法向。
+- "居中" → 取 AABB 几何中心；朝向参考相邻锚点。
+- "成组" → 锚定 `relation_rules` 主件后推导。
+
+**Step 2 — 尺寸（仅 parametric 模块）**
+
+复用 `references/{room}.md` 的"尺寸最大化"骨架（房间内若已定义即直接用；未定义则按下述兜底）：
+
+1. 计算贴墙后该墙段的有效长度（扣除门侧净空、相邻家具占用）。
+2. 取 `min(有效长度, limits.max)` 作为目标 `width`/`depth`。
+3. 顶角规则：若取值后另一侧距相邻锚点（墙/家具）< 600mm 且非门口/通道侧 → 在 `limits` 内继续扩展消除窄缝。
+
+非 parametric 模块跳过 Step 2，保持原 `size`。
+
+**Step 3 — 碰撞规避**
+
+- 与同 zone 相邻模块碰撞 → 沿"贴墙方向 90°"平移最小距离至无冲突。
+- 不主动检查 `exclusions`；交给 `validate_layout` 兜底（失败再回补救）。
+
+WHY：用户标注表达"我希望 X 在这一带"，落位语义表达"X 应该如何使用"，尺寸语义表达"占满有效段而非默认值"。三者结合才是合理的位姿；任一缺位都退化为合规式居中或机械平移。
 
 ---
 
 ## 示例
 
-> 仅示意决策结构。具体家具示例见 `references/{room}.md` 与 `module_library.json[moduleId].agent_config`。
+> 仅决策结构骨架。具体家具示例见 `references/{room}.md` 与 `module_library.json[moduleId].agent_config`。
 
-简单移动型：
+简单移动型（parametric 模块）：
 
 ```
-判定：简单（有 AABB） → 读 zones / modules / module_library[moduleId]
-按 AABB 落位算法重算 bounds（贴墙 + 顶角扩展尺寸）
+判定：简单（有 AABB + 单模块单动作）
+读 zones / modules / module_library[moduleId] / references/{room}.md（本模块段落）
+Step 1 找墙边贴齐 → Step 2 计算有效段 + limits 内扩展 → Step 3 碰撞规避
+Write → validate_layout
+```
+
+简单移动型（非 parametric 模块）：
+
+```
+判定：简单
+读 zones / modules / module_library[moduleId]
+Step 1 找墙边贴齐 → Step 3 碰撞规避（跳过 Step 2）
 Write → validate_layout
 ```
 
 复杂调整型（"调整下梳妆台位置"）：
 
 ```
-判定：复杂 → 读 zones / modules / module_library / references/bedroom.md
+判定：复杂 → 读 zones / modules / module_library / references/{room}.md 全文
 （必要时）截图 / AskUserQuestion 确认意图
-按落位算法 + 战略规则重算
+按 §AABB 落位 + 尺寸决策 + 战略规则
 Write → validate_layout
 ```
 
-删除型：
+删除 / 旋转：
 
 ```
-判定：简单 → 读 zones / modules → 移除项 → Write → validate_layout
-```
-
-旋转型：
-
-```
-判定：简单 → 读 zones / modules → 修改 facing.semantic → Write → validate_layout
+判定：简单 → 读 zones / modules → Edit → Write → validate_layout
 ```
 
 ---
