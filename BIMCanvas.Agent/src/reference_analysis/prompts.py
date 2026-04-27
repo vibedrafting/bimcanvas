@@ -1,7 +1,6 @@
-"""参考分析 prompt。
+"""图片分析 prompt。
 
 硬编码在代码中，不暴露为外部文件。
-工具入参 promptOverride 非空时可覆盖。
 """
 
 from __future__ import annotations
@@ -34,3 +33,27 @@ C. 逐个家具分析
 def load_reference_analysis_prompt() -> str:
     """返回硬编码的参考分析 prompt。"""
     return REFERENCE_ANALYSIS_PROMPT_V1
+
+
+def build_custom_image_analysis_prompt(task: str) -> str:
+    """构造自定义识图任务 prompt。
+
+    只允许调用方传入本次识图目标，安全外壳固定在代码内。
+    """
+    task_text = (task or "").strip()
+    if not task_text:
+        raise ValueError("task 不能为空")
+
+    return f"""这是一个纯文本图片理解任务，不是图片生成、图片编辑、设计落位或施工任务。请只输出中文文字结果，禁止返回任何图片、图片链接、markdown图片、代码、工具调用过程、分析过程说明或“正在查看图片”之类的过程性文字。
+
+请严格围绕下面的识图目标观察图片并回答：
+{task_text}
+
+要求：
+- 只描述图片中能够观察或合理判断的信息。
+- 无法确认的内容要明确说明不确定，不要包装成事实。
+- 不要把视觉观察直接升级为设计决策、施工合同、家具落位方案或对当前项目的最终建议。
+- 不要主动补充与识图目标无关的装修建议、风格点评、营销描述或泛泛总结。
+- 如果识图目标要求列清单、分组或对比，请用简洁清晰的中文条目表达。
+
+请直接输出最终识图结果。"""

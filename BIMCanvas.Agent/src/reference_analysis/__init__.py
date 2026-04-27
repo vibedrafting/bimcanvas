@@ -11,7 +11,11 @@ from .client import (
 )
 from .config import ChatGPTBackendConfig, load_chatgpt_backend_config
 from .payload import ReferenceSource
-from .prompts import REFERENCE_ANALYSIS_PROMPT_V1, load_reference_analysis_prompt
+from .prompts import (
+    REFERENCE_ANALYSIS_PROMPT_V1,
+    build_custom_image_analysis_prompt,
+    load_reference_analysis_prompt,
+)
 
 __all__ = [
     "ChatGPTBackendConfig",
@@ -21,6 +25,7 @@ __all__ = [
     "ReferenceAnalysisErrorType",
     "ReferenceAnalysisResult",
     "ReferenceSource",
+    "build_custom_image_analysis_prompt",
     "load_chatgpt_backend_config",
     "load_reference_analysis_prompt",
 ]

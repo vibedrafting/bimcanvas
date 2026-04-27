@@ -24,6 +24,7 @@ from ..reference_analysis import (
     ReferenceAnalysisClient,
     ReferenceAnalysisError,
     ReferenceSource,
+    build_custom_image_analysis_prompt,
     load_chatgpt_backend_config,
     load_reference_analysis_prompt,
 )
@@ -1180,10 +1181,11 @@ async def save_reference_analysis(args: dict[str, Any]) -> dict[str, Any]:
 
 
 @tool(
-    "analyze_reference_image",
-    "对用户上传的参考图做结构化布局分析，返回 A/B/C 三段：A 空间整体描述 / B 带文字注释家具清单 / C 逐个家具分析。"
+    "analyze_image",
+    "通用大模型图像理解工具。默认执行自定义识图任务；当 analysisMode=reference_layout 时，"
+    "对用户上传的参考图做固定结构化布局分析并返回 A/B/C 三段。"
     "底层走 ChatGPT codex/responses 后端，受 <BIMCANVAS_HOME>/config.json 的 chatgptBackend 节驱动。"
-    "用于 generate-reference-analysis Skill 的 Stage A，给 Agent 提供高质量原始素材。",
+    "用于给 Agent 提供高质量视觉语义素材。",
     {
         "$schema": "http://json-schema.org/draft-07/schema#",
         "type": "object",
@@ -1204,16 +1206,27 @@ async def save_reference_analysis(args: dict[str, Any]) -> dict[str, Any]:
                 "type": "string",
                 "description": "Image base64 or data URL; provide exactly one of attachmentId/path/base64",
             },
+            "analysisMode": {
+                "type": "string",
+                "enum": ["custom", "reference_layout"],
+                "description": "识图模式。默认 custom；固定参考图布局分析必须显式传 reference_layout",
+            },
+            "task": {
+                "type": "string",
+                "description": "自定义识图目标。analysisMode=custom 时必填；reference_layout 时禁止传入",
+            },
         },
         "required": ["projectPath"],
         "additionalProperties": False,
     },
 )
-async def analyze_reference_image(args: dict[str, Any]) -> dict[str, Any]:
+async def analyze_image(args: dict[str, Any]) -> dict[str, Any]:
     project_path = str(args.get("projectPath") or "").strip()
     attachment_id = str(args.get("attachmentId") or "").strip()
     image_path = str(args.get("path") or "").strip()
     image_base64 = str(args.get("base64") or "").strip()
+    analysis_mode = str(args.get("analysisMode") or "custom").strip().lower()
+    task = str(args.get("task") or "").strip()
 
     if not project_path:
         return {
@@ -1225,6 +1238,24 @@ async def analyze_reference_image(args: dict[str, Any]) -> dict[str, Any]:
     if source_count != 1:
         return {
             "content": [{"type": "text", "text": "error: provide exactly one of attachmentId/path/base64"}],
+            "is_error": True,
+        }
+
+    if analysis_mode not in {"custom", "reference_layout"}:
+        return {
+            "content": [{"type": "text", "text": "error: invalid analysisMode"}],
+            "is_error": True,
+        }
+
+    if analysis_mode == "custom" and not task:
+        return {
+            "content": [{"type": "text", "text": "error: task is required when analysisMode=custom"}],
+            "is_error": True,
+        }
+
+    if analysis_mode == "reference_layout" and task:
+        return {
+            "content": [{"type": "text", "text": "error: task is not allowed when analysisMode=reference_layout"}],
             "is_error": True,
         }
 
@@ -1281,7 +1312,16 @@ async def analyze_reference_image(args: dict[str, Any]) -> dict[str, Any]:
             "is_error": True,
         }
 
-    prompt_text = load_reference_analysis_prompt()
+    if analysis_mode == "reference_layout":
+        prompt_text = load_reference_analysis_prompt()
+    else:
+        try:
+            prompt_text = build_custom_image_analysis_prompt(task)
+        except ValueError as exc:
+            return {
+                "content": [{"type": "text", "text": f"error: {exc}"}],
+                "is_error": True,
+            }
 
     client = ReferenceAnalysisClient(config)
     try:
@@ -1315,9 +1355,11 @@ async def analyze_reference_image(args: dict[str, Any]) -> dict[str, Any]:
             "model": result.model,
             "sourceKind": source_kind,
             "sourceId": source_id,
-            "sectionA": result.section_a,
-            "sectionB": result.section_b,
-            "sectionC": result.section_c,
+            "analysisMode": analysis_mode,
+            **({"task": task} if analysis_mode == "custom" else {}),
+            "sectionA": result.section_a if analysis_mode == "reference_layout" else None,
+            "sectionB": result.section_b if analysis_mode == "reference_layout" else None,
+            "sectionC": result.section_c if analysis_mode == "reference_layout" else None,
             "rawText": raw_text,
         },
     }
@@ -1338,7 +1380,7 @@ canvas_mcp = create_sdk_mcp_server(
         load_semantic_plan,  # 加载当前生效图纸
         load_reference_analysis,  # 加载参考分析（planning 输入）
         save_reference_analysis,  # 新增：保存参考分析结果
-        analyze_reference_image,  # 新增：ChatGPT 后端结构化参考图分析
+        analyze_image,  # 通用大模型图像理解
     ],
 )
 
@@ -1353,5 +1395,5 @@ CANVAS_ALLOWED_TOOLS = [
     "mcp__canvas__load_semantic_plan",
     "mcp__canvas__load_reference_analysis",
     "mcp__canvas__save_reference_analysis",
-    "mcp__canvas__analyze_reference_image",
+    "mcp__canvas__analyze_image",
 ]

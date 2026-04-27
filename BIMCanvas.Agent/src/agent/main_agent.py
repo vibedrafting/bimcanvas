@@ -898,7 +898,7 @@ class MainAgent:
                         f"projectPath={project_path}；clientMessageId={client_message_id}；"
                         f"{'；'.join(item_strs)}。"
                         "如需分析参考图，直接使用上述 attachmentId 调用 "
-                        "mcp__canvas__analyze_reference_image，"
+                        "mcp__canvas__analyze_image，"
                         "不要再通过 Glob/Read 搜索 _chat_attachments.json。"
                     )
 

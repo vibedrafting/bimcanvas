@@ -953,15 +953,17 @@ class OpenAIAgent:
                 args["sourceImageId"] = sourceImageId
             return await self._invoke_canvas_tool_impl("save_reference_analysis", args)
 
-        @with_tool_context(tool_name="mcp__canvas__analyze_reference_image")
-        async def canvas_analyze_reference_image(
+        @with_tool_context(tool_name="mcp__canvas__analyze_image")
+        async def canvas_analyze_image(
             ctx: Any,
             projectPath: str | None = None,
             attachmentId: str | None = None,
             path: str | None = None,
             base64: str | None = None,
+            analysisMode: str | None = None,
+            task: str | None = None,
         ) -> Any:
-            """Analyze a reference image attachment into structured design guidance."""
+            """Analyze an image attachment with either a custom task or reference-layout preset."""
             args: dict[str, Any] = {}
             resolved_project_path = self._resolve_canvas_project_path(ctx, projectPath)
             if resolved_project_path:
@@ -972,7 +974,11 @@ class OpenAIAgent:
                 args["path"] = path
             if base64:
                 args["base64"] = base64
-            return await self._invoke_canvas_tool_impl("analyze_reference_image", args)
+            if analysisMode:
+                args["analysisMode"] = analysisMode
+            if task:
+                args["task"] = task
+            return await self._invoke_canvas_tool_impl("analyze_image", args)
 
         @function_tool(name_override="Skill")
         async def skill_tool(skill: str) -> str:
@@ -1002,7 +1008,7 @@ class OpenAIAgent:
             "mcp__canvas__validate_layout": canvas_validate_layout,
             "mcp__canvas__load_reference_analysis": canvas_load_reference_analysis,
             "mcp__canvas__save_reference_analysis": canvas_save_reference_analysis,
-            "mcp__canvas__analyze_reference_image": canvas_analyze_reference_image,
+            "mcp__canvas__analyze_image": canvas_analyze_image,
         }
 
     def _build_helper_agent_tools(
