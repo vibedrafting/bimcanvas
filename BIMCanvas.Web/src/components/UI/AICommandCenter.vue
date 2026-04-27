@@ -1497,7 +1497,7 @@ watch(chatScrollRef, (newEl, oldEl) => {
 
           <div class="prop-row cell-row">
             <label class="label" for="spatial-cell-size">Cell</label>
-            <div class="value cell-stepper">
+            <div class="cell-stepper">
               <button
                 class="stepper-btn"
                 title="Decrease cell size"
@@ -3230,6 +3230,8 @@ watch(chatScrollRef, (newEl, oldEl) => {
 
     .cell-stepper {
         width: 116px;
+        min-width: 116px;
+        max-width: 116px;
         height: 28px;
         justify-self: start;
         display: inline-flex;
