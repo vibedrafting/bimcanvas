@@ -221,6 +221,7 @@ const {
 
 const {
   activeDraft,
+  draftScopeDisplayText,
   pendingSpatialMarks,
   topLevelZones,
   startSpatialMarking,
@@ -1491,14 +1492,14 @@ watch(chatScrollRef, (newEl, oldEl) => {
         <div class="prop-list">
           <div class="prop-row">
             <span class="label">Scope</span>
-            <span class="value readonly-value">All spaces</span>
+            <span class="value readonly-value">{{ draftScopeDisplayText }}</span>
           </div>
 
-          <div class="prop-row">
+          <div class="prop-row cell-row">
             <label class="label" for="spatial-cell-size">Cell</label>
             <input
               id="spatial-cell-size"
-              class="value spatial-input"
+              class="value spatial-input cell-size-input"
               type="number"
               min="50"
               step="50"
@@ -3048,7 +3049,7 @@ watch(chatScrollRef, (newEl, oldEl) => {
     position: fixed;
     left: 24px;
     top: 120px;
-    width: min(360px, calc(100vw - 48px));
+    width: min(320px, calc(100vw - 48px));
     max-height: calc(100vh - 144px);
 
     background: var(--glass-bg);
@@ -3073,13 +3074,13 @@ watch(chatScrollRef, (newEl, oldEl) => {
         display: flex;
         align-items: center;
         justify-content: space-between;
-        padding: 12px 16px;
+        padding: 10px 14px;
         border-bottom: 1px solid var(--border-subtle);
         flex-shrink: 0;
 
         .title {
             font-weight: 600;
-            font-size: 0.9rem;
+            font-size: 0.84rem;
             color: var(--text-primary);
             letter-spacing: 0.5px;
         }
@@ -3123,7 +3124,7 @@ watch(chatScrollRef, (newEl, oldEl) => {
     .panel-content {
         flex: 1;
         overflow-y: auto;
-        padding: 12px 16px 14px;
+        padding: 10px 14px 12px;
 
         &::-webkit-scrollbar {
             width: 4px;
@@ -3142,15 +3143,15 @@ watch(chatScrollRef, (newEl, oldEl) => {
     .prop-list {
         display: flex;
         flex-direction: column;
-        gap: 10px;
+        gap: 8px;
     }
 
     .prop-row {
         display: grid;
-        grid-template-columns: 82px minmax(0, 1fr);
+        grid-template-columns: 74px minmax(0, 1fr);
         align-items: center;
-        gap: 10px;
-        font-size: 0.85rem;
+        gap: 8px;
+        font-size: 0.8rem;
         line-height: 1.4;
 
         &.textarea-row {
@@ -3180,9 +3181,7 @@ watch(chatScrollRef, (newEl, oldEl) => {
 
     .readonly-value {
         opacity: 0.95;
-        width: auto;
-        justify-self: end;
-        text-align: right;
+        text-align: left;
     }
 
     .spatial-input {
@@ -3193,9 +3192,9 @@ watch(chatScrollRef, (newEl, oldEl) => {
         background: rgba(0, 0, 0, 0.16);
         color: var(--text-primary);
         font: inherit;
-        font-size: 0.8rem;
+        font-size: 0.78rem;
         line-height: 1.35;
-        padding: 6px 8px;
+        padding: 5px 8px;
         outline: none;
 
         &:focus {
@@ -3210,9 +3209,14 @@ watch(chatScrollRef, (newEl, oldEl) => {
     }
 
     .spatial-description {
-        min-height: 68px;
+        min-height: 54px;
         resize: vertical;
         text-align: left;
+    }
+
+    .cell-size-input {
+        width: 88px;
+        justify-self: start;
     }
 
     input[type='number'].spatial-input {
@@ -3229,7 +3233,7 @@ watch(chatScrollRef, (newEl, oldEl) => {
         display: flex;
         justify-content: flex-end;
         gap: 8px;
-        margin-top: 12px;
+        margin-top: 10px;
 
         button {
             border: 1px solid rgba(255, 255, 255, 0.14);
@@ -3237,8 +3241,8 @@ watch(chatScrollRef, (newEl, oldEl) => {
             background: rgba(255, 255, 255, 0.06);
             color: var(--text-secondary);
             cursor: pointer;
-            font-size: 0.78rem;
-            padding: 6px 10px;
+            font-size: 0.74rem;
+            padding: 5px 9px;
 
             &.primary {
                 background: rgba(10, 132, 255, 0.18);

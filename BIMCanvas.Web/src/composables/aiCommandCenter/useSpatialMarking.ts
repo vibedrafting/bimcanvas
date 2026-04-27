@@ -9,6 +9,7 @@ import type {
   SpatialMark,
   SpatialMarkDraft
 } from '../../types/aiCommandCenter';
+import type { Point2D, Polygon2D } from '../../types/canvas';
 
 interface SpatialMarkingOptions {
   windows: Ref<ChatWindow[]>;
@@ -27,6 +28,24 @@ const normalizeCellSize = (value: number): number => {
   return Math.max(MIN_CELL_SIZE, Math.round(value));
 };
 
+const getBoundaryShell = (boundary: Polygon2D | { shell?: Point2D[] } | undefined | null): Point2D[] => {
+  if (!boundary) return [];
+  return Array.isArray(boundary) ? boundary : (boundary.shell || []);
+};
+
+const isPointInsidePolygon = (point: Point2D, polygon: Point2D[]): boolean => {
+  let inside = false;
+  const [x, y] = point;
+  for (let i = 0, j = polygon.length - 1; i < polygon.length; j = i, i += 1) {
+    const [xi, yi] = polygon[i]!;
+    const [xj, yj] = polygon[j]!;
+    const intersects = ((yi > y) !== (yj > y)) &&
+      (x < ((xj - xi) * (y - yi)) / ((yj - yi) || Number.EPSILON) + xi);
+    if (intersects) inside = !inside;
+  }
+  return inside;
+};
+
 export function useSpatialMarking(options: SpatialMarkingOptions) {
   const store = useCanvasStore();
   const { projectData } = storeToRefs(store);
@@ -41,6 +60,36 @@ export function useSpatialMarking(options: SpatialMarkingOptions) {
   const activeDraft = computed(() => options.activeWindow.value?.spatialMarkDraft ?? null);
   const pendingSpatialMarks = computed(() => options.activeWindow.value?.pendingSpatialMarks ?? []);
   const isSpatialMarking = computed(() => !!activeDraft.value);
+
+  const draftScopeDisplayText = computed(() => {
+    const draft = activeDraft.value;
+    if (!draft || draft.selectedCells.length === 0) return 'All spaces';
+
+    const zones = projectData.value?.activeScheme?.zones || [];
+    const zoneNames: string[] = [];
+
+    for (const zone of zones) {
+      const shell = getBoundaryShell(zone.computedBoundary || zone.rawBoundary);
+      if (shell.length < 3) continue;
+
+      const hasSelectedCell = draft.selectedCells.some(cell => {
+        const center: Point2D = [
+          (cell.col + 0.5) * draft.cellSize,
+          (cell.row + 0.5) * draft.cellSize
+        ];
+        return isPointInsidePolygon(center, shell);
+      });
+
+      if (hasSelectedCell) {
+        zoneNames.push(zone.name || zone.id);
+      }
+    }
+
+    if (zoneNames.length === 0) return 'All spaces';
+    if (zoneNames.length === 1) return zoneNames[0]!;
+    if (zoneNames.length <= 2) return zoneNames.join(', ');
+    return `${zoneNames.length} 个区域`;
+  });
 
   const createDraft = (cellSize?: number): SpatialMarkDraft | null => {
     if (topLevelZones.value.length === 0) return null;
@@ -255,6 +304,7 @@ export function useSpatialMarking(options: SpatialMarkingOptions) {
 
   return {
     activeDraft,
+    draftScopeDisplayText,
     pendingSpatialMarks,
     topLevelZones,
     isSpatialMarking,
