@@ -3264,9 +3264,9 @@ watch(chatScrollRef, (newEl, oldEl) => {
 
     .intent-combo {
         position: relative;
-        width: 128px;
-        min-width: 128px;
-        max-width: 128px;
+        width: 116px;
+        min-width: 116px;
+        max-width: 116px;
         height: 30px;
         justify-self: start;
         display: inline-flex;
@@ -3283,7 +3283,7 @@ watch(chatScrollRef, (newEl, oldEl) => {
     }
 
     .intent-input {
-        width: 98px;
+        width: 86px;
         min-width: 0;
         height: 100%;
         border: none;
