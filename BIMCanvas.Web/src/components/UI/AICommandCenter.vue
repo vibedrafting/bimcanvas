@@ -3315,6 +3315,7 @@ watch(chatScrollRef, (newEl, oldEl) => {
         font: inherit;
         font-size: 0.78rem;
         line-height: 1.35;
+        text-align: center;
         outline: none;
         padding: 0 8px;
 
