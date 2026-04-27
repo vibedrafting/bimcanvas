@@ -876,7 +876,7 @@ class MainAgent:
         # ── 用户标注区域（完成后的临时意图批次） ──
         spatial_marks = context.get("spatialMarks")
         if isinstance(spatial_marks, list) and spatial_marks:
-            mark_lines = ["用户标注区域："]
+            mark_lines = ["用户标注区域（网格选区表示用户意图的大致范围；具体落位、贴墙、避让和边界需结合项目几何重新计算）："]
             for mark in spatial_marks:
                 if not isinstance(mark, dict):
                     continue

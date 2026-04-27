@@ -75,10 +75,9 @@ namespace BIMCanvas.Server.Controllers
                 if (boundary == null || boundary.Vertices.Length < 3)
                     return BadRequest(new { message = $"目标 zone 缺少有效边界: {request!.ZoneId}" });
 
-                var zoneAabb = boundary.ComputeAABB();
                 var cells = request!.Cells.Select(c => (c.Col, c.Row));
-                var gridOriginX = request.GridOriginX ?? zoneAabb.MinX;
-                var gridOriginY = request.GridOriginY ?? zoneAabb.MinY;
+                var gridOriginX = request.GridOriginX ?? 0;
+                var gridOriginY = request.GridOriginY ?? 0;
 
                 var geometry = GridSelectionMerger.MergeGridCells(
                     boundary,
@@ -86,8 +85,8 @@ namespace BIMCanvas.Server.Controllers
                     gridOriginY,
                     request.CellSize,
                     cells,
-                    zoneAabb.MinX,
-                    zoneAabb.MinY);
+                    0,
+                    0);
 
                 _logger.LogInformation(
                     "[SpatialMarks] 合并网格选择: Zone={ZoneId}, Cells={CellCount}, Geometry={GeometryCount}, Path={Path}",
