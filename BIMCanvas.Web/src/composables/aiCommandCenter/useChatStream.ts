@@ -1051,6 +1051,8 @@ export const useChatStream = (options: ChatStreamOptions) => {
         throw await createChatHttpError(response);
       }
 
+      options.onMessageDelivered?.(targetWindowId);
+
       const reader = response.body?.getReader();
       const decoder = new TextDecoder();
 
@@ -1132,7 +1134,6 @@ export const useChatStream = (options: ChatStreamOptions) => {
 
       agentStatus.value = 'connected';
       shouldCommitAttachments = true;
-      options.onMessageDelivered?.(targetWindowId);
     } catch (error) {
       flushPendingDeltaEvent();
       // AbortError 是用户主动中止，不是真正的错误
