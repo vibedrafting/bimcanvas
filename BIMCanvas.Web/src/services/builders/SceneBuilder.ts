@@ -300,6 +300,30 @@ export class SceneBuilder {
         this.boxHelpers.push(boxHelper);
     }
 
+    private createModuleBoundsLine(mod: Module) {
+        if (!mod.bounds || mod.bounds.length < 3) return;
+
+        const boundsColor = canvasStyleService.currentStyle.value.layers.bounds.color;
+        const points = mod.bounds.map(([x, y]) => new THREE.Vector3(x, y, 0));
+        const geometry = new THREE.BufferGeometry().setFromPoints(points);
+        const material = new THREE.LineBasicMaterial({
+            color: boundsColor,
+            depthTest: false
+        });
+
+        const line = new THREE.LineLoop(geometry, material);
+        line.rotation.x = -Math.PI / 2;
+        line.renderOrder = 998;
+        line.layers.set(LayerManager.LAYER_BOUNDS);
+        line.userData = {
+            id: mod.id,
+            type: 'module-bounds',
+            data: mod
+        };
+
+        this.scene.add(line);
+    }
+
     private updateAllHelpers() {
         this.boxHelpers.forEach(helper => {
             helper.update();
@@ -1130,7 +1154,7 @@ export class SceneBuilder {
 
         this.enableFurnitureLayer(mesh);
         if (this.buildOptions.includeBounds) {
-            this.createBoundsHelper(mesh);
+            this.createModuleBoundsLine(mod);
             // 添加朝向箭头
             this.createFacingArrow(mod);
         }

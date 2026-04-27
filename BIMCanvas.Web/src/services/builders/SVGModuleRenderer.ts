@@ -291,29 +291,15 @@ export class SVGModuleRenderer {
       };
     }
 
-    // 4. 计算 bounds 尺寸
+    // 4. 计算 bounds 的本地边长，避免旋转后的 AABB 放大 SVG
     const boundsSize = this.calculateBoundsSize(module.bounds);
 
-    // 5. 【关键修复】判断是否需要交换尺寸对应关系
-    // Three.js 变换顺序是 Scale → Rotate → Translate
-    // 当旋转 90°/270° 时，Rotate 会交换宽高
-    // 因此缩放计算需要"预先考虑"这个交换
+    // 5. SVG 在本地坐标系缩放后再旋转，因此始终按 OBB 边长对应原始 SVG 尺寸
     const rotationDegrees = Math.abs(rotation * 180 / Math.PI) % 360;
-    const isRotated90 = (rotationDegrees > 45 && rotationDegrees < 135) ||
-                        (rotationDegrees > 225 && rotationDegrees < 315);
+    const scaleX = boundsSize.width / svgSize.width;
+    const scaleY = boundsSize.depth / svgSize.height;
 
-    let scaleX: number, scaleY: number;
-    if (isRotated90) {
-      // 旋转 90°/270°：bounds 的 width/depth 需要与 SVG 的 height/width 对应
-      scaleX = boundsSize.depth / svgSize.width;
-      scaleY = boundsSize.width / svgSize.height;
-    } else {
-      // 不旋转或旋转 180°：正常对应
-      scaleX = boundsSize.width / svgSize.width;
-      scaleY = boundsSize.depth / svgSize.height;
-    }
-
-    console.log(`[SVG Scale] bounds=(${boundsSize.width.toFixed(0)}, ${boundsSize.depth.toFixed(0)}), svg=(${svgSize.width.toFixed(0)}, ${svgSize.height.toFixed(0)}), rot=${rotationDegrees.toFixed(0)}°, rotated90=${isRotated90}, scale=(${scaleX.toFixed(2)}, ${scaleY.toFixed(2)})`);
+    console.log(`[SVG Scale] bounds=(${boundsSize.width.toFixed(0)}, ${boundsSize.depth.toFixed(0)}), svg=(${svgSize.width.toFixed(0)}, ${svgSize.height.toFixed(0)}), rot=${rotationDegrees.toFixed(0)}°, scale=(${scaleX.toFixed(2)}, ${scaleY.toFixed(2)})`);
 
     return {
       position: { x: center[0], y: center[1] },
@@ -342,24 +328,18 @@ export class SVGModuleRenderer {
   }
 
   /**
-   * 计算多边形边界框尺寸
+   * 计算模块 OBB 的本地边长。
+   * bounds 点序约定：p0→p1 为模块宽度方向，p1→p2 为深度方向。
    */
   private calculateBoundsSize(polygon: Point2D[]): { width: number, depth: number } {
-    if (polygon.length === 0) return { width: 0, depth: 0 };
+    if (polygon.length < 3) return { width: 0, depth: 0 };
 
-    let minX = Infinity, maxX = -Infinity;
-    let minY = Infinity, maxY = -Infinity;
-
-    polygon.forEach(p => {
-      minX = Math.min(minX, p[0]);
-      maxX = Math.max(maxX, p[0]);
-      minY = Math.min(minY, p[1]);
-      maxY = Math.max(maxY, p[1]);
-    });
+    const edgeLength = (a: Point2D, b: Point2D): number =>
+      Math.hypot(b[0] - a[0], b[1] - a[1]);
 
     return {
-      width: maxX - minX,
-      depth: maxY - minY
+      width: edgeLength(polygon[0]!, polygon[1]!),
+      depth: edgeLength(polygon[1]!, polygon[2]!)
     };
   }
 

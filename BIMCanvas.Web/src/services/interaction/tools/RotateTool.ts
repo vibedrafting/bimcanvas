@@ -256,7 +256,7 @@ export class RotateTool implements Tool {
             store.setPrompt('请点击设置旋转终止角度');
 
         } else if (this.state === 'waiting_end') {
-            this.executeRotate(finalPoint);
+            this.executeRotate(finalPoint, true);
         }
     }
 
@@ -312,9 +312,8 @@ export class RotateTool implements Tool {
                 this.updateStartLine(this.centerPoint, targetPoint);
             }
         } else if (this.state === 'waiting_end' && this.centerPoint && this.startAngle !== null) {
-            const vector = new THREE.Vector3().subVectors(finalPoint, this.centerPoint);
-            let currentAngle = Math.atan2(vector.z, vector.x);
-            const distance = vector.length();
+            const resolvedAngle = this.resolveEndAngle(finalPoint, true);
+            if (!resolvedAngle) return;
 
             if (this.shiftHeld) {
                 // Shift 强制锁定到 15° 倍数，显示刻度圈
@@ -322,35 +321,24 @@ export class RotateTool implements Tool {
                     this.createAxisLines(this.centerPoint);
                     this.createScaleLines(this.centerPoint);
                 }
-                const angleStep = Math.PI / 12; // 15°
-                currentAngle = Math.round(currentAngle / angleStep) * angleStep;
             } else {
                 // 软吸附：只吸附 XY 轴（0°、90°、180°、270°），不显示刻度圈
                 this.removeAxisLines();
                 this.removeScaleLines();
-
-                const axisStep = Math.PI / 2; // 90°
-                const softSnapThreshold = Math.PI / 22.5; // 8° 阈值
-                const nearestAxis = Math.round(currentAngle / axisStep) * axisStep;
-                const deviation = Math.abs(currentAngle - nearestAxis);
-
-                if (deviation <= softSnapThreshold) {
-                    currentAngle = nearestAxis;
-                }
             }
 
             // 计算锁定后的终点位置（让线条也跳跃到锁定角度）
             const lockedEndPoint = new THREE.Vector3(
-                this.centerPoint.x + Math.cos(currentAngle) * distance,
+                this.centerPoint.x + Math.cos(resolvedAngle.angle) * resolvedAngle.distance,
                 finalPoint.y,
-                this.centerPoint.z + Math.sin(currentAngle) * distance
+                this.centerPoint.z + Math.sin(resolvedAngle.angle) * resolvedAngle.distance
             );
             this.updateEndLine(this.centerPoint, lockedEndPoint);
 
-            const deltaRotation = currentAngle - this.startAngle;
+            const deltaRotation = resolvedAngle.angle - this.startAngle;
 
             // 更新角度标注
-            this.updateAngleLabel(this.centerPoint, currentAngle, deltaRotation);
+            this.updateAngleLabel(this.centerPoint, resolvedAngle.angle, deltaRotation);
 
             // 使用 setRotation（Pivot 已在用户点击确认旋转中心时设置）
             this.ghostManager.setRotation(deltaRotation);
@@ -466,17 +454,46 @@ export class RotateTool implements Tool {
             this.centerPoint.z + Math.sin(endAngle) * 1000
         );
 
-        this.executeRotate(virtualEndPoint);
+        this.executeRotate(virtualEndPoint, false);
     }
 
-    private executeRotate(endPoint: THREE.Vector3) {
-        if (!this.centerPoint || this.startAngle === null || this.selectedObjects.length === 0) return;
+    private resolveEndAngle(endPoint: THREE.Vector3, applySnapping: boolean): { angle: number; distance: number } | null {
+        if (!this.centerPoint) return null;
 
         const vector = new THREE.Vector3().subVectors(endPoint, this.centerPoint);
-        const endAngle = Math.atan2(vector.z, vector.x);
+        let angle = Math.atan2(vector.z, vector.x);
+
+        if (applySnapping) {
+            if (this.shiftHeld) {
+                const angleStep = Math.PI / 12; // 15°
+                angle = Math.round(angle / angleStep) * angleStep;
+            } else {
+                const axisStep = Math.PI / 2; // 90°
+                const softSnapThreshold = Math.PI / 22.5; // 8° 阈值
+                const nearestAxis = Math.round(angle / axisStep) * axisStep;
+                const deviation = Math.abs(angle - nearestAxis);
+
+                if (deviation <= softSnapThreshold) {
+                    angle = nearestAxis;
+                }
+            }
+        }
+
+        return {
+            angle,
+            distance: vector.length()
+        };
+    }
+
+    private executeRotate(endPoint: THREE.Vector3, applySnapping: boolean) {
+        if (!this.centerPoint || this.startAngle === null || this.selectedObjects.length === 0) return;
+
+        const resolvedAngle = this.resolveEndAngle(endPoint, applySnapping);
+        if (!resolvedAngle) return;
+
         // 交互角(CW+) 需要取反转换为 模型角(CCW+)
         // GhostManager.setRotation() 内部也做了取反，所以预览和结果方向一致
-        const deltaRotation = -(endAngle - this.startAngle);
+        const deltaRotation = -(resolvedAngle.angle - this.startAngle);
 
         const store = useCanvasStore();
         const center2D = toModel(this.centerPoint);
