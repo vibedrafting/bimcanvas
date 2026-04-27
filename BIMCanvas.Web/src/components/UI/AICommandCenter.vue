@@ -1498,7 +1498,7 @@ watch(chatScrollRef, (newEl, oldEl) => {
             <label class="label" for="spatial-cell-size">Cell</label>
             <input
               id="spatial-cell-size"
-              class="value spatial-input compact"
+              class="value spatial-input"
               type="number"
               min="50"
               step="50"
@@ -3048,7 +3048,7 @@ watch(chatScrollRef, (newEl, oldEl) => {
     position: fixed;
     left: 24px;
     top: 120px;
-    width: 320px;
+    width: min(360px, calc(100vw - 48px));
     max-height: calc(100vh - 144px);
 
     background: var(--glass-bg);
@@ -3142,25 +3142,26 @@ watch(chatScrollRef, (newEl, oldEl) => {
     .prop-list {
         display: flex;
         flex-direction: column;
-        gap: 8px;
+        gap: 10px;
     }
 
     .prop-row {
-        display: flex;
-        justify-content: space-between;
-        align-items: baseline;
-        gap: 12px;
+        display: grid;
+        grid-template-columns: 82px minmax(0, 1fr);
+        align-items: center;
+        gap: 10px;
         font-size: 0.85rem;
         line-height: 1.4;
 
         &.textarea-row {
+            grid-template-columns: 1fr;
             align-items: flex-start;
+            gap: 6px;
         }
 
         .label {
             color: var(--text-secondary);
-            flex-shrink: 0;
-            max-width: 40%;
+            max-width: 100%;
             overflow: hidden;
             text-overflow: ellipsis;
             white-space: nowrap;
@@ -3168,9 +3169,9 @@ watch(chatScrollRef, (newEl, oldEl) => {
 
         .value {
             color: var(--text-primary);
-            text-align: right;
-            flex: 1;
+            text-align: left;
             min-width: 0;
+            width: 100%;
             word-break: break-word;
             white-space: pre-wrap;
             font-family: var(--font-mono);
@@ -3179,6 +3180,9 @@ watch(chatScrollRef, (newEl, oldEl) => {
 
     .readonly-value {
         opacity: 0.95;
+        width: auto;
+        justify-self: end;
+        text-align: right;
     }
 
     .spatial-input {
@@ -3193,10 +3197,6 @@ watch(chatScrollRef, (newEl, oldEl) => {
         line-height: 1.35;
         padding: 6px 8px;
         outline: none;
-
-        &.compact {
-            max-width: 96px;
-        }
 
         &:focus {
             border-color: rgba(10, 132, 255, 0.55);
@@ -3213,6 +3213,10 @@ watch(chatScrollRef, (newEl, oldEl) => {
         min-height: 68px;
         resize: vertical;
         text-align: left;
+    }
+
+    input[type='number'].spatial-input {
+        text-align: right;
     }
 
     .spatial-error {
