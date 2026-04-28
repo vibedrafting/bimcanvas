@@ -324,8 +324,8 @@ export function useSpatialMarking(options: SpatialMarkingOptions) {
     const draft = activeDraft.value;
     if (!win || !draft || draft.isCompleting) return;
 
-    if (!draft.label.trim()) {
-      draft.error = '请输入空间标记标签';
+    if (!draft.label.trim() && !draft.description.trim()) {
+      draft.error = '请输入空间标记标签或描述';
       return;
     }
     if (draft.selectedCells.length === 0) {
