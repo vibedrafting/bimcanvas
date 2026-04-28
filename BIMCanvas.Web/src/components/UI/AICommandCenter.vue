@@ -1120,7 +1120,6 @@ watch(chatScrollRef, (newEl, oldEl) => {
                 title="Space Mark"
                 :class="{ active: !!activeDraft }"
                 @click.stop="toggleSpaceMarkFromButton"
-                :disabled="activeWindow?.isStreaming"
             >
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                     <path d="M4 4l7.5 16 2.4-6.1L20 11.5 4 4z"></path>
