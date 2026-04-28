@@ -68,6 +68,7 @@ const {
 const isSelectionExpanded = ref(false);
 const spatialIntentOptions = ['通行区', '布置区', '功能区', '禁布区'] as const;
 const isSpatialIntentMenuOpen = ref(false);
+const spatialLabelInputRef = ref<HTMLInputElement | null>(null);
 
 const {
   windows,
@@ -282,6 +283,22 @@ const selectSpatialIntent = (intent: string) => {
   setDraftLabel(intent);
   isSpatialIntentMenuOpen.value = false;
 };
+
+const dismissSpatialLabelSuggestions = () => {
+  if (document.activeElement === spatialLabelInputRef.value) {
+    spatialLabelInputRef.value?.blur();
+  }
+  isSpatialIntentMenuOpen.value = false;
+};
+
+watch(
+  () => activeDraft.value?.selectedCells.map(cell => `${cell.col}:${cell.row}`).join(',') ?? '',
+  (nextSelection, previousSelection) => {
+    if (nextSelection !== previousSelection) {
+      dismissSpatialLabelSuggestions();
+    }
+  }
+);
 
 const toggleSpaceMarkFromButton = () => {
   if (activeDraft.value) {
@@ -1639,10 +1656,16 @@ watch(chatScrollRef, (newEl, oldEl) => {
             <label class="label" for="spatial-label">Tag</label>
             <div class="intent-combo">
               <input
+                ref="spatialLabelInputRef"
                 id="spatial-label"
                 class="intent-input"
                 :value="activeDraft.label"
                 placeholder="Tag"
+                autocomplete="off"
+                autocapitalize="off"
+                autocorrect="off"
+                spellcheck="false"
+                aria-autocomplete="none"
                 :disabled="activeDraft.isCompleting || activeWindow?.isStreaming"
                 @input="setDraftLabel(getEventValue($event))"
               />
