@@ -40,6 +40,15 @@ export interface SpatialMarkDraft {
   editingMarkId?: string | null;
 }
 
+export interface QueuedChatDraft {
+  id: string;
+  text: string;
+  clientMessageId: string;
+  attachments: ChatAttachmentRef[];
+  spatialMarks: SpatialMark[];
+  createdAt: number;
+}
+
 export interface ChatMessage {
   role: 'user' | 'ai';
   isStreaming?: boolean;
@@ -89,6 +98,7 @@ export interface ChatWindow {
   pendingAttachments: ChatAttachmentRef[];
   pendingSpatialMarks: SpatialMark[];
   spatialMarkDraft?: SpatialMarkDraft | null;
+  queuedMessage?: QueuedChatDraft | null;
   scrollPosition: number;
   expandedThinking: Record<number, boolean>;
   shouldAutoScroll: boolean;

@@ -234,8 +234,7 @@ const {
   clearDraftSelection,
   completeDraft,
   editPendingMark,
-  removePendingMark,
-  clearPendingSpatialMarks
+  removePendingMark
 } = useSpatialMarking({
   windows,
   activeWindowId,
@@ -247,6 +246,28 @@ const getSpatialMarkZoneName = (zoneId: string) =>
 
 const getEventValue = (event: Event) => (event.target as HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement).value;
 
+const activeQueuedMessage = computed(() => activeWindow.value?.queuedMessage ?? null);
+const hasInputSendableContent = computed(() =>
+  inputMessage.value.trim().length > 0
+  || pendingAttachments.value.length > 0
+  || pendingSpatialMarks.value.length > 0
+);
+const canRestoreQueuedMessage = computed(() =>
+  !!activeQueuedMessage.value && !hasInputSendableContent.value
+);
+const queuedAttachmentCount = computed(() => activeQueuedMessage.value?.attachments.length ?? 0);
+const queuedSpatialMarkCount = computed(() => activeQueuedMessage.value?.spatialMarks.length ?? 0);
+const queuedMessagePreview = computed(() => {
+  const queued = activeQueuedMessage.value;
+  if (!queued) return '';
+
+  const text = queued.text || '等待发送的上下文';
+  const badges: string[] = [];
+  if (queued.attachments.length > 0) badges.push(`${queued.attachments.length} 图`);
+  if (queued.spatialMarks.length > 0) badges.push(`${queued.spatialMarks.length} Space Mark`);
+  return badges.length > 0 ? `${text} · ${badges.join(' · ')}` : text;
+});
+
 const updatePendingSpatialLabel = (markId: string, value: string) => {
   const mark = pendingSpatialMarks.value.find(item => item.id === markId);
   if (mark) mark.label = value;
@@ -255,22 +276,6 @@ const updatePendingSpatialLabel = (markId: string, value: string) => {
 const updatePendingSpatialDescription = (markId: string, value: string) => {
   const mark = pendingSpatialMarks.value.find(item => item.id === markId);
   if (mark) mark.description = value;
-};
-
-const clearPendingSpatialMarksForSend = (windowId: string) => {
-  const targetWindow = windows.value.find(item => item.id === windowId);
-  const snapshot = targetWindow
-    ? JSON.parse(JSON.stringify(targetWindow.pendingSpatialMarks))
-    : [];
-
-  clearPendingSpatialMarks(windowId);
-
-  return () => {
-    const restoreWindow = windows.value.find(item => item.id === windowId);
-    if (restoreWindow && restoreWindow.pendingSpatialMarks.length === 0 && snapshot.length > 0) {
-      restoreWindow.pendingSpatialMarks = snapshot;
-    }
-  };
 };
 
 const selectSpatialIntent = (intent: string) => {
@@ -430,6 +435,9 @@ const {
   isPollingBackground,
   streamWelcomeMessage,
   sendMessage,
+  sendQueuedMessageNow,
+  restoreQueuedMessage,
+  deleteQueuedMessage,
   restoreHistory,
   waitForInteractionContinuation,
   interruptMessage,
@@ -452,8 +460,7 @@ const {
   scrollToBottom,
   fetchAgentConfig,
   hasFallback,
-  buildContextPayload: () => buildContextPayload(pendingSpatialMarks.value),
-  onMessageDelivered: clearPendingSpatialMarksForSend
+  buildContextPayload: (spatialMarks = pendingSpatialMarks.value) => buildContextPayload(spatialMarks)
 });
 
 const hasProgressOverlay = computed(() => !!activeTodoProgress.value || isPollingBackground.value);
@@ -509,6 +516,13 @@ watch(inputMessage, (newVal) => {
     });
   }
 });
+
+const handleRestoreQueuedMessage = () => {
+  if (!restoreQueuedMessage()) {
+    return;
+  }
+  nextTick(() => adjustTextareaHeight());
+};
 
 const bubbleToSubAgent = (bubble: ChatBubble): SubAgent => {
   const toolCalls: ToolCall[] = (bubble.childBubbles || [])
@@ -1250,6 +1264,58 @@ watch(chatScrollRef, (newEl, oldEl) => {
 
         <!-- Antigravity Input Box -->
         <div class="antigravity-input-box">
+            <div class="queued-message-card" v-if="activeQueuedMessage">
+              <div class="queued-message-main" :title="queuedMessagePreview">
+                <span class="queued-message-icon">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M4 7h10a6 6 0 0 1 6 6v4"></path>
+                    <polyline points="16 13 20 17 16 21"></polyline>
+                  </svg>
+                </span>
+                <span class="queued-message-text">{{ queuedMessagePreview }}</span>
+                <span class="queued-message-meta" v-if="queuedAttachmentCount > 0" title="附件">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"></path>
+                  </svg>
+                  <span>{{ queuedAttachmentCount }}</span>
+                </span>
+                <span class="queued-message-meta" v-if="queuedSpatialMarkCount > 0" title="Space Mark">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M4 4l7.5 16 2.4-6.1L20 11.5 4 4z"></path>
+                    <path d="M13.5 13.5L19 19"></path>
+                  </svg>
+                  <span>{{ queuedSpatialMarkCount }}</span>
+                </span>
+              </div>
+              <div class="queued-message-actions">
+                <button class="queued-action" title="立即发送" @click.stop="sendQueuedMessageNow">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round">
+                    <line x1="12" y1="19" x2="12" y2="5"></line>
+                    <polyline points="5 12 12 5 19 12"></polyline>
+                  </svg>
+                </button>
+                <button
+                  class="queued-action"
+                  title="撤回编辑"
+                  :disabled="!canRestoreQueuedMessage"
+                  @click.stop="handleRestoreQueuedMessage"
+                >
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M9 14L4 9l5-5"></path>
+                    <path d="M4 9h9a7 7 0 0 1 7 7v3"></path>
+                  </svg>
+                </button>
+                <button class="queued-action danger" title="删除" @click.stop="deleteQueuedMessage">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <polyline points="3 6 5 6 21 6"></polyline>
+                    <path d="M19 6l-1 14H6L5 6"></path>
+                    <path d="M10 11v6"></path>
+                    <path d="M14 11v6"></path>
+                    <path d="M9 6V4h6v2"></path>
+                  </svg>
+                </button>
+              </div>
+            </div>
             <div class="pending-spatial-marks" v-if="pendingSpatialMarks.length > 0">
               <div class="pending-spatial-mark" v-for="mark in pendingSpatialMarks" :key="mark.id">
                 <div class="pending-spatial-main">
@@ -1305,7 +1371,7 @@ watch(chatScrollRef, (newEl, oldEl) => {
             <textarea
               ref="textareaRef"
               v-model="inputMessage"
-              :placeholder="agentStatus === 'connected' ? '你好' : agentStatus === 'connecting' ? '正在连接 Agent...' : 'Agent 未连接'"
+              :placeholder="isLoading ? '要求后续变更' : agentStatus === 'connected' ? '你好' : agentStatus === 'connecting' ? '正在连接 Agent...' : 'Agent 未连接'"
               @keydown="handleKeydown"
               @paste="handleImagePaste"
               @input="adjustTextareaHeight"
@@ -1455,7 +1521,7 @@ watch(chatScrollRef, (newEl, oldEl) => {
                 <div class="right-controls">
                     <!-- 停止按钮：AI 处理过程中显示 -->
                     <button
-                      v-if="isLoading"
+                      v-if="isLoading && !hasInputSendableContent"
                       class="stop-btn-round"
                       @click="interruptMessage"
                       title="停止生成"
@@ -1469,7 +1535,8 @@ watch(chatScrollRef, (newEl, oldEl) => {
                       v-else
                       class="send-btn-round"
                       @click="sendMessage"
-                      :disabled="!inputMessage.trim() || agentStatus !== 'connected'"
+                      :disabled="!hasInputSendableContent || agentStatus !== 'connected' || (isLoading && !!activeQueuedMessage)"
+                      :title="isLoading && activeQueuedMessage ? '已有等待发送消息' : '发送'"
                     >
                         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round">
                             <line x1="12" y1="19" x2="12" y2="5"></line>
@@ -3711,6 +3778,102 @@ watch(chatScrollRef, (newEl, oldEl) => {
     .spatial-error {
         color: #ffb4a8;
         font-size: 0.74rem;
+    }
+
+    .queued-message-card {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) auto;
+        align-items: center;
+        gap: 8px;
+        margin: 8px 10px 2px;
+        padding: 7px 8px;
+        border-radius: 8px;
+        background: rgba(255, 255, 255, 0.055);
+        border: 1px solid rgba(255, 255, 255, 0.1);
+        box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04);
+    }
+
+    .queued-message-main {
+        min-width: 0;
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        color: rgba(255, 255, 255, 0.62);
+        font-size: 0.76rem;
+    }
+
+    .queued-message-icon {
+        width: 16px;
+        height: 16px;
+        flex: 0 0 auto;
+        color: rgba(255, 255, 255, 0.45);
+
+        svg {
+            width: 16px;
+            height: 16px;
+        }
+    }
+
+    .queued-message-text {
+        min-width: 0;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+
+    .queued-message-meta {
+        flex: 0 0 auto;
+        display: inline-flex;
+        align-items: center;
+        gap: 3px;
+        color: rgba(255, 255, 255, 0.42);
+        font-size: 0.68rem;
+
+        svg {
+            width: 12px;
+            height: 12px;
+        }
+    }
+
+    .queued-message-actions {
+        display: flex;
+        align-items: center;
+        gap: 3px;
+    }
+
+    .queued-action {
+        width: 24px;
+        height: 24px;
+        border: none;
+        border-radius: 6px;
+        background: transparent;
+        color: rgba(255, 255, 255, 0.46);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        cursor: pointer;
+        padding: 0;
+        transition: background 0.15s ease, color 0.15s ease;
+
+        svg {
+            width: 14px;
+            height: 14px;
+        }
+
+        &:hover:not(:disabled) {
+            background: rgba(255, 255, 255, 0.09);
+            color: rgba(255, 255, 255, 0.82);
+        }
+
+        &.danger:hover:not(:disabled) {
+            color: #ff8a80;
+            background: rgba(255, 59, 48, 0.12);
+        }
+
+        &:disabled {
+            opacity: 0.32;
+            cursor: not-allowed;
+        }
     }
 
     .pending-spatial-marks {

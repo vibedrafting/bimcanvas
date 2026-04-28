@@ -133,6 +133,7 @@ export const useWindowManager = (options: WindowManagerOptions) => {
       pendingAttachments: [],
       pendingSpatialMarks: [],
       spatialMarkDraft: null,
+      queuedMessage: null,
       scrollPosition: 0,
       expandedThinking: {},
       shouldAutoScroll: true
@@ -181,6 +182,7 @@ export const useWindowManager = (options: WindowManagerOptions) => {
       pendingAttachments: [],
       pendingSpatialMarks: [],
       spatialMarkDraft: null,
+      queuedMessage: null,
       scrollPosition: saved.scrollPosition ?? 0,
       expandedThinking: {},
       shouldAutoScroll: true
@@ -565,6 +567,7 @@ export const useWindowManager = (options: WindowManagerOptions) => {
       pendingAttachments: [],
       pendingSpatialMarks: [],
       spatialMarkDraft: null,
+      queuedMessage: null,
       scrollPosition: 0,
       expandedThinking: {},
       shouldAutoScroll: true
