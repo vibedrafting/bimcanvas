@@ -65,8 +65,10 @@ const {
   availableZones,
   buildContextPayload
 } = useSelectionContext();
+const DEFAULT_SPATIAL_INTENT_OPTIONS = ['家具（位置）', '设计区', '通道', '禁区'] as const;
+const SPATIAL_INTENT_STORAGE_KEY = 'bimcanvas:space-mark:intent-options';
 const isSelectionExpanded = ref(false);
-const spatialIntentOptions = ['通行区', '布置区', '功能区', '禁布区'] as const;
+const spatialIntentOptions = ref<string[]>([...DEFAULT_SPATIAL_INTENT_OPTIONS]);
 const isSpatialIntentMenuOpen = ref(false);
 const spatialLabelInputRef = ref<HTMLInputElement | null>(null);
 
@@ -279,9 +281,57 @@ const updatePendingSpatialDescription = (markId: string, value: string) => {
   if (mark) mark.description = value;
 };
 
+const normalizeSpatialIntent = (value: string) => value.trim();
+const activeSpatialIntent = computed(() => normalizeSpatialIntent(activeDraft.value?.label ?? ''));
+const canAddSpatialIntent = computed(() =>
+  activeSpatialIntent.value.length > 0 && !spatialIntentOptions.value.includes(activeSpatialIntent.value)
+);
+const canDeleteSpatialIntent = computed(() => spatialIntentOptions.value.includes(activeSpatialIntent.value));
+
+const saveSpatialIntentOptions = () => {
+  try {
+    window.localStorage.setItem(SPATIAL_INTENT_STORAGE_KEY, JSON.stringify(spatialIntentOptions.value));
+  } catch (error) {
+    console.warn('[AICommandCenter] Failed to save Space Mark tag presets:', error);
+  }
+};
+
+const loadSpatialIntentOptions = () => {
+  try {
+    const raw = window.localStorage.getItem(SPATIAL_INTENT_STORAGE_KEY);
+    if (!raw) return;
+
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return;
+
+    const options = parsed
+      .map(item => normalizeSpatialIntent(String(item)))
+      .filter((item, index, list) => item.length > 0 && list.indexOf(item) === index);
+    spatialIntentOptions.value = options;
+  } catch (error) {
+    console.warn('[AICommandCenter] Failed to load Space Mark tag presets:', error);
+  }
+};
+
 const selectSpatialIntent = (intent: string) => {
   setDraftLabel(intent);
   isSpatialIntentMenuOpen.value = false;
+};
+
+const addSpatialIntentOption = () => {
+  const intent = activeSpatialIntent.value;
+  if (!intent || spatialIntentOptions.value.includes(intent)) return;
+  spatialIntentOptions.value = [...spatialIntentOptions.value, intent];
+  saveSpatialIntentOptions();
+};
+
+const deleteSpatialIntentOption = () => {
+  const intent = activeSpatialIntent.value;
+  if (!intent) return;
+  const nextOptions = spatialIntentOptions.value.filter(item => item !== intent);
+  if (nextOptions.length === spatialIntentOptions.value.length) return;
+  spatialIntentOptions.value = nextOptions;
+  saveSpatialIntentOptions();
 };
 
 const dismissSpatialLabelSuggestions = () => {
@@ -299,6 +349,8 @@ watch(
     }
   }
 );
+
+onMounted(loadSpatialIntentOptions);
 
 const toggleSpaceMarkFromButton = () => {
   if (activeDraft.value) {
@@ -1684,11 +1736,34 @@ watch(chatScrollRef, (newEl, oldEl) => {
                 <button
                   v-for="intent in spatialIntentOptions"
                   :key="intent"
+                  class="intent-option"
                   :class="{ active: activeDraft.label === intent }"
                   @click.stop="selectSpatialIntent(intent)"
                 >
                   {{ intent }}
                 </button>
+                <div class="intent-actions">
+                  <button
+                    class="intent-action-btn"
+                    title="添加当前 Tag 到预设"
+                    :disabled="!canAddSpatialIntent"
+                    @click.stop="addSpatialIntentOption"
+                  >
+                    +
+                  </button>
+                  <button
+                    class="intent-action-btn"
+                    title="删除当前 Tag 预设"
+                    :disabled="!canDeleteSpatialIntent"
+                    @click.stop="deleteSpatialIntentOption"
+                  >
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                      <path d="M3 6h18"></path>
+                      <path d="M8 6V4h8v2"></path>
+                      <path d="M19 6l-1 14H6L5 6"></path>
+                    </svg>
+                  </button>
+                </div>
               </div>
             </div>
           </div>
@@ -3507,6 +3582,39 @@ watch(chatScrollRef, (newEl, oldEl) => {
             &.active {
                 background: rgba(255, 255, 255, 0.08);
                 color: var(--text-primary);
+            }
+        }
+
+        .intent-actions {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 4px;
+            margin-top: 3px;
+            padding-top: 4px;
+            border-top: 1px solid rgba(255, 255, 255, 0.08);
+        }
+
+        .intent-action-btn {
+            height: 24px;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            padding: 0;
+            text-align: center;
+
+            svg {
+                width: 13px;
+                height: 13px;
+            }
+
+            &:disabled {
+                opacity: 0.35;
+                cursor: not-allowed;
+            }
+
+            &:hover:disabled {
+                background: transparent;
+                color: var(--text-secondary);
             }
         }
     }
