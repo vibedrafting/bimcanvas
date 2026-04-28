@@ -1265,13 +1265,17 @@ watch(chatScrollRef, (newEl, oldEl) => {
         <!-- Antigravity Input Box -->
         <div class="antigravity-input-box">
             <div class="queued-message-card" v-if="activeQueuedMessage">
-              <div class="queued-message-main" :title="queuedMessagePreview">
-                <span class="queued-message-icon">
-                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                    <path d="M4 7h10a6 6 0 0 1 6 6v4"></path>
-                    <polyline points="16 13 20 17 16 21"></polyline>
+              <div class="queued-message-main" :title="`等待发送：${queuedMessagePreview}`">
+                <span class="queued-message-icon" title="等待发送">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <line x1="12" y1="17" x2="12" y2="7"></line>
+                    <polyline points="7.5 11.5 12 7 16.5 11.5"></polyline>
+                    <circle cx="7" cy="19" r="1"></circle>
+                    <circle cx="12" cy="20" r="1"></circle>
+                    <circle cx="17" cy="19" r="1"></circle>
                   </svg>
                 </span>
+                <span class="queued-message-status">等待发送</span>
                 <span class="queued-message-text">{{ queuedMessagePreview }}</span>
                 <span class="queued-message-meta" v-if="queuedAttachmentCount > 0" title="附件">
                   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -3803,15 +3807,23 @@ watch(chatScrollRef, (newEl, oldEl) => {
     }
 
     .queued-message-icon {
-        width: 16px;
-        height: 16px;
+        width: 17px;
+        height: 17px;
         flex: 0 0 auto;
-        color: rgba(255, 255, 255, 0.45);
+        color: rgba(255, 214, 10, 0.82);
 
         svg {
-            width: 16px;
-            height: 16px;
+            width: 17px;
+            height: 17px;
         }
+    }
+
+    .queued-message-status {
+        flex: 0 0 auto;
+        color: rgba(255, 214, 10, 0.84);
+        font-size: 0.68rem;
+        font-weight: 600;
+        white-space: nowrap;
     }
 
     .queued-message-text {
