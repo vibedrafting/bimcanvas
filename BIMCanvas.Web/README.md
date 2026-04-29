@@ -8,12 +8,38 @@
 
 ## 🔌 运行模式与接口寻址
 
+### Web Runtime
+
+Web 启动时会通过 `createWebRuntime()` 选择一次运行模式，运行期间不热切换：
+
+- **ConnectedRuntime**：Server 可达或 `VITE_WEB_RUNTIME=connected` 时使用。Web 通过 Server 拉取 `.bcp` 聚合后的 `ProjectData`，编辑后由 `saveModules()` 推送给 Server 写回项目文件，并接收 SignalR 实时同步。
+- **StandaloneRuntime**：Server 不可达或 `VITE_WEB_RUNTIME=standalone` 时使用。Web 不读取 `.bcp`，只导入/导出 `.bcweb.json` Snapshot；编辑只修改浏览器内存，保存语义是“导出 Snapshot”。
+
+两个 Runtime 共享同一个内存真相源：`canvasStore.projectData: ProjectData | null`。UI、Canvas、交互工具只消费 `ProjectData`，不能直接消费 `.bcp` 或 `WebSnapshot`。
+
+`WebSnapshot` 是 IO 格式，不是运行时状态格式：
+
+```typescript
+interface WebSnapshot {
+  kind: 'bimcanvas.web.snapshot'
+  version: 1
+  exportedAt: string
+  source?: { runtime: 'connected' | 'standalone'; projectId?: string; projectName?: string }
+  projectData: ProjectData
+  moduleLibrary?: ModuleLibrary
+  moduleAssets?: Record<string, string> // moduleId -> svgText
+}
+```
+
+迁移路径固定为：Connected 打开 `.bcp` → Web 导出 `.bcweb.json` → Standalone 导入 Snapshot。
+
 ### Development
 
 - 开发服务器默认由 Vite 提供：`http://localhost:5173`
 - 若显式配置：
   - `VITE_SERVER_URL` → 指向 Server 基址
   - `VITE_AGENT_URL` → 指向 Agent 基址
+  - `VITE_WEB_RUNTIME=connected|standalone` → 强制 Web Runtime；不设置时自动探测 Server
 - 若未显式配置，前端会回退到“当前主机 + `5000`”的开发态寻址策略
 - 开发态下 Agent API 默认统一走 `Server /agent` 代理，不再要求前端固定直连 `8865`
 
@@ -66,6 +92,9 @@
 
 ### 3. 数据与协作 (Data & Sync)
 - 🔶 **AI 实时同步**: SignalR 基础连接已实现（事件监听 + 重连机制），集成收尾中。
+- ✅ **Web 多 Runtime**:
+    - Connected 模式保留项目目录、`.bcp` 导入、Server 持久化、SignalR、Git/Worktree、Agent Chat。
+    - Standalone 模式可不启动 Server/Agent 独立运行，导入 `.bcweb.json` Snapshot 后在内存中编辑，并导出新的 Snapshot。
 - ✅ **撤销/重做 (Undo/Redo)**: TimelineManager 已完成（快照、历史策略、变更来源检测）。
 - ✅ **首页实例设置台 (Homepage Instance Settings)**:
     - 首页右上角新增“实例设置”入口，离开首页后入口自动消失。
@@ -300,6 +329,7 @@ Claude API messages.content: [
 - `.env.development`
   - `VITE_SERVER_URL=`（留空时回退到当前主机的 `5000`）
   - `VITE_AGENT_URL=`（留空时统一使用 `${VITE_SERVER_URL}/agent` 或同源 `/agent`）
+  - `VITE_WEB_RUNTIME=`（可选：`connected` / `standalone`；留空时自动探测 Server）
 - `.env.production`
   - 两者可留空，表示由生产环境同源入口或外层反向代理决定
 
@@ -313,6 +343,7 @@ src/
 │   └── aiCommandCenter/ # AI Command Center 模块化逻辑
 ├── constants/          # 项目常量
 │   └── aiCommandCenter.ts # AI 指挥中心常量
+├── runtime/            # Web Runtime Protocol + Connected/Standalone 实现
 ├── services/           # 核心业务逻辑服务
 │   ├── builders/       # 3D 场景构建器
 │   │   ├── SceneBuilder.ts      # 负责解析 JSON 并生成 Three.js Mesh（含 Ghost 保留逻辑）
@@ -564,29 +595,19 @@ Ribbon [Local] → CustomEvent('bimcanvas:open-module-library')
 
 3. **事件通信**：面板与 Three.js 服务之间通过 `window.dispatchEvent(CustomEvent)` 桥接，遵循现有项目的解耦模式。
 
-### 文件驱动持久化 ⚠️ 核心架构
+### Runtime 持久化语义 ⚠️ 核心架构
 
-**问题现象**：移动家具模块后刷新页面，家具回到原位。
+Web 编辑工具始终只修改 `canvasStore.projectData`，运行模式决定编辑结果如何离开内存。
 
-**根因分析**：
+- **ConnectedRuntime**：`endBatchUpdate()` 调用 `saveModules()`，由 Runtime 推送给 Server，Server 根据模块位置写回 `.bcp` 项目的 `modules.json`。这是文件驱动架构下的即时持久化路径。
+- **StandaloneRuntime**：`saveModules()` 只确认内存编辑，不写本地文件系统。用户需要通过 Export 导出 `.bcweb.json` Snapshot；关闭或刷新页面前未导出的内存修改不会自动持久化。
 
-项目采用"文件驱动架构"（File-Driven Architecture），要求 Web 端的修改**必须立即写入文件系统**。但编辑操作完成后，`endBatchUpdate()` 只保存到内存中的 Timeline（支持 Undo/Redo），**没有调用 `saveToServer()` 持久化到磁盘**。
+关键不变量：
 
-```
-修复前（断裂）:
-用户移动 → updateModule() → 内存更新 ✓ → saveState() → [停止]
-                                                         ↑
-                                              缺少 saveToServer()
-刷新页面 → Server 读取磁盘上的旧数据 → 家具回到原位
-
-修复后（完整）:
-用户移动 → updateModule() → 内存更新 ✓ → saveState() → saveToServer()
-                                                            ↓
-                                         Server 写入 modules.json ✓
-刷新页面 → Server 读取磁盘上的新数据 → 家具位置正确
-```
-
-**修复方案**：
+- `ProjectData` 只归 `canvasStore.projectData` 管理，Runtime 不直接写 Pinia。
+- `WebSnapshot` 只用于 Standalone 导入/导出，不作为 UI 或工具层数据源。
+- `.bcp` 只属于 Server/File Runtime，Standalone 不解析 `.bcp`。
+- UI 守卫必须通过 `supports(runtime.capabilities.xxx)` 判断，不用 `runtime.mode` 分支散落到组件中。
 
 ```typescript
 // src/stores/canvasStore.ts - endBatchUpdate()
@@ -599,14 +620,10 @@ const endBatchUpdate = async () => {
 
     // 2. 持久化到文件系统（File-Driven Architecture）
     if (isDirty.value) {
-        await saveToServer();  // ← 关键：必须调用！
+        await saveModules();  // Connected 写 Server；Standalone 确认内存编辑
     }
 };
 ```
-
-**架构原则**（摘自 `docs/FileDrivenArchitecture.md`）：
-
-> **场景B：可视化设计** - 用户在 Web 端拖拽 → Server 验证通过后**直接覆写**硬盘上的 JSON → 文件系统发生物理变更
 
 **开发检查清单**：
 
@@ -615,10 +632,11 @@ const endBatchUpdate = async () => {
 | ✅ 内存更新 | 调用 `store.updateModule()` |
 | ✅ 脏标记 | `isDirty.value = true`（updateModule 自动设置）|
 | ✅ 批量更新 | 使用 `beginBatchUpdate()` / `endBatchUpdate()` 包裹 |
-| ✅ 持久化 | `endBatchUpdate()` 中自动调用 `saveToServer()` |
+| ✅ Runtime 边界 | `endBatchUpdate()` 中自动调用 `saveModules()`，不要直接访问 Server API |
+| ✅ 导出 | Standalone 下通过 `.bcweb.json` Snapshot 交付编辑结果 |
 
 > 相关文件: `src/stores/canvasStore.ts`, `src/services/interaction/tools/*.ts`
 > 架构文档: `docs/FileDrivenArchitecture.md`
 
 ---
-*文档最后更新时间: 2026-03-05*
+*文档最后更新时间: 2026-04-29*

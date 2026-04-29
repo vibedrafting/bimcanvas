@@ -7,9 +7,14 @@ import ConflictDialog from '../components/UI/ConflictDialog.vue';
 import HomeSettingsPanel from '../components/UI/HomeSettingsPanel.vue';
 import { useProjectFile } from '../composables/useProjectFile';
 import type { ProjectSummary } from '../types/homepage';
+import { getWebRuntime } from '../runtime/runtimeRegistry';
+import { supports } from '../runtime/WebRuntimeProtocol';
 
 const appStore = useAppStore();
 const canvasStore = useCanvasStore();
+const runtime = getWebRuntime();
+const canProjectCatalog = supports(runtime.capabilities.projectCatalog);
+const canRuntimeSettings = supports(runtime.capabilities.runtimeSettings);
 
 // Tab 状态
 const activeTab = ref<'all' | 'recent'>('all');
@@ -27,7 +32,8 @@ const {
   handleConflictResolve,
   showConflictDialog,
   conflictProjectName,
-  conflictExistingPath
+  conflictExistingPath,
+  fileAccept
 } = useProjectFile();
 
 // ============================================================
@@ -66,13 +72,14 @@ const isOpening = ref(false);
 const openError = ref<string | null>(null);
 
 const handleOpen = async (project: ProjectSummary) => {
+  if (!canProjectCatalog) return;
   if (!project.isValid || isOpening.value) return;
   isOpening.value = true;
   openError.value = null;
   try {
     // openProject 调用 POST /api/project/open-folder
     // 成功后设置 currentView = 'workspace'
-    // App.vue 的 watch 触发 enterWorkspace() → loadProject()
+    // App.vue 的 watch 触发 enterWorkspace() → loadInitialProject()
     const success = await appStore.openProject(project.folderPath);
     if (!success) {
       openError.value = `无法打开项目 "${project.name}"`;
@@ -131,7 +138,9 @@ const displayProjects = computed(() => {
 
 // 加载数据
 onMounted(() => {
-  appStore.fetchProjectList();
+  if (canProjectCatalog) {
+    appStore.fetchProjectList();
+  }
 });
 </script>
 
@@ -144,7 +153,7 @@ onMounted(() => {
           <span class="brand-text">BIMCanvas</span>
         </div>
         <div class="header-right">
-          <GlassButton variant="ghost" @click="homeMode = 'settings'">
+          <GlassButton v-if="canRuntimeSettings" variant="ghost" @click="homeMode = 'settings'">
             <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="margin-right: 6px;">
               <circle cx="12" cy="12" r="3"></circle>
               <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06A1.65 1.65 0 0 0 15 19.4a1.65 1.65 0 0 0-1 .6 1.65 1.65 0 0 0-.33 1V21a2 2 0 1 1-4 0v-.09a1.65 1.65 0 0 0-.33-1A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.6 15a1.65 1.65 0 0 0-.6-1 1.65 1.65 0 0 0-1-.33H3a2 2 0 1 1 0-4h.09a1.65 1.65 0 0 0 1-.33A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.6a1.65 1.65 0 0 0 1-.6 1.65 1.65 0 0 0 .33-1V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 .33 1 1.65 1.65 0 0 0 1 .6 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9c0 .38.14.74.4 1 .26.26.62.4 1 .4H21a2 2 0 1 1 0 4h-.09c-.38 0-.74.14-1 .4-.26.26-.4.62-.4 1z"></path>
@@ -157,12 +166,12 @@ onMounted(() => {
               <polyline points="7 10 12 15 17 10"></polyline>
               <line x1="12" y1="15" x2="12" y2="3"></line>
             </svg>
-            导入 .bcp
+            {{ canProjectCatalog ? '导入 .bcp' : '导入 Snapshot' }}
           </GlassButton>
           <input
             ref="fileInputRef"
             type="file"
-            accept=".bcp"
+            :accept="fileAccept"
             style="display: none"
             @change="onFileSelected"
           />
@@ -188,12 +197,12 @@ onMounted(() => {
     <!-- 主内容 -->
     <main class="homepage-content" :class="{ 'settings-mode': homeMode === 'settings' }">
       <HomeSettingsPanel
-        v-if="homeMode === 'settings'"
+        v-if="homeMode === 'settings' && canRuntimeSettings"
         key="settings"
         @close="homeMode = 'projects'"
       />
 
-      <div v-else key="projects" class="projects-view">
+      <div v-else-if="canProjectCatalog" key="projects" class="projects-view">
       <!-- Tab 栏 -->
       <div class="tab-bar">
         <button
@@ -295,6 +304,22 @@ onMounted(() => {
       </div>
       </div>
 
+      <div v-else key="standalone" class="projects-view standalone-view">
+        <div class="empty-state">
+          <svg viewBox="0 0 24 24" width="48" height="48" fill="none" stroke="currentColor" stroke-width="1.5" opacity="0.3">
+            <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+            <polyline points="14 2 14 8 20 8" />
+            <path d="M12 18v-6" />
+            <path d="M9 15l3 3 3-3" />
+          </svg>
+          <p class="empty-title">Standalone 模式</p>
+          <p class="empty-hint">导入 .bcweb.json Snapshot 后开始编辑</p>
+          <GlassButton variant="primary" @click="handleImport">
+            导入 Snapshot
+          </GlassButton>
+        </div>
+      </div>
+
     </main>
 
     <!-- 删除确认对话框 -->
@@ -323,6 +348,7 @@ onMounted(() => {
 
     <!-- 导入冲突对话框 -->
     <ConflictDialog
+      v-if="canProjectCatalog"
       :visible="showConflictDialog"
       :project-name="conflictProjectName"
       :existing-path="conflictExistingPath"

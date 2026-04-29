@@ -12,6 +12,8 @@ import BoundaryDebugPanel from '../components/UI/BoundaryDebugPanel.vue';
 import { useDebugStore } from '../stores/debugStore';
 import { onMounted, onUnmounted, ref, watch } from 'vue';
 import type { ModuleDefinition } from '../services/ModuleLibraryService';
+import { getWebRuntime } from '../runtime/runtimeRegistry';
+import { supports } from '../runtime/WebRuntimeProtocol';
 
 const props = defineProps<{
   loadingStage?: number;
@@ -19,11 +21,15 @@ const props = defineProps<{
 }>();
 
 const debugStore = useDebugStore();
+const runtime = getWebRuntime();
+const canAgentChat = supports(runtime.capabilities.agentChat);
+const canUseModuleLibrary = supports(runtime.capabilities.moduleLibrary);
 
 // 模块库面板
 const showModuleLibrary = ref(false);
 
 const onOpenModuleLibrary = () => {
+  if (!canUseModuleLibrary) return;
   showModuleLibrary.value = !showModuleLibrary.value;
 };
 
@@ -72,7 +78,7 @@ watch(() => props.buildComplete, (newVal) => {
     </header>
     
     <aside class="gallery-area" :class="{ 'visible': props.buildComplete }">
-      <AICommandCenter :panel-ready="aiPanelReady" />
+      <AICommandCenter v-if="canAgentChat" :panel-ready="aiPanelReady" />
     </aside>
 
     <main class="canvas-area">
@@ -91,6 +97,7 @@ watch(() => props.buildComplete, (newVal) => {
     <FloatingInput />
 
     <ModuleLibraryPanel
+      v-if="canUseModuleLibrary"
       :visible="showModuleLibrary"
       @close="showModuleLibrary = false"
       @select-module="onSelectModule"

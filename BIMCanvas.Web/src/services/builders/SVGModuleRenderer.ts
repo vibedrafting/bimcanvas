@@ -145,7 +145,10 @@ export class SVGModuleRenderer {
     }
 
     // 从 ModuleLibraryService 获取 SVG URL
-    const svgUrl = moduleLibraryService.getSvgUrl(moduleId);
+    const svgUrl = await moduleLibraryService.getSvgUrl(moduleId);
+    if (!svgUrl) {
+      return null;
+    }
 
     return new Promise((resolve) => {
       this.svgLoader.load(

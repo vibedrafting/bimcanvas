@@ -27,7 +27,7 @@ const handleTabClick = async (window: VirtualWindow) => {
     windowStore.activateWindow(window.id);
 
     // 重新加载项目数据（Server 端会根据 ActiveWindowId 自动路由）
-    await canvasStore.loadProject({
+    await canvasStore.loadInitialProject({
       source: ChangeSource.GitCheckout,
       preserveView: true
     });

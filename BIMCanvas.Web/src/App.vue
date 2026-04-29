@@ -8,7 +8,8 @@ import { useCanvasStore } from './stores/canvasStore';
 import { useAppStore } from './stores/appStore';
 import { ChangeSource } from './types/history';
 import { themeService } from './services/theme/ThemeService';
-import { ProjectService } from './services/ProjectService';
+import { getWebRuntime } from './runtime/runtimeRegistry';
+import { supports } from './runtime/WebRuntimeProtocol';
 
 import { ViewCalculator } from './services/interaction/ViewCalculator';
 import DebugConsole from './components/UI/DebugConsole.vue';
@@ -19,6 +20,8 @@ import { useDebugStore } from './stores/debugStore';
 const store = useCanvasStore();
 const appStore = useAppStore();
 const debugStore = useDebugStore();
+const runtime = getWebRuntime();
+const canUseGitBranching = supports(runtime.capabilities.gitBranching);
 
 // 初始化状态：在判断完 Server 状态前，不渲染任何视图
 const isInitialized = ref(false);
@@ -31,6 +34,7 @@ const isBuildComplete = ref(false);
 
 // 防止 enterWorkspace 被并发调用
 let enterWorkspaceLock = false;
+let reuseExistingProjectOnNextEnter = false;
 
 /**
  * 执行工作区加载 + cinematic sequence
@@ -55,10 +59,21 @@ const enterWorkspace = async () => {
 
     const minTimePromise = new Promise(resolve => setTimeout(resolve, 2500));
 
-    // 统一加载：无论数据是否已存在，都清空后重新从 Server 加载
-    // 确保 ThreeSceneService 的 watch 能检测到 null → data 变化并触发 fitToScreen
-    store.projectData = null;
-    const loaded = await store.loadProject(ChangeSource.SystemInit);
+    const shouldReuseExistingProject =
+      store.projectData &&
+      (reuseExistingProjectOnNextEnter || !supports(runtime.capabilities.serverPersistence));
+
+    let loaded = Boolean(store.projectData);
+    if (shouldReuseExistingProject) {
+      reuseExistingProjectOnNextEnter = false;
+      debugStore.log('[App] Reusing projectData already loaded in canvasStore');
+    } else {
+      // Connected 模式下重新从 Runtime 拉取，确保打开项目/分支切换后的数据是最新的。
+      // Standalone 模式只有在没有 projectData 时才会走这里，通常返回 null 并停留首页。
+      store.projectData = null;
+      loaded = await store.loadInitialProject(ChangeSource.SystemInit);
+    }
+
     if (loaded) {
       appStore.applyPendingProjectWarning();
     } else {
@@ -126,19 +141,18 @@ onMounted(async () => {
     isBuildComplete.value = true;
   });
 
-  // 检查 Server 是否已有加载的项目
+  // 检查当前 Runtime 是否已有初始项目。Standalone 默认返回 null，不会触发 Server API。
   try {
-    const status = await ProjectService.getStatus();
-    if (status.isLoaded) {
-      debugStore.log('Server has loaded project, entering workspace...');
-      // 设置 currentView，watch 会触发 enterWorkspace
+    const loaded = await store.loadInitialProject(ChangeSource.SystemInit);
+    if (loaded) {
+      debugStore.log('Runtime has loaded project, entering workspace...');
+      reuseExistingProjectOnNextEnter = true;
       appStore.goToWorkspace();
     } else {
       debugStore.log('No project loaded, showing homepage...');
-      // currentView 默认就是 'homepage'，无需操作
     }
   } catch (err) {
-    debugStore.warn(`Failed to check project status: ${err}, showing homepage...`);
+    debugStore.warn(`Failed to load initial project: ${err}, showing homepage...`);
   }
 
   isInitialized.value = true;
@@ -203,7 +217,7 @@ const handleKeydown = (e: KeyboardEvent) => {
 
   <!-- 全局组件（始终存在） -->
   <DebugConsole />
-  <BranchMergeWizard />
+  <BranchMergeWizard v-if="canUseGitBranching" />
   <AgentNotificationModal />
 </template>
 

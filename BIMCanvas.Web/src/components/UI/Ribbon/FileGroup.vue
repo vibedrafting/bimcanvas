@@ -5,10 +5,14 @@ import SaveConfirmDialog from '../SaveConfirmDialog.vue';
 import { useProjectFile } from '../../../composables/useProjectFile';
 import { useSave } from '../../../composables/useSave';
 import { useCanvasStore } from '../../../stores/canvasStore';
+import { getWebRuntime } from '../../../runtime/runtimeRegistry';
+import { supports } from '../../../runtime/WebRuntimeProtocol';
 
 const store = useCanvasStore();
+const runtime = getWebRuntime();
+const canServerPersistence = supports(runtime.capabilities.serverPersistence);
 const fileInputRef = ref<HTMLInputElement | null>(null);
-const { handleLoad, handleExport, processFile } = useProjectFile();
+const { handleLoad, handleExport, processFile, fileAccept } = useProjectFile();
 
 // 使用统一的保存逻辑
 const { handleSave, canSave, isSaving } = useSave();
@@ -64,7 +68,7 @@ const onSaveCancel = () => {
         </svg>
         <span>Open</span>
       </GlassButton>
-      <GlassButton @click="onSaveClick" :disabled="!canSave || isSaving" variant="ghost" class="ribbon-btn">
+      <GlassButton v-if="canServerPersistence" @click="onSaveClick" :disabled="!canSave || isSaving" variant="ghost" class="ribbon-btn">
         <svg style="width: 18px; height: 18px; flex-shrink: 0;" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
           <path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"></path>
           <polyline points="17 21 17 13 7 13 7 21"></polyline>
@@ -93,7 +97,7 @@ const onSaveCancel = () => {
       <input
         ref="fileInputRef"
         type="file"
-        accept=".json,.bcp"
+            :accept="fileAccept"
         style="display: none"
         @change="onFileSelected"
       />
@@ -101,7 +105,7 @@ const onSaveCancel = () => {
 
     <!-- 保存确认对话框 -->
     <SaveConfirmDialog
-      :visible="showSaveDialog"
+      :visible="showSaveDialog && canServerPersistence"
       @confirm="onSaveConfirm"
       @cancel="onSaveCancel"
     />

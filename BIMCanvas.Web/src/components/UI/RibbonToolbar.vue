@@ -11,13 +11,19 @@ import ViewGroup from './Ribbon/ViewGroup.vue';
 import BranchCreationDialog from './Ribbon/BranchCreationDialog.vue';
 import BranchCheckoutConfirmDialog from './Ribbon/BranchCheckoutConfirmDialog.vue';
 import { useGitStore } from '../../stores/gitStore';
+import { getWebRuntime } from '../../runtime/runtimeRegistry';
+import { supports } from '../../runtime/WebRuntimeProtocol';
 
 // --- Git Store (for branch dialog) ---
 const gitStore = useGitStore();
 const { branches, currentBranchId, currentBranch } = storeToRefs(gitStore);
+const runtime = getWebRuntime();
+const canGitBranching = supports(runtime.capabilities.gitBranching);
+const canAgentChat = supports(runtime.capabilities.agentChat);
+const canUseModuleLibrary = supports(runtime.capabilities.moduleLibrary);
 
 // Tabs definition
-const tabs = [
+const baseTabs = [
   { id: 'file', label: 'File' },
   { id: 'project', label: 'Project' },
   { id: 'design', label: 'Design' },
@@ -26,6 +32,12 @@ const tabs = [
   { id: 'edit', label: 'Edit' },
   { id: 'view', label: 'View' },
 ];
+
+const tabs = computed(() => baseTabs.filter((tab) => {
+  if (tab.id === 'design') return canGitBranching || canAgentChat;
+  if (tab.id === 'library') return canUseModuleLibrary;
+  return true;
+}));
 
 const activeTab = ref<string | null>(null);
 const dropdownPos = ref({ top: 0, left: 0 });
@@ -168,7 +180,7 @@ const handleConflictCancel = () => {
             <div class="panel-content">
               <FileGroup v-if="tab.id === 'file'" />
               <ProjectGroup v-else-if="tab.id === 'project'" />
-              <DesignGroup v-else-if="tab.id === 'design'" @openBranchDialog="handleOpenBranchDialog" />
+              <DesignGroup v-else-if="tab.id === 'design' && canGitBranching" @openBranchDialog="handleOpenBranchDialog" />
               <ZoneGroup v-else-if="tab.id === 'zone'" />
               <LibraryGroup v-else-if="tab.id === 'library'" />
               <EditGroup v-else-if="tab.id === 'edit'" />
@@ -180,6 +192,7 @@ const handleConflictCancel = () => {
     </div>
 
     <BranchCreationDialog
+      v-if="canGitBranching"
       :visible="showBranchDialog"
       :base-branch="currentBranchId"
       :base-tags="currentBranchTags"
@@ -189,6 +202,7 @@ const handleConflictCancel = () => {
     />
 
     <BranchCheckoutConfirmDialog
+      v-if="canGitBranching"
       :visible="showConflictDialog"
       :target-branch="pendingBranchData?.name ?? ''"
       :current-branch="currentBranch"

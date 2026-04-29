@@ -159,7 +159,7 @@ export interface HistorySnapshot {
 /**
  * 加载选项
  *
- * 传递给 loadProject() 的配置项，用于控制
+ * 传递给 loadInitialProject() 的配置项，用于控制
  * 历史管理和视图行为。
  */
 export interface LoadOptions {

@@ -1,11 +1,8 @@
 /**
  * 模块库服务
- * 负责从后端 API 加载模块库，提供模块元数据查询和 SVG URL 获取
+ * 负责通过当前 WebRuntime 加载模块库，提供模块元数据查询和 SVG URL 获取
  */
-import { SERVER_API } from '../config/api';
-
-// 后端 API 基地址
-const API_BASE = `${SERVER_API}/modules`;
+import { getWebRuntime } from '../runtime/runtimeRegistry';
 
 export interface ModuleDefinition {
   id: string;
@@ -28,9 +25,10 @@ class ModuleLibraryService {
   private library: ModuleLibrary | null = null;
   private moduleMap: Map<string, ModuleDefinition> = new Map();
   private loadPromise: Promise<void> | null = null;
+  private svgUrlCache: Map<string, string> = new Map();
 
   /**
-   * 加载模块库（从后端 API）
+   * 加载模块库（从当前 Runtime）
    * 单例加载：多次调用返回同一个 Promise
    */
   async load(): Promise<void> {
@@ -40,17 +38,7 @@ class ModuleLibraryService {
 
     this.loadPromise = (async () => {
       try {
-        const response = await fetch(`${API_BASE}/library`);
-        if (!response.ok) {
-          // 404 可能是因为没有加载项目，这是正常情况
-          if (response.status === 404) {
-            console.warn('[ModuleLibraryService] 模块库未加载（可能没有打开项目）');
-            return;
-          }
-          throw new Error(`Failed to load module library: ${response.statusText}`);
-        }
-
-        this.library = await response.json();
+        this.library = await getWebRuntime().getModuleLibrary();
 
         // 构建快速查询 Map
         if (this.library?.modules) {
@@ -59,7 +47,12 @@ class ModuleLibraryService {
           });
         }
 
-        console.log(`[ModuleLibraryService] Loaded ${this.library?.modules?.length ?? 0} modules from API`);
+        if (!this.library) {
+          console.warn('[ModuleLibraryService] 模块库不可用（当前 Runtime 或 Snapshot 未提供）');
+          return;
+        }
+
+        console.log(`[ModuleLibraryService] Loaded ${this.library.modules.length} modules from Runtime`);
       } catch (error) {
         console.error('[ModuleLibraryService] Failed to load module library:', error);
         // 不抛出错误，允许应用继续运行（模块库加载失败不应阻塞整个应用）
@@ -74,6 +67,7 @@ class ModuleLibraryService {
    * 用于项目切换后刷新
    */
   async reload(): Promise<void> {
+    this.dispose();
     this.library = null;
     this.moduleMap.clear();
     this.loadPromise = null;
@@ -90,10 +84,22 @@ class ModuleLibraryService {
   /**
    * 获取模块 SVG 的完整 URL
    * @param moduleId 模块 ID
-   * @returns 完整的 SVG API URL
+   * @returns 可供 img / SVGLoader 使用的 Blob URL
    */
-  getSvgUrl(moduleId: string): string {
-    return `${API_BASE}/svg/${moduleId}`;
+  async getSvgUrl(moduleId: string): Promise<string> {
+    const cached = this.svgUrlCache.get(moduleId);
+    if (cached) {
+      return cached;
+    }
+
+    const svgText = await getWebRuntime().getModuleAsset(moduleId);
+    if (!svgText) {
+      return '';
+    }
+
+    const url = URL.createObjectURL(new Blob([svgText], { type: 'image/svg+xml' }));
+    this.svgUrlCache.set(moduleId, url);
+    return url;
   }
 
   /**
@@ -138,6 +144,13 @@ class ModuleLibraryService {
    */
   isLoaded(): boolean {
     return this.library !== null && this.library.modules !== null;
+  }
+
+  dispose(): void {
+    for (const url of this.svgUrlCache.values()) {
+      URL.revokeObjectURL(url);
+    }
+    this.svgUrlCache.clear();
   }
 }
 

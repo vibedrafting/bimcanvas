@@ -101,7 +101,7 @@ const handleCheckoutConfirm = async (saveBeforeSwitch: boolean, commitMessage?: 
 
   if (saveBeforeSwitch) {
     // 1. 先保存内存数据到文件系统
-    const saved = await canvasStore.saveToServer();
+    const saved = await canvasStore.saveModules();
     if (!saved) {
       console.error('保存数据失败，无法切换分支');
       pendingCheckoutBranch.value = '';

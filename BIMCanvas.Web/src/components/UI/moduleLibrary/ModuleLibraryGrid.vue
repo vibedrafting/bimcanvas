@@ -17,7 +17,7 @@ const props = defineProps({
     required: true
   },
   getSvgUrl: {
-    type: Function as PropType<(moduleId: string) => string>,
+    type: Function as PropType<(moduleId: string) => Promise<string>>,
     required: true
   },
   getTagLabel: {
@@ -42,7 +42,7 @@ const onSelect = (module: ModuleDefinition) => {
       :key="mod.id"
       :module="mod"
       :expanded="expanded"
-      :svg-url="getSvgUrl(mod.id)"
+      :get-svg-url="getSvgUrl"
       :get-tag-label="getTagLabel"
       @select="onSelect"
     />

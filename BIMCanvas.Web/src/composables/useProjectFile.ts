@@ -3,6 +3,8 @@ import { ChangeSource } from '../types/history';
 import { useCanvasStore } from '../stores/canvasStore';
 import { useAppStore } from '../stores/appStore';
 import { ProjectService } from '../services/ProjectService';
+import { getWebRuntime } from '../runtime/runtimeRegistry';
+import { supports } from '../runtime/WebRuntimeProtocol';
 
 // Global state for the conflict dialog (singleton pattern to share state)
 const showConflictDialog = ref(false);
@@ -13,21 +15,29 @@ const pendingFile = ref<File | null>(null);
 export function useProjectFile() {
   const store = useCanvasStore();
   const appStore = useAppStore();
+  const runtime = getWebRuntime();
+  const canImportSnapshot = supports(runtime.capabilities.webSnapshotImport);
+  const fileAccept = canImportSnapshot ? '.bcweb.json' : '.bcp';
 
-  // Load Data (only .bcp format)
+  const pickerType = canImportSnapshot
+    ? {
+        description: 'BIMCanvas Web Snapshot',
+        accept: { 'application/json': ['.bcweb.json'] }
+      }
+    : {
+        description: 'BIMCanvas Project',
+        accept: { 'application/octet-stream': ['.bcp'] }
+      };
+
+  // Load Data: Connected 读 .bcp，Standalone 读 .bcweb.json。
   const handleLoad = async () => {
     try {
       // Try using File System Access API
       if ('showOpenFilePicker' in window) {
         const [fileHandle] = await (window as any).showOpenFilePicker({
-          types: [
-            {
-              description: 'BIMCanvas Project',
-              accept: { 'application/octet-stream': ['.bcp'] }
-            }
-          ],
+          types: [pickerType],
           multiple: false,
-          id: 'bcp-import',
+          id: canImportSnapshot ? 'bcweb-import' : 'bcp-import',
           startIn: 'desktop'
         });
 
@@ -44,9 +54,22 @@ export function useProjectFile() {
     }
   };
 
-  // Process the selected file (only .bcp)
+  // Process the selected file.
   const processFile = async (file: File) => {
     const fileName = file.name.toLowerCase();
+
+    if (canImportSnapshot) {
+      if (!fileName.endsWith('.bcweb.json')) {
+        alert('Standalone 模式只支持 .bcweb.json Snapshot 文件');
+        return;
+      }
+
+      const loaded = await store.importSnapshot(file, ChangeSource.UserUpload);
+      if (!loaded) {
+        alert(store.error || '导入 Snapshot 失败');
+      }
+      return;
+    }
 
     if (!fileName.endsWith('.bcp')) {
       alert('只支持 .bcp 格式的文件');
@@ -66,7 +89,7 @@ export function useProjectFile() {
     } else if (result.status === 'Success') {
       appStore.stageProjectWarnings(result.warnings);
       // Reload project data
-      const loaded = await store.loadProject(ChangeSource.UserUpload);
+      const loaded = await store.loadInitialProject(ChangeSource.UserUpload);
       if (loaded) {
         appStore.applyPendingProjectWarning();
       } else {
@@ -97,7 +120,7 @@ export function useProjectFile() {
 
       if (result.status === 'Success') {
         appStore.stageProjectWarnings(result.warnings);
-        const loaded = await store.loadProject(ChangeSource.SystemRestore);
+        const loaded = await store.loadInitialProject(ChangeSource.SystemRestore);
         if (loaded) {
           appStore.applyPendingProjectWarning();
         } else {
@@ -116,46 +139,53 @@ export function useProjectFile() {
     }
   };
 
-  // Export Data - 导出为 BCP 文件
-  const handleExport = async () => {
-    if (!store.projectData) return;
+  const saveBlobToDisk = async (blob: Blob, filename: string): Promise<boolean> => {
+    if ('showSaveFilePicker' in window) {
+      try {
+        const handle = await (window as any).showSaveFilePicker({
+          suggestedName: filename,
+          types: [{
+            description: 'BIMCanvas Web Snapshot',
+            accept: { 'application/json': ['.bcweb.json'] }
+          }],
+          startIn: 'desktop'
+        });
+
+        const writable = await handle.createWritable();
+        await writable.write(blob);
+        await writable.close();
+        return true;
+      } catch (err: any) {
+        if (err.name === 'AbortError') return false;
+      }
+    }
+
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    a.click();
+    URL.revokeObjectURL(url);
+    return true;
+  };
+
+  // Export Data - 两个 Runtime 都导出 .bcweb.json Snapshot。
+  const handleExport = async (): Promise<boolean> => {
+    if (!store.projectData) return false;
 
     try {
-      // 调用 Server API 获取 BCP 文件
-      const { blob, filename } = await ProjectService.exportProject();
+      const snapshot = await store.exportSnapshot();
+      if (!snapshot) return false;
 
-      // 使用 File System Access API（如果支持）
-      if ('showSaveFilePicker' in window) {
-        try {
-          const handle = await (window as any).showSaveFilePicker({
-            suggestedName: filename,
-            types: [{
-              description: 'BIMCanvas Project',
-              accept: { 'application/octet-stream': ['.bcp'] }
-            }],
-            startIn: 'desktop'
-          });
-
-          const writable = await handle.createWritable();
-          await writable.write(blob);
-          await writable.close();
-          return;
-        } catch (err: any) {
-          if (err.name === 'AbortError') return; // 用户取消
-          // 回退到传统下载方式
-        }
+      const saved = await saveBlobToDisk(snapshot.blob, snapshot.filename);
+      if (saved) {
+        store.clearDirty();
       }
-
-      // Fallback: 传统下载方式
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = filename;
-      a.click();
-      URL.revokeObjectURL(url);
+      return saved;
     } catch (err: any) {
       console.error('Failed to export project:', err);
-      alert(`导出项目失败: ${err.message}`);
+      alert(`导出 Snapshot 失败: ${err.message}`);
+      return false;
     }
   };
 
@@ -166,6 +196,7 @@ export function useProjectFile() {
     handleConflictResolve,
     showConflictDialog,
     conflictProjectName,
-    conflictExistingPath
+    conflictExistingPath,
+    fileAccept
   };
 }

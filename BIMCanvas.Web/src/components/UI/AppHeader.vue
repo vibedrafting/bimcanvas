@@ -7,9 +7,13 @@ import ConflictDialog from './ConflictDialog.vue';
 import SaveConfirmDialog from './SaveConfirmDialog.vue';
 import { useProjectFile } from '../../composables/useProjectFile';
 import { useSave } from '../../composables/useSave';
+import { getWebRuntime } from '../../runtime/runtimeRegistry';
+import { supports } from '../../runtime/WebRuntimeProtocol';
 
 const store = useCanvasStore();
 const appStore = useAppStore();
+const runtime = getWebRuntime();
+const canServerPersistence = supports(runtime.capabilities.serverPersistence);
 const fileInputRef = ref<HTMLInputElement | null>(null);
 const isSyncing = ref(false);
 
@@ -38,8 +42,13 @@ const handleCloseConfirm = async (action: 'save' | 'discard' | 'cancel') => {
 
   isClosing.value = true;
   if (action === 'save') {
-    // 先保存再关闭
-    await handleSave(`自动存档_${new Date().toISOString().replace(/[-:T]/g, '').slice(0, 15)}`);
+    const saved = canServerPersistence
+      ? await handleSave(`自动存档_${new Date().toISOString().replace(/[-:T]/g, '').slice(0, 15)}`)
+      : await handleExport();
+    if (!saved) {
+      isClosing.value = false;
+      return;
+    }
   }
   await appStore.closeProject(true);
   isClosing.value = false;
@@ -62,7 +71,8 @@ const {
   handleConflictResolve, 
   showConflictDialog, 
   conflictProjectName, 
-  conflictExistingPath 
+  conflictExistingPath,
+  fileAccept
 } = useProjectFile();
 
 // 使用统一的保存逻辑
@@ -90,7 +100,7 @@ const onFileSelected = (event: Event) => {
 
 // 点击保存按钮时显示对话框
 const onSaveClick = () => {
-  if (canSave.value && !isSaving.value) {
+  if (canServerPersistence && canSave.value && !isSaving.value) {
     showSaveDialog.value = true;
   }
 };
@@ -110,7 +120,11 @@ const onSaveCancel = () => {
 const handleKeydown = (e: KeyboardEvent) => {
   if ((e.ctrlKey || e.metaKey) && e.key === 's') {
     e.preventDefault();
-    onSaveClick();
+    if (canServerPersistence) {
+      onSaveClick();
+    } else {
+      void handleExport();
+    }
   }
 };
 
@@ -147,7 +161,7 @@ onUnmounted(() => {
         </svg>
       </GlassButton>
       
-      <GlassButton @click="onSaveClick" :disabled="!canSave || isSaving" variant="ghost" title="Save (Ctrl+S)" class="icon-btn">
+      <GlassButton v-if="canServerPersistence" @click="onSaveClick" :disabled="!canSave || isSaving" variant="ghost" title="Save (Ctrl+S)" class="icon-btn">
         <!-- Save Icon -->
         <svg viewBox="0 0 24 24" width="1.1em" height="1.1em" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
           <path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"></path>
@@ -187,7 +201,7 @@ onUnmounted(() => {
 
       <div class="divider"></div>
 
-      <GlassButton @click="handleSync" :disabled="isSyncing" variant="ghost" title="Sync Data" class="icon-btn">
+      <GlassButton v-if="canServerPersistence" @click="handleSync" :disabled="isSyncing" variant="ghost" title="Sync Data" class="icon-btn">
         <!-- Sync Icon (Refresh Arrows) -->
         <svg :class="{ 'spin-icon': isSyncing }" viewBox="0 0 24 24" width="1.1em" height="1.1em" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
           <polyline points="23 4 23 10 17 10"></polyline>
@@ -200,7 +214,7 @@ onUnmounted(() => {
       <input
         ref="fileInputRef"
         type="file"
-        accept=".bcp"
+        :accept="fileAccept"
         style="display: none"
         @change="onFileSelected"
       />
@@ -208,6 +222,7 @@ onUnmounted(() => {
 
     <!-- 冲突对话框 -->
     <ConflictDialog
+      v-if="canServerPersistence"
       :visible="showConflictDialog"
       :project-name="conflictProjectName"
       :existing-path="conflictExistingPath"
@@ -216,7 +231,7 @@ onUnmounted(() => {
 
     <!-- 保存确认对话框 -->
     <SaveConfirmDialog
-      :visible="showSaveDialog"
+      :visible="showSaveDialog && canServerPersistence"
       @confirm="onSaveConfirm"
       @cancel="onSaveCancel"
     />
@@ -236,7 +251,7 @@ onUnmounted(() => {
               <p>有未保存的设计变更，是否仍要关闭？</p>
             </div>
             <div class="close-dialog-actions">
-              <GlassButton variant="primary" @click="handleCloseConfirm('save')">保存并关闭</GlassButton>
+              <GlassButton variant="primary" @click="handleCloseConfirm('save')">{{ canServerPersistence ? '保存并关闭' : '导出并关闭' }}</GlassButton>
               <GlassButton variant="danger" @click="handleCloseConfirm('discard')">不保存关闭</GlassButton>
               <GlassButton variant="ghost" @click="handleCloseConfirm('cancel')">取消</GlassButton>
             </div>
