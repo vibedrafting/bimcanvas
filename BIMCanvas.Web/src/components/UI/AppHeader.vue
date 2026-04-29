@@ -5,6 +5,7 @@ import { useAppStore } from '../../stores/appStore';
 import GlassButton from './base/GlassButton.vue';
 import ConflictDialog from './ConflictDialog.vue';
 import SaveConfirmDialog from './SaveConfirmDialog.vue';
+import ExportFormatDialog from './ExportFormatDialog.vue';
 import { useProjectFile } from '../../composables/useProjectFile';
 import { useSave } from '../../composables/useSave';
 import { getWebRuntime } from '../../runtime/runtimeRegistry';
@@ -17,6 +18,7 @@ const canServerPersistence = supports(runtime.capabilities.serverPersistence);
 const canProjectCatalog = supports(runtime.capabilities.projectCatalog);
 const fileInputRef = ref<HTMLInputElement | null>(null);
 const isSyncing = ref(false);
+const showExportDialog = ref(false);
 
 // 返回首页
 const showCloseConfirm = ref(false);
@@ -108,6 +110,24 @@ const onSaveClick = () => {
   }
 };
 
+const onExportClick = async () => {
+  if (!store.projectData) return;
+  if (canExportBcp) {
+    showExportDialog.value = true;
+    return;
+  }
+  await handleExportSnapshot();
+};
+
+const onExportFormatSelected = async (format: 'snapshot' | 'bcp') => {
+  showExportDialog.value = false;
+  if (format === 'snapshot') {
+    await handleExportSnapshot();
+  } else {
+    await handleExportBcp();
+  }
+};
+
 // 确认保存
 const onSaveConfirm = async (commitMessage: string) => {
   showSaveDialog.value = false;
@@ -193,22 +213,12 @@ onUnmounted(() => {
 
       <div class="divider"></div>
 
-      <GlassButton @click="handleExportSnapshot" :disabled="!store.projectData" variant="ghost" title="Export Snapshot JSON" class="icon-btn">
-        <!-- Export Snapshot Icon (Arrow Up) -->
+      <GlassButton @click="onExportClick" :disabled="!store.projectData" variant="ghost" title="Export" class="icon-btn">
+        <!-- Export Icon (Arrow Up) -->
         <svg viewBox="0 0 24 24" width="1.1em" height="1.1em" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
           <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
           <polyline points="17 8 12 3 7 8"></polyline>
           <line x1="12" y1="3" x2="12" y2="15"></line>
-        </svg>
-      </GlassButton>
-
-      <GlassButton v-if="canExportBcp" @click="handleExportBcp" :disabled="!store.projectData" variant="ghost" title="Export .bcp Project" class="icon-btn">
-        <!-- Export BCP Icon -->
-        <svg viewBox="0 0 24 24" width="1.1em" height="1.1em" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-          <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
-          <polyline points="14 2 14 8 20 8"></polyline>
-          <path d="M12 18v-6"></path>
-          <path d="M9 15l3 3 3-3"></path>
         </svg>
       </GlassButton>
 
@@ -247,6 +257,12 @@ onUnmounted(() => {
       :visible="showSaveDialog && canServerPersistence"
       @confirm="onSaveConfirm"
       @cancel="onSaveCancel"
+    />
+
+    <ExportFormatDialog
+      :visible="showExportDialog"
+      @select="onExportFormatSelected"
+      @cancel="showExportDialog = false"
     />
 
     <!-- 关闭项目确认对话框 -->

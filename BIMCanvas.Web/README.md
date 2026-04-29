@@ -93,8 +93,8 @@ interface WebSnapshot {
 ### 3. 数据与协作 (Data & Sync)
 - 🔶 **AI 实时同步**: SignalR 基础连接已实现（事件监听 + 重连机制），集成收尾中。
 - ✅ **Web 多 Runtime**:
-    - Connected 模式保留项目目录、`.bcp` 导入、`.bcp` 导出、Snapshot JSON 导出、Server 持久化、SignalR、Git/Worktree、Agent Chat。
-    - Standalone 模式可不启动 Server/Agent 独立运行，导入 Snapshot JSON 后在内存中编辑，并导出新的 Snapshot。
+    - Connected 模式保留项目目录、`.bcp` 导入、Server 持久化、SignalR、Git/Worktree、Agent Chat；点击 Export 后可选择导出 `.bcp` 或 Snapshot JSON。
+    - Standalone 模式可不启动 Server/Agent 独立运行，导入 Snapshot JSON 后在内存中编辑；点击 Export 直接导出新的 Snapshot JSON。
 - ✅ **撤销/重做 (Undo/Redo)**: TimelineManager 已完成（快照、历史策略、变更来源检测）。
 - ✅ **首页实例设置台 (Homepage Instance Settings)**:
     - 首页右上角新增“实例设置”入口，离开首页后入口自动消失。

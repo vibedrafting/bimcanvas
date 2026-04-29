@@ -2,6 +2,7 @@
 import { ref } from 'vue';
 import GlassButton from '../base/GlassButton.vue';
 import SaveConfirmDialog from '../SaveConfirmDialog.vue';
+import ExportFormatDialog from '../ExportFormatDialog.vue';
 import { useProjectFile } from '../../../composables/useProjectFile';
 import { useSave } from '../../../composables/useSave';
 import { useCanvasStore } from '../../../stores/canvasStore';
@@ -19,6 +20,7 @@ const { handleSave, canSave, isSaving } = useSave();
 
 // 保存对话框状态
 const showSaveDialog = ref(false);
+const showExportDialog = ref(false);
 
 const onOpen = async () => {
   const result = await handleLoad();
@@ -38,6 +40,24 @@ const onFileSelected = (event: Event) => {
 const onImport = () => {
   console.log('Import triggered');
   onOpen();
+};
+
+const onExportClick = async () => {
+  if (!store.projectData) return;
+  if (canExportBcp) {
+    showExportDialog.value = true;
+    return;
+  }
+  await handleExportSnapshot();
+};
+
+const onExportFormatSelected = async (format: 'snapshot' | 'bcp') => {
+  showExportDialog.value = false;
+  if (format === 'snapshot') {
+    await handleExportSnapshot();
+  } else {
+    await handleExportBcp();
+  }
 };
 
 // 点击保存按钮时显示对话框
@@ -84,22 +104,13 @@ const onSaveCancel = () => {
         </svg>
         <span>Import</span>
       </GlassButton>
-      <GlassButton @click="handleExportSnapshot" :disabled="!store.projectData" variant="ghost" class="ribbon-btn" title="导出 Snapshot JSON">
+      <GlassButton @click="onExportClick" :disabled="!store.projectData" variant="ghost" class="ribbon-btn" title="导出">
         <svg style="width: 18px; height: 18px; flex-shrink: 0;" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
           <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
           <polyline points="17 8 12 3 7 8"></polyline>
           <line x1="12" y1="3" x2="12" y2="15"></line>
         </svg>
-        <span>Snapshot</span>
-      </GlassButton>
-      <GlassButton v-if="canExportBcp" @click="handleExportBcp" :disabled="!store.projectData" variant="ghost" class="ribbon-btn" title="导出 .bcp 项目文件">
-        <svg style="width: 18px; height: 18px; flex-shrink: 0;" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
-          <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
-          <polyline points="14 2 14 8 20 8"></polyline>
-          <path d="M12 18v-6"></path>
-          <path d="M9 15l3 3 3-3"></path>
-        </svg>
-        <span>BCP</span>
+        <span>Export</span>
       </GlassButton>
 
       <!-- Hidden Input for Fallback -->
@@ -117,6 +128,12 @@ const onSaveCancel = () => {
       :visible="showSaveDialog && canServerPersistence"
       @confirm="onSaveConfirm"
       @cancel="onSaveCancel"
+    />
+
+    <ExportFormatDialog
+      :visible="showExportDialog"
+      @select="onExportFormatSelected"
+      @cancel="showExportDialog = false"
     />
   </div>
 </template>
