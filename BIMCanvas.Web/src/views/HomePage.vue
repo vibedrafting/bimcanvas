@@ -14,6 +14,7 @@ const appStore = useAppStore();
 const canvasStore = useCanvasStore();
 const runtime = getWebRuntime();
 const canProjectCatalog = supports(runtime.capabilities.projectCatalog);
+const canProjectCreation = supports(runtime.capabilities.projectCreation);
 const canRuntimeSettings = supports(runtime.capabilities.runtimeSettings);
 
 // Tab 状态
@@ -65,6 +66,20 @@ const onFileSelected = async (event: Event) => {
   input.value = '';
   // 不需要手动跳转 — watch 监听 projectData 变化后自动跳转
   // 冲突情况下 processFile 会显示 ConflictDialog，解决后也由 watch 处理
+};
+
+const getDefaultProjectName = (): string => {
+  const now = new Date();
+  const pad = (value: number) => value.toString().padStart(2, '0');
+  return `新建项目_${now.getFullYear()}${pad(now.getMonth() + 1)}${pad(now.getDate())}_${pad(now.getHours())}${pad(now.getMinutes())}`;
+};
+
+const handleCreateProject = async () => {
+  if (!canProjectCreation) return;
+  const defaultName = getDefaultProjectName();
+  const projectName = window.prompt('项目名称', defaultName);
+  if (projectName === null) return;
+  await canvasStore.createBlankProject(projectName);
 };
 
 // 打开项目
@@ -160,7 +175,14 @@ onMounted(() => {
             </svg>
             实例设置
           </GlassButton>
-          <GlassButton variant="primary" @click="handleImport">
+          <GlassButton v-if="canProjectCreation" variant="primary" @click="handleCreateProject">
+            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="margin-right: 6px;">
+              <path d="M12 5v14"></path>
+              <path d="M5 12h14"></path>
+            </svg>
+            新建项目
+          </GlassButton>
+          <GlassButton :variant="canProjectCreation ? 'ghost' : 'primary'" @click="handleImport">
             <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="margin-right: 6px;">
               <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
               <polyline points="7 10 12 15 17 10"></polyline>
@@ -313,10 +335,15 @@ onMounted(() => {
             <path d="M9 15l3 3 3-3" />
           </svg>
           <p class="empty-title">Standalone 模式</p>
-          <p class="empty-hint">导入 Snapshot JSON 后开始编辑</p>
-          <GlassButton variant="primary" @click="handleImport">
-            导入 Snapshot
-          </GlassButton>
+          <p class="empty-hint">新建空白项目，或导入 Snapshot JSON 后开始编辑</p>
+          <div class="empty-actions">
+            <GlassButton v-if="canProjectCreation" variant="primary" @click="handleCreateProject">
+              新建项目
+            </GlassButton>
+            <GlassButton variant="ghost" @click="handleImport">
+              导入 Snapshot
+            </GlassButton>
+          </div>
         </div>
       </div>
 
@@ -561,6 +588,14 @@ onMounted(() => {
   color: var(--text-tertiary);
   font-size: 0.85rem;
   margin: 0;
+}
+
+.empty-actions {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  margin-top: 8px;
 }
 
 /* Project Grid */

@@ -36,6 +36,7 @@ export class TimelineManager {
    */
   private readonly CLEAR_HISTORY_SOURCES = new Set<ChangeSource>([
     ChangeSource.UserUpload,
+    ChangeSource.UserCreate,
     ChangeSource.GitInit,
     ChangeSource.SystemInit,
   ]);

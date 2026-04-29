@@ -13,7 +13,7 @@
 Web 启动时会通过 `createWebRuntime()` 选择一次运行模式，运行期间不热切换：
 
 - **ConnectedRuntime**：Server 可达或 `VITE_WEB_RUNTIME=connected` 时使用。Web 通过 Server 拉取 `.bcp` 聚合后的 `ProjectData`，编辑后由 `saveModules()` 推送给 Server 写回项目文件，并接收 SignalR 实时同步。导出支持 `.bcp` 项目文件和 Snapshot JSON 两种格式。
-- **StandaloneRuntime**：Server 不可达或 `VITE_WEB_RUNTIME=standalone` 时使用。Web 不读取 `.bcp`，只导入/导出 Snapshot JSON；编辑只修改浏览器内存，保存语义是“导出 Snapshot”。
+- **StandaloneRuntime**：Server 不可达或 `VITE_WEB_RUNTIME=standalone` 时使用。Web 不读取 `.bcp`，可新建空白内存项目，也可导入/导出 Snapshot JSON；编辑只修改浏览器内存，保存语义是“导出 Snapshot”。
 
 两个 Runtime 共享同一个内存真相源：`canvasStore.projectData: ProjectData | null`。UI、Canvas、交互工具只消费 `ProjectData`，不能直接消费 `.bcp` 或 `WebSnapshot`。
 
@@ -36,6 +36,8 @@ interface WebSnapshot {
 视图初始化要求：`ThreeSceneService` 必须同时处理“画布挂载后加载 ProjectData”和“画布挂载前已存在 ProjectData”两种时序。Standalone 导入 Snapshot 会先写入 `canvasStore.projectData` 再进入工作区，首轮 watcher 需要立即执行一次，以保证项目进入画布后自动适配居中。
 
 Capability 语义：`supported` 和 `optional` 都允许 UI 入口出现，只有 `unsupported` 必须隐藏或禁用。`optional` 表示当前 Runtime 支持该能力，但数据可能缺失；例如 Standalone 的模块库取决于导入的 Snapshot 是否包含 `moduleLibrary/moduleAssets`，面板需要自行显示空状态或降级提示。
+
+项目新建边界：当前 `projectCreation` 仅在 Standalone 支持，创建的是空白 `ProjectData` 内存项目，不创建 `.bcp`，也不调用 Server。Connected 模式的新建 `.bcp` 项目需要后续补 Server 端项目创建接口后再开放。
 
 ### Development
 

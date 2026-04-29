@@ -11,6 +11,7 @@ export interface CapabilityEntry {
 
 export interface WebCapabilities {
   projectCatalog: CapabilityEntry;
+  projectCreation: CapabilityEntry;
   serverPersistence: CapabilityEntry;
   bcpExport: CapabilityEntry;
   webSnapshotImport: CapabilityEntry;

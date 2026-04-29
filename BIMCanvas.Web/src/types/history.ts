@@ -25,6 +25,9 @@ export const ChangeSource = {
   /** 用户上传新项目文件 */
   UserUpload: 'user_upload',
 
+  /** 用户新建空白项目 */
+  UserCreate: 'user_create',
+
   /** 用户撤销操作 */
   UserUndo: 'user_undo',
 

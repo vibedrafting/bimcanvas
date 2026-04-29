@@ -1,6 +1,7 @@
 import { defineStore } from 'pinia';
 import { ref, computed, nextTick } from 'vue';
 import type { ProjectData, Module, Wall, Column, Opening } from '../types/canvas';
+import { StrategyApproach, StrategyStatus } from '../types/canvas';
 import { TimelineManager } from '../services/state/TimelineManager';
 import { useDebugStore } from './debugStore';
 import { ChangeSource, ChangeType, type LoadOptions } from '../types/history';
@@ -197,6 +198,65 @@ export const useCanvasStore = defineStore('canvas', () => {
     const normalizeLoadOptions = (options: LoadOptions | ChangeSource): LoadOptions =>
         typeof options === 'string' ? { source: options } : options;
 
+    const createId = (prefix: string): string => {
+        const random = Math.random().toString(36).slice(2, 10);
+        return `${prefix}_${Date.now().toString(36)}_${random}`;
+    };
+
+    const createBlankProjectData = (name: string): ProjectData => {
+        const now = new Date().toISOString();
+        const projectId = createId('project');
+        const schemeId = 'default';
+        const baselineHash = 'standalone-empty';
+
+        return {
+            project: {
+                id: projectId,
+                name,
+                version: '3.0',
+                createdAt: now,
+                updatedAt: now,
+                coordinateSystem: 'cartesian_mm_yUp',
+                activeSchemeId: schemeId,
+                schemes: [
+                    { id: schemeId, path: './schemes', name: '默认方案' }
+                ]
+            },
+            baseline: {
+                metadata: {
+                    placementElevation: 3000,
+                    origin: [0, 0, 0],
+                    rotation: 0,
+                    baselineHash
+                },
+                walls: [],
+                columns: [],
+                openings: [],
+                rooms: [],
+                locationLines: []
+            },
+            activeScheme: {
+                strategy: {
+                    id: schemeId,
+                    name: '默认方案',
+                    approach: StrategyApproach.Custom,
+                    description: 'Standalone 空白项目',
+                    createdAt: now,
+                    updatedAt: now,
+                    lastValidatedBaselineHash: baselineHash,
+                    status: StrategyStatus.Dirty
+                },
+                zones: [],
+                finishes: [],
+                modules: []
+            },
+            computed: {
+                roomZones: [],
+                exclusions: []
+            }
+        };
+    };
+
     const refreshModuleLibrary = async () => {
         try {
             await moduleLibraryService.reload();
@@ -305,6 +365,15 @@ export const useCanvasStore = defineStore('canvas', () => {
                 }, 200);
             }
         }
+    };
+
+    const createBlankProject = async (name: string = '未命名项目'): Promise<void> => {
+        const data = createBlankProjectData(name.trim() || '未命名项目');
+        await applyProjectData(data, {
+            source: ChangeSource.UserCreate,
+            description: 'Create blank project'
+        });
+        isDirty.value = true;
     };
 
     // === 多选操作方法 ===
@@ -709,6 +778,7 @@ export const useCanvasStore = defineStore('canvas', () => {
         // Actions
         loadInitialProject,
         importSnapshot,
+        createBlankProject,
         setSelectedObject,
         setSelection,
         addToSelection,
