@@ -35,11 +35,21 @@ import { LayerManager } from '../three/LayerManager';
 import { canvasStyleService } from '../canvas/CanvasStyleService';
 import { facingToAngle } from '../../utils/coordinates';
 
+type SvgViewportSource = 'viewBox' | 'geometry';
+
+interface SvgViewport {
+  minX: number;
+  minY: number;
+  width: number;
+  height: number;
+  source: SvgViewportSource;
+}
+
 export class SVGModuleRenderer {
   private scene: THREE.Scene;
   private svgLoader: SVGLoader;
   private svgCache: Map<string, THREE.Group> = new Map();
-  private svgSizeCache: Map<string, { width: number, height: number }> = new Map(); // SVG 原始尺寸缓存
+  private svgSizeCache: Map<string, { width: number, height: number }> = new Map(); // SVG viewport 尺寸缓存
   private moduleGroups: Map<string, THREE.Group> = new Map(); // moduleId -> Group
 
   // SVG渲染配置
@@ -70,7 +80,7 @@ export class SVGModuleRenderer {
         return null;
       }
 
-      // 3. 计算模块的位置和旋转（使用 SVG 实际尺寸）
+      // 3. 计算模块的位置和旋转（使用 SVG viewport 尺寸）
       const transform = this.calculateModuleTransform(module, module.moduleId);
 
       // 4. 父子 Group 方案（KISS）：显式控制旋转顺序
@@ -235,24 +245,28 @@ export class SVGModuleRenderer {
             }
           }
 
-          // 计算 SVG 几何体边界
-          const box = new THREE.Box3().setFromObject(group);
-          const center = box.getCenter(new THREE.Vector3());
-          const svgSize = box.getSize(new THREE.Vector3());
+          // 计算 SVG 几何体边界，仅作为日志与无 viewBox 时的降级
+          const geometryBox = new THREE.Box3().setFromObject(group);
+          const geometrySize = geometryBox.isEmpty()
+            ? new THREE.Vector3(0, 0, 0)
+            : geometryBox.getSize(new THREE.Vector3());
+          const viewport = this.resolveSvgViewport(data.xml, geometryBox);
 
-          // 保存 SVG 原始尺寸（居中前）- 关键修复
+          // 保存 SVG viewport 尺寸（viewBox 优先），用于映射到模块 bounds
           this.svgSizeCache.set(moduleId, {
-            width: svgSize.x,
-            height: svgSize.y
+            width: viewport.width,
+            height: viewport.height
           });
 
-          // 居中 SVG 几何体（将原点从左上角移到几何体中心）
+          // 以 viewBox 中心为本地原点，保留 SVG 内部留白和偏移
+          const viewportCenterX = viewport.minX + viewport.width / 2;
+          const viewportCenterY = viewport.minY + viewport.height / 2;
           group.children.forEach(child => {
-            child.position.x -= center.x;
-            child.position.y -= center.y;
+            child.position.x -= viewportCenterX;
+            child.position.y -= viewportCenterY;
           });
 
-          console.log(`[SVG] ${moduleId}: viewBox=(${svgSize.x.toFixed(0)}, ${svgSize.y.toFixed(0)}), children=${group.children.length}`);
+          console.log(`[SVG] ${moduleId}: viewport=${viewport.source}(${viewport.width.toFixed(0)}, ${viewport.height.toFixed(0)}), geometryBounds=(${geometrySize.x.toFixed(0)}, ${geometrySize.y.toFixed(0)}), children=${group.children.length}`);
 
           // 缓存结果
           this.svgCache.set(moduleId, group);
@@ -283,9 +297,9 @@ export class SVGModuleRenderer {
     // 2. 解析朝向角度
     const rotation = this.parseFacingAngle(module.facing, module.id);
 
-    // 3. 获取 SVG 实际尺寸（关键修复：使用 SVG viewBox 尺寸而非 moduleDef.size）
+    // 3. 获取 SVG viewport 尺寸（关键修复：使用 SVG viewBox 尺寸而非几何包围盒）
     const svgSize = this.svgSizeCache.get(moduleId);
-    if (!svgSize) {
+    if (!svgSize || svgSize.width <= 0 || svgSize.height <= 0) {
       console.warn(`[SVG] No cached size for: ${moduleId}`);
       return {
         position: { x: center[0], y: center[1] },
@@ -309,6 +323,72 @@ export class SVGModuleRenderer {
       rotation: rotation,
       scale: { x: scaleX * this.SVG_SCALE, y: scaleY * this.SVG_SCALE }
     };
+  }
+
+  /**
+   * 优先使用根 viewBox 作为 SVG 设计画布；缺失时才降级到实际几何边界。
+   */
+  private resolveSvgViewport(svgXml: unknown, geometryBox: THREE.Box3): SvgViewport {
+    const viewBox = this.parseSvgViewBox(svgXml);
+    if (viewBox) {
+      return {
+        ...viewBox,
+        source: 'viewBox'
+      };
+    }
+
+    if (!geometryBox.isEmpty()) {
+      const geometrySize = geometryBox.getSize(new THREE.Vector3());
+      return {
+        minX: geometryBox.min.x,
+        minY: geometryBox.min.y,
+        width: geometrySize.x,
+        height: geometrySize.y,
+        source: 'geometry'
+      };
+    }
+
+    return {
+      minX: 0,
+      minY: 0,
+      width: 1,
+      height: 1,
+      source: 'geometry'
+    };
+  }
+
+  private parseSvgViewBox(svgXml: unknown): Omit<SvgViewport, 'source'> | null {
+    const svgElement = this.getSvgRootElement(svgXml);
+    const viewBox = svgElement?.getAttribute('viewBox')?.trim();
+    if (!viewBox) return null;
+
+    const values = viewBox
+      .split(/[,\s]+/)
+      .filter(Boolean)
+      .map(value => Number(value));
+
+    if (values.length !== 4 || values.some(value => !Number.isFinite(value))) {
+      console.warn(`[SVG] Invalid viewBox ignored: ${viewBox}`);
+      return null;
+    }
+
+    const [minX, minY, width, height] = values as [number, number, number, number];
+    if (width <= 0 || height <= 0) {
+      console.warn(`[SVG] Non-positive viewBox ignored: ${viewBox}`);
+      return null;
+    }
+
+    return { minX, minY, width, height };
+  }
+
+  private getSvgRootElement(svgXml: unknown): Element | null {
+    if (svgXml instanceof Element) {
+      return svgXml;
+    }
+    if (svgXml instanceof Document) {
+      return svgXml.documentElement;
+    }
+    return null;
   }
 
   /**
