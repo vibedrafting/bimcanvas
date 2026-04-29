@@ -663,7 +663,7 @@ export const useCanvasStore = defineStore('canvas', () => {
     const getSnapshotFilename = (): string => {
         const rawName = projectData.value?.project?.name?.trim() || 'BIMCanvas';
         const safeName = rawName.replace(/[\\/:*?"<>|]+/g, '_');
-        return `${safeName}_snapshot_${formatTimestamp(new Date())}.bcweb.json`;
+        return `${safeName}_snapshot_${formatTimestamp(new Date())}.json`;
     };
 
     const exportSnapshot = async (): Promise<{ blob: Blob; filename: string } | null> => {

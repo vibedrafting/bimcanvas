@@ -84,7 +84,7 @@ const onSaveCancel = () => {
         </svg>
         <span>Import</span>
       </GlassButton>
-      <GlassButton @click="handleExportSnapshot" :disabled="!store.projectData" variant="ghost" class="ribbon-btn" title="导出 .bcweb.json Snapshot">
+      <GlassButton @click="handleExportSnapshot" :disabled="!store.projectData" variant="ghost" class="ribbon-btn" title="导出 Snapshot JSON">
         <svg style="width: 18px; height: 18px; flex-shrink: 0;" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
           <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
           <polyline points="17 8 12 3 7 8"></polyline>

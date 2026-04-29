@@ -313,7 +313,7 @@ onMounted(() => {
             <path d="M9 15l3 3 3-3" />
           </svg>
           <p class="empty-title">Standalone 模式</p>
-          <p class="empty-hint">导入 .bcweb.json Snapshot 后开始编辑</p>
+          <p class="empty-hint">导入 Snapshot JSON 后开始编辑</p>
           <GlassButton variant="primary" @click="handleImport">
             导入 Snapshot
           </GlassButton>

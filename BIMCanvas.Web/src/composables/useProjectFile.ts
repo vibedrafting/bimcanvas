@@ -18,19 +18,19 @@ export function useProjectFile() {
   const runtime = getWebRuntime();
   const canImportSnapshot = supports(runtime.capabilities.webSnapshotImport);
   const canExportBcp = supports(runtime.capabilities.bcpExport);
-  const fileAccept = canImportSnapshot ? '.bcweb.json' : '.bcp';
+  const fileAccept = canImportSnapshot ? '.json' : '.bcp';
 
   const pickerType = canImportSnapshot
     ? {
-        description: 'BIMCanvas Web Snapshot',
-        accept: { 'application/json': ['.bcweb.json'] }
+        description: 'BIMCanvas Snapshot',
+        accept: { 'application/json': ['.json'] }
       }
     : {
         description: 'BIMCanvas Project',
         accept: { 'application/octet-stream': ['.bcp'] }
       };
 
-  // Load Data: Connected 读 .bcp，Standalone 读 .bcweb.json。
+  // Load Data: Connected 读 .bcp，Standalone 读 Snapshot JSON。
   const handleLoad = async () => {
     try {
       // Try using File System Access API
@@ -60,8 +60,8 @@ export function useProjectFile() {
     const fileName = file.name.toLowerCase();
 
     if (canImportSnapshot) {
-      if (!fileName.endsWith('.bcweb.json')) {
-        alert('Standalone 模式只支持 .bcweb.json Snapshot 文件');
+      if (!fileName.endsWith('.json')) {
+        alert('Standalone 模式只支持 Snapshot JSON 文件');
         return;
       }
 
@@ -146,9 +146,9 @@ export function useProjectFile() {
         const handle = await (window as any).showSaveFilePicker({
           suggestedName: filename,
           types: [{
-            description: fileKind === 'snapshot' ? 'BIMCanvas Web Snapshot' : 'BIMCanvas Project',
+            description: fileKind === 'snapshot' ? 'BIMCanvas Snapshot' : 'BIMCanvas Project',
             accept: fileKind === 'snapshot'
-              ? { 'application/json': ['.bcweb.json'] }
+              ? { 'application/json': ['.json'] }
               : { 'application/octet-stream': ['.bcp'] }
           }],
           startIn: 'desktop'
@@ -172,7 +172,7 @@ export function useProjectFile() {
     return true;
   };
 
-  // Export Data - 两个 Runtime 都导出 .bcweb.json Snapshot。
+  // Export Data - 两个 Runtime 都导出 Snapshot JSON。
   const handleExport = async (): Promise<boolean> => {
     return handleExportSnapshot();
   };
