@@ -308,15 +308,15 @@ export class SVGModuleRenderer {
       };
     }
 
-    // 4. 计算 bounds 的本地边长，避免旋转后的 AABB 放大 SVG
-    const boundsSize = this.calculateBoundsSize(module.bounds);
+    // 4. 按 SVG 旋转后的本地轴匹配 bounds 边长，避免 90° 模块宽深互换
+    const targetSize = this.calculateSvgAxisTargetSize(module.bounds, rotation);
 
-    // 5. SVG 在本地坐标系缩放后再旋转，因此始终按 OBB 边长对应原始 SVG 尺寸
+    // 5. SVG 在本地坐标系缩放后再旋转，因此缩放目标必须对应旋转后的 SVG X/Y 轴
     const rotationDegrees = Math.abs(rotation * 180 / Math.PI) % 360;
-    const scaleX = boundsSize.width / svgSize.width;
-    const scaleY = boundsSize.depth / svgSize.height;
+    const scaleX = targetSize.svgX / svgSize.width;
+    const scaleY = targetSize.svgY / svgSize.height;
 
-    console.log(`[SVG Scale] bounds=(${boundsSize.width.toFixed(0)}, ${boundsSize.depth.toFixed(0)}), svg=(${svgSize.width.toFixed(0)}, ${svgSize.height.toFixed(0)}), rot=${rotationDegrees.toFixed(0)}°, scale=(${scaleX.toFixed(2)}, ${scaleY.toFixed(2)})`);
+    console.log(`[SVG Scale] target=(${targetSize.svgX.toFixed(0)}, ${targetSize.svgY.toFixed(0)}), svg=(${svgSize.width.toFixed(0)}, ${svgSize.height.toFixed(0)}), rot=${rotationDegrees.toFixed(0)}°, scale=(${scaleX.toFixed(2)}, ${scaleY.toFixed(2)})`);
 
     return {
       position: { x: center[0], y: center[1] },
@@ -411,18 +411,49 @@ export class SVGModuleRenderer {
   }
 
   /**
-   * 计算模块 OBB 的本地边长。
-   * bounds 点序约定：p0→p1 为模块宽度方向，p1→p2 为深度方向。
+   * 计算 SVG 本地 X/Y 轴应映射到的模块边长。
+   * bounds 点序只代表多边形边，不可靠地代表模块宽/深；宽深由 facing 旋转后的轴向决定。
    */
-  private calculateBoundsSize(polygon: Point2D[]): { width: number, depth: number } {
-    if (polygon.length < 3) return { width: 0, depth: 0 };
+  private calculateSvgAxisTargetSize(polygon: Point2D[], rotation: number): { svgX: number, svgY: number } {
+    if (polygon.length < 3) return { svgX: 0, svgY: 0 };
 
-    const edgeLength = (a: Point2D, b: Point2D): number =>
-      Math.hypot(b[0] - a[0], b[1] - a[1]);
+    const edge = (a: Point2D, b: Point2D) => {
+      const x = b[0] - a[0];
+      const y = b[1] - a[1];
+      const length = Math.hypot(x, y);
+      return {
+        x,
+        y,
+        length,
+        unitX: length > 0 ? x / length : 0,
+        unitY: length > 0 ? y / length : 0
+      };
+    };
+
+    const edge0 = edge(polygon[0]!, polygon[1]!);
+    const edge1 = edge(polygon[1]!, polygon[2]!);
+
+    if (edge0.length <= 0 || edge1.length <= 0) {
+      return { svgX: edge0.length, svgY: edge1.length };
+    }
+
+    const svgXAxis = {
+      x: Math.cos(rotation),
+      y: Math.sin(rotation)
+    };
+    const svgYAxis = {
+      x: -Math.sin(rotation),
+      y: Math.cos(rotation)
+    };
+
+    const edge0MatchesSvgX = Math.abs(svgXAxis.x * edge0.unitX + svgXAxis.y * edge0.unitY);
+    const edge1MatchesSvgX = Math.abs(svgXAxis.x * edge1.unitX + svgXAxis.y * edge1.unitY);
+    const edge0MatchesSvgY = Math.abs(svgYAxis.x * edge0.unitX + svgYAxis.y * edge0.unitY);
+    const edge1MatchesSvgY = Math.abs(svgYAxis.x * edge1.unitX + svgYAxis.y * edge1.unitY);
 
     return {
-      width: edgeLength(polygon[0]!, polygon[1]!),
-      depth: edgeLength(polygon[1]!, polygon[2]!)
+      svgX: edge0MatchesSvgX >= edge1MatchesSvgX ? edge0.length : edge1.length,
+      svgY: edge0MatchesSvgY >= edge1MatchesSvgY ? edge0.length : edge1.length
     };
   }
 
