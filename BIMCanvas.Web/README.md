@@ -35,6 +35,8 @@ interface WebSnapshot {
 
 视图初始化要求：`ThreeSceneService` 必须同时处理“画布挂载后加载 ProjectData”和“画布挂载前已存在 ProjectData”两种时序。Standalone 导入 Snapshot 会先写入 `canvasStore.projectData` 再进入工作区，首轮 watcher 需要立即执行一次，以保证项目进入画布后自动适配居中。
 
+Capability 语义：`supported` 和 `optional` 都允许 UI 入口出现，只有 `unsupported` 必须隐藏或禁用。`optional` 表示当前 Runtime 支持该能力，但数据可能缺失；例如 Standalone 的模块库取决于导入的 Snapshot 是否包含 `moduleLibrary/moduleAssets`，面板需要自行显示空状态或降级提示。
+
 ### Development
 
 - 开发服务器默认由 Vite 提供：`http://localhost:5173`

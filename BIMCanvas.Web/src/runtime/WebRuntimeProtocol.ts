@@ -53,6 +53,6 @@ export interface WebRuntime {
   exportBcpProject(): Promise<{ blob: Blob; filename: string } | null>;
 }
 
-export const supports = (cap: CapabilityEntry) => cap.level === 'supported';
+export const supports = (cap: CapabilityEntry) => cap.level !== 'unsupported';
 
 export const WebRuntimeKey: InjectionKey<WebRuntime> = Symbol('WebRuntime');

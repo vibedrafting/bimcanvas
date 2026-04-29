@@ -4,9 +4,13 @@ import { useCanvasStore } from '../../stores/canvasStore';
 import GlassButton from './base/GlassButton.vue';
 import { themeService } from '../../services/theme/ThemeService';
 import { storeToRefs } from 'pinia';
+import { getWebRuntime } from '../../runtime/runtimeRegistry';
+import { supports } from '../../runtime/WebRuntimeProtocol';
 
 const store = useCanvasStore();
 const { agentConnectionState, currentOperation } = storeToRefs(store);
+const runtime = getWebRuntime();
+const canUseModuleLibrary = supports(runtime.capabilities.moduleLibrary);
 const isExpanded = ref(false);
 
 // 调试开关：设为 true 可保持灵动岛展开状态，方便截图调试
@@ -86,7 +90,7 @@ const dynamicStatusText = computed(() => {
     <!-- Expanded View -->
     <div class="island-expanded" v-show="shouldExpand">
       <!-- BASIC Group -->
-      <div class="group stagger-1">
+      <div v-if="canUseModuleLibrary" class="group stagger-1">
         <GlassButton @click="openModuleLibrary" variant="ghost" class="compact-btn" title="Open Module Library">
           <svg class="icon" viewBox="0 0 24 24" width="1.1em" height="1.1em" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
             <rect x="3" y="3" width="7" height="7"></rect>
@@ -98,7 +102,7 @@ const dynamicStatusText = computed(() => {
         </GlassButton>
       </div>
 
-      <div class="divider-vertical stagger-2"></div>
+      <div v-if="canUseModuleLibrary" class="divider-vertical stagger-2"></div>
 
       <!-- TRANSFORM Group -->
       <div class="group stagger-3">
