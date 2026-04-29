@@ -33,6 +33,8 @@ interface WebSnapshot {
 
 迁移路径固定为：Connected 打开 `.bcp` → Web 导出 Snapshot JSON → Standalone 导入 Snapshot。
 
+视图初始化要求：`ThreeSceneService` 必须同时处理“画布挂载后加载 ProjectData”和“画布挂载前已存在 ProjectData”两种时序。Standalone 导入 Snapshot 会先写入 `canvasStore.projectData` 再进入工作区，首轮 watcher 需要立即执行一次，以保证项目进入画布后自动适配居中。
+
 ### Development
 
 - 开发服务器默认由 Vite 提供：`http://localhost:5173`

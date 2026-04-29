@@ -164,6 +164,7 @@ export class ThreeSceneService {
         // 7. Watch for Store Changes
 
         // A. Deep watch for content updates (Rebuild Scene)
+        // Standalone import may set projectData before ThreeCanvas mounts, so run once immediately.
         watch(() => this.store.projectData, (newData) => {
             if (newData) {
                 if (this.store.suppressAutoBuild) {
@@ -200,7 +201,7 @@ export class ThreeSceneService {
                     this.interactionService.refreshSpatialMarkingOverlay();
                 }
             }
-        }, { deep: true });
+        }, { deep: true, immediate: true });
 
         // B. Shallow watch for document replacement (Fit to Screen)
         // This only triggers when a NEW document is loaded (reference change),
