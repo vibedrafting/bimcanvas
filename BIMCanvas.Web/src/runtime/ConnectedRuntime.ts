@@ -44,7 +44,7 @@ export class ConnectedRuntime implements WebRuntime {
     return await response.json() as ProjectData;
   }
 
-  async importSnapshot(): Promise<ProjectData> {
+  async importSnapshot(_file: File): Promise<ProjectData> {
     throw new Error('Connected Runtime 不支持直接导入 WebSnapshot');
   }
 

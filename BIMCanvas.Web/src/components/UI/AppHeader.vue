@@ -14,6 +14,7 @@ const store = useCanvasStore();
 const appStore = useAppStore();
 const runtime = getWebRuntime();
 const canServerPersistence = supports(runtime.capabilities.serverPersistence);
+const canProjectCatalog = supports(runtime.capabilities.projectCatalog);
 const fileInputRef = ref<HTMLInputElement | null>(null);
 const isSyncing = ref(false);
 
@@ -234,7 +235,7 @@ onUnmounted(() => {
 
     <!-- 冲突对话框 -->
     <ConflictDialog
-      v-if="canServerPersistence"
+      v-if="canProjectCatalog"
       :visible="showConflictDialog"
       :project-name="conflictProjectName"
       :existing-path="conflictExistingPath"
