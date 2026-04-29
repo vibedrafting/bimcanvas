@@ -12,7 +12,7 @@
 
 Web 启动时会通过 `createWebRuntime()` 选择一次运行模式，运行期间不热切换：
 
-- **ConnectedRuntime**：Server 可达或 `VITE_WEB_RUNTIME=connected` 时使用。Web 通过 Server 拉取 `.bcp` 聚合后的 `ProjectData`，编辑后由 `saveModules()` 推送给 Server 写回项目文件，并接收 SignalR 实时同步。
+- **ConnectedRuntime**：Server 可达或 `VITE_WEB_RUNTIME=connected` 时使用。Web 通过 Server 拉取 `.bcp` 聚合后的 `ProjectData`，编辑后由 `saveModules()` 推送给 Server 写回项目文件，并接收 SignalR 实时同步。导出支持 `.bcp` 项目文件和 `.bcweb.json` Snapshot 两种格式。
 - **StandaloneRuntime**：Server 不可达或 `VITE_WEB_RUNTIME=standalone` 时使用。Web 不读取 `.bcp`，只导入/导出 `.bcweb.json` Snapshot；编辑只修改浏览器内存，保存语义是“导出 Snapshot”。
 
 两个 Runtime 共享同一个内存真相源：`canvasStore.projectData: ProjectData | null`。UI、Canvas、交互工具只消费 `ProjectData`，不能直接消费 `.bcp` 或 `WebSnapshot`。
@@ -93,7 +93,7 @@ interface WebSnapshot {
 ### 3. 数据与协作 (Data & Sync)
 - 🔶 **AI 实时同步**: SignalR 基础连接已实现（事件监听 + 重连机制），集成收尾中。
 - ✅ **Web 多 Runtime**:
-    - Connected 模式保留项目目录、`.bcp` 导入、Server 持久化、SignalR、Git/Worktree、Agent Chat。
+    - Connected 模式保留项目目录、`.bcp` 导入、`.bcp` 导出、`.bcweb.json` Snapshot 导出、Server 持久化、SignalR、Git/Worktree、Agent Chat。
     - Standalone 模式可不启动 Server/Agent 独立运行，导入 `.bcweb.json` Snapshot 后在内存中编辑，并导出新的 Snapshot。
 - ✅ **撤销/重做 (Undo/Redo)**: TimelineManager 已完成（快照、历史策略、变更来源检测）。
 - ✅ **首页实例设置台 (Homepage Instance Settings)**:

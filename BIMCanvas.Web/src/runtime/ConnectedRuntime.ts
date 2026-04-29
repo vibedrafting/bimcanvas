@@ -109,6 +109,10 @@ export class ConnectedRuntime implements WebRuntime {
     });
   }
 
+  async exportBcpProject(): Promise<{ blob: Blob; filename: string }> {
+    return ProjectService.exportProject();
+  }
+
   private async fetchModuleLibrary(): Promise<ModuleLibrary | null> {
     const response = await fetch(`${SERVER_API}/modules/library`);
     if (response.status === 404) {

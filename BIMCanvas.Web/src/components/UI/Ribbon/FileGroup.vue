@@ -12,7 +12,7 @@ const store = useCanvasStore();
 const runtime = getWebRuntime();
 const canServerPersistence = supports(runtime.capabilities.serverPersistence);
 const fileInputRef = ref<HTMLInputElement | null>(null);
-const { handleLoad, handleExport, processFile, fileAccept } = useProjectFile();
+const { handleLoad, handleExportSnapshot, handleExportBcp, processFile, fileAccept, canExportBcp } = useProjectFile();
 
 // 使用统一的保存逻辑
 const { handleSave, canSave, isSaving } = useSave();
@@ -84,20 +84,29 @@ const onSaveCancel = () => {
         </svg>
         <span>Import</span>
       </GlassButton>
-      <GlassButton @click="handleExport" :disabled="!store.projectData" variant="ghost" class="ribbon-btn">
+      <GlassButton @click="handleExportSnapshot" :disabled="!store.projectData" variant="ghost" class="ribbon-btn" title="导出 .bcweb.json Snapshot">
         <svg style="width: 18px; height: 18px; flex-shrink: 0;" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
           <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
           <polyline points="17 8 12 3 7 8"></polyline>
           <line x1="12" y1="3" x2="12" y2="15"></line>
         </svg>
-        <span>Export</span>
+        <span>Snapshot</span>
+      </GlassButton>
+      <GlassButton v-if="canExportBcp" @click="handleExportBcp" :disabled="!store.projectData" variant="ghost" class="ribbon-btn" title="导出 .bcp 项目文件">
+        <svg style="width: 18px; height: 18px; flex-shrink: 0;" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
+          <polyline points="14 2 14 8 20 8"></polyline>
+          <path d="M12 18v-6"></path>
+          <path d="M9 15l3 3 3-3"></path>
+        </svg>
+        <span>BCP</span>
       </GlassButton>
 
       <!-- Hidden Input for Fallback -->
       <input
         ref="fileInputRef"
         type="file"
-            :accept="fileAccept"
+        :accept="fileAccept"
         style="display: none"
         @change="onFileSelected"
       />

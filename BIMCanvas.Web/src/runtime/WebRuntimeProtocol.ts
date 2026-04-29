@@ -12,6 +12,7 @@ export interface CapabilityEntry {
 export interface WebCapabilities {
   projectCatalog: CapabilityEntry;
   serverPersistence: CapabilityEntry;
+  bcpExport: CapabilityEntry;
   webSnapshotImport: CapabilityEntry;
   webSnapshotExport: CapabilityEntry;
   moduleLibrary: CapabilityEntry;
@@ -49,6 +50,7 @@ export interface WebRuntime {
   getModuleLibrary(): Promise<ModuleLibrary | null>;
   getModuleAsset(moduleId: string): Promise<string | null>;
   exportSnapshot(projectData: ProjectData): Promise<Blob>;
+  exportBcpProject(): Promise<{ blob: Blob; filename: string } | null>;
 }
 
 export const supports = (cap: CapabilityEntry) => cap.level === 'supported';

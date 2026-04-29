@@ -678,6 +678,13 @@ export const useCanvasStore = defineStore('canvas', () => {
         };
     };
 
+    const exportBcpProject = async (): Promise<{ blob: Blob; filename: string } | null> => {
+        if (!supports(runtime.capabilities.bcpExport)) {
+            return null;
+        }
+        return runtime.exportBcpProject();
+    };
+
     // saveZoneToServer 已移除：v3.4 不再需要按分区保存，Server 自动计算
 
     return {
@@ -724,6 +731,7 @@ export const useCanvasStore = defineStore('canvas', () => {
         clearDirty,
         saveModules,
         exportSnapshot,
+        exportBcpProject,
         forceSync,
         resetProject,
         // saveZoneToServer 已移除：v3.4 Server 自动计算分区

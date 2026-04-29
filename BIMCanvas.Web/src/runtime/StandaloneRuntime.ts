@@ -50,6 +50,10 @@ export class StandaloneRuntime implements WebRuntime {
     });
   }
 
+  async exportBcpProject(): Promise<{ blob: Blob; filename: string } | null> {
+    return null;
+  }
+
   private async collectModuleAssets(moduleLibrary: ModuleLibrary | null): Promise<Record<string, string> | undefined> {
     if (!moduleLibrary) {
       return undefined;

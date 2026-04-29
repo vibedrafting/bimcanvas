@@ -17,6 +17,7 @@ export function useProjectFile() {
   const appStore = useAppStore();
   const runtime = getWebRuntime();
   const canImportSnapshot = supports(runtime.capabilities.webSnapshotImport);
+  const canExportBcp = supports(runtime.capabilities.bcpExport);
   const fileAccept = canImportSnapshot ? '.bcweb.json' : '.bcp';
 
   const pickerType = canImportSnapshot
@@ -139,14 +140,16 @@ export function useProjectFile() {
     }
   };
 
-  const saveBlobToDisk = async (blob: Blob, filename: string): Promise<boolean> => {
+  const saveBlobToDisk = async (blob: Blob, filename: string, fileKind: 'snapshot' | 'bcp'): Promise<boolean> => {
     if ('showSaveFilePicker' in window) {
       try {
         const handle = await (window as any).showSaveFilePicker({
           suggestedName: filename,
           types: [{
-            description: 'BIMCanvas Web Snapshot',
-            accept: { 'application/json': ['.bcweb.json'] }
+            description: fileKind === 'snapshot' ? 'BIMCanvas Web Snapshot' : 'BIMCanvas Project',
+            accept: fileKind === 'snapshot'
+              ? { 'application/json': ['.bcweb.json'] }
+              : { 'application/octet-stream': ['.bcp'] }
           }],
           startIn: 'desktop'
         });
@@ -171,13 +174,17 @@ export function useProjectFile() {
 
   // Export Data - 两个 Runtime 都导出 .bcweb.json Snapshot。
   const handleExport = async (): Promise<boolean> => {
+    return handleExportSnapshot();
+  };
+
+  const handleExportSnapshot = async (): Promise<boolean> => {
     if (!store.projectData) return false;
 
     try {
       const snapshot = await store.exportSnapshot();
       if (!snapshot) return false;
 
-      const saved = await saveBlobToDisk(snapshot.blob, snapshot.filename);
+      const saved = await saveBlobToDisk(snapshot.blob, snapshot.filename, 'snapshot');
       if (saved) {
         store.clearDirty();
       }
@@ -189,14 +196,32 @@ export function useProjectFile() {
     }
   };
 
+  const handleExportBcp = async (): Promise<boolean> => {
+    if (!store.projectData || !canExportBcp) return false;
+
+    try {
+      const project = await store.exportBcpProject();
+      if (!project) return false;
+
+      return saveBlobToDisk(project.blob, project.filename, 'bcp');
+    } catch (err: any) {
+      console.error('Failed to export BCP project:', err);
+      alert(`导出 .bcp 失败: ${err.message}`);
+      return false;
+    }
+  };
+
   return {
     handleLoad,
     handleExport,
+    handleExportSnapshot,
+    handleExportBcp,
     processFile,
     handleConflictResolve,
     showConflictDialog,
     conflictProjectName,
     conflictExistingPath,
-    fileAccept
+    fileAccept,
+    canExportBcp
   };
 }
