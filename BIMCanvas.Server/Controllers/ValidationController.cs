@@ -95,9 +95,9 @@ namespace BIMCanvas.Server.Controllers
                     : null;
                 var (modules, structureDiagnostics) = LoadAllModules(projectPath, targetSet);
 
-                // 3.5 预处理 facing：仅 validate_layout 消费 semantic 并回写规范 value
+                // 3.5 校验 facing：validate_layout 只做诊断，不再消费 semantic 或写回文件
                 var allDiagnostics = new List<Diagnostic>(structureDiagnostics);
-                var facingDiagnostics = NormalizeModuleFacings(modules);
+                var facingDiagnostics = ValidateModuleFacings(modules);
                 allDiagnostics.AddRange(facingDiagnostics);
                 if (facingDiagnostics.Count > 0)
                     _logger.LogWarning("[Validation] facing 预检发现 {Count} 个诊断，继续执行后续检查", facingDiagnostics.Count);
@@ -105,9 +105,6 @@ namespace BIMCanvas.Server.Controllers
                 // 3.6 校验 moduleId 是否在模块库中
                 var moduleIdDiagnostics = ValidateModuleIds(modules);
                 allDiagnostics.AddRange(moduleIdDiagnostics);
-
-                // 3.7 持久化模块（确保自动生成的 Id 和 facing 规范化结果写回文件）
-                PersistModules(projectPath, modules);
 
                 if (targetSet != null)
                     _logger.LogInformation("[Validation] 按分区加载: {ZoneIds} → {Count} 个模块",
@@ -367,41 +364,21 @@ namespace BIMCanvas.Server.Controllers
         }
 
         /// <summary>
-        /// 归一化模块 facing 数据。
-        /// 规则：
-        /// 1. semantic 有效时优先覆盖 value
-        /// 2. semantic 归一化后必须清空
-        /// 3. 常规阶段只接受有效 value
+        /// 校验模块 facing 数据。
+        /// validate_layout 不消费 semantic；Agent 写入 semantic 后应先调用 normalize_modules。
         /// </summary>
-        private List<Diagnostic> NormalizeModuleFacings(List<Module> modules)
+        private static List<Diagnostic> ValidateModuleFacings(List<Module> modules)
         {
             var diagnostics = new List<Diagnostic>();
 
             foreach (var module in modules)
             {
-                if (module.Facing.TryResolveSemanticValue(out var semanticValue))
-                {
-                    module.Facing = new Facing(semanticValue.Normalize(), null);
-                    continue;
-                }
-
-                if (module.Facing.HasSemantic)
-                {
-                    diagnostics.Add(new Diagnostic(
-                        DiagnosticCodes.InvalidFacingSemantic,
-                        "error",
-                        $"模块 {module.Id} ({module.ModuleName ?? "未命名"}) 的 facing.semantic '{module.Facing.Semantic}' 无效",
-                        module.Id,
-                        module.ModuleName));
-                    continue;
-                }
-
                 if (!module.Facing.Value.HasValue)
                 {
                     diagnostics.Add(new Diagnostic(
                         DiagnosticCodes.MissingFacingValue,
                         "error",
-                        $"模块 {module.Id} ({module.ModuleName ?? "未命名"}) 缺少 facing.value",
+                        $"模块 {module.Id} ({module.ModuleName ?? "未命名"}) 缺少 facing.value；若使用 facing.semantic，请先调用 normalize_modules",
                         module.Id,
                         module.ModuleName));
                     continue;
@@ -417,8 +394,6 @@ namespace BIMCanvas.Server.Controllers
                         module.ModuleName));
                     continue;
                 }
-
-                module.Facing = new Facing(normalizedValue, null);
             }
 
             return diagnostics;
@@ -515,46 +490,6 @@ namespace BIMCanvas.Server.Controllers
         {
             var json = JsonConvert.SerializeObject(data, Formatting.Indented, _jsonSettings);
             System.IO.File.WriteAllText(path, json, Encoding.UTF8);
-        }
-
-        /// <summary>
-        /// 将模块按 ZoneId 分组写回对应 schemes/{zoneId}/modules.json
-        /// 确保反序列化时自动生成的 Id 被持久化
-        /// </summary>
-        private void PersistModules(string projectPath, List<Module> modules)
-        {
-            if (modules.Count == 0) return;
-
-            var byZone = modules
-                .GroupBy(m => m.ZoneId ?? "_unzoned")
-                .ToDictionary(g => g.Key, g => g.ToList());
-
-            var schemesPath = Path.Combine(projectPath, "schemes");
-
-            foreach (var kvp in byZone)
-            {
-                // 支持嵌套分区：先搜索已有目录，再回退到一级目录
-                var zoneDir = ResolveZoneDirectory(schemesPath, kvp.Key);
-                if (!Directory.Exists(zoneDir))
-                    Directory.CreateDirectory(zoneDir);
-
-                var modulesPath = Path.Combine(zoneDir, "modules.json");
-
-                // 写入时清理运行时字段 ZoneId
-                var toSave = kvp.Value.Select(m =>
-                {
-                    m.ZoneId = null;
-                    return m;
-                }).ToList();
-
-                WriteJson(modulesPath, toSave);
-
-                // 恢复 ZoneId 以供后续验证使用
-                foreach (var m in kvp.Value)
-                    m.ZoneId = kvp.Key;
-            }
-
-            _logger.LogDebug("[Validation] 持久化 {Count} 个模块的 Id", modules.Count);
         }
 
         /// <summary>
