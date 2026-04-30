@@ -10,6 +10,7 @@ import { useProjectFile } from '../../composables/useProjectFile';
 import { useSave } from '../../composables/useSave';
 import { getWebRuntime } from '../../runtime/runtimeRegistry';
 import { supports } from '../../runtime/WebRuntimeProtocol';
+import { LayoutValidationService, type Diagnostic, type ModuleNormalizationReport, type SchemeValidationReport } from '../../services/LayoutValidationService';
 
 const store = useCanvasStore();
 const appStore = useAppStore();
@@ -57,10 +58,95 @@ const handleCloseConfirm = async (action: 'save' | 'discard' | 'cancel') => {
   isClosing.value = false;
 };
 
+const notifySyncCheck = (type: 'info' | 'success' | 'warning' | 'error', title: string, message: string) => {
+  window.dispatchEvent(new CustomEvent('bimcanvas:agent-notification', {
+    detail: {
+      type,
+      title,
+      message,
+      timestamp: new Date().toISOString()
+    }
+  }));
+};
+
+const formatDiagnosticItem = (diagnostic: Diagnostic): string => {
+  const name = diagnostic.moduleName ? ` (${diagnostic.moduleName})` : '';
+  const conflict = diagnostic.conflictType && diagnostic.conflictId
+    ? ` -> ${diagnostic.conflictType}:${diagnostic.conflictId}`
+    : '';
+  return `${diagnostic.moduleId || '?'}${name}${conflict}: ${diagnostic.message}`;
+};
+
+const formatDiagnostics = (diagnostics: Diagnostic[], maxItems = 6): string => {
+  if (diagnostics.length === 0) return '没有诊断详情。';
+
+  const groups = new Map<string, Diagnostic[]>();
+  diagnostics.forEach(diagnostic => {
+    const key = diagnostic.code || 'UNKNOWN';
+    groups.set(key, [...(groups.get(key) || []), diagnostic]);
+  });
+
+  const lines: string[] = [];
+  let shownDiagnostics = 0;
+  for (const [code, items] of groups) {
+    lines.push(`${code} x${items.length}`);
+    const remainingSlots = Math.max(0, maxItems - shownDiagnostics);
+    items.slice(0, remainingSlots).forEach(item => {
+      lines.push(formatDiagnosticItem(item));
+      shownDiagnostics += 1;
+    });
+    if (shownDiagnostics >= maxItems) break;
+  }
+
+  const remaining = diagnostics.length - shownDiagnostics;
+  if (remaining > 0) {
+    lines.push(`还有 ${remaining} 条诊断，详见控制台或接口返回。`);
+  }
+
+  return lines.join('；');
+};
+
+const notifyReportDiagnostics = (
+  titlePrefix: string,
+  report: Pick<ModuleNormalizationReport | SchemeValidationReport, 'errorCount' | 'warningCount' | 'diagnostics'>
+) => {
+  if (report.errorCount <= 0 && report.warningCount <= 0) return;
+
+  const type = report.errorCount > 0 ? 'error' : 'warning';
+  const title = report.errorCount > 0
+    ? `${titlePrefix}失败`
+    : `${titlePrefix}警告`;
+  const message = `${report.errorCount} 个错误，${report.warningCount} 个警告。${formatDiagnostics(report.diagnostics)}`;
+  notifySyncCheck(type, title, message);
+};
+
+const getRequestErrorMessage = (error: any): string => {
+  return error?.response?.data?.message || error?.message || String(error);
+};
+
 const handleSync = async () => {
   if (isSyncing.value) return;
   isSyncing.value = true;
   try {
+    let shouldValidate = true;
+    try {
+      const normalizeReport = await LayoutValidationService.normalizeModules();
+      notifyReportDiagnostics('模块规范化', normalizeReport);
+      shouldValidate = normalizeReport.errorCount <= 0;
+    } catch (error: any) {
+      shouldValidate = false;
+      notifySyncCheck('error', '模块规范化失败', getRequestErrorMessage(error));
+    }
+
+    if (shouldValidate) {
+      try {
+        const validationReport = await LayoutValidationService.validateLayout();
+        notifyReportDiagnostics('布局验证', validationReport);
+      } catch (error: any) {
+        notifySyncCheck('error', '布局验证失败', getRequestErrorMessage(error));
+      }
+    }
+
     await store.forceSync();
   } finally {
     setTimeout(() => { isSyncing.value = false; }, 600);

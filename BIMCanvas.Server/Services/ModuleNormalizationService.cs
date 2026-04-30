@@ -139,6 +139,8 @@ namespace BIMCanvas.Server.Services
 
             foreach (var module in modules)
             {
+                module.Items ??= new List<ModuleItem>();
+
                 if (module.Facing.TryResolveSemanticValue(out var semanticValue))
                 {
                     module.Facing = new Facing(semanticValue.Normalize(), null);

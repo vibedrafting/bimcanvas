@@ -650,9 +650,66 @@ def _format_validation_report(report: dict[str, Any]) -> str:
     return "\n".join(lines)
 
 
+def _format_normalization_report(report: dict[str, Any]) -> str:
+    """将 ModuleNormalizationReport JSON 格式化为 AI 友好文本"""
+    total = report.get("totalModules", 0)
+    normalized_count = report.get("normalizedCount", 0)
+    error_count = report.get("errorCount", 0)
+    warning_count = report.get("warningCount", 0)
+    elapsed = report.get("elapsedMs", 0)
+    diagnostics = report.get("diagnostics", [])
+
+    if report.get("isValid", True) and error_count == 0:
+        if warning_count > 0:
+            lines = [
+                f"=== 模块数据规范化完成（{warning_count} 个警告）===",
+                f"共 {total} 个模块，规范化 {normalized_count} 个，0 个错误，{warning_count} 个警告 ({elapsed}ms)",
+                "",
+            ]
+        else:
+            return f"=== 模块数据规范化完成 ===\n共 {total} 个模块，规范化 {normalized_count} 个，0 个错误 ({elapsed}ms)"
+    else:
+        lines = [
+            "=== 模块数据规范化失败 ===",
+            f"共 {total} 个模块，规范化 {normalized_count} 个，{error_count} 个错误，{warning_count} 个警告 ({elapsed}ms)",
+            "",
+        ]
+
+    by_code: dict[str, list[dict[str, Any]]] = {}
+    for d in diagnostics:
+        code = d.get("code", "UNKNOWN")
+        by_code.setdefault(code, []).append(d)
+
+    for code, diags in by_code.items():
+        errors_in_group = sum(1 for d in diags if d.get("severity") == "error")
+        warnings_in_group = sum(1 for d in diags if d.get("severity") == "warning")
+        count_parts = []
+        if errors_in_group > 0:
+            count_parts.append(f"{errors_in_group} 个错误")
+        if warnings_in_group > 0:
+            count_parts.append(f"{warnings_in_group} 个警告")
+        count_label = "，".join(count_parts) if count_parts else f"{len(diags)} 个"
+        lines.append(f"--- {code} ({count_label}) ---")
+
+        for d in diags:
+            severity = d.get("severity", "error")
+            prefix = "⚠" if severity == "warning" else "✗"
+            module_id = d.get("moduleId", "?")
+            module_name = d.get("moduleName")
+            name_part = f" ({module_name})" if module_name else ""
+            line = f"  {prefix} {module_id}{name_part}"
+            msg = d.get("message")
+            if msg:
+                line += f"\n    → {msg}"
+            lines.append(line)
+        lines.append("")
+
+    return "\n".join(lines)
+
+
 @tool(
     "validate_layout",
-    "验证当前方案的布局合法性（布局编译器）。检查三类错误：(1)超出设计区域 (2)与墙体/柱子/禁区重叠 (3)模块间重叠。调用时还会将目标 modules.json 中有效的 facing.semantic 收敛为 facing.value，并把 semantic 清空为 null。可选 zoneIds 参数仅验证指定分区内的模块。",
+    "验证当前方案的布局合法性（布局编译器）。调用时会先将目标 modules.json 中有效的 facing.semantic 收敛为 facing.value 并清空 semantic；规范化无错误后再检查三类错误：(1)超出设计区域 (2)与墙体/柱子/禁区重叠 (3)模块间重叠。可选 zoneIds 参数仅验证指定分区内的模块。",
     {
         "$schema": "http://json-schema.org/draft-07/schema#",
         "type": "object",
@@ -675,6 +732,33 @@ async def validate_layout(args: dict[str, Any]) -> dict[str, Any]:
 
     try:
         async with aiohttp.ClientSession() as session:
+            async with session.post(f"{SERVER_URL}/api/modules/normalize", json=body) as resp:
+                if resp.status == 400:
+                    try:
+                        error_data = await resp.json()
+                        error_msg = error_data.get("message", "规范化请求无效")
+                    except Exception:
+                        error_msg = await resp.text()
+                    return {
+                        "content": [{"type": "text", "text": f"规范化请求失败: {error_msg}"}],
+                        "is_error": True
+                    }
+                if resp.status != 200:
+                    try:
+                        error_data = await resp.json()
+                        error_msg = error_data.get("message", f"HTTP {resp.status}")
+                    except Exception:
+                        error_msg = await resp.text()
+                    return {
+                        "content": [{"type": "text", "text": f"规范化请求失败: {error_msg}"}],
+                        "is_error": True
+                    }
+
+                normalize_report = await resp.json()
+                if normalize_report.get("errorCount", 0) > 0:
+                    text = _format_normalization_report(normalize_report)
+                    return {"content": [{"type": "text", "text": text}], "is_error": True}
+
             async with session.post(f"{SERVER_URL}/api/validation/layout", json=body) as resp:
                 if resp.status == 400:
                     try:
