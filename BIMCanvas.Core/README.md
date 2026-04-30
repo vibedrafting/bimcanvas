@@ -370,7 +370,7 @@ if (!report.IsValid)
 }
 ```
 
-**检查项（12 种错误代码）**：
+**检查项（14 种错误代码）**：
 
 | 错误代码 | 说明 | ConflictType |
 |---------|------|-------------|
@@ -386,6 +386,8 @@ if (!report.IsValid)
 | `E010_MISSING_FACING` | 模块缺少整个 `facing` 对象 | — |
 | `E011_INVALID_MODULE_ID` | 模块 `moduleId` 不在模块库中 | — |
 | `E012_INVALID_BOUNDS` | 模块 `bounds` 结构非法，例如非 4 顶点、重复顶点、非法坐标或零面积 | — |
+| `E013_INVALID_MODULE_FILE_PATH` | `modules.json` 不在 `zones.json` 推导出的规范叶子分区路径下 | `moduleFile` |
+| `E014_DUPLICATE_ZONE_MODULE_FILES` | 同一分区存在多个 `modules.json` 文件 | `moduleFile` |
 
 **算法流程**：3 阶段，全程 AABB 预检加速
 1. Phase 1: 预计算所有几何体的 AABB

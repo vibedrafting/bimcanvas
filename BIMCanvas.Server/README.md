@@ -435,6 +435,9 @@ computed/*.json        → computed
 - `POST /api/project/save` 只接受 Web 规范输入：`facing.value` 必须有效，`facing.semantic` 必须显式为 `null`
 - `POST /api/modules/normalize` 是唯一会消费 `facing.semantic` 的 Server 原子入口：它会先把有效语义方向转换成 `value`，再把 `semantic` 清空为 `null`，然后回写目标 `modules.json`
 - `POST /api/validation/layout` 是纯验证入口，不消费 `semantic`，不写回文件
+- `modules.json` 路径由 `schemes/zones.json` 的拓扑推导；父 zone 有 `subZones` 时，子叶子分区写入 `schemes/{parentZoneId}/{childZoneId}/modules.json`，不再按“哪个目录已存在”猜测
+- `POST /api/modules/normalize` 只处理规范路径下的 `modules.json`；错误路径不会被自动迁移或删除
+- `POST /api/validation/layout` 会报告错误路径/重复路径（如 `E013_INVALID_MODULE_FILE_PATH`、`E014_DUPLICATE_ZONE_MODULE_FILES`），并跳过错误路径中的模块，避免产生级联重叠误报
 - Agent 侧 `mcp__canvas__validate_layout` 会先调用 `/api/modules/normalize`，规范化无错误后再调用 `/api/validation/layout`
 - 方向归一化仍沿用 `FileSystemWatcher + SignalR` 被动刷新机制，因此 AI 直写文件后可能出现两次 reload：第一次来自 AI 写入，第二次来自 normalize 写回
 

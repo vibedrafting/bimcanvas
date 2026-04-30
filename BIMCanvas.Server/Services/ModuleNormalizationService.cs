@@ -23,11 +23,15 @@ namespace BIMCanvas.Server.Services
     public class ModuleNormalizationService
     {
         private readonly ILogger<ModuleNormalizationService> _logger;
+        private readonly ModuleFileTopologyService _moduleFileTopologyService;
         private readonly JsonSerializerSettings _jsonSettings;
 
-        public ModuleNormalizationService(ILogger<ModuleNormalizationService> logger)
+        public ModuleNormalizationService(
+            ILogger<ModuleNormalizationService> logger,
+            ModuleFileTopologyService moduleFileTopologyService)
         {
             _logger = logger;
+            _moduleFileTopologyService = moduleFileTopologyService;
             _jsonSettings = new JsonSerializerSettings
             {
                 ContractResolver = new CamelCasePropertyNamesContractResolver(),
@@ -42,22 +46,30 @@ namespace BIMCanvas.Server.Services
                 ? new HashSet<string>(zoneIds)
                 : null;
 
-            var modules = LoadModules(projectPath, targetSet);
-            var diagnostics = NormalizeFacings(modules, out var normalizedCount);
+            var moduleFiles = LoadModuleFiles(projectPath, targetSet);
+            var diagnostics = new List<Diagnostic>();
+            var normalizedCount = 0;
+            var totalModules = 0;
 
-            PersistModules(projectPath, modules);
+            foreach (var moduleFile in moduleFiles)
+            {
+                diagnostics.AddRange(NormalizeFacings(moduleFile.Modules, out var fileNormalizedCount));
+                normalizedCount += fileNormalizedCount;
+                totalModules += moduleFile.Modules.Count;
+                PersistModules(moduleFile);
+            }
             sw.Stop();
 
             _logger.LogInformation(
                 "[ModuleNormalize] 完成: {Total} 个模块, {Normalized} 个规范化, {Errors} 个错误, {ElapsedMs}ms",
-                modules.Count,
+                totalModules,
                 normalizedCount,
                 diagnostics.Count(d => d.Severity == "error"),
                 sw.ElapsedMilliseconds);
 
             return new ModuleNormalizationReport
             {
-                TotalModules = modules.Count,
+                TotalModules = totalModules,
                 NormalizedCount = normalizedCount,
                 ErrorCount = diagnostics.Count(d => d.Severity == "error"),
                 WarningCount = diagnostics.Count(d => d.Severity == "warning"),
@@ -66,70 +78,36 @@ namespace BIMCanvas.Server.Services
             };
         }
 
-        private List<Module> LoadModules(string projectPath, HashSet<string>? targetZoneIds)
+        private List<LoadedModuleFile> LoadModuleFiles(string projectPath, HashSet<string>? targetZoneIds)
         {
             var schemesPath = Path.Combine(projectPath, "schemes");
-            var allModules = new List<Module>();
+            var result = new List<LoadedModuleFile>();
 
             if (!Directory.Exists(schemesPath))
-                return allModules;
+                return result;
 
-            IEnumerable<string> moduleFiles;
-            if (targetZoneIds is { Count: > 0 })
-            {
-                var targeted = new List<string>();
-                foreach (var zoneId in targetZoneIds)
-                {
-                    var zoneDir = ResolveZoneDirectory(schemesPath, zoneId);
-                    var path = Path.Combine(zoneDir, "modules.json");
-                    if (File.Exists(path))
-                        targeted.Add(path);
-                }
-                moduleFiles = targeted;
-            }
-            else
-            {
-                var zoneFiles = Directory.GetFiles(schemesPath, "modules.json", SearchOption.AllDirectories)
-                    .Where(f =>
-                    {
-                        var dir = Path.GetFileName(Path.GetDirectoryName(f) ?? "");
-                        return dir.StartsWith("rz_") || dir.StartsWith("dz_") || dir == "_unzoned";
-                    })
-                    .ToList();
+            var topology = _moduleFileTopologyService.Build(projectPath);
+            var moduleFiles = topology.GetExistingCanonicalModuleFiles(targetZoneIds);
 
-                if (zoneFiles.Count > 0)
-                {
-                    moduleFiles = zoneFiles;
-                }
-                else
-                {
-                    var legacyPath = Path.Combine(schemesPath, "modules.json");
-                    moduleFiles = File.Exists(legacyPath)
-                        ? new[] { legacyPath }
-                        : Enumerable.Empty<string>();
-                }
-            }
-
-            foreach (var modulesPath in moduleFiles)
+            foreach (var moduleFile in moduleFiles)
             {
-                var zoneId = Path.GetFileName(Path.GetDirectoryName(modulesPath)!);
                 try
                 {
-                    var modules = ReadJson<List<Module>>(modulesPath) ?? new List<Module>();
+                    var modules = ReadJson<List<Module>>(moduleFile.FilePath) ?? new List<Module>();
                     foreach (var module in modules)
                     {
-                        module.ZoneId ??= zoneId;
+                        module.ZoneId ??= moduleFile.ZoneId;
                     }
-                    allModules.AddRange(modules);
+                    result.Add(new LoadedModuleFile(moduleFile.FilePath, moduleFile.ZoneId, modules));
                 }
                 catch (Exception ex)
                 {
                     throw new InvalidOperationException(
-                        $"模块数据解析失败 | 文件: {modulesPath} | Zone: {zoneId} | 原始错误: {ex.Message}", ex);
+                        $"模块数据解析失败 | 文件: {moduleFile.FilePath} | Zone: {moduleFile.ZoneId} | 原始错误: {ex.Message}", ex);
                 }
             }
 
-            return allModules;
+            return result;
         }
 
         private static List<Diagnostic> NormalizeFacings(List<Module> modules, out int normalizedCount)
@@ -197,55 +175,23 @@ namespace BIMCanvas.Server.Services
             return Math.Abs(a.X - b.X) <= tolerance && Math.Abs(a.Y - b.Y) <= tolerance;
         }
 
-        private void PersistModules(string projectPath, List<Module> modules)
+        private void PersistModules(LoadedModuleFile moduleFile)
         {
-            if (modules.Count == 0)
+            if (moduleFile.Modules.Count == 0)
                 return;
 
-            var schemesPath = Path.Combine(projectPath, "schemes");
-            var byZone = modules
-                .GroupBy(m => m.ZoneId ?? "_unzoned")
-                .ToDictionary(g => g.Key, g => g.ToList());
-
-            foreach (var kvp in byZone)
+            var toSave = moduleFile.Modules.Select(m =>
             {
-                var zoneDir = ResolveZoneDirectory(schemesPath, kvp.Key);
-                if (!Directory.Exists(zoneDir))
-                    Directory.CreateDirectory(zoneDir);
+                m.ZoneId = null;
+                return m;
+            }).ToList();
 
-                var modulesPath = Path.Combine(zoneDir, "modules.json");
-                var toSave = kvp.Value.Select(m =>
-                {
-                    m.ZoneId = null;
-                    return m;
-                }).ToList();
+            WriteJson(moduleFile.FilePath, toSave);
 
-                WriteJson(modulesPath, toSave);
-
-                foreach (var module in kvp.Value)
-                {
-                    module.ZoneId = kvp.Key;
-                }
-            }
-        }
-
-        private string ResolveZoneDirectory(string schemesPath, string zoneId)
-        {
-            var directPath = Path.Combine(schemesPath, zoneId);
-            if (Directory.Exists(directPath))
-                return directPath;
-
-            if (Directory.Exists(schemesPath))
+            foreach (var module in moduleFile.Modules)
             {
-                foreach (var parentDir in Directory.GetDirectories(schemesPath))
-                {
-                    var nestedPath = Path.Combine(parentDir, zoneId);
-                    if (Directory.Exists(nestedPath))
-                        return nestedPath;
-                }
+                module.ZoneId = moduleFile.ZoneId;
             }
-
-            return directPath;
         }
 
         private T ReadJson<T>(string path) where T : new()
@@ -258,6 +204,22 @@ namespace BIMCanvas.Server.Services
         {
             var json = JsonConvert.SerializeObject(data, Formatting.Indented, _jsonSettings);
             File.WriteAllText(path, json, Encoding.UTF8);
+        }
+
+        private sealed class LoadedModuleFile
+        {
+            public LoadedModuleFile(string filePath, string zoneId, List<Module> modules)
+            {
+                FilePath = filePath;
+                ZoneId = zoneId;
+                Modules = modules;
+            }
+
+            public string FilePath { get; }
+
+            public string ZoneId { get; }
+
+            public List<Module> Modules { get; }
         }
     }
 
