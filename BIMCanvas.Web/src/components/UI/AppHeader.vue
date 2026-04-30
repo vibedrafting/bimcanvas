@@ -120,8 +120,49 @@ const notifyReportDiagnostics = (
   notifySyncCheck(type, title, message);
 };
 
+const stringifyErrorValue = (value: unknown): string[] => {
+  if (value == null) return [];
+  if (Array.isArray(value)) {
+    return value.flatMap(item => stringifyErrorValue(item));
+  }
+  if (typeof value === 'object') {
+    return Object.entries(value as Record<string, unknown>).flatMap(([key, item]) =>
+      stringifyErrorValue(item).map(message => `${key}: ${message}`)
+    );
+  }
+  return [String(value)];
+};
+
 const getRequestErrorMessage = (error: any): string => {
-  return error?.response?.data?.message || error?.message || String(error);
+  const response = error?.response;
+  const data = response?.data;
+
+  if (typeof data === 'string' && data.trim()) {
+    return data;
+  }
+
+  if (data && typeof data === 'object') {
+    const parts = [
+      ...stringifyErrorValue(data.message),
+      ...stringifyErrorValue(data.detail),
+      ...stringifyErrorValue(data.errors)
+    ].filter(Boolean);
+
+    if (parts.length > 0) {
+      return parts.join('；');
+    }
+
+    if (typeof data.title === 'string' && data.title.trim()) {
+      return data.title;
+    }
+  }
+
+  if (response?.status) {
+    const statusText = response.statusText ? ` ${response.statusText}` : '';
+    return `HTTP ${response.status}${statusText}`;
+  }
+
+  return error?.message || String(error);
 };
 
 const handleSync = async () => {

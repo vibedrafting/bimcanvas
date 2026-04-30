@@ -63,7 +63,7 @@ namespace BIMCanvas.Server.Controllers
         /// 可选 zoneIds 参数：仅验证指定分区内的模块
         /// </summary>
         [HttpPost("layout")]
-        public ActionResult<SchemeValidationReport> ValidateLayout([FromBody] ValidateLayoutRequest request)
+        public ActionResult<SchemeValidationReport> ValidateLayout([FromBody] ValidateLayoutRequest? request)
         {
             if (!_projectContext.IsLoaded)
             {
@@ -90,8 +90,9 @@ namespace BIMCanvas.Server.Controllers
                 var (designZones, exclusionZones) = LoadZoneData(projectPath);
 
                 // 3. 按 zoneIds 选择性读取模块（先选文件，再反序列化，不读取无关 zone）
-                var targetSet = request?.ZoneIds is { Count: > 0 }
-                    ? new HashSet<string>(request.ZoneIds)
+                var requestedZoneIds = request?.ZoneIds;
+                var targetSet = requestedZoneIds is { Count: > 0 }
+                    ? new HashSet<string>(requestedZoneIds)
                     : null;
                 var (modules, structureDiagnostics) = LoadAllModules(projectPath, targetSet);
 
@@ -587,7 +588,7 @@ namespace BIMCanvas.Server.Controllers
     public class ValidateLayoutRequest
     {
         /// <summary>仅验证这些 Zone 内的模块（为空或 null 时验证全部）</summary>
-        public List<string> ZoneIds { get; set; }
+        public List<string>? ZoneIds { get; set; }
     }
 
     /// <summary>
