@@ -45,6 +45,20 @@ interface SvgViewport {
   source: SvgViewportSource;
 }
 
+const isSvgDebugEnabled = (): boolean => {
+  try {
+    return import.meta.env.DEV && window.localStorage?.getItem('bimcanvas.debug.svg') === '1';
+  } catch {
+    return false;
+  }
+};
+
+const logSvgDebug = (message: string): void => {
+  if (isSvgDebugEnabled()) {
+    console.debug(message);
+  }
+};
+
 export class SVGModuleRenderer {
   private scene: THREE.Scene;
   private svgLoader: SVGLoader;
@@ -128,11 +142,6 @@ export class SVGModuleRenderer {
 
       // 8. 添加到场景
       this.scene.add(root);
-
-      // [DEBUG] 验证几何体方向
-      const box = new THREE.Box3().setFromObject(root);
-      const size = box.getSize(new THREE.Vector3());
-      console.log(`[SVG] ${module.id}: pos=(${root.position.x.toFixed(0)}, ${root.position.y.toFixed(0)}, ${root.position.z.toFixed(0)}), size=(${size.x.toFixed(0)}, ${size.y.toFixed(0)}, ${size.z.toFixed(0)})`);
 
       // 9. 记录到映射表
       this.moduleGroups.set(module.id, root);
@@ -229,19 +238,18 @@ export class SVGModuleRenderer {
                 const strokeGeometry = SVGLoader.pointsToStroke(points, strokeStyle);
                 if (strokeGeometry) {
                   const vertexCount = strokeGeometry.attributes.position?.count || 0;
-                  // [DEBUG] 关键日志：顶点数
-                  console.log(`[SVG] Path${i}: pts=${points.length}, verts=${vertexCount}`);
+                  logSvgDebug(`[SVG] Path${i}: pts=${points.length}, verts=${vertexCount}`);
                   if (vertexCount > 0) {
                     const strokeMesh = new THREE.Mesh(strokeGeometry, material);
                     strokeMesh.renderOrder = 999;
                     group.add(strokeMesh);
                   }
                 } else {
-                  console.warn(`[SVG] Path${i}: pointsToStroke=null, pts=${points.length}`);
+                  logSvgDebug(`[SVG] Path${i}: pointsToStroke=null, pts=${points.length}`);
                 }
               }
             } else if (path.subPaths.length === 0) {
-              console.warn(`[SVG] Path${i}: subPaths=0`);
+              logSvgDebug(`[SVG] Path${i}: subPaths=0`);
             }
           }
 
@@ -266,7 +274,7 @@ export class SVGModuleRenderer {
             child.position.y -= viewportCenterY;
           });
 
-          console.log(`[SVG] ${moduleId}: viewport=${viewport.source}(${viewport.width.toFixed(0)}, ${viewport.height.toFixed(0)}), geometryBounds=(${geometrySize.x.toFixed(0)}, ${geometrySize.y.toFixed(0)}), children=${group.children.length}`);
+          logSvgDebug(`[SVG] ${moduleId}: viewport=${viewport.source}(${viewport.width.toFixed(0)}, ${viewport.height.toFixed(0)}), geometryBounds=(${geometrySize.x.toFixed(0)}, ${geometrySize.y.toFixed(0)}), children=${group.children.length}`);
 
           // 缓存结果
           this.svgCache.set(moduleId, group);
@@ -300,7 +308,7 @@ export class SVGModuleRenderer {
     // 3. 获取 SVG viewport 尺寸（关键修复：使用 SVG viewBox 尺寸而非几何包围盒）
     const svgSize = this.svgSizeCache.get(moduleId);
     if (!svgSize || svgSize.width <= 0 || svgSize.height <= 0) {
-      console.warn(`[SVG] No cached size for: ${moduleId}`);
+      logSvgDebug(`[SVG] No cached size for: ${moduleId}`);
       return {
         position: { x: center[0], y: center[1] },
         rotation: rotation,
@@ -316,7 +324,7 @@ export class SVGModuleRenderer {
     const scaleX = targetSize.svgX / svgSize.width;
     const scaleY = targetSize.svgY / svgSize.height;
 
-    console.log(`[SVG Scale] target=(${targetSize.svgX.toFixed(0)}, ${targetSize.svgY.toFixed(0)}), svg=(${svgSize.width.toFixed(0)}, ${svgSize.height.toFixed(0)}), rot=${rotationDegrees.toFixed(0)}°, scale=(${scaleX.toFixed(2)}, ${scaleY.toFixed(2)})`);
+    logSvgDebug(`[SVG Scale] target=(${targetSize.svgX.toFixed(0)}, ${targetSize.svgY.toFixed(0)}), svg=(${svgSize.width.toFixed(0)}, ${svgSize.height.toFixed(0)}), rot=${rotationDegrees.toFixed(0)}°, scale=(${scaleX.toFixed(2)}, ${scaleY.toFixed(2)})`);
 
     return {
       position: { x: center[0], y: center[1] },
@@ -368,13 +376,13 @@ export class SVGModuleRenderer {
       .map(value => Number(value));
 
     if (values.length !== 4 || values.some(value => !Number.isFinite(value))) {
-      console.warn(`[SVG] Invalid viewBox ignored: ${viewBox}`);
+      logSvgDebug(`[SVG] Invalid viewBox ignored: ${viewBox}`);
       return null;
     }
 
     const [minX, minY, width, height] = values as [number, number, number, number];
     if (width <= 0 || height <= 0) {
-      console.warn(`[SVG] Non-positive viewBox ignored: ${viewBox}`);
+      logSvgDebug(`[SVG] Non-positive viewBox ignored: ${viewBox}`);
       return null;
     }
 
