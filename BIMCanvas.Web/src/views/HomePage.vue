@@ -87,6 +87,7 @@ const isOpening = ref(false);
 const openError = ref<string | null>(null);
 
 const handleOpen = async (project: ProjectSummary) => {
+  console.log('[OpenPerf] T1 click handleOpen', Date.now());
   if (!canProjectCatalog) return;
   if (!project.isValid || isOpening.value) return;
   isOpening.value = true;
@@ -96,6 +97,7 @@ const handleOpen = async (project: ProjectSummary) => {
     // 成功后设置 currentView = 'workspace'
     // App.vue 的 watch 触发 enterWorkspace() → loadInitialProject()
     const success = await appStore.openProject(project.folderPath);
+    console.log('[OpenPerf] T2 openProject resolved', Date.now());
     if (!success) {
       openError.value = `无法打开项目 "${project.name}"`;
     }
