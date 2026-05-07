@@ -159,19 +159,27 @@ namespace BIMCanvas.Server.Controllers
                 var loadResult = _projectService.OpenFolder(request.FolderPath);
                 _logger.LogWarning("[OpenPerf] S1 ProjectService.OpenFolder elapsed={Ms}ms", __openPerfSw.ElapsedMilliseconds);
 
-                if (!string.IsNullOrWhiteSpace(previousProjectPath) &&
-                    !IsSamePath(previousProjectPath, loadResult.ProjectPath))
+                // 首次打开短路：本进程未注册过任何项目/窗口，没有任何 agent 需要关闭，
+                // 跳过 ReleaseProjectRuntimeResources 内部 ~1s 的固定 Task.Delay
+                var nothingToRelease = string.IsNullOrWhiteSpace(previousProjectPath)
+                                     && previousWindowIds.Count == 0;
+
+                if (!nothingToRelease)
                 {
+                    if (!string.IsNullOrWhiteSpace(previousProjectPath) &&
+                        !IsSamePath(previousProjectPath, loadResult.ProjectPath))
+                    {
+                        ReleaseProjectRuntimeResources(
+                            previousProjectPath,
+                            previousWindowIds,
+                            closeDefaultWindowFallback: true);
+                    }
+
                     ReleaseProjectRuntimeResources(
-                        previousProjectPath,
+                        loadResult.ProjectPath,
                         previousWindowIds,
                         closeDefaultWindowFallback: true);
                 }
-
-                ReleaseProjectRuntimeResources(
-                    loadResult.ProjectPath,
-                    previousWindowIds,
-                    closeDefaultWindowFallback: true);
                 _logger.LogWarning("[OpenPerf] S2a ReleaseProjectRuntimeResources elapsed={Ms}ms", __openPerfSw.ElapsedMilliseconds);
 
                 _projectContext.Clear();
