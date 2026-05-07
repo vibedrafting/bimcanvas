@@ -172,17 +172,20 @@ namespace BIMCanvas.Server.Controllers
                     loadResult.ProjectPath,
                     previousWindowIds,
                     closeDefaultWindowFallback: true);
+                _logger.LogWarning("[OpenPerf] S2a ReleaseProjectRuntimeResources elapsed={Ms}ms", __openPerfSw.ElapsedMilliseconds);
 
                 _projectContext.Clear();
                 _projectContext.SetProject(loadResult.ProjectPath);
+                _logger.LogWarning("[OpenPerf] S2b ProjectContext.Clear+SetProject elapsed={Ms}ms", __openPerfSw.ElapsedMilliseconds);
 
                 // 记录最近打开
                 var projectName = Path.GetFileName(loadResult.ProjectPath);
                 _recentProjectsService.RecordOpen(projectName, loadResult.ProjectPath);
+                _logger.LogWarning("[OpenPerf] S2c RecentProjects.RecordOpen elapsed={Ms}ms", __openPerfSw.ElapsedMilliseconds);
 
                 // 初始化对话日志
                 BIMCanvas.Server.Logging.ConversationLogger.Initialize(loadResult.ProjectPath);
-                _logger.LogWarning("[OpenPerf] S2 release+ctx+recent+logger elapsed={Ms}ms", __openPerfSw.ElapsedMilliseconds);
+                _logger.LogWarning("[OpenPerf] S2d ConversationLogger.Initialize elapsed={Ms}ms", __openPerfSw.ElapsedMilliseconds);
 
                 // 清空 Worktree（切换项目后旧 Worktree 无效）
                 _gitService.CleanupAllWorktrees(loadResult.ProjectPath);
