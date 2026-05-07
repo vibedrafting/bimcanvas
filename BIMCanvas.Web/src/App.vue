@@ -41,7 +41,6 @@ let reuseExistingProjectOnNextEnter = false;
  * 唯一的入口点，由 watch 触发
  */
 const enterWorkspace = async () => {
-  console.log('[OpenPerf] T3 enterWorkspace', Date.now());
   if (enterWorkspaceLock) {
     debugStore.warn('[App] enterWorkspace already running, skipping');
     return;
@@ -52,7 +51,6 @@ const enterWorkspace = async () => {
     // 重置 workspace UI 状态
     isSplashShowing.value = true;
     loaderProps.value = { active: true };
-    console.log('[OpenPerf] T4 loader active', Date.now());
     loadingStage.value = 0;
     isBuildComplete.value = false;
 

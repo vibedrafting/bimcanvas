@@ -174,11 +174,9 @@ export class ProjectService {
      */
     static async openFolder(folderPath: string): Promise<ProjectLoadResult> {
         try {
-            console.log('[OpenPerf] T1.5 POST open-folder ->', Date.now());
             const response = await axios.post<ProjectLoadResult>(`${API_BASE}/open-folder`, {
                 folderPath
             });
-            console.log('[OpenPerf] T1.6 POST open-folder <-', Date.now());
             return response.data;
         } catch (error: any) {
             return {

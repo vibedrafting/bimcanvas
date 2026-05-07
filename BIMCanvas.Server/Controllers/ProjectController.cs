@@ -150,17 +150,12 @@ namespace BIMCanvas.Server.Controllers
 
             try
             {
-                var __openPerfSw = System.Diagnostics.Stopwatch.StartNew();
-                _logger.LogWarning("[OpenPerf] S0 enter open-folder");
-
                 var previousProjectPath = _projectContext.CurrentProjectPath;
                 var previousWindowIds = _projectContext.GetRegisteredWindowIds().ToList();
 
                 var loadResult = _projectService.OpenFolder(request.FolderPath);
-                _logger.LogWarning("[OpenPerf] S1 ProjectService.OpenFolder elapsed={Ms}ms", __openPerfSw.ElapsedMilliseconds);
 
-                // 首次打开短路：本进程未注册过任何项目/窗口，没有任何 agent 需要关闭，
-                // 跳过 ReleaseProjectRuntimeResources 内部 ~1s 的固定 Task.Delay
+                // 短路：本进程未注册过任何项目/窗口时，跳过 release 内部 ~1s 的固定 Task.Delay
                 var nothingToRelease = string.IsNullOrWhiteSpace(previousProjectPath)
                                      && previousWindowIds.Count == 0;
 
@@ -180,27 +175,20 @@ namespace BIMCanvas.Server.Controllers
                         previousWindowIds,
                         closeDefaultWindowFallback: true);
                 }
-                _logger.LogWarning("[OpenPerf] S2a ReleaseProjectRuntimeResources elapsed={Ms}ms", __openPerfSw.ElapsedMilliseconds);
 
                 _projectContext.Clear();
                 _projectContext.SetProject(loadResult.ProjectPath);
-                _logger.LogWarning("[OpenPerf] S2b ProjectContext.Clear+SetProject elapsed={Ms}ms", __openPerfSw.ElapsedMilliseconds);
 
                 // 记录最近打开
                 var projectName = Path.GetFileName(loadResult.ProjectPath);
                 _recentProjectsService.RecordOpen(projectName, loadResult.ProjectPath);
-                _logger.LogWarning("[OpenPerf] S2c RecentProjects.RecordOpen elapsed={Ms}ms", __openPerfSw.ElapsedMilliseconds);
 
                 // 初始化对话日志
                 BIMCanvas.Server.Logging.ConversationLogger.Initialize(loadResult.ProjectPath);
-                _logger.LogWarning("[OpenPerf] S2d ConversationLogger.Initialize elapsed={Ms}ms", __openPerfSw.ElapsedMilliseconds);
 
                 // 清空 Worktree（切换项目后旧 Worktree 无效）
                 _gitService.CleanupAllWorktrees(loadResult.ProjectPath);
-                _logger.LogWarning("[OpenPerf] S3 git CleanupAllWorktrees elapsed={Ms}ms", __openPerfSw.ElapsedMilliseconds);
-
                 _projectWatcherService.RestartWatching(loadResult.ProjectPath);
-                _logger.LogWarning("[OpenPerf] S4 RestartWatching elapsed={Ms}ms", __openPerfSw.ElapsedMilliseconds);
 
                 return Ok(CreateSuccessProjectLoadResult(loadResult.ProjectPath, loadResult.Warnings));
             }
