@@ -151,13 +151,13 @@ namespace BIMCanvas.Server.Controllers
             try
             {
                 var __openPerfSw = System.Diagnostics.Stopwatch.StartNew();
-                _logger.LogInformation("[OpenPerf] S0 enter open-folder");
+                _logger.LogWarning("[OpenPerf] S0 enter open-folder");
 
                 var previousProjectPath = _projectContext.CurrentProjectPath;
                 var previousWindowIds = _projectContext.GetRegisteredWindowIds().ToList();
 
                 var loadResult = _projectService.OpenFolder(request.FolderPath);
-                _logger.LogInformation("[OpenPerf] S1 ProjectService.OpenFolder elapsed={Ms}ms", __openPerfSw.ElapsedMilliseconds);
+                _logger.LogWarning("[OpenPerf] S1 ProjectService.OpenFolder elapsed={Ms}ms", __openPerfSw.ElapsedMilliseconds);
 
                 if (!string.IsNullOrWhiteSpace(previousProjectPath) &&
                     !IsSamePath(previousProjectPath, loadResult.ProjectPath))
@@ -182,14 +182,14 @@ namespace BIMCanvas.Server.Controllers
 
                 // 初始化对话日志
                 BIMCanvas.Server.Logging.ConversationLogger.Initialize(loadResult.ProjectPath);
-                _logger.LogInformation("[OpenPerf] S2 release+ctx+recent+logger elapsed={Ms}ms", __openPerfSw.ElapsedMilliseconds);
+                _logger.LogWarning("[OpenPerf] S2 release+ctx+recent+logger elapsed={Ms}ms", __openPerfSw.ElapsedMilliseconds);
 
                 // 清空 Worktree（切换项目后旧 Worktree 无效）
                 _gitService.CleanupAllWorktrees(loadResult.ProjectPath);
-                _logger.LogInformation("[OpenPerf] S3 git CleanupAllWorktrees elapsed={Ms}ms", __openPerfSw.ElapsedMilliseconds);
+                _logger.LogWarning("[OpenPerf] S3 git CleanupAllWorktrees elapsed={Ms}ms", __openPerfSw.ElapsedMilliseconds);
 
                 _projectWatcherService.RestartWatching(loadResult.ProjectPath);
-                _logger.LogInformation("[OpenPerf] S4 RestartWatching elapsed={Ms}ms", __openPerfSw.ElapsedMilliseconds);
+                _logger.LogWarning("[OpenPerf] S4 RestartWatching elapsed={Ms}ms", __openPerfSw.ElapsedMilliseconds);
 
                 return Ok(CreateSuccessProjectLoadResult(loadResult.ProjectPath, loadResult.Warnings));
             }
