@@ -3,6 +3,16 @@ import { useCanvasStore } from '../../stores/canvasStore';
 import { computed, ref, watch } from 'vue';
 import { storeToRefs } from 'pinia';
 import VariantSwitcherChips from './VariantSwitcherChips.vue';
+import ModuleSizeEditor from './property/ModuleSizeEditor.vue';
+import { moduleLibraryService } from '../../services/ModuleLibraryService';
+import {
+  obbCenter,
+  obbRotation,
+  obbSizeFromBounds,
+  resolveDimensionMode,
+  clampDimension,
+  boundsFromCenter
+} from '../../utils/moduleSize';
 
 const store = useCanvasStore();
 const { currentOperation, selectedIds } = storeToRefs(store);
@@ -61,6 +71,62 @@ const isPrimitiveValue = (value: any): boolean => {
   if (value === null || value === undefined) return false;
   const type = typeof value;
   return type === 'string' || type === 'number' || type === 'boolean';
+};
+
+// ========== 模块尺寸（actual + recommended + 编辑器） ==========
+// 仅当 selectedObject 是 module 时启用；查模块库拿 morphology 决定输入控件形态。
+
+const selectedModule = computed(() => {
+  const obj: any = selectedObject.value;
+  return obj && obj.type === 'module' ? obj : null;
+});
+
+const selectedModuleDef = computed(() => {
+  const m = selectedModule.value;
+  if (!m) return undefined;
+  return moduleLibraryService.getModuleById(m.moduleId);
+});
+
+const actualSize = computed(() => {
+  const m = selectedModule.value;
+  if (!m || !Array.isArray(m.bounds)) return null;
+  return obbSizeFromBounds(m.bounds);
+});
+
+const widthMode = computed(() => {
+  const def = selectedModuleDef.value;
+  return resolveDimensionMode(def?.morphology, 'width', def?.size.width ?? actualSize.value?.width ?? 0);
+});
+
+const depthMode = computed(() => {
+  const def = selectedModuleDef.value;
+  return resolveDimensionMode(def?.morphology, 'depth', def?.size.depth ?? actualSize.value?.depth ?? 0);
+});
+
+// 是否显示尺寸面板（任一维度 actual 可派生即显；编辑控件按 mode 决定 readonly/可编辑）
+const showSizeSection = computed(() => !!actualSize.value);
+
+const commitBoundsResize = async (nextWidth: number, nextDepth: number) => {
+  const m = selectedModule.value;
+  if (!m || !Array.isArray(m.bounds)) return;
+  const center = obbCenter(m.bounds);
+  const rotation = obbRotation(m.bounds);
+  const newBounds = boundsFromCenter(center, nextWidth, nextDepth, rotation);
+  store.beginBatchUpdate();
+  store.updateModule(m.id, { bounds: newBounds });
+  await store.endBatchUpdate();
+};
+
+const onWidthCommit = (next: number) => {
+  if (!actualSize.value) return;
+  const clamped = clampDimension(next, widthMode.value);
+  void commitBoundsResize(clamped, actualSize.value.depth);
+};
+
+const onDepthCommit = (next: number) => {
+  if (!actualSize.value) return;
+  const clamped = clampDimension(next, depthMode.value);
+  void commitBoundsResize(actualSize.value.width, clamped);
 };
 
 // 模块布置变体切换器：仅当选中"叶子分区"时显示，给 module-relocation-agent 产出的变体方案做切换/采纳。
@@ -145,14 +211,33 @@ const properties = computed(() => {
 
     <!-- Content -->
     <div class="panel-content">
-        <div v-if="properties.length === 0" class="empty-state">
+        <div v-if="properties.length === 0 && !showSizeSection" class="empty-state">
             No properties
         </div>
-        <div v-else class="prop-list">
+        <div v-if="properties.length > 0" class="prop-list">
             <div v-for="prop in properties" :key="prop.key" class="prop-row">
                 <span class="label">{{ prop.key }}</span>
                 <span class="value" :title="String(prop.value)">{{ prop.value }}</span>
             </div>
+        </div>
+
+        <!-- 模块尺寸：actual（派生自 bounds）+ recommended（来自 morphology）+ 编辑器 -->
+        <div v-if="showSizeSection && actualSize" class="size-section">
+          <div class="section-title">Size</div>
+          <ModuleSizeEditor
+            label="Width"
+            compact
+            :value="actualSize.width"
+            :mode="widthMode"
+            @commit="onWidthCommit"
+          />
+          <ModuleSizeEditor
+            label="Depth"
+            compact
+            :value="actualSize.depth"
+            :mode="depthMode"
+            @commit="onDepthCommit"
+          />
         </div>
 
         <!-- 叶子分区变体切换器：当且仅当选中叶子分区且该分区有 alt 文件时渲染（组件内部空列表时返回 null） -->
@@ -337,6 +422,20 @@ const properties = computed(() => {
         margin-top: 12px;
         padding-top: 12px;
         border-top: 1px solid var(--border-subtle);
+    }
+
+    .size-section {
+        margin-top: 12px;
+        padding-top: 12px;
+        border-top: 1px solid var(--border-subtle);
+    }
+
+    .section-title {
+        font-size: 0.72rem;
+        color: var(--text-secondary);
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+        margin-bottom: 8px;
     }
   }
 }

@@ -315,6 +315,15 @@ export const useCanvasStore = defineStore('canvas', () => {
     // 批量更新模式
     const batchUpdateMode = ref(false);
 
+    // 当前 PlaceTool 期望的尺寸 + 上下文（仅会话内，不持久化）。
+    // - moduleId：让 PlacementSizeBar 反查 morphology 决定输入控件形态；
+    // - width/depth：用户在 PlacementSizeBar 调整后的当前值，PlaceTool 实时读取重画预览 + 落库。
+    // PlaceTool.activate 写入；deactivate 清为 null。
+    const placementSize = ref<{ moduleId: string; width: number; depth: number } | null>(null);
+    const setPlacementSize = (size: { moduleId: string; width: number; depth: number } | null) => {
+        placementSize.value = size;
+    };
+
     const updateHistoryState = () => {
         canUndo.value = timeline.canUndo;
         canRedo.value = timeline.canRedo;
@@ -956,6 +965,10 @@ export const useCanvasStore = defineStore('canvas', () => {
         promptMessage,
         setPrompt,
         debugMsg,
+
+        // PlaceTool 运行时尺寸（不持久化）
+        placementSize,
+        setPlacementSize,
 
         // 变体方案（module-relocation-agent 产出）
         activeVariantByZone,

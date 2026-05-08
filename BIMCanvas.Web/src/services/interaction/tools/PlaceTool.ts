@@ -1,12 +1,14 @@
 import * as THREE from 'three';
+import { watch, type WatchStopHandle } from 'vue';
 import type { Tool } from './Tool';
 import type { ModuleDefinition } from '../../ModuleLibraryService';
 import { useCanvasStore } from '../../../stores/canvasStore';
 import { useDebugStore } from '../../../stores/debugStore';
 import { angleToFacing, createFacingData, toModel } from '../../../utils/coordinates';
-import type { Module, Point2D } from '../../../types/canvas';
+import type { Module } from '../../../types/canvas';
 import { LayerManager } from '../../three/LayerManager';
 import { generateModuleId } from '../../../utils/shortId';
+import { boundsFromCenter } from '../../../utils/moduleSize';
 
 /**
  * PlaceTool - 模块放置工具
@@ -36,6 +38,9 @@ export class PlaceTool implements Tool {
     // 当前鼠标对应的世界坐标
     private currentWorldPoint: THREE.Vector3 | null = null;
 
+    // 订阅 store.placementSize 的反订阅句柄；deactivate 时调用清理
+    private stopWatchPlacementSize: WatchStopHandle | null = null;
+
     constructor(
         scene: THREE.Scene,
         camera: THREE.Camera,
@@ -61,7 +66,29 @@ export class PlaceTool implements Tool {
         this.domElement.style.cursor = 'crosshair';
         this.currentRotation = Math.PI;
 
+        // 初始化 placementSize 为模块默认尺寸（带 moduleId 让 PlacementSizeBar 反查 morphology）。
+        // MainLayout.onSelectModule 已在派发事件前预设过一次，这里再确保一致（防止其他入口直接 new PlaceTool）。
+        if (!store.placementSize || store.placementSize.moduleId !== this.moduleDef.id) {
+            store.setPlacementSize({
+                moduleId: this.moduleDef.id,
+                width: this.moduleDef.size.width,
+                depth: this.moduleDef.size.depth
+            });
+        }
+
         this.createPreview();
+
+        // 订阅 store.placementSize 变化：用户在 PlacementSizeBar 改尺寸时实时重画预览
+        this.stopWatchPlacementSize = watch(
+            () => store.placementSize,
+            () => {
+                this.createPreview();
+                if (this.currentWorldPoint) {
+                    this.updatePreviewPosition(this.currentWorldPoint);
+                }
+            },
+            { deep: true }
+        );
 
         debug.log(`[PlaceTool] Activated: ${this.moduleDef.id} (${this.moduleDef.name})`);
     }
@@ -69,11 +96,28 @@ export class PlaceTool implements Tool {
     deactivate(): void {
         const store = useCanvasStore();
 
+        if (this.stopWatchPlacementSize) {
+            this.stopWatchPlacementSize();
+            this.stopWatchPlacementSize = null;
+        }
+
         this.removePreview();
         this.domElement.style.cursor = 'default';
         store.setPrompt(null);
+        store.setPlacementSize(null);
         store.currentOperation = null;
         this.currentWorldPoint = null;
+    }
+
+    /**
+     * 当前生效的尺寸：优先用 store.placementSize（用户在 PlacementSizeBar 调过），否则退回模块默认尺寸。
+     */
+    private getEffectiveSize(): { width: number; depth: number } {
+        const store = useCanvasStore();
+        return store.placementSize ?? {
+            width: this.moduleDef.size.width,
+            depth: this.moduleDef.size.depth
+        };
     }
 
     /**
@@ -82,7 +126,8 @@ export class PlaceTool implements Tool {
     private createPreview(): void {
         this.removePreview();
 
-        const { width, depth } = this.moduleDef.size;
+        // 使用当前生效尺寸（用户可能在 PlacementSizeBar 改过），不再硬绑模块默认 size
+        const { width, depth } = this.getEffectiveSize();
         const hw = width / 2;
         const hd = depth / 2;
 
@@ -216,10 +261,11 @@ export class PlaceTool implements Tool {
         const debug = useDebugStore();
 
         // 1. 世界坐标 → 数据坐标
-        const center: Point2D = toModel(worldPoint);
+        const center = toModel(worldPoint);
 
-        // 2. 计算 bounds（基于 size + rotation）
-        const bounds = this.calculateBounds(center, this.moduleDef.size, this.currentRotation);
+        // 2. 计算 bounds（基于当前生效 size + rotation）—— 共享 util，与属性面板 resize 同源
+        const { width, depth } = this.getEffectiveSize();
+        const bounds = boundsFromCenter(center, width, depth, this.currentRotation);
 
         // 3. 旋转角 → facing.value
         const facingValue = angleToFacing(this.currentRotation);
@@ -244,32 +290,6 @@ export class PlaceTool implements Tool {
         // 6. 继续放置（不退出工具）
         // previewGroup 标记为 isGhost，clearScene() 会跳过它，无需重建
         store.setPrompt(`已放置 "${this.moduleDef.name}" — 继续点击放置，R 旋转，Esc 退出`);
-    }
-
-    /**
-     * 基于中心点、尺寸和旋转角度计算 4 顶点 bounds
-     */
-    private calculateBounds(center: Point2D, size: { width: number; depth: number }, rotation: number): Point2D[] {
-        const hw = size.width / 2;
-        const hd = size.depth / 2;
-
-        // 未旋转时的本地顶点
-        const localPoints: Point2D[] = [
-            [-hw, -hd],
-            [hw, -hd],
-            [hw, hd],
-            [-hw, hd]
-        ];
-
-        // 2D 旋转矩阵（数据模型 CCW+）
-        const cos = Math.cos(rotation);
-        const sin = Math.sin(rotation);
-
-        return localPoints.map(([lx, ly]) => {
-            const rx = lx * cos - ly * sin;
-            const ry = lx * sin + ly * cos;
-            return [center[0] + rx, center[1] + ry] as Point2D;
-        });
     }
 
     private getRayIntersection(event: MouseEvent): THREE.Vector3 | null {

@@ -7,6 +7,7 @@ using System.Security.Cryptography;
 using System.Text;
 using Microsoft.Extensions.Logging;
 using Newtonsoft.Json;
+using Newtonsoft.Json.Linq;
 using Newtonsoft.Json.Serialization;
 
 namespace BIMCanvas.Server.Services
@@ -71,10 +72,20 @@ namespace BIMCanvas.Server.Services
 
                 if (library?.Modules != null)
                 {
-                    // 转换 svgPath 为 API 路径
-                    foreach (var module in library.Modules)
+                    // 二次解析原 JSON：从 agent_config.morphology 抽取 strategy+limits 子集注入 DTO
+                    // （DTO 不直接 map agent_config，避免把 topology_rules / relation_rules 大文本透传给前端）
+                    var rawDoc = JObject.Parse(json);
+                    var rawModules = rawDoc["modules"] as JArray;
+
+                    for (int i = 0; i < library.Modules.Count; i++)
                     {
+                        var module = library.Modules[i];
                         module.SvgPath = $"/api/modules/svg/{module.Id}";
+
+                        if (rawModules != null && i < rawModules.Count && rawModules[i] is JObject rawModule)
+                        {
+                            module.Morphology = ExtractMorphology(rawModule);
+                        }
                     }
                 }
 
@@ -163,6 +174,79 @@ namespace BIMCanvas.Server.Services
             // 取前16个字符作为 ETag
             return $"\"{Convert.ToBase64String(hash).Substring(0, 16)}\"";
         }
+
+        /// <summary>
+        /// 从 raw module JSON 中抽取 agent_config.morphology 子集（strategy + limits）。
+        /// 仅暴露 UI 决定输入控件形态所需的最小信息；topology_rules / relation_rules 不下发。
+        /// </summary>
+        private static ModuleMorphologyDto? ExtractMorphology(JObject rawModule)
+        {
+            if (rawModule["agent_config"]?["morphology"] is not JObject morphology)
+            {
+                return null;
+            }
+
+            var dto = new ModuleMorphologyDto
+            {
+                Strategy = morphology["strategy"]?.ToString() ?? "fixed"
+            };
+
+            if (morphology["limits"] is JObject limits)
+            {
+                dto.Limits = new ModuleLimitsDto
+                {
+                    Width = ParseDimensionLimit(limits["width"]),
+                    Depth = ParseDimensionLimit(limits["depth"])
+                };
+            }
+
+            return dto;
+        }
+
+        /// <summary>
+        /// 解析单个维度的 limits：支持 [min, max] 区间 或 { "enum": [...] } 离散候选。
+        /// </summary>
+        private static ModuleDimensionLimitDto? ParseDimensionLimit(JToken? token)
+        {
+            if (token == null || token.Type == JTokenType.Null)
+            {
+                return null;
+            }
+
+            // 形态 1：[min, max]
+            if (token is JArray arr && arr.Count == 2)
+            {
+                try
+                {
+                    return new ModuleDimensionLimitDto
+                    {
+                        Range = new[] { (double)arr[0], (double)arr[1] }
+                    };
+                }
+                catch
+                {
+                    return null;
+                }
+            }
+
+            // 形态 2：{ "enum": [...] }
+            if (token is JObject obj && obj["enum"] is JArray enumArr && enumArr.Count > 0)
+            {
+                try
+                {
+                    return new ModuleDimensionLimitDto
+                    {
+                        Enum = enumArr.Select(t => (double)t).ToArray()
+                    };
+                }
+                catch
+                {
+                    return null;
+                }
+            }
+
+            return null;
+        }
     }
 
     #region DTOs
@@ -187,6 +271,12 @@ namespace BIMCanvas.Server.Services
         public ModuleSizeDto? Size { get; set; }
         public string? Description { get; set; }
         public string SvgPath { get; set; } = string.Empty;
+
+        /// <summary>
+        /// 模块形态：strategy + limits（从 agent_config.morphology 抽取）。
+        /// 仅供前端决定尺寸编辑控件形态用；fixed 模块通常为 null。
+        /// </summary>
+        public ModuleMorphologyDto? Morphology { get; set; }
     }
 
     /// <summary>
@@ -196,6 +286,40 @@ namespace BIMCanvas.Server.Services
     {
         public double Width { get; set; }
         public double Depth { get; set; }
+    }
+
+    /// <summary>
+    /// 模块形态 DTO：决定前端 UI 输入控件形态。
+    /// </summary>
+    public class ModuleMorphologyDto
+    {
+        /// <summary>策略："fixed" / "parametric" / "horizontal_fill"</summary>
+        public string Strategy { get; set; } = "fixed";
+
+        /// <summary>尺寸上下界（仅 parametric / horizontal_fill 有效）</summary>
+        public ModuleLimitsDto? Limits { get; set; }
+    }
+
+    /// <summary>
+    /// 模块尺寸限制 DTO。
+    /// </summary>
+    public class ModuleLimitsDto
+    {
+        public ModuleDimensionLimitDto? Width { get; set; }
+        public ModuleDimensionLimitDto? Depth { get; set; }
+    }
+
+    /// <summary>
+    /// 单维度限制 DTO，多态：要么是 [min, max] 区间，要么是离散候选枚举。
+    /// 同一实例 Range 与 Enum 互斥（仅一项非空）。
+    /// </summary>
+    public class ModuleDimensionLimitDto
+    {
+        /// <summary>区间形态：[min, max]</summary>
+        public double[]? Range { get; set; }
+
+        /// <summary>离散候选形态：[v1, v2, ...]</summary>
+        public double[]? Enum { get; set; }
     }
 
     #endregion

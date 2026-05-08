@@ -3,6 +3,9 @@
  * 负责通过当前 WebRuntime 加载模块库，提供模块元数据查询和 SVG URL 获取
  */
 import { getWebRuntime } from '../runtime/runtimeRegistry';
+import { normalizeMorphology, type ModuleMorphology, type RawModuleMorphology } from '../utils/moduleSize';
+
+export type { ModuleMorphology, DimensionLimit } from '../utils/moduleSize';
 
 export interface ModuleDefinition {
   id: string;
@@ -14,6 +17,11 @@ export interface ModuleDefinition {
   };
   description?: string;
   svgPath: string;  // 后端已转换为 API 路径格式
+  /**
+   * 模块形态（strategy + limits）。Server 从 agent_config.morphology 抽取下发。
+   * fixed 模块通常为 undefined；undefined 视同 fixed。
+   */
+  morphology?: ModuleMorphology;
 }
 
 export interface ModuleLibrary {
@@ -38,7 +46,15 @@ class ModuleLibraryService {
 
     this.loadPromise = (async () => {
       try {
-        this.library = await getWebRuntime().getModuleLibrary();
+        const raw = await getWebRuntime().getModuleLibrary();
+        if (raw?.modules) {
+          // 归一化 morphology：把 Server DTO 的 { range: [...] } / { enum: [...] } 折叠成 kind-tagged union
+          for (const mod of raw.modules) {
+            const rawMorph = (mod as ModuleDefinition & { morphology?: RawModuleMorphology }).morphology as RawModuleMorphology | undefined;
+            mod.morphology = normalizeMorphology(rawMorph);
+          }
+        }
+        this.library = raw;
 
         // 构建快速查询 Map
         if (this.library?.modules) {
