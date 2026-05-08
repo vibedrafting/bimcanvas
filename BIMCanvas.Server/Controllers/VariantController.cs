@@ -70,29 +70,33 @@ namespace BIMCanvas.Server.Controllers
             if (!Directory.Exists(zoneDir))
                 return Ok(new List<VariantDescriptor>());
 
-            var variants = Directory.GetFiles(zoneDir, "modules-*.json", SearchOption.TopDirectoryOnly)
-                .Where(f => !f.EndsWith(".meta.json", StringComparison.OrdinalIgnoreCase))
-                .Select(filePath =>
-                {
-                    var fileName = Path.GetFileName(filePath);
-                    var match = VariantFilenameRegex.Match(fileName);
-                    if (!match.Success)
-                        return null;
-                    var variantId = match.Groups["variantId"].Value;
-                    return new VariantDescriptor
-                    {
-                        VariantId = variantId,
-                        Filename = fileName,
-                        LeafZonePath = NormalizeLeafZonePath(leafZonePath),
-                        Summary = TryLoadVariantSummary(filePath)
-                    };
-                })
-                .Where(v => v != null)
-                .Select(v => v!)
-                .OrderBy(v => v.VariantId, StringComparer.OrdinalIgnoreCase)
-                .ToList();
+            // v1.3：每次列举时主动清理 0 字节变体文件（SubAgent 修补 3 次仍失败的"认输"标记）。
+            // 其他不健康状态（parse 失败 / 结构不对）不再静默吞，照常报错让 bug 暴露。
+            var descriptors = new List<VariantDescriptor>();
+            foreach (var filePath in Directory.GetFiles(zoneDir, "modules-*.json", SearchOption.TopDirectoryOnly))
+            {
+                if (filePath.EndsWith(".meta.json", StringComparison.OrdinalIgnoreCase))
+                    continue;
 
-            return Ok(variants);
+                var fileName = Path.GetFileName(filePath);
+                var match = VariantFilenameRegex.Match(fileName);
+                if (!match.Success)
+                    continue;
+
+                if (TryDeleteIfEmpty(filePath))
+                    continue; // 0 字节 → 已删 + 跳过
+
+                descriptors.Add(new VariantDescriptor
+                {
+                    VariantId = match.Groups["variantId"].Value,
+                    Filename = fileName,
+                    LeafZonePath = NormalizeLeafZonePath(leafZonePath),
+                    Summary = TryLoadVariantSummary(filePath)
+                });
+            }
+            descriptors.Sort((a, b) => string.Compare(
+                a.VariantId, b.VariantId, StringComparison.OrdinalIgnoreCase));
+            return Ok(descriptors);
         }
 
         /// <summary>
@@ -123,6 +127,10 @@ namespace BIMCanvas.Server.Controllers
             var filePath = Path.Combine(zoneDir, fileName);
             if (!System.IO.File.Exists(filePath))
                 return NotFound(new { error = $"变体文件不存在: {fileName}" });
+
+            // v1.3：0 字节就删 + 404；非空才进入 parse 路径
+            if (TryDeleteIfEmpty(filePath))
+                return NotFound(new { error = $"变体文件为空（已自动清理）: {fileName}" });
 
             try
             {
@@ -295,6 +303,29 @@ namespace BIMCanvas.Server.Controllers
             return string.IsNullOrWhiteSpace(leafZonePath)
                 ? ""
                 : leafZonePath.Replace('\\', '/').Trim('/');
+        }
+
+        /// <summary>
+        /// 文件存在且 0 字节 → 删除并返回 true（视为 SubAgent "写空内容认输"的信号）。
+        /// 其他情况（不存在 / 非空 / 删除失败）返回 false，调用方继续按原路径处理。
+        /// </summary>
+        private bool TryDeleteIfEmpty(string filePath)
+        {
+            try
+            {
+                if (!System.IO.File.Exists(filePath))
+                    return false;
+                if (new FileInfo(filePath).Length > 0)
+                    return false;
+                System.IO.File.Delete(filePath);
+                _logger.LogWarning("[VariantSweep] 自动清理 0 字节变体文件: {File}", filePath);
+                return true;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "[VariantSweep] 删除空变体文件失败 {File}", filePath);
+                return false;
+            }
         }
 
         /// <summary>
