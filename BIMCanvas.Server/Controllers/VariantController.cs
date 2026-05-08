@@ -70,8 +70,8 @@ namespace BIMCanvas.Server.Controllers
             if (!Directory.Exists(zoneDir))
                 return Ok(new List<VariantDescriptor>());
 
-            // v1.3：每次列举时主动清理 0 字节变体文件（SubAgent 修补 3 次仍失败的"认输"标记）。
-            // 其他不健康状态（parse 失败 / 结构不对）不再静默吞，照常报错让 bug 暴露。
+            // v1.4：列举时主动清理"无效"变体文件（0 字节 OR 0 有效模块——SubAgent 修补失败的认输信号）。
+            // parse 失败 / 结构不对的不删，照常报错让 bug 暴露。
             var descriptors = new List<VariantDescriptor>();
             foreach (var filePath in Directory.GetFiles(zoneDir, "modules-*.json", SearchOption.TopDirectoryOnly))
             {
@@ -83,15 +83,15 @@ namespace BIMCanvas.Server.Controllers
                 if (!match.Success)
                     continue;
 
-                if (TryDeleteIfEmpty(filePath))
-                    continue; // 0 字节 → 已删 + 跳过
+                if (TrySweepUnhealthyVariant(filePath, out var summary))
+                    continue; // 已自动清理（0 字节或 0 模块）→ 跳过
 
                 descriptors.Add(new VariantDescriptor
                 {
                     VariantId = match.Groups["variantId"].Value,
                     Filename = fileName,
                     LeafZonePath = NormalizeLeafZonePath(leafZonePath),
-                    Summary = TryLoadVariantSummary(filePath)
+                    Summary = summary
                 });
             }
             descriptors.Sort((a, b) => string.Compare(
@@ -128,9 +128,9 @@ namespace BIMCanvas.Server.Controllers
             if (!System.IO.File.Exists(filePath))
                 return NotFound(new { error = $"变体文件不存在: {fileName}" });
 
-            // v1.3：0 字节就删 + 404；非空才进入 parse 路径
-            if (TryDeleteIfEmpty(filePath))
-                return NotFound(new { error = $"变体文件为空（已自动清理）: {fileName}" });
+            // v1.4：无效（0 字节 OR 0 模块）就删 + 404；健康才进入 parse 路径
+            if (TrySweepUnhealthyVariant(filePath, out _))
+                return NotFound(new { error = $"变体文件无效（已自动清理）: {fileName}" });
 
             try
             {
@@ -306,49 +306,50 @@ namespace BIMCanvas.Server.Controllers
         }
 
         /// <summary>
-        /// 文件存在且 0 字节 → 删除并返回 true（视为 SubAgent "写空内容认输"的信号）。
-        /// 其他情况（不存在 / 非空 / 删除失败）返回 false，调用方继续按原路径处理。
+        /// v1.4 sweep：判定变体文件是否"无效"（0 字节 OR 0 有效模块）→ 删除并返回 true（caller 应跳过）。
+        /// 健康 → 返回 false，summary 通过 out 返回（wrapper.summary 或空串）。
+        /// parse 失败 / IO 失败 → 不删，返回 false 让上层暴露 bug（GetVariantModules 会返 500）。
+        /// 一次 IO + parse 同时完成 sweep 判定 + summary 提取。
         /// </summary>
-        private bool TryDeleteIfEmpty(string filePath)
+        private bool TrySweepUnhealthyVariant(string filePath, out string summary)
         {
+            summary = string.Empty;
             try
             {
                 if (!System.IO.File.Exists(filePath))
                     return false;
-                if (new FileInfo(filePath).Length > 0)
-                    return false;
-                System.IO.File.Delete(filePath);
-                _logger.LogWarning("[VariantSweep] 自动清理 0 字节变体文件: {File}", filePath);
-                return true;
-            }
-            catch (Exception ex)
-            {
-                _logger.LogWarning(ex, "[VariantSweep] 删除空变体文件失败 {File}", filePath);
+                if (new FileInfo(filePath).Length == 0)
+                {
+                    System.IO.File.Delete(filePath);
+                    _logger.LogWarning("[VariantSweep] 自动清理 0 字节变体文件: {File}", filePath);
+                    return true;
+                }
+                var raw = System.IO.File.ReadAllText(filePath, Encoding.UTF8);
+                var token = JToken.Parse(raw);
+                JArray? modulesArray = null;
+                if (token is JArray asArray)
+                {
+                    modulesArray = asArray;
+                }
+                else if (token is JObject obj)
+                {
+                    modulesArray = obj["modules"] as JArray;
+                    summary = obj.Value<string>("summary") ?? string.Empty;
+                }
+                if (modulesArray == null || modulesArray.Count == 0)
+                {
+                    System.IO.File.Delete(filePath);
+                    _logger.LogWarning("[VariantSweep] 自动清理 0 有效模块变体文件: {File}", filePath);
+                    summary = string.Empty;
+                    return true;
+                }
                 return false;
             }
-        }
-
-        /// <summary>
-        /// 从变体文件内容里提取 summary 字段（v1.1 新格式：{ summary, modules }）。
-        /// 旧格式（裸数组）返回空串；解析失败也返回空串。
-        /// </summary>
-        private string TryLoadVariantSummary(string variantFilePath)
-        {
-            try
-            {
-                var raw = System.IO.File.ReadAllText(variantFilePath, Encoding.UTF8);
-                var token = JToken.Parse(raw);
-                if (token is JObject obj)
-                {
-                    var summary = obj.Value<string>("summary");
-                    return summary ?? string.Empty;
-                }
-                return string.Empty;
-            }
             catch (Exception ex)
             {
-                _logger.LogWarning(ex, "解析 variant summary 失败: {Path}", variantFilePath);
-                return string.Empty;
+                _logger.LogWarning(ex, "[VariantSweep] 检查变体文件失败 {File}", filePath);
+                summary = string.Empty;
+                return false;
             }
         }
 
