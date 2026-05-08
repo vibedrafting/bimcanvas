@@ -51,6 +51,13 @@
       "description": "Layout SubAgent 配置"
     },
     {
+      "name": "agent/agents/module-relocation-agent.md",
+      "target": "agents/module-relocation-agent.md",
+      "type": "template",
+      "enabled": true,
+      "description": "Module Relocation SubAgent 配置（替代位置探索分身）"
+    },
+    {
       "name": "",
       "target": "skills",
       "type": "empty-directory",

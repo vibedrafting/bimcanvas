@@ -59,6 +59,36 @@ namespace BIMCanvas.Server.Services
             return topology.GetExistingCanonicalModuleFiles(null);
         }
 
+        /// <summary>
+        /// 构建叶子分区的 modules JSON 文件名。variantId 为空 → canonical "modules.json"；
+        /// 非空 → "modules-{variantId}.json"，仅 module-relocation-agent 生成的变体使用。
+        /// </summary>
+        public static string BuildVariantFilename(string? variantId)
+        {
+            if (string.IsNullOrWhiteSpace(variantId))
+                return "modules.json";
+
+            EnsureSafeVariantId(variantId);
+            return $"modules-{variantId}.json";
+        }
+
+        /// <summary>
+        /// 校验 variantId 仅含安全字符（字母/数字/下划线/连字符），防止路径穿越。
+        /// </summary>
+        public static void EnsureSafeVariantId(string variantId)
+        {
+            if (string.IsNullOrWhiteSpace(variantId))
+                throw new ArgumentException("variantId 不能为空", nameof(variantId));
+
+            foreach (var ch in variantId)
+            {
+                if (!char.IsLetterOrDigit(ch) && ch != '-' && ch != '_')
+                    throw new ArgumentException(
+                        $"variantId 包含非法字符 '{ch}'，仅允许字母/数字/下划线/连字符",
+                        nameof(variantId));
+            }
+        }
+
         public static IReadOnlyList<ModuleFileEntry> FindLegacyModuleFiles(string schemesPath)
         {
             if (!Directory.Exists(schemesPath))
@@ -263,8 +293,30 @@ namespace BIMCanvas.Server.Services
 
         public IReadOnlyList<ModuleFileEntry> GetExistingCanonicalModuleFiles(IReadOnlyCollection<string>? requestedZoneIds)
         {
+            return GetExistingCanonicalModuleFiles(requestedZoneIds, variantId: null);
+        }
+
+        /// <summary>
+        /// 解析 modules JSON 文件路径列表。
+        /// variantId 为空 → 解析 canonical "modules.json"（与单参数重载行为一致）。
+        /// variantId 非空 → 解析 "modules-{variantId}.json"，专供 module-relocation-agent 生成的变体使用；
+        /// 调用方必须显式指定 requestedZoneIds（不允许全分区扫描变体）。
+        /// </summary>
+        public IReadOnlyList<ModuleFileEntry> GetExistingCanonicalModuleFiles(
+            IReadOnlyCollection<string>? requestedZoneIds,
+            string? variantId)
+        {
             if (!HasZoneTopology)
                 return ModuleFileTopologyService.FindLegacyModuleFiles(SchemesPath);
+
+            if (!string.IsNullOrWhiteSpace(variantId))
+            {
+                ModuleFileTopologyService.EnsureSafeVariantId(variantId);
+                if (requestedZoneIds == null || requestedZoneIds.Count == 0)
+                    throw new ArgumentException(
+                        "variantId 非空时必须显式指定 requestedZoneIds；不允许全分区变体扫描",
+                        nameof(requestedZoneIds));
+            }
 
             var targetZoneIds = ExpandTargetZoneIds(requestedZoneIds);
             var candidates = targetZoneIds == null
@@ -273,11 +325,27 @@ namespace BIMCanvas.Server.Services
                     .Where(zoneId => _canonicalByZoneId.ContainsKey(zoneId))
                     .Select(zoneId => _canonicalByZoneId[zoneId]);
 
+            if (!string.IsNullOrWhiteSpace(variantId))
+                candidates = candidates.Select(entry => SwapToVariant(entry, variantId));
+
             return candidates
                 .Where(entry => File.Exists(entry.FilePath))
                 .GroupBy(entry => entry.FilePath, StringComparer.OrdinalIgnoreCase)
                 .Select(g => g.First())
                 .ToList();
+        }
+
+        /// <summary>
+        /// 同目录下把 canonical entry 替换成指定 variantId 的变体 entry；
+        /// 不修改任何元数据（zoneId 保持不变），仅文件名后缀差异。
+        /// </summary>
+        private ModuleFileEntry SwapToVariant(ModuleFileEntry canonical, string variantId)
+        {
+            var zoneDir = Path.GetDirectoryName(canonical.FilePath) ?? SchemesPath;
+            var variantPath = Path.Combine(
+                zoneDir,
+                ModuleFileTopologyService.BuildVariantFilename(variantId));
+            return ModuleFileEntry.FromFile(SchemesPath, variantPath, canonical.ZoneId);
         }
 
         public IReadOnlyList<ModuleFilePathIssue> GetPathIssues(IReadOnlyCollection<string>? requestedZoneIds)

@@ -25,6 +25,24 @@ export interface SaveSchemeModulesResponse {
 }
 
 /**
+ * 模块布置变体描述（来自 module-relocation-agent 产出）
+ */
+export interface VariantDescriptor {
+    variantId: string;
+    filename: string;
+    leafZonePath: string;
+    meta: any | null;
+}
+
+/**
+ * 采纳变体的请求体
+ */
+export interface AdoptVariantRequest {
+    variantId: string;
+    leafZonePath: string;
+}
+
+/**
  * 方案数据服务 - 支持跨分支/Worktree 的模块数据读写
  *
  * source 参数格式：
@@ -35,8 +53,19 @@ export class SchemeService {
     /**
      * 获取模块数据
      * @param source 数据源标识
+     * @param variant 可选的变体描述：{ leafZonePath, variantId } 命中时打变体接口
      */
-    static async getModules(source: string): Promise<SchemeModulesResponse> {
+    static async getModules(
+        source: string,
+        variant?: { leafZonePath: string; variantId: string }
+    ): Promise<SchemeModulesResponse> {
+        if (variant && variant.variantId && variant.leafZonePath) {
+            const response = await axios.get<SchemeModulesResponse>(
+                `${API_BASE}/variant/${encodeURIComponent(variant.variantId)}/modules`,
+                { params: { leafZonePath: variant.leafZonePath } }
+            );
+            return response.data;
+        }
         const response = await axios.get<SchemeModulesResponse>(
             `${API_BASE}/${source}/modules`
         );
@@ -61,6 +90,30 @@ export class SchemeService {
                 commitMessage
             }
         );
+        return response.data;
+    }
+
+    /**
+     * 列出指定叶子分区下的所有变体方案
+     * @param leafZonePath 叶子分区相对 schemes/ 的路径，如 "rz_3/dz_1"
+     */
+    static async listVariants(leafZonePath: string): Promise<VariantDescriptor[]> {
+        const response = await axios.get<VariantDescriptor[]>(
+            `${API_BASE}/variants`,
+            { params: { leafZonePath } }
+        );
+        return response.data;
+    }
+
+    /**
+     * 采纳某个变体：用变体内容覆写 canonical modules.json，并删除该叶子分区下所有 modules-alt-*
+     */
+    static async adoptVariant(request: AdoptVariantRequest): Promise<{
+        success: boolean;
+        adopted: string;
+        deletedVariants: string[];
+    }> {
+        const response = await axios.post(`${API_BASE}/variant/adopt`, request);
         return response.data;
     }
 }

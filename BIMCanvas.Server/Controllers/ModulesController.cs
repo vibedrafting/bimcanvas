@@ -107,7 +107,11 @@ namespace BIMCanvas.Server.Controllers
 
             try
             {
-                var report = _normalizationService.NormalizeModules(projectPath, request?.ZoneIds);
+                var variantId = request?.VariantId;
+                if (!string.IsNullOrWhiteSpace(variantId) && (request?.ZoneIds is null || request.ZoneIds.Count == 0))
+                    return BadRequest(new { message = "variantId 非空时必须显式指定 zoneIds，不允许全分区扫描变体" });
+
+                var report = _normalizationService.NormalizeModules(projectPath, request?.ZoneIds, variantId);
                 return Ok(report);
             }
             catch (Exception ex)
@@ -122,5 +126,11 @@ namespace BIMCanvas.Server.Controllers
     {
         /// <summary>仅规范化这些 Zone 内的模块；为空或 null 时规范化全部模块。</summary>
         public List<string>? ZoneIds { get; set; }
+
+        /// <summary>
+        /// 可选。规范化非 canonical 变体文件，如 "alt-1" → 读写每个目标 Zone 下的 modules-alt-1.json。
+        /// 仅 module-relocation-agent 使用；非空时必须与非空 ZoneIds 同时提供。
+        /// </summary>
+        public string? VariantId { get; set; }
     }
 }

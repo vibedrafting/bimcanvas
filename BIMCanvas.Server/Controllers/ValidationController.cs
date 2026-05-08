@@ -97,7 +97,10 @@ namespace BIMCanvas.Server.Controllers
                 var targetSet = requestedZoneIds is { Count: > 0 }
                     ? new HashSet<string>(requestedZoneIds)
                     : null;
-                var (modules, structureDiagnostics, skippedModuleCount) = LoadAllModules(projectPath, targetSet);
+                var variantId = request?.VariantId;
+                if (!string.IsNullOrWhiteSpace(variantId) && targetSet == null)
+                    return BadRequest(new { message = "variantId 非空时必须显式指定 zoneIds，不允许全分区扫描变体" });
+                var (modules, structureDiagnostics, skippedModuleCount) = LoadAllModules(projectPath, targetSet, variantId);
 
                 // 3.5 校验 facing：validate_layout 只做诊断，不再消费 semantic 或写回文件
                 var allDiagnostics = new List<Diagnostic>(structureDiagnostics);
@@ -200,9 +203,14 @@ namespace BIMCanvas.Server.Controllers
 
         /// <summary>
         /// 读取模块（支持分区子目录格式）
-        /// 当 targetZoneIds 不为 null 时，只读取目标 zone 的文件，跳过其他 zone
+        /// 当 targetZoneIds 不为 null 时，只读取目标 zone 的文件，跳过其他 zone。
+        /// 当 variantId 非空时，读取该 zone 下的 modules-{variantId}.json 而非 canonical；
+        /// path-issue 扫描仍只针对 canonical，不污染变体诊断。
         /// </summary>
-        private (List<Module> modules, List<Diagnostic> structureDiagnostics, int skippedModuleCount) LoadAllModules(string projectPath, HashSet<string>? targetZoneIds = null)
+        private (List<Module> modules, List<Diagnostic> structureDiagnostics, int skippedModuleCount) LoadAllModules(
+            string projectPath,
+            HashSet<string>? targetZoneIds = null,
+            string? variantId = null)
         {
             var schemesPath = Path.Combine(projectPath, "schemes");
             var allModules = new List<Module>();
@@ -215,8 +223,9 @@ namespace BIMCanvas.Server.Controllers
             }
 
             var topology = _moduleFileTopologyService.Build(projectPath);
+            // path-issue 扫描永远只看 canonical，避免变体文件触发"路径错误"伪诊断
             allStructureDiagnostics.AddRange(BuildModuleFilePathDiagnostics(topology.GetPathIssues(targetZoneIds)));
-            var moduleFiles = topology.GetExistingCanonicalModuleFiles(targetZoneIds);
+            var moduleFiles = topology.GetExistingCanonicalModuleFiles(targetZoneIds, variantId);
 
             foreach (var moduleFile in moduleFiles)
             {
@@ -569,6 +578,13 @@ namespace BIMCanvas.Server.Controllers
     {
         /// <summary>仅验证这些 Zone 内的模块（为空或 null 时验证全部）</summary>
         public List<string>? ZoneIds { get; set; }
+
+        /// <summary>
+        /// 可选。验证非 canonical 变体文件，如 "alt-1" → 读取每个目标 Zone 下的 modules-alt-1.json。
+        /// 仅 module-relocation-agent 使用；layout-agent / generate-placement / Web 端验证留空。
+        /// 非空时必须与非空 ZoneIds 同时提供，不允许全分区扫描变体。
+        /// </summary>
+        public string? VariantId { get; set; }
     }
 
     /// <summary>

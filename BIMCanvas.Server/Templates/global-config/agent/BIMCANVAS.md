@@ -41,6 +41,7 @@
 | chat | hi、你好、谢谢、你能做什么 | 直接简短回应 |
 | query | 有多少、统计、查看、列出 | 加载 `query-workflow`，只读 |
 | edit | 移动、删除、旋转、调整 | 加载 `edit-workflow`，单一修改 |
+| relocation | 更好的位置、还能放哪、替代方案、重新找个位置、换个位置、换面墙、活起来、另外/别的位置、再给几个方案 | 派发 `module-relocation-agent`，写变体 modules-alt-{n}.json |
 | generate | 布置、设计、创建、生成、规划、识别、落地、照这个来、参考这个、按这张图、手绘、草图、照着做、还原 | 进入 generate 语义判定 |
 
 ### generate 语义判定
@@ -144,6 +145,65 @@ WHY：这些输入属于单房间 planning/placement 的感知与施工材料。
 **【必须】**所有 layout-agent Task 在同一轮并行发起，禁止后台派发、禁止串行补派。
 
 **【必须】**若 layout-agent 返回调度违规，视为编排失败。主控必须停止本轮布置并汇报失败原因，不得改用 `general-purpose`、不得自己接手多个分区的单房间 planning。
+
+---
+
+## relocation 执行策略
+
+某些用户请求只想"已布置的某个/某组家具换个更好的位置"——既不是 edit（单步几何修正"往左移 50cm"），也不是 generate（重新规划整房）。这类请求由 `module-relocation-agent` 处理：它在保留全局规划意图的前提下，为目标模块探索替代位置，产出 0..N 个变体方案 `modules-alt-{n}.json` + sidecar metadata，不改 canonical `modules.json`。
+
+### 触发条件
+
+任务路由表的 relocation 关键词命中即进入本流程。**不要**把这类请求误送 edit-workflow（edit-workflow 只做单步指定位移/旋转/删除，不做"探索更好位置"的搜索）。
+
+### 目标识别优先级
+
+1. **canvas 选中优先**：用户消息所附 `ctx.modules` 非空时，把它的 `id` 列表作为 `targetModuleIds`
+2. **文本识别其次**：`ctx.modules` 为空时，从消息文本里找模块名（"梳妆台"、"床"、"衣柜"等），与当前叶子分区 `modules.json` 的 `moduleName` 模糊匹配；命中即作目标
+3. **歧义反问**：1+2 都不命中、或命中多个 zone 时，用 `AskUserQuestion` 让用户确认目标
+
+### leafZonePath 解析
+
+通过 `ctx.modules[i].zoneId` 与 `schemes/zones.json` 拼出叶子分区路径（形如 "rz_3/dz_1"）。如果 `targetModuleIds` 跨多个叶子分区，**反问用户聚焦到一个**（一次只能 relocate 同一叶子分区内的模块）。
+
+### 派发包字段
+
+**【必须】** Task 描述里完整给出以下字段：
+
+- `relocationBatchId`：本批 relocation ID（uuid 或时间戳）
+- `targetModuleIds`：≥1 个目标模块**实例 ID**（不是 moduleId/类型 id）
+- `leafZoneId`：目标所在的叶子分区 ID
+- `leafZonePath`：叶子分区相对路径，如 "rz_3/dz_1"
+- `selectionSetId`：`sha1(sorted(targetModuleIds))` 的十六进制串，给 SubAgent 做覆盖式 cleanup
+- `selectionSetSummary`：1 句话人话描述，给 sidecar 用，如 "梳妆台 (mod_vanity_custom_001)"
+- `originalUserRequest`：用户原始消息原文
+- `scope`：固定字符串 `"relocation-only"`
+
+**operative set（要动哪些模块）不在派发包里**——SubAgent 自己按必要性原则推。主控不要预算。
+
+### 不该派发的场景
+
+- 单步几何编辑（"往左移 50cm"、"旋转 90°"）→ edit-workflow，不是 relocation
+- 整房重做（"重做整个卧室"、"换种风格"）→ generate 链路
+- 跨叶子分区目标 → 先反问聚焦
+- 用户只是想"看看当前布置怎么样" → 直接答，不派 relocation
+
+### 调度边界
+
+- **【禁止】** 主控自己代工 module-relocation-agent 的工作（自己读 module_library / 自己生成候选 / 自己写 modules-alt-*.json）
+- **【禁止】** 同一叶子分区有未结束的 layout-agent 任务时再派 relocation
+- **【禁止】** 同一叶子分区并发派多个 relocation（必须串行：等上一个 relocationBatchId 完成再派下一个）
+- **【禁止】** 派发后让 layout-agent 接手 relocation 的产出
+- 若 module-relocation-agent 返回调度违规固定回复，**透传给用户**，不要改派 layout-agent 或 general-purpose 代工
+
+### 收尾
+
+SubAgent 完成后：
+
+- 如果 N=0：把 SubAgent 给出的"未发现替代方案 + 原因"原话转述给用户
+- 如果 N≥1：告诉用户已生成 N 个变体，并提示"在 Web 端叶子分区面板的变体切换器查看 / 采纳"
+- **不要** 主动调 validate_layout 二次验证（SubAgent 已对每个变体验过）
+- **不要** 改写 canonical `modules.json`（采纳由 Web 端"采纳"按钮触发）
 
 ---
 

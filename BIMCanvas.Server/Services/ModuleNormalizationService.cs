@@ -39,14 +39,23 @@ namespace BIMCanvas.Server.Services
             };
         }
 
-        public ModuleNormalizationReport NormalizeModules(string projectPath, IReadOnlyCollection<string>? zoneIds = null)
+        public ModuleNormalizationReport NormalizeModules(
+            string projectPath,
+            IReadOnlyCollection<string>? zoneIds = null,
+            string? variantId = null)
         {
             var sw = Stopwatch.StartNew();
             var targetSet = zoneIds is { Count: > 0 }
                 ? new HashSet<string>(zoneIds)
                 : null;
 
-            var moduleFiles = LoadModuleFiles(projectPath, targetSet);
+            if (!string.IsNullOrWhiteSpace(variantId) && targetSet == null)
+                throw new ArgumentException(
+                    "variantId 非空时必须显式指定 zoneIds，不允许全分区扫描变体",
+                    nameof(zoneIds));
+
+            // variantId 非空 → 读写 modules-{variantId}.json，canonical 不动
+            var moduleFiles = LoadModuleFiles(projectPath, targetSet, variantId);
             var diagnostics = new List<Diagnostic>();
             var normalizedCount = 0;
             var totalModules = 0;
@@ -78,7 +87,10 @@ namespace BIMCanvas.Server.Services
             };
         }
 
-        private List<LoadedModuleFile> LoadModuleFiles(string projectPath, HashSet<string>? targetZoneIds)
+        private List<LoadedModuleFile> LoadModuleFiles(
+            string projectPath,
+            HashSet<string>? targetZoneIds,
+            string? variantId = null)
         {
             var schemesPath = Path.Combine(projectPath, "schemes");
             var result = new List<LoadedModuleFile>();
@@ -87,7 +99,7 @@ namespace BIMCanvas.Server.Services
                 return result;
 
             var topology = _moduleFileTopologyService.Build(projectPath);
-            var moduleFiles = topology.GetExistingCanonicalModuleFiles(targetZoneIds);
+            var moduleFiles = topology.GetExistingCanonicalModuleFiles(targetZoneIds, variantId);
 
             foreach (var moduleFile in moduleFiles)
             {

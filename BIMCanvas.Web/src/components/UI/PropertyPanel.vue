@@ -2,6 +2,7 @@
 import { useCanvasStore } from '../../stores/canvasStore';
 import { computed, ref, watch } from 'vue';
 import { storeToRefs } from 'pinia';
+import VariantSwitcherChips from './VariantSwitcherChips.vue';
 
 const store = useCanvasStore();
 const { currentOperation, selectedIds } = storeToRefs(store);
@@ -61,6 +62,22 @@ const isPrimitiveValue = (value: any): boolean => {
   const type = typeof value;
   return type === 'string' || type === 'number' || type === 'boolean';
 };
+
+// 模块布置变体切换器：仅当选中"叶子分区"时显示，给 module-relocation-agent 产出的变体方案做切换/采纳。
+// 叶子判定：subZones 为空且自身被识别为 zone；leafZonePath 形如 "rz_3/dz_1"（带 parentZoneId）或 "rz_3"（顶层叶子）。
+const variantContext = computed<{ leafZoneId: string; leafZonePath: string } | null>(() => {
+    const obj: any = selectedObject.value;
+    if (!obj) return null;
+    if (obj.type !== 'zone') return null;
+
+    const subZones = obj.subZones;
+    const hasChildren = Array.isArray(subZones) && subZones.length > 0;
+    if (hasChildren) return null;
+
+    const parentZoneId = obj.parentZoneId as string | undefined;
+    const leafZonePath = parentZoneId ? `${parentZoneId}/${obj.id}` : obj.id;
+    return { leafZoneId: obj.id, leafZonePath };
+});
 
 // Properties Generation
 const properties = computed(() => {
@@ -137,6 +154,14 @@ const properties = computed(() => {
                 <span class="value" :title="String(prop.value)">{{ prop.value }}</span>
             </div>
         </div>
+
+        <!-- 叶子分区变体切换器：当且仅当选中叶子分区且该分区有 alt 文件时渲染（组件内部空列表时返回 null） -->
+        <VariantSwitcherChips
+          v-if="variantContext"
+          :leaf-zone-id="variantContext.leafZoneId"
+          :leaf-zone-path="variantContext.leafZonePath"
+          class="variant-switcher-section"
+        />
     </div>
   </aside>
 </template>
@@ -306,6 +331,12 @@ const properties = computed(() => {
         color: var(--text-tertiary);
         font-size: 0.85rem;
         padding: 20px 0;
+    }
+
+    .variant-switcher-section {
+        margin-top: 12px;
+        padding-top: 12px;
+        border-top: 1px solid var(--border-subtle);
     }
   }
 }

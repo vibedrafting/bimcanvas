@@ -8,6 +8,14 @@ from ..config.loader import AgentConfig
 logger = logging.getLogger(__name__)
 
 
+# SubAgent that need the project-path / working-directory appendix injected at runtime.
+# Other helper sub-agents will not receive the appendix to avoid bloating their prompts.
+_AGENTS_NEEDING_RUNTIME_APPENDIX = frozenset({
+    "layout-agent",
+    "module-relocation-agent",
+})
+
+
 def _append_runtime_context(
     *,
     prompt: str,
@@ -16,7 +24,7 @@ def _append_runtime_context(
     working_directory: str | None,
 ) -> str:
     """Append Claude runtime context needed by configured agents."""
-    if name != "layout-agent":
+    if name not in _AGENTS_NEEDING_RUNTIME_APPENDIX:
         return prompt
 
     resolved_project_path = project_path or working_directory or "（unknown）"

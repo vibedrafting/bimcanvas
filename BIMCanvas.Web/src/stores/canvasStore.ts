@@ -8,6 +8,7 @@ import { ChangeSource, ChangeType, type LoadOptions } from '../types/history';
 import { moduleLibraryService } from '../services/ModuleLibraryService';
 import { getWebRuntime } from '../runtime/runtimeRegistry';
 import { supports } from '../runtime/WebRuntimeProtocol';
+import { SchemeService } from '../services/SchemeService';
 export const useCanvasStore = defineStore('canvas', () => {
     const runtime = getWebRuntime();
     // === 核心状态 ===
@@ -139,20 +140,154 @@ export const useCanvasStore = defineStore('canvas', () => {
         }
     };
 
+    // === module-relocation-agent 变体方案 ===
+    // activeVariantByZone：当前每个叶子分区显示哪一份 modules（null/缺失 = canonical）
+    // 仅存内存，刷新页面 / 重启 Web 都重置为 canonical（不写 project.json）。
+    interface ActiveVariantState {
+        variantId: string;
+        leafZonePath: string;
+    }
+    const activeVariantByZone = ref<Map<string, ActiveVariantState>>(new Map());
+
+    // canonical 快照：在每次 applyProjectData 时记录服务端发回的 canonical modules，
+    // 切换/取消变体时基于该快照重组 projectData.activeScheme.modules，避免反复打服务端。
+    const canonicalModulesSnapshot = ref<Module[] | null>(null);
+
+    function getActiveVariant(leafZoneId: string): string | null {
+        return activeVariantByZone.value.get(leafZoneId)?.variantId ?? null;
+    }
+
+    /**
+     * 切换某叶子分区的活跃变体。
+     * - variantId 为空 → 还原 canonical
+     * - variantId 非空 → 拉变体 modules，替换该 zone 的 canonical 内容
+     * 任一情况均会重算 projectData.activeScheme.modules（基于 canonical 快照 + 当前 active map）
+     */
+    async function setActiveVariant(
+        leafZoneId: string,
+        leafZonePath: string,
+        variantId: string | null
+    ): Promise<void> {
+        if (!variantId) {
+            if (activeVariantByZone.value.has(leafZoneId)) {
+                activeVariantByZone.value.delete(leafZoneId);
+                activeVariantByZone.value = new Map(activeVariantByZone.value);
+                await recomputeDisplayModules();
+            }
+            return;
+        }
+        if (!leafZonePath) {
+            debugStore.warn(`[Store] setActiveVariant: leafZonePath 不能为空 (zone=${leafZoneId})`);
+            return;
+        }
+        activeVariantByZone.value.set(leafZoneId, { variantId, leafZonePath });
+        activeVariantByZone.value = new Map(activeVariantByZone.value);
+        await recomputeDisplayModules();
+    }
+
+    async function clearActiveVariant(leafZoneId: string): Promise<void> {
+        if (activeVariantByZone.value.has(leafZoneId)) {
+            activeVariantByZone.value.delete(leafZoneId);
+            activeVariantByZone.value = new Map(activeVariantByZone.value);
+            await recomputeDisplayModules();
+        }
+    }
+
+    /**
+     * 基于 canonical 快照 + 当前 activeVariantByZone 重组 projectData.activeScheme.modules。
+     * 流程：(1) 从 canonical 中过滤掉所有"有 active 变体"的叶子分区的模块；
+     *      (2) 拉取每个 active 变体的 modules，逐 zone append；
+     *      (3) 写回 projectData.activeScheme.modules，触发响应式刷新。
+     * 任一变体拉取失败 → 从 active map 中静默丢弃，回退到该 zone 的 canonical。
+     */
+    async function recomputeDisplayModules(): Promise<void> {
+        if (!projectData.value || !projectData.value.activeScheme) return;
+        if (canonicalModulesSnapshot.value === null) return;
+
+        const activeMap = activeVariantByZone.value;
+        const activeZoneIds = new Set(activeMap.keys());
+
+        // (1) canonical 过滤：保留非 active zone 的模块
+        const baseModules = canonicalModulesSnapshot.value.filter(
+            m => !activeZoneIds.has(m.zoneId ?? '')
+        );
+
+        // (2) 拉每个变体并合并
+        const variantBlocks: Module[][] = [];
+        const failedZones: string[] = [];
+        for (const [leafZoneId, state] of Array.from(activeMap.entries())) {
+            try {
+                const resp = await SchemeService.getModules('main', {
+                    leafZonePath: state.leafZonePath,
+                    variantId: state.variantId
+                });
+                const variantModules = (resp.modules ?? []).map(m => ({
+                    ...m,
+                    zoneId: (m as any).zoneId ?? leafZoneId
+                })) as Module[];
+                variantBlocks.push(variantModules);
+            } catch (err: any) {
+                debugStore.warn(`[Store] 变体加载失败 zone=${leafZoneId} variant=${state.variantId}: ${err?.message ?? err}`);
+                failedZones.push(leafZoneId);
+            }
+        }
+        for (const z of failedZones) activeMap.delete(z);
+        if (failedZones.length > 0) {
+            activeVariantByZone.value = new Map(activeMap);
+        }
+
+        // (3) 写回（使用展开避免 reactive 丢失）
+        projectData.value.activeScheme.modules = [
+            ...baseModules,
+            ...variantBlocks.flat()
+        ];
+    }
+
+    /**
+     * 判定一个 SignalR 文件名是否属于 module-relocation-agent 的变体侧链
+     * （modules-alt-*.json / modules-alt-*.meta.json）。
+     * 这类文件不应触发整个 canvas 数据刷新——只通知变体切换器 refetch /api/scheme/variants。
+     */
+    function isVariantSidecarFile(fileName: string | undefined): boolean {
+        if (!fileName) return false;
+        return fileName.toLowerCase().startsWith('modules-alt-')
+            && fileName.toLowerCase().endsWith('.json');
+    }
+
     // 监听 Server 推送的文件变化事件（文件驱动架构的核心链路）
     if (supports(runtime.capabilities.realtimeProjectSync)) {
       window.addEventListener('bimcanvas:server-update', async (e: any) => {
         const data = e.detail;
         debugStore.log(`[Store] 收到服务端更新: ${JSON.stringify(data)}`);
 
+        const fileName = data.file as string | undefined;
+
+        // 变体侧链：modules-alt-{n}.json / modules-alt-{n}.meta.json
+        // 不重载整个项目，只广播给变体切换器
+        if (isVariantSidecarFile(fileName)) {
+            debugStore.log(`[Store] 变体文件变化，分发给切换器: ${fileName}`);
+            window.dispatchEvent(new CustomEvent('bimcanvas:variant-files-changed', {
+                detail: { file: fileName, trigger: data.trigger }
+            }));
+            return;
+        }
+
         if (data.action === 'reload') {
             const trigger = data.trigger as string | undefined;
 
+            // 采纳变体后服务端会发 trigger=variant-adopt 并附带 file=modules.json
+            // 此时被采纳的叶子分区的 active 状态应清空回 canonical
+            if (trigger === 'variant-adopt') {
+                activeVariantByZone.value.clear();
+                activeVariantByZone.value = new Map(activeVariantByZone.value);
+                debugStore.log('[Store] 变体已采纳，清空所有 activeVariantByZone 并重载 canonical');
+            }
+
             // Agent/重连/手动触发的更新：重置 skip 计数器，确保更新不被跳过
-            if (trigger === 'agent' || trigger === 'reconnect' || trigger === 'manual') {
+            if (trigger === 'agent' || trigger === 'reconnect' || trigger === 'manual' || trigger === 'variant-adopt') {
                 pendingServerSyncSkips = 0;
                 debugStore.log(`[Store] 显式触发 (${trigger})，重置 skip 计数器`);
-            } else if (data.file === 'modules.json' && pendingServerSyncSkips > 0) {
+            } else if (fileName === 'modules.json' && pendingServerSyncSkips > 0) {
                 // 仅 FileSystemWatcher 触发的普通更新才走 skip 逻辑
                 pendingServerSyncSkips -= 1;
                 debugStore.log('[Store] 跳过本地写入触发的 ServerSync');
@@ -271,6 +406,17 @@ export const useCanvasStore = defineStore('canvas', () => {
         projectData.value = data;
         isDirty.value = false;
         sceneDataCache.clear();
+
+        // 保存 canonical modules 快照供变体切换器使用（深拷贝，避免后续 swap 污染原始数据）
+        const canonicalModules = data.activeScheme?.modules ?? [];
+        canonicalModulesSnapshot.value = canonicalModules.length > 0
+            ? JSON.parse(JSON.stringify(canonicalModules)) as Module[]
+            : [];
+
+        // 如果还有活跃变体（in-session SignalR 重载场景），重新应用
+        if (activeVariantByZone.value.size > 0) {
+            await recomputeDisplayModules();
+        }
 
         await refreshModuleLibrary();
 
@@ -809,6 +955,12 @@ export const useCanvasStore = defineStore('canvas', () => {
         // UI State
         promptMessage,
         setPrompt,
-        debugMsg
+        debugMsg,
+
+        // 变体方案（module-relocation-agent 产出）
+        activeVariantByZone,
+        getActiveVariant,
+        setActiveVariant,
+        clearActiveVariant
     };
 });

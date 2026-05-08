@@ -709,7 +709,7 @@ def _format_normalization_report(report: dict[str, Any]) -> str:
 
 @tool(
     "validate_layout",
-    "验证当前方案的布局合法性（布局编译器）。调用时会先将目标 modules.json 中有效的 facing.semantic 收敛为 facing.value 并清空 semantic；规范化无错误后再检查三类错误：(1)超出设计区域 (2)与墙体/柱子/禁区重叠 (3)模块间重叠。可选 zoneIds 参数仅验证指定分区内的模块。",
+    "验证当前方案的布局合法性（布局编译器）。调用时会先将目标 modules.json 中有效的 facing.semantic 收敛为 facing.value 并清空 semantic；规范化无错误后再检查三类错误：(1)超出设计区域 (2)与墙体/柱子/禁区重叠 (3)模块间重叠。可选 zoneIds 参数仅验证指定分区内的模块。可选 variantId 参数仅供 module-relocation-agent 用于验证 modules-{variantId}.json 变体文件，必须与非空 zoneIds 同时使用。",
     {
         "$schema": "http://json-schema.org/draft-07/schema#",
         "type": "object",
@@ -718,6 +718,10 @@ def _format_normalization_report(report: dict[str, Any]) -> str:
                 "type": "array",
                 "items": {"type": "string"},
                 "description": "可选。仅验证这些 Zone 内的模块（如 [\"rz_1\", \"dz_2\"]）。不传则验证全部模块。"
+            },
+            "variantId": {
+                "type": "string",
+                "description": "可选。验证非 canonical 变体文件，如 'alt-1' → 读取每个目标 Zone 下的 modules-alt-1.json。仅 module-relocation-agent 使用；layout-agent / generate-placement / 其他工作流必须留空。非空时必须与非空 zoneIds 同时提供。"
             }
         },
         "additionalProperties": False
@@ -726,9 +730,22 @@ def _format_normalization_report(report: dict[str, Any]) -> str:
 async def validate_layout(args: dict[str, Any]) -> dict[str, Any]:
     """验证当前方案的布局合法性（布局编译器）"""
     zone_ids = args.get("zoneIds")
+    variant_id = args.get("variantId")
+    if variant_id and not zone_ids:
+        return {
+            "content": [{
+                "type": "text",
+                "text": "validate_layout 错误: variantId 非空时必须显式指定 zoneIds（不允许全分区扫描变体）"
+            }],
+            "is_error": True
+        }
     # 注意：必须传空 dict 而非 None。aiohttp 在 json=None 时不发 body 也不带 Content-Type，
     # ASP.NET Core [FromBody] 会返回 415；Server 端 ValidateLayoutRequest 已支持空 body 全局验证。
-    body = {"zoneIds": zone_ids} if zone_ids else {}
+    body: dict[str, Any] = {}
+    if zone_ids:
+        body["zoneIds"] = zone_ids
+    if variant_id:
+        body["variantId"] = variant_id
 
     try:
         async with aiohttp.ClientSession() as session:
