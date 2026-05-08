@@ -26,12 +26,16 @@ export interface SaveSchemeModulesResponse {
 
 /**
  * 模块布置变体描述（来自 module-relocation-agent 产出）
+ *
+ * v1.1：sidecar 文件已废弃，所有元数据内嵌进变体文件本体的 wrapper.summary 字段。
+ * 服务端 ListVariants 解析每个变体文件的 summary 后回填到这里。
  */
 export interface VariantDescriptor {
     variantId: string;
     filename: string;
     leafZonePath: string;
-    meta: any | null;
+    /** 一句话描述本变体核心改动，用于 chip tooltip。变体文件不含 summary 时为空字符串。 */
+    summary: string;
 }
 
 /**

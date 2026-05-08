@@ -118,8 +118,11 @@ namespace BIMCanvas.Server.Controllers
                         string.Join(", ", targetSet), modules.Count);
 
                 // 4. 调用 Core 层验证
+                // targetSet 透传：若调用方按 zoneIds 限定了验证范围，"模块在某 zone 内"检查也应限定到这些 zone，
+                // 防止模块跨区逃到非目标叶子分区被任意 zone 兜接（v1.1 修复 alt-3 那类跨区漏检 bug）
                 var report = SchemeValidator.Validate(
-                    modules, designZones, exclusionZones, walls, columns);
+                    modules, designZones, exclusionZones, walls, columns,
+                    targetZoneIds: targetSet);
 
                 // 合并所有诊断，TotalModules 包含结构预检过滤掉的模块数
                 allDiagnostics.AddRange(report.Diagnostics);
@@ -231,7 +234,8 @@ namespace BIMCanvas.Server.Controllers
             {
                 try
                 {
-                    var modules = ReadJson<List<Module>>(moduleFile.FilePath) ?? new List<Module>();
+                    // v1.1: variant 文件可能是 wrapper { summary, modules } 形态；canonical 永远是裸数组
+                    var modules = LoadModulesCompat(moduleFile.FilePath);
                     foreach (var module in modules)
                     {
                         module.ZoneId ??= moduleFile.ZoneId;
@@ -471,6 +475,27 @@ namespace BIMCanvas.Server.Controllers
         {
             var json = System.IO.File.ReadAllText(path, Encoding.UTF8);
             return JsonConvert.DeserializeObject<T>(json, _jsonSettings) ?? new T();
+        }
+
+        /// <summary>
+        /// 读 modules 文件，兼容两种 schema：
+        ///   - canonical / legacy: 裸 List&lt;Module&gt; 数组
+        ///   - v1.1 variant wrapper: { "summary": "...", "modules": [...] } → 抽出 modules 数组
+        /// </summary>
+        private List<Module> LoadModulesCompat(string path)
+        {
+            var json = System.IO.File.ReadAllText(path, Encoding.UTF8);
+            var token = Newtonsoft.Json.Linq.JToken.Parse(json);
+            if (token is Newtonsoft.Json.Linq.JArray arr)
+            {
+                return arr.ToObject<List<Module>>(JsonSerializer.Create(_jsonSettings)) ?? new List<Module>();
+            }
+            if (token is Newtonsoft.Json.Linq.JObject obj && obj["modules"] is Newtonsoft.Json.Linq.JArray inner)
+            {
+                return inner.ToObject<List<Module>>(JsonSerializer.Create(_jsonSettings)) ?? new List<Module>();
+            }
+            throw new InvalidOperationException(
+                $"modules 文件结构不识别（既不是裸数组也不是 {{summary, modules}} 包裹对象）: {path}");
         }
 
         /// <summary>

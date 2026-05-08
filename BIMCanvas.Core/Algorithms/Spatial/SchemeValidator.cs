@@ -29,21 +29,32 @@ namespace BIMCanvas.Core.Algorithms.Spatial
         /// <param name="exclusionZones">禁区（Type = Exclusion）</param>
         /// <param name="walls">墙体列表（来自 baseline）</param>
         /// <param name="columns">柱子列表（来自 baseline）</param>
+        /// <param name="targetZoneIds">
+        /// 可选。当非空时，"模块在某 zone 内"检查只考虑 targetZoneIds 命中的 zone；
+        /// 模块逃到其他叶子分区会直接报 OutOfBounds，不再被任意 zone 兜接。
+        /// 由 ValidationController 在按 zoneIds 过滤模块时同步透传，治"variant 模块跨区漏检"bug。
+        /// </param>
         /// <returns>验证报告</returns>
         public static SchemeValidationReport Validate(
             IReadOnlyList<Module> modules,
             IReadOnlyList<Zone> designZones,
             IReadOnlyList<Zone> exclusionZones,
             IReadOnlyList<Wall> walls,
-            IReadOnlyList<Column> columns)
+            IReadOnlyList<Column> columns,
+            IReadOnlyCollection<string>? targetZoneIds = null)
         {
             var sw = Stopwatch.StartNew();
             var diagnostics = new List<Diagnostic>();
 
             // ============ Phase 1: 预计算 AABB ============
 
+            var targetSet = (targetZoneIds != null && targetZoneIds.Count > 0)
+                ? new HashSet<string>(targetZoneIds, System.StringComparer.OrdinalIgnoreCase)
+                : null;
+
             var zoneCache = designZones
                 .Where(z => z.Type == ZoneType.Room || z.Type == ZoneType.Designable)
+                .Where(z => targetSet == null || (z.Id != null && targetSet.Contains(z.Id)))
                 .Select(z =>
                 {
                     var boundary = z.ComputedBoundary ?? z.RawBoundary;

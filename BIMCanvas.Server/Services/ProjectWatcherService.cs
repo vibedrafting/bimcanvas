@@ -38,8 +38,9 @@ namespace BIMCanvas.Server.Services
 
         /// <summary>
         /// 是否需要广播该文件名变化。
-        /// 精确匹配 WatchedFiles，或匹配 module-relocation-agent 写入的变体文件
-        /// （modules-alt-*.json / modules-alt-*.meta.json）。
+        /// 精确匹配 WatchedFiles，或匹配 module-relocation-agent 写入的变体文件 modules-alt-*.json。
+        /// v1.1：sidecar (.meta.json) 不再生成；老项目残留的 sidecar 文件被删除时不再触发 SignalR
+        /// （Web 端没有它们的消费者）。
         /// </summary>
         private static bool IsWatchedFile(string fileName)
         {
@@ -49,9 +50,10 @@ namespace BIMCanvas.Server.Services
             if (WatchedFiles.Contains(fileName))
                 return true;
 
-            // 变体 + sidecar：modules-alt-*.json / modules-alt-*.meta.json
+            // 变体文件 modules-alt-*.json（排除 .meta.json）
             if (fileName.StartsWith("modules-alt-", StringComparison.OrdinalIgnoreCase)
-                && fileName.EndsWith(".json", StringComparison.OrdinalIgnoreCase))
+                && fileName.EndsWith(".json", StringComparison.OrdinalIgnoreCase)
+                && !fileName.EndsWith(".meta.json", StringComparison.OrdinalIgnoreCase))
                 return true;
 
             return false;

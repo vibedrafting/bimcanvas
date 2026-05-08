@@ -84,7 +84,7 @@ namespace BIMCanvas.Server.Controllers
                         VariantId = variantId,
                         Filename = fileName,
                         LeafZonePath = NormalizeLeafZonePath(leafZonePath),
-                        Meta = TryLoadSidecar(zoneDir, variantId)
+                        Summary = TryLoadVariantSummary(filePath)
                     };
                 })
                 .Where(v => v != null)
@@ -126,7 +126,7 @@ namespace BIMCanvas.Server.Controllers
 
             try
             {
-                var modules = ReadJson<List<Module>>(filePath) ?? new List<Module>();
+                var modules = LoadVariantModules(filePath);
                 // 变体文件写入时 zoneId 通常被 normalize 服务剥成 null；
                 // 这里按 leafZonePath 最后一段（叶子分区 ID）回填，保持与 canonical 读路径一致
                 var leafZoneId = Path.GetFileName(zoneDir);
@@ -182,13 +182,14 @@ namespace BIMCanvas.Server.Controllers
 
             try
             {
-                // 1) 读取变体内容并先校验是合法 JSON 数组（防止采纳坏文件）
+                // 1) 读取变体内容并先校验合法（兼容 wrapper 形态 {summary, modules} 与 legacy 裸数组）
+                //    采纳时只把 modules 数组写回 canonical，summary 字段不进 canonical（canonical 不带 wrapper）
                 var variantContent = System.IO.File.ReadAllText(variantPath, Encoding.UTF8);
-                _ = JArray.Parse(variantContent);
+                var modulesArrayJson = ExtractModulesArrayJson(variantContent);
 
                 // 2) 原子写入 canonical：先写 .tmp，再 Move 覆盖
                 var tmpPath = canonicalPath + ".tmp";
-                System.IO.File.WriteAllText(tmpPath, variantContent, Encoding.UTF8);
+                System.IO.File.WriteAllText(tmpPath, modulesArrayJson, Encoding.UTF8);
                 System.IO.File.Move(tmpPath, canonicalPath, overwrite: true);
 
                 // 3) 删除该 zone 下所有 modules-alt-*.json + 对应 sidecar
@@ -296,23 +297,77 @@ namespace BIMCanvas.Server.Controllers
                 : leafZonePath.Replace('\\', '/').Trim('/');
         }
 
-        private object? TryLoadSidecar(string zoneDir, string variantId)
+        /// <summary>
+        /// 从变体文件内容里提取 summary 字段（v1.1 新格式：{ summary, modules }）。
+        /// 旧格式（裸数组）返回空串；解析失败也返回空串。
+        /// </summary>
+        private string TryLoadVariantSummary(string variantFilePath)
         {
-            var sidecarFileName = $"modules-{variantId}.meta.json";
-            var sidecarPath = Path.Combine(zoneDir, sidecarFileName);
-            if (!System.IO.File.Exists(sidecarPath))
-                return null;
-
             try
             {
-                var raw = System.IO.File.ReadAllText(sidecarPath, Encoding.UTF8);
-                return JsonConvert.DeserializeObject<object>(raw);
+                var raw = System.IO.File.ReadAllText(variantFilePath, Encoding.UTF8);
+                var token = JToken.Parse(raw);
+                if (token is JObject obj)
+                {
+                    var summary = obj.Value<string>("summary");
+                    return summary ?? string.Empty;
+                }
+                return string.Empty;
             }
             catch (Exception ex)
             {
-                _logger.LogWarning(ex, "解析 sidecar 失败: {Path}", sidecarPath);
-                return null;
+                _logger.LogWarning(ex, "解析 variant summary 失败: {Path}", variantFilePath);
+                return string.Empty;
             }
+        }
+
+        /// <summary>
+        /// 读变体文件并兼容两种形态：
+        ///   - v1.1 wrapper: { "summary": "...", "modules": [...] } → 取 modules
+        ///   - legacy:        [ ... ] (裸数组) → 直接当 Module[]
+        /// </summary>
+        private List<Module> LoadVariantModules(string variantFilePath)
+        {
+            var raw = System.IO.File.ReadAllText(variantFilePath, Encoding.UTF8);
+            var token = JToken.Parse(raw);
+            JArray? modulesArray;
+            if (token is JArray asArray)
+            {
+                modulesArray = asArray;
+            }
+            else if (token is JObject asObject && asObject["modules"] is JArray inner)
+            {
+                modulesArray = inner;
+            }
+            else
+            {
+                throw new InvalidOperationException(
+                    $"变体文件结构不识别（既不是数组，也不是 {{summary, modules}} 包裹对象）: {variantFilePath}");
+            }
+            return modulesArray.ToObject<List<Module>>(JsonSerializer.Create(_jsonSettings)) ?? new List<Module>();
+        }
+
+        /// <summary>
+        /// 把变体文件内容归一成"纯 modules 数组的 JSON 串"，供采纳时写入 canonical modules.json。
+        /// 兼容 wrapper / 裸数组两种形态。
+        /// </summary>
+        private string ExtractModulesArrayJson(string variantContent)
+        {
+            var token = JToken.Parse(variantContent);
+            JArray? modulesArray;
+            if (token is JArray asArray)
+            {
+                modulesArray = asArray;
+            }
+            else if (token is JObject asObject && asObject["modules"] is JArray inner)
+            {
+                modulesArray = inner;
+            }
+            else
+            {
+                throw new InvalidOperationException("变体文件不是合法 modules 数组或 {summary, modules} 包裹对象");
+            }
+            return modulesArray.ToString(Formatting.Indented);
         }
 
         private T? ReadJson<T>(string path)
@@ -327,7 +382,8 @@ namespace BIMCanvas.Server.Controllers
         public string VariantId { get; set; } = "";
         public string Filename { get; set; } = "";
         public string LeafZonePath { get; set; } = "";
-        public object? Meta { get; set; }
+        /// <summary>v1.1 wrapper.summary 字段（chip tooltip 用）。</summary>
+        public string Summary { get; set; } = string.Empty;
     }
 
     public class AdoptVariantRequest

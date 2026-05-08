@@ -131,11 +131,13 @@ def write_modules(
     modules: list[dict | PlacedModule],
     zone_id: str | None = None,
     variant_name: str | None = None,
+    variant_summary: str | None = None,
 ) -> tuple[bool, str]:
     """
     将模块列表写入文件系统
     v3.3: 支持按分区子目录写入
     v3.6: 支持 module-relocation-agent 的变体文件名（modules-{variant_name}.json）
+    v3.7: 变体文件改写为 wrapper 形态 {summary, modules}，sidecar 文件已废弃
 
     Args:
         project_path: 项目根路径
@@ -144,9 +146,12 @@ def write_modules(
             - 如果指定，写入到 schemes/{zone_id}/modules.json（或变体文件）
             - 如果不指定，按模块的 zoneId 自动分组写入分区子目录
         variant_name: 可选的变体名称（如 "alt-1"）
-            - 为空（默认）→ 写入 canonical "modules.json"
-            - 非空 → 写入同目录下的 "modules-{variant_name}.json"
+            - 为空（默认）→ 写入 canonical "modules.json"（裸 Module[] 数组）
+            - 非空 → 写入同目录下的 "modules-{variant_name}.json"，**wrapper 形态**:
+              { "summary": variant_summary, "modules": [...] }
             - 必须与显式 zone_id 同时指定，不允许变体走自动分组分支
+        variant_summary: 仅 variant 模式生效——1 句话描述本变体改动核心，写入 wrapper.summary。
+            空字符串可接受但不推荐（chip tooltip 会变空）。
 
     Returns:
         (success, message) 元组
@@ -159,6 +164,9 @@ def write_modules(
             _ensure_safe_variant_name(variant_name)
         except ValueError as exc:
             return False, str(exc)
+
+    if variant_summary is not None and not variant_name:
+        return False, "variant_summary 仅在 variant 模式下生效；canonical 写入不应携带 summary"
 
     # 验证模块数据
     errors = validate_module_data(modules)
@@ -179,6 +187,15 @@ def write_modules(
         # 如果指定了 zone_id（含 variant 模式），只写入该分区（支持嵌套路径）
         if zone_id:
             relative_path = _resolve_module_path(project_path, zone_id, variant_name)
+            if variant_name:
+                # variant 模式：wrapper 包裹 — { summary, modules }
+                payload: dict[str, Any] = {
+                    "summary": variant_summary or "",
+                    "modules": module_dicts,
+                }
+                write_json(project_path, relative_path, payload)
+                return True, f"成功写入 variant {variant_name}（{len(module_dicts)} 个模块）到 {relative_path}"
+            # canonical 模式：保持裸数组（与 v1.0 行为一致）
             write_json(project_path, relative_path, module_dicts)
             return True, f"成功写入 {len(module_dicts)} 个模块到 {relative_path}"
 
@@ -208,40 +225,7 @@ def write_modules(
         return False, f"写入失败: {str(e)}"
 
 
-def write_variant_metadata(
-    project_path: str,
-    zone_id: str,
-    variant_name: str,
-    metadata: dict[str, Any],
-) -> tuple[bool, str]:
-    """
-    写入变体的 sidecar metadata 文件（modules-{variant_name}.meta.json）。
-
-    路径解析复用 _resolve_module_path 的目录推断，仅替换文件名后缀。
-    Args:
-        project_path: 项目根路径
-        zone_id: 叶子分区 ID（必须）
-        variant_name: 变体名（如 "alt-1"，必须）
-        metadata: sidecar 字典；schema 详见 module-relocation-agent.md
-    Returns:
-        (success, message)
-    """
-    if not zone_id:
-        return False, "write_variant_metadata 必须指定 zone_id"
-    try:
-        _ensure_safe_variant_name(variant_name)
-    except ValueError as exc:
-        return False, str(exc)
-
-    # 复用 _resolve_module_path 推断的目录，把文件名换成 sidecar
-    canonical_relative = _resolve_module_path(project_path, zone_id, variant_name)
-    sidecar_relative = canonical_relative[:-len(".json")] + ".meta.json"
-
-    try:
-        write_json(project_path, sidecar_relative, metadata)
-        return True, f"成功写入 sidecar metadata 到 {sidecar_relative}"
-    except Exception as e:
-        return False, f"sidecar 写入失败: {str(e)}"
+# write_variant_metadata 已在 v1.1 删除：sidecar 文件不再生成，元数据全部内嵌进 modules-alt-{n}.json 的 wrapper.summary。
 
 
 def write_zone_modules(

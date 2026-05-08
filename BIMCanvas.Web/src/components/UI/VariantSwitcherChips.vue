@@ -34,22 +34,12 @@ const errorMessage = ref<string | null>(null);
 
 const activeVariantId = computed(() => canvasStore.getActiveVariant(props.leafZoneId));
 
-/** 按 confidenceTier（recommended → acceptable → fallback → 未知）+ variantId 字典序排序 */
+/**
+ * v1.1：不再做"质量"评级排序——SubAgent 不评 confidenceTier，所以按 variantId 字典序展示即可。
+ * 用户在 chip 上自行肉眼比较和采纳。
+ */
 const sortedVariants = computed(() => {
-    const tierRank = (tier: unknown): number => {
-        switch (tier) {
-            case 'recommended': return 0;
-            case 'acceptable': return 1;
-            case 'fallback': return 2;
-            default: return 3;
-        }
-    };
-    return [...variants.value].sort((a, b) => {
-        const ta = tierRank(a.meta?.confidenceTier);
-        const tb = tierRank(b.meta?.confidenceTier);
-        if (ta !== tb) return ta - tb;
-        return a.variantId.localeCompare(b.variantId);
-    });
+    return [...variants.value].sort((a, b) => a.variantId.localeCompare(b.variantId));
 });
 
 async function refetchVariants() {
@@ -99,38 +89,12 @@ async function adoptVariant(variantId: string) {
     }
 }
 
-function operationsSummary(meta: any): string {
-    if (!meta || !Array.isArray(meta.operations)) return '';
-    const counts: Record<string, number> = {};
-    for (const op of meta.operations) {
-        const t = typeof op?.type === 'string' ? op.type : 'unknown';
-        if (t === 'kept') continue;
-        counts[t] = (counts[t] ?? 0) + 1;
-    }
-    const order = ['moved', 'rotated', 'resized', 'deleted', 'added'];
-    const labels: Record<string, string> = {
-        moved: '移动', rotated: '旋转', resized: '改尺寸', deleted: '删除', added: '新增'
-    };
-    return order
-        .filter(k => counts[k])
-        .map(k => `${counts[k]} ${labels[k]}`)
-        .join(' / ');
-}
-
-function tierLabel(tier: unknown): string {
-    switch (tier) {
-        case 'recommended': return '★ 推荐';
-        case 'acceptable': return '可接受';
-        case 'fallback': return '兜底';
-        default: return '';
-    }
-}
-
+/**
+ * v1.1 chip tooltip：直接读 summary 字段；不再有 confidenceTier / operations 摘要。
+ * summary 为空时回退显示 variantId。
+ */
 function variantTooltip(v: VariantDescriptor): string {
-    const summary = v.meta?.summary ?? v.variantId;
-    const ops = operationsSummary(v.meta);
-    const tier = tierLabel(v.meta?.confidenceTier);
-    return [summary, ops, tier].filter(Boolean).join('\n');
+    return v.summary && v.summary.trim().length > 0 ? v.summary : v.variantId;
 }
 
 const onVariantFilesChanged = () => { refetchVariants(); };
@@ -165,14 +129,11 @@ watch(() => props.leafZonePath, () => { refetchVariants(); });
                 <button
                     type="button"
                     class="vsc-chip"
-                    :class="{
-                        'is-active': activeVariantId === v.variantId,
-                        'is-recommended': v.meta?.confidenceTier === 'recommended'
-                    }"
+                    :class="{ 'is-active': activeVariantId === v.variantId }"
                     :title="variantTooltip(v)"
                     @click="selectVariant(v.variantId)"
                 >
-                    {{ v.variantId }}<span v-if="v.meta?.confidenceTier === 'recommended'"> ★</span>
+                    {{ v.variantId }}
                 </button>
                 <button
                     type="button"
@@ -232,10 +193,6 @@ watch(() => props.leafZonePath, () => { refetchVariants(); });
 
 .vsc-chip--canonical {
     font-weight: 500;
-}
-
-.vsc-chip.is-recommended {
-    border-color: rgba(255, 200, 60, 0.55);
 }
 
 .vsc-adopt {

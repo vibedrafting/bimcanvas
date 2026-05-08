@@ -168,18 +168,18 @@ WHY：这些输入属于单房间 planning/placement 的感知与施工材料。
 
 ### 派发包字段
 
-**【必须】** Task 描述里完整给出以下字段：
+**【必须】** Task 描述里完整给出以下字段（v1.1 精简版）：
 
 - `relocationBatchId`：本批 relocation ID（uuid 或时间戳）
 - `targetModuleIds`：≥1 个目标模块**实例 ID**（不是 moduleId/类型 id）
 - `leafZoneId`：目标所在的叶子分区 ID
-- `leafZonePath`：叶子分区相对路径，如 "rz_3/dz_1"
-- `selectionSetId`：`sha1(sorted(targetModuleIds))` 的十六进制串，给 SubAgent 做覆盖式 cleanup
-- `selectionSetSummary`：1 句话人话描述，给 sidecar 用，如 "梳妆台 (mod_vanity_custom_001)"
+- `leafZonePath`：叶子分区相对路径（顶层叶子直接是 zone id 如 `"rz_3"`；嵌套叶子如 `"rz_3/dz_1"`）
 - `originalUserRequest`：用户原始消息原文
 - `scope`：固定字符串 `"relocation-only"`
 
 **operative set（要动哪些模块）不在派发包里**——SubAgent 自己按必要性原则推。主控不要预算。
+
+**v1.1 已废弃字段**：`selectionSetId` / `selectionSetSummary` 不再传入。SubAgent 的覆盖策略改为"每轮全清同 zone 旧 alt-* 文件"，无需 selectionSetId 区分。
 
 ### 不该派发的场景
 

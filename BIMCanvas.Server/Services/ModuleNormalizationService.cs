@@ -105,12 +105,13 @@ namespace BIMCanvas.Server.Services
             {
                 try
                 {
-                    var modules = ReadJson<List<Module>>(moduleFile.FilePath) ?? new List<Module>();
+                    // v1.1: variant 文件可能是 wrapper { summary, modules } 或 legacy 裸数组；canonical 永远是裸数组
+                    var (modules, variantSummary) = ReadModulesAndOptionalSummary(moduleFile.FilePath);
                     foreach (var module in modules)
                     {
                         module.ZoneId ??= moduleFile.ZoneId;
                     }
-                    result.Add(new LoadedModuleFile(moduleFile.FilePath, moduleFile.ZoneId, modules));
+                    result.Add(new LoadedModuleFile(moduleFile.FilePath, moduleFile.ZoneId, modules, variantSummary));
                 }
                 catch (Exception ex)
                 {
@@ -120,6 +121,30 @@ namespace BIMCanvas.Server.Services
             }
 
             return result;
+        }
+
+        /// <summary>
+        /// 读 modules 文件，兼容两种 schema：
+        ///   - canonical / legacy: 裸 List&lt;Module&gt; 数组 → variantSummary = null
+        ///   - v1.1 variant wrapper: { "summary": "...", "modules": [...] } → 抽出两部分
+        /// </summary>
+        private (List<Module> modules, string? variantSummary) ReadModulesAndOptionalSummary(string path)
+        {
+            var json = File.ReadAllText(path, Encoding.UTF8);
+            var token = Newtonsoft.Json.Linq.JToken.Parse(json);
+            if (token is Newtonsoft.Json.Linq.JArray arr)
+            {
+                var modules = arr.ToObject<List<Module>>(JsonSerializer.Create(_jsonSettings)) ?? new List<Module>();
+                return (modules, null);
+            }
+            if (token is Newtonsoft.Json.Linq.JObject obj && obj["modules"] is Newtonsoft.Json.Linq.JArray inner)
+            {
+                var modules = inner.ToObject<List<Module>>(JsonSerializer.Create(_jsonSettings)) ?? new List<Module>();
+                var summary = obj.Value<string>("summary");
+                return (modules, summary);
+            }
+            throw new InvalidOperationException(
+                $"modules 文件结构不识别（既不是裸数组也不是 {{summary, modules}} 包裹对象）: {path}");
         }
 
         private static List<Diagnostic> NormalizeFacings(List<Module> modules, out int normalizedCount)
@@ -198,7 +223,17 @@ namespace BIMCanvas.Server.Services
                 return m;
             }).ToList();
 
-            WriteJson(moduleFile.FilePath, toSave);
+            // v1.1: 如果原始文件是 variant wrapper（VariantSummary != null），写回时保持 wrapper 形态，
+            // 保留原 summary 字段不被 normalize 流程吃掉；canonical 文件继续写裸数组
+            if (moduleFile.VariantSummary != null)
+            {
+                var wrapper = new { summary = moduleFile.VariantSummary, modules = toSave };
+                WriteJson(moduleFile.FilePath, wrapper);
+            }
+            else
+            {
+                WriteJson(moduleFile.FilePath, toSave);
+            }
 
             foreach (var module in moduleFile.Modules)
             {
@@ -220,11 +255,12 @@ namespace BIMCanvas.Server.Services
 
         private sealed class LoadedModuleFile
         {
-            public LoadedModuleFile(string filePath, string zoneId, List<Module> modules)
+            public LoadedModuleFile(string filePath, string zoneId, List<Module> modules, string? variantSummary = null)
             {
                 FilePath = filePath;
                 ZoneId = zoneId;
                 Modules = modules;
+                VariantSummary = variantSummary;
             }
 
             public string FilePath { get; }
@@ -232,6 +268,12 @@ namespace BIMCanvas.Server.Services
             public string ZoneId { get; }
 
             public List<Module> Modules { get; }
+
+            /// <summary>
+            /// v1.1 wrapper 形态的 summary 字段；canonical / legacy 裸数组文件该字段为 null。
+            /// PersistModules 用它判断写回 wrapper 还是裸数组。
+            /// </summary>
+            public string? VariantSummary { get; }
         }
     }
 
