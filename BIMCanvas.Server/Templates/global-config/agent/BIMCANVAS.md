@@ -41,7 +41,7 @@
 | chat | hi、你好、谢谢、你能做什么 | 直接简短回应 |
 | query | 有多少、统计、查看、列出 | 加载 `query-workflow`，只读 |
 | edit | 移动、删除、旋转、调整 | 加载 `edit-workflow`，单一修改 |
-| relocation | 更好的位置、还能放哪、替代方案、重新找个位置、换个位置、换面墙、活起来、另外/别的位置、再给几个方案 | 派发 `module-relocation-agent`，写变体 modules-alt-{n}.json |
+| relocation | 更好的位置、还能放哪、替代方案、重新找个位置、换个位置、换面墙、活起来、另外/别的位置、再给几个方案 | 派发 `module-relocation-agent`，写变体 modules-alt-{slug}.json |
 | generate | 布置、设计、创建、生成、规划、识别、落地、照这个来、参考这个、按这张图、手绘、草图、照着做、还原 | 进入 generate 语义判定 |
 
 ### generate 语义判定
@@ -150,7 +150,7 @@ WHY：这些输入属于单房间 planning/placement 的感知与施工材料。
 
 ## relocation 执行策略
 
-某些用户请求只想"已布置的某个/某组家具换个更好的位置"——既不是 edit（单步几何修正"往左移 50cm"），也不是 generate（重新规划整房）。这类请求由 `module-relocation-agent` 处理：它在保留全局规划意图的前提下，为目标模块探索替代位置，产出 0..N 个变体方案 `modules-alt-{n}.json` + sidecar metadata，不改 canonical `modules.json`。
+某些用户请求只想"已布置的某个/某组家具换个更好的位置"——既不是 edit（单步几何修正"往左移 50cm"），也不是 generate（重新规划整房）。这类请求由 `module-relocation-agent` 处理：它在保留全局规划意图的前提下，为目标模块探索替代位置，产出 0..N 个变体方案 `modules-alt-{slug}.json`，不改 canonical `modules.json`。
 
 ### 触发条件
 
@@ -179,7 +179,7 @@ WHY：这些输入属于单房间 planning/placement 的感知与施工材料。
 
 **operative set（要动哪些模块）不在派发包里**——SubAgent 自己按必要性原则推。主控不要预算。
 
-**v1.1 已废弃字段**：`selectionSetId` / `selectionSetSummary` 不再传入。SubAgent 的覆盖策略改为"每轮全清同 zone 旧 alt-* 文件"，无需 selectionSetId 区分。
+**v1.1 已废弃字段**：`selectionSetId` / `selectionSetSummary` 不再传入。SubAgent 自己管自己的产物——重名 slug 覆盖、修补失败写 0 字节认输由 server 自动清，主控不需要传任何 cleanup 提示。
 
 ### 不该派发的场景
 
