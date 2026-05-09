@@ -74,6 +74,28 @@ const isPrimitiveValue = (value: any): boolean => {
   return type === 'string' || type === 'number' || type === 'boolean';
 };
 
+// 长文本截断 + 展开/收起
+// 阈值 40 字：placementReason 这类段落式说明默认折叠；切换选中对象自动复位
+const TRUNCATE_LIMIT = 40;
+const expandedKeys = ref<Set<string>>(new Set());
+
+watch(
+  () => selectedObject.value?.id ?? null,
+  () => { expandedKeys.value = new Set(); }
+);
+
+const isLongText = (v: unknown): v is string =>
+  typeof v === 'string' && v.length > TRUNCATE_LIMIT;
+
+const isExpanded = (key: string): boolean => expandedKeys.value.has(key);
+
+const toggleExpand = (key: string): void => {
+  const next = new Set(expandedKeys.value);
+  if (next.has(key)) next.delete(key);
+  else next.add(key);
+  expandedKeys.value = next;
+};
+
 // ========== 模块尺寸（actual + recommended + 编辑器） ==========
 // 仅当 selectedObject 是 module 时启用；查模块库拿 morphology 决定输入控件形态。
 
@@ -219,9 +241,30 @@ const properties = computed(() => {
             No properties
         </div>
         <div v-if="properties.length > 0" class="prop-list">
-            <div v-for="prop in properties" :key="prop.key" class="prop-row">
+            <div
+                v-for="prop in properties"
+                :key="prop.key"
+                class="prop-row"
+                :class="{ 'prop-row--long': isLongText(prop.value) }"
+            >
                 <span class="label">{{ prop.key }}</span>
-                <span class="value" :title="String(prop.value)">{{ prop.value }}</span>
+                <span
+                    class="value"
+                    :class="{ 'value--long': isLongText(prop.value) }"
+                    :title="String(prop.value)"
+                >
+                    <template v-if="isLongText(prop.value) && !isExpanded(prop.key)">
+                        {{ (prop.value as string).slice(0, TRUNCATE_LIMIT) }}<span class="ellipsis">…</span>
+                        <a class="expand-link" @click="toggleExpand(prop.key)">展开</a>
+                    </template>
+                    <template v-else-if="isLongText(prop.value) && isExpanded(prop.key)">
+                        {{ prop.value }}
+                        <a class="expand-link" @click="toggleExpand(prop.key)">收起</a>
+                    </template>
+                    <template v-else>
+                        {{ prop.value }}
+                    </template>
+                </span>
             </div>
         </div>
 
@@ -412,6 +455,27 @@ const properties = computed(() => {
             word-break: break-word;      /* Break long words if needed */
             white-space: pre-wrap;       /* Preserve formatting but wrap */
             font-family: var(--font-mono); /* Monospace for values looks techy */
+
+            &.value--long {
+                text-align: left;
+            }
+
+            .ellipsis {
+                margin: 0 2px;
+                opacity: 0.6;
+            }
+
+            .expand-link {
+                margin-left: 6px;
+                color: var(--accent-primary, #4ea1ff);
+                cursor: pointer;
+                user-select: none;
+                white-space: nowrap;
+
+                &:hover {
+                    text-decoration: underline;
+                }
+            }
         }
     }
     
