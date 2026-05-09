@@ -17,6 +17,8 @@ export interface WebCapabilities {
   webSnapshotImport: CapabilityEntry;
   webSnapshotExport: CapabilityEntry;
   moduleLibrary: CapabilityEntry;
+  /** 用户主动绑定/清空磁盘上的模块库目录 (仅 Standalone + Chromium) */
+  moduleLibraryBinding: CapabilityEntry;
   inMemoryEdit: CapabilityEntry;
   undoRedo: CapabilityEntry;
   realtimeProjectSync: CapabilityEntry;
@@ -52,6 +54,14 @@ export interface WebRuntime {
   getModuleAsset(moduleId: string): Promise<string | null>;
   exportSnapshot(projectData: ProjectData): Promise<Blob>;
   exportBcpProject(): Promise<{ blob: Blob; filename: string } | null>;
+  /**
+   * 在 Standalone 下让用户用 showDirectoryPicker 选一个磁盘目录,
+   * 校验并绑定为模块库;句柄持久化到 IDB,下次会话可恢复。
+   * 返回加载到的模块数量。失败抛友好错误。
+   */
+  bindModuleLibraryFolder(): Promise<{ count: number }>;
+  /** 解绑当前模块库目录,清空 IDB 中的句柄与内存缓存。 */
+  clearModuleLibraryBinding(): Promise<void>;
 }
 
 export const supports = (cap: CapabilityEntry) => cap.level !== 'unsupported';

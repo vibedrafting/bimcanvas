@@ -17,6 +17,7 @@ import { GhostManager } from '../interaction/GhostManager';
 import { useDebugStore } from '../../stores/debugStore';
 import { canvasStyleService } from '../canvas/CanvasStyleService';
 import { moduleLibraryService } from '../ModuleLibraryService';
+import { getWebRuntime } from '../../runtime/runtimeRegistry';
 
 // 全局实例引用（供 ScreenshotService 等外部服务访问）
 let globalInstance: ThreeSceneService | null = null;
@@ -100,6 +101,12 @@ export class ThreeSceneService {
         this._camera.position.set(0, 10000, 0);
         this._camera.up.set(0, 0, -1);
         this._camera.lookAt(0, 0, 0);
+
+        // Standalone 模式空白项目下原点居中很别扭(标签全在右上),
+        // 把相机 target 偏移让世界原点落到屏幕左下 ~10% 处。Connected 不动。
+        if (this.isStandaloneMode()) {
+            this.applyStandaloneDefaultView();
+        }
 
         // 3. Renderer
         this.renderer = new THREE.WebGLRenderer({
@@ -626,10 +633,38 @@ export class ThreeSceneService {
         }
     }
 
+    /**
+     * Standalone 空白项目的默认视角:把相机 target 移到第一象限,
+     * 使世界原点落在屏幕左下约 10% 处,让 Excel 风格列/行标签自然展开。
+     */
+    private applyStandaloneDefaultView(): void {
+        const aspect = this.container.clientWidth / this.container.clientHeight;
+        const frustumSize = 20000;
+        const originInsetRatio = 0.4; // 0.5=正贴角,0=居中,0.4≈10% 边距
+        const targetX = frustumSize * aspect * originInsetRatio;
+        const targetZ = -frustumSize * originInsetRatio;
+        this._camera.position.set(targetX, 10000, targetZ);
+        this._camera.lookAt(targetX, 0, targetZ);
+    }
+
+    private isStandaloneMode(): boolean {
+        try {
+            return getWebRuntime().mode === 'standalone';
+        } catch {
+            return false;
+        }
+    }
+
     private fitToScreen(data: any) {
         // 从 baseline 获取墙体数据
         const walls = data.baseline?.walls;
-        if (!walls || walls.length === 0) return;
+        if (!walls || walls.length === 0) {
+            // Standalone 空白项目走默认左下视角;Connected 维持原有"不动"语义。
+            if (this.isStandaloneMode()) {
+                this.applyStandaloneDefaultView();
+            }
+            return;
+        }
 
         let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
 

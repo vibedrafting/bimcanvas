@@ -113,6 +113,14 @@ export class ConnectedRuntime implements WebRuntime {
     return ProjectService.exportProject();
   }
 
+  async bindModuleLibraryFolder(): Promise<{ count: number }> {
+    throw new Error('Connected Runtime 不支持绑定模块库目录;模块库由 Server 提供');
+  }
+
+  async clearModuleLibraryBinding(): Promise<void> {
+    throw new Error('Connected Runtime 不支持清空模块库绑定;模块库由 Server 提供');
+  }
+
   private async fetchModuleLibrary(): Promise<ModuleLibrary | null> {
     const response = await fetch(`${SERVER_API}/modules/library`);
     if (response.status === 404) {
