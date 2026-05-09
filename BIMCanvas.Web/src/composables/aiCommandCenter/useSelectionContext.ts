@@ -2,6 +2,7 @@ import { computed } from 'vue';
 import { storeToRefs } from 'pinia';
 import { useCanvasStore } from '../../stores/canvasStore';
 import type { SpatialMark } from '../../types/aiCommandCenter';
+import type { SentContextSnapshot } from '../../types/agent';
 
 // 对象类型中文标签
 const TYPE_LABELS: Record<string, string> = {
@@ -177,6 +178,34 @@ export function useSelectionContext() {
     return Object.keys(ctx).length > 0 ? ctx : undefined;
   };
 
+  // 7. 构建"用户消息气泡"上的轻量快照（仅 UI，独立于发给 Agent 的 payload）。
+  //    复用 scopeDisplayText / selectionDisplayText，已含 ">3 按类型汇总" 的折叠逻辑。
+  const buildContextSnapshot = (spatialMarks: SpatialMark[] = []): SentContextSnapshot | undefined => {
+    if (selectedObjects.value.length === 0 && spatialMarks.length === 0) return undefined;
+
+    // scopeDisplayText 在 strict 索引模式下推断含 undefined（names[0]），运行时不会发生；兜底"全局"以满足类型契约。
+    const scopeText = scopeDisplayText.value ?? '全局';
+    const snap: SentContextSnapshot = {
+      scope: { text: scopeText, isGlobal: scopeText === '全局' }
+    };
+
+    if (selectedObjects.value.length > 0) {
+      snap.selection = {
+        text: selectionDisplayText.value,
+        count: selectedCount.value
+      };
+    }
+
+    if (spatialMarks.length > 0) {
+      snap.spatialMarks = {
+        count: spatialMarks.length,
+        labels: spatialMarks.slice(0, 3).map(m => m.label).filter(Boolean)
+      };
+    }
+
+    return snap;
+  };
+
   return {
     // 现有（保留兼容）
     selectedModules,
@@ -196,5 +225,6 @@ export function useSelectionContext() {
     selectedDoors,
     selectedWindows,
     selectedExclusions,
+    buildContextSnapshot,
   };
 }

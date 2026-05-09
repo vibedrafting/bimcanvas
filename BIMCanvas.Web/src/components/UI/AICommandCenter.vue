@@ -63,7 +63,8 @@ const {
   selectionDisplayText,
   scopeDisplayText,
   availableZones,
-  buildContextPayload
+  buildContextPayload,
+  buildContextSnapshot
 } = useSelectionContext();
 const DEFAULT_SPATIAL_INTENT_OPTIONS = ['家具（位置）', '设计区', '通道', '禁区'] as const;
 const SPATIAL_INTENT_STORAGE_KEY = 'bimcanvas:space-mark:intent-options';
@@ -529,7 +530,8 @@ const {
   scrollToBottom,
   fetchAgentConfig,
   hasFallback,
-  buildContextPayload: (spatialMarks = pendingSpatialMarks.value) => buildContextPayload(spatialMarks)
+  buildContextPayload: (spatialMarks = pendingSpatialMarks.value) => buildContextPayload(spatialMarks),
+  buildContextSnapshot: (spatialMarks = pendingSpatialMarks.value) => buildContextSnapshot(spatialMarks)
 });
 
 const hasProgressOverlay = computed(() => !!activeTodoProgress.value || isPollingBackground.value);
@@ -1019,7 +1021,34 @@ watch(chatScrollRef, (newEl, oldEl) => {
                             />
 
                             <!-- 文本气泡 - 用户消息用纯文本，AI 消息用 Markdown -->
-                            <div class="bubble" v-else-if="bubble.type === 'text' && (bubble.content || bubble.attachments?.length)">
+                            <div class="bubble" v-else-if="bubble.type === 'text' && (bubble.content || bubble.attachments?.length || bubble.sentContext)">
+                                <!-- 发送时的上下文快照 chip（用户消息专有，只读） -->
+                                <div class="bubble-sent-context"
+                                     v-if="msg.role === 'user' && bubble.sentContext">
+                                    <span class="sent-chip scope">
+                                        <svg class="chip-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                            <path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"></path>
+                                            <polyline points="9 22 9 12 15 12 15 22"></polyline>
+                                        </svg>
+                                        {{ bubble.sentContext.scope.text }}
+                                    </span>
+                                    <span class="sent-chip selection" v-if="bubble.sentContext.selection">
+                                        <svg class="chip-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                            <path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"></path>
+                                            <polyline points="3.27 6.96 12 12.01 20.73 6.96"></polyline>
+                                            <line x1="12" y1="22.08" x2="12" y2="12"></line>
+                                        </svg>
+                                        {{ bubble.sentContext.selection.text }}
+                                    </span>
+                                    <span class="sent-chip mark" v-if="bubble.sentContext.spatialMarks">
+                                        <svg class="chip-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                            <path d="M4 4l7.5 16 2.4-6.1L20 11.5 4 4z"></path>
+                                            <path d="M13.5 13.5L19 19"></path>
+                                        </svg>
+                                        <template v-if="bubble.sentContext.spatialMarks.count <= 3 && bubble.sentContext.spatialMarks.labels.length > 0">{{ bubble.sentContext.spatialMarks.labels.join(', ') }}</template>
+                                        <template v-else>{{ bubble.sentContext.spatialMarks.count }} 个标记</template>
+                                    </span>
+                                </div>
                                 <!-- 图片显示区域（用户消息专有） -->
                                 <div class="bubble-images" v-if="bubble.attachments && bubble.attachments.length > 0">
                                     <img v-for="attachment in bubble.attachments" :key="attachment.attachmentId"
@@ -2776,6 +2805,50 @@ watch(chatScrollRef, (newEl, oldEl) => {
             word-break: break-word; /* Break long words */
             overflow-wrap: break-word; /* Fallback for older browsers */
             /* Note: white-space: pre-wrap removed - causes bottom padding from trailing newlines */
+
+            // === 用户消息：发送时上下文快照 chip（只读） ===
+            // 视觉差异化于输入区 .context-chip：更小、更暗、无 close、无 hover
+            .bubble-sent-context {
+                display: flex;
+                flex-wrap: wrap;
+                gap: 4px;
+                margin-bottom: 6px;
+                pointer-events: none; // 全行只读，不响应任何鼠标事件
+
+                .sent-chip {
+                    display: inline-flex;
+                    align-items: center;
+                    gap: 4px;
+                    padding: 2px 6px;
+                    border-radius: 4px;
+                    font-size: 0.65rem;
+                    line-height: 1.2;
+                    background: rgba(255, 255, 255, 0.14);
+                    color: rgba(255, 255, 255, 0.85);
+                    border: 1px solid rgba(255, 255, 255, 0.16);
+                    white-space: nowrap;
+                    max-width: 100%;
+                    overflow: hidden;
+                    text-overflow: ellipsis;
+
+                    .chip-icon {
+                        width: 10px;
+                        height: 10px;
+                        flex-shrink: 0;
+                    }
+
+                    // 三类微差异化：scope 描边略亮、selection 背景更深、mark 偏中性
+                    &.scope {
+                        border-color: rgba(255, 255, 255, 0.28);
+                    }
+                    &.selection {
+                        background: rgba(0, 0, 0, 0.18);
+                    }
+                    &.mark {
+                        border-style: dashed;
+                    }
+                }
+            }
 
             // === 用户消息附带图片样式 ===
             .bubble-images {

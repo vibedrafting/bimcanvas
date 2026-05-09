@@ -13,7 +13,7 @@ import type {
   TodoProgressState
 } from '../../types/aiCommandCenter';
 import type { ChatAttachmentRef } from '../../types/chatAttachment';
-import type { WaitingState, ChatBubble, ChatHistoryEntry, ChatHistoryResponse, InteractionRecord } from '../../types/agent';
+import type { WaitingState, ChatBubble, ChatHistoryEntry, ChatHistoryResponse, InteractionRecord, SentContextSnapshot } from '../../types/agent';
 import { ProjectService } from '../../services/ProjectService';
 import { ChatAttachmentService, createDraftMessageId } from '../../services/ChatAttachmentService';
 import { getChatHistoryService } from '../../services/ChatHistoryService';
@@ -56,6 +56,7 @@ interface ChatStreamOptions {
   fetchAgentConfig: () => Promise<void>;
   hasFallback?: (key: string) => boolean;
   buildContextPayload?: (spatialMarks?: SpatialMark[]) => Record<string, any> | undefined;
+  buildContextSnapshot?: (spatialMarks?: SpatialMark[]) => SentContextSnapshot | undefined;
 }
 
 // 用于中止请求的 AbortController 管理，每个窗口独立一条流。
@@ -989,6 +990,10 @@ export const useChatStream = (options: ChatStreamOptions) => {
     userTextBubble.status = 'completed';
     if (attachmentsToSend.length > 0) {
       userTextBubble.attachments = attachmentsToSend;
+    }
+    const sentContextSnapshot = options.buildContextSnapshot?.(draft.spatialMarks);
+    if (sentContextSnapshot) {
+      userTextBubble.sentContext = sentContextSnapshot;
     }
     const userMessageIndex = options.addMessageToWindow(targetWindowId, {
       role: 'user',

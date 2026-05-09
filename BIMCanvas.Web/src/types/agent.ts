@@ -289,6 +289,8 @@ export interface ChatBubble {
   images?: string[];
   /** 资源化附件引用（用户消息专有） */
   attachments?: ChatAttachmentRef[];
+  /** 发送时刻的用户选择上下文快照（用户消息专有，只读） */
+  sentContext?: SentContextSnapshot;
 
   // ===== ToolCallBubble 专有 =====
   /** 工具名称 */
@@ -329,6 +331,22 @@ export interface ChatBubble {
   questionAnswers?: Record<string, string>;
   /** 是否已提交答案 */
   questionSubmitted?: boolean;
+}
+
+/**
+ * 用户消息发送瞬间的上下文快照（仅 UI 渲染，不参与 server payload）。
+ * 字段全部 optional，老历史消息缺字段时模板 v-if 安全降级。
+ *
+ * 设计：存"已折叠的展示文本 + 计数"而非对象 id/zoneId/geometry。
+ * 跨 session 重载时即使原对象已删/改，气泡仍能稳定显示当时的语境。
+ */
+export interface SentContextSnapshot {
+  /** scope chip：推断区域名 / "全局"。isGlobal 让模板省字符串比对 */
+  scope: { text: string; isGlobal: boolean };
+  /** selection chip：复用 selectionDisplayText 的折叠文本（>3 个按类型汇总） */
+  selection?: { text: string; count: number };
+  /** spatial marks：count + 前 3 个 label。模板按 count<=3 决定列 label 还是折叠 */
+  spatialMarks?: { count: number; labels: string[] };
 }
 
 /**
