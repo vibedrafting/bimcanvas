@@ -76,6 +76,34 @@ async function gotoIndex(nextIndex: number) {
 const onPrev = () => gotoIndex(currentIndex.value - 1);
 const onNext = () => gotoIndex(currentIndex.value + 1);
 
+function isEditableTarget(target: EventTarget | null): boolean {
+    if (!(target instanceof Element)) return false;
+    const tagName = target.tagName.toLowerCase();
+    return tagName === 'input'
+        || tagName === 'textarea'
+        || tagName === 'select'
+        || !!target.closest('[contenteditable="true"], [contenteditable=""]');
+}
+
+function onKeydown(event: KeyboardEvent) {
+    if (event.defaultPrevented || event.ctrlKey || event.metaKey || event.altKey || event.shiftKey) return;
+    if (isEditableTarget(event.target)) return;
+    if (!variantContext.value || variants.value.length === 0 || adoptingVariantId.value) return;
+
+    if (event.key === 'ArrowLeft' || event.key === 'ArrowUp') {
+        event.preventDefault();
+        event.stopImmediatePropagation();
+        void onPrev();
+        return;
+    }
+
+    if (event.key === 'ArrowRight' || event.key === 'ArrowDown') {
+        event.preventDefault();
+        event.stopImmediatePropagation();
+        void onNext();
+    }
+}
+
 async function onAdopt() {
     const ctx = variantContext.value;
     if (!ctx || !showAdopt.value || adoptingVariantId.value) return;
@@ -115,9 +143,11 @@ const onVariantFilesChanged = () => { void refetchVariants(); };
 onMounted(() => {
     void refetchVariants();
     window.addEventListener('bimcanvas:variant-files-changed', onVariantFilesChanged);
+    window.addEventListener('keydown', onKeydown, true);
 });
 onUnmounted(() => {
     window.removeEventListener('bimcanvas:variant-files-changed', onVariantFilesChanged);
+    window.removeEventListener('keydown', onKeydown, true);
 });
 
 watch(() => variantContext.value?.leafZonePath ?? null, () => { void refetchVariants(); });
