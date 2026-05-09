@@ -57,6 +57,9 @@ const currentSummary = computed(() => {
 
 const showAdopt = computed(() => currentIndex.value !== 0);
 const indicator = computed(() => `${currentIndex.value + 1}/${sequence.value.length}`);
+const barTitle = computed(() =>
+    currentSummary.value ? `${currentLabel.value}：${currentSummary.value}` : currentLabel.value
+);
 
 async function gotoIndex(nextIndex: number) {
     const ctx = variantContext.value;
@@ -127,52 +130,53 @@ watch(() => variantContext.value?.leafZonePath ?? null, () => { void refetchVari
             class="variant-navigator-bar"
             role="group"
             aria-label="布置变体切换"
+            :title="barTitle"
         >
-            <div class="vnav-row vnav-row--main">
-                <button
-                    class="vnav-arrow"
-                    type="button"
-                    :disabled="!!adoptingVariantId"
-                    @click="onPrev"
-                    aria-label="上一个变体"
-                    title="上一个变体"
-                >
-                    <svg viewBox="0 0 24 24" width="28" height="28" aria-hidden="true">
-                        <path d="M15 6l-6 6 6 6" fill="none" stroke="currentColor"
-                              stroke-width="2" stroke-linecap="round" stroke-linejoin="round" />
-                    </svg>
-                </button>
-                <div class="vnav-center">
-                    <span class="vnav-label">{{ currentLabel }}</span>
-                    <span class="vnav-indicator">({{ indicator }})</span>
-                </div>
-                <button
-                    class="vnav-arrow"
-                    type="button"
-                    :disabled="!!adoptingVariantId"
-                    @click="onNext"
-                    aria-label="下一个变体"
-                    title="下一个变体"
-                >
-                    <svg viewBox="0 0 24 24" width="28" height="28" aria-hidden="true">
-                        <path d="M9 6l6 6-6 6" fill="none" stroke="currentColor"
-                              stroke-width="2" stroke-linecap="round" stroke-linejoin="round" />
-                    </svg>
-                </button>
+            <button
+                class="vnav-arrow"
+                type="button"
+                :disabled="!!adoptingVariantId"
+                @click="onPrev"
+                aria-label="上一个变体"
+                title="上一个变体"
+            >
+                <svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true">
+                    <path d="M15 6l-6 6 6 6" fill="none" stroke="currentColor"
+                          stroke-width="2" stroke-linecap="round" stroke-linejoin="round" />
+                </svg>
+            </button>
+            <div class="vnav-center" :title="barTitle">
+                <span class="vnav-label">{{ currentLabel }}</span>
+                <span class="vnav-indicator">{{ indicator }}</span>
             </div>
-            <div v-if="currentSummary" class="vnav-summary" :title="currentSummary">{{ currentSummary }}</div>
-            <div v-if="showAdopt" class="vnav-row vnav-row--action">
+            <button
+                class="vnav-arrow"
+                type="button"
+                :disabled="!!adoptingVariantId"
+                @click="onNext"
+                aria-label="下一个变体"
+                title="下一个变体"
+            >
+                <svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true">
+                    <path d="M9 6l6 6-6 6" fill="none" stroke="currentColor"
+                          stroke-width="2" stroke-linecap="round" stroke-linejoin="round" />
+                </svg>
+            </button>
+            <div class="vnav-action-slot">
                 <button
                     class="vnav-adopt"
+                    :class="{ 'is-hidden': !showAdopt }"
                     type="button"
-                    :disabled="!!adoptingVariantId"
+                    :disabled="!showAdopt || !!adoptingVariantId"
+                    :aria-hidden="!showAdopt"
+                    :tabindex="showAdopt ? 0 : -1"
                     @click="onAdopt"
                     title="采纳此变体（覆写原方案，删除其他变体）"
                 >
-                    {{ adoptingVariantId ? '采纳中…' : '采纳此变体' }}
+                    {{ adoptingVariantId ? '采纳中…' : '采纳' }}
                 </button>
             </div>
-            <div v-if="errorMessage" class="vnav-error">{{ errorMessage }}</div>
+            <div v-if="errorMessage" class="vnav-error" :title="errorMessage">{{ errorMessage }}</div>
         </div>
     </Transition>
 </template>
@@ -180,23 +184,27 @@ watch(() => variantContext.value?.leafZonePath ?? null, () => { void refetchVari
 <style scoped lang="scss">
 .variant-navigator-bar {
     position: fixed;
-    /* PromptBar 在 bottom: 32px，pill 高 ~44px → 给 ~76px 缓冲 */
-    bottom: 108px;
+    /* PromptBar 在 bottom: 32px，pill 高 ~44px；这里只保留紧凑间距。 */
+    bottom: 88px;
     left: 50%;
     transform: translateX(-50%);
     z-index: 999;
 
-    min-width: 320px;
-    max-width: 420px;
-    padding: 14px 18px;
+    width: min(360px, calc(100vw - 32px));
+    height: 48px;
+    padding: 6px 10px;
+    box-sizing: border-box;
+    display: flex;
+    align-items: center;
+    gap: 8px;
 
     background: var(--glass-bg);
     backdrop-filter: var(--glass-blur);
     -webkit-backdrop-filter: var(--glass-blur);
     border: 1px solid rgba(255, 255, 255, 0.18);
-    border-radius: 14px;
+    border-radius: 12px;
     box-shadow:
-        0 8px 28px rgba(0, 0, 0, 0.35),
+        0 8px 24px rgba(0, 0, 0, 0.32),
         0 0 0 1px rgba(255, 255, 255, 0.08) inset;
 
     color: var(--text-primary);
@@ -204,37 +212,37 @@ watch(() => variantContext.value?.leafZonePath ?? null, () => { void refetchVari
     pointer-events: auto;
 }
 
-.vnav-row {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-}
-
-.vnav-row--main { gap: 16px; }
-.vnav-row--action { margin-top: 10px; }
-
 .vnav-center {
+    flex: 1 1 auto;
+    min-width: 0;
     display: flex;
     flex-direction: column;
     align-items: center;
-    min-width: 140px;
+    justify-content: center;
+    gap: 1px;
+    line-height: 1.1;
 }
 
 .vnav-label {
-    font-size: 15px;
+    max-width: 100%;
+    font-size: 13px;
     font-weight: 600;
-    letter-spacing: 0.02em;
+    letter-spacing: 0;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
 }
 
 .vnav-indicator {
-    font-size: 11px;
+    font-size: 10px;
     color: var(--text-secondary);
-    margin-top: 2px;
+    font-variant-numeric: tabular-nums;
 }
 
 .vnav-arrow {
-    width: 40px;
-    height: 40px;
+    flex: 0 0 auto;
+    width: 32px;
+    height: 32px;
     border-radius: 50%;
     background: rgba(255, 255, 255, 0.06);
     border: 1px solid rgba(255, 255, 255, 0.15);
@@ -260,27 +268,26 @@ watch(() => variantContext.value?.leafZonePath ?? null, () => { void refetchVari
     cursor: not-allowed;
 }
 
-.vnav-summary {
-    margin-top: 6px;
-    text-align: center;
-    font-size: 12px;
-    color: var(--text-secondary);
-    line-height: 1.4;
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    max-width: 100%;
+.vnav-action-slot {
+    flex: 0 0 68px;
+    display: flex;
+    justify-content: flex-end;
 }
 
 .vnav-adopt {
-    padding: 6px 18px;
+    width: 68px;
+    height: 28px;
+    padding: 0 8px;
     border-radius: 999px;
     background: rgba(120, 180, 255, 0.22);
     border: 1px solid rgba(120, 180, 255, 0.55);
     color: #fff;
-    font-size: 12px;
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0;
     cursor: pointer;
     transition: background 140ms ease;
+    white-space: nowrap;
 }
 
 .vnav-adopt:hover:not(:disabled) {
@@ -292,11 +299,27 @@ watch(() => variantContext.value?.leafZonePath ?? null, () => { void refetchVari
     cursor: progress;
 }
 
+.vnav-adopt.is-hidden {
+    visibility: hidden;
+}
+
 .vnav-error {
-    margin-top: 6px;
+    position: absolute;
+    left: 50%;
+    bottom: calc(100% + 8px);
+    transform: translateX(-50%);
+    max-width: min(320px, calc(100vw - 48px));
+    padding: 4px 8px;
+    border-radius: 999px;
+    background: rgba(30, 12, 14, 0.9);
+    border: 1px solid rgba(255, 130, 130, 0.35);
     text-align: center;
     font-size: 11px;
+    line-height: 1.3;
     color: rgba(255, 130, 130, 0.9);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
 }
 
 .vnav-fade-enter-active,
