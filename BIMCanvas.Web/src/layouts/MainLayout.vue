@@ -8,6 +8,7 @@ import FloatingLayerManager from '../components/UI/FloatingLayerManager.vue';
 import FloatingInput from '../components/UI/FloatingInput.vue';
 import PromptBar from '../components/UI/PromptBar.vue';
 import PlacementSizeBar from '../components/UI/place/PlacementSizeBar.vue';
+import VariantNavigatorBar from '../components/UI/VariantNavigatorBar.vue';
 import ModuleLibraryPanel from '../components/UI/ModuleLibraryPanel.vue';
 import BoundaryDebugPanel from '../components/UI/BoundaryDebugPanel.vue';
 import { useDebugStore } from '../stores/debugStore';
@@ -108,6 +109,7 @@ watch(() => props.buildComplete, (newVal) => {
       <FloatingLayerManager />
     </div>
     
+    <VariantNavigatorBar />
     <PromptBar>
       <template v-if="isPlacing" #controls>
         <PlacementSizeBar />
