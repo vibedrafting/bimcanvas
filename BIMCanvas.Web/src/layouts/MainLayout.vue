@@ -7,11 +7,16 @@ import PropertyPanel from '../components/UI/PropertyPanel.vue';
 import FloatingLayerManager from '../components/UI/FloatingLayerManager.vue';
 import FloatingInput from '../components/UI/FloatingInput.vue';
 import PromptBar from '../components/UI/PromptBar.vue';
+import PlacementSizeBar from '../components/UI/place/PlacementSizeBar.vue';
 import ModuleLibraryPanel from '../components/UI/ModuleLibraryPanel.vue';
 import BoundaryDebugPanel from '../components/UI/BoundaryDebugPanel.vue';
 import { useDebugStore } from '../stores/debugStore';
-import { onMounted, onUnmounted, ref, watch } from 'vue';
+import { useCanvasStore } from '../stores/canvasStore';
+import { storeToRefs } from 'pinia';
+import { onMounted, onUnmounted, ref, watch, computed } from 'vue';
 import type { ModuleDefinition } from '../services/ModuleLibraryService';
+import { getWebRuntime } from '../runtime/runtimeRegistry';
+import { supports } from '../runtime/WebRuntimeProtocol';
 
 const props = defineProps<{
   loadingStage?: number;
@@ -19,16 +24,32 @@ const props = defineProps<{
 }>();
 
 const debugStore = useDebugStore();
+const canvasStore = useCanvasStore();
+const { currentOperation } = storeToRefs(canvasStore);
+const runtime = getWebRuntime();
+const canAgentChat = supports(runtime.capabilities.agentChat);
+const canUseModuleLibrary = supports(runtime.capabilities.moduleLibrary);
 
 // 模块库面板
 const showModuleLibrary = ref(false);
 
+// 是否进入"模块布置"状态（PromptBar 据此决定是否注入 PlacementSizeBar slot）
+const isPlacing = computed(() => currentOperation.value === 'placing');
+
 const onOpenModuleLibrary = () => {
+  if (!canUseModuleLibrary) return;
   showModuleLibrary.value = !showModuleLibrary.value;
 };
 
 const onSelectModule = (mod: ModuleDefinition) => {
   showModuleLibrary.value = false;
+  // 预初始化 placementSize：PlaceTool.activate 也会兜底，但这里先写一次让 PromptBar 内联条
+  // 在 PlaceTool 还未挂监听前就有正确初值，避免首帧空闪。
+  canvasStore.setPlacementSize({
+    moduleId: mod.id,
+    width: mod.size.width,
+    depth: mod.size.depth
+  });
   window.dispatchEvent(new CustomEvent('bimcanvas:activate-place-tool', {
     detail: { moduleDef: mod }
   }));
@@ -72,7 +93,7 @@ watch(() => props.buildComplete, (newVal) => {
     </header>
     
     <aside class="gallery-area" :class="{ 'visible': props.buildComplete }">
-      <AICommandCenter :panel-ready="aiPanelReady" />
+      <AICommandCenter v-if="canAgentChat" :panel-ready="aiPanelReady" />
     </aside>
 
     <main class="canvas-area">
@@ -87,10 +108,15 @@ watch(() => props.buildComplete, (newVal) => {
       <FloatingLayerManager />
     </div>
     
-    <PromptBar />
+    <PromptBar>
+      <template v-if="isPlacing" #controls>
+        <PlacementSizeBar />
+      </template>
+    </PromptBar>
     <FloatingInput />
 
     <ModuleLibraryPanel
+      v-if="canUseModuleLibrary"
       :visible="showModuleLibrary"
       @close="showModuleLibrary = false"
       @select-module="onSelectModule"

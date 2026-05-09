@@ -1,8 +1,11 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, onUnmounted, ref } from 'vue';
 import type { ModuleDefinition } from '../../services/ModuleLibraryService';
+import { moduleLibraryService } from '../../services/ModuleLibraryService';
 import ModuleLibraryGrid from './moduleLibrary/ModuleLibraryGrid.vue';
 import { useModuleLibraryPanelState } from '../../composables/useModuleLibraryPanelState';
+import { getWebRuntime } from '../../runtime/runtimeRegistry';
+import { supports } from '../../runtime/WebRuntimeProtocol';
 
 defineProps<{
   visible: boolean;
@@ -27,6 +30,7 @@ const isCollapsed = computed(() => !isExpanded.value);
 const showSearchInput = computed(() => isExpanded.value || isSearchExpanded.value);
 
 const {
+  allModules,
   allTags,
   activeTag,
   searchQuery,
@@ -39,6 +43,43 @@ const {
   getSvgUrl,
   getTagLabel
 } = useModuleLibraryPanelState();
+
+const runtime = getWebRuntime();
+const bindingSupported = computed(() => supports(runtime.capabilities.moduleLibraryBinding));
+const isBinding = ref(false);
+
+const reloadLibrary = async () => {
+  await moduleLibraryService.reload();
+  await loadModules();
+};
+
+const onBindClick = async () => {
+  if (isBinding.value) return;
+  isBinding.value = true;
+  try {
+    const { count } = await runtime.bindModuleLibraryFolder();
+    await reloadLibrary();
+    console.info(`[ModuleLibraryPanel] 模块库已绑定 · ${count} 个模块`);
+  } catch (err) {
+    const msg = (err as Error)?.message ?? String(err);
+    // 用户取消 picker 时浏览器抛 AbortError;静默忽略,其它错误才弹
+    if (!/AbortError|user activation|abort/i.test(msg)) {
+      alert(`绑定模块库失败: ${msg}`);
+    }
+  } finally {
+    isBinding.value = false;
+  }
+};
+
+const onClearClick = async () => {
+  if (!confirm('确定清空当前模块库绑定?\n下次需重新选择模块库文件夹。')) return;
+  try {
+    await runtime.clearModuleLibraryBinding();
+    await reloadLibrary();
+  } catch (err) {
+    alert(`清空失败: ${(err as Error)?.message ?? String(err)}`);
+  }
+};
 
 const panelStyle = computed(() => {
   if (isExpanded.value) {
@@ -180,6 +221,33 @@ onUnmounted(() => {
 
           <div class="header-actions" @mousedown.stop>
             <button
+              v-if="bindingSupported"
+              class="icon-btn library-bind-btn"
+              :title="allModules.length > 0 ? '重新绑定模块库文件夹' : '绑定模块库文件夹'"
+              :disabled="isBinding"
+              @click="onBindClick"
+            >
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path>
+              </svg>
+            </button>
+
+            <button
+              v-if="bindingSupported && allModules.length > 0"
+              class="icon-btn library-clear-btn"
+              title="清空模块库绑定"
+              @click="onClearClick"
+            >
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <polyline points="3 6 5 6 21 6"></polyline>
+                <path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"></path>
+                <path d="M10 11v6"></path>
+                <path d="M14 11v6"></path>
+                <path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"></path>
+              </svg>
+            </button>
+
+            <button
               v-if="isCollapsed && !showSearchInput"
               class="icon-btn search-toggle-btn"
               title="搜索"
@@ -252,7 +320,23 @@ onUnmounted(() => {
           :get-svg-url="getSvgUrl"
           :get-tag-label="getTagLabel"
           @select="onModuleSelect"
-        />
+        >
+          <template
+            v-if="bindingSupported && allModules.length === 0"
+            #empty
+          >
+            <div class="empty-cta">
+              <p class="empty-cta-text">{{ isBinding ? '正在加载...' : '模块库为空' }}</p>
+              <button class="empty-cta-btn" :disabled="isBinding" @click="onBindClick">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path>
+                </svg>
+                <span>选择模块库文件夹</span>
+              </button>
+              <p class="empty-cta-hint">需要包含 module_library.json 与 assets/ 子目录</p>
+            </div>
+          </template>
+        </ModuleLibraryGrid>
       </div>
     </transition>
   </Teleport>
@@ -421,6 +505,62 @@ onUnmounted(() => {
     background: var(--surface-hover);
     color: var(--text-primary);
   }
+
+  &:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
+}
+
+.empty-cta {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  padding: 16px 24px;
+  text-align: center;
+}
+
+.empty-cta-text {
+  margin: 0;
+  font-size: 0.85rem;
+  color: var(--text-secondary);
+}
+
+.empty-cta-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 16px;
+  border: 1px solid rgba(0, 170, 255, 0.45);
+  background: rgba(0, 170, 255, 0.12);
+  color: var(--text-primary);
+  border-radius: 999px;
+  font-size: 0.82rem;
+  cursor: pointer;
+  transition: all 0.18s ease;
+
+  svg {
+    width: 16px;
+    height: 16px;
+  }
+
+  &:hover:not(:disabled) {
+    background: rgba(0, 170, 255, 0.22);
+    border-color: rgba(0, 170, 255, 0.7);
+  }
+
+  &:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
+}
+
+.empty-cta-hint {
+  margin: 0;
+  font-size: 0.7rem;
+  color: var(--text-secondary);
+  opacity: 0.7;
 }
 
 .tag-bar {

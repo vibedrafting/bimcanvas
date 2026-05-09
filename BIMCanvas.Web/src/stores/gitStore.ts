@@ -189,7 +189,7 @@ export const useGitStore = defineStore('git', () => {
         hasUncommittedChanges.value = false;
         // 重新加载项目以反映更改被丢弃后的状态
         const canvasStore = useCanvasStore();
-        await canvasStore.loadProject(ChangeSource.GitDiscard);
+        await canvasStore.loadInitialProject(ChangeSource.GitDiscard);
         console.log('[GitStore] 已放弃所有更改');
         return { success: true };
       } else {
@@ -278,7 +278,7 @@ export const useGitStore = defineStore('git', () => {
         }
 
         // 重新加载项目数据，确保 Canvas 显示新分支的数据
-        await canvasStore.loadProject({ source: ChangeSource.GitCheckout, preserveView: true });
+        await canvasStore.loadInitialProject({ source: ChangeSource.GitCheckout, preserveView: true });
 
         console.log('[GitStore] 分支切换成功:', branchName);
         return { success: true };

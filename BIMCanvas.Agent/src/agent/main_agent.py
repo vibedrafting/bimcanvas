@@ -1,6 +1,7 @@
 """MainAgent - BIMCanvas coordinator using Agent SDK with SubAgent support."""
 
 import asyncio
+import json
 import logging
 import os
 import re
@@ -871,6 +872,31 @@ class MainAgent:
                 for z in context["zones"]
             )
             parts.append(f"分区：{zone_list}")
+
+        # ── 用户标注区域（完成后的临时意图批次） ──
+        spatial_marks = context.get("spatialMarks")
+        if isinstance(spatial_marks, list) and spatial_marks:
+            mark_lines = ["用户标注区域（网格选区表示用户意图的大致范围；具体落位、贴墙、避让和边界需结合项目几何重新计算）："]
+            for mark in spatial_marks:
+                if not isinstance(mark, dict):
+                    continue
+
+                mark_id = mark.get("id", "?")
+                zone_id = mark.get("zoneId", "?")
+                label = mark.get("label", "")
+                description = mark.get("description", "")
+                geometry = mark.get("geometry", [])
+                geometry_text = json.dumps(
+                    geometry,
+                    ensure_ascii=False,
+                    separators=(",", ":")
+                )
+                mark_lines.append(f"- id={mark_id} zoneId={zone_id} label={label}")
+                mark_lines.append(f"  description={description}")
+                mark_lines.append(f"  geometry={geometry_text}")
+
+            if len(mark_lines) > 1:
+                parts.append("\n".join(mark_lines))
 
         # ── 本轮聊天附件（由 _chat_attachments.json 持久化索引） ──
         chat_attachments = context.get("chatAttachments")

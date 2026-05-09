@@ -12,8 +12,8 @@ const props = defineProps({
     type: Boolean,
     required: true
   },
-  svgUrl: {
-    type: String,
+  getSvgUrl: {
+    type: Function as PropType<(moduleId: string) => Promise<string>>,
     required: true
   },
   getTagLabel: {
@@ -27,12 +27,27 @@ const emit = defineEmits<{
 }>();
 
 const imageLoadFailed = ref(false);
+const svgUrl = ref('');
+
+const loadSvgUrl = async () => {
+  imageLoadFailed.value = false;
+  svgUrl.value = '';
+  try {
+    svgUrl.value = await props.getSvgUrl(props.module.id);
+    if (!svgUrl.value) {
+      imageLoadFailed.value = true;
+    }
+  } catch {
+    imageLoadFailed.value = true;
+  }
+};
 
 watch(
   () => props.module.id,
   () => {
-    imageLoadFailed.value = false;
-  }
+    void loadSvgUrl();
+  },
+  { immediate: true }
 );
 
 const tooltip = computed(() => {
@@ -61,7 +76,7 @@ const onSelect = () => {
   >
     <div class="thumbnail-area">
       <img
-        v-if="!imageLoadFailed"
+        v-if="!imageLoadFailed && svgUrl"
         :src="svgUrl"
         :alt="module.name"
         @error="onImageError"

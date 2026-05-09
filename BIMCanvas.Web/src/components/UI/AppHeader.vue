@@ -5,13 +5,21 @@ import { useAppStore } from '../../stores/appStore';
 import GlassButton from './base/GlassButton.vue';
 import ConflictDialog from './ConflictDialog.vue';
 import SaveConfirmDialog from './SaveConfirmDialog.vue';
+import ExportFormatDialog from './ExportFormatDialog.vue';
 import { useProjectFile } from '../../composables/useProjectFile';
 import { useSave } from '../../composables/useSave';
+import { getWebRuntime } from '../../runtime/runtimeRegistry';
+import { supports } from '../../runtime/WebRuntimeProtocol';
+import { LayoutValidationService, type Diagnostic, type ModuleNormalizationReport, type SchemeValidationReport } from '../../services/LayoutValidationService';
 
 const store = useCanvasStore();
 const appStore = useAppStore();
+const runtime = getWebRuntime();
+const canServerPersistence = supports(runtime.capabilities.serverPersistence);
+const canProjectCatalog = supports(runtime.capabilities.projectCatalog);
 const fileInputRef = ref<HTMLInputElement | null>(null);
 const isSyncing = ref(false);
+const showExportDialog = ref(false);
 
 // 返回首页
 const showCloseConfirm = ref(false);
@@ -38,17 +46,148 @@ const handleCloseConfirm = async (action: 'save' | 'discard' | 'cancel') => {
 
   isClosing.value = true;
   if (action === 'save') {
-    // 先保存再关闭
-    await handleSave(`自动存档_${new Date().toISOString().replace(/[-:T]/g, '').slice(0, 15)}`);
+    const saved = canServerPersistence
+      ? await handleSave(`自动存档_${new Date().toISOString().replace(/[-:T]/g, '').slice(0, 15)}`)
+      : await handleExportSnapshot();
+    if (!saved) {
+      isClosing.value = false;
+      return;
+    }
   }
   await appStore.closeProject(true);
   isClosing.value = false;
+};
+
+const notifySyncCheck = (type: 'info' | 'success' | 'warning' | 'error', title: string, message: string) => {
+  window.dispatchEvent(new CustomEvent('bimcanvas:agent-notification', {
+    detail: {
+      type,
+      title,
+      message,
+      timestamp: new Date().toISOString()
+    }
+  }));
+};
+
+const formatDiagnosticItem = (diagnostic: Diagnostic): string => {
+  const name = diagnostic.moduleName ? ` (${diagnostic.moduleName})` : '';
+  const conflict = diagnostic.conflictType && diagnostic.conflictId
+    ? ` -> ${diagnostic.conflictType}:${diagnostic.conflictId}`
+    : '';
+  return `${diagnostic.moduleId || '?'}${name}${conflict}: ${diagnostic.message}`;
+};
+
+const formatDiagnostics = (diagnostics: Diagnostic[], maxItems = 6): string => {
+  if (diagnostics.length === 0) return '没有诊断详情。';
+
+  const groups = new Map<string, Diagnostic[]>();
+  diagnostics.forEach(diagnostic => {
+    const key = diagnostic.code || 'UNKNOWN';
+    groups.set(key, [...(groups.get(key) || []), diagnostic]);
+  });
+
+  const lines: string[] = [];
+  let shownDiagnostics = 0;
+  for (const [code, items] of groups) {
+    lines.push(`${code} x${items.length}`);
+    const remainingSlots = Math.max(0, maxItems - shownDiagnostics);
+    items.slice(0, remainingSlots).forEach(item => {
+      lines.push(formatDiagnosticItem(item));
+      shownDiagnostics += 1;
+    });
+    if (shownDiagnostics >= maxItems) break;
+  }
+
+  const remaining = diagnostics.length - shownDiagnostics;
+  if (remaining > 0) {
+    lines.push(`还有 ${remaining} 条诊断，详见控制台或接口返回。`);
+  }
+
+  return lines.join('；');
+};
+
+const notifyReportDiagnostics = (
+  titlePrefix: string,
+  report: Pick<ModuleNormalizationReport | SchemeValidationReport, 'errorCount' | 'warningCount' | 'diagnostics'>
+) => {
+  if (report.errorCount <= 0 && report.warningCount <= 0) return;
+
+  const type = report.errorCount > 0 ? 'error' : 'warning';
+  const title = report.errorCount > 0
+    ? `${titlePrefix}失败`
+    : `${titlePrefix}警告`;
+  const message = `${report.errorCount} 个错误，${report.warningCount} 个警告。${formatDiagnostics(report.diagnostics)}`;
+  notifySyncCheck(type, title, message);
+};
+
+const stringifyErrorValue = (value: unknown): string[] => {
+  if (value == null) return [];
+  if (Array.isArray(value)) {
+    return value.flatMap(item => stringifyErrorValue(item));
+  }
+  if (typeof value === 'object') {
+    return Object.entries(value as Record<string, unknown>).flatMap(([key, item]) =>
+      stringifyErrorValue(item).map(message => `${key}: ${message}`)
+    );
+  }
+  return [String(value)];
+};
+
+const getRequestErrorMessage = (error: any): string => {
+  const response = error?.response;
+  const data = response?.data;
+
+  if (typeof data === 'string' && data.trim()) {
+    return data;
+  }
+
+  if (data && typeof data === 'object') {
+    const parts = [
+      ...stringifyErrorValue(data.message),
+      ...stringifyErrorValue(data.detail),
+      ...stringifyErrorValue(data.errors)
+    ].filter(Boolean);
+
+    if (parts.length > 0) {
+      return parts.join('；');
+    }
+
+    if (typeof data.title === 'string' && data.title.trim()) {
+      return data.title;
+    }
+  }
+
+  if (response?.status) {
+    const statusText = response.statusText ? ` ${response.statusText}` : '';
+    return `HTTP ${response.status}${statusText}`;
+  }
+
+  return error?.message || String(error);
 };
 
 const handleSync = async () => {
   if (isSyncing.value) return;
   isSyncing.value = true;
   try {
+    let shouldValidate = true;
+    try {
+      const normalizeReport = await LayoutValidationService.normalizeModules();
+      notifyReportDiagnostics('模块规范化', normalizeReport);
+      shouldValidate = normalizeReport.errorCount <= 0;
+    } catch (error: any) {
+      shouldValidate = false;
+      notifySyncCheck('error', '模块规范化失败', getRequestErrorMessage(error));
+    }
+
+    if (shouldValidate) {
+      try {
+        const validationReport = await LayoutValidationService.validateLayout();
+        notifyReportDiagnostics('布局验证', validationReport);
+      } catch (error: any) {
+        notifySyncCheck('error', '布局验证失败', getRequestErrorMessage(error));
+      }
+    }
+
     await store.forceSync();
   } finally {
     setTimeout(() => { isSyncing.value = false; }, 600);
@@ -57,12 +196,15 @@ const handleSync = async () => {
 
 const { 
   handleLoad, 
-  handleExport, 
+  handleExportSnapshot,
+  handleExportBcp,
   processFile,
   handleConflictResolve, 
   showConflictDialog, 
   conflictProjectName, 
-  conflictExistingPath 
+  conflictExistingPath,
+  fileAccept,
+  canExportBcp
 } = useProjectFile();
 
 // 使用统一的保存逻辑
@@ -90,8 +232,26 @@ const onFileSelected = (event: Event) => {
 
 // 点击保存按钮时显示对话框
 const onSaveClick = () => {
-  if (canSave.value && !isSaving.value) {
+  if (canServerPersistence && canSave.value && !isSaving.value) {
     showSaveDialog.value = true;
+  }
+};
+
+const onExportClick = async () => {
+  if (!store.projectData) return;
+  if (canExportBcp) {
+    showExportDialog.value = true;
+    return;
+  }
+  await handleExportSnapshot();
+};
+
+const onExportFormatSelected = async (format: 'snapshot' | 'bcp') => {
+  showExportDialog.value = false;
+  if (format === 'snapshot') {
+    await handleExportSnapshot();
+  } else {
+    await handleExportBcp();
   }
 };
 
@@ -110,7 +270,11 @@ const onSaveCancel = () => {
 const handleKeydown = (e: KeyboardEvent) => {
   if ((e.ctrlKey || e.metaKey) && e.key === 's') {
     e.preventDefault();
-    onSaveClick();
+    if (canServerPersistence) {
+      onSaveClick();
+    } else {
+      void handleExportSnapshot();
+    }
   }
 };
 
@@ -147,7 +311,7 @@ onUnmounted(() => {
         </svg>
       </GlassButton>
       
-      <GlassButton @click="onSaveClick" :disabled="!canSave || isSaving" variant="ghost" title="Save (Ctrl+S)" class="icon-btn">
+      <GlassButton v-if="canServerPersistence" @click="onSaveClick" :disabled="!canSave || isSaving" variant="ghost" title="Save (Ctrl+S)" class="icon-btn">
         <!-- Save Icon -->
         <svg viewBox="0 0 24 24" width="1.1em" height="1.1em" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
           <path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"></path>
@@ -176,7 +340,7 @@ onUnmounted(() => {
 
       <div class="divider"></div>
 
-      <GlassButton @click="handleExport" :disabled="!store.projectData" variant="ghost" title="Export Data" class="icon-btn">
+      <GlassButton @click="onExportClick" :disabled="!store.projectData" variant="ghost" title="Export" class="icon-btn">
         <!-- Export Icon (Arrow Up) -->
         <svg viewBox="0 0 24 24" width="1.1em" height="1.1em" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
           <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
@@ -187,7 +351,7 @@ onUnmounted(() => {
 
       <div class="divider"></div>
 
-      <GlassButton @click="handleSync" :disabled="isSyncing" variant="ghost" title="Sync Data" class="icon-btn">
+      <GlassButton v-if="canServerPersistence" @click="handleSync" :disabled="isSyncing" variant="ghost" title="Sync Data" class="icon-btn">
         <!-- Sync Icon (Refresh Arrows) -->
         <svg :class="{ 'spin-icon': isSyncing }" viewBox="0 0 24 24" width="1.1em" height="1.1em" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
           <polyline points="23 4 23 10 17 10"></polyline>
@@ -200,7 +364,7 @@ onUnmounted(() => {
       <input
         ref="fileInputRef"
         type="file"
-        accept=".bcp"
+        :accept="fileAccept"
         style="display: none"
         @change="onFileSelected"
       />
@@ -208,6 +372,7 @@ onUnmounted(() => {
 
     <!-- 冲突对话框 -->
     <ConflictDialog
+      v-if="canProjectCatalog"
       :visible="showConflictDialog"
       :project-name="conflictProjectName"
       :existing-path="conflictExistingPath"
@@ -216,9 +381,15 @@ onUnmounted(() => {
 
     <!-- 保存确认对话框 -->
     <SaveConfirmDialog
-      :visible="showSaveDialog"
+      :visible="showSaveDialog && canServerPersistence"
       @confirm="onSaveConfirm"
       @cancel="onSaveCancel"
+    />
+
+    <ExportFormatDialog
+      :visible="showExportDialog"
+      @select="onExportFormatSelected"
+      @cancel="showExportDialog = false"
     />
 
     <!-- 关闭项目确认对话框 -->
@@ -236,7 +407,7 @@ onUnmounted(() => {
               <p>有未保存的设计变更，是否仍要关闭？</p>
             </div>
             <div class="close-dialog-actions">
-              <GlassButton variant="primary" @click="handleCloseConfirm('save')">保存并关闭</GlassButton>
+              <GlassButton variant="primary" @click="handleCloseConfirm('save')">{{ canServerPersistence ? '保存并关闭' : '导出并关闭' }}</GlassButton>
               <GlassButton variant="danger" @click="handleCloseConfirm('discard')">不保存关闭</GlassButton>
               <GlassButton variant="ghost" @click="handleCloseConfirm('cancel')">取消</GlassButton>
             </div>

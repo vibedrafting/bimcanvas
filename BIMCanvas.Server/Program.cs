@@ -211,6 +211,8 @@ builder.Services.AddSingleton<StrategyService>();
 builder.Services.AddSingleton<ProjectService>();
 builder.Services.AddSingleton<ProjectContext>();  // 单项目模式上下文
 builder.Services.AddSingleton<ModuleLibraryService>();  // 模块库服务
+builder.Services.AddSingleton<ModuleFileTopologyService>();  // modules.json 拓扑解析服务
+builder.Services.AddSingleton<ModuleNormalizationService>();  // 模块数据规范化服务
 builder.Services.AddSingleton<ProjectSnapshotService>();
 builder.Services.AddSingleton<BackgroundScreenshotService>();
 builder.Services.AddSingleton<ChatAttachmentService>();
@@ -226,6 +228,7 @@ builder.Services.AddSingleton<SchemeDataService>();  // 跨分支/Worktree 模�
 builder.Services.AddSingleton<RecentProjectsService>();
 builder.Services.AddSingleton<SettingsService>();
 builder.Services.AddSingleton<SettingsRestartService>();
+builder.Services.AddSingleton<LlmEndpointTestService>();
 
 // v3.2 实时通信服务（使用 Newtonsoft.Json 避免 JsonElement 序列化问题）
 builder.Services.AddSignalR()

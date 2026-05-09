@@ -4,11 +4,14 @@ import { ProjectService } from '../services/ProjectService';
 import { useCanvasStore } from './canvasStore';
 import { useDebugStore } from './debugStore';
 import type { ProjectSummary, RecentProjectEntry } from '../types/homepage';
+import { getWebRuntime } from '../runtime/runtimeRegistry';
+import { supports } from '../runtime/WebRuntimeProtocol';
 
 export type AppView = 'homepage' | 'workspace';
 
 export const useAppStore = defineStore('app', () => {
     const debugStore = useDebugStore();
+    const runtime = getWebRuntime();
 
     // === 状态 ===
     const currentView = ref<AppView>('homepage');
@@ -22,6 +25,13 @@ export const useAppStore = defineStore('app', () => {
 
     /** 获取项目列表 + 最近打开记录 */
     const fetchProjectList = async () => {
+        if (!supports(runtime.capabilities.projectCatalog)) {
+            projectList.value = [];
+            recentProjects.value = [];
+            listError.value = null;
+            return;
+        }
+
         isLoadingList.value = true;
         listError.value = null;
         try {
@@ -45,9 +55,14 @@ export const useAppStore = defineStore('app', () => {
     /**
      * 打开项目（从首页）
      * 成功后自动切换到 workspace 视图
-     * App.vue 的 watch 会触发 enterWorkspace() → loadProject()
+     * App.vue 的 watch 会触发 enterWorkspace() → loadInitialProject()
      */
     const openProject = async (folderPath: string): Promise<boolean> => {
+        if (!supports(runtime.capabilities.projectCatalog)) {
+            debugStore.warn('[AppStore] Standalone Runtime 不支持打开 Server 项目目录');
+            return false;
+        }
+
         debugStore.log(`[AppStore] Opening project: ${folderPath}`);
         try {
             const result = await ProjectService.openFolder(folderPath);
@@ -75,10 +90,14 @@ export const useAppStore = defineStore('app', () => {
     const closeProject = async (force: boolean = false): Promise<{ success: boolean; hasUnsavedChanges?: boolean }> => {
         debugStore.log(`[AppStore] Closing project (force=${force})`);
         try {
-            const result = await ProjectService.closeProject(force);
+            if (supports(runtime.capabilities.serverPersistence)) {
+                const result = await ProjectService.closeProject(force);
 
-            if (!result.success && result.hasUnsavedChanges && !force) {
-                return { success: false, hasUnsavedChanges: true };
+                if (!result.success && result.hasUnsavedChanges && !force) {
+                    return { success: false, hasUnsavedChanges: true };
+                }
+            } else {
+                await runtime.closeProject();
             }
 
             // 成功关闭（或强制关闭）
@@ -102,6 +121,11 @@ export const useAppStore = defineStore('app', () => {
 
     /** 删除项目 */
     const deleteProject = async (name: string): Promise<boolean> => {
+        if (!supports(runtime.capabilities.projectCatalog)) {
+            debugStore.warn('[AppStore] Standalone Runtime 不支持删除 Server 项目');
+            return false;
+        }
+
         debugStore.log(`[AppStore] Deleting project: ${name}`);
         try {
             const result = await ProjectService.deleteProject(name);

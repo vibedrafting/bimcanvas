@@ -120,5 +120,11 @@ namespace BIMCanvas.Core.Validation
 
         /// <summary>模块 bounds 结构非法</summary>
         public const string InvalidBounds = "E012_INVALID_BOUNDS";
+
+        /// <summary>modules.json 不在 zones.json 推导出的规范叶子分区路径下</summary>
+        public const string InvalidModuleFilePath = "E013_INVALID_MODULE_FILE_PATH";
+
+        /// <summary>同一分区存在多个 modules.json 文件</summary>
+        public const string DuplicateZoneModuleFiles = "E014_DUPLICATE_ZONE_MODULE_FILES";
     }
 }

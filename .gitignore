@@ -16,13 +16,10 @@
 /.vscode/
 /docs/
 /plans/*
-!/plans/MultiAgentRuntime_Requirements.md
 /publish/
 /references/
 /reports/
 /reviews/*
-!/reviews/baselines/
-!/reviews/baselines/**
 /test/
 /tuning/
 /AGENTS.md

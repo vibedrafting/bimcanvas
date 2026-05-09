@@ -5,6 +5,8 @@ import type {
   ChatWindow,
   EffortLevel,
   ModelOption,
+  QueuedChatDraft,
+  SpatialMark,
   ThinkingLevel,
   TodoProgressItem,
   TodoProgressPanelStatus,
@@ -53,11 +55,12 @@ interface ChatStreamOptions {
   scrollToBottom: (options?: { force?: boolean; windowId?: string }) => void;
   fetchAgentConfig: () => Promise<void>;
   hasFallback?: (key: string) => boolean;
-  buildContextPayload?: () => Record<string, any> | undefined;
+  buildContextPayload?: (spatialMarks?: SpatialMark[]) => Record<string, any> | undefined;
 }
 
-// 用于中止请求的 AbortController 管理
-let currentAbortController: AbortController | null = null;
+// 用于中止请求的 AbortController 管理，每个窗口独立一条流。
+const currentAbortControllers = new Map<string, AbortController>();
+const preserveDeliveredStateOnAbort = new Set<string>();
 const PLACEHOLDER_ASSISTANT_TEXTS = new Set(['(no content)', '[no content]']);
 const LEGACY_EVENT_TYPE_MAP: Record<string, string> = {
   thinking: 'thinking.delta',
@@ -856,27 +859,133 @@ export const useChatStream = (options: ChatStreamOptions) => {
     }
   };
 
-  const sendMessage = async () => {
-    const win = options.activeWindow.value;
-    if (!win) return;
+  const findWindow = (windowId: string): ChatWindow | undefined =>
+    options.windows.value.find(w => w.id === windowId);
 
-    const message = win.inputMessage.trim();
-    if ((!message && options.pendingAttachments.value.length === 0) || win.isStreaming) return;
+  const cloneSpatialMarks = (marks: SpatialMark[]): SpatialMark[] =>
+    JSON.parse(JSON.stringify(marks)) as SpatialMark[];
 
-    // 每次发消息前刷新项目路径，确保项目切换后携带最新路径
-    await fetchProjectPath();
+  const hasDraftContent = (
+    text: string,
+    attachments: ChatAttachmentRef[],
+    spatialMarks: SpatialMark[]
+  ): boolean =>
+    text.trim().length > 0 || attachments.length > 0 || spatialMarks.length > 0;
 
-    const targetWindowId = win.id;
+  const hasWindowDraftContent = (windowState: ChatWindow): boolean =>
+    hasDraftContent(
+      windowState.inputMessage,
+      windowState.pendingAttachments,
+      windowState.pendingSpatialMarks
+    );
+
+  const captureWindowDraft = (windowState: ChatWindow): QueuedChatDraft | null => {
+    const text = windowState.inputMessage.trim();
+    const attachments = [...windowState.pendingAttachments];
+    const spatialMarks = cloneSpatialMarks(windowState.pendingSpatialMarks);
+
+    if (!hasDraftContent(text, attachments, spatialMarks)) {
+      return null;
+    }
+
+    return {
+      id: createDraftMessageId(),
+      text,
+      clientMessageId: windowState.draftMessageId || createDraftMessageId(),
+      attachments,
+      spatialMarks,
+      createdAt: Date.now()
+    };
+  };
+
+  const clearCapturedWindowDraft = (windowState: ChatWindow) => {
+    windowState.inputMessage = '';
+    windowState.pendingAttachments = [];
+    windowState.pendingSpatialMarks = [];
+    windowState.draftMessageId = createDraftMessageId();
+  };
+
+  const getUserBubbleText = (draft: QueuedChatDraft): string => {
+    if (draft.text) {
+      return draft.text;
+    }
+    if (draft.spatialMarks.length > 0) {
+      return `已附加 ${draft.spatialMarks.length} 个 Space Mark`;
+    }
+    return '';
+  };
+
+  const restoreDraftAfterUndeliveredSend = (
+    targetWindowId: string,
+    draft: QueuedChatDraft,
+    source: 'input' | 'queued',
+    userMessageIndex: number,
+    aiMessageIndex: number,
+    errorMessage?: string
+  ) => {
+    const targetWin = findWindow(targetWindowId);
+    if (!targetWin) return;
+
+    if (source === 'queued') {
+      targetWin.queuedMessage ??= draft;
+    } else {
+      targetWin.inputMessage = draft.text;
+      targetWin.pendingAttachments = draft.attachments;
+      targetWin.pendingSpatialMarks = cloneSpatialMarks(draft.spatialMarks);
+      targetWin.draftMessageId = draft.clientMessageId;
+    }
+
+    if (aiMessageIndex >= 0 && aiMessageIndex < targetWin.messages.length) {
+      const aiMessage = targetWin.messages[aiMessageIndex];
+      if (aiMessage?.role === 'ai') {
+        targetWin.messages.splice(aiMessageIndex, 1);
+      }
+    }
+
+    if (userMessageIndex >= 0 && userMessageIndex < targetWin.messages.length) {
+      const userMessage = targetWin.messages[userMessageIndex];
+      if (userMessage?.role === 'user') {
+        targetWin.messages.splice(userMessageIndex, 1);
+      }
+    }
+
+    if (errorMessage) {
+      const errorBubble = createTextBubble(errorMessage);
+      errorBubble.status = 'failed';
+      options.addMessageToWindow(targetWindowId, {
+        role: 'ai',
+        bubbles: [errorBubble],
+        waitingState: { isWaiting: false, waitingVerb: '', waitingSince: 0 }
+      });
+    }
+  };
+
+  const sendQueuedDraftIfReady = (windowId: string) => {
+    const targetWin = findWindow(windowId);
+    const queuedDraft = targetWin?.queuedMessage;
+    if (!targetWin || !queuedDraft || targetWin.isStreaming) {
+      return;
+    }
+
+    targetWin.queuedMessage = null;
+    void sendDraft(windowId, queuedDraft, 'queued');
+  };
+
+  const sendDraft = async (
+    targetWindowId: string,
+    draft: QueuedChatDraft,
+    source: 'input' | 'queued'
+  ) => {
+    const targetWin = findWindow(targetWindowId);
+    if (!targetWin || targetWin.isStreaming) return;
+
     const effectiveWindowId = targetWindowId || 'window-main';
-    const clientMessageId = win.draftMessageId || createDraftMessageId();
-
-    // 先提取待发送图片，再清空
-    const attachmentsToSend = [...options.pendingAttachments.value];
+    const clientMessageId = draft.clientMessageId || createDraftMessageId();
+    const message = draft.text;
+    const attachmentsToSend = [...draft.attachments];
     const attachmentIds = attachmentsToSend.map(item => item.attachmentId);
-    options.pendingAttachments.value = [];
-    win.draftMessageId = createDraftMessageId();
 
-    const userTextBubble = createTextBubble(message);
+    const userTextBubble = createTextBubble(getUserBubbleText(draft));
     userTextBubble.status = 'completed';
     if (attachmentsToSend.length > 0) {
       userTextBubble.attachments = attachmentsToSend;
@@ -886,10 +995,9 @@ export const useChatStream = (options: ChatStreamOptions) => {
       bubbles: [userTextBubble],
       waitingState: { isWaiting: false, waitingVerb: '', waitingSince: 0 }
     });
-    win.inputMessage = '';
-    win.isStreaming = true;
+    targetWin.isStreaming = true;
 
-    win.shouldAutoScroll = true;
+    targetWin.shouldAutoScroll = true;
     await nextTick();
     options.scrollToBottom({ force: true, windowId: targetWindowId });
     requestAnimationFrame(() => options.scrollToBottom({ force: true, windowId: targetWindowId }));
@@ -924,7 +1032,10 @@ export const useChatStream = (options: ChatStreamOptions) => {
     }, 1000);
 
     let shouldCommitAttachments = false;
+    let completedSuccessfully = false;
     let didReceiveAssistantEvent = false;
+    let receivedTurnFailed = false;
+    let requestController: AbortController | null = null;
     let pendingDeltaEvent: NormalizedStreamEvent | null = null;
     let pendingDeltaFrame: number | null = null;
 
@@ -940,8 +1051,8 @@ export const useChatStream = (options: ChatStreamOptions) => {
     const applyEventToCurrentMessage = (event: NormalizedStreamEvent) => {
       const currentMsg = options.getWindowMessage(targetWindowId, aiMessageIndex);
       if (!currentMsg) return;
-      const targetWin = options.windows.value.find(w => w.id === targetWindowId);
-      applyNormalizedEventToMessage(currentMsg, event, targetWin);
+      const latestTargetWin = findWindow(targetWindowId);
+      applyNormalizedEventToMessage(currentMsg, event, latestTargetWin);
       options.scrollToBottom({ windowId: targetWindowId });
     };
 
@@ -979,61 +1090,33 @@ export const useChatStream = (options: ChatStreamOptions) => {
       }
     };
 
-    const restoreDraftState = (errorMessage?: string) => {
-      const targetWin = options.windows.value.find(w => w.id === targetWindowId);
-      if (!targetWin) return;
-
-      targetWin.inputMessage = message;
-      targetWin.pendingAttachments = attachmentsToSend;
-      targetWin.draftMessageId = clientMessageId;
-
-      if (aiMessageIndex >= 0 && aiMessageIndex < targetWin.messages.length) {
-        const aiMessage = targetWin.messages[aiMessageIndex];
-        if (aiMessage?.role === 'ai') {
-          targetWin.messages.splice(aiMessageIndex, 1);
-        }
-      }
-
-      if (userMessageIndex >= 0 && userMessageIndex < targetWin.messages.length) {
-        const userMessage = targetWin.messages[userMessageIndex];
-        if (userMessage?.role === 'user') {
-          targetWin.messages.splice(userMessageIndex, 1);
-        }
-      }
-
-      if (errorMessage) {
-        const errorBubble = createTextBubble(errorMessage);
-        errorBubble.status = 'failed';
-        options.addMessageToWindow(targetWindowId, {
-          role: 'ai',
-          bubbles: [errorBubble],
-          waitingState: { isWaiting: false, waitingVerb: '', waitingSince: 0 }
-        });
-      }
-    };
-
     try {
+      // 每次发消息前刷新项目路径，确保项目切换后携带最新路径
+      await fetchProjectPath();
+
       console.log('[sendMessage] Request:', {
         projectPath: currentProjectPath.value,
         windowId: effectiveWindowId,
         message: message.substring(0, 50) + (message.length > 50 ? '...' : ''),
         attachmentCount: attachmentIds.length,
+        spatialMarkCount: draft.spatialMarks.length,
         model: options.currentModel.value?.id,
         effort: options.currentEffort.value.id,
         thinking: options.currentThinking.value.id
       });
 
-      // 创建新的 AbortController 用于中止请求
-      currentAbortController = new AbortController();
+      requestController = new AbortController();
+      currentAbortControllers.set(targetWindowId, requestController);
 
-      const context = options.buildContextPayload?.();
+      const context = options.buildContextPayload?.(draft.spatialMarks);
+
       const response = await fetch(`${options.agentApiBase}/api/chat/stream`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           projectPath: currentProjectPath.value,
           windowId: effectiveWindowId,
-          worktreePath: options.activeWindow.value?.worktreePath,
+          worktreePath: targetWin.worktreePath,
           clientMessageId,
           message,
           attachmentIds,
@@ -1043,7 +1126,7 @@ export const useChatStream = (options: ChatStreamOptions) => {
           thinking: options.currentThinking.value.id,
           ...(context ? { context } : {})
         }),
-        signal: currentAbortController.signal
+        signal: requestController.signal
       });
 
       if (!response.ok) {
@@ -1103,6 +1186,7 @@ export const useChatStream = (options: ChatStreamOptions) => {
 
             if (normalizedEvent.eventType === 'turn.completed' || normalizedEvent.eventType === 'turn.failed') {
               receivedTerminalEvent = true;
+              receivedTurnFailed = normalizedEvent.eventType === 'turn.failed';
             }
 
             if (normalizedEvent.eventType === 'session_ready') {
@@ -1131,13 +1215,21 @@ export const useChatStream = (options: ChatStreamOptions) => {
 
       agentStatus.value = 'connected';
       shouldCommitAttachments = true;
+      completedSuccessfully = !receivedTurnFailed;
     } catch (error) {
       flushPendingDeltaEvent();
       // AbortError 是用户主动中止，不是真正的错误
       if (error instanceof Error && error.name === 'AbortError') {
         console.log('[sendMessage] Request aborted by user');
-        if (!didReceiveAssistantEvent) {
-          restoreDraftState();
+        const shouldPreserveDeliveredState = preserveDeliveredStateOnAbort.delete(targetWindowId);
+        if (!didReceiveAssistantEvent && !shouldPreserveDeliveredState) {
+          restoreDraftAfterUndeliveredSend(
+            targetWindowId,
+            draft,
+            source,
+            userMessageIndex,
+            aiMessageIndex
+          );
         }
         // 正常结束，不显示错误
         const currentMsg = options.getWindowMessage(targetWindowId, aiMessageIndex);
@@ -1156,7 +1248,14 @@ export const useChatStream = (options: ChatStreamOptions) => {
       const errorInfo = normalizeChatError(error);
 
       if (!didReceiveAssistantEvent) {
-        restoreDraftState(errorInfo.userMessage);
+        restoreDraftAfterUndeliveredSend(
+          targetWindowId,
+          draft,
+          source,
+          userMessageIndex,
+          aiMessageIndex,
+          errorInfo.userMessage
+        );
         agentStatus.value = errorInfo.shouldMarkDisconnected ? 'disconnected' : 'connected';
         return;
       }
@@ -1188,15 +1287,59 @@ export const useChatStream = (options: ChatStreamOptions) => {
         }
       }
 
-      const targetWin = options.windows.value.find(w => w.id === targetWindowId);
-      if (targetWin) {
-        targetWin.isStreaming = false;
+      const targetWinAfterSend = findWindow(targetWindowId);
+      const isLatestRequest = !requestController
+        || currentAbortControllers.get(targetWindowId) === requestController;
+
+      // 只有当前请求仍是这个窗口的最新请求时，才清理 streaming 状态；
+      // 立即发送等待消息时，旧请求的 finally 不能覆盖新请求状态。
+      if (targetWinAfterSend && isLatestRequest) {
+        targetWinAfterSend.isStreaming = false;
+      }
+      if (isLatestRequest) {
+        currentAbortControllers.delete(targetWindowId);
       }
       isPollingBackground.value = false;
-      currentAbortController = null;  // 清理 AbortController
       await nextTick();
       options.scrollToBottom({ windowId: targetWindowId });
+
+      if (completedSuccessfully) {
+        sendQueuedDraftIfReady(targetWindowId);
+      }
     }
+  };
+
+  const queueCurrentDraft = (windowState: ChatWindow): boolean => {
+    if (windowState.queuedMessage) {
+      return false;
+    }
+
+    const draft = captureWindowDraft(windowState);
+    if (!draft) {
+      return false;
+    }
+
+    windowState.queuedMessage = draft;
+    clearCapturedWindowDraft(windowState);
+    return true;
+  };
+
+  const sendMessage = async () => {
+    const win = options.activeWindow.value;
+    if (!win) return;
+
+    if (win.isStreaming) {
+      queueCurrentDraft(win);
+      return;
+    }
+
+    const draft = captureWindowDraft(win);
+    if (!draft) {
+      return;
+    }
+
+    clearCapturedWindowDraft(win);
+    await sendDraft(win.id, draft, 'input');
   };
 
   const parseHistoryTimestamp = (value?: string | null): number => {
@@ -1504,6 +1647,9 @@ export const useChatStream = (options: ChatStreamOptions) => {
 
         const status = await syncHistoryForWindow(windowId);
         if (!isLiveSessionStatus(status)) {
+          if (status === 'idle') {
+            sendQueuedDraftIfReady(windowId);
+          }
           return;
         }
       }
@@ -1542,6 +1688,9 @@ export const useChatStream = (options: ChatStreamOptions) => {
       for (let attempt = 0; attempt < maxAttempts; attempt++) {
         const status = await syncHistoryForWindow(windowId);
         if (status !== 'running' && status !== 'paused') {
+          if (status === 'idle') {
+            sendQueuedDraftIfReady(windowId);
+          }
           return;
         }
 
@@ -1666,26 +1815,26 @@ export const useChatStream = (options: ChatStreamOptions) => {
     };
   };
 
-  /**
-   * 中止当前正在进行的 AI 对话
-   * 通过调用后端 /api/interrupt 端点实现
-   */
-  const interruptMessage = async () => {
-    const win = options.activeWindow.value;
+  const interruptWindow = async (windowId: string, keepDeliveredStateOnAbort = false) => {
+    const win = findWindow(windowId);
     if (!win || !win.isStreaming) {
       console.log('[interruptMessage] No active streaming to interrupt');
       return;
     }
 
-    const effectiveWindowId = options.activeWindowId.value || 'window-main';
+    const effectiveWindowId = windowId || 'window-main';
 
     console.log('[interruptMessage] Interrupting conversation:', { windowId: effectiveWindowId });
 
     try {
       // 1. 取消前端 fetch 请求
-      if (currentAbortController) {
-        currentAbortController.abort();
-        currentAbortController = null;
+      const controller = currentAbortControllers.get(windowId);
+      if (controller) {
+        if (keepDeliveredStateOnAbort) {
+          preserveDeliveredStateOnAbort.add(windowId);
+        }
+        controller.abort();
+        currentAbortControllers.delete(windowId);
       }
 
       // 2. 通知后端中止 Agent
@@ -1733,12 +1882,85 @@ export const useChatStream = (options: ChatStreamOptions) => {
     }
   };
 
+  /**
+   * 中止当前正在进行的 AI 对话
+   * 通过调用后端 /api/interrupt 端点实现
+   */
+  const interruptMessage = async () => {
+    const windowId = options.activeWindow.value?.id || options.activeWindowId.value || 'window-main';
+    await interruptWindow(windowId);
+  };
+
+  const sendQueuedMessageNow = async () => {
+    const win = options.activeWindow.value;
+    const queuedDraft = win?.queuedMessage;
+    if (!win || !queuedDraft) {
+      return;
+    }
+
+    win.queuedMessage = null;
+    if (win.isStreaming) {
+      await interruptWindow(win.id, true);
+    }
+
+    await sendDraft(win.id, queuedDraft, 'queued');
+  };
+
+  const restoreQueuedMessage = (): boolean => {
+    const win = options.activeWindow.value;
+    const queuedDraft = win?.queuedMessage;
+    if (!win || !queuedDraft || hasWindowDraftContent(win)) {
+      return false;
+    }
+
+    win.inputMessage = queuedDraft.text;
+    win.pendingAttachments = queuedDraft.attachments;
+    win.pendingSpatialMarks = cloneSpatialMarks(queuedDraft.spatialMarks);
+    win.draftMessageId = queuedDraft.clientMessageId;
+    win.queuedMessage = null;
+    return true;
+  };
+
+  const deleteQueuedMessage = async () => {
+    const win = options.activeWindow.value;
+    const queuedDraft = win?.queuedMessage;
+    if (!win || !queuedDraft) {
+      return;
+    }
+
+    win.queuedMessage = null;
+    const draftAttachments = queuedDraft.attachments.filter(item => item.status !== 'submitted');
+    if (draftAttachments.length === 0) {
+      return;
+    }
+
+    try {
+      if (!currentProjectPath.value) {
+        await fetchProjectPath();
+      }
+      if (!currentProjectPath.value) {
+        return;
+      }
+
+      await Promise.all(draftAttachments.map(attachment =>
+        ChatAttachmentService
+          .deleteAttachment(currentProjectPath.value, attachment.attachmentId)
+          .catch(error => console.warn('[queuedMessage] Delete attachment failed:', error))
+      ));
+    } catch (error) {
+      console.warn('[queuedMessage] Cleanup queued attachments failed:', error);
+    }
+  };
+
   return {
     agentStatus,
     currentProjectPath,
     isPollingBackground,
     streamWelcomeMessage,
     sendMessage,
+    sendQueuedMessageNow,
+    restoreQueuedMessage,
+    deleteQueuedMessage,
     restoreHistory,
     waitForInteractionContinuation,
     interruptMessage,

@@ -3,7 +3,6 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Text;
-using BIMCanvas.Core.Models.Computed;
 using BIMCanvas.Core.Models.Project;
 using BIMCanvas.Core.Services;
 using Microsoft.Extensions.Logging;
@@ -128,18 +127,24 @@ namespace BIMCanvas.Server.Services
 
             try
             {
-                var zonesJson = File.ReadAllText(zonesPath, Encoding.UTF8);
-                var zones = JsonConvert.DeserializeObject<List<Zone>>(zonesJson) ?? new List<Zone>();
+                // Path topology is derived from zones.json, including subZones that are
+                // represented as { id } references to top-level zone definitions.
+                var topology = ModuleFileTopologyService.BuildFromSchemesPath(schemesPath);
 
                 var createdCount = 0;
-                foreach (var zone in zones)
+                foreach (var entry in topology.GetCanonicalEntries())
                 {
-                    if (string.IsNullOrEmpty(zone.Id))
-                    {
+                    var zoneDir = Path.GetDirectoryName(entry.FilePath);
+                    if (string.IsNullOrEmpty(zoneDir))
                         continue;
-                    }
 
-                    createdCount += CreateZoneDirectory(schemesPath, zone.Id, zone);
+                    if (!Directory.Exists(zoneDir))
+                        Directory.CreateDirectory(zoneDir);
+
+                    if (!File.Exists(entry.FilePath))
+                        File.WriteAllText(entry.FilePath, "[]", Encoding.UTF8);
+
+                    createdCount++;
                 }
 
                 _logger.LogInformation("创建/刷新了 {Count} 个分区目录", createdCount);
@@ -319,44 +324,6 @@ namespace BIMCanvas.Server.Services
             {
                 _logger.LogWarning(ex, "Git 仓库初始化失败（非致命错误）");
             }
-        }
-
-        private int CreateZoneDirectory(string parentDir, string zoneId, Zone zone)
-        {
-            var zoneDir = Path.Combine(parentDir, zoneId);
-            var count = 0;
-
-            if (zone.SubZones != null && zone.SubZones.Count > 0)
-            {
-                Directory.CreateDirectory(zoneDir);
-                _logger.LogDebug("创建容器分区目录: {ZoneId}", zoneId);
-
-                foreach (var subZone in zone.SubZones)
-                {
-                    if (!string.IsNullOrEmpty(subZone.Id))
-                    {
-                        count += CreateZoneDirectory(zoneDir, subZone.Id, subZone);
-                    }
-                }
-            }
-            else
-            {
-                if (!Directory.Exists(zoneDir))
-                {
-                    Directory.CreateDirectory(zoneDir);
-                }
-
-                var modulesPath = Path.Combine(zoneDir, "modules.json");
-                if (!File.Exists(modulesPath))
-                {
-                    File.WriteAllText(modulesPath, "[]", Encoding.UTF8);
-                }
-
-                count++;
-                _logger.LogDebug("创建叶子分区目录: {ZoneId}", zoneId);
-            }
-
-            return count;
         }
 
         private static bool SchemeRefsEqual(IReadOnlyList<SchemeRef>? left, IReadOnlyList<SchemeRef> right)

@@ -75,7 +75,7 @@ const handleMerge = async () => {
   const result = await mergeStore.executeOverwriteMerge();
   if (result.success) {
     // 刷新 Canvas 显示合并后的结果
-    await canvasStore.loadProject({ source: ChangeSource.ServerSync, preserveView: true });
+    await canvasStore.loadInitialProject({ source: ChangeSource.ServerSync, preserveView: true });
     // 刷新分支列表
     await gitStore.fetchBranches();
   }

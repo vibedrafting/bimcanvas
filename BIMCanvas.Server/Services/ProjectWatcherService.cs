@@ -28,13 +28,36 @@ namespace BIMCanvas.Server.Services
         // 防抖时间：500ms（Agent 可能连续写入多个文件）
         private const int DebounceMs = 500;
 
-        // 需要监听的文件
+        // 需要监听的文件（精确匹配）
         private static readonly HashSet<string> WatchedFiles = new(StringComparer.OrdinalIgnoreCase)
         {
             "modules.json",
             "zones.json",
             "finishes.json"
         };
+
+        /// <summary>
+        /// 是否需要广播该文件名变化。
+        /// 精确匹配 WatchedFiles，或匹配 module-relocation-agent 写入的变体文件 modules-alt-*.json。
+        /// v1.1：sidecar (.meta.json) 不再生成；老项目残留的 sidecar 文件被删除时不再触发 SignalR
+        /// （Web 端没有它们的消费者）。
+        /// </summary>
+        private static bool IsWatchedFile(string fileName)
+        {
+            if (string.IsNullOrEmpty(fileName))
+                return false;
+
+            if (WatchedFiles.Contains(fileName))
+                return true;
+
+            // 变体文件 modules-alt-*.json（排除 .meta.json）
+            if (fileName.StartsWith("modules-alt-", StringComparison.OrdinalIgnoreCase)
+                && fileName.EndsWith(".json", StringComparison.OrdinalIgnoreCase)
+                && !fileName.EndsWith(".meta.json", StringComparison.OrdinalIgnoreCase))
+                return true;
+
+            return false;
+        }
 
         public ProjectWatcherService(
             ILogger<ProjectWatcherService> logger,
@@ -307,7 +330,7 @@ namespace BIMCanvas.Server.Services
             var fileName = Path.GetFileName(e.FullPath);
 
             // 检查是否是需要监听的文件
-            if (!WatchedFiles.Contains(fileName))
+            if (!IsWatchedFile(fileName))
             {
                 return;
             }
@@ -348,7 +371,7 @@ namespace BIMCanvas.Server.Services
         {
             var fileName = Path.GetFileName(e.FullPath);
 
-            if (!WatchedFiles.Contains(fileName))
+            if (!IsWatchedFile(fileName))
             {
                 return;
             }

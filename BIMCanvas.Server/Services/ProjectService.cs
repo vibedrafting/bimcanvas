@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.IO.Compression;
+using System.Linq;
 using System.Text;
 using BIMCanvas.Core.Models.Project;
 using Microsoft.Extensions.Logging;
@@ -155,6 +156,9 @@ namespace BIMCanvas.Server.Services
         /// </summary>
         internal static string ResolveZoneDirectory(string schemesPath, string zoneId)
         {
+            if (ModuleFileTopologyService.TryResolveZoneDirectory(schemesPath, zoneId, out var canonicalZoneDir))
+                return canonicalZoneDir;
+
             // 1. 检查一级目录
             var directPath = Path.Combine(schemesPath, zoneId);
             if (Directory.Exists(directPath))
@@ -182,21 +186,9 @@ namespace BIMCanvas.Server.Services
         /// <returns>(modulesFilePath, zoneId) 列表</returns>
         internal static List<(string FilePath, string ZoneId)> FindAllLeafModuleFiles(string schemesPath)
         {
-            var result = new List<(string, string)>();
-            if (!Directory.Exists(schemesPath))
-                return result;
-
-            var moduleFiles = Directory.GetFiles(schemesPath, "modules.json", SearchOption.AllDirectories);
-            foreach (var f in moduleFiles)
-            {
-                var dir = Path.GetFileName(Path.GetDirectoryName(f) ?? "");
-                if (dir.StartsWith("rz_") || dir.StartsWith("dz_") || dir == "_unzoned")
-                {
-                    result.Add((f, dir));
-                }
-            }
-
-            return result;
+            return ModuleFileTopologyService.FindExistingCanonicalModuleFiles(schemesPath)
+                .Select(entry => (entry.FilePath, entry.ZoneId))
+                .ToList();
         }
 
         /// <summary>
@@ -208,18 +200,14 @@ namespace BIMCanvas.Server.Services
             if (!Directory.Exists(schemesPath))
                 return;
 
-            var moduleFiles = Directory.GetFiles(schemesPath, "modules.json", SearchOption.AllDirectories);
-            foreach (var f in moduleFiles)
+            var moduleFiles = ModuleFileTopologyService.FindExistingCanonicalModuleFiles(schemesPath);
+            foreach (var entry in moduleFiles)
             {
-                var dir = Path.GetFileName(Path.GetDirectoryName(f) ?? "");
-                if (dir.StartsWith("rz_") || dir.StartsWith("dz_") || dir == "_unzoned")
-                {
-                    // 移除只读属性
-                    var attrs = File.GetAttributes(f);
-                    if ((attrs & FileAttributes.ReadOnly) != 0)
-                        File.SetAttributes(f, attrs & ~FileAttributes.ReadOnly);
-                    File.Delete(f);
-                }
+                // 移除只读属性
+                var attrs = File.GetAttributes(entry.FilePath);
+                if ((attrs & FileAttributes.ReadOnly) != 0)
+                    File.SetAttributes(entry.FilePath, attrs & ~FileAttributes.ReadOnly);
+                File.Delete(entry.FilePath);
             }
         }
 

@@ -155,19 +155,26 @@ namespace BIMCanvas.Server.Controllers
 
                 var loadResult = _projectService.OpenFolder(request.FolderPath);
 
-                if (!string.IsNullOrWhiteSpace(previousProjectPath) &&
-                    !IsSamePath(previousProjectPath, loadResult.ProjectPath))
+                // 短路：本进程未注册过任何项目/窗口时，跳过 release 内部 ~1s 的固定 Task.Delay
+                var nothingToRelease = string.IsNullOrWhiteSpace(previousProjectPath)
+                                     && previousWindowIds.Count == 0;
+
+                if (!nothingToRelease)
                 {
+                    if (!string.IsNullOrWhiteSpace(previousProjectPath) &&
+                        !IsSamePath(previousProjectPath, loadResult.ProjectPath))
+                    {
+                        ReleaseProjectRuntimeResources(
+                            previousProjectPath,
+                            previousWindowIds,
+                            closeDefaultWindowFallback: true);
+                    }
+
                     ReleaseProjectRuntimeResources(
-                        previousProjectPath,
+                        loadResult.ProjectPath,
                         previousWindowIds,
                         closeDefaultWindowFallback: true);
                 }
-
-                ReleaseProjectRuntimeResources(
-                    loadResult.ProjectPath,
-                    previousWindowIds,
-                    closeDefaultWindowFallback: true);
 
                 _projectContext.Clear();
                 _projectContext.SetProject(loadResult.ProjectPath);

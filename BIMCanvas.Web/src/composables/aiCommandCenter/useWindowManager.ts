@@ -34,8 +34,8 @@ interface WindowManagerOptions {
     fetchBranches: () => Promise<void>;
   };
   store: {
-    loadProject: (options: LoadOptions | ChangeSource) => Promise<boolean>;
-    saveToServer: () => Promise<boolean>;
+    loadInitialProject: (options: LoadOptions | ChangeSource) => Promise<boolean>;
+    saveModules: () => Promise<boolean>;
   };
   agentApiBase: string;
 }
@@ -113,7 +113,7 @@ export const useWindowManager = (options: WindowManagerOptions) => {
       console.warn('[Window] 通知 Server 激活窗口失败:', error);
     }
 
-    await options.store.loadProject({ source: ChangeSource.GitCheckout, preserveView: true });
+    await options.store.loadInitialProject({ source: ChangeSource.GitCheckout, preserveView: true });
     console.log('[Window] 重新加载项目数据完成');
   };
 
@@ -131,6 +131,9 @@ export const useWindowManager = (options: WindowManagerOptions) => {
       isStreaming: false,
       todoProgress: null,
       pendingAttachments: [],
+      pendingSpatialMarks: [],
+      spatialMarkDraft: null,
+      queuedMessage: null,
       scrollPosition: 0,
       expandedThinking: {},
       shouldAutoScroll: true
@@ -177,6 +180,9 @@ export const useWindowManager = (options: WindowManagerOptions) => {
       isStreaming: false,
       todoProgress: null,
       pendingAttachments: [],
+      pendingSpatialMarks: [],
+      spatialMarkDraft: null,
+      queuedMessage: null,
       scrollPosition: saved.scrollPosition ?? 0,
       expandedThinking: {},
       shouldAutoScroll: true
@@ -324,7 +330,7 @@ export const useWindowManager = (options: WindowManagerOptions) => {
 
     try {
       if (saveBeforeSwitch) {
-        const saved = await options.store.saveToServer();
+        const saved = await options.store.saveModules();
         if (!saved) {
           console.error('保存数据失败，无法切换分支');
           pendingCheckoutBranch.value = '';
@@ -481,7 +487,7 @@ export const useWindowManager = (options: WindowManagerOptions) => {
       if (newActiveWin) {
         activeWindowId.value = newActiveWin.id;
         options.branches.value.forEach(b => b.isCurrent = b.id === newActiveWin.branchId);
-        await options.store.loadProject({ source: ChangeSource.GitCheckout, preserveView: true });
+        await options.store.loadInitialProject({ source: ChangeSource.GitCheckout, preserveView: true });
       }
     }
   };
@@ -559,6 +565,9 @@ export const useWindowManager = (options: WindowManagerOptions) => {
       isStreaming: false,
       todoProgress: null,
       pendingAttachments: [],
+      pendingSpatialMarks: [],
+      spatialMarkDraft: null,
+      queuedMessage: null,
       scrollPosition: 0,
       expandedThinking: {},
       shouldAutoScroll: true
@@ -601,7 +610,7 @@ export const useWindowManager = (options: WindowManagerOptions) => {
           pathWindow.worktreePath = createdWorktree.path;
         }
 
-        await options.store.loadProject({ source: ChangeSource.GitCheckout, preserveView: true });
+        await options.store.loadInitialProject({ source: ChangeSource.GitCheckout, preserveView: true });
         console.log('[Window] 重新加载项目数据完成');
       }
 

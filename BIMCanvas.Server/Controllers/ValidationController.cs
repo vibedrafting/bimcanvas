@@ -33,6 +33,7 @@ namespace BIMCanvas.Server.Controllers
         private readonly ZoneBoundaryService _zoneBoundaryService;
         private readonly IHubContext<CanvasHub> _hubContext;
         private readonly ModuleLibraryService _moduleLibraryService;
+        private readonly ModuleFileTopologyService _moduleFileTopologyService;
         private readonly JsonSerializerSettings _jsonSettings;
 
         public ValidationController(
@@ -40,13 +41,15 @@ namespace BIMCanvas.Server.Controllers
             ProjectContext projectContext,
             ZoneBoundaryService zoneBoundaryService,
             IHubContext<CanvasHub> hubContext,
-            ModuleLibraryService moduleLibraryService)
+            ModuleLibraryService moduleLibraryService,
+            ModuleFileTopologyService moduleFileTopologyService)
         {
             _logger = logger;
             _projectContext = projectContext;
             _zoneBoundaryService = zoneBoundaryService;
             _hubContext = hubContext;
             _moduleLibraryService = moduleLibraryService;
+            _moduleFileTopologyService = moduleFileTopologyService;
             _jsonSettings = new JsonSerializerSettings
             {
                 ContractResolver = new CamelCasePropertyNamesContractResolver(),
@@ -63,7 +66,7 @@ namespace BIMCanvas.Server.Controllers
         /// 可选 zoneIds 参数：仅验证指定分区内的模块
         /// </summary>
         [HttpPost("layout")]
-        public ActionResult<SchemeValidationReport> ValidateLayout([FromBody] ValidateLayoutRequest request)
+        public ActionResult<SchemeValidationReport> ValidateLayout([FromBody] ValidateLayoutRequest? request)
         {
             if (!_projectContext.IsLoaded)
             {
@@ -90,14 +93,18 @@ namespace BIMCanvas.Server.Controllers
                 var (designZones, exclusionZones) = LoadZoneData(projectPath);
 
                 // 3. 按 zoneIds 选择性读取模块（先选文件，再反序列化，不读取无关 zone）
-                var targetSet = request?.ZoneIds is { Count: > 0 }
-                    ? new HashSet<string>(request.ZoneIds)
+                var requestedZoneIds = request?.ZoneIds;
+                var targetSet = requestedZoneIds is { Count: > 0 }
+                    ? new HashSet<string>(requestedZoneIds)
                     : null;
-                var (modules, structureDiagnostics) = LoadAllModules(projectPath, targetSet);
+                var variantId = request?.VariantId;
+                if (!string.IsNullOrWhiteSpace(variantId) && targetSet == null)
+                    return BadRequest(new { message = "variantId 非空时必须显式指定 zoneIds，不允许全分区扫描变体" });
+                var (modules, structureDiagnostics, skippedModuleCount) = LoadAllModules(projectPath, targetSet, variantId);
 
-                // 3.5 预处理 facing：仅 validate_layout 消费 semantic 并回写规范 value
+                // 3.5 校验 facing：validate_layout 只做诊断，不再消费 semantic 或写回文件
                 var allDiagnostics = new List<Diagnostic>(structureDiagnostics);
-                var facingDiagnostics = NormalizeModuleFacings(modules);
+                var facingDiagnostics = ValidateModuleFacings(modules);
                 allDiagnostics.AddRange(facingDiagnostics);
                 if (facingDiagnostics.Count > 0)
                     _logger.LogWarning("[Validation] facing 预检发现 {Count} 个诊断，继续执行后续检查", facingDiagnostics.Count);
@@ -106,20 +113,20 @@ namespace BIMCanvas.Server.Controllers
                 var moduleIdDiagnostics = ValidateModuleIds(modules);
                 allDiagnostics.AddRange(moduleIdDiagnostics);
 
-                // 3.7 持久化模块（确保自动生成的 Id 和 facing 规范化结果写回文件）
-                PersistModules(projectPath, modules);
-
                 if (targetSet != null)
                     _logger.LogInformation("[Validation] 按分区加载: {ZoneIds} → {Count} 个模块",
                         string.Join(", ", targetSet), modules.Count);
 
                 // 4. 调用 Core 层验证
+                // targetSet 透传：若调用方按 zoneIds 限定了验证范围，"模块在某 zone 内"检查也应限定到这些 zone，
+                // 防止模块跨区逃到非目标叶子分区被任意 zone 兜接（v1.1 修复 alt-3 那类跨区漏检 bug）
                 var report = SchemeValidator.Validate(
-                    modules, designZones, exclusionZones, walls, columns);
+                    modules, designZones, exclusionZones, walls, columns,
+                    targetZoneIds: targetSet);
 
                 // 合并所有诊断，TotalModules 包含结构预检过滤掉的模块数
                 allDiagnostics.AddRange(report.Diagnostics);
-                var totalModules = report.TotalModules + structureDiagnostics.Count;
+                var totalModules = report.TotalModules + skippedModuleCount;
                 report = new SchemeValidationReport
                 {
                     TotalModules = totalModules,
@@ -199,84 +206,94 @@ namespace BIMCanvas.Server.Controllers
 
         /// <summary>
         /// 读取模块（支持分区子目录格式）
-        /// 当 targetZoneIds 不为 null 时，只读取目标 zone 的文件，跳过其他 zone
+        /// 当 targetZoneIds 不为 null 时，只读取目标 zone 的文件，跳过其他 zone。
+        /// 当 variantId 非空时，读取该 zone 下的 modules-{variantId}.json 而非 canonical；
+        /// path-issue 扫描仍只针对 canonical，不污染变体诊断。
         /// </summary>
-        private (List<Module> modules, List<Diagnostic> structureDiagnostics) LoadAllModules(string projectPath, HashSet<string>? targetZoneIds = null)
+        private (List<Module> modules, List<Diagnostic> structureDiagnostics, int skippedModuleCount) LoadAllModules(
+            string projectPath,
+            HashSet<string>? targetZoneIds = null,
+            string? variantId = null)
         {
             var schemesPath = Path.Combine(projectPath, "schemes");
             var allModules = new List<Module>();
             var allStructureDiagnostics = new List<Diagnostic>();
+            var skippedModuleCount = 0;
 
             if (!Directory.Exists(schemesPath))
             {
-                return (allModules, allStructureDiagnostics);
+                return (allModules, allStructureDiagnostics, skippedModuleCount);
             }
 
-            IEnumerable<string> moduleFiles;
+            var topology = _moduleFileTopologyService.Build(projectPath);
+            // path-issue 扫描永远只看 canonical，避免变体文件触发"路径错误"伪诊断
+            allStructureDiagnostics.AddRange(BuildModuleFilePathDiagnostics(topology.GetPathIssues(targetZoneIds)));
+            var moduleFiles = topology.GetExistingCanonicalModuleFiles(targetZoneIds, variantId);
 
-            if (targetZoneIds is { Count: > 0 })
+            foreach (var moduleFile in moduleFiles)
             {
-                // 精确定位目标 zone 的文件，跳过无关 zone 的反序列化
-                var targeted = new List<string>();
-                foreach (var zoneId in targetZoneIds)
-                {
-                    var zoneDir = ResolveZoneDirectory(schemesPath, zoneId);
-                    var path = Path.Combine(zoneDir, "modules.json");
-                    if (System.IO.File.Exists(path)) targeted.Add(path);
-                }
-                moduleFiles = targeted;
-            }
-            else
-            {
-                // 全量加载：递归查找所有 zone 子目录中的 modules.json
-                var zoneFiles = Directory.GetFiles(schemesPath, "modules.json", SearchOption.AllDirectories)
-                    .Where(f =>
-                    {
-                        var dir = Path.GetFileName(Path.GetDirectoryName(f) ?? "");
-                        return dir.StartsWith("rz_") || dir.StartsWith("dz_") || dir == "_unzoned";
-                    })
-                    .ToList();
-
-                if (zoneFiles.Count > 0)
-                {
-                    moduleFiles = zoneFiles;
-                }
-                else
-                {
-                    // 旧格式：单一 schemes/modules.json
-                    var legacyPath = Path.Combine(schemesPath, "modules.json");
-                    moduleFiles = System.IO.File.Exists(legacyPath)
-                        ? new[] { legacyPath }
-                        : Enumerable.Empty<string>();
-                }
-            }
-
-            foreach (var modulesPath in moduleFiles)
-            {
-                var zoneId = Path.GetFileName(Path.GetDirectoryName(modulesPath)!);
                 try
                 {
-                    var modules = ReadJson<List<Module>>(modulesPath) ?? new List<Module>();
+                    // v1.1: variant 文件可能是 wrapper { summary, modules } 形态；canonical 永远是裸数组
+                    var modules = LoadModulesCompat(moduleFile.FilePath);
                     foreach (var module in modules)
                     {
-                        module.ZoneId ??= zoneId;
+                        module.ZoneId ??= moduleFile.ZoneId;
                     }
 
                     // validate_layout 的 bounds 结构预检：非法模块直接报结构错误，跳过几何验证。
                     // 避免退化多边形流入 SchemeValidator 产生误诊（如把三角形误报为 E001_OUT_OF_BOUNDS）。
                     var (validModules, structDiagnostics) = FilterInvalidBounds(modules);
                     allStructureDiagnostics.AddRange(structDiagnostics);
+                    skippedModuleCount += structDiagnostics.Count;
                     allModules.AddRange(validModules);
                 }
                 catch (Exception ex)
                 {
                     throw new InvalidOperationException(
-                        $"模块数据解析失败 | 文件: {modulesPath} | Zone: {zoneId} | 原始错误: {ex.Message}", ex);
+                        $"模块数据解析失败 | 文件: {moduleFile.FilePath} | Zone: {moduleFile.ZoneId} | 原始错误: {ex.Message}", ex);
                 }
             }
 
             _logger.LogDebug("[Validation] 加载 {Count} 个模块（结构预检后）", allModules.Count);
-            return (allModules, allStructureDiagnostics);
+            return (allModules, allStructureDiagnostics, skippedModuleCount);
+        }
+
+        private static List<Diagnostic> BuildModuleFilePathDiagnostics(IReadOnlyList<ModuleFilePathIssue> issues)
+        {
+            var diagnostics = new List<Diagnostic>();
+            foreach (var issue in issues)
+            {
+                if (issue.Code == DiagnosticCodes.InvalidModuleFilePath)
+                {
+                    var countText = issue.ModuleCount.HasValue
+                        ? $"{issue.ModuleCount.Value} 个模块"
+                        : "模块数未知";
+                    diagnostics.Add(new Diagnostic(
+                        issue.Code,
+                        "error",
+                        $"模块文件路径错误：{issue.ActualPath} 不应作为分区 {issue.ZoneId} 的 modules.json；期望路径：{issue.ExpectedPath}；文件内 {countText}。该文件中的模块已跳过布局验证",
+                        issue.ZoneId,
+                        null,
+                        issue.ActualPath,
+                        "moduleFile"));
+                    continue;
+                }
+
+                if (issue.Code == DiagnosticCodes.DuplicateZoneModuleFiles)
+                {
+                    diagnostics.Add(new Diagnostic(
+                        issue.Code,
+                        "error",
+                        $"分区 {issue.ZoneId} 存在多个 modules.json：{string.Join(", ", issue.DuplicatePaths)}；规范路径：{issue.ExpectedPath}；请保留规范路径并人工合并/删除错误路径",
+                        issue.ZoneId,
+                        null,
+                        issue.ActualPath,
+                        "moduleFile"));
+                }
+            }
+
+            return diagnostics;
         }
 
         /// <summary>
@@ -367,41 +384,21 @@ namespace BIMCanvas.Server.Controllers
         }
 
         /// <summary>
-        /// 归一化模块 facing 数据。
-        /// 规则：
-        /// 1. semantic 有效时优先覆盖 value
-        /// 2. semantic 归一化后必须清空
-        /// 3. 常规阶段只接受有效 value
+        /// 校验模块 facing 数据。
+        /// validate_layout 不消费 semantic；Agent 写入 semantic 后应先调用 normalize_modules。
         /// </summary>
-        private List<Diagnostic> NormalizeModuleFacings(List<Module> modules)
+        private static List<Diagnostic> ValidateModuleFacings(List<Module> modules)
         {
             var diagnostics = new List<Diagnostic>();
 
             foreach (var module in modules)
             {
-                if (module.Facing.TryResolveSemanticValue(out var semanticValue))
-                {
-                    module.Facing = new Facing(semanticValue.Normalize(), null);
-                    continue;
-                }
-
-                if (module.Facing.HasSemantic)
-                {
-                    diagnostics.Add(new Diagnostic(
-                        DiagnosticCodes.InvalidFacingSemantic,
-                        "error",
-                        $"模块 {module.Id} ({module.ModuleName ?? "未命名"}) 的 facing.semantic '{module.Facing.Semantic}' 无效",
-                        module.Id,
-                        module.ModuleName));
-                    continue;
-                }
-
                 if (!module.Facing.Value.HasValue)
                 {
                     diagnostics.Add(new Diagnostic(
                         DiagnosticCodes.MissingFacingValue,
                         "error",
-                        $"模块 {module.Id} ({module.ModuleName ?? "未命名"}) 缺少 facing.value",
+                        $"模块 {module.Id} ({module.ModuleName ?? "未命名"}) 缺少 facing.value；若使用 facing.semantic，请先调用 normalize_modules",
                         module.Id,
                         module.ModuleName));
                     continue;
@@ -417,8 +414,6 @@ namespace BIMCanvas.Server.Controllers
                         module.ModuleName));
                     continue;
                 }
-
-                module.Facing = new Facing(normalizedValue, null);
             }
 
             return diagnostics;
@@ -474,32 +469,6 @@ namespace BIMCanvas.Server.Controllers
         }
 
         /// <summary>
-        /// 解析 zoneId 到实际目录路径（支持嵌套分区）
-        /// 例如 dz_1 → schemes/rz_3/dz_1（搜索已有目录）
-        /// </summary>
-        private string ResolveZoneDirectory(string schemesPath, string zoneId)
-        {
-            // 1. 检查一级目录
-            var directPath = Path.Combine(schemesPath, zoneId);
-            if (Directory.Exists(directPath))
-                return directPath;
-
-            // 2. 搜索嵌套目录（在 rz_* 父目录下查找）
-            if (Directory.Exists(schemesPath))
-            {
-                foreach (var parentDir in Directory.GetDirectories(schemesPath))
-                {
-                    var nestedPath = Path.Combine(parentDir, zoneId);
-                    if (Directory.Exists(nestedPath))
-                        return nestedPath;
-                }
-            }
-
-            // 3. 回退到一级目录（新建场景）
-            return directPath;
-        }
-
-        /// <summary>
         /// 读取 JSON 文件并反序列化
         /// </summary>
         private T ReadJson<T>(string path) where T : new()
@@ -509,52 +478,33 @@ namespace BIMCanvas.Server.Controllers
         }
 
         /// <summary>
+        /// 读 modules 文件，兼容两种 schema：
+        ///   - canonical / legacy: 裸 List&lt;Module&gt; 数组
+        ///   - v1.1 variant wrapper: { "summary": "...", "modules": [...] } → 抽出 modules 数组
+        /// </summary>
+        private List<Module> LoadModulesCompat(string path)
+        {
+            var json = System.IO.File.ReadAllText(path, Encoding.UTF8);
+            var token = Newtonsoft.Json.Linq.JToken.Parse(json);
+            if (token is Newtonsoft.Json.Linq.JArray arr)
+            {
+                return arr.ToObject<List<Module>>(JsonSerializer.Create(_jsonSettings)) ?? new List<Module>();
+            }
+            if (token is Newtonsoft.Json.Linq.JObject obj && obj["modules"] is Newtonsoft.Json.Linq.JArray inner)
+            {
+                return inner.ToObject<List<Module>>(JsonSerializer.Create(_jsonSettings)) ?? new List<Module>();
+            }
+            throw new InvalidOperationException(
+                $"modules 文件结构不识别（既不是裸数组也不是 {{summary, modules}} 包裹对象）: {path}");
+        }
+
+        /// <summary>
         /// 序列化并写入 JSON 文件
         /// </summary>
         private void WriteJson<T>(string path, T data)
         {
             var json = JsonConvert.SerializeObject(data, Formatting.Indented, _jsonSettings);
             System.IO.File.WriteAllText(path, json, Encoding.UTF8);
-        }
-
-        /// <summary>
-        /// 将模块按 ZoneId 分组写回对应 schemes/{zoneId}/modules.json
-        /// 确保反序列化时自动生成的 Id 被持久化
-        /// </summary>
-        private void PersistModules(string projectPath, List<Module> modules)
-        {
-            if (modules.Count == 0) return;
-
-            var byZone = modules
-                .GroupBy(m => m.ZoneId ?? "_unzoned")
-                .ToDictionary(g => g.Key, g => g.ToList());
-
-            var schemesPath = Path.Combine(projectPath, "schemes");
-
-            foreach (var kvp in byZone)
-            {
-                // 支持嵌套分区：先搜索已有目录，再回退到一级目录
-                var zoneDir = ResolveZoneDirectory(schemesPath, kvp.Key);
-                if (!Directory.Exists(zoneDir))
-                    Directory.CreateDirectory(zoneDir);
-
-                var modulesPath = Path.Combine(zoneDir, "modules.json");
-
-                // 写入时清理运行时字段 ZoneId
-                var toSave = kvp.Value.Select(m =>
-                {
-                    m.ZoneId = null;
-                    return m;
-                }).ToList();
-
-                WriteJson(modulesPath, toSave);
-
-                // 恢复 ZoneId 以供后续验证使用
-                foreach (var m in kvp.Value)
-                    m.ZoneId = kvp.Key;
-            }
-
-            _logger.LogDebug("[Validation] 持久化 {Count} 个模块的 Id", modules.Count);
         }
 
         /// <summary>
@@ -652,7 +602,14 @@ namespace BIMCanvas.Server.Controllers
     public class ValidateLayoutRequest
     {
         /// <summary>仅验证这些 Zone 内的模块（为空或 null 时验证全部）</summary>
-        public List<string> ZoneIds { get; set; }
+        public List<string>? ZoneIds { get; set; }
+
+        /// <summary>
+        /// 可选。验证非 canonical 变体文件，如 "alt-1" → 读取每个目标 Zone 下的 modules-alt-1.json。
+        /// 仅 module-relocation-agent 使用；layout-agent / generate-placement / Web 端验证留空。
+        /// 非空时必须与非空 ZoneIds 同时提供，不允许全分区扫描变体。
+        /// </summary>
+        public string? VariantId { get; set; }
     }
 
     /// <summary>

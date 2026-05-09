@@ -1,5 +1,53 @@
 import type { ChatBubble, WaitingState } from './agent';
 import type { ChatAttachmentRef } from './chatAttachment';
+import type { Point2D } from './canvas';
+
+export interface GridSelectionCell {
+  col: number;
+  row: number;
+}
+
+export type Polygon2DJson =
+  | Point2D[]
+  | {
+      shell: Point2D[];
+      holes: Point2D[][];
+    };
+
+export type SpatialGeometry =
+  | { aabb: [number, number, number, number]; polygon?: never }
+  | { polygon: Polygon2DJson; aabb?: never };
+
+export interface SpatialMark {
+  id: string;
+  zoneId: string;
+  label: string;
+  description: string;
+  geometry: SpatialGeometry[];
+  cellSize?: number;
+  cells?: GridSelectionCell[];
+}
+
+export interface SpatialMarkDraft {
+  zoneId: string;
+  zoneName: string;
+  cellSize: number;
+  selectedCells: GridSelectionCell[];
+  label: string;
+  description: string;
+  isCompleting: boolean;
+  error?: string | null;
+  editingMarkId?: string | null;
+}
+
+export interface QueuedChatDraft {
+  id: string;
+  text: string;
+  clientMessageId: string;
+  attachments: ChatAttachmentRef[];
+  spatialMarks: SpatialMark[];
+  createdAt: number;
+}
 
 export interface ChatMessage {
   role: 'user' | 'ai';
@@ -48,6 +96,9 @@ export interface ChatWindow {
   isStreaming: boolean;
   todoProgress?: TodoProgressState | null;
   pendingAttachments: ChatAttachmentRef[];
+  pendingSpatialMarks: SpatialMark[];
+  spatialMarkDraft?: SpatialMarkDraft | null;
+  queuedMessage?: QueuedChatDraft | null;
   scrollPosition: number;
   expandedThinking: Record<number, boolean>;
   shouldAutoScroll: boolean;

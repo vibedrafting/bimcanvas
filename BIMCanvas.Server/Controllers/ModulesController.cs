@@ -1,3 +1,6 @@
+using System;
+using System.Collections.Generic;
+using System.IO;
 using System.Linq;
 using System.Text;
 using BIMCanvas.Server.Services;
@@ -15,13 +18,19 @@ namespace BIMCanvas.Server.Controllers
     public class ModulesController : ControllerBase
     {
         private readonly ModuleLibraryService _libraryService;
+        private readonly ModuleNormalizationService _normalizationService;
+        private readonly ProjectContext _projectContext;
         private readonly ILogger<ModulesController> _logger;
 
         public ModulesController(
             ModuleLibraryService libraryService,
+            ModuleNormalizationService normalizationService,
+            ProjectContext projectContext,
             ILogger<ModulesController> logger)
         {
             _libraryService = libraryService;
+            _normalizationService = normalizationService;
+            _projectContext = projectContext;
             _logger = logger;
         }
 
@@ -74,5 +83,54 @@ namespace BIMCanvas.Server.Controllers
 
             return Content(content, "image/svg+xml", Encoding.UTF8);
         }
+
+        /// <summary>
+        /// 规范化当前项目模块数据。
+        /// POST /api/modules/normalize
+        /// 当前支持将 facing.semantic 收敛为 facing.value，并清空 semantic。
+        /// </summary>
+        [HttpPost("normalize")]
+        public ActionResult<ModuleNormalizationReport> NormalizeModules([FromBody] NormalizeModulesRequest? request)
+        {
+            if (!_projectContext.IsLoaded)
+            {
+                return BadRequest(new { message = "没有加载的项目" });
+            }
+
+            var projectPath = _projectContext.GetActiveWorktreePath()
+                              ?? _projectContext.CurrentProjectPath!;
+
+            if (!Directory.Exists(projectPath))
+            {
+                return NotFound(new { message = $"项目目录不存在: {projectPath}" });
+            }
+
+            try
+            {
+                var variantId = request?.VariantId;
+                if (!string.IsNullOrWhiteSpace(variantId) && (request?.ZoneIds is null || request.ZoneIds.Count == 0))
+                    return BadRequest(new { message = "variantId 非空时必须显式指定 zoneIds，不允许全分区扫描变体" });
+
+                var report = _normalizationService.NormalizeModules(projectPath, request?.ZoneIds, variantId);
+                return Ok(report);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "模块数据规范化失败: {Path}", projectPath);
+                return StatusCode(500, new { message = $"模块数据规范化失败: {ex.Message}" });
+            }
+        }
+    }
+
+    public class NormalizeModulesRequest
+    {
+        /// <summary>仅规范化这些 Zone 内的模块；为空或 null 时规范化全部模块。</summary>
+        public List<string>? ZoneIds { get; set; }
+
+        /// <summary>
+        /// 可选。规范化非 canonical 变体文件，如 "alt-1" → 读写每个目标 Zone 下的 modules-alt-1.json。
+        /// 仅 module-relocation-agent 使用；非空时必须与非空 ZoneIds 同时提供。
+        /// </summary>
+        public string? VariantId { get; set; }
     }
 }

@@ -35,11 +35,35 @@ import { LayerManager } from '../three/LayerManager';
 import { canvasStyleService } from '../canvas/CanvasStyleService';
 import { facingToAngle } from '../../utils/coordinates';
 
+type SvgViewportSource = 'viewBox' | 'geometry';
+
+interface SvgViewport {
+  minX: number;
+  minY: number;
+  width: number;
+  height: number;
+  source: SvgViewportSource;
+}
+
+const isSvgDebugEnabled = (): boolean => {
+  try {
+    return import.meta.env.DEV && window.localStorage?.getItem('bimcanvas.debug.svg') === '1';
+  } catch {
+    return false;
+  }
+};
+
+const logSvgDebug = (message: string): void => {
+  if (isSvgDebugEnabled()) {
+    console.debug(message);
+  }
+};
+
 export class SVGModuleRenderer {
   private scene: THREE.Scene;
   private svgLoader: SVGLoader;
   private svgCache: Map<string, THREE.Group> = new Map();
-  private svgSizeCache: Map<string, { width: number, height: number }> = new Map(); // SVG 原始尺寸缓存
+  private svgSizeCache: Map<string, { width: number, height: number }> = new Map(); // SVG viewport 尺寸缓存
   private moduleGroups: Map<string, THREE.Group> = new Map(); // moduleId -> Group
 
   // SVG渲染配置
@@ -70,7 +94,7 @@ export class SVGModuleRenderer {
         return null;
       }
 
-      // 3. 计算模块的位置和旋转（使用 SVG 实际尺寸）
+      // 3. 计算模块的位置和旋转（使用 SVG viewport 尺寸）
       const transform = this.calculateModuleTransform(module, module.moduleId);
 
       // 4. 父子 Group 方案（KISS）：显式控制旋转顺序
@@ -119,11 +143,6 @@ export class SVGModuleRenderer {
       // 8. 添加到场景
       this.scene.add(root);
 
-      // [DEBUG] 验证几何体方向
-      const box = new THREE.Box3().setFromObject(root);
-      const size = box.getSize(new THREE.Vector3());
-      console.log(`[SVG] ${module.id}: pos=(${root.position.x.toFixed(0)}, ${root.position.y.toFixed(0)}, ${root.position.z.toFixed(0)}), size=(${size.x.toFixed(0)}, ${size.y.toFixed(0)}, ${size.z.toFixed(0)})`);
-
       // 9. 记录到映射表
       this.moduleGroups.set(module.id, root);
       return root;
@@ -145,7 +164,10 @@ export class SVGModuleRenderer {
     }
 
     // 从 ModuleLibraryService 获取 SVG URL
-    const svgUrl = moduleLibraryService.getSvgUrl(moduleId);
+    const svgUrl = await moduleLibraryService.getSvgUrl(moduleId);
+    if (!svgUrl) {
+      return null;
+    }
 
     return new Promise((resolve) => {
       this.svgLoader.load(
@@ -216,40 +238,43 @@ export class SVGModuleRenderer {
                 const strokeGeometry = SVGLoader.pointsToStroke(points, strokeStyle);
                 if (strokeGeometry) {
                   const vertexCount = strokeGeometry.attributes.position?.count || 0;
-                  // [DEBUG] 关键日志：顶点数
-                  console.log(`[SVG] Path${i}: pts=${points.length}, verts=${vertexCount}`);
+                  logSvgDebug(`[SVG] Path${i}: pts=${points.length}, verts=${vertexCount}`);
                   if (vertexCount > 0) {
                     const strokeMesh = new THREE.Mesh(strokeGeometry, material);
                     strokeMesh.renderOrder = 999;
                     group.add(strokeMesh);
                   }
                 } else {
-                  console.warn(`[SVG] Path${i}: pointsToStroke=null, pts=${points.length}`);
+                  logSvgDebug(`[SVG] Path${i}: pointsToStroke=null, pts=${points.length}`);
                 }
               }
             } else if (path.subPaths.length === 0) {
-              console.warn(`[SVG] Path${i}: subPaths=0`);
+              logSvgDebug(`[SVG] Path${i}: subPaths=0`);
             }
           }
 
-          // 计算 SVG 几何体边界
-          const box = new THREE.Box3().setFromObject(group);
-          const center = box.getCenter(new THREE.Vector3());
-          const svgSize = box.getSize(new THREE.Vector3());
+          // 计算 SVG 几何体边界，仅作为日志与无 viewBox 时的降级
+          const geometryBox = new THREE.Box3().setFromObject(group);
+          const geometrySize = geometryBox.isEmpty()
+            ? new THREE.Vector3(0, 0, 0)
+            : geometryBox.getSize(new THREE.Vector3());
+          const viewport = this.resolveSvgViewport(data.xml, geometryBox);
 
-          // 保存 SVG 原始尺寸（居中前）- 关键修复
+          // 保存 SVG viewport 尺寸（viewBox 优先），用于映射到模块 bounds
           this.svgSizeCache.set(moduleId, {
-            width: svgSize.x,
-            height: svgSize.y
+            width: viewport.width,
+            height: viewport.height
           });
 
-          // 居中 SVG 几何体（将原点从左上角移到几何体中心）
+          // 以 viewBox 中心为本地原点，保留 SVG 内部留白和偏移
+          const viewportCenterX = viewport.minX + viewport.width / 2;
+          const viewportCenterY = viewport.minY + viewport.height / 2;
           group.children.forEach(child => {
-            child.position.x -= center.x;
-            child.position.y -= center.y;
+            child.position.x -= viewportCenterX;
+            child.position.y -= viewportCenterY;
           });
 
-          console.log(`[SVG] ${moduleId}: viewBox=(${svgSize.x.toFixed(0)}, ${svgSize.y.toFixed(0)}), children=${group.children.length}`);
+          logSvgDebug(`[SVG] ${moduleId}: viewport=${viewport.source}(${viewport.width.toFixed(0)}, ${viewport.height.toFixed(0)}), geometryBounds=(${geometrySize.x.toFixed(0)}, ${geometrySize.y.toFixed(0)}), children=${group.children.length}`);
 
           // 缓存结果
           this.svgCache.set(moduleId, group);
@@ -280,10 +305,10 @@ export class SVGModuleRenderer {
     // 2. 解析朝向角度
     const rotation = this.parseFacingAngle(module.facing, module.id);
 
-    // 3. 获取 SVG 实际尺寸（关键修复：使用 SVG viewBox 尺寸而非 moduleDef.size）
+    // 3. 获取 SVG viewport 尺寸（关键修复：使用 SVG viewBox 尺寸而非几何包围盒）
     const svgSize = this.svgSizeCache.get(moduleId);
-    if (!svgSize) {
-      console.warn(`[SVG] No cached size for: ${moduleId}`);
+    if (!svgSize || svgSize.width <= 0 || svgSize.height <= 0) {
+      logSvgDebug(`[SVG] No cached size for: ${moduleId}`);
       return {
         position: { x: center[0], y: center[1] },
         rotation: rotation,
@@ -291,35 +316,87 @@ export class SVGModuleRenderer {
       };
     }
 
-    // 4. 计算 bounds 尺寸
-    const boundsSize = this.calculateBoundsSize(module.bounds);
+    // 4. 按 SVG 旋转后的本地轴匹配 bounds 边长，避免 90° 模块宽深互换
+    const targetSize = this.calculateSvgAxisTargetSize(module.bounds, rotation);
 
-    // 5. 【关键修复】判断是否需要交换尺寸对应关系
-    // Three.js 变换顺序是 Scale → Rotate → Translate
-    // 当旋转 90°/270° 时，Rotate 会交换宽高
-    // 因此缩放计算需要"预先考虑"这个交换
+    // 5. SVG 在本地坐标系缩放后再旋转，因此缩放目标必须对应旋转后的 SVG X/Y 轴
     const rotationDegrees = Math.abs(rotation * 180 / Math.PI) % 360;
-    const isRotated90 = (rotationDegrees > 45 && rotationDegrees < 135) ||
-                        (rotationDegrees > 225 && rotationDegrees < 315);
+    const scaleX = targetSize.svgX / svgSize.width;
+    const scaleY = targetSize.svgY / svgSize.height;
 
-    let scaleX: number, scaleY: number;
-    if (isRotated90) {
-      // 旋转 90°/270°：bounds 的 width/depth 需要与 SVG 的 height/width 对应
-      scaleX = boundsSize.depth / svgSize.width;
-      scaleY = boundsSize.width / svgSize.height;
-    } else {
-      // 不旋转或旋转 180°：正常对应
-      scaleX = boundsSize.width / svgSize.width;
-      scaleY = boundsSize.depth / svgSize.height;
-    }
-
-    console.log(`[SVG Scale] bounds=(${boundsSize.width.toFixed(0)}, ${boundsSize.depth.toFixed(0)}), svg=(${svgSize.width.toFixed(0)}, ${svgSize.height.toFixed(0)}), rot=${rotationDegrees.toFixed(0)}°, rotated90=${isRotated90}, scale=(${scaleX.toFixed(2)}, ${scaleY.toFixed(2)})`);
+    logSvgDebug(`[SVG Scale] target=(${targetSize.svgX.toFixed(0)}, ${targetSize.svgY.toFixed(0)}), svg=(${svgSize.width.toFixed(0)}, ${svgSize.height.toFixed(0)}), rot=${rotationDegrees.toFixed(0)}°, scale=(${scaleX.toFixed(2)}, ${scaleY.toFixed(2)})`);
 
     return {
       position: { x: center[0], y: center[1] },
       rotation: rotation,
       scale: { x: scaleX * this.SVG_SCALE, y: scaleY * this.SVG_SCALE }
     };
+  }
+
+  /**
+   * 优先使用根 viewBox 作为 SVG 设计画布；缺失时才降级到实际几何边界。
+   */
+  private resolveSvgViewport(svgXml: unknown, geometryBox: THREE.Box3): SvgViewport {
+    const viewBox = this.parseSvgViewBox(svgXml);
+    if (viewBox) {
+      return {
+        ...viewBox,
+        source: 'viewBox'
+      };
+    }
+
+    if (!geometryBox.isEmpty()) {
+      const geometrySize = geometryBox.getSize(new THREE.Vector3());
+      return {
+        minX: geometryBox.min.x,
+        minY: geometryBox.min.y,
+        width: geometrySize.x,
+        height: geometrySize.y,
+        source: 'geometry'
+      };
+    }
+
+    return {
+      minX: 0,
+      minY: 0,
+      width: 1,
+      height: 1,
+      source: 'geometry'
+    };
+  }
+
+  private parseSvgViewBox(svgXml: unknown): Omit<SvgViewport, 'source'> | null {
+    const svgElement = this.getSvgRootElement(svgXml);
+    const viewBox = svgElement?.getAttribute('viewBox')?.trim();
+    if (!viewBox) return null;
+
+    const values = viewBox
+      .split(/[,\s]+/)
+      .filter(Boolean)
+      .map(value => Number(value));
+
+    if (values.length !== 4 || values.some(value => !Number.isFinite(value))) {
+      logSvgDebug(`[SVG] Invalid viewBox ignored: ${viewBox}`);
+      return null;
+    }
+
+    const [minX, minY, width, height] = values as [number, number, number, number];
+    if (width <= 0 || height <= 0) {
+      logSvgDebug(`[SVG] Non-positive viewBox ignored: ${viewBox}`);
+      return null;
+    }
+
+    return { minX, minY, width, height };
+  }
+
+  private getSvgRootElement(svgXml: unknown): Element | null {
+    if (svgXml instanceof Element) {
+      return svgXml;
+    }
+    if (svgXml instanceof Document) {
+      return svgXml.documentElement;
+    }
+    return null;
   }
 
   /**
@@ -342,24 +419,49 @@ export class SVGModuleRenderer {
   }
 
   /**
-   * 计算多边形边界框尺寸
+   * 计算 SVG 本地 X/Y 轴应映射到的模块边长。
+   * bounds 点序只代表多边形边，不可靠地代表模块宽/深；宽深由 facing 旋转后的轴向决定。
    */
-  private calculateBoundsSize(polygon: Point2D[]): { width: number, depth: number } {
-    if (polygon.length === 0) return { width: 0, depth: 0 };
+  private calculateSvgAxisTargetSize(polygon: Point2D[], rotation: number): { svgX: number, svgY: number } {
+    if (polygon.length < 3) return { svgX: 0, svgY: 0 };
 
-    let minX = Infinity, maxX = -Infinity;
-    let minY = Infinity, maxY = -Infinity;
+    const edge = (a: Point2D, b: Point2D) => {
+      const x = b[0] - a[0];
+      const y = b[1] - a[1];
+      const length = Math.hypot(x, y);
+      return {
+        x,
+        y,
+        length,
+        unitX: length > 0 ? x / length : 0,
+        unitY: length > 0 ? y / length : 0
+      };
+    };
 
-    polygon.forEach(p => {
-      minX = Math.min(minX, p[0]);
-      maxX = Math.max(maxX, p[0]);
-      minY = Math.min(minY, p[1]);
-      maxY = Math.max(maxY, p[1]);
-    });
+    const edge0 = edge(polygon[0]!, polygon[1]!);
+    const edge1 = edge(polygon[1]!, polygon[2]!);
+
+    if (edge0.length <= 0 || edge1.length <= 0) {
+      return { svgX: edge0.length, svgY: edge1.length };
+    }
+
+    const svgXAxis = {
+      x: Math.cos(rotation),
+      y: Math.sin(rotation)
+    };
+    const svgYAxis = {
+      x: -Math.sin(rotation),
+      y: Math.cos(rotation)
+    };
+
+    const edge0MatchesSvgX = Math.abs(svgXAxis.x * edge0.unitX + svgXAxis.y * edge0.unitY);
+    const edge1MatchesSvgX = Math.abs(svgXAxis.x * edge1.unitX + svgXAxis.y * edge1.unitY);
+    const edge0MatchesSvgY = Math.abs(svgYAxis.x * edge0.unitX + svgYAxis.y * edge0.unitY);
+    const edge1MatchesSvgY = Math.abs(svgYAxis.x * edge1.unitX + svgYAxis.y * edge1.unitY);
 
     return {
-      width: maxX - minX,
-      depth: maxY - minY
+      svgX: edge0MatchesSvgX >= edge1MatchesSvgX ? edge0.length : edge1.length,
+      svgY: edge0MatchesSvgY >= edge1MatchesSvgY ? edge0.length : edge1.length
     };
   }
 

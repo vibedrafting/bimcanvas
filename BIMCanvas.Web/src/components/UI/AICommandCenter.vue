@@ -14,6 +14,7 @@ import { usePanelUI } from '../../composables/aiCommandCenter/usePanelUI';
 import { useScreenshot } from '../../composables/aiCommandCenter/useScreenshot';
 import { useQuestion } from '../../composables/aiCommandCenter/useQuestion';
 import { useSelectionContext } from '../../composables/aiCommandCenter/useSelectionContext';
+import { useSpatialMarking } from '../../composables/aiCommandCenter/useSpatialMarking';
 import { useWindowManager } from '../../composables/aiCommandCenter/useWindowManager';
 import BranchCheckoutConfirmDialog from './Ribbon/BranchCheckoutConfirmDialog.vue';
 import BranchCreationDialog from './Ribbon/BranchCreationDialog.vue';
@@ -64,7 +65,12 @@ const {
   availableZones,
   buildContextPayload
 } = useSelectionContext();
+const DEFAULT_SPATIAL_INTENT_OPTIONS = ['家具（位置）', '设计区', '通道', '禁区'] as const;
+const SPATIAL_INTENT_STORAGE_KEY = 'bimcanvas:space-mark:intent-options';
 const isSelectionExpanded = ref(false);
+const spatialIntentOptions = ref<string[]>([...DEFAULT_SPATIAL_INTENT_OPTIONS]);
+const isSpatialIntentMenuOpen = ref(false);
+const spatialLabelInputRef = ref<HTMLInputElement | null>(null);
 
 const {
   windows,
@@ -218,6 +224,144 @@ const {
   availableZones
 });
 
+const {
+  activeDraft,
+  draftScopeDisplayText,
+  pendingSpatialMarks,
+  topLevelZones,
+  startSpatialMarking,
+  cancelSpatialMarking,
+  setDraftCellSize,
+  setDraftLabel,
+  setDraftDescription,
+  clearDraftSelection,
+  completeDraft,
+  editPendingMark,
+  removePendingMark
+} = useSpatialMarking({
+  windows,
+  activeWindowId,
+  activeWindow
+});
+
+const getSpatialMarkZoneName = (zoneId: string) =>
+  topLevelZones.value.find(zone => zone.id === zoneId)?.label || zoneId;
+
+const getEventValue = (event: Event) => (event.target as HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement).value;
+
+const activeQueuedMessage = computed(() => activeWindow.value?.queuedMessage ?? null);
+const hasInputSendableContent = computed(() =>
+  inputMessage.value.trim().length > 0
+  || pendingAttachments.value.length > 0
+  || pendingSpatialMarks.value.length > 0
+);
+const canRestoreQueuedMessage = computed(() =>
+  !!activeQueuedMessage.value && !hasInputSendableContent.value
+);
+const queuedAttachmentCount = computed(() => activeQueuedMessage.value?.attachments.length ?? 0);
+const queuedSpatialMarkCount = computed(() => activeQueuedMessage.value?.spatialMarks.length ?? 0);
+const queuedMessagePreview = computed(() => {
+  const queued = activeQueuedMessage.value;
+  if (!queued) return '';
+
+  const text = queued.text || '等待发送的上下文';
+  const badges: string[] = [];
+  if (queued.attachments.length > 0) badges.push(`${queued.attachments.length} 图`);
+  if (queued.spatialMarks.length > 0) badges.push(`${queued.spatialMarks.length} Space Mark`);
+  return badges.length > 0 ? `${text} · ${badges.join(' · ')}` : text;
+});
+
+const updatePendingSpatialLabel = (markId: string, value: string) => {
+  const mark = pendingSpatialMarks.value.find(item => item.id === markId);
+  if (mark) mark.label = value;
+};
+
+const updatePendingSpatialDescription = (markId: string, value: string) => {
+  const mark = pendingSpatialMarks.value.find(item => item.id === markId);
+  if (mark) mark.description = value;
+};
+
+const normalizeSpatialIntent = (value: string) => value.trim();
+const activeSpatialIntent = computed(() => normalizeSpatialIntent(activeDraft.value?.label ?? ''));
+const canAddSpatialIntent = computed(() =>
+  activeSpatialIntent.value.length > 0 && !spatialIntentOptions.value.includes(activeSpatialIntent.value)
+);
+const canDeleteSpatialIntent = computed(() => spatialIntentOptions.value.includes(activeSpatialIntent.value));
+
+const saveSpatialIntentOptions = () => {
+  try {
+    window.localStorage.setItem(SPATIAL_INTENT_STORAGE_KEY, JSON.stringify(spatialIntentOptions.value));
+  } catch (error) {
+    console.warn('[AICommandCenter] Failed to save Space Mark tag presets:', error);
+  }
+};
+
+const loadSpatialIntentOptions = () => {
+  try {
+    const raw = window.localStorage.getItem(SPATIAL_INTENT_STORAGE_KEY);
+    if (!raw) return;
+
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return;
+
+    const options = parsed
+      .map(item => normalizeSpatialIntent(String(item)))
+      .filter((item, index, list) => item.length > 0 && list.indexOf(item) === index);
+    spatialIntentOptions.value = options;
+  } catch (error) {
+    console.warn('[AICommandCenter] Failed to load Space Mark tag presets:', error);
+  }
+};
+
+const selectSpatialIntent = (intent: string) => {
+  setDraftLabel(intent);
+  isSpatialIntentMenuOpen.value = false;
+};
+
+const addSpatialIntentOption = () => {
+  const intent = activeSpatialIntent.value;
+  if (!intent || spatialIntentOptions.value.includes(intent)) return;
+  spatialIntentOptions.value = [...spatialIntentOptions.value, intent];
+  saveSpatialIntentOptions();
+};
+
+const deleteSpatialIntentOption = () => {
+  const intent = activeSpatialIntent.value;
+  if (!intent) return;
+  const nextOptions = spatialIntentOptions.value.filter(item => item !== intent);
+  if (nextOptions.length === spatialIntentOptions.value.length) return;
+  spatialIntentOptions.value = nextOptions;
+  saveSpatialIntentOptions();
+};
+
+const dismissSpatialLabelSuggestions = () => {
+  if (document.activeElement === spatialLabelInputRef.value) {
+    spatialLabelInputRef.value?.blur();
+  }
+  isSpatialIntentMenuOpen.value = false;
+};
+
+watch(
+  () => activeDraft.value?.selectedCells.map(cell => `${cell.col}:${cell.row}`).join(',') ?? '',
+  (nextSelection, previousSelection) => {
+    if (nextSelection !== previousSelection) {
+      dismissSpatialLabelSuggestions();
+    }
+  }
+);
+
+onMounted(loadSpatialIntentOptions);
+
+const toggleSpaceMarkFromButton = () => {
+  if (activeDraft.value) {
+    cancelSpatialMarking();
+  } else {
+    startSpatialMarking();
+  }
+  isContextMenuOpen.value = false;
+  activeSubmenu.value = null;
+};
+
 // === Image Upload ===
 const imageUploadInputRef = ref<HTMLInputElement | null>(null);
 const imageExtPattern = /\.(png|jpe?g|gif|webp|bmp|tiff)$/i;
@@ -360,6 +504,9 @@ const {
   isPollingBackground,
   streamWelcomeMessage,
   sendMessage,
+  sendQueuedMessageNow,
+  restoreQueuedMessage,
+  deleteQueuedMessage,
   restoreHistory,
   waitForInteractionContinuation,
   interruptMessage,
@@ -382,7 +529,7 @@ const {
   scrollToBottom,
   fetchAgentConfig,
   hasFallback,
-  buildContextPayload
+  buildContextPayload: (spatialMarks = pendingSpatialMarks.value) => buildContextPayload(spatialMarks)
 });
 
 const hasProgressOverlay = computed(() => !!activeTodoProgress.value || isPollingBackground.value);
@@ -438,6 +585,13 @@ watch(inputMessage, (newVal) => {
     });
   }
 });
+
+const handleRestoreQueuedMessage = () => {
+  if (!restoreQueuedMessage()) {
+    return;
+  }
+  nextTick(() => adjustTextareaHeight());
+};
 
 const bubbleToSubAgent = (bubble: ChatBubble): SubAgent => {
   const toolCalls: ToolCall[] = (bubble.childBubbles || [])
@@ -573,6 +727,27 @@ const handleKeydown = (event: KeyboardEvent) => {
   }
 };
 
+const handleSpatialMarkKeydown = (event: KeyboardEvent) => {
+  if (!activeDraft.value) return;
+
+  if (event.key === 'Escape') {
+    event.preventDefault();
+    cancelSpatialMarking();
+    return;
+  }
+
+  if (event.key === 'Enter') {
+    const target = event.target as HTMLElement | null;
+    const tagName = target?.tagName?.toLowerCase();
+    if (tagName === 'input' || tagName === 'textarea' || target?.isContentEditable) {
+      return;
+    }
+
+    event.preventDefault();
+    void completeDraft();
+  }
+};
+
 const handleGlobalClick = (event: MouseEvent) => {
   const target = event.target as HTMLElement;
 
@@ -601,14 +776,20 @@ const handleGlobalClick = (event: MouseEvent) => {
   if (!target.closest('.control-pill-wrapper.effort')) {
     isEffortMenuOpen.value = false;
   }
+
+  if (!target.closest('.intent-combo')) {
+    isSpatialIntentMenuOpen.value = false;
+  }
 };
 
 onMounted(() => {
   window.addEventListener('click', handleGlobalClick);
+  window.addEventListener('keydown', handleSpatialMarkKeydown);
 });
 
 onUnmounted(() => {
   window.removeEventListener('click', handleGlobalClick);
+  window.removeEventListener('keydown', handleSpatialMarkKeydown);
   todoProgressResizeObserver?.disconnect();
   todoProgressResizeObserver = null;
   stopScreenshotListening();
@@ -1016,7 +1197,20 @@ watch(chatScrollRef, (newEl, oldEl) => {
                 </div>
             </transition>
 
-            <!-- 3. Add Context Button -->
+            <!-- 3. Space Mark Button -->
+            <button
+                class="space-mark-context-btn"
+                title="Space Mark"
+                :class="{ active: !!activeDraft }"
+                @click.stop="toggleSpaceMarkFromButton"
+            >
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M4 4l7.5 16 2.4-6.1L20 11.5 4 4z"></path>
+                    <path d="M13.5 13.5L19 19"></path>
+                </svg>
+            </button>
+
+            <!-- 4. Add Context Button -->
             <div class="add-context-wrapper">
                 <button 
                     class="add-context-btn" 
@@ -1139,6 +1333,93 @@ watch(chatScrollRef, (newEl, oldEl) => {
 
         <!-- Antigravity Input Box -->
         <div class="antigravity-input-box">
+            <div class="queued-message-card" v-if="activeQueuedMessage">
+              <div class="queued-message-main" :title="`等待发送：${queuedMessagePreview}`">
+                <span class="queued-message-status">等待发送</span>
+                <span class="queued-message-text">{{ queuedMessagePreview }}</span>
+                <span class="queued-message-meta" v-if="queuedAttachmentCount > 0" title="附件">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"></path>
+                  </svg>
+                  <span>{{ queuedAttachmentCount }}</span>
+                </span>
+                <span class="queued-message-meta" v-if="queuedSpatialMarkCount > 0" title="Space Mark">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M4 4l7.5 16 2.4-6.1L20 11.5 4 4z"></path>
+                    <path d="M13.5 13.5L19 19"></path>
+                  </svg>
+                  <span>{{ queuedSpatialMarkCount }}</span>
+                </span>
+              </div>
+              <div class="queued-message-actions">
+                <button class="queued-action" title="立即发送" @click.stop="sendQueuedMessageNow">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round">
+                    <line x1="12" y1="19" x2="12" y2="5"></line>
+                    <polyline points="5 12 12 5 19 12"></polyline>
+                  </svg>
+                </button>
+                <button
+                  class="queued-action"
+                  title="撤回编辑"
+                  :disabled="!canRestoreQueuedMessage"
+                  @click.stop="handleRestoreQueuedMessage"
+                >
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M9 14L4 9l5-5"></path>
+                    <path d="M4 9h9a7 7 0 0 1 7 7v3"></path>
+                  </svg>
+                </button>
+                <button class="queued-action danger" title="删除" @click.stop="deleteQueuedMessage">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <polyline points="3 6 5 6 21 6"></polyline>
+                    <path d="M19 6l-1 14H6L5 6"></path>
+                    <path d="M10 11v6"></path>
+                    <path d="M14 11v6"></path>
+                    <path d="M9 6V4h6v2"></path>
+                  </svg>
+                </button>
+              </div>
+            </div>
+            <div class="pending-spatial-marks" v-if="pendingSpatialMarks.length > 0">
+              <div class="pending-spatial-mark" v-for="mark in pendingSpatialMarks" :key="mark.id">
+                <div class="pending-spatial-main">
+                  <input
+                    class="pending-spatial-label"
+                    :value="mark.label"
+                    :disabled="activeWindow?.isStreaming"
+                    @input="updatePendingSpatialLabel(mark.id, getEventValue($event))"
+                  />
+                  <span>{{ getSpatialMarkZoneName(mark.zoneId) }} · {{ mark.geometry.length }} geometry</span>
+                </div>
+                <input
+                  class="pending-spatial-description"
+                  v-if="mark.description"
+                  :value="mark.description"
+                  :disabled="activeWindow?.isStreaming"
+                  @input="updatePendingSpatialDescription(mark.id, getEventValue($event))"
+                />
+                <div class="pending-spatial-actions">
+                  <button
+                    class="edit-spatial-mark"
+                    title="查看/修改"
+                    @click.stop="editPendingMark(mark.id)"
+                    :disabled="activeWindow?.isStreaming"
+                  >
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                      <path d="M12 20h9"></path>
+                      <path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4 12.5-12.5z"></path>
+                    </svg>
+                  </button>
+                  <button class="remove-spatial-mark" title="移除" @click.stop="removePendingMark(mark.id)" :disabled="activeWindow?.isStreaming">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                      <line x1="18" y1="6" x2="6" y2="18"></line>
+                      <line x1="6" y1="6" x2="18" y2="18"></line>
+                    </svg>
+                  </button>
+                </div>
+              </div>
+            </div>
+
             <!-- Pending Attachments Preview -->
             <div class="pending-attachments" v-if="pendingAttachments.length > 0">
               <div class="attachment-item" v-for="(attachment, idx) in pendingAttachments" :key="attachment.attachmentId">
@@ -1154,7 +1435,7 @@ watch(chatScrollRef, (newEl, oldEl) => {
             <textarea
               ref="textareaRef"
               v-model="inputMessage"
-              :placeholder="agentStatus === 'connected' ? '你好' : agentStatus === 'connecting' ? '正在连接 Agent...' : 'Agent 未连接'"
+              :placeholder="isLoading ? '要求后续变更' : agentStatus === 'connected' ? '你好' : agentStatus === 'connecting' ? '正在连接 Agent...' : 'Agent 未连接'"
               @keydown="handleKeydown"
               @paste="handleImagePaste"
               @input="adjustTextareaHeight"
@@ -1304,7 +1585,7 @@ watch(chatScrollRef, (newEl, oldEl) => {
                 <div class="right-controls">
                     <!-- 停止按钮：AI 处理过程中显示 -->
                     <button
-                      v-if="isLoading"
+                      v-if="isLoading && !hasInputSendableContent"
                       class="stop-btn-round"
                       @click="interruptMessage"
                       title="停止生成"
@@ -1318,7 +1599,8 @@ watch(chatScrollRef, (newEl, oldEl) => {
                       v-else
                       class="send-btn-round"
                       @click="sendMessage"
-                      :disabled="!inputMessage.trim() || agentStatus !== 'connected'"
+                      :disabled="!hasInputSendableContent || agentStatus !== 'connected' || (isLoading && !!activeQueuedMessage)"
+                      :title="isLoading && activeQueuedMessage ? '已有等待发送消息' : '发送'"
                     >
                         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round">
                             <line x1="12" y1="19" x2="12" y2="5"></line>
@@ -1367,6 +1649,154 @@ watch(chatScrollRef, (newEl, oldEl) => {
       @close="closeLightbox"
     />
   </aside>
+  </transition>
+
+  <transition name="spatial-panel-fade">
+    <aside
+      v-if="activeDraft && props.panelReady && !showScreenshotOverlay"
+      class="spatial-property-panel"
+    >
+      <div class="panel-header">
+        <button class="icon-btn back-btn" @click.stop="cancelSpatialMarking" title="Close Space Mark" :disabled="activeWindow?.isStreaming">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <line x1="19" y1="12" x2="5" y2="12"></line>
+            <polyline points="12 19 5 12 12 5"></polyline>
+          </svg>
+        </button>
+
+        <div class="title">SPACE MARK</div>
+
+        <span class="header-spacer" aria-hidden="true"></span>
+      </div>
+
+      <div class="panel-content">
+        <div class="prop-list">
+          <div class="prop-row">
+            <span class="label">Scope</span>
+            <span class="value readonly-value">{{ draftScopeDisplayText }}</span>
+          </div>
+
+          <div class="prop-row cell-row">
+            <label class="label" for="spatial-cell-size">Cell</label>
+            <div class="cell-stepper">
+              <button
+                class="stepper-btn"
+                title="Decrease cell size"
+                :disabled="activeDraft.isCompleting || activeWindow?.isStreaming || activeDraft.cellSize <= 50"
+                @click.stop="setDraftCellSize(activeDraft.cellSize - 50)"
+              >-</button>
+              <input
+                id="spatial-cell-size"
+                class="cell-stepper-input"
+                type="number"
+                min="50"
+                step="50"
+                :value="activeDraft.cellSize"
+                :disabled="activeDraft.isCompleting || activeWindow?.isStreaming"
+                @change="setDraftCellSize(Number(getEventValue($event)))"
+              />
+              <button
+                class="stepper-btn"
+                title="Increase cell size"
+                :disabled="activeDraft.isCompleting || activeWindow?.isStreaming"
+                @click.stop="setDraftCellSize(activeDraft.cellSize + 50)"
+              >+</button>
+            </div>
+          </div>
+
+          <div class="prop-row intent-row">
+            <label class="label" for="spatial-label">Tag</label>
+            <div class="intent-combo">
+              <input
+                ref="spatialLabelInputRef"
+                id="spatial-label"
+                class="intent-input"
+                :value="activeDraft.label"
+                placeholder="Tag"
+                autocomplete="off"
+                autocapitalize="off"
+                autocorrect="off"
+                spellcheck="false"
+                aria-autocomplete="none"
+                :disabled="activeDraft.isCompleting || activeWindow?.isStreaming"
+                @input="setDraftLabel(getEventValue($event))"
+              />
+              <button
+                class="intent-menu-btn"
+                title="Select preset intent"
+                :class="{ open: isSpatialIntentMenuOpen }"
+                :disabled="activeDraft.isCompleting || activeWindow?.isStreaming"
+                @click.stop="isSpatialIntentMenuOpen = !isSpatialIntentMenuOpen"
+              >
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <polyline points="6 9 12 15 18 9"></polyline>
+                </svg>
+              </button>
+              <div class="intent-menu" v-if="isSpatialIntentMenuOpen">
+                <button
+                  v-for="intent in spatialIntentOptions"
+                  :key="intent"
+                  class="intent-option"
+                  :class="{ active: activeDraft.label === intent }"
+                  @click.stop="selectSpatialIntent(intent)"
+                >
+                  {{ intent }}
+                </button>
+                <div class="intent-actions">
+                  <button
+                    class="intent-action-btn"
+                    title="添加当前 Tag 到预设"
+                    :disabled="!canAddSpatialIntent"
+                    @click.stop="addSpatialIntentOption"
+                  >
+                    +
+                  </button>
+                  <button
+                    class="intent-action-btn"
+                    title="删除当前 Tag 预设"
+                    :disabled="!canDeleteSpatialIntent"
+                    @click.stop="deleteSpatialIntentOption"
+                  >
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                      <path d="M3 6h18"></path>
+                      <path d="M8 6V4h8v2"></path>
+                      <path d="M19 6l-1 14H6L5 6"></path>
+                    </svg>
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div class="prop-row textarea-row">
+            <label class="label" for="spatial-description">Description</label>
+            <textarea
+              id="spatial-description"
+              class="value spatial-input spatial-description"
+              :value="activeDraft.description"
+              placeholder="Description"
+              rows="3"
+              :disabled="activeDraft.isCompleting || activeWindow?.isStreaming"
+              @input="setDraftDescription(getEventValue($event))"
+            ></textarea>
+          </div>
+
+          <div class="prop-row">
+            <span class="label">Selected</span>
+            <span class="value readonly-value">{{ activeDraft.selectedCells.length }} cells</span>
+          </div>
+        </div>
+
+        <div class="spatial-error" v-if="activeDraft.error">{{ activeDraft.error }}</div>
+
+        <div class="panel-actions">
+          <button @click.stop="clearDraftSelection" :disabled="activeDraft.isCompleting || activeWindow?.isStreaming">Clear</button>
+          <button class="primary" @click.stop="completeDraft" :disabled="activeDraft.isCompleting || activeWindow?.isStreaming">
+            {{ activeDraft.isCompleting ? (activeDraft.editingMarkId ? 'Updating...' : 'Merging...') : (activeDraft.editingMarkId ? 'Update' : 'Done') }}
+          </button>
+        </div>
+      </div>
+    </aside>
   </transition>
   </Teleport>
 </template>
@@ -2763,6 +3193,7 @@ watch(chatScrollRef, (newEl, oldEl) => {
         }
     }
 
+    .space-mark-context-btn,
     .add-context-btn {
         display: flex;
         align-items: center;
@@ -2778,11 +3209,23 @@ watch(chatScrollRef, (newEl, oldEl) => {
 
         svg { width: 14px; height: 14px; }
 
-        &:hover {
+        &:hover:not(:disabled) {
             border-color: var(--text-secondary);
             color: var(--text-secondary);
             background: var(--surface-dim);
         }
+
+        &:disabled {
+            opacity: 0.45;
+            cursor: not-allowed;
+        }
+    }
+
+    .space-mark-context-btn.active {
+        border-style: solid;
+        border-color: rgba(10, 132, 255, 0.45);
+        background: rgba(10, 132, 255, 0.12);
+        color: var(--accent-blue);
     }
 }
 
@@ -2851,6 +3294,447 @@ watch(chatScrollRef, (newEl, oldEl) => {
     transform: translateY(-10px);
 }
 
+.spatial-panel-fade-enter-active,
+.spatial-panel-fade-leave-active {
+    transition: opacity 0.3s ease, transform 0.3s ease;
+}
+
+.spatial-panel-fade-enter-from,
+.spatial-panel-fade-leave-to {
+    opacity: 0;
+    transform: translateY(20px) scale(0.95);
+}
+
+.spatial-property-panel {
+    position: fixed;
+    left: 24px;
+    top: 120px;
+    width: min(320px, calc(100vw - 48px));
+    max-height: calc(100vh - 144px);
+
+    background: var(--glass-bg);
+    backdrop-filter: var(--glass-blur);
+    -webkit-backdrop-filter: var(--glass-blur);
+
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    border-radius: 20px;
+
+    background-image: var(--glass-glare), linear-gradient(to bottom, var(--glass-bg), var(--glass-bg));
+    box-shadow:
+        0 12px 40px rgba(0, 0, 0, 0.4),
+        0 0 0 1px rgba(255, 255, 255, 0.1) inset,
+        0 0 20px rgba(255, 255, 255, 0.15);
+
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    z-index: 150;
+
+    .panel-header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 10px 14px;
+        border-bottom: 1px solid var(--border-subtle);
+        flex-shrink: 0;
+
+        .title {
+            font-weight: 600;
+            font-size: 0.84rem;
+            color: var(--text-primary);
+            letter-spacing: 0.5px;
+        }
+
+        .icon-btn,
+        .header-spacer {
+            width: 26px;
+            height: 26px;
+            flex-shrink: 0;
+        }
+
+        .icon-btn {
+            background: transparent;
+            border: none;
+            color: var(--text-secondary);
+            cursor: pointer;
+            padding: 4px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: all 0.2s ease;
+
+            svg {
+                width: 18px;
+                height: 18px;
+            }
+
+            &:hover:not(:disabled) {
+                background: var(--surface-hover);
+                color: var(--text-primary);
+            }
+
+            &:disabled {
+                opacity: 0.45;
+                cursor: not-allowed;
+            }
+        }
+    }
+
+    .panel-content {
+        flex: 1;
+        overflow-y: auto;
+        padding: 10px 14px 12px;
+
+        &::-webkit-scrollbar {
+            width: 4px;
+        }
+
+        &::-webkit-scrollbar-track {
+            background: transparent;
+        }
+
+        &::-webkit-scrollbar-thumb {
+            background: var(--border-strong);
+            border-radius: 2px;
+        }
+    }
+
+    .prop-list {
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+    }
+
+    .prop-row {
+        display: grid;
+        grid-template-columns: 74px minmax(0, 1fr);
+        align-items: center;
+        gap: 8px;
+        font-size: 0.8rem;
+        line-height: 1.4;
+
+        &.textarea-row {
+            grid-template-columns: 1fr;
+            align-items: flex-start;
+            gap: 6px;
+        }
+
+        .label {
+            color: var(--text-secondary);
+            max-width: 100%;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+
+        .value {
+            color: var(--text-primary);
+            text-align: left;
+            min-width: 0;
+            width: 100%;
+            word-break: break-word;
+            white-space: pre-wrap;
+            font-family: var(--font-mono);
+        }
+    }
+
+    .readonly-value {
+        opacity: 0.95;
+        text-align: left;
+    }
+
+    .spatial-input {
+        width: 100%;
+        box-sizing: border-box;
+        border: 1px solid rgba(255, 255, 255, 0.12);
+        border-radius: 6px;
+        background: rgba(0, 0, 0, 0.16);
+        color: var(--text-primary);
+        font: inherit;
+        font-size: 0.78rem;
+        line-height: 1.35;
+        padding: 5px 8px;
+        outline: none;
+
+        &:focus {
+            border-color: rgba(10, 132, 255, 0.55);
+            background: rgba(0, 0, 0, 0.22);
+        }
+
+        &:disabled {
+            opacity: 0.55;
+            cursor: not-allowed;
+        }
+    }
+
+    .spatial-description {
+        min-height: 54px;
+        resize: vertical;
+        text-align: left;
+    }
+
+    .intent-combo {
+        position: relative;
+        width: 116px;
+        min-width: 116px;
+        max-width: 116px;
+        height: 30px;
+        justify-self: start;
+        display: inline-flex;
+        align-items: stretch;
+        border: 1px solid rgba(255, 255, 255, 0.12);
+        border-radius: 6px;
+        background: rgba(0, 0, 0, 0.16);
+        font-family: var(--font-mono);
+
+        &:focus-within {
+            border-color: rgba(10, 132, 255, 0.55);
+            background: rgba(0, 0, 0, 0.22);
+        }
+    }
+
+    .intent-input {
+        width: 86px;
+        min-width: 0;
+        height: 100%;
+        border: none;
+        background: transparent;
+        color: var(--text-primary);
+        font: inherit;
+        font-size: 0.78rem;
+        line-height: 1.35;
+        text-align: center;
+        outline: none;
+        padding: 0 8px;
+
+        &::placeholder {
+            color: var(--text-tertiary);
+        }
+
+        &:disabled {
+            opacity: 0.55;
+            cursor: not-allowed;
+        }
+    }
+
+    .intent-menu-btn {
+        width: 30px;
+        height: 100%;
+        border: none;
+        border-left: 1px solid rgba(255, 255, 255, 0.08);
+        background: transparent;
+        color: var(--text-secondary);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        cursor: pointer;
+        padding: 0;
+
+        svg {
+            width: 14px;
+            height: 14px;
+            transition: transform 0.2s ease;
+        }
+
+        &.open svg {
+            transform: rotate(180deg);
+        }
+
+        &:hover:not(:disabled) {
+            background: rgba(255, 255, 255, 0.08);
+            color: var(--text-primary);
+        }
+
+        &:disabled {
+            opacity: 0.45;
+            cursor: not-allowed;
+        }
+    }
+
+    .intent-menu {
+        position: absolute;
+        left: 0;
+        top: calc(100% + 4px);
+        width: 100%;
+        z-index: 20;
+        padding: 4px;
+        display: flex;
+        flex-direction: column;
+        gap: 2px;
+        border: 1px solid rgba(255, 255, 255, 0.12);
+        border-radius: 8px;
+        background: rgba(20, 20, 20, 0.96);
+        box-shadow: 0 10px 28px rgba(0, 0, 0, 0.45);
+
+        button {
+            border: none;
+            border-radius: 5px;
+            background: transparent;
+            color: var(--text-secondary);
+            cursor: pointer;
+            font: inherit;
+            font-size: 0.76rem;
+            text-align: left;
+            padding: 5px 7px;
+
+            &:hover,
+            &.active {
+                background: rgba(255, 255, 255, 0.08);
+                color: var(--text-primary);
+            }
+        }
+
+        .intent-actions {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 4px;
+            margin-top: 3px;
+            padding-top: 4px;
+            border-top: 1px solid rgba(255, 255, 255, 0.08);
+        }
+
+        .intent-action-btn {
+            height: 24px;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            padding: 0;
+            text-align: center;
+
+            svg {
+                width: 13px;
+                height: 13px;
+            }
+
+            &:disabled {
+                opacity: 0.35;
+                cursor: not-allowed;
+            }
+
+            &:hover:disabled {
+                background: transparent;
+                color: var(--text-secondary);
+            }
+        }
+    }
+
+    .cell-stepper {
+        width: 116px;
+        min-width: 116px;
+        max-width: 116px;
+        height: 28px;
+        justify-self: start;
+        display: inline-flex;
+        align-items: center;
+        overflow: hidden;
+        border: 1px solid rgba(255, 255, 255, 0.12);
+        border-radius: 6px;
+        background: rgba(0, 0, 0, 0.16);
+        font-family: var(--font-mono);
+
+        &:focus-within {
+            border-color: rgba(10, 132, 255, 0.55);
+            background: rgba(0, 0, 0, 0.22);
+        }
+    }
+
+    .stepper-btn {
+        width: 28px;
+        height: 100%;
+        border: none;
+        background: transparent;
+        color: var(--text-secondary);
+        cursor: pointer;
+        font: inherit;
+        font-size: 0.85rem;
+        line-height: 1;
+        padding: 0;
+
+        &:hover:not(:disabled) {
+            background: rgba(255, 255, 255, 0.08);
+            color: var(--text-primary);
+        }
+
+        &:disabled {
+            opacity: 0.35;
+            cursor: not-allowed;
+        }
+    }
+
+    .cell-stepper-input {
+        width: 60px;
+        height: 100%;
+        min-width: 0;
+        border: none;
+        border-left: 1px solid rgba(255, 255, 255, 0.08);
+        border-right: 1px solid rgba(255, 255, 255, 0.08);
+        background: transparent;
+        color: var(--text-primary);
+        font: inherit;
+        font-size: 0.78rem;
+        font-weight: 600;
+        text-align: center;
+        outline: none;
+        padding: 0 4px;
+        appearance: textfield;
+
+        &::-webkit-outer-spin-button,
+        &::-webkit-inner-spin-button {
+            margin: 0;
+            appearance: none;
+        }
+
+        &:disabled {
+            opacity: 0.55;
+            cursor: not-allowed;
+        }
+    }
+
+    input[type='number'].spatial-input {
+        text-align: right;
+    }
+
+    .spatial-error {
+        color: #ffb4a8;
+        font-size: 0.74rem;
+        margin-top: 10px;
+    }
+
+    .panel-actions {
+        display: flex;
+        justify-content: flex-end;
+        gap: 8px;
+        margin-top: 10px;
+
+        button {
+            border: 1px solid rgba(255, 255, 255, 0.14);
+            border-radius: 6px;
+            background: rgba(255, 255, 255, 0.06);
+            color: var(--text-secondary);
+            cursor: pointer;
+            font-size: 0.74rem;
+            padding: 5px 9px;
+
+            &.primary {
+                background: rgba(10, 132, 255, 0.18);
+                border-color: rgba(10, 132, 255, 0.42);
+                color: var(--accent-blue);
+            }
+
+            &:hover:not(:disabled) {
+                background: rgba(255, 255, 255, 0.1);
+                color: var(--text-primary);
+            }
+
+            &:disabled {
+                opacity: 0.55;
+                cursor: not-allowed;
+            }
+        }
+    }
+}
+
 /* --- Antigravity Input Box --- */
 /* --- Antigravity Input Box --- */
 .antigravity-input-box {
@@ -2876,6 +3760,334 @@ watch(chatScrollRef, (newEl, oldEl) => {
             inset 0 0 0 0.5px rgba(255, 255, 255, 0.2), /* Brighter border */
             inset 0 1px 0 rgba(255, 255, 255, 0.1),
             0 8px 32px rgba(0, 0, 0, 0.4);
+    }
+
+    .spatial-mark-panel {
+        margin: 10px 10px 6px;
+        padding: 10px;
+        border-radius: 8px;
+        border: 1px solid rgba(10, 132, 255, 0.28);
+        background: rgba(10, 132, 255, 0.08);
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+    }
+
+    .spatial-mark-header,
+    .spatial-mark-footer,
+    .pending-spatial-main {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 8px;
+    }
+
+    .spatial-mark-header {
+        color: var(--text-primary);
+        font-size: 0.78rem;
+        font-weight: 600;
+    }
+
+    .spatial-mark-row {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) 88px;
+        gap: 8px;
+    }
+
+    .spatial-input {
+        min-width: 0;
+        width: 100%;
+        box-sizing: border-box;
+        border: 1px solid rgba(255, 255, 255, 0.12);
+        border-radius: 6px;
+        background: rgba(0, 0, 0, 0.16);
+        color: var(--text-primary);
+        font: inherit;
+        font-size: 0.78rem;
+        line-height: 1.35;
+        padding: 7px 8px;
+        outline: none;
+
+        &:focus {
+            border-color: rgba(10, 132, 255, 0.55);
+            background: rgba(0, 0, 0, 0.22);
+        }
+
+        &:disabled {
+            opacity: 0.55;
+            cursor: not-allowed;
+        }
+    }
+
+    .spatial-scope-label {
+        min-width: 0;
+        border: 1px solid rgba(255, 255, 255, 0.12);
+        border-radius: 6px;
+        background: rgba(0, 0, 0, 0.16);
+        color: var(--text-primary);
+        font-size: 0.78rem;
+        line-height: 1.35;
+        padding: 7px 8px;
+    }
+
+    .spatial-description {
+        max-height: 72px;
+        resize: vertical;
+        padding: 7px 8px;
+        background: rgba(0, 0, 0, 0.16);
+        border: 1px solid rgba(255, 255, 255, 0.12);
+        border-radius: 6px;
+        color: var(--text-primary);
+    }
+
+    .spatial-mark-footer {
+        color: var(--text-secondary);
+        font-size: 0.74rem;
+    }
+
+    .spatial-actions {
+        display: flex;
+        gap: 6px;
+
+        button {
+            border: 1px solid rgba(255, 255, 255, 0.14);
+            border-radius: 6px;
+            background: rgba(255, 255, 255, 0.06);
+            color: var(--text-secondary);
+            cursor: pointer;
+            font-size: 0.74rem;
+            padding: 5px 8px;
+
+            &.primary {
+                background: rgba(10, 132, 255, 0.18);
+                border-color: rgba(10, 132, 255, 0.42);
+                color: var(--accent-blue);
+            }
+
+            &:disabled {
+                opacity: 0.55;
+                cursor: not-allowed;
+            }
+        }
+    }
+
+    .spatial-icon-btn,
+    .remove-spatial-mark {
+        width: 22px;
+        height: 22px;
+        border: none;
+        border-radius: 6px;
+        background: rgba(255, 255, 255, 0.06);
+        color: var(--text-tertiary);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        cursor: pointer;
+        padding: 0;
+
+        svg {
+            width: 13px;
+            height: 13px;
+        }
+
+        &:hover:not(:disabled) {
+            background: rgba(255, 255, 255, 0.1);
+            color: var(--text-primary);
+        }
+
+        &:disabled {
+            opacity: 0.45;
+            cursor: not-allowed;
+        }
+    }
+
+    .spatial-error {
+        color: #ffb4a8;
+        font-size: 0.74rem;
+    }
+
+    .queued-message-card {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) auto;
+        align-items: center;
+        gap: 8px;
+        margin: 8px 10px 2px;
+        padding: 7px 8px;
+        border-radius: 8px;
+        background: rgba(255, 255, 255, 0.055);
+        border: 1px solid rgba(255, 255, 255, 0.1);
+        box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04);
+    }
+
+    .queued-message-main {
+        min-width: 0;
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        color: rgba(255, 255, 255, 0.62);
+        font-size: 0.76rem;
+    }
+
+    .queued-message-status {
+        flex: 0 0 auto;
+        color: rgba(255, 255, 255, 0.42);
+        font-size: 0.68rem;
+        font-weight: 500;
+        white-space: nowrap;
+    }
+
+    .queued-message-text {
+        min-width: 0;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+
+    .queued-message-meta {
+        flex: 0 0 auto;
+        display: inline-flex;
+        align-items: center;
+        gap: 3px;
+        color: rgba(255, 255, 255, 0.42);
+        font-size: 0.68rem;
+
+        svg {
+            width: 12px;
+            height: 12px;
+        }
+    }
+
+    .queued-message-actions {
+        display: flex;
+        align-items: center;
+        gap: 3px;
+    }
+
+    .queued-action {
+        width: 24px;
+        height: 24px;
+        border: none;
+        border-radius: 6px;
+        background: transparent;
+        color: rgba(255, 255, 255, 0.46);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        cursor: pointer;
+        padding: 0;
+        transition: background 0.15s ease, color 0.15s ease;
+
+        svg {
+            width: 14px;
+            height: 14px;
+        }
+
+        &:hover:not(:disabled) {
+            background: rgba(255, 255, 255, 0.09);
+            color: rgba(255, 255, 255, 0.82);
+        }
+
+        &.danger:hover:not(:disabled) {
+            color: #ff8a80;
+            background: rgba(255, 59, 48, 0.12);
+        }
+
+        &:disabled {
+            opacity: 0.32;
+            cursor: not-allowed;
+        }
+    }
+
+    .pending-spatial-marks {
+        display: flex;
+        flex-direction: column;
+        gap: 4px;
+        padding: 8px 10px 4px;
+    }
+
+    .pending-spatial-mark {
+        position: relative;
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) auto;
+        column-gap: 6px;
+        row-gap: 2px;
+        padding: 6px 7px;
+        border-radius: 7px;
+        background: rgba(52, 199, 89, 0.08);
+        border: 1px solid rgba(52, 199, 89, 0.22);
+    }
+
+    .pending-spatial-main {
+        grid-column: 1;
+        min-width: 0;
+
+        span {
+            color: var(--text-tertiary);
+            font-size: 0.66rem;
+            white-space: nowrap;
+        }
+    }
+
+    .pending-spatial-label,
+    .pending-spatial-description {
+        min-width: 0;
+        border: none;
+        outline: none;
+        background: transparent;
+        color: var(--text-primary);
+        font: inherit;
+    }
+
+    .pending-spatial-label {
+        font-size: 0.76rem;
+        font-weight: 600;
+    }
+
+    .pending-spatial-description {
+        grid-column: 1;
+        color: var(--text-secondary);
+        font-size: 0.68rem;
+        line-height: 1.2;
+    }
+
+    .pending-spatial-actions {
+        grid-column: 2;
+        grid-row: 1 / span 2;
+        align-self: center;
+        justify-self: end;
+        display: flex;
+        align-items: center;
+        gap: 4px;
+    }
+
+    .edit-spatial-mark {
+        width: 22px;
+        height: 22px;
+        border: 1px solid rgba(52, 199, 89, 0.28);
+        border-radius: 6px;
+        background: rgba(52, 199, 89, 0.08);
+        color: rgba(210, 255, 222, 0.78);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        cursor: pointer;
+        padding: 0;
+
+        svg {
+            width: 12px;
+            height: 12px;
+        }
+
+        &:hover:not(:disabled) {
+            background: rgba(52, 199, 89, 0.14);
+            border-color: rgba(52, 199, 89, 0.4);
+            color: var(--text-primary);
+        }
+
+        &:disabled {
+            opacity: 0.45;
+            cursor: not-allowed;
+        }
     }
 
     .pending-attachments {

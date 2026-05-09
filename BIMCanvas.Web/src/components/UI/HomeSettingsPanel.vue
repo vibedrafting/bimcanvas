@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref, watch } from 'vue'
-import { SettingsService } from '../../services/SettingsService'
+import { SettingsService, type LlmEndpointTestResult } from '../../services/SettingsService'
 import { SERVER_BASE } from '../../config/api'
 import GlassButton from './base/GlassButton.vue'
 import GlassSelect from './base/GlassSelect.vue'
@@ -106,6 +106,10 @@ const showSecrets = ref(false)
 const saveMessage = ref<string | null>(null)
 const saveError = ref<string | null>(null)
 const loadError = ref<string | null>(null)
+const isClaudeTesting = ref(false)
+const isOpenAiTesting = ref(false)
+const claudeTestResult = ref<LlmEndpointTestResult | null>(null)
+const openAiTestResult = ref<LlmEndpointTestResult | null>(null)
 const showRestartDialog = ref(false)
 const pendingRestartGroups = ref<string[]>([])
 const isMounted = ref(false)
@@ -697,6 +701,95 @@ function confirmRestart() {
   handleRestart()
 }
 
+function resolveModelId(provider: ProviderKey, alias: string) {
+  const mapping = provider === 'openai'
+    ? drafts.agent.values.openai?.modelMapping
+    : drafts.agent.values.claude?.modelMapping
+  const entry = isPlainObject(mapping?.[alias]) ? mapping[alias] : null
+  const id = entry && typeof entry.id === 'string' ? entry.id.trim() : ''
+  return id || alias
+}
+
+async function handleConnectionTest(provider: ProviderKey) {
+  const isClaude = provider === 'claude'
+  const baseUrl = isClaude
+    ? String(drafts.agent.values.claude?.baseUrl ?? '').trim()
+    : String(drafts.agent.values.openai?.baseUrl ?? '').trim()
+  const apiKey = isClaude
+    ? String(drafts.agent.values.claude?.apiKey ?? '')
+    : String(drafts.agent.values.openai?.apiKey ?? '')
+  const alias = readDefaultModel(provider)
+  const model = resolveModelId(provider, alias)
+  const apiMode = isClaude ? null : drafts.agent.values.openai?.apiMode ?? null
+
+  const flag = isClaude ? isClaudeTesting : isOpenAiTesting
+  const slot = isClaude ? claudeTestResult : openAiTestResult
+
+  if (flag.value) {
+    return
+  }
+  if (!baseUrl || !apiKey) {
+    return
+  }
+
+  flag.value = true
+  slot.value = null
+  try {
+    slot.value = await SettingsService.testLlmEndpoint({
+      runtimeProvider: provider,
+      baseUrl,
+      apiKey,
+      model,
+      apiMode
+    })
+  } catch (err: any) {
+    slot.value = {
+      success: false,
+      latencyMs: 0,
+      statusCode: null,
+      errorType: 'unknown',
+      errorMessage: err?.message ?? '请求失败',
+      sampleResponseSnippet: '',
+      requestUrl: baseUrl
+    }
+  } finally {
+    flag.value = false
+  }
+}
+
+function describeTestResult(result: LlmEndpointTestResult | null) {
+  if (!result) return ''
+  if (result.success) {
+    const latency = result.latencyMs > 0 ? ` (${result.latencyMs} ms)` : ''
+    const snippet = result.sampleResponseSnippet
+      ? `，回复：「${result.sampleResponseSnippet}」`
+      : ''
+    return `✓ 端点正常${latency}${snippet}`
+  }
+  const code = result.statusCode ? ` ${result.statusCode}` : ''
+  switch (result.errorType) {
+    case 'auth_failed':
+      return `✗ 认证失败${code}，检查 apiKey`
+    case 'timeout':
+      return '✗ 端点 15 秒未响应（服务端排队/吊死，与认证无关）'
+    case 'network_unreachable':
+      return `✗ 无法连接 ${result.requestUrl || ''}（DNS / 网络问题）`
+    case 'rate_limited':
+      return `✗ 触发限流${code}`
+    case 'server_error':
+      return `✗ 服务端错误${code}`
+    case 'bad_request':
+      return `✗ 请求被拒${code}：${result.errorMessage || '未知原因'}`
+    default:
+      return `✗ ${result.errorType}：${result.errorMessage || '未知错误'}`
+  }
+}
+
+function testResultDetail(result: LlmEndpointTestResult | null) {
+  if (!result) return ''
+  return JSON.stringify(result, null, 2)
+}
+
 onMounted(() => {
   isMounted.value = true
   loadSettings()
@@ -947,6 +1040,26 @@ onMounted(() => {
                       </div>
                     </div>
                   </div>
+
+                  <div class="diag-link-row">
+                    <a
+                      href="javascript:void(0)"
+                      class="diag-link"
+                      :class="{ disabled: isClaudeTesting || !drafts.agent.values.claude?.baseUrl || !drafts.agent.values.claude?.apiKey }"
+                      @click="handleConnectionTest('claude')"
+                    >· {{ isClaudeTesting ? '检测中…' : '检测当前连接' }}</a>
+                  </div>
+                  <div
+                    v-if="claudeTestResult"
+                    class="alert"
+                    :class="claudeTestResult.success ? 'alert-success' : 'alert-error'"
+                  >
+                    {{ describeTestResult(claudeTestResult) }}
+                    <details class="diag-detail">
+                      <summary>详情</summary>
+                      <pre>{{ testResultDetail(claudeTestResult) }}</pre>
+                    </details>
+                  </div>
                 </section>
 
                 <section class="inner-subcard">
@@ -1040,6 +1153,26 @@ onMounted(() => {
                         </button>
                       </div>
                     </div>
+                  </div>
+
+                  <div class="diag-link-row">
+                    <a
+                      href="javascript:void(0)"
+                      class="diag-link"
+                      :class="{ disabled: isOpenAiTesting || !drafts.agent.values.openai?.baseUrl || !drafts.agent.values.openai?.apiKey }"
+                      @click="handleConnectionTest('openai')"
+                    >· {{ isOpenAiTesting ? '检测中…' : '检测当前连接' }}</a>
+                  </div>
+                  <div
+                    v-if="openAiTestResult"
+                    class="alert"
+                    :class="openAiTestResult.success ? 'alert-success' : 'alert-error'"
+                  >
+                    {{ describeTestResult(openAiTestResult) }}
+                    <details class="diag-detail">
+                      <summary>详情</summary>
+                      <pre>{{ testResultDetail(openAiTestResult) }}</pre>
+                    </details>
                   </div>
 
                   <div class="form-grid mt-md">
@@ -1465,6 +1598,14 @@ hr { border: none; }
 .alert-error { background: rgba(239, 68, 68, 0.1); border-color: rgba(239, 68, 68, 0.2); color: #ef4444; }
 .alert-warning { background: rgba(234, 179, 8, 0.1); border-color: rgba(234, 179, 8, 0.2); color: #fde047; }
 .alert-success { background: rgba(34, 197, 94, 0.1); border-color: rgba(34, 197, 94, 0.2); color: #4ade80; }
+
+.diag-link-row { text-align: center; margin: 8px 0 4px; }
+.diag-link { font-size: 12px; color: var(--zinc-500); text-decoration: none; opacity: 0.7; cursor: pointer; letter-spacing: 0.02em; }
+.diag-link:hover { opacity: 1; text-decoration: underline; }
+.diag-link.disabled { pointer-events: none; opacity: 0.35; }
+.diag-detail { margin-top: 6px; font-size: 11px; }
+.diag-detail summary { cursor: pointer; opacity: 0.7; user-select: none; }
+.diag-detail pre { font-size: 11px; max-height: 240px; overflow: auto; margin: 6px 0 0; padding: 8px; background: rgba(255, 255, 255, 0.04); border-radius: 4px; white-space: pre-wrap; word-break: break-all; }
 
 .inline-alert { display: flex; gap: 12px; padding: 12px 16px; border-radius: var(--radius-md); font-size: 13px; line-height: 1.5; }
 .inline-alert svg { width: 18px; height: 18px; flex-shrink: 0; margin-top: 1px; }

@@ -1,13 +1,16 @@
 import { defineStore } from 'pinia';
 import { ref, computed, nextTick } from 'vue';
 import type { ProjectData, Module, Wall, Column, Opening } from '../types/canvas';
-import axios from 'axios';
+import { StrategyApproach, StrategyStatus } from '../types/canvas';
 import { TimelineManager } from '../services/state/TimelineManager';
-import { SignalRService } from '../services/SignalRService';
 import { useDebugStore } from './debugStore';
 import { ChangeSource, ChangeType, type LoadOptions } from '../types/history';
-import { SERVER_API } from '../config/api';
+import { moduleLibraryService } from '../services/ModuleLibraryService';
+import { getWebRuntime } from '../runtime/runtimeRegistry';
+import { supports } from '../runtime/WebRuntimeProtocol';
+import { SchemeService } from '../services/SchemeService';
 export const useCanvasStore = defineStore('canvas', () => {
+    const runtime = getWebRuntime();
     // === 核心状态 ===
     const projectData = ref<ProjectData | null>(null);
     const isLoading = ref(false);
@@ -129,25 +132,162 @@ export const useCanvasStore = defineStore('canvas', () => {
     const debugMsg = ref<string>('');
 
     const timeline = new TimelineManager();
-    const signalR = SignalRService.getInstance();
     const debugStore = useDebugStore();
 
-    // Initialize SignalR
-    signalR.start();
+    const dispatchLocalUpdate = (detail: Record<string, unknown>) => {
+        if (supports(runtime.capabilities.realtimeProjectSync)) {
+            window.dispatchEvent(new CustomEvent('bimcanvas:local-update', { detail }));
+        }
+    };
+
+    // === module-relocation-agent 变体方案 ===
+    // activeVariantByZone：当前每个叶子分区显示哪一份 modules（null/缺失 = canonical）
+    // 仅存内存，刷新页面 / 重启 Web 都重置为 canonical（不写 project.json）。
+    interface ActiveVariantState {
+        variantId: string;
+        leafZonePath: string;
+    }
+    const activeVariantByZone = ref<Map<string, ActiveVariantState>>(new Map());
+
+    // canonical 快照：在每次 applyProjectData 时记录服务端发回的 canonical modules，
+    // 切换/取消变体时基于该快照重组 projectData.activeScheme.modules，避免反复打服务端。
+    const canonicalModulesSnapshot = ref<Module[] | null>(null);
+
+    function getActiveVariant(leafZoneId: string): string | null {
+        return activeVariantByZone.value.get(leafZoneId)?.variantId ?? null;
+    }
+
+    /**
+     * 切换某叶子分区的活跃变体。
+     * - variantId 为空 → 还原 canonical
+     * - variantId 非空 → 拉变体 modules，替换该 zone 的 canonical 内容
+     * 任一情况均会重算 projectData.activeScheme.modules（基于 canonical 快照 + 当前 active map）
+     */
+    async function setActiveVariant(
+        leafZoneId: string,
+        leafZonePath: string,
+        variantId: string | null
+    ): Promise<void> {
+        if (!variantId) {
+            if (activeVariantByZone.value.has(leafZoneId)) {
+                activeVariantByZone.value.delete(leafZoneId);
+                activeVariantByZone.value = new Map(activeVariantByZone.value);
+                await recomputeDisplayModules();
+            }
+            return;
+        }
+        if (!leafZonePath) {
+            debugStore.warn(`[Store] setActiveVariant: leafZonePath 不能为空 (zone=${leafZoneId})`);
+            return;
+        }
+        activeVariantByZone.value.set(leafZoneId, { variantId, leafZonePath });
+        activeVariantByZone.value = new Map(activeVariantByZone.value);
+        await recomputeDisplayModules();
+    }
+
+    async function clearActiveVariant(leafZoneId: string): Promise<void> {
+        if (activeVariantByZone.value.has(leafZoneId)) {
+            activeVariantByZone.value.delete(leafZoneId);
+            activeVariantByZone.value = new Map(activeVariantByZone.value);
+            await recomputeDisplayModules();
+        }
+    }
+
+    /**
+     * 基于 canonical 快照 + 当前 activeVariantByZone 重组 projectData.activeScheme.modules。
+     * 流程：(1) 从 canonical 中过滤掉所有"有 active 变体"的叶子分区的模块；
+     *      (2) 拉取每个 active 变体的 modules，逐 zone append；
+     *      (3) 写回 projectData.activeScheme.modules，触发响应式刷新。
+     * 任一变体拉取失败 → 从 active map 中静默丢弃，回退到该 zone 的 canonical。
+     */
+    async function recomputeDisplayModules(): Promise<void> {
+        if (!projectData.value || !projectData.value.activeScheme) return;
+        if (canonicalModulesSnapshot.value === null) return;
+
+        const activeMap = activeVariantByZone.value;
+        const activeZoneIds = new Set(activeMap.keys());
+
+        // (1) canonical 过滤：保留非 active zone 的模块
+        const baseModules = canonicalModulesSnapshot.value.filter(
+            m => !activeZoneIds.has(m.zoneId ?? '')
+        );
+
+        // (2) 拉每个变体并合并
+        const variantBlocks: Module[][] = [];
+        const failedZones: string[] = [];
+        for (const [leafZoneId, state] of Array.from(activeMap.entries())) {
+            try {
+                const resp = await SchemeService.getModules('main', {
+                    leafZonePath: state.leafZonePath,
+                    variantId: state.variantId
+                });
+                const variantModules = (resp.modules ?? []).map(m => ({
+                    ...m,
+                    zoneId: (m as any).zoneId ?? leafZoneId
+                })) as Module[];
+                variantBlocks.push(variantModules);
+            } catch (err: any) {
+                debugStore.warn(`[Store] 变体加载失败 zone=${leafZoneId} variant=${state.variantId}: ${err?.message ?? err}`);
+                failedZones.push(leafZoneId);
+            }
+        }
+        for (const z of failedZones) activeMap.delete(z);
+        if (failedZones.length > 0) {
+            activeVariantByZone.value = new Map(activeMap);
+        }
+
+        // (3) 写回（使用展开避免 reactive 丢失）
+        projectData.value.activeScheme.modules = [
+            ...baseModules,
+            ...variantBlocks.flat()
+        ];
+    }
+
+    /**
+     * 判定一个 SignalR 文件名是否属于 module-relocation-agent 的变体侧链
+     * （modules-alt-*.json / modules-alt-*.meta.json）。
+     * 这类文件不应触发整个 canvas 数据刷新——只通知变体切换器 refetch /api/scheme/variants。
+     */
+    function isVariantSidecarFile(fileName: string | undefined): boolean {
+        if (!fileName) return false;
+        return fileName.toLowerCase().startsWith('modules-alt-')
+            && fileName.toLowerCase().endsWith('.json');
+    }
 
     // 监听 Server 推送的文件变化事件（文件驱动架构的核心链路）
-    window.addEventListener('bimcanvas:server-update', async (e: any) => {
+    if (supports(runtime.capabilities.realtimeProjectSync)) {
+      window.addEventListener('bimcanvas:server-update', async (e: any) => {
         const data = e.detail;
         debugStore.log(`[Store] 收到服务端更新: ${JSON.stringify(data)}`);
+
+        const fileName = data.file as string | undefined;
+
+        // 变体侧链：modules-alt-{n}.json / modules-alt-{n}.meta.json
+        // 不重载整个项目，只广播给变体切换器
+        if (isVariantSidecarFile(fileName)) {
+            debugStore.log(`[Store] 变体文件变化，分发给切换器: ${fileName}`);
+            window.dispatchEvent(new CustomEvent('bimcanvas:variant-files-changed', {
+                detail: { file: fileName, trigger: data.trigger }
+            }));
+            return;
+        }
 
         if (data.action === 'reload') {
             const trigger = data.trigger as string | undefined;
 
+            // 采纳变体后服务端会发 trigger=variant-adopt 并附带 file=modules.json
+            // 此时被采纳的叶子分区的 active 状态应清空回 canonical
+            if (trigger === 'variant-adopt') {
+                activeVariantByZone.value.clear();
+                activeVariantByZone.value = new Map(activeVariantByZone.value);
+                debugStore.log('[Store] 变体已采纳，清空所有 activeVariantByZone 并重载 canonical');
+            }
+
             // Agent/重连/手动触发的更新：重置 skip 计数器，确保更新不被跳过
-            if (trigger === 'agent' || trigger === 'reconnect' || trigger === 'manual') {
+            if (trigger === 'agent' || trigger === 'reconnect' || trigger === 'manual' || trigger === 'variant-adopt') {
                 pendingServerSyncSkips = 0;
                 debugStore.log(`[Store] 显式触发 (${trigger})，重置 skip 计数器`);
-            } else if (data.file === 'modules.json' && pendingServerSyncSkips > 0) {
+            } else if (fileName === 'modules.json' && pendingServerSyncSkips > 0) {
                 // 仅 FileSystemWatcher 触发的普通更新才走 skip 逻辑
                 pendingServerSyncSkips -= 1;
                 debugStore.log('[Store] 跳过本地写入触发的 ServerSync');
@@ -158,7 +298,8 @@ export const useCanvasStore = defineStore('canvas', () => {
             debugStore.log(`[Store] 触发数据重载 (preserveView=true, trigger=${trigger || 'watcher'})`);
             await syncFromServer({ description: 'Server file changed', metadata: { trigger: trigger || 'watcher' } });
         }
-    });
+      });
+    }
 
     const agentConnectionState = ref<'Connected' | 'Disconnected' | 'Reconnecting'>('Disconnected');
     const currentOperation = ref<string | null>(null);
@@ -173,6 +314,15 @@ export const useCanvasStore = defineStore('canvas', () => {
 
     // 批量更新模式
     const batchUpdateMode = ref(false);
+
+    // 当前 PlaceTool 期望的尺寸 + 上下文（仅会话内，不持久化）。
+    // - moduleId：让 PlacementSizeBar 反查 morphology 决定输入控件形态；
+    // - width/depth：用户在 PlacementSizeBar 调整后的当前值，PlaceTool 实时读取重画预览 + 落库。
+    // PlaceTool.activate 写入；deactivate 清为 null。
+    const placementSize = ref<{ moduleId: string; width: number; depth: number } | null>(null);
+    const setPlacementSize = (size: { moduleId: string; width: number; depth: number } | null) => {
+        placementSize.value = size;
+    };
 
     const updateHistoryState = () => {
         canUndo.value = timeline.canUndo;
@@ -189,25 +339,127 @@ export const useCanvasStore = defineStore('canvas', () => {
         }
     };
 
-    // === 核心加载方法：从 Server 获取当前项目（单项目模式：无需路径参数）===
-    /**
-     * 加载项目数据
-     * @param preserveView 是否保持当前视图（用于分支切换时不重置缩放/位置）
-     */
-    /**
-     * 从 Server 加载项目数据 - 统一入口
-     *
-     * @param options 加载选项（支持 ChangeSource 简写）
-     * @returns 加载是否成功
-     */
-    const loadProject = async (options: LoadOptions | ChangeSource): Promise<boolean> => {
-        // 兼容简写参数
-        const opts: LoadOptions = typeof options === 'string'
-            ? { source: options }
-            : options;
+    const normalizeLoadOptions = (options: LoadOptions | ChangeSource): LoadOptions =>
+        typeof options === 'string' ? { source: options } : options;
 
-        // 智能决策：是否保留历史/视图
+    const createId = (prefix: string): string => {
+        const random = Math.random().toString(36).slice(2, 10);
+        return `${prefix}_${Date.now().toString(36)}_${random}`;
+    };
+
+    const createBlankProjectData = (name: string): ProjectData => {
+        const now = new Date().toISOString();
+        const projectId = createId('project');
+        const schemeId = 'default';
+        const baselineHash = 'standalone-empty';
+
+        return {
+            project: {
+                id: projectId,
+                name,
+                version: '3.0',
+                createdAt: now,
+                updatedAt: now,
+                coordinateSystem: 'cartesian_mm_yUp',
+                activeSchemeId: schemeId,
+                schemes: [
+                    { id: schemeId, path: './schemes', name: '默认方案' }
+                ]
+            },
+            baseline: {
+                metadata: {
+                    placementElevation: 3000,
+                    origin: [0, 0, 0],
+                    rotation: 0,
+                    baselineHash
+                },
+                walls: [],
+                columns: [],
+                openings: [],
+                rooms: [],
+                locationLines: []
+            },
+            activeScheme: {
+                strategy: {
+                    id: schemeId,
+                    name: '默认方案',
+                    approach: StrategyApproach.Custom,
+                    description: 'Standalone 空白项目',
+                    createdAt: now,
+                    updatedAt: now,
+                    lastValidatedBaselineHash: baselineHash,
+                    status: StrategyStatus.Dirty
+                },
+                zones: [],
+                finishes: [],
+                modules: []
+            },
+            computed: {
+                roomZones: [],
+                exclusions: []
+            }
+        };
+    };
+
+    const refreshModuleLibrary = async () => {
+        try {
+            await moduleLibraryService.reload();
+        } catch (moduleError) {
+            debugStore.warn(`[Store] Module library reload failed: ${moduleError}`);
+        }
+    };
+
+    const applyProjectData = async (data: ProjectData, opts: LoadOptions): Promise<void> => {
         const preserveHistory = opts.preserveHistory ?? timeline.shouldPreserveHistory(opts.source);
+
+        projectData.value = data;
+        isDirty.value = false;
+        sceneDataCache.clear();
+
+        // 保存 canonical modules 快照供变体切换器使用（深拷贝，避免后续 swap 污染原始数据）
+        const canonicalModules = data.activeScheme?.modules ?? [];
+        canonicalModulesSnapshot.value = canonicalModules.length > 0
+            ? JSON.parse(JSON.stringify(canonicalModules)) as Module[]
+            : [];
+
+        // 如果还有活跃变体（in-session SignalR 重载场景），重新应用
+        if (activeVariantByZone.value.size > 0) {
+            await recomputeDisplayModules();
+        }
+
+        await refreshModuleLibrary();
+
+        if (!preserveHistory && timeline.shouldClearHistory(opts.source)) {
+            debugStore.log('[Store] Clearing history due to source type');
+            timeline.clear();
+        }
+
+        timeline.push(data, opts.source, {
+            description: opts.description || `Load from ${opts.source}`,
+            metadata: opts.metadata
+        });
+
+        updateHistoryState();
+
+        debugStore.success(`[Store] Project loaded: ${data.project?.name || 'Unknown'}`);
+        debugStore.log(`  - Walls: ${data.baseline?.walls?.length || 0}`);
+        debugStore.log(`  - Rooms: ${data.baseline?.rooms?.length || 0}`);
+        debugStore.log(`  - Zones: ${data.activeScheme?.zones?.length || 0}`);
+        debugStore.log(`  - Modules: ${data.activeScheme?.modules?.length || 0}`);
+
+        const zoneErrors = data.activeScheme?.zoneErrors;
+        if (zoneErrors && zoneErrors.length > 0) {
+          debugStore.warn(`[Store] ZoneErrors: ${JSON.stringify(zoneErrors)}`);
+          zoneErrors.forEach(e => {
+            window.dispatchEvent(new CustomEvent('bimcanvas:agent-notification', {
+              detail: { type: 'warning', title: `分区 ${e.zoneId} 数据损坏`, message: e.message }
+            }));
+          });
+        }
+    };
+
+    const loadInitialProject = async (options: LoadOptions | ChangeSource): Promise<boolean> => {
+        const opts = normalizeLoadOptions(options);
         const preserveView = opts.preserveView ?? timeline.shouldPreserveView(opts.source);
 
         isLoading.value = true;
@@ -215,66 +467,68 @@ export const useCanvasStore = defineStore('canvas', () => {
         preserveViewOnLoad.value = preserveView;
 
         try {
-            debugStore.log(`[Store] Loading project... ${JSON.stringify({
+            debugStore.log(`[Store] Loading project from ${runtime.mode} runtime... ${JSON.stringify({
                 source: opts.source,
-                preserveHistory,
                 preserveView
             })}`);
 
-            // 从 Server 获取数据
-            const response = await axios.get<ProjectData>(`${SERVER_API}/project`);
-            projectData.value = response.data;
-            isDirty.value = false;
-            sceneDataCache.clear(); // 数据已刷新，清理 Scene 降级缓存
-
-            // 历史管理策略
-            if (timeline.shouldClearHistory(opts.source)) {
-                debugStore.log('[Store] Clearing history due to source type');
-                timeline.clear();
+            const data = await runtime.loadInitialProject();
+            if (!data) {
+                debugStore.log('[Store] Runtime has no initial project');
+                return false;
             }
 
-            // 保存快照
-            timeline.push(response.data, opts.source, {
-                description: opts.description || `Load from ${opts.source}`,
-                metadata: opts.metadata
-            });
-
-            updateHistoryState();
-
-            debugStore.success(`[Store] Project loaded: ${response.data.project?.name || 'Unknown'}`);
-            debugStore.log(`  - Walls: ${response.data.baseline?.walls?.length || 0}`);
-            debugStore.log(`  - Rooms: ${response.data.baseline?.rooms?.length || 0}`);
-            debugStore.log(`  - Zones: ${response.data.activeScheme?.zones?.length || 0}`);
-            debugStore.log(`  - Modules: ${response.data.activeScheme?.modules?.length || 0}`);
-
-            // 第二道防线：每个 zone error 触发一条独立 Toast
-            const zoneErrors = response.data.activeScheme?.zoneErrors
-            if (zoneErrors && zoneErrors.length > 0) {
-              debugStore.warn(`[Store] ZoneErrors: ${JSON.stringify(zoneErrors)}`)
-              zoneErrors.forEach(e => {
-                window.dispatchEvent(new CustomEvent('bimcanvas:agent-notification', {
-                  detail: { type: 'warning', title: `分区 ${e.zoneId} 数据损坏`, message: e.message }
-                }))
-              })
-            }
-
+            await applyProjectData(data, opts);
             return true;
-
         } catch (err: any) {
             console.error('Failed to load project:', err);
             debugStore.error(`[Store] Load failed: ${err.message || err}`);
             error.value = `Failed to load project: ${err.message || err}`;
             return false;
-
         } finally {
             isLoading.value = false;
-            // 重置标记，确保下次默认加载仍会适配屏幕
             if (preserveView) {
                 setTimeout(() => {
                     preserveViewOnLoad.value = false;
                 }, 200);
             }
         }
+    };
+
+    const importSnapshot = async (file: File, options: LoadOptions | ChangeSource = ChangeSource.UserUpload): Promise<boolean> => {
+        const opts = normalizeLoadOptions(options);
+        const preserveView = opts.preserveView ?? timeline.shouldPreserveView(opts.source);
+
+        isLoading.value = true;
+        error.value = null;
+        preserveViewOnLoad.value = preserveView;
+
+        try {
+            const data = await runtime.importSnapshot(file);
+            await applyProjectData(data, opts);
+            return true;
+        } catch (err: any) {
+            console.error('Failed to import snapshot:', err);
+            debugStore.error(`[Store] Snapshot import failed: ${err.message || err}`);
+            error.value = `Failed to import snapshot: ${err.message || err}`;
+            return false;
+        } finally {
+            isLoading.value = false;
+            if (preserveView) {
+                setTimeout(() => {
+                    preserveViewOnLoad.value = false;
+                }, 200);
+            }
+        }
+    };
+
+    const createBlankProject = async (name: string = '未命名项目'): Promise<void> => {
+        const data = createBlankProjectData(name.trim() || '未命名项目');
+        await applyProjectData(data, {
+            source: ChangeSource.UserCreate,
+            description: 'Create blank project'
+        });
+        isDirty.value = true;
     };
 
     // === 多选操作方法 ===
@@ -393,7 +647,7 @@ export const useCanvasStore = defineStore('canvas', () => {
             isDirty.value = true;
             updateHistoryState();
             setTimeout(() => { preserveViewOnLoad.value = false; }, 200);
-            void saveToServer({ suppressServerSync: true });
+            void saveModules({ suppressServerSync: true });
         }
     };
 
@@ -406,7 +660,7 @@ export const useCanvasStore = defineStore('canvas', () => {
             isDirty.value = true;
             updateHistoryState();
             setTimeout(() => { preserveViewOnLoad.value = false; }, 200);
-            void saveToServer({ suppressServerSync: true });
+            void saveModules({ suppressServerSync: true });
         }
     };
 
@@ -424,7 +678,7 @@ export const useCanvasStore = defineStore('canvas', () => {
             if (!batchUpdateMode.value) {
                 nextTick(() => saveState());
             }
-            signalR.sendUpdate({ type: 'module_update', moduleId, updates });
+            dispatchLocalUpdate({ type: 'module_update', moduleId, updates });
         }
     };
 
@@ -490,11 +744,11 @@ export const useCanvasStore = defineStore('canvas', () => {
             if (!batchUpdateMode.value) {
                 nextTick(() => saveState());
             }
-            signalR.sendUpdate({ type: 'module_remove', moduleId });
+            dispatchLocalUpdate({ type: 'module_remove', moduleId });
 
             // 持久化到文件系统
             if (!batchUpdateMode.value) {
-                await saveToServer();
+                await saveModules();
             }
         }
     };
@@ -506,7 +760,7 @@ export const useCanvasStore = defineStore('canvas', () => {
         if (!batchUpdateMode.value) {
             nextTick(() => saveState());
         }
-        signalR.sendUpdate({ type: 'module_add', module });
+        dispatchLocalUpdate({ type: 'module_add', module });
     };
 
     const setPrompt = (msg: string | null) => {
@@ -528,7 +782,7 @@ export const useCanvasStore = defineStore('canvas', () => {
         // 2. 持久化到文件系统（File-Driven Architecture）
         // 符合架构文档"即时写入"设计：用户交互结束时立即写入硬盘
         if (isDirty.value) {
-            await saveToServer();
+            await saveModules();
         }
     };
 
@@ -544,6 +798,7 @@ export const useCanvasStore = defineStore('canvas', () => {
         error.value = null;
         promptMessage.value = null;
         sceneDataCache.clear();
+        moduleLibraryService.dispose();
         timeline.clear();
         debugStore.log('[Store] Project state reset');
     };
@@ -557,10 +812,10 @@ export const useCanvasStore = defineStore('canvas', () => {
     };
 
     /**
-     * 从 Server 同步数据（保留历史）
+     * 从当前 Runtime 重新同步数据（保留历史）
      *
      * 专用于 Agent 修改、Server 推送等场景。
-     * 与 loadProject 的区别：总是保留历史栈，追加新快照。
+     * 与初始加载的区别：总是保留历史栈，追加新快照。
      *
      * @param options 可选配置
      * @param options.description 自定义描述
@@ -571,7 +826,7 @@ export const useCanvasStore = defineStore('canvas', () => {
         description?: string;
         metadata?: Record<string, any>;
     }): Promise<boolean> => {
-        return loadProject({
+        return loadInitialProject({
             source: ChangeSource.ServerSync,
             preserveView: true,
             preserveHistory: true,
@@ -591,43 +846,67 @@ export const useCanvasStore = defineStore('canvas', () => {
     };
 
     /**
-     * 保存当前数据到 Server 文件系统
-     * v3.4: Server 根据模块 bounds 位置自动计算分区
+     * 保存当前模块集合。
+     * Connected Runtime 会推送到 Server；Standalone Runtime 只确认内存编辑。
      * @returns 保存是否成功
      */
-    const saveToServer = async (options?: { suppressServerSync?: boolean }): Promise<boolean> => {
+    const saveModules = async (options?: { suppressServerSync?: boolean }): Promise<boolean> => {
         if (!projectData.value?.activeScheme?.modules) {
-            console.warn('[CanvasStore] saveToServer: 无模块数据可保存');
+            console.warn('[CanvasStore] saveModules: 无模块数据可保存');
             return false;
         }
 
         try {
-            const response = await axios.post(`${SERVER_API}/project/save`, {
-                modules: projectData.value.activeScheme.modules
-                // Server 根据 bounds 位置自动计算分区
-            });
-
-            if (response.status === 200) {
-                isDirty.value = false;
-                const result = response.data;
-                debugStore.success(`[CanvasStore] 保存成功: ${result.modulesCount} 个模块`);
-
-                if (result.orphanCount > 0) {
-                    debugStore.warn(`[CanvasStore] ${result.orphanCount} 个模块不在任何分区内，已保存到 _unzoned`);
+            const saved = await runtime.saveModules(projectData.value.activeScheme.modules);
+            if (saved) {
+                if (supports(runtime.capabilities.serverPersistence)) {
+                    // Connected 模式下，Server 已经落盘；Standalone 的保存语义是导出 Snapshot。
+                    isDirty.value = false;
                 }
-                if (options?.suppressServerSync) {
+                debugStore.success('[CanvasStore] 模块保存成功');
+                if (options?.suppressServerSync && supports(runtime.capabilities.realtimeProjectSync)) {
                     pendingServerSyncSkips += 1;
                 }
                 return true;
             }
 
-            debugStore.error('[CanvasStore] 保存失败: 非200响应');
+            debugStore.error('[CanvasStore] 保存失败');
             return false;
         } catch (err: any) {
-            const errorMessage = err.response?.data?.message || err.message || err;
+            const errorMessage = err.message || err;
             debugStore.error(`[CanvasStore] 保存失败: ${errorMessage}`);
             return false;
         }
+    };
+
+    const formatTimestamp = (date: Date): string => {
+        const pad = (value: number) => value.toString().padStart(2, '0');
+        return `${date.getFullYear()}${pad(date.getMonth() + 1)}${pad(date.getDate())}-${pad(date.getHours())}${pad(date.getMinutes())}${pad(date.getSeconds())}`;
+    };
+
+    const getSnapshotFilename = (): string => {
+        const rawName = projectData.value?.project?.name?.trim() || 'BIMCanvas';
+        const safeName = rawName.replace(/[\\/:*?"<>|]+/g, '_');
+        return `${safeName}_snapshot_${formatTimestamp(new Date())}.json`;
+    };
+
+    const exportSnapshot = async (): Promise<{ blob: Blob; filename: string } | null> => {
+        if (!projectData.value) {
+            return null;
+        }
+
+        const blob = await runtime.exportSnapshot(projectData.value);
+        return {
+            blob,
+            filename: getSnapshotFilename()
+        };
+    };
+
+    const exportBcpProject = async (): Promise<{ blob: Blob; filename: string } | null> => {
+        if (!supports(runtime.capabilities.bcpExport)) {
+            return null;
+        }
+        return runtime.exportBcpProject();
     };
 
     // saveZoneToServer 已移除：v3.4 不再需要按分区保存，Server 自动计算
@@ -652,7 +931,9 @@ export const useCanvasStore = defineStore('canvas', () => {
         canRedo,
 
         // Actions
-        loadProject,
+        loadInitialProject,
+        importSnapshot,
+        createBlankProject,
         setSelectedObject,
         setSelection,
         addToSelection,
@@ -673,7 +954,9 @@ export const useCanvasStore = defineStore('canvas', () => {
 
         // Dirty Data Management
         clearDirty,
-        saveToServer,
+        saveModules,
+        exportSnapshot,
+        exportBcpProject,
         forceSync,
         resetProject,
         // saveZoneToServer 已移除：v3.4 Server 自动计算分区
@@ -681,6 +964,16 @@ export const useCanvasStore = defineStore('canvas', () => {
         // UI State
         promptMessage,
         setPrompt,
-        debugMsg
+        debugMsg,
+
+        // PlaceTool 运行时尺寸（不持久化）
+        placementSize,
+        setPlacementSize,
+
+        // 变体方案（module-relocation-agent 产出）
+        activeVariantByZone,
+        getActiveVariant,
+        setActiveVariant,
+        clearActiveVariant
     };
 });

@@ -1,6 +1,8 @@
 import { ref, computed, onMounted, onUnmounted } from 'vue';
 import { GitService, type GitStatus } from '../services/GitService';
 import { useCanvasStore } from '../stores/canvasStore';
+import { getWebRuntime } from '../runtime/runtimeRegistry';
+import { supports } from '../runtime/WebRuntimeProtocol';
 
 /**
  * 保存状态（单例模式，跨组件共享）
@@ -78,12 +80,14 @@ async function refreshStatus() {
  */
 export function useSave() {
     const store = useCanvasStore();
+    const runtime = getWebRuntime();
+    const canUseServerPersistence = computed(() => supports(runtime.capabilities.serverPersistence));
 
     /**
      * 保存按钮是否可用
      */
     const canSave = computed(() => {
-        return store.projectData !== null && hasUncommittedChanges.value;
+        return canUseServerPersistence.value && store.projectData !== null && hasUncommittedChanges.value;
     });
 
     /**
@@ -91,6 +95,11 @@ export function useSave() {
      * @param message 可选的提交消息
      */
     async function handleSave(message?: string): Promise<boolean> {
+        if (!canUseServerPersistence.value) {
+            console.log('[useSave] Current runtime does not support server persistence');
+            return false;
+        }
+
         if (isSaving.value) {
             console.log('[useSave] Already saving, skip');
             return false;

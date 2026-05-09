@@ -11,8 +11,16 @@ using Newtonsoft.Json;
 namespace BIMCanvas.Server.Services
 {
     /// <summary>
-    /// 合并服务 - 计算分区级差异和执行选择性合并
+    /// 合并服务 - 计算分区级差异和执行选择性合并。
     /// </summary>
+    /// <remarks>
+    /// 设计意图：本服务的叶子分区匹配（**/modules.json）**故意不识别**
+    /// `modules-alt-*.json` 与 `modules-alt-*.meta.json` 这类变体文件——
+    /// 这些文件由 module-relocation-agent 在叶子分区目录下产出，仅用于在 Web 端
+    /// 同分区下的本地预览/采纳，不应进入 Git diff / merge 链路。
+    /// 若未来确实需要让变体跨 worktree 合并，必须作为显式的设计变更，而不是
+    /// 把这里的 glob 改宽。
+    /// </remarks>
     public class MergeService
     {
         private readonly ILogger<MergeService> _logger;

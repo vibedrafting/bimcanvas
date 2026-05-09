@@ -12,16 +12,22 @@ const emit = defineEmits<{
 import { useGitStore } from '../../../stores/gitStore';
 import { useCanvasStore } from '../../../stores/canvasStore';
 import { useMergeStore } from '../../../stores/mergeStore';
+import { getWebRuntime } from '../../../runtime/runtimeRegistry';
+import { supports } from '../../../runtime/WebRuntimeProtocol';
 
 // --- Git Store ---
 const gitStore = useGitStore();
 const canvasStore = useCanvasStore();
 const mergeStore = useMergeStore();
+const runtime = getWebRuntime();
+const canGitBranching = supports(runtime.capabilities.gitBranching);
 const { branches, currentBranch, currentBranchId, isLoading } = storeToRefs(gitStore);
 
 // 组件挂载时获取分支列表
 onMounted(() => {
-  gitStore.fetchBranches();
+  if (canGitBranching) {
+    gitStore.fetchBranches();
+  }
 });
 
 
@@ -70,6 +76,8 @@ const branchOptions = computed(() => [
 
 // 分支切换处理
 const handleBranchChange = async (val: string | number) => {
+  if (!canGitBranching) return;
+
   if (val === '__create_new__') {
     // 通知父组件打开新建分支弹窗
     emit('openBranchDialog');
@@ -101,7 +109,7 @@ const handleCheckoutConfirm = async (saveBeforeSwitch: boolean, commitMessage?: 
 
   if (saveBeforeSwitch) {
     // 1. 先保存内存数据到文件系统
-    const saved = await canvasStore.saveToServer();
+    const saved = await canvasStore.saveModules();
     if (!saved) {
       console.error('保存数据失败，无法切换分支');
       pendingCheckoutBranch.value = '';

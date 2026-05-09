@@ -22,3 +22,6 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+
+# Local one-off scripts (contain absolute paths)
+merge.js

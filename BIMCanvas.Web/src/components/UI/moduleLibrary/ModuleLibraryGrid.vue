@@ -17,7 +17,7 @@ const props = defineProps({
     required: true
   },
   getSvgUrl: {
-    type: Function as PropType<(moduleId: string) => string>,
+    type: Function as PropType<(moduleId: string) => Promise<string>>,
     required: true
   },
   getTagLabel: {
@@ -42,13 +42,13 @@ const onSelect = (module: ModuleDefinition) => {
       :key="mod.id"
       :module="mod"
       :expanded="expanded"
-      :svg-url="getSvgUrl(mod.id)"
+      :get-svg-url="getSvgUrl"
       :get-tag-label="getTagLabel"
       @select="onSelect"
     />
 
     <div v-if="modules.length === 0" class="empty-state-overlay">
-      {{ emptyText }}
+      <slot name="empty">{{ emptyText }}</slot>
     </div>
   </div>
 </template>
@@ -118,5 +118,10 @@ const onSelect = (module: ModuleDefinition) => {
   color: var(--text-secondary);
   font-size: 0.85rem;
   pointer-events: none;
+
+  // 当 slot 内有按钮等可交互内容时,允许子元素接收事件
+  > * {
+    pointer-events: auto;
+  }
 }
 </style>

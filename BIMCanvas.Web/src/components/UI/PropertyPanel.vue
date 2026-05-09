@@ -2,6 +2,18 @@
 import { useCanvasStore } from '../../stores/canvasStore';
 import { computed, ref, watch } from 'vue';
 import { storeToRefs } from 'pinia';
+import VariantSwitcherChips from './VariantSwitcherChips.vue';
+import ModuleSizeEditor from './property/ModuleSizeEditor.vue';
+import { moduleLibraryService } from '../../services/ModuleLibraryService';
+import {
+  obbCenter,
+  obbRotation,
+  obbSizeFromBounds,
+  formatSizeHint,
+  isValidDimension,
+  boundsFromCenter,
+  resolveStep
+} from '../../utils/moduleSize';
 
 const store = useCanvasStore();
 const { currentOperation, selectedIds } = storeToRefs(store);
@@ -61,6 +73,81 @@ const isPrimitiveValue = (value: any): boolean => {
   const type = typeof value;
   return type === 'string' || type === 'number' || type === 'boolean';
 };
+
+// ========== 模块尺寸（actual + recommended + 编辑器） ==========
+// 仅当 selectedObject 是 module 时启用；查模块库拿 morphology 决定输入控件形态。
+
+const selectedModule = computed(() => {
+  const obj: any = selectedObject.value;
+  return obj && obj.type === 'module' ? obj : null;
+});
+
+const selectedModuleDef = computed(() => {
+  const m = selectedModule.value;
+  if (!m) return undefined;
+  return moduleLibraryService.getModuleById(m.moduleId);
+});
+
+const actualSize = computed(() => {
+  const m = selectedModule.value;
+  if (!m || !Array.isArray(m.bounds)) return null;
+  // 传 facing 让 obbSizeFromBounds 用 facing 与 edge0 的点积消歧 width/depth
+  // （PlaceTool 与 Agent 的 polygon 顶点排列约定不同，仅靠几何无法判定）
+  return obbSizeFromBounds(m.bounds, m.facing);
+});
+
+const widthHint = computed(() => {
+  const def = selectedModuleDef.value;
+  return formatSizeHint(def?.morphology, 'width', def?.size.width ?? 0);
+});
+
+const depthHint = computed(() => {
+  const def = selectedModuleDef.value;
+  return formatSizeHint(def?.morphology, 'depth', def?.size.depth ?? 0);
+});
+
+const stepValue = computed(() => resolveStep(selectedModuleDef.value?.morphology));
+
+// 选中模块即显示 Size 段（含 fixed 模块也允许编辑，由用户决定）
+const showSizeSection = computed(() => !!actualSize.value);
+
+const commitBoundsResize = async (nextWidth: number, nextDepth: number) => {
+  const m = selectedModule.value;
+  if (!m || !Array.isArray(m.bounds)) return;
+  const center = obbCenter(m.bounds);
+  // 用 facing 推导旋转角，避免 Agent 多边形（轴对齐 + 半宽半深交换）误判
+  const rotation = obbRotation(m.bounds, m.facing);
+  const newBounds = boundsFromCenter(center, nextWidth, nextDepth, rotation);
+  store.beginBatchUpdate();
+  store.updateModule(m.id, { bounds: newBounds });
+  await store.endBatchUpdate();
+};
+
+const onWidthCommit = (next: number) => {
+  if (!actualSize.value || !isValidDimension(next)) return;
+  void commitBoundsResize(next, actualSize.value.depth);
+};
+
+const onDepthCommit = (next: number) => {
+  if (!actualSize.value || !isValidDimension(next)) return;
+  void commitBoundsResize(actualSize.value.width, next);
+};
+
+// 模块布置变体切换器：仅当选中"叶子分区"时显示，给 module-relocation-agent 产出的变体方案做切换/采纳。
+// 叶子判定：subZones 为空且自身被识别为 zone；leafZonePath 形如 "rz_3/dz_1"（带 parentZoneId）或 "rz_3"（顶层叶子）。
+const variantContext = computed<{ leafZoneId: string; leafZonePath: string } | null>(() => {
+    const obj: any = selectedObject.value;
+    if (!obj) return null;
+    if (obj.type !== 'zone') return null;
+
+    const subZones = obj.subZones;
+    const hasChildren = Array.isArray(subZones) && subZones.length > 0;
+    if (hasChildren) return null;
+
+    const parentZoneId = obj.parentZoneId as string | undefined;
+    const leafZonePath = parentZoneId ? `${parentZoneId}/${obj.id}` : obj.id;
+    return { leafZoneId: obj.id, leafZonePath };
+});
 
 // Properties Generation
 const properties = computed(() => {
@@ -128,15 +215,42 @@ const properties = computed(() => {
 
     <!-- Content -->
     <div class="panel-content">
-        <div v-if="properties.length === 0" class="empty-state">
+        <div v-if="properties.length === 0 && !showSizeSection" class="empty-state">
             No properties
         </div>
-        <div v-else class="prop-list">
+        <div v-if="properties.length > 0" class="prop-list">
             <div v-for="prop in properties" :key="prop.key" class="prop-row">
                 <span class="label">{{ prop.key }}</span>
                 <span class="value" :title="String(prop.value)">{{ prop.value }}</span>
             </div>
         </div>
+
+        <!-- 模块尺寸：actual（派生自 bounds）+ 推荐范围（灰色提示）+ 自由文本编辑 -->
+        <div v-if="showSizeSection && actualSize" class="size-section">
+          <div class="section-title">Size</div>
+          <ModuleSizeEditor
+            label="Width"
+            :value="actualSize.width"
+            :hint="widthHint"
+            :step="stepValue"
+            @commit="onWidthCommit"
+          />
+          <ModuleSizeEditor
+            label="Depth"
+            :value="actualSize.depth"
+            :hint="depthHint"
+            :step="stepValue"
+            @commit="onDepthCommit"
+          />
+        </div>
+
+        <!-- 叶子分区变体切换器：当且仅当选中叶子分区且该分区有 alt 文件时渲染（组件内部空列表时返回 null） -->
+        <VariantSwitcherChips
+          v-if="variantContext"
+          :leaf-zone-id="variantContext.leafZoneId"
+          :leaf-zone-path="variantContext.leafZonePath"
+          class="variant-switcher-section"
+        />
     </div>
   </aside>
 </template>
@@ -306,6 +420,26 @@ const properties = computed(() => {
         color: var(--text-tertiary);
         font-size: 0.85rem;
         padding: 20px 0;
+    }
+
+    .variant-switcher-section {
+        margin-top: 12px;
+        padding-top: 12px;
+        border-top: 1px solid var(--border-subtle);
+    }
+
+    .size-section {
+        margin-top: 12px;
+        padding-top: 12px;
+        border-top: 1px solid var(--border-subtle);
+    }
+
+    .section-title {
+        font-size: 0.72rem;
+        color: var(--text-secondary);
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+        margin-bottom: 8px;
     }
   }
 }
