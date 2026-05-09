@@ -13,16 +13,20 @@
 -->
 
 <script setup lang="ts">
-import { isValidDimension } from '../../../utils/moduleSize';
+import { computed } from 'vue';
+import { isValidDimension, type SizeHint } from '../../../utils/moduleSize';
 
 interface Props {
   label: string;       // 'Width' / 'Depth'
   value: number;       // 当前生效尺寸
-  hint?: string;       // 灰色推荐文本（formatSizeHint 算好传入）
-  step?: number;       // +/- 步长，默认 50mm
+  hint?: SizeHint;     // formatSizeHint 输出 { text, kind }
+  step?: number;       // 模数：+/- 步长，默认 50mm（来自 morphology.step 或兜底）
 }
 
-const props = withDefaults(defineProps<Props>(), { hint: '', step: 50 });
+const props = withDefaults(defineProps<Props>(), {
+  hint: () => ({ text: '', kind: 'none' as const }),
+  step: 50
+});
 
 const emit = defineEmits<{
   (e: 'update:value', next: number): void;
@@ -54,27 +58,40 @@ const onCommit = (event: Event) => {
   }
 };
 
+// 模数对齐：+/- 总是吸附到 step 的整数倍上，避免值偏离模数后越来越偏。
 const onDecrement = () => {
-  const next = Math.max(props.step, Math.round(props.value) - props.step);
-  if (next === Math.round(props.value)) return;
+  const v = Math.round(props.value);
+  // 严格小于当前值的最大 step 倍数
+  const next = Math.floor((v - 1) / props.step) * props.step;
+  if (next < props.step) return;  // 已到最小一档
   setNext(next, true);
 };
 
 const onIncrement = () => {
-  setNext(Math.round(props.value) + props.step, true);
+  const v = Math.round(props.value);
+  // 严格大于当前值的最小 step 倍数
+  const next = Math.ceil((v + 1) / props.step) * props.step;
+  setNext(next, true);
 };
+
+// 装饰：default kind 用斜体淡化样式
+const hintClass = computed(() =>
+  props.hint?.kind === 'default' ? 'hint hint--default' : 'hint'
+);
+
+const decrementDisabled = computed(() => Math.round(props.value) <= props.step);
 </script>
 
 <template>
   <div class="size-editor">
     <span class="label">{{ label }}</span>
-    <span v-if="hint" class="hint">{{ hint }}</span>
+    <span v-if="hint && hint.text" :class="hintClass">{{ hint.text }}</span>
     <div class="stepper">
       <button
         class="stepper-btn"
         type="button"
-        title="减少"
-        :disabled="value <= step"
+        :title="`−${step}`"
+        :disabled="decrementDisabled"
         @click.stop="onDecrement"
       >−</button>
       <input
@@ -90,7 +107,7 @@ const onIncrement = () => {
       <button
         class="stepper-btn"
         type="button"
-        title="增加"
+        :title="`+${step}`"
         @click.stop="onIncrement"
       >+</button>
     </div>
@@ -115,13 +132,21 @@ const onIncrement = () => {
   letter-spacing: 0.02em;
 }
 
+/* limit kind（range / enum）：硬性可调范围，正常灰度 */
 .hint {
   font-size: 11px;
-  color: #6a6a72;
+  color: #7a7a82;
   white-space: nowrap;
   text-align: right;
   font-style: normal;
   letter-spacing: 0.02em;
+}
+
+/* default kind：仅参考目录默认尺寸，斜体 + 更淡的灰，传达"轻参考、可忽略" */
+.hint--default {
+  color: #56565e;
+  font-style: italic;
+  font-weight: 300;
 }
 
 /* stepper 容器 — 与 .cell-stepper 同形 */

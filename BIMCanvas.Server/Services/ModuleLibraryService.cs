@@ -191,6 +191,22 @@ namespace BIMCanvas.Server.Services
                 Strategy = morphology["strategy"]?.ToString() ?? "fixed"
             };
 
+            // 模数（每次 +/- 步进的 mm 值）。缺省时由前端兜底默认。
+            var stepToken = morphology["step"];
+            if (stepToken != null
+                && (stepToken.Type == JTokenType.Integer || stepToken.Type == JTokenType.Float))
+            {
+                try
+                {
+                    var step = (double)stepToken;
+                    if (step > 0)
+                    {
+                        dto.Step = step;
+                    }
+                }
+                catch { /* ignore */ }
+            }
+
             if (morphology["limits"] is JObject limits)
             {
                 dto.Limits = new ModuleLimitsDto
@@ -295,6 +311,12 @@ namespace BIMCanvas.Server.Services
     {
         /// <summary>策略："fixed" / "parametric" / "horizontal_fill"</summary>
         public string Strategy { get; set; } = "fixed";
+
+        /// <summary>
+        /// 模数（mm）：UI 尺寸 stepper +/- 每次步进值，也是该模块的"出厂粒度"。
+        /// 缺省（null）时由前端兜底为 50mm。
+        /// </summary>
+        public double? Step { get; set; }
 
         /// <summary>尺寸上下界（仅 parametric / horizontal_fill 有效）</summary>
         public ModuleLimitsDto? Limits { get; set; }

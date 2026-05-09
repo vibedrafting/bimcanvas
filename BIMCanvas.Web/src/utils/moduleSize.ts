@@ -20,11 +20,16 @@ export type DimensionLimit =
 
 export interface ModuleMorphology {
   strategy: 'fixed' | 'parametric' | 'horizontal_fill';
+  /** 模数（mm）：尺寸 stepper +/- 步进值；undefined 时 UI 兜底为 DEFAULT_STEP */
+  step?: number;
   limits?: {
     width?: DimensionLimit;
     depth?: DimensionLimit;
   };
 }
+
+/** UI 兜底模数（mm）。当 module_library.json 中模块未指定 morphology.step 时使用。 */
+export const DEFAULT_STEP = 50;
 
 /**
  * Server 下发的原始 morphology 形态（DTO 直接序列化结果）。
@@ -32,6 +37,7 @@ export interface ModuleMorphology {
  */
 export interface RawModuleMorphology {
   strategy: string;
+  step?: number;
   limits?: {
     width?: { range?: number[]; enum?: number[] };
     depth?: { range?: number[]; enum?: number[] };
@@ -44,6 +50,9 @@ export function normalizeMorphology(raw: RawModuleMorphology | undefined | null)
     ? raw.strategy
     : 'fixed';
   const result: ModuleMorphology = { strategy };
+  if (typeof raw.step === 'number' && Number.isFinite(raw.step) && raw.step > 0) {
+    result.step = raw.step;
+  }
   if (raw.limits) {
     const width = normalizeLimit(raw.limits.width);
     const depth = normalizeLimit(raw.limits.depth);
@@ -54,6 +63,11 @@ export function normalizeMorphology(raw: RawModuleMorphology | undefined | null)
     }
   }
   return result;
+}
+
+/** 取模块的有效 step：morphology 自带 → 否则 DEFAULT_STEP */
+export function resolveStep(morphology: ModuleMorphology | undefined): number {
+  return morphology?.step ?? DEFAULT_STEP;
 }
 
 function normalizeLimit(raw: { range?: number[]; enum?: number[] } | undefined): DimensionLimit | undefined {
@@ -217,35 +231,43 @@ export function obbRotation(bounds: Polygon2D, facing?: FacingData | null): numb
 // ========== Limits → UI 推荐文本 ==========
 
 /**
- * 把 morphology 在指定轴上的限制 + 默认尺寸格式化为"推荐范围"灰色文本（无单位后缀）。
+ * 尺寸 hint，区分 kind 让 UI 决定视觉权重。
+ *  - limit：morphology 的硬性可调范围（range / enum），需要设计师认真对待 → 视觉正常
+ *  - default：仅是目录默认尺寸（无 morphology 约束），轻参考 → 视觉淡化（斜体 + 更暗）
+ *  - none：无任何 hint
+ */
+export type SizeHint = { text: string; kind: 'limit' | 'default' | 'none' };
+
+/**
+ * 把 morphology 在指定轴上的限制 + 默认尺寸格式化为简短 hint 文本（无前缀、无单位）。
  *
- * 设计原则（按用户反馈）：
- * - 不强制 clamp 输入；用户可输入任意正数。
- * - 仅以灰色文本提示推荐区间，让设计师知情但不被打断。
- * - 不显示 mm；整个面板上下文都是 mm，单位冗余。
+ * 设计原则：
+ * - 不强制 clamp，仅给参考。
+ * - 整个面板都是 mm，去单位。
+ * - 去前缀，靠 kind + 视觉差异化区分硬约束 vs 轻参考。
  *
- * 输出形态：
- * - 该维度有 range limit → "600–1200"
- * - 该维度有 enum limit  → "400 / 600"
- * - 无 limit / fixed     → "默认 1500"（用 defaultValue）
- * - 全部缺失             → ''（不显示提示）
+ * 输出：
+ * - range limit → "600–1200" (kind=limit)
+ * - enum limit  → "400 / 600" (kind=limit)
+ * - 无 limit    → "550"       (kind=default)
+ * - 全部缺失     → ""          (kind=none)
  */
 export function formatSizeHint(
   morphology: ModuleMorphology | undefined,
   axis: 'width' | 'depth',
   defaultValue: number
-): string {
+): SizeHint {
   const limit = morphology?.limits?.[axis];
   if (limit?.kind === 'range') {
-    return `${limit.min}–${limit.max}`;
+    return { text: `${limit.min}–${limit.max}`, kind: 'limit' };
   }
   if (limit?.kind === 'enum') {
-    return limit.values.join(' / ');
+    return { text: limit.values.join(' / '), kind: 'limit' };
   }
   if (Number.isFinite(defaultValue) && defaultValue > 0) {
-    return `默认 ${Math.round(defaultValue)}`;
+    return { text: `${Math.round(defaultValue)}`, kind: 'default' };
   }
-  return '';
+  return { text: '', kind: 'none' };
 }
 
 /**

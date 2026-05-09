@@ -11,7 +11,8 @@ import {
   obbSizeFromBounds,
   formatSizeHint,
   isValidDimension,
-  boundsFromCenter
+  boundsFromCenter,
+  resolveStep
 } from '../../utils/moduleSize';
 
 const store = useCanvasStore();
@@ -104,6 +105,8 @@ const depthHint = computed(() => {
   const def = selectedModuleDef.value;
   return formatSizeHint(def?.morphology, 'depth', def?.size.depth ?? 0);
 });
+
+const stepValue = computed(() => resolveStep(selectedModuleDef.value?.morphology));
 
 // 选中模块即显示 Size 段（含 fixed 模块也允许编辑，由用户决定）
 const showSizeSection = computed(() => !!actualSize.value);
@@ -229,12 +232,14 @@ const properties = computed(() => {
             label="Width"
             :value="actualSize.width"
             :hint="widthHint"
+            :step="stepValue"
             @commit="onWidthCommit"
           />
           <ModuleSizeEditor
             label="Depth"
             :value="actualSize.depth"
             :hint="depthHint"
+            :step="stepValue"
             @commit="onDepthCommit"
           />
         </div>

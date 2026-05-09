@@ -16,7 +16,7 @@ import { computed } from 'vue';
 import { storeToRefs } from 'pinia';
 import { useCanvasStore } from '../../../stores/canvasStore';
 import { moduleLibraryService } from '../../../services/ModuleLibraryService';
-import { formatSizeHint } from '../../../utils/moduleSize';
+import { formatSizeHint, resolveStep } from '../../../utils/moduleSize';
 import ModuleSizeEditor from '../property/ModuleSizeEditor.vue';
 
 const store = useCanvasStore();
@@ -34,6 +34,8 @@ const widthHint = computed(() =>
 const depthHint = computed(() =>
   formatSizeHint(moduleDef.value?.morphology, 'depth', moduleDef.value?.size.depth ?? 0)
 );
+
+const stepValue = computed(() => resolveStep(moduleDef.value?.morphology));
 
 const currentWidth = computed(() => placementSize.value?.width ?? 0);
 const currentDepth = computed(() => placementSize.value?.depth ?? 0);
@@ -63,12 +65,14 @@ const onDepthChange = (next: number) => {
       label="Width"
       :value="currentWidth"
       :hint="widthHint"
+      :step="stepValue"
       @update:value="onWidthChange"
     />
     <ModuleSizeEditor
       label="Depth"
       :value="currentDepth"
       :hint="depthHint"
+      :step="stepValue"
       @update:value="onDepthChange"
     />
   </div>
