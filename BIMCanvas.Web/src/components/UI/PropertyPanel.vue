@@ -9,8 +9,8 @@ import {
   obbCenter,
   obbRotation,
   obbSizeFromBounds,
-  resolveDimensionMode,
-  clampDimension,
+  formatSizeHint,
+  isValidDimension,
   boundsFromCenter
 } from '../../utils/moduleSize';
 
@@ -90,27 +90,30 @@ const selectedModuleDef = computed(() => {
 const actualSize = computed(() => {
   const m = selectedModule.value;
   if (!m || !Array.isArray(m.bounds)) return null;
-  return obbSizeFromBounds(m.bounds);
+  // 传 facing 让 obbSizeFromBounds 用 facing 与 edge0 的点积消歧 width/depth
+  // （PlaceTool 与 Agent 的 polygon 顶点排列约定不同，仅靠几何无法判定）
+  return obbSizeFromBounds(m.bounds, m.facing);
 });
 
-const widthMode = computed(() => {
+const widthHint = computed(() => {
   const def = selectedModuleDef.value;
-  return resolveDimensionMode(def?.morphology, 'width', def?.size.width ?? actualSize.value?.width ?? 0);
+  return formatSizeHint(def?.morphology, 'width', def?.size.width ?? 0);
 });
 
-const depthMode = computed(() => {
+const depthHint = computed(() => {
   const def = selectedModuleDef.value;
-  return resolveDimensionMode(def?.morphology, 'depth', def?.size.depth ?? actualSize.value?.depth ?? 0);
+  return formatSizeHint(def?.morphology, 'depth', def?.size.depth ?? 0);
 });
 
-// 是否显示尺寸面板（任一维度 actual 可派生即显；编辑控件按 mode 决定 readonly/可编辑）
+// 选中模块即显示 Size 段（含 fixed 模块也允许编辑，由用户决定）
 const showSizeSection = computed(() => !!actualSize.value);
 
 const commitBoundsResize = async (nextWidth: number, nextDepth: number) => {
   const m = selectedModule.value;
   if (!m || !Array.isArray(m.bounds)) return;
   const center = obbCenter(m.bounds);
-  const rotation = obbRotation(m.bounds);
+  // 用 facing 推导旋转角，避免 Agent 多边形（轴对齐 + 半宽半深交换）误判
+  const rotation = obbRotation(m.bounds, m.facing);
   const newBounds = boundsFromCenter(center, nextWidth, nextDepth, rotation);
   store.beginBatchUpdate();
   store.updateModule(m.id, { bounds: newBounds });
@@ -118,15 +121,13 @@ const commitBoundsResize = async (nextWidth: number, nextDepth: number) => {
 };
 
 const onWidthCommit = (next: number) => {
-  if (!actualSize.value) return;
-  const clamped = clampDimension(next, widthMode.value);
-  void commitBoundsResize(clamped, actualSize.value.depth);
+  if (!actualSize.value || !isValidDimension(next)) return;
+  void commitBoundsResize(next, actualSize.value.depth);
 };
 
 const onDepthCommit = (next: number) => {
-  if (!actualSize.value) return;
-  const clamped = clampDimension(next, depthMode.value);
-  void commitBoundsResize(actualSize.value.width, clamped);
+  if (!actualSize.value || !isValidDimension(next)) return;
+  void commitBoundsResize(actualSize.value.width, next);
 };
 
 // 模块布置变体切换器：仅当选中"叶子分区"时显示，给 module-relocation-agent 产出的变体方案做切换/采纳。
@@ -221,21 +222,19 @@ const properties = computed(() => {
             </div>
         </div>
 
-        <!-- 模块尺寸：actual（派生自 bounds）+ recommended（来自 morphology）+ 编辑器 -->
+        <!-- 模块尺寸：actual（派生自 bounds）+ 推荐范围（灰色提示）+ 自由文本编辑 -->
         <div v-if="showSizeSection && actualSize" class="size-section">
           <div class="section-title">Size</div>
           <ModuleSizeEditor
             label="Width"
-            compact
             :value="actualSize.width"
-            :mode="widthMode"
+            :hint="widthHint"
             @commit="onWidthCommit"
           />
           <ModuleSizeEditor
             label="Depth"
-            compact
             :value="actualSize.depth"
-            :mode="depthMode"
+            :hint="depthHint"
             @commit="onDepthCommit"
           />
         </div>

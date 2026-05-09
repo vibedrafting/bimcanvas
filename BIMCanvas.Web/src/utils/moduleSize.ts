@@ -10,7 +10,7 @@
  * 这与 PlaceTool.calculateBounds 的局部点序 [-hw,-hd], [hw,-hd], [hw,hd], [-hw,hd] 一致。
  */
 
-import type { Point2D, Polygon2D } from '../types/canvas';
+import type { FacingData, FacingSemantic, Point2D, Polygon2D } from '../types/canvas';
 
 // ========== Module morphology 类型（镜像 Server DTO） ==========
 
@@ -108,10 +108,51 @@ export function boundsFromCenter(
 }
 
 /**
- * 从 OBB 4 顶点反推 (width, depth)。
- * width = |bounds[1] - bounds[0]|, depth = |bounds[2] - bounds[1]|.
+ * 把 FacingData 解析为单位方向向量。优先 value，其次 semantic。
+ * 仅本文件内消歧 width/depth 时使用；其他坐标计算请用 coordinates.ts 的 getFacingValue。
  */
-export function obbSizeFromBounds(bounds: Polygon2D): { width: number; depth: number } {
+function facingDirection(facing: FacingData | null | undefined): { x: number; y: number } | null {
+  if (!facing) return null;
+  if (facing.value && Number.isFinite(facing.value[0]) && Number.isFinite(facing.value[1])) {
+    const len = Math.hypot(facing.value[0], facing.value[1]);
+    if (len > 1e-6) return { x: facing.value[0] / len, y: facing.value[1] / len };
+  }
+  const semantic = facing.semantic as FacingSemantic | null;
+  if (!semantic) return null;
+  switch (semantic) {
+    case 'north': return { x: 0, y: 1 };
+    case 'south': return { x: 0, y: -1 };
+    case 'east': return { x: 1, y: 0 };
+    case 'west': return { x: -1, y: 0 };
+    case 'northeast': return { x: 0.7071, y: 0.7071 };
+    case 'northwest': return { x: -0.7071, y: 0.7071 };
+    case 'southeast': return { x: 0.7071, y: -0.7071 };
+    case 'southwest': return { x: -0.7071, y: -0.7071 };
+    default: return null;
+  }
+}
+
+/**
+ * 从 OBB 4 顶点反推语义意义上的 (width, depth)。
+ *
+ * width = 模块"宽度"边长（垂直于 facing 方向）
+ * depth = 模块"深度"边长（沿 facing 方向）
+ *
+ * 不同 writer 写出的 polygon 顶点排列约定不同：
+ *  - PlaceTool：edge0 = bounds[1]-bounds[0] 沿模块本地 +X 轴（= width 方向）
+ *  - Agent create_module_bounds：N/S facing 同上；E/W facing 时 polygon 是世界轴对齐的，
+ *    edge0 沿世界 +X = depth 方向（半宽半深已交换）
+ *
+ * 用 facing 与 edge0 的点积消歧：
+ *  - |edge0 · facing| 接近 1 → edge0 沿 facing 方向 → edge0 是 depth、edge1 是 width
+ *  - 接近 0 → edge0 垂直于 facing → edge0 是 width、edge1 是 depth
+ *
+ * 缺 facing 时退回 PlaceTool 约定（edge0 = width）。
+ */
+export function obbSizeFromBounds(
+  bounds: Polygon2D,
+  facing?: FacingData | null
+): { width: number; depth: number } {
   if (!bounds || bounds.length < 4) {
     return { width: 0, depth: 0 };
   }
@@ -125,10 +166,18 @@ export function obbSizeFromBounds(bounds: Polygon2D): { width: number; depth: nu
   const wdy = p1[1] - p0[1];
   const ddx = p2[0] - p1[0];
   const ddy = p2[1] - p1[1];
-  return {
-    width: Math.hypot(wdx, wdy),
-    depth: Math.hypot(ddx, ddy)
-  };
+  const len0 = Math.hypot(wdx, wdy);
+  const len1 = Math.hypot(ddx, ddy);
+
+  const facingVec = facingDirection(facing);
+  if (facingVec && len0 > 1e-6) {
+    const edge0Dot = Math.abs((wdx / len0) * facingVec.x + (wdy / len0) * facingVec.y);
+    if (edge0Dot > 0.5) {
+      // edge0 沿 facing 方向 → edge0 是 depth
+      return { width: len1, depth: len0 };
+    }
+  }
+  return { width: len0, depth: len1 };
 }
 
 /** OBB 中心：4 顶点的算术平均。 */
@@ -143,10 +192,19 @@ export function obbCenter(bounds: Polygon2D): Point2D {
 }
 
 /**
- * OBB 旋转角（CCW+ 弧度，数据模型角度）：
- * 由 bounds[0] -> bounds[1] 的方向决定（= 模块本地 +X 轴在世界系的方位）。
+ * OBB 旋转角（PlaceTool 的 currentRotation 约定，bearing 风格：北=0，东=π/2 ...）。
+ *
+ * 优先用 facing 推导（= facingToAngle）以避免 polygon 顶点约定差异：
+ *   bearing = atan2(facing.x, facing.y)
+ * 缺 facing 时退回从 polygon edge0 角度估算（PlaceTool 顶点约定）。
+ *
+ * 该值可直接喂给 boundsFromCenter 重建多边形。
  */
-export function obbRotation(bounds: Polygon2D): number {
+export function obbRotation(bounds: Polygon2D, facing?: FacingData | null): number {
+  const facingVec = facingDirection(facing);
+  if (facingVec) {
+    return Math.atan2(facingVec.x, facingVec.y);
+  }
   if (!bounds || bounds.length < 2) return 0;
   const p0 = bounds[0];
   const p1 = bounds[1];
@@ -156,67 +214,44 @@ export function obbRotation(bounds: Polygon2D): number {
   return Math.atan2(dy, dx);
 }
 
-// ========== Limits → UI 模式 ==========
-
-export type DimensionMode =
-  | { mode: 'readonly'; value: number }
-  | { mode: 'range'; min: number; max: number }
-  | { mode: 'enum'; values: number[] };
+// ========== Limits → UI 推荐文本 ==========
 
 /**
- * 根据 morphology 决定单维度的 UI 输入控件形态。
- * - fixed strategy / 缺 morphology / 该维度无 limit → readonly（用 defaultValue 显示）
- * - range / enum → 对应可编辑形态
+ * 把 morphology 在指定轴上的限制 + 默认尺寸格式化为"推荐范围"灰色文本（无单位后缀）。
  *
- * defaultValue 仅在 readonly 时使用（来自 moduleDef.size）。
+ * 设计原则（按用户反馈）：
+ * - 不强制 clamp 输入；用户可输入任意正数。
+ * - 仅以灰色文本提示推荐区间，让设计师知情但不被打断。
+ * - 不显示 mm；整个面板上下文都是 mm，单位冗余。
+ *
+ * 输出形态：
+ * - 该维度有 range limit → "600–1200"
+ * - 该维度有 enum limit  → "400 / 600"
+ * - 无 limit / fixed     → "默认 1500"（用 defaultValue）
+ * - 全部缺失             → ''（不显示提示）
  */
-export function resolveDimensionMode(
+export function formatSizeHint(
   morphology: ModuleMorphology | undefined,
   axis: 'width' | 'depth',
   defaultValue: number
-): DimensionMode {
-  if (!morphology || morphology.strategy === 'fixed') {
-    return { mode: 'readonly', value: defaultValue };
+): string {
+  const limit = morphology?.limits?.[axis];
+  if (limit?.kind === 'range') {
+    return `${limit.min}–${limit.max}`;
   }
-  const limit = morphology.limits?.[axis];
-  if (!limit) {
-    return { mode: 'readonly', value: defaultValue };
+  if (limit?.kind === 'enum') {
+    return limit.values.join(' / ');
   }
-  if (limit.kind === 'range') {
-    return { mode: 'range', min: limit.min, max: limit.max };
+  if (Number.isFinite(defaultValue) && defaultValue > 0) {
+    return `默认 ${Math.round(defaultValue)}`;
   }
-  return { mode: 'enum', values: limit.values };
+  return '';
 }
 
 /**
- * 把输入值约束到 mode 允许范围内。UI 软防线，确保不发出非法尺寸到 store。
- * - readonly → 永远返回 mode.value
- * - range → clamp 到 [min, max]
- * - enum → 取最近的候选值
+ * 输入合法性检查：拒绝 NaN / 非有限数 / ≤ 0。
+ * 不做范围 clamp—用户可自由超出推荐范围。
  */
-export function clampDimension(value: number, mode: DimensionMode): number {
-  if (mode.mode === 'readonly') return mode.value;
-  if (!Number.isFinite(value)) {
-    return mode.mode === 'range' ? mode.min : mode.values[0]!;
-  }
-  if (mode.mode === 'range') {
-    return Math.max(mode.min, Math.min(mode.max, value));
-  }
-  let nearest = mode.values[0]!;
-  let bestDist = Math.abs(value - nearest);
-  for (const candidate of mode.values) {
-    const d = Math.abs(value - candidate);
-    if (d < bestDist) {
-      bestDist = d;
-      nearest = candidate;
-    }
-  }
-  return nearest;
-}
-
-/** 用于 UI 提示语：把 limit 描述成简短文本 */
-export function describeLimit(limit: DimensionLimit | undefined): string {
-  if (!limit) return 'fixed';
-  if (limit.kind === 'range') return `${limit.min}–${limit.max} mm`;
-  return `${limit.values.join(' / ')} mm`;
+export function isValidDimension(value: number): boolean {
+  return Number.isFinite(value) && value > 0;
 }

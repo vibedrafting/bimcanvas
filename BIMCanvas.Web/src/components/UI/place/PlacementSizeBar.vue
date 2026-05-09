@@ -5,7 +5,10 @@
   数据流：
     - 读取 store.placementSize（PlaceTool 在 activate 时写入）
     - 反查 moduleLibraryService.getModuleById 拿到 ModuleDefinition + morphology
-    - 用户调整时 → store.setPlacementSize(...) → PlaceTool watch 重画预览
+    - 用户输入 → store.setPlacementSize(...) → PlaceTool watch 重画预览
+  策略：
+    - 始终显示宽/深两行（含 fixed 模块也允许调整）
+    - 不强制 clamp；推荐范围用灰色文本提示
 -->
 
 <script setup lang="ts">
@@ -13,10 +16,7 @@ import { computed } from 'vue';
 import { storeToRefs } from 'pinia';
 import { useCanvasStore } from '../../../stores/canvasStore';
 import { moduleLibraryService } from '../../../services/ModuleLibraryService';
-import {
-  resolveDimensionMode,
-  clampDimension
-} from '../../../utils/moduleSize';
+import { formatSizeHint } from '../../../utils/moduleSize';
 import ModuleSizeEditor from '../property/ModuleSizeEditor.vue';
 
 const store = useCanvasStore();
@@ -27,63 +27,48 @@ const moduleDef = computed(() => {
   return id ? moduleLibraryService.getModuleById(id) : undefined;
 });
 
-const widthMode = computed(() =>
-  resolveDimensionMode(
-    moduleDef.value?.morphology,
-    'width',
-    moduleDef.value?.size.width ?? 0
-  )
+const widthHint = computed(() =>
+  formatSizeHint(moduleDef.value?.morphology, 'width', moduleDef.value?.size.width ?? 0)
 );
 
-const depthMode = computed(() =>
-  resolveDimensionMode(
-    moduleDef.value?.morphology,
-    'depth',
-    moduleDef.value?.size.depth ?? 0
-  )
+const depthHint = computed(() =>
+  formatSizeHint(moduleDef.value?.morphology, 'depth', moduleDef.value?.size.depth ?? 0)
 );
 
 const currentWidth = computed(() => placementSize.value?.width ?? 0);
 const currentDepth = computed(() => placementSize.value?.depth ?? 0);
 
-// fixed 模块两个维度都是 readonly → 整条 bar 不渲染（只显 PromptBar 默认提示）
-const hasAnyEditable = computed(
-  () => widthMode.value.mode !== 'readonly' || depthMode.value.mode !== 'readonly'
-);
-
 const onWidthChange = (next: number) => {
   if (!placementSize.value) return;
-  const clamped = clampDimension(next, widthMode.value);
   store.setPlacementSize({
     moduleId: placementSize.value.moduleId,
-    width: clamped,
+    width: next,
     depth: placementSize.value.depth
   });
 };
 
 const onDepthChange = (next: number) => {
   if (!placementSize.value) return;
-  const clamped = clampDimension(next, depthMode.value);
   store.setPlacementSize({
     moduleId: placementSize.value.moduleId,
     width: placementSize.value.width,
-    depth: clamped
+    depth: next
   });
 };
 </script>
 
 <template>
-  <div v-if="placementSize && hasAnyEditable" class="placement-size-bar">
+  <div v-if="placementSize" class="placement-size-bar">
     <ModuleSizeEditor
       label="Width"
       :value="currentWidth"
-      :mode="widthMode"
+      :hint="widthHint"
       @update:value="onWidthChange"
     />
     <ModuleSizeEditor
       label="Depth"
       :value="currentDepth"
-      :mode="depthMode"
+      :hint="depthHint"
       @update:value="onDepthChange"
     />
   </div>
