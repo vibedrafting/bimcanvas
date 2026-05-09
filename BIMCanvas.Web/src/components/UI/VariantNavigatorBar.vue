@@ -128,7 +128,6 @@ watch(() => variantContext.value?.leafZonePath ?? null, () => { void refetchVari
         <div
             v-if="variantContext && variants.length > 0"
             class="variant-navigator-bar"
-            :class="{ 'has-adopt': showAdopt }"
             role="group"
             aria-label="布置变体切换"
             :title="barTitle"
@@ -163,8 +162,9 @@ watch(() => variantContext.value?.leafZonePath ?? null, () => { void refetchVari
                           stroke-width="2" stroke-linecap="round" stroke-linejoin="round" />
                 </svg>
             </button>
-            <div v-if="showAdopt" class="vnav-action-slot">
+            <div class="vnav-action-slot">
                 <button
+                    v-if="showAdopt"
                     class="vnav-adopt"
                     type="button"
                     :disabled="!!adoptingVariantId"
@@ -173,6 +173,7 @@ watch(() => variantContext.value?.leafZonePath ?? null, () => { void refetchVari
                 >
                     {{ adoptingVariantId ? '采纳中' : '采纳' }}
                 </button>
+                <span v-else class="vnav-status">基准</span>
             </div>
             <div v-if="errorMessage" class="vnav-error" :title="errorMessage">{{ errorMessage }}</div>
         </div>
@@ -188,35 +189,27 @@ watch(() => variantContext.value?.leafZonePath ?? null, () => { void refetchVari
     transform: translateX(-50%);
     z-index: 999;
 
-    width: min(248px, calc(100vw - 32px));
-    height: 42px;
+    width: min(318px, calc(100vw - 32px));
+    height: 40px;
     padding: 5px;
     box-sizing: border-box;
     display: grid;
-    grid-template-columns: 30px minmax(0, 1fr) 30px;
+    grid-template-columns: 28px minmax(0, 1fr) 28px 58px;
     align-items: center;
     gap: 6px;
 
-    background:
-        var(--glass-glare),
-        linear-gradient(180deg, rgba(24, 25, 34, 0.88), rgba(12, 13, 20, 0.86));
+    background: rgba(14, 15, 24, 0.92);
     backdrop-filter: var(--glass-blur);
     -webkit-backdrop-filter: var(--glass-blur);
     border: 1px solid rgba(255, 255, 255, 0.14);
-    border-radius: 999px;
+    border-radius: 10px;
     box-shadow:
-        0 10px 26px rgba(0, 0, 0, 0.36),
-        0 1px 0 rgba(255, 255, 255, 0.12) inset;
+        0 8px 24px rgba(0, 0, 0, 0.36),
+        0 1px 0 rgba(255, 255, 255, 0.08) inset;
 
     color: var(--text-primary);
     user-select: none;
     pointer-events: auto;
-    transition: width 180ms ease, border-color 160ms ease, box-shadow 160ms ease;
-}
-
-.variant-navigator-bar.has-adopt {
-    width: min(328px, calc(100vw - 32px));
-    grid-template-columns: 30px minmax(0, 1fr) 30px 58px;
 }
 
 .vnav-center {
@@ -249,11 +242,11 @@ watch(() => variantContext.value?.leafZonePath ?? null, () => { void refetchVari
 }
 
 .vnav-arrow {
-    width: 30px;
-    height: 30px;
-    border-radius: 50%;
-    background: rgba(255, 255, 255, 0.045);
-    border: 1px solid rgba(255, 255, 255, 0.11);
+    width: 28px;
+    height: 28px;
+    border-radius: 8px;
+    background: transparent;
+    border: 1px solid transparent;
     color: var(--text-primary);
     display: inline-flex;
     align-items: center;
@@ -263,8 +256,8 @@ watch(() => variantContext.value?.leafZonePath ?? null, () => { void refetchVari
 }
 
 .vnav-arrow:hover:not(:disabled) {
-    background: rgba(255, 255, 255, 0.11);
-    border-color: rgba(255, 255, 255, 0.22);
+    background: rgba(255, 255, 255, 0.08);
+    border-color: rgba(255, 255, 255, 0.12);
 }
 
 .vnav-arrow:active:not(:disabled) {
@@ -281,20 +274,28 @@ watch(() => variantContext.value?.leafZonePath ?? null, () => { void refetchVari
     justify-content: flex-end;
 }
 
-.vnav-adopt {
+.vnav-adopt,
+.vnav-status {
     width: 58px;
-    height: 28px;
+    height: 26px;
     padding: 0 8px;
-    border-radius: 999px;
-    background: rgba(64, 139, 255, 0.2);
-    border: 1px solid rgba(118, 178, 255, 0.48);
-    color: #fff;
+    box-sizing: border-box;
+    border-radius: 8px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
     font-size: 11px;
     font-weight: 600;
     letter-spacing: 0;
+    white-space: nowrap;
+}
+
+.vnav-adopt {
+    background: rgba(64, 139, 255, 0.2);
+    border: 1px solid rgba(118, 178, 255, 0.48);
+    color: #fff;
     cursor: pointer;
     transition: background 140ms ease, border-color 140ms ease;
-    white-space: nowrap;
 }
 
 .vnav-adopt:hover:not(:disabled) {
@@ -305,6 +306,12 @@ watch(() => variantContext.value?.leafZonePath ?? null, () => { void refetchVari
 .vnav-adopt:disabled {
     opacity: 0.6;
     cursor: progress;
+}
+
+.vnav-status {
+    background: rgba(255, 255, 255, 0.045);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    color: var(--text-secondary);
 }
 
 .vnav-error {
