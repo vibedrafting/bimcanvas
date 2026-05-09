@@ -79,15 +79,45 @@ class ModuleLibraryService {
   }
 
   /**
-   * 重新加载模块库（清除缓存后重新加载）
-   * 用于项目切换后刷新
+   * 重新加载模块库（原子 swap：先拉新数据、再一次性替换）。
+   *
+   * 不在 await 期间暴露空 moduleMap：
+   * 模块库是 Vue computed（如 PropertyPanel 的 selectedModuleDef）通过 getModuleById 查询的
+   * 非响应式数据源——若中途清空 Map，恰好命中重算的 computed 会缓存 undefined，
+   * 而 fetch 完成后填回 Map 不会再触发 computed 重算（无响应式依赖）。
+   * 表现为：保存模块后 Width/Depth 的灰色 hint 永久消失，直到重新选择模块。
    */
   async reload(): Promise<void> {
+    let newLibrary: ModuleLibrary | null = null;
+    const newMap = new Map<string, ModuleDefinition>();
+
+    try {
+      const raw = await getWebRuntime().getModuleLibrary();
+      if (raw?.modules) {
+        for (const mod of raw.modules) {
+          const rawMorph = (mod as ModuleDefinition & { morphology?: RawModuleMorphology }).morphology as RawModuleMorphology | undefined;
+          mod.morphology = normalizeMorphology(rawMorph);
+          newMap.set(mod.id, mod);
+        }
+      }
+      newLibrary = raw;
+    } catch (error) {
+      console.error('[ModuleLibraryService] Failed to reload module library:', error);
+      // 拉取失败：保留旧状态，避免 UI 退化
+      return;
+    }
+
+    // 原子 swap：到这里才替换内部状态，外部观察者全程看到一致的 Map
     this.dispose();
-    this.library = null;
-    this.moduleMap.clear();
-    this.loadPromise = null;
-    return this.load();
+    this.library = newLibrary;
+    this.moduleMap = newMap;
+    this.loadPromise = Promise.resolve();
+
+    if (newLibrary?.modules) {
+      console.log(`[ModuleLibraryService] Reloaded ${newLibrary.modules.length} modules from Runtime`);
+    } else {
+      console.warn('[ModuleLibraryService] 模块库不可用（当前 Runtime 或 Snapshot 未提供）');
+    }
   }
 
   /**
