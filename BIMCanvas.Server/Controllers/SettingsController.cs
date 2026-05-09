@@ -10,13 +10,16 @@ public class SettingsController : ControllerBase
 {
     private readonly SettingsService _settingsService;
     private readonly SettingsRestartService _restartService;
+    private readonly LlmEndpointTestService _llmEndpointTestService;
 
     public SettingsController(
         SettingsService settingsService,
-        SettingsRestartService restartService)
+        SettingsRestartService restartService,
+        LlmEndpointTestService llmEndpointTestService)
     {
         _settingsService = settingsService;
         _restartService = restartService;
+        _llmEndpointTestService = llmEndpointTestService;
     }
 
     [HttpGet]
@@ -54,5 +57,14 @@ public class SettingsController : ControllerBase
                 ? "实例重启请求已提交，当前连接可能会中断。"
                 : "实例正在重启中，请稍后刷新。"
         });
+    }
+
+    [HttpPost("test-llm-endpoint")]
+    public async Task<ActionResult<LlmEndpointTestResultDto>> TestLlmEndpoint(
+        [FromBody] LlmEndpointTestRequestDto request,
+        CancellationToken cancellationToken)
+    {
+        var result = await _llmEndpointTestService.TestAsync(request, cancellationToken);
+        return Ok(result);
     }
 }

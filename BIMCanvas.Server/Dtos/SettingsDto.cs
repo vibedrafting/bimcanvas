@@ -71,3 +71,23 @@ public sealed class UpdateSettingsResponseDto
     public List<string> RestartRequiredGroups { get; set; } = new();
     public SettingsSnapshotDto Settings { get; set; } = new();
 }
+
+public sealed class LlmEndpointTestRequestDto
+{
+    public string RuntimeProvider { get; set; } = "claude";
+    public string BaseUrl { get; set; } = "";
+    public string ApiKey { get; set; } = "";
+    public string Model { get; set; } = "";
+    public string? ApiMode { get; set; }
+}
+
+public sealed class LlmEndpointTestResultDto
+{
+    public bool Success { get; set; }
+    public long LatencyMs { get; set; }
+    public int? StatusCode { get; set; }
+    public string ErrorType { get; set; } = "unknown";
+    public string ErrorMessage { get; set; } = "";
+    public string SampleResponseSnippet { get; set; } = "";
+    public string RequestUrl { get; set; } = "";
+}

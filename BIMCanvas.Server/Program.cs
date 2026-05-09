@@ -228,6 +228,7 @@ builder.Services.AddSingleton<SchemeDataService>();  // 跨分支/Worktree 模�
 builder.Services.AddSingleton<RecentProjectsService>();
 builder.Services.AddSingleton<SettingsService>();
 builder.Services.AddSingleton<SettingsRestartService>();
+builder.Services.AddSingleton<LlmEndpointTestService>();
 
 // v3.2 实时通信服务（使用 Newtonsoft.Json 避免 JsonElement 序列化问题）
 builder.Services.AddSignalR()
