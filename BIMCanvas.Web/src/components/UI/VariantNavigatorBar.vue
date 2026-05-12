@@ -228,14 +228,17 @@ watch(() => variantContext.value?.leafZonePath ?? null, () => { void refetchVari
     align-items: center;
     gap: 6px;
 
-    background: rgba(14, 15, 24, 0.92);
+    /* Aurora Glass — 对齐 PropertyPanel.vue:286-299 */
+    background: var(--glass-bg);
+    background-image: var(--glass-glare), linear-gradient(to bottom, var(--glass-bg), var(--glass-bg));
     backdrop-filter: var(--glass-blur);
     -webkit-backdrop-filter: var(--glass-blur);
-    border: 1px solid rgba(255, 255, 255, 0.14);
-    border-radius: 10px;
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    border-radius: 20px;
     box-shadow:
-        0 8px 24px rgba(0, 0, 0, 0.36),
-        0 1px 0 rgba(255, 255, 255, 0.08) inset;
+        0 12px 40px rgba(0, 0, 0, 0.4),
+        0 0 0 1px rgba(255, 255, 255, 0.1) inset,
+        0 0 20px rgba(255, 255, 255, 0.15);
 
     color: var(--text-primary);
     user-select: none;

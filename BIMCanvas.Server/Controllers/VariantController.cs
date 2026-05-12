@@ -100,6 +100,65 @@ namespace BIMCanvas.Server.Controllers
         }
 
         /// <summary>
+        /// 批量摘要：遍历当前活动 worktree 下 schemes/ 全树，返回
+        ///   { leafZonePath -> { count, variantIds[] } } 字典。
+        /// variantIds 按字典序排序，与 ListVariants 输出顺序一致——这样前端就能用
+        /// "active variant 在列表中的 index" 来算出 zone label 上的当前/总页码。
+        /// 零变体的叶子不入字典；顺手沿用 TrySweepUnhealthyVariant 清除 0 字节 / 0 模块的死文件。
+        /// </summary>
+        [HttpGet("variants/summary")]
+        public ActionResult<Dictionary<string, VariantSummaryEntry>> GetVariantsSummary()
+        {
+            if (!_projectContext.IsLoaded)
+                return BadRequest(new { error = "未加载项目" });
+
+            var projectPath = _projectContext.GetActiveWorktreePath()
+                              ?? _projectContext.CurrentProjectPath;
+            if (string.IsNullOrWhiteSpace(projectPath) || !Directory.Exists(projectPath))
+                return BadRequest(new { error = "项目目录不存在" });
+
+            var schemesPath = Path.GetFullPath(Path.Combine(projectPath, "schemes"));
+            var result = new Dictionary<string, VariantSummaryEntry>();
+            if (!Directory.Exists(schemesPath))
+                return Ok(result);
+
+            // 全树扫描所有目录（含叶子 / 容器），逐目录数 modules-*.json
+            // 容器目录通常不放变体文件，多扫几次成本极低；不增加 IsLeaf 判定逻辑保持简单
+            foreach (var dir in Directory.EnumerateDirectories(schemesPath, "*", SearchOption.AllDirectories))
+            {
+                var variantIds = new List<string>();
+                foreach (var filePath in Directory.EnumerateFiles(dir, "modules-*.json", SearchOption.TopDirectoryOnly))
+                {
+                    if (filePath.EndsWith(".meta.json", StringComparison.OrdinalIgnoreCase))
+                        continue;
+
+                    var fileName = Path.GetFileName(filePath);
+                    var match = VariantFilenameRegex.Match(fileName);
+                    if (!match.Success)
+                        continue;
+
+                    if (TrySweepUnhealthyVariant(filePath, out _))
+                        continue;
+
+                    variantIds.Add(match.Groups["variantId"].Value);
+                }
+
+                if (variantIds.Count > 0)
+                {
+                    variantIds.Sort(StringComparer.OrdinalIgnoreCase);
+                    var rel = Path.GetRelativePath(schemesPath, dir).Replace('\\', '/');
+                    result[rel] = new VariantSummaryEntry
+                    {
+                        Count = variantIds.Count,
+                        VariantIds = variantIds
+                    };
+                }
+            }
+
+            return Ok(result);
+        }
+
+        /// <summary>
         /// 读取指定变体的模块列表，用于 Web 端切换渲染。
         /// 返回结构对齐 SchemeController.GetModules 的 SchemeModulesResponse。
         /// </summary>
@@ -422,5 +481,15 @@ namespace BIMCanvas.Server.Controllers
     {
         public string VariantId { get; set; } = "";
         public string LeafZonePath { get; set; } = "";
+    }
+
+    /// <summary>
+    /// GetVariantsSummary 的字典值：count + 按字典序的 variantIds 列表。
+    /// Web 端用 variantIds 来反查 active variant 在序列中的位置，渲染 zone label 上的 (current/total) 分页号。
+    /// </summary>
+    public class VariantSummaryEntry
+    {
+        public int Count { get; set; }
+        public List<string> VariantIds { get; set; } = new List<string>();
     }
 }

@@ -153,8 +153,74 @@ export const useCanvasStore = defineStore('canvas', () => {
     // 切换/取消变体时基于该快照重组 projectData.activeScheme.modules，避免反复打服务端。
     const canonicalModulesSnapshot = ref<Module[] | null>(null);
 
+    // variantInfoByZone：项目级缓存"哪些叶子分区有几份 modules-alt-*.json 变体 + 它们的 ID 列表"。
+    // 键为叶子 zone.id（leafZonePath 最后一段）。
+    // 用于在 zone label 上渲染 (current/total) 分页号——current 通过 active variantId 在 variantIds
+    // 列表里的 index 反算而来。
+    interface VariantInfo {
+        count: number;
+        variantIds: string[];
+        leafZonePath: string;
+    }
+    const variantInfoByZone = ref<Map<string, VariantInfo>>(new Map());
+
     function getActiveVariant(leafZoneId: string): string | null {
         return activeVariantByZone.value.get(leafZoneId)?.variantId ?? null;
+    }
+
+    /**
+     * 计算某个叶子分区在 [canonical, ...sortedVariants] 序列中的"当前 / 总数"页码。
+     * 与 VariantNavigatorBar 内部的 sequence 计算口径一致：
+     *   - canonical（无 active）→ current = 1
+     *   - active variantId 在 variantIds[i] → current = i + 2
+     *   - active 已失效（list 里找不到）→ current = 1 兜底
+     * 没有变体时返回 null（label 不显示后缀）。
+     */
+    function getVariantSlot(leafZoneId: string): { current: number; total: number } | null {
+        const info = variantInfoByZone.value.get(leafZoneId);
+        if (!info || info.count <= 0) return null;
+        const total = info.count + 1;
+        const activeId = activeVariantByZone.value.get(leafZoneId)?.variantId ?? null;
+        if (!activeId) return { current: 1, total };
+        const idx = info.variantIds.indexOf(activeId);
+        return { current: idx >= 0 ? idx + 2 : 1, total };
+    }
+
+    /**
+     * 拉取项目级变体摘要（leafZonePath → {count, variantIds}），写入 variantInfoByZone，并派发
+     * bimcanvas:variant-counts-changed 让 ThreeSceneService 触发 label 重建。
+     * 任何调用方都安全：失败时静默清空 Map（视觉上回到"没有变体"，不抛错）。
+     */
+    async function refetchVariantCounts(): Promise<void> {
+        try {
+            const dict = await SchemeService.listVariantsSummary();
+            const next = new Map<string, VariantInfo>();
+            for (const [leafZonePath, rawEntry] of Object.entries(dict)) {
+                if (!leafZonePath || rawEntry == null) continue;
+                // Fallback：服务端旧版只返回数字，新版返回 { count, variantIds }。
+                // 兼容两者，旧版退化为"只有 count，无 variantIds"——分页号会卡在 current=1。
+                const count = typeof rawEntry === 'number'
+                    ? rawEntry
+                    : (rawEntry as { count?: number }).count ?? 0;
+                const variantIds = typeof rawEntry === 'object' && Array.isArray((rawEntry as any).variantIds)
+                    ? [...(rawEntry as { variantIds: string[] }).variantIds]
+                    : [];
+                if (count <= 0) continue;
+                const lastSlash = leafZonePath.lastIndexOf('/');
+                const leafZoneId = lastSlash >= 0 ? leafZonePath.slice(lastSlash + 1) : leafZonePath;
+                if (leafZoneId) {
+                    next.set(leafZoneId, { count, variantIds, leafZonePath });
+                }
+            }
+            variantInfoByZone.value = next;
+        } catch (err: any) {
+            debugStore.warn(`[Store] 变体摘要拉取失败: ${err?.message ?? err}`);
+            variantInfoByZone.value = new Map();
+        } finally {
+            window.dispatchEvent(new CustomEvent('bimcanvas:variant-counts-changed', {
+                detail: { size: variantInfoByZone.value.size }
+            }));
+        }
     }
 
     /**
@@ -163,6 +229,11 @@ export const useCanvasStore = defineStore('canvas', () => {
      * - variantId 非空 → 拉变体 modules，替换该 zone 的 canonical 内容
      * 任一情况均会重算 projectData.activeScheme.modules（基于 canonical 快照 + 当前 active map）
      */
+    // 注：setActiveVariant / clearActiveVariant 会通过 recomputeDisplayModules() 改
+    // projectData.activeScheme.modules，ThreeSceneService 的 watch(projectData, {deep:true})
+    // 会自动重建 LabelBuilder，把 (current/total) 后缀同步到新的 active variant；
+    // 所以这里不需要额外派发事件。
+
     async function setActiveVariant(
         leafZoneId: string,
         leafZonePath: string,
@@ -263,12 +334,13 @@ export const useCanvasStore = defineStore('canvas', () => {
         const fileName = data.file as string | undefined;
 
         // 变体侧链：modules-alt-{n}.json / modules-alt-{n}.meta.json
-        // 不重载整个项目，只广播给变体切换器
+        // 不重载整个项目，只广播给变体切换器 + 刷新项目级变体计数（Canvas 角标 / 副轮廓）
         if (isVariantSidecarFile(fileName)) {
             debugStore.log(`[Store] 变体文件变化，分发给切换器: ${fileName}`);
             window.dispatchEvent(new CustomEvent('bimcanvas:variant-files-changed', {
                 detail: { file: fileName, trigger: data.trigger }
             }));
+            void refetchVariantCounts();
             return;
         }
 
@@ -281,6 +353,8 @@ export const useCanvasStore = defineStore('canvas', () => {
                 activeVariantByZone.value.clear();
                 activeVariantByZone.value = new Map(activeVariantByZone.value);
                 debugStore.log('[Store] 变体已采纳，清空所有 activeVariantByZone 并重载 canonical');
+                // 采纳会删除该叶子分区下所有 modules-alt-*；刷新计数字典让 Canvas 摘掉角标
+                void refetchVariantCounts();
             }
 
             // Agent/重连/手动触发的更新：重置 skip 计数器，确保更新不被跳过
@@ -426,6 +500,9 @@ export const useCanvasStore = defineStore('canvas', () => {
         if (activeVariantByZone.value.size > 0) {
             await recomputeDisplayModules();
         }
+
+        // 项目级变体计数（首次加载 + 后续 reload 都拉一次；不 await 避免阻塞画布构建）
+        void refetchVariantCounts();
 
         await refreshModuleLibrary();
 
@@ -974,6 +1051,11 @@ export const useCanvasStore = defineStore('canvas', () => {
         activeVariantByZone,
         getActiveVariant,
         setActiveVariant,
-        clearActiveVariant
+        clearActiveVariant,
+
+        // 项目级变体计数（Canvas 上为有变体的 zone label 显示 (current/total) 后缀）
+        variantInfoByZone,
+        getVariantSlot,
+        refetchVariantCounts
     };
 });

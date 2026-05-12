@@ -47,6 +47,15 @@ export interface AdoptVariantRequest {
 }
 
 /**
+ * /api/scheme/variants/summary 的字典值。variantIds 按字典序，
+ * 与单分区的 listVariants 顺序一致。
+ */
+export interface VariantSummaryEntry {
+    count: number;
+    variantIds: string[];
+}
+
+/**
  * 方案数据服务 - 支持跨分支/Worktree 的模块数据读写
  *
  * source 参数格式：
@@ -107,6 +116,18 @@ export class SchemeService {
             { params: { leafZonePath } }
         );
         return response.data;
+    }
+
+    /**
+     * 一次性拉取 "哪些叶子分区有几份变体 + 它们的 variantId 列表" 的字典，零变体的叶子不入字典。
+     * variantIds 已按字典序排序，与 listVariants 输出顺序一致；Web 端用它来反查 active variant
+     * 在序列中的位置，从而在 zone label 上渲染 (current/total) 分页号。
+     */
+    static async listVariantsSummary(): Promise<Record<string, VariantSummaryEntry>> {
+        const response = await axios.get<Record<string, VariantSummaryEntry>>(
+            `${API_BASE}/variants/summary`
+        );
+        return response.data ?? {};
     }
 
     /**

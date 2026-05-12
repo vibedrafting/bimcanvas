@@ -428,6 +428,25 @@ export class ThreeSceneService {
         this.boundEventHandlers.set('bimcanvas:layer-presets-loaded', layerPresetsHandler);
         window.addEventListener('bimcanvas:layer-presets-loaded', layerPresetsHandler);
 
+        // variant-counts-changed：首次拉取 / SignalR variant-files-changed / variant-adopt 后
+        // 由 store.refetchVariantCounts 派发，count 或 variantIds 变了。
+        // 它只改 variantInfoByZone（不动 projectData），所以 watch(projectData) 不会兜底，必须靠这条
+        // 事件触发 LabelBuilder 重建把 zone label 的 (current/total) 后缀同步出来。
+        // 翻页 / 采纳触发的 active 变化由 setActiveVariant → recomputeDisplayModules → watch
+        // projectData 兜底，不需要额外事件。
+        const variantCountsHandler = (() => {
+            if (this.store.projectData && !this.store.suppressAutoBuild) {
+                this.labelBuilder.buildLabels(this.store.projectData);
+
+                // 标签重建后需要重置可见性，与 watch projectData 路径一致
+                const labelsOn = this._camera.layers.isEnabled(LayerManager.LAYER_LABELS);
+                const zonesOn = this._camera.layers.isEnabled(LayerManager.LAYER_ZONES);
+                this.labelBuilder.updateZoneLabelVisibility(labelsOn, zonesOn);
+            }
+        }) as EventListener;
+        this.boundEventHandlers.set('bimcanvas:variant-counts-changed', variantCountsHandler);
+        window.addEventListener('bimcanvas:variant-counts-changed', variantCountsHandler);
+
         // 6. Start Animation Loop
         if (!this.store.isScreenshotRender) {
             this.animate();
