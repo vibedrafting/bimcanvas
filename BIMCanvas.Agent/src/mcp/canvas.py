@@ -998,7 +998,7 @@ async def get_zone_boundaries(args: dict[str, Any]) -> dict[str, Any]:
 
 @tool(
     "save_semantic_plan",
-    "保存语义方案版本。在规划阶段的每个子阶段（2.1/2.2/2.3）完成后调用，提交当前版本的语义方案。",
+    "保存语义方案标签。在规划阶段的每个子阶段（2.1/2.2/2.3）完成后调用，提交当前标签的语义方案。",
     {
         "$schema": "http://json-schema.org/draft-07/schema#",
         "type": "object",
@@ -1007,10 +1007,10 @@ async def get_zone_boundaries(args: dict[str, Any]) -> dict[str, Any]:
                 "type": "string",
                 "description": "目标 Zone ID，如 'rz_3'"
             },
-            "version": {
+            "tag": {
                 "type": "string",
-                "enum": ["v0.1", "v0.2", "v0.3"],
-                "description": "语义方案版本：v0.1=空间骨架, v0.2=主体框架, v0.3=完整方案"
+                "enum": ["v0.1", "v0.2", "v0.2-meta", "v0.3"],
+                "description": "语义方案标签：v0.1=空间骨架, v0.2=战略层方案, v0.2-meta=多方案概述, v0.3=完整施工简报"
             },
             "planType": {
                 "type": "string",
@@ -1021,30 +1021,30 @@ async def get_zone_boundaries(args: dict[str, Any]) -> dict[str, Any]:
                 "type": "string",
                 "description": "语义方案文本内容（markdown 格式）"
             },
-            "referenceAnalysisVersion": {
+            "referenceAnalysisTag": {
                 "type": "string",
-                "description": "可选。若当前方案消费了定稿 reference_analysis，记录对应的版本（如 v3 / v4）。"
+                "description": "可选。若当前方案消费了定稿 reference_analysis，记录对应的标签（如 v3 / v4）。"
             }
         },
-        "required": ["zoneId", "version", "planType", "content"],
+        "required": ["zoneId", "tag", "planType", "content"],
         "additionalProperties": False
     }
 )
 async def save_semantic_plan(args: dict[str, Any]) -> dict[str, Any]:
-    """保存语义方案版本"""
+    """保存语义方案标签"""
     zone_id = args["zoneId"]
-    version = args["version"]
+    tag = args["tag"]
     plan_type = args["planType"]
     content = args["content"]
 
     body = {
         "zoneId": zone_id,
-        "version": version,
+        "tag": tag,
         "planType": plan_type,
         "content": content
     }
-    if args.get("referenceAnalysisVersion"):
-        body["referenceAnalysisVersion"] = args["referenceAnalysisVersion"]
+    if args.get("referenceAnalysisTag"):
+        body["referenceAnalysisTag"] = args["referenceAnalysisTag"]
 
     try:
         async with aiohttp.ClientSession() as session:
@@ -1054,12 +1054,12 @@ async def save_semantic_plan(args: dict[str, Any]) -> dict[str, Any]:
             ) as resp:
                 if resp.status == 200:
                     data = await resp.json()
-                    ref_version = data.get("referenceAnalysisVersion")
-                    suffix = f"（reference={ref_version}）" if ref_version else ""
+                    ref_tag = data.get("referenceAnalysisTag")
+                    suffix = f"（reference={ref_tag}）" if ref_tag else ""
                     return {
                         "content": [{
                             "type": "text",
-                            "text": f"语义方案 {plan_type} {version} 已保存{suffix}。继续下一阶段。"
+                            "text": f"语义方案 {plan_type} {tag} 已保存{suffix}。继续下一阶段。"
                         }]
                     }
                 else:
@@ -1107,13 +1107,13 @@ async def load_semantic_plan(args: dict[str, Any]) -> dict[str, Any]:
                         f"status: {data['status']}",
                         f"zoneId: {data['zoneId']}",
                         f"planType: {data['planType']}",
-                        f"effectiveVersion: {data['effectiveVersion']}",
+                        f"effectiveTag: {data['effectiveTag']}",
                         f"timestamp: {data['timestamp']}"
                     ]
 
-                    if data.get("referenceAnalysisVersion"):
+                    if data.get("referenceAnalysisTag"):
                         text_parts.append(
-                            f"referenceAnalysisVersion: {data['referenceAnalysisVersion']}"
+                            f"referenceAnalysisTag: {data['referenceAnalysisTag']}"
                         )
 
                     text_parts.append(f"\n{data['content']}")
@@ -1150,7 +1150,7 @@ async def load_semantic_plan(args: dict[str, Any]) -> dict[str, Any]:
 
 @tool(
     "load_reference_analysis",
-    "加载当前设计区的参考分析。默认返回最新版本；可选 version 参数读取指定版本。",
+    "加载当前设计区的参考分析。默认返回最新标签；可选 tag 参数读取指定标签。",
     {
         "$schema": "http://json-schema.org/draft-07/schema#",
         "type": "object",
@@ -1159,9 +1159,9 @@ async def load_semantic_plan(args: dict[str, Any]) -> dict[str, Any]:
                 "type": "string",
                 "description": "目标 Zone ID，如 'rz_3'"
             },
-            "version": {
+            "tag": {
                 "type": "string",
-                "description": "可选。指定参考分析版本，如 'v1'；不传则返回最新版本。"
+                "description": "可选。指定参考分析标签，如 'v1'；不传则返回最新标签。"
             }
         },
         "required": ["zoneId"],
@@ -1169,22 +1169,22 @@ async def load_semantic_plan(args: dict[str, Any]) -> dict[str, Any]:
     }
 )
 async def load_reference_analysis(args: dict[str, Any]) -> dict[str, Any]:
-    """加载参考分析版本"""
+    """加载参考分析标签"""
     zone_id = args["zoneId"]
-    version = args.get("version")
+    tag = args.get("tag")
 
     try:
         async with aiohttp.ClientSession() as session:
             async with session.get(
                 f"{SERVER_URL}/api/semantic-plan/{zone_id}/reference-analysis",
-                params={"version": version} if version else None
+                params={"tag": tag} if tag else None
             ) as resp:
                 if resp.status == 200:
                     data = await resp.json()
                     text_parts = [
                         f"status: {data['status']}",
                         f"zoneId: {data['zoneId']}",
-                        f"version: {data['version']}",
+                        f"tag: {data['tag']}",
                         f"sourceImageId: {data.get('sourceImageId', '')}",
                         f"timestamp: {data['timestamp']}",
                         "",
@@ -1221,7 +1221,7 @@ async def load_reference_analysis(args: dict[str, Any]) -> dict[str, Any]:
 
 @tool(
     "save_reference_analysis",
-    "保存完整参考分析快照。在参考图分析各阶段完成后调用，提交当前版本的完整 Markdown 分析内容。",
+    "保存完整参考分析快照。在参考图分析各阶段完成后调用，提交当前标签的完整 Markdown 分析内容。",
     {
         "$schema": "http://json-schema.org/draft-07/schema#",
         "type": "object",
@@ -1262,11 +1262,11 @@ async def save_reference_analysis(args: dict[str, Any]) -> dict[str, Any]:
             ) as resp:
                 if resp.status == 200:
                     data = await resp.json()
-                    version_text = data.get("version", "N/A")
+                    tag_text = data.get("tag", "N/A")
                     return {
                         "content": [{
                             "type": "text",
-                            "text": f"参考分析结果已保存为 {version_text}。"
+                            "text": f"参考分析结果已保存为 {tag_text}。"
                         }],
                         "structuredContent": data
                     }

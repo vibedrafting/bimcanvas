@@ -441,22 +441,25 @@ computed/*.json        → computed
 - Agent 侧 `mcp__canvas__validate_layout` 会先调用 `/api/modules/normalize`，规范化无错误后再调用 `/api/validation/layout`
 - 方向归一化仍沿用 `FileSystemWatcher + SignalR` 被动刷新机制，因此 AI 直写文件后可能出现两次 reload：第一次来自 AI 写入，第二次来自 normalize 写回
 
-#### semantic_plan / reference_analysis API（v3.5）
+#### semantic_plan / reference_analysis API（v3.5+）
 
 | 端点 | 方法 | 功能 |
 |------|------|------|
-| `/api/semantic-plan/save` | POST | 保存 `v0.1/v0.2/v0.3` 语义方案，支持可选 `referenceAnalysisVersion` |
-| `/api/semantic-plan/{zoneId}` | GET | 读取当前生效的 `v0.3` 语义合同 |
-| `/api/semantic-plan/save-reference-analysis` | POST | 追加保存独立的 `reference_analysis.json` 完整版本快照 |
-| `/api/semantic-plan/{zoneId}/reference-analysis` | GET | 读取最新或指定版本的参考分析 |
+| `/api/semantic-plan/save` | POST | 保存 `v0.1` / `v0.2` / `v0.2-meta` / `v0.3` 语义方案标签，支持可选 `referenceAnalysisTag` |
+| `/api/semantic-plan/{zoneId}` | GET | 读取当前生效的 `v0.3` 语义合同（返回 `effectiveTag`） |
+| `/api/semantic-plan/save-reference-analysis` | POST | 追加保存独立的 `reference_analysis.json` 完整快照，Server 自动分配 `v{N+1}` 标签 |
+| `/api/semantic-plan/{zoneId}/reference-analysis` | GET | 读取最新或指定标签的参考分析，可选 `?tag=` query |
 
 关键约定：
 
-- `semantic_plan.json` 只保存语义方案版本数组
-- `reference_analysis.json` 独立保存参考分析版本数组
-- `reference_analysis` 的每个版本都是完整快照，planning 默认读取最新定稿版本
+- `semantic_plan.json` 用 `entries` 数组保存语义方案条目，每条以 `tag` 索引
+- `reference_analysis.json` 独立保存参考分析标签数组（顶层数组），Server 自动按 `v1/v2/v3/...` 顺序分配 `tag`
+- `reference_analysis` 的每个标签都是完整快照，planning 默认读取最新定稿标签
 - 新流程统一写 `planType="derived"`
 - 旧 `planType=reference` 且缺少 `v0.3` 的数据会被视为 legacy，需要重新规划
+- **Tag 白名单**：semantic_plan 合法 tag 为 `{v0.1, v0.2, v0.2-meta, v0.3}`，写入未列入白名单的 tag 返回 400；reference_analysis 由 Server 分配，匹配 `^v[1-9][0-9]*$`
+- **v0.2-meta** 预留给后续 multi-plan 模式（多方案概述），Phase 0 已加入白名单但生产代码暂未写入
+- **schema 已从 `version` 字段迁移为 `tag`**（含 `Versions`→`Entries`、`effectiveVersion`→`effectiveTag`、`referenceAnalysisVersion`→`referenceAnalysisTag`）。旧版字段已下线，不做兼容读
 
 ### 5.2 Git 分支管理 API
 

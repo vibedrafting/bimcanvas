@@ -136,13 +136,13 @@ description: |
 ```text
 save_semantic_plan({
   zoneId,
-  version: "v0.1",
+  tag: "v0.1",
   planType: "derived",
   content
 })
 ```
 
-`v0.1` 不写 `referenceAnalysisVersion`。
+`v0.1` 不写 `referenceAnalysisTag`。
 
 **WHY**：
 - `v0.1` 是后续所有设计决策的真实地基。
@@ -254,10 +254,10 @@ save_semantic_plan({
 ```text
 save_semantic_plan({
   zoneId,
-  version: "v0.2",
+  tag: "v0.2",
   planType: "derived",
   content,
-  referenceAnalysisVersion: "vN"   # 参考消费模式必填
+  referenceAnalysisTag: "vN"   # 参考消费模式必填
 })
 ```
 
@@ -368,10 +368,10 @@ save_semantic_plan({
 ```text
 save_semantic_plan({
   zoneId,
-  version: "v0.3",
+  tag: "v0.3",
   planType: "derived",
   content,
-  referenceAnalysisVersion: "vN"   # 参考消费模式必填
+  referenceAnalysisTag: "vN"   # 参考消费模式必填
 })
 ```
 

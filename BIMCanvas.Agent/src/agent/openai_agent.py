@@ -887,21 +887,21 @@ class OpenAIAgent:
         async def canvas_save_semantic_plan(
             ctx: Any,
             zoneId: str,
-            version: str,
+            tag: str,
             planType: str,
             content: str,
-            referenceAnalysisVersion: str | None = None,
+            referenceAnalysisTag: str | None = None,
         ) -> Any:
             """Save a semantic plan snapshot for the current zone."""
             del ctx
             args = {
                 "zoneId": zoneId,
-                "version": version,
+                "tag": tag,
                 "planType": planType,
                 "content": content,
             }
-            if referenceAnalysisVersion:
-                args["referenceAnalysisVersion"] = referenceAnalysisVersion
+            if referenceAnalysisTag:
+                args["referenceAnalysisTag"] = referenceAnalysisTag
             return await self._invoke_canvas_tool_impl("save_semantic_plan", args)
 
         @with_tool_context(tool_name="mcp__canvas__load_semantic_plan")
@@ -930,13 +930,13 @@ class OpenAIAgent:
         async def canvas_load_reference_analysis(
             ctx: Any,
             zoneId: str,
-            version: str | None = None,
+            tag: str | None = None,
         ) -> Any:
             """Load the latest or a fixed reference-analysis snapshot for the current zone."""
             del ctx
             args = {"zoneId": zoneId}
-            if version:
-                args["version"] = version
+            if tag:
+                args["tag"] = tag
             return await self._invoke_canvas_tool_impl("load_reference_analysis", args)
 
         @with_tool_context(tool_name="mcp__canvas__save_reference_analysis")

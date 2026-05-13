@@ -363,8 +363,8 @@ save_reference_analysis(zoneId, sourceImageId, content=v3)
 ```
 
 返回后必须说明：
-- 已保存为哪个版本
-- 当前版本处于哪一阶段
+- 已保存为哪个标签
+- 当前标签处于哪一阶段
 - 是否已经达到可供 planning 消费的定稿状态
 
 ### 修订分析
@@ -374,9 +374,9 @@ save_reference_analysis(zoneId, sourceImageId, content=vN)
 ```
 
 返回后必须说明：
-- 新版本号
+- 新标签号
 - 相对上一版更新了什么
-- planning 之后应消费最新版本
+- planning 之后应消费最新标签
 
 ---
 

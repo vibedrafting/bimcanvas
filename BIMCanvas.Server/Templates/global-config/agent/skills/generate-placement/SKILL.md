@@ -56,9 +56,9 @@ load_semantic_plan({ zoneId })
 
 读取后必须显式复述：
 
-- `effectiveVersion`（必须是 `v0.3`）
+- `effectiveTag`（必须是 `v0.3`）
 - 关键家具墙面归属
-- 若存在 `referenceAnalysisVersion`，只把它当作“本合同消费自哪版定稿参考分析”的审计元数据复述，不得把它当运行时输入
+- 若存在 `referenceAnalysisTag`，只把它当作“本合同消费自哪版定稿参考分析”的审计元数据复述，不得把它当运行时输入
 - 若有“自动代决”“自动适配”标记，也必须复述
 
 **【必须】**placement 只读取 `v0.3.content`。不得调用 `load_reference_analysis`，也不得根据历史 reference 文件补充理解。
@@ -292,8 +292,8 @@ load_semantic_plan({ zoneId })
 最终汇报必须包含：
 
 **基础信息**
-- 施工依据：`effectiveVersion=v0.3`
-- 若存在 `referenceAnalysisVersion`，说明它只是溯源字段
+- 施工依据：`effectiveTag=v0.3`
+- 若存在 `referenceAnalysisTag`，说明它只是溯源字段
 
 **放置结果**
 - 家具、墙面、朝向
@@ -311,7 +311,7 @@ load_semantic_plan({ zoneId })
 - 自动改图建议
 
 **合同同步**
-- 若本轮执行了 `v0.3` 合同内 fallback，或用户授权了语义级改图，最终汇报前必须调用 `save_semantic_plan({ version: "v0.3" })` 重写当前生效合同，使 `semantic_plan v0.3` 与最终 `modules.json` 一致。
+- 若本轮执行了 `v0.3` 合同内 fallback，或用户授权了语义级改图，最终汇报前必须调用 `save_semantic_plan({ tag: "v0.3" })` 重写当前生效合同，使 `semantic_plan v0.3` 与最终 `modules.json` 一致。
 - 重写后再汇报，不得只更新 `modules.json` 就宣布完成。
 
 **WHY**：`validate_layout` 只证明几何合法，不证明施工结果仍匹配合同。后续 edit、二次 placement 和审计都会读取 `v0.3`，合同不一致会把已经解决的问题重新带回流程。
