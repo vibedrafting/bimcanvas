@@ -169,24 +169,31 @@ export class LabelBuilder {
         div.className = 'ai-label';
 
         if (isZoneLabel) {
-            // Zone 标签：#ID + 可选的"(current/total)"后缀
-            // 仅当该叶子分区存在 modules-alt-*.json 变体时显示；current 与 VariantNavigatorBar
-            // 内部 sequence 同步——默认在原方案是 1，翻到第 k 个变体（字典序）就是 k+1。
+            // Zone 标签：上下两行
+            //   #ID
+            //   (current/total)   ← 仅当该叶子分区存在 modules-alt-*.json 变体时显示
+            // current 与 VariantNavigatorBar 内部 sequence 同步——默认在原方案是 1，
+            // 翻到第 k 个变体（字典序）就是 k+1。
             // 用 createElement + textContent 拼接（而非 innerHTML），避免 zone.id 里的特殊字符
             // 被当 HTML 解析的 XSS 隐患。
-            div.textContent = `#${id}`;
             const store = useCanvasStore();
             const slot = store.getVariantSlot(id);
+
+            const idLine = document.createElement('div');
+            idLine.textContent = `#${id}`;
+            if (slot) idLine.style.textAlign = 'center';
+            div.appendChild(idLine);
+
             if (slot) {
                 const cur = slot.current > 9 ? '9+' : String(slot.current);
                 const tot = slot.total > 9 ? '9+' : String(slot.total);
-                const suffix = document.createElement('span');
+                const suffix = document.createElement('div');
                 suffix.textContent = `(${cur}/${tot})`;
                 // 蓝色超链接风格（不加下划线）：blue-400 + 鼠标手势
-                suffix.style.marginLeft = '6px';
                 suffix.style.color = '#60a5fa';
                 suffix.style.fontWeight = '600';
                 suffix.style.cursor = 'pointer';
+                suffix.style.textAlign = 'center';
                 div.appendChild(suffix);
             }
         } else {

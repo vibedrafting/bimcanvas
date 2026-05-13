@@ -114,5 +114,13 @@ namespace BIMCanvas.Server.Dtos
         /// 如果不指定，按模块的 zoneId 自动分组写入分区子目录
         /// </summary>
         public string? ZoneId { get; set; }
+
+        /// <summary>
+        /// 按叶子分区 id → variantId 的映射，表示该 zone 当前显示的是哪份变体。
+        /// 命中的 zone：本次保存写入 modules-{variantId}.json，canonical modules.json 不动；
+        /// 未命中（或 variantId 为空）：照常写入 canonical modules.json。
+        /// 缺省（null/空）= 全 canonical，行为与旧版一致。
+        /// </summary>
+        public Dictionary<string, string>? VariantSelection { get; set; }
     }
 }

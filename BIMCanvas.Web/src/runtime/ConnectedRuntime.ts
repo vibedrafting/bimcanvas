@@ -55,11 +55,11 @@ export class ConnectedRuntime implements WebRuntime {
     this.moduleAssets.clear();
   }
 
-  async saveModules(modules: Module[]): Promise<boolean> {
+  async saveModules(modules: Module[], variantSelection?: Record<string, string>): Promise<boolean> {
     const response = await fetch(`${SERVER_API}/project/save`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ modules })
+      body: JSON.stringify({ modules, variantSelection: variantSelection ?? {} })
     });
     return response.ok;
   }

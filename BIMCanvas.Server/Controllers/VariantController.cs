@@ -217,7 +217,12 @@ namespace BIMCanvas.Server.Controllers
         }
 
         /// <summary>
-        /// 采纳某变体：用变体内容覆写 canonical modules.json，并删除该叶子分区下所有 modules-alt-*.json + sidecar。
+        /// 采纳某变体（轮换语义）：
+        ///   1) 旧 canonical modules.json 内容降级为 modules-alt-prev-{yyyyMMddHHmmss}.json（带 wrapper.summary 标注归档时间）
+        ///   2) 被采纳的 variant 内容写到 canonical modules.json
+        ///   3) 被采纳的 variant 文件 + 其 sidecar 被删除（不再作为可选）
+        ///   4) 其他 modules-alt-*.json 全部保留
+        /// 这样用户可以"回退"——上一版正式方案仍以变体形式存在，可以再次采纳回去。
         /// </summary>
         [HttpPost("variant/adopt")]
         public async Task<IActionResult> AdoptVariant([FromBody] AdoptVariantRequest? request)
@@ -249,36 +254,53 @@ namespace BIMCanvas.Server.Controllers
 
             try
             {
-                // 1) 读取变体内容并先校验合法（兼容 wrapper 形态 {summary, modules} 与 legacy 裸数组）
-                //    采纳时只把 modules 数组写回 canonical，summary 字段不进 canonical（canonical 不带 wrapper）
+                // 1) 读取被采纳的变体内容并校验合法（兼容 wrapper 形态 {summary, modules} 与裸数组）
                 var variantContent = System.IO.File.ReadAllText(variantPath, Encoding.UTF8);
                 var modulesArrayJson = ExtractModulesArrayJson(variantContent);
 
-                // 2) 原子写入 canonical：先写 .tmp，再 Move 覆盖
+                // 2) 旧 canonical 降级归档：写入 modules-alt-prev-{yyyyMMddHHmmss}.json
+                //    带 wrapper.summary 标注"上一版正式方案，归档于 ..."，让 NavigatorBar 上能识别。
+                //    canonical 缺失或空时跳过归档（首次采纳之前没东西可归档）。
+                string? archivedVariantId = null;
+                if (System.IO.File.Exists(canonicalPath))
+                {
+                    var canonicalContent = System.IO.File.ReadAllText(canonicalPath, Encoding.UTF8);
+                    if (!string.IsNullOrWhiteSpace(canonicalContent))
+                    {
+                        var now = DateTime.Now;
+                        archivedVariantId = $"alt-prev-{now:yyyyMMddHHmmss}";
+                        var archiveFileName = ModuleFileTopologyService.BuildVariantFilename(archivedVariantId);
+                        var archivePath = Path.Combine(zoneDir, archiveFileName);
+
+                        // 用 wrapper 形态写入归档（summary 给 NavigatorBar 提示），modules 数组沿用旧 canonical 内容
+                        var canonicalArrayJson = ExtractModulesArrayJson(canonicalContent);
+                        var canonicalArray = JArray.Parse(canonicalArrayJson);
+                        var wrapper = new JObject
+                        {
+                            ["summary"] = $"上一版已采纳方案，归档于 {now:yyyy/MM/dd HH:mm:ss}",
+                            ["modules"] = canonicalArray
+                        };
+
+                        var archiveTmp = archivePath + ".tmp";
+                        System.IO.File.WriteAllText(archiveTmp, wrapper.ToString(Formatting.Indented), Encoding.UTF8);
+                        System.IO.File.Move(archiveTmp, archivePath, overwrite: true);
+                    }
+                }
+
+                // 3) 原子写入新 canonical
                 var tmpPath = canonicalPath + ".tmp";
                 System.IO.File.WriteAllText(tmpPath, modulesArrayJson, Encoding.UTF8);
                 System.IO.File.Move(tmpPath, canonicalPath, overwrite: true);
 
-                // 3) 删除该 zone 下所有 modules-alt-*.json + 对应 sidecar
+                // 4) 删除被采纳的那个变体文件 + 其 sidecar（不动其他 alt 文件）
                 var deletedFiles = new List<string>();
-                foreach (var altFile in Directory.GetFiles(zoneDir, "modules-alt-*.json", SearchOption.TopDirectoryOnly))
-                {
-                    try
-                    {
-                        System.IO.File.Delete(altFile);
-                        deletedFiles.Add(Path.GetFileName(altFile));
-                    }
-                    catch (Exception ex)
-                    {
-                        _logger.LogWarning(ex, "删除变体文件失败: {File}", altFile);
-                    }
-                }
+                TryDeleteVariantPair(zoneDir, request.VariantId, deletedFiles);
 
                 _logger.LogInformation(
-                    "[Variant.Adopt] 已采纳变体 {VariantId} → {Canonical}; 清理变体文件 {Count} 个",
-                    request.VariantId, canonicalPath, deletedFiles.Count);
+                    "[Variant.Adopt] {VariantId} 晋升为 canonical；旧 canonical 归档为 {Archived}；删除 {Count} 个被采纳变体文件",
+                    request.VariantId, archivedVariantId ?? "(无)", deletedFiles.Count);
 
-                // 4) 显式广播 modules.json 变化，缩短 Web 端等 FileWatcher 防抖的延迟
+                // 5) 显式广播 modules.json 变化，缩短 Web 端等 FileWatcher 防抖的延迟
                 await _hubContext.Clients.All.SendAsync("ReceiveUpdate", new
                 {
                     type = "file_changed",
@@ -292,6 +314,7 @@ namespace BIMCanvas.Server.Controllers
                 {
                     success = true,
                     adopted = request.VariantId,
+                    archivedAs = archivedVariantId,
                     deletedVariants = deletedFiles
                 });
             }
@@ -304,6 +327,82 @@ namespace BIMCanvas.Server.Controllers
             {
                 _logger.LogError(ex, "采纳变体失败");
                 return StatusCode(500, new { error = $"采纳失败: {ex.Message}" });
+            }
+        }
+
+        /// <summary>
+        /// 删除指定的可变方案文件（modules-{variantId}.json + sidecar）。
+        /// 不动 canonical 与其他 alt 文件。
+        /// </summary>
+        [HttpDelete("variant/{variantId}")]
+        public async Task<IActionResult> DeleteVariant(string variantId, [FromQuery] string leafZonePath)
+        {
+            if (!_projectContext.IsLoaded)
+                return BadRequest(new { error = "未加载项目" });
+
+            try
+            {
+                ModuleFileTopologyService.EnsureSafeVariantId(variantId);
+            }
+            catch (ArgumentException ex)
+            {
+                return BadRequest(new { error = ex.Message });
+            }
+
+            if (!TryResolveZoneDirectory(leafZonePath, out var zoneDir, out var error))
+                return BadRequest(new { error });
+
+            var variantFileName = ModuleFileTopologyService.BuildVariantFilename(variantId);
+            var variantPath = Path.Combine(zoneDir, variantFileName);
+            if (!System.IO.File.Exists(variantPath))
+                return NotFound(new { error = $"变体文件不存在: {variantFileName}" });
+
+            var deletedFiles = new List<string>();
+            TryDeleteVariantPair(zoneDir, variantId, deletedFiles);
+
+            _logger.LogInformation(
+                "[Variant.Delete] 已删除变体 {VariantId}（{Count} 个文件）", variantId, deletedFiles.Count);
+
+            // 广播：file 名以 modules-alt- 开头时 Web 端会进 variant-files-changed 分发，
+            // 触发 variantInfoByZone refetch，让 NavigatorBar / zone label 同步刷新。
+            await _hubContext.Clients.All.SendAsync("ReceiveUpdate", new
+            {
+                type = "file_changed",
+                file = variantFileName,
+                timestamp = DateTime.UtcNow,
+                action = "reload",
+                trigger = "variant-deleted"
+            });
+
+            return Ok(new
+            {
+                success = true,
+                deleted = variantId,
+                deletedFiles
+            });
+        }
+
+        /// <summary>
+        /// 尝试删除一个变体的主文件 + sidecar；成功的文件名追加到 deletedFiles。失败仅记日志不抛。
+        /// </summary>
+        private void TryDeleteVariantPair(string zoneDir, string variantId, List<string> deletedFiles)
+        {
+            var variantFileName = ModuleFileTopologyService.BuildVariantFilename(variantId);
+            var variantPath = Path.Combine(zoneDir, variantFileName);
+            var sidecarPath = Path.Combine(zoneDir, $"modules-{variantId}.meta.json");
+
+            foreach (var path in new[] { variantPath, sidecarPath })
+            {
+                if (!System.IO.File.Exists(path)) continue;
+                try
+                {
+                    System.IO.File.Delete(path);
+                    deletedFiles.Add(Path.GetFileName(path));
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "删除变体文件失败: {File}", path);
+                }
             }
         }
 

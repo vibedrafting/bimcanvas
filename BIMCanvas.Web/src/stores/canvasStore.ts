@@ -934,7 +934,16 @@ export const useCanvasStore = defineStore('canvas', () => {
         }
 
         try {
-            const saved = await runtime.saveModules(projectData.value.activeScheme.modules);
+            // 派生 variantSelection：activeVariantByZone 里每个条目代表"这个 zone 当前显示的是变体"，
+            // 后端按此映射决定写 modules-{vid}.json 还是 canonical modules.json，避免编辑变体时污染 canonical。
+            const variantSelection: Record<string, string> = {};
+            for (const [leafZoneId, state] of activeVariantByZone.value) {
+                variantSelection[leafZoneId] = state.variantId;
+            }
+            const saved = await runtime.saveModules(
+                projectData.value.activeScheme.modules,
+                variantSelection
+            );
             if (saved) {
                 if (supports(runtime.capabilities.serverPersistence)) {
                     // Connected 模式下，Server 已经落盘；Standalone 的保存语义是导出 Snapshot。

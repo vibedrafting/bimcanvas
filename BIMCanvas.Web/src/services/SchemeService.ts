@@ -131,14 +131,31 @@ export class SchemeService {
     }
 
     /**
-     * 采纳某个变体：用变体内容覆写 canonical modules.json，并删除该叶子分区下所有 modules-alt-*
+     * 采纳某个变体（轮换语义）：旧 canonical 降级为 modules-alt-prev-{ts}.json，
+     * 被采纳的 variant 晋升为 canonical 并删除其原变体文件，其他 alt 文件保留。
      */
     static async adoptVariant(request: AdoptVariantRequest): Promise<{
         success: boolean;
         adopted: string;
+        archivedAs: string | null;
         deletedVariants: string[];
     }> {
         const response = await axios.post(`${API_BASE}/variant/adopt`, request);
+        return response.data;
+    }
+
+    /**
+     * 删除指定的可变方案（modules-{variantId}.json + sidecar）。不动 canonical / 其他 alt。
+     */
+    static async deleteVariant(request: { variantId: string; leafZonePath: string }): Promise<{
+        success: boolean;
+        deleted: string;
+        deletedFiles: string[];
+    }> {
+        const response = await axios.delete(
+            `${API_BASE}/variant/${encodeURIComponent(request.variantId)}`,
+            { params: { leafZonePath: request.leafZonePath } }
+        );
         return response.data;
     }
 }

@@ -65,7 +65,7 @@ export class StandaloneRuntime implements WebRuntime {
     // 绑定层不随项目关闭而清,保持跨项目可用
   }
 
-  async saveModules(_modules: Module[]): Promise<boolean> {
+  async saveModules(_modules: Module[], _variantSelection?: Record<string, string>): Promise<boolean> {
     return true;
   }
 

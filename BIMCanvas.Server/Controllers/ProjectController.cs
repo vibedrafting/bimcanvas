@@ -795,10 +795,57 @@ namespace BIMCanvas.Server.Controllers
                     grouped[zoneId].Add(module);
                 }
 
-                // Step 3: 递归清空所有叶子 zone 的 modules.json（支持嵌套分区，防止残留）
-                ProjectService.ClearAllLeafModuleFiles(schemesPath);
+                // 变体激活映射：zoneId → variantId（仅保留 variantId 非空且合法的条目）
+                // 命中的 zone：写入 modules-{variantId}.json，canonical 不动；
+                // 未命中：照常写入 canonical modules.json。
+                var variantSelection = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+                if (request.VariantSelection != null)
+                {
+                    foreach (var kvp in request.VariantSelection)
+                    {
+                        if (string.IsNullOrWhiteSpace(kvp.Key) || string.IsNullOrWhiteSpace(kvp.Value))
+                            continue;
+                        try
+                        {
+                            ModuleFileTopologyService.EnsureSafeVariantId(kvp.Value);
+                            variantSelection[kvp.Key] = kvp.Value;
+                        }
+                        catch (ArgumentException ex)
+                        {
+                            return BadRequest(new { message = $"variantSelection[{kvp.Key}] 非法: {ex.Message}" });
+                        }
+                    }
+                }
 
-                // Step 4: 写入新数据（支持嵌套分区路径解析）
+                // 在 variantSelection 里出现但 grouped 中缺席的 zone 补空数组——
+                // 用户可能把变体里的所有家具拖光了，得写空数组到变体文件而不是放任不管。
+                foreach (var zoneId in variantSelection.Keys)
+                {
+                    if (!grouped.ContainsKey(zoneId))
+                        grouped[zoneId] = new List<Module>();
+                }
+
+                // Step 3: 按 zone 状态分别清空旧文件（替代原先一刀切 ClearAllLeafModuleFiles）
+                //   variant 状态的 zone：只清空它的 modules-{variantId}.json，canonical 不动
+                //   canonical 状态的 zone：清空 canonical modules.json（防家具被拖出后残留）
+                var existingCanonicalFiles = ModuleFileTopologyService.FindExistingCanonicalModuleFiles(schemesPath);
+                foreach (var entry in existingCanonicalFiles)
+                {
+                    if (variantSelection.ContainsKey(entry.ZoneId))
+                    {
+                        // 该 zone 在变体状态——不动 canonical，只清它的变体文件
+                        var variantFileToDelete = Path.Combine(
+                            Path.GetDirectoryName(entry.FilePath) ?? schemesPath,
+                            ModuleFileTopologyService.BuildVariantFilename(variantSelection[entry.ZoneId]));
+                        DeleteFileIfWritable(variantFileToDelete);
+                    }
+                    else
+                    {
+                        DeleteFileIfWritable(entry.FilePath);
+                    }
+                }
+
+                // Step 4: 写入新数据
                 foreach (var kvp in grouped)
                 {
                     var zoneDir = ProjectService.ResolveZoneDirectory(schemesPath, kvp.Key);
@@ -812,11 +859,18 @@ namespace BIMCanvas.Server.Controllers
                         return m;
                     }).ToList();
 
-                    var modulesPath = Path.Combine(zoneDir, "modules.json");
+                    // 决定目标文件名：variant 状态 → modules-{vid}.json，否则 modules.json
+                    var fileName = variantSelection.TryGetValue(kvp.Key, out var vid)
+                        ? ModuleFileTopologyService.BuildVariantFilename(vid)
+                        : "modules.json";
+
+                    var modulesPath = Path.Combine(zoneDir, fileName);
+                    // 变体文件也直接写裸数组（与 canonical 同格式），保留 wrapper.summary 不在本次范围
                     var json = JsonConvert.SerializeObject(modulesToSave, Formatting.Indented, _jsonSettings);
                     EnsureWritableFile(modulesPath);
                     System.IO.File.WriteAllText(modulesPath, json, Encoding.UTF8);
-                    _logger.LogDebug("[SaveModules] 写入 {Count} 个模块到 {ZoneId}", modulesToSave.Count, kvp.Key);
+                    _logger.LogDebug("[SaveModules] 写入 {Count} 个模块到 {ZoneId}/{File}",
+                        modulesToSave.Count, kvp.Key, fileName);
                 }
 
                 // Step 5: 清理旧格式文件（向后兼容过渡）
@@ -1326,6 +1380,18 @@ namespace BIMCanvas.Server.Controllers
             {
                 System.IO.File.SetAttributes(path, attributes & ~FileAttributes.ReadOnly);
             }
+        }
+
+        /// <summary>
+        /// 文件存在则删除（先清除 ReadOnly）；不存在直接跳过。
+        /// 与 ProjectService.ClearAllLeafModuleFiles 内部行为一致。
+        /// </summary>
+        private static void DeleteFileIfWritable(string path)
+        {
+            if (!System.IO.File.Exists(path))
+                return;
+            EnsureWritableFile(path);
+            System.IO.File.Delete(path);
         }
 
         private static ProjectLoadResult CreateSuccessProjectLoadResult(string projectPath, List<string> warnings)

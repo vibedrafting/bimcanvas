@@ -7,13 +7,26 @@
 import { ref, computed, watch, onMounted, onUnmounted } from 'vue';
 import { useCanvasStore } from '../../stores/canvasStore';
 import { SchemeService, type VariantDescriptor } from '../../services/SchemeService';
+import GlassButton from './base/GlassButton.vue';
 
 const canvasStore = useCanvasStore();
 
 const variants = ref<VariantDescriptor[]>([]);
 const isLoading = ref(false);
 const adoptingVariantId = ref<string | null>(null);
+const deletingVariantId = ref<string | null>(null);
 const errorMessage = ref<string | null>(null);
+
+// 删除确认弹窗：暂存待删 zone 上下文 + variantId，确认后才真正调接口
+interface PendingDelete {
+    variantId: string;
+    leafZoneId: string;
+    leafZonePath: string;
+}
+const pendingDelete = ref<PendingDelete | null>(null);
+const showDeleteConfirm = computed(() => pendingDelete.value !== null);
+
+const busy = computed(() => !!adoptingVariantId.value || !!deletingVariantId.value);
 
 const variantContext = computed<{ leafZoneId: string; leafZonePath: string } | null>(() => {
     const obj: any = canvasStore.selectedObject;
@@ -46,7 +59,7 @@ const currentIndex = computed(() => {
 });
 
 const currentLabel = computed(() =>
-    currentIndex.value === 0 ? '原方案' : sortedVariants.value[currentIndex.value - 1]!.variantId
+    currentIndex.value === 0 ? '已采纳方案' : sortedVariants.value[currentIndex.value - 1]!.variantId
 );
 
 const currentSummary = computed(() => {
@@ -88,7 +101,7 @@ function isEditableTarget(target: EventTarget | null): boolean {
 function onKeydown(event: KeyboardEvent) {
     if (event.defaultPrevented || event.ctrlKey || event.metaKey || event.altKey || event.shiftKey) return;
     if (isEditableTarget(event.target)) return;
-    if (!variantContext.value || variants.value.length === 0 || adoptingVariantId.value) return;
+    if (!variantContext.value || variants.value.length === 0 || busy.value) return;
 
     if (event.key === 'ArrowLeft' || event.key === 'ArrowUp') {
         event.preventDefault();
@@ -106,7 +119,7 @@ function onKeydown(event: KeyboardEvent) {
 
 async function onAdopt() {
     const ctx = variantContext.value;
-    if (!ctx || !showAdopt.value || adoptingVariantId.value) return;
+    if (!ctx || !showAdopt.value || busy.value) return;
     const variantId = currentLabel.value;
     adoptingVariantId.value = variantId;
     errorMessage.value = null;
@@ -120,6 +133,42 @@ async function onAdopt() {
         errorMessage.value = err?.response?.data?.error ?? err?.message ?? '采纳失败';
     } finally {
         adoptingVariantId.value = null;
+    }
+}
+
+function onDelete() {
+    const ctx = variantContext.value;
+    if (!ctx || !showAdopt.value || busy.value) return;
+    pendingDelete.value = {
+        variantId: currentLabel.value,
+        leafZoneId: ctx.leafZoneId,
+        leafZonePath: ctx.leafZonePath
+    };
+}
+
+function cancelDelete() {
+    pendingDelete.value = null;
+}
+
+async function confirmDelete() {
+    const pending = pendingDelete.value;
+    pendingDelete.value = null;
+    if (!pending) return;
+    deletingVariantId.value = pending.variantId;
+    errorMessage.value = null;
+    // 先回到原方案，避免删完后 active 还指向已不存在的 variantId
+    await canvasStore.clearActiveVariant(pending.leafZoneId);
+    try {
+        await SchemeService.deleteVariant({
+            variantId: pending.variantId,
+            leafZonePath: pending.leafZonePath
+        });
+        // 乐观从本地列表移除；SignalR 推送的 variant-files-changed 会兜底 refetch
+        variants.value = variants.value.filter(v => v.variantId !== pending.variantId);
+    } catch (err: any) {
+        errorMessage.value = err?.response?.data?.error ?? err?.message ?? '删除失败';
+    } finally {
+        deletingVariantId.value = null;
     }
 }
 
@@ -165,7 +214,7 @@ watch(() => variantContext.value?.leafZonePath ?? null, () => { void refetchVari
             <button
                 class="vnav-arrow"
                 type="button"
-                :disabled="!!adoptingVariantId"
+                :disabled="busy"
                 @click="onPrev"
                 aria-label="上一个变体"
                 title="上一个变体"
@@ -182,7 +231,7 @@ watch(() => variantContext.value?.leafZonePath ?? null, () => { void refetchVari
             <button
                 class="vnav-arrow"
                 type="button"
-                :disabled="!!adoptingVariantId"
+                :disabled="busy"
                 @click="onNext"
                 aria-label="下一个变体"
                 title="下一个变体"
@@ -197,17 +246,57 @@ watch(() => variantContext.value?.leafZonePath ?? null, () => { void refetchVari
                     v-if="showAdopt"
                     class="vnav-adopt"
                     type="button"
-                    :disabled="!!adoptingVariantId"
+                    :disabled="busy"
                     @click="onAdopt"
-                    title="采纳此变体（覆写原方案，删除其他变体）"
+                    title="采纳此变体（晋升为已采纳方案，原已采纳方案归档为 alt-prev-{时间戳}）"
                 >
                     {{ adoptingVariantId ? '采纳中' : '采纳' }}
                 </button>
                 <span v-else class="vnav-status">基准</span>
             </div>
+            <button
+                v-if="showAdopt"
+                class="vnav-delete"
+                type="button"
+                :disabled="busy"
+                @click="onDelete"
+                aria-label="删除此变体"
+                :title="deletingVariantId ? '删除中…' : '删除此可变方案'"
+            >
+                <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true">
+                    <path d="M9 3h6m-9 4h12m-1 0l-1 12a2 2 0 0 1-2 2h-6a2 2 0 0 1-2-2L5 7m4 4v6m4-6v6"
+                          fill="none" stroke="currentColor"
+                          stroke-width="2" stroke-linecap="round" stroke-linejoin="round" />
+                </svg>
+            </button>
             <div v-if="errorMessage" class="vnav-error" :title="errorMessage">{{ errorMessage }}</div>
         </div>
     </Transition>
+
+    <!-- 删除确认对话框（与 HomePage 删除项目对话框同款 dialog-card 风格） -->
+    <Teleport to="body">
+        <Transition name="dialog">
+            <div v-if="showDeleteConfirm" class="dialog-overlay" @click.self="cancelDelete">
+                <div class="delete-dialog">
+                    <div class="dialog-header">
+                        <svg viewBox="0 0 24 24" width="24" height="24" fill="none"
+                             stroke="var(--accent-danger)" stroke-width="2">
+                            <path d="M12 9v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                        </svg>
+                        <h3>确认删除</h3>
+                    </div>
+                    <div class="dialog-content">
+                        <p>确定删除可变方案 "<strong>{{ pendingDelete?.variantId }}</strong>" 吗？</p>
+                        <p class="warning-text">此操作不可撤销，方案文件将被永久删除。</p>
+                    </div>
+                    <div class="dialog-actions">
+                        <GlassButton variant="danger" @click="confirmDelete">删除</GlassButton>
+                        <GlassButton variant="ghost" @click="cancelDelete">取消</GlassButton>
+                    </div>
+                </div>
+            </div>
+        </Transition>
+    </Teleport>
 </template>
 
 <style scoped lang="scss">
@@ -219,12 +308,14 @@ watch(() => variantContext.value?.leafZonePath ?? null, () => { void refetchVari
     transform: translateX(-50%);
     z-index: 999;
 
-    width: min(318px, calc(100vw - 32px));
+    /* 弹性宽度：bar 跟随内容（canonical 4 项 vs variant 5 项 + 中心 label 长度）伸缩，
+     * 不再用固定列宽 + 占位符撑空。translateX(-50%) 居中让伸缩从中心对称展开，不抖动。 */
+    width: max-content;
+    max-width: min(440px, calc(100vw - 32px));
     height: 40px;
     padding: 5px;
     box-sizing: border-box;
-    display: grid;
-    grid-template-columns: 28px minmax(0, 1fr) 28px 58px;
+    display: flex;
     align-items: center;
     gap: 6px;
 
@@ -246,7 +337,11 @@ watch(() => variantContext.value?.leafZonePath ?? null, () => { void refetchVari
 }
 
 .vnav-center {
-    min-width: 0;
+    /* min-width 防 canonical 短文本"原方案 1/4"被压成贴脸；
+     * max-width 防 variant 长 ID 撑爆 bar（超出走 vnav-label 的 ellipsis） */
+    min-width: 80px;
+    max-width: 220px;
+    flex: 0 1 auto;
     display: flex;
     flex-direction: row;
     align-items: center;
@@ -255,6 +350,7 @@ watch(() => variantContext.value?.leafZonePath ?? null, () => { void refetchVari
     height: 100%;
     padding: 0 2px;
     line-height: 1;
+    overflow: hidden;
 }
 
 .vnav-label {
@@ -275,6 +371,7 @@ watch(() => variantContext.value?.leafZonePath ?? null, () => { void refetchVari
 }
 
 .vnav-arrow {
+    flex: 0 0 28px;
     width: 28px;
     height: 28px;
     border-radius: 8px;
@@ -303,8 +400,40 @@ watch(() => variantContext.value?.leafZonePath ?? null, () => { void refetchVari
 }
 
 .vnav-action-slot {
+    flex: 0 0 58px;
     display: flex;
     justify-content: flex-end;
+}
+
+/* 删除按钮：仅 variant slot 显示；canonical 状态由 v-if 整体不渲染（不再占位） */
+.vnav-delete {
+    flex: 0 0 28px;
+    width: 28px;
+    height: 28px;
+    border-radius: 8px;
+    background: transparent;
+    border: 1px solid transparent;
+    color: rgba(255, 130, 130, 0.85);
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    transition: background 140ms ease, border-color 140ms ease, color 140ms ease, transform 140ms ease;
+}
+
+.vnav-delete:hover:not(:disabled) {
+    background: rgba(255, 90, 90, 0.14);
+    border-color: rgba(255, 130, 130, 0.42);
+    color: rgba(255, 160, 160, 1);
+}
+
+.vnav-delete:active:not(:disabled) {
+    transform: scale(0.94);
+}
+
+.vnav-delete:disabled {
+    opacity: 0.5;
+    cursor: progress;
 }
 
 .vnav-adopt,
@@ -381,5 +510,91 @@ watch(() => variantContext.value?.leafZonePath ?? null, () => { void refetchVari
 .vnav-fade-leave-from {
     opacity: 1;
     transform: translateX(-50%) translateY(0);
+}
+
+/* ── 删除确认对话框 ──
+ * 风格对齐 HomePage.vue 的删除项目对话框（HomePage.vue:705-787）。 */
+.dialog-overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.6);
+    backdrop-filter: blur(4px);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 9999;
+}
+
+.delete-dialog {
+    background: var(--glass-bg-solid);
+    border: 1px solid var(--border-subtle);
+    border-radius: 12px;
+    padding: 24px;
+    min-width: 380px;
+    max-width: 460px;
+    box-shadow:
+        0 8px 32px rgba(0, 0, 0, 0.3),
+        0 0 0 1px rgba(255, 255, 255, 0.05) inset;
+}
+
+.dialog-header {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin-bottom: 16px;
+}
+
+.dialog-header h3 {
+    margin: 0;
+    font-size: 18px;
+    font-weight: 600;
+}
+
+.dialog-content {
+    margin-bottom: 20px;
+}
+
+.dialog-content p {
+    margin: 0 0 8px;
+    color: var(--text-secondary);
+    font-size: 14px;
+    line-height: 1.5;
+}
+
+.dialog-content strong {
+    color: var(--text-primary);
+    font-weight: 600;
+}
+
+.warning-text {
+    color: var(--accent-danger) !important;
+    font-size: 0.85rem !important;
+}
+
+.dialog-actions {
+    display: flex;
+    gap: 12px;
+    justify-content: flex-end;
+}
+
+.dialog-enter-active,
+.dialog-leave-active {
+    transition: all 0.2s ease;
+}
+
+.dialog-enter-from,
+.dialog-leave-to {
+    opacity: 0;
+}
+
+.dialog-enter-from .delete-dialog,
+.dialog-leave-to .delete-dialog {
+    transform: scale(0.95) translateY(-10px);
+    opacity: 0;
+}
+
+.dialog-enter-active .delete-dialog,
+.dialog-leave-active .delete-dialog {
+    transition: all 0.2s cubic-bezier(0.19, 1, 0.22, 1);
 }
 </style>
