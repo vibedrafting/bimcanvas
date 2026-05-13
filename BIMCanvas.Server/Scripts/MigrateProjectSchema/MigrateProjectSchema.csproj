@@ -1,0 +1,18 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <RootNamespace>BIMCanvas.Scripts.MigrateProjectSchema</RootNamespace>
+    <AssemblyName>MigrateProjectSchema</AssemblyName>
+    <!--
+      合并迁移工具：
+        Phase 0  semantic_plan / reference_analysis 字段重命名（Version → Tag 等）
+        Phase 0b modules.json 裸数组 → wrapper {schemeMetadata, modules}
+      独立 CLI，仅依赖 Newtonsoft.Json。不嵌入 Server 启动流程。
+    -->
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="Newtonsoft.Json" Version="13.0.3" />
+  </ItemGroup>
+</Project>
