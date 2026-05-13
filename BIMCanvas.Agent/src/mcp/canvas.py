@@ -998,7 +998,8 @@ async def get_zone_boundaries(args: dict[str, Any]) -> dict[str, Any]:
 
 @tool(
     "save_semantic_plan",
-    "保存语义方案标签。在规划阶段的每个子阶段（2.1/2.2/2.3）完成后调用，提交当前标签的语义方案。",
+    "保存语义方案标签。在规划阶段的每个子阶段（2.1/2.2/2.3）完成后调用，提交当前标签的语义方案。"
+    "可选 variantId 用于写入变体路径；v0.1 / v0.2-meta 是 canonical 全局单 owner，禁止与 variantId 同时传入。",
     {
         "$schema": "http://json-schema.org/draft-07/schema#",
         "type": "object",
@@ -1024,6 +1025,12 @@ async def get_zone_boundaries(args: dict[str, Any]) -> dict[str, Any]:
             "referenceAnalysisTag": {
                 "type": "string",
                 "description": "可选。若当前方案消费了定稿 reference_analysis，记录对应的标签（如 v3 / v4）。"
+            },
+            "variantId": {
+                "type": "string",
+                "description": "可选。非空时写变体路径 schemes/{zoneId}/variants/{variantId}/semantic_plan.json；为空时写 canonical。"
+                               "**v0.1 / v0.2-meta 禁止传 variantId**（server 强制 400，这两个 tag 全局只在 canonical 出现）。"
+                               "Phase 1 暂无调用方需要传入；预留给后续 multi-plan / variant-design-agent。"
             }
         },
         "required": ["zoneId", "tag", "planType", "content"],
@@ -1045,6 +1052,8 @@ async def save_semantic_plan(args: dict[str, Any]) -> dict[str, Any]:
     }
     if args.get("referenceAnalysisTag"):
         body["referenceAnalysisTag"] = args["referenceAnalysisTag"]
+    if args.get("variantId"):
+        body["variantId"] = args["variantId"]
 
     try:
         async with aiohttp.ClientSession() as session:
@@ -1077,7 +1086,8 @@ async def save_semantic_plan(args: dict[str, Any]) -> dict[str, Any]:
 
 @tool(
     "load_semantic_plan",
-    "加载当前设计区的生效语义方案。返回当前可施工图纸，而不是完整历史。",
+    "加载当前设计区的生效语义方案。返回当前可施工图纸，而不是完整历史。"
+    "传 variantId 时返回 merge view（canonical 的 v0.1 + 变体的 v0.2/v0.3 entries）。",
     {
         "$schema": "http://json-schema.org/draft-07/schema#",
         "type": "object",
@@ -1085,6 +1095,11 @@ async def save_semantic_plan(args: dict[str, Any]) -> dict[str, Any]:
             "zoneId": {
                 "type": "string",
                 "description": "目标 Zone ID，如 'rz_3'"
+            },
+            "variantId": {
+                "type": "string",
+                "description": "可选。非空时返回 merge view（canonical 的 v0.1 + 变体的 v0.2/v0.3 entries）；effectiveTag 落在变体的合同上。"
+                               "Phase 1 暂无调用方需要传入；预留给后续 multi-plan / variant-design-agent。"
             }
         },
         "required": ["zoneId"],
@@ -1094,11 +1109,14 @@ async def save_semantic_plan(args: dict[str, Any]) -> dict[str, Any]:
 async def load_semantic_plan(args: dict[str, Any]) -> dict[str, Any]:
     """加载语义方案当前生效版本"""
     zone_id = args["zoneId"]
+    variant_id = args.get("variantId")
+    params = {"variantId": variant_id} if variant_id else None
 
     try:
         async with aiohttp.ClientSession() as session:
             async with session.get(
-                f"{SERVER_URL}/api/semantic-plan/{zone_id}"
+                f"{SERVER_URL}/api/semantic-plan/{zone_id}",
+                params=params
             ) as resp:
                 if resp.status == 200:
                     data = await resp.json()

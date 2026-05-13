@@ -891,10 +891,11 @@ class OpenAIAgent:
             planType: str,
             content: str,
             referenceAnalysisTag: str | None = None,
+            variantId: str | None = None,
         ) -> Any:
             """Save a semantic plan snapshot for the current zone."""
             del ctx
-            args = {
+            args: dict[str, Any] = {
                 "zoneId": zoneId,
                 "tag": tag,
                 "planType": planType,
@@ -902,6 +903,8 @@ class OpenAIAgent:
             }
             if referenceAnalysisTag:
                 args["referenceAnalysisTag"] = referenceAnalysisTag
+            if variantId:
+                args["variantId"] = variantId
             return await self._invoke_canvas_tool_impl("save_semantic_plan", args)
 
         @with_tool_context(tool_name="mcp__canvas__save_modules")
@@ -924,10 +927,17 @@ class OpenAIAgent:
             return await self._invoke_canvas_tool_impl("save_modules", args)
 
         @with_tool_context(tool_name="mcp__canvas__load_semantic_plan")
-        async def canvas_load_semantic_plan(ctx: Any, zoneId: str) -> Any:
+        async def canvas_load_semantic_plan(
+            ctx: Any,
+            zoneId: str,
+            variantId: str | None = None,
+        ) -> Any:
             """Load the effective semantic plan for the current zone."""
             del ctx
-            return await self._invoke_canvas_tool_impl("load_semantic_plan", {"zoneId": zoneId})
+            args: dict[str, Any] = {"zoneId": zoneId}
+            if variantId:
+                args["variantId"] = variantId
+            return await self._invoke_canvas_tool_impl("load_semantic_plan", args)
 
         @with_tool_context(tool_name="mcp__canvas__validate_layout")
         async def canvas_validate_layout(
