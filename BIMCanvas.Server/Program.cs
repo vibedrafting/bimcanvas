@@ -215,6 +215,16 @@ builder.Services.AddSingleton<ModuleFileTopologyService>();  // modules.json 拓
 builder.Services.AddSingleton<ModuleNormalizationService>();  // 模块数据规范化服务
 builder.Services.AddSingleton<ModulesReaderService>();  // modules.json wrapper 读取
 builder.Services.AddSingleton<ModulesWriterService>();  // modules.json wrapper 写入（含 schemeMetadata 派生）
+
+// 项目健康检查 + 修复（schema 迁移工具的服务化入口）
+builder.Services.AddSingleton<BIMCanvas.Server.Services.ProjectHealth.IProjectHealthCheck,
+    BIMCanvas.Server.Services.ProjectHealth.Checks.SemanticPlanTagCheck>();
+builder.Services.AddSingleton<BIMCanvas.Server.Services.ProjectHealth.IProjectHealthCheck,
+    BIMCanvas.Server.Services.ProjectHealth.Checks.ModulesWrapperCheck>();
+builder.Services.AddSingleton<BIMCanvas.Server.Services.ProjectHealth.IGitCommitter>(sp =>
+    new BIMCanvas.Server.Services.ProjectHealth.GitWorktreeServiceCommitter(
+        sp.GetRequiredService<GitWorktreeService>()));
+builder.Services.AddSingleton<BIMCanvas.Server.Services.ProjectHealth.ProjectHealthService>();
 builder.Services.AddSingleton<ProjectSnapshotService>();
 builder.Services.AddSingleton<BackgroundScreenshotService>();
 builder.Services.AddSingleton<ChatAttachmentService>();

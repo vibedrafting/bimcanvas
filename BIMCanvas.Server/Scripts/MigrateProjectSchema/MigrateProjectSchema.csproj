@@ -6,13 +6,26 @@
     <RootNamespace>BIMCanvas.Scripts.MigrateProjectSchema</RootNamespace>
     <AssemblyName>MigrateProjectSchema</AssemblyName>
     <!--
-      合并迁移工具：
-        Phase 0  semantic_plan / reference_analysis 字段重命名（Version → Tag 等）
-        Phase 0b modules.json 裸数组 → wrapper {schemeMetadata, modules}
-      独立 CLI，仅依赖 Newtonsoft.Json。不嵌入 Server 启动流程。
+      CLI 复用 Server 端 ProjectHealth 服务代码（通过 Compile Include 链接源码），
+      保持独立编译，不引 BIMCanvas.Server.csproj 整体 ASP.NET 依赖。
+      Phase 0  semantic_plan / reference_analysis 字段重命名（Version → Tag 等）
+      Phase 0b modules.json 裸数组 → wrapper {schemeMetadata, modules}
     -->
   </PropertyGroup>
   <ItemGroup>
     <PackageReference Include="Newtonsoft.Json" Version="13.0.3" />
+    <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" Version="8.0.0" />
+  </ItemGroup>
+  <ItemGroup>
+    <!-- 链接 Server 端 ProjectHealth 源码；Server.csproj 已经把 Scripts/ 整目录从自身编译排除，互不影响 -->
+    <Compile Include="..\..\Services\ProjectHealth\IProjectHealthCheck.cs"
+             Link="Linked\IProjectHealthCheck.cs" />
+    <Compile Include="..\..\Services\ProjectHealth\ProjectHealthService.cs"
+             Link="Linked\ProjectHealthService.cs" />
+    <Compile Include="..\..\Services\ProjectHealth\Checks\SemanticPlanTagCheck.cs"
+             Link="Linked\Checks\SemanticPlanTagCheck.cs" />
+    <Compile Include="..\..\Services\ProjectHealth\Checks\ModulesWrapperCheck.cs"
+             Link="Linked\Checks\ModulesWrapperCheck.cs" />
+    <!-- 注意：不链接 GitWorktreeServiceCommitter.cs—— CLI 不需要 git 兜底（用户手动 git 存档）-->
   </ItemGroup>
 </Project>
