@@ -80,6 +80,36 @@ Generate 在主控层先判定是否需要正式 `reference_analysis`。没有�
 
 **【必须】**若用户要求按参考图布局落地，但图片本身不具备可执行布局信息，或当前户型与参考图明显对不上，主控 Agent 必须补图或确认；在补图/确认完成前，不得进入参考图分析（`reference-analysis`），也不得静默猜测施工。
 
+### multi-plan 模式判定（在 generate 语义判定之后）
+
+**触发条件**：generate 类任务 + 用户消息命中以下任一 explore 关键词：
+
+- 「多给几种」「看几种可能」「再来一版」「几个备选」「几种思路」「多方案」「来几个候选」
+
+命中后**先标候选**（内部标记 explore 候选），**不立即注入** `exploreMode=true`；先跑下面两道前置检查，全部通过后才正式注入 `exploreMode=true` 到下游派发上下文。
+
+#### 前置检查 1：单设计区约束
+
+- 命中 explore 关键词但任务涉及**多个设计区** → 使用 `AskUserQuestion` 反问："多方案模式仅支持单设计区，请锁定到一个设计区"，`options` 列当前涉及的设计区
+- 用户锁定到一个设计区 → 继续前置检查 2
+- 用户未选定 / 拒绝锁定 → 撤销 explore 候选，退化为常规 single-plan 流程
+
+WHY：multi-plan 的并行单位是"同一设计区的多变体"，不是"多个设计区"；后者属于多分区 layout-agent 的领域，两种并行语义混用会让产物路径与采纳协议都崩。
+
+#### 前置检查 2：与 reference_analysis 互斥
+
+- 命中 explore 关键词且当前设计区存在定稿 `reference_analysis`（`relevance ∈ {partially_related, structurally_related}`）→ 使用 `AskUserQuestion` 反问："多方案模式与参考分析互斥"，options：
+  - (a) 退化为单方案（按当前参考执行 single-plan）
+  - (b) 取消参考（按 multi-plan 自由生成）
+- 用户选 (a) → 撤销 explore 候选，走常规 single-plan（按现有 reference-analysis 路径执行）
+- 用户选 (b) → 不消费 `reference_analysis`，正式注入 `exploreMode=true`，进入下文 multi-plan 执行策略
+
+WHY：multi-plan 的设计哲学是"产出几个意图差异显著的候选供用户视觉决策"；定稿 reference_analysis 已经把设计意图收束到一种方向，再生成多变体要么变体之间高度雷同（都向参考贴），要么与参考矛盾（变体故意发散），都无价值。互斥是设计层硬约束，不是技术限制。
+
+**【必须】**两道前置检查只在 explore 候选状态下执行；非 multi-plan 任务跳过。
+
+**【必须】**`exploreMode` 标记的注入时机：两道前置检查全部通过后才正式写入下游派发上下文；前置检查未通过则**撤销候选**，不留半态。
+
 ---
 
 ## generate 执行策略
@@ -145,6 +175,47 @@ WHY：这些输入属于单房间 planning/placement 的感知与施工材料。
 **【必须】**所有 layout-agent Task 在同一轮并行发起，禁止后台派发、禁止串行补派。
 
 **【必须】**若 layout-agent 返回调度违规，视为编排失败。主控必须停止本轮布置并汇报失败原因，不得改用 `general-purpose`、不得自己接手多个分区的单房间 planning。
+
+### multi-plan（单设计区，多变体）
+
+**【前置】**仅在两道 multi-plan 前置检查（单设计区、与 reference 互斥）全部通过、`exploreMode=true` 已正式注入后才进入本节。
+
+**派发流程**：
+
+1. 加载 `generate-planning` Skill（multi-plan 分支会自动触发，因 `exploreMode=true`）
+2. 等 `generate-planning` 产出 canonical 的 `v0.2-meta`（即 `save_semantic_plan({tag: "v0.2-meta"})` 成功返回）
+3. **N=1 退化检测**：`load_semantic_plan({zoneId: designZoneId})` 看 canonical 最新 entry 实际 tag：
+   - tag = `v0.2-meta` → 进入步骤 4
+   - tag = `v0.2`（Skill 退化为单方案） → **不派发 `variant-design-agent`**，继续等 Skill 走 `v0.3` + 进入 `generate-placement`（按常规 single-plan 收尾）
+4. 读 canonical `v0.2-meta` 的 `content`，从 `## 变体清单` 下的 ` ```yaml ``` ` fenced block 解析 `variants:` 列表，得到 `variantSlugs[]`（每项含 `slug` + `title`）
+5. 从 `## 设计意图 briefs` 段按 `### {slug}` 三级标题切分，每个变体抽出对应的 `variantBrief`（从 `### {slug}` 到下一个 `### ` 或文件末尾之间的所有内容）
+6. **并行**派发 `variant-design-agent`，每个变体一个分身（按 YAML 头顺序枚举派发，**所有派发在同一轮发起**，禁止后台派发、禁止串行补派）
+7. 每个派发包含同一套字段：
+   - `batchId`：本批 multi-plan 调度 ID（uuid 或时间戳）
+   - `designZoneId`：当前锁定的设计区 ID
+   - `variantSlug`：本变体的 slug（来自 YAML 头）
+   - `variantBrief`：从 `### {slug}` 段抽出的 markdown 文本
+   - `originalUserRequest`：用户原始需求
+   - `scope`：固定字符串 `"variant-design"`
+   - `batchVariantSlugs`：本批所有变体 slug 列表（含自己）
+8. 等全部 `variant-design-agent` 完成
+9. 聚合汇报：本批生成的变体清单（slug + title） + 每变体的关键决策摘要 + 引导用户去 Web 端查看 / 采纳
+
+**调度边界**：
+
+- **【禁止】**multi-plan 模式下接受 reference_analysis 消费请求（前置检查 2 已拦截；若收到带 reference 的 multi-plan 派发上下文视为编排失败）
+- **【禁止】**variant-design-agent 派发后再加入新变体（如需新增，用户需重新触发完整 multi-plan 流程；后续也可用 relocation 调整已采纳变体内的局部模块）
+- **【禁止】**同一轮处理多个 `batchId` 的 multi-plan（必须串行：等上一个 batchId 完成再启动下一个）
+- **【禁止】**multi-plan 派发与多分区 layout-agent 派发同时进行（multi-plan 已锁定单设计区，互斥已由前置检查保证；不应同轮触发两类派发）
+- **【禁止】**主控自己代工 variant-design-agent 的工作（自己读 module_library / 自己写 variant 的 v0.2/v0.3 / 自己写 modules.json）
+- 若 variant-design-agent 返回调度违规固定回复 → **透传给用户**，不要改派 layout-agent 或 general-purpose 代工
+
+**收尾职责（multi-plan 专属）**：
+
+- **不**调用全局 `validate_layout`（每个 variant-design-agent 已对自己的变体验过）
+- **不**改写 canonical `modules.json`（采纳由 Web 端"采纳"按钮触发，属于组 B 的 variant adopt 协议范畴）
+- 汇总每个变体的"自动适配 / 自动改图建议"上报内容，不省略
+- 显式列出本批 `batchId` + variants 清单 + 每变体的 `save_modules` 调用次数 / validate 结果
 
 ---
 

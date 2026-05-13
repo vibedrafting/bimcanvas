@@ -3,6 +3,8 @@ name: generate-planning
 description: |
   Generate 规划 Skill。负责把当前户型分析与定稿后的 `reference_analysis`
   压缩成自包含的 `semantic_plan v0.1 / v0.2 / v0.3`，供 placement 施工。
+  multi-plan 模式（`exploreMode=true`）下改产 canonical `v0.2-meta` 并终止于此，
+  v0.3 由后续 `variant-design-agent` 在各变体目录内生成。
 ---
 
 # Generate 规划
@@ -22,6 +24,7 @@ description: |
 3. **`v0.2` 是战略层方案，第一次正式消费 reference_analysis。**
 4. **`v0.3` 是完整施工简报，placement 只读 `v0.3`。**
 5. **若核心参考意图与当前几何冲突，必须先 Ask，再继续规划。**
+6. **multi-plan 模式（`exploreMode=true`）产 canonical `v0.2-meta` 即终止本 Skill，不进入 `v0.3`；`v0.3` 由后续 `variant-design-agent` 在各自变体目录内生成。multi-plan 与 `reference_analysis` 互斥。**
 
 **WHY**：
 - `v0.1` 不独立成立，后面的参考消费就没有真实空间基线。
@@ -40,10 +43,10 @@ description: |
   - 模块库
   - 可选家具规则
   - 可选的、**已定稿**的 `reference_analysis`
-- 输出：
-  - `v0.1`：空间骨架
-  - `v0.2`：战略层方案
-  - `v0.3`：完整施工简报
+- 输出（按入场模式分支）：
+  - **自主规划 / 参考消费模式**：`v0.1` 空间骨架 → `v0.2` 战略层方案 → `v0.3` 完整施工简报（均落 canonical）
+  - **multi-plan 模式**：`v0.1` 空间骨架 → `v0.2-meta` 多方案战略层概述（canonical，含变体清单 YAML 头 + 每变体 brief）；**不产 `v0.2` / `v0.3`**，由后续 `variant-design-agent` 在 `variants/{slug}/` 目录内生成
+  - **multi-plan N=1 退化**：变体只剩 1 个 → 改写普通 `v0.2` → 继续 `v0.3`，与自主规划模式同收尾
 
 **【必须】**planning 是唯一的语义压缩点：
 - 把当前户型读懂
@@ -62,21 +65,36 @@ description: |
 适用于：
 - 当前任务没有参考图
 - 或当前任务没有已定稿的 `reference_analysis`
+- 且**未携带** `exploreMode=true` 标记
 
 ### 参考消费模式
 
 适用于：
 - 当前任务已完成 `generate-reference-analysis`
 - 当前设计区已经存在可供消费的最新定稿 `reference_analysis`
+- 且**未携带** `exploreMode=true` 标记（参考消费与 multi-plan 互斥）
 
 **参考消费模式入场动作**：
 1. 调用 `load_reference_analysis(zoneId)` 读取最新版本
 2. 若返回 `status=missing`，立即停止并说明“缺少已定稿的 reference_analysis，不能进入参考消费模式”
 3. 复述当前消费的参考分析版本号
 
+### multi-plan 模式
+
+适用于：
+- 任务上下文携带 `exploreMode=true` 标记（由主控注入，已通过单设计区 + 与 reference 互斥两道前置检查）
+- 且**没有**已定稿的 `reference_analysis`（multi-plan 与参考消费互斥，由主控前置检查保证；本 Skill 入场时再次确认一次）
+
+**multi-plan 模式入场动作**：
+1. 复述上下文中的 `exploreMode=true` 标记，明确进入 multi-plan 分支
+2. 若同时检测到定稿 `reference_analysis` 存在，立即停止并报"主控前置检查失误：multi-plan 与 reference_analysis 互斥"
+3. multi-plan 模式产出 `v0.2-meta` 即终止本 Skill；**不进入 v0.3**（v0.3 由后续 `variant-design-agent` 在每个变体目录内生成）
+
 **【必须】**不要根据图片名称、用户措辞、主观印象给流程另起名字。
 
 **【必须】**图片本身不是合同；定稿 `reference_analysis` 才是 planning 的正式参考输入。
+
+**【必须】**三种入场模式互斥：`exploreMode=true` → multi-plan；否则有定稿 reference_analysis → 参考消费；否则 → 自主规划。
 
 ---
 
@@ -270,7 +288,129 @@ save_semantic_plan({
 
 ---
 
-### 2.3 完整施工简报 -> `v0.3`
+### 2.3 多方案战略层概述 -> `v0.2-meta`（multi-plan 模式专属）
+
+**目标**：在多方案模式下，产出一份**多变体战略概述**，作为主控后续并行派发 `variant-design-agent` 的合同。
+
+**【必须】**只有 multi-plan 模式（`exploreMode=true` 且无定稿 `reference_analysis`）才进入本节。其他模式跳过本节，直接进入 `### 2.4`。
+
+#### 触发与互斥重申
+
+- `exploreMode=true` 由主控前置检查通过后注入（已确认：单设计区 + 与 reference_analysis 互斥）
+- 本节产出后 `save_semantic_plan({tag: "v0.2-meta"})` 即终止本 Skill；**不进入 v0.3**
+- v0.3 由后续 `variant-design-agent` 在每个变体目录内分别生成（写到 `schemes/{designZoneId}/variants/{slug}/semantic_plan.json`）
+
+#### v0.1 共享声明
+
+multi-plan 模式下 `v0.1` 的生成与单方案模式完全相同（参见 `### 2.1`）；所有变体共享 canonical `v0.1`，本 Skill 调 `save_semantic_plan({tag: "v0.1"})` 时**永远不传 `variantId`**（`v0.1` 是 canonical-only tag，Server 强制校验）。
+
+#### v0.2-meta canonical 模板
+
+**【必须】**v0.2-meta 的 content 必须严格遵守以下结构。它不是展示用排版，而是**主控解析变体清单 + 抽取每变体 brief 的合同**：
+
+````markdown
+# 多方案战略层概述（tag: v0.2-meta）
+
+## 共享语境
+
+（承接 `v0.1` 的空间阅读：户型、动线、采光、关键墙面等。所有变体共享此段。）
+
+## 变体清单
+
+```yaml
+variants:
+  - slug: dressing-front
+    title: 梳妆台前置
+  - slug: bed-east
+    title: 床朝东借窗景
+  - slug: open-closet
+    title: 开放式衣帽
+```
+
+## 设计意图 briefs
+
+### dressing-front
+
+- 核心意图：梳妆台从衣帽间移到睡眠区，靠近窗景
+- 锚点墙面/家具：梳妆台靠东墙，床向北让位
+- 必须保留的关系：床-床头柜组合不变
+- 自由发挥空间：衣柜组织方式可调
+- 必要的连带改动：南墙短段让位给衣柜
+
+### bed-east
+
+- 核心意图：...
+- 锚点墙面/家具：...
+- 必须保留的关系：...
+- 自由发挥空间：...
+- 必要的连带改动：...
+
+### open-closet
+
+- 核心意图：...
+- ...
+````
+
+**slug 命名规则**（写在变体清单紧邻处的硬约束）：
+
+- 字符集：`[a-z0-9-]`
+- 长度：≤30 字符
+- 语义清晰、可读（如 `dressing-front` 而非 `alt-1` / `variant-2`）
+- 同一批次内**不重复**
+- **不加 `alt-` 前缀**（`alt-{slug}` 是 module-relocation-agent 的命名约定，与本模式互斥）
+
+**【必须】**`## 变体清单` 下必须用 ` ```yaml ``` ` fenced code block 包裹 `variants:` 列表，主控将用 yaml parser 解析。不要用纯缩进列表代替（缩进歧义会导致主控解析失败）。
+
+**【必须】**`## 设计意图 briefs` 段的每个 brief 必须用 `### {slug}` 三级标题分割，**slug 与 YAML 头一致**。brief 内部禁止再用 `###` 三级标题（防止主控按标题切分时切碎一个 brief）；如需子结构请用 `####` 或无序列表。
+
+#### F3 排除式 Ask 规则
+
+v0.2-meta 阶段如出现"显然不合理"的候选（如"床面对镜子是否接受"、"开门即对衣柜门是否接受"），**可以**用 `AskUserQuestion` **排除**该候选：
+
+- **允许**问"排除哪种"（提供 a/b/c 选项，让用户勾掉显然不合理项）
+- **【禁止】**问"选哪种"（终选交给 Web 端视觉决策；本 Skill 不替用户做终选）
+
+WHY：multi-plan 的设计哲学是"用户在 Web 端看可视化方案后再做终选"；如果在 v0.2-meta 阶段先让用户选定一种，等于把"视觉决策"提前到"文本决策"，违背设计意图。
+
+#### N=1 退化路径
+
+如果在排除式 Ask 后或自然推导后，变体清单候选**只剩 1 个**：
+
+- **不写** `v0.2-meta`
+- **改写**普通 `v0.2`（按 `### 2.2` 节模板写完整战略层方案，不传 `variantId`，落到 canonical）
+- 继续进入 `### 2.4` 写 `v0.3` + 由编排层路由到 `generate-placement`
+
+WHY：N=1 时 multi-plan 的并行价值消失，强写 v0.2-meta + 派发单个 variant-design-agent 是无谓开销；退化为单方案模式让流程回归 single-plan 主干。
+
+#### 退出声明
+
+multi-plan 模式产出 `v0.2-meta` 后：
+
+```text
+save_semantic_plan({
+  zoneId,
+  tag: "v0.2-meta",
+  planType: "derived",
+  content: <上述 canonical 模板填充>
+})
+```
+
+**【必须】**不传 `variantId`（`v0.2-meta` 是 canonical-only tag，Server 强制校验，传 `variantId` 返回 400）。
+
+**【必须】**`v0.2-meta` 保存成功后**立即终止本 Skill**：
+
+- 不进入 `### 2.4`（不写 v0.3）
+- 不调用 `load_semantic_plan` / `save_modules` / `validate_layout`
+- 不派发任何 SubAgent（派发由主控负责）
+- 等待主控读 canonical `v0.2-meta`、提取 `variantSlugs[]`、并行派发 `variant-design-agent`
+
+**WHY**：v0.3 与 modules.json 是变体级产物，必须由 `variant-design-agent` 在各自的 `variants/{slug}/` 路径下生成；本 Skill 若继续写 canonical v0.3，会污染所有变体的施工合同。
+
+---
+
+### 2.4 完整施工简报 -> `v0.3`
+
+**【必须】**若当前为 multi-plan 模式（`exploreMode=true`），不应进入本节；v0.3 由 `variant-design-agent` 在变体目录内生成。本节仅适用于自主规划模式、参考消费模式与 multi-plan 的 N=1 退化路径。
 
 **目标**：把 `v0.2` 收束成 placement 唯一可读的完整合同。
 
@@ -381,9 +521,10 @@ save_semantic_plan({
 
 - `v0.2` 之后，主要家具策略与战略级分区不可在本 Skill 内被静默推翻
 - `v0.3` 只能补全，不得重新发明一套新的战略方向
-- `placement` 只允许读取 `v0.3`
+- `placement` 只允许读取 `v0.3`（multi-plan 模式下，`v0.3` 由 `variant-design-agent` 在各自 `variants/{slug}/` 目录内生成，placement 按 variant 路径读对应 `v0.3`）
 - 不在本 Skill 内写 `modules.json`
 - 不在本 Skill 内调用 `load_semantic_plan`
+- multi-plan 模式下不在本 Skill 内进入 `generate-placement`（由主控派发 `variant-design-agent` 后，placement 在 agent 内部加载）
 
 **【自由区域】**
 - 可选家具的取舍（在 `optional-furniture-rules` 框架内）
@@ -399,4 +540,8 @@ save_semantic_plan({
 
 ## 4. 交接
 
-本 Skill 完成后，由编排层路由到 `generate-placement` 进行施工。
+按入场模式分支：
+
+- **自主规划 / 参考消费模式**：本 Skill 完成 `v0.3` 后，由编排层路由到 `generate-placement` 进行施工。
+- **multi-plan 模式**：本 Skill 完成 `v0.2-meta` 后**即终止**，**不进入 `generate-placement`**。主控读 canonical `v0.2-meta` 提取 `variantSlugs[]`，并行派发 `variant-design-agent`；每个 variant agent 在自己的 `variants/{slug}/` 目录内完成 v0.2 / v0.3 / modules + validate（详见 `variant-design-agent.md`）。
+- **multi-plan N=1 退化**：变体只剩 1 个时，Skill 自动改写普通 `v0.2` → 继续 `v0.3` → `generate-placement`，与自主规划模式收尾一致。
