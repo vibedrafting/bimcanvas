@@ -4,6 +4,7 @@ using System.Linq;
 using System.Text;
 using BIMCanvas.Core.Models.Computed;
 using BIMCanvas.Core.Models.Geometry;
+using BIMCanvas.Core.Models.Layout;
 using BIMCanvas.Core.Models.Shared;
 using Microsoft.Extensions.Logging;
 using Newtonsoft.Json;
@@ -17,10 +18,12 @@ namespace BIMCanvas.Server.Services
     public class PlacementService
     {
         private readonly ILogger<PlacementService> _logger;
+        private readonly ModulesReaderService _modulesReader;
 
-        public PlacementService(ILogger<PlacementService> logger)
+        public PlacementService(ILogger<PlacementService> logger, ModulesReaderService modulesReader)
         {
             _logger = logger;
+            _modulesReader = modulesReader;
         }
 
         /// <summary>
@@ -168,13 +171,22 @@ namespace BIMCanvas.Server.Services
                 return result; // 空方案视为有效
             }
 
+            // Phase 0b: 通过 ModulesReaderService 读 wrapper（裸数组会抛错并提示运行迁移脚本）
             List<PlacedModule>? placedModules;
             try
             {
-                var modulesJson = File.ReadAllText(modulesPath, Encoding.UTF8);
-                placedModules = JsonConvert.DeserializeObject<List<PlacedModule>>(modulesJson);
+                var wrapperModules = _modulesReader.ReadModulesOnly(modulesPath);
+                placedModules = wrapperModules?.Select(m => new PlacedModule
+                {
+                    Id = m.Id ?? string.Empty,
+                    ModuleId = m.ModuleId ?? string.Empty,
+                    ModuleName = m.ModuleName ?? string.Empty,
+                    Bounds = m.Bounds?.Vertices?.Select(v => new[] { v.X, v.Y }).ToArray(),
+                    Facing = m.Facing,
+                    ZoneId = m.ZoneId ?? string.Empty
+                }).ToList();
             }
-            catch (JsonException ex)
+            catch (System.Exception ex)
             {
                 result.IsValid = false;
                 result.Errors.Add($"模块布置数据解析失败: {ex.Message}");

@@ -21,6 +21,14 @@
     <ProjectReference Include="..\BIMCanvas.Core\BIMCanvas.Core.csproj" />
   </ItemGroup>
 
+  <!-- Scripts/ 子目录是独立 CLI 工具的 .csproj，必须排除在 Server 编译范围外 -->
+  <ItemGroup>
+    <Compile Remove="Scripts\**\*.cs" />
+    <Content Remove="Scripts\**\*" />
+    <None Remove="Scripts\**\*" />
+    <EmbeddedResource Remove="Scripts\**\*" />
+  </ItemGroup>
+
   <!-- Agent 模板/资源文件：复制到输出目录 -->
   <ItemGroup>
     <Content Remove="Templates\**\*" />

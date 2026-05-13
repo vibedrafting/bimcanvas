@@ -1468,6 +1468,80 @@ async def analyze_image(args: dict[str, Any]) -> dict[str, Any]:
 
 
 
+@tool(
+    "save_modules",
+    "保存叶子分区的 modules.json（wrapper 形态由 Server 派生）。"
+    "替代直接 Write modules.json 文件——Phase 0b 起裸数组已淘汰。"
+    "**不要传 schemeMetadata 字段**：即使传也会被 Server 忽略，schemeMetadata 由 Server 从 semantic_plan / variantId 派生。",
+    {
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "type": "object",
+        "properties": {
+            "designZoneId": {
+                "type": "string",
+                "description": "设计区 ID，如 'rz_3'。用于 schemeMetadata.summary 从对应 semantic_plan 派生。"
+            },
+            "leafZoneId": {
+                "type": "string",
+                "description": "叶子分区 ID。顶层叶子时与 designZoneId 相同；嵌套叶子时如 'dz_1'。"
+            },
+            "variantId": {
+                "type": "string",
+                "description": "可选。非空时写变体路径 schemes/{designZoneId}/variants/{variantId}/{leafZoneId}/modules.json；为空时写 canonical。"
+            },
+            "modules": {
+                "type": "array",
+                "description": "完整模块数组（含 id / moduleId / moduleName / bounds / facing / items 等字段）。"
+            }
+        },
+        "required": ["designZoneId", "leafZoneId", "modules"],
+        "additionalProperties": False
+    }
+)
+async def save_modules(args: dict[str, Any]) -> dict[str, Any]:
+    """保存叶子分区 modules.json（wrapper 形态由 Server 派生）"""
+    design_zone_id = args["designZoneId"]
+    leaf_zone_id = args["leafZoneId"]
+    modules = args["modules"]
+    variant_id = args.get("variantId")
+
+    body: dict[str, Any] = {
+        "designZoneId": design_zone_id,
+        "leafZoneId": leaf_zone_id,
+        "modules": modules
+    }
+    if variant_id:
+        body["variantId"] = variant_id
+
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.post(
+                f"{SERVER_URL}/api/scheme/modules",
+                json=body
+            ) as resp:
+                if resp.status == 200:
+                    data = await resp.json()
+                    count = data.get("modulesCount", len(modules))
+                    variant_suffix = f"（variant={variant_id}）" if variant_id else ""
+                    return {
+                        "content": [{
+                            "type": "text",
+                            "text": f"已保存 {count} 个模块到 {design_zone_id}/{leaf_zone_id}{variant_suffix}。"
+                        }]
+                    }
+                else:
+                    error_text = await resp.text()
+                    return {
+                        "content": [{"type": "text", "text": f"保存失败: HTTP {resp.status} {error_text}"}],
+                        "is_error": True
+                    }
+    except aiohttp.ClientError as e:
+        return {
+            "content": [{"type": "text", "text": f"无法连接 Server: {str(e)}"}],
+            "is_error": True
+        }
+
+
 # 创建 Canvas MCP Server
 canvas_mcp = create_sdk_mcp_server(
     name="canvas",
@@ -1482,6 +1556,7 @@ canvas_mcp = create_sdk_mcp_server(
         load_semantic_plan,  # 加载当前生效图纸
         load_reference_analysis,  # 加载参考分析（planning 输入）
         save_reference_analysis,  # 新增：保存参考分析结果
+        save_modules,  # Phase 0b: modules.json wrapper 写入
         analyze_image,  # 通用大模型图像理解
     ],
 )
@@ -1497,5 +1572,6 @@ CANVAS_ALLOWED_TOOLS = [
     "mcp__canvas__load_semantic_plan",
     "mcp__canvas__load_reference_analysis",
     "mcp__canvas__save_reference_analysis",
+    "mcp__canvas__save_modules",
     "mcp__canvas__analyze_image",
 ]

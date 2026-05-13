@@ -904,6 +904,25 @@ class OpenAIAgent:
                 args["referenceAnalysisTag"] = referenceAnalysisTag
             return await self._invoke_canvas_tool_impl("save_semantic_plan", args)
 
+        @with_tool_context(tool_name="mcp__canvas__save_modules")
+        async def canvas_save_modules(
+            ctx: Any,
+            designZoneId: str,
+            leafZoneId: str,
+            modules: list[dict[str, Any]],
+            variantId: str | None = None,
+        ) -> Any:
+            """Save modules.json wrapper (schemeMetadata derived by Server)."""
+            del ctx
+            args: dict[str, Any] = {
+                "designZoneId": designZoneId,
+                "leafZoneId": leafZoneId,
+                "modules": modules,
+            }
+            if variantId:
+                args["variantId"] = variantId
+            return await self._invoke_canvas_tool_impl("save_modules", args)
+
         @with_tool_context(tool_name="mcp__canvas__load_semantic_plan")
         async def canvas_load_semantic_plan(ctx: Any, zoneId: str) -> Any:
             """Load the effective semantic plan for the current zone."""

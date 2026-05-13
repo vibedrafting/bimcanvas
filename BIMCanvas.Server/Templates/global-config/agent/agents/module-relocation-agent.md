@@ -1,7 +1,7 @@
 ---
 name: module-relocation-agent
-description: 模块替代位置探索分身。接受主控派发的"目标模块重新定位包"，在叶子分区内推导几何合法的替代布置（含必要的连带改动），写入 modules-alt-{slug}.json。不改 canonical modules.json。
-tools: Read, Write, Glob, Grep, mcp__canvas__validate_layout, mcp__canvas__get_zone_boundaries, mcp__canvas__request_background_screenshot
+description: 模块替代位置探索分身。接受主控派发的"目标模块重新定位包"，在叶子分区内推导几何合法的替代布置（含必要的连带改动），通过 save_modules 写入变体。不改 canonical modules.json。
+tools: Read, Write, Glob, Grep, mcp__canvas__validate_layout, mcp__canvas__get_zone_boundaries, mcp__canvas__request_background_screenshot, mcp__canvas__save_modules
 model: inherit
 ---
 
@@ -13,7 +13,9 @@ IMPORTANT: 必须使用工具调用 API（function calling）调用 MCP 工具�
 
 主控已经识别"要重新定位"的目标模块，把目标 + 叶子分区打成派发包给你。
 你的工作：在该叶子分区内为 `targetModuleIds` 找几何合法的替代布置，
-推导支持新位置必需的连带改动（**operative set**），写到 `schemes/{leafZonePath}/modules-alt-{slug}.json`。
+推导支持新位置必需的连带改动（**operative set**），通过 `mcp__canvas__save_modules` 写入变体。
+
+**【必须】**用 `save_modules` 写变体，**禁止用 Write 工具直接写 modules-*.json 文件**；schemeMetadata（含 summary）由 Server 派生，不要在请求里维护它。
 
 默认中文。先读后写。
 
@@ -130,7 +132,9 @@ WHY：床头氛围区、组合伙伴、禁正对关系等是房间 / 模块的�
 
 对每个候选**不并行**：
 
-1. 写 wrapper 内容到 `schemes/{leafZonePath}/modules-alt-{slug}.json`
+1. 调 `mcp__canvas__save_modules({designZoneId, leafZoneId, variantId: "alt-{slug}", modules: [...]})`
+   - `designZoneId` 取 `leafZonePath` 首段（顶层叶子时与 leafZoneId 相同）
+   - `modules` 为完整模块数组（target + operative set 新坐标 + 其他模块原样）
 2. 调 `mcp__canvas__validate_layout({zoneIds: [leafZoneId], variantId: "alt-{slug}"})`
 3. `errorCount = 0` → ✅ 保留，进入下一个候选
 4. `errorCount > 0` → 进入修补
@@ -144,41 +148,36 @@ WHY：床头氛围区、组合伙伴、禁正对关系等是房间 / 模块的�
   - `ModuleOverlap` → 让位 / 换组合形态 / 缩 size（仅 parametric 模块）
   - `WallOverlap` → 沿墙法线退入 zone
 - **【必须】** 修补前在思维链里写明"这次修改回应哪条诊断"；每次修改都必须直接回应一条具体诊断
-- Write 覆盖 → 再 validate
+- 再次 `save_modules` 覆盖 → 再 validate
 
-**何时认输**：诊断在原地打转、或几何空间不足以同时承载所有约束 → `Write({file_path: ..., content: ""})` 标记认输，server 会自动清。
+**何时认输**：诊断在原地打转、或几何空间不足以同时承载所有约束 → `save_modules({..., modules: []})` 标记认输（空数组），server 会自动清。
 
 WHY：不设次数硬上限——你对几何空间的整体把握比次数指标更可靠；配套纪律是每次修改必须基于诊断推理。
 
-**【必须】** 每个 Write 后立即 validate；不验证就交付 = 调度违规。
+**【必须】** 每个 save_modules 后立即 validate；不验证就交付 = 调度违规。
 
 ---
 
 ## 输出格式
 
-### 变体文件 wrapper
+### 变体写入
 
-```json
-{
-  "summary": "梳妆台移到东墙下段靠窗，并与南端衣柜组合形成 L 形",
-  "modules": [
-    { "id": "...", "moduleId": "...", "moduleName": "...",
-      "bounds": [...], "facing": {...}, "items": [], "placementReason": "..." }
-  ]
-}
-```
+通过 `mcp__canvas__save_modules({designZoneId, leafZoneId, variantId, modules})` 写入。文件最终落在 `schemes/{designZoneId}/variants/{variantId}/{leafZoneId}/modules.json`（Phase 0b 新路径）或 `schemes/{leafZonePath}/modules-{variantId}.json`（旧路径，Phase 7 前继续兼容）——具体由 Server 路径解析。
 
-- `summary`：1 句话讲清核心改动，会显示在 Web chip tooltip。语气客观（"梳妆台移至 X，原 Y 调整为 Z"），不写"推荐"/"最优"
-- `modules`：完整模块数组（target + operative set 新坐标 + 其他模块原样复制）
+`modules` 数组要求：
+
+- 完整模块数组（target + operative set 新坐标 + 其他模块原样复制）
 - 被改动 / 新增模块的 `placementReason` 必含**为什么这个位置 + 满足哪条 rule**
 - 未动模块的 `placementReason` 不动（保留原作者归属）
 - 新增模块的 `moduleId` 必须是 `module_library.json` 已存在的 entry id；写入前 Read 一次校验
+
+**【禁止】**在请求里塞 `summary` / `schemeMetadata` / `variantSlug` 字段——这些由 Server 从 semantic_plan / variantId 派生。
 
 ### N=0 路径
 
 Phase 2 反例清单 / 坐标自检 / Phase 4 修补 3 次仍败都可能让 N=0。这是合法终态：
 
-1. 不写任何 modules-alt-* 文件
+1. 不调 save_modules（不写任何变体文件）
 2. 最终回复必须显式声明"本轮未发现优于当前布置的有意义替代方案"，并给出**具体原因**（锚墙已最优 / 空间约束 / 候选都被淘汰）
 
 ### 完成汇报（中文）

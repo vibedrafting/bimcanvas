@@ -32,6 +32,9 @@ namespace BIMCanvas.Server.Controllers
         private readonly GitWorktreeService _gitService;
         private readonly AgentClientService _agentClientService;
         private readonly ProjectWatcherService _projectWatcherService;
+        private readonly ModulesReaderService _modulesReader;
+        private readonly ModulesWriterService _modulesWriter;
+        private readonly ModuleFileTopologyService _moduleFileTopology;
         private readonly JsonSerializerSettings _jsonSettings;
 
         public ProjectController(
@@ -41,7 +44,10 @@ namespace BIMCanvas.Server.Controllers
             RecentProjectsService recentProjectsService,
             GitWorktreeService gitService,
             AgentClientService agentClientService,
-            ProjectWatcherService projectWatcherService)
+            ProjectWatcherService projectWatcherService,
+            ModulesReaderService modulesReader,
+            ModulesWriterService modulesWriter,
+            ModuleFileTopologyService moduleFileTopology)
         {
             _logger = logger;
             _projectContext = projectContext;
@@ -50,6 +56,9 @@ namespace BIMCanvas.Server.Controllers
             _gitService = gitService;
             _agentClientService = agentClientService;
             _projectWatcherService = projectWatcherService;
+            _modulesReader = modulesReader;
+            _modulesWriter = modulesWriter;
+            _moduleFileTopology = moduleFileTopology;
             _jsonSettings = new JsonSerializerSettings
             {
                 ContractResolver = new CamelCasePropertyNamesContractResolver(),
@@ -726,7 +735,7 @@ namespace BIMCanvas.Server.Controllers
         /// v3.4: 移除 zoneId 依赖，Server 根据模块 bounds 位置自动计算分区
         /// </summary>
         [HttpPost("save")]
-        public ActionResult SaveModules([FromBody] JObject requestBody)
+        public async System.Threading.Tasks.Task<ActionResult> SaveModules([FromBody] JObject requestBody)
         {
             if (!_projectContext.IsLoaded)
             {
@@ -845,41 +854,18 @@ namespace BIMCanvas.Server.Controllers
                     }
                 }
 
-                // Step 4: 写入新数据
+                // Step 4: 写入新数据（全部走 ModulesWriterService，wrapper 形态）
                 foreach (var kvp in grouped)
                 {
-                    var zoneDir = ProjectService.ResolveZoneDirectory(schemesPath, kvp.Key);
-                    if (!Directory.Exists(zoneDir))
-                        Directory.CreateDirectory(zoneDir);
+                    var leafZoneId = kvp.Key;
+                    var designZoneId = ResolveDesignZoneIdForLeaf(schemesPath, leafZoneId);
+                    var variantId = variantSelection.TryGetValue(leafZoneId, out var vid) ? vid : null;
+                    // variantId 非空 → Legacy 路径（保留 modules-{vid}.json sibling，等 Phase 7 改造 adopt 时再迁）
+                    // variantId 空 → canonical 路径（pathMode 此时不影响）
+                    var pathMode = string.IsNullOrWhiteSpace(variantId) ? VariantPathMode.New : VariantPathMode.Legacy;
 
-                    // 清理运行时字段（ZoneId 不写入文件）
-                    var modulesToSave = kvp.Value.Select(m =>
-                    {
-                        m.ZoneId = null;      // 清理分区ID（由加载时自动计算）
-                        return m;
-                    }).ToList();
-
-                    // 决定目标文件名：variant 状态 → modules-{vid}.json，否则 modules.json
-                    var fileName = variantSelection.TryGetValue(kvp.Key, out var vid)
-                        ? ModuleFileTopologyService.BuildVariantFilename(vid)
-                        : "modules.json";
-
-                    var modulesPath = Path.Combine(zoneDir, fileName);
-                    // 变体文件也直接写裸数组（与 canonical 同格式），保留 wrapper.summary 不在本次范围
-                    var json = JsonConvert.SerializeObject(modulesToSave, Formatting.Indented, _jsonSettings);
-                    EnsureWritableFile(modulesPath);
-                    System.IO.File.WriteAllText(modulesPath, json, Encoding.UTF8);
-                    _logger.LogDebug("[SaveModules] 写入 {Count} 个模块到 {ZoneId}/{File}",
-                        modulesToSave.Count, kvp.Key, fileName);
-                }
-
-                // Step 5: 清理旧格式文件（向后兼容过渡）
-                var legacyPath = Path.Combine(schemesPath, "modules.json");
-                if (System.IO.File.Exists(legacyPath))
-                {
-                    EnsureWritableFile(legacyPath);
-                    System.IO.File.Delete(legacyPath);
-                    _logger.LogInformation("[SaveModules] 已清理旧格式 modules.json");
+                    await _modulesWriter.WriteAsync(
+                        projectPath, designZoneId, leafZoneId, variantId, pathMode, kvp.Value);
                 }
 
                 _logger.LogInformation("[SaveModules] 保存完成: {Total} 个模块，{ZoneCount} 个分区，{OrphanCount} 个孤立",
@@ -899,6 +885,22 @@ namespace BIMCanvas.Server.Controllers
                 _logger.LogError(ex, "保存模块数据失败");
                 return StatusCode(500, new { message = $"保存模块数据失败: {ex.Message}" });
             }
+        }
+
+        /// <summary>
+        /// 把叶子 zoneId 反查为其所属设计区祖先 ID（schemes/ 下相对路径首段）。
+        /// 顶层叶子 zone 时 designZoneId 等于 leafZoneId；嵌套叶子（如 rz_3/dz_1）时返回 rz_3。
+        /// _unzoned 等不在拓扑里的特殊 zone 直接返回自身。
+        /// </summary>
+        private string ResolveDesignZoneIdForLeaf(string schemesPath, string leafZoneId)
+        {
+            if (string.Equals(leafZoneId, "_unzoned", StringComparison.OrdinalIgnoreCase))
+                return leafZoneId;
+
+            var zoneDir = ProjectService.ResolveZoneDirectory(schemesPath, leafZoneId);
+            var relative = Path.GetRelativePath(schemesPath, zoneDir).Replace('\\', '/');
+            var segments = relative.Split('/', StringSplitOptions.RemoveEmptyEntries);
+            return segments.Length > 0 ? segments[0] : leafZoneId;
         }
 
         /// <summary>
@@ -1168,11 +1170,8 @@ namespace BIMCanvas.Server.Controllers
         }
 
         /// <summary>
-        /// 递归读取所有分区的 modules.json
+        /// 递归读取所有分区的 modules.json（wrapper 形态，Phase 0b 起裸数组已淘汰）
         /// v3.4: 不再填充 zoneId，模块无此字段
-        /// 支持两种格式：
-        /// - 新格式: schemes/{zoneId}/modules.json (分区子目录)
-        /// - 旧格式: schemes/modules.json (单一文件，向后兼容)
         /// Load 质检闸门：L1 per-zone 反序列化失败隔离，L2 per-module 结构完整性质检
         /// </summary>
         private (List<Module> modules, List<ZoneLoadError> errors) LoadAllZoneModules(string schemePath)
@@ -1182,126 +1181,71 @@ namespace BIMCanvas.Server.Controllers
 
             // 递归查找所有叶子 zone 的 modules.json（支持嵌套分区 schemes/rz_3/dz_1/modules.json）
             var leafFiles = ProjectService.FindAllLeafModuleFiles(schemePath);
+            if (leafFiles.Count == 0)
+                return (allModules, allErrors);
 
-            if (leafFiles.Count > 0)
+            foreach (var (filePath, zoneId) in leafFiles)
             {
-                foreach (var (filePath, zoneId) in leafFiles)
+                List<Module> zoneModules;
+
+                // L1：per-zone 反序列化失败处理（含裸数组报错 → 提示运行迁移脚本）
+                try
                 {
-                    List<Module> zoneModules;
-
-                    // L1：per-zone 反序列化失败处理
-                    try
-                    {
-                        zoneModules = ReadJson<List<Module>>(filePath) ?? new List<Module>();
-                    }
-                    catch (Exception ex)
-                    {
-                        System.Diagnostics.Trace.WriteLine(
-                            $"[LoadAllZoneModules] 文件解析失败 | Zone: {zoneId} | 文件: {filePath} | 原因: {ex.Message}");
-                        _logger.LogError("[LoadAllZoneModules] 文件解析失败 | Zone: {ZoneId} | 原因: {Message}", zoneId, ex.Message);
-                        allErrors.Add(new ZoneLoadError
-                        {
-                            ZoneId = zoneId,
-                            ErrorType = "ParseError",
-                            Message = $"modules.json 解析失败：{ex.Message}"
-                        });
-                        continue;
-                    }
-
-                    // L2：per-module 结构完整性质检
-                    var failedIds = new List<string>();
-                    var failedReasons = new List<string>();
-                    var validModules = new List<Module>();
-                    foreach (var module in zoneModules)
-                    {
-                        module.ZoneId ??= zoneId;
-                        var reason = GetModuleStructureError(module);
-                        if (reason != null)
-                        {
-                            var moduleLabel = module.Id ?? module.ModuleId ?? "(无ID)";
-                            failedIds.Add(moduleLabel);
-                            failedReasons.Add($"{moduleLabel}：{reason}");
-                        }
-                        else
-                        {
-                            validModules.Add(module);
-                        }
-                    }
-
-                    if (failedIds.Count > 0)
-                    {
-                        var msg = string.Join("；", failedReasons);
-                        System.Diagnostics.Trace.WriteLine(
-                            $"[LoadAllZoneModules] 数据质检失败 | Zone: {zoneId} | 跳过模块数: {failedIds.Count} | IDs: {string.Join(",", failedIds)}");
-                        _logger.LogWarning("[LoadAllZoneModules] 数据质检失败 | Zone: {ZoneId} | 跳过: {Count} 个模块 | IDs: {Ids}",
-                            zoneId, failedIds.Count, string.Join(",", failedIds));
-                        allErrors.Add(new ZoneLoadError
-                        {
-                            ZoneId = zoneId,
-                            ErrorType = "StructureError",
-                            Message = msg,
-                            FailedModuleIds = failedIds
-                        });
-                    }
-
-                    allModules.AddRange(validModules);
+                    zoneModules = _modulesReader.ReadModulesOnly(filePath) ?? new List<Module>();
                 }
-                _logger.LogDebug("从 {Count} 个叶子分区加载模块，共 {Total} 个（质检后）", leafFiles.Count, allModules.Count);
-            }
-            else
-            {
-                // 旧格式：从单一文件读取（向后兼容）
-                var modulesPath = Path.Combine(schemePath, "modules.json");
-                if (System.IO.File.Exists(modulesPath))
+                catch (Exception ex)
                 {
-                    List<Module> legacyModules;
-                    try
+                    System.Diagnostics.Trace.WriteLine(
+                        $"[LoadAllZoneModules] 文件解析失败 | Zone: {zoneId} | 文件: {filePath} | 原因: {ex.Message}");
+                    _logger.LogError("[LoadAllZoneModules] 文件解析失败 | Zone: {ZoneId} | 原因: {Message}", zoneId, ex.Message);
+                    allErrors.Add(new ZoneLoadError
                     {
-                        legacyModules = ReadJson<List<Module>>(modulesPath) ?? new List<Module>();
-                    }
-                    catch (Exception ex)
-                    {
-                        System.Diagnostics.Trace.WriteLine(
-                            $"[LoadAllZoneModules] 文件解析失败 | Zone: legacy | 文件: {modulesPath} | 原因: {ex.Message}");
-                        _logger.LogError("[LoadAllZoneModules] 旧格式文件解析失败 | 原因: {Message}", ex.Message);
-                        allErrors.Add(new ZoneLoadError
-                        {
-                            ZoneId = "legacy",
-                            ErrorType = "ParseError",
-                            Message = $"modules.json 解析失败：{ex.Message}"
-                        });
-                        return (allModules, allErrors);
-                    }
-
-                    var failedIds = new List<string>();
-                    var failedReasons = new List<string>();
-                    foreach (var module in legacyModules)
-                    {
-                        var reason = GetModuleStructureError(module);
-                        if (reason != null)
-                        {
-                            var moduleLabel = module.Id ?? module.ModuleId ?? "(无ID)";
-                            failedIds.Add(moduleLabel);
-                            failedReasons.Add($"{moduleLabel}：{reason}");
-                        }
-                        else
-                            allModules.Add(module);
-                    }
-
-                    if (failedIds.Count > 0)
-                    {
-                        allErrors.Add(new ZoneLoadError
-                        {
-                            ZoneId = "legacy",
-                            ErrorType = "StructureError",
-                            Message = string.Join("；", failedReasons),
-                            FailedModuleIds = failedIds
-                        });
-                    }
-
-                    _logger.LogDebug("从单一 modules.json 加载 {Count} 个模块（向后兼容模式）", allModules.Count);
+                        ZoneId = zoneId,
+                        ErrorType = "ParseError",
+                        Message = $"modules.json 解析失败：{ex.Message}"
+                    });
+                    continue;
                 }
+
+                // L2：per-module 结构完整性质检
+                var failedIds = new List<string>();
+                var failedReasons = new List<string>();
+                var validModules = new List<Module>();
+                foreach (var module in zoneModules)
+                {
+                    module.ZoneId ??= zoneId;
+                    var reason = GetModuleStructureError(module);
+                    if (reason != null)
+                    {
+                        var moduleLabel = module.Id ?? module.ModuleId ?? "(无ID)";
+                        failedIds.Add(moduleLabel);
+                        failedReasons.Add($"{moduleLabel}：{reason}");
+                    }
+                    else
+                    {
+                        validModules.Add(module);
+                    }
+                }
+
+                if (failedIds.Count > 0)
+                {
+                    var msg = string.Join("；", failedReasons);
+                    System.Diagnostics.Trace.WriteLine(
+                        $"[LoadAllZoneModules] 数据质检失败 | Zone: {zoneId} | 跳过模块数: {failedIds.Count} | IDs: {string.Join(",", failedIds)}");
+                    _logger.LogWarning("[LoadAllZoneModules] 数据质检失败 | Zone: {ZoneId} | 跳过: {Count} 个模块 | IDs: {Ids}",
+                        zoneId, failedIds.Count, string.Join(",", failedIds));
+                    allErrors.Add(new ZoneLoadError
+                    {
+                        ZoneId = zoneId,
+                        ErrorType = "StructureError",
+                        Message = msg,
+                        FailedModuleIds = failedIds
+                    });
+                }
+
+                allModules.AddRange(validModules);
             }
+            _logger.LogDebug("从 {Count} 个叶子分区加载模块，共 {Total} 个（质检后）", leafFiles.Count, allModules.Count);
 
             return (allModules, allErrors);
         }

@@ -1,0 +1,13 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <RootNamespace>BIMCanvas.Scripts.MigrateModulesWrapper</RootNamespace>
+    <AssemblyName>MigrateModulesWrapper</AssemblyName>
+    <!-- 独立 CLI 工具：不引用 BIMCanvas.Server 任何运行时代码，仅依赖 Newtonsoft.Json -->
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="Newtonsoft.Json" Version="13.0.3" />
+  </ItemGroup>
+</Project>

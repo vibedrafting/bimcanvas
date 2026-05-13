@@ -457,10 +457,13 @@ namespace BIMCanvas.Server.Services
 
         private static int? CountModulesBestEffort(string filePath)
         {
+            // Phase 0b: 仅认 wrapper {schemeMetadata, modules}；裸数组返回 null（不再支持）
             try
             {
                 var token = JToken.Parse(File.ReadAllText(filePath, Encoding.UTF8));
-                return token is JArray array ? array.Count : null;
+                if (token is JObject obj && obj["modules"] is JArray inner)
+                    return inner.Count;
+                return null;
             }
             catch
             {

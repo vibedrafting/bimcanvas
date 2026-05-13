@@ -132,23 +132,32 @@ load_semantic_plan({ zoneId })
 - 根据朝向计算 facing
 - 根据模块尺寸计算 bounds
 
-**modules.json 写入格式**：
+**modules 写入工具**：
 
-```json
-[
-  {
-    "moduleId": "mod_bed_001",
-    "moduleName": "双人床",
-    "bounds": [[9100, 1750], [11100, 1750], [11100, 3750], [9100, 3750]],
-    "facing": { "value": null, "semantic": "south" },
-    "items": []
-  }
-]
+**【必须】**通过 `mcp__canvas__save_modules` 写入；**禁止用 Write 工具直接写 `modules.json` 文件**。Phase 0b 起 modules.json 升级为 wrapper `{schemeMetadata, modules}`，**`schemeMetadata` 由 Server 派生**——Agent 不维护、即使传也会被丢弃。
+
+调用模板：
+
+```text
+save_modules({
+  designZoneId: "rz_3",          // 设计区 ID
+  leafZoneId:   "dz_1",          // 当前写入的叶子分区 ID（顶层叶子时与 designZoneId 相同）
+  modules: [
+    {
+      "moduleId": "mod_bed_001",
+      "moduleName": "双人床",
+      "bounds": [[9100, 1750], [11100, 1750], [11100, 3750], [9100, 3750]],
+      "facing": { "value": null, "semantic": "south" },
+      "items": []
+    }
+  ]
+})
 ```
 
 - `bounds`：矩形 4 顶点，顺序 左下→右下→右上→左上，单位 mm
 - `moduleName`：必填，与 `module_library.json` 一致
 - `items`：必填，无子项时写 `[]`
+- **不要**在 `modules` 数组外或顶层添加 `schemeMetadata` / `summary` 字段——Server 派生
 
 **facing 规则**：
 

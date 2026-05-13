@@ -37,16 +37,19 @@ namespace BIMCanvas.Server.Controllers
         private readonly ILogger<VariantController> _logger;
         private readonly ProjectContext _projectContext;
         private readonly IHubContext<CanvasHub> _hubContext;
+        private readonly ModulesWriterService _modulesWriter;
         private readonly JsonSerializerSettings _jsonSettings;
 
         public VariantController(
             ILogger<VariantController> logger,
             ProjectContext projectContext,
-            IHubContext<CanvasHub> hubContext)
+            IHubContext<CanvasHub> hubContext,
+            ModulesWriterService modulesWriter)
         {
             _logger = logger;
             _projectContext = projectContext;
             _hubContext = hubContext;
+            _modulesWriter = modulesWriter;
             _jsonSettings = new JsonSerializerSettings
             {
                 ContractResolver = new CamelCasePropertyNamesContractResolver(),
@@ -254,12 +257,19 @@ namespace BIMCanvas.Server.Controllers
 
             try
             {
-                // 1) 读取被采纳的变体内容并校验合法（兼容 wrapper 形态 {summary, modules} 与裸数组）
-                var variantContent = System.IO.File.ReadAllText(variantPath, Encoding.UTF8);
-                var modulesArrayJson = ExtractModulesArrayJson(variantContent);
+                // 解析 designZoneId / leafZoneId（leafZonePath 形如 "rz_3" 或 "rz_3/dz_1"）
+                var normalizedPath = NormalizeLeafZonePath(request.LeafZonePath);
+                var pathSegments = normalizedPath.Split('/', StringSplitOptions.RemoveEmptyEntries);
+                var designZoneId = pathSegments.Length > 0 ? pathSegments[0] : normalizedPath;
+                var leafZoneId = pathSegments.Length > 0 ? pathSegments[^1] : normalizedPath;
+                var projectPath = _projectContext.GetActiveWorktreePath()
+                                  ?? _projectContext.CurrentProjectPath!;
 
-                // 2) 旧 canonical 降级归档：写入 modules-alt-prev-{yyyyMMddHHmmss}.json
-                //    带 wrapper.summary 标注"上一版正式方案，归档于 ..."，让 NavigatorBar 上能识别。
+                // 1) 读取被采纳的变体 wrapper.modules
+                var variantContent = System.IO.File.ReadAllText(variantPath, Encoding.UTF8);
+                var newCanonicalModules = ExtractModulesList(variantContent);
+
+                // 2) 旧 canonical 降级归档：写入 modules-alt-prev-{yyyyMMddHHmmss}.json（wrapper schemeMetadata=prev-adopted）
                 //    canonical 缺失或空时跳过归档（首次采纳之前没东西可归档）。
                 string? archivedVariantId = null;
                 if (System.IO.File.Exists(canonicalPath))
@@ -269,28 +279,22 @@ namespace BIMCanvas.Server.Controllers
                     {
                         var now = DateTime.Now;
                         archivedVariantId = $"alt-prev-{now:yyyyMMddHHmmss}";
-                        var archiveFileName = ModuleFileTopologyService.BuildVariantFilename(archivedVariantId);
-                        var archivePath = Path.Combine(zoneDir, archiveFileName);
+                        var canonicalModules = ExtractModulesList(canonicalContent);
 
-                        // 用 wrapper 形态写入归档（summary 给 NavigatorBar 提示），modules 数组沿用旧 canonical 内容
-                        var canonicalArrayJson = ExtractModulesArrayJson(canonicalContent);
-                        var canonicalArray = JArray.Parse(canonicalArrayJson);
-                        var wrapper = new JObject
-                        {
-                            ["summary"] = $"上一版已采纳方案，归档于 {now:yyyy/MM/dd HH:mm:ss}",
-                            ["modules"] = canonicalArray
-                        };
-
-                        var archiveTmp = archivePath + ".tmp";
-                        System.IO.File.WriteAllText(archiveTmp, wrapper.ToString(Formatting.Indented), Encoding.UTF8);
-                        System.IO.File.Move(archiveTmp, archivePath, overwrite: true);
+                        await _modulesWriter.WriteAsync(
+                            projectPath, designZoneId, leafZoneId,
+                            archivedVariantId, VariantPathMode.Legacy, canonicalModules,
+                            adoptedAt: now.ToUniversalTime(),
+                            sourceWorkflowOverride: "prev-adopted");
                     }
                 }
 
-                // 3) 原子写入新 canonical
-                var tmpPath = canonicalPath + ".tmp";
-                System.IO.File.WriteAllText(tmpPath, modulesArrayJson, Encoding.UTF8);
-                System.IO.File.Move(tmpPath, canonicalPath, overwrite: true);
+                // 3) 原子写入新 canonical（schemeMetadata 由 Server 派生）
+                await _modulesWriter.WriteAsync(
+                    projectPath, designZoneId, leafZoneId,
+                    variantId: null, pathMode: VariantPathMode.Legacy, modules: newCanonicalModules,
+                    adoptedAt: DateTime.UtcNow,
+                    sourceWorkflowOverride: "adopted");
 
                 // 4) 删除被采纳的那个变体文件 + 其 sidecar（不动其他 alt 文件）
                 var deletedFiles = new List<string>();
@@ -482,17 +486,17 @@ namespace BIMCanvas.Server.Controllers
                     _logger.LogWarning("[VariantSweep] 自动清理 0 字节变体文件: {File}", filePath);
                     return true;
                 }
+                // Phase 0b: 仅认 wrapper {schemeMetadata, modules}（裸数组已淘汰）
                 var raw = System.IO.File.ReadAllText(filePath, Encoding.UTF8);
                 var token = JToken.Parse(raw);
                 JArray? modulesArray = null;
-                if (token is JArray asArray)
-                {
-                    modulesArray = asArray;
-                }
-                else if (token is JObject obj)
+                if (token is JObject obj)
                 {
                     modulesArray = obj["modules"] as JArray;
-                    summary = obj.Value<string>("summary") ?? string.Empty;
+                    // 优先读 schemeMetadata.summary（新 schema）；回退旧 wrapper 的顶层 summary
+                    summary = obj["schemeMetadata"]?.Value<string>("summary")
+                              ?? obj.Value<string>("summary")
+                              ?? string.Empty;
                 }
                 if (modulesArray == null || modulesArray.Count == 0)
                 {
@@ -512,52 +516,46 @@ namespace BIMCanvas.Server.Controllers
         }
 
         /// <summary>
-        /// 读变体文件并兼容两种形态：
-        ///   - v1.1 wrapper: { "summary": "...", "modules": [...] } → 取 modules
-        ///   - legacy:        [ ... ] (裸数组) → 直接当 Module[]
+        /// Phase 0b: 变体文件仅认 wrapper {schemeMetadata, modules}；
+        /// 裸数组形态已淘汰，需先跑 MigrateModulesWrapper 脚本。
         /// </summary>
         private List<Module> LoadVariantModules(string variantFilePath)
         {
             var raw = System.IO.File.ReadAllText(variantFilePath, Encoding.UTF8);
             var token = JToken.Parse(raw);
-            JArray? modulesArray;
-            if (token is JArray asArray)
-            {
-                modulesArray = asArray;
-            }
-            else if (token is JObject asObject && asObject["modules"] is JArray inner)
-            {
-                modulesArray = inner;
-            }
-            else
+            if (token is JArray)
             {
                 throw new InvalidOperationException(
-                    $"变体文件结构不识别（既不是数组，也不是 {{summary, modules}} 包裹对象）: {variantFilePath}");
+                    $"变体文件是裸数组格式，已不支持。请先运行 MigrateModulesWrapper 脚本：{variantFilePath}");
             }
-            return modulesArray.ToObject<List<Module>>(JsonSerializer.Create(_jsonSettings)) ?? new List<Module>();
+            if (token is not JObject obj || obj["modules"] is not JArray inner)
+            {
+                throw new InvalidOperationException(
+                    $"变体文件不是合法 wrapper（缺少 modules 数组）: {variantFilePath}");
+            }
+            return inner.ToObject<List<Module>>(JsonSerializer.Create(_jsonSettings)) ?? new List<Module>();
         }
 
         /// <summary>
         /// 把变体文件内容归一成"纯 modules 数组的 JSON 串"，供采纳时写入 canonical modules.json。
         /// 兼容 wrapper / 裸数组两种形态。
         /// </summary>
-        private string ExtractModulesArrayJson(string variantContent)
+        /// <summary>
+        /// 从 wrapper 文件内容提取 modules 列表（Phase 0b 起仅认 wrapper）。
+        /// 裸数组抛错——历史变体文件需先跑迁移脚本。
+        /// </summary>
+        private List<Module> ExtractModulesList(string variantContent)
         {
             var token = JToken.Parse(variantContent);
-            JArray? modulesArray;
-            if (token is JArray asArray)
+            if (token is JArray)
             {
-                modulesArray = asArray;
+                throw new InvalidOperationException("变体文件是裸数组格式，已不支持。请先运行迁移脚本升级。");
             }
-            else if (token is JObject asObject && asObject["modules"] is JArray inner)
+            if (token is not JObject obj || obj["modules"] is not JArray inner)
             {
-                modulesArray = inner;
+                throw new InvalidOperationException("变体文件不是合法 wrapper（缺少 modules 数组）");
             }
-            else
-            {
-                throw new InvalidOperationException("变体文件不是合法 modules 数组或 {summary, modules} 包裹对象");
-            }
-            return modulesArray.ToString(Formatting.Indented);
+            return inner.ToObject<List<Module>>(JsonSerializer.Create(_jsonSettings)) ?? new List<Module>();
         }
 
         private T? ReadJson<T>(string path)

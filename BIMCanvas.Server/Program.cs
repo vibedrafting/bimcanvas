@@ -213,6 +213,8 @@ builder.Services.AddSingleton<ProjectContext>();  // 单项目模式上下文
 builder.Services.AddSingleton<ModuleLibraryService>();  // 模块库服务
 builder.Services.AddSingleton<ModuleFileTopologyService>();  // modules.json 拓扑解析服务
 builder.Services.AddSingleton<ModuleNormalizationService>();  // 模块数据规范化服务
+builder.Services.AddSingleton<ModulesReaderService>();  // modules.json wrapper 读取
+builder.Services.AddSingleton<ModulesWriterService>();  // modules.json wrapper 写入（含 schemeMetadata 派生）
 builder.Services.AddSingleton<ProjectSnapshotService>();
 builder.Services.AddSingleton<BackgroundScreenshotService>();
 builder.Services.AddSingleton<ChatAttachmentService>();
