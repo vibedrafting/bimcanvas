@@ -25,8 +25,8 @@ export interface SaveSchemeModulesResponse {
 }
 
 /**
- * variants/{slug}/variant.json 的元数据。Server 派生，Web 仅消费。
- * state: explore-generated / relocation / prev-adopted / unknown
+ * Server 派生的 variant 元数据（GET /api/scheme/variants 载荷元素）。Web 仅消费。
+ * state: variant / prev-adopted / unknown
  */
 export interface VariantDescriptor {
     slug: string;
@@ -143,7 +143,7 @@ export class SchemeService {
     }
 
     /**
-     * 删除变体目录 schemes/{designZoneId}/variants/{variantSlug}/（含 semantic_plan + variant.json + modules）。
+     * 删除变体目录 schemes/{designZoneId}/variants/{variantSlug}/（含 semantic_plan + modules）。
      */
     static async deleteVariant(request: { designZoneId: string; variantSlug: string }): Promise<{
         success: boolean;

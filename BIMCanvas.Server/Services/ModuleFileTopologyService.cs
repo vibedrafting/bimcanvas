@@ -373,9 +373,9 @@ namespace BIMCanvas.Server.Services
 
         /// <summary>
         /// 把 canonical entry 替换成指定 variantId 的变体 entry。
-        /// 优先尝试组 B/C 新协议：schemes/{dz}/variants/{slug}/{leaf}/modules.json
-        /// （与 ModulesWriterService.ResolveModulesPath 的 VariantPathMode.New 字节级一致；
-        /// 顶层叶子时 dz == leaf，路径仍含 leaf 段）。
+        /// 优先尝试组 B/C 新协议（与 ModulesWriterService.ResolveModulesPath 的 VariantPathMode.New 字节级一致）：
+        ///   顶层叶子（dz == leaf）→ schemes/{dz}/variants/{slug}/modules.json（省略 leaf 段，镜像 canonical）
+        ///   嵌套叶子（dz != leaf）→ schemes/{dz}/variants/{slug}/{leaf}/modules.json
         /// 若新协议文件不存在，回退到旧 sibling 路径 schemes/{dz}/[{leaf}/]modules-{slug}.json
         /// （Phase 7 下线前保留 Legacy 兼容；Agent 仍只走新路径写入）。
         /// </summary>
@@ -390,13 +390,10 @@ namespace BIMCanvas.Server.Services
             var designZoneId = segments[0];
             // 叶子 zoneId 取自登记的 canonical entry（顶层叶子时 == designZoneId），
             // 不依赖 segments 反推，自动正确处理 2+ 层嵌套（中间容器存在时 ResolveModulesPath 也压平到叶子）。
-            var newPath = Path.Combine(
-                SchemesPath,
-                designZoneId,
-                "variants",
-                variantId,
-                canonical.ZoneId,
-                "modules.json");
+            var isTopLevelLeaf = string.Equals(designZoneId, canonical.ZoneId, StringComparison.OrdinalIgnoreCase);
+            var newPath = isTopLevelLeaf
+                ? Path.Combine(SchemesPath, designZoneId, "variants", variantId, "modules.json")
+                : Path.Combine(SchemesPath, designZoneId, "variants", variantId, canonical.ZoneId, "modules.json");
 
             if (File.Exists(newPath))
                 return ModuleFileEntry.FromFile(SchemesPath, newPath, canonical.ZoneId);

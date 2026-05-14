@@ -91,10 +91,10 @@ namespace BIMCanvas.Server.Services
             {
                 SchemeMetadata = new SchemeMetadata
                 {
-                    Summary = SemanticPlanSummaryHelper.DeriveSummary(projectPath, designZoneId),
+                    Summary = SemanticPlanSummaryHelper.DeriveSummary(projectPath, designZoneId, variantId),
                     VariantSlug = string.IsNullOrWhiteSpace(variantId) ? null : variantId,
                     AdoptedAt = adoptedAt?.ToUniversalTime().ToString("o"),
-                    SourceWorkflow = sourceWorkflowOverride ?? DeriveSourceWorkflow(variantId, projectPath, designZoneId)
+                    SourceWorkflow = sourceWorkflowOverride ?? DeriveSourceWorkflow(variantId)
                 },
                 Modules = modulesToSave
             };
@@ -134,6 +134,9 @@ namespace BIMCanvas.Server.Services
 
         /// <summary>
         /// 仅算文件路径，不写入。供 file watcher / list / 调试用。
+        /// variants/New 路径对齐 canonical 结构——顶层叶子（dz == leaf）不重复 designZoneId，
+        /// 嵌套叶子按 dz/leaf 两段嵌套，与 canonical 路径完全镜像
+        /// （adopt 晋升/降级时变体目录与 canonical 字节级一致，move 即可）。
         /// </summary>
         public string ResolveModulesPath(
             string projectPath,
@@ -157,7 +160,9 @@ namespace BIMCanvas.Server.Services
             return pathMode switch
             {
                 VariantPathMode.New =>
-                    Path.Combine(schemesPath, designZoneId, "variants", variantId, leafZoneId, "modules.json"),
+                    string.Equals(designZoneId, leafZoneId, StringComparison.OrdinalIgnoreCase)
+                        ? Path.Combine(schemesPath, designZoneId, "variants", variantId, "modules.json")
+                        : Path.Combine(schemesPath, designZoneId, "variants", variantId, leafZoneId, "modules.json"),
                 VariantPathMode.Legacy =>
                     Path.Combine(
                         ProjectService.ResolveZoneDirectory(schemesPath, leafZoneId),
@@ -166,47 +171,50 @@ namespace BIMCanvas.Server.Services
             };
         }
 
-        private static string DeriveSourceWorkflow(string? variantId, string projectPath, string designZoneId)
+        /// <summary>
+        /// 由 variantId slug 约定派生 sourceWorkflow：
+        ///   null/空 → "single-plan"
+        ///   "prev-" 前缀（adopt 降级保留的上一版方案）→ "prev-adopted"
+        ///   其他 → "variant"（合并自原 multi-plan-explore / relocation；UI 无差异化展示）
+        /// </summary>
+        private static string DeriveSourceWorkflow(string? variantId)
         {
             if (string.IsNullOrWhiteSpace(variantId))
                 return "single-plan";
-
-            var variantJsonPath = Path.Combine(
-                projectPath, "schemes", designZoneId, "variants", variantId, "variant.json");
-            if (!File.Exists(variantJsonPath))
-                return "unknown";
-
-            try
-            {
-                var json = File.ReadAllText(variantJsonPath, Encoding.UTF8);
-                var meta = JsonConvert.DeserializeObject<Models.VariantMetadata>(json);
-                return meta?.State switch
-                {
-                    "explore-generated" => "multi-plan-explore",
-                    "relocation" => "relocation",
-                    "prev-adopted" => "prev-adopted",
-                    _ => "unknown"
-                };
-            }
-            catch
-            {
-                return "unknown";
-            }
+            if (variantId.StartsWith("prev-", StringComparison.OrdinalIgnoreCase))
+                return "prev-adopted";
+            return "variant";
         }
     }
 
     /// <summary>
     /// 从 semantic_plan.json 派生 schemeMetadata.summary 的小 helper。
-    /// 优先 tag=construction-brief，回落 tag=strategic-plan，再回落空串。
+    /// 优先变体内的 semantic_plan（variantId 非空时），回落 canonical；
+    /// 同一份计划内优先 tag=construction-brief，再回落 tag=strategic-plan，再回落空串。
     /// </summary>
-    internal static class SemanticPlanSummaryHelper
+    public static class SemanticPlanSummaryHelper
     {
-        public static string DeriveSummary(string projectPath, string designZoneId)
+        public static string DeriveSummary(string projectPath, string designZoneId, string? variantId = null)
         {
             if (string.IsNullOrWhiteSpace(projectPath) || string.IsNullOrWhiteSpace(designZoneId))
                 return string.Empty;
 
-            var planPath = Path.Combine(projectPath, "schemes", designZoneId, "semantic_plan.json");
+            if (!string.IsNullOrWhiteSpace(variantId))
+            {
+                var variantPlanPath = Path.Combine(
+                    projectPath, "schemes", designZoneId, "variants", variantId, "semantic_plan.json");
+                var fromVariant = TryDeriveFromPlanFile(variantPlanPath);
+                if (!string.IsNullOrWhiteSpace(fromVariant))
+                    return fromVariant;
+                // variant 缺 semantic_plan（如 prev-adopted）或无 brief/strategic → fallback canonical
+            }
+
+            var canonicalPlanPath = Path.Combine(projectPath, "schemes", designZoneId, "semantic_plan.json");
+            return TryDeriveFromPlanFile(canonicalPlanPath);
+        }
+
+        private static string TryDeriveFromPlanFile(string planPath)
+        {
             if (!File.Exists(planPath))
                 return string.Empty;
 

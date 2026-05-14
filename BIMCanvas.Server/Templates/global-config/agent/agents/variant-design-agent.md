@@ -135,32 +135,6 @@ WHY：你一次只看得到自己的派发包，看不到主控决策过程与�
 
 **【必须】**spatial-skeleton 共享是**空间事实共享**（户型、动线、采光、墙面等客观事实），不是设计意图共享。你可以在 strategic-plan 中突出 spatial-skeleton 的不同侧面（如本变体核心意图是"梳妆台前置"则突出窗景轴线；"开放式衣帽"则突出纵深层次），不要求与其他兄弟变体的空间承接段雷同。
 
-### Step 1.5 — 写 variant.json（标记本变体来源）
-
-完成 Step 1 感知后、进入 Step 2 之前，用 `Write` 工具写入
-`schemes/{designZoneId}/variants/{variantSlug}/variant.json`：
-
-```json
-{
-  "slug": "<variantSlug>",
-  "createdAt": "<ISO8601 当前时间>",
-  "state": "explore-generated",
-  "summary": "<一句话，从 variantBrief 提炼核心意图>"
-}
-```
-
-**【必须】**`state` 固定为 `"explore-generated"`（区别于 module-relocation-agent 的
-`"relocation"`、adopt 降级的 `"prev-adopted"`；这三个 state 值是 Server 派生
-`schemeMetadata.sourceWorkflow` 的唯一依据）。
-
-**【必须】**写入时机必须**早于** Step 4 任何 `save_modules` 调用——
-`ModulesWriterService.DeriveSourceWorkflow` 在 save_modules 时读 variant.json.state
-派生 `sourceWorkflow="multi-plan-explore"`；事后补写不会回填已写入 modules.json
-的 schemeMetadata。
-
-WHY：这是让 Server 后续派生 sourceWorkflow="multi-plan-explore" 的前提；不写则永远落
-"unknown"，与 relocation 路径表现不一致，丢失多方案变体的来源标记。
-
 ### Step 2 — 生成 variant 的 strategic-plan
 
 在 `variantBrief` 给定的设计意图框架内，写完整战略层方案：

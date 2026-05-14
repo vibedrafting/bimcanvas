@@ -1,31 +1,22 @@
-using Newtonsoft.Json;
-
 namespace BIMCanvas.Server.Models
 {
     /// <summary>
-    /// variants/{slug}/variant.json 的载荷。
-    /// 由 variant-design-agent / module-relocation-agent / VariantController.Adopt（降级路径）写入。
-    /// state 取值：explore-generated / relocation / prev-adopted / unknown。
+    /// GET /api/scheme/variants 返回的 variant 元数据，Server 派生填充，磁盘上无对应文件
+    /// （Phase E：variant.json sidecar 已废弃，slug / createdAt 由文件系统派生、
+    /// state 由 slug 前缀推断、summary 由变体内 semantic_plan.json 派生）。
+    /// state 取值：variant / prev-adopted / unknown。
     /// </summary>
     public class VariantMetadata
     {
-        [JsonProperty("slug")]
         public string Slug { get; set; } = "";
 
-        /// <summary>ISO8601 创建时间；list_variants 排序键。</summary>
-        [JsonProperty("createdAt")]
+        /// <summary>ISO8601 创建时间（取目录 mtime）；list_variants 排序键。</summary>
         public string? CreatedAt { get; set; }
 
-        /// <summary>产生路径标记，决定 Web 端展示样式与 schemeMetadata.sourceWorkflow 派生。</summary>
-        [JsonProperty("state")]
+        /// <summary>由 slug 前缀派生：prev-* → "prev-adopted"，其他 → "variant"。决定 Web 端样式。</summary>
         public string State { get; set; } = "unknown";
 
-        /// <summary>一句话设计意图，供 VariantNavigatorBar chip tooltip 显示。</summary>
-        [JsonProperty("summary")]
+        /// <summary>一句话设计意图（变体内 semantic_plan 派生），供 VariantNavigatorBar chip tooltip 显示。</summary>
         public string Summary { get; set; } = "";
-
-        /// <summary>克隆来源 slug；"canonical" 表示从 canonical 克隆，其他值为源 variant slug。</summary>
-        [JsonProperty("sourceSlug", NullValueHandling = NullValueHandling.Ignore)]
-        public string? SourceSlug { get; set; }
     }
 }

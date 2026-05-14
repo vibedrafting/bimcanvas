@@ -3,10 +3,8 @@ using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
-using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
-using BIMCanvas.Core.Converters.Json;
 using BIMCanvas.Core.Models.Layout;
 using BIMCanvas.Server.Dtos;
 using BIMCanvas.Server.Hubs;
@@ -15,8 +13,6 @@ using BIMCanvas.Server.Services;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.SignalR;
 using Microsoft.Extensions.Logging;
-using Newtonsoft.Json;
-using Newtonsoft.Json.Serialization;
 
 namespace BIMCanvas.Server.Controllers
 {
@@ -33,7 +29,6 @@ namespace BIMCanvas.Server.Controllers
         private readonly IHubContext<CanvasHub> _hubContext;
         private readonly ModulesWriterService _modulesWriter;
         private readonly ModulesReaderService _modulesReader;
-        private readonly JsonSerializerSettings _jsonSettings;
 
         /// <summary>
         /// 按 designZoneId 串行化 Adopt / Delete 的多文件操作。
@@ -57,20 +52,15 @@ namespace BIMCanvas.Server.Controllers
             _hubContext = hubContext;
             _modulesWriter = modulesWriter;
             _modulesReader = modulesReader;
-            _jsonSettings = new JsonSerializerSettings
-            {
-                ContractResolver = new CamelCasePropertyNamesContractResolver(),
-                Converters = { new Polygon2DConverter(), new Point2DConverter(), new FacingConverter() }
-            };
         }
 
         // ─────────────────────────── ListVariants ───────────────────────────
 
         /// <summary>
         /// 列出指定 design zone 下所有变体（含 prev-* 降级目录）。
-        /// 数据源：schemes/{designZoneId}/variants/{slug}/variant.json。
-        /// 缺 variant.json 的目录降级为 {slug, createdAt=null, state="unknown", summary=""}。
-        /// 按 createdAt 升序，null 排最后。
+        /// 数据源：文件系统目录 + slug 前缀约定（prev-* → "prev-adopted"，其他 → "variant"）+
+        /// 变体内 semantic_plan.json 派生的 summary（fallback canonical）。
+        /// createdAt 取目录 mtime，按字典序（≈时间序）升序排序。
         /// </summary>
         [HttpGet("variants")]
         public ActionResult<VariantListResponse> ListVariants([FromQuery] string designZoneId)
@@ -86,36 +76,32 @@ namespace BIMCanvas.Server.Controllers
             if (!Directory.Exists(variantsRoot))
                 return Ok(response);
 
+            var projectPath = _projectContext.GetActiveWorktreePath()
+                              ?? _projectContext.CurrentProjectPath!;
+
             foreach (var dir in Directory.EnumerateDirectories(variantsRoot, "*", SearchOption.TopDirectoryOnly))
             {
                 var slug = Path.GetFileName(dir);
                 if (string.IsNullOrWhiteSpace(slug))
                     continue;
 
-                var metaPath = Path.Combine(dir, "variant.json");
-                var meta = TryReadVariantMetadata(metaPath) ?? new VariantMetadata
+                var state = slug.StartsWith("prev-", StringComparison.OrdinalIgnoreCase)
+                    ? "prev-adopted"
+                    : "variant";
+                var summary = SemanticPlanSummaryHelper.DeriveSummary(projectPath, designZoneId, slug);
+                var createdAt = Directory.GetCreationTimeUtc(dir).ToString("o");
+
+                response.Variants.Add(new VariantMetadata
                 {
                     Slug = slug,
-                    CreatedAt = null,
-                    State = "unknown",
-                    Summary = string.Empty
-                };
-                // 目录名兜底 slug（防 variant.json 内字段缺漏）
-                if (string.IsNullOrWhiteSpace(meta.Slug))
-                    meta.Slug = slug;
-                response.Variants.Add(meta);
+                    CreatedAt = createdAt,
+                    State = state,
+                    Summary = summary ?? string.Empty
+                });
             }
 
             response.Variants.Sort((a, b) =>
-            {
-                // null createdAt 排最后；其他按字符串升序（ISO8601 字典序天然时间序）
-                var aNull = string.IsNullOrEmpty(a.CreatedAt);
-                var bNull = string.IsNullOrEmpty(b.CreatedAt);
-                if (aNull && bNull) return string.Compare(a.Slug, b.Slug, StringComparison.OrdinalIgnoreCase);
-                if (aNull) return 1;
-                if (bNull) return -1;
-                return string.Compare(a.CreatedAt, b.CreatedAt, StringComparison.Ordinal);
-            });
+                string.Compare(a.CreatedAt, b.CreatedAt, StringComparison.Ordinal));
 
             return Ok(response);
         }
@@ -124,7 +110,7 @@ namespace BIMCanvas.Server.Controllers
 
         /// <summary>
         /// 按 designZoneId 索引的变体计数摘要。
-        /// 数据源：扫 schemes/{dz}/variants/{slug}/ 子目录，无需读 variant.json。
+        /// 数据源：扫 schemes/{dz}/variants/{slug}/ 子目录，无需读 sidecar。
         /// 零变体的 design zone 不入字典。Web 端按 designZoneId 取 (current/total) 分页号。
         /// </summary>
         [HttpGet("variants/summary")]
@@ -314,17 +300,6 @@ namespace BIMCanvas.Server.Controllers
                             adoptedAt: now.ToUniversalTime(),
                             sourceWorkflowOverride: "prev-adopted");
                     }
-
-                    // 写 variant.json
-                    var prevDir = Path.Combine(designZoneRoot, "variants", demotedSlug);
-                    Directory.CreateDirectory(prevDir);
-                    WriteVariantMetadata(Path.Combine(prevDir, "variant.json"), new VariantMetadata
-                    {
-                        Slug = demotedSlug,
-                        CreatedAt = now.ToUniversalTime().ToString("o"),
-                        State = "prev-adopted",
-                        Summary = $"上一版采纳方案 ({now:yyyy-MM-dd HH:mm:ss})"
-                    });
                 }
 
                 // 4) 晋升：把被采纳 variant 的每个叶子写到 canonical（透传原 sourceWorkflow）
@@ -343,7 +318,7 @@ namespace BIMCanvas.Server.Controllers
                         sourceWorkflowOverride: inheritedSourceWorkflow);
                 }
 
-                // 5) 删除被采纳变体整目录（含 semantic_plan.json / variant.json / 各叶子 modules）
+                // 5) 删除被采纳变体整目录（含 semantic_plan.json / 各叶子 modules）
                 try { Directory.Delete(variantDir, recursive: true); }
                 catch (Exception ex) { _logger.LogWarning(ex, "删除被采纳变体目录失败: {Dir}", variantDir); }
 
@@ -389,7 +364,8 @@ namespace BIMCanvas.Server.Controllers
         /// 克隆设计区方案（canonical 或某变体）到一个或多个新变体目录。
         /// 协议：POST {designZoneId, sourceVariant, newVariantSlugs[], overwrite}。
         /// 复制范围：semantic_plan.json + reference_analysis.json + 各叶子 modules.json（字节级 File.Copy，
-        /// 不重新派生 schemeMetadata）。同时为每个新变体写一份 variant.json（state="relocation"，sourceSlug 追溯来源）。
+        /// 不重新派生 schemeMetadata）。state / summary / sourceWorkflow 由 Server 在 ListVariants /
+        /// 各 modules.json wrapper 里按 slug 前缀 + semantic_plan 内容派生，磁盘上不再写 sidecar。
         /// 部分成功允许：单 slug 失败进 errors，已成功 slug 目录保留。
         /// </summary>
         [HttpPost("variant/clone")]
@@ -479,7 +455,7 @@ namespace BIMCanvas.Server.Controllers
                         srcFiles.Add(leafModulesPath);
                 }
 
-                // ── 循环每个 newSlug：复制 → 写 variant.json ──
+                // ── 循环每个 newSlug：复制源文件 ──
                 foreach (var safeNew in safeNewSlugs)
                 {
                     var dstRoot = Path.Combine(designZoneRoot, "variants", safeNew);
@@ -538,28 +514,6 @@ namespace BIMCanvas.Server.Controllers
                         continue;
                     }
 
-                    // 写新 variant.json（不复制源的）
-                    try
-                    {
-                        WriteVariantMetadata(Path.Combine(dstRoot, "variant.json"), new VariantMetadata
-                        {
-                            Slug = safeNew,
-                            CreatedAt = DateTime.UtcNow.ToString("o"),
-                            State = "relocation",
-                            Summary = $"由 {sourceLabel} 克隆",
-                            SourceSlug = sourceLabel
-                        });
-                    }
-                    catch (Exception ex)
-                    {
-                        response.Errors.Add(new CloneVariantError
-                        {
-                            Slug = safeNew,
-                            Reason = $"variant-json-write-failed: {ex.Message}"
-                        });
-                        continue;
-                    }
-
                     var dstRelative = Path.GetRelativePath(projectPath, dstRoot).Replace('\\', '/');
                     response.Created.Add(new CloneVariantResult
                     {
@@ -579,7 +533,7 @@ namespace BIMCanvas.Server.Controllers
                     await _hubContext.Clients.All.SendAsync("ReceiveUpdate", new
                     {
                         type = "file_changed",
-                        file = "variant.json",
+                        file = "modules.json",
                         timestamp = DateTime.UtcNow,
                         action = "reload",
                         trigger = "variant-cloned",
@@ -654,7 +608,7 @@ namespace BIMCanvas.Server.Controllers
             await _hubContext.Clients.All.SendAsync("ReceiveUpdate", new
             {
                 type = "file_changed",
-                file = "variant.json",
+                file = "modules.json",
                 timestamp = DateTime.UtcNow,
                 action = "reload",
                 trigger = "variant-deleted",
@@ -713,30 +667,6 @@ namespace BIMCanvas.Server.Controllers
             return true;
         }
 
-        private VariantMetadata? TryReadVariantMetadata(string path)
-        {
-            if (!System.IO.File.Exists(path)) return null;
-            try
-            {
-                var json = System.IO.File.ReadAllText(path, Encoding.UTF8);
-                return JsonConvert.DeserializeObject<VariantMetadata>(json);
-            }
-            catch (Exception ex)
-            {
-                _logger.LogWarning(ex, "读取 variant.json 失败: {Path}", path);
-                return null;
-            }
-        }
-
-        private void WriteVariantMetadata(string path, VariantMetadata meta)
-        {
-            var dir = Path.GetDirectoryName(path)!;
-            Directory.CreateDirectory(dir);
-            var json = JsonConvert.SerializeObject(meta, Formatting.Indented, _jsonSettings);
-            var tmp = path + ".tmp";
-            System.IO.File.WriteAllText(tmp, json, Encoding.UTF8);
-            System.IO.File.Move(tmp, path, overwrite: true);
-        }
     }
 
     public class AdoptVariantRequest

@@ -159,7 +159,7 @@ export const useCanvasStore = defineStore('canvas', () => {
     }
     const variantInfoByDesignZone = ref<Map<string, VariantInfo>>(new Map());
 
-    // variant.json 元数据缓存（state / summary / createdAt），供 VariantNavigatorBar 显示样式区分与 chip tooltip。
+    // Server 派生的 variant 元数据缓存（state / summary / createdAt），供 VariantNavigatorBar 显示样式区分与 chip tooltip。
     interface VariantMetadataLite {
         slug: string;
         createdAt: string | null;

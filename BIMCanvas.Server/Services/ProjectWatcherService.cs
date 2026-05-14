@@ -39,8 +39,8 @@ namespace BIMCanvas.Server.Services
         /// <summary>
         /// 是否需要广播该路径变化。
         /// 精确匹配 WatchedFiles（modules.json/zones.json/finishes.json），或匹配 Legacy 变体
-        /// modules-alt-*.json，或匹配 New 路径变体子树（schemes/{dz}/variants/{slug}/.../modules.json
-        /// 或 variant.json）。
+        /// modules-alt-*.json，或匹配 variants/ 子树下的 modules.json
+        /// （Phase E：variant.json sidecar 已废弃，不再监听）。
         /// </summary>
         private static bool IsWatchedPath(string fullPath)
         {
@@ -51,12 +51,10 @@ namespace BIMCanvas.Server.Services
             if (string.IsNullOrEmpty(fileName))
                 return false;
 
-            // New 路径变体子树：variants/ 段下的 modules.json / variant.json 都监听
+            // New 路径变体子树：仅监听 variants/ 段下的 modules.json
             var normalized = fullPath.Replace('\\', '/');
             var inVariantsSubtree = normalized.Contains("/variants/", StringComparison.OrdinalIgnoreCase);
-            if (inVariantsSubtree
-                && (fileName.Equals("modules.json", StringComparison.OrdinalIgnoreCase)
-                    || fileName.Equals("variant.json", StringComparison.OrdinalIgnoreCase)))
+            if (inVariantsSubtree && fileName.Equals("modules.json", StringComparison.OrdinalIgnoreCase))
                 return true;
 
             if (WatchedFiles.Contains(fileName))

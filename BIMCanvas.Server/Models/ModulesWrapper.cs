@@ -26,12 +26,12 @@ namespace BIMCanvas.Server.Models
         public string? AdoptedAt { get; set; }
 
         /// <summary>
-        /// 产生流程标签。当前已定义：
-        ///   "single-plan" —— variantId 为空的常规写入
-        ///   "multi-plan-explore" —— variant-design-agent 产物（Phase 5+）
-        ///   "relocation" —— module-relocation-agent 产物（Phase 12+）
-        ///   "prev-adopted" —— VariantController.Adopt 归档
-        ///   "unknown" —— variantId 非空但 variant.json 尚未建立时的占位（Phase 0b）
+        /// 产生流程标签（Server 派生，Phase E 起按 slug 前缀约定）：
+        ///   "single-plan"  —— variantId 为空的常规写入
+        ///   "variant"      —— variant-design-agent / module-relocation-agent 产物
+        ///                    （合并自原 multi-plan-explore / relocation；UI 无差异化展示）
+        ///   "prev-adopted" —— VariantController.Adopt 归档（slug 以 "prev-" 开头）
+        ///   "unknown"      —— 兜底（理论上不应触达）
         /// </summary>
         public string SourceWorkflow { get; set; } = "single-plan";
     }
