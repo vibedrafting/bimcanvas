@@ -11,7 +11,7 @@ namespace BIMCanvas.Server.Models
     public class SchemeMetadata
     {
         /// <summary>
-        /// 一句话设计意图，从对应 semantic_plan 的 tag=v0.3 内容首句派生。
+        /// 一句话设计意图，从对应 semantic_plan 的 tag=construction-brief 内容首句派生。
         /// </summary>
         public string Summary { get; set; } = string.Empty;
 

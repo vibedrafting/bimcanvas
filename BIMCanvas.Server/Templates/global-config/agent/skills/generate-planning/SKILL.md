@@ -2,9 +2,9 @@
 name: generate-planning
 description: |
   Generate 规划 Skill。负责把当前户型分析与定稿后的 `reference_analysis`
-  压缩成自包含的 `semantic_plan v0.1 / v0.2 / v0.3`，供 placement 施工。
-  multi-plan 模式（`exploreMode=true`）下改产 canonical `v0.2-meta` 并终止于此，
-  v0.3 由后续 `variant-design-agent` 在各变体目录内生成。
+  压缩成自包含的 `semantic_plan spatial-skeleton / strategic-plan / construction-brief`，供 placement 施工。
+  multi-plan 模式（`exploreMode=true`）下改产 canonical `multi-plan-overview` 并终止于此，
+  construction-brief 由后续 `variant-design-agent` 在各变体目录内生成。
 ---
 
 # Generate 规划
@@ -19,15 +19,15 @@ description: |
 
 ## 最重要的规则
 
-1. **`v0.1` 永远只分析当前户型，不读参考分析。**
+1. **`spatial-skeleton` 永远只分析当前户型，不读参考分析。**
 2. **只有定稿后的 `reference_analysis` 才能进入 planning。**
-3. **`v0.2` 是战略层方案，第一次正式消费 reference_analysis。**
-4. **`v0.3` 是完整施工简报，placement 只读 `v0.3`。**
+3. **`strategic-plan` 是战略层方案，第一次正式消费 reference_analysis。**
+4. **`construction-brief` 是完整施工简报，placement 只读 `construction-brief`。**
 5. **若核心参考意图与当前几何冲突，必须先 Ask，再继续规划。**
-6. **multi-plan 模式（`exploreMode=true`）产 canonical `v0.2-meta` 即终止本 Skill，不进入 `v0.3`；`v0.3` 由后续 `variant-design-agent` 在各自变体目录内生成。multi-plan 与 `reference_analysis` 互斥。**
+6. **multi-plan 模式（`exploreMode=true`）产 canonical `multi-plan-overview` 即终止本 Skill，不进入 `construction-brief`；`construction-brief` 由后续 `variant-design-agent` 在各自变体目录内生成。multi-plan 与 `reference_analysis` 互斥。**
 
 **WHY**：
-- `v0.1` 不独立成立，后面的参考消费就没有真实空间基线。
+- `spatial-skeleton` 不独立成立，后面的参考消费就没有真实空间基线。
 - planning 如果消费未定稿参考分析，就会把 analysis 阶段尚未冻结的歧义偷偷带进设计决策。
 - placement 不应重新理解 raw reference；它只该施工。
 
@@ -44,9 +44,9 @@ description: |
   - 可选家具规则
   - 可选的、**已定稿**的 `reference_analysis`
 - 输出（按入场模式分支）：
-  - **自主规划 / 参考消费模式**：`v0.1` 空间骨架 → `v0.2` 战略层方案 → `v0.3` 完整施工简报（均落 canonical）
-  - **multi-plan 模式**：`v0.1` 空间骨架 → `v0.2-meta` 多方案战略层概述（canonical，含变体清单 YAML 头 + 每变体 brief）；**不产 `v0.2` / `v0.3`**，由后续 `variant-design-agent` 在 `variants/{slug}/` 目录内生成
-  - **multi-plan N=1 退化**：变体只剩 1 个 → 改写普通 `v0.2` → 继续 `v0.3`，与自主规划模式同收尾
+  - **自主规划 / 参考消费模式**：`spatial-skeleton` 空间骨架 → `strategic-plan` 战略层方案 → `construction-brief` 完整施工简报（均落 canonical）
+  - **multi-plan 模式**：`spatial-skeleton` 空间骨架 → `multi-plan-overview` 多方案战略层概述（canonical，含变体清单 YAML 头 + 每变体 brief）；**不产 `strategic-plan` / `construction-brief`**，由后续 `variant-design-agent` 在 `variants/{slug}/` 目录内生成
+  - **multi-plan N=1 退化**：变体只剩 1 个 → 改写普通 `strategic-plan` → 继续 `construction-brief`，与自主规划模式同收尾
 
 **【必须】**planning 是唯一的语义压缩点：
 - 把当前户型读懂
@@ -88,7 +88,7 @@ description: |
 **multi-plan 模式入场动作**：
 1. 复述上下文中的 `exploreMode=true` 标记，明确进入 multi-plan 分支
 2. 若同时检测到定稿 `reference_analysis` 存在，立即停止并报"主控前置检查失误：multi-plan 与 reference_analysis 互斥"
-3. multi-plan 模式产出 `v0.2-meta` 即终止本 Skill；**不进入 v0.3**（v0.3 由后续 `variant-design-agent` 在每个变体目录内生成）
+3. multi-plan 模式产出 `multi-plan-overview` 即终止本 Skill；**不进入 construction-brief**（construction-brief 由后续 `variant-design-agent` 在每个变体目录内生成）
 
 **【必须】**不要根据图片名称、用户措辞、主观印象给流程另起名字。
 
@@ -117,11 +117,11 @@ description: |
 
 ## 2. 规划
 
-### 2.1 空间骨架 -> `v0.1`
+### 2.1 空间骨架 -> `spatial-skeleton`
 
 **目标**：独立理解当前项目户型。
 
-**【必须】**无论是否存在 `reference_analysis`，`v0.1` 都只分析当前户型。
+**【必须】**无论是否存在 `reference_analysis`，`spatial-skeleton` 都只分析当前户型。
 
 从 `design_evaluation.md` 的品质维度完成空间阅读：
 - 动线方向
@@ -129,12 +129,12 @@ description: |
 - 采光轴
 - 当前空间潜力与风险
 
-`v0.1` 只写空间骨架，不写具体家具坐标。
+`spatial-skeleton` 只写空间骨架，不写具体家具坐标。
 
-#### `v0.1` 推荐结构
+#### `spatial-skeleton` 推荐结构
 
 ```markdown
-# v0.1 空间骨架
+# spatial-skeleton 空间骨架
 
 ## 当前户型空间阅读
 - ...
@@ -154,21 +154,21 @@ description: |
 ```text
 save_semantic_plan({
   zoneId,
-  tag: "v0.1",
+  tag: "spatial-skeleton",
   planType: "derived",
   content
 })
 ```
 
-`v0.1` 不写 `referenceAnalysisTag`。
+`spatial-skeleton` 不写 `referenceAnalysisTag`。
 
 **WHY**：
-- `v0.1` 是后续所有设计决策的真实地基。
-- 如果参考分析直接覆盖 `v0.1`，空间基线会被参考图幻觉污染。
+- `spatial-skeleton` 是后续所有设计决策的真实地基。
+- 如果参考分析直接覆盖 `spatial-skeleton`，空间基线会被参考图幻觉污染。
 
 ---
 
-### 2.2 战略层方案 -> `v0.2`
+### 2.2 战略层方案 -> `strategic-plan`
 
 **目标**：锁定主家具、分区组织、关键空间关系，以及参考的战略级采纳与偏离。
 
@@ -177,7 +177,7 @@ save_semantic_plan({
 1. 基于房间策略确定主要家具策略，并同步识别 `optionalTags` 是否会改变功能带、组合关系或用户偏好选择
 2. **【必须】**加载 `generate-zoning`
 3. 先用主要家具需求与可选功能潜力过滤分区方案，再确定功能定义
-4. 输出战略层方案；若存在可选功能的战略候选集合或战略分歧，必须写入 `v0.2`
+4. 输出战略层方案；若存在可选功能的战略候选集合或战略分歧，必须写入 `strategic-plan`
 
 #### 参考消费模式
 
@@ -210,10 +210,10 @@ save_semantic_plan({
 - 当前项目只能在两种完全不同的战略方案之间选择（包括功能带归属、可选功能取舍或关键组合关系）
 - 参考分析里“可调整”的表述仍不足以覆盖当前冲突
 
-#### `v0.2` 推荐结构
+#### `strategic-plan` 推荐结构
 
 ```markdown
-# v0.2 战略层方案
+# strategic-plan 战略层方案
 
 ## 空间骨架承接
 - ...
@@ -237,10 +237,10 @@ save_semantic_plan({
 - ...
 ```
 
-#### `v0.2` 示例：带参考分析
+#### `strategic-plan` 示例：带参考分析
 
 ```markdown
-# v0.2 战略层方案
+# strategic-plan 战略层方案
 
 ## 空间骨架承接
 - 当前户型存在前场与深处的层次，可形成清晰的功能递进。
@@ -272,23 +272,23 @@ save_semantic_plan({
 ```text
 save_semantic_plan({
   zoneId,
-  tag: "v0.2",
+  tag: "strategic-plan",
   planType: "derived",
   content,
   referenceAnalysisTag: "vN"   # 参考消费模式必填
 })
 ```
 
-`v0.2` 提交后，立即读取 `references/optional-furniture-rules.md`，用于把已发现的可选功能候选收束为 `v0.3` 施工表达；不得在 `v0.3` 首次发明新的战略候选。
+`strategic-plan` 提交后，立即读取 `references/optional-furniture-rules.md`，用于把已发现的可选功能候选收束为 `construction-brief` 施工表达；不得在 `construction-brief` 首次发明新的战略候选。
 
 **WHY**：
-- `v0.2` 的职责是先把“方向”锁死，再让 `v0.3` 补足施工所需细节。
-- 如果在 `v0.2` 不写战略级偏离，`v0.3` 就会在已经落定主家具后再补写理由，因果顺序会倒置。
+- `strategic-plan` 的职责是先把“方向”锁死，再让 `construction-brief` 补足施工所需细节。
+- 如果在 `strategic-plan` 不写战略级偏离，`construction-brief` 就会在已经落定主家具后再补写理由，因果顺序会倒置。
 - 可选功能若会改变功能带或组合关系，属于战略变量；候选必须在冻结前出现，否则 AskUserQuestion 没有触发对象。
 
 ---
 
-### 2.3 多方案战略层概述 -> `v0.2-meta`（multi-plan 模式专属）
+### 2.3 多方案战略层概述 -> `multi-plan-overview`（multi-plan 模式专属）
 
 **目标**：在多方案模式下，产出一份**多变体战略概述**，作为主控后续并行派发 `variant-design-agent` 的合同。
 
@@ -297,23 +297,23 @@ save_semantic_plan({
 #### 触发与互斥重申
 
 - `exploreMode=true` 由主控前置检查通过后注入（已确认：单设计区 + 与 reference_analysis 互斥）
-- 本节产出后 `save_semantic_plan({tag: "v0.2-meta"})` 即终止本 Skill；**不进入 v0.3**
-- v0.3 由后续 `variant-design-agent` 在每个变体目录内分别生成（写到 `schemes/{designZoneId}/variants/{slug}/semantic_plan.json`）
+- 本节产出后 `save_semantic_plan({tag: "multi-plan-overview"})` 即终止本 Skill；**不进入 construction-brief**
+- construction-brief 由后续 `variant-design-agent` 在每个变体目录内分别生成（写到 `schemes/{designZoneId}/variants/{slug}/semantic_plan.json`）
 
-#### v0.1 共享声明
+#### spatial-skeleton 共享声明
 
-multi-plan 模式下 `v0.1` 的生成与单方案模式完全相同（参见 `### 2.1`）；所有变体共享 canonical `v0.1`，本 Skill 调 `save_semantic_plan({tag: "v0.1"})` 时**永远不传 `variantId`**（`v0.1` 是 canonical-only tag，Server 强制校验）。
+multi-plan 模式下 `spatial-skeleton` 的生成与单方案模式完全相同（参见 `### 2.1`）；所有变体共享 canonical `spatial-skeleton`，本 Skill 调 `save_semantic_plan({tag: "spatial-skeleton"})` 时**永远不传 `variantId`**（`spatial-skeleton` 是 canonical-only tag，Server 强制校验）。
 
-#### v0.2-meta canonical 模板
+#### multi-plan-overview canonical 模板
 
-**【必须】**v0.2-meta 的 content 必须严格遵守以下结构。它不是展示用排版，而是**主控解析变体清单 + 抽取每变体 brief 的合同**：
+**【必须】**multi-plan-overview 的 content 必须严格遵守以下结构。它不是展示用排版，而是**主控解析变体清单 + 抽取每变体 brief 的合同**：
 
 ````markdown
-# 多方案战略层概述（tag: v0.2-meta）
+# 多方案战略层概述（tag: multi-plan-overview）
 
 ## 共享语境
 
-（承接 `v0.1` 的空间阅读：户型、动线、采光、关键墙面等。所有变体共享此段。）
+（承接 `spatial-skeleton` 的空间阅读：户型、动线、采光、关键墙面等。所有变体共享此段。）
 
 ## 变体清单
 
@@ -365,59 +365,59 @@ variants:
 
 #### F3 排除式 Ask 规则
 
-v0.2-meta 阶段如出现"显然不合理"的候选（如"床面对镜子是否接受"、"开门即对衣柜门是否接受"），**可以**用 `AskUserQuestion` **排除**该候选：
+multi-plan-overview 阶段如出现"显然不合理"的候选（如"床面对镜子是否接受"、"开门即对衣柜门是否接受"），**可以**用 `AskUserQuestion` **排除**该候选：
 
 - **允许**问"排除哪种"（提供 a/b/c 选项，让用户勾掉显然不合理项）
 - **【禁止】**问"选哪种"（终选交给 Web 端视觉决策；本 Skill 不替用户做终选）
 
-WHY：multi-plan 的设计哲学是"用户在 Web 端看可视化方案后再做终选"；如果在 v0.2-meta 阶段先让用户选定一种，等于把"视觉决策"提前到"文本决策"，违背设计意图。
+WHY：multi-plan 的设计哲学是"用户在 Web 端看可视化方案后再做终选"；如果在 multi-plan-overview 阶段先让用户选定一种，等于把"视觉决策"提前到"文本决策"，违背设计意图。
 
 #### N=1 退化路径
 
 如果在排除式 Ask 后或自然推导后，变体清单候选**只剩 1 个**：
 
-- **不写** `v0.2-meta`
-- **改写**普通 `v0.2`（按 `### 2.2` 节模板写完整战略层方案，不传 `variantId`，落到 canonical）
-- 继续进入 `### 2.4` 写 `v0.3` + 由编排层路由到 `generate-placement`
+- **不写** `multi-plan-overview`
+- **改写**普通 `strategic-plan`（按 `### 2.2` 节模板写完整战略层方案，不传 `variantId`，落到 canonical）
+- 继续进入 `### 2.4` 写 `construction-brief` + 由编排层路由到 `generate-placement`
 
-WHY：N=1 时 multi-plan 的并行价值消失，强写 v0.2-meta + 派发单个 variant-design-agent 是无谓开销；退化为单方案模式让流程回归 single-plan 主干。
+WHY：N=1 时 multi-plan 的并行价值消失，强写 multi-plan-overview + 派发单个 variant-design-agent 是无谓开销；退化为单方案模式让流程回归 single-plan 主干。
 
 #### 退出声明
 
-multi-plan 模式产出 `v0.2-meta` 后：
+multi-plan 模式产出 `multi-plan-overview` 后：
 
 ```text
 save_semantic_plan({
   zoneId,
-  tag: "v0.2-meta",
+  tag: "multi-plan-overview",
   planType: "derived",
   content: <上述 canonical 模板填充>
 })
 ```
 
-**【必须】**不传 `variantId`（`v0.2-meta` 是 canonical-only tag，Server 强制校验，传 `variantId` 返回 400）。
+**【必须】**不传 `variantId`（`multi-plan-overview` 是 canonical-only tag，Server 强制校验，传 `variantId` 返回 400）。
 
-**【必须】**`v0.2-meta` 保存成功后**立即终止本 Skill**：
+**【必须】**`multi-plan-overview` 保存成功后**立即终止本 Skill**：
 
-- 不进入 `### 2.4`（不写 v0.3）
+- 不进入 `### 2.4`（不写 construction-brief）
 - 不调用 `load_semantic_plan` / `save_modules` / `validate_layout`
 - 不派发任何 SubAgent（派发由主控负责）
-- 等待主控读 canonical `v0.2-meta`、提取 `variantSlugs[]`、并行派发 `variant-design-agent`
+- 等待主控读 canonical `multi-plan-overview`、提取 `variantSlugs[]`、并行派发 `variant-design-agent`
 
-**WHY**：v0.3 与 modules.json 是变体级产物，必须由 `variant-design-agent` 在各自的 `variants/{slug}/` 路径下生成；本 Skill 若继续写 canonical v0.3，会污染所有变体的施工合同。
+**WHY**：construction-brief 与 modules.json 是变体级产物，必须由 `variant-design-agent` 在各自的 `variants/{slug}/` 路径下生成；本 Skill 若继续写 canonical construction-brief，会污染所有变体的施工合同。
 
 ---
 
-### 2.4 完整施工简报 -> `v0.3`
+### 2.4 完整施工简报 -> `construction-brief`
 
-**【必须】**若当前为 multi-plan 模式（`exploreMode=true`），不应进入本节；v0.3 由 `variant-design-agent` 在变体目录内生成。本节仅适用于自主规划模式、参考消费模式与 multi-plan 的 N=1 退化路径。
+**【必须】**若当前为 multi-plan 模式（`exploreMode=true`），不应进入本节；construction-brief 由 `variant-design-agent` 在变体目录内生成。本节仅适用于自主规划模式、参考消费模式与 multi-plan 的 N=1 退化路径。
 
-**目标**：把 `v0.2` 收束成 placement 唯一可读的完整合同。
+**目标**：把 `strategic-plan` 收束成 placement 唯一可读的完整合同。
 
 #### 自主规划模式
 
-在不推翻 `v0.2` 主要家具与分区前提下，补全：
-- 可选家具（只能收束 `v0.2` 已发现的候选）
+在不推翻 `strategic-plan` 主要家具与分区前提下，补全：
+- 可选家具（只能收束 `strategic-plan` 已发现的候选）
 - 附属家具
 - 关键留白
 - 关键关系
@@ -426,26 +426,26 @@ save_semantic_plan({
 
 #### 参考消费模式
 
-在不推翻 `v0.2` 战略层方案前提下，补全：
+在不推翻 `strategic-plan` 战略层方案前提下，补全：
 - 最终家具体系
 - 最终保留的空间关系
 - 细节级适配理由
 - 最终参考采纳与偏离摘要
 
-**【必须】**`v0.3` 必须让 placement 直接施工，不得要求 placement 回头解释 `reference_analysis`。
+**【必须】**`construction-brief` 必须让 placement 直接施工，不得要求 placement 回头解释 `reference_analysis`。
 
 **【必须】**主家具条目必须写明关键尺寸推导：原始墙段、扣减项、有效段、选择该模块/尺寸等级的理由。若没有扣减，写“扣减项：无”。这不是坐标明细，而是让 placement 不再重新解释规则适用范围。
 
-**【必须】**主家具锁定前必须完成“闭合施工预检”：从最终拟施工坐标/区间出发，把已选附属构件、主家具深度、门禁区、通道、相邻家具占用同时扣进可施工区间，不得只用单面墙原始长度判断成立。若预检失败，必须在 planning 阶段按房间策略 fallback，并把结果写入 `v0.3`，不得把已知冲突留给 placement。
+**【必须】**主家具锁定前必须完成“闭合施工预检”：从最终拟施工坐标/区间出发，把已选附属构件、主家具深度、门禁区、通道、相邻家具占用同时扣进可施工区间，不得只用单面墙原始长度判断成立。若预检失败，必须在 planning 阶段按房间策略 fallback，并把结果写入 `construction-brief`，不得把已知冲突留给 placement。
 
-**WHY**：`v0.3` 是施工合同。单个墙段长度只能证明某组家具本身可能放下，不能证明它与附属构件、必需功能和通道共同成立。闭合预检把“局部可放”升级为“全局可施工”，避免 placement 被迫改图。
+**WHY**：`construction-brief` 是施工合同。单个墙段长度只能证明某组家具本身可能放下，不能证明它与附属构件、必需功能和通道共同成立。闭合预检把“局部可放”升级为“全局可施工”，避免 placement 被迫改图。
 
-**【必须】**若房间/家具策略定义了有序 fallback，且 `v0.3` 选择的方案存在施工风险或允许现场适配，必须写独立章节 `## 合同内 fallback`。该章节只写三件事：触发条件、可自动执行的下一档方案、不可自动越界的边界；没有 fallback 时写“无”。
+**【必须】**若房间/家具策略定义了有序 fallback，且 `construction-brief` 选择的方案存在施工风险或允许现场适配，必须写独立章节 `## 合同内 fallback`。该章节只写三件事：触发条件、可自动执行的下一档方案、不可自动越界的边界；没有 fallback 时写“无”。
 
-#### `v0.3` canonical 结构
+#### `construction-brief` canonical 结构
 
 ```markdown
-# v0.3 完整施工简报
+# construction-brief 完整施工简报
 
 ## 主要家具
 - [家具名]：墙面归属 / 朝向语义 / 尺寸等级或关键尺寸 / 原始墙段 -> 扣减项 -> 有效段 / 模块选择理由
@@ -473,10 +473,10 @@ save_semantic_plan({
 - `[自动代决] ...` / `[自动适配] ...` / `- 无`
 ```
 
-#### `v0.3` 示例：带参考分析
+#### `construction-brief` 示例：带参考分析
 
 ```markdown
-# v0.3 完整施工简报
+# construction-brief 完整施工简报
 
 ## 主要家具
 - 主家具 A：核心功能带，墙面归属清楚，尺寸等级已定
@@ -484,7 +484,7 @@ save_semantic_plan({
 
 ## 可选/附属家具
 - 附属家具：保留，跟随主家具 A
-- 可选家具：保留，位置来自 v0.2 已确认候选
+- 可选家具：保留，位置来自 strategic-plan 已确认候选
 
 ## 保留空段与关键留白
 - 主通行：保留前场到核心功能带的连续通道
@@ -492,7 +492,7 @@ save_semantic_plan({
 
 ## 关键关系与分区意图
 - 动线为入口 -> 过渡功能 -> 核心功能
-- 可选家具服从已确认的功能带归属，不改写 v0.2 战略
+- 可选家具服从已确认的功能带归属，不改写 strategic-plan 战略
 
 ## 参考采纳与偏离摘要
 - 采纳：前后场层次、核心功能后置、可选功能保留
@@ -508,7 +508,7 @@ save_semantic_plan({
 ```text
 save_semantic_plan({
   zoneId,
-  tag: "v0.3",
+  tag: "construction-brief",
   planType: "derived",
   content,
   referenceAnalysisTag: "vN"   # 参考消费模式必填
@@ -519,9 +519,9 @@ save_semantic_plan({
 
 ## 3. 约束
 
-- `v0.2` 之后，主要家具策略与战略级分区不可在本 Skill 内被静默推翻
-- `v0.3` 只能补全，不得重新发明一套新的战略方向
-- `placement` 只允许读取 `v0.3`（multi-plan 模式下，`v0.3` 由 `variant-design-agent` 在各自 `variants/{slug}/` 目录内生成，placement 按 variant 路径读对应 `v0.3`）
+- `strategic-plan` 之后，主要家具策略与战略级分区不可在本 Skill 内被静默推翻
+- `construction-brief` 只能补全，不得重新发明一套新的战略方向
+- `placement` 只允许读取 `construction-brief`（multi-plan 模式下，`construction-brief` 由 `variant-design-agent` 在各自 `variants/{slug}/` 目录内生成，placement 按 variant 路径读对应 `construction-brief`）
 - 不在本 Skill 内写 `modules.json`
 - 不在本 Skill 内调用 `load_semantic_plan`
 - multi-plan 模式下不在本 Skill 内进入 `generate-placement`（由主控派发 `variant-design-agent` 后，placement 在 agent 内部加载）
@@ -542,6 +542,6 @@ save_semantic_plan({
 
 按入场模式分支：
 
-- **自主规划 / 参考消费模式**：本 Skill 完成 `v0.3` 后，由编排层路由到 `generate-placement` 进行施工。
-- **multi-plan 模式**：本 Skill 完成 `v0.2-meta` 后**即终止**，**不进入 `generate-placement`**。主控读 canonical `v0.2-meta` 提取 `variantSlugs[]`，并行派发 `variant-design-agent`；每个 variant agent 在自己的 `variants/{slug}/` 目录内完成 v0.2 / v0.3 / modules + validate（详见 `variant-design-agent.md`）。
-- **multi-plan N=1 退化**：变体只剩 1 个时，Skill 自动改写普通 `v0.2` → 继续 `v0.3` → `generate-placement`，与自主规划模式收尾一致。
+- **自主规划 / 参考消费模式**：本 Skill 完成 `construction-brief` 后，由编排层路由到 `generate-placement` 进行施工。
+- **multi-plan 模式**：本 Skill 完成 `multi-plan-overview` 后**即终止**，**不进入 `generate-placement`**。主控读 canonical `multi-plan-overview` 提取 `variantSlugs[]`，并行派发 `variant-design-agent`；每个 variant agent 在自己的 `variants/{slug}/` 目录内完成 strategic-plan / construction-brief / modules + validate（详见 `variant-design-agent.md`）。
+- **multi-plan N=1 退化**：变体只剩 1 个时，Skill 自动改写普通 `strategic-plan` → 继续 `construction-brief` → `generate-placement`，与自主规划模式收尾一致。

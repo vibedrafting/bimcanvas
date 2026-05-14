@@ -445,8 +445,8 @@ computed/*.json        → computed
 
 | 端点 | 方法 | 功能 |
 |------|------|------|
-| `/api/semantic-plan/save` | POST | 保存 `v0.1` / `v0.2` / `v0.2-meta` / `v0.3` 语义方案标签，支持可选 `referenceAnalysisTag` |
-| `/api/semantic-plan/{zoneId}` | GET | 读取当前生效的 `v0.3` 语义合同（返回 `effectiveTag`） |
+| `/api/semantic-plan/save` | POST | 保存 `spatial-skeleton` / `strategic-plan` / `multi-plan-overview` / `construction-brief` 语义方案标签，支持可选 `referenceAnalysisTag` |
+| `/api/semantic-plan/{zoneId}` | GET | 读取当前生效的 `construction-brief` 语义合同（返回 `effectiveTag`） |
 | `/api/semantic-plan/save-reference-analysis` | POST | 追加保存独立的 `reference_analysis.json` 完整快照，Server 自动分配 `v{N+1}` 标签 |
 | `/api/semantic-plan/{zoneId}/reference-analysis` | GET | 读取最新或指定标签的参考分析，可选 `?tag=` query |
 
@@ -456,9 +456,10 @@ computed/*.json        → computed
 - `reference_analysis.json` 独立保存参考分析标签数组（顶层数组），Server 自动按 `v1/v2/v3/...` 顺序分配 `tag`
 - `reference_analysis` 的每个标签都是完整快照，planning 默认读取最新定稿标签
 - 新流程统一写 `planType="derived"`
-- 旧 `planType=reference` 且缺少 `v0.3` 的数据会被视为 legacy，需要重新规划
-- **Tag 白名单**：semantic_plan 合法 tag 为 `{v0.1, v0.2, v0.2-meta, v0.3}`，写入未列入白名单的 tag 返回 400；reference_analysis 由 Server 分配，匹配 `^v[1-9][0-9]*$`
-- **v0.2-meta** 预留给后续 multi-plan 模式（多方案概述），Phase 0 已加入白名单但生产代码暂未写入
+- 旧 `planType=reference` 且缺少 `construction-brief` 的数据会被视为 legacy，需要重新规划
+- **Tag 白名单**：semantic_plan 合法 tag 为 `{spatial-skeleton, strategic-plan, multi-plan-overview, construction-brief}`，写入未列入白名单的 tag 返回 400；reference_analysis 由 Server 分配，匹配 `^v[1-9][0-9]*$`
+- **multi-plan-overview** 用于 multi-plan 模式（多方案概述）的 canonical 写入，与 `spatial-skeleton` 同为 canonical 单 owner（不允许 variantId）
+- **历史映射**（Phase D 前后）：v0.1 → spatial-skeleton / v0.2 → strategic-plan / v0.2-meta → multi-plan-overview / v0.3 → construction-brief。已有 .bcp 数据可通过 `MigrateProjectSchema --only=tagvalue` 一键迁移
 - **schema 已从 `version` 字段迁移为 `tag`**（含 `Versions`→`Entries`、`effectiveVersion`→`effectiveTag`、`referenceAnalysisVersion`→`referenceAnalysisTag`）。旧版字段已下线，不做兼容读
 
 ### 5.2 Git 分支管理 API

@@ -24,18 +24,19 @@ internal static class Program
         var dryRun = args.Skip(1).Any(a => a == "--dry-run");
         var only = args.Skip(1).FirstOrDefault(a => a.StartsWith("--only="))?["--only=".Length..]?.ToLowerInvariant();
 
-        if (only != null && only != "tag" && only != "wrapper")
+        if (only != null && only != "tag" && only != "wrapper" && only != "tagvalue")
         {
-            Console.Error.WriteLine($"[Error] --only 只接受 'tag' 或 'wrapper'，收到: {only}");
+            Console.Error.WriteLine($"[Error] --only 只接受 'tag' / 'wrapper' / 'tagvalue'，收到: {only}");
             return 2;
         }
 
-        // 按 plan 顺序：Phase 0 字段重命名 → Phase 0b wrapper 升级
-        IProjectHealthCheck[] allChecks = { new SemanticPlanTagCheck(), new ModulesWrapperCheck() };
+        // 按 plan 顺序：Phase 0 字段重命名 → Phase 0b wrapper 升级 → Phase D tag 值语义化
+        IProjectHealthCheck[] allChecks = { new SemanticPlanTagCheck(), new ModulesWrapperCheck(), new SemanticPlanTagValueCheck() };
         var checks = only switch
         {
             "tag" => allChecks.Where(c => c.Id == "phase0-tag"),
             "wrapper" => allChecks.Where(c => c.Id == "phase0b-wrapper"),
+            "tagvalue" => allChecks.Where(c => c.Id == "phase-d-tag-value"),
             _ => allChecks
         };
 
@@ -116,14 +117,16 @@ internal static class Program
         Console.WriteLine("BIMCanvas .bcp 项目 schema 一次性清洗工具");
         Console.WriteLine("  - Phase 0  semantic_plan / reference_analysis 字段重命名");
         Console.WriteLine("  - Phase 0b modules.json 裸数组 → wrapper {schemeMetadata, modules}");
+        Console.WriteLine("  - Phase D  semantic_plan tag 值语义化（v0.1 → spatial-skeleton 等）");
         Console.WriteLine();
         Console.WriteLine("用法:");
         Console.WriteLine("  dotnet run --project BIMCanvas.Server\\Scripts\\MigrateProjectSchema -- <project-path> [选项]");
         Console.WriteLine();
         Console.WriteLine("选项:");
         Console.WriteLine("  --dry-run         只检查不修复，列出问题清单");
-        Console.WriteLine("  --only=tag        只跑 Phase 0（semantic_plan / reference_analysis）");
+        Console.WriteLine("  --only=tag        只跑 Phase 0（semantic_plan / reference_analysis 字段重命名）");
         Console.WriteLine("  --only=wrapper    只跑 Phase 0b（modules.json wrapper）");
+        Console.WriteLine("  --only=tagvalue   只跑 Phase D（semantic_plan tag 值映射）");
         Console.WriteLine();
         Console.WriteLine("注意:");
         Console.WriteLine("  1. CLI 不自动 git 存档——请先手动 commit。");

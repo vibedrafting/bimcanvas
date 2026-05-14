@@ -75,7 +75,7 @@ WHY：分身视野窄于主控，越界改动会污染主控的全局规划。"�
 
 至少读：
 
-1. **canonical semantic_plan**：调 `mcp__canvas__load_semantic_plan({zoneId: designZoneId})`，**不传 variantId**（要 canonical）。读 v0.3 理解当前布置意图 + 关键约束。
+1. **canonical semantic_plan**：调 `mcp__canvas__load_semantic_plan({zoneId: designZoneId})`，**不传 variantId**（要 canonical）。读 construction-brief 理解当前布置意图 + 关键约束。
 2. **canonical 全叶子 modules**：用 `Read` 工具读 designZoneId 下所有叶子的 canonical `modules.json`。
    - 路径形态：顶层叶子 → `schemes/{designZoneId}/modules.json`；嵌套叶子 → `schemes/{designZoneId}/{leafZoneId}/modules.json`
    - wrapper 格式：直接看 `modules` 数组；忽略 `schemeMetadata`（你不需要也不能改）

@@ -999,7 +999,7 @@ async def get_zone_boundaries(args: dict[str, Any]) -> dict[str, Any]:
 @tool(
     "save_semantic_plan",
     "保存语义方案标签。在规划阶段的每个子阶段（2.1/2.2/2.3）完成后调用，提交当前标签的语义方案。"
-    "可选 variantId 用于写入变体路径；v0.1 / v0.2-meta 是 canonical 全局单 owner，禁止与 variantId 同时传入。",
+    "可选 variantId 用于写入变体路径；spatial-skeleton / multi-plan-overview 是 canonical 全局单 owner，禁止与 variantId 同时传入。",
     {
         "$schema": "http://json-schema.org/draft-07/schema#",
         "type": "object",
@@ -1010,8 +1010,8 @@ async def get_zone_boundaries(args: dict[str, Any]) -> dict[str, Any]:
             },
             "tag": {
                 "type": "string",
-                "enum": ["v0.1", "v0.2", "v0.2-meta", "v0.3"],
-                "description": "语义方案标签：v0.1=空间骨架, v0.2=战略层方案, v0.2-meta=多方案概述, v0.3=完整施工简报"
+                "enum": ["spatial-skeleton", "strategic-plan", "multi-plan-overview", "construction-brief"],
+                "description": "语义方案标签：spatial-skeleton=空间骨架, strategic-plan=战略层方案, multi-plan-overview=多方案概述, construction-brief=完整施工简报"
             },
             "planType": {
                 "type": "string",
@@ -1029,7 +1029,7 @@ async def get_zone_boundaries(args: dict[str, Any]) -> dict[str, Any]:
             "variantId": {
                 "type": "string",
                 "description": "可选。非空时写变体路径 schemes/{zoneId}/variants/{variantId}/semantic_plan.json；为空时写 canonical。"
-                               "**v0.1 / v0.2-meta 禁止传 variantId**（server 强制 400，这两个 tag 全局只在 canonical 出现）。"
+                               "**spatial-skeleton / multi-plan-overview 禁止传 variantId**（server 强制 400，这两个 tag 全局只在 canonical 出现）。"
                                "Phase 1 暂无调用方需要传入；预留给后续 multi-plan / variant-design-agent。"
             }
         },
@@ -1087,7 +1087,7 @@ async def save_semantic_plan(args: dict[str, Any]) -> dict[str, Any]:
 @tool(
     "load_semantic_plan",
     "加载当前设计区的生效语义方案。返回当前可施工图纸，而不是完整历史。"
-    "传 variantId 时返回 merge view（canonical 的 v0.1 + 变体的 v0.2/v0.3 entries）。",
+    "传 variantId 时返回 merge view（canonical 的 spatial-skeleton + 变体的 strategic-plan/construction-brief entries）。",
     {
         "$schema": "http://json-schema.org/draft-07/schema#",
         "type": "object",
@@ -1098,7 +1098,7 @@ async def save_semantic_plan(args: dict[str, Any]) -> dict[str, Any]:
             },
             "variantId": {
                 "type": "string",
-                "description": "可选。非空时返回 merge view（canonical 的 v0.1 + 变体的 v0.2/v0.3 entries）；effectiveTag 落在变体的合同上。"
+                "description": "可选。非空时返回 merge view（canonical 的 spatial-skeleton + 变体的 strategic-plan/construction-brief entries）；effectiveTag 落在变体的合同上。"
                                "Phase 1 暂无调用方需要传入；预留给后续 multi-plan / variant-design-agent。"
             }
         },

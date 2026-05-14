@@ -31,7 +31,7 @@ layout-agent 是主控 Agent 的多分区设计分身：主控负责识别目标
 
 - **单分区 / 单房间任务**：主控 Agent 必须自己直接执行完整链路
 - **单步骤代工**：禁止只派发 `generate-placement`、只写 `modules.json`、只验证、只截图或只修正
-- **中途接力**：若主控 Agent 已经开始某个单分区的 planning、已保存该分区 `v0.1/v0.2/v0.3`，则必须由主控 Agent 自己继续 placement，禁止把后续施工阶段转交 layout-agent
+- **中途接力**：若主控 Agent 已经开始某个单分区的 planning、已保存该分区 `spatial-skeleton / strategic-plan / construction-brief`，则必须由主控 Agent 自己继续 placement，禁止把后续施工阶段转交 layout-agent
 - **后台补派**：禁止主控 Agent 完成单分区 planning 后，再单独启动一个 layout-agent 施工
 - **缺少派发包**：禁止仅凭“布置某某房间”这类单区描述启动
 

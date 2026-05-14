@@ -1,13 +1,13 @@
 ---
 name: generate-placement
 description: |
-  Generate 布置 Skill。负责把 `v0.3` 语义合同转成 modules.json，
+  Generate 布置 Skill。负责把 `construction-brief` 语义合同转成 modules.json，
   并执行验证、必要修正、品质复核和最终汇报。
 ---
 
 # Generate 布置
 
-> 你在本 Skill 中是施工方兼品质把关人。你只读取自包含的 `v0.3` 语义合同，不读取 raw reference_analysis。
+> 你在本 Skill 中是施工方兼品质把关人。你只读取自包含的 `construction-brief` 语义合同，不读取 raw reference_analysis。
 
 ## 路径约定
 
@@ -56,16 +56,16 @@ load_semantic_plan({ zoneId })
 
 读取后必须显式复述：
 
-- `effectiveTag`（必须是 `v0.3`）
+- `effectiveTag`（必须是 `construction-brief`）
 - 关键家具墙面归属
 - 若存在 `referenceAnalysisTag`，只把它当作“本合同消费自哪版定稿参考分析”的审计元数据复述，不得把它当运行时输入
 - 若有“自动代决”“自动适配”标记，也必须复述
 
-**【必须】**placement 只读取 `v0.3.content`。不得调用 `load_reference_analysis`，也不得根据历史 reference 文件补充理解。
+**【必须】**placement 只读取 `construction-brief.content`。不得调用 `load_reference_analysis`，也不得根据历史 reference 文件补充理解。
 
 **【必须】**`load_semantic_plan` 之后，立刻调用 `mcp__canvas__get_zone_boundaries({ zoneId })`，并读取 `computed/exclusions.json`。
 
-**【必须】**`zone boundaries`、`passage`、`exclusions` 与 `v0.3` 合同并列为施工前事实，不得等 `validate_layout` 报错后才第一次考虑。
+**【必须】**`zone boundaries`、`passage`、`exclusions` 与 `construction-brief` 合同并列为施工前事实，不得等 `validate_layout` 报错后才第一次考虑。
 
 ---
 
@@ -73,7 +73,7 @@ load_semantic_plan({ zoneId })
 
 **必读输入**：
 
-- `load_semantic_plan` 返回的 `v0.3`
+- `load_semantic_plan` 返回的 `construction-brief`
 - `mcp__canvas__get_zone_boundaries({ zoneId })`
 - `computed/exclusions.json`
 - `references/design_principles.md`
@@ -85,7 +85,7 @@ load_semantic_plan({ zoneId })
 
 **读取顺序**：
 
-1. 先读 `load_semantic_plan` 返回的 `v0.3`
+1. 先读 `load_semantic_plan` 返回的 `construction-brief`
 2. 再读 `mcp__canvas__get_zone_boundaries({ zoneId })`
 3. 再读 `computed/exclusions.json`
 4. 最后读模块库、房间策略、当前目标叶子分区的 `modules.json`、设计原则与评估规则
@@ -96,7 +96,7 @@ load_semantic_plan({ zoneId })
 
 ### Step 1：解析语义合同
 
-按以下 canonical 章节顺序解析 `v0.3.content`：
+按以下 canonical 章节顺序解析 `construction-brief.content`：
 
 - `## 主要家具`
 - `## 可选/附属家具`
@@ -106,7 +106,7 @@ load_semantic_plan({ zoneId })
 - `## 参考采纳与偏离摘要`
 - `## 自动标记`
 
-若 `## 主要家具` 缺失，或任一主家具条目缺少墙面归属或朝向语义，停止并上报“`v0.3` 合同不完整”，不得靠自由推断继续施工。
+若 `## 主要家具` 缺失，或任一主家具条目缺少墙面归属或朝向语义，停止并上报“`construction-brief` 合同不完整”，不得靠自由推断继续施工。
 
 从合同中提取：
 
@@ -192,7 +192,7 @@ save_modules({
 
 #### 合同内 fallback（可自动执行）
 
-若 `v0.3` 的 `## 合同内 fallback` 已明确写入 fallback，且当前失败原因与触发条件一致，可执行其中“可自动执行的下一档方案”，并统一记为 `[自动适配]`。
+若 `construction-brief` 的 `## 合同内 fallback` 已明确写入 fallback，且当前失败原因与触发条件一致，可执行其中“可自动执行的下一档方案”，并统一记为 `[自动适配]`。
 
 执行前必须确认 fallback 仍满足全部边界：
 - 不改变墙面归属
@@ -201,7 +201,7 @@ save_modules({
 - 不破坏满墙/填满有效段意图
 - 不引入新的用户偏好选择
 
-**WHY**：placement 不判断领域策略本身，只执行 `v0.3` 已预授权的替代施工路径。这样既保留“v0.3 是唯一施工合同”，又避免把某个房间或家具的专属知识写进通用施工规则。
+**WHY**：placement 不判断领域策略本身，只执行 `construction-brief` 已预授权的替代施工路径。这样既保留“construction-brief 是唯一施工合同”，又避免把某个房间或家具的专属知识写进通用施工规则。
 
 #### 语义级改图（不能静默执行）
 
@@ -216,13 +216,13 @@ save_modules({
 - 降级合同明确锁定的主家具尺寸等级或核心组合配置
 - 压缩合同明确选择的衣柜等级，或破坏“填满有效段”的合同意图
 
-例外：`v0.3` 已在 `## 合同内 fallback` 明确授权的下一档方案不属于合同外语义改图，可按“合同内 fallback”执行。未写入 `v0.3` 的换墙、删家具、降级主家具等级、截断窗帘仍必须升级。
+例外：`construction-brief` 已在 `## 合同内 fallback` 明确授权的下一档方案不属于合同外语义改图，可按“合同内 fallback”执行。未写入 `construction-brief` 的换墙、删家具、降级主家具等级、截断窗帘仍必须升级。
 
 以上情况统一记为 `[自动改图建议]`，不得降格为 `[自动适配]`。
 
 **WHY**：这些操作改变了设计意图，需要重新确认。类比建筑施工中的"设计变更"——把衣柜从北墙挪到西墙、增加一个书桌、删除床头柜、截断满墙窗帘或把 1500 衣柜退成 1200 柜，都需要设计师重新签字。
 
-**合同冲突处理**：若 `validate_layout` 报错只能通过缩短满墙窗帘、降级主家具等级、压缩衣柜等级等方式解决，且 `v0.3` 未明确授权对应 fallback，说明合同与几何事实冲突。此时停止静默修正，按当前执行模式升级处理，不得为了得到 0 error 而改写设计意图。
+**合同冲突处理**：若 `validate_layout` 报错只能通过缩短满墙窗帘、降级主家具等级、压缩衣柜等级等方式解决，且 `construction-brief` 未明确授权对应 fallback，说明合同与几何事实冲突。此时停止静默修正，按当前执行模式升级处理，不得为了得到 0 error 而改写设计意图。
 
 **交互模式**：
 - AskUserQuestion 征求授权
@@ -301,7 +301,7 @@ save_modules({
 最终汇报必须包含：
 
 **基础信息**
-- 施工依据：`effectiveTag=v0.3`
+- 施工依据：`effectiveTag=construction-brief`
 - 若存在 `referenceAnalysisTag`，说明它只是溯源字段
 
 **放置结果**
@@ -320,10 +320,10 @@ save_modules({
 - 自动改图建议
 
 **合同同步**
-- 若本轮执行了 `v0.3` 合同内 fallback，或用户授权了语义级改图，最终汇报前必须调用 `save_semantic_plan({ tag: "v0.3" })` 重写当前生效合同，使 `semantic_plan v0.3` 与最终 `modules.json` 一致。
+- 若本轮执行了 `construction-brief` 合同内 fallback，或用户授权了语义级改图，最终汇报前必须调用 `save_semantic_plan({ tag: "construction-brief" })` 重写当前生效合同，使 `semantic_plan construction-brief` 与最终 `modules.json` 一致。
 - 重写后再汇报，不得只更新 `modules.json` 就宣布完成。
 
-**WHY**：`validate_layout` 只证明几何合法，不证明施工结果仍匹配合同。后续 edit、二次 placement 和审计都会读取 `v0.3`，合同不一致会把已经解决的问题重新带回流程。
+**WHY**：`validate_layout` 只证明几何合法，不证明施工结果仍匹配合同。后续 edit、二次 placement 和审计都会读取 `construction-brief`，合同不一致会把已经解决的问题重新带回流程。
 
 ---
 
@@ -332,9 +332,9 @@ save_modules({
 **【硬约束】**
 
 - 入场必须 `load_semantic_plan`
-- 只读取 `v0.3` 自包含合同
+- 只读取 `construction-brief` 自包含合同
 - 一次性写入后必须 `validate_layout`
-- 合同内 fallback 或授权改图后必须重写 `v0.3`
+- 合同内 fallback 或授权改图后必须重写 `construction-brief`
 - 不编造家具尺寸
 - 不得静默执行语义级改图
 

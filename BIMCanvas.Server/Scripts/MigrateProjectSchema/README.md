@@ -1,14 +1,13 @@
 # MigrateProjectSchema
 
-BIMCanvas `.bcp` 项目 schema 一次性清洗工具。合并以下两步：
+BIMCanvas `.bcp` 项目 schema 一次性清洗工具。合并以下三步：
 
 | Phase | 处理对象 | 改动 |
 |---|---|---|
-| **Phase 0** | `schemes/*/semantic_plan.json` | 顶层 `Versions` → `Entries`；条目内 `Version` → `Tag`、`ReferenceAnalysisVersion` → `ReferenceAnalysisTag`；顶层 `referenceAnalysis`（旧版内嵌兼容字段）保持不动 |
-| **Phase 0** | `schemes/*/reference_analysis.json` | 顶层数组，每条目 `Version` → `Tag` |
+| **Phase 0** | `schemes/*/semantic_plan.json` | 顶层 `Versions` → `Entries`；条目内 `Version` → `Tag`、`ReferenceAnalysisVersion` → `ReferenceAnalysisTag`；顶层 `referenceAnalysis`（旧版内嵌兼容字段）保持不动；**值不变** |
+| **Phase 0** | `schemes/*/reference_analysis.json` | 顶层数组，每条目 `Version` → `Tag`；**值不变** |
 | **Phase 0b** | `schemes/**/modules.json` + `modules-*.json` | 裸数组 → `{schemeMetadata, modules}`；旧 wrapper `{summary, modules}` 升级到 `{schemeMetadata: {summary,...}, modules}` |
-
-值（`v0.1` / `v0.2` / `v0.3` / `v1` / 模块数组内容）保持原样。
+| **Phase D** | `schemes/**/semantic_plan.json` | 条目内 `Tag` 值映射：`v0.1`→`spatial-skeleton`、`v0.2`→`strategic-plan`、`v0.2-meta`→`multi-plan-overview`、`v0.3`→`construction-brief`；reference_analysis 的 `v1/v2/v3+` **不动**（真版本序列） |
 
 ## 使用方法
 
@@ -19,9 +18,10 @@ dotnet run --project BIMCanvas.Server\Scripts\MigrateProjectSchema -- "C:\path\t
 # 实际迁移（全部两阶段）
 dotnet run --project BIMCanvas.Server\Scripts\MigrateProjectSchema -- "C:\path\to\project"
 
-# 只跑一阶段（少见，调试用）
+# 只跑某一阶段（少见，调试用）
 dotnet run --project BIMCanvas.Server\Scripts\MigrateProjectSchema -- "C:\path\to\project" --only=tag
 dotnet run --project BIMCanvas.Server\Scripts\MigrateProjectSchema -- "C:\path\to\project" --only=wrapper
+dotnet run --project BIMCanvas.Server\Scripts\MigrateProjectSchema -- "C:\path\to\project" --only=tagvalue
 ```
 
 ## `schemeMetadata` best-effort 派生规则（Phase 0b）

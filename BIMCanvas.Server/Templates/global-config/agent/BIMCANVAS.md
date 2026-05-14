@@ -183,11 +183,11 @@ WHY：这些输入属于单房间 planning/placement 的感知与施工材料。
 **派发流程**：
 
 1. 加载 `generate-planning` Skill（multi-plan 分支会自动触发，因 `exploreMode=true`）
-2. 等 `generate-planning` 产出 canonical 的 `v0.2-meta`（即 `save_semantic_plan({tag: "v0.2-meta"})` 成功返回）
+2. 等 `generate-planning` 产出 canonical 的 `multi-plan-overview`（即 `save_semantic_plan({tag: "multi-plan-overview"})` 成功返回）
 3. **N=1 退化检测**：`load_semantic_plan({zoneId: designZoneId})` 看 canonical 最新 entry 实际 tag：
-   - tag = `v0.2-meta` → 进入步骤 4
-   - tag = `v0.2`（Skill 退化为单方案） → **不派发 `variant-design-agent`**，继续等 Skill 走 `v0.3` + 进入 `generate-placement`（按常规 single-plan 收尾）
-4. 读 canonical `v0.2-meta` 的 `content`，从 `## 变体清单` 下的 ` ```yaml ``` ` fenced block 解析 `variants:` 列表，得到 `variantSlugs[]`（每项含 `slug` + `title`）
+   - tag = `multi-plan-overview` → 进入步骤 4
+   - tag = `strategic-plan`（Skill 退化为单方案） → **不派发 `variant-design-agent`**，继续等 Skill 走 `construction-brief` + 进入 `generate-placement`（按常规 single-plan 收尾）
+4. 读 canonical `multi-plan-overview` 的 `content`，从 `## 变体清单` 下的 ` ```yaml ``` ` fenced block 解析 `variants:` 列表，得到 `variantSlugs[]`（每项含 `slug` + `title`）
 5. 从 `## 设计意图 briefs` 段按 `### {slug}` 三级标题切分，每个变体抽出对应的 `variantBrief`（从 `### {slug}` 到下一个 `### ` 或文件末尾之间的所有内容）
 6. **并行**派发 `variant-design-agent`，每个变体一个分身（按 YAML 头顺序枚举派发，**所有派发在同一轮发起**，禁止后台派发、禁止串行补派）
 7. 每个派发包含同一套字段：
@@ -207,7 +207,7 @@ WHY：这些输入属于单房间 planning/placement 的感知与施工材料。
 - **【禁止】**variant-design-agent 派发后再加入新变体（如需新增，用户需重新触发完整 multi-plan 流程；后续也可用 relocation 调整已采纳变体内的局部模块）
 - **【禁止】**同一轮处理多个 `batchId` 的 multi-plan（必须串行：等上一个 batchId 完成再启动下一个）
 - **【禁止】**multi-plan 派发与多分区 layout-agent 派发同时进行（multi-plan 已锁定单设计区，互斥已由前置检查保证；不应同轮触发两类派发）
-- **【禁止】**主控自己代工 variant-design-agent 的工作（自己读 module_library / 自己写 variant 的 v0.2/v0.3 / 自己写 modules.json）
+- **【禁止】**主控自己代工 variant-design-agent 的工作（自己读 module_library / 自己写 variant 的 strategic-plan/construction-brief / 自己写 modules.json）
 - 若 variant-design-agent 返回调度违规固定回复 → **透传给用户**，不要改派 layout-agent 或 general-purpose 代工
 
 **收尾职责（multi-plan 专属）**：

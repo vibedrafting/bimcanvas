@@ -26,6 +26,8 @@
              Link="Linked\Checks\SemanticPlanTagCheck.cs" />
     <Compile Include="..\..\Services\ProjectHealth\Checks\ModulesWrapperCheck.cs"
              Link="Linked\Checks\ModulesWrapperCheck.cs" />
+    <Compile Include="..\..\Services\ProjectHealth\Checks\SemanticPlanTagValueCheck.cs"
+             Link="Linked\Checks\SemanticPlanTagValueCheck.cs" />
     <!-- 注意：不链接 GitWorktreeServiceCommitter.cs—— CLI 不需要 git 兜底（用户手动 git 存档）-->
   </ItemGroup>
 </Project>

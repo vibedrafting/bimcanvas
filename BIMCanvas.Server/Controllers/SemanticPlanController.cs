@@ -23,17 +23,17 @@ namespace BIMCanvas.Server.Controllers
 
         private static readonly HashSet<string> AllowedSemanticPlanTags = new HashSet<string>(StringComparer.Ordinal)
         {
-            "v0.1",
-            "v0.2",
-            "v0.2-meta",
-            "v0.3"
+            "spatial-skeleton",
+            "strategic-plan",
+            "multi-plan-overview",
+            "construction-brief"
         };
 
-        // v0.1 / v0.2-meta 全局只在 canonical 出现（multi-plan overview / spatial skeleton 不允许变体覆盖）。
+        // spatial-skeleton / multi-plan-overview 全局只在 canonical 出现，不允许变体覆盖。
         private static readonly HashSet<string> CanonicalOnlyTags = new HashSet<string>(StringComparer.Ordinal)
         {
-            "v0.1",
-            "v0.2-meta"
+            "spatial-skeleton",
+            "multi-plan-overview"
         };
 
         private static readonly Regex ReferenceAnalysisTagPattern = new Regex(@"^v[1-9][0-9]*$", RegexOptions.Compiled);
@@ -85,12 +85,12 @@ namespace BIMCanvas.Server.Controllers
                 }
             }
 
-            // canonical-only tag 单 owner 校验：v0.1 / v0.2-meta 不允许写入变体路径。
+            // canonical-only tag 单 owner 校验：spatial-skeleton / multi-plan-overview 不允许写入变体路径。
             if (CanonicalOnlyTags.Contains(request.Tag) && !string.IsNullOrWhiteSpace(request.VariantId))
             {
                 return BadRequest(new
                 {
-                    message = $"tag={request.Tag} 是 canonical 单 owner（v0.1 / v0.2-meta 全局只在 canonical 出现），不能写入变体路径。请省略 variantId。"
+                    message = $"tag={request.Tag} 是 canonical 单 owner（spatial-skeleton / multi-plan-overview 全局只在 canonical 出现），不能写入变体路径。请省略 variantId。"
                 });
             }
 
@@ -206,7 +206,7 @@ namespace BIMCanvas.Server.Controllers
             if (!IsDesignZoneId(zoneId))
                 return BadRequest(new { message = "semantic_plan 只归属于设计区，不归属于子分区。请传入父设计区 zoneId。" });
 
-            // variantId 非空时走 merge view 分支（canonical v0.1 + 变体 entries）。
+            // variantId 非空时走 merge view 分支（canonical spatial-skeleton + 变体 entries）。
             if (!string.IsNullOrWhiteSpace(variantId))
             {
                 try
@@ -239,7 +239,7 @@ namespace BIMCanvas.Server.Controllers
                 });
             }
 
-            var target = document.Entries.LastOrDefault(v => string.Equals(v.Tag, "v0.3", StringComparison.Ordinal));
+            var target = document.Entries.LastOrDefault(v => string.Equals(v.Tag, "construction-brief", StringComparison.Ordinal));
             if (target == null)
             {
                 if (string.Equals(planType, PlanTypeReference, StringComparison.OrdinalIgnoreCase))
@@ -248,7 +248,7 @@ namespace BIMCanvas.Server.Controllers
                     {
                         status = "legacy_reference_requires_replan",
                         zoneId,
-                        message = $"{zoneId} 当前仍是旧版 reference 工作流（缺少可施工的 v0.3 自包含合同）。请重新执行规划。"
+                        message = $"{zoneId} 当前仍是旧版 reference 工作流（缺少可施工的 construction-brief 自包含合同）。请重新执行规划。"
                     });
                 }
 
@@ -256,7 +256,7 @@ namespace BIMCanvas.Server.Controllers
                 {
                     status = "missing",
                     zoneId,
-                    message = $"未找到 {zoneId} 的生效图纸 v0.3"
+                    message = $"未找到 {zoneId} 的生效图纸 construction-brief"
                 });
             }
 
@@ -340,20 +340,20 @@ namespace BIMCanvas.Server.Controllers
                 });
             }
 
-            // 2. 读变体 doc + canonical doc，按硬约束 merge = canonical.v0.1 + 变体的非 v0.1 entries。
+            // 2. 读变体 doc + canonical doc，按硬约束 merge = canonical.spatial-skeleton + 变体的非 spatial-skeleton entries。
             var variantDoc = ReadSemanticPlanDocument(variantPath);
             var canonicalDoc = ReadSemanticPlanDocument(GetSemanticPlanPath(zoneId, null));
 
-            var canonicalV01 = canonicalDoc.Entries?
-                .LastOrDefault(e => string.Equals(e.Tag, "v0.1", StringComparison.Ordinal));
+            var canonicalSkeleton = canonicalDoc.Entries?
+                .LastOrDefault(e => string.Equals(e.Tag, "spatial-skeleton", StringComparison.Ordinal));
 
             var merge = new List<SemanticPlanEntry>();
-            if (canonicalV01 != null) merge.Add(canonicalV01);
+            if (canonicalSkeleton != null) merge.Add(canonicalSkeleton);
             if (variantDoc.Entries != null)
             {
-                // 防御性过滤：硬约束下变体不应承载 v0.1，但即便文件被手工写入也以 canonical 为准。
+                // 防御性过滤：硬约束下变体不应承载 spatial-skeleton，但即便文件被手工写入也以 canonical 为准。
                 merge.AddRange(variantDoc.Entries
-                    .Where(e => !string.Equals(e.Tag, "v0.1", StringComparison.Ordinal)));
+                    .Where(e => !string.Equals(e.Tag, "spatial-skeleton", StringComparison.Ordinal)));
             }
             merge.Sort((a, b) => string.Compare(a.Tag, b.Tag, StringComparison.Ordinal));
 
@@ -364,13 +364,13 @@ namespace BIMCanvas.Server.Controllers
                     status = "missing",
                     zoneId,
                     variantId,
-                    message = $"变体 {variantId} 的语义方案为空（且 canonical 未提供 v0.1）"
+                    message = $"变体 {variantId} 的语义方案为空（且 canonical 未提供 spatial-skeleton）"
                 });
             }
 
-            // 3. effectiveTag 按 v0.3 → v0.2 → v0.2-meta → v0.1 优先级解析。
+            // 3. effectiveTag 按 construction-brief → strategic-plan → multi-plan-overview → spatial-skeleton 优先级解析。
             SemanticPlanEntry? target = null;
-            foreach (var preferred in new[] { "v0.3", "v0.2", "v0.2-meta", "v0.1" })
+            foreach (var preferred in new[] { "construction-brief", "strategic-plan", "multi-plan-overview", "spatial-skeleton" })
             {
                 target = merge.LastOrDefault(e => string.Equals(e.Tag, preferred, StringComparison.Ordinal));
                 if (target != null) break;
@@ -398,7 +398,7 @@ namespace BIMCanvas.Server.Controllers
                 });
             }
 
-            var warning = canonicalV01 == null ? "canonical v0.1 missing" : null;
+            var warning = canonicalSkeleton == null ? "canonical spatial-skeleton missing" : null;
 
             return Ok(new
             {
@@ -568,8 +568,8 @@ namespace BIMCanvas.Server.Controllers
                 return false;
             }
 
-            var hasV03 = entries.Any(v => string.Equals(v.Tag, "v0.3", StringComparison.Ordinal));
-            if (hasV03)
+            var hasConstructionBrief = entries.Any(v => string.Equals(v.Tag, "construction-brief", StringComparison.Ordinal));
+            if (hasConstructionBrief)
             {
                 planType = PlanTypeDerived;
                 return true;
@@ -580,7 +580,7 @@ namespace BIMCanvas.Server.Controllers
                 .OrderBy(v => v, StringComparer.Ordinal)
                 .LastOrDefault();
 
-            if (string.Equals(latestTag, "v0.2", StringComparison.Ordinal))
+            if (string.Equals(latestTag, "strategic-plan", StringComparison.Ordinal))
             {
                 var hasReferenceTitle = entries.Any(v =>
                     !string.IsNullOrWhiteSpace(v.Content)
@@ -643,10 +643,10 @@ namespace BIMCanvas.Server.Controllers
         public string PlanType { get; set; }
         public string Content { get; set; }
         // Nullable：NRT 启用下 ASP.NET Core 会把裸 string 视为 required；但"无参考图"
-        // 流程下此字段语义上就该缺省（v0.1 不写 referenceAnalysisTag）。
+        // 流程下此字段语义上就该缺省（spatial-skeleton 不写 referenceAnalysisTag）。
         public string? ReferenceAnalysisTag { get; set; }
         // 非空时落到 schemes/{zoneId}/variants/{variantId}/semantic_plan.json。
-        // v0.1 / v0.2-meta 全局单 owner（canonical），传 variantId 会被 server 400 拒绝。
+        // spatial-skeleton / multi-plan-overview 全局单 owner（canonical），传 variantId 会被 server 400 拒绝。
         public string? VariantId { get; set; }
     }
 

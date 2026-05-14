@@ -14,7 +14,8 @@ namespace BIMCanvas.Server.Services.ProjectHealth.Checks
     ///     - 条目内 ReferenceAnalysisVersion → ReferenceAnalysisTag
     ///   reference_analysis.json:
     ///     - 顶层数组，每条目 Version → Tag
-    /// 值不变（v0.1 / v0.2 / v0.3 / v1 / v2 / ... 原样保留）。
+    /// 值不变（Phase 0 只做字段重命名，不动值；
+    /// semantic_plan tag 值的语义化映射由 Phase D 的 SemanticPlanTagValueCheck 处理）。
     /// </summary>
     public class SemanticPlanTagCheck : IProjectHealthCheck
     {

@@ -197,7 +197,7 @@ namespace BIMCanvas.Server.Services
 
     /// <summary>
     /// 从 semantic_plan.json 派生 schemeMetadata.summary 的小 helper。
-    /// 优先 tag=v0.3，回落 tag=v0.2，再回落空串。
+    /// 优先 tag=construction-brief，回落 tag=strategic-plan，再回落空串。
     /// </summary>
     internal static class SemanticPlanSummaryHelper
     {
@@ -217,13 +217,13 @@ namespace BIMCanvas.Server.Services
                 if (doc?.Entries == null || doc.Entries.Count == 0)
                     return string.Empty;
 
-                var v03 = doc.Entries.LastOrDefault(e => string.Equals(e.Tag, "v0.3", StringComparison.Ordinal));
-                if (v03 != null && !string.IsNullOrWhiteSpace(v03.Content))
-                    return FirstSentence(v03.Content);
+                var constructionBrief = doc.Entries.LastOrDefault(e => string.Equals(e.Tag, "construction-brief", StringComparison.Ordinal));
+                if (constructionBrief != null && !string.IsNullOrWhiteSpace(constructionBrief.Content))
+                    return FirstSentence(constructionBrief.Content);
 
-                var v02 = doc.Entries.LastOrDefault(e => string.Equals(e.Tag, "v0.2", StringComparison.Ordinal));
-                if (v02 != null && !string.IsNullOrWhiteSpace(v02.Content))
-                    return FirstSentence(v02.Content);
+                var strategicPlan = doc.Entries.LastOrDefault(e => string.Equals(e.Tag, "strategic-plan", StringComparison.Ordinal));
+                if (strategicPlan != null && !string.IsNullOrWhiteSpace(strategicPlan.Content))
+                    return FirstSentence(strategicPlan.Content);
 
                 return string.Empty;
             }
