@@ -1560,6 +1560,75 @@ async def save_modules(args: dict[str, Any]) -> dict[str, Any]:
         }
 
 
+@tool(
+    "clone_scheme_to_variant",
+    "克隆设计区方案（canonical 或某变体）到一个或多个新变体目录。"
+    "**仅 module-relocation-agent 使用**——variant-design-agent / generate-placement 等其他 SubAgent 禁止调用。"
+    "用途：relocation 工作流的入口，先 clone 出隔离的变体目录（含 semantic_plan + 全部叶子 modules.json），再在变体目录内局部修改。",
+    {
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "type": "object",
+        "properties": {
+            "designZoneId": {
+                "type": "string",
+                "description": "设计区 ID，如 'rz_3'。"
+            },
+            "sourceVariant": {
+                "type": "string",
+                "description": "源变体；'canonical' 或省略表示从 canonical 克隆；也可填某个已存在 slug 实现链式克隆。"
+            },
+            "newVariantSlugs": {
+                "type": "array",
+                "items": {"type": "string"},
+                "description": "要创建的新变体 slug 列表（[a-zA-Z0-9_-]，单次请求批量原子创建）。"
+            },
+            "overwrite": {
+                "type": "boolean",
+                "description": "默认 false；为 true 时已存在的同名 slug 会被覆盖。"
+            }
+        },
+        "required": ["designZoneId", "newVariantSlugs"],
+        "additionalProperties": False
+    }
+)
+async def clone_scheme_to_variant(args: dict[str, Any]) -> dict[str, Any]:
+    """克隆 canonical / variant 整目录到新变体目录"""
+    design_zone_id = args["designZoneId"]
+    new_variant_slugs = args["newVariantSlugs"]
+    source_variant = args.get("sourceVariant")
+    overwrite = args.get("overwrite", False)
+
+    body: dict[str, Any] = {
+        "designZoneId": design_zone_id,
+        "newVariantSlugs": new_variant_slugs,
+        "overwrite": overwrite,
+    }
+    if source_variant:
+        body["sourceVariant"] = source_variant
+
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.post(
+                f"{SERVER_URL}/api/scheme/variant/clone",
+                json=body
+            ) as resp:
+                text = await resp.text()
+                if resp.status == 200:
+                    return {
+                        "content": [{"type": "text", "text": text}]
+                    }
+                else:
+                    return {
+                        "content": [{"type": "text", "text": f"克隆失败: HTTP {resp.status} {text}"}],
+                        "is_error": True
+                    }
+    except aiohttp.ClientError as e:
+        return {
+            "content": [{"type": "text", "text": f"无法连接 Server: {str(e)}"}],
+            "is_error": True
+        }
+
+
 # 创建 Canvas MCP Server
 canvas_mcp = create_sdk_mcp_server(
     name="canvas",
@@ -1575,6 +1644,7 @@ canvas_mcp = create_sdk_mcp_server(
         load_reference_analysis,  # 加载参考分析（planning 输入）
         save_reference_analysis,  # 新增：保存参考分析结果
         save_modules,  # Phase 0b: modules.json wrapper 写入
+        clone_scheme_to_variant,  # 组 C: relocation 工作流入口（仅 module-relocation-agent）
         analyze_image,  # 通用大模型图像理解
     ],
 )
@@ -1591,5 +1661,6 @@ CANVAS_ALLOWED_TOOLS = [
     "mcp__canvas__load_reference_analysis",
     "mcp__canvas__save_reference_analysis",
     "mcp__canvas__save_modules",
+    "mcp__canvas__clone_scheme_to_variant",
     "mcp__canvas__analyze_image",
 ]

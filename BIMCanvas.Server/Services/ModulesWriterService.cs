@@ -94,7 +94,7 @@ namespace BIMCanvas.Server.Services
                     Summary = SemanticPlanSummaryHelper.DeriveSummary(projectPath, designZoneId),
                     VariantSlug = string.IsNullOrWhiteSpace(variantId) ? null : variantId,
                     AdoptedAt = adoptedAt?.ToUniversalTime().ToString("o"),
-                    SourceWorkflow = sourceWorkflowOverride ?? DeriveSourceWorkflow(variantId)
+                    SourceWorkflow = sourceWorkflowOverride ?? DeriveSourceWorkflow(variantId, projectPath, designZoneId)
                 },
                 Modules = modulesToSave
             };
@@ -166,14 +166,32 @@ namespace BIMCanvas.Server.Services
             };
         }
 
-        private static string DeriveSourceWorkflow(string? variantId)
+        private static string DeriveSourceWorkflow(string? variantId, string projectPath, string designZoneId)
         {
             if (string.IsNullOrWhiteSpace(variantId))
                 return "single-plan";
 
-            // Phase 0b: variant.json 尚未引入，无法从 state 派生 → 占位 "unknown"
-            // Phase 5+ 引入 variant.json 后改为读 state 字段映射
-            return "unknown";
+            var variantJsonPath = Path.Combine(
+                projectPath, "schemes", designZoneId, "variants", variantId, "variant.json");
+            if (!File.Exists(variantJsonPath))
+                return "unknown";
+
+            try
+            {
+                var json = File.ReadAllText(variantJsonPath, Encoding.UTF8);
+                var meta = JsonConvert.DeserializeObject<Models.VariantMetadata>(json);
+                return meta?.State switch
+                {
+                    "explore-generated" => "multi-plan-explore",
+                    "relocation" => "relocation",
+                    "prev-adopted" => "prev-adopted",
+                    _ => "unknown"
+                };
+            }
+            catch
+            {
+                return "unknown";
+            }
         }
     }
 

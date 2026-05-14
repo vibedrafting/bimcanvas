@@ -926,6 +926,25 @@ class OpenAIAgent:
                 args["variantId"] = variantId
             return await self._invoke_canvas_tool_impl("save_modules", args)
 
+        @with_tool_context(tool_name="mcp__canvas__clone_scheme_to_variant")
+        async def canvas_clone_scheme_to_variant(
+            ctx: Any,
+            designZoneId: str,
+            newVariantSlugs: list[str],
+            sourceVariant: str | None = None,
+            overwrite: bool = False,
+        ) -> Any:
+            """Clone canonical/variant directory to new variant slugs (relocation entry)."""
+            del ctx
+            args: dict[str, Any] = {
+                "designZoneId": designZoneId,
+                "newVariantSlugs": newVariantSlugs,
+                "overwrite": overwrite,
+            }
+            if sourceVariant:
+                args["sourceVariant"] = sourceVariant
+            return await self._invoke_canvas_tool_impl("clone_scheme_to_variant", args)
+
         @with_tool_context(tool_name="mcp__canvas__load_semantic_plan")
         async def canvas_load_semantic_plan(
             ctx: Any,
@@ -1037,6 +1056,8 @@ class OpenAIAgent:
             "mcp__canvas__validate_layout": canvas_validate_layout,
             "mcp__canvas__load_reference_analysis": canvas_load_reference_analysis,
             "mcp__canvas__save_reference_analysis": canvas_save_reference_analysis,
+            "mcp__canvas__save_modules": canvas_save_modules,
+            "mcp__canvas__clone_scheme_to_variant": canvas_clone_scheme_to_variant,
             "mcp__canvas__analyze_image": canvas_analyze_image,
         }
 

@@ -383,6 +383,224 @@ namespace BIMCanvas.Server.Controllers
             }
         }
 
+        // ─────────────────────────── CloneVariant ───────────────────────────
+
+        /// <summary>
+        /// 克隆设计区方案（canonical 或某变体）到一个或多个新变体目录。
+        /// 协议：POST {designZoneId, sourceVariant, newVariantSlugs[], overwrite}。
+        /// 复制范围：semantic_plan.json + reference_analysis.json + 各叶子 modules.json（字节级 File.Copy，
+        /// 不重新派生 schemeMetadata）。同时为每个新变体写一份 variant.json（state="relocation"，sourceSlug 追溯来源）。
+        /// 部分成功允许：单 slug 失败进 errors，已成功 slug 目录保留。
+        /// </summary>
+        [HttpPost("variant/clone")]
+        public async Task<ActionResult<CloneVariantResponse>> CloneVariant([FromBody] CloneVariantRequest? request)
+        {
+            if (request == null)
+                return BadRequest(new { error = "请求体无效" });
+            if (!_projectContext.IsLoaded)
+                return BadRequest(new { error = "未加载项目" });
+            if (request.NewVariantSlugs == null || request.NewVariantSlugs.Count == 0)
+                return BadRequest(new { error = "newVariantSlugs 不能为空" });
+
+            if (!TryResolveDesignZoneRoot(request.DesignZoneId, out var designZoneRoot, out var dzError))
+                return NotFound(new { error = dzError });
+
+            // 规范化 sourceVariant：null/空/"canonical" → 视为 canonical
+            var sourceIsCanonical = string.IsNullOrWhiteSpace(request.SourceVariant)
+                || string.Equals(request.SourceVariant, "canonical", StringComparison.OrdinalIgnoreCase);
+            string? safeSourceSlug = null;
+            string srcRoot;
+            string sourceLabel;
+
+            if (sourceIsCanonical)
+            {
+                srcRoot = designZoneRoot;
+                sourceLabel = "canonical";
+            }
+            else
+            {
+                try { ModuleFileTopologyService.EnsureSafeVariantId(request.SourceVariant!); }
+                catch (ArgumentException ex) { return BadRequest(new { error = $"sourceVariant 非法: {ex.Message}" }); }
+
+                safeSourceSlug = request.SourceVariant!;
+                srcRoot = Path.Combine(designZoneRoot, "variants", safeSourceSlug);
+                if (!Directory.Exists(srcRoot))
+                    return BadRequest(new { error = $"source-not-found: variants/{safeSourceSlug}" });
+                sourceLabel = safeSourceSlug;
+            }
+
+            // newVariantSlugs 预校验（含自我克隆冲突）
+            var safeNewSlugs = new List<string>(request.NewVariantSlugs.Count);
+            foreach (var rawSlug in request.NewVariantSlugs)
+            {
+                try { ModuleFileTopologyService.EnsureSafeVariantId(rawSlug); }
+                catch (ArgumentException ex) { return BadRequest(new { error = $"newVariantSlugs 非法: {ex.Message}" }); }
+
+                if (!sourceIsCanonical && string.Equals(rawSlug, safeSourceSlug, StringComparison.OrdinalIgnoreCase))
+                    return BadRequest(new { error = $"cannot-clone-onto-source: newVariantSlugs 含源 slug '{safeSourceSlug}'" });
+
+                safeNewSlugs.Add(rawSlug);
+            }
+
+            // 与 adopt/delete 共享 designZone 锁，防多文件竞态
+            var cloneLock = GetDesignZoneLock(request.DesignZoneId);
+            if (!await cloneLock.WaitAsync(TimeSpan.FromSeconds(30)))
+                return StatusCode(503, new { error = "设计区被其他变体操作占用，请稍后重试" });
+
+            var response = new CloneVariantResponse();
+            try
+            {
+                // ── 锁内枚举源文件清单（绝对路径列表）──
+                var projectPath = _projectContext.GetActiveWorktreePath()
+                                  ?? _projectContext.CurrentProjectPath!;
+                var schemesPath = Path.Combine(projectPath, "schemes");
+                var topology = ModuleFileTopologyService.BuildFromSchemesPath(schemesPath);
+                var leafZoneIds = topology.GetLeafZoneIds(request.DesignZoneId);
+
+                var srcFiles = new List<string>();
+
+                // semantic_plan.json + reference_analysis.json
+                var srcSemanticPlan = Path.Combine(srcRoot, "semantic_plan.json");
+                if (System.IO.File.Exists(srcSemanticPlan))
+                    srcFiles.Add(srcSemanticPlan);
+                var srcReferenceAnalysis = Path.Combine(srcRoot, "reference_analysis.json");
+                if (System.IO.File.Exists(srcReferenceAnalysis))
+                    srcFiles.Add(srcReferenceAnalysis);
+
+                // 各叶子 modules.json
+                foreach (var leafId in leafZoneIds)
+                {
+                    var leafModulesPath = _modulesWriter.ResolveModulesPath(
+                        projectPath, request.DesignZoneId, leafId,
+                        variantId: sourceIsCanonical ? null : safeSourceSlug,
+                        pathMode: VariantPathMode.New);
+
+                    if (System.IO.File.Exists(leafModulesPath))
+                        srcFiles.Add(leafModulesPath);
+                }
+
+                // ── 循环每个 newSlug：复制 → 写 variant.json ──
+                foreach (var safeNew in safeNewSlugs)
+                {
+                    var dstRoot = Path.Combine(designZoneRoot, "variants", safeNew);
+                    if (Directory.Exists(dstRoot))
+                    {
+                        if (!request.Overwrite)
+                        {
+                            response.Errors.Add(new CloneVariantError
+                            {
+                                Slug = safeNew,
+                                Reason = "already-exists"
+                            });
+                            continue;
+                        }
+                        try { Directory.Delete(dstRoot, recursive: true); }
+                        catch (Exception ex)
+                        {
+                            response.Errors.Add(new CloneVariantError
+                            {
+                                Slug = safeNew,
+                                Reason = $"overwrite-delete-failed: {ex.Message}"
+                            });
+                            continue;
+                        }
+                    }
+
+                    int fileCount = 0;
+                    var ioFailed = false;
+                    string? ioError = null;
+                    try
+                    {
+                        Directory.CreateDirectory(dstRoot);
+                        foreach (var src in srcFiles)
+                        {
+                            var relative = Path.GetRelativePath(srcRoot, src);
+                            var dst = Path.Combine(dstRoot, relative);
+                            var dstDir = Path.GetDirectoryName(dst)!;
+                            Directory.CreateDirectory(dstDir);
+                            System.IO.File.Copy(src, dst, overwrite: true);
+                            fileCount++;
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        ioFailed = true;
+                        ioError = ex.Message;
+                    }
+
+                    if (ioFailed)
+                    {
+                        response.Errors.Add(new CloneVariantError
+                        {
+                            Slug = safeNew,
+                            Reason = $"copy-failed: {ioError}"
+                        });
+                        continue;
+                    }
+
+                    // 写新 variant.json（不复制源的）
+                    try
+                    {
+                        WriteVariantMetadata(Path.Combine(dstRoot, "variant.json"), new VariantMetadata
+                        {
+                            Slug = safeNew,
+                            CreatedAt = DateTime.UtcNow.ToString("o"),
+                            State = "relocation",
+                            Summary = $"由 {sourceLabel} 克隆",
+                            SourceSlug = sourceLabel
+                        });
+                    }
+                    catch (Exception ex)
+                    {
+                        response.Errors.Add(new CloneVariantError
+                        {
+                            Slug = safeNew,
+                            Reason = $"variant-json-write-failed: {ex.Message}"
+                        });
+                        continue;
+                    }
+
+                    var dstRelative = Path.GetRelativePath(projectPath, dstRoot).Replace('\\', '/');
+                    response.Created.Add(new CloneVariantResult
+                    {
+                        Slug = safeNew,
+                        Path = dstRelative,
+                        FileCount = fileCount
+                    });
+                }
+
+                _logger.LogInformation(
+                    "[Variant.Clone] designZone={Dz} source={Src} 创建 {Created} 个，失败 {Errors} 个",
+                    request.DesignZoneId, sourceLabel, response.Created.Count, response.Errors.Count);
+
+                // 单次 SignalR 广播（仅当有创建成功）
+                if (response.Created.Count > 0)
+                {
+                    await _hubContext.Clients.All.SendAsync("ReceiveUpdate", new
+                    {
+                        type = "file_changed",
+                        file = "variant.json",
+                        timestamp = DateTime.UtcNow,
+                        action = "reload",
+                        trigger = "variant-cloned",
+                        designZoneId = request.DesignZoneId,
+                        createdSlugs = response.Created.Select(c => c.Slug).ToList()
+                    });
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "克隆变体失败");
+                return StatusCode(500, new { error = $"克隆失败: {ex.Message}" });
+            }
+            finally
+            {
+                cloneLock.Release();
+            }
+
+            return Ok(response);
+        }
+
         // ─────────────────────────── DeleteVariant ───────────────────────────
 
         /// <summary>
@@ -525,6 +743,34 @@ namespace BIMCanvas.Server.Controllers
     {
         public string DesignZoneId { get; set; } = "";
         public string VariantSlug { get; set; } = "";
+    }
+
+    public class CloneVariantRequest
+    {
+        public string DesignZoneId { get; set; } = "";
+        /// <summary>null/空/"canonical" 表示从 canonical 克隆；否则填某个已存在 variant slug。</summary>
+        public string? SourceVariant { get; set; }
+        public List<string> NewVariantSlugs { get; set; } = new List<string>();
+        public bool Overwrite { get; set; } = false;
+    }
+
+    public class CloneVariantResponse
+    {
+        public List<CloneVariantResult> Created { get; set; } = new List<CloneVariantResult>();
+        public List<CloneVariantError> Errors { get; set; } = new List<CloneVariantError>();
+    }
+
+    public class CloneVariantResult
+    {
+        public string Slug { get; set; } = "";
+        public string Path { get; set; } = "";
+        public int FileCount { get; set; }
+    }
+
+    public class CloneVariantError
+    {
+        public string Slug { get; set; } = "";
+        public string Reason { get; set; } = "";
     }
 
     /// <summary>

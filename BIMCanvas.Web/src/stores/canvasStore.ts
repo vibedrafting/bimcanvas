@@ -376,8 +376,9 @@ export const useCanvasStore = defineStore('canvas', () => {
         const trigger = data.trigger as string | undefined;
 
         // 变体侧链：trigger=variant-files-changed（server 派发，覆盖 variants/ 子树）
+        // 或 trigger=variant-cloned（clone endpoint 显式广播，走轻量 refetch 路径避免整 canvas reload）
         // 或 Legacy modules-alt-*.json 文件（兼容老项目残留）
-        if (trigger === 'variant-files-changed' || isLegacyVariantSidecarFile(fileName)) {
+        if (trigger === 'variant-files-changed' || trigger === 'variant-cloned' || isLegacyVariantSidecarFile(fileName)) {
             debugStore.log(`[Store] 变体文件变化，分发给切换器: ${fileName}`);
             window.dispatchEvent(new CustomEvent('bimcanvas:variant-files-changed', {
                 detail: { file: fileName, trigger: data.trigger }

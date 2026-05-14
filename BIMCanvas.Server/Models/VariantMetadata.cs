@@ -23,5 +23,9 @@ namespace BIMCanvas.Server.Models
         /// <summary>一句话设计意图，供 VariantNavigatorBar chip tooltip 显示。</summary>
         [JsonProperty("summary")]
         public string Summary { get; set; } = "";
+
+        /// <summary>克隆来源 slug；"canonical" 表示从 canonical 克隆，其他值为源 variant slug。</summary>
+        [JsonProperty("sourceSlug", NullValueHandling = NullValueHandling.Ignore)]
+        public string? SourceSlug { get; set; }
     }
 }
