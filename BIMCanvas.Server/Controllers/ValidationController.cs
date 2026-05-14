@@ -34,6 +34,7 @@ namespace BIMCanvas.Server.Controllers
         private readonly IHubContext<CanvasHub> _hubContext;
         private readonly ModuleLibraryService _moduleLibraryService;
         private readonly ModuleFileTopologyService _moduleFileTopologyService;
+        private readonly ModuleNormalizationService _normalizationService;
         private readonly JsonSerializerSettings _jsonSettings;
 
         public ValidationController(
@@ -42,7 +43,8 @@ namespace BIMCanvas.Server.Controllers
             ZoneBoundaryService zoneBoundaryService,
             IHubContext<CanvasHub> hubContext,
             ModuleLibraryService moduleLibraryService,
-            ModuleFileTopologyService moduleFileTopologyService)
+            ModuleFileTopologyService moduleFileTopologyService,
+            ModuleNormalizationService normalizationService)
         {
             _logger = logger;
             _projectContext = projectContext;
@@ -50,6 +52,7 @@ namespace BIMCanvas.Server.Controllers
             _hubContext = hubContext;
             _moduleLibraryService = moduleLibraryService;
             _moduleFileTopologyService = moduleFileTopologyService;
+            _normalizationService = normalizationService;
             _jsonSettings = new JsonSerializerSettings
             {
                 ContractResolver = new CamelCasePropertyNamesContractResolver(),
@@ -100,14 +103,28 @@ namespace BIMCanvas.Server.Controllers
                 var variantId = request?.VariantId;
                 if (!string.IsNullOrWhiteSpace(variantId) && targetSet == null)
                     return BadRequest(new { message = "variantId 非空时必须显式指定 zoneIds，不允许全分区扫描变体" });
-                var (modules, structureDiagnostics, skippedModuleCount) = LoadAllModules(projectPath, targetSet, variantId);
 
-                // 3.5 校验 facing：validate_layout 只做诊断，不再消费 semantic 或写回文件
-                var allDiagnostics = new List<Diagnostic>(structureDiagnostics);
+                // 3.0 归一 facing：把 facing.semantic 解析为单位向量 facing.value 并落盘，
+                // 与 prompt 合同对齐（generate-placement / edit-workflow / README 三处明示 validate 会归一）。
+                // 复用 ModuleNormalizationService，对 canonical 与变体（b2702a6 后）路径均生效。
+                var allDiagnostics = new List<Diagnostic>();
+                var normalizationReport = _normalizationService.NormalizeModules(projectPath, targetSet, variantId);
+                if (normalizationReport.NormalizedCount > 0 || normalizationReport.ErrorCount > 0)
+                    _logger.LogInformation(
+                        "[Validation] facing 归一: {Normalized} 个写回, {Errors} 个错误",
+                        normalizationReport.NormalizedCount, normalizationReport.ErrorCount);
+                if (normalizationReport.Diagnostics != null && normalizationReport.Diagnostics.Count > 0)
+                    allDiagnostics.AddRange(normalizationReport.Diagnostics);
+
+                // 3.1 读取（归一后）模块
+                var (modules, structureDiagnostics, skippedModuleCount) = LoadAllModules(projectPath, targetSet, variantId);
+                allDiagnostics.AddRange(structureDiagnostics);
+
+                // 3.5 facing 兜底校验：归一已写回；仍 value=null 说明 semantic 无效或缺失，由此处报错
                 var facingDiagnostics = ValidateModuleFacings(modules);
                 allDiagnostics.AddRange(facingDiagnostics);
                 if (facingDiagnostics.Count > 0)
-                    _logger.LogWarning("[Validation] facing 预检发现 {Count} 个诊断，继续执行后续检查", facingDiagnostics.Count);
+                    _logger.LogWarning("[Validation] facing 兜底预检发现 {Count} 个诊断，继续执行后续检查", facingDiagnostics.Count);
 
                 // 3.6 校验 moduleId 是否在模块库中
                 var moduleIdDiagnostics = ValidateModuleIds(modules);
@@ -385,7 +402,8 @@ namespace BIMCanvas.Server.Controllers
 
         /// <summary>
         /// 校验模块 facing 数据。
-        /// validate_layout 不消费 semantic；Agent 写入 semantic 后应先调用 normalize_modules。
+        /// 调用前已由 ModuleNormalizationService 把有效 facing.semantic 归一为 facing.value 并落盘；
+        /// 此处兜底捕获仍 value=null 的模块（normalize 阶段已对 InvalidFacingSemantic 单独诊断）。
         /// </summary>
         private static List<Diagnostic> ValidateModuleFacings(List<Module> modules)
         {
@@ -398,7 +416,7 @@ namespace BIMCanvas.Server.Controllers
                     diagnostics.Add(new Diagnostic(
                         DiagnosticCodes.MissingFacingValue,
                         "error",
-                        $"模块 {module.Id} ({module.ModuleName ?? "未命名"}) 缺少 facing.value；若使用 facing.semantic，请先调用 normalize_modules",
+                        $"模块 {module.Id} ({module.ModuleName ?? "未命名"}) 缺少 facing.value；facing.semantic 无效或两者都缺失",
                         module.Id,
                         module.ModuleName));
                     continue;
