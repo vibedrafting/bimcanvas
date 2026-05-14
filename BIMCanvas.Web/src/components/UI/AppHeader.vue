@@ -10,7 +10,8 @@ import { useProjectFile } from '../../composables/useProjectFile';
 import { useSave } from '../../composables/useSave';
 import { getWebRuntime } from '../../runtime/runtimeRegistry';
 import { supports } from '../../runtime/WebRuntimeProtocol';
-import { LayoutValidationService, type Diagnostic, type ModuleNormalizationReport, type SchemeValidationReport } from '../../services/LayoutValidationService';
+import { LayoutValidationService, type Diagnostic, type LayoutRequest, type ModuleNormalizationReport, type SchemeValidationReport } from '../../services/LayoutValidationService';
+import { SchemeService } from '../../services/SchemeService';
 
 const store = useCanvasStore();
 const appStore = useAppStore();
@@ -165,27 +166,50 @@ const getRequestErrorMessage = (error: any): string => {
   return error?.message || String(error);
 };
 
+// 单个 scope（canonical 或单一变体）的"规范化 → 验证"双调用；
+// 规范化报错时跳过该 scope 的几何验证，避免脏数据进入 SchemeValidator。
+const runScopeCheck = async (label: string, request: LayoutRequest = {}): Promise<void> => {
+  let shouldValidate = true;
+  try {
+    const normalizeReport = await LayoutValidationService.normalizeModules(request);
+    notifyReportDiagnostics(`${label} 模块规范化`, normalizeReport);
+    shouldValidate = normalizeReport.errorCount <= 0;
+  } catch (error: any) {
+    shouldValidate = false;
+    notifySyncCheck('error', `${label} 模块规范化失败`, getRequestErrorMessage(error));
+  }
+
+  if (shouldValidate) {
+    try {
+      const validationReport = await LayoutValidationService.validateLayout(request);
+      notifyReportDiagnostics(`${label} 布局验证`, validationReport);
+    } catch (error: any) {
+      notifySyncCheck('error', `${label} 布局验证失败`, getRequestErrorMessage(error));
+    }
+  }
+};
+
 const handleSync = async () => {
   if (isSyncing.value) return;
   isSyncing.value = true;
   try {
-    let shouldValidate = true;
-    try {
-      const normalizeReport = await LayoutValidationService.normalizeModules();
-      notifyReportDiagnostics('模块规范化', normalizeReport);
-      shouldValidate = normalizeReport.errorCount <= 0;
-    } catch (error: any) {
-      shouldValidate = false;
-      notifySyncCheck('error', '模块规范化失败', getRequestErrorMessage(error));
-    }
+    // 1. canonical 全分区扫描（保留原行为）
+    await runScopeCheck('canonical', {});
 
-    if (shouldValidate) {
-      try {
-        const validationReport = await LayoutValidationService.validateLayout();
-        notifyReportDiagnostics('布局验证', validationReport);
-      } catch (error: any) {
-        notifySyncCheck('error', '布局验证失败', getRequestErrorMessage(error));
+    // 2. 全部变体逐个扫描；用 listVariantsSummary 一次拿到 (designZoneId → slugs[]) 索引
+    //    server 强约束 variantId 非空时 zoneIds 必填，因此每个变体单独调一次
+    try {
+      const summary = await SchemeService.listVariantsSummary();
+      for (const [designZoneId, entry] of Object.entries(summary)) {
+        for (const slug of entry.variantSlugs) {
+          await runScopeCheck(
+            `variant ${designZoneId}/${slug}`,
+            { zoneIds: [designZoneId], variantId: slug }
+          );
+        }
       }
+    } catch (error: any) {
+      notifySyncCheck('error', '获取变体清单失败', getRequestErrorMessage(error));
     }
 
     await store.forceSync();

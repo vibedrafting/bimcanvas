@@ -38,6 +38,8 @@ export interface SchemeValidationReport {
 
 export interface LayoutRequest {
   zoneIds?: string[];
+  /** 非空时必须同时提供 zoneIds（server 强约束：variantId 非空时 zoneIds 必填） */
+  variantId?: string;
 }
 
 export class LayoutValidationService {
