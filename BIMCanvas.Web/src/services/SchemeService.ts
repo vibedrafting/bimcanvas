@@ -53,7 +53,7 @@ export interface AdoptVariantRequest {
 
 /**
  * /api/scheme/variants/summary 的字典值（designZone-level 索引）。
- * variantSlugs 字典序排序，与 listVariants 顺序一致；用于反查 active variant 在序列中的位置。
+ * variantSlugs 按目录创建时间升序排序，与 listVariants 顺序一致；用于反查 active variant 在序列中的位置。
  */
 export interface VariantSummaryEntry {
     count: number;

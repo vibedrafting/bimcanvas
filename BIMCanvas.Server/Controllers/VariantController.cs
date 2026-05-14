@@ -140,11 +140,12 @@ namespace BIMCanvas.Server.Controllers
                 if (!Directory.Exists(variantsRoot))
                     continue;
 
+                // 排序基必须与 ListVariants 一致（按目录创建时间升序），
+                // 否则 VariantNavigatorBar (createdAt) 和 Zone label 角标 (此处) 的页码会错位。
                 var slugs = Directory.EnumerateDirectories(variantsRoot, "*", SearchOption.TopDirectoryOnly)
-                    .Select(Path.GetFileName)
-                    .Where(s => !string.IsNullOrWhiteSpace(s))
-                    .Cast<string>()
-                    .OrderBy(s => s, StringComparer.OrdinalIgnoreCase)
+                    .Where(dir => !string.IsNullOrWhiteSpace(Path.GetFileName(dir)))
+                    .OrderBy(dir => Directory.GetCreationTimeUtc(dir))
+                    .Select(dir => Path.GetFileName(dir)!)
                     .ToList();
 
                 if (slugs.Count > 0)
