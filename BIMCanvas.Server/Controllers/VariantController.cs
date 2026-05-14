@@ -1,8 +1,10 @@
 using System;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Text;
+using System.Threading;
 using System.Threading.Tasks;
 using BIMCanvas.Core.Converters.Json;
 using BIMCanvas.Core.Models.Layout;
@@ -32,6 +34,16 @@ namespace BIMCanvas.Server.Controllers
         private readonly ModulesWriterService _modulesWriter;
         private readonly ModulesReaderService _modulesReader;
         private readonly JsonSerializerSettings _jsonSettings;
+
+        /// <summary>
+        /// 按 designZoneId 串行化 Adopt / Delete 的多文件操作。
+        /// BranchLockManager 是多窗口业务级互斥（branch→windowId），不保护同一窗口快速重复请求 / SignalR
+        /// 重发等场景下的跨多文件竞态——这里用 SemaphoreSlim 兜底。
+        /// 同 designZone 串行；不同 designZone 并发不互斥。
+        /// </summary>
+        private static readonly ConcurrentDictionary<string, SemaphoreSlim> _designZoneFileLocks = new();
+        private static SemaphoreSlim GetDesignZoneLock(string designZoneId)
+            => _designZoneFileLocks.GetOrAdd(designZoneId, _ => new SemaphoreSlim(1, 1));
 
         public VariantController(
             ILogger<VariantController> logger,
@@ -248,6 +260,11 @@ namespace BIMCanvas.Server.Controllers
             if (leafZoneIds.Count == 0)
                 return BadRequest(new { error = $"设计区 {request.DesignZoneId} 无叶子分区" });
 
+            // 同 designZone 的 adopt/delete 串行化（防同一窗口快速重复请求 / SignalR 重发引发的多文件竞态）
+            var adoptLock = GetDesignZoneLock(request.DesignZoneId);
+            if (!await adoptLock.WaitAsync(TimeSpan.FromSeconds(30)))
+                return StatusCode(503, new { error = "设计区被其他变体操作占用，请稍后重试" });
+
             try
             {
                 // 1) 加载所有叶子的 variant wrapper；必须至少一个 modules 非空才视为有效采纳
@@ -360,6 +377,10 @@ namespace BIMCanvas.Server.Controllers
                 _logger.LogError(ex, "采纳变体失败");
                 return StatusCode(500, new { error = $"采纳失败: {ex.Message}" });
             }
+            finally
+            {
+                adoptLock.Release();
+            }
         }
 
         // ─────────────────────────── DeleteVariant ───────────────────────────
@@ -386,11 +407,27 @@ namespace BIMCanvas.Server.Controllers
             if (!Directory.Exists(variantDir))
                 return NotFound(new { error = $"变体目录不存在: variants/{variantSlug}" });
 
-            try { Directory.Delete(variantDir, recursive: true); }
+            // 与 adopt 共享同一 designZone 锁——防"adopt 进行中另一边删变体"竞态
+            var deleteLock = GetDesignZoneLock(designZoneId);
+            if (!await deleteLock.WaitAsync(TimeSpan.FromSeconds(30)))
+                return StatusCode(503, new { error = "设计区被其他变体操作占用，请稍后重试" });
+
+            try
+            {
+                // 锁内复查（adopt 可能刚把它清掉）
+                if (!Directory.Exists(variantDir))
+                    return NotFound(new { error = $"变体目录不存在: variants/{variantSlug}" });
+
+                Directory.Delete(variantDir, recursive: true);
+            }
             catch (Exception ex)
             {
                 _logger.LogError(ex, "删除变体目录失败: {Dir}", variantDir);
                 return StatusCode(500, new { error = $"删除失败: {ex.Message}" });
+            }
+            finally
+            {
+                deleteLock.Release();
             }
 
             _logger.LogInformation(
