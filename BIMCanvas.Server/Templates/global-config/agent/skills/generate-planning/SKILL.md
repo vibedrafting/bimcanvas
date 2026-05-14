@@ -24,12 +24,14 @@ description: |
 3. **`strategic-plan` 是战略层方案，第一次正式消费 reference_analysis。**
 4. **`construction-brief` 是完整施工简报，placement 只读 `construction-brief`。**
 5. **若核心参考意图与当前几何冲突，必须先 Ask，再继续规划。**
-6. **multi-plan 模式（`exploreMode=true`）产 canonical `multi-plan-overview` 即终止本 Skill，不进入 `construction-brief`；`construction-brief` 由后续 `variant-design-agent` 在各自变体目录内生成。multi-plan 与 `reference_analysis` 互斥。**
+6. **multi-plan canonical 模式（`exploreMode=true`）产 canonical `multi-plan-overview` 即终止本 Skill，不进入 `construction-brief`；`construction-brief` 由后续 `variant-design-agent` 触发本 Skill 的 variant-mode 分支后生成。multi-plan 与 `reference_analysis` 互斥。**
+7. **variant-mode（`variantContext` 非空）由 `variant-design-agent` 调用，走 single-plan 主干流程但所有 `save_semantic_plan` 必须传 `variantId = variantContext.variantSlug`；不进入 multi-plan canonical 分支、不进入 generate-zoning、不重新写 canonical `spatial-skeleton`（走 load 视图）。**
 
 **WHY**：
 - `spatial-skeleton` 不独立成立，后面的参考消费就没有真实空间基线。
 - planning 如果消费未定稿参考分析，就会把 analysis 阶段尚未冻结的歧义偷偷带进设计决策。
 - placement 不应重新理解 raw reference；它只该施工。
+- variant-mode 让单变体在 brief 方向 hint 下走完整规划流程。如果 SubAgent 绕过 SKILL 自己手写 strategic-plan / construction-brief，会丢失 SKILL 累积的所有 WHY、闭合预检、双候选评估、L 形门槛、阵列前置扣减等规则——这是 multi-plan 质量崩溃的根因。
 
 ---
 
@@ -45,8 +47,9 @@ description: |
   - 可选的、**已定稿**的 `reference_analysis`
 - 输出（按入场模式分支）：
   - **自主规划 / 参考消费模式**：`spatial-skeleton` 空间骨架 → `strategic-plan` 战略层方案 → `construction-brief` 完整施工简报（均落 canonical）
-  - **multi-plan 模式**：`spatial-skeleton` 空间骨架 → `multi-plan-overview` 多方案战略层概述（canonical，含变体清单 YAML 头 + 每变体 brief）；**不产 `strategic-plan` / `construction-brief`**，由后续 `variant-design-agent` 在 `variants/{slug}/` 目录内生成
+  - **multi-plan canonical 模式（主控调用）**：`spatial-skeleton` 空间骨架 → `multi-plan-overview` 多方案战略层概述（canonical，含变体清单 YAML 头 + 每变体 brief）；**不产 `strategic-plan` / `construction-brief`**，由后续 `variant-design-agent` 调用本 Skill 的 variant-mode 分支生成
   - **multi-plan N=1 退化**：变体只剩 1 个 → 改写普通 `strategic-plan` → 继续 `construction-brief`，与自主规划模式同收尾
+  - **variant-mode（variant-design-agent 调用）**：load canonical `spatial-skeleton`（不写）→ variant `strategic-plan` → variant `construction-brief`，所有 save 必传 `variantId`，落到 `schemes/{designZoneId}/variants/{variantSlug}/semantic_plan.json`
 
 **【必须】**planning 是唯一的语义压缩点：
 - 把当前户型读懂
@@ -79,22 +82,55 @@ description: |
 2. 若返回 `status=missing`，立即停止并说明“缺少已定稿的 reference_analysis，不能进入参考消费模式”
 3. 复述当前消费的参考分析版本号
 
-### multi-plan 模式
+### multi-plan canonical 模式（主控调用）
 
 适用于：
 - 任务上下文携带 `exploreMode=true` 标记（由主控注入，已通过单设计区 + 与 reference 互斥两道前置检查）
 - 且**没有**已定稿的 `reference_analysis`（multi-plan 与参考消费互斥，由主控前置检查保证；本 Skill 入场时再次确认一次）
 
-**multi-plan 模式入场动作**：
-1. 复述上下文中的 `exploreMode=true` 标记，明确进入 multi-plan 分支
+**multi-plan canonical 模式入场动作**：
+1. 复述上下文中的 `exploreMode=true` 标记，明确进入 multi-plan canonical 分支
 2. 若同时检测到定稿 `reference_analysis` 存在，立即停止并报"主控前置检查失误：multi-plan 与 reference_analysis 互斥"
-3. multi-plan 模式产出 `multi-plan-overview` 即终止本 Skill；**不进入 construction-brief**（construction-brief 由后续 `variant-design-agent` 在每个变体目录内生成）
+3. multi-plan canonical 模式产出 `multi-plan-overview` 即终止本 Skill；**不进入 construction-brief**（construction-brief 由后续 `variant-design-agent` 调用本 Skill 的 variant-mode 分支生成）
+
+### variant-mode（variant-design-agent 内部专用）
+
+适用于：
+- 任务上下文携带非空的 `variantContext` 字段（结构：`{variantSlug, designZoneId, variantDirection, variantNarrative, variantAnchorSeed, variantAvoidance}`）
+- 且 `exploreMode` 未设置（variant-mode 与 multi-plan canonical 互斥——前者是 subagent 在变体内部走 single-plan 流程，后者是主控产生变体清单）
+- 且没有已定稿 `reference_analysis`（variant-mode 与参考消费互斥）
+
+**variant-mode 入场动作**：
+1. 复述 `variantContext.variantSlug` 与 `variantDirection`，明确进入 variant-mode 分支
+2. 走 single-plan 主干流程（`spatial-skeleton` → `strategic-plan` → `construction-brief`），但：
+   - `spatial-skeleton` 走 load 视图（`load_semantic_plan({zoneId, tag: "spatial-skeleton"})`），**不重新写入** —— canonical 已有的 spatial-skeleton 是所有变体共享的空间基线
+   - 所有 `save_semantic_plan({tag: "strategic-plan" | "construction-brief"})` **必须传 `variantId = variantContext.variantSlug`**
+   - `strategic-plan` 阶段把 `variantDirection` / `variantNarrative` 作为**探索方向输入**，只把 `variantAnchorSeed` 当硬约束，其余决策（衣柜墙、梳妆台位置、是否 L 形等）由 SKILL 在自主规划主干内自由判断
+3. SKILL 内部的双候选评估、L 形门槛、阵列前置扣减、闭合预检等规则照常运行
+4. 终止于 `construction-brief` 保存——**不进入** `generate-placement`（placement 由 variant-design-agent 自行加载 `generate-placement` Skill）
+
+**【禁止】variant-mode 下**：
+- 进入 multi-plan canonical 分支（不写 `multi-plan-overview`）
+- 进入 generate-zoning 阶段（subZones 跟随 canonical，variant 不改 zoning）
+- 写 canonical `spatial-skeleton` / `strategic-plan` / `construction-brief`（所有 save 必传 variantId）
+
+**【关键】variantAnchorSeed 不成立时的认输路径**：
+若发现 `variantAnchorSeed` 在当前几何下不成立（如锁定"床头墙=西墙"但西墙全是门窗），立即停止 strategic-plan 写入，输出 `[自动改图建议] 本变体 variantAnchorSeed 不成立：<具体原因 + 坐标证据>` 并终止本 Skill；调用方（variant-design-agent）应透传此建议给主控。
+
+### 入场模式互斥关系总表
+
+| 模式 | 触发上下文 | 调用者 | 终止于 |
+|------|-----------|--------|--------|
+| 自主规划 | 无标记 + 无定稿 reference + 无 variantContext | 主控 / layout-agent | `construction-brief`（canonical） |
+| 参考消费 | 定稿 reference_analysis 存在 + 无 exploreMode + 无 variantContext | 主控 / layout-agent | `construction-brief`（canonical） |
+| multi-plan canonical | `exploreMode=true` | 主控 Agent | `multi-plan-overview`（canonical） |
+| variant-mode | `variantContext` 非空 | variant-design-agent | `construction-brief`（variant 路径） |
 
 **【必须】**不要根据图片名称、用户措辞、主观印象给流程另起名字。
 
 **【必须】**图片本身不是合同；定稿 `reference_analysis` 才是 planning 的正式参考输入。
 
-**【必须】**三种入场模式互斥：`exploreMode=true` → multi-plan；否则有定稿 reference_analysis → 参考消费；否则 → 自主规划。
+**【必须】**四种入场模式严格互斥。优先级判定（同时存在多触发条件时）：`exploreMode=true` > `variantContext` 非空 > 定稿 reference_analysis > 默认自主规划。`exploreMode=true` 与 `variantContext` 非空同时存在视为编排错误，立即停止并报"模式冲突"。
 
 ---
 
@@ -122,6 +158,8 @@ description: |
 **目标**：独立理解当前项目户型。
 
 **【必须】**无论是否存在 `reference_analysis`，`spatial-skeleton` 都只分析当前户型。
+
+**【variant-mode 例外】**：variant-mode 下**不重新写入** spatial-skeleton——canonical 已有的 spatial-skeleton 是所有变体共享的空间基线，本节调用 `load_semantic_plan({zoneId, tag: "spatial-skeleton"})` 取得后直接进入 §2.2。
 
 从 `design_evaluation.md` 的品质维度完成空间阅读：
 - 动线方向
@@ -267,6 +305,34 @@ save_semantic_plan({
 - 无
 ```
 
+#### variant-mode
+
+承接 canonical `spatial-skeleton`（已通过 `load_semantic_plan({tag: "spatial-skeleton"})` 取得），把 `variantContext` 4 字段作为方向输入：
+
+- `variantDirection`：本变体的设计方向核心句——作为 strategic-plan "空间骨架承接"或"主要家具策略与分区"段的统领
+- `variantNarrative`：方向 WHY——帮助 SKILL 在双候选评估、L 形/线性选择等决策点判断"该方向下最好的选择"
+- `variantAnchorSeed`（**最多 1 条硬锚点**）：必须兑现的核心决策（如"床头墙=西墙"）——其余决策（衣柜墙、梳妆台位置、是否 L 形等）由 SKILL 在主干流程内自由判断
+- `variantAvoidance`：方向反面——避免与兄弟变体雷同的反模式提示
+
+**variant-mode 主干流程**：
+1. 加载房间策略文件（同自主规划模式）
+2. **不加载 `generate-zoning`**（subZones 跟随 canonical）
+3. 主要家具策略：在 `variantAnchorSeed` 约束下确定，其余字段作为软 hint
+4. 输出 strategic-plan，结构同上述"推荐结构"，但在"空间骨架承接"或独立的"## 变体方向"段开头复述 `variantDirection` + `variantAnchorSeed`
+
+**variantAnchorSeed 不成立判定**：
+若 `variantAnchorSeed` 在当前几何下不可兑现，**不保存 strategic-plan**，立即输出：
+
+```text
+[自动改图建议] 本变体 variantAnchorSeed 不成立：
+  variantSlug: <slug>
+  锁定决策: <variantAnchorSeed 内容>
+  不成立原因: <具体原因 + 坐标证据>
+建议主控：从 batch 中过滤本变体；若剩余变体 ≥ 2 正常展示，否则触发 N=1 退化。
+```
+
+调用方（variant-design-agent）应透传此建议给主控。
+
 #### 保存规则
 
 ```text
@@ -275,9 +341,13 @@ save_semantic_plan({
   tag: "strategic-plan",
   planType: "derived",
   content,
-  referenceAnalysisTag: "vN"   # 参考消费模式必填
+  variantId: variantContext.variantSlug,   # variant-mode 必填
+  referenceAnalysisTag: "vN"               # 参考消费模式必填（与 variantId 互斥）
 })
 ```
+
+**【必须】**`variantId` 与 `referenceAnalysisTag` 互斥（variant-mode 与参考消费模式互斥）；
+自主规划模式两者都不传；multi-plan canonical 模式不进入本节。
 
 `strategic-plan` 提交后，立即读取 `references/optional-furniture-rules.md`，用于把已发现的可选功能候选收束为 `construction-brief` 施工表达；不得在 `construction-brief` 首次发明新的战略候选。
 
@@ -288,11 +358,19 @@ save_semantic_plan({
 
 ---
 
-### 2.3 多方案战略层概述 -> `multi-plan-overview`（multi-plan 模式专属）
+### 2.3 多方案战略层概述 -> `multi-plan-overview`（multi-plan canonical 模式专属）
 
-**目标**：在多方案模式下，产出一份**多变体战略概述**，作为主控后续并行派发 `variant-design-agent` 的合同。
+**目标**：在多方案模式下，产出一份**多变体战略概述**——每个变体是一个**设计方向 hint**（不是具体方案细节），由后续 `variant-design-agent` 调用本 Skill 的 variant-mode 分支在该方向下做完整规划。本节是主控派发 `variant-design-agent` 的合同。
 
-**【必须】**只有 multi-plan 模式（`exploreMode=true` 且无定稿 `reference_analysis`）才进入本节。其他模式跳过本节，直接进入 `### 2.4`。
+**【必须】**只有 multi-plan canonical 模式（`exploreMode=true` 且无定稿 `reference_analysis`）才进入本节。其他模式跳过本节，直接进入 `### 2.4`。
+
+#### 设计哲学：差异化在方向层，不在配置层
+
+multi-plan 的核心价值是"几个对等可行的方案让用户视觉决策"——差异化的本质是**设计哲学/叙事方向的差异**（睡眠优先 vs 换衣动线优先 vs 视觉叙事优先），不是**具体家具排列的差异**（A 方案把衣柜放北墙 vs B 方案把衣柜放东墙）。
+
+主控写 brief 时只锁定 **1 个核心决策点**（如"床头墙=西墙"或"主收纳=延伸区"），其余决策（衣柜墙、梳妆台位置、是否 L 形、阵列方式等）**全部交给 variant-design-agent 在 variant-mode 内自由发挥**——SKILL 内部的双候选评估、L 形门槛、阵列前置扣减规则会自然激活，产出"该方向下最好的方案"。
+
+WHY：主控写 brief 时若已经把"具体家具组合"写死，subagent 在 variant-mode 内只能"兑现 brief 已经决定的画面"，失去全局重判机会——这是 multi-plan 质量崩溃的根因。把 brief 提到方向层后，subagent 拿回完整决策权，规则自然激活。
 
 #### 触发与互斥重申
 
@@ -319,37 +397,79 @@ multi-plan 模式下 `spatial-skeleton` 的生成与单方案模式完全相同�
 
 ```yaml
 variants:
+  - slug: classic-west
+    title: 西墙睡眠·自然轴线
   - slug: dressing-front
-    title: 梳妆台前置
-  - slug: bed-east
-    title: 床朝东借窗景
-  - slug: open-closet
-    title: 开放式衣帽
+    title: 梳妆台前置·窗景轴线
+  - slug: closet-priority
+    title: 收纳带动叙事
 ```
 
 ## 设计意图 briefs
 
+### classic-west
+
+- variantDirection: 以最深处采光位为睡眠锚点，让收纳功能沿动线由静到动展开。
+- variantNarrative: 床头墙锁定房间最长且远离门的连续实墙，天然成为睡眠区的"深度边界"。其他家具的具体配置由 SKILL 在 variant-mode 下决定（包括衣柜墙、梳妆台位置、是否 L 形）。
+- variantAnchorSeed: 床头墙=西墙
+- variantAvoidance: 不让主收纳远离主体区，把延伸区当辅助而非主战场。
+
 ### dressing-front
 
-- 核心意图：梳妆台从衣帽间移到睡眠区，靠近窗景
-- 锚点墙面/家具：梳妆台靠东墙，床向北让位
-- 必须保留的关系：床-床头柜组合不变
-- 自由发挥空间：衣柜组织方式可调
-- 必要的连带改动：南墙短段让位给衣柜
+- variantDirection: 梳妆台从次要位置提升为窗景轴线的视觉锚点。
+- variantNarrative: 让"使用人"成为空间叙事中心——梳妆台靠近南窗采光，与窗景形成视觉对位；床头墙位置由 SKILL 根据其他几何条件判断。
+- variantAnchorSeed: 梳妆台=南窗锚点位
+- variantAvoidance: 不让梳妆台成为孤立的"采光摆件"——SKILL 需要在 strategic-plan 中评估梳妆台与衣柜的组合可能。
 
-### bed-east
+### closet-priority
 
-- 核心意图：...
-- 锚点墙面/家具：...
-- 必须保留的关系：...
-- 自由发挥空间：...
-- 必要的连带改动：...
-
-### open-closet
-
-- 核心意图：...
-- ...
+- variantDirection: 收纳功能主导动线，进门即被衣柜包裹。
+- variantNarrative: 让换衣→睡眠形成连续叙事——入口侧布置主衣柜形成"过渡墙"，睡眠区在更内侧。床头墙、衣柜墙的具体选择由 SKILL 在 variant-mode 内判断。
+- variantAnchorSeed: 主衣柜=入口侧（北墙或邻近门的实墙）
+- variantAvoidance: 不让衣柜阵列断头或压缩床的舒展空间。
 ````
+
+#### brief 字段定义
+
+| 字段 | 性质 | 内容要求 |
+|------|------|---------|
+| `variantDirection` | 一句话 | 本变体的**设计方向**——空间叙事的核心句。**禁止写具体家具配置**（"北墙满墙衣柜"是配置不是方向；"以收纳功能为视觉锚点"是方向）。 |
+| `variantNarrative` | 一段话 | 本方向**为什么值得探索** + 设计哲学差异说明。这是给 variant-design-agent 在 SKILL 内做决策时的"WHY 输入"。 |
+| `variantAnchorSeed` | **最多 1 条硬锚点** | 本变体的核心识别约束——通常只锁定"床头墙在哪"或"主收纳在哪"这一个决策点，**其余决策全部交给 variant-design-agent 在 SKILL 内自由发挥**。 |
+| `variantAvoidance` | 一句话 | 本方向应避免的反模式——通常用于区分本变体与兄弟变体的设计哲学。**禁止列具体家具禁止清单**。 |
+
+#### 【必须】variantAnchorSeed 单决策点原则
+
+每个变体只锁定 **1 个核心决策**（如"床头墙=西墙"或"主收纳=延伸区"），**不连续锁定 2-3 个决策**。锁多了就退化回 v1 的"具体配置 brief"——subagent 失去全局重判机会，与单方案质量产生差距。
+
+#### v1 反例 vs v2 正例
+
+❌ **v1 反例**（不要用——把具体方案细节锁死在 brief）：
+
+```markdown
+### classic-west
+
+- 核心意图：床靠西墙、北墙满墙衣柜、梳妆台靠东墙南端
+- 锚点墙面/家具：床靠西墙，北墙东段衣柜，东墙梳妆台
+- 必须保留的关系：1800 床 + 双床头柜，北墙 4070mm 满墙阵列
+- 自由发挥空间：梳妆台具体宽度
+- 必要的连带改动：无
+```
+
+问题：把 strategic-plan 阶段才该决定的事（衣柜墙、梳妆台位置）全部锁死在 brief，subagent 失去全局重判机会，且把"北墙 4070mm"这种未扣门侧净空的原始数据当成有效段。
+
+✅ **v2 正例**（用这个——只锁 1 个核心决策点，其余交给 SKILL）：
+
+```markdown
+### classic-west
+
+- variantDirection: 以最深处采光位为睡眠锚点，让收纳功能沿动线由静到动展开。
+- variantNarrative: 床头墙锁定房间最长且远离门的连续实墙……
+- variantAnchorSeed: 床头墙=西墙
+- variantAvoidance: 不让主收纳远离主体区。
+```
+
+subagent 接收后，在 variant-mode 下自由决定衣柜墙、梳妆台位置、是否 L 形——SKILL 内部的双候选评估、L 形门槛、阵列前置扣减规则全部激活。
 
 **slug 命名规则**（写在变体清单紧邻处的硬约束）：
 
@@ -362,6 +482,8 @@ variants:
 **【必须】**`## 变体清单` 下必须用 ` ```yaml ``` ` fenced code block 包裹 `variants:` 列表，主控将用 yaml parser 解析。不要用纯缩进列表代替（缩进歧义会导致主控解析失败）。
 
 **【必须】**`## 设计意图 briefs` 段的每个 brief 必须用 `### {slug}` 三级标题分割，**slug 与 YAML 头一致**。brief 内部禁止再用 `###` 三级标题（防止主控按标题切分时切碎一个 brief）；如需子结构请用 `####` 或无序列表。
+
+**【必须】**每个 brief 必须**且仅**包含 v2 四字段（`variantDirection` / `variantNarrative` / `variantAnchorSeed` / `variantAvoidance`），用 `- 字段名: 内容` 的列表项形式列出。禁止使用 v1 字段（"核心意图" / "锚点墙面或家具" / "必须保留的关系" / "自由发挥空间" / "必要的连带改动"）——v1 字段鼓励写具体方案细节，会让 subagent 失去全局重判机会。
 
 #### F3 排除式 Ask 规则
 
@@ -410,7 +532,7 @@ save_semantic_plan({
 
 ### 2.4 完整施工简报 -> `construction-brief`
 
-**【必须】**若当前为 multi-plan 模式（`exploreMode=true`），不应进入本节；construction-brief 由 `variant-design-agent` 在变体目录内生成。本节仅适用于自主规划模式、参考消费模式与 multi-plan 的 N=1 退化路径。
+**【必须】**若当前为 multi-plan canonical 模式（`exploreMode=true`），不应进入本节；construction-brief 由 `variant-design-agent` 调用本 Skill 的 variant-mode 分支生成。本节适用于：自主规划模式、参考消费模式、multi-plan N=1 退化路径、**variant-mode（`variantContext` 非空）**。
 
 **目标**：把 `strategic-plan` 收束成 placement 唯一可读的完整合同。
 
@@ -511,9 +633,13 @@ save_semantic_plan({
   tag: "construction-brief",
   planType: "derived",
   content,
-  referenceAnalysisTag: "vN"   # 参考消费模式必填
+  variantId: variantContext.variantSlug,   # variant-mode 必填
+  referenceAnalysisTag: "vN"               # 参考消费模式必填（与 variantId 互斥）
 })
 ```
+
+**【必须】**`variantId` 与 `referenceAnalysisTag` 互斥（variant-mode 与参考消费模式互斥）；
+自主规划模式与 multi-plan N=1 退化路径下两者都不传。
 
 ---
 
@@ -521,10 +647,10 @@ save_semantic_plan({
 
 - `strategic-plan` 之后，主要家具策略与战略级分区不可在本 Skill 内被静默推翻
 - `construction-brief` 只能补全，不得重新发明一套新的战略方向
-- `placement` 只允许读取 `construction-brief`（multi-plan 模式下，`construction-brief` 由 `variant-design-agent` 在各自 `variants/{slug}/` 目录内生成，placement 按 variant 路径读对应 `construction-brief`）
+- `placement` 只允许读取 `construction-brief`（multi-plan 模式下，`construction-brief` 由 `variant-design-agent` 触发 variant-mode 在各自 `variants/{slug}/` 目录内生成，placement 按 variant 路径读对应 `construction-brief`）
 - 不在本 Skill 内写 `modules.json`
-- 不在本 Skill 内调用 `load_semantic_plan`
-- multi-plan 模式下不在本 Skill 内进入 `generate-placement`（由主控派发 `variant-design-agent` 后，placement 在 agent 内部加载）
+- 不在本 Skill 内调用 `load_semantic_plan`（**例外**：variant-mode 入场时 load canonical `spatial-skeleton` 取共享空间基线）
+- multi-plan canonical 模式与 variant-mode 都不在本 Skill 内进入 `generate-placement`（multi-plan canonical 由主控派发 `variant-design-agent`；variant-mode 由 variant-design-agent 自行加载 `generate-placement`）
 
 **【自由区域】**
 - 可选家具的取舍（在 `optional-furniture-rules` 框架内）
@@ -543,5 +669,6 @@ save_semantic_plan({
 按入场模式分支：
 
 - **自主规划 / 参考消费模式**：本 Skill 完成 `construction-brief` 后，由编排层路由到 `generate-placement` 进行施工。
-- **multi-plan 模式**：本 Skill 完成 `multi-plan-overview` 后**即终止**，**不进入 `generate-placement`**。主控读 canonical `multi-plan-overview` 提取 `variantSlugs[]`，并行派发 `variant-design-agent`；每个 variant agent 在自己的 `variants/{slug}/` 目录内完成 strategic-plan / construction-brief / modules + validate（详见 `variant-design-agent.md`）。
+- **multi-plan canonical 模式**：本 Skill 完成 `multi-plan-overview` 后**即终止**，**不进入 `generate-placement`**。主控读 canonical `multi-plan-overview` 提取 `variantSlugs[]`，并行派发 `variant-design-agent`；每个 variant agent 调用本 Skill 的 variant-mode 分支完成自己变体的 strategic-plan / construction-brief，然后自行加载 `generate-placement`（详见 `variant-design-agent.md`）。
 - **multi-plan N=1 退化**：变体只剩 1 个时，Skill 自动改写普通 `strategic-plan` → 继续 `construction-brief` → `generate-placement`，与自主规划模式收尾一致。
+- **variant-mode（variant-design-agent 调用）**：本 Skill 完成 variant 的 `construction-brief`（带 variantId）后**即终止**。调用方（variant-design-agent）自行加载 `generate-placement` 进入施工——本 Skill 不路由到 placement。若 `variantAnchorSeed` 不成立则在 strategic-plan 阶段提前认输（`[自动改图建议]`），不写 construction-brief。

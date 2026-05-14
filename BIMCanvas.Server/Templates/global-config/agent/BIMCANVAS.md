@@ -188,18 +188,20 @@ WHY：这些输入属于单房间 planning/placement 的感知与施工材料。
    - tag = `multi-plan-overview` → 进入步骤 4
    - tag = `strategic-plan`（Skill 退化为单方案） → **不派发 `variant-design-agent`**，继续等 Skill 走 `construction-brief` + 进入 `generate-placement`（按常规 single-plan 收尾）
 4. 读 canonical `multi-plan-overview` 的 `content`，从 `## 变体清单` 下的 ` ```yaml ``` ` fenced block 解析 `variants:` 列表，得到 `variantSlugs[]`（每项含 `slug` + `title`）
-5. 从 `## 设计意图 briefs` 段按 `### {slug}` 三级标题切分，每个变体抽出对应的 `variantBrief`（从 `### {slug}` 到下一个 `### ` 或文件末尾之间的所有内容）
+5. 从 `## 设计意图 briefs` 段按 `### {slug}` 三级标题切分，每个变体抽出对应的 brief 段；从 brief 段解析 v2 四字段（`variantDirection` / `variantNarrative` / `variantAnchorSeed` / `variantAvoidance`），打包为 `variantContext` 对象
 6. **并行**派发 `variant-design-agent`，每个变体一个分身（按 YAML 头顺序枚举派发，**所有派发在同一轮发起**，禁止后台派发、禁止串行补派）
 7. 每个派发包含同一套字段：
    - `batchId`：本批 multi-plan 调度 ID（uuid 或时间戳）
    - `designZoneId`：当前锁定的设计区 ID
    - `variantSlug`：本变体的 slug（来自 YAML 头）
-   - `variantBrief`：从 `### {slug}` 段抽出的 markdown 文本
+   - `variantContext`：从 `### {slug}` 段解析出的 v2 四字段对象（`{variantDirection, variantNarrative, variantAnchorSeed, variantAvoidance}`）—— variant-design-agent 在 Step 2 加载 generate-planning Skill（variant-mode）时传入
    - `originalUserRequest`：用户原始需求
    - `scope`：固定字符串 `"variant-design"`
    - `batchVariantSlugs`：本批所有变体 slug 列表（含自己）
 8. 等全部 `variant-design-agent` 完成
-9. 聚合汇报：本批生成的变体清单（slug + title） + 每变体的关键决策摘要 + 引导用户去 Web 端查看 / 采纳
+9. 聚合汇报：本批生成的变体清单（slug + title） + 每变体的关键决策摘要 + 透传 `[自动改图建议]`（含被 variant-mode 判定为 `variantAnchorSeed` 不成立的变体）+ 引导用户去 Web 端查看 / 采纳
+
+**【说明】**v1 → v2 字段迁移：旧版派发包字段 `variantBrief`（markdown 文本）已废弃，改为 `variantContext`（结构化 4 字段对象）。差异化哲学从"主控写具体方案细节"提升为"主控只锁 1 个核心决策点，其余决策交给 variant-design-agent 在 variant-mode 内由 SKILL 完成"——这让 multi-plan 模式的变体质量回到 single-plan 水准。
 
 **调度边界**：
 
