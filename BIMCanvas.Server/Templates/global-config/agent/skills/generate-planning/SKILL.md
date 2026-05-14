@@ -399,34 +399,34 @@ multi-plan 模式下 `spatial-skeleton` 的生成与单方案模式完全相同�
 variants:
   - slug: classic-west
     title: 西墙睡眠·自然轴线
-  - slug: dressing-front
-    title: 梳妆台前置·窗景轴线
+  - slug: l-shaped-station
+    title: 转角 L 形衣帽工作站
   - slug: closet-priority
     title: 收纳带动叙事
 ```
 
 ## 设计意图 briefs
 
-### classic-west
+### classic-west（示例：单家具锚点类型）
 
 - variantDirection: 以最深处采光位为睡眠锚点，让收纳功能沿动线由静到动展开。
 - variantNarrative: 床头墙锁定房间最长且远离门的连续实墙，天然成为睡眠区的"深度边界"。其他家具的具体配置由 SKILL 在 variant-mode 下决定（包括衣柜墙、梳妆台位置、是否 L 形）。
-- variantAnchorSeed: 床头墙=西墙
+- variantAnchorSeed: 床头墙=最长安静实墙
 - variantAvoidance: 不让主收纳远离主体区，把延伸区当辅助而非主战场。
 
-### dressing-front
+### l-shaped-station（示例：家具组合关系类型）
 
-- variantDirection: 梳妆台从次要位置提升为窗景轴线的视觉锚点。
-- variantNarrative: 让"使用人"成为空间叙事中心——梳妆台靠近南窗采光，与窗景形成视觉对位；床头墙位置由 SKILL 根据其他几何条件判断。
-- variantAnchorSeed: 梳妆台=南窗锚点位
-- variantAvoidance: 不让梳妆台成为孤立的"采光摆件"——SKILL 需要在 strategic-plan 中评估梳妆台与衣柜的组合可能。
+- variantDirection: 衣柜与梳妆台在异形区/转角形成 L 形工作站，更衣与梳妆动线一体。
+- variantNarrative: 用两件家具的**转角组合关系**定义功能聚合点——SubAgent 自由选择具体哪个转角（异形区 NE 角 / 主体区入口侧 / 床尾对面），由几何条件决定。床头墙、采光关系由 SKILL 在 strategic-plan 内判断。
+- variantAnchorSeed: 衣柜+梳妆台=L 形组合（具体转角由 SubAgent 在 variant-mode 决定）
+- variantAvoidance: 不让 L 形组合压缩通往卫浴的主要通道。
 
-### closet-priority
+### closet-priority（示例：空间策略类型）
 
-- variantDirection: 收纳功能主导动线，进门即被衣柜包裹。
-- variantNarrative: 让换衣→睡眠形成连续叙事——入口侧布置主衣柜形成"过渡墙"，睡眠区在更内侧。床头墙、衣柜墙的具体选择由 SKILL 在 variant-mode 内判断。
-- variantAnchorSeed: 主衣柜=入口侧（北墙或邻近门的实墙）
-- variantAvoidance: 不让衣柜阵列断头或压缩床的舒展空间。
+- variantDirection: 收纳功能主导动线，进门即被收纳包裹，释放睡眠区舒展度。
+- variantNarrative: 用**"入口侧连续收纳带"空间策略**组织空间——SubAgent 自由决定收纳带跨越哪几段实墙（单段满墙 / 跨区域连续 / L 形包裹），按"填满有效段"原则取最长。
+- variantAnchorSeed: 主收纳锚点=入口侧连续段（允许跨主体区+延伸区）
+- variantAvoidance: 不让睡眠区被收纳挤到墙角失去舒展度。
 ````
 
 #### brief 字段定义
@@ -435,12 +435,34 @@ variants:
 |------|------|---------|
 | `variantDirection` | 一句话 | 本变体的**设计方向**——空间叙事的核心句。**禁止写具体家具配置**（"北墙满墙衣柜"是配置不是方向；"以收纳功能为视觉锚点"是方向）。 |
 | `variantNarrative` | 一段话 | 本方向**为什么值得探索** + 设计哲学差异说明。这是给 variant-design-agent 在 SKILL 内做决策时的"WHY 输入"。 |
-| `variantAnchorSeed` | **最多 1 条硬锚点** | 本变体的核心识别约束——通常只锁定"床头墙在哪"或"主收纳在哪"这一个决策点，**其余决策全部交给 variant-design-agent 在 SKILL 内自由发挥**。 |
+| `variantAnchorSeed` | **最多 1 条硬锚点** | 本变体的核心识别约束。**类型不限于"某家具固定到某墙面"**——参见下文"三种类型"段。 |
 | `variantAvoidance` | 一句话 | 本方向应避免的反模式——通常用于区分本变体与兄弟变体的设计哲学。**禁止列具体家具禁止清单**。 |
+
+#### variantAnchorSeed 的三种类型
+
+AnchorSeed 是**1 条硬锚点**（数量约束），但**类型可以是任一种**——不限于"单家具的墙面位置"：
+
+| 类型 | 锚定什么 | 字段填法模板 |
+|------|---------|------------|
+| **单家具锚点** | 一个主家具固定到某墙面/位置 | `<家具名>=<墙面/位置语义>` |
+| **家具组合关系** | 两件家具的相对组合形态 | `<家具A>+<家具B>=<组合形态(L形/U形/对位/并排) + 位置>` |
+| **空间策略** | 跨家具的整体空间组织逻辑 | `<策略名>=<空间区域语义>` |
+
+具体的"哪种家具在哪面墙合理 / 哪种组合在该房型成立 / 哪种空间策略适合"由 SubAgent 在 variant-mode 内基于领域知识（房间策略文件、模块库规则）自由判断——**主控只负责锁"这个变体探索哪种类型的锚点"**，不替 SubAgent 做家具/墙面级别的决策。
+
+WHY：用户期待的"多方案"是**几种思考方式的差异**，不是"同一思考方式下排列组合的结果"。三种 AnchorSeed 类型对应三种思考路径：
+
+- **单家具锚点** = "我从睡眠/收纳/梳妆中**哪一件主家具开始锚**？"
+- **家具组合关系** = "我让**哪两件家具形成什么组合**（L/U/对位）？"
+- **空间策略** = "我用**什么空间组织逻辑**（释放主体区 / 入口包裹 / 异形区独立功能 / 更衣与睡眠融合）？"
+
+如果主控的所有候选 AnchorSeed 都是单家具锚点（"床/衣柜/梳妆分别放哪"），必然漏掉"L 形衣帽工作站"、"开放式衣帽间"、"床+梳妆对位轴线"这类**组合/策略层面**的方案——这些方案在单家具锚点维度下无法表达。
 
 #### 【必须】variantAnchorSeed 单决策点原则
 
-每个变体只锁定 **1 个核心决策**（如"床头墙=西墙"或"主收纳=延伸区"），**不连续锁定 2-3 个决策**。锁多了就退化回 v1 的"具体配置 brief"——subagent 失去全局重判机会，与单方案质量产生差距。
+每个变体只锁定 **1 条 AnchorSeed**（1 个核心决策点），不连续锁定 2-3 个决策。锁多了就退化回 v1 的"具体配置 brief"——subagent 失去全局重判机会，与单方案质量产生差距。
+
+数量约束（1 条）与类型选择（三种之一）是独立维度——可以是"1 条单家具锚点"、"1 条组合关系锚点"或"1 条空间策略锚点"。
 
 #### v1 反例 vs v2 正例
 
@@ -465,11 +487,59 @@ variants:
 
 - variantDirection: 以最深处采光位为睡眠锚点，让收纳功能沿动线由静到动展开。
 - variantNarrative: 床头墙锁定房间最长且远离门的连续实墙……
-- variantAnchorSeed: 床头墙=西墙
+- variantAnchorSeed: 床头墙=最长安静实墙
 - variantAvoidance: 不让主收纳远离主体区。
 ```
 
 subagent 接收后，在 variant-mode 下自由决定衣柜墙、梳妆台位置、是否 L 形——SKILL 内部的双候选评估、L 形门槛、阵列前置扣减规则全部激活。
+
+#### v2 内部反例 1：AnchorSeed 把"空间策略"狭化为"家具位置"
+
+❌ **反例**：
+
+```yaml
+- slug: closet-extension
+  variantDirection: 收纳功能整合至延伸区，释放主体区空间让睡眠区更舒展。
+  variantAnchorSeed: 主衣柜=延伸区（东侧区域）   ← 单家具锚点（错误翻译）
+```
+
+问题：`variantDirection` 表达的是**空间策略**层面的方向（"释放主体区"），但 `variantAnchorSeed` 把它**翻译成"家具的具体墙面"**——语义被狭化。SubAgent 在 variant-mode 把"延伸区"当硬约束，搜索空间被限制在延伸区那一小段墙内（典型仅 1~2m），不会把衣柜阵列延伸到与延伸区**连续**的主体区墙段（虽然两者本是同一段连续实墙、合起来可达数米）。
+
+✅ **正例**：
+
+```yaml
+- slug: closet-extension
+  variantDirection: 收纳功能整合至延伸区，释放主体区空间让睡眠区更舒展。
+  variantAnchorSeed: 主收纳锚点=入口侧连续段（允许跨主体区+延伸区）   ← 空间策略类型
+```
+
+把 AnchorSeed 的类型从"单家具锚点"提升到"空间策略"，让 SubAgent 自由决定具体阵列范围——配合 SKILL 内的"填满有效段"规则，自然产出最长阵列。
+
+WHY：当 `variantDirection` 在"空间策略"层面表达方向时，`variantAnchorSeed` 应保持同层级（空间策略类型）；若降级翻译为"单家具锚点"，会让 SubAgent 的搜索空间被预设的"家具位置"提前缩小，违背"差异化在方向层"的设计哲学。
+
+#### v2 内部反例 2：所有变体都是同一种 AnchorSeed 类型
+
+❌ **反例**：
+
+```yaml
+variants:
+  - slug: bed-west,        AnchorSeed: 床头墙=西墙              ← 单家具锚点
+  - slug: vanity-window,   AnchorSeed: 梳妆台=南窗位             ← 单家具锚点
+  - slug: closet-north,    AnchorSeed: 主衣柜=北墙               ← 单家具锚点
+```
+
+问题：3 个变体只是"把同一组家具在不同墙面上排列组合"——差异化退化为一维。漏掉"衣柜+梳妆台 L 形工作站"、"开放式衣帽间策略"、"睡眠+换衣融合区"等组合/策略层面的方向。
+
+✅ **正例**（参见 §2.3 brief 模板示例：3 个示例跨 3 种类型）：
+
+```yaml
+variants:
+  - slug: classic-west,        AnchorSeed: 床头墙=最长安静实墙       ← 单家具锚点
+  - slug: l-shaped-station,    AnchorSeed: 衣柜+梳妆台=L 形组合      ← 家具组合关系
+  - slug: closet-priority,     AnchorSeed: 主收纳锚点=入口侧连续段    ← 空间策略
+```
+
+3 个变体提供 3 种**思考方式**的差异化，而非 3 种**家具排列**的差异化——这是 multi-plan 应有的形态。违反此原则将被"AnchorSeed 类型必须至少跨 2 种"硬要求（下文）拒绝。
 
 **slug 命名规则**（写在变体清单紧邻处的硬约束）：
 
@@ -484,6 +554,16 @@ subagent 接收后，在 variant-mode 下自由决定衣柜墙、梳妆台位置
 **【必须】**`## 设计意图 briefs` 段的每个 brief 必须用 `### {slug}` 三级标题分割，**slug 与 YAML 头一致**。brief 内部禁止再用 `###` 三级标题（防止主控按标题切分时切碎一个 brief）；如需子结构请用 `####` 或无序列表。
 
 **【必须】**每个 brief 必须**且仅**包含 v2 四字段（`variantDirection` / `variantNarrative` / `variantAnchorSeed` / `variantAvoidance`），用 `- 字段名: 内容` 的列表项形式列出。禁止使用 v1 字段（"核心意图" / "锚点墙面或家具" / "必须保留的关系" / "自由发挥空间" / "必要的连带改动"）——v1 字段鼓励写具体方案细节，会让 subagent 失去全局重判机会。
+
+**【必须】**变体清单中各变体的 `variantAnchorSeed` **类型必须至少跨 2 种**（参见上文"AnchorSeed 三种类型"）。例如：
+
+- ✅ 合法：3 个变体的 AnchorSeed 类型为 单家具锚点 + 家具组合关系 + 空间策略（跨 3 种）
+- ✅ 合法：3 个变体的 AnchorSeed 类型为 单家具锚点 + 单家具锚点 + 家具组合关系（跨 2 种）
+- ❌ 违规：3 个变体的 AnchorSeed 类型全是单家具锚点（仅 1 种）
+
+WHY：仅锁数量（"每变体 1 条 AnchorSeed"）而不锁类型多样性，主控会全部用同一种类型枚举候选，产出"同一思考方式下的排列组合"而非"几种思考方式的差异"。multi-plan 的核心价值是让用户在"哲学不同"的方案间视觉决策，不是在"哲学相同但排列不同"的方案间挑数字。
+
+**【建议】**3 个变体最佳是跨 3 种 AnchorSeed 类型——这是 multi-plan 最大化设计哲学差异化的形态。
 
 #### F3 排除式 Ask 规则
 

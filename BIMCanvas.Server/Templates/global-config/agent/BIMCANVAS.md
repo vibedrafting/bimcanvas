@@ -183,6 +183,9 @@ WHY：这些输入属于单房间 planning/placement 的感知与施工材料。
 **派发流程**：
 
 1. 加载 `generate-planning` Skill（multi-plan 分支会自动触发，因 `exploreMode=true`）
+
+   **【建议】**加载 Skill 前**不要在自己的 thinking 内预先排好候选清单**（如"我先想好 3 个方案，分别是床靠 X 墙 / 衣柜在 Y 墙 / 梳妆台在 Z 墙"）。`generate-planning` Skill §2.3 含"AnchorSeed 三种类型"框架（单家具锚点 / 家具组合关系 / 空间策略）+ 跨类型至少 2 种的硬要求；让 Skill 引导你按维度枚举候选，避免你只想到单一维度。先入为主的候选清单会让 Skill 的引导被打折扣——你只是"按已定方向填字段"，错过组合/策略层面的设计哲学差异。
+
 2. 等 `generate-planning` 产出 canonical 的 `multi-plan-overview`（即 `save_semantic_plan({tag: "multi-plan-overview"})` 成功返回）
 3. **N=1 退化检测**：`load_semantic_plan({zoneId: designZoneId})` 看 canonical 最新 entry 实际 tag：
    - tag = `multi-plan-overview` → 进入步骤 4
