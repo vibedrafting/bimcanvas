@@ -129,6 +129,7 @@ namespace BIMCanvas.Server.Services
             private readonly Dictionary<string, ModuleFileEntry> _canonicalByZoneId = new Dictionary<string, ModuleFileEntry>(ZoneComparer);
             private readonly Dictionary<string, List<string>> _leafZoneIdsByContainerId = new Dictionary<string, List<string>>(ZoneComparer);
             private readonly HashSet<string> _containerZoneIds = new HashSet<string>(ZoneComparer);
+            private readonly HashSet<string> _designZoneIds = new HashSet<string>(ZoneComparer);
 
             public TopologyBuilder(string schemesPath, List<Zone> zones)
             {
@@ -149,6 +150,7 @@ namespace BIMCanvas.Server.Services
                     if (string.IsNullOrWhiteSpace(zone.Id) || _referencedZoneIds.Contains(zone.Id))
                         continue;
 
+                    _designZoneIds.Add(zone.Id);
                     RegisterZone(zone, new List<string> { zone.Id }, new HashSet<string>(ZoneComparer));
                 }
 
@@ -160,7 +162,8 @@ namespace BIMCanvas.Server.Services
                     hasZoneTopology: true,
                     _canonicalByZoneId,
                     _leafZoneIdsByContainerId,
-                    _containerZoneIds);
+                    _containerZoneIds,
+                    _designZoneIds);
             }
 
             private List<string> RegisterZone(Zone zoneRef, List<string> pathSegments, HashSet<string> activeStack)
@@ -262,19 +265,22 @@ namespace BIMCanvas.Server.Services
         private readonly Dictionary<string, ModuleFileEntry> _canonicalByZoneId;
         private readonly Dictionary<string, List<string>> _leafZoneIdsByContainerId;
         private readonly HashSet<string> _containerZoneIds;
+        private readonly HashSet<string> _designZoneIds;
 
         internal ModuleFileTopology(
             string schemesPath,
             bool hasZoneTopology,
             Dictionary<string, ModuleFileEntry> canonicalByZoneId,
             Dictionary<string, List<string>> leafZoneIdsByContainerId,
-            HashSet<string> containerZoneIds)
+            HashSet<string> containerZoneIds,
+            HashSet<string> designZoneIds)
         {
             SchemesPath = schemesPath;
             HasZoneTopology = hasZoneTopology;
             _canonicalByZoneId = canonicalByZoneId;
             _leafZoneIdsByContainerId = leafZoneIdsByContainerId;
             _containerZoneIds = containerZoneIds;
+            _designZoneIds = designZoneIds;
         }
 
         public string SchemesPath { get; }
@@ -288,7 +294,37 @@ namespace BIMCanvas.Server.Services
                 hasZoneTopology: false,
                 new Dictionary<string, ModuleFileEntry>(StringComparer.OrdinalIgnoreCase),
                 new Dictionary<string, List<string>>(StringComparer.OrdinalIgnoreCase),
+                new HashSet<string>(StringComparer.OrdinalIgnoreCase),
                 new HashSet<string>(StringComparer.OrdinalIgnoreCase));
+        }
+
+        /// <summary>
+        /// 判定 zoneId 是否为 design zone（zones.json 中的顶层 zone，对应 schemes/{zoneId}/ 一级目录）。
+        /// 顶层叶子（无 subZones 的 design zone）与容器（有 subZones）都返回 true。
+        /// </summary>
+        public bool IsDesignZoneId(string zoneId)
+        {
+            return !string.IsNullOrWhiteSpace(zoneId) && _designZoneIds.Contains(zoneId);
+        }
+
+        /// <summary>
+        /// 列出 designZoneId 下所有叶子分区的 zoneId。
+        /// 顶层叶子（design zone 自身就是叶子）→ 返回 [designZoneId]。
+        /// 容器分区 → 返回其登记的叶子列表。
+        /// 非 design zone 或拓扑缺失 → 空列表。
+        /// </summary>
+        public IReadOnlyList<string> GetLeafZoneIds(string designZoneId)
+        {
+            if (string.IsNullOrWhiteSpace(designZoneId) || !HasZoneTopology)
+                return Array.Empty<string>();
+
+            if (_leafZoneIdsByContainerId.TryGetValue(designZoneId, out var leaves))
+                return leaves;
+
+            if (_canonicalByZoneId.ContainsKey(designZoneId))
+                return new[] { designZoneId };
+
+            return Array.Empty<string>();
         }
 
         public IReadOnlyList<ModuleFileEntry> GetExistingCanonicalModuleFiles(IReadOnlyCollection<string>? requestedZoneIds)

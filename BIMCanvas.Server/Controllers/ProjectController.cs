@@ -804,8 +804,8 @@ namespace BIMCanvas.Server.Controllers
                     grouped[zoneId].Add(module);
                 }
 
-                // 变体激活映射：zoneId → variantId（仅保留 variantId 非空且合法的条目）
-                // 命中的 zone：写入 modules-{variantId}.json，canonical 不动；
+                // 变体激活映射：zoneId → variantSlug（仅保留 slug 非空且合法的条目）
+                // 命中的 zone：写入 schemes/{dz}/variants/{slug}/{leaf}/modules.json，canonical 不动；
                 // 未命中：照常写入 canonical modules.json。
                 var variantSelection = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
                 if (request.VariantSelection != null)
@@ -834,18 +834,18 @@ namespace BIMCanvas.Server.Controllers
                         grouped[zoneId] = new List<Module>();
                 }
 
-                // Step 3: 按 zone 状态分别清空旧文件（替代原先一刀切 ClearAllLeafModuleFiles）
-                //   variant 状态的 zone：只清空它的 modules-{variantId}.json，canonical 不动
+                // Step 3: 按 zone 状态分别清空旧文件
+                //   variant 状态的 zone：清空对应 variants/{slug}/{leaf}/modules.json，canonical 不动
                 //   canonical 状态的 zone：清空 canonical modules.json（防家具被拖出后残留）
                 var existingCanonicalFiles = ModuleFileTopologyService.FindExistingCanonicalModuleFiles(schemesPath);
                 foreach (var entry in existingCanonicalFiles)
                 {
-                    if (variantSelection.ContainsKey(entry.ZoneId))
+                    if (variantSelection.TryGetValue(entry.ZoneId, out var slug))
                     {
-                        // 该 zone 在变体状态——不动 canonical，只清它的变体文件
-                        var variantFileToDelete = Path.Combine(
-                            Path.GetDirectoryName(entry.FilePath) ?? schemesPath,
-                            ModuleFileTopologyService.BuildVariantFilename(variantSelection[entry.ZoneId]));
+                        // 该 zone 在变体状态——不动 canonical，只清它的 New 路径变体文件
+                        var dz = ResolveDesignZoneIdForLeaf(schemesPath, entry.ZoneId);
+                        var variantFileToDelete = _modulesWriter.ResolveModulesPath(
+                            projectPath, dz, entry.ZoneId, slug, VariantPathMode.New);
                         DeleteFileIfWritable(variantFileToDelete);
                     }
                     else
@@ -854,18 +854,15 @@ namespace BIMCanvas.Server.Controllers
                     }
                 }
 
-                // Step 4: 写入新数据（全部走 ModulesWriterService，wrapper 形态）
+                // Step 4: 写入新数据（全部走 ModulesWriterService，wrapper 形态 + New 变体路径）
                 foreach (var kvp in grouped)
                 {
                     var leafZoneId = kvp.Key;
                     var designZoneId = ResolveDesignZoneIdForLeaf(schemesPath, leafZoneId);
                     var variantId = variantSelection.TryGetValue(leafZoneId, out var vid) ? vid : null;
-                    // variantId 非空 → Legacy 路径（保留 modules-{vid}.json sibling，等 Phase 7 改造 adopt 时再迁）
-                    // variantId 空 → canonical 路径（pathMode 此时不影响）
-                    var pathMode = string.IsNullOrWhiteSpace(variantId) ? VariantPathMode.New : VariantPathMode.Legacy;
-
                     await _modulesWriter.WriteAsync(
-                        projectPath, designZoneId, leafZoneId, variantId, pathMode, kvp.Value);
+                        projectPath, designZoneId, leafZoneId, variantId,
+                        VariantPathMode.New, kvp.Value);
                 }
 
                 _logger.LogInformation("[SaveModules] 保存完成: {Total} 个模块，{ZoneCount} 个分区，{OrphanCount} 个孤立",

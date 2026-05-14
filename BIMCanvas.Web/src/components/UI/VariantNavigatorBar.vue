@@ -1,8 +1,8 @@
 <script setup lang="ts">
 /**
- * VariantNavigatorBar：屏幕中下浮层，用左右大箭头切换当前选中叶子分区的布置变体。
- * 显示条件：选中叶子分区 且 该分区存在 modules-alt-*.json 变体。
- * 与旧 VariantSwitcherChips 共享 store / service 契约，但作为唯一入口（PropertyPanel 不再嵌入 chips）。
+ * VariantNavigatorBar：屏幕中下浮层，用左右大箭头切换当前选中设计区的布置变体。
+ * 显示条件：选中 zone 能解析为 designZoneId 且 该设计区存在变体目录。
+ * variant 协议按 designZoneId 索引，同一设计区下所有叶子共享一份 variantSlug。
  */
 import { ref, computed, watch, onMounted, onUnmounted } from 'vue';
 import { useCanvasStore } from '../../stores/canvasStore';
@@ -13,77 +13,86 @@ const canvasStore = useCanvasStore();
 
 const variants = ref<VariantDescriptor[]>([]);
 const isLoading = ref(false);
-const adoptingVariantId = ref<string | null>(null);
-const deletingVariantId = ref<string | null>(null);
+const adoptingSlug = ref<string | null>(null);
+const deletingSlug = ref<string | null>(null);
 const errorMessage = ref<string | null>(null);
 
-// 删除确认弹窗：暂存待删 zone 上下文 + variantId，确认后才真正调接口
+// 删除确认弹窗：暂存待删设计区 + 变体 slug
 interface PendingDelete {
-    variantId: string;
-    leafZoneId: string;
-    leafZonePath: string;
+    designZoneId: string;
+    variantSlug: string;
 }
 const pendingDelete = ref<PendingDelete | null>(null);
 const showDeleteConfirm = computed(() => pendingDelete.value !== null);
 
-const busy = computed(() => !!adoptingVariantId.value || !!deletingVariantId.value);
+const busy = computed(() => !!adoptingSlug.value || !!deletingSlug.value);
 
-const variantContext = computed<{ leafZoneId: string; leafZonePath: string } | null>(() => {
+/**
+ * 选中 zone 反查所属 designZoneId：
+ *  - 选中顶层 zone（容器或顶层叶子）→ obj.id
+ *  - 选中子叶子 → obj.parentZoneId
+ *  - 其他 → null
+ */
+const variantContext = computed<{ designZoneId: string } | null>(() => {
     const obj: any = canvasStore.selectedObject;
     if (!obj || obj.type !== 'zone') return null;
-    const subZones = obj.subZones;
-    if (Array.isArray(subZones) && subZones.length > 0) return null;
     const parentZoneId = obj.parentZoneId as string | undefined;
-    const leafZonePath = parentZoneId ? `${parentZoneId}/${obj.id}` : obj.id;
-    return { leafZoneId: obj.id, leafZonePath };
+    const designZoneId = parentZoneId ? parentZoneId : (obj.id as string | undefined);
+    if (!designZoneId) return null;
+    return { designZoneId };
 });
 
-const sortedVariants = computed(() =>
-    [...variants.value].sort((a, b) => a.variantId.localeCompare(b.variantId))
-);
+// server 已按 createdAt 排序，保留原顺序即可；后续如需稳定排序可在此扩展
+const sortedVariants = computed(() => [...variants.value]);
 
 const CANONICAL_SLOT = '__canonical__';
 const sequence = computed<string[]>(() =>
-    [CANONICAL_SLOT, ...sortedVariants.value.map(v => v.variantId)]
+    [CANONICAL_SLOT, ...sortedVariants.value.map(v => v.slug)]
 );
 
-const activeVariantId = computed(() =>
-    variantContext.value ? canvasStore.getActiveVariant(variantContext.value.leafZoneId) : null
+const activeVariantSlug = computed(() =>
+    variantContext.value ? canvasStore.getActiveVariant(variantContext.value.designZoneId) : null
 );
 
-// 找不到时回到 0（canonical），兜底 SignalR 时序问题
 const currentIndex = computed(() => {
-    const id = activeVariantId.value ?? CANONICAL_SLOT;
+    const id = activeVariantSlug.value ?? CANONICAL_SLOT;
     const i = sequence.value.indexOf(id);
     return i >= 0 ? i : 0;
 });
 
-const currentLabel = computed(() =>
-    currentIndex.value === 0 ? '已采纳方案' : sortedVariants.value[currentIndex.value - 1]!.variantId
+const currentVariant = computed<VariantDescriptor | null>(() =>
+    currentIndex.value === 0 ? null : sortedVariants.value[currentIndex.value - 1] ?? null
 );
 
+const currentLabel = computed(() =>
+    currentIndex.value === 0 ? '已采纳方案' : currentVariant.value?.slug ?? '');
+
 const currentSummary = computed(() => {
-    if (currentIndex.value === 0) return '';
-    const v = sortedVariants.value[currentIndex.value - 1];
+    const v = currentVariant.value;
     return (v?.summary && v.summary.trim()) || '';
 });
 
+const currentState = computed(() => currentVariant.value?.state ?? '');
+const isPrevAdopted = computed(() => currentState.value === 'prev-adopted');
+
 const showAdopt = computed(() => currentIndex.value !== 0);
 const indicator = computed(() => `${currentIndex.value + 1}/${sequence.value.length}`);
-const barTitle = computed(() =>
-    currentSummary.value ? `${currentLabel.value}：${currentSummary.value}` : currentLabel.value
-);
+const barTitle = computed(() => {
+    const tag = isPrevAdopted.value ? '历史' : '';
+    const base = tag ? `[${tag}] ${currentLabel.value}` : currentLabel.value;
+    return currentSummary.value ? `${base}：${currentSummary.value}` : base;
+});
 
 async function gotoIndex(nextIndex: number) {
     const ctx = variantContext.value;
     if (!ctx) return;
     const len = sequence.value.length;
     const wrapped = ((nextIndex % len) + len) % len;
-    const targetId = sequence.value[wrapped];
-    if (!targetId || targetId === CANONICAL_SLOT) {
-        await canvasStore.clearActiveVariant(ctx.leafZoneId);
+    const targetSlug = sequence.value[wrapped];
+    if (!targetSlug || targetSlug === CANONICAL_SLOT) {
+        await canvasStore.clearActiveVariant(ctx.designZoneId);
     } else {
-        await canvasStore.setActiveVariant(ctx.leafZoneId, ctx.leafZonePath, targetId);
+        await canvasStore.setActiveVariant(ctx.designZoneId, targetSlug);
     }
 }
 const onPrev = () => gotoIndex(currentIndex.value - 1);
@@ -119,31 +128,28 @@ function onKeydown(event: KeyboardEvent) {
 
 async function onAdopt() {
     const ctx = variantContext.value;
-    if (!ctx || !showAdopt.value || busy.value) return;
-    const variantId = currentLabel.value;
-    adoptingVariantId.value = variantId;
+    const slug = currentVariant.value?.slug;
+    if (!ctx || !showAdopt.value || busy.value || !slug) return;
+    adoptingSlug.value = slug;
     errorMessage.value = null;
-    // 先清 active，避免采纳后 SignalR 触发刷新时还指向已删除的 alt
-    await canvasStore.clearActiveVariant(ctx.leafZoneId);
+    // 先清 active，避免采纳后 SignalR 触发刷新时还指向已删除的变体
+    await canvasStore.clearActiveVariant(ctx.designZoneId);
     try {
-        await SchemeService.adoptVariant({ variantId, leafZonePath: ctx.leafZonePath });
-        // 乐观清空，等 bimcanvas:variant-files-changed 兜底 refetch
+        await SchemeService.adoptVariant({ designZoneId: ctx.designZoneId, variantSlug: slug });
+        // 乐观清空，等 SignalR variant-files-changed 兜底 refetch（含 prev-* 新增）
         variants.value = [];
     } catch (err: any) {
         errorMessage.value = err?.response?.data?.error ?? err?.message ?? '采纳失败';
     } finally {
-        adoptingVariantId.value = null;
+        adoptingSlug.value = null;
     }
 }
 
 function onDelete() {
     const ctx = variantContext.value;
-    if (!ctx || !showAdopt.value || busy.value) return;
-    pendingDelete.value = {
-        variantId: currentLabel.value,
-        leafZoneId: ctx.leafZoneId,
-        leafZonePath: ctx.leafZonePath
-    };
+    const slug = currentVariant.value?.slug;
+    if (!ctx || !showAdopt.value || busy.value || !slug) return;
+    pendingDelete.value = { designZoneId: ctx.designZoneId, variantSlug: slug };
 }
 
 function cancelDelete() {
@@ -154,21 +160,21 @@ async function confirmDelete() {
     const pending = pendingDelete.value;
     pendingDelete.value = null;
     if (!pending) return;
-    deletingVariantId.value = pending.variantId;
+    deletingSlug.value = pending.variantSlug;
     errorMessage.value = null;
-    // 先回到原方案，避免删完后 active 还指向已不存在的 variantId
-    await canvasStore.clearActiveVariant(pending.leafZoneId);
+    // 先回到原方案，避免删完后 active 还指向已不存在的 slug
+    await canvasStore.clearActiveVariant(pending.designZoneId);
     try {
         await SchemeService.deleteVariant({
-            variantId: pending.variantId,
-            leafZonePath: pending.leafZonePath
+            designZoneId: pending.designZoneId,
+            variantSlug: pending.variantSlug
         });
-        // 乐观从本地列表移除；SignalR 推送的 variant-files-changed 会兜底 refetch
-        variants.value = variants.value.filter(v => v.variantId !== pending.variantId);
+        // 乐观从本地列表移除；SignalR variant-files-changed 会兜底 refetch
+        variants.value = variants.value.filter(v => v.slug !== pending.variantSlug);
     } catch (err: any) {
         errorMessage.value = err?.response?.data?.error ?? err?.message ?? '删除失败';
     } finally {
-        deletingVariantId.value = null;
+        deletingSlug.value = null;
     }
 }
 
@@ -178,7 +184,9 @@ async function refetchVariants() {
     isLoading.value = true;
     errorMessage.value = null;
     try {
-        variants.value = (await SchemeService.listVariants(ctx.leafZonePath)) ?? [];
+        const list = (await SchemeService.listVariants(ctx.designZoneId)) ?? [];
+        variants.value = list;
+        canvasStore.cacheVariantMetadata(ctx.designZoneId, list);
     } catch (err: any) {
         errorMessage.value = err?.message ?? '加载变体失败';
         variants.value = [];
@@ -199,7 +207,7 @@ onUnmounted(() => {
     window.removeEventListener('keydown', onKeydown, true);
 });
 
-watch(() => variantContext.value?.leafZonePath ?? null, () => { void refetchVariants(); });
+watch(() => variantContext.value?.designZoneId ?? null, () => { void refetchVariants(); });
 </script>
 
 <template>
@@ -224,7 +232,8 @@ watch(() => variantContext.value?.leafZonePath ?? null, () => { void refetchVari
                           stroke-width="2" stroke-linecap="round" stroke-linejoin="round" />
                 </svg>
             </button>
-            <div class="vnav-center" :title="barTitle">
+            <div class="vnav-center" :class="{ 'is-prev-adopted': isPrevAdopted }" :title="barTitle">
+                <span v-if="isPrevAdopted" class="vnav-state-badge">历史</span>
                 <span class="vnav-label">{{ currentLabel }}</span>
                 <span class="vnav-indicator">{{ indicator }}</span>
             </div>
@@ -248,9 +257,9 @@ watch(() => variantContext.value?.leafZonePath ?? null, () => { void refetchVari
                     type="button"
                     :disabled="busy"
                     @click="onAdopt"
-                    title="采纳此变体（晋升为已采纳方案，原已采纳方案归档为 alt-prev-{时间戳}）"
+                    title="采纳此变体（晋升为已采纳方案；如 canonical 已有方案则降级为 prev-{时间戳}）"
                 >
-                    {{ adoptingVariantId ? '采纳中' : '采纳' }}
+                    {{ adoptingSlug ? '采纳中' : '采纳' }}
                 </button>
                 <span v-else class="vnav-status">基准</span>
             </div>
@@ -261,7 +270,7 @@ watch(() => variantContext.value?.leafZonePath ?? null, () => { void refetchVari
                 :disabled="busy"
                 @click="onDelete"
                 aria-label="删除此变体"
-                :title="deletingVariantId ? '删除中…' : '删除此可变方案'"
+                :title="deletingSlug ? '删除中…' : '删除此可变方案'"
             >
                 <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true">
                     <path d="M9 3h6m-9 4h12m-1 0l-1 12a2 2 0 0 1-2 2h-6a2 2 0 0 1-2-2L5 7m4 4v6m4-6v6"
@@ -286,8 +295,8 @@ watch(() => variantContext.value?.leafZonePath ?? null, () => { void refetchVari
                         <h3>确认删除</h3>
                     </div>
                     <div class="dialog-content">
-                        <p>确定删除可变方案 "<strong>{{ pendingDelete?.variantId }}</strong>" 吗？</p>
-                        <p class="warning-text">此操作不可撤销，方案文件将被永久删除。</p>
+                        <p>确定删除可变方案 "<strong>{{ pendingDelete?.variantSlug }}</strong>" 吗？</p>
+                        <p class="warning-text">此操作不可撤销，整个变体目录将被永久删除。</p>
                     </div>
                     <div class="dialog-actions">
                         <GlassButton variant="danger" @click="confirmDelete">删除</GlassButton>
@@ -367,6 +376,23 @@ watch(() => variantContext.value?.leafZonePath ?? null, () => { void refetchVari
     font-size: 10px;
     color: var(--text-secondary);
     font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+}
+
+/* prev-adopted 变体：整个 center 区域降低饱和度 + 在 label 前缀显示"历史"角标 */
+.vnav-center.is-prev-adopted {
+    opacity: 0.7;
+}
+
+.vnav-state-badge {
+    font-size: 9px;
+    font-weight: 600;
+    letter-spacing: 0.5px;
+    padding: 1px 5px;
+    border-radius: 4px;
+    background: rgba(255, 255, 255, 0.08);
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    color: var(--text-secondary);
     white-space: nowrap;
 }
 

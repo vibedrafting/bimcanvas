@@ -25,34 +25,39 @@ export interface SaveSchemeModulesResponse {
 }
 
 /**
- * 模块布置变体描述（来自 module-relocation-agent 产出）
- *
- * v1.1：sidecar 文件已废弃，所有元数据内嵌进变体文件本体的 wrapper.summary 字段。
- * 服务端 ListVariants 解析每个变体文件的 summary 后回填到这里。
+ * variants/{slug}/variant.json 的元数据。Server 派生，Web 仅消费。
+ * state: explore-generated / relocation / prev-adopted / unknown
  */
 export interface VariantDescriptor {
-    variantId: string;
-    filename: string;
-    leafZonePath: string;
-    /** 一句话描述本变体核心改动，用于 chip tooltip。变体文件不含 summary 时为空字符串。 */
+    slug: string;
+    createdAt: string | null;
+    state: string;
     summary: string;
 }
 
 /**
- * 采纳变体的请求体
+ * GET /api/scheme/variants 的返回结构。
  */
-export interface AdoptVariantRequest {
-    variantId: string;
-    leafZonePath: string;
+export interface VariantListResponse {
+    designZoneId: string;
+    variants: VariantDescriptor[];
 }
 
 /**
- * /api/scheme/variants/summary 的字典值。variantIds 按字典序，
- * 与单分区的 listVariants 顺序一致。
+ * 采纳变体的请求体。
+ */
+export interface AdoptVariantRequest {
+    designZoneId: string;
+    variantSlug: string;
+}
+
+/**
+ * /api/scheme/variants/summary 的字典值（designZone-level 索引）。
+ * variantSlugs 字典序排序，与 listVariants 顺序一致；用于反查 active variant 在序列中的位置。
  */
 export interface VariantSummaryEntry {
     count: number;
-    variantIds: string[];
+    variantSlugs: string[];
 }
 
 /**
@@ -64,18 +69,17 @@ export interface VariantSummaryEntry {
  */
 export class SchemeService {
     /**
-     * 获取模块数据
-     * @param source 数据源标识
-     * @param variant 可选的变体描述：{ leafZonePath, variantId } 命中时打变体接口
+     * 获取模块数据。
+     * variant.variantSlug 非空 → 走 New 路径变体 endpoint；否则走 canonical。
      */
     static async getModules(
         source: string,
-        variant?: { leafZonePath: string; variantId: string }
+        variant?: { designZoneId: string; leafZoneId: string; variantSlug: string }
     ): Promise<SchemeModulesResponse> {
-        if (variant && variant.variantId && variant.leafZonePath) {
+        if (variant && variant.variantSlug && variant.designZoneId && variant.leafZoneId) {
             const response = await axios.get<SchemeModulesResponse>(
-                `${API_BASE}/variant/${encodeURIComponent(variant.variantId)}/modules`,
-                { params: { leafZonePath: variant.leafZonePath } }
+                `${API_BASE}/variants/${encodeURIComponent(variant.designZoneId)}/${encodeURIComponent(variant.variantSlug)}/modules`,
+                { params: { leafZoneId: variant.leafZoneId } }
             );
             return response.data;
         }
@@ -87,9 +91,6 @@ export class SchemeService {
 
     /**
      * 保存模块数据（接受 Agent 修改）
-     * @param source 数据源标识
-     * @param modules 模块列表
-     * @param commitMessage 可选的提交信息（如果提供则自动提交）
      */
     static async saveModules(
         source: string,
@@ -107,21 +108,19 @@ export class SchemeService {
     }
 
     /**
-     * 列出指定叶子分区下的所有变体方案
-     * @param leafZonePath 叶子分区相对 schemes/ 的路径，如 "rz_3/dz_1"
+     * 列出指定 design zone 下所有变体（含 prev-* 降级目录）。
      */
-    static async listVariants(leafZonePath: string): Promise<VariantDescriptor[]> {
-        const response = await axios.get<VariantDescriptor[]>(
+    static async listVariants(designZoneId: string): Promise<VariantDescriptor[]> {
+        const response = await axios.get<VariantListResponse>(
             `${API_BASE}/variants`,
-            { params: { leafZonePath } }
+            { params: { designZoneId } }
         );
-        return response.data;
+        return response.data?.variants ?? [];
     }
 
     /**
-     * 一次性拉取 "哪些叶子分区有几份变体 + 它们的 variantId 列表" 的字典，零变体的叶子不入字典。
-     * variantIds 已按字典序排序，与 listVariants 输出顺序一致；Web 端用它来反查 active variant
-     * 在序列中的位置，从而在 zone label 上渲染 (current/total) 分页号。
+     * 按 designZoneId 索引的变体计数摘要；零变体的 design zone 不入字典。
+     * Web 端用 variantSlugs 反查 active variant 序列位置，渲染 zone label 上的 (current/total) 分页号。
      */
     static async listVariantsSummary(): Promise<Record<string, VariantSummaryEntry>> {
         const response = await axios.get<Record<string, VariantSummaryEntry>>(
@@ -131,30 +130,29 @@ export class SchemeService {
     }
 
     /**
-     * 采纳某个变体（轮换语义）：旧 canonical 降级为 modules-alt-prev-{ts}.json，
-     * 被采纳的 variant 晋升为 canonical 并删除其原变体文件，其他 alt 文件保留。
+     * 采纳变体：检测 canonical → 降级（如非空，生成 prev-{ts}）→ 晋升被采纳变体 → 删除原 variant 目录。
      */
     static async adoptVariant(request: AdoptVariantRequest): Promise<{
         success: boolean;
         adopted: string;
-        archivedAs: string | null;
-        deletedVariants: string[];
+        designZoneId: string;
+        demotedSlug: string | null;
     }> {
         const response = await axios.post(`${API_BASE}/variant/adopt`, request);
         return response.data;
     }
 
     /**
-     * 删除指定的可变方案（modules-{variantId}.json + sidecar）。不动 canonical / 其他 alt。
+     * 删除变体目录 schemes/{designZoneId}/variants/{variantSlug}/（含 semantic_plan + variant.json + modules）。
      */
-    static async deleteVariant(request: { variantId: string; leafZonePath: string }): Promise<{
+    static async deleteVariant(request: { designZoneId: string; variantSlug: string }): Promise<{
         success: boolean;
         deleted: string;
-        deletedFiles: string[];
+        designZoneId: string;
     }> {
         const response = await axios.delete(
-            `${API_BASE}/variant/${encodeURIComponent(request.variantId)}`,
-            { params: { leafZonePath: request.leafZonePath } }
+            `${API_BASE}/variant`,
+            { params: { designZoneId: request.designZoneId, variantSlug: request.variantSlug } }
         );
         return response.data;
     }
