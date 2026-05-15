@@ -58,6 +58,13 @@
       "description": "Module Relocation SubAgent 配置（替代位置探索分身）"
     },
     {
+      "name": "agent/agents/variant-design-agent.md",
+      "target": "agents/variant-design-agent.md",
+      "type": "template",
+      "enabled": true,
+      "description": "Variant Design SubAgent 配置（multi-plan 模式专属单变体执行分身）"
+    },
+    {
       "name": "",
       "target": "skills",
       "type": "empty-directory",

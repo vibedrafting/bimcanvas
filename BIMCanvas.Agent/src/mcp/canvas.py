@@ -998,7 +998,8 @@ async def get_zone_boundaries(args: dict[str, Any]) -> dict[str, Any]:
 
 @tool(
     "save_semantic_plan",
-    "保存语义方案版本。在规划阶段的每个子阶段（2.1/2.2/2.3）完成后调用，提交当前版本的语义方案。",
+    "保存语义方案标签。在规划阶段的每个子阶段（2.1/2.2/2.3）完成后调用，提交当前标签的语义方案。"
+    "可选 variantId 用于写入变体路径；spatial-skeleton / multi-plan-overview 是 canonical 全局单 owner，禁止与 variantId 同时传入。",
     {
         "$schema": "http://json-schema.org/draft-07/schema#",
         "type": "object",
@@ -1007,10 +1008,10 @@ async def get_zone_boundaries(args: dict[str, Any]) -> dict[str, Any]:
                 "type": "string",
                 "description": "目标 Zone ID，如 'rz_3'"
             },
-            "version": {
+            "tag": {
                 "type": "string",
-                "enum": ["v0.1", "v0.2", "v0.3"],
-                "description": "语义方案版本：v0.1=空间骨架, v0.2=主体框架, v0.3=完整方案"
+                "enum": ["spatial-skeleton", "strategic-plan", "multi-plan-overview", "construction-brief"],
+                "description": "语义方案标签：spatial-skeleton=空间骨架, strategic-plan=战略层方案, multi-plan-overview=多方案概述, construction-brief=完整施工简报"
             },
             "planType": {
                 "type": "string",
@@ -1021,30 +1022,38 @@ async def get_zone_boundaries(args: dict[str, Any]) -> dict[str, Any]:
                 "type": "string",
                 "description": "语义方案文本内容（markdown 格式）"
             },
-            "referenceAnalysisVersion": {
+            "referenceAnalysisTag": {
                 "type": "string",
-                "description": "可选。若当前方案消费了定稿 reference_analysis，记录对应的版本（如 v3 / v4）。"
+                "description": "可选。若当前方案消费了定稿 reference_analysis，记录对应的标签（如 v3 / v4）。"
+            },
+            "variantId": {
+                "type": "string",
+                "description": "可选。非空时写变体路径 schemes/{zoneId}/variants/{variantId}/semantic_plan.json；为空时写 canonical。"
+                               "**spatial-skeleton / multi-plan-overview 禁止传 variantId**（server 强制 400，这两个 tag 全局只在 canonical 出现）。"
+                               "Phase 1 暂无调用方需要传入；预留给后续 multi-plan / variant-design-agent。"
             }
         },
-        "required": ["zoneId", "version", "planType", "content"],
+        "required": ["zoneId", "tag", "planType", "content"],
         "additionalProperties": False
     }
 )
 async def save_semantic_plan(args: dict[str, Any]) -> dict[str, Any]:
-    """保存语义方案版本"""
+    """保存语义方案标签"""
     zone_id = args["zoneId"]
-    version = args["version"]
+    tag = args["tag"]
     plan_type = args["planType"]
     content = args["content"]
 
     body = {
         "zoneId": zone_id,
-        "version": version,
+        "tag": tag,
         "planType": plan_type,
         "content": content
     }
-    if args.get("referenceAnalysisVersion"):
-        body["referenceAnalysisVersion"] = args["referenceAnalysisVersion"]
+    if args.get("referenceAnalysisTag"):
+        body["referenceAnalysisTag"] = args["referenceAnalysisTag"]
+    if args.get("variantId"):
+        body["variantId"] = args["variantId"]
 
     try:
         async with aiohttp.ClientSession() as session:
@@ -1054,12 +1063,12 @@ async def save_semantic_plan(args: dict[str, Any]) -> dict[str, Any]:
             ) as resp:
                 if resp.status == 200:
                     data = await resp.json()
-                    ref_version = data.get("referenceAnalysisVersion")
-                    suffix = f"（reference={ref_version}）" if ref_version else ""
+                    ref_tag = data.get("referenceAnalysisTag")
+                    suffix = f"（reference={ref_tag}）" if ref_tag else ""
                     return {
                         "content": [{
                             "type": "text",
-                            "text": f"语义方案 {plan_type} {version} 已保存{suffix}。继续下一阶段。"
+                            "text": f"语义方案 {plan_type} {tag} 已保存{suffix}。继续下一阶段。"
                         }]
                     }
                 else:
@@ -1077,7 +1086,8 @@ async def save_semantic_plan(args: dict[str, Any]) -> dict[str, Any]:
 
 @tool(
     "load_semantic_plan",
-    "加载当前设计区的生效语义方案。返回当前可施工图纸，而不是完整历史。",
+    "加载当前设计区的生效语义方案。返回当前可施工图纸，而不是完整历史。"
+    "传 variantId 时返回 merge view（canonical 的 spatial-skeleton + 变体的 strategic-plan/construction-brief entries）。",
     {
         "$schema": "http://json-schema.org/draft-07/schema#",
         "type": "object",
@@ -1085,6 +1095,11 @@ async def save_semantic_plan(args: dict[str, Any]) -> dict[str, Any]:
             "zoneId": {
                 "type": "string",
                 "description": "目标 Zone ID，如 'rz_3'"
+            },
+            "variantId": {
+                "type": "string",
+                "description": "可选。非空时返回 merge view（canonical 的 spatial-skeleton + 变体的 strategic-plan/construction-brief entries）；effectiveTag 落在变体的合同上。"
+                               "Phase 1 暂无调用方需要传入；预留给后续 multi-plan / variant-design-agent。"
             }
         },
         "required": ["zoneId"],
@@ -1094,11 +1109,14 @@ async def save_semantic_plan(args: dict[str, Any]) -> dict[str, Any]:
 async def load_semantic_plan(args: dict[str, Any]) -> dict[str, Any]:
     """加载语义方案当前生效版本"""
     zone_id = args["zoneId"]
+    variant_id = args.get("variantId")
+    params = {"variantId": variant_id} if variant_id else None
 
     try:
         async with aiohttp.ClientSession() as session:
             async with session.get(
-                f"{SERVER_URL}/api/semantic-plan/{zone_id}"
+                f"{SERVER_URL}/api/semantic-plan/{zone_id}",
+                params=params
             ) as resp:
                 if resp.status == 200:
                     data = await resp.json()
@@ -1107,13 +1125,13 @@ async def load_semantic_plan(args: dict[str, Any]) -> dict[str, Any]:
                         f"status: {data['status']}",
                         f"zoneId: {data['zoneId']}",
                         f"planType: {data['planType']}",
-                        f"effectiveVersion: {data['effectiveVersion']}",
+                        f"effectiveTag: {data['effectiveTag']}",
                         f"timestamp: {data['timestamp']}"
                     ]
 
-                    if data.get("referenceAnalysisVersion"):
+                    if data.get("referenceAnalysisTag"):
                         text_parts.append(
-                            f"referenceAnalysisVersion: {data['referenceAnalysisVersion']}"
+                            f"referenceAnalysisTag: {data['referenceAnalysisTag']}"
                         )
 
                     text_parts.append(f"\n{data['content']}")
@@ -1150,7 +1168,7 @@ async def load_semantic_plan(args: dict[str, Any]) -> dict[str, Any]:
 
 @tool(
     "load_reference_analysis",
-    "加载当前设计区的参考分析。默认返回最新版本；可选 version 参数读取指定版本。",
+    "加载当前设计区的参考分析。默认返回最新标签；可选 tag 参数读取指定标签。",
     {
         "$schema": "http://json-schema.org/draft-07/schema#",
         "type": "object",
@@ -1159,9 +1177,9 @@ async def load_semantic_plan(args: dict[str, Any]) -> dict[str, Any]:
                 "type": "string",
                 "description": "目标 Zone ID，如 'rz_3'"
             },
-            "version": {
+            "tag": {
                 "type": "string",
-                "description": "可选。指定参考分析版本，如 'v1'；不传则返回最新版本。"
+                "description": "可选。指定参考分析标签，如 'v1'；不传则返回最新标签。"
             }
         },
         "required": ["zoneId"],
@@ -1169,22 +1187,22 @@ async def load_semantic_plan(args: dict[str, Any]) -> dict[str, Any]:
     }
 )
 async def load_reference_analysis(args: dict[str, Any]) -> dict[str, Any]:
-    """加载参考分析版本"""
+    """加载参考分析标签"""
     zone_id = args["zoneId"]
-    version = args.get("version")
+    tag = args.get("tag")
 
     try:
         async with aiohttp.ClientSession() as session:
             async with session.get(
                 f"{SERVER_URL}/api/semantic-plan/{zone_id}/reference-analysis",
-                params={"version": version} if version else None
+                params={"tag": tag} if tag else None
             ) as resp:
                 if resp.status == 200:
                     data = await resp.json()
                     text_parts = [
                         f"status: {data['status']}",
                         f"zoneId: {data['zoneId']}",
-                        f"version: {data['version']}",
+                        f"tag: {data['tag']}",
                         f"sourceImageId: {data.get('sourceImageId', '')}",
                         f"timestamp: {data['timestamp']}",
                         "",
@@ -1221,7 +1239,7 @@ async def load_reference_analysis(args: dict[str, Any]) -> dict[str, Any]:
 
 @tool(
     "save_reference_analysis",
-    "保存完整参考分析快照。在参考图分析各阶段完成后调用，提交当前版本的完整 Markdown 分析内容。",
+    "保存完整参考分析快照。在参考图分析各阶段完成后调用，提交当前标签的完整 Markdown 分析内容。",
     {
         "$schema": "http://json-schema.org/draft-07/schema#",
         "type": "object",
@@ -1262,11 +1280,11 @@ async def save_reference_analysis(args: dict[str, Any]) -> dict[str, Any]:
             ) as resp:
                 if resp.status == 200:
                     data = await resp.json()
-                    version_text = data.get("version", "N/A")
+                    tag_text = data.get("tag", "N/A")
                     return {
                         "content": [{
                             "type": "text",
-                            "text": f"参考分析结果已保存为 {version_text}。"
+                            "text": f"参考分析结果已保存为 {tag_text}。"
                         }],
                         "structuredContent": data
                     }
@@ -1468,6 +1486,149 @@ async def analyze_image(args: dict[str, Any]) -> dict[str, Any]:
 
 
 
+@tool(
+    "save_modules",
+    "保存叶子分区的 modules.json（wrapper 形态由 Server 派生）。"
+    "替代直接 Write modules.json 文件——Phase 0b 起裸数组已淘汰。"
+    "**不要传 schemeMetadata 字段**：即使传也会被 Server 忽略，schemeMetadata 由 Server 从 semantic_plan / variantId 派生。",
+    {
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "type": "object",
+        "properties": {
+            "designZoneId": {
+                "type": "string",
+                "description": "设计区 ID，如 'rz_3'。用于 schemeMetadata.summary 从对应 semantic_plan 派生。"
+            },
+            "leafZoneId": {
+                "type": "string",
+                "description": "叶子分区 ID。顶层叶子时与 designZoneId 相同；嵌套叶子时如 'dz_1'。"
+            },
+            "variantId": {
+                "type": "string",
+                "description": "可选。非空时写变体路径 schemes/{designZoneId}/variants/{variantId}/{leafZoneId}/modules.json；为空时写 canonical。"
+            },
+            "modules": {
+                "type": "array",
+                "description": "完整模块数组（含 id / moduleId / moduleName / bounds / facing / items 等字段）。"
+            }
+        },
+        "required": ["designZoneId", "leafZoneId", "modules"],
+        "additionalProperties": False
+    }
+)
+async def save_modules(args: dict[str, Any]) -> dict[str, Any]:
+    """保存叶子分区 modules.json（wrapper 形态由 Server 派生）"""
+    design_zone_id = args["designZoneId"]
+    leaf_zone_id = args["leafZoneId"]
+    modules = args["modules"]
+    variant_id = args.get("variantId")
+
+    body: dict[str, Any] = {
+        "designZoneId": design_zone_id,
+        "leafZoneId": leaf_zone_id,
+        "modules": modules
+    }
+    if variant_id:
+        body["variantId"] = variant_id
+
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.post(
+                f"{SERVER_URL}/api/scheme/modules",
+                json=body
+            ) as resp:
+                if resp.status == 200:
+                    data = await resp.json()
+                    count = data.get("modulesCount", len(modules))
+                    variant_suffix = f"（variant={variant_id}）" if variant_id else ""
+                    return {
+                        "content": [{
+                            "type": "text",
+                            "text": f"已保存 {count} 个模块到 {design_zone_id}/{leaf_zone_id}{variant_suffix}。"
+                        }]
+                    }
+                else:
+                    error_text = await resp.text()
+                    return {
+                        "content": [{"type": "text", "text": f"保存失败: HTTP {resp.status} {error_text}"}],
+                        "is_error": True
+                    }
+    except aiohttp.ClientError as e:
+        return {
+            "content": [{"type": "text", "text": f"无法连接 Server: {str(e)}"}],
+            "is_error": True
+        }
+
+
+@tool(
+    "clone_scheme_to_variant",
+    "克隆设计区方案（canonical 或某变体）到一个或多个新变体目录。"
+    "**仅 module-relocation-agent 使用**——variant-design-agent / generate-placement 等其他 SubAgent 禁止调用。"
+    "用途：relocation 工作流的入口，先 clone 出隔离的变体目录（含 semantic_plan + 全部叶子 modules.json），再在变体目录内局部修改。",
+    {
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "type": "object",
+        "properties": {
+            "designZoneId": {
+                "type": "string",
+                "description": "设计区 ID，如 'rz_3'。"
+            },
+            "sourceVariant": {
+                "type": "string",
+                "description": "源变体；'canonical' 或省略表示从 canonical 克隆；也可填某个已存在 slug 实现链式克隆。"
+            },
+            "newVariantSlugs": {
+                "type": "array",
+                "items": {"type": "string"},
+                "description": "要创建的新变体 slug 列表（[a-zA-Z0-9_-]，单次请求批量原子创建）。"
+            },
+            "overwrite": {
+                "type": "boolean",
+                "description": "默认 false；为 true 时已存在的同名 slug 会被覆盖。"
+            }
+        },
+        "required": ["designZoneId", "newVariantSlugs"],
+        "additionalProperties": False
+    }
+)
+async def clone_scheme_to_variant(args: dict[str, Any]) -> dict[str, Any]:
+    """克隆 canonical / variant 整目录到新变体目录"""
+    design_zone_id = args["designZoneId"]
+    new_variant_slugs = args["newVariantSlugs"]
+    source_variant = args.get("sourceVariant")
+    overwrite = args.get("overwrite", False)
+
+    body: dict[str, Any] = {
+        "designZoneId": design_zone_id,
+        "newVariantSlugs": new_variant_slugs,
+        "overwrite": overwrite,
+    }
+    if source_variant:
+        body["sourceVariant"] = source_variant
+
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.post(
+                f"{SERVER_URL}/api/scheme/variant/clone",
+                json=body
+            ) as resp:
+                text = await resp.text()
+                if resp.status == 200:
+                    return {
+                        "content": [{"type": "text", "text": text}]
+                    }
+                else:
+                    return {
+                        "content": [{"type": "text", "text": f"克隆失败: HTTP {resp.status} {text}"}],
+                        "is_error": True
+                    }
+    except aiohttp.ClientError as e:
+        return {
+            "content": [{"type": "text", "text": f"无法连接 Server: {str(e)}"}],
+            "is_error": True
+        }
+
+
 # 创建 Canvas MCP Server
 canvas_mcp = create_sdk_mcp_server(
     name="canvas",
@@ -1482,6 +1643,8 @@ canvas_mcp = create_sdk_mcp_server(
         load_semantic_plan,  # 加载当前生效图纸
         load_reference_analysis,  # 加载参考分析（planning 输入）
         save_reference_analysis,  # 新增：保存参考分析结果
+        save_modules,  # Phase 0b: modules.json wrapper 写入
+        clone_scheme_to_variant,  # 组 C: relocation 工作流入口（仅 module-relocation-agent）
         analyze_image,  # 通用大模型图像理解
     ],
 )
@@ -1497,5 +1660,7 @@ CANVAS_ALLOWED_TOOLS = [
     "mcp__canvas__load_semantic_plan",
     "mcp__canvas__load_reference_analysis",
     "mcp__canvas__save_reference_analysis",
+    "mcp__canvas__save_modules",
+    "mcp__canvas__clone_scheme_to_variant",
     "mcp__canvas__analyze_image",
 ]

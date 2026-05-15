@@ -4,6 +4,7 @@ import { useAppStore } from '../stores/appStore';
 import { useCanvasStore } from '../stores/canvasStore';
 import GlassButton from '../components/UI/base/GlassButton.vue';
 import ConflictDialog from '../components/UI/ConflictDialog.vue';
+import RepairDialog from '../components/UI/RepairDialog.vue';
 import HomeSettingsPanel from '../components/UI/HomeSettingsPanel.vue';
 import { useProjectFile } from '../composables/useProjectFile';
 import type { ProjectSummary } from '../types/homepage';
@@ -24,6 +25,22 @@ const homeMode = ref<'projects' | 'settings'>('projects');
 // 删除确认
 const showDeleteDialog = ref(false);
 const deleteTargetName = ref('');
+
+// 修复对话框
+const showRepairDialog = ref(false);
+const repairTargetProject = ref<ProjectSummary | null>(null);
+const onRepair = (project: ProjectSummary) => {
+  repairTargetProject.value = project;
+  showRepairDialog.value = true;
+};
+const onRepairClosed = () => {
+  showRepairDialog.value = false;
+  // 修复后刷新列表（项目状态可能从 invalid 变回 valid）
+  if (canProjectCatalog) {
+    appStore.fetchProjectList();
+  }
+  repairTargetProject.value = null;
+};
 
 // 导入相关（复用现有 composable）
 const fileInputRef = ref<HTMLInputElement | null>(null);
@@ -309,8 +326,19 @@ onMounted(() => {
           </div>
 
           <!-- 操作按钮 -->
-          <div class="card-actions" v-if="project.isValid">
+          <div class="card-actions">
             <GlassButton
+              variant="ghost"
+              class="repair-btn"
+              title="检查并修复项目 schema"
+              @click.stop="onRepair(project)"
+            >
+              <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M14.7 6.3a1 1 0 000 1.4l1.6 1.6a1 1 0 001.4 0l3.77-3.77a6 6 0 01-7.94 7.94l-6.91 6.91a2.12 2.12 0 01-3-3l6.91-6.91a6 6 0 017.94-7.94l-3.76 3.76z" />
+              </svg>
+            </GlassButton>
+            <GlassButton
+              v-if="project.isValid"
               variant="danger"
               class="delete-btn"
               title="删除项目"
@@ -380,6 +408,15 @@ onMounted(() => {
       :project-name="conflictProjectName"
       :existing-path="conflictExistingPath"
       @resolve="handleConflictResolve"
+    />
+
+    <!-- 项目修复对话框（两步：inspect 预览 → confirm 修复） -->
+    <RepairDialog
+      v-if="repairTargetProject"
+      :visible="showRepairDialog"
+      :project-name="repairTargetProject.name"
+      :folder-path="repairTargetProject.folderPath"
+      @closed="onRepairClosed"
     />
   </div>
 </template>
@@ -689,6 +726,8 @@ onMounted(() => {
 /* Card Actions */
 .card-actions {
   flex-shrink: 0;
+  display: flex;
+  gap: 6px;
   opacity: 0;
   transition: opacity 0.15s;
 }
@@ -697,7 +736,8 @@ onMounted(() => {
   opacity: 1;
 }
 
-.delete-btn {
+.delete-btn,
+.repair-btn {
   padding: 4px 8px !important;
 }
 

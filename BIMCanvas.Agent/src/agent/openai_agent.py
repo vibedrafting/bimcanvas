@@ -97,7 +97,7 @@ class DelegationTaskInput(BaseModel):
             "必须包含以下要素（按任务类型适配）：\n"
             "1) 目标对象标识（如分区 ID rz_1、文件路径）；\n"
             "2) 用户原始需求的关键信息（用户说了什么、要做什么）；\n"
-            "3) 上游已完成的工作状态（例如'v0.3 语义方案已保存'、'已读取 xxx.json'），"
+            "3) 上游已完成的工作状态（例如'construction-brief 语义方案已保存'、'已读取 xxx.json'），"
             "以便子代理知道从哪一步开始；\n"
             "4) 预期产出（要写入的文件、要返回的信息）；\n"
             "5) 相关约束或注意事项。\n"
@@ -887,28 +887,76 @@ class OpenAIAgent:
         async def canvas_save_semantic_plan(
             ctx: Any,
             zoneId: str,
-            version: str,
+            tag: str,
             planType: str,
             content: str,
-            referenceAnalysisVersion: str | None = None,
+            referenceAnalysisTag: str | None = None,
+            variantId: str | None = None,
         ) -> Any:
             """Save a semantic plan snapshot for the current zone."""
             del ctx
-            args = {
+            args: dict[str, Any] = {
                 "zoneId": zoneId,
-                "version": version,
+                "tag": tag,
                 "planType": planType,
                 "content": content,
             }
-            if referenceAnalysisVersion:
-                args["referenceAnalysisVersion"] = referenceAnalysisVersion
+            if referenceAnalysisTag:
+                args["referenceAnalysisTag"] = referenceAnalysisTag
+            if variantId:
+                args["variantId"] = variantId
             return await self._invoke_canvas_tool_impl("save_semantic_plan", args)
 
+        @with_tool_context(tool_name="mcp__canvas__save_modules")
+        async def canvas_save_modules(
+            ctx: Any,
+            designZoneId: str,
+            leafZoneId: str,
+            modules: list[dict[str, Any]],
+            variantId: str | None = None,
+        ) -> Any:
+            """Save modules.json wrapper (schemeMetadata derived by Server)."""
+            del ctx
+            args: dict[str, Any] = {
+                "designZoneId": designZoneId,
+                "leafZoneId": leafZoneId,
+                "modules": modules,
+            }
+            if variantId:
+                args["variantId"] = variantId
+            return await self._invoke_canvas_tool_impl("save_modules", args)
+
+        @with_tool_context(tool_name="mcp__canvas__clone_scheme_to_variant")
+        async def canvas_clone_scheme_to_variant(
+            ctx: Any,
+            designZoneId: str,
+            newVariantSlugs: list[str],
+            sourceVariant: str | None = None,
+            overwrite: bool = False,
+        ) -> Any:
+            """Clone canonical/variant directory to new variant slugs (relocation entry)."""
+            del ctx
+            args: dict[str, Any] = {
+                "designZoneId": designZoneId,
+                "newVariantSlugs": newVariantSlugs,
+                "overwrite": overwrite,
+            }
+            if sourceVariant:
+                args["sourceVariant"] = sourceVariant
+            return await self._invoke_canvas_tool_impl("clone_scheme_to_variant", args)
+
         @with_tool_context(tool_name="mcp__canvas__load_semantic_plan")
-        async def canvas_load_semantic_plan(ctx: Any, zoneId: str) -> Any:
+        async def canvas_load_semantic_plan(
+            ctx: Any,
+            zoneId: str,
+            variantId: str | None = None,
+        ) -> Any:
             """Load the effective semantic plan for the current zone."""
             del ctx
-            return await self._invoke_canvas_tool_impl("load_semantic_plan", {"zoneId": zoneId})
+            args: dict[str, Any] = {"zoneId": zoneId}
+            if variantId:
+                args["variantId"] = variantId
+            return await self._invoke_canvas_tool_impl("load_semantic_plan", args)
 
         @with_tool_context(tool_name="mcp__canvas__validate_layout")
         async def canvas_validate_layout(
@@ -930,13 +978,13 @@ class OpenAIAgent:
         async def canvas_load_reference_analysis(
             ctx: Any,
             zoneId: str,
-            version: str | None = None,
+            tag: str | None = None,
         ) -> Any:
             """Load the latest or a fixed reference-analysis snapshot for the current zone."""
             del ctx
             args = {"zoneId": zoneId}
-            if version:
-                args["version"] = version
+            if tag:
+                args["tag"] = tag
             return await self._invoke_canvas_tool_impl("load_reference_analysis", args)
 
         @with_tool_context(tool_name="mcp__canvas__save_reference_analysis")
@@ -1008,6 +1056,8 @@ class OpenAIAgent:
             "mcp__canvas__validate_layout": canvas_validate_layout,
             "mcp__canvas__load_reference_analysis": canvas_load_reference_analysis,
             "mcp__canvas__save_reference_analysis": canvas_save_reference_analysis,
+            "mcp__canvas__save_modules": canvas_save_modules,
+            "mcp__canvas__clone_scheme_to_variant": canvas_clone_scheme_to_variant,
             "mcp__canvas__analyze_image": canvas_analyze_image,
         }
 

@@ -37,20 +37,30 @@ namespace BIMCanvas.Server.Services
         };
 
         /// <summary>
-        /// 是否需要广播该文件名变化。
-        /// 精确匹配 WatchedFiles，或匹配 module-relocation-agent 写入的变体文件 modules-alt-*.json。
-        /// v1.1：sidecar (.meta.json) 不再生成；老项目残留的 sidecar 文件被删除时不再触发 SignalR
-        /// （Web 端没有它们的消费者）。
+        /// 是否需要广播该路径变化。
+        /// 精确匹配 WatchedFiles（modules.json/zones.json/finishes.json），或匹配 Legacy 变体
+        /// modules-alt-*.json，或匹配 variants/ 子树下的 modules.json
+        /// （Phase E：variant.json sidecar 已废弃，不再监听）。
         /// </summary>
-        private static bool IsWatchedFile(string fileName)
+        private static bool IsWatchedPath(string fullPath)
         {
+            if (string.IsNullOrEmpty(fullPath))
+                return false;
+
+            var fileName = Path.GetFileName(fullPath);
             if (string.IsNullOrEmpty(fileName))
                 return false;
+
+            // New 路径变体子树：仅监听 variants/ 段下的 modules.json
+            var normalized = fullPath.Replace('\\', '/');
+            var inVariantsSubtree = normalized.Contains("/variants/", StringComparison.OrdinalIgnoreCase);
+            if (inVariantsSubtree && fileName.Equals("modules.json", StringComparison.OrdinalIgnoreCase))
+                return true;
 
             if (WatchedFiles.Contains(fileName))
                 return true;
 
-            // 变体文件 modules-alt-*.json（排除 .meta.json）
+            // Legacy 变体 modules-alt-*.json（排除 .meta.json）
             if (fileName.StartsWith("modules-alt-", StringComparison.OrdinalIgnoreCase)
                 && fileName.EndsWith(".json", StringComparison.OrdinalIgnoreCase)
                 && !fileName.EndsWith(".meta.json", StringComparison.OrdinalIgnoreCase))
@@ -327,13 +337,11 @@ namespace BIMCanvas.Server.Services
         /// </summary>
         private void OnFileChanged(object sender, FileSystemEventArgs e)
         {
-            var fileName = Path.GetFileName(e.FullPath);
-
-            // 检查是否是需要监听的文件
-            if (!IsWatchedFile(fileName))
+            if (!IsWatchedPath(e.FullPath))
             {
                 return;
             }
+            var fileName = Path.GetFileName(e.FullPath);
 
             // 检查是否在 Git 操作期间（带 30 秒超时保护）
             if (_projectContext.IsGitOperationInProgress)
@@ -361,7 +369,7 @@ namespace BIMCanvas.Server.Services
             }
 
             _logger.LogDebug("检测到文件变化: {Path} ({ChangeType})", e.FullPath, e.ChangeType);
-            ScheduleUpdate(fileName);
+            ScheduleUpdate(fileName, IsInVariantsSubtree(e.FullPath));
         }
 
         /// <summary>
@@ -369,12 +377,11 @@ namespace BIMCanvas.Server.Services
         /// </summary>
         private void OnFileRenamed(object sender, RenamedEventArgs e)
         {
-            var fileName = Path.GetFileName(e.FullPath);
-
-            if (!IsWatchedFile(fileName))
+            if (!IsWatchedPath(e.FullPath))
             {
                 return;
             }
+            var fileName = Path.GetFileName(e.FullPath);
 
             if (_projectContext.IsGitOperationInProgress)
             {
@@ -382,13 +389,19 @@ namespace BIMCanvas.Server.Services
             }
 
             _logger.LogDebug("检测到文件重命名: {OldPath} -> {NewPath}", e.OldFullPath, e.FullPath);
-            ScheduleUpdate(fileName);
+            ScheduleUpdate(fileName, IsInVariantsSubtree(e.FullPath));
+        }
+
+        private static bool IsInVariantsSubtree(string fullPath)
+        {
+            return !string.IsNullOrEmpty(fullPath)
+                && fullPath.Replace('\\', '/').Contains("/variants/", StringComparison.OrdinalIgnoreCase);
         }
 
         /// <summary>
         /// 调度更新（带防抖）
         /// </summary>
-        private void ScheduleUpdate(string fileName)
+        private void ScheduleUpdate(string fileName, bool isVariantsSubtree)
         {
             lock (_lock)
             {
@@ -405,7 +418,7 @@ namespace BIMCanvas.Server.Services
                         await Task.Delay(DebounceMs, token);
                         if (!token.IsCancellationRequested)
                         {
-                            await BroadcastUpdate(fileName);
+                            await BroadcastUpdate(fileName, isVariantsSubtree);
                         }
                     }
                     catch (TaskCanceledException)
@@ -417,9 +430,11 @@ namespace BIMCanvas.Server.Services
         }
 
         /// <summary>
-        /// 广播更新给所有 Web 客户端
+        /// 广播更新给所有 Web 客户端。
+        /// isVariantsSubtree=true 时附加 trigger="variant-files-changed"，
+        /// Web 端会走 refetchVariants 路径而不是整 canvas reload。
         /// </summary>
-        private async Task BroadcastUpdate(string fileName)
+        private async Task BroadcastUpdate(string fileName, bool isVariantsSubtree)
         {
             if (!_projectContext.IsLoaded)
             {
@@ -430,25 +445,35 @@ namespace BIMCanvas.Server.Services
             try
             {
                 // zones.json 变更时刷新分区目录结构（支持 Agent 写入 subZones 后自动创建子目录）
-                if (string.Equals(fileName, "zones.json", StringComparison.OrdinalIgnoreCase)
+                if (!isVariantsSubtree
+                    && string.Equals(fileName, "zones.json", StringComparison.OrdinalIgnoreCase)
                     && !string.IsNullOrEmpty(_projectContext.CurrentProjectPath))
                 {
                     _projectService.CreateZoneDirectories(_projectContext.CurrentProjectPath);
                     _logger.LogInformation("zones.json 变更，已刷新分区目录结构");
                 }
 
-                var updateMessage = new
-                {
-                    type = "file_changed",
-                    file = fileName,
-                    timestamp = DateTime.UtcNow,
-                    action = "reload"  // 通知客户端重新加载数据
-                };
+                object updateMessage = isVariantsSubtree
+                    ? new
+                    {
+                        type = "file_changed",
+                        file = fileName,
+                        timestamp = DateTime.UtcNow,
+                        action = "reload",
+                        trigger = "variant-files-changed"
+                    }
+                    : (object)new
+                    {
+                        type = "file_changed",
+                        file = fileName,
+                        timestamp = DateTime.UtcNow,
+                        action = "reload"
+                    };
 
                 // 广播给所有客户端
                 await _hubContext.Clients.All.SendAsync("ReceiveUpdate", updateMessage);
 
-                _logger.LogInformation("已广播文件变化通知: {FileName}", fileName);
+                _logger.LogInformation("已广播文件变化通知: {FileName} (variantsSubtree={Sub})", fileName, isVariantsSubtree);
 
                 // 同时广播 Git 状态变化
                 await BroadcastGitStatus();

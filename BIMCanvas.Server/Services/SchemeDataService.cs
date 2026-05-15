@@ -24,16 +24,22 @@ namespace BIMCanvas.Server.Services
         private readonly ILogger<SchemeDataService> _logger;
         private readonly ProjectContext _projectContext;
         private readonly GitWorktreeService _gitService;
+        private readonly ModulesReaderService _modulesReader;
+        private readonly ModulesWriterService _modulesWriter;
         private readonly JsonSerializerSettings _jsonSettings;
 
         public SchemeDataService(
             ILogger<SchemeDataService> logger,
             ProjectContext projectContext,
-            GitWorktreeService gitService)
+            GitWorktreeService gitService,
+            ModulesReaderService modulesReader,
+            ModulesWriterService modulesWriter)
         {
             _logger = logger;
             _projectContext = projectContext;
             _gitService = gitService;
+            _modulesReader = modulesReader;
+            _modulesWriter = modulesWriter;
 
             _jsonSettings = new JsonSerializerSettings
             {
@@ -137,21 +143,19 @@ namespace BIMCanvas.Server.Services
                 return modules;
             }
 
-            // 递归遍历所有叶子 zone 的 modules.json（支持嵌套分区 schemes/rz_3/dz_1/modules.json）
+            // 递归遍历所有叶子 zone 的 modules.json（wrapper 形态，Phase 0b 起裸数组已淘汰）
             var leafFiles = ProjectService.FindAllLeafModuleFiles(schemesPath);
             foreach (var (filePath, zoneId) in leafFiles)
             {
                 try
                 {
-                    var json = File.ReadAllText(filePath);
-                    var zoneModules = JsonConvert.DeserializeObject<List<Module>>(json, _jsonSettings);
+                    var zoneModules = _modulesReader.ReadModulesOnly(filePath);
                     if (zoneModules != null)
                     {
                         foreach (var module in zoneModules)
                         {
-                            module.ZoneId ??= zoneId;                       // 确保ZoneId填充
+                            module.ZoneId ??= zoneId;
                         }
-
                         modules.AddRange(zoneModules);
                     }
                 }
@@ -173,6 +177,11 @@ namespace BIMCanvas.Server.Services
         /// <param name="modules">要保存的模块列表</param>
         /// <returns>保存的模块数量</returns>
         public int SaveAllModules(string basePath, List<Module> modules)
+        {
+            return SaveAllModulesAsync(basePath, modules).GetAwaiter().GetResult();
+        }
+
+        public async System.Threading.Tasks.Task<int> SaveAllModulesAsync(string basePath, List<Module> modules)
         {
             var schemesPath = Path.Combine(basePath, "schemes");
             var facingErrors = ValidateFacingForServerWrite(modules);
@@ -215,32 +224,34 @@ namespace BIMCanvas.Server.Services
             // 递归清空所有叶子 zone 的 modules.json（支持嵌套分区，防止残留）
             ProjectService.ClearAllLeafModuleFiles(schemesPath);
 
-            // 写入新数据（支持嵌套分区路径解析）
+            // 写入新数据（全部走 ModulesWriterService，wrapper 形态）
             foreach (var kvp in modulesByZone)
             {
-                var zoneDir = ProjectService.ResolveZoneDirectory(schemesPath, kvp.Key);
-                if (!Directory.Exists(zoneDir))
-                {
-                    Directory.CreateDirectory(zoneDir);
-                }
-
-                // 清理运行时字段（ZoneId 不写入文件）
-                var modulesToSave = kvp.Value.Select(m =>
-                {
-                    m.ZoneId = null;      // 清理分区ID（由加载时自动计算）
-                    return m;
-                }).ToList();
-
-                var modulesFile = Path.Combine(zoneDir, "modules.json");
-                var json = JsonConvert.SerializeObject(modulesToSave, _jsonSettings);
-                EnsureWritableFile(modulesFile);
-                File.WriteAllText(modulesFile, json, Encoding.UTF8);
-                savedCount += modulesToSave.Count;
+                var leafZoneId = kvp.Key;
+                var designZoneId = ResolveDesignZoneIdForLeaf(schemesPath, leafZoneId);
+                await _modulesWriter.WriteAsync(
+                    basePath, designZoneId, leafZoneId,
+                    variantId: null, pathMode: VariantPathMode.New, modules: kvp.Value);
+                savedCount += kvp.Value.Count;
             }
 
             _logger.LogInformation("[SaveAllModules] 保存了 {Count} 个模块到 {Path}，{OrphanCount} 个孤立",
                 savedCount, schemesPath, orphanCount);
             return savedCount;
+        }
+
+        /// <summary>
+        /// 把叶子 zoneId 反查为其设计区祖先 ID（与 ProjectController 同款逻辑）。
+        /// </summary>
+        private static string ResolveDesignZoneIdForLeaf(string schemesPath, string leafZoneId)
+        {
+            if (string.Equals(leafZoneId, "_unzoned", StringComparison.OrdinalIgnoreCase))
+                return leafZoneId;
+
+            var zoneDir = ProjectService.ResolveZoneDirectory(schemesPath, leafZoneId);
+            var relative = Path.GetRelativePath(schemesPath, zoneDir).Replace('\\', '/');
+            var segments = relative.Split('/', StringSplitOptions.RemoveEmptyEntries);
+            return segments.Length > 0 ? segments[0] : leafZoneId;
         }
 
         /// <summary>

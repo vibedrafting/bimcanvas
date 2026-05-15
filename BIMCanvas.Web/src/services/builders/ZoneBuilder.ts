@@ -67,10 +67,11 @@ export class ZoneBuilder {
      */
     public cleanup(disposeMaterials = false) {
         if (this.zoneGroup) {
-            // 释放所有子对象的几何体
+            // 释放所有子对象的几何体（material 由 this.materials 集中托管，不在这里 dispose）
             this.zoneGroup.traverse(child => {
-                if ((child as THREE.Mesh).geometry) {
-                    (child as THREE.Mesh).geometry.dispose();
+                const mesh = child as THREE.Mesh;
+                if (mesh.geometry) {
+                    mesh.geometry.dispose();
                 }
             });
             this.zoneGroup.clear();
@@ -87,17 +88,9 @@ export class ZoneBuilder {
     public buildZones(data: ProjectData) {
         this.ensureMaterials();
 
-        if (this.zoneGroup) {
-            // 释放旧的几何体资源
-            this.zoneGroup.traverse(child => {
-                if ((child as THREE.Mesh).geometry) {
-                    (child as THREE.Mesh).geometry.dispose();
-                }
-            });
-            this.zoneGroup.clear();
-            this.scene.remove(this.zoneGroup);
-            this.zoneGroup = null;
-        }
+        // 释放旧的 zoneGroup（geometry + Sprite material 都要 dispose）；
+        // cleanup 处理了 Sprite material 与 zoneGroup = null 的归零，这里不需要重复一遍。
+        this.cleanup(false);
 
         this.zoneGroup = new THREE.Group();
         this.zoneGroup.layers.set(LayerManager.LAYER_ZONES);

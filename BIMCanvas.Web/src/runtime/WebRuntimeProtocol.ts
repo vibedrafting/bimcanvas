@@ -49,7 +49,12 @@ export interface WebRuntime {
   loadInitialProject(): Promise<ProjectData | null>;
   importSnapshot(file: File): Promise<ProjectData>;
   closeProject(): Promise<void>;
-  saveModules(modules: Module[]): Promise<boolean>;
+  /**
+   * 保存模块到持久层。
+   * @param variantSelection 可选：叶子 zone id → variantId 的映射。命中的 zone 写入 modules-{variantId}.json，
+   *   未命中 zone 走 canonical modules.json。缺省/空 = 全 canonical（旧行为）。
+   */
+  saveModules(modules: Module[], variantSelection?: Record<string, string>): Promise<boolean>;
   getModuleLibrary(): Promise<ModuleLibrary | null>;
   getModuleAsset(moduleId: string): Promise<string | null>;
   exportSnapshot(projectData: ProjectData): Promise<Blob>;

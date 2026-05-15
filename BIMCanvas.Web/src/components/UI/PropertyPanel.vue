@@ -2,7 +2,6 @@
 import { useCanvasStore } from '../../stores/canvasStore';
 import { computed, ref, watch } from 'vue';
 import { storeToRefs } from 'pinia';
-import VariantSwitcherChips from './VariantSwitcherChips.vue';
 import ModuleSizeEditor from './property/ModuleSizeEditor.vue';
 import { moduleLibraryService } from '../../services/ModuleLibraryService';
 import {
@@ -74,6 +73,28 @@ const isPrimitiveValue = (value: any): boolean => {
   return type === 'string' || type === 'number' || type === 'boolean';
 };
 
+// 长文本截断 + 展开/收起
+// 阈值 40 字：placementReason 这类段落式说明默认折叠；切换选中对象自动复位
+const TRUNCATE_LIMIT = 40;
+const expandedKeys = ref<Set<string>>(new Set());
+
+watch(
+  () => selectedObject.value?.id ?? null,
+  () => { expandedKeys.value = new Set(); }
+);
+
+const isLongText = (v: unknown): v is string =>
+  typeof v === 'string' && v.length > TRUNCATE_LIMIT;
+
+const isExpanded = (key: string): boolean => expandedKeys.value.has(key);
+
+const toggleExpand = (key: string): void => {
+  const next = new Set(expandedKeys.value);
+  if (next.has(key)) next.delete(key);
+  else next.add(key);
+  expandedKeys.value = next;
+};
+
 // ========== 模块尺寸（actual + recommended + 编辑器） ==========
 // 仅当 selectedObject 是 module 时启用；查模块库拿 morphology 决定输入控件形态。
 
@@ -132,22 +153,6 @@ const onDepthCommit = (next: number) => {
   if (!actualSize.value || !isValidDimension(next)) return;
   void commitBoundsResize(actualSize.value.width, next);
 };
-
-// 模块布置变体切换器：仅当选中"叶子分区"时显示，给 module-relocation-agent 产出的变体方案做切换/采纳。
-// 叶子判定：subZones 为空且自身被识别为 zone；leafZonePath 形如 "rz_3/dz_1"（带 parentZoneId）或 "rz_3"（顶层叶子）。
-const variantContext = computed<{ leafZoneId: string; leafZonePath: string } | null>(() => {
-    const obj: any = selectedObject.value;
-    if (!obj) return null;
-    if (obj.type !== 'zone') return null;
-
-    const subZones = obj.subZones;
-    const hasChildren = Array.isArray(subZones) && subZones.length > 0;
-    if (hasChildren) return null;
-
-    const parentZoneId = obj.parentZoneId as string | undefined;
-    const leafZonePath = parentZoneId ? `${parentZoneId}/${obj.id}` : obj.id;
-    return { leafZoneId: obj.id, leafZonePath };
-});
 
 // Properties Generation
 const properties = computed(() => {
@@ -219,9 +224,30 @@ const properties = computed(() => {
             No properties
         </div>
         <div v-if="properties.length > 0" class="prop-list">
-            <div v-for="prop in properties" :key="prop.key" class="prop-row">
+            <div
+                v-for="prop in properties"
+                :key="prop.key"
+                class="prop-row"
+                :class="{ 'prop-row--long': isLongText(prop.value) }"
+            >
                 <span class="label">{{ prop.key }}</span>
-                <span class="value" :title="String(prop.value)">{{ prop.value }}</span>
+                <span
+                    class="value"
+                    :class="{ 'value--long': isLongText(prop.value) }"
+                    :title="String(prop.value)"
+                >
+                    <template v-if="isLongText(prop.value) && !isExpanded(prop.key)">
+                        {{ (prop.value as string).slice(0, TRUNCATE_LIMIT) }}<span class="ellipsis">…</span>
+                        <a class="expand-link" @click="toggleExpand(prop.key)">展开</a>
+                    </template>
+                    <template v-else-if="isLongText(prop.value) && isExpanded(prop.key)">
+                        {{ prop.value }}
+                        <a class="expand-link" @click="toggleExpand(prop.key)">收起</a>
+                    </template>
+                    <template v-else>
+                        {{ prop.value }}
+                    </template>
+                </span>
             </div>
         </div>
 
@@ -243,14 +269,6 @@ const properties = computed(() => {
             @commit="onDepthCommit"
           />
         </div>
-
-        <!-- 叶子分区变体切换器：当且仅当选中叶子分区且该分区有 alt 文件时渲染（组件内部空列表时返回 null） -->
-        <VariantSwitcherChips
-          v-if="variantContext"
-          :leaf-zone-id="variantContext.leafZoneId"
-          :leaf-zone-path="variantContext.leafZonePath"
-          class="variant-switcher-section"
-        />
     </div>
   </aside>
 </template>
@@ -412,6 +430,27 @@ const properties = computed(() => {
             word-break: break-word;      /* Break long words if needed */
             white-space: pre-wrap;       /* Preserve formatting but wrap */
             font-family: var(--font-mono); /* Monospace for values looks techy */
+
+            &.value--long {
+                text-align: left;
+            }
+
+            .ellipsis {
+                margin: 0 2px;
+                opacity: 0.6;
+            }
+
+            .expand-link {
+                margin-left: 6px;
+                color: var(--accent-primary, #4ea1ff);
+                cursor: pointer;
+                user-select: none;
+                white-space: nowrap;
+
+                &:hover {
+                    text-decoration: underline;
+                }
+            }
         }
     }
     
@@ -420,12 +459,6 @@ const properties = computed(() => {
         color: var(--text-tertiary);
         font-size: 0.85rem;
         padding: 20px 0;
-    }
-
-    .variant-switcher-section {
-        margin-top: 12px;
-        padding-top: 12px;
-        border-top: 1px solid var(--border-subtle);
     }
 
     .size-section {

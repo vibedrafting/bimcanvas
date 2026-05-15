@@ -1,143 +1,201 @@
 using System;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
-using System.Text;
-using System.Text.RegularExpressions;
+using System.Threading;
 using System.Threading.Tasks;
-using BIMCanvas.Core.Converters.Json;
 using BIMCanvas.Core.Models.Layout;
 using BIMCanvas.Server.Dtos;
 using BIMCanvas.Server.Hubs;
+using BIMCanvas.Server.Models;
 using BIMCanvas.Server.Services;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.SignalR;
 using Microsoft.Extensions.Logging;
-using Newtonsoft.Json;
-using Newtonsoft.Json.Linq;
-using Newtonsoft.Json.Serialization;
 
 namespace BIMCanvas.Server.Controllers
 {
     /// <summary>
-    /// 模块布置变体（modules-alt-*.json）控制器。
-    /// 仅服务于 module-relocation-agent 产出的变体方案与 Web 端的预览/采纳交互。
-    /// 与 SchemeController（canonical modules.json 读写 + Worktree source 解析）解耦。
+    /// 变体（schemes/{designZoneId}/variants/{slug}/）控制器。
+    /// 协议按 designZone + variantSlug 索引；adopt 走"检测 → 降级 → 晋升"三阶段。
     /// </summary>
     [ApiController]
     [Route("api/scheme")]
     public class VariantController : ControllerBase
     {
-        // 变体文件名 = "modules-{variantId}.json"
-        // sidecar 文件名 = "modules-{variantId}.meta.json"
-        private static readonly Regex VariantFilenameRegex = new Regex(
-            @"^modules-(?<variantId>[A-Za-z0-9_\-]+)\.json$",
-            RegexOptions.Compiled | RegexOptions.IgnoreCase);
-
         private readonly ILogger<VariantController> _logger;
         private readonly ProjectContext _projectContext;
         private readonly IHubContext<CanvasHub> _hubContext;
-        private readonly JsonSerializerSettings _jsonSettings;
+        private readonly ModulesWriterService _modulesWriter;
+        private readonly ModulesReaderService _modulesReader;
+
+        /// <summary>
+        /// 按 designZoneId 串行化 Adopt / Delete 的多文件操作。
+        /// BranchLockManager 是多窗口业务级互斥（branch→windowId），不保护同一窗口快速重复请求 / SignalR
+        /// 重发等场景下的跨多文件竞态——这里用 SemaphoreSlim 兜底。
+        /// 同 designZone 串行；不同 designZone 并发不互斥。
+        /// </summary>
+        private static readonly ConcurrentDictionary<string, SemaphoreSlim> _designZoneFileLocks = new();
+        private static SemaphoreSlim GetDesignZoneLock(string designZoneId)
+            => _designZoneFileLocks.GetOrAdd(designZoneId, _ => new SemaphoreSlim(1, 1));
 
         public VariantController(
             ILogger<VariantController> logger,
             ProjectContext projectContext,
-            IHubContext<CanvasHub> hubContext)
+            IHubContext<CanvasHub> hubContext,
+            ModulesWriterService modulesWriter,
+            ModulesReaderService modulesReader)
         {
             _logger = logger;
             _projectContext = projectContext;
             _hubContext = hubContext;
-            _jsonSettings = new JsonSerializerSettings
-            {
-                ContractResolver = new CamelCasePropertyNamesContractResolver(),
-                Converters = { new Polygon2DConverter(), new Point2DConverter(), new FacingConverter() }
-            };
+            _modulesWriter = modulesWriter;
+            _modulesReader = modulesReader;
         }
 
+        // ─────────────────────────── ListVariants ───────────────────────────
+
         /// <summary>
-        /// 列出指定叶子分区下所有变体文件 + 其 sidecar metadata。
-        /// 没有变体 → 返回空数组。
+        /// 列出指定 design zone 下所有变体（含 prev-* 降级目录）。
+        /// 数据源：文件系统目录 + slug 前缀约定（prev-* → "prev-adopted"，其他 → "variant"）+
+        /// 变体内 semantic_plan.json 派生的 summary（fallback canonical）。
+        /// createdAt 取目录 mtime，按字典序（≈时间序）升序排序。
         /// </summary>
         [HttpGet("variants")]
-        public ActionResult<List<VariantDescriptor>> ListVariants([FromQuery] string leafZonePath)
+        public ActionResult<VariantListResponse> ListVariants([FromQuery] string designZoneId)
         {
             if (!_projectContext.IsLoaded)
                 return BadRequest(new { error = "未加载项目" });
 
-            if (!TryResolveZoneDirectory(leafZonePath, out var zoneDir, out var error))
-                return BadRequest(new { error });
+            if (!TryResolveDesignZoneRoot(designZoneId, out var designZoneRoot, out var error))
+                return NotFound(new { error });
 
-            if (!Directory.Exists(zoneDir))
-                return Ok(new List<VariantDescriptor>());
+            var variantsRoot = Path.Combine(designZoneRoot, "variants");
+            var response = new VariantListResponse { DesignZoneId = designZoneId };
+            if (!Directory.Exists(variantsRoot))
+                return Ok(response);
 
-            // v1.4：列举时主动清理"无效"变体文件（0 字节 OR 0 有效模块——SubAgent 修补失败的认输信号）。
-            // parse 失败 / 结构不对的不删，照常报错让 bug 暴露。
-            var descriptors = new List<VariantDescriptor>();
-            foreach (var filePath in Directory.GetFiles(zoneDir, "modules-*.json", SearchOption.TopDirectoryOnly))
+            var projectPath = _projectContext.GetActiveWorktreePath()
+                              ?? _projectContext.CurrentProjectPath!;
+
+            foreach (var dir in Directory.EnumerateDirectories(variantsRoot, "*", SearchOption.TopDirectoryOnly))
             {
-                if (filePath.EndsWith(".meta.json", StringComparison.OrdinalIgnoreCase))
+                var slug = Path.GetFileName(dir);
+                if (string.IsNullOrWhiteSpace(slug))
                     continue;
 
-                var fileName = Path.GetFileName(filePath);
-                var match = VariantFilenameRegex.Match(fileName);
-                if (!match.Success)
-                    continue;
+                var state = slug.StartsWith("prev-", StringComparison.OrdinalIgnoreCase)
+                    ? "prev-adopted"
+                    : "variant";
+                var summary = SemanticPlanSummaryHelper.DeriveSummary(projectPath, designZoneId, slug);
+                var createdAt = Directory.GetCreationTimeUtc(dir).ToString("o");
 
-                if (TrySweepUnhealthyVariant(filePath, out var summary))
-                    continue; // 已自动清理（0 字节或 0 模块）→ 跳过
-
-                descriptors.Add(new VariantDescriptor
+                response.Variants.Add(new VariantMetadata
                 {
-                    VariantId = match.Groups["variantId"].Value,
-                    Filename = fileName,
-                    LeafZonePath = NormalizeLeafZonePath(leafZonePath),
-                    Summary = summary
+                    Slug = slug,
+                    CreatedAt = createdAt,
+                    State = state,
+                    Summary = summary ?? string.Empty
                 });
             }
-            descriptors.Sort((a, b) => string.Compare(
-                a.VariantId, b.VariantId, StringComparison.OrdinalIgnoreCase));
-            return Ok(descriptors);
+
+            response.Variants.Sort((a, b) =>
+                string.Compare(a.CreatedAt, b.CreatedAt, StringComparison.Ordinal));
+
+            return Ok(response);
         }
 
+        // ─────────────────────────── GetVariantsSummary ───────────────────────────
+
         /// <summary>
-        /// 读取指定变体的模块列表，用于 Web 端切换渲染。
-        /// 返回结构对齐 SchemeController.GetModules 的 SchemeModulesResponse。
+        /// 按 designZoneId 索引的变体计数摘要。
+        /// 数据源：扫 schemes/{dz}/variants/{slug}/ 子目录，无需读 sidecar。
+        /// 零变体的 design zone 不入字典。Web 端按 designZoneId 取 (current/total) 分页号。
         /// </summary>
-        [HttpGet("variant/{variantId}/modules")]
-        public ActionResult<SchemeModulesResponse> GetVariantModules(
-            string variantId,
-            [FromQuery] string leafZonePath)
+        [HttpGet("variants/summary")]
+        public ActionResult<Dictionary<string, VariantSummaryEntry>> GetVariantsSummary()
         {
             if (!_projectContext.IsLoaded)
                 return BadRequest(new { error = "未加载项目" });
 
-            try
+            var projectPath = _projectContext.GetActiveWorktreePath()
+                              ?? _projectContext.CurrentProjectPath;
+            if (string.IsNullOrWhiteSpace(projectPath) || !Directory.Exists(projectPath))
+                return BadRequest(new { error = "项目目录不存在" });
+
+            var schemesPath = Path.GetFullPath(Path.Combine(projectPath, "schemes"));
+            var result = new Dictionary<string, VariantSummaryEntry>();
+            if (!Directory.Exists(schemesPath))
+                return Ok(result);
+
+            var topology = ModuleFileTopologyService.BuildFromSchemesPath(schemesPath);
+            foreach (var designZoneDir in Directory.EnumerateDirectories(schemesPath, "*", SearchOption.TopDirectoryOnly))
             {
-                ModuleFileTopologyService.EnsureSafeVariantId(variantId);
-            }
-            catch (ArgumentException ex)
-            {
-                return BadRequest(new { error = ex.Message });
+                var dzId = Path.GetFileName(designZoneDir);
+                if (string.IsNullOrWhiteSpace(dzId) || !topology.IsDesignZoneId(dzId))
+                    continue;
+
+                var variantsRoot = Path.Combine(designZoneDir, "variants");
+                if (!Directory.Exists(variantsRoot))
+                    continue;
+
+                // 排序基必须与 ListVariants 一致（按目录创建时间升序），
+                // 否则 VariantNavigatorBar (createdAt) 和 Zone label 角标 (此处) 的页码会错位。
+                var slugs = Directory.EnumerateDirectories(variantsRoot, "*", SearchOption.TopDirectoryOnly)
+                    .Where(dir => !string.IsNullOrWhiteSpace(Path.GetFileName(dir)))
+                    .OrderBy(dir => Directory.GetCreationTimeUtc(dir))
+                    .Select(dir => Path.GetFileName(dir)!)
+                    .ToList();
+
+                if (slugs.Count > 0)
+                {
+                    result[dzId] = new VariantSummaryEntry
+                    {
+                        Count = slugs.Count,
+                        VariantSlugs = slugs
+                    };
+                }
             }
 
-            if (!TryResolveZoneDirectory(leafZonePath, out var zoneDir, out var error))
-                return BadRequest(new { error });
+            return Ok(result);
+        }
 
-            var fileName = ModuleFileTopologyService.BuildVariantFilename(variantId);
-            var filePath = Path.Combine(zoneDir, fileName);
+        // ─────────────────────────── GetVariantModules ───────────────────────────
+
+        /// <summary>
+        /// 读取指定 design zone + variant slug + leaf zone 的 modules（New 路径）。
+        /// 路径：schemes/{designZoneId}/variants/{variantSlug}/{leafZoneId}/modules.json
+        /// </summary>
+        [HttpGet("variants/{designZoneId}/{variantSlug}/modules")]
+        public ActionResult<SchemeModulesResponse> GetVariantModules(
+            string designZoneId,
+            string variantSlug,
+            [FromQuery] string leafZoneId)
+        {
+            if (!_projectContext.IsLoaded)
+                return BadRequest(new { error = "未加载项目" });
+
+            try { ModuleFileTopologyService.EnsureSafeVariantId(variantSlug); }
+            catch (ArgumentException ex) { return BadRequest(new { error = ex.Message }); }
+
+            if (!TryResolveDesignZoneRoot(designZoneId, out _, out var dzError))
+                return NotFound(new { error = dzError });
+
+            if (string.IsNullOrWhiteSpace(leafZoneId))
+                return BadRequest(new { error = "leafZoneId 不能为空" });
+
+            var projectPath = _projectContext.GetActiveWorktreePath()
+                              ?? _projectContext.CurrentProjectPath!;
+            var filePath = _modulesWriter.ResolveModulesPath(
+                projectPath, designZoneId, leafZoneId, variantSlug, VariantPathMode.New);
+
             if (!System.IO.File.Exists(filePath))
-                return NotFound(new { error = $"变体文件不存在: {fileName}" });
-
-            // v1.4：无效（0 字节 OR 0 模块）就删 + 404；健康才进入 parse 路径
-            if (TrySweepUnhealthyVariant(filePath, out _))
-                return NotFound(new { error = $"变体文件无效（已自动清理）: {fileName}" });
+                return NotFound(new { error = $"变体 modules.json 不存在: {Path.GetRelativePath(projectPath, filePath)}" });
 
             try
             {
-                var modules = LoadVariantModules(filePath);
-                // 变体文件写入时 zoneId 通常被 normalize 服务剥成 null；
-                // 这里按 leafZonePath 最后一段（叶子分区 ID）回填，保持与 canonical 读路径一致
-                var leafZoneId = Path.GetFileName(zoneDir);
+                var modules = _modulesReader.ReadModulesOnly(filePath) ?? new List<Module>();
                 foreach (var module in modules)
                 {
                     if (string.IsNullOrEmpty(module.ZoneId))
@@ -145,8 +203,8 @@ namespace BIMCanvas.Server.Controllers
                 }
                 return Ok(new SchemeModulesResponse
                 {
-                    Source = $"variant:{variantId}",
-                    Branch = NormalizeLeafZonePath(leafZonePath),
+                    Source = $"variant:{designZoneId}/{variantSlug}",
+                    Branch = leafZoneId,
                     Modules = modules
                 });
             }
@@ -157,119 +215,431 @@ namespace BIMCanvas.Server.Controllers
             }
         }
 
+        // ─────────────────────────── AdoptVariant ───────────────────────────
+
         /// <summary>
-        /// 采纳某变体：用变体内容覆写 canonical modules.json，并删除该叶子分区下所有 modules-alt-*.json + sidecar。
+        /// 采纳变体：检测 canonical → 降级（如非空）→ 晋升 → 删除被采纳变体。
+        /// 协议：POST {designZoneId, variantSlug}。
         /// </summary>
         [HttpPost("variant/adopt")]
         public async Task<IActionResult> AdoptVariant([FromBody] AdoptVariantRequest? request)
         {
             if (request == null)
                 return BadRequest(new { error = "请求体无效" });
-
             if (!_projectContext.IsLoaded)
                 return BadRequest(new { error = "未加载项目" });
 
+            try { ModuleFileTopologyService.EnsureSafeVariantId(request.VariantSlug); }
+            catch (ArgumentException ex) { return BadRequest(new { error = ex.Message }); }
+
+            if (!TryResolveDesignZoneRoot(request.DesignZoneId, out var designZoneRoot, out var dzError))
+                return NotFound(new { error = dzError });
+
+            var variantDir = Path.Combine(designZoneRoot, "variants", request.VariantSlug);
+            if (!Directory.Exists(variantDir))
+                return NotFound(new { error = $"变体目录不存在: variants/{request.VariantSlug}" });
+
+            var projectPath = _projectContext.GetActiveWorktreePath()
+                              ?? _projectContext.CurrentProjectPath!;
+            var schemesPath = Path.Combine(projectPath, "schemes");
+            var topology = ModuleFileTopologyService.BuildFromSchemesPath(schemesPath);
+            var leafZoneIds = topology.GetLeafZoneIds(request.DesignZoneId);
+            if (leafZoneIds.Count == 0)
+                return BadRequest(new { error = $"设计区 {request.DesignZoneId} 无叶子分区" });
+
+            // 同 designZone 的 adopt/delete 串行化（防同一窗口快速重复请求 / SignalR 重发引发的多文件竞态）
+            var adoptLock = GetDesignZoneLock(request.DesignZoneId);
+            if (!await adoptLock.WaitAsync(TimeSpan.FromSeconds(30)))
+                return StatusCode(503, new { error = "设计区被其他变体操作占用，请稍后重试" });
+
             try
             {
-                ModuleFileTopologyService.EnsureSafeVariantId(request.VariantId);
-            }
-            catch (ArgumentException ex)
-            {
-                return BadRequest(new { error = ex.Message });
-            }
-
-            if (!TryResolveZoneDirectory(request.LeafZonePath, out var zoneDir, out var error))
-                return BadRequest(new { error });
-
-            var variantFileName = ModuleFileTopologyService.BuildVariantFilename(request.VariantId);
-            var variantPath = Path.Combine(zoneDir, variantFileName);
-            if (!System.IO.File.Exists(variantPath))
-                return NotFound(new { error = $"变体文件不存在: {variantFileName}" });
-
-            var canonicalPath = Path.Combine(zoneDir, "modules.json");
-
-            try
-            {
-                // 1) 读取变体内容并先校验合法（兼容 wrapper 形态 {summary, modules} 与 legacy 裸数组）
-                //    采纳时只把 modules 数组写回 canonical，summary 字段不进 canonical（canonical 不带 wrapper）
-                var variantContent = System.IO.File.ReadAllText(variantPath, Encoding.UTF8);
-                var modulesArrayJson = ExtractModulesArrayJson(variantContent);
-
-                // 2) 原子写入 canonical：先写 .tmp，再 Move 覆盖
-                var tmpPath = canonicalPath + ".tmp";
-                System.IO.File.WriteAllText(tmpPath, modulesArrayJson, Encoding.UTF8);
-                System.IO.File.Move(tmpPath, canonicalPath, overwrite: true);
-
-                // 3) 删除该 zone 下所有 modules-alt-*.json + 对应 sidecar
-                var deletedFiles = new List<string>();
-                foreach (var altFile in Directory.GetFiles(zoneDir, "modules-alt-*.json", SearchOption.TopDirectoryOnly))
+                // 1) 加载所有叶子的 variant wrapper；必须至少一个 modules 非空才视为有效采纳
+                var variantWrappersByLeaf = new Dictionary<string, ModulesWrapper>(StringComparer.OrdinalIgnoreCase);
+                foreach (var leafId in leafZoneIds)
                 {
-                    try
+                    var variantPath = _modulesWriter.ResolveModulesPath(
+                        projectPath, request.DesignZoneId, leafId, request.VariantSlug, VariantPathMode.New);
+                    if (!System.IO.File.Exists(variantPath))
+                        continue;
+
+                    var wrapper = _modulesReader.Read(variantPath);
+                    if (wrapper != null)
+                        variantWrappersByLeaf[leafId] = wrapper;
+                }
+
+                if (!variantWrappersByLeaf.Any(kv => kv.Value.Modules.Count > 0))
+                    return BadRequest(new { error = "变体所有叶子 modules 均为空，无效采纳" });
+
+                // 2) 检测 canonical 是否非空（触发降级条件）
+                var canonicalWrappersByLeaf = new Dictionary<string, ModulesWrapper>(StringComparer.OrdinalIgnoreCase);
+                foreach (var leafId in leafZoneIds)
+                {
+                    var canonicalPath = _modulesWriter.ResolveModulesPath(
+                        projectPath, request.DesignZoneId, leafId, variantId: null, VariantPathMode.New);
+                    if (!System.IO.File.Exists(canonicalPath))
+                        continue;
+
+                    var wrapper = _modulesReader.Read(canonicalPath);
+                    if (wrapper != null && wrapper.Modules.Count > 0)
+                        canonicalWrappersByLeaf[leafId] = wrapper;
+                }
+
+                // 3) 降级（如适用）：把当前 canonical 非空叶子写到 variants/prev-{ts}/
+                string? demotedSlug = null;
+                if (canonicalWrappersByLeaf.Count > 0)
+                {
+                    var now = DateTime.Now;
+                    demotedSlug = $"prev-{now:yyyyMMddHHmmss}";
+
+                    foreach (var (leafId, wrapper) in canonicalWrappersByLeaf)
                     {
-                        System.IO.File.Delete(altFile);
-                        deletedFiles.Add(Path.GetFileName(altFile));
-                    }
-                    catch (Exception ex)
-                    {
-                        _logger.LogWarning(ex, "删除变体文件失败: {File}", altFile);
+                        await _modulesWriter.WriteAsync(
+                            projectPath, request.DesignZoneId, leafId,
+                            variantId: demotedSlug, pathMode: VariantPathMode.New,
+                            modules: wrapper.Modules,
+                            adoptedAt: now.ToUniversalTime(),
+                            sourceWorkflowOverride: "prev-adopted");
                     }
                 }
 
-                _logger.LogInformation(
-                    "[Variant.Adopt] 已采纳变体 {VariantId} → {Canonical}; 清理变体文件 {Count} 个",
-                    request.VariantId, canonicalPath, deletedFiles.Count);
+                // 4) 晋升：把被采纳 variant 的每个叶子写到 canonical（透传原 sourceWorkflow）
+                var promoteNow = DateTime.UtcNow;
+                foreach (var (leafId, wrapper) in variantWrappersByLeaf)
+                {
+                    var inheritedSourceWorkflow = string.IsNullOrWhiteSpace(wrapper.SchemeMetadata?.SourceWorkflow)
+                        ? "unknown"
+                        : wrapper.SchemeMetadata!.SourceWorkflow;
 
-                // 4) 显式广播 modules.json 变化，缩短 Web 端等 FileWatcher 防抖的延迟
+                    await _modulesWriter.WriteAsync(
+                        projectPath, request.DesignZoneId, leafId,
+                        variantId: null, pathMode: VariantPathMode.New,
+                        modules: wrapper.Modules,
+                        adoptedAt: promoteNow,
+                        sourceWorkflowOverride: inheritedSourceWorkflow);
+                }
+
+                // 5) 删除被采纳变体整目录（含 semantic_plan.json / 各叶子 modules）
+                try { Directory.Delete(variantDir, recursive: true); }
+                catch (Exception ex) { _logger.LogWarning(ex, "删除被采纳变体目录失败: {Dir}", variantDir); }
+
+                _logger.LogInformation(
+                    "[Variant.Adopt] designZone={Dz} slug={Slug} 晋升为 canonical；降级 prev={Prev}（受影响叶子 {N}）",
+                    request.DesignZoneId, request.VariantSlug, demotedSlug ?? "(无)", variantWrappersByLeaf.Count);
+
+                // 6) SignalR 广播：trigger=variant-adopt，payload 含 designZoneId + adoptedSlug + demotedSlug
                 await _hubContext.Clients.All.SendAsync("ReceiveUpdate", new
                 {
                     type = "file_changed",
                     file = "modules.json",
                     timestamp = DateTime.UtcNow,
                     action = "reload",
-                    trigger = "variant-adopt"
+                    trigger = "variant-adopt",
+                    designZoneId = request.DesignZoneId,
+                    adoptedSlug = request.VariantSlug,
+                    demotedSlug
                 });
 
                 return Ok(new
                 {
                     success = true,
-                    adopted = request.VariantId,
-                    deletedVariants = deletedFiles
+                    adopted = request.VariantSlug,
+                    designZoneId = request.DesignZoneId,
+                    demotedSlug
                 });
-            }
-            catch (JsonReaderException ex)
-            {
-                _logger.LogError(ex, "采纳失败：变体文件不是合法 JSON");
-                return StatusCode(500, new { error = "变体文件不是合法 JSON，已拒绝采纳" });
             }
             catch (Exception ex)
             {
                 _logger.LogError(ex, "采纳变体失败");
                 return StatusCode(500, new { error = $"采纳失败: {ex.Message}" });
             }
+            finally
+            {
+                adoptLock.Release();
+            }
+        }
+
+        // ─────────────────────────── CloneVariant ───────────────────────────
+
+        /// <summary>
+        /// 克隆设计区方案（canonical 或某变体）到一个或多个新变体目录。
+        /// 协议：POST {designZoneId, sourceVariant, newVariantSlugs[], overwrite}。
+        /// 复制范围：semantic_plan.json + reference_analysis.json + 各叶子 modules.json（字节级 File.Copy，
+        /// 不重新派生 schemeMetadata）。state / summary / sourceWorkflow 由 Server 在 ListVariants /
+        /// 各 modules.json wrapper 里按 slug 前缀 + semantic_plan 内容派生，磁盘上不再写 sidecar。
+        /// 部分成功允许：单 slug 失败进 errors，已成功 slug 目录保留。
+        /// </summary>
+        [HttpPost("variant/clone")]
+        public async Task<ActionResult<CloneVariantResponse>> CloneVariant([FromBody] CloneVariantRequest? request)
+        {
+            if (request == null)
+                return BadRequest(new { error = "请求体无效" });
+            if (!_projectContext.IsLoaded)
+                return BadRequest(new { error = "未加载项目" });
+            if (request.NewVariantSlugs == null || request.NewVariantSlugs.Count == 0)
+                return BadRequest(new { error = "newVariantSlugs 不能为空" });
+
+            if (!TryResolveDesignZoneRoot(request.DesignZoneId, out var designZoneRoot, out var dzError))
+                return NotFound(new { error = dzError });
+
+            // 规范化 sourceVariant：null/空/"canonical" → 视为 canonical
+            var sourceIsCanonical = string.IsNullOrWhiteSpace(request.SourceVariant)
+                || string.Equals(request.SourceVariant, "canonical", StringComparison.OrdinalIgnoreCase);
+            string? safeSourceSlug = null;
+            string srcRoot;
+            string sourceLabel;
+
+            if (sourceIsCanonical)
+            {
+                srcRoot = designZoneRoot;
+                sourceLabel = "canonical";
+            }
+            else
+            {
+                try { ModuleFileTopologyService.EnsureSafeVariantId(request.SourceVariant!); }
+                catch (ArgumentException ex) { return BadRequest(new { error = $"sourceVariant 非法: {ex.Message}" }); }
+
+                safeSourceSlug = request.SourceVariant!;
+                srcRoot = Path.Combine(designZoneRoot, "variants", safeSourceSlug);
+                if (!Directory.Exists(srcRoot))
+                    return BadRequest(new { error = $"source-not-found: variants/{safeSourceSlug}" });
+                sourceLabel = safeSourceSlug;
+            }
+
+            // newVariantSlugs 预校验（含自我克隆冲突）
+            var safeNewSlugs = new List<string>(request.NewVariantSlugs.Count);
+            foreach (var rawSlug in request.NewVariantSlugs)
+            {
+                try { ModuleFileTopologyService.EnsureSafeVariantId(rawSlug); }
+                catch (ArgumentException ex) { return BadRequest(new { error = $"newVariantSlugs 非法: {ex.Message}" }); }
+
+                if (!sourceIsCanonical && string.Equals(rawSlug, safeSourceSlug, StringComparison.OrdinalIgnoreCase))
+                    return BadRequest(new { error = $"cannot-clone-onto-source: newVariantSlugs 含源 slug '{safeSourceSlug}'" });
+
+                safeNewSlugs.Add(rawSlug);
+            }
+
+            // 与 adopt/delete 共享 designZone 锁，防多文件竞态
+            var cloneLock = GetDesignZoneLock(request.DesignZoneId);
+            if (!await cloneLock.WaitAsync(TimeSpan.FromSeconds(30)))
+                return StatusCode(503, new { error = "设计区被其他变体操作占用，请稍后重试" });
+
+            var response = new CloneVariantResponse();
+            try
+            {
+                // ── 锁内枚举源文件清单（绝对路径列表）──
+                var projectPath = _projectContext.GetActiveWorktreePath()
+                                  ?? _projectContext.CurrentProjectPath!;
+                var schemesPath = Path.Combine(projectPath, "schemes");
+                var topology = ModuleFileTopologyService.BuildFromSchemesPath(schemesPath);
+                var leafZoneIds = topology.GetLeafZoneIds(request.DesignZoneId);
+
+                var srcFiles = new List<string>();
+
+                // semantic_plan.json + reference_analysis.json
+                var srcSemanticPlan = Path.Combine(srcRoot, "semantic_plan.json");
+                if (System.IO.File.Exists(srcSemanticPlan))
+                    srcFiles.Add(srcSemanticPlan);
+                var srcReferenceAnalysis = Path.Combine(srcRoot, "reference_analysis.json");
+                if (System.IO.File.Exists(srcReferenceAnalysis))
+                    srcFiles.Add(srcReferenceAnalysis);
+
+                // 各叶子 modules.json
+                foreach (var leafId in leafZoneIds)
+                {
+                    var leafModulesPath = _modulesWriter.ResolveModulesPath(
+                        projectPath, request.DesignZoneId, leafId,
+                        variantId: sourceIsCanonical ? null : safeSourceSlug,
+                        pathMode: VariantPathMode.New);
+
+                    if (System.IO.File.Exists(leafModulesPath))
+                        srcFiles.Add(leafModulesPath);
+                }
+
+                // ── 循环每个 newSlug：复制源文件 ──
+                foreach (var safeNew in safeNewSlugs)
+                {
+                    var dstRoot = Path.Combine(designZoneRoot, "variants", safeNew);
+                    if (Directory.Exists(dstRoot))
+                    {
+                        if (!request.Overwrite)
+                        {
+                            response.Errors.Add(new CloneVariantError
+                            {
+                                Slug = safeNew,
+                                Reason = "already-exists"
+                            });
+                            continue;
+                        }
+                        try { Directory.Delete(dstRoot, recursive: true); }
+                        catch (Exception ex)
+                        {
+                            response.Errors.Add(new CloneVariantError
+                            {
+                                Slug = safeNew,
+                                Reason = $"overwrite-delete-failed: {ex.Message}"
+                            });
+                            continue;
+                        }
+                    }
+
+                    int fileCount = 0;
+                    var ioFailed = false;
+                    string? ioError = null;
+                    try
+                    {
+                        Directory.CreateDirectory(dstRoot);
+                        foreach (var src in srcFiles)
+                        {
+                            var relative = Path.GetRelativePath(srcRoot, src);
+                            var dst = Path.Combine(dstRoot, relative);
+                            var dstDir = Path.GetDirectoryName(dst)!;
+                            Directory.CreateDirectory(dstDir);
+                            System.IO.File.Copy(src, dst, overwrite: true);
+                            fileCount++;
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        ioFailed = true;
+                        ioError = ex.Message;
+                    }
+
+                    if (ioFailed)
+                    {
+                        response.Errors.Add(new CloneVariantError
+                        {
+                            Slug = safeNew,
+                            Reason = $"copy-failed: {ioError}"
+                        });
+                        continue;
+                    }
+
+                    var dstRelative = Path.GetRelativePath(projectPath, dstRoot).Replace('\\', '/');
+                    response.Created.Add(new CloneVariantResult
+                    {
+                        Slug = safeNew,
+                        Path = dstRelative,
+                        FileCount = fileCount
+                    });
+                }
+
+                _logger.LogInformation(
+                    "[Variant.Clone] designZone={Dz} source={Src} 创建 {Created} 个，失败 {Errors} 个",
+                    request.DesignZoneId, sourceLabel, response.Created.Count, response.Errors.Count);
+
+                // 单次 SignalR 广播（仅当有创建成功）
+                if (response.Created.Count > 0)
+                {
+                    await _hubContext.Clients.All.SendAsync("ReceiveUpdate", new
+                    {
+                        type = "file_changed",
+                        file = "modules.json",
+                        timestamp = DateTime.UtcNow,
+                        action = "reload",
+                        trigger = "variant-cloned",
+                        designZoneId = request.DesignZoneId,
+                        createdSlugs = response.Created.Select(c => c.Slug).ToList()
+                    });
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "克隆变体失败");
+                return StatusCode(500, new { error = $"克隆失败: {ex.Message}" });
+            }
+            finally
+            {
+                cloneLock.Release();
+            }
+
+            return Ok(response);
+        }
+
+        // ─────────────────────────── DeleteVariant ───────────────────────────
+
+        /// <summary>
+        /// 删除指定变体目录（schemes/{designZoneId}/variants/{variantSlug}/）。
+        /// 不动 canonical 与其他变体。
+        /// </summary>
+        [HttpDelete("variant")]
+        public async Task<IActionResult> DeleteVariant(
+            [FromQuery] string designZoneId,
+            [FromQuery] string variantSlug)
+        {
+            if (!_projectContext.IsLoaded)
+                return BadRequest(new { error = "未加载项目" });
+
+            try { ModuleFileTopologyService.EnsureSafeVariantId(variantSlug); }
+            catch (ArgumentException ex) { return BadRequest(new { error = ex.Message }); }
+
+            if (!TryResolveDesignZoneRoot(designZoneId, out var designZoneRoot, out var dzError))
+                return NotFound(new { error = dzError });
+
+            var variantDir = Path.Combine(designZoneRoot, "variants", variantSlug);
+            if (!Directory.Exists(variantDir))
+                return NotFound(new { error = $"变体目录不存在: variants/{variantSlug}" });
+
+            // 与 adopt 共享同一 designZone 锁——防"adopt 进行中另一边删变体"竞态
+            var deleteLock = GetDesignZoneLock(designZoneId);
+            if (!await deleteLock.WaitAsync(TimeSpan.FromSeconds(30)))
+                return StatusCode(503, new { error = "设计区被其他变体操作占用，请稍后重试" });
+
+            try
+            {
+                // 锁内复查（adopt 可能刚把它清掉）
+                if (!Directory.Exists(variantDir))
+                    return NotFound(new { error = $"变体目录不存在: variants/{variantSlug}" });
+
+                Directory.Delete(variantDir, recursive: true);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "删除变体目录失败: {Dir}", variantDir);
+                return StatusCode(500, new { error = $"删除失败: {ex.Message}" });
+            }
+            finally
+            {
+                deleteLock.Release();
+            }
+
+            _logger.LogInformation(
+                "[Variant.Delete] designZone={Dz} slug={Slug} 已删除", designZoneId, variantSlug);
+
+            await _hubContext.Clients.All.SendAsync("ReceiveUpdate", new
+            {
+                type = "file_changed",
+                file = "modules.json",
+                timestamp = DateTime.UtcNow,
+                action = "reload",
+                trigger = "variant-deleted",
+                designZoneId,
+                variantSlug
+            });
+
+            return Ok(new { success = true, deleted = variantSlug, designZoneId });
         }
 
         // ───────────────────────── helpers ─────────────────────────
 
         /// <summary>
-        /// 把 leafZonePath（相对 schemes/ 的子路径，如 "rz_3/dz_1"）解析为绝对目录。
-        /// 强校验：非空 / 不含 ".." / 解析后必须仍在 schemes/ 子树内。
+        /// 校验 designZoneId（合法名、是 design zone、目录存在），返回绝对路径 schemes/{designZoneId}/。
         /// </summary>
-        private bool TryResolveZoneDirectory(string? leafZonePath, out string zoneDir, out string error)
+        private bool TryResolveDesignZoneRoot(string? designZoneId, out string designZoneRoot, out string error)
         {
-            zoneDir = "";
+            designZoneRoot = "";
             error = "";
 
-            if (string.IsNullOrWhiteSpace(leafZonePath))
+            if (string.IsNullOrWhiteSpace(designZoneId))
             {
-                error = "leafZonePath 不能为空";
+                error = "designZoneId 不能为空";
                 return false;
             }
-
-            // 拒绝路径穿越
-            var normalized = leafZonePath.Replace('\\', '/').Trim('/');
-            if (normalized.Contains("..") || normalized.Contains(":"))
+            // 防路径穿越：designZoneId 只能是单段标识符，不能含 / 或 ..
+            if (designZoneId.Contains('/') || designZoneId.Contains('\\')
+                || designZoneId.Contains("..") || designZoneId.Contains(':'))
             {
-                error = "leafZonePath 包含非法字符";
+                error = "designZoneId 包含非法字符";
                 return false;
             }
 
@@ -282,145 +652,73 @@ namespace BIMCanvas.Server.Controllers
             }
 
             var schemesPath = Path.GetFullPath(Path.Combine(projectPath, "schemes"));
-            var candidate = Path.GetFullPath(Path.Combine(schemesPath, normalized));
-
-            // 二次校验：解析后必须仍在 schemes/ 子树内
-            if (!candidate.StartsWith(
-                    schemesPath.TrimEnd(Path.DirectorySeparatorChar) + Path.DirectorySeparatorChar,
-                    StringComparison.OrdinalIgnoreCase)
-                && !string.Equals(candidate, schemesPath, StringComparison.OrdinalIgnoreCase))
+            var topology = ModuleFileTopologyService.BuildFromSchemesPath(schemesPath);
+            if (!topology.IsDesignZoneId(designZoneId))
             {
-                error = "leafZonePath 越界";
+                error = $"{designZoneId} 不是有效的 design zone";
                 return false;
             }
 
-            zoneDir = candidate;
+            designZoneRoot = Path.GetFullPath(Path.Combine(schemesPath, designZoneId));
+            if (!Directory.Exists(designZoneRoot))
+            {
+                error = $"设计区目录不存在: {designZoneId}";
+                return false;
+            }
             return true;
         }
 
-        private static string NormalizeLeafZonePath(string leafZonePath)
-        {
-            return string.IsNullOrWhiteSpace(leafZonePath)
-                ? ""
-                : leafZonePath.Replace('\\', '/').Trim('/');
-        }
-
-        /// <summary>
-        /// v1.4 sweep：判定变体文件是否"无效"（0 字节 OR 0 有效模块）→ 删除并返回 true（caller 应跳过）。
-        /// 健康 → 返回 false，summary 通过 out 返回（wrapper.summary 或空串）。
-        /// parse 失败 / IO 失败 → 不删，返回 false 让上层暴露 bug（GetVariantModules 会返 500）。
-        /// 一次 IO + parse 同时完成 sweep 判定 + summary 提取。
-        /// </summary>
-        private bool TrySweepUnhealthyVariant(string filePath, out string summary)
-        {
-            summary = string.Empty;
-            try
-            {
-                if (!System.IO.File.Exists(filePath))
-                    return false;
-                if (new FileInfo(filePath).Length == 0)
-                {
-                    System.IO.File.Delete(filePath);
-                    _logger.LogWarning("[VariantSweep] 自动清理 0 字节变体文件: {File}", filePath);
-                    return true;
-                }
-                var raw = System.IO.File.ReadAllText(filePath, Encoding.UTF8);
-                var token = JToken.Parse(raw);
-                JArray? modulesArray = null;
-                if (token is JArray asArray)
-                {
-                    modulesArray = asArray;
-                }
-                else if (token is JObject obj)
-                {
-                    modulesArray = obj["modules"] as JArray;
-                    summary = obj.Value<string>("summary") ?? string.Empty;
-                }
-                if (modulesArray == null || modulesArray.Count == 0)
-                {
-                    System.IO.File.Delete(filePath);
-                    _logger.LogWarning("[VariantSweep] 自动清理 0 有效模块变体文件: {File}", filePath);
-                    summary = string.Empty;
-                    return true;
-                }
-                return false;
-            }
-            catch (Exception ex)
-            {
-                _logger.LogWarning(ex, "[VariantSweep] 检查变体文件失败 {File}", filePath);
-                summary = string.Empty;
-                return false;
-            }
-        }
-
-        /// <summary>
-        /// 读变体文件并兼容两种形态：
-        ///   - v1.1 wrapper: { "summary": "...", "modules": [...] } → 取 modules
-        ///   - legacy:        [ ... ] (裸数组) → 直接当 Module[]
-        /// </summary>
-        private List<Module> LoadVariantModules(string variantFilePath)
-        {
-            var raw = System.IO.File.ReadAllText(variantFilePath, Encoding.UTF8);
-            var token = JToken.Parse(raw);
-            JArray? modulesArray;
-            if (token is JArray asArray)
-            {
-                modulesArray = asArray;
-            }
-            else if (token is JObject asObject && asObject["modules"] is JArray inner)
-            {
-                modulesArray = inner;
-            }
-            else
-            {
-                throw new InvalidOperationException(
-                    $"变体文件结构不识别（既不是数组，也不是 {{summary, modules}} 包裹对象）: {variantFilePath}");
-            }
-            return modulesArray.ToObject<List<Module>>(JsonSerializer.Create(_jsonSettings)) ?? new List<Module>();
-        }
-
-        /// <summary>
-        /// 把变体文件内容归一成"纯 modules 数组的 JSON 串"，供采纳时写入 canonical modules.json。
-        /// 兼容 wrapper / 裸数组两种形态。
-        /// </summary>
-        private string ExtractModulesArrayJson(string variantContent)
-        {
-            var token = JToken.Parse(variantContent);
-            JArray? modulesArray;
-            if (token is JArray asArray)
-            {
-                modulesArray = asArray;
-            }
-            else if (token is JObject asObject && asObject["modules"] is JArray inner)
-            {
-                modulesArray = inner;
-            }
-            else
-            {
-                throw new InvalidOperationException("变体文件不是合法 modules 数组或 {summary, modules} 包裹对象");
-            }
-            return modulesArray.ToString(Formatting.Indented);
-        }
-
-        private T? ReadJson<T>(string path)
-        {
-            var json = System.IO.File.ReadAllText(path, Encoding.UTF8);
-            return JsonConvert.DeserializeObject<T>(json, _jsonSettings);
-        }
-    }
-
-    public class VariantDescriptor
-    {
-        public string VariantId { get; set; } = "";
-        public string Filename { get; set; } = "";
-        public string LeafZonePath { get; set; } = "";
-        /// <summary>v1.1 wrapper.summary 字段（chip tooltip 用）。</summary>
-        public string Summary { get; set; } = string.Empty;
     }
 
     public class AdoptVariantRequest
     {
-        public string VariantId { get; set; } = "";
-        public string LeafZonePath { get; set; } = "";
+        public string DesignZoneId { get; set; } = "";
+        public string VariantSlug { get; set; } = "";
+    }
+
+    public class CloneVariantRequest
+    {
+        public string DesignZoneId { get; set; } = "";
+        /// <summary>null/空/"canonical" 表示从 canonical 克隆；否则填某个已存在 variant slug。</summary>
+        public string? SourceVariant { get; set; }
+        public List<string> NewVariantSlugs { get; set; } = new List<string>();
+        public bool Overwrite { get; set; } = false;
+    }
+
+    public class CloneVariantResponse
+    {
+        public List<CloneVariantResult> Created { get; set; } = new List<CloneVariantResult>();
+        public List<CloneVariantError> Errors { get; set; } = new List<CloneVariantError>();
+    }
+
+    public class CloneVariantResult
+    {
+        public string Slug { get; set; } = "";
+        public string Path { get; set; } = "";
+        public int FileCount { get; set; }
+    }
+
+    public class CloneVariantError
+    {
+        public string Slug { get; set; } = "";
+        public string Reason { get; set; } = "";
+    }
+
+    /// <summary>
+    /// GET /api/scheme/variants 的返回结构。
+    /// </summary>
+    public class VariantListResponse
+    {
+        public string DesignZoneId { get; set; } = "";
+        public List<VariantMetadata> Variants { get; set; } = new List<VariantMetadata>();
+    }
+
+    /// <summary>
+    /// GET /api/scheme/variants/summary 的字典值（designZone-level 索引）。
+    /// </summary>
+    public class VariantSummaryEntry
+    {
+        public int Count { get; set; }
+        public List<string> VariantSlugs { get; set; } = new List<string>();
     }
 }

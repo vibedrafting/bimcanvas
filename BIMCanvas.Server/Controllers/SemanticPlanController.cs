@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Text.RegularExpressions;
 using System.Threading.Tasks;
 using BIMCanvas.Server.Hubs;
 using BIMCanvas.Server.Models;
@@ -19,6 +20,23 @@ namespace BIMCanvas.Server.Controllers
     {
         private const string PlanTypeDerived = "derived";
         private const string PlanTypeReference = "reference";
+
+        private static readonly HashSet<string> AllowedSemanticPlanTags = new HashSet<string>(StringComparer.Ordinal)
+        {
+            "spatial-skeleton",
+            "strategic-plan",
+            "multi-plan-overview",
+            "construction-brief"
+        };
+
+        // spatial-skeleton / multi-plan-overview 全局只在 canonical 出现，不允许变体覆盖。
+        private static readonly HashSet<string> CanonicalOnlyTags = new HashSet<string>(StringComparer.Ordinal)
+        {
+            "spatial-skeleton",
+            "multi-plan-overview"
+        };
+
+        private static readonly Regex ReferenceAnalysisTagPattern = new Regex(@"^v[1-9][0-9]*$", RegexOptions.Compiled);
 
         private readonly ProjectContext _projectContext;
         private readonly IHubContext<CanvasHub> _hubContext;
@@ -47,51 +65,88 @@ namespace BIMCanvas.Server.Controllers
             if (normalizedPlanType == null)
                 return BadRequest(new { message = "planType 必须是 derived 或 reference" });
 
-            var filePath = GetSemanticPlanPath(request.ZoneId);
+            if (string.IsNullOrWhiteSpace(request.Tag) || !AllowedSemanticPlanTags.Contains(request.Tag))
+            {
+                var allowed = string.Join(", ", AllowedSemanticPlanTags);
+                return BadRequest(new { message = $"非法 tag: {request.Tag ?? "(空)"}。合法值：{allowed}" });
+            }
+
+            // variantId charset 校验：与 ModulesController.SaveSchemeModules 保持一致，
+            // 避免路径穿越 / 不合法目录名。
+            if (!string.IsNullOrWhiteSpace(request.VariantId))
+            {
+                try
+                {
+                    ModuleFileTopologyService.EnsureSafeVariantId(request.VariantId);
+                }
+                catch (ArgumentException ex)
+                {
+                    return BadRequest(new { message = ex.Message });
+                }
+            }
+
+            // canonical-only tag 单 owner 校验：spatial-skeleton / multi-plan-overview 不允许写入变体路径。
+            if (CanonicalOnlyTags.Contains(request.Tag) && !string.IsNullOrWhiteSpace(request.VariantId))
+            {
+                return BadRequest(new
+                {
+                    message = $"tag={request.Tag} 是 canonical 单 owner（spatial-skeleton / multi-plan-overview 全局只在 canonical 出现），不能写入变体路径。请省略 variantId。"
+                });
+            }
+
+            var filePath = GetSemanticPlanPath(request.ZoneId, request.VariantId);
             Directory.CreateDirectory(Path.GetDirectoryName(filePath)!);
             var document = ReadSemanticPlanDocument(filePath);
 
             // 新流程已经迁出 referenceAnalysis，保存 semantic_plan 时顺便清理旧嵌入字段。
-            document.LegacyEmbeddedReferenceAnalysis = null;
+            // 仅在写入 canonical 时执行——变体目录从未有过 legacy embedded 数据，无需清理。
+            if (string.IsNullOrWhiteSpace(request.VariantId))
+            {
+                document.LegacyEmbeddedReferenceAnalysis = null;
+            }
 
-            var entry = new SemanticPlanVersion
+            var entry = new SemanticPlanEntry
             {
                 ZoneId = request.ZoneId,
-                Version = request.Version,
+                Tag = request.Tag,
                 PlanType = normalizedPlanType,
                 Content = request.Content,
                 Timestamp = DateTime.UtcNow.ToString("o"),
-                ReferenceAnalysisVersion = NormalizeReferenceAnalysisVersion(request.ReferenceAnalysisVersion)
+                ReferenceAnalysisTag = NormalizeReferenceAnalysisTag(request.ReferenceAnalysisTag)
             };
 
-            document.Versions ??= new List<SemanticPlanVersion>();
-            document.Versions.RemoveAll(v => string.Equals(v.Version, request.Version, StringComparison.Ordinal));
-            document.Versions.Add(entry);
-            document.Versions.Sort((a, b) => string.Compare(a.Version, b.Version, StringComparison.Ordinal));
+            document.Entries ??= new List<SemanticPlanEntry>();
+            document.Entries.RemoveAll(v => string.Equals(v.Tag, request.Tag, StringComparison.Ordinal));
+            document.Entries.Add(entry);
+            document.Entries.Sort((a, b) => string.Compare(a.Tag, b.Tag, StringComparison.Ordinal));
 
             await WriteSemanticPlanDocumentAsync(filePath, document);
+
+            var variantIdForPayload = string.IsNullOrWhiteSpace(request.VariantId) ? null : request.VariantId;
 
             await _hubContext.Clients.All.SendAsync("SemanticPlanUpdated", new
             {
                 zoneId = request.ZoneId,
-                version = request.Version,
+                variantId = variantIdForPayload,
+                tag = request.Tag,
                 planType = entry.PlanType,
-                referenceAnalysisVersion = entry.ReferenceAnalysisVersion,
+                referenceAnalysisTag = entry.ReferenceAnalysisTag,
                 content = request.Content,
                 timestamp = entry.Timestamp
             });
 
             _logger.LogInformation(
-                "[SemanticPlan] 已保存 {ZoneId} {PlanType} {Version}（reference={ReferenceAnalysisVersion}）",
-                request.ZoneId, entry.PlanType, request.Version, entry.ReferenceAnalysisVersion ?? "-");
+                "[SemanticPlan] 已保存 {ZoneId} {PlanType} {Tag}（variant={VariantId}, reference={ReferenceAnalysisTag}）",
+                request.ZoneId, entry.PlanType, request.Tag, variantIdForPayload ?? "-", entry.ReferenceAnalysisTag ?? "-");
 
             return Ok(new
             {
                 saved = true,
                 zoneId = request.ZoneId,
+                variantId = variantIdForPayload,
                 planType = entry.PlanType,
-                version = request.Version,
-                referenceAnalysisVersion = entry.ReferenceAnalysisVersion
+                tag = request.Tag,
+                referenceAnalysisTag = entry.ReferenceAnalysisTag
             });
         }
 
@@ -107,43 +162,43 @@ namespace BIMCanvas.Server.Controllers
             var filePath = GetReferenceAnalysisPath(request.ZoneId);
             Directory.CreateDirectory(Path.GetDirectoryName(filePath)!);
 
-            var versions = ReadReferenceAnalysisVersions(request.ZoneId);
-            var nextVersion = GetNextReferenceAnalysisVersion(versions);
-            var entry = new ReferenceAnalysisVersionEntry
+            var entries = ReadReferenceAnalysisEntries(request.ZoneId);
+            var nextTag = GetNextReferenceAnalysisTag(entries);
+            var entry = new ReferenceAnalysisEntry
             {
-                Version = nextVersion,
+                Tag = nextTag,
                 SourceImageId = request.SourceImageId ?? string.Empty,
                 Content = request.Content,
                 Timestamp = DateTime.UtcNow.ToString("o")
             };
 
-            versions.Add(entry);
-            versions.Sort((a, b) => CompareReferenceAnalysisVersion(a.Version, b.Version));
+            entries.Add(entry);
+            entries.Sort((a, b) => CompareReferenceAnalysisTag(a.Tag, b.Tag));
 
-            await WriteReferenceAnalysisDocumentAsync(filePath, versions);
+            await WriteReferenceAnalysisDocumentAsync(filePath, entries);
             await RemoveLegacyEmbeddedReferenceAnalysisAsync(request.ZoneId);
 
             await _hubContext.Clients.All.SendAsync("ReferenceAnalysisUpdated", new
             {
                 zoneId = request.ZoneId,
-                version = entry.Version,
+                tag = entry.Tag,
                 timestamp = entry.Timestamp
             });
 
             _logger.LogInformation(
-                "[ReferenceAnalysis] 已保存 {ZoneId} {Version}",
-                request.ZoneId, entry.Version);
+                "[ReferenceAnalysis] 已保存 {ZoneId} {Tag}",
+                request.ZoneId, entry.Tag);
 
             return Ok(new
             {
                 saved = true,
                 zoneId = request.ZoneId,
-                version = entry.Version
+                tag = entry.Tag
             });
         }
 
         [HttpGet("{zoneId}")]
-        public ActionResult LoadSemanticPlan(string zoneId)
+        public ActionResult LoadSemanticPlan(string zoneId, [FromQuery] string? variantId = null)
         {
             if (!_projectContext.IsLoaded)
                 return BadRequest(new { message = "没有加载的项目" });
@@ -151,15 +206,30 @@ namespace BIMCanvas.Server.Controllers
             if (!IsDesignZoneId(zoneId))
                 return BadRequest(new { message = "semantic_plan 只归属于设计区，不归属于子分区。请传入父设计区 zoneId。" });
 
-            var filePath = GetSemanticPlanPath(zoneId);
+            // variantId 非空时走 merge view 分支（canonical spatial-skeleton + 变体 entries）。
+            if (!string.IsNullOrWhiteSpace(variantId))
+            {
+                try
+                {
+                    ModuleFileTopologyService.EnsureSafeVariantId(variantId);
+                }
+                catch (ArgumentException ex)
+                {
+                    return BadRequest(new { message = ex.Message });
+                }
+
+                return LoadSemanticPlanMergeView(zoneId, variantId);
+            }
+
+            var filePath = GetSemanticPlanPath(zoneId, null);
             if (!System.IO.File.Exists(filePath))
                 return NotFound(new { status = "missing", message = $"未找到 {zoneId} 的语义方案" });
 
             var document = ReadSemanticPlanDocument(filePath);
-            if (document.Versions == null || document.Versions.Count == 0)
+            if (document.Entries == null || document.Entries.Count == 0)
                 return NotFound(new { status = "missing", message = $"{zoneId} 的语义方案为空" });
 
-            if (!TryResolvePlanType(document.Versions, out var planType))
+            if (!TryResolvePlanType(document.Entries, out var planType))
             {
                 return Conflict(new
                 {
@@ -169,7 +239,7 @@ namespace BIMCanvas.Server.Controllers
                 });
             }
 
-            var target = document.Versions.LastOrDefault(v => string.Equals(v.Version, "v0.3", StringComparison.Ordinal));
+            var target = document.Entries.LastOrDefault(v => string.Equals(v.Tag, "construction-brief", StringComparison.Ordinal));
             if (target == null)
             {
                 if (string.Equals(planType, PlanTypeReference, StringComparison.OrdinalIgnoreCase))
@@ -178,7 +248,7 @@ namespace BIMCanvas.Server.Controllers
                     {
                         status = "legacy_reference_requires_replan",
                         zoneId,
-                        message = $"{zoneId} 当前仍是旧版 reference 工作流（缺少可施工的 v0.3 自包含合同）。请重新执行规划。"
+                        message = $"{zoneId} 当前仍是旧版 reference 工作流（缺少可施工的 construction-brief 自包含合同）。请重新执行规划。"
                     });
                 }
 
@@ -186,7 +256,7 @@ namespace BIMCanvas.Server.Controllers
                 {
                     status = "missing",
                     zoneId,
-                    message = $"未找到 {zoneId} 的生效图纸 v0.3"
+                    message = $"未找到 {zoneId} 的生效图纸 construction-brief"
                 });
             }
 
@@ -195,15 +265,15 @@ namespace BIMCanvas.Server.Controllers
                 status = "ok",
                 zoneId = target.ZoneId,
                 planType,
-                effectiveVersion = target.Version,
+                effectiveTag = target.Tag,
                 content = target.Content,
                 timestamp = target.Timestamp,
-                referenceAnalysisVersion = target.ReferenceAnalysisVersion
+                referenceAnalysisTag = target.ReferenceAnalysisTag
             });
         }
 
         [HttpGet("{zoneId}/reference-analysis")]
-        public ActionResult LoadReferenceAnalysis(string zoneId, [FromQuery] string version = null)
+        public ActionResult LoadReferenceAnalysis(string zoneId, [FromQuery] string tag = null)
         {
             if (!_projectContext.IsLoaded)
                 return BadRequest(new { message = "没有加载的项目" });
@@ -211,8 +281,8 @@ namespace BIMCanvas.Server.Controllers
             if (!IsDesignZoneId(zoneId))
                 return BadRequest(new { message = "reference_analysis 只归属于设计区，不归属于子分区。请传入父设计区 zoneId。" });
 
-            var versions = ReadReferenceAnalysisVersions(zoneId);
-            if (versions.Count == 0)
+            var entries = ReadReferenceAnalysisEntries(zoneId);
+            if (entries.Count == 0)
             {
                 return NotFound(new
                 {
@@ -222,24 +292,24 @@ namespace BIMCanvas.Server.Controllers
                 });
             }
 
-            ReferenceAnalysisVersionEntry target;
-            if (string.IsNullOrWhiteSpace(version))
+            ReferenceAnalysisEntry target;
+            if (string.IsNullOrWhiteSpace(tag))
             {
-                target = versions
-                    .OrderBy(v => v.Version, Comparer<string>.Create(CompareReferenceAnalysisVersion))
+                target = entries
+                    .OrderBy(v => v.Tag, Comparer<string>.Create(CompareReferenceAnalysisTag))
                     .Last();
             }
             else
             {
-                target = versions.LastOrDefault(v => string.Equals(v.Version, version, StringComparison.OrdinalIgnoreCase));
+                target = entries.LastOrDefault(v => string.Equals(v.Tag, tag, StringComparison.OrdinalIgnoreCase));
                 if (target == null)
                 {
                     return NotFound(new
                     {
                         status = "missing",
                         zoneId,
-                        version,
-                        message = $"未找到 {zoneId} 的参考分析 {version}"
+                        tag,
+                        message = $"未找到 {zoneId} 的参考分析 {tag}"
                     });
                 }
             }
@@ -248,18 +318,119 @@ namespace BIMCanvas.Server.Controllers
             {
                 status = "ok",
                 zoneId,
-                version = target.Version,
+                tag = target.Tag,
                 sourceImageId = target.SourceImageId,
                 content = target.Content,
                 timestamp = target.Timestamp
             });
         }
 
-        private string GetSemanticPlanPath(string zoneId)
+        private ActionResult LoadSemanticPlanMergeView(string zoneId, string variantId)
+        {
+            // 1. 变体文件存在性：缺则 404 missing。
+            var variantPath = GetSemanticPlanPath(zoneId, variantId);
+            if (!System.IO.File.Exists(variantPath))
+            {
+                return NotFound(new
+                {
+                    status = "missing",
+                    zoneId,
+                    variantId,
+                    message = $"未找到变体语义方案 schemes/{zoneId}/variants/{variantId}/semantic_plan.json"
+                });
+            }
+
+            // 2. 读变体 doc + canonical doc，按硬约束 merge = canonical.spatial-skeleton + 变体的非 spatial-skeleton entries。
+            var variantDoc = ReadSemanticPlanDocument(variantPath);
+            var canonicalDoc = ReadSemanticPlanDocument(GetSemanticPlanPath(zoneId, null));
+
+            var canonicalSkeleton = canonicalDoc.Entries?
+                .LastOrDefault(e => string.Equals(e.Tag, "spatial-skeleton", StringComparison.Ordinal));
+
+            var merge = new List<SemanticPlanEntry>();
+            if (canonicalSkeleton != null) merge.Add(canonicalSkeleton);
+            if (variantDoc.Entries != null)
+            {
+                // 防御性过滤：硬约束下变体不应承载 spatial-skeleton，但即便文件被手工写入也以 canonical 为准。
+                merge.AddRange(variantDoc.Entries
+                    .Where(e => !string.Equals(e.Tag, "spatial-skeleton", StringComparison.Ordinal)));
+            }
+            merge.Sort((a, b) => string.Compare(a.Tag, b.Tag, StringComparison.Ordinal));
+
+            if (merge.Count == 0)
+            {
+                return NotFound(new
+                {
+                    status = "missing",
+                    zoneId,
+                    variantId,
+                    message = $"变体 {variantId} 的语义方案为空（且 canonical 未提供 spatial-skeleton）"
+                });
+            }
+
+            // 3. effectiveTag 按 construction-brief → strategic-plan → multi-plan-overview → spatial-skeleton 优先级解析。
+            SemanticPlanEntry? target = null;
+            foreach (var preferred in new[] { "construction-brief", "strategic-plan", "multi-plan-overview", "spatial-skeleton" })
+            {
+                target = merge.LastOrDefault(e => string.Equals(e.Tag, preferred, StringComparison.Ordinal));
+                if (target != null) break;
+            }
+            if (target == null)
+            {
+                return NotFound(new
+                {
+                    status = "missing",
+                    zoneId,
+                    variantId,
+                    message = $"变体 {variantId} 未提供任何已知 tag 的语义方案"
+                });
+            }
+
+            // 4. planType 复用现有解析（合并列表统一处理）。
+            if (!TryResolvePlanType(merge, out var planType))
+            {
+                return Conflict(new
+                {
+                    status = "ambiguous_legacy",
+                    zoneId,
+                    variantId,
+                    message = $"{zoneId}/variants/{variantId} 的语义方案 planType 不一致，无法解析。"
+                });
+            }
+
+            var warning = canonicalSkeleton == null ? "canonical spatial-skeleton missing" : null;
+
+            return Ok(new
+            {
+                status = "ok",
+                zoneId,
+                variantId,
+                planType,
+                effectiveTag = target.Tag,
+                content = target.Content,
+                timestamp = target.Timestamp,
+                referenceAnalysisTag = target.ReferenceAnalysisTag,
+                entries = merge.Select(e => new
+                {
+                    zoneId = e.ZoneId,
+                    tag = e.Tag,
+                    planType = e.PlanType,
+                    content = e.Content,
+                    timestamp = e.Timestamp,
+                    referenceAnalysisTag = e.ReferenceAnalysisTag
+                }).ToList(),
+                warning
+            });
+        }
+
+        private string GetSemanticPlanPath(string zoneId, string? variantId)
         {
             var projectPath = _projectContext.GetActiveWorktreePath()
                               ?? _projectContext.CurrentProjectPath!;
-            return Path.Combine(projectPath, "schemes", zoneId, "semantic_plan.json");
+            if (string.IsNullOrWhiteSpace(variantId))
+                return Path.Combine(projectPath, "schemes", zoneId, "semantic_plan.json");
+
+            return Path.Combine(projectPath, "schemes", zoneId, "variants", variantId, "semantic_plan.json");
         }
 
         private string GetReferenceAnalysisPath(string zoneId)
@@ -271,77 +442,48 @@ namespace BIMCanvas.Server.Controllers
 
         private static SemanticPlanDocument ReadSemanticPlanDocument(string filePath)
         {
+            // Phase 0 起 schema 已从 `version` 全面切换为 `tag`，不再做向后兼容读取。
+            // 旧版字段（versions / version / referenceAnalysisVersion）写的文件会反序列化为 Tag=null，
+            // 进而被 TryResolvePlanType / Save 白名单识别为不可用并要求重新生成。
             if (!System.IO.File.Exists(filePath))
-                return new SemanticPlanDocument { Versions = new List<SemanticPlanVersion>() };
+                return new SemanticPlanDocument { Entries = new List<SemanticPlanEntry>() };
 
             var existing = System.IO.File.ReadAllText(filePath);
-
-            try
-            {
-                var doc = JsonConvert.DeserializeObject<SemanticPlanDocument>(existing);
-                if (doc?.Versions != null)
-                {
-                    doc.Versions ??= new List<SemanticPlanVersion>();
-                    return doc;
-                }
-            }
-            catch
-            {
-                // 忽略解析错误，继续尝试旧格式
-            }
-
-            try
-            {
-                var versions = JsonConvert.DeserializeObject<List<SemanticPlanVersion>>(existing);
-                if (versions != null)
-                {
-                    return new SemanticPlanDocument
-                    {
-                        Versions = versions,
-                        LegacyEmbeddedReferenceAnalysis = null
-                    };
-                }
-            }
-            catch
-            {
-                // 忽略解析错误
-            }
-
-            return new SemanticPlanDocument { Versions = new List<SemanticPlanVersion>() };
+            var doc = JsonConvert.DeserializeObject<SemanticPlanDocument>(existing)
+                      ?? new SemanticPlanDocument();
+            doc.Entries ??= new List<SemanticPlanEntry>();
+            return doc;
         }
 
-        private List<ReferenceAnalysisVersionEntry> ReadReferenceAnalysisVersions(string zoneId)
+        private List<ReferenceAnalysisEntry> ReadReferenceAnalysisEntries(string zoneId)
         {
+            // Phase 0 起 schema 已从 `version` 切换为 `tag`。旧 schema 仍能反序列化（字段类型相同），
+            // 但 Tag 为 null 的条目对调用方而言相当于损坏数据；不主动迁移。
+            // LegacyEmbeddedReferenceAnalysis（更老的内嵌格式）保留单一迁移点，作为最低限度的回退入口。
             var referenceAnalysisPath = GetReferenceAnalysisPath(zoneId);
             if (System.IO.File.Exists(referenceAnalysisPath))
             {
-                try
-                {
-                    var existing = System.IO.File.ReadAllText(referenceAnalysisPath);
-                    var versions = JsonConvert.DeserializeObject<List<ReferenceAnalysisVersionEntry>>(existing);
-                    if (versions != null)
-                        return versions;
-                }
-                catch
-                {
-                    // 忽略解析错误，尝试读取 legacy 数据
-                }
+                var existing = System.IO.File.ReadAllText(referenceAnalysisPath);
+                var entries = JsonConvert.DeserializeObject<List<ReferenceAnalysisEntry>>(existing);
+                if (entries != null)
+                    return entries;
             }
 
-            var semanticPlanPath = GetSemanticPlanPath(zoneId);
+            // Legacy embedded reference 仅出现在 canonical 历史文件中，变体目录从不承载。
+            var semanticPlanPath = GetSemanticPlanPath(zoneId, null);
             if (!System.IO.File.Exists(semanticPlanPath))
-                return new List<ReferenceAnalysisVersionEntry>();
+                return new List<ReferenceAnalysisEntry>();
 
             var document = ReadSemanticPlanDocument(semanticPlanPath);
             var legacy = document.LegacyEmbeddedReferenceAnalysis;
             if (legacy == null || string.IsNullOrWhiteSpace(legacy.Content))
-                return new List<ReferenceAnalysisVersionEntry>();
+                return new List<ReferenceAnalysisEntry>();
 
-            return new List<ReferenceAnalysisVersionEntry>
+            return new List<ReferenceAnalysisEntry>
             {
-                new ReferenceAnalysisVersionEntry
+                new ReferenceAnalysisEntry
                 {
-                    Version = "v1",
+                    Tag = "v1",
                     SourceImageId = legacy.SourceImageId ?? string.Empty,
                     Content = legacy.Content,
                     Timestamp = string.IsNullOrWhiteSpace(legacy.Timestamp)
@@ -353,7 +495,8 @@ namespace BIMCanvas.Server.Controllers
 
         private async Task RemoveLegacyEmbeddedReferenceAnalysisAsync(string zoneId)
         {
-            var semanticPlanPath = GetSemanticPlanPath(zoneId);
+            // Legacy 清理仅作用于 canonical 文件——变体目录无历史数据需要迁移。
+            var semanticPlanPath = GetSemanticPlanPath(zoneId, null);
             if (!System.IO.File.Exists(semanticPlanPath))
                 return;
 
@@ -367,14 +510,14 @@ namespace BIMCanvas.Server.Controllers
 
         private static async Task WriteSemanticPlanDocumentAsync(string filePath, SemanticPlanDocument document)
         {
-            document.Versions ??= new List<SemanticPlanVersion>();
+            document.Entries ??= new List<SemanticPlanEntry>();
             var json = JsonConvert.SerializeObject(document, Formatting.Indented);
             await System.IO.File.WriteAllTextAsync(filePath, json);
         }
 
-        private static async Task WriteReferenceAnalysisDocumentAsync(string filePath, List<ReferenceAnalysisVersionEntry> versions)
+        private static async Task WriteReferenceAnalysisDocumentAsync(string filePath, List<ReferenceAnalysisEntry> entries)
         {
-            var json = JsonConvert.SerializeObject(versions, Formatting.Indented);
+            var json = JsonConvert.SerializeObject(entries, Formatting.Indented);
             await System.IO.File.WriteAllTextAsync(filePath, json);
         }
 
@@ -384,9 +527,9 @@ namespace BIMCanvas.Server.Controllers
                    && !zoneId.StartsWith("dz_", StringComparison.OrdinalIgnoreCase);
         }
 
-        private static string? NormalizeReferenceAnalysisVersion(string? version)
+        private static string? NormalizeReferenceAnalysisTag(string? tag)
         {
-            return string.IsNullOrWhiteSpace(version) ? null : version.Trim();
+            return string.IsNullOrWhiteSpace(tag) ? null : tag.Trim();
         }
 
         private static string NormalizePlanType(string planType)
@@ -404,10 +547,10 @@ namespace BIMCanvas.Server.Controllers
         }
 
         private static bool TryResolvePlanType(
-            IEnumerable<SemanticPlanVersion> versions,
+            IEnumerable<SemanticPlanEntry> entries,
             out string planType)
         {
-            var normalizedTypes = versions
+            var normalizedTypes = entries
                 .Select(v => NormalizePlanType(v.PlanType))
                 .Where(t => !string.IsNullOrWhiteSpace(t))
                 .Distinct(StringComparer.OrdinalIgnoreCase)
@@ -425,21 +568,21 @@ namespace BIMCanvas.Server.Controllers
                 return false;
             }
 
-            var hasV03 = versions.Any(v => string.Equals(v.Version, "v0.3", StringComparison.Ordinal));
-            if (hasV03)
+            var hasConstructionBrief = entries.Any(v => string.Equals(v.Tag, "construction-brief", StringComparison.Ordinal));
+            if (hasConstructionBrief)
             {
                 planType = PlanTypeDerived;
                 return true;
             }
 
-            var latestVersion = versions
-                .Select(v => v.Version)
+            var latestTag = entries
+                .Select(v => v.Tag)
                 .OrderBy(v => v, StringComparer.Ordinal)
                 .LastOrDefault();
 
-            if (string.Equals(latestVersion, "v0.2", StringComparison.Ordinal))
+            if (string.Equals(latestTag, "strategic-plan", StringComparison.Ordinal))
             {
-                var hasReferenceTitle = versions.Any(v =>
+                var hasReferenceTitle = entries.Any(v =>
                     !string.IsNullOrWhiteSpace(v.Content)
                     && v.Content.IndexOf("识别方案", StringComparison.OrdinalIgnoreCase) >= 0);
 
@@ -454,10 +597,10 @@ namespace BIMCanvas.Server.Controllers
             return false;
         }
 
-        private static string GetNextReferenceAnalysisVersion(IEnumerable<ReferenceAnalysisVersionEntry> versions)
+        private static string GetNextReferenceAnalysisTag(IEnumerable<ReferenceAnalysisEntry> entries)
         {
-            var maxNumber = versions
-                .Select(v => TryParseReferenceAnalysisVersionNumber(v.Version))
+            var maxNumber = entries
+                .Select(v => TryParseReferenceAnalysisTagNumber(v.Tag))
                 .Where(v => v.HasValue)
                 .Select(v => v.Value)
                 .DefaultIfEmpty(0)
@@ -466,10 +609,10 @@ namespace BIMCanvas.Server.Controllers
             return $"v{maxNumber + 1}";
         }
 
-        private static int CompareReferenceAnalysisVersion(string left, string right)
+        private static int CompareReferenceAnalysisTag(string left, string right)
         {
-            var leftNumber = TryParseReferenceAnalysisVersionNumber(left);
-            var rightNumber = TryParseReferenceAnalysisVersionNumber(right);
+            var leftNumber = TryParseReferenceAnalysisTagNumber(left);
+            var rightNumber = TryParseReferenceAnalysisTagNumber(right);
 
             if (leftNumber.HasValue && rightNumber.HasValue)
                 return leftNumber.Value.CompareTo(rightNumber.Value);
@@ -477,12 +620,12 @@ namespace BIMCanvas.Server.Controllers
             return string.Compare(left, right, StringComparison.OrdinalIgnoreCase);
         }
 
-        private static int? TryParseReferenceAnalysisVersionNumber(string version)
+        private static int? TryParseReferenceAnalysisTagNumber(string tag)
         {
-            if (string.IsNullOrWhiteSpace(version))
+            if (string.IsNullOrWhiteSpace(tag))
                 return null;
 
-            var trimmed = version.Trim();
+            var trimmed = tag.Trim();
             if (trimmed.Length < 2 || trimmed[0] != 'v')
                 return null;
 
@@ -496,13 +639,15 @@ namespace BIMCanvas.Server.Controllers
     public class SaveSemanticPlanRequest
     {
         public string ZoneId { get; set; }
-        public string Version { get; set; }
+        public string Tag { get; set; }
         public string PlanType { get; set; }
         public string Content { get; set; }
         // Nullable：NRT 启用下 ASP.NET Core 会把裸 string 视为 required；但"无参考图"
-        // 流程下此字段语义上就该缺省（见 skills/generate-planning/SKILL.md:145
-        // "`v0.1` 不写 `referenceAnalysisVersion`"，及 Server README.md:435 声明"支持可选"）。
-        public string? ReferenceAnalysisVersion { get; set; }
+        // 流程下此字段语义上就该缺省（spatial-skeleton 不写 referenceAnalysisTag）。
+        public string? ReferenceAnalysisTag { get; set; }
+        // 非空时落到 schemes/{zoneId}/variants/{variantId}/semantic_plan.json。
+        // spatial-skeleton / multi-plan-overview 全局单 owner（canonical），传 variantId 会被 server 400 拒绝。
+        public string? VariantId { get; set; }
     }
 
     public class SaveReferenceAnalysisRequest

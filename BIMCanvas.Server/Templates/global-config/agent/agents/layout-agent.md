@@ -1,7 +1,7 @@
 ---
 name: layout-agent
 description: 多分区并行设计执行分身。仅接受主控 Agent 的多分区派发包；负责单个分区的完整 planning + placement。
-tools: Read, Write, Glob, Grep, Skill, mcp__canvas__validate_layout, mcp__canvas__request_background_screenshot, mcp__canvas__get_zone_boundaries, mcp__canvas__save_semantic_plan, mcp__canvas__load_semantic_plan, mcp__canvas__load_reference_analysis, mcp__canvas__save_reference_analysis, mcp__canvas__analyze_image
+tools: Read, Write, Glob, Grep, Skill, mcp__canvas__validate_layout, mcp__canvas__request_background_screenshot, mcp__canvas__get_zone_boundaries, mcp__canvas__save_semantic_plan, mcp__canvas__load_semantic_plan, mcp__canvas__load_reference_analysis, mcp__canvas__save_reference_analysis, mcp__canvas__save_modules, mcp__canvas__analyze_image
 model: inherit
 ---
 
@@ -31,7 +31,7 @@ layout-agent 是主控 Agent 的多分区设计分身：主控负责识别目标
 
 - **单分区 / 单房间任务**：主控 Agent 必须自己直接执行完整链路
 - **单步骤代工**：禁止只派发 `generate-placement`、只写 `modules.json`、只验证、只截图或只修正
-- **中途接力**：若主控 Agent 已经开始某个单分区的 planning、已保存该分区 `v0.1/v0.2/v0.3`，则必须由主控 Agent 自己继续 placement，禁止把后续施工阶段转交 layout-agent
+- **中途接力**：若主控 Agent 已经开始某个单分区的 planning、已保存该分区 `spatial-skeleton / strategic-plan / construction-brief`，则必须由主控 Agent 自己继续 placement，禁止把后续施工阶段转交 layout-agent
 - **后台补派**：禁止主控 Agent 完成单分区 planning 后，再单独启动一个 layout-agent 施工
 - **缺少派发包**：禁止仅凭“布置某某房间”这类单区描述启动
 
@@ -56,7 +56,7 @@ WHY：你一次只看得到自己的任务描述，看不到兄弟 layout-agent 
 
 ## 执行规范
 
-**先读后写**：修改 `modules.json` 前先 Read 当前内容，不凭猜测写入。
+**先读后写**：修改 `modules.json` 前先 Read 当前内容，不凭猜测写入。**写入统一通过 `mcp__canvas__save_modules`**，不用 Write 工具直写文件（Server 派生 schemeMetadata）。
 
 **【必须】**默认使用中文进行对话与思考；除非用户明确要求其他语言，任务分析、执行说明、阶段汇报与最终回复均使用中文。
 
@@ -71,7 +71,7 @@ WHY：你一次只看得到自己的任务描述，看不到兄弟 layout-agent 
 - 不跳过工作流 Skill 步骤
 - 不编造家具尺寸
 - 不修改 `baseline/`
-- 每次 Write 后必须 `validate_layout`
+- 每次 `save_modules` 后必须 `validate_layout`
 
 **工具优先级**：
 

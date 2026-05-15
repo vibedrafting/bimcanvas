@@ -129,6 +129,7 @@ namespace BIMCanvas.Server.Services
             private readonly Dictionary<string, ModuleFileEntry> _canonicalByZoneId = new Dictionary<string, ModuleFileEntry>(ZoneComparer);
             private readonly Dictionary<string, List<string>> _leafZoneIdsByContainerId = new Dictionary<string, List<string>>(ZoneComparer);
             private readonly HashSet<string> _containerZoneIds = new HashSet<string>(ZoneComparer);
+            private readonly HashSet<string> _designZoneIds = new HashSet<string>(ZoneComparer);
 
             public TopologyBuilder(string schemesPath, List<Zone> zones)
             {
@@ -149,6 +150,7 @@ namespace BIMCanvas.Server.Services
                     if (string.IsNullOrWhiteSpace(zone.Id) || _referencedZoneIds.Contains(zone.Id))
                         continue;
 
+                    _designZoneIds.Add(zone.Id);
                     RegisterZone(zone, new List<string> { zone.Id }, new HashSet<string>(ZoneComparer));
                 }
 
@@ -160,7 +162,8 @@ namespace BIMCanvas.Server.Services
                     hasZoneTopology: true,
                     _canonicalByZoneId,
                     _leafZoneIdsByContainerId,
-                    _containerZoneIds);
+                    _containerZoneIds,
+                    _designZoneIds);
             }
 
             private List<string> RegisterZone(Zone zoneRef, List<string> pathSegments, HashSet<string> activeStack)
@@ -262,19 +265,22 @@ namespace BIMCanvas.Server.Services
         private readonly Dictionary<string, ModuleFileEntry> _canonicalByZoneId;
         private readonly Dictionary<string, List<string>> _leafZoneIdsByContainerId;
         private readonly HashSet<string> _containerZoneIds;
+        private readonly HashSet<string> _designZoneIds;
 
         internal ModuleFileTopology(
             string schemesPath,
             bool hasZoneTopology,
             Dictionary<string, ModuleFileEntry> canonicalByZoneId,
             Dictionary<string, List<string>> leafZoneIdsByContainerId,
-            HashSet<string> containerZoneIds)
+            HashSet<string> containerZoneIds,
+            HashSet<string> designZoneIds)
         {
             SchemesPath = schemesPath;
             HasZoneTopology = hasZoneTopology;
             _canonicalByZoneId = canonicalByZoneId;
             _leafZoneIdsByContainerId = leafZoneIdsByContainerId;
             _containerZoneIds = containerZoneIds;
+            _designZoneIds = designZoneIds;
         }
 
         public string SchemesPath { get; }
@@ -288,7 +294,37 @@ namespace BIMCanvas.Server.Services
                 hasZoneTopology: false,
                 new Dictionary<string, ModuleFileEntry>(StringComparer.OrdinalIgnoreCase),
                 new Dictionary<string, List<string>>(StringComparer.OrdinalIgnoreCase),
+                new HashSet<string>(StringComparer.OrdinalIgnoreCase),
                 new HashSet<string>(StringComparer.OrdinalIgnoreCase));
+        }
+
+        /// <summary>
+        /// 判定 zoneId 是否为 design zone（zones.json 中的顶层 zone，对应 schemes/{zoneId}/ 一级目录）。
+        /// 顶层叶子（无 subZones 的 design zone）与容器（有 subZones）都返回 true。
+        /// </summary>
+        public bool IsDesignZoneId(string zoneId)
+        {
+            return !string.IsNullOrWhiteSpace(zoneId) && _designZoneIds.Contains(zoneId);
+        }
+
+        /// <summary>
+        /// 列出 designZoneId 下所有叶子分区的 zoneId。
+        /// 顶层叶子（design zone 自身就是叶子）→ 返回 [designZoneId]。
+        /// 容器分区 → 返回其登记的叶子列表。
+        /// 非 design zone 或拓扑缺失 → 空列表。
+        /// </summary>
+        public IReadOnlyList<string> GetLeafZoneIds(string designZoneId)
+        {
+            if (string.IsNullOrWhiteSpace(designZoneId) || !HasZoneTopology)
+                return Array.Empty<string>();
+
+            if (_leafZoneIdsByContainerId.TryGetValue(designZoneId, out var leaves))
+                return leaves;
+
+            if (_canonicalByZoneId.ContainsKey(designZoneId))
+                return new[] { designZoneId };
+
+            return Array.Empty<string>();
         }
 
         public IReadOnlyList<ModuleFileEntry> GetExistingCanonicalModuleFiles(IReadOnlyCollection<string>? requestedZoneIds)
@@ -336,16 +372,37 @@ namespace BIMCanvas.Server.Services
         }
 
         /// <summary>
-        /// 同目录下把 canonical entry 替换成指定 variantId 的变体 entry；
-        /// 不修改任何元数据（zoneId 保持不变），仅文件名后缀差异。
+        /// 把 canonical entry 替换成指定 variantId 的变体 entry。
+        /// 优先尝试组 B/C 新协议（与 ModulesWriterService.ResolveModulesPath 的 VariantPathMode.New 字节级一致）：
+        ///   顶层叶子（dz == leaf）→ schemes/{dz}/variants/{slug}/modules.json（省略 leaf 段，镜像 canonical）
+        ///   嵌套叶子（dz != leaf）→ schemes/{dz}/variants/{slug}/{leaf}/modules.json
+        /// 若新协议文件不存在，回退到旧 sibling 路径 schemes/{dz}/[{leaf}/]modules-{slug}.json
+        /// （Phase 7 下线前保留 Legacy 兼容；Agent 仍只走新路径写入）。
         /// </summary>
         private ModuleFileEntry SwapToVariant(ModuleFileEntry canonical, string variantId)
         {
-            var zoneDir = Path.GetDirectoryName(canonical.FilePath) ?? SchemesPath;
-            var variantPath = Path.Combine(
-                zoneDir,
+            var canonicalDir = Path.GetDirectoryName(canonical.FilePath) ?? SchemesPath;
+            var relativeDir = Path.GetRelativePath(SchemesPath, canonicalDir).Replace('\\', '/');
+            var segments = relativeDir.Split('/', StringSplitOptions.RemoveEmptyEntries);
+            if (segments.Length == 0)
+                return ModuleFileEntry.FromFile(SchemesPath, canonical.FilePath, canonical.ZoneId);
+
+            var designZoneId = segments[0];
+            // 叶子 zoneId 取自登记的 canonical entry（顶层叶子时 == designZoneId），
+            // 不依赖 segments 反推，自动正确处理 2+ 层嵌套（中间容器存在时 ResolveModulesPath 也压平到叶子）。
+            var isTopLevelLeaf = string.Equals(designZoneId, canonical.ZoneId, StringComparison.OrdinalIgnoreCase);
+            var newPath = isTopLevelLeaf
+                ? Path.Combine(SchemesPath, designZoneId, "variants", variantId, "modules.json")
+                : Path.Combine(SchemesPath, designZoneId, "variants", variantId, canonical.ZoneId, "modules.json");
+
+            if (File.Exists(newPath))
+                return ModuleFileEntry.FromFile(SchemesPath, newPath, canonical.ZoneId);
+
+            // Legacy 兜底（旧 modules-{variantId}.json sibling）
+            var legacyPath = Path.Combine(
+                canonicalDir,
                 ModuleFileTopologyService.BuildVariantFilename(variantId));
-            return ModuleFileEntry.FromFile(SchemesPath, variantPath, canonical.ZoneId);
+            return ModuleFileEntry.FromFile(SchemesPath, legacyPath, canonical.ZoneId);
         }
 
         public IReadOnlyList<ModuleFilePathIssue> GetPathIssues(IReadOnlyCollection<string>? requestedZoneIds)
@@ -355,6 +412,7 @@ namespace BIMCanvas.Server.Services
 
             var targetZoneIds = ExpandTargetZoneIds(requestedZoneIds);
             var records = Directory.GetFiles(SchemesPath, "modules.json", SearchOption.AllDirectories)
+                .Where(path => !IsInVariantsSubtree(path))
                 .Select(path => ModuleFileEntry.FromFile(SchemesPath, path))
                 .Where(entry => IsInTarget(entry.ZoneId, targetZoneIds))
                 .ToList();
@@ -385,6 +443,18 @@ namespace BIMCanvas.Server.Services
             }
 
             return issues;
+        }
+
+        /// <summary>
+        /// 判定路径是否落在 variants/ 子树内。
+        /// 变体子树是组 B/C 后的合法路径（schemes/{dz}/variants/{slug}/{leaf}/modules.json），
+        /// 不属于 canonical 路径完整性校验范围；扫描时显式排除，避免被误报 E013/E014。
+        /// 注：variants 子树自身的路径错误校验不在本次范围（已知留白）。
+        /// </summary>
+        private static bool IsInVariantsSubtree(string absolutePath)
+        {
+            var normalized = absolutePath.Replace('\\', '/');
+            return normalized.IndexOf("/variants/", StringComparison.OrdinalIgnoreCase) >= 0;
         }
 
         public bool TryResolveZoneDirectory(string zoneId, out string zoneDirectory)
@@ -457,10 +527,13 @@ namespace BIMCanvas.Server.Services
 
         private static int? CountModulesBestEffort(string filePath)
         {
+            // Phase 0b: 仅认 wrapper {schemeMetadata, modules}；裸数组返回 null（不再支持）
             try
             {
                 var token = JToken.Parse(File.ReadAllText(filePath, Encoding.UTF8));
-                return token is JArray array ? array.Count : null;
+                if (token is JObject obj && obj["modules"] is JArray inner)
+                    return inner.Count;
+                return null;
             }
             catch
             {

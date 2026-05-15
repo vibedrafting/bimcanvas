@@ -27,10 +27,18 @@
 
     <!-- Toast 堆叠容器：左下角，从下往上堆叠 -->
     <div class="toast-stack">
-      <!-- 溢出提示：超出最大显示数时，在顶部显示 "+N 更多" -->
+      <!-- Header 行：≥ 2 条 toast 时显示，左侧溢出徽章 + 右侧「全部清除」 -->
       <Transition name="toast-slide">
-        <div v-if="hiddenCount > 0" class="toast-overflow-badge">
-          +{{ hiddenCount }} 条更多
+        <div v-if="toasts.length >= 2" class="toast-header">
+          <Transition name="toast-slide">
+            <div v-if="hiddenCount > 0" class="toast-overflow-badge">
+              +{{ hiddenCount }} 条更多
+            </div>
+          </Transition>
+          <button class="toast-clear-all" @click="clearAllToasts">
+            <span aria-hidden="true">&times;</span>
+            <span>全部清除</span>
+          </button>
         </div>
       </Transition>
 
@@ -142,6 +150,10 @@ function removeToast(id: number) {
   if (idx !== -1) toasts.value.splice(idx, 1);
 }
 
+function clearAllToasts() {
+  toasts.value = [];
+}
+
 function closeModal() {
   modalVisible.value = false;
 }
@@ -250,9 +262,16 @@ onUnmounted(() => {
   z-index: 10000;
 }
 
+/* Header 行：溢出徽章 + 全部清除 */
+.toast-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  min-height: 22px;
+}
+
 /* 溢出提示标签 */
 .toast-overflow-badge {
-  align-self: flex-start;
   background: var(--surface-highlight, rgba(255, 255, 255, 0.08));
   border: 1px solid var(--border-subtle, rgba(255, 255, 255, 0.08));
   border-radius: 20px;
@@ -260,6 +279,32 @@ onUnmounted(() => {
   font-size: 11px;
   color: var(--text-secondary, rgba(255, 255, 255, 0.5));
   cursor: default;
+}
+
+/* 全部清除按钮（与溢出徽章同款 pill） */
+.toast-clear-all {
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  background: var(--surface-highlight, rgba(255, 255, 255, 0.08));
+  border: 1px solid var(--border-subtle, rgba(255, 255, 255, 0.08));
+  border-radius: 20px;
+  padding: 3px 10px;
+  font-size: 11px;
+  line-height: 1;
+  color: var(--text-secondary, rgba(255, 255, 255, 0.5));
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s, border-color 0.15s;
+}
+.toast-clear-all:hover {
+  background: rgba(255, 255, 255, 0.14);
+  color: rgba(255, 255, 255, 0.85);
+  border-color: rgba(255, 255, 255, 0.18);
+}
+.toast-clear-all > span:first-child {
+  font-size: 14px;
+  margin-top: -1px;
 }
 
 /* TransitionGroup 容器 */

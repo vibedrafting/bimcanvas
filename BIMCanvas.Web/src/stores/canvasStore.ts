@@ -140,100 +140,212 @@ export const useCanvasStore = defineStore('canvas', () => {
         }
     };
 
-    // === module-relocation-agent 变体方案 ===
-    // activeVariantByZone：当前每个叶子分区显示哪一份 modules（null/缺失 = canonical）
+    // === 变体方案（按设计区索引）===
+    // activeVariantByDesignZone：每个设计区显示哪一份 modules（缺失 = canonical）。
+    // 同一设计区下所有叶子共享一份 variantSlug——variant 是设计区级别的方案。
     // 仅存内存，刷新页面 / 重启 Web 都重置为 canonical（不写 project.json）。
-    interface ActiveVariantState {
-        variantId: string;
-        leafZonePath: string;
-    }
-    const activeVariantByZone = ref<Map<string, ActiveVariantState>>(new Map());
+    const activeVariantByDesignZone = ref<Map<string, string>>(new Map());
 
     // canonical 快照：在每次 applyProjectData 时记录服务端发回的 canonical modules，
     // 切换/取消变体时基于该快照重组 projectData.activeScheme.modules，避免反复打服务端。
     const canonicalModulesSnapshot = ref<Module[] | null>(null);
 
-    function getActiveVariant(leafZoneId: string): string | null {
-        return activeVariantByZone.value.get(leafZoneId)?.variantId ?? null;
+    // variantInfoByDesignZone：项目级缓存"哪些设计区有几份变体 + slug 列表"。
+    // 键为 designZoneId。Zone label 上 (current/total) 分页号——
+    // current 通过 active variantSlug 在 variantSlugs 列表里的 index 反算而来。
+    interface VariantInfo {
+        count: number;
+        variantSlugs: string[];
+    }
+    const variantInfoByDesignZone = ref<Map<string, VariantInfo>>(new Map());
+
+    // Server 派生的 variant 元数据缓存（state / summary / createdAt），供 VariantNavigatorBar 显示样式区分与 chip tooltip。
+    interface VariantMetadataLite {
+        slug: string;
+        createdAt: string | null;
+        state: string;
+        summary: string;
+    }
+    const variantMetadataByDesignZone = ref<Map<string, Map<string, VariantMetadataLite>>>(new Map());
+
+    /**
+     * 从任意 zoneId 反查所属 designZoneId。
+     * 顶层 zone（projectData.activeScheme.zones 中直接命中）→ 自身；子叶子（subZones 中命中）→ 顶层 zone id。
+     */
+    function resolveDesignZoneId(zoneId: string | null | undefined): string | null {
+        if (!zoneId || !projectData.value?.activeScheme?.zones) return null;
+        for (const z of projectData.value.activeScheme.zones) {
+            if (z.id === zoneId) return z.id;
+            if (z.subZones?.some(sz => sz.id === zoneId)) return z.id;
+        }
+        return null;
     }
 
     /**
-     * 切换某叶子分区的活跃变体。
-     * - variantId 为空 → 还原 canonical
-     * - variantId 非空 → 拉变体 modules，替换该 zone 的 canonical 内容
-     * 任一情况均会重算 projectData.activeScheme.modules（基于 canonical 快照 + 当前 active map）
+     * 列出指定设计区下所有叶子 zoneId。
+     * 顶层叶子（design zone 自身就是叶子，无 subZones）→ [designZoneId]；容器 → subZones 的 id 列表。
+     */
+    function getLeafZoneIdsForDesignZone(designZoneId: string): string[] {
+        if (!projectData.value?.activeScheme?.zones) return [];
+        const dz = projectData.value.activeScheme.zones.find(z => z.id === designZoneId);
+        if (!dz) return [];
+        if (dz.subZones && dz.subZones.length > 0) {
+            return dz.subZones.map(sz => sz.id).filter((id): id is string => !!id);
+        }
+        return [designZoneId];
+    }
+
+    function getActiveVariant(designZoneId: string): string | null {
+        return activeVariantByDesignZone.value.get(designZoneId) ?? null;
+    }
+
+    /**
+     * 计算某 zone 在 [canonical, ...sortedVariants] 序列中的"当前 / 总数"页码。
+     * 接受任意 zoneId（顶层 design zone 或子叶子），内部反查 designZoneId。
+     * 没有变体时返回 null（label 不显示后缀）。
+     */
+    function getVariantSlot(zoneId: string): { current: number; total: number } | null {
+        const dz = resolveDesignZoneId(zoneId);
+        if (!dz) return null;
+        const info = variantInfoByDesignZone.value.get(dz);
+        if (!info || info.count <= 0) return null;
+        const total = info.count + 1;
+        const activeSlug = activeVariantByDesignZone.value.get(dz) ?? null;
+        if (!activeSlug) return { current: 1, total };
+        const idx = info.variantSlugs.indexOf(activeSlug);
+        return { current: idx >= 0 ? idx + 2 : 1, total };
+    }
+
+    /**
+     * 拉取项目级变体摘要（designZoneId → {count, variantSlugs}），写入 variantInfoByDesignZone，
+     * 并派发 bimcanvas:variant-counts-changed 让 ThreeSceneService 触发 label 重建。
+     * 失败时静默清空 Map（视觉上回到"没有变体"，不抛错）。
+     */
+    async function refetchVariantCounts(): Promise<void> {
+        try {
+            const dict = await SchemeService.listVariantsSummary();
+            const next = new Map<string, VariantInfo>();
+            for (const [designZoneId, rawEntry] of Object.entries(dict)) {
+                if (!designZoneId || rawEntry == null) continue;
+                const count = (rawEntry as { count?: number }).count ?? 0;
+                const variantSlugs = Array.isArray((rawEntry as any).variantSlugs)
+                    ? [...(rawEntry as { variantSlugs: string[] }).variantSlugs]
+                    : [];
+                if (count <= 0) continue;
+                next.set(designZoneId, { count, variantSlugs });
+            }
+            variantInfoByDesignZone.value = next;
+        } catch (err: any) {
+            debugStore.warn(`[Store] 变体摘要拉取失败: ${err?.message ?? err}`);
+            variantInfoByDesignZone.value = new Map();
+        } finally {
+            window.dispatchEvent(new CustomEvent('bimcanvas:variant-counts-changed', {
+                detail: { size: variantInfoByDesignZone.value.size }
+            }));
+        }
+    }
+
+    /**
+     * VariantNavigatorBar 调 listVariants 后回填某设计区的 variant 元数据列表，供样式与 tooltip 消费。
+     */
+    function cacheVariantMetadata(designZoneId: string, list: VariantMetadataLite[]): void {
+        const inner = new Map<string, VariantMetadataLite>();
+        for (const m of list) {
+            if (m?.slug) inner.set(m.slug, m);
+        }
+        const next = new Map(variantMetadataByDesignZone.value);
+        next.set(designZoneId, inner);
+        variantMetadataByDesignZone.value = next;
+    }
+
+    /**
+     * 切换某设计区的活跃变体。
+     * - variantSlug 为空 → 还原该设计区为 canonical
+     * - variantSlug 非空 → 拉变体下各叶子 modules，替换该设计区的 canonical 内容
      */
     async function setActiveVariant(
-        leafZoneId: string,
-        leafZonePath: string,
-        variantId: string | null
+        designZoneId: string,
+        variantSlug: string | null
     ): Promise<void> {
-        if (!variantId) {
-            if (activeVariantByZone.value.has(leafZoneId)) {
-                activeVariantByZone.value.delete(leafZoneId);
-                activeVariantByZone.value = new Map(activeVariantByZone.value);
+        if (!designZoneId) {
+            debugStore.warn(`[Store] setActiveVariant: designZoneId 不能为空`);
+            return;
+        }
+        if (!variantSlug) {
+            if (activeVariantByDesignZone.value.has(designZoneId)) {
+                activeVariantByDesignZone.value.delete(designZoneId);
+                activeVariantByDesignZone.value = new Map(activeVariantByDesignZone.value);
                 await recomputeDisplayModules();
             }
             return;
         }
-        if (!leafZonePath) {
-            debugStore.warn(`[Store] setActiveVariant: leafZonePath 不能为空 (zone=${leafZoneId})`);
-            return;
-        }
-        activeVariantByZone.value.set(leafZoneId, { variantId, leafZonePath });
-        activeVariantByZone.value = new Map(activeVariantByZone.value);
+        activeVariantByDesignZone.value.set(designZoneId, variantSlug);
+        activeVariantByDesignZone.value = new Map(activeVariantByDesignZone.value);
         await recomputeDisplayModules();
     }
 
-    async function clearActiveVariant(leafZoneId: string): Promise<void> {
-        if (activeVariantByZone.value.has(leafZoneId)) {
-            activeVariantByZone.value.delete(leafZoneId);
-            activeVariantByZone.value = new Map(activeVariantByZone.value);
+    async function clearActiveVariant(designZoneId: string): Promise<void> {
+        if (activeVariantByDesignZone.value.has(designZoneId)) {
+            activeVariantByDesignZone.value.delete(designZoneId);
+            activeVariantByDesignZone.value = new Map(activeVariantByDesignZone.value);
             await recomputeDisplayModules();
         }
     }
 
     /**
-     * 基于 canonical 快照 + 当前 activeVariantByZone 重组 projectData.activeScheme.modules。
-     * 流程：(1) 从 canonical 中过滤掉所有"有 active 变体"的叶子分区的模块；
-     *      (2) 拉取每个 active 变体的 modules，逐 zone append；
-     *      (3) 写回 projectData.activeScheme.modules，触发响应式刷新。
-     * 任一变体拉取失败 → 从 active map 中静默丢弃，回退到该 zone 的 canonical。
+     * 基于 canonical 快照 + 当前 activeVariantByDesignZone 重组 projectData.activeScheme.modules。
+     * 流程：(1) 构建 leaf→designZone 反查表；(2) 从 canonical 过滤掉所有"有 active 变体"的设计区下所有叶子的模块；
+     *      (3) 对每个 (designZoneId, variantSlug) 拉每个叶子的 variant modules 合并；
+     *      (4) 写回 projectData.activeScheme.modules，触发响应式刷新。
+     * 任一叶子拉取失败 → 该叶子保留为空（不打断其他叶子；不撤 designZone 整体激活）。
+     * 不再因 canonical 为空 early-return：multi-plan 模式下 canonical modules 本就可能为空。
      */
     async function recomputeDisplayModules(): Promise<void> {
         if (!projectData.value || !projectData.value.activeScheme) return;
-        if (canonicalModulesSnapshot.value === null) return;
 
-        const activeMap = activeVariantByZone.value;
-        const activeZoneIds = new Set(activeMap.keys());
+        const activeMap = activeVariantByDesignZone.value;
+        const baseSnapshot = canonicalModulesSnapshot.value ?? [];
 
-        // (1) canonical 过滤：保留非 active zone 的模块
-        const baseModules = canonicalModulesSnapshot.value.filter(
-            m => !activeZoneIds.has(m.zoneId ?? '')
-        );
-
-        // (2) 拉每个变体并合并
-        const variantBlocks: Module[][] = [];
-        const failedZones: string[] = [];
-        for (const [leafZoneId, state] of Array.from(activeMap.entries())) {
-            try {
-                const resp = await SchemeService.getModules('main', {
-                    leafZonePath: state.leafZonePath,
-                    variantId: state.variantId
-                });
-                const variantModules = (resp.modules ?? []).map(m => ({
-                    ...m,
-                    zoneId: (m as any).zoneId ?? leafZoneId
-                })) as Module[];
-                variantBlocks.push(variantModules);
-            } catch (err: any) {
-                debugStore.warn(`[Store] 变体加载失败 zone=${leafZoneId} variant=${state.variantId}: ${err?.message ?? err}`);
-                failedZones.push(leafZoneId);
+        // 构建 leafZoneId → designZoneId 反查表（含顶层叶子自映射）
+        const leafToDesignZone = new Map<string, string>();
+        for (const z of (projectData.value.activeScheme.zones ?? [])) {
+            if (!z.id) continue;
+            if (z.subZones && z.subZones.length > 0) {
+                for (const sz of z.subZones) {
+                    if (sz.id) leafToDesignZone.set(sz.id, z.id);
+                }
+            } else {
+                leafToDesignZone.set(z.id, z.id);
             }
         }
-        for (const z of failedZones) activeMap.delete(z);
-        if (failedZones.length > 0) {
-            activeVariantByZone.value = new Map(activeMap);
+
+        // (1) canonical 过滤：保留模块所属 designZone 未被激活的项
+        const activeDesignZoneIds = new Set(activeMap.keys());
+        const baseModules = baseSnapshot.filter(m => {
+            const dz = leafToDesignZone.get(m.zoneId ?? '') ?? '';
+            return !activeDesignZoneIds.has(dz);
+        });
+
+        // (2) 对每个 active designZone 拉所有叶子的变体 modules
+        const variantBlocks: Module[][] = [];
+        for (const [designZoneId, variantSlug] of Array.from(activeMap.entries())) {
+            const leafIds = getLeafZoneIdsForDesignZone(designZoneId);
+            for (const leafZoneId of leafIds) {
+                try {
+                    const resp = await SchemeService.getModules('main', {
+                        designZoneId, leafZoneId, variantSlug
+                    });
+                    const variantModules = (resp.modules ?? []).map(m => ({
+                        ...m,
+                        zoneId: (m as any).zoneId ?? leafZoneId
+                    })) as Module[];
+                    variantBlocks.push(variantModules);
+                } catch (err: any) {
+                    // 单叶子 404/失败不致命：该叶子展示为空，不撤 designZone 整体激活
+                    debugStore.warn(
+                        `[Store] 变体叶子加载失败 dz=${designZoneId} slug=${variantSlug} leaf=${leafZoneId}: ${err?.message ?? err}`);
+                }
+            }
         }
 
         // (3) 写回（使用展开避免 reactive 丢失）
@@ -244,11 +356,10 @@ export const useCanvasStore = defineStore('canvas', () => {
     }
 
     /**
-     * 判定一个 SignalR 文件名是否属于 module-relocation-agent 的变体侧链
-     * （modules-alt-*.json / modules-alt-*.meta.json）。
-     * 这类文件不应触发整个 canvas 数据刷新——只通知变体切换器 refetch /api/scheme/variants。
+     * Legacy 变体侧链文件名判定（modules-alt-*.json）。
+     * 与 server 端 trigger=variant-files-changed 信号互补——后者覆盖 New 路径 variants/ 子树。
      */
-    function isVariantSidecarFile(fileName: string | undefined): boolean {
+    function isLegacyVariantSidecarFile(fileName: string | undefined): boolean {
         if (!fileName) return false;
         return fileName.toLowerCase().startsWith('modules-alt-')
             && fileName.toLowerCase().endsWith('.json');
@@ -262,25 +373,32 @@ export const useCanvasStore = defineStore('canvas', () => {
 
         const fileName = data.file as string | undefined;
 
-        // 变体侧链：modules-alt-{n}.json / modules-alt-{n}.meta.json
-        // 不重载整个项目，只广播给变体切换器
-        if (isVariantSidecarFile(fileName)) {
+        const trigger = data.trigger as string | undefined;
+
+        // 变体侧链：trigger=variant-files-changed（server 派发，覆盖 variants/ 子树）
+        // 或 trigger=variant-cloned（clone endpoint 显式广播，走轻量 refetch 路径避免整 canvas reload）
+        // 或 Legacy modules-alt-*.json 文件（兼容老项目残留）
+        if (trigger === 'variant-files-changed' || trigger === 'variant-cloned' || isLegacyVariantSidecarFile(fileName)) {
             debugStore.log(`[Store] 变体文件变化，分发给切换器: ${fileName}`);
             window.dispatchEvent(new CustomEvent('bimcanvas:variant-files-changed', {
                 detail: { file: fileName, trigger: data.trigger }
             }));
+            void refetchVariantCounts();
             return;
         }
 
         if (data.action === 'reload') {
-            const trigger = data.trigger as string | undefined;
-
-            // 采纳变体后服务端会发 trigger=variant-adopt 并附带 file=modules.json
-            // 此时被采纳的叶子分区的 active 状态应清空回 canonical
+            // 采纳变体后服务端发 trigger=variant-adopt + file=modules.json + designZoneId
+            // 此时仅清空被采纳设计区的 active 状态（其他设计区的 active 不动）
             if (trigger === 'variant-adopt') {
-                activeVariantByZone.value.clear();
-                activeVariantByZone.value = new Map(activeVariantByZone.value);
-                debugStore.log('[Store] 变体已采纳，清空所有 activeVariantByZone 并重载 canonical');
+                const adoptedDz = data.designZoneId as string | undefined;
+                if (adoptedDz && activeVariantByDesignZone.value.has(adoptedDz)) {
+                    activeVariantByDesignZone.value.delete(adoptedDz);
+                    activeVariantByDesignZone.value = new Map(activeVariantByDesignZone.value);
+                    debugStore.log(`[Store] 变体已采纳 dz=${adoptedDz}，清空 active 并重载 canonical`);
+                }
+                // 采纳会删除该变体目录、可能新增 prev-*；刷新计数字典让 Canvas 摘掉/换角标
+                void refetchVariantCounts();
             }
 
             // Agent/重连/手动触发的更新：重置 skip 计数器，确保更新不被跳过
@@ -423,9 +541,12 @@ export const useCanvasStore = defineStore('canvas', () => {
             : [];
 
         // 如果还有活跃变体（in-session SignalR 重载场景），重新应用
-        if (activeVariantByZone.value.size > 0) {
+        if (activeVariantByDesignZone.value.size > 0) {
             await recomputeDisplayModules();
         }
+
+        // 项目级变体计数（首次加载 + 后续 reload 都拉一次；不 await 避免阻塞画布构建）
+        void refetchVariantCounts();
 
         await refreshModuleLibrary();
 
@@ -857,7 +978,18 @@ export const useCanvasStore = defineStore('canvas', () => {
         }
 
         try {
-            const saved = await runtime.saveModules(projectData.value.activeScheme.modules);
+            // 派生 variantSelection：把 designZone→slug 展开为 leafZoneId→slug（server 期望叶子粒度索引）。
+            // 后端按此映射决定写 variants/{slug}/{leaf}/modules.json 还是 canonical，避免编辑变体污染 canonical。
+            const variantSelection: Record<string, string> = {};
+            for (const [designZoneId, variantSlug] of activeVariantByDesignZone.value) {
+                for (const leafId of getLeafZoneIdsForDesignZone(designZoneId)) {
+                    variantSelection[leafId] = variantSlug;
+                }
+            }
+            const saved = await runtime.saveModules(
+                projectData.value.activeScheme.modules,
+                variantSelection
+            );
             if (saved) {
                 if (supports(runtime.capabilities.serverPersistence)) {
                     // Connected 模式下，Server 已经落盘；Standalone 的保存语义是导出 Snapshot。
@@ -970,10 +1102,19 @@ export const useCanvasStore = defineStore('canvas', () => {
         placementSize,
         setPlacementSize,
 
-        // 变体方案（module-relocation-agent 产出）
-        activeVariantByZone,
+        // 变体方案（按设计区索引）
+        activeVariantByDesignZone,
         getActiveVariant,
         setActiveVariant,
-        clearActiveVariant
+        clearActiveVariant,
+        resolveDesignZoneId,
+        getLeafZoneIdsForDesignZone,
+
+        // 项目级变体计数 + 元数据（Canvas 角标 + Navigator 样式/tooltip）
+        variantInfoByDesignZone,
+        variantMetadataByDesignZone,
+        cacheVariantMetadata,
+        getVariantSlot,
+        refetchVariantCounts
     };
 });
