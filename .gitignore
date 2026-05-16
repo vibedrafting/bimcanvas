@@ -5,28 +5,23 @@
 *.user
 *.suo
 
-# Root-only workspace files
+# Root-only workspace files (AI agents, scratch)
 /.agent/
 /.agents/
 /.claude/
 /.codex/
-/.tmp/
-.tmp/
-/.vs/
-/.vscode/
 /.dev/
-/publish/
-/tuning/
 /AGENTS.md
 /CLAUDE.md
 /GEMINI.md
 /nul_
 
-# Build
+# Build / temp
 bin/
 obj/
 packages/
 publish/
+.tmp/
 
 # Node
 node_modules/
@@ -48,9 +43,6 @@ __pycache__/
 venv/
 
 # Claude Code
-.claude/
-.agent/
-.agents/
 tmpclaude-*
 
 # Docker deployment
