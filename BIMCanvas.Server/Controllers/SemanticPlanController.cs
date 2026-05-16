@@ -58,6 +58,11 @@ namespace BIMCanvas.Server.Controllers
             if (!_projectContext.IsLoaded)
                 return BadRequest(new { message = "没有加载的项目" });
 
+            // R3 写入 gate (V12a / 主真理源 §3.11 / §4.7):pending 状态拒绝写入
+            var writeGate = _projectContext.CheckWriteAllowed();
+            if (!writeGate.Allowed)
+                return StatusCode(403, new { code = writeGate.Code, message = writeGate.Message });
+
             if (!IsDesignZoneId(request.ZoneId))
                 return BadRequest(new { message = "semantic_plan 只归属于设计区，不归属于子分区。请传入父设计区 zoneId。" });
 
@@ -155,6 +160,11 @@ namespace BIMCanvas.Server.Controllers
         {
             if (!_projectContext.IsLoaded)
                 return BadRequest(new { message = "没有加载的项目" });
+
+            // R3 写入 gate (V12a / 主真理源 §3.11 / §4.7):pending 状态拒绝写入
+            var writeGate = _projectContext.CheckWriteAllowed();
+            if (!writeGate.Allowed)
+                return StatusCode(403, new { code = writeGate.Code, message = writeGate.Message });
 
             if (!IsDesignZoneId(request.ZoneId))
                 return BadRequest(new { message = "reference_analysis 只归属于设计区，不归属于子分区。请传入父设计区 zoneId。" });

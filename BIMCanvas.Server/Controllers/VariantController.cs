@@ -229,6 +229,11 @@ namespace BIMCanvas.Server.Controllers
             if (!_projectContext.IsLoaded)
                 return BadRequest(new { error = "未加载项目" });
 
+            // R3 写入 gate (V12a / 主真理源 §3.11 / §4.7):pending 状态拒绝写入
+            var writeGate = _projectContext.CheckWriteAllowed();
+            if (!writeGate.Allowed)
+                return StatusCode(403, new { code = writeGate.Code, message = writeGate.Message });
+
             try { ModuleFileTopologyService.EnsureSafeVariantId(request.VariantSlug); }
             catch (ArgumentException ex) { return BadRequest(new { error = ex.Message }); }
 

@@ -204,6 +204,14 @@ builder.Services.AddSingleton<ZoneBoundaryService>();
 builder.Services.AddSingleton<ProjectFixedFilesBootstrapService>();
 builder.Services.AddSingleton<ProjectDerivedBootstrapService>();
 
+// v1.1 平台化改造 · 组 2:Plugin 安全 + 生命周期 (主真理源 §3.12 / §3.13 / §4.2)
+builder.Services.AddSingleton<BIMCanvas.Server.Services.PluginSecurity.StaticPluginValidator>();
+builder.Services.AddSingleton<BIMCanvas.Server.Services.PluginSecurity.ExecutablePluginProbe>();
+builder.Services.AddSingleton<BIMCanvas.Server.Services.Plugins.PluginTrustService>();
+builder.Services.AddSingleton<BIMCanvas.Server.Services.Plugins.PluginInstallService>();
+builder.Services.AddSingleton<BIMCanvas.Server.Services.Plugins.PluginLifecycleService>();
+builder.Services.AddSingleton<BIMCanvas.Server.Services.Plugins.PluginScaffoldService>();
+
 // v3.1 Git Worktree 架构服务（单仓库 + 多分支 + Worktree 并行）
 builder.Services.AddSingleton<GitWorktreeService>();
 builder.Services.AddSingleton<IWorktreeMetadataServiceFactory, WorktreeMetadataServiceFactory>();  // ✅ 工厂模式
@@ -605,6 +613,54 @@ Process? ccrProcess = null;
             agentProcess.StartInfo.ArgumentList.Add(agentProjectPath);
             agentProcess.StartInfo.ArgumentList.Add("--managed-home");
             agentProcess.StartInfo.ArgumentList.Add(configDir);
+
+            // v1.1 §4.10 / 模板 §4.10:写初始 LaunchContext (Projectless 模式) 文件,
+            // CLI arg --launch-context 传给 Agent 子进程。现有环境变量注入并存,组3 完成后逐步迁移。
+            try
+            {
+                var runtimeDir = Path.Combine(configDir, ".runtime");
+                Directory.CreateDirectory(runtimeDir);
+                var serverPid = Process.GetCurrentProcess().Id;
+                var launchContextPath = Path.Combine(runtimeDir, $"launch-context-{serverPid}.json");
+                var initialActivePlugin = string.IsNullOrWhiteSpace(config.Agent.ActivePlugin)
+                    ? "core-base"
+                    : config.Agent.ActivePlugin;
+                var initialContext = new
+                {
+                    activePluginId = initialActivePlugin,
+                    activePluginRoot = Path.Combine(configDir, "plugins", initialActivePlugin),
+                    mode = "projectless",
+                    projectPath = (string?)null,
+                    activeSceneId = (string?)null,
+                    scenes = (object?)null,
+                    @lock = (object?)null,
+                    serverUrl = serverBaseUrl,
+                    trustMode = "fullTrust",
+                    readOnlySceneIds = Array.Empty<string>(),
+                };
+                var ctxJson = System.Text.Json.JsonSerializer.Serialize(
+                    initialContext,
+                    new System.Text.Json.JsonSerializerOptions
+                    {
+                        WriteIndented = true,
+                        DefaultIgnoreCondition = System.Text.Json.Serialization.JsonIgnoreCondition.Never,
+                    });
+                File.WriteAllText(launchContextPath, ctxJson, Encoding.UTF8);
+                agentProcess.StartInfo.ArgumentList.Add("--launch-context");
+                agentProcess.StartInfo.ArgumentList.Add(launchContextPath);
+                WriteWithColoredPrefix(
+                    "[Server]",
+                    $"Initial LaunchContext: mode=projectless, plugin={initialActivePlugin}, path={launchContextPath}",
+                    ConsoleColor.White);
+            }
+            catch (Exception ex)
+            {
+                WriteWithColoredPrefix(
+                    "[Server:WARN]",
+                    $"写 LaunchContext 失败,Agent 仅靠环境变量启动: {ex.Message}",
+                    ConsoleColor.DarkYellow);
+            }
+
             // 设置环境变量确保 Python 输出 UTF-8
             agentProcess.StartInfo.Environment["PYTHONIOENCODING"] = "utf-8";
             agentProcess.StartInfo.Environment["BIMCANVAS_HOME"] = configDir;
