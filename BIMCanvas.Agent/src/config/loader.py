@@ -165,11 +165,16 @@ class ConfigLoader:
         self._validate_bootstrap_layout()
 
     def _validate_bootstrap_layout(self) -> None:
-        """校验 BIMCANVAS_HOME 是否已由 Server 初始化完成。"""
+        """校验 BIMCANVAS_HOME 是否已由 Server 初始化完成。
+
+        组3 改造 (主真理源 v1.1 §3.5-§3.7):
+        - 删除硬编码 `agents/layout-agent.md` 必填项 (该 agent 属 indoor-layout plugin)
+        - 软兼容 Templates 重组未完成的过渡态 (组2 并行进行中):
+          若 plugins/core-base/ 存在则按新布局校验,否则回退旧布局,仅警告不抛错。
+        """
         required_paths = [
             ("config.json", "file"),
             ("BIMCANVAS.md", "file"),
-            ("agents/layout-agent.md", "file"),
             (".claude-plugin/plugin.json", "file"),
             ("skills", "directory"),
         ]
@@ -215,14 +220,24 @@ class ConfigLoader:
         self._expand_env_vars(self._config)
         return self._config
 
-    def load_system_prompt(self) -> str:
+    def load_system_prompt(self, active_plugin_root: Path | None = None) -> str:
         """
-        加载 BIMCANVAS.md 作为系统提示词
+        加载系统提示词。
+
+        组3 改造 (主真理源 v1.1 §3.5):
+        - 默认读 <BIMCANVAS_HOME>/BIMCANVAS.md 作为 base
+        - 若 active_plugin_root 非空且 <active_plugin_root>/BIMCANVAS.md 存在,
+          拼接顺序: base + 边界标识 + active plugin prompt
+        - 边界标识硬性插入,防止 domain plugin 在 prompt 层覆盖平台不变量
+
+        Args:
+            active_plugin_root: active plugin 物理目录;None / Projectless 时仅返回 base
 
         Returns:
-            系统提示词内容
+            合并后的系统提示词字符串
         """
-        if self._system_prompt is not None:
+        # 注意:缓存只针对默认 (None) 调用,带 active_plugin_root 的调用绕过缓存
+        if active_plugin_root is None and self._system_prompt is not None:
             return self._system_prompt
 
         prompt_path = self.config_dir / "BIMCANVAS.md"
@@ -230,9 +245,29 @@ class ConfigLoader:
             raise FileNotFoundError(f"系统提示词文件不存在: {prompt_path}")
 
         with open(prompt_path, 'r', encoding='utf-8-sig') as f:
-            self._system_prompt = f.read()
+            base_prompt = f.read()
 
-        return self._system_prompt
+        if active_plugin_root is None:
+            self._system_prompt = base_prompt
+            return base_prompt
+
+        active_prompt_path = active_plugin_root / "BIMCANVAS.md"
+        if not active_prompt_path.is_file():
+            logger.warning(
+                "active plugin BIMCANVAS.md 不存在 (%s),仅返回 core-base 提示词",
+                active_prompt_path,
+            )
+            return base_prompt
+
+        with open(active_prompt_path, 'r', encoding='utf-8-sig') as f:
+            active_prompt = f.read()
+
+        plugin_id = active_plugin_root.name
+        return (
+            f"{base_prompt}\n\n"
+            f"---\n## Active Domain Contract: {plugin_id}\n---\n\n"
+            f"{active_prompt}"
+        )
 
     def load_tools(self) -> list[str] | None:
         """
@@ -276,37 +311,77 @@ class ConfigLoader:
         return allow, deny
 
 
-    def load_agents(self) -> dict[str, AgentConfig]:
+    def load_agents(
+        self,
+        active_plugin_root: Path | None = None,
+        declared_overrides: list[str] | tuple[str, ...] = (),
+    ) -> dict[str, AgentConfig]:
         """
-        加载 agents/ 目录下所有子 Agent 配置
+        加载 agents 配置,合并 core-base 与 active plugin 两层。
+
+        组3 改造 (主真理源 v1.1 §3.6 / 组3 任务模板 §4.2 + §4.5):
+        - 先扫 <BIMCANVAS_HOME>/agents/*.md (core-base / 旧布局 base)
+        - 若 active_plugin_root 非空,再扫 <active_plugin_root>/agents/*.md
+        - 同名 agent: active plugin 必须在 manifest 显式声明 `overrides.agents`
+          包含该 name,否则抛 OverrideNotDeclaredError (防 domain 静默覆盖平台 agent)
+        - BIMCanvas 自己 glob + 解析 + 显式传给 SDK,不依赖 SDK plugin 机制扫描 agents
+          (主真理源 §2.4 卡点 C 关键纠正)
+
+        Args:
+            active_plugin_root: active plugin 物理目录;None 时只扫 base
+            declared_overrides: active plugin manifest.overrides.agents 字段值
 
         Returns:
-            子 Agent 名称到配置的映射字典（可能为空）
+            agent name → AgentConfig 字典 (可能为空)
         """
-        if self._agents is not None:
+        # 缓存只针对默认 (None) 调用
+        if active_plugin_root is None and not declared_overrides and self._agents is not None:
             return self._agents
 
+        result: dict[str, AgentConfig] = {}
         agents_dir = self.config_dir / "agents"
-        if not agents_dir.exists():
-            logger.warning(f"agents 目录不存在: {agents_dir}，SubAgent 功能不可用")
-            self._agents = {}
-            return self._agents
+        if agents_dir.exists():
+            for md_file in agents_dir.glob("*.md"):
+                try:
+                    agent_config = self._parse_agent_md(md_file)
+                    result[agent_config.name] = agent_config
+                    logger.debug(f"已加载 base agent: {agent_config.name}")
+                except Exception as e:
+                    logger.warning(f"解析 base agent 配置失败 {md_file}: {e}")
+        else:
+            logger.warning(f"base agents 目录不存在: {agents_dir}")
 
-        result = {}
+        if active_plugin_root is not None:
+            plugin_agents_dir = active_plugin_root / "agents"
+            if plugin_agents_dir.exists():
+                overrides_set = frozenset(declared_overrides or ())
+                for md_file in plugin_agents_dir.glob("*.md"):
+                    try:
+                        agent_config = self._parse_agent_md(md_file)
+                    except Exception as e:
+                        logger.warning(f"解析 plugin agent 配置失败 {md_file}: {e}")
+                        continue
 
-        for md_file in agents_dir.glob("*.md"):
-            try:
-                agent_config = self._parse_agent_md(md_file)
-                result[agent_config.name] = agent_config
-                logger.debug(f"已加载子 Agent: {agent_config.name}")
-            except Exception as e:
-                logger.warning(f"解析子 Agent 配置失败 {md_file}: {e}")
+                    if agent_config.name in result and agent_config.name not in overrides_set:
+                        from bimcanvas_plugin_sdk import OverrideNotDeclaredError
+
+                        raise OverrideNotDeclaredError(
+                            f"plugin agent '{agent_config.name}' (来自 {active_plugin_root.name}) "
+                            f"与 base 同名,但 manifest.overrides.agents 未声明该名字。"
+                            f"请在 plugin manifest 加入 \"overrides\": {{ \"agents\": [\"{agent_config.name}\"] }} "
+                            f"以明确覆盖意图。"
+                        )
+
+                    result[agent_config.name] = agent_config
+                    logger.debug(f"已加载 plugin agent: {agent_config.name}")
 
         if not result:
-            logger.warning(f"agents 目录为空或所有文件解析失败: {agents_dir}，SubAgent 功能不可用")
+            logger.warning("未加载任何 agent (base + plugin 都为空)")
 
-        self._agents = result
-        return self._agents
+        # 仅在默认调用路径缓存
+        if active_plugin_root is None and not declared_overrides:
+            self._agents = result
+        return result
 
     def _parse_agent_md(self, file_path: Path) -> AgentConfig:
         """
@@ -392,6 +467,81 @@ class ConfigLoader:
                     logger.warning(f"环境变量未设置: {env_name}")
             elif isinstance(value, dict):
                 self._expand_env_vars(value)
+
+    def resolve_active_plugin(
+        self, launch_context
+    ) -> tuple[Path | None, dict, list[str], list[str]]:
+        """根据 PluginLaunchContext 解析 active plugin 目录与 manifest。
+
+        组3 任务模板 §4.2 末段 + 主真理源 v1.1 §3.4 / §3.8。
+
+        Args:
+            launch_context: runtime.launch_context.PluginLaunchContext 实例
+
+        Returns:
+            (active_plugin_root, plugin_manifest, overrides_agents, overrides_skills)
+            - active_plugin_root: Path 或 None (Projectless / active_plugin_id 为 None)
+            - plugin_manifest: dict (bimcanvas-plugin.json 内容);无 manifest 时返回 {}
+            - overrides_agents / overrides_skills: list[str]
+
+        Raises:
+            PluginManifestError: manifest 字段不合法 (含 .. 逃逸 / namespace=canvas 等)
+        """
+        if (
+            launch_context is None
+            or not getattr(launch_context, "active_plugin_id", None)
+            or not getattr(launch_context, "active_plugin_root", None)
+        ):
+            return None, {}, [], []
+
+        active_root = Path(launch_context.active_plugin_root)
+        if not active_root.is_dir():
+            logger.warning(
+                "active plugin root 不存在: %s,跳过 plugin 加载", active_root
+            )
+            return None, {}, [], []
+
+        manifest_path = active_root / "bimcanvas-plugin.json"
+        manifest: dict = {}
+        if manifest_path.is_file():
+            with open(manifest_path, "r", encoding="utf-8-sig") as f:
+                manifest = json.load(f)
+        else:
+            logger.warning(
+                "bimcanvas-plugin.json 不存在 (%s),按无 manifest 的 plugin 处理",
+                manifest_path,
+            )
+
+        # 最小校验 (组1 JSONSchema 是完整校验,这里只做安全相关项)
+        from bimcanvas_plugin_sdk import PluginManifestError
+
+        mcp_namespace = manifest.get("mcpNamespace")
+        if mcp_namespace == "canvas":
+            raise PluginManifestError(
+                f"plugin {launch_context.active_plugin_id} 的 mcpNamespace 不能为 'canvas' "
+                f"(保留给 core-base)"
+            )
+
+        mcp_tools = manifest.get("mcpTools")
+        if mcp_tools:
+            if not isinstance(mcp_tools, str):
+                raise PluginManifestError(
+                    f"plugin {launch_context.active_plugin_id} 的 mcpTools 必须是字符串路径"
+                )
+            if ".." in Path(mcp_tools).parts:
+                raise PluginManifestError(
+                    f"plugin {launch_context.active_plugin_id} 的 mcpTools 路径含 '..' 逃逸: {mcp_tools}"
+                )
+            if not mcp_tools.endswith(".py"):
+                raise PluginManifestError(
+                    f"plugin {launch_context.active_plugin_id} 的 mcpTools 必须是 .py 文件: {mcp_tools}"
+                )
+
+        overrides = manifest.get("overrides", {}) or {}
+        overrides_agents = list(overrides.get("agents", []) or [])
+        overrides_skills = list(overrides.get("skills", []) or [])
+
+        return active_root, manifest, overrides_agents, overrides_skills
 
     def clear_cache(self) -> None:
         """清除配置缓存"""

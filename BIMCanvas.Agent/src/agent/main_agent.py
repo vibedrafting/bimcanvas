@@ -27,8 +27,7 @@ from ..config.settings import get_settings
 from .subagents import create_subagents
 from .agent_logger import get_agent_logger
 from .worktree_manager import WorktreeManager, WorktreeContext
-# MCP 服务器（业务工具）
-from ..mcp import canvas_mcp
+# 组3 改造: 不再硬编码 canvas_mcp; bundle.mcp_servers_spec 动态构造
 from ..runtime import ConfigBundle, StreamChunk, build_config_bundle
 
 logger = logging.getLogger(__name__)
@@ -224,36 +223,35 @@ class MainAgent:
         else:
             sdk_thinking = ThinkingConfigDisabled(type="disabled")
 
-        # === 注释掉现有 Canvas MCP ===
-        # canvas_mcp = None
-        # mcp_tools = []
-        # try:
-        #     canvas_mcp = create_canvas_mcp()
-        #     mcp_tools = get_allowed_tools()
-        #     self._agent_logger._print(f"[MCP] MCP 服务器已创建，工具: {mcp_tools}")
-        # except ValueError as e:
-        #     self._agent_logger.log_warning(f"MCP 服务器创建失败: {e}")
-        # except Exception as e:
-        #     self._agent_logger.log_error(f"MCP 服务器创建异常: {e}")
-
-        # === MCP 服务器配置 ===
+        # === MCP 服务器配置 (组3 改造: 动态从 bundle 拿) ===
+        mcp_servers_spec = dict(bundle.mcp_servers_spec)
         mcp_tools = list(bundle.mcp_tool_names)
-        self._agent_logger._print(f"[MCP] Canvas MCP 已注册，工具: {mcp_tools}")
+        self._agent_logger._print(
+            f"[MCP] MCP servers registered: {list(mcp_servers_spec.keys())}, "
+            f"tools={len(mcp_tools)}"
+        )
+        if bundle.diagnostics:
+            for diag in bundle.diagnostics:
+                self._agent_logger._print(f"[Bundle] {diag}")
 
         # 合并工具权限
         all_allowed = None
         if allowed_tools is not None:
             all_allowed = list(dict.fromkeys([*allowed_tools, *mcp_tools, "Skill"]))
 
-        # === Plugin 机制加载 Skills ===
-        # BIMCANVAS_HOME 本身就是 Plugin 目录，独立于 setting_sources，彻底避免 CLAUDE.md 污染
+        # === Plugin 机制加载 Skills (组3 改造: 遍历 active_plugin_paths) ===
+        # BIMCANVAS_HOME 本身就是 Plugin 目录(core-base / 旧布局 base);active plugin root
+        # 是 domain plugin 目录。两者都通过 SDK plugins 数组注册,SDK 自动扫 skills 注入 reminder。
+        # 独立于 setting_sources,彻底避免 CLAUDE.md 污染 (README 开发难点 #4)
         plugins = []
-        plugin_path = bundle.bimcanvas_home  # <BIMCANVAS_HOME>/
-        if (plugin_path / ".claude-plugin").exists():
-            plugins.append({"type": "local", "path": str(plugin_path)})
-            self._agent_logger._print(f"[Plugin] BIMCanvas Plugin 已注册: {plugin_path}")
-        else:
-            self._agent_logger.log_warning(f"[Plugin] Plugin 清单不存在: {plugin_path / '.claude-plugin'}")
+        for plugin_path in bundle.active_plugin_paths:
+            if (plugin_path / ".claude-plugin").exists():
+                plugins.append({"type": "local", "path": str(plugin_path)})
+                self._agent_logger._print(f"[Plugin] 已注册: {plugin_path.name} ({plugin_path})")
+            else:
+                self._agent_logger.log_warning(
+                    f"[Plugin] 跳过 (缺 .claude-plugin/): {plugin_path}"
+                )
 
         return ClaudeAgentOptions(
             system_prompt=system_prompt,
@@ -269,8 +267,10 @@ class MainAgent:
             effort=sdk_effort,                     # SDK 原生（0.1.36+）
             thinking=sdk_thinking,                 # SDK 原生（0.1.36+）
             max_thinking_tokens=settings.max_thinking_tokens,  # thinking 预算上限（None=不限制）
-            mcp_servers={"canvas": canvas_mcp},    # 业务工具
-            setting_sources=None,                  # ✅ 安全：不加载任何文件系统配置（CLAUDE.md 零污染）
+            mcp_servers=mcp_servers_spec,          # 组3: bundle.mcp_servers_spec 动态构造 (canvas + active plugin)
+            # DO NOT change to anything else. README §"开发难点 #4 — CLAUDE.md 污染"。
+            # Plugin / Skill 通过 plugins=[...] 加载,与 setting_sources 完全正交。
+            setting_sources=None,
             plugins=plugins,                       # ✅ 通过 Plugin 机制加载 Skills
             max_buffer_size=10 * 1024 * 1024,      # 10MB — 截图 ImageContent 需要足够缓冲区（默认仅 1MB）
             can_use_tool=self._auto_approve_tool,  # Agent 后端无人值守，自动批准所有工具调用

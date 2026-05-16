@@ -44,12 +44,18 @@ def create_subagents(
     working_directory: str | None = None,
 ) -> dict[str, AgentDefinition]:
     """
-    从配置文件加载 SubAgent 定义
+    把 AgentConfig 字典转为 SDK AgentDefinition 字典 (主真理源 v1.1 §3.6)。
 
-    配置文件位置: <BIMCANVAS_HOME>/agents/*.md
+    输入 agents_config 已经由 ConfigLoader.load_agents 完成 base + active plugin 合并,
+    且对同名冲突在 loader 层做了 overrides 强制声明检查 (抛 OverrideNotDeclaredError),
+    本函数不再区分 agent 来源,只做格式转换 + runtime appendix 注入。
 
-    SubAgents are defined using AgentDefinition and dispatched via Task tool.
-    Note: SubAgent tools should NOT include "Task" (cannot dispatch further SubAgents).
+    配置文件位置:
+    - core-base / 旧布局 base: <BIMCANVAS_HOME>/agents/*.md
+    - active plugin: <active_plugin_root>/agents/*.md
+
+    SubAgents 通过 Task 工具派发。SubAgent 自身的 tools 不应包含 "Task"
+    (避免递归派发)。
 
     Returns:
         Dictionary mapping agent names to their definitions
