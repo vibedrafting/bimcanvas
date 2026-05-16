@@ -9,6 +9,8 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "BIMCanvas.Revit", "BIMCanva
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "BIMCanvas.Server", "BIMCanvas.Server\BIMCanvas.Server.csproj", "{6BB65EE7-3975-46CC-BE88-FE5E6AD6AEF2}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "BIMCanvas.Server.JObjectPatchSpike", "BIMCanvas.Server.JObjectPatchSpike\BIMCanvas.Server.JObjectPatchSpike.csproj", "{FE9F459E-505B-49EC-82D6-96FD1199804D}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -55,6 +57,18 @@ Global
 		{6BB65EE7-3975-46CC-BE88-FE5E6AD6AEF2}.Release|x64.Build.0 = Release|Any CPU
 		{6BB65EE7-3975-46CC-BE88-FE5E6AD6AEF2}.Release|x86.ActiveCfg = Release|Any CPU
 		{6BB65EE7-3975-46CC-BE88-FE5E6AD6AEF2}.Release|x86.Build.0 = Release|Any CPU
+		{FE9F459E-505B-49EC-82D6-96FD1199804D}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{FE9F459E-505B-49EC-82D6-96FD1199804D}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{FE9F459E-505B-49EC-82D6-96FD1199804D}.Debug|x64.ActiveCfg = Debug|Any CPU
+		{FE9F459E-505B-49EC-82D6-96FD1199804D}.Debug|x64.Build.0 = Debug|Any CPU
+		{FE9F459E-505B-49EC-82D6-96FD1199804D}.Debug|x86.ActiveCfg = Debug|Any CPU
+		{FE9F459E-505B-49EC-82D6-96FD1199804D}.Debug|x86.Build.0 = Debug|Any CPU
+		{FE9F459E-505B-49EC-82D6-96FD1199804D}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{FE9F459E-505B-49EC-82D6-96FD1199804D}.Release|Any CPU.Build.0 = Release|Any CPU
+		{FE9F459E-505B-49EC-82D6-96FD1199804D}.Release|x64.ActiveCfg = Release|Any CPU
+		{FE9F459E-505B-49EC-82D6-96FD1199804D}.Release|x64.Build.0 = Release|Any CPU
+		{FE9F459E-505B-49EC-82D6-96FD1199804D}.Release|x86.ActiveCfg = Release|Any CPU
+		{FE9F459E-505B-49EC-82D6-96FD1199804D}.Release|x86.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
