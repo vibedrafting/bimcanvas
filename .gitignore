@@ -14,13 +14,8 @@
 .tmp/
 /.vs/
 /.vscode/
-/docs/
-/plans/*
+/.dev/
 /publish/
-/references/
-/reports/
-/reviews/*
-/test/
 /tuning/
 /AGENTS.md
 /CLAUDE.md
@@ -62,6 +57,3 @@ tmpclaude-*
 deploy/instance-*.env
 deploy/.env
 !deploy/instance.env.example
-
-# Tests
-test/
