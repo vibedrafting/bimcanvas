@@ -1,0 +1,132 @@
+version=1
+
+# This file caches language service data to improve the performance of C# Dev Kit.
+# It is not intended for manual editing. It can safely be deleted and will be
+# regenerated automatically. For more information, see https://aka.ms/lscache
+#
+# To control where cache files are stored, use the following VS Code setting:
+#   "dotnet.projectsystem.cacheInProjectFolder": true
+
+[project]
+language=C#
+primary
+lastDtbSucceeded
+
+[properties]
+AssemblyName=BIMCanvas.Revit
+CommandLineArgsForDesignTimeEvaluation=-langversion:8.0 -define:TRACE
+CompilerGeneratedFilesOutputPath=
+MaxSupportedLangVersion=7.3
+ProjectAssetsFile=<PATH>obj/project.assets.json
+RootNamespace=BIMCanvas.Revit
+RunAnalyzers=
+RunAnalyzersDuringLiveAnalysis=
+SolutionPath=<PATH>../BIMCanvas.sln
+TargetFrameworkIdentifier=.NETFramework
+TargetPath=<PATH>bin/Debug/net472/BIMCanvas.Revit.dll
+TargetRefPath=
+TemporaryDependencyNodeTargetIdentifier=net472
+
+[commandLineArguments]
+/noconfig
+/unsafe-
+/checked-
+/nowarn:1701,1702,1701,1702
+/fullpaths
+/nostdlib+
+/errorreport:prompt
+/warn:4
+/define:TRACE;DEBUG;NETFRAMEWORK;NET472;NET30_OR_GREATER;NET35_OR_GREATER;NET40_OR_GREATER;NET45_OR_GREATER;NET451_OR_GREATER;NET452_OR_GREATER;NET46_OR_GREATER;NET461_OR_GREATER;NET462_OR_GREATER;NET47_OR_GREATER;NET471_OR_GREATER;NET472_OR_GREATER
+/highentropyva+
+/nullable:enable
+/debug+
+/debug:portable
+/filealign:512
+/optimize-
+/out:obj\Debug\net472\BIMCanvas.Revit.dll
+/subsystemversion:6.00
+/target:library
+/warnaserror-
+/utf8output
+/deterministic+
+/langversion:8.0
+/warnaserror+:NU1605
+
+[sourceFiles]
+Adapters/
+ BoundaryAdapter.cs
+ LocationLineAdapter.cs
+ OpeningAdapter.cs
+ RoomAdapter.cs
+ WallFinishAdapter.cs
+Commands/
+ App.cs
+ ExportCanvasCommand.cs
+Converters/RevitNtsConverter.cs
+Models/
+ RevitColumn.cs
+ RevitOpening.cs
+ RevitRoom.cs
+ RevitWall.cs
+ RevitWallFinish.cs
+obj/Debug/net472/
+ .NETFramework,Version=v4.7.2.AssemblyAttributes.cs
+ BIMCanvas.Revit.AssemblyInfo.cs
+ Views/ConfigWindow.g.cs
+Services/
+ BcpExporter.cs
+ CanvasExportService.cs
+ CoordinateTransformer.cs
+ ExportOptions.cs
+ RoomTypeInferrer.cs
+Utilities/
+ DebugViewer.cs
+ OpeningDirectionAnalyzer.cs
+ OutlineExtractor.cs
+ PrefixId.cs
+ TransactionHelper.cs
+Views/
+ ConfigWindow.xaml.cs
+ ViewModels/
+  ConfigViewModel.cs
+  RelayCommand.cs
+
+[metadataReferences]
+../
+ BIMCanvas.Core/bin/Debug/netstandard2.0/BIMCanvas.Core.dll
+ libs/revit/2019/
+  Revit.IFC.Export.dll
+  RevitAPI.dll
+  RevitAPIIFC.dll
+  RevitAPIUI.dll
+<NETFXREF>/v4.7.2/
+ Facades/netstandard.dll
+ mscorlib.dll
+ PresentationCore.dll
+ PresentationFramework.dll
+ System.Core.dll
+ System.Data.dll
+ System.dll
+ System.Drawing.dll
+ System.IO.Compression.FileSystem.dll
+ System.Numerics.dll
+ System.Runtime.Serialization.dll
+ System.Windows.Controls.Ribbon.dll
+ System.Xaml.dll
+ System.Xml.dll
+ System.Xml.Linq.dll
+ UIAutomationClient.dll
+ UIAutomationClientsideProviders.dll
+ UIAutomationProvider.dll
+ UIAutomationTypes.dll
+ WindowsBase.dll
+<NUGET>/
+ nettopologysuite/2.6.0/lib/netstandard2.0/NetTopologySuite.dll
+ newtonsoft.json/13.0.3/lib/net45/Newtonsoft.Json.dll
+ system.buffers/4.6.0/lib/net462/System.Buffers.dll
+ system.memory/4.6.0/lib/net462/System.Memory.dll
+ system.numerics.vectors/4.6.0/lib/net462/System.Numerics.Vectors.dll
+ system.runtime.compilerservices.unsafe/6.1.0/lib/net462/System.Runtime.CompilerServices.Unsafe.dll
+
+[analyzerConfigFiles]
+obj/Debug/net472/BIMCanvas.Revit.GeneratedMSBuildEditorConfig.editorconfig
