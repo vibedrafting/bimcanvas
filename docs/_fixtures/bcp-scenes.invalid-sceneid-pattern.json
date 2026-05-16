@@ -1,0 +1,9 @@
+[
+  {
+    "sceneId": "Interior_Layout_1",
+    "scene": "residential",
+    "plugin": { "id": "indoor-layout", "versionRange": "^1.0.0" },
+    "status": "active",
+    "createdAt": "2026-05-16T20:00:00+08:00"
+  }
+]

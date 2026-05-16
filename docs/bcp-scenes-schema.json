@@ -1,0 +1,71 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://bimcanvas/docs/bcp-scenes-schema.json",
+  "title": "project.json scenes[] 字段 JSONSchema",
+  "description": "校验 .bcp 项目 project.json 中 scenes[] 数组字段。组2 POST /api/project/{id}/scenes 端点写入前用本 schema 校验 body;ProjectDerivedBootstrapService.EnsureProjectJson 走 JObject patch 模式不重新校验 (主真理源 §3.9 + §4.5)。数组元素 additionalProperties=true 留给第三方 plugin 扩展自定义字段 (与 R4 兼容承诺一致)。",
+  "type": "array",
+  "items": { "$ref": "#/definitions/scenesItem" },
+  "definitions": {
+    "scenesItem": {
+      "type": "object",
+      "required": [
+        "sceneId",
+        "scene",
+        "plugin",
+        "status",
+        "createdAt"
+      ],
+      "additionalProperties": true,
+      "description": "单个 scene 项。sceneId 在项目内必须唯一,但 uniqueness 由调用方 (POST 端点 / JObject patch 逻辑) 保证,JSONSchema 不能跨数组元素表达此约束。",
+      "properties": {
+        "sceneId": {
+          "type": "string",
+          "pattern": "^[a-z0-9-]+$",
+          "minLength": 1,
+          "maxLength": 64,
+          "description": "Scene 在项目内的唯一标识。命名风格仅允许小写字母 / 数字 / 短横线。命名建议遵循 plugin manifest 中 defaultSceneIdPattern,如 \"interior-layout-1\" / \"electrical-points-1\";用户可手改但需满足 pattern + 项目内唯一 (主真理源 §3.9)。"
+        },
+        "scene": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64,
+          "description": "Scene 业务分类标签,如 \"residential\" / \"electrical\" / \"mep\" / \"construction\"。当前为开放字符串,未来 Phase 2+ 可能收紧为 enum 由 plugin manifest 注册。"
+        },
+        "plugin": {
+          "$ref": "#/definitions/scenePluginRef",
+          "description": "绑定到本 scene 的 plugin 引用 (主真理源 §3.9)。"
+        },
+        "status": {
+          "type": "string",
+          "enum": ["active"],
+          "description": "Scene 生命周期状态。Phase 1 仅 \"active\";Phase 2+ 可能扩展 archived / frozen,需 schemaVersion 升级 (R3)。"
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "ISO 8601 时间戳,scene 首次写入 project.json 时由 Server 生成。后续 active plugin 切换不更新此字段。"
+        }
+      }
+    },
+    "scenePluginRef": {
+      "type": "object",
+      "required": ["id", "versionRange"],
+      "additionalProperties": false,
+      "description": "scenes[].plugin 子对象。对应 C# record BIMCanvas.Server.Models.Plugins.ScenePluginRef。",
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^[a-z0-9-]+$",
+          "minLength": 1,
+          "maxLength": 64,
+          "description": "Plugin 标识,必须与 plugin manifest 的 name 字段值一致。"
+        },
+        "versionRange": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Plugin 版本兼容 semver range,如 \"^1.0.0\" 或 \">=1.0 <2.0\"。绑定时由 Web / API 写入;PluginLifecycleService 启动 Agent 前基于 plugins-state.json.installedVersion + 本 range 做兼容校验 (M1+)。完整 range 语法由运行时 SemVer 库解析,本 schema 只做非空校验。"
+        }
+      }
+    }
+  }
+}

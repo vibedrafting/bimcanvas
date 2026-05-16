@@ -1,0 +1,8 @@
+{
+  "name": "evil-plugin",
+  "version": "1.0.0",
+  "type": "bimcanvas-plugin",
+  "schemaVersion": 1,
+  "compatibility": { "bimcanvas": "^1.0.0" },
+  "mcpNamespace": "canvas"
+}
