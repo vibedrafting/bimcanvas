@@ -125,8 +125,33 @@ namespace BIMCanvas.Server.Services
         /// legacy .bcp 项目 + core-base 默认环境的写入路径保留。一旦 plugin 体系激活
         /// (LaunchContext 非空),严格 V12a + V12b 检查启用。
         /// </para>
+        /// <para>
+        /// (组5 §5.B.5 重载) 接受 <paramref name="targetRelativePath"/> 时启用 V12b 路径隔离检查。
+        /// 详见带参数版本。本无参版本仅做 State + Mode 检查(向后兼容)。
+        /// </para>
         /// </summary>
         public WriteGateResult CheckWriteAllowed()
+        {
+            return CheckWriteAllowed(null);
+        }
+
+        /// <summary>
+        /// (组5 §5.B.5 / V12b) 带路径的写入 gate 检查。
+        /// <para>
+        /// 在 V12a (State / Mode 检查) 之上,额外检查 <paramref name="targetRelativePath"/>:
+        /// </para>
+        /// <list type="bullet">
+        /// <item>仅在 <c>LaunchContext.ActiveSceneId</c> 非空时启用(legacy 项目不受影响)</item>
+        /// <item>路径以 <c>baseline/</c> 或 <c>computed/</c> 开头 → 返回 <c>readonly_zone</c></item>
+        /// <item>路径以 <c>schemes/</c> 开头但**不**以 <c>schemes/{activeSceneId}/</c> 开头(且非 <c>schemes/zones.json</c>)→ 返回 <c>scene_write_isolation</c></item>
+        /// <item>路径以 <c>references/</c> 或 <c>modules/</c> 开头但**不**以 <c>references/{activeSceneId}/</c> 或 <c>modules/{activeSceneId}/</c> 开头 → 返回 <c>scene_write_isolation</c></item>
+        /// </list>
+        /// <para>
+        /// 调用方负责传入相对项目根的规范化路径(Unix 风格前向斜杠,无前导 /)。
+        /// 无路径时(<paramref name="targetRelativePath"/> == null)仅检查 State + Mode。
+        /// </para>
+        /// </summary>
+        public WriteGateResult CheckWriteAllowed(string? targetRelativePath)
         {
             if (State == ProjectState.None)
             {
@@ -153,9 +178,53 @@ namespace BIMCanvas.Server.Services
                     "LaunchContext.Mode = Projectless,写入禁止 (V12a)");
             }
 
-            // TODO M2 (V12b):sceneId 越权检查 —— 写入路径必须落在 LaunchContext.ActiveSceneId 命名空间内,
-            // 否则返回 code: "scene_write_isolation"。M1 阶段路径仍是 schemes/{zoneId}/,与 sceneId 命名空间未对齐,
-            // 此检查暂留 stub。
+            // V12b: 路径隔离检查(组5 §5.B.5)
+            // 仅在 path 参数非空 + ActiveSceneId 非空时启用
+            var activeSceneId = LaunchContext.ActiveSceneId;
+            if (!string.IsNullOrEmpty(targetRelativePath) && !string.IsNullOrEmpty(activeSceneId))
+            {
+                // 规范化:转 unix 风格 + 去前导斜杠
+                var normalized = targetRelativePath.Replace('\\', '/').TrimStart('/');
+
+                // baseline/ + computed/ 全 scene 共享只读
+                if (normalized.StartsWith("baseline/", System.StringComparison.OrdinalIgnoreCase) ||
+                    normalized.StartsWith("computed/", System.StringComparison.OrdinalIgnoreCase))
+                {
+                    return new WriteGateResult(false, "readonly_zone",
+                        "只读区(baseline / computed)禁止写入: " + normalized);
+                }
+
+                // schemes/zones.json 全 scene 共享(主真理源 §3.9):放行
+                if (normalized.Equals("schemes/zones.json", System.StringComparison.OrdinalIgnoreCase))
+                {
+                    return WriteGateResult.Ok;
+                }
+
+                // schemes/ 子路径必须以 schemes/{activeSceneId}/ 开头
+                if (normalized.StartsWith("schemes/", System.StringComparison.OrdinalIgnoreCase))
+                {
+                    var requiredPrefix = "schemes/" + activeSceneId + "/";
+                    if (!normalized.StartsWith(requiredPrefix, System.StringComparison.OrdinalIgnoreCase))
+                    {
+                        return new WriteGateResult(false, "scene_write_isolation",
+                            "写入路径超出当前 scene 范围 (activeSceneId=" + activeSceneId + "): " + normalized);
+                    }
+                }
+
+                // references/ + modules/ 必须以 references/{activeSceneId}/ 或 modules/{activeSceneId}/ 开头
+                foreach (var topDir in new[] { "references/", "modules/" })
+                {
+                    if (normalized.StartsWith(topDir, System.StringComparison.OrdinalIgnoreCase))
+                    {
+                        var requiredPrefix = topDir + activeSceneId + "/";
+                        if (!normalized.StartsWith(requiredPrefix, System.StringComparison.OrdinalIgnoreCase))
+                        {
+                            return new WriteGateResult(false, "scene_write_isolation",
+                                "写入路径超出当前 scene 范围 (activeSceneId=" + activeSceneId + "): " + normalized);
+                        }
+                    }
+                }
+            }
 
             return WriteGateResult.Ok;
         }

@@ -1,0 +1,17 @@
+{
+  "$schema": "../../../../docs/plugin-manifest-schema.json",
+  "name": "core-base",
+  "version": "1.0.0",
+  "type": "bimcanvas-plugin",
+  "schemaVersion": 1,
+  "compatibility": {
+    "bimcanvas": "^1.0.0"
+  },
+  "displayName": "BIM 基础助手",
+  "description": "BIMCanvas 平台基座 plugin。提供通用的查询与机械编辑能力（只读统计、移动/删除/旋转），不绑定任何业务 domain；可与任何 domain plugin 共存。",
+  "systemPrompt": "BIMCANVAS.md",
+  "agents": "agents/",
+  "skills": "skills/",
+  "referenceStability": "frozen",
+  "maturity": "stable"
+}

@@ -30,6 +30,84 @@ namespace BIMCanvas.Server.Services
         public string TemplatesRoot => _templatesRoot;
 
         /// <summary>
+        /// (组5 §5.A.7) 项目创建时拷贝平台级 baseline 文件 (README.md / .gitignore) 到项目根。
+        /// <para>
+        /// <b>语义边界</b>:这两个文件是"任何 .bcp 项目都该有"的平台基线,与 plugin 系统解耦。
+        /// 源:<c>Templates/platform-config/project-baseline/*</c>;
+        /// 目标:<paramref name="projectPath"/> 项目根。
+        /// </para>
+        /// <para>
+        /// <b>R10 不变量</b>:**只在新建项目(LoadProject 解压新 .bcp 后)调用**,
+        /// 不在 OpenProject / bind scene 时调用。文件已存在则跳过(幂等)。
+        /// 切到不同 plugin 后打开已有项目,baseline 不会被覆盖。
+        /// </para>
+        /// </summary>
+        public void EnsurePlatformBaseline(string projectPath)
+        {
+            if (string.IsNullOrWhiteSpace(projectPath))
+            {
+                throw new ArgumentException("项目路径不能为空。", nameof(projectPath));
+            }
+
+            var sourceDir = Path.Combine(_templatesRoot, "platform-config", "project-baseline");
+            if (!Directory.Exists(sourceDir))
+            {
+                // platform-config/project-baseline/ 缺失不阻塞项目创建,只是无 baseline 可拷贝。
+                return;
+            }
+
+            Directory.CreateDirectory(projectPath);
+            foreach (var sourceFile in Directory.GetFiles(sourceDir))
+            {
+                var fileName = Path.GetFileName(sourceFile);
+                var targetPath = Path.Combine(projectPath, fileName);
+                if (File.Exists(targetPath))
+                {
+                    continue; // 幂等:已存在跳过
+                }
+                File.Copy(sourceFile, targetPath, overwrite: false);
+            }
+        }
+
+        /// <summary>
+        /// (组5 §5.A.6) 平台首启动 / plugin 安装时把 plugin 模板从 Templates/plugins/{pluginName}/
+        /// 物化到 <c>BIMCANVAS_HOME/plugins/{pluginName}/</c>。
+        /// <para>
+        /// <b>语义</b>:对 core-base 等 platform-shipped plugin,这是首启动 bootstrap 入口。
+        /// 第三方 plugin 走 PluginInstallService 的 git clone 路径,不经本方法。
+        /// </para>
+        /// <para>
+        /// <b>幂等性</b>:目标目录已存在时跳过整体拷贝(不做"补齐缺失文件",避免覆盖用户手改)。
+        /// </para>
+        /// </summary>
+        public void EnsurePluginInitialized(string pluginName, string targetPluginRoot)
+        {
+            if (string.IsNullOrWhiteSpace(pluginName))
+            {
+                throw new ArgumentException("pluginName 不能为空。", nameof(pluginName));
+            }
+            if (string.IsNullOrWhiteSpace(targetPluginRoot))
+            {
+                throw new ArgumentException("targetPluginRoot 不能为空。", nameof(targetPluginRoot));
+            }
+
+            var sourceDir = Path.Combine(_templatesRoot, "plugins", pluginName);
+            if (!Directory.Exists(sourceDir))
+            {
+                throw new DirectoryNotFoundException(
+                    $"Templates/plugins/{pluginName} 不存在,无法 bootstrap plugin: {sourceDir}");
+            }
+
+            if (Directory.Exists(targetPluginRoot))
+            {
+                // 幂等:已 bootstrap 过则跳过,不补齐
+                return;
+            }
+
+            CopyDirectory(sourceDir, targetPluginRoot);
+        }
+
+        /// <summary>
         /// 按 manifest 初始化目标目录。
         /// 规则：仅在目标缺失时创建，不覆盖、不修复已存在内容。
         /// </summary>

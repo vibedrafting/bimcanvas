@@ -13,7 +13,7 @@ import json
 import mimetypes
 import re
 import aiohttp
-from claude_agent_sdk import tool, create_sdk_mcp_server
+from claude_agent_sdk import tool
 
 from ..attachments.chat_attachments import (
     AttachmentResolutionError,
@@ -26,7 +26,6 @@ from ..reference_analysis import (
     ReferenceSource,
     build_custom_image_analysis_prompt,
     load_chatgpt_backend_config,
-    load_reference_analysis_prompt,
 )
 
 SERVER_URL = os.getenv("BIMCANVAS_SERVER_URL", "http://localhost:5000").rstrip("/")
@@ -997,315 +996,11 @@ async def get_zone_boundaries(args: dict[str, Any]) -> dict[str, Any]:
 
 
 @tool(
-    "save_semantic_plan",
-    "保存语义方案标签。在规划阶段的每个子阶段（2.1/2.2/2.3）完成后调用，提交当前标签的语义方案。"
-    "可选 variantId 用于写入变体路径；spatial-skeleton / multi-plan-overview 是 canonical 全局单 owner，禁止与 variantId 同时传入。",
-    {
-        "$schema": "http://json-schema.org/draft-07/schema#",
-        "type": "object",
-        "properties": {
-            "zoneId": {
-                "type": "string",
-                "description": "目标 Zone ID，如 'rz_3'"
-            },
-            "tag": {
-                "type": "string",
-                "enum": ["spatial-skeleton", "strategic-plan", "multi-plan-overview", "construction-brief"],
-                "description": "语义方案标签：spatial-skeleton=空间骨架, strategic-plan=战略层方案, multi-plan-overview=多方案概述, construction-brief=完整施工简报"
-            },
-            "planType": {
-                "type": "string",
-                "enum": ["derived"],
-                "description": "图纸类型：当前正式流程统一为 derived；旧的 reference 仅用于识别历史数据。"
-            },
-            "content": {
-                "type": "string",
-                "description": "语义方案文本内容（markdown 格式）"
-            },
-            "referenceAnalysisTag": {
-                "type": "string",
-                "description": "可选。若当前方案消费了定稿 reference_analysis，记录对应的标签（如 v3 / v4）。"
-            },
-            "variantId": {
-                "type": "string",
-                "description": "可选。非空时写变体路径 schemes/{zoneId}/variants/{variantId}/semantic_plan.json；为空时写 canonical。"
-                               "**spatial-skeleton / multi-plan-overview 禁止传 variantId**（server 强制 400，这两个 tag 全局只在 canonical 出现）。"
-                               "Phase 1 暂无调用方需要传入；预留给后续 multi-plan / variant-design-agent。"
-            }
-        },
-        "required": ["zoneId", "tag", "planType", "content"],
-        "additionalProperties": False
-    }
-)
-async def save_semantic_plan(args: dict[str, Any]) -> dict[str, Any]:
-    """保存语义方案标签"""
-    zone_id = args["zoneId"]
-    tag = args["tag"]
-    plan_type = args["planType"]
-    content = args["content"]
-
-    body = {
-        "zoneId": zone_id,
-        "tag": tag,
-        "planType": plan_type,
-        "content": content
-    }
-    if args.get("referenceAnalysisTag"):
-        body["referenceAnalysisTag"] = args["referenceAnalysisTag"]
-    if args.get("variantId"):
-        body["variantId"] = args["variantId"]
-
-    try:
-        async with aiohttp.ClientSession() as session:
-            async with session.post(
-                f"{SERVER_URL}/api/semantic-plan/save",
-                json=body
-            ) as resp:
-                if resp.status == 200:
-                    data = await resp.json()
-                    ref_tag = data.get("referenceAnalysisTag")
-                    suffix = f"（reference={ref_tag}）" if ref_tag else ""
-                    return {
-                        "content": [{
-                            "type": "text",
-                            "text": f"语义方案 {plan_type} {tag} 已保存{suffix}。继续下一阶段。"
-                        }]
-                    }
-                else:
-                    error_text = await resp.text()
-                    return {
-                        "content": [{"type": "text", "text": f"保存失败: {error_text}"}],
-                        "is_error": True
-                    }
-    except aiohttp.ClientError as e:
-        return {
-            "content": [{"type": "text", "text": f"无法连接 Server: {str(e)}"}],
-            "is_error": True
-        }
-
-
-@tool(
-    "load_semantic_plan",
-    "加载当前设计区的生效语义方案。返回当前可施工图纸，而不是完整历史。"
-    "传 variantId 时返回 merge view（canonical 的 spatial-skeleton + 变体的 strategic-plan/construction-brief entries）。",
-    {
-        "$schema": "http://json-schema.org/draft-07/schema#",
-        "type": "object",
-        "properties": {
-            "zoneId": {
-                "type": "string",
-                "description": "目标 Zone ID，如 'rz_3'"
-            },
-            "variantId": {
-                "type": "string",
-                "description": "可选。非空时返回 merge view（canonical 的 spatial-skeleton + 变体的 strategic-plan/construction-brief entries）；effectiveTag 落在变体的合同上。"
-                               "Phase 1 暂无调用方需要传入；预留给后续 multi-plan / variant-design-agent。"
-            }
-        },
-        "required": ["zoneId"],
-        "additionalProperties": False
-    }
-)
-async def load_semantic_plan(args: dict[str, Any]) -> dict[str, Any]:
-    """加载语义方案当前生效版本"""
-    zone_id = args["zoneId"]
-    variant_id = args.get("variantId")
-    params = {"variantId": variant_id} if variant_id else None
-
-    try:
-        async with aiohttp.ClientSession() as session:
-            async with session.get(
-                f"{SERVER_URL}/api/semantic-plan/{zone_id}",
-                params=params
-            ) as resp:
-                if resp.status == 200:
-                    data = await resp.json()
-
-                    text_parts = [
-                        f"status: {data['status']}",
-                        f"zoneId: {data['zoneId']}",
-                        f"planType: {data['planType']}",
-                        f"effectiveTag: {data['effectiveTag']}",
-                        f"timestamp: {data['timestamp']}"
-                    ]
-
-                    if data.get("referenceAnalysisTag"):
-                        text_parts.append(
-                            f"referenceAnalysisTag: {data['referenceAnalysisTag']}"
-                        )
-
-                    text_parts.append(f"\n{data['content']}")
-                    text = "\n".join(text_parts)
-
-                    return {
-                        "content": [{
-                            "type": "text",
-                            "text": text
-                        }],
-                        "structuredContent": data
-                    }
-
-                if resp.status in (400, 404, 409):
-                    data = await resp.json()
-                    message = data.get("message", "加载语义方案失败")
-                    return {
-                        "content": [{"type": "text", "text": message}],
-                        "structuredContent": data,
-                        "is_error": True
-                    }
-
-                error_text = await resp.text()
-                return {
-                    "content": [{"type": "text", "text": f"加载失败: {error_text}"}],
-                    "is_error": True
-                }
-    except aiohttp.ClientError as e:
-        return {
-            "content": [{"type": "text", "text": f"无法连接 Server: {str(e)}"}],
-            "is_error": True
-        }
-
-
-@tool(
-    "load_reference_analysis",
-    "加载当前设计区的参考分析。默认返回最新标签；可选 tag 参数读取指定标签。",
-    {
-        "$schema": "http://json-schema.org/draft-07/schema#",
-        "type": "object",
-        "properties": {
-            "zoneId": {
-                "type": "string",
-                "description": "目标 Zone ID，如 'rz_3'"
-            },
-            "tag": {
-                "type": "string",
-                "description": "可选。指定参考分析标签，如 'v1'；不传则返回最新标签。"
-            }
-        },
-        "required": ["zoneId"],
-        "additionalProperties": False
-    }
-)
-async def load_reference_analysis(args: dict[str, Any]) -> dict[str, Any]:
-    """加载参考分析标签"""
-    zone_id = args["zoneId"]
-    tag = args.get("tag")
-
-    try:
-        async with aiohttp.ClientSession() as session:
-            async with session.get(
-                f"{SERVER_URL}/api/semantic-plan/{zone_id}/reference-analysis",
-                params={"tag": tag} if tag else None
-            ) as resp:
-                if resp.status == 200:
-                    data = await resp.json()
-                    text_parts = [
-                        f"status: {data['status']}",
-                        f"zoneId: {data['zoneId']}",
-                        f"tag: {data['tag']}",
-                        f"sourceImageId: {data.get('sourceImageId', '')}",
-                        f"timestamp: {data['timestamp']}",
-                        "",
-                        data["content"]
-                    ]
-                    return {
-                        "content": [{
-                            "type": "text",
-                            "text": "\n".join(text_parts)
-                        }],
-                        "structuredContent": data
-                    }
-
-                if resp.status in (400, 404):
-                    data = await resp.json()
-                    message = data.get("message", "加载参考分析失败")
-                    return {
-                        "content": [{"type": "text", "text": message}],
-                        "structuredContent": data,
-                        "is_error": True
-                    }
-
-                error_text = await resp.text()
-                return {
-                    "content": [{"type": "text", "text": f"加载失败: {error_text}"}],
-                    "is_error": True
-                }
-    except aiohttp.ClientError as e:
-        return {
-            "content": [{"type": "text", "text": f"无法连接 Server: {str(e)}"}],
-            "is_error": True
-        }
-
-
-@tool(
-    "save_reference_analysis",
-    "保存完整参考分析快照。在参考图分析各阶段完成后调用，提交当前标签的完整 Markdown 分析内容。",
-    {
-        "$schema": "http://json-schema.org/draft-07/schema#",
-        "type": "object",
-        "properties": {
-            "zoneId": {
-                "type": "string",
-                "description": "目标 Zone ID，如 'rz_3'"
-            },
-            "sourceImageId": {
-                "type": "string",
-                "description": "参考图附件 ID（可选）"
-            },
-            "content": {
-                "type": "string",
-                "description": "参考分析内容（Markdown 格式），必须是当前阶段的完整、自包含快照"
-            }
-        },
-        "required": ["zoneId", "content"],
-        "additionalProperties": False
-    }
-)
-async def save_reference_analysis(args: dict[str, Any]) -> dict[str, Any]:
-    """保存参考分析结果"""
-    zone_id = args["zoneId"]
-    content = args["content"]
-
-    body = {
-        "zoneId": zone_id,
-        "sourceImageId": args.get("sourceImageId", ""),
-        "content": content
-    }
-
-    try:
-        async with aiohttp.ClientSession() as session:
-            async with session.post(
-                f"{SERVER_URL}/api/semantic-plan/save-reference-analysis",
-                json=body
-            ) as resp:
-                if resp.status == 200:
-                    data = await resp.json()
-                    tag_text = data.get("tag", "N/A")
-                    return {
-                        "content": [{
-                            "type": "text",
-                            "text": f"参考分析结果已保存为 {tag_text}。"
-                        }],
-                        "structuredContent": data
-                    }
-                else:
-                    error_text = await resp.text()
-                    return {
-                        "content": [{"type": "text", "text": f"保存失败: {error_text}"}],
-                        "is_error": True
-                    }
-    except aiohttp.ClientError as e:
-        return {
-            "content": [{"type": "text", "text": f"无法连接 Server: {str(e)}"}],
-            "is_error": True
-        }
-
-
-@tool(
     "analyze_image",
-    "按需调用的识图工具。reference_layout 仅限 generate-reference-analysis Stage A，用于参考图分析 + 设计链路。"
-    "custom 仅限已对同一图片调用 Read，且出现 image result suppressed 后仍无法看图时兜底。"
-    "chat/query/edit、普通看图、风格参考、free mode planning 不要调用。",
+    "通用图像分析工具(generic)。调用方负责提供 task 文本(描述本次识图目标);"
+    "domain plugin 通常通过 Read 读自己的 prompt 文件后传入。"
+    "适用场景:Read 看图失败后兜底,或 domain Skill 需要按特定 prompt 分析图像。"
+    "不要在 chat / query / edit / 普通看图 / 风格参考 / free mode planning 调用。",
     {
         "$schema": "http://json-schema.org/draft-07/schema#",
         "type": "object",
@@ -1326,17 +1021,14 @@ async def save_reference_analysis(args: dict[str, Any]) -> dict[str, Any]:
                 "type": "string",
                 "description": "Image base64 or data URL; provide exactly one of attachmentId/path/base64",
             },
-            "analysisMode": {
-                "type": "string",
-                "enum": ["custom", "reference_layout"],
-                "description": "识图模式。默认 custom；reference_layout 只允许在 generate-reference-analysis Stage A 中使用；custom 只允许在 Read 同一图片失败后兜底使用",
-            },
             "task": {
                 "type": "string",
-                "description": "自定义识图目标。analysisMode=custom 时必填且仅用于 Read 看图失败后的兜底识图；reference_layout 时禁止传入",
+                "description": "识图任务描述。可以是简短的目标(如'统计带文字注释的家具'),"
+                               "也可以是 domain plugin 通过 Read 读到的完整 prompt 文本(如 indoor-layout 的 reference_analysis_prompt_v1.md)。"
+                               "安全外壳由后端固定,调用方不需要写防护语句。",
             },
         },
-        "required": ["projectPath"],
+        "required": ["projectPath", "task"],
         "additionalProperties": False,
     },
 )
@@ -1345,7 +1037,6 @@ async def analyze_image(args: dict[str, Any]) -> dict[str, Any]:
     attachment_id = str(args.get("attachmentId") or "").strip()
     image_path = str(args.get("path") or "").strip()
     image_base64 = str(args.get("base64") or "").strip()
-    analysis_mode = str(args.get("analysisMode") or "custom").strip().lower()
     task = str(args.get("task") or "").strip()
 
     if not project_path:
@@ -1354,28 +1045,16 @@ async def analyze_image(args: dict[str, Any]) -> dict[str, Any]:
             "is_error": True,
         }
 
+    if not task:
+        return {
+            "content": [{"type": "text", "text": "error: task is required"}],
+            "is_error": True,
+        }
+
     source_count = sum(1 for value in (attachment_id, image_path, image_base64) if value)
     if source_count != 1:
         return {
             "content": [{"type": "text", "text": "error: provide exactly one of attachmentId/path/base64"}],
-            "is_error": True,
-        }
-
-    if analysis_mode not in {"custom", "reference_layout"}:
-        return {
-            "content": [{"type": "text", "text": "error: invalid analysisMode"}],
-            "is_error": True,
-        }
-
-    if analysis_mode == "custom" and not task:
-        return {
-            "content": [{"type": "text", "text": "error: task is required when analysisMode=custom"}],
-            "is_error": True,
-        }
-
-    if analysis_mode == "reference_layout" and task:
-        return {
-            "content": [{"type": "text", "text": "error: task is not allowed when analysisMode=reference_layout"}],
             "is_error": True,
         }
 
@@ -1428,20 +1107,17 @@ async def analyze_image(args: dict[str, Any]) -> dict[str, Any]:
         config = load_chatgpt_backend_config()
     except ReferenceAnalysisError as exc:
         return {
-            "content": [{"type": "text", "text": f"reference_analysis_config_missing: {exc.message}"}],
+            "content": [{"type": "text", "text": f"image_analysis_config_missing: {exc.message}"}],
             "is_error": True,
         }
 
-    if analysis_mode == "reference_layout":
-        prompt_text = load_reference_analysis_prompt()
-    else:
-        try:
-            prompt_text = build_custom_image_analysis_prompt(task)
-        except ValueError as exc:
-            return {
-                "content": [{"type": "text", "text": f"error: {exc}"}],
-                "is_error": True,
-            }
+    try:
+        prompt_text = build_custom_image_analysis_prompt(task)
+    except ValueError as exc:
+        return {
+            "content": [{"type": "text", "text": f"error: {exc}"}],
+            "is_error": True,
+        }
 
     client = ReferenceAnalysisClient(config)
     try:
@@ -1457,14 +1133,14 @@ async def analyze_image(args: dict[str, Any]) -> dict[str, Any]:
         }
     except Exception as exc:  # pragma: no cover
         return {
-            "content": [{"type": "text", "text": f"reference_analysis_unexpected: {exc}"}],
+            "content": [{"type": "text", "text": f"image_analysis_unexpected: {exc}"}],
             "is_error": True,
         }
 
     raw_text = result.raw_text or ""
     if not raw_text:
         return {
-            "content": [{"type": "text", "text": "reference_analysis_empty: model returned no text (response_id=" + result.response_id + ")"}],
+            "content": [{"type": "text", "text": "image_analysis_empty: model returned no text (response_id=" + result.response_id + ")"}],
             "is_error": True,
         }
 
@@ -1475,11 +1151,7 @@ async def analyze_image(args: dict[str, Any]) -> dict[str, Any]:
             "model": result.model,
             "sourceKind": source_kind,
             "sourceId": source_id,
-            "analysisMode": analysis_mode,
-            **({"task": task} if analysis_mode == "custom" else {}),
-            "sectionA": result.section_a if analysis_mode == "reference_layout" else None,
-            "sectionB": result.section_b if analysis_mode == "reference_layout" else None,
-            "sectionC": result.section_c if analysis_mode == "reference_layout" else None,
+            "task": task,
             "rawText": raw_text,
         },
     }
@@ -1559,108 +1231,3 @@ async def save_modules(args: dict[str, Any]) -> dict[str, Any]:
             "is_error": True
         }
 
-
-@tool(
-    "clone_scheme_to_variant",
-    "克隆设计区方案（canonical 或某变体）到一个或多个新变体目录。"
-    "**仅 module-relocation-agent 使用**——variant-design-agent / generate-placement 等其他 SubAgent 禁止调用。"
-    "用途：relocation 工作流的入口，先 clone 出隔离的变体目录（含 semantic_plan + 全部叶子 modules.json），再在变体目录内局部修改。",
-    {
-        "$schema": "http://json-schema.org/draft-07/schema#",
-        "type": "object",
-        "properties": {
-            "designZoneId": {
-                "type": "string",
-                "description": "设计区 ID，如 'rz_3'。"
-            },
-            "sourceVariant": {
-                "type": "string",
-                "description": "源变体；'canonical' 或省略表示从 canonical 克隆；也可填某个已存在 slug 实现链式克隆。"
-            },
-            "newVariantSlugs": {
-                "type": "array",
-                "items": {"type": "string"},
-                "description": "要创建的新变体 slug 列表（[a-zA-Z0-9_-]，单次请求批量原子创建）。"
-            },
-            "overwrite": {
-                "type": "boolean",
-                "description": "默认 false；为 true 时已存在的同名 slug 会被覆盖。"
-            }
-        },
-        "required": ["designZoneId", "newVariantSlugs"],
-        "additionalProperties": False
-    }
-)
-async def clone_scheme_to_variant(args: dict[str, Any]) -> dict[str, Any]:
-    """克隆 canonical / variant 整目录到新变体目录"""
-    design_zone_id = args["designZoneId"]
-    new_variant_slugs = args["newVariantSlugs"]
-    source_variant = args.get("sourceVariant")
-    overwrite = args.get("overwrite", False)
-
-    body: dict[str, Any] = {
-        "designZoneId": design_zone_id,
-        "newVariantSlugs": new_variant_slugs,
-        "overwrite": overwrite,
-    }
-    if source_variant:
-        body["sourceVariant"] = source_variant
-
-    try:
-        async with aiohttp.ClientSession() as session:
-            async with session.post(
-                f"{SERVER_URL}/api/scheme/variant/clone",
-                json=body
-            ) as resp:
-                text = await resp.text()
-                if resp.status == 200:
-                    return {
-                        "content": [{"type": "text", "text": text}]
-                    }
-                else:
-                    return {
-                        "content": [{"type": "text", "text": f"克隆失败: HTTP {resp.status} {text}"}],
-                        "is_error": True
-                    }
-    except aiohttp.ClientError as e:
-        return {
-            "content": [{"type": "text", "text": f"无法连接 Server: {str(e)}"}],
-            "is_error": True
-        }
-
-
-# 创建 Canvas MCP Server
-canvas_mcp = create_sdk_mcp_server(
-    name="canvas",
-    version="1.0.0",
-    tools=[
-        # ai_job_create,          # 临时禁用：Worktree 隔离环境（暂不需要）
-        # ai_job_complete,        # 临时禁用：Job 完成通知（暂不需要）
-        request_background_screenshot,
-        validate_layout,
-        get_zone_boundaries,
-        save_semantic_plan,  # 语义方案提交（turn 边界）
-        load_semantic_plan,  # 加载当前生效图纸
-        load_reference_analysis,  # 加载参考分析（planning 输入）
-        save_reference_analysis,  # 新增：保存参考分析结果
-        save_modules,  # Phase 0b: modules.json wrapper 写入
-        clone_scheme_to_variant,  # 组 C: relocation 工作流入口（仅 module-relocation-agent）
-        analyze_image,  # 通用大模型图像理解
-    ],
-)
-
-# 预批准工具列表
-CANVAS_ALLOWED_TOOLS = [
-    # "mcp__canvas__create_job",                      # 临时禁用
-    # "mcp__canvas__complete_job",                     # 临时禁用
-    "mcp__canvas__request_background_screenshot",
-    "mcp__canvas__validate_layout",
-    "mcp__canvas__get_zone_boundaries",
-    "mcp__canvas__save_semantic_plan",
-    "mcp__canvas__load_semantic_plan",
-    "mcp__canvas__load_reference_analysis",
-    "mcp__canvas__save_reference_analysis",
-    "mcp__canvas__save_modules",
-    "mcp__canvas__clone_scheme_to_variant",
-    "mcp__canvas__analyze_image",
-]

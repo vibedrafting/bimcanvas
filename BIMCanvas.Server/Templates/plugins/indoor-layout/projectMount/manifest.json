@@ -2,20 +2,6 @@
   "version": "1.0",
   "items": [
     {
-      "name": "README.md",
-      "target": "README.md",
-      "type": "template",
-      "enabled": true,
-      "description": "项目说明文档（支持占位符替换）"
-    },
-    {
-      "name": ".gitignore",
-      "target": ".gitignore",
-      "type": "template",
-      "enabled": true,
-      "description": "Git 忽略规则（项目级）"
-    },
-    {
       "name": "modules",
       "target": "modules",
       "type": "directory",
@@ -30,42 +16,42 @@
       "description": "项目级运行时参考规则目录"
     },
     {
-      "name": "reference-templates/design_principles.md",
+      "name": "references/design_principles.md",
       "target": "references/design_principles.md",
       "type": "template",
       "enabled": true,
       "description": "项目级：通用设计原则"
     },
     {
-      "name": "reference-templates/design_evaluation.md",
+      "name": "references/design_evaluation.md",
       "target": "references/design_evaluation.md",
       "type": "template",
       "enabled": true,
       "description": "项目级：设计评价框架"
     },
     {
-      "name": "reference-templates/bedroom.md",
+      "name": "references/bedroom.md",
       "target": "references/bedroom.md",
       "type": "template",
       "enabled": true,
       "description": "项目级：卧室策略"
     },
     {
-      "name": "reference-templates/bathroom.md",
+      "name": "references/bathroom.md",
       "target": "references/bathroom.md",
       "type": "template",
       "enabled": true,
       "description": "项目级：卫生间策略"
     },
     {
-      "name": "reference-templates/livingroom.md",
+      "name": "references/livingroom.md",
       "target": "references/livingroom.md",
       "type": "template",
       "enabled": true,
       "description": "项目级：客餐厅策略"
     },
     {
-      "name": "reference-templates/optional-furniture-rules.md",
+      "name": "references/optional-furniture-rules.md",
       "target": "references/optional-furniture-rules.md",
       "type": "template",
       "enabled": true,

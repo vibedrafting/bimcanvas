@@ -45,6 +45,7 @@ namespace BIMCanvas.Server.Services
         private readonly ProjectFixedFilesBootstrapService _projectFixedFilesBootstrapService;
 #pragma warning restore IDE0052, CS0414
         private readonly ProjectDerivedBootstrapService _projectDerivedBootstrapService;
+        private readonly BootstrapTemplateService _bootstrapTemplateService;
         private readonly JsonSerializerSettings _jsonSettings;
 
         /// <summary>
@@ -57,11 +58,13 @@ namespace BIMCanvas.Server.Services
         public ProjectService(
             ILogger<ProjectService> logger,
             ProjectFixedFilesBootstrapService projectFixedFilesBootstrapService,
-            ProjectDerivedBootstrapService projectDerivedBootstrapService)
+            ProjectDerivedBootstrapService projectDerivedBootstrapService,
+            BootstrapTemplateService bootstrapTemplateService)
         {
             _logger = logger;
             _projectFixedFilesBootstrapService = projectFixedFilesBootstrapService;
             _projectDerivedBootstrapService = projectDerivedBootstrapService;
+            _bootstrapTemplateService = bootstrapTemplateService;
             _jsonSettings = new JsonSerializerSettings
             {
                 ContractResolver = new CamelCasePropertyNamesContractResolver(),
@@ -107,6 +110,10 @@ namespace BIMCanvas.Server.Services
             // v1.1 §4.9 R10 缓解 (用户决策"字面严格执行"):删除 EnsureInitialized 在 open / 解压时的调用。
             // 项目级模板物化改为 bind-time 由 ProjectFixedFilesBootstrapService.MountSceneScaffold 触发,
             // 唯一入口在 POST /api/project/scenes 端点内。
+
+            // 组5 §5.A.7:平台级 baseline (README.md / .gitignore) 拷贝。
+            // 与 plugin 系统解耦,任何 .bcp 项目都该有;幂等(已存在跳过),不违反 R10。
+            _bootstrapTemplateService.EnsurePlatformBaseline(projectPath);
 
             // 2. 补齐条件派生产物（baseline/schemes/computed/zones/git 等）
             var bootstrapResult = _projectDerivedBootstrapService.EnsureInitialized(

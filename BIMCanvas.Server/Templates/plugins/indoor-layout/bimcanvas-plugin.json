@@ -1,0 +1,39 @@
+{
+  "$schema": "../../../../docs/plugin-manifest-schema.json",
+  "name": "indoor-layout",
+  "version": "1.0.0",
+  "type": "bimcanvas-plugin",
+  "schemaVersion": 1,
+  "compatibility": {
+    "bimcanvas": "^1.0.0"
+  },
+  "displayName": "室内布置设计",
+  "description": "BIMCanvas 室内家具布置 domain plugin：reference-analysis / planning / placement / zoning 全工作流 + 6 份 reference 设计规则 + module_library 决策规则",
+  "systemPrompt": "BIMCANVAS.md",
+  "agents": "agents/",
+  "skills": "skills/",
+  "mcpTools": "mcp_tools/canvas_indoor_layout.py",
+  "mcpNamespace": "indoor-layout",
+  "projectMount": {
+    "manifest": "projectMount/manifest.json"
+  },
+  "requires": {
+    "platformTools": [
+      "mcp__canvas__validate_layout",
+      "mcp__canvas__get_zone_boundaries",
+      "mcp__canvas__save_modules",
+      "mcp__canvas__analyze_image",
+      "mcp__canvas__request_background_screenshot",
+      "mcp__canvas__list_project_scenes",
+      "mcp__canvas__load_scene_artifact"
+    ]
+  },
+  "referenceStability": "semver-tracked",
+  "maturity": "beta",
+  "defaultSceneIdPattern": "interior-layout-{n}",
+  "web": {
+    "displayName": "室内布置",
+    "icon": "🛋️",
+    "category": "residential"
+  }
+}

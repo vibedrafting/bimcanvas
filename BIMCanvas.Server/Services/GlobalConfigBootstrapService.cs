@@ -34,10 +34,18 @@ namespace BIMCanvas.Server.Services
         {
             var configDir = ConfigService.GetConfigDir();
 
+            // 1. 平台级配置(server/* + agent/config.json)
             _templateService.EnsureInitializedFromManifest(
                 ManifestRelativePath,
                 configDir);
 
+            // 2. 组5 §5.A.6:首启动 bootstrap core-base plugin 到 BIMCANVAS_HOME/plugins/core-base/
+            // 提供通用 BIM 助手 prompt + query / edit 工作流 Skills;Agent 启动时无 active plugin
+            // 也会以 core-base 为默认 prompt 基线。
+            var coreBaseTarget = Path.Combine(configDir, "plugins", "core-base");
+            _templateService.EnsurePluginInitialized("core-base", coreBaseTarget);
+
+            // 3. 清理 M1 / 之前的过期 skill 目录(向后兼容)
             RemoveObsoleteEmptySkillDirectories(configDir);
             RemoveObsoleteSkillReferenceDirectories(configDir);
         }

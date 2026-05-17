@@ -20,7 +20,7 @@ from typing_extensions import TypedDict
 from ..config.configured_agents import parse_configured_agent_requirements
 from ..config.loader import AgentConfig
 from ..config.settings import get_settings
-from ..mcp.canvas import CANVAS_ALLOWED_TOOLS
+from ..mcp.canvas_core import CORE_ALLOWED_TOOLS as CANVAS_ALLOWED_TOOLS
 from ..runtime import (
     ConfigBundle,
     PendingInteractionRuntimeBinding,
@@ -1292,7 +1292,14 @@ class OpenAIAgent:
 
     async def _invoke_canvas_tool_impl(self, tool_name: str, args: dict[str, Any]) -> Any:
         canvas_module = importlib.import_module("..mcp.canvas", package=__package__)
-        impl = getattr(canvas_module, tool_name)
+        impl = getattr(canvas_module, tool_name, None)
+        if impl is None:
+            # 组5 §5.A.3 后, indoor-layout 专属 5 个工具 (save/load_semantic_plan、
+            # save/load_reference_analysis、clone_scheme_to_variant) 已物理迁出到
+            # plugin。OpenAI Runtime 当前 (Phase 1) 是硬编码工具列表的兼容性占位,
+            # 不支持 plugin 动态加载 (主真理源 §6.3 Phase 2+ 才适配)。
+            # 此处 graceful 降级:工具缺失时返回提示而非 AttributeError 崩溃。
+            return f"工具 mcp__canvas__{tool_name} 未在 OpenAI Runtime 路径注册。该工具可能已迁出到 plugin (如 indoor-layout),OpenAI Runtime 的 plugin 支持留待 Phase 2;请使用 Claude Runtime 调用此工具。"
         # canvas 工具被 claude_agent_sdk 的 @tool(...) 装饰后，module 顶层绑定的是
         # SdkMcpTool dataclass 实例（无 __call__），原始 async handler 在 .handler 属性上。
         # 见 claude_agent_sdk/__init__.py:130。Claude Runtime 走 MCP server 自动解包；

@@ -78,7 +78,7 @@ description: |
 - `computed/exclusions.json`
 - `mcp__canvas__request_background_screenshot`
 - `mcp__canvas__get_zone_boundaries`
-- `mcp__canvas__analyze_image`（仅本 Skill 的 Stage A 可用，必须显式使用 `analysisMode: "reference_layout"` 获取 A/B/C 原始素材）
+- `mcp__canvas__analyze_image`（仅本 Skill 的 Stage A 可用，必须先 `Read` 本 plugin 提供的 prompt 文件 `${BIMCANVAS_HOME}/plugins/indoor-layout/mcp_tools/lib/reference_prompts/reference_analysis_prompt_v1.md`，再把整文件文本作为 `task` 参数传入；不允许用临时 prompt / generic task 描述）
 - `mcp__canvas__load_reference_analysis`（仅当用户要求修订既有分析时）
 - `modules/module_library.json` 的契约层字段（如尺寸、标签、限制）
 
@@ -153,17 +153,29 @@ description: |
 
 **目标**：只回答”参考布局本身是什么”。
 
-**【必须】** v1 阶段先调用 `mcp__canvas__analyze_image({projectPath, attachmentId, analysisMode: "reference_layout"})` 拿到 A/B/C 原始素材，再用自然语言按下方推荐结构的四类内容整理。若工具返回 `is_error`，在 v1 的「当前不确定点」记录降级原因，再改用纯视觉观察完成 v1（不阻塞流程）。
+**【必须】** v1 阶段调用 `mcp__canvas__analyze_image` 前，**先 `Read` 本 plugin 提供的参考分析 prompt 文件**：
 
-**【必须】** 若本轮消息上下文包含「本轮聊天附件」清单，直接使用其中的 `projectPath` 与 `attachmentId` 调用 `mcp__canvas__analyze_image`，并显式传入 `analysisMode: "reference_layout"`；不要再用 `Glob` / `Read` 搜索 `_chat_attachments.json` 来查找附件 ID。
+```
+${BIMCANVAS_HOME}/plugins/indoor-layout/mcp_tools/lib/reference_prompts/reference_analysis_prompt_v1.md
+```
 
-**【必须】** `analysisMode: "reference_layout"` 只服务当前“参考图分析 + 设计”工作流，用于形成正式 `reference_analysis` 后进入 constrained planning；不得在普通看图、query/edit、风格灵感参考、free mode planning 或临时图片理解中调用。
+把整文件读到的 markdown 文本作为 `task` 参数传入：
 
-**【提示】** `mcp__canvas__analyze_image` 默认是 `custom` 自定义识图模式，但 custom 不是常规看图入口；只有已经对同一图片路径调用 `Read`，且日志出现类似 `image result suppressed (bytes≈..., chars=...)` 后仍无法直接加载图片（如判断为 `The image couldn't be loaded from that path`）时，才允许作为兜底视觉澄清工具调用。图片已在消息视觉上下文中可见，或 `Read` 能直接查看图片时，禁止调用 custom。Stage A 固定参考图布局分析必须使用 `analysisMode: "reference_layout"`，不得用 custom 模式绕过 `v1/v2/v3` 版本流程。
+```
+mcp__canvas__analyze_image({projectPath, attachmentId, task: <prompt-text>})
+```
+
+工具会返回按 A/B/C 三段结构组织的原始素材（由 prompt 内的输出格式约束）。再用自然语言按下方推荐结构的四类内容整理。若工具返回 `is_error`，在 v1 的「当前不确定点」记录降级原因，再改用纯视觉观察完成 v1（不阻塞流程）。
+
+**【必须】** 若本轮消息上下文包含「本轮聊天附件」清单，直接使用其中的 `projectPath` 与 `attachmentId` 调用 `mcp__canvas__analyze_image`；不要再用 `Glob` / `Read` 搜索 `_chat_attachments.json` 来查找附件 ID。
+
+**【必须】** 该 prompt 文件只服务当前“参考图分析 + 设计”工作流，用于形成正式 `reference_analysis` 后进入 constrained planning；不得在普通看图、query/edit、风格灵感参考、free mode planning 或临时图片理解中复用该 prompt 文件。
+
+**【提示】** `mcp__canvas__analyze_image` 是 generic 图像分析工具，`task` 参数决定分析方向。在本 Stage A 之外的场景（普通看图、风格参考等），优先使用 `Read` 工具直接看图；只有已经对同一图片路径调用 `Read`，且日志出现类似 `image result suppressed (bytes≈..., chars=...)` 后仍无法直接加载图片（如判断为 `The image couldn't be loaded from that path`）时，才允许用 `mcp__canvas__analyze_image` + 简短自定义 `task` 作为兜底视觉澄清工具调用。图片已在消息视觉上下文中可见，或 `Read` 能直接查看图片时，禁止调用 `mcp__canvas__analyze_image` 做普通看图。Stage A 固定参考图布局分析必须使用本 plugin 提供的 `reference_analysis_prompt_v1.md`，不得用临时自定义 task 绕过 `v1/v2/v3` 版本流程。
 
 **这一步允许看什么**：
 - 参考图本身
-- `mcp__canvas__analyze_image`（使用 `analysisMode: "reference_layout"` 获取 A/B/C 原始素材）
+- `mcp__canvas__analyze_image`（task 参数 = `reference_analysis_prompt_v1.md` 整文件内容，获取 A/B/C 原始素材）
 
 **这一步不要做什么**：
 - 不讨论当前项目能不能照搬

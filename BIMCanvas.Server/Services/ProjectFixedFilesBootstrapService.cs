@@ -38,41 +38,45 @@ namespace BIMCanvas.Server.Services
         }
 
         /// <summary>
-        /// [已废弃 v1.1 §4.9] 旧"项目固定模板补齐"入口。
+        /// [已废弃 v1.1 §4.9 + 组5 §5.A.5] 旧"项目固定模板补齐"入口。
         /// 改造后:open / 解压 / 显式调用全链路均不再调本方法 (R10);
-        /// 保留 internal 仅供向后兼容 + 单测复现,生产代码不应再调用。
+        /// 组5 §5.A.5 删除了源 <c>Templates/project-fixed/</c> 目录:
+        /// - README.md / .gitignore 迁到 <c>Templates/platform-config/project-baseline/</c>(由 ProjectService.LoadProject 调 BootstrapTemplateService.EnsurePlatformBaseline 物化)
+        /// - modules/ + reference-templates/ 迁到 <c>Templates/plugins/indoor-layout/projectMount/</c>(bind scene 时由 MountSceneScaffold 物化)
+        ///
+        /// 本方法保留仅为不破坏 DI 注册签名;调用时 manifest 已不存在,会优雅降级 no-op 并记日志。
         /// </summary>
-        [Obsolete("v1.1 §4.9:打开 / 解压时不再补模板 (R10 缓解)。新代码用 MountSceneScaffold(projectPath, sceneId, pluginId)。")]
+        [Obsolete("v1.1 §4.9 + 组5 §5.A.5:Templates/project-fixed/ 已迁出删除。新代码用 MountSceneScaffold(projectPath, sceneId, pluginId) + ProjectService.LoadProject 内部 baseline 拷贝。")]
         internal void EnsureInitialized(string projectPath)
         {
             if (string.IsNullOrWhiteSpace(projectPath))
                 throw new ArgumentException("项目路径不能为空。", nameof(projectPath));
 
-            var projectName = Path.GetFileName(Path.GetFullPath(projectPath));
-            var replacements = new Dictionary<string, string>(StringComparer.Ordinal)
-            {
-                ["{PROJECT_NAME}"] = projectName,
-                ["{EXPORT_DATE}"] = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss"),
-                ["{PROJECT_FOLDER}"] = projectName
-            };
-
-            _templateService.EnsureInitializedFromManifest(
-                ManifestRelativePath,
-                projectPath,
-                replacements);
+            // 组5 §5.A.5:Templates/project-fixed/ 已删除,manifest 不再存在;
+            // 任何意外调用本 obsolete 方法,优雅降级为 no-op + 警告日志。
+            _logger.LogWarning(
+                "EnsureInitialized 已废弃(Templates/project-fixed/ 已删除);no-op。" +
+                "如需 plugin projectMount 物化,走 POST /api/project/scenes → MountSceneScaffold。 projectPath={Path}",
+                projectPath);
         }
 
         /// <summary>
         /// bind-time 把 plugin 的 <c>projectMount/</c> 物化到项目侧 sceneId 命名空间
-        /// (主真理源 §3.9 + §4.2 + 模板 §4.9)。
+        /// (主真理源 §3.9 + §4.2 / 组5 §5.B.2 真物化)。
         /// <para>
         /// <b>唯一调用入口</b>:<c>POST /api/project/scenes</c> 端点 (主真理源 §4.8)。
         /// 任何其他调用都违反 R10。
         /// </para>
         /// <para>
-        /// M1 实现简化:不解析 plugin projectMount/manifest.json,直接递归复制全部内容到
-        /// <see cref="PluginPaths.SceneScaffoldRoot"/> 占位路径 <c>_pluginMount/{sceneId}/</c>;
-        /// M2 改 sceneId 真路径时只改 SceneScaffoldRoot 常量,API 已 plugin-aware。
+        /// <b>M2 真实路径(组5 §5.B.2)</b>:按 plugin projectMount/ 内的子目录类型分别物化:
+        /// <list type="bullet">
+        /// <item><c>plugin/projectMount/references/*</c> → <c>{projectPath}/references/{sceneId}/*</c></item>
+        /// <item><c>plugin/projectMount/modules/*</c> → <c>{projectPath}/modules/{sceneId}/*</c></item>
+        /// <item>其他子目录(plugin 自定义,无 references / modules 语义)→ <c>{projectPath}/_pluginMount/{sceneId}/&lt;子目录&gt;</c> 兜底</item>
+        /// </list>
+        /// </para>
+        /// <para>
+        /// <b>幂等性</b>:三个目标路径有任一已存在时跳过整体物化(保护用户已有数据,符合 R10 不变量)。
         /// </para>
         /// </summary>
         public void MountSceneScaffold(string projectPath, string sceneId, string pluginId)
@@ -93,19 +97,67 @@ namespace BIMCanvas.Server.Services
                 return;
             }
 
-            var target = PluginPaths.SceneScaffoldRoot(projectPath, sceneId);
-            if (Directory.Exists(target))
+            var referencesTarget = PluginPaths.SceneReferencesRoot(projectPath, sceneId);
+            var modulesTarget = PluginPaths.SceneModulesRoot(projectPath, sceneId);
+            var otherMountTarget = PluginPaths.SceneOtherMountRoot(projectPath, sceneId);
+
+            // 幂等检查:三个目标任一已存在则跳过(避免覆盖用户已有数据,R10 不变量)
+            if (Directory.Exists(referencesTarget) || Directory.Exists(modulesTarget) || Directory.Exists(otherMountTarget))
             {
                 _logger.LogInformation(
-                    "sceneId 命名空间已存在,跳过物化 (幂等): {Target}", target);
+                    "sceneId='{Scene}' 命名空间已存在(references/modules/_pluginMount 任一),跳过物化 (幂等)",
+                    sceneId);
                 return;
             }
 
-            Directory.CreateDirectory(target);
-            CopyDirectoryRecursive(pluginMountSource, target);
-            _logger.LogInformation(
-                "plugin '{Plugin}' projectMount 已物化到 sceneId={Scene} → {Target}",
-                pluginId, sceneId, target);
+            bool didMount = false;
+
+            // references/* → {projectPath}/references/{sceneId}/*
+            var pluginReferences = Path.Combine(pluginMountSource, "references");
+            if (Directory.Exists(pluginReferences))
+            {
+                Directory.CreateDirectory(referencesTarget);
+                CopyDirectoryRecursive(pluginReferences, referencesTarget);
+                didMount = true;
+                _logger.LogInformation(
+                    "plugin '{Plugin}' references → {Target}", pluginId, referencesTarget);
+            }
+
+            // modules/* → {projectPath}/modules/{sceneId}/*
+            var pluginModules = Path.Combine(pluginMountSource, "modules");
+            if (Directory.Exists(pluginModules))
+            {
+                Directory.CreateDirectory(modulesTarget);
+                CopyDirectoryRecursive(pluginModules, modulesTarget);
+                didMount = true;
+                _logger.LogInformation(
+                    "plugin '{Plugin}' modules → {Target}", pluginId, modulesTarget);
+            }
+
+            // 其他子目录(非 references / modules / manifest.json)→ _pluginMount/{sceneId}/<sub>/
+            foreach (var subDir in Directory.GetDirectories(pluginMountSource))
+            {
+                var subName = Path.GetFileName(subDir);
+                if (subName.Equals("references", StringComparison.OrdinalIgnoreCase) ||
+                    subName.Equals("modules", StringComparison.OrdinalIgnoreCase))
+                {
+                    continue; // 已分别物化
+                }
+                Directory.CreateDirectory(otherMountTarget);
+                var subTarget = Path.Combine(otherMountTarget, subName);
+                Directory.CreateDirectory(subTarget);
+                CopyDirectoryRecursive(subDir, subTarget);
+                didMount = true;
+                _logger.LogInformation(
+                    "plugin '{Plugin}' 自定义子目录 {Sub} → {Target}", pluginId, subName, subTarget);
+            }
+
+            if (!didMount)
+            {
+                _logger.LogInformation(
+                    "plugin '{Plugin}' projectMount 为空(无 references / modules / 其他子目录),sceneId={Scene} 无物化内容",
+                    pluginId, sceneId);
+            }
         }
 
         private static void CopyDirectoryRecursive(string source, string target)
