@@ -7,6 +7,8 @@ import os
 import re
 from typing import Any, AsyncIterator
 
+import aiohttp
+
 from claude_agent_sdk import (
     ClaudeSDKClient,
     ClaudeAgentOptions,
@@ -89,6 +91,11 @@ class MainAgent:
         self._connected = False
         self._lock = asyncio.Lock()
 
+        # 组3: long-lived aiohttp.ClientSession,供 PluginContext / load_scene_artifact 共享。
+        # 在首次 _require_bundle (fallback 路径) 时 lazy 创建;disconnect 时关闭。
+        # 注:host 外部通过 configure(bundle) 注入 bundle 时,session 生命周期由 host 自管。
+        self._owned_session: aiohttp.ClientSession | None = None
+
         # State tracking for logging
         self._in_thinking = False
         self._in_response = False
@@ -170,7 +177,10 @@ class MainAgent:
 
     def _require_bundle(self) -> ConfigBundle:
         if self._bundle is None:
-            self.configure(build_config_bundle())
+            # 组3: lazy 创建 long-lived aiohttp session,供 load_scene_artifact / plugin 工具共享
+            if self._owned_session is None:
+                self._owned_session = aiohttp.ClientSession()
+            self.configure(build_config_bundle(session=self._owned_session))
         assert self._bundle is not None
         return self._bundle
 
@@ -547,6 +557,16 @@ class MainAgent:
                     self._connected = False
                     self._client = None
                     logger.info(f"MainAgent disconnected for project: {self.project_path}")
+
+            # 组3: 关闭 long-lived aiohttp session (R4 缓解,防 plugin 工具用的 session 泄漏)
+            if self._owned_session is not None and not self._owned_session.closed:
+                try:
+                    await self._owned_session.close()
+                    logger.info("MainAgent owned aiohttp.ClientSession closed")
+                except Exception as e:
+                    logger.warning(f"aiohttp session close error: {e}")
+                finally:
+                    self._owned_session = None
 
     async def _force_kill_subprocess(self) -> None:
         """强制杀掉 claude.exe 子进程（disconnect 失败时的 fallback）"""
