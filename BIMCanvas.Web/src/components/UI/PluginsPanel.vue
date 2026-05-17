@@ -10,7 +10,7 @@
  *   - trustState=trusted + active   → 显示 [已激活] 徽章,无操作
  *   - 所有状态                       → 显示 [卸载] 按钮 (二次确认)
  */
-import { onMounted, ref, computed } from 'vue';
+import { onMounted, ref, computed, nextTick } from 'vue';
 import GlassButton from './base/GlassButton.vue';
 import InstallPluginDialog from './dialogs/InstallPluginDialog.vue';
 import TrustAndActivateDialog from './dialogs/TrustAndActivateDialog.vue';
@@ -22,6 +22,9 @@ const emit = defineEmits<{
 }>();
 
 const store = usePluginStore();
+
+// Teleport 目标 (#plugins-header-actions) 在 HomePage 模板内, 必须等其挂载完成才可注入
+const isMounted = ref(false);
 
 // ─── Dialog 状态 ────────────────────────────────────────────────────
 
@@ -98,32 +101,18 @@ const onUninstallConfirm = async () => {
   await store.uninstall(id);
 };
 
-onMounted(() => {
+onMounted(async () => {
+  await nextTick();
+  isMounted.value = true;
   store.fetchAll();
 });
 </script>
 
 <template>
   <div class="plugins-panel">
-    <!-- 顶部:标题 + 操作 -->
-    <header class="panel-header">
-      <div class="panel-header-left">
-        <button class="back-button" type="button" @click="emit('close')" title="返回">
-          <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2">
-            <path d="M15 18l-6-6 6-6" />
-          </svg>
-        </button>
-        <div class="panel-title">
-          <h2>插件管理</h2>
-          <span class="subtitle">
-            <template v-if="store.activePluginId">
-              当前激活: <code>{{ store.activePluginId }}</code>
-            </template>
-            <template v-else>未激活任何 plugin</template>
-          </span>
-        </div>
-      </div>
-      <div class="panel-header-right">
+    <!-- 操作按钮 Teleport 到 HomePage 顶栏右侧 (与 HomeSettingsPanel 一致) -->
+    <Teleport to="#plugins-header-actions" v-if="isMounted">
+      <div class="teleported-actions">
         <GlassButton variant="ghost" @click="store.fetchAll()" :disabled="store.loading" title="刷新列表">
           <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" :class="{ spinning: store.loading }">
             <polyline points="23 4 23 10 17 10" />
@@ -139,7 +128,7 @@ onMounted(() => {
           安装新插件
         </GlassButton>
       </div>
-    </header>
+    </Teleport>
 
     <!-- 重启 banner -->
     <div v-if="store.restartRequired" class="restart-banner">
@@ -309,55 +298,8 @@ onMounted(() => {
   width: 100%;
 }
 
-/* Header */
-.panel-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 0 8px 12px;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
-}
-
-.panel-header-left {
-  display: flex;
-  align-items: center;
-  gap: 14px;
-}
-
-.back-button {
-  width: 36px;
-  height: 36px;
-  border-radius: 50%;
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  background: rgba(255, 255, 255, 0.04);
-  color: var(--text-primary);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  cursor: pointer;
-}
-
-.back-button:hover {
-  background: rgba(255, 255, 255, 0.08);
-}
-
-.panel-title h2 {
-  margin: 0;
-  font-size: 1.1rem;
-  font-weight: 600;
-}
-
-.subtitle {
-  font-size: 12px;
-  color: var(--text-secondary);
-}
-
-.subtitle code {
-  font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
-  color: var(--text-primary);
-}
-
-.panel-header-right {
+/* Teleported actions: 注入到 HomePage 顶栏 #plugins-header-actions, 与 HomeSettingsPanel 风格一致 */
+.teleported-actions {
   display: flex;
   align-items: center;
   gap: 8px;

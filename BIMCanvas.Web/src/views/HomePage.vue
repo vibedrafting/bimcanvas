@@ -254,6 +254,7 @@ onMounted(() => {
             <span class="settings-subtitle">安装 / 信任 / 激活 / 卸载 BIMCanvas plugin</span>
           </div>
         </div>
+        <div id="plugins-header-actions" class="settings-header-actions"></div>
       </template>
     </header>
 
