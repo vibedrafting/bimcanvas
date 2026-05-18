@@ -2,7 +2,7 @@
 
 组3 改造 (主真理源 v1.1 §3.4 + 组3 任务模板 §4.3):
 - ConfigBundle 新增 launch_context / active_plugin_* / mcp_servers_spec / diagnostics 字段
-- _build_skill_index 支持 active plugin 覆盖 (overrides.skills)
+- _build_skill_index 支持 active plugin 同名覆盖 (v3.7 silent override + logger.info 记录)
 - 新增 _build_mcp_servers:始终注册 core "canvas" server,active plugin 加载失败时
   diagnostics 追加 + 该 plugin disable,不影响 core (V11 T3)
 - 新增 to_snapshot_dict:Golden Snapshot 测试用
@@ -162,20 +162,19 @@ def _scan_skill_dir(
 def _build_skill_index(
     config_root: Path,
     active_plugin_root: Path | None = None,
-    declared_overrides: list[str] | tuple[str, ...] = (),
 ) -> tuple[dict[str, Path], dict[str, SkillMeta], list[str]]:
     """构建 skill 索引,合并 base + active plugin 两层。
+
+    v3.7 silent override:plugin skill 与 base 同名时默认覆盖 base 同名,不再要求
+    manifest 显式声明 overrides。覆盖决定通过 logger.info + diagnostics 双重记录,
+    供 Server 日志审计 + Web settings 展示 + plugin 作者调试。
 
     Args:
         config_root: BIMCANVAS_HOME / core-base skill 根
         active_plugin_root: active plugin 物理目录;None 时只扫 base
-        declared_overrides: active plugin manifest.overrides.skills 字段值
 
     Returns:
         (skill_index, skill_metas, diagnostics)
-
-    Raises:
-        OverrideNotDeclaredError: plugin skill 与 base 同名但 manifest 未声明 overrides
     """
     skill_index: dict[str, Path] = {}
     skill_metas: dict[str, SkillMeta] = {}
@@ -188,17 +187,9 @@ def _build_skill_index(
     if active_plugin_root is not None:
         plugin_skills_dir = active_plugin_root / "skills"
         if plugin_skills_dir.is_dir():
-            overrides_set = frozenset(declared_overrides or ())
             for entry in sorted(plugin_skills_dir.iterdir(), key=lambda i: i.name.lower()):
                 if not entry.is_dir():
                     continue
-                if entry.name in base_names and entry.name not in overrides_set:
-                    from bimcanvas_plugin_sdk import OverrideNotDeclaredError
-
-                    raise OverrideNotDeclaredError(
-                        f"plugin skill '{entry.name}' (来自 {active_plugin_root.name}) "
-                        f"与 base 同名,但 manifest.overrides.skills 未声明该名字。"
-                    )
                 skill_path = (entry / "SKILL.md").resolve()
                 if not skill_path.is_file():
                     diagnostics.append(f"plugin skill 缺少 SKILL.md: {skill_path}")
@@ -211,9 +202,12 @@ def _build_skill_index(
                     path=skill_path,
                 )
                 if entry.name in base_names:
-                    diagnostics.append(
-                        f"plugin skill '{entry.name}' 覆盖 base 同名 skill (overrides 已声明)"
+                    msg = (
+                        f"plugin skill '{entry.name}' (来自 {active_plugin_root.name}) "
+                        f"覆盖 core-base 同名 skill"
                     )
+                    logger.info(msg)
+                    diagnostics.append(msg)
 
     return skill_index, skill_metas, diagnostics
 
@@ -350,18 +344,16 @@ def build_config_bundle(
     (
         active_plugin_root,
         plugin_manifest,
-        overrides_agents,
-        overrides_skills,
     ) = loader.resolve_active_plugin(launch_context)
 
     system_prompt = loader.load_system_prompt(active_plugin_root)
     shared_agents = dict(
-        loader.load_agents(active_plugin_root, overrides_agents)
+        loader.load_agents(active_plugin_root)
     )
 
     # 主真理源 v1.2 §3.5 折中方案:core-base skills 在新布局下从 plugins/core-base/skills/ 读
     skill_index, skill_metas, skill_diag = _build_skill_index(
-        loader._resolve_core_base_root(), active_plugin_root, overrides_skills
+        loader._resolve_core_base_root(), active_plugin_root
     )
 
     mcp_servers, mcp_tool_names, mcp_diag = _build_mcp_servers(

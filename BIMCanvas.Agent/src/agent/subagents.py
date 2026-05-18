@@ -46,9 +46,10 @@ def create_subagents(
     """
     把 AgentConfig 字典转为 SDK AgentDefinition 字典 (主真理源 v1.1 §3.6)。
 
-    输入 agents_config 已经由 ConfigLoader.load_agents 完成 base + active plugin 合并,
-    且对同名冲突在 loader 层做了 overrides 强制声明检查 (抛 OverrideNotDeclaredError),
-    本函数不再区分 agent 来源,只做格式转换 + runtime appendix 注入。
+    输入 agents_config 已经由 ConfigLoader.load_agents 完成 base + active plugin 合并;
+    v3.7 silent override 改造后,同名 agent 由 plugin 那一份默认覆盖 base 同名(loader.py 内
+    logger.info 记录覆盖决定,不再抛错),本函数不区分 agent 来源,只做格式转换 + runtime
+    appendix 注入。
 
     配置文件位置:
     - core-base / 旧布局 base: <BIMCANVAS_HOME>/agents/*.md

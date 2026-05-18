@@ -25,7 +25,6 @@ from .builder import McpServerBuilder
 from .context import PluginContext
 from .exceptions import (
     LaunchContextError,
-    OverrideNotDeclaredError,
     PluginManifestError,
     PluginRegisterError,
 )
@@ -33,7 +32,6 @@ from .exceptions import (
 __all__ = [
     "McpServerBuilder",
     "PluginContext",
-    "OverrideNotDeclaredError",
     "LaunchContextError",
     "PluginManifestError",
     "PluginRegisterError",

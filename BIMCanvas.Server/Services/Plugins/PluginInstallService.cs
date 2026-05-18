@@ -97,10 +97,6 @@ public sealed class PluginInstallService
             var validatorContext = new ValidatorContext
             {
                 AlreadyInstalled = alreadyInstalled,
-                // M0 占位:core-base agents/skills 列表待 §4.10 Templates 重组完成后从
-                // plugins/core-base/{.claude-plugin,agents/,skills/} 动态读取
-                CoreBaseAgents = Array.Empty<string>(),
-                CoreBaseSkills = Array.Empty<string>(),
             };
             var manifest = _validator.Validate(stagingPath, validatorContext);
 

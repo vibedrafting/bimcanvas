@@ -308,7 +308,6 @@ public sealed class PluginsController : ControllerBase
             PathEscapeException => 400,
             DirectoryNotPureException => 400,
             NamespaceConflictException => 409,
-            OverridesDeclarationException => 400,
             PluginCloneFailedException => 502,
             PluginProbeFailedException => 422,
             _ => 400,
@@ -318,7 +317,6 @@ public sealed class PluginsController : ControllerBase
         {
             SchemaValidationException s => new ErrorResponse(s.Code, s.Message) { Details = s.Errors.Cast<object>().ToList() },
             DirectoryNotPureException d => new ErrorResponse(d.Code, d.Message) { Details = d.ForbiddenHits.Cast<object>().ToList() },
-            OverridesDeclarationException o => new ErrorResponse(o.Code, o.Message) { Details = o.MissingTargets.Cast<object>().ToList() },
             _ => new ErrorResponse(ex.Code, ex.Message),
         };
         return StatusCode(status, payload);

@@ -18,12 +18,13 @@ namespace BIMCanvas.Server.Services.PluginSecurity;
 /// <see cref="ExecutablePluginProbe"/>。
 /// </para>
 /// <para>
-/// 校验项 (§3.12 a-e):
+/// 校验项 (§3.12 a-d):
 /// (a) JSONSchema 校验 <c>bimcanvas-plugin.json</c>
 /// (b) 目录纯净检查 (拒绝 CLAUDE.md / settings.local.json / .claude/ / .bimcanvas/)
 /// (c) mcpTools 路径不能 ".." 逃逸 plugin root
 /// (d) mcpNamespace 唯一性 (与已 installed plugin 比对) + 非 "canvas" + 格式合法
-/// (e) overrides.agents / overrides.skills 显式声明合法性
+/// (v3.7 移除 overrides 显式声明校验:plugin 同名 agent/skill 默认覆盖 core-base,
+/// 覆盖决定由 Agent 端 loader.py 用 logger.info 记录,详见主真理源 §3.6 v3.7 修订)
 /// </para>
 /// </summary>
 public sealed class StaticPluginValidator
@@ -45,7 +46,7 @@ public sealed class StaticPluginValidator
     /// (调用方后续要计算 manifestChecksum 等)。
     /// </summary>
     /// <param name="pluginRoot">plugin 根目录绝对路径 (staging 或已安装目录)</param>
-    /// <param name="context">已安装 plugin 与 core-base 上下文 (mcpNamespace 唯一性 + overrides 校验用)</param>
+    /// <param name="context">已安装 plugin 上下文 (mcpNamespace 唯一性校验用)</param>
     public JObject Validate(string pluginRoot, ValidatorContext context)
     {
         if (string.IsNullOrWhiteSpace(pluginRoot))
@@ -122,31 +123,7 @@ public sealed class StaticPluginValidator
                 throw new NamespaceConflictException(ns, $"已安装 plugin '{installed.PluginId}'");
         }
 
-        // (e) overrides 合法性
-        var overrides = manifest["overrides"] as JObject;
-        if (overrides is not null)
-        {
-            var missing = new List<string>();
-            CheckOverrides(overrides, "agents", context.CoreBaseAgents, missing);
-            CheckOverrides(overrides, "skills", context.CoreBaseSkills, missing);
-            if (missing.Count > 0)
-                throw new OverridesDeclarationException(missing);
-        }
-
         return manifest;
-    }
-
-    private static void CheckOverrides(JObject overrides, string key, IReadOnlyList<string> coreList, List<string> missing)
-    {
-        var arr = overrides[key] as JArray;
-        if (arr is null) return;
-        foreach (var token in arr)
-        {
-            var name = token.Value<string>();
-            if (string.IsNullOrEmpty(name)) continue;
-            if (!coreList.Any(c => string.Equals(c, name, StringComparison.OrdinalIgnoreCase)))
-                missing.Add($"{key}/{name}");
-        }
     }
 }
 
@@ -158,12 +135,6 @@ public sealed class ValidatorContext
 {
     /// <summary>已 installed plugin 的 (pluginId, mcpNamespace) 摘要,用于 namespace 唯一性。</summary>
     public IReadOnlyList<InstalledNamespaceInfo> AlreadyInstalled { get; init; } = Array.Empty<InstalledNamespaceInfo>();
-
-    /// <summary>core-base SubAgent 文件名清单 (不含 .md),用于 overrides.agents 校验。M0 占位 = 空数组。</summary>
-    public IReadOnlyList<string> CoreBaseAgents { get; init; } = Array.Empty<string>();
-
-    /// <summary>core-base Skill 目录名清单,用于 overrides.skills 校验。M0 占位 = 空数组。</summary>
-    public IReadOnlyList<string> CoreBaseSkills { get; init; } = Array.Empty<string>();
 
     public static ValidatorContext Empty { get; } = new();
 }

@@ -183,25 +183,6 @@
       "type": "string",
       "minLength": 1,
       "description": "新建 scene 时的 sceneId 默认 pattern,如 \"interior-layout-{n}\" / \"electrical-points-{n}\";{n} 由 Server 在 POST /api/project/{id}/scenes 内推断递增。用户可手改,但需匹配 ^[a-z0-9-]+$ 且项目内唯一 (主真理源 §3.9)。"
-    },
-    "overrides": {
-      "type": "object",
-      "additionalProperties": false,
-      "description": "Plugin 显式声明对 core-base 同名 SubAgent / Skill 的覆盖。未声明时 loader.py 检测到同名会报错 (主真理源 §3.6)。",
-      "properties": {
-        "agents": {
-          "type": "array",
-          "items": { "type": "string", "minLength": 1 },
-          "uniqueItems": true,
-          "description": "覆盖 core-base 的 SubAgent 文件名 (不含 .md 后缀),如 [\"layout-agent\"]。"
-        },
-        "skills": {
-          "type": "array",
-          "items": { "type": "string", "minLength": 1 },
-          "uniqueItems": true,
-          "description": "覆盖 core-base 的 Skill 目录名,如 [\"generate-planning\"]。"
-        }
-      }
     }
   }
 }

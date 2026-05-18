@@ -3,13 +3,6 @@
 from __future__ import annotations
 
 
-class OverrideNotDeclaredError(Exception):
-    """active plugin agent / skill 与 core-base 同名,但 manifest 未声明 overrides。
-
-    抛出位置:loader.load_agents / _build_skill_index 检测到同名冲突时。
-    """
-
-
 class LaunchContextError(Exception):
     """PluginLaunchContext 注入文件解析失败或字段不合法。"""
 

@@ -82,21 +82,6 @@ public sealed class NamespaceConflictException : PluginException
 }
 
 /// <summary>
-/// overrides 声明的同名条目在 core-base + 待 install plugin 中找不到 (§3.12 e)。
-/// </summary>
-public sealed class OverridesDeclarationException : PluginException
-{
-    public override string Code => "overrides_invalid";
-    public IReadOnlyList<string> MissingTargets { get; }
-
-    public OverridesDeclarationException(IReadOnlyList<string> missingTargets)
-        : base($"overrides 声明的条目缺失被覆盖目标: {string.Join(", ", missingTargets)}")
-    {
-        MissingTargets = missingTargets;
-    }
-}
-
-/// <summary>
 /// git clone 失败 (网络 / 认证 / repo 不存在等)。
 /// </summary>
 public sealed class PluginCloneFailedException : PluginException
