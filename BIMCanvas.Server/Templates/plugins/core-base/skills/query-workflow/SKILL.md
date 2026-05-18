@@ -1,8 +1,10 @@
 ---
 name: query-workflow
 description: |
-  BIMCanvas 查询/统计任务工作流（通用版）。
+  BIMCanvas 查询/统计任务工作流（plugin-agnostic 通用版）。
   当用户需要"统计"、"查看"、"列出"、"有多少"、"当前状态"等只读操作时使用此工作流。
+  本工作流不依赖任何 domain 知识，适用于所有 BIMCanvas plugin 场景；
+  domain plugin 可在自己的 SKILL 中扩展更强的领域 query（如带语义聚合）。
 allowed-tools: Read, Glob, Grep
 ---
 

@@ -180,16 +180,15 @@ class ConfigLoader:
     def _validate_bootstrap_layout(self) -> None:
         """校验 BIMCANVAS_HOME 是否已由 Server 初始化完成。
 
-        主真理源 v1.2 §3.5 折中方案 + 组5 §5.A.6 Templates 重组:
+        v3.6 两层 prompt 架构 + 组5 §5.A.6 Templates 重组:
         - config.json 在 BIMCANVAS_HOME 根目录 (平台级 Agent runtime 配置)
-        - PLATFORM_CONTRACT.md 在 BIMCANVAS_HOME 根目录 (平台契约铁律)
-        - BIMCANVAS.md / .claude-plugin / skills 在 core-base 资源根
-          (新布局 plugins/core-base/,旧布局回退根目录)
+        - BIMCANVAS.md / .claude-plugin / skills 在 core-base 资源根 (即平台基座 prompt)
+        - 原 PLATFORM_CONTRACT.md 内容已并入 core-base/BIMCANVAS.md, 不再单独校验
+          (归档参考: .dev/docs/Platform_Contract_Reference.md)
         """
         # 1. 必须始终在 BIMCANVAS_HOME 根目录的平台级文件
         root_required = [
             ("config.json", "file"),
-            ("PLATFORM_CONTRACT.md", "file"),
         ]
         # 2. core-base 资源 (新布局优先,旧布局回退)
         core_base_root = self._resolve_core_base_root()
@@ -251,38 +250,37 @@ class ConfigLoader:
         return self._config
 
     def load_system_prompt(self, active_plugin_root: Path | None = None) -> str:
-        """加载系统提示词:PLATFORM_CONTRACT + active plugin 替换式拼接 (主真理源 v1.2 §3.5)。
+        """加载系统提示词:core-base 永远在场 + active domain plugin 叠加 (v3.6 两层架构)。
 
-        折中方案语义:
-        - PLATFORM_CONTRACT.md (~35 行平台铁律) 始终在 prompt 顶部,plugin 不能覆盖
-        - active plugin 的 BIMCANVAS.md **完全替换** core-base (不再叠加 core-base 100+ 行)
-        - 未指定 active_plugin_root 时,core-base 作为默认 active plugin (Projectless 模式
-          或没装 domain plugin 时的兜底)
+        叠加语义:
+        - core-base/BIMCANVAS.md 作为平台基座 prompt **永远在场**,含平台铁律 + 通用角色 +
+          chat/query/edit 通用路由(原 PLATFORM_CONTRACT.md 内容已并入此文件 §2)
+        - active_plugin_root 为 None 或显式传入 core-base 自身时,只返回基座 prompt (防 self-stack)
+        - 装了 domain plugin (如 indoor-layout) 时, 在基座 prompt 后追加 plugin 的 BIMCANVAS.md
+          (业务路由扩展 + workflow 调度), 中间用 markdown 分节符 + plugin id 边界标识
 
         Args:
-            active_plugin_root: active plugin 物理目录;None 时使用 core-base 作为默认 active plugin
+            active_plugin_root: active domain plugin 物理目录;None 表示无 domain plugin
 
         Returns:
-            完整系统提示词:`PLATFORM_CONTRACT + 边界 + active plugin BIMCANVAS.md`
+            完整系统提示词:基座单层, 或 `基座 + 边界 + plugin` 双层
         """
-        # 1. 读 PLATFORM_CONTRACT.md (永远在场,不可被 plugin 覆盖)
-        contract_path = self.config_dir / "PLATFORM_CONTRACT.md"
-        if not contract_path.is_file():
+        # 1. core-base/BIMCANVAS.md 必存 (平台基座, 缺失即配置损坏)
+        core_base_root = self._resolve_core_base_root()
+        core_base_path = core_base_root / "BIMCANVAS.md"
+        if not core_base_path.is_file():
             raise FileNotFoundError(
-                f"平台契约文件缺失: {contract_path}。"
+                f"core-base/BIMCANVAS.md 是平台基座 prompt, 不可缺失: {core_base_path}。"
                 " 请先启动 BIMCanvas.Server 完成 <BIMCANVAS_HOME> 初始化。"
             )
-        with open(contract_path, 'r', encoding='utf-8-sig') as f:
-            contract = f.read()
+        with open(core_base_path, 'r', encoding='utf-8-sig') as f:
+            core_base_prompt = f.read()
 
-        # 2. 决定 active plugin (None → core-base 作为默认)
-        if active_plugin_root is None:
-            active_plugin_root = self._resolve_core_base_root()
-            plugin_id = "core-base"
-        else:
-            plugin_id = active_plugin_root.name
+        # 2. 无 plugin 或显式传 core-base 自身 → 单层返回 (防 self-stack)
+        if active_plugin_root is None or active_plugin_root.resolve() == core_base_root.resolve():
+            return core_base_prompt
 
-        # 3. 读 active plugin BIMCANVAS.md
+        # 3. 装了 domain plugin → 叠加
         active_prompt_path = active_plugin_root / "BIMCANVAS.md"
         if not active_prompt_path.is_file():
             raise FileNotFoundError(
@@ -291,10 +289,10 @@ class ConfigLoader:
         with open(active_prompt_path, 'r', encoding='utf-8-sig') as f:
             active_prompt = f.read()
 
-        # 4. 拼接:PLATFORM_CONTRACT + 边界 + active plugin
+        plugin_id = active_plugin_root.name
         return (
-            f"{contract}\n\n"
-            f"---\n## Active Plugin Contract: {plugin_id}\n---\n\n"
+            f"{core_base_prompt}\n\n"
+            f"---\n## Domain Plugin Layer · {plugin_id}\n---\n\n"
             f"{active_prompt}"
         )
 

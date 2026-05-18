@@ -10,7 +10,7 @@ allowed-tools: Read, Write, Edit, Glob, Grep, mcp__canvas__validate_layout, mcp_
 # Edit 工作流（机械版）
 
 > 本工作流只做"机械"动作：把现有模块移到指定位置、删除、旋转固定角度。
-> **不做尺寸推理、不读 reference 设计规则、不基于 module_library 决策**——这些能力由 domain plugin（如 indoor-layout）提供。
+> **不做尺寸推理、不读 reference 设计规则、不基于 module_library 决策**——这些能力由 domain plugin 提供（如室内布置类 plugin）。
 
 **触发条件**：关键词"移动 / 删除 / 旋转 / 移到 / 改到"。
 
@@ -57,9 +57,9 @@ core-base 的 edit 工作流**依赖用户提供明确的目标位置**:
 - ✓ 精确坐标差（"向东移动 500mm"）
 
 若用户输入模糊（"调整一下" / "看起来不舒服" / "优化布局"）：
-- 不要在 core-base 凭直觉决策——这超出本 plugin 范围
-- 应通过 `AskUserQuestion` 请用户给出明确目标位置
-- 或提示用户"如需基于设计规则做布局决策，请激活 domain plugin（如 indoor-layout）"
+- 不要凭直觉决策——本简化版工作流不持有任何 domain 设计规则
+- 通过 `AskUserQuestion` 请用户给出明确目标位置（ID / 坐标 / 偏移量）
+- 若用户意图本身需要"设计判断"（如优化、推荐），把指令交回主控由 active domain plugin 处理；无 plugin 时主控会引导用户安装对应领域 plugin
 
 ---
 

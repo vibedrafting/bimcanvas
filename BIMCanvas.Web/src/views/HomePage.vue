@@ -52,8 +52,18 @@ const {
   showConflictDialog,
   conflictProjectName,
   conflictExistingPath,
-  fileAccept
+  fileAccept,
+  pendingHealthCheck,
+  continueLoadAfterHealthCheck,
+  abortLoadAfterHealthCheck
 } = useProjectFile();
+
+const onImportHealthProceed = async () => {
+  await continueLoadAfterHealthCheck();
+};
+const onImportHealthAbort = () => {
+  abortLoadAfterHealthCheck();
+};
 
 // ============================================================
 // 核心：监听 canvasStore.projectData 变化
@@ -448,6 +458,17 @@ onMounted(() => {
       :project-name="repairTargetProject.name"
       :folder-path="repairTargetProject.folderPath"
       @closed="onRepairClosed"
+    />
+
+    <!-- 导入 .bcp 时的健康检查（无问题自动放行，问题 > 0 时提供 修复 / 跳过 / 取消） -->
+    <RepairDialog
+      v-if="pendingHealthCheck"
+      mode="import"
+      :visible="true"
+      :project-name="pendingHealthCheck.projectName"
+      :folder-path="pendingHealthCheck.projectPath"
+      @proceed="onImportHealthProceed"
+      @abort="onImportHealthAbort"
     />
   </div>
 </template>

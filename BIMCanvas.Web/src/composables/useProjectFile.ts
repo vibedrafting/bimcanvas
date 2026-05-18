@@ -2,7 +2,7 @@ import { ref } from 'vue';
 import { ChangeSource } from '../types/history';
 import { useCanvasStore } from '../stores/canvasStore';
 import { useAppStore } from '../stores/appStore';
-import { ProjectService } from '../services/ProjectService';
+import { ProjectService, type ProjectLoadResult } from '../services/ProjectService';
 import { getWebRuntime } from '../runtime/runtimeRegistry';
 import { supports } from '../runtime/WebRuntimeProtocol';
 
@@ -11,6 +11,15 @@ const showConflictDialog = ref(false);
 const conflictProjectName = ref('');
 const conflictExistingPath = ref('');
 const pendingFile = ref<File | null>(null);
+
+// 导入流程的健康检查挂起状态：Server 已接收 .bcp，但还没 loadInitialProject —
+// 等 RepairDialog (mode=import) 给出 proceed / abort 决策后才继续
+interface PendingHealthCheck {
+    projectPath: string;
+    projectName: string;
+    source: ChangeSource;
+}
+const pendingHealthCheck = ref<PendingHealthCheck | null>(null);
 
 export function useProjectFile() {
   const store = useCanvasStore();
@@ -29,6 +38,44 @@ export function useProjectFile() {
         description: 'BIMCanvas Project',
         accept: { 'application/octet-stream': ['.bcp'] }
       };
+
+  const completeLoad = async (source: ChangeSource) => {
+    const loaded = await store.loadInitialProject(source);
+    if (loaded) {
+      appStore.applyPendingProjectWarning();
+    } else {
+      appStore.clearPendingProjectWarnings();
+    }
+  };
+
+  // 上传/冲突解决成功后挂起，让 RepairDialog (mode=import) 决定 proceed/abort。
+  // 返回 true 表示已挂起、调用方应立即 return；返回 false 表示没有 projectPath，按原流程继续。
+  const suspendForHealthCheck = async (
+    result: ProjectLoadResult,
+    file: File | null,
+    source: ChangeSource
+  ): Promise<boolean> => {
+    if (!result.projectPath) return false;
+    const fallbackName = file ? file.name.replace(/\.bcp$/i, '') : '';
+    pendingHealthCheck.value = {
+      projectPath: result.projectPath,
+      projectName: result.projectName || fallbackName || '未命名项目',
+      source
+    };
+    return true;
+  };
+
+  const continueLoadAfterHealthCheck = async () => {
+    const pending = pendingHealthCheck.value;
+    if (!pending) return;
+    pendingHealthCheck.value = null;
+    await completeLoad(pending.source);
+  };
+
+  const abortLoadAfterHealthCheck = () => {
+    pendingHealthCheck.value = null;
+    appStore.clearPendingProjectWarnings();
+  };
 
   // Load Data: Connected 读 .bcp，Standalone 读 Snapshot JSON。
   const handleLoad = async () => {
@@ -89,13 +136,8 @@ export function useProjectFile() {
       showConflictDialog.value = true;
     } else if (result.status === 'Success') {
       appStore.stageProjectWarnings(result.warnings);
-      // Reload project data
-      const loaded = await store.loadInitialProject(ChangeSource.UserUpload);
-      if (loaded) {
-        appStore.applyPendingProjectWarning();
-      } else {
-        appStore.clearPendingProjectWarnings();
-      }
+      if (await suspendForHealthCheck(result, file, ChangeSource.UserUpload)) return;
+      await completeLoad(ChangeSource.UserUpload);
     } else {
       appStore.clearPendingProjectWarnings();
       alert(`Failed to open project: ${result.message}`);
@@ -121,12 +163,8 @@ export function useProjectFile() {
 
       if (result.status === 'Success') {
         appStore.stageProjectWarnings(result.warnings);
-        const loaded = await store.loadInitialProject(ChangeSource.SystemRestore);
-        if (loaded) {
-          appStore.applyPendingProjectWarning();
-        } else {
-          appStore.clearPendingProjectWarnings();
-        }
+        if (await suspendForHealthCheck(result, pendingFile.value, ChangeSource.SystemRestore)) return;
+        await completeLoad(ChangeSource.SystemRestore);
       } else {
         appStore.clearPendingProjectWarnings();
         alert(`Failed to resolve conflict: ${result.message}`);
@@ -222,6 +260,9 @@ export function useProjectFile() {
     conflictProjectName,
     conflictExistingPath,
     fileAccept,
-    canExportBcp
+    canExportBcp,
+    pendingHealthCheck,
+    continueLoadAfterHealthCheck,
+    abortLoadAfterHealthCheck
   };
 }

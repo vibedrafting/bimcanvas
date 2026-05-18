@@ -1,6 +1,6 @@
 {
   "version": "1.0",
-  "comment": "组5 §5.A.6 修订:agent/BIMCANVAS.md / agents/ / skills/ / .claude-plugin 已迁到 plugins/indoor-layout/(由 core-base 简化骨架替代);本 manifest 只保留平台级配置(server/* + agent/config.json)。agent prompt + SubAgent + Skills 由 EnsurePluginInitialized('core-base') 物化到 BIMCANVAS_HOME/plugins/core-base/。",
+  "comment": "组5 §5.A.6 修订:agent/BIMCANVAS.md / agents/ / skills/ / .claude-plugin 已迁到 plugins/indoor-layout/(由 core-base 简化骨架替代);本 manifest 只保留平台级配置(server/* + agent/config.json)。agent prompt + SubAgent + Skills 由 EnsurePluginInitialized('core-base') 物化到 BIMCANVAS_HOME/plugins/core-base/。v3.6 修订:PLATFORM_CONTRACT.md 内容并入 core-base/BIMCANVAS.md,本 manifest 不再分发该文件(归档参考: .dev/docs/Platform_Contract_Reference.md)。",
   "items": [
     {
       "name": "server/server_config.json",
@@ -29,13 +29,6 @@
       "type": "template",
       "enabled": true,
       "description": "Agent runtime 全局配置（claude / openai providers / permissions / modelMapping）"
-    },
-    {
-      "name": "PLATFORM_CONTRACT.md",
-      "target": "PLATFORM_CONTRACT.md",
-      "type": "template",
-      "enabled": true,
-      "description": "平台契约 — 强制注入到 system prompt 顶部的铁律(主真理源 v1.2 §3.5 折中方案)"
     }
   ]
 }
