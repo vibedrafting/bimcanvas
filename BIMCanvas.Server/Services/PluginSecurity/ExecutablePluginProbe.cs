@@ -31,11 +31,20 @@ namespace BIMCanvas.Server.Services.PluginSecurity;
 public sealed class ExecutablePluginProbe
 {
     private readonly ILogger<ExecutablePluginProbe> _logger;
+    private readonly string _agentProjectPath;
     private static readonly TimeSpan ProcessTimeout = TimeSpan.FromSeconds(30);
 
-    public ExecutablePluginProbe(ILogger<ExecutablePluginProbe> logger)
+    /// <summary>
+    /// SDK 可见性纪律:probe 子进程的 cwd / PYTHONPATH 必须包含 BIMCanvas.Agent 根目录,
+    /// 与 <c>Program.cs:603</c> 的 Agent 主进程启动对称(`WorkingDirectory = agentProjectPath` +
+    /// `python -m src.main`),否则 plugin 的 `from bimcanvas_plugin_sdk import ...` 会
+    /// `ModuleNotFoundError`。若 Phase 2 出现第二个需要拉起 plugin 子进程的场景,
+    /// 再抽 <c>IPluginRuntimeEnvironment</c> 服务统一管理。
+    /// </summary>
+    public ExecutablePluginProbe(ILogger<ExecutablePluginProbe> logger, string agentProjectPath)
     {
         _logger = logger;
+        _agentProjectPath = agentProjectPath;
     }
 
     /// <summary>
@@ -74,6 +83,7 @@ public sealed class ExecutablePluginProbe
             var psi = new ProcessStartInfo
             {
                 FileName = python,
+                WorkingDirectory = _agentProjectPath,
                 RedirectStandardOutput = true,
                 RedirectStandardError = true,
                 UseShellExecute = false,
@@ -86,6 +96,7 @@ public sealed class ExecutablePluginProbe
             psi.ArgumentList.Add(entryAbs);
             psi.ArgumentList.Add(ns);
             psi.EnvironmentVariables["PYTHONIOENCODING"] = "utf-8";
+            psi.EnvironmentVariables["PYTHONPATH"] = _agentProjectPath;
 
             using var process = Process.Start(psi)
                 ?? throw new PluginProbeFailedException("无法启动 python 子进程 (Process.Start 返回 null)");

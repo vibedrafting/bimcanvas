@@ -211,7 +211,9 @@ builder.Services.AddSingleton<ProjectDerivedBootstrapService>();
 
 // v1.1 平台化改造 · 组 2:Plugin 安全 + 生命周期 (主真理源 §3.12 / §3.13 / §4.2)
 builder.Services.AddSingleton<BIMCanvas.Server.Services.PluginSecurity.StaticPluginValidator>();
-builder.Services.AddSingleton<BIMCanvas.Server.Services.PluginSecurity.ExecutablePluginProbe>();
+builder.Services.AddSingleton(sp => new BIMCanvas.Server.Services.PluginSecurity.ExecutablePluginProbe(
+    sp.GetRequiredService<Microsoft.Extensions.Logging.ILogger<BIMCanvas.Server.Services.PluginSecurity.ExecutablePluginProbe>>(),
+    agentProjectPath));
 builder.Services.AddSingleton<BIMCanvas.Server.Services.Plugins.PluginTrustService>();
 builder.Services.AddSingleton<BIMCanvas.Server.Services.Plugins.PluginInstallService>();
 builder.Services.AddSingleton<BIMCanvas.Server.Services.Plugins.PluginLifecycleService>();
