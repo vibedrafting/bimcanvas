@@ -191,7 +191,7 @@ public sealed class PluginLifecycleService
             Formatting = Formatting.Indented,
             ContractResolver = new DefaultContractResolver { NamingStrategy = new CamelCaseNamingStrategy() },
             NullValueHandling = NullValueHandling.Ignore,
-            Converters = { new StringEnumConverter(new CamelCaseNamingStrategy()) },
+            // enum 字符串化由各 enum 类型上的 [JsonConverter] attribute 控制(LaunchMode / TrustMode / SourceKind 已标注)。
         };
         var json = JsonConvert.SerializeObject(context, settings);
         await File.WriteAllTextAsync(path, json, Utf8NoBom, ct);

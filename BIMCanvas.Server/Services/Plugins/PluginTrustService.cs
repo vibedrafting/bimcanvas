@@ -35,7 +35,8 @@ public sealed class PluginTrustService
         Formatting = Formatting.Indented,
         ContractResolver = new DefaultContractResolver { NamingStrategy = new CamelCaseNamingStrategy() },
         NullValueHandling = NullValueHandling.Ignore,
-        Converters = { new StringEnumConverter(new CamelCaseNamingStrategy()) },
+        // enum 字符串化由各 enum 类型上的 [JsonConverter] attribute 控制(TrustState / SourceKind 已标注)。
+        // 不在此处注册全局 StringEnumConverter,避免波及业务 enum(OpeningType/RoomType/ZoneType)。
     };
 
     /// <summary>

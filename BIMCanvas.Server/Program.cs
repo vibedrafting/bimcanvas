@@ -184,15 +184,16 @@ builder.Services.AddSingleton(runtimeEndpointState);
 builder.Services.AddSingleton<AgentClientService>();
 
 // 配置 JSON 序列化选项（本项目统一使用 Newtonsoft.Json，禁止引入 System.Text.Json，见 CLAUDE.md "Newtonsoft.Json 单一序列化栈"）
-// StringEnumConverter + CamelCaseNamingStrategy:所有 enum 序列化为 camelCase 字符串
-// (如 TrustState.Untrusted → "untrusted"),前端字符串比较一致；反序列化默认大小写不敏感,旧 PascalCase 数据兼容。
+// ContractResolver: DefaultContractResolver + CamelCaseNamingStrategy(只转 C# 属性名,不转 Dictionary key)。
+// enum 序列化默认整数;需字符串的 enum(TrustState / SourceKind / LaunchMode 等 plugin enum)
+// 在 enum 类型上显式标 [JsonConverter(typeof(StringEnumConverter), typeof(CamelCaseNamingStrategy))]。
+// **禁止全局 StringEnumConverter** —— 会波及业务 enum(OpeningType/RoomType/ZoneType)
+// 让前端整数比较失败(详见 CLAUDE.md §10)。
 builder.Services.AddControllers()
     .AddNewtonsoftJson(options =>
     {
         options.SerializerSettings.ContractResolver = new DefaultContractResolver { NamingStrategy = new CamelCaseNamingStrategy() };
         options.SerializerSettings.Formatting = Newtonsoft.Json.Formatting.Indented;
-        options.SerializerSettings.Converters.Add(
-            new StringEnumConverter(new CamelCaseNamingStrategy()));
     });
 
 // 注册服务
@@ -652,7 +653,8 @@ Process? ccrProcess = null;
                         Formatting = Newtonsoft.Json.Formatting.Indented,
                         ContractResolver = new DefaultContractResolver { NamingStrategy = new CamelCaseNamingStrategy() },
                         NullValueHandling = NullValueHandling.Include,
-                        Converters = { new StringEnumConverter(new CamelCaseNamingStrategy()) },
+                        // initialContext 内字段(mode/trustMode)已是字符串字面值;
+                        // plugin enum 字符串化由各 enum 类型上 [JsonConverter] attribute 控制。
                     });
                 File.WriteAllText(launchContextPath, ctxJson, Encoding.UTF8);
                 agentProcess.StartInfo.ArgumentList.Add("--launch-context");
