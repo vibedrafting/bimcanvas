@@ -189,7 +189,7 @@ public sealed class PluginLifecycleService
         var settings = new JsonSerializerSettings
         {
             Formatting = Formatting.Indented,
-            ContractResolver = new CamelCasePropertyNamesContractResolver(),
+            ContractResolver = new DefaultContractResolver { NamingStrategy = new CamelCaseNamingStrategy() },
             NullValueHandling = NullValueHandling.Ignore,
             Converters = { new StringEnumConverter(new CamelCaseNamingStrategy()) },
         };

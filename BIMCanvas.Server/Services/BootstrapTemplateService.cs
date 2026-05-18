@@ -10,7 +10,8 @@ namespace BIMCanvas.Server.Services
     /// <summary>
     /// 通用模板初始化服务。
     /// 负责定位 Templates 根目录、读取 manifest，并按“仅缺失时补齐”规则复制模板。
-    /// 序列化栈:Newtonsoft.Json + <see cref="CamelCasePropertyNamesContractResolver"/>(全项目约束,见 CLAUDE.md)。
+    /// 序列化栈:Newtonsoft.Json + <see cref="DefaultContractResolver"/> +
+    /// <see cref="CamelCaseNamingStrategy"/>(只转 C# 属性名,不转 Dictionary key;详见 CLAUDE.md §10)。
     /// </summary>
     public sealed class BootstrapTemplateService
     {
@@ -18,7 +19,7 @@ namespace BIMCanvas.Server.Services
 
         private static readonly JsonSerializerSettings JsonSettings = new()
         {
-            ContractResolver = new CamelCasePropertyNamesContractResolver(),
+            ContractResolver = new DefaultContractResolver { NamingStrategy = new CamelCaseNamingStrategy() },
         };
 
         private readonly string _templatesRoot;

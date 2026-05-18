@@ -52,7 +52,7 @@ namespace BIMCanvas.Server.Services
             _gitService = gitService;
             _jsonSettings = new JsonSerializerSettings
             {
-                ContractResolver = new CamelCasePropertyNamesContractResolver(),
+                ContractResolver = new DefaultContractResolver { NamingStrategy = new CamelCaseNamingStrategy() },
                 Formatting = Formatting.Indented
             };
         }

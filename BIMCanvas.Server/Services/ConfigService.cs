@@ -7,7 +7,8 @@ namespace BIMCanvas.Server.Services;
 /// <summary>
 /// 程序配置服务（BIMCANVAS_HOME）。
 /// 仅负责统一路径解析与配置读写，不负责模板初始化。
-/// 序列化栈:Newtonsoft.Json + <see cref="CamelCasePropertyNamesContractResolver"/>(全项目约束,见 CLAUDE.md)。
+/// 序列化栈:Newtonsoft.Json + <see cref="DefaultContractResolver"/> +
+/// <see cref="CamelCaseNamingStrategy"/>(只转 C# 属性名,不转 Dictionary key;详见 CLAUDE.md §10)。
 /// </summary>
 public static class ConfigService
 {
@@ -22,12 +23,12 @@ public static class ConfigService
 
     private static readonly JsonSerializerSettings ReadSettings = new()
     {
-        ContractResolver = new CamelCasePropertyNamesContractResolver(),
+        ContractResolver = new DefaultContractResolver { NamingStrategy = new CamelCaseNamingStrategy() },
     };
 
     private static readonly JsonSerializerSettings WriteSettings = new()
     {
-        ContractResolver = new CamelCasePropertyNamesContractResolver(),
+        ContractResolver = new DefaultContractResolver { NamingStrategy = new CamelCaseNamingStrategy() },
         Formatting = Formatting.Indented,
     };
 

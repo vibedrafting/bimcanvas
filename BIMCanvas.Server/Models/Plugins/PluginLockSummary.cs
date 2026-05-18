@@ -17,7 +17,7 @@ namespace BIMCanvas.Server.Models.Plugins;
 /// - <c>TrustedAt</c>:首次 [信任并激活] 时刻;Phase 1 trustState 一旦变 trusted 即不可逆。
 /// </para>
 ///
-/// 序列化:Newtonsoft.Json + <c>CamelCasePropertyNamesContractResolver</c>(调用方 settings 配置)。
+/// 序列化:Newtonsoft.Json + <c>DefaultContractResolver + CamelCaseNamingStrategy</c>(调用方 settings 配置;只转属性名,不转 dict key)。
 /// </summary>
 public sealed record PluginLockSummary(
     string PluginId,

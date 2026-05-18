@@ -151,12 +151,21 @@ export class LayerManager {
      * 从外部配置应用预设
      */
     private applyPresetFromConfig(preset: string): void {
-        // 查找配置：优先使用新格式，回退到旧格式
+        // 查找配置:优先大写,回退小写(兼容 commit f89dc51 引入的损坏数据 user/agent 小写 key),
+        // 再回退到旧格式 human/ai。
         let config: LayerPresetConfig | undefined;
+        const presetObj = this.presetConfig as (LayerPresetsConfig & { user?: LayerPresetConfig; agent?: LayerPresetConfig }) | null;
         if (preset === 'User' || preset === 'human') {
-            config = this.presetConfig?.User ?? this.presetConfig?.human;
+            config = presetObj?.User ?? presetObj?.user ?? presetObj?.human;
         } else if (preset === 'Agent' || preset === 'ai') {
-            config = this.presetConfig?.Agent ?? this.presetConfig?.ai;
+            config = presetObj?.Agent ?? presetObj?.agent ?? presetObj?.ai;
+        }
+
+        // 配置缺失或 enabledLayers 为空数组 → 退化到硬编码默认(applyPresetHardcoded 已实现完整启用逻辑)
+        if (!config || !config.enabledLayers || config.enabledLayers.length === 0) {
+            console.log(`[LayerManager] 预设 "${preset}" 配置缺失或为空,退化到硬编码默认`);
+            this.applyPresetHardcoded(preset);
+            return;
         }
 
         // 先禁用所有图层
@@ -173,13 +182,6 @@ export class LayerManager {
         // MODEL 图层强制启用（无论配置如何）
         this.camera.layers.enable(LayerManager.LAYER_MODEL);
         layerStates[LayerManager.LAYER_MODEL] = true;
-
-        // 如果配置不存在，仅启用 MODEL
-        if (!config || !config.enabledLayers) {
-            console.log(`[LayerManager] 预设 "${preset}" 配置不存在，仅启用 MODEL 图层`);
-            this.dispatchLayerStateChangeEvent(preset, layerStates);
-            return;
-        }
 
         // 根据配置启用指定图层
         config.enabledLayers.forEach(layerName => {

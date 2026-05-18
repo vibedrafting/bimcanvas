@@ -22,9 +22,9 @@ namespace BIMCanvas.Server.Models.Plugins;
 /// - ProjectBound 时 ProjectPath / ActiveSceneId / Scenes / Lock 必须非空 (V14 T11)。
 /// </para>
 ///
-/// 序列化:Newtonsoft.Json + <c>CamelCasePropertyNamesContractResolver</c> +
+/// 序列化:Newtonsoft.Json + <c>DefaultContractResolver + CamelCaseNamingStrategy</c> +
 /// <c>StringEnumConverter(CamelCaseNamingStrategy)</c>,JSON 形态完全 camelCase
-/// (字段命名约束在调用方 settings 中配置,本 record 不再标 attribute)。
+/// (字段命名约束在调用方 settings 中配置,本 record 不再标 attribute;只转属性名,不转 dict key)。
 /// 特例:<c>Lock</c> 是 C# 关键字,在 JSON 中要落为 "lock";靠 ContractResolver 自动 lower-case 即可,无需额外 attribute。
 /// </summary>
 public sealed record PluginLaunchContext(

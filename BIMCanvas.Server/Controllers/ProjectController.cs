@@ -69,7 +69,7 @@ namespace BIMCanvas.Server.Controllers
             _projectFixedFiles = projectFixedFiles;
             _jsonSettings = new JsonSerializerSettings
             {
-                ContractResolver = new CamelCasePropertyNamesContractResolver(),
+                ContractResolver = new DefaultContractResolver { NamingStrategy = new CamelCaseNamingStrategy() },
                 Converters = { new Polygon2DConverter(), new FacingConverter() }
             };
         }

@@ -189,7 +189,7 @@ builder.Services.AddSingleton<AgentClientService>();
 builder.Services.AddControllers()
     .AddNewtonsoftJson(options =>
     {
-        options.SerializerSettings.ContractResolver = new CamelCasePropertyNamesContractResolver();
+        options.SerializerSettings.ContractResolver = new DefaultContractResolver { NamingStrategy = new CamelCaseNamingStrategy() };
         options.SerializerSettings.Formatting = Newtonsoft.Json.Formatting.Indented;
         options.SerializerSettings.Converters.Add(
             new StringEnumConverter(new CamelCaseNamingStrategy()));
@@ -263,7 +263,7 @@ builder.Services.AddSingleton<LlmEndpointTestService>();
 builder.Services.AddSignalR()
     .AddNewtonsoftJsonProtocol(options =>
     {
-        options.PayloadSerializerSettings.ContractResolver = new CamelCasePropertyNamesContractResolver();
+        options.PayloadSerializerSettings.ContractResolver = new DefaultContractResolver { NamingStrategy = new CamelCaseNamingStrategy() };
         options.PayloadSerializerSettings.NullValueHandling = Newtonsoft.Json.NullValueHandling.Ignore;
     });
 builder.Services.AddSingleton<ProjectWatcherService>();
@@ -650,7 +650,7 @@ Process? ccrProcess = null;
                     new JsonSerializerSettings
                     {
                         Formatting = Newtonsoft.Json.Formatting.Indented,
-                        ContractResolver = new CamelCasePropertyNamesContractResolver(),
+                        ContractResolver = new DefaultContractResolver { NamingStrategy = new CamelCaseNamingStrategy() },
                         NullValueHandling = NullValueHandling.Include,
                         Converters = { new StringEnumConverter(new CamelCaseNamingStrategy()) },
                     });

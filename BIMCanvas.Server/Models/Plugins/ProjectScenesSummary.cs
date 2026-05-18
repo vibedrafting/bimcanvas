@@ -12,7 +12,7 @@ namespace BIMCanvas.Server.Models.Plugins;
 ///
 /// 仅 <see cref="LaunchMode.ProjectBound"/> 时由 Server 生成;<see cref="LaunchMode.Projectless"/>
 /// 时 PluginLaunchContext.Scenes 为 null。
-/// 序列化:Newtonsoft.Json + <c>CamelCasePropertyNamesContractResolver</c>(调用方 settings 配置)。
+/// 序列化:Newtonsoft.Json + <c>DefaultContractResolver + CamelCaseNamingStrategy</c>(调用方 settings 配置;只转属性名,不转 dict key)。
 /// </summary>
 public sealed record ProjectScenesSummary(
     IReadOnlyList<ProjectScene> Scenes,

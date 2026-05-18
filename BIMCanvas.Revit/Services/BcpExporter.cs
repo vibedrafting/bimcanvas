@@ -229,11 +229,18 @@ namespace BIMCanvas.Revit.Services
         /// </summary>
         private static JsonSerializerSettings CreateJsonSettings()
         {
+            // 用 DefaultContractResolver + CamelCaseNamingStrategy(默认 ProcessDictionaryKeys=false)
+            // 替代 CamelCasePropertyNamesContractResolver(默认 ProcessDictionaryKeys=true),
+            // 避免 Dictionary<string, T> 的 key 被静默转 camelCase(详见 CLAUDE.md §10)。
+            // baseline JSON 当前无 Dictionary 字段,改造仅作为防御性一致 + 防未来字段引入。
             var settings = new JsonSerializerSettings
             {
                 Formatting = Formatting.Indented,
                 NullValueHandling = NullValueHandling.Ignore,
-                ContractResolver = new CamelCasePropertyNamesContractResolver()
+                ContractResolver = new DefaultContractResolver
+                {
+                    NamingStrategy = new CamelCaseNamingStrategy()
+                }
             };
 
             return settings;

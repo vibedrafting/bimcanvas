@@ -40,7 +40,7 @@ namespace BIMCanvas.Server.Services
             _logger = logger;
             _jsonSettings = new JsonSerializerSettings
             {
-                ContractResolver = new CamelCasePropertyNamesContractResolver(),
+                ContractResolver = new DefaultContractResolver { NamingStrategy = new CamelCaseNamingStrategy() },
                 Converters = { new Polygon2DConverter(), new Point2DConverter(), new FacingConverter() }
             };
         }

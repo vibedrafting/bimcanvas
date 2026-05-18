@@ -20,7 +20,7 @@ namespace BIMCanvas.Server.Services
         private static readonly StringComparer ZoneComparer = StringComparer.OrdinalIgnoreCase;
         private static readonly JsonSerializerSettings JsonSettings = new JsonSerializerSettings
         {
-            ContractResolver = new CamelCasePropertyNamesContractResolver(),
+            ContractResolver = new DefaultContractResolver { NamingStrategy = new CamelCaseNamingStrategy() },
             Converters = { new Polygon2DConverter(), new Point2DConverter() }
         };
 

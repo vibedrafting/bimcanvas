@@ -67,7 +67,7 @@ namespace BIMCanvas.Server.Services
             _bootstrapTemplateService = bootstrapTemplateService;
             _jsonSettings = new JsonSerializerSettings
             {
-                ContractResolver = new CamelCasePropertyNamesContractResolver(),
+                ContractResolver = new DefaultContractResolver { NamingStrategy = new CamelCaseNamingStrategy() },
                 Formatting = Formatting.Indented
             };
         }

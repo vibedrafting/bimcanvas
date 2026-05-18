@@ -34,7 +34,7 @@ namespace BIMCanvas.Server.Controllers
             _projectContext = projectContext;
             _jsonSettings = new JsonSerializerSettings
             {
-                ContractResolver = new CamelCasePropertyNamesContractResolver(),
+                ContractResolver = new DefaultContractResolver { NamingStrategy = new CamelCaseNamingStrategy() },
                 Converters =
                 {
                     new Polygon2DConverter(),

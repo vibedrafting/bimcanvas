@@ -33,7 +33,7 @@ public sealed class PluginTrustService
     private static readonly JsonSerializerSettings JsonSettings = new()
     {
         Formatting = Formatting.Indented,
-        ContractResolver = new CamelCasePropertyNamesContractResolver(),
+        ContractResolver = new DefaultContractResolver { NamingStrategy = new CamelCaseNamingStrategy() },
         NullValueHandling = NullValueHandling.Ignore,
         Converters = { new StringEnumConverter(new CamelCaseNamingStrategy()) },
     };

@@ -6,7 +6,8 @@ namespace BIMCanvas.Server.Services;
 /// <summary>
 /// 最近打开项目记录服务
 /// 管理 <BIMCANVAS_HOME>/recent_projects.json
-/// 序列化栈:Newtonsoft.Json + <see cref="CamelCasePropertyNamesContractResolver"/>(全项目约束,见 CLAUDE.md)。
+/// 序列化栈:Newtonsoft.Json + <see cref="DefaultContractResolver"/> +
+/// <see cref="CamelCaseNamingStrategy"/>(只转 C# 属性名,不转 Dictionary key;详见 CLAUDE.md §10)。
 /// </summary>
 public class RecentProjectsService
 {
@@ -14,12 +15,12 @@ public class RecentProjectsService
 
     private static readonly JsonSerializerSettings ReadSettings = new()
     {
-        ContractResolver = new CamelCasePropertyNamesContractResolver(),
+        ContractResolver = new DefaultContractResolver { NamingStrategy = new CamelCaseNamingStrategy() },
     };
 
     private static readonly JsonSerializerSettings WriteSettings = new()
     {
-        ContractResolver = new CamelCasePropertyNamesContractResolver(),
+        ContractResolver = new DefaultContractResolver { NamingStrategy = new CamelCaseNamingStrategy() },
         Formatting = Formatting.Indented,
     };
 

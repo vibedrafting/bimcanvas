@@ -15,8 +15,8 @@ namespace BIMCanvas.Server.Models.Plugins;
 /// <para>
 /// 安全决策 (主真理源 §3.13 + §8.2):此文件位于 <c>BIMCANVAS_HOME/</c>,plugin 代码不可触达;
 /// PluginTrustService 是唯一允许 mutate 该文件的 Service。组1 只给出本 record + JSON 形状,
-/// 实际读写实现属于组2 范围。字段名走 Newtonsoft <c>CamelCasePropertyNamesContractResolver</c>
-/// (在 PluginTrustService 内联配置)。
+/// 实际读写实现属于组2 范围。字段名走 Newtonsoft <c>DefaultContractResolver + CamelCaseNamingStrategy</c>
+/// (在 PluginTrustService 内联配置;只转属性名,不转 dict key)。
 /// </para>
 /// </summary>
 public sealed record PluginInstallState(

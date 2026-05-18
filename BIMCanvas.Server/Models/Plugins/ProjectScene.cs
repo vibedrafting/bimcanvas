@@ -10,7 +10,7 @@ namespace BIMCanvas.Server.Models.Plugins;
 ///
 /// 字段权威性以本组 Step 3b 起草的 <c>docs/bcp-scenes-schema.json</c> JSONSchema 为准。
 /// 任何字段扩展必须同步更新该 schema 并升 schemaVersion。
-/// 序列化:Newtonsoft.Json + <c>CamelCasePropertyNamesContractResolver</c>(调用方 settings 配置)。
+/// 序列化:Newtonsoft.Json + <c>DefaultContractResolver + CamelCaseNamingStrategy</c>(调用方 settings 配置;只转属性名,不转 dict key)。
 /// </summary>
 public sealed record ProjectScene(
     string SceneId,

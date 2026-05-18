@@ -10,7 +10,8 @@ namespace BIMCanvas.Server.Services;
 /// <summary>
 /// 统一实例配置聚合服务。
 /// 聚合 server/web/agent/ccr 四组配置，继续写回原有 JSON 文件。
-/// 序列化栈:Newtonsoft.Json + <see cref="CamelCasePropertyNamesContractResolver"/>(全项目约束,见 CLAUDE.md)。
+/// 序列化栈:Newtonsoft.Json + <see cref="DefaultContractResolver"/> +
+/// <see cref="CamelCaseNamingStrategy"/>(只转 C# 属性名,不转 Dictionary key;详见 CLAUDE.md §10)。
 /// </summary>
 public sealed class SettingsService
 {
@@ -18,7 +19,7 @@ public sealed class SettingsService
 
     private static readonly JsonSerializerSettings DefaultJsonSettings = new()
     {
-        ContractResolver = new CamelCasePropertyNamesContractResolver(),
+        ContractResolver = new DefaultContractResolver { NamingStrategy = new CamelCaseNamingStrategy() },
         Formatting = Formatting.Indented,
     };
 
@@ -271,16 +272,32 @@ public sealed class SettingsService
                 input.ToString(),
                 new JsonSerializerSettings
                 {
-                    ContractResolver = new CamelCasePropertyNamesContractResolver(),
+                    ContractResolver = new DefaultContractResolver { NamingStrategy = new CamelCaseNamingStrategy() },
                 }) ?? throw new InvalidOperationException("web_config.json 内容不能为空对象。");
 
             config.LayerPresets ??= new Dictionary<string, LayerPreset>();
-            config.LayerPresets["User"] = config.LayerPresets.TryGetValue("User", out var userPreset)
-                ? userPreset ?? new LayerPreset()
-                : new LayerPreset();
-            config.LayerPresets["Agent"] = config.LayerPresets.TryGetValue("Agent", out var agentPreset)
-                ? agentPreset ?? new LayerPreset()
-                : new LayerPreset();
+
+            // 迁移 commit f89dc51 引入的小写污染(CamelCasePropertyNamesContractResolver 默认
+            // ProcessDictionaryKeys=true 把 "User"/"Agent" 写成 "user"/"agent")。
+            // 检测到 legacy 小写 key 且无对应大写 key 时,搬迁过来并删除小写残留。
+            foreach (var (legacyKey, properKey) in new[] { ("user", "User"), ("agent", "Agent") })
+            {
+                if (config.LayerPresets.TryGetValue(legacyKey, out var legacy) && !config.LayerPresets.ContainsKey(properKey))
+                {
+                    config.LayerPresets[properKey] = legacy ?? new LayerPreset();
+                    config.LayerPresets.Remove(legacyKey);
+                }
+            }
+
+            // 强保证 User / Agent 存在 + EnabledLayers 非空,默认值与前端 LayerManager.applyPresetHardcoded 对齐。
+            var defaultUserLayers = new List<string> { "Grid", "Architecture", "Furniture" };
+            var defaultAgentLayers = new List<string>
+            {
+                "Grid", "Labels", "Bounds", "Outline", "SVG Preview",
+                "Zones", "Semantic", "AI Vision", "Architecture", "Furniture"
+            };
+            EnsurePreset(config.LayerPresets, "User", defaultUserLayers);
+            EnsurePreset(config.LayerPresets, "Agent", defaultAgentLayers);
 
             return ToJObject(config);
         }
@@ -355,6 +372,23 @@ public sealed class SettingsService
     {
         EnsureObject(input, "ccr_config.json");
         return Clone(input);
+    }
+
+    /// <summary>
+    /// 保证 LayerPresets dict 有指定 key,且 EnabledLayers 非空(若空或 null 则填默认列表)。
+    /// 与前端 LayerManager.applyPresetHardcoded 的默认启用图层对齐,确保渲染层永远有图层显示。
+    /// </summary>
+    private static void EnsurePreset(Dictionary<string, LayerPreset> presets, string key, List<string> defaultLayers)
+    {
+        if (!presets.TryGetValue(key, out var preset) || preset is null)
+        {
+            presets[key] = new LayerPreset { EnabledLayers = new List<string>(defaultLayers) };
+            return;
+        }
+        if (preset.EnabledLayers is null || preset.EnabledLayers.Count == 0)
+        {
+            preset.EnabledLayers = new List<string>(defaultLayers);
+        }
     }
 
     private static void EnsureObject(JObject input, string fileName)
