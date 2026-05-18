@@ -4,8 +4,10 @@
  * 职责:
  *   1. 维护已安装 plugin 列表 + active plugin id (来源:GET /api/plugins)
  *   2. 暴露 install / trustAndActivate / setActive / uninstall actions
- *   3. 维护 "需要重启" banner 状态(任何激活/切换成功后置 true)
- *   4. 维护 UI 错误状态(供 PluginsPanel 顶部 alert 渲染)
+ *
+ * 跨 store 状态:
+ *   - "需要重启"由 systemStore.markRestartRequired(reason) 统一管理(顶栏 [需要重启] 按钮 + 左下 toast)
+ *   - 操作错误 / 成功反馈走 systemStore.pushToast(),不再持本地 lastError/lastInfo
  *
  * 设计原则:
  *   - 所有写动作走 PluginService(R3 / R5: UI 不直接读写文件系统)
@@ -20,17 +22,18 @@ import type {
   PluginListItem,
   InstallPluginRequest,
 } from '../types/plugin';
+import { useSystemStore } from './systemStore';
 
 export const usePluginStore = defineStore('plugin', () => {
+  const systemStore = useSystemStore();
+
   // ─── 状态 ───────────────────────────────────────────────────────────
 
   const installedPlugins = ref<PluginListItem[]>([]);
   const activePluginId = ref<string | null>(null);
 
   const loading = ref(false);
-  const lastError = ref<PluginServiceError | null>(null);
-  const lastInfo = ref<string | null>(null);
-  const restartRequired = ref(false);
+  const loadError = ref<PluginServiceError | null>(null); // 仅供列表加载失败时显示
 
   // 按 pluginId 维度的 busy 状态(防止同 plugin 重复点击)
   const busyPluginIds = ref<Set<string>>(new Set());
@@ -56,16 +59,16 @@ export const usePluginStore = defineStore('plugin', () => {
 
   const isBusy = (pluginId: string) => busyPluginIds.value.has(pluginId);
 
-  const clearError = () => {
-    lastError.value = null;
+  const clearLoadError = () => {
+    loadError.value = null;
   };
 
-  const clearInfo = () => {
-    lastInfo.value = null;
-  };
-
-  const dismissRestart = () => {
-    restartRequired.value = false;
+  const pushError = (err: PluginServiceError, title: string) => {
+    systemStore.pushToast({
+      title: `${title} [${err.code}]`,
+      message: err.message,
+      type: 'error',
+    });
   };
 
   // ─── Actions ────────────────────────────────────────────────────────
@@ -73,14 +76,15 @@ export const usePluginStore = defineStore('plugin', () => {
   /** 拉取已安装 plugin 列表 + 当前 active id */
   const fetchAll = async () => {
     loading.value = true;
-    lastError.value = null;
+    loadError.value = null;
     try {
       const result = await PluginService.list();
       if (result.ok) {
         installedPlugins.value = result.data.plugins;
         activePluginId.value = result.data.activePluginId;
       } else {
-        lastError.value = result;
+        loadError.value = result;
+        pushError(result, '加载 plugin 列表失败');
       }
     } finally {
       loading.value = false;
@@ -92,19 +96,19 @@ export const usePluginStore = defineStore('plugin', () => {
    * @returns 成功时返回 pluginId 供 UI 后续展示提示
    */
   const install = async (request: InstallPluginRequest): Promise<string | null> => {
-    clearError();
-    clearInfo();
     loading.value = true;
     try {
       const result = await PluginService.install(request);
       if (result.ok) {
-        lastInfo.value =
-          `已安装 ${result.data.pluginId} v${result.data.installedVersion}。` +
-          `${result.data.nextStep}`;
+        systemStore.pushToast({
+          title: '安装成功',
+          message: `${result.data.pluginId} v${result.data.installedVersion}。${result.data.nextStep}`,
+          type: 'success',
+        });
         await fetchAll();
         return result.data.pluginId;
       } else {
-        lastError.value = result;
+        pushError(result, '安装失败');
         return null;
       }
     } finally {
@@ -117,18 +121,22 @@ export const usePluginStore = defineStore('plugin', () => {
    * 调用前必须经过 TrustAndActivateDialog 二次确认 (R9 RCE 防御)
    */
   const trustAndActivate = async (pluginId: string): Promise<boolean> => {
-    clearError();
-    clearInfo();
     setBusy(pluginId, true);
     try {
       const result = await PluginService.trustAndActivate(pluginId);
       if (result.ok) {
-        lastInfo.value = result.data.message;
-        restartRequired.value = result.data.restartRequired;
+        systemStore.pushToast({
+          title: 'Plugin 已激活',
+          message: result.data.message,
+          type: 'success',
+        });
+        if (result.data.restartRequired) {
+          systemStore.markRestartRequired(`plugin:${pluginId}`);
+        }
         await fetchAll();
         return true;
       } else {
-        lastError.value = result;
+        pushError(result, '激活失败');
         return false;
       }
     } finally {
@@ -141,18 +149,22 @@ export const usePluginStore = defineStore('plugin', () => {
    * Server 对 untrusted plugin 返回 403 + code=plugin_not_trusted
    */
   const setActive = async (pluginId: string): Promise<boolean> => {
-    clearError();
-    clearInfo();
     setBusy(pluginId, true);
     try {
       const result = await PluginService.setActive(pluginId);
       if (result.ok) {
-        lastInfo.value = `已切换 active = ${pluginId},请重启 BIMCanvas 让 Agent 重新加载`;
-        restartRequired.value = result.data.restartRequired;
+        systemStore.pushToast({
+          title: 'Active plugin 已切换',
+          message: `已切换 active = ${pluginId},点击顶栏 [需要重启] 让 Agent 重新加载。`,
+          type: 'success',
+        });
+        if (result.data.restartRequired) {
+          systemStore.markRestartRequired(`plugin:${pluginId}`);
+        }
         await fetchAll();
         return true;
       } else {
-        lastError.value = result;
+        pushError(result, '切换 active 失败');
         return false;
       }
     } finally {
@@ -162,17 +174,19 @@ export const usePluginStore = defineStore('plugin', () => {
 
   /** 卸载 plugin */
   const uninstall = async (pluginId: string): Promise<boolean> => {
-    clearError();
-    clearInfo();
     setBusy(pluginId, true);
     try {
       const result = await PluginService.uninstall(pluginId);
       if (result.ok) {
-        lastInfo.value = `已卸载 ${pluginId}`;
+        systemStore.pushToast({
+          title: '已卸载',
+          message: `${pluginId} 已删除`,
+          type: 'success',
+        });
         await fetchAll();
         return true;
       } else {
-        lastError.value = result;
+        pushError(result, '卸载失败');
         return false;
       }
     } finally {
@@ -185,9 +199,7 @@ export const usePluginStore = defineStore('plugin', () => {
     installedPlugins,
     activePluginId,
     loading,
-    lastError,
-    lastInfo,
-    restartRequired,
+    loadError,
     // computed
     activePlugin,
     hasPlugins,
@@ -199,8 +211,6 @@ export const usePluginStore = defineStore('plugin', () => {
     trustAndActivate,
     setActive,
     uninstall,
-    clearError,
-    clearInfo,
-    dismissRestart,
+    clearLoadError,
   };
 });

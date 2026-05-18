@@ -137,31 +137,6 @@ onMounted(async () => {
           <p class="page-desc">安装、信任、激活与卸载 BIMCanvas plugin。激活变更需重启实例后 Agent 才会加载新 plugin。</p>
         </div>
 
-        <!-- 重启提示 (统一 inline-alert.warm 样式) -->
-        <div v-if="store.restartRequired" class="alerts mb-md">
-          <div class="inline-alert warm restart-row">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
-            <span class="restart-text">激活配置已更新，重启 BIMCanvas 后 Agent 才会加载新 plugin。</span>
-            <GlassButton variant="ghost" @click="store.dismissRestart">知道了</GlassButton>
-          </div>
-        </div>
-
-        <!-- 错误 / 信息提示 (统一 alert 样式) -->
-        <div v-if="store.lastError || store.lastInfo" class="alerts mb-md">
-          <div v-if="store.lastError" class="alert alert-error" @click="store.clearError">
-            <div class="alert-title">
-              <strong>错误 [{{ store.lastError.code }}]：</strong>
-              {{ store.lastError.message }}
-            </div>
-            <ul v-if="store.lastError.details && store.lastError.details.length" class="alert-details">
-              <li v-for="(d, i) in store.lastError.details" :key="i">{{ JSON.stringify(d) }}</li>
-            </ul>
-          </div>
-          <div v-if="store.lastInfo" class="alert alert-success" @click="store.clearInfo">
-            {{ store.lastInfo }}
-          </div>
-        </div>
-
         <article class="config-card">
           <header class="card-header">
             <div class="heading-left">

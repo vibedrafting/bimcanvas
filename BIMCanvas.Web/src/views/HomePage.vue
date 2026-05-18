@@ -234,6 +234,7 @@ onMounted(() => {
             style="display: none"
             @change="onFileSelected"
           />
+          <div id="global-header-actions" class="global-header-actions"></div>
         </div>
       </template>
 
@@ -249,7 +250,9 @@ onMounted(() => {
             <span class="settings-subtitle">首页内配置台</span>
           </div>
         </div>
-        <div id="settings-header-actions" class="settings-header-actions"></div>
+        <div id="settings-header-actions" class="settings-header-actions">
+          <div id="global-header-actions" class="global-header-actions"></div>
+        </div>
       </template>
 
       <template v-else>
@@ -264,7 +267,10 @@ onMounted(() => {
             <span class="settings-subtitle">安装 / 信任 / 激活 / 卸载 BIMCanvas plugin</span>
           </div>
         </div>
-        <div id="plugins-header-actions" class="settings-header-actions"></div>
+        <div id="plugins-header-actions" class="settings-header-actions">
+          <!-- 全局按钮区:三 mode 互斥,DOM 内同时只有一个 #global-header-actions;GlobalRestartButton Teleport 到此 -->
+          <div id="global-header-actions" class="global-header-actions"></div>
+        </div>
       </template>
     </header>
 
@@ -552,6 +558,13 @@ onMounted(() => {
   align-items: center;
   justify-content: flex-end;
   gap: 16px;
+}
+
+/* 全局按钮区(目前用于"需要重启"按钮),嵌在每个 mode 右侧 actions 容器末尾 */
+.global-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
 }
 
 .back-button {

@@ -15,6 +15,7 @@ import { ViewCalculator } from './services/interaction/ViewCalculator';
 import DebugConsole from './components/UI/DebugConsole.vue';
 import BranchMergeWizard from './components/UI/merge/BranchMergeWizard.vue';
 import AgentNotificationModal from './components/UI/AgentNotificationModal.vue';
+import GlobalRestartButton from './components/UI/GlobalRestartButton.vue';
 import { useDebugStore } from './stores/debugStore';
 
 const store = useCanvasStore();
@@ -219,6 +220,7 @@ const handleKeydown = (e: KeyboardEvent) => {
   <DebugConsole />
   <BranchMergeWizard v-if="canUseGitBranching" />
   <AgentNotificationModal />
+  <GlobalRestartButton />
 </template>
 
 <style>
