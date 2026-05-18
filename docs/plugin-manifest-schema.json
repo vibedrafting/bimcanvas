@@ -13,6 +13,10 @@
   ],
   "additionalProperties": false,
   "properties": {
+    "$schema": {
+      "type": "string",
+      "description": "JSON Schema 元字段(可选)。指向 https://bimcanvas/docs/plugin-manifest-schema.json 或相对路径,便于 IDE 自动补全。本字段不进入业务校验逻辑,只为开发体验。"
+    },
     "name": {
       "type": "string",
       "pattern": "^[a-z0-9-]+$",

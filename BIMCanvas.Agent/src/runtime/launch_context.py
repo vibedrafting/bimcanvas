@@ -203,8 +203,12 @@ def parse_launch_context(data: dict) -> PluginLaunchContext:
 
 
 def from_json_file(path: Path) -> PluginLaunchContext:
-    """读取 JSON 文件 (UTF-8) 并解析为 PluginLaunchContext。"""
-    with path.open("r", encoding="utf-8") as f:
+    """读取 JSON 文件 (UTF-8, 兼容 BOM) 并解析为 PluginLaunchContext。
+
+    注:Server 端用 System.Text.Json + File.WriteAllText 写文件可能带 UTF-8 BOM,
+    用 utf-8-sig 编码自动跳过 BOM,兼容带/不带 BOM 两种情况。
+    """
+    with path.open("r", encoding="utf-8-sig") as f:
         data = json.load(f)
     return parse_launch_context(data)
 
