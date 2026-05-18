@@ -164,16 +164,36 @@ class ConfigLoader:
         # Agent 不允许独立初始化配置，必须由 Server 先完成根目录初始化
         self._validate_bootstrap_layout()
 
+    def _resolve_core_base_root(self) -> Path:
+        """返回 core-base 资源根:新布局 plugins/core-base/ 优先,旧布局回退根目录(软兼容)。
+
+        主真理源 v1.2 §3.5 + 组5 §5.A.6 Templates 重组:
+        新布局 Templates/plugins/core-base/ 通过 BootstrapTemplateService.EnsurePluginInitialized
+        初始化到 <BIMCANVAS_HOME>/plugins/core-base/。旧布局指 BIMCANVAS_HOME 根直接含
+        BIMCANVAS.md/agents/skills 的过渡形态(组5 改造前)。
+        """
+        new_layout = self.config_dir / "plugins" / "core-base"
+        if new_layout.is_dir():
+            return new_layout
+        return self.config_dir
+
     def _validate_bootstrap_layout(self) -> None:
         """校验 BIMCANVAS_HOME 是否已由 Server 初始化完成。
 
-        组3 改造 (主真理源 v1.1 §3.5-§3.7):
-        - 删除硬编码 `agents/layout-agent.md` 必填项 (该 agent 属 indoor-layout plugin)
-        - 软兼容 Templates 重组未完成的过渡态 (组2 并行进行中):
-          若 plugins/core-base/ 存在则按新布局校验,否则回退旧布局,仅警告不抛错。
+        主真理源 v1.2 §3.5 折中方案 + 组5 §5.A.6 Templates 重组:
+        - config.json 在 BIMCANVAS_HOME 根目录 (平台级 Agent runtime 配置)
+        - PLATFORM_CONTRACT.md 在 BIMCANVAS_HOME 根目录 (平台契约铁律)
+        - BIMCANVAS.md / .claude-plugin / skills 在 core-base 资源根
+          (新布局 plugins/core-base/,旧布局回退根目录)
         """
-        required_paths = [
+        # 1. 必须始终在 BIMCANVAS_HOME 根目录的平台级文件
+        root_required = [
             ("config.json", "file"),
+            ("PLATFORM_CONTRACT.md", "file"),
+        ]
+        # 2. core-base 资源 (新布局优先,旧布局回退)
+        core_base_root = self._resolve_core_base_root()
+        core_base_required = [
             ("BIMCANVAS.md", "file"),
             (".claude-plugin/plugin.json", "file"),
             ("skills", "directory"),
@@ -184,11 +204,21 @@ class ConfigLoader:
         if not self.config_dir.exists():
             missing.append(str(self.config_dir))
         else:
-            for relative_path, path_type in required_paths:
+            for relative_path, path_type in root_required:
                 target_path = self.config_dir / relative_path
                 exists = target_path.is_file() if path_type == "file" else target_path.is_dir()
                 if not exists:
                     missing.append(relative_path)
+            for relative_path, path_type in core_base_required:
+                target_path = core_base_root / relative_path
+                exists = target_path.is_file() if path_type == "file" else target_path.is_dir()
+                if not exists:
+                    # 显示相对 BIMCANVAS_HOME 的路径,便于诊断
+                    try:
+                        display = str(target_path.relative_to(self.config_dir))
+                    except ValueError:
+                        display = str(target_path)
+                    missing.append(display)
 
         if not missing:
             return
@@ -221,51 +251,50 @@ class ConfigLoader:
         return self._config
 
     def load_system_prompt(self, active_plugin_root: Path | None = None) -> str:
-        """
-        加载系统提示词。
+        """加载系统提示词:PLATFORM_CONTRACT + active plugin 替换式拼接 (主真理源 v1.2 §3.5)。
 
-        组3 改造 (主真理源 v1.1 §3.5):
-        - 默认读 <BIMCANVAS_HOME>/BIMCANVAS.md 作为 base
-        - 若 active_plugin_root 非空且 <active_plugin_root>/BIMCANVAS.md 存在,
-          拼接顺序: base + 边界标识 + active plugin prompt
-        - 边界标识硬性插入,防止 domain plugin 在 prompt 层覆盖平台不变量
+        折中方案语义:
+        - PLATFORM_CONTRACT.md (~35 行平台铁律) 始终在 prompt 顶部,plugin 不能覆盖
+        - active plugin 的 BIMCANVAS.md **完全替换** core-base (不再叠加 core-base 100+ 行)
+        - 未指定 active_plugin_root 时,core-base 作为默认 active plugin (Projectless 模式
+          或没装 domain plugin 时的兜底)
 
         Args:
-            active_plugin_root: active plugin 物理目录;None / Projectless 时仅返回 base
+            active_plugin_root: active plugin 物理目录;None 时使用 core-base 作为默认 active plugin
 
         Returns:
-            合并后的系统提示词字符串
+            完整系统提示词:`PLATFORM_CONTRACT + 边界 + active plugin BIMCANVAS.md`
         """
-        # 注意:缓存只针对默认 (None) 调用,带 active_plugin_root 的调用绕过缓存
-        if active_plugin_root is None and self._system_prompt is not None:
-            return self._system_prompt
+        # 1. 读 PLATFORM_CONTRACT.md (永远在场,不可被 plugin 覆盖)
+        contract_path = self.config_dir / "PLATFORM_CONTRACT.md"
+        if not contract_path.is_file():
+            raise FileNotFoundError(
+                f"平台契约文件缺失: {contract_path}。"
+                " 请先启动 BIMCanvas.Server 完成 <BIMCANVAS_HOME> 初始化。"
+            )
+        with open(contract_path, 'r', encoding='utf-8-sig') as f:
+            contract = f.read()
 
-        prompt_path = self.config_dir / "BIMCANVAS.md"
-        if not prompt_path.exists():
-            raise FileNotFoundError(f"系统提示词文件不存在: {prompt_path}")
-
-        with open(prompt_path, 'r', encoding='utf-8-sig') as f:
-            base_prompt = f.read()
-
+        # 2. 决定 active plugin (None → core-base 作为默认)
         if active_plugin_root is None:
-            self._system_prompt = base_prompt
-            return base_prompt
+            active_plugin_root = self._resolve_core_base_root()
+            plugin_id = "core-base"
+        else:
+            plugin_id = active_plugin_root.name
 
+        # 3. 读 active plugin BIMCANVAS.md
         active_prompt_path = active_plugin_root / "BIMCANVAS.md"
         if not active_prompt_path.is_file():
-            logger.warning(
-                "active plugin BIMCANVAS.md 不存在 (%s),仅返回 core-base 提示词",
-                active_prompt_path,
+            raise FileNotFoundError(
+                f"active plugin BIMCANVAS.md 缺失: {active_prompt_path}"
             )
-            return base_prompt
-
         with open(active_prompt_path, 'r', encoding='utf-8-sig') as f:
             active_prompt = f.read()
 
-        plugin_id = active_plugin_root.name
+        # 4. 拼接:PLATFORM_CONTRACT + 边界 + active plugin
         return (
-            f"{base_prompt}\n\n"
-            f"---\n## Active Domain Contract: {plugin_id}\n---\n\n"
+            f"{contract}\n\n"
+            f"---\n## Active Plugin Contract: {plugin_id}\n---\n\n"
             f"{active_prompt}"
         )
 
@@ -339,7 +368,8 @@ class ConfigLoader:
             return self._agents
 
         result: dict[str, AgentConfig] = {}
-        agents_dir = self.config_dir / "agents"
+        # 主真理源 v1.2 §3.5 折中方案:core-base agents 在新布局下从 plugins/core-base/agents/ 读
+        agents_dir = self._resolve_core_base_root() / "agents"
         if agents_dir.exists():
             for md_file in agents_dir.glob("*.md"):
                 try:

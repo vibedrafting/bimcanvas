@@ -29,6 +29,13 @@
       "type": "template",
       "enabled": true,
       "description": "Agent runtime 全局配置（claude / openai providers / permissions / modelMapping）"
+    },
+    {
+      "name": "PLATFORM_CONTRACT.md",
+      "target": "PLATFORM_CONTRACT.md",
+      "type": "template",
+      "enabled": true,
+      "description": "平台契约 — 强制注入到 system prompt 顶部的铁律(主真理源 v1.2 §3.5 折中方案)"
     }
   ]
 }

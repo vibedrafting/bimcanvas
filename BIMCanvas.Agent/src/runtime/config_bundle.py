@@ -359,8 +359,9 @@ def build_config_bundle(
         loader.load_agents(active_plugin_root, overrides_agents)
     )
 
+    # 主真理源 v1.2 §3.5 折中方案:core-base skills 在新布局下从 plugins/core-base/skills/ 读
     skill_index, skill_metas, skill_diag = _build_skill_index(
-        bimcanvas_home, active_plugin_root, overrides_skills
+        loader._resolve_core_base_root(), active_plugin_root, overrides_skills
     )
 
     mcp_servers, mcp_tool_names, mcp_diag = _build_mcp_servers(
