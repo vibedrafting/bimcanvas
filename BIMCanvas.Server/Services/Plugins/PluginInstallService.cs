@@ -5,6 +5,7 @@ using System.IO;
 using System.Linq;
 using System.Security.Cryptography;
 using System.Text;
+using System.Text.RegularExpressions;
 using System.Threading;
 using System.Threading.Tasks;
 using BIMCanvas.Server.Exceptions;
@@ -52,6 +53,15 @@ public sealed class PluginInstallService
     {
         if (string.IsNullOrWhiteSpace(repoUrl))
             throw new ArgumentException("repoUrl 必须非空", nameof(repoUrl));
+
+        // 输入规范化:Windows 裸路径 / 半成品 file: → 标准 file:///<正斜杠路径>
+        repoUrl = NormalizeSourceUrl(repoUrl);
+
+        // 本地路径预校验(避免延迟到 git clone 失败才报错,UX 更清晰)
+        if (repoUrl.StartsWith("file:", StringComparison.OrdinalIgnoreCase))
+        {
+            EnsureLocalGitRepository(repoUrl);
+        }
 
         Directory.CreateDirectory(PluginPaths.StagingRoot);
         var stagingPath = Path.Combine(PluginPaths.StagingRoot, Guid.NewGuid().ToString("N"));
@@ -225,5 +235,91 @@ public sealed class PluginInstallService
             return new GitResult(false, -2, stdout, "git 进程超时:" + stderr);
         }
         return new GitResult(process.ExitCode == 0, process.ExitCode, stdout, stderr);
+    }
+
+    // ─── sourceUrl 规范化 (支持本地路径 / file:// 自动补全;Git for Windows 实测 file:/// 可正常 clone) ───
+
+    /// <summary>
+    /// 规范化 plugin sourceUrl,统一输入形态:
+    /// <list type="bullet">
+    /// <item>远程 URL (https / http / ssh / git / user@host:path) → 保持原样</item>
+    /// <item>已规范的 file:///&lt;path&gt; → 保持原样</item>
+    /// <item>半成品 file: 形式 (file:E:\... / file://E:/... 等) → 修正为 file:///&lt;正斜杠路径&gt;</item>
+    /// <item>Windows 裸路径 (E:\... 或 E:/...) → file:///E:/...</item>
+    /// <item>UNC 路径 (\\server\share) → file:////server/share</item>
+    /// <item>Unix 绝对路径 (/path) → file:///path</item>
+    /// <item>其他不识别形式 → 保持原样,让下游 git clone 自己报错</item>
+    /// </list>
+    /// 反斜杠统一替换为正斜杠 (file:// URL 标准要求)。
+    /// </summary>
+    public static string NormalizeSourceUrl(string repoUrl)
+    {
+        if (string.IsNullOrWhiteSpace(repoUrl)) return repoUrl;
+        var trimmed = repoUrl.Trim();
+
+        // 1. 远程协议:https / http / ssh / git
+        if (Regex.IsMatch(trimmed, @"^(https?|ssh|git)://", RegexOptions.IgnoreCase))
+            return trimmed;
+
+        // 2. SSH shorthand: user@host:path (例 git@github.com:owner/repo.git)
+        if (Regex.IsMatch(trimmed, @"^[\w.\-]+@[\w.\-]+:"))
+            return trimmed;
+
+        // 3. file: 各种变体 → 规范化为 file:///<正斜杠路径>
+        if (trimmed.StartsWith("file:", StringComparison.OrdinalIgnoreCase))
+        {
+            var after = trimmed.Substring("file:".Length).Replace('\\', '/').TrimStart('/');
+            return "file:///" + after;
+        }
+
+        // 4. Windows 盘符路径 (E:\... 或 E:/...)
+        if (Regex.IsMatch(trimmed, @"^[A-Za-z]:[\\/]"))
+            return "file:///" + trimmed.Replace('\\', '/');
+
+        // 5. UNC 路径 \\server\share 或 //server/share
+        if (trimmed.StartsWith(@"\\") || trimmed.StartsWith("//"))
+            return "file://" + trimmed.Replace('\\', '/');
+
+        // 6. Unix 绝对路径
+        if (trimmed.StartsWith("/"))
+            return "file://" + trimmed;
+
+        // 7. 其他保持原样
+        return trimmed;
+    }
+
+    /// <summary>
+    /// 校验 file:// URL 指向的本地路径是有效的 git 仓库 (存在 + 含 .git 标记)。
+    /// 失败抛 <see cref="PluginCloneFailedException"/>,在 git clone 启动之前提供清晰错误。
+    /// </summary>
+    private static void EnsureLocalGitRepository(string fileUrl)
+    {
+        string localPath;
+        try
+        {
+            localPath = new Uri(fileUrl).LocalPath;
+        }
+        catch (Exception ex)
+        {
+            throw new PluginCloneFailedException(
+                fileUrl, ex.Message,
+                $"无法解析 file:// URL: {fileUrl} ({ex.Message})");
+        }
+
+        if (!Directory.Exists(localPath))
+        {
+            throw new PluginCloneFailedException(
+                fileUrl, string.Empty,
+                $"本地路径不存在或不是目录: {localPath}");
+        }
+
+        // .git 通常是目录;submodule / git worktree 场景下是文件 — 两者都接受
+        var gitMarker = Path.Combine(localPath, ".git");
+        if (!Directory.Exists(gitMarker) && !File.Exists(gitMarker))
+        {
+            throw new PluginCloneFailedException(
+                fileUrl, string.Empty,
+                $"本地路径不是 git 仓库 (缺少 .git): {localPath}");
+        }
     }
 }
