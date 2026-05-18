@@ -109,7 +109,7 @@ onMounted(async () => {
 </script>
 
 <template>
-  <div class="plugins-panel">
+  <div class="plugins-page">
     <!-- 操作按钮 Teleport 到 HomePage 顶栏右侧 (与 HomeSettingsPanel 一致) -->
     <Teleport to="#plugins-header-actions" v-if="isMounted">
       <div class="teleported-actions">
@@ -120,8 +120,8 @@ onMounted(async () => {
             <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15" />
           </svg>
         </GlassButton>
-        <GlassButton variant="primary" @click="onInstallClick">
-          <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="margin-right: 6px;">
+        <GlassButton variant="primary" @click="onInstallClick" style="display: flex; align-items: center; justify-content: center; gap: 6px;">
+          <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
             <path d="M12 5v14" />
             <path d="M5 12h14" />
           </svg>
@@ -130,116 +130,151 @@ onMounted(async () => {
       </div>
     </Teleport>
 
-    <!-- 重启 banner -->
-    <div v-if="store.restartRequired" class="restart-banner">
-      <span>激活配置已更新,重启 BIMCanvas 后 Agent 才会加载新 plugin。</span>
-      <GlassButton variant="ghost" @click="store.dismissRestart">知道了</GlassButton>
-    </div>
-
-    <!-- 错误 / 信息提示 -->
-    <div v-if="store.lastError || store.lastInfo" class="alerts">
-      <div v-if="store.lastError" class="alert alert-error" @click="store.clearError">
-        <div class="alert-title">
-          <strong>错误 [{{ store.lastError.code }}]:</strong>
-          {{ store.lastError.message }}
+    <div class="plugins-main">
+      <div class="layout-bound wrapper-pad">
+        <div class="page-intro mb-lg">
+          <h1 class="page-title">插件管理</h1>
+          <p class="page-desc">安装、信任、激活与卸载 BIMCanvas plugin。激活变更需重启实例后 Agent 才会加载新 plugin。</p>
         </div>
-        <ul v-if="store.lastError.details && store.lastError.details.length" class="alert-details">
-          <li v-for="(d, i) in store.lastError.details" :key="i">{{ JSON.stringify(d) }}</li>
-        </ul>
-      </div>
-      <div v-if="store.lastInfo" class="alert alert-success" @click="store.clearInfo">
-        {{ store.lastInfo }}
-      </div>
-    </div>
 
-    <!-- 空状态 -->
-    <div v-if="!store.hasPlugins && !store.loading" class="empty-state">
-      <svg viewBox="0 0 24 24" width="48" height="48" fill="none" stroke="currentColor" stroke-width="1.5" opacity="0.3">
-        <rect x="3" y="3" width="7" height="7" rx="1" />
-        <rect x="14" y="3" width="7" height="7" rx="1" />
-        <rect x="3" y="14" width="7" height="7" rx="1" />
-        <rect x="14" y="14" width="7" height="7" rx="1" />
-      </svg>
-      <p class="empty-title">尚未安装任何 plugin</p>
-      <p class="empty-hint">点击右上 [+ 安装新插件] 从 GitHub 安装。</p>
-    </div>
-
-    <!-- Plugin 列表 -->
-    <ul v-else class="plugin-list">
-      <li
-        v-for="p in sortedPlugins"
-        :key="p.pluginId"
-        class="plugin-card"
-        :class="{ active: p.isActive, untrusted: p.trustState === 'untrusted' }"
-      >
-        <div class="card-main">
-          <div class="card-title">
-            <span class="display-name">{{ p.displayName }}</span>
-            <span class="plugin-id">({{ p.pluginId }})</span>
-            <span v-if="p.isActive" class="badge badge-active">已激活</span>
-            <span :class="['badge', p.trustState === 'trusted' ? 'badge-trusted' : 'badge-untrusted']">
-              {{ trustLabel(p.trustState) }}
-            </span>
-            <span v-if="p.sourceKind === 'local'" class="badge badge-warn" title="本地 plugin, 复现性较弱">
-              本地
-            </span>
-          </div>
-
-          <p v-if="p.description" class="card-desc">{{ p.description }}</p>
-
-          <div class="card-meta">
-            <span>v{{ p.version }}</span>
-            <span v-if="p.mcpNamespace" class="meta-dot">
-              ns: <code>{{ p.mcpNamespace }}</code>
-            </span>
-            <span class="meta-dot">{{ sourceKindLabel(p.sourceKind) }}</span>
-            <span v-if="p.sourceUrl" class="meta-dot">
-              <a :href="p.sourceUrl" target="_blank" rel="noopener noreferrer" class="link">仓库</a>
-            </span>
-            <span v-if="p.resolvedCommit" class="meta-dot mono">
-              {{ p.resolvedCommit.slice(0, 7) }}
-            </span>
-            <span class="meta-dot">装于 {{ formatTime(p.installedAt) }}</span>
-            <span v-if="p.trustedAt" class="meta-dot">信于 {{ formatTime(p.trustedAt) }}</span>
+        <!-- 重启提示 (统一 inline-alert.warm 样式) -->
+        <div v-if="store.restartRequired" class="alerts mb-md">
+          <div class="inline-alert warm restart-row">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+            <span class="restart-text">激活配置已更新，重启 BIMCanvas 后 Agent 才会加载新 plugin。</span>
+            <GlassButton variant="ghost" @click="store.dismissRestart">知道了</GlassButton>
           </div>
         </div>
 
-        <div class="card-actions">
-          <!-- 状态机驱动的主操作按钮 -->
-          <GlassButton
-            v-if="p.trustState === 'untrusted'"
-            variant="primary"
-            :disabled="store.isBusy(p.pluginId)"
-            @click="onTrustAndActivateClick(p)"
-          >
-            信任并激活
-          </GlassButton>
-          <GlassButton
-            v-else-if="!p.isActive"
-            variant="primary"
-            :disabled="store.isBusy(p.pluginId)"
-            @click="onSetActiveClick(p)"
-          >
-            设为激活
-          </GlassButton>
-          <span v-else class="active-indicator">
-            <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.5">
-              <path d="M5 13l4 4L19 7" />
-            </svg>
-            已激活
-          </span>
-
-          <!-- 卸载按钮 (所有状态都有) -->
-          <GlassButton
-            variant="danger"
-            :disabled="store.isBusy(p.pluginId)"
-            @click="onUninstallClick(p)"
-          >
-            卸载
-          </GlassButton>
+        <!-- 错误 / 信息提示 (统一 alert 样式) -->
+        <div v-if="store.lastError || store.lastInfo" class="alerts mb-md">
+          <div v-if="store.lastError" class="alert alert-error" @click="store.clearError">
+            <div class="alert-title">
+              <strong>错误 [{{ store.lastError.code }}]：</strong>
+              {{ store.lastError.message }}
+            </div>
+            <ul v-if="store.lastError.details && store.lastError.details.length" class="alert-details">
+              <li v-for="(d, i) in store.lastError.details" :key="i">{{ JSON.stringify(d) }}</li>
+            </ul>
+          </div>
+          <div v-if="store.lastInfo" class="alert alert-success" @click="store.clearInfo">
+            {{ store.lastInfo }}
+          </div>
         </div>
-      </li>
-    </ul>
+
+        <article class="config-card">
+          <header class="card-header">
+            <div class="heading-left">
+              <svg class="heading-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <rect x="3" y="3" width="7" height="7" rx="1" />
+                <rect x="14" y="3" width="7" height="7" rx="1" />
+                <rect x="3" y="14" width="7" height="7" rx="1" />
+                <rect x="14" y="14" width="7" height="7" rx="1" />
+              </svg>
+              <div class="heading-text">
+                <h3>
+                  已安装插件
+                  <span v-if="store.hasPlugins" class="count-badge">{{ store.installedPlugins.length }}</span>
+                </h3>
+                <p>列出本机所有 plugin；行内按钮按 trust / active 状态自动切换。</p>
+              </div>
+            </div>
+          </header>
+
+          <div class="card-body">
+            <!-- Loading -->
+            <div v-if="store.loading && !store.hasPlugins" class="loading-state">加载插件列表...</div>
+
+            <!-- Empty -->
+            <div v-else-if="!store.hasPlugins" class="empty-state">
+              <svg viewBox="0 0 24 24" width="44" height="44" fill="none" stroke="currentColor" stroke-width="1.5" opacity="0.3">
+                <rect x="3" y="3" width="7" height="7" rx="1" />
+                <rect x="14" y="3" width="7" height="7" rx="1" />
+                <rect x="3" y="14" width="7" height="7" rx="1" />
+                <rect x="14" y="14" width="7" height="7" rx="1" />
+              </svg>
+              <p class="empty-title">尚未安装任何 plugin</p>
+              <p class="empty-hint">点击右上 [+ 安装新插件] 从 GitHub 安装。</p>
+            </div>
+
+            <!-- Plugin 列表 (subcard 风格,与 runtime-card 视觉一致) -->
+            <ul v-else class="plugin-list">
+              <li
+                v-for="p in sortedPlugins"
+                :key="p.pluginId"
+                class="plugin-card"
+                :class="{ 'plugin-card-active': p.isActive, 'plugin-card-untrusted': p.trustState === 'untrusted' }"
+              >
+                <div class="card-main">
+                  <div class="card-title">
+                    <span class="display-name">{{ p.displayName }}</span>
+                    <span class="plugin-id mono-font">({{ p.pluginId }})</span>
+                    <span v-if="p.isActive" class="badge badge-active">已激活</span>
+                    <span :class="['badge', p.trustState === 'trusted' ? 'badge-trusted' : 'badge-untrusted']">
+                      {{ trustLabel(p.trustState) }}
+                    </span>
+                    <span v-if="p.sourceKind === 'local'" class="badge badge-warn" title="本地 plugin, 复现性较弱">
+                      本地
+                    </span>
+                  </div>
+
+                  <p v-if="p.description" class="card-desc">{{ p.description }}</p>
+
+                  <div class="card-meta">
+                    <span>v{{ p.version }}</span>
+                    <span v-if="p.mcpNamespace" class="meta-dot">
+                      ns:&nbsp;<code>{{ p.mcpNamespace }}</code>
+                    </span>
+                    <span class="meta-dot">{{ sourceKindLabel(p.sourceKind) }}</span>
+                    <span v-if="p.sourceUrl" class="meta-dot">
+                      <a :href="p.sourceUrl" target="_blank" rel="noopener noreferrer" class="link">仓库</a>
+                    </span>
+                    <span v-if="p.resolvedCommit" class="meta-dot mono-font">
+                      {{ p.resolvedCommit.slice(0, 7) }}
+                    </span>
+                    <span class="meta-dot">装于 {{ formatTime(p.installedAt) }}</span>
+                    <span v-if="p.trustedAt" class="meta-dot">信于 {{ formatTime(p.trustedAt) }}</span>
+                  </div>
+                </div>
+
+                <div class="card-actions">
+                  <GlassButton
+                    v-if="p.trustState === 'untrusted'"
+                    variant="primary"
+                    :disabled="store.isBusy(p.pluginId)"
+                    @click="onTrustAndActivateClick(p)"
+                  >
+                    信任并激活
+                  </GlassButton>
+                  <GlassButton
+                    v-else-if="!p.isActive"
+                    variant="primary"
+                    :disabled="store.isBusy(p.pluginId)"
+                    @click="onSetActiveClick(p)"
+                  >
+                    设为激活
+                  </GlassButton>
+                  <span v-else class="active-indicator">
+                    <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.5">
+                      <path d="M5 13l4 4L19 7" />
+                    </svg>
+                    已激活
+                  </span>
+
+                  <GlassButton
+                    variant="danger"
+                    :disabled="store.isBusy(p.pluginId)"
+                    @click="onUninstallClick(p)"
+                  >
+                    卸载
+                  </GlassButton>
+                </div>
+              </li>
+            </ul>
+          </div>
+        </article>
+      </div>
+    </div>
 
     <!-- ─── 各 Dialog ─── -->
     <InstallPluginDialog
@@ -268,14 +303,14 @@ onMounted(async () => {
             </div>
             <div class="dialog-content">
               <p>
-                确定卸载 plugin <strong>{{ uninstallTarget.pluginId }}</strong> 吗?
+                确定卸载 plugin <strong>{{ uninstallTarget.pluginId }}</strong> 吗？
               </p>
               <p class="warn">
                 此操作会从 <code>BIMCANVAS_HOME/plugins/</code> 删除该 plugin 目录,
                 并清除其 trust / install 元数据。
               </p>
               <p v-if="uninstallTarget.isActive" class="warn">
-                该 plugin 当前处于 active 状态;卸载后 Agent 将失去其能力,可能需要重启。
+                该 plugin 当前处于 active 状态;卸载后 Agent 将失去其能力，可能需要重启。
               </p>
             </div>
             <div class="dialog-actions">
@@ -290,20 +325,53 @@ onMounted(async () => {
 </template>
 
 <style scoped>
-.plugins-panel {
+/* ─── 与 HomeSettingsPanel 对齐的 Zinc 调色板 ──────────────────── */
+.plugins-page {
+  --zinc-50:  #fafafa;
+  --zinc-100: #f4f4f5;
+  --zinc-200: #e4e4e7;
+  --zinc-300: #d4d4d8;
+  --zinc-400: #a1a1aa;
+  --zinc-500: #71717a;
+  --zinc-600: #52525b;
+  --zinc-700: #3f3f46;
+  --zinc-800: #27272a;
+  --zinc-900: #18181b;
+  --zinc-950: #0a0a0a;
+
+  --bg-app: transparent;
+  --bg-card: var(--glass-bg);
+  --bg-input: rgba(0, 0, 0, 0.35);
+  --bg-subcard: rgba(0, 0, 0, 0.2);
+
+  --border-muted: rgba(255, 255, 255, 0.06);
+  --border-card: rgba(255, 255, 255, 0.08);
+  --border-focus: var(--accent-blue);
+
+  --text-main: var(--zinc-50);
+  --text-muted: var(--zinc-400);
+
+  --radius-xs: 4px;
+  --radius-sm: 6px;
+  --radius-md: 8px;
+  --radius-lg: 12px;
+
   display: flex;
   flex-direction: column;
-  gap: 16px;
-  padding: 16px 4px;
-  width: 100%;
-  box-sizing: border-box;
+  height: 100%;
+  background-color: var(--bg-app);
+  color: var(--text-main);
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif;
+  overflow: hidden;
+  font-size: 14px;
+  color-scheme: dark;
 }
 
-/* Teleported actions: 注入到 HomePage 顶栏 #plugins-header-actions, 与 HomeSettingsPanel 风格一致 */
+/* Teleported actions */
 .teleported-actions {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 12px;
 }
 
 .spinning {
@@ -315,52 +383,39 @@ onMounted(async () => {
   to { transform: rotate(360deg); }
 }
 
-/* Restart banner */
-.restart-banner {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  padding: 10px 14px;
-  background: rgba(59, 130, 246, 0.1);
-  border: 1px solid rgba(59, 130, 246, 0.25);
-  border-radius: 8px;
-  color: var(--text-secondary);
-  font-size: 13px;
+/* ─── Layout ──────────────────────────────────────────────────────── */
+.plugins-main { flex: 1; overflow-y: auto; overflow-x: hidden; }
+.layout-bound { max-width: 860px; margin: 0 auto; width: 100%; box-sizing: border-box; }
+.wrapper-pad { padding: 32px 24px 80px; }
+.plugins-main::-webkit-scrollbar { width: 10px; height: 10px; }
+.plugins-main::-webkit-scrollbar-track { background: transparent; }
+.plugins-main::-webkit-scrollbar-thumb { background: var(--zinc-800); border-radius: 5px; border: 2px solid var(--bg-app); }
+.plugins-main::-webkit-scrollbar-thumb:hover { background: var(--zinc-600); }
+
+/* ─── Page intro ──────────────────────────────────────────────────── */
+.page-intro { margin-bottom: 24px; padding-left: 8px; }
+.page-title {
+  font-size: 1.6rem; font-weight: 600; color: var(--zinc-50);
+  margin: 0 0 8px 0; letter-spacing: -0.02em;
+}
+.page-desc {
+  font-size: 0.95rem; color: var(--zinc-400);
+  margin: 0; line-height: 1.5;
 }
 
-/* Alerts */
-.alerts {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-}
-
+/* ─── Alerts (与 HomeSettingsPanel 同) ──────────────────────────── */
+.alerts { display: flex; flex-direction: column; gap: 12px; }
 .alert {
-  padding: 12px 14px;
-  border-radius: 8px;
-  border: 1px solid transparent;
+  padding: 12px 16px;
+  border-radius: var(--radius-md);
   font-size: 13px;
+  border: 1px solid transparent;
   line-height: 1.5;
   cursor: pointer;
 }
-
-.alert-error {
-  background: rgba(239, 68, 68, 0.1);
-  border-color: rgba(239, 68, 68, 0.25);
-  color: #fca5a5;
-}
-
-.alert-success {
-  background: rgba(34, 197, 94, 0.1);
-  border-color: rgba(34, 197, 94, 0.25);
-  color: #86efac;
-}
-
-.alert-title strong {
-  font-weight: 600;
-}
-
+.alert-error { background: rgba(239, 68, 68, 0.1); border-color: rgba(239, 68, 68, 0.2); color: #ef4444; }
+.alert-success { background: rgba(34, 197, 94, 0.1); border-color: rgba(34, 197, 94, 0.2); color: #4ade80; }
+.alert-title strong { font-weight: 600; }
 .alert-details {
   margin: 6px 0 0;
   padding-left: 18px;
@@ -369,63 +424,111 @@ onMounted(async () => {
   opacity: 0.85;
 }
 
-/* Empty state */
+.inline-alert {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 16px;
+  border-radius: var(--radius-md);
+  font-size: 13px;
+  line-height: 1.5;
+}
+.inline-alert svg { width: 18px; height: 18px; flex-shrink: 0; }
+.inline-alert.warm { background: rgba(234, 179, 8, 0.06); border: 1px solid rgba(234, 179, 8, 0.15); color: #fde047; }
+.restart-row .restart-text { flex: 1; }
+
+/* ─── Card framework (与 HomeSettingsPanel 同) ──────────────────── */
+.config-card {
+  background-color: var(--glass-bg);
+  backdrop-filter: var(--glass-blur);
+  -webkit-backdrop-filter: var(--glass-blur);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  border-radius: var(--radius-lg);
+  margin-bottom: 24px;
+  box-shadow: inset 0 1px 1px rgba(255, 255, 255, 0.08), 0 8px 32px rgba(0, 0, 0, 0.4);
+  overflow: hidden;
+}
+.card-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  padding: 24px 32px 20px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+  background-color: rgba(255, 255, 255, 0.02);
+}
+.heading-left { display: flex; align-items: flex-start; gap: 12px; }
+.heading-icon { width: 22px; height: 22px; color: var(--text-muted); padding-top: 2px; flex-shrink: 0; }
+.heading-text h3 {
+  margin: 0 0 4px 0;
+  font-size: 15px;
+  font-weight: 500;
+  color: var(--text-main);
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+.heading-text p { margin: 0; font-size: 13px; color: var(--text-muted); }
+.count-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 22px;
+  height: 20px;
+  padding: 0 7px;
+  font-size: 11.5px;
+  font-weight: 500;
+  border-radius: 10px;
+  background: var(--zinc-800);
+  color: var(--zinc-300);
+  font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+  letter-spacing: 0.02em;
+}
+.card-body { padding: 24px 32px 28px; flex: 1; }
+
+/* ─── Loading / Empty ─────────────────────────────────────────────── */
+.loading-state { text-align: center; color: var(--zinc-500); padding: 60px 0; font-size: 13px; }
+
 .empty-state {
   text-align: center;
-  padding: 60px 0;
+  padding: 56px 0 40px;
   display: flex;
   flex-direction: column;
   align-items: center;
   gap: 6px;
-  color: var(--text-secondary);
+  color: var(--text-muted);
 }
+.empty-title { font-size: 14px; color: var(--zinc-300); margin: 6px 0 0; }
+.empty-hint { font-size: 12.5px; color: var(--zinc-500); margin: 0; }
 
-.empty-title {
-  font-size: 14px;
-  margin: 6px 0 0;
-}
-
-.empty-hint {
-  font-size: 12.5px;
-  color: var(--text-tertiary);
-  margin: 0;
-}
-
-/* Plugin cards */
+/* ─── Plugin list (subcard 风格,对齐 runtime-card) ──────────────── */
 .plugin-list {
   list-style: none;
   margin: 0;
   padding: 0;
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: 12px;
 }
 
 .plugin-card {
   display: flex;
   align-items: flex-start;
-  gap: 16px;
+  gap: 20px;
   padding: 16px 18px;
-  background: rgba(0, 0, 0, 0.3);
+  background: rgba(255, 255, 255, 0.03);
   border: 1px solid rgba(255, 255, 255, 0.06);
-  border-radius: 10px;
-  transition: 0.15s;
+  border-radius: var(--radius-md);
+  transition: border-color 0.15s, background-color 0.15s;
 }
-
-.plugin-card.active {
-  background: rgba(59, 130, 246, 0.08);
-  border-color: rgba(59, 130, 246, 0.35);
+.plugin-card:hover { border-color: rgba(255, 255, 255, 0.1); }
+.plugin-card-active {
+  background: rgba(59, 130, 246, 0.06);
+  border-color: rgba(59, 130, 246, 0.28);
 }
+.plugin-card-active:hover { border-color: rgba(59, 130, 246, 0.4); }
+.plugin-card-untrusted { border-style: dashed; }
 
-.plugin-card.untrusted {
-  border-style: dashed;
-}
-
-.card-main {
-  flex: 1;
-  min-width: 0;
-}
-
+.card-main { flex: 1; min-width: 0; }
 .card-title {
   display: flex;
   align-items: center;
@@ -433,18 +536,8 @@ onMounted(async () => {
   flex-wrap: wrap;
   margin-bottom: 6px;
 }
-
-.display-name {
-  font-size: 14px;
-  font-weight: 600;
-  color: var(--text-primary);
-}
-
-.plugin-id {
-  font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
-  font-size: 12px;
-  color: var(--text-tertiary);
-}
+.display-name { font-size: 14px; font-weight: 600; color: var(--text-main); }
+.plugin-id { font-size: 12px; color: var(--zinc-500); }
 
 .badge {
   padding: 2px 8px;
@@ -453,31 +546,15 @@ onMounted(async () => {
   letter-spacing: 0.02em;
   font-weight: 500;
 }
-
-.badge-active {
-  background: rgba(59, 130, 246, 0.2);
-  color: #93c5fd;
-}
-
-.badge-trusted {
-  background: rgba(34, 197, 94, 0.18);
-  color: #86efac;
-}
-
-.badge-untrusted {
-  background: rgba(234, 179, 8, 0.18);
-  color: #fde047;
-}
-
-.badge-warn {
-  background: rgba(234, 179, 8, 0.12);
-  color: #fde047;
-}
+.badge-active { background: rgba(59, 130, 246, 0.2); color: #93c5fd; }
+.badge-trusted { background: rgba(34, 197, 94, 0.18); color: #86efac; }
+.badge-untrusted { background: rgba(234, 179, 8, 0.18); color: #fde047; }
+.badge-warn { background: rgba(234, 179, 8, 0.12); color: #fde047; }
 
 .card-desc {
   margin: 4px 0 8px;
   font-size: 12.5px;
-  color: var(--text-secondary);
+  color: var(--zinc-300);
   line-height: 1.5;
 }
 
@@ -487,31 +564,19 @@ onMounted(async () => {
   flex-wrap: wrap;
   gap: 0;
   font-size: 11.5px;
-  color: var(--text-tertiary);
+  color: var(--zinc-500);
 }
-
 .card-meta code {
   font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
-  color: var(--text-secondary);
+  color: var(--zinc-300);
 }
-
-.card-meta .mono {
-  font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
-}
-
-.card-meta .link {
-  color: var(--accent-blue, #60a5fa);
-  text-decoration: none;
-}
-
-.card-meta .link:hover {
-  text-decoration: underline;
-}
-
+.mono-font { font-family: ui-monospace, SFMono-Regular, Consolas, monospace; }
+.card-meta .link { color: var(--accent-blue, #60a5fa); text-decoration: none; }
+.card-meta .link:hover { text-decoration: underline; }
 .meta-dot::before {
   content: '·';
   margin: 0 6px;
-  color: var(--text-tertiary);
+  color: var(--zinc-600);
 }
 
 .card-actions {
@@ -529,13 +594,17 @@ onMounted(async () => {
   padding: 6px 12px;
   background: rgba(34, 197, 94, 0.1);
   border: 1px solid rgba(34, 197, 94, 0.3);
-  border-radius: 6px;
+  border-radius: var(--radius-sm);
   color: #86efac;
   font-size: 12.5px;
   font-weight: 500;
 }
 
-/* 卸载对话框 (内联) */
+/* ─── Spacing helpers (对齐 HomeSettingsPanel) ───────────────────── */
+.mb-md { margin-bottom: 20px; }
+.mb-lg { margin-bottom: 24px; }
+
+/* ─── 卸载对话框 ─────────────────────────────────────────────────── */
 .dialog-overlay {
   position: fixed;
   inset: 0;
@@ -550,7 +619,7 @@ onMounted(async () => {
 .uninstall-dialog {
   background: var(--bg-surface, #1a1d24);
   border: 1px solid rgba(255, 255, 255, 0.08);
-  border-radius: 12px;
+  border-radius: var(--radius-lg);
   padding: 24px;
   min-width: 440px;
   max-width: 540px;
@@ -564,9 +633,7 @@ onMounted(async () => {
   margin-bottom: 14px;
 }
 
-.warn-icon {
-  color: var(--accent-danger, #ef4444);
-}
+.warn-icon { color: var(--accent-danger, #ef4444); }
 
 .dialog-header h3 {
   margin: 0;
@@ -574,22 +641,17 @@ onMounted(async () => {
   font-weight: 600;
 }
 
-.dialog-content {
-  margin-bottom: 18px;
-}
-
+.dialog-content { margin-bottom: 18px; }
 .dialog-content p {
   margin: 0 0 8px;
-  color: var(--text-secondary);
+  color: var(--zinc-300);
   font-size: 13px;
   line-height: 1.55;
 }
-
 .dialog-content strong {
-  color: var(--text-primary);
+  color: var(--text-main);
   font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
 }
-
 .dialog-content code {
   background: rgba(0, 0, 0, 0.4);
   padding: 1px 5px;
@@ -597,7 +659,6 @@ onMounted(async () => {
   font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
   font-size: 11.5px;
 }
-
 .dialog-content .warn {
   color: var(--accent-danger, #fca5a5);
   font-size: 12.5px;
@@ -610,21 +671,14 @@ onMounted(async () => {
 }
 
 .dialog-enter-active,
-.dialog-leave-active {
-  transition: all 0.2s ease;
-}
-
+.dialog-leave-active { transition: all 0.2s ease; }
 .dialog-enter-from,
-.dialog-leave-to {
-  opacity: 0;
-}
-
+.dialog-leave-to { opacity: 0; }
 .dialog-enter-from .uninstall-dialog,
 .dialog-leave-to .uninstall-dialog {
   transform: scale(0.95) translateY(-10px);
   opacity: 0;
 }
-
 .dialog-enter-active .uninstall-dialog,
 .dialog-leave-active .uninstall-dialog {
   transition: all 0.2s cubic-bezier(0.19, 1, 0.22, 1);
