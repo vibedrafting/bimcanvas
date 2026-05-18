@@ -63,37 +63,24 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted, onUnmounted } from 'vue';
+import { computed } from 'vue';
+import { useSystemStore } from '../../stores/systemStore';
 import { useMergeStore } from '../../stores/mergeStore';
 
-interface AgentNotification {
-  title: string;
-  message: string;
-  type: 'info' | 'success' | 'warning' | 'error';
-  timestamp: string;
-}
-
-interface ToastItem {
-  id: number;
-  title: string;
-  message: string;
-  type: 'info' | 'success' | 'warning' | 'error';
-}
-
 const MAX_VISIBLE = 3;
-let nextId = 0;
 
-// Toast 队列（全部，包含隐藏的）
-const toasts = ref<ToastItem[]>([]);
-
-// 全屏 Modal（worktree 列表）
-const modalVisible = ref(false);
-const modalNotification = ref<AgentNotification | null>(null);
+const sys = useSystemStore();
 const mergeStore = useMergeStore();
 
-// 最多显示 MAX_VISIBLE 条，从队尾取（最新的）
+// Toast 队列与可见窗口由 store 持有,此处只做派生
+const toasts = computed(() => sys.toasts);
 const visibleToasts = computed(() => toasts.value.slice(-MAX_VISIBLE));
 const hiddenCount = computed(() => Math.max(0, toasts.value.length - MAX_VISIBLE));
+
+// 全屏 Modal(worktree 列表)
+const modalVisible = computed(() => sys.worktreeNotification !== null);
+const modalNotification = computed(() => sys.worktreeNotification);
+const worktreeNames = computed(() => sys.worktreeNotification?.worktreeNames ?? []);
 
 const modalIcon = computed(() => {
   switch (modalNotification.value?.type) {
@@ -113,63 +100,22 @@ function toastIcon(type: string) {
   }
 }
 
-const worktreeNames = computed(() => {
-  try {
-    const parsed = JSON.parse(modalNotification.value?.message || '');
-    return Array.isArray(parsed) ? parsed : [];
-  } catch {
-    return [];
-  }
-});
-
-function handleNotification(event: Event) {
-  const customEvent = event as CustomEvent<AgentNotification>;
-  const detail = customEvent.detail;
-
-  // 判断是否为 worktree 列表 → 全屏 Modal
-  try {
-    const parsed = JSON.parse(detail?.message || '');
-    if (Array.isArray(parsed) && parsed.length > 0) {
-      modalNotification.value = detail;
-      modalVisible.value = true;
-      return;
-    }
-  } catch { /* 普通文本 */ }
-
-  // 普通通知 → 加入 Toast 队列
-  toasts.value.push({
-    id: nextId++,
-    title: detail.title,
-    message: detail.message,
-    type: detail.type ?? 'info',
-  });
-}
-
 function removeToast(id: number) {
-  const idx = toasts.value.findIndex(t => t.id === id);
-  if (idx !== -1) toasts.value.splice(idx, 1);
+  sys.removeToast(id);
 }
 
 function clearAllToasts() {
-  toasts.value = [];
+  sys.clearAllToasts();
 }
 
 function closeModal() {
-  modalVisible.value = false;
+  sys.dismissWorktreeNotification();
 }
 
 function openMergeWizard() {
   mergeStore.openWizardWithWorktrees(worktreeNames.value);
   closeModal();
 }
-
-onMounted(() => {
-  window.addEventListener('bimcanvas:agent-notification', handleNotification);
-});
-
-onUnmounted(() => {
-  window.removeEventListener('bimcanvas:agent-notification', handleNotification);
-});
 </script>
 
 <style scoped>

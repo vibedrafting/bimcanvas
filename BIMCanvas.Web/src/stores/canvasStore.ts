@@ -9,6 +9,7 @@ import { moduleLibraryService } from '../services/ModuleLibraryService';
 import { getWebRuntime } from '../runtime/runtimeRegistry';
 import { supports } from '../runtime/WebRuntimeProtocol';
 import { SchemeService } from '../services/SchemeService';
+import { useSystemStore } from './systemStore';
 export const useCanvasStore = defineStore('canvas', () => {
     const runtime = getWebRuntime();
     // === 核心状态 ===
@@ -649,10 +650,13 @@ export const useCanvasStore = defineStore('canvas', () => {
         const zoneErrors = data.activeScheme?.zoneErrors;
         if (zoneErrors && zoneErrors.length > 0) {
           debugStore.warn(`[Store] ZoneErrors: ${JSON.stringify(zoneErrors)}`);
+          const sys = useSystemStore();
           zoneErrors.forEach(e => {
-            window.dispatchEvent(new CustomEvent('bimcanvas:agent-notification', {
-              detail: { type: 'warning', title: `分区 ${e.zoneId} 数据损坏`, message: e.message }
-            }));
+            sys.pushToast({
+              type: 'warning',
+              title: `分区 ${e.zoneId} 数据损坏`,
+              message: e.message,
+            });
           });
         }
     };

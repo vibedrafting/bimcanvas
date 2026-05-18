@@ -1,12 +1,7 @@
 import * as signalR from '@microsoft/signalr';
 import { SIGNALR_HUB } from '../config/api';
-
-export interface AgentNotification {
-    title: string;
-    message: string;
-    type: 'info' | 'success' | 'warning' | 'error';
-    timestamp: string;
-}
+import { useSystemStore } from '../stores/systemStore';
+import type { AgentNotificationDto } from '../types/notification';
 
 export class SignalRService {
     private connection: signalR.HubConnection;
@@ -44,9 +39,21 @@ export class SignalRService {
             window.dispatchEvent(new CustomEvent('bimcanvas:git-status-changed', { detail: status }));
         });
 
-        // Agent 通知事件
-        this.connection.on("AgentNotification", (data: AgentNotification) => {
-            window.dispatchEvent(new CustomEvent('bimcanvas:agent-notification', { detail: data }));
+        // Agent 通知事件 — 统一收口到 systemStore;JSON 数组 message 分流为 worktree 全屏 modal
+        this.connection.on("AgentNotification", (data: AgentNotificationDto) => {
+            const sys = useSystemStore();
+            try {
+                const parsed = JSON.parse(data.message);
+                if (Array.isArray(parsed) && parsed.length > 0) {
+                    sys.pushWorktreeNotification({
+                        title: data.title,
+                        worktreeNames: parsed,
+                        type: data.type ?? 'info',
+                    });
+                    return;
+                }
+            } catch { /* 普通文本,落 toast */ }
+            sys.pushToast({ title: data.title, message: data.message, type: data.type });
         });
 
         // 边界段调试可视化数据

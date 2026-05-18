@@ -2,6 +2,7 @@ import { ref } from 'vue';
 import { ChangeSource } from '../types/history';
 import { useCanvasStore } from '../stores/canvasStore';
 import { useAppStore } from '../stores/appStore';
+import { useSystemStore } from '../stores/systemStore';
 import { ProjectService, type ProjectLoadResult } from '../services/ProjectService';
 import { getWebRuntime } from '../runtime/runtimeRegistry';
 import { supports } from '../runtime/WebRuntimeProtocol';
@@ -24,6 +25,7 @@ const pendingHealthCheck = ref<PendingHealthCheck | null>(null);
 export function useProjectFile() {
   const store = useCanvasStore();
   const appStore = useAppStore();
+  const sys = useSystemStore();
   const runtime = getWebRuntime();
   const canImportSnapshot = supports(runtime.capabilities.webSnapshotImport);
   const canExportBcp = supports(runtime.capabilities.bcpExport);
@@ -108,19 +110,31 @@ export function useProjectFile() {
 
     if (canImportSnapshot) {
       if (!fileName.endsWith('.json')) {
-        alert('Standalone 模式只支持 Snapshot JSON 文件');
+        sys.pushToast({
+          type: 'warning',
+          title: '文件类型不支持',
+          message: 'Standalone 模式只支持 Snapshot JSON 文件',
+        });
         return;
       }
 
       const loaded = await store.importSnapshot(file, ChangeSource.UserUpload);
       if (!loaded) {
-        alert(store.error || '导入 Snapshot 失败');
+        sys.pushToast({
+          type: 'error',
+          title: '导入 Snapshot 失败',
+          message: store.error || '未知错误',
+        });
       }
       return;
     }
 
     if (!fileName.endsWith('.bcp')) {
-      alert('只支持 .bcp 格式的文件');
+      sys.pushToast({
+        type: 'warning',
+        title: '文件类型不支持',
+        message: '只支持 .bcp 格式的文件',
+      });
       return;
     }
 
@@ -140,7 +154,11 @@ export function useProjectFile() {
       await completeLoad(ChangeSource.UserUpload);
     } else {
       appStore.clearPendingProjectWarnings();
-      alert(`Failed to open project: ${result.message}`);
+      sys.pushToast({
+        type: 'error',
+        title: '打开项目失败',
+        message: result.message ?? '未知错误',
+      });
     }
   };
 
@@ -167,12 +185,20 @@ export function useProjectFile() {
         await completeLoad(ChangeSource.SystemRestore);
       } else {
         appStore.clearPendingProjectWarnings();
-        alert(`Failed to resolve conflict: ${result.message}`);
+        sys.pushToast({
+          type: 'error',
+          title: '冲突解决失败',
+          message: result.message ?? '未知错误',
+        });
       }
     } catch (err: any) {
       appStore.clearPendingProjectWarnings();
       console.error('Failed to resolve conflict:', err);
-      alert(`Failed to resolve conflict: ${err.message}`);
+      sys.pushToast({
+        type: 'error',
+        title: '冲突解决失败',
+        message: err?.message ?? String(err),
+      });
     } finally {
       pendingFile.value = null;
     }
@@ -229,7 +255,11 @@ export function useProjectFile() {
       return saved;
     } catch (err: any) {
       console.error('Failed to export project:', err);
-      alert(`导出 Snapshot 失败: ${err.message}`);
+      sys.pushToast({
+        type: 'error',
+        title: '导出 Snapshot 失败',
+        message: err?.message ?? String(err),
+      });
       return false;
     }
   };
@@ -244,7 +274,11 @@ export function useProjectFile() {
       return saveBlobToDisk(project.blob, project.filename, 'bcp');
     } catch (err: any) {
       console.error('Failed to export BCP project:', err);
-      alert(`导出 .bcp 失败: ${err.message}`);
+      sys.pushToast({
+        type: 'error',
+        title: '导出 .bcp 失败',
+        message: err?.message ?? String(err),
+      });
       return false;
     }
   };
