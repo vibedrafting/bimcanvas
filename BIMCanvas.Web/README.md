@@ -251,6 +251,7 @@ src/
 | 全局快捷键 | `src/services/interaction/ShortcutManager.ts` |
 | 语义吸附 | `src/services/interaction/snap/` |
 | AI 对话 UI / 流式渲染 | `src/components/UI/AICommandCenter.vue` + `src/composables/aiCommandCenter/*` |
+| 推送通知 / 标记"需重启"状态 | `src/stores/systemStore.ts`(`pushToast` / `markRestartRequired`),见 §10 |
 | API 基址 / 端口 | `src/config/api.ts` + `.env.*` |
 | SignalR 监听 | `src/services/SignalRService.ts` |
 | SSE 流式聊天 | `src/composables/aiCommandCenter/useChatStream.ts` |
@@ -325,3 +326,37 @@ AGENT_API   = VITE_AGENT_URL ?? `${SERVER_BASE}/agent`
 5. **新增 Runtime 能力先扩 `WebRuntimeProtocol`** —— 在 `Connected` / `Standalone` 两端同步落地，UI 通过 `supports(capability)` 守卫，而不是 `runtime.mode` 散点判断。
 6. **样式改 `ThemeService.ts`** —— 不要直接改组件 `<style>` 里的硬编码颜色，否则破坏主题切换。
 7. **ProjectData 是单一真相源** —— UI 与工具只读写 `canvasStore.projectData`；`.bcp` 只属于 Server，`WebSnapshot` 只是 IO 格式。
+
+---
+
+## 10. 通知与重启入口（不允许另起炉灶）
+
+UX 一致性约束。所有用户可见的反馈与"需要重启"状态都走两个统一通道，不要在面板里自建 inline alert / 模态对话框 / 横条 banner：
+
+### 10.1 瞬时反馈 —— 左下 toast-list
+
+| 项 | 内容 |
+|---|---|
+| 唯一容器 | `src/components/UI/AgentNotificationModal.vue`（位于 App.vue 全局挂载，左下角，从下往上堆叠） |
+| 推送 API | `systemStore.pushToast({ title, message, type })`，4 种 type：`info` / `success` / `warning` / `error` |
+| 容量 | 最多同时 3 条可见，溢出显示 `+N 条更多` 徽章 + `全部清除` 按钮 |
+| 底层通道 | `window.dispatchEvent(new CustomEvent('bimcanvas:agent-notification', ...))` —— 不要在业务代码里直接 dispatch，统一走 `pushToast()` |
+
+### 10.2 持久状态 —— 顶栏 [需要重启] 按钮
+
+| 项 | 内容 |
+|---|---|
+| 状态 store | `systemStore.restartRequired`（computed，由 `restartReasons: Set<string>` 驱动） |
+| 标记 API | `systemStore.markRestartRequired(reason: string)` —— `reason` 用 `'settings:server'` / `'plugin:indoor-layout'` 这种带 namespace 的字符串去重 |
+| 渲染组件 | `src/components/UI/GlobalRestartButton.vue`，Teleport 到 `#global-header-actions` 插槽（`views/HomePage.vue` 三种 mode 互斥嵌入） |
+| 执行 | `systemStore.performRestart()` → `RestartService.performRestart(SERVER_BASE)`：POST `/api/settings/restart` + 20×1.5s `/health` 轮询 + `window.location.reload()` |
+| UX 纪律 | 点击按钮 **直接重启,无二次确认**（toast 已告知"需重启",按钮点击 = 用户确认） |
+
+### 10.3 禁止反模式
+
+- ❌ 在面板内写 `<div class="alert alert-error">{{ store.lastError }}</div>` 这种 inline alert —— 改 `pushToast({type:'error'})`
+- ❌ 在面板内写"需要重启 + 立即重启 / 稍后重启" 模态对话框 —— 改 `markRestartRequired(reason)` 让顶栏按钮自动出现
+- ❌ 在业务 store 里加 `restartRequired: ref<boolean>` / `lastError: ref<...>` —— 跨业务统一在 `systemStore`，避免散落
+- ❌ 新增 toast 容器（右上 / 中央 / 自建 Vue Teleport）—— 用户多次明确要求"左下角统一",违反会被退回
+
+历史 commit:`7cbcbfa 功能：顶栏全局 [需要重启] 按钮 + 统一左下 toast-list,删除实例设置模态对话框`
