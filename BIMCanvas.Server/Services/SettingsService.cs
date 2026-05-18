@@ -1,23 +1,25 @@
 using System.Text;
-using System.Text.Json;
 using BIMCanvas.Server.Dtos;
 using BIMCanvas.Server.Models;
+using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
+using Newtonsoft.Json.Serialization;
 
 namespace BIMCanvas.Server.Services;
 
 /// <summary>
 /// 统一实例配置聚合服务。
 /// 聚合 server/web/agent/ccr 四组配置，继续写回原有 JSON 文件。
+/// 序列化栈:Newtonsoft.Json + <see cref="CamelCasePropertyNamesContractResolver"/>(全项目约束,见 CLAUDE.md)。
 /// </summary>
 public sealed class SettingsService
 {
     private static readonly UTF8Encoding Utf8NoBom = new(encoderShouldEmitUTF8Identifier: false);
 
-    private static readonly JsonSerializerOptions DefaultJsonOptions = new()
+    private static readonly JsonSerializerSettings DefaultJsonSettings = new()
     {
-        PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
-        WriteIndented = true
+        ContractResolver = new CamelCasePropertyNamesContractResolver(),
+        Formatting = Formatting.Indented,
     };
 
     private static readonly IReadOnlyList<SettingsFieldDto> ServerFields =
@@ -265,12 +267,11 @@ public sealed class SettingsService
     {
         try
         {
-            var config = JsonSerializer.Deserialize<WebConfig>(
+            var config = JsonConvert.DeserializeObject<WebConfig>(
                 input.ToString(),
-                new JsonSerializerOptions
+                new JsonSerializerSettings
                 {
-                    PropertyNameCaseInsensitive = true,
-                    PropertyNamingPolicy = JsonNamingPolicy.CamelCase
+                    ContractResolver = new CamelCasePropertyNamesContractResolver(),
                 }) ?? throw new InvalidOperationException("web_config.json 内容不能为空对象。");
 
             config.LayerPresets ??= new Dictionary<string, LayerPreset>();
@@ -441,7 +442,7 @@ public sealed class SettingsService
 
     private static JObject ToJObject<T>(T value)
     {
-        var json = JsonSerializer.Serialize(value, DefaultJsonOptions);
+        var json = JsonConvert.SerializeObject(value, DefaultJsonSettings);
         return JObject.Parse(json);
     }
 

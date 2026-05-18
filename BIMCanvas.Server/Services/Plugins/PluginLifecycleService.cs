@@ -9,7 +9,10 @@ using BIMCanvas.Server.Exceptions;
 using BIMCanvas.Server.Models.Plugins;
 using BIMCanvas.Server.Services.PluginSecurity;
 using Microsoft.Extensions.Logging;
+using Newtonsoft.Json;
+using Newtonsoft.Json.Converters;
 using Newtonsoft.Json.Linq;
+using Newtonsoft.Json.Serialization;
 
 namespace BIMCanvas.Server.Services.Plugins;
 
@@ -183,12 +186,14 @@ public sealed class PluginLifecycleService
     {
         Directory.CreateDirectory(PluginPaths.RuntimeRoot);
         var path = PluginPaths.LaunchContextPath(pid);
-        var options = new System.Text.Json.JsonSerializerOptions
+        var settings = new JsonSerializerSettings
         {
-            WriteIndented = true,
-            DefaultIgnoreCondition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull,
+            Formatting = Formatting.Indented,
+            ContractResolver = new CamelCasePropertyNamesContractResolver(),
+            NullValueHandling = NullValueHandling.Ignore,
+            Converters = { new StringEnumConverter(new CamelCaseNamingStrategy()) },
         };
-        var json = System.Text.Json.JsonSerializer.Serialize(context, options);
+        var json = JsonConvert.SerializeObject(context, settings);
         await File.WriteAllTextAsync(path, json, Utf8NoBom, ct);
         return path;
     }

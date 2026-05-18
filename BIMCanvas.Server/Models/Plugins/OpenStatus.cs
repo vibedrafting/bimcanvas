@@ -1,12 +1,10 @@
-using System.Text.Json.Serialization;
-
 namespace BIMCanvas.Server.Models.Plugins;
 
 /// <summary>
 /// OpenProject 三态返回 (主真理源 v1.1 §2.2 + §4.7 / 模板 §4.7)。
 /// Server 把 ProjectContext 内部状态投影为该 enum 返回给 Web,Web 据此决定弹哪个对话框。
+/// 序列化为 camelCase 字符串(由 Program.cs 全局 <c>StringEnumConverter</c> 接管)。
 /// </summary>
-[JsonConverter(typeof(CamelCaseEnumConverter))]
 public enum OpenStatus
 {
     /// <summary>

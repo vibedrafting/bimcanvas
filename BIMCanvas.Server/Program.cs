@@ -4,7 +4,6 @@ using System.Net.Sockets;
 using System.Net.Http.Headers;
 using System.Runtime.InteropServices;
 using System.Text;
-using System.Text.Json;
 using System.Text.RegularExpressions;
 using BIMCanvas.Server.Dtos;
 using BIMCanvas.Server.Hubs;
@@ -13,6 +12,8 @@ using BIMCanvas.Server.Models;
 using BIMCanvas.Server.Services;
 using BIMCanvas.Server.Services.Git;
 using Microsoft.Extensions.FileProviders;
+using Newtonsoft.Json;
+using Newtonsoft.Json.Converters;
 using Newtonsoft.Json.Serialization;
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -182,12 +183,16 @@ builder.Services.AddSingleton(config);
 builder.Services.AddSingleton(runtimeEndpointState);
 builder.Services.AddSingleton<AgentClientService>();
 
-// 配置 JSON 序列化选项（使用 Newtonsoft.Json，与 BIMCanvas.Core 保持一致）
+// 配置 JSON 序列化选项（本项目统一使用 Newtonsoft.Json，禁止引入 System.Text.Json，见 CLAUDE.md "Newtonsoft.Json 单一序列化栈"）
+// StringEnumConverter + CamelCaseNamingStrategy:所有 enum 序列化为 camelCase 字符串
+// (如 TrustState.Untrusted → "untrusted"),前端字符串比较一致；反序列化默认大小写不敏感,旧 PascalCase 数据兼容。
 builder.Services.AddControllers()
     .AddNewtonsoftJson(options =>
     {
         options.SerializerSettings.ContractResolver = new CamelCasePropertyNamesContractResolver();
         options.SerializerSettings.Formatting = Newtonsoft.Json.Formatting.Indented;
+        options.SerializerSettings.Converters.Add(
+            new StringEnumConverter(new CamelCaseNamingStrategy()));
     });
 
 // 注册服务
@@ -638,12 +643,14 @@ Process? ccrProcess = null;
                     trustMode = "fullTrust",
                     readOnlySceneIds = Array.Empty<string>(),
                 };
-                var ctxJson = System.Text.Json.JsonSerializer.Serialize(
+                var ctxJson = JsonConvert.SerializeObject(
                     initialContext,
-                    new System.Text.Json.JsonSerializerOptions
+                    new JsonSerializerSettings
                     {
-                        WriteIndented = true,
-                        DefaultIgnoreCondition = System.Text.Json.Serialization.JsonIgnoreCondition.Never,
+                        Formatting = Newtonsoft.Json.Formatting.Indented,
+                        ContractResolver = new CamelCasePropertyNamesContractResolver(),
+                        NullValueHandling = NullValueHandling.Include,
+                        Converters = { new StringEnumConverter(new CamelCaseNamingStrategy()) },
                     });
                 File.WriteAllText(launchContextPath, ctxJson, Encoding.UTF8);
                 agentProcess.StartInfo.ArgumentList.Add("--launch-context");
@@ -2256,14 +2263,14 @@ static List<PortOccupantInfo> GetWindowsPortOccupants(int port)
     }
 
     var result = new List<PortOccupantInfo>();
-    using var json = JsonDocument.Parse(output);
-    if (json.RootElement.ValueKind == JsonValueKind.Object)
+    var token = Newtonsoft.Json.Linq.JToken.Parse(output);
+    if (token is Newtonsoft.Json.Linq.JObject obj)
     {
-        AddPortOccupant(result, json.RootElement);
+        AddPortOccupant(result, obj);
     }
-    else if (json.RootElement.ValueKind == JsonValueKind.Array)
+    else if (token is Newtonsoft.Json.Linq.JArray array)
     {
-        foreach (var item in json.RootElement.EnumerateArray())
+        foreach (var item in array.OfType<Newtonsoft.Json.Linq.JObject>())
         {
             AddPortOccupant(result, item);
         }
@@ -2275,18 +2282,15 @@ static List<PortOccupantInfo> GetWindowsPortOccupants(int port)
         .ToList();
 }
 
-static void AddPortOccupant(List<PortOccupantInfo> target, JsonElement element)
+static void AddPortOccupant(List<PortOccupantInfo> target, Newtonsoft.Json.Linq.JObject element)
 {
-    if (!element.TryGetProperty("OwningProcess", out var pidProperty) ||
-        !pidProperty.TryGetInt32(out var pid) ||
-        pid <= 0)
+    var pid = element.Value<int?>("OwningProcess") ?? 0;
+    if (pid <= 0)
     {
         return;
     }
 
-    var state = element.TryGetProperty("State", out var stateProperty)
-        ? stateProperty.ToString() ?? "Unknown"
-        : "Unknown";
+    var state = element.Value<string>("State") ?? "Unknown";
     target.Add(new PortOccupantInfo(pid, state));
 }
 
@@ -2569,11 +2573,14 @@ static bool ProbeBIMCanvasAgentHealth(int port)
             return false;
         }
 
-        using var stream = response.Content.ReadAsStreamAsync().GetAwaiter().GetResult();
-        using var document = JsonDocument.Parse(stream);
-        return document.RootElement.TryGetProperty("service", out var serviceProperty)
-               && serviceProperty.ValueKind == JsonValueKind.String
-               && serviceProperty.GetString()?.Equals("bimcanvas-agent", StringComparison.OrdinalIgnoreCase) == true;
+        var body = response.Content.ReadAsStringAsync().GetAwaiter().GetResult();
+        if (string.IsNullOrWhiteSpace(body))
+        {
+            return false;
+        }
+        var document = Newtonsoft.Json.Linq.JObject.Parse(body);
+        var service = document.Value<string>("service");
+        return service?.Equals("bimcanvas-agent", StringComparison.OrdinalIgnoreCase) == true;
     }
     catch
     {

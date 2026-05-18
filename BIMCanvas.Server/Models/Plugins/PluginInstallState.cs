@@ -1,5 +1,5 @@
 using System;
-using System.Text.Json.Serialization;
+using Newtonsoft.Json;
 
 namespace BIMCanvas.Server.Models.Plugins;
 
@@ -15,17 +15,18 @@ namespace BIMCanvas.Server.Models.Plugins;
 /// <para>
 /// 安全决策 (主真理源 §3.13 + §8.2):此文件位于 <c>BIMCANVAS_HOME/</c>,plugin 代码不可触达;
 /// PluginTrustService 是唯一允许 mutate 该文件的 Service。组1 只给出本 record + JSON 形状,
-/// 实际读写实现属于组2 范围。
+/// 实际读写实现属于组2 范围。字段名走 Newtonsoft <c>CamelCasePropertyNamesContractResolver</c>
+/// (在 PluginTrustService 内联配置)。
 /// </para>
 /// </summary>
 public sealed record PluginInstallState(
     [property: JsonIgnore] string PluginId,
-    [property: JsonPropertyName("trustState")] TrustState TrustState,
-    [property: JsonPropertyName("installedAt")] DateTimeOffset InstalledAt,
-    [property: JsonPropertyName("trustedAt")] DateTimeOffset? TrustedAt,
-    [property: JsonPropertyName("sourceUrl")] string? SourceUrl,
-    [property: JsonPropertyName("resolvedCommit")] string? ResolvedCommit,
-    [property: JsonPropertyName("sourceKind")] SourceKind SourceKind,
-    [property: JsonPropertyName("manifestChecksum")] string ManifestChecksum,
-    [property: JsonPropertyName("installedVersion")] string InstalledVersion
+    TrustState TrustState,
+    DateTimeOffset InstalledAt,
+    DateTimeOffset? TrustedAt,
+    string? SourceUrl,
+    string? ResolvedCommit,
+    SourceKind SourceKind,
+    string ManifestChecksum,
+    string InstalledVersion
 );

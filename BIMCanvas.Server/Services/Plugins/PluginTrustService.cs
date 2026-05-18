@@ -2,11 +2,12 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
-using System.Text.Json;
-using System.Text.Json.Serialization;
 using System.Threading;
 using System.Threading.Tasks;
 using BIMCanvas.Server.Models.Plugins;
+using Newtonsoft.Json;
+using Newtonsoft.Json.Converters;
+using Newtonsoft.Json.Serialization;
 
 namespace BIMCanvas.Server.Services.Plugins;
 
@@ -20,16 +21,21 @@ namespace BIMCanvas.Server.Services.Plugins;
 /// 并发安全:全局 <see cref="SemaphoreSlim"/> 单写锁,所有 mutate 操作必须串行;
 /// 写入用 .tmp + Move 原子替换。
 /// </para>
+/// <para>
+/// 序列化(全项目 Newtonsoft 单一栈):camelCase 属性名 + 枚举 camelCase 字符串
+/// + 写时忽略 null,反序列化默认大小写不敏感(向后兼容历史 PascalCase 数据)。
+/// </para>
 /// </summary>
 public sealed class PluginTrustService
 {
     private static readonly SemaphoreSlim _gate = new(1, 1);
 
-    private static readonly JsonSerializerOptions JsonOptions = new()
+    private static readonly JsonSerializerSettings JsonSettings = new()
     {
-        WriteIndented = true,
-        DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
-        Converters = { new JsonStringEnumConverter() }, // DTO 上各 enum 已带自身 converter,此为兜底
+        Formatting = Formatting.Indented,
+        ContractResolver = new CamelCasePropertyNamesContractResolver(),
+        NullValueHandling = NullValueHandling.Ignore,
+        Converters = { new StringEnumConverter(new CamelCaseNamingStrategy()) },
     };
 
     /// <summary>
@@ -149,7 +155,7 @@ public sealed class PluginTrustService
             if (string.IsNullOrWhiteSpace(json))
                 return new Dictionary<string, PluginInstallState>();
 
-            var raw = JsonSerializer.Deserialize<Dictionary<string, PluginInstallState>>(json, JsonOptions)
+            var raw = JsonConvert.DeserializeObject<Dictionary<string, PluginInstallState>>(json, JsonSettings)
                 ?? new Dictionary<string, PluginInstallState>();
 
             // PluginId 字段标 JsonIgnore,反序列化后为 null,从 dict key 回填
@@ -172,7 +178,7 @@ public sealed class PluginTrustService
     {
         Directory.CreateDirectory(Path.GetDirectoryName(PluginPaths.PluginsStateFile)!);
         var tmp = PluginPaths.PluginsStateFile + ".tmp";
-        var json = JsonSerializer.Serialize(dict, JsonOptions);
+        var json = JsonConvert.SerializeObject(dict, JsonSettings);
         await File.WriteAllTextAsync(tmp, json, ct);
         File.Move(tmp, PluginPaths.PluginsStateFile, overwrite: true);
     }

@@ -1,5 +1,3 @@
-using System.Text.Json.Serialization;
-
 namespace BIMCanvas.Server.Models.Plugins;
 
 /// <summary>
@@ -7,8 +5,8 @@ namespace BIMCanvas.Server.Models.Plugins;
 /// Phase 1 实际只会以 <see cref="FullTrust"/> 启动 Agent;<see cref="Untrusted"/>
 /// 是 Phase 2+ sandbox 模式过渡占位 (PluginLifecycleService 在 Phase 1 不会让
 /// Untrusted plugin 走到 Agent 启动)。
+/// 序列化为 camelCase 字符串(由 Program.cs 全局 <c>StringEnumConverter</c> 接管)。
 /// </summary>
-[JsonConverter(typeof(CamelCaseEnumConverter))]
 public enum TrustMode
 {
     /// <summary>

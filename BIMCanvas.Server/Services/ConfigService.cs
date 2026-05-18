@@ -1,11 +1,13 @@
-using System.Text.Json;
 using BIMCanvas.Server.Models;
+using Newtonsoft.Json;
+using Newtonsoft.Json.Serialization;
 
 namespace BIMCanvas.Server.Services;
 
 /// <summary>
 /// 程序配置服务（BIMCANVAS_HOME）。
 /// 仅负责统一路径解析与配置读写，不负责模板初始化。
+/// 序列化栈:Newtonsoft.Json + <see cref="CamelCasePropertyNamesContractResolver"/>(全项目约束,见 CLAUDE.md)。
 /// </summary>
 public static class ConfigService
 {
@@ -18,17 +20,15 @@ public static class ConfigService
     private static readonly string DevLocalAgentConfigPath = Path.Combine(ConfigDir, "config.dev.local.json");
     private static readonly string DevLocalCcrConfigPath = Path.Combine(ConfigDir, "ccr_config.dev.local.json");
 
-    private static readonly JsonSerializerOptions ReadOptions = new()
+    private static readonly JsonSerializerSettings ReadSettings = new()
     {
-        PropertyNameCaseInsensitive = true,
-        PropertyNamingPolicy = JsonNamingPolicy.CamelCase
+        ContractResolver = new CamelCasePropertyNamesContractResolver(),
     };
 
-    private static readonly JsonSerializerOptions WriteOptions = new()
+    private static readonly JsonSerializerSettings WriteSettings = new()
     {
-        PropertyNameCaseInsensitive = true,
-        PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
-        WriteIndented = true
+        ContractResolver = new CamelCasePropertyNamesContractResolver(),
+        Formatting = Formatting.Indented,
     };
 
     /// <summary>
@@ -42,7 +42,7 @@ public static class ConfigService
         try
         {
             var json = File.ReadAllText(ServerConfigPath);
-            return JsonSerializer.Deserialize<ServerConfig>(json, ReadOptions) ?? new ServerConfig();
+            return JsonConvert.DeserializeObject<ServerConfig>(json, ReadSettings) ?? new ServerConfig();
         }
         catch (Exception)
         {
@@ -61,7 +61,7 @@ public static class ConfigService
         try
         {
             var json = File.ReadAllText(WebConfigPath);
-            return JsonSerializer.Deserialize<WebConfig>(json, ReadOptions) ?? new WebConfig();
+            return JsonConvert.DeserializeObject<WebConfig>(json, ReadSettings) ?? new WebConfig();
         }
         catch (Exception)
         {
@@ -100,7 +100,7 @@ public static class ConfigService
         if (config.LayerPresets != null)
             existing.LayerPresets = config.LayerPresets;
 
-        var json = JsonSerializer.Serialize(existing, WriteOptions);
+        var json = JsonConvert.SerializeObject(existing, WriteSettings);
         File.WriteAllText(WebConfigPath, json);
     }
 

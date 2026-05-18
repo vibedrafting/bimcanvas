@@ -1,5 +1,4 @@
 using System.Collections.Generic;
-using System.Text.Json.Serialization;
 
 namespace BIMCanvas.Server.Models.Plugins;
 
@@ -13,8 +12,9 @@ namespace BIMCanvas.Server.Models.Plugins;
 ///
 /// 仅 <see cref="LaunchMode.ProjectBound"/> 时由 Server 生成;<see cref="LaunchMode.Projectless"/>
 /// 时 PluginLaunchContext.Scenes 为 null。
+/// 序列化:Newtonsoft.Json + <c>CamelCasePropertyNamesContractResolver</c>(调用方 settings 配置)。
 /// </summary>
 public sealed record ProjectScenesSummary(
-    [property: JsonPropertyName("scenes")] IReadOnlyList<ProjectScene> Scenes,
-    [property: JsonPropertyName("activeSceneId")] string? ActiveSceneId
+    IReadOnlyList<ProjectScene> Scenes,
+    string? ActiveSceneId
 );

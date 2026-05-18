@@ -1,5 +1,4 @@
 using System;
-using System.Text.Json.Serialization;
 
 namespace BIMCanvas.Server.Models.Plugins;
 
@@ -17,15 +16,17 @@ namespace BIMCanvas.Server.Models.Plugins;
 /// - <c>ScaffoldChecksum</c>:projectMount 物化时 (M2 bind-time) 计算,M1 阶段允许 null。
 /// - <c>TrustedAt</c>:首次 [信任并激活] 时刻;Phase 1 trustState 一旦变 trusted 即不可逆。
 /// </para>
+///
+/// 序列化:Newtonsoft.Json + <c>CamelCasePropertyNamesContractResolver</c>(调用方 settings 配置)。
 /// </summary>
 public sealed record PluginLockSummary(
-    [property: JsonPropertyName("pluginId")] string PluginId,
-    [property: JsonPropertyName("version")] string Version,
-    [property: JsonPropertyName("sourceUrl")] string? SourceUrl,
-    [property: JsonPropertyName("resolvedCommit")] string? ResolvedCommit,
-    [property: JsonPropertyName("sourceKind")] SourceKind SourceKind,
-    [property: JsonPropertyName("manifestChecksum")] string ManifestChecksum,
-    [property: JsonPropertyName("scaffoldChecksum")] string? ScaffoldChecksum,
-    [property: JsonPropertyName("trustedAt")] DateTimeOffset? TrustedAt,
-    [property: JsonPropertyName("installedAt")] DateTimeOffset InstalledAt
+    string PluginId,
+    string Version,
+    string? SourceUrl,
+    string? ResolvedCommit,
+    SourceKind SourceKind,
+    string ManifestChecksum,
+    string? ScaffoldChecksum,
+    DateTimeOffset? TrustedAt,
+    DateTimeOffset InstalledAt
 );

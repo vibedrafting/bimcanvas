@@ -1,5 +1,4 @@
 using System;
-using System.Text.Json.Serialization;
 
 namespace BIMCanvas.Server.Models.Plugins;
 
@@ -11,13 +10,14 @@ namespace BIMCanvas.Server.Models.Plugins;
 ///
 /// 字段权威性以本组 Step 3b 起草的 <c>docs/bcp-scenes-schema.json</c> JSONSchema 为准。
 /// 任何字段扩展必须同步更新该 schema 并升 schemaVersion。
+/// 序列化:Newtonsoft.Json + <c>CamelCasePropertyNamesContractResolver</c>(调用方 settings 配置)。
 /// </summary>
 public sealed record ProjectScene(
-    [property: JsonPropertyName("sceneId")] string SceneId,
-    [property: JsonPropertyName("scene")] string Scene,
-    [property: JsonPropertyName("plugin")] ScenePluginRef Plugin,
-    [property: JsonPropertyName("status")] SceneStatus Status,
-    [property: JsonPropertyName("createdAt")] DateTimeOffset CreatedAt
+    string SceneId,
+    string Scene,
+    ScenePluginRef Plugin,
+    SceneStatus Status,
+    DateTimeOffset CreatedAt
 );
 
 /// <summary>
@@ -29,6 +29,6 @@ public sealed record ProjectScene(
 /// </para>
 /// </summary>
 public sealed record ScenePluginRef(
-    [property: JsonPropertyName("id")] string Id,
-    [property: JsonPropertyName("versionRange")] string VersionRange
+    string Id,
+    string VersionRange
 );

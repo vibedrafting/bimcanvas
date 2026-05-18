@@ -2,22 +2,23 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Text;
-using System.Text.Json;
+using Newtonsoft.Json;
+using Newtonsoft.Json.Serialization;
 
 namespace BIMCanvas.Server.Services
 {
     /// <summary>
     /// 通用模板初始化服务。
     /// 负责定位 Templates 根目录、读取 manifest，并按“仅缺失时补齐”规则复制模板。
+    /// 序列化栈:Newtonsoft.Json + <see cref="CamelCasePropertyNamesContractResolver"/>(全项目约束,见 CLAUDE.md)。
     /// </summary>
     public sealed class BootstrapTemplateService
     {
         private static readonly UTF8Encoding Utf8NoBom = new(encoderShouldEmitUTF8Identifier: false);
 
-        private static readonly JsonSerializerOptions JsonOptions = new()
+        private static readonly JsonSerializerSettings JsonSettings = new()
         {
-            PropertyNameCaseInsensitive = true,
-            PropertyNamingPolicy = JsonNamingPolicy.CamelCase
+            ContractResolver = new CamelCasePropertyNamesContractResolver(),
         };
 
         private readonly string _templatesRoot;
@@ -129,7 +130,7 @@ namespace BIMCanvas.Server.Services
             }
 
             var manifestJson = File.ReadAllText(manifestPath, Encoding.UTF8);
-            var manifest = JsonSerializer.Deserialize<BootstrapManifest>(manifestJson, JsonOptions);
+            var manifest = JsonConvert.DeserializeObject<BootstrapManifest>(manifestJson, JsonSettings);
             if (manifest?.Items == null || manifest.Items.Count == 0)
             {
                 throw new InvalidOperationException($"模板清单为空或无效: {manifestPath}");

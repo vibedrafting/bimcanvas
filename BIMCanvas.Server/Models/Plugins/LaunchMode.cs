@@ -1,12 +1,10 @@
-using System.Text.Json.Serialization;
-
 namespace BIMCanvas.Server.Models.Plugins;
 
 /// <summary>
 /// Plugin Agent 子进程启动模式 (主真理源 v1.1 §3.3 / V14 T10-T12)。
 /// 决定 Server 写入 gate 范围与 Agent 能力边界。
+/// 序列化为 camelCase 字符串(由 Program.cs 全局 <c>StringEnumConverter</c> 接管)。
 /// </summary>
-[JsonConverter(typeof(CamelCaseEnumConverter))]
 public enum LaunchMode
 {
     /// <summary>
