@@ -296,6 +296,7 @@ onMounted(async () => {
   gap: 16px;
   padding: 16px 4px;
   width: 100%;
+  box-sizing: border-box;
 }
 
 /* Teleported actions: 注入到 HomePage 顶栏 #plugins-header-actions, 与 HomeSettingsPanel 风格一致 */
