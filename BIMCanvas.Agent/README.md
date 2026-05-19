@@ -1079,10 +1079,19 @@ async def tool_func(args: dict[str, Any]) -> dict[str, Any]:
 
 ### 添加新工具
 
-1. 在 `src/mcp/` 下创建或修改工具模块（使用 `@tool` 装饰器）
-2. 在 `create_sdk_mcp_server(...)` 中注册工具并更新 `CANVAS_ALLOWED_TOOLS`
-3. 若仅限子代理使用，在 `<BIMCANVAS_HOME>/agents/*.md` 的 `tools` 中显式添加
-4. 更新 README 文档
+> v3.4 后 core-base 的 MCP 工具代码已搬到 `plugins/core-base/mcp_tools/canvas.py`，走 plugin `register(builder)` 范式。
+
+为 core-base 新增 canvas 工具：
+
+1. 在 `plugins/core-base/mcp_tools/canvas.py` 的 `register(builder)` 函数体内,用 `@builder.tool(name, desc, schema)` 装饰新的 async 函数
+2. schema 和 description 拆成模块级 `_XXX_DESC` / `_XXX_SCHEMA` 常量（便于测试直读）
+3. 同步更新 `plugins/core-base/bimcanvas-plugin.json` 的 `tools.allow` 列出新工具完整名（`mcp__canvas__<name>`）
+4. 同步更新 `src/agent/openai_agent.py` 的 `CANVAS_ALLOWED_TOOLS` 字面量常量（v3.4 D6 人工维护点）
+5. 工具体内通过闭包捕获 `ctx = builder.context`，用 `ctx.session.post(f"{ctx.server_url}/...")` 调 Server
+6. 若仅限子代理使用，在 `<BIMCANVAS_HOME>/agents/*.md` 的 `tools` 中显式添加
+7. 更新 README 文档
+
+为 domain plugin 新增工具：去对应独立仓库的 `mcp_tools/<plugin-name>.py` 改，跟 core-base 同套范式。
 
 ## 常见问题
 
