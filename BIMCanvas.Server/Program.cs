@@ -241,6 +241,8 @@ builder.Services.AddSingleton<BIMCanvas.Server.Services.ProjectHealth.IProjectHe
     BIMCanvas.Server.Services.ProjectHealth.Checks.SchemeMetadataSlimCheck>();
 builder.Services.AddSingleton<BIMCanvas.Server.Services.ProjectHealth.IProjectHealthCheck,
     BIMCanvas.Server.Services.ProjectHealth.Checks.SemanticPlanTagValueCheck>();
+builder.Services.AddSingleton<BIMCanvas.Server.Services.ProjectHealth.IProjectHealthCheck,
+    BIMCanvas.Server.Services.ProjectHealth.Checks.SchemeNamespaceMigrationCheck>();
 builder.Services.AddSingleton<BIMCanvas.Server.Services.ProjectHealth.IGitCommitter>(sp =>
     new BIMCanvas.Server.Services.ProjectHealth.GitWorktreeServiceCommitter(
         sp.GetRequiredService<GitWorktreeService>()));
