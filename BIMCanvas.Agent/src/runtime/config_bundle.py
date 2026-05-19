@@ -453,10 +453,15 @@ def build_config_bundle(
         launch_context, active_plugin_root, plugin_manifest, session
     )
 
-    # plugins=[...] 路径列表 (主真理源 §3.7 + 组3 任务模板 §4.4):
-    # BIMCANVAS_HOME 本身 (core-base / 旧布局 base) + active plugin root
-    active_plugin_paths: list[Path] = [bimcanvas_home]
-    if active_plugin_root is not None and active_plugin_root != bimcanvas_home:
+    # plugins=[...] 路径列表 (主真理源 §3.7 + 组3 任务模板 §4.4 + v1.2 §3.5 折中方案):
+    # core_base_root (新布局 <HOME>/plugins/core-base/ 或旧布局回退到 <HOME>) + active plugin root。
+    # 旧实现起点用 bimcanvas_home,在新布局下 <HOME> 根缺 .claude-plugin/ 触发器,会让
+    # main_agent.py:259 报 "[Plugin] 跳过 (缺 .claude-plugin/)" 误报 warning,且 SDK 拿不到
+    # core-base 的 plugin 注册 (core-base/skills 加载也走这条 SDK 路径)。改用 core_base_root
+    # 后:新布局下 <HOME>/plugins/core-base/.claude-plugin/plugin.json 存在,SDK 正确注册;
+    # 旧布局下 _resolve_core_base_root 自动 fallback 到 <HOME>,行为完全等价。
+    active_plugin_paths: list[Path] = [core_base_root]
+    if active_plugin_root is not None and active_plugin_root != core_base_root:
         active_plugin_paths.append(active_plugin_root)
 
     diagnostics = tuple(skill_diag + mcp_diag)
