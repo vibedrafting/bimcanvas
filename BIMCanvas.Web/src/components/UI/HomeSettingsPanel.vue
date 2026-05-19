@@ -133,23 +133,9 @@ function normalizeProvider(value: unknown): ProviderKey {
   return String(value ?? '').trim().toLowerCase() === 'openai' ? 'openai' : 'claude'
 }
 
-// 工具权限重设计 v3.2 §4: tools / agents 块同构 {allow: string[], deny: string[]}
-// 跟随 SDK 语义,空 list = 全开,allow 不再允许 null。
-function normalizeAllowDeny(raw: unknown) {
-  const value = isPlainObject(raw) ? clone(raw) : {}
-  return {
-    allow: Array.isArray(value.allow) ? value.allow : [],
-    deny: Array.isArray(value.deny) ? value.deny : []
-  }
-}
-
-function normalizeTools(raw: unknown) {
-  return normalizeAllowDeny(raw)
-}
-
-function normalizeAgents(raw: unknown) {
-  return normalizeAllowDeny(raw)
-}
+// 工具权限 v3.3 §3 Phase 6:tools / agents 字段从 config.json 移到 plugin manifest 接管,
+// 前端不再 normalize / default 这两个字段(Web 设置面板也不再编辑它们)。
+// 旧的 normalizeAllowDeny / normalizeTools / normalizeAgents 三个函数已删除。
 
 function createClaudeDefaults() {
   return {
@@ -159,8 +145,6 @@ function createClaudeDefaults() {
     defaultEffort: 'low',
     defaultThinking: 'adaptive',
     maxThinkingTokens: 8000,
-    tools: { allow: [], deny: [] },
-    agents: { allow: [], deny: [] },
     modelMapping: clone(CLAUDE_MODEL_DEFAULTS)
   }
 }
@@ -172,8 +156,6 @@ function createOpenAiDefaults() {
     defaultModel: 'gpt-5',
     apiMode: 'chat_completions',
     disableTracing: null as boolean | null,
-    tools: { allow: [], deny: [] },
-    agents: { allow: [], deny: [] },
     modelMapping: clone(OPENAI_MODEL_DEFAULTS)
   }
 }
@@ -287,8 +269,6 @@ function normalize(group: SettingsGroupKey, raw: Record<string, any>) {
       claude: {
         ...createClaudeDefaults(),
         ...claude,
-        tools: normalizeTools(claude.tools),
-        agents: normalizeAgents(claude.agents),
         modelMapping: normalizeClaudeModelMapping(claude.modelMapping)
       },
       openai: {
@@ -296,8 +276,6 @@ function normalize(group: SettingsGroupKey, raw: Record<string, any>) {
         ...openai,
         apiMode: normalizeOpenAiApiMode(openai.apiMode),
         disableTracing: normalizeDisableTracing(openai.disableTracing),
-        tools: normalizeTools(openai.tools),
-        agents: normalizeAgents(openai.agents),
         modelMapping: normalizeOpenAiModelMapping(openai.modelMapping)
       }
     }
@@ -969,7 +947,7 @@ onMounted(() => {
                 <span>
                   当前表单正在编辑 {{ currentProviderLabel }}。
                   {{ isOpenAiProvider ? 'Claude 分域会保留但不会显示。' : 'OpenAI 分域会保留但不会显示。' }}
-                  `tools` / `agents` 块继续只通过下方 JSON 编辑器维护。
+                  工具权限已迁移到 plugin manifest 接管,不再通过本设置面板维护(详见 docs/Tool_Permissions_Migration.md)。
                 </span>
               </div>
 
