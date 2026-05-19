@@ -59,7 +59,7 @@ namespace BIMCanvas.Server.Controllers
         /// <summary>
         /// 列出指定 design zone 下所有变体（含 prev-* 降级目录）。
         /// 数据源：文件系统目录 + slug 前缀约定（prev-* → "prev-adopted"，其他 → "variant"）+
-        /// 变体内 semantic_plan.json 派生的 summary（fallback canonical）。
+        /// 变体各叶子 modules.json 的 schemeMetadata.summary 取第一个非空（由 AI 在 register_variant 时写入）。
         /// createdAt 取目录 mtime，按字典序（≈时间序）升序排序。
         /// </summary>
         [HttpGet("variants")]
@@ -78,6 +78,9 @@ namespace BIMCanvas.Server.Controllers
 
             var projectPath = _projectContext.GetActiveWorktreePath()
                               ?? _projectContext.CurrentProjectPath!;
+            var schemesPath = Path.Combine(projectPath, "schemes");
+            var topology = ModuleFileTopologyService.BuildFromSchemesPath(schemesPath);
+            var leafZoneIds = topology.GetLeafZoneIds(designZoneId);
 
             foreach (var dir in Directory.EnumerateDirectories(variantsRoot, "*", SearchOption.TopDirectoryOnly))
             {
@@ -88,7 +91,7 @@ namespace BIMCanvas.Server.Controllers
                 var state = slug.StartsWith("prev-", StringComparison.OrdinalIgnoreCase)
                     ? "prev-adopted"
                     : "variant";
-                var summary = SemanticPlanSummaryHelper.DeriveSummary(projectPath, designZoneId, slug);
+                var summary = DeriveVariantSummaryFromModules(projectPath, designZoneId, slug, leafZoneIds);
                 var createdAt = Directory.GetCreationTimeUtc(dir).ToString("o");
 
                 response.Variants.Add(new VariantMetadata
@@ -290,7 +293,7 @@ namespace BIMCanvas.Server.Controllers
                         canonicalWrappersByLeaf[leafId] = wrapper;
                 }
 
-                // 3) 降级（如适用）：把当前 canonical 非空叶子写到 variants/prev-{ts}/
+                // 3) 降级（如适用）：把当前 canonical 非空叶子写到 variants/prev-{ts}/，透传原 summary
                 string? demotedSlug = null;
                 if (canonicalWrappersByLeaf.Count > 0)
                 {
@@ -303,25 +306,18 @@ namespace BIMCanvas.Server.Controllers
                             projectPath, request.DesignZoneId, leafId,
                             variantId: demotedSlug, pathMode: VariantPathMode.New,
                             modules: wrapper.Modules,
-                            adoptedAt: now.ToUniversalTime(),
-                            sourceWorkflowOverride: "prev-adopted");
+                            summary: wrapper.SchemeMetadata?.Summary ?? string.Empty);
                     }
                 }
 
-                // 4) 晋升：把被采纳 variant 的每个叶子写到 canonical（透传原 sourceWorkflow）
-                var promoteNow = DateTime.UtcNow;
+                // 4) 晋升：把被采纳 variant 的每个叶子写到 canonical，透传 variant 的 summary
                 foreach (var (leafId, wrapper) in variantWrappersByLeaf)
                 {
-                    var inheritedSourceWorkflow = string.IsNullOrWhiteSpace(wrapper.SchemeMetadata?.SourceWorkflow)
-                        ? "unknown"
-                        : wrapper.SchemeMetadata!.SourceWorkflow;
-
                     await _modulesWriter.WriteAsync(
                         projectPath, request.DesignZoneId, leafId,
                         variantId: null, pathMode: VariantPathMode.New,
                         modules: wrapper.Modules,
-                        adoptedAt: promoteNow,
-                        sourceWorkflowOverride: inheritedSourceWorkflow);
+                        summary: wrapper.SchemeMetadata?.Summary ?? string.Empty);
                 }
 
                 // 5) 删除被采纳变体整目录（含 semantic_plan.json / 各叶子 modules）
@@ -671,6 +667,34 @@ namespace BIMCanvas.Server.Controllers
                 return false;
             }
             return true;
+        }
+
+        /// <summary>
+        /// 派生变体的 summary：遍历该变体所有叶子 modules.json，取第一个非空的 schemeMetadata.summary。
+        /// 用于 ListVariants 显示。AI 在 register_variant 时已把 summary 复制到各叶子 modules.json。
+        /// </summary>
+        private string DeriveVariantSummaryFromModules(
+            string projectPath, string designZoneId, string variantSlug, IReadOnlyList<string> leafZoneIds)
+        {
+            try
+            {
+                foreach (var leafId in leafZoneIds)
+                {
+                    var modulesPath = _modulesWriter.ResolveModulesPath(
+                        projectPath, designZoneId, leafId, variantSlug, VariantPathMode.New);
+                    if (!System.IO.File.Exists(modulesPath))
+                        continue;
+                    var wrapper = _modulesReader.Read(modulesPath);
+                    var summary = wrapper?.SchemeMetadata?.Summary;
+                    if (!string.IsNullOrWhiteSpace(summary))
+                        return summary;
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogDebug(ex, "DeriveVariantSummaryFromModules 失败 designZone={Dz} slug={Slug}", designZoneId, variantSlug);
+            }
+            return string.Empty;
         }
 
     }

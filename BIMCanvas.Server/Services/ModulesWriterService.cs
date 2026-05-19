@@ -26,7 +26,7 @@ namespace BIMCanvas.Server.Services
 
     /// <summary>
     /// modules.json 的唯一写入入口。
-    /// - 派生 schemeMetadata（Server 全权决定，忽略外部传入）
+    /// - schemeMetadata.summary 由调用方 passthrough（不再 Server 派生）
     /// - 合成 wrapper 形态
     /// - 原子写入（.tmp → rename）
     /// </summary>
@@ -49,13 +49,12 @@ namespace BIMCanvas.Server.Services
         /// 写入 modules.json wrapper。
         /// </summary>
         /// <param name="projectPath">项目根目录（含 schemes/）</param>
-        /// <param name="designZoneId">设计区 ID（用于 schemeMetadata.summary 派生）</param>
+        /// <param name="designZoneId">设计区 ID</param>
         /// <param name="leafZoneId">叶子分区 ID</param>
         /// <param name="variantId">变体 slug；null 表示 canonical</param>
         /// <param name="pathMode">variantId 非空时决定写新路径还是旧 sibling 路径</param>
         /// <param name="modules">模块列表</param>
-        /// <param name="adoptedAt">采纳时间戳；adopt 路径填 now，常规 save 留 null</param>
-        /// <param name="sourceWorkflowOverride">显式指定 sourceWorkflow（如 adopt 路径用 "prev-adopted"）；null 时按默认规则派生</param>
+        /// <param name="summary">schemeMetadata.summary 值；不传则空字符串</param>
         public async Task WriteAsync(
             string projectPath,
             string designZoneId,
@@ -63,8 +62,7 @@ namespace BIMCanvas.Server.Services
             string? variantId,
             VariantPathMode pathMode,
             List<Module> modules,
-            DateTime? adoptedAt = null,
-            string? sourceWorkflowOverride = null)
+            string summary = "")
         {
             if (string.IsNullOrWhiteSpace(designZoneId))
                 throw new ArgumentException("designZoneId 必填", nameof(designZoneId));
@@ -91,10 +89,7 @@ namespace BIMCanvas.Server.Services
             {
                 SchemeMetadata = new SchemeMetadata
                 {
-                    Summary = SemanticPlanSummaryHelper.DeriveSummary(projectPath, designZoneId, variantId),
-                    VariantSlug = string.IsNullOrWhiteSpace(variantId) ? null : variantId,
-                    AdoptedAt = adoptedAt?.ToUniversalTime().ToString("o"),
-                    SourceWorkflow = sourceWorkflowOverride ?? DeriveSourceWorkflow(variantId)
+                    Summary = summary ?? string.Empty
                 },
                 Modules = modulesToSave
             };
@@ -105,8 +100,8 @@ namespace BIMCanvas.Server.Services
             File.Move(tmpPath, filePath, overwrite: true);
 
             _logger.LogDebug(
-                "[ModulesWriter] 写入 {Count} 个模块到 {Path}（variantSlug={VariantSlug}, workflow={Workflow}）",
-                modulesToSave.Count, filePath, wrapper.SchemeMetadata.VariantSlug ?? "-", wrapper.SchemeMetadata.SourceWorkflow);
+                "[ModulesWriter] 写入 {Count} 个模块到 {Path}（variantId={VariantId}）",
+                modulesToSave.Count, filePath, variantId ?? "(canonical)");
         }
 
         /// <summary>
@@ -171,94 +166,5 @@ namespace BIMCanvas.Server.Services
             };
         }
 
-        /// <summary>
-        /// 由 variantId slug 约定派生 sourceWorkflow：
-        ///   null/空 → "single-plan"
-        ///   "prev-" 前缀（adopt 降级保留的上一版方案）→ "prev-adopted"
-        ///   其他 → "variant"（合并自原 multi-plan-explore / relocation；UI 无差异化展示）
-        /// </summary>
-        private static string DeriveSourceWorkflow(string? variantId)
-        {
-            if (string.IsNullOrWhiteSpace(variantId))
-                return "single-plan";
-            if (variantId.StartsWith("prev-", StringComparison.OrdinalIgnoreCase))
-                return "prev-adopted";
-            return "variant";
-        }
-    }
-
-    /// <summary>
-    /// 从 semantic_plan.json 派生 schemeMetadata.summary 的小 helper。
-    /// 优先变体内的 semantic_plan（variantId 非空时），回落 canonical；
-    /// 同一份计划内优先 tag=construction-brief，再回落 tag=strategic-plan，再回落空串。
-    /// </summary>
-    public static class SemanticPlanSummaryHelper
-    {
-        public static string DeriveSummary(string projectPath, string designZoneId, string? variantId = null)
-        {
-            if (string.IsNullOrWhiteSpace(projectPath) || string.IsNullOrWhiteSpace(designZoneId))
-                return string.Empty;
-
-            if (!string.IsNullOrWhiteSpace(variantId))
-            {
-                var variantPlanPath = Path.Combine(
-                    projectPath, "schemes", designZoneId, "variants", variantId, "semantic_plan.json");
-                var fromVariant = TryDeriveFromPlanFile(variantPlanPath);
-                if (!string.IsNullOrWhiteSpace(fromVariant))
-                    return fromVariant;
-                // variant 缺 semantic_plan（如 prev-adopted）或无 brief/strategic → fallback canonical
-            }
-
-            var canonicalPlanPath = Path.Combine(projectPath, "schemes", designZoneId, "semantic_plan.json");
-            return TryDeriveFromPlanFile(canonicalPlanPath);
-        }
-
-        private static string TryDeriveFromPlanFile(string planPath)
-        {
-            if (!File.Exists(planPath))
-                return string.Empty;
-
-            try
-            {
-                var json = File.ReadAllText(planPath, Encoding.UTF8);
-                var doc = JsonConvert.DeserializeObject<Models.SemanticPlanDocument>(json);
-                if (doc?.Entries == null || doc.Entries.Count == 0)
-                    return string.Empty;
-
-                var constructionBrief = doc.Entries.LastOrDefault(e => string.Equals(e.Tag, "construction-brief", StringComparison.Ordinal));
-                if (constructionBrief != null && !string.IsNullOrWhiteSpace(constructionBrief.Content))
-                    return FirstSentence(constructionBrief.Content);
-
-                var strategicPlan = doc.Entries.LastOrDefault(e => string.Equals(e.Tag, "strategic-plan", StringComparison.Ordinal));
-                if (strategicPlan != null && !string.IsNullOrWhiteSpace(strategicPlan.Content))
-                    return FirstSentence(strategicPlan.Content);
-
-                return string.Empty;
-            }
-            catch
-            {
-                // semantic_plan.json 读取失败不应阻塞 modules 写入
-                return string.Empty;
-            }
-        }
-
-        private static string FirstSentence(string content)
-        {
-            // 取第一行非空内容；去掉前导 markdown 标记（#, -, *）
-            var lines = content.Split('\n', StringSplitOptions.RemoveEmptyEntries);
-            foreach (var raw in lines)
-            {
-                var line = raw.TrimStart('#', ' ', '-', '*', '\t').Trim();
-                if (string.IsNullOrWhiteSpace(line))
-                    continue;
-
-                // 进一步截取到第一个句号 / 换行
-                var idx = line.IndexOfAny(new[] { '。', '.', '\r' });
-                if (idx > 0)
-                    return line.Substring(0, idx).Trim();
-                return line.Length > 120 ? line.Substring(0, 120) + "..." : line;
-            }
-            return string.Empty;
-        }
     }
 }
