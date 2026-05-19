@@ -201,6 +201,10 @@ class OpenAIAgent:
         self._responses_run_fallback_logged = False
         self._configured_subagents_logged = False
         self._agent_logger = get_agent_logger("OpenAIAgent", window_seq=self.window_seq)
+        # v3.4 D1:long-lived aiohttp session,由 factory.create_agent 创建并赋值,
+        # 用于 PluginContext.session (canvas plugin 工具走 ctx.session)。
+        # disconnect() 时关闭,避免泄漏。
+        self._owned_session: Any | None = None
 
     @property
     def is_connected(self) -> bool:
@@ -252,6 +256,15 @@ class OpenAIAgent:
                 pass
         self._active_stream_result = None
         self._close_sdk_session()
+        # v3.4 D1:关闭 long-lived plugin session,避免 aiohttp 泄漏
+        if self._owned_session is not None and not self._owned_session.closed:
+            try:
+                await self._owned_session.close()
+                logger.info("OpenAIAgent owned aiohttp.ClientSession closed")
+            except Exception as e:
+                logger.warning(f"aiohttp session close error: {e}")
+            finally:
+                self._owned_session = None
         self._connected = False
 
     async def set_model(self, model: str) -> bool:
