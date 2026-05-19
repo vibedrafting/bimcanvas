@@ -7,24 +7,32 @@
     "defaultEffort": "low",
     "defaultThinking": "adaptive",
     "maxThinkingTokens": 8000,
-    "permissions": {
+    "tools": {
       "allow": [
         "Read",
         "Write",
+        "Edit",
+        "Bash",
         "Glob",
         "Grep",
         "Task",
         "Skill",
-        "TodoWrite",
         "AskUserQuestion",
         "mcp__canvas__request_background_screenshot",
-        "mcp__canvas__get_zone_boundaries",
-        "mcp__canvas__save_semantic_plan",
-        "mcp__canvas__load_semantic_plan",
         "mcp__canvas__validate_layout",
-        "mcp__canvas__load_reference_analysis",
-        "mcp__canvas__analyze_image"
+        "mcp__canvas__get_zone_boundaries",
+        "mcp__canvas__register_variant",
+        "mcp__canvas__list_variants",
+        "mcp__canvas__analyze_image",
+        "mcp__canvas__create_job",
+        "mcp__canvas__complete_job",
+        "mcp__canvas__list_project_scenes",
+        "mcp__canvas__load_scene_artifact"
       ],
+      "deny": []
+    },
+    "agents": {
+      "allow": [],
       "deny": []
     },
     "modelMapping": {
@@ -39,27 +47,32 @@
     "defaultModel": "gpt-5",
     "apiMode": "chat_completions",
     "disableTracing": null,
-    "permissions": {
+    "tools": {
       "allow": [
         "Read",
         "Write",
         "Edit",
+        "Bash",
         "Glob",
         "Grep",
-        "Bash",
-        "AskUserQuestion",
         "Task",
         "Skill",
-        "TodoWrite",
+        "AskUserQuestion",
         "mcp__canvas__request_background_screenshot",
-        "mcp__canvas__get_zone_boundaries",
-        "mcp__canvas__save_semantic_plan",
-        "mcp__canvas__load_semantic_plan",
         "mcp__canvas__validate_layout",
-        "mcp__canvas__load_reference_analysis",
-        "mcp__canvas__save_reference_analysis",
-        "mcp__canvas__analyze_image"
+        "mcp__canvas__get_zone_boundaries",
+        "mcp__canvas__register_variant",
+        "mcp__canvas__list_variants",
+        "mcp__canvas__analyze_image",
+        "mcp__canvas__create_job",
+        "mcp__canvas__complete_job",
+        "mcp__canvas__list_project_scenes",
+        "mcp__canvas__load_scene_artifact"
       ],
+      "deny": []
+    },
+    "agents": {
+      "allow": [],
       "deny": []
     },
     "modelMapping": {
