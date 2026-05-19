@@ -487,10 +487,10 @@ public sealed class SettingsService
 
     private static JObject CreateDefaultAgentValues()
     {
-        // 工具权限重设计 v3.2 §4 / §11.6:
-        // - permissions → tools.allow / tools.deny (跟随 SDK 语义,空 list = 全开)
-        // - 新增 agents.allow / agents.deny (SubAgent 装配开关)
-        // - 默认值留空, 由 Templates/global-config/agent/config.json 填充实际清单
+        // 工具权限 v3.3 §3 Phase 5 改造:
+        // config.json 不再含 tools / agents 字段,工具权限改由 plugin manifest
+        // (<HOME>/plugins/<id>/bimcanvas-plugin.json 的 tools/agents 块) 接管。
+        // 这里只保留纯 provider 连接配置 (baseUrl / apiKey / defaultModel / modelMapping 等)。
         return JObject.Parse(
             """
             {
@@ -502,14 +502,6 @@ public sealed class SettingsService
                 "defaultEffort": "low",
                 "defaultThinking": "adaptive",
                 "maxThinkingTokens": 8000,
-                "tools": {
-                  "allow": [],
-                  "deny": []
-                },
-                "agents": {
-                  "allow": [],
-                  "deny": []
-                },
                 "modelMapping": {
                   "opus": { "id": "claude-opus-4-6", "label": "Opus" },
                   "sonnet": { "id": "claude-sonnet-4-20250514", "label": "Sonnet" },
@@ -522,14 +514,6 @@ public sealed class SettingsService
                 "defaultModel": "gpt-5",
                 "apiMode": "chat_completions",
                 "disableTracing": null,
-                "tools": {
-                  "allow": [],
-                  "deny": []
-                },
-                "agents": {
-                  "allow": [],
-                  "deny": []
-                },
                 "modelMapping": {
                   "gpt-5": { "id": "gpt-5", "label": "GPT-5" }
                 }
@@ -540,9 +524,10 @@ public sealed class SettingsService
 
     private static void ValidateClaudeSection(JObject section)
     {
-        // 工具权限重设计 v3.2 §6 C1: 旧 permissions 字段 fail-fast
+        // 工具权限 v3.2 §6 C1: 旧 permissions 字段 fail-fast
         RejectLegacyPermissions(section, "claude");
-        ValidateToolsAndAgents(section, "claude");
+        // 工具权限 v3.3 §3 Phase 5 C3: tools/agents 已废弃,只 warning 不抛错
+        RejectDeprecatedToolsAndAgents(section, "claude");
 
         var defaultModel = section["defaultModel"]?.Value<string>()?.Trim();
         if (string.IsNullOrWhiteSpace(defaultModel))
@@ -606,9 +591,10 @@ public sealed class SettingsService
 
     private static void ValidateOpenAiSection(JObject section)
     {
-        // 工具权限重设计 v3.2 §6 C1: 旧 permissions 字段 fail-fast
+        // 工具权限 v3.2 §6 C1: 旧 permissions 字段 fail-fast
         RejectLegacyPermissions(section, "openai");
-        ValidateToolsAndAgents(section, "openai");
+        // 工具权限 v3.3 §3 Phase 5 C3: tools/agents 已废弃,只 warning 不抛错
+        RejectDeprecatedToolsAndAgents(section, "openai");
 
         var defaultModel = section["defaultModel"]?.Value<string>()?.Trim();
         if (string.IsNullOrWhiteSpace(defaultModel))
@@ -691,39 +677,20 @@ public sealed class SettingsService
         }
     }
 
-    private static void ValidateToolsAndAgents(JObject section, string provider)
+    private static void RejectDeprecatedToolsAndAgents(JObject section, string provider)
     {
-        // 工具权限重设计 v3.2 §4 / §11.6:
-        // - tools.allow / tools.deny: 主控工具权限 (空 list = SDK 全开)
-        // - agents.allow / agents.deny: SubAgent 装配开关
-        // 四个字段都必须是数组 (允许 [])。
-        ValidateStringArrayField(section, provider, "tools", "allow");
-        ValidateStringArrayField(section, provider, "tools", "deny");
-        ValidateStringArrayField(section, provider, "agents", "allow");
-        ValidateStringArrayField(section, provider, "agents", "deny");
-    }
-
-    private static void ValidateStringArrayField(
-        JObject section, string provider, string group, string field)
-    {
-        var path = $"{provider}.{group}.{field}";
-        if (section[group] is not JObject groupObject)
+        // 工具权限 v3.3 §3 Phase 5 C3:
+        // config.json 的 <provider>.tools / agents 字段在 v3.3 已废弃,工具权限改由
+        // plugin manifest (<HOME>/plugins/<id>/bimcanvas-plugin.json 的 tools/agents 块) 接管。
+        // 检测到这两个字段时只记 warning 不抛错,用户可以从配置文件中删除(不影响启动)。
+        foreach (var deprecatedField in new[] { "tools", "agents" })
         {
-            throw new InvalidOperationException(
-                $"config.json `{provider}.{group}` 必须是对象 (含 allow / deny 两个数组字段)。");
-        }
-
-        var token = groupObject[field];
-        if (token is null || token.Type != JTokenType.Array)
-        {
-            throw new InvalidOperationException($"{path} 必须是数组。");
-        }
-
-        foreach (var item in (JArray)token)
-        {
-            if (item.Type != JTokenType.String)
+            if (section.ContainsKey(deprecatedField))
             {
-                throw new InvalidOperationException($"{path} 元素必须是字符串。");
+                Console.Error.WriteLine(
+                    $"[WARN] config.json 的 `{provider}.{deprecatedField}` 字段在 v3.3 已废弃," +
+                    $"工具权限改由 plugin manifest 接管,可以从配置文件中删除该字段。" +
+                    $"详见 docs/Tool_Permissions_Migration.md");
             }
         }
     }
