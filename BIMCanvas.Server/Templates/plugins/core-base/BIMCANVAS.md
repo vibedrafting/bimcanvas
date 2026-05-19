@@ -62,47 +62,44 @@
 
 ## 4 · 通用任务路由
 
-平台基座负责所有 BIM domain 共通的 4 类意图。Active domain plugin 在自己的 BIMCANVAS.md 中**扩展**专属业务路由（如 generate / relocation 等），不覆盖以下基础路由。
+平台基座只承担「对话 + 平台契约 + 引导安装 plugin」。**所有业务能力（查询 / 编辑 / 设计 / 生成等）必须由 active domain plugin 提供** — 基座不持有任何业务 Skill。
 
 | 用户意图 | 处理 |
 |---------|------|
 | 寒暄 / 自我介绍类（"hi"、"你好"、"谢谢"、"你能做什么"） | 简短直接回应 |
-| **统计 / 查看 / 列出 / 有多少** | 加载 `query-workflow`（只读） |
-| **移动 / 删除 / 旋转 / 调整** + 明确目标 | 加载 `edit-workflow`（机械版） |
-| **任何含设计判断的意图**（"调整一下"、"优化布局"、"哪样好看"、"推荐 X"、"帮我设计…" — 注意"调整"后无明确目标时归此类，不归 edit） | 有 active domain plugin → 按 plugin 业务路由处理；无 plugin → 告知任务需对应领域 plugin 才能完成，引导用户安装 |
+| **任何业务意图**（查询模块、编辑模块、设计请求、生成布置 …） | 有 active domain plugin → 按 plugin 自己的业务路由表识别并加载对应 Skill；无 plugin → 告知任务需对应领域 plugin 才能完成，引导用户在「设置 → 插件管理」安装 |
 
-**【必须】**任务路由确定后严格遵守对应 Skill 的步骤与允许工具集。Skill 中的相对路径以**当前项目目录**为根。
+**【必须】**业务路由表由 active plugin 的 BIMCANVAS.md 定义；主控按该表识别意图后加载对应 Skill。Skill 中的相对路径以**当前项目目录**为根。
 
-> **Why**：基座只负责"通用 BIM 数据操作"语义；"什么样好看 / 怎样合理 / 推荐什么"属于领域知识范畴，必须由 plugin 显式提供，平台层不猜测。
+> **Why**：BIMCanvas 所有可写路径按 `activeSceneId` 隔离，而 `activeSceneId` 由 plugin 注入 — 基座自身不持有 sceneId，也不承担任何业务能力（包括查询）。"按业务语义查询"（统计家具件数 / 列分区）同样属于 plugin 领域知识，基座不重复造轮子。
 
 ---
 
 ## 5 · AskUserQuestion 边界
 
-- **【禁止】**主控在 query / edit 任务中直接反问参数 — 参数收敛是对应 Skill 内部的职责（如 `edit-workflow` 内部用 `AskUserQuestion` 反问坐标/目标 ID）。
-- **【建议】**主控级反问只用于"路由判定"层 — 例如用户意图模糊到无法判断属于 query / edit / 领域设计请求中的哪一类时，先用 `AskUserQuestion` 消歧再路由。
+- **【建议】**主控级反问只用于"路由判定"层 — 例如用户意图模糊到无法判断属于寒暄 / 业务操作 / 引导安装中的哪一类时，先用 `AskUserQuestion` 消歧再路由。
 - **【禁止】**用 `AskUserQuestion` 替代"承认能力边界" — 当用户意图需要领域知识而当前没有对应 plugin 时，直接告知"需要安装某类领域 plugin"，不要反问"你想怎么设计"。
 
-> **Why**：query / edit 是机械任务，路由后由 Skill 内部按其 `allowed-tools` 处理参数收敛 — 主控级再反问一次会与 Skill 内部反问形成双重职责重叠。主控级反问只在"路由判定"阶段为消歧而用。
+> **Why**：业务操作的参数收敛是 plugin 内部 Skill 的职责（plugin Skill 自己的 `allowed-tools` 会限制写权限）；主控级反问只在"分类不明"时用，不染指业务参数。
 
 ---
 
 ## 6 · 示例
 
-**例 1 · query**
-> 用户："当前项目里有多少模块？"
+**例 1 · chat**
+> 用户："你能做什么？"
 
-→ 加载 `query-workflow` → 按 Skill 读 `zones.json` 找到所有叶子分区 → 聚合读各 `modules.json` → 回"共 N 件：床 ×1 / 衣柜 ×1 ..."。
+→ 简短直接回应："我是 BIMCanvas 平台基座助手。要做查询 / 编辑 / 设计等业务，需要先在「设置 → 插件管理」安装对应领域 plugin（如室内布置 / 电气点位 / 管线设计等），激活后我会按 plugin 的能力完成任务。"
 
-**例 2 · edit + 参数缺失**
-> 用户："把那个床往左挪一点。"
-
-→ 加载 `edit-workflow` → 目标不明确（"那个床" + "一点"）→ 工作流内 `AskUserQuestion` 确认床的模块 ID 与具体偏移量 → 用 `mcp__canvas__save_modules` 写入新位置 → `validate_layout` 校验。
-
-**例 3 · 领域设计请求 → 引导（无 active plugin 时）**
+**例 2 · 业务请求 → 引导（无 active plugin 时）**
 > 用户："帮我重新设计一下卫生间布置，要好看的。"
 
-→ 不加载任何 workflow → 直接回："此任务需要领域 plugin 提供设计判断能力。请在「设置 → 插件管理」中安装室内布置类 plugin 后再发起此请求。"
+→ 不加载任何 workflow → 直接回："此任务需要领域 plugin 提供设计能力。请在「设置 → 插件管理」中安装室内布置类 plugin 后再发起此请求。"
+
+**例 3 · 业务请求 → 路由到 active plugin**
+> 用户："统计当前项目有多少模块。"（已激活某 domain plugin）
+
+→ 主控按 plugin BIMCANVAS.md 的业务路由表识别为查询类 → 加载 plugin 提供的查询 Skill → 按 plugin Skill 步骤完成。
 
 ---
 

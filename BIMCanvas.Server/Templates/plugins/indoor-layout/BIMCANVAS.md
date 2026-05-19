@@ -23,12 +23,16 @@
 
 ## 业务路由扩展
 
-在基座通用 4 类路由（寒暄 / query / edit / 领域设计请求）之上，追加 2 类室内布置专属意图：
+基座只承担 chat / 引导安装 plugin；以下是 interior-layout 提供的**全部业务路由**（含原 v3.5 时代由 core-base 兜底的 query / edit，现已收归本 plugin 维护）：
 
 | 类型 | 关键词 | 说明 |
 |------|--------|------|
+| query | 统计、查看、列出、有多少、当前状态 | 加载 `query-workflow`（只读，室内布置业务版）|
+| edit | 移动、删除、旋转、调整 + 明确目标 | 加载 `edit-workflow`（室内布置业务智能版，读 references + module_library 作决策依据）|
 | relocation | 更好的位置、还能放哪、替代方案、重新找个位置、换个位置、换面墙、活起来、另外/别的位置、再给几个方案 | 派发 `module-relocation-agent`，写变体 modules-alt-{slug}.json |
 | generate | 布置、设计、创建、生成、规划、识别、落地、照这个来、参考这个、按这张图、手绘、草图、照着做、还原 | 进入下文 generate 语义判定 |
+
+**【必须】**含设计判断的模糊意图（"调整一下" 无明确目标、"优化布局"、"哪样好看"、"推荐 X"、"帮我设计…"）归 generate 类（走语义判定），不归 edit。
 
 ### generate 语义判定
 
