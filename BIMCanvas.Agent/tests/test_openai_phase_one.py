@@ -71,9 +71,13 @@ def _set_openai_runtime_config(
     tools: dict | None = None,
     agents: dict | None = None,
 ) -> None:
-    """更新 openai 段配置 (工具权限重设计 v3.2 §4 新 schema).
+    """更新 openai 段配置 (工具权限 v3.3 §3 Phase 7 改造).
 
-    旧的 permissions={allow,deny} 参数已替换为 tools/agents 两个独立块。
+    工具权限 v3.3 已把 tools/agents 从 config.json 迁移到 plugin manifest 接管,
+    fixture 不再向 config.json 写这两个字段。调用方仍可传 tools=/agents=
+    (保留 kwarg 签名避免改 40+ 调用点),但参数被静默忽略 —— 测试用例若依赖
+    具体 tools.allow / deny 行为,需在测试内 monkeypatch 直接 mock
+    bundle.tools_allow / tools_deny / agents_allow / agents_deny。
     """
     config_path = home / "config.json"
     config = _read_json(config_path)
@@ -91,10 +95,10 @@ def _set_openai_runtime_config(
         config["openai"].pop("disableTracing", None)
     if model_mapping is not None:
         config["openai"]["modelMapping"] = model_mapping
-    if tools is not None:
-        config["openai"]["tools"] = tools
-    if agents is not None:
-        config["openai"]["agents"] = agents
+    # v3.3 Phase 7: tools / agents 不再写 config.json。两个参数保留只为兼容
+    # 旧调用点签名,实际被静默忽略 (绕过 unused-argument lint)。
+    _ = tools
+    _ = agents
     _write_json(config_path, config)
 
 
