@@ -47,9 +47,22 @@ class AgentConfig:
     """子 Agent 配置"""
     name: str
     description: str
-    tools: list[str]
+    tools: list[str] | None
+    """工具列表三态(工具权限重设计 v3.2 §5.2):
+    - None: `.md` 未声明 / 空值 → 装配时按主控 allow+deny 副本继承
+    - list[str]: `.md` 显式列出 → 直接使用,不再继承主控
+    """
     model: str
     prompt: str
+
+
+@dataclass(frozen=True)
+class ToolsConfig:
+    """工具权限配置 (工具权限重设计 v3.2 §4)"""
+    tools_allow: list[str]
+    tools_deny: list[str]
+    agents_allow: list[str]
+    agents_deny: list[str]
 
 
 def ensure_agent_config_schema(config: dict) -> None:
@@ -82,6 +95,18 @@ def ensure_agent_config_schema(config: dict) -> None:
         if not isinstance(section, dict):
             raise ValueError(
                 f"config.json 必须包含对象类型的 `{provider}` 分域。"
+            )
+
+        # C1 (工具权限重设计 v3.2 §6): 旧 `permissions` 字段 fail-fast
+        if "permissions" in section:
+            raise ValueError(
+                f"检测到 config.json 含旧版 `{provider}.permissions` 字段。\n"
+                "工具权限配置已重设计 (v3.2),请参考迁移文档手工调整:\n"
+                "  docs/Tool_Permissions_Migration.md\n"
+                f"  旧 `{provider}.permissions.allow / deny` "
+                f"→ 新 `{provider}.tools.allow / deny`\n"
+                f"  另外新增 `{provider}.agents.allow / deny` 块需添加 (可填空数组)。\n"
+                "BIMCanvas 不会自动迁移旧结构。"
             )
 
     chatgpt_backend = config.get("chatgptBackend")
@@ -296,46 +321,51 @@ class ConfigLoader:
             f"{active_prompt}"
         )
 
-    def load_tools(self) -> list[str] | None:
-        """
-        加载主 Agent 工具白名单（向后兼容方法）
+    def load_tools_config(self) -> ToolsConfig:
+        """加载当前 provider 的工具权限 + SubAgent 装配配置 (工具权限重设计 v3.2 §4)。
 
-        Returns:
-            工具名称列表，或 None（表示默认全开）
-        """
-        allowed, _ = self.load_permissions()
-        return allowed
+        Schema:
+            <provider>.tools.allow / tools.deny  → 主控工具 allow/deny
+            <provider>.agents.allow / agents.deny → SubAgent 装配开关
 
-    def load_permissions(self) -> tuple[list[str] | None, list[str]]:
-        """
-        加载当前 provider 的工具权限配置。
-
-        Returns:
-            (allowed_tools, disallowed_tools) 元组
-            - allowed_tools: 允许的工具列表，None 表示默认全开
-            - disallowed_tools: 禁止的工具列表
+        语义 (跟随 SDK):
+            tools.allow=[]  → SDK 全开 (空 list 不应用白名单)
+            tools.deny=[]   → 无黑名单
+            agents.allow=[] → 全部已加载 SubAgent 都装配
+            agents.deny=[]  → 无 SubAgent 黑名单
         """
         config = self.load_config()
         provider = resolve_runtime_provider(config)
         provider_config = get_provider_config(config, provider)
-        permissions = provider_config.get("permissions", {})
 
-        if permissions in (None, {}):
-            return None, []
-        if not isinstance(permissions, dict):
-            raise ValueError(f"config.json `{provider}.permissions` 必须是对象。")
+        tools_section = provider_config.get("tools")
+        if not isinstance(tools_section, dict):
+            raise ValueError(
+                f"config.json `{provider}.tools` 必须是对象 (含 allow / deny 两个数组字段)。"
+            )
 
-        allow = permissions.get("allow")
-        deny = permissions.get("deny", [])
+        agents_section = provider_config.get("agents")
+        if not isinstance(agents_section, dict):
+            raise ValueError(
+                f"config.json `{provider}.agents` 必须是对象 (含 allow / deny 两个数组字段)。"
+            )
 
-        if allow == []:
-            allow = None
-        if allow is not None and not isinstance(allow, list):
-            raise ValueError(f"config.json `{provider}.permissions.allow` 必须是数组或 null。")
-        if not isinstance(deny, list):
-            raise ValueError(f"config.json `{provider}.permissions.deny` 必须是数组。")
+        def _require_str_list(value: object, field_path: str) -> list[str]:
+            if not isinstance(value, list):
+                raise ValueError(f"config.json `{field_path}` 必须是数组。")
+            for item in value:
+                if not isinstance(item, str):
+                    raise ValueError(
+                        f"config.json `{field_path}` 元素必须是字符串,实际:{type(item).__name__}"
+                    )
+            return list(value)
 
-        return allow, deny
+        return ToolsConfig(
+            tools_allow=_require_str_list(tools_section.get("allow"), f"{provider}.tools.allow"),
+            tools_deny=_require_str_list(tools_section.get("deny"), f"{provider}.tools.deny"),
+            agents_allow=_require_str_list(agents_section.get("allow"), f"{provider}.agents.allow"),
+            agents_deny=_require_str_list(agents_section.get("deny"), f"{provider}.agents.deny"),
+        )
 
 
     def load_agents(
@@ -439,9 +469,18 @@ class ConfigLoader:
         if 'description' not in frontmatter:
             raise ValueError(f"Agent 配置缺少 description 字段: {file_path}")
 
-        # 解析 tools 字段
-        tools_str = frontmatter.get('tools', '')
-        tools = [t.strip() for t in tools_str.split(',') if t.strip()] if tools_str else []
+        # 解析 tools 字段 (工具权限重设计 v3.2 §5.2 三态):
+        # - 字段完全缺失 → None (继承主控)
+        # - 字段存在值为空 → None (继承主控)
+        # - 字段存在值非空 → CSV 解析为 list[str] (显式自主,不再继承)
+        if 'tools' not in frontmatter:
+            tools: list[str] | None = None
+        else:
+            raw = frontmatter['tools'].strip()
+            if not raw:
+                tools = None
+            else:
+                tools = [t.strip() for t in raw.split(',') if t.strip()]
 
         return AgentConfig(
             name=frontmatter['name'],

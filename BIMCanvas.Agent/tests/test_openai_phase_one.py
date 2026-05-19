@@ -68,8 +68,13 @@ def _set_openai_runtime_config(
     openai_api: str | None = None,
     openai_disable_tracing: bool | None = None,
     model_mapping: dict | None = None,
-    permissions: dict | None = None,
+    tools: dict | None = None,
+    agents: dict | None = None,
 ) -> None:
+    """更新 openai 段配置 (工具权限重设计 v3.2 §4 新 schema).
+
+    旧的 permissions={allow,deny} 参数已替换为 tools/agents 两个独立块。
+    """
     config_path = home / "config.json"
     config = _read_json(config_path)
     config["runtimeProvider"] = OPENAI_RUNTIME_ID
@@ -86,8 +91,10 @@ def _set_openai_runtime_config(
         config["openai"].pop("disableTracing", None)
     if model_mapping is not None:
         config["openai"]["modelMapping"] = model_mapping
-    if permissions is not None:
-        config["openai"]["permissions"] = permissions
+    if tools is not None:
+        config["openai"]["tools"] = tools
+    if agents is not None:
+        config["openai"]["agents"] = agents
     _write_json(config_path, config)
 
 
@@ -218,7 +225,7 @@ def test_build_tools_registers_phase_one_local_tools_without_name_error(
     _set_openai_runtime_config(
         home,
         model_mapping={"gpt-4.1": {"id": "gpt-4.1", "label": "GPT-4.1"}},
-        permissions={"allow": None, "deny": ["Task", "mcp__canvas__validate_layout"]},
+        tools={"allow": [], "deny": ["Task", "mcp__canvas__validate_layout"]},
     )
     _set_web_default_model(home, "gpt-4.1")
     _reset_config_caches()
@@ -260,7 +267,7 @@ def test_build_tools_registers_phase_one_local_tools_without_name_error(
     assert delegate_edit_tool.nested_agent.handoffs == []
 
 
-def test_build_tools_respects_permissions_and_warns_for_unsupported_entries(
+def test_build_tools_respects_tools_config_and_warns_for_unsupported_entries(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
     caplog: pytest.LogCaptureFixture,
@@ -271,7 +278,7 @@ def test_build_tools_respects_permissions_and_warns_for_unsupported_entries(
     _set_openai_runtime_config(
         home,
         model_mapping={"gpt-4.1-mini": {"id": "gpt-4.1-mini", "label": "GPT-4.1 mini"}},
-        permissions={
+        tools={
             "allow": ["Read", "Bash", "Task", "UnknownTool"],
             "deny": ["Bash"],
         },
@@ -284,7 +291,7 @@ def test_build_tools_respects_permissions_and_warns_for_unsupported_entries(
         tools = agent._build_tools(_FakeAgentsModule(), model="gpt-4.1-mini", nested_stream_handler=None)
 
     assert [tool.name for tool in tools] == ["Read", "delegate_query_task", "delegate_edit_task"]
-    assert "OpenAI runtime ignored unsupported tools from permissions: UnknownTool" in caplog.text
+    assert "OpenAI runtime ignored unsupported tools from tools.allow/deny: UnknownTool" in caplog.text
     assert "layout-agent (permission-gated: Skill" in caplog.text
 
 
@@ -306,7 +313,7 @@ def test_build_tools_registers_supported_configured_agent_tools(
     _set_openai_runtime_config(
         home,
         model_mapping={"gpt-4.1": {"id": "gpt-4.1", "label": "GPT-4.1"}},
-        permissions={"allow": None, "deny": []},
+        tools={"allow": [], "deny": []},
     )
     _set_web_default_model(home, "gpt-4.1")
     _reset_config_caches()
@@ -372,7 +379,7 @@ def test_build_tools_blocks_configured_agents_with_permission_gaps_or_disabled_c
     _set_openai_runtime_config(
         home,
         model_mapping={"gpt-4.1-mini": {"id": "gpt-4.1-mini", "label": "GPT-4.1 mini"}},
-        permissions={"allow": ["Read"], "deny": ["Write"]},
+        tools={"allow": ["Read"], "deny": ["Write"]},
     )
     _set_web_default_model(home, "gpt-4.1-mini")
     _reset_config_caches()
@@ -411,7 +418,7 @@ def test_build_tools_keeps_non_layout_skill_agents_blocked(
     _set_openai_runtime_config(
         home,
         model_mapping={"gpt-4.1": {"id": "gpt-4.1", "label": "GPT-4.1"}},
-        permissions={"allow": None, "deny": []},
+        tools={"allow": [], "deny": []},
     )
     _set_web_default_model(home, "gpt-4.1")
     _reset_config_caches()
@@ -519,7 +526,7 @@ def test_build_explicit_layout_agent_unavailable_message_is_honest(
     _set_openai_runtime_config(
         home,
         model_mapping={"gpt-4.1-mini": {"id": "gpt-4.1-mini", "label": "GPT-4.1 mini"}},
-        permissions={"allow": ["Read", "Task"], "deny": []},
+        tools={"allow": ["Read", "Task"], "deny": []},
     )
     _set_web_default_model(home, "gpt-4.1-mini")
     _reset_config_caches()
@@ -541,7 +548,7 @@ def test_build_explicit_layout_agent_unavailable_message_is_honest(
     message = agent._build_explicit_configured_agent_unavailable_message(explicit_request)
     assert "当前无法调用 `layout-agent`" in message
     assert "不会用通用 helper worker 冒充" in message
-    assert "openai.permissions.allow" in message
+    assert "openai.tools.allow" in message
 
 
 def test_openai_canvas_wrappers_translate_runtime_context_and_shortcuts(
@@ -554,7 +561,7 @@ def test_openai_canvas_wrappers_translate_runtime_context_and_shortcuts(
     _set_openai_runtime_config(
         home,
         model_mapping={"gpt-4.1": {"id": "gpt-4.1", "label": "GPT-4.1"}},
-        permissions={"allow": None, "deny": ["Task"]},
+        tools={"allow": [], "deny": ["Task"]},
     )
     _set_web_default_model(home, "gpt-4.1")
     _reset_config_caches()
@@ -608,7 +615,7 @@ def test_openai_canvas_screenshot_wrapper_schema_is_strict_compatible(
     _set_openai_runtime_config(
         home,
         model_mapping={"gpt-4.1": {"id": "gpt-4.1", "label": "GPT-4.1"}},
-        permissions={"allow": None, "deny": ["Task"]},
+        tools={"allow": [], "deny": ["Task"]},
     )
     _set_web_default_model(home, "gpt-4.1")
     _reset_config_caches()

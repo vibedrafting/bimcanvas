@@ -1502,7 +1502,7 @@ class OpenAIAgent:
             f"- 如需只读分析、统计或检索，优先调用 `{_OPENAI_DELEGATE_QUERY_TOOL_NAME}`。\n"
             f"- 如需单一局部修改，调用 `{_OPENAI_DELEGATE_EDIT_TOOL_NAME}`。\n"
             f"- 当共享权限允许时，`{_OPENAI_LAYOUT_AGENT_NAME}` 会通过运行时 Skill 装配 + 原生 MCP function tools 定向启用，用于显式单区 generate 子任务。\n"
-            "- 若某个配置型 agent 因 `openai.permissions.allow/deny` 或当前 Runtime 能力边界未启用，主控不得用 helper sub-agent 冒充它。\n"
+            "- 若某个配置型 agent 因 `openai.tools.allow/deny` 或当前 Runtime 能力边界未启用，主控不得用 helper sub-agent 冒充它。\n"
             "- helper sub-agent 只执行一个明确子任务，并返回简洁中文摘要供主控汇总。\n"
             f"{explicit_lines}"
         )
@@ -1984,7 +1984,7 @@ class OpenAIAgent:
         return (
             f"当前无法调用 `{request.name}`，因为它在共享权限/能力检查下未启用：{reasons}。\n"
             "OpenAI runtime 不会用通用 helper worker 冒充这个配置型 agent。\n"
-            "如需继续浏览器验收，请先手动更新 `<BIMCANVAS_HOME>/config.json` 的 `openai.permissions.allow` 后重试。"
+            "如需继续浏览器验收，请先手动更新 `<BIMCANVAS_HOME>/config.json` 的 `openai.tools.allow` 后重试。"
         )
 
     def _log_configured_subagent_availability(
@@ -2020,7 +2020,7 @@ class OpenAIAgent:
                     continue
                 logger.warning(
                     "OpenAI runtime requires manual permission sync for `%s`: update "
-                    "<BIMCANVAS_HOME>/config.json openai.permissions.allow to include the shared layout-agent baseline.",
+                    "<BIMCANVAS_HOME>/config.json openai.tools.allow to include the shared layout-agent baseline.",
                     spec.name,
                 )
                 break
@@ -2036,27 +2036,27 @@ class OpenAIAgent:
 
     def _resolve_enabled_permission_tool_names(self) -> list[str]:
         bundle = self._require_bundle()
-        allowed_tools = bundle.permissions_allow
-        denied_tools = bundle.permissions_deny
+        # 工具权限重设计 v3.2 §4 / §7.1:
+        # - bundle.tools_allow 始终是 list (空 list = SDK 全开语义)
+        # - bundle.tools_deny 始终是 list
+        allowed_tools = bundle.tools_allow
+        denied_tools = bundle.tools_deny
 
-        if allowed_tools is None:
+        if not allowed_tools:  # 空 list = SDK 全开,OpenAI runtime 用默认工具集
             enabled_names = set(_OPENAI_DEFAULT_PERMISSION_TOOL_NAMES)
         else:
             enabled_names = set(allowed_tools)
 
-        enabled_names -= {
-            name
-            for name in denied_tools
-        }
+        enabled_names -= set(denied_tools)
 
         unsupported_requested = sorted({
             name
-            for name in [*(allowed_tools or []), *denied_tools]
+            for name in [*allowed_tools, *denied_tools]
             if name not in _OPENAI_CONFIGURABLE_PERMISSION_TOOL_NAMES
         })
         if unsupported_requested:
             logger.warning(
-                "OpenAI runtime ignored unsupported tools from permissions: %s",
+                "OpenAI runtime ignored unsupported tools from tools.allow/deny: %s",
                 ", ".join(unsupported_requested),
             )
 

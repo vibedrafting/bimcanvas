@@ -487,6 +487,10 @@ public sealed class SettingsService
 
     private static JObject CreateDefaultAgentValues()
     {
+        // 工具权限重设计 v3.2 §4 / §11.6:
+        // - permissions → tools.allow / tools.deny (跟随 SDK 语义,空 list = 全开)
+        // - 新增 agents.allow / agents.deny (SubAgent 装配开关)
+        // - 默认值留空, 由 Templates/global-config/agent/config.json 填充实际清单
         return JObject.Parse(
             """
             {
@@ -498,7 +502,11 @@ public sealed class SettingsService
                 "defaultEffort": "low",
                 "defaultThinking": "adaptive",
                 "maxThinkingTokens": 8000,
-                "permissions": {
+                "tools": {
+                  "allow": [],
+                  "deny": []
+                },
+                "agents": {
                   "allow": [],
                   "deny": []
                 },
@@ -514,7 +522,11 @@ public sealed class SettingsService
                 "defaultModel": "gpt-5",
                 "apiMode": "chat_completions",
                 "disableTracing": null,
-                "permissions": {
+                "tools": {
+                  "allow": [],
+                  "deny": []
+                },
+                "agents": {
                   "allow": [],
                   "deny": []
                 },
@@ -528,7 +540,9 @@ public sealed class SettingsService
 
     private static void ValidateClaudeSection(JObject section)
     {
-        ValidatePermissions(section, "claude.permissions");
+        // 工具权限重设计 v3.2 §6 C1: 旧 permissions 字段 fail-fast
+        RejectLegacyPermissions(section, "claude");
+        ValidateToolsAndAgents(section, "claude");
 
         var defaultModel = section["defaultModel"]?.Value<string>()?.Trim();
         if (string.IsNullOrWhiteSpace(defaultModel))
@@ -592,7 +606,9 @@ public sealed class SettingsService
 
     private static void ValidateOpenAiSection(JObject section)
     {
-        ValidatePermissions(section, "openai.permissions");
+        // 工具权限重设计 v3.2 §6 C1: 旧 permissions 字段 fail-fast
+        RejectLegacyPermissions(section, "openai");
+        ValidateToolsAndAgents(section, "openai");
 
         var defaultModel = section["defaultModel"]?.Value<string>()?.Trim();
         if (string.IsNullOrWhiteSpace(defaultModel))
@@ -660,23 +676,55 @@ public sealed class SettingsService
         }
     }
 
-    private static void ValidatePermissions(JObject section, string path)
+    private static void RejectLegacyPermissions(JObject section, string provider)
     {
-        if (section["permissions"] is not JObject permissions)
+        // 工具权限重设计 v3.2 §6 C1: 旧 `<provider>.permissions` 字段 fail-fast
+        if (section.ContainsKey("permissions"))
         {
-            return;
+            throw new InvalidOperationException(
+                $"检测到 config.json 含旧版 `{provider}.permissions` 字段。" +
+                "工具权限配置已重设计 (v3.2)，请参考迁移文档手工调整：" +
+                "docs/Tool_Permissions_Migration.md。" +
+                $"旧 `{provider}.permissions.allow / deny` → 新 `{provider}.tools.allow / deny`；" +
+                $"另外新增 `{provider}.agents.allow / deny` 块需添加 (可填空数组)。" +
+                "BIMCanvas 不会自动迁移旧结构。");
+        }
+    }
+
+    private static void ValidateToolsAndAgents(JObject section, string provider)
+    {
+        // 工具权限重设计 v3.2 §4 / §11.6:
+        // - tools.allow / tools.deny: 主控工具权限 (空 list = SDK 全开)
+        // - agents.allow / agents.deny: SubAgent 装配开关
+        // 四个字段都必须是数组 (允许 [])。
+        ValidateStringArrayField(section, provider, "tools", "allow");
+        ValidateStringArrayField(section, provider, "tools", "deny");
+        ValidateStringArrayField(section, provider, "agents", "allow");
+        ValidateStringArrayField(section, provider, "agents", "deny");
+    }
+
+    private static void ValidateStringArrayField(
+        JObject section, string provider, string group, string field)
+    {
+        var path = $"{provider}.{group}.{field}";
+        if (section[group] is not JObject groupObject)
+        {
+            throw new InvalidOperationException(
+                $"config.json `{provider}.{group}` 必须是对象 (含 allow / deny 两个数组字段)。");
         }
 
-        var allow = permissions["allow"];
-        if (allow != null && allow.Type != JTokenType.Null && allow.Type != JTokenType.Array)
+        var token = groupObject[field];
+        if (token is null || token.Type != JTokenType.Array)
         {
-            throw new InvalidOperationException($"{path}.allow 只允许数组或 null。");
+            throw new InvalidOperationException($"{path} 必须是数组。");
         }
 
-        var deny = permissions["deny"];
-        if (deny != null && deny.Type != JTokenType.Array)
+        foreach (var item in (JArray)token)
         {
-            throw new InvalidOperationException($"{path}.deny 只允许数组。");
+            if (item.Type != JTokenType.String)
+            {
+                throw new InvalidOperationException($"{path} 元素必须是字符串。");
+            }
         }
     }
 

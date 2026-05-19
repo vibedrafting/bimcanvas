@@ -50,8 +50,14 @@ class ConfigBundle:
     shared_agents: dict[str, AgentConfig]
     skill_index: dict[str, Path]
     skill_metas: dict[str, SkillMeta]
-    permissions_allow: list[str] | None
-    permissions_deny: list[str]
+    # 工具权限重设计 v3.2 §4 / §7.1:
+    # - tools_allow: 主控允许工具列表 (空 list = SDK 全开,直接传给 ClaudeAgentOptions.allowed_tools)
+    # - tools_deny: 主控禁止工具列表 (deny 优先于 allow,跟随 SDK 语义)
+    # - agents_allow / agents_deny: SubAgent 装配开关 (build 时已应用过滤到 shared_agents)
+    tools_allow: list[str]
+    tools_deny: list[str]
+    agents_allow: list[str]
+    agents_deny: list[str]
     mcp_tool_names: tuple[str, ...]
     bimcanvas_home: Path
     # 组3 新增字段 (主真理源 v1.1 §3.4 五层投影)
@@ -115,8 +121,10 @@ class ConfigBundle:
             "skill_names": sorted(self.skill_index.keys()),
             "mcp_servers": {k: mcp_servers_snapshot[k] for k in sorted(mcp_servers_snapshot.keys())},
             "mcp_tool_names": sorted(self.mcp_tool_names),
-            "permissions_allow": sorted(self.permissions_allow) if self.permissions_allow else None,
-            "permissions_deny": sorted(self.permissions_deny),
+            "tools_allow": sorted(self.tools_allow),
+            "tools_deny": sorted(self.tools_deny),
+            "agents_allow": sorted(self.agents_allow),
+            "agents_deny": sorted(self.agents_deny),
             "diagnostics": list(self.diagnostics),
             "scenes_count": len(self.launch_context.scenes.scenes) if self.launch_context.scenes else 0,
             "active_scene_id": self.launch_context.active_scene_id,
@@ -338,7 +346,7 @@ def build_config_bundle(
         launch_context = resolve_launch_context()
 
     loader = get_config_loader()
-    permissions_allow, permissions_deny = loader.load_permissions()
+    tools_cfg = loader.load_tools_config()
     bimcanvas_home = loader.config_dir.resolve()
 
     (
@@ -347,9 +355,26 @@ def build_config_bundle(
     ) = loader.resolve_active_plugin(launch_context)
 
     system_prompt = loader.load_system_prompt(active_plugin_root)
-    shared_agents = dict(
-        loader.load_agents(active_plugin_root)
-    )
+
+    # 工具权限重设计 v3.2 §7.3:对已加载 SubAgent 应用 agents.allow / deny 过滤
+    # - agents.allow 非空 → 白名单模式;agents.allow 空 → 全部已加载 SubAgent 都通过
+    # - 再应用 deny (与 SDK 处理 tools 一致,deny 后于 allow 生效但优先级更高)
+    loaded_agents = dict(loader.load_agents(active_plugin_root))
+    loaded_names = set(loaded_agents.keys())
+    if tools_cfg.agents_allow:
+        effective_names = {n for n in loaded_names if n in tools_cfg.agents_allow}
+    else:
+        effective_names = loaded_names
+    effective_names -= set(tools_cfg.agents_deny)
+    shared_agents = {n: loaded_agents[n] for n in effective_names}
+
+    dropped = loaded_names - set(shared_agents.keys())
+    if dropped:
+        logger.info(
+            "agents 过滤后,以下 SubAgent 不会被装配: %s "
+            "(agents.allow=%s, agents.deny=%s)",
+            sorted(dropped), tools_cfg.agents_allow, tools_cfg.agents_deny,
+        )
 
     # 主真理源 v1.2 §3.5 折中方案:core-base skills 在新布局下从 plugins/core-base/skills/ 读
     skill_index, skill_metas, skill_diag = _build_skill_index(
@@ -373,8 +398,10 @@ def build_config_bundle(
         shared_agents=shared_agents,
         skill_index=skill_index,
         skill_metas=skill_metas,
-        permissions_allow=list(permissions_allow) if permissions_allow is not None else None,
-        permissions_deny=list(permissions_deny or []),
+        tools_allow=list(tools_cfg.tools_allow),
+        tools_deny=list(tools_cfg.tools_deny),
+        agents_allow=list(tools_cfg.agents_allow),
+        agents_deny=list(tools_cfg.agents_deny),
         mcp_tool_names=tuple(mcp_tool_names),
         bimcanvas_home=bimcanvas_home,
         launch_context=launch_context,

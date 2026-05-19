@@ -163,6 +163,8 @@ class MainAgent:
         self._bundle = bundle
         self._subagents = create_subagents(
             bundle.shared_agents,
+            main_allow=bundle.tools_allow,
+            main_deny=bundle.tools_deny,
             project_path=self.project_path,
             working_directory=self.working_directory,
         )
@@ -211,8 +213,13 @@ class MainAgent:
         working_directory = self.working_directory or self.project_path or "（unknown）"
         system_prompt = system_prompt + f"\n\n项目路径: {project_path}\n工作目录: {working_directory}"
 
-        allowed_tools = bundle.permissions_allow
-        disallowed_tools = bundle.permissions_deny
+        # 工具权限重设计 v3.2 §7.1 / §7.2:
+        # - bundle.tools_allow 原样传给 SDK (空 list = SDK 全开)
+        # - bundle.tools_deny 原样传给 SDK (deny 优先于 allow,跟随 SDK 语义)
+        # - 不再自动合入 mcp_tool_names / Skill 等隐式工具,plugin MCP 工具
+        #   需在 config.json 显式列出
+        allowed_tools = bundle.tools_allow
+        disallowed_tools = bundle.tools_deny
 
         # 构建自定义环境变量（用于 Agent SDK 独立配置）
         custom_env = {}
@@ -235,19 +242,13 @@ class MainAgent:
 
         # === MCP 服务器配置 (组3 改造: 动态从 bundle 拿) ===
         mcp_servers_spec = dict(bundle.mcp_servers_spec)
-        mcp_tools = list(bundle.mcp_tool_names)
         self._agent_logger._print(
             f"[MCP] MCP servers registered: {list(mcp_servers_spec.keys())}, "
-            f"tools={len(mcp_tools)}"
+            f"tools={len(bundle.mcp_tool_names)}"
         )
         if bundle.diagnostics:
             for diag in bundle.diagnostics:
                 self._agent_logger._print(f"[Bundle] {diag}")
-
-        # 合并工具权限
-        all_allowed = None
-        if allowed_tools is not None:
-            all_allowed = list(dict.fromkeys([*allowed_tools, *mcp_tools, "Skill"]))
 
         # === Plugin 机制加载 Skills (组3 改造: 遍历 active_plugin_paths) ===
         # BIMCANVAS_HOME 本身就是 Plugin 目录(core-base / 旧布局 base);active plugin root
@@ -268,8 +269,8 @@ class MainAgent:
             cwd=self.working_directory,
             max_turns=30,
             model=model,
-            allowed_tools=all_allowed,             # 包含 MCP 工具
-            disallowed_tools=disallowed_tools,     # 工具黑名单
+            allowed_tools=allowed_tools,           # 工具权限 v3.2: bundle.tools_allow 原样;空 list = SDK 全开
+            disallowed_tools=disallowed_tools,     # 工具权限 v3.2: bundle.tools_deny 原样;deny 优先
             agents=self._subagents,
             permission_mode="acceptEdits",
             include_partial_messages=True,
