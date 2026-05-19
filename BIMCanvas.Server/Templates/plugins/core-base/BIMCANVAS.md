@@ -8,7 +8,7 @@
 
 ## 1 · 工具调用底线
 
-- **【必须】**所有平台动作以工具调用方式发起 — 读文件用 `Read`，改模块用 `mcp__canvas__save_modules`，列分区/截图等用对应的 `mcp__canvas__*`。
+- **【必须】**所有平台动作以工具调用方式发起 — 读文件用 `Read`，改 `modules.json` 用 `Write` / `Edit`（注意保留 `schemeMetadata` 字段），创建变体用 `mcp__canvas__register_variant`，列分区/截图等用对应的 `mcp__canvas__*`。
 - **【禁止】**输出 `<mcp__xxx>` 形式的伪工具调用文本 — 这种文本不会被解析为真实调用，只会让用户误以为你执行了实际并未发生的操作。
 
 ---
@@ -38,11 +38,12 @@
 
 每个 plugin 在自己的 `activeSceneId` 命名空间内工作。`activeSceneId` 由 `PluginLaunchContext` 启动注入，**运行时不可变** — 不要尝试通过修改环境变量、写文件或反射来改它。跨 scene 读用 `mcp__canvas__list_project_scenes` / `load_scene_artifact`。
 
-### 2.4 MCP 命名与写入唯一入口
+### 2.4 MCP 命名与文件写入
 
 - 平台 MCP：`mcp__canvas__*`（保留命名空间）
 - Plugin MCP：`mcp__<plugin-namespace>__*`
-- **`mcp__canvas__save_modules` 是 modules 的唯一写入入口**；禁止用 `Write` / `Edit` 直接改 `modules.json`，否则 Server gate 拒绝且画布不更新。
+- **`modules.json` 用 `Write` / `Edit` 工具直接编辑**；Server 不再拦截、不再派生 metadata。文件形态为 `{schemeMetadata: {summary}, modules: [...]}`：编辑 `modules` 数组时**必须保留 `schemeMetadata` 字段**（误删 `summary` 会让变体设计意图丢失）。
+- **变体目录的创建必须用 `mcp__canvas__register_variant`**（三种 mode：`blank` / `clone-from-canonical` / `clone-from-variant`）；它会按 zones.json 拓扑预创建各叶子子目录 + 写入初始 `modules.json` 模板（含 `schemeMetadata.summary`），后续 AI 用 `Write`/`Edit` 修改 `modules` 数组即可。
 
 ### 2.5 不可越线
 

@@ -134,15 +134,17 @@ load_semantic_plan({ zoneId })
 
 **modules 写入工具**：
 
-**【必须】**通过 `mcp__canvas__save_modules` 写入；**禁止用 Write 工具直接写 `modules.json` 文件**。Phase 0b 起 modules.json 升级为 wrapper `{schemeMetadata, modules}`，**`schemeMetadata` 由 Server 派生**——Agent 不维护、即使传也会被丢弃。
+**【必须】**用 `Write` / `Edit` 工具直接编辑 `modules.json` 文件。modules.json 形态为 wrapper `{schemeMetadata: {summary}, modules: [...]}`：
 
-调用模板：
+- **canonical** 写入（无 variant）：路径 `schemes/{designZoneId}/modules.json`（顶层叶子）或 `schemes/{designZoneId}/{leafZoneId}/modules.json`（嵌套叶子）。首次写入时 `schemeMetadata.summary` 可为空字符串。
+- **variant** 写入：调用方应先调 `mcp__canvas__register_variant` 创建目录骨架；之后只用 `Write` / `Edit` 修改 `modules` 数组，**必须保留 register_variant 写入的 `schemeMetadata.summary`**。
 
-```text
-save_modules({
-  designZoneId: "rz_3",          // 设计区 ID
-  leafZoneId:   "dz_1",          // 当前写入的叶子分区 ID（顶层叶子时与 designZoneId 相同）
-  modules: [
+写入模板（Write 整个文件内容）：
+
+```json
+{
+  "schemeMetadata": { "summary": "" },
+  "modules": [
     {
       "moduleId": "mod_bed_001",
       "moduleName": "双人床",
@@ -151,13 +153,13 @@ save_modules({
       "items": []
     }
   ]
-})
+}
 ```
 
 - `bounds`：矩形 4 顶点，顺序 左下→右下→右上→左上，单位 mm
 - `moduleName`：必填，与 `module_library.json` 一致
 - `items`：必填，无子项时写 `[]`
-- **不要**在 `modules` 数组外或顶层添加 `schemeMetadata` / `summary` 字段——Server 派生
+- **必须保留** 外层 `schemeMetadata` 字段（即使 summary 为空字符串也要保留键）——误删会让 Reader 出错或 Web 端 tooltip 丢失
 
 **facing 规则**：
 

@@ -602,7 +602,7 @@ save_semantic_plan({
 **【必须】**`multi-plan-overview` 保存成功后**立即终止本 Skill**：
 
 - 不进入 `### 2.4`（不写 construction-brief）
-- 不调用 `load_semantic_plan` / `save_modules` / `validate_layout`
+- 不调用 `load_semantic_plan` / `Write modules.json` / `validate_layout`
 - 不派发任何 SubAgent（派发由主控负责）
 - 等待主控读 canonical `multi-plan-overview`、提取 `variantSlugs[]`、并行派发 `variant-design-agent`
 

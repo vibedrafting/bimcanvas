@@ -210,7 +210,7 @@ WHY：这些输入属于单房间 planning/placement 的感知与施工材料。
 - **不**调用全局 `validate_layout`（每个 variant-design-agent 已对自己的变体验过）
 - **不**改写 canonical `modules.json`（采纳由 Web 端"采纳"按钮触发，属于组 B 的 variant adopt 协议范畴）
 - 汇总每个变体的"自动适配 / 自动改图建议"上报内容，不省略
-- 显式列出本批 `batchId` + variants 清单 + 每变体的 `save_modules` 调用次数 / validate 结果
+- 显式列出本批 `batchId` + variants 清单 + 每变体的 `Write modules.json` 调用次数 / validate 结果
 
 ---
 
@@ -301,7 +301,7 @@ layout-agent 完成后，你负责：
 
 ## 业务专属 Skill 时序硬约束
 
-基座已覆盖平台铁律（数据权限 / `save_modules` 唯一入口 / `<mcp__xxx>` 禁令 / scene 边界等）；以下是 indoor-layout 专属的 Skill 时序硬约束：
+基座已覆盖平台铁律（数据权限 / `modules.json` Write 写入 + 保留 `schemeMetadata` / `<mcp__xxx>` 禁令 / scene 边界等）；以下是 indoor-layout 专属的 Skill 时序硬约束：
 
 - **【必须】**不跳过 Skill 步骤
 - **【必须】**不编造家具尺寸

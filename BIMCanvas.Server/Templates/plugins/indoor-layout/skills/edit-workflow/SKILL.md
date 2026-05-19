@@ -3,7 +3,7 @@ name: edit-workflow
 description: |
   BIMCanvas 编辑任务工作流。
   当用户需要"移动"、"删除"、"旋转"、"调整"等单一修改操作时使用此工作流。
-allowed-tools: Read, Write, Edit, Glob, Grep, mcp__canvas__validate_layout, mcp__canvas__save_modules, mcp__canvas__request_background_screenshot, AskUserQuestion
+allowed-tools: Read, Write, Edit, Glob, Grep, mcp__canvas__validate_layout, mcp__canvas__request_background_screenshot, AskUserQuestion
 ---
 
 # Edit 工作流（小范围设计决策）
@@ -55,12 +55,12 @@ WHY：edit 的本质是"小范围设计决策"，不是"机械搬运"。`agent_c
 1. 读必读集（按上表）。
 2. 调 §AABB 落位 + 尺寸决策。
 3. 写 `facing.semantic`（推荐，由 validate 归一化为 `value`）。
-4. `save_modules({designZoneId, leafZoneId, modules})` → `validate_layout()`。
+4. 用 `Write` / `Edit` 直接编辑 `modules.json`（保留 `schemeMetadata` 字段）→ `validate_layout()`。
    - 通过 → 完成。
-   - 失败 → 此时才按需读 `computed/exclusions.json`，做几何级修正（同墙微调 / `limits` 内收缩 / 收缩附属件），重新 `save_modules` → validate。
+   - 失败 → 此时才按需读 `computed/exclusions.json`，做几何级修正（同墙微调 / `limits` 内收缩 / 收缩附属件），重新 `Write` → validate。
 5. 不主动截图。
 
-**【必须】**通过 `mcp__canvas__save_modules` 写 modules；**禁止用 Write 工具直写 modules.json**。schemeMetadata 由 Server 派生，Agent 不维护。
+**【必须】**修改 modules.json 用 `Write` / `Edit` 工具；编辑 `modules` 数组时**必须保留外层 `schemeMetadata` 字段**——canonical 默认 `{summary: ""}`，variant 已含 register_variant 写入的 summary，都不要清空。
 
 ---
 
@@ -155,7 +155,7 @@ WHY：用户标注表达"我希望 X 在这一带"，落位语义表达"X 应该
 判定：简单（有 AABB + 单模块单动作）
 读 zones / modules / module_library[moduleId]（不读 references/{room}.md）
 Step 1 找墙边贴齐 → Step 2 尺寸最大化（min(有效段, limits.max) + 顶角）→ Step 3 碰撞规避
-save_modules → validate_layout
+Write modules.json（保留 schemeMetadata） → validate_layout
 ```
 
 简单移动型（非 parametric 模块）：
@@ -164,7 +164,7 @@ save_modules → validate_layout
 判定：简单
 读 zones / modules / module_library[moduleId]
 Step 1 找墙边贴齐 → Step 3 碰撞规避（跳过 Step 2）
-save_modules → validate_layout
+Write modules.json（保留 schemeMetadata） → validate_layout
 ```
 
 复杂调整型（"调整下梳妆台位置"）：
@@ -173,13 +173,13 @@ save_modules → validate_layout
 判定：复杂 → 读 zones / modules / module_library / references/{room}.md 全文
 （必要时）截图 / AskUserQuestion 确认意图
 按 §AABB 落位 + 尺寸决策 + 战略规则
-save_modules → validate_layout
+Write modules.json（保留 schemeMetadata） → validate_layout
 ```
 
 删除 / 旋转：
 
 ```
-判定：简单 → 读 zones / modules → 调整 modules 数组 → save_modules → validate_layout
+判定：简单 → 读 zones / modules → 调整 modules 数组 → Write modules.json（保留 schemeMetadata） → validate_layout
 ```
 
 ---
