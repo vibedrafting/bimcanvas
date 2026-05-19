@@ -1,15 +1,17 @@
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
   "$id": "https://bimcanvas/docs/plugin-manifest-schema.json",
-  "title": "BIMCanvas Plugin Manifest (bimcanvas-plugin.json)",
-  "description": "BIMCanvas 平台契约的权威 manifest schema。Plugin 作者唯一手写的契约文件 (.claude-plugin/plugin.json 由 bimcanvas-plugin-validate 派生)。StaticPluginValidator (install-time, 纯文本) 用本 schema 做 JSONSchema 校验;ExecutablePluginProbe (trust-time, 执行 Python) 不依赖本 schema。主真理源 v1.1 §3.1 / §3.12 / §6.2。",
+  "title": "BIMCanvas Plugin Manifest (bimcanvas-plugin.json) — v3.3.2",
+  "description": "BIMCanvas 平台契约的权威 manifest schema (v3.3.2 大精简版)。9 字段方案 A:删除 type / schemaVersion / systemPrompt / agents(路径) / skills(路径) / mcpTools / mcpNamespace / projectMount / requires / permissions / referenceStability / maturity / homepage / web 等 13 个过度设计/装饰字段,新增 tools + agents 装配开关对象。所有资源文件位置改为约定俗成(BIMCANVAS.md / agents/*.md / skills/<name>/SKILL.md / mcp_tools/<plugin-name>.py / projectMount/manifest.json),代码写死路径不再读 manifest。MCP namespace 自动从 mcp_tools/<filename>.py 文件名 stem 推断。工具权限合成走 fallback / 完全接管语义:有 active 专业插件时 effective = active.tools;无专业插件时 fallback 到 core-base.tools,绝不 merge。详见 .dev/plans/工具权限配置系统/工具权限_v3.3_plugin-manifest-接管.md。",
   "type": "object",
   "required": [
     "name",
     "version",
-    "type",
-    "schemaVersion",
-    "compatibility"
+    "compatibility",
+    "displayName",
+    "description",
+    "tools",
+    "agents"
   ],
   "additionalProperties": false,
   "properties": {
@@ -22,22 +24,12 @@
       "pattern": "^[a-z0-9-]+$",
       "minLength": 1,
       "maxLength": 64,
-      "description": "Plugin 唯一标识。仅允许小写字母、数字、短横线;在用户的 BIMCANVAS_HOME/plugins/ 下作为目录名,也是 mcpNamespace 缺省值的来源。"
+      "description": "Plugin 唯一标识。仅允许小写字母、数字、短横线。同时承担三个角色:(1) 在用户的 BIMCANVAS_HOME/plugins/ 下作为目录名;(2) MCP namespace 默认来源(若 mcp_tools/<name>.py 存在则 namespace 自动 = name,见 §3.8 约定);(3) sceneId 模板默认前缀(defaultSceneIdPattern 缺省时为 '{name}-{n}')。"
     },
     "version": {
       "type": "string",
       "pattern": "^\\d+\\.\\d+\\.\\d+(-[0-9A-Za-z.\\-]+)?(\\+[0-9A-Za-z.\\-]+)?$",
-      "description": "Plugin 自身版本号 (semver)。运行时被记入 plugins-state.json.installedVersion 与 plugins.lock.json.version。"
-    },
-    "type": {
-      "type": "string",
-      "const": "bimcanvas-plugin",
-      "description": "固定常量,用于 StaticPluginValidator 第一步 quick-reject 非 BIMCanvas plugin。"
-    },
-    "schemaVersion": {
-      "type": "integer",
-      "const": 1,
-      "description": "本 manifest schema 的版本号。Phase 1 固定为 1;未来破坏性变更走 schemaVersion=2 + 6 个月过渡期 (主真理源 §6.1 R3)。"
+      "description": "Plugin 自身版本号 (semver)。运行时被记入 plugins-state.json.installedVersion 与 plugins.lock.json.version,用于 install / upgrade 流程比对。"
     },
     "compatibility": {
       "type": "object",
@@ -56,133 +48,58 @@
       "type": "string",
       "minLength": 1,
       "maxLength": 80,
-      "description": "Web 设置页 + 顶部 active plugin 标签显示的人类可读名称。缺省时 UI fallback 到 name。"
+      "description": "Web 设置页 + 顶部 active plugin 标签显示的人类可读名称。可含 emoji,如 '🛋️ 室内布置设计' / 'BIM 基础助手'。"
     },
     "description": {
       "type": "string",
+      "minLength": 1,
       "maxLength": 1024,
-      "description": "Web 设置页 plugin 卡片摘要。一句话定位即可,详细文档放 README.md / homepage。"
+      "description": "Web 设置页 plugin 卡片摘要。一句话定位即可,详细文档放 README.md。"
     },
-    "homepage": {
-      "type": "string",
-      "format": "uri",
-      "description": "Plugin 主页 / 仓库 URL。Web 设置页提供 \"打开主页\" 链接。"
-    },
-    "systemPrompt": {
-      "type": "string",
-      "minLength": 1,
-      "default": "BIMCANVAS.md",
-      "description": "Plugin 域 system prompt 文件相对路径 (相对 plugin 根)。运行时与 core-base 的 BIMCANVAS.md 拼接,边界标识 \"## Active Domain Contract: <name>\" 硬性插入 (主真理源 §3.5)。"
-    },
-    "agents": {
-      "type": "string",
-      "minLength": 1,
-      "default": "agents/",
-      "description": "SubAgents 目录相对路径。loader.py 显式 glob *.md 解析 (主真理源 §3.6),SDK plugin 机制不扫描 agents。"
-    },
-    "skills": {
-      "type": "string",
-      "minLength": 1,
-      "default": "skills/",
-      "description": "Skills 目录相对路径。走 SDK plugins=[{type:local,path:...}] 自动扫描 (主真理源 §3.7);要求 plugin 根含 .claude-plugin/plugin.json 触发器。"
-    },
-    "mcpTools": {
-      "type": "string",
-      "pattern": "^(?!.*\\.\\.)[^/\\\\][^\\s]*\\.py$",
-      "description": "Plugin MCP 工具入口 Python 文件相对路径,必须以 .py 结尾,绝不能含 \"..\" 也不能以 / 或 \\ 开头 (R1 + R3 防路径逃逸)。运行时由 _build_mcp_servers 通过 importlib.util.spec_from_file_location 加载,文件中需暴露 register(builder) 函数 (主真理源 §3.8)。"
-    },
-    "mcpNamespace": {
-      "type": "string",
-      "pattern": "^[a-z0-9-]+$",
-      "minLength": 1,
-      "maxLength": 32,
-      "not": { "const": "canvas" },
-      "description": "Plugin MCP server 的 namespace key,决定 LLM 可见的工具调用名 mcp__<namespace>__<tool>。绝不能取值 \"canvas\" (core-base 保留)。Spike 2026-05-17 已证 ClaudeAgentOptions(mcp_servers={a, b}) 多 server dict 在 SDK 0.1.41 下隔离正常 (主真理源 §3.8 末尾 + §6.1 R2)。"
-    },
-    "projectMount": {
+    "tools": {
       "type": "object",
+      "required": ["allow", "deny"],
       "additionalProperties": false,
-      "description": "Plugin 提供的项目级脚手架。M2 bind-time 由 ProjectFixedFilesBootstrapService.MountSceneScaffold 物化到 sceneId 命名空间 (主真理源 §4.2 v1.1 修订)。",
-      "properties": {
-        "manifest": {
-          "type": "string",
-          "pattern": "^(?!.*\\.\\.)[^/\\\\][^\\s]*$",
-          "description": "projectMount manifest 文件相对路径,声明 plugin 想物化到 .bcp 项目下的文件清单。"
-        }
-      }
-    },
-    "permissions": {
-      "type": "object",
-      "additionalProperties": false,
-      "description": "Plugin 对内置工具与 MCP 工具的权限声明。loader.py 动态聚合三层:用户偏好 + 本字段 + SDK 内置 (主真理源 §4.1 loader.py:247-275)。",
+      "description": "主控工具权限声明(fallback / 完全接管模型 §2.2)。当该 plugin 作为 active domain plugin 时,主控的 ClaudeAgentOptions.allowed_tools / disallowed_tools 100% 来自此处,不与 core-base 合并。**因此 active 专业插件必须自行拼装完整工具清单**(含内建工具 + 它用到的 core-base 工具 + 自身工具),漏列任何工具主控就调不到。core-base 的 tools 仅在无 active 专业插件时作为 fallback 生效。",
       "properties": {
         "allow": {
           "type": "array",
           "items": { "type": "string", "minLength": 1 },
           "uniqueItems": true,
-          "description": "白名单工具名,如 \"Read\" / \"Bash(git status)\" / \"mcp__canvas__validate_layout\"。"
+          "description": "允许的工具白名单。每项必须是完整工具名:(a) 内建工具 PascalCase 如 'Read' / 'Bash' / 'Task' / 'Skill' / 'AskUserQuestion';(b) MCP 工具完整三段 'mcp__<namespace>__<tool>',禁止 'mcp__<server>' 两段简写、'*' 通配、正则。空数组 [] 表示 SDK 全开(不应用白名单)。"
         },
         "deny": {
           "type": "array",
           "items": { "type": "string", "minLength": 1 },
           "uniqueItems": true,
-          "description": "黑名单工具名,deny 最后生效 (优先级高于 allow)。"
+          "description": "禁止的工具黑名单。语法与 allow 一致。SDK 处理顺序 deny → allow,deny 命中优先拒绝。允许空数组 []。**注意 D10**:此 deny 只对主控生效(走 ClaudeAgentOptions.disallowed_tools 全局通道,等价对 SubAgent 派发的工具调用也拦截)。SDK 0.1.41 AgentDefinition 无 disallowedTools 字段,不存在 per-SubAgent deny。"
         }
       }
     },
-    "requires": {
+    "agents": {
       "type": "object",
+      "required": ["allow", "deny"],
       "additionalProperties": false,
-      "description": "Plugin 对 core-base 平台工具的硬依赖声明。",
+      "description": "SubAgent 装配开关声明(fallback / 完全接管模型)。当该 plugin 作为 active domain plugin 时,SubAgent 装配过滤 100% 来自此处。语义与 v3.2 config.json.<provider>.agents 一致,只是数据源换了。",
       "properties": {
-        "platformTools": {
+        "allow": {
           "type": "array",
           "items": { "type": "string", "minLength": 1 },
           "uniqueItems": true,
-          "description": "core-base MCP 工具名集合,如 \"mcp__canvas__validate_layout\" / \"mcp__canvas__list_project_scenes\"。若声明的工具不存在,StaticPluginValidator 拒绝安装。"
-        }
-      }
-    },
-    "referenceStability": {
-      "type": "string",
-      "enum": ["frozen", "semver-tracked", "experimental"],
-      "description": "Plugin 内对外发布的参考资料 (references / module_library / prompts) 的稳定性承诺。frozen=一旦发布不变,semver-tracked=按 semver 演化,experimental=随时可能 breaking。"
-    },
-    "maturity": {
-      "type": "string",
-      "enum": ["experimental", "beta", "stable"],
-      "description": "Plugin 整体成熟度。Web 设置页据此显示徽章;dogfood 阶段建议 experimental。"
-    },
-    "web": {
-      "type": "object",
-      "additionalProperties": false,
-      "description": "Web 设置页与画布顶部 banner 的 plugin 展示元数据 (M1 设置 tab + Phase 2 banner 扩展)。",
-      "properties": {
-        "displayName": {
-          "type": "string",
-          "minLength": 1,
-          "description": "覆盖 manifest.displayName,仅用于 Web UI;CLI / 日志仍用 manifest.displayName。"
+          "description": "允许装配的 SubAgent 名字白名单。元素是 SubAgent .md 文件的 frontmatter name(如 'layout-agent' / 'module-relocation-agent')。空数组 [] 表示全部已加载 SubAgent 都通过(白名单不限制)。"
         },
-        "icon": {
-          "type": "string",
-          "minLength": 1,
-          "description": "Plugin 图标:可以是相对路径 (相对 plugin 根) 或 emoji。"
-        },
-        "category": {
-          "type": "string",
-          "minLength": 1,
-          "description": "插件分类标签,如 \"residential\" / \"mep\" / \"construction\",用于设置页分组与搜索。"
-        },
-        "settingsHints": {
-          "type": "string",
-          "description": "Plugin 设置页面提示文字,M1 阶段仅占位。"
+        "deny": {
+          "type": "array",
+          "items": { "type": "string", "minLength": 1 },
+          "uniqueItems": true,
+          "description": "禁止装配的 SubAgent 名字黑名单。deny 优先于 allow。允许空数组 []。"
         }
       }
     },
     "defaultSceneIdPattern": {
       "type": "string",
       "minLength": 1,
-      "description": "新建 scene 时的 sceneId 默认 pattern,如 \"interior-layout-{n}\" / \"electrical-points-{n}\";{n} 由 Server 在 POST /api/project/{id}/scenes 内推断递增。用户可手改,但需匹配 ^[a-z0-9-]+$ 且项目内唯一 (主真理源 §3.9)。"
+      "description": "新建 scene 时的 sceneId 默认 pattern,如 'interior-layout-{n}' / 'electrical-points-{n}'。{n} 由 Server 在 POST /api/project/{id}/scenes 内推断递增。用户可手改 sceneId,但需匹配 ^[a-z0-9-]+$ 且项目内唯一(主真理源 §3.9)。**缺省值** = '{name}-{n}'(若 plugin 不显式声明此字段,Server 用 plugin name 拼接)。"
     }
   }
 }
