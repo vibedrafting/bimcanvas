@@ -1,0 +1,15 @@
+<svg viewBox="0 0 2400 900" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <style>
+      .main-lines { fill: none; stroke: #000000; stroke-width: 25; stroke-linecap: round; stroke-linejoin: round; }
+      .detail-lines { fill: none; stroke: #000000; stroke-width: 20; stroke-linecap: round; stroke-linejoin: round; }
+    </style>
+  </defs>
+  <!-- Sofa Outline -->
+  <rect x="13" y="13" width="2374" height="874" class="main-lines" />
+  <!-- Backrest -->
+  <line x1="50" y1="50" x2="2350" y2="50" class="detail-lines" />
+  <!-- Seat Divisions (3 seats) -->
+  <line x1="800" y1="50" x2="800" y2="874" class="detail-lines" />
+  <line x1="1600" y1="50" x2="1600" y2="874" class="detail-lines" />
+</svg>

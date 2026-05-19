@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 2400 400">
+  <defs>
+    <style>
+      .main-lines { fill: none; stroke: #000000; stroke-width: 25; stroke-linecap: round; stroke-linejoin: round; }
+      .detail-lines { fill: none; stroke: #000000; stroke-width: 20; stroke-linecap: round; stroke-linejoin: round; }
+      .fine-lines { fill: none; stroke: #000000; stroke-width: 15; stroke-linecap: round; stroke-linejoin: round; }
+    </style>
+  </defs>
+  <!-- 外框 -->
+  <rect class="main-lines" x="12.5" y="12.5" width="2375" height="375" />
+  <!-- 内缩轮廓表示顶板厚度 -->
+  <rect class="detail-lines" x="35" y="35" width="2330" height="330" />
+  <!-- 分隔线 (4 扇门), 2400 / 4 = 600 -->
+  <line class="fine-lines" x1="600" y1="35" x2="600" y2="365" />
+  <line class="fine-lines" x1="1200" y1="35" x2="1200" y2="365" />
+  <line class="fine-lines" x1="1800" y1="35" x2="1800" y2="365" />
+</svg>

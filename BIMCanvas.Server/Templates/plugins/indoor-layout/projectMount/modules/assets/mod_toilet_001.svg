@@ -1,0 +1,12 @@
+<svg viewBox="0 0 400 650" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <style>
+      .main-lines { fill: none; stroke: #000000; stroke-width: 25; stroke-linecap: round; stroke-linejoin: round; }
+      .detail-lines { fill: none; stroke: #000000; stroke-width: 20; stroke-linecap: round; stroke-linejoin: round; }
+    </style>
+  </defs>
+  <!-- Tank -->
+  <rect x="13" y="13" width="374" height="150" class="main-lines" />
+  <!-- Bowl -->
+  <path d="M 50 163 L 350 163 L 350 450 Q 350 637 200 637 Q 50 637 50 450 Z" class="main-lines" />
+</svg>

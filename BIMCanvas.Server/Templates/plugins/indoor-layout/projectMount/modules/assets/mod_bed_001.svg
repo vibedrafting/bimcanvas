@@ -1,0 +1,35 @@
+<svg viewBox="0 0 1800 2100" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <style>
+      .main-lines { fill: none; stroke: #000000; stroke-width: 25; stroke-linecap: round; stroke-linejoin: round; }
+      .detail-lines { fill: none; stroke: #000000; stroke-width: 20; stroke-linecap: round; stroke-linejoin: round; }
+      .fine-lines { fill: none; stroke: #000000; stroke-width: 15; stroke-linecap: round; stroke-linejoin: round; }
+    </style>
+  </defs>
+  
+  <!-- 1. Bed Frame / Mattress - 修正：内缩12.5px以避免描边被裁剪，确保总宽1800 -->
+  <rect x="13" y="13" width="1774" height="2074" class="main-lines" />
+  
+  <!-- 2. Headboard -->
+  <rect x="40" y="40" width="1720" height="150" rx="10" class="detail-lines" />
+  
+  <!-- 3. Pillows - 对称布局 -->
+  <!-- 左枕头 -->
+  <rect x="160" y="240" width="700" height="420" rx="30" class="detail-lines" />
+  <rect x="240" y="300" width="540" height="300" rx="15" class="fine-lines" />
+  
+  <!-- 右枕头 -->
+  <rect x="940" y="240" width="700" height="420" rx="30" class="detail-lines" />
+  <rect x="1020" y="300" width="540" height="300" rx="15" class="fine-lines" />
+  
+  <!-- 4. Bedding -->
+  <!-- 斜向被单弧线 -->
+  <path d="M 13 900 Q 900 800 1787 1200" class="detail-lines" />
+  
+  <!-- 下沿线 -->
+  <line x1="13" y1="1970" x2="1787" y2="1970" class="fine-lines" />
+  
+  <!-- 装饰带示意 -->
+  <path d="M 400 850 Q 1100 800 1787 1400" class="fine-lines" />
+
+</svg>

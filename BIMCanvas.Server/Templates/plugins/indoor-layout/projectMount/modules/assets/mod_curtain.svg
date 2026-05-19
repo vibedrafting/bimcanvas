@@ -1,0 +1,9 @@
+<svg viewBox="0 0 1000 200" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <style>
+      .main-lines { fill: none; stroke: #000000; stroke-width: 25; stroke-linecap: round; stroke-linejoin: round; }
+    </style>
+  </defs>
+  <!-- Wavy Line -->
+  <path d="M 13 100 Q 138 20 263 100 T 513 100 T 763 100 T 987 100" class="main-lines" />
+</svg>

@@ -1,0 +1,864 @@
+{
+  "version": "1.0",
+  "modules": [
+    {
+      "id": "mod_bed_001",
+      "name": "凤栖湖1800床",
+      "tags": [
+        "sleep"
+      ],
+      "size": {
+        "width": 1800,
+        "depth": 2100
+      },
+      "agent_config": {
+        "morphology": {
+          "strategy": "fixed"
+        },
+        "topology_rules": [
+          "【建议】整组睡眠家具（床+床头柜）需靠墙放置——释放中央活动区域，床头贴墙提供心理安全感",
+          "【必须】床头靠实墙（禁止靠窗墙或门段——门段 = 门洞 + 两侧各 500mm 缓冲；同一面墙上远离门的实墙段仍可作为床头）",
+          "【必须】严格避让门的开启扇区域"
+        ],
+        "relation_rules": [
+          "【建议】侧对窗户：床的长边朝向窗户方向——次卧/主卧首选布局",
+          "【建议】多面实墙可选时，床头优先靠离门最远的墙面——睡眠区与入口动线隔开，减少进出干扰",
+          "【必须】若靠近窗户墙放置，需预留200mm窗帘安装空间",
+          "【建议】间距分配：窗侧须在窗帘区之外，剩余空间偏向使用侧。若卧室策略已定义窗侧锚，睡眠组按窗侧锚连续组装；综合相邻家具统筹指选择床头墙、床型和 fallback，不得覆盖窗侧锚的坐标顺序",
+          "【必须】床型默认值由卧室策略按主卧/次卧决定；主卧默认 1800 床 + 双床头柜，次卧默认 1500 床 + 双床头柜；模块库只定义床型能力和 fallback 边界。1800 床 + 单侧床头柜不是常规降级方案",
+          "【必须】仅保留一个床头柜时，保留远离窗户侧——靠窗侧可省略，反之不行；仅当远离窗户侧存在不可解决的物理冲突（如无法通过调整床位置避开）时，才回退为保留窗侧。【提示】1500 床 + 单侧床头柜是卧室睡眠组的最低合法组合"
+        ]
+      },
+      "description": "凤栖湖定制1800床",
+      "svgPath": "assets/mod_bed_001.svg"
+    },
+    {
+      "id": "mod_bed_002",
+      "name": "凤栖湖1500床",
+      "tags": [
+        "sleep"
+      ],
+      "size": {
+        "width": 1500,
+        "depth": 2100
+      },
+      "agent_config": {
+        "morphology": {
+          "strategy": "fixed"
+        },
+        "topology_rules": [
+          "【建议】整组睡眠家具（床+床头柜）需靠墙放置——释放中央活动区域，床头贴墙提供心理安全感",
+          "【必须】床头靠实墙（禁止靠窗墙或门段——门段 = 门洞 + 两侧各 500mm 缓冲；同一面墙上远离门的实墙段仍可作为床头）",
+          "【必须】严格避让门的开启扇区域"
+        ],
+        "relation_rules": [
+          "【建议】侧对窗户：床的长边朝向窗户方向——次卧/主卧首选布局",
+          "【建议】多面实墙可选时，床头优先靠离门最远的墙面——睡眠区与入口动线隔开，减少进出干扰",
+          "【必须】若靠近窗户墙放置，需预留200mm窗帘安装空间",
+          "【建议】间距分配：窗侧须在窗帘区之外，剩余空间偏向使用侧。若卧室策略已定义窗侧锚，睡眠组按窗侧锚连续组装；综合相邻家具统筹指选择床头墙、床型和 fallback，不得覆盖窗侧锚的坐标顺序",
+          "【必须】1500 床是次卧默认起点，也是主卧 1800 床 + 双床头柜不成立时的 fallback；首选仍是保留双床头柜，仅当 1500 床 + 双柜仍不成立时，才允许降为 1500 床 + 单侧床头柜",
+          "【必须】仅保留一个床头柜时，保留远离窗户侧——靠窗侧可省略，反之不行；仅当远离窗户侧存在不可解决的物理冲突（如无法通过调整床位置避开）时，才回退为保留窗侧。【提示】1500 床 + 单侧床头柜是卧室睡眠组的最低合法组合"
+        ]
+      },
+      "description": "凤栖湖定制1500床",
+      "svgPath": "assets/mod_bed_002.svg"
+    },
+    {
+      "id": "mod_cabinet_001",
+      "name": "床头柜",
+      "tags": [
+        "sleep"
+      ],
+      "size": {
+        "width": 450,
+        "depth": 400
+      },
+      "agent_config": {
+        "morphology": {
+          "strategy": "fixed"
+        },
+        "topology_rules": [
+          "必须紧贴床头两侧",
+          "【必须】facing 方向与所依附的床一致（背靠同一面墙，正面朝房间）"
+        ],
+        "relation_rules": [
+          "【必须】卧室默认先布置两个床头柜；仅当 1500 床 + 双床头柜仍不成立时，才允许保留一个。单柜时优先保留远离窗户侧；仅当该侧存在不可解决的物理冲突时，才回退为保留窗侧",
+          "【建议】所有卧室优先成对布置（对称布局）；空间不足时先换更小床，再考虑单柜。",
+          "【提示】床头柜与相邻家具（如衣柜）之间的间隙是使用间隙，不适用通道宽度标准；相邻衣柜空间不足时应选用移门"
+        ]
+      },
+      "description": "凤栖湖450床头柜",
+      "svgPath": "assets/mod_cabinet_001.svg"
+    },
+    {
+      "id": "mod_cabinet_custom_001",
+      "name": "定制柜体",
+      "tags": [
+        "generalStorage",
+        "wardrobeStorage"
+      ],
+      "size": {
+        "width": 800,
+        "depth": 600
+      },
+      "agent_config": {
+        "morphology": {
+          "strategy": "parametric",
+          "step": 100,
+          "limits": {
+            "width": [
+              600,
+              1200
+            ],
+            "depth": [
+              600,
+              1200
+            ]
+          }
+        },
+        "topology_rules": [
+          "【必须】靠墙放置",
+          "【必须】严格避让门的开启扇区域",
+          "【建议】门扇类型选择：前方净空 ≥ 600mm 用平开门；< 600mm 用移门/滑门（无需前方开门空间）"
+        ],
+        "relation_rules": [
+          "【必须】与标准柜体组合填充有效段：优先尝试标准柜阵列+定制柜补充；当剩余 < 本模块 min width 时，减少标准柜数量、增加定制柜数量重组阵列，目标是填满有效段全长。作为衣柜补充件时 depth 应与主柜体一致（通常 600mm）——深度一致使柜面齐平，避免视觉断裂",
+          "【必须】布置后执行顶角规则检查：若某侧剩余<600mm且非门口/通道侧，应将柜体组整体平移贴靠该侧墙角——窄缝无法使用又难清洁",
+          "【必须】在卧室中作为衣柜使用时，优先评估 L 形布局；L 形不可行时回退线性布局——L 形通过柜体组合实现功能分区和储纳增量",
+          "【提示】选择移门时需在placementReason和items.familyName中注明",
+          "【建议】当房间存在入户门后方的凹位墙面（深度≥600mm、宽度≥800mm）时，优先将定制柜体布置于此"
+        ]
+      },
+      "description": "凤栖湖定制柜体(宽<1500)",
+      "svgPath": "assets/mod_cabinet_custom_001.svg"
+    },
+    {
+      "id": "mod_cabinet_1500",
+      "name": "凤栖湖1500柜体",
+      "tags": [
+        "generalStorage",
+        "wardrobeStorage"
+      ],
+      "size": {
+        "width": 1500,
+        "depth": 600
+      },
+      "agent_config": {
+        "morphology": {
+          "strategy": "fixed",
+          "step": 100
+        },
+        "topology_rules": [
+          "【必须】靠墙放置",
+          "【建议】优先连续阵列布置以最大化利用墙面——连续柜面视觉更整洁，且最大化收纳效率",
+          "【建议】门扇类型选择：前方净空 ≥ 600mm 用平开门；< 600mm 用移门/滑门（无需前方开门空间）"
+        ],
+        "relation_rules": [
+          "【建议】通常与定制柜体组合使用，优先连续阵列布置——连续柜面视觉更整洁，且最大化收纳效率",
+          "【必须】阵列布置后执行顶角规则检查：无法填满整面墙时，贴靠实墙角，将空隙留在门口/通道一侧",
+          "【必须】在卧室中作为衣柜使用时，优先评估 L 形布局；L 形不可行时回退线性布局——L 形通过柜体组合实现功能分区和储纳增量",
+          "【提示】选择移门时需在placementReason和items.familyName中注明"
+        ]
+      },
+      "description": "标准1500柜体",
+      "svgPath": "assets/mod_cabinet_1500.svg"
+    },
+    {
+      "id": "mod_display_cabinet_custom_001",
+      "name": "定制通用柜体",
+      "tags": [
+        "generalStorage",
+        "display",
+        "dining"
+      ],
+      "size": {
+        "width": 800,
+        "depth": 450
+      },
+      "agent_config": {
+        "morphology": {
+          "strategy": "parametric",
+          "limits": {
+            "width": [
+              600,
+              1500
+            ],
+            "depth": [
+              350,
+              600
+            ]
+          }
+        },
+        "topology_rules": [
+          "【必须】靠墙放置",
+          "【必须】严格避让门的开启扇区域",
+          "【建议】门扇类型选择：前方净空 ≥ 600mm 用平开门；< 600mm 用移门/滑门"
+        ],
+        "relation_rules": [
+          "【建议】适用于卧室延伸区、客厅展示墙等需要通用储物或展示功能的位置——当同类型储物已充足时，功能多样性优于同质化叠加",
+          "【必须】布置后执行顶角规则检查：若某侧剩余<600mm且非门口/通道侧，应将柜体组整体平移贴靠该侧墙角",
+          "【建议】填充有效墙段：宽度应尽量覆盖有效墙段全长（实墙长度 - exclusion 扣减），空隙留在门口/通道一侧——连续柜面整体性好，最大化收纳。注意：仅参考本模块自身的 relation_rules，不将其他模块（如梳妆台）的入口缓冲规则泛化应用到本模块"
+        ]
+      },
+      "description": "凤栖湖定制通用柜体/展示柜(宽600-1500)",
+      "svgPath": "assets/mod_display_cabinet_custom_001.svg"
+    },
+    {
+      "id": "mod_bookshelf_custom_001",
+      "name": "定制书架",
+      "tags": [
+        "generalStorage",
+        "study"
+      ],
+      "size": {
+        "width": 3500,
+        "depth": 350
+      },
+      "agent_config": {
+        "morphology": {
+          "strategy": "horizontal_fill",
+          "limits": {
+            "width": [
+              1000,
+              5000
+            ]
+          }
+        },
+        "topology_rules": [
+          "【必须】靠墙放置"
+        ],
+        "relation_rules": [
+          "【必须】布置后执行顶角规则检查：无法填满整面墙时，贴靠实墙角，将空隙留在门口/通道一侧"
+        ]
+      },
+      "description": "凤栖湖定制书架(3500x350)",
+      "svgPath": "assets/mod_bookshelf_custom_001.svg"
+    },
+    {
+      "id": "mod_vanity_custom_001",
+      "name": "定制梳妆台",
+      "tags": [
+        "vanity"
+      ],
+      "size": {
+        "width": 800,
+        "depth": 400
+      },
+      "agent_config": {
+        "morphology": {
+          "strategy": "parametric",
+          "limits": {
+            "width": [
+              800,
+              2000
+            ],
+            "depth": {
+              "enum": [
+                400,
+                600
+              ]
+            }
+          }
+        },
+        "topology_rules": [
+          "【必须】靠墙放置",
+          "【必须】前方需预留 600mm+ 站立/使用空间"
+        ],
+        "relation_rules": [
+          "【必须】异形区残余墙段优先：先在异形区（L形延伸区、凹位）的残余墙段中搜索 ≥ 800mm 的可用空段，无满足条件的异形区墙段时才搜索主体区域。典型场景：L 形延伸区衣柜下方的残余墙段恰好适配梳妆台",
+          "【建议】避免放在床脚正前方（阻碍进出动线）",
+          "【建议】避免紧邻入口门放置——入口门两侧 800mm 内是视觉缓冲区，放置家具会破坏进门开阔感且压缩入口动线",
+          "【必须】布置后执行顶角规则检查：若某侧剩余<600mm且非门口/通道侧，应扩大宽度或平移贴靠该侧墙角/相邻家具——窄缝积灰成卫生死角。与相邻家具（如收纳柜）形成组合时，优先通过扩大宽度消除两者之间的间隙",
+          "【建议】偏好自然采光好的位置——化妆/梳妆需要自然光，靠近窗户的墙段或墙段的靠窗端更优",
+          "【建议】优先与相邻家具形成组合布置（如嵌入衣柜组合端部、与收纳柜并排），而非独立占据一面空墙",
+          "【建议】避免孤立布置：独自放在一面墙上、仅占墙面的一小部分、且侵占主通道——空间利用率低且视觉零碎。例外：床尾对面墙的靠窗端（采光好、动线自然）"
+        ]
+      },
+      "description": "凤栖湖定制梳妆台(宽≥800)",
+      "svgPath": "assets/mod_vanity_custom_001.svg"
+    },
+    {
+      "id": "mod_desk_1860",
+      "name": "凤栖湖书桌",
+      "tags": [
+        "study"
+      ],
+      "size": {
+        "width": 1860,
+        "depth": 600
+      },
+      "agent_config": {
+        "morphology": {
+          "strategy": "fixed"
+        },
+        "topology_rules": [
+          "【必须】靠墙或岛式布置",
+          "【必须】背后需预留椅子空间",
+          "【必须】严格避让门的开启扇区域"
+        ],
+        "relation_rules": [
+          "【建议】面向房间中心或窗户",
+          "【建议】优先侧对自然采光窗口——左侧采光最佳"
+        ]
+      },
+      "description": "凤栖湖标准书桌",
+      "svgPath": "assets/mod_desk_1860.svg"
+    },
+    {
+      "id": "mod_chair_001",
+      "name": "书椅",
+      "tags": [
+        "study",
+        "dining"
+      ],
+      "size": {
+        "width": 550,
+        "depth": 600
+      },
+      "agent_config": {
+        "morphology": {
+          "strategy": "fixed"
+        },
+        "topology_rules": [
+          "【必须】需放置在桌子已预留的椅子空间内"
+        ],
+        "relation_rules": [
+          "【必须】面向桌子",
+          "【建议】与桌子中心对齐",
+          "【必须】与餐桌配套时，仅布置在餐桌长边侧，不布置在短边侧——短边进出空间不足"
+        ]
+      },
+      "description": "标准书椅/餐椅",
+      "svgPath": "assets/mod_chair_001.svg"
+    },
+    {
+      "id": "mod_basin_001",
+      "name": "标准台下盆",
+      "tags": [
+        "washing"
+      ],
+      "size": {
+        "width": 850,
+        "depth": 550
+      },
+      "agent_config": {
+        "morphology": {
+          "strategy": "fixed"
+        },
+        "topology_rules": [
+          "【必须】靠墙放置"
+        ],
+        "relation_rules": [
+          "【建议】应布置在靠近卫生间入口的一侧——便于进出时洗手"
+        ]
+      },
+      "description": "凤栖湖850台下盆",
+      "svgPath": "assets/mod_basin_001.svg"
+    },
+    {
+      "id": "mod_basin_custom_001",
+      "name": "定制台下盆",
+      "tags": [
+        "washing"
+      ],
+      "size": {
+        "width": 1000,
+        "depth": 550
+      },
+      "agent_config": {
+        "morphology": {
+          "strategy": "horizontal_fill",
+          "limits": {
+            "width": [
+              850,
+              2000
+            ]
+          }
+        },
+        "topology_rules": [
+          "【必须】靠墙放置"
+        ],
+        "relation_rules": [
+          "【建议】应布置在靠近卫生间入口的一侧——便于进出时洗手"
+        ]
+      },
+      "description": "可变宽台下盆(>850mm)",
+      "svgPath": "assets/mod_basin_custom_001.svg"
+    },
+    {
+      "id": "mod_toilet_001",
+      "name": "坐便器",
+      "tags": [
+        "toilet"
+      ],
+      "size": {
+        "width": 400,
+        "depth": 650
+      },
+      "agent_config": {
+        "morphology": {
+          "strategy": "fixed"
+        },
+        "topology_rules": [
+          "【必须】靠墙放置（水箱侧）"
+        ],
+        "relation_rules": [
+          "【建议】避免正对门——隐私与美观",
+          "【建议】与台盆处于同一干区/同侧功能带时，保持入口侧台盆、深处侧坐便器的功能顺序；相邻指功能序列相邻，不要求边沿贴靠",
+          "【建议】若房间策略定义了可用如厕段，坐便器中心线优先对齐该段中心线，不得为了贴近台盆牺牲两侧使用余量"
+        ]
+      },
+      "description": "标准坐便器",
+      "svgPath": "assets/mod_toilet_001.svg"
+    },
+    {
+      "id": "mod_shower_linear",
+      "name": "一字型淋浴屏",
+      "tags": [
+        "shower"
+      ],
+      "size": {
+        "width": 1000,
+        "depth": 60
+      },
+      "agent_config": {
+        "morphology": {
+          "strategy": "horizontal_fill",
+          "limits": {
+            "width": [
+              800,
+              2000
+            ]
+          }
+        },
+        "topology_rules": [
+          "【必须】布置在房间尽端，连接两面实墙",
+          "【必须】整个 bounds 必须完全落在所连接两面实墙之间的区段内——L 形卫生间中，淋浴屏应位于转折线靠窄段的一侧（干区侧边沿与台阶墙齐平），而非跨越或超出转折线"
+        ],
+        "relation_rules": [
+          "【必须】形成干湿分离的尽端空间"
+        ]
+      },
+      "description": "定制一字型淋浴屏",
+      "svgPath": "assets/mod_shower_linear.svg"
+    },
+    {
+      "id": "mod_shower_corner",
+      "name": "矩形淋浴房",
+      "tags": [
+        "shower"
+      ],
+      "size": {
+        "width": 900,
+        "depth": 900
+      },
+      "agent_config": {
+        "morphology": {
+          "strategy": "parametric",
+          "limits": {
+            "width": [
+              800,
+              1200
+            ],
+            "depth": [
+              800,
+              1200
+            ]
+          }
+        },
+        "topology_rules": [
+          "【必须】布置于卫生间角落（深处或门侧）"
+        ],
+        "relation_rules": [
+          "【建议】通常与坐便器相邻布置——给排水管路集中有利于施工经济性"
+        ]
+      },
+      "description": "定制矩形淋浴房",
+      "svgPath": "assets/mod_shower_corner.svg"
+    },
+    {
+      "id": "mod_shower_head",
+      "name": "淋浴花洒",
+      "tags": [
+        "shower"
+      ],
+      "size": {
+        "width": 135,
+        "depth": 165
+      },
+      "agent_config": {
+        "morphology": {
+          "strategy": "fixed"
+        },
+        "topology_rules": [
+          "【必须】靠墙放置（淋浴区内）",
+          "【建议】优先安装在淋浴区内的实墙（非窗墙）——走管安装需要实墙支撑"
+        ],
+        "relation_rules": []
+      },
+      "description": "明装花洒",
+      "svgPath": "assets/mod_shower_head.svg"
+    },
+    {
+      "id": "mod_dining_table_1300",
+      "name": "4人餐桌",
+      "tags": [
+        "dining"
+      ],
+      "size": {
+        "width": 1300,
+        "depth": 800
+      },
+      "agent_config": {
+        "morphology": {
+          "strategy": "fixed"
+        },
+        "topology_rules": [
+          "【必须】岛式布置（四周留出动线）"
+        ],
+        "relation_rules": [
+          "【必须】餐椅仅布置在长边侧（width 方向两侧），短边不放椅子——短边进出空间不足，拉椅会阻碍通道",
+          "【建议】紧凑餐厅可一侧靠墙布置（三面就餐）——省出走道空间",
+          "【建议】适用于面积 ≤ 8㎡ 的独立餐厅或客餐一体的小户型"
+        ]
+      },
+      "description": "1300×800 四人餐桌",
+      "svgPath": "assets/mod_dining_table_1300.svg"
+    },
+    {
+      "id": "mod_dining_table_1600",
+      "name": "6人餐桌",
+      "tags": [
+        "dining"
+      ],
+      "size": {
+        "width": 1600,
+        "depth": 800
+      },
+      "agent_config": {
+        "morphology": {
+          "strategy": "fixed"
+        },
+        "topology_rules": [
+          "【必须】岛式布置（四周留出动线）"
+        ],
+        "relation_rules": [
+          "【必须】餐椅仅布置在长边侧（width 方向两侧），短边不放椅子——短边进出空间不足，拉椅会阻碍通道",
+          "【建议】标准户型首选——兼顾日常与待客"
+        ]
+      },
+      "description": "1600×800 六人餐桌",
+      "svgPath": "assets/mod_dining_table_1600.svg"
+    },
+    {
+      "id": "mod_dining_table_2000",
+      "name": "8人餐桌",
+      "tags": [
+        "dining"
+      ],
+      "size": {
+        "width": 2000,
+        "depth": 1000
+      },
+      "agent_config": {
+        "morphology": {
+          "strategy": "fixed"
+        },
+        "topology_rules": [
+          "【必须】岛式布置（四周留出动线）"
+        ],
+        "relation_rules": [
+          "【必须】餐椅仅布置在长边侧（width 方向两侧），短边不放椅子——短边进出空间不足，拉椅会阻碍通道",
+          "【建议】长边平行于餐厅长轴——大桌占据空间大，沿长轴布置最大化两侧通道宽度"
+        ]
+      },
+      "description": "2000×1000 八人餐桌",
+      "svgPath": "assets/mod_dining_table_2000.svg"
+    },
+    {
+      "id": "mod_sofa_straight",
+      "name": "直排沙发",
+      "tags": [
+        "rest",
+        "tvMedia"
+      ],
+      "size": {
+        "width": 2400,
+        "depth": 900
+      },
+      "agent_config": {
+        "morphology": {
+          "strategy": "fixed"
+        },
+        "topology_rules": [
+          "【建议】靠墙放置",
+          "【必须】严格避让门的开启扇区域"
+        ],
+        "relation_rules": [
+          "【必须】面向电视背景墙",
+          "【建议】客厅空间不足以放置 L 形沙发时使用——直排沙发占地更小，适合中小客厅",
+          "【建议】与 L 形沙发互斥（同一客厅选其一）"
+        ]
+      },
+      "description": "2400×900 直排沙发",
+      "svgPath": "assets/mod_sofa_straight.svg"
+    },
+    {
+      "id": "mod_sofa_l_shape",
+      "name": "L形沙发",
+      "tags": [
+        "rest",
+        "tvMedia"
+      ],
+      "size": {
+        "width": 3500,
+        "depth": 1650
+      },
+      "agent_config": {
+        "morphology": {
+          "strategy": "fixed"
+        },
+        "topology_rules": [
+          "【建议】靠墙放置",
+          "【建议】允许岛式布置（作为空间分隔）——L 型沙发体量大，可充当空间分隔器",
+          "【建议】可背对餐厅/交通空间放置",
+          "【必须】严格避让门的开启扇区域"
+        ],
+        "relation_rules": [
+          "【必须】面向电视背景墙"
+        ]
+      },
+      "description": "3500x1650 L形沙发",
+      "svgPath": "assets/mod_sofa_l_shape.svg"
+    },
+    {
+      "id": "mod_tea_table",
+      "name": "茶几",
+      "tags": [
+        "rest"
+      ],
+      "size": {
+        "width": 1000,
+        "depth": 780
+      },
+      "agent_config": {
+        "morphology": {
+          "strategy": "fixed"
+        },
+        "topology_rules": [
+          "【必须】位于沙发前"
+        ],
+        "relation_rules": [
+          "【建议】与沙发中心对齐"
+        ]
+      },
+      "description": "1000x780茶几",
+      "svgPath": "assets/mod_tea_table.svg"
+    },
+    {
+      "id": "mod_shoe_cabinet_custom",
+      "name": "定制鞋柜",
+      "tags": [
+        "shoeStorage"
+      ],
+      "size": {
+        "width": 1800,
+        "depth": 350
+      },
+      "agent_config": {
+        "morphology": {
+          "strategy": "horizontal_fill",
+          "limits": {
+            "width": [
+              800,
+              2400
+            ]
+          }
+        },
+        "topology_rules": [
+          "【必须】靠墙放置"
+        ],
+        "relation_rules": [
+          "【建议】接近入户门——方便进出换鞋",
+          "【必须】布置后执行顶角规则检查：无法填满整面墙时，贴靠实墙角，将空隙留在门口/通道一侧"
+        ]
+      },
+      "description": "可变宽鞋柜(>800mm)",
+      "svgPath": "assets/mod_shoe_cabinet_custom.svg"
+    },
+    {
+      "id": "mod_curtain",
+      "name": "窗帘",
+      "tags": [
+        "sleep",
+        "rest"
+      ],
+      "size": {
+        "width": 1000,
+        "depth": 200
+      },
+      "agent_config": {
+        "morphology": {
+          "strategy": "horizontal_fill",
+          "limits": {
+            "width": [
+              500,
+              5000
+            ]
+          }
+        },
+        "topology_rules": [
+          "【必须】靠窗墙放置，必须填满整面墙宽度（Snap to side walls）"
+        ],
+        "relation_rules": [
+          "【建议】卧室、客厅中有窗户时建议配置窗帘"
+        ]
+      },
+      "description": "窗帘装饰",
+      "svgPath": "assets/mod_curtain.svg"
+    },
+    {
+      "id": "mod_tv_cabinet_custom",
+      "name": "定制电视柜",
+      "tags": [
+        "tvMedia",
+        "display"
+      ],
+      "size": {
+        "width": 2400,
+        "depth": 400
+      },
+      "agent_config": {
+        "morphology": {
+          "strategy": "horizontal_fill",
+          "limits": {
+            "width": [
+              1500,
+              3500
+            ]
+          }
+        },
+        "topology_rules": [
+          "【必须】靠墙放置（电视墙）",
+          "【必须】严格避让门的开启扇区域"
+        ],
+        "relation_rules": [
+          "【必须】放置于客厅电视墙——电视墙是客厅空间主轴的焦点端",
+          "【建议】在电视墙有效段内居中——视觉均衡，与对面沙发中轴对齐",
+          "【必须】布置后执行顶角规则检查：无法填满整面墙时，贴靠实墙角，将空隙留在门口/通道一侧"
+        ]
+      },
+      "description": "定制电视柜(宽1500-3500)",
+      "svgPath": "assets/mod_tv_cabinet_custom.svg"
+    },
+    {
+      "id": "mod_shower_l_screen",
+      "name": "L型淋浴屏",
+      "tags": [
+        "shower"
+      ],
+      "size": {
+        "width": 900,
+        "depth": 900
+      },
+      "agent_config": {
+        "morphology": {
+          "strategy": "parametric",
+          "limits": {
+            "width": [
+              800,
+              1200
+            ],
+            "depth": [
+              800,
+              1200
+            ]
+          }
+        },
+        "topology_rules": [
+          "【必须】布置于卫生间角落，两边紧贴两面垂直实墙",
+          "【必须】开放面朝向卫生间内部（便于进出）"
+        ],
+        "relation_rules": [
+          "【建议】通常放置在远离入口的角落——淋浴区隐私需求最高",
+          "【建议】与矩形淋浴房互斥（同一空间选其一）——功能完全重叠"
+        ]
+      },
+      "description": "L型淋浴屏(800-1200)",
+      "svgPath": "assets/mod_shower_l_screen.svg"
+    },
+    {
+      "id": "mod_shower_diamond",
+      "name": "钻石型淋浴房",
+      "tags": [
+        "shower"
+      ],
+      "size": {
+        "width": 900,
+        "depth": 900
+      },
+      "agent_config": {
+        "morphology": {
+          "strategy": "parametric",
+          "limits": {
+            "width": [
+              800,
+              1100
+            ],
+            "depth": [
+              800,
+              1100
+            ]
+          }
+        },
+        "topology_rules": [
+          "【必须】布置于卫生间角落（两边紧贴垂直实墙）",
+          "【建议】优先用于近方形紧凑卫生间——斜面切角比矩形房更节省通道空间"
+        ],
+        "relation_rules": [
+          "【建议】与矩形淋浴房、L型淋浴屏互斥（同一空间选其一）",
+          "【建议】紧凑空间（模式C）优先选用钻石型——斜面门不侵占通道空间"
+        ]
+      },
+      "description": "钻石型淋浴房(800-1100)",
+      "svgPath": "assets/mod_shower_diamond.svg"
+    },
+    {
+      "id": "mod_bathtub_001",
+      "name": "浴缸",
+      "tags": [
+        "shower"
+      ],
+      "size": {
+        "width": 1700,
+        "depth": 750
+      },
+      "agent_config": {
+        "morphology": {
+          "strategy": "parametric",
+          "limits": {
+            "width": [
+              1500,
+              1800
+            ],
+            "depth": [
+              700,
+              800
+            ]
+          }
+        },
+        "topology_rules": [
+          "【必须】靠墙放置（至少连接一面实墙）",
+          "【建议】长边靠墙——稳固性 + 空间利用率"
+        ],
+        "relation_rules": [
+          "【必须】仅在面积 ≥ 5㎡ 的宽裕型卫生间中使用——小空间放浴缸挤占其他洁具的操作空间",
+          "【建议】与淋浴屏/淋浴房互斥（同一空间通常不同时放置）——功能重叠且空间不足",
+          "【建议】优先靠窗墙放置——泡澡时的采光和视野体验"
+        ]
+      },
+      "description": "标准浴缸(1500-1800)",
+      "svgPath": "assets/mod_bathtub_001.svg"
+    }
+  ]
+}

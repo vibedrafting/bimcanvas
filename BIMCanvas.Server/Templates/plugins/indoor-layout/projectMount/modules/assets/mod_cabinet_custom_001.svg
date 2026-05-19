@@ -1,0 +1,18 @@
+<svg viewBox="0 0 800 600" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <style>
+      .main-lines { fill: none; stroke: #000000; stroke-width: 25; stroke-linecap: round; stroke-linejoin: round; }
+      .detail-lines { fill: none; stroke: #000000; stroke-width: 20; stroke-linecap: round; stroke-linejoin: round; }
+      .fine-lines { fill: none; stroke: #000000; stroke-width: 15; stroke-linecap: round; stroke-linejoin: round; }
+    </style>
+  </defs>
+  
+  <!-- 1. Cabinet Body - 矩形外框 (Inset 13px) -->
+  <rect x="13" y="13" width="774" height="574" class="main-lines" />
+  
+  <!-- 2. Storage Symbol - 对角线 (Diagonal Slash) -->
+  <!-- 建筑图纸中常用对角线表示柜体/收纳空间 -->
+  <line x1="13" y1="13" x2="787" y2="587" class="fine-lines" />
+  <line x1="787" y1="13" x2="13" y2="587" class="fine-lines" />
+
+</svg>

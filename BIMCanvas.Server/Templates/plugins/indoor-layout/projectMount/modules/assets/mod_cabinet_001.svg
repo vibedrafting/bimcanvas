@@ -1,0 +1,33 @@
+<svg viewBox="0 0 450 400" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <style>
+      .main-lines { fill: none; stroke: #000000; stroke-width: 25; stroke-linecap: round; stroke-linejoin: round; }
+      .detail-lines { fill: none; stroke: #000000; stroke-width: 20; stroke-linecap: round; stroke-linejoin: round; }
+      .fine-lines { fill: none; stroke: #000000; stroke-width: 15; stroke-linecap: round; stroke-linejoin: round; }
+    </style>
+  </defs>
+  
+  <!-- 1. Cabinet Body - 矩形外框 (Inset 13px to prevent clipping) -->
+  <rect x="13" y="13" width="424" height="374" class="main-lines" />
+  
+  <!-- 2. Ornate Lamp / Decoration - 参考图的核心特征 -->
+  <!-- 解释为放置在床头柜上的台灯俯视图 -->
+  <g transform="translate(225, 200)">
+    <!-- 外圈 -->
+    <circle cx="0" cy="0" r="140" class="detail-lines" />
+    
+    <!-- 内部花瓣/螺旋结构 (简化表达参考图的复杂几何) -->
+    <!-- 三叶草/螺旋结构 -->
+    <path d="M 0 0 Q 60 -60 100 -20" class="fine-lines" />
+    <path d="M 0 0 Q 60 60 20 100" class="fine-lines" />
+    <path d="M 0 0 Q -80 0 -60 -80" class="fine-lines" />
+    
+    <!-- 外部旋翼 -->
+    <path d="M 140 0 A 140 140 0 0 1 -70 121" class="fine-lines" stroke-dasharray="20,10" opacity="0.5" /> <!-- 点缀 -->
+    <circle cx="0" cy="0" r="40" class="fine-lines" />
+  </g>
+  
+  <!-- 3. Drawer Handle hint (Optional, but adds context) -->
+  <!-- 靠近床侧（假设下方为床侧？通常床头柜方向不定，但参考图无抽屉。保持简单） -->
+  
+</svg>

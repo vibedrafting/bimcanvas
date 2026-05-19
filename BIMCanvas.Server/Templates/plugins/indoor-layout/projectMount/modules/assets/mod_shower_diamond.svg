@@ -1,0 +1,19 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 900 900">
+  <defs>
+    <style>
+      .main-lines { fill: none; stroke: #000000; stroke-width: 25; stroke-linecap: round; stroke-linejoin: round; }
+      .detail-lines { fill: none; stroke: #000000; stroke-width: 20; stroke-linecap: round; stroke-linejoin: round; }
+      .fine-lines { fill: none; stroke: #000000; stroke-width: 15; stroke-linecap: round; stroke-linejoin: round; }
+    </style>
+  </defs>
+  <!-- 钻石形淋浴房：左上角靠墙 -->
+  <polygon class="main-lines" points="12.5,12.5 887.5,12.5 887.5,450 450,887.5 12.5,887.5" />
+  <!-- 内部挡水条轮廓 -->
+  <polygon class="detail-lines" points="35,35 865,35 865,440 440,865 35,865" />
+  <!-- 斜面平开门把手 -->
+  <line class="main-lines" x1="610" y1="610" x2="660" y2="660" />
+  <!-- 排水地漏 -->
+  <circle class="fine-lines" cx="350" cy="350" r="40" />
+  <line class="fine-lines" x1="320" y1="320" x2="380" y2="380" />
+  <line class="fine-lines" x1="320" y1="380" x2="380" y2="320" />
+</svg>
