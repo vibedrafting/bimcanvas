@@ -8,6 +8,7 @@ using BIMCanvas.Core.Models.Layout;
 using BIMCanvas.Core.Models.Project;
 using BIMCanvas.Core.Models.Revit;
 using BIMCanvas.Server.Dtos;
+using BIMCanvas.Server.Models;
 using Microsoft.Extensions.Logging;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Serialization;
@@ -155,18 +156,22 @@ namespace BIMCanvas.Server.Services
 
             var leafFiles = ProjectService.FindAllLeafModuleFiles(schemePath);
 
+            // modules.json 自 schemeMetadata wrapper 迁移后(commit 7ade7e8 / b9a36ac)统一为
+            // `{schemeMetadata, modules}` 对象格式;此处读 wrapper 取 .Modules 跟 ModulesReaderService /
+            // VariantController / ModuleNormalizationService 等所有"主"读路径对齐(避免 List<Module>
+            // 强类型把 wrapper 当裸数组反序列化时炸 JsonSerializationException)。
             if (leafFiles.Count > 0)
             {
                 foreach (var (filePath, zoneId) in leafFiles)
                 {
                     try
                     {
-                        var modules = ReadJson<List<Module>>(filePath) ?? new List<Module>();
-                        foreach (var module in modules)
+                        var wrapper = ReadJson<ModulesWrapper>(filePath) ?? new ModulesWrapper();
+                        foreach (var module in wrapper.Modules)
                         {
                             module.ZoneId ??= zoneId;
                         }
-                        allModules.AddRange(modules);
+                        allModules.AddRange(wrapper.Modules);
                     }
                     catch (Exception ex)
                     {
@@ -179,7 +184,8 @@ namespace BIMCanvas.Server.Services
                 var modulesPath = Path.Combine(schemePath, "modules.json");
                 if (File.Exists(modulesPath))
                 {
-                    allModules = ReadJson<List<Module>>(modulesPath) ?? new List<Module>();
+                    var wrapper = ReadJson<ModulesWrapper>(modulesPath) ?? new ModulesWrapper();
+                    allModules = wrapper.Modules;
                 }
             }
 
