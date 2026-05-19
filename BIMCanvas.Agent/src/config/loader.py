@@ -56,15 +56,6 @@ class AgentConfig:
     prompt: str
 
 
-@dataclass(frozen=True)
-class ToolsConfig:
-    """工具权限配置 (工具权限重设计 v3.2 §4)"""
-    tools_allow: list[str]
-    tools_deny: list[str]
-    agents_allow: list[str]
-    agents_deny: list[str]
-
-
 def ensure_agent_config_schema(config: dict) -> None:
     """校验 Agent config.json 已切换到新的 provider 分域结构。"""
     if not isinstance(config, dict):
@@ -108,6 +99,18 @@ def ensure_agent_config_schema(config: dict) -> None:
                 f"  另外新增 `{provider}.agents.allow / deny` 块需添加 (可填空数组)。\n"
                 "BIMCanvas 不会自动迁移旧结构。"
             )
+
+        # C3 (工具权限 v3.3 §3 Phase 3a): config.json 的 tools/agents 已废弃,
+        # 工具权限改由 plugin manifest 接管。检测到只 warning 不抛错,
+        # 用户可以从配置文件中删除这些字段(详见 docs/Tool_Permissions_Migration.md)。
+        for deprecated_field in ("tools", "agents"):
+            if deprecated_field in section:
+                logger.warning(
+                    "config.json 的 %s.%s 字段在 v3.3 已废弃,工具权限改由 plugin manifest "
+                    "(<plugin>/bimcanvas-plugin.json 的 tools/agents 字段) 接管,可以从配置"
+                    "文件中删除该字段。详见 docs/Tool_Permissions_Migration.md",
+                    provider, deprecated_field,
+                )
 
     chatgpt_backend = config.get("chatgptBackend")
     if chatgpt_backend is not None and not isinstance(chatgpt_backend, dict):
@@ -321,51 +324,56 @@ class ConfigLoader:
             f"{active_prompt}"
         )
 
-    def load_tools_config(self) -> ToolsConfig:
-        """加载当前 provider 的工具权限 + SubAgent 装配配置 (工具权限重设计 v3.2 §4)。
+    def load_plugin_manifest_permissions(self, plugin_root: Path) -> dict:
+        """加载某个 plugin manifest 的 tools/agents 字段 (工具权限 v3.3 §3 Phase 3a)。
 
-        Schema:
-            <provider>.tools.allow / tools.deny  → 主控工具 allow/deny
-            <provider>.agents.allow / agents.deny → SubAgent 装配开关
+        Schema (v3.3.2 manifest 9 字段方案):
+            <plugin_root>/bimcanvas-plugin.json 含必填字段:
+              tools.{allow: [...], deny: [...]}
+              agents.{allow: [...], deny: [...]}
 
-        语义 (跟随 SDK):
-            tools.allow=[]  → SDK 全开 (空 list 不应用白名单)
-            tools.deny=[]   → 无黑名单
-            agents.allow=[] → 全部已加载 SubAgent 都装配
-            agents.deny=[]  → 无 SubAgent 黑名单
+        Returns:
+            dict 形如 {tools: {allow: [...], deny: [...]},
+                       agents: {allow: [...], deny: [...]}}
+            文件缺失 / 字段缺失时返回默认空对象(用于 robust fallback)。
+            JSON 解析失败 → 抛 ValueError(fail-fast)。
+
+        Note:
+            本方法不做 fallback 选择,只读单个 manifest。fallback / active 选择
+            由 config_bundle._resolve_effective_permissions 完成。
         """
-        config = self.load_config()
-        provider = resolve_runtime_provider(config)
-        provider_config = get_provider_config(config, provider)
+        manifest_path = plugin_root / "bimcanvas-plugin.json"
+        default = {
+            "tools": {"allow": [], "deny": []},
+            "agents": {"allow": [], "deny": []},
+        }
+        if not manifest_path.is_file():
+            logger.warning(
+                "plugin manifest 不存在: %s,工具权限走空白默认", manifest_path
+            )
+            return default
 
-        tools_section = provider_config.get("tools")
-        if not isinstance(tools_section, dict):
+        with open(manifest_path, "r", encoding="utf-8-sig") as f:
+            manifest = json.load(f)
+
+        if not isinstance(manifest, dict):
             raise ValueError(
-                f"config.json `{provider}.tools` 必须是对象 (含 allow / deny 两个数组字段)。"
+                f"plugin manifest 顶层必须是 JSON 对象: {manifest_path}"
             )
 
-        agents_section = provider_config.get("agents")
-        if not isinstance(agents_section, dict):
-            raise ValueError(
-                f"config.json `{provider}.agents` 必须是对象 (含 allow / deny 两个数组字段)。"
-            )
+        def _extract_block(key: str) -> dict:
+            block = manifest.get(key)
+            if not isinstance(block, dict):
+                return {"allow": [], "deny": []}
+            return {
+                "allow": list(block.get("allow") or []),
+                "deny": list(block.get("deny") or []),
+            }
 
-        def _require_str_list(value: object, field_path: str) -> list[str]:
-            if not isinstance(value, list):
-                raise ValueError(f"config.json `{field_path}` 必须是数组。")
-            for item in value:
-                if not isinstance(item, str):
-                    raise ValueError(
-                        f"config.json `{field_path}` 元素必须是字符串,实际:{type(item).__name__}"
-                    )
-            return list(value)
-
-        return ToolsConfig(
-            tools_allow=_require_str_list(tools_section.get("allow"), f"{provider}.tools.allow"),
-            tools_deny=_require_str_list(tools_section.get("deny"), f"{provider}.tools.deny"),
-            agents_allow=_require_str_list(agents_section.get("allow"), f"{provider}.agents.allow"),
-            agents_deny=_require_str_list(agents_section.get("deny"), f"{provider}.agents.deny"),
-        )
+        return {
+            "tools": _extract_block("tools"),
+            "agents": _extract_block("agents"),
+        }
 
 
     def load_agents(
@@ -573,30 +581,12 @@ class ConfigLoader:
                 manifest_path,
             )
 
-        # 最小校验 (组1 JSONSchema 是完整校验,这里只做安全相关项)
-        from bimcanvas_plugin_sdk import PluginManifestError
-
-        mcp_namespace = manifest.get("mcpNamespace")
-        if mcp_namespace == "canvas":
-            raise PluginManifestError(
-                f"plugin {launch_context.active_plugin_id} 的 mcpNamespace 不能为 'canvas' "
-                f"(保留给 core-base)"
-            )
-
-        mcp_tools = manifest.get("mcpTools")
-        if mcp_tools:
-            if not isinstance(mcp_tools, str):
-                raise PluginManifestError(
-                    f"plugin {launch_context.active_plugin_id} 的 mcpTools 必须是字符串路径"
-                )
-            if ".." in Path(mcp_tools).parts:
-                raise PluginManifestError(
-                    f"plugin {launch_context.active_plugin_id} 的 mcpTools 路径含 '..' 逃逸: {mcp_tools}"
-                )
-            if not mcp_tools.endswith(".py"):
-                raise PluginManifestError(
-                    f"plugin {launch_context.active_plugin_id} 的 mcpTools 必须是 .py 文件: {mcp_tools}"
-                )
+        # 工具权限 v3.3 §3 Phase 3a:
+        # 原 mcpTools / mcpNamespace 字段在 v3.3.2 manifest schema 中已删除,
+        # 改为约定俗成 mcp_tools/<plugin-name>.py 由 _build_mcp_servers 扫描推断。
+        # 因此本处的 mcpTools 路径校验和 mcpNamespace 保留校验都已移除,
+        # 路径安全 (无 ..) 由 glob 隐含保证 (不递归),namespace 安全 (≠ canvas)
+        # 由 _build_mcp_servers 内文件名校验承担。
 
         return active_root, manifest
 

@@ -247,33 +247,47 @@ def _build_mcp_servers(
     servers: dict[str, Any] = {"canvas": core_server}
     tool_names: list[str] = list(CORE_ALLOWED_TOOLS)
 
-    if (
-        active_plugin_root is None
-        or not plugin_manifest
-        or not plugin_manifest.get("mcpTools")
-    ):
+    if active_plugin_root is None:
         return servers, tool_names, diagnostics
 
     plugin_id = launch_context.active_plugin_id or active_plugin_root.name
-    namespace = plugin_manifest.get("mcpNamespace") or plugin_id
 
+    # 工具权限 v3.3 §3 Phase 3b.2 约定俗成扫描:
+    # plugin manifest 在 v3.3.2 schema 中已删 mcpTools / mcpNamespace 字段,
+    # 改约定 mcp_tools/<filename>.py 顶层唯一 .py 文件,namespace = 文件名 stem。
+    # 没有 mcp_tools 目录或目录无 .py 文件 → plugin 无 MCP server,跳过(不报错)。
+    mcp_tools_dir = active_plugin_root / "mcp_tools"
+    if not mcp_tools_dir.is_dir():
+        return servers, tool_names, diagnostics
+    py_files = sorted(mcp_tools_dir.glob("*.py"))
+    if not py_files:
+        return servers, tool_names, diagnostics
+    if len(py_files) > 1:
+        raise PluginRegisterError(
+            f"plugin {plugin_id} mcp_tools/ 只允许一个 .py 入口文件,"
+            f"找到 {len(py_files)} 个: {[f.name for f in py_files]}"
+        )
+    entry_path = py_files[0].resolve()
+    namespace = entry_path.stem
+
+    # namespace 安全校验(原 loader.resolve_active_plugin 的 mcpNamespace 校验
+    # 在 v3.3.2 manifest schema 删除后移到这里,校验对象改为文件名 stem)
     if namespace == "canvas":
         raise PluginRegisterError(
-            f"plugin {plugin_id} 的 mcpNamespace 不能为 'canvas' (保留给 core-base)"
+            f"plugin {plugin_id} 的 mcp_tools/ 入口文件名不能为 'canvas.py' "
+            f"(namespace 'canvas' 保留给 core-base)"
+        )
+    if not re.match(r"^[a-z0-9-]+$", namespace):
+        raise PluginRegisterError(
+            f"plugin {plugin_id} 的 mcp_tools/{entry_path.name} 文件名(去 .py 后)"
+            f"必须匹配 ^[a-z0-9-]+$,实际:{namespace!r}"
         )
     if namespace in servers:
         raise PluginRegisterError(
-            f"plugin {plugin_id} 的 mcpNamespace '{namespace}' 与已注册 server 冲突"
+            f"plugin {plugin_id} 推断出的 namespace '{namespace}' 与已注册 server 冲突"
         )
 
-    entry_relpath = plugin_manifest["mcpTools"]
-    entry_path = (active_plugin_root / entry_relpath).resolve()
-
-    if not entry_path.is_file():
-        diagnostics.append(
-            f"plugin {plugin_id} 的 mcpTools 文件不存在: {entry_path};该 plugin 被 disable"
-        )
-        return servers, tool_names, diagnostics
+    entry_relpath = entry_path.name  # 给下方 logger / diagnostics 用
 
     plugin_ctx = PluginContext(
         server_url=launch_context.server_url,
@@ -323,18 +337,54 @@ def _build_mcp_servers(
     return servers, tool_names, diagnostics
 
 
+def _resolve_effective_permissions(
+    core_base: dict,
+    active: dict | None,
+) -> tuple[list[str], list[str], list[str], list[str]]:
+    """Resolve effective tools/agents permissions (工具权限 v3.3 §2.2 / §8.1).
+
+    完全接管 / fallback 模式: active 非空时完全用 active 的 permissions,
+    active 为空时 fallback 到 core-base。**不做 merge / 并集**。
+
+    Args:
+        core_base: core-base manifest 的 {tools: {allow,deny}, agents: {allow,deny}} (必填)
+        active:    active 专业插件 manifest 的同结构 (可空,None / {} 都视为无 active)
+
+    Returns:
+        (tools_allow, tools_deny, agents_allow, agents_deny) 四个 list
+    """
+    def _coerce(section: dict | None, key: str) -> list[str]:
+        if not isinstance(section, dict):
+            return []
+        val = section.get(key)
+        return list(val) if isinstance(val, list) else []
+
+    source = active if active else core_base
+    tools_section = source.get("tools") or {}
+    agents_section = source.get("agents") or {}
+
+    return (
+        _coerce(tools_section, "allow"),
+        _coerce(tools_section, "deny"),
+        _coerce(agents_section, "allow"),
+        _coerce(agents_section, "deny"),
+    )
+
+
 def build_config_bundle(
     launch_context: "PluginLaunchContext | None" = None,
     session: "aiohttp.ClientSession | None" = None,
 ) -> ConfigBundle:
     """Build a fresh host-facing config bundle.
 
-    组3 改造 (主真理源 v1.1 §3.4 五层投影):
+    组3 改造 (主真理源 v1.1 §3.4 五层投影) + 工具权限 v3.3 §3 Phase 3b 改造:
     1. resolve_launch_context (若未传入)
-    2. resolve_active_plugin (取 plugin root + manifest + overrides)
+    2. resolve_active_plugin (取 plugin root + manifest)
     3. 加载 system_prompt + agents + skills,各自合并 base + active plugin
     4. _build_mcp_servers 构造 {canvas, [active-plugin-ns]} dict
-    5. permissions allow 聚合所有 mcp 工具名
+       (namespace 改从 mcp_tools/<filename>.py 文件名 stem 推断,§3 Phase 3b.2)
+    5. **工具权限 v3.3 fallback 模型**:有 active 专业插件时 effective.tools/agents
+       = active manifest;无 active 时 fallback 到 core-base manifest。不做 merge
 
     Args:
         launch_context: 已注入的 PluginLaunchContext;为 None 时调 resolve_launch_context
@@ -346,7 +396,6 @@ def build_config_bundle(
         launch_context = resolve_launch_context()
 
     loader = get_config_loader()
-    tools_cfg = loader.load_tools_config()
     bimcanvas_home = loader.config_dir.resolve()
 
     (
@@ -356,29 +405,48 @@ def build_config_bundle(
 
     system_prompt = loader.load_system_prompt(active_plugin_root)
 
-    # 工具权限重设计 v3.2 §7.3:对已加载 SubAgent 应用 agents.allow / deny 过滤
+    # 工具权限 v3.3 §3 Phase 3b.1 — fallback 二选一:
+    # - 有 active 专业插件 → 读 active plugin manifest,active.tools/agents 完全接管
+    # - 无 active 专业插件 → fallback 到 core-base manifest
+    # 不做 merge,谁 active 谁全权(§2.2)
+    core_base_root = loader._resolve_core_base_root()
+    core_base_perms = loader.load_plugin_manifest_permissions(core_base_root)
+    if active_plugin_root is not None and active_plugin_root != core_base_root:
+        active_perms = loader.load_plugin_manifest_permissions(active_plugin_root)
+    else:
+        active_perms = None
+
+    (
+        eff_tools_allow,
+        eff_tools_deny,
+        eff_agents_allow,
+        eff_agents_deny,
+    ) = _resolve_effective_permissions(core_base_perms, active_perms)
+
+    # 对已加载 SubAgent 应用 agents.allow / deny 过滤
     # - agents.allow 非空 → 白名单模式;agents.allow 空 → 全部已加载 SubAgent 都通过
     # - 再应用 deny (与 SDK 处理 tools 一致,deny 后于 allow 生效但优先级更高)
     loaded_agents = dict(loader.load_agents(active_plugin_root))
     loaded_names = set(loaded_agents.keys())
-    if tools_cfg.agents_allow:
-        effective_names = {n for n in loaded_names if n in tools_cfg.agents_allow}
+    if eff_agents_allow:
+        effective_names = {n for n in loaded_names if n in eff_agents_allow}
     else:
         effective_names = loaded_names
-    effective_names -= set(tools_cfg.agents_deny)
+    effective_names -= set(eff_agents_deny)
     shared_agents = {n: loaded_agents[n] for n in effective_names}
 
     dropped = loaded_names - set(shared_agents.keys())
     if dropped:
         logger.info(
             "agents 过滤后,以下 SubAgent 不会被装配: %s "
-            "(agents.allow=%s, agents.deny=%s)",
-            sorted(dropped), tools_cfg.agents_allow, tools_cfg.agents_deny,
+            "(agents.allow=%s, agents.deny=%s, source=%s)",
+            sorted(dropped), eff_agents_allow, eff_agents_deny,
+            "active-plugin" if active_perms else "core-base-fallback",
         )
 
     # 主真理源 v1.2 §3.5 折中方案:core-base skills 在新布局下从 plugins/core-base/skills/ 读
     skill_index, skill_metas, skill_diag = _build_skill_index(
-        loader._resolve_core_base_root(), active_plugin_root
+        core_base_root, active_plugin_root
     )
 
     mcp_servers, mcp_tool_names, mcp_diag = _build_mcp_servers(
@@ -398,10 +466,10 @@ def build_config_bundle(
         shared_agents=shared_agents,
         skill_index=skill_index,
         skill_metas=skill_metas,
-        tools_allow=list(tools_cfg.tools_allow),
-        tools_deny=list(tools_cfg.tools_deny),
-        agents_allow=list(tools_cfg.agents_allow),
-        agents_deny=list(tools_cfg.agents_deny),
+        tools_allow=eff_tools_allow,
+        tools_deny=eff_tools_deny,
+        agents_allow=eff_agents_allow,
+        agents_deny=eff_agents_deny,
         mcp_tool_names=tuple(mcp_tool_names),
         bimcanvas_home=bimcanvas_home,
         launch_context=launch_context,
