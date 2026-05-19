@@ -1,10 +1,152 @@
-# 工具权限配置迁移指南 (v3.2)
+# 工具权限配置迁移指南 (v3.2 / v3.3)
 
-> 适用版本：BIMCanvas 工具权限配置重设计 v3.2 及以后
+> 适用版本:BIMCanvas 工具权限配置 v3.2 与 v3.3 (含 v3.3.2 manifest schema 精简)
 >
-> 适用人群：从 v3.1 或更早版本升级的 BIMCanvas 用户 / 开发者
+> 适用人群:从 v3.1 或更早版本升级的 BIMCanvas 用户 / 开发者,以及从 v3.2 升级到 v3.3 的开发者
 >
-> 设计稿参考：`.dev/plans/工具权限配置系统重设计.md`
+> 设计稿参考:`.dev/plans/工具权限配置系统/工具权限_v3.3_plugin-manifest-接管.md` (最新), `.dev/plans/工具权限配置系统/工具权限配置系统重设计.md` (v3.2)
+
+---
+
+## ⭐ v3.2 → v3.3 升级说明 (2026-05-20)
+
+### 0. 一句话变化
+
+**v3.2**:工具权限源 = `<HOME>/config.json.<provider>.tools / agents`。
+**v3.3**:工具权限源 = `<HOME>/plugins/<id>/bimcanvas-plugin.json` 的 `tools / agents` 字段。`config.json` 退化为纯 Provider 连接配置。
+
+### 1. 关键模型反转:**Fallback / 完全接管**(不是 merge)
+
+v3.3 引入 **active 专业插件 100% 接管主控权限** 模型:
+
+```
+effective.tools = active_domain_plugin.tools    if 有 active 专业插件
+                = core-base.tools                否则 (fallback)
+```
+
+**不做并集 / 不 merge / 不去重**。装了 interior-layout 后:
+- 主控的 `allowed_tools` 完全 = `interior-layout.tools.allow`
+- core-base 提供的 `mcp__canvas__*` 工具**不会自动加入** —— interior-layout 必须自己在 `tools.allow` 里列出每一个用得到的 canvas 工具
+- 卸载 interior-layout → 主控权限自动 fallback 到 core-base.tools
+
+**直接后果**:专业插件的 `tools.allow` 必须列**完整工具集**(内建 9 + 用到的 canvas 工具 + 自身 MCP 工具)。漏列任何工具,主控运行时 tool-not-found。
+
+### 2. 用户行动
+
+#### HOME/config.json 中的 tools/agents 字段
+
+- v3.3 升级后**可以删除**这两个字段(不删除也行,loader 启动时 warning 提示)
+- 不会阻断启动(C3 警告非 fail-fast)
+
+#### 自定义工具权限
+
+旧:编辑 HOME/config.json 的 `<provider>.tools.allow`
+新:编辑 **当前 active plugin** 的 `<HOME>/plugins/<id>/bimcanvas-plugin.json` 的 `tools.allow`
+- 装了 interior-layout → 改 `<HOME>/plugins/interior-layout/bimcanvas-plugin.json`
+- 没装专业插件 → 改 `<HOME>/plugins/core-base/bimcanvas-plugin.json`(仅作 fallback)
+- **注意**:有 active 专业插件时改 core-base.tools **不会影响主控运行**
+
+### 3. plugin manifest schema 大精简 (v3.3.2)
+
+`bimcanvas-plugin.json` 从 22 字段精简到 **9 字段**,大量过度设计字段已删除:
+
+**删除字段**(写在 manifest 里会被 JSON Schema 校验拒绝):
+`type` / `schemaVersion` / `systemPrompt` / `agents`(原字符串路径) / `skills`(原字符串路径) / `mcpTools` / `mcpNamespace` / `projectMount.manifest`(对象) / `requires` / `permissions` / `referenceStability` / `maturity`(顶层) / `homepage` / `web.*` 整块
+
+**保留 9 字段**:`name` / `version` / `compatibility.bimcanvas` / `displayName` / `description` / `tools` / `agents` / `defaultSceneIdPattern`(可选) / `$schema`(可选)
+
+**约定俗成的资源路径**(代码写死,manifest 不再声明):
+| 路径 | 用途 |
+|---|---|
+| `BIMCANVAS.md` | system prompt,存在即叠加 |
+| `agents/*.md` | SubAgent 定义,存在即扫 |
+| `skills/<name>/SKILL.md` | Skills,存在即扫 |
+| `mcp_tools/<namespace>.py` | MCP server 入口。**namespace 自动 = 文件名 stem**(如 `mcp_tools/interior-layout.py` → namespace `interior-layout`) |
+| `projectMount/manifest.json` | 项目脚手架 manifest |
+
+### 4. 行为变化
+
+#### 装/卸 plugin 无须配置同步
+旧:装 plugin 后用户要手工抄工具名到 HOME/config.json.tools.allow
+新:plugin 装上权限自动就位,卸载自动消失。**零配置同步**。
+
+#### plugin 作者维护负担
+旧:plugin 只列自己注册的 MCP 工具
+新:plugin 必须维护完整工具清单(含 core-base 工具),**core-base 升级新增工具时,所有专业插件 manifest 需要跟着更新**(fallback 模型的代价)
+
+#### MCP namespace 命名约定
+旧:在 manifest 里写 `mcpNamespace: "interior-layout"`
+新:**约定 `mcp_tools/<namespace>.py` 文件名 stem 即 namespace**。改 namespace 就改文件名,不再有独立字段
+
+### 5. 完整 23 项 plugin manifest 示例(interior-layout)
+
+```jsonc
+{
+  "$schema": "../../../../docs/plugin-manifest-schema.json",
+
+  "name": "interior-layout",
+  "version": "1.0.0",
+  "compatibility": { "bimcanvas": "^1.0.0" },
+
+  "displayName": "🛋️ 室内布置设计",
+  "description": "BIMCanvas 室内家具布置 domain plugin",
+
+  "tools": {
+    "allow": [
+      "Read", "Write", "Edit", "Bash", "Glob", "Grep",
+      "Task", "Skill", "AskUserQuestion",
+      "mcp__canvas__request_background_screenshot",
+      "mcp__canvas__validate_layout",
+      "mcp__canvas__get_zone_boundaries",
+      "mcp__canvas__register_variant",
+      "mcp__canvas__list_variants",
+      "mcp__canvas__analyze_image",
+      "mcp__canvas__create_job",
+      "mcp__canvas__complete_job",
+      "mcp__canvas__list_project_scenes",
+      "mcp__canvas__load_scene_artifact",
+      "mcp__interior-layout__save_semantic_plan",
+      "mcp__interior-layout__load_semantic_plan",
+      "mcp__interior-layout__load_reference_analysis",
+      "mcp__interior-layout__save_reference_analysis"
+    ],
+    "deny": []
+  },
+  "agents": { "allow": [], "deny": [] },
+
+  "defaultSceneIdPattern": "interior-layout-{n}"
+}
+```
+
+### 6. v3.2 → v3.3 HOME/config.json diff 示例
+
+```diff
+ {
+   "runtimeProvider": "claude",
+   "claude": {
+     "baseUrl": "...",
+     "apiKey": "...",
+     "defaultModel": "opus",
+-    "tools": {
+-      "allow": [...19 项...],
+-      "deny": []
+-    },
+-    "agents": { "allow": [], "deny": [] },
+     "modelMapping": { ... }
+   },
+   "openai": { /* 同样删 tools / agents */ }
+ }
+```
+
+(留着不删也行,loader 会 warning 提示但不阻断启动。)
+
+### 7. SDK 0.1.41 已知约束
+
+`AgentDefinition` 字段不含 `disallowedTools`。所有 plugin manifest 的 `tools.deny` 经 merge / fallback 后,最终只走 `ClaudeAgentOptions.disallowed_tools` 全局通道(对主控 + SubAgent 派发的工具调用统一拦截)。**不存在 per-SubAgent deny**。SubAgent `.md` frontmatter 不接受 `disallowedTools` / `toolsDeny` 字段。
+
+---
+
+## (v3.1 → v3.2 历史升级指南)
 
 ---
 
