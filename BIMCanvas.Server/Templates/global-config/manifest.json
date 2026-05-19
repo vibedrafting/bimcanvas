@@ -1,5 +1,6 @@
 {
   "version": "1.0",
+  "comment": "组5 §5.A.6 修订:agent/BIMCANVAS.md / agents/ / skills/ / .claude-plugin 已迁到 plugins/indoor-layout/(由 core-base 简化骨架替代);本 manifest 只保留平台级配置(server/* + agent/config.json)。agent prompt + SubAgent + Skills 由 EnsurePluginInitialized('core-base') 物化到 BIMCANVAS_HOME/plugins/core-base/。v3.6 修订:PLATFORM_CONTRACT.md 内容并入 core-base/BIMCANVAS.md,本 manifest 不再分发该文件(归档参考: .dev/docs/Platform_Contract_Reference.md)。",
   "items": [
     {
       "name": "server/server_config.json",
@@ -27,98 +28,7 @@
       "target": "config.json",
       "type": "template",
       "enabled": true,
-      "description": "Agent 配置文件（API Key、模型、权限、思考参数）"
-    },
-    {
-      "name": "agent/BIMCANVAS.md",
-      "target": "BIMCANVAS.md",
-      "type": "template",
-      "enabled": true,
-      "description": "MainAgent 系统提示词"
-    },
-    {
-      "name": "",
-      "target": "agents",
-      "type": "empty-directory",
-      "enabled": true,
-      "description": "SubAgent 配置目录"
-    },
-    {
-      "name": "agent/agents/layout-agent.md",
-      "target": "agents/layout-agent.md",
-      "type": "template",
-      "enabled": true,
-      "description": "Layout SubAgent 配置"
-    },
-    {
-      "name": "agent/agents/module-relocation-agent.md",
-      "target": "agents/module-relocation-agent.md",
-      "type": "template",
-      "enabled": true,
-      "description": "Module Relocation SubAgent 配置（替代位置探索分身）"
-    },
-    {
-      "name": "agent/agents/variant-design-agent.md",
-      "target": "agents/variant-design-agent.md",
-      "type": "template",
-      "enabled": true,
-      "description": "Variant Design SubAgent 配置（multi-plan 模式专属单变体执行分身）"
-    },
-    {
-      "name": "",
-      "target": "skills",
-      "type": "empty-directory",
-      "enabled": true,
-      "description": "Agent Skills 根目录"
-    },
-    {
-      "name": "agent/skills/query-workflow/SKILL.md",
-      "target": "skills/query-workflow/SKILL.md",
-      "type": "template",
-      "enabled": true,
-      "description": "Query 工作流 Skill"
-    },
-    {
-      "name": "agent/skills/edit-workflow/SKILL.md",
-      "target": "skills/edit-workflow/SKILL.md",
-      "type": "template",
-      "enabled": true,
-      "description": "Edit 工作流 Skill"
-    },
-    {
-      "name": "agent/skills/generate-reference-analysis/SKILL.md",
-      "target": "skills/generate-reference-analysis/SKILL.md",
-      "type": "template",
-      "enabled": true,
-      "description": "Generate 参考分析 Skill"
-    },
-    {
-      "name": "agent/skills/generate-planning/SKILL.md",
-      "target": "skills/generate-planning/SKILL.md",
-      "type": "template",
-      "enabled": true,
-      "description": "Generate 规划 Skill"
-    },
-    {
-      "name": "agent/skills/generate-placement/SKILL.md",
-      "target": "skills/generate-placement/SKILL.md",
-      "type": "template",
-      "enabled": true,
-      "description": "Generate 布置 Skill"
-    },
-    {
-      "name": "agent/skills/generate-zoning/SKILL.md",
-      "target": "skills/generate-zoning/SKILL.md",
-      "type": "template",
-      "enabled": true,
-      "description": "Generate 分区 Skill"
-    },
-    {
-      "name": "agent/.claude-plugin",
-      "target": ".claude-plugin",
-      "type": "directory",
-      "enabled": true,
-      "description": "Plugin 清单（使 BIMCANVAS_HOME 成为合法 Plugin 目录）"
+      "description": "Agent runtime 全局配置（claude / openai providers / permissions / modelMapping）"
     }
   ]
 }

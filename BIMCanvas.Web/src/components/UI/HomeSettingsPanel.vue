@@ -1,9 +1,9 @@
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { SettingsService, type LlmEndpointTestResult } from '../../services/SettingsService'
-import { SERVER_BASE } from '../../config/api'
 import GlassButton from './base/GlassButton.vue'
 import GlassSelect from './base/GlassSelect.vue'
+import { useSystemStore } from '../../stores/systemStore'
 import type {
   SettingsGroup,
   SettingsGroupKey,
@@ -98,10 +98,11 @@ const logLevelOptions = [
   { value: 'error', label: 'Error' }
 ]
 
+const systemStore = useSystemStore()
+
 const runtime = ref<SettingsRuntime>({ ...defaultRuntime })
 const isLoading = ref(true)
 const isSaving = ref(false)
-const isRestarting = ref(false)
 const showSecrets = ref(false)
 const saveMessage = ref<string | null>(null)
 const saveError = ref<string | null>(null)
@@ -110,8 +111,6 @@ const isClaudeTesting = ref(false)
 const isOpenAiTesting = ref(false)
 const claudeTestResult = ref<LlmEndpointTestResult | null>(null)
 const openAiTestResult = ref<LlmEndpointTestResult | null>(null)
-const showRestartDialog = ref(false)
-const pendingRestartGroups = ref<string[]>([])
 const isMounted = ref(false)
 
 function clone<T>(value: T): T {
@@ -134,13 +133,9 @@ function normalizeProvider(value: unknown): ProviderKey {
   return String(value ?? '').trim().toLowerCase() === 'openai' ? 'openai' : 'claude'
 }
 
-function normalizePermissions(raw: unknown) {
-  const value = isPlainObject(raw) ? clone(raw) : {}
-  return {
-    allow: value.allow === null ? null : Array.isArray(value.allow) ? value.allow : [],
-    deny: Array.isArray(value.deny) ? value.deny : []
-  }
-}
+// 工具权限 v3.3 §3 Phase 6:tools / agents 字段从 config.json 移到 plugin manifest 接管,
+// 前端不再 normalize / default 这两个字段(Web 设置面板也不再编辑它们)。
+// 旧的 normalizeAllowDeny / normalizeTools / normalizeAgents 三个函数已删除。
 
 function createClaudeDefaults() {
   return {
@@ -150,7 +145,6 @@ function createClaudeDefaults() {
     defaultEffort: 'low',
     defaultThinking: 'adaptive',
     maxThinkingTokens: 8000,
-    permissions: { allow: [], deny: [] },
     modelMapping: clone(CLAUDE_MODEL_DEFAULTS)
   }
 }
@@ -162,7 +156,6 @@ function createOpenAiDefaults() {
     defaultModel: 'gpt-5',
     apiMode: 'chat_completions',
     disableTracing: null as boolean | null,
-    permissions: { allow: [], deny: [] },
     modelMapping: clone(OPENAI_MODEL_DEFAULTS)
   }
 }
@@ -276,7 +269,6 @@ function normalize(group: SettingsGroupKey, raw: Record<string, any>) {
       claude: {
         ...createClaudeDefaults(),
         ...claude,
-        permissions: normalizePermissions(claude.permissions),
         modelMapping: normalizeClaudeModelMapping(claude.modelMapping)
       },
       openai: {
@@ -284,7 +276,6 @@ function normalize(group: SettingsGroupKey, raw: Record<string, any>) {
         ...openai,
         apiMode: normalizeOpenAiApiMode(openai.apiMode),
         disableTracing: normalizeDisableTracing(openai.disableTracing),
-        permissions: normalizePermissions(openai.permissions),
         modelMapping: normalizeOpenAiModelMapping(openai.modelMapping)
       }
     }
@@ -627,8 +618,16 @@ async function handleSave() {
     saveMessage.value = '保存成功。'
 
     if (result.restartRequiredGroups.length > 0) {
-      pendingRestartGroups.value = result.restartRequiredGroups
-      showRestartDialog.value = true
+      // 统一通过 systemStore 管理:每个变更 group 单独 mark,触发顶栏 [需要重启] 按钮 +
+      // 一条左下 toast 告知。不再弹模态对话框(原对话框已删,与"插件管理"统一)。
+      for (const group of result.restartRequiredGroups) {
+        systemStore.markRestartRequired(`settings:${group}`)
+      }
+      systemStore.pushToast({
+        title: '需要重启',
+        message: `配置已保存（${result.restartRequiredGroups.join(', ')}），点击顶栏 [需要重启] 生效。`,
+        type: 'warning',
+      })
     }
 
     window.dispatchEvent(new CustomEvent('bimcanvas:web-config-updated', {
@@ -639,66 +638,6 @@ async function handleSave() {
   } finally {
     isSaving.value = false
   }
-}
-
-async function handleRestart() {
-  isRestarting.value = true
-  saveError.value = null
-  const runtimeServerBase = runtime.value.server.actualUrl || SERVER_BASE
-
-  try {
-    await SettingsService.restartInstance()
-    saveMessage.value = '服务正在重启，请稍候...'
-    await new Promise(r => setTimeout(r, 2000))
-
-    const maxRetries = 20
-    const retryInterval = 1500
-    for (let i = 0; i < maxRetries; i++) {
-      try {
-        const resp = await fetch(`${runtimeServerBase}/health`, { cache: 'no-store' })
-        if (resp.ok) {
-          saveMessage.value = '服务已恢复，正在刷新页面...'
-          await new Promise(r => setTimeout(r, 500))
-          window.location.reload()
-          return
-        }
-      } catch {
-        // continue polling
-      }
-      await new Promise(r => setTimeout(r, retryInterval))
-    }
-
-    saveError.value = '服务重启超时（30秒），请手动刷新页面或检查服务状态。'
-  } catch (error: any) {
-    if (error.code === 'ECONNABORTED' || error.message?.includes('Network Error')) {
-      saveMessage.value = '服务正在重启，请稍候...'
-      await new Promise(r => setTimeout(r, 2000))
-
-      for (let i = 0; i < 20; i++) {
-        try {
-          const resp = await fetch(`${runtimeServerBase}/health`, { cache: 'no-store' })
-          if (resp.ok) {
-            window.location.reload()
-            return
-          }
-        } catch {
-          // continue polling
-        }
-        await new Promise(r => setTimeout(r, 1500))
-      }
-
-      saveError.value = '服务重启超时，请手动刷新页面。'
-    } else {
-      saveError.value = error.response?.data?.message || error.message || '触发重启失败'
-    }
-  } finally {
-    isRestarting.value = false
-  }
-}
-
-function confirmRestart() {
-  showRestartDialog.value = false
-  handleRestart()
 }
 
 function resolveModelId(provider: ProviderKey, alias: string) {
@@ -1008,7 +947,7 @@ onMounted(() => {
                 <span>
                   当前表单正在编辑 {{ currentProviderLabel }}。
                   {{ isOpenAiProvider ? 'Claude 分域会保留但不会显示。' : 'OpenAI 分域会保留但不会显示。' }}
-                  `permissions` 继续只通过下方 JSON 编辑器维护。
+                  工具权限已迁移到 plugin manifest 接管,不再通过本设置面板维护(详见 docs/Tool_Permissions_Migration.md)。
                 </span>
               </div>
 
@@ -1453,40 +1392,6 @@ onMounted(() => {
       </div>
     </div>
 
-    <!-- 重启确认弹窗 -->
-    <Teleport to="body">
-      <Transition name="dialog">
-        <div v-if="showRestartDialog" class="dialog-overlay" @click.self="showRestartDialog = false">
-          <div class="dialog-card">
-            <div class="dialog-header">
-              <div class="header-icon restart">
-                <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2">
-                  <polyline points="23 4 23 10 17 10"></polyline>
-                  <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"></path>
-                </svg>
-              </div>
-              <h3>需要重启</h3>
-              <button class="close-btn" @click="showRestartDialog = false">
-                <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2">
-                  <line x1="18" y1="6" x2="6" y2="18"></line>
-                  <line x1="6" y1="6" x2="18" y2="18"></line>
-                </svg>
-              </button>
-            </div>
-            <div class="dialog-body">
-              <p class="message">以下配置已保存，需重启服务后生效：</p>
-              <div class="restart-groups">
-                <span v-for="g in pendingRestartGroups" :key="g" class="restart-group-tag">{{ g }}</span>
-              </div>
-            </div>
-            <div class="dialog-footer">
-              <GlassButton variant="ghost" @click="showRestartDialog = false">稍后重启</GlassButton>
-              <GlassButton variant="primary" @click="confirmRestart">立即重启</GlassButton>
-            </div>
-          </div>
-        </div>
-      </Transition>
-    </Teleport>
   </div>
 </template>
 

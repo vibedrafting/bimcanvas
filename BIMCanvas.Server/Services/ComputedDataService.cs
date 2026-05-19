@@ -35,7 +35,7 @@ namespace BIMCanvas.Server.Services
         /// </summary>
         private static readonly JsonSerializerSettings CamelCaseSettings = new JsonSerializerSettings
         {
-            ContractResolver = new CamelCasePropertyNamesContractResolver(),
+            ContractResolver = new DefaultContractResolver { NamingStrategy = new CamelCaseNamingStrategy() },
             Formatting = Formatting.Indented,
             Converters = new List<JsonConverter>
             {

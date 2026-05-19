@@ -11,6 +11,7 @@
     <PackageReference Include="Microsoft.AspNetCore.OpenApi" Version="8.0.22" />
     <PackageReference Include="Microsoft.AspNetCore.SignalR.Protocols.NewtonsoftJson" Version="10.0.2" />
     <PackageReference Include="Microsoft.Playwright" Version="1.42.0" />
+    <PackageReference Include="Newtonsoft.Json.Schema" Version="4.0.1" />
     <PackageReference Include="SharpCompress" Version="0.44.0" />
     <PackageReference Include="Swashbuckle.AspNetCore" Version="6.6.2" />
     <PackageReference Include="System.Management" Version="8.0.0" Condition="'$(OS)' == 'Windows_NT'" />
@@ -44,6 +45,18 @@
   <!-- 示例项目文件：发布时复制到 publish/demos -->
   <ItemGroup>
     <Content Include="..\demos\**\*" LinkBase="demos" CopyToPublishDirectory="PreserveNewest" />
+  </ItemGroup>
+
+  <!-- Plugin JSONSchema 资源：StaticPluginValidator 运行时从 Schemas/ 目录加载 -->
+  <ItemGroup>
+    <Content Include="..\docs\plugin-manifest-schema.json"
+             LinkBase="Schemas"
+             CopyToOutputDirectory="PreserveNewest"
+             CopyToPublishDirectory="PreserveNewest" />
+    <Content Include="..\docs\bcp-scenes-schema.json"
+             LinkBase="Schemas"
+             CopyToOutputDirectory="PreserveNewest"
+             CopyToPublishDirectory="PreserveNewest" />
   </ItemGroup>
 
 </Project>

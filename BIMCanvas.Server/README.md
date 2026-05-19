@@ -106,11 +106,16 @@ Server 使用 **Newtonsoft.Json**（与 BIMCanvas.Core 保持一致）：
 ```csharp
 builder.Services.AddControllers()
     .AddNewtonsoftJson(options => {
-        options.SerializerSettings.ContractResolver = new CamelCasePropertyNamesContractResolver();
+        options.SerializerSettings.ContractResolver = new DefaultContractResolver
+        {
+            NamingStrategy = new CamelCaseNamingStrategy()  // 只转 C# 属性名,不转 Dictionary key
+        };
     });
 ```
 
-> ⚠️ **重要**：不要改用 System.Text.Json，否则 Core 层的 `[JsonConverter]` 属性不会被识别，导致 Polygon2D 等类型序列化失败。
+> ⚠️ **重要**：
+> 1. 不要改用 System.Text.Json，否则 Core 层的 `[JsonConverter]` 属性不会被识别，导致 Polygon2D 等类型序列化失败。
+> 2. **禁止使用 `CamelCasePropertyNamesContractResolver`** —— 它默认 `ProcessDictionaryKeys=true`,会把 `Dictionary<string, T>` 的 key 也转 camelCase(STJ 不会),引入静默语义差异。曾导致 `web_config.json` 中 `"User"/"Agent"` 被改成 `"user"/"agent"` 而前端 LayerManager 找不到,详见 CLAUDE.md §10。
 
 ---
 

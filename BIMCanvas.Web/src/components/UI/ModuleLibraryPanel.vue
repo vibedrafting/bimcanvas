@@ -6,6 +6,9 @@ import ModuleLibraryGrid from './moduleLibrary/ModuleLibraryGrid.vue';
 import { useModuleLibraryPanelState } from '../../composables/useModuleLibraryPanelState';
 import { getWebRuntime } from '../../runtime/runtimeRegistry';
 import { supports } from '../../runtime/WebRuntimeProtocol';
+import { useSystemStore } from '../../stores/systemStore';
+
+const sys = useSystemStore();
 
 defineProps<{
   visible: boolean;
@@ -64,7 +67,7 @@ const onBindClick = async () => {
     const msg = (err as Error)?.message ?? String(err);
     // 用户取消 picker 时浏览器抛 AbortError;静默忽略,其它错误才弹
     if (!/AbortError|user activation|abort/i.test(msg)) {
-      alert(`绑定模块库失败: ${msg}`);
+      sys.pushToast({ type: 'error', title: '绑定模块库失败', message: msg });
     }
   } finally {
     isBinding.value = false;
@@ -77,7 +80,11 @@ const onClearClick = async () => {
     await runtime.clearModuleLibraryBinding();
     await reloadLibrary();
   } catch (err) {
-    alert(`清空失败: ${(err as Error)?.message ?? String(err)}`);
+    sys.pushToast({
+      type: 'error',
+      title: '清空模块库失败',
+      message: (err as Error)?.message ?? String(err),
+    });
   }
 };
 

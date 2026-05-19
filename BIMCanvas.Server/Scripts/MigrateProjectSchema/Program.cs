@@ -24,18 +24,25 @@ internal static class Program
         var dryRun = args.Skip(1).Any(a => a == "--dry-run");
         var only = args.Skip(1).FirstOrDefault(a => a.StartsWith("--only="))?["--only=".Length..]?.ToLowerInvariant();
 
-        if (only != null && only != "tag" && only != "wrapper" && only != "tagvalue")
+        if (only != null && only != "tag" && only != "wrapper" && only != "tagvalue" && only != "slim")
         {
-            Console.Error.WriteLine($"[Error] --only 只接受 'tag' / 'wrapper' / 'tagvalue'，收到: {only}");
+            Console.Error.WriteLine($"[Error] --only 只接受 'tag' / 'wrapper' / 'tagvalue' / 'slim'，收到: {only}");
             return 2;
         }
 
-        // 按 plan 顺序：Phase 0 字段重命名 → Phase 0b wrapper 升级 → Phase D tag 值语义化
-        IProjectHealthCheck[] allChecks = { new SemanticPlanTagCheck(), new ModulesWrapperCheck(), new SemanticPlanTagValueCheck() };
+        // 按 plan 顺序：Phase 0 字段重命名 → Phase 0b wrapper 升级 → Phase E schemeMetadata 瘦身 → Phase D tag 值语义化
+        IProjectHealthCheck[] allChecks =
+        {
+            new SemanticPlanTagCheck(),
+            new ModulesWrapperCheck(),
+            new SchemeMetadataSlimCheck(),
+            new SemanticPlanTagValueCheck()
+        };
         var checks = only switch
         {
             "tag" => allChecks.Where(c => c.Id == "phase0-tag"),
             "wrapper" => allChecks.Where(c => c.Id == "phase0b-wrapper"),
+            "slim" => allChecks.Where(c => c.Id == "phase-e-metadata-slim"),
             "tagvalue" => allChecks.Where(c => c.Id == "phase-d-tag-value"),
             _ => allChecks
         };
@@ -117,6 +124,7 @@ internal static class Program
         Console.WriteLine("BIMCanvas .bcp 项目 schema 一次性清洗工具");
         Console.WriteLine("  - Phase 0  semantic_plan / reference_analysis 字段重命名");
         Console.WriteLine("  - Phase 0b modules.json 裸数组 → wrapper {schemeMetadata, modules}");
+        Console.WriteLine("  - Phase E  schemeMetadata 瘦身（删 variantSlug/adoptedAt/sourceWorkflow，保留 summary）");
         Console.WriteLine("  - Phase D  semantic_plan tag 值语义化（v0.1 → spatial-skeleton 等）");
         Console.WriteLine();
         Console.WriteLine("用法:");
@@ -126,6 +134,7 @@ internal static class Program
         Console.WriteLine("  --dry-run         只检查不修复，列出问题清单");
         Console.WriteLine("  --only=tag        只跑 Phase 0（semantic_plan / reference_analysis 字段重命名）");
         Console.WriteLine("  --only=wrapper    只跑 Phase 0b（modules.json wrapper）");
+        Console.WriteLine("  --only=slim       只跑 Phase E（schemeMetadata 瘦身）");
         Console.WriteLine("  --only=tagvalue   只跑 Phase D（semantic_plan tag 值映射）");
         Console.WriteLine();
         Console.WriteLine("注意:");

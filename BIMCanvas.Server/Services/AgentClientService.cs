@@ -1,8 +1,8 @@
 using System.Net.Http;
 using System.Text;
-using System.Text.Json;
 using BIMCanvas.Server.Models;
 using Microsoft.Extensions.Logging;
+using Newtonsoft.Json;
 
 namespace BIMCanvas.Server.Services
 {
@@ -68,7 +68,7 @@ namespace BIMCanvas.Server.Services
             try
             {
                 var url = $"{AgentBaseUrl}/api/agent/close";
-                var json = JsonSerializer.Serialize(new { windowId });
+                var json = JsonConvert.SerializeObject(new { windowId });
                 var content = new StringContent(json, Encoding.UTF8, "application/json");
 
                 var response = await _httpClient.PostAsync(url, content);
@@ -110,7 +110,7 @@ namespace BIMCanvas.Server.Services
             try
             {
                 var url = $"{AgentBaseUrl}/api/agent/close-project";
-                var json = JsonSerializer.Serialize(new { projectPath });
+                var json = JsonConvert.SerializeObject(new { projectPath });
                 using var content = new StringContent(json, Encoding.UTF8, "application/json");
 
                 var response = await _httpClient.PostAsync(url, content);

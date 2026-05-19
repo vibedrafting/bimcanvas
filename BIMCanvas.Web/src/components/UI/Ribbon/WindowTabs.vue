@@ -3,12 +3,14 @@ import { computed, ref } from 'vue';
 import { useWindowStore, type VirtualWindow } from '../../../stores/windowStore';
 import { useGitStore } from '../../../stores/gitStore';
 import { useCanvasStore } from '../../../stores/canvasStore';
+import { useSystemStore } from '../../../stores/systemStore';
 import { ChangeSource } from '../../../types/history';
 import GlassButton from '../base/GlassButton.vue';
 
 const windowStore = useWindowStore();
 const gitStore = useGitStore();
 const canvasStore = useCanvasStore();
+const sys = useSystemStore();
 
 // 是否显示新窗口下拉菜单
 const showNewWindowMenu = ref(false);
@@ -50,7 +52,11 @@ const handleCreateWindow = async (branchName: string) => {
 // 切换下拉菜单
 const toggleNewWindowMenu = () => {
   if (availableBranches.value.length === 0) {
-    alert('没有可用的分支（所有分支都已被窗口占用）');
+    sys.pushToast({
+      type: 'warning',
+      title: '无法创建窗口',
+      message: '没有可用的分支(所有分支都已被窗口占用)',
+    });
     return;
   }
   showNewWindowMenu.value = !showNewWindowMenu.value;

@@ -1,0 +1,105 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://bimcanvas/docs/plugin-manifest-schema.json",
+  "title": "BIMCanvas Plugin Manifest (bimcanvas-plugin.json) — v3.3.2",
+  "description": "BIMCanvas 平台契约的权威 manifest schema (v3.3.2 大精简版)。9 字段方案 A:删除 type / schemaVersion / systemPrompt / agents(路径) / skills(路径) / mcpTools / mcpNamespace / projectMount / requires / permissions / referenceStability / maturity / homepage / web 等 13 个过度设计/装饰字段,新增 tools + agents 装配开关对象。所有资源文件位置改为约定俗成(BIMCANVAS.md / agents/*.md / skills/<name>/SKILL.md / mcp_tools/<plugin-name>.py / projectMount/manifest.json),代码写死路径不再读 manifest。MCP namespace 自动从 mcp_tools/<filename>.py 文件名 stem 推断。工具权限合成走 fallback / 完全接管语义:有 active 专业插件时 effective = active.tools;无专业插件时 fallback 到 core-base.tools,绝不 merge。详见 .dev/plans/工具权限配置系统/工具权限_v3.3_plugin-manifest-接管.md。",
+  "type": "object",
+  "required": [
+    "name",
+    "version",
+    "compatibility",
+    "displayName",
+    "description",
+    "tools",
+    "agents"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "$schema": {
+      "type": "string",
+      "description": "JSON Schema 元字段(可选)。指向 https://bimcanvas/docs/plugin-manifest-schema.json 或相对路径,便于 IDE 自动补全。本字段不进入业务校验逻辑,只为开发体验。"
+    },
+    "name": {
+      "type": "string",
+      "pattern": "^[a-z0-9-]+$",
+      "minLength": 1,
+      "maxLength": 64,
+      "description": "Plugin 唯一标识。仅允许小写字母、数字、短横线。同时承担三个角色:(1) 在用户的 BIMCANVAS_HOME/plugins/ 下作为目录名;(2) MCP namespace 默认来源(若 mcp_tools/<name>.py 存在则 namespace 自动 = name,见 §3.8 约定);(3) sceneId 模板默认前缀(defaultSceneIdPattern 缺省时为 '{name}-{n}')。"
+    },
+    "version": {
+      "type": "string",
+      "pattern": "^\\d+\\.\\d+\\.\\d+(-[0-9A-Za-z.\\-]+)?(\\+[0-9A-Za-z.\\-]+)?$",
+      "description": "Plugin 自身版本号 (semver)。运行时被记入 plugins-state.json.installedVersion 与 plugins.lock.json.version,用于 install / upgrade 流程比对。"
+    },
+    "compatibility": {
+      "type": "object",
+      "required": ["bimcanvas"],
+      "additionalProperties": false,
+      "description": "Plugin 与平台基座的兼容性声明。PluginLifecycleService 启动 Agent 前据此决定是否拒绝加载。",
+      "properties": {
+        "bimcanvas": {
+          "type": "string",
+          "minLength": 1,
+          "description": "platform 版本兼容 semver range,如 \"^1.0.0\" 或 \">=1.0 <2.0\"。完整语法由运行时 SemVer 库解析,本 schema 仅做非空校验。"
+        }
+      }
+    },
+    "displayName": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 80,
+      "description": "Web 设置页 + 顶部 active plugin 标签显示的人类可读名称。可含 emoji,如 '🛋️ 室内布置设计' / 'BIM 基础助手'。"
+    },
+    "description": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 1024,
+      "description": "Web 设置页 plugin 卡片摘要。一句话定位即可,详细文档放 README.md。"
+    },
+    "tools": {
+      "type": "object",
+      "required": ["allow", "deny"],
+      "additionalProperties": false,
+      "description": "主控工具权限声明(fallback / 完全接管模型 §2.2)。当该 plugin 作为 active domain plugin 时,主控的 ClaudeAgentOptions.allowed_tools / disallowed_tools 100% 来自此处,不与 core-base 合并。**因此 active 专业插件必须自行拼装完整工具清单**(含内建工具 + 它用到的 core-base 工具 + 自身工具),漏列任何工具主控就调不到。core-base 的 tools 仅在无 active 专业插件时作为 fallback 生效。",
+      "properties": {
+        "allow": {
+          "type": "array",
+          "items": { "type": "string", "minLength": 1 },
+          "uniqueItems": true,
+          "description": "允许的工具白名单。每项必须是完整工具名:(a) 内建工具 PascalCase 如 'Read' / 'Bash' / 'Task' / 'Skill' / 'AskUserQuestion';(b) MCP 工具完整三段 'mcp__<namespace>__<tool>',禁止 'mcp__<server>' 两段简写、'*' 通配、正则。空数组 [] 表示 SDK 全开(不应用白名单)。"
+        },
+        "deny": {
+          "type": "array",
+          "items": { "type": "string", "minLength": 1 },
+          "uniqueItems": true,
+          "description": "禁止的工具黑名单。语法与 allow 一致。SDK 处理顺序 deny → allow,deny 命中优先拒绝。允许空数组 []。**注意 D10**:此 deny 只对主控生效(走 ClaudeAgentOptions.disallowed_tools 全局通道,等价对 SubAgent 派发的工具调用也拦截)。SDK 0.1.41 AgentDefinition 无 disallowedTools 字段,不存在 per-SubAgent deny。"
+        }
+      }
+    },
+    "agents": {
+      "type": "object",
+      "required": ["allow", "deny"],
+      "additionalProperties": false,
+      "description": "SubAgent 装配开关声明(fallback / 完全接管模型)。当该 plugin 作为 active domain plugin 时,SubAgent 装配过滤 100% 来自此处。语义与 v3.2 config.json.<provider>.agents 一致,只是数据源换了。",
+      "properties": {
+        "allow": {
+          "type": "array",
+          "items": { "type": "string", "minLength": 1 },
+          "uniqueItems": true,
+          "description": "允许装配的 SubAgent 名字白名单。元素是 SubAgent .md 文件的 frontmatter name(如 'layout-agent' / 'module-relocation-agent')。空数组 [] 表示全部已加载 SubAgent 都通过(白名单不限制)。"
+        },
+        "deny": {
+          "type": "array",
+          "items": { "type": "string", "minLength": 1 },
+          "uniqueItems": true,
+          "description": "禁止装配的 SubAgent 名字黑名单。deny 优先于 allow。允许空数组 []。"
+        }
+      }
+    },
+    "defaultSceneIdPattern": {
+      "type": "string",
+      "minLength": 1,
+      "description": "新建 scene 时的 sceneId 默认 pattern,如 'interior-layout-{n}' / 'electrical-points-{n}'。{n} 由 Server 在 POST /api/project/{id}/scenes 内推断递增。用户可手改 sceneId,但需匹配 ^[a-z0-9-]+$ 且项目内唯一(主真理源 §3.9)。**缺省值** = '{name}-{n}'(若 plugin 不显式声明此字段,Server 用 plugin name 拼接)。"
+    }
+  }
+}

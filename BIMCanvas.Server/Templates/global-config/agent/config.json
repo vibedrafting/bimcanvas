@@ -7,26 +7,6 @@
     "defaultEffort": "low",
     "defaultThinking": "adaptive",
     "maxThinkingTokens": 8000,
-    "permissions": {
-      "allow": [
-        "Read",
-        "Write",
-        "Glob",
-        "Grep",
-        "Task",
-        "Skill",
-        "TodoWrite",
-        "AskUserQuestion",
-        "mcp__canvas__request_background_screenshot",
-        "mcp__canvas__get_zone_boundaries",
-        "mcp__canvas__save_semantic_plan",
-        "mcp__canvas__load_semantic_plan",
-        "mcp__canvas__validate_layout",
-        "mcp__canvas__load_reference_analysis",
-        "mcp__canvas__analyze_image"
-      ],
-      "deny": []
-    },
     "modelMapping": {
       "opus": { "id": "claude-opus-4-7[1m]", "label": "Opus" },
       "sonnet": { "id": "claude-sonnet-4-6", "label": "Sonnet" },
@@ -39,29 +19,6 @@
     "defaultModel": "gpt-5",
     "apiMode": "chat_completions",
     "disableTracing": null,
-    "permissions": {
-      "allow": [
-        "Read",
-        "Write",
-        "Edit",
-        "Glob",
-        "Grep",
-        "Bash",
-        "AskUserQuestion",
-        "Task",
-        "Skill",
-        "TodoWrite",
-        "mcp__canvas__request_background_screenshot",
-        "mcp__canvas__get_zone_boundaries",
-        "mcp__canvas__save_semantic_plan",
-        "mcp__canvas__load_semantic_plan",
-        "mcp__canvas__validate_layout",
-        "mcp__canvas__load_reference_analysis",
-        "mcp__canvas__save_reference_analysis",
-        "mcp__canvas__analyze_image"
-      ],
-      "deny": []
-    },
     "modelMapping": {
       "gpt-5.4": {
         "id": "gpt-5.4",

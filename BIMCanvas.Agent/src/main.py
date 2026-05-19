@@ -151,6 +151,13 @@ def build_parser() -> argparse.ArgumentParser:
     )
 
     parser.add_argument(
+        "--launch-context",
+        type=str,
+        default=None,
+        help="LaunchContext JSON file path (Server 注入);main.py 转写到 BIMCANVAS_LAUNCH_CONTEXT env",
+    )
+
+    parser.add_argument(
         "--managed-by-server",
         nargs="?",
         const="",
@@ -179,6 +186,9 @@ def main(argv: list[str] | None = None) -> None:
     """Main entry point"""
     parser = build_parser()
     args = parser.parse_args(argv)
+
+    if args.launch_context:
+        os.environ["BIMCANVAS_LAUNCH_CONTEXT"] = args.launch_context
 
     try:
         ensure_server_managed_startup()

@@ -1,0 +1,36 @@
+{
+  "name": "indoor-layout",
+  "version": "1.0.0",
+  "type": "bimcanvas-plugin",
+  "schemaVersion": 1,
+  "compatibility": { "bimcanvas": "^1.0.0" },
+  "displayName": "Indoor Layout",
+  "description": "BIMCanvas reference plugin for residential interior furniture layout.",
+  "homepage": "https://github.com/vibedrafting/BIMCanvas-IndoorLayout",
+  "systemPrompt": "BIMCANVAS.md",
+  "agents": "agents/",
+  "skills": "skills/",
+  "mcpTools": "mcp_tools/canvas_indoor_layout.py",
+  "mcpNamespace": "indoor-layout",
+  "projectMount": { "manifest": "projectMount/manifest.json" },
+  "permissions": {
+    "allow": ["Read", "Write", "Edit", "mcp__canvas__validate_layout"],
+    "deny": ["Bash"]
+  },
+  "requires": {
+    "platformTools": ["mcp__canvas__list_project_scenes", "mcp__canvas__load_scene_artifact"]
+  },
+  "referenceStability": "semver-tracked",
+  "maturity": "experimental",
+  "web": {
+    "displayName": "Indoor Layout",
+    "icon": "🛋️",
+    "category": "residential",
+    "settingsHints": "Living-room and bedroom oriented furniture layout."
+  },
+  "defaultSceneIdPattern": "interior-layout-{n}",
+  "overrides": {
+    "agents": [],
+    "skills": []
+  }
+}

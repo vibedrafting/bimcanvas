@@ -11,10 +11,16 @@ interface Props {
     visible: boolean;
     projectName: string;
     folderPath: string;
+    // 'standalone' = 首页扳手按钮触发；'import' = .bcp 导入前自动健康检查
+    mode?: 'standalone' | 'import';
 }
 
-const props = defineProps<Props>();
-const emit = defineEmits<{ (e: 'closed'): void }>();
+const props = withDefaults(defineProps<Props>(), { mode: 'standalone' });
+const emit = defineEmits<{
+    (e: 'closed'): void;
+    (e: 'proceed'): void; // import 模式：放行，可继续 loadInitialProject（无问题/已修复/用户跳过）
+    (e: 'abort'): void;   // import 模式：用户取消导入
+}>();
 
 type Phase = 'inspecting' | 'preview' | 'repairing' | 'done' | 'error';
 
@@ -22,23 +28,37 @@ const phase = ref<Phase>('inspecting');
 const inspection = ref<ProjectInspectionReport | null>(null);
 const repairResult = ref<ProjectRepairReport | null>(null);
 const errorMessage = ref<string>('');
+// 记录 error 阶段失败发生在哪个步骤，决定重试入口
+const errorStage = ref<'inspect' | 'repair'>('inspect');
 
 const ISSUES_PER_CHECK_PREVIEW = 10;
+const isImportMode = computed(() => props.mode === 'import');
 
-// 可见性变化时自动 inspect
-watch(() => props.visible, async (visible) => {
-    if (!visible) return;
+const runInspect = async () => {
     phase.value = 'inspecting';
     inspection.value = null;
     repairResult.value = null;
     errorMessage.value = '';
     try {
-        inspection.value = await ProjectHealthService.inspect(props.folderPath);
+        const report = await ProjectHealthService.inspect(props.folderPath);
+        inspection.value = report;
+        // import 模式且无问题：静默放行，不展示对话框内容
+        if (isImportMode.value && report.totalIssues === 0) {
+            emit('proceed');
+            return;
+        }
         phase.value = 'preview';
     } catch (err: any) {
+        errorStage.value = 'inspect';
         errorMessage.value = err?.response?.data?.message || err?.message || '检查失败';
         phase.value = 'error';
     }
+};
+
+// 可见性变化时自动 inspect
+watch(() => props.visible, async (visible) => {
+    if (!visible) return;
+    await runInspect();
 }, { immediate: true });
 
 const totalIssues = computed(() => inspection.value?.totalIssues ?? 0);
@@ -79,12 +99,22 @@ const handleConfirm = async () => {
         repairResult.value = await ProjectHealthService.repair(props.folderPath);
         phase.value = 'done';
     } catch (err: any) {
+        errorStage.value = 'repair';
         errorMessage.value = err?.response?.data?.message || err?.message || '修复失败';
         phase.value = 'error';
     }
 };
 
 const handleClose = () => emit('closed');
+const handleProceed = () => emit('proceed');
+const handleAbort = () => emit('abort');
+const handleRetry = async () => {
+    if (errorStage.value === 'repair') {
+        await handleConfirm();
+    } else {
+        await runInspect();
+    }
+};
 </script>
 
 <template>
@@ -162,16 +192,34 @@ const handleClose = () => emit('closed');
 
                     <!-- actions -->
                     <div class="dialog-actions">
-                        <template v-if="phase === 'preview' && totalIssues > 0">
-                            <GlassButton variant="primary" @click="handleConfirm">确认修复</GlassButton>
-                            <GlassButton variant="ghost" @click="handleClose">取消</GlassButton>
+                        <template v-if="phase === 'inspecting' || phase === 'repairing'">
+                            <GlassButton variant="ghost" disabled>请稍候...</GlassButton>
                         </template>
-                        <template v-else-if="phase === 'preview' || phase === 'done' || phase === 'error'">
+                        <template v-else-if="phase === 'preview' && totalIssues > 0">
+                            <GlassButton variant="primary" @click="handleConfirm">立即修复</GlassButton>
+                            <template v-if="isImportMode">
+                                <GlassButton variant="ghost" @click="handleProceed">跳过修复并打开</GlassButton>
+                                <GlassButton variant="ghost" @click="handleAbort">取消导入</GlassButton>
+                            </template>
+                            <template v-else>
+                                <GlassButton variant="ghost" @click="handleClose">取消</GlassButton>
+                            </template>
+                        </template>
+                        <template v-else-if="phase === 'preview'">
+                            <!-- standalone 模式下 totalIssues===0 才会落到这里；import 模式已自动 proceed -->
                             <GlassButton variant="primary" @click="handleClose">完成</GlassButton>
                         </template>
-                        <template v-else>
-                            <!-- inspecting / repairing 期间不允许关闭 -->
-                            <GlassButton variant="ghost" disabled>请稍候...</GlassButton>
+                        <template v-else-if="phase === 'done'">
+                            <GlassButton v-if="isImportMode" variant="primary" @click="handleProceed">打开项目</GlassButton>
+                            <GlassButton v-else variant="primary" @click="handleClose">完成</GlassButton>
+                        </template>
+                        <template v-else-if="phase === 'error'">
+                            <template v-if="isImportMode">
+                                <GlassButton variant="primary" @click="handleRetry">重试</GlassButton>
+                                <GlassButton variant="ghost" @click="handleProceed">跳过并打开</GlassButton>
+                                <GlassButton variant="ghost" @click="handleAbort">取消导入</GlassButton>
+                            </template>
+                            <GlassButton v-else variant="primary" @click="handleClose">完成</GlassButton>
                         </template>
                     </div>
                 </div>

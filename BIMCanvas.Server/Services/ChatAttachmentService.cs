@@ -28,7 +28,7 @@ namespace BIMCanvas.Server.Services
         private readonly SemaphoreSlim _gate = new(1, 1);
         private readonly JsonSerializerSettings _jsonSettings = new()
         {
-            ContractResolver = new CamelCasePropertyNamesContractResolver(),
+            ContractResolver = new DefaultContractResolver { NamingStrategy = new CamelCaseNamingStrategy() },
             Formatting = Formatting.Indented,
             NullValueHandling = NullValueHandling.Ignore
         };

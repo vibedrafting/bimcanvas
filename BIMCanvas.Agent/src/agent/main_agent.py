@@ -7,6 +7,8 @@ import os
 import re
 from typing import Any, AsyncIterator
 
+import aiohttp
+
 from claude_agent_sdk import (
     ClaudeSDKClient,
     ClaudeAgentOptions,
@@ -27,8 +29,7 @@ from ..config.settings import get_settings
 from .subagents import create_subagents
 from .agent_logger import get_agent_logger
 from .worktree_manager import WorktreeManager, WorktreeContext
-# MCP 服务器（业务工具）
-from ..mcp import canvas_mcp
+# 组3 改造: 不再硬编码 canvas_mcp; bundle.mcp_servers_spec 动态构造
 from ..runtime import ConfigBundle, StreamChunk, build_config_bundle
 
 logger = logging.getLogger(__name__)
@@ -89,6 +90,11 @@ class MainAgent:
         self._client: ClaudeSDKClient | None = None
         self._connected = False
         self._lock = asyncio.Lock()
+
+        # 组3: long-lived aiohttp.ClientSession,供 PluginContext / load_scene_artifact 共享。
+        # 在首次 _require_bundle (fallback 路径) 时 lazy 创建;disconnect 时关闭。
+        # 注:host 外部通过 configure(bundle) 注入 bundle 时,session 生命周期由 host 自管。
+        self._owned_session: aiohttp.ClientSession | None = None
 
         # State tracking for logging
         self._in_thinking = False
@@ -157,6 +163,8 @@ class MainAgent:
         self._bundle = bundle
         self._subagents = create_subagents(
             bundle.shared_agents,
+            main_allow=bundle.tools_allow,
+            main_deny=bundle.tools_deny,
             project_path=self.project_path,
             working_directory=self.working_directory,
         )
@@ -171,7 +179,10 @@ class MainAgent:
 
     def _require_bundle(self) -> ConfigBundle:
         if self._bundle is None:
-            self.configure(build_config_bundle())
+            # 组3: lazy 创建 long-lived aiohttp session,供 load_scene_artifact / plugin 工具共享
+            if self._owned_session is None:
+                self._owned_session = aiohttp.ClientSession()
+            self.configure(build_config_bundle(session=self._owned_session))
         assert self._bundle is not None
         return self._bundle
 
@@ -202,8 +213,13 @@ class MainAgent:
         working_directory = self.working_directory or self.project_path or "（unknown）"
         system_prompt = system_prompt + f"\n\n项目路径: {project_path}\n工作目录: {working_directory}"
 
-        allowed_tools = bundle.permissions_allow
-        disallowed_tools = bundle.permissions_deny
+        # 工具权限重设计 v3.2 §7.1 / §7.2:
+        # - bundle.tools_allow 原样传给 SDK (空 list = SDK 全开)
+        # - bundle.tools_deny 原样传给 SDK (deny 优先于 allow,跟随 SDK 语义)
+        # - 不再自动合入 mcp_tool_names / Skill 等隐式工具,plugin MCP 工具
+        #   需在 config.json 显式列出
+        allowed_tools = bundle.tools_allow
+        disallowed_tools = bundle.tools_deny
 
         # 构建自定义环境变量（用于 Agent SDK 独立配置）
         custom_env = {}
@@ -224,44 +240,37 @@ class MainAgent:
         else:
             sdk_thinking = ThinkingConfigDisabled(type="disabled")
 
-        # === 注释掉现有 Canvas MCP ===
-        # canvas_mcp = None
-        # mcp_tools = []
-        # try:
-        #     canvas_mcp = create_canvas_mcp()
-        #     mcp_tools = get_allowed_tools()
-        #     self._agent_logger._print(f"[MCP] MCP 服务器已创建，工具: {mcp_tools}")
-        # except ValueError as e:
-        #     self._agent_logger.log_warning(f"MCP 服务器创建失败: {e}")
-        # except Exception as e:
-        #     self._agent_logger.log_error(f"MCP 服务器创建异常: {e}")
+        # === MCP 服务器配置 (组3 改造: 动态从 bundle 拿) ===
+        mcp_servers_spec = dict(bundle.mcp_servers_spec)
+        self._agent_logger._print(
+            f"[MCP] MCP servers registered: {list(mcp_servers_spec.keys())}, "
+            f"tools={len(bundle.mcp_tool_names)}"
+        )
+        if bundle.diagnostics:
+            for diag in bundle.diagnostics:
+                self._agent_logger._print(f"[Bundle] {diag}")
 
-        # === MCP 服务器配置 ===
-        mcp_tools = list(bundle.mcp_tool_names)
-        self._agent_logger._print(f"[MCP] Canvas MCP 已注册，工具: {mcp_tools}")
-
-        # 合并工具权限
-        all_allowed = None
-        if allowed_tools is not None:
-            all_allowed = list(dict.fromkeys([*allowed_tools, *mcp_tools, "Skill"]))
-
-        # === Plugin 机制加载 Skills ===
-        # BIMCANVAS_HOME 本身就是 Plugin 目录，独立于 setting_sources，彻底避免 CLAUDE.md 污染
+        # === Plugin 机制加载 Skills (组3 改造: 遍历 active_plugin_paths) ===
+        # BIMCANVAS_HOME 本身就是 Plugin 目录(core-base / 旧布局 base);active plugin root
+        # 是 domain plugin 目录。两者都通过 SDK plugins 数组注册,SDK 自动扫 skills 注入 reminder。
+        # 独立于 setting_sources,彻底避免 CLAUDE.md 污染 (README 开发难点 #4)
         plugins = []
-        plugin_path = bundle.bimcanvas_home  # <BIMCANVAS_HOME>/
-        if (plugin_path / ".claude-plugin").exists():
-            plugins.append({"type": "local", "path": str(plugin_path)})
-            self._agent_logger._print(f"[Plugin] BIMCanvas Plugin 已注册: {plugin_path}")
-        else:
-            self._agent_logger.log_warning(f"[Plugin] Plugin 清单不存在: {plugin_path / '.claude-plugin'}")
+        for plugin_path in bundle.active_plugin_paths:
+            if (plugin_path / ".claude-plugin").exists():
+                plugins.append({"type": "local", "path": str(plugin_path)})
+                self._agent_logger._print(f"[Plugin] 已注册: {plugin_path.name} ({plugin_path})")
+            else:
+                self._agent_logger.log_warning(
+                    f"[Plugin] 跳过 (缺 .claude-plugin/): {plugin_path}"
+                )
 
         return ClaudeAgentOptions(
             system_prompt=system_prompt,
             cwd=self.working_directory,
             max_turns=30,
             model=model,
-            allowed_tools=all_allowed,             # 包含 MCP 工具
-            disallowed_tools=disallowed_tools,     # 工具黑名单
+            allowed_tools=allowed_tools,           # 工具权限 v3.2: bundle.tools_allow 原样;空 list = SDK 全开
+            disallowed_tools=disallowed_tools,     # 工具权限 v3.2: bundle.tools_deny 原样;deny 优先
             agents=self._subagents,
             permission_mode="acceptEdits",
             include_partial_messages=True,
@@ -269,8 +278,10 @@ class MainAgent:
             effort=sdk_effort,                     # SDK 原生（0.1.36+）
             thinking=sdk_thinking,                 # SDK 原生（0.1.36+）
             max_thinking_tokens=settings.max_thinking_tokens,  # thinking 预算上限（None=不限制）
-            mcp_servers={"canvas": canvas_mcp},    # 业务工具
-            setting_sources=None,                  # ✅ 安全：不加载任何文件系统配置（CLAUDE.md 零污染）
+            mcp_servers=mcp_servers_spec,          # 组3: bundle.mcp_servers_spec 动态构造 (canvas + active plugin)
+            # DO NOT change to anything else. README §"开发难点 #4 — CLAUDE.md 污染"。
+            # Plugin / Skill 通过 plugins=[...] 加载,与 setting_sources 完全正交。
+            setting_sources=None,
             plugins=plugins,                       # ✅ 通过 Plugin 机制加载 Skills
             max_buffer_size=10 * 1024 * 1024,      # 10MB — 截图 ImageContent 需要足够缓冲区（默认仅 1MB）
             can_use_tool=self._auto_approve_tool,  # Agent 后端无人值守，自动批准所有工具调用
@@ -547,6 +558,16 @@ class MainAgent:
                     self._connected = False
                     self._client = None
                     logger.info(f"MainAgent disconnected for project: {self.project_path}")
+
+            # 组3: 关闭 long-lived aiohttp session (R4 缓解,防 plugin 工具用的 session 泄漏)
+            if self._owned_session is not None and not self._owned_session.closed:
+                try:
+                    await self._owned_session.close()
+                    logger.info("MainAgent owned aiohttp.ClientSession closed")
+                except Exception as e:
+                    logger.warning(f"aiohttp session close error: {e}")
+                finally:
+                    self._owned_session = None
 
     async def _force_kill_subprocess(self) -> None:
         """强制杀掉 claude.exe 子进程（disconnect 失败时的 fallback）"""

@@ -2,6 +2,7 @@
 import { ref, onMounted, onUnmounted } from 'vue';
 import { useCanvasStore } from '../../stores/canvasStore';
 import { useAppStore } from '../../stores/appStore';
+import { useSystemStore } from '../../stores/systemStore';
 import GlassButton from './base/GlassButton.vue';
 import ConflictDialog from './ConflictDialog.vue';
 import SaveConfirmDialog from './SaveConfirmDialog.vue';
@@ -15,6 +16,7 @@ import { SchemeService } from '../../services/SchemeService';
 
 const store = useCanvasStore();
 const appStore = useAppStore();
+const sys = useSystemStore();
 const runtime = getWebRuntime();
 const canServerPersistence = supports(runtime.capabilities.serverPersistence);
 const canProjectCatalog = supports(runtime.capabilities.projectCatalog);
@@ -57,17 +59,6 @@ const handleCloseConfirm = async (action: 'save' | 'discard' | 'cancel') => {
   }
   await appStore.closeProject(true);
   isClosing.value = false;
-};
-
-const notifySyncCheck = (type: 'info' | 'success' | 'warning' | 'error', title: string, message: string) => {
-  window.dispatchEvent(new CustomEvent('bimcanvas:agent-notification', {
-    detail: {
-      type,
-      title,
-      message,
-      timestamp: new Date().toISOString()
-    }
-  }));
 };
 
 const formatDiagnosticItem = (diagnostic: Diagnostic): string => {
@@ -118,7 +109,7 @@ const notifyReportDiagnostics = (
     ? `${titlePrefix}失败`
     : `${titlePrefix}警告`;
   const message = `${report.errorCount} 个错误，${report.warningCount} 个警告。${formatDiagnostics(report.diagnostics)}`;
-  notifySyncCheck(type, title, message);
+  sys.pushToast({ type, title, message });
 };
 
 const stringifyErrorValue = (value: unknown): string[] => {
@@ -176,7 +167,7 @@ const runScopeCheck = async (label: string, request: LayoutRequest = {}): Promis
     shouldValidate = normalizeReport.errorCount <= 0;
   } catch (error: any) {
     shouldValidate = false;
-    notifySyncCheck('error', `${label} 模块规范化失败`, getRequestErrorMessage(error));
+    sys.pushToast({ type: 'error', title: `${label} 模块规范化失败`, message: getRequestErrorMessage(error) });
   }
 
   if (shouldValidate) {
@@ -184,7 +175,7 @@ const runScopeCheck = async (label: string, request: LayoutRequest = {}): Promis
       const validationReport = await LayoutValidationService.validateLayout(request);
       notifyReportDiagnostics(`${label} 布局验证`, validationReport);
     } catch (error: any) {
-      notifySyncCheck('error', `${label} 布局验证失败`, getRequestErrorMessage(error));
+      sys.pushToast({ type: 'error', title: `${label} 布局验证失败`, message: getRequestErrorMessage(error) });
     }
   }
 };
@@ -209,7 +200,7 @@ const handleSync = async () => {
         }
       }
     } catch (error: any) {
-      notifySyncCheck('error', '获取变体清单失败', getRequestErrorMessage(error));
+      sys.pushToast({ type: 'error', title: '获取变体清单失败', message: getRequestErrorMessage(error) });
     }
 
     await store.forceSync();

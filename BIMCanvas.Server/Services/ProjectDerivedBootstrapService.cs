@@ -7,6 +7,7 @@ using BIMCanvas.Core.Models.Project;
 using BIMCanvas.Core.Services;
 using Microsoft.Extensions.Logging;
 using Newtonsoft.Json;
+using Newtonsoft.Json.Linq;
 using Newtonsoft.Json.Serialization;
 
 namespace BIMCanvas.Server.Services
@@ -51,7 +52,7 @@ namespace BIMCanvas.Server.Services
             _gitService = gitService;
             _jsonSettings = new JsonSerializerSettings
             {
-                ContractResolver = new CamelCasePropertyNamesContractResolver(),
+                ContractResolver = new DefaultContractResolver { NamingStrategy = new CamelCaseNamingStrategy() },
                 Formatting = Formatting.Indented
             };
         }
@@ -199,6 +200,21 @@ namespace BIMCanvas.Server.Services
             return _strategyService.CreateDefaultStrategy(schemesPath, baselineHash);
         }
 
+        /// <summary>
+        /// 用 JObject patch 写回 project.json:只 mutate BIMCanvas 拥有字段,
+        /// 任何未知字段 (包括 plugin / 第三方扩展、嵌套对象未知字段、数组中未知元素)
+        /// 原样保留。
+        ///
+        /// 主真理源 v1.1 §3.9 + §4.5 字段所有权清单:
+        ///   平台拥有 (本服务负责): id / name / version / createdAt / updatedAt /
+        ///                          coordinateSystem / activeSchemeId / schemes
+        ///   平台拥有 (本服务不操作): scenes —— 由组2 端点 POST /api/project/{id}/scenes
+        ///                            管理,本服务对 scenes 一律透传不动。
+        ///   第三方扩展: 任何未列出字段都原样保留。
+        ///
+        /// 卡点 F (主真理源 §2.4):取代旧 <see cref="JsonConvert.DeserializeObject{Project}"/>
+        /// 整对象 round-trip 路径,后者会静默抹除未知字段。
+        /// </summary>
         private void EnsureProjectJson(string projectPath, string activeStrategyId, bool refreshProjectMetadata)
         {
             var projectJsonPath = Path.Combine(projectPath, "project.json");
@@ -217,66 +233,69 @@ namespace BIMCanvas.Server.Services
                 .ToList();
 
             var shouldWrite = refreshProjectMetadata || !File.Exists(projectJsonPath);
-            Project project;
+            JObject root;
 
             if (File.Exists(projectJsonPath))
             {
                 try
                 {
                     var json = File.ReadAllText(projectJsonPath, Encoding.UTF8);
-                    project = JsonConvert.DeserializeObject<Project>(json) ?? new Project();
+                    root = JObject.Parse(json);
                 }
                 catch (Exception ex)
                 {
                     _logger.LogWarning(ex, "project.json 解析失败，将按默认结构重建: {Path}", projectJsonPath);
-                    project = new Project();
+                    root = new JObject();
                     shouldWrite = true;
                 }
             }
             else
             {
-                project = new Project();
+                root = new JObject();
             }
 
-            if (string.IsNullOrWhiteSpace(project.Id))
+            if (string.IsNullOrWhiteSpace((string?)root["id"]))
             {
-                project.Id = $"proj_{projectName}";
+                root["id"] = $"proj_{projectName}";
                 shouldWrite = true;
             }
 
-            if (string.IsNullOrWhiteSpace(project.Name))
+            if (string.IsNullOrWhiteSpace((string?)root["name"]))
             {
-                project.Name = projectName;
+                root["name"] = projectName;
                 shouldWrite = true;
             }
 
-            if (string.IsNullOrWhiteSpace(project.Version))
+            if (string.IsNullOrWhiteSpace((string?)root["version"]))
             {
-                project.Version = "3.0";
+                root["version"] = "3.0";
                 shouldWrite = true;
             }
 
-            if (string.IsNullOrWhiteSpace(project.CoordinateSystem))
+            if (string.IsNullOrWhiteSpace((string?)root["coordinateSystem"]))
             {
-                project.CoordinateSystem = "cartesian_mm_yUp";
+                root["coordinateSystem"] = "cartesian_mm_yUp";
                 shouldWrite = true;
             }
 
-            if (project.CreatedAt == default)
+            var createdAtToken = root["createdAt"];
+            if (createdAtToken == null || createdAtToken.Type == JTokenType.Null)
             {
-                project.CreatedAt = DateTime.Now;
+                root["createdAt"] = JToken.FromObject(DateTime.Now, JsonSerializer.Create(_jsonSettings));
                 shouldWrite = true;
             }
 
-            if (!SchemeRefsEqual(project.Schemes, desiredSchemes))
+            var currentSchemes = root["schemes"] as JArray;
+            if (!SchemeRefsEqualToJArray(currentSchemes, desiredSchemes))
             {
-                project.Schemes = desiredSchemes;
+                root["schemes"] = JArray.FromObject(desiredSchemes, JsonSerializer.Create(_jsonSettings));
                 shouldWrite = true;
             }
 
-            if (!string.Equals(project.ActiveSchemeId, activeStrategyId, StringComparison.Ordinal))
+            var currentActiveSchemeId = (string?)root["activeSchemeId"];
+            if (!string.Equals(currentActiveSchemeId, activeStrategyId, StringComparison.Ordinal))
             {
-                project.ActiveSchemeId = activeStrategyId;
+                root["activeSchemeId"] = activeStrategyId;
                 shouldWrite = true;
             }
 
@@ -285,12 +304,42 @@ namespace BIMCanvas.Server.Services
                 return;
             }
 
-            project.UpdatedAt = DateTime.Now;
+            root["updatedAt"] = JToken.FromObject(DateTime.Now, JsonSerializer.Create(_jsonSettings));
 
-            var updatedJson = JsonConvert.SerializeObject(project, _jsonSettings);
+            var ordered = ReorderProjectRoot(root);
+            var updatedJson = ordered.ToString(Formatting.Indented);
             File.WriteAllText(projectJsonPath, updatedJson, Encoding.UTF8);
             _logger.LogInformation("更新 project.json: ActiveSchemeId = {Id}, Schemes.Count = {Count}",
-                activeStrategyId, project.Schemes?.Count ?? 0);
+                activeStrategyId, desiredSchemes.Count);
+        }
+
+        /// <summary>
+        /// 写出时把 BIMCanvas 拥有字段按稳定顺序前置,所有未知字段保持原相对顺序追加于后。
+        /// diff-friendly + 保留未知字段。字段顺序与 .bcp Schema 文档(docs/bcp-schema-v3.5.md)对齐。
+        /// </summary>
+        private static JObject ReorderProjectRoot(JObject root)
+        {
+            string[] ownedOrder =
+            {
+                "id", "name", "version", "createdAt", "updatedAt",
+                "coordinateSystem", "activeSchemeId", "schemes", "scenes"
+            };
+            var ordered = new JObject();
+            foreach (var key in ownedOrder)
+            {
+                if (root.TryGetValue(key, out var token))
+                {
+                    ordered[key] = token;
+                }
+            }
+            foreach (var prop in root.Properties())
+            {
+                if (!ordered.ContainsKey(prop.Name))
+                {
+                    ordered[prop.Name] = prop.Value;
+                }
+            }
+            return ordered;
         }
 
         private ComputedDataEnsureState EnsureComputedData(string projectPath)
@@ -326,7 +375,13 @@ namespace BIMCanvas.Server.Services
             }
         }
 
-        private static bool SchemeRefsEqual(IReadOnlyList<SchemeRef>? left, IReadOnlyList<SchemeRef> right)
+        /// <summary>
+        /// JArray 形态 schemes 与目标 List&lt;SchemeRef&gt; 等价判断 —— 用于
+        /// JObject patch 路径下,避免不必要的 schemes 写入触发 file change。
+        /// 任何 schemes 数组元素中超出 id/path/name 的扩展字段也会被 JObject 原样保留,
+        /// 此处只对 BIMCanvas 拥有的三个字段做相等性比较。
+        /// </summary>
+        private static bool SchemeRefsEqualToJArray(JArray? left, IReadOnlyList<SchemeRef> right)
         {
             if (left == null)
             {
@@ -340,11 +395,15 @@ namespace BIMCanvas.Server.Services
 
             for (int i = 0; i < left.Count; i++)
             {
-                var leftItem = left[i];
+                if (left[i] is not JObject leftItem)
+                {
+                    return false;
+                }
+
                 var rightItem = right[i];
-                if (!string.Equals(leftItem.Id, rightItem.Id, StringComparison.Ordinal) ||
-                    !string.Equals(leftItem.Path, rightItem.Path, StringComparison.Ordinal) ||
-                    !string.Equals(leftItem.Name, rightItem.Name, StringComparison.Ordinal))
+                if (!string.Equals((string?)leftItem["id"], rightItem.Id, StringComparison.Ordinal) ||
+                    !string.Equals((string?)leftItem["path"], rightItem.Path, StringComparison.Ordinal) ||
+                    !string.Equals((string?)leftItem["name"], rightItem.Name, StringComparison.Ordinal))
                 {
                     return false;
                 }

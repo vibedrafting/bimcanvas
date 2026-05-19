@@ -1,26 +1,27 @@
-using System.Text.Json;
+using Newtonsoft.Json;
+using Newtonsoft.Json.Serialization;
 
 namespace BIMCanvas.Server.Services;
 
 /// <summary>
 /// 最近打开项目记录服务
 /// 管理 <BIMCANVAS_HOME>/recent_projects.json
+/// 序列化栈:Newtonsoft.Json + <see cref="DefaultContractResolver"/> +
+/// <see cref="CamelCaseNamingStrategy"/>(只转 C# 属性名,不转 Dictionary key;详见 CLAUDE.md §10)。
 /// </summary>
 public class RecentProjectsService
 {
     private readonly object _lock = new();
 
-    private static readonly JsonSerializerOptions ReadOptions = new()
+    private static readonly JsonSerializerSettings ReadSettings = new()
     {
-        PropertyNameCaseInsensitive = true,
-        PropertyNamingPolicy = JsonNamingPolicy.CamelCase
+        ContractResolver = new DefaultContractResolver { NamingStrategy = new CamelCaseNamingStrategy() },
     };
 
-    private static readonly JsonSerializerOptions WriteOptions = new()
+    private static readonly JsonSerializerSettings WriteSettings = new()
     {
-        PropertyNameCaseInsensitive = true,
-        PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
-        WriteIndented = true
+        ContractResolver = new DefaultContractResolver { NamingStrategy = new CamelCaseNamingStrategy() },
+        Formatting = Formatting.Indented,
     };
 
     /// <summary>
@@ -35,7 +36,7 @@ public class RecentProjectsService
         try
         {
             var json = File.ReadAllText(path);
-            var entries = JsonSerializer.Deserialize<List<RecentProjectEntry>>(json, ReadOptions);
+            var entries = JsonConvert.DeserializeObject<List<RecentProjectEntry>>(json, ReadSettings);
             return entries ?? new List<RecentProjectEntry>();
         }
         catch
@@ -118,7 +119,7 @@ public class RecentProjectsService
         if (!string.IsNullOrEmpty(dir))
             Directory.CreateDirectory(dir);
 
-        var json = JsonSerializer.Serialize(entries, WriteOptions);
+        var json = JsonConvert.SerializeObject(entries, WriteSettings);
         File.WriteAllText(path, json);
     }
 }

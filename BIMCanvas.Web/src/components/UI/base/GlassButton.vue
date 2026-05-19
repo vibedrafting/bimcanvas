@@ -2,7 +2,7 @@
 import { computed } from 'vue';
 
 interface Props {
-  variant?: 'primary' | 'ghost' | 'danger';
+  variant?: 'primary' | 'ghost' | 'danger' | 'warning';
   active?: boolean;
   disabled?: boolean;
   title?: string;
@@ -118,6 +118,18 @@ const classes = computed(() => {
 
 .glass-btn.variant-danger:hover:not(:disabled) {
   background: rgba(255, 107, 107, 0.25);
+  /* ANTI-SHAKE: No transform */
+}
+
+/* Warning (语义:需用户注意但非危险,如"需要重启") */
+.glass-btn.variant-warning {
+  background: rgba(234, 179, 8, 0.18);
+  border-color: rgba(234, 179, 8, 0.35);
+  color: #fde047;
+}
+
+.glass-btn.variant-warning:hover:not(:disabled) {
+  background: rgba(234, 179, 8, 0.28);
   /* ANTI-SHAKE: No transform */
 }
 </style>

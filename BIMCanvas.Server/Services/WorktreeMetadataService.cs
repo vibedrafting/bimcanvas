@@ -2,9 +2,10 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
-using System.Text.Json;
 using BIMCanvas.Server.Models;
 using Microsoft.Extensions.Logging;
+using Newtonsoft.Json;
+using Newtonsoft.Json.Serialization;
 
 namespace BIMCanvas.Server.Services
 {
@@ -12,6 +13,8 @@ namespace BIMCanvas.Server.Services
     /// Worktree 元数据管理服务
     /// 负责读写 {projectPath}\.worktrees\worktrees.json 文件
     /// 用于精准判断删除 worktree 时是否应同时删除分支
+    /// 序列化栈:Newtonsoft.Json + <see cref="DefaultContractResolver"/> +
+    /// <see cref="CamelCaseNamingStrategy"/>(只转 C# 属性名,不转 Dictionary key;详见 CLAUDE.md §10)。
     /// </summary>
     public class WorktreeMetadataService
     {
@@ -46,7 +49,10 @@ namespace BIMCanvas.Server.Services
             try
             {
                 var json = File.ReadAllText(_metadataFile);
-                var metadata = JsonSerializer.Deserialize<WorktreeMetadata>(json);
+                var metadata = JsonConvert.DeserializeObject<WorktreeMetadata>(json, new JsonSerializerSettings
+                {
+                    ContractResolver = new DefaultContractResolver { NamingStrategy = new CamelCaseNamingStrategy() },
+                });
 
                 if (metadata == null)
                 {
@@ -78,9 +84,10 @@ namespace BIMCanvas.Server.Services
                     Directory.CreateDirectory(dir);
                 }
 
-                var json = JsonSerializer.Serialize(metadata, new JsonSerializerOptions
+                var json = JsonConvert.SerializeObject(metadata, new JsonSerializerSettings
                 {
-                    WriteIndented = true
+                    ContractResolver = new DefaultContractResolver { NamingStrategy = new CamelCaseNamingStrategy() },
+                    Formatting = Formatting.Indented,
                 });
 
                 File.WriteAllText(_metadataFile, json);

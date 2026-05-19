@@ -4,7 +4,6 @@ using System.Net.Sockets;
 using System.Net.Http.Headers;
 using System.Runtime.InteropServices;
 using System.Text;
-using System.Text.Json;
 using System.Text.RegularExpressions;
 using BIMCanvas.Server.Dtos;
 using BIMCanvas.Server.Hubs;
@@ -13,6 +12,8 @@ using BIMCanvas.Server.Models;
 using BIMCanvas.Server.Services;
 using BIMCanvas.Server.Services.Git;
 using Microsoft.Extensions.FileProviders;
+using Newtonsoft.Json;
+using Newtonsoft.Json.Converters;
 using Newtonsoft.Json.Serialization;
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -182,11 +183,16 @@ builder.Services.AddSingleton(config);
 builder.Services.AddSingleton(runtimeEndpointState);
 builder.Services.AddSingleton<AgentClientService>();
 
-// 配置 JSON 序列化选项（使用 Newtonsoft.Json，与 BIMCanvas.Core 保持一致）
+// 配置 JSON 序列化选项（本项目统一使用 Newtonsoft.Json，禁止引入 System.Text.Json，见 CLAUDE.md "Newtonsoft.Json 单一序列化栈"）
+// ContractResolver: DefaultContractResolver + CamelCaseNamingStrategy(只转 C# 属性名,不转 Dictionary key)。
+// enum 序列化默认整数;需字符串的 enum(TrustState / SourceKind / LaunchMode 等 plugin enum)
+// 在 enum 类型上显式标 [JsonConverter(typeof(StringEnumConverter), typeof(CamelCaseNamingStrategy))]。
+// **禁止全局 StringEnumConverter** —— 会波及业务 enum(OpeningType/RoomType/ZoneType)
+// 让前端整数比较失败(详见 CLAUDE.md §10)。
 builder.Services.AddControllers()
     .AddNewtonsoftJson(options =>
     {
-        options.SerializerSettings.ContractResolver = new CamelCasePropertyNamesContractResolver();
+        options.SerializerSettings.ContractResolver = new DefaultContractResolver { NamingStrategy = new CamelCaseNamingStrategy() };
         options.SerializerSettings.Formatting = Newtonsoft.Json.Formatting.Indented;
     });
 
@@ -203,6 +209,16 @@ builder.Services.AddSingleton<PlacementService>();
 builder.Services.AddSingleton<ZoneBoundaryService>();
 builder.Services.AddSingleton<ProjectFixedFilesBootstrapService>();
 builder.Services.AddSingleton<ProjectDerivedBootstrapService>();
+
+// v1.1 平台化改造 · 组 2:Plugin 安全 + 生命周期 (主真理源 §3.12 / §3.13 / §4.2)
+builder.Services.AddSingleton<BIMCanvas.Server.Services.PluginSecurity.StaticPluginValidator>();
+builder.Services.AddSingleton(sp => new BIMCanvas.Server.Services.PluginSecurity.ExecutablePluginProbe(
+    sp.GetRequiredService<Microsoft.Extensions.Logging.ILogger<BIMCanvas.Server.Services.PluginSecurity.ExecutablePluginProbe>>(),
+    agentProjectPath));
+builder.Services.AddSingleton<BIMCanvas.Server.Services.Plugins.PluginTrustService>();
+builder.Services.AddSingleton<BIMCanvas.Server.Services.Plugins.PluginInstallService>();
+builder.Services.AddSingleton<BIMCanvas.Server.Services.Plugins.PluginLifecycleService>();
+builder.Services.AddSingleton<BIMCanvas.Server.Services.Plugins.PluginScaffoldService>();
 
 // v3.1 Git Worktree 架构服务（单仓库 + 多分支 + Worktree 并行）
 builder.Services.AddSingleton<GitWorktreeService>();
@@ -222,7 +238,11 @@ builder.Services.AddSingleton<BIMCanvas.Server.Services.ProjectHealth.IProjectHe
 builder.Services.AddSingleton<BIMCanvas.Server.Services.ProjectHealth.IProjectHealthCheck,
     BIMCanvas.Server.Services.ProjectHealth.Checks.ModulesWrapperCheck>();
 builder.Services.AddSingleton<BIMCanvas.Server.Services.ProjectHealth.IProjectHealthCheck,
+    BIMCanvas.Server.Services.ProjectHealth.Checks.SchemeMetadataSlimCheck>();
+builder.Services.AddSingleton<BIMCanvas.Server.Services.ProjectHealth.IProjectHealthCheck,
     BIMCanvas.Server.Services.ProjectHealth.Checks.SemanticPlanTagValueCheck>();
+builder.Services.AddSingleton<BIMCanvas.Server.Services.ProjectHealth.IProjectHealthCheck,
+    BIMCanvas.Server.Services.ProjectHealth.Checks.SchemeNamespaceMigrationCheck>();
 builder.Services.AddSingleton<BIMCanvas.Server.Services.ProjectHealth.IGitCommitter>(sp =>
     new BIMCanvas.Server.Services.ProjectHealth.GitWorktreeServiceCommitter(
         sp.GetRequiredService<GitWorktreeService>()));
@@ -248,7 +268,7 @@ builder.Services.AddSingleton<LlmEndpointTestService>();
 builder.Services.AddSignalR()
     .AddNewtonsoftJsonProtocol(options =>
     {
-        options.PayloadSerializerSettings.ContractResolver = new CamelCasePropertyNamesContractResolver();
+        options.PayloadSerializerSettings.ContractResolver = new DefaultContractResolver { NamingStrategy = new CamelCaseNamingStrategy() };
         options.PayloadSerializerSettings.NullValueHandling = Newtonsoft.Json.NullValueHandling.Ignore;
     });
 builder.Services.AddSingleton<ProjectWatcherService>();
@@ -605,6 +625,57 @@ Process? ccrProcess = null;
             agentProcess.StartInfo.ArgumentList.Add(agentProjectPath);
             agentProcess.StartInfo.ArgumentList.Add("--managed-home");
             agentProcess.StartInfo.ArgumentList.Add(configDir);
+
+            // v1.1 §4.10 / 模板 §4.10:写初始 LaunchContext (Projectless 模式) 文件,
+            // CLI arg --launch-context 传给 Agent 子进程。现有环境变量注入并存,组3 完成后逐步迁移。
+            try
+            {
+                var runtimeDir = Path.Combine(configDir, ".runtime");
+                Directory.CreateDirectory(runtimeDir);
+                var serverPid = Process.GetCurrentProcess().Id;
+                var launchContextPath = Path.Combine(runtimeDir, $"launch-context-{serverPid}.json");
+                var initialActivePlugin = string.IsNullOrWhiteSpace(config.Agent.ActivePlugin)
+                    ? "core-base"
+                    : config.Agent.ActivePlugin;
+                var initialContext = new
+                {
+                    activePluginId = initialActivePlugin,
+                    activePluginRoot = Path.Combine(configDir, "plugins", initialActivePlugin),
+                    mode = "projectless",
+                    projectPath = (string?)null,
+                    activeSceneId = (string?)null,
+                    scenes = (object?)null,
+                    @lock = (object?)null,
+                    serverUrl = serverBaseUrl,
+                    trustMode = "fullTrust",
+                    readOnlySceneIds = Array.Empty<string>(),
+                };
+                var ctxJson = JsonConvert.SerializeObject(
+                    initialContext,
+                    new JsonSerializerSettings
+                    {
+                        Formatting = Newtonsoft.Json.Formatting.Indented,
+                        ContractResolver = new DefaultContractResolver { NamingStrategy = new CamelCaseNamingStrategy() },
+                        NullValueHandling = NullValueHandling.Include,
+                        // initialContext 内字段(mode/trustMode)已是字符串字面值;
+                        // plugin enum 字符串化由各 enum 类型上 [JsonConverter] attribute 控制。
+                    });
+                File.WriteAllText(launchContextPath, ctxJson, Encoding.UTF8);
+                agentProcess.StartInfo.ArgumentList.Add("--launch-context");
+                agentProcess.StartInfo.ArgumentList.Add(launchContextPath);
+                WriteWithColoredPrefix(
+                    "[Server]",
+                    $"Initial LaunchContext: mode=projectless, plugin={initialActivePlugin}, path={launchContextPath}",
+                    ConsoleColor.White);
+            }
+            catch (Exception ex)
+            {
+                WriteWithColoredPrefix(
+                    "[Server:WARN]",
+                    $"写 LaunchContext 失败,Agent 仅靠环境变量启动: {ex.Message}",
+                    ConsoleColor.DarkYellow);
+            }
+
             // 设置环境变量确保 Python 输出 UTF-8
             agentProcess.StartInfo.Environment["PYTHONIOENCODING"] = "utf-8";
             agentProcess.StartInfo.Environment["BIMCANVAS_HOME"] = configDir;
@@ -2200,14 +2271,14 @@ static List<PortOccupantInfo> GetWindowsPortOccupants(int port)
     }
 
     var result = new List<PortOccupantInfo>();
-    using var json = JsonDocument.Parse(output);
-    if (json.RootElement.ValueKind == JsonValueKind.Object)
+    var token = Newtonsoft.Json.Linq.JToken.Parse(output);
+    if (token is Newtonsoft.Json.Linq.JObject obj)
     {
-        AddPortOccupant(result, json.RootElement);
+        AddPortOccupant(result, obj);
     }
-    else if (json.RootElement.ValueKind == JsonValueKind.Array)
+    else if (token is Newtonsoft.Json.Linq.JArray array)
     {
-        foreach (var item in json.RootElement.EnumerateArray())
+        foreach (var item in array.OfType<Newtonsoft.Json.Linq.JObject>())
         {
             AddPortOccupant(result, item);
         }
@@ -2219,18 +2290,15 @@ static List<PortOccupantInfo> GetWindowsPortOccupants(int port)
         .ToList();
 }
 
-static void AddPortOccupant(List<PortOccupantInfo> target, JsonElement element)
+static void AddPortOccupant(List<PortOccupantInfo> target, Newtonsoft.Json.Linq.JObject element)
 {
-    if (!element.TryGetProperty("OwningProcess", out var pidProperty) ||
-        !pidProperty.TryGetInt32(out var pid) ||
-        pid <= 0)
+    var pid = element.Value<int?>("OwningProcess") ?? 0;
+    if (pid <= 0)
     {
         return;
     }
 
-    var state = element.TryGetProperty("State", out var stateProperty)
-        ? stateProperty.ToString() ?? "Unknown"
-        : "Unknown";
+    var state = element.Value<string>("State") ?? "Unknown";
     target.Add(new PortOccupantInfo(pid, state));
 }
 
@@ -2513,11 +2581,14 @@ static bool ProbeBIMCanvasAgentHealth(int port)
             return false;
         }
 
-        using var stream = response.Content.ReadAsStreamAsync().GetAwaiter().GetResult();
-        using var document = JsonDocument.Parse(stream);
-        return document.RootElement.TryGetProperty("service", out var serviceProperty)
-               && serviceProperty.ValueKind == JsonValueKind.String
-               && serviceProperty.GetString()?.Equals("bimcanvas-agent", StringComparison.OrdinalIgnoreCase) == true;
+        var body = response.Content.ReadAsStringAsync().GetAwaiter().GetResult();
+        if (string.IsNullOrWhiteSpace(body))
+        {
+            return false;
+        }
+        var document = Newtonsoft.Json.Linq.JObject.Parse(body);
+        var service = document.Value<string>("service");
+        return service?.Equals("bimcanvas-agent", StringComparison.OrdinalIgnoreCase) == true;
     }
     catch
     {

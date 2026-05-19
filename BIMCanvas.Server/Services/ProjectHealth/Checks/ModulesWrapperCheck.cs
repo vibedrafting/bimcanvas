@@ -2,7 +2,6 @@ using System;
 using System.IO;
 using System.Linq;
 using System.Text;
-using System.Text.RegularExpressions;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
 
@@ -10,18 +9,15 @@ namespace BIMCanvas.Server.Services.ProjectHealth.Checks
 {
     /// <summary>
     /// Phase 0b modules.json wrapper 升级检查：
-    ///   - 裸数组 → {schemeMetadata, modules}
-    ///   - 旧 wrapper {summary, modules} → {schemeMetadata: {summary,...}, modules}
-    /// schemeMetadata 字段按文件名 best-effort 派生（canonical → single-plan；alt-prev-* → prev-adopted；其他 → unknown）。
+    ///   - 裸数组 → {schemeMetadata: {summary: ""}, modules}
+    ///   - 旧 wrapper {summary, modules} → {schemeMetadata: {summary}, modules}
+    /// schemeMetadata 已瘦身为只含 summary（删除 variantSlug / adoptedAt / sourceWorkflow）。
+    /// 反向迁移（去除多余字段）由 SchemeMetadataSlimCheck 完成。
     /// </summary>
     public class ModulesWrapperCheck : IProjectHealthCheck
     {
         public string Id => "phase0b-wrapper";
         public string Description => "Phase 0b：modules.json 裸数组 → {schemeMetadata, modules} wrapper";
-
-        private static readonly Regex VariantFilenameRegex = new Regex(
-            @"^modules-(?<variantId>[A-Za-z0-9_\-]+)\.json$",
-            RegexOptions.Compiled | RegexOptions.IgnoreCase);
 
         public CheckInspectionResult Inspect(string projectPath)
         {
@@ -135,25 +131,11 @@ namespace BIMCanvas.Server.Services.ProjectHealth.Checks
 
         private static JObject BuildSchemeMetadata(string filePath, string summary)
         {
-            var fileName = Path.GetFileName(filePath);
-            string? variantSlug = null;
-            string sourceWorkflow = "single-plan";
-
-            var match = VariantFilenameRegex.Match(fileName);
-            if (match.Success)
-            {
-                variantSlug = match.Groups["variantId"].Value;
-                sourceWorkflow = variantSlug.StartsWith("alt-prev-", StringComparison.OrdinalIgnoreCase)
-                    ? "prev-adopted"
-                    : "unknown";
-            }
-
+            // schemeMetadata 已瘦身：只保留 summary。variantSlug / adoptedAt / sourceWorkflow
+            // 三个字段已废弃（信息可从路径 / git log 反推 / UI 不区分），不再写入。
             return new JObject
             {
-                ["summary"] = summary ?? string.Empty,
-                ["variantSlug"] = variantSlug,
-                ["adoptedAt"] = null,
-                ["sourceWorkflow"] = sourceWorkflow
+                ["summary"] = summary ?? string.Empty
             };
         }
 

@@ -39,8 +39,13 @@ namespace BIMCanvas.Server.Services
             "已保留现有分区设计；baseline 已更新，分区可能与最新房间数据不一致，请检查。";
 
         private readonly ILogger<ProjectService> _logger;
+        // v1.1 §4.9 R10:不再在 LoadProject / EnsureProjectAssets 内调 EnsureInitialized。
+        // 保留字段是为不破坏 DI 注册签名;唯一活跃调用点已迁移到 ProjectController.BindScene → MountSceneScaffold。
+#pragma warning disable IDE0052, CS0414 // 保留字段供未来可能的 plugin-scope 用途
         private readonly ProjectFixedFilesBootstrapService _projectFixedFilesBootstrapService;
+#pragma warning restore IDE0052, CS0414
         private readonly ProjectDerivedBootstrapService _projectDerivedBootstrapService;
+        private readonly BootstrapTemplateService _bootstrapTemplateService;
         private readonly JsonSerializerSettings _jsonSettings;
 
         /// <summary>
@@ -53,14 +58,16 @@ namespace BIMCanvas.Server.Services
         public ProjectService(
             ILogger<ProjectService> logger,
             ProjectFixedFilesBootstrapService projectFixedFilesBootstrapService,
-            ProjectDerivedBootstrapService projectDerivedBootstrapService)
+            ProjectDerivedBootstrapService projectDerivedBootstrapService,
+            BootstrapTemplateService bootstrapTemplateService)
         {
             _logger = logger;
             _projectFixedFilesBootstrapService = projectFixedFilesBootstrapService;
             _projectDerivedBootstrapService = projectDerivedBootstrapService;
+            _bootstrapTemplateService = bootstrapTemplateService;
             _jsonSettings = new JsonSerializerSettings
             {
-                ContractResolver = new CamelCasePropertyNamesContractResolver(),
+                ContractResolver = new DefaultContractResolver { NamingStrategy = new CamelCaseNamingStrategy() },
                 Formatting = Formatting.Indented
             };
         }
@@ -100,10 +107,15 @@ namespace BIMCanvas.Server.Services
             // 1. 解压 .bcp 到工作目录
             var projectPath = ExtractBcpFile(bcpFilePath, overwrite);
 
-            // 2. 补齐项目固定模板文件
-            _projectFixedFilesBootstrapService.EnsureInitialized(projectPath);
+            // v1.1 §4.9 R10 缓解 (用户决策"字面严格执行"):删除 EnsureInitialized 在 open / 解压时的调用。
+            // 项目级模板物化改为 bind-time 由 ProjectFixedFilesBootstrapService.MountSceneScaffold 触发,
+            // 唯一入口在 POST /api/project/scenes 端点内。
 
-            // 3. 补齐条件派生产物（baseline/schemes/computed/zones/git 等）
+            // 组5 §5.A.7:平台级 baseline (README.md / .gitignore) 拷贝。
+            // 与 plugin 系统解耦,任何 .bcp 项目都该有;幂等(已存在跳过),不违反 R10。
+            _bootstrapTemplateService.EnsurePlatformBaseline(projectPath);
+
+            // 2. 补齐条件派生产物（baseline/schemes/computed/zones/git 等）
             var bootstrapResult = _projectDerivedBootstrapService.EnsureInitialized(
                 projectPath,
                 refreshProjectMetadata: true);
@@ -127,7 +139,8 @@ namespace BIMCanvas.Server.Services
                 return;
             }
 
-            _projectFixedFilesBootstrapService.EnsureInitialized(projectPath);
+            // v1.1 §4.9 R10 缓解:不再补任何模板。如需 plugin projectMount 物化,
+            // 走 POST /api/project/scenes 端点的 MountSceneScaffold 入口。
         }
 
         /// <summary>

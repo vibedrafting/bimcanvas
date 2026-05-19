@@ -64,6 +64,13 @@ public class AgentSection
     /// </summary>
     public string PythonCommand { get; set; } = "python";
 
+    /// <summary>
+    /// 当前激活的 plugin id (主真理源 v1.1 §3.2 四态生命周期)。
+    /// null 或空字符串 = core-base 默认;非空必须对应 plugins-state.json 内 trustState=Trusted 的 plugin。
+    /// 唯一修改入口:PluginLifecycleService.Activate / Deactivate。
+    /// </summary>
+    public string? ActivePlugin { get; set; }
+
     public string GetResolvedBaseUrl()
     {
         var normalized = (BaseUrl ?? string.Empty).Trim().TrimEnd('/');

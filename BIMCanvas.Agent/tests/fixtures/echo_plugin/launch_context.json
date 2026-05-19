@@ -1,0 +1,12 @@
+{
+  "activePluginId": "echo-demo",
+  "activePluginRoot": "REPLACE_WITH_ABSOLUTE_PATH_TO/tests/fixtures/echo_plugin",
+  "mode": "projectless",
+  "projectPath": null,
+  "activeSceneId": null,
+  "scenes": null,
+  "lock": null,
+  "serverUrl": "http://127.0.0.1:8763",
+  "trustMode": "fullTrust",
+  "readOnlySceneIds": []
+}

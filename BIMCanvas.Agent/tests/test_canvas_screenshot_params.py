@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import importlib.util
 import sys
 from pathlib import Path
 
@@ -8,7 +9,18 @@ AGENT_ROOT = Path(__file__).resolve().parents[1]
 if str(AGENT_ROOT) not in sys.path:
     sys.path.insert(0, str(AGENT_ROOT))
 
-from src.mcp.canvas import _resolve_screenshot_viewports, request_background_screenshot
+
+# v3.4 D7:core-base 含 `-` 不是合法 Python package 名,用 importlib 动态加载
+_CANVAS_PATH = AGENT_ROOT / "plugins" / "core-base" / "mcp_tools" / "canvas.py"
+_spec = importlib.util.spec_from_file_location("core_base_canvas_test_module", _CANVAS_PATH)
+assert _spec is not None and _spec.loader is not None
+_canvas = importlib.util.module_from_spec(_spec)
+_spec.loader.exec_module(_canvas)
+
+
+_resolve_screenshot_viewports = _canvas._resolve_screenshot_viewports
+_REQUEST_BACKGROUND_SCREENSHOT_DESC = _canvas._REQUEST_BACKGROUND_SCREENSHOT_DESC
+_REQUEST_BACKGROUND_SCREENSHOT_SCHEMA = _canvas._REQUEST_BACKGROUND_SCREENSHOT_SCHEMA
 
 
 def _resolved(args: dict) -> list[dict]:
@@ -19,15 +31,15 @@ def _resolved(args: dict) -> list[dict]:
 
 
 def test_screenshot_tool_schema_keeps_project_path_required() -> None:
-    schema = request_background_screenshot.input_schema
+    schema = _REQUEST_BACKGROUND_SCREENSHOT_SCHEMA
 
     assert schema["required"] == ["projectPath"]
     assert schema["additionalProperties"] is False
 
 
 def test_screenshot_tool_descriptions_emphasize_required_project_path() -> None:
-    schema = request_background_screenshot.input_schema
-    tool_description = request_background_screenshot.description
+    schema = _REQUEST_BACKGROUND_SCREENSHOT_SCHEMA
+    tool_description = _REQUEST_BACKGROUND_SCREENSHOT_DESC
     project_path_description = schema["properties"]["projectPath"]["description"]
 
     assert "projectPath" in tool_description

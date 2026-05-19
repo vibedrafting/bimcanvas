@@ -20,7 +20,6 @@ from typing_extensions import TypedDict
 from ..config.configured_agents import parse_configured_agent_requirements
 from ..config.loader import AgentConfig
 from ..config.settings import get_settings
-from ..mcp.canvas import CANVAS_ALLOWED_TOOLS
 from ..runtime import (
     ConfigBundle,
     PendingInteractionRuntimeBinding,
@@ -47,6 +46,21 @@ _OPENAI_DELEGATE_QUERY_TOOL_NAME = "delegate_query_task"
 _OPENAI_DELEGATE_EDIT_TOOL_NAME = "delegate_edit_task"
 _OPENAI_LAYOUT_AGENT_NAME = "layout-agent"
 _OPENAI_LAYOUT_AGENT_SKILL_NAMES = ("generate-planning", "generate-placement")
+# v3.4 D6:core-base canvas server 10 个工具名,模块级 frozenset 需要 import 期常量,
+# 故不能从 bundle 拿。若 core-base manifest (bimcanvas-plugin.json 的 tools.allow) 增减
+# canvas 工具,此常量需要同步更新 (无运行期校验)。
+CANVAS_ALLOWED_TOOLS: tuple[str, ...] = (
+    "mcp__canvas__request_background_screenshot",
+    "mcp__canvas__validate_layout",
+    "mcp__canvas__get_zone_boundaries",
+    "mcp__canvas__register_variant",
+    "mcp__canvas__list_variants",
+    "mcp__canvas__analyze_image",
+    "mcp__canvas__create_job",
+    "mcp__canvas__complete_job",
+    "mcp__canvas__list_project_scenes",
+    "mcp__canvas__load_scene_artifact",
+)
 _OPENAI_LAYOUT_AGENT_MCP_TOOL_ORDER = (
     *CANVAS_ALLOWED_TOOLS,
 )
@@ -187,6 +201,10 @@ class OpenAIAgent:
         self._responses_run_fallback_logged = False
         self._configured_subagents_logged = False
         self._agent_logger = get_agent_logger("OpenAIAgent", window_seq=self.window_seq)
+        # v3.4 D1:long-lived aiohttp session,由 factory.create_agent 创建并赋值,
+        # 用于 PluginContext.session (canvas plugin 工具走 ctx.session)。
+        # disconnect() 时关闭,避免泄漏。
+        self._owned_session: Any | None = None
 
     @property
     def is_connected(self) -> bool:
@@ -238,6 +256,15 @@ class OpenAIAgent:
                 pass
         self._active_stream_result = None
         self._close_sdk_session()
+        # v3.4 D1:关闭 long-lived plugin session,避免 aiohttp 泄漏
+        if self._owned_session is not None and not self._owned_session.closed:
+            try:
+                await self._owned_session.close()
+                logger.info("OpenAIAgent owned aiohttp.ClientSession closed")
+            except Exception as e:
+                logger.warning(f"aiohttp session close error: {e}")
+            finally:
+                self._owned_session = None
         self._connected = False
 
     async def set_model(self, model: str) -> bool:
@@ -1292,7 +1319,14 @@ class OpenAIAgent:
 
     async def _invoke_canvas_tool_impl(self, tool_name: str, args: dict[str, Any]) -> Any:
         canvas_module = importlib.import_module("..mcp.canvas", package=__package__)
-        impl = getattr(canvas_module, tool_name)
+        impl = getattr(canvas_module, tool_name, None)
+        if impl is None:
+            # 组5 §5.A.3 后, indoor-layout 专属 5 个工具 (save/load_semantic_plan、
+            # save/load_reference_analysis、clone_scheme_to_variant) 已物理迁出到
+            # plugin。OpenAI Runtime 当前 (Phase 1) 是硬编码工具列表的兼容性占位,
+            # 不支持 plugin 动态加载 (主真理源 §6.3 Phase 2+ 才适配)。
+            # 此处 graceful 降级:工具缺失时返回提示而非 AttributeError 崩溃。
+            return f"工具 mcp__canvas__{tool_name} 未在 OpenAI Runtime 路径注册。该工具可能已迁出到 plugin (如 indoor-layout),OpenAI Runtime 的 plugin 支持留待 Phase 2;请使用 Claude Runtime 调用此工具。"
         # canvas 工具被 claude_agent_sdk 的 @tool(...) 装饰后，module 顶层绑定的是
         # SdkMcpTool dataclass 实例（无 __call__），原始 async handler 在 .handler 属性上。
         # 见 claude_agent_sdk/__init__.py:130。Claude Runtime 走 MCP server 自动解包；
@@ -1495,7 +1529,7 @@ class OpenAIAgent:
             f"- 如需只读分析、统计或检索，优先调用 `{_OPENAI_DELEGATE_QUERY_TOOL_NAME}`。\n"
             f"- 如需单一局部修改，调用 `{_OPENAI_DELEGATE_EDIT_TOOL_NAME}`。\n"
             f"- 当共享权限允许时，`{_OPENAI_LAYOUT_AGENT_NAME}` 会通过运行时 Skill 装配 + 原生 MCP function tools 定向启用，用于显式单区 generate 子任务。\n"
-            "- 若某个配置型 agent 因 `openai.permissions.allow/deny` 或当前 Runtime 能力边界未启用，主控不得用 helper sub-agent 冒充它。\n"
+            "- 若某个配置型 agent 因 `openai.tools.allow/deny` 或当前 Runtime 能力边界未启用，主控不得用 helper sub-agent 冒充它。\n"
             "- helper sub-agent 只执行一个明确子任务，并返回简洁中文摘要供主控汇总。\n"
             f"{explicit_lines}"
         )
@@ -1977,7 +2011,7 @@ class OpenAIAgent:
         return (
             f"当前无法调用 `{request.name}`，因为它在共享权限/能力检查下未启用：{reasons}。\n"
             "OpenAI runtime 不会用通用 helper worker 冒充这个配置型 agent。\n"
-            "如需继续浏览器验收，请先手动更新 `<BIMCANVAS_HOME>/config.json` 的 `openai.permissions.allow` 后重试。"
+            "如需继续浏览器验收，请先手动更新 `<BIMCANVAS_HOME>/config.json` 的 `openai.tools.allow` 后重试。"
         )
 
     def _log_configured_subagent_availability(
@@ -2013,7 +2047,7 @@ class OpenAIAgent:
                     continue
                 logger.warning(
                     "OpenAI runtime requires manual permission sync for `%s`: update "
-                    "<BIMCANVAS_HOME>/config.json openai.permissions.allow to include the shared layout-agent baseline.",
+                    "<BIMCANVAS_HOME>/config.json openai.tools.allow to include the shared layout-agent baseline.",
                     spec.name,
                 )
                 break
@@ -2029,27 +2063,27 @@ class OpenAIAgent:
 
     def _resolve_enabled_permission_tool_names(self) -> list[str]:
         bundle = self._require_bundle()
-        allowed_tools = bundle.permissions_allow
-        denied_tools = bundle.permissions_deny
+        # 工具权限重设计 v3.2 §4 / §7.1:
+        # - bundle.tools_allow 始终是 list (空 list = SDK 全开语义)
+        # - bundle.tools_deny 始终是 list
+        allowed_tools = bundle.tools_allow
+        denied_tools = bundle.tools_deny
 
-        if allowed_tools is None:
+        if not allowed_tools:  # 空 list = SDK 全开,OpenAI runtime 用默认工具集
             enabled_names = set(_OPENAI_DEFAULT_PERMISSION_TOOL_NAMES)
         else:
             enabled_names = set(allowed_tools)
 
-        enabled_names -= {
-            name
-            for name in denied_tools
-        }
+        enabled_names -= set(denied_tools)
 
         unsupported_requested = sorted({
             name
-            for name in [*(allowed_tools or []), *denied_tools]
+            for name in [*allowed_tools, *denied_tools]
             if name not in _OPENAI_CONFIGURABLE_PERMISSION_TOOL_NAMES
         })
         if unsupported_requested:
             logger.warning(
-                "OpenAI runtime ignored unsupported tools from permissions: %s",
+                "OpenAI runtime ignored unsupported tools from tools.allow/deny: %s",
                 ", ".join(unsupported_requested),
             )
 

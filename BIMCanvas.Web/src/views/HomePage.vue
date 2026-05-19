@@ -6,6 +6,7 @@ import GlassButton from '../components/UI/base/GlassButton.vue';
 import ConflictDialog from '../components/UI/ConflictDialog.vue';
 import RepairDialog from '../components/UI/RepairDialog.vue';
 import HomeSettingsPanel from '../components/UI/HomeSettingsPanel.vue';
+import PluginsPanel from '../components/UI/PluginsPanel.vue';
 import { useProjectFile } from '../composables/useProjectFile';
 import type { ProjectSummary } from '../types/homepage';
 import { getWebRuntime } from '../runtime/runtimeRegistry';
@@ -20,7 +21,7 @@ const canRuntimeSettings = supports(runtime.capabilities.runtimeSettings);
 
 // Tab 状态
 const activeTab = ref<'all' | 'recent'>('all');
-const homeMode = ref<'projects' | 'settings'>('projects');
+const homeMode = ref<'projects' | 'settings' | 'plugins'>('projects');
 
 // 删除确认
 const showDeleteDialog = ref(false);
@@ -51,8 +52,18 @@ const {
   showConflictDialog,
   conflictProjectName,
   conflictExistingPath,
-  fileAccept
+  fileAccept,
+  pendingHealthCheck,
+  continueLoadAfterHealthCheck,
+  abortLoadAfterHealthCheck
 } = useProjectFile();
+
+const onImportHealthProceed = async () => {
+  await continueLoadAfterHealthCheck();
+};
+const onImportHealthAbort = () => {
+  abortLoadAfterHealthCheck();
+};
 
 // ============================================================
 // 核心：监听 canvasStore.projectData 变化
@@ -179,12 +190,21 @@ onMounted(() => {
 <template>
   <div class="homepage">
     <!-- 顶部 Header -->
-    <header class="homepage-header" :class="{ compact: homeMode === 'settings' }">
+    <header class="homepage-header" :class="{ compact: homeMode !== 'projects' }">
       <template v-if="homeMode === 'projects'">
         <div class="header-left">
           <span class="brand-text">BIMCanvas</span>
         </div>
         <div class="header-right">
+          <GlassButton variant="ghost" @click="homeMode = 'plugins'" title="插件管理">
+            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="margin-right: 6px;">
+              <rect x="3" y="3" width="7" height="7" rx="1"></rect>
+              <rect x="14" y="3" width="7" height="7" rx="1"></rect>
+              <rect x="3" y="14" width="7" height="7" rx="1"></rect>
+              <rect x="14" y="14" width="7" height="7" rx="1"></rect>
+            </svg>
+            插件管理
+          </GlassButton>
           <GlassButton v-if="canRuntimeSettings" variant="ghost" @click="homeMode = 'settings'">
             <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="margin-right: 6px;">
               <circle cx="12" cy="12" r="3"></circle>
@@ -214,10 +234,11 @@ onMounted(() => {
             style="display: none"
             @change="onFileSelected"
           />
+          <div id="global-header-actions" class="global-header-actions"></div>
         </div>
       </template>
 
-      <template v-else>
+      <template v-else-if="homeMode === 'settings'">
         <div class="settings-header-left">
           <button class="back-button" type="button" @click="homeMode = 'projects'">
             <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2">
@@ -229,15 +250,41 @@ onMounted(() => {
             <span class="settings-subtitle">首页内配置台</span>
           </div>
         </div>
-        <div id="settings-header-actions" class="settings-header-actions"></div>
+        <div id="settings-header-actions" class="settings-header-actions">
+          <div id="global-header-actions" class="global-header-actions"></div>
+        </div>
+      </template>
+
+      <template v-else>
+        <div class="settings-header-left">
+          <button class="back-button" type="button" @click="homeMode = 'projects'">
+            <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M15 18l-6-6 6-6" />
+            </svg>
+          </button>
+          <div class="settings-header-copy">
+            <span class="brand-text">插件管理</span>
+            <span class="settings-subtitle">安装 / 信任 / 激活 / 卸载 BIMCanvas plugin</span>
+          </div>
+        </div>
+        <div id="plugins-header-actions" class="settings-header-actions">
+          <!-- 全局按钮区:三 mode 互斥,DOM 内同时只有一个 #global-header-actions;GlobalRestartButton Teleport 到此 -->
+          <div id="global-header-actions" class="global-header-actions"></div>
+        </div>
       </template>
     </header>
 
     <!-- 主内容 -->
-    <main class="homepage-content" :class="{ 'settings-mode': homeMode === 'settings' }">
+    <main class="homepage-content" :class="{ 'settings-mode': homeMode !== 'projects' }">
       <HomeSettingsPanel
         v-if="homeMode === 'settings' && canRuntimeSettings"
         key="settings"
+        @close="homeMode = 'projects'"
+      />
+
+      <PluginsPanel
+        v-else-if="homeMode === 'plugins'"
+        key="plugins"
         @close="homeMode = 'projects'"
       />
 
@@ -418,6 +465,17 @@ onMounted(() => {
       :folder-path="repairTargetProject.folderPath"
       @closed="onRepairClosed"
     />
+
+    <!-- 导入 .bcp 时的健康检查（无问题自动放行，问题 > 0 时提供 修复 / 跳过 / 取消） -->
+    <RepairDialog
+      v-if="pendingHealthCheck"
+      mode="import"
+      :visible="true"
+      :project-name="pendingHealthCheck.projectName"
+      :folder-path="pendingHealthCheck.projectPath"
+      @proceed="onImportHealthProceed"
+      @abort="onImportHealthAbort"
+    />
   </div>
 </template>
 
@@ -500,6 +558,13 @@ onMounted(() => {
   align-items: center;
   justify-content: flex-end;
   gap: 16px;
+}
+
+/* 全局按钮区(目前用于"需要重启"按钮),嵌在每个 mode 右侧 actions 容器末尾 */
+.global-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
 }
 
 .back-button {

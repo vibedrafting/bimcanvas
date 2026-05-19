@@ -1,23 +1,26 @@
 using System.Text;
-using System.Text.Json;
 using BIMCanvas.Server.Dtos;
 using BIMCanvas.Server.Models;
+using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
+using Newtonsoft.Json.Serialization;
 
 namespace BIMCanvas.Server.Services;
 
 /// <summary>
 /// 统一实例配置聚合服务。
 /// 聚合 server/web/agent/ccr 四组配置，继续写回原有 JSON 文件。
+/// 序列化栈:Newtonsoft.Json + <see cref="DefaultContractResolver"/> +
+/// <see cref="CamelCaseNamingStrategy"/>(只转 C# 属性名,不转 Dictionary key;详见 CLAUDE.md §10)。
 /// </summary>
 public sealed class SettingsService
 {
     private static readonly UTF8Encoding Utf8NoBom = new(encoderShouldEmitUTF8Identifier: false);
 
-    private static readonly JsonSerializerOptions DefaultJsonOptions = new()
+    private static readonly JsonSerializerSettings DefaultJsonSettings = new()
     {
-        PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
-        WriteIndented = true
+        ContractResolver = new DefaultContractResolver { NamingStrategy = new CamelCaseNamingStrategy() },
+        Formatting = Formatting.Indented,
     };
 
     private static readonly IReadOnlyList<SettingsFieldDto> ServerFields =
@@ -265,21 +268,36 @@ public sealed class SettingsService
     {
         try
         {
-            var config = JsonSerializer.Deserialize<WebConfig>(
+            var config = JsonConvert.DeserializeObject<WebConfig>(
                 input.ToString(),
-                new JsonSerializerOptions
+                new JsonSerializerSettings
                 {
-                    PropertyNameCaseInsensitive = true,
-                    PropertyNamingPolicy = JsonNamingPolicy.CamelCase
+                    ContractResolver = new DefaultContractResolver { NamingStrategy = new CamelCaseNamingStrategy() },
                 }) ?? throw new InvalidOperationException("web_config.json 内容不能为空对象。");
 
             config.LayerPresets ??= new Dictionary<string, LayerPreset>();
-            config.LayerPresets["User"] = config.LayerPresets.TryGetValue("User", out var userPreset)
-                ? userPreset ?? new LayerPreset()
-                : new LayerPreset();
-            config.LayerPresets["Agent"] = config.LayerPresets.TryGetValue("Agent", out var agentPreset)
-                ? agentPreset ?? new LayerPreset()
-                : new LayerPreset();
+
+            // 迁移 commit f89dc51 引入的小写污染(CamelCasePropertyNamesContractResolver 默认
+            // ProcessDictionaryKeys=true 把 "User"/"Agent" 写成 "user"/"agent")。
+            // 检测到 legacy 小写 key 且无对应大写 key 时,搬迁过来并删除小写残留。
+            foreach (var (legacyKey, properKey) in new[] { ("user", "User"), ("agent", "Agent") })
+            {
+                if (config.LayerPresets.TryGetValue(legacyKey, out var legacy) && !config.LayerPresets.ContainsKey(properKey))
+                {
+                    config.LayerPresets[properKey] = legacy ?? new LayerPreset();
+                    config.LayerPresets.Remove(legacyKey);
+                }
+            }
+
+            // 强保证 User / Agent 存在 + EnabledLayers 非空,默认值与前端 LayerManager.applyPresetHardcoded 对齐。
+            var defaultUserLayers = new List<string> { "Grid", "Architecture", "Furniture" };
+            var defaultAgentLayers = new List<string>
+            {
+                "Grid", "Labels", "Bounds", "Outline", "SVG Preview",
+                "Zones", "Semantic", "AI Vision", "Architecture", "Furniture"
+            };
+            EnsurePreset(config.LayerPresets, "User", defaultUserLayers);
+            EnsurePreset(config.LayerPresets, "Agent", defaultAgentLayers);
 
             return ToJObject(config);
         }
@@ -354,6 +372,23 @@ public sealed class SettingsService
     {
         EnsureObject(input, "ccr_config.json");
         return Clone(input);
+    }
+
+    /// <summary>
+    /// 保证 LayerPresets dict 有指定 key,且 EnabledLayers 非空(若空或 null 则填默认列表)。
+    /// 与前端 LayerManager.applyPresetHardcoded 的默认启用图层对齐,确保渲染层永远有图层显示。
+    /// </summary>
+    private static void EnsurePreset(Dictionary<string, LayerPreset> presets, string key, List<string> defaultLayers)
+    {
+        if (!presets.TryGetValue(key, out var preset) || preset is null)
+        {
+            presets[key] = new LayerPreset { EnabledLayers = new List<string>(defaultLayers) };
+            return;
+        }
+        if (preset.EnabledLayers is null || preset.EnabledLayers.Count == 0)
+        {
+            preset.EnabledLayers = new List<string>(defaultLayers);
+        }
     }
 
     private static void EnsureObject(JObject input, string fileName)
@@ -441,7 +476,7 @@ public sealed class SettingsService
 
     private static JObject ToJObject<T>(T value)
     {
-        var json = JsonSerializer.Serialize(value, DefaultJsonOptions);
+        var json = JsonConvert.SerializeObject(value, DefaultJsonSettings);
         return JObject.Parse(json);
     }
 
@@ -452,6 +487,10 @@ public sealed class SettingsService
 
     private static JObject CreateDefaultAgentValues()
     {
+        // 工具权限 v3.3 §3 Phase 5 改造:
+        // config.json 不再含 tools / agents 字段,工具权限改由 plugin manifest
+        // (<HOME>/plugins/<id>/bimcanvas-plugin.json 的 tools/agents 块) 接管。
+        // 这里只保留纯 provider 连接配置 (baseUrl / apiKey / defaultModel / modelMapping 等)。
         return JObject.Parse(
             """
             {
@@ -463,10 +502,6 @@ public sealed class SettingsService
                 "defaultEffort": "low",
                 "defaultThinking": "adaptive",
                 "maxThinkingTokens": 8000,
-                "permissions": {
-                  "allow": [],
-                  "deny": []
-                },
                 "modelMapping": {
                   "opus": { "id": "claude-opus-4-6", "label": "Opus" },
                   "sonnet": { "id": "claude-sonnet-4-20250514", "label": "Sonnet" },
@@ -479,10 +514,6 @@ public sealed class SettingsService
                 "defaultModel": "gpt-5",
                 "apiMode": "chat_completions",
                 "disableTracing": null,
-                "permissions": {
-                  "allow": [],
-                  "deny": []
-                },
                 "modelMapping": {
                   "gpt-5": { "id": "gpt-5", "label": "GPT-5" }
                 }
@@ -493,7 +524,10 @@ public sealed class SettingsService
 
     private static void ValidateClaudeSection(JObject section)
     {
-        ValidatePermissions(section, "claude.permissions");
+        // 工具权限 v3.2 §6 C1: 旧 permissions 字段 fail-fast
+        RejectLegacyPermissions(section, "claude");
+        // 工具权限 v3.3 §3 Phase 5 C3: tools/agents 已废弃,只 warning 不抛错
+        RejectDeprecatedToolsAndAgents(section, "claude");
 
         var defaultModel = section["defaultModel"]?.Value<string>()?.Trim();
         if (string.IsNullOrWhiteSpace(defaultModel))
@@ -557,7 +591,10 @@ public sealed class SettingsService
 
     private static void ValidateOpenAiSection(JObject section)
     {
-        ValidatePermissions(section, "openai.permissions");
+        // 工具权限 v3.2 §6 C1: 旧 permissions 字段 fail-fast
+        RejectLegacyPermissions(section, "openai");
+        // 工具权限 v3.3 §3 Phase 5 C3: tools/agents 已废弃,只 warning 不抛错
+        RejectDeprecatedToolsAndAgents(section, "openai");
 
         var defaultModel = section["defaultModel"]?.Value<string>()?.Trim();
         if (string.IsNullOrWhiteSpace(defaultModel))
@@ -625,23 +662,36 @@ public sealed class SettingsService
         }
     }
 
-    private static void ValidatePermissions(JObject section, string path)
+    private static void RejectLegacyPermissions(JObject section, string provider)
     {
-        if (section["permissions"] is not JObject permissions)
+        // 工具权限重设计 v3.2 §6 C1: 旧 `<provider>.permissions` 字段 fail-fast
+        if (section.ContainsKey("permissions"))
         {
-            return;
+            throw new InvalidOperationException(
+                $"检测到 config.json 含旧版 `{provider}.permissions` 字段。" +
+                "工具权限配置已重设计 (v3.2)，请参考迁移文档手工调整：" +
+                "docs/Tool_Permissions_Migration.md。" +
+                $"旧 `{provider}.permissions.allow / deny` → 新 `{provider}.tools.allow / deny`；" +
+                $"另外新增 `{provider}.agents.allow / deny` 块需添加 (可填空数组)。" +
+                "BIMCanvas 不会自动迁移旧结构。");
         }
+    }
 
-        var allow = permissions["allow"];
-        if (allow != null && allow.Type != JTokenType.Null && allow.Type != JTokenType.Array)
+    private static void RejectDeprecatedToolsAndAgents(JObject section, string provider)
+    {
+        // 工具权限 v3.3 §3 Phase 5 C3:
+        // config.json 的 <provider>.tools / agents 字段在 v3.3 已废弃,工具权限改由
+        // plugin manifest (<HOME>/plugins/<id>/bimcanvas-plugin.json 的 tools/agents 块) 接管。
+        // 检测到这两个字段时只记 warning 不抛错,用户可以从配置文件中删除(不影响启动)。
+        foreach (var deprecatedField in new[] { "tools", "agents" })
         {
-            throw new InvalidOperationException($"{path}.allow 只允许数组或 null。");
-        }
-
-        var deny = permissions["deny"];
-        if (deny != null && deny.Type != JTokenType.Array)
-        {
-            throw new InvalidOperationException($"{path}.deny 只允许数组。");
+            if (section.ContainsKey(deprecatedField))
+            {
+                Console.Error.WriteLine(
+                    $"[WARN] config.json 的 `{provider}.{deprecatedField}` 字段在 v3.3 已废弃," +
+                    $"工具权限改由 plugin manifest 接管,可以从配置文件中删除该字段。" +
+                    $"详见 docs/Tool_Permissions_Migration.md");
+            }
         }
     }
 

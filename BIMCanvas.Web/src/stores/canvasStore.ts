@@ -1,6 +1,6 @@
 import { defineStore } from 'pinia';
 import { ref, computed, nextTick } from 'vue';
-import type { ProjectData, Module, Wall, Column, Opening } from '../types/canvas';
+import type { ProjectData, Module, Wall, Column, Opening, SceneId, SceneLayer } from '../types/canvas';
 import { StrategyApproach, StrategyStatus } from '../types/canvas';
 import { TimelineManager } from '../services/state/TimelineManager';
 import { useDebugStore } from './debugStore';
@@ -9,6 +9,7 @@ import { moduleLibraryService } from '../services/ModuleLibraryService';
 import { getWebRuntime } from '../runtime/runtimeRegistry';
 import { supports } from '../runtime/WebRuntimeProtocol';
 import { SchemeService } from '../services/SchemeService';
+import { useSystemStore } from './systemStore';
 export const useCanvasStore = defineStore('canvas', () => {
     const runtime = getWebRuntime();
     // === 核心状态 ===
@@ -34,6 +35,84 @@ export const useCanvasStore = defineStore('canvas', () => {
 
     // === 多选支持 ===
     const selectedIds = ref<string[]>([]);
+
+    // ========================================================================
+    // 组 5 §5.C.3: Scene 数据层(主真理源 v1.1 §3.9 / §3.10)
+    // ========================================================================
+    // .bcp 项目多 scene 容器化后,Web 端需要 sceneId 感知:
+    // - activeSceneId:当前激活 scene id(从 OpenProject 响应 / LaunchContext 填,
+    //   填充逻辑由组 4 接管,本组只暴露 state slot)
+    // - referenceScenes:跨 scene 只读叠加层(灰色显示,UI 切换显隐)
+    //   渲染层(ThreeSceneService / SceneBuilder)订阅本字段实现叠加显示;
+    //   组 5 不实现渲染层,留 hook 给组 4 或后续。
+    // ========================================================================
+    const activeSceneId = ref<SceneId | null>(null);
+    const referenceScenes = ref<SceneLayer[]>([]);
+
+    /**
+     * 加载指定 scene 的 modules 作为只读叠加层(组 5 §5.C.3)。
+     * 已存在则刷新,不存在则追加。默认 visible=true、readOnly=true。
+     *
+     * 调用方:Web UI 在用户选择"显示其他 scene 底图"时调用。
+     * 数据源:SchemeService.getSceneArtifact(sceneId, 'modules')
+     *   → 后端聚合返回 schemes/{sceneId}/ 下所有叶子 modules.json。
+     */
+    const loadReferenceScene = async (
+        sceneId: SceneId,
+        pluginId: string,
+        scene: string,
+        versionRange: string,
+    ): Promise<void> => {
+        const payload = await SchemeService.getSceneArtifact(sceneId, 'modules');
+        // payload 结构: { sceneId, artifactKind: 'modules', files: [{ relativePath, content }] }
+        const modules: Module[] = [];
+        if (payload && Array.isArray(payload.files)) {
+            for (const file of payload.files) {
+                try {
+                    const parsed = typeof file.content === 'string'
+                        ? JSON.parse(file.content)
+                        : file.content;
+                    // modules.json 可能是数组,也可能是 wrapper(含 modules 字段)
+                    const fileModules = Array.isArray(parsed)
+                        ? parsed
+                        : (parsed && Array.isArray(parsed.modules) ? parsed.modules : []);
+                    for (const m of fileModules) modules.push(m as Module);
+                } catch {
+                    // 单文件解析失败不阻断整体加载
+                }
+            }
+        }
+        const existing = referenceScenes.value.findIndex(l => l.sceneId === sceneId);
+        const layer: SceneLayer = {
+            sceneId, scene, pluginId, versionRange,
+            visible: true, readOnly: true, modules,
+        };
+        if (existing >= 0) {
+            referenceScenes.value.splice(existing, 1, layer);
+        } else {
+            referenceScenes.value.push(layer);
+        }
+    };
+
+    /** 切换某 scene 叠加层显隐(组 5 §5.C.3,渲染层订阅本字段) */
+    const toggleReferenceSceneVisibility = (sceneId: SceneId): void => {
+        const layer = referenceScenes.value.find(l => l.sceneId === sceneId);
+        if (layer) layer.visible = !layer.visible;
+    };
+
+    /** 移除某 scene 叠加层 */
+    const removeReferenceScene = (sceneId: SceneId): void => {
+        const idx = referenceScenes.value.findIndex(l => l.sceneId === sceneId);
+        if (idx >= 0) referenceScenes.value.splice(idx, 1);
+    };
+
+    /** 清空所有 scene 叠加层(项目切换 / 关闭时调用) */
+    const clearReferenceScenes = (): void => {
+        referenceScenes.value = [];
+    };
+
+    // TODO 渲染层(组 4 或后续):订阅 referenceScenes,
+    //      为 layer.visible=true 的 scene 在 Three.js 场景内渲染灰色只读底图 + 标签。
 
     // 兼容层：selectedObject 返回第一个选中对象
     const selectedObject = computed(() => {
@@ -571,10 +650,13 @@ export const useCanvasStore = defineStore('canvas', () => {
         const zoneErrors = data.activeScheme?.zoneErrors;
         if (zoneErrors && zoneErrors.length > 0) {
           debugStore.warn(`[Store] ZoneErrors: ${JSON.stringify(zoneErrors)}`);
+          const sys = useSystemStore();
           zoneErrors.forEach(e => {
-            window.dispatchEvent(new CustomEvent('bimcanvas:agent-notification', {
-              detail: { type: 'warning', title: `分区 ${e.zoneId} 数据损坏`, message: e.message }
-            }));
+            sys.pushToast({
+              type: 'warning',
+              title: `分区 ${e.zoneId} 数据损坏`,
+              message: e.message,
+            });
           });
         }
     };
@@ -1115,6 +1197,14 @@ export const useCanvasStore = defineStore('canvas', () => {
         variantMetadataByDesignZone,
         cacheVariantMetadata,
         getVariantSlot,
-        refetchVariantCounts
+        refetchVariantCounts,
+
+        // 组 5 §5.C.3: Scene 数据层
+        activeSceneId,
+        referenceScenes,
+        loadReferenceScene,
+        toggleReferenceSceneVisibility,
+        removeReferenceScene,
+        clearReferenceScenes,
     };
 });
