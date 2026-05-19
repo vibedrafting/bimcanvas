@@ -21,7 +21,6 @@ from typing import TYPE_CHECKING, Any
 import yaml
 
 from ..config.loader import AgentConfig, get_config_loader
-from ..mcp.canvas_core import CORE_ALLOWED_TOOLS, build_core_server
 
 if TYPE_CHECKING:
     import aiohttp
@@ -220,21 +219,33 @@ def _build_skill_index(
     return skill_index, skill_metas, diagnostics
 
 
-def _build_mcp_servers(
+def _load_plugin_mcp_server(
+    plugin_root: Path,
+    plugin_id: str,
     launch_context: "PluginLaunchContext",
-    active_plugin_root: Path | None,
-    plugin_manifest: dict,
     session: "aiohttp.ClientSession | None",
-) -> tuple[dict[str, Any], list[str], list[str]]:
-    """构建 mcp_servers dict + 聚合工具名 + diagnostics。
+    *,
+    is_core_base: bool,
+    existing_namespaces: set[str],
+) -> tuple[str, Any, tuple[str, ...]] | tuple[None, None, str]:
+    """加载单个 plugin 的 MCP server (v3.4)。
 
-    主真理源 v1.1 §3.8 / 组3 任务模板 §4.3。
+    扫描 <plugin_root>/mcp_tools/<ns>.py,动态 import,调 register(builder)。
+
+    Args:
+        plugin_root: plugin 根目录
+        plugin_id: plugin 标识 (core-base 时 = "core-base";domain plugin 时 = manifest name)
+        launch_context: 启动上下文 (透传 scenes / server_url / 等)
+        session: 长期复用 aiohttp session
+        is_core_base: True 时允许 namespace=canvas (保留给 core-base);False 时禁止
+        existing_namespaces: 已注册 namespace 集合,用于冲突检测
 
     Returns:
-        (mcp_servers_spec, tool_names, diagnostics)
+        - (namespace, server, tool_names) 成功
+        - (None, None, diagnostic_msg) 该 plugin 无 MCP 工具 (合法) 或加载失败 (diagnostic_msg 非空时表示失败)
 
     Raises:
-        PluginRegisterError: namespace 冲突 (fail-fast,V11 T2)
+        PluginRegisterError: namespace 冲突 / 安全校验失败 (fail-fast)
     """
     from bimcanvas_plugin_sdk import (
         McpServerBuilder,
@@ -242,26 +253,12 @@ def _build_mcp_servers(
         PluginRegisterError,
     )
 
-    diagnostics: list[str] = []
-    core_server = build_core_server(launch_context, session)
-    servers: dict[str, Any] = {"canvas": core_server}
-    tool_names: list[str] = list(CORE_ALLOWED_TOOLS)
-
-    if active_plugin_root is None:
-        return servers, tool_names, diagnostics
-
-    plugin_id = launch_context.active_plugin_id or active_plugin_root.name
-
-    # 工具权限 v3.3 §3 Phase 3b.2 约定俗成扫描:
-    # plugin manifest 在 v3.3.2 schema 中已删 mcpTools / mcpNamespace 字段,
-    # 改约定 mcp_tools/<filename>.py 顶层唯一 .py 文件,namespace = 文件名 stem。
-    # 没有 mcp_tools 目录或目录无 .py 文件 → plugin 无 MCP server,跳过(不报错)。
-    mcp_tools_dir = active_plugin_root / "mcp_tools"
+    mcp_tools_dir = plugin_root / "mcp_tools"
     if not mcp_tools_dir.is_dir():
-        return servers, tool_names, diagnostics
+        return None, None, ""
     py_files = sorted(mcp_tools_dir.glob("*.py"))
     if not py_files:
-        return servers, tool_names, diagnostics
+        return None, None, ""
     if len(py_files) > 1:
         raise PluginRegisterError(
             f"plugin {plugin_id} mcp_tools/ 只允许一个 .py 入口文件,"
@@ -270,9 +267,10 @@ def _build_mcp_servers(
     entry_path = py_files[0].resolve()
     namespace = entry_path.stem
 
-    # namespace 安全校验(原 loader.resolve_active_plugin 的 mcpNamespace 校验
-    # 在 v3.3.2 manifest schema 删除后移到这里,校验对象改为文件名 stem)
-    if namespace == "canvas":
+    # namespace 安全校验
+    # - core-base 允许 namespace=canvas (这是它的保留 namespace)
+    # - 其他 plugin 禁止 namespace=canvas
+    if namespace == "canvas" and not is_core_base:
         raise PluginRegisterError(
             f"plugin {plugin_id} 的 mcp_tools/ 入口文件名不能为 'canvas.py' "
             f"(namespace 'canvas' 保留给 core-base)"
@@ -282,12 +280,10 @@ def _build_mcp_servers(
             f"plugin {plugin_id} 的 mcp_tools/{entry_path.name} 文件名(去 .py 后)"
             f"必须匹配 ^[a-z0-9-]+$,实际:{namespace!r}"
         )
-    if namespace in servers:
+    if namespace in existing_namespaces:
         raise PluginRegisterError(
             f"plugin {plugin_id} 推断出的 namespace '{namespace}' 与已注册 server 冲突"
         )
-
-    entry_relpath = entry_path.name  # 给下方 logger / diagnostics 用
 
     plugin_ctx = PluginContext(
         server_url=launch_context.server_url,
@@ -296,6 +292,7 @@ def _build_mcp_servers(
         active_scene_id=launch_context.active_scene_id,
         logger=logging.getLogger(f"bimcanvas.plugin.{plugin_id}"),
         session=session,
+        scenes=launch_context.scenes,  # v3.4 D10
     )
 
     builder = McpServerBuilder(namespace=namespace, context=plugin_ctx)
@@ -304,9 +301,7 @@ def _build_mcp_servers(
     try:
         spec = importlib.util.spec_from_file_location(module_name, entry_path)
         if spec is None or spec.loader is None:
-            raise PluginRegisterError(
-                f"无法构造 module spec: {entry_path}"
-            )
+            raise PluginRegisterError(f"无法构造 module spec: {entry_path}")
         module = importlib.util.module_from_spec(spec)
         sys.modules[module_name] = module
         spec.loader.exec_module(module)
@@ -314,25 +309,74 @@ def _build_mcp_servers(
         register_fn = getattr(module, "register", None)
         if register_fn is None or not callable(register_fn):
             raise PluginRegisterError(
-                f"plugin {plugin_id} 的 mcp_tools/{entry_relpath} 缺少 `register(builder)` 入口函数"
+                f"plugin {plugin_id} 的 mcp_tools/{entry_path.name} 缺少 `register(builder)` 入口函数"
             )
         register_fn(builder)
     except PluginRegisterError:
         raise
     except Exception as exc:  # noqa: BLE001 - 其他异常隔离为 plugin disable
-        diagnostics.append(
-            f"plugin {plugin_id} 加载失败 ({type(exc).__name__}: {exc});该 plugin 被 disable"
-        )
         sys.modules.pop(module_name, None)
         logger.warning("plugin %s 加载失败,已 disable", plugin_id, exc_info=True)
-        return servers, tool_names, diagnostics
+        return None, None, (
+            f"plugin {plugin_id} 加载失败 ({type(exc).__name__}: {exc});该 plugin 被 disable"
+        )
 
     plugin_server = builder.build()
-    servers[namespace] = plugin_server
-    tool_names.extend(builder.tool_names)
-    diagnostics.append(
-        f"plugin {plugin_id} 已加载: namespace={namespace}, tools={list(builder.tool_names)}"
-    )
+    return namespace, plugin_server, builder.tool_names
+
+
+def _build_mcp_servers(
+    launch_context: "PluginLaunchContext",
+    active_plugin_root: Path | None,
+    session: "aiohttp.ClientSession | None",
+) -> tuple[dict[str, Any], list[str], list[str]]:
+    """构建 mcp_servers dict + 聚合工具名 + diagnostics (v3.4 统一加载路径)。
+
+    主真理源 v1.1 §3.8 / 组3 任务模板 §4.3 / v3.4 §2.2。
+
+    v3.4 改造:删除 build_core_server 硬编码分支,core-base 跟 domain plugin 走完全相同的
+    加载路径——both 通过 _load_plugin_mcp_server 扫描 <plugin_root>/mcp_tools/<ns>.py。
+
+    Returns:
+        (mcp_servers_spec, tool_names, diagnostics)
+
+    Raises:
+        PluginRegisterError: namespace 冲突 / 安全校验失败 (fail-fast,V11 T2)
+    """
+    from bimcanvas_plugin_sdk import PluginRegisterError
+
+    loader = get_config_loader()
+    core_base_root = loader._resolve_core_base_root()
+
+    # 加载顺序:core-base 永远在前,active domain plugin 跟其后
+    plugin_specs: list[tuple[Path, str, bool]] = [(core_base_root, "core-base", True)]
+    if active_plugin_root is not None and active_plugin_root.resolve() != core_base_root.resolve():
+        active_plugin_id = launch_context.active_plugin_id or active_plugin_root.name
+        plugin_specs.append((active_plugin_root, active_plugin_id, False))
+
+    servers: dict[str, Any] = {}
+    tool_names: list[str] = []
+    diagnostics: list[str] = []
+
+    for plugin_root, plugin_id, is_core_base in plugin_specs:
+        namespace, server, result = _load_plugin_mcp_server(
+            plugin_root,
+            plugin_id,
+            launch_context,
+            session,
+            is_core_base=is_core_base,
+            existing_namespaces=set(servers.keys()),
+        )
+        if namespace is None:
+            # result 是 diagnostic 字符串 (失败) 或空串 (无 mcp_tools/)
+            if result:
+                diagnostics.append(result)
+            continue
+        servers[namespace] = server
+        tool_names.extend(result)  # result 是 tool_names tuple
+        diagnostics.append(
+            f"plugin {plugin_id} 已加载: namespace={namespace}, tools={list(result)}"
+        )
 
     return servers, tool_names, diagnostics
 
@@ -398,10 +442,9 @@ def build_config_bundle(
     loader = get_config_loader()
     bimcanvas_home = loader.config_dir.resolve()
 
-    (
-        active_plugin_root,
-        plugin_manifest,
-    ) = loader.resolve_active_plugin(launch_context)
+    # plugin_manifest v3.3.2 后已不被 _build_mcp_servers 使用,这里保留 _ 占位
+    # (resolve_active_plugin 仍返回二元组,供 permissions / system_prompt 等用途)
+    active_plugin_root, _plugin_manifest = loader.resolve_active_plugin(launch_context)
 
     system_prompt = loader.load_system_prompt(active_plugin_root)
 
@@ -450,7 +493,7 @@ def build_config_bundle(
     )
 
     mcp_servers, mcp_tool_names, mcp_diag = _build_mcp_servers(
-        launch_context, active_plugin_root, plugin_manifest, session
+        launch_context, active_plugin_root, session
     )
 
     # plugins=[...] 路径列表 (主真理源 §3.7 + 组3 任务模板 §4.4 + v1.2 §3.5 折中方案):

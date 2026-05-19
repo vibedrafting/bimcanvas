@@ -20,7 +20,6 @@ from typing_extensions import TypedDict
 from ..config.configured_agents import parse_configured_agent_requirements
 from ..config.loader import AgentConfig
 from ..config.settings import get_settings
-from ..mcp.canvas_core import CORE_ALLOWED_TOOLS as CANVAS_ALLOWED_TOOLS
 from ..runtime import (
     ConfigBundle,
     PendingInteractionRuntimeBinding,
@@ -47,6 +46,21 @@ _OPENAI_DELEGATE_QUERY_TOOL_NAME = "delegate_query_task"
 _OPENAI_DELEGATE_EDIT_TOOL_NAME = "delegate_edit_task"
 _OPENAI_LAYOUT_AGENT_NAME = "layout-agent"
 _OPENAI_LAYOUT_AGENT_SKILL_NAMES = ("generate-planning", "generate-placement")
+# v3.4 D6:core-base canvas server 10 个工具名,模块级 frozenset 需要 import 期常量,
+# 故不能从 bundle 拿。若 core-base manifest (bimcanvas-plugin.json 的 tools.allow) 增减
+# canvas 工具,此常量需要同步更新 (无运行期校验)。
+CANVAS_ALLOWED_TOOLS: tuple[str, ...] = (
+    "mcp__canvas__request_background_screenshot",
+    "mcp__canvas__validate_layout",
+    "mcp__canvas__get_zone_boundaries",
+    "mcp__canvas__register_variant",
+    "mcp__canvas__list_variants",
+    "mcp__canvas__analyze_image",
+    "mcp__canvas__create_job",
+    "mcp__canvas__complete_job",
+    "mcp__canvas__list_project_scenes",
+    "mcp__canvas__load_scene_artifact",
+)
 _OPENAI_LAYOUT_AGENT_MCP_TOOL_ORDER = (
     *CANVAS_ALLOWED_TOOLS,
 )

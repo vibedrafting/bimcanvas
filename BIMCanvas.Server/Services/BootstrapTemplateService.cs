@@ -110,6 +110,57 @@ namespace BIMCanvas.Server.Services
         }
 
         /// <summary>
+        /// (v3.4) 从指定绝对源路径 bootstrap plugin 到目标位置。
+        /// 用于 core-base —— 其源已从 BIMCanvas.Server/Templates 迁到 BIMCanvas.Agent/plugins/。
+        /// 第三方 plugin 仍走 PluginInstallService 的 git clone 路径,不经本方法。
+        /// 幂等性:目标目录已存在时跳过(同 EnsurePluginInitialized)。
+        /// </summary>
+        public void EnsurePluginInitializedFromAbsolute(string sourceDir, string targetPluginRoot)
+        {
+            if (string.IsNullOrWhiteSpace(sourceDir))
+            {
+                throw new ArgumentException("sourceDir 不能为空。", nameof(sourceDir));
+            }
+            if (string.IsNullOrWhiteSpace(targetPluginRoot))
+            {
+                throw new ArgumentException("targetPluginRoot 不能为空。", nameof(targetPluginRoot));
+            }
+
+            if (!Directory.Exists(sourceDir))
+            {
+                throw new DirectoryNotFoundException(
+                    $"源目录不存在,无法 bootstrap plugin: {sourceDir}");
+            }
+
+            if (Directory.Exists(targetPluginRoot))
+            {
+                return; // 幂等
+            }
+
+            CopyDirectory(sourceDir, targetPluginRoot);
+        }
+
+        /// <summary>
+        /// (v3.4) 定位 BIMCanvas.Agent 项目根目录,跨项目读 plugin 源。
+        /// 复用与 <see cref="ResolveTemplatesRoot"/> 同款向上回溯逻辑。
+        /// </summary>
+        public static string ResolveAgentProjectRoot()
+        {
+            var baseDir = AppDomain.CurrentDomain.BaseDirectory;
+            var dir = new DirectoryInfo(baseDir);
+            for (int i = 0; i < 8 && dir != null; i++)
+            {
+                var tryPath = Path.Combine(dir.FullName, "BIMCanvas.Agent");
+                if (Directory.Exists(tryPath))
+                {
+                    return tryPath;
+                }
+                dir = dir.Parent;
+            }
+            throw new DirectoryNotFoundException("未找到 BIMCanvas.Agent 目录。");
+        }
+
+        /// <summary>
         /// 按 manifest 初始化目标目录。
         /// 规则：仅在目标缺失时创建，不覆盖、不修复已存在内容。
         /// </summary>
