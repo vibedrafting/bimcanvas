@@ -1,12 +1,14 @@
 """indoor-layout plugin MCP 工具入口 (主真理源 v1.1 §3.8 / 组5 §5.A.3 迁出)。
 
-5 个 indoor-layout 专属工具,通过 `register(builder)` 范式注册:
+4 个 indoor-layout 专属工具,通过 `register(builder)` 范式注册:
 - save_semantic_plan / load_semantic_plan (语义方案标签管理)
 - save_reference_analysis / load_reference_analysis (参考分析快照管理)
-- clone_scheme_to_variant (relocation 工作流入口,仅 module-relocation-agent 调用)
+
+注: 原 clone_scheme_to_variant 已合并到 platform 工具 `mcp__canvas__register_variant`
+（mode="clone-from-canonical" / "clone-from-variant"）。
 
 迁出前位置:`BIMCanvas.Agent/src/mcp/canvas.py` 的 5 个 @tool 定义。
-迁出后所有 5 个工具:
+迁出后所有工具:
 - 使用 PluginContext (ctx.session / ctx.server_url) 替代模块级 aiohttp.ClientSession + SERVER_URL
 - 通过 `register(builder)` 在 plugin 加载时(`_build_mcp_servers` 内 importlib.spec_from_file_location)被注入
 - 通过 `mcpNamespace="indoor-layout"` 暴露为 `mcp__indoor-layout__<tool_name>`
@@ -306,66 +308,3 @@ def register(builder: McpServerBuilder) -> None:
                 "is_error": True,
             }
 
-    # ---------- clone_scheme_to_variant ----------
-    @builder.tool(
-        "clone_scheme_to_variant",
-        "克隆设计区方案（canonical 或某变体）到一个或多个新变体目录。"
-        "**仅 module-relocation-agent 使用**——variant-design-agent / generate-placement 等其他 SubAgent 禁止调用。"
-        "用途：relocation 工作流的入口，先 clone 出隔离的变体目录（含 semantic_plan + 全部叶子 modules.json），再在变体目录内局部修改。",
-        {
-            "$schema": "http://json-schema.org/draft-07/schema#",
-            "type": "object",
-            "properties": {
-                "designZoneId": {
-                    "type": "string",
-                    "description": "设计区 ID，如 'rz_3'。",
-                },
-                "sourceVariant": {
-                    "type": "string",
-                    "description": "源变体；'canonical' 或省略表示从 canonical 克隆；也可填某个已存在 slug 实现链式克隆。",
-                },
-                "newVariantSlugs": {
-                    "type": "array",
-                    "items": {"type": "string"},
-                    "description": "要创建的新变体 slug 列表（[a-zA-Z0-9_-]，单次请求批量原子创建）。",
-                },
-                "overwrite": {
-                    "type": "boolean",
-                    "description": "默认 false；为 true 时已存在的同名 slug 会被覆盖。",
-                },
-            },
-            "required": ["designZoneId", "newVariantSlugs"],
-            "additionalProperties": False,
-        },
-    )
-    async def clone_scheme_to_variant(args: dict[str, Any]) -> dict[str, Any]:
-        design_zone_id = args["designZoneId"]
-        new_variant_slugs = args["newVariantSlugs"]
-        source_variant = args.get("sourceVariant")
-        overwrite = args.get("overwrite", False)
-
-        body: dict[str, Any] = {
-            "designZoneId": design_zone_id,
-            "newVariantSlugs": new_variant_slugs,
-            "overwrite": overwrite,
-        }
-        if source_variant:
-            body["sourceVariant"] = source_variant
-
-        try:
-            async with ctx.session.post(
-                f"{ctx.server_url}/api/scheme/variant/clone",
-                json=body,
-            ) as resp:
-                text = await resp.text()
-                if resp.status == 200:
-                    return {"content": [{"type": "text", "text": text}]}
-                return {
-                    "content": [{"type": "text", "text": f"克隆失败: HTTP {resp.status} {text}"}],
-                    "is_error": True,
-                }
-        except aiohttp.ClientError as e:
-            return {
-                "content": [{"type": "text", "text": f"无法连接 Server: {str(e)}"}],
-                "is_error": True,
-            }

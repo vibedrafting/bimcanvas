@@ -115,81 +115,6 @@ namespace BIMCanvas.Server.Controllers
         }
 
         /// <summary>
-        /// 保存单个叶子分区 modules（Agent 入口，wrapper 由 Server 派生）。
-        /// POST /api/scheme/modules
-        /// 即使 body 误传 schemeMetadata 字段也会被 Server 完全忽略。
-        /// </summary>
-        [HttpPost("/api/scheme/modules")]
-        public async Task<ActionResult> SaveSchemeModules([FromBody] SchemeModulesPayload request)
-        {
-            if (!_projectContext.IsLoaded)
-                return BadRequest(new { message = "没有加载的项目" });
-
-            if (request == null)
-                return BadRequest(new { message = "请求体为空" });
-
-            if (string.IsNullOrWhiteSpace(request.DesignZoneId))
-                return BadRequest(new { message = "designZoneId 必填" });
-            if (string.IsNullOrWhiteSpace(request.LeafZoneId))
-                return BadRequest(new { message = "leafZoneId 必填" });
-            if (request.Modules == null)
-                return BadRequest(new { message = "modules 必填（空数组也可以）" });
-
-            if (!string.IsNullOrWhiteSpace(request.VariantId))
-            {
-                try
-                {
-                    ModuleFileTopologyService.EnsureSafeVariantId(request.VariantId);
-                }
-                catch (ArgumentException ex)
-                {
-                    return BadRequest(new { message = ex.Message });
-                }
-            }
-
-            var projectPath = _projectContext.GetActiveWorktreePath()
-                              ?? _projectContext.CurrentProjectPath!;
-
-            try
-            {
-                await _modulesWriter.WriteAsync(
-                    projectPath,
-                    request.DesignZoneId,
-                    request.LeafZoneId,
-                    string.IsNullOrWhiteSpace(request.VariantId) ? null : request.VariantId,
-                    VariantPathMode.New,
-                    request.Modules);
-
-                await _hubContext.Clients.All.SendAsync("ReceiveUpdate", new
-                {
-                    type = "file_changed",
-                    file = "modules.json",
-                    timestamp = DateTime.UtcNow,
-                    action = "reload",
-                    trigger = "save_modules"
-                });
-
-                _logger.LogInformation(
-                    "[SaveSchemeModules] 保存 {Count} 个模块到 {Design}/{Leaf}（variant={Variant}）",
-                    request.Modules.Count, request.DesignZoneId, request.LeafZoneId, request.VariantId ?? "-");
-
-                return Ok(new
-                {
-                    saved = true,
-                    designZoneId = request.DesignZoneId,
-                    leafZoneId = request.LeafZoneId,
-                    variantId = request.VariantId,
-                    modulesCount = request.Modules.Count
-                });
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "[SaveSchemeModules] 保存失败");
-                return StatusCode(500, new { message = $"保存失败: {ex.Message}" });
-            }
-        }
-
-        /// <summary>
         /// 读取单个叶子分区 modules（完整 wrapper，含 schemeMetadata）。
         /// GET /api/scheme/modules?designZoneId=&leafZoneId=&variantId=
         /// </summary>
@@ -262,16 +187,4 @@ namespace BIMCanvas.Server.Controllers
         public string? VariantId { get; set; }
     }
 
-    /// <summary>
-    /// POST /api/scheme/modules 的请求体。
-    /// 注意：不声明 SchemeMetadata 字段——即便客户端传也会被 ModelBinder 丢弃；
-    /// Server 总是从 semantic_plan / variantId 派生 schemeMetadata。
-    /// </summary>
-    public class SchemeModulesPayload
-    {
-        public string DesignZoneId { get; set; } = string.Empty;
-        public string LeafZoneId { get; set; } = string.Empty;
-        public string? VariantId { get; set; }
-        public List<Module> Modules { get; set; } = new List<Module>();
-    }
 }

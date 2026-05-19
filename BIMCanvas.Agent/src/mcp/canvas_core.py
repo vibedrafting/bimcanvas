@@ -1,16 +1,20 @@
-"""Core-base MCP server - 平台基座的 9 个工具 (主真理源 v1.1 §3.10 / 组3 任务模板 §4.6 + §4.7 + §4.8 / 组5 §5.A.8 修订)。
+"""Core-base MCP server - 平台基座的 10 个工具 (主真理源 v1.1 §3.10 / 组3 任务模板 §4.6 + §4.7 + §4.8 / 组5 §5.A.8 修订)。
 
-9 个工具组成:
-- 5 个从 canvas.py 复用 (通用 BIM 能力):
-  request_background_screenshot / validate_layout / get_zone_boundaries / save_modules / analyze_image
+10 个工具组成:
+- 6 个从 canvas.py 复用 (通用 BIM 能力):
+  request_background_screenshot / validate_layout / get_zone_boundaries /
+  register_variant / list_variants / analyze_image
 - 2 个从 canvas.py 复用 (Git Worktree + 通知机制平台基座, 组5 §5.A.8 补齐):
   ai_job_create (mcp__canvas__create_job) / ai_job_complete (mcp__canvas__complete_job)
 - 2 个新增 (跨 scene 元数据 + 只读 artifact):
   list_project_scenes / load_scene_artifact
 
+注意: modules.json 不再有专用写入工具——AI 通过 Write/Edit 直写文件。
+register_variant 是变体目录的唯一创建入口（替代旧 save_modules + clone_scheme_to_variant）。
+
 设计说明:
 - `build_core_server(launch_context, session)` 工厂函数:每次 Agent 启动构造一次
-- 7 个旧工具仍用模块级 SERVER_URL (Phase 1 过渡)
+- 8 个旧工具仍用模块级 SERVER_URL (Phase 1 过渡)
 - 2 个新工具通过闭包绑定 launch_context + session (服从主真理源 §3.10)
 - `mcp_servers` dict 仍以 "canvas" 为 key,工具调用名 `mcp__canvas__*` 与旧版兼容
 """
@@ -27,8 +31,9 @@ from .canvas import (
     ai_job_create,
     analyze_image,
     get_zone_boundaries,
+    list_variants,
+    register_variant,
     request_background_screenshot,
-    save_modules,
     validate_layout,
 )
 
@@ -204,7 +209,8 @@ def build_core_server(
             request_background_screenshot,
             validate_layout,
             get_zone_boundaries,
-            save_modules,
+            register_variant,
+            list_variants,
             analyze_image,
             ai_job_create,
             ai_job_complete,
@@ -218,7 +224,8 @@ CORE_ALLOWED_TOOLS: tuple[str, ...] = (
     "mcp__canvas__request_background_screenshot",
     "mcp__canvas__validate_layout",
     "mcp__canvas__get_zone_boundaries",
-    "mcp__canvas__save_modules",
+    "mcp__canvas__register_variant",
+    "mcp__canvas__list_variants",
     "mcp__canvas__analyze_image",
     "mcp__canvas__create_job",
     "mcp__canvas__complete_job",

@@ -1159,75 +1159,139 @@ async def analyze_image(args: dict[str, Any]) -> dict[str, Any]:
 
 
 @tool(
-    "save_modules",
-    "保存叶子分区的 modules.json（wrapper 形态由 Server 派生）。"
-    "替代直接 Write modules.json 文件——Phase 0b 起裸数组已淘汰。"
-    "**不要传 schemeMetadata 字段**：即使传也会被 Server 忽略，schemeMetadata 由 Server 从 semantic_plan / variantId 派生。",
+    "register_variant",
+    "申请创建一个或多个变体（variants/{slug}/）。这是变体目录唯一创建入口；"
+    "三种 mode：blank=空白创建、clone-from-canonical=从 canonical 复制、clone-from-variant=从某变体复制。"
+    "Server 会按 zones.json 拓扑创建各叶子子目录，并写入初始 modules.json（含 schemeMetadata.summary）。"
+    "返回 workdir + 各叶子 modules.json 绝对路径供 Agent 用 Write/Edit 后续修改。"
+    "**调用后**用 Write/Edit 修改各叶子 modules.json 的 modules 数组；保留 schemeMetadata 字段不动。",
     {
         "$schema": "http://json-schema.org/draft-07/schema#",
         "type": "object",
         "properties": {
             "designZoneId": {
                 "type": "string",
-                "description": "设计区 ID，如 'rz_3'。用于 schemeMetadata.summary 从对应 semantic_plan 派生。"
+                "description": "设计区 ID，如 'rz_3'。"
             },
-            "leafZoneId": {
-                "type": "string",
-                "description": "叶子分区 ID。顶层叶子时与 designZoneId 相同；嵌套叶子时如 'dz_1'。"
-            },
-            "variantId": {
-                "type": "string",
-                "description": "可选。非空时写变体路径 schemes/{designZoneId}/variants/{variantId}/{leafZoneId}/modules.json；为空时写 canonical。"
-            },
-            "modules": {
+            "slugs": {
                 "type": "array",
-                "description": "完整模块数组（含 id / moduleId / moduleName / bounds / facing / items 等字段）。"
+                "items": {"type": "string"},
+                "minItems": 1,
+                "description": "批量注册的 slug 列表。每个 slug 限定 [a-z0-9_-]。"
+            },
+            "mode": {
+                "type": "string",
+                "enum": ["blank", "clone-from-canonical", "clone-from-variant"],
+                "description": "blank=空白；clone-from-canonical=复制 canonical 所有 modules/semantic_plan/reference_analysis；clone-from-variant=复制指定变体。"
+            },
+            "summary": {
+                "type": "string",
+                "description": "设计意图，一句话说明本变体目的。会写到每个叶子 modules.json 的 schemeMetadata.summary 字段。"
+            },
+            "sourceVariant": {
+                "type": "string",
+                "description": "mode=clone-from-variant 时必填的源变体 slug。"
+            },
+            "overwrite": {
+                "type": "boolean",
+                "description": "同名 slug 是否覆盖；默认 false（重名进 errors）。"
             }
         },
-        "required": ["designZoneId", "leafZoneId", "modules"],
+        "required": ["designZoneId", "slugs", "mode", "summary"],
         "additionalProperties": False
     }
 )
-async def save_modules(args: dict[str, Any]) -> dict[str, Any]:
-    """保存叶子分区 modules.json（wrapper 形态由 Server 派生）"""
-    design_zone_id = args["designZoneId"]
-    leaf_zone_id = args["leafZoneId"]
-    modules = args["modules"]
-    variant_id = args.get("variantId")
-
+async def register_variant(args: dict[str, Any]) -> dict[str, Any]:
+    """注册一个或多个变体目录（统一替代 save_modules 的变体写入 + clone_scheme_to_variant 的复制能力）"""
     body: dict[str, Any] = {
-        "designZoneId": design_zone_id,
-        "leafZoneId": leaf_zone_id,
-        "modules": modules
+        "designZoneId": args["designZoneId"],
+        "slugs": args["slugs"],
+        "mode": args["mode"],
+        "summary": args.get("summary", ""),
     }
-    if variant_id:
-        body["variantId"] = variant_id
+    if args.get("sourceVariant"):
+        body["sourceVariant"] = args["sourceVariant"]
+    if args.get("overwrite"):
+        body["overwrite"] = bool(args["overwrite"])
 
     try:
         async with aiohttp.ClientSession() as session:
             async with session.post(
-                f"{SERVER_URL}/api/scheme/modules",
+                f"{SERVER_URL}/api/scheme/variant/register",
                 json=body
             ) as resp:
                 if resp.status == 200:
                     data = await resp.json()
-                    count = data.get("modulesCount", len(modules))
-                    variant_suffix = f"（variant={variant_id}）" if variant_id else ""
+                    created = data.get("created", [])
+                    errors = data.get("errors", [])
+                    summary_text = (
+                        f"已注册 {len(created)} 个变体；失败 {len(errors)} 个。\n"
+                        f"详情：{json.dumps(data, ensure_ascii=False, indent=2)}"
+                    )
                     return {
-                        "content": [{
-                            "type": "text",
-                            "text": f"已保存 {count} 个模块到 {design_zone_id}/{leaf_zone_id}{variant_suffix}。"
-                        }]
+                        "content": [{"type": "text", "text": summary_text}],
+                        "structuredContent": data,
                     }
                 else:
                     error_text = await resp.text()
                     return {
-                        "content": [{"type": "text", "text": f"保存失败: HTTP {resp.status} {error_text}"}],
-                        "is_error": True
+                        "content": [{"type": "text", "text": f"注册失败: HTTP {resp.status} {error_text}"}],
+                        "is_error": True,
                     }
     except aiohttp.ClientError as e:
         return {
             "content": [{"type": "text", "text": f"无法连接 Server: {str(e)}"}],
-            "is_error": True
+            "is_error": True,
+        }
+
+
+@tool(
+    "list_variants",
+    "列出指定设计区的所有变体（含 prev-* 降级保留的旧采纳方案）。"
+    "返回每个变体的 slug、createdAt、state（variant / prev-adopted）、summary（设计意图）。"
+    "用于：变体采纳决策、relocation 时找到现有变体、Web 端导航。",
+    {
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "type": "object",
+        "properties": {
+            "designZoneId": {
+                "type": "string",
+                "description": "设计区 ID，如 'rz_3'。"
+            }
+        },
+        "required": ["designZoneId"],
+        "additionalProperties": False
+    }
+)
+async def list_variants(args: dict[str, Any]) -> dict[str, Any]:
+    """列出指定设计区下的所有变体"""
+    design_zone_id = args["designZoneId"]
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.get(
+                f"{SERVER_URL}/api/scheme/variants",
+                params={"designZoneId": design_zone_id},
+            ) as resp:
+                if resp.status == 200:
+                    data = await resp.json()
+                    variants = data.get("variants", [])
+                    text = (
+                        f"设计区 {design_zone_id} 共 {len(variants)} 个变体。\n"
+                        f"详情：{json.dumps(data, ensure_ascii=False, indent=2)}"
+                    )
+                    return {
+                        "content": [{"type": "text", "text": text}],
+                        "structuredContent": data,
+                    }
+                else:
+                    error_text = await resp.text()
+                    return {
+                        "content": [{"type": "text", "text": f"列出失败: HTTP {resp.status} {error_text}"}],
+                        "is_error": True,
+                    }
+    except aiohttp.ClientError as e:
+        return {
+            "content": [{"type": "text", "text": f"无法连接 Server: {str(e)}"}],
+            "is_error": True,
         }
 
