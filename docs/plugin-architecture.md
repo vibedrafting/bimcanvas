@@ -190,9 +190,30 @@ installed         active         bound          launched
 | `save_modules` | 写 `schemes/{sceneId}/modules.json`(Server gate 强制隔离) |
 | `analyze_image` | 大模型图像理解(参考图分析等) |
 | **`list_project_scenes`** | 列出当前项目所有 scenes(供跨 scene 协作) |
-| **`load_scene_artifact`** | 读取指定 sceneId 下的 artifact(`modules` / `zones` / `semantic_plan` / `reference_analysis` / `readme`);**整文件读,无 path 子路径** |
+| **`load_scene_artifact`** | 读 scene 下的 artifact;聚合读(scene 内所有同名文件)或 `path` 精确读单文件 |
 
-后两个是 v1.1 新增,M2 完整可用。Plugin 自己的 MCP 工具走自己的 namespace,如 `mcp__indoor-layout__save_semantic_plan`。
+Plugin 自己的 MCP 工具走自己的 namespace,如 `mcp__interior-layout__save_semantic_plan`。
+
+### 7.1 通用 artifact IO 契约(Server 通用层 vs Plugin domain 层边界)
+
+平台基座对 scene 业务数据只提供**通用、plugin-agnostic 的文件 IO**,不持有任何 domain 业务知识。
+artifact 读写经 Server REST 端点(`load_scene_artifact` 工具背后的同一组端点):
+
+| 端点 | 用途 |
+|---|---|
+| `GET /api/scheme/scenes/{sceneId}/{artifactKind}` | 聚合读 scene 内所有同名 artifact |
+| `GET /api/scheme/scenes/{sceneId}/{artifactKind}?path={subPath}` | 精确读单文件 `schemes/{sceneId}/{subPath}/{artifactKind}.json` |
+| `POST /api/scheme/scenes/{sceneId}/artifacts/{artifactKind}` body `{path?, content}` | 写到 `schemes/{sceneId}/{path?}/{artifactKind}.json` |
+
+- **`artifactKind`** 是 plugin 自定义字符串,字符集 `^[a-z][a-z0-9_-]*$`。
+  Reserved 通用 kind:`modules`(AI 直写 Write/Edit)、`zones`(全 scene 共享 baseline 派生)、`readme`(baseline)——这三个不允许 plugin 经 POST 写入。
+  其余 kind(如 `semantic_plan` / `reference_analysis` / `points`)是 plugin domain 产物,Server 不校验其 schema、不嵌任何 domain 逻辑。
+- **`path`** 是 scene namespace 内相对子路径(如 `rz_3` / `rz_3/variants/abc`),字符集 `[a-zA-Z0-9_/-]+`,禁止 `..` 穿越;解析后必须落在 `schemes/{sceneId}/` 内。
+- **写入隔离**:POST 走 `ProjectContext.CheckWriteAllowed` 的 V12b 路径隔离,plugin 只能写自己 active scene 的命名空间(scene namespace 之外一律 403)。
+- **变更通知**:写成功后 Server 广播通用 SignalR 事件 `SceneArtifactUpdated`,payload `{sceneId, artifactKind, path?, plugin?, timestamp}`。
+
+> **边界纪律**:domain 业务(tag 体系、方案合并、planType 判定等)一律在 plugin 工具体 / `lib/` 内实现;
+> Server 端不为任何 plugin 单开 domain controller。新 domain plugin 接入主仓库**零代码改动**。
 
 ---
 

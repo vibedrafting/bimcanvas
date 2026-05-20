@@ -330,16 +330,28 @@ async def my_handler(args, ctx):
     )
     # → [{sceneId, scene, plugin: {id, versionRange}, status, createdAt, isActive}]
 
-    # 读其他 scene 的 artifact (整文件读, 无 path 子路径)
+    # 读其他 scene 的 artifact:聚合读(scene 内所有同名文件)
     modules = await call_tool(
         "mcp__canvas__load_scene_artifact",
         {"sceneId": "interior-layout-1", "artifactKind": "modules"}
     )
+    # 或 path 精确读单文件 schemes/{sceneId}/{path}/{artifactKind}.json
+    plan = await call_tool(
+        "mcp__canvas__load_scene_artifact",
+        {"sceneId": "interior-layout-1", "artifactKind": "semantic_plan", "path": "rz_3"}
+    )
 ```
 
-`artifactKind` 枚举:`modules` / `zones` / `semantic_plan` / `reference_analysis` /
-`readme`。Phase 1 只支持整文件读;Phase 2+ 可能加 path 子路径(详见
-[plugin-architecture.md](./plugin-architecture.md) §7)。
+`artifactKind` 是 plugin 自定义字符串(字符集 `^[a-z][a-z0-9_-]*$`),无需在任何地方预注册。
+Reserved 通用 kind:`modules` / `zones` / `readme`(baseline 派生 / AI 直写)。
+其余 kind(`semantic_plan` / `reference_analysis` / 你自己的 `points` 等)是 plugin domain 产物。
+读写契约(通用端点、`path` 子路径、写入隔离、`SceneArtifactUpdated` 通知)见
+[plugin-architecture.md](./plugin-architecture.md) §7.1。
+
+**plugin 自包业务纪律**:你的 domain 业务(数据 schema、tag 体系、方案合并 / 校验等)必须在
+plugin 工具体 / `lib/` 内实现,通过通用 artifact 端点落盘——
+**禁止依赖 Server 端为某 plugin 单开的 domain controller**(平台基座不再提供此类入口)。
+写自己的 artifact 用 `POST /api/scheme/scenes/{sceneId}/artifacts/{artifactKind}`(`load_scene_artifact` 的写对端)。
 
 跨 scene 读不影响 Server 写入 gate —— 你**只能写**你自己 active scene 的命名空间,
 读则不限。
