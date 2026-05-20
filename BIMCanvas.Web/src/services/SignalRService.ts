@@ -66,11 +66,6 @@ export class SignalRService {
             }
         });
 
-        // 语义方案版本更新(旧 domain 事件,双轨期保留;Server 业务下沉删 SemanticPlanController 时一并清理)
-        this.connection.on("SemanticPlanUpdated", (data: any) => {
-            window.dispatchEvent(new CustomEvent('bimcanvas:semantic-plan-updated', { detail: data }));
-        });
-
         // 通用 scene artifact 更新(plugin-agnostic,业务下沉派单纲领 §4.1)
         // payload: { sceneId, artifactKind, path?, plugin?, timestamp }
         this.connection.on("SceneArtifactUpdated", (data: any) => {

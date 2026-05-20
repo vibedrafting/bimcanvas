@@ -37,7 +37,7 @@ namespace BIMCanvas.Server.Controllers
     /// </para>
     /// <para>
     /// <b>SignalR 通用事件</b> <c>SceneArtifactUpdated</c>:payload <c>{sceneId, artifactKind, path?, plugin?, timestamp}</c>。
-    /// 双轨期内 SemanticPlanController 旧端点仍广播 <c>SemanticPlanUpdated</c> / <c>ReferenceAnalysisUpdated</c>,删旧 controller 时一并清理。
+    /// (旧 SemanticPlanController 已删除,domain 事件 SemanticPlanUpdated / ReferenceAnalysisUpdated 随之移除。)
     /// </para>
     /// </summary>
     [ApiController]
