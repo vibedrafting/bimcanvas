@@ -156,7 +156,9 @@ public sealed class PluginLifecycleService
         var serverConfig = ConfigService.Load();
         var activePluginId = serverConfig.Agent.ActivePlugin ?? "core-base";
         var activePluginRoot = PluginPaths.PluginRoot(activePluginId);
-        var mode = (projectPath is not null && activeSceneId is not null)
+        // binding 简化:只要打开了项目就 ProjectBound(命名空间 = active plugin id,
+        // 不再依赖带序号的 sceneId)。activeSceneId 实参现承载 active plugin id。
+        var mode = projectPath is not null
             ? LaunchMode.ProjectBound
             : LaunchMode.Projectless;
 

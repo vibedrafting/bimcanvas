@@ -172,11 +172,8 @@ namespace BIMCanvas.Server.Services
                 return WriteGateResult.Ok;
             }
 
-            if (LaunchContext.Mode != LaunchMode.ProjectBound)
-            {
-                return new WriteGateResult(false, "project_pending_binding",
-                    "LaunchContext.Mode = Projectless,写入禁止 (V12a)");
-            }
+            // binding 简化:不再因 projectless 禁写。未加载项目已由上面 State==None/Pending 拦截;
+            // baseline/computed 只读 + scene 命名空间(= active plugin id)隔离见下。
 
             // V12b: 路径隔离检查(组5 §5.B.5)
             // 仅在 path 参数非空 + ActiveSceneId 非空时启用

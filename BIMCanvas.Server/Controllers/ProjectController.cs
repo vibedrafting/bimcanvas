@@ -1494,65 +1494,33 @@ namespace BIMCanvas.Server.Controllers
                 });
             }
 
-            // 有 active plugin → 读 project.json.scenes[] 匹配
+            // 有 active plugin → 命名空间 = active plugin id,直接绑定。
+            // (binding 简化:废弃带序号 sceneId + 三态;多方案对比走 git 分支。
+            //  scenes[] 降为可选元数据,不再决定命名空间 / 能否写。)
             var scenes = ReadProjectScenes(projectPath);
-            var matching = scenes
-                .Where(s => string.Equals(s.Plugin?.Id, activePluginId, StringComparison.OrdinalIgnoreCase))
-                .ToList();
+            var summary = new ProjectScenesSummary(scenes, activePluginId);
+            var lockSummary = TryReadPluginLockSummary(projectPath, activePluginId);
+            var launchContext = _pluginLifecycle.BuildLaunchContext(
+                projectPath, activePluginId, summary, lockSummary, readOnlySceneIds: null);
+            _projectContext.SetBound(projectPath, bcpPath, launchContext);
 
-            if (matching.Count == 1)
+            try
             {
-                var matched = matching[0];
-                var summary = new ProjectScenesSummary(scenes, matched.SceneId);
-                var lockSummary = TryReadPluginLockSummary(projectPath, matched.SceneId);
-                var launchContext = _pluginLifecycle.BuildLaunchContext(
-                    projectPath, matched.SceneId, summary, lockSummary, readOnlySceneIds: null);
-                _projectContext.SetBound(projectPath, bcpPath, launchContext);
-
-                try
-                {
-                    _pluginLifecycle.WriteLaunchContextFileAsync(launchContext, Environment.ProcessId)
-                        .GetAwaiter().GetResult();
-                }
-                catch (Exception ex)
-                {
-                    _logger.LogWarning(ex, "写 LaunchContext 文件失败 (不阻断 open)");
-                }
-
-                return Ok(new ProjectLoadResult
-                {
-                    Status = "Success",
-                    ProjectPath = projectPath,
-                    OpenStatus = Models.Plugins.OpenStatus.Bound,
-                    CurrentActivePlugin = activePluginId,
-                    ActiveSceneId = matched.SceneId,
-                    Warnings = warnings.Count > 0 ? warnings : null,
-                });
+                _pluginLifecycle.WriteLaunchContextFileAsync(launchContext, Environment.ProcessId)
+                    .GetAwaiter().GetResult();
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "写 LaunchContext 文件失败 (不阻断 open)");
             }
 
-            if (matching.Count > 1)
-            {
-                _projectContext.SetPending(projectPath, bcpPath, Models.Plugins.OpenStatus.SceneSelectRequired, matching);
-                return Ok(new ProjectLoadResult
-                {
-                    Status = "Success",
-                    ProjectPath = projectPath,
-                    OpenStatus = Models.Plugins.OpenStatus.SceneSelectRequired,
-                    CurrentActivePlugin = activePluginId,
-                    Candidates = matching,
-                    Warnings = warnings.Count > 0 ? warnings : null,
-                });
-            }
-
-            // 无匹配:要求用户决定新增 / 切回 core-base
-            _projectContext.SetPending(projectPath, bcpPath, Models.Plugins.OpenStatus.RequiresSceneBinding, scenes);
             return Ok(new ProjectLoadResult
             {
                 Status = "Success",
                 ProjectPath = projectPath,
-                OpenStatus = Models.Plugins.OpenStatus.RequiresSceneBinding,
+                OpenStatus = Models.Plugins.OpenStatus.Bound,
                 CurrentActivePlugin = activePluginId,
-                ExistingScenes = scenes,
+                ActiveSceneId = activePluginId,
                 Warnings = warnings.Count > 0 ? warnings : null,
             });
         }

@@ -89,6 +89,20 @@ public static class PluginPaths
         => Path.Combine(projectPath, "schemes", sceneId);
 
     /// <summary>
+    /// 业务数据 scene 命名空间根:<c>{projectPath}/schemes/{active_scene}/</c>,
+    /// active_scene = active plugin id(全局真源 <c>ConfigService.Load().Agent.ActivePlugin</c>,与 BuildLaunchContext 一致)。
+    /// modules / variants 等插件可编辑业务数据走这里;<c>schemes/zones.json</c> 等全 scene 共享数据不走(直接 schemes/)。
+    /// active plugin 为空(legacy 无 plugin)时回退 <c>schemes/</c>。
+    /// </summary>
+    public static string ActiveSchemesRoot(string projectPath)
+    {
+        var activePlugin = ConfigService.Load().Agent.ActivePlugin;
+        return string.IsNullOrWhiteSpace(activePlugin)
+            ? Path.Combine(projectPath, "schemes")
+            : Path.Combine(projectPath, "schemes", activePlugin);
+    }
+
+    /// <summary>
     /// (组5 §5.B.2) Bind-time 其他 plugin 自定义子目录的兜底物化路径:
     /// <c>{projectPath}/_pluginMount/{sceneId}/</c>。
     /// 仅当 plugin projectMount/ 内有非 references/ / modules/ 的自定义子目录时使用。

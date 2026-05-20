@@ -32,7 +32,7 @@ def register(builder: McpServerBuilder) -> None:
                     "text": (
                         f"[echo-demo] {text}\n"
                         f"(plugin_id={ctx.active_plugin_id}, "
-                        f"scene_id={ctx.active_scene_id}, "
+                        f"scene={ctx.active_scene}, "
                         f"server_url={ctx.server_url})"
                     ),
                 }

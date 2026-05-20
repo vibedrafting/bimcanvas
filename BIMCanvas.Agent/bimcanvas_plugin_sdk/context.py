@@ -4,7 +4,8 @@
 - server_url:Server REST 基址,plugin 调用 ctx.session.post(f"{ctx.server_url}/...")
 - project_path:.bcp 项目目录路径;Projectless 时为 None
 - active_plugin_id:当前 active plugin 的 manifest name 字段
-- active_scene_id:当前 active scene id;Projectless 时为 None
+- active_scene:数据命名空间 = active plugin id(如 "interior-layout");永远有值(含 Projectless)。
+  所有可编辑业务数据落 schemes/{active_scene}/{zoneId}/...
 - logger:平台注入,name=f"bimcanvas.plugin.{active_plugin_id}",plugin 直接 ctx.logger.info(...)
 - session:long-lived aiohttp.ClientSession,平台在 _build_mcp_servers 时创建,
   Agent shutdown 时 close;plugin 内每次工具调用复用此 session
@@ -47,7 +48,7 @@ class PluginContext:
     server_url: str
     project_path: Optional[str]
     active_plugin_id: str
-    active_scene_id: Optional[str]
+    active_scene: str
     logger: logging.Logger
     session: "aiohttp.ClientSession"
     scenes: "Optional[ProjectScenesSummary]" = None

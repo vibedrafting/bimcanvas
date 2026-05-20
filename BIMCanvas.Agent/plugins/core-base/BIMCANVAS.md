@@ -27,16 +27,16 @@
 |------|------|
 | `baseline/` | 只读（Revit 导出） |
 | `computed/` | 只读（派生几何，自动生成） |
-| `schemes/{activeSceneId}/` | 当前 active plugin 可写 |
-| `schemes/{其他sceneId}/` | 跨 scene 只读，走 `mcp__canvas__load_scene_artifact` |
-| `references/{activeSceneId}/` | 当前 active plugin 可写 |
-| `modules/{activeSceneId}/` | 当前 active plugin 可写 |
+| `schemes/{active_scene}/` | 当前 active plugin 可写（`active_scene` = active plugin id） |
+| `schemes/{其他 plugin}/` | 跨 plugin 只读，走 `mcp__canvas__load_scene_artifact` |
+| `references/{active_scene}/` | 当前 active plugin 可写 |
+| `modules/{active_scene}/` | 当前 active plugin 可写 |
 
 越权写入将被 Server gate 403 拒绝（`scene_write_isolation` / `readonly_zone`）。
 
 ### 2.3 Scene 边界
 
-每个 plugin 在自己的 `activeSceneId` 命名空间内工作。`activeSceneId` 由 `PluginLaunchContext` 启动注入，**运行时不可变** — 不要尝试通过修改环境变量、写文件或反射来改它。跨 scene 读用 `mcp__canvas__list_project_scenes` / `load_scene_artifact`。
+每个 plugin 在自己的 `active_scene`（= active plugin id）命名空间内工作。`active_scene` 由 `PluginLaunchContext` 启动注入，**运行时不可变** — 不要尝试通过修改环境变量、写文件或反射来改它。跨 plugin 读用 `mcp__canvas__list_project_scenes` / `load_scene_artifact`。
 
 ### 2.4 MCP 命名与文件写入
 
@@ -72,7 +72,7 @@
 
 **【必须】**业务路由表由 active plugin 的 BIMCANVAS.md 定义；主控按该表识别意图后加载对应 Skill。Skill 中的相对路径以**当前项目目录**为根。
 
-> **Why**：BIMCanvas 所有可写路径按 `activeSceneId` 隔离，而 `activeSceneId` 由 plugin 注入 — 基座自身不持有 sceneId，也不承担任何业务能力（包括查询）。"按业务语义查询"（统计家具件数 / 列分区）同样属于 plugin 领域知识，基座不重复造轮子。
+> **Why**：BIMCanvas 所有可写路径按 `active_scene`（= active plugin id）隔离，由 `PluginLaunchContext` 注入 — 基座自身不持有 scene 标识，也不承担任何业务能力（包括查询）。"按业务语义查询"（统计家具件数 / 列分区）同样属于 plugin 领域知识，基座不重复造轮子。
 
 ---
 

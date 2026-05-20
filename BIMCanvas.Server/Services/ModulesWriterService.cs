@@ -140,7 +140,7 @@ namespace BIMCanvas.Server.Services
             string? variantId,
             VariantPathMode pathMode)
         {
-            var schemesPath = Path.Combine(projectPath, "schemes");
+            var schemesPath = Plugins.PluginPaths.ActiveSchemesRoot(projectPath);
 
             if (string.IsNullOrWhiteSpace(variantId))
             {

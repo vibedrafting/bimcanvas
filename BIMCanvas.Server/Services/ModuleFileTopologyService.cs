@@ -43,7 +43,10 @@ namespace BIMCanvas.Server.Services
                 return ModuleFileTopology.CreateLegacy(schemesPath);
             }
 
-            var builder = new TopologyBuilder(schemesPath, zones);
+            // modules / 变体根 = schemes/{active_scene}/;zones.json 仍在共享 schemes/ 下(全 scene 共享 baseline 派生)。
+            var projectPath = Path.GetDirectoryName(schemesPath) ?? schemesPath;
+            var modulesRoot = Plugins.PluginPaths.ActiveSchemesRoot(projectPath);
+            var builder = new TopologyBuilder(modulesRoot, zones);
             return builder.Build();
         }
 

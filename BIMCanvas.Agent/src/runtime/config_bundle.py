@@ -289,7 +289,7 @@ def _load_plugin_mcp_server(
         server_url=launch_context.server_url,
         project_path=launch_context.project_path,
         active_plugin_id=plugin_id,
-        active_scene_id=launch_context.active_scene_id,
+        active_scene=plugin_id,  # 数据命名空间 = active plugin id(永远有值,含 projectless)
         logger=logging.getLogger(f"bimcanvas.plugin.{plugin_id}"),
         session=session,
         scenes=launch_context.scenes,  # v3.4 D10

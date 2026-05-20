@@ -1386,7 +1386,7 @@ def register(builder: McpServerBuilder) -> None:
                 "is_error": True,
             }
 
-        active_scene_id = ctx.active_scene_id
+        active_scene_id = ctx.active_scene
         items: list[dict[str, Any]] = []
         for scene in ctx.scenes.scenes:
             if scene.status.value != "active":
