@@ -47,6 +47,7 @@ const onRepairClosed = () => {
 const fileInputRef = ref<HTMLInputElement | null>(null);
 const {
   handleLoad,
+  handleCreate,
   processFile,
   handleConflictResolve,
   showConflictDialog,
@@ -107,7 +108,13 @@ const handleCreateProject = async () => {
   const defaultName = getDefaultProjectName();
   const projectName = window.prompt('项目名称', defaultName);
   if (projectName === null) return;
-  await canvasStore.createBlankProject(projectName);
+  if (canProjectCatalog) {
+    // Connected 模式：Server 持久化
+    await handleCreate(projectName);
+  } else {
+    // Standalone 模式：内存态空项目
+    await canvasStore.createBlankProject(projectName);
+  }
 };
 
 // 打开项目

@@ -127,6 +127,14 @@ namespace BIMCanvas.Server.Dtos
     }
 
     /// <summary>
+    /// 新建空项目请求 (POST /api/project/create / /create-resolve)。
+    /// </summary>
+    public class CreateProjectRequest
+    {
+        public string Name { get; set; } = "";
+    }
+
+    /// <summary>
     /// 新增 scene 绑定请求 (主真理源 v1.1 §2.2 步骤 6 / §4.8)。
     /// 对应 POST /api/project/scenes。
     /// </summary>

@@ -90,6 +90,114 @@ namespace BIMCanvas.Server.Services
         }
 
         /// <summary>
+        /// 检测「新建空项目」是否与已有项目同名冲突
+        /// </summary>
+        public (bool HasConflict, string? ExistingPath) CheckEmptyProjectConflict(string projectName)
+        {
+            ValidateProjectName(projectName);
+            var projectPath = Path.Combine(DefaultProjectsRoot, projectName);
+            if (Directory.Exists(projectPath))
+            {
+                return (true, projectPath);
+            }
+            return (false, null);
+        }
+
+        /// <summary>
+        /// 校验项目名:非空、长度合规、不含路径分隔符与非法字符。
+        /// 失败抛 ArgumentException,Controller 层转 400。
+        /// </summary>
+        public static void ValidateProjectName(string projectName)
+        {
+            if (string.IsNullOrWhiteSpace(projectName))
+            {
+                throw new ArgumentException("项目名不能为空", nameof(projectName));
+            }
+
+            var trimmed = projectName.Trim();
+            if (trimmed.Length > 64)
+            {
+                throw new ArgumentException("项目名超过 64 个字符", nameof(projectName));
+            }
+
+            if (trimmed.IndexOfAny(new[] { '/', '\\', ':' }) >= 0)
+            {
+                throw new ArgumentException("项目名不能包含 / \\ :", nameof(projectName));
+            }
+
+            foreach (var c in Path.GetInvalidFileNameChars())
+            {
+                if (trimmed.IndexOf(c) >= 0)
+                {
+                    throw new ArgumentException($"项目名包含非法字符: {c}", nameof(projectName));
+                }
+            }
+
+            if (trimmed == "." || trimmed == "..")
+            {
+                throw new ArgumentException("项目名不能为 . 或 ..", nameof(projectName));
+            }
+        }
+
+        /// <summary>
+        /// 创建空白项目(组5 §5.A.7 平台 baseline + 组2 derived bootstrap)。
+        /// 与 LoadProject 对称:解压一个"零内容"的 baseline,然后走相同的派生初始化管线。
+        /// 不触碰 plugin / scenes(R10):scenes[] 不写,plugins.lock.json 不生成。
+        /// </summary>
+        internal ProjectLoadExecutionResult CreateProject(string projectName, bool overwrite = false)
+        {
+            ValidateProjectName(projectName);
+            var trimmed = projectName.Trim();
+
+            if (!Directory.Exists(DefaultProjectsRoot))
+            {
+                Directory.CreateDirectory(DefaultProjectsRoot);
+                _logger.LogInformation("创建项目根目录: {Path}", DefaultProjectsRoot);
+            }
+
+            var projectPath = Path.Combine(DefaultProjectsRoot, trimmed);
+
+            if (Directory.Exists(projectPath))
+            {
+                if (!overwrite)
+                {
+                    throw new InvalidOperationException($"项目目录已存在: {projectPath}");
+                }
+                _logger.LogInformation("覆盖已存在的项目目录: {Path}", projectPath);
+                RemoveReadOnlyAttributes(projectPath);
+                Directory.Delete(projectPath, recursive: true);
+            }
+
+            _logger.LogInformation("创建空白项目: {Path}", projectPath);
+            Directory.CreateDirectory(projectPath);
+
+            // 1. 写最小 baseline:全部空集合,EnsureBaselineManifest 之后会基于这些文件计算 hash
+            var baselineDir = Path.Combine(projectPath, "baseline");
+            Directory.CreateDirectory(baselineDir);
+            File.WriteAllText(
+                Path.Combine(baselineDir, "architecture.json"),
+                "{\n  \"walls\": [],\n  \"columns\": []\n}\n",
+                Encoding.UTF8);
+            File.WriteAllText(Path.Combine(baselineDir, "openings.json"), "[]\n", Encoding.UTF8);
+            File.WriteAllText(Path.Combine(baselineDir, "rooms.json"), "[]\n", Encoding.UTF8);
+            File.WriteAllText(Path.Combine(baselineDir, "location_lines.json"), "[]\n", Encoding.UTF8);
+
+            // 2. 平台级 baseline (README.md / .gitignore)
+            _bootstrapTemplateService.EnsurePlatformBaseline(projectPath);
+
+            // 3. 派生产物:baseline/metadata.json、schemes/、computed/、project.json、git
+            var bootstrapResult = _projectDerivedBootstrapService.EnsureInitialized(
+                projectPath,
+                refreshProjectMetadata: true);
+
+            var result = new ProjectLoadExecutionResult(projectPath);
+            AddZoneBaselineWarningIfNeeded(result.Warnings, bootstrapResult);
+
+            _logger.LogInformation("空白项目创建完成: {Path}", projectPath);
+            return result;
+        }
+
+        /// <summary>
         /// 加载项目（完整流程）
         /// </summary>
         /// <param name="bcpFilePath">.bcp 文件路径</param>
