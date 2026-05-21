@@ -17,13 +17,13 @@ using Newtonsoft.Json.Linq;
 namespace BIMCanvas.Server.Controllers
 {
     /// <summary>
-    /// 跨 scene 通用 artifact IO 端点 (主真理源 v1.1 §3.10 + Server 业务下沉派单纲领 §4.1)。
+    /// 通用 artifact IO 端点 (scene-agnostic;持久数据按物理 zone 组织,不耦合运行时 plugin)。
     /// <para>
-    /// 路由前缀 <c>api/scheme/scenes/{sceneId}</c>:
+    /// 路由前缀 <c>api/scheme</c>:
     /// <list type="bullet">
-    /// <item><c>GET  /{artifactKind}</c>:聚合读 scene 下所有同名 artifact(向后兼容)</item>
-    /// <item><c>GET  /{artifactKind}?path={subPath}</c>:精确读单文件 <c>schemes/{sceneId}/{subPath}/{artifactKind}.json</c></item>
-    /// <item><c>POST /artifacts/{artifactKind}</c> body <c>{ path?, content }</c>:写到 <c>schemes/{sceneId}/{path?}/{artifactKind}.json</c></item>
+    /// <item><c>GET  /artifacts/{artifactKind}</c>:聚合读 schemes/ 下所有同名 artifact</item>
+    /// <item><c>GET  /artifacts/{artifactKind}?path={subPath}</c>:精确读单文件 <c>schemes/{subPath}/{artifactKind}.json</c></item>
+    /// <item><c>POST /artifacts/{artifactKind}</c> body <c>{ path?, content }</c>:写到 <c>schemes/{path?}/{artifactKind}.json</c></item>
     /// </list>
     /// </para>
     /// <para>
@@ -32,16 +32,16 @@ namespace BIMCanvas.Server.Controllers
     /// </para>
     /// <para>
     /// <b>POST 安全防线</b>:(1) artifactKind / path 字符集 + 防 ".." 穿越;
-    /// (2) <see cref="ProjectContext.CheckWriteAllowed(string)"/> V12b 路径隔离,scene namespace 之外一律 403;
-    /// (3) 最终绝对路径必须落在 <c>schemes/{sceneId}/</c> 内。
+    /// (2) <see cref="ProjectContext.CheckWriteAllowed(string)"/> 写入 gate(baseline/computed 只读);
+    /// (3) 最终绝对路径必须落在 <c>schemes/</c> 内。
     /// </para>
     /// <para>
-    /// <b>SignalR 通用事件</b> <c>SceneArtifactUpdated</c>:payload <c>{sceneId, artifactKind, path?, plugin?, timestamp}</c>。
+    /// <b>SignalR 通用事件</b> <c>SceneArtifactUpdated</c>:payload <c>{artifactKind, path?, plugin?, timestamp}</c>。
     /// (旧 SemanticPlanController 已删除,domain 事件 SemanticPlanUpdated / ReferenceAnalysisUpdated 随之移除。)
     /// </para>
     /// </summary>
     [ApiController]
-    [Route("api/scheme/scenes/{sceneId}")]
+    [Route("api/scheme")]
     public class SceneArtifactsController : ControllerBase
     {
         private static readonly Regex ArtifactKindPattern = new(@"^[a-z][a-z0-9_-]*$", RegexOptions.Compiled);
@@ -72,12 +72,9 @@ namespace BIMCanvas.Server.Controllers
         // GET — 读 artifact
         // ============================================================
 
-        [HttpGet("{artifactKind}")]
-        public IActionResult GetSceneArtifact(string sceneId, string artifactKind, [FromQuery] string? path = null)
+        [HttpGet("artifacts/{artifactKind}")]
+        public IActionResult GetSceneArtifact(string artifactKind, [FromQuery] string? path = null)
         {
-            if (string.IsNullOrWhiteSpace(sceneId))
-                return BadRequest(new { code = "invalid_scene_id", message = "sceneId 不能为空" });
-
             if (!_projectContext.IsLoaded || string.IsNullOrWhiteSpace(_projectContext.CurrentProjectPath))
                 return StatusCode(404, new { code = "no_project_loaded", message = "未加载项目" });
 
@@ -94,23 +91,23 @@ namespace BIMCanvas.Server.Controllers
 
             var projectPath = _projectContext.GetActiveWorktreePath() ?? _projectContext.CurrentProjectPath!;
 
-            // 精确读:path 非空时 → 读单文件 schemes/{sceneId}/{path}/{artifactKind}.json
+            // 精确读:path 非空时 → 读单文件 schemes/{path}/{artifactKind}.json
             if (!string.IsNullOrWhiteSpace(path))
             {
-                return ReadSingleArtifact(projectPath, sceneId, kind, path);
+                return ReadSingleArtifact(projectPath, kind, path);
             }
 
             // 聚合读:reserved 通用 kind 走专用 reader,其他走通用聚合
             switch (kind)
             {
                 case "modules":
-                    return ReadModulesAggregated(projectPath, sceneId);
+                    return ReadModulesAggregated(projectPath);
                 case "zones":
                     return ReadZones(projectPath);
                 case "readme":
                     return ReadReadme(projectPath);
                 default:
-                    return ReadAggregatedJsonFiles(projectPath, sceneId, kind + ".json");
+                    return ReadAggregatedJsonFiles(projectPath, kind + ".json");
             }
         }
 
@@ -120,15 +117,11 @@ namespace BIMCanvas.Server.Controllers
 
         [HttpPost("artifacts/{artifactKind}")]
         public async Task<IActionResult> SaveSceneArtifact(
-            string sceneId,
             string artifactKind,
             [FromBody] SaveSceneArtifactRequest request)
         {
             if (request is null)
                 return BadRequest(new { code = "invalid_body", message = "body 不能为空" });
-
-            if (string.IsNullOrWhiteSpace(sceneId))
-                return BadRequest(new { code = "invalid_scene_id", message = "sceneId 不能为空" });
 
             if (!_projectContext.IsLoaded || string.IsNullOrWhiteSpace(_projectContext.CurrentProjectPath))
                 return StatusCode(404, new { code = "no_project_loaded", message = "未加载项目" });
@@ -173,16 +166,16 @@ namespace BIMCanvas.Server.Controllers
 
             // 拼相对路径 + 绝对路径(防穿越)
             var projectPath = _projectContext.GetActiveWorktreePath() ?? _projectContext.CurrentProjectPath!;
-            var sceneRoot = PluginPaths.SceneSchemesRoot(projectPath, sceneId);
+            var schemesRoot = Path.Combine(projectPath, "schemes");
             var fileName = kind + ".json";
             var targetAbsolute = subPath.Length > 0
-                ? Path.Combine(sceneRoot, subPath.Replace('/', Path.DirectorySeparatorChar), fileName)
-                : Path.Combine(sceneRoot, fileName);
+                ? Path.Combine(schemesRoot, subPath.Replace('/', Path.DirectorySeparatorChar), fileName)
+                : Path.Combine(schemesRoot, fileName);
 
-            string sceneRootFull, targetFull;
+            string schemesRootFull, targetFull;
             try
             {
-                sceneRootFull = Path.GetFullPath(sceneRoot);
+                schemesRootFull = Path.GetFullPath(schemesRoot);
                 targetFull = Path.GetFullPath(targetAbsolute);
             }
             catch (Exception ex)
@@ -190,14 +183,14 @@ namespace BIMCanvas.Server.Controllers
                 return BadRequest(new { code = "invalid_path", message = "路径解析失败: " + ex.Message });
             }
 
-            var sceneRootWithSep = sceneRootFull.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar)
+            var schemesRootWithSep = schemesRootFull.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar)
                                    + Path.DirectorySeparatorChar;
-            if (!targetFull.StartsWith(sceneRootWithSep, StringComparison.OrdinalIgnoreCase))
+            if (!targetFull.StartsWith(schemesRootWithSep, StringComparison.OrdinalIgnoreCase))
             {
                 return BadRequest(new
                 {
                     code = "path_escape",
-                    message = "path 解析后逃逸 schemes/{sceneId}/ scene namespace"
+                    message = "path 解析后逃逸 schemes/ 目录"
                 });
             }
 
@@ -227,7 +220,6 @@ namespace BIMCanvas.Server.Controllers
             var timestamp = DateTime.UtcNow.ToString("o");
             await _hubContext.Clients.All.SendAsync("SceneArtifactUpdated", new
             {
-                sceneId,
                 artifactKind = kind,
                 path = subPath.Length > 0 ? subPath : null,
                 plugin = pluginId,
@@ -235,13 +227,12 @@ namespace BIMCanvas.Server.Controllers
             });
 
             _logger.LogInformation(
-                "[SceneArtifact] 已保存 scene={SceneId} kind={Kind} path={Path} plugin={Plugin}",
-                sceneId, kind, subPath.Length > 0 ? subPath : "-", pluginId ?? "-");
+                "[SceneArtifact] 已保存 kind={Kind} path={Path} plugin={Plugin}",
+                kind, subPath.Length > 0 ? subPath : "-", pluginId ?? "-");
 
             return Ok(new
             {
                 saved = true,
-                sceneId,
                 artifactKind = kind,
                 path = subPath.Length > 0 ? subPath : null,
                 timestamp,
@@ -252,8 +243,8 @@ namespace BIMCanvas.Server.Controllers
         // GET reader 子函数(部分搬自旧版本,逻辑不变)
         // ============================================================
 
-        /// <summary>精确读单文件 schemes/{sceneId}/{path}/{kind}.json,返回纯 JSON 内容(application/json)。</summary>
-        private IActionResult ReadSingleArtifact(string projectPath, string sceneId, string kind, string path)
+        /// <summary>精确读单文件 schemes/{path}/{kind}.json,返回纯 JSON 内容(application/json)。</summary>
+        private IActionResult ReadSingleArtifact(string projectPath, string kind, string path)
         {
             var subPath = path.Trim().Trim('/', '\\');
             if (subPath.Length == 0)
@@ -261,14 +252,14 @@ namespace BIMCanvas.Server.Controllers
             if (subPath.Contains("..") || subPath.Contains('\\') || !PathSegmentPattern.IsMatch(subPath))
                 return BadRequest(new { code = "invalid_path", message = "path 仅允许 [a-zA-Z0-9_/-]+,禁止 .. / \\ / 前导斜杠" });
 
-            var sceneRoot = PluginPaths.SceneSchemesRoot(projectPath, sceneId);
+            var schemesRoot = Path.Combine(projectPath, "schemes");
             var fileName = kind + ".json";
-            var targetAbsolute = Path.Combine(sceneRoot, subPath.Replace('/', Path.DirectorySeparatorChar), fileName);
+            var targetAbsolute = Path.Combine(schemesRoot, subPath.Replace('/', Path.DirectorySeparatorChar), fileName);
 
-            string sceneRootFull, targetFull;
+            string schemesRootFull, targetFull;
             try
             {
-                sceneRootFull = Path.GetFullPath(sceneRoot);
+                schemesRootFull = Path.GetFullPath(schemesRoot);
                 targetFull = Path.GetFullPath(targetAbsolute);
             }
             catch (Exception ex)
@@ -276,10 +267,10 @@ namespace BIMCanvas.Server.Controllers
                 return BadRequest(new { code = "invalid_path", message = "路径解析失败: " + ex.Message });
             }
 
-            var sceneRootWithSep = sceneRootFull.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar)
+            var schemesRootWithSep = schemesRootFull.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar)
                                    + Path.DirectorySeparatorChar;
-            if (!targetFull.StartsWith(sceneRootWithSep, StringComparison.OrdinalIgnoreCase))
-                return BadRequest(new { code = "path_escape", message = "path 解析后逃逸 schemes/{sceneId}/ scene namespace" });
+            if (!targetFull.StartsWith(schemesRootWithSep, StringComparison.OrdinalIgnoreCase))
+                return BadRequest(new { code = "path_escape", message = "path 解析后逃逸 schemes/ 目录" });
 
             if (!System.IO.File.Exists(targetFull))
             {
@@ -288,7 +279,6 @@ namespace BIMCanvas.Server.Controllers
                 {
                     code = "artifact_not_found",
                     message = $"未找到 {relForReport}",
-                    sceneId,
                     artifactKind = kind,
                     path = subPath,
                 });
@@ -306,29 +296,24 @@ namespace BIMCanvas.Server.Controllers
             }
         }
 
-        // ---------- modules:聚合返回 schemes/{sceneId}/ 下所有叶子 modules.json ----------
+        // ---------- modules:聚合返回 schemes/ 下所有叶子 modules.json ----------
 
-        private IActionResult ReadModulesAggregated(string projectPath, string sceneId)
+        private IActionResult ReadModulesAggregated(string projectPath)
         {
-            var sceneSchemesRoot = PluginPaths.SceneSchemesRoot(projectPath, sceneId);
-            if (!Directory.Exists(sceneSchemesRoot))
+            var schemesRoot = Path.Combine(projectPath, "schemes");
+            if (!Directory.Exists(schemesRoot))
             {
-                // legacy 兼容:M2 路径未生效时回退到旧路径 schemes/{zoneId}/modules.json
-                sceneSchemesRoot = Path.Combine(projectPath, "schemes");
-                if (!Directory.Exists(sceneSchemesRoot))
-                {
-                    return StatusCode(404, new { code = "artifact_not_found", message = "schemes 目录不存在", sceneId, artifactKind = "modules" });
-                }
+                return StatusCode(404, new { code = "artifact_not_found", message = "schemes 目录不存在", artifactKind = "modules" });
             }
 
-            var modulesFiles = Directory.GetFiles(sceneSchemesRoot, "modules.json", SearchOption.AllDirectories);
+            var modulesFiles = Directory.GetFiles(schemesRoot, "modules.json", SearchOption.AllDirectories);
             var aggregated = new List<object>();
             foreach (var file in modulesFiles)
             {
                 try
                 {
                     var content = System.IO.File.ReadAllText(file, Encoding.UTF8);
-                    var relativeFromScene = Path.GetRelativePath(sceneSchemesRoot, file).Replace('\\', '/');
+                    var relativeFromScene = Path.GetRelativePath(schemesRoot, file).Replace('\\', '/');
                     aggregated.Add(new { relativePath = relativeFromScene, content });
                 }
                 catch (Exception exc)
@@ -337,7 +322,7 @@ namespace BIMCanvas.Server.Controllers
                 }
             }
 
-            return Ok(new { sceneId, artifactKind = "modules", files = aggregated });
+            return Ok(new { artifactKind = "modules", files = aggregated });
         }
 
         // ---------- zones:schemes/zones.json 全 scene 共享 ----------
@@ -362,29 +347,24 @@ namespace BIMCanvas.Server.Controllers
             }
         }
 
-        // ---------- 通用聚合:scene namespace 内所有同名 fileName 文件 ----------
+        // ---------- 通用聚合:schemes/ 下所有同名 fileName 文件 ----------
 
-        private IActionResult ReadAggregatedJsonFiles(string projectPath, string sceneId, string fileName)
+        private IActionResult ReadAggregatedJsonFiles(string projectPath, string fileName)
         {
-            var sceneSchemesRoot = PluginPaths.SceneSchemesRoot(projectPath, sceneId);
-            if (!Directory.Exists(sceneSchemesRoot))
+            var schemesRoot = Path.Combine(projectPath, "schemes");
+            if (!Directory.Exists(schemesRoot))
             {
-                // legacy 兼容:回退到旧路径(全 scene 共享 schemes/)
-                sceneSchemesRoot = Path.Combine(projectPath, "schemes");
-                if (!Directory.Exists(sceneSchemesRoot))
-                {
-                    return StatusCode(404, new { code = "artifact_not_found", message = "schemes 目录不存在", sceneId, artifactKind = fileName.Replace(".json", "") });
-                }
+                return StatusCode(404, new { code = "artifact_not_found", message = "schemes 目录不存在", artifactKind = fileName.Replace(".json", "") });
             }
 
-            var matches = Directory.GetFiles(sceneSchemesRoot, fileName, SearchOption.AllDirectories);
+            var matches = Directory.GetFiles(schemesRoot, fileName, SearchOption.AllDirectories);
             var aggregated = new List<object>();
             foreach (var file in matches)
             {
                 try
                 {
                     var content = System.IO.File.ReadAllText(file, Encoding.UTF8);
-                    var relativeFromScene = Path.GetRelativePath(sceneSchemesRoot, file).Replace('\\', '/');
+                    var relativeFromScene = Path.GetRelativePath(schemesRoot, file).Replace('\\', '/');
                     aggregated.Add(new { relativePath = relativeFromScene, content });
                 }
                 catch (Exception exc)
@@ -399,14 +379,12 @@ namespace BIMCanvas.Server.Controllers
                 {
                     code = "artifact_not_found",
                     message = $"未找到 {fileName}",
-                    sceneId,
                     artifactKind = fileName.Replace(".json", ""),
                 });
             }
 
             return Ok(new
             {
-                sceneId,
                 artifactKind = fileName.Replace(".json", ""),
                 files = aggregated,
             });
@@ -435,13 +413,13 @@ namespace BIMCanvas.Server.Controllers
         }
     }
 
-    /// <summary>POST /api/scheme/scenes/{sceneId}/artifacts/{artifactKind} 请求 body。</summary>
+    /// <summary>POST /api/scheme/artifacts/{artifactKind} 请求 body。</summary>
     public class SaveSceneArtifactRequest
     {
         /// <summary>
-        /// scene namespace 内的相对子路径(如 "rz_3" 或 "rz_3/variants/abc")。
-        /// 落盘路径 = schemes/{sceneId}/{path}/{artifactKind}.json。
-        /// 留空 / null 时落到 schemes/{sceneId}/{artifactKind}.json。
+        /// schemes/ 内的相对子路径(如 "rz_3" 或 "rz_3/variants/abc")。
+        /// 落盘路径 = schemes/{path}/{artifactKind}.json。
+        /// 留空 / null 时落到 schemes/{artifactKind}.json。
         /// 字符集 [a-zA-Z0-9_/-]+,禁止 .. / \ / 前导斜杠。
         /// </summary>
         public string? Path { get; set; }

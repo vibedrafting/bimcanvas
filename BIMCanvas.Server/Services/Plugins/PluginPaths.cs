@@ -62,45 +62,18 @@ public static class PluginPaths
         => Path.Combine(projectPath, "_pluginMount", sceneId);
 
     /// <summary>
-    /// (组5 §5.B.1 / §5.B.2) Plugin projectMount/references/* 物化目标:
-    /// <c>{projectPath}/references/{sceneId}/</c>。
-    /// 每个 scene 持有独立的 references 命名空间,跨 scene 只读访问;
-    /// 越权写非 activeSceneId 路径 → V12b 拒 403 (scene_write_isolation)。
+    /// Plugin projectMount/references/* 物化目标:<c>{projectPath}/references/{sceneId}/</c>。
+    /// (plugin 资源物化区;落点的进一步规整属后续工作,见回退执行计划 §6。)
     /// </summary>
     public static string SceneReferencesRoot(string projectPath, string sceneId)
         => Path.Combine(projectPath, "references", sceneId);
 
     /// <summary>
-    /// (组5 §5.B.1 / §5.B.2) Plugin projectMount/modules/* 物化目标:
-    /// <c>{projectPath}/modules/{sceneId}/</c>。
-    /// 每个 scene 持有独立的 modules 命名空间;同上 V12b 隔离规则。
+    /// Plugin projectMount/modules/* 物化目标:<c>{projectPath}/modules/{sceneId}/</c>。
+    /// (plugin 资源物化区;同上,落点规整属后续工作。)
     /// </summary>
     public static string SceneModulesRoot(string projectPath, string sceneId)
         => Path.Combine(projectPath, "modules", sceneId);
-
-    /// <summary>
-    /// (组5 §5.B.1 / §5.B.3) schemes 数据按 sceneId 隔离:
-    /// <c>{projectPath}/schemes/{sceneId}/</c>。
-    /// 注意:<c>schemes/zones.json</c> 与 <c>schemes/{sceneId}/{zoneId}/modules.json</c> 共存,
-    /// zones.json 全 scene 共享(主真理源 §3.9 baseline/computed 全 scene 共享),
-    /// 而 modules/semantic_plan/reference_analysis 等业务数据按 sceneId 隔离。
-    /// </summary>
-    public static string SceneSchemesRoot(string projectPath, string sceneId)
-        => Path.Combine(projectPath, "schemes", sceneId);
-
-    /// <summary>
-    /// 业务数据 scene 命名空间根:<c>{projectPath}/schemes/{active_scene}/</c>,
-    /// active_scene = active plugin id(全局真源 <c>ConfigService.Load().Agent.ActivePlugin</c>,与 BuildLaunchContext 一致)。
-    /// modules / variants 等插件可编辑业务数据走这里;<c>schemes/zones.json</c> 等全 scene 共享数据不走(直接 schemes/)。
-    /// active plugin 为空(legacy 无 plugin)时回退 <c>schemes/</c>。
-    /// </summary>
-    public static string ActiveSchemesRoot(string projectPath)
-    {
-        var activePlugin = ConfigService.Load().Agent.ActivePlugin;
-        return string.IsNullOrWhiteSpace(activePlugin)
-            ? Path.Combine(projectPath, "schemes")
-            : Path.Combine(projectPath, "schemes", activePlugin);
-    }
 
     /// <summary>
     /// (组5 §5.B.2) Bind-time 其他 plugin 自定义子目录的兜底物化路径:

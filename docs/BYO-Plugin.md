@@ -335,7 +335,7 @@ async def my_handler(args, ctx):
         "mcp__canvas__load_scene_artifact",
         {"sceneId": "interior-layout-1", "artifactKind": "modules"}
     )
-    # 或 path 精确读单文件 schemes/{sceneId}/{path}/{artifactKind}.json
+    # 或 path 精确读单文件 schemes/{path}/{artifactKind}.json
     plan = await call_tool(
         "mcp__canvas__load_scene_artifact",
         {"sceneId": "interior-layout-1", "artifactKind": "semantic_plan", "path": "rz_3"}
@@ -351,10 +351,9 @@ Reserved 通用 kind:`modules` / `zones` / `readme`(baseline 派生 / AI 直写)
 **plugin 自包业务纪律**:你的 domain 业务(数据 schema、tag 体系、方案合并 / 校验等)必须在
 plugin 工具体 / `lib/` 内实现,通过通用 artifact 端点落盘——
 **禁止依赖 Server 端为某 plugin 单开的 domain controller**(平台基座不再提供此类入口)。
-写自己的 artifact 用 `POST /api/scheme/scenes/{sceneId}/artifacts/{artifactKind}`(`load_scene_artifact` 的写对端)。
+写自己的 artifact 用 `POST /api/scheme/artifacts/{artifactKind}`(`load_scene_artifact` 的写对端)。
 
-跨 scene 读不影响 Server 写入 gate —— 你**只能写**你自己 active scene 的命名空间,
-读则不限。
+Server 写入 gate 仅锁定 `baseline/` + `computed/` 只读区,其余(`schemes/{zoneId}/` 等)可写;读不限。
 
 ---
 

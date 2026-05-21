@@ -754,14 +754,13 @@ _LIST_PROJECT_SCENES_SCHEMA = {
 }
 
 _LOAD_SCENE_ARTIFACT_DESC = (
-    "读取指定 scene 的 artifact (主真理源 v1.1 §3.10 + Server 业务下沉派单纲领 §4.1)。"
+    "读取 artifact(scene-agnostic;持久数据按物理 zone 组织在 schemes/ 下)。"
     "artifactKind 是 plugin-agnostic 的字符串(字符集 ^[a-z][a-z0-9_-]*$),"
     "平台 reserved 通用 kind:modules / zones / readme(对应 baseline 派生 / AI Write 直写);"
     "其他 kind(如 semantic_plan / reference_analysis / points)是 plugin domain 产物,"
-    "走 schemes/{sceneId}/ 下同名文件聚合。"
-    "可选 path 参数精确读单文件 schemes/{sceneId}/{path}/{artifactKind}.json(如 path='rz_3' / 'rz_3/variants/abc');"
-    "留空时走聚合返回(scene 内所有同名文件 + relativePath)。"
-    "sceneId 等于 activeSceneId 时仍允许调用 (plugin 作者无需区分读自己 vs 读他人)。"
+    "走 schemes/ 下同名文件聚合。"
+    "可选 path 参数精确读单文件 schemes/{path}/{artifactKind}.json(如 path='rz_3' / 'rz_3/variants/abc');"
+    "留空时走聚合返回(schemes/ 下所有同名文件 + relativePath)。"
 )
 _LOAD_SCENE_ARTIFACT_SCHEMA = {
     "type": "object",
@@ -769,25 +768,25 @@ _LOAD_SCENE_ARTIFACT_SCHEMA = {
         "sceneId": {
             "type": "string",
             "minLength": 1,
-            "description": "目标 scene 的唯一 id (project.json.scenes[].sceneId);允许等于 activeSceneId",
+            "description": "兼容占位(回退后数据按物理 zone 组织,不再用于落盘路径);传 active plugin id 即可",
         },
         "artifactKind": {
             "type": "string",
             "pattern": "^[a-z][a-z0-9_-]*$",
             "description": (
                 "产物类型,字符集 ^[a-z][a-z0-9_-]*$。Reserved 通用 kind:"
-                "modules(scene 内所有叶子分区 modules.json 聚合)、"
-                "zones(全 scene 共享 schemes/zones.json)、"
+                "modules(schemes/ 下所有叶子分区 modules.json 聚合)、"
+                "zones(schemes/zones.json)、"
                 "readme(项目根 README.md)。"
-                "其他 kind 由 plugin 自定义,Server 按 schemes/{sceneId}/ 下同名文件聚合返回。"
+                "其他 kind 由 plugin 自定义,Server 按 schemes/ 下同名文件聚合返回。"
             ),
         },
         "path": {
             "type": "string",
             "description": (
-                "可选。scene namespace 内相对子路径,如 'rz_3' / 'rz_3/variants/abc'。"
-                "非空时精确读单文件 schemes/{sceneId}/{path}/{artifactKind}.json;"
-                "空时走聚合(scene 内所有同名 artifactKind 文件)。"
+                "可选。schemes/ 内相对子路径,如 'rz_3' / 'rz_3/variants/abc'。"
+                "非空时精确读单文件 schemes/{path}/{artifactKind}.json;"
+                "空时走聚合(schemes/ 下所有同名 artifactKind 文件)。"
                 "字符集 [a-zA-Z0-9_/-]+,禁止 .. / \\\\ / 前导斜杠。"
             ),
         },
@@ -1424,7 +1423,8 @@ def register(builder: McpServerBuilder) -> None:
         scene_id = args["sceneId"]
         artifact_kind = args["artifactKind"]
         path = args.get("path")
-        url = f"{ctx.server_url}/api/scheme/scenes/{scene_id}/{artifact_kind}"
+        # scene-agnostic:数据按物理 zone 组织(schemes/{path}/),URL 不再带 sceneId 段。
+        url = f"{ctx.server_url}/api/scheme/artifacts/{artifact_kind}"
         params = {"path": path} if path else None
 
         try:

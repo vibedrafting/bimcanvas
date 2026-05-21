@@ -310,7 +310,7 @@ export type SceneId = string;
  * 跨 scene 只读叠加层。
  * 用户在 active scene 下工作时,可同时显示其他 scene 的家具作为只读底图。
  *
- * 数据来源:`GET /api/scheme/scenes/{sceneId}/modules`(SceneArtifactsController)。
+ * 数据来源:`GET /api/scheme/artifacts/modules`(SceneArtifactsController)。
  */
 export interface SceneLayer {
   sceneId: SceneId;
@@ -324,6 +324,6 @@ export interface SceneLayer {
   visible: boolean;
   /** 跨 scene 叠加始终只读(写入会被 Server V12b gate 拦截) */
   readOnly: true;
-  /** 从 `GET /api/scheme/scenes/{sceneId}/modules` 拉取的聚合模块列表 */
+  /** 从 `GET /api/scheme/artifacts/modules` 拉取的聚合模块列表 */
   modules: Module[];
 }

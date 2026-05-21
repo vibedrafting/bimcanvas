@@ -694,9 +694,8 @@ namespace BIMCanvas.Server.Controllers
                 return false;
             }
 
-            // 变体 / canonical 业务数据根 = schemes/{active_scene}/{designZoneId}/(zones.json 仍共享 schemes/)。
-            designZoneRoot = Path.GetFullPath(
-                Path.Combine(BIMCanvas.Server.Services.Plugins.PluginPaths.ActiveSchemesRoot(projectPath), designZoneId));
+            // 变体 / canonical 业务数据根 = schemes/{designZoneId}/。
+            designZoneRoot = Path.GetFullPath(Path.Combine(schemesPath, designZoneId));
             if (!Directory.Exists(designZoneRoot))
             {
                 error = $"设计区目录不存在: {designZoneId}";

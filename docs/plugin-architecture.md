@@ -187,7 +187,7 @@ installed         active         bound          launched
 | `screenshot` | 截图(后台 / 前台,带 viewport / shots 参数) |
 | `validate_layout` | 几何 / 碰撞校验 |
 | `get_zone_boundaries` | 读取设计区边界语义 |
-| `save_modules` | 写 `schemes/{sceneId}/modules.json`(Server gate 强制隔离) |
+| `save_modules` | 写 `schemes/{zoneId}/modules.json` |
 | `analyze_image` | 大模型图像理解(参考图分析等) |
 | **`list_project_scenes`** | 列出当前项目所有 scenes(供跨 scene 协作) |
 | **`load_scene_artifact`** | 读 scene 下的 artifact;聚合读(scene 内所有同名文件)或 `path` 精确读单文件 |
@@ -201,16 +201,16 @@ artifact 读写经 Server REST 端点(`load_scene_artifact` 工具背后的同�
 
 | 端点 | 用途 |
 |---|---|
-| `GET /api/scheme/scenes/{sceneId}/{artifactKind}` | 聚合读 scene 内所有同名 artifact |
-| `GET /api/scheme/scenes/{sceneId}/{artifactKind}?path={subPath}` | 精确读单文件 `schemes/{sceneId}/{subPath}/{artifactKind}.json` |
-| `POST /api/scheme/scenes/{sceneId}/artifacts/{artifactKind}` body `{path?, content}` | 写到 `schemes/{sceneId}/{path?}/{artifactKind}.json` |
+| `GET /api/scheme/artifacts/{artifactKind}` | 聚合读 `schemes/` 下所有同名 artifact |
+| `GET /api/scheme/artifacts/{artifactKind}?path={subPath}` | 精确读单文件 `schemes/{subPath}/{artifactKind}.json` |
+| `POST /api/scheme/artifacts/{artifactKind}` body `{path?, content}` | 写到 `schemes/{path?}/{artifactKind}.json` |
 
 - **`artifactKind`** 是 plugin 自定义字符串,字符集 `^[a-z][a-z0-9_-]*$`。
   Reserved 通用 kind:`modules`(AI 直写 Write/Edit)、`zones`(全 scene 共享 baseline 派生)、`readme`(baseline)——这三个不允许 plugin 经 POST 写入。
   其余 kind(如 `semantic_plan` / `reference_analysis` / `points`)是 plugin domain 产物,Server 不校验其 schema、不嵌任何 domain 逻辑。
-- **`path`** 是 scene namespace 内相对子路径(如 `rz_3` / `rz_3/variants/abc`),字符集 `[a-zA-Z0-9_/-]+`,禁止 `..` 穿越;解析后必须落在 `schemes/{sceneId}/` 内。
-- **写入隔离**:POST 走 `ProjectContext.CheckWriteAllowed` 的 V12b 路径隔离,plugin 只能写自己 active scene 的命名空间(scene namespace 之外一律 403)。
-- **变更通知**:写成功后 Server 广播通用 SignalR 事件 `SceneArtifactUpdated`,payload `{sceneId, artifactKind, path?, plugin?, timestamp}`。
+- **`path`** 是 `schemes/` 内相对子路径(如 `rz_3` / `rz_3/variants/abc`),字符集 `[a-zA-Z0-9_/-]+`,禁止 `..` 穿越;解析后必须落在 `schemes/` 内。持久数据按物理 zone 组织,不耦合 plugin。
+- **写入 gate**:POST 走 `ProjectContext.CheckWriteAllowed`——仅 `baseline/` + `computed/` 只读(403 `readonly_zone`),其余可写。
+- **变更通知**:写成功后 Server 广播通用 SignalR 事件 `SceneArtifactUpdated`,payload `{artifactKind, path?, plugin?, timestamp}`。
 
 > **边界纪律**:domain 业务(tag 体系、方案合并、planType 判定等)一律在 plugin 工具体 / `lib/` 内实现;
 > Server 端不为任何 plugin 单开 domain controller。新 domain plugin 接入主仓库**零代码改动**。

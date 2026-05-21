@@ -158,23 +158,24 @@ export class SchemeService {
     }
 
     /**
-     * (组 5 §5.C.2) 跨 scene 只读 artifact 读取。
+     * 通用 artifact 读取(scene-agnostic)。
      *
-     * 调用 `GET /api/scheme/scenes/{sceneId}/{artifactKind}`(SceneArtifactsController)。
+     * 调用 `GET /api/scheme/artifacts/{artifactKind}`(SceneArtifactsController)。
      * artifactKind 枚举:
-     * - `modules`:聚合返回该 scene 下所有叶子 modules.json
-     * - `zones`:全 scene 共享 schemes/zones.json(原始 JSON)
-     * - `semantic_plan` / `reference_analysis`:聚合该 scene 下各 designZoneId 的对应文件
+     * - `modules`:聚合返回 schemes/ 下所有叶子 modules.json
+     * - `zones`:schemes/zones.json(原始 JSON)
+     * - `semantic_plan` / `reference_analysis`:聚合 schemes/ 下各 zoneId 的对应文件
      * - `readme`:项目根 README.md(平台级 baseline)
      *
      * 返回结构因 artifactKind 而异;调用方负责按需解析。404 时抛错。
+     * （sceneId 形参保留兼容调用方;回退后数据按物理 zone 组织,URL 不再带 sceneId 段。）
      */
     static async getSceneArtifact(
         sceneId: string,
         artifactKind: 'modules' | 'zones' | 'semantic_plan' | 'reference_analysis' | 'readme'
     ): Promise<any> {
         const response = await axios.get(
-            `${API_BASE}/scenes/${encodeURIComponent(sceneId)}/${artifactKind}`
+            `${API_BASE}/artifacts/${artifactKind}`
         );
         return response.data;
     }

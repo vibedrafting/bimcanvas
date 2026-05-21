@@ -55,7 +55,7 @@ export const useCanvasStore = defineStore('canvas', () => {
      *
      * 调用方:Web UI 在用户选择"显示其他 scene 底图"时调用。
      * 数据源:SchemeService.getSceneArtifact(sceneId, 'modules')
-     *   → 后端聚合返回 schemes/{sceneId}/ 下所有叶子 modules.json。
+     *   → 后端聚合返回 schemes/ 下所有叶子 modules.json。
      */
     const loadReferenceScene = async (
         sceneId: SceneId,
@@ -64,7 +64,7 @@ export const useCanvasStore = defineStore('canvas', () => {
         versionRange: string,
     ): Promise<void> => {
         const payload = await SchemeService.getSceneArtifact(sceneId, 'modules');
-        // payload 结构: { sceneId, artifactKind: 'modules', files: [{ relativePath, content }] }
+        // payload 结构: { artifactKind: 'modules', files: [{ relativePath, content }] }
         const modules: Module[] = [];
         if (payload && Array.isArray(payload.files)) {
             for (const file of payload.files) {
