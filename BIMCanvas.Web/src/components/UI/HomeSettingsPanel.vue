@@ -356,12 +356,6 @@ const agentRuntimeProvider = computed<ProviderKey>({
 })
 
 const isOpenAiProvider = computed(() => agentRuntimeProvider.value === 'openai')
-const currentProviderLabel = computed(() => isOpenAiProvider.value ? 'OpenAI' : 'Claude')
-const displayEffectiveModelPath = computed(
-  () => runtime.value.effectiveDefaultModelPath || currentDefaultModelPath()
-)
-const isCcrConfigured = computed(() => Boolean(drafts.server.values.ccr?.enabled))
-const isCcrEffective = computed(() => isCcrConfigured.value && agentRuntimeProvider.value === 'claude')
 const openAiModelEntries = computed<[string, ModelMappingEntry][]>(() => (
   Object.entries(drafts.agent.values.openai?.modelMapping ?? {}) as [string, ModelMappingEntry][]
 ))
@@ -857,11 +851,6 @@ onMounted(() => {
 
     <div class="settings-main">
       <div class="layout-bound wrapper-pad">
-        <div class="page-intro mb-lg">
-          <h1 class="page-title">全局配置</h1>
-          <p class="page-desc">配置下一次应用启动或重载时的环境变量与底层偏好。修改涉及重型组态时需重启实例。</p>
-        </div>
-
         <div v-if="loadError || saveError || saveMessage" class="alerts mb-md">
           <div v-if="loadError" class="alert alert-error">{{ loadError }}</div>
           <div v-if="saveError" class="alert alert-error">{{ saveError }}</div>
@@ -878,71 +867,7 @@ onMounted(() => {
           </div>
 
           <div v-show="editorMode === 'visual'">
-          <!-- Card 1: 服务与连接 -->
-          <article class="config-card">
-            <header class="card-header">
-              <div class="heading-left">
-                <svg class="heading-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor"><rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8m-4-4v4"/></svg>
-                <div class="heading-text">
-                  <h3>服务与连接</h3>
-                  <p>Agent 连接方式与启动选项。端口、CCR 主机等高级项请用「源文件编辑」。</p>
-                </div>
-              </div>
-              <div class="heading-right">
-                <div class="segment-group">
-                  <label class="segment" :class="{ 'segment-active': !drafts.server.values.ccr.enabled }">
-                    <input type="radio" :value="false" v-model="drafts.server.values.ccr.enabled"> 直连 (Direct)
-                  </label>
-                  <label class="segment" :class="{ 'segment-active': drafts.server.values.ccr.enabled }">
-                    <input type="radio" :value="true" v-model="drafts.server.values.ccr.enabled"> CCR 网关
-                  </label>
-                </div>
-              </div>
-            </header>
-            
-            <div class="card-body">
-              <div class="inline-alert warm mb-lg">
-                <svg class="alert-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
-                <span>{{ drafts.server.values.ccr.enabled ? '所有模型请求经由 CCR 网关转发，支持多 Provider 负载均衡。' : 'Agent 直接调用模型 API，适合开发测试环境。' }}</span>
-              </div>
-
-              <div class="form-grid">
-                <div class="field">
-                  <label>Agent 基址</label>
-                  <input v-model="drafts.server.values.agent.baseUrl" type="text" placeholder="留空时回退到本地托管 Agent；填外部地址则代理到该 Agent">
-                </div>
-                <div class="field field-checkbox">
-                  <label class="checkbox-label">
-                    <input type="checkbox" v-model="drafts.server.values.agent.autoStart" class="checkbox-input">
-                    <span class="custom-checkbox"></span>
-                    <div class="checkbox-texts">
-                      <span class="primary">自动启动内置 Agent</span>
-                      <span class="secondary">关闭后，Server 将通过 Agent 基址连接外部 Agent 服务</span>
-                    </div>
-                  </label>
-                </div>
-              </div>
-
-              <div class="divider mt-xl mb-md"><span>启动选项</span></div>
-              <div class="form-grid">
-                <div class="field field-checkbox">
-                  <label class="checkbox-label">
-                    <input type="checkbox" v-model="drafts.server.values.startup.openBrowser" class="checkbox-input">
-                    <span class="custom-checkbox"></span>
-                    <div class="checkbox-texts">
-                      <span class="primary">启动时打开浏览器</span>
-                    </div>
-                  </label>
-                </div>
-                <div class="field" :class="{ 'opacity-muted': !drafts.server.values.startup.openBrowser }">
-                  <label>浏览器路径</label>
-                  <input v-model="drafts.server.values.startup.browserPath" type="text" placeholder="留空使用系统默认" :disabled="!drafts.server.values.startup.openBrowser">
-                </div>
-              </div>
-            </div>
-          </article>
-
-          <!-- Card 2: Agent -->
+          <!-- Card 1: Agent -->
           <article class="config-card">
             <header class="card-header">
               <div class="heading-left">
@@ -967,25 +892,13 @@ onMounted(() => {
             </header>
 
             <div class="card-body">
-              <div class="inline-alert warm mb-lg">
-                <svg class="alert-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
-                <span>
-                  当前表单正在编辑 {{ currentProviderLabel }}。
-                  {{ isOpenAiProvider ? 'Claude 分域会保留但不会显示。' : 'OpenAI 分域会保留但不会显示。' }}
-                  工具权限已迁移到 plugin manifest 接管,不再通过本设置面板维护(详见 docs/Tool_Permissions_Migration.md)。
-                </span>
-              </div>
-
               <div v-if="!isOpenAiProvider" class="config-section-stack">
                 <section class="inner-subcard">
                   <div class="section-header">
                     <div>
                       <h4>Claude 连接</h4>
-                      <p>直连参数写入 `claude.baseUrl / claude.apiKey`。当 Server 启用了 CCR 且 runtimeProvider=claude 时，CCR 会接管实际请求路径。</p>
+                      <p>填写 Claude 的接口地址与密钥。启用 CCR 网关时，实际请求由网关接管。</p>
                     </div>
-                    <span class="badge badge-mono" :class="isCcrEffective ? 'badge-normal' : 'subtle-badge'">
-                      {{ isCcrEffective ? '当前经由 CCR' : '当前直连 / 待切换' }}
-                    </span>
                   </div>
 
                   <div class="form-grid">
@@ -1030,9 +943,8 @@ onMounted(() => {
                   <div class="section-header">
                     <div>
                       <h4>Claude 推理参数</h4>
-                      <p>`defaultModel / defaultEffort / defaultThinking / maxThinkingTokens` 只属于 Claude runtime。</p>
+                      <p>默认模型、推理深度与扩展思考预算。</p>
                     </div>
-                    <span class="badge badge-mono subtle-badge">{{ displayEffectiveModelPath }}</span>
                   </div>
 
                   <div class="form-grid">
@@ -1045,10 +957,6 @@ onMounted(() => {
                         :options="modelOptions"
                         placeholder="选择默认模型"
                       />
-                    </div>
-                    <div class="field">
-                      <label>当前路径</label>
-                      <div class="static-note mono-font">{{ displayEffectiveModelPath }}</div>
                     </div>
                   </div>
 
@@ -1097,9 +1005,8 @@ onMounted(() => {
                   <div class="section-header">
                     <div>
                       <h4>OpenAI 连接</h4>
-                      <p>直连参数写入 `openai.baseUrl / openai.apiKey`。OpenAI runtime 不消费 CCR 配置。</p>
+                      <p>填写 OpenAI 的接口地址与密钥。</p>
                     </div>
-                    <span class="badge badge-mono subtle-badge">CCR 不生效</span>
                   </div>
 
                   <div class="form-grid">
@@ -1164,13 +1071,6 @@ onMounted(() => {
 
                   <div class="form-grid mt-md">
                     <div class="field">
-                      <label>说明</label>
-                      <div class="static-note">`null = Auto`，`true = Disabled`，`false = Enabled`。</div>
-                    </div>
-                  </div>
-
-                  <div class="form-grid mt-md">
-                    <div class="field">
                       <label>默认模型</label>
                       <GlassSelect
                         v-model="effectiveDefaultModel"
@@ -1179,10 +1079,6 @@ onMounted(() => {
                         :options="modelOptions"
                         placeholder="选择默认模型"
                       />
-                    </div>
-                    <div class="field">
-                      <label>当前路径</label>
-                      <div class="static-note mono-font">{{ displayEffectiveModelPath }}</div>
                     </div>
                   </div>
 
@@ -1209,33 +1105,85 @@ onMounted(() => {
             </div>
           </article>
 
-          <!-- Card 3: CCR -->
+          <!-- Card 2: 服务与连接 -->
           <article class="config-card">
             <header class="card-header">
               <div class="heading-left">
-                <svg class="heading-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+                <svg class="heading-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor"><rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8m-4-4v4"/></svg>
                 <div class="heading-text">
-                  <h3>CCR</h3>
-                  <p>Claude Code Router 配置。即使当前 runtime 是 OpenAI，这里的配置也会保留。</p>
+                  <h3>服务与连接</h3>
+                  <p>Agent 连接方式与启动选项。端口、CCR 主机等高级项请用「源文件编辑」。</p>
                 </div>
               </div>
               <div class="heading-right">
-                <span class="badge badge-mono" :class="isCcrEffective ? 'badge-normal' : 'subtle-badge'">
-                  {{ isCcrEffective ? '当前生效' : '当前保留' }}
-                </span>
+                <div class="segment-group">
+                  <label class="segment" :class="{ 'segment-active': !drafts.server.values.ccr.enabled }">
+                    <input type="radio" :value="false" v-model="drafts.server.values.ccr.enabled"> 直连 (Direct)
+                  </label>
+                  <label class="segment" :class="{ 'segment-active': drafts.server.values.ccr.enabled }">
+                    <input type="radio" :value="true" v-model="drafts.server.values.ccr.enabled"> CCR 网关
+                  </label>
+                </div>
               </div>
             </header>
 
             <div class="card-body">
               <div class="inline-alert warm mb-lg">
                 <svg class="alert-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
-                <span>
-                  {{ isOpenAiProvider
-                    ? '当前 runtimeProvider=openai。CCR 配置会继续保存，但当前运行时不会消费它。'
-                    : (isCcrConfigured ? '当前 runtimeProvider=claude 且已启用 CCR。以下配置会参与实际请求转发。' : '当前 runtimeProvider=claude，但 CCR 尚未启用。以下配置会保留，随时可切换启用。') }}
-                </span>
+                <span>{{ drafts.server.values.ccr.enabled ? '所有模型请求经由 CCR 网关转发，支持多 Provider 负载均衡。' : 'Agent 直接调用模型 API，适合开发测试环境。' }}</span>
               </div>
 
+              <div class="form-grid">
+                <div class="field">
+                  <label>Agent 基址</label>
+                  <input v-model="drafts.server.values.agent.baseUrl" type="text" placeholder="留空时回退到本地托管 Agent；填外部地址则代理到该 Agent">
+                </div>
+              </div>
+              <div class="form-grid mt-md">
+                <div class="field field-checkbox">
+                  <label class="checkbox-label">
+                    <input type="checkbox" v-model="drafts.server.values.agent.autoStart" class="checkbox-input">
+                    <span class="custom-checkbox"></span>
+                    <div class="checkbox-texts">
+                      <span class="primary">自动启动内置 Agent</span>
+                      <span class="secondary">关闭后，Server 将通过 Agent 基址连接外部 Agent 服务</span>
+                    </div>
+                  </label>
+                </div>
+              </div>
+
+              <div class="divider mt-xl mb-md"><span>启动选项</span></div>
+              <div class="form-grid">
+                <div class="field field-checkbox">
+                  <label class="checkbox-label">
+                    <input type="checkbox" v-model="drafts.server.values.startup.openBrowser" class="checkbox-input">
+                    <span class="custom-checkbox"></span>
+                    <div class="checkbox-texts">
+                      <span class="primary">启动时打开浏览器</span>
+                    </div>
+                  </label>
+                </div>
+                <div class="field" :class="{ 'opacity-muted': !drafts.server.values.startup.openBrowser }">
+                  <label>浏览器路径</label>
+                  <input v-model="drafts.server.values.startup.browserPath" type="text" placeholder="留空使用系统默认" :disabled="!drafts.server.values.startup.openBrowser">
+                </div>
+              </div>
+            </div>
+          </article>
+
+          <!-- Card 3: CCR -->
+          <article class="config-card">
+            <header class="card-header">
+              <div class="heading-left">
+                <svg class="heading-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+                <div class="heading-text">
+                  <h3>CCR 网关</h3>
+                  <p>Claude Code Router 网关配置（仅当「服务与连接」选择 CCR 网关时生效）。</p>
+                </div>
+              </div>
+            </header>
+
+            <div class="card-body">
               <div class="form-grid mb-md">
                 <div class="field">
                   <label>CCR 监听 Host</label>
@@ -1349,14 +1297,6 @@ onMounted(() => {
             </header>
             
             <div class="card-body">
-              <div class="inline-alert warm mb-lg">
-                <svg class="alert-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
-                <span>
-                  模型列表与默认模型已迁移到 `config.json` 的 Agent 分域；
-                  `web_config.json` 现在只负责 Web 展示层配置。
-                </span>
-              </div>
-
               <div class="divider mt-xl mb-md"><span>图层预设</span></div>
               <div class="form-grid">
                 <div class="field">
@@ -1542,6 +1482,11 @@ hr { border: none; }
 .inline-alert { display: flex; gap: 12px; padding: 12px 16px; border-radius: var(--radius-md); font-size: 13px; line-height: 1.5; }
 .inline-alert svg { width: 18px; height: 18px; flex-shrink: 0; margin-top: 1px; }
 .inline-alert.warm { background: rgba(234, 179, 8, 0.06); border: 1px solid rgba(234, 179, 8, 0.15); color: #fde047; }
+
+/* 去掉 number 输入框原生上下箭头 spinner（与暗色玻璃风格统一） */
+.settings-page input[type="number"] { -moz-appearance: textfield; appearance: textfield; }
+.settings-page input[type="number"]::-webkit-outer-spin-button,
+.settings-page input[type="number"]::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
 .text-white { color: var(--text-main); }
 .loading-state { text-align: center; color: var(--zinc-500); padding: 80px 0; }
 
