@@ -22,57 +22,57 @@ public sealed class SettingsService
 
     private static readonly IReadOnlyList<SettingsFieldDto> ServerFields =
     [
-        new() { Path = "server.port", Label = "Server 监听端口", ApplyMode = "restart" },
-        new() { Path = "web.port", Label = "Web 开发端口", ApplyMode = "restart" },
-        new() { Path = "agent.autoStart", Label = "自动启动内置 Agent", ApplyMode = "restart" },
-        new() { Path = "agent.baseUrl", Label = "Agent 基址", ApplyMode = "restart" },
-        new() { Path = "agent.healthPath", Label = "Agent 健康检查路径", ApplyMode = "restart" },
-        new() { Path = "agent.port", Label = "Agent 监听端口", ApplyMode = "restart" },
-        new() { Path = "agent.pythonCommand", Label = "Python 命令", ApplyMode = "restart" },
-        new() { Path = "startup.openBrowser", Label = "自动打开浏览器", ApplyMode = "restart" },
-        new() { Path = "startup.browserPath", Label = "浏览器路径", ApplyMode = "restart" },
-        new() { Path = "ccr.enabled", Label = "启用 CCR", ApplyMode = "restart" },
-        new() { Path = "ccr.autoStart", Label = "自动启动 CCR", ApplyMode = "restart" },
-        new() { Path = "ccr.host", Label = "CCR 主机", ApplyMode = "restart" },
-        new() { Path = "ccr.port", Label = "CCR 端口", ApplyMode = "restart" }
+        new() { Path = "server.port", Label = "Server 监听端口", Type = "number", Help = "BIMCanvas.Server HTTP 监听端口。", ApplyMode = "restart" },
+        new() { Path = "web.port", Label = "Web 开发端口", Type = "number", Help = "开发态 Vite dev server 首选端口。", ApplyMode = "restart" },
+        new() { Path = "agent.autoStart", Label = "自动启动内置 Agent", Type = "bool", Help = "是否由 Server 托管启动本地 Python Agent。", ApplyMode = "restart" },
+        new() { Path = "agent.baseUrl", Label = "Agent 基址", Type = "string", Help = "为空时回退到 http://127.0.0.1:{Agent 端口}。", ApplyMode = "restart" },
+        new() { Path = "agent.healthPath", Label = "Agent 健康检查路径", Type = "string", ApplyMode = "restart" },
+        new() { Path = "agent.port", Label = "Agent 监听端口", Type = "number", ApplyMode = "restart" },
+        new() { Path = "agent.pythonCommand", Label = "Python 命令", Type = "string", Help = "托管启动 Agent 使用的 Python 可执行命令。", ApplyMode = "restart" },
+        new() { Path = "startup.openBrowser", Label = "自动打开浏览器", Type = "bool", ApplyMode = "restart" },
+        new() { Path = "startup.browserPath", Label = "浏览器路径", Type = "string", Help = "留空则使用系统默认浏览器。", ApplyMode = "restart" },
+        new() { Path = "ccr.enabled", Label = "启用 CCR", Type = "bool", Help = "启用 Claude Code Router 网关；关闭则 Agent 直连模型。", ApplyMode = "restart" },
+        new() { Path = "ccr.autoStart", Label = "自动启动 CCR", Type = "bool", ApplyMode = "restart" },
+        new() { Path = "ccr.host", Label = "CCR 主机", Type = "string", ApplyMode = "restart" },
+        new() { Path = "ccr.port", Label = "CCR 端口", Type = "number", ApplyMode = "restart" }
     ];
 
     private static readonly IReadOnlyList<SettingsFieldDto> WebFields =
     [
-        new() { Path = "layerPresets.User.enabledLayers", Label = "用户图层预设", ApplyMode = "immediate" },
-        new() { Path = "layerPresets.Agent.enabledLayers", Label = "Agent 图层预设", ApplyMode = "immediate" }
+        new() { Path = "layerPresets.User.enabledLayers", Label = "用户图层预设", Type = "json", Help = "User 视角默认启用的图层名数组。", ApplyMode = "immediate" },
+        new() { Path = "layerPresets.Agent.enabledLayers", Label = "Agent 图层预设", Type = "json", Help = "Agent 视角默认启用的图层名数组。", ApplyMode = "immediate" }
     ];
 
     private static readonly IReadOnlyList<SettingsFieldDto> AgentFields =
     [
-        new() { Path = "runtimeProvider", Label = "当前 Runtime", ApplyMode = "restart" },
-        new() { Path = "claude.baseUrl", Label = "Claude Base URL", ApplyMode = "restart" },
-        new() { Path = "claude.apiKey", Label = "Claude API Key", ApplyMode = "restart", Sensitive = true },
-        new() { Path = "claude.defaultModel", Label = "Claude 默认模型", ApplyMode = "restart" },
-        new() { Path = "claude.defaultEffort", Label = "Claude 默认 Effort", ApplyMode = "restart" },
-        new() { Path = "claude.defaultThinking", Label = "Claude 默认 Thinking", ApplyMode = "restart" },
-        new() { Path = "claude.maxThinkingTokens", Label = "Claude 最大 Thinking Tokens", ApplyMode = "restart" },
-        new() { Path = "claude.modelMapping", Label = "Claude 模型映射", ApplyMode = "restart" },
-        new() { Path = "openai.baseUrl", Label = "OpenAI Base URL", ApplyMode = "restart" },
-        new() { Path = "openai.apiKey", Label = "OpenAI API Key", ApplyMode = "restart", Sensitive = true },
-        new() { Path = "openai.defaultModel", Label = "OpenAI 默认模型", ApplyMode = "restart" },
-        new() { Path = "openai.apiMode", Label = "OpenAI API 模式", ApplyMode = "restart" },
-        new() { Path = "openai.disableTracing", Label = "OpenAI Tracing", ApplyMode = "restart" },
-        new() { Path = "openai.modelMapping", Label = "OpenAI 模型映射", ApplyMode = "restart" }
+        new() { Path = "runtimeProvider", Label = "当前 Runtime", Type = "enum", EnumValues = ["claude", "openai"], Help = "选择 Agent 使用的 LLM provider。", ApplyMode = "restart" },
+        new() { Path = "claude.baseUrl", Label = "Claude Base URL", Type = "string", Help = "直连模式的 Anthropic API 基址；CCR 托管模式由网关注入。", ApplyMode = "restart" },
+        new() { Path = "claude.apiKey", Label = "Claude API Key", Type = "string", ApplyMode = "restart", Sensitive = true },
+        new() { Path = "claude.defaultModel", Label = "Claude 默认模型", Type = "enum", EnumValues = ["opus", "sonnet", "haiku"], ApplyMode = "restart" },
+        new() { Path = "claude.defaultEffort", Label = "Claude 默认 Effort", Type = "enum", EnumValues = ["low", "medium", "high", "max"], Help = "推理深度；low 最快、max 最深。", ApplyMode = "restart" },
+        new() { Path = "claude.defaultThinking", Label = "Claude 默认 Thinking", Type = "enum", EnumValues = ["off", "adaptive"], Help = "扩展思考开关。", ApplyMode = "restart" },
+        new() { Path = "claude.maxThinkingTokens", Label = "Claude 最大 Thinking Tokens", Type = "number", ApplyMode = "restart" },
+        new() { Path = "claude.modelMapping", Label = "Claude 模型映射", Type = "json", Help = "alias(opus/sonnet/haiku)→真实 model id 的映射对象。", ApplyMode = "restart" },
+        new() { Path = "openai.baseUrl", Label = "OpenAI Base URL", Type = "string", ApplyMode = "restart" },
+        new() { Path = "openai.apiKey", Label = "OpenAI API Key", Type = "string", ApplyMode = "restart", Sensitive = true },
+        new() { Path = "openai.defaultModel", Label = "OpenAI 默认模型", Type = "string", Help = "真实 OpenAI model id（不接受 Claude alias）。", ApplyMode = "restart" },
+        new() { Path = "openai.apiMode", Label = "OpenAI API 模式", Type = "enum", EnumValues = ["chat_completions", "responses"], ApplyMode = "restart" },
+        new() { Path = "openai.disableTracing", Label = "OpenAI Tracing", Type = "json", Help = "null / true / false。", ApplyMode = "restart" },
+        new() { Path = "openai.modelMapping", Label = "OpenAI 模型映射", Type = "json", ApplyMode = "restart" }
     ];
 
     private static readonly IReadOnlyList<SettingsFieldDto> CcrFields =
     [
-        new() { Path = "HOST", Label = "CCR Host", ApplyMode = "restart" },
-        new() { Path = "PORT", Label = "CCR Port", ApplyMode = "restart" },
-        new() { Path = "LOG", Label = "日志开关", ApplyMode = "restart" },
-        new() { Path = "LOG_LEVEL", Label = "日志级别", ApplyMode = "restart" },
-        new() { Path = "API_TIMEOUT_MS", Label = "API 超时", ApplyMode = "restart" },
-        new() { Path = "Router.default", Label = "默认路由", ApplyMode = "restart" },
-        new() { Path = "Router.think", Label = "思考路由", ApplyMode = "restart" },
-        new() { Path = "Router.background", Label = "后台路由", ApplyMode = "restart" },
-        new() { Path = "Router.longContext", Label = "长上下文路由", ApplyMode = "restart" },
-        new() { Path = "Providers[].api_key", Label = "Provider API Key", ApplyMode = "restart", Sensitive = true }
+        new() { Path = "HOST", Label = "CCR Host", Type = "string", ApplyMode = "restart" },
+        new() { Path = "PORT", Label = "CCR Port", Type = "number", ApplyMode = "restart" },
+        new() { Path = "LOG", Label = "日志开关", Type = "bool", ApplyMode = "restart" },
+        new() { Path = "LOG_LEVEL", Label = "日志级别", Type = "string", Help = "如 debug / info / warn / error。", ApplyMode = "restart" },
+        new() { Path = "API_TIMEOUT_MS", Label = "API 超时", Type = "number", Help = "单位毫秒。", ApplyMode = "restart" },
+        new() { Path = "Router.default", Label = "默认路由", Type = "string", ApplyMode = "restart" },
+        new() { Path = "Router.think", Label = "思考路由", Type = "string", ApplyMode = "restart" },
+        new() { Path = "Router.background", Label = "后台路由", Type = "string", ApplyMode = "restart" },
+        new() { Path = "Router.longContext", Label = "长上下文路由", Type = "string", ApplyMode = "restart" },
+        new() { Path = "Providers", Label = "Provider 列表", Type = "json", Help = "CCR Provider 集群数组（含 api_base_url / api_key / models）。", ApplyMode = "restart" }
     ];
 
     private readonly object _syncRoot = new();
@@ -238,6 +238,9 @@ public sealed class SettingsService
         {
             Path = field.Path,
             Label = field.Label,
+            Type = field.Type,
+            EnumValues = field.EnumValues is null ? null : new List<string>(field.EnumValues),
+            Help = field.Help,
             ApplyMode = field.ApplyMode,
             Sensitive = field.Sensitive
         };

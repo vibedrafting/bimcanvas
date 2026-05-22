@@ -1,9 +1,17 @@
 export type SettingsGroupKey = 'server' | 'web' | 'agent' | 'ccr'
 export type SettingsApplyMode = 'immediate' | 'restart'
 
+export type SettingsFieldType = 'string' | 'number' | 'bool' | 'enum' | 'json'
+
 export interface SettingsFieldMeta {
   path: string
   label: string
+  /** 控件类型；复杂字段（json）降级为内嵌 JSON 编辑器 */
+  type: SettingsFieldType
+  /** enum 类型的可选值（其它类型为 null/缺省） */
+  enumValues?: string[] | null
+  /** 字段说明（"描述符供文档"：仅在可视化模式由控件旁提示渲染） */
+  help?: string | null
   applyMode: SettingsApplyMode
   sensitive: boolean
 }

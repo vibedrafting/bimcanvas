@@ -9,7 +9,8 @@ import type {
   SettingsGroupKey,
   RuntimeServiceEndpoint,
   SettingsRuntime,
-  SettingsSnapshot
+  SettingsSnapshot,
+  UpdateSettingsRequest
 } from '../../types/settings'
 
 type ProviderKey = 'claude' | 'openai'
@@ -112,6 +113,28 @@ const isOpenAiTesting = ref(false)
 const claudeTestResult = ref<LlmEndpointTestResult | null>(null)
 const openAiTestResult = ref<LlmEndpointTestResult | null>(null)
 const isMounted = ref(false)
+
+// ── 双模式编辑（可视化 / 源文件）──
+const unifiedFileName = 'instance.config.json'
+const SETTINGS_EDITOR_MODE_KEY = 'bimcanvas:settings-editor-mode'
+function loadSavedEditorMode(): 'visual' | 'source' {
+  try {
+    return localStorage.getItem(SETTINGS_EDITOR_MODE_KEY) === 'source' ? 'source' : 'visual'
+  } catch {
+    return 'visual'
+  }
+}
+const editorMode = ref<'visual' | 'source'>(loadSavedEditorMode())
+const sourceText = ref('')
+const sourceError = ref<string | null>(null)
+// 源模式中出现的、非 server/web/agent/ccr 的顶层 key，原样保留以实现无损往返
+const unifiedExtra = ref<Record<string, any>>({})
+// 上次加载/保存的统一配置快照，用作保存确认弹窗的 diff 基线
+const lastSavedUnified = ref<Record<string, any>>({})
+
+// 保存确认（Diff）弹窗
+const showDiffModal = ref(false)
+const pendingPayload = ref<UpdateSettingsRequest | null>(null)
 
 function clone<T>(value: T): T {
   return JSON.parse(JSON.stringify(value))
@@ -465,7 +488,90 @@ function applySnapshot(snapshot: SettingsSnapshot) {
     ...(snapshot.runtime ?? {})
   }
   ensureDefaultModelForCurrentProvider()
+
+  // 刷新统一快照基线;源模式下同步源文本
+  lastSavedUnified.value = buildUnified()
+  if (editorMode.value === 'source') {
+    sourceText.value = formatJson(lastSavedUnified.value)
+    sourceError.value = null
+  }
 }
+
+// ── 双模式：统一文档构建 / 解析 / 往返 ──
+
+function buildUnified(): Record<string, any> {
+  return {
+    ...clone(unifiedExtra.value),
+    server: clone(drafts.server.values),
+    web: clone(drafts.web.values),
+    agent: clone(drafts.agent.values),
+    ccr: clone(drafts.ccr.values)
+  }
+}
+
+function tryParseUnified(): { ok: true; value: Record<string, any> } | { ok: false; error: string } {
+  try {
+    const parsed = JSON.parse(sourceText.value)
+    if (!isPlainObject(parsed)) {
+      return { ok: false, error: '顶层必须是 JSON 对象' }
+    }
+    for (const key of groupKeys) {
+      if (parsed[key] !== undefined && !isPlainObject(parsed[key])) {
+        return { ok: false, error: `段 "${key}" 必须是 JSON 对象` }
+      }
+    }
+    return { ok: true, value: parsed }
+  } catch (error: any) {
+    return { ok: false, error: error?.message || 'JSON 解析失败' }
+  }
+}
+
+function applyUnifiedToGroups(parsed: Record<string, any>) {
+  // 无损往返:非分组 key 原样保留;已知分组经 normalize 后写入(normalize 会保留段内未知字段)
+  const extra: Record<string, any> = {}
+  for (const [key, value] of Object.entries(parsed)) {
+    if (!(groupKeys as string[]).includes(key)) {
+      extra[key] = value
+    }
+  }
+  unifiedExtra.value = extra
+  for (const key of groupKeys) {
+    if (parsed[key] !== undefined) {
+      drafts[key].values = normalize(key, parsed[key])
+      drafts[key].jsonError = null
+    }
+  }
+  ensureDefaultModelForCurrentProvider()
+}
+
+function switchEditorMode(mode: 'visual' | 'source') {
+  if (mode === editorMode.value) return
+  if (mode === 'source') {
+    sourceText.value = formatJson(buildUnified())
+    sourceError.value = null
+  } else {
+    const parsed = tryParseUnified()
+    if (!parsed.ok) {
+      sourceError.value = parsed.error
+      return
+    }
+    applyUnifiedToGroups(parsed.value)
+    sourceError.value = null
+  }
+  editorMode.value = mode
+  try { localStorage.setItem(SETTINGS_EDITOR_MODE_KEY, mode) } catch { /* ignore */ }
+}
+
+const diffSections = computed(() => {
+  const next = pendingPayload.value
+  const base = lastSavedUnified.value || {}
+  return groupKeys.map(key => {
+    const before = formatJson((base as any)[key] ?? {})
+    const after = formatJson((next as any)?.[key] ?? {})
+    return { key, title: drafts[key].title || key, changed: before !== after, after }
+  })
+})
+const hasDiffChanges = computed(() => diffSections.value.some(section => section.changed))
 
 async function loadSettings() {
   isLoading.value = true
@@ -594,25 +700,51 @@ function updateProviderModels(provider: any, event: Event) {
     .filter(Boolean)
 }
 
-async function handleSave() {
+// 保存前:校验当前编辑内容,准备 payload,弹出 Diff 确认。
+function requestSave() {
   saveError.value = null
   saveMessage.value = null
 
-  for (const key of groupKeys) {
-    if (!parseJson(key)) {
-      saveError.value = `${drafts[key].title} 格式有误`
+  if (editorMode.value === 'source') {
+    const parsed = tryParseUnified()
+    if (!parsed.ok) {
+      sourceError.value = parsed.error
+      saveError.value = `源文件 JSON 有误：${parsed.error}`
       return
+    }
+    applyUnifiedToGroups(parsed.value)
+    sourceError.value = null
+  } else {
+    for (const key of groupKeys) {
+      if (!parseJson(key)) {
+        saveError.value = `${drafts[key].title || key} 格式有误`
+        return
+      }
     }
   }
 
+  pendingPayload.value = {
+    server: clone(drafts.server.values),
+    web: clone(drafts.web.values),
+    agent: clone(drafts.agent.values),
+    ccr: clone(drafts.ccr.values)
+  }
+  showDiffModal.value = true
+}
+
+function cancelSave() {
+  showDiffModal.value = false
+  pendingPayload.value = null
+}
+
+// 用户在 Diff 弹窗确认后:整份提交。
+async function confirmSave() {
+  if (!pendingPayload.value) return
+  const payload = pendingPayload.value
+  showDiffModal.value = false
   isSaving.value = true
   try {
-    const result = await SettingsService.saveSettings({
-      server: drafts.server.values,
-      web: drafts.web.values,
-      agent: drafts.agent.values,
-      ccr: drafts.ccr.values
-    })
+    const result = await SettingsService.saveSettings(payload)
 
     applySnapshot(result.settings)
     saveMessage.value = '保存成功。'
@@ -637,6 +769,7 @@ async function handleSave() {
     saveError.value = error.response?.data?.message || error.message || '保存配置失败'
   } finally {
     isSaving.value = false
+    pendingPayload.value = null
   }
 }
 
@@ -740,7 +873,7 @@ onMounted(() => {
     <Teleport to="#settings-header-actions" v-if="isMounted">
       <div class="teleported-actions">
         <GlassButton variant="ghost" :disabled="isLoading" @click="loadSettings">取消</GlassButton>
-        <GlassButton variant="primary" :disabled="isSaving || isLoading" @click="handleSave" style="display: flex; align-items: center; justify-content: center; gap: 6px;">
+        <GlassButton variant="primary" :disabled="isSaving || isLoading" @click="requestSave" style="display: flex; align-items: center; justify-content: center; gap: 6px;">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width: 14px; height: 14px;"><polyline points="20 6 9 17 4 12"></polyline></svg>
           {{ isSaving ? '保存中...' : '保存' }}
         </GlassButton>
@@ -763,6 +896,13 @@ onMounted(() => {
         <div v-if="isLoading" class="loading-state">加载配置...</div>
 
         <template v-else>
+          <!-- 编辑模式切换：可视化 / 源文件 -->
+          <div class="editor-mode-tabs">
+            <button type="button" class="mode-tab" :class="{ active: editorMode === 'visual' }" @click="switchEditorMode('visual')">可视化编辑</button>
+            <button type="button" class="mode-tab" :class="{ active: editorMode === 'source' }" @click="switchEditorMode('source')">源文件编辑</button>
+          </div>
+
+          <div v-show="editorMode === 'visual'">
           <article class="config-card">
             <header class="card-header">
               <div class="heading-left">
@@ -1387,8 +1527,51 @@ onMounted(() => {
               </details>
             </div>
           </article>
+          </div>
+
+          <!-- 源文件模式：编辑整份统一配置 JSON -->
+          <div v-show="editorMode === 'source'" class="source-editor-wrap">
+            <article class="config-card">
+              <header class="card-header">
+                <div class="heading-left">
+                  <svg class="heading-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+                  <div class="heading-text">
+                    <h3>源文件编辑 — {{ unifiedFileName }}</h3>
+                    <p>直接编辑统一运行时配置（server / web / agent / ccr 四段）。切回可视化或保存时会校验 JSON；未识别字段会原样保留。</p>
+                  </div>
+                </div>
+              </header>
+              <div class="card-body">
+                <textarea class="editor-textarea source-textarea" v-model="sourceText" rows="30" spellcheck="false"></textarea>
+                <div v-if="sourceError" class="code-error">{{ sourceError }}</div>
+              </div>
+            </article>
+          </div>
 
         </template>
+      </div>
+    </div>
+
+    <!-- 保存确认（Diff）弹窗 -->
+    <div v-if="showDiffModal" class="diff-modal-overlay" @click.self="cancelSave">
+      <div class="diff-modal">
+        <div class="diff-modal-header">
+          <h3>确认保存</h3>
+          <p>{{ hasDiffChanges ? '以下分段将写入统一配置文件：' : '未检测到与上次保存的差异。' }}</p>
+        </div>
+        <div class="diff-modal-body">
+          <template v-for="section in diffSections" :key="section.key">
+            <div v-if="section.changed" class="diff-section">
+              <div class="diff-section-title">{{ section.title }} <span class="diff-badge">已修改</span></div>
+              <pre class="diff-pre">{{ section.after }}</pre>
+            </div>
+          </template>
+          <div v-if="!hasDiffChanges" class="diff-empty">无改动；仍可点击「确认保存」覆盖写入。</div>
+        </div>
+        <div class="diff-modal-footer">
+          <GlassButton variant="ghost" @click="cancelSave">取消</GlassButton>
+          <GlassButton variant="primary" :disabled="isSaving" @click="confirmSave">{{ isSaving ? '保存中...' : '确认保存' }}</GlassButton>
+        </div>
       </div>
     </div>
 
@@ -1808,6 +1991,60 @@ input:disabled { opacity: 0.5; cursor: not-allowed; }
 }
 .editor-textarea:focus { box-shadow: none; border: none; outline: none; background: rgba(0,0,0,0.5); }
 .code-error { padding: 8px 16px; font-size: 12px; color: #ef4444; background: rgba(239, 68, 68, 0.1); border-top: 1px solid rgba(239, 68, 68, 0.2); }
+
+/* 编辑模式切换 Tabs */
+.editor-mode-tabs {
+  display: inline-flex; gap: 4px; padding: 4px; margin-bottom: 20px;
+  background: var(--bg-subcard); border: 1px solid var(--border-card); border-radius: var(--radius-md);
+}
+.mode-tab {
+  appearance: none; border: none; cursor: pointer; font-family: inherit;
+  padding: 7px 18px; border-radius: var(--radius-sm); font-size: 13px; font-weight: 500;
+  background: transparent; color: var(--text-muted); transition: 0.15s;
+}
+.mode-tab:hover { color: var(--text-main); }
+.mode-tab.active { background: var(--zinc-50); color: #000; }
+
+/* 源文件编辑器 */
+.source-editor-wrap .editor-textarea.source-textarea {
+  min-height: 480px; background: rgba(0,0,0,0.35); border-radius: var(--radius-sm);
+  resize: vertical; white-space: pre; tab-size: 2;
+}
+.source-textarea:focus { background: rgba(0,0,0,0.5); }
+
+/* 保存确认（Diff）弹窗 */
+.diff-modal-overlay {
+  position: fixed; inset: 0; z-index: 1000;
+  background: rgba(0,0,0,0.55); backdrop-filter: blur(2px);
+  display: flex; align-items: center; justify-content: center; padding: 24px;
+}
+.diff-modal {
+  width: min(720px, 100%); max-height: 80vh; display: flex; flex-direction: column;
+  background: var(--zinc-900); border: 1px solid var(--border-card); border-radius: var(--radius-lg);
+  box-shadow: 0 24px 64px rgba(0,0,0,0.5); overflow: hidden;
+}
+.diff-modal-header { padding: 20px 24px 12px; border-bottom: 1px solid var(--border-card); }
+.diff-modal-header h3 { margin: 0 0 4px; font-size: 1.05rem; color: var(--zinc-50); }
+.diff-modal-header p { margin: 0; font-size: 0.85rem; color: var(--text-muted); }
+.diff-modal-body { padding: 16px 24px; overflow-y: auto; }
+.diff-section { margin-bottom: 16px; }
+.diff-section-title { font-size: 13px; font-weight: 600; color: var(--zinc-200); margin-bottom: 6px; }
+.diff-badge {
+  display: inline-block; margin-left: 6px; padding: 1px 8px; font-size: 11px; font-weight: 500;
+  color: var(--accent-blue, #60a5fa); background: rgba(59,130,246,0.15);
+  border: 1px solid rgba(59,130,246,0.4); border-radius: 999px;
+}
+.diff-pre {
+  margin: 0; padding: 12px 14px; background: rgba(0,0,0,0.4); border: 1px solid var(--border-muted);
+  border-radius: var(--radius-sm); font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+  font-size: 12px; line-height: 1.5; color: var(--zinc-300); white-space: pre-wrap; word-break: break-word;
+  max-height: 280px; overflow: auto;
+}
+.diff-empty { font-size: 13px; color: var(--text-muted); padding: 8px 0; }
+.diff-modal-footer {
+  display: flex; justify-content: flex-end; gap: 12px;
+  padding: 14px 24px; border-top: 1px solid var(--border-card);
+}
 
 /* Spacing Helpers */
 .mt-sm { margin-top: 12px; }

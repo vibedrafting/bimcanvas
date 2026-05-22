@@ -52,6 +52,16 @@ public sealed class SettingsFieldDto
 {
     public string Path { get; set; } = "";
     public string Label { get; set; } = "";
+
+    /// <summary>控件类型:string | number | bool | enum | json(复杂字段降级为内嵌 JSON 编辑器)。</summary>
+    public string Type { get; set; } = "string";
+
+    /// <summary>enum 类型的可选值（其它类型为 null）。与服务端校验取值同源。</summary>
+    public List<string>? EnumValues { get; set; }
+
+    /// <summary>字段说明（"描述符供文档"：仅在可视化模式由控件旁提示渲染）。</summary>
+    public string? Help { get; set; }
+
     public string ApplyMode { get; set; } = "restart";
     public bool Sensitive { get; set; }
 }
