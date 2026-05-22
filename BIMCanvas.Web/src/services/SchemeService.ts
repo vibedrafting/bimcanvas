@@ -171,7 +171,7 @@ export class SchemeService {
      * （sceneId 形参保留兼容调用方;回退后数据按物理 zone 组织,URL 不再带 sceneId 段。）
      */
     static async getSceneArtifact(
-        sceneId: string,
+        _sceneId: string,
         artifactKind: 'modules' | 'zones' | 'semantic_plan' | 'reference_analysis' | 'readme'
     ): Promise<any> {
         const response = await axios.get(
