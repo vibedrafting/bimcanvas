@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, reactive, ref, watch } from 'vue'
+import { computed, nextTick, onMounted, reactive, ref, watch } from 'vue'
 import { SettingsService, type LlmEndpointTestResult } from '../../services/SettingsService'
 import GlassButton from './base/GlassButton.vue'
 import GlassSelect from './base/GlassSelect.vue'
@@ -127,6 +127,7 @@ function loadSavedEditorMode(): 'visual' | 'source' {
 const editorMode = ref<'visual' | 'source'>(loadSavedEditorMode())
 const sourceText = ref('')
 const sourceError = ref<string | null>(null)
+const sourceTextareaRef = ref<HTMLTextAreaElement | null>(null)
 // 源模式中出现的、非 server/web/agent/ccr 的顶层 key，原样保留以实现无损往返
 const unifiedExtra = ref<Record<string, any>>({})
 // 上次加载/保存的统一配置快照，用作保存确认弹窗的 diff 基线
@@ -572,6 +573,16 @@ const diffSections = computed(() => {
   })
 })
 const hasDiffChanges = computed(() => diffSections.value.some(section => section.changed))
+
+// 源文件 textarea 高度自适应内容,去掉内部滚动条(只保留外层页面滚动)
+function autoResizeSource() {
+  const el = sourceTextareaRef.value
+  if (!el) return
+  el.style.height = 'auto'
+  el.style.height = `${el.scrollHeight}px`
+}
+watch(sourceText, () => { nextTick(autoResizeSource) })
+watch(editorMode, (mode) => { if (mode === 'source') nextTick(autoResizeSource) })
 
 async function loadSettings() {
   isLoading.value = true
@@ -1542,7 +1553,7 @@ onMounted(() => {
                 </div>
               </header>
               <div class="card-body">
-                <textarea class="editor-textarea source-textarea" v-model="sourceText" rows="30" spellcheck="false"></textarea>
+                <textarea ref="sourceTextareaRef" class="editor-textarea source-textarea" v-model="sourceText" rows="20" spellcheck="false" @input="autoResizeSource"></textarea>
                 <div v-if="sourceError" class="code-error">{{ sourceError }}</div>
               </div>
             </article>
@@ -2007,8 +2018,9 @@ input:disabled { opacity: 0.5; cursor: not-allowed; }
 
 /* 源文件编辑器 */
 .source-editor-wrap .editor-textarea.source-textarea {
-  min-height: 480px; background: rgba(0,0,0,0.35); border-radius: var(--radius-sm);
-  resize: vertical; white-space: pre; tab-size: 2;
+  min-height: 320px; background: rgba(0,0,0,0.35); border-radius: var(--radius-sm);
+  /* 高度由 JS 自适应内容,关闭内部纵向滚动,只保留外层页面滚动条 */
+  resize: none; overflow-y: hidden; overflow-x: auto; white-space: pre; tab-size: 2;
 }
 .source-textarea:focus { background: rgba(0,0,0,0.5); }
 
