@@ -260,9 +260,7 @@ function normalize(group: SettingsGroupKey, raw: Record<string, any>) {
     value.web.port ??= 5173
     value.agent.autoStart ??= true
     value.agent.baseUrl ??= ''
-    value.agent.healthPath ??= '/health'
     value.agent.port ??= 8865
-    value.agent.pythonCommand ??= 'python'
     value.startup.openBrowser ??= false
     value.startup.browserPath ??= ''
     value.ccr.enabled ??= false
@@ -362,12 +360,6 @@ const currentProviderLabel = computed(() => isOpenAiProvider.value ? 'OpenAI' : 
 const displayEffectiveModelPath = computed(
   () => runtime.value.effectiveDefaultModelPath || currentDefaultModelPath()
 )
-const runtimeEndpoints = computed(() => [
-  runtime.value.server,
-  runtime.value.web,
-  runtime.value.agent,
-  runtime.value.ccr
-])
 const isCcrConfigured = computed(() => Boolean(drafts.server.values.ccr?.enabled))
 const isCcrEffective = computed(() => isCcrConfigured.value && agentRuntimeProvider.value === 'claude')
 const openAiModelEntries = computed<[string, ModelMappingEntry][]>(() => (
@@ -439,16 +431,6 @@ const openAiTracingMode = computed({
     drafts.agent.values.openai.disableTracing = null
   }
 })
-
-function formatJsonString(group: SettingsGroupKey) {
-  try {
-    const parsed = JSON.parse(drafts[group].jsonText)
-    drafts[group].jsonText = JSON.stringify(parsed, null, 2)
-    parseJson(group)
-  } catch {
-    // ignore invalid JSON formats, user must fix manually
-  }
-}
 
 function applyGroup(key: SettingsGroupKey, group: SettingsGroup) {
   drafts[key].title = group.title
@@ -678,24 +660,6 @@ function textToLines(text: string) {
   return text.split(/\r?\n/).map(item => item.trim()).filter(Boolean)
 }
 
-function runtimeActualLabel(endpoint: RuntimeServiceEndpoint) {
-  return endpoint.actualUrl || '未就绪'
-}
-
-function runtimeSummary(endpoint: RuntimeServiceEndpoint) {
-  const parts = [
-    `首选 ${endpoint.configuredPort ?? '—'}`,
-    `实际 ${endpoint.actualPort ?? '—'}`
-  ]
-
-  if (endpoint.autoShifted) {
-    parts.push('已自动避让')
-  }
-
-  parts.push(endpoint.managedByServer ? 'Server 托管' : '外部依赖')
-  return parts.join(' · ')
-}
-
 function handleLayerPresetInput(target: string[], event: Event) {
   target.splice(0, target.length, ...textToLines((event.target as HTMLTextAreaElement).value))
 }
@@ -914,38 +878,14 @@ onMounted(() => {
           </div>
 
           <div v-show="editorMode === 'visual'">
-          <article class="config-card">
-            <header class="card-header">
-              <div class="heading-left">
-                <svg class="heading-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M3 12h18"/><path d="M12 3v18"/><circle cx="12" cy="12" r="9"/></svg>
-                <div class="heading-text">
-                  <h3>运行时端点</h3>
-                  <p>展示当前实例本次启动实际使用的地址与端口，不会回写配置文件。</p>
-                </div>
-              </div>
-            </header>
-
-            <div class="card-body">
-              <div class="runtime-grid">
-                <div v-for="endpoint in runtimeEndpoints" :key="endpoint.key" class="runtime-card">
-                  <div class="runtime-card-title">{{ endpoint.title }}</div>
-                  <div class="runtime-card-url mono-font">{{ runtimeActualLabel(endpoint) }}</div>
-                  <div class="runtime-card-meta">{{ runtimeSummary(endpoint) }}</div>
-                  <div class="runtime-card-meta mono-font">配置 {{ endpoint.configuredUrl || '—' }}</div>
-                </div>
-              </div>
-            </div>
-          </article>
-
-          
-          <!-- Card 1: 运行架构 -->
+          <!-- Card 1: 服务与连接 -->
           <article class="config-card">
             <header class="card-header">
               <div class="heading-left">
                 <svg class="heading-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor"><rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8m-4-4v4"/></svg>
                 <div class="heading-text">
                   <h3>服务与连接</h3>
-                  <p>Server 端口、Python 环境及 API 请求路由模式。</p>
+                  <p>Agent 连接方式与启动选项。端口、CCR 主机等高级项请用「源文件编辑」。</p>
                 </div>
               </div>
               <div class="heading-right">
@@ -969,26 +909,8 @@ onMounted(() => {
               <div class="form-grid">
                 <div class="field">
                   <label>Agent 基址</label>
-                  <input v-model="drafts.server.values.agent.baseUrl" type="text" placeholder="留空时回退到本地托管 Agent">
+                  <input v-model="drafts.server.values.agent.baseUrl" type="text" placeholder="留空时回退到本地托管 Agent；填外部地址则代理到该 Agent">
                 </div>
-                <div class="field">
-                  <label>健康检查路径</label>
-                  <input v-model="drafts.server.values.agent.healthPath" type="text" placeholder="/health">
-                </div>
-              </div>
-
-              <div class="form-grid mt-md">
-                <div class="field">
-                  <label>Agent 监听端口</label>
-                  <input v-model.number="drafts.server.values.agent.port" type="number">
-                </div>
-                <div class="field">
-                  <label>Python 命令</label>
-                  <input v-model="drafts.server.values.agent.pythonCommand" type="text" placeholder="python 或 python3">
-                </div>
-              </div>
-
-              <div class="form-grid mt-md">
                 <div class="field field-checkbox">
                   <label class="checkbox-label">
                     <input type="checkbox" v-model="drafts.server.values.agent.autoStart" class="checkbox-input">
@@ -998,42 +920,6 @@ onMounted(() => {
                       <span class="secondary">关闭后，Server 将通过 Agent 基址连接外部 Agent 服务</span>
                     </div>
                   </label>
-                </div>
-              </div>
-
-              <div class="form-grid mt-md">
-                <div class="field" :class="{ 'opacity-muted': !isCcrConfigured }">
-                  <label>CCR Host</label>
-                  <input v-model="drafts.server.values.ccr.host" type="text" :disabled="!isCcrConfigured">
-                </div>
-                <div class="field" :class="{ 'opacity-muted': !isCcrConfigured }">
-                  <label>CCR Port</label>
-                  <input v-model.number="drafts.server.values.ccr.port" type="number" :disabled="!isCcrConfigured">
-                </div>
-              </div>
-
-              <div class="form-grid mt-md">
-                <div class="field field-checkbox" :class="{ 'opacity-muted': !isCcrConfigured }">
-                  <label class="checkbox-label" :style="!isCcrConfigured ? 'cursor: not-allowed;' : ''">
-                    <input type="checkbox" v-model="drafts.server.values.ccr.autoStart" class="checkbox-input" :disabled="!isCcrConfigured">
-                    <span class="custom-checkbox"></span>
-                    <div class="checkbox-texts">
-                      <span class="primary">自动启动 CCR</span>
-                      <span class="secondary">Server 启动时自动拉起 CCR 网关进程</span>
-                    </div>
-                  </label>
-                </div>
-              </div>
-
-              <div class="divider mt-xl mb-md"><span>实例端口</span></div>
-              <div class="form-grid">
-                <div class="field">
-                  <label>Server 端口</label>
-                  <input v-model.number="drafts.server.values.server.port" type="number">
-                </div>
-                <div class="field">
-                  <label>Web 端口</label>
-                  <input v-model.number="drafts.server.values.web.port" type="number">
                 </div>
               </div>
 
@@ -1053,18 +939,6 @@ onMounted(() => {
                   <input v-model="drafts.server.values.startup.browserPath" type="text" placeholder="留空使用系统默认" :disabled="!drafts.server.values.startup.openBrowser">
                 </div>
               </div>
-
-              <details class="code-editor-block mt-xl">
-                <summary class="editor-summary">JSON 编辑器 — server_config</summary>
-                <div class="editor-container">
-                  <div class="editor-toolbar">
-                    <div class="toolbar-left"><svg class="file-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg><span class="file-name">server_bridge_config.json</span></div>
-                    <div class="toolbar-right"><button class="btn-tool" @click="formatJsonString('server')" type="button"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg>Format</button></div>
-                  </div>
-                  <textarea class="editor-textarea" v-model="drafts.server.jsonText" rows="8" spellcheck="false" @blur="parseJson('server')" />
-                </div>
-                <div v-if="drafts.server.jsonError" class="code-error">{{ drafts.server.jsonError }}</div>
-              </details>
             </div>
           </article>
 
@@ -1332,25 +1206,6 @@ onMounted(() => {
                 </section>
               </div>
 
-              <details class="code-editor-block mt-xl">
-                <summary class="editor-summary">JSON 编辑器 — agent config</summary>
-                <div class="editor-container">
-                  <div class="editor-toolbar">
-                    <div class="toolbar-left">
-                      <svg class="file-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg>
-                      <span class="file-name">agent_config.json</span>
-                    </div>
-                    <div class="toolbar-right">
-                      <button class="btn-tool" @click="formatJsonString('agent')" type="button">
-                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg>
-                        Format
-                      </button>
-                    </div>
-                  </div>
-                  <textarea class="editor-textarea" v-model="drafts.agent.jsonText" rows="12" spellcheck="false" @blur="parseJson('agent')" />
-                </div>
-                <div v-if="drafts.agent.jsonError" class="code-error">{{ drafts.agent.jsonError }}</div>
-              </details>
             </div>
           </article>
 
@@ -1478,17 +1333,6 @@ onMounted(() => {
                 </div>
               </div>
 
-              <details class="code-editor-block mt-xl">
-                <summary class="editor-summary">JSON 编辑器 — ccr_config</summary>
-                <div class="editor-container">
-                  <div class="editor-toolbar">
-                    <div class="toolbar-left"><svg class="file-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg><span class="file-name">ccr_gateway_config.json</span></div>
-                    <div class="toolbar-right"><button class="btn-tool" @click="formatJsonString('ccr')" type="button"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg>Format</button></div>
-                  </div>
-                  <textarea class="editor-textarea" v-model="drafts.ccr.jsonText" rows="10" spellcheck="false" @blur="parseJson('ccr')" />
-                </div>
-                <div v-if="drafts.ccr.jsonError" class="code-error">{{ drafts.ccr.jsonError }}</div>
-              </details>
             </div>
           </article>
 
@@ -1525,17 +1369,6 @@ onMounted(() => {
                 </div>
               </div>
 
-              <details class="code-editor-block mt-xl">
-                <summary class="editor-summary">JSON 编辑器 — web_config</summary>
-                <div class="editor-container">
-                  <div class="editor-toolbar">
-                    <div class="toolbar-left"><svg class="file-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg><span class="file-name">web_presentation_config.json</span></div>
-                    <div class="toolbar-right"><button class="btn-tool" @click="formatJsonString('web')" type="button"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg>Format</button></div>
-                  </div>
-                  <textarea class="editor-textarea" v-model="drafts.web.jsonText" rows="6" spellcheck="false" @blur="parseJson('web')" />
-                </div>
-                <div v-if="drafts.web.jsonError" class="code-error">{{ drafts.web.jsonError }}</div>
-              </details>
             </div>
           </article>
           </div>

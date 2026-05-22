@@ -12,8 +12,10 @@ namespace BIMCanvas.Server.Services
     /// </summary>
     public class AgentClientService
     {
+        // Agent 健康检查路径为 Server↔内置 Agent 的固定内部契约,不再做成可配置字段。
+        private const string AgentHealthPath = "/health";
+
         private readonly ILogger<AgentClientService> _logger;
-        private readonly string _agentHealthPath;
         private readonly RuntimeEndpointState _runtimeEndpointState;
         private readonly string _configuredAgentBaseUrl;
         private static readonly HttpClient _httpClient = new() { Timeout = Timeout.InfiniteTimeSpan };
@@ -26,7 +28,6 @@ namespace BIMCanvas.Server.Services
             _logger = logger;
             _runtimeEndpointState = runtimeEndpointState;
             _configuredAgentBaseUrl = config.Agent.GetResolvedBaseUrl();
-            _agentHealthPath = config.Agent.GetResolvedHealthPath();
         }
 
         public string AgentBaseUrl
@@ -42,7 +43,7 @@ namespace BIMCanvas.Server.Services
         {
             try
             {
-                using var request = new HttpRequestMessage(HttpMethod.Get, $"{AgentBaseUrl}{_agentHealthPath}");
+                using var request = new HttpRequestMessage(HttpMethod.Get, $"{AgentBaseUrl}{AgentHealthPath}");
                 using var response = await _httpClient.SendAsync(
                     request,
                     HttpCompletionOption.ResponseHeadersRead,

@@ -50,19 +50,9 @@ public class AgentSection
     public string BaseUrl { get; set; } = "";
 
     /// <summary>
-    /// Agent 健康检查路径
-    /// </summary>
-    public string HealthPath { get; set; } = "/health";
-
-    /// <summary>
     /// 托管启动 Agent 时使用的监听端口
     /// </summary>
     public int Port { get; set; } = 8865;
-
-    /// <summary>
-    /// 托管启动 Agent 时使用的 Python 命令
-    /// </summary>
-    public string PythonCommand { get; set; } = "python";
 
     /// <summary>
     /// 当前激活的 plugin id (主真理源 v1.1 §3.2 四态生命周期)。
@@ -83,31 +73,9 @@ public class AgentSection
         return $"http://127.0.0.1:{port}";
     }
 
-    public string GetResolvedHealthPath()
-    {
-        var path = (HealthPath ?? string.Empty).Trim();
-        if (string.IsNullOrWhiteSpace(path))
-        {
-            return "/health";
-        }
-
-        return path.StartsWith('/') ? path : $"/{path}";
-    }
-
     public int GetResolvedPort()
     {
         return Port > 0 ? Port : 8865;
-    }
-
-    public string GetResolvedPythonCommand()
-    {
-        var pythonCommand = (PythonCommand ?? string.Empty).Trim();
-        if (!string.IsNullOrWhiteSpace(pythonCommand))
-        {
-            return pythonCommand;
-        }
-
-        return "python";
     }
 }
 
@@ -151,9 +119,4 @@ public class CcrSection
     /// CCR 监听端口
     /// </summary>
     public int Port { get; set; } = 3456;
-
-    /// <summary>
-    /// CCR 配置文件名（位于 <BIMCANVAS_HOME> 下）
-    /// </summary>
-    public string ConfigFileName { get; set; } = "ccr_config.json";
 }

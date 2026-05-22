@@ -79,7 +79,7 @@ public sealed class ExecutablePluginProbe
 
         try
         {
-            var python = ConfigService.Load().Agent.GetResolvedPythonCommand();
+            var python = "python"; // Python 解释器命令已硬编码(与 Program.cs 启动 Agent 保持一致)
             var psi = new ProcessStartInfo
             {
                 FileName = python,
