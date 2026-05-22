@@ -1,34 +1,13 @@
 {
   "version": "1.0",
-  "comment": "组5 §5.A.6 修订:agent/BIMCANVAS.md / agents/ / skills/ / .claude-plugin 已迁到 plugins/indoor-layout/(由 core-base 简化骨架替代);本 manifest 只保留平台级配置(server/* + agent/config.json)。agent prompt + SubAgent + Skills 由 EnsurePluginInitialized('core-base') 物化到 BIMCANVAS_HOME/plugins/core-base/。v3.6 修订:PLATFORM_CONTRACT.md 内容并入 core-base/BIMCANVAS.md,本 manifest 不再分发该文件(归档参考: .dev/docs/Platform_Contract_Reference.md)。",
+  "comment": "配置合并:四组运行时配置(server/web/agent/ccr)统一物化到单一 instance.config.json 的四个顶层段。Plugin 能力配置由 EnsurePluginInitialized('core-base') 物化;*.dev.local.json 种子文件由 development-config manifest 处理。旧的 server_config.json / web_config.json / ccr_config.json / config.json 模板已不再被本 manifest 引用(保留在 server/ 与 agent/ 目录下仅作历史参考)。",
   "items": [
     {
-      "name": "server/server_config.json",
-      "target": "server_config.json",
+      "name": "instance.config.json",
+      "target": "instance.config.json",
       "type": "template",
       "enabled": true,
-      "description": "Server 启动配置（Server/Web/Agent/CCR 端口、浏览器）"
-    },
-    {
-      "name": "server/web_config.json",
-      "target": "web_config.json",
-      "type": "template",
-      "enabled": true,
-      "description": "Web 客户端配置（自定义模型列表、图层预设）"
-    },
-    {
-      "name": "server/ccr_config.json",
-      "target": "ccr_config.json",
-      "type": "template",
-      "enabled": true,
-      "description": "Claude Code Router 配置（唯一 API 网关）"
-    },
-    {
-      "name": "agent/config.json",
-      "target": "config.json",
-      "type": "template",
-      "enabled": true,
-      "description": "Agent runtime 全局配置（claude / openai providers / permissions / modelMapping）"
+      "description": "统一运行时配置(server/web/agent/ccr 四段合并:端口/图层/Agent runtime/CCR 网关)"
     }
   ]
 }

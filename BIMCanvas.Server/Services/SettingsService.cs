@@ -1,4 +1,3 @@
-using System.Text;
 using BIMCanvas.Server.Dtos;
 using BIMCanvas.Server.Models;
 using Newtonsoft.Json;
@@ -15,8 +14,6 @@ namespace BIMCanvas.Server.Services;
 /// </summary>
 public sealed class SettingsService
 {
-    private static readonly UTF8Encoding Utf8NoBom = new(encoderShouldEmitUTF8Identifier: false);
-
     private static readonly JsonSerializerSettings DefaultJsonSettings = new()
     {
         ContractResolver = new DefaultContractResolver { NamingStrategy = new CamelCaseNamingStrategy() },
@@ -98,7 +95,7 @@ public sealed class SettingsService
             Server = CreateGroup(
                 "server",
                 "Server",
-                Path.GetFileName(ConfigService.GetServerConfigPath()),
+                $"{ConfigService.UnifiedConfigFileName} # {ConfigService.SectionServer}",
                 applyMode: "restart",
                 requiresRestart: true,
                 serverValues,
@@ -106,7 +103,7 @@ public sealed class SettingsService
             Web = CreateGroup(
                 "web",
                 "Web",
-                Path.GetFileName(ConfigService.GetWebConfigPath()),
+                $"{ConfigService.UnifiedConfigFileName} # {ConfigService.SectionWeb}",
                 applyMode: "immediate",
                 requiresRestart: false,
                 webValues,
@@ -114,7 +111,7 @@ public sealed class SettingsService
             Agent = CreateGroup(
                 "agent",
                 "Agent",
-                Path.GetFileName(ConfigService.GetAgentConfigPath()),
+                $"{ConfigService.UnifiedConfigFileName} # {ConfigService.SectionAgent}",
                 applyMode: "restart",
                 requiresRestart: true,
                 agentValues,
@@ -122,7 +119,7 @@ public sealed class SettingsService
             Ccr = CreateGroup(
                 "ccr",
                 "CCR",
-                Path.GetFileName(ConfigService.GetCcrConfigPath()),
+                $"{ConfigService.UnifiedConfigFileName} # {ConfigService.SectionCcr}",
                 applyMode: "restart",
                 requiresRestart: true,
                 ccrValues,
@@ -151,25 +148,25 @@ public sealed class SettingsService
 
             if (!JToken.DeepEquals(currentServer, nextServer))
             {
-                SaveJsonObject(ConfigService.GetServerConfigPath(), nextServer);
+                ConfigService.SaveSection(ConfigService.SectionServer, nextServer);
                 changedGroups.Add("server");
             }
 
             if (!JToken.DeepEquals(currentWeb, nextWeb))
             {
-                SaveJsonObject(ConfigService.GetWebConfigPath(), nextWeb);
+                ConfigService.SaveSection(ConfigService.SectionWeb, nextWeb);
                 changedGroups.Add("web");
             }
 
             if (!JToken.DeepEquals(currentAgent, nextAgent))
             {
-                SaveJsonObject(ConfigService.GetAgentConfigPath(), nextAgent);
+                ConfigService.SaveSection(ConfigService.SectionAgent, nextAgent);
                 changedGroups.Add("agent");
             }
 
             if (!JToken.DeepEquals(currentCcr, nextCcr))
             {
-                SaveJsonObject(ConfigService.GetCcrConfigPath(), nextCcr);
+                ConfigService.SaveSection(ConfigService.SectionCcr, nextCcr);
                 changedGroups.Add("ccr");
             }
 
@@ -407,71 +404,31 @@ public sealed class SettingsService
 
     private static JObject LoadServerValues()
     {
-        return LoadJsonObject(
-            ConfigService.GetServerConfigPath(),
+        return ConfigService.LoadSection(
+            ConfigService.SectionServer,
             () => ToJObject(new ServerConfig()));
     }
 
     private static JObject LoadWebValues()
     {
-        return ValidateWeb(LoadJsonObject(
-            ConfigService.GetWebConfigPath(),
+        return ValidateWeb(ConfigService.LoadSection(
+            ConfigService.SectionWeb,
             () => ToJObject(new WebConfig())));
     }
 
     private static JObject LoadAgentValues()
     {
-        var values = LoadJsonObject(
-            ConfigService.GetAgentConfigPath(),
+        var values = ConfigService.LoadSection(
+            ConfigService.SectionAgent,
             CreateDefaultAgentValues);
         return ValidateAgent(values);
     }
 
     private static JObject LoadCcrValues()
     {
-        return LoadJsonObject(
-            ConfigService.GetCcrConfigPath(),
+        return ConfigService.LoadSection(
+            ConfigService.SectionCcr,
             () => new JObject());
-    }
-
-    private static JObject LoadJsonObject(string path, Func<JObject> defaultFactory)
-    {
-        if (!File.Exists(path))
-        {
-            return defaultFactory();
-        }
-
-        var json = File.ReadAllText(path, Encoding.UTF8);
-        if (string.IsNullOrWhiteSpace(json))
-        {
-            return defaultFactory();
-        }
-
-        try
-        {
-            var token = JToken.Parse(json);
-            if (token is JObject obj)
-            {
-                return obj;
-            }
-
-            throw new InvalidOperationException($"配置文件顶层必须是 JSON 对象: {path}");
-        }
-        catch (Exception ex) when (ex is not InvalidOperationException)
-        {
-            throw new InvalidOperationException($"读取配置文件失败: {path}，{ex.Message}", ex);
-        }
-    }
-
-    private static void SaveJsonObject(string path, JObject json)
-    {
-        var targetDir = Path.GetDirectoryName(path);
-        if (!string.IsNullOrWhiteSpace(targetDir))
-        {
-            Directory.CreateDirectory(targetDir);
-        }
-
-        File.WriteAllText(path, json.ToString(Newtonsoft.Json.Formatting.Indented), Utf8NoBom);
     }
 
     private static JObject ToJObject<T>(T value)

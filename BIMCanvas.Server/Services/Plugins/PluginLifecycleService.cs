@@ -202,32 +202,19 @@ public sealed class PluginLifecycleService
 
     // ─── 内部 ─────────────────────────────────────────────────────────────────
 
-    private static async Task WriteActivePluginAsync(string? pluginId, CancellationToken ct)
+    private static Task WriteActivePluginAsync(string? pluginId, CancellationToken ct)
     {
-        var path = ConfigService.GetServerConfigPath();
-        JObject root;
-        if (File.Exists(path))
-        {
-            var raw = await File.ReadAllTextAsync(path, ct);
-            root = string.IsNullOrWhiteSpace(raw) ? new JObject() : JObject.Parse(raw);
-        }
-        else
-        {
-            root = new JObject();
-        }
-
-        if (root["agent"] is not JObject agent)
+        // activePlugin 落在统一配置文件的 server 段下的 agent 子段(server.agent.activePlugin),
+        // 与顶层 agent runtime 段(provider 配置)是不同路径,互不冲突。
+        var server = ConfigService.LoadSection(ConfigService.SectionServer);
+        if (server["agent"] is not JObject agent)
         {
             agent = new JObject();
-            root["agent"] = agent;
+            server["agent"] = agent;
         }
         agent["activePlugin"] = pluginId is null ? JValue.CreateNull() : new JValue(pluginId);
 
-        var dir = Path.GetDirectoryName(path);
-        if (!string.IsNullOrWhiteSpace(dir))
-            Directory.CreateDirectory(dir);
-        var tmp = path + ".tmp";
-        await File.WriteAllTextAsync(tmp, root.ToString(Newtonsoft.Json.Formatting.Indented), Utf8NoBom, ct);
-        File.Move(tmp, path, overwrite: true);
+        ConfigService.SaveSection(ConfigService.SectionServer, server);
+        return Task.CompletedTask;
     }
 }

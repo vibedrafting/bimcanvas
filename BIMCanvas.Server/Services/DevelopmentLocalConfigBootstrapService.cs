@@ -12,7 +12,6 @@ namespace BIMCanvas.Server.Services;
 public sealed class DevelopmentLocalConfigBootstrapService
 {
     private const string ManifestRelativePath = "development-config/manifest.json";
-    private static readonly UTF8Encoding Utf8NoBom = new(encoderShouldEmitUTF8Identifier: false);
     private static readonly string[] RoutedFields = ["default", "think", "background", "longContext"];
 
     private readonly BootstrapTemplateService _templateService;
@@ -40,7 +39,8 @@ public sealed class DevelopmentLocalConfigBootstrapService
 
     private static void ApplyAgentBootstrap()
     {
-        var runtime = LoadJsonObject(ConfigService.GetAgentConfigPath());
+        // 注入目标:统一配置文件的 agent 段(不再是独立 config.json)。
+        var runtime = ConfigService.LoadSection(ConfigService.SectionAgent);
         var local = LoadJsonObject(ConfigService.GetDevLocalAgentConfigPath());
         var changed = false;
 
@@ -54,13 +54,14 @@ public sealed class DevelopmentLocalConfigBootstrapService
 
         if (changed)
         {
-            SaveJsonObject(ConfigService.GetAgentConfigPath(), runtime);
+            ConfigService.SaveSection(ConfigService.SectionAgent, runtime);
         }
     }
 
     private static void ApplyCcrBootstrap()
     {
-        var runtime = LoadJsonObject(ConfigService.GetCcrConfigPath());
+        // 注入目标:统一配置文件的 ccr 段(不再是独立 ccr_config.json)。
+        var runtime = ConfigService.LoadSection(ConfigService.SectionCcr);
         var local = LoadJsonObject(ConfigService.GetDevLocalCcrConfigPath());
         var changed = false;
 
@@ -89,7 +90,7 @@ public sealed class DevelopmentLocalConfigBootstrapService
 
         if (changed)
         {
-            SaveJsonObject(ConfigService.GetCcrConfigPath(), runtime);
+            ConfigService.SaveSection(ConfigService.SectionCcr, runtime);
         }
     }
 
@@ -158,16 +159,5 @@ public sealed class DevelopmentLocalConfigBootstrapService
         var token = JToken.Parse(json);
         return token as JObject
             ?? throw new InvalidOperationException($"配置文件顶层必须是 JSON 对象: {path}");
-    }
-
-    private static void SaveJsonObject(string path, JObject value)
-    {
-        var directory = Path.GetDirectoryName(path);
-        if (!string.IsNullOrWhiteSpace(directory))
-        {
-            Directory.CreateDirectory(directory);
-        }
-
-        File.WriteAllText(path, value.ToString(Newtonsoft.Json.Formatting.Indented), Utf8NoBom);
     }
 }

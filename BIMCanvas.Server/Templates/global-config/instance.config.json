@@ -1,0 +1,92 @@
+{
+  "server": {
+    "server": {
+      "port": 5000
+    },
+    "web": {
+      "port": 5173
+    },
+    "agent": {
+      "autoStart": true,
+      "baseUrl": "",
+      "healthPath": "/health",
+      "port": 8865,
+      "pythonCommand": "python"
+    },
+    "startup": {
+      "openBrowser": true,
+      "browserPath": null
+    },
+    "ccr": {
+      "enabled": false,
+      "autoStart": true,
+      "host": "127.0.0.1",
+      "port": 3456,
+      "configFileName": "ccr_config.json"
+    }
+  },
+  "web": {
+    "layerPresets": {
+      "User": {
+        "enabledLayers": ["Grid", "Architecture", "Furniture"]
+      },
+      "Agent": {
+        "enabledLayers": ["Grid", "Labels", "Bounds", "Outline", "Zones", "Semantic", "AI Vision", "Architecture", "Furniture"]
+      }
+    }
+  },
+  "agent": {
+    "runtimeProvider": "claude",
+    "claude": {
+      "baseUrl": "",
+      "apiKey": "",
+      "defaultModel": "opus",
+      "defaultEffort": "low",
+      "defaultThinking": "adaptive",
+      "maxThinkingTokens": 8000,
+      "modelMapping": {
+        "opus": { "id": "claude-opus-4-7[1m]", "label": "Opus" },
+        "sonnet": { "id": "claude-sonnet-4-6", "label": "Sonnet" },
+        "haiku": { "id": "claude-haiku-4-5", "label": "Haiku" }
+      }
+    },
+    "openai": {
+      "baseUrl": "",
+      "apiKey": "",
+      "defaultModel": "gpt-5",
+      "apiMode": "chat_completions",
+      "disableTracing": null,
+      "modelMapping": {
+        "gpt-5.4": {
+          "id": "gpt-5.4",
+          "label": "GPT-5.4"
+        },
+        "gpt-5.4-mini": {
+          "id": "gpt-5.4-mini",
+          "label": "GPT-5.4 Mini"
+        }
+      }
+    },
+    "chatgptBackend": {
+      "accessToken": "",
+      "baseUrl": "https://chatgpt.com/backend-api/codex/responses",
+      "model": "gpt-5.4",
+      "timeoutSeconds": 600
+    }
+  },
+  "ccr": {
+    "PORT": 3456,
+    "HOST": "0.0.0.0",
+    "LOG": true,
+    "LOG_LEVEL": "info",
+    "API_TIMEOUT_MS": 300000,
+    "Providers": [],
+    "Router": {
+      "default": "",
+      "think": "",
+      "background": "",
+      "longContext": "",
+      "longContextThreshold": 60000
+    }
+  }
+}

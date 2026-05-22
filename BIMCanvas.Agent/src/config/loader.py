@@ -214,10 +214,9 @@ class ConfigLoader:
         - 原 PLATFORM_CONTRACT.md 内容已并入 core-base/BIMCANVAS.md, 不再单独校验
           (归档参考: .dev/docs/Platform_Contract_Reference.md)
         """
-        # 1. 必须始终在 BIMCANVAS_HOME 根目录的平台级文件
-        root_required = [
-            ("config.json", "file"),
-        ]
+        # 1. 必须始终在 BIMCANVAS_HOME 根目录的平台级运行时配置文件
+        #    配置合并:四组运行时配置统一在 instance.config.json(Agent 读其 agent 段);
+        #    旧布局回退到独立 config.json(整份即 agent runtime 配置)。
         # 2. core-base 资源 (新布局优先,旧布局回退)
         core_base_root = self._resolve_core_base_root()
         core_base_required = [
@@ -231,11 +230,10 @@ class ConfigLoader:
         if not self.config_dir.exists():
             missing.append(str(self.config_dir))
         else:
-            for relative_path, path_type in root_required:
-                target_path = self.config_dir / relative_path
-                exists = target_path.is_file() if path_type == "file" else target_path.is_dir()
-                if not exists:
-                    missing.append(relative_path)
+            has_unified = (self.config_dir / "instance.config.json").is_file()
+            has_legacy = (self.config_dir / "config.json").is_file()
+            if not has_unified and not has_legacy:
+                missing.append("instance.config.json")
             for relative_path, path_type in core_base_required:
                 target_path = core_base_root / relative_path
                 exists = target_path.is_file() if path_type == "file" else target_path.is_dir()
@@ -259,20 +257,40 @@ class ConfigLoader:
 
     def load_config(self) -> dict:
         """
-        加载 config.json
+        加载 Agent runtime 配置（统一文件 instance.config.json 的 `agent` 段）。
+
+        配置合并:四组运行时配置统一在 instance.config.json。Agent 只消费其 `agent` 段
+        (runtimeProvider / claude / openai / chatgptBackend)。旧布局回退到独立 config.json
+        (整份即 agent runtime 配置),便于过渡。
 
         Returns:
-            配置字典，已展开环境变量
+            agent runtime 配置字典，已展开环境变量
         """
         if self._config is not None:
             return self._config
 
-        config_path = self.config_dir / "config.json"
-        if not config_path.exists():
-            raise FileNotFoundError(f"配置文件不存在: {config_path}")
+        unified_path = self.config_dir / "instance.config.json"
+        legacy_path = self.config_dir / "config.json"
 
-        with open(config_path, 'r', encoding='utf-8-sig') as f:
-            self._config = json.load(f)
+        if unified_path.exists():
+            with open(unified_path, 'r', encoding='utf-8-sig') as f:
+                unified = json.load(f)
+            if not isinstance(unified, dict):
+                raise ValueError(f"统一配置文件顶层必须是 JSON 对象: {unified_path}")
+            agent_section = unified.get("agent")
+            if not isinstance(agent_section, dict):
+                raise ValueError(
+                    f"统一配置文件缺少对象类型的 `agent` 段: {unified_path}"
+                )
+            self._config = agent_section
+        elif legacy_path.exists():
+            # 兼容旧布局:独立 config.json 整份即 agent runtime 配置
+            with open(legacy_path, 'r', encoding='utf-8-sig') as f:
+                self._config = json.load(f)
+        else:
+            raise FileNotFoundError(
+                f"配置文件不存在: {unified_path}（也无旧版 {legacy_path}）"
+            )
 
         self._expand_env_vars(self._config)
         return self._config

@@ -110,8 +110,8 @@ var builder = WebApplication.CreateBuilder(args);
 var isProduction = builder.Environment.IsProduction();
 var isDevelopment = builder.Environment.IsDevelopment();
 var configDir = ConfigService.GetConfigDir();
-var agentConfigExistsBeforeBootstrap = File.Exists(ConfigService.GetAgentConfigPath());
-var ccrConfigExistsBeforeBootstrap = File.Exists(ConfigService.GetCcrConfigPath());
+var agentConfigExistsBeforeBootstrap = ConfigService.SectionExists(ConfigService.SectionAgent);
+var ccrConfigExistsBeforeBootstrap = ConfigService.SectionExists(ConfigService.SectionCcr);
 
 // 配置统一日志格式（替换默认 Console Logger 格式）
 builder.Logging.ClearProviders();
@@ -511,16 +511,15 @@ Process? ccrProcess = null;
             }
         }
 
-        // CCR 配置文件由 GlobalConfigBootstrapService 提前初始化到 BIMCANVAS_HOME
-        var ccrConfigPath = Path.Combine(configDir, config.Ccr.ConfigFileName);
-
-        // CCR 默认从 ~/.claude-code-router/config.json 读取配置，需要将我们的配置同步过去
+        // CCR 守护进程配置来自统一配置文件的 ccr 段（合并前是独立 ccr_config.json）。
+        // CCR 默认从 ~/.claude-code-router/config.json 读取,需把 ccr 段投影成 CCR 原生 config.json 写过去。
+        var ccrSection = ConfigService.LoadSection(ConfigService.SectionCcr);
         var ccrHomeDir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".claude-code-router");
         Directory.CreateDirectory(ccrHomeDir);
         var ccrHomeConfigPath = Path.Combine(ccrHomeDir, "config.json");
-        if (File.Exists(ccrConfigPath))
+        if (ccrSection.HasValues)
         {
-            File.Copy(ccrConfigPath, ccrHomeConfigPath, overwrite: true);
+            File.WriteAllText(ccrHomeConfigPath, ccrSection.ToString(Newtonsoft.Json.Formatting.Indented));
         }
 
         var resolvedCcrPort = ResolveManagedPort(
@@ -547,7 +546,7 @@ Process? ccrProcess = null;
             ConsoleColor.White);
 
         WriteWithColoredPrefix("[Server]", "CCR 服务启动中...", ConsoleColor.White);
-        ccrProcess = StartCcrProcess(config, ccrConfigPath);
+        ccrProcess = StartCcrProcess(config, ccrHomeConfigPath);
         if (ccrProcess != null)
         {
             ccrRuntimeReady = await WaitForServiceReadyAsync(GetReachableLocalHost(config.Ccr.Host), config.Ccr.Port, timeoutMs: 15000);
