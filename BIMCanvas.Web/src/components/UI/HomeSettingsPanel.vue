@@ -1139,33 +1139,31 @@ onMounted(() => {
                   <input v-model="drafts.server.values.agent.baseUrl" type="text" placeholder="留空时回退到本地托管 Agent；填外部地址则代理到该 Agent">
                 </div>
               </div>
-              <div class="form-grid mt-md">
-                <div class="field field-checkbox">
-                  <label class="checkbox-label">
-                    <input type="checkbox" v-model="drafts.server.values.agent.autoStart" class="checkbox-input">
-                    <span class="custom-checkbox"></span>
-                    <div class="checkbox-texts">
-                      <span class="primary">自动启动内置 Agent</span>
-                      <span class="secondary">关闭后，Server 将通过 Agent 基址连接外部 Agent 服务</span>
-                    </div>
-                  </label>
+
+              <label class="checkbox-label mt-md">
+                <input type="checkbox" v-model="drafts.server.values.agent.autoStart" class="checkbox-input">
+                <span class="custom-checkbox"></span>
+                <div class="checkbox-texts">
+                  <span class="primary">自动启动内置 Agent</span>
+                  <span class="secondary">关闭后，Server 将通过 Agent 基址连接外部 Agent 服务</span>
                 </div>
-              </div>
+              </label>
 
               <div class="divider mt-xl mb-md"><span>启动选项</span></div>
-              <div class="form-grid">
-                <div class="field field-checkbox">
-                  <label class="checkbox-label">
-                    <input type="checkbox" v-model="drafts.server.values.startup.openBrowser" class="checkbox-input">
-                    <span class="custom-checkbox"></span>
-                    <div class="checkbox-texts">
-                      <span class="primary">启动时打开浏览器</span>
-                    </div>
-                  </label>
+
+              <label class="checkbox-label">
+                <input type="checkbox" v-model="drafts.server.values.startup.openBrowser" class="checkbox-input">
+                <span class="custom-checkbox"></span>
+                <div class="checkbox-texts">
+                  <span class="primary">启动时打开浏览器</span>
+                  <span class="secondary">实例启动后自动打开浏览器访问 Web 前端</span>
                 </div>
-                <div class="field" :class="{ 'opacity-muted': !drafts.server.values.startup.openBrowser }">
+              </label>
+
+              <div v-if="drafts.server.values.startup.openBrowser" class="form-grid mt-md">
+                <div class="field">
                   <label>浏览器路径</label>
-                  <input v-model="drafts.server.values.startup.browserPath" type="text" placeholder="留空使用系统默认" :disabled="!drafts.server.values.startup.openBrowser">
+                  <input v-model="drafts.server.values.startup.browserPath" type="text" placeholder="留空使用系统默认">
                 </div>
               </div>
             </div>
