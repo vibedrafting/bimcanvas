@@ -20,8 +20,6 @@
       "Skill",
       "AskUserQuestion",
       "mcp__canvas__request_background_screenshot",
-      "mcp__canvas__validate_layout",
-      "mcp__canvas__get_zone_boundaries",
       "mcp__canvas__register_variant",
       "mcp__canvas__list_variants",
       "mcp__canvas__analyze_image",
