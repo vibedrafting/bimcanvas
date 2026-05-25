@@ -28,8 +28,6 @@ namespace BIMCanvas.Server.Services
     /// </summary>
     public sealed class ProjectFixedFilesBootstrapService
     {
-        private const string ManifestRelativePath = "project-fixed/manifest.json";
-
         /// <summary>projectMount/manifest.json 反序列化设置 (R10: 只用 Newtonsoft + camelCase resolver)。</summary>
         private static readonly JsonSerializerSettings ManifestJsonSettings = new JsonSerializerSettings
         {

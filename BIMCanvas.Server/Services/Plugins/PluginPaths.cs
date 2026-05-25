@@ -52,16 +52,6 @@ public static class PluginPaths
     public static string ScaffoldsRoot => Path.Combine(ConfigService.GetConfigDir(), "plugin-scaffolds");
 
     /// <summary>
-    /// [Obsolete - 组5 §5.B.1] M1 阶段的 bind-time 物化占位路径
-    /// <c>{projectPath}/_pluginMount/{sceneId}/</c>。M2 切换到按 plugin projectMount 子目录类型
-    /// 分别物化到 SceneReferencesRoot / SceneModulesRoot 后,本常量不再被生产代码使用。
-    /// 保留仅为单测复现历史 M1 行为。
-    /// </summary>
-    [System.Obsolete("组5 §5.B.1: M2 已切换到 SceneReferencesRoot / SceneModulesRoot 分别物化。仅保留供单测复现 M1 行为。")]
-    public static string SceneScaffoldRoot(string projectPath, string sceneId)
-        => Path.Combine(projectPath, "_pluginMount", sceneId);
-
-    /// <summary>
     /// (§包2 ⑥) Bind-time 把 plugin projectMount/manifest.json 声明的 <paramref name="manifestTarget"/>
     /// 物化到项目侧、sceneId 命名空间化后的绝对路径。
     /// <para>
