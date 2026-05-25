@@ -113,7 +113,12 @@ namespace BIMCanvas.Server.Services
         }
 
         /// <summary>
-        /// 基于 schemes/zones.json 创建或刷新分区子目录。
+        /// 基于 schemes/zones.json 按 zones 拓扑创建或刷新叶子分区子目录（平台职责）。
+        /// <para>
+        /// 只负责「建目录」——不预写任何 domain 交付物文件（如 modules.json）。
+        /// 叶子分区的种子文件由对应 plugin / 工作流在需要时自行创建
+        /// （placement 首次写入时落地，缺失时读取方按「空」处理）。
+        /// </para>
         /// </summary>
         public void RefreshZoneDirectories(string projectPath)
         {
@@ -142,13 +147,11 @@ namespace BIMCanvas.Server.Services
                     if (!Directory.Exists(zoneDir))
                         Directory.CreateDirectory(zoneDir);
 
-                    if (!File.Exists(entry.FilePath))
-                        File.WriteAllText(entry.FilePath, "[]", Encoding.UTF8);
-
+                    // 仅建目录;不预写 modules.json 等 domain 交付物(去 domain 化,见 §包2 ④)。
                     createdCount++;
                 }
 
-                _logger.LogInformation("创建/刷新了 {Count} 个分区目录", createdCount);
+                _logger.LogInformation("创建/刷新了 {Count} 个叶子分区目录", createdCount);
             }
             catch (Exception ex)
             {

@@ -62,26 +62,53 @@ public static class PluginPaths
         => Path.Combine(projectPath, "_pluginMount", sceneId);
 
     /// <summary>
-    /// Plugin projectMount/references/* 物化目标:<c>{projectPath}/references/{sceneId}/</c>。
-    /// (plugin 资源物化区;落点的进一步规整属后续工作,见回退执行计划 §6。)
+    /// (§包2 ⑥) Bind-time 把 plugin projectMount/manifest.json 声明的 <paramref name="manifestTarget"/>
+    /// 物化到项目侧、sceneId 命名空间化后的绝对路径。
+    /// <para>
+    /// 命名空间化规则:把 <paramref name="manifestTarget"/> 按首个 <c>/</c> 拆分,
+    /// 将 <paramref name="sceneId"/> 插作**第 2 段**,再拼到 <paramref name="projectPath"/> 下。
+    /// 平台对 plugin 声明的任意 target 一视同仁,**不认得** “references”/“modules” 的语义:
+    /// <list type="bullet">
+    /// <item><c>references</c> → <c>{projectPath}/references/{sceneId}</c></item>
+    /// <item><c>modules</c> → <c>{projectPath}/modules/{sceneId}</c></item>
+    /// <item><c>references/design_principles.md</c> → <c>{projectPath}/references/{sceneId}/design_principles.md</c></item>
+    /// </list>
+    /// </para>
     /// </summary>
-    public static string SceneReferencesRoot(string projectPath, string sceneId)
-        => Path.Combine(projectPath, "references", sceneId);
+    public static string SceneMountTarget(string projectPath, string sceneId, string manifestTarget)
+    {
+        if (string.IsNullOrWhiteSpace(manifestTarget))
+            throw new ArgumentException("manifestTarget 必须非空", nameof(manifestTarget));
+
+        // 统一分隔符,拆出首段与剩余段
+        var normalized = manifestTarget.Replace('\\', '/').Trim('/');
+        var slash = normalized.IndexOf('/');
+        if (slash < 0)
+        {
+            // 单段 target(如 "references"):首段 + sceneId
+            return Path.Combine(projectPath, normalized, sceneId);
+        }
+
+        var head = normalized.Substring(0, slash);
+        var rest = normalized.Substring(slash + 1);
+        // 多段 target:首段 / sceneId / 剩余子路径
+        return Path.Combine(projectPath, head, sceneId, rest.Replace('/', Path.DirectorySeparatorChar));
+    }
 
     /// <summary>
-    /// Plugin projectMount/modules/* 物化目标:<c>{projectPath}/modules/{sceneId}/</c>。
-    /// (plugin 资源物化区;同上,落点规整属后续工作。)
+    /// 某个 manifestTarget 命名空间化后的「顶层根目录」<c>{projectPath}/{首段}/{sceneId}</c>,
+    /// 供 <c>MountSceneScaffold</c> 做幂等检查(任一已存在则跳过整体物化)。
     /// </summary>
-    public static string SceneModulesRoot(string projectPath, string sceneId)
-        => Path.Combine(projectPath, "modules", sceneId);
+    public static string SceneMountTargetRoot(string projectPath, string sceneId, string manifestTarget)
+    {
+        if (string.IsNullOrWhiteSpace(manifestTarget))
+            throw new ArgumentException("manifestTarget 必须非空", nameof(manifestTarget));
 
-    /// <summary>
-    /// (组5 §5.B.2) Bind-time 其他 plugin 自定义子目录的兜底物化路径:
-    /// <c>{projectPath}/_pluginMount/{sceneId}/</c>。
-    /// 仅当 plugin projectMount/ 内有非 references/ / modules/ 的自定义子目录时使用。
-    /// </summary>
-    public static string SceneOtherMountRoot(string projectPath, string sceneId)
-        => Path.Combine(projectPath, "_pluginMount", sceneId);
+        var normalized = manifestTarget.Replace('\\', '/').Trim('/');
+        var slash = normalized.IndexOf('/');
+        var head = slash < 0 ? normalized : normalized.Substring(0, slash);
+        return Path.Combine(projectPath, head, sceneId);
+    }
 
     /// <summary>plugins.lock.json 在项目根的路径。</summary>
     public static string ProjectPluginsLockFile(string projectPath)
