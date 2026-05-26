@@ -354,20 +354,22 @@ var result = strategyService.AcceptParallelStrategy(projectPath, "动线优先")
 3. 创建 Context 目录
    └─ 创建 context/requirements.md 模板
 
-4. 创建默认策略
-   └─ 创建 schemes/s1_Default/ 目录
-   └─ 写入 strategy.json（含 lastValidatedBaselineHash）
-   └─ 写入 zones.json（空数组）
-   └─ 写入 finishes.json（空数组）
-   └─ 写入 modules.json（空数组）
+4. 创建默认策略（策略 id "default"，平铺于 schemes/；多策略靠 Git 分支隔离，不建策略子目录）
+   └─ 写入 schemes/strategy.json（含 lastValidatedBaselineHash）
+   └─ 写入 schemes/finishes.json（空数组）
 
 5. 更新 project.json
    └─ 添加 Schemes 引用
    └─ 设置 activeSchemeId
 
 6. 生成 Computed 数据
+   └─ 从房间派生分区 → computed/room_zones.json
    └─ 计算门扇禁区 → exclusions.json
    └─ 写入 computed/computed.manifest
+
+7. 初始化分区与目录
+   └─ 从 computed/room_zones.json 拷贝初始化 schemes/zones.json（缺 room_zones 时写空数组；幂等，已存在则不覆盖）
+   └─ 按 zones.json 拓扑创建各叶子分区目录 schemes/{zoneId}/（**不预写 modules.json**；首次布置时由 plugin/工作流写入）
 
 输出：项目文件夹路径
 ```
@@ -402,11 +404,10 @@ C:\Users\{username}\Documents\BIMCanvas\Projects\
     ├── context/                        # Server 创建
     │   └── requirements.md             # 设计需求模板
     ├── schemes/                        # Server 创建
-    │   └── s1_Default/                 # 默认策略
-    │       ├── strategy.json           # 策略元数据
-    │       ├── zones.json              # 功能分区（空）
-    │       ├── finishes.json           # 完成面（空）
-    │       └── modules.json            # 家具模块（空）
+    │   ├── strategy.json               # 策略元数据（id "default"；多策略靠 Git 分支）
+    │   ├── zones.json                  # 分区方案（从 computed/room_zones.json 初始化）
+    │   ├── finishes.json               # 完成面（空）
+    │   └── {zoneId}/                   # 按 zones 拓扑建的叶子目录；modules.json 不预写、首次布置时写入
     └── computed/                       # 计算缓存
         ├── exclusions.json             # 门扇禁区数据
         └── computed.manifest           # 哈希验证文件
