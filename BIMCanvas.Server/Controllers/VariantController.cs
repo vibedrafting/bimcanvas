@@ -446,24 +446,7 @@ namespace BIMCanvas.Server.Controllers
                 if (leafZoneIds.Count == 0)
                     return BadRequest(new { error = $"设计区 {request.DesignZoneId} 无叶子分区" });
 
-                // clone 模式：锁内枚举源文件清单
-                var srcFiles = new List<string>();
-                if (mode != "blank")
-                {
-                    var srcSemanticPlan = Path.Combine(srcRoot!, "semantic_plan.json");
-                    if (System.IO.File.Exists(srcSemanticPlan)) srcFiles.Add(srcSemanticPlan);
-                    var srcReferenceAnalysis = Path.Combine(srcRoot!, "reference_analysis.json");
-                    if (System.IO.File.Exists(srcReferenceAnalysis)) srcFiles.Add(srcReferenceAnalysis);
-                    foreach (var leafId in leafZoneIds)
-                    {
-                        var leafModulesPath = _modulesWriter.ResolveModulesPath(
-                            projectPath, request.DesignZoneId, leafId,
-                            variantId: safeSourceSlug, // null 表示 canonical
-                            pathMode: VariantPathMode.New);
-                        if (System.IO.File.Exists(leafModulesPath))
-                            srcFiles.Add(leafModulesPath);
-                    }
-                }
+                // clone 模式不再枚举命名文件——整子树递归复制（见 per-slug 循环内 clone 分支）。
 
                 // 循环每个新 slug
                 foreach (var safeNew in safeNewSlugs)
@@ -512,17 +495,16 @@ namespace BIMCanvas.Server.Controllers
                         }
                         else
                         {
-                            // clone 模式：复制源文件 → 重写每份 modules.json 的 summary
-                            foreach (var src in srcFiles)
-                            {
-                                var relative = Path.GetRelativePath(srcRoot!, src);
-                                var dst = Path.Combine(dstRoot, relative);
-                                var dstDir = Path.GetDirectoryName(dst)!;
-                                Directory.CreateDirectory(dstDir);
-                                System.IO.File.Copy(src, dst, overwrite: true);
-                            }
+                            // clone 模式：整子树递归复制（domain-agnostic，不枚举任何具体文件名）。
+                            // clone-from-canonical 源是 schemes/{dz}/，须排除顶层 variants/——
+                            // 否则会把兄弟变体、乃至刚 CreateDirectory 出来的 dstRoot 自身复制进来。
+                            var excludeTop = mode == "clone-from-canonical"
+                                ? new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "variants" }
+                                : null;
+                            CopyDirectoryTree(srcRoot!, dstRoot, excludeTop);
 
-                            // 替换每份 modules.json 的 summary
+                            // 复制后重写每份叶子 modules.json 的 summary——modules 是平台 reserved
+                            // kind，summary 注入是平台职责，不属 domain 耦合，保留原逻辑不动。
                             foreach (var leafId in leafZoneIds)
                             {
                                 var leafPath = _modulesWriter.ResolveModulesPath(
@@ -702,6 +684,25 @@ namespace BIMCanvas.Server.Controllers
                 return false;
             }
             return true;
+        }
+
+        /// <summary>
+        /// 递归复制目录树。excludeTopLevelDirs 仅在第一层生效（用于 clone-from-canonical 排除 variants/，
+        /// 避免把兄弟变体 / dstRoot 自身复制进来）。整树复制让变体机制 domain-agnostic：
+        /// 今后设计区下新增任何 domain 文件都自动随变体克隆，无需改这里。
+        /// </summary>
+        private static void CopyDirectoryTree(string srcDir, string dstDir, ISet<string>? excludeTopLevelDirs)
+        {
+            Directory.CreateDirectory(dstDir);
+            foreach (var file in Directory.EnumerateFiles(srcDir))
+                System.IO.File.Copy(file, Path.Combine(dstDir, Path.GetFileName(file)), overwrite: true);
+            foreach (var dir in Directory.EnumerateDirectories(srcDir))
+            {
+                var name = Path.GetFileName(dir);
+                if (excludeTopLevelDirs != null && excludeTopLevelDirs.Contains(name))
+                    continue;
+                CopyDirectoryTree(dir, Path.Combine(dstDir, name), excludeTopLevelDirs: null); // 排除仅顶层
+            }
         }
 
         /// <summary>

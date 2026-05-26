@@ -415,7 +415,7 @@ _REGISTER_VARIANT_SCHEMA = {
         "mode": {
             "type": "string",
             "enum": ["blank", "clone-from-canonical", "clone-from-variant"],
-            "description": "blank=空白;clone-from-canonical=复制 canonical 所有 modules/semantic_plan/reference_analysis;clone-from-variant=复制指定变体。",
+            "description": "blank=空白;clone-from-canonical=复制该设计区(canonical)整个子树;clone-from-variant=复制指定变体整个子树。",
         },
         "summary": {
             "type": "string",
