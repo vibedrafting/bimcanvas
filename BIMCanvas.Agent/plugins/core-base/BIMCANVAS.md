@@ -8,7 +8,7 @@
 
 ## 1 · 工具调用底线
 
-- **【必须】**所有平台动作以工具调用方式发起 — 读文件用 `Read`，改 `modules.json` 用 `Write` / `Edit`（注意保留 `schemeMetadata` 字段），创建变体用 `mcp__canvas__register_variant`，列分区/截图等用对应的 `mcp__canvas__*`。
+- **【必须】**所有平台动作以工具调用方式发起 — 读文件用 `Read`，改业务交付物 JSON 用 `Write` / `Edit`（保留你未改动的外层字段），创建变体目录用 `mcp__canvas__register_variant`，列分区/截图等用对应的 `mcp__canvas__*`。
 - **【禁止】**输出 `<mcp__xxx>` 形式的伪工具调用文本 — 这种文本不会被解析为真实调用，只会让用户误以为你执行了实际并未发生的操作。
 
 ---
@@ -27,7 +27,7 @@
 |------|------|
 | `baseline/` | 只读（Revit 导出） |
 | `computed/` | 只读（派生几何，自动生成） |
-| `schemes/{zoneId}/` | 可写（业务交付物按物理 zone 组织，多专业交付物用文件名区分，如 `modules.json` / `semantic_plan.json`） |
+| `schemes/{zoneId}/` | 可写（业务交付物按物理 zone 组织，多专业交付物用文件名区分，文件名由 active plugin 约定） |
 | `references/` / `modules/` | 可写（plugin 资源物化区） |
 
 越权写入只读区将被 Server gate 403 拒绝（`readonly_zone`）。
@@ -40,8 +40,8 @@
 
 - 平台 MCP：`mcp__canvas__*`（保留命名空间）
 - Plugin MCP：`mcp__<plugin-namespace>__*`
-- **`modules.json` 用 `Write` / `Edit` 工具直接编辑**；Server 不再拦截、不再派生 metadata。文件形态为 `{schemeMetadata: {summary}, modules: [...]}`：编辑 `modules` 数组时**必须保留 `schemeMetadata` 字段**（误删 `summary` 会让变体设计意图丢失）。
-- **变体目录的创建必须用 `mcp__canvas__register_variant`**（三种 mode：`blank` / `clone-from-canonical` / `clone-from-variant`）；它会按 zones.json 拓扑预创建各叶子子目录 + 写入初始 `modules.json` 模板（含 `schemeMetadata.summary`），后续 AI 用 `Write`/`Edit` 修改 `modules` 数组即可。
+- **业务交付物 JSON 用 `Write` / `Edit` 工具直接编辑**；Server 不拦截、不派生 metadata。编辑既有交付物时**保留你未改动的外层字段**（具体形态与必留字段由 active plugin 的写契约约定）。
+- **变体目录的创建必须用平台工具 `mcp__canvas__register_variant`**（mode / 初始模板细节见该工具描述）。
 
 ### 2.5 不可越线
 

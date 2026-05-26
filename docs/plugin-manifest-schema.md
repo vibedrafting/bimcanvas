@@ -54,7 +54,7 @@
 
 | 字段 | 类型 | 含义 |
 |---|---|---|
-| `permissions.allow` | string[] | 白名单工具名,如 `"Read"` / `"Bash(git status)"` / `"mcp__canvas__validate_layout"`。 |
+| `permissions.allow` | string[] | 白名单工具名,如 `"Read"` / `"Bash(git status)"` / `"mcp__canvas__list_project_scenes"`。 |
 | `permissions.deny` | string[] | 黑名单工具名,**deny 最后生效**(优先级高于 allow)。 |
 
 `loader.py` 动态聚合三层:用户偏好 + 本字段 + SDK 内置。
@@ -63,7 +63,7 @@
 
 | 字段 | 类型 | 含义 |
 |---|---|---|
-| `requires.platformTools` | string[] | core-base MCP 工具名集合,如 `"mcp__canvas__validate_layout"` / `"mcp__canvas__list_project_scenes"`。若声明的工具不存在,`StaticPluginValidator` 拒绝安装。 |
+| `requires.platformTools` | string[] | core-base MCP 工具名集合,如 `"mcp__canvas__load_scene_artifact"` / `"mcp__canvas__list_project_scenes"`。若声明的工具不存在,`StaticPluginValidator` 拒绝安装。 |
 
 ### 2.6 稳定性 / 成熟度
 
@@ -141,15 +141,15 @@
   "permissions": {
     "allow": [
       "Read",
-      "mcp__canvas__validate_layout",
-      "mcp__canvas__save_modules"
+      "mcp__canvas__list_project_scenes",
+      "mcp__canvas__load_scene_artifact"
     ],
     "deny": []
   },
 
   "requires": {
     "platformTools": [
-      "mcp__canvas__validate_layout",
+      "mcp__canvas__load_scene_artifact",
       "mcp__canvas__list_project_scenes"
     ]
   },

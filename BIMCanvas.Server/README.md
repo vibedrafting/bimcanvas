@@ -443,7 +443,7 @@ computed/*.json        → computed
 - `modules.json` 路径由 `schemes/zones.json` 的拓扑推导；父 zone 有 `subZones` 时，子叶子分区写入 `schemes/{parentZoneId}/{childZoneId}/modules.json`，不再按“哪个目录已存在”猜测
 - `POST /api/modules/normalize` 只处理规范路径下的 `modules.json`；错误路径不会被自动迁移或删除
 - `POST /api/validation/layout` 会报告错误路径/重复路径（如 `E013_INVALID_MODULE_FILE_PATH`、`E014_DUPLICATE_ZONE_MODULE_FILES`），并跳过错误路径中的模块，避免产生级联重叠误报
-- Agent 侧 `mcp__canvas__validate_layout` 会先调用 `/api/modules/normalize`，规范化无错误后再调用 `/api/validation/layout`
+- Agent 侧 `mcp__interior-layout__validate_layout` 会先调用 `/api/modules/normalize`，规范化无错误后再调用 `/api/validation/layout`
 - 方向归一化仍沿用 `FileSystemWatcher + SignalR` 被动刷新机制，因此 AI 直写文件后可能出现两次 reload：第一次来自 AI 写入，第二次来自 normalize 写回
 
 #### semantic_plan / reference_analysis API（v3.5+）

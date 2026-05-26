@@ -857,14 +857,19 @@ python -m src.image_generation.cli ^
 
 #### 已集成 MCP 工具（canvas）
 
-- `mcp__canvas__validate_layout`：布局编译检查
 - `mcp__canvas__request_background_screenshot`：后台截图
-- `mcp__canvas__get_zone_boundaries`：读取设计区边界语义（参数：`zoneId` 或 `zoneIds`）
-- `mcp__canvas__save_semantic_plan`：提交语义方案阶段图纸
-- `mcp__canvas__load_semantic_plan`：读取当前生效图纸
-- `mcp__canvas__save_reference_analysis`：保存独立 `reference_analysis.json` 完整版本快照
-- `mcp__canvas__load_reference_analysis`：读取最新或指定版本的参考分析
 - `mcp__canvas__analyze_image`：大模型图像理解工具（ChatGPT 后端）；`analysisMode=reference_layout` 仅用于 `generate-reference-analysis` Stage A，为“参考图分析 + 设计”工作流形成 A/B/C 素材；默认 `custom` 仅允许在 `Read` 同一图片失败并出现 `image result suppressed` 后作为兜底识图使用
+
+#### 已迁至 interior-layout plugin 命名空间（`mcp__interior-layout__*`）
+
+> 以下 6 个工具的业务已下沉到 domain plugin，命名空间由 `canvas` 迁为 `interior-layout`：
+
+- `mcp__interior-layout__validate_layout`：布局编译检查
+- `mcp__interior-layout__get_zone_boundaries`：读取设计区边界语义（参数：`zoneId` 或 `zoneIds`）
+- `mcp__interior-layout__save_semantic_plan`：提交语义方案阶段图纸
+- `mcp__interior-layout__load_semantic_plan`：读取当前生效图纸
+- `mcp__interior-layout__save_reference_analysis`：保存独立 `reference_analysis.json` 完整版本快照
+- `mcp__interior-layout__load_reference_analysis`：读取最新或指定版本的参考分析
 
 #### 后台截图 MCP 工具（request_background_screenshot）
 
