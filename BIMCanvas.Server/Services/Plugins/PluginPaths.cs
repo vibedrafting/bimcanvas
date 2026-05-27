@@ -130,4 +130,21 @@ public static class PluginPaths
 
     /// <summary>mcpNamespace 保留字 (§3.12 d) —— 不允许 plugin 占用。</summary>
     public static readonly string[] ReservedMcpNamespaces = new[] { "canvas" };
+
+    /// <summary>
+    /// 稳健删除目录:先递归清除只读属性(Git pack 文件 *.idx/*.pack 默认只读,
+    /// 否则 Directory.Delete 在 Windows 抛 UnauthorizedAccessException),再递归删除。
+    /// 目录不存在则 no-op。
+    /// </summary>
+    public static void DeleteDirectoryResilient(string path)
+    {
+        if (!Directory.Exists(path)) return;
+        foreach (var file in Directory.GetFiles(path, "*", SearchOption.AllDirectories))
+        {
+            var attrs = File.GetAttributes(file);
+            if ((attrs & FileAttributes.ReadOnly) != 0)
+                File.SetAttributes(file, attrs & ~FileAttributes.ReadOnly);
+        }
+        Directory.Delete(path, recursive: true);
+    }
 }

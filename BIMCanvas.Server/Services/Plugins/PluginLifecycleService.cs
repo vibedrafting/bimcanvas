@@ -133,7 +133,7 @@ public sealed class PluginLifecycleService
 
         if (Directory.Exists(pluginRoot))
         {
-            try { Directory.Delete(pluginRoot, recursive: true); }
+            try { PluginPaths.DeleteDirectoryResilient(pluginRoot); }
             catch (Exception ex)
             {
                 _logger.LogWarning(ex, "删除 plugin 目录失败 (将由用户手动清理): {Root}", pluginRoot);

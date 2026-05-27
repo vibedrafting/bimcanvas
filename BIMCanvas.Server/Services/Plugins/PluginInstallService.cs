@@ -112,7 +112,7 @@ public sealed class PluginInstallService
             if (Directory.Exists(targetPath))
             {
                 _logger.LogInformation("plugin '{Id}' 已存在,覆盖重装", pluginId);
-                Directory.Delete(targetPath, recursive: true);
+                PluginPaths.DeleteDirectoryResilient(targetPath);
             }
             Directory.CreateDirectory(Path.GetDirectoryName(targetPath)!);
             Directory.Move(stagingPath, targetPath);
@@ -142,8 +142,7 @@ public sealed class PluginInstallService
             // 任何失败 → 清理 staging
             try
             {
-                if (Directory.Exists(stagingPath))
-                    Directory.Delete(stagingPath, recursive: true);
+                PluginPaths.DeleteDirectoryResilient(stagingPath);
             }
             catch (Exception cleanupEx)
             {
