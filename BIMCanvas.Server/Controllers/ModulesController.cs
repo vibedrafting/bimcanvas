@@ -8,6 +8,7 @@ using BIMCanvas.Core.Models.Layout;
 using BIMCanvas.Server.Hubs;
 using BIMCanvas.Server.Models;
 using BIMCanvas.Server.Services;
+using BIMCanvas.Server.Services.PluginSecurity;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.SignalR;
 using Microsoft.Extensions.Logging;
@@ -29,6 +30,7 @@ namespace BIMCanvas.Server.Controllers
         private readonly ProjectContext _projectContext;
         private readonly IHubContext<CanvasHub> _hubContext;
         private readonly ILogger<ModulesController> _logger;
+        private readonly PluginValidatorOrchestrator _validatorOrchestrator;
 
         public ModulesController(
             ModuleLibraryService libraryService,
@@ -37,7 +39,8 @@ namespace BIMCanvas.Server.Controllers
             ModulesWriterService modulesWriter,
             ProjectContext projectContext,
             IHubContext<CanvasHub> hubContext,
-            ILogger<ModulesController> logger)
+            ILogger<ModulesController> logger,
+            PluginValidatorOrchestrator validatorOrchestrator)
         {
             _libraryService = libraryService;
             _normalizationService = normalizationService;
@@ -46,6 +49,7 @@ namespace BIMCanvas.Server.Controllers
             _projectContext = projectContext;
             _hubContext = hubContext;
             _logger = logger;
+            _validatorOrchestrator = validatorOrchestrator;
         }
 
         /// <summary>
@@ -87,7 +91,35 @@ namespace BIMCanvas.Server.Controllers
         /// POST /api/modules/normalize
         /// </summary>
         [HttpPost("normalize")]
-        public ActionResult<ModuleNormalizationReport> NormalizeModules([FromBody] NormalizeModulesRequest? request)
+        public async Task<ActionResult<ModuleNormalizationReport>> NormalizeModules([FromBody] NormalizeModulesRequest? request)
+        {
+            if (!_projectContext.IsLoaded)
+                return BadRequest(new { message = "没有加载的项目" });
+
+            var projectPath = _projectContext.GetActiveWorktreePath() ?? _projectContext.CurrentProjectPath!;
+            if (!Directory.Exists(projectPath))
+                return NotFound(new { message = $"项目目录不存在: {projectPath}" });
+
+            var zoneIdsReq = request?.ZoneIds;
+            var variantIdReq = request?.VariantId;
+            if (!string.IsNullOrWhiteSpace(variantIdReq) && (zoneIdsReq == null || zoneIdsReq.Count == 0))
+                return BadRequest(new { message = "variantId 非空时必须显式指定 zoneIds，不允许全分区扫描变体" });
+
+            try
+            {
+                var report = await _validatorOrchestrator.RunAsync("normalize", projectPath, zoneIdsReq, variantIdReq);
+                return Ok(report);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "模块数据规范化失败: {Path}", projectPath);
+                return StatusCode(500, new { message = $"模块数据规范化失败: {ex.Message}" });
+            }
+        }
+
+        // 旧 C# 规范化实现：包A 已委派插件 validators 脚本，本方法保留为 parity 对照，
+        // 待用户验收一致后由「任务8」删除。
+        private ActionResult<ModuleNormalizationReport> NormalizeModulesLegacy([FromBody] NormalizeModulesRequest? request)
         {
             if (!_projectContext.IsLoaded)
                 return BadRequest(new { message = "没有加载的项目" });

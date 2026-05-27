@@ -14,6 +14,7 @@ using BIMCanvas.Core.Models.Semantic;
 using BIMCanvas.Core.Validation;
 using BIMCanvas.Server.Hubs;
 using BIMCanvas.Server.Services;
+using BIMCanvas.Server.Services.PluginSecurity;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.SignalR;
 using Microsoft.Extensions.Logging;
@@ -35,6 +36,7 @@ namespace BIMCanvas.Server.Controllers
         private readonly ModuleLibraryService _moduleLibraryService;
         private readonly ModuleFileTopologyService _moduleFileTopologyService;
         private readonly ModuleNormalizationService _normalizationService;
+        private readonly PluginValidatorOrchestrator _validatorOrchestrator;
         private readonly JsonSerializerSettings _jsonSettings;
 
         public ValidationController(
@@ -44,7 +46,8 @@ namespace BIMCanvas.Server.Controllers
             IHubContext<CanvasHub> hubContext,
             ModuleLibraryService moduleLibraryService,
             ModuleFileTopologyService moduleFileTopologyService,
-            ModuleNormalizationService normalizationService)
+            ModuleNormalizationService normalizationService,
+            PluginValidatorOrchestrator validatorOrchestrator)
         {
             _logger = logger;
             _projectContext = projectContext;
@@ -53,6 +56,7 @@ namespace BIMCanvas.Server.Controllers
             _moduleLibraryService = moduleLibraryService;
             _moduleFileTopologyService = moduleFileTopologyService;
             _normalizationService = normalizationService;
+            _validatorOrchestrator = validatorOrchestrator;
             _jsonSettings = new JsonSerializerSettings
             {
                 ContractResolver = new DefaultContractResolver { NamingStrategy = new CamelCaseNamingStrategy() },
@@ -69,7 +73,36 @@ namespace BIMCanvas.Server.Controllers
         /// 可选 zoneIds 参数：仅验证指定分区内的模块
         /// </summary>
         [HttpPost("layout")]
-        public ActionResult<SchemeValidationReport> ValidateLayout([FromBody] ValidateLayoutRequest? request)
+        public async Task<ActionResult<SchemeValidationReport>> ValidateLayout([FromBody] ValidateLayoutRequest? request)
+        {
+            if (!_projectContext.IsLoaded)
+                return BadRequest(new { message = "没有加载的项目" });
+
+            var projectPath = _projectContext.GetActiveWorktreePath() ?? _projectContext.CurrentProjectPath!;
+            if (!Directory.Exists(projectPath))
+                return NotFound(new { message = $"项目目录不存在: {projectPath}" });
+
+            var zoneIdsReq = request?.ZoneIds;
+            var variantIdReq = request?.VariantId;
+            if (!string.IsNullOrWhiteSpace(variantIdReq) && (zoneIdsReq == null || zoneIdsReq.Count == 0))
+                return BadRequest(new { message = "variantId 非空时必须显式指定 zoneIds，不允许全分区扫描变体" });
+
+            try
+            {
+                _logger.LogInformation("[Validation] 委派校验脚本: {Path}", projectPath);
+                var report = await _validatorOrchestrator.RunAsync("validate", projectPath, zoneIdsReq, variantIdReq);
+                return Ok(report);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "[Validation] 验证失败: {Path}", projectPath);
+                return StatusCode(500, new { message = $"验证失败: {ex.Message}" });
+            }
+        }
+
+        // 旧 C# 校验实现：包A 已把逻辑委派给插件 validators 脚本，本方法保留为 parity 对照，
+        // 待用户端到端验收一致后由「任务8」删除（连同其私有 helper + SchemeValidator）。
+        private ActionResult<SchemeValidationReport> ValidateLayoutLegacy([FromBody] ValidateLayoutRequest? request)
         {
             if (!_projectContext.IsLoaded)
             {

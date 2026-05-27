@@ -221,6 +221,7 @@ builder.Services.AddSingleton(sp => new BIMCanvas.Server.Services.PluginSecurity
     sp.GetRequiredService<Microsoft.Extensions.Logging.ILogger<BIMCanvas.Server.Services.PluginSecurity.PluginValidatorRuntime>>(),
     agentProjectPath,
     sp.GetRequiredService<BIMCanvas.Server.Services.Plugins.PluginTrustService>()));
+builder.Services.AddSingleton<BIMCanvas.Server.Services.PluginSecurity.PluginValidatorOrchestrator>();
 builder.Services.AddSingleton<BIMCanvas.Server.Services.Plugins.PluginInstallService>();
 builder.Services.AddSingleton<BIMCanvas.Server.Services.Plugins.PluginLifecycleService>();
 builder.Services.AddSingleton<BIMCanvas.Server.Services.Plugins.PluginScaffoldService>();

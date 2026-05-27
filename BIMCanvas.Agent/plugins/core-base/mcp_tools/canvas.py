@@ -1,10 +1,12 @@
 """core-base plugin MCP 工具入口 (v3.4)。
 
-8 个工具通过 register(builder) 范式注册:
+9 个工具通过 register(builder) 范式注册:
 - 4 个通用 BIM 能力:request_background_screenshot / register_variant /
   list_variants / analyze_image
 - 2 个 Git Worktree + 通知:create_job / complete_job
 - 2 个跨 scene 元数据 + 只读 artifact:list_project_scenes / load_scene_artifact
+- 1 个校验 dispatch:validate_layout(包A 迁回平台:本身是通用"触发校验"派发,
+  domain 校验逻辑在当前 active plugin 的 validators 脚本里,经 Server 端点委派执行)
 
 合并自旧 BIMCanvas.Agent/src/mcp/{canvas.py, canvas_core.py} (v3.4 前位置)。
 改造要点:
@@ -506,8 +508,168 @@ _LOAD_SCENE_ARTIFACT_SCHEMA = {
 }
 
 
+def _format_validation_report(report: dict[str, Any]) -> str:
+    """将 SchemeValidationReport JSON 格式化为 AI 友好文本（通用渲染，按 code 分组）。"""
+    total = report.get("totalModules", 0)
+    error_count = report.get("errorCount", 0)
+    warning_count = report.get("warningCount", 0)
+    elapsed = report.get("elapsedMs", 0)
+    diagnostics = report.get("diagnostics", [])
+
+    if report.get("isValid", True) and error_count == 0:
+        if warning_count > 0:
+            header = f"=== 布局验证通过({warning_count} 个警告)==="
+            summary = f"共 {total} 个模块,0 个错误,{warning_count} 个警告 ({elapsed}ms)"
+        else:
+            return f"=== 布局验证通过 ===\n共 {total} 个模块,0 个错误 ({elapsed}ms)"
+        lines = [header, summary, ""]
+    else:
+        lines = [
+            "=== 布局验证失败 ===",
+            f"共 {total} 个模块,{error_count} 个错误,{warning_count} 个警告 ({elapsed}ms)",
+            "",
+        ]
+
+    by_code: dict[str, list[dict[str, Any]]] = {}
+    for d in diagnostics:
+        code = d.get("code", "UNKNOWN")
+        by_code.setdefault(code, []).append(d)
+
+    _reverse_dir = {"north": "south", "south": "north", "east": "west", "west": "east"}
+    _dir_cn = {"north": "北", "south": "南", "east": "东", "west": "西"}
+
+    for code, diags in by_code.items():
+        errors_in_group = sum(1 for d in diags if d.get("severity") == "error")
+        warnings_in_group = sum(1 for d in diags if d.get("severity") == "warning")
+        count_parts = []
+        if errors_in_group > 0:
+            count_parts.append(f"{errors_in_group} 个错误")
+        if warnings_in_group > 0:
+            count_parts.append(f"{warnings_in_group} 个警告")
+        count_label = ",".join(count_parts) if count_parts else f"{len(diags)} 个"
+        lines.append(f"--- {code} ({count_label}) ---")
+
+        for d in diags:
+            severity = d.get("severity", "error")
+            prefix = "⚠" if severity == "warning" else "✗"
+            module_id = d.get("moduleId", "?")
+            module_name = d.get("moduleName")
+            name_part = f" ({module_name})" if module_name else ""
+            conflict_id = d.get("conflictId")
+            conflict_type = d.get("conflictType")
+            if conflict_id and conflict_type:
+                if conflict_type == "module":
+                    base_line = f"  {prefix} {module_id}{name_part} ↔ {conflict_type}:{conflict_id}"
+                else:
+                    base_line = f"  {prefix} {module_id}{name_part} ← {conflict_type}:{conflict_id}"
+            else:
+                base_line = f"  {prefix} {module_id}{name_part}"
+
+            msg = d.get("message")
+            if msg:
+                base_line += f"\n    → {msg}"
+
+            penetration = d.get("penetrationDepthMm")
+            direction = d.get("penetrationDirection")
+            area = d.get("overlapAreaMm2")
+            if penetration is not None and direction is not None and penetration > 0:
+                fix_dir = _reverse_dir.get(direction, direction)
+                fix_cn = _dir_cn.get(fix_dir, fix_dir)
+                action = "建议" if severity == "warning" else "修正"
+                hint = f" | {action}:向{fix_cn}移动 {penetration}mm"
+                if area is not None:
+                    hint += f"(重叠 {area}mm²)"
+                base_line += hint
+
+            lines.append(base_line)
+        lines.append("")
+
+    return "\n".join(lines)
+
+
+def _format_normalization_report(report: dict[str, Any]) -> str:
+    """将 ModuleNormalizationReport JSON 格式化为 AI 友好文本（通用渲染）。"""
+    total = report.get("totalModules", 0)
+    normalized_count = report.get("normalizedCount", 0)
+    error_count = report.get("errorCount", 0)
+    warning_count = report.get("warningCount", 0)
+    elapsed = report.get("elapsedMs", 0)
+    diagnostics = report.get("diagnostics", [])
+
+    if report.get("isValid", True) and error_count == 0:
+        if warning_count > 0:
+            lines = [
+                f"=== 模块数据规范化完成({warning_count} 个警告)===",
+                f"共 {total} 个模块,规范化 {normalized_count} 个,0 个错误,{warning_count} 个警告 ({elapsed}ms)",
+                "",
+            ]
+        else:
+            return f"=== 模块数据规范化完成 ===\n共 {total} 个模块,规范化 {normalized_count} 个,0 个错误 ({elapsed}ms)"
+    else:
+        lines = [
+            "=== 模块数据规范化失败 ===",
+            f"共 {total} 个模块,规范化 {normalized_count} 个,{error_count} 个错误,{warning_count} 个警告 ({elapsed}ms)",
+            "",
+        ]
+
+    by_code: dict[str, list[dict[str, Any]]] = {}
+    for d in diagnostics:
+        code = d.get("code", "UNKNOWN")
+        by_code.setdefault(code, []).append(d)
+
+    for code, diags in by_code.items():
+        errors_in_group = sum(1 for d in diags if d.get("severity") == "error")
+        warnings_in_group = sum(1 for d in diags if d.get("severity") == "warning")
+        count_parts = []
+        if errors_in_group > 0:
+            count_parts.append(f"{errors_in_group} 个错误")
+        if warnings_in_group > 0:
+            count_parts.append(f"{warnings_in_group} 个警告")
+        count_label = ",".join(count_parts) if count_parts else f"{len(diags)} 个"
+        lines.append(f"--- {code} ({count_label}) ---")
+
+        for d in diags:
+            severity = d.get("severity", "error")
+            prefix = "⚠" if severity == "warning" else "✗"
+            module_id = d.get("moduleId", "?")
+            module_name = d.get("moduleName")
+            name_part = f" ({module_name})" if module_name else ""
+            line = f"  {prefix} {module_id}{name_part}"
+            msg = d.get("message")
+            if msg:
+                line += f"\n    → {msg}"
+            lines.append(line)
+        lines.append("")
+
+    return "\n".join(lines)
+
+
+_VALIDATE_LAYOUT_DESC = (
+    "验证当前激活插件方案数据的布局合法性(布局编译器)。本工具是通用的「触发校验」派发:"
+    "委派当前 active plugin 的校验脚本——先做数据规范化,规范化无错误后再检查结构与碰撞"
+    "(如越界 / 与墙·柱·禁区重叠 / 元素间重叠等;具体规则由当前插件定义)。"
+    "可选 zoneIds 仅验证指定分区;可选 variantId 验证非 canonical 变体,必须与非空 zoneIds 同时提供。"
+)
+_VALIDATE_LAYOUT_SCHEMA = {
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "type": "object",
+    "properties": {
+        "zoneIds": {
+            "type": "array",
+            "items": {"type": "string"},
+            "description": "可选。仅验证这些分区内的元素(如 [\"rz_1\", \"dz_2\"])。不传则验证全部。",
+        },
+        "variantId": {
+            "type": "string",
+            "description": "可选。验证非 canonical 变体(仅变体探索场景用,常规验证留空)。非空时必须与非空 zoneIds 同时提供。",
+        },
+    },
+    "additionalProperties": False,
+}
+
+
 # ============================================================
-# register(builder) — 平台调用入口,8 个工具的注册地
+# register(builder) — 平台调用入口,9 个工具的注册地
 # ============================================================
 
 def register(builder: McpServerBuilder) -> None:
@@ -1050,3 +1212,50 @@ def register(builder: McpServerBuilder) -> None:
                 "content": [{"type": "text", "text": f"调用失败: {type(exc).__name__}: {exc}"}],
                 "is_error": True,
             }
+
+    # ---------- validate_layout（包A：迁回平台，委派 active plugin 校验脚本）----------
+    @builder.tool("validate_layout", _VALIDATE_LAYOUT_DESC, _VALIDATE_LAYOUT_SCHEMA)
+    async def validate_layout(args: dict[str, Any]) -> dict[str, Any]:
+        """触发校验：先调 /api/modules/normalize 规范化，无错后调 /api/validation/layout。
+        两端点内部委派当前 active plugin 的 validators 脚本。"""
+        zone_ids = args.get("zoneIds")
+        variant_id = args.get("variantId")
+        if variant_id and not zone_ids:
+            return {
+                "content": [{"type": "text", "text": "validate_layout 错误: variantId 非空时必须显式指定 zoneIds（不允许全分区扫描变体）"}],
+                "is_error": True,
+            }
+        body: dict[str, Any] = {}
+        if zone_ids:
+            body["zoneIds"] = zone_ids
+        if variant_id:
+            body["variantId"] = variant_id
+
+        try:
+            async with ctx.session.post(f"{ctx.server_url}/api/modules/normalize", json=body) as resp:
+                if resp.status != 200:
+                    try:
+                        error_data = await resp.json()
+                        error_msg = error_data.get("message", f"HTTP {resp.status}")
+                    except Exception:
+                        error_msg = await resp.text()
+                    return {"content": [{"type": "text", "text": f"规范化请求失败: {error_msg}"}], "is_error": True}
+
+                normalize_report = await resp.json()
+                if normalize_report.get("errorCount", 0) > 0:
+                    return {"content": [{"type": "text", "text": _format_normalization_report(normalize_report)}], "is_error": True}
+
+            async with ctx.session.post(f"{ctx.server_url}/api/validation/layout", json=body) as resp:
+                if resp.status != 200:
+                    try:
+                        error_data = await resp.json()
+                        error_msg = error_data.get("message", f"HTTP {resp.status}")
+                    except Exception:
+                        error_msg = await resp.text()
+                    return {"content": [{"type": "text", "text": f"验证请求失败: {error_msg}"}], "is_error": True}
+
+                report = await resp.json()
+                return {"content": [{"type": "text", "text": _format_validation_report(report)}]}
+
+        except aiohttp.ClientError as e:
+            return {"content": [{"type": "text", "text": f"无法连接 Server: {e}"}], "is_error": True}

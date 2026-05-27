@@ -864,7 +864,7 @@ python -m src.image_generation.cli ^
 
 > 以下 6 个工具的业务已下沉到 domain plugin，命名空间由 `canvas` 迁为 `interior-layout`：
 
-- `mcp__interior-layout__validate_layout`：布局编译检查
+- `mcp__canvas__validate_layout`：布局编译检查
 - `mcp__interior-layout__get_zone_boundaries`：读取设计区边界语义（参数：`zoneId` 或 `zoneIds`）
 - `mcp__interior-layout__save_semantic_plan`：提交语义方案阶段图纸
 - `mcp__interior-layout__load_semantic_plan`：读取当前生效图纸

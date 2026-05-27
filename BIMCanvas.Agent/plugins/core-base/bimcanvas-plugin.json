@@ -26,7 +26,8 @@
       "mcp__canvas__create_job",
       "mcp__canvas__complete_job",
       "mcp__canvas__list_project_scenes",
-      "mcp__canvas__load_scene_artifact"
+      "mcp__canvas__load_scene_artifact",
+      "mcp__canvas__validate_layout"
     ],
     "deny": []
   },

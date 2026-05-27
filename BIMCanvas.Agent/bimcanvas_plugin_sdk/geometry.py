@@ -22,6 +22,8 @@ from typing import Optional, Sequence
 
 from shapely.geometry import Polygon
 
+# 多边形入参：可为简单外环 [[x,y], ...]，或带孔形态 {"shell": [[x,y],...], "holes": [[[x,y],...],...]}
+# （与 C# Polygon2D / Polygon2DConverter 的两种 JSON 形态一一对应）
 Vertices = Sequence[Sequence[float]]
 
 # 与 C# CollisionDetector / ComputeOverlapInfo 常量逐位对齐
@@ -153,8 +155,22 @@ def _normalize(v: tuple) -> tuple:
     return (v[0] / length, v[1] / length)
 
 
-def _to_polygon(verts: Vertices) -> Polygon:
-    return Polygon([(float(p[0]), float(p[1])) for p in verts])
+def _coerce_rings(poly):
+    """把多边形入参规整为 (shell, holes)。
+
+    接受简单外环 [[x,y],...] 或带孔 dict {"shell":[...], "holes":[[...],...]}。
+    """
+    if isinstance(poly, dict):
+        return poly.get("shell") or [], poly.get("holes") or []
+    return poly, []
+
+
+def _to_polygon(poly: Vertices) -> Polygon:
+    shell, holes = _coerce_rings(poly)
+    return Polygon(
+        [(float(p[0]), float(p[1])) for p in shell],
+        [[(float(p[0]), float(p[1])) for p in h] for h in holes],
+    )
 
 
 def _iter_geometries(geom):
@@ -164,7 +180,8 @@ def _iter_geometries(geom):
     return [geom]
 
 
-def _aabb(verts: Vertices) -> tuple:
-    xs = [float(p[0]) for p in verts]
-    ys = [float(p[1]) for p in verts]
+def _aabb(poly: Vertices) -> tuple:
+    shell, _ = _coerce_rings(poly)
+    xs = [float(p[0]) for p in shell]
+    ys = [float(p[1]) for p in shell]
     return min(xs), min(ys), max(xs), max(ys)
