@@ -3,7 +3,7 @@
 协议（包A · 2026-05-27 决议）：
 - argv[1] = pluginRoot（active plugin 绝对路径）
 - argv[2] = entry（plugin validators 入口 .py 绝对路径）
-- stdin   = 请求 JSON：{mode, projectPath, zoneIds?, variantId?, ...}
+- stdin   = 请求 JSON（UTF-8）：{mode, projectPath, zoneIds?, variantId?, ...}
 - stdout  = 单行 JSON 信封：{ok: true, result: {...}} 或 {ok: false, error, type, traceback}
 
 host 仅做 importlib 加载 + 调用 entry.run(request)；具体校验/规范化逻辑全在 plugin
@@ -41,6 +41,8 @@ def _main() -> int:
 
     try:
         raw = sys.stdin.read()
+        if raw:
+            raw = raw.lstrip("﻿")  # 容错：剥离可能的 BOM，防 json.loads 在前导 BOM 上失败
         request = json.loads(raw) if raw and raw.strip() else {}
     except Exception as e:  # noqa: BLE001
         _emit(real_stdout, {"ok": False, "error": f"请求 JSON 解析失败: {e}"})

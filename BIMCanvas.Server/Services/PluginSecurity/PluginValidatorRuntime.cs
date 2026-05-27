@@ -93,6 +93,9 @@ public sealed class PluginValidatorRuntime
             RedirectStandardError = true,
             UseShellExecute = false,
             CreateNoWindow = true,
+            // stdin 显式 UTF-8（无 BOM）：否则 Windows 默认用系统 ANSI(GBK)写 stdin，
+            // 而子进程 PYTHONIOENCODING=utf-8 按 UTF-8 读 → 中文项目路径解码失败（0xbd 非法起始字节）。
+            StandardInputEncoding = new UTF8Encoding(encoderShouldEmitUTF8Identifier: false),
             StandardOutputEncoding = Encoding.UTF8,
             StandardErrorEncoding = Encoding.UTF8,
         };
