@@ -21,6 +21,7 @@ Phase 1 稳定承诺 (主真理源 §7.4):
 - 新字段加 Phase 2
 """
 
+from . import geometry
 from .builder import McpServerBuilder
 from .context import PluginContext
 from .exceptions import (
@@ -32,6 +33,7 @@ from .exceptions import (
 __all__ = [
     "McpServerBuilder",
     "PluginContext",
+    "geometry",
     "LaunchContextError",
     "PluginManifestError",
     "PluginRegisterError",

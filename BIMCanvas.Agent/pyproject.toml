@@ -12,6 +12,7 @@ dependencies = [
     "Pillow>=10.4.0",           # 图片标准化（缩放 / 降采样 / 格式兜底）
     "python-dotenv>=1.0.0",     # Environment variables
     "pyyaml>=6.0",              # SKILL.md frontmatter parsing
+    "shapely>=2.0.0",           # 平台几何原语（bimcanvas_plugin_sdk.geometry，供插件校验脚本）
 ]
 
 [project.optional-dependencies]

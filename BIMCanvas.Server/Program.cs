@@ -216,6 +216,11 @@ builder.Services.AddSingleton(sp => new BIMCanvas.Server.Services.PluginSecurity
     sp.GetRequiredService<Microsoft.Extensions.Logging.ILogger<BIMCanvas.Server.Services.PluginSecurity.ExecutablePluginProbe>>(),
     agentProjectPath));
 builder.Services.AddSingleton<BIMCanvas.Server.Services.Plugins.PluginTrustService>();
+// 包A · 按需调用 active plugin 的 validators/ 校验脚本（与 ExecutablePluginProbe 对称：注入 Agent 根）
+builder.Services.AddSingleton(sp => new BIMCanvas.Server.Services.PluginSecurity.PluginValidatorRuntime(
+    sp.GetRequiredService<Microsoft.Extensions.Logging.ILogger<BIMCanvas.Server.Services.PluginSecurity.PluginValidatorRuntime>>(),
+    agentProjectPath,
+    sp.GetRequiredService<BIMCanvas.Server.Services.Plugins.PluginTrustService>()));
 builder.Services.AddSingleton<BIMCanvas.Server.Services.Plugins.PluginInstallService>();
 builder.Services.AddSingleton<BIMCanvas.Server.Services.Plugins.PluginLifecycleService>();
 builder.Services.AddSingleton<BIMCanvas.Server.Services.Plugins.PluginScaffoldService>();
