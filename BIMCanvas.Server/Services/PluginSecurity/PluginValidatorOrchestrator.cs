@@ -75,7 +75,9 @@ public sealed class PluginValidatorOrchestrator
     private async Task PersistWritebackAsync(string projectPath, JArray? writeback)
     {
         if (writeback == null) return;
-        var projectFull = Path.GetFullPath(projectPath);
+        var projectFull = Path.GetFullPath(projectPath)
+            .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+        var projectPrefix = projectFull + Path.DirectorySeparatorChar;
 
         foreach (var entry in writeback.OfType<JObject>())
         {
@@ -83,8 +85,10 @@ public sealed class PluginValidatorOrchestrator
             if (string.IsNullOrWhiteSpace(rel)) continue;
 
             var abs = Path.GetFullPath(Path.Combine(projectPath, rel));
-            // 防穿越：必须落在项目目录下
-            if (!abs.StartsWith(projectFull, StringComparison.OrdinalIgnoreCase))
+            // 防穿越：必须严格落在项目目录内（带分隔符前缀，挡 sibling 目录如 {project}-evil；
+            // 写 gate 只拦 baseline/computed，挡不住 ../ 逃出 project，故此处是首道防线）
+            if (!abs.Equals(projectFull, StringComparison.OrdinalIgnoreCase)
+                && !abs.StartsWith(projectPrefix, StringComparison.OrdinalIgnoreCase))
             {
                 _logger.LogWarning("[ValidatorWriteback] 跳过越界回写路径: {Rel}", rel);
                 continue;

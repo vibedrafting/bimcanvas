@@ -80,9 +80,13 @@ public sealed class PluginValidatorRuntime
         request["mode"] = mode;
         var requestJson = request.ToString(Formatting.None);
 
+        // FileName 用 PATH 上的 "python"（与 ExecutablePluginProbe / Program.cs 启动 Agent 一致）。
+        // 部署要求：该 python 必须是装了 Agent 依赖（含 validators 脚本所需的 shapely）的环境；
+        // 否则脚本 import 失败 → 本方法抛 PluginValidatorException（错误信息含 ModuleNotFoundError），
+        // Web/Agent 收到 500 + 明确原因。若将来需显式指定 venv 解释器，应与 Agent 启动入口一并统一。
         var psi = new ProcessStartInfo
         {
-            FileName = "python", // 与 ExecutablePluginProbe / Program.cs 启动 Agent 保持一致
+            FileName = "python",
             WorkingDirectory = _agentProjectPath,
             RedirectStandardInput = true,
             RedirectStandardOutput = true,
