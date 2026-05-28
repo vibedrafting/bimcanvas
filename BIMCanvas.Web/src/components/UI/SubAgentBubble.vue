@@ -83,6 +83,44 @@ const typeLabel = computed(() => {
   return t === 'general-purpose' ? 'TASK' : String(t).toUpperCase();
 });
 
+// === WP-Web: SubAgent 进度摘要(消费后端 subtask.progress event)===
+const formatTokens = (n: number | undefined): string | null => {
+  if (typeof n !== 'number' || !isFinite(n)) return null;
+  if (n < 1000) return String(n);
+  if (n < 1_000_000) return `${(n / 1000).toFixed(1)}k`;
+  return `${(n / 1_000_000).toFixed(1)}M`;
+};
+
+const formatDurationMs = (ms: number | undefined): string | null => {
+  if (typeof ms !== 'number' || !isFinite(ms) || ms < 0) return null;
+  if (ms < 1000) return `${ms}ms`;
+  if (ms < 60_000) return `${(ms / 1000).toFixed(1)}s`;
+  const min = Math.floor(ms / 60_000);
+  const sec = Math.round((ms % 60_000) / 1000);
+  return `${min}m${sec}s`;
+};
+
+const progressSummary = computed<string | null>(() => {
+  const prog = props.bubble.subAgentProgress;
+  if (!prog) return null;
+  const parts: string[] = [];
+  if (prog.lastToolName) parts.push(prog.lastToolName);
+  if (prog.usage) {
+    const stats: string[] = [];
+    const tokens = formatTokens(prog.usage.totalTokens);
+    if (tokens) stats.push(`${tokens}🔤`);
+    if (typeof prog.usage.toolUses === 'number') stats.push(`${prog.usage.toolUses}🔧`);
+    const dur = formatDurationMs(prog.usage.durationMs);
+    if (dur) stats.push(dur);
+    if (stats.length) parts.push(stats.join(' / '));
+  }
+  return parts.length > 0 ? parts.join(' · ') : null;
+});
+
+const progressDescription = computed<string | null>(() =>
+  props.bubble.subAgentProgress?.description ?? null
+);
+
 
 // 工具列表展开状态
 const isToolListExpanded = ref(false);
@@ -147,6 +185,13 @@ const toggleToolList = () => {
           <span class="agent-type">{{ typeLabel }}</span>
           <span class="meta-divider" v-if="durationDisplay">·</span>
           <span class="agent-time" v-if="durationDisplay">{{ durationDisplay }}</span>
+          <!-- WP-Web: SubAgent 进度摘要(消费 subtask.progress event,description 走 hover tooltip) -->
+          <span class="meta-divider" v-if="progressSummary">·</span>
+          <span
+            class="agent-progress"
+            v-if="progressSummary"
+            :title="progressDescription || undefined"
+          >{{ progressSummary }}</span>
         </div>
         <svg class="chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
           <polyline points="6 9 12 15 18 9"></polyline>
@@ -304,6 +349,19 @@ const toggleToolList = () => {
   color: var(--text-tertiary);
   font-family: var(--font-mono);
   opacity: 0.8;
+}
+
+/* WP-Web: subtask.progress 摘要 — 跟 .agent-time 视觉同级 */
+.agent-progress {
+  font-size: 0.7rem;
+  color: var(--text-tertiary);
+  font-family: var(--font-mono);
+  opacity: 0.85;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 280px;
+  cursor: help;
 }
 
 .chevron {

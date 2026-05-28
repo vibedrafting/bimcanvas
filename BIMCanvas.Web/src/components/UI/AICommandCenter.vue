@@ -23,6 +23,7 @@ import ToolCallBubble from './ToolCallBubble.vue';
 import TodoProgressPanel from './TodoProgressPanel.vue';
 import SubAgentBubble from './SubAgentBubble.vue';
 import QuestionBubble from './QuestionBubble.vue';
+import RateLimitBanner from './RateLimitBanner.vue';
 import WaitingIndicator from './WaitingIndicator.vue';
 import TaskSummaryWidget from './TaskSummaryWidget.vue';
 import MarkdownText from './base/MarkdownText.vue';
@@ -1362,6 +1363,8 @@ watch(chatScrollRef, (newEl, oldEl) => {
 
         <!-- Antigravity Input Box -->
         <div class="antigravity-input-box">
+            <!-- WP-Web: RateLimit 全局徽章(消费后端 runtime.rate_limit event;allowed 时不渲染) -->
+            <RateLimitBanner />
             <div class="queued-message-card" v-if="activeQueuedMessage">
               <div class="queued-message-main" :title="`等待发送：${queuedMessagePreview}`">
                 <span class="queued-message-status">等待发送</span>

@@ -17,6 +17,7 @@ import type { WaitingState, ChatBubble, ChatHistoryEntry, ChatHistoryResponse, I
 import { ProjectService } from '../../services/ProjectService';
 import { ChatAttachmentService, createDraftMessageId } from '../../services/ChatAttachmentService';
 import { getChatHistoryService } from '../../services/ChatHistoryService';
+import { useSystemStore } from '../../stores/systemStore';
 import {
   createTextBubble,
   createToolCallBubble,
@@ -70,6 +71,9 @@ const LEGACY_EVENT_TYPE_MAP: Record<string, string> = {
   text_complete: 'text.completed',
   subagent_start: 'subtask.started',
   subagent_complete: 'subtask.completed',
+  // WP-Web: SDK 0.2.87 TaskProgressMessage / RateLimitEvent
+  subagent_progress: 'subtask.progress',
+  rate_limit: 'runtime.rate_limit',
   tool_call_start: 'tool.started',
   tool_call_output: 'tool.output',
   tool_call_complete: 'tool.completed'
@@ -81,11 +85,13 @@ const ASSISTANT_EVENT_TYPES = new Set([
   'text.completed',
   'subtask.started',
   'subtask.completed',
+  'subtask.progress',
   'tool.started',
   'tool.output',
   'tool.completed',
   'turn.completed',
-  'turn.failed'
+  'turn.failed',
+  'runtime.rate_limit'
 ]);
 const STREAM_DELTA_EVENT_TYPES = new Set(['text.delta', 'thinking.delta']);
 const HISTORY_POLL_INTERVAL_MS = 1000;
@@ -226,8 +232,43 @@ const buildLegacyPayload = (raw: Record<string, any>, eventType: string): Stream
         errorType: raw.errorType,
         error: raw.error
       };
+    case 'subtask.progress':
+      // WP-Web: legacy 降级路径(modern path 优先,后端 main_stream.py 已透传同名字段)
+      return {
+        taskId: raw.taskId,
+        description: raw.content,
+        lastToolName: raw.toolName,
+        usage: raw.usage,
+        parentSubtaskId: raw.parentSubtaskId
+      };
+    case 'runtime.rate_limit':
+      // WP-Web: RateLimitEvent legacy fallback;raw.extra 在 caba1772 已加入 legacy 白名单
+      return {
+        status: raw.content,
+        ...(raw.extra ?? {})
+      };
     default:
       return {};
+  }
+};
+
+/**
+ * 后端 SSE turn.failed event 的 error.code → 用户文案映射(WP-Web)。
+ * SDK 0.2.87 ResultMessage.api_error_status 在后端 _build_recorded_runtime_failure
+ * 分级为 RATE_LIMITED / CLIENT_ERROR / UPSTREAM_ERROR / PROVIDER_SDK_ERROR。
+ * 注意:此函数仅用于 SSE 路径,HTTP 错误走 mapChatError(语义不同,不可混用)。
+ */
+const mapTurnFailedError = (code: string | undefined, fallbackMessage: string | undefined): string => {
+  switch (code) {
+    case 'RATE_LIMITED':
+      return '请求过于频繁，请稍后重试。';
+    case 'CLIENT_ERROR':
+      return '请求格式有误，请检查输入后重试。';
+    case 'UPSTREAM_ERROR':
+      return 'AI 服务暂时不可用，请稍后重试。';
+    case 'PROVIDER_SDK_ERROR':
+    default:
+      return fallbackMessage || '本轮对话失败，请稍后重试。';
   }
 };
 
@@ -258,6 +299,8 @@ const normalizeStreamEvent = (value: unknown): NormalizedStreamEvent | null => {
 };
 
 export const useChatStream = (options: ChatStreamOptions) => {
+  // WP-Web: RateLimitEvent 全局状态走 systemStore;按 Pinia 模式可在 composable 内直接 useStore
+  const systemStore = useSystemStore();
   const agentStatus = ref<'connecting' | 'connected' | 'disconnected'>('disconnected');
   const currentProjectPath = ref('');
   const isPollingBackground = ref(false);
@@ -703,6 +746,45 @@ export const useChatStream = (options: ChatStreamOptions) => {
         }
         break;
       }
+      case 'subtask.progress': {
+        // WP-Web: SDK 0.2.87 TaskProgressMessage 进度更新,渲染到 SubAgentBubble 头部 meta-right
+        const subtaskId = getString(raw.subtaskId) ?? getString(raw.subAgentId);
+        if (!subtaskId) {
+          break;
+        }
+        const subAgentBubble = findBubbleByIdDeep(currentMsg.bubbles, subtaskId);
+        if (!subAgentBubble || subAgentBubble.type !== 'subagent') {
+          break;
+        }
+        const usageRaw = getObject(payload.usage) ?? getObject(raw.usage);
+        const usage = usageRaw ? {
+          totalTokens: typeof usageRaw.total_tokens === 'number' ? usageRaw.total_tokens : undefined,
+          toolUses: typeof usageRaw.tool_uses === 'number' ? usageRaw.tool_uses : undefined,
+          durationMs: typeof usageRaw.duration_ms === 'number' ? usageRaw.duration_ms : undefined
+        } : undefined;
+        subAgentBubble.subAgentProgress = {
+          description: getString(payload.description) ?? getString(raw.content),
+          lastToolName: getString(payload.lastToolName) ?? getString(raw.toolName),
+          usage
+        };
+        break;
+      }
+      case 'runtime.rate_limit': {
+        // WP-Web: SDK 0.2.87 RateLimitEvent 全局状态徽章
+        const status = getString(payload.status) ?? getString(raw.content);
+        if (!status) {
+          break;
+        }
+        systemStore.setRateLimitState({
+          status,
+          rateLimitType: getString(payload.rateLimitType) ?? getString(raw.rateLimitType),
+          utilization: typeof payload.utilization === 'number' ? payload.utilization
+            : typeof raw.utilization === 'number' ? raw.utilization : undefined,
+          resetsAt: typeof payload.resetsAt === 'number' ? payload.resetsAt
+            : typeof raw.resetsAt === 'number' ? raw.resetsAt : undefined
+        });
+        break;
+      }
       case 'tool.started': {
         exitWaitingState(currentMsg.waitingState);
         collapseLastThinkingBubble(currentMsg.bubbles);
@@ -835,20 +917,28 @@ export const useChatStream = (options: ChatStreamOptions) => {
       }
       case 'turn.failed': {
         finalizeStreamingMessage(currentMsg);
+        // WP-Web: 读后端 WP-1 新增的 error.code(RATE_LIMITED / CLIENT_ERROR / UPSTREAM_ERROR / PROVIDER_SDK_ERROR)
+        // 与 error.details.httpStatus,按 code 给用户视角文案;httpStatus 仅供 console 诊断。
+        const errorObj = getObject(payload.error);
+        const errorCode = getString(errorObj?.code);
+        const errorMessageRaw = getString(errorObj?.message) ?? getString(raw.error);
+        const httpStatus = typeof errorObj?.details?.httpStatus === 'number' ? errorObj.details.httpStatus : undefined;
+        if (errorCode || httpStatus !== undefined) {
+          console.warn('[turn.failed]', { code: errorCode, httpStatus, message: errorMessageRaw });
+        }
+        const userMessage = mapTurnFailedError(errorCode, errorMessageRaw);
+
         const eventTurnId = getEventTurnId(normalizedEvent);
         const todoTurnId = windowState?.todoProgress?.turnId;
         if (!!eventTurnId && todoTurnId === eventTurnId) {
           finishTodoProgress(
             windowState,
             'failed',
-            getString(payload.error?.message) ?? getString(raw.error) ?? '本轮对话失败',
+            userMessage,
             3000
           );
         }
-        appendTerminalFailure(
-          currentMsg,
-          getString(payload.error?.message) ?? getString(raw.error) ?? '本轮对话失败，请稍后重试。'
-        );
+        appendTerminalFailure(currentMsg, userMessage);
         break;
       }
       default: {
