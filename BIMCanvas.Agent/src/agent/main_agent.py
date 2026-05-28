@@ -279,9 +279,12 @@ class MainAgent:
             thinking=sdk_thinking,                 # SDK 原生（0.1.36+）
             max_thinking_tokens=settings.max_thinking_tokens,  # thinking 预算上限（None=不限制）
             mcp_servers=mcp_servers_spec,          # 组3: bundle.mcp_servers_spec 动态构造 (canvas + active plugin)
-            # DO NOT change to anything else. README §"开发难点 #4 — CLAUDE.md 污染"。
-            # Plugin / Skill 通过 plugins=[...] 加载,与 setting_sources 完全正交。
-            setting_sources=None,
+            # 必须 [] 而非 None: SDK 0.1.53 修了"误传空串"bug 后, None=不传 --setting-sources flag
+            # → CLI 默认加载 user+project (CLAUDE.md/Skills/MCP/agents 全注入污染); [] 才是
+            # CHANGELOG 0.1.60 #822 钦定的"显式禁用全部 filesystem discovery"信号。
+            # Plugin/Skill 通过 plugins=[...] 走 --plugin-dir, 与 setting_sources 完全正交。
+            # 详见 README §"开发难点 #4 — CLAUDE.md 污染"。
+            setting_sources=[],
             plugins=plugins,                       # ✅ 通过 Plugin 机制加载 Skills
             max_buffer_size=10 * 1024 * 1024,      # 10MB — 截图 ImageContent 需要足够缓冲区（默认仅 1MB）
             can_use_tool=self._auto_approve_tool,  # Agent 后端无人值守，自动批准所有工具调用
