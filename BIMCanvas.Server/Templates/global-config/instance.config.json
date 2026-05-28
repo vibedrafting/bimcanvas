@@ -45,6 +45,10 @@
         "opus": { "id": "claude-opus-4-7[1m]", "label": "Opus" },
         "sonnet": { "id": "claude-sonnet-4-6", "label": "Sonnet" },
         "haiku": { "id": "claude-haiku-4-5", "label": "Haiku" }
+      },
+      "env": {
+        "CLAUDE_CODE_WORKFLOWS": "1",
+        "DISABLE_GROWTHBOOK": "1"
       }
     },
     "openai": {
