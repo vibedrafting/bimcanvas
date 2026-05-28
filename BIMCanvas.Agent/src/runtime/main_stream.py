@@ -16,6 +16,9 @@ EVENT_TYPE_MAP: dict[str, str] = {
     "text_complete": "text.completed",
     "subagent_start": "subtask.started",
     "subagent_complete": "subtask.completed",
+    # WP-1 协议层闭环（SDK 0.2.87 TaskProgressMessage / RateLimitEvent）
+    "subagent_progress": "subtask.progress",
+    "rate_limit": "runtime.rate_limit",
     "tool_call_start": "tool.started",
 }
 
@@ -68,6 +71,13 @@ def build_legacy_chunk_event_data(
         event_data["taskId"] = chunk.task_id
     if chunk.timeout is not None:
         event_data["timeout"] = chunk.timeout
+
+    # WP-1 协议层闭环：legacy 降级路径透传 usage / extra（modern path 已通过 payload 透传，
+    # 此处补齐以防前端走 legacy 扁平字段路径时拿不到字段）
+    if chunk.usage:
+        event_data["usage"] = chunk.usage
+    if chunk.extra:
+        event_data["extra"] = chunk.extra
 
     return event_data
 
@@ -276,6 +286,26 @@ class MainStreamMapper:
                     "origin": chunk.origin or ("tool" if chunk.subagent_id else "root"),
                 }
             )
+
+        # WP-1 协议层闭环：SDK 0.2.87 TaskProgressMessage 进度透传
+        if event_type == "subtask.progress":
+            return self._compact(
+                {
+                    "taskId": chunk.task_id,
+                    "description": chunk.content or None,
+                    "lastToolName": chunk.tool_name,
+                    "usage": chunk.usage,
+                    "parentSubtaskId": chunk.parent_subtask_id or self.root_subtask_id,
+                }
+            )
+
+        # WP-1 协议层闭环：SDK 0.2.87 RateLimitEvent 状态徽章
+        if event_type == "runtime.rate_limit":
+            # chunk.extra 已是结构化 dict（status / rateLimitType / utilization / resetsAt）
+            payload: dict[str, Any] = {"status": chunk.content or None}
+            if chunk.extra:
+                payload.update(chunk.extra)
+            return self._compact(payload)
 
         return {}
 
