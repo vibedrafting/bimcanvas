@@ -15,16 +15,19 @@ class CLICommandLineTooLongError(RuntimeError):
     """Windows CreateProcess 命令行越过 32767 字符上限。
 
     SDK 把 winerror==206 包成 CLIConnectionError(__cause__ 为 OSError),
-    主控在 connect() 中识别并重抛此异常,携带 prompt 度量便于诊断。
+    主控在 connect() 中识别并重抛此异常。
+
+    现状(WP-2 M2.2 清理后):M2.1 SystemPromptFile 已绕过 system_prompt 参数路径,
+    本异常在常规场景下理论上不再触发;保留作为未来 MCP/plugin/agents/env 等其他
+    CLI args 规模爆炸时的兜底诊断,提示运维检查相关配置。
     """
 
-    def __init__(self, prompt_size: int) -> None:
+    def __init__(self) -> None:
         super().__init__(
-            f"Windows CreateProcess command line exceeded 32767 chars "
-            f"(prompt_size={prompt_size}). 已切换 SystemPromptFile 模式,如仍触发请检查 "
-            f"其他 CLI 参数(如 plugins / mcp_servers)是否过长。"
+            "Windows CreateProcess command line exceeded 32767 chars. "
+            "SystemPromptFile 已绕过 system_prompt 路径,本错误意味着其他 CLI args "
+            "(MCP/plugin/agents/env 等)规模爆炸,请检查相关配置。"
         )
-        self.prompt_size = prompt_size
 
 
 class SystemPromptFileWriteError(RuntimeError):

@@ -139,9 +139,6 @@ class MainAgent:
         self._worktree_manager: WorktreeManager | None = None
         self._runtime_context: dict[str, str] | None = None
 
-        # WP-2 M2: 最近一次 _create_options 度量的 prompt 总长(供 connect() 异常诊断引用)
-        self._last_prompt_size: int = 0
-
         # WP-2 CLAUDECODE: 进程级一次性 WARNING(SDK 0.1.51 PR #732 已自动剥离 CLAUDECODE env)
         global _claudecode_warned
         if not _claudecode_warned and os.environ.get("CLAUDECODE") == "1":
@@ -243,24 +240,6 @@ class MainAgent:
         project_path = self.project_path or self.working_directory or "（unknown）"
         working_directory = self.working_directory or self.project_path or "（unknown）"
         system_prompt = system_prompt + f"\n\n项目路径: {project_path}\n工作目录: {working_directory}"
-
-        # WP-2 M2.2 阈值: file 模式已物理绕过 Windows 32767 上限;
-        # 28000/31000 现在都是"防 prompt 膨胀"的告警线,不阻塞业务。
-        # 修订记录:原 31000 raise 锁死生产 38k 实测,指挥部 2026-05-29 降级为 WARN。
-        total_len = len(system_prompt) + sum(
-            len(a.prompt) for a in (self._subagents or {}).values()
-        )
-        self._last_prompt_size = total_len  # 供 connect() 异常处理读取,不重算
-        if total_len >= 31000:
-            self._agent_logger.log_warning(
-                f"system_prompt + subagents 总长 {total_len} 字符 >= 31000,"
-                "prompt 膨胀显著,建议关注 cache 命中率与每 turn 成本。"
-            )
-        elif total_len >= 28000:
-            self._agent_logger.log_warning(
-                f"system_prompt + subagents 总长 {total_len} 字符 >= 28000,"
-                "已接近资源上限警戒线。"
-            )
 
         # WP-2 M2.1: 落盘到 BIMCANVAS_HOME/cache/system_prompt.window_{seq}.runtime.md,
         # 走 SDK --system-prompt-file(0.1.51+)绕过 Windows CreateProcess 32767 字符上限。
@@ -612,7 +591,7 @@ class MainAgent:
                 # 包成 CLIConnectionError(父类)。catch 父类同时覆盖两条;判定 __cause__ 后区分。
                 cause = e.__cause__
                 if isinstance(cause, OSError) and getattr(cause, "winerror", None) == 206:
-                    raise CLICommandLineTooLongError(self._last_prompt_size) from e
+                    raise CLICommandLineTooLongError() from e
                 raise
             self._connected = True
             self._current_model = resolved_model
