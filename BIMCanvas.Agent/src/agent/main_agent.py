@@ -1411,6 +1411,17 @@ class MainAgent:
                         f"[Result] subtype={message.subtype}, cost=${message.total_cost_usd or 0:.4f}, "
                         f"turns={message.num_turns}, duration={message.duration_ms}ms{suffix}"
                     )
+                    # W3: cache 命中率埋点（诊断 SDK #974 bundled CLI 多轮 cache miss）
+                    usage = getattr(message, "usage", None) or {}
+                    cache_read = usage.get("cache_read_input_tokens") or 0
+                    cache_creation = usage.get("cache_creation_input_tokens") or 0
+                    total = cache_read + cache_creation
+                    if total > 0:
+                        ratio = cache_read / total * 100
+                        self._agent_logger.log_info(
+                            f"[Cache] read={cache_read}, creation={cache_creation}, "
+                            f"ratio={ratio:.1f}%"
+                        )
 
             # S4: RateLimitEvent 分支（SDK 0.1.49+）
             # 注意：RateLimitEvent 是独立 dataclass（types.py:1213-1224），非 SystemMessage 子类，
