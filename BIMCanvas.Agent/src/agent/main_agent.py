@@ -244,19 +244,19 @@ class MainAgent:
         working_directory = self.working_directory or self.project_path or "（unknown）"
         system_prompt = system_prompt + f"\n\n项目路径: {project_path}\n工作目录: {working_directory}"
 
-        # WP-2 M2.2 阈值语义: file 模式已物理绕过 Windows 32767 字符上限;
-        # 28000 WARN / 31000 raise 现在是"防 prompt 不受控膨胀的资源上限",
-        # 不再是"防 CLI args 截断的边界值"。
+        # WP-2 M2.2 阈值: file 模式已物理绕过 Windows 32767 上限;
+        # 28000/31000 现在都是"防 prompt 膨胀"的告警线,不阻塞业务。
+        # 修订记录:原 31000 raise 锁死生产 38k 实测,指挥部 2026-05-29 降级为 WARN。
         total_len = len(system_prompt) + sum(
             len(a.prompt) for a in (self._subagents or {}).values()
         )
         self._last_prompt_size = total_len  # 供 connect() 异常处理读取,不重算
         if total_len >= 31000:
-            raise ValueError(
+            self._agent_logger.log_warning(
                 f"system_prompt + subagents 总长 {total_len} 字符 >= 31000,"
-                "建议精简 prompt 或拆分 SubAgent。"
+                "prompt 膨胀显著,建议关注 cache 命中率与每 turn 成本。"
             )
-        if total_len >= 28000:
+        elif total_len >= 28000:
             self._agent_logger.log_warning(
                 f"system_prompt + subagents 总长 {total_len} 字符 >= 28000,"
                 "已接近资源上限警戒线。"
