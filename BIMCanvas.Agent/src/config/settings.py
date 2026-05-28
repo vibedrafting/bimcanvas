@@ -18,6 +18,7 @@ logger = logging.getLogger(__name__)
 _CLAUDE_MODEL_ALIASES = ("opus", "sonnet", "haiku")
 _CLAUDE_MODEL_ALIAS_SET = frozenset(_CLAUDE_MODEL_ALIASES)
 _DEFAULT_CLAUDE_EFFORT = "low"
+_ALLOWED_EFFORTS = frozenset({"low", "medium", "high", "max", "xhigh"})
 _DEFAULT_CLAUDE_THINKING = "adaptive"
 _DEFAULT_CLAUDE_MAX_THINKING_TOKENS = 8000
 
@@ -240,9 +241,9 @@ def _apply_model_mapping(model_mapping: dict[str, dict[str, str]]) -> None:
 
 def _resolve_claude_effort(raw_value: object) -> str:
     normalized = _read_string(raw_value).lower() or _DEFAULT_CLAUDE_EFFORT
-    if normalized not in {"low", "medium", "high", "max"}:
+    if normalized not in _ALLOWED_EFFORTS:
         raise ValueError(
-            "config.json claude.defaultEffort 必须是 low / medium / high / max。"
+            "config.json claude.defaultEffort 必须是 low / medium / high / xhigh / max。"
         )
     return normalized
 

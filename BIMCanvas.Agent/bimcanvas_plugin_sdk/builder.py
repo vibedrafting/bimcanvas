@@ -11,7 +11,7 @@ from __future__ import annotations
 
 from typing import Any, Awaitable, Callable
 
-from claude_agent_sdk import create_sdk_mcp_server, tool as _sdk_tool
+from claude_agent_sdk import ToolAnnotations, create_sdk_mcp_server, tool as _sdk_tool
 
 from .context import PluginContext
 
@@ -50,6 +50,7 @@ class McpServerBuilder:
         name: str,
         description: str,
         schema: dict | type,
+        annotations: ToolAnnotations | None = None,
     ) -> Callable[[Callable[[dict], Awaitable[dict]]], Any]:
         """装饰器:把 async fn(args) -> dict 注册为 MCP 工具。
 
@@ -58,7 +59,7 @@ class McpServerBuilder:
         作者可选地引用工具对象做更细控制。
         """
         def decorator(fn: Callable[[dict], Awaitable[dict]]) -> Any:
-            decorated = _sdk_tool(name, description, schema)(fn)
+            decorated = _sdk_tool(name, description, schema, annotations)(fn)
             self._tools.append(decorated)
             return decorated
 
