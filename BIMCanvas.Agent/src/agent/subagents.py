@@ -60,32 +60,33 @@ def create_subagents(
     SubAgents 通过 Task 工具派发。SubAgent 自身的 tools 不应包含 "Task"
     (避免递归派发)。
 
-    工具权限重设计 v3.2 §5.2 + §7.1 继承装配规则 (SDK 0.1.41 实际能力):
-    - cfg.tools is None (`.md` 未声明 / 空值): 继承主控 allow
+    工具权限重设计 v3.2 §5.2 + §7.1 继承装配规则:
+    - cfg.tools is None (`.md` 未声明 / 空值): 继承主控 allow + deny
         * main_allow == [] (主控全开)  → AgentDefinition.tools = None (SDK inherit-all)
         * main_allow == [X, Y, Z]      → AgentDefinition.tools = [X, Y, Z] 深拷贝
+        * main_deny  falsy             → AgentDefinition.disallowedTools = None
+        * main_deny  非空 list         → AgentDefinition.disallowedTools = list(main_deny) 深拷贝
     - cfg.tools is list (`.md` 显式列出): 直接用 .md 工具列表,不再继承
+        * AgentDefinition.tools = list(cfg.tools) 深拷贝
+        * AgentDefinition.disallowedTools = None (SubAgent 没有自己的 deny;主控
+          deny 仍由全局通道兜底)
 
     关键: SDK AgentDefinition.tools 字段 None vs [] 语义不同。
     None = "省略 = inherit all";[] = "明确空 = 仅可调列出工具 = 零工具"。
 
-    Deny 语义说明:
-    SDK 0.1.41 的 AgentDefinition 只含 description/prompt/tools/model 4 字段,
-    无 disallowedTools。主控 deny 通过 ClaudeAgentOptions.disallowed_tools
-    全局通道在 CLI L2 层 (--disallowedTools flag) 生效,对所有 agent (含
-    SubAgent 派发出去的工具调用) 一视同仁拦截 —— 因此 "SubAgent 继承主控
-    deny" 语义已天然实现,无需在本函数表达。
-
-    设计稿 §5.2 中关于 AgentDefinition.disallowedTools 的部分需等 SDK 升级
-    到含此字段的版本才能引入 (.dev/references 的 master 参考副本含该字段)。
+    Deny 语义 (v3.2 §5.2,2026-05-28 撤销 bbcdbad9 的 SDK 0.1.41 妥协):
+    SDK 0.1.51 PR #759 起 AgentDefinition.disallowedTools 字段已恢复,本函数
+    按分支回填 per-SubAgent deny。主控 deny 通过 ClaudeAgentOptions.disallowed_tools
+    (main_agent.py:222 / :273) 在 CLI L2 层 (--disallowedTools flag) 始终生效,
+    对所有 agent 一视同仁拦截 —— 这是基线;per-SubAgent disallowedTools 是设计稿
+    §5.2 "SubAgent 自定义 deny" 能力的回归,目前仅在"继承主控"分支携带。
 
     Args:
         agents_config: 已经过 agents.allow/deny 过滤后的 SubAgent 配置
         main_allow: 主控 tools.allow (来自 bundle.tools_allow);用于 .md 未
                     声明 tools 字段时的继承装配
-        main_deny:  主控 tools.deny  (来自 bundle.tools_deny);当前 SDK 不
-                    消费此参数 (deny 走全局通道);保留参数签名是为未来 SDK
-                    升级后引入 per-SubAgent deny 时不破坏调用方
+        main_deny:  主控 tools.deny  (来自 bundle.tools_deny);仅在 cfg.tools
+                    is None 的继承分支深拷贝到 AgentDefinition.disallowedTools
 
     Returns:
         Dictionary mapping agent names to their definitions
@@ -93,9 +94,6 @@ def create_subagents(
     if not agents_config:
         logger.warning("无可用的 SubAgent 配置，跳过 SubAgent 创建")
         return {}
-
-    # main_deny 当前未消费 (见函数 docstring "Deny 语义说明")
-    _ = main_deny
 
     result = {}
     for name, cfg in agents_config.items():
@@ -109,16 +107,17 @@ def create_subagents(
         if cfg.tools is None:
             # 继承: 主控空 list 时传 None 给 SDK (走 inherit-all);非空时深拷贝
             agent_def_tools = list(main_allow) if main_allow else None
+            agent_def_disallowed = list(main_deny) if main_deny else None
         else:
-            # 显式自主: 直接用 .md 列出的工具列表
+            # 显式自主: 直接用 .md 列出的工具列表,SubAgent 没有自己的 deny
             agent_def_tools = list(cfg.tools)
+            agent_def_disallowed = None
 
-        # SDK 0.1.41 AgentDefinition 不含 disallowedTools 字段;deny 通过
-        # ClaudeAgentOptions.disallowed_tools 全局通道生效 (见 docstring)
         result[name] = AgentDefinition(
             description=cfg.description,
             prompt=prompt,
             tools=agent_def_tools,
+            disallowedTools=agent_def_disallowed,
             model=cfg.model,
         )
 

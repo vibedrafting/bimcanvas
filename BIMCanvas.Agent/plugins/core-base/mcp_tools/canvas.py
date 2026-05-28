@@ -36,6 +36,7 @@ from datetime import datetime
 from typing import Any
 
 import aiohttp
+from claude_agent_sdk import ToolAnnotations
 
 from bimcanvas_plugin_sdk import McpServerBuilder
 
@@ -1163,7 +1164,12 @@ def register(builder: McpServerBuilder) -> None:
         }
 
     # ---------- load_scene_artifact ----------
-    @builder.tool("load_scene_artifact", _LOAD_SCENE_ARTIFACT_DESC, _LOAD_SCENE_ARTIFACT_SCHEMA)
+    @builder.tool(
+        "load_scene_artifact",
+        _LOAD_SCENE_ARTIFACT_DESC,
+        _LOAD_SCENE_ARTIFACT_SCHEMA,
+        annotations=ToolAnnotations(maxResultSizeChars=500_000),
+    )
     async def load_scene_artifact(args: dict[str, Any]) -> dict[str, Any]:
         """读取指定 scene 的 artifact。"""
         if not ctx.server_url:

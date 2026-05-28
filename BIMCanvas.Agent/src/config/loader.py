@@ -112,6 +112,31 @@ def ensure_agent_config_schema(config: dict) -> None:
                     provider, deprecated_field,
                 )
 
+    # claude.env 可选: SDK 子进程环境变量 (传给 claude-agent-sdk ClaudeAgentOptions.env)
+    # 仅在 claude runtime 生效;openai runtime 不读此字段。仿 ~/.claude/settings.json 的 env 段。
+    claude_section = config.get(CLAUDE_RUNTIME_ID)
+    if isinstance(claude_section, dict) and "env" in claude_section:
+        env_value = claude_section.get("env")
+        if env_value is None or env_value == "":
+            # 允许空值表示"未配置",由 settings 层归一化为空 dict
+            pass
+        elif not isinstance(env_value, dict):
+            raise ValueError(
+                "config.json claude.env 必须是 JSON 对象(key/value 都是字符串)。"
+            )
+        else:
+            for k, v in env_value.items():
+                if not isinstance(k, str) or not k.strip():
+                    raise ValueError(
+                        f"config.json claude.env 的 key 必须是非空字符串;检测到 {k!r}。"
+                    )
+                if not isinstance(v, str):
+                    raise ValueError(
+                        f"config.json claude.env['{k}'] 必须是字符串(子进程环境变量值);"
+                        f"检测到类型 {type(v).__name__}。"
+                        " 布尔/数字请显式转字符串,例如 \"1\" 而非 1。"
+                    )
+
     chatgpt_backend = config.get("chatgptBackend")
     if chatgpt_backend is not None and not isinstance(chatgpt_backend, dict):
         raise ValueError(

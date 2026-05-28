@@ -321,6 +321,19 @@ export interface ChatBubble {
   subAgentResult?: string;
   /** SubAgent 内部的气泡（工具调用等） */
   childBubbles?: ChatBubble[];
+  /**
+   * SubAgent 进度（消费后端 subtask.progress event，SDK 0.2.87 TaskProgressMessage）。
+   * 头部 meta-right 紧跟 duration 显示符号化摘要；description 走 hover tooltip。
+   */
+  subAgentProgress?: {
+    description?: string;
+    lastToolName?: string;
+    usage?: {
+      totalTokens?: number;
+      toolUses?: number;
+      durationMs?: number;
+    };
+  };
 
   // ===== QuestionBubble 专有 =====
   /** 问题请求 ID（用于提交答案） */

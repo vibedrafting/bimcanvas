@@ -16,6 +16,9 @@ EVENT_TYPE_MAP: dict[str, str] = {
     "text_complete": "text.completed",
     "subagent_start": "subtask.started",
     "subagent_complete": "subtask.completed",
+    # WP-1 协议层闭环（SDK 0.2.87 TaskProgressMessage / RateLimitEvent）
+    "subagent_progress": "subtask.progress",
+    "rate_limit": "runtime.rate_limit",
     "tool_call_start": "tool.started",
 }
 
@@ -69,6 +72,13 @@ def build_legacy_chunk_event_data(
     if chunk.timeout is not None:
         event_data["timeout"] = chunk.timeout
 
+    # WP-1 协议层闭环：legacy 降级路径透传 usage / extra（modern path 已通过 payload 透传，
+    # 此处补齐以防前端走 legacy 扁平字段路径时拿不到字段）
+    if chunk.usage:
+        event_data["usage"] = chunk.usage
+    if chunk.extra:
+        event_data["extra"] = chunk.extra
+
     return event_data
 
 
@@ -85,6 +95,9 @@ class MainStreamMapper:
         self._sdk_error_message: str | None = None
         self._api_error_code: str | None = None
         self._api_error_message: str | None = None
+        # S3: SDK 0.2.87 ResultMessage.api_error_status（HTTP 状态码 429/500/529 等）
+        # lifecycle: MainStreamMapper 在 http_server.py:979 per-turn 创建，不跨 turn 复用，无需 reset。
+        self._api_http_status: int | None = None
 
     def map_chunk(self, chunk: StreamChunk) -> list[dict[str, Any]]:
         self._record_chunk_state(chunk)
@@ -161,13 +174,27 @@ class MainStreamMapper:
             )
 
         if self._recent_chunk_had_sdk_error:
+            # S3: 兜底分支与 _build_recorded_runtime_failure 风格一致按 HTTP status 细化
+            # 注：此分支逻辑上 unreachable（_record_chunk_state 设 _sdk_error_subtype 时同步设
+            # _recent_chunk_had_sdk_error=True，_build_recorded_runtime_failure 会先 return），
+            # 保留作防御性兜底 + 风格统一。
+            status = self._api_http_status
+            if status == 429:
+                code, retryable = "RATE_LIMITED", True
+            elif status is not None and 400 <= status < 500:
+                code, retryable = "CLIENT_ERROR", False
+            elif status is not None and 500 <= status < 600:
+                code, retryable = "UPSTREAM_ERROR", True
+            else:
+                code, retryable = "PROVIDER_SDK_ERROR", False
             return self._build_turn_failed(
                 stop_reason="runtime_error",
                 error=self._build_error(
-                    code="PROVIDER_SDK_ERROR",
+                    code=code,
                     layer="turn",
                     message=self._sdk_error_message or str(exc) or "Provider SDK error.",
-                    retryable=False,
+                    retryable=retryable,
+                    details={"httpStatus": status} if status is not None else None,
                 ),
             )
 
@@ -260,6 +287,26 @@ class MainStreamMapper:
                 }
             )
 
+        # WP-1 协议层闭环：SDK 0.2.87 TaskProgressMessage 进度透传
+        if event_type == "subtask.progress":
+            return self._compact(
+                {
+                    "taskId": chunk.task_id,
+                    "description": chunk.content or None,
+                    "lastToolName": chunk.tool_name,
+                    "usage": chunk.usage,
+                    "parentSubtaskId": chunk.parent_subtask_id or self.root_subtask_id,
+                }
+            )
+
+        # WP-1 协议层闭环：SDK 0.2.87 RateLimitEvent 状态徽章
+        if event_type == "runtime.rate_limit":
+            # chunk.extra 已是结构化 dict（status / rateLimitType / utilization / resetsAt）
+            payload: dict[str, Any] = {"status": chunk.content or None}
+            if chunk.extra:
+                payload.update(chunk.extra)
+            return self._compact(payload)
+
         return {}
 
     def _build_event(
@@ -320,13 +367,26 @@ class MainStreamMapper:
             )
 
         if self._sdk_error_subtype:
+            # S3: 按 SDK 0.2.87 ResultMessage.api_error_status 细化错误分类
+            # 429 → RATE_LIMITED (retryable) / 4xx → CLIENT_ERROR / 5xx → UPSTREAM_ERROR (retryable)
+            # None / 其他 → 沿用 PROVIDER_SDK_ERROR
+            status = self._api_http_status
+            if status == 429:
+                code, retryable = "RATE_LIMITED", True
+            elif status is not None and 400 <= status < 500:
+                code, retryable = "CLIENT_ERROR", False
+            elif status is not None and 500 <= status < 600:
+                code, retryable = "UPSTREAM_ERROR", True
+            else:
+                code, retryable = "PROVIDER_SDK_ERROR", False
             return self._build_turn_failed(
                 stop_reason="runtime_error",
                 error=self._build_error(
-                    code="PROVIDER_SDK_ERROR",
+                    code=code,
                     layer="turn",
                     message=self._sdk_error_message or "Provider SDK error.",
-                    retryable=False,
+                    retryable=retryable,
+                    details={"httpStatus": status} if status is not None else None,
                 ),
             )
 
@@ -352,6 +412,10 @@ class MainStreamMapper:
             self._api_error_code = chunk.error_content
             self._api_error_message = (chunk.content or "").strip() or "Provider API error."
 
+        # S3: 从 chunk.error_extra（ResultMessage.api_error_status 透传）提取 HTTP status
+        if chunk.error_extra and chunk.error_extra.get("httpStatus") is not None:
+            self._api_http_status = int(chunk.error_extra["httpStatus"])
+
     def _resolve_subtask_id(self, chunk: StreamChunk) -> str | None:
         if chunk.type.startswith("tool_call_"):
             return chunk.subagent_id or self.root_subtask_id
@@ -376,6 +440,7 @@ class MainStreamMapper:
         retryable: bool,
         related_tool_call_id: str | None = None,
         related_interaction_id: str | None = None,
+        details: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         error = {
             "code": code,
@@ -387,6 +452,9 @@ class MainStreamMapper:
             error["relatedToolCallId"] = related_tool_call_id
         if related_interaction_id:
             error["relatedInteractionId"] = related_interaction_id
+        # S3: details 承载 SDK 0.2.87 ResultMessage.api_error_status 等结构化错误上下文
+        if details:
+            error["details"] = details
         return error
 
     @staticmethod

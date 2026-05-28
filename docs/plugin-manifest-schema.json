@@ -72,7 +72,7 @@
           "type": "array",
           "items": { "type": "string", "minLength": 1 },
           "uniqueItems": true,
-          "description": "禁止的工具黑名单。语法与 allow 一致。SDK 处理顺序 deny → allow,deny 命中优先拒绝。允许空数组 []。**注意 D10**:此 deny 只对主控生效(走 ClaudeAgentOptions.disallowed_tools 全局通道,等价对 SubAgent 派发的工具调用也拦截)。SDK 0.1.41 AgentDefinition 无 disallowedTools 字段,不存在 per-SubAgent deny。"
+          "description": "禁止的工具黑名单。语法与 allow 一致。SDK 处理顺序 deny → allow,deny 命中优先拒绝。允许空数组 []。**注意 D10**:此 deny 只对主控生效(走 ClaudeAgentOptions.disallowed_tools 全局通道,等价对 SubAgent 派发的工具调用也拦截)。SDK 0.1.51 起 AgentDefinition.disallowedTools 字段恢复(当前 0.2.87),继承主控的 SubAgent 会回填 per-SubAgent deny,详见 subagents.py。"
         }
       }
     },

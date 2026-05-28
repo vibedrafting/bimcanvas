@@ -32,6 +32,18 @@ export interface ToastPayload {
   type?: NotificationType
 }
 
+/**
+ * RateLimit 全局状态(WP-Web 消费后端 runtime.rate_limit event)。
+ * status: 'allowed' 不显示徽章;'allowed_warning' 黄条;'rejected' 红条。
+ * resetsAt: Unix 秒,由 RateLimitBanner 转换为"X 分钟后恢复"展示。
+ */
+export interface RateLimitState {
+  status: string
+  rateLimitType?: string
+  utilization?: number
+  resetsAt?: number
+}
+
 export const useSystemStore = defineStore('system', () => {
   // 累计需要重启的原因(如 'settings:server' / 'plugin:indoor-layout'),用于按钮 hover 调试 + 去重
   const restartReasons = ref<Set<string>>(new Set())
@@ -96,6 +108,19 @@ export const useSystemStore = defineStore('system', () => {
     worktreeNotification.value = null
   }
 
+  // ============== RateLimit 全局状态(WP-Web) ==============
+
+  const rateLimitState = ref<RateLimitState | null>(null)
+
+  const setRateLimitState = (state: RateLimitState | null) => {
+    if (!state || state.status === 'allowed') {
+      // 'allowed' 表示恢复正常,清空徽章
+      rateLimitState.value = null
+      return
+    }
+    rateLimitState.value = state
+  }
+
   /**
    * 立即重启。无二次确认 — 调用方应已在 UI 层告知"需重启"。
    * 成功路径直接 reload 当前页面;失败 push 一条 error toast。
@@ -125,6 +150,7 @@ export const useSystemStore = defineStore('system', () => {
     lastRestartError,
     toasts,
     worktreeNotification,
+    rateLimitState,
     // computed
     restartRequired,
     // actions
@@ -136,6 +162,7 @@ export const useSystemStore = defineStore('system', () => {
     pushWorktreeNotification,
     dismissWorktreeNotification,
     performRestart,
+    setRateLimitState,
   }
 })
 

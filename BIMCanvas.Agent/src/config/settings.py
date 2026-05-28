@@ -18,6 +18,7 @@ logger = logging.getLogger(__name__)
 _CLAUDE_MODEL_ALIASES = ("opus", "sonnet", "haiku")
 _CLAUDE_MODEL_ALIAS_SET = frozenset(_CLAUDE_MODEL_ALIASES)
 _DEFAULT_CLAUDE_EFFORT = "low"
+_ALLOWED_EFFORTS = frozenset({"low", "medium", "high", "max", "xhigh"})
 _DEFAULT_CLAUDE_THINKING = "adaptive"
 _DEFAULT_CLAUDE_MAX_THINKING_TOKENS = 8000
 
@@ -50,6 +51,9 @@ class Settings:
     default_project_path: str
     default_model: str
     model_mapping: dict[str, dict[str, str]] = field(default_factory=dict)
+    # claude-agent-sdk 0.2.87+ ClaudeAgentOptions.env: 传给 Claude Code CLI subprocess 的
+    # 环境变量。来自 config.json claude.env 段;openai runtime 不消费此字段。
+    extra_env: dict[str, str] = field(default_factory=dict)
 
     @classmethod
     def load(cls) -> "Settings":
@@ -85,6 +89,7 @@ class Settings:
             default_project_path=project_path,
             default_model=settings_payload["default_model"],
             model_mapping=settings_payload["model_mapping"],
+            extra_env=settings_payload.get("extra_env", {}),
         )
 
 
@@ -139,6 +144,12 @@ def _load_claude_settings(claude_config: dict) -> dict[str, object]:
             default=max_thinking_tokens,
         )
 
+    # claude.env: schema 已在 loader.ensure_agent_config_schema 校验,此处只做归一化
+    raw_env = claude_config.get("env")
+    extra_env: dict[str, str] = {}
+    if isinstance(raw_env, dict):
+        extra_env = {str(k): str(v) for k, v in raw_env.items() if isinstance(k, str) and k.strip()}
+
     return {
         "anthropic_api_key": api_key,
         "openai_api_key": "",
@@ -150,6 +161,7 @@ def _load_claude_settings(claude_config: dict) -> dict[str, object]:
         "max_thinking_tokens": max_thinking_tokens,
         "default_model": default_model,
         "model_mapping": model_mapping,
+        "extra_env": extra_env,
     }
 
 
@@ -229,9 +241,9 @@ def _apply_model_mapping(model_mapping: dict[str, dict[str, str]]) -> None:
 
 def _resolve_claude_effort(raw_value: object) -> str:
     normalized = _read_string(raw_value).lower() or _DEFAULT_CLAUDE_EFFORT
-    if normalized not in {"low", "medium", "high", "max"}:
+    if normalized not in _ALLOWED_EFFORTS:
         raise ValueError(
-            "config.json claude.defaultEffort 必须是 low / medium / high / max。"
+            "config.json claude.defaultEffort 必须是 low / medium / high / xhigh / max。"
         )
     return normalized
 

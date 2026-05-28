@@ -22,17 +22,36 @@ from claude_agent_sdk import (
     ToolResultBlock,
     PermissionResultAllow,
     ToolPermissionContext,
+    # SDK 0.2.87 新增类型（WP-1 主控消息层硬化）
+    ServerToolUseBlock,
+    ServerToolResultBlock,
+    RateLimitEvent,
+    TaskStartedMessage,
+    TaskProgressMessage,
+    TaskNotificationMessage,
+    # WP-2 M2: SDK 连接异常基类(winerror=206 走 CLIConnectionError 路径)
+    CLIConnectionError,
+    CLINotFoundError,
 )
-from claude_agent_sdk.types import ThinkingConfigAdaptive, ThinkingConfigDisabled
+from claude_agent_sdk.types import (
+    ThinkingConfigAdaptive,
+    ThinkingConfigDisabled,
+    SystemPromptFile,  # WP-2 M2: 走 --system-prompt-file 绕 32767 上限
+)
 
 from ..config.settings import get_settings
 from .subagents import create_subagents
 from .agent_logger import get_agent_logger
 from .worktree_manager import WorktreeManager, WorktreeContext
 # 组3 改造: 不再硬编码 canvas_mcp; bundle.mcp_servers_spec 动态构造
-from ..runtime import ConfigBundle, StreamChunk, build_config_bundle
+from ..runtime import ConfigBundle, StreamChunk, build_config_bundle, materialize_system_prompt_file
+from .errors import CLICommandLineTooLongError, SystemPromptFileWriteError
 
 logger = logging.getLogger(__name__)
+
+# WP-2 CLAUDECODE: 进程级 flag,确保 WARNING 只打一次(__init__ 内 once-触发)
+# SDK 0.1.51 PR #732 起,SDK 已自动剥离 CLAUDECODE env;此 flag 仅提醒"无需手动设"
+_claudecode_warned: bool = False
 
 _UNKNOWN_MODEL_VALUES = {"", "unknown"}
 
@@ -119,6 +138,15 @@ class MainAgent:
         # Worktree 管理器（用于并行布置）
         self._worktree_manager: WorktreeManager | None = None
         self._runtime_context: dict[str, str] | None = None
+
+        # WP-2 CLAUDECODE: 进程级一次性 WARNING(SDK 0.1.51 PR #732 已自动剥离 CLAUDECODE env)
+        global _claudecode_warned
+        if not _claudecode_warned and os.environ.get("CLAUDECODE") == "1":
+            logger.warning(
+                "检测到 CLAUDECODE=1 环境变量;SDK 0.1.51 PR #732 已自动剥离该 env,"
+                "无需在 ClaudeAgentOptions(env=...) 里手动设 CLAUDECODE 为空字符串。"
+            )
+            _claudecode_warned = True
 
     @property
     def is_connected(self) -> bool:
@@ -213,6 +241,10 @@ class MainAgent:
         working_directory = self.working_directory or self.project_path or "（unknown）"
         system_prompt = system_prompt + f"\n\n项目路径: {project_path}\n工作目录: {working_directory}"
 
+        # WP-2 M2.1: 落盘到 BIMCANVAS_HOME/cache/system_prompt.window_{seq}.runtime.md,
+        # 走 SDK --system-prompt-file(0.1.51+)绕过 Windows CreateProcess 32767 字符上限。
+        system_prompt_file = materialize_system_prompt_file(system_prompt, self.window_seq)
+
         # 工具权限重设计 v3.2 §7.1 / §7.2:
         # - bundle.tools_allow 原样传给 SDK (空 list = SDK 全开)
         # - bundle.tools_deny 原样传给 SDK (deny 优先于 allow,跟随 SDK 语义)
@@ -222,7 +254,13 @@ class MainAgent:
         disallowed_tools = bundle.tools_deny
 
         # 构建自定义环境变量（用于 Agent SDK 独立配置）
-        custom_env = {}
+        # 顺序:先填用户在 config.json claude.env 中声明的自定义变量(如
+        # CLAUDE_CODE_WORKFLOWS / DISABLE_GROWTHBOOK 等 Claude CLI 特性开关),
+        # 再用 baseUrl / apiKey 派生的 ANTHROPIC_* 覆盖,避免用户在 env 里误塞同名 key
+        # 与专门字段冲突。SDK 内部最终合并顺序为:os.environ → custom_env → SDK 内置版本号。
+        custom_env: dict[str, str] = {}
+        if settings.extra_env:
+            custom_env.update(settings.extra_env)
         if settings.base_url:
             custom_env["ANTHROPIC_BASE_URL"] = settings.base_url
         if settings.anthropic_api_key:
@@ -265,7 +303,7 @@ class MainAgent:
                 )
 
         return ClaudeAgentOptions(
-            system_prompt=system_prompt,
+            system_prompt=system_prompt_file,      # WP-2 M2: SystemPromptFile dict,走 --system-prompt-file 绕 32767 上限
             cwd=self.working_directory,
             max_turns=30,
             model=model,
@@ -279,9 +317,16 @@ class MainAgent:
             thinking=sdk_thinking,                 # SDK 原生（0.1.36+）
             max_thinking_tokens=settings.max_thinking_tokens,  # thinking 预算上限（None=不限制）
             mcp_servers=mcp_servers_spec,          # 组3: bundle.mcp_servers_spec 动态构造 (canvas + active plugin)
-            # DO NOT change to anything else. README §"开发难点 #4 — CLAUDE.md 污染"。
-            # Plugin / Skill 通过 plugins=[...] 加载,与 setting_sources 完全正交。
-            setting_sources=None,
+            strict_mcp_config=True,                # WP-2 O1: 只用代码传入的 mcp_servers,不被外部 settings 污染
+            # WP-2 S2 双写过渡期:plugin manifest 的 "Skill" literal 暂保留,
+            # 待 SDK issue #977 close 后清理
+            skills="all",
+            # 必须 [] 而非 None: SDK 0.1.53 修了"误传空串"bug 后, None=不传 --setting-sources flag
+            # → CLI 默认加载 user+project (CLAUDE.md/Skills/MCP/agents 全注入污染); [] 才是
+            # CHANGELOG 0.1.60 #822 钦定的"显式禁用全部 filesystem discovery"信号。
+            # Plugin/Skill 通过 plugins=[...] 走 --plugin-dir, 与 setting_sources 完全正交。
+            # 详见 README §"开发难点 #4 — CLAUDE.md 污染"。
+            setting_sources=[],
             plugins=plugins,                       # ✅ 通过 Plugin 机制加载 Skills
             max_buffer_size=10 * 1024 * 1024,      # 10MB — 截图 ImageContent 需要足够缓冲区（默认仅 1MB）
             can_use_tool=self._auto_approve_tool,  # Agent 后端无人值守，自动批准所有工具调用
@@ -538,7 +583,16 @@ class MainAgent:
                 self._agent_logger._print(f"[MainAgent] 警告: 未加载任何 SubAgent")
 
             self._client = ClaudeSDKClient(options)
-            await self._client.connect()
+            try:
+                await self._client.connect()
+            except CLIConnectionError as e:
+                # WP-2 M2.3: winerror=206 (Windows ERROR_FILENAME_EXCED_RANGE) 走 CLIConnectionError 父类路径
+                # —— SDK 把 FileNotFoundError 包成 CLINotFoundError,其他 Exception(含 winerror=206)
+                # 包成 CLIConnectionError(父类)。catch 父类同时覆盖两条;判定 __cause__ 后区分。
+                cause = e.__cause__
+                if isinstance(cause, OSError) and getattr(cause, "winerror", None) == 206:
+                    raise CLICommandLineTooLongError() from e
+                raise
             self._connected = True
             self._current_model = resolved_model
             if self.verbose:
@@ -635,6 +689,10 @@ class MainAgent:
 
             for block in message.content:
                 if isinstance(block, ThinkingBlock):
+                    # WP-2 O3 阶段 1 临时观测(指挥部 2026-05-29 拍板跨 WP-1 §2 OUT 边界 1 行);
+                    # 阶段 2 决策后(独立 PR)删除本行或升级为 display="summary" 长期配置
+                    if self.verbose:
+                        self._agent_logger.log_info(f"[O3-obs] thinking_block has_content={bool(block.thinking)}")
                     normalized_thinking = self._normalize_visible_content(block.thinking)
                     if normalized_thinking and self.verbose:
                         if not self._in_thinking:
@@ -683,6 +741,21 @@ class MainAgent:
                             result_summary = str(block.content)[:200] if block.content else None
                             self._agent_logger.exit_subagent("SubAgent", result_summary)
                         self._current_tool_name = None
+
+                elif isinstance(block, (ServerToolUseBlock, ServerToolResultBlock)):
+                    # M1: SDK 0.1.65+ 新增的 server-side 工具块（advisor / web_search / web_fetch / code_execution）
+                    if self.verbose:
+                        ident = getattr(block, 'name', None) or getattr(block, 'tool_use_id', '')
+                        self._agent_logger.log_info(
+                            f"[ServerTool] {type(block).__name__}: {ident}"
+                        )
+
+                else:
+                    # M1: 未知 content block 类型兜底（避免 SDK 未来扩展时静默丢失）
+                    if self.verbose:
+                        self._agent_logger.log_warning(
+                            f"[UnknownBlock] Unhandled content block: {type(block).__name__}"
+                        )
 
         elif hasattr(message, 'event'):
             event = message.event
@@ -1234,6 +1307,21 @@ class MainAgent:
 
                         self._current_tool_name = None
 
+                    elif isinstance(block, (ServerToolUseBlock, ServerToolResultBlock)):
+                        # M1: SDK 0.1.65+ 新增的 server-side 工具块（advisor / web_search / web_fetch / code_execution）
+                        if self.verbose:
+                            ident = getattr(block, 'name', None) or getattr(block, 'tool_use_id', '')
+                            self._agent_logger.log_info(
+                                f"[ServerTool] {type(block).__name__}: {ident}"
+                            )
+
+                    else:
+                        # M1: 未知 content block 类型兜底（避免 SDK 未来扩展时静默丢失）
+                        if self.verbose:
+                            self._agent_logger.log_warning(
+                                f"[UnknownBlock] Unhandled content block: {type(block).__name__}"
+                            )
+
             # 处理 UserMessage 中的 ToolResultBlock（工具调用完成）
             elif isinstance(message, UserMessage):
                 for block in message.content:
@@ -1269,6 +1357,10 @@ class MainAgent:
 
             elif isinstance(message, ResultMessage):
                 # SDK 级结果消息（超轮、超预算、执行错误、正常完成）
+                # S3: 软读 SDK 0.2.87 新字段 api_error_status（0.1.76 引入）/ errors（0.1.51 引入）
+                api_error_status = getattr(message, "api_error_status", None)
+                errors_list = getattr(message, "errors", None)
+
                 if message.is_error:
                     error_display = {
                         "error_during_execution": "执行过程中发生错误",
@@ -1276,22 +1368,126 @@ class MainAgent:
                         "error_max_budget_usd": f"已达预算上限 (${message.total_cost_usd:.2f})",
                         "error_max_structured_output_retries": "结构化输出重试失败",
                     }.get(message.subtype, f"未知 SDK 错误: {message.subtype}")
+
+                    error_extra: dict[str, Any] | None = None
+                    if api_error_status is not None or errors_list:
+                        error_extra = {}
+                        if api_error_status is not None:
+                            error_extra["httpStatus"] = api_error_status
+                        if errors_list:
+                            error_extra["errors"] = list(errors_list)
+
                     yield StreamChunk(
                         type="text",
                         content=f"\n[SDK 错误] {error_display}\n",
                         error_type="sdk_error",
-                        error_content=message.subtype
+                        error_content=message.subtype,
+                        error_extra=error_extra,
                     )
                 if self.verbose:
+                    suffix = f", httpStatus={api_error_status}" if api_error_status is not None else ""
                     self._agent_logger.log_info(
                         f"[Result] subtype={message.subtype}, cost=${message.total_cost_usd or 0:.4f}, "
-                        f"turns={message.num_turns}, duration={message.duration_ms}ms"
+                        f"turns={message.num_turns}, duration={message.duration_ms}ms{suffix}"
+                    )
+                    # W3: cache 命中率埋点（诊断 SDK #974 bundled CLI 多轮 cache miss）
+                    usage = getattr(message, "usage", None) or {}
+                    cache_read = usage.get("cache_read_input_tokens") or 0
+                    cache_creation = usage.get("cache_creation_input_tokens") or 0
+                    # W3 fallback（2026-05-29 实测预言成真）：多 model 路由场景下（如 deepseek 代理
+                    # 网关）cache 计数下沉到 model_usage[<model>]，顶层 usage 为 None。SDK 是 raw
+                    # dict 透传（claude_agent_sdk/_internal/message_parser.py:258,261）。
+                    if cache_read == 0 and cache_creation == 0:
+                        model_usage = getattr(message, "model_usage", None) or {}
+                        for mu in model_usage.values():
+                            if isinstance(mu, dict):
+                                cache_read += mu.get("cache_read_input_tokens") or 0
+                                cache_creation += mu.get("cache_creation_input_tokens") or 0
+                    total = cache_read + cache_creation
+                    if total > 0:
+                        ratio = cache_read / total * 100
+                        self._agent_logger.log_info(
+                            f"[Cache] read={cache_read}, creation={cache_creation}, "
+                            f"ratio={ratio:.1f}%"
+                        )
+
+            # S4: RateLimitEvent 分支（SDK 0.1.49+）
+            # 注意：RateLimitEvent 是独立 dataclass（types.py:1213-1224），非 SystemMessage 子类，
+            # 但前置仍属防御性最佳实践；与下方 Task* 三类前置策略保持一致。
+            elif isinstance(message, RateLimitEvent):
+                info = message.rate_limit_info
+                if self.verbose:
+                    self._agent_logger.log_info(
+                        f"[RateLimit] status={info.status}, type={info.rate_limit_type}, "
+                        f"utilization={info.utilization}, resets_at={info.resets_at}"
+                    )
+                yield StreamChunk(
+                    type="rate_limit",
+                    content=info.status,
+                    extra={
+                        "status": info.status,
+                        "rateLimitType": info.rate_limit_type,
+                        "utilization": info.utilization,
+                        "resetsAt": info.resets_at,
+                    },
+                )
+
+            # S4: TaskStartedMessage 分支（SDK 0.1.46+）
+            # 硬约束：TaskStartedMessage / TaskProgressMessage / TaskNotificationMessage 都是 SystemMessage 子类
+            # （SDK types.py:1059-1110），必须前置于 SystemMessage 分支，否则被父类 isinstance 吞掉。
+            # 决策 B：KISS 只 verbose log，不动 _active_subagents 结构、不再 yield subagent_start
+            # （现有 ToolUseBlock(name="Task") 已 yield 过，避免双触发）。
+            elif isinstance(message, TaskStartedMessage):
+                if self.verbose:
+                    self._agent_logger.log_info(
+                        f"[TaskStarted] task_id={message.task_id}, desc={message.description}, "
+                        f"tool_use_id={message.tool_use_id}"
+                    )
+
+            # S4: TaskProgressMessage 分支（SDK 0.1.46+）
+            # 通过 tool_use_id 反查 subagent_id（_active_subagents 当前结构 dict[tool_use_id, subagent_id]）。
+            # usage 是 TaskUsage TypedDict，运行时本质 dict，可直接 .get / dict() 转换。
+            elif isinstance(message, TaskProgressMessage):
+                subagent_id = self._active_subagents.get(message.tool_use_id) if message.tool_use_id else None
+                if self.verbose:
+                    usage = message.usage or {}
+                    self._agent_logger.log_info(
+                        f"[TaskProgress] task_id={message.task_id}, "
+                        f"tokens={usage.get('total_tokens')}, "
+                        f"tool_uses={usage.get('tool_uses')}, "
+                        f"last_tool={message.last_tool_name}"
+                    )
+                yield StreamChunk(
+                    type="subagent_progress",
+                    subagent_id=subagent_id,
+                    task_id=message.task_id,
+                    content=message.description,
+                    tool_name=message.last_tool_name,
+                    usage=dict(message.usage) if message.usage else None,
+                )
+
+            # S4: TaskNotificationMessage 分支（SDK 0.1.46+）
+            # 并存观察策略：不切现有 ToolResultBlock 完成路径（行 ~1214），避免双触发；
+            # 仅 verbose log，待后续 WP 视前端契约需求决定是否切主路径。
+            elif isinstance(message, TaskNotificationMessage):
+                if self.verbose:
+                    self._agent_logger.log_info(
+                        f"[TaskNotification] task_id={message.task_id}, status={message.status}, "
+                        f"output_file={message.output_file}, summary_len={len(message.summary or '')}"
                     )
 
             elif isinstance(message, SystemMessage):
                 # SDK 级系统消息（会话初始化、上下文压缩等）
+                # 注意：此分支必须降到 Task* 三类之后，否则会先吞掉子类消息。
                 if self.verbose:
                     self._agent_logger.log_info(f"[System] subtype={message.subtype}")
+
+            else:
+                # S4: 未知顶层消息类型兜底（SDK 未来扩展时不静默丢失）
+                if self.verbose:
+                    self._agent_logger.log_warning(
+                        f"[UnknownMessage] Unhandled top-level message: {type(message).__name__}"
+                    )
 
         if self.verbose:
             self._agent_logger.log_complete(model=self._completion_model_stamp())

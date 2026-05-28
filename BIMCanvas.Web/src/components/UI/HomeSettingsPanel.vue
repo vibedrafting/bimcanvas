@@ -169,7 +169,10 @@ function createClaudeDefaults() {
     defaultEffort: 'low',
     defaultThinking: 'adaptive',
     maxThinkingTokens: 8000,
-    modelMapping: clone(CLAUDE_MODEL_DEFAULTS)
+    modelMapping: clone(CLAUDE_MODEL_DEFAULTS),
+    // claude-agent-sdk ClaudeAgentOptions.env: 传给 Claude Code CLI subprocess 的环境变量。
+    // 仿 ~/.claude/settings.json env 段;key/value 都必须是字符串。
+    env: {} as Record<string, string>
   }
 }
 
@@ -182,6 +185,22 @@ function createOpenAiDefaults() {
     disableTracing: null as boolean | null,
     modelMapping: clone(OPENAI_MODEL_DEFAULTS)
   }
+}
+
+function normalizeClaudeEnv(raw: unknown): Record<string, string> {
+  if (!isPlainObject(raw)) {
+    return {}
+  }
+  const result: Record<string, string> = {}
+  for (const [key, value] of Object.entries(raw)) {
+    const normalizedKey = String(key).trim()
+    if (!normalizedKey) {
+      continue
+    }
+    // SDK 要求 dict[str,str];数字/布尔强转字符串以容错(后端 schema 校验仍会要求 string)
+    result[normalizedKey] = value === null || value === undefined ? '' : String(value)
+  }
+  return result
 }
 
 function normalizeClaudeModelMapping(raw: unknown) {
@@ -291,7 +310,8 @@ function normalize(group: SettingsGroupKey, raw: Record<string, any>) {
       claude: {
         ...createClaudeDefaults(),
         ...claude,
-        modelMapping: normalizeClaudeModelMapping(claude.modelMapping)
+        modelMapping: normalizeClaudeModelMapping(claude.modelMapping),
+        env: normalizeClaudeEnv(claude.env)
       },
       openai: {
         ...createOpenAiDefaults(),
@@ -358,6 +378,11 @@ const agentRuntimeProvider = computed<ProviderKey>({
 const isOpenAiProvider = computed(() => agentRuntimeProvider.value === 'openai')
 const openAiModelEntries = computed<[string, ModelMappingEntry][]>(() => (
   Object.entries(drafts.agent.values.openai?.modelMapping ?? {}) as [string, ModelMappingEntry][]
+))
+
+// Claude SDK 子进程环境变量 (ClaudeAgentOptions.env) —— 仿 ~/.claude/settings.json env 段
+const claudeEnvEntries = computed<[string, string][]>(() => (
+  Object.entries((drafts.agent.values.claude?.env ?? {}) as Record<string, string>)
 ))
 
 const modelOptions = computed(() => {
@@ -648,6 +673,44 @@ function setOpenAiModelLabel(modelId: string, value: string) {
 function removeOpenAiModelMappingEntry(modelId: string) {
   delete drafts.agent.values.openai.modelMapping[modelId]
   ensureDefaultModelForCurrentProvider()
+}
+
+function addClaudeEnvEntry() {
+  drafts.agent.values.claude.env ??= {}
+  let index = Object.keys(drafts.agent.values.claude.env).length + 1
+  let nextKey = `ENV_VAR_${index}`
+  while (drafts.agent.values.claude.env[nextKey] !== undefined) {
+    index += 1
+    nextKey = `ENV_VAR_${index}`
+  }
+  drafts.agent.values.claude.env[nextKey] = ''
+}
+
+function renameClaudeEnvKey(previousKey: string, nextValue: string) {
+  const nextKey = nextValue.trim()
+  if (!nextKey || nextKey === previousKey) {
+    return
+  }
+  drafts.agent.values.claude.env ??= {}
+  if (drafts.agent.values.claude.env[nextKey] !== undefined) {
+    // 目标 key 已存在,拒绝改名以避免静默覆盖
+    return
+  }
+  const value = drafts.agent.values.claude.env[previousKey] ?? ''
+  delete drafts.agent.values.claude.env[previousKey]
+  drafts.agent.values.claude.env[nextKey] = value
+}
+
+function setClaudeEnvValue(key: string, value: string) {
+  drafts.agent.values.claude.env ??= {}
+  drafts.agent.values.claude.env[key] = value
+}
+
+function removeClaudeEnvEntry(key: string) {
+  if (!drafts.agent.values.claude?.env) {
+    return
+  }
+  delete drafts.agent.values.claude.env[key]
 }
 
 function textToLines(text: string) {
@@ -996,6 +1059,32 @@ onMounted(() => {
                       <label>{{ capitalize(alias) }}</label>
                       <input :value="claudeModelMappingValue(alias)" type="text" :placeholder="CLAUDE_MODEL_DEFAULTS[alias].id" @input="setClaudeModelMappingValue(alias, 'id', ($event.target as HTMLInputElement).value)">
                     </div>
+                  </div>
+                </section>
+
+                <section class="inner-subcard">
+                  <div class="section-header">
+                    <div>
+                      <h4>Claude 子进程环境变量</h4>
+                      <p>传给 Claude Code CLI 子进程的环境变量，仿 <code>~/.claude/settings.json</code> 的 <code>env</code> 段。Key 和 Value 必须都是字符串（布尔/数字请填 <code>"1"</code>、<code>"0"</code> 等）。</p>
+                    </div>
+                  </div>
+
+                  <div class="mapping-list">
+                    <div v-for="[envKey, envValue] in claudeEnvEntries" :key="envKey" class="mapping-row">
+                      <div class="field">
+                        <label>Key</label>
+                        <input :value="envKey" type="text" placeholder="CLAUDE_CODE_WORKFLOWS" @change="renameClaudeEnvKey(envKey, ($event.target as HTMLInputElement).value)">
+                      </div>
+                      <div class="field">
+                        <label>Value</label>
+                        <input :value="envValue" type="text" placeholder="1" @input="setClaudeEnvValue(envKey, ($event.target as HTMLInputElement).value)">
+                      </div>
+                      <button type="button" class="btn btn-danger mapping-remove" @click="removeClaudeEnvEntry(envKey)">移除</button>
+                    </div>
+                  </div>
+                  <div class="mapping-toolbar mt-md">
+                    <button type="button" class="btn btn-ghost" @click="addClaudeEnvEntry">添加环境变量</button>
                   </div>
                 </section>
               </div>

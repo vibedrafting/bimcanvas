@@ -57,7 +57,7 @@ dotnet run --project BIMCanvas.Server
 ### 其他启动模式
 
 - **Windows 发布态**：`dotnet publish BIMCanvas.Server -c Release -o publish`，双击 `publish/BIMCanvas.Server.exe`
-- **Linux Docker**：见 [docs/Doc_Docker_Linux_Deployment.md](docs/Doc_Docker_Linux_Deployment.md)
+- **Linux Docker**：开发中（部署文档暂未公开）
 
 ## Features
 
@@ -109,7 +109,6 @@ BIMCanvas/
 | Agent 工作流 | [docs/Agent_Workflows.md](docs/Agent_Workflows.md) |
 | Canvas-MCP 工具 | [docs/Arch_MCP_Tools.md](docs/Arch_MCP_Tools.md) |
 | Git Worktree 并行 | [docs/Arch_Parallel_Development.md](docs/Arch_Parallel_Development.md) |
-| Docker 部署 | [docs/Doc_Docker_Linux_Deployment.md](docs/Doc_Docker_Linux_Deployment.md) |
 | 完整索引 | [docs/README.md](docs/README.md) |
 
 ## Roadmap
