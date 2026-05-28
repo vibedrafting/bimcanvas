@@ -1394,6 +1394,15 @@ class MainAgent:
                     usage = getattr(message, "usage", None) or {}
                     cache_read = usage.get("cache_read_input_tokens") or 0
                     cache_creation = usage.get("cache_creation_input_tokens") or 0
+                    # W3 fallback（2026-05-29 实测预言成真）：多 model 路由场景下（如 deepseek 代理
+                    # 网关）cache 计数下沉到 model_usage[<model>]，顶层 usage 为 None。SDK 是 raw
+                    # dict 透传（claude_agent_sdk/_internal/message_parser.py:258,261）。
+                    if cache_read == 0 and cache_creation == 0:
+                        model_usage = getattr(message, "model_usage", None) or {}
+                        for mu in model_usage.values():
+                            if isinstance(mu, dict):
+                                cache_read += mu.get("cache_read_input_tokens") or 0
+                                cache_creation += mu.get("cache_creation_input_tokens") or 0
                     total = cache_read + cache_creation
                     if total > 0:
                         ratio = cache_read / total * 100
