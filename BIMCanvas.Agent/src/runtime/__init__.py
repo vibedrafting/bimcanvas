@@ -14,6 +14,7 @@ from .providers import (
 )
 from .records import PendingInteractionRecord, PendingInteractionRuntimeBinding, RuntimeSessionRecord
 from .store import RuntimeStateStore
+from .system_prompt import materialize_system_prompt_file
 
 RUNTIME_ID = CLAUDE_RUNTIME_ID
 
@@ -34,5 +35,6 @@ __all__ = [
     "build_config_bundle",
     "build_legacy_chunk_event_data",
     "get_runtime_descriptor",
+    "materialize_system_prompt_file",
     "normalize_runtime_provider",
 ]

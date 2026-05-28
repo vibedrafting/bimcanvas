@@ -29,17 +29,29 @@ from claude_agent_sdk import (
     TaskStartedMessage,
     TaskProgressMessage,
     TaskNotificationMessage,
+    # WP-2 M2: SDK 连接异常基类(winerror=206 走 CLIConnectionError 路径)
+    CLIConnectionError,
+    CLINotFoundError,
 )
-from claude_agent_sdk.types import ThinkingConfigAdaptive, ThinkingConfigDisabled
+from claude_agent_sdk.types import (
+    ThinkingConfigAdaptive,
+    ThinkingConfigDisabled,
+    SystemPromptFile,  # WP-2 M2: 走 --system-prompt-file 绕 32767 上限
+)
 
 from ..config.settings import get_settings
 from .subagents import create_subagents
 from .agent_logger import get_agent_logger
 from .worktree_manager import WorktreeManager, WorktreeContext
 # 组3 改造: 不再硬编码 canvas_mcp; bundle.mcp_servers_spec 动态构造
-from ..runtime import ConfigBundle, StreamChunk, build_config_bundle
+from ..runtime import ConfigBundle, StreamChunk, build_config_bundle, materialize_system_prompt_file
+from .errors import CLICommandLineTooLongError, SystemPromptFileWriteError
 
 logger = logging.getLogger(__name__)
+
+# WP-2 CLAUDECODE: 进程级 flag,确保 WARNING 只打一次(__init__ 内 once-触发)
+# SDK 0.1.51 PR #732 起,SDK 已自动剥离 CLAUDECODE env;此 flag 仅提醒"无需手动设"
+_claudecode_warned: bool = False
 
 _UNKNOWN_MODEL_VALUES = {"", "unknown"}
 
@@ -126,6 +138,18 @@ class MainAgent:
         # Worktree 管理器（用于并行布置）
         self._worktree_manager: WorktreeManager | None = None
         self._runtime_context: dict[str, str] | None = None
+
+        # WP-2 M2: 最近一次 _create_options 度量的 prompt 总长(供 connect() 异常诊断引用)
+        self._last_prompt_size: int = 0
+
+        # WP-2 CLAUDECODE: 进程级一次性 WARNING(SDK 0.1.51 PR #732 已自动剥离 CLAUDECODE env)
+        global _claudecode_warned
+        if not _claudecode_warned and os.environ.get("CLAUDECODE") == "1":
+            logger.warning(
+                "检测到 CLAUDECODE=1 环境变量;SDK 0.1.51 PR #732 已自动剥离该 env,"
+                "无需在 ClaudeAgentOptions(env=...) 里手动设 CLAUDECODE 为空字符串。"
+            )
+            _claudecode_warned = True
 
     @property
     def is_connected(self) -> bool:
@@ -220,6 +244,28 @@ class MainAgent:
         working_directory = self.working_directory or self.project_path or "（unknown）"
         system_prompt = system_prompt + f"\n\n项目路径: {project_path}\n工作目录: {working_directory}"
 
+        # WP-2 M2.2 阈值语义: file 模式已物理绕过 Windows 32767 字符上限;
+        # 28000 WARN / 31000 raise 现在是"防 prompt 不受控膨胀的资源上限",
+        # 不再是"防 CLI args 截断的边界值"。
+        total_len = len(system_prompt) + sum(
+            len(a.prompt) for a in (self._subagents or {}).values()
+        )
+        self._last_prompt_size = total_len  # 供 connect() 异常处理读取,不重算
+        if total_len >= 31000:
+            raise ValueError(
+                f"system_prompt + subagents 总长 {total_len} 字符 >= 31000,"
+                "建议精简 prompt 或拆分 SubAgent。"
+            )
+        if total_len >= 28000:
+            self._agent_logger.log_warning(
+                f"system_prompt + subagents 总长 {total_len} 字符 >= 28000,"
+                "已接近资源上限警戒线。"
+            )
+
+        # WP-2 M2.1: 落盘到 BIMCANVAS_HOME/cache/system_prompt.window_{seq}.runtime.md,
+        # 走 SDK --system-prompt-file(0.1.51+)绕过 Windows CreateProcess 32767 字符上限。
+        system_prompt_file = materialize_system_prompt_file(system_prompt, self.window_seq)
+
         # 工具权限重设计 v3.2 §7.1 / §7.2:
         # - bundle.tools_allow 原样传给 SDK (空 list = SDK 全开)
         # - bundle.tools_deny 原样传给 SDK (deny 优先于 allow,跟随 SDK 语义)
@@ -278,7 +324,7 @@ class MainAgent:
                 )
 
         return ClaudeAgentOptions(
-            system_prompt=system_prompt,
+            system_prompt=system_prompt_file,      # WP-2 M2: SystemPromptFile dict,走 --system-prompt-file 绕 32767 上限
             cwd=self.working_directory,
             max_turns=30,
             model=model,
@@ -292,6 +338,10 @@ class MainAgent:
             thinking=sdk_thinking,                 # SDK 原生（0.1.36+）
             max_thinking_tokens=settings.max_thinking_tokens,  # thinking 预算上限（None=不限制）
             mcp_servers=mcp_servers_spec,          # 组3: bundle.mcp_servers_spec 动态构造 (canvas + active plugin)
+            strict_mcp_config=True,                # WP-2 O1: 只用代码传入的 mcp_servers,不被外部 settings 污染
+            # WP-2 S2 双写过渡期:plugin manifest 的 "Skill" literal 暂保留,
+            # 待 SDK issue #977 close 后清理
+            skills="all",
             # 必须 [] 而非 None: SDK 0.1.53 修了"误传空串"bug 后, None=不传 --setting-sources flag
             # → CLI 默认加载 user+project (CLAUDE.md/Skills/MCP/agents 全注入污染); [] 才是
             # CHANGELOG 0.1.60 #822 钦定的"显式禁用全部 filesystem discovery"信号。
@@ -554,7 +604,16 @@ class MainAgent:
                 self._agent_logger._print(f"[MainAgent] 警告: 未加载任何 SubAgent")
 
             self._client = ClaudeSDKClient(options)
-            await self._client.connect()
+            try:
+                await self._client.connect()
+            except CLIConnectionError as e:
+                # WP-2 M2.3: winerror=206 (Windows ERROR_FILENAME_EXCED_RANGE) 走 CLIConnectionError 父类路径
+                # —— SDK 把 FileNotFoundError 包成 CLINotFoundError,其他 Exception(含 winerror=206)
+                # 包成 CLIConnectionError(父类)。catch 父类同时覆盖两条;判定 __cause__ 后区分。
+                cause = e.__cause__
+                if isinstance(cause, OSError) and getattr(cause, "winerror", None) == 206:
+                    raise CLICommandLineTooLongError(self._last_prompt_size) from e
+                raise
             self._connected = True
             self._current_model = resolved_model
             if self.verbose:
@@ -651,6 +710,10 @@ class MainAgent:
 
             for block in message.content:
                 if isinstance(block, ThinkingBlock):
+                    # WP-2 O3 阶段 1 临时观测(指挥部 2026-05-29 拍板跨 WP-1 §2 OUT 边界 1 行);
+                    # 阶段 2 决策后(独立 PR)删除本行或升级为 display="summary" 长期配置
+                    if self.verbose:
+                        self._agent_logger.log_info(f"[O3-obs] thinking_block has_content={bool(block.thinking)}")
                     normalized_thinking = self._normalize_visible_content(block.thinking)
                     if normalized_thinking and self.verbose:
                         if not self._in_thinking:
