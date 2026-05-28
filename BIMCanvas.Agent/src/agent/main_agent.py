@@ -22,6 +22,13 @@ from claude_agent_sdk import (
     ToolResultBlock,
     PermissionResultAllow,
     ToolPermissionContext,
+    # SDK 0.2.87 新增类型（WP-1 主控消息层硬化）
+    ServerToolUseBlock,
+    ServerToolResultBlock,
+    RateLimitEvent,
+    TaskStartedMessage,
+    TaskProgressMessage,
+    TaskNotificationMessage,
 )
 from claude_agent_sdk.types import ThinkingConfigAdaptive, ThinkingConfigDisabled
 
@@ -693,6 +700,21 @@ class MainAgent:
                             self._agent_logger.exit_subagent("SubAgent", result_summary)
                         self._current_tool_name = None
 
+                elif isinstance(block, (ServerToolUseBlock, ServerToolResultBlock)):
+                    # M1: SDK 0.1.65+ 新增的 server-side 工具块（advisor / web_search / web_fetch / code_execution）
+                    if self.verbose:
+                        ident = getattr(block, 'name', None) or getattr(block, 'tool_use_id', '')
+                        self._agent_logger.log_info(
+                            f"[ServerTool] {type(block).__name__}: {ident}"
+                        )
+
+                else:
+                    # M1: 未知 content block 类型兜底（避免 SDK 未来扩展时静默丢失）
+                    if self.verbose:
+                        self._agent_logger.log_warning(
+                            f"[UnknownBlock] Unhandled content block: {type(block).__name__}"
+                        )
+
         elif hasattr(message, 'event'):
             event = message.event
             event_type = event.get("type", "")
@@ -1243,6 +1265,21 @@ class MainAgent:
 
                         self._current_tool_name = None
 
+                    elif isinstance(block, (ServerToolUseBlock, ServerToolResultBlock)):
+                        # M1: SDK 0.1.65+ 新增的 server-side 工具块（advisor / web_search / web_fetch / code_execution）
+                        if self.verbose:
+                            ident = getattr(block, 'name', None) or getattr(block, 'tool_use_id', '')
+                            self._agent_logger.log_info(
+                                f"[ServerTool] {type(block).__name__}: {ident}"
+                            )
+
+                    else:
+                        # M1: 未知 content block 类型兜底（避免 SDK 未来扩展时静默丢失）
+                        if self.verbose:
+                            self._agent_logger.log_warning(
+                                f"[UnknownBlock] Unhandled content block: {type(block).__name__}"
+                            )
+
             # 处理 UserMessage 中的 ToolResultBlock（工具调用完成）
             elif isinstance(message, UserMessage):
                 for block in message.content:
@@ -1278,6 +1315,10 @@ class MainAgent:
 
             elif isinstance(message, ResultMessage):
                 # SDK 级结果消息（超轮、超预算、执行错误、正常完成）
+                # S3: 软读 SDK 0.2.87 新字段 api_error_status（0.1.76 引入）/ errors（0.1.51 引入）
+                api_error_status = getattr(message, "api_error_status", None)
+                errors_list = getattr(message, "errors", None)
+
                 if message.is_error:
                     error_display = {
                         "error_during_execution": "执行过程中发生错误",
@@ -1285,22 +1326,106 @@ class MainAgent:
                         "error_max_budget_usd": f"已达预算上限 (${message.total_cost_usd:.2f})",
                         "error_max_structured_output_retries": "结构化输出重试失败",
                     }.get(message.subtype, f"未知 SDK 错误: {message.subtype}")
+
+                    error_extra: dict[str, Any] | None = None
+                    if api_error_status is not None or errors_list:
+                        error_extra = {}
+                        if api_error_status is not None:
+                            error_extra["httpStatus"] = api_error_status
+                        if errors_list:
+                            error_extra["errors"] = list(errors_list)
+
                     yield StreamChunk(
                         type="text",
                         content=f"\n[SDK 错误] {error_display}\n",
                         error_type="sdk_error",
-                        error_content=message.subtype
+                        error_content=message.subtype,
+                        error_extra=error_extra,
                     )
                 if self.verbose:
+                    suffix = f", httpStatus={api_error_status}" if api_error_status is not None else ""
                     self._agent_logger.log_info(
                         f"[Result] subtype={message.subtype}, cost=${message.total_cost_usd or 0:.4f}, "
-                        f"turns={message.num_turns}, duration={message.duration_ms}ms"
+                        f"turns={message.num_turns}, duration={message.duration_ms}ms{suffix}"
+                    )
+
+            # S4: RateLimitEvent 分支（SDK 0.1.49+）
+            # 注意：RateLimitEvent 是独立 dataclass（types.py:1213-1224），非 SystemMessage 子类，
+            # 但前置仍属防御性最佳实践；与下方 Task* 三类前置策略保持一致。
+            elif isinstance(message, RateLimitEvent):
+                info = message.rate_limit_info
+                if self.verbose:
+                    self._agent_logger.log_info(
+                        f"[RateLimit] status={info.status}, type={info.rate_limit_type}, "
+                        f"utilization={info.utilization}, resets_at={info.resets_at}"
+                    )
+                yield StreamChunk(
+                    type="rate_limit",
+                    content=info.status,
+                    extra={
+                        "status": info.status,
+                        "rateLimitType": info.rate_limit_type,
+                        "utilization": info.utilization,
+                        "resetsAt": info.resets_at,
+                    },
+                )
+
+            # S4: TaskStartedMessage 分支（SDK 0.1.46+）
+            # 硬约束：TaskStartedMessage / TaskProgressMessage / TaskNotificationMessage 都是 SystemMessage 子类
+            # （SDK types.py:1059-1110），必须前置于 SystemMessage 分支，否则被父类 isinstance 吞掉。
+            # 决策 B：KISS 只 verbose log，不动 _active_subagents 结构、不再 yield subagent_start
+            # （现有 ToolUseBlock(name="Task") 已 yield 过，避免双触发）。
+            elif isinstance(message, TaskStartedMessage):
+                if self.verbose:
+                    self._agent_logger.log_info(
+                        f"[TaskStarted] task_id={message.task_id}, desc={message.description}, "
+                        f"tool_use_id={message.tool_use_id}"
+                    )
+
+            # S4: TaskProgressMessage 分支（SDK 0.1.46+）
+            # 通过 tool_use_id 反查 subagent_id（_active_subagents 当前结构 dict[tool_use_id, subagent_id]）。
+            # usage 是 TaskUsage TypedDict，运行时本质 dict，可直接 .get / dict() 转换。
+            elif isinstance(message, TaskProgressMessage):
+                subagent_id = self._active_subagents.get(message.tool_use_id) if message.tool_use_id else None
+                if self.verbose:
+                    usage = message.usage or {}
+                    self._agent_logger.log_info(
+                        f"[TaskProgress] task_id={message.task_id}, "
+                        f"tokens={usage.get('total_tokens')}, "
+                        f"tool_uses={usage.get('tool_uses')}, "
+                        f"last_tool={message.last_tool_name}"
+                    )
+                yield StreamChunk(
+                    type="subagent_progress",
+                    subagent_id=subagent_id,
+                    task_id=message.task_id,
+                    content=message.description,
+                    tool_name=message.last_tool_name,
+                    usage=dict(message.usage) if message.usage else None,
+                )
+
+            # S4: TaskNotificationMessage 分支（SDK 0.1.46+）
+            # 并存观察策略：不切现有 ToolResultBlock 完成路径（行 ~1214），避免双触发；
+            # 仅 verbose log，待后续 WP 视前端契约需求决定是否切主路径。
+            elif isinstance(message, TaskNotificationMessage):
+                if self.verbose:
+                    self._agent_logger.log_info(
+                        f"[TaskNotification] task_id={message.task_id}, status={message.status}, "
+                        f"output_file={message.output_file}, summary_len={len(message.summary or '')}"
                     )
 
             elif isinstance(message, SystemMessage):
                 # SDK 级系统消息（会话初始化、上下文压缩等）
+                # 注意：此分支必须降到 Task* 三类之后，否则会先吞掉子类消息。
                 if self.verbose:
                     self._agent_logger.log_info(f"[System] subtype={message.subtype}")
+
+            else:
+                # S4: 未知顶层消息类型兜底（SDK 未来扩展时不静默丢失）
+                if self.verbose:
+                    self._agent_logger.log_warning(
+                        f"[UnknownMessage] Unhandled top-level message: {type(message).__name__}"
+                    )
 
         if self.verbose:
             self._agent_logger.log_complete(model=self._completion_model_stamp())
