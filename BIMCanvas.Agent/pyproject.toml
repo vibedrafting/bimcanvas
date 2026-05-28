@@ -5,7 +5,7 @@ description = "BIMCanvas PlacementAgent - AI-powered interior layout assistant"
 readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
-    "claude-agent-sdk==0.2.87",  # Agent SDK (升级试验：验证 0.1.42 起代理网关 502 是否仍复现)
+    "claude-agent-sdk==0.2.87",  # Agent SDK（已正式升级至 0.2.87 / 内置 CLI 2.1.150，替代旧 0.1.41）
     "openai-agents>=0.14.1,<1",  # OpenAI Agents SDK（RunState + ToolApprovalItem 暂停恢复）
     "aiohttp>=3.9.0",           # HTTP server
     "aiohttp-cors>=0.7.0",      # CORS support for Web access

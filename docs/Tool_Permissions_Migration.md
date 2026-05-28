@@ -140,9 +140,16 @@ effective.tools = active_domain_plugin.tools    if 有 active 专业插件
 
 (留着不删也行,loader 会 warning 提示但不阻断启动。)
 
-### 7. SDK 0.1.41 已知约束
+### 7. SubAgent deny 现状（SDK 0.2.87）
 
-`AgentDefinition` 字段不含 `disallowedTools`。所有 plugin manifest 的 `tools.deny` 经 merge / fallback 后,最终只走 `ClaudeAgentOptions.disallowed_tools` 全局通道(对主控 + SubAgent 派发的工具调用统一拦截)。**不存在 per-SubAgent deny**。SubAgent `.md` frontmatter 不接受 `disallowedTools` / `toolsDeny` 字段。
+> 历史:SDK 0.1.41 时 `AgentDefinition` 不含 `disallowedTools` 字段,曾不存在 per-SubAgent deny。该约束自 SDK 0.1.51(PR #759)恢复字段后解除;Agent 端当前已升级到 **0.2.87**。
+
+当前装配规则(见 `BIMCanvas.Agent/src/agent/subagents.py`):
+
+- SubAgent `.md` 未声明 `tools`(继承主控):回填 `AgentDefinition.disallowedTools = 主控 deny`,即**携带 per-SubAgent deny**。
+- SubAgent `.md` 显式列出 `tools`(自主):`disallowedTools = None`,SubAgent 自身无 deny;主控 deny 仍由全局通道 `ClaudeAgentOptions.disallowed_tools`(CLI `--disallowedTools`)对所有 agent 统一兜底拦截。
+
+SubAgent `.md` frontmatter 目前仍不读取独立的 `disallowedTools` / `toolsDeny` 字段——per-SubAgent deny 只在"继承主控"分支自动携带。
 
 ---
 
