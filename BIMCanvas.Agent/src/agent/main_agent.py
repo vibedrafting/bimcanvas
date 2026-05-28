@@ -222,7 +222,13 @@ class MainAgent:
         disallowed_tools = bundle.tools_deny
 
         # 构建自定义环境变量（用于 Agent SDK 独立配置）
-        custom_env = {}
+        # 顺序:先填用户在 config.json claude.env 中声明的自定义变量(如
+        # CLAUDE_CODE_WORKFLOWS / DISABLE_GROWTHBOOK 等 Claude CLI 特性开关),
+        # 再用 baseUrl / apiKey 派生的 ANTHROPIC_* 覆盖,避免用户在 env 里误塞同名 key
+        # 与专门字段冲突。SDK 内部最终合并顺序为:os.environ → custom_env → SDK 内置版本号。
+        custom_env: dict[str, str] = {}
+        if settings.extra_env:
+            custom_env.update(settings.extra_env)
         if settings.base_url:
             custom_env["ANTHROPIC_BASE_URL"] = settings.base_url
         if settings.anthropic_api_key:
