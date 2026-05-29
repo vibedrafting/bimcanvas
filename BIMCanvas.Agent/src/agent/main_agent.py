@@ -1390,25 +1390,16 @@ class MainAgent:
                         f"[Result] subtype={message.subtype}, cost=${message.total_cost_usd or 0:.4f}, "
                         f"turns={message.num_turns}, duration={message.duration_ms}ms{suffix}"
                     )
-                    # W3: cache 命中率埋点（诊断 SDK #974 bundled CLI 多轮 cache miss）
-                    usage = getattr(message, "usage", None) or {}
-                    cache_read = usage.get("cache_read_input_tokens") or 0
-                    cache_creation = usage.get("cache_creation_input_tokens") or 0
-                    # W3 fallback（2026-05-29 实测预言成真）：多 model 路由场景下（如 deepseek 代理
-                    # 网关）cache 计数下沉到 model_usage[<model>]，顶层 usage 为 None。SDK 是 raw
-                    # dict 透传（claude_agent_sdk/_internal/message_parser.py:258,261）。
-                    if cache_read == 0 and cache_creation == 0:
-                        model_usage = getattr(message, "model_usage", None) or {}
-                        for mu in model_usage.values():
-                            if isinstance(mu, dict):
-                                cache_read += mu.get("cache_read_input_tokens") or 0
-                                cache_creation += mu.get("cache_creation_input_tokens") or 0
-                    total = cache_read + cache_creation
-                    if total > 0:
-                        ratio = cache_read / total * 100
+                    # W3 v3: SDK ResultMessage usage / model_usage 原样透传（诊断 #974）
+                    # 不做计算/比例/累加 —— 字段名和值原封不动 dump，由读日志的人解读
+                    # （历史：v1/v2 用 ratio=read/(read+creation)，稳态会话下数学恒 100%，无诊断价值）
+                    if message.usage:
                         self._agent_logger.log_info(
-                            f"[Cache] read={cache_read}, creation={cache_creation}, "
-                            f"ratio={ratio:.1f}%"
+                            f"[Usage] {json.dumps(message.usage, ensure_ascii=False, default=str)}"
+                        )
+                    if message.model_usage:
+                        self._agent_logger.log_info(
+                            f"[ModelUsage] {json.dumps(message.model_usage, ensure_ascii=False, default=str)}"
                         )
 
             # S4: RateLimitEvent 分支（SDK 0.1.49+）
