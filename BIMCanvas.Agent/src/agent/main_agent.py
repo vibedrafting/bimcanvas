@@ -241,7 +241,7 @@ class MainAgent:
         working_directory = self.working_directory or self.project_path or "（unknown）"
         system_prompt = system_prompt + f"\n\n项目路径: {project_path}\n工作目录: {working_directory}"
 
-        # WP-2 M2.1: 落盘到 BIMCANVAS_HOME/cache/system_prompt.window_{seq}.runtime.md,
+        # WP-2 M2.1: 落盘到 BIMCANVAS_HOME/.runtime/system-prompt/system_prompt.window_{seq}.runtime.md,
         # 走 SDK --system-prompt-file(0.1.51+)绕过 Windows CreateProcess 32767 字符上限。
         system_prompt_file = materialize_system_prompt_file(system_prompt, self.window_seq)
 

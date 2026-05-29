@@ -31,7 +31,7 @@ class CLICommandLineTooLongError(RuntimeError):
 
 
 class SystemPromptFileWriteError(RuntimeError):
-    """system_prompt 落盘到 BIMCANVAS_HOME/cache/ 失败(磁盘满 / 权限 / 路径无效等)。"""
+    """system_prompt 落盘到 BIMCANVAS_HOME/.runtime/system-prompt/ 失败(磁盘满 / 权限 / 路径无效等)。"""
 
     def __init__(self, path: str, cause: BaseException) -> None:
         super().__init__(f"Failed to write system prompt cache file: {path}: {cause}")
