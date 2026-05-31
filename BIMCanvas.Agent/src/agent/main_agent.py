@@ -765,13 +765,18 @@ class MainAgent:
             if self.verbose:
                 self._agent_logger.log_info("[Background] discarded out-of-turn ResultMessage")
         elif isinstance(message, (TaskStartedMessage, TaskProgressMessage)):
-            # 后台进度本期不推送（计划：留作后续迭代），仅 verbose log
+            # 后台进度本期不推送（计划：留作后续迭代），仅 verbose log（秒级心跳，信息量足）
             if self.verbose:
                 self._agent_logger.log_info(
                     f"[Background] {type(message).__name__} task_id="
                     f"{getattr(message, 'task_id', None)}"
                 )
+        elif hasattr(message, 'event') or isinstance(message, (AssistantMessage, UserMessage, SystemMessage)):
+            # 后台 workflow 子 agent 的流式 chatter（逐 token 增量 / 整段回复 / 系统事件）：
+            # 与回合内路径的聚合纪律一致——这股逐 token 消防水管静默丢弃、不逐条 log，避免刷屏。
+            pass
         else:
+            # 仅对真正未知的新消息类型留一行（与顶层 [UnknownMessage] 同源的"勿静默吞未知"纪律）
             if self.verbose:
                 self._agent_logger.log_info(
                     f"[Background] ignored out-of-turn {type(message).__name__}"

@@ -34,11 +34,13 @@ namespace BIMCanvas.Server.Services
     public class ModulesWriterService
     {
         private readonly ILogger<ModulesWriterService> _logger;
+        private readonly SchemeDesignDocService _designDoc;
         private readonly JsonSerializerSettings _jsonSettings;
 
-        public ModulesWriterService(ILogger<ModulesWriterService> logger)
+        public ModulesWriterService(ILogger<ModulesWriterService> logger, SchemeDesignDocService designDoc)
         {
             _logger = logger;
+            _designDoc = designDoc;
             _jsonSettings = new JsonSerializerSettings
             {
                 ContractResolver = new DefaultContractResolver { NamingStrategy = new CamelCaseNamingStrategy() },
@@ -74,6 +76,18 @@ namespace BIMCanvas.Server.Services
 
             if (!string.IsNullOrWhiteSpace(variantId))
                 ModuleFileTopologyService.EnsureSafeVariantId(variantId);
+
+            // 路A：写 canonical（variantId 空）但该设计区还没 adopted 指针 → 自动 bootstrap "main" 方案 + 父 adopted:main，
+            // 让"无方案"的手动布置 / Server 写盘也落进指针结构 schemes/{dz}/main/[{leaf}/]modules.json，不再生产 legacy 路径。
+            // （场景① workflow 候选走显式 variantId=_cand-x、经 Write 工具直写，不经此入口、不触发 bootstrap。）
+            var schemesPath = Path.Combine(projectPath, "schemes");
+            if (string.IsNullOrWhiteSpace(variantId)
+                && string.IsNullOrEmpty(SchemeDesignDocService.ResolveAdoptedSlug(schemesPath, designZoneId)))
+            {
+                _designDoc.WriteAdoptedSlug(schemesPath, designZoneId, "main");
+                _logger.LogInformation(
+                    "[ModulesWriter] 设计区 {Dz} 无 adopted 指针，自动 bootstrap main 方案（路A，避免落 legacy 路径）", designZoneId);
+            }
 
             var filePath = ResolveModulesPath(projectPath, designZoneId, leafZoneId, variantId, pathMode);
             var directory = Path.GetDirectoryName(filePath)!;

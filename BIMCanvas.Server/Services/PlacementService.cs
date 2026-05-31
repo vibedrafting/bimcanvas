@@ -163,28 +163,34 @@ namespace BIMCanvas.Server.Services
                 return result;
             }
 
-            // 3. 加载已放置模块
-            var modulesPath = Path.Combine(projectPath, "schemes", schemeId, "modules.json");
-            if (!File.Exists(modulesPath))
+            // 3. 加载已放置模块（指针模型：经拓扑解析到 adopted 方案，不再硬编码 legacy schemes/{schemeId}/modules.json）
+            var schemesPath = Path.Combine(projectPath, "schemes");
+            var topology = ModuleFileTopologyService.BuildFromSchemesPath(schemesPath);
+            var moduleFiles = topology.GetExistingCanonicalModuleFiles(new[] { schemeId });
+            if (moduleFiles.Count == 0)
             {
                 _logger.LogInformation("方案 {SchemeId} 尚无模块布置", schemeId);
                 return result; // 空方案视为有效
             }
 
             // Phase 0b: 通过 ModulesReaderService 读 wrapper（裸数组会抛错并提示运行迁移脚本）
-            List<PlacedModule>? placedModules;
+            var placedModules = new List<PlacedModule>();
             try
             {
-                var wrapperModules = _modulesReader.ReadModulesOnly(modulesPath);
-                placedModules = wrapperModules?.Select(m => new PlacedModule
+                foreach (var mf in moduleFiles)
                 {
-                    Id = m.Id ?? string.Empty,
-                    ModuleId = m.ModuleId ?? string.Empty,
-                    ModuleName = m.ModuleName ?? string.Empty,
-                    Bounds = m.Bounds?.Vertices?.Select(v => new[] { v.X, v.Y }).ToArray(),
-                    Facing = m.Facing,
-                    ZoneId = m.ZoneId ?? string.Empty
-                }).ToList();
+                    var wrapperModules = _modulesReader.ReadModulesOnly(mf.FilePath);
+                    if (wrapperModules == null) continue;
+                    placedModules.AddRange(wrapperModules.Select(m => new PlacedModule
+                    {
+                        Id = m.Id ?? string.Empty,
+                        ModuleId = m.ModuleId ?? string.Empty,
+                        ModuleName = m.ModuleName ?? string.Empty,
+                        Bounds = m.Bounds?.Vertices?.Select(v => new[] { v.X, v.Y }).ToArray(),
+                        Facing = m.Facing,
+                        ZoneId = m.ZoneId ?? string.Empty
+                    }));
+                }
             }
             catch (System.Exception ex)
             {
@@ -193,7 +199,7 @@ namespace BIMCanvas.Server.Services
                 return result;
             }
 
-            if (placedModules == null || placedModules.Count == 0)
+            if (placedModules.Count == 0)
             {
                 return result; // 空布置视为有效
             }
