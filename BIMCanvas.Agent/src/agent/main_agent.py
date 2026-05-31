@@ -5,7 +5,8 @@ import json
 import logging
 import os
 import re
-from typing import Any, AsyncIterator
+from dataclasses import dataclass, field
+from typing import Any, AsyncIterator, Awaitable, Callable
 
 import aiohttp
 
@@ -54,6 +55,20 @@ logger = logging.getLogger(__name__)
 _claudecode_warned: bool = False
 
 _UNKNOWN_MODEL_VALUES = {"", "unknown"}
+
+
+@dataclass
+class _TurnChannel:
+    """单个用户回合的消息通道。
+
+    常驻 _drain_loop 把属于当前活跃回合的 SDK 消息投递到 queue；
+    chat / chat_stream 从 queue 消费，直到取到 ResultMessage（或异常）为止。
+    queue 中若取到 BaseException 实例，表示常驻 reader 异常退出，消费方应抛出它，
+    避免 await queue.get() 永久挂起。
+    """
+
+    queue: asyncio.Queue = field(default_factory=asyncio.Queue)
+    finished: asyncio.Event = field(default_factory=asyncio.Event)
 
 
 class MainAgent:
@@ -138,6 +153,20 @@ class MainAgent:
         # Worktree 管理器（用于并行布置）
         self._worktree_manager: WorktreeManager | None = None
         self._runtime_context: dict[str, str] | None = None
+        # 跨回合保留的 runtime context，仅在 disconnect 时清空。
+        # 后台任务（Workflow）完成的带外推送靠它定位目标窗口/会话。
+        self._last_runtime_context: dict[str, str] | None = None
+
+        # 常驻消息排空（SDK 0.2.87 后台 Workflow 适配）：
+        # _drain_loop 独占 client.receive_messages()，按是否有活跃回合分发消息：
+        #   有活跃回合 → 投递到 turn.queue（chat/chat_stream 消费）
+        #   无活跃回合 → 走 _handle_background_message（后台任务完成等带外消息）
+        # 由此 receive_response() 的"首个 ResultMessage 即停"语义被移出回合路径，
+        # 后台续写回合的多余 ResultMessage 不再污染下一回合（修复消息错位/吞答 bug）。
+        self._drain_task: asyncio.Task | None = None
+        self._active_turn: _TurnChannel | None = None
+        # 后台任务完成推送回调（host 注入；Claude 路径用，OpenAI/protocol 路径不设即 no-op）
+        self._background_push: Callable[[dict[str, Any]], Awaitable[None]] | None = None
 
         # WP-2 CLAUDECODE: 进程级一次性 WARNING(SDK 0.1.51 PR #732 已自动剥离 CLAUDECODE env)
         global _claudecode_warned
@@ -155,10 +184,19 @@ class MainAgent:
     def set_runtime_context(self, runtime_context: dict[str, str] | None) -> None:
         """Set host-provided runtime context for the current turn."""
         self._runtime_context = dict(runtime_context) if runtime_context else None
+        # 同步刷新跨回合保留的副本，供后台任务带外推送定位窗口（回合结束 clear 后仍可用）
+        if self._runtime_context:
+            self._last_runtime_context = dict(self._runtime_context)
 
     def clear_runtime_context(self) -> None:
         """Clear host-provided runtime context after the current turn."""
         self._runtime_context = None
+
+    def set_background_push(
+        self, callback: Callable[[dict[str, Any]], Awaitable[None]] | None
+    ) -> None:
+        """注入后台任务完成的带外推送回调（host → runtime_store 发布）。"""
+        self._background_push = callback
 
     @staticmethod
     def _normalize_response_model(model: Any) -> str | None:
@@ -595,12 +633,29 @@ class MainAgent:
                 raise
             self._connected = True
             self._current_model = resolved_model
+            # 启动常驻消息排空任务（必须在 client 同一 async 上下文内创建，见 SDK caveat）
+            self._active_turn = None
+            self._drain_task = asyncio.create_task(self._drain_loop())
             if self.verbose:
                 self._agent_logger.log_info(f"Connected to project: {self.project_path or 'default'}")
 
     async def disconnect(self) -> None:
         """Disconnect from the agent with force-kill fallback."""
         async with self._lock:
+            # 先停常驻排空任务，避免它在 client 关闭时撞上 receive_messages 异常
+            if self._drain_task is not None:
+                self._drain_task.cancel()
+                try:
+                    await self._drain_task
+                except asyncio.CancelledError:
+                    pass
+                except Exception as e:
+                    logger.warning(f"Drain task await error during disconnect: {e}")
+                finally:
+                    self._drain_task = None
+            self._active_turn = None
+            self._last_runtime_context = None
+
             if self._client and self._connected:
                 try:
                     await self._client.disconnect()
@@ -637,6 +692,112 @@ class MainAgent:
                 logger.info("Force-killed claude.exe subprocess")
         except Exception as e:
             logger.error(f"Force-kill subprocess failed: {e}")
+
+    # ─────────────────────────────────────────────────────
+    # 常驻消息排空（demux）：回合消息 vs 后台带外消息
+    # ─────────────────────────────────────────────────────
+
+    async def _drain_loop(self) -> None:
+        """独占 client.receive_messages()，把消息分发到活跃回合或后台处理器。
+
+        这是修复"后台 Workflow 完成消息错位/吞答"的核心：回合不再各自调用
+        receive_response()（其语义是"首个 ResultMessage 即停"），而由本任务统一读流。
+        - 有活跃回合：消息进 turn.queue；ResultMessage 标记回合结束并清空 _active_turn。
+        - 无活跃回合：交给 _handle_background_message（后台任务通知 + 续写 ResultMessage 丢弃）。
+        """
+        try:
+            async for message in self._client.receive_messages():
+                turn = self._active_turn
+                if turn is not None:
+                    turn.queue.put_nowait(message)
+                    if isinstance(message, ResultMessage):
+                        self._active_turn = None
+                        turn.finished.set()
+                else:
+                    try:
+                        await self._handle_background_message(message)
+                    except Exception as e:
+                        logger.warning(f"Background message handling error: {e}")
+        except asyncio.CancelledError:
+            raise
+        except Exception as e:
+            # reader 异常退出：唤醒等待中的回合，避免 chat_stream 永久挂起
+            logger.warning(f"Drain loop terminated with error: {e}")
+            self._fail_active_turn(e)
+        else:
+            # receive_messages() 正常结束（stream 关闭）：同样唤醒等待中的回合
+            self._fail_active_turn(
+                CLIConnectionError("SDK message stream closed unexpectedly")
+            )
+
+    def _fail_active_turn(self, exc: BaseException) -> None:
+        """把异常投递给当前活跃回合的队列，让其消费方抛出（防止挂死）。"""
+        turn = self._active_turn
+        if turn is not None:
+            self._active_turn = None
+            try:
+                turn.queue.put_nowait(exc)
+            except Exception:
+                pass
+            turn.finished.set()
+
+    async def _iter_turn_messages(self, turn: _TurnChannel) -> AsyncIterator[Any]:
+        """从回合队列消费消息，直到 ResultMessage（含）为止；遇异常对象则抛出。"""
+        while True:
+            message = await turn.queue.get()
+            if isinstance(message, BaseException):
+                raise message
+            yield message
+            if isinstance(message, ResultMessage):
+                return
+
+    async def _handle_background_message(self, message: Any) -> None:
+        """处理无活跃回合时到达的带外消息（后台 Workflow 完成等）。"""
+        if isinstance(message, TaskNotificationMessage):
+            if self.verbose:
+                self._agent_logger.log_info(
+                    f"[TaskNotification] task_id={message.task_id}, status={message.status}, "
+                    f"output_file={message.output_file}, "
+                    f"summary_len={len(message.summary or '')} (background)"
+                )
+            await self._push_background_task(message)
+        elif isinstance(message, ResultMessage):
+            # 后台续写回合自带的 ResultMessage —— 仅 log 后丢弃，绝不让它进入下一回合
+            if self.verbose:
+                self._agent_logger.log_info("[Background] discarded out-of-turn ResultMessage")
+        elif isinstance(message, (TaskStartedMessage, TaskProgressMessage)):
+            # 后台进度本期不推送（计划：留作后续迭代），仅 verbose log
+            if self.verbose:
+                self._agent_logger.log_info(
+                    f"[Background] {type(message).__name__} task_id="
+                    f"{getattr(message, 'task_id', None)}"
+                )
+        else:
+            if self.verbose:
+                self._agent_logger.log_info(
+                    f"[Background] ignored out-of-turn {type(message).__name__}"
+                )
+
+    async def _push_background_task(self, message: TaskNotificationMessage) -> None:
+        """把后台任务完成事件组装成 record，经 host 注入的回调带外推送给前端。"""
+        if self._background_push is None:
+            return
+        ctx = self._last_runtime_context or {}
+        record = {
+            "kind": "background_task",  # 前端通道判别字段（与 interaction record 区分）
+            "taskId": message.task_id,
+            "status": str(message.status),
+            "summary": message.summary or "",
+            "outputFile": message.output_file or None,
+            "windowId": ctx.get("windowId"),
+            "sessionId": message.session_id or ctx.get("sessionId"),
+            "turnId": ctx.get("turnId"),
+            "assistantText": None,
+        }
+        try:
+            await self._background_push(record)
+        except Exception as e:
+            logger.warning(f"background_push callback failed: {e}")
 
     async def set_model(self, model: str) -> bool:
         """
@@ -872,10 +1033,13 @@ class MainAgent:
             self._placeholder_text_suppressed_logged = False
             self._response_model = None
 
+            # 注册回合通道后再 query：常驻 _drain_loop 据 _active_turn 把消息投递到本回合队列
+            turn = _TurnChannel()
+            self._active_turn = turn
             await self._client.query(user_message)
 
             full_response = ""
-            async for message in self._client.receive_response():
+            async for message in self._iter_turn_messages(turn):
                 text = self._process_message(message)
                 full_response += text
 
@@ -1121,11 +1285,14 @@ class MainAgent:
                     "session_id": "default",
                 }
 
+            # 注册回合通道后再 query：常驻 _drain_loop 据 _active_turn 把消息投递到本回合队列
+            turn = _TurnChannel()
+            self._active_turn = turn
             await self._client.query(message_stream())
         else:
             raise ValueError("Message or attachments cannot be empty")
 
-        async for message in self._client.receive_response():
+        async for message in self._iter_turn_messages(turn):
             # 获取当前消息的 parent_tool_use_id（用于关联工具调用到 SubAgent）
             current_parent_id = getattr(message, 'parent_tool_use_id', None)
 
@@ -1458,14 +1625,16 @@ class MainAgent:
                 )
 
             # S4: TaskNotificationMessage 分支（SDK 0.1.46+）
-            # 并存观察策略：不切现有 ToolResultBlock 完成路径（行 ~1214），避免双触发；
-            # 仅 verbose log，待后续 WP 视前端契约需求决定是否切主路径。
+            # 边界场景：后台 Workflow 在本回合流式过程中完成（消息落到活跃回合）。
+            # 与回合外一致，走带外推送通道（interaction SSE → 前端 BackgroundTaskService），
+            # 不混入当前回合的流式回答，也不双触发现有 ToolResultBlock 完成路径。
             elif isinstance(message, TaskNotificationMessage):
                 if self.verbose:
                     self._agent_logger.log_info(
                         f"[TaskNotification] task_id={message.task_id}, status={message.status}, "
                         f"output_file={message.output_file}, summary_len={len(message.summary or '')}"
                     )
+                await self._push_background_task(message)
 
             elif isinstance(message, SystemMessage):
                 # SDK 级系统消息（会话初始化、上下文压缩等）

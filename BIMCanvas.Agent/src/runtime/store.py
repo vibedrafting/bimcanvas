@@ -20,6 +20,7 @@ class RuntimeStateStore:
 
     TERMINAL_RETENTION_LIMIT = 64
     HISTORY_RETENTION_LIMIT = 2048
+    BACKGROUND_TASK_RETENTION_LIMIT = 32
 
     def __init__(
         self,
@@ -36,6 +37,8 @@ class RuntimeStateStore:
         self._runtime_bindings_by_interaction: dict[str, PendingInteractionRuntimeBinding] = {}
         self._runtime_bindings_by_token: dict[str, str] = {}
         self._interaction_subscribers: list[asyncio.Queue] = []
+        # 后台任务（Workflow）完成事件按 session 留存，供前端断线重连补发
+        self._background_tasks: dict[str, list[dict[str, Any]]] = {}
         self._terminal_retention_limit = terminal_retention_limit or self.TERMINAL_RETENTION_LIMIT
         self._history_retention_limit = history_retention_limit or self.HISTORY_RETENTION_LIMIT
 
@@ -49,6 +52,39 @@ class RuntimeStateStore:
         async with self._lock:
             if queue in self._interaction_subscribers:
                 self._interaction_subscribers.remove(queue)
+
+    async def push_background_task(self, *, record: dict[str, Any]) -> dict[str, Any]:
+        """发布后台任务（Workflow）完成事件，并按 session 留存供断线补发。
+
+        复用 interaction SSE 通道（不另建通道）：interaction_events_handler 是
+        runtime 无关的"排空队列 → event/data"循环，能转发任意事件名。
+        """
+        record = dict(record)
+        if not record.get("timestamp"):
+            record["timestamp"] = datetime.now(timezone.utc).isoformat()
+        session_id = record.get("sessionId")
+        subscribers: list[asyncio.Queue]
+        async with self._lock:
+            if session_id:
+                bucket = self._background_tasks.setdefault(session_id, [])
+                bucket.append(record)
+                if len(bucket) > self.BACKGROUND_TASK_RETENTION_LIMIT:
+                    del bucket[: len(bucket) - self.BACKGROUND_TASK_RETENTION_LIMIT]
+            subscribers = list(self._interaction_subscribers)
+        self._publish(subscribers, "background_task.completed", record)
+        return record
+
+    async def get_background_tasks_for_window(
+        self,
+        window_id: str,
+    ) -> tuple[str | None, list[dict[str, Any]]]:
+        """返回某窗口当前 session 已留存的后台任务完成事件（断线重连补发用）。"""
+        async with self._lock:
+            session_id = self._window_sessions.get(window_id)
+            if not session_id:
+                return None, []
+            tasks = list(self._background_tasks.get(session_id, []))
+            return session_id, tasks
 
     async def create_session(
         self,

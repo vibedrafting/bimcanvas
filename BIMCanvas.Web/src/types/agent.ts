@@ -134,9 +134,31 @@ export interface InteractionRecord {
   cancelReason?: string | null;
 }
 
+// 后台任务（Workflow）完成事件 —— 复用 interaction SSE 通道，事件名独立。
+// kind 字段作为通道判别符：interaction record 用 InteractionKind，背景任务用字面量
+// 'background_task'，让现有 question/screenshot listener 的 `record.kind !== 'xxx'` 守卫
+// 能正确把背景任务记录排除掉（无需改动那两个 service）。
+export type BackgroundTaskStatus = 'completed' | 'failed' | 'stopped' | string;
+export type BackgroundTaskEventName = 'background_task.completed';
+
+export interface BackgroundTaskRecord {
+  kind: 'background_task';
+  taskId: string;
+  status: BackgroundTaskStatus;
+  summary: string;
+  outputFile?: string | null;
+  windowId?: string | null;
+  sessionId?: string | null;
+  turnId?: string | null;
+  assistantText?: string | null;
+  timestamp?: string | null;
+}
+
+export type ChannelEventName = InteractionEventName | BackgroundTaskEventName;
+
 export interface InteractionEventEnvelope {
-  event: InteractionEventName;
-  record: InteractionRecord;
+  event: ChannelEventName;
+  record: InteractionRecord | BackgroundTaskRecord;
 }
 
 export type InteractionEventListener = (event: InteractionEventEnvelope) => void;
@@ -146,6 +168,12 @@ export interface InteractionQueryResponse {
   sessionId?: string | null;
   includeTerminal?: boolean;
   interactions: InteractionRecord[];
+}
+
+export interface BackgroundTaskQueryResponse {
+  windowId: string;
+  sessionId?: string | null;
+  tasks: BackgroundTaskRecord[];
 }
 
 export interface ChatHistorySessionSnapshot {

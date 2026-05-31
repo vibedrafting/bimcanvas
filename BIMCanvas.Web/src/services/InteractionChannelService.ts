@@ -1,17 +1,20 @@
 import { AGENT_API } from '../config/api';
 import type {
+  BackgroundTaskQueryResponse,
+  BackgroundTaskRecord,
+  ChannelEventName,
   InteractionEventEnvelope,
-  InteractionEventName,
   InteractionEventListener,
   InteractionQueryResponse,
   InteractionRecord
 } from '../types/agent';
 
-const INTERACTION_EVENT_NAMES: InteractionEventName[] = [
+const INTERACTION_EVENT_NAMES: ChannelEventName[] = [
   'interaction.pushed',
   'interaction.resolved',
   'interaction.cancelled',
-  'interaction.expired'
+  'interaction.expired',
+  'background_task.completed'
 ];
 
 export class InteractionChannelService {
@@ -69,6 +72,16 @@ export class InteractionChannelService {
     return Array.isArray(payload.interactions) ? payload.interactions : [];
   }
 
+  async queryBackgroundTasks(windowId: string): Promise<BackgroundTaskRecord[]> {
+    const response = await fetch(`${this.serverUrl}/api/background-task?windowId=${encodeURIComponent(windowId)}`);
+    if (!response.ok) {
+      throw new Error(`Failed to query background tasks for window ${windowId}: HTTP ${response.status}`);
+    }
+
+    const payload = await response.json() as BackgroundTaskQueryResponse;
+    return Array.isArray(payload.tasks) ? payload.tasks : [];
+  }
+
   async submitInteraction(
     interactionId: string,
     resolutionPayload: Record<string, unknown> = {}
@@ -111,9 +124,9 @@ export class InteractionChannelService {
     return payload.interaction;
   }
 
-  private dispatchEvent(eventName: InteractionEventName, event: MessageEvent): void {
+  private dispatchEvent(eventName: ChannelEventName, event: MessageEvent): void {
     try {
-      const record = JSON.parse(event.data) as InteractionRecord;
+      const record = JSON.parse(event.data) as InteractionRecord | BackgroundTaskRecord;
       const envelope: InteractionEventEnvelope = { event: eventName, record };
       for (const listener of this.listeners) {
         listener(envelope);

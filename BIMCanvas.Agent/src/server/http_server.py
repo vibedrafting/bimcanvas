@@ -66,6 +66,14 @@ def _build_runtime_context(window_id: str, session_id: str, turn_id: str) -> dic
     }
 
 
+async def _background_task_pusher(record: dict[str, Any]) -> None:
+    """Agent 注入回调：把后台任务（Workflow）完成事件经 runtime_store 带外推送给前端。
+
+    复用 interaction SSE 通道（/api/interaction/events），事件名 background_task.completed。
+    """
+    await runtime_store.push_background_task(record=record)
+
+
 def _build_session_ready_event(session_snapshot: dict[str, Any]) -> dict[str, Any]:
     return {
         "type": "session_ready",
@@ -656,6 +664,10 @@ async def get_agent(
                 window_seq=seq,
             )
             agents[window_id] = agent
+
+            # 注入后台任务完成推送回调（Claude 路径用；其余 runtime 无此方法即跳过）
+            if hasattr(agent, "set_background_push"):
+                agent.set_background_push(_background_task_pusher)
 
             prefix = _get_window_prefix(seq)
             print(f"{prefix} [Server] ========== Agent 实例创建 ==========")
@@ -1402,6 +1414,17 @@ async def interaction_query_handler(request: web.Request) -> web.Response:
     })
 
 
+async def background_task_query_handler(request: web.Request) -> web.Response:
+    """查询某窗口当前 session 已留存的后台任务完成事件（前端断线重连补发）。"""
+    window_id = request.query.get("windowId", "primary")
+    session_id, tasks = await runtime_store.get_background_tasks_for_window(window_id)
+    return web.json_response({
+        "windowId": window_id,
+        "sessionId": session_id,
+        "tasks": tasks,
+    })
+
+
 async def interaction_submit_handler(request: web.Request) -> web.Response:
     """提交 interaction resolution。
 
@@ -1829,6 +1852,7 @@ def create_app() -> web.Application:
         web.get("/api/interaction", interaction_query_handler),
         web.post("/api/interaction/{id}/submit", interaction_submit_handler),
         web.post("/api/interaction/{id}/cancel", interaction_cancel_handler),
+        web.get("/api/background-task", background_task_query_handler),
         web.get("/api/screenshot/events", screenshot_events_handler),
         web.post("/api/screenshot/request", screenshot_request_handler),
         web.post("/api/screenshot/result", screenshot_result_handler),

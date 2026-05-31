@@ -13,6 +13,7 @@ import { useContextMenu } from '../../composables/aiCommandCenter/useContextMenu
 import { usePanelUI } from '../../composables/aiCommandCenter/usePanelUI';
 import { useScreenshot } from '../../composables/aiCommandCenter/useScreenshot';
 import { useQuestion } from '../../composables/aiCommandCenter/useQuestion';
+import { useBackgroundTask } from '../../composables/aiCommandCenter/useBackgroundTask';
 import { useSelectionContext } from '../../composables/aiCommandCenter/useSelectionContext';
 import { useSpatialMarking } from '../../composables/aiCommandCenter/useSpatialMarking';
 import { useWindowManager } from '../../composables/aiCommandCenter/useWindowManager';
@@ -565,6 +566,15 @@ const {
   waitForInteractionContinuation
 });
 
+const {
+  startListening: startBackgroundTaskListening,
+  stopListening: stopBackgroundTaskListening
+} = useBackgroundTask({
+  agentApiBase: AGENT_API_BASE,
+  windows,
+  scrollToBottom
+});
+
 setStreamWelcomeMessage(streamWelcomeMessage);
 
 const branchIcon = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><line x1="6" y1="3" x2="6" y2="15"></line><circle cx="18" cy="6" r="3"></circle><circle cx="6" cy="18" r="3"></circle><path d="M18 9a9 9 0 0 1-9 9"></path></svg>';
@@ -689,7 +699,8 @@ onMounted(async () => {
 
   await Promise.all([
     startListening(),
-    startQuestionListening()
+    startQuestionListening(),
+    startBackgroundTaskListening()
   ]);
 });
 
@@ -797,6 +808,7 @@ onUnmounted(() => {
   todoProgressResizeObserver = null;
   stopScreenshotListening();
   stopQuestionListening();
+  stopBackgroundTaskListening();
   cleanupHealthCheck();
   cleanupHistoryPolling();
 });
