@@ -435,7 +435,7 @@ namespace BIMCanvas.Server.Services
 
             var targetZoneIds = ExpandTargetZoneIds(requestedZoneIds);
             var records = Directory.GetFiles(SchemesPath, "modules.json", SearchOption.AllDirectories)
-                .Where(path => !IsInVariantsSubtree(path) && !IsUnderPointerManagedDesignZone(path))
+                .Where(path => !IsInVariantsSubtree(path) && !IsSchemeSlugScopedInPointerZone(path))
                 .Select(path => ModuleFileEntry.FromFile(SchemesPath, path))
                 .Where(entry => IsInTarget(entry.ZoneId, targetZoneIds))
                 .ToList();
@@ -481,17 +481,22 @@ namespace BIMCanvas.Server.Services
         }
 
         /// <summary>
-        /// 判定路径是否落在「指针模型管理的设计区」子树内（该设计区有 DESIGN.md）。
-        /// 指针模型下方案目录 schemes/{dz}/{slug}/ 的位置由 adopted 指针管理、不适用 legacy canonical 路径完整性规则，
-        /// 故整个有 DESIGN.md 的设计区子树排除出 E013/E014 校验，避免候选 slug（含 _ 隐藏）被误报。
-        /// 无 DESIGN.md 的设计区（存量未迁移）仍按 legacy 规则校验，零行为变化。
+        /// 判定路径是否为「指针管理设计区内的方案 slug 作用域文件」（schemes/{dz}/{slug}/[…/]modules.json，segments≥3 且 dz 有 DESIGN.md）。
+        /// 这类文件位置由 adopted 指针/方案目录约定管理、不适用 legacy canonical 路径完整性规则，跳过校验以免候选/adopted 被误报。
+        ///
+        /// ★ 收窄说明（M2）：不再"整树排除有 DESIGN.md 的设计区"——legacy-spot 直落文件 schemes/{dz}/modules.json（segments==2）
+        /// 在已迁移区属"未迁移残留"，**仍纳入校验并被正确标为路径错误**（其 zoneId=dz、canonical 已重定向到 main/ → 不匹配 → E013，正合预期）。
+        /// 仅 slug 作用域子树（≥3 段）跳过。
+        /// 注：未对 adopted 方案单独做"应在 adopted 路径"正校验——ModuleFileEntry.FromFile 由父目录名派生 zoneId，
+        /// 对 {dz}/{slug}/modules.json 会把 zoneId 误成 slug，直接正校验会假阳；故采用"跳 slug 作用域 + 抓 legacy-spot 残留"的安全等效。
+        /// 无 DESIGN.md 的设计区（存量未迁移）零行为变化。
         /// </summary>
-        private bool IsUnderPointerManagedDesignZone(string absolutePath)
+        private bool IsSchemeSlugScopedInPointerZone(string absolutePath)
         {
             var rel = Path.GetRelativePath(SchemesPath, absolutePath).Replace('\\', '/');
             var segments = rel.Split('/', StringSplitOptions.RemoveEmptyEntries);
-            if (segments.Length == 0)
-                return false;
+            if (segments.Length < 3)
+                return false; // {dz}/modules.json 等 legacy-spot 直落文件不在此跳过，照常校验（抓未迁移残留）
             var designZoneId = segments[0];
             return File.Exists(Path.Combine(SchemesPath, designZoneId, SchemeDesignDocService.DesignDocFileName));
         }

@@ -118,17 +118,32 @@ namespace BIMCanvas.Server.Services.ProjectHealth.Checks
             if (legacyModules.Count == 0 && !hasSemantic && !hasReference)
                 return; // 无可迁移内容
 
-            // ① 移动几何到 main/（保留相对嵌套）
+            // ① 预检（B1）：任何 main/ 目标已存在 → 整区跳过、绝不覆盖。
+            //    防"半迁移 / 新旧并存"时把 main/ 下真实数据静默冲掉（不可逆）；也覆盖上次中断的残留。
+            var sep = Path.DirectorySeparatorChar;
+            var moves = new List<(string src, string target)>();
             foreach (var src in legacyModules)
             {
                 var rel = Path.GetRelativePath(dzDir, src).Replace('\\', '/');
-                var target = Path.Combine(dzDir, "main", rel.Replace('/', Path.DirectorySeparatorChar));
-                Directory.CreateDirectory(Path.GetDirectoryName(target)!);
-                File.Move(src, target, overwrite: true);
-                result.Migrated.Add($"{ToRelative(projectPath, src)} → {ToRelative(projectPath, target)}");
+                var target = Path.Combine(dzDir, "main", rel.Replace('/', sep));
+                if (File.Exists(target))
+                {
+                    result.Skipped.Add($"{ToRelative(projectPath, dzDir)} (main/ 下已存在 {rel}，整区跳过迁移以防覆盖；若为上次中断残留请人工清理 main/ 后重跑)");
+                    return;
+                }
+                moves.Add((src, target));
             }
 
-            // ② semantic_plan tag 拆分
+            // ② 复制（非移动）+ 校验落盘（B2）——源此刻完好，任何崩溃都可重跑、不丢数据。
+            foreach (var (src, target) in moves)
+            {
+                Directory.CreateDirectory(Path.GetDirectoryName(target)!);
+                File.Copy(src, target, overwrite: false);
+                if (!File.Exists(target))
+                    throw new IOException($"复制校验失败，已中止且未删源（安全）：{ToRelative(projectPath, target)}");
+            }
+
+            // ③ semantic_plan tag 拆分 / reference 最新定稿（只读）
             string? skeleton = null, strategic = null, brief = null;
             var multiPlanOrUnknown = false;
             if (hasSemantic)
@@ -137,24 +152,31 @@ namespace BIMCanvas.Server.Services.ProjectHealth.Checks
                 skeleton = parsed.skeleton; strategic = parsed.strategic; brief = parsed.brief;
                 multiPlanOrUnknown = parsed.hasMultiPlan || parsed.hasUnknown;
             }
-
-            // ③ reference 最新定稿
             string? reference = hasReference ? ParseLatestReference(referencePath) : null;
 
-            // 写父 DESIGN.md（adopted:main + skeleton + reference 冻结节）
-            WriteAtomicText(parentDesignDoc, BuildParentDesignDoc(dz, skeleton, reference));
-            result.Migrated.Add($"{ToRelative(projectPath, parentDesignDoc)} (adopted:main)");
-
-            // 写方案 main/DESIGN.md（strategic + brief）
+            // ④ 写方案 main/DESIGN.md + 父 DESIGN.md（原子）+ 校验落盘。
+            //    父 DESIGN.md 是幂等闸门，**最后写**：崩溃在它之前→源完好、重跑（预检会拦半残留要求人工清理）；
+            //    崩溃在它之后→重跑见 DESIGN.md 即跳过，残留源为无害 orphan（拓扑只读 main/）。
             var schemeDoc = BuildSchemeDesignDoc(dz, strategic, brief);
             if (schemeDoc != null)
             {
                 var schemeDocPath = Path.Combine(dzDir, "main", "DESIGN.md");
                 WriteAtomicText(schemeDocPath, schemeDoc);
+                if (!File.Exists(schemeDocPath))
+                    throw new IOException($"main/DESIGN.md 写入校验失败，未删源：{ToRelative(projectPath, schemeDocPath)}");
                 result.Migrated.Add($"{ToRelative(projectPath, schemeDocPath)}");
             }
+            WriteAtomicText(parentDesignDoc, BuildParentDesignDoc(dz, skeleton, reference));
+            if (!File.Exists(parentDesignDoc))
+                throw new IOException($"父 DESIGN.md 写入校验失败，未删源：{ToRelative(projectPath, parentDesignDoc)}");
+            result.Migrated.Add($"{ToRelative(projectPath, parentDesignDoc)} (adopted:main)");
 
-            // 删源（历史交 git）；含非①范围 tag 则保留 semantic_plan 待人工
+            // ⑤ 全部新文件确认落盘后，才删源（此前任何崩溃都不丢数据）
+            foreach (var (src, target) in moves)
+            {
+                File.Delete(src);
+                result.Migrated.Add($"{ToRelative(projectPath, src)} → {ToRelative(projectPath, target)}");
+            }
             if (hasSemantic)
             {
                 if (multiPlanOrUnknown)

@@ -1,4 +1,5 @@
 using System;
+using System.Diagnostics;
 using System.Linq;
 using BIMCanvas.Server.Services.ProjectHealth;
 using BIMCanvas.Server.Services.ProjectHealth.Checks;
@@ -70,6 +71,20 @@ internal static class Program
             }
             else
             {
+                // CLI 无 git 自动兜底（autoGitCommit:false）；迁移是破坏性一次性操作，apply 前强制工作区 clean，
+                // 非 clean 拒绝执行（除非 --force）。确认 dirty 才拦；非 git 仓库 / git 不可用则放行并提示自行备份。
+                if (!args.Skip(1).Any(a => a == "--force"))
+                {
+                    var (clean, detail) = CheckGitClean(projectPath);
+                    if (!clean)
+                    {
+                        Console.Error.WriteLine($"[Error] 工作区非 clean，拒绝执行破坏性指针迁移：{detail}");
+                        Console.Error.WriteLine("        请先 git commit 存档后重试，或加 --force 跳过此检查（风险自负）。");
+                        return 2;
+                    }
+                    Console.WriteLine($"[Migrate] git 工作区检查：{detail}");
+                }
+
                 var report = service.RepairAll(projectPath, autoGitCommit: false);
                 PrintRepair(report);
                 return report.Checks.Any(c => c.Errors.Count > 0) ? 1 : 0;
@@ -120,6 +135,34 @@ internal static class Program
         Console.WriteLine($"  已迁移：{totalMigrated}");
         Console.WriteLine($"  已跳过：{totalSkipped}");
         Console.WriteLine($"  错误数：{totalErrors}");
+    }
+
+    /// <summary>
+    /// git working-tree-clean 检查。返回 (clean, detail)。
+    /// 仅在确认 dirty 时返回 clean=false（拦截）；非 git 仓库 / git 不可用 / 异常 → 返回 clean=true（放行 + 提示），不强行阻断。
+    /// </summary>
+    private static (bool clean, string detail) CheckGitClean(string projectPath)
+    {
+        try
+        {
+            var psi = new ProcessStartInfo("git", "status --porcelain")
+            {
+                WorkingDirectory = projectPath,
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+                UseShellExecute = false,
+            };
+            using var p = Process.Start(psi);
+            if (p == null) return (true, "无法启动 git，跳过检查（建议手动备份）");
+            var outp = p.StandardOutput.ReadToEnd();
+            p.WaitForExit();
+            if (p.ExitCode != 0) return (true, "非 git 仓库或 git 不可用，跳过检查（建议手动备份）");
+            return string.IsNullOrWhiteSpace(outp) ? (true, "clean") : (false, "存在未提交改动");
+        }
+        catch (Exception ex)
+        {
+            return (true, $"git 检查异常（{ex.Message}），跳过");
+        }
     }
 
     private static void PrintUsage()
