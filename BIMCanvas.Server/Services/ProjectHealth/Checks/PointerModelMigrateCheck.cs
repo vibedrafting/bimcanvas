@@ -49,14 +49,21 @@ namespace BIMCanvas.Server.Services.ProjectHealth.Checks
                     if (legacyModules.Count > 0) parts.Add($"{legacyModules.Count} 个 canonical modules → main/");
                     if (hasSemantic)
                     {
-                        var (sk, st, br, multi, unknown) = ParseSemanticPlan(Path.Combine(dzDir, "semantic_plan.json"));
-                        var tags = new List<string>();
-                        if (sk != null) tags.Add("skeleton→父");
-                        if (st != null) tags.Add("strategic→main");
-                        if (br != null) tags.Add("brief→main");
-                        if (tags.Count > 0) parts.Add("semantic_plan: " + string.Join("/", tags));
-                        if (multi) parts.Add("含 multi-plan-overview（保留不迁，需人工）");
-                        if (unknown) parts.Add("含未识别 tag（保留不迁）");
+                        var (sk, st, br, multi, unknown, parseFailed) = ParseSemanticPlan(Path.Combine(dzDir, "semantic_plan.json"));
+                        if (parseFailed)
+                        {
+                            parts.Add("semantic_plan 解析失败（保留不迁、不删，需人工）");
+                        }
+                        else
+                        {
+                            var tags = new List<string>();
+                            if (sk != null) tags.Add("skeleton→父");
+                            if (st != null) tags.Add("strategic→main");
+                            if (br != null) tags.Add("brief→main");
+                            if (tags.Count > 0) parts.Add("semantic_plan: " + string.Join("/", tags));
+                            if (multi) parts.Add("含 multi-plan-overview（保留不迁，需人工）");
+                            if (unknown) parts.Add("含未识别 tag（保留不迁）");
+                        }
                     }
                     if (hasReference) parts.Add("reference_analysis→父冻结节");
 
@@ -145,12 +152,14 @@ namespace BIMCanvas.Server.Services.ProjectHealth.Checks
 
             // ③ semantic_plan tag 拆分 / reference 最新定稿（只读）
             string? skeleton = null, strategic = null, brief = null;
-            var multiPlanOrUnknown = false;
+            var keepSemantic = false;        // 含非①范围 tag / 未识别 tag / 解析失败 → 保留源、绝不删
+            var semanticParseFailed = false;
             if (hasSemantic)
             {
                 var parsed = ParseSemanticPlan(semanticPath);
                 skeleton = parsed.skeleton; strategic = parsed.strategic; brief = parsed.brief;
-                multiPlanOrUnknown = parsed.hasMultiPlan || parsed.hasUnknown;
+                semanticParseFailed = parsed.parseFailed;
+                keepSemantic = parsed.hasMultiPlan || parsed.hasUnknown || parsed.parseFailed;
             }
             string? reference = hasReference ? ParseLatestReference(referencePath) : null;
 
@@ -179,8 +188,8 @@ namespace BIMCanvas.Server.Services.ProjectHealth.Checks
             }
             if (hasSemantic)
             {
-                if (multiPlanOrUnknown)
-                    result.Skipped.Add($"{ToRelative(projectPath, semanticPath)} (保留：含 multi-plan-overview/未识别 tag，需人工处理)");
+                if (keepSemantic)
+                    result.Skipped.Add($"{ToRelative(projectPath, semanticPath)} (保留：{(semanticParseFailed ? "解析失败" : "含 multi-plan-overview/未识别 tag")}，需人工处理)");
                 else
                     File.Delete(semanticPath);
             }
@@ -190,15 +199,18 @@ namespace BIMCanvas.Server.Services.ProjectHealth.Checks
 
         // ---------- 解析 ----------
 
-        private static (string? skeleton, string? strategic, string? brief, bool hasMultiPlan, bool hasUnknown)
+        private static (string? skeleton, string? strategic, string? brief, bool hasMultiPlan, bool hasUnknown, bool parseFailed)
             ParseSemanticPlan(string path)
         {
             var content = File.ReadAllText(path, Encoding.UTF8);
             if (string.IsNullOrWhiteSpace(content))
-                return (null, null, null, false, false);
+                return (null, null, null, false, false, false); // 空文件，非解析失败（可安全删）
 
-            if (JToken.Parse(content) is not JObject root || root["Entries"] is not JArray entries)
-                return (null, null, null, false, false);
+            JToken root;
+            try { root = JToken.Parse(content); }
+            catch { return (null, null, null, false, false, true); } // JSON 损坏 → 解析失败，绝不删源
+            if (root is not JObject obj || obj["Entries"] is not JArray entries)
+                return (null, null, null, false, false, true); // 结构非 {Entries:[...]} → 解析失败，绝不删源
 
             string? skeleton = null, strategic = null, brief = null;
             bool multi = false, unknown = false;
@@ -216,7 +228,7 @@ namespace BIMCanvas.Server.Services.ProjectHealth.Checks
                     default: unknown = true; break;
                 }
             }
-            return (skeleton, strategic, brief, multi, unknown);
+            return (skeleton, strategic, brief, multi, unknown, false);
         }
 
         private static string? ParseLatestReference(string path)

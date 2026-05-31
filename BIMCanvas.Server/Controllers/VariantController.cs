@@ -17,8 +17,8 @@ using Microsoft.Extensions.Logging;
 namespace BIMCanvas.Server.Controllers
 {
     /// <summary>
-    /// 变体（schemes/{designZoneId}/variants/{slug}/）控制器。
-    /// 协议按 designZone + variantSlug 索引；adopt 走"检测 → 降级 → 晋升"三阶段。
+    /// 方案控制器（指针模型：schemes/{designZoneId}/{slug}/ 平级方案，无 variants/ 层、无固定 canonical）。
+    /// 协议按 designZone + slug 索引；adopt = 翻父 {zoneId}/DESIGN.md 的 adopted 指针（零复制 / 零删除 / 零降级、可逆）。
     /// </summary>
     [ApiController]
     [Route("api/scheme")]
@@ -120,9 +120,9 @@ namespace BIMCanvas.Server.Controllers
         // ─────────────────────────── GetVariantsSummary ───────────────────────────
 
         /// <summary>
-        /// 按 designZoneId 索引的变体计数摘要。
-        /// 数据源：扫 schemes/{dz}/variants/{slug}/ 子目录，无需读 sidecar。
-        /// 零变体的 design zone 不入字典。Web 端按 designZoneId 取 (current/total) 分页号。
+        /// 按 designZoneId 索引的可显示方案计数摘要。
+        /// 数据源：扫 schemes/{dz}/{slug}/ 子目录（仅不以 _ 开头的可显示方案，§3.4），无需读 sidecar。
+        /// 零方案的 design zone 不入字典。Web 端按 designZoneId 取 (current/total) 分页号。
         /// </summary>
         [HttpGet("variants/summary")]
         public ActionResult<Dictionary<string, VariantSummaryEntry>> GetVariantsSummary()
@@ -177,8 +177,8 @@ namespace BIMCanvas.Server.Controllers
         // ─────────────────────────── GetVariantModules ───────────────────────────
 
         /// <summary>
-        /// 读取指定 design zone + variant slug + leaf zone 的 modules（New 路径）。
-        /// 路径：schemes/{designZoneId}/variants/{variantSlug}/{leafZoneId}/modules.json
+        /// 读取指定 design zone + 方案 slug + leaf zone 的 modules（指针模型路径）。
+        /// 路径：schemes/{designZoneId}/{variantSlug}/{leafZoneId}/modules.json（无 variants/ 层）
         /// </summary>
         [HttpGet("variants/{designZoneId}/{variantSlug}/modules")]
         public ActionResult<SchemeModulesResponse> GetVariantModules(
@@ -231,7 +231,8 @@ namespace BIMCanvas.Server.Controllers
         // ─────────────────────────── AdoptVariant ───────────────────────────
 
         /// <summary>
-        /// 采纳变体：检测 canonical → 降级（如非空）→ 晋升 → 删除被采纳变体。
+        /// 采纳方案 = 翻指针：校验非空 →（候选以 _ 前缀隐藏则去前缀转正）→ 写父 {zoneId}/DESIGN.md adopted。
+        /// 零复制 / 零删除 / 零降级、可逆；不再有"晋升 canonical / 降级 prev / 删变体目录"。
         /// 协议：POST {designZoneId, variantSlug}。
         /// </summary>
         [HttpPost("variant/adopt")]
@@ -556,8 +557,8 @@ namespace BIMCanvas.Server.Controllers
         // ─────────────────────────── DeleteVariant ───────────────────────────
 
         /// <summary>
-        /// 删除指定变体目录（schemes/{designZoneId}/variants/{variantSlug}/）。
-        /// 不动 canonical 与其他变体。
+        /// 删除指定方案目录（schemes/{designZoneId}/{variantSlug}/）。
+        /// 不动其他方案与父 adopted 指针。
         /// </summary>
         [HttpDelete("variant")]
         public async Task<IActionResult> DeleteVariant(
@@ -667,9 +668,9 @@ namespace BIMCanvas.Server.Controllers
         }
 
         /// <summary>
-        /// 递归复制目录树。excludeTopLevelDirs 仅在第一层生效（用于 clone-from-canonical 排除 variants/，
-        /// 避免把兄弟变体 / dstRoot 自身复制进来）。整树复制让变体机制 domain-agnostic：
-        /// 今后设计区下新增任何 domain 文件都自动随变体克隆，无需改这里。
+        /// 递归复制目录树。excludeTopLevelDirs 仅在第一层生效（保留参数；指针模型下 clone 源恒为某方案目录
+        /// schemes/{dz}/{slug}/、与 dstRoot 互为兄弟，一般传 null）。整树复制让 clone domain-agnostic：
+        /// 方案目录下新增任何 domain 文件都自动随克隆。
         /// </summary>
         private static void CopyDirectoryTree(string srcDir, string dstDir, ISet<string>? excludeTopLevelDirs)
         {

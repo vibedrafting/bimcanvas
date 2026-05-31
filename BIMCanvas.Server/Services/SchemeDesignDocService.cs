@@ -110,8 +110,9 @@ namespace BIMCanvas.Server.Services
                             frontmatterLines.Add($"{AdoptedKey}: {slug}");
                             adoptedWritten = true;
                         }
-                        else if (line.Trim().Length > 0)
+                        else
                         {
+                            // 只定位替换 adopted 行，其余行（含空行/其它字段）原样保留，与读路径对称、不静默丢空行
                             frontmatterLines.Add(line);
                         }
                     }
