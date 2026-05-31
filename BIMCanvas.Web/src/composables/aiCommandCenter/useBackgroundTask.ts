@@ -19,19 +19,10 @@ const createBackgroundHostMessage = (): ChatMessage => ({
   endTime: Date.now()
 })
 
-const buildSummaryContent = (record: BackgroundTaskRecord): string => {
-  const body = (record.assistantText || record.summary || '').trim()
-  if (record.status === 'completed') {
-    return body || `后台任务已完成（${record.taskId}）`
-  }
-  const statusText = record.status === 'stopped' ? '已停止' : '执行失败'
-  const prefix = `后台任务${statusText}（${record.taskId}）`
-  return body ? `${prefix}\n\n${body}` : prefix
-}
-
 export const useBackgroundTask = (options: BackgroundTaskOptions) => {
-  // 去重：restorePending 补发与实时推送可能投递同一 taskId，避免重复气泡
-  const seenTaskIds = new Set<string>()
+  // 去重：仅防同一完成事件被重复实时投递。history 重建走独立路径（restoreHistoryForWindow
+  // 每次 messages=[] 全量重建），与实时注入永不共存，故无需在此防 history 重复。
+  const seenKeys = new Set<string>()
 
   const findTargetWindow = (windowId?: string | null): ChatWindow | undefined => {
     if (windowId) {
@@ -46,10 +37,11 @@ export const useBackgroundTask = (options: BackgroundTaskOptions) => {
 
   const handleCompleted = (record: BackgroundTaskRecord) => {
     if (record.taskId) {
-      if (seenTaskIds.has(record.taskId)) {
+      const key = `${record.sessionId ?? ''}:${record.taskId}`
+      if (seenKeys.has(key)) {
         return
       }
-      seenTaskIds.add(record.taskId)
+      seenKeys.add(key)
     }
 
     const win = findTargetWindow(record.windowId)
@@ -58,8 +50,10 @@ export const useBackgroundTask = (options: BackgroundTaskOptions) => {
       return
     }
 
+    // content 由 Agent 组装好（与 history 重建复用同一文本，保证两条渲染路径收敛）
+    const text = record.content || record.summary || `后台任务已完成（${record.taskId}）`
     const message = createBackgroundHostMessage()
-    const bubble = createTextBubble(buildSummaryContent(record))
+    const bubble = createTextBubble(text)
     completeBubble(bubble)
     message.bubbles.push(bubble)
     win.messages.push(message)
@@ -67,25 +61,12 @@ export const useBackgroundTask = (options: BackgroundTaskOptions) => {
     options.scrollToBottom({ windowId: win.id })
   }
 
-  const startListening = async () => {
-    const service = getBackgroundTaskService(options.agentApiBase)
-    service.startListening({ onCompleted: handleCompleted })
-
-    const windowIds = options.windows.value.map(window => window.id)
-    if (windowIds.length === 0) {
-      return
-    }
-
-    try {
-      await service.restorePending(windowIds)
-    } catch (error) {
-      console.warn('[useBackgroundTask] Restore pending background tasks failed:', error)
-    }
+  const startListening = () => {
+    getBackgroundTaskService(options.agentApiBase).startListening({ onCompleted: handleCompleted })
   }
 
   const stopListening = () => {
-    const service = getBackgroundTaskService(options.agentApiBase)
-    service.stopListening()
+    getBackgroundTaskService(options.agentApiBase).stopListening()
   }
 
   return { startListening, stopListening }

@@ -68,7 +68,6 @@ class _TurnChannel:
     """
 
     queue: asyncio.Queue = field(default_factory=asyncio.Queue)
-    finished: asyncio.Event = field(default_factory=asyncio.Event)
 
 
 class MainAgent:
@@ -653,6 +652,8 @@ class MainAgent:
                     logger.warning(f"Drain task await error during disconnect: {e}")
                 finally:
                     self._drain_task = None
+            # drain 已停，若仍有回合在 await queue.get()，投终止异常唤醒它避免挂死
+            self._fail_active_turn(CLIConnectionError("Agent disconnected"))
             self._active_turn = None
             self._last_runtime_context = None
 
@@ -712,7 +713,6 @@ class MainAgent:
                     turn.queue.put_nowait(message)
                     if isinstance(message, ResultMessage):
                         self._active_turn = None
-                        turn.finished.set()
                 else:
                     try:
                         await self._handle_background_message(message)
@@ -739,7 +739,6 @@ class MainAgent:
                 turn.queue.put_nowait(exc)
             except Exception:
                 pass
-            turn.finished.set()
 
     async def _iter_turn_messages(self, turn: _TurnChannel) -> AsyncIterator[Any]:
         """从回合队列消费消息，直到 ResultMessage（含）为止；遇异常对象则抛出。"""
@@ -778,21 +777,39 @@ class MainAgent:
                     f"[Background] ignored out-of-turn {type(message).__name__}"
                 )
 
+    @staticmethod
+    def _compose_background_text(status: str, summary: str) -> str:
+        """组装后台任务完成的展示文本（实时气泡与 history 重建共用同一份，保证渲染收敛）。"""
+        body = (summary or "").strip()
+        if status == "completed":
+            return body or "后台任务已完成"
+        status_text = "已停止" if status == "stopped" else "执行失败"
+        prefix = f"后台任务{status_text}"
+        return f"{prefix}\n\n{body}" if body else prefix
+
     async def _push_background_task(self, message: TaskNotificationMessage) -> None:
-        """把后台任务完成事件组装成 record，经 host 注入的回调带外推送给前端。"""
+        """把后台任务完成事件组装成 record，经 host 注入的回调带外推送给前端。
+
+        sessionId 用 runtime context 的 store session id（与 _window_sessions 同源），
+        而非 SDK 子进程的 message.session_id —— 后者命名空间不同，会让 host 侧按 session
+        归档/定位失效。SDK 的 session_id 仅作诊断字段保留。
+        content 在此处组装一次，实时推送与 host 落 history 复用同一份文本。
+        """
         if self._background_push is None:
             return
         ctx = self._last_runtime_context or {}
+        status = str(message.status)
         record = {
             "kind": "background_task",  # 前端通道判别字段（与 interaction record 区分）
             "taskId": message.task_id,
-            "status": str(message.status),
+            "status": status,
+            "content": self._compose_background_text(status, message.summary or ""),
             "summary": message.summary or "",
             "outputFile": message.output_file or None,
             "windowId": ctx.get("windowId"),
-            "sessionId": message.session_id or ctx.get("sessionId"),
+            "sessionId": ctx.get("sessionId"),
+            "sdkSessionId": message.session_id,
             "turnId": ctx.get("turnId"),
-            "assistantText": None,
         }
         try:
             await self._background_push(record)
@@ -1018,6 +1035,7 @@ class MainAgent:
     ) -> str:
         """Unified chat interface."""
         self.set_runtime_context(runtime_context)
+        turn: _TurnChannel | None = None
         try:
             if not self._connected:
                 await self.connect(model=model)
@@ -1033,7 +1051,11 @@ class MainAgent:
             self._placeholder_text_suppressed_logged = False
             self._response_model = None
 
-            # 注册回合通道后再 query：常驻 _drain_loop 据 _active_turn 把消息投递到本回合队列
+            # 注册回合通道后再 query：常驻 _drain_loop 据 _active_turn 把消息投递到本回合队列。
+            # 不变量：注册新回合前，上一回合的 ResultMessage 必须已被 drain 读出（正常回合结束时
+            # drain 投递 ResultMessage 的同步操作会清空 _active_turn）。sleep(0) 让出事件循环，
+            # 给 drain 机会排空滞留的回合外消息，缩小"陈旧 ResultMessage 串入新回合"的竞态窗口。
+            await asyncio.sleep(0)
             turn = _TurnChannel()
             self._active_turn = turn
             await self._client.query(user_message)
@@ -1050,6 +1072,9 @@ class MainAgent:
 
             return full_response
         finally:
+            # 早退/异常时复位回合槽（is 身份比较，避免误清后续回合）
+            if turn is not None and self._active_turn is turn:
+                self._active_turn = None
             self.clear_runtime_context()
 
     @staticmethod
@@ -1207,6 +1232,38 @@ class MainAgent:
         context: dict = None,
         runtime_context: dict[str, str] | None = None,
     ) -> AsyncIterator[StreamChunk]:
+        """流式对话外壳：保证回合槽 / runtime context 在任何退出路径（正常/异常/生成器提前关闭）都被复位。"""
+        try:
+            async for chunk in self._chat_stream_impl(
+                user_message,
+                images=images,
+                image_blocks=image_blocks,
+                client_message_id=client_message_id,
+                effort=effort,
+                thinking=thinking,
+                model=model,
+                context=context,
+                runtime_context=runtime_context,
+            ):
+                yield chunk
+        finally:
+            # 单窗口串行：本生成器结束后才会有下一回合，置空回合槽安全；
+            # drain 正常路径已在 ResultMessage 时清空，这里兜底早退/异常/GeneratorExit。
+            self._active_turn = None
+            self.clear_runtime_context()
+
+    async def _chat_stream_impl(
+        self,
+        user_message: str,
+        images: list[str] = None,
+        image_blocks: list[dict] = None,
+        client_message_id: str | None = None,
+        effort: str = None,
+        thinking: str = None,
+        model: str = None,
+        context: dict = None,
+        runtime_context: dict[str, str] | None = None,
+    ) -> AsyncIterator[StreamChunk]:
         """
         Streaming chat interface with thinking support.
 
@@ -1285,7 +1342,10 @@ class MainAgent:
                     "session_id": "default",
                 }
 
-            # 注册回合通道后再 query：常驻 _drain_loop 据 _active_turn 把消息投递到本回合队列
+            # 注册回合通道后再 query：常驻 _drain_loop 据 _active_turn 把消息投递到本回合队列。
+            # 不变量：注册新回合前，上一回合 ResultMessage 应已被 drain 读出（正常结束时同步清空 _active_turn）。
+            # sleep(0) 让出事件循环给 drain 排空滞留的回合外消息，缩小"陈旧 ResultMessage 串入新回合"的竞态窗口。
+            await asyncio.sleep(0)
             turn = _TurnChannel()
             self._active_turn = turn
             await self._client.query(message_stream())
@@ -1651,7 +1711,7 @@ class MainAgent:
 
         if self.verbose:
             self._agent_logger.log_complete(model=self._completion_model_stamp())
-        self.clear_runtime_context()
+        # 注：_active_turn 复位与 clear_runtime_context 由外壳 chat_stream 的 finally 统一处理
 
     # ─────────────────────────────────────────────────────
     # Control Methods

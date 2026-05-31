@@ -20,7 +20,6 @@ class RuntimeStateStore:
 
     TERMINAL_RETENTION_LIMIT = 64
     HISTORY_RETENTION_LIMIT = 2048
-    BACKGROUND_TASK_RETENTION_LIMIT = 32
 
     def __init__(
         self,
@@ -37,8 +36,6 @@ class RuntimeStateStore:
         self._runtime_bindings_by_interaction: dict[str, PendingInteractionRuntimeBinding] = {}
         self._runtime_bindings_by_token: dict[str, str] = {}
         self._interaction_subscribers: list[asyncio.Queue] = []
-        # 后台任务（Workflow）完成事件按 session 留存，供前端断线重连补发
-        self._background_tasks: dict[str, list[dict[str, Any]]] = {}
         self._terminal_retention_limit = terminal_retention_limit or self.TERMINAL_RETENTION_LIMIT
         self._history_retention_limit = history_retention_limit or self.HISTORY_RETENTION_LIMIT
 
@@ -54,37 +51,45 @@ class RuntimeStateStore:
                 self._interaction_subscribers.remove(queue)
 
     async def push_background_task(self, *, record: dict[str, Any]) -> dict[str, Any]:
-        """发布后台任务（Workflow）完成事件，并按 session 留存供断线补发。
+        """后台任务（Workflow）完成：① 落 session history（唯一真理源，使任何重建可复现气泡）
+        ② 复用 interaction SSE 通道实时推送（即时性，session idle 无轮询时也能立刻显示）。
 
-        复用 interaction SSE 通道（不另建通道）：interaction_events_handler 是
-        runtime 无关的"排空队列 → event/data"循环，能转发任意事件名。
+        落 history 用 text.completed 事件形态 + 合成 turnId "bgtask:<taskId>"（独立成一条 AI 消息，
+        不并入真实回合）。content 由 Agent 组装好随 record 传入，实时注入与 history 重建复用同一文本，
+        渲染收敛、不重复（restoreHistoryForWindow 每次全量重建，二者永不共存）。
         """
         record = dict(record)
         if not record.get("timestamp"):
             record["timestamp"] = datetime.now(timezone.utc).isoformat()
+
         session_id = record.get("sessionId")
-        subscribers: list[asyncio.Queue]
+        window_id = record.get("windowId")
+        task_id = record.get("taskId") or "unknown"
+        content = record.get("content") or record.get("summary") or ""
+
+        # ① 落 history（仅当定位信息齐全；缺失则只走实时推送，不持久化）
+        if session_id and window_id:
+            bg_turn_id = f"bgtask:{task_id}"
+            event_payload = {
+                "eventId": str(uuid.uuid4()),
+                "sessionId": session_id,
+                "turnId": bg_turn_id,
+                "eventType": "text.completed",
+                "timestamp": record["timestamp"],
+                "payload": {"content": content},
+            }
+            await self.append_event_history(
+                session_id=session_id,
+                turn_id=bg_turn_id,
+                window_id=window_id,
+                event_payload=event_payload,
+            )
+
+        # ② 实时 SSE 推送
         async with self._lock:
-            if session_id:
-                bucket = self._background_tasks.setdefault(session_id, [])
-                bucket.append(record)
-                if len(bucket) > self.BACKGROUND_TASK_RETENTION_LIMIT:
-                    del bucket[: len(bucket) - self.BACKGROUND_TASK_RETENTION_LIMIT]
             subscribers = list(self._interaction_subscribers)
         self._publish(subscribers, "background_task.completed", record)
         return record
-
-    async def get_background_tasks_for_window(
-        self,
-        window_id: str,
-    ) -> tuple[str | None, list[dict[str, Any]]]:
-        """返回某窗口当前 session 已留存的后台任务完成事件（断线重连补发用）。"""
-        async with self._lock:
-            session_id = self._window_sessions.get(window_id)
-            if not session_id:
-                return None, []
-            tasks = list(self._background_tasks.get(session_id, []))
-            return session_id, tasks
 
     async def create_session(
         self,

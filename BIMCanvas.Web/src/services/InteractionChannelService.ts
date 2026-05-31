@@ -1,6 +1,5 @@
 import { AGENT_API } from '../config/api';
 import type {
-  BackgroundTaskQueryResponse,
   BackgroundTaskRecord,
   ChannelEventName,
   InteractionEventEnvelope,
@@ -70,16 +69,6 @@ export class InteractionChannelService {
 
     const payload = await response.json() as InteractionQueryResponse;
     return Array.isArray(payload.interactions) ? payload.interactions : [];
-  }
-
-  async queryBackgroundTasks(windowId: string): Promise<BackgroundTaskRecord[]> {
-    const response = await fetch(`${this.serverUrl}/api/background-task?windowId=${encodeURIComponent(windowId)}`);
-    if (!response.ok) {
-      throw new Error(`Failed to query background tasks for window ${windowId}: HTTP ${response.status}`);
-    }
-
-    const payload = await response.json() as BackgroundTaskQueryResponse;
-    return Array.isArray(payload.tasks) ? payload.tasks : [];
   }
 
   async submitInteraction(

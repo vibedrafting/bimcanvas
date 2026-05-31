@@ -145,12 +145,14 @@ export interface BackgroundTaskRecord {
   kind: 'background_task';
   taskId: string;
   status: BackgroundTaskStatus;
+  // 由 Agent 组装好的展示文本（实时注入气泡与 history 重建复用同一份，保证渲染收敛）
+  content: string;
   summary: string;
   outputFile?: string | null;
   windowId?: string | null;
   sessionId?: string | null;
+  sdkSessionId?: string | null;
   turnId?: string | null;
-  assistantText?: string | null;
   timestamp?: string | null;
 }
 
@@ -168,12 +170,6 @@ export interface InteractionQueryResponse {
   sessionId?: string | null;
   includeTerminal?: boolean;
   interactions: InteractionRecord[];
-}
-
-export interface BackgroundTaskQueryResponse {
-  windowId: string;
-  sessionId?: string | null;
-  tasks: BackgroundTaskRecord[];
 }
 
 export interface ChatHistorySessionSnapshot {

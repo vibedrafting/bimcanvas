@@ -49,22 +49,6 @@ export class BackgroundTaskService {
     getInteractionChannelService(this.serverUrl).stopListening(this.listener);
     this.listener = null;
   }
-
-  /** 断线重连补发：拉取各窗口当前 session 已留存的后台任务完成事件 */
-  async restorePending(windowIds: string[]): Promise<BackgroundTaskRecord[]> {
-    const channel = getInteractionChannelService(this.serverUrl);
-    const restored: BackgroundTaskRecord[] = [];
-
-    for (const windowId of windowIds) {
-      const tasks = await channel.queryBackgroundTasks(windowId);
-      for (const record of tasks) {
-        restored.push(record);
-        this.handlers.onCompleted?.(record);
-      }
-    }
-
-    return restored;
-  }
 }
 
 const instances = new Map<string, BackgroundTaskService>();
