@@ -130,6 +130,8 @@ namespace BIMCanvas.Server.Services
             private readonly Dictionary<string, List<string>> _leafZoneIdsByContainerId = new Dictionary<string, List<string>>(ZoneComparer);
             private readonly HashSet<string> _containerZoneIds = new HashSet<string>(ZoneComparer);
             private readonly HashSet<string> _designZoneIds = new HashSet<string>(ZoneComparer);
+            // 指针模型：每个设计区的 adopted slug 缓存（一次 Build 内每 design zone 只读一次 DESIGN.md）
+            private readonly Dictionary<string, string?> _adoptedSlugCache = new Dictionary<string, string?>(ZoneComparer);
 
             public TopologyBuilder(string schemesPath, List<Zone> zones)
             {
@@ -197,7 +199,7 @@ namespace BIMCanvas.Server.Services
 
                     if (!_canonicalByZoneId.ContainsKey(zone.Id))
                     {
-                        _canonicalByZoneId[zone.Id] = ModuleFileEntry.FromCanonical(_schemesPath, zone.Id, pathSegments);
+                        _canonicalByZoneId[zone.Id] = BuildLeafEntry(zone.Id, pathSegments);
                     }
 
                     return new List<string> { zone.Id };
@@ -206,6 +208,36 @@ namespace BIMCanvas.Server.Services
                 {
                     activeStack.Remove(zone.Id);
                 }
+            }
+
+            /// <summary>
+            /// 构建叶子的 canonical entry——指针模型核心收敛点。
+            /// 设计区有 adopted slug → 路径重定向到 schemes/{dz}/{slug}/[{leaf}/]modules.json
+            /// （与 ModulesWriterService.ResolveModulesPath / SwapToVariant 同款压平，slug 直接做 dz 下一级）。
+            /// 无 adopted（存量项目未迁移）→ 原样 legacy 路径（pathSegments 完整嵌套，零回归）。
+            /// </summary>
+            private ModuleFileEntry BuildLeafEntry(string leafZoneId, List<string> pathSegments)
+            {
+                var designZoneId = pathSegments.Count > 0 ? pathSegments[0] : leafZoneId;
+                var slug = ResolveAdoptedCached(designZoneId);
+                if (string.IsNullOrEmpty(slug))
+                    return ModuleFileEntry.FromCanonical(_schemesPath, leafZoneId, pathSegments);
+
+                var isTopLevelLeaf = pathSegments.Count <= 1; // dz == leaf
+                var filePath = isTopLevelLeaf
+                    ? Path.Combine(_schemesPath, designZoneId, slug, "modules.json")
+                    : Path.Combine(_schemesPath, designZoneId, slug, leafZoneId, "modules.json");
+                return ModuleFileEntry.FromFile(_schemesPath, filePath, leafZoneId);
+            }
+
+            private string? ResolveAdoptedCached(string designZoneId)
+            {
+                if (!_adoptedSlugCache.TryGetValue(designZoneId, out var slug))
+                {
+                    slug = SchemeDesignDocService.ResolveAdoptedSlug(_schemesPath, designZoneId);
+                    _adoptedSlugCache[designZoneId] = slug;
+                }
+                return slug;
             }
 
             private Zone ResolveFullZone(Zone zoneRef)
@@ -372,12 +404,10 @@ namespace BIMCanvas.Server.Services
         }
 
         /// <summary>
-        /// 把 canonical entry 替换成指定 variantId 的变体 entry。
-        /// 优先尝试组 B/C 新协议（与 ModulesWriterService.ResolveModulesPath 的 VariantPathMode.New 字节级一致）：
-        ///   顶层叶子（dz == leaf）→ schemes/{dz}/variants/{slug}/modules.json（省略 leaf 段，镜像 canonical）
-        ///   嵌套叶子（dz != leaf）→ schemes/{dz}/variants/{slug}/{leaf}/modules.json
-        /// 若新协议文件不存在，回退到旧 sibling 路径 schemes/{dz}/[{leaf}/]modules-{slug}.json
-        /// （Phase 7 下线前保留 Legacy 兼容；Agent 仍只走新路径写入）。
+        /// 把 canonical entry 替换成指定方案 slug 的 entry（指针模型，与 ModulesWriterService.ResolveModulesPath 一致）：
+        ///   顶层叶子（dz == leaf）→ schemes/{dz}/{slug}/modules.json
+        ///   嵌套叶子（dz != leaf）→ schemes/{dz}/{slug}/{leaf}/modules.json
+        /// slug 直接做 dz 下一级（无 variants/ 段）。仅显式 variantId（如场景⑦ relocation 读特定方案）时调用。
         /// </summary>
         private ModuleFileEntry SwapToVariant(ModuleFileEntry canonical, string variantId)
         {
@@ -391,18 +421,11 @@ namespace BIMCanvas.Server.Services
             // 叶子 zoneId 取自登记的 canonical entry（顶层叶子时 == designZoneId），
             // 不依赖 segments 反推，自动正确处理 2+ 层嵌套（中间容器存在时 ResolveModulesPath 也压平到叶子）。
             var isTopLevelLeaf = string.Equals(designZoneId, canonical.ZoneId, StringComparison.OrdinalIgnoreCase);
+            // 指针模型：显式方案 slug 直接做 dz 下一级，无 variants/ 段
             var newPath = isTopLevelLeaf
-                ? Path.Combine(SchemesPath, designZoneId, "variants", variantId, "modules.json")
-                : Path.Combine(SchemesPath, designZoneId, "variants", variantId, canonical.ZoneId, "modules.json");
-
-            if (File.Exists(newPath))
-                return ModuleFileEntry.FromFile(SchemesPath, newPath, canonical.ZoneId);
-
-            // Legacy 兜底（旧 modules-{variantId}.json sibling）
-            var legacyPath = Path.Combine(
-                canonicalDir,
-                ModuleFileTopologyService.BuildVariantFilename(variantId));
-            return ModuleFileEntry.FromFile(SchemesPath, legacyPath, canonical.ZoneId);
+                ? Path.Combine(SchemesPath, designZoneId, variantId, "modules.json")
+                : Path.Combine(SchemesPath, designZoneId, variantId, canonical.ZoneId, "modules.json");
+            return ModuleFileEntry.FromFile(SchemesPath, newPath, canonical.ZoneId);
         }
 
         public IReadOnlyList<ModuleFilePathIssue> GetPathIssues(IReadOnlyCollection<string>? requestedZoneIds)
@@ -412,7 +435,7 @@ namespace BIMCanvas.Server.Services
 
             var targetZoneIds = ExpandTargetZoneIds(requestedZoneIds);
             var records = Directory.GetFiles(SchemesPath, "modules.json", SearchOption.AllDirectories)
-                .Where(path => !IsInVariantsSubtree(path))
+                .Where(path => !IsInVariantsSubtree(path) && !IsUnderPointerManagedDesignZone(path))
                 .Select(path => ModuleFileEntry.FromFile(SchemesPath, path))
                 .Where(entry => IsInTarget(entry.ZoneId, targetZoneIds))
                 .ToList();
@@ -455,6 +478,22 @@ namespace BIMCanvas.Server.Services
         {
             var normalized = absolutePath.Replace('\\', '/');
             return normalized.IndexOf("/variants/", StringComparison.OrdinalIgnoreCase) >= 0;
+        }
+
+        /// <summary>
+        /// 判定路径是否落在「指针模型管理的设计区」子树内（该设计区有 DESIGN.md）。
+        /// 指针模型下方案目录 schemes/{dz}/{slug}/ 的位置由 adopted 指针管理、不适用 legacy canonical 路径完整性规则，
+        /// 故整个有 DESIGN.md 的设计区子树排除出 E013/E014 校验，避免候选 slug（含 _ 隐藏）被误报。
+        /// 无 DESIGN.md 的设计区（存量未迁移）仍按 legacy 规则校验，零行为变化。
+        /// </summary>
+        private bool IsUnderPointerManagedDesignZone(string absolutePath)
+        {
+            var rel = Path.GetRelativePath(SchemesPath, absolutePath).Replace('\\', '/');
+            var segments = rel.Split('/', StringSplitOptions.RemoveEmptyEntries);
+            if (segments.Length == 0)
+                return false;
+            var designZoneId = segments[0];
+            return File.Exists(Path.Combine(SchemesPath, designZoneId, SchemeDesignDocService.DesignDocFileName));
         }
 
         public bool TryResolveZoneDirectory(string zoneId, out string zoneDirectory)

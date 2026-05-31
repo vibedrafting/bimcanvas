@@ -29,6 +29,7 @@ namespace BIMCanvas.Server.Controllers
         private readonly IHubContext<CanvasHub> _hubContext;
         private readonly ModulesWriterService _modulesWriter;
         private readonly ModulesReaderService _modulesReader;
+        private readonly SchemeDesignDocService _designDoc;
 
         /// <summary>
         /// 按 designZoneId 串行化 Adopt / Delete 的多文件操作。
@@ -45,13 +46,15 @@ namespace BIMCanvas.Server.Controllers
             ProjectContext projectContext,
             IHubContext<CanvasHub> hubContext,
             ModulesWriterService modulesWriter,
-            ModulesReaderService modulesReader)
+            ModulesReaderService modulesReader,
+            SchemeDesignDocService designDoc)
         {
             _logger = logger;
             _projectContext = projectContext;
             _hubContext = hubContext;
             _modulesWriter = modulesWriter;
             _modulesReader = modulesReader;
+            _designDoc = designDoc;
         }
 
         // ─────────────────────────── ListVariants ───────────────────────────
@@ -71,26 +74,31 @@ namespace BIMCanvas.Server.Controllers
             if (!TryResolveDesignZoneRoot(designZoneId, out var designZoneRoot, out var error))
                 return NotFound(new { error });
 
-            var variantsRoot = Path.Combine(designZoneRoot, "variants");
             var response = new VariantListResponse { DesignZoneId = designZoneId };
-            if (!Directory.Exists(variantsRoot))
+            if (!Directory.Exists(designZoneRoot))
                 return Ok(response);
 
             var projectPath = _projectContext.GetActiveWorktreePath()
                               ?? _projectContext.CurrentProjectPath!;
             var schemesPath = Path.Combine(projectPath, "schemes");
+            var adopted = _designDoc.ReadAdoptedSlug(schemesPath, designZoneId);
             var topology = ModuleFileTopologyService.BuildFromSchemesPath(schemesPath);
             var leafZoneIds = topology.GetLeafZoneIds(designZoneId);
 
-            foreach (var dir in Directory.EnumerateDirectories(variantsRoot, "*", SearchOption.TopDirectoryOnly))
+            // 指针模型：方案 = schemes/{dz}/ 下的子目录（每个一个 slug）；adopted 指针标生效；_ 前缀=隐藏候选。
+            foreach (var dir in Directory.EnumerateDirectories(designZoneRoot, "*", SearchOption.TopDirectoryOnly))
             {
                 var slug = Path.GetFileName(dir);
                 if (string.IsNullOrWhiteSpace(slug))
                     continue;
+                if (string.Equals(slug, "variants", StringComparison.OrdinalIgnoreCase))
+                    continue; // 跳过存量遗留 variants/ 目录（未迁移项目）
 
-                var state = slug.StartsWith("prev-", StringComparison.OrdinalIgnoreCase)
-                    ? "prev-adopted"
-                    : "variant";
+                var state = string.Equals(slug, adopted, StringComparison.OrdinalIgnoreCase)
+                    ? "adopted"
+                    : slug.StartsWith("_", StringComparison.Ordinal)
+                        ? "hidden"
+                        : "variant";
                 var summary = DeriveVariantSummaryFromModules(projectPath, designZoneId, slug, leafZoneIds);
                 var createdAt = Directory.GetCreationTimeUtc(dir).ToString("o");
 
@@ -139,14 +147,16 @@ namespace BIMCanvas.Server.Controllers
                 if (string.IsNullOrWhiteSpace(dzId) || !topology.IsDesignZoneId(dzId))
                     continue;
 
-                var variantsRoot = Path.Combine(designZoneDir, "variants");
-                if (!Directory.Exists(variantsRoot))
-                    continue;
-
-                // 排序基必须与 ListVariants 一致（按目录创建时间升序），
-                // 否则 VariantNavigatorBar (createdAt) 和 Zone label 角标 (此处) 的页码会错位。
-                var slugs = Directory.EnumerateDirectories(variantsRoot, "*", SearchOption.TopDirectoryOnly)
-                    .Where(dir => !string.IsNullOrWhiteSpace(Path.GetFileName(dir)))
+                // 指针模型：可显示方案 = schemes/{dz}/ 下不以 _ 开头的子目录（§3.4）；排除存量遗留 variants/。
+                // 排序基与 ListVariants 一致（目录创建时间升序），否则 VariantNavigatorBar 与 Zone label 角标页码错位。
+                var slugs = Directory.EnumerateDirectories(designZoneDir, "*", SearchOption.TopDirectoryOnly)
+                    .Where(dir =>
+                    {
+                        var name = Path.GetFileName(dir);
+                        return !string.IsNullOrWhiteSpace(name)
+                            && !string.Equals(name, "variants", StringComparison.OrdinalIgnoreCase)
+                            && !name.StartsWith("_", StringComparison.Ordinal);
+                    })
                     .OrderBy(dir => Directory.GetCreationTimeUtc(dir))
                     .Select(dir => Path.GetFileName(dir)!)
                     .ToList();
@@ -243,9 +253,9 @@ namespace BIMCanvas.Server.Controllers
             if (!TryResolveDesignZoneRoot(request.DesignZoneId, out var designZoneRoot, out var dzError))
                 return NotFound(new { error = dzError });
 
-            var variantDir = Path.Combine(designZoneRoot, "variants", request.VariantSlug);
+            var variantDir = Path.Combine(designZoneRoot, request.VariantSlug);
             if (!Directory.Exists(variantDir))
-                return NotFound(new { error = $"变体目录不存在: variants/{request.VariantSlug}" });
+                return NotFound(new { error = $"方案目录不存在: {request.VariantSlug}" });
 
             var projectPath = _projectContext.GetActiveWorktreePath()
                               ?? _projectContext.CurrentProjectPath!;
@@ -262,73 +272,42 @@ namespace BIMCanvas.Server.Controllers
 
             try
             {
-                // 1) 加载所有叶子的 variant wrapper；必须至少一个 modules 非空才视为有效采纳
-                var variantWrappersByLeaf = new Dictionary<string, ModulesWrapper>(StringComparer.OrdinalIgnoreCase);
+                // 1) 校验被采纳方案至少一个叶子有非空 modules（读叠 adopted 之前先按显式 slug 读候选）
+                var hasModules = false;
                 foreach (var leafId in leafZoneIds)
                 {
                     var variantPath = _modulesWriter.ResolveModulesPath(
                         projectPath, request.DesignZoneId, leafId, request.VariantSlug, VariantPathMode.New);
                     if (!System.IO.File.Exists(variantPath))
                         continue;
-
                     var wrapper = _modulesReader.Read(variantPath);
-                    if (wrapper != null)
-                        variantWrappersByLeaf[leafId] = wrapper;
+                    if (wrapper != null && wrapper.Modules.Count > 0) { hasModules = true; break; }
                 }
+                if (!hasModules)
+                    return BadRequest(new { error = "方案所有叶子 modules 均为空，无效采纳" });
 
-                if (!variantWrappersByLeaf.Any(kv => kv.Value.Modules.Count > 0))
-                    return BadRequest(new { error = "变体所有叶子 modules 均为空，无效采纳" });
-
-                // 2) 检测 canonical 是否非空（触发降级条件）
-                var canonicalWrappersByLeaf = new Dictionary<string, ModulesWrapper>(StringComparer.OrdinalIgnoreCase);
-                foreach (var leafId in leafZoneIds)
+                // 2) 转正：候选若以 _ 前缀隐藏，去前缀重命名目录（_slug → slug），使其在 Web 可见
+                var adoptedSlug = request.VariantSlug;
+                if (adoptedSlug.StartsWith("_", StringComparison.Ordinal))
                 {
-                    var canonicalPath = _modulesWriter.ResolveModulesPath(
-                        projectPath, request.DesignZoneId, leafId, variantId: null, VariantPathMode.New);
-                    if (!System.IO.File.Exists(canonicalPath))
-                        continue;
-
-                    var wrapper = _modulesReader.Read(canonicalPath);
-                    if (wrapper != null && wrapper.Modules.Count > 0)
-                        canonicalWrappersByLeaf[leafId] = wrapper;
+                    var promoted = adoptedSlug.TrimStart('_');
+                    if (string.IsNullOrWhiteSpace(promoted))
+                        return BadRequest(new { error = $"非法 slug：{request.VariantSlug}" });
+                    var promotedDir = Path.Combine(designZoneRoot, promoted);
+                    if (Directory.Exists(promotedDir))
+                        return Conflict(new { error = $"转正目标已存在：{promoted}" });
+                    Directory.Move(variantDir, promotedDir);
+                    adoptedSlug = promoted;
                 }
 
-                // 3) 降级（如适用）：把当前 canonical 非空叶子写到 variants/prev-{ts}/，透传原 summary
-                string? demotedSlug = null;
-                if (canonicalWrappersByLeaf.Count > 0)
-                {
-                    var now = DateTime.Now;
-                    demotedSlug = $"prev-{now:yyyyMMddHHmmss}";
-
-                    foreach (var (leafId, wrapper) in canonicalWrappersByLeaf)
-                    {
-                        await _modulesWriter.WriteAsync(
-                            projectPath, request.DesignZoneId, leafId,
-                            variantId: demotedSlug, pathMode: VariantPathMode.New,
-                            modules: wrapper.Modules,
-                            summary: wrapper.SchemeMetadata?.Summary ?? string.Empty);
-                    }
-                }
-
-                // 4) 晋升：把被采纳 variant 的每个叶子写到 canonical，透传 variant 的 summary
-                foreach (var (leafId, wrapper) in variantWrappersByLeaf)
-                {
-                    await _modulesWriter.WriteAsync(
-                        projectPath, request.DesignZoneId, leafId,
-                        variantId: null, pathMode: VariantPathMode.New,
-                        modules: wrapper.Modules,
-                        summary: wrapper.SchemeMetadata?.Summary ?? string.Empty);
-                }
-
-                // 5) 删除被采纳变体整目录（含 semantic_plan.json / 各叶子 modules）
-                try { Directory.Delete(variantDir, recursive: true); }
-                catch (Exception ex) { _logger.LogWarning(ex, "删除被采纳变体目录失败: {Dir}", variantDir); }
+                // 3) 翻指针：写父 DESIGN.md adopted（零复制 / 零删除 / 零降级 / 可逆，根除"采纳即删设计意图"）
+                _designDoc.WriteAdoptedSlug(schemesPath, request.DesignZoneId, adoptedSlug);
 
                 _logger.LogInformation(
-                    "[Variant.Adopt] designZone={Dz} slug={Slug} 晋升为 canonical；降级 prev={Prev}（受影响叶子 {N}）",
-                    request.DesignZoneId, request.VariantSlug, demotedSlug ?? "(无)", variantWrappersByLeaf.Count);
+                    "[Variant.Adopt] designZone={Dz} slug={Slug} → 翻指针 adopted={Adopted}（叶子 {N}）",
+                    request.DesignZoneId, request.VariantSlug, adoptedSlug, leafZoneIds.Count);
 
-                // 6) SignalR 广播：trigger=variant-adopt，payload 含 designZoneId + adoptedSlug + demotedSlug
+                // 4) SignalR 广播（指针模型无降级 prev，去 demotedSlug 语义）
                 await _hubContext.Clients.All.SendAsync("ReceiveUpdate", new
                 {
                     type = "file_changed",
@@ -337,16 +316,14 @@ namespace BIMCanvas.Server.Controllers
                     action = "reload",
                     trigger = "variant-adopt",
                     designZoneId = request.DesignZoneId,
-                    adoptedSlug = request.VariantSlug,
-                    demotedSlug
+                    adoptedSlug
                 });
 
                 return Ok(new
                 {
                     success = true,
-                    adopted = request.VariantSlug,
-                    designZoneId = request.DesignZoneId,
-                    demotedSlug
+                    adopted = adoptedSlug,
+                    designZoneId = request.DesignZoneId
                 });
             }
             catch (Exception ex)
@@ -406,13 +383,19 @@ namespace BIMCanvas.Server.Controllers
                 try { ModuleFileTopologyService.EnsureSafeVariantId(request.SourceVariant); }
                 catch (ArgumentException ex) { return BadRequest(new { error = $"sourceVariant 非法: {ex.Message}" }); }
                 safeSourceSlug = request.SourceVariant;
-                srcRoot = Path.Combine(designZoneRoot, "variants", safeSourceSlug);
+                srcRoot = Path.Combine(designZoneRoot, safeSourceSlug);
                 if (!Directory.Exists(srcRoot))
-                    return BadRequest(new { error = $"source-not-found: variants/{safeSourceSlug}" });
+                    return BadRequest(new { error = $"source-not-found: {safeSourceSlug}" });
             }
             else if (mode == "clone-from-canonical")
             {
-                srcRoot = designZoneRoot;
+                // 指针模型：canonical = 当前 adopted 方案目录。无指针（存量未迁移）时拒绝——
+                // 从设计区根整克隆会把兄弟方案目录 / dstRoot 自身递归复制进来（自包含 bug），故要求先有 adopted。
+                var schemesRootForClone = Path.GetDirectoryName(designZoneRoot)!;
+                var adoptedForClone = _designDoc.ReadAdoptedSlug(schemesRootForClone, request.DesignZoneId);
+                if (string.IsNullOrEmpty(adoptedForClone))
+                    return BadRequest(new { error = "clone-from-canonical 需先有 adopted 指针（存量项目请先迁移或采纳一个方案）" });
+                srcRoot = Path.Combine(designZoneRoot, adoptedForClone);
             }
 
             // 校验所有 slugs charset + 自我克隆冲突
@@ -451,7 +434,7 @@ namespace BIMCanvas.Server.Controllers
                 // 循环每个新 slug
                 foreach (var safeNew in safeNewSlugs)
                 {
-                    var dstRoot = Path.Combine(designZoneRoot, "variants", safeNew);
+                    var dstRoot = Path.Combine(designZoneRoot, safeNew);
                     if (Directory.Exists(dstRoot))
                     {
                         if (!overwrite)
@@ -496,12 +479,9 @@ namespace BIMCanvas.Server.Controllers
                         else
                         {
                             // clone 模式：整子树递归复制（domain-agnostic，不枚举任何具体文件名）。
-                            // clone-from-canonical 源是 schemes/{dz}/，须排除顶层 variants/——
-                            // 否则会把兄弟变体、乃至刚 CreateDirectory 出来的 dstRoot 自身复制进来。
-                            var excludeTop = mode == "clone-from-canonical"
-                                ? new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "variants" }
-                                : null;
-                            CopyDirectoryTree(srcRoot!, dstRoot, excludeTop);
+                            // 指针模型下 src 恒为某方案目录 schemes/{dz}/{slug}/（clone-from-canonical 取 adopted、
+                            // clone-from-variant 取源 slug），与 dstRoot schemes/{dz}/{safeNew}/ 互为兄弟，无自包含风险，无需排除。
+                            CopyDirectoryTree(srcRoot!, dstRoot, excludeTopLevelDirs: null);
 
                             // 复制后重写每份叶子 modules.json 的 summary——modules 是平台 reserved
                             // kind，summary 注入是平台职责，不属 domain 耦合，保留原逻辑不动。
@@ -593,11 +573,11 @@ namespace BIMCanvas.Server.Controllers
             if (!TryResolveDesignZoneRoot(designZoneId, out var designZoneRoot, out var dzError))
                 return NotFound(new { error = dzError });
 
-            var variantDir = Path.Combine(designZoneRoot, "variants", variantSlug);
+            var variantDir = Path.Combine(designZoneRoot, variantSlug);
             if (!Directory.Exists(variantDir))
-                return NotFound(new { error = $"变体目录不存在: variants/{variantSlug}" });
+                return NotFound(new { error = $"方案目录不存在: {variantSlug}" });
 
-            // 与 adopt 共享同一 designZone 锁——防"adopt 进行中另一边删变体"竞态
+            // 与 adopt 共享同一 designZone 锁——防"adopt 进行中另一边删方案"竞态
             var deleteLock = GetDesignZoneLock(designZoneId);
             if (!await deleteLock.WaitAsync(TimeSpan.FromSeconds(30)))
                 return StatusCode(503, new { error = "设计区被其他变体操作占用，请稍后重试" });
@@ -606,7 +586,7 @@ namespace BIMCanvas.Server.Controllers
             {
                 // 锁内复查（adopt 可能刚把它清掉）
                 if (!Directory.Exists(variantDir))
-                    return NotFound(new { error = $"变体目录不存在: variants/{variantSlug}" });
+                    return NotFound(new { error = $"方案目录不存在: {variantSlug}" });
 
                 Directory.Delete(variantDir, recursive: true);
             }

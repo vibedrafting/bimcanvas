@@ -306,19 +306,21 @@ namespace BIMCanvas.Server.Controllers
                 return StatusCode(404, new { code = "artifact_not_found", message = "schemes 目录不存在", artifactKind = "modules" });
             }
 
-            var modulesFiles = Directory.GetFiles(schemesRoot, "modules.json", SearchOption.AllDirectories);
+            // 指针模型：经拓扑收敛只取各设计区 adopted 方案的 modules（排除 _ 隐藏候选 / 落选 slug）。
+            // 拓扑 canonical 条目已重定向到 adopted slug 路径；无 DESIGN.md 的存量设计区回落 legacy canonical（零回归）。
+            var topology = Services.ModuleFileTopologyService.BuildFromSchemesPath(schemesRoot);
+            var entries = topology.GetExistingCanonicalModuleFiles(null);
             var aggregated = new List<object>();
-            foreach (var file in modulesFiles)
+            foreach (var entry in entries)
             {
                 try
                 {
-                    var content = System.IO.File.ReadAllText(file, Encoding.UTF8);
-                    var relativeFromScene = Path.GetRelativePath(schemesRoot, file).Replace('\\', '/');
-                    aggregated.Add(new { relativePath = relativeFromScene, content });
+                    var content = System.IO.File.ReadAllText(entry.FilePath, Encoding.UTF8);
+                    aggregated.Add(new { relativePath = entry.RelativePath, content });
                 }
                 catch (Exception exc)
                 {
-                    _logger.LogWarning(exc, "读取 modules.json 失败: {File}", file);
+                    _logger.LogWarning(exc, "读取 modules.json 失败: {File}", entry.FilePath);
                 }
             }
 

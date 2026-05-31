@@ -15,8 +15,9 @@ namespace BIMCanvas.Server.Services
 {
     /// <summary>
     /// variantId 路径解析模式。
-    /// New: schemes/{designZoneId}/variants/{slug}/{leafZoneId}/modules.json —— Phase 1+ 的标准
-    /// Legacy: schemes/{designZoneId}/modules-{slug}.json sibling —— ProjectController.SaveModules / VariantController 暂时还在用
+    /// ⚠️ 指针模型（P1）后已**退化为 vestigial**：ResolveModulesPath 不再区分 New/Legacy，
+    /// 统一走 schemes/{dz}/{slug}/[{leaf}/]modules.json（slug=显式或 adopted），无 adopted 时回落旧 canonical。
+    /// 保留枚举与参数仅为避免改动全部调用方签名；完整退役（删枚举 + 清调用方）列为后续 cleanup。
     /// </summary>
     public enum VariantPathMode
     {
@@ -140,30 +141,28 @@ namespace BIMCanvas.Server.Services
             string? variantId,
             VariantPathMode pathMode)
         {
+            _ = pathMode; // 指针模型下 VariantPathMode 已退化（New/Legacy 不再区分）；保留参数仅为签名兼容
             var schemesPath = Path.Combine(projectPath, "schemes");
 
-            if (string.IsNullOrWhiteSpace(variantId))
+            // 指针模型：variantId = 显式方案 slug；null = canonical = 父 DESIGN.md 的 adopted slug。
+            // 无显式 slug 且无 adopted 指针 → 回落 legacy canonical 路径（存量项目 P2 迁移前仍可正常读写，零回归）。
+            var slug = string.IsNullOrWhiteSpace(variantId)
+                ? SchemeDesignDocService.ResolveAdoptedSlug(schemesPath, designZoneId)
+                : variantId;
+            var isTopLevelLeaf = string.Equals(designZoneId, leafZoneId, StringComparison.OrdinalIgnoreCase);
+
+            if (!string.IsNullOrWhiteSpace(slug))
             {
-                // canonical 路径：通过拓扑解析（容器分区 → 叶子）
-                // designZoneId == leafZoneId 时（顶层叶子）→ schemes/{designZoneId}/modules.json
-                // designZoneId 是容器时 → schemes/{designZoneId}/{leafZoneId}/modules.json
-                if (string.Equals(designZoneId, leafZoneId, StringComparison.OrdinalIgnoreCase))
-                    return Path.Combine(schemesPath, designZoneId, "modules.json");
-                return Path.Combine(schemesPath, designZoneId, leafZoneId, "modules.json");
+                // 指针布局：schemes/{dz}/{slug}/[{leaf}/]modules.json（slug 直接做 dz 下一级，无 variants/ 段）
+                return isTopLevelLeaf
+                    ? Path.Combine(schemesPath, designZoneId, slug, "modules.json")
+                    : Path.Combine(schemesPath, designZoneId, slug, leafZoneId, "modules.json");
             }
 
-            return pathMode switch
-            {
-                VariantPathMode.New =>
-                    string.Equals(designZoneId, leafZoneId, StringComparison.OrdinalIgnoreCase)
-                        ? Path.Combine(schemesPath, designZoneId, "variants", variantId, "modules.json")
-                        : Path.Combine(schemesPath, designZoneId, "variants", variantId, leafZoneId, "modules.json"),
-                VariantPathMode.Legacy =>
-                    Path.Combine(
-                        ProjectService.ResolveZoneDirectory(schemesPath, leafZoneId),
-                        ModuleFileTopologyService.BuildVariantFilename(variantId)),
-                _ => throw new ArgumentOutOfRangeException(nameof(pathMode))
-            };
+            // legacy fallback：旧固定 canonical 路径（与改造前字节一致）
+            return isTopLevelLeaf
+                ? Path.Combine(schemesPath, designZoneId, "modules.json")
+                : Path.Combine(schemesPath, designZoneId, leafZoneId, "modules.json");
         }
 
     }

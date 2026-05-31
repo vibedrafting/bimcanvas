@@ -42,11 +42,18 @@ namespace BIMCanvas.Server.Services
         /// （调用方据 null **回落 legacy canonical 路径**，保证存量项目在 P2 迁移前仍可正常渲染）。
         /// </summary>
         public string? ReadAdoptedSlug(string schemesPath, string designZoneId)
+            => ResolveAdoptedSlug(schemesPath, designZoneId);
+
+        /// <summary>
+        /// 静态解析 adopted slug，供拓扑层 / 路径解析器无 DI 调用（funnel 收敛点共用同一份 frontmatter 解析）。
+        /// 无 DESIGN.md / 无 frontmatter / 无 adopted / 解析失败 → 返回 <c>null</c>（调用方据此**回落 legacy canonical 路径**）。
+        /// </summary>
+        public static string? ResolveAdoptedSlug(string schemesPath, string designZoneId)
         {
             if (string.IsNullOrWhiteSpace(designZoneId))
                 return null;
 
-            var path = DesignDocPath(schemesPath, designZoneId);
+            var path = Path.Combine(schemesPath, designZoneId, DesignDocFileName);
             if (!File.Exists(path))
                 return null;
 
@@ -65,9 +72,9 @@ namespace BIMCanvas.Server.Services
                         return slug.Trim();
                 }
             }
-            catch (Exception ex)
+            catch
             {
-                _logger?.LogWarning(ex, "[DesignDoc] 解析 adopted 失败，回落 legacy：{Path}", path);
+                // 解析失败静默回落 legacy（funnel 调用频繁，不打日志）
             }
 
             return null;
