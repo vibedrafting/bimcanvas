@@ -24,19 +24,21 @@ internal static class Program
         var dryRun = args.Skip(1).Any(a => a == "--dry-run");
         var only = args.Skip(1).FirstOrDefault(a => a.StartsWith("--only="))?["--only=".Length..]?.ToLowerInvariant();
 
-        if (only != null && only != "tag" && only != "wrapper" && only != "tagvalue" && only != "slim")
+        if (only != null && only != "tag" && only != "wrapper" && only != "tagvalue" && only != "slim" && only != "pointer")
         {
-            Console.Error.WriteLine($"[Error] --only 只接受 'tag' / 'wrapper' / 'tagvalue' / 'slim'，收到: {only}");
+            Console.Error.WriteLine($"[Error] --only 只接受 'tag' / 'wrapper' / 'tagvalue' / 'slim' / 'pointer'，收到: {only}");
             return 2;
         }
 
         // 按 plan 顺序：Phase 0 字段重命名 → Phase 0b wrapper 升级 → Phase E schemeMetadata 瘦身 → Phase D tag 值语义化
+        // → 指针模型迁移（必须最后跑：依赖 wrapper/tag 值已就位，再把 canonical→main/ + semantic_plan→DESIGN.md）
         IProjectHealthCheck[] allChecks =
         {
             new SemanticPlanTagCheck(),
             new ModulesWrapperCheck(),
             new SchemeMetadataSlimCheck(),
-            new SemanticPlanTagValueCheck()
+            new SemanticPlanTagValueCheck(),
+            new PointerModelMigrateCheck()
         };
         var checks = only switch
         {
@@ -44,6 +46,7 @@ internal static class Program
             "wrapper" => allChecks.Where(c => c.Id == "phase0b-wrapper"),
             "slim" => allChecks.Where(c => c.Id == "phase-e-metadata-slim"),
             "tagvalue" => allChecks.Where(c => c.Id == "phase-d-tag-value"),
+            "pointer" => allChecks.Where(c => c.Id == "pointer-model"),
             _ => allChecks
         };
 
@@ -136,6 +139,7 @@ internal static class Program
         Console.WriteLine("  --only=wrapper    只跑 Phase 0b（modules.json wrapper）");
         Console.WriteLine("  --only=slim       只跑 Phase E（schemeMetadata 瘦身）");
         Console.WriteLine("  --only=tagvalue   只跑 Phase D（semantic_plan tag 值映射）");
+        Console.WriteLine("  --only=pointer    只跑 指针模型迁移（canonical→{dz}/main/ + semantic_plan/reference→DESIGN.md + 父 adopted:main）");
         Console.WriteLine();
         Console.WriteLine("注意:");
         Console.WriteLine("  1. CLI 不自动 git 存档——请先手动 commit。");

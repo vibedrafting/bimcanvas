@@ -28,6 +28,10 @@
              Link="Linked\Checks\ModulesWrapperCheck.cs" />
     <Compile Include="..\..\Services\ProjectHealth\Checks\SemanticPlanTagValueCheck.cs"
              Link="Linked\Checks\SemanticPlanTagValueCheck.cs" />
+    <Compile Include="..\..\Services\ProjectHealth\Checks\SchemeMetadataSlimCheck.cs"
+             Link="Linked\Checks\SchemeMetadataSlimCheck.cs" />
+    <Compile Include="..\..\Services\ProjectHealth\Checks\PointerModelMigrateCheck.cs"
+             Link="Linked\Checks\PointerModelMigrateCheck.cs" />
     <!-- 注意：不链接 GitWorktreeServiceCommitter.cs—— CLI 不需要 git 兜底（用户手动 git 存档）-->
   </ItemGroup>
 </Project>
