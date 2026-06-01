@@ -40,6 +40,11 @@ import {
   findStreamingSubAgents
 } from '../../utils/bubbleManager';
 import { WAITING_VERBS } from '../../constants/aiCommandCenter';
+import { useWorkflowProgress } from './useWorkflowProgress';
+
+// Workflow 进度单例：把已解析的 subtask/tool 事件同步喂给 Task 页 workflow 视图。
+// 复用现有 case 的解析结果，不新增 SSE 解析。
+const workflowProgress = useWorkflowProgress();
 
 interface ChatStreamOptions {
   agentApiBase: string;
@@ -713,11 +718,10 @@ export const useChatStream = (options: ChatStreamOptions) => {
           break;
         }
 
-        currentMsg.bubbles.push(createSubAgentBubble(
-          subtaskId,
-          getString(payload.name) ?? getString(raw.subAgentName) ?? 'Subtask',
-          getString(payload.type) ?? getString(raw.subAgentType) ?? 'general-purpose'
-        ));
+        const subtaskName = getString(payload.name) ?? getString(raw.subAgentName) ?? 'Subtask';
+        const subtaskType = getString(payload.type) ?? getString(raw.subAgentType) ?? 'general-purpose';
+        currentMsg.bubbles.push(createSubAgentBubble(subtaskId, subtaskName, subtaskType));
+        workflowProgress.onSubtaskStarted(subtaskId, subtaskName, subtaskType);
         break;
       }
       case 'subtask.completed': {
@@ -727,19 +731,20 @@ export const useChatStream = (options: ChatStreamOptions) => {
         }
 
         const subAgentBubble = findBubbleByIdDeep(currentMsg.bubbles, subtaskId);
+        const completedSuccess = getBoolean(payload.success) ?? getBoolean(raw.success);
+        const completedSummary = getString(payload.summary) ?? getString(raw.content);
         if (subAgentBubble) {
-          const success = getBoolean(payload.success) ?? getBoolean(raw.success);
-          if (success === false) {
+          if (completedSuccess === false) {
             failBubble(subAgentBubble, getString(payload.error) ?? getString(raw.error));
           } else {
             completeBubble(subAgentBubble);
           }
 
-          const summary = getString(payload.summary) ?? getString(raw.content);
-          if (summary) {
-            updateSubAgentResult(subAgentBubble, summary);
+          if (completedSummary) {
+            updateSubAgentResult(subAgentBubble, completedSummary);
           }
         }
+        workflowProgress.onSubtaskCompleted(subtaskId, { success: completedSuccess, summary: completedSummary });
 
         if (!hasStreamingSubAgent(currentMsg.bubbles)) {
           enterWaitingState(currentMsg.waitingState, getRandomWaitingVerb);
@@ -749,6 +754,25 @@ export const useChatStream = (options: ChatStreamOptions) => {
       case 'subtask.progress': {
         // WP-Web: SDK 0.2.87 TaskProgressMessage 进度更新,渲染到 SubAgentBubble 头部 meta-right
         const subtaskId = getString(raw.subtaskId) ?? getString(raw.subAgentId);
+        const usageRaw = getObject(payload.usage) ?? getObject(raw.usage);
+        const usage = usageRaw ? {
+          totalTokens: typeof usageRaw.total_tokens === 'number' ? usageRaw.total_tokens : undefined,
+          toolUses: typeof usageRaw.tool_uses === 'number' ? usageRaw.tool_uses : undefined,
+          durationMs: typeof usageRaw.duration_ms === 'number' ? usageRaw.duration_ms : undefined
+        } : undefined;
+        const progressDescription = getString(payload.description) ?? getString(raw.content);
+        const progressLastTool = getString(payload.lastToolName) ?? getString(raw.toolName);
+
+        // Workflow 视图聚合:workflow 内 agent 实时流可能只给 taskId(无 subtaskId),用 subtaskId ?? taskId 作 key。
+        const workflowKey = subtaskId ?? getString(payload.taskId) ?? getString(raw.taskId);
+        if (workflowKey) {
+          workflowProgress.onSubtaskProgress(workflowKey, {
+            description: progressDescription,
+            lastToolName: progressLastTool,
+            usage
+          });
+        }
+
         if (!subtaskId) {
           break;
         }
@@ -756,15 +780,9 @@ export const useChatStream = (options: ChatStreamOptions) => {
         if (!subAgentBubble || subAgentBubble.type !== 'subagent') {
           break;
         }
-        const usageRaw = getObject(payload.usage) ?? getObject(raw.usage);
-        const usage = usageRaw ? {
-          totalTokens: typeof usageRaw.total_tokens === 'number' ? usageRaw.total_tokens : undefined,
-          toolUses: typeof usageRaw.tool_uses === 'number' ? usageRaw.tool_uses : undefined,
-          durationMs: typeof usageRaw.duration_ms === 'number' ? usageRaw.duration_ms : undefined
-        } : undefined;
         subAgentBubble.subAgentProgress = {
-          description: getString(payload.description) ?? getString(raw.content),
-          lastToolName: getString(payload.lastToolName) ?? getString(raw.toolName),
+          description: progressDescription,
+          lastToolName: progressLastTool,
           usage
         };
         break;
@@ -804,6 +822,19 @@ export const useChatStream = (options: ChatStreamOptions) => {
         if (toolName === 'TodoWrite' && updateTodoProgress(windowState, normalizedEvent, toolCallId, toolParams)) {
           enterWaitingState(currentMsg.waitingState, getRandomWaitingVerb);
           break;
+        }
+
+        // Workflow 触发信号(必修2):主控自身调用 workflow 工具(无 subtaskId,工具名命中触发信号)即开 workflow,
+        // 让 Chat 气泡 + Task 页在"调用 workflow 时"就亮起,不等首个子 agent。
+        const toolStartedSubtaskId = getString(raw.subtaskId) ?? getString(raw.subAgentId);
+        if (!toolStartedSubtaskId && workflowProgress.isWorkflowTool(toolName)) {
+          workflowProgress.startWorkflow({ toolCallId, label: toolName });
+        } else if (toolStartedSubtaskId) {
+          workflowProgress.onToolStarted(toolStartedSubtaskId, {
+            toolCallId,
+            toolName,
+            description: getString(payload.toolDescription) ?? getString(raw.toolDescription)
+          });
         }
 
         const existingBubble = findBubbleByIdDeep(currentMsg.bubbles, toolCallId);
@@ -854,6 +885,10 @@ export const useChatStream = (options: ChatStreamOptions) => {
         if (!toolCallId) {
           break;
         }
+
+        workflowProgress.onToolCompleted(toolCallId, {
+          success: getBoolean(payload.success) ?? getBoolean(raw.success)
+        });
 
         if (windowState?.todoProgress?.toolCallId === toolCallId) {
           const success = getBoolean(payload.success) ?? getBoolean(raw.success);

@@ -3,6 +3,9 @@ import type { BackgroundTaskRecord } from '../../types/agent'
 import type { ChatMessage, ChatWindow } from '../../types/aiCommandCenter'
 import { getBackgroundTaskService } from '../../services/BackgroundTaskService'
 import { createTextBubble, completeBubble } from '../../utils/bubbleManager'
+import { useWorkflowProgress } from './useWorkflowProgress'
+
+const workflowProgress = useWorkflowProgress()
 
 interface BackgroundTaskOptions {
   agentApiBase: string
@@ -43,6 +46,13 @@ export const useBackgroundTask = (options: BackgroundTaskOptions) => {
       }
       seenKeys.add(key)
     }
+
+    // Workflow 进度收口:有活跃 workflow 时标记完成,携带 sdkSessionId 供 Task 页 tier C 拉 transcript。
+    workflowProgress.onWorkflowCompleted({
+      taskId: record.taskId,
+      status: record.status,
+      sdkSessionId: record.sdkSessionId
+    })
 
     const win = findTargetWindow(record.windowId)
     if (!win) {
