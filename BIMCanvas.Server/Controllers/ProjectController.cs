@@ -965,7 +965,7 @@ namespace BIMCanvas.Server.Controllers
                         // 该 zone 在变体状态——不动 canonical，只清它的 New 路径变体文件
                         var dz = ResolveDesignZoneIdForLeaf(schemesPath, entry.ZoneId);
                         var variantFileToDelete = _modulesWriter.ResolveModulesPath(
-                            projectPath, dz, entry.ZoneId, slug, VariantPathMode.New);
+                            projectPath, dz, entry.ZoneId, slug);
                         DeleteFileIfWritable(variantFileToDelete);
                     }
                     else
@@ -982,7 +982,7 @@ namespace BIMCanvas.Server.Controllers
                     var variantId = variantSelection.TryGetValue(leafZoneId, out var vid) ? vid : null;
                     await _modulesWriter.WriteAsync(
                         projectPath, designZoneId, leafZoneId, variantId,
-                        VariantPathMode.New, kvp.Value);
+                        kvp.Value);
                 }
 
                 _logger.LogInformation("[SaveModules] 保存完成: {Total} 个模块，{ZoneCount} 个分区，{OrphanCount} 个孤立",

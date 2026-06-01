@@ -184,8 +184,7 @@ namespace BIMCanvas.Server.Controllers
                 projectPath,
                 designZoneId,
                 leafZoneId,
-                string.IsNullOrWhiteSpace(variantId) ? null : variantId,
-                VariantPathMode.New);
+                string.IsNullOrWhiteSpace(variantId) ? null : variantId);
 
             try
             {

@@ -171,7 +171,7 @@ export class LabelBuilder {
         if (isZoneLabel) {
             // Zone 标签：上下两行
             //   #ID
-            //   (current/total)   ← 仅当该叶子分区存在 modules-alt-*.json 变体时显示
+            //   (current/total)   ← 仅当该设计区存在可见方案（变体）时显示
             // current 与 VariantNavigatorBar 内部 sequence 同步——默认在原方案是 1，
             // 翻到第 k 个变体（字典序）就是 k+1。
             // 用 createElement + textContent 拼接（而非 innerHTML），避免 zone.id 里的特殊字符

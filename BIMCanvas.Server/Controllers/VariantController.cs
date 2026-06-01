@@ -60,8 +60,8 @@ namespace BIMCanvas.Server.Controllers
         // ─────────────────────────── ListVariants ───────────────────────────
 
         /// <summary>
-        /// 列出指定 design zone 下所有变体（含 prev-* 降级目录）。
-        /// 数据源：文件系统目录 + slug 前缀约定（prev-* → "prev-adopted"，其他 → "variant"）+
+        /// 列出指定 design zone 下所有方案（按 schemes/{dz}/ 子目录枚举）。
+        /// 数据源：文件系统目录 + slug/adopted 指针约定（adopted 指向 → "adopted"，_ 前缀 → "hidden"，其他 → "variant"）+
         /// 变体各叶子 modules.json 的 schemeMetadata.summary 取第一个非空（由 AI 在 register_variant 时写入）。
         /// createdAt 取目录 mtime，按字典序（≈时间序）升序排序。
         /// </summary>
@@ -201,7 +201,7 @@ namespace BIMCanvas.Server.Controllers
             var projectPath = _projectContext.GetActiveWorktreePath()
                               ?? _projectContext.CurrentProjectPath!;
             var filePath = _modulesWriter.ResolveModulesPath(
-                projectPath, designZoneId, leafZoneId, variantSlug, VariantPathMode.New);
+                projectPath, designZoneId, leafZoneId, variantSlug);
 
             if (!System.IO.File.Exists(filePath))
                 return NotFound(new { error = $"变体 modules.json 不存在: {Path.GetRelativePath(projectPath, filePath)}" });
@@ -278,7 +278,7 @@ namespace BIMCanvas.Server.Controllers
                 foreach (var leafId in leafZoneIds)
                 {
                     var variantPath = _modulesWriter.ResolveModulesPath(
-                        projectPath, request.DesignZoneId, leafId, request.VariantSlug, VariantPathMode.New);
+                        projectPath, request.DesignZoneId, leafId, request.VariantSlug);
                     if (!System.IO.File.Exists(variantPath))
                         continue;
                     var wrapper = _modulesReader.Read(variantPath);
@@ -467,13 +467,13 @@ namespace BIMCanvas.Server.Controllers
                             {
                                 await _modulesWriter.WriteAsync(
                                     projectPath, request.DesignZoneId, leafId,
-                                    variantId: safeNew, pathMode: VariantPathMode.New,
+                                    variantId: safeNew,
                                     modules: new List<Module>(),
                                     summary: summary);
 
                                 var leafPath = _modulesWriter.ResolveModulesPath(
                                     projectPath, request.DesignZoneId, leafId,
-                                    safeNew, VariantPathMode.New);
+                                    safeNew);
                                 leafPaths[leafId] = leafPath;
                             }
                         }
@@ -490,7 +490,7 @@ namespace BIMCanvas.Server.Controllers
                             {
                                 var leafPath = _modulesWriter.ResolveModulesPath(
                                     projectPath, request.DesignZoneId, leafId,
-                                    safeNew, VariantPathMode.New);
+                                    safeNew);
                                 if (!System.IO.File.Exists(leafPath)) continue;
 
                                 var wrapper = _modulesReader.Read(leafPath);
@@ -698,7 +698,7 @@ namespace BIMCanvas.Server.Controllers
                 foreach (var leafId in leafZoneIds)
                 {
                     var modulesPath = _modulesWriter.ResolveModulesPath(
-                        projectPath, designZoneId, leafId, variantSlug, VariantPathMode.New);
+                        projectPath, designZoneId, leafId, variantSlug);
                     if (!System.IO.File.Exists(modulesPath))
                         continue;
                     var wrapper = _modulesReader.Read(modulesPath);

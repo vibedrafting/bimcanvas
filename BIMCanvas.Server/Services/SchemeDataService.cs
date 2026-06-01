@@ -231,7 +231,7 @@ namespace BIMCanvas.Server.Services
                 var designZoneId = ResolveDesignZoneIdForLeaf(schemesPath, leafZoneId);
                 await _modulesWriter.WriteAsync(
                     basePath, designZoneId, leafZoneId,
-                    variantId: null, pathMode: VariantPathMode.New, modules: kvp.Value);
+                    variantId: null, modules: kvp.Value);
                 savedCount += kvp.Value.Count;
             }
 

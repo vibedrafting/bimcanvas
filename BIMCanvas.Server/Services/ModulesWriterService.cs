@@ -14,18 +14,6 @@ using Newtonsoft.Json.Serialization;
 namespace BIMCanvas.Server.Services
 {
     /// <summary>
-    /// variantId 路径解析模式。
-    /// ⚠️ 指针模型（P1）后已**退化为 vestigial**：ResolveModulesPath 不再区分 New/Legacy，
-    /// 统一走 schemes/{dz}/{slug}/[{leaf}/]modules.json（slug=显式或 adopted），无 adopted 时回落旧 canonical。
-    /// 保留枚举与参数仅为避免改动全部调用方签名；完整退役（删枚举 + 清调用方）列为后续 cleanup。
-    /// </summary>
-    public enum VariantPathMode
-    {
-        New,
-        Legacy
-    }
-
-    /// <summary>
     /// modules.json 的唯一写入入口。
     /// - schemeMetadata.summary 由调用方 passthrough（不再 Server 派生）
     /// - 合成 wrapper 形态
@@ -55,7 +43,6 @@ namespace BIMCanvas.Server.Services
         /// <param name="designZoneId">设计区 ID</param>
         /// <param name="leafZoneId">叶子分区 ID</param>
         /// <param name="variantId">变体 slug；null 表示 canonical</param>
-        /// <param name="pathMode">variantId 非空时决定写新路径还是旧 sibling 路径</param>
         /// <param name="modules">模块列表</param>
         /// <param name="summary">schemeMetadata.summary 值；不传则空字符串</param>
         public async Task WriteAsync(
@@ -63,7 +50,6 @@ namespace BIMCanvas.Server.Services
             string designZoneId,
             string leafZoneId,
             string? variantId,
-            VariantPathMode pathMode,
             List<Module> modules,
             string summary = "")
         {
@@ -89,7 +75,7 @@ namespace BIMCanvas.Server.Services
                     "[ModulesWriter] 设计区 {Dz} 无 adopted 指针，自动 bootstrap main 方案（路A，避免落 legacy 路径）", designZoneId);
             }
 
-            var filePath = ResolveModulesPath(projectPath, designZoneId, leafZoneId, variantId, pathMode);
+            var filePath = ResolveModulesPath(projectPath, designZoneId, leafZoneId, variantId);
             var directory = Path.GetDirectoryName(filePath)!;
             Directory.CreateDirectory(directory);
 
@@ -144,18 +130,15 @@ namespace BIMCanvas.Server.Services
 
         /// <summary>
         /// 仅算文件路径，不写入。供 file watcher / list / 调试用。
-        /// variants/New 路径对齐 canonical 结构——顶层叶子（dz == leaf）不重复 designZoneId，
-        /// 嵌套叶子按 dz/leaf 两段嵌套，与 canonical 路径完全镜像
-        /// （adopt 晋升/降级时变体目录与 canonical 字节级一致，move 即可）。
+        /// 指针布局：顶层叶子（dz == leaf）不重复 designZoneId，嵌套叶子按 dz/leaf 两段嵌套，
+        /// 与 canonical 路径完全镜像（采纳=翻指针，方案目录与 canonical 结构一致）。
         /// </summary>
         public string ResolveModulesPath(
             string projectPath,
             string designZoneId,
             string leafZoneId,
-            string? variantId,
-            VariantPathMode pathMode)
+            string? variantId)
         {
-            _ = pathMode; // 指针模型下 VariantPathMode 已退化（New/Legacy 不再区分）；保留参数仅为签名兼容
             var schemesPath = Path.Combine(projectPath, "schemes");
 
             // 指针模型：variantId = 显式方案 slug；null = canonical = 父 DESIGN.md 的 adopted slug。

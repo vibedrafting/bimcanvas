@@ -476,7 +476,7 @@ export const useCanvasStore = defineStore('canvas', () => {
                     activeVariantByDesignZone.value = new Map(activeVariantByDesignZone.value);
                     debugStore.log(`[Store] 变体已采纳 dz=${adoptedDz}，清空 active 并重载 canonical`);
                 }
-                // 采纳会删除该变体目录、可能新增 prev-*；刷新计数字典让 Canvas 摘掉/换角标
+                // 采纳=翻指针（不删目录、不生成 prev-*）；刷新计数字典让 Canvas 更新角标
                 void refetchVariantCounts();
             }
 
