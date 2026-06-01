@@ -67,6 +67,12 @@ namespace BIMCanvas.Server.Services
                         {
                             agent.Outcome = outcome;
                         }
+                        // outcome 定稿后用它提炼标签（zoneName/name/slug/id…）——比 prompt 区分性强、可读。
+                        var outcomeLabel = LabelFromOutcomeJson(agent.Outcome);
+                        if (!string.IsNullOrEmpty(outcomeLabel))
+                        {
+                            agent.Label = outcomeLabel!;
+                        }
                         result.Agents.Add(agent);
                     }
                     catch (Exception ex)
@@ -312,14 +318,48 @@ namespace BIMCanvas.Server.Services
             return null;
         }
 
+        // outcome JSON 是最可靠的标签源（agent 的产出，含 zoneName/slug 等业务标识）。
+        // 优先含 "name" 的键（zoneName/roomName/name → "公共空间"），再退到 id 类键。
+        private static string? LabelFromOutcomeJson(string? raw)
+        {
+            if (string.IsNullOrWhiteSpace(raw))
+            {
+                return null;
+            }
+            JObject obj;
+            try { obj = JObject.Parse(raw); }
+            catch { return null; }
+
+            var nameProp = obj.Properties().FirstOrDefault(p =>
+                p.Value.Type == JTokenType.String
+                && p.Name.IndexOf("name", StringComparison.OrdinalIgnoreCase) >= 0);
+            if (nameProp != null)
+            {
+                var v = nameProp.Value.ToString().Trim();
+                if (!string.IsNullOrEmpty(v)) return v.Length > 48 ? v.Substring(0, 48) : v;
+            }
+            foreach (var key in new[] { "slug", "id", "zoneId", "targetId", "variant", "title", "key", "target" })
+            {
+                var prop = obj.Properties().FirstOrDefault(p =>
+                    p.Value.Type == JTokenType.String
+                    && string.Equals(p.Name, key, StringComparison.OrdinalIgnoreCase));
+                if (prop != null)
+                {
+                    var v = prop.Value.ToString().Trim();
+                    if (!string.IsNullOrEmpty(v)) return v.Length > 48 ? v.Substring(0, 48) : v;
+                }
+            }
+            return null;
+        }
+
         private static string? LabelFromPrompt(string? prompt)
         {
             if (string.IsNullOrWhiteSpace(prompt))
             {
                 return null;
             }
-            // 取首个引号内 token（"" / '' / 「」/ “”）作区分标签——通常是变体名/目标名。
-            var m = System.Text.RegularExpressions.Regex.Match(prompt, "[\"'「“]([^\"'」”\n]{1,40})[\"'」”]");
+            // 取首个 标识符样式 的引号 token（不含空格/逗号/等号，避免误配 `", targetId="` 这类跨值片段）。
+            var m = System.Text.RegularExpressions.Regex.Match(prompt, "[\"'「“]([^\"'」”\n=,\\s]{1,40})[\"'」”]");
             if (m.Success && !string.IsNullOrWhiteSpace(m.Groups[1].Value))
             {
                 return m.Groups[1].Value.Trim();
