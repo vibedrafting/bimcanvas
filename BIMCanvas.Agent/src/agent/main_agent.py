@@ -166,6 +166,8 @@ class MainAgent:
         self._active_turn: _TurnChannel | None = None
         # 后台任务完成推送回调（host 注入；Claude 路径用，OpenAI/protocol 路径不设即 no-op）
         self._background_push: Callable[[dict[str, Any]], Awaitable[None]] | None = None
+        # 后台 Workflow 进度推送回调（host 注入）：detach 后 workflow 进度走带外通道实时推前端
+        self._background_progress_push: Callable[[dict[str, Any]], Awaitable[None]] | None = None
 
         # WP-2 CLAUDECODE: 进程级一次性 WARNING(SDK 0.1.51 PR #732 已自动剥离 CLAUDECODE env)
         global _claudecode_warned
@@ -196,6 +198,12 @@ class MainAgent:
     ) -> None:
         """注入后台任务完成的带外推送回调（host → runtime_store 发布）。"""
         self._background_push = callback
+
+    def set_background_progress_push(
+        self, callback: Callable[[dict[str, Any]], Awaitable[None]] | None
+    ) -> None:
+        """注入后台 Workflow 进度的带外推送回调（host → runtime_store 发布，只实时不落盘）。"""
+        self._background_progress_push = callback
 
     @staticmethod
     def _normalize_response_model(model: Any) -> str | None:
@@ -765,12 +773,15 @@ class MainAgent:
             if self.verbose:
                 self._agent_logger.log_info("[Background] discarded out-of-turn ResultMessage")
         elif isinstance(message, (TaskStartedMessage, TaskProgressMessage)):
-            # 后台进度本期不推送（计划：留作后续迭代），仅 verbose log（秒级心跳，信息量足）
+            # 后台 Workflow 进度：经带外通道推前端（Task 页实时可视化）。detach 后 workflow 在后台跑，
+            # 这是前端唯一的实时进度来源。SDK 实时只给 task 级聚合（usage/last_tool），per-agent 详情
+            # 由完成后读 transcript 补。verbose 仍留秒级心跳一行。
             if self.verbose:
                 self._agent_logger.log_info(
                     f"[Background] {type(message).__name__} task_id="
                     f"{getattr(message, 'task_id', None)}"
                 )
+            await self._push_background_progress(message)
         elif hasattr(message, 'event') or isinstance(message, (AssistantMessage, UserMessage, SystemMessage)):
             # 后台 workflow 子 agent 的流式 chatter（逐 token 增量 / 整段回复 / 系统事件）：
             # 与回合内路径的聚合纪律一致——这股逐 token 消防水管静默丢弃、不逐条 log，避免刷屏。
@@ -820,6 +831,33 @@ class MainAgent:
             await self._background_push(record)
         except Exception as e:
             logger.warning(f"background_push callback failed: {e}")
+
+    async def _push_background_progress(self, message: Any) -> None:
+        """把后台 Workflow 进度（TaskStarted/TaskProgress）组装成 record 带外推送给前端。
+
+        只实时推送、不落 history（瞬时心跳；完成态由 _push_background_task 持久化）。
+        SDK 实时只给 task 级聚合：usage(total_tokens/tool_uses/duration_ms) + last_tool_name + description，
+        无 per-agent 模型/prompt（完成后读 transcript 补，见 Task 页 tier C）。
+        """
+        if self._background_progress_push is None:
+            return
+        ctx = self._last_runtime_context or {}
+        usage = getattr(message, "usage", None)
+        record = {
+            "kind": "workflow_progress",  # 前端通道判别字段（与 background_task / interaction 区分）
+            "taskId": getattr(message, "task_id", None),
+            "status": "running",
+            "usage": dict(usage) if usage else None,
+            "lastToolName": getattr(message, "last_tool_name", None),
+            "description": getattr(message, "description", None),
+            "windowId": ctx.get("windowId"),
+            "sessionId": ctx.get("sessionId"),
+            "sdkSessionId": getattr(message, "session_id", None),
+        }
+        try:
+            await self._background_progress_push(record)
+        except Exception as e:
+            logger.warning(f"background_progress_push callback failed: {e}")
 
     async def set_model(self, model: str) -> bool:
         """
