@@ -120,6 +120,10 @@ namespace BIMCanvas.Server.Services
                 projectPath,
                 refreshProjectMetadata: true);
 
+            // 按当前激活 domain 插件初始化其 projectMount 到项目全局(modules/、references/)。
+            // 仅缺失补齐,绝不覆盖用户改动(保留 R10 不静默覆盖的核心防御)。
+            _projectFixedFilesBootstrapService.EnsureProjectMountInitialized(projectPath);
+
             var result = new ProjectLoadExecutionResult(projectPath);
             AddZoneBaselineWarningIfNeeded(result.Warnings, bootstrapResult);
 
@@ -514,6 +518,10 @@ namespace BIMCanvas.Server.Services
             var bootstrapResult = _projectDerivedBootstrapService.EnsureInitialized(
                 folderPath,
                 refreshProjectMetadata: false);
+
+            // 按当前激活 domain 插件初始化其 projectMount 到项目全局(modules/、references/)。
+            // 仅缺失补齐,绝不覆盖用户改动(保留 R10 不静默覆盖的核心防御)。
+            _projectFixedFilesBootstrapService.EnsureProjectMountInitialized(folderPath);
 
             var result = new ProjectLoadExecutionResult(folderPath);
             AddZoneBaselineWarningIfNeeded(result.Warnings, bootstrapResult);

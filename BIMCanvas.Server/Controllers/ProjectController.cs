@@ -700,8 +700,8 @@ namespace BIMCanvas.Server.Controllers
                 projectJson["scenes"] = scenesArr;
                 System.IO.File.WriteAllText(projectJsonPath, projectJson.ToString(Formatting.Indented), new UTF8Encoding(false));
 
-                // 2. MountSceneScaffold (R10 唯一物化入口)
-                _projectFixedFiles.MountSceneScaffold(projectPath, sceneId, pluginId);
+                // 2. 按显式插件初始化 projectMount 到项目全局(与 open 路同源;仅缺失补齐,无 sceneId)
+                _projectFixedFiles.EnsureProjectMountInitialized(projectPath, pluginId);
 
                 // 3. 写 plugins.lock.json
                 WritePluginLockEntry(projectPath, sceneId, pluginId);

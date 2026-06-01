@@ -69,7 +69,57 @@ namespace BIMCanvas.Server.Services
         }
 
         /// <summary>
-        /// bind-time 把 plugin 的 <c>projectMount/</c> 物化到项目侧 sceneId 命名空间
+        /// 打开 / 绑定项目时,按**当前激活的 domain 插件**把其 <c>projectMount/</c> 内容初始化到
+        /// **项目全局**路径(<c>modules/</c>、<c>references/</c> 等),复用
+        /// <see cref="BootstrapTemplateService.EnsureInitializedFromManifestAbsolute"/> 的
+        /// "仅缺失补齐、绝不覆盖"程序。
+        /// <para>
+        /// 取代旧的 sceneId 命名空间物化(<see cref="MountSceneScaffold"/>):落点不再带 sceneId,
+        /// 与 validator / skills 实际读取的项目全局路径(如 <c>modules/module_library.json</c>、
+        /// <c>references/*.md</c>)一致。
+        /// </para>
+        /// <param name="projectPath">项目根。</param>
+        /// <param name="pluginId">
+        /// 显式插件 id(bind-scene 传入);为空时从 <c>server_config.json.agent.activePlugin</c> 解析。
+        /// 解析结果为空或 <c>core-base</c>(平台基座,projectMount 为空)时跳过。
+        /// </param>
+        /// </summary>
+        public void EnsureProjectMountInitialized(string projectPath, string? pluginId = null)
+        {
+            if (string.IsNullOrWhiteSpace(projectPath))
+                throw new ArgumentException("projectPath 必须非空", nameof(projectPath));
+
+            var effectivePluginId = pluginId;
+            if (string.IsNullOrWhiteSpace(effectivePluginId))
+                effectivePluginId = ConfigService.Load().Agent.ActivePlugin;
+
+            // 无激活插件 / 仍是平台基座 core-base(projectMount 为空) → 无需初始化
+            if (string.IsNullOrWhiteSpace(effectivePluginId)
+                || string.Equals(effectivePluginId, "core-base", StringComparison.OrdinalIgnoreCase))
+            {
+                _logger.LogInformation(
+                    "无激活 domain 插件(activePlugin={Plugin}),projectMount 初始化跳过",
+                    effectivePluginId ?? "<null>");
+                return;
+            }
+
+            var manifestPath = Path.Combine(
+                PluginPaths.PluginProjectMountRoot(effectivePluginId), "manifest.json");
+            if (!File.Exists(manifestPath))
+            {
+                _logger.LogInformation(
+                    "plugin '{Plugin}' 无 projectMount/manifest.json,projectMount 初始化跳过", effectivePluginId);
+                return;
+            }
+
+            _templateService.EnsureInitializedFromManifestAbsolute(manifestPath, projectPath);
+            _logger.LogInformation(
+                "plugin '{Plugin}' projectMount 已按 manifest 初始化到项目全局: {Path}", effectivePluginId, projectPath);
+        }
+
+        /// <summary>
+        /// [已被 <see cref="EnsureProjectMountInitialized"/> 取代] bind-time 把 plugin 的
+        /// <c>projectMount/</c> 物化到项目侧 sceneId 命名空间
         /// (主真理源 §3.9 + §4.2 / 组5 §5.B.2 真物化)。
         /// <para>
         /// <b>唯一调用入口</b>:<c>POST /api/project/scenes</c> 端点 (主真理源 §4.8)。
