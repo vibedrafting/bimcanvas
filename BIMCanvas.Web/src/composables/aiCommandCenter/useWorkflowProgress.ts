@@ -122,6 +122,9 @@ type TranscriptStatus = 'idle' | 'loading' | 'loaded' | 'error'
 const workflow = ref<WorkflowState | null>(null)
 const transcript = ref<WorkflowTranscript | null>(null)
 const transcriptStatus = ref<TranscriptStatus>('idle')
+// 运行态 agent→phase 钉定：agent 首次出现时所在的阶段(从心跳)记下，之后不变。
+// 用于把已完成的前序阶段 agent 留在原阶段，而非随当前阶段漂移（运行态精确归属不在增量数据里，靠此近似）。
+const liveAgentPhase = ref<Map<string, string>>(new Map())
 
 const hasActiveWorkflow = computed(() => workflow.value?.status === 'running')
 const hasCompletedWorkflow = computed(
@@ -304,6 +307,26 @@ function resetWorkflow(): void {
   workflow.value = null
   transcript.value = null
   transcriptStatus.value = 'idle'
+  liveAgentPhase.value = new Map()
+}
+
+/** 把尚未钉定的 live agent 钉到当前阶段（首见即定，之后不变）。 */
+function pinLiveAgents(
+  agents: WorkflowTranscriptAgent[] | undefined,
+  currentPhase: string | undefined,
+  phases: WorkflowPhase[]
+): void {
+  if (!agents || agents.length === 0) return
+  const fallback = phases[0]?.title ?? ''
+  const m = liveAgentPhase.value
+  let changed = false
+  for (const a of agents) {
+    if (a.agentId && !m.has(a.agentId)) {
+      m.set(a.agentId, currentPhase || fallback)
+      changed = true
+    }
+  }
+  if (changed) liveAgentPhase.value = new Map(m)
 }
 
 // === tier C：读 transcript ===
@@ -340,6 +363,8 @@ export function useWorkflowProgress() {
     workflow,
     transcript,
     transcriptStatus,
+    liveAgentPhase,
+    pinLiveAgents,
     hasActiveWorkflow,
     hasCompletedWorkflow,
     workflowAgents,

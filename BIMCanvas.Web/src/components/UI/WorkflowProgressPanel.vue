@@ -3,7 +3,8 @@ import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useWorkflowProgress } from '../../composables/aiCommandCenter/useWorkflowProgress'
 import type {
   WorkflowAgentState,
-  WorkflowTranscriptAgent
+  WorkflowTranscriptAgent,
+  WorkflowPhase
 } from '../../composables/aiCommandCenter/useWorkflowProgress'
 
 const {
@@ -12,6 +13,8 @@ const {
   transcriptStatus,
   hasCompletedWorkflow,
   workflowAgents,
+  liveAgentPhase,
+  pinLiveAgents,
   resetWorkflow,
   loadTranscript
 } = useWorkflowProgress()
@@ -52,7 +55,33 @@ const currentPhaseTitle = computed(() => {
   const at = i >= 0 && (cn < 0 || i < cn) ? i : cn
   return at > 0 ? d.slice(0, at).trim() : undefined
 })
-const liveDoneCount = computed(() => transcript.value?.liveAgents?.filter(a => a.state === 'done').length ?? 0)
+// 运行态：按钉定的阶段把 live agents 分组，未声明阶段则单组；所有声明阶段都保留(空=待执行)
+const liveGroupedPhases = computed<WorkflowPhase[]>(() => {
+  const t = transcript.value
+  if (!t || !t.live) return []
+  const phases: WorkflowPhase[] = t.phases.length
+    ? t.phases.map(p => ({ index: p.index, title: p.title, detail: p.detail, agents: [] as WorkflowTranscriptAgent[] }))
+    : [{ index: 1, title: '', detail: undefined, agents: [] as WorkflowTranscriptAgent[] }]
+  const first = phases[0]
+  if (!first) return phases
+  const byTitle = new Map<string, WorkflowPhase>()
+  for (const p of phases) byTitle.set(p.title, p)
+  for (const a of (t.liveAgents ?? [])) {
+    const title = liveAgentPhase.value.get(a.agentId) ?? currentPhaseTitle.value ?? first.title
+    ;(byTitle.get(title) ?? first).agents.push(a)
+  }
+  return phases
+})
+// 统一渲染源：完成态用权威分组，运行态用钉定分组
+const displayPhases = computed<WorkflowPhase[]>(() => {
+  const t = transcript.value
+  if (!t) return []
+  return t.live ? liveGroupedPhases.value : t.phases
+})
+// 每次 transcript 刷新（运行态）钉定新出现的 agent
+watch(() => transcript.value, (t) => {
+  if (t?.live) pinLiveAgents(t.liveAgents, currentPhaseTitle.value, t.phases)
+})
 
 const titleText = computed(() => {
   if (showTranscript.value && transcript.value) {
@@ -203,11 +232,15 @@ const dismiss = () => {
       详情加载失败 <button class="wf-retry" @click="loadTranscript(true)">重试</button>
     </div>
 
-    <!-- ============ Phase 树（完成态） ============ -->
-    <div v-if="showTranscript && transcript" class="wf-body">
-      <div v-for="ph in transcript.phases" :key="ph.index" class="phase">
-        <div class="phase-head" :class="phaseStats(ph.agents).status" @click="togglePhase(ph.index)">
-          <svg class="phase-caret" :class="{ open: expandedPhases.has(ph.index) }" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="9 18 15 12 9 6"></polyline></svg>
+    <!-- ============ Phase 树（运行态与完成态统一；运行态默认展开+所有阶段预留，完成态可折叠默认折叠） ============ -->
+    <div v-if="(showTranscript || showLive) && transcript" class="wf-body">
+      <div v-for="ph in displayPhases" :key="ph.index" class="phase">
+        <div
+          class="phase-head"
+          :class="[phaseStats(ph.agents).status, { 'no-toggle': showLive }]"
+          @click="!showLive && togglePhase(ph.index)"
+        >
+          <svg v-if="!showLive" class="phase-caret" :class="{ open: expandedPhases.has(ph.index) }" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="9 18 15 12 9 6"></polyline></svg>
           <span class="phase-mark" :class="phaseStats(ph.agents).status">
             <template v-if="phaseStats(ph.agents).status === 'done'">✓</template>
             <template v-else-if="phaseStats(ph.agents).status === 'active'">›</template>
@@ -218,8 +251,8 @@ const dismiss = () => {
           <span v-if="ph.detail" class="phase-detail">{{ ph.detail }}</span>
         </div>
 
-        <div v-show="expandedPhases.has(ph.index)" class="phase-agents">
-          <div v-if="!ph.agents.length" class="phase-empty">无 agent</div>
+        <div v-show="showLive || expandedPhases.has(ph.index)" class="phase-agents">
+          <div v-if="!ph.agents.length" class="phase-empty">{{ showLive ? '待执行' : '无 agent' }}</div>
           <div v-for="a in ph.agents" :key="a.agentId" class="agent">
             <div class="agent-head" @click="toggleExpand(a.agentId)">
               <span class="dot" :class="agentStateClass(a.state)"></span>
@@ -234,6 +267,7 @@ const dismiss = () => {
               <span v-if="formatTokens(a.tokens)" class="stat">{{ formatTokens(a.tokens) }} tok</span>
               <span v-if="typeof a.toolCalls === 'number'" class="stat">{{ a.toolCalls }} 工具</span>
               <span v-if="formatMs(a.durationMs)" class="stat">{{ formatMs(a.durationMs) }}</span>
+              <span v-if="a.state === 'running'" class="stat running-tag">运行中</span>
             </div>
 
             <div v-if="expandedKeys.has(a.agentId)" class="detail">
@@ -253,49 +287,6 @@ const dismiss = () => {
                 <div class="b-label">Outcome</div>
                 <pre class="pre out">{{ prettyOutcome(a.outcome) }}</pre>
               </div>
-            </div>
-          </div>
-        </div>
-      </div>
-    </div>
-
-    <!-- ============ 运行态：阶段步进条 + 扁平 live agent 列表（增量 transcript） ============ -->
-    <div v-else-if="showLive && transcript" class="wf-body">
-      <div v-if="transcript.phases.length" class="stepper">
-        <template v-for="(ph, i) in transcript.phases" :key="ph.index">
-          <span class="step" :class="{ current: ph.title === currentPhaseTitle }">
-            <span class="step-dot"></span>{{ ph.title || `阶段 ${ph.index}` }}
-          </span>
-          <span v-if="i < transcript.phases.length - 1" class="step-sep">→</span>
-        </template>
-      </div>
-      <div class="live-progress">{{ liveDoneCount }}/{{ transcript.liveAgents?.length ?? 0 }} agent 完成</div>
-      <div class="phase-agents flat">
-        <div v-for="a in (transcript.liveAgents ?? [])" :key="a.agentId" class="agent">
-          <div class="agent-head" @click="toggleExpand(a.agentId)">
-            <span class="dot" :class="agentStateClass(a.state)"></span>
-            <span class="agent-name">{{ a.label || a.agentId }}</span>
-            <span v-if="a.model" class="model">{{ a.model }}</span>
-            <svg class="chev" :class="{ open: expandedKeys.has(a.agentId) }" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"></polyline></svg>
-          </div>
-          <div class="agent-stats">
-            <span v-if="verdictInfo(a).value !== undefined" class="verdict" :class="verdictInfo(a).value ? 'ok' : 'bad'">{{ verdictInfo(a).value ? '✓' : '✗' }} {{ verdictInfo(a).key }}</span>
-            <span v-if="formatTokens(a.tokens)" class="stat">{{ formatTokens(a.tokens) }} tok</span>
-            <span v-if="typeof a.toolCalls === 'number'" class="stat">{{ a.toolCalls }} 工具</span>
-            <span v-if="a.state !== 'done'" class="stat running-tag">运行中</span>
-          </div>
-          <div v-if="expandedKeys.has(a.agentId)" class="detail">
-            <div v-if="a.prompt" class="block">
-              <button class="b-toggle" @click="togglePrompt(a.agentId)"><span class="caret" :class="{ open: promptOpen.has(a.agentId) }">▸</span> Prompt</button>
-              <pre v-if="promptOpen.has(a.agentId)" class="pre">{{ a.prompt }}</pre>
-            </div>
-            <div v-if="a.tools.length" class="block">
-              <div class="b-label">Activity · {{ a.tools.length }} 步</div>
-              <div class="chips"><span v-for="g in groupTools(a.tools)" :key="g.name" class="chip">{{ g.name }}<span v-if="g.count > 1" class="chip-n">×{{ g.count }}</span></span></div>
-            </div>
-            <div v-if="a.outcome" class="block">
-              <div class="b-label">Outcome</div>
-              <pre class="pre out">{{ prettyOutcome(a.outcome) }}</pre>
             </div>
           </div>
         </div>
