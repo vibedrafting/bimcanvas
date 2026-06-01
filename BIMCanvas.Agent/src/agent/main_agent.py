@@ -817,14 +817,15 @@ class MainAgent:
             elif self.verbose:
                 # 启动回合自身的尾随 ResultMessage（detach 已提前结束回合）等 —— 丢弃即可
                 self._agent_logger.log_info("[Background] discarded out-of-turn ResultMessage")
-        elif isinstance(message, (TaskStartedMessage, TaskProgressMessage)):
-            # 后台 Workflow 进度：经带外通道推前端（Task 页实时可视化）。detach 后 workflow 在后台跑，
-            # 这是前端唯一的实时进度来源。SDK 实时只给 task 级聚合（usage/last_tool），per-agent 详情
-            # 由完成后读 transcript 补。verbose 仍留秒级心跳一行。
+        elif isinstance(message, TaskProgressMessage):
+            # 高频进度心跳：只经带外通道推前端（Task 页实时可视化），不打 Server 控制台。
+            # 单条仅 task_id、无 usage/last_tool，逐 tick 刷屏且无 console 价值；实时进度看 Task 页。
+            await self._push_background_progress(message)
+        elif isinstance(message, TaskStartedMessage):
+            # 子任务启动：低频，留一行 console 便于观测；同样推前端。
             if self.verbose:
                 self._agent_logger.log_info(
-                    f"[Background] {type(message).__name__} task_id="
-                    f"{getattr(message, 'task_id', None)}"
+                    f"[Background] TaskStarted task_id={getattr(message, 'task_id', None)}"
                 )
             await self._push_background_progress(message)
         elif hasattr(message, 'event') or isinstance(message, (AssistantMessage, UserMessage, SystemMessage)):
