@@ -42,8 +42,13 @@ const variantContext = computed<{ designZoneId: string } | null>(() => {
     return { designZoneId };
 });
 
+// 指针模型：隐藏候选（_ 前缀，state=hidden）不进导航条；adopted 方案由 canonical 槽（位置0「已采纳方案」，
+// clearActiveVariant 渲染父指针指向的方案）代表，不在列表里再重复出现一条 —— 避免采纳后同一方案显示两次。
+const visibleVariants = computed(() =>
+    variants.value.filter(v => v.state !== 'hidden' && v.state !== 'adopted')
+);
 // server 已按 createdAt 排序，保留原顺序即可；后续如需稳定排序可在此扩展
-const sortedVariants = computed(() => [...variants.value]);
+const sortedVariants = computed(() => [...visibleVariants.value]);
 
 const CANONICAL_SLOT = '__canonical__';
 const sequence = computed<string[]>(() =>
@@ -72,16 +77,10 @@ const currentSummary = computed(() => {
     return (v?.summary && v.summary.trim()) || '';
 });
 
-const currentState = computed(() => currentVariant.value?.state ?? '');
-const isPrevAdopted = computed(() => currentState.value === 'prev-adopted');
-
 const showAdopt = computed(() => currentIndex.value !== 0);
 const indicator = computed(() => `${currentIndex.value + 1}/${sequence.value.length}`);
-const barTitle = computed(() => {
-    const tag = isPrevAdopted.value ? '历史' : '';
-    const base = tag ? `[${tag}] ${currentLabel.value}` : currentLabel.value;
-    return currentSummary.value ? `${base}：${currentSummary.value}` : base;
-});
+const barTitle = computed(() =>
+    currentSummary.value ? `${currentLabel.value}：${currentSummary.value}` : currentLabel.value);
 
 async function gotoIndex(nextIndex: number) {
     const ctx = variantContext.value;
@@ -110,7 +109,7 @@ function isEditableTarget(target: EventTarget | null): boolean {
 function onKeydown(event: KeyboardEvent) {
     if (event.defaultPrevented || event.ctrlKey || event.metaKey || event.altKey || event.shiftKey) return;
     if (isEditableTarget(event.target)) return;
-    if (!variantContext.value || variants.value.length === 0 || busy.value) return;
+    if (!variantContext.value || sortedVariants.value.length === 0 || busy.value) return;
 
     if (event.key === 'ArrowLeft' || event.key === 'ArrowUp') {
         event.preventDefault();
@@ -213,7 +212,7 @@ watch(() => variantContext.value?.designZoneId ?? null, () => { void refetchVari
 <template>
     <Transition name="vnav-fade">
         <div
-            v-if="variantContext && variants.length > 0"
+            v-if="variantContext && sortedVariants.length > 0"
             class="variant-navigator-bar"
             role="group"
             aria-label="布置变体切换"
@@ -232,8 +231,7 @@ watch(() => variantContext.value?.designZoneId ?? null, () => { void refetchVari
                           stroke-width="2" stroke-linecap="round" stroke-linejoin="round" />
                 </svg>
             </button>
-            <div class="vnav-center" :class="{ 'is-prev-adopted': isPrevAdopted }" :title="barTitle">
-                <span v-if="isPrevAdopted" class="vnav-state-badge">历史</span>
+            <div class="vnav-center" :title="barTitle">
                 <span class="vnav-label">{{ currentLabel }}</span>
                 <span class="vnav-indicator">{{ indicator }}</span>
             </div>
@@ -257,7 +255,7 @@ watch(() => variantContext.value?.designZoneId ?? null, () => { void refetchVari
                     type="button"
                     :disabled="busy"
                     @click="onAdopt"
-                    title="采纳此变体（晋升为已采纳方案；如 canonical 已有方案则降级为 prev-{时间戳}）"
+                    title="采纳此方案（翻转 adopted 指针使其生效；原方案保留、不删除、可回溯）"
                 >
                     {{ adoptingSlug ? '采纳中' : '采纳' }}
                 </button>
@@ -376,23 +374,6 @@ watch(() => variantContext.value?.designZoneId ?? null, () => { void refetchVari
     font-size: 10px;
     color: var(--text-secondary);
     font-variant-numeric: tabular-nums;
-    white-space: nowrap;
-}
-
-/* prev-adopted 变体：整个 center 区域降低饱和度 + 在 label 前缀显示"历史"角标 */
-.vnav-center.is-prev-adopted {
-    opacity: 0.7;
-}
-
-.vnav-state-badge {
-    font-size: 9px;
-    font-weight: 600;
-    letter-spacing: 0.5px;
-    padding: 1px 5px;
-    border-radius: 4px;
-    background: rgba(255, 255, 255, 0.08);
-    border: 1px solid rgba(255, 255, 255, 0.12);
-    color: var(--text-secondary);
     white-space: nowrap;
 }
 
