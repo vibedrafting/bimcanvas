@@ -168,6 +168,11 @@ class MainAgent:
         self._background_push: Callable[[dict[str, Any]], Awaitable[None]] | None = None
         # 后台 Workflow 进度推送回调（host 注入）：detach 后 workflow 进度走带外通道实时推前端
         self._background_progress_push: Callable[[dict[str, Any]], Awaitable[None]] | None = None
+        # 后台 Workflow 完成：收集"主控原生总结回合"的状态。
+        # CLI 收到 <task-notification> 会把它当 user 消息注入会话、让主控自动唤醒生成总结回合；
+        # drain loop 据此把【原生总结文本】投递给前端，而非丢弃（修复 detach 后总结被吞）。
+        self._bg_completion_pending: dict[str, Any] | None = None
+        self._bg_summary_parts: list[str] = []
 
         # WP-2 CLAUDECODE: 进程级一次性 WARNING(SDK 0.1.51 PR #732 已自动剥离 CLAUDECODE env)
         global _claudecode_warned
@@ -759,7 +764,12 @@ class MainAgent:
                 return
 
     async def _handle_background_message(self, message: Any) -> None:
-        """处理无活跃回合时到达的带外消息（后台 Workflow 完成等）。"""
+        """处理无活跃回合时到达的带外消息（后台 Workflow 完成 + 主控原生总结回合）。
+
+        关键：CLI 收到 <task-notification> 会注入会话并让主控**原生自动唤醒生成一条总结回合**
+        （THINK + AssistantMessage 文本 + ResultMessage）。本方法的职责是把这条**原生总结**收集起来、
+        在其收尾时经带外通道投递给前端——而不是把它当噪音丢弃（那正是 detach 后"总结被吞"的根因）。
+        """
         if isinstance(message, TaskNotificationMessage):
             if self.verbose:
                 self._agent_logger.log_info(
@@ -767,10 +777,38 @@ class MainAgent:
                     f"output_file={message.output_file}, "
                     f"summary_len={len(message.summary or '')} (background)"
                 )
-            await self._push_background_task(message)
+            # 记录待汇报状态，开始收集随后到达的【原生总结回合】文本；
+            # 不在此处推送（TaskNotification.summary 只是标题，真正内容由原生总结回合给出）。
+            self._bg_completion_pending = {
+                "taskId": message.task_id,
+                "status": str(message.status),
+                "outputFile": message.output_file or None,
+                "sdkSessionId": message.session_id,
+                "fallback": message.summary or "",
+            }
+            self._bg_summary_parts = []
+        elif isinstance(message, AssistantMessage) and self._bg_completion_pending is not None:
+            # 原生总结回合的文本块 → 累积（工具调用/思考块自动跳过；多步总结也能聚齐）
+            for block in message.content:
+                if isinstance(block, TextBlock):
+                    text = self._filter_assistant_text(block.text)
+                    if text:
+                        self._bg_summary_parts.append(text)
         elif isinstance(message, ResultMessage):
-            # 后台续写回合自带的 ResultMessage —— 仅 log 后丢弃，绝不让它进入下一回合
-            if self.verbose:
+            if self._bg_completion_pending is not None:
+                # 原生总结回合收尾 → 把收集到的总结经带外通道投递前端（落 history + 实时 SSE）
+                pending = self._bg_completion_pending
+                content = "\n".join(self._bg_summary_parts).strip()
+                self._bg_completion_pending = None
+                self._bg_summary_parts = []
+                if self.verbose:
+                    self._agent_logger.log_info(
+                        f"[Background] 原生总结回合收尾 → 投递完成汇报 "
+                        f"(task_id={pending.get('taskId')}, chars={len(content)})"
+                    )
+                await self._emit_background_completion(pending, content)
+            elif self.verbose:
+                # 启动回合自身的尾随 ResultMessage（detach 已提前结束回合）等 —— 丢弃即可
                 self._agent_logger.log_info("[Background] discarded out-of-turn ResultMessage")
         elif isinstance(message, (TaskStartedMessage, TaskProgressMessage)):
             # 后台 Workflow 进度：经带外通道推前端（Task 页实时可视化）。detach 后 workflow 在后台跑，
@@ -783,8 +821,8 @@ class MainAgent:
                 )
             await self._push_background_progress(message)
         elif hasattr(message, 'event') or isinstance(message, (AssistantMessage, UserMessage, SystemMessage)):
-            # 后台 workflow 子 agent 的流式 chatter（逐 token 增量 / 整段回复 / 系统事件）：
-            # 与回合内路径的聚合纪律一致——这股逐 token 消防水管静默丢弃、不逐条 log，避免刷屏。
+            # 逐 token 流式增量 / 工具结果 / 系统事件 / 非汇报态的整段回复：
+            # 与回合内路径的聚合纪律一致——静默丢弃、不逐条 log，避免刷屏。
             pass
         else:
             # 仅对真正未知的新消息类型留一行（与顶层 [UnknownMessage] 同源的"勿静默吞未知"纪律）
@@ -803,28 +841,30 @@ class MainAgent:
         prefix = f"后台任务{status_text}"
         return f"{prefix}\n\n{body}" if body else prefix
 
-    async def _push_background_task(self, message: TaskNotificationMessage) -> None:
-        """把后台任务完成事件组装成 record，经 host 注入的回调带外推送给前端。
+    async def _emit_background_completion(self, pending: dict[str, Any], content: str) -> None:
+        """把后台 Workflow 完成汇报（优先用主控原生总结文本）经 host 回调带外推送给前端。
 
-        sessionId 用 runtime context 的 store session id（与 _window_sessions 同源），
-        而非 SDK 子进程的 message.session_id —— 后者命名空间不同，会让 host 侧按 session
-        归档/定位失效。SDK 的 session_id 仅作诊断字段保留。
-        content 在此处组装一次，实时推送与 host 落 history 复用同一份文本。
+        content 为空（极少数无原生总结回合的情形）时回退到 TaskNotification.summary（标题级）。
+        sessionId 用 runtime context 的 store session id（与 _window_sessions 同源），SDK 子进程的
+        session_id 另存 sdkSessionId 仅作诊断。实时推送与 host 落 history 复用这同一份 content。
         """
         if self._background_push is None:
             return
         ctx = self._last_runtime_context or {}
-        status = str(message.status)
+        status = pending.get("status", "completed")
+        body = content.strip() if content else ""
+        if not body:
+            body = self._compose_background_text(status, pending.get("fallback", ""))
         record = {
             "kind": "background_task",  # 前端通道判别字段（与 interaction record 区分）
-            "taskId": message.task_id,
+            "taskId": pending.get("taskId"),
             "status": status,
-            "content": self._compose_background_text(status, message.summary or ""),
-            "summary": message.summary or "",
-            "outputFile": message.output_file or None,
+            "content": body,
+            "summary": pending.get("fallback", ""),
+            "outputFile": pending.get("outputFile"),
             "windowId": ctx.get("windowId"),
             "sessionId": ctx.get("sessionId"),
-            "sdkSessionId": message.session_id,
+            "sdkSessionId": pending.get("sdkSessionId"),
             "turnId": ctx.get("turnId"),
         }
         try:
@@ -1750,15 +1790,22 @@ class MainAgent:
 
             # S4: TaskNotificationMessage 分支（SDK 0.1.46+）
             # 边界场景：后台 Workflow 在本回合流式过程中完成（消息落到活跃回合）。
-            # 与回合外一致，走带外推送通道（interaction SSE → 前端 BackgroundTaskService），
-            # 不混入当前回合的流式回答，也不双触发现有 ToolResultBlock 完成路径。
+            # 只登记待汇报状态——主控的【原生总结回合】会在本回合结束后到达（回合外），
+            # 届时由 _handle_background_message 收集并投递，与回合外路径完全一致。
             elif isinstance(message, TaskNotificationMessage):
                 if self.verbose:
                     self._agent_logger.log_info(
                         f"[TaskNotification] task_id={message.task_id}, status={message.status}, "
                         f"output_file={message.output_file}, summary_len={len(message.summary or '')}"
                     )
-                await self._push_background_task(message)
+                self._bg_completion_pending = {
+                    "taskId": message.task_id,
+                    "status": str(message.status),
+                    "outputFile": message.output_file or None,
+                    "sdkSessionId": message.session_id,
+                    "fallback": message.summary or "",
+                }
+                self._bg_summary_parts = []
 
             elif isinstance(message, SystemMessage):
                 # SDK 级系统消息（会话初始化、上下文压缩等）
