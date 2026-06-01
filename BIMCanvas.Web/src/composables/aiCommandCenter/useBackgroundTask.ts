@@ -72,7 +72,19 @@ export const useBackgroundTask = (options: BackgroundTaskOptions) => {
   }
 
   const startListening = () => {
-    getBackgroundTaskService(options.agentApiBase).startListening({ onCompleted: handleCompleted })
+    getBackgroundTaskService(options.agentApiBase).startListening({
+      onCompleted: handleCompleted,
+      onProgress: (record) => {
+        // 后台 Workflow 实时进度 → Task 页 workflow 视图（detach 后唯一实时来源）
+        workflowProgress.onWorkflowProgress({
+          taskId: record.taskId,
+          sdkSessionId: record.sdkSessionId,
+          description: record.description,
+          lastToolName: record.lastToolName,
+          usage: record.usage
+        })
+      }
+    })
   }
 
   const stopListening = () => {

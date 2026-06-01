@@ -91,6 +91,17 @@ class RuntimeStateStore:
         self._publish(subscribers, "background_task.completed", record)
         return record
 
+    async def push_background_progress(self, *, record: dict[str, Any]) -> None:
+        """后台 Workflow 进度：仅经 interaction SSE 实时推送，不落 history（瞬时心跳，
+        完成态才由 push_background_task 持久化）。事件名 background_task.progress。
+        """
+        record = dict(record)
+        if not record.get("timestamp"):
+            record["timestamp"] = datetime.now(timezone.utc).isoformat()
+        async with self._lock:
+            subscribers = list(self._interaction_subscribers)
+        self._publish(subscribers, "background_task.progress", record)
+
     async def create_session(
         self,
         *,

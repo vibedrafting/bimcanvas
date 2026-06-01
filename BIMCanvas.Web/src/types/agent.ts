@@ -156,11 +156,28 @@ export interface BackgroundTaskRecord {
   timestamp?: string | null;
 }
 
-export type ChannelEventName = InteractionEventName | BackgroundTaskEventName;
+// 后台 Workflow 进度事件 —— 复用 interaction SSE 通道，detach 后 workflow 进度的唯一实时来源。
+// SDK 实时只给 task 级聚合（usage/last_tool）；per-agent 详情完成后读 transcript。
+export type WorkflowProgressEventName = 'background_task.progress';
+
+export interface WorkflowProgressRecord {
+  kind: 'workflow_progress';
+  taskId?: string | null;
+  status?: string | null;
+  usage?: { total_tokens?: number; tool_uses?: number; duration_ms?: number } | null;
+  lastToolName?: string | null;
+  description?: string | null;
+  windowId?: string | null;
+  sessionId?: string | null;
+  sdkSessionId?: string | null;
+  timestamp?: string | null;
+}
+
+export type ChannelEventName = InteractionEventName | BackgroundTaskEventName | WorkflowProgressEventName;
 
 export interface InteractionEventEnvelope {
   event: ChannelEventName;
-  record: InteractionRecord | BackgroundTaskRecord;
+  record: InteractionRecord | BackgroundTaskRecord | WorkflowProgressRecord;
 }
 
 export type InteractionEventListener = (event: InteractionEventEnvelope) => void;

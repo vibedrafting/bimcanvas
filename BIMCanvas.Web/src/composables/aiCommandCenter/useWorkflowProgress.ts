@@ -184,6 +184,41 @@ function onSubtaskProgress(
   if (data.usage) agent.usage = { ...agent.usage, ...data.usage }
 }
 
+/**
+ * 后台 Workflow 进度（detach 后经 SSE 旁路 background_task.progress 到达）。
+ * 也是兜底触发：若 in-turn 的 workflow tool.started 被错过，首条进度即开 workflow 视图。
+ * SDK 实时只给 task 级聚合，故聚合到以 taskId 为 key 的单行；per-agent 详情完成后读 transcript。
+ */
+function onWorkflowProgress(record: {
+  taskId?: string | null
+  sdkSessionId?: string | null
+  description?: string | null
+  lastToolName?: string | null
+  usage?: { total_tokens?: number; tool_uses?: number; duration_ms?: number } | null
+}): void {
+  // 已完成的 workflow 收到迟到进度 → 不复活
+  if (workflow.value && workflow.value.status !== 'running') return
+  if (!workflow.value) {
+    startWorkflow({ label: 'Workflow' })
+  }
+  if (workflow.value && record.sdkSessionId) {
+    workflow.value.sdkSessionId = record.sdkSessionId
+  }
+  const key = record.taskId || 'workflow'
+  const usage = record.usage
+    ? {
+        totalTokens: record.usage.total_tokens,
+        toolUses: record.usage.tool_uses,
+        durationMs: record.usage.duration_ms
+      }
+    : undefined
+  onSubtaskProgress(key, {
+    description: record.description ?? undefined,
+    lastToolName: record.lastToolName ?? undefined,
+    usage
+  })
+}
+
 function onSubtaskCompleted(key: string, data: { success?: boolean; summary?: string }): void {
   if (!isRunning()) return
   const agent = ensureAgent(key)
@@ -288,6 +323,7 @@ export function useWorkflowProgress() {
     startWorkflow,
     onSubtaskStarted,
     onSubtaskProgress,
+    onWorkflowProgress,
     onSubtaskCompleted,
     onToolStarted,
     onToolCompleted,

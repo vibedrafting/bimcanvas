@@ -1,10 +1,12 @@
 import { AGENT_API } from '../config/api';
-import type { BackgroundTaskRecord, InteractionEventListener } from '../types/agent';
+import type { BackgroundTaskRecord, InteractionEventListener, WorkflowProgressRecord } from '../types/agent';
 import { getInteractionChannelService } from './InteractionChannelService';
 
 export interface BackgroundTaskHandlers {
   /** 后台任务（Workflow）完成时触发，record 携带 summary / status 等 */
   onCompleted?: (record: BackgroundTaskRecord) => void;
+  /** 后台 Workflow 进度（detach 后实时心跳），record 携带 usage / lastToolName 等 */
+  onProgress?: (record: WorkflowProgressRecord) => void;
 }
 
 /**
@@ -31,6 +33,10 @@ export class BackgroundTaskService {
     }
 
     this.listener = ({ event, record }) => {
+      if (event === 'background_task.progress' && record.kind === 'workflow_progress') {
+        this.handlers.onProgress?.(record as WorkflowProgressRecord);
+        return;
+      }
       if (event !== 'background_task.completed' || record.kind !== 'background_task') {
         return;
       }
