@@ -121,6 +121,16 @@ function agentStateClass(state?: string): string {
   return ''
 }
 
+// 每阶段完成度 + 状态（对齐 CLI 左栏 "Inventory 12/12 ✓" / "› Infrastructure 3/10"）
+function phaseStats(agents: WorkflowTranscriptAgent[]): { done: number; total: number; status: 'done' | 'active' | 'pending' } {
+  const total = agents.length
+  const done = agents.filter(a => a.state === 'done' || a.state === 'completed').length
+  const running = agents.some(a => a.state === 'running')
+  const status: 'done' | 'active' | 'pending' =
+    total > 0 && done === total ? 'done' : (running || done > 0) ? 'active' : 'pending'
+  return { done, total, status }
+}
+
 // === 实时聚合行 ===
 const liveStats = (a: WorkflowAgentState): string[] => {
   const out: string[] = []
@@ -167,10 +177,14 @@ const dismiss = () => {
     <!-- ============ Phase 树（完成态） ============ -->
     <div v-if="showTranscript && transcript" class="wf-body">
       <div v-for="ph in transcript.phases" :key="ph.index" class="phase">
-        <div class="phase-head">
-          <span class="phase-rail"></span>
+        <div class="phase-head" :class="phaseStats(ph.agents).status">
+          <span class="phase-mark" :class="phaseStats(ph.agents).status">
+            <template v-if="phaseStats(ph.agents).status === 'done'">✓</template>
+            <template v-else-if="phaseStats(ph.agents).status === 'active'">›</template>
+            <template v-else>○</template>
+          </span>
           <span class="phase-title">{{ ph.title || `阶段 ${ph.index}` }}</span>
-          <span class="phase-count">{{ ph.agents.length }}</span>
+          <span class="phase-count">{{ phaseStats(ph.agents).done }}/{{ phaseStats(ph.agents).total }}</span>
           <span v-if="ph.detail" class="phase-detail">{{ ph.detail }}</span>
         </div>
 
@@ -297,11 +311,18 @@ const dismiss = () => {
 .phase { padding: 4px 0; }
 .phase-head {
   display: flex; align-items: center; gap: 8px; padding: 6px 14px 4px;
-  .phase-rail { width: 3px; height: 12px; border-radius: 2px; background: var(--accent-primary); opacity: 0.7; flex-shrink: 0; }
+  .phase-mark {
+    width: 14px; text-align: center; flex-shrink: 0; font-size: 0.78rem; font-weight: 700; line-height: 1;
+    &.done { color: var(--accent-success); }
+    &.active { color: var(--accent-primary); }
+    &.pending { color: var(--text-tertiary); opacity: 0.6; }
+  }
   .phase-title { font-size: 0.72rem; font-weight: 700; color: var(--text-secondary); text-transform: uppercase; letter-spacing: 0.05em; }
+  &.active .phase-title { color: var(--accent-primary); }
+  &.pending .phase-title { color: var(--text-tertiary); }
   .phase-count {
     font-size: 0.6rem; font-weight: 700; font-family: var(--font-mono);
-    background: var(--surface-dim); color: var(--text-tertiary); border-radius: 8px; padding: 0 6px; min-width: 16px; text-align: center;
+    background: var(--surface-dim); color: var(--text-tertiary); border-radius: 8px; padding: 0 6px; min-width: 28px; text-align: center;
   }
   .phase-detail { font-size: 0.66rem; color: var(--text-tertiary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 }
