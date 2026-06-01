@@ -787,16 +787,23 @@ class MainAgent:
                 "fallback": message.summary or "",
             }
             self._bg_summary_parts = []
+            # 复位日志状态位，让随后的原生总结回合经 _process_message 干净地打印到 Server 日志
+            self._in_thinking = False
+            self._in_response = False
+            if self.verbose:
+                self._agent_logger.log_info("[Background] ↓ 主控原生完成总结回合（自动唤醒）")
         elif isinstance(message, AssistantMessage) and self._bg_completion_pending is not None:
-            # 原生总结回合的文本块 → 累积（工具调用/思考块自动跳过；多步总结也能聚齐）
-            for block in message.content:
-                if isinstance(block, TextBlock):
-                    text = self._filter_assistant_text(block.text)
-                    if text:
-                        self._bg_summary_parts.append(text)
+            # 原生总结回合：复用正常日志路径（_process_message 打印 THINK/AI/工具调用），
+            # 同时返回文本块内容用于投递（工具/思考块不计入文本；多步总结也能聚齐）。
+            text = self._process_message(message)
+            if text:
+                self._bg_summary_parts.append(text)
         elif isinstance(message, ResultMessage):
             if self._bg_completion_pending is not None:
                 # 原生总结回合收尾 → 把收集到的总结经带外通道投递前端（落 history + 实时 SSE）
+                if self.verbose and self._in_response:
+                    self._agent_logger.log_response_end()
+                    self._in_response = False
                 pending = self._bg_completion_pending
                 content = "\n".join(self._bg_summary_parts).strip()
                 self._bg_completion_pending = None
