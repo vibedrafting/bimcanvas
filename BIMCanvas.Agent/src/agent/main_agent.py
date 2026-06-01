@@ -124,7 +124,7 @@ class MainAgent:
         self._connected = False
         self._lock = asyncio.Lock()
 
-        # 组3: long-lived aiohttp.ClientSession,供 PluginContext / load_scene_artifact 共享。
+        # 组3: long-lived aiohttp.ClientSession,供 PluginContext / load_artifact 共享。
         # 在首次 _require_bundle (fallback 路径) 时 lazy 创建;disconnect 时关闭。
         # 注:host 外部通过 configure(bundle) 注入 bundle 时,session 生命周期由 host 自管。
         self._owned_session: aiohttp.ClientSession | None = None
@@ -257,7 +257,7 @@ class MainAgent:
 
     def _require_bundle(self) -> ConfigBundle:
         if self._bundle is None:
-            # 组3: lazy 创建 long-lived aiohttp session,供 load_scene_artifact / plugin 工具共享
+            # 组3: lazy 创建 long-lived aiohttp session,供 load_artifact / plugin 工具共享
             if self._owned_session is None:
                 self._owned_session = aiohttp.ClientSession()
             self.configure(build_config_bundle(session=self._owned_session))

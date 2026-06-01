@@ -292,38 +292,3 @@ export interface ZoneBoundaryData {
   segments: BoundarySegment[];
 }
 
-// ========================================================================
-// 组 5 §5.C.1: Scene 数据层类型 (主真理源 v1.1 §3.9 / §3.10)
-// ========================================================================
-// .bcp 项目多 scene 容器化后,Web 端需要 sceneId 感知:
-// - activeSceneId:当前激活的 scene id(从 OpenProject 响应 / LaunchContext 填)
-// - referenceScenes:跨 scene 只读叠加层(灰色显示,UI 可切换显隐)
-//
-// 渲染层(ThreeSceneService / SceneBuilder)消费 SceneLayer.visible / .modules,
-// 本组只暴露数据结构,渲染逻辑由组 4 / 后续实现。
-// ========================================================================
-
-/** Scene 唯一标识(主真理源 §3.9,pattern: `^[a-z0-9-]+$`) */
-export type SceneId = string;
-
-/**
- * 跨 scene 只读叠加层。
- * 用户在 active scene 下工作时,可同时显示其他 scene 的家具作为只读底图。
- *
- * 数据来源:`GET /api/scheme/artifacts/modules`(SceneArtifactsController)。
- */
-export interface SceneLayer {
-  sceneId: SceneId;
-  /** 业务分类(residential / electrical / mep 等) */
-  scene: string;
-  /** 提供该 scene 的 plugin id */
-  pluginId: string;
-  /** Plugin 版本 range(从 project.json.scenes[].plugin.versionRange) */
-  versionRange: string;
-  /** UI 切换显隐(渲染层消费) */
-  visible: boolean;
-  /** 跨 scene 叠加始终只读(写入会被 Server V12b gate 拦截) */
-  readOnly: true;
-  /** 从 `GET /api/scheme/artifacts/modules` 拉取的聚合模块列表 */
-  modules: Module[];
-}

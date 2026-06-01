@@ -125,8 +125,6 @@ class ConfigBundle:
             "agents_allow": sorted(self.agents_allow),
             "agents_deny": sorted(self.agents_deny),
             "diagnostics": list(self.diagnostics),
-            "scenes_count": len(self.launch_context.scenes.scenes) if self.launch_context.scenes else 0,
-            "active_scene_id": self.launch_context.active_scene_id,
         }
 
 
@@ -289,10 +287,8 @@ def _load_plugin_mcp_server(
         server_url=launch_context.server_url,
         project_path=launch_context.project_path,
         active_plugin_id=plugin_id,
-        active_scene=plugin_id,  # 数据命名空间 = active plugin id(永远有值,含 projectless)
         logger=logging.getLogger(f"bimcanvas.plugin.{plugin_id}"),
         session=session,
-        scenes=launch_context.scenes,  # v3.4 D10
     )
 
     builder = McpServerBuilder(namespace=namespace, context=plugin_ctx)
@@ -323,6 +319,25 @@ def _load_plugin_mcp_server(
 
     plugin_server = builder.build()
     return namespace, plugin_server, builder.tool_names
+
+
+def _derive_plugin_mcp_namespace(plugin_root: Path | None) -> str | None:
+    """派生 plugin 的 MCP 命名空间(= mcp_tools/ 下唯一入口 .py 的 stem)。
+
+    与 _load_plugin_mcp_server 的派生逻辑一致(line 256-268),但**不做安全校验**
+    (canvas 保留名 / 单入口校验仍在 _load_plugin_mcp_server fail-fast)。仅供系统提示词
+    注入身份边界段使用——load_system_prompt 在 _build_mcp_servers 之前调用,拿不到
+    mcp_servers_spec,故此处轻量独立派生。无 mcp_tools/ 或无 .py 入口时返回 None。
+    """
+    if plugin_root is None:
+        return None
+    mcp_tools_dir = plugin_root / "mcp_tools"
+    if not mcp_tools_dir.is_dir():
+        return None
+    py_files = sorted(mcp_tools_dir.glob("*.py"))
+    if not py_files:
+        return None
+    return py_files[0].stem
 
 
 def _build_mcp_servers(
@@ -446,7 +461,11 @@ def build_config_bundle(
     # (resolve_active_plugin 仍返回二元组,供 permissions / system_prompt 等用途)
     active_plugin_root, _plugin_manifest = loader.resolve_active_plugin(launch_context)
 
-    system_prompt = loader.load_system_prompt(active_plugin_root)
+    # 派生 active plugin 的 MCP 命名空间(= mcp_tools/ 唯一入口 .py 的 stem),用于在系统
+    # 提示词注入「## Active Plugin: <id> · namespace: mcp__<ns>__*」身份边界段。
+    # load_system_prompt 在 _build_mcp_servers 之前调用,拿不到 mcp_servers_spec,故此处独立派生。
+    active_mcp_namespace = _derive_plugin_mcp_namespace(active_plugin_root)
+    system_prompt = loader.load_system_prompt(active_plugin_root, active_mcp_namespace)
 
     # 工具权限 v3.3 §3 Phase 3b.1 — fallback 二选一:
     # - 有 active 专业插件 → 读 active plugin manifest,active.tools/agents 完全接管

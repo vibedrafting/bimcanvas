@@ -15,14 +15,11 @@ export type TrustState = 'untrusted' | 'trusted';
 /** Plugin 来源类型 (SourceKind.cs) */
 export type SourceKind = 'github' | 'local' | 'zip';
 
-/** Scene 生命周期状态 (SceneStatus.cs) */
-export type SceneStatus = 'active';
-
 /** Agent 启动模式 (LaunchMode.cs) */
 export type LaunchMode = 'projectless' | 'projectBound';
 
-/** OpenProject 三态返回 (OpenStatus.cs) */
-export type OpenStatus = 'bound' | 'sceneSelectRequired' | 'requiresSceneBinding';
+/** OpenProject 返回状态 (项目去插件态后只余 bound 单态) (OpenStatus.cs) */
+export type OpenStatus = 'bound';
 
 // ─── DTO ─────────────────────────────────────────────────────────────────
 
@@ -91,52 +88,13 @@ export interface PluginErrorResponse {
   details?: unknown[] | null;
 }
 
-// ─── Scene 相关 (project.json.scenes[]) ──────────────────────────────────
-
-/** scenes[].plugin 子对象 (ScenePluginRef.cs) */
-export interface ScenePluginRef {
-  id: string;
-  versionRange: string;
-}
-
-/** scenes[] 单项 (ProjectScene.cs) */
-export interface ProjectScene {
-  sceneId: string;
-  scene: string;
-  plugin: ScenePluginRef;
-  status: SceneStatus;
-  createdAt: string; // ISO 8601
-}
-
-// ─── OpenProject 扩展字段 (ProjectLoadResult.cs v1.1 字段) ───────────────
+// ─── OpenProject 扩展字段 (ProjectLoadResult.cs) ───────────────
 
 /**
  * OpenProject 响应扩展字段(与 ProjectService 现有 ProjectLoadResult 合并使用)。
- * 注意:这些字段是 ProjectLoadResult 在 v1.1 plugin 化后追加的可选字段。
+ * 项目去插件态后只余 openStatus(恒 bound)+ currentActivePlugin。
  */
 export interface ProjectLoadPluginExtension {
   openStatus?: OpenStatus | null;
   currentActivePlugin?: string | null;
-  activeSceneId?: string | null;
-  candidates?: ProjectScene[] | null; // sceneSelectRequired 时填充
-  existingScenes?: ProjectScene[] | null; // requiresSceneBinding 时填充
-}
-
-// ─── POST /api/project/scenes 请求 / 响应 (BindSceneRequest.cs) ──────────
-
-export interface BindSceneRequest {
-  sceneId: string;
-  scene?: string | null;
-  plugin: {
-    id: string;
-    versionRange?: string | null;
-  };
-}
-
-export interface BindSceneResult {
-  success: boolean;
-  sceneId?: string | null;
-  pluginId?: string | null;
-  projectPath?: string | null;
-  message?: string | null;
 }

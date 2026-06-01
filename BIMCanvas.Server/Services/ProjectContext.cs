@@ -41,11 +41,6 @@ namespace BIMCanvas.Server.Services
         public PluginLaunchContext? LaunchContext { get; private set; }
 
         /// <summary>
-        /// 当 OpenStatus = SceneSelectRequired 时,Web 用此字段渲染候选 scenes。
-        /// </summary>
-        public IReadOnlyList<ProjectScene>? PendingSceneCandidates { get; private set; }
-
-        /// <summary>
         /// 项目是否已加载 (向后兼容字段:与 <c>State != None</c> 等价)。
         /// </summary>
         public bool IsLoaded => State != ProjectState.None;
@@ -70,7 +65,7 @@ namespace BIMCanvas.Server.Services
 
         /// <summary>
         /// 设置当前项目 (兼容入口,行为等价 SetBound 但不要求 LaunchContext)。
-        /// 新代码请用 <see cref="SetPending"/> / <see cref="SetBound"/>。
+        /// 新代码请用 <see cref="SetBound"/>。
         /// </summary>
         public void SetProject(string projectPath, string? bcpPath = null)
         {
@@ -81,22 +76,7 @@ namespace BIMCanvas.Server.Services
         }
 
         /// <summary>
-        /// 进入 Pending 状态 (主真理源 §4.7):scene 未绑定 / 多候选未选。
-        /// 所有写入 API 在该状态下 403 (V12a)。
-        /// </summary>
-        public void SetPending(string projectPath, string? bcpPath, OpenStatus openStatus,
-            IReadOnlyList<ProjectScene>? candidates = null)
-        {
-            CurrentProjectPath = projectPath;
-            SourceBcpPath = bcpPath;
-            State = ProjectState.Pending;
-            OpenStatus = openStatus;
-            PendingSceneCandidates = candidates;
-            LaunchContext = null;
-        }
-
-        /// <summary>
-        /// 进入 Bound 状态 (scene 绑定完成 + LaunchContext 就绪):允许写入。
+        /// 进入 Bound 状态 (项目打开完成 + LaunchContext 就绪):允许写入。
         /// </summary>
         public void SetBound(string projectPath, string? bcpPath, PluginLaunchContext launchContext)
         {
@@ -105,7 +85,6 @@ namespace BIMCanvas.Server.Services
             State = ProjectState.Bound;
             OpenStatus = Models.Plugins.OpenStatus.Bound;
             LaunchContext = launchContext;
-            PendingSceneCandidates = null;
         }
 
         /// <summary>
@@ -198,7 +177,6 @@ namespace BIMCanvas.Server.Services
             State = ProjectState.None;
             OpenStatus = null;
             LaunchContext = null;
-            PendingSceneCandidates = null;
             _windowWorktreePaths.Clear();
         }
 

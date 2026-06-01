@@ -1,19 +1,20 @@
-"""core-base plugin MCP 工具入口 (v3.4)。
+"""core-base plugin MCP 工具入口。
 
-9 个工具通过 register(builder) 范式注册:
-- 4 个通用 BIM 能力:request_background_screenshot / register_variant /
-  list_variants / analyze_image
+6 个工具通过 register(builder) 范式注册:
+- 2 个通用 BIM 能力:request_background_screenshot / analyze_image
 - 2 个 Git Worktree + 通知:create_job / complete_job
-- 2 个跨 scene 元数据 + 只读 artifact:list_project_scenes / load_scene_artifact
+- 1 个只读 artifact:load_artifact(按物理 zone 读 schemes/;裸设计区经拓扑解析 adopted 指针)
 - 1 个校验 dispatch:validate_layout(包A 迁回平台:本身是通用"触发校验"派发,
   domain 校验逻辑在当前 active plugin 的 validators 脚本里,经 Server 端点委派执行)
 
-合并自旧 BIMCanvas.Agent/src/mcp/{canvas.py, canvas_core.py} (v3.4 前位置)。
+合并自旧 BIMCanvas.Agent/src/mcp/{canvas.py, canvas_core.py}。
 改造要点:
-- 全部走 ctx.session / ctx.server_url (跟 interior-layout 完全对称)
-- list_project_scenes 通过 ctx.scenes 拿 scene 列表 (PluginContext v3.4 D10 新增字段)
+- 全部走 ctx.session / ctx.server_url (跟 domain plugin 完全对称)
 - modules.json 不再有专用写入工具——AI 通过 Write/Edit 直写
-- register_variant 是变体目录的唯一创建入口
+- 变体目录由 AI 用 Write 直接建、Bash mv 转正/翻指针;平台不再提供 register_variant /
+  list_variants(列方案 = Glob schemes/{zoneId}/*/,生效 = 读父 DESIGN.md 的 adopted)。
+- 退役(项目去插件态 + 指针模型):register_variant / list_variants / list_project_scenes
+  已删除;load_scene_artifact 改名 load_artifact 并去掉 sceneId 入参。
 """
 
 from __future__ import annotations
@@ -398,95 +399,18 @@ _ANALYZE_IMAGE_SCHEMA = {
     "additionalProperties": False,
 }
 
-_REGISTER_VARIANT_DESC = (
-    "申请创建一个或多个变体(variants/{slug}/)。这是变体目录唯一创建入口;"
-    "三种 mode:blank=空白创建、clone-from-canonical=从 canonical 复制、clone-from-variant=从某变体复制。"
-    "Server 会按 zones.json 拓扑创建各叶子子目录,并写入初始 modules.json(含 schemeMetadata.summary)。"
-    "返回 workdir + 各叶子 modules.json 绝对路径供 Agent 用 Write/Edit 后续修改。"
-    "**调用后**用 Write/Edit 修改各叶子 modules.json 的 modules 数组;保留 schemeMetadata 字段不动。"
-)
-_REGISTER_VARIANT_SCHEMA = {
-    "$schema": "http://json-schema.org/draft-07/schema#",
-    "type": "object",
-    "properties": {
-        "designZoneId": {
-            "type": "string",
-            "description": "设计区 ID,如 'rz_3'。",
-        },
-        "slugs": {
-            "type": "array",
-            "items": {"type": "string"},
-            "minItems": 1,
-            "description": "批量注册的 slug 列表。每个 slug 限定 [a-z0-9_-]。",
-        },
-        "mode": {
-            "type": "string",
-            "enum": ["blank", "clone-from-canonical", "clone-from-variant"],
-            "description": "blank=空白;clone-from-canonical=复制该设计区(canonical)整个子树;clone-from-variant=复制指定变体整个子树。",
-        },
-        "summary": {
-            "type": "string",
-            "description": "设计意图,一句话说明本变体目的。会写到每个叶子 modules.json 的 schemeMetadata.summary 字段。",
-        },
-        "sourceVariant": {
-            "type": "string",
-            "description": "mode=clone-from-variant 时必填的源变体 slug。",
-        },
-        "overwrite": {
-            "type": "boolean",
-            "description": "同名 slug 是否覆盖;默认 false(重名进 errors)。",
-        },
-    },
-    "required": ["designZoneId", "slugs", "mode", "summary"],
-    "additionalProperties": False,
-}
-
-_LIST_VARIANTS_DESC = (
-    "列出指定设计区的所有变体(含 prev-* 降级保留的旧采纳方案)。"
-    "返回每个变体的 slug、createdAt、state(variant / prev-adopted)、summary(设计意图)。"
-    "用于:变体采纳决策、relocation 时找到现有变体、Web 端导航。"
-)
-_LIST_VARIANTS_SCHEMA = {
-    "$schema": "http://json-schema.org/draft-07/schema#",
-    "type": "object",
-    "properties": {
-        "designZoneId": {
-            "type": "string",
-            "description": "设计区 ID,如 'rz_3'。",
-        }
-    },
-    "required": ["designZoneId"],
-    "additionalProperties": False,
-}
-
-_LIST_PROJECT_SCENES_DESC = (
-    "列出当前 .bcp 项目内所有 scene 的元数据 (主真理源 v1.1 §3.10)。"
-    "返回数组 JSON,每项含 sceneId / scene / plugin{id,versionRange} / status / "
-    "createdAt / isActive。Phase 1 只返回 status='active' 的 scene。"
-    "未绑定项目时返回 is_error。"
-)
-_LIST_PROJECT_SCENES_SCHEMA = {
-    "type": "object",
-    "properties": {},
-    "additionalProperties": False,
-}
-
-_LOAD_SCENE_ARTIFACT_DESC = (
-    "读取 artifact(scene-agnostic;持久数据按物理 zone 组织在 schemes/ 下)。"
+_LOAD_ARTIFACT_DESC = (
+    "读取 artifact(持久数据按物理 zone 组织在 schemes/ 下)。"
     "artifactKind 是 plugin-agnostic 的字符串(字符集 ^[a-z][a-z0-9_-]*$),"
     "平台 reserved 通用 kind:modules / zones / readme(对应 baseline 派生 / AI Write 直写);"
     "其他 kind 是 plugin domain 产物,走 schemes/ 下同名文件聚合。"
-    "可选 path 参数精确读单文件 schemes/{path}/{artifactKind}.json(如 path='rz_3' / 'rz_3/variants/abc');"
+    "可选 path 参数精确读单文件 schemes/{path}/{artifactKind}.json"
+    "(如 path='rz_3' 裸设计区经拓扑解析 adopted 指针,或 path='rz_3/cand-c' 显式方案 slug);"
     "留空时走聚合返回(schemes/ 下所有同名文件 + relativePath)。"
 )
-_LOAD_SCENE_ARTIFACT_SCHEMA = {
+_LOAD_ARTIFACT_SCHEMA = {
     "type": "object",
     "properties": {
-        "sceneId": {
-            "type": "string",
-            "minLength": 1,
-            "description": "兼容占位(回退后数据按物理 zone 组织,不再用于落盘路径);传 active plugin id 即可",
-        },
         "artifactKind": {
             "type": "string",
             "pattern": "^[a-z][a-z0-9_-]*$",
@@ -501,14 +425,15 @@ _LOAD_SCENE_ARTIFACT_SCHEMA = {
         "path": {
             "type": "string",
             "description": (
-                "可选。schemes/ 内相对子路径,如 'rz_3' / 'rz_3/variants/abc'。"
+                "可选。schemes/ 内相对子路径,如 'rz_3'(裸设计区,经拓扑解析 adopted 指针)"
+                "或 'rz_3/cand-c'(显式方案 slug)。"
                 "非空时精确读单文件 schemes/{path}/{artifactKind}.json;"
                 "空时走聚合(schemes/ 下所有同名 artifactKind 文件)。"
                 "字符集 [a-zA-Z0-9_/-]+,禁止 .. / \\\\ / 前导斜杠。"
             ),
         },
     },
-    "required": ["sceneId", "artifactKind"],
+    "required": ["artifactKind"],
     "additionalProperties": False,
 }
 
@@ -678,12 +603,10 @@ _VALIDATE_LAYOUT_SCHEMA = {
 # ============================================================
 
 def register(builder: McpServerBuilder) -> None:
-    """core-base plugin 注册入口 (v3.4)。
+    """core-base plugin 注册入口。
 
     所有工具通过 ctx.session / ctx.server_url 与 BIMCanvas Server 通信,
-    跟 interior-layout plugin 完全对称。
-
-    list_project_scenes 通过 ctx.scenes (D10) 拿当前项目 scene 列表。
+    跟 domain plugin 完全对称。
     """
     ctx = builder.context
 
@@ -1062,137 +985,24 @@ def register(builder: McpServerBuilder) -> None:
             },
         }
 
-    # ---------- register_variant ----------
-    @builder.tool("register_variant", _REGISTER_VARIANT_DESC, _REGISTER_VARIANT_SCHEMA)
-    async def register_variant(args: dict[str, Any]) -> dict[str, Any]:
-        """注册一个或多个变体目录"""
-        body: dict[str, Any] = {
-            "designZoneId": args["designZoneId"],
-            "slugs": args["slugs"],
-            "mode": args["mode"],
-            "summary": args.get("summary", ""),
-        }
-        if args.get("sourceVariant"):
-            body["sourceVariant"] = args["sourceVariant"]
-        if args.get("overwrite"):
-            body["overwrite"] = bool(args["overwrite"])
-
-        try:
-            async with ctx.session.post(
-                f"{ctx.server_url}/api/scheme/variant/register",
-                json=body,
-            ) as resp:
-                if resp.status == 200:
-                    data = await resp.json()
-                    created = data.get("created", [])
-                    errors = data.get("errors", [])
-                    summary_text = (
-                        f"已注册 {len(created)} 个变体;失败 {len(errors)} 个。\n"
-                        f"详情:{json.dumps(data, ensure_ascii=False, indent=2)}"
-                    )
-                    return {
-                        "content": [{"type": "text", "text": summary_text}],
-                        "structuredContent": data,
-                    }
-                else:
-                    error_text = await resp.text()
-                    return {
-                        "content": [{"type": "text", "text": f"注册失败: HTTP {resp.status} {error_text}"}],
-                        "is_error": True,
-                    }
-        except aiohttp.ClientError as e:
-            return {
-                "content": [{"type": "text", "text": f"无法连接 Server: {str(e)}"}],
-                "is_error": True,
-            }
-
-    # ---------- list_variants ----------
-    @builder.tool("list_variants", _LIST_VARIANTS_DESC, _LIST_VARIANTS_SCHEMA)
-    async def list_variants(args: dict[str, Any]) -> dict[str, Any]:
-        """列出指定设计区下的所有变体"""
-        design_zone_id = args["designZoneId"]
-        try:
-            async with ctx.session.get(
-                f"{ctx.server_url}/api/scheme/variants",
-                params={"designZoneId": design_zone_id},
-            ) as resp:
-                if resp.status == 200:
-                    data = await resp.json()
-                    variants = data.get("variants", [])
-                    text = (
-                        f"设计区 {design_zone_id} 共 {len(variants)} 个变体。\n"
-                        f"详情:{json.dumps(data, ensure_ascii=False, indent=2)}"
-                    )
-                    return {
-                        "content": [{"type": "text", "text": text}],
-                        "structuredContent": data,
-                    }
-                else:
-                    error_text = await resp.text()
-                    return {
-                        "content": [{"type": "text", "text": f"列出失败: HTTP {resp.status} {error_text}"}],
-                        "is_error": True,
-                    }
-        except aiohttp.ClientError as e:
-            return {
-                "content": [{"type": "text", "text": f"无法连接 Server: {str(e)}"}],
-                "is_error": True,
-            }
-
-    # ---------- list_project_scenes ----------
-    @builder.tool("list_project_scenes", _LIST_PROJECT_SCENES_DESC, _LIST_PROJECT_SCENES_SCHEMA)
-    async def list_project_scenes(args: dict[str, Any]) -> dict[str, Any]:
-        """列出当前项目所有 active scene。v3.4 D10:通过 ctx.scenes 拿数据。"""
-        if ctx.scenes is None:
-            return {
-                "content": [{"type": "text", "text": "未绑定项目,无可列举的 scenes"}],
-                "is_error": True,
-            }
-
-        active_scene_id = ctx.active_scene
-        items: list[dict[str, Any]] = []
-        for scene in ctx.scenes.scenes:
-            if scene.status.value != "active":
-                continue
-            items.append(
-                {
-                    "sceneId": scene.scene_id,
-                    "scene": scene.scene,
-                    "plugin": {
-                        "id": scene.plugin.id,
-                        "versionRange": scene.plugin.version_range,
-                    },
-                    "status": scene.status.value,
-                    "createdAt": scene.created_at,
-                    "isActive": scene.scene_id == active_scene_id,
-                }
-            )
-
-        return {
-            "content": [
-                {"type": "text", "text": json.dumps(items, ensure_ascii=False, indent=2)}
-            ]
-        }
-
-    # ---------- load_scene_artifact ----------
+    # ---------- load_artifact ----------
     @builder.tool(
-        "load_scene_artifact",
-        _LOAD_SCENE_ARTIFACT_DESC,
-        _LOAD_SCENE_ARTIFACT_SCHEMA,
+        "load_artifact",
+        _LOAD_ARTIFACT_DESC,
+        _LOAD_ARTIFACT_SCHEMA,
         annotations=ToolAnnotations(maxResultSizeChars=500_000),
     )
-    async def load_scene_artifact(args: dict[str, Any]) -> dict[str, Any]:
-        """读取指定 scene 的 artifact。"""
+    async def load_artifact(args: dict[str, Any]) -> dict[str, Any]:
+        """读取 artifact(按物理 zone 组织在 schemes/ 下)。"""
         if not ctx.server_url:
             return {
                 "content": [{"type": "text", "text": "Server URL 未配置"}],
                 "is_error": True,
             }
 
-        scene_id = args["sceneId"]
         artifact_kind = args["artifactKind"]
         path = args.get("path")
-        # scene-agnostic:数据按物理 zone 组织(schemes/{path}/),URL 不再带 sceneId 段。
+        # 数据按物理 zone 组织(schemes/{path}/);裸设计区 path 由 Server 经拓扑解析 adopted 指针。
         url = f"{ctx.server_url}/api/scheme/artifacts/{artifact_kind}"
         params = {"path": path} if path else None
 
@@ -1202,14 +1012,12 @@ def register(builder: McpServerBuilder) -> None:
                     body = await resp.text()
                     return {"content": [{"type": "text", "text": body}]}
                 if resp.status == 404:
+                    path_part = f", path={path}" if path else ""
                     return {
                         "content": [
                             {
                                 "type": "text",
-                                "text": (
-                                    f"未找到 artifact: sceneId={scene_id}, "
-                                    f"artifactKind={artifact_kind} (HTTP 404)"
-                                ),
+                                "text": f"未找到 artifact: artifactKind={artifact_kind}{path_part} (HTTP 404)",
                             }
                         ],
                         "is_error": True,

@@ -633,115 +633,6 @@ namespace BIMCanvas.Server.Controllers
         }
 
         /// <summary>
-        /// 新增 scene 绑定 (主真理源 v1.1 §2.2 步骤 6 / §4.8 / 模板 §4.8)。
-        /// <para>
-        /// body <c>{sceneId, plugin: {id, versionRange}, scene}</c>;
-        /// 通过 JObject patch 写入 <c>project.json.scenes[]</c>,调
-        /// <see cref="ProjectFixedFilesBootstrapService.MountSceneScaffold"/> 物化 plugin projectMount,
-        /// 写 <c>plugins.lock.json</c>,生成 LaunchContext 并 SetBound。
-        /// </para>
-        /// <para>
-        /// <b>R10 缓解</b>:本端点是 plugin projectMount 物化的<b>唯一</b>入口;
-        /// open project 不触发 MountSceneScaffold。
-        /// </para>
-        /// </summary>
-        [HttpPost("scenes")]
-        public ActionResult<BindSceneResult> BindScene([FromBody] BindSceneRequest request)
-        {
-            if (!_projectContext.IsLoaded || string.IsNullOrEmpty(_projectContext.CurrentProjectPath))
-                return BadRequest(new BindSceneResult { Success = false, Message = "没有加载的项目" });
-
-            if (request is null
-                || string.IsNullOrWhiteSpace(request.SceneId)
-                || request.Plugin is null
-                || string.IsNullOrWhiteSpace(request.Plugin.Id))
-                return BadRequest(new BindSceneResult { Success = false, Message = "请求缺失 sceneId / plugin.id" });
-
-            try
-            {
-                var projectPath = _projectContext.CurrentProjectPath!;
-                var sceneId = request.SceneId.Trim();
-                var pluginId = request.Plugin.Id.Trim();
-
-                // 1. JObject patch 写 project.json.scenes[]
-                var projectJsonPath = Path.Combine(projectPath, "project.json");
-                JObject projectJson;
-                if (System.IO.File.Exists(projectJsonPath))
-                {
-                    projectJson = JObject.Parse(System.IO.File.ReadAllText(projectJsonPath));
-                }
-                else
-                {
-                    projectJson = new JObject();
-                }
-
-                var scenesArr = projectJson["scenes"] as JArray ?? new JArray();
-
-                // sceneId 唯一性
-                foreach (var existing in scenesArr)
-                {
-                    if (string.Equals((string?)existing?["sceneId"], sceneId, StringComparison.OrdinalIgnoreCase))
-                        return Conflict(new BindSceneResult { Success = false, Message = $"sceneId '{sceneId}' 已存在" });
-                }
-
-                var newScene = new JObject
-                {
-                    ["sceneId"] = sceneId,
-                    ["scene"] = request.Scene ?? "",
-                    ["plugin"] = new JObject
-                    {
-                        ["id"] = pluginId,
-                        ["versionRange"] = request.Plugin.VersionRange ?? "^1.0.0",
-                    },
-                    ["status"] = "active",
-                    ["createdAt"] = DateTimeOffset.Now.ToString("o"),
-                };
-                scenesArr.Add(newScene);
-                projectJson["scenes"] = scenesArr;
-                System.IO.File.WriteAllText(projectJsonPath, projectJson.ToString(Formatting.Indented), new UTF8Encoding(false));
-
-                // 2. 按显式插件初始化 projectMount 到项目全局(与 open 路同源;仅缺失补齐,无 sceneId)
-                _projectFixedFiles.EnsureProjectMountInitialized(projectPath, pluginId);
-
-                // 3. 写 plugins.lock.json
-                WritePluginLockEntry(projectPath, sceneId, pluginId);
-
-                // 4. 生成 LaunchContext + SetBound
-                var allScenes = ReadProjectScenes(projectPath);
-                var summary = new ProjectScenesSummary(allScenes, sceneId);
-                var lockSummary = TryReadPluginLockSummary(projectPath, sceneId);
-                var launchContext = _pluginLifecycle.BuildLaunchContext(
-                    projectPath, sceneId, summary, lockSummary, readOnlySceneIds: null);
-                _projectContext.SetBound(projectPath, _projectContext.SourceBcpPath, launchContext);
-
-                // 5. LaunchContext 文件 (Agent 子进程接收;M0 阶段 Agent 单例已启动,本文件供组3 hot-reload)
-                try
-                {
-                    var ctxPath = _pluginLifecycle.WriteLaunchContextFileAsync(launchContext, Environment.ProcessId)
-                        .GetAwaiter().GetResult();
-                    _logger.LogInformation("LaunchContext 已写入: {Path}", ctxPath);
-                }
-                catch (Exception ex)
-                {
-                    _logger.LogWarning(ex, "写 LaunchContext 文件失败 (不阻断 bind)");
-                }
-
-                return Ok(new BindSceneResult
-                {
-                    Success = true,
-                    SceneId = sceneId,
-                    PluginId = pluginId,
-                    ProjectPath = projectPath,
-                });
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "bind scene 失败: sceneId={Id}, plugin={P}", request.SceneId, request.Plugin?.Id);
-                return StatusCode(500, new BindSceneResult { Success = false, Message = ex.Message });
-            }
-        }
-
-        /// <summary>
         /// 解决冲突（覆盖或使用已存在）- 基于路径（仅供服务端使用）
         /// </summary>
         [HttpPost("resolve-conflict")]
@@ -1470,7 +1361,7 @@ namespace BIMCanvas.Server.Controllers
         /// <summary>
         /// 设置 ProjectContext 并构造 ProjectLoadResult。
         /// activePlugin = null/空时走 legacy 兼容路径 (SetProject + LaunchContext=null,写入放行);
-        /// activePlugin 非空时读 project.json.scenes[] 做三态匹配 (Bound / SceneSelectRequired / RequiresSceneBinding)。
+        /// activePlugin 非空时直接 Bound(项目去插件态:不再读 project.json.scenes[]、无三态匹配)。
         /// </summary>
         private ActionResult<ProjectLoadResult> ApplyAndBuildLoadResult(
             string projectPath, string? bcpPath, List<string> warnings)
@@ -1495,13 +1386,9 @@ namespace BIMCanvas.Server.Controllers
             }
 
             // 有 active plugin → 命名空间 = active plugin id,直接绑定。
-            // (binding 简化:废弃带序号 sceneId + 三态;多方案对比走 git 分支。
-            //  scenes[] 降为可选元数据,不再决定命名空间 / 能否写。)
-            var scenes = ReadProjectScenes(projectPath);
-            var summary = new ProjectScenesSummary(scenes, activePluginId);
-            var lockSummary = TryReadPluginLockSummary(projectPath, activePluginId);
-            var launchContext = _pluginLifecycle.BuildLaunchContext(
-                projectPath, activePluginId, summary, lockSummary, readOnlySceneIds: null);
+            // (项目去插件态:废弃 sceneId / scenes / lock / 三态;多方案对比走 git 分支。
+            //  LaunchContext 只携带 active plugin 身份 + 项目路径。)
+            var launchContext = _pluginLifecycle.BuildLaunchContext(projectPath);
             _projectContext.SetBound(projectPath, bcpPath, launchContext);
 
             try
@@ -1520,122 +1407,9 @@ namespace BIMCanvas.Server.Controllers
                 ProjectPath = projectPath,
                 OpenStatus = Models.Plugins.OpenStatus.Bound,
                 CurrentActivePlugin = activePluginId,
-                ActiveSceneId = activePluginId,
                 Warnings = warnings.Count > 0 ? warnings : null,
             });
         }
 
-        /// <summary>
-        /// 读 project.json.scenes[] 转为强类型列表。文件不存在 / 无 scenes 字段 → 空列表。
-        /// </summary>
-        private List<ProjectScene> ReadProjectScenes(string projectPath)
-        {
-            var path = Path.Combine(projectPath, "project.json");
-            if (!System.IO.File.Exists(path)) return new();
-            try
-            {
-                var root = JObject.Parse(System.IO.File.ReadAllText(path));
-                var arr = root["scenes"] as JArray;
-                if (arr is null) return new();
-                var result = new List<ProjectScene>(arr.Count);
-                foreach (var token in arr)
-                {
-                    if (token is not JObject obj) continue;
-                    var sceneId = (string?)obj["sceneId"];
-                    if (string.IsNullOrEmpty(sceneId)) continue;
-                    var sceneType = (string?)obj["scene"] ?? "";
-                    var pluginObj = obj["plugin"] as JObject;
-                    var plugin = new ScenePluginRef(
-                        Id: (string?)pluginObj?["id"] ?? "",
-                        VersionRange: (string?)pluginObj?["versionRange"] ?? "^1.0.0");
-                    var statusStr = (string?)obj["status"] ?? "active";
-                    Enum.TryParse<SceneStatus>(statusStr, ignoreCase: true, out var status);
-                    var createdStr = (string?)obj["createdAt"];
-                    var createdAt = DateTimeOffset.TryParse(createdStr, out var c) ? c : DateTimeOffset.MinValue;
-                    result.Add(new ProjectScene(sceneId, sceneType, plugin, status, createdAt));
-                }
-                return result;
-            }
-            catch (Exception ex)
-            {
-                _logger.LogWarning(ex, "读 project.json.scenes 失败: {Path}", path);
-                return new();
-            }
-        }
-
-        /// <summary>
-        /// 读 plugins.lock.json[sceneId] 转为 PluginLockSummary;不存在 → null。
-        /// </summary>
-        private PluginLockSummary? TryReadPluginLockSummary(string projectPath, string sceneId)
-        {
-            var path = PluginPaths.ProjectPluginsLockFile(projectPath);
-            if (!System.IO.File.Exists(path)) return null;
-            try
-            {
-                var root = JObject.Parse(System.IO.File.ReadAllText(path));
-                if (root[sceneId] is not JObject entry) return null;
-                return new PluginLockSummary(
-                    PluginId: (string?)entry["pluginId"] ?? "",
-                    Version: (string?)entry["version"] ?? "",
-                    SourceUrl: (string?)entry["sourceUrl"],
-                    ResolvedCommit: (string?)entry["resolvedCommit"],
-                    SourceKind: Enum.TryParse<SourceKind>((string?)entry["sourceKind"], ignoreCase: true, out var sk) ? sk : SourceKind.Github,
-                    ManifestChecksum: (string?)entry["manifestChecksum"] ?? "",
-                    ScaffoldChecksum: (string?)entry["scaffoldChecksum"],
-                    TrustedAt: DateTimeOffset.TryParse((string?)entry["trustedAt"], out var t) ? t : null,
-                    InstalledAt: DateTimeOffset.TryParse((string?)entry["installedAt"], out var i) ? i : DateTimeOffset.MinValue);
-            }
-            catch { return null; }
-        }
-
-        /// <summary>
-        /// 在 plugins.lock.json 添加一个 sceneId 条目。直接从 plugins-state.json + manifest 拿 source 元数据,
-        /// 避免再注入 PluginTrustService (信任元数据本身就是文件,Controller 读文件足够)。
-        /// </summary>
-        private void WritePluginLockEntry(string projectPath, string sceneId, string pluginId)
-        {
-            var stateFile = PluginPaths.PluginsStateFile;
-            JObject? stateObj = null;
-            if (System.IO.File.Exists(stateFile))
-            {
-                try { stateObj = JObject.Parse(System.IO.File.ReadAllText(stateFile))[pluginId] as JObject; }
-                catch { }
-            }
-            // manifest 读 version
-            string? version = null;
-            var manifestPath = PluginPaths.PluginManifestFile(pluginId);
-            if (System.IO.File.Exists(manifestPath))
-            {
-                try { version = (string?)JObject.Parse(System.IO.File.ReadAllText(manifestPath))["version"]; }
-                catch { }
-            }
-
-            var lockPath = PluginPaths.ProjectPluginsLockFile(projectPath);
-            JObject root;
-            if (System.IO.File.Exists(lockPath))
-            {
-                try { root = JObject.Parse(System.IO.File.ReadAllText(lockPath)); }
-                catch { root = new JObject(); }
-            }
-            else
-            {
-                root = new JObject();
-            }
-
-            var entry = new JObject
-            {
-                ["pluginId"] = pluginId,
-                ["version"] = version ?? "",
-                ["sourceUrl"] = (string?)stateObj?["sourceUrl"],
-                ["resolvedCommit"] = (string?)stateObj?["resolvedCommit"],
-                ["sourceKind"] = (string?)stateObj?["sourceKind"] ?? "github",
-                ["manifestChecksum"] = (string?)stateObj?["manifestChecksum"] ?? "",
-                ["scaffoldChecksum"] = null, // M2 物化时计算
-                ["trustedAt"] = (string?)stateObj?["trustedAt"],
-                ["installedAt"] = (string?)stateObj?["installedAt"] ?? DateTimeOffset.Now.ToString("o"),
-            };
-            root[sceneId] = entry;
-            System.IO.File.WriteAllText(lockPath, root.ToString(Formatting.Indented), new UTF8Encoding(false));
-        }
     }
 }

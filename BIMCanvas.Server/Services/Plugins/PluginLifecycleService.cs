@@ -146,18 +146,13 @@ public sealed class PluginLifecycleService
     /// 构造 PluginLaunchContext (主真理源 §3.3)。
     /// 不写文件;调用方自行决定是否 <see cref="WriteLaunchContextFileAsync"/>。
     /// </summary>
-    public PluginLaunchContext BuildLaunchContext(
-        string? projectPath,
-        string? activeSceneId,
-        ProjectScenesSummary? scenes,
-        PluginLockSummary? @lock,
-        IReadOnlyList<string>? readOnlySceneIds)
+    public PluginLaunchContext BuildLaunchContext(string? projectPath)
     {
         var serverConfig = ConfigService.Load();
         var activePluginId = serverConfig.Agent.ActivePlugin ?? "core-base";
         var activePluginRoot = PluginPaths.PluginRoot(activePluginId);
-        // binding 简化:只要打开了项目就 ProjectBound(命名空间 = active plugin id,
-        // 不再依赖带序号的 sceneId)。activeSceneId 实参现承载 active plugin id。
+        // 项目去插件态:只要打开了项目就 ProjectBound(命名空间 = active plugin id);
+        // 不再携带 sceneId / scenes / lock / readOnlySceneIds。
         var mode = projectPath is not null
             ? LaunchMode.ProjectBound
             : LaunchMode.Projectless;
@@ -171,12 +166,8 @@ public sealed class PluginLifecycleService
             ActivePluginRoot: activePluginRoot,
             Mode: mode,
             ProjectPath: mode == LaunchMode.ProjectBound ? projectPath : null,
-            ActiveSceneId: mode == LaunchMode.ProjectBound ? activeSceneId : null,
-            Scenes: mode == LaunchMode.ProjectBound ? scenes : null,
-            Lock: mode == LaunchMode.ProjectBound ? @lock : null,
             ServerUrl: serverUrl,
-            TrustMode: TrustMode.FullTrust,
-            ReadOnlySceneIds: readOnlySceneIds ?? Array.Empty<string>()
+            TrustMode: TrustMode.FullTrust
         );
     }
 
