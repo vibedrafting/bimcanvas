@@ -203,6 +203,7 @@ builder.Services.AddControllers()
 
 // v3.0 项目管理服务
 builder.Services.AddSingleton<ManifestService>();
+builder.Services.AddSingleton<WorkflowTranscriptService>();
 builder.Services.AddSingleton<RoomTypeTagMappingService>();
 builder.Services.AddSingleton<ComputedDataService>();
 builder.Services.AddSingleton<PlacementService>();

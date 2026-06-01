@@ -29,7 +29,12 @@ watch(hasCompletedWorkflow, (done) => {
 })
 
 // === 展示模式：running/live-final 用实时聚合；完成且 transcript 就绪用详情态 ===
-const showTranscript = computed(() => hasCompletedWorkflow.value && transcriptStatus.value === 'loaded' && !!transcript.value)
+const showTranscript = computed(
+  () => hasCompletedWorkflow.value
+    && transcriptStatus.value === 'loaded'
+    && !!transcript.value
+    && transcript.value.agents.length > 0
+)
 
 const statusText = computed(() => {
   if (!workflow.value) return ''
