@@ -1305,6 +1305,8 @@ class MainAgent:
         self._tool_call_counter = 0
         self._pending_tool_calls.clear()
         self._tool_to_subagent.clear()
+        # A 修复:本回合是否启动了后台 Workflow（用于"真后台脱离"——见 AssistantMessage 分支末尾）
+        self._turn_launched_workflow = False
 
         # 构建画布上下文 content block（独立于用户消息，对齐 Claude Code 的 <ide_selection> 模式）
         context_block = self._build_context_block(context)
@@ -1414,6 +1416,8 @@ class MainAgent:
             elif isinstance(message, AssistantMessage):
                 # 存储 API 响应的模型值，用于日志显示（不覆盖 _current_model）
                 self._capture_response_model(getattr(message, 'model', None))
+                # A 修复:本条 AssistantMessage 是否含工具调用（无工具=主控的收尾文本）
+                _had_tool_use = any(isinstance(b, ToolUseBlock) for b in message.content)
 
                 # 检查 API 级错误（0.1.28 修复了 error 字段填充 bug）
                 api_error = getattr(message, 'error', None)
@@ -1456,6 +1460,9 @@ class MainAgent:
                         self._streamed_text = False  # 重置标记，准备下一轮
                     elif isinstance(block, ToolUseBlock):
                         self._current_tool_name = block.name
+                        if block.name == "Workflow":
+                            # A 修复:标记本回合启动了后台 Workflow，供稍后"真后台脱离"判定
+                            self._turn_launched_workflow = True
 
                         if block.name == "Task":
                             # SubAgent 开始 - 添加到活跃映射（支持多个并行）
@@ -1553,6 +1560,20 @@ class MainAgent:
                             self._agent_logger.log_warning(
                                 f"[UnknownBlock] Unhandled content block: {type(block).__name__}"
                             )
+
+                # A 修复:Workflow 真后台脱离。本回合已启动后台 Workflow，且主控刚输出一条"无工具调用"的
+                # 收尾文本（即启动后的总结）→ 主动结束回合，不再死等被后台任务推迟到工作流跑完才发的 ResultMessage。
+                # 清空 _active_turn 后，后续 TaskProgress/TaskNotification 由常驻 _drain_loop 走带外通道
+                # （_handle_background_message：进度静默丢弃、完成时 _push_background_task 推前端），输入框立即解锁。
+                # 这样 Workflow 行为对齐"真后台 Task"：发起轮立即收尾，工作流成败都不再霸占对话。
+                if self._turn_launched_workflow and not _had_tool_use:
+                    if self.verbose:
+                        self._agent_logger.log_info(
+                            "[Workflow] 后台任务已启动且收尾文本已输出，回合脱离收尾（真后台，不锁输入）"
+                        )
+                    self._turn_launched_workflow = False
+                    self._active_turn = None  # 后续消息 → drain 带外通道
+                    break
 
             # 处理 UserMessage 中的 ToolResultBlock（工具调用完成）
             elif isinstance(message, UserMessage):
