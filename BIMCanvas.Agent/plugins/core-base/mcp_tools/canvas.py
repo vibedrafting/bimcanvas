@@ -350,6 +350,10 @@ _REQUEST_BACKGROUND_SCREENSHOT_SCHEMA = {
                 "additionalProperties": False,
             },
         },
+        "variantId": {
+            "type": "string",
+            "description": "可选。指针模型下截指定候选/变体方案 slug(如 \"_cand-a\"),仅多候选/变体评审场景用,常规截图留空(留空=截 adopted 当前生效方案)。非空时必须配 viewport.mode=\"zone\" + viewport.zoneId(批量则每个 shots[].viewport.zoneId)指明目标分区——Server 据此解析该候选的 modules,缺 zoneId 会报错。",
+        },
     },
     "required": ["projectPath"],
     "additionalProperties": False,
@@ -815,6 +819,9 @@ def register(builder: McpServerBuilder) -> None:
 
         viewports = resolved_viewports or _full_screenshot_viewports()
 
+        # 可选候选/变体方案 slug:非空则透传给 Server,Server 从 viewport.zoneId 派生 zone 作用域并解析该候选的 modules。
+        variant_id = str(args.get("variantId") or "").strip()
+
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         # v3.4 D9:timeout 转单请求级 (ctx.session 是长期复用 session)
         request_timeout = aiohttp.ClientTimeout(total=90)
@@ -829,6 +836,8 @@ def register(builder: McpServerBuilder) -> None:
                     "autoFitViewport": SCREENSHOT_AUTO_FIT,
                     "scale": SCREENSHOT_SCALE,
                 }
+                if variant_id:
+                    payload["variantId"] = variant_id
                 async with ctx.session.post(
                     f"{ctx.server_url}/api/screenshot/render",
                     json=payload,
@@ -870,6 +879,8 @@ def register(builder: McpServerBuilder) -> None:
                 "autoFitViewport": SCREENSHOT_AUTO_FIT,
                 "items": items,
             }
+            if variant_id:
+                payload["variantId"] = variant_id
             async with ctx.session.post(
                 f"{ctx.server_url}/api/screenshot/render-batch",
                 json=payload,

@@ -30,7 +30,11 @@ namespace BIMCanvas.Server.Services
             };
         }
 
-        public ProjectData LoadProjectData(string projectPath, string? strategyId = null)
+        public ProjectData LoadProjectData(
+            string projectPath,
+            string? strategyId = null,
+            string? variantId = null,
+            IReadOnlyCollection<string>? variantZoneScope = null)
         {
             if (!Directory.Exists(projectPath))
             {
@@ -59,7 +63,7 @@ namespace BIMCanvas.Server.Services
             var schemeId = data.Project.ActiveSchemeId;
             if (!string.IsNullOrWhiteSpace(schemeId))
             {
-                data.ActiveScheme = LoadSchemeData(projectPath, schemeId);
+                data.ActiveScheme = LoadSchemeData(projectPath, schemeId, variantId, variantZoneScope);
             }
 
             data.Computed = LoadComputedData(projectPath);
@@ -113,7 +117,11 @@ namespace BIMCanvas.Server.Services
             return data;
         }
 
-        private SchemeData LoadSchemeData(string projectPath, string schemeId)
+        private SchemeData LoadSchemeData(
+            string projectPath,
+            string schemeId,
+            string? variantId = null,
+            IReadOnlyCollection<string>? variantZoneScope = null)
         {
             var schemePath = Path.Combine(projectPath, "schemes");
             var data = new SchemeData();
@@ -142,7 +150,7 @@ namespace BIMCanvas.Server.Services
                 data.Finishes = ReadJson<List<FinishSegment>>(finishesPath) ?? new List<FinishSegment>();
             }
 
-            data.Modules = LoadAllZoneModules(schemePath);
+            data.Modules = LoadAllZoneModules(schemePath, variantId, variantZoneScope);
 
             _logger.LogDebug("策略数据加载完成: SchemeId={Id}, Zones={Zones}, Modules={Modules}",
                 schemeId, data.Zones.Count, data.Modules.Count);
@@ -150,11 +158,16 @@ namespace BIMCanvas.Server.Services
             return data;
         }
 
-        private List<Module> LoadAllZoneModules(string schemePath)
+        private List<Module> LoadAllZoneModules(
+            string schemePath,
+            string? variantId = null,
+            IReadOnlyCollection<string>? variantZoneScope = null)
         {
             var allModules = new List<Module>();
 
-            var leafFiles = ProjectService.FindAllLeafModuleFiles(schemePath);
+            // variantId 为空 → 解析 adopted 当前生效方案（零回归）；非空 → 解析指定候选 slug，
+            // 须配 variantZoneScope（截图链路由 viewport.zoneId 派生），拓扑层不允许全分区变体扫描。
+            var leafFiles = ProjectService.FindAllLeafModuleFiles(schemePath, variantZoneScope, variantId);
 
             // modules.json 自 schemeMetadata wrapper 迁移后(commit 7ade7e8 / b9a36ac)统一为
             // `{schemeMetadata, modules}` 对象格式;此处读 wrapper 取 .Modules 跟 ModulesReaderService /

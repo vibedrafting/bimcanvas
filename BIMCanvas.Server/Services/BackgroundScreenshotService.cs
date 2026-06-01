@@ -88,8 +88,10 @@ namespace BIMCanvas.Server.Services
 
             var stopwatch = Stopwatch.StartNew();
 
-            var projectKey = BuildProjectKey(request.ProjectPath, request.StrategyId);
-            var projectData = GetProjectData(projectKey, request.ProjectPath, request.StrategyId);
+            // variantId 非空 → 截指定候选 slug；zone 作用域复用 viewport.zoneId 派生（缺失则抛错）。
+            var variantZoneScope = ResolveVariantZoneScope(request.VariantId, new[] { request.Viewport });
+            var projectKey = BuildProjectKey(request.ProjectPath, request.StrategyId, request.VariantId, variantZoneScope);
+            var projectData = GetProjectData(projectKey, request.ProjectPath, request.StrategyId, request.VariantId, variantZoneScope);
 
             var viewMode = string.Equals(request.ViewMode, "ai", StringComparison.OrdinalIgnoreCase) ? "ai" : "human";
             var theme = string.Equals(request.Theme, "light", StringComparison.OrdinalIgnoreCase) ? "light" : "dark";
@@ -173,8 +175,10 @@ namespace BIMCanvas.Server.Services
 
             var stopwatch = Stopwatch.StartNew();
 
-            var projectKey = BuildProjectKey(request.ProjectPath, request.StrategyId);
-            var projectData = GetProjectData(projectKey, request.ProjectPath, request.StrategyId);
+            // 批量共享一个请求级 variantId；zone 作用域从各 shot 的 viewport.zoneId 去重派生。
+            var variantZoneScope = ResolveVariantZoneScope(request.VariantId, request.Items.Select(i => i.Viewport));
+            var projectKey = BuildProjectKey(request.ProjectPath, request.StrategyId, request.VariantId, variantZoneScope);
+            var projectData = GetProjectData(projectKey, request.ProjectPath, request.StrategyId, request.VariantId, variantZoneScope);
 
             var theme = string.Equals(request.Theme, "light", StringComparison.OrdinalIgnoreCase) ? "light" : "dark";
             var defaultAutoFit = request.AutoFitViewport ?? true;
@@ -489,24 +493,66 @@ namespace BIMCanvas.Server.Services
             };
         }
 
-        private ProjectData GetProjectData(string projectKey, string projectPath, string? strategyId)
+        private ProjectData GetProjectData(
+            string projectKey,
+            string projectPath,
+            string? strategyId,
+            string? variantId = null,
+            IReadOnlyCollection<string>? variantZoneScope = null)
         {
             if (_cachedProjectKey == projectKey && _cachedProjectData != null)
             {
                 return _cachedProjectData;
             }
 
-            var projectData = _snapshotService.LoadProjectData(projectPath, strategyId);
+            var projectData = _snapshotService.LoadProjectData(projectPath, strategyId, variantId, variantZoneScope);
 
             _cachedProjectKey = projectKey;
             _cachedProjectData = projectData;
             return projectData;
         }
 
-        private static string BuildProjectKey(string projectPath, string? strategyId)
+        /// <summary>
+        /// variantId 非空时从 viewport.zoneId 派生 zone 作用域（候选/变体截图须 crop 到目标分区，
+        /// 拓扑层不允许全分区变体扫描）。variantId 为空 → 返回 null（走 adopted 当前生效方案，零回归）。
+        /// </summary>
+        private static IReadOnlyCollection<string>? ResolveVariantZoneScope(
+            string? variantId,
+            IEnumerable<ViewportConfig?> viewports)
+        {
+            if (string.IsNullOrWhiteSpace(variantId))
+            {
+                return null;
+            }
+
+            var zoneIds = viewports
+                .Where(v => v != null && !string.IsNullOrWhiteSpace(v!.ZoneId))
+                .Select(v => v!.ZoneId!.Trim())
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToList();
+
+            if (zoneIds.Count == 0)
+            {
+                throw new ArgumentException(
+                    "variantId 非空时必须提供 viewport.zoneId（候选/变体截图须 crop 到目标分区）；批量请确保至少一个 shot 带 zoneId");
+            }
+
+            return zoneIds;
+        }
+
+        private static string BuildProjectKey(
+            string projectPath,
+            string? strategyId,
+            string? variantId = null,
+            IReadOnlyCollection<string>? variantZoneScope = null)
         {
             var schemeId = string.IsNullOrWhiteSpace(strategyId) ? "default" : strategyId.Trim();
-            return $"{projectPath}|{schemeId}|{BuildProjectJsonFingerprint(projectPath)}";
+            // variantId + 派生 zone 作用域并入缓存键，避免候选间串货（截 cand-a 后截 cand-b 返回 a 的缓存）。
+            var variantPart = string.IsNullOrWhiteSpace(variantId) ? string.Empty : $"|variant:{variantId.Trim()}";
+            var zonePart = (variantZoneScope == null || variantZoneScope.Count == 0)
+                ? string.Empty
+                : $"|zones:{string.Join(",", variantZoneScope)}";
+            return $"{projectPath}|{schemeId}{variantPart}{zonePart}|{BuildProjectJsonFingerprint(projectPath)}";
         }
 
         private static string BuildProjectJsonFingerprint(string projectPath)

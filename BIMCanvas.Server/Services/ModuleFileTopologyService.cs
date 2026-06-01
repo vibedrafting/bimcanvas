@@ -60,6 +60,20 @@ namespace BIMCanvas.Server.Services
         }
 
         /// <summary>
+        /// 带 variantId 静态重载：构建拓扑后委派已存在的实例方法 GetExistingCanonicalModuleFiles(zoneIds, variantId)。
+        /// variantId 为空 → 解析 adopted 当前生效方案（与单参重载一致）；非空 → 解析指定方案 slug，
+        /// 须显式 requestedZoneIds（实例方法内会校验，不允许全分区变体扫描）。截图链路与 validate 共用同一收敛点。
+        /// </summary>
+        public static IReadOnlyList<ModuleFileEntry> FindExistingCanonicalModuleFiles(
+            string schemesPath,
+            IReadOnlyCollection<string>? requestedZoneIds,
+            string? variantId)
+        {
+            var topology = BuildFromSchemesPath(schemesPath);
+            return topology.GetExistingCanonicalModuleFiles(requestedZoneIds, variantId);
+        }
+
+        /// <summary>
         /// 构建叶子分区的 modules JSON 文件名。variantId 为空 → canonical "modules.json"；
         /// 非空 → "modules-{variantId}.json"，仅 module-relocation-agent 生成的变体使用。
         /// </summary>

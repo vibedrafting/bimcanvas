@@ -203,7 +203,21 @@ namespace BIMCanvas.Server.Services
         /// <returns>(modulesFilePath, zoneId) 列表</returns>
         internal static List<(string FilePath, string ZoneId)> FindAllLeafModuleFiles(string schemesPath)
         {
-            return ModuleFileTopologyService.FindExistingCanonicalModuleFiles(schemesPath)
+            return FindAllLeafModuleFiles(schemesPath, requestedZoneIds: null, variantId: null);
+        }
+
+        /// <summary>
+        /// 带 variantId 重载：解析指定方案 slug（候选/变体）的叶子 modules 文件。
+        /// variantId 为空 → 与单参重载行为一致（解析 adopted 当前生效方案，零回归）。
+        /// variantId 非空 → 解析 schemes/{dz}/{variantId}/[{leaf}/]modules.json，调用方必须显式给 requestedZoneIds
+        /// （拓扑层不允许全分区变体扫描）。指针解析一律走 ModuleFileTopologyService，不裸拼路径。
+        /// </summary>
+        internal static List<(string FilePath, string ZoneId)> FindAllLeafModuleFiles(
+            string schemesPath,
+            IReadOnlyCollection<string>? requestedZoneIds,
+            string? variantId)
+        {
+            return ModuleFileTopologyService.FindExistingCanonicalModuleFiles(schemesPath, requestedZoneIds, variantId)
                 .Select(entry => (entry.FilePath, entry.ZoneId))
                 .ToList();
         }
