@@ -147,6 +147,7 @@ namespace BIMCanvas.Server.Services
             int outputTokens = 0;
             bool sawTokens = false;
             string? lastStructuredOutput = null;
+            JObject? lastStructuredInput = null;
             string? lastAssistantText = null;
 
             foreach (var line in File.ReadLines(agentFile))
@@ -210,6 +211,7 @@ namespace BIMCanvas.Server.Services
                                 });
                                 if (name == "StructuredOutput")
                                 {
+                                    lastStructuredInput = block["input"] as JObject;
                                     lastStructuredOutput = block["input"]?.ToString(Newtonsoft.Json.Formatting.Indented);
                                 }
                             }
@@ -235,7 +237,11 @@ namespace BIMCanvas.Server.Services
             }
             agent.Status = "completed";
             agent.Outcome = lastStructuredOutput ?? lastAssistantText;
-            agent.Label = BuildLabel(agent.Prompt) ?? agent.AgentId;
+            // 标签优先级：outcome 的标识字段(slug/id/name…) > prompt 区分性 token(引号内) > 短 agentId。
+            // 不能用 prompt 首行——workflow 各 agent 常共享同一角色前导句，首行全部相同、无法区分。
+            agent.Label = LabelFromStructured(lastStructuredInput)
+                ?? LabelFromPrompt(agent.Prompt)
+                ?? agent.AgentId;
 
             return agent;
         }
@@ -280,18 +286,50 @@ namespace BIMCanvas.Server.Services
             return s.Length > 160 ? s.Substring(0, 160) + "…" : s;
         }
 
-        private static string? BuildLabel(string? prompt)
+        // outcome StructuredOutput 里的标识字段（slug/id/name…）——区分各 agent 的最佳来源。
+        private static readonly string[] LabelKeys =
+            { "slug", "id", "name", "title", "key", "zoneId", "variant", "label", "target" };
+
+        private static string? LabelFromStructured(JObject? obj)
+        {
+            if (obj == null)
+            {
+                return null;
+            }
+            foreach (var key in LabelKeys)
+            {
+                var prop = obj.Properties()
+                    .FirstOrDefault(p => string.Equals(p.Name, key, StringComparison.OrdinalIgnoreCase));
+                if (prop != null && prop.Value.Type == JTokenType.String)
+                {
+                    var v = prop.Value.ToString().Trim();
+                    if (!string.IsNullOrEmpty(v))
+                    {
+                        return v.Length > 48 ? v.Substring(0, 48) : v;
+                    }
+                }
+            }
+            return null;
+        }
+
+        private static string? LabelFromPrompt(string? prompt)
         {
             if (string.IsNullOrWhiteSpace(prompt))
             {
                 return null;
+            }
+            // 取首个引号内 token（"" / '' / 「」/ “”）作区分标签——通常是变体名/目标名。
+            var m = System.Text.RegularExpressions.Regex.Match(prompt, "[\"'「“]([^\"'」”\n]{1,40})[\"'」”]");
+            if (m.Success && !string.IsNullOrWhiteSpace(m.Groups[1].Value))
+            {
+                return m.Groups[1].Value.Trim();
             }
             var firstLine = prompt.Split('\n').FirstOrDefault()?.Trim();
             if (string.IsNullOrEmpty(firstLine))
             {
                 return null;
             }
-            return firstLine.Length > 60 ? firstLine.Substring(0, 60) + "…" : firstLine;
+            return firstLine.Length > 48 ? firstLine.Substring(0, 48) + "…" : firstLine;
         }
     }
 
