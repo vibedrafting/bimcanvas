@@ -84,12 +84,14 @@ watch(() => transcript.value, (t) => {
 })
 
 const titleText = computed(() => {
-  if (showTranscript.value && transcript.value) {
-    return transcript.value.workflowName || workflow.value?.label || 'Workflow'
-  }
+  const t = transcript.value
+  if ((showTranscript.value || showLive.value) && t?.workflowName) return t.workflowName
   return workflow.value?.label || 'Workflow'
 })
-const subTitleText = computed(() => (showTranscript.value && transcript.value ? transcript.value.summary : ''))
+const subTitleText = computed(() => {
+  const t = transcript.value
+  return (showTranscript.value || showLive.value) ? (t?.summary ?? '') : ''
+})
 
 const statusText = computed(() => {
   if (!workflow.value) return ''
@@ -123,6 +125,15 @@ const headerMeta = computed(() => {
     return [
       `${n} agent${n === 1 ? '' : 's'}`,
       formatMs(t.durationMs),
+      formatTokens(t.totalTokens) ? `${formatTokens(t.totalTokens)} tok` : null
+    ].filter(Boolean).join(' · ')
+  }
+  if (showLive.value && transcript.value) {
+    const t = transcript.value
+    const n = t.agentCount ?? t.liveAgents?.length ?? 0
+    return [
+      `${n} agent${n === 1 ? '' : 's'}`,
+      formatLiveDuration(workflow.value.startTime, undefined),
       formatTokens(t.totalTokens) ? `${formatTokens(t.totalTokens)} tok` : null
     ].filter(Boolean).join(' · ')
   }

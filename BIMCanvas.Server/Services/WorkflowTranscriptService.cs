@@ -351,6 +351,9 @@ namespace BIMCanvas.Server.Services
             {
                 var m = Regex.Match(prompt, "[\"'「“]([^\"'」”\n=,\\s]{1,40})[\"'」”]");
                 if (m.Success && !string.IsNullOrWhiteSpace(m.Groups[1].Value)) return m.Groups[1].Value.Trim();
+                // 无引号标识符时退到 prompt 首行截断（强于裸 agentId 哈希；完成后会被 wf_*.json 的 label 校正）
+                var firstLine = prompt.Split('\n').FirstOrDefault()?.Trim();
+                if (!string.IsNullOrEmpty(firstLine)) return firstLine!.Length > 24 ? firstLine.Substring(0, 24) + "…" : firstLine;
             }
             return null;
         }
