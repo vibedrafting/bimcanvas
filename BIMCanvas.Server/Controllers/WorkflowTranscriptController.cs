@@ -24,13 +24,13 @@ namespace BIMCanvas.Server.Controllers
         /// 未找到时返回空 agents 列表（200），由前端按"无详情"渲染。
         /// </summary>
         [HttpGet("{sdkSessionId}/transcript")]
-        public IActionResult GetTranscript(string sdkSessionId)
+        public IActionResult GetTranscript(string sdkSessionId, [FromQuery] string? taskId = null)
         {
             if (string.IsNullOrWhiteSpace(sdkSessionId))
             {
                 return BadRequest(new { success = false, message = "sdkSessionId 不能为空" });
             }
-            var result = _transcriptService.GetTranscript(sdkSessionId);
+            var result = _transcriptService.GetTranscript(sdkSessionId, taskId);
             return Ok(result);
         }
     }

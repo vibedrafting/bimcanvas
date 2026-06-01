@@ -68,24 +68,37 @@ export interface WorkflowAgentState {
   endTime?: number
 }
 
-/** tier C：完成后从 transcript 聚合的 per-agent 详情 */
+/** tier C：完成后从 orchestrator 运行态(wf_*.json)读出的 CLI 风 phase 树 */
 export interface WorkflowTranscriptAgent {
   agentId: string
   label?: string
   model?: string
-  status?: string
-  totalTokens?: number
-  inputTokens?: number
-  outputTokens?: number
-  toolUses?: number
+  state?: string
+  tokens?: number
+  toolCalls?: number
+  durationMs?: number
   prompt?: string
   outcome?: string
   tools: { name: string; input?: string }[]
 }
 
+export interface WorkflowPhase {
+  index: number
+  title: string
+  detail?: string
+  agents: WorkflowTranscriptAgent[]
+}
+
 export interface WorkflowTranscript {
   sdkSessionId: string
-  agents: WorkflowTranscriptAgent[]
+  runId?: string
+  workflowName?: string
+  summary?: string
+  status?: string
+  durationMs?: number
+  totalTokens?: number
+  agentCount?: number
+  phases: WorkflowPhase[]
 }
 
 export interface WorkflowState {
@@ -204,6 +217,9 @@ function onWorkflowProgress(record: {
   if (workflow.value && record.sdkSessionId) {
     workflow.value.sdkSessionId = record.sdkSessionId
   }
+  if (workflow.value && record.taskId && !workflow.value.taskId) {
+    workflow.value.taskId = record.taskId
+  }
   const key = record.taskId || 'workflow'
   const usage = record.usage
     ? {
@@ -294,7 +310,9 @@ async function loadTranscript(force = false): Promise<void> {
   if (!force && (transcriptStatus.value === 'loading' || transcriptStatus.value === 'loaded')) return
   transcriptStatus.value = 'loading'
   try {
-    const resp = await fetch(`${SERVER_BASE}/api/workflows/${encodeURIComponent(sid)}/transcript`)
+    const taskId = workflow.value?.taskId
+    const qs = taskId ? `?taskId=${encodeURIComponent(taskId)}` : ''
+    const resp = await fetch(`${SERVER_BASE}/api/workflows/${encodeURIComponent(sid)}/transcript${qs}`)
     if (!resp.ok) {
       transcriptStatus.value = 'error'
       return

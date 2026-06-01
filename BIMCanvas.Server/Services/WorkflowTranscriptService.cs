@@ -3,16 +3,19 @@ using Newtonsoft.Json.Linq;
 namespace BIMCanvas.Server.Services
 {
     /// <summary>
-    /// Workflow transcript 读取服务（Task 页 tier C 完成详情）。
+    /// Workflow transcript 读取服务（Task 页 CLI 风 phase 树 + per-agent 详情）。
     ///
-    /// 数据源：Claude Agent SDK / bundled CLI 把 workflow 子 agent 的完整执行流落盘到
-    /// <c>~/.claude/projects/{projectId}/{sdkSessionId}/subagents/workflows/wf_*/</c> 下：
-    ///   - <c>agent-*.jsonl</c>：每行一个 turn（user/assistant），含 model / usage / content[tool_use,thinking,text]
-    ///   - <c>journal.jsonl</c>：started/result 事件，result 是 StructuredOutput 结果
+    /// 权威数据源 = orchestrator 运行态文件
+    ///   <c>~/.claude/projects/{projectId}/{sdkSessionId}/workflows/wf_{runId}.json</c>
+    /// 它含 CLI 渲染所需全部信息：phases[]（阶段声明）+ workflowProgress[]（每 agent 的
+    /// label / phaseIndex / phaseTitle / agentId / model / state / tokens / toolCalls / durationMs）
+    /// + 汇总（workflowName / summary / status / durationMs / totalTokens / agentCount）。
     ///
-    /// 本服务按 sdkSessionId 定位会话目录（不复刻 Claude 的 projectId 编码方案，直接在
-    /// projects/* 下找名为 sdkSessionId 的子目录），逐行读 jsonl（Newtonsoft，禁 STJ），
-    /// 按 agentId 聚合 per-agent 详情。仅在 Web 按需请求时调用，绝不轮询。
+    /// per-agent 的 prompt / activity / outcome 再从子 agent transcript 补：
+    ///   <c>{sessionDir}/subagents/workflows/{runId}/agent-{agentId}.jsonl</c>（prompt + tool_use）
+    ///   <c>.../journal.jsonl</c>（result = outcome）。
+    ///
+    /// 全程 Newtonsoft（禁 STJ）。仅 Web 按需请求时调用，绝不轮询。
     /// </summary>
     public class WorkflowTranscriptService
     {
@@ -29,10 +32,11 @@ namespace BIMCanvas.Server.Services
                 ".claude", "projects");
 
         /// <summary>
-        /// 读取并聚合指定 sdkSessionId 下所有 workflow 子 agent 的 transcript。
-        /// 未找到会话目录 / 无 workflow 时返回空 agents 列表（不抛）。
+        /// 读取指定 sdkSessionId 下的 workflow 运行态，组装成 phase 树。
+        /// taskId 用于在一个 session 有多次 workflow 时精确定位（缺省取最新一次）。
+        /// 未找到时返回空 phases 列表（不抛）。
         /// </summary>
-        public WorkflowTranscriptResult GetTranscript(string sdkSessionId)
+        public WorkflowTranscriptResult GetTranscript(string sdkSessionId, string? taskId)
         {
             var result = new WorkflowTranscriptResult { SdkSessionId = sdkSessionId };
 
@@ -43,45 +47,115 @@ namespace BIMCanvas.Server.Services
                 return result;
             }
 
-            var workflowsRoot = Path.Combine(sessionDir, "subagents", "workflows");
-            if (!Directory.Exists(workflowsRoot))
+            var workflowsDir = Path.Combine(sessionDir, "workflows");
+            var runJsonPath = PickRunJson(workflowsDir, taskId);
+            if (runJsonPath == null)
             {
                 return result;
             }
 
-            foreach (var wfDir in Directory.EnumerateDirectories(workflowsRoot, "wf_*"))
+            JObject root;
+            try { root = JObject.Parse(File.ReadAllText(runJsonPath)); }
+            catch (Exception ex)
             {
-                // 先收 journal 的 outcome（agentId -> result 文本）
-                var outcomes = ReadJournalOutcomes(wfDir);
+                _logger.LogWarning(ex, "Workflow transcript: 解析 {Path} 失败", runJsonPath);
+                return result;
+            }
 
-                foreach (var agentFile in Directory.EnumerateFiles(wfDir, "agent-*.jsonl"))
+            result.RunId = (string?)root["runId"];
+            result.WorkflowName = (string?)root["workflowName"];
+            result.Summary = (string?)root["summary"];
+            result.Status = (string?)root["status"];
+            result.DurationMs = (long?)root["durationMs"];
+            result.TotalTokens = (int?)root["totalTokens"];
+            result.AgentCount = (int?)root["agentCount"];
+
+            // 声明的 phase 列表（保序）
+            var phases = new List<WorkflowPhase>();
+            if (root["phases"] is JArray phaseArr)
+            {
+                int idx = 1;
+                foreach (var p in phaseArr.OfType<JObject>())
                 {
-                    try
+                    phases.Add(new WorkflowPhase
                     {
-                        var agent = ParseAgentFile(agentFile);
-                        if (agent == null)
+                        Index = idx++,
+                        Title = (string?)p["title"] ?? "",
+                        Detail = (string?)p["detail"]
+                    });
+                }
+            }
+
+            // 子 agent transcript 目录（同 runId）
+            var subDir = result.RunId != null
+                ? Path.Combine(sessionDir, "subagents", "workflows", result.RunId)
+                : null;
+            var outcomes = (subDir != null && Directory.Exists(subDir))
+                ? ReadJournalOutcomes(subDir)
+                : new Dictionary<string, string>();
+
+            // workflowProgress 里的 workflow_agent 条目 → 按 phaseIndex 归组
+            var byPhase = new Dictionary<int, List<WorkflowTranscriptAgent>>();
+            var orphans = new List<WorkflowTranscriptAgent>();
+            if (root["workflowProgress"] is JArray prog)
+            {
+                foreach (var e in prog.OfType<JObject>())
+                {
+                    if ((string?)e["type"] != "workflow_agent") continue;
+
+                    var agent = new WorkflowTranscriptAgent
+                    {
+                        AgentId = (string?)e["agentId"] ?? "",
+                        Label = (string?)e["label"],
+                        Model = (string?)e["model"],
+                        State = (string?)e["state"],
+                        Tokens = (int?)e["tokens"],
+                        ToolCalls = (int?)e["toolCalls"],
+                        DurationMs = (long?)e["durationMs"]
+                    };
+
+                    if (subDir != null && !string.IsNullOrEmpty(agent.AgentId))
+                    {
+                        try { EnrichAgentDetail(agent, subDir); }
+                        catch (Exception ex) { _logger.LogWarning(ex, "enrich agent {Id} 失败", agent.AgentId); }
+                        if (string.IsNullOrEmpty(agent.Outcome) && outcomes.TryGetValue(agent.AgentId, out var oc))
                         {
-                            continue;
+                            agent.Outcome = oc;
                         }
-                        if (string.IsNullOrEmpty(agent.Outcome) && outcomes.TryGetValue(agent.AgentId, out var outcome))
-                        {
-                            agent.Outcome = outcome;
-                        }
-                        // outcome 定稿后用它提炼标签（zoneName/name/slug/id…）——比 prompt 区分性强、可读。
-                        var outcomeLabel = LabelFromOutcomeJson(agent.Outcome);
-                        if (!string.IsNullOrEmpty(outcomeLabel))
-                        {
-                            agent.Label = outcomeLabel!;
-                        }
-                        result.Agents.Add(agent);
                     }
-                    catch (Exception ex)
+
+                    var phaseIdx = (int?)e["phaseIndex"] ?? 0;
+                    if (phaseIdx >= 1)
                     {
-                        _logger.LogWarning(ex, "Workflow transcript: 解析 agent 文件失败 {File}", agentFile);
+                        if (!byPhase.TryGetValue(phaseIdx, out var list)) { list = new(); byPhase[phaseIdx] = list; }
+                        list.Add(agent);
+                    }
+                    else
+                    {
+                        orphans.Add(agent);
                     }
                 }
             }
 
+            if (phases.Count == 0)
+            {
+                // 未声明 phase：所有 agent 归一个匿名阶段（CLI 单阶段形态）
+                var all = byPhase.Values.SelectMany(x => x).Concat(orphans).ToList();
+                if (all.Count > 0)
+                {
+                    phases.Add(new WorkflowPhase { Index = 1, Title = "", Agents = all });
+                }
+            }
+            else
+            {
+                foreach (var ph in phases)
+                {
+                    if (byPhase.TryGetValue(ph.Index, out var list)) ph.Agents = list;
+                }
+                if (orphans.Count > 0) phases[0].Agents.AddRange(orphans);
+            }
+
+            result.Phases = phases;
             return result;
         }
 
@@ -96,88 +170,79 @@ namespace BIMCanvas.Server.Services
             foreach (var projectDir in Directory.EnumerateDirectories(root))
             {
                 var candidate = Path.Combine(projectDir, sdkSessionId);
-                if (Directory.Exists(candidate))
-                {
-                    return candidate;
-                }
+                if (Directory.Exists(candidate)) return candidate;
             }
             return null;
         }
 
-        /// <summary>读 journal.jsonl，建立 agentId -> outcome（result 序列化文本）映射。</summary>
-        private static Dictionary<string, string> ReadJournalOutcomes(string wfDir)
+        /// <summary>选 wf_*.json：优先 taskId 匹配，否则取最新修改的一个（排除 scripts 子目录）。</summary>
+        private static string? PickRunJson(string workflowsDir, string? taskId)
+        {
+            if (!Directory.Exists(workflowsDir)) return null;
+            var files = Directory.EnumerateFiles(workflowsDir, "wf_*.json", SearchOption.TopDirectoryOnly).ToList();
+            if (files.Count == 0) return null;
+
+            if (!string.IsNullOrEmpty(taskId))
+            {
+                foreach (var f in files)
+                {
+                    try
+                    {
+                        var obj = JObject.Parse(File.ReadAllText(f));
+                        if (string.Equals((string?)obj["taskId"], taskId, StringComparison.Ordinal))
+                        {
+                            return f;
+                        }
+                    }
+                    catch { /* skip malformed */ }
+                }
+            }
+            return files.OrderByDescending(f => File.GetLastWriteTimeUtc(f)).First();
+        }
+
+        /// <summary>读 journal.jsonl，建立 agentId -> outcome（result 文本）映射。</summary>
+        private static Dictionary<string, string> ReadJournalOutcomes(string subDir)
         {
             var map = new Dictionary<string, string>();
-            var journal = Path.Combine(wfDir, "journal.jsonl");
-            if (!File.Exists(journal))
-            {
-                return map;
-            }
+            var journal = Path.Combine(subDir, "journal.jsonl");
+            if (!File.Exists(journal)) return map;
             foreach (var line in File.ReadLines(journal))
             {
-                if (string.IsNullOrWhiteSpace(line))
-                {
-                    continue;
-                }
+                if (string.IsNullOrWhiteSpace(line)) continue;
                 JObject obj;
-                try { obj = JObject.Parse(line); }
-                catch { continue; }
-
-                if ((string?)obj["type"] != "result")
-                {
-                    continue;
-                }
+                try { obj = JObject.Parse(line); } catch { continue; }
+                if ((string?)obj["type"] != "result") continue;
                 var agentId = (string?)obj["agentId"];
-                if (string.IsNullOrEmpty(agentId))
+                if (string.IsNullOrEmpty(agentId)) continue;
+                var token = obj["result"];
+                if (token != null && token.Type != JTokenType.Null)
                 {
-                    continue;
-                }
-                var resultToken = obj["result"];
-                if (resultToken != null && resultToken.Type != JTokenType.Null)
-                {
-                    map[agentId] = resultToken.Type == JTokenType.String
-                        ? resultToken.ToString()
-                        : resultToken.ToString(Newtonsoft.Json.Formatting.Indented);
+                    map[agentId!] = token.Type == JTokenType.String
+                        ? token.ToString()
+                        : token.ToString(Newtonsoft.Json.Formatting.Indented);
                 }
             }
             return map;
         }
 
-        private static WorkflowTranscriptAgent? ParseAgentFile(string agentFile)
+        /// <summary>从 agent-{agentId}.jsonl 补 prompt + activity(tool 名列表) + outcome 兜底。</summary>
+        private static void EnrichAgentDetail(WorkflowTranscriptAgent agent, string subDir)
         {
-            var agent = new WorkflowTranscriptAgent
-            {
-                AgentId = ExtractAgentIdFromFileName(agentFile)
-            };
-            int inputTokens = 0;
-            int outputTokens = 0;
-            bool sawTokens = false;
-            string? lastStructuredOutput = null;
-            JObject? lastStructuredInput = null;
-            string? lastAssistantText = null;
+            var file = Path.Combine(subDir, $"agent-{agent.AgentId}.jsonl");
+            if (!File.Exists(file)) return;
 
-            foreach (var line in File.ReadLines(agentFile))
+            string? lastStructured = null;
+            string? lastText = null;
+
+            foreach (var line in File.ReadLines(file))
             {
-                if (string.IsNullOrWhiteSpace(line))
-                {
-                    continue;
-                }
+                if (string.IsNullOrWhiteSpace(line)) continue;
                 JObject obj;
-                try { obj = JObject.Parse(line); }
-                catch { continue; }
-
-                var idFromLine = (string?)obj["agentId"];
-                if (!string.IsNullOrEmpty(idFromLine))
-                {
-                    agent.AgentId = idFromLine!;
-                }
+                try { obj = JObject.Parse(line); } catch { continue; }
 
                 var type = (string?)obj["type"];
                 var message = obj["message"] as JObject;
-                if (message == null)
-                {
-                    continue;
-                }
+                if (message == null) continue;
 
                 if (type == "user")
                 {
@@ -186,90 +251,40 @@ namespace BIMCanvas.Server.Services
                         agent.Prompt = ExtractText(message["content"]);
                     }
                 }
-                else if (type == "assistant")
+                else if (type == "assistant" && message["content"] is JArray blocks)
                 {
-                    var model = (string?)message["model"];
-                    if (!string.IsNullOrEmpty(model))
+                    foreach (var block in blocks.OfType<JObject>())
                     {
-                        agent.Model = model;
-                    }
-
-                    var usage = message["usage"] as JObject;
-                    if (usage != null)
-                    {
-                        inputTokens += (int?)usage["input_tokens"] ?? 0;
-                        outputTokens += (int?)usage["output_tokens"] ?? 0;
-                        sawTokens = true;
-                    }
-
-                    if (message["content"] is JArray blocks)
-                    {
-                        foreach (var block in blocks.OfType<JObject>())
+                        var btype = (string?)block["type"];
+                        if (btype == "tool_use")
                         {
-                            var btype = (string?)block["type"];
-                            if (btype == "tool_use")
+                            var name = (string?)block["name"] ?? "tool";
+                            agent.Tools.Add(new WorkflowTranscriptTool
                             {
-                                var name = (string?)block["name"] ?? "tool";
-                                agent.Tools.Add(new WorkflowTranscriptTool
-                                {
-                                    Name = name,
-                                    Input = SummarizeInput(block["input"])
-                                });
-                                if (name == "StructuredOutput")
-                                {
-                                    lastStructuredInput = block["input"] as JObject;
-                                    lastStructuredOutput = block["input"]?.ToString(Newtonsoft.Json.Formatting.Indented);
-                                }
-                            }
-                            else if (btype == "text")
+                                Name = name,
+                                Input = SummarizeInput(block["input"])
+                            });
+                            if (name == "StructuredOutput")
                             {
-                                var text = (string?)block["text"];
-                                if (!string.IsNullOrWhiteSpace(text))
-                                {
-                                    lastAssistantText = text;
-                                }
+                                lastStructured = block["input"]?.ToString(Newtonsoft.Json.Formatting.Indented);
                             }
+                        }
+                        else if (btype == "text")
+                        {
+                            var t = (string?)block["text"];
+                            if (!string.IsNullOrWhiteSpace(t)) lastText = t;
                         }
                     }
                 }
             }
 
-            agent.ToolUses = agent.Tools.Count;
-            if (sawTokens)
-            {
-                agent.InputTokens = inputTokens;
-                agent.OutputTokens = outputTokens;
-                agent.TotalTokens = inputTokens + outputTokens;
-            }
-            agent.Status = "completed";
-            agent.Outcome = lastStructuredOutput ?? lastAssistantText;
-            // 标签优先级：outcome 的标识字段(slug/id/name…) > prompt 区分性 token(引号内) > 短 agentId。
-            // 不能用 prompt 首行——workflow 各 agent 常共享同一角色前导句，首行全部相同、无法区分。
-            agent.Label = LabelFromStructured(lastStructuredInput)
-                ?? LabelFromPrompt(agent.Prompt)
-                ?? agent.AgentId;
-
-            return agent;
+            agent.Outcome = lastStructured ?? lastText;
         }
 
-        private static string ExtractAgentIdFromFileName(string path)
-        {
-            var name = Path.GetFileNameWithoutExtension(path); // agent-xxxx
-            const string prefix = "agent-";
-            return name.StartsWith(prefix, StringComparison.Ordinal) ? name.Substring(prefix.Length) : name;
-        }
-
-        /// <summary>content 可能是 string 或 block 数组；提取纯文本。</summary>
         private static string? ExtractText(JToken? content)
         {
-            if (content == null)
-            {
-                return null;
-            }
-            if (content.Type == JTokenType.String)
-            {
-                return content.ToString();
-            }
+            if (content == null) return null;
+            if (content.Type == JTokenType.String) return content.ToString();
             if (content is JArray arr)
             {
                 var parts = arr.OfType<JObject>()
@@ -284,98 +299,30 @@ namespace BIMCanvas.Server.Services
 
         private static string? SummarizeInput(JToken? input)
         {
-            if (input == null || input.Type == JTokenType.Null)
-            {
-                return null;
-            }
+            if (input == null || input.Type == JTokenType.Null) return null;
             var s = input.ToString(Newtonsoft.Json.Formatting.None);
             return s.Length > 160 ? s.Substring(0, 160) + "…" : s;
-        }
-
-        // outcome StructuredOutput 里的标识字段（slug/id/name…）——区分各 agent 的最佳来源。
-        private static readonly string[] LabelKeys =
-            { "slug", "id", "name", "title", "key", "zoneId", "variant", "label", "target" };
-
-        private static string? LabelFromStructured(JObject? obj)
-        {
-            if (obj == null)
-            {
-                return null;
-            }
-            foreach (var key in LabelKeys)
-            {
-                var prop = obj.Properties()
-                    .FirstOrDefault(p => string.Equals(p.Name, key, StringComparison.OrdinalIgnoreCase));
-                if (prop != null && prop.Value.Type == JTokenType.String)
-                {
-                    var v = prop.Value.ToString().Trim();
-                    if (!string.IsNullOrEmpty(v))
-                    {
-                        return v.Length > 48 ? v.Substring(0, 48) : v;
-                    }
-                }
-            }
-            return null;
-        }
-
-        // outcome JSON 是最可靠的标签源（agent 的产出，含 zoneName/slug 等业务标识）。
-        // 优先含 "name" 的键（zoneName/roomName/name → "公共空间"），再退到 id 类键。
-        private static string? LabelFromOutcomeJson(string? raw)
-        {
-            if (string.IsNullOrWhiteSpace(raw))
-            {
-                return null;
-            }
-            JObject obj;
-            try { obj = JObject.Parse(raw); }
-            catch { return null; }
-
-            var nameProp = obj.Properties().FirstOrDefault(p =>
-                p.Value.Type == JTokenType.String
-                && p.Name.IndexOf("name", StringComparison.OrdinalIgnoreCase) >= 0);
-            if (nameProp != null)
-            {
-                var v = nameProp.Value.ToString().Trim();
-                if (!string.IsNullOrEmpty(v)) return v.Length > 48 ? v.Substring(0, 48) : v;
-            }
-            foreach (var key in new[] { "slug", "id", "zoneId", "targetId", "variant", "title", "key", "target" })
-            {
-                var prop = obj.Properties().FirstOrDefault(p =>
-                    p.Value.Type == JTokenType.String
-                    && string.Equals(p.Name, key, StringComparison.OrdinalIgnoreCase));
-                if (prop != null)
-                {
-                    var v = prop.Value.ToString().Trim();
-                    if (!string.IsNullOrEmpty(v)) return v.Length > 48 ? v.Substring(0, 48) : v;
-                }
-            }
-            return null;
-        }
-
-        private static string? LabelFromPrompt(string? prompt)
-        {
-            if (string.IsNullOrWhiteSpace(prompt))
-            {
-                return null;
-            }
-            // 取首个 标识符样式 的引号 token（不含空格/逗号/等号，避免误配 `", targetId="` 这类跨值片段）。
-            var m = System.Text.RegularExpressions.Regex.Match(prompt, "[\"'「“]([^\"'」”\n=,\\s]{1,40})[\"'」”]");
-            if (m.Success && !string.IsNullOrWhiteSpace(m.Groups[1].Value))
-            {
-                return m.Groups[1].Value.Trim();
-            }
-            var firstLine = prompt.Split('\n').FirstOrDefault()?.Trim();
-            if (string.IsNullOrEmpty(firstLine))
-            {
-                return null;
-            }
-            return firstLine.Length > 48 ? firstLine.Substring(0, 48) + "…" : firstLine;
         }
     }
 
     public class WorkflowTranscriptResult
     {
         public string SdkSessionId { get; set; } = "";
+        public string? RunId { get; set; }
+        public string? WorkflowName { get; set; }
+        public string? Summary { get; set; }
+        public string? Status { get; set; }
+        public long? DurationMs { get; set; }
+        public int? TotalTokens { get; set; }
+        public int? AgentCount { get; set; }
+        public List<WorkflowPhase> Phases { get; set; } = new();
+    }
+
+    public class WorkflowPhase
+    {
+        public int Index { get; set; }
+        public string Title { get; set; } = "";
+        public string? Detail { get; set; }
         public List<WorkflowTranscriptAgent> Agents { get; set; } = new();
     }
 
@@ -384,11 +331,10 @@ namespace BIMCanvas.Server.Services
         public string AgentId { get; set; } = "";
         public string? Label { get; set; }
         public string? Model { get; set; }
-        public string? Status { get; set; }
-        public int? TotalTokens { get; set; }
-        public int? InputTokens { get; set; }
-        public int? OutputTokens { get; set; }
-        public int? ToolUses { get; set; }
+        public string? State { get; set; }
+        public int? Tokens { get; set; }
+        public int? ToolCalls { get; set; }
+        public long? DurationMs { get; set; }
         public string? Prompt { get; set; }
         public string? Outcome { get; set; }
         public List<WorkflowTranscriptTool> Tools { get; set; } = new();
