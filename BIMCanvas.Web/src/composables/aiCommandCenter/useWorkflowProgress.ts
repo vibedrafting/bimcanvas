@@ -303,25 +303,30 @@ function resetWorkflow(): void {
   transcriptStatus.value = 'idle'
 }
 
-// === tier C：按需拉 transcript（绝不轮询） ===
-async function loadTranscript(force = false): Promise<void> {
+// === tier C：读 transcript ===
+// 完成态：按需拉一次（force=false 有 loaded 守卫）。
+// 运行态：面板按心跳静默重拉（silent=true）——orchestrator 若增量写 wf_*.json，运行中即得完整 phase 树；
+// 若只在完成时写，空结果不覆盖、不降级，运行中维持 task 级聚合（best-effort，优雅降级）。
+async function loadTranscript(force = false, silent = false): Promise<void> {
   const sid = workflow.value?.sdkSessionId
   if (!sid) return
   if (!force && (transcriptStatus.value === 'loading' || transcriptStatus.value === 'loaded')) return
-  transcriptStatus.value = 'loading'
+  if (!silent) transcriptStatus.value = 'loading'
   try {
     const taskId = workflow.value?.taskId
     const qs = taskId ? `?taskId=${encodeURIComponent(taskId)}` : ''
     const resp = await fetch(`${SERVER_BASE}/api/workflows/${encodeURIComponent(sid)}/transcript${qs}`)
     if (!resp.ok) {
-      transcriptStatus.value = 'error'
+      if (!silent) transcriptStatus.value = 'error'
       return
     }
     const data = (await resp.json()) as WorkflowTranscript
+    // 静默(运行中)刷新：文件还没写出/空结果时不覆盖已有、不降级
+    if (silent && (!data || !data.phases || data.phases.length === 0)) return
     transcript.value = data
     transcriptStatus.value = 'loaded'
   } catch {
-    transcriptStatus.value = 'error'
+    if (!silent) transcriptStatus.value = 'error'
   }
 }
 

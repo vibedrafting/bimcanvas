@@ -19,15 +19,19 @@ const {
 const now = ref(Date.now())
 let timer: ReturnType<typeof setInterval> | null = null
 onMounted(() => {
-  timer = setInterval(() => { now.value = Date.now() }, 1000)
+  timer = setInterval(() => {
+    now.value = Date.now()
+    // 运行中：每 1.5s 静默重拉一次 orchestrator 运行态（若增量写，则运行中也呈现完整 phase 树）
+    if (workflow.value && workflow.value.status === 'running') void loadTranscript(true, true)
+  }, 1500)
   if (hasCompletedWorkflow.value) void loadTranscript()
 })
 onUnmounted(() => { if (timer) clearInterval(timer) })
 watch(hasCompletedWorkflow, (done) => { if (done) void loadTranscript() })
 
+// transcript 一旦有 phases 就用 phase 树（运行中/完成态皆然）；否则回退实时聚合
 const showTranscript = computed(
-  () => hasCompletedWorkflow.value
-    && transcriptStatus.value === 'loaded'
+  () => transcriptStatus.value === 'loaded'
     && !!transcript.value
     && transcript.value.phases.length > 0
 )
@@ -82,13 +86,19 @@ const headerMeta = computed(() => {
 // === 展开 ===
 const expandedKeys = ref<Set<string>>(new Set())
 const promptOpen = ref<Set<string>>(new Set())
-const toggle = (set: typeof expandedKeys, key: string) => {
-  const next = new Set(set.value)
+const expandedPhases = ref<Set<number>>(new Set()) // 默认空 = 全部折叠（用户要求）
+const toggleSet = (s: { value: Set<string> }, key: string) => {
+  const next = new Set(s.value)
   next.has(key) ? next.delete(key) : next.add(key)
-  set.value = next
+  s.value = next
 }
-const toggleExpand = (key: string) => toggle(expandedKeys, key)
-const togglePrompt = (key: string) => toggle(promptOpen, key)
+const toggleExpand = (key: string) => toggleSet(expandedKeys, key)
+const togglePrompt = (key: string) => toggleSet(promptOpen, key)
+const togglePhase = (idx: number) => {
+  const next = new Set(expandedPhases.value)
+  next.has(idx) ? next.delete(idx) : next.add(idx)
+  expandedPhases.value = next
+}
 
 // === transcript agent 辅助 ===
 function parseOutcomeObj(raw?: string): Record<string, unknown> | undefined {
@@ -146,6 +156,7 @@ const dismiss = () => {
   resetWorkflow()
   expandedKeys.value = new Set()
   promptOpen.value = new Set()
+  expandedPhases.value = new Set()
 }
 </script>
 
@@ -177,7 +188,8 @@ const dismiss = () => {
     <!-- ============ Phase 树（完成态） ============ -->
     <div v-if="showTranscript && transcript" class="wf-body">
       <div v-for="ph in transcript.phases" :key="ph.index" class="phase">
-        <div class="phase-head" :class="phaseStats(ph.agents).status">
+        <div class="phase-head" :class="phaseStats(ph.agents).status" @click="togglePhase(ph.index)">
+          <svg class="phase-caret" :class="{ open: expandedPhases.has(ph.index) }" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="9 18 15 12 9 6"></polyline></svg>
           <span class="phase-mark" :class="phaseStats(ph.agents).status">
             <template v-if="phaseStats(ph.agents).status === 'done'">✓</template>
             <template v-else-if="phaseStats(ph.agents).status === 'active'">›</template>
@@ -188,7 +200,7 @@ const dismiss = () => {
           <span v-if="ph.detail" class="phase-detail">{{ ph.detail }}</span>
         </div>
 
-        <div class="phase-agents">
+        <div v-show="expandedPhases.has(ph.index)" class="phase-agents">
           <div v-if="!ph.agents.length" class="phase-empty">无 agent</div>
           <div v-for="a in ph.agents" :key="a.agentId" class="agent">
             <div class="agent-head" @click="toggleExpand(a.agentId)">
@@ -258,6 +270,7 @@ const dismiss = () => {
   border: 1px solid var(--border-subtle);
   border-radius: 12px;
   overflow: hidden;
+  flex-shrink: 0; /* 关键:在 view-tasks(flex 列+overflow-y:auto)里不被压缩,保持自然高度→可滚动 */
 
   &.running { border-color: rgba(var(--accent-primary-rgb, 79, 172, 254), 0.45); }
   &.completed { border-color: rgba(var(--accent-success-rgb), 0.35); }
@@ -280,9 +293,9 @@ const dismiss = () => {
     .spinner { width: 14px; height: 14px; border: 2px solid var(--accent-primary); border-top-color: transparent; border-radius: 50%; animation: wf-spin 1s linear infinite; }
   }
   .wf-titles { flex: 1; min-width: 0; }
-  .wf-title { font-size: 0.88rem; font-weight: 650; color: var(--text-primary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  .wf-sub { font-size: 0.72rem; color: var(--text-secondary); margin-top: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  .wf-meta { font-size: 0.68rem; color: var(--text-tertiary); font-family: var(--font-mono); margin-top: 3px; }
+  .wf-title { font-size: 0.88rem; font-weight: 650; color: var(--text-primary); word-break: break-word; }
+  .wf-sub { font-size: 0.72rem; color: var(--text-secondary); margin-top: 3px; line-height: 1.45; word-break: break-word; }
+  .wf-meta { font-size: 0.68rem; color: var(--text-tertiary); font-family: var(--font-mono); margin-top: 4px; }
   .wf-badge {
     flex-shrink: 0; font-size: 0.6rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em;
     padding: 3px 8px; border-radius: 6px;
@@ -310,7 +323,12 @@ const dismiss = () => {
 /* ---- Phase ---- */
 .phase { padding: 4px 0; }
 .phase-head {
-  display: flex; align-items: center; gap: 8px; padding: 6px 14px 4px;
+  display: flex; align-items: center; gap: 7px; padding: 7px 14px; cursor: pointer; border-radius: 6px;
+  &:hover { background: var(--surface-dim); }
+  .phase-caret {
+    width: 12px; height: 12px; flex-shrink: 0; color: var(--text-tertiary);
+    transition: transform 0.18s; &.open { transform: rotate(90deg); }
+  }
   .phase-mark {
     width: 14px; text-align: center; flex-shrink: 0; font-size: 0.78rem; font-weight: 700; line-height: 1;
     &.done { color: var(--accent-success); }
