@@ -29,12 +29,30 @@ onMounted(() => {
 onUnmounted(() => { if (timer) clearInterval(timer) })
 watch(hasCompletedWorkflow, (done) => { if (done) void loadTranscript() })
 
-// transcript 一旦有 phases 就用 phase 树（运行中/完成态皆然）；否则回退实时聚合
+// 完成态：权威分组 phase 树
 const showTranscript = computed(
   () => transcriptStatus.value === 'loaded'
     && !!transcript.value
+    && !transcript.value.live
     && transcript.value.phases.length > 0
 )
+// 运行态：阶段步进条 + 扁平 live agent 列表（增量 transcript）
+const showLive = computed(
+  () => transcriptStatus.value === 'loaded'
+    && !!transcript.value
+    && transcript.value.live === true
+    && (transcript.value.liveAgents?.length ?? 0) > 0
+)
+// 当前阶段：从 SSE 心跳 description("阶段: 当前agent")取前缀
+const currentPhaseTitle = computed(() => {
+  const d = workflowAgents.value[0]?.description
+  if (!d) return undefined
+  const i = d.indexOf(':')
+  const cn = d.indexOf('：') // 兼容中文冒号
+  const at = i >= 0 && (cn < 0 || i < cn) ? i : cn
+  return at > 0 ? d.slice(0, at).trim() : undefined
+})
+const liveDoneCount = computed(() => transcript.value?.liveAgents?.filter(a => a.state === 'done').length ?? 0)
 
 const titleText = computed(() => {
   if (showTranscript.value && transcript.value) {
@@ -241,7 +259,50 @@ const dismiss = () => {
       </div>
     </div>
 
-    <!-- ============ 实时聚合（运行中，task 级） ============ -->
+    <!-- ============ 运行态：阶段步进条 + 扁平 live agent 列表（增量 transcript） ============ -->
+    <div v-else-if="showLive && transcript" class="wf-body">
+      <div v-if="transcript.phases.length" class="stepper">
+        <template v-for="(ph, i) in transcript.phases" :key="ph.index">
+          <span class="step" :class="{ current: ph.title === currentPhaseTitle }">
+            <span class="step-dot"></span>{{ ph.title || `阶段 ${ph.index}` }}
+          </span>
+          <span v-if="i < transcript.phases.length - 1" class="step-sep">→</span>
+        </template>
+      </div>
+      <div class="live-progress">{{ liveDoneCount }}/{{ transcript.liveAgents?.length ?? 0 }} agent 完成</div>
+      <div class="phase-agents flat">
+        <div v-for="a in (transcript.liveAgents ?? [])" :key="a.agentId" class="agent">
+          <div class="agent-head" @click="toggleExpand(a.agentId)">
+            <span class="dot" :class="agentStateClass(a.state)"></span>
+            <span class="agent-name">{{ a.label || a.agentId }}</span>
+            <span v-if="a.model" class="model">{{ a.model }}</span>
+            <svg class="chev" :class="{ open: expandedKeys.has(a.agentId) }" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"></polyline></svg>
+          </div>
+          <div class="agent-stats">
+            <span v-if="verdictInfo(a).value !== undefined" class="verdict" :class="verdictInfo(a).value ? 'ok' : 'bad'">{{ verdictInfo(a).value ? '✓' : '✗' }} {{ verdictInfo(a).key }}</span>
+            <span v-if="formatTokens(a.tokens)" class="stat">{{ formatTokens(a.tokens) }} tok</span>
+            <span v-if="typeof a.toolCalls === 'number'" class="stat">{{ a.toolCalls }} 工具</span>
+            <span v-if="a.state !== 'done'" class="stat running-tag">运行中</span>
+          </div>
+          <div v-if="expandedKeys.has(a.agentId)" class="detail">
+            <div v-if="a.prompt" class="block">
+              <button class="b-toggle" @click="togglePrompt(a.agentId)"><span class="caret" :class="{ open: promptOpen.has(a.agentId) }">▸</span> Prompt</button>
+              <pre v-if="promptOpen.has(a.agentId)" class="pre">{{ a.prompt }}</pre>
+            </div>
+            <div v-if="a.tools.length" class="block">
+              <div class="b-label">Activity · {{ a.tools.length }} 步</div>
+              <div class="chips"><span v-for="g in groupTools(a.tools)" :key="g.name" class="chip">{{ g.name }}<span v-if="g.count > 1" class="chip-n">×{{ g.count }}</span></span></div>
+            </div>
+            <div v-if="a.outcome" class="block">
+              <div class="b-label">Outcome</div>
+              <pre class="pre out">{{ prettyOutcome(a.outcome) }}</pre>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ============ 兜底：实时聚合（运行中无 transcript 时，task 级） ============ -->
     <div v-else class="wf-body">
       <div v-if="workflowAgents.length === 0" class="wf-hint">workflow 已启动，等待执行…</div>
       <div v-for="a in workflowAgents" :key="a.key" class="agent live">
@@ -410,6 +471,24 @@ const dismiss = () => {
     }
   }
 }
+
+/* ---- 运行态：步进条 + 扁平列表 ---- */
+.stepper {
+  display: flex; align-items: center; flex-wrap: wrap; gap: 6px; padding: 8px 14px 2px;
+  .step {
+    display: inline-flex; align-items: center; gap: 5px;
+    font-size: 0.7rem; color: var(--text-tertiary); font-weight: 600;
+    .step-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--text-tertiary); opacity: 0.5; }
+    &.current {
+      color: var(--accent-primary);
+      .step-dot { background: var(--accent-primary); opacity: 1; animation: wf-pulse 1.4s ease-in-out infinite; }
+    }
+  }
+  .step-sep { color: var(--text-tertiary); opacity: 0.45; font-size: 0.7rem; }
+}
+.live-progress { padding: 2px 14px 8px; font-size: 0.68rem; color: var(--text-tertiary); font-family: var(--font-mono); }
+.phase-agents.flat { padding: 0 10px 2px; }
+.running-tag { color: var(--accent-primary) !important; }
 
 @keyframes wf-spin { to { transform: rotate(360deg); } }
 @keyframes wf-pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.35; } }

@@ -98,7 +98,10 @@ export interface WorkflowTranscript {
   durationMs?: number
   totalTokens?: number
   agentCount?: number
+  /** true=运行态(增量 transcript)：phases 仅作步进条、agent 在 liveAgents 扁平列表 */
+  live?: boolean
   phases: WorkflowPhase[]
+  liveAgents?: WorkflowTranscriptAgent[]
 }
 
 export interface WorkflowState {
@@ -321,8 +324,9 @@ async function loadTranscript(force = false, silent = false): Promise<void> {
       return
     }
     const data = (await resp.json()) as WorkflowTranscript
-    // 静默(运行中)刷新：文件还没写出/空结果时不覆盖已有、不降级
-    if (silent && (!data || !data.phases || data.phases.length === 0)) return
+    // 静默(运行中)刷新：文件还没写出/全空时不覆盖已有、不降级
+    const empty = !data || ((data.phases?.length ?? 0) === 0 && (data.liveAgents?.length ?? 0) === 0)
+    if (silent && empty) return
     transcript.value = data
     transcriptStatus.value = 'loaded'
   } catch {
