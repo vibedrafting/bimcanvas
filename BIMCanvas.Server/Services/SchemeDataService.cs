@@ -241,17 +241,12 @@ namespace BIMCanvas.Server.Services
         }
 
         /// <summary>
-        /// 把叶子 zoneId 反查为其设计区祖先 ID（与 ProjectController 同款逻辑）。
+        /// 把叶子 zoneId 反查为其设计区祖先路径——收口到拓扑解析器统一"递归向上找设计区祖先"helper
+        /// （递归模型下祖先不必是 segments[0]：容器嵌套叶子 rz_6/dz_客厅/{slug}/dz_1 的祖先 = rz_6/dz_客厅）。
         /// </summary>
         private static string ResolveDesignZoneIdForLeaf(string schemesPath, string leafZoneId)
         {
-            if (string.Equals(leafZoneId, "_unzoned", StringComparison.OrdinalIgnoreCase))
-                return leafZoneId;
-
-            var zoneDir = ProjectService.ResolveZoneDirectory(schemesPath, leafZoneId);
-            var relative = Path.GetRelativePath(schemesPath, zoneDir).Replace('\\', '/');
-            var segments = relative.Split('/', StringSplitOptions.RemoveEmptyEntries);
-            return segments.Length > 0 ? segments[0] : leafZoneId;
+            return ModuleFileTopologyService.ResolveDesignZoneIdForLeaf(schemesPath, leafZoneId);
         }
 
         /// <summary>

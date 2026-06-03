@@ -896,19 +896,12 @@ namespace BIMCanvas.Server.Controllers
         }
 
         /// <summary>
-        /// 把叶子 zoneId 反查为其所属设计区祖先 ID（schemes/ 下相对路径首段）。
-        /// 顶层叶子 zone 时 designZoneId 等于 leafZoneId；嵌套叶子（如 rz_3/dz_1）时返回 rz_3。
-        /// _unzoned 等不在拓扑里的特殊 zone 直接返回自身。
+        /// 把叶子 zoneId 反查为其设计区祖先路径——收口到拓扑解析器统一"递归向上找设计区祖先"helper
+        /// （递归模型下祖先不必是 segments[0]：容器嵌套叶子 rz_6/dz_客厅/{slug}/dz_1 的祖先 = rz_6/dz_客厅）。
         /// </summary>
         private string ResolveDesignZoneIdForLeaf(string schemesPath, string leafZoneId)
         {
-            if (string.Equals(leafZoneId, "_unzoned", StringComparison.OrdinalIgnoreCase))
-                return leafZoneId;
-
-            var zoneDir = ProjectService.ResolveZoneDirectory(schemesPath, leafZoneId);
-            var relative = Path.GetRelativePath(schemesPath, zoneDir).Replace('\\', '/');
-            var segments = relative.Split('/', StringSplitOptions.RemoveEmptyEntries);
-            return segments.Length > 0 ? segments[0] : leafZoneId;
+            return ModuleFileTopologyService.ResolveDesignZoneIdForLeaf(schemesPath, leafZoneId);
         }
 
         /// <summary>

@@ -259,7 +259,7 @@ namespace BIMCanvas.Server.Controllers
             if (kind == "modules" && !subPath.Contains('/'))
             {
                 var topology = Services.ModuleFileTopologyService.BuildFromSchemesPath(Path.Combine(projectPath, "schemes"));
-                if (topology.HasZoneTopology && topology.IsDesignZoneId(subPath))
+                if (topology.IsDesignZoneId(subPath))
                     return ReadAdoptedModulesForDesignZone(projectPath, topology, subPath);
             }
 
