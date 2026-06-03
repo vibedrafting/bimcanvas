@@ -3,7 +3,7 @@ import { ChangeSource } from '../types/history';
 import { useCanvasStore } from '../stores/canvasStore';
 import { useAppStore } from '../stores/appStore';
 import { useSystemStore } from '../stores/systemStore';
-import { ProjectService, type ProjectLoadResult } from '../services/ProjectService';
+import { ProjectService, AtlasService, type ProjectLoadResult, type AtlasSceneItem, type AtlasScenesResponse } from '../services/ProjectService';
 import { getWebRuntime } from '../runtime/runtimeRegistry';
 import { supports } from '../runtime/WebRuntimeProtocol';
 
@@ -351,9 +351,44 @@ export function useProjectFile() {
     }
   };
 
+  // 从 Atlas 场景创建项目
+  const handleCreateFromAtlasScene = async (sceneId: string, projectName: string) => {
+    const trimmed = projectName.trim();
+    if (!trimmed) {
+      sys.pushToast({
+        type: 'warning',
+        title: '项目名不能为空',
+        message: '请输入有效的项目名称',
+      });
+      return;
+    }
+
+    const result = await AtlasService.createProjectFromScene(sceneId, trimmed);
+
+    if (result.status === 'Conflict') {
+      appStore.clearPendingProjectWarnings();
+      pendingCreateName.value = trimmed;
+      conflictProjectName.value = result.projectName || trimmed;
+      conflictExistingPath.value = result.existingPath || '';
+      showConflictDialog.value = true;
+    } else if (result.status === 'Success') {
+      appStore.stageProjectWarnings(result.warnings);
+      if (await suspendForHealthCheck(result, null, ChangeSource.UserCreate)) return;
+      await completeLoad(ChangeSource.UserCreate);
+    } else {
+      appStore.clearPendingProjectWarnings();
+      sys.pushToast({
+        type: 'error',
+        title: '从场景创建项目失败',
+        message: result.message ?? '未知错误',
+      });
+    }
+  };
+
   return {
     handleLoad,
     handleCreate,
+    handleCreateFromAtlasScene,
     handleExport,
     handleExportSnapshot,
     handleExportBcp,
