@@ -299,3 +299,60 @@ export class ProjectService {
         return { blob: response.data, filename };
     }
 }
+
+// ─── Atlas API ───
+
+export interface AtlasSceneItem {
+    id: string;
+    displayName: string;
+    tags: string[];
+    area?: number;
+    description?: string;
+    rooms?: string[];
+}
+
+export interface AtlasScenesResponse {
+    available: boolean;
+    scenes?: AtlasSceneItem[];
+    error?: string;
+}
+
+const ATLAS_API_BASE = `${SERVER_API}/atlas`;
+
+export class AtlasService {
+    /**
+     * 获取 atlas 场景列表。未安装 atlas plugin 时返回 { available: false }。
+     */
+    static async fetchScenes(): Promise<AtlasScenesResponse> {
+        try {
+            const response = await axios.get<AtlasScenesResponse>(`${ATLAS_API_BASE}/scenes`);
+            return response.data;
+        } catch (error: any) {
+            return { available: false, error: error.message };
+        }
+    }
+
+    /**
+     * 从 atlas 场景创建新项目。返回与 ProjectLoadResult 相同的结构。
+     */
+    static async createProjectFromScene(
+        sceneId: string,
+        projectName: string
+    ): Promise<ProjectLoadResult> {
+        try {
+            const response = await axios.post<ProjectLoadResult>(
+                `${ATLAS_API_BASE}/scenes/${encodeURIComponent(sceneId)}/create-project`,
+                { projectName }
+            );
+            return response.data;
+        } catch (error: any) {
+            if (error.response?.status === 409) {
+                return error.response.data as ProjectLoadResult;
+            }
+            return {
+                status: 'Error',
+                message: error.response?.data?.message || error.message || '从场景创建项目失败'
+            };
+        }
+    }
+}
