@@ -147,14 +147,18 @@ namespace BIMCanvas.Server.Controllers
                 if (string.IsNullOrWhiteSpace(dzId) || !topology.IsDesignZoneId(dzId))
                     continue;
 
-                // 指针模型：可显示方案 = schemes/{dz}/ 下不以 _ 开头的子目录（§3.4）；排除存量遗留 variants/。
-                // 排序基与 ListVariants 一致（目录创建时间升序），否则 VariantNavigatorBar 与 Zone label 角标页码错位。
+                // 角标口径必须与 ListVariants/VariantNavigatorBar 的 visibleVariants 一致：
+                // 排除 adopted（它由前端 canonical 槽「已采纳方案」代表，Web 端 total=count+1 的 +1 即它）、
+                // _ 隐藏候选、存量 variants/。若把 adopted 也计入 count，前端会多算一档——每个已采纳设计区的
+                // Zone label 虚显角标（单方案显示 (1/2)），多方案页码与导航条漂移。
+                var adopted = _designDoc.ReadAdoptedSlug(schemesPath, dzId);
                 var slugs = Directory.EnumerateDirectories(designZoneDir, "*", SearchOption.TopDirectoryOnly)
                     .Where(dir =>
                     {
                         var name = Path.GetFileName(dir);
                         return !string.IsNullOrWhiteSpace(name)
                             && !string.Equals(name, "variants", StringComparison.OrdinalIgnoreCase)
+                            && !string.Equals(name, adopted, StringComparison.OrdinalIgnoreCase)
                             && !name.StartsWith("_", StringComparison.Ordinal);
                     })
                     .OrderBy(dir => Directory.GetCreationTimeUtc(dir))
