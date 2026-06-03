@@ -142,24 +142,23 @@ namespace BIMCanvas.Server.Services
             var schemesPath = Path.Combine(projectPath, "schemes");
 
             // 指针模型：variantId = 显式方案 slug；null = canonical = 父 DESIGN.md 的 adopted slug。
-            // 无显式 slug 且无 adopted 指针 → 回落 legacy canonical 路径（存量项目 P2 迁移前仍可正常读写，零回归）。
+            // 不回头看：删 legacy 回落——无 slug（既无显式 variantId 又无 adopted 指针）即调用方契约错误，抛错。
+            // （Write() bootstrap 已保证 canonical 写入前必有 adopted 指针，slug 不应为空。）
             var slug = string.IsNullOrWhiteSpace(variantId)
                 ? SchemeDesignDocService.ResolveAdoptedSlug(schemesPath, designZoneId)
                 : variantId;
+            if (string.IsNullOrWhiteSpace(slug))
+                throw new InvalidOperationException(
+                    $"无法解析设计区 {designZoneId} 的方案 slug（既无显式 variantId 又无 adopted 指针）；指针模型下不再回落 legacy 路径");
+
             var isTopLevelLeaf = string.Equals(designZoneId, leafZoneId, StringComparison.OrdinalIgnoreCase);
 
-            if (!string.IsNullOrWhiteSpace(slug))
-            {
-                // 指针布局：schemes/{dz}/{slug}/[{leaf}/]modules.json（slug 直接做 dz 下一级，无 variants/ 段）
-                return isTopLevelLeaf
-                    ? Path.Combine(schemesPath, designZoneId, slug, "modules.json")
-                    : Path.Combine(schemesPath, designZoneId, slug, leafZoneId, "modules.json");
-            }
-
-            // legacy fallback：旧固定 canonical 路径（与改造前字节一致）
+            // 指针布局：schemes/{dz}/{slug}/[{leaf}/]modules.json
+            // （dz 可多段 rz_6/dz_客厅，用 CombineSegments 安全拼接，不裸 Path.Combine 含 '/' 字符串）
+            var schemeDir = ModuleFileTopologyService.CombineSegments(schemesPath, designZoneId, slug);
             return isTopLevelLeaf
-                ? Path.Combine(schemesPath, designZoneId, "modules.json")
-                : Path.Combine(schemesPath, designZoneId, leafZoneId, "modules.json");
+                ? Path.Combine(schemeDir, "modules.json")
+                : Path.Combine(schemeDir, leafZoneId, "modules.json");
         }
 
     }

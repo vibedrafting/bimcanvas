@@ -39,14 +39,14 @@ namespace BIMCanvas.Server.Services
         /// <summary>
         /// 读父 DESIGN.md 的 adopted slug。
         /// 无 DESIGN.md / 无 frontmatter / 无 adopted 字段 → 返回 <c>null</c>
-        /// （调用方据 null **回落 legacy canonical 路径**，保证存量项目在 P2 迁移前仍可正常渲染）。
+        /// （不回头看：调用方据 null 视为「该设计区无 adopted 方案」——不挂叶子 / 不产 canonical 路径 / 写入抛错，**不再回落 legacy**）。
         /// </summary>
         public string? ReadAdoptedSlug(string schemesPath, string designZoneId)
             => ResolveAdoptedSlug(schemesPath, designZoneId);
 
         /// <summary>
         /// 静态解析 adopted slug，供拓扑层 / 路径解析器无 DI 调用（funnel 收敛点共用同一份 frontmatter 解析）。
-        /// 无 DESIGN.md / 无 frontmatter / 无 adopted / 解析失败 → 返回 <c>null</c>（调用方据此**回落 legacy canonical 路径**）。
+        /// 无 DESIGN.md / 无 frontmatter / 无 adopted / 解析失败 → 返回 <c>null</c>（调用方视为无 adopted 方案，**不再回落 legacy**）。
         /// </summary>
         public static string? ResolveAdoptedSlug(string schemesPath, string designZoneId)
         {
@@ -74,7 +74,7 @@ namespace BIMCanvas.Server.Services
             }
             catch
             {
-                // 解析失败静默回落 legacy（funnel 调用频繁，不打日志）
+                // 解析失败静默返回 null（视为无 adopted 方案；funnel 调用频繁，不打日志）
             }
 
             return null;

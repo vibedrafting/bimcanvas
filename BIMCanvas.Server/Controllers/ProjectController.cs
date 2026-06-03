@@ -805,9 +805,11 @@ namespace BIMCanvas.Server.Controllers
 
                     if (string.IsNullOrEmpty(zoneId))
                     {
+                        // 不回头看：删 _unzoned 假桶。孤儿模块（bounds 中心不落任何分区）不落盘到黑洞目录
+                        // （递归模型下解析器不登记 _unzoned，写后不可读），改经响应 orphanModules 显式回传调用方。
                         orphanModules.Add(module.Id);
-                        zoneId = "_unzoned";
-                        _logger.LogWarning("[SaveModules] 模块 {ModuleId} 不在任何分区内，归入 _unzoned", module.Id);
+                        _logger.LogWarning("[SaveModules] 模块 {ModuleId} 不在任何分区内，未落盘（经 orphanModules 回传）", module.Id);
+                        continue;
                     }
 
                     if (!grouped.ContainsKey(zoneId))
@@ -816,8 +818,8 @@ namespace BIMCanvas.Server.Controllers
                 }
 
                 // 变体激活映射：zoneId → variantSlug（仅保留 slug 非空且合法的条目）
-                // 命中的 zone：写入 schemes/{dz}/variants/{slug}/{leaf}/modules.json，canonical 不动；
-                // 未命中：照常写入 canonical modules.json。
+                // 命中的 zone：写入 schemes/{dz}/{slug}/[{leaf}/]modules.json（指针模型，非 variants/ 段），canonical 不动；
+                // 未命中：照常写入 canonical（adopted slug）modules.json。
                 var variantSelection = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
                 if (request.VariantSelection != null)
                 {
@@ -1145,12 +1147,9 @@ namespace BIMCanvas.Server.Controllers
                 data.Strategy = ReadJson<Strategy>(strategyPath);
             }
 
-            // zones.json
-            var zonesPath = Path.Combine(schemePath, "zones.json");
-            if (System.IO.File.Exists(zonesPath))
-            {
-                data.Zones = ReadJson<List<Zone>>(zonesPath) ?? new List<Zone>();
-            }
+            // zones：有效拓扑视图（读时聚合）——根 baseline rz_* + 各设计区 adopted per-scheme 叶子作 SubZones，
+            // 收口到 P1 解析器（不再直读全局 zones.json 整树）。
+            data.Zones = ProjectService.BuildEffectiveZoneView(schemePath);
 
             // finishes.json
             var finishesPath = Path.Combine(schemePath, "finishes.json");

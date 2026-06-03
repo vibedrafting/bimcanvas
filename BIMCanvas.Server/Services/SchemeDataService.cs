@@ -209,9 +209,11 @@ namespace BIMCanvas.Server.Services
 
                 if (string.IsNullOrEmpty(zoneId))
                 {
+                    // 不回头看：删 _unzoned 假桶。孤儿模块（bounds 中心不落任何分区）不落盘到黑洞目录
+                    // （递归模型下解析器不登记 _unzoned，写后不可读）；仅计数 + 日志，不持久化。
                     orphanCount++;
-                    zoneId = "_unzoned";
-                    _logger.LogWarning("[SaveAllModules] 模块 {ModuleId} 不在任何分区内，归入 _unzoned", module.Id);
+                    _logger.LogWarning("[SaveAllModules] 模块 {ModuleId} 不在任何分区内，未落盘（孤儿丢弃）", module.Id);
+                    continue;
                 }
 
                 if (!modulesByZone.ContainsKey(zoneId))

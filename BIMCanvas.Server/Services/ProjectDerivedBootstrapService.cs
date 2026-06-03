@@ -133,8 +133,8 @@ namespace BIMCanvas.Server.Services
 
             try
             {
-                // Path topology is derived from zones.json, including subZones that are
-                // represented as { id } references to top-level zone definitions.
+                // 叶子分区目录由 P1 递归解析器从 scheme 树解析（全局 zones.json 纯 rz_* baseline，
+                // subZones 已迁出全局、按需从 {dz}/{slug}/zones.json 读）。此处只建 canonical 叶子目录。
                 var topology = ModuleFileTopologyService.BuildFromSchemesPath(schemesPath);
 
                 var createdCount = 0;

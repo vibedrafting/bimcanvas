@@ -318,7 +318,7 @@ namespace BIMCanvas.Server.Controllers
             }
 
             // 指针模型：经拓扑收敛只取各设计区 adopted 方案的 modules（排除 _ 隐藏候选 / 落选 slug）。
-            // 拓扑 canonical 条目已重定向到 adopted slug 路径；无 DESIGN.md 的存量设计区回落 legacy canonical（零回归）。
+            // 拓扑 canonical 条目已重定向到 adopted slug 路径；无 DESIGN.md/adopted 的设计区不产 canonical 条目（不回头看，不再回落 legacy）。
             var topology = Services.ModuleFileTopologyService.BuildFromSchemesPath(schemesRoot);
             var entries = topology.GetExistingCanonicalModuleFiles(null);
             var aggregated = new List<object>();
@@ -343,7 +343,7 @@ namespace BIMCanvas.Server.Controllers
         /// <summary>
         /// 指针模型下精确读「单个设计区」当前生效(adopted)方案的 modules。
         /// 复用拓扑收敛(与 ReadModulesAggregated / validate 同一解析点):
-        /// 单叶设计区 → 1 个叶子条目;有 subZones 的容器 → 各叶子的 adopted modules;无 DESIGN.md 存量 → legacy canonical 回落。
+        /// 单叶设计区 → 1 个叶子条目;有 subZones 的容器 → 各叶子的 adopted modules;无 DESIGN.md/adopted → 无条目(空,不回落 legacy)。
         /// 返回形态与聚合读一致 { files:[{relativePath, content}] },让调用方看到解析后的真实 slug 路径(也教会指针模型)。
         /// </summary>
         private IActionResult ReadAdoptedModulesForDesignZone(string projectPath, Services.ModuleFileTopology topology, string designZoneId)

@@ -38,7 +38,8 @@ namespace BIMCanvas.Server.Services
 
         /// <summary>
         /// 是否需要广播该路径变化。
-        /// 精确匹配 WatchedFiles（modules.json/zones.json/finishes.json），或匹配 Legacy 变体
+        /// 精确匹配 WatchedFiles（modules.json/zones.json/finishes.json），或匹配 schemes/**/DESIGN.md
+        /// （adopted 指针翻转 → 有效拓扑视图变化，需 reload），或匹配 Legacy 变体
         /// modules-alt-*.json，或匹配 variants/ 子树下的 modules.json
         /// （Phase E：variant.json sidecar 已废弃，不再监听）。
         /// </summary>
@@ -58,6 +59,10 @@ namespace BIMCanvas.Server.Services
                 return true;
 
             if (WatchedFiles.Contains(fileName))
+                return true;
+
+            // 设计区 DESIGN.md：adopted slug 翻转改变有效拓扑视图（canonical 方案切换），需广播 reload。
+            if (fileName.Equals(SchemeDesignDocService.DesignDocFileName, StringComparison.OrdinalIgnoreCase))
                 return true;
 
             // Legacy 变体 modules-alt-*.json（排除 .meta.json）
@@ -213,12 +218,13 @@ namespace BIMCanvas.Server.Services
                 return;
             }
 
-            // 监控 schemes 目录的 JSON 文件（用于 Canvas 数据刷新）
+            // 监控 schemes 目录（用于 Canvas 数据刷新）。Filter="*.*" 覆盖 json + DESIGN.md，
+            // 由 IsWatchedPath 精确 gate（modules/zones/finishes.json + DESIGN.md），其余文件忽略。
             _watcher = new FileSystemWatcher(schemesPath)
             {
                 NotifyFilter = NotifyFilters.LastWrite | NotifyFilters.FileName,
-                Filter = "*.json",
-                IncludeSubdirectories = true,  // 包含子目录（zones 等）
+                Filter = "*.*",
+                IncludeSubdirectories = true,  // 包含子目录（zones / 各设计区 DESIGN.md 等）
                 EnableRaisingEvents = true
             };
 
