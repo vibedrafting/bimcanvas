@@ -1,6 +1,6 @@
 import { defineStore } from 'pinia';
 import { ref, computed, nextTick } from 'vue';
-import type { ProjectData, Module, Wall, Column, Opening } from '../types/canvas';
+import type { ProjectData, Module, Zone, Wall, Column, Opening } from '../types/canvas';
 import { StrategyApproach, StrategyStatus } from '../types/canvas';
 import { TimelineManager } from '../services/state/TimelineManager';
 import { useDebugStore } from './debugStore';
@@ -151,6 +151,9 @@ export const useCanvasStore = defineStore('canvas', () => {
     // 切换/取消变体时基于该快照重组 projectData.activeScheme.modules，避免反复打服务端。
     const canonicalModulesSnapshot = ref<Module[] | null>(null);
 
+    // canonical zones 快照（含 subZones）：同 canonicalModulesSnapshot，供来源② 切换时 patch / 还原 adopted 分区线。
+    const canonicalZonesSnapshot = ref<Zone[] | null>(null);
+
     // variantInfoByDesignZone：项目级缓存"哪些设计区有几份变体 + slug 列表"。
     // 键为 designZoneId。Zone label 上 (current/total) 分页号——
     // current 通过 active variantSlug 在 variantSlugs 列表里的 index 反算而来。
@@ -208,6 +211,9 @@ export const useCanvasStore = defineStore('canvas', () => {
     function getVariantSlot(zoneId: string): { current: number; total: number } | null {
         const dz = resolveDesignZoneId(zoneId);
         if (!dz) return null;
+        // 角标只在设计区根（rz_*/单叶子 dz）出；叶子 subZone 不挂（判据=自身是否设计区，不为 rz_/dz_ 写特例，
+        // 天然兼容场景②来源①——届时叶子本身是设计区会自动显示叶子级角标）。
+        if (dz !== zoneId) return null;
         const info = variantInfoByDesignZone.value.get(dz);
         if (!info || info.count <= 0) return null;
         const total = info.count + 1;
@@ -304,6 +310,9 @@ export const useCanvasStore = defineStore('canvas', () => {
     async function recomputeDisplayModules(): Promise<void> {
         if (!projectData.value || !projectData.value.activeScheme) return;
 
+        // 来源②：先按候选刷新分区线/叶子，模块再按"正确的方案叶子"拉取（避免按 adopted 叶子取错）。
+        await recomputeDisplayZones();
+
         const activeMap = activeVariantByDesignZone.value;
         const baseSnapshot = canonicalModulesSnapshot.value ?? [];
 
@@ -354,6 +363,30 @@ export const useCanvasStore = defineStore('canvas', () => {
             ...baseModules,
             ...variantBlocks.flat()
         ];
+    }
+
+    /**
+     * 来源②：按当前 active 变体刷新各设计区 subZones（分区线跟随候选方案），从 adopted 快照重建后逐个 patch。
+     * 复用 Server GetVariantZones（内部 BuildEffectiveZoneView 同一塑形源，不另造解析）；
+     * 单叶子候选返回空 subZones→该设计区按"无内部分区"渲染；拉取失败保留 adopted 分区线、不撤激活；
+     * 切回 canonical（active 删除）→ 不 patch，自然还原 adopted。
+     */
+    async function recomputeDisplayZones(): Promise<void> {
+        if (!projectData.value?.activeScheme) return;
+        const snapshot = canonicalZonesSnapshot.value;
+        if (!snapshot) return;
+        const nextZones: Zone[] = JSON.parse(JSON.stringify(snapshot));
+        for (const [designZoneId, variantSlug] of Array.from(activeVariantByDesignZone.value.entries())) {
+            try {
+                const resp = await SchemeService.getVariantZones(designZoneId, variantSlug);
+                const root = nextZones.find(z => z.id === designZoneId);
+                if (root) root.subZones = (resp.subZones ?? []) as Zone[];
+            } catch (err: any) {
+                debugStore.warn(
+                    `[Store] 变体分区加载失败 dz=${designZoneId} slug=${variantSlug}: ${err?.message ?? err}`);
+            }
+        }
+        projectData.value.activeScheme.zones = nextZones;
     }
 
     /**
@@ -541,7 +574,11 @@ export const useCanvasStore = defineStore('canvas', () => {
             ? JSON.parse(JSON.stringify(canonicalModules)) as Module[]
             : [];
 
-        // 如果还有活跃变体（in-session SignalR 重载场景），重新应用
+        // 来源②：同样快照 adopted zones（含 subZones），切换候选时基于它 patch、切回 canonical 时还原分区线。
+        const canonicalZones = data.activeScheme?.zones ?? [];
+        canonicalZonesSnapshot.value = JSON.parse(JSON.stringify(canonicalZones)) as Zone[];
+
+        // 如果还有活跃变体（in-session SignalR 重载场景），重新应用（recomputeDisplayModules 内部会先刷 zones）
         if (activeVariantByDesignZone.value.size > 0) {
             await recomputeDisplayModules();
         }

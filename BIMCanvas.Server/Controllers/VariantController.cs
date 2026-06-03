@@ -5,6 +5,7 @@ using System.IO;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
+using BIMCanvas.Core.Models.Computed;
 using BIMCanvas.Core.Models.Layout;
 using BIMCanvas.Server.Dtos;
 using BIMCanvas.Server.Hubs;
@@ -230,6 +231,46 @@ namespace BIMCanvas.Server.Controllers
                 _logger.LogError(ex, "读取变体模块失败: {File}", filePath);
                 return StatusCode(500, new { error = $"读取变体失败: {ex.Message}" });
             }
+        }
+
+        // ─────────────────────────── GetVariantZones ───────────────────────────
+
+        /// <summary>
+        /// 读取指定 design zone + 方案 slug 的有效分区（SubZones），供 Web 实时切换候选方案时让分区线跟随该方案。
+        /// 与 GetVariantModules 对称（modules ↔ zones）。
+        /// 塑形**必须复用 BuildEffectiveZoneView(by variantId)**——与首屏 adopted / 截图路径同一塑形源，
+        /// 禁裸读 {dz}/{slug}/zones.json 自塑形（否则三者分区线漂移，毁 P3 单一塑形源 PerSchemeZoneTreeBuilder）。
+        /// scope 仅限本设计区：只该 dz 用 variantSlug 重算，其余设计区保持 adopted（不蔓延）。
+        /// </summary>
+        [HttpGet("variants/{designZoneId}/{variantSlug}/zones")]
+        public ActionResult<VariantZonesResponse> GetVariantZones(string designZoneId, string variantSlug)
+        {
+            if (!_projectContext.IsLoaded)
+                return BadRequest(new { error = "未加载项目" });
+
+            try { ModuleFileTopologyService.EnsureSafeVariantId(variantSlug); }
+            catch (ArgumentException ex) { return BadRequest(new { error = ex.Message }); }
+
+            if (!TryResolveDesignZoneRoot(designZoneId, out _, out var dzError))
+                return NotFound(new { error = dzError });
+
+            var projectPath = _projectContext.GetActiveWorktreePath()
+                              ?? _projectContext.CurrentProjectPath!;
+            var schemesPath = Path.Combine(projectPath, "schemes");
+
+            // 复用同一塑形源；scope=[designZoneId] 使仅该 dz 用候选 slug，其余仍 adopted。
+            var roots = ProjectService.BuildEffectiveZoneView(
+                schemesPath, variantSlug, new[] { designZoneId });
+            var dz = roots.FirstOrDefault(z =>
+                string.Equals(z.Id, designZoneId, StringComparison.OrdinalIgnoreCase));
+
+            // 单叶子候选（无 {slug}/zones.json）→ SubZones 为空，前端按"无内部分区"渲染（正确）。
+            return Ok(new VariantZonesResponse
+            {
+                DesignZoneId = designZoneId,
+                VariantSlug = variantSlug,
+                SubZones = dz?.SubZones ?? new List<Zone>()
+            });
         }
 
         // ─────────────────────────── AdoptVariant ───────────────────────────
@@ -724,6 +765,14 @@ namespace BIMCanvas.Server.Controllers
     {
         public string DesignZoneId { get; set; } = "";
         public string VariantSlug { get; set; } = "";
+    }
+
+    /// <summary>GET /api/scheme/variants/{dz}/{slug}/zones 响应体（变体分区线，供 Web 实时切换跟随）。</summary>
+    public class VariantZonesResponse
+    {
+        public string DesignZoneId { get; set; } = "";
+        public string VariantSlug { get; set; } = "";
+        public List<Zone> SubZones { get; set; } = new List<Zone>();
     }
 
     /// <summary>
