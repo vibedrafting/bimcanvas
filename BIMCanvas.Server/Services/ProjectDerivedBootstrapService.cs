@@ -133,8 +133,27 @@ namespace BIMCanvas.Server.Services
 
             try
             {
-                // 叶子分区目录由 P1 递归解析器从 scheme 树解析（全局 zones.json 纯 rz_* baseline，
-                // subZones 已迁出全局、按需从 {dz}/{slug}/zones.json 读）。此处只建 canonical 叶子目录。
+                // ① 回归修复（缺陷B）：按 schemes/zones.json 顶层 rz_* 无条件预建每个设计区目录。
+                // 新项目无任何 adopted 指针 → P1 递归解析器的 canonical 集为空 → 仅靠下方 ② 建不出
+                // 任何设计区目录，导致 register_variant（前置要求 schemes/{designZoneId}/ 已存在）失败。
+                // 故 bootstrap 阶段按房间拓扑预建顶层设计区目录（幂等，已存在则跳过；只建目录、不预写文件）。
+                var topLevelCreated = 0;
+                foreach (var token in JArray.Parse(File.ReadAllText(zonesPath, Encoding.UTF8)))
+                {
+                    var dzId = token["id"]?.ToString();
+                    if (string.IsNullOrWhiteSpace(dzId))
+                        continue;
+                    var dzDir = Path.Combine(schemesPath, dzId);
+                    if (!Directory.Exists(dzDir))
+                    {
+                        Directory.CreateDirectory(dzDir);
+                        topLevelCreated++;
+                    }
+                }
+                _logger.LogInformation("预建/确认设计区目录 {Count} 个（按 schemes/zones.json 顶层 rz_*）", topLevelCreated);
+
+                // ② 已采纳方案的 canonical 叶子目录由 P1 递归解析器从 scheme 树解析（全局 zones.json 纯
+                // rz_* baseline，subZones 已迁出全局、按需从 {dz}/{slug}/zones.json 读）。补建这些叶子目录。
                 var topology = ModuleFileTopologyService.BuildFromSchemesPath(schemesPath);
 
                 var createdCount = 0;
