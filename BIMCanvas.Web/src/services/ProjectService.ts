@@ -38,6 +38,45 @@ export class ProjectService {
     }
 
     /**
+     * 新建空白项目（带冲突检测）
+     */
+    static async createProject(name: string): Promise<ProjectLoadResult> {
+        try {
+            const response = await axios.post<ProjectLoadResult>(`${API_BASE}/create`, { name });
+            return response.data;
+        } catch (error: any) {
+            if (error.response?.status === 409) {
+                return error.response.data as ProjectLoadResult;
+            }
+            return {
+                status: 'Error',
+                message: error.response?.data?.message || error.message || '新建项目失败'
+            };
+        }
+    }
+
+    /**
+     * 解决「新建空项目」的同名冲突
+     */
+    static async createResolveConflict(
+        name: string,
+        resolution: 'Overwrite' | 'UseExisting'
+    ): Promise<ProjectLoadResult> {
+        try {
+            const response = await axios.post<ProjectLoadResult>(
+                `${API_BASE}/create-resolve?resolution=${resolution}`,
+                { name }
+            );
+            return response.data;
+        } catch (error: any) {
+            return {
+                status: 'Error',
+                message: error.response?.data?.message || error.message || '解决冲突失败'
+            };
+        }
+    }
+
+    /**
      * 上传 BCP 文件（带冲突检测）
      * @param file BCP 文件
      * @returns 加载结果（可能是 Success、Conflict 或 Error）

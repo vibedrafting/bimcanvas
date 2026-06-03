@@ -6,7 +6,7 @@ const unsupported: CapabilityEntry = { level: 'unsupported' };
 
 export const connectedCapabilities: WebCapabilities = {
   projectCatalog: supported,
-  projectCreation: unsupported,
+  projectCreation: supported,
   serverPersistence: supported,
   bcpExport: supported,
   webSnapshotImport: unsupported,
