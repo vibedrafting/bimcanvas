@@ -583,9 +583,11 @@ namespace BIMCanvas.Server.Controllers
             {
                 _logger.LogInformation("[ZoneBoundary] 计算边界段: {Path}", projectPath);
 
-                // 1. 读取 zones（优先 schemes/zones.json，回退 computed/room_zones.json）
-                var allZones = LoadAllZones(projectPath);
-                if (allZones.Count == 0)
+                // 1. 重建 per-scheme zone 树喂入（§2.8/§2.7-2）：顶层 room + 解析器算出的当前 adopted 叶子作 SubZones。
+                //    全局 schemes/zones.json 已不承载 subZones，直读会丢 passage（bounds 退化真因链）；改由 P1 解析器供叶子。
+                var topology = _moduleFileTopologyService.Build(projectPath);
+                var zoneTree = PerSchemeZoneTreeBuilder.BuildBoundaryFeedTree(projectPath, topology);
+                if (zoneTree.Count == 0)
                 {
                     return Ok(new List<ZoneBoundaryData>());
                 }
@@ -593,9 +595,9 @@ namespace BIMCanvas.Server.Controllers
                 // 2. 读取 openings
                 var openings = LoadOpenings(projectPath);
 
-                // 3. 计算
+                // 3. 计算（ZoneBoundaryService 逻辑不改，仅换喂入树来源）
                 var results = _zoneBoundaryService.CalculateBoundarySegments(
-                    allZones, openings, request?.ZoneIds);
+                    zoneTree, openings, request?.ZoneIds);
 
                 _logger.LogInformation("[ZoneBoundary] 计算完成: {Count} 个 zone 的边界段", results.Count);
 
@@ -614,26 +616,6 @@ namespace BIMCanvas.Server.Controllers
                 _logger.LogError(ex, "[ZoneBoundary] 计算失败: {Path}", projectPath);
                 return StatusCode(500, new { message = $"边界段计算失败: {ex.Message}" });
             }
-        }
-
-        /// <summary>
-        /// 读取所有 zones（优先 schemes/zones.json，回退 computed/room_zones.json）
-        /// </summary>
-        private List<Zone> LoadAllZones(string projectPath)
-        {
-            var schemesZonesPath = Path.Combine(projectPath, "schemes", "zones.json");
-            if (System.IO.File.Exists(schemesZonesPath))
-            {
-                var zones = ReadJson<List<Zone>>(schemesZonesPath);
-                if (zones != null && zones.Count > 0)
-                    return zones;
-            }
-
-            var roomZonesPath = Path.Combine(projectPath, "computed", "room_zones.json");
-            if (System.IO.File.Exists(roomZonesPath))
-                return ReadJson<List<Zone>>(roomZonesPath) ?? new List<Zone>();
-
-            return new List<Zone>();
         }
 
         /// <summary>
