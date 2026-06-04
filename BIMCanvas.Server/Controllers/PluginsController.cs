@@ -111,18 +111,42 @@ public sealed class PluginsController : ControllerBase
     [HttpPost("install")]
     public async Task<IActionResult> Install([FromBody] InstallRequest request, CancellationToken ct)
     {
-        if (request is null || string.IsNullOrWhiteSpace(request.RepoUrl))
-            return BadRequest(new ErrorResponse("invalid_request", "repoUrl 必须非空"));
+        if (request is null)
+            return BadRequest(new ErrorResponse("invalid_request", "请求体必须非空"));
+
+        // source kind 分派:缺省 github(向后兼容,只认 repoUrl)。
+        var kind = (request.SourceKind ?? "github").Trim().ToLowerInvariant();
 
         try
         {
-            var state = await _lifecycle.InstallAsync(request.RepoUrl, request.Ref, ct);
+            PluginInstallState state;
+            switch (kind)
+            {
+                case "github":
+                    if (string.IsNullOrWhiteSpace(request.RepoUrl))
+                        return BadRequest(new ErrorResponse("invalid_request", "sourceKind=github 时 repoUrl 必须非空"));
+                    state = await _lifecycle.InstallAsync(request.RepoUrl, request.Ref, ct);
+                    break;
+
+                case "local":
+                    if (string.IsNullOrWhiteSpace(request.Path))
+                        return BadRequest(new ErrorResponse("invalid_request", "sourceKind=local 时 path 必须非空"));
+                    // link 缺省 true(软链,改源码即时生效)
+                    state = await _lifecycle.InstallFromLocalAsync(request.Path, request.Link ?? true, ct);
+                    break;
+
+                default:
+                    return BadRequest(new ErrorResponse("invalid_request",
+                        $"不支持的 sourceKind: '{kind}'(支持 github / local)"));
+            }
+
             return Ok(new
             {
                 pluginId = state.PluginId,
                 trustState = state.TrustState,
                 installedVersion = state.InstalledVersion,
                 sourceUrl = state.SourceUrl,
+                sourceKind = state.SourceKind,
                 resolvedCommit = state.ResolvedCommit,
                 nextStep = "请点击 [信任并激活] 完成首次激活 (将执行该 plugin 的 Python 代码)",
             });
@@ -133,7 +157,8 @@ public sealed class PluginsController : ControllerBase
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "plugin 安装失败: {Url}", request.RepoUrl);
+            _logger.LogError(ex, "plugin 安装失败: kind={Kind}, repoUrl={Url}, path={Path}",
+                kind, request.RepoUrl, request.Path);
             return StatusCode(500, new ErrorResponse("internal_error", ex.Message));
         }
     }
@@ -309,6 +334,7 @@ public sealed class PluginsController : ControllerBase
             DirectoryNotPureException => 400,
             NamespaceConflictException => 409,
             PluginCloneFailedException => 502,
+            PluginInstallSourceException => 400,
             PluginProbeFailedException => 422,
             _ => 400,
         };
@@ -327,8 +353,18 @@ public sealed class PluginsController : ControllerBase
 
 public sealed class InstallRequest
 {
+    /// <summary>source 类型:github(默认) / local。</summary>
+    public string? SourceKind { get; set; }
+
+    // ─ github source ─
     public string RepoUrl { get; set; } = "";
     public string? Ref { get; set; }
+
+    // ─ local source ─
+    /// <summary>本地 plugin 目录绝对路径(sourceKind=local)。</summary>
+    public string? Path { get; set; }
+    /// <summary>local 模式:true(默认)=软链,改源码即时生效;false=复制快照。</summary>
+    public bool? Link { get; set; }
 }
 
 public sealed class SetActiveRequest
