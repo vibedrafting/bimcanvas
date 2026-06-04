@@ -542,7 +542,13 @@ namespace BIMCanvas.Server.Services
 
         /// <summary>
         /// 分类某 modules.json 所在目录段：是否合法 + 命中的设计区路径（如有）。
-        /// 合法 = 命中设计区前缀 P，余下为 [slug] 或 [slug,leaf]。
+        /// 纵深防御（F2）：命中设计区前缀后，不再仅按"余 1~2 段"放行——而是按该候选 slug
+        /// **自身** {slug}/zones.json 声明的叶子结构核验：实际相对路径必须命中
+        /// EnumerateSchemeLeaves(prefix, slug) 产出的某条规范叶子路径，否则判非法（报 E013）。
+        ///   · 单叶子方案（无 {slug}/zones.json）→ 仅 {slug}/modules.json 命中；多套一层即非法。
+        ///   · 多叶子方案（有 {slug}/zones.json）→ 仅 {slug}/{声明叶子}/modules.json 命中；
+        ///     末段不在声明叶子集、或把 modules 写在 slug 根（{slug}/modules.json）均非法。
+        /// slug 任意（adopted / 隐藏候选 _cand-x 都合法）；候选按自身 zones.json 解析，故不误伤。
         /// </summary>
         private (bool valid, string? designZonePath) ClassifyModulesLocation(string[] dirSegs)
         {
@@ -550,11 +556,21 @@ namespace BIMCanvas.Server.Services
             for (var len = dirSegs.Length; len >= 1; len--)
             {
                 var prefix = string.Join("/", dirSegs.Take(len));
-                if (_designZoneIds.Contains(prefix))
-                {
-                    var remainder = dirSegs.Length - len; // slug=1，slug/leaf=2
-                    return (remainder == 1 || remainder == 2, prefix);
-                }
+                if (!_designZoneIds.Contains(prefix))
+                    continue;
+
+                var remainder = dirSegs.Length - len; // slug=1，slug/leaf=2
+                if (remainder < 1 || remainder > 2)
+                    return (false, prefix); // 设计区直落 / 层级过深，维持原判
+
+                // 该候选 slug 自身声明的规范叶子路径集（相对 schemes、posix，与 actualRel 同基准）
+                var slug = dirSegs[len];
+                var actualRel = string.Join("/", dirSegs) + "/modules.json";
+                var canonicalRels = new HashSet<string>(
+                    ModuleFileTopologyService.EnumerateSchemeLeaves(SchemesPath, prefix, slug)
+                        .Select(entry => entry.RelativePath),
+                    StringComparer.OrdinalIgnoreCase);
+                return (canonicalRels.Contains(actualRel), prefix);
             }
             return (false, null);
         }
