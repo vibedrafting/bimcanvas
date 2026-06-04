@@ -17,11 +17,20 @@ using Newtonsoft.Json.Linq;
 namespace BIMCanvas.Server.Services.Plugins;
 
 /// <summary>
-/// install-time:git clone → StaticPluginValidator → 原子移到 plugins 目录 →
+/// install-time:按 source kind 获取插件内容 → StaticPluginValidator → 落地到 plugins 目录 →
 /// 写 plugins-state.json (trustState=Untrusted) (主真理源 v1.1 §2.1 步骤 5 / §3.12 / R1 / R9)。
 /// <para>
+/// <b>Source 抽象</b>:git 只是一种注册源。install 内部按 <see cref="SourceKind"/> 分派
+/// 「如何把内容弄到位」,clone 之后的统一管线(validator → 落地 → 写 state)对所有 source 复用:
+/// <list type="bullet">
+/// <item><see cref="SourceKind.Github"/>:git clone --depth 1 到 staging,校验后移入 plugins/。</item>
+/// <item><see cref="SourceKind.Local"/>:软链(默认,改源码即时生效)或复制本地目录。无需 git。</item>
+/// <item><see cref="SourceKind.Zip"/>:Phase 2 占位。</item>
+/// </list>
+/// </para>
+/// <para>
 /// <b>R1 红线</b>:本类绝不调用 <see cref="ExecutablePluginProbe"/>;
-/// trust-time 才执行 Python 代码。
+/// trust-time 才执行 Python 代码。对所有 source kind 一视同仁。
 /// </para>
 /// </summary>
 public sealed class PluginInstallService
@@ -44,12 +53,40 @@ public sealed class PluginInstallService
     }
 
     /// <summary>
-    /// 安装 plugin。成功返回 PluginInstallState (含 trustState=Untrusted);
+    /// 安装 plugin (github source)。成功返回 PluginInstallState (含 trustState=Untrusted);
     /// 任何步骤失败抛对应 <see cref="PluginException"/>,staging 目录已回滚清理。
     /// </summary>
-    /// <param name="repoUrl">GitHub repo URL</param>
+    /// <param name="repoUrl">GitHub repo URL 或本地 git 仓 file:// 路径</param>
     /// <param name="gitRef">可选 git ref (tag / branch / commit);null 则用默认分支</param>
-    public async Task<PluginInstallState> InstallAsync(string repoUrl, string? gitRef, CancellationToken ct = default)
+    public Task<PluginInstallState> InstallAsync(string repoUrl, string? gitRef, CancellationToken ct = default)
+        => InstallFromGithubAsync(repoUrl, gitRef, ct);
+
+    /// <summary>
+    /// 从本地目录安装 plugin。git 之外的注册源,面向开发与离线/私有分发。
+    /// </summary>
+    /// <param name="localPath">本地 plugin 目录(含 bimcanvas-plugin.json)。无需是 git 仓。</param>
+    /// <param name="link">
+    /// true(默认):在 plugins/&lt;id&gt; 建 junction 指向 <paramref name="localPath"/>,改源码即时生效。
+    /// false:把目录复制进 plugins/&lt;id&gt;(快照隔离,等价 clone 但免 git)。
+    /// </param>
+    public async Task<PluginInstallState> InstallFromLocalAsync(string localPath, bool link = true, CancellationToken ct = default)
+    {
+        if (string.IsNullOrWhiteSpace(localPath))
+            throw new ArgumentException("localPath 必须非空", nameof(localPath));
+
+        var sourceDir = Path.GetFullPath(localPath.Trim());
+        if (!Directory.Exists(sourceDir))
+            throw new PluginInstallSourceException(sourceDir, $"本地路径不存在或不是目录: {sourceDir}");
+        if (!File.Exists(Path.Combine(sourceDir, "bimcanvas-plugin.json")))
+            throw new SchemaValidationException(new[] { $"目录缺失 bimcanvas-plugin.json,可能不是 BIMCanvas plugin: {sourceDir}" });
+
+        return link
+            ? await InstallLocalLinkAsync(sourceDir, ct)
+            : await InstallLocalCopyAsync(sourceDir, ct);
+    }
+
+    // ─── github source (原 InstallAsync,逐字保留) ───
+    private async Task<PluginInstallState> InstallFromGithubAsync(string repoUrl, string? gitRef, CancellationToken ct)
     {
         if (string.IsNullOrWhiteSpace(repoUrl))
             throw new ArgumentException("repoUrl 必须非空", nameof(repoUrl));
@@ -150,6 +187,148 @@ public sealed class PluginInstallService
             }
             throw;
         }
+    }
+
+    // ─── local source:软链 ───
+    private async Task<PluginInstallState> InstallLocalLinkAsync(string sourceDir, CancellationToken ct)
+    {
+        // 软链无 staging:直接对源目录校验(StaticPluginValidator 全套,与 clone 路径一致)
+        var alreadyInstalled = await BuildInstalledNamespaceInfoAsync(ct);
+        var manifest = _validator.Validate(sourceDir, new ValidatorContext { AlreadyInstalled = alreadyInstalled });
+
+        var pluginId = (string)manifest["name"]!;
+        var version = (string)manifest["version"]!;
+        var targetPath = PluginPaths.PluginRoot(pluginId);
+        var manifestChecksum = ComputeFileSha256(Path.Combine(sourceDir, "bimcanvas-plugin.json"));
+
+        // 覆盖式重装:若已存在(无论是真目录还是旧软链),DeleteDirectoryResilient 会安全处理
+        // (软链只摘链接、不碰源;真目录递归删)
+        if (Directory.Exists(targetPath))
+        {
+            _logger.LogInformation("plugin '{Id}' 已存在,覆盖重装(local link)", pluginId);
+            PluginPaths.DeleteDirectoryResilient(targetPath);
+        }
+        Directory.CreateDirectory(Path.GetDirectoryName(targetPath)!);
+        CreateDirectoryJunction(targetPath, sourceDir);
+
+        var state = new PluginInstallState(
+            PluginId: pluginId,
+            TrustState: TrustState.Untrusted,
+            InstalledAt: DateTimeOffset.Now,
+            TrustedAt: null,
+            SourceUrl: sourceDir,
+            ResolvedCommit: null,
+            SourceKind: SourceKind.Local,
+            ManifestChecksum: manifestChecksum,
+            InstalledVersion: version
+        );
+        await _trustService.MarkInstalledAsync(state, ct);
+        _logger.LogInformation(
+            "plugin '{Id}' 本地软链安装成功:version={Version}, link={Target} -> {Source}, trustState=Untrusted",
+            pluginId, version, targetPath, sourceDir);
+        return state;
+    }
+
+    // ─── local source:复制 ───
+    private async Task<PluginInstallState> InstallLocalCopyAsync(string sourceDir, CancellationToken ct)
+    {
+        Directory.CreateDirectory(PluginPaths.StagingRoot);
+        var stagingPath = Path.Combine(PluginPaths.StagingRoot, Guid.NewGuid().ToString("N"));
+        try
+        {
+            CopyDirectory(sourceDir, stagingPath, excludeTopLevel: new[] { ".git" });
+
+            var alreadyInstalled = await BuildInstalledNamespaceInfoAsync(ct);
+            var manifest = _validator.Validate(stagingPath, new ValidatorContext { AlreadyInstalled = alreadyInstalled });
+
+            var pluginId = (string)manifest["name"]!;
+            var version = (string)manifest["version"]!;
+            var targetPath = PluginPaths.PluginRoot(pluginId);
+            var manifestChecksum = ComputeFileSha256(Path.Combine(stagingPath, "bimcanvas-plugin.json"));
+
+            if (Directory.Exists(targetPath))
+            {
+                _logger.LogInformation("plugin '{Id}' 已存在,覆盖重装(local copy)", pluginId);
+                PluginPaths.DeleteDirectoryResilient(targetPath);
+            }
+            Directory.CreateDirectory(Path.GetDirectoryName(targetPath)!);
+            Directory.Move(stagingPath, targetPath);
+
+            var state = new PluginInstallState(
+                PluginId: pluginId,
+                TrustState: TrustState.Untrusted,
+                InstalledAt: DateTimeOffset.Now,
+                TrustedAt: null,
+                SourceUrl: sourceDir,
+                ResolvedCommit: null,
+                SourceKind: SourceKind.Local,
+                ManifestChecksum: manifestChecksum,
+                InstalledVersion: version
+            );
+            await _trustService.MarkInstalledAsync(state, ct);
+            _logger.LogInformation(
+                "plugin '{Id}' 本地复制安装成功:version={Version}, trustState=Untrusted", pluginId, version);
+            return state;
+        }
+        catch
+        {
+            try { PluginPaths.DeleteDirectoryResilient(stagingPath); }
+            catch (Exception cleanupEx) { _logger.LogWarning(cleanupEx, "清理 staging 目录失败: {Staging}", stagingPath); }
+            throw;
+        }
+    }
+
+    /// <summary>创建目录 junction (Windows) / symlink。targetLink 指向 sourceDir。</summary>
+    private static void CreateDirectoryJunction(string targetLink, string sourceDir)
+    {
+        // .NET CreateSymbolicLink 在 Windows 需要开发者模式/管理员;junction 不需要特权,更稳。
+        // 用 cmd mklink /J 建 junction(目录联接),对普通用户可用。
+        var psi = new ProcessStartInfo
+        {
+            FileName = "cmd.exe",
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+            UseShellExecute = false,
+            CreateNoWindow = true,
+            StandardOutputEncoding = Encoding.UTF8,
+            StandardErrorEncoding = Encoding.UTF8,
+        };
+        psi.ArgumentList.Add("/c");
+        psi.ArgumentList.Add("mklink");
+        psi.ArgumentList.Add("/J");
+        psi.ArgumentList.Add(targetLink);
+        psi.ArgumentList.Add(sourceDir);
+
+        using var p = Process.Start(psi);
+        if (p is null)
+            throw new PluginInstallSourceException(sourceDir, "无法启动 cmd 创建 junction");
+        var stderr = p.StandardError.ReadToEnd();
+        p.WaitForExit((int)TimeSpan.FromSeconds(15).TotalMilliseconds);
+        if (p.ExitCode != 0 || !PluginPaths.IsReparsePoint(targetLink))
+            throw new PluginInstallSourceException(sourceDir, $"创建 junction 失败: {stderr}");
+    }
+
+    /// <summary>递归复制目录,可排除顶层指定项(如 .git)。</summary>
+    private static void CopyDirectory(string sourceDir, string destDir, string[] excludeTopLevel)
+    {
+        Directory.CreateDirectory(destDir);
+        foreach (var dir in Directory.GetDirectories(sourceDir))
+        {
+            var name = Path.GetFileName(dir);
+            if (excludeTopLevel.Contains(name, StringComparer.OrdinalIgnoreCase)) continue;
+            CopyDirectoryRecursive(dir, Path.Combine(destDir, name));
+        }
+        foreach (var file in Directory.GetFiles(sourceDir))
+            File.Copy(file, Path.Combine(destDir, Path.GetFileName(file)), overwrite: true);
+    }
+
+    private static void CopyDirectoryRecursive(string sourceDir, string destDir)
+    {
+        Directory.CreateDirectory(destDir);
+        foreach (var dir in Directory.GetDirectories(sourceDir))
+            CopyDirectoryRecursive(dir, Path.Combine(destDir, Path.GetFileName(dir)));
+        foreach (var file in Directory.GetFiles(sourceDir))
+            File.Copy(file, Path.Combine(destDir, Path.GetFileName(file)), overwrite: true);
     }
 
     /// <summary>

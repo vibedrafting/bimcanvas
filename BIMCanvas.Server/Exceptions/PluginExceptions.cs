@@ -99,6 +99,21 @@ public sealed class PluginCloneFailedException : PluginException
 }
 
 /// <summary>
+/// 本地 source 安装失败 (路径不存在 / 非 plugin 目录 / 软链创建失败等)。
+/// </summary>
+public sealed class PluginInstallSourceException : PluginException
+{
+    public override string Code => "install_source_failed";
+    public string SourcePath { get; }
+
+    public PluginInstallSourceException(string sourcePath, string message)
+        : base(message)
+    {
+        SourcePath = sourcePath;
+    }
+}
+
+/// <summary>
 /// ExecutablePluginProbe 失败 (R9 缓解 / V13 T6c)。
 /// plugin 保持 untrusted,不能进入 active。
 /// </summary>
