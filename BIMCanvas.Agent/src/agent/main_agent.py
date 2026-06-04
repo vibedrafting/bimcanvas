@@ -291,6 +291,15 @@ class MainAgent:
         working_directory = self.working_directory or self.project_path or "（unknown）"
         system_prompt = system_prompt + f"\n\n项目路径: {project_path}\n工作目录: {working_directory}"
 
+        # 追加 active domain plugin 绝对根，供主控构造 Workflow scriptPath 绝对路径。
+        # SDK 把相对 scriptPath 按 cwd=项目目录解析（在项目目录下找不到插件 workflows/，报
+        # "Workflow script file not found"），故 plugin BIMCANVAS.md 要求
+        # scriptPath = {此处注入的插件根}/workflows/*.workflow.js。统一正斜杠，避免 Windows
+        # 反斜杠在主控拼出的 JSON scriptPath 里成为非法转义。None（无 domain plugin）时不注入。
+        if bundle.active_plugin_root is not None:
+            plugin_root_posix = str(bundle.active_plugin_root).replace("\\", "/")
+            system_prompt = system_prompt + f"\n插件根: {plugin_root_posix}"
+
         # WP-2 M2.1: 落盘到 BIMCANVAS_HOME/.runtime/system-prompt/system_prompt.window_{seq}.runtime.md,
         # 走 SDK --system-prompt-file(0.1.51+)绕过 Windows CreateProcess 32767 字符上限。
         system_prompt_file = materialize_system_prompt_file(system_prompt, self.window_seq)
