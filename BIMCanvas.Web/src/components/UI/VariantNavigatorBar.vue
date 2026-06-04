@@ -50,9 +50,15 @@ const visibleVariants = computed(() =>
 // server 已按 createdAt 排序，保留原顺序即可；后续如需稳定排序可在此扩展
 const sortedVariants = computed(() => [...visibleVariants.value]);
 
+// 纯指针平级模型：仅当确有 adopted 方案时才存在「已采纳方案」canonical 槽（clearActiveVariant
+// 渲染父指针指向的已采纳方案）；无 adopted 时不再恒插空槽，导航条只列 peer 变体。
+const hasAdopted = computed(() => variants.value.some(v => v.state === 'adopted'));
+
 const CANONICAL_SLOT = '__canonical__';
 const sequence = computed<string[]>(() =>
-    [CANONICAL_SLOT, ...sortedVariants.value.map(v => v.slug)]
+    hasAdopted.value
+        ? [CANONICAL_SLOT, ...sortedVariants.value.map(v => v.slug)]
+        : sortedVariants.value.map(v => v.slug)
 );
 
 const activeVariantSlug = computed(() =>
@@ -60,24 +66,32 @@ const activeVariantSlug = computed(() =>
 );
 
 const currentIndex = computed(() => {
-    const id = activeVariantSlug.value ?? CANONICAL_SLOT;
+    const fallback = hasAdopted.value ? CANONICAL_SLOT : (sequence.value[0] ?? CANONICAL_SLOT);
+    const id = activeVariantSlug.value ?? fallback;
     const i = sequence.value.indexOf(id);
     return i >= 0 ? i : 0;
 });
 
+// 当前 slot 是否为 canonical（已采纳方案）——按 slot 值判定，不依赖「canonical 恒在 0」的索引偏移，
+// 兼容有/无 canonical 两种 sequence 形态。
+const currentSlot = computed(() => sequence.value[currentIndex.value] ?? null);
+const isCanonicalCurrent = computed(() => currentSlot.value === CANONICAL_SLOT);
+
 const currentVariant = computed<VariantDescriptor | null>(() =>
-    currentIndex.value === 0 ? null : sortedVariants.value[currentIndex.value - 1] ?? null
+    isCanonicalCurrent.value
+        ? null
+        : sortedVariants.value.find(v => v.slug === currentSlot.value) ?? null
 );
 
 const currentLabel = computed(() =>
-    currentIndex.value === 0 ? '已采纳方案' : currentVariant.value?.slug ?? '');
+    isCanonicalCurrent.value ? '已采纳方案' : currentVariant.value?.slug ?? '');
 
 const currentSummary = computed(() => {
     const v = currentVariant.value;
     return (v?.summary && v.summary.trim()) || '';
 });
 
-const showAdopt = computed(() => currentIndex.value !== 0);
+const showAdopt = computed(() => !isCanonicalCurrent.value);
 const indicator = computed(() => `${currentIndex.value + 1}/${sequence.value.length}`);
 const barTitle = computed(() =>
     currentSummary.value ? `${currentLabel.value}：${currentSummary.value}` : currentLabel.value);

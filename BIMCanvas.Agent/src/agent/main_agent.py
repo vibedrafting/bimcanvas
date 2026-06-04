@@ -1788,14 +1788,8 @@ class MainAgent:
             # usage 是 TaskUsage TypedDict，运行时本质 dict，可直接 .get / dict() 转换。
             elif isinstance(message, TaskProgressMessage):
                 subagent_id = self._active_subagents.get(message.tool_use_id) if message.tool_use_id else None
-                if self.verbose:
-                    usage = message.usage or {}
-                    self._agent_logger.log_info(
-                        f"[TaskProgress] task_id={message.task_id}, "
-                        f"tokens={usage.get('total_tokens')}, "
-                        f"tool_uses={usage.get('tool_uses')}, "
-                        f"last_tool={message.last_tool_name}"
-                    )
+                # 降噪（7.3）：对齐后台路径（:829-832 只推前端、不打 console）——逐 tick log 无 console 价值、
+                # 内联 workflow 下刷屏。实时进度仍经下方 subagent_progress 投递 Task 页。
                 yield StreamChunk(
                     type="subagent_progress",
                     subagent_id=subagent_id,

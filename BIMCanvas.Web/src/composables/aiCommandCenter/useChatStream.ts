@@ -1429,6 +1429,13 @@ export const useChatStream = (options: ChatStreamOptions) => {
       if (isLatestRequest) {
         currentAbortControllers.delete(targetWindowId);
       }
+      // 内联 workflow 收口（7.4）：未 detach 后台的 workflow 在主控回合结束时不会再有
+      // background_task.completed（那是后台路径专属），在此统一收口，避免 Task 面板卡 Running。
+      // detach 到后台的（isPollingBackground）留给 background_task.completed，不在此提前完成。
+      if (isLatestRequest && !isPollingBackground.value
+          && workflowProgress.workflow.value?.status === 'running') {
+        workflowProgress.onWorkflowCompleted({ status: completedSuccessfully ? 'completed' : 'failed' });
+      }
       isPollingBackground.value = false;
       await nextTick();
       options.scrollToBottom({ windowId: targetWindowId });
