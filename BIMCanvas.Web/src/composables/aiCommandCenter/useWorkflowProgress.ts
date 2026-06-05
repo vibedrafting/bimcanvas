@@ -352,6 +352,12 @@ async function loadTranscript(force = false, silent = false): Promise<void> {
     if (silent && empty) return
     transcript.value = data
     transcriptStatus.value = 'loaded'
+    // N2：真后台 completed 事件经 SSE fire-and-forget 无回放，断连即丢；轮询拉到终态时回填
+    // workflow.status，否则 Task 永久卡 Running。onWorkflowCompleted 自带 status!=='running' 幂等守卫。
+    if (!data.live && (data.status === 'failed' || data.status === 'completed')
+        && workflow.value?.status === 'running') {
+      onWorkflowCompleted({ status: data.status })
+    }
   } catch {
     if (!silent) transcriptStatus.value = 'error'
   }
