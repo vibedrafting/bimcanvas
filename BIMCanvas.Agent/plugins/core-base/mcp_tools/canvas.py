@@ -587,11 +587,18 @@ _VALIDATE_LAYOUT_SCHEMA = {
         "zoneIds": {
             "type": "array",
             "items": {"type": "string"},
-            "description": "可选。仅验证这些分区内的元素(如 [\"rz_1\", \"dz_2\"])。不传则验证全部。",
+            "description": (
+                "可选。仅验证这些分区内的元素(如 [\"rz_1\", \"dz_2\"])。不传则验证全部。"
+                "⚠️ 与 variantId 同时使用时,这里必须传**设计区路径**(如 [\"rz_3\"]),"
+                "不能传候选方案内部的叶子 id(如 dz_1);否则定位不到候选数据,校验会直接报错(不会静默通过)。"
+            ),
         },
         "variantId": {
             "type": "string",
-            "description": "可选。验证非 canonical 变体(仅变体探索场景用,常规验证留空)。非空时必须与非空 zoneIds 同时提供。",
+            "description": (
+                "可选。验证非 canonical 变体(仅变体探索场景用,常规验证留空)。"
+                "取值=候选方案 slug。非空时必须与非空 zoneIds(设计区路径)同时提供。"
+            ),
         },
     },
     "additionalProperties": False,

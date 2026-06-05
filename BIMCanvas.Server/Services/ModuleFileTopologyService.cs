@@ -405,13 +405,22 @@ namespace BIMCanvas.Server.Services
                         "variantId 非空时必须显式指定 requestedZoneIds（设计区路径）；不允许全分区候选扫描",
                         nameof(requestedZoneIds));
 
-                return requestedZoneIds
-                    .Where(dz => !string.IsNullOrWhiteSpace(dz))
+                // N7：requestedZoneIds 可能是叶子 id（如 dz_1）；反查设计区路径后再枚举候选叶子。
+                var designZonePaths = ResolveVariantDesignZonePaths(requestedZoneIds);
+                var result = designZonePaths
                     .SelectMany(dz => ModuleFileTopologyService.EnumerateSchemeLeaves(SchemesPath, dz, variantId!))
                     .Where(entry => File.Exists(entry.FilePath))
                     .GroupBy(entry => entry.FilePath, StringComparer.OrdinalIgnoreCase)
                     .Select(g => g.First())
                     .ToList();
+                // 空守卫（本方法已 File.Exists 过滤，空=无真实候选文件）：不可当“0 模块验证通过”。
+                // 注：本 variantId 分支当前仅 legacy parity 路径（NormalizeModulesLegacy/ValidateLayoutLegacy，
+                // 均未路由）调用；active validate_layout 承重在 GetResolvedLeaves 的存在性守卫。
+                if (result.Count == 0)
+                    throw new InvalidOperationException(
+                        $"variantId='{variantId}' 在设计区 [{string.Join(", ", designZonePaths)}] 下未找到任何真实 modules 文件；" +
+                        "不视为验证通过。variantId 校验时 zoneIds 须传设计区路径（如 rz_3）而非叶子/候选内部 id。");
+                return result;
             }
 
             var targetZoneIds = ExpandTargetZoneIds(requestedZoneIds);
@@ -446,10 +455,21 @@ namespace BIMCanvas.Server.Services
                         "variantId 非空时必须显式指定 requestedZoneIds（设计区路径）",
                         nameof(requestedZoneIds));
 
-                leaves = requestedZoneIds
-                    .Where(dz => !string.IsNullOrWhiteSpace(dz))
+                // N7（active 承重）：requestedZoneIds 可能是叶子 id；反查设计区路径后枚举候选叶子。
+                var designZonePaths = ResolveVariantDesignZonePaths(requestedZoneIds);
+                var entries = designZonePaths
                     .SelectMany(dz => ModuleFileTopologyService.EnumerateSchemeLeaves(SchemesPath, dz, variantId!)
-                        .Select(entry => new ResolvedLeaf(entry.ZoneId, entry.RelativePath, dz, isContainer: false)))
+                        .Select(entry => (dz, entry)))
+                    .ToList();
+                // 存在性守卫：本方法不做 File.Exists 过滤，路径错时 EnumerateSchemeLeaves 仍返回指向不存在
+                // 文件的“坏叶子”（列表非空），故守卫判“无一文件真实存在”而非“列表空”，否则 validator
+                // 读不到文件 → 0 模块假报通过。throw 经 orchestrator → 500 → MCP 短路报错（normalize 步同样先拦）。
+                if (!entries.Any(t => File.Exists(t.entry.FilePath)))
+                    throw new InvalidOperationException(
+                        $"variantId='{variantId}' 在设计区 [{string.Join(", ", designZonePaths)}] 下未找到任何真实 modules 文件；" +
+                        "不视为验证通过。variantId 校验时 zoneIds 须传设计区路径（如 rz_3）而非叶子/候选内部 id。");
+                leaves = entries
+                    .Select(t => new ResolvedLeaf(t.entry.ZoneId, t.entry.RelativePath, t.dz, isContainer: false))
                     .ToList();
             }
             else
@@ -490,6 +510,20 @@ namespace BIMCanvas.Server.Services
                 && _designZoneIdByLeafId.TryGetValue(leafZoneId, out var designZonePath))
                 return designZonePath;
             return leafZoneId;
+        }
+
+        /// <summary>
+        /// N7：把 requestedZoneIds（可能含叶子 id，如 dz_1）统一反查成设计区路径并去重。
+        /// 叶子 → 其设计区祖先（重设计场景把候选定位到正确目录）；设计区/未登记 → 原样返回。
+        /// 供 variantId 分支（GetExistingCanonicalModuleFiles / GetResolvedLeaves）共用。
+        /// </summary>
+        private List<string> ResolveVariantDesignZonePaths(IReadOnlyCollection<string> requestedZoneIds)
+        {
+            return requestedZoneIds
+                .Where(z => !string.IsNullOrWhiteSpace(z))
+                .Select(ResolveDesignZoneId)
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToList();
         }
 
         public IReadOnlyList<ModuleFilePathIssue> GetPathIssues(IReadOnlyCollection<string>? requestedZoneIds)
