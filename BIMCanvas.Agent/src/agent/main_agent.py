@@ -174,6 +174,11 @@ class MainAgent:
         # drain loop 据此把【原生总结文本】投递给前端，而非丢弃（修复 detach 后总结被吞）。
         self._bg_completion_pending: dict[str, Any] | None = None
         self._bg_summary_parts: list[str] = []
+        # N1 方案①：后台原生唤醒是多轮 agentic（多 ResultMessage，每 tool-call 一个）。
+        # 记录"本轮是否含工具调用"——据此判定收口：收到"无 tool_use 轮"的 ResultMessage 才合并 emit
+        # （主控纯文本收尾）；含工具调用的中间轮 ResultMessage 仅复位本标记、继续收集、不收口
+        # （修复旧逻辑首个 ResultMessage 即清 pending → 后续轮 AssistantMessage 静默丢弃）。
+        self._bg_round_had_tool: bool = False
 
         # WP-2 CLAUDECODE: 进程级一次性 WARNING(SDK 0.1.51 PR #732 已自动剥离 CLAUDECODE env)
         global _claudecode_warned
@@ -685,6 +690,8 @@ class MainAgent:
             # drain 已停，若仍有回合在 await queue.get()，投终止异常唤醒它避免挂死
             self._fail_active_turn(CLIConnectionError("Agent disconnected"))
             self._active_turn = None
+            # N1 兜底：断开前 flush 残留后台 pending（趁 _last_runtime_context 未清，仍能定位窗口）
+            await self._flush_pending_background()
             self._last_runtime_context = None
 
             if self._client and self._connected:
@@ -794,30 +801,58 @@ class MainAgent:
                     f"output_file={message.output_file}, "
                     f"summary_len={len(message.summary or '')} (background)"
                 )
-            # 记录待汇报状态，开始收集随后到达的【原生总结回合】文本；
-            # 不在此处推送（TaskNotification.summary 只是标题，真正内容由原生总结回合给出）。
-            self._bg_completion_pending = {
-                "taskId": message.task_id,
-                "status": str(message.status),
-                "outputFile": message.output_file or None,
-                "sdkSessionId": message.session_id,
-                "fallback": message.summary or "",
-            }
-            self._bg_summary_parts = []
-            # 复位日志状态位，让随后的原生总结回合经 _process_message 干净地打印到 Server 日志
-            self._in_thinking = False
-            self._in_response = False
-            if self.verbose:
-                self._agent_logger.log_info("[Background] ↓ 主控原生完成总结回合（自动唤醒）")
+            if self._bg_completion_pending is not None:
+                # N1 防覆写：上一后台原生总结回合的 pending 尚未收口（多轮 agentic 仍在进行）。
+                # 新 TaskNotification 不得覆写——否则最终 emit 会误归属前端陌生的新 task_id（次生 bug）。
+                # 保留首个 task_id（前端可识别），忽略新通知身份。
+                if self.verbose:
+                    self._agent_logger.log_info(
+                        f"[Background] pending 未收口，忽略 TaskNotification 覆写 "
+                        f"(keep task_id={self._bg_completion_pending.get('taskId')}, "
+                        f"new task_id={message.task_id}, new status={message.status})"
+                    )
+            else:
+                # 记录待汇报状态，开始收集随后到达的【原生总结回合】文本；
+                # 不在此处推送（TaskNotification.summary 只是标题，真正内容由原生总结回合给出）。
+                self._bg_completion_pending = {
+                    "taskId": message.task_id,
+                    "status": str(message.status),
+                    "outputFile": message.output_file or None,
+                    "sdkSessionId": message.session_id,
+                    "fallback": message.summary or "",
+                }
+                self._bg_summary_parts = []
+                self._bg_round_had_tool = False
+                # 复位日志状态位，让随后的原生总结回合经 _process_message 干净地打印到 Server 日志
+                self._in_thinking = False
+                self._in_response = False
+                if self.verbose:
+                    self._agent_logger.log_info("[Background] ↓ 主控原生完成总结回合（自动唤醒）")
         elif isinstance(message, AssistantMessage) and self._bg_completion_pending is not None:
-            # 原生总结回合：复用正常日志路径（_process_message 打印 THINK/AI/工具调用），
-            # 同时返回文本块内容用于投递（工具/思考块不计入文本；多步总结也能聚齐）。
+            # 原生总结/绕行回合：可能多轮 agentic（每 tool-call 一个 ResultMessage）。
+            # 记录本轮是否含工具调用（方案①据此判定收口）；复用正常日志路径（_process_message
+            # 打印 THINK/AI/工具调用），同时返回文本块内容用于投递（工具/思考块不计入文本）。
+            if any(isinstance(b, ToolUseBlock) for b in message.content):
+                self._bg_round_had_tool = True
             text = self._process_message(message)
             if text:
                 self._bg_summary_parts.append(text)
         elif isinstance(message, ResultMessage):
-            if self._bg_completion_pending is not None:
-                # 原生总结回合收尾 → 把收集到的总结经带外通道投递前端（落 history + 实时 SSE）
+            if self._bg_completion_pending is None:
+                # 启动回合自身的尾随 ResultMessage（detach 已提前结束回合）等 —— 丢弃即可
+                if self.verbose:
+                    self._agent_logger.log_info("[Background] discarded out-of-turn ResultMessage")
+            elif self._bg_round_had_tool:
+                # N1 方案①中间轮：本轮含工具调用 → 不是收尾（后台原生唤醒是多轮 agentic、
+                # 多 ResultMessage）。复位轮标记、继续收集后续轮文本，不收口（不清 pending）。
+                self._bg_round_had_tool = False
+                if self.verbose:
+                    self._agent_logger.log_info(
+                        "[Background] 中间轮（含工具调用）收尾 → 保持收集，不收口"
+                    )
+            else:
+                # N1 方案①收口：本轮无工具调用 = 主控纯文本总结收尾 → 把跨多轮收集的全部文本
+                # 合并后经带外通道投递前端（落 history + 实时 SSE）。
                 if self.verbose and self._in_response:
                     self._agent_logger.log_response_end()
                     self._in_response = False
@@ -825,15 +860,13 @@ class MainAgent:
                 content = "\n".join(self._bg_summary_parts).strip()
                 self._bg_completion_pending = None
                 self._bg_summary_parts = []
+                self._bg_round_had_tool = False
                 if self.verbose:
                     self._agent_logger.log_info(
-                        f"[Background] 原生总结回合收尾 → 投递完成汇报 "
+                        f"[Background] 原生总结回合收口（无工具调用轮）→ 投递完成汇报 "
                         f"(task_id={pending.get('taskId')}, chars={len(content)})"
                     )
                 await self._emit_background_completion(pending, content)
-            elif self.verbose:
-                # 启动回合自身的尾随 ResultMessage（detach 已提前结束回合）等 —— 丢弃即可
-                self._agent_logger.log_info("[Background] discarded out-of-turn ResultMessage")
         elif isinstance(message, TaskProgressMessage):
             # 高频进度心跳：只经带外通道推前端（Task 页实时可视化），不打 Server 控制台。
             # 单条仅 task_id、无 usage/last_tool，逐 tick 刷屏且无 console 价值；实时进度看 Task 页。
@@ -855,6 +888,28 @@ class MainAgent:
                 self._agent_logger.log_info(
                     f"[Background] ignored out-of-turn {type(message).__name__}"
                 )
+
+    async def _flush_pending_background(self) -> None:
+        """N1 方案①兜底 flush：若后台原生总结回合的 pending 仍未收口（主信号"无 tool_use 轮"
+        未命中——罕见，如主控以带工具调用的轮收尾），在前台新回合开始 / disconnect 前合并 emit
+        已收集文本并清空，保证可观测性不丢消息（N1 底线）。pending 为空时为 no-op。
+
+        必须在 set_runtime_context 覆写 _last_runtime_context **之前**调用——这样 emit 用的是
+        launching 回合的窗口/会话定位，而非新回合的。
+        """
+        if self._bg_completion_pending is None:
+            return
+        pending = self._bg_completion_pending
+        content = "\n".join(self._bg_summary_parts).strip()
+        self._bg_completion_pending = None
+        self._bg_summary_parts = []
+        self._bg_round_had_tool = False
+        if self.verbose:
+            self._agent_logger.log_info(
+                f"[Background] 兜底 flush 残留 pending → 投递完成汇报 "
+                f"(task_id={pending.get('taskId')}, chars={len(content)})"
+            )
+        await self._emit_background_completion(pending, content)
 
     @staticmethod
     def _compose_background_text(status: str, summary: str) -> str:
@@ -1142,6 +1197,8 @@ class MainAgent:
         runtime_context: dict[str, str] | None = None,
     ) -> str:
         """Unified chat interface."""
+        # N1 兜底：前台新回合前 flush 残留后台 pending（趁旧 _last_runtime_context 定位 launching 回合窗口）
+        await self._flush_pending_background()
         self.set_runtime_context(runtime_context)
         turn: _TurnChannel | None = None
         try:
@@ -1385,6 +1442,8 @@ class MainAgent:
             model: 模型名称，None 使用默认配置
             context: 画布上下文（选中模块/区域），由前端 buildContextPayload() 构建
         """
+        # N1 兜底：前台新回合前 flush 残留后台 pending（趁旧 _last_runtime_context 定位 launching 回合窗口）
+        await self._flush_pending_background()
         self.set_runtime_context(runtime_context)
 
         if not self._connected:
@@ -1817,14 +1876,24 @@ class MainAgent:
                         f"[TaskNotification] task_id={message.task_id}, status={message.status}, "
                         f"output_file={message.output_file}, summary_len={len(message.summary or '')}"
                     )
-                self._bg_completion_pending = {
-                    "taskId": message.task_id,
-                    "status": str(message.status),
-                    "outputFile": message.output_file or None,
-                    "sdkSessionId": message.session_id,
-                    "fallback": message.summary or "",
-                }
-                self._bg_summary_parts = []
+                if self._bg_completion_pending is not None:
+                    # N1 防覆写：已有未收口的后台 pending，不覆写（保留首个 task_id）。
+                    if self.verbose:
+                        self._agent_logger.log_info(
+                            f"[TaskNotification] pending 未收口，忽略覆写 "
+                            f"(keep task_id={self._bg_completion_pending.get('taskId')}, "
+                            f"new task_id={message.task_id})"
+                        )
+                else:
+                    self._bg_completion_pending = {
+                        "taskId": message.task_id,
+                        "status": str(message.status),
+                        "outputFile": message.output_file or None,
+                        "sdkSessionId": message.session_id,
+                        "fallback": message.summary or "",
+                    }
+                    self._bg_summary_parts = []
+                    self._bg_round_had_tool = False
 
             elif isinstance(message, SystemMessage):
                 # SDK 级系统消息（会话初始化、上下文压缩等）
