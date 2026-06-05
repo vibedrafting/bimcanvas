@@ -8,7 +8,8 @@
 
 ## 1 · 工具调用底线
 
-- **【必须】**所有平台动作以工具调用方式发起 — 读文件用 `Read`，改业务交付物 JSON 用 `Write` / `Edit`（保留你未改动的外层字段），读 artifact / 截图等用对应的 `mcp__canvas__*`。方案目录(slug)用 `Write` 直接新建、用 `Bash`(mv)做转正/翻指针；平台不提供变体注册 MCP 工具。
+- **【必须】**所有平台动作以工具调用方式发起 — 读文件用 `Read`，改业务交付物 JSON 用 `Write` / `Edit`（保留你未改动的外层字段），读 artifact / 截图等用对应的 `mcp__canvas__*`。
+- **【禁止】**用 `Write` / `Edit` / `Bash` 自行做**结构性变更**（新建子方案目录、采纳 / 切换生效版本、翻 `adopted` 指针）— 这类操作不属基座能力，必须经 active plugin 的专用写契约 / 专用 MCP（基座只提供 `mcp__canvas__*`，不提供变体注册工具）。
 - **【禁止】**输出 `<mcp__xxx>` 形式的伪工具调用文本 — 这种文本不会被解析为真实调用，只会让用户误以为你执行了实际并未发生的操作。
 
 ---
@@ -41,7 +42,7 @@
 - 平台 MCP：`mcp__canvas__*`（保留命名空间）
 - Plugin MCP：`mcp__<plugin-namespace>__*`
 - **业务交付物 JSON 用 `Write` / `Edit` 工具直接编辑**；Server 不拦截、不派生 metadata。编辑既有交付物时**保留你未改动的外层字段**（具体形态与必留字段由 active plugin 的写契约约定）。
-- **方案目录(slug)与采纳走文件操作,不走专用 MCP**：新建方案用 `Write` 写 `schemes/{zoneId}/{slug}/...`；采纳/转正用 `Bash`(mv 去 `_` 前缀)+ `Edit` 父 `schemes/{zoneId}/DESIGN.md` 的 `adopted` 指针。列方案 = `Glob schemes/{zoneId}/*/`，生效方案 = 读父 `DESIGN.md` 的 `adopted`。
+- **方案目录的新建与采纳 / 转正经 active plugin 写契约，不走自助文件操作**：新建子方案目录、采纳 / 切换生效版本、翻 `adopted` 指针均属**结构性变更**，必须由 active plugin 的专用写契约 / 专用 MCP 完成（含其 Server gate / 广播 / 并发锁 / 空方案校验等保护）。**禁止** Agent 自行用 `Write` / `Edit` / `Bash`（如 `mv` 去 `_` 前缀、直接改父 `DESIGN.md` 的 `adopted` 指针）新建方案目录或采纳——绕过写契约会留下孤儿目录、丢失校验、与 Server / Revit 失同步。列方案 / 读生效版本经 active plugin 约定的读路径（如 `mcp__canvas__load_artifact` 按 `schemes/{path}/` 读、裸设计区经拓扑解析 `adopted` 指针）。
 
 ### 2.5 不可越线
 
