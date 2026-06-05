@@ -173,11 +173,25 @@ export interface WorkflowProgressRecord {
   timestamp?: string | null;
 }
 
+// 后台 Workflow 阶段预声明 —— 复用 background_task.progress 事件，workflow 启动即推完整
+// meta.phases。运行态前端据此立即渲染全部阶段（pending），不再依赖闭源 CLI 写的 per-run
+// 脚本副本（运行态常缺失/runId 错位 → 旧实现降级成单个「阶段 1」）。
+export interface WorkflowPhasesRecord {
+  kind: 'workflow_phases';
+  taskId?: string | null;
+  sdkSessionId?: string | null;
+  workflowName?: string | null;
+  phases: { index: number; title: string; detail?: string | null }[];
+  windowId?: string | null;
+  sessionId?: string | null;
+  timestamp?: string | null;
+}
+
 export type ChannelEventName = InteractionEventName | BackgroundTaskEventName | WorkflowProgressEventName;
 
 export interface InteractionEventEnvelope {
   event: ChannelEventName;
-  record: InteractionRecord | BackgroundTaskRecord | WorkflowProgressRecord;
+  record: InteractionRecord | BackgroundTaskRecord | WorkflowProgressRecord | WorkflowPhasesRecord;
 }
 
 export type InteractionEventListener = (event: InteractionEventEnvelope) => void;

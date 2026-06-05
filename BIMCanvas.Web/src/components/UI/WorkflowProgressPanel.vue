@@ -15,6 +15,8 @@ const {
   workflowAgents,
   liveAgentPhase,
   pinLiveAgents,
+  predeclaredPhases,
+  predeclaredName,
   resetWorkflow,
   loadTranscript
 } = useWorkflowProgress()
@@ -46,6 +48,13 @@ const showLive = computed(
     && transcript.value.live === true
     && (transcript.value.liveAgents?.length ?? 0) > 0
 )
+// 运行态·阶段预声明：workflow 启动即推完整 meta.phases，先于 transcript/liveAgents 即可渲染全阶段。
+// 不依赖闭源 CLI 写的脚本副本（运行态常缺失/runId 错位 → 旧实现降级单「阶段 1」）。
+const showPredeclared = computed(
+  () => !showTranscript.value && (predeclaredPhases.value?.length ?? 0) > 0
+)
+// 运行态统一渲染模式（transcript 实时 或 预声明），区别于完成态权威树（showTranscript）。
+const isLiveView = computed(() => showLive.value || showPredeclared.value)
 // 当前阶段：从 SSE 心跳 description("阶段: 当前agent")取前缀
 const currentPhaseTitle = computed(() => {
   const d = workflowAgents.value[0]?.description
@@ -55,38 +64,42 @@ const currentPhaseTitle = computed(() => {
   const at = i >= 0 && (cn < 0 || i < cn) ? i : cn
   return at > 0 ? d.slice(0, at).trim() : undefined
 })
+// 运行态阶段源：transcript 实时读到的 phases(脚本匹配上时) > 预声明 phases > 降级单阶段
+const livePhaseSource = computed<WorkflowPhase[]>(() => {
+  const t = transcript.value
+  if (t?.live && t.phases.length) return t.phases
+  return predeclaredPhases.value ?? []
+})
 // 运行态：按钉定的阶段把 live agents 分组，未声明阶段则单组；所有声明阶段都保留(空=待执行)
 const liveGroupedPhases = computed<WorkflowPhase[]>(() => {
-  const t = transcript.value
-  if (!t || !t.live) return []
-  const phases: WorkflowPhase[] = t.phases.length
-    ? t.phases.map(p => ({ index: p.index, title: p.title, detail: p.detail, agents: [] as WorkflowTranscriptAgent[] }))
+  const src = livePhaseSource.value
+  const phases: WorkflowPhase[] = src.length
+    ? src.map(p => ({ index: p.index, title: p.title, detail: p.detail, agents: [] as WorkflowTranscriptAgent[] }))
     : [{ index: 1, title: '', detail: undefined, agents: [] as WorkflowTranscriptAgent[] }]
   const first = phases[0]
   if (!first) return phases
   const byTitle = new Map<string, WorkflowPhase>()
   for (const p of phases) byTitle.set(p.title, p)
-  for (const a of (t.liveAgents ?? [])) {
+  for (const a of (transcript.value?.liveAgents ?? [])) {
     const title = liveAgentPhase.value.get(a.agentId) ?? currentPhaseTitle.value ?? first.title
     ;(byTitle.get(title) ?? first).agents.push(a)
   }
   return phases
 })
-// 统一渲染源：完成态用权威分组，运行态用钉定分组
+// 统一渲染源：完成态用权威分组，运行态用钉定分组（含预声明）
 const displayPhases = computed<WorkflowPhase[]>(() => {
-  const t = transcript.value
-  if (!t) return []
-  return t.live ? liveGroupedPhases.value : t.phases
+  if (showTranscript.value && transcript.value) return transcript.value.phases
+  return liveGroupedPhases.value
 })
-// 每次 transcript 刷新（运行态）钉定新出现的 agent
+// 每次 transcript 刷新（运行态）钉定新出现的 agent（阶段源含预声明兜底）
 watch(() => transcript.value, (t) => {
-  if (t?.live) pinLiveAgents(t.liveAgents, currentPhaseTitle.value, t.phases)
+  if (t?.live) pinLiveAgents(t.liveAgents, currentPhaseTitle.value, livePhaseSource.value)
 })
 
 const titleText = computed(() => {
   const t = transcript.value
   if ((showTranscript.value || showLive.value) && t?.workflowName) return t.workflowName
-  return workflow.value?.label || 'Workflow'
+  return predeclaredName.value || workflow.value?.label || 'Workflow'
 })
 const subTitleText = computed(() => {
   const t = transcript.value
@@ -244,14 +257,14 @@ const dismiss = () => {
     </div>
 
     <!-- ============ Phase 树（运行态与完成态统一；运行态默认展开+所有阶段预留，完成态可折叠默认折叠） ============ -->
-    <div v-if="(showTranscript || showLive) && transcript" class="wf-body">
+    <div v-if="showTranscript || isLiveView" class="wf-body">
       <div v-for="ph in displayPhases" :key="ph.index" class="phase">
         <div
           class="phase-head"
-          :class="[phaseStats(ph.agents).status, { 'no-toggle': showLive }]"
-          @click="!showLive && togglePhase(ph.index)"
+          :class="[phaseStats(ph.agents).status, { 'no-toggle': isLiveView }]"
+          @click="!isLiveView && togglePhase(ph.index)"
         >
-          <svg v-if="!showLive" class="phase-caret" :class="{ open: expandedPhases.has(ph.index) }" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="9 18 15 12 9 6"></polyline></svg>
+          <svg v-if="!isLiveView" class="phase-caret" :class="{ open: expandedPhases.has(ph.index) }" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="9 18 15 12 9 6"></polyline></svg>
           <span class="phase-mark" :class="phaseStats(ph.agents).status">
             <template v-if="phaseStats(ph.agents).status === 'done'">✓</template>
             <template v-else-if="phaseStats(ph.agents).status === 'active'">›</template>
@@ -262,8 +275,8 @@ const dismiss = () => {
           <span v-if="ph.detail" class="phase-detail">{{ ph.detail }}</span>
         </div>
 
-        <div v-show="showLive || expandedPhases.has(ph.index)" class="phase-agents">
-          <div v-if="!ph.agents.length" class="phase-empty">{{ showLive ? '待执行' : '无 agent' }}</div>
+        <div v-show="isLiveView || expandedPhases.has(ph.index)" class="phase-agents">
+          <div v-if="!ph.agents.length" class="phase-empty">{{ isLiveView ? '待执行' : '无 agent' }}</div>
           <div v-for="a in ph.agents" :key="a.agentId" class="agent">
             <div class="agent-head" @click="toggleExpand(a.agentId)">
               <span class="dot" :class="agentStateClass(a.state)"></span>

@@ -83,6 +83,15 @@ export const useBackgroundTask = (options: BackgroundTaskOptions) => {
           lastToolName: record.lastToolName,
           usage: record.usage
         })
+      },
+      onPhases: (record) => {
+        // 后台 Workflow 阶段预声明 → 运行态立即渲染全部阶段（不依赖脆弱的脚本文件读取）
+        workflowProgress.onWorkflowPhases({
+          taskId: record.taskId,
+          sdkSessionId: record.sdkSessionId,
+          workflowName: record.workflowName,
+          phases: record.phases
+        })
       }
     })
   }

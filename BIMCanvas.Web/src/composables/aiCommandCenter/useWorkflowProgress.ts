@@ -122,6 +122,10 @@ type TranscriptStatus = 'idle' | 'loading' | 'loaded' | 'error'
 const workflow = ref<WorkflowState | null>(null)
 const transcript = ref<WorkflowTranscript | null>(null)
 const transcriptStatus = ref<TranscriptStatus>('idle')
+// 阶段预声明（workflow 启动即经 SSE 推到的完整 meta.phases）：运行态据此立即渲染全部阶段，
+// 不再依赖闭源 CLI 写的 per-run 脚本副本（运行态常缺失/runId 错位 → 旧实现降级单「阶段 1」）。
+const predeclaredPhases = ref<WorkflowPhase[] | null>(null)
+const predeclaredName = ref<string | undefined>(undefined)
 // 运行态 agent→phase 钉定：agent 首次出现时所在的阶段(从心跳)记下，之后不变。
 // 用于把已完成的前序阶段 agent 留在原阶段，而非随当前阶段漂移（运行态精确归属不在增量数据里，靠此近似）。
 const liveAgentPhase = ref<Map<string, string>>(new Map())
@@ -181,6 +185,33 @@ function startWorkflow(meta: { toolCallId?: string; label?: string; sdkSessionId
   }
   transcript.value = null
   transcriptStatus.value = 'idle'
+  predeclaredPhases.value = null
+  predeclaredName.value = undefined
+}
+
+/**
+ * Workflow 阶段预声明（启动即经 SSE 旁路 background_task.progress / kind=workflow_phases 到达）。
+ * 也是兜底触发：若 workflow 视图尚未开，首条预声明即开。携带 sdkSessionId/taskId 供后续归并 + tier C。
+ */
+function onWorkflowPhases(record: {
+  taskId?: string | null
+  sdkSessionId?: string | null
+  workflowName?: string | null
+  phases?: { index: number; title: string; detail?: string | null }[] | null
+}): void {
+  if (workflow.value && workflow.value.status !== 'running') return // 已完成不复活
+  if (!workflow.value) {
+    startWorkflow({ label: record.workflowName || 'Workflow' })
+  }
+  if (workflow.value && record.sdkSessionId) workflow.value.sdkSessionId = record.sdkSessionId
+  if (workflow.value && record.taskId && !workflow.value.taskId) workflow.value.taskId = record.taskId
+  if (record.phases && record.phases.length) {
+    // 预声明阶段无 per-agent；补空 agents 以对齐 WorkflowPhase（运行态由 liveAgents 钉定填充）
+    predeclaredPhases.value = record.phases.map(p => ({
+      index: p.index, title: p.title, detail: p.detail ?? undefined, agents: []
+    }))
+  }
+  if (record.workflowName) predeclaredName.value = record.workflowName
 }
 
 function onSubtaskStarted(key: string, name?: string, type?: string): void {
@@ -308,6 +339,8 @@ function resetWorkflow(): void {
   transcript.value = null
   transcriptStatus.value = 'idle'
   liveAgentPhase.value = new Map()
+  predeclaredPhases.value = null
+  predeclaredName.value = undefined
 }
 
 /** 把尚未钉定的 live agent 钉到当前阶段（首见即定，之后不变）。 */
@@ -371,6 +404,8 @@ export function useWorkflowProgress() {
     transcriptStatus,
     liveAgentPhase,
     pinLiveAgents,
+    predeclaredPhases,
+    predeclaredName,
     hasActiveWorkflow,
     hasCompletedWorkflow,
     workflowAgents,
@@ -382,6 +417,7 @@ export function useWorkflowProgress() {
     onSubtaskStarted,
     onSubtaskProgress,
     onWorkflowProgress,
+    onWorkflowPhases,
     onSubtaskCompleted,
     onToolStarted,
     onToolCompleted,

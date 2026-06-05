@@ -144,6 +144,10 @@ class MainAgent:
         self._pending_tool_calls: dict[str, str] = {}  # tool_use_id -> tool_call_id 映射
         # 跟踪每个工具调用所属的 SubAgent：tool_use_id → subagent_id
         self._tool_to_subagent: dict[str, str] = {}
+        # Workflow 阶段预声明（Task 页运行态全阶段可视化）：拦截 Workflow tool_use 时解析脚本
+        # meta.phases 暂存（key=tool_use_id=block.id），TaskStarted 拿到 task_id 后再推前端。
+        # 不依赖闭源 CLI 写的 per-run 脚本副本/wf_*.json（运行态常缺失/runId 错位）。
+        self._pending_workflow_meta: dict[str, dict[str, Any]] = {}
 
         # 当前请求的模型（用于 set_model 检查，避免重复发送控制消息）
         self._current_model: str | None = None
@@ -877,6 +881,8 @@ class MainAgent:
                 self._agent_logger.log_info(
                     f"[Background] TaskStarted task_id={getattr(message, 'task_id', None)}"
                 )
+            # Task 页运行态全阶段预声明（detach 后 workflow 任务的 TaskStarted 走此路径时也兜底）
+            await self._maybe_emit_workflow_phases(message)
             await self._push_background_progress(message)
         elif hasattr(message, 'event') or isinstance(message, (AssistantMessage, UserMessage, SystemMessage)):
             # 逐 token 流式增量 / 工具结果 / 系统事件 / 非汇报态的整段回复：
@@ -978,6 +984,90 @@ class MainAgent:
             await self._background_progress_push(record)
         except Exception as e:
             logger.warning(f"background_progress_push callback failed: {e}")
+
+    @staticmethod
+    def _parse_workflow_meta(script: str) -> dict[str, Any]:
+        """从 workflow 脚本源码解析 meta.name + meta.phases（Task 页运行态全阶段预声明）。
+
+        镜像 .NET WorkflowTranscriptService.ParseScriptPhases 的正则：phases 块内逐个
+        `{ title:'...', detail:'...' }` 抽取。detail 含 ] / } 会截断（与 .NET 同限，真实脚本不触发）。
+        失败一律返回空，绝不破坏回合。
+        """
+        name: str | None = None
+        phases: list[dict[str, Any]] = []
+        try:
+            nm = re.search(r"name:\s*['\"]([^'\"]+)['\"]", script)
+            if nm:
+                name = nm.group(1)
+            block = re.search(r"phases:\s*\[(.*?)\]", script, re.DOTALL)
+            if block:
+                idx = 1
+                for obj in re.finditer(r"\{[^}]*\}", block.group(1)):
+                    seg = obj.group(0)
+                    tm = re.search(r"title:\s*['\"]([^'\"]+)['\"]", seg)
+                    if not tm:
+                        continue
+                    dm = re.search(r"detail:\s*['\"]([^'\"]+)['\"]", seg)
+                    phases.append({"index": idx, "title": tm.group(1),
+                                   "detail": dm.group(1) if dm else None})
+                    idx += 1
+        except Exception as e:
+            logger.warning(f"_parse_workflow_meta failed: {e}")
+        return {"workflowName": name, "phases": phases}
+
+    def _stash_workflow_meta(self, block: Any) -> None:
+        """拦截 Workflow tool_use：读 scriptPath 指向的插件源脚本（稳定常在）或 inline script，
+        解析 meta 暂存（key=block.id=tool_use_id），待 TaskStarted 拿到 task_id 再推前端。
+        """
+        try:
+            inp = getattr(block, "input", None) or {}
+            script_path = inp.get("scriptPath")
+            script = inp.get("script")
+            if script_path and not script:
+                with open(script_path, encoding="utf-8") as f:
+                    script = f.read()
+            if not script:
+                return
+            meta = self._parse_workflow_meta(script)
+            if meta["phases"]:
+                self._pending_workflow_meta[block.id] = meta
+        except Exception as e:
+            logger.warning(f"_stash_workflow_meta failed: {e}")
+
+    async def _push_workflow_phases(self, task_id: str | None, session_id: str | None,
+                                    workflow_name: str | None, phases: list[dict[str, Any]]) -> None:
+        """把预声明的全阶段经现有 SSE 带外通道推前端（kind=workflow_phases），只实时不落盘。"""
+        if self._background_progress_push is None:
+            return
+        ctx = self._last_runtime_context or {}
+        record = {
+            "kind": "workflow_phases",  # 前端通道判别字段（与 workflow_progress / background_task 区分）
+            "taskId": task_id,
+            "sdkSessionId": session_id,
+            "workflowName": workflow_name,
+            "phases": phases,
+            "windowId": ctx.get("windowId"),
+            "sessionId": ctx.get("sessionId"),
+        }
+        try:
+            await self._background_progress_push(record)
+        except Exception as e:
+            logger.warning(f"workflow_phases push failed: {e}")
+
+    async def _maybe_emit_workflow_phases(self, message: Any) -> None:
+        """TaskStarted 命中暂存的 Workflow meta（按 tool_use_id）→ 以 task_id 为 key 推前端。"""
+        tool_use_id = getattr(message, "tool_use_id", None)
+        if not tool_use_id:
+            return
+        meta = self._pending_workflow_meta.pop(tool_use_id, None)
+        if not meta:
+            return
+        await self._push_workflow_phases(
+            getattr(message, "task_id", None),
+            getattr(message, "session_id", None),
+            meta.get("workflowName"),
+            meta.get("phases", []),
+        )
 
     async def set_model(self, model: str) -> bool:
         """
@@ -1625,6 +1715,8 @@ class MainAgent:
                         if block.name == "Workflow":
                             # A 修复:标记本回合启动了后台 Workflow，供稍后"真后台脱离"判定
                             self._turn_launched_workflow = True
+                            # Task 页运行态全阶段预声明:读脚本 meta.phases 暂存,待 TaskStarted 推前端
+                            self._stash_workflow_meta(block)
 
                         if block.name == "Task":
                             # SubAgent 开始 - 添加到活跃映射（支持多个并行）
@@ -1849,6 +1941,8 @@ class MainAgent:
                         f"[TaskStarted] task_id={message.task_id}, desc={message.description}, "
                         f"tool_use_id={message.tool_use_id}"
                     )
+                # Task 页运行态全阶段预声明:workflow 任务启动即推完整 phases（命中暂存才推）
+                await self._maybe_emit_workflow_phases(message)
 
             # S4: TaskProgressMessage 分支（SDK 0.1.46+）
             # 通过 tool_use_id 反查 subagent_id（_active_subagents 当前结构 dict[tool_use_id, subagent_id]）。

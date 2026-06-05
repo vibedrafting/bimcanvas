@@ -1,5 +1,5 @@
 import { AGENT_API } from '../config/api';
-import type { BackgroundTaskRecord, InteractionEventListener, WorkflowProgressRecord } from '../types/agent';
+import type { BackgroundTaskRecord, InteractionEventListener, WorkflowProgressRecord, WorkflowPhasesRecord } from '../types/agent';
 import { getInteractionChannelService } from './InteractionChannelService';
 
 export interface BackgroundTaskHandlers {
@@ -7,6 +7,8 @@ export interface BackgroundTaskHandlers {
   onCompleted?: (record: BackgroundTaskRecord) => void;
   /** 后台 Workflow 进度（detach 后实时心跳），record 携带 usage / lastToolName 等 */
   onProgress?: (record: WorkflowProgressRecord) => void;
+  /** 后台 Workflow 阶段预声明（启动即推完整 meta.phases，供运行态全阶段渲染） */
+  onPhases?: (record: WorkflowPhasesRecord) => void;
 }
 
 /**
@@ -33,6 +35,10 @@ export class BackgroundTaskService {
     }
 
     this.listener = ({ event, record }) => {
+      if (event === 'background_task.progress' && record.kind === 'workflow_phases') {
+        this.handlers.onPhases?.(record as WorkflowPhasesRecord);
+        return;
+      }
       if (event === 'background_task.progress' && record.kind === 'workflow_progress') {
         this.handlers.onProgress?.(record as WorkflowProgressRecord);
         return;
