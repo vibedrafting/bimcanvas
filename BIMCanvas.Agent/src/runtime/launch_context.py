@@ -22,12 +22,20 @@ from __future__ import annotations
 import json
 import logging
 import os
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from enum import Enum
 from pathlib import Path
 from typing import Optional
 
 logger = logging.getLogger(__name__)
+
+# 进程级缓存:首次成功 resolve 到含 active_plugin_id 的注入 context 后填充。
+# Why: 注入文件一次性(resolve 读后 os.unlink),Server 不设 BIMCANVAS_ACTIVE_PLUGIN env;
+# 若每次 build_config_bundle 都重新 resolve,第二次起 fallback 到 active_plugin_id=None,
+# ProjectBound 无法构造。active plugin 身份 / server_url / trust_mode 在 Agent 进程生命周期内
+# 不变(平台化=一进程一激活 plugin),仅 project_path 随窗口/项目变,故缓存 base 供
+# build_project_bound_context 复用,只用 HTTP 传来的 project_path override。
+_cached_base: Optional["PluginLaunchContext"] = None
 
 
 class LaunchMode(str, Enum):
@@ -136,6 +144,14 @@ def _build_projectless_fallback(active_plugin_id: Optional[str]) -> PluginLaunch
     )
 
 
+def _set_cached_base(ctx: "PluginLaunchContext") -> None:
+    """只增不毁:仅当 ctx 含非空 active_plugin_id 时填充进程级缓存,避免后续 fallback 的
+    None 覆盖已缓存的有效身份。"""
+    global _cached_base
+    if ctx.active_plugin_id:
+        _cached_base = ctx
+
+
 def resolve_launch_context() -> PluginLaunchContext:
     """三段式 fallback (主真理源 v1.1 §3.3 + 组3 计划 §1-D):
 
@@ -172,7 +188,40 @@ def resolve_launch_context() -> PluginLaunchContext:
                     )
                 logger.info("LaunchContext 已注入: mode=%s, active=%s",
                             ctx.mode.value, ctx.active_plugin_id)
+                _set_cached_base(ctx)
                 return ctx
 
     legacy_active = os.getenv("BIMCANVAS_ACTIVE_PLUGIN", "").strip() or None
     return _build_projectless_fallback(legacy_active)
+
+
+def build_project_bound_context(project_path: str) -> PluginLaunchContext:
+    """构造 ProjectBound launch context(对称 _build_projectless_fallback)。
+
+    真因:project_path 不在注入文件里(注入文件本身就是 mode=projectless,只含 active
+    plugin 身份),它只经 create_agent / MainAgent 的请求参数到达。本工厂用进程级缓存的
+    base 身份(active_plugin_id / active_plugin_root / server_url / trust_mode,来自注入
+    文件)+ 传入的 project_path override 成 PROJECT_BOUND。
+
+    缓存为空时先触发一次 resolve_launch_context()(消费注入文件并填缓存);仍拿不到
+    active_plugin_id 则 fail-fast(逃生口语义:缓存无源 = Server 未注入 active plugin)。
+
+    Raises:
+        RuntimeError: 缓存无源(无 active_plugin_id),ProjectBound 不可构造。
+    """
+    base = _cached_base
+    if base is None:
+        base = resolve_launch_context()
+    if base is None or base.active_plugin_id is None:
+        raise RuntimeError(
+            "build_project_bound_context: 无 active_plugin_id"
+            "(注入文件未提供 active plugin 且 BIMCANVAS_ACTIVE_PLUGIN env 未设),"
+            "ProjectBound 不可构造,fail-fast。"
+        )
+    # replace 触发 __post_init__ 校验:PROJECT_BOUND 要求 project_path / active_plugin_id
+    # 非空,二者此处均满足,不会抛。
+    return replace(
+        base,
+        mode=LaunchMode.PROJECT_BOUND,
+        project_path=project_path,
+    )

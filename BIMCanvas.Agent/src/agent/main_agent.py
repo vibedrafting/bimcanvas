@@ -46,6 +46,7 @@ from .agent_logger import get_agent_logger
 from .worktree_manager import WorktreeManager, WorktreeContext
 # 组3 改造: 不再硬编码 canvas_mcp; bundle.mcp_servers_spec 动态构造
 from ..runtime import ConfigBundle, StreamChunk, build_config_bundle, materialize_system_prompt_file
+from ..runtime.launch_context import build_project_bound_context, resolve_launch_context
 from .errors import CLICommandLineTooLongError, SystemPromptFileWriteError
 
 logger = logging.getLogger(__name__)
@@ -260,7 +261,14 @@ class MainAgent:
             # 组3: lazy 创建 long-lived aiohttp session,供 load_artifact / plugin 工具共享
             if self._owned_session is None:
                 self._owned_session = aiohttp.ClientSession()
-            self.configure(build_config_bundle(session=self._owned_session))
+            # 接线总开关:此懒加载路径(未经 factory.create_agent 预 configure)同样用
+            # self.project_path 构造 ProjectBound,杜绝无参 build 得 projectless。
+            lc = (
+                build_project_bound_context(self.project_path)
+                if self.project_path
+                else resolve_launch_context()
+            )
+            self.configure(build_config_bundle(launch_context=lc, session=self._owned_session))
         assert self._bundle is not None
         return self._bundle
 
