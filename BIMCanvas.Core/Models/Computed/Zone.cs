@@ -78,7 +78,9 @@ namespace BIMCanvas.Core.Models.Computed
         /// <summary>
         /// 8. 子分区列表。非空时，当前 Zone 为容器（不参与布置），
         /// 只有叶子 Zone（SubZones 为 null 或空）才接受家具放置。
+        /// N8：null 时不写盘（R-ZONE-02 契约洁净）；容器 Zone 非空照常序列化。
         /// </summary>
+        [Newtonsoft.Json.JsonProperty(NullValueHandling = Newtonsoft.Json.NullValueHandling.Ignore)]
         public List<Zone>? SubZones { get; set; }
 
     }
