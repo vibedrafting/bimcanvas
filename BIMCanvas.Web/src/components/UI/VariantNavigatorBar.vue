@@ -123,7 +123,7 @@ function isEditableTarget(target: EventTarget | null): boolean {
 function onKeydown(event: KeyboardEvent) {
     if (event.defaultPrevented || event.ctrlKey || event.metaKey || event.altKey || event.shiftKey) return;
     if (isEditableTarget(event.target)) return;
-    if (!variantContext.value || sortedVariants.value.length === 0 || busy.value) return;
+    if (!variantContext.value || sequence.value.length === 0 || busy.value) return;
 
     if (event.key === 'ArrowLeft' || event.key === 'ArrowUp') {
         event.preventDefault();
@@ -226,7 +226,7 @@ watch(() => variantContext.value?.designZoneId ?? null, () => { void refetchVari
 <template>
     <Transition name="vnav-fade">
         <div
-            v-if="variantContext && sortedVariants.length > 0"
+            v-if="variantContext && sequence.length > 0"
             class="variant-navigator-bar"
             role="group"
             aria-label="布置变体切换"
