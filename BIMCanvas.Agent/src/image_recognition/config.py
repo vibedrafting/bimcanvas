@@ -38,7 +38,7 @@ _PROVIDER_DEFAULTS: dict[str, dict[str, str]] = {
 
 # apiKey 缺失时的注册引导链接
 _PROVIDER_SIGNUP: dict[str, str] = {
-    "apiyi": "https://api.apiyi.com/",
+    "apiyi": "https://api.apiyi.com",
     "aoment": "https://www.aoment.com",
 }
 
