@@ -30,10 +30,10 @@
       }
     }
   },
-  "chatgptBackend": {
-    "accessToken": "",
-    "baseUrl": "https://chatgpt.com/backend-api/codex/responses",
-    "model": "gpt-5.4",
-    "timeoutSeconds": 600
+  "aomentBackend": {
+    "apiKey": "",
+    "endpoint": "https://www.aoment.com/api/aoment/v1/image/recognitions",
+    "model": "image-recognition-g2",
+    "timeoutSeconds": 90
   }
 }
