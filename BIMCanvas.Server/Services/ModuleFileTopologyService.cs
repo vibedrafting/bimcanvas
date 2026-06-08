@@ -139,7 +139,7 @@ namespace BIMCanvas.Server.Services
         internal static IEnumerable<ModuleFileEntry> EnumerateSchemeLeaves(
             string schemesPath, string designZonePath, string slug)
         {
-            var schemeDir = CombineSegments(schemesPath, designZonePath, slug);
+            var schemeDir = ResolveSchemeDir(schemesPath, designZonePath, slug);
             var schemeZonesJson = Path.Combine(schemeDir, "zones.json");
             if (File.Exists(schemeZonesJson))
             {
@@ -158,6 +158,29 @@ namespace BIMCanvas.Server.Services
                 yield return ModuleFileEntry.FromFile(
                     schemesPath, Path.Combine(schemeDir, "modules.json"), selfLeaf);
             }
+        }
+
+        /// <summary>
+        /// 解析候选/方案 slug 的实际落盘目录。候选目录恒带 `_` 前缀（隐藏候选），但部分调用方传不带 `_`
+        /// 的 slug（normalize 用转正名、主控试 dressing-axis），winner 转正前后前缀也可能不一致。
+        /// 故按 [原样, 切换 `_` 前缀] 取首个存在目录命中实际落盘；都不存在返回原样
+        /// （下游 File.Exists 过滤/降级，不在此 throw）。
+        /// 注：GetPathIssues 的 ClassifyModulesLocation 传入的 slug = 真实磁盘目录段，exact 必存在 →
+        /// 不触发切换，行为不变；本容错只惠及 variantId 调用方（截图 / GetResolvedLeaves）传错前缀的情形。
+        /// </summary>
+        internal static string ResolveSchemeDir(string schemesPath, string designZonePath, string slug)
+        {
+            var exact = CombineSegments(schemesPath, designZonePath, slug);
+            if (Directory.Exists(exact))
+                return exact;
+            if (!string.IsNullOrEmpty(slug))
+            {
+                var toggled = slug[0] == '_' ? slug.Substring(1) : "_" + slug;
+                var toggledDir = CombineSegments(schemesPath, designZonePath, toggled);
+                if (Directory.Exists(toggledDir))
+                    return toggledDir;
+            }
+            return exact;
         }
 
         internal static string CombineSegments(string root, params string[] multiSegmentParts)
@@ -413,13 +436,12 @@ namespace BIMCanvas.Server.Services
                     .GroupBy(entry => entry.FilePath, StringComparer.OrdinalIgnoreCase)
                     .Select(g => g.First())
                     .ToList();
-                // 空守卫（本方法已 File.Exists 过滤，空=无真实候选文件）：不可当“0 模块验证通过”。
-                // 注：本 variantId 分支当前仅 legacy parity 路径（NormalizeModulesLegacy/ValidateLayoutLegacy，
-                // 均未路由）调用；active validate_layout 承重在 GetResolvedLeaves 的存在性守卫。
-                if (result.Count == 0)
-                    throw new InvalidOperationException(
-                        $"variantId='{variantId}' 在设计区 [{string.Join(", ", designZonePaths)}] 下未找到任何真实 modules 文件；" +
-                        "不视为验证通过。variantId 校验时 zoneIds 须传设计区路径（如 rz_3）而非叶子/候选内部 id。");
+                // 不再对空列表 throw：本方法的活调用方是后台候选截图
+                // （ProjectSnapshotService.LoadAllZoneModules → ProjectService.FindAllLeafModuleFiles）。
+                // 候选 modules 可能因 workflow 运行中未写完 / winner 转正前后前缀不一致 / 候选被删而不存在；
+                // 截图拿空应“空截/跳过”（与下方 canonical 分支返空同构、上游已能处理），不应中断整个截图请求（HTTP 500）。
+                // validate_layout 的“0 模块不算验证通过”假报防护由 active 路径 GetResolvedLeaves 的存在性守卫独立承重，
+                // 与本方法无关（active validate/normalize 经 PluginValidatorOrchestrator → GetResolvedLeaves，不走本方法）。
                 return result;
             }
 
