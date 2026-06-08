@@ -1,7 +1,18 @@
-"""aoment 图像识别后端配置加载。
+"""canvas_vision 识图后端配置加载（多 provider 可配）。
 
-canvas_vision 的识图后端配置（独立于 reference_analysis 的 ChatGPT 后端）。
-从 instance.config.json `agent` 段的 `aomentBackend` 节读取；优先级 env > config > 默认值。
+支持的 provider：
+- apiyi : OpenAI Chat Completions 格式（JSON，image_url base64 data URL），多模型可选
+- aoment: 自定义 multipart/form-data，固定 image-recognition-g2
+
+从 instance.config.json `agent.imageRecognition` 读取：
+  {
+    "provider": "apiyi",
+    "providers": {
+      "apiyi":  { "apiKey": "", "endpoint": "...", "model": "gemini-3.5-flash", "timeoutSeconds": 90 },
+      "aoment": { "apiKey": "", "endpoint": "...", "model": "image-recognition-g2", "timeoutSeconds": 90 }
+    }
+  }
+优先级：环境变量（provider 专属）> providers.<provider> 字段 > 默认值。
 """
 
 from __future__ import annotations
@@ -10,13 +21,36 @@ import os
 from dataclasses import dataclass
 
 
-DEFAULT_ENDPOINT = "https://www.aoment.com/api/aoment/v1/image/recognitions"
-DEFAULT_MODEL = "image-recognition-g2"
+DEFAULT_PROVIDER = "apiyi"
 DEFAULT_TIMEOUT_SECONDS = 90
 
+# 各 provider 的默认 endpoint / model
+_PROVIDER_DEFAULTS: dict[str, dict[str, str]] = {
+    "apiyi": {
+        "endpoint": "https://api.apiyi.com/v1/chat/completions",
+        "model": "gemini-3.5-flash",
+    },
+    "aoment": {
+        "endpoint": "https://www.aoment.com/api/aoment/v1/image/recognitions",
+        "model": "image-recognition-g2",
+    },
+}
 
-class AomentConfigError(Exception):
-    """aoment 配置加载异常。"""
+# apiKey 缺失时的注册引导链接
+_PROVIDER_SIGNUP: dict[str, str] = {
+    "apiyi": "https://www.apiyi.com",
+    "aoment": "https://www.aoment.com",
+}
+
+# provider 专属环境变量（覆盖 config 的 apiKey）
+_PROVIDER_ENV_KEY: dict[str, str] = {
+    "apiyi": "APIYI_API_KEY",
+    "aoment": "AOMENT_API_KEY",
+}
+
+
+class RecognitionConfigError(Exception):
+    """识图配置加载异常。"""
 
     def __init__(self, message: str) -> None:
         super().__init__(message)
@@ -24,44 +58,62 @@ class AomentConfigError(Exception):
 
 
 @dataclass
-class AomentConfig:
-    """aoment 图像识别端点连接参数。"""
+class RecognitionConfig:
+    """选中 provider 的识图端点连接参数。"""
 
+    provider: str
     api_key: str
-    endpoint: str = DEFAULT_ENDPOINT
-    model: str = DEFAULT_MODEL
+    endpoint: str
+    model: str
     timeout_seconds: int = DEFAULT_TIMEOUT_SECONDS
 
 
-def load_aoment_config() -> AomentConfig:
-    """从 instance.config.json 的 `aomentBackend` 节加载配置。
+def load_recognition_config() -> RecognitionConfig:
+    """从 instance.config.json 的 `imageRecognition` 节加载选中 provider 的配置。
 
-    优先级：环境变量 > config 字段 > 默认值。
-    缺 apiKey 时抛 AomentConfigError。
+    provider 由 `imageRecognition.provider`（或 env IMAGE_RECOGNITION_PROVIDER）决定，默认 apiyi。
+    缺 apiKey 时抛 RecognitionConfigError（含 provider 专属注册引导链接）。
     """
     # 延迟导入，避免循环依赖
     from ..config.loader import get_config_loader
 
     loader = get_config_loader()
     config = loader.load_config()
-    raw = config.get("aomentBackend")
+    raw = config.get("imageRecognition")
     if raw is None:
         raw = {}
     if not isinstance(raw, dict):
-        raise AomentConfigError("config.json `aomentBackend` 必须是对象")
+        raise RecognitionConfigError("config.json `imageRecognition` 必须是对象")
 
-    api_key = (os.getenv("AOMENT_API_KEY") or str(raw.get("apiKey") or "")).strip()
-    if not api_key:
-        raise AomentConfigError(
-            "aomentBackend.apiKey 未配置（也未设置 AOMENT_API_KEY 环境变量）。"
-            "请到 https://www.aoment.com （Aoment 用户中心）"
-            "注册并获取 API Key，填入 instance.config.json 的 agent.aomentBackend.apiKey。"
+    provider = (
+        os.getenv("IMAGE_RECOGNITION_PROVIDER") or str(raw.get("provider") or DEFAULT_PROVIDER)
+    ).strip().lower()
+    if provider not in _PROVIDER_DEFAULTS:
+        raise RecognitionConfigError(
+            f"imageRecognition.provider 不支持: {provider!r}（可选 {' / '.join(_PROVIDER_DEFAULTS)}）"
         )
 
-    endpoint = (os.getenv("AOMENT_ENDPOINT") or str(raw.get("endpoint") or DEFAULT_ENDPOINT)).strip() or DEFAULT_ENDPOINT
-    model = (os.getenv("AOMENT_MODEL") or str(raw.get("model") or DEFAULT_MODEL)).strip() or DEFAULT_MODEL
+    providers = raw.get("providers")
+    section = providers.get(provider) if isinstance(providers, dict) else None
+    if not isinstance(section, dict):
+        section = {}
 
-    timeout_raw = raw.get("timeoutSeconds", DEFAULT_TIMEOUT_SECONDS)
+    defaults = _PROVIDER_DEFAULTS[provider]
+    env_key = _PROVIDER_ENV_KEY[provider]
+
+    api_key = (os.getenv(env_key) or str(section.get("apiKey") or "")).strip()
+    if not api_key:
+        signup = _PROVIDER_SIGNUP[provider]
+        raise RecognitionConfigError(
+            f"imageRecognition.providers.{provider}.apiKey 未配置（也未设置 {env_key} 环境变量）。"
+            f"请到 {signup} （{provider} 用户中心）注册并获取 API Key，"
+            f"填入 instance.config.json 的 agent.imageRecognition.providers.{provider}.apiKey。"
+        )
+
+    endpoint = str(section.get("endpoint") or defaults["endpoint"]).strip() or defaults["endpoint"]
+    model = str(section.get("model") or defaults["model"]).strip() or defaults["model"]
+
+    timeout_raw = section.get("timeoutSeconds", DEFAULT_TIMEOUT_SECONDS)
     try:
         timeout = int(timeout_raw)
     except (TypeError, ValueError):
@@ -71,7 +123,8 @@ def load_aoment_config() -> AomentConfig:
     if timeout > 600:
         timeout = 600
 
-    return AomentConfig(
+    return RecognitionConfig(
+        provider=provider,
         api_key=api_key,
         endpoint=endpoint,
         model=model,

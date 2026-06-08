@@ -46,10 +46,10 @@ from src.attachments.chat_attachments import (
     AttachmentResolutionError,
     resolve_attachment_local_path,
 )
-# canvas_vision 识图侧:独立 aoment 后端配置（不复用 reference_analysis 的 ChatGPT 路径）
+# canvas_vision 识图侧:多 provider 后端配置（apiyi / aoment，不复用 reference_analysis）
 from src.image_recognition import (
-    AomentConfigError,
-    load_aoment_config,
+    RecognitionConfigError,
+    load_recognition_config,
 )
 
 # ============================================================
@@ -448,6 +448,89 @@ async def _aoment_recognize(
             return result_text, None
     except aiohttp.ClientError as e:
         return None, f"无法连接 aoment: {e}"
+
+
+def _extract_openai_text(content: Any) -> str:
+    """从 OpenAI choices[0].message.content 提取文本（兼容 str 或 content-block 列表）。"""
+    if isinstance(content, str):
+        return content.strip()
+    if isinstance(content, list):
+        parts: list[str] = []
+        for block in content:
+            if isinstance(block, dict) and isinstance(block.get("text"), str):
+                parts.append(block["text"])
+        return "\n".join(parts).strip()
+    return ""
+
+
+async def _apiyi_recognize(
+    session: Any,
+    cfg: Any,
+    image_path: Path,
+    prompt: str,
+) -> tuple[str | None, str | None]:
+    """OpenAI Chat Completions 格式识图（apiyi 等 OpenAI 兼容服务），返回 (text, error)。
+
+    图片转 base64 data URL 塞 image_url；取 choices[0].message.content。
+    """
+    request_timeout = aiohttp.ClientTimeout(total=cfg.timeout_seconds)
+    mime = mimetypes.guess_type(image_path.name)[0] or "image/png"
+    b64 = base64.b64encode(image_path.read_bytes()).decode("ascii")
+    data_url = f"data:{mime};base64,{b64}"
+    payload: dict[str, Any] = {
+        "model": cfg.model,
+        "messages": [
+            {
+                "role": "user",
+                "content": [
+                    {"type": "text", "text": prompt},
+                    {"type": "image_url", "image_url": {"url": data_url}},
+                ],
+            }
+        ],
+    }
+    try:
+        async with session.post(
+            cfg.endpoint,
+            json=payload,
+            headers={"Authorization": f"Bearer {cfg.api_key}"},
+            timeout=request_timeout,
+        ) as resp:
+            data = await resp.json() if resp.content_type == "application/json" else await resp.text()
+            if resp.status != 200:
+                if isinstance(data, dict):
+                    err = data.get("error")
+                    message = (err.get("message") if isinstance(err, dict) else err) or data.get("message") or str(data)[:300]
+                else:
+                    message = str(data)[:300]
+                return None, f"apiyi 识图失败: HTTP {resp.status} {message}"
+            if not isinstance(data, dict):
+                return None, f"apiyi 识图失败: 响应非 JSON ({str(data)[:200]})"
+            choices = data.get("choices")
+            if not isinstance(choices, list) or not choices:
+                err = data.get("error")
+                return None, f"apiyi 识图失败: {err or '响应无 choices'}"
+            message_obj = choices[0].get("message") if isinstance(choices[0], dict) else None
+            content = message_obj.get("content") if isinstance(message_obj, dict) else None
+            text = _extract_openai_text(content)
+            if not text:
+                return None, "apiyi 识图失败: content 为空"
+            return text, None
+    except aiohttp.ClientError as e:
+        return None, f"无法连接 apiyi: {e}"
+
+
+async def _recognize_image(
+    session: Any,
+    cfg: Any,
+    image_path: Path,
+    prompt: str,
+) -> tuple[str | None, str | None]:
+    """按 cfg.provider 分发到对应识图后端。"""
+    if cfg.provider == "aoment":
+        return await _aoment_recognize(session, cfg, image_path, prompt)
+    return await _apiyi_recognize(session, cfg, image_path, prompt)
+
 
 _LOAD_ARTIFACT_DESC = (
     "读取 artifact(持久数据按物理 zone 组织在 schemes/ 下)。"
@@ -906,9 +989,9 @@ def register(builder: McpServerBuilder) -> None:
             }
 
         try:
-            cfg = load_aoment_config()
-        except AomentConfigError as exc:
-            return {"content": [{"type": "text", "text": f"aoment 配置缺失: {exc.message}"}], "is_error": True}
+            cfg = load_recognition_config()
+        except RecognitionConfigError as exc:
+            return {"content": [{"type": "text", "text": f"识图配置缺失: {exc.message}"}], "is_error": True}
 
         # ----- 模式②:只识图（有图源）-----
         if has_image_source:
@@ -946,7 +1029,7 @@ def register(builder: McpServerBuilder) -> None:
                     tmp_file.write_bytes(image_bytes)
                     local_path = tmp_file
 
-                result_text, err = await _aoment_recognize(ctx.session, cfg, local_path, prompt)
+                result_text, err = await _recognize_image(ctx.session, cfg, local_path, prompt)
                 if err:
                     return {"content": [{"type": "text", "text": err}], "is_error": True}
                 return {"content": [{"type": "text", "text": result_text}]}
@@ -986,7 +1069,7 @@ def register(builder: McpServerBuilder) -> None:
         label = _sanitize_filename(_build_shot_label(viewports[0], 1))
         filename = f"bg_{label}_{timestamp}.png"
         saved_path = _save_screenshot(image_data, project_dir, filename)
-        result_text, aerr = await _aoment_recognize(ctx.session, cfg, Path(saved_path), prompt)
+        result_text, aerr = await _recognize_image(ctx.session, cfg, Path(saved_path), prompt)
         if aerr:
             return {"content": [{"type": "text", "text": f"{aerr}(截图已存 {saved_path})"}], "is_error": True}
         return {"content": [{"type": "text", "text": result_text}]}

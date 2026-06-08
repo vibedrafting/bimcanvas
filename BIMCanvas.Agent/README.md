@@ -857,7 +857,7 @@ python -m src.image_generation.cli ^
 
 #### 已集成 MCP 工具（canvas）
 
-- `mcp__canvas__canvas_vision`：截图 / 识图 / 截图+识图 三模式自动判断（无显式 mode）。无 `prompt`=只截图（返回图片）；`prompt`+图源（attachmentId/path/base64 三选一）=只识图（aoment 后端，返回文字）；`prompt`+截图范围（targetId/viewport 等）=截图+识图（截 bg_*.png 喂 aoment，返回文字）。图源与截图范围同给报错；识图只返文字、不支持批量
+- `mcp__canvas__canvas_vision`：截图 / 识图 / 截图+识图 三模式自动判断（无显式 mode）。无 `prompt`=只截图（返回图片）；`prompt`+图源（attachmentId/path/base64 三选一）=只识图（识图后端，返回文字）；`prompt`+截图范围（targetId/viewport 等）=截图+识图（截 bg_*.png 喂识图后端，返回文字）。图源与截图范围同给报错；识图只返文字、不支持批量。识图后端多 provider 可配（`agent.imageRecognition.provider`，默认 `apiyi`=OpenAI 格式，可选 `aoment`=multipart）
 
 #### 已迁至 interior-layout plugin 命名空间（`mcp__interior-layout__*`）
 
@@ -872,7 +872,7 @@ python -m src.image_generation.cli ^
 
 #### 通用视觉 MCP 工具（canvas_vision）
 
-- **用途**：三模式自动判断（截图 / 识图 / 截图+识图）。只截图（无 `prompt`）调后台截图 API 存到 `projectPath/screenshots` 并返回图片；识图（传 `prompt`）走 aoment 图像识别后端，把图源或新截的 bg_*.png 喂 aoment，返回纯文字结论（绕开主 agent 无 vision）。下文参数为只截图侧；识图加 `prompt` + 图源/截图范围。
+- **用途**：三模式自动判断（截图 / 识图 / 截图+识图）。只截图（无 `prompt`）调后台截图 API 存到 `projectPath/screenshots` 并返回图片；识图（传 `prompt`）走识图后端（多 provider 可配：默认 `apiyi`=OpenAI Chat Completions 格式，可配 `aoment`=multipart），把图源或新截的 bg_*.png 喂识图后端，返回纯文字结论（绕开主 agent 无 vision）。后端配置在 `agent.imageRecognition`（`provider` + `providers.{apiyi,aoment}.{apiKey,endpoint,model}`）。下文参数为只截图侧；识图加 `prompt` + 图源/截图范围。
 - **必填**：`projectPath` 必须传入，且必须是当前 BIMCanvas 项目目录（包含 `project.json` 的目录）；禁止传空字符串、`null`、skill/plugin 目录、源码仓库目录或 `BIMCANVAS_HOME`。
 - **参数**：常用入口为 `projectPath`、`targetId`、`targetIds`；高级入口继续支持 `viewport`（单张）和 `shots`（批量）。`targetId`、`targetIds`、`viewport`、`shots` 都必须与 `projectPath` 一起传。
 - **默认**：`layerPreset=Agent`、`autoFitViewport=true`、`scale=2`。

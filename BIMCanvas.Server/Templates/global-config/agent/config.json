@@ -30,10 +30,21 @@
       }
     }
   },
-  "aomentBackend": {
-    "apiKey": "",
-    "endpoint": "https://www.aoment.com/api/aoment/v1/image/recognitions",
-    "model": "image-recognition-g2",
-    "timeoutSeconds": 90
+  "imageRecognition": {
+    "provider": "apiyi",
+    "providers": {
+      "apiyi": {
+        "apiKey": "",
+        "endpoint": "https://api.apiyi.com/v1/chat/completions",
+        "model": "gemini-3.5-flash",
+        "timeoutSeconds": 90
+      },
+      "aoment": {
+        "apiKey": "",
+        "endpoint": "https://www.aoment.com/api/aoment/v1/image/recognitions",
+        "model": "image-recognition-g2",
+        "timeoutSeconds": 90
+      }
+    }
   }
 }
