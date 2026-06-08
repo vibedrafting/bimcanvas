@@ -29,6 +29,72 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
+
+def _try_read_scenes_from_project_json(project_path: str) -> "PluginLaunchContext | None":
+    """从 project.json 读取 scenes,构造 project-bound LaunchContext。
+
+    当 resolve_launch_context() 回退到 projectless(LaunchContext 文件已被前一个 agent 消费),
+    但实际上 project_path 是真实存在的项目时使用。这是多窗口 / 多 agent 实例的常见场景:
+    第一个 agent 消费了 LaunchContext 文件,后续 agent 走 fallback → scenes=None。
+    本函数允许后续 agent 从磁盘直接读取 scenes,避免 list_project_scenes 误报"未绑定项目"。
+    """
+    import json as _json
+    from pathlib import Path as _Path
+    from .launch_context import (
+        LaunchMode,
+        ProjectScenesSummary, ProjectScene, ScenePluginRef, SceneStatus,
+        _build_projectless_fallback,
+    )
+
+    if not project_path:
+        return None
+    project_json_path = _Path(project_path) / "project.json"
+    if not project_json_path.exists():
+        return None
+    try:
+        data = _json.loads(project_json_path.read_text(encoding="utf-8-sig"))
+        raw_scenes = data.get("scenes") or []
+        scenes: list[ProjectScene] = []
+        for s in raw_scenes:
+            scene_id = s.get("sceneId") or ""
+            if not scene_id:
+                continue
+            plugin_obj = s.get("plugin") or {}
+            plugin_ref = ScenePluginRef(
+                id=plugin_obj.get("id") or "",
+                version_range=plugin_obj.get("versionRange") or "^1.0.0",
+            )
+            status_str = (s.get("status") or "active").lower()
+            try:
+                status = SceneStatus(status_str)
+            except ValueError:
+                status = SceneStatus.ACTIVE
+            scenes.append(ProjectScene(
+                scene_id=scene_id,
+                scene=s.get("scene") or "",
+                plugin=plugin_ref,
+                status=status,
+                created_at=s.get("createdAt") or "",
+            ))
+        if not scenes:
+            return None
+        active_scene_id = scenes[0].scene_id if scenes else None
+        active_plugin_id = scenes[0].plugin.id if scenes else None
+        summary = ProjectScenesSummary(scenes=tuple(scenes), active_scene_id=active_scene_id)
+        fallback = _build_projectless_fallback(active_plugin_id)
+        # frozen dataclass — 用 dataclasses.replace 创建新实例
+        import dataclasses
+        return dataclasses.replace(
+            fallback,
+            mode=LaunchMode.PROJECT_BOUND,
+            project_path=project_path,
+            active_scene_id=active_scene_id,
+            scenes=summary,
+        )
+    except Exception as exc:  # noqa: BLE001
+        logger.debug("_try_read_scenes_from_project_json 失败 (%s): %s", project_path, exc)
+        return None
+
 _FRONTMATTER_RE = re.compile(r"^---\r?\n([\s\S]*?)\r?\n---")
 
 
@@ -418,6 +484,7 @@ def _resolve_effective_permissions(
 def build_config_bundle(
     launch_context: "PluginLaunchContext | None" = None,
     session: "aiohttp.ClientSession | None" = None,
+    project_path: str | None = None,
 ) -> ConfigBundle:
     """Build a fresh host-facing config bundle.
 
@@ -433,11 +500,28 @@ def build_config_bundle(
     Args:
         launch_context: 已注入的 PluginLaunchContext;为 None 时调 resolve_launch_context
         session: long-lived aiohttp session,供 plugin 工具使用;为 None 时 plugin 网络工具不可用
+        project_path: 当前窗口的实际项目路径;当 launch_context 是 projectless fallback 但
+                      真实项目已打开时,用于从 project.json 补全 scenes(多窗口 agent 实例场景)
     """
     if launch_context is None:
-        from .launch_context import resolve_launch_context
+        from .launch_context import resolve_launch_context, LaunchMode
 
         launch_context = resolve_launch_context()
+
+        # 如果拿到 projectless fallback 但实际有 project_path,尝试从 project.json 补全 scenes。
+        # 场景:第一个 agent 已消费 LaunchContext 文件,后续 agent 走 fallback → scenes=None。
+        if (
+            launch_context.mode == LaunchMode.PROJECTLESS
+            and project_path
+        ):
+            supplemented = _try_read_scenes_from_project_json(project_path)
+            if supplemented is not None:
+                logger.info(
+                    "LaunchContext projectless fallback 被 project.json 补全: path=%s scenes=%d",
+                    project_path,
+                    len(supplemented.scenes.scenes) if supplemented.scenes else 0,
+                )
+                launch_context = supplemented
 
     loader = get_config_loader()
     bimcanvas_home = loader.config_dir.resolve()
