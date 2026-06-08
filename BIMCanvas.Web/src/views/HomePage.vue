@@ -12,7 +12,7 @@ import { useProjectFile } from '../composables/useProjectFile';
 import type { ProjectSummary } from '../types/homepage';
 import { getWebRuntime } from '../runtime/runtimeRegistry';
 import { supports } from '../runtime/WebRuntimeProtocol';
-import { AtlasService } from '../services/ProjectService';
+import { SceneService } from '../services/ProjectService';
 
 const appStore = useAppStore();
 const canvasStore = useCanvasStore();
@@ -62,16 +62,9 @@ const {
   abortLoadAfterHealthCheck
 } = useProjectFile();
 
-// Atlas 场景库（供 NewProjectDialog 使用，首页不再需要独立面板）
-const atlasAvailable = ref(false);
-
-const loadAtlasScenes = async () => {
-  try {
-    const resp = await AtlasService.fetchScenes();
-    atlasAvailable.value = resp.available;
-  } catch {
-    atlasAvailable.value = false;
-  }
+const loadScenes = async () => {
+  // preload scene availability — NewProjectDialog fetches independently on open
+  try { await SceneService.fetchScenes(); } catch { }
 };
 
 const onImportHealthProceed = async () => {
@@ -126,10 +119,10 @@ const handleCreateProject = async () => {
   showNewProjectDialog.value = true;
 };
 
-const onNewProjectCreate = async (projectName: string, sceneId: string | null) => {
+const onNewProjectCreate = async (projectName: string, pluginId: string | null, sceneId: string | null) => {
   showNewProjectDialog.value = false;
-  if (sceneId) {
-    await handleCreateFromAtlasScene(sceneId, projectName);
+  if (pluginId && sceneId) {
+    await handleCreateFromAtlasScene(pluginId, sceneId, projectName);
   } else if (canProjectCatalog) {
     await handleCreate(projectName);
   } else {
@@ -214,7 +207,7 @@ const displayProjects = computed(() => {
 onMounted(() => {
   if (canProjectCatalog) {
     appStore.fetchProjectList();
-    loadAtlasScenes();
+    loadScenes();
   }
 });
 </script>

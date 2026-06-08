@@ -3,7 +3,7 @@ import { ChangeSource } from '../types/history';
 import { useCanvasStore } from '../stores/canvasStore';
 import { useAppStore } from '../stores/appStore';
 import { useSystemStore } from '../stores/systemStore';
-import { ProjectService, AtlasService, type ProjectLoadResult, type AtlasSceneItem, type AtlasScenesResponse } from '../services/ProjectService';
+import { ProjectService, SceneService, type ProjectLoadResult } from '../services/ProjectService';
 import { getWebRuntime } from '../runtime/runtimeRegistry';
 import { supports } from '../runtime/WebRuntimeProtocol';
 
@@ -351,8 +351,8 @@ export function useProjectFile() {
     }
   };
 
-  // 从 Atlas 场景创建项目
-  const handleCreateFromAtlasScene = async (sceneId: string, projectName: string) => {
+  // 从场景创建项目
+  const handleCreateFromAtlasScene = async (pluginId: string, sceneId: string, projectName: string) => {
     const trimmed = projectName.trim();
     if (!trimmed) {
       sys.pushToast({
@@ -363,7 +363,7 @@ export function useProjectFile() {
       return;
     }
 
-    const result = await AtlasService.createProjectFromScene(sceneId, trimmed);
+    const result = await SceneService.createProjectFromScene(pluginId, sceneId, trimmed);
 
     if (result.status === 'Conflict') {
       appStore.clearPendingProjectWarnings();
