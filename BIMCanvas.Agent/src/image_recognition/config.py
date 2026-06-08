@@ -54,7 +54,7 @@ def load_aoment_config() -> AomentConfig:
     if not api_key:
         raise AomentConfigError(
             "aomentBackend.apiKey 未配置（也未设置 AOMENT_API_KEY 环境变量）。"
-            "请到 https://www.aoment.com/aoment/apidoc#quickstart （Aoment 用户中心）"
+            "请到 https://www.aoment.com （Aoment 用户中心）"
             "注册并获取 API Key，填入 instance.config.json 的 agent.aomentBackend.apiKey。"
         )
 
